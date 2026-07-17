@@ -35,3 +35,17 @@ export const smile = (x, y, w2 = 3.4, col = INK) => `<path d="M${x} ${y} q0 ${w2
 
 // mirror any markup around the vertical centre x=60 (symmetric wings, ears, legs)
 export const mirror = (inner) => `<g transform="translate(120 0) scale(-1 1)">${inner}</g>`;
+
+// ── NEW HOUSE STYLE helpers (continuous-silhouette method) ───────────────────────────────
+// mix a #rrggbb toward white by f∈[0,1] (bellies, cheeks, muzzle, eye-ring highlights)
+export const tint = (hex, f) => { const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255,
+  m = (x) => Math.round(x + (255 - x) * f).toString(16).padStart(2, "0"); return "#" + m(r) + m(g) + m(b); };
+// mix a #rrggbb toward black by f∈[0,1] (extra-dark shading, inner ears)
+export const deepen = (hex, f) => { const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255,
+  m = (x) => Math.round(x * (1 - f)).toString(16).padStart(2, "0"); return "#" + m(r) + m(g) + m(b); };
+// coat-appropriate pale belly/underside (relates to the coat so colour variety still reads)
+export const belly = (c) => tint(c.body, 0.72);
+// a big, cute, glossy eye with a catchlight (the house-style eye) — blinks with the page CSS
+export const ceye = (x, y, r = 4) => `<g class="blink"><ellipse cx="${x}" cy="${y}" rx="${r}" ry="${(r * 1.15).toFixed(1)}" fill="${INK}"/><circle cx="${(x - r * 0.32).toFixed(1)}" cy="${(y - r * 0.42).toFixed(1)}" r="${(r * 0.38).toFixed(1)}" fill="#fff"/></g>`;
+// soft contact shadow on the ground under the animal
+export const floorShadow = (cx, y, w) => `<ellipse cx="${cx}" cy="${y}" rx="${w}" ry="${(w * 0.18).toFixed(1)}" fill="#000" opacity=".22"/>`;

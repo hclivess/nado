@@ -108,42 +108,42 @@ export const ART_SEA = {
     </g>`;
   },
 
-  // Orca — chunky body, tall straight dorsal, white eye-patch + saddle + belly, fluke
+  // Orca — ROBUST blunt body, VERY tall straight dorsal, bold white eye-patch + saddle + belly, paddle pec fin
   orca: (c) => {
     const E = eyeInk(c);
     return `
-    <g class="tail-wag"><path d="M28 62 Q14 50 6 46 Q16 62 6 78 Q14 74 28 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M24 62 Q11 51 5 47 Q13 62 5 77 Q11 73 24 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/></g>
     <g class="breathe">
-      <path d="M26 62 Q38 44 70 44 Q96 46 106 60 Q98 78 70 80 Q38 80 26 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="M40 72 Q66 86 100 66 Q66 82 40 72 Z" fill="#fff" stroke="${c.line}" stroke-width="1.4"/>
-      <path d="M56 46 L58 22 L72 45 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.3" stroke-linejoin="round"/>
-      <path d="M50 78 L56 92 L68 79 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <ellipse cx="52" cy="58" rx="9" ry="6" fill="#fff" opacity=".85" transform="rotate(-18 52 58)"/>
+      <path d="M22 62 Q28 46 52 44 Q86 42 106 60 Q98 74 86 76 Q84 80 74 80 Q40 82 22 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M42 71 Q72 86 104 62 Q72 82 42 71 Z" fill="#fff" stroke="${c.line}" stroke-width="1.3"/>
+      <path d="M58 44 L59 16 L78 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M60 73 Q68 90 82 76 Q70 74 66 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.1" stroke-linejoin="round"/>
+      <ellipse cx="50" cy="56" rx="11" ry="6.5" fill="#fff" opacity=".9" transform="rotate(-16 50 56)"/>
     </g>
     <g class="head-tilt">
-      <ellipse cx="88" cy="54" rx="6" ry="4.2" fill="#fff" stroke="${c.line}" stroke-width="1.2"/>
-      <path d="M84 68 q8 5 16 -2" fill="none" stroke="${c.line}" stroke-width="1.8" stroke-linecap="round"/>
-      ${eye(88, 54, 2.4, INK)}
+      <ellipse cx="93" cy="55" rx="6.5" ry="4.4" fill="#fff" stroke="${c.line}" stroke-width="1.2" transform="rotate(-12 93 55)"/>
+      <path d="M88 67 q9 4 15 -3" fill="none" stroke="${c.line}" stroke-width="1.8" stroke-linecap="round"/>
+      ${eye(93, 56, 2.4, INK)}
     </g>`;
   },
 
-  // Blue Whale — vast long body, throat pleats, tiny dorsal, mighty fluke, blowhole spout
+  // Blue Whale — VERY long low body, broad blunt head, ventral throat pleats, tiny nub dorsal near tail, spout
   bluewhale: (c) => {
     const E = eyeInk(c);
-    const pleats = Array.from({ length: 6 }, (_, i) => `<path d="M${60 + i * 8} 78 q0 6 2 10" fill="none" stroke="${c.line}" stroke-width="1" opacity=".6"/>`).join("");
+    const pleats = Array.from({ length: 8 }, (_, i) => `<path d="M${64 + i * 6} 74 q0 8 3 12" fill="none" stroke="${c.line}" stroke-width="1" opacity=".5"/>`).join("");
     return `
-    <g class="tail-wag"><path d="M24 62 Q10 48 4 44 Q14 62 4 80 Q10 76 24 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M16 62 Q6 50 2 47 Q9 62 2 77 Q6 74 16 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M6 55 Q-2 62 6 69" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".5"/></g>
     <g class="breathe">
-      <path d="M22 62 Q34 42 74 44 Q102 46 110 60 Q104 66 96 66 Q70 84 42 80 Q26 76 22 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="M40 78 Q70 88 96 66 Q70 82 40 78 Z" fill="${c.shade}"/>
+      <path d="M14 62 Q26 48 68 47 Q104 47 116 60 Q110 65 102 65 Q72 78 40 76 Q20 72 14 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M40 72 Q76 82 102 65 Q76 78 40 72 Z" fill="${c.shade}"/>
       ${pleats}
-      <path d="M56 48 Q60 38 68 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
-      <path d="M50 74 Q54 86 64 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M44 49 Q47 42 52 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
     </g>
     <g class="head-tilt">
-      <path d="M96 44 q-4 -10 -8 -14 M96 44 q2 -11 6 -15 M96 44 q-1 -13 0 -18" fill="none" stroke="#bcd6ea" stroke-width="2" stroke-linecap="round" opacity=".85"/>
-      <path d="M90 66 q9 4 18 -3" fill="none" stroke="${c.line}" stroke-width="1.8" stroke-linecap="round"/>
-      ${eye(94, 58, 2.4, E)}
+      <path d="M104 47 q-3 -11 -7 -15 M104 47 q3 -11 7 -14 M104 47 q0 -12 1 -17" fill="none" stroke="#bcd6ea" stroke-width="2" stroke-linecap="round" opacity=".85"/>
+      <path d="M100 65 q7 3 13 -3" fill="none" stroke="${c.line}" stroke-width="1.7" stroke-linecap="round"/>
+      ${eye(104, 59, 2.3, E)}
     </g>`;
   },
 
@@ -217,22 +217,23 @@ export const ART_SEA = {
     </g>`;
   },
 
-  // Seahorse — curled S-body, tubular snout, crested coronet, ridged back fin, coiled tail
+  // Seahorse — upright S-body with segment ridges, horse head + tubular snout, spiny coronet, dorsal fin, coiled tail
   seahorse: (c) => {
     const E = eyeInk(c);
     return `
     <g class="tail-wag">
-      ${tube("M70 92 Q82 92 82 82 Q82 74 74 76", c.body, c.line, 9)}
+      <path d="M52 78 Q40 82 42 92 Q44 100 54 98 Q60 96 58 90 Q56 94 50 93 Q46 92 47 87 Q48 82 54 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
     </g>
     <g class="breathe">
-      ${tube("M62 34 Q78 42 68 58 Q54 72 60 86", c.body, c.line, 15)}
-      <path d="M52 42 Q42 46 48 54 M50 54 Q40 58 46 66 M50 66 Q42 72 48 78" fill="none" stroke="${c.shade}" stroke-width="3" stroke-linecap="round"/>
-      <path d="M60 46 q4 0 5 4 M58 54 q4 0 5 4 M58 62 q4 0 5 4" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".7"/>
+      <path d="M52 32 Q68 32 70 48 Q71 60 60 66 Q50 71 52 81 L44 82 Q40 70 50 62 Q60 57 58 47 Q56 39 47 41 Q48 33 52 32 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M66 42 Q76 46 73 58 Q69 51 63 50 Q66 46 66 42 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      ${[44,51,58,64].map(y=>`<path d="M48 ${y} q7 1 11 -2" fill="none" stroke="${c.shade}" stroke-width="1.5" opacity=".65"/>`).join("")}
     </g>
     <g class="head-tilt">
-      <path d="M60 30 q-4 -8 2 -10 q3 4 6 4 q4 -3 6 0 q-1 5 -6 6 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      <path d="M70 40 Q86 38 90 44 Q84 46 74 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      ${eye(66, 40, 2.8, E)}
+      <path d="M49 31 l-3 -7 M54 29 l0 -8 M59 30 l4 -6" stroke="${c.shade}" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M49 33 Q47 24 55 23 Q63 24 63 33 Q63 41 54 40 Q46 40 49 33 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M60 35 Q82 33 86 41 Q78 44 62 41 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      ${eye(56, 33, 2.6, E)}
     </g>`;
   },
 
@@ -412,23 +413,23 @@ export const ART_SEA = {
     </g>`;
   },
 
-  // Narwhal — smooth beluga body, rounded melon head, long spiralled ivory tusk, fluke, gentle smile
+  // Narwhal — stocky body, BULBOUS melon forehead, NO dorsal fin, long spiral ivory tusk (the signature), fluke
   narwhal: (c) => {
     const E = eyeInk(c);
-    const spiral = Array.from({ length: 6 }, (_, i) => `<path d="M${94 + i * 3} 56 l2 5" stroke="${c.line}" stroke-width="1" opacity=".8"/>`).join("");
+    const spiral = Array.from({ length: 8 }, (_, i) => `<path d="M${99 + i * 2.6} ${55 - i * 0.3} l2.4 4.4" stroke="${c.line}" stroke-width="1" opacity=".85"/>`).join("");
     return `
-    <g class="tail-wag"><path d="M26 62 Q12 50 6 46 Q16 62 6 78 Q12 74 26 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M22 62 Q10 50 5 46 Q14 62 5 78 Q10 74 22 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/></g>
     <g class="breathe">
-      <path d="M24 62 Q34 44 66 44 Q90 46 98 60 Q90 80 66 80 Q34 80 24 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="M38 74 Q64 84 94 66 Q64 80 38 74 Z" fill="${c.shade}"/>
-      <path d="M50 78 Q54 90 64 80 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <ellipse cx="52" cy="56" rx="9" ry="5" fill="${c.shade}" opacity=".4"/>
+      <path d="M20 62 Q30 47 58 46 Q86 46 100 60 Q94 76 66 78 Q34 80 20 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M38 72 Q66 82 96 66 Q66 78 38 72 Z" fill="${c.shade}"/>
+      <path d="M48 76 Q52 88 62 79 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      ${[[44,55],[54,58],[64,55],[74,58]].map(([x,y])=>`<ellipse cx="${x}" cy="${y}" rx="2.6" ry="1.8" fill="${c.shade}" opacity=".5"/>`).join("")}
     </g>
     <g class="head-tilt">
-      <path d="M92 54 L118 44 L94 60 Z" fill="#f2e6c8" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M96 57 L122 45 L98 63 Z" fill="#f2e6c8" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
       ${spiral}
-      <path d="M86 66 q8 5 14 -1" fill="none" stroke="${c.line}" stroke-width="1.7" stroke-linecap="round"/>
-      ${eye(86, 57, 2.6, E)}
+      <path d="M88 67 q7 3 12 -2" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
+      ${eye(88, 58, 2.5, E)}
     </g>`;
   },
 };

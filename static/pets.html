@@ -138,11 +138,11 @@
   /* faces */
   .blink{animation:blink 5s infinite;transform-origin:50% 50%}
   @keyframes blink{0%,93.5%,100%{transform:scaleY(1)}95%,97.5%{transform:scaleY(.06)}}
-  .head-tilt{animation:tilt 5.4s ease-in-out infinite;transform-origin:42% 96%}
-  @keyframes tilt{0%,70%,100%{transform:rotate(0)}78%{transform:rotate(-6.5deg)}88%{transform:rotate(3.5deg)}}
-  /* tails, wings, fins, arms */
-  .tail-wag{animation:wag 1.3s cubic-bezier(.45,0,.55,1) infinite;transform-origin:96% 88%}
-  @keyframes wag{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(10deg)}}
+  .head-tilt{animation:tilt 5.6s ease-in-out infinite;transform-origin:50% 100%}
+  @keyframes tilt{0%,72%,100%{transform:rotate(0)}80%{transform:rotate(-3.5deg)}90%{transform:rotate(2deg)}}
+  /* tails, wings, fins, arms — pivot at each part's own centre so a wrong-side appendage never swings off */
+  .tail-wag{animation:wag 2.1s ease-in-out infinite;transform-origin:50% 50%}
+  @keyframes wag{0%,100%{transform:rotate(-3.5deg)}50%{transform:rotate(3.5deg)}}
   .tail-bob{animation:tbob 2.2s ease-in-out infinite;transform-origin:50% 0%}
   @keyframes tbob{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(5deg)}}
   .wing-flap{animation:flap 1.7s cubic-bezier(.45,0,.55,1) infinite;transform-origin:92% 12%}
