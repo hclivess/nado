@@ -36,8 +36,27 @@ def sparse_projection(contracts, depth=DEFAULT_DEPTH):
 
 
 def sparse_root(contracts, depth=DEFAULT_DEPTH):
-    """The settled SPARSE storage root (alghash) — the binding-friendly replacement for zkvm_root."""
+    """The settled SPARSE storage root (alghash2 CAPACITY-tuple, ~128-bit) — the binding-friendly, forgery-
+    resistant replacement for zkvm_root."""
     return ST.SparseStore(depth, sparse_projection(contracts, depth)).root()
+
+
+def root_hex(root):
+    """Serialize a sparse root (alghash2 CAPACITY-tuple) to 64 hex chars — 16 per lane (each lane < p < 2^64), so
+    it fits the on-chain state_root format (64-hex) while carrying the full 256-bit / 128-bit-secure digest."""
+    return "".join(format(int(x) % F.P, "016x") for x in root)
+
+
+def root_from_hex(h):
+    """Inverse of root_hex — parse a 64-hex settled state_root back to the CAPACITY-tuple."""
+    if not (isinstance(h, str) and len(h) == 16 * ST.DIGEST):
+        raise ValueError("bad sparse root hex length")
+    return tuple(int(h[i * 16:(i + 1) * 16], 16) for i in range(ST.DIGEST))
+
+
+def sparse_root_hex(contracts, depth=DEFAULT_DEPTH):
+    """The settled sparse root as 64-hex — what a settle tx / state_root carries on-chain."""
+    return root_hex(sparse_root(contracts, depth))
 
 
 def _cid_io(bundle):
