@@ -147,9 +147,9 @@ export const ART_BIRDS = {
     <g class="head-tilt">
       ${[-26, -13, 0, 13, 26].map((a) => `<g transform="rotate(${a} 60 44)"><path d="M60 44 Q56 16 61 11 Q66 17 62 44 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/></g>`).join("")}
       <circle cx="60" cy="46" r="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M60 44 Q76 44 74 56 Q72 64 62 62 Q58 58 58 50 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M62 56 Q70 58 72 54 Q70 62 63 61 Q60 58 62 56 Z" fill="${BEAKD}"/>
-      ${eye(65, 45, 3.4, eyeInk(c))}
+      <path d="M54 50 Q60 47 66 50 Q66 60 60 63 Q54 60 54 50 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M56 56 Q60 59 64 56 Q63 61 60 62 Q57 61 56 56 Z" fill="${BEAKD}"/>
+      ${eye(52, 44, 3.2, eyeInk(c))}${eye(68, 44, 3.2, eyeInk(c))}
     </g>`,
 
   // ── WATER & SHORE BIRDS ─────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ export const ART_BIRDS = {
   flamingo: (c) => `
     ${tube("M56 80 L50 108", c.body, c.line, 4)}
     ${tube("M64 80 Q72 92 62 96 L67 108", c.body, c.line, 4)}
-    <path d="M44 108 h12 M55 108 h12" stroke="${LEG}" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M50 108 l-5 3 M50 108 l-1 4 M50 108 l4 3 M67 108 l-5 3 M67 108 l-1 4 M67 108 l4 3" stroke="${LEG}" stroke-width="2.2" stroke-linecap="round" fill="none"/>
     <g class="tail-wag"><path d="M40 74 Q26 78 26 68 Q34 70 44 68 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
     <g class="breathe">
       <ellipse cx="58" cy="74" rx="22" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
@@ -267,24 +267,24 @@ export const ART_BIRDS = {
 
   // Cardinal — sharp pointed crest, thick conical seed-beak, black face-mask, upright
   cardinal: (c) => `
-    <g class="tail-wag"><path d="M52 86 Q49 108 58 111 Q67 107 64 86 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M54 84 Q52 100 60 102 Q68 100 66 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
     <g class="breathe">
-      <ellipse cx="60" cy="76" rx="19" ry="18" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+      <ellipse cx="60" cy="76" rx="18" ry="18" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M52 68 Q66 70 68 86 Q60 92 52 88 Z" fill="${c.shade}" opacity=".6"/>
       <path d="M64 62 Q78 66 76 82 Q68 76 62 76 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/></g>
     ${legs([54, 66])}
     <g class="head-tilt">
-      <path d="M55 42 Q57 22 63 19 Q69 24 70 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M53 44 L62 13 L71 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
       <circle cx="64" cy="48" r="14" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M60 46 Q54 50 56 60 Q64 62 68 54 Q66 48 60 46 Z" fill="${INK}" opacity=".75"/>
-      <path d="M76 46 L90 50 L76 56 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M58 44 Q52 50 55 61 Q64 64 69 54 Q68 46 58 44 Z" fill="${INK}" opacity=".8"/>
+      <path d="M75 47 L88 50 L75 54 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
       ${eye(66, 46, 3, "#e9edf2")}
     </g>`,
 
   // Blue Jay — rounded crest, black collar "necklace", barred wing, sturdy straight beak
   bluejay: (c) => `
-    <g class="tail-wag"><path d="M52 86 Q50 110 58 112 Q66 108 64 86 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      <path d="M54 94 h10 M55 100 h9" stroke="${c.line}" stroke-width="1.2" opacity=".4"/></g>
+    <g class="tail-wag"><path d="M52 86 Q50 111 58 114 Q66 110 64 86 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M54 93 h10 M55 100 h9 M56 107 h8" stroke="${c.line}" stroke-width="1.3" opacity=".45"/></g>
     <g class="breathe">
       <ellipse cx="60" cy="76" rx="20" ry="18" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M50 70 Q60 80 72 70 Q74 78 60 80 Q50 78 50 70 Z" fill="${INK}" opacity=".55"/>
@@ -292,7 +292,7 @@ export const ART_BIRDS = {
       <path d="M66 66 h10 M65 72 h11" stroke="${c.shade}" stroke-width="1.6" opacity=".8"/></g>
     ${legs([54, 66])}
     <g class="head-tilt">
-      <path d="M56 42 L58 24 Q64 20 68 26 L64 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M54 42 Q55 26 63 24 Q71 27 70 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
       <circle cx="64" cy="48" r="14" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M78 47 l12 1 l-12 5 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
       ${eye(67, 46, 3, "#e9edf2")}
@@ -352,7 +352,7 @@ export const ART_BIRDS = {
   // Toucan — compact body, oversized banana-curved multi-band beak, big pale eye-ring, gripping a perch
   toucan: (c) => `
     <line x1="26" y1="98" x2="70" y2="98" stroke="${LEG}" stroke-width="4" stroke-linecap="round"/>
-    <g class="tail-wag"><path d="M40 88 Q30 104 44 102 L50 90 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M46 84 Q42 104 52 106 Q60 102 58 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
     <g class="breathe">
       <path d="M40 84 Q36 56 58 52 Q80 56 76 86 Q58 96 40 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M46 60 Q58 54 70 60 Q72 74 58 78 Q46 74 46 60 Z" fill="${c.shade}"/></g>

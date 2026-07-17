@@ -95,8 +95,8 @@ export const ART_SAVANNA = {
       <path d="M36 84 q24 16 48 0" fill="${c.shade}" opacity=".6"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 62 : 40}" y="92" width="16" height="18" rx="6" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><path d="M${i ? 66 : 44} 108 h9" stroke="${c.line}" stroke-width="1.6"/>`).join("")}</g>
     <g class="tail-wag">
-      ${mirror(`<path d="M40 50 Q16 46 16 72 Q16 90 40 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/><path d="M34 56 Q24 60 24 72 Q24 82 34 80" fill="${c.shade}" opacity=".5"/>`)}
-      <path d="M40 50 Q16 46 16 72 Q16 90 40 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/><path d="M34 56 Q24 60 24 72 Q24 82 34 80" fill="${c.shade}" opacity=".5"/></g>
+      ${mirror(`<path d="M52 46 Q14 42 14 70 Q14 90 52 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/><path d="M45 54 Q24 58 24 70 Q24 82 45 80" fill="${c.shade}" opacity=".5"/>`)}
+      <path d="M52 46 Q14 42 14 70 Q14 90 52 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/><path d="M45 54 Q24 58 24 70 Q24 82 45 80" fill="${c.shade}" opacity=".5"/></g>
     <g class="head-tilt">
       <ellipse cx="60" cy="56" rx="22" ry="20" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       ${mirror(`<path d="M54 68 Q50 84 56 92 L60 88 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`)}
@@ -137,6 +137,8 @@ export const ART_SAVANNA = {
       <g stroke="${c.line}" stroke-width="3" stroke-linecap="round"><path d="M42 72 q-2 8 0 18 M52 70 q-1 10 0 20 M63 71 q1 9 0 18 M73 74 q2 7 0 14"/></g>
       ${["", "s"].map((_, i) => `<rect x="${i ? 64 : 44}" y="92" width="8" height="17" rx="2.6" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><path d="M${i ? 65 : 45} 84 q1 6 0 10" stroke="${c.line}" stroke-width="2"/>`).join("")}</g>
     <g class="head-tilt">
+      <path d="M50 48 Q47 68 58 72 Q69 68 70 48 Q60 56 50 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <g stroke="${c.line}" stroke-width="2.6" stroke-linecap="round"><path d="M54 50 q-1 8 0 16 M64 50 q1 8 0 16"/></g>
       ${mirror(`<path d="M46 28 Q40 16 50 20 Q54 26 52 34 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><path d="M48 24 q3 4 2 8" stroke="${c.line}" stroke-width="1.6"/>`)}
       <path d="M46 28 Q40 16 50 20 Q54 26 52 34 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><path d="M48 24 q3 4 2 8" stroke="${c.line}" stroke-width="1.6"/>
       <path d="M48 34 Q48 26 60 26 Q72 26 72 40 Q72 56 60 58 Q48 56 48 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
@@ -155,13 +157,15 @@ export const ART_SAVANNA = {
       <path d="M52 60 q4 6 0 14" fill="none" stroke="${c.line}" stroke-width="1.6" opacity=".5"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 60 : 40}" y="94" width="14" height="16" rx="5" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`).join("")}</g>
     <g class="head-tilt">
-      ${mirror(`<ellipse cx="48" cy="42" rx="4" ry="6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`)}
-      <ellipse cx="48" cy="42" rx="4" ry="6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
-      <path d="M40 56 Q40 42 60 42 Q84 42 84 62 Q84 80 62 80 Q40 78 40 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M84 66 Q94 58 88 76 Q84 84 74 82 Q80 74 84 66 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M74 52 Q80 48 78 58 Q76 60 72 58 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
-      <path d="M70 74 q6 3 12 0" fill="none" stroke="${c.line}" stroke-width="1.6"/>
-      ${eyes(52, 66, 56, 2.6, eyeInk(c))}
+      ${mirror(`<ellipse cx="46" cy="44" rx="4" ry="6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`)}
+      <ellipse cx="46" cy="44" rx="4" ry="6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
+      <path d="M40 58 Q40 44 60 44 Q80 44 80 60 Q80 78 60 80 Q40 78 40 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <ellipse cx="60" cy="72" rx="13" ry="8" fill="${c.shade}"/>
+      <path d="M55 71 Q60 66 65 71" fill="none" stroke="${c.line}" stroke-width="1.4"/>
+      <ellipse cx="54" cy="73" rx="1.8" ry="2.4" fill="${INK}"/><ellipse cx="66" cy="73" rx="1.8" ry="2.4" fill="${INK}"/>
+      <path d="M55 72 Q60 50 65 72 Q60 66 55 72 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M57 54 Q60 42 63 54 Q60 52 57 54 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      ${eyes(50, 70, 56, 2.6, eyeInk(c))}
     </g>`,
 
   // ── Hippo — enormous wide muzzle, big nostrils, tiny top ears & eyes, bottom teeth ────────

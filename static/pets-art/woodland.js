@@ -347,15 +347,17 @@ export const ART_WOODLAND = {
   // ── Porcupine — dense field of long banded QUILLS bristling off the back, small blunt face (tier 2)
   porcupine: (c) => `
     <g class="breathe">
-      ${Array.from({ length: 26 }).map((_, i) => { const a = (188 + i * 6) * Math.PI / 180; const bx = 62 + Math.cos(a) * 24, by = 68 + Math.sin(a) * 18; const tx = 62 + Math.cos(a) * 44, ty = 68 + Math.sin(a) * 34; return `<line x1="${bx.toFixed(1)}" y1="${by.toFixed(1)}" x2="${tx.toFixed(1)}" y2="${ty.toFixed(1)}" stroke="${c.line}" stroke-width="2.6" stroke-linecap="round"/><line x1="${bx.toFixed(1)}" y1="${by.toFixed(1)}" x2="${((bx + tx) / 2).toFixed(1)}" y2="${((by + ty) / 2).toFixed(1)}" stroke="#f4efe6" stroke-width="1.4" stroke-linecap="round"/>`; }).join("")}
-      <path d="M30 82 Q28 50 62 48 Q96 50 94 82 Q62 92 30 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      ${["", "s"].map((_, i) => `<ellipse cx="${i ? 76 : 48}" cy="88" rx="6" ry="4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/>`).join("")}
+      ${Array.from({ length: 34 }).map((_, i) => { const a = (182 + i * 5) * Math.PI / 180; const bx = 62 + Math.cos(a) * 25, by = 67 + Math.sin(a) * 20; const L = 20 + (i % 3) * 6; const tx = 62 + Math.cos(a) * (25 + L), ty = 67 + Math.sin(a) * (20 + L * 0.8); return `<line x1="${bx.toFixed(1)}" y1="${by.toFixed(1)}" x2="${tx.toFixed(1)}" y2="${ty.toFixed(1)}" stroke="${c.line}" stroke-width="2.4" stroke-linecap="round"/><line x1="${bx.toFixed(1)}" y1="${by.toFixed(1)}" x2="${((bx + tx) / 2).toFixed(1)}" y2="${((by + ty) / 2).toFixed(1)}" stroke="#f4efe6" stroke-width="1.3" stroke-linecap="round"/>`; }).join("")}
+      <path d="M28 82 Q26 48 62 46 Q98 48 96 82 Q62 94 28 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+      <path d="M36 84 Q62 93 88 84 Q62 90 36 84 Z" fill="${c.shade}" opacity=".5"/>
+      ${["", "s"].map((_, i) => `<path d="M${i ? 72 : 44} 87 q-3 9 1 13 l6 0 q3 -5 1 -13 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`).join("")}
     </g>
     <g class="head-tilt">
-      <path d="M30 70 Q14 66 16 78 Q22 86 34 80 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <ellipse cx="18" cy="76" rx="3" ry="2.4" fill="${INK}"/>
+      <path d="M32 68 Q12 64 14 80 Q20 90 36 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M31 64 Q27 59 32 57 Q36 60 35 66 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      <ellipse cx="15" cy="77" rx="3.4" ry="2.8" fill="${INK}"/>
+      <path d="M21 82 q5 3 9 -1" stroke="${INK}" stroke-width="1.2" fill="none"/>
       ${eye(30, 72, 2.6, eyeInk(c))}
-      <path d="M24 80 q4 3 8 0" stroke="${INK}" stroke-width="1.2" fill="none"/>
     </g>`,
 };
 
