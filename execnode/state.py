@@ -14,8 +14,7 @@ import json
 import os
 import threading
 
-from hashing import (blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, dividend_leaf,
-                     unshield_leaf, canonical_bytes, outbox_leaf)
+from hashing import blake2b_hash, canonical_bytes
 from execnode.zkvm import ZkVMError
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
 from execnode.shielded import ShieldedPool, apply_transfer
@@ -53,18 +52,6 @@ def _decode_code(payload):
 # conservation equals INTEGER conservation and no -P wraparound assignment exists. At 2^62 it did (a 1-coin
 # input could record a 2^62-coin exit and drain the escrow).
 MAX_EXIT_VALUE = 1 << 61
-
-
-def _outbox_leaf(msg):
-    """Canonical Merkle leaf for one outbox message — the SHARED hashing.outbox_leaf, so the leaf L1 verifies
-    an `xmsg` delivery against is byte-identical to what the exec node commits + proves."""
-    return outbox_leaf(msg["seq"], msg["from"], msg["to_ns"], msg.get("data"))
-
-
-def _inbox_leaf(i, msg):
-    """Canonical Merkle leaf for one DELIVERED (received) cross-domain message. Committed in state_root so
-    every receiver node agrees on B's state after a delivery (they all read the same L1-verified `xmsg`)."""
-    return canonical_bytes(["inbox", int(i), msg.get("from_ns"), int(msg.get("seq", -1)), msg.get("data")])
 
 
 def _normalize_bundle(bundle):
@@ -172,22 +159,28 @@ class ExecState:
         # for restart, NOT committed to state_root (like beacons/block_hashes; payouts already reflect in
         # committed bridge leaves).
         self.zk_addrs = {}        # str(field digest) -> addr
-        # STATE-ROOT CACHE: _leaves()/state_root() are pure functions of the root-committed state, but
-        # were recomputed from scratch on EVERY /exec/root poll, proof request and settle (O(total
-        # state), the execnode's dominant CPU cost). Cache leaves+root; every root-affecting mutator
-        # calls _touch() (under _mutate_lock) to invalidate. _mut_gen versions the whole state so the
-        # provisional rebuild can skip cloning when nothing changed.
-        self._leaf_cache = None
+        # STATE-ROOT CACHE: state_root() is a pure function of the root-committed state. The root is the
+        # FROZEN alphanet-6 scheme (execnode/exec_root.py): rnode(kv half, records half), two persistent
+        # depth-256 sparse alghash2 trees that are DIFF-APPLIED per recompute — O(changed·depth) hashing
+        # per block, never a whole-state rebuild (the cold build happens once, at load/bootstrap). Every
+        # root-affecting mutator calls _touch() (under _mutate_lock) to invalidate the cached hex; the
+        # trees themselves persist across touches. _mut_gen versions the whole state so the provisional
+        # rebuild can skip cloning when nothing changed.
         self._root_cache = None
+        self._kv_store = None            # persistent KV half-tree (lazy cold build, then incremental)
+        self._rec_store = None           # persistent RECORDS half-tree
         self._mut_gen = 0
         self.load()
 
     def _touch(self):
-        """Invalidate the leaf/root cache and bump the state version. Called by every mutator that
-        can change _leaves() output (and by _restore). Safe on a bare instance (clone())."""
-        self._leaf_cache = None
+        """Invalidate the root cache and bump the state version. Called by every mutator that can change
+        the committed root (and by _restore). Safe on a bare instance (clone()) — the half-trees persist
+        across touches and are diff-applied on the next state_root()."""
         self._root_cache = None
         self._mut_gen = getattr(self, "_mut_gen", 0) + 1
+        if not hasattr(self, "_kv_store"):
+            self._kv_store = None
+            self._rec_store = None
 
     # --- persistence -----------------------------------------------------------------------------
     def _restore(self, d):
@@ -278,49 +271,24 @@ class ExecState:
             json.dump(payload, f, sort_keys=True)
         os.replace(tmp, self.path)
 
-    def _leaves(self):
-        """Every piece of execution-layer state as a canonical Merkle leaf: contract storage, bridged
-        balances, and withdrawal records. The set is identical on every honest node → identical root.
-        CACHED until a mutator _touch()es; computed under the mutate lock so a concurrent thread-apply
-        can never tear the snapshot into the cache."""
-        cached = self._leaf_cache
-        if cached is not None:
-            return cached
-        with self._mutate_lock:
-            if self._leaf_cache is None:
-                self._leaf_cache = self._compute_leaves()
-            return self._leaf_cache
-
-    def _compute_leaves(self):
-        out = []
-        for cid, c in self.contracts.items():
-            for m, kv in c.get("storage", {}).items():
-                for k, v in kv.items():
-                    out.append(canonical_bytes(["kv", cid, m, k, v]))
-        for addr, amt in self.bridge.items():
-            out.append(canonical_bytes(["bridge_bal", addr, amt]))
-        for addr, amt in self.dividend.items():
-            out.append(canonical_bytes(["div_bal", addr, amt]))   # commit dividend balances so nodes must agree
-        for nonce, w in self.withdrawals.items():
-            out.append(withdrawal_leaf(w["addr"], w["amount"], nonce))
-        for nonce, w in self.dividend_withdrawals.items():
-            out.append(dividend_leaf(w["addr"], w["amount"], nonce))
-        # SHIELDED POOL — bound the whole pool to just TWO leaves (root + nullifier digest), so the exec
-        # state_root stays O(1) in pool size; plus one leaf per pending unshield exit (provable, GC-able).
-        out.append(canonical_bytes(["shield_root", self.shielded.root()]))
-        out.append(canonical_bytes(["shield_nfset", self.shielded.nullifier_digest()]))
-        out.append(canonical_bytes(["field_root", str(self.field_pool.root())]))
-        # ONE bounded digest leaf for the whole field-nullifier set (mirrors shield_nfset): the old
-        # leaf concatenated EVERY nullifier, growing without bound in the committed state.
-        out.append(canonical_bytes(["field_nfset",
-                                    blake2b_hash(["field_nfset", *sorted(str(n) for n in self.field_pool.nullifiers)])]))
-        for nonce, w in self.unshield_withdrawals.items():
-            out.append(unshield_leaf(w["addr"], w["amount"], nonce))
-        for _s, msg in sorted(self.outbox.items(), key=lambda kv: int(kv[0])):
-            out.append(_outbox_leaf(msg))            # emitted cross-domain messages (consumed ones GC'd)
-        for i, msg in enumerate(self.inbox):                     # cross-domain messages delivered (append-only)
-            out.append(_inbox_leaf(i, msg))
-        return out
+    def _sparse_stores(self):
+        """The two persistent depth-256 half-trees of the FROZEN root scheme (execnode/exec_root.py),
+        diff-applied to the CURRENT state: contract storage in the KV half; bridged/dividend balances,
+        withdrawal records, pool digests and cross-domain messages in the RECORDS half. Every honest node
+        derives identical projections → identical root. Called ONLY under _mutate_lock (state_root), so a
+        concurrent thread-apply can never tear the diff. First call is the cold build; afterwards each
+        recompute hashes only what changed (O(changed·depth))."""
+        from execnode import exec_root as ER
+        from execnode.stark import storage_tree as SST
+        kv_p = ER.kv_projection(self.contracts)
+        rec_p = ER.records_projection(self)
+        if self._kv_store is None:
+            self._kv_store = SST.SparseStore(ER.DEPTH, kv_p)
+            self._rec_store = SST.SparseStore(ER.DEPTH, rec_p)
+        else:
+            ER.apply_projection(self._kv_store, kv_p)
+            ER.apply_projection(self._rec_store, rec_p)
+        return self._kv_store, self._rec_store
 
     def unshields_for(self, addr):
         """Pending unshield exits recorded for an L1 address — a wallet uses this to find the nonce(s) of its
@@ -341,19 +309,21 @@ class ExecState:
 
     def unshield_withdrawal_proof(self, nonce):
         """(addr, amount, nonce, proof) for a recorded unshield exit, provable against state_root; None if absent."""
+        from execnode import exec_root as ER
         w = self.unshield_withdrawals.get(str(nonce))
         if not w:
             return None
-        proof = merkle_proof(self._leaves(), unshield_leaf(w["addr"], w["amount"], str(nonce)))
-        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce), "proof": proof}
+        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce),
+                "proof": self._record_proof(ER.T_UNSHIELD_WD, w["addr"], str(nonce))}
 
     def dividend_withdrawal_proof(self, nonce):
         """(addr, amount, nonce, proof) for a recorded dividend collection, provable against state_root."""
+        from execnode import exec_root as ER
         w = self.dividend_withdrawals.get(str(nonce))
         if not w:
             return None
-        proof = merkle_proof(self._leaves(), dividend_leaf(w["addr"], w["amount"], str(nonce)))
-        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce), "proof": proof}
+        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce),
+                "proof": self._record_proof(ER.T_DIV_WD, w["addr"], str(nonce))}
 
     def accrue_dividend_epoch(self, inflow, weights):
         with self._mutate_lock:
@@ -386,34 +356,48 @@ class ExecState:
         return distributed
 
     def state_root(self):
-        """MERKLE root over all execution-layer state — identical on every honest node at the same cursor.
-        This is the root the bonded quorum settles on L1; a bridge withdrawal is proven against it.
-        Cached with _leaves() (invalidated together by _touch)."""
+        """THE settled execution-layer root (frozen alphanet-6 scheme, execnode/exec_root.py):
+        rnode(kv half, records half) of the two depth-256 sparse alghash2 trees, 64-hex — identical on
+        every honest node at the same cursor. This is the root the bonded quorum settles on L1 and every
+        bridge/dividend/unshield/xmsg exit is proven against. Cached; invalidated by _touch."""
         root = self._root_cache
         if root is None:
             with self._mutate_lock:
                 if self._root_cache is None:
-                    self._root_cache = merkle_root(self._leaves())
+                    from execnode import exec_root as ER
+                    kv, rec = self._sparse_stores()
+                    self._root_cache = ER.full_root_hex(kv.root(), rec.root())
                 root = self._root_cache
         return root
 
+    def _record_proof(self, tag, *parts):
+        """Sparse exit proof {"kv": hex, "path": packed} for the record at record_key(tag, *parts) —
+        the wire format L1's exec_root.verify_record checks against the settled root."""
+        from execnode import exec_root as ER
+        with self._mutate_lock:
+            kv, rec = self._sparse_stores()
+            return ER.record_proof(kv.root(), rec, ER.record_key(tag, *parts))
+
     def withdrawal_proof(self, nonce):
         """(addr, amount, nonce, proof) for a recorded withdrawal, provable against state_root; None if absent."""
+        from execnode import exec_root as ER
         w = self.withdrawals.get(str(nonce))
         if not w:
             return None
-        proof = merkle_proof(self._leaves(), withdrawal_leaf(w["addr"], w["amount"], str(nonce)))
-        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce), "proof": proof}
+        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce),
+                "proof": self._record_proof(ER.T_BRIDGE_WD, w["addr"], str(nonce))}
 
     def outbox_proof(self, seq):
         """(msg, proof) for outbox message `seq`, provable against state_root; None if absent. Mirrors
-        withdrawal_proof: a consumer verifies merkle_proof(leaf, proof, settled_root) against the sender
+        withdrawal_proof: a consumer verifies exec_root.verify_outbox_msg(proof) against the sender
         rollup's SETTLED root (from L1 /get_settled?ns=) to accept the message trust-minimized."""
+        from execnode import exec_root as ER
         try:
             msg = self.outbox[str(int(seq))]
         except (KeyError, ValueError, TypeError):
             return None
-        return {"message": msg, "proof": merkle_proof(self._leaves(), _outbox_leaf(msg))}
+        dg = ER.leaf_digest(ER.msg_outbox_leaf(msg))
+        return {"message": msg, "proof": self._record_proof(ER.T_DIGEST, "outbox", dg)}
 
     def apply_xmsg(self, from_ns, message):
         """Deliver an L1-VERIFIED cross-domain message into this rollup's inbox. L1 already verified the
