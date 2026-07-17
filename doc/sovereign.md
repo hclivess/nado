@@ -39,9 +39,25 @@ other. The reusable core of that pattern (below) is worth an SDK module of its o
   Provable exactly like a duel move.
 - **Prestige** = the world ranking, computed from land + people + buildings + army + tech.
 
-Deferred to later waves (documented, not v1): generals, missiles, the full 25-op espionage suite,
-alliance diplomacy/treaties, events/UFO, medals/ranks. The v1 core is a complete play loop: build →
-grow → army → raid → climb the board.
+### Coverage (toward 1:1 with the source manual)
+
+MODELED with the source's exact numbers (engine + client, tested): the 4-resource economy, 13 buildings +
+territory/colonize, 10 governments + revolution, satisfaction, 6 units, the tech axes, prestige (exact
+point values), 14 RANKS + cumulative veteran bonuses, 9 GENERALS (per-level bonuses/caps/XP ladder,
+probabilistic award), normal combat + exact composition bonuses + conqueror/liberator, 6 TACTICAL attacks,
+4 MISSILES (+ ½-effect-outside-war, interception), ~20 ESPIONAGE operations (infiltrate/sabotage/theft
+with danger-scaled success and agent losses), the DOMESTIC MARKET (stock-scaled prices, gov discounts,
+Country #0 sell), ADVANCES/Pokroky (5 types, difficulty-scaled cost), EVENTS ×15 + CATASTROPHES, ALLIANCES
+(≤10, government-bonus aggregation × floor(members/2)) + war clock, UFO/alien contact, MEDALS.
+
+APPROXIMATED vs the source (documented, not pixel-exact): the tech-tree effect RANGES (modeled as clean
+per-level multipliers rather than the source's per-technology min/max bands and double-per-point cases);
+the anti-missile interception curve; event magnitudes.
+
+NOT YET modeled (honest gaps — the remaining waves): the WORLD MARKET (player-listed order book — the
+domestic market to Country #0 is in; peer-to-peer orders need an on-chain order book), EMBARGO (UN
+voting), the deeper DIPLOMACY (coalitions assisting combat/spy, pacts, fake-war penalties, defector,
+partners), and the meta layer (info cards, per-age rewards/credits, the full medal roster tiers 4–5).
 
 ## 3. The persistent-world contract model (the new SDK pattern)
 
