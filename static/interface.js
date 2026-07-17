@@ -3359,6 +3359,7 @@ async function exLoadRecent() {
   } catch { $("exRecent").innerHTML = `<div class="faint small">${i18("ex.unavail", "unavailable")}</div>`; }
 }
 const EX_POOL_MAX = 50;   // render cap — a flooded pool must not build thousands of DOM rows
+let _exPoolHtml = null;   // last rendered pool markup — skip the DOM write when nothing changed (no 6s flicker)
 async function exLoadMempool() {
   const box = $("exMempool"), cnt = $("exPoolCount");
   if (!box) return;
@@ -3366,12 +3367,33 @@ async function exLoadMempool() {
     const d = await exGetJSON("/transaction_pool");
     const pool = (Array.isArray(d) ? d : d.transaction_pool || []).filter((t) => t && typeof t === "object");
     if (cnt) cnt.textContent = pool.length ? `· ${pool.length} tx` : "";
-    if (!pool.length) { box.innerHTML = `<div class="faint small">${i18("ex.emptyPool", "mempool is empty")}</div>`; return; }
-    const rows = pool.slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    const extra = rows.length - EX_POOL_MAX;
-    box.innerHTML = rows.slice(0, EX_POOL_MAX).map(exPoolTxRow).join("")
-      + (extra > 0 ? `<div class="faint small mt">+${extra} ${exEsc(i18("ex.morePending", "more pending"))}</div>` : "");
-  } catch { box.innerHTML = `<div class="faint small">${i18("ex.unavail", "unavailable")}</div>`; }
+    let html;
+    if (!pool.length) html = `<div class="faint small">${i18("ex.emptyPool", "mempool is empty")}</div>`;
+    else {
+      const rows = pool.slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      const extra = rows.length - EX_POOL_MAX;
+      html = rows.slice(0, EX_POOL_MAX).map(exPoolTxRow).join("")
+        + (extra > 0 ? `<div class="faint small mt">+${extra} ${exEsc(i18("ex.morePending", "more pending"))}</div>` : "");
+    }
+    if (html !== _exPoolHtml) { _exPoolHtml = html; box.innerHTML = html; }
+  } catch { _exPoolHtml = null; box.innerHTML = `<div class="faint small">${i18("ex.unavail", "unavailable")}</div>`; }
+}
+/* Auto-refresh: the Explore tab tracks the chain LIVE while it's open (6s block time makes any static
+ * snapshot stale immediately). One cheap /status probe per tick; the heavier cards (overview's 3 calls,
+ * recent's 12 block fetches) re-render only when the tip hash actually moved, while the one-request
+ * mempool poll runs every tick (the pool changes BETWEEN blocks) behind the no-change render memo. */
+let _exTipSeen = null, _exTickBusy = false;
+async function exTick() {
+  if (_exTickBusy || state.activeTab !== "explore" || document.visibilityState !== "visible") return;
+  _exTickBusy = true;
+  try {
+    const st = await exGetJSON("/status");
+    if (st.latest_block_hash !== _exTipSeen) {
+      _exTipSeen = st.latest_block_hash;
+      exLoadOverview(); exLoadRecent();
+    }
+    await exLoadMempool();
+  } catch (e) {} finally { _exTickBusy = false; }
 }
 function exPoolTxRow(t) {
   // PENDING tx: /get_transaction only indexes MINED txids and the target block doesn't exist yet, so
@@ -3852,7 +3874,7 @@ function showTab(name) {
   if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
   if (name === "receive") renderReceiveQR();
   else if (name === "aliases") loadMyAliases();
-  else if (name === "explore") { exLoadOverview(); exLoadRecent(); exLoadMempool(); }
+  else if (name === "explore") { _exTipSeen = null; exTick(); }   // immediate load; the 6s timer keeps it live
   else if (name === "history") loadHistory().catch(() => {});
   else if (name === "rich") loadRichList().catch(() => {});
   else if (name === "stats") renderStats().catch(() => {});
@@ -5084,7 +5106,7 @@ function wireEvents() {
   if ($("btnAliasXfer")) $("btnAliasXfer").onclick = () => doAliasOp("transfer");
   if ($("exGo")) $("exGo").onclick = () => exSearch();
   if ($("exQ")) $("exQ").addEventListener("keydown", (e) => { if (e.key === "Enter") exSearch(); });
-  if ($("exPoolRefresh")) $("exPoolRefresh").onclick = () => exLoadMempool();
+  if (!window._exploreTimer) window._exploreTimer = setInterval(exTick, 6000);   // no-op unless Explore is open + visible
   document.addEventListener("click", (e) => {           // delegated explorer links (module-safe)
     const a = e.target.closest && e.target.closest("a.ex-link[data-exk]");
     if (a) {
