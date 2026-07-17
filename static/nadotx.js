@@ -4,14 +4,18 @@
 // 256-bit contract-call argument (e.g. a commit hash) rides as a bare JSON integer, exactly as the node parses it.
 // Usable in the browser (window.crypto) and in Node (globalThis.crypto) so the signing can be unit-tested.
 
-let blake2b, ml_dsa44, bytesToHex, hexToBytes;
+// Crypto primitives are STATICALLY imported. The vendor bundle is ~50KB of PURE JS (no wasm), so there is no
+// reason to defer it — and deferring it was an active bug: blake2b is a pure, SYNCHRONOUS hash that
+// deterministic game logic calls at MODULE-LOAD time (e.g. Scrapline's solo-offer render paints before init()
+// runs). Gating it behind the async loadCrypto() made that logic throw "blake2b is not a function" before the
+// bundle finished loading, which aborted the whole module (so sign-in return handling never ran). Binding it
+// eagerly removes that entire class of races. (Node's ESM loader rejects the ?v= cache-bust query, and
+// merkle.js / messaging.js / the crosscheck tests already import this bundle by its bare path — so we match.)
+import { blake2b, ml_dsa44, bytesToHex, hexToBytes } from "./vendor/nado-crypto.js";
 
-export async function loadCrypto(base = ".") {
-  if (blake2b && ml_dsa44) return;
-  const m = await import(base + "/vendor/nado-crypto.js?v=mlkem");
-  blake2b = m.blake2b; ml_dsa44 = m.ml_dsa44; bytesToHex = m.bytesToHex; hexToBytes = m.hexToBytes;
-  if (!(blake2b && ml_dsa44)) throw new Error("crypto bundle missing blake2b/ml_dsa44");
-}
+// Kept as an awaited no-op so every existing call site (nadodapp.init, the .mjs tests, interface.js) is
+// unchanged — the primitives are already bound by the static import above.
+export async function loadCrypto() { return; }
 
 // ---- canonical encoding (matches the node's canonical_bytes) --------------------------------------
 function jsonEscapeAscii(s) {
