@@ -36,6 +36,8 @@ import threading
 from memserver import MemServer
 
 ms = object.__new__(MemServer)
+ms.pool_gen = 0                      # the transaction_pool property setter bumps this (perf-fix cache signal)
+ms._txid_set_cache = None            # (pool_gen, {txid}) cache the perf fix keys on pool_gen
 ms.transaction_pool = []
 ms.mempool_lock = threading.RLock()
 ms.transaction_pool_max_txs = 1000
