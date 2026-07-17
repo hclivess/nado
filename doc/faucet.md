@@ -176,6 +176,18 @@ Games needing no contract change: the grant arrives as ordinary balance, so dice
 duel stakes, pot antes all just work. Per-game earmarking is economic (grant sized to that game's
 minimum stake) + UX (the claim lives on that game's page), not enforced spending — see §10.
 
+## 7b. Leaderboard placement rewards (the faucet as prize bank)
+
+The faucet is not only an onboarding grant — it is the **prize bank for every enrolled game's
+leaderboard**. `reward(idx, day, rank, addr, amount)` (operator-only) pays a placement prize from the
+faucet balance, **idempotent per (game, day, rank)** so a re-run never double-pays, and fails closed if
+the faucet can't cover it (same as `claim`). The operator's distributor (`_faucet_rewards.py`) reads each
+enrolled game's leaderboard off-chain — a **provable, auditable** computation (duel games: settled-game
+wins by `wr`; banked games: won settled seats by `gw`; anyone can recompute and verify the right addresses
+were paid) — and pays the top ranks a tapered split of a per-game daily budget (Webgame's *Odměny*
+shape). Trust model is the existing operator curation; the payout is publicly re-derivable. Verified live:
+a placement payout credits the winner from the faucet balance and a re-run is a no-op.
+
 ## 8. Funding sources
 
 1. **Donations / operator top-ups** — the reserved address, day one.

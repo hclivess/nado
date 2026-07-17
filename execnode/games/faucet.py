@@ -109,12 +109,36 @@ CLAIM = f"""
     ret r0
 """
 
-SRC = {"fund": FUND, "set_game": SET_GAME, "claim": CLAIM}
+# reward(idx, day, rank, addr, amount): pay a LEADERBOARD PLACEMENT prize from the faucet balance.
+# The faucet is the prize bank for every enrolled game — the operator's distributor reads each game's
+# leaderboard off-chain (a PROVABLE computation: scrapline's boards replay-verify, the duel/banked boards
+# tally settled games, and anyone can recompute and audit that the right addresses were paid), then calls
+# this per top finisher. Operator-only. IDEMPOTENT: a (game, day, rank) can be paid AT MOST ONCE — a
+# re-run of the distributor reverts the already-paid ranks (no double payout). Underfunded → the runtime
+# reverts the pay (fails closed, exactly like claim).
+REWARD = f"""
+    ctx r5 caller
+    movi r6 {OP_DIG}
+    eq r5 r6
+    require r5             ; operator only
+    hash r6 <- r0 r1 r2    ; idempotency key = H(idx, day, rank)
+    sload r5 r6
+    nez r5
+    notb r5
+    require r5            ; not already paid for this (game, day, rank)
+    movi r5 1
+    sstore r6 r5          ; mark this placement paid
+    pay r3 r4            ; pay the winner from the faucet balance (reverts if the faucet can't cover it)
+    ret r0
+"""
+
+SRC = {"fund": FUND, "set_game": SET_GAME, "claim": CLAIM, "reward": REWARD}
 
 ABI = {
     "fund": {"args": [], "value": True},
     "set_game": {"args": ["idx", "dig", "grant", "cap", "pow"]},
     "claim": {"args": ["idx", "nonce"]},
+    "reward": {"args": ["idx", "day", "rank", "addr", "amount"]},
     "_view": {
         "maps": {"gdig": GDIG, "ggrant": GGRANT, "gcap": GCAP, "gpow": GPOW, "gused": GUSED},
         "index": {"cnt": 0, "range": True},

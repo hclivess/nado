@@ -356,6 +356,14 @@ def t_faucet():
     assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(D2, 0)]}, D2, "c7"), "paused"
     assert "ok" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [1, 99, 10 ** 9, 2, EASY]}, OP, "s3")
     assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [1, grind(D2, 1)]}, D2, "c8"), "underfunded"
+    # LEADERBOARD PLACEMENT REWARDS: operator pays top finishers from the faucet balance, idempotent
+    W1 = "ndoWIN1" + "1" * 41
+    fb = st.bridge.get("faucet", 0)
+    assert "paid=450" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [0, 55, 1, W1, 450]}, OP, "rw1")
+    assert st.bridge.get(W1) == 450 and st.bridge.get("faucet") == fb - 450
+    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [0, 55, 1, W1, 450]}, OP, "rw2"), "double-pay same rank"
+    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [0, 55, 2, W1, 1]}, A, "rw3"), "non-operator reward"
+    assert "paid=450" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [0, 56, 1, W1, 450]}, OP, "rw4")   # next day OK
 
 
 def t_faucet_claim_proves():
