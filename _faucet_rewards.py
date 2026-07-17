@@ -30,7 +30,9 @@ GAMES = [
     (2, "fce697844f9b2b043abcaf4403953f9f", "duel"),      # stormhold
     (3, "b56dd48000707369be1630e41bfb038d", "banked"),    # farkle
     (4, "3d775ee563baae7c20ec39596fcd4f28", "banked"),    # blackjack
+    (5, "9c3d01b6b70f507ecc0bbf75b0615940", "battleship"), # battleship (efficiency: fewest shots to sink)
 ]
+SHIPS = 17
 
 def j(u): return json.load(urllib.request.urlopen(u, timeout=12))
 def post(tx):
@@ -48,6 +50,23 @@ def leaderboard(cid, kind):
             if not sd.get(g): continue
             w = wr[g]; winner = p1.get(g) if w == 1 else p2.get(g) if w == 2 else None
             if winner: score[winner] = score.get(winner, 0) + 1
+    elif kind == "battleship":
+        # efficiency board: fewest shots to SINK the enemy fleet (17 proven hits). Only real sink-wins count.
+        sd, wr, p1, p2 = sto.get("sd", {}), sto.get("wr", {}), sto.get("p1", {}), sto.get("p2", {})
+        h1, h2, fd1, fd2 = sto.get("h1", {}), sto.get("h2", {}), sto.get("fd1", {}), sto.get("fd2", {})
+        best = {}
+        for g in wr:
+            if not sd.get(g): continue
+            w = wr[g]
+            if w not in (1, 2): continue
+            if int((h1 if w == 1 else h2).get(g, 0) or 0) < SHIPS: continue   # must have sunk the fleet
+            winner = (p1 if w == 1 else p2).get(g)
+            if not winner: continue
+            fmap = fd1 if w == 1 else fd2
+            shots = sum(1 for c in range(100) if fmap.get(str(int(g) * 100 + c)))
+            if shots < SHIPS: continue
+            if winner not in best or shots < best[winner]: best[winner] = shots
+        return sorted(best.items(), key=lambda kv: kv[1])   # [(addr, shots)] ascending — fewest shots ranks first
     else:  # banked: a won, settled seat
         gd, gw, ga = sto.get("gd", {}), sto.get("gw", {}), sto.get("ga", {})
         for s in gd:

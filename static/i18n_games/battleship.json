@@ -102,7 +102,12 @@
     "bs.answering": "🛡 The enemy fired at {cell} — revealing your board…",
     "bs.awaitAnswer": "🎯 Shot fired at {cell} — waiting for the enemy to call it…",
     "bs.dnFire": "✓ Shot away.",
-    "bs.cfFire": "Firing — confirming on-chain…"
+    "bs.cfFire": "Firing — confirming on-chain…",
+    "bs.scoreHead": "🏆 Efficiency leaderboard",
+    "bs.scoreSub": "Sink the enemy fleet in the FEWEST shots. A clean 17-hit sweep is the perfect game — every miss costs you rank.",
+    "bs.scoreCol": "Best game (shots)",
+    "bs.noScores": "No sunk-fleet wins yet — win by sinking all 17 to make the board.",
+    "bs.winsTag": "{w}W"
   },
   "cs": {
     "bs.allGames": "🎮 Všechny hry",
@@ -207,7 +212,12 @@
     "bs.answering": "🛡 Nepřítel vystřelil na {cell} — odhaluji tvé pole…",
     "bs.awaitAnswer": "🎯 Výstřel na {cell} — čeká se, až nepřítel oznámí výsledek…",
     "bs.dnFire": "✓ Výstřel odeslán.",
-    "bs.cfFire": "Střelba — potvrzuje se…"
+    "bs.cfFire": "Střelba — potvrzuje se…",
+    "bs.scoreHead": "🏆 Žebříček efektivity",
+    "bs.scoreSub": "Potop nepřátelskou flotilu na CO NEJMÉNĚ výstřelů. Čistý zásah 17 ran je dokonalá hra — každý minus tě stojí místo.",
+    "bs.scoreCol": "Nejlepší hra (výstřely)",
+    "bs.noScores": "Zatím žádná výhra potopením — potop všech 17 a dostaň se na žebříček.",
+    "bs.winsTag": "{w}V"
   },
   "es": {
     "bs.allGames": "🎮 Todos los juegos",
@@ -312,7 +322,12 @@
     "bs.answering": "🛡 El enemigo disparó a {cell} — revelando tu tablero…",
     "bs.awaitAnswer": "🎯 Disparo a {cell} — esperando que el enemigo lo cante…",
     "bs.dnFire": "✓ Disparo enviado.",
-    "bs.cfFire": "Disparando — confirmando…"
+    "bs.cfFire": "Disparando — confirmando…",
+    "bs.scoreHead": "🏆 Clasificación de eficiencia",
+    "bs.scoreSub": "Hunde la flota enemiga con MENOS disparos. Un barrido limpio de 17 impactos es el juego perfecto — cada fallo te cuesta puesto.",
+    "bs.scoreCol": "Mejor partida (disparos)",
+    "bs.noScores": "Aún no hay victorias por hundimiento — hunde los 17 para entrar en la tabla.",
+    "bs.winsTag": "{w}V"
   },
   "pt": {
     "bs.allGames": "🎮 Todos os jogos",
@@ -417,7 +432,12 @@
     "bs.answering": "🛡 O inimigo atirou em {cell} — revelando seu tabuleiro…",
     "bs.awaitAnswer": "🎯 Tiro em {cell} — aguardando o inimigo cantar o resultado…",
     "bs.dnFire": "✓ Tiro disparado.",
-    "bs.cfFire": "Atirando — confirmando…"
+    "bs.cfFire": "Atirando — confirmando…",
+    "bs.scoreHead": "🏆 Ranking de eficiência",
+    "bs.scoreSub": "Afunde a frota inimiga com MENOS tiros. Uma varredura limpa de 17 acertos é o jogo perfeito — cada erro custa posição.",
+    "bs.scoreCol": "Melhor jogo (tiros)",
+    "bs.noScores": "Ainda sem vitórias por afundamento — afunde os 17 para entrar no ranking.",
+    "bs.winsTag": "{w}V"
   },
   "fr": {
     "bs.allGames": "🎮 Tous les jeux",
@@ -522,7 +542,12 @@
     "bs.answering": "🛡 L'ennemi a tiré sur {cell} — révélation de votre plateau…",
     "bs.awaitAnswer": "🎯 Tir sur {cell} — en attente que l'ennemi annonce le résultat…",
     "bs.dnFire": "✓ Tir parti.",
-    "bs.cfFire": "Tir — confirmation…"
+    "bs.cfFire": "Tir — confirmation…",
+    "bs.scoreHead": "🏆 Classement d'efficacité",
+    "bs.scoreSub": "Coulez la flotte ennemie en un MINIMUM de tirs. Un carton plein de 17 coups est la partie parfaite — chaque raté coûte des places.",
+    "bs.scoreCol": "Meilleure partie (tirs)",
+    "bs.noScores": "Pas encore de victoire par naufrage — coulez les 17 pour entrer au classement.",
+    "bs.winsTag": "{w}V"
   },
   "de": {
     "bs.allGames": "🎮 Alle Spiele",
@@ -627,7 +652,12 @@
     "bs.answering": "🛡 Der Gegner feuerte auf {cell} — dein Feld wird aufgedeckt…",
     "bs.awaitAnswer": "🎯 Schuss auf {cell} — warte, bis der Gegner ihn ansagt…",
     "bs.dnFire": "✓ Schuss raus.",
-    "bs.cfFire": "Feuer — wird bestätigt…"
+    "bs.cfFire": "Feuer — wird bestätigt…",
+    "bs.scoreHead": "🏆 Effizienz-Rangliste",
+    "bs.scoreSub": "Versenke die feindliche Flotte mit MÖGLICHST WENIGEN Schüssen. Ein sauberer 17-Treffer-Lauf ist das perfekte Spiel — jeder Fehlschuss kostet Rang.",
+    "bs.scoreCol": "Bestes Spiel (Schüsse)",
+    "bs.noScores": "Noch keine Versenkungs-Siege — versenke alle 17, um aufs Board zu kommen.",
+    "bs.winsTag": "{w}S"
   },
   "it": {
     "bs.allGames": "🎮 Tutti i giochi",
@@ -732,7 +762,12 @@
     "bs.answering": "🛡 Il nemico ha sparato a {cell} — rivelo la tua griglia…",
     "bs.awaitAnswer": "🎯 Colpo su {cell} — in attesa che il nemico lo annunci…",
     "bs.dnFire": "✓ Colpo partito.",
-    "bs.cfFire": "Fuoco — in conferma…"
+    "bs.cfFire": "Fuoco — in conferma…",
+    "bs.scoreHead": "🏆 Classifica di efficienza",
+    "bs.scoreSub": "Affonda la flotta nemica col MINOR numero di colpi. Un filotto di 17 centri è la partita perfetta — ogni errore ti costa posizioni.",
+    "bs.scoreCol": "Miglior partita (colpi)",
+    "bs.noScores": "Ancora nessuna vittoria per affondamento — affonda tutti i 17 per entrare in classifica.",
+    "bs.winsTag": "{w}V"
   },
   "ru": {
     "bs.allGames": "🎮 Все игры",
@@ -837,7 +872,12 @@
     "bs.answering": "🛡 Враг выстрелил по {cell} — раскрываю ваше поле…",
     "bs.awaitAnswer": "🎯 Выстрел по {cell} — ждём, пока враг объявит результат…",
     "bs.dnFire": "✓ Выстрел сделан.",
-    "bs.cfFire": "Выстрел — подтверждается…"
+    "bs.cfFire": "Выстрел — подтверждается…",
+    "bs.scoreHead": "🏆 Таблица эффективности",
+    "bs.scoreSub": "Потопи флот врага за КАК МОЖНО МЕНЬШЕ выстрелов. Чистые 17 попаданий — идеальная игра, каждый промах стоит места.",
+    "bs.scoreCol": "Лучшая игра (выстрелы)",
+    "bs.noScores": "Пока нет побед потоплением — потопи все 17, чтобы попасть в таблицу.",
+    "bs.winsTag": "{w}П"
   },
   "zh": {
     "bs.allGames": "🎮 所有游戏",
@@ -942,7 +982,12 @@
     "bs.answering": "🛡 敌方攻击了 {cell}——正在揭示你的棋盘…",
     "bs.awaitAnswer": "🎯 已攻击 {cell}——等待敌方公布结果…",
     "bs.dnFire": "✓ 已开火。",
-    "bs.cfFire": "开火 — 确认中…"
+    "bs.cfFire": "开火 — 确认中…",
+    "bs.scoreHead": "🏆 效率排行榜",
+    "bs.scoreSub": "用最少的炮弹击沉敌方舰队。干净的 17 发全中就是完美局——每次失手都会掉名次。",
+    "bs.scoreCol": "最佳对局（炮弹）",
+    "bs.noScores": "还没有击沉获胜——击沉全部 17 格即可上榜。",
+    "bs.winsTag": "{w}胜"
   },
   "ja": {
     "bs.allGames": "🎮 すべてのゲーム",
@@ -1047,7 +1092,12 @@
     "bs.answering": "🛡 敵が {cell} を攻撃——盤面を公開中…",
     "bs.awaitAnswer": "🎯 {cell} に射撃——敵の判定を待っています…",
     "bs.dnFire": "✓ 射撃完了。",
-    "bs.cfFire": "射撃 — 確認中…"
+    "bs.cfFire": "射撃 — 確認中…",
+    "bs.scoreHead": "🏆 効率ランキング",
+    "bs.scoreSub": "最少の砲撃で敵艦隊を撃沈。17発すべて命中が完璧な一戦——外すたびに順位が下がる。",
+    "bs.scoreCol": "最高記録（砲撃数）",
+    "bs.noScores": "撃沈勝利はまだなし——17マス全撃沈でランクイン。",
+    "bs.winsTag": "{w}勝"
   },
   "ko": {
     "bs.allGames": "🎮 모든 게임",
@@ -1152,7 +1202,12 @@
     "bs.answering": "🛡 적이 {cell}을(를) 공격 — 보드 공개 중…",
     "bs.awaitAnswer": "🎯 {cell} 사격 — 적의 판정을 기다리는 중…",
     "bs.dnFire": "✓ 사격 완료.",
-    "bs.cfFire": "사격 — 확인 중…"
+    "bs.cfFire": "사격 — 확인 중…",
+    "bs.scoreHead": "🏆 효율 순위표",
+    "bs.scoreSub": "가장 적은 포탄으로 적 함대를 격침하세요. 17발 전부 명중이 완벽한 판 — 빗나갈 때마다 순위가 내려갑니다.",
+    "bs.scoreCol": "최고 기록(포탄)",
+    "bs.noScores": "아직 격침 승리가 없습니다 — 17칸을 모두 격침해 순위에 오르세요.",
+    "bs.winsTag": "{w}승"
   },
   "ar": {
     "bs.allGames": "🎮 كل الألعاب",
@@ -1257,7 +1312,12 @@
     "bs.answering": "🛡 أطلق العدو على {cell} — جارٍ كشف لوحتك…",
     "bs.awaitAnswer": "🎯 طلقة على {cell} — في انتظار إعلان العدو للنتيجة…",
     "bs.dnFire": "✓ تم إطلاق النار.",
-    "bs.cfFire": "إطلاق — جارٍ التأكيد…"
+    "bs.cfFire": "إطلاق — جارٍ التأكيد…",
+    "bs.scoreHead": "🏆 لوحة الكفاءة",
+    "bs.scoreSub": "أغرق أسطول العدو بأقل عدد من الطلقات. تسديد 17 إصابة نظيفة هو المباراة المثالية — كل إخفاق يكلفك مركزًا.",
+    "bs.scoreCol": "أفضل مباراة (طلقات)",
+    "bs.noScores": "لا انتصارات بالإغراق بعد — أغرق كل الـ17 لتدخل اللوحة.",
+    "bs.winsTag": "{w} فوز"
   },
   "hi": {
     "bs.allGames": "🎮 सभी गेम",
@@ -1362,7 +1422,12 @@
     "bs.answering": "🛡 दुश्मन ने {cell} पर फ़ायर किया — आपका बोर्ड प्रकट हो रहा है…",
     "bs.awaitAnswer": "🎯 {cell} पर शॉट — दुश्मन के परिणाम बताने का इंतज़ार…",
     "bs.dnFire": "✓ शॉट भेजा गया।",
-    "bs.cfFire": "फ़ायर — पुष्टि हो रही है…"
+    "bs.cfFire": "फ़ायर — पुष्टि हो रही है…",
+    "bs.scoreHead": "🏆 दक्षता लीडरबोर्ड",
+    "bs.scoreSub": "दुश्मन के बेड़े को सबसे कम गोलों में डुबोएँ। 17 सटीक वार का साफ खेल परफेक्ट है — हर चूक रैंक घटाती है।",
+    "bs.scoreCol": "सर्वश्रेष्ठ खेल (गोले)",
+    "bs.noScores": "अभी तक कोई डुबो-जीत नहीं — सभी 17 डुबोकर बोर्ड में आएँ।",
+    "bs.winsTag": "{w} जीत"
   },
   "tr": {
     "bs.allGames": "🎮 Tüm oyunlar",
@@ -1467,7 +1532,12 @@
     "bs.answering": "🛡 Düşman {cell} hedefine ateş etti — tahtan açıklanıyor…",
     "bs.awaitAnswer": "🎯 {cell} hedefine atış — düşmanın sonucu bildirmesi bekleniyor…",
     "bs.dnFire": "✓ Atış yapıldı.",
-    "bs.cfFire": "Ateş — onaylanıyor…"
+    "bs.cfFire": "Ateş — onaylanıyor…",
+    "bs.scoreHead": "🏆 Verimlilik sıralaması",
+    "bs.scoreSub": "Düşman filosunu EN AZ atışla batır. Temiz 17 isabetlik seri kusursuz oyundur — her ıska sıra kaybettirir.",
+    "bs.scoreCol": "En iyi oyun (atış)",
+    "bs.noScores": "Henüz batırma galibiyeti yok — 17'nin hepsini batırıp tabloya gir.",
+    "bs.winsTag": "{w}G"
   },
   "id": {
     "bs.allGames": "🎮 Semua game",
@@ -1572,7 +1642,12 @@
     "bs.answering": "🛡 Musuh menembak {cell} — mengungkap papanmu…",
     "bs.awaitAnswer": "🎯 Menembak {cell} — menunggu musuh mengumumkan hasilnya…",
     "bs.dnFire": "✓ Tembakan meluncur.",
-    "bs.cfFire": "Menembak — mengonfirmasi…"
+    "bs.cfFire": "Menembak — mengonfirmasi…",
+    "bs.scoreHead": "🏆 Papan efisiensi",
+    "bs.scoreSub": "Tenggelamkan armada musuh dengan tembakan PALING SEDIKIT. Sapuan bersih 17 kena adalah permainan sempurna — tiap meleset menurunkan peringkat.",
+    "bs.scoreCol": "Game terbaik (tembakan)",
+    "bs.noScores": "Belum ada kemenangan tenggelam — tenggelamkan semua 17 untuk masuk papan.",
+    "bs.winsTag": "{w}M"
   },
   "vi": {
     "bs.allGames": "🎮 Tất cả trò chơi",
@@ -1677,6 +1752,11 @@
     "bs.answering": "🛡 Địch bắn vào {cell} — đang tiết lộ bảng của bạn…",
     "bs.awaitAnswer": "🎯 Đã bắn vào {cell} — chờ địch báo kết quả…",
     "bs.dnFire": "✓ Đã bắn.",
-    "bs.cfFire": "Bắn — đang xác nhận…"
+    "bs.cfFire": "Bắn — đang xác nhận…",
+    "bs.scoreHead": "🏆 Bảng xếp hạng hiệu suất",
+    "bs.scoreSub": "Đánh chìm hạm đội địch bằng ÍT phát bắn nhất. Loạt 17 phát trúng gọn là ván hoàn hảo — mỗi phát trượt tụt hạng.",
+    "bs.scoreCol": "Ván tốt nhất (phát bắn)",
+    "bs.noScores": "Chưa có chiến thắng đánh chìm — hạ đủ 17 để lên bảng.",
+    "bs.winsTag": "{w} thắng"
   }
 }

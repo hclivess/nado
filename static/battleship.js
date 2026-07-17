@@ -5,8 +5,9 @@
 // ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
 // oracle beyond the math — field-native alghash, byte-identical to the zkVM contract's in-VM HASH
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores } from "./nadodapp.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
+import { faucetAttach } from "./faucet.js";   // airdrop-play claims for newcomers (doc/faucet.md)
 
 const CID = "9c3d01b6b70f507ecc0bbf75b0615940";   // execnode/games/battleship.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
@@ -355,6 +356,38 @@ async function refreshAll() {
   autoSettle(sto);                                                               // reveal my fleet to collect any decided win
   autoAnswer(sto);                                                               // auto-reveal the result of any shot fired at me
   render();
+  if (sto) renderScoreboard(sto);
+}
+
+// ---- EFFICIENCY LEADERBOARD -----------------------------------------------------------------------------
+// Score = shots taken to sink the enemy fleet — FEWER is better (a flawless 17-hit sweep is the ceiling).
+// Only true sink-the-fleet wins count (winner reached 17 proven hits); resign/timeout wins don't qualify.
+// Fully client-side from the public fired-flag boards (fd1/fd2), so anyone recomputes + audits the same board.
+function shotsBy(sto, slot, g) {
+  const map = _m(sto, slot === 1 ? "fd1" : "fd2"); let n = 0;
+  for (let c = 0; c < 100; c++) if (map[Number(g) * 100 + c]) n++;
+  return n;
+}
+function renderScoreboard(sto) {
+  const el = $("scoreList"); if (!el) return;
+  const best = {};                                    // addr -> { shots (best/fewest), wins }
+  for (const g of allGids(sto)) {
+    if (!_m(sto, "sd")[g]) continue;                  // settled only
+    const wr = Number(_m(sto, "wr")[g] || 0); if (wr !== 1 && wr !== 2) continue;
+    const hits = Number(_m(sto, wr === 1 ? "h1" : "h2")[g] || 0);
+    if (hits < SHIPS) continue;                       // must have SUNK the fleet (17 hits), not won by resign/timeout
+    const winner = wr === 1 ? _m(sto, "p1")[g] : _m(sto, "p2")[g]; if (!winner) continue;
+    const shots = shotsBy(sto, wr, g); if (shots < SHIPS) continue;
+    const e = best[winner] || { shots: 1e9, wins: 0 };
+    e.wins++; if (shots < e.shots) e.shots = shots;
+    best[winner] = e;
+  }
+  const rows = Object.entries(best)
+    .map(([addr, v]) => ({ addr, score: v.shots, tag: window.t("bs.winsTag", "{w}W", { w: v.wins }) }))
+    .sort((a, b) => a.score - b.score);               // fewest shots first (best)
+  renderTopScores(el, rows, dapp.me,
+    window.t("bs.noScores", "No sunk-fleet wins yet — win by sinking all 17 to make the board."),
+    window.t("bs.scoreCol", "Best game (shots)"), true);
 }
 
 // ---- boot ----------------------------------------------------------------------------------------
@@ -402,7 +435,8 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   wireUI();
-  orderCards(["activeGame", "setup", "lobby", "practice", "walletcard", "bankroll"]);
+  faucetAttach(dapp, "battleship");     // SDK inserts the airdrop-play banner under the header
+  orderCards(["activeGame", "setup", "lobby", "practice", "scorecard", "walletcard", "bankroll"]);
   render();                                     // draw the fleet-placement UI immediately (needs no crypto/network)
   try { await dapp.init(); } catch (e) { alertBar(window.t("bs.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   loadQR();

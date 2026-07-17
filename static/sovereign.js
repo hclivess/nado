@@ -18,7 +18,7 @@ const fmtInt = (x) => String(Math.floor(x)).replace(/\B(?=(\d{3})+(?!\d))/g, ","
 const sign = (x) => (x >= 0 ? "+" : "") + (Math.abs(x) >= 100 ? Math.round(x) : x.toFixed(1));
 
 let world = {}, me = null, mc = 0, tab = "build", target = null, atkKind = "plunder";
-let myLastCur = 0, nowCur = 0;                            // my last on-chain touch + the live cursor (for the turn clock)
+let myLastCur = 0, nowCur = 0, lastWall = 0;              // my last touch + live cursor + wall-time of last poll (turn clock)
 const BLOCK_SECS = 6;
 let comp = { soldier: 1, tank: 1, fighter: 1, bunker: 0, mech: 1 };
 let practice = null;                                  // {seed, log, bots} when in the offline sandbox
@@ -51,7 +51,7 @@ async function refresh() {
   for (const e of log) if (e.target) { const rh = e.rh; if (rh && dapp.cursor != null && dapp.cursor >= rh && dapp.bh(rh) === undefined) need.push(rh); }
   if (need.length) await dapp.blockHashes(need.slice(0, 60), { fast: true });
   const now = dapp.cursor != null ? dapp.cursor : (log.length ? log[log.length - 1].rh : 0);
-  nowCur = now;
+  nowCur = now; lastWall = performance.now();
   myLastCur = dapp.me ? log.reduce((m, e) => e.actor === dapp.me && e.cursor > m ? e.cursor : m, 0) : 0;
   const rr = E.replayWorld(log, now, seedOf);
   world = rr.world;
@@ -177,12 +177,16 @@ function nationHead(n) {
     + (n.lastEvent ? '<div class="evline">📣 ' + T("ev_" + n.lastEvent, n.lastEvent) + "</div>" : "");
 }
 function genLvl(gn) { return "L" + (E.genLevel ? E.genLevel(gn.xp) : 0); }
+// estimated live cursor: last polled cursor + wall-clock blocks elapsed since (so the countdown ticks every
+// second between the 8s network refreshes, instead of jumping in 8s steps).
+function estCur() { return nowCur + (lastWall ? Math.floor((performance.now() - lastWall) / (BLOCK_SECS * 1000)) : 0); }
 // how long until the next economy turn ticks (production settles every TURN_BLOCKS blocks from your last touch)
 function turnClock() {
-  if (practice || !myLastCur || !nowCur || nowCur < myLastCur) return "";
-  const into = (nowCur - myLastCur) % E.TURN_BLOCKS;
+  if (practice || !myLastCur || !nowCur) return "";
+  const cur = Math.max(nowCur, estCur());
+  const into = (cur - myLastCur) % E.TURN_BLOCKS;
   const left = (E.TURN_BLOCKS - into) % E.TURN_BLOCKS || E.TURN_BLOCKS;
-  const secs = left * BLOCK_SECS;
+  const secs = Math.max(1, left * BLOCK_SECS);
   const t = secs >= 60 ? Math.floor(secs / 60) + "m" + (secs % 60 ? (secs % 60) + "s" : "") : secs + "s";
   return ' <span class="dim">· ' + T("nextTurnIn", "next in ~{t}", { t }) + "</span>";
 }
@@ -447,6 +451,13 @@ async function boot() {
   render();
   await refresh();
   setInterval(() => { if (!document.hidden && !raidOwner) refresh(); }, 8000);  // don't wipe an open war council
+  // smooth 1s tick: refresh JUST the dashboard header so the turn countdown ticks down every second between
+  // network polls (no network). When the estimated cursor crosses a turn boundary, pull real state early.
+  setInterval(() => {
+    if (document.hidden || practice || raidOwner || !me || !$("dash")) return;
+    if (estCur() - myLastCur >= (Math.floor((nowCur - myLastCur) / E.TURN_BLOCKS) + 1) * E.TURN_BLOCKS) { refresh(); return; }
+    $("dash").innerHTML = nationHead(me);
+  }, 1000);
 }
 boot();
 if (typeof window !== "undefined") window.__sov = { dapp, get world() { return world; }, get me() { return me; } };
