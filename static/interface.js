@@ -3290,7 +3290,12 @@ async function loadHistory() {
  * EXPLORE tab — the block explorer, folded into the wallet. Reads this node's public JSON API and
  * renders blocks / accounts / transactions. Reuses relayBase(), $, resolveAlias, rawToNado.
  * ---------------------------------------------------------------------------------------------- */
-const EX_RESERVED = new Set(["bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias"]);
+// mirrors protocol.RESERVED_RECIPIENTS (+ legacy "heartbeat") so every reserved recipient renders as a
+// badge instead of a dead account link — block rows, tx views and mempool rows all go through this.
+const EX_RESERVED = new Set(["bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit",
+  "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw",
+  "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote",
+  "treasury_execute", "msgkey", "xmsg", "faucet"]);
 async function exGetJSON(path) {
   const r = await fetch(relayBase() + path, { cache: "no-store" });
   const t = await r.text();
@@ -3352,6 +3357,29 @@ async function exLoadRecent() {
     const blocks = await Promise.all(nums.map((n) => exGetJSON("/get_block_number?number=" + n).catch(() => null)));
     $("exRecent").innerHTML = blocks.filter(Boolean).map(exBlockRow).join("") || `<div class="faint small">${i18("ex.noBlocks", "no blocks")}</div>`;
   } catch { $("exRecent").innerHTML = `<div class="faint small">${i18("ex.unavail", "unavailable")}</div>`; }
+}
+const EX_POOL_MAX = 50;   // render cap — a flooded pool must not build thousands of DOM rows
+async function exLoadMempool() {
+  const box = $("exMempool"), cnt = $("exPoolCount");
+  if (!box) return;
+  try {
+    const d = await exGetJSON("/transaction_pool");
+    const pool = (Array.isArray(d) ? d : d.transaction_pool || []).filter((t) => t && typeof t === "object");
+    if (cnt) cnt.textContent = pool.length ? `· ${pool.length} tx` : "";
+    if (!pool.length) { box.innerHTML = `<div class="faint small">${i18("ex.emptyPool", "mempool is empty")}</div>`; return; }
+    const rows = pool.slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    const extra = rows.length - EX_POOL_MAX;
+    box.innerHTML = rows.slice(0, EX_POOL_MAX).map(exPoolTxRow).join("")
+      + (extra > 0 ? `<div class="faint small mt">+${extra} ${exEsc(i18("ex.morePending", "more pending"))}</div>` : "");
+  } catch { box.innerHTML = `<div class="faint small">${i18("ex.unavail", "unavailable")}</div>`; }
+}
+function exPoolTxRow(t) {
+  // PENDING tx: /get_transaction only indexes MINED txids and the target block doesn't exist yet, so
+  // both render as plain text (no dead links); sender/recipient accounts exist and stay clickable.
+  return `<div class="ex-row"><div><span class="mono">${exShort(t.txid, 10)}</span>
+    <div class="small">${exLink("a", t.sender, exShort(t.sender, 8))} → ${exReservedOrAddr(t.recipient)}</div>
+    <div class="faint small">${exTime(t.timestamp)}</div></div>
+    <div style="text-align:right" class="mono">${exNado(t.amount)}<div class="faint small">fee ${exNado(t.fee || 0)}${t.max_block != null ? ` · ${exEsc(i18("ex.target", "target"))} #${num(t.max_block)}` : ""}</div></div></div>`;
 }
 function exBlockRow(b) {
   const txs = (b.block_transactions || []).length;
@@ -3824,7 +3852,7 @@ function showTab(name) {
   if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
   if (name === "receive") renderReceiveQR();
   else if (name === "aliases") loadMyAliases();
-  else if (name === "explore") { exLoadOverview(); exLoadRecent(); }
+  else if (name === "explore") { exLoadOverview(); exLoadRecent(); exLoadMempool(); }
   else if (name === "history") loadHistory().catch(() => {});
   else if (name === "rich") loadRichList().catch(() => {});
   else if (name === "stats") renderStats().catch(() => {});
@@ -5056,6 +5084,7 @@ function wireEvents() {
   if ($("btnAliasXfer")) $("btnAliasXfer").onclick = () => doAliasOp("transfer");
   if ($("exGo")) $("exGo").onclick = () => exSearch();
   if ($("exQ")) $("exQ").addEventListener("keydown", (e) => { if (e.key === "Enter") exSearch(); });
+  if ($("exPoolRefresh")) $("exPoolRefresh").onclick = () => exLoadMempool();
   document.addEventListener("click", (e) => {           // delegated explorer links (module-safe)
     const a = e.target.closest && e.target.closest("a.ex-link[data-exk]");
     if (a) {
