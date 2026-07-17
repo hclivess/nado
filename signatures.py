@@ -172,6 +172,12 @@ def _keypair_from_seed(seed: bytes):
     (public_key_bytes, secret_key_bytes). Locked too: keygen shares the same module-level NTT buffers as
     sign/verify, so a concurrent keygen (e.g. a wallet import while the node validates a block) would
     otherwise corrupt an in-flight verification just the same."""
+    # The seed length IS consensus-critical: dilithium-py's _keygen_internal accepts any length (a 31- or
+    # 33-byte seed silently derives a valid-but-different keypair), while the native backend and the browser
+    # pad/reject differently — so the SAME seed hex could yield different addresses across backends and split
+    # identities. Pin it to exactly 32 bytes at the one chokepoint every seed passes through.
+    if len(seed) != 32:
+        raise ValueError("ML-DSA seed must be exactly 32 bytes")
     with _CRYPTO_LOCK:
         return _BACKEND.keygen_internal(seed)
 

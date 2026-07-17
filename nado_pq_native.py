@@ -56,6 +56,9 @@ def keygen_internal(seed: bytes):
 def sign_internal(secret: bytes, message: bytes, rnd: bytes) -> bytes:
     """FIPS 204 Sign_internal (empty prefix, hedged with the caller's 32-byte rnd)."""
     assert len(rnd) == RND_BYTES
+    # The Rust reads a FIXED SK_BYTES from sk_in (from_raw_parts(sk_in, SK)) with no length param, so a
+    # short `secret` would be an out-of-bounds read past the Python buffer. Guard the length here.
+    assert len(secret) == SK_BYTES, "secret key must be exactly SK_BYTES"
     sig = ctypes.create_string_buffer(SIG_BYTES)
     siglen = ctypes.c_size_t(0)
     if _lib.nado_sign_internal(sig, ctypes.byref(siglen), message, len(message), rnd, secret) != 0:
@@ -64,5 +67,12 @@ def sign_internal(secret: bytes, message: bytes, rnd: bytes) -> bytes:
 
 
 def verify_internal(public: bytes, message: bytes, signature: bytes) -> bool:
-    """FIPS 204 Verify_internal (empty prefix); True iff valid."""
+    """FIPS 204 Verify_internal (empty prefix); True iff valid.
+
+    `public` is ATTACKER-CONTROLLED (a tx's public_key field). The Rust reads a FIXED PK_BYTES from pk_in
+    (from_raw_parts(pk_in, PK)) with no length param, so a short `public` would be an out-of-bounds read.
+    A wrong-length key can never be a valid signer anyway, so reject it as invalid here — matching the
+    pure-Python backend, which returns False rather than crashing (no native/pure consensus divergence)."""
+    if len(public) != PK_BYTES or len(signature) != SIG_BYTES:
+        return False
     return _lib.nado_verify_internal(signature, len(signature), message, len(message), public) == 0

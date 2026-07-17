@@ -452,6 +452,21 @@ class ExecState:
         except Exception:
             pass
 
+    @staticmethod
+    def exec_beacon_int(epoch, reveals):
+        """The exec-layer beacon for `epoch` as the BEACON opcode reads it, BEFORE the VM's mod-P reduction:
+        int(compute_beacon(GENESIS_BEACON, reveals + [str(epoch)]), 16). `reveals` is the epoch's revealed
+        secrets (any iterable; compute_beacon re-sorts, so order is irrelevant). The `+[str(epoch)]` sentinel
+        makes every epoch's beacon distinct even with zero reveals.
+
+        SINGLE SOURCE OF TRUTH: this is the ONLY definition of the exec beacon. advance_beacons (the exec
+        node) and the L1 settle-with-proof chain-read cross-check (ops/transaction_ops) both call it, so the
+        value a proof claims for BEACON and the value L1 authoritatively recomputes can never drift. NOTE it
+        differs from L1's RANDAO-eligibility beacon (block_ops mixes the anchor hash, not str(epoch))."""
+        from protocol import GENESIS_BEACON
+        from ops.mining_ops import compute_beacon
+        return int(compute_beacon(GENESIS_BEACON, list(reveals) + [str(int(epoch))]), 16)
+
     def advance_beacons(self, cursor):
         """Cache every epoch beacon now FINAL at `cursor`. Each beacon depends ONLY on that epoch's finalized
         reveals — beacon(E) = compute_beacon(GENESIS_BEACON, sorted(reveals[E]) + [E]) — NOT a cross-epoch chain,
@@ -459,8 +474,7 @@ class ExecState:
         reveals land) computes the identical beacon(E), regardless of when it started. `beacon_floor` is the
         first epoch we witnessed in full (this node began mid-flight, so earlier epochs are marked unavailable
         rather than computed from partial reveals). Prunes ancient epochs to bound memory."""
-        from protocol import EPOCH_LENGTH, GENESIS_BEACON
-        from ops.mining_ops import compute_beacon
+        from protocol import EPOCH_LENGTH
         if cursor is None or cursor < 0:
             return
         cur_epoch = int(cursor) // EPOCH_LENGTH
@@ -470,8 +484,7 @@ class ExecState:
             self.beacon_floor = cur_epoch + 2
         start = max(self.beacon_floor, (max(self.beacons) + 1) if self.beacons else 0)
         for e in range(start, cur_epoch + 1):
-            secrets = sorted(self.randao_reveals.get(e, set())) + [str(e)]   # +epoch: distinct even if 0 reveals
-            self.beacons[e] = int(compute_beacon(GENESIS_BEACON, secrets), 16)
+            self.beacons[e] = self.exec_beacon_int(e, self.randao_reveals.get(e, set()))
         keep = cur_epoch - 4000
         if keep > 0:
             for e in [e for e in self.beacons if e < keep]:

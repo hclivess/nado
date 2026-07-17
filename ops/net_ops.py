@@ -4,10 +4,11 @@ without importing the node (which generates keys / touches the data dir at impor
 from ops import codec
 import zstandard
 
-# Belt-and-suspenders bounds for decoding an UNTRUSTED /submit_transaction body. The aiohttp app already caps
-# the raw body (client_max_size, 1 MiB default), so these mainly bound the msgpack object-count blow-up — each
-# tiny element becomes a ~50-byte Python object — and can't be hit by any legit tx: a blob payload is
-# <= BLOB_MAX_BYTES (16 KiB) and the largest single field (ML-DSA pubkey/sig hex, PoSW proof) is a few KB.
+# Belt-and-suspenders bound for decoding an UNTRUSTED /submit_transaction body. The aiohttp app already caps
+# the raw body (client_max_size, 1 MiB default); this second explicit cap bounds the JSON-codec (ops/codec.py)
+# object blow-up — each tiny element becomes a ~50-byte Python object — and can't be hit by any legit tx: a
+# blob payload is <= BLOB_MAX_BYTES (16 KiB) and the largest single field (ML-DSA pubkey/sig hex, PoSW proof)
+# is a few KB.
 MAX_TX_BODY = 1 << 20            # 1 MiB, matches aiohttp's default client_max_size
 def unpack_tx(body):
     """Decode a submitted transaction body (the JSON codec wire — see ops/codec.py) with an explicit
@@ -23,7 +24,7 @@ def unpack_tx(body):
 # server-side client_max_size does NOT apply — response.read() would buffer whatever the peer streams. A
 # malicious donor (esp. a lone one under weak-subjectivity) could stream GiB and OOM us, and the sha256 /
 # state_root checks that would reject bad content only run AFTER the whole body is in memory. So cap the read
-# AND the msgpack object-count on every peer download. ---
+# (and the decompressed size, via bounded_zstd_decompress) on every peer download. ---
 MAX_PEER_BODY = 8 << 20            # /status, /peers, snapshot manifest, a single block — small control msgs
 MAX_SNAPSHOT_TOTAL = 2 << 30      # absolute ceiling on a whole snapshot (sum of all chunk bytes)
 MAX_SNAPSHOT_ACCOUNTS = 50_000_000
@@ -50,8 +51,8 @@ async def read_capped(response, cap):
 
 
 def unpack_peer(body):
-    """msgpack-decode a peer control message (status / peers / snapshot manifest / block) with the same
-    object-count bounds used for untrusted tx bodies."""
+    """Decode a peer control message (status / peers / snapshot manifest / block) via the JSON codec
+    (ops/codec.py). The caller is responsible for bounding `body` first (read_capped / MAX_PEER_BODY)."""
     return codec.unpack(body)
 
 

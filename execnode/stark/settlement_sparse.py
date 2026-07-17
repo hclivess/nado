@@ -255,6 +255,26 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None):
         return False, f"malformed sparse settlement: {e}", None, None
 
 
+def chain_reads(proof):
+    """Every BHASH/BEACON chain-randomness read a settlement bundle claims, as an ordered list of
+    (kind, key, value) with kind in {zkvm.IO_BHASH, zkvm.IO_BEACON}, key = height/epoch, value = the
+    field element the proof asserts the VM read.
+
+    verify_settlement_sparse only proves the computation is CONSISTENT with these io values; it can NOT
+    prove they equal the REAL finalized chain randomness (a malicious prover is free to put any value in
+    the io log). The L1 settle branch MUST cross-check each of these against its own authoritative chain
+    (block hash at `key` / beacon of epoch `key`) — exactly what the interactive verifier does at
+    execnode.py's /exec/verify_state. Without that check a settle-with-proof tx can settle a state built on
+    attacker-chosen dice/wheel outcomes."""
+    out = []
+    for seg in (proof.get("segments") or []):
+        for e in seg.get("io", []):
+            kind, a, b = int(e[0]), int(e[1]), int(e[2])
+            if kind in (zkvm.IO_BHASH, zkvm.IO_BEACON):
+                out.append((kind, a, b))
+    return out
+
+
 def verify_withdrawal(settled_root, cid, slot, value, siblings, depth=DEFAULT_DEPTH):
     """A bridge/dividend/unshield exit proves its record (a specific contract slot = value) is a member of the
     settled SPARSE root — storage_tree membership, the sparse replacement for hashing.verify_merkle_proof

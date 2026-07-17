@@ -21,8 +21,13 @@ windows, which stop field wrap-around forgeries) or proof capacity (the trace ce
 
 Integer semantics over a prime field (the part that must be exact for the AIR to be SOUND — the interpreter
 mirrors the constraints bit-for-bit, and reverts wherever the constraints would be unsatisfiable):
-  LT/RANGE   63-bit window, byte+7bit limb decomposition; compare is deterministic for operands < 2^62
-             (contract discipline: RANGE-check foreign values; all NADO amounts are far below 2^62).
+  LT         62-bit DIFFERENCE window (6 byte + 2 seven-bit limbs). UNFORGEABLE for operands < 2^63: the
+             wrong comparison bit's field-wrapped difference is >= P - 2^63 ~ 2^63 > 2^62, so it can never
+             decompose — exactly ONE bit (the honest one) is provable. (A 63-bit window left a ~2^32-wide
+             band near 2^63 where BOTH bits decomposed and a malicious prover could pick the losing one.)
+  RANGE      63-bit window, byte+7bit limb decomposition — a pure bound (no bit to forge). This is the tool
+             contracts use to pin foreign values < 2^63 so a following LT is sound; all NADO amounts are
+             far below 2^62 in any case.
   DIVMOD     a//b with 1 <= b < 2^15 and q < 2^48 (else revert): q,b-1,rem,b-rem-1 all limb-decomposed,
              so q*b + rem = a cannot wrap p — the classic field-division forgery is structurally excluded.
              The 48/15 split serves big-value-by-small-constant math (stake*99/target).
@@ -109,10 +114,21 @@ def _bytes_of(v, n):
 
 
 def _decomp63(v):
-    """63-bit window decomposition: 7 byte limbs + 1 seven-bit limb, or None if v >= 2^63."""
+    """63-bit window decomposition: 7 byte limbs + 1 seven-bit limb, or None if v >= 2^63. Used by RANGE."""
     if v < 0 or v >= 1 << 63:
         return None
     return _bytes_of(v, 7), (v >> 56) & 127
+
+
+def _decomp62(v):
+    """62-bit window: 6 byte limbs + 2 seven-bit limbs (48 + 7 + 7 bits), or None if v >= 2^62. Used by LT
+    (a strictly narrower window than RANGE's) so the comparison bit is UNFORGEABLE: for operands < 2^63 the
+    wrong bit's field-wrapped difference is >= P - 2^63 ~ 2^63 and cannot fall inside 2^62, so exactly the
+    honest bit decomposes. Reuses the shared byte + 7-bit range tables — no new limb columns or tables."""
+    if v < 0 or v >= 1 << 62:
+        return None
+    hi = v >> 48                                          # bits 48..61 (14 bits) -> two 7-bit limbs
+    return _bytes_of(v, 6), hi & 127, (hi >> 7) & 127
 
 
 def _decomp31(v):
@@ -198,10 +214,10 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
             elif op_name == "LT":
                 b = 1 if rd < rs else 0
                 dv = (rs - rd - 1) if b else (rd - rs)
-                dec = _decomp63(dv)
+                dec = _decomp62(dv)                            # 62-bit window: exactly the honest bit is provable
                 if dec is None:
-                    raise ZkVMRevert("LT operands outside the 63-bit window")
-                bl[:7], sl[0] = dec[0], dec[1]
+                    raise ZkVMRevert("LT operand difference outside the 62-bit window")
+                bl[0:6], sl[0], sl[1] = dec[0], dec[1], dec[2]
                 wi = b                                        # the AIR's b-bit lives in the wi column
                 res, wr = b, True
             elif op_name == "RANGE":

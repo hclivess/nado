@@ -657,6 +657,11 @@ def validate_transaction(transaction, logger, block_height):
         from ops import alias_ops
         assert alias_ops.resolve_alias(_recip) is not None, f"Invalid recipient {_recip}"
     assert isinstance(transaction["fee"], int) and not isinstance(transaction["fee"], bool), "Transaction fee is not an integer"
+    # fee >= 0 as a TOP-LEVEL backstop (not only per-recipient): reflect_transaction debits balance-amount-fee,
+    # so a negative fee MINTS coins to the sender. Non-negativity was enforced only by the scattered per-branch
+    # `fee == 0 or fee >= MIN_TX_FEE` asserts; a future recipient branch that forgets one would be an inflation
+    # bug. Pin it here beside the amount>=0 check, exactly as this function's own docstring already promises.
+    assert transaction["fee"] >= 0, "Transaction fee lower than zero"
     # amount must be a non-negative integer (not a bool, not a float): a float would
     # satisfy the old check_balance comparison and corrupt the integer-satoshi ledger
     assert isinstance(transaction["amount"], int) and not isinstance(transaction["amount"], bool), "Transaction amount is not an integer"
@@ -826,7 +831,12 @@ def validate_transaction(transaction, logger, block_height):
         ns = data.get("ns", DEFAULT_NS)
         assert valid_namespace(ns), "Settle ns must be a valid namespace id ([a-z0-9._-], <=32)"
         assert ns != DEFAULT_NS or "ns" not in data, "default namespace must be omitted from settle data (canonical form)"
-        assert isinstance(cursor, int) and not isinstance(cursor, bool) and cursor >= 0, "Settle exec_cursor must be a non-negative int"
+        # Upper bound is CONSENSUS-CRITICAL, not cosmetic: exec_cursor is packed be8 (struct '>Q') into the
+        # LMDB settlement key at apply-time (kv_ops._settle_key), which raises struct.error for cursor >= 2**64
+        # INSIDE incorporate_block — a path that must never raise, or one cheap tx halts production+verify on
+        # every node (same class as the old min_block poison). The 2**64-1 ceiling also keeps a real cursor from
+        # ever equaling the b'\xff'*8 end-of-namespace sentinel that settlement_max_cursor range-seeks past.
+        assert isinstance(cursor, int) and not isinstance(cursor, bool) and 0 <= cursor < (1 << 64) - 1, "Settle exec_cursor must be an int in [0, 2**64-1)"
         assert isinstance(root, str) and len(root) == 64 and all(c in "0123456789abcdef" for c in root), "Settle state_root must be 64-hex"
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
@@ -869,6 +879,31 @@ def validate_transaction(transaction, logger, block_height):
             post_full = ER.full_root_hex(SST.digest_from_hex(kv_post), SST.digest_from_hex(rec_hex))
             assert pre_full == expected_pre, "Settle proof pre_root must extend the settled tip"
             assert post_full == root, "Settle proof post_root must equal state_root"
+            # CHAIN-RANDOMNESS SOUNDNESS: the STARK only proves the computation is CONSISTENT with the
+            # BHASH/BEACON values in the bundle's io log — a malicious prover may put ANY value there. Bind
+            # every chain read to THIS node's authoritative finalized chain (block hash at height / exec
+            # beacon of epoch — both pure functions of the finalized chain, so every node agrees), exactly as
+            # the interactive verifier does (execnode /exec/verify_state). Without this a bonded validator
+            # could settle-with-proof a state built on attacker-chosen dice/wheel/beacon outcomes.
+            from execnode.stark import field as _F
+            from execnode import zkvm as _zkvm
+            from execnode.state import ExecState as _ExecState
+            from ops.block_ops import get_block_hash_by_number as _bhash
+            from protocol import EPOCH_LENGTH as _EL, FINALITY_DEPTH as _FD
+            _fin = int(block_height) - _FD - 1                    # highest position that is finalized & immutable now
+            for _kind, _key, _val in SS.chain_reads(proof):
+                assert 0 <= _val < _F.P, "Settle proof chain read value out of field"
+                if _kind == _zkvm.IO_BHASH:
+                    assert 0 <= _key <= _fin, "Settle proof BHASH height is not finalized"
+                    _bh = _bhash(_key)
+                    assert _bh, "Settle proof BHASH height unavailable on chain"
+                    assert int(_bh, 16) % _F.P == _val, "Settle proof BHASH does not match the finalized chain"
+                elif _kind == _zkvm.IO_BEACON:
+                    assert 0 <= _key and _key * _EL <= _fin, "Settle proof BEACON epoch is not finalized"
+                    assert _ExecState.exec_beacon_int(_key, kv_ops.reveals_for_epoch(_key)) % _F.P == _val, \
+                        "Settle proof BEACON does not match the finalized chain"
+                else:
+                    raise AssertionError("unknown chain-read kind in settle proof")
     elif recipient == "bridge":
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
         assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
@@ -1135,8 +1170,15 @@ def get_transactions_of_account(account, min_block: int, limit: int = 1000):
 
 def to_readable_amount(raw_amount: int) -> str:
     """integer raw units -> fixed 10-decimal display string (1 coin = 10^10 raw); display only,
-    the ledger itself never leaves integers"""
-    return f"{(raw_amount / 10000000000):.10f}"
+    the ledger itself never leaves integers.
+
+    INTEGER-EXACT (divmod, not float division): raw balances can exceed 2**53, at which point
+    `raw / 1e10` rounds in float64 and the displayed balance silently loses its low digits. divmod
+    on the Python int is exact for any width."""
+    raw = int(raw_amount)
+    sign = "-" if raw < 0 else ""
+    whole, frac = divmod(abs(raw), 10000000000)
+    return f"{sign}{whole}.{frac:010d}"
 
 
 def to_raw_amount(amount: [int, float]) -> int:

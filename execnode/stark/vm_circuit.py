@@ -147,7 +147,11 @@ def _recomp(row, spec):
     return acc
 
 
-_SPEC63 = [(BL + k, 1 << (8 * k)) for k in range(7)] + [(SL + 0, 1 << 56)]
+_SPEC63 = [(BL + k, 1 << (8 * k)) for k in range(7)] + [(SL + 0, 1 << 56)]      # RANGE: pure 63-bit bound
+# LT decomposes the DIFFERENCE in a strictly narrower 62-bit window (6 byte + 2 seven-bit limbs) so the
+# comparison bit is unforgeable: for operands < 2^63 the wrong bit's field-wrapped diff is >= P-2^63 ~ 2^63
+# and cannot decompose here, leaving only the honest bit. Reuses the same byte/7-bit limb columns + tables.
+_SPEC62 = [(BL + k, 1 << (8 * k)) for k in range(6)] + [(SL + 0, 1 << 48), (SL + 1, 1 << 55)]
 # DIVMOD (widened): q is 48-bit (6 byte limbs); b-1 / rem / b-rem-1 are 15-bit (byte + 7-bit) so a small
 # divisor keeps q·b < 2^63 < P — field division cannot wrap. LO32 keeps its own independent lo/hi window.
 _SPEC_Q = [(BL + k, 1 << (8 * k)) for k in range(6)]
@@ -439,7 +443,7 @@ def transitions(bind_io=False, gamma_fp=0):
     def c_lt(c, n, p, ch):
         rdv, rsv, b = _rd_val(c), _rs_val(c), c[WI]
         D = F.add(F.mul(b, F.sub(F.sub(rsv, rdv), 1)), F.mul(F.sub(1, b), F.sub(rdv, rsv)))
-        return F.mul(c[F0 + _O["LT"]], F.sub(D, _recomp(c, _SPEC63)))
+        return F.mul(c[F0 + _O["LT"]], F.sub(D, _recomp(c, _SPEC62)))       # 62-bit diff window (unforgeable bit)
     def c_range(c, n, p, ch):
         return F.mul(c[F0 + _O["RANGE"]], F.sub(_rd_val(c), _recomp(c, _SPEC63)))
     def c_dm_main(c, n, p, ch):

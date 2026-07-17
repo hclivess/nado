@@ -60,9 +60,20 @@ def _pack(data):
 
 
 def _unpack(syms, length):
-    """Inverse of _pack: symbols -> bytes, truncated to the original length."""
-    out = b"".join(int(s % P).to_bytes(SYMBOL_BYTES + 1, "big")[-SYMBOL_BYTES:] for s in syms)
-    return out[:length]
+    """Inverse of _pack: symbols -> bytes, truncated to the original length.
+
+    A valid codeword's data symbols are always < 2**56 (7-byte packs from _pack), so composing 8 bytes
+    and slicing the low 7 is lossless. A symbol >= 2**56 can ONLY come from a non-codeword (a corrupt or
+    forged shard reconstructed with exactly k points, where the redundancy consistency check is skipped);
+    silently dropping its high byte would return plausible-looking wrong bytes with no error. Raise instead
+    so bad input is caught here rather than propagated as a valid-looking blob."""
+    out = bytearray()
+    for s in syms:
+        s = int(s) % P
+        if s >> (SYMBOL_BYTES * 8):   # any bit above the 56-bit data range -> not a real data symbol
+            raise ValueError("da: reconstructed symbol out of 7-byte data range (corrupt shard set)")
+        out += s.to_bytes(SYMBOL_BYTES, "big")
+    return bytes(out[:length])
 
 
 def _shard_bytes(shard_syms):

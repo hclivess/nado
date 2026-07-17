@@ -67,8 +67,16 @@ export function blake2bHash(data, size = 32) { return bytesToHex(blake2b(canonic
 
 // ---- keys / address ------------------------------------------------------------------------------
 export function makeAddress(pubHex) { const body = "ndo" + pubHex.slice(0, 42); return body + blake2bHash(body, 2); }
+// The seed MUST be exactly 32 bytes (64 hex). noble zero-PADS a short seed into the SHAKE preimage while the
+// node's dilithium builds a different-length preimage, so a 63-hex seed (e.g. a dropped leading-zero byte)
+// derives a DIFFERENT address in the browser than on the node -> the node rejects the tx as pubkey!=sender.
+function reqSeed(seedHex) {
+  if (typeof seedHex !== "string" || !/^[0-9a-fA-F]{64}$/.test(seedHex))
+    throw new Error("seed must be exactly 32 bytes (64 hex chars)");
+  return seedHex.toLowerCase();
+}
 export function keyFromSeed(seedHex) {
-  const { publicKey } = ml_dsa44.keygen(hexToBytes(seedHex));
+  const { publicKey } = ml_dsa44.keygen(hexToBytes(reqSeed(seedHex)));
   const pubHex = bytesToHex(publicKey);
   return { privateKey: seedHex, publicKey: pubHex, address: makeAddress(pubHex) };
 }
@@ -80,7 +88,7 @@ function createTxid(body) { const pre = {}; for (const k of Object.keys(body)) i
 export function finalizeTx(draft, privHex, fee) {
   const body = { ...draft, fee };
   const txid = createTxid(body);
-  const { publicKey, secretKey } = ml_dsa44.keygen(hexToBytes(privHex));
+  const { publicKey, secretKey } = ml_dsa44.keygen(hexToBytes(reqSeed(privHex)));
   const m = hexToBytes(txid);
   // ML-DSA-44 signing is hedged (randomized) — a rare bad hedge yields a non-verifying sig; re-sign until ours verifies.
   let signature = null;

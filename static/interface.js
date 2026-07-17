@@ -32,11 +32,11 @@ import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
  * adds no trust: the relay already supplies balances, fees and block targets. */
 let CHAIN_ID = "alphanet-6";
 const EPOCH_LENGTH = 60;
-const FINALITY_DEPTH = 30;     // protocol.py: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1
+const FINALITY_DEPTH = 12;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
 // registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (≈1 day at ~8 min/epoch).
-const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, POSW_LEASE_EPOCHS = 180;
+const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, POSW_LEASE_EPOCHS = 240;
 // Headroom (in blocks) between the current tip and the register/recert max_block, so the tx still lands
 // BEFORE its target while the sequential PoW is computing. It is capped by POSW_ANCHOR_OFFSET: the anchor is
 // block (target − POSW_ANCHOR_OFFSET), which the client must be able to FETCH now, so target ≤ tip + offset.
