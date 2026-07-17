@@ -252,7 +252,7 @@ const GAMES = [
   { svg:SVG.poker, name:"Texas Hold'em", tag:"Live", live:true, slug:"poker", url:"https://poker.nadochain.com",
     blurb:"Real multiplayer hold'em — no house, no dealer. Your hole cards come from a secret only your browser knows, the flop/turn/river from future block hashes, and at showdown the contract ranks every hand on-chain (kickers included). Four betting streets, best hand takes the pot.",
     meta:["Multiplayer","Hidden hole cards","4 betting streets","Winner takes the pot"] },
-  { svg:SVG.kostky, name:"Farkle", tag:"Live", live:true, slug:"farkle", url:"https://farkle.nadochain.com",
+  { svg:SVG.kostky, name:"Farkle", tag:"Live", live:true, slug:"farkle", faucet:true, url:"https://farkle.nadochain.com",
     blurb:"The push-your-luck dice classic (aka Ten Thousand): pick how far you dare to push, and the chain auto-plays your whole turn from a future block hash — set aside 1s, 5s and three-of-a-kinds, but a scoreless roll busts it all. Open table, highest score takes the pot.",
     meta:["6 dice","Push your luck","Multiplayer","Winner takes the pot"] },
   { svg:SVG.pets, name:"NADO Pets", tag:"Live", live:true, slug:"pets", url:"https://pets.nadochain.com",
@@ -261,7 +261,7 @@ const GAMES = [
   { svg:SVG.slots, name:"Slots", tag:"Live", live:true, slug:"slots", url:"https://slots.nadochain.com",
     blurb:"Classic 3-reel slots where players own the machines. Open one, bank it, and earn the published 4.2% edge — or spin someone else's for up to 150× on triple sevens. Every spin is decided by two future block hashes; the exact 95.80% RTP is proven by full enumeration and enforced on-chain.",
     meta:["Own the machine","150× jackpot","RTP 95.80% exact","Results in seconds"] },
-  { svg:SVG.blackjack, name:"Blackjack", tag:"Live", live:true, slug:"blackjack", url:"https://blackjack.nadochain.com",
+  { svg:SVG.blackjack, name:"Blackjack", tag:"Live", live:true, slug:"blackjack", faucet:true, url:"https://blackjack.nadochain.com",
     blurb:"Blackjack with literally no dealer to trust: the house plays a fixed on-chain strategy (stands on 17), your cards bind to future block hashes when you bet or hit, and the dealer's cards are drawn only after you stand — nothing to peek at, nothing to rig. Win pays 2×, blackjack 5:2, every card verifiable on-chain.",
     meta:["Hit or stand","Dealer is an algorithm","Blackjack pays 5:2","Every card on-chain"] },
   { svg:SVG.mines, name:"Mines", tag:"Live", live:true, slug:"mines", url:"https://mines.nadochain.com",
@@ -290,7 +290,7 @@ function renderGames() {
     const blurb = T("games." + g.slug + ".blurb", g.blurb);
     const tag = g.live ? T("games.tagLive", "Live") : T("games.tagSoon", "Soon");
     const meta = g.meta.map((m, i) => `<span class="pill">${T("games." + g.slug + ".m" + i, m)}</span>`).join("")
-      + (g.faucet ? `<span class="pill" style="border-color:#3fb950;color:#3fb950">${T("games.faucetPill", "🚰 free play")}</span>` : "");
+      + (g.faucet ? `<span class="pill" style="border-color:#3fb950;color:#3fb950">${T("games.faucetPill", "🪂 airdrop play")}</span>` : "");
     const cta = g.live ? `<a class="btn" href="${g.url}">${T("games.play", "Play {name} →", { name })}</a>`
                        : `<span class="btn disabled">${T("games.soon", "Coming soon")}</span>`;
     return `

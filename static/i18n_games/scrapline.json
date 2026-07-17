@@ -281,7 +281,14 @@
     "scrap.it_fieldforge": "Field Forge",
     "scrap.itx_fieldforge": "Big repair; overheal becomes shield.",
     "scrap.it_burnchamber": "Burn Chamber",
-    "scrap.itx_burnchamber": "All your EMBER items +damage."
+    "scrap.itx_burnchamber": "All your EMBER items +damage.",
+    "scrap.tag_blade": "BLADE",
+    "scrap.tag_bolt": "BOLT",
+    "scrap.tag_spark": "SPARK",
+    "scrap.tag_ember": "EMBER",
+    "scrap.tag_plate": "PLATE",
+    "scrap.tag_mend": "MEND",
+    "scrap.tag_core": "CORE"
   },
   "cs": {
     "scrap.abort": "Nárokovat vrácení (soupeř nehraje)",
@@ -565,7 +572,14 @@
     "scrap.it_fieldforge": "Polní výheň",
     "scrap.itx_fieldforge": "Velká oprava; přeléčení se změní na štít.",
     "scrap.it_burnchamber": "Spalovací komora",
-    "scrap.itx_burnchamber": "Všem tvým ŽÁR předmětům +poškození."
+    "scrap.itx_burnchamber": "Všem tvým ŽÁR předmětům +poškození.",
+    "scrap.tag_blade": "ČEPEL",
+    "scrap.tag_bolt": "ŠÍP",
+    "scrap.tag_spark": "JISKRA",
+    "scrap.tag_ember": "ŽHAVÝ",
+    "scrap.tag_plate": "PANCÍŘ",
+    "scrap.tag_mend": "LÉČBA",
+    "scrap.tag_core": "JÁDRO"
   },
   "es": {
     "scrap.abort": "Reclamar reembolso (el rival no juega)",
@@ -849,7 +863,14 @@
     "scrap.it_fieldforge": "Fragua de campaña",
     "scrap.itx_fieldforge": "Gran reparación; la sobrecuración se vuelve escudo.",
     "scrap.it_burnchamber": "Cámara de combustión",
-    "scrap.itx_burnchamber": "A todos tus objetos BRASA +daño."
+    "scrap.itx_burnchamber": "A todos tus objetos BRASA +daño.",
+    "scrap.tag_blade": "HOJA",
+    "scrap.tag_bolt": "PROYECTIL",
+    "scrap.tag_spark": "CHISPA",
+    "scrap.tag_ember": "BRASA",
+    "scrap.tag_plate": "PLACA",
+    "scrap.tag_mend": "CURA",
+    "scrap.tag_core": "NÚCLEO"
   },
   "pt": {
     "scrap.abort": "Reivindicar reembolso (oponente parou de jogar)",
@@ -1133,7 +1154,14 @@
     "scrap.it_fieldforge": "Forja de campo",
     "scrap.itx_fieldforge": "Grande reparo; cura excedente vira escudo.",
     "scrap.it_burnchamber": "Câmara de combustão",
-    "scrap.itx_burnchamber": "A todos os seus itens BRASA +dano."
+    "scrap.itx_burnchamber": "A todos os seus itens BRASA +dano.",
+    "scrap.tag_blade": "LÂMINA",
+    "scrap.tag_bolt": "PROJÉTIL",
+    "scrap.tag_spark": "FAÍSCA",
+    "scrap.tag_ember": "BRASA",
+    "scrap.tag_plate": "PLACA",
+    "scrap.tag_mend": "CURA",
+    "scrap.tag_core": "NÚCLEO"
   },
   "fr": {
     "scrap.abort": "Réclamer le remboursement (adversaire inactif)",
@@ -1417,7 +1445,14 @@
     "scrap.it_fieldforge": "Forge de campagne",
     "scrap.itx_fieldforge": "Grosse réparation ; le sursoin devient bouclier.",
     "scrap.it_burnchamber": "Chambre de combustion",
-    "scrap.itx_burnchamber": "À tous tes objets BRAISE +dégâts."
+    "scrap.itx_burnchamber": "À tous tes objets BRAISE +dégâts.",
+    "scrap.tag_blade": "LAME",
+    "scrap.tag_bolt": "TRAIT",
+    "scrap.tag_spark": "ÉTINCELLE",
+    "scrap.tag_ember": "BRAISE",
+    "scrap.tag_plate": "PLAQUE",
+    "scrap.tag_mend": "SOIN",
+    "scrap.tag_core": "NOYAU"
   },
   "de": {
     "scrap.abort": "Rückerstattung einfordern (Gegner reagiert nicht)",
@@ -1701,7 +1736,14 @@
     "scrap.it_fieldforge": "Feldschmiede",
     "scrap.itx_fieldforge": "Große Reparatur; Überheilung wird zu Schild.",
     "scrap.it_burnchamber": "Brennkammer",
-    "scrap.itx_burnchamber": "Allen deinen GLUT-Objekten +Schaden."
+    "scrap.itx_burnchamber": "Allen deinen GLUT-Objekten +Schaden.",
+    "scrap.tag_blade": "KLINGE",
+    "scrap.tag_bolt": "BOLZEN",
+    "scrap.tag_spark": "FUNKE",
+    "scrap.tag_ember": "GLUT",
+    "scrap.tag_plate": "PANZER",
+    "scrap.tag_mend": "HEILUNG",
+    "scrap.tag_core": "KERN"
   },
   "it": {
     "scrap.abort": "Richiedi il rimborso (avversario fermo)",
@@ -1985,7 +2027,14 @@
     "scrap.it_fieldforge": "Fucina da campo",
     "scrap.itx_fieldforge": "Grande riparazione; la sovraccura diventa scudo.",
     "scrap.it_burnchamber": "Camera di combustione",
-    "scrap.itx_burnchamber": "A tutti i tuoi oggetti BRACE +danno."
+    "scrap.itx_burnchamber": "A tutti i tuoi oggetti BRACE +danno.",
+    "scrap.tag_blade": "LAMA",
+    "scrap.tag_bolt": "DARDO",
+    "scrap.tag_spark": "SCINTILLA",
+    "scrap.tag_ember": "BRACE",
+    "scrap.tag_plate": "PIASTRA",
+    "scrap.tag_mend": "CURA",
+    "scrap.tag_core": "NUCLEO"
   },
   "ru": {
     "scrap.abort": "Забрать возврат (соперник тянет время)",
@@ -2269,7 +2318,14 @@
     "scrap.it_fieldforge": "Полевая кузница",
     "scrap.itx_fieldforge": "Большой ремонт; переизлечение становится щитом.",
     "scrap.it_burnchamber": "Камера сгорания",
-    "scrap.itx_burnchamber": "Всем твоим предметам ЖАР +урон."
+    "scrap.itx_burnchamber": "Всем твоим предметам ЖАР +урон.",
+    "scrap.tag_blade": "КЛИНОК",
+    "scrap.tag_bolt": "БОЛТ",
+    "scrap.tag_spark": "ИСКРА",
+    "scrap.tag_ember": "УГЛИ",
+    "scrap.tag_plate": "БРОНЯ",
+    "scrap.tag_mend": "ПОЧИНКА",
+    "scrap.tag_core": "ЯДРО"
   },
   "zh": {
     "scrap.abort": "领取退款（对手拖延不动）",
@@ -2553,7 +2609,14 @@
     "scrap.it_fieldforge": "野战熔炉",
     "scrap.itx_fieldforge": "大量修复；过量治疗转为护盾。",
     "scrap.it_burnchamber": "燃烧室",
-    "scrap.itx_burnchamber": "所有你的“余烬”道具 +伤害。"
+    "scrap.itx_burnchamber": "所有你的“余烬”道具 +伤害。",
+    "scrap.tag_blade": "利刃",
+    "scrap.tag_bolt": "弩箭",
+    "scrap.tag_spark": "电火花",
+    "scrap.tag_ember": "余烬",
+    "scrap.tag_plate": "装甲",
+    "scrap.tag_mend": "修复",
+    "scrap.tag_core": "核心"
   },
   "ja": {
     "scrap.abort": "返金を請求（相手が停滞）",
@@ -2837,7 +2900,14 @@
     "scrap.it_fieldforge": "フィールドフォージ",
     "scrap.itx_fieldforge": "大修復；過剰回復は盾になる。",
     "scrap.it_burnchamber": "燃焼室",
-    "scrap.itx_burnchamber": "すべての「残火」アイテムに +ダメージ。"
+    "scrap.itx_burnchamber": "すべての「残火」アイテムに +ダメージ。",
+    "scrap.tag_blade": "ブレード",
+    "scrap.tag_bolt": "ボルト",
+    "scrap.tag_spark": "スパーク",
+    "scrap.tag_ember": "残り火",
+    "scrap.tag_plate": "プレート",
+    "scrap.tag_mend": "回復",
+    "scrap.tag_core": "コア"
   },
   "ko": {
     "scrap.abort": "환불 청구 (상대가 지연 중)",
@@ -3121,7 +3191,14 @@
     "scrap.it_fieldforge": "야전 대장간",
     "scrap.itx_fieldforge": "대량 수리; 초과 치유는 방패가 된다.",
     "scrap.it_burnchamber": "연소실",
-    "scrap.itx_burnchamber": "모든 '잔불' 아이템에 +피해."
+    "scrap.itx_burnchamber": "모든 '잔불' 아이템에 +피해.",
+    "scrap.tag_blade": "검날",
+    "scrap.tag_bolt": "볼트",
+    "scrap.tag_spark": "스파크",
+    "scrap.tag_ember": "잔불",
+    "scrap.tag_plate": "장갑",
+    "scrap.tag_mend": "회복",
+    "scrap.tag_core": "코어"
   },
   "ar": {
     "scrap.abort": "المطالبة باسترداد المال (الخصم متوقف)",
@@ -3405,7 +3482,14 @@
     "scrap.it_fieldforge": "مصهر ميداني",
     "scrap.itx_fieldforge": "إصلاح كبير؛ العلاج الزائد يصبح درعًا.",
     "scrap.it_burnchamber": "غرفة احتراق",
-    "scrap.itx_burnchamber": "لكل أدوات الجمر لديك +ضرر."
+    "scrap.itx_burnchamber": "لكل أدوات الجمر لديك +ضرر.",
+    "scrap.tag_blade": "نصل",
+    "scrap.tag_bolt": "سهم",
+    "scrap.tag_spark": "شرارة",
+    "scrap.tag_ember": "جمرة",
+    "scrap.tag_plate": "درع",
+    "scrap.tag_mend": "ترميم",
+    "scrap.tag_core": "نواة"
   },
   "hi": {
     "scrap.abort": "रिफ़ंड का दावा करें (प्रतिद्वंद्वी रुका हुआ है)",
@@ -3689,7 +3773,14 @@
     "scrap.it_fieldforge": "फील्ड फोर्ज",
     "scrap.itx_fieldforge": "बड़ी मरम्मत; अधिक उपचार ढाल बन जाता है।",
     "scrap.it_burnchamber": "दहन कक्ष",
-    "scrap.itx_burnchamber": "आपके सभी अंगारा आइटम को +नुकसान।"
+    "scrap.itx_burnchamber": "आपके सभी अंगारा आइटम को +नुकसान।",
+    "scrap.tag_blade": "ब्लेड",
+    "scrap.tag_bolt": "बोल्ट",
+    "scrap.tag_spark": "चिंगारी",
+    "scrap.tag_ember": "अंगारा",
+    "scrap.tag_plate": "कवच",
+    "scrap.tag_mend": "मरम्मत",
+    "scrap.tag_core": "कोर"
   },
   "tr": {
     "scrap.abort": "İade talep et (rakip oyalanıyor)",
@@ -3973,7 +4064,14 @@
     "scrap.it_fieldforge": "Sahra Demirhanesi",
     "scrap.itx_fieldforge": "Büyük onarım; taşan iyileşme kalkana dönüşür.",
     "scrap.it_burnchamber": "Yanma Odası",
-    "scrap.itx_burnchamber": "Tüm KOR eşyalarına +hasar."
+    "scrap.itx_burnchamber": "Tüm KOR eşyalarına +hasar.",
+    "scrap.tag_blade": "KILIÇ",
+    "scrap.tag_bolt": "CIVATA",
+    "scrap.tag_spark": "KIVILCIM",
+    "scrap.tag_ember": "KOR",
+    "scrap.tag_plate": "ZIRH",
+    "scrap.tag_mend": "ONARIM",
+    "scrap.tag_core": "ÇEKİRDEK"
   },
   "id": {
     "scrap.abort": "Klaim refund (lawan menunda)",
@@ -4257,7 +4355,14 @@
     "scrap.it_fieldforge": "Bengkel Lapangan",
     "scrap.itx_fieldforge": "Perbaikan besar; kelebihan pemulihan jadi perisai.",
     "scrap.it_burnchamber": "Ruang Bakar",
-    "scrap.itx_burnchamber": "Semua item BARA-mu +kerusakan."
+    "scrap.itx_burnchamber": "Semua item BARA-mu +kerusakan.",
+    "scrap.tag_blade": "BILAH",
+    "scrap.tag_bolt": "ANAK PANAH",
+    "scrap.tag_spark": "PERCIK",
+    "scrap.tag_ember": "BARA",
+    "scrap.tag_plate": "PELAT",
+    "scrap.tag_mend": "PULIH",
+    "scrap.tag_core": "INTI"
   },
   "vi": {
     "scrap.abort": "Đòi hoàn tiền (đối thủ trì hoãn)",
@@ -4541,6 +4646,13 @@
     "scrap.it_fieldforge": "Lò rèn dã chiến",
     "scrap.itx_fieldforge": "Sửa lớn; hồi vượt mức trở thành khiên.",
     "scrap.it_burnchamber": "Buồng đốt",
-    "scrap.itx_burnchamber": "Mọi vật phẩm THAN của bạn +sát thương."
+    "scrap.itx_burnchamber": "Mọi vật phẩm THAN của bạn +sát thương.",
+    "scrap.tag_blade": "LƯỠI",
+    "scrap.tag_bolt": "TÊN",
+    "scrap.tag_spark": "TIA LỬA",
+    "scrap.tag_ember": "THAN HỒNG",
+    "scrap.tag_plate": "GIÁP",
+    "scrap.tag_mend": "HỒI",
+    "scrap.tag_core": "LÕI"
   }
 }

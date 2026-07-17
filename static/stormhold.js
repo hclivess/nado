@@ -161,7 +161,7 @@ const tileCls = (id) => {
 };
 const art = (id) => '<div class="cart">' + (ART[E.CARDS[id].k] || "") + "</div>";
 const tile = (id) =>
-  '<div class="' + tileCls(id) + '" title="' + (E.CARDS[id].txt || "") + '">'
+  '<div class="' + tileCls(id) + '" title="' + CTXT(id) + '">'
   + '<span class="cost">' + E.CARDS[id].c + "</span>" + art(id)
   + '<div class="cname">' + NAME(id) + "</div></div>";
 
@@ -184,7 +184,7 @@ function renderKingdomPicker() {
   const grid = $("kingdomGrid"); if (!grid) return;
   grid.innerHTML = KINGDOM_IDS.map((id) => {
     const s = kSel.has(id) ? " sel" : "";
-    return '<div class="' + tileCls(id) + s + '" data-k="' + id + '" title="' + (E.CARDS[id].txt || "") + '">'
+    return '<div class="' + tileCls(id) + s + '" data-k="' + id + '" title="' + CTXT(id) + '">'
       + '<span class="cost">' + E.CARDS[id].c + "</span>" + art(id)
       + '<div class="cname">' + NAME(id) + "</div></div>";
   }).join("");
@@ -449,7 +449,7 @@ function renderGame(gm, eng) {
       let cls = "";
       if (dsel.has(i)) cls = " sel";
       else if (selectable && !f && eng.phase === 0 && eng.actions > 0 && isA(c)) cls = " buyable";
-      return '<div class="' + tileCls(c) + cls + '" data-h="' + i + '" title="' + (E.CARDS[c].txt || "") + '">'
+      return '<div class="' + tileCls(c) + cls + '" data-h="' + i + '" title="' + CTXT(c) + '">'
         + '<span class="cost">' + E.CARDS[c].c + "</span>" + art(c)
         + '<div class="cname">' + NAME(c) + "</div>"
         + (E.CARDS[c].txt ? '<div class="ctxt">' + CTXT(c) + "</div>" : (E.CARDS[c].coin ? '<div class="ctxt">🪙 ' + E.CARDS[c].coin + "</div>" : '<div class="ctxt">🏆 ' + (E.CARDS[c].vp || 0) + "</div>"))

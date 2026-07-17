@@ -168,6 +168,77 @@ const _ALERT_TONES = {
   info: { bg: "#0e2027", bd: "rgba(0,201,167,.5)", fg: "#7fe9d3", icon: "" },
   ok:   { bg: "#0f2417", bd: "rgba(0,201,167,.55)", fg: "#8ff0c6", icon: "" },   // messages carry their own ✓
 };
+// ---- SDK modal dialogs (uiConfirm / uiPrompt / uiAlert) -------------------------------------------------
+// A self-contained replacement for the browser's blocking alert()/confirm()/prompt() — themed, i18n-aware,
+// Promise-based. Injects its own CSS once (var() with fallbacks so it looks right in any game's palette), so
+// ANY game gets styled dialogs by importing these. spec: {title, body, rows:[{k,v}], warn, note, danger,
+// confirmText, cancelText}; uiPrompt adds {placeholder, password}. Resolves: confirm→bool, prompt→string|null.
+let _modalEl = null, _modalResolve = null, _modalKind = "confirm";
+function _modalCSS() {
+  if (document.getElementById("sdkModalCSS")) return;
+  const s = document.createElement("style"); s.id = "sdkModalCSS";
+  s.textContent =
+    ".sdk-modal-bg{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(3,6,10,.66);backdrop-filter:blur(3px);animation:sdkFade .14s ease}"
+    + ".sdk-modal-bg.hidden{display:none}"
+    + ".sdk-modal{max-width:400px;width:100%;background:var(--card,var(--panel,#141a24));color:var(--txt,var(--fg,#e8eef6));border:1px solid var(--border,rgba(255,255,255,.12));border-radius:14px;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.5);animation:sdkPop .16s cubic-bezier(.2,.9,.3,1.15)}"
+    + ".sdk-modal h3{margin:0 0 12px;font-size:16px;font-weight:700}"
+    + ".sdk-modal-body{color:var(--dim,var(--txt-dim,#9fb0c3));font-size:14px;margin-bottom:14px;white-space:pre-line}.sdk-modal-body.hidden{display:none}"
+    + ".sdk-modal-warn{color:var(--warn,#e3b341);font-size:13px;font-weight:600;margin-bottom:14px}.sdk-modal-warn.hidden{display:none}"
+    + ".sdk-modal-input{width:100%;box-sizing:border-box;margin-bottom:16px;padding:10px 12px;font-size:15px;border-radius:9px;border:1px solid var(--border,rgba(255,255,255,.14));background:var(--bg,#0b0f16);color:inherit}.sdk-modal-input.hidden{display:none}"
+    + ".sdk-modal-actions{display:flex;gap:10px}.sdk-modal-actions button{flex:1;padding:11px;font-size:14px;font-weight:600;border-radius:9px;cursor:pointer;border:1px solid var(--border,rgba(255,255,255,.14))}"
+    + ".sdk-modal-actions .ok{background:var(--accent,var(--accent2,#4f8cff));color:#04101f;border-color:transparent}"
+    + ".sdk-modal-actions .ok.danger{background:var(--danger,#e5484d);color:#fff}"
+    + ".sdk-modal-actions .cancel{background:transparent;color:inherit}.sdk-modal-actions .cancel.hidden{display:none}"
+    + "@keyframes sdkFade{from{opacity:0}to{opacity:1}}@keyframes sdkPop{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}";
+  document.head.appendChild(s);
+}
+function _closeModal(result) {
+  if (!_modalEl || !_modalResolve) return;
+  _modalEl.classList.add("hidden");
+  document.removeEventListener("keydown", _modalKey, true);
+  const r = _modalResolve; _modalResolve = null; r(result);
+}
+function _modalKey(e) {
+  if (e.key === "Escape") { e.preventDefault(); _closeModal(_modalKind === "prompt" ? null : false); }
+  else if (e.key === "Enter" && _modalKind !== "prompt") { e.preventDefault(); _closeModal(_modalKind === "alert" ? true : true); }
+}
+function _openModal(spec) {
+  _modalCSS();
+  if (!_modalEl) {
+    _modalEl = document.createElement("div"); _modalEl.className = "sdk-modal-bg hidden";
+    _modalEl.innerHTML = '<div class="sdk-modal" role="dialog" aria-modal="true"><h3></h3>'
+      + '<div class="sdk-modal-body hidden"></div><div class="sdk-modal-warn hidden"></div>'
+      + '<input class="sdk-modal-input hidden" autocomplete="off" />'
+      + '<div class="sdk-modal-actions"><button type="button" class="cancel"></button><button type="button" class="ok"></button></div></div>';
+    document.body.appendChild(_modalEl);
+  }
+  const el = _modalEl, q = (sel) => el.querySelector(sel);
+  _modalKind = spec.kind || "confirm";
+  q("h3").textContent = spec.title || "";
+  const body = q(".sdk-modal-body"), rowsHtml = (spec.rows || []).map((r) => r.k + ": " + r.v).join("\n");
+  const bodyTxt = [spec.body, rowsHtml].filter(Boolean).join("\n");
+  body.textContent = bodyTxt; body.classList.toggle("hidden", !bodyTxt);
+  const warn = q(".sdk-modal-warn"); warn.textContent = spec.warn || ""; warn.classList.toggle("hidden", !spec.warn);
+  const inp = q(".sdk-modal-input"), isPrompt = _modalKind === "prompt";
+  inp.classList.toggle("hidden", !isPrompt);
+  if (isPrompt) { inp.type = spec.password ? "password" : "text"; inp.value = spec.value != null ? String(spec.value) : ""; inp.placeholder = spec.placeholder || "";
+    inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); _closeModal(inp.value); } }; }
+  const ok = q(".ok"), cancel = q(".cancel");
+  ok.textContent = spec.confirmText || _t("dlg.confirm", "OK"); ok.className = "ok" + (spec.danger ? " danger" : "");
+  cancel.textContent = spec.cancelText || _t("dlg.cancel", "Cancel");
+  cancel.classList.toggle("hidden", _modalKind === "alert");
+  ok.onclick = () => _closeModal(isPrompt ? inp.value : true);
+  cancel.onclick = () => _closeModal(isPrompt ? null : false);
+  el.onclick = (e) => { if (e.target === el) _closeModal(isPrompt ? null : false); };
+  el.classList.remove("hidden");
+  document.addEventListener("keydown", _modalKey, true);
+  setTimeout(() => { (isPrompt ? inp : ok).focus(); }, 30);
+  return new Promise((res) => { _modalResolve = res; });
+}
+export function uiConfirm(spec) { return _openModal(Object.assign({}, spec, { kind: "confirm" })); }
+export function uiPrompt(spec) { return _openModal(Object.assign({}, spec, { kind: "prompt" })); }
+export function uiAlert(spec) { return _openModal(Object.assign({}, typeof spec === "string" ? { title: spec } : spec, { kind: "alert" })); }
+
 export function alertBar(msg, actionLabel, actionFn, opts) {
   opts = opts || {};
   clearTimeout(alertBar._t);
@@ -314,15 +385,23 @@ export function renderWallet(dapp) {
   const cm = document.getElementById("cashoutSliderM"); if (cm) cm.textContent = _t("sdk.ofPlayable", "of {n} playable", { n: rawToNado(dapp.exec) });
   return signedIn;
 }
-const _prizeNote = (prize) => prize ? '<div class="small" style="margin-top:8px;color:var(--gold,#e3b341)">🏆 ' + _t("prizeNote", "Top ranks earn NADO daily from the faucet prize pool.") + "</div>" : "";
+// The faucet PRIZE TAPER — rank 1..5 shares of a game's daily faucet budget. MIRRORS _faucet_rewards.py
+// (SHARES + BUDGET); keep the two in sync so the displayed prize equals what the distributor actually pays.
+export const FAUCET_TAPER = [0.40, 0.25, 0.15, 0.12, 0.08];
+export const FAUCET_DAILY_RAW = 1_000_000_000;                       // per-game daily prize pool, raw (0.1 NADO)
+export const faucetPrizeRaw = (rank) => (rank >= 1 && rank <= FAUCET_TAPER.length) ? Math.floor(FAUCET_DAILY_RAW * FAUCET_TAPER[rank - 1]) : 0;
+const _prizeCell = (i) => { const raw = faucetPrizeRaw(i + 1);
+  return raw ? '<td class="pos" style="color:var(--gold,#e3b341);white-space:nowrap">🏆 ' + rawToNado(raw) + "</td>" : '<td class="dim">—</td>'; };
+const _prizeHead = (prize) => prize ? "<th>" + _t("prizeCol", "Daily prize") + "</th>" : "";
+const _prizeNote = (prize) => prize ? '<div class="small" style="margin-top:8px;color:var(--gold,#e3b341)">🏆 ' + _t("prizeNote", "Top {k} each day win NADO from the faucet prize pool — paid automatically to the leaders.", { k: FAUCET_TAPER.length }) + "</div>" : "";
 // renderScore(el, board, me, empty): the shared win/loss leaderboard table.
 export async function renderScore(el, board, me, empty, prize) {
   if (!el) return;
   if (!board.length) { el.innerHTML = '<span class="dim">' + (empty || "No settled games yet — be the first on the board.") + "</span>"; return; }
   const top = board.slice(0, 10); await resolveAliases(top.map((r) => r.addr));
-  el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>Player</th><th>W–L</th><th>Net</th></tr></thead><tbody>'
+  el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>Player</th><th>W–L</th><th>Net</th>' + _prizeHead(prize) + '</tr></thead><tbody>'
     + top.map((r, i) => { const net = (r.net < 0 ? "-" : "+") + rawToNado(Math.abs(r.net)) + " NADO", you = r.addr === me;
-        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") + '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td></tr>"; }).join("") + "</tbody></table>" + _prizeNote(prize);
+        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") + '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td>" + (prize ? _prizeCell(i) : "") + "</tr>"; }).join("") + "</tbody></table>" + _prizeNote(prize);
 }
 // renderTopScores(el, rows, me, empty, scoreHead): the shared HIGH-SCORE table template — rank/player/score
 // (renderScore is the win-loss/net-NADO sibling). rows: [{addr, score, tag?}] already sorted best-first.
@@ -331,10 +410,10 @@ export async function renderTopScores(el, rows, me, empty, scoreHead, prize) {
   if (!rows.length) { el.innerHTML = '<span class="dim">' + (empty || _t("noScores", "No scores yet — be the first on the board.")) + "</span>"; return; }
   const top = rows.slice(0, 10); await resolveAliases(top.map((r) => r.addr));
   el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>' + _t("player", "Player") + "</th><th>"
-    + (scoreHead || _t("score", "Score")) + "</th></tr></thead><tbody>"
+    + (scoreHead || _t("score", "Score")) + "</th>" + _prizeHead(prize) + "</tr></thead><tbody>"
     + top.map((r, i) => { const you = r.addr === me;
         return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + "</td><td>" + disp(r.addr) + (you ? " (you)" : "")
-          + (r.tag ? ' <span class="dim">' + r.tag + "</span>" : "") + '</td><td class="pos">' + r.score + "</td></tr>"; }).join("")
+          + (r.tag ? ' <span class="dim">' + r.tag + "</span>" : "") + '</td><td class="pos">' + r.score + "</td>" + (prize ? _prizeCell(i) : "") + "</tr>"; }).join("")
     + "</tbody></table>" + _prizeNote(prize);
 }
 // scoreBump(stats, addr, net): accumulate one settled result into a leaderboard stats map.

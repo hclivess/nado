@@ -20,6 +20,7 @@ const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("s
 
 const IN = (it) => T("it_" + it.k, it.n);            // item name (translatable)
 const IX = (it) => T("itx_" + it.k, it.txt);           // item description (translatable)
+const TG = (i) => T("tag_" + E.TAGS[i].toLowerCase(), E.TAGS[i]);  // tag label BLADE/BOLT/… (translatable)
 let sel = null;                                            // selected offer choice (0..2)
 const TAGC = ["tg-blade", "tg-bolt", "tg-spark", "tg-ember", "tg-plate", "tg-mend", "tg-core"];
 
@@ -72,8 +73,8 @@ function statLine(it, rank) {
     if (it.ccd) return "⏩ −" + Math.min(40, v) + "% " + T("fxCd", "cooldowns");
     if (it.call) return "⚔ +" + v + " " + T("fxAllWeapons", "ALL weapons");
     if (it.cburn) return "🔥 +" + v + " " + T("fxBurnEmber", "burn on EMBER");
-    if (it.ctag === 4) return "🛡 +" + v + " " + E.TAGS[it.ctag];
-    return "⚔ +" + v + " " + E.TAGS[it.ctag];
+    if (it.ctag === 4) return "🛡 +" + v + " " + TG(it.ctag);
+    return "⚔ +" + v + " " + TG(it.ctag);
   }
   const bits = [];
   if (it.kind === "d" && v > 0) bits.push("⚔ " + v);
@@ -110,7 +111,7 @@ function itemTile(id, rank, extra, data) {
     + '<div class="cart">' + (ART[it.k] || "") + "</div>"
     + '<div class="cname">' + IN(it) + "</div>"
     + '<div class="ctxt">' + statLine(it, rank) + "</div>"
-    + '<div class="ctxt dim">' + E.TAGS[it.tag] + " · " + fxLine(it, rank) + "</div>"
+    + '<div class="ctxt dim">' + TG(it.tag) + " · " + fxLine(it, rank) + "</div>"
     + "</div>";
 }
 
