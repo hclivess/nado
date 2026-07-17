@@ -18,8 +18,9 @@ CHAIN_ID = "alphanet-6"
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
 
-GENESIS_TIMESTAMP = 1784260000  # 2026-07-17 — alphanet-6 (FROZEN sparse alghash2 settled root, exec_root.py;
-                                # balances/stake carried forward). The root scheme is final: depth 256 saturates
+GENESIS_TIMESTAMP = 1784257440  # 2026-07-17 — alphanet-6 (FROZEN sparse alghash2 settled root, exec_root.py;
+                                # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
+                                # production starts immediately. The root scheme is final: depth 256 saturates
                                 # the hash's collision resistance and every future proof extension rides the
                                 # SAME tree — no further genesis reroll or hard fork is needed for vision.md.
 
