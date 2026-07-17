@@ -214,6 +214,7 @@ export function newNation(owner, day = 0) {
     generals: [], advances: {},                              // [{type, xp}] · {advKey: 1}
     ufoExplore: 0, warTurns: 0, lastEvent: null,             // UFO progress · turns at war · last event log
     tick: 0,                                                  // turns elapsed at last settle (the lazy clock)
+    bt: 0, btTick: 0,                                         // builds spent THIS turn + the turn they count for
     over: false,
   };
 }
@@ -349,13 +350,21 @@ export function buildCost(n, count) {          // total money for `count` new bu
 }
 const totalBuilt = (n) => BUILDABLE.reduce((s, k) => s + n.bld[k], 0) + n.bld.ruin;
 
+// builds still allowed THIS turn — the per-turn cap (12 + builders/6) minus what's already been built this
+// turn. Resets when the turn advances. This makes the cap a true PER-TURN total, not a per-click limit, so
+// clicking Build repeatedly in one turn can't exceed it (the extra actions replay as no-ops for everyone).
+export function buildsLeft(n) {
+  const used = (n.btTick === n.tick) ? (n.bt || 0) : 0;
+  return Math.max(0, buildsPerTurn(n) - used);
+}
 export function build(n, type, count) {
   if (!BUILDABLE.includes(type) || count <= 0) return false;
-  if (count > buildsPerTurn(n)) return false;               // one turn's worth of construction
+  if (n.btTick !== n.tick) { n.bt = 0; n.btTick = n.tick; }  // new turn → fresh build budget
+  if (count > buildsLeft(n)) return false;                   // per-TURN cap across repeated actions
   if (n.bld.unbuilt < count) return false;                  // must have open land
   const cost = buildCost(n, count);
   if (n.money < cost) return false;
-  n.money -= cost; n.bld.unbuilt -= count; n.bld[type] += count;
+  n.money -= cost; n.bld.unbuilt -= count; n.bld[type] += count; n.bt = (n.bt || 0) + count;
   return true;
 }
 export function demolish(n, type, count) {
@@ -665,8 +674,9 @@ const turnsBetween = (fromCur, toCur) => Math.max(0, Math.floor((toCur - fromCur
 // "ok" | "blocked" | "skip" (an illegal/degenerate action is skipped, never corrupts — the fee already
 // charged the actor). PROTECT_TURNS shields a young nation from raids.
 export const PROTECT_TURNS = 60;
-export function applyAction(world, e, seedOf) {
+export function applyAction(world, e, seedOf, feed) {
   const { op, a, b, c, big } = decAction(e.enc);
+  const note = (rep) => { if (feed && rep) feed.push({ op, actor: e.actor, target: e.target, cursor: e.cursor, rep }); return rep; };
   let n = world[e.actor];
   if (op === OP.found) { if (!n) { const nn = newNation(e.actor, Math.floor(e.cursor / (TURN_BLOCKS * 720)));
     nn.lastCur = e.cursor; world[e.actor] = nn; } return "ok"; }   // stamp the clock so a later touch settles from HERE
@@ -696,10 +706,10 @@ export function applyAction(world, e, seedOf) {
       if (d.tick < PROTECT_TURNS && prestige(d) < 200) return "skip";   // newbie shield (age + weak)
       const seed = seedOf(e.rh ?? e.cursor); if (seed == null) return "blocked";   // roll from the FUTURE seed block
       const atWar = (n.warTurns || 0) > 0 || (d.warTurns || 0) > 0;
-      if (op === OP.attack) { if (n.ready < 40) return "skip"; combat(n, d, Object.keys(ATTACK_KINDS)[a] || "plunder", unpackComp(b, c), seed, { war: atWar ? 2 : 1 }); return "ok"; }
-      if (op === OP.tactical) { if (n.ready < 20) return "skip"; tactical(n, d, TKEYS_TAC[a] || "partisan", seed, { war: atWar ? 2 : 1 }); return "ok"; }
-      if (op === OP.launch) { return launchMissiles(n, d, MKEYS[a], b, atWar).ok ? "ok" : "skip"; }
-      if (op === OP.spy) { return spyOp(n, d, ESP_KEYS[a], big, seed).ok ? "ok" : "skip"; }
+      if (op === OP.attack) { if (n.ready < 40) return "skip"; note(combat(n, d, Object.keys(ATTACK_KINDS)[a] || "plunder", unpackComp(b, c), seed, { war: atWar ? 2 : 1 })); return "ok"; }
+      if (op === OP.tactical) { if (n.ready < 20) return "skip"; note(tactical(n, d, TKEYS_TAC[a] || "partisan", seed, { war: atWar ? 2 : 1 })); return "ok"; }
+      if (op === OP.launch) { const r = launchMissiles(n, d, MKEYS[a], b, atWar); if (r.ok) note(r); return r.ok ? "ok" : "skip"; }
+      if (op === OP.spy) { const r = spyOp(n, d, ESP_KEYS[a], big, seed); if (r.ok) note(r); return r.ok ? "ok" : "skip"; }
       return "skip";
     }
     default: return "skip";
@@ -710,9 +720,9 @@ export const MARKET_ITEMS = ["food", "energy", "soldier", "tank", "fighter", "bu
 // replayWorld(entries, nowCur, seedOf): fold the whole log into { addr: nation }, then settle every nation
 // forward to `nowCur` for display. blocked=true (+blockedAt) when a raid's seed block isn't final yet.
 export function replayWorld(entries, nowCur, seedOf) {
-  const world = {}, res = { world, blocked: false, blockedAt: -1 };
+  const feed = [], world = {}, res = { world, feed, blocked: false, blockedAt: -1 };
   for (let i = 0; i < entries.length; i++) {
-    const r = applyAction(world, entries[i], seedOf);
+    const r = applyAction(world, entries[i], seedOf, feed);
     if (r === "blocked") { res.blocked = true; res.blockedAt = i; break; }
   }
   computeAlliances(world);                             // roster + aggregated bonus onto each member (n._ally)

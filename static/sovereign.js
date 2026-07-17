@@ -14,6 +14,7 @@ const dapp = new NadoDapp({ cid: CID, app: "Sovereign" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sov." + k, d, v) : d;
 const MAPS = ["la", "lc", "le", "lt"];
 const fmt = (x) => { x = Math.floor(x); return x >= 1e9 ? (x / 1e9).toFixed(1) + "G" : x >= 1e6 ? (x / 1e6).toFixed(1) + "M" : x >= 1e3 ? (x / 1e3).toFixed(1) + "k" : "" + x; };
+const fmtInt = (x) => String(Math.floor(x)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");   // full number, thousands-grouped — NEVER abbreviated (turn counter)
 const sign = (x) => (x >= 0 ? "+" : "") + (Math.abs(x) >= 100 ? Math.round(x) : x.toFixed(1));
 
 let world = {}, me = null, mc = 0, tab = "build", target = null, atkKind = "plunder";
@@ -52,9 +53,52 @@ async function refresh() {
   const now = dapp.cursor != null ? dapp.cursor : (log.length ? log[log.length - 1].rh : 0);
   nowCur = now;
   myLastCur = dapp.me ? log.reduce((m, e) => e.actor === dapp.me && e.cursor > m ? e.cursor : m, 0) : 0;
-  world = E.replayWorld(log, now, seedOf).world;
+  const rr = E.replayWorld(log, now, seedOf);
+  world = rr.world;
   me = dapp.me ? world[dapp.me] : null;
+  showFeed(rr.feed);          // toast any new raid outcome involving me (I raided, or I was raided)
   render();
+}
+
+// ---- action feedback (beginner-friendly): a clear toast for every raid/strike/spy outcome ---------------
+let feedSeen = -1;            // -1 = not yet initialised; on first load we seed the marker and skip history
+const troops = (m) => Object.values(m || {}).reduce((s, v) => s + (v || 0), 0);
+function lootStr(loot) {
+  const p = [];
+  if (loot.money) p.push("+" + fmt(Math.abs(loot.money)) + "💰");
+  if (loot.food) p.push("+" + fmt(Math.abs(loot.food)) + "🌾");
+  if (loot.energy) p.push("+" + fmt(Math.abs(loot.energy)) + "⚡");
+  if (loot.tech) p.push("+" + fmt(Math.abs(loot.tech)) + "🔬");
+  return p.length ? " " + p.join(" ") : "";
+}
+function showFeed(feed) {
+  const meId = practice ? "you" : dapp.me;
+  if (!feed || !meId) { feedSeen = feed ? feed.length : 0; return; }
+  if (feedSeen < 0) { feedSeen = feed.length; return; }      // first render: don't replay historical toasts
+  const fresh = feed.slice(feedSeen); feedSeen = feed.length;
+  for (let i = fresh.length - 1; i >= 0; i--) {              // newest outcome involving me wins the toast
+    const f = fresh[i];
+    if (f.actor === meId) return toastMine(f);
+    if (f.target === meId) return toastVictim(f);
+  }
+}
+function toastMine(f) {
+  const who = practice ? f.target : disp(f.target), r = f.rep;
+  if (f.op === E.OP.attack) return r.win
+    ? alertBar("⚔ " + T("raidWon", "Raid on {who}: VICTORY!", { who }) + " +" + fmt(r.lootLand) + " km²" + lootStr(r.loot) + " · −" + fmt(troops(r.atkLoss)) + " 🪖 · +" + fmt(r.xp) + " XP", null, null, { tone: "ok" })
+    : alertBar("⚔ " + T("raidLost", "Raid on {who}: defeat — lost {t} troops.", { who, t: fmt(troops(r.atkLoss)) }), null, null, { tone: "warn" });
+  if (f.op === E.OP.tactical) return alertBar("🎯 " + (r.win ? T("tacHit", "Strike on {who} landed — {h} destroyed.", { who, h: fmt(r.hit) }) : T("tacMiss", "Strike on {who} missed.", { who })), null, null, { tone: r.win ? "ok" : "warn" });
+  if (f.op === E.OP.launch) return alertBar("🚀 " + T("misHit", "Missiles struck {who}.", { who }), null, null, { tone: "ok" });
+  if (f.op === E.OP.spy) return alertBar("🕵 " + (r.win ? T("spyWon", "Spy op on {who} succeeded.", { who }) : T("spyLost", "Spy op on {who} failed — lost {l} agents.", { who, l: fmt(r.lost) })), null, null, { tone: r.win ? "ok" : "warn" });
+}
+function toastVictim(f) {
+  const who = practice ? f.actor : disp(f.actor), r = f.rep;
+  if (f.op === E.OP.attack) return r.win
+    ? alertBar("🛡 " + T("raidedLost", "{who} raided you: −{land} km², −{t} troops.", { who, land: fmt(r.lootLand), t: fmt(troops(r.defLoss)) }), null, null, { tone: "warn" })
+    : alertBar("🛡 " + T("raidedHeld", "You repelled {who}'s raid!", { who }), null, null, { tone: "ok" });
+  if (f.op === E.OP.tactical) return alertBar("🎯 " + T("tacVictim", "{who} hit you with a tactical strike.", { who }), null, null, { tone: "warn" });
+  if (f.op === E.OP.launch) return alertBar("🚀 " + T("misVictim", "{who} struck you with missiles.", { who }), null, null, { tone: "warn" });
+  if (f.op === E.OP.spy) return alertBar("🕵 " + T("spyVictim", "{who} ran a spy op against you.", { who }), null, null, { tone: "warn" });
 }
 
 // ---- submit an action (ply-bound to the current log length) ------------------------------------------
@@ -68,7 +112,8 @@ const found = () => act(E.encAction(E.OP.found), 0, T("cfFound", "found your nat
 // ---- practice (offline): a local log over bot nations, same engine -----------------------------------
 function pracSeedOf(rh) { const r = prand(practice.seed + ":seed:" + rh); return BigInt(Math.floor(r() * 1e15)) * 1000003n + 7n; }
 function pracReplay() {
-  world = E.replayWorld(practice.log, practice.now, pracSeedOf).world; me = world.you || null;
+  const rr = E.replayWorld(practice.log, practice.now, pracSeedOf); world = rr.world; me = world.you || null;
+  showFeed(rr.feed);
 }
 function pracAct(enc, tgt) {
   practice.log.push({ actor: "you", cursor: practice.now, rh: practice.now, enc, target: tgt || 0 });
@@ -123,7 +168,7 @@ function nationHead(n) {
     + '<div class="stats mt">'
     + '<span class="stat">🎖 <b>' + T("rank_" + E.RANKS[E.rankOf(n)].k, E.RANKS[E.rankOf(n)].k) + "</b> · " + fmt(n.exp) + " XP</span>"
     + '<span class="stat">🛡 ' + T("ready", "readiness") + " <b>" + Math.round(n.ready) + "%</b></span>"
-    + '<span class="stat">⏳ ' + T("turnN", "turn") + " <b>" + fmt(n.tick) + "</b>" + turnClock() + "</span>"
+    + '<span class="stat">⏳ ' + T("turnN", "turn") + " <b>" + fmtInt(n.tick) + "</b>" + turnClock() + "</span>"
     + (n.generals && n.generals.length ? '<span class="stat">⭐ ' + n.generals.map((gn) => T("gen_" + gn.type, E.GENERALS[gn.type].k) + " " + genLvl(gn)).join(", ") + "</span>" : "")
     + (n.ally ? '<span class="stat">🤝 ' + T("alliance", "alliance") + " #" + n.ally + "</span>" : "")
     + (n.ufoExplore > 0 ? '<span class="stat">👽 ' + Math.round(n.ufoExplore) + "%</span>" : "")
@@ -158,7 +203,7 @@ function render() {
   $("foundRow").classList.add("hidden");
   dash.innerHTML = nationHead(me);
   $("tabs").innerHTML = TABS.map((t) => '<button class="tab' + (t === tab ? " on" : "") + '" data-tab="' + t + '">' + T("tab_" + t, t) + "</button>").join("");
-  $("tabs").querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; render(); });
+  $("tabs").querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { raidOwner = null; tab = b.dataset.tab; render(); });
   renderPanel();
 }
 function renderPanel() {
@@ -181,22 +226,24 @@ async function askNum(title, def, note) {
   return Math.max(0, parseInt(String(v).replace(/[^0-9]/g, "") || "0", 10) || 0);
 }
 function renderBuild(el) {
-  const per = E.buildsPerTurn(me), n = me;
+  const per = E.buildsPerTurn(me), left = E.buildsLeft(me), n = me;
   const unit = E.buildCost(n, 1);          // money for the NEXT building (same for every type; rises as you grow)
-  let h = '<p class="hint">' + T("buildHint", "Build up to {n} per turn on open land. Cost rises as you grow. Colonize for more land — but not while over half your land sits empty.", { n: per }) + "</p>";
-  h += '<div class="row2"><button class="primary" id="btnColonize">🧭 ' + T("colonize", "Colonize — claim more land") + "</button>"
-    + '<span class="landchip">🟩 ' + T("openLand", "open land") + " <b>" + fmt(n.bld.unbuilt) + "</b></span>"
-    + '<span class="landchip">💰 ' + T("nextBuild", "next build") + " <b>" + fmt(unit) + "</b></span></div>";
+  let h = '<p class="hint">' + T("buildHint2", "Up to {per} buildings PER TURN (shared across all types). Cost rises as you grow. Colonize for more land — but not while over half sits empty.", { per }) + "</p>";
+  h += '<div class="colonizeRow"><button class="primary colonizeBtn" id="btnColonize">🧭 ' + T("colonize", "Colonize — claim more land") + ' · 🟩 ' + fmt(n.bld.unbuilt) + "</button></div>";
+  h += '<div class="chips">'
+    + (practice ? "" : '<span class="landchip">🏗 ' + T("buildsLeft", "builds left this turn") + " <b>" + left + "/" + per + "</b></span>")
+    + "</div>";
   h += '<div class="grid">' + E.BUILDABLE.map((k) => tile(
       gicon(k) + '<div class="tn">' + T("b_" + k, E.B[k].k) + '</div><div class="tc">' + n.bld[k] + "</div>"
       + '<div class="tx dim">' + T("bx_" + k, E.B[k].txt) + '</div><div class="tcost">💰 ' + fmt(unit) + " " + T("each", "each") + "</div>",
-      "b-" + k + (n.money >= unit && n.bld.unbuilt > 0 ? " ready" : ""), 'data-build="' + k + '"')).join("") + "</div>";
+      "b-" + k + (n.money >= unit && n.bld.unbuilt > 0 && left > 0 ? " ready" : ""), 'data-build="' + k + '"')).join("") + "</div>";
   el.innerHTML = h;
   $("btnColonize").onclick = () => act(E.encAction(E.OP.colonize), 0, T("cfColonize", "colonize"));
   el.querySelectorAll("[data-build]").forEach((d) => d.onclick = () => promptCount(d.dataset.build, per));
 }
 async function promptCount(type, per) {
-  const max = Math.min(per, me.bld.unbuilt);
+  const max = Math.min(E.buildsLeft(me), me.bld.unbuilt);
+  if (E.buildsLeft(me) < 1) return notify(T("noBuildsLeft", "No builds left this turn — wait for the next turn."));
   if (max < 1) return notify(T("noOpenLand", "No open land — colonize first."));
   const each = E.buildCost(me, 1);
   const q = Math.min(max, await askNum(T("howMany", "Build how many {t}? (max {m})", { t: T("b_" + type, E.B[type].k), m: max }), max,
@@ -329,10 +376,11 @@ function renderDiplo(el) {
   if ($("btnLeaveAlly")) $("btnLeaveAlly").onclick = async () => { if (await uiConfirm({ title: T("confirmLeave", "Leave the alliance? You lose a third of your army experience."), danger: true, confirmText: T("leaveGo", "Leave") })) act(E.encAction(E.OP.alliance, 1), 0, "leave alliance"); };
 }
 
-let warMode = "attack", tacType = "partisan", spyOpK = "infra_gov", misType = "conv";
+let warMode = "attack", tacType = "partisan", spyOpK = "infra_gov", misType = "conv", raidOwner = null;
 const WAR_MODES = ["attack", "tactical", "missile", "spy"];
 function openRaid(owner) {
   target = world[owner]; if (!target || !me) return; const tgt = target;
+  raidOwner = owner;                       // marks the war council open so the auto-refresh won't wipe it
   const who = practice ? tgt.owner : disp(tgt.owner);
   let h = '<div class="raidbox"><h3>⚔ ' + T("warOn", "War council — {who}", { who }) + "</h3>";
   h += '<div class="kinds">' + WAR_MODES.map((m) => '<button class="kind' + (m === warMode ? " on" : "") + '" data-mode="' + m + '">' + T("wm_" + m, m) + "</button>").join("") + "</div>";
@@ -362,7 +410,7 @@ function openRaid(owner) {
   P.querySelectorAll("[data-mis2]").forEach((b) => b.onclick = () => { misType = b.dataset.mis2; openRaid(owner); });
   P.querySelectorAll("[data-comp]").forEach((s) => s.oninput = () => { comp[s.dataset.comp] = s.value / 8; openRaid(owner); });
   if (P.querySelector("#spySel")) P.querySelector("#spySel").onchange = (e) => { spyOpK = e.target.value; openRaid(owner); };
-  $("btnCancelRaid").onclick = () => { tab = "world"; render(); };
+  $("btnCancelRaid").onclick = () => { raidOwner = null; tab = "world"; render(); };
   $("btnLaunch").onclick = async () => {
     if (warMode === "attack") { if (me.ready < 40) return notify(T("notReady", "Your army is regrouping — wait for readiness."));
       const pk = E.packComp(comp); act(E.encAction(E.OP.attack, Object.keys(E.ATTACK_KINDS).indexOf(atkKind), pk.b, pk.c), tgt.owner, "attack " + atkKind); }
@@ -376,7 +424,7 @@ function openRaid(owner) {
       const send = Math.min(me.units.agent, await askNum(T("sendAgents", "Send how many agents?"), Math.min(me.units.agent, 100),
         T("haveN", "you have {n}", { n: fmt(me.units.agent) })));
       if (send) act(E.encBig(E.OP.spy, E.ESP_KEYS.indexOf(spyOpK), send), tgt.owner, "spy " + spyOpK); }
-    tab = "world";
+    raidOwner = null; tab = "world";
   };
 }
 function renderPractice() { render(); }
@@ -398,7 +446,7 @@ async function boot() {
   if (saved && saved.log) { practice = saved; pracReplay(); }
   render();
   await refresh();
-  setInterval(() => { if (!document.hidden) refresh(); }, 8000);
+  setInterval(() => { if (!document.hidden && !raidOwner) refresh(); }, 8000);  // don't wipe an open war council
 }
 boot();
 if (typeof window !== "undefined") window.__sov = { dapp, get world() { return world; }, get me() { return me; } };

@@ -84,9 +84,10 @@ check("revolution taxes the nation (except from anarchy) and unlocks by day", ()
 
 check("colonize adds land but not while empty land is hoarded", () => {
   const n = newNation("col".padEnd(50, "c"));
-  // build most of the open land away so colonize is allowed
+  // build most of the open land away so colonize is allowed — the per-turn build cap means this now takes
+  // several turns (settle between batches to advance the turn), matching the source's build-rate limit.
   settle(n, 20); n.money = 1e7;
-  for (let i = 0; i < 3; i++) build(n, "village", buildsPerTurn(n));
+  for (let t = 0; t < 6 && n.bld.unbuilt > 0; t++) { build(n, "village", Math.min(buildsPerTurn(n), n.bld.unbuilt)); settle(n, 20); }
   const land0 = n.land, got = colonize(n);
   if (!got || n.land <= land0) throw new Error("colonize should add land");
   // hoarding guard: a nation that is mostly empty land can't colonize
