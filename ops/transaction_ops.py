@@ -381,11 +381,12 @@ def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_
     exec node. `ns` names the rollup namespace; the default namespace is omitted from `data` so default-layer
     settle txs stay byte-identical to the pre-namespace format.
 
-    `proof` (optional) is the succinct recursion settlement bundle (execnode.settlement_proofs.prove_settlement
-    _o1). When present, EVERY node verifies it deterministically at block-validation and, on success, the root
-    is settled TRUSTLESSLY (no bonded quorum needed) — see validate_transaction's `settle` branch. The proof's
-    pre_root must extend the namespace's committed settled tip (or EXEC_GENESIS_ROOT for the first settlement),
-    its cursor must equal exec_cursor, and its post_root must equal state_root."""
+    `proof` (optional) is the succinct SPARSE settlement proof (doc/zk-recursion.md §5c):
+    {cursor, kv_pre, kv_post, rec, segments} — segments chain bound epochs over the KV half of the settled
+    root (execnode/exec_root.py); `rec` is the (unchanged) records half. When present, EVERY node verifies it
+    deterministically at block-validation and, on success, the root is settled TRUSTLESSLY (no bonded quorum
+    needed) — see validate_transaction's `settle` branch: rnode(kv_pre, rec) must equal the committed settled
+    tip (EXEC_GENESIS_ROOT for the first settlement) and rnode(kv_post, rec) must equal state_root."""
     d = {"exec_cursor": int(exec_cursor), "state_root": state_root}
     if ns != DEFAULT_NS:
         d["ns"] = ns
@@ -823,26 +824,41 @@ def validate_transaction(transaction, logger, block_height):
         proof = data.get("proof")
         if proof is not None:
             # PHASE-2b VALIDITY SETTLEMENT — a universal, deterministic consensus rule (NO activation gate, no
-            # block-height special-casing): the carried recursion bundle must PROVE exactly this checkpoint and
-            # STRICTLY EXTEND the namespace's settled chain, verified identically on every node. On success this
-            # tx settles the root TRUSTLESSLY at apply-time (kv_ops.settlement_proof_put), no bonded quorum needed.
+            # block-height special-casing): the carried SPARSE settlement proof must PROVE exactly this
+            # checkpoint's EXECUTION half and STRICTLY EXTEND the namespace's settled chain, verified
+            # identically on every node. On success this tx settles the root TRUSTLESSLY at apply-time
+            # (kv_ops.settlement_proof_put), no bonded quorum needed.
+            #
+            # The settled root is rnode(KV half, RECORDS half) (execnode/exec_root.py). The proof covers the
+            # KV half (contract execution — bound epochs over the sparse tree); the RECORDS half must be
+            # UNCHANGED across the proven span (pinned equal in the pre and post compositions below). That is
+            # an EXPLICIT, enforced restriction, not an assumption: epochs that also moved records (bridge
+            # credits, dividends, exits) ride the bonded quorum until record transitions are proven in-circuit
+            # — a forward-compatible extension on the SAME tree, never a scheme change.
+            import protocol as _protocol
             from ops.settlement_ops import latest_settled
-            from execnode import settlement_proofs as SP
-            from protocol import EXEC_GENESIS_ROOT
+            from execnode.stark import settlement_sparse as SS
+            from execnode import exec_root as ER
+            from execnode.stark import storage_tree as SST
             assert isinstance(proof, dict), "Settle proof must be an object"
-            # CHAIN: pre_root must be the namespace's committed settled tip (EXEC_GENESIS_ROOT before the first
-            # settlement) — a proof can never start from a fabricated pre-state, and only one settlement extends
-            # the tip per block (the tip is read from pre-block committed state).
-            _tip_cursor, tip_root = latest_settled(ns)
-            expected_pre = tip_root if tip_root is not None else EXEC_GENESIS_ROOT
-            assert proof.get("pre_root") == expected_pre, "Settle proof pre_root must extend the settled tip"
+            rec_hex = proof.get("rec")
+            kv_pre_claim, kv_post_claim = proof.get("kv_pre"), proof.get("kv_post")
             assert int(proof.get("cursor", -1)) == cursor, "Settle proof cursor must equal exec_cursor"
-            # Verify at the PROTOCOL query strength (None ⇒ fri.NUM_QUERIES — never the bundle's own word) and
-            # deterministically (Fiat-Shamir transcript, integer field arithmetic, bit-identical hash): the ONE
-            # recursion bundle re-establishes every segment STARK, so no re-execution of the epoch.
-            ok, why, post = SP.verify_settlement_o1(proof)
+            # CHAIN: the (kv, records) decomposition composed with rnode must equal the namespace's committed
+            # settled tip (EXEC_GENESIS_ROOT before the first settlement) — rnode is collision-resistant, so
+            # only the REAL decomposition of the tip can satisfy this; a proof can never start from a
+            # fabricated pre-state, and only one settlement extends the tip per block.
+            _tip_cursor, tip_root = latest_settled(ns)
+            expected_pre = tip_root if tip_root is not None else _protocol.EXEC_GENESIS_ROOT
+            # Verify every bound epoch at the PROTOCOL query strength (None ⇒ the protocol constant — never
+            # the bundle's own word) and at the PROTOCOL tree depth, deterministically on every node.
+            ok, why, kv_pre, kv_post = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
             assert ok, f"Settle proof invalid: {why}"
-            assert post == root, "Settle proof post_root must equal state_root"
+            assert kv_pre == kv_pre_claim and kv_post == kv_post_claim, "Settle proof kv halves mismatch"
+            pre_full = ER.full_root_hex(SST.digest_from_hex(kv_pre), SST.digest_from_hex(rec_hex))
+            post_full = ER.full_root_hex(SST.digest_from_hex(kv_post), SST.digest_from_hex(rec_hex))
+            assert pre_full == expected_pre, "Settle proof pre_root must extend the settled tip"
+            assert post_full == root, "Settle proof post_root must equal state_root"
     elif recipient == "bridge":
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
         assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
@@ -853,10 +869,12 @@ def validate_transaction(transaction, logger, block_height):
         assert transaction["amount"] > 0, "Faucet donation amount must be positive"
         assert transaction["fee"] >= MIN_TX_FEE, f"Faucet donation fee below minimum {MIN_TX_FEE}"
     elif recipient == "bridge_withdraw":
-        # BRIDGE EXIT (Phase 2): prove the withdrawal {addr, amount, nonce} is in the bonded-quorum SETTLED
-        # execution-layer root; L1 verifies that ONE Merkle proof, checks the nullifier + escrow, releases.
+        # BRIDGE EXIT (Phase 2): prove the withdrawal {addr, amount, nonce} is a record of the bonded-quorum
+        # SETTLED execution-layer root (the frozen sparse scheme, execnode/exec_root.py): L1 recomputes the
+        # record's 256-bit position from the tx's public fields, folds ONE packed sparse path, composes with
+        # the claimed kv half and compares to the settled root — then checks the nullifier + escrow, releases.
         from ops.settlement_ops import latest_settled
-        from hashing import verify_merkle_proof, withdrawal_leaf
+        from execnode import exec_root as ER
         assert transaction["amount"] == 0, "bridge_withdraw carries no L1 amount (amount is in data)"
         assert transaction["fee"] == 0, "bridge_withdraw is fee-exempt"
         data = transaction.get("data") or {}
@@ -865,10 +883,10 @@ def validate_transaction(transaction, logger, block_height):
         assert valid_namespace(ns), "bridge_withdraw ns must be a valid namespace id"
         assert addr == transaction["sender"], "bridge_withdraw must be self-claimed (sender == addr)"
         assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad withdraw amount"
-        assert isinstance(nonce, str) and isinstance(proof, list), "bad withdraw nonce/proof"
+        assert isinstance(nonce, str) and isinstance(proof, dict), "bad withdraw nonce/proof"
         _cur, settled_root = latest_settled(ns)
         assert settled_root, "no settled execution-layer root yet for this namespace"
-        assert verify_merkle_proof(withdrawal_leaf(addr, amount, nonce), proof, settled_root), \
+        assert ER.verify_withdrawal(settled_root, addr, amount, nonce, proof), \
             "withdrawal is not proven against the settled execution-layer root"
         assert not kv_ops.bridge_nullifier_exists(ns, addr, nonce), "this withdrawal was already claimed"
         escrow = get_account(BRIDGE_ESCROW, create_on_error=False)
@@ -879,38 +897,38 @@ def validate_transaction(transaction, logger, block_height):
         # exactly like bridge_withdraw — so delivery is deterministic for every receiver node. Fee-exempt; one
         # delivery per (from_ns, seq) via the nullifier.
         from ops.settlement_ops import latest_settled
-        from hashing import verify_merkle_proof, outbox_leaf
+        from execnode import exec_root as ER
         assert transaction["amount"] == 0, "xmsg carries no L1 amount"
         assert transaction["fee"] == 0, "xmsg is fee-exempt"
         data = transaction.get("data") or {}
         from_ns, to_ns = data.get("from_ns", DEFAULT_NS), data.get("to_ns")
         msg, proof = data.get("message"), data.get("proof")
         assert valid_namespace(from_ns) and valid_namespace(to_ns), "xmsg from_ns/to_ns must be valid namespaces"
-        assert isinstance(msg, dict) and isinstance(proof, list), "bad xmsg message/proof"
+        assert isinstance(msg, dict) and isinstance(proof, dict), "bad xmsg message/proof"
         seq = msg.get("seq")
         assert isinstance(seq, int) and not isinstance(seq, bool) and seq >= 0, "xmsg message seq must be a non-negative int"
         assert msg.get("to_ns") == to_ns, "xmsg message.to_ns must match the delivery to_ns"
         _cur, settled_root = latest_settled(from_ns)
         assert settled_root, "sending namespace has no settled root yet"
-        leaf = outbox_leaf(seq, msg.get("from"), msg.get("to_ns"), msg.get("data"))
-        assert verify_merkle_proof(leaf, proof, settled_root), "message is not proven against from_ns's settled root"
+        assert ER.verify_outbox_msg(settled_root, seq, msg.get("from"), msg.get("to_ns"), msg.get("data"), proof), \
+            "message is not proven against from_ns's settled root"
         assert not kv_ops.xmsg_nullifier_exists(from_ns, seq), "this cross-domain message was already delivered"
     elif recipient == "dividend_withdraw":
         # DIVIDEND COLLECTION (doc/presence-dividend.md): prove {addr, amount, nonce} is in the bonded-quorum
         # SETTLED execution-layer root; L1 verifies that ONE Merkle proof, checks the nullifier + pool funding,
         # then releases `amount` from the DIVIDEND_POOL to the claimant. Fee-exempt, self-claimed.
         from ops.settlement_ops import latest_settled
-        from hashing import verify_merkle_proof, dividend_leaf
+        from execnode import exec_root as ER
         assert transaction["amount"] == 0, "dividend_withdraw carries no L1 amount (amount is in data)"
         assert transaction["fee"] == 0, "dividend_withdraw is fee-exempt"
         data = transaction.get("data") or {}
         addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
         assert addr == transaction["sender"], "dividend_withdraw must be self-claimed (sender == addr)"
         assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad dividend amount"
-        assert isinstance(nonce, str) and isinstance(proof, list), "bad dividend nonce/proof"
+        assert isinstance(nonce, str) and isinstance(proof, dict), "bad dividend nonce/proof"
         _cur, settled_root = latest_settled()
         assert settled_root, "no settled execution-layer root yet"
-        assert verify_merkle_proof(dividend_leaf(addr, amount, nonce), proof, settled_root), \
+        assert ER.verify_dividend(settled_root, addr, amount, nonce, proof), \
             "dividend collection is not proven against the settled execution-layer root"
         assert not kv_ops.dividend_nullifier_exists(addr, nonce), "this dividend was already collected"
         pool = get_account(DIVIDEND_POOL, create_on_error=False)
@@ -1032,17 +1050,17 @@ def validate_transaction(transaction, logger, block_height):
     elif recipient == "unshield":
         # UNSHIELD EXIT: prove {addr, amount, nonce} is in the bonded-quorum SETTLED exec root; release escrow.
         from ops.settlement_ops import latest_settled
-        from hashing import verify_merkle_proof, unshield_leaf
+        from execnode import exec_root as ER
         assert transaction["amount"] == 0, "unshield carries no L1 amount (amount is in data)"
         assert transaction["fee"] == 0, "unshield is fee-exempt"
         data = transaction.get("data") or {}
         addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
         assert addr == transaction["sender"], "unshield must be self-claimed (sender == addr)"
         assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad unshield amount"
-        assert isinstance(nonce, str) and isinstance(proof, list), "bad unshield nonce/proof"
+        assert isinstance(nonce, str) and isinstance(proof, dict), "bad unshield nonce/proof"
         _cur, settled_root = latest_settled()
         assert settled_root, "no settled execution-layer root yet"
-        assert verify_merkle_proof(unshield_leaf(addr, amount, nonce), proof, settled_root), \
+        assert ER.verify_unshield(settled_root, addr, amount, nonce, proof), \
             "unshield is not proven against the settled execution-layer root"
         assert not kv_ops.shield_nullifier_exists(addr, nonce), "this unshield was already claimed"
         escrow = get_account(SHIELD_ESCROW, create_on_error=False)

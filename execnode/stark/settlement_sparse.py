@@ -200,6 +200,51 @@ def public_statement_o1(bundle):
     return (bundle["calls_commitment"], bundle["io_commitment"], bundle["sparse_pre_root"], bundle["sparse_post_root"])
 
 
+def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, beacons=None,
+                            block_hashes=None, pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES,
+                            depth=DEFAULT_DEPTH, backend=None, row_commit=False):
+    """Assemble the settle-with-proof payload the L1 branch verifies: ONE bound epoch over the KV half plus
+    the (unchanged) records half `rec_hex` — {cursor, kv_pre, kv_post, rec, segments}. Multi-epoch spans
+    chain more segments (each bound epoch's post == the next's pre)."""
+    bundle = prove_bound_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
+                               block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
+                               depth=depth, backend=backend, row_commit=row_commit)
+    return {"cursor": int(cursor), "rec": rec_hex,
+            "kv_pre": ST.digest_hex(tuple(int(x) % F.P for x in bundle["sparse_pre_root"])),
+            "kv_post": ST.digest_hex(tuple(int(x) % F.P for x in bundle["sparse_post_root"])),
+            "segments": [bundle]}
+
+
+def verify_settlement_sparse(proof, num_queries=None, depth=None):
+    """Verify a chained SPARSE settlement over the KV half of the settled root: `proof["segments"]` is an
+    ordered list of bound epochs (verify_bound_epoch — exec proof + bound state transition, no replay), each
+    advancing the KV sparse root, with segment j's post == segment j+1's pre. `depth` is the CALLER's protocol
+    constant (protocol.EXEC_TREE_DEPTH on L1) and is pinned against every segment — a proof built at a toy
+    depth is rejected outright. Returns (ok, reason, kv_pre_hex, kv_post_hex); composing those halves with the
+    records half against the committed settled tip is the L1 settle branch's job (ops/transaction_ops)."""
+    try:
+        segs = proof.get("segments")
+        if not isinstance(segs, list) or not segs:
+            return False, "no segments", None, None
+        expect, kv_pre_hex = None, None
+        for j, seg in enumerate(segs):
+            if depth is not None and int(seg.get("depth", -1)) != int(depth):
+                return False, f"segment {j} depth != protocol tree depth", None, None
+            ok, why, post = verify_bound_epoch(seg, num_queries=num_queries)
+            if not ok:
+                return False, f"segment {j}: {why}", None, None
+            pre = tuple(int(x) % F.P for x in seg["sparse_pre_root"])
+            post = tuple(int(x) % F.P for x in post)
+            if j == 0:
+                kv_pre_hex = ST.digest_hex(pre)
+            elif pre != expect:
+                return False, f"segment {j} breaks the kv chain", None, None
+            expect = post
+        return True, "ok", kv_pre_hex, ST.digest_hex(expect)
+    except Exception as e:
+        return False, f"malformed sparse settlement: {e}", None, None
+
+
 def verify_withdrawal(settled_root, cid, slot, value, siblings, depth=DEFAULT_DEPTH):
     """A bridge/dividend/unshield exit proves its record (a specific contract slot = value) is a member of the
     settled SPARSE root — storage_tree membership, the sparse replacement for hashing.verify_merkle_proof
