@@ -5,13 +5,21 @@ A fixed-depth SPARSE Merkle tree over ALGHASH2 (the wide sponge: RATE 8 / CAPACI
 ~128-bit collision resistance), keyed by slot. The digest is a CAPACITY-tuple (4 field elements); a leaf is
 alghash2.rleaf(value) and an inner node is alghash2.rnode(left, right) — exactly the one-permutation-per-level
 tree the recursion membership AIR (recursion.py) arithmetizes, so the in-circuit update (merkle_update) folds it
-directly. (The earlier width-2 alghash root was ~32-bit — fine as a mechanism, forgeable as a live state root;
-this is the secure version wired as THE settled root.)
+directly. Empty leaf = rleaf(0); a zero write deletes.
 
-A touched slot updates in O(depth) folds; the verifier confirms a transition by APPLYING the epoch's io as sparse
-updates (a SLOAD's value is a member; an SSTORE advances the root) — O(touched·depth) native folds, or in-circuit
-(merkle_update) for O(1). Root/paths are CAPACITY-tuples throughout.
+PRODUCTION GEOMETRY: depth 256 (the full digest — position security saturates the hash itself, so the scheme
+never needs a depth bump). That forces the implementation to be sparse-SMART, not just sparse-correct:
+  * populated keys kept sorted → subtree occupancy by BISECT (O(log N)), never an O(N) scan;
+  * a subtree holding exactly ONE leaf folds straight up against the canonical empty roots (no recursion);
+  * branching nodes are MEMOIZED, and set() invalidates exactly the changed key's ancestor chain —
+    so root() is incremental (O(depth) work per write) and path() costs O(depth · log N).
+The ROOT VALUE is defined by the plain tree (leaf/rnode folds) — these are pure optimizations; provers/verifiers
+at any depth get byte-identical roots.
+
+`pack_path`/`unpack_path` compress an authentication path to only its NON-empty siblings (everything else is the
+canonical e[level]) — a depth-256 exit proof is ~log N real siblings instead of 256 (a few hundred bytes, not 16KB).
 """
+import bisect
 from execnode.stark import field as F, alghash2 as A2
 
 DIGEST = A2.CAPACITY                              # a node digest is CAPACITY field elements
@@ -29,6 +37,18 @@ def _empty_roots(depth):
     return e
 
 
+_E_CACHE = {}
+
+
+def empty_roots(depth):
+    """The canonical empty-subtree digests for `depth`, cached (256 permutations once, not per store/proof)."""
+    r = _E_CACHE.get(depth)
+    if r is None:
+        r = _empty_roots(depth)
+        _E_CACHE[depth] = r
+    return r
+
+
 def fold(leaf_value, key, siblings):
     """Root (a CAPACITY-tuple) obtained by folding value `leaf_value` at position `key` up through `siblings`
     (siblings[i] = the sibling digest at level i; bit i of key = 0 ⇒ leaf-side is LEFT). In-clear; the AIR
@@ -42,27 +62,59 @@ def fold(leaf_value, key, siblings):
 
 
 class SparseStore:
-    """A sparse alghash2 Merkle tree over {key: value} at fixed `depth`. Missing keys read 0. Deterministic root
-    + authentication paths (all CAPACITY-tuples), so a verifier can check/apply single-slot updates without the
-    whole tree."""
+    """A sparse alghash2 Merkle tree over {key: value} at fixed `depth`. Missing keys read 0; writing 0 deletes.
+    Deterministic root + authentication paths (all CAPACITY-tuples). Incremental: writes invalidate only their
+    ancestor chain, so successive root()/path() calls reuse every untouched subtree."""
 
     def __init__(self, depth, values=None):
         self.depth = depth
-        self.e = _empty_roots(depth)
-        self.values = {int(k) & ((1 << depth) - 1): int(v) % F.P for k, v in (values or {}).items()}
+        self.e = empty_roots(depth)
+        mask = (1 << depth) - 1
+        vals = {}
+        for k, v in (values or {}).items():
+            kk = int(k) & mask
+            vv = int(v) % F.P
+            if vv:
+                vals[kk] = vv
+        self.values = vals
+        self._keys = sorted(vals)
+        self._memo = {}                            # (level, index) -> digest, level >= 1
+
+    # -- occupancy ------------------------------------------------------------------------------------
+    def _count(self, lo, hi):
+        return bisect.bisect_left(self._keys, hi) - bisect.bisect_left(self._keys, lo)
+
+    def _singleton_fold(self, key, level):
+        """Digest of the height-`level` subtree whose ONLY populated leaf sits at absolute `key` — fold the leaf
+        straight up against the canonical empty roots (bits 0..level-1 of key give the order at each step)."""
+        node = _leaf(self.values[key])
+        for i in range(level):
+            if (key >> i) & 1:
+                node = A2.rnode(self.e[i], node)
+            else:
+                node = A2.rnode(node, self.e[i])
+        return node
 
     def _node(self, level, index):
-        """Digest of the subtree of height `level` rooted at horizontal `index` — recursion memoized by
-        emptiness: an all-empty subtree is e[level], so only the O(#nonempty·depth) populated spine is hashed."""
+        """Digest of the subtree of height `level` rooted at horizontal `index`: empty → e[level]; one leaf →
+        singleton fold; else memoized recursion (invalidated per-write along the changed ancestor chain)."""
         if level == 0:
-            return _leaf(self.values.get(index, 0))
+            v = self.values.get(index, 0)
+            return _leaf(v) if v else self.e[0]
+        m = self._memo.get((level, index))
+        if m is not None:
+            return m
         lo = index << level
-        hi = lo + (1 << level)
-        if not any(lo <= k < hi for k in self.values):
+        n = self._count(lo, lo + (1 << level))
+        if n == 0:
             return self.e[level]
-        left = self._node(level - 1, index * 2)
-        right = self._node(level - 1, index * 2 + 1)
-        return A2.rnode(left, right)
+        if n == 1:
+            k = self._keys[bisect.bisect_left(self._keys, lo)]
+            d = self._singleton_fold(k, level)
+        else:
+            d = A2.rnode(self._node(level - 1, index * 2), self._node(level - 1, index * 2 + 1))
+        self._memo[(level, index)] = d
+        return d
 
     def root(self):
         return self._node(self.depth, 0)
@@ -72,8 +124,7 @@ class SparseStore:
         key &= (1 << self.depth) - 1
         sibs, index = [], key
         for level in range(self.depth):
-            sib_index = index ^ 1
-            sibs.append(self._node(level, sib_index))
+            sibs.append(self._node(level, index ^ 1))
             index >>= 1
         return sibs
 
@@ -81,7 +132,22 @@ class SparseStore:
         return self.values.get(int(key) & ((1 << self.depth) - 1), 0)
 
     def set(self, key, value):
-        self.values[int(key) & ((1 << self.depth) - 1)] = int(value) % F.P
+        key = int(key) & ((1 << self.depth) - 1)
+        value = int(value) % F.P
+        present = key in self.values
+        if value:
+            if not present:
+                bisect.insort(self._keys, key)
+            self.values[key] = value
+        elif present:
+            del self.values[key]
+            del self._keys[bisect.bisect_left(self._keys, key)]
+        else:
+            return                                             # writing 0 to an empty slot: nothing changed
+        idx = key
+        for level in range(1, self.depth + 1):                 # invalidate exactly the changed ancestor chain
+            idx >>= 1
+            self._memo.pop((level, idx), None)
 
 
 def _eq(a, b):
@@ -117,3 +183,38 @@ def verify_transition(pre_root, ops):
         else:
             raise ValueError(f"transition: unknown op kind {op.get('kind')!r}")
     return root
+
+
+# -- compressed authentication paths (wire format for exit proofs) ------------------------------------
+def pack_path(siblings, depth):
+    """Compress a bottom-up sibling list: only levels whose sibling differs from the canonical empty root are
+    carried ({"d": depth, "s": {level: [DIGEST hex lanes]}}); everything else is implicitly e[level]. A sparse
+    tree's typical path is ~log N real siblings, so a depth-256 proof is a few hundred bytes, not 16KB."""
+    e = empty_roots(depth)
+    s = {}
+    for i, sib in enumerate(siblings):
+        t = tuple(int(x) % F.P for x in sib)
+        if t != e[i]:
+            s[str(i)] = [format(x, "016x") for x in t]
+    return {"d": int(depth), "s": s}
+
+
+def unpack_path(packed, depth):
+    """Expand a packed path back to the full sibling list for `depth`. Returns None (never raises) on anything
+    malformed — wrong depth, bad level, bad lane count, out-of-field lanes — so verifiers can reject cleanly."""
+    try:
+        if not isinstance(packed, dict) or int(packed.get("d")) != int(depth):
+            return None
+        e = empty_roots(depth)
+        out = list(e[:depth])
+        for k, lanes in (packed.get("s") or {}).items():
+            i = int(k)
+            if not (0 <= i < depth) or not isinstance(lanes, list) or len(lanes) != DIGEST:
+                return None
+            t = tuple(int(x, 16) for x in lanes)
+            if any(not (0 <= v < F.P) for v in t):
+                return None
+            out[i] = t
+        return out
+    except Exception:
+        return None
