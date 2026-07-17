@@ -67,9 +67,9 @@ def verify_io_replay(bundle, pre_root, post_root, num_queries=None, backend=None
         bk = backend or B.RECURSION
         nq = int(num_queries) if num_queries is not None else bundle["num_queries"]
         roots = bundle["roots"]
-        if roots[0] != pre_root % F.P:
+        if not ST._eq(roots[0], pre_root):                       # roots are alghash2 CAPACITY-tuples
             return False, "replay pre_root != public pre_root"
-        if roots[-1] != post_root % F.P:
+        if not ST._eq(roots[-1], post_root):
             return False, "replay post_root != public post_root"
         steps = bundle["steps"]
         depth = bundle["depth"]

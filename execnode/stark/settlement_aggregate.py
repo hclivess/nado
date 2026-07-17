@@ -17,7 +17,7 @@ def _items(replay_steps, positions, depth):
     """The hetero items: every merkle-update (shared MU AIR, per-step boundaries/roots) + every slot_key
     derivation (shared SK AIR, per-entry inputs). One transitions object per family ⇒ two comp groups."""
     MU_T = MU._transitions()
-    SK_T = SK._all_transitions()
+    SK_T = SK.transitions()
     items = []
     for s in replay_steps:
         p = s["proof"]
@@ -25,10 +25,10 @@ def _items(replay_steps, positions, depth):
                       "boundaries": MU._boundaries(s["old"], s["new"], s["pre_root"], s["post_root"], s["dirs"], depth),
                       "periodic": MU._periodic(p["T"], depth)})
     for pos in positions:
-        p = pos["proof"]; T = p["T"]; els = SK.elements(pos["cid"], pos["slot"])
+        p = pos["proof"]; T = p["T"]
         items.append({"proof": p, "transitions": SK_T,
-                      "boundaries": SK._boundaries(T, els, pos["digest"]),
-                      "periodic": SK._full_periodic(els, T)})
+                      "boundaries": SK.boundaries_for(pos["cid"], pos["slot"], pos["digest"], T),
+                      "periodic": SK._periodic(T)})
     return items
 
 

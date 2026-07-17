@@ -12,7 +12,8 @@ public (pre_root, post_root) AND re-verifies every update — either per-proof (
 bundle. Binding the updates to the epoch's actual SSTOREs is `exec_state_bind` (piece (b)); swapping this in as
 the settled root is the settlement integration (piece (c)).
 """
-from execnode.stark import merkle_update as MU, alghash as A, field as F, backend as B, recursive_verify as RV
+from execnode.stark import (merkle_update as MU, field as F, backend as B, recursive_verify as RV,
+                            storage_tree as ST)
 
 
 def _dirs(key, depth):
@@ -59,10 +60,10 @@ def verify_transition(tr, pre_root, post_root, num_queries=None, outer_queries=N
         roots = tr["roots"]
         proofs = tr["proofs"]
         if not proofs:
-            return (roots == [pre_root] and pre_root == post_root), "empty transition"
-        if roots[0] != pre_root % F.P:
+            return (len(roots) == 1 and ST._eq(roots[0], pre_root) and ST._eq(pre_root, post_root)), "empty transition"
+        if not ST._eq(roots[0], pre_root):                       # roots are alghash2 CAPACITY-tuples
             return False, "transition pre_root != public pre_root"
-        if roots[-1] != post_root % F.P:
+        if not ST._eq(roots[-1], post_root):
             return False, "transition post_root != public post_root"
         if len(roots) != len(proofs) + 1:
             return False, "root/proof count mismatch"

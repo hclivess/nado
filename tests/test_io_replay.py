@@ -67,7 +67,7 @@ def t_tampered_chain_rejected():
     bundle = IR.prove_io_replay(store, cid_io, D, num_queries=NQ)
     post_root = store.root()
     bad = copy.deepcopy(bundle)
-    bad["roots"][1] = (int(bad["roots"][1]) + 1) % F.P            # break the chain
+    _r = list(bad["roots"][1]); _r[0] = (int(_r[0]) + 1) % F.P; bad["roots"][1] = tuple(_r)   # break the chain (tuple root)
     ok, _ = IR.verify_io_replay(bad, pre_root, post_root, num_queries=NQ)
     assert not ok, "a tampered chain root must be rejected"
 

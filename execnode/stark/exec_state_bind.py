@@ -13,29 +13,39 @@ This is the VERIFIER-side binding (native, O(#io) — the cost of reading the ca
 in-circuit LogUp that folds the derivation into the proof (so verify is O(1)) is the succinctness step on top.
 Key(cid, slot) maps a contract slot to a sparse-tree position deterministically.
 """
-from execnode.stark import field as F, alghash as A
+from execnode.stark import field as F, alghash2 as A2
 from hashing import blake2b_hash
 
-DOM_KVPOS = 5                                    # alghash domain tag for slot positions (disjoint from 1..4)
+DOM_KVPOS = 7                                    # alghash2 domain tag for slot positions (disjoint from 1..6)
 
 
 def cid_limbs(cid):
-    """A contract id as 8×32-bit field limbs — the alghash-friendly encoding of its 256-bit id. Deterministic;
-    a hex cid decodes directly, anything else is blake2b-folded first so any id maps into the field cleanly."""
+    """A contract id as 5×52-bit field limbs — the alghash2-friendly encoding of its 256-bit id. FIVE limbs so
+    the sponge input [DOM_KVPOS, limbs…, slot] is 7 elements = ONE alghash2 chunk (RATE 8), which lets the
+    in-circuit derivation be a SINGLE permutation. Deterministic; a hex cid decodes directly, anything else is
+    blake2b-folded first so any id maps into the field cleanly."""
     try:
         n = int(str(cid), 16)
     except ValueError:
         n = int(blake2b_hash(["cid", str(cid)]), 16)
-    return [(n >> (32 * i)) & 0xFFFFFFFF for i in range(8)]
+    return [(n >> (52 * i)) & ((1 << 52) - 1) for i in range(5)]      # 5·52 = 260 ≥ 256 bits, each < p
+
+
+def elements(cid, slot):
+    """The alghash2 sponge inputs for (cid, slot) — one chunk (7 elements)."""
+    return [DOM_KVPOS, *cid_limbs(cid), int(slot) % F.P]
 
 
 def slot_key(cid, slot, depth):
-    """Deterministic sparse-tree position for a contract slot, via ALGHASH so the (cid, slot) → position map is
-    ARITHMETIZATION-FRIENDLY (provable in-circuit — the replay proves `key = slot_key(cid, slot)` cheaply, closing
-    the fold-layer io binding). key = alghash.hashn([DOM_KVPOS, cid limbs…, slot]) truncated to `depth` bits; a
-    real deployment uses depth ~ 256 so distinct (cid, slot) never share a leaf."""
-    h = A.hashn([DOM_KVPOS, *cid_limbs(cid), int(slot) % F.P])
-    return int(h) & ((1 << depth) - 1)
+    """Deterministic sparse-tree position for a contract slot, via ALGHASH2 (128-bit, arithmetization-friendly):
+    key = the digest of hashn([DOM_KVPOS, cid limbs…, slot]) (4 lanes packed big-endian) truncated to `depth`
+    bits, so the (cid, slot) → position map is provable IN-CIRCUIT (slot_key_air, one permutation). A real
+    deployment uses depth ~ 256 so distinct (cid, slot) never share a leaf."""
+    d = A2.hashn(elements(cid, slot))            # CAPACITY-tuple (128-bit)
+    acc = 0
+    for lane in d:
+        acc = (acc << 64) | int(lane)
+    return acc & ((1 << depth) - 1)
 
 
 def net_updates(pre_get, cid_io, depth):

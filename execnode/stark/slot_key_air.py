@@ -1,135 +1,88 @@
 """
-IN-CIRCUIT slot_key derivation (fold-layer io binding, doc/zk-recursion.md §5c piece 2/3).
+IN-CIRCUIT slot_key derivation (fold-layer io binding, doc/zk-recursion.md §5c piece 2/3) — ALGHASH2.
 
-The sparse-tree POSITION of a storage slot is key = alghash.hashn([DOM_KVPOS, cid_limbs…, slot]) truncated to
-`depth` bits (exec_state_bind.slot_key). For an O(1) settlement the verifier must NOT recompute that hash per io
-entry — the replay must PROVE key = slot_key(cid, slot). This AIR arithmetizes the width-2 alghash sponge over the
-fixed NELEM = 10 inputs (DOM_KVPOS + 8 cid limbs + slot), exposing the full digest AND its low-`depth` bit
-decomposition (the merkle-update DIRs), so the position is bound to (cid, slot) with a cheap in-circuit hash. The
-inputs are pinned as public boundaries — a caller ties them to the committed io (cid/slot columns) and the dir
-bits to the merkle-update path (io_bind / root equality).
-
-One absorb block = R alghash rounds; NELEM blocks chained (each absorbs the next input into the rate). Same
-sponge the native slot_key runs, so the AIR digest equals alghash.hashn(...) exactly (cross-checked in tests).
+The sparse-tree POSITION of a storage slot is key = digest of alghash2.hashn([DOM_KVPOS, cid_limbs…, slot])
+truncated to `depth` bits (exec_state_bind.slot_key). For an O(1) settlement the verifier must NOT recompute that
+hash per io entry — the replay PROVES key = slot_key(cid, slot). Because the 7 sponge inputs fit ONE alghash2
+chunk (RATE 8), the derivation is a SINGLE permutation, arithmetized by the recursion round AIR (recursion.py):
+the absorbed init (row 0, encoding cid/slot) is pinned as boundaries, the digest lanes at row R are the position
+hash. The verifier REBUILDS the init from (cid, slot) cheaply (no hashing) and pins it — verifier-authoritative —
+so a wrong (cid, slot) or digest fails. 128-bit (matches the alghash2 state tree).
 """
-from execnode.stark import field as F, alghash, exec_state_bind as ESB, stark
+from execnode.stark import field as F, alghash2 as A2, stark, exec_state_bind as ESB, backend as B
+from execnode.stark.recursion import _round_transitions, _permute_snapshots, _next_pow2, _W, _R, _RATE
 
-R = alghash.ROUNDS                               # rounds per absorb block
-NELEM = 10                                       # DOM_KVPOS + 8 cid limbs + slot
-S0, S1 = 0, 1                                    # sponge state (rate, capacity)
-NCOL = 2
-MAX_DEGREE = alghash.ALPHA                       # 7
-
-
-def _next_pow2(x):
-    p = 1
-    while p < x:
-        p <<= 1
-    return p
-
-
-def _round(s0, s1, r):
-    t0 = alghash.sbox(F.add(s0, alghash.RC[r % R][0]))
-    t1 = alghash.sbox(F.add(s1, alghash.RC[r % R][1]))
-    return F.add(F.mul(2, t0), t1), F.add(t0, F.mul(3, t1))
+CAP = A2.CAPACITY
+MAX_DEGREE = 8
 
 
 def elements(cid, slot):
-    """The NELEM sponge inputs for (cid, slot) — the same sequence exec_state_bind.slot_key hashes."""
-    return [ESB.DOM_KVPOS, *ESB.cid_limbs(cid), int(slot) % F.P]
+    return ESB.elements(cid, slot)
 
 
-def _T():
-    return _next_pow2(NELEM * R + 1)
+def _init(els):
+    e = [len(els)] + [int(m) % F.P for m in els]
+    if len(e) > _RATE:
+        raise ValueError("slot_key_air: inputs exceed one alghash2 chunk")
+    init = [0] * _RATE + list(A2.IV)
+    for i, m in enumerate(e):
+        init[i] = F.add(init[i], m)
+    return init
 
 
-def _periodic_for(els, T):
-    nextmsg = [0] * T
-    last = [0] * T
-    for b in range(NELEM):
-        r_last = b * R + (R - 1)
-        if r_last < T:
-            last[r_last] = 1
-            if b + 1 < NELEM:
-                nextmsg[r_last] = els[b + 1] % F.P
-    return [nextmsg, last]
-
-
-# The alghash round constant depends on the round r = row % R. We encode RC as a public periodic pair, exactly
-# like recursion.prove_preimage, so ONE transition covers every row.
-def _rc_periodic(T):
-    return [[alghash.RC[i % R][0] for i in range(T)], [alghash.RC[i % R][1] for i in range(T)]]
-
-
-def _round_expr(s0, s1, rc0, rc1):
-    t0 = alghash.sbox(F.add(s0, rc0))
-    t1 = alghash.sbox(F.add(s1, rc1))
-    return F.add(F.mul(2, t0), t1), F.add(t0, F.mul(3, t1))
-
-
-def _all_transitions():
-    # periodic layout: [NEXTMSG, LAST, RC0, RC1]
-    NEXTMSG, LAST, RC0, RC1 = 0, 1, 2, 3
-    def c_s0(c, n, p):
-        r0, _r1 = _round_expr(c[S0], c[S1], p[RC0], p[RC1])
-        want = F.add(r0, F.mul(p[LAST], p[NEXTMSG]))            # absorb next input on a block's last row
-        return F.sub(n[S0], want)
-    def c_s1(c, n, p):
-        _r0, r1 = _round_expr(c[S0], c[S1], p[RC0], p[RC1])
-        return F.sub(n[S1], r1)
-    return [c_s0, c_s1]
-
-
-def build_trace(cid, slot):
-    """Run the sponge in the clear; return (trace, T, els, digest). Row 0 = [DOM_KVPOS(first input), IV]."""
+def build_trace(cid, slot, pad_to=None):
     els = elements(cid, slot)
-    T = _T()
-    s0, s1 = F.add(0, els[0] % F.P), alghash.IV
-    trace = []
-    for r in range(T):
-        trace.append([s0, s1])
-        r0, r1 = _round(s0, s1, r % R)
-        b, last = r // R, (r % R == R - 1)
-        if last and b + 1 < NELEM:
-            s0, s1 = F.add(r0, els[b + 1] % F.P), r1
-        else:
-            s0, s1 = r0, r1
-    digest = trace[NELEM * R][S0] if NELEM * R < T else s0     # state s0 after the last block's permute
-    return trace, T, els, digest
+    init = _init(els)
+    snaps = _permute_snapshots(init)                 # R+1 rows
+    digest = tuple(snaps[_R][:CAP])
+    rows = [list(s) for s in snaps]
+    T = _next_pow2(len(rows))
+    if pad_to:                                       # pad to a common length so it folds with other-AIR proofs
+        T = max(T, int(pad_to))
+    while len(rows) < T:
+        rows.append(list(rows[-1]))
+    return rows, T, init, digest
 
 
-def _boundaries(T, els, digest):
-    return [(0, S0, els[0] % F.P), (0, S1, alghash.IV), (NELEM * R, S0, int(digest) % F.P)]
+def _periodic(T):
+    """RC schedule (per lane) + an active selector (1 on the R round rows, 0 on pad) — recursion.py's layout."""
+    rc = [[A2.RC[i % _R][lane] if i < _R else 0 for i in range(T)] for lane in range(_W)]
+    act = [1 if i < _R else 0 for i in range(T)]
+    return rc + [act]
 
 
-def _full_periodic(els, T):
-    nm, lst = _periodic_for(els, T)
-    rc0, rc1 = _rc_periodic(T)
-    return [nm, lst, rc0, rc1]
+def _boundaries(init, digest, T):
+    bnds = [(0, lane, int(init[lane]) % F.P) for lane in range(_W)]
+    for lane in range(CAP):
+        bnds.append((_R, lane, int(digest[lane]) % F.P))
+    return bnds
 
 
-def prove(cid, slot, num_queries=stark.NUM_QUERIES, backend=None):
-    """Prove key-preimage: the sponge over (cid, slot) yields `digest` (= alghash.hashn(elements)). Returns
-    (proof, digest). The inputs (cid, slot) are pinned via the per-instance periodic + row-0 boundary."""
-    from execnode.stark import backend as B
+def boundaries_for(cid, slot, digest, T):
+    """Verifier-authoritative boundaries for (cid, slot) + a claimed digest — rebuilds the init cheaply (no hash)."""
+    return _boundaries(_init(elements(cid, slot)), tuple(int(d) % F.P for d in digest), T)
+
+
+def transitions():
+    return _round_transitions()
+
+
+def prove(cid, slot, num_queries=stark.NUM_QUERIES, backend=None, pad_to=None):
     b = backend or B.RECURSION
-    trace, T, els, digest = build_trace(cid, slot)
-    per = _full_periodic(els, T)
-    proof = stark.prove(trace, _all_transitions(), _boundaries(T, els, digest), periodic=per,
+    rows, T, init, digest = build_trace(cid, slot, pad_to=pad_to)
+    proof = stark.prove(rows, transitions(), _boundaries(init, digest, T), periodic=_periodic(T),
                         max_degree=MAX_DEGREE, num_queries=num_queries, backend=b)
-    proof["_digest"] = int(digest) % F.P
-    proof["_els"] = [int(e) % F.P for e in els]
-    return proof, int(digest) % F.P
+    return proof, digest
 
 
 def verify(proof, cid, slot, digest, num_queries=stark.NUM_QUERIES, backend=None):
-    """Verify the derivation for the PUBLIC (cid, slot): rebuild the per-instance periodic + boundaries from
-    (cid, slot) and the claimed digest, and check the STARK. A wrong (cid, slot) or digest fails the boundaries."""
-    from execnode.stark import backend as B
-    b = backend or B.RECURSION
-    T = _T()
-    els = elements(cid, slot)
-    per = _full_periodic(els, T)
-    ok, why = stark.verify(proof, _all_transitions(), _boundaries(T, els, int(digest) % F.P), periodic=per,
-                           max_degree=MAX_DEGREE, num_queries=num_queries, backend=b)
-    return ok, why
+    """Verify the derivation for PUBLIC (cid, slot): rebuild the init boundaries from (cid, slot) [cheap, no hash]
+    + pin the claimed digest, and check the STARK. A wrong (cid, slot) or digest fails the boundaries."""
+    try:
+        b = backend or B.RECURSION
+        T = proof["T"]
+        bnds = boundaries_for(cid, slot, digest, T)
+        return stark.verify(proof, transitions(), bnds, periodic=_periodic(T),
+                            max_degree=MAX_DEGREE, num_queries=num_queries, backend=b)
+    except Exception as e:
+        return False, f"malformed slot_key proof: {e}"

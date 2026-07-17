@@ -55,12 +55,13 @@ def t_soundness():
     pre_root = store.root()
     tr = SX.prove_transition(store, updates, num_queries=NQ)
     post_root = store.root()
-    # wrong public pre/post rejected
-    assert not SX.verify_transition(tr, (pre_root + 1) % F.P, post_root, num_queries=NQ)[0], "wrong pre_root"
-    assert not SX.verify_transition(tr, pre_root, (post_root + 1) % F.P, num_queries=NQ)[0], "wrong post_root"
+    # wrong public pre/post rejected (roots are alghash2 CAPACITY-tuples — perturb one lane)
+    _bump = lambda r: tuple([(int(r[0]) + 1) % F.P] + list(r[1:]))
+    assert not SX.verify_transition(tr, _bump(pre_root), post_root, num_queries=NQ)[0], "wrong pre_root"
+    assert not SX.verify_transition(tr, pre_root, _bump(post_root), num_queries=NQ)[0], "wrong post_root"
     # broken chain: corrupt an intermediate root -> a proof no longer authenticates its (pre,post)
     bad = copy.deepcopy(tr)
-    bad["roots"][1] = (bad["roots"][1] + 1) % F.P
+    bad["roots"][1] = _bump(bad["roots"][1])
     assert not SX.verify_transition(bad, pre_root, post_root, num_queries=NQ)[0], "broken chain must be rejected"
     # tampered proof (corrupt a committed cell) rejected
     bad2 = copy.deepcopy(tr)

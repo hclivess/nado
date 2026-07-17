@@ -30,7 +30,7 @@ CID_IO = [(CID, zkvm.IO_SSTORE, 0, 111)]            # 1 storage entry ⇒ 1 merk
 # build the proofs + the ONE bundle ONCE (folding real T=128 recursion proofs is the Python throughput wall)
 _STORE = STree.SparseStore(D, {ESB.slot_key(CID, 0, D): 100})
 _REPLAY = IR.prove_io_replay(_STORE, CID_IO, D, num_queries=NQ)
-_POS = ST.prove_positions(CID_IO, D, num_queries=NQ)
+_POS = ST.prove_positions(CID_IO, D, num_queries=NQ, pad_to=ST.mu_trace_len(D))   # pad to fold with merkle-updates
 BUNDLE, PUBS, AIRS = AGG.prove_settlement_bundle(_REPLAY["steps"], _POS, D, num_queries_outer=NQO)
 
 

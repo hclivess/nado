@@ -16,18 +16,33 @@ from execnode.stark import (field as F, slot_key_air as SK, exec_state_bind as E
 from execnode import zkvm
 
 
-def prove_positions(cid_io, depth, num_queries=stark.NUM_QUERIES, backend=None):
-    """For every STORAGE io entry prove key = slot_key(cid, slot) via the in-circuit sponge. Returns a list of
-    {cid, slot, kind, value, key, digest, proof} in io order (the same order io_replay processes)."""
+def _key(digest, depth):
+    """Pack the alghash2 CAPACITY-tuple digest big-endian and truncate to `depth` bits — matches ESB.slot_key."""
+    acc = 0
+    for lane in digest:
+        acc = (acc << 64) | int(lane)
+    return acc & ((1 << depth) - 1)
+
+
+def mu_trace_len(depth):
+    """The merkle-update trace length for `depth` — so slot_key proofs can pad to it and fold together (§5c)."""
+    from execnode.stark import merkle_update as MU
+    from execnode.stark.recursion import _next_pow2
+    return _next_pow2((depth + 1) * MU.BR)
+
+
+def prove_positions(cid_io, depth, num_queries=stark.NUM_QUERIES, backend=None, pad_to=None):
+    """For every STORAGE io entry prove key = slot_key(cid, slot) via the in-circuit alghash2 permutation. Returns
+    a list of {cid, slot, kind, value, key, digest, proof} in io order (the same order io_replay processes).
+    `pad_to` pads each slot_key trace to that length (e.g. mu_trace_len(depth)) so they fold with merkle-updates."""
     b = backend or B.RECURSION
     out = []
     for (cid, kind, slot, value) in cid_io:
         if kind not in (zkvm.IO_SLOAD, zkvm.IO_SSTORE):
             continue
-        proof, digest = SK.prove(cid, int(slot), num_queries=num_queries, backend=b)
-        key = int(digest) & ((1 << depth) - 1)
+        proof, digest = SK.prove(cid, int(slot), num_queries=num_queries, backend=b, pad_to=pad_to)
         out.append({"cid": cid, "slot": int(slot), "kind": kind, "value": int(value) % F.P,
-                    "key": key, "digest": int(digest), "proof": proof})
+                    "key": _key(digest, depth), "digest": tuple(int(d) % F.P for d in digest), "proof": proof})
     return out
 
 
@@ -46,7 +61,7 @@ def verify_positions(positions, replay_steps, depth, num_queries=stark.NUM_QUERI
                                   num_queries=num_queries, backend=b)
             if not okd:
                 return False, f"entry {i}: slot_key derivation failed: {whyd}"
-            key = int(pos["digest"]) & ((1 << depth) - 1)
+            key = _key(pos["digest"], depth)
             if key != pos["key"]:
                 return False, f"entry {i}: key != truncated digest"
             if int(step["key"]) != key:

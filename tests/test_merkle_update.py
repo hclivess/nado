@@ -65,13 +65,17 @@ def t_fresh_slot_update():
     assert ok, why
 
 
+def _bump(root):
+    r = list(root); r[0] = (int(r[0]) + 1) % F.P; return tuple(r)   # perturb one lane of a CAPACITY-tuple root
+
+
 def t_soundness():
     """A verifier that pins a WRONG public value/root rejects the proof (the boundaries are the statement)."""
     store, k, old, new, siblings, dirs = _case(4)
     proof, pre_root, post_root = MU.prove_update(old, new, siblings, dirs, num_queries=NQ, backend=B.ALGHASH2)
     P = F.P
-    assert not MU.verify_update(proof, old, new, pre_root, (post_root + 1) % P, dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong post_root"
-    assert not MU.verify_update(proof, old, new, (pre_root + 1) % P, post_root, dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong pre_root"
+    assert not MU.verify_update(proof, old, new, pre_root, _bump(post_root), dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong post_root"
+    assert not MU.verify_update(proof, old, new, _bump(pre_root), post_root, dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong pre_root"
     assert not MU.verify_update(proof, (old + 1) % P, new, pre_root, post_root, dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong old_val"
     assert not MU.verify_update(proof, old, (new + 1) % P, pre_root, post_root, dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong new_val"
     wrong_dirs = list(dirs); wrong_dirs[0] ^= 1                  # flip one position bit

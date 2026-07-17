@@ -12,7 +12,7 @@ Run: python3 tests/test_settlement_sparse.py     (~seconds: a couple of small ep
 """
 import os, sys, copy, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.stark import settlement_sparse as SS, storage_tree as ST, exec_state_bind as ESB
+from execnode.stark import settlement_sparse as SS, storage_tree as ST, exec_state_bind as ESB, field as F
 from execnode import zkvm, zkvmasm
 
 fails = 0
@@ -85,7 +85,8 @@ def t_withdrawal_membership():
 
 def t_tampered_transition_rejected():
     bad = copy.deepcopy(_BUNDLE)
-    bad["sparse_post_root"] = (int(bad["sparse_post_root"]) + 1) % (2**61)
+    _r = list(bad["sparse_post_root"]); _r[0] = (int(_r[0]) + 1) % F.P
+    bad["sparse_post_root"] = tuple(_r)                            # roots are alghash2 CAPACITY-tuples
     ok, _why, _ = SS.verify_bound_epoch(bad, num_queries=NQ)
     assert not ok, "a tampered sparse post_root must be rejected"
 
