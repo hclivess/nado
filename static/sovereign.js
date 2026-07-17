@@ -83,10 +83,16 @@ function startPractice() {
   const seed = "sov-" + Math.random().toString(36).slice(2, 9);
   const bots = ["Ferralis", "Kaltberg", "Osmara", "Venturia", "Drakov"];
   const log = [{ actor: "you", cursor: 0, rh: 0, enc: E.encAction(E.OP.found), target: 0 }];
-  bots.forEach((b, i) => log.push({ actor: b, cursor: 0, rh: 0, enc: E.encAction(E.OP.found), target: 0 }));
-  // give the bots a head start so there's a world to climb
-  for (let t = 1; t < 200; t++) bots.forEach((b, i) => { if (t % 3 === 0) log.push({ actor: b, cursor: t * E.TURN_BLOCKS, rh: t * E.TURN_BLOCKS, enc: botMove(E.replayWorld(log, t * E.TURN_BLOCKS, pracSeedOfFor(seed)).world[b], i), target: 0 }); });
-  practice = { seed, bots, log, now: 200 * E.TURN_BLOCKS };
+  bots.forEach((b) => log.push({ actor: b, cursor: 0, rh: 0, enc: E.encAction(E.OP.found), target: 0 }));
+  // bot head start — a STATELESS deterministic build pattern (no per-turn replay; keeps it O(n))
+  const pattern = ["village", "village", "farm", "barracks", "market", "plant", "lab", "base", "factory", "builder"];
+  for (let t = 3; t < 180; t += 3) bots.forEach((b, i) => {
+    const cur = t * E.TURN_BLOCKS;
+    if ((t / 3 + i) % 5 === 0) { log.push({ actor: b, cursor: cur, rh: cur, enc: E.encAction(E.OP.colonize), target: 0 }); return; }
+    const what = pattern[(Math.floor(t / 3) + i) % pattern.length];
+    log.push({ actor: b, cursor: cur, rh: cur, enc: E.encAction(E.OP.build, E.BUILDABLE.indexOf(what), 10), target: 0 });
+  });
+  practice = { seed, bots, log, now: 180 * E.TURN_BLOCKS };
   prac.saveRun(practice); pracReplay(); render();
 }
 function pracSeedOfFor(seed) { return (rh) => { const r = prand(seed + ":seed:" + rh); return BigInt(Math.floor(r() * 1e15)) * 1000003n + 7n; }; }
@@ -109,10 +115,19 @@ function nationHead(n) {
     + '<span class="stat">😊 <b>' + Math.round(n.joy) + "%</b></span>"
     + '<span class="stat">🏛 <b>' + T("gov_" + n.gov, E.GOV[n.gov].k) + "</b></span>"
     + '<span class="stat prestige">⭐ <b>' + fmt(E.prestige(n)) + "</b></span></div>"
-    + '<div class="rates">' + ratesLine(n) + "</div>";
+    + '<div class="stats mt">'
+    + '<span class="stat">🎖 <b>' + T("rank_" + E.RANKS[E.rankOf(n)].k, E.RANKS[E.rankOf(n)].k) + "</b> · " + fmt(n.exp) + " XP</span>"
+    + '<span class="stat">🛡 ' + T("ready", "readiness") + " <b>" + Math.round(n.ready) + "%</b></span>"
+    + (n.generals && n.generals.length ? '<span class="stat">⭐ ' + n.generals.map((gn) => T("gen_" + gn.type, E.GENERALS[gn.type].k) + " " + genLvl(gn)).join(", ") + "</span>" : "")
+    + (n.ally ? '<span class="stat">🤝 ' + T("alliance", "alliance") + " #" + n.ally + "</span>" : "")
+    + (n.ufoExplore > 0 ? '<span class="stat">👽 ' + Math.round(n.ufoExplore) + "%</span>" : "")
+    + "</div>"
+    + '<div class="rates">' + ratesLine(n) + "</div>"
+    + (n.lastEvent ? '<div class="evline">📣 ' + T("ev_" + n.lastEvent, n.lastEvent) + "</div>" : "");
 }
+function genLvl(gn) { return "L" + (E.genLevel ? E.genLevel(gn.xp) : 0); }
 
-const TABS = ["build", "army", "tech", "gov", "world"];
+const TABS = ["build", "army", "arsenal", "market", "tech", "gov", "diplo", "world"];
 function render() {
   const dash = $("dash"); if (!dash) return;
   if (practice) { $("pracBanner").classList.remove("hidden"); } else if ($("pracBanner")) $("pracBanner").classList.add("hidden");
@@ -134,8 +149,11 @@ function renderPanel() {
   const el = $("panel"); if (!el || !me) return;
   if (tab === "build") return renderBuild(el);
   if (tab === "army") return renderArmy(el);
+  if (tab === "arsenal") return renderArsenal(el);
+  if (tab === "market") return renderMarket(el);
   if (tab === "tech") return renderTech(el);
   if (tab === "gov") return renderGov(el);
+  if (tab === "diplo") return renderDiplo(el);
   if (tab === "world") return renderWorld(el);
 }
 function tile(inner, cls, data) { return '<div class="tile ' + (cls || "") + '" ' + (data || "") + ">" + inner + "</div>"; }
@@ -224,23 +242,102 @@ function renderWorld(el) {
   el.innerHTML = h;
   el.querySelectorAll("[data-raid]").forEach((b) => b.onclick = () => openRaid(b.dataset.raid));
 }
+function renderArsenal(el) {
+  const n = me;
+  let h = '<p class="hint">' + T("arsenalHint", "Military bases generate research points; spend them on missiles. Advances are permanent nation-wide upgrades bought with technology points.") + '</p><div class="techpts">🚀 ' + T("rocketPts", "research") + " <b>" + Math.floor(n.rocketPts) + "</b></div>";
+  h += '<h3 class="sub2">' + T("missiles", "Missiles") + "</h3><div class=\"grid\">" + E.MKEYS.map((k) => { const M = E.MISSILES[k];
+    return tile(gicon("base") + '<div class="tn">' + T("m_" + k, M.k) + '</div><div class="tc">' + fmt(n.rockets[k] || 0) + "</div>"
+      + '<div class="tx dim">' + T("mx_" + k, M.txt) + '</div><div class="tcost">' + M.cost + " 🚀</div>",
+      "m-" + k + (n.rocketPts >= M.cost ? " ready" : ""), 'data-mis="' + k + '"'); }).join("") + "</div>";
+  h += '<h3 class="sub2 mt">' + T("advances", "Advances") + '</h3><div class="techpts">🔬 <b>' + Math.floor(n.techPts) + "</b></div><div class=\"grid\">"
+    + E.ADV_KEYS.filter((k) => E.ADVANCES[k].type !== "M").map((k) => { const A = E.ADVANCES[k], owned = E.hasAdv(n, k), cost = E.advCost(n, k);
+      return tile('<div class="tn">' + T("adv_" + k, A.k) + (owned ? " ✓" : "") + '</div><div class="tx dim">' + T("advx_" + k, A.txt) + '</div><div class="tcost">' + (owned ? T("owned", "owned") : cost + " 🔬") + "</div>",
+        "a-" + k + (owned ? " on" : n.techPts >= cost ? " ready" : ""), owned ? "" : 'data-adv="' + k + '"'); }).join("")
+    + E.ADV_KEYS.filter((k) => E.ADVANCES[k].type === "M" && E.hasAdv(n, k)).map((k) => tile('<div class="tn">👽 ' + T("adv_" + k, E.ADVANCES[k].k) + ' ✓</div><div class="tx dim">' + T("advx_" + k, E.ADVANCES[k].txt) + "</div>", "a-" + k + " on")).join("") + "</div>";
+  el.innerHTML = h;
+  el.querySelectorAll("[data-mis]").forEach((d) => d.onclick = () => { const k = d.dataset.mis;
+    if (n.rocketPts < E.MISSILES[k].cost) return notify(T("needRocketPts", "Not enough research points."));
+    const q = Math.max(1, parseInt(prompt(T("buildHowMany", "Build how many {m}?", { m: T("m_" + k, E.MISSILES[k].k) }), "1") || "0", 10));
+    if (q) act(E.encAction(E.OP.missile, E.MKEYS.indexOf(k), q), 0, "build " + q + " " + k); });
+  el.querySelectorAll("[data-adv]").forEach((d) => d.onclick = () => { const k = d.dataset.adv;
+    if (me.techPts < E.advCost(me, k)) return notify(T("needPts", "Not enough research points yet."));
+    act(E.encAction(E.OP.advance, E.ADV_KEYS.indexOf(k)), 0, "research advance " + k); });
+}
+function renderMarket(el) {
+  const n = me, items = E.MARKET_ITEMS;
+  let h = '<p class="hint">' + T("marketHint", "The domestic market: buy or sell food, energy and units for money. Prices rise as your stock of an item falls; you sell to Country #0 at a discount.") + "</p>";
+  h += '<table class="wtab"><thead><tr><th>' + T("good", "Good") + "</th><th>" + T("stock", "Stock") + "</th><th>" + T("buyPrice", "Buy") + "</th><th></th><th></th></tr></thead><tbody>";
+  h += items.map((it) => { const have = (it === "food" || it === "energy") ? n[it] : n.units[it];
+    return "<tr><td>" + T(it === "food" || it === "energy" ? it : "u_" + it, it) + "</td><td>" + fmt(have) + "</td><td>💰" + fmt(E.unitPrice(n, it)) + "</td>"
+      + '<td><button class="mk" data-buy="' + it + '">' + T("buy", "Buy") + '</button></td><td><button class="mk ghost" data-sell="' + it + '">' + T("sell", "Sell") + "</button></td></tr>"; }).join("") + "</tbody></table>";
+  el.innerHTML = h;
+  const amt = (verb, it) => Math.max(0, parseInt(prompt(verb + " " + T(it === "food" || it === "energy" ? it : "u_" + it, it) + " — " + T("howMuch", "how much?"), "100") || "0", 10));
+  el.querySelectorAll("[data-buy]").forEach((b) => b.onclick = () => { const it = b.dataset.buy, q = amt(T("buy", "Buy"), it); if (!q) return;
+    const ti = E.MARKET_ITEMS.indexOf(it); act(E.encBig(E.OP.market, 0 * 64 + ti, q), 0, "buy " + q + " " + it); });
+  el.querySelectorAll("[data-sell]").forEach((b) => b.onclick = () => { const it = b.dataset.sell, q = amt(T("sell", "Sell"), it); if (!q) return;
+    const ti = E.MARKET_ITEMS.indexOf(it); act(E.encBig(E.OP.market, 1 * 64 + ti, q), 0, "sell " + q + " " + it); });
+}
+function renderDiplo(el) {
+  const n = me;
+  let h = '<p class="hint">' + T("diploHint", "Join an alliance to share your members' government bonuses (scaled by size, up to 10). Declaring war on a rival doubles the experience both sides earn against each other.") + "</p>";
+  h += n.ally ? '<div class="myrank">' + T("inAlliance", "You are in alliance") + " <b>#" + n.ally + "</b>" + (n._ally ? " · " + n._ally.members + " " + T("members", "members") : "") + "</div>"
+    : '<div class="myrank">' + T("noAlliance", "You are unaligned.") + "</div>";
+  h += '<div class="row2"><input id="allyId" placeholder="' + T("allianceId", "alliance # (1–4095)") + '" inputmode="numeric"><button class="primary" id="btnJoinAlly">' + T("joinAlliance", "Join / create") + "</button>"
+    + (n.ally ? '<button class="ghost" id="btnLeaveAlly">' + T("leaveAlliance", "Leave (−⅓ XP)") + "</button>" : "") + "</div>";
+  // alliance roster
+  const mates = Object.values(world).filter((x) => x && x.ally && x.ally === n.ally);
+  if (n.ally && mates.length) h += '<div class="mt small dim">' + T("roster", "Roster") + ": " + mates.map((x) => (practice ? x.owner : disp(x.owner))).join(", ") + "</div>";
+  el.innerHTML = h;
+  $("btnJoinAlly").onclick = () => { const id = Math.max(1, Math.min(4095, parseInt($("allyId").value || "0", 10)));
+    if (!id) return notify(T("badAllyId", "Enter an alliance number 1–4095.")); act(E.encAction(E.OP.alliance, 0, id), 0, "join alliance " + id); };
+  if ($("btnLeaveAlly")) $("btnLeaveAlly").onclick = () => { if (confirm(T("confirmLeave", "Leave the alliance? You lose a third of your army experience."))) act(E.encAction(E.OP.alliance, 1), 0, "leave alliance"); };
+}
+
+let warMode = "attack", tacType = "partisan", spyOpK = "infra_gov", misType = "conv";
+const WAR_MODES = ["attack", "tactical", "missile", "spy"];
 function openRaid(owner) {
-  target = world[owner]; if (!target || !me) return;
-  const kinds = Object.keys(E.ATTACK_KINDS);
-  let h = '<div class="raidbox"><h3>⚔ ' + T("raidOn", "Raid on {who}", { who: practice ? target.owner : disp(target.owner) }) + "</h3>";
-  h += '<div class="pw">' + T("yourPower", "Your attack power") + ": <b>" + fmt(E.power(me, "atk", comp)) + '</b> · ' + T("theirDef", "their defense") + ": <b>" + fmt(E.power(target, "def", null)) + "</b></div>";
-  h += '<div class="kinds">' + kinds.map((k) => '<button class="kind' + (k === atkKind ? " on" : "") + '" data-kind="' + k + '">' + T("k_" + k, E.ATTACK_KINDS[k].k) + "</button>").join("") + "</div>";
-  h += '<p class="dim small">' + T("kx_" + atkKind, E.ATTACK_KINDS[atkKind].txt) + "</p>";
-  h += '<div class="comp">' + E.FIGHT_UNITS.map((k) => '<label>' + T("u_" + k, E.U[k].k) + ' <input type="range" min="0" max="8" value="' + Math.round((comp[k] || 0) * 8) + '" data-comp="' + k + '"></label>').join("") + "</div>";
-  h += '<div class="row2"><button class="primary" id="btnLaunch">🔥 ' + T("launch", "Launch raid") + '</button><button class="ghost" id="btnCancelRaid">' + T("cancel", "Cancel") + "</button></div></div>";
+  target = world[owner]; if (!target || !me) return; const tgt = target;
+  const who = practice ? tgt.owner : disp(tgt.owner);
+  let h = '<div class="raidbox"><h3>⚔ ' + T("warOn", "War council — {who}", { who }) + "</h3>";
+  h += '<div class="kinds">' + WAR_MODES.map((m) => '<button class="kind' + (m === warMode ? " on" : "") + '" data-mode="' + m + '">' + T("wm_" + m, m) + "</button>").join("") + "</div>";
+  if (warMode === "attack") {
+    const kinds = Object.keys(E.ATTACK_KINDS);
+    h += '<div class="pw">' + T("yourPower", "Your attack power") + ": <b>" + fmt(E.power(me, "atk", comp)) + '</b> · ' + T("theirDef", "their defense") + ": <b>" + fmt(E.power(tgt, "def", null)) + "</b></div>";
+    h += '<div class="kinds">' + kinds.map((k) => '<button class="kind sub' + (k === atkKind ? " on" : "") + '" data-kind="' + k + '">' + T("k_" + k, E.ATTACK_KINDS[k].k) + "</button>").join("") + "</div>";
+    h += '<p class="dim small">' + T("kx_" + atkKind, E.ATTACK_KINDS[atkKind].txt) + "</p>";
+    h += '<div class="comp">' + E.FIGHT_UNITS.map((k) => '<label>' + T("u_" + k, E.U[k].k) + ' <input type="range" min="0" max="8" value="' + Math.round((comp[k] || 0) * 8) + '" data-comp="' + k + '"></label>').join("") + "</div>";
+  } else if (warMode === "tactical") {
+    h += '<div class="kinds">' + E.TKEYS_TAC.map((k) => '<button class="kind sub' + (k === tacType ? " on" : "") + '" data-tac="' + k + '">' + T("tac_" + k, E.TACTICAL[k].k) + "</button>").join("") + "</div>";
+    h += '<p class="dim small">' + T("tacx_" + tacType, E.TACTICAL[tacType].txt) + "</p>";
+  } else if (warMode === "missile") {
+    h += '<div class="kinds">' + E.MKEYS.map((k) => '<button class="kind sub' + (k === misType ? " on" : "") + '" data-mis2="' + k + '">' + T("m_" + k, E.MISSILES[k].k) + " (" + fmt(me.rockets[k] || 0) + ")</button>").join("") + "</div>";
+    h += '<p class="dim small">' + T("mx_" + misType, E.MISSILES[misType].txt) + "</p>";
+  } else if (warMode === "spy") {
+    h += '<div class="pw">' + T("yourSpy", "Your spy strength") + ": <b>" + fmt(E.spyPower(me)) + '</b> · ' + T("agents", "agents") + ": <b>" + fmt(me.units.agent) + "</b></div>";
+    h += '<select id="spySel">' + E.ESP_KEYS.map((k) => '<option value="' + k + '"' + (k === spyOpK ? " selected" : "") + ">" + T("esp_" + k, E.ESPIONAGE[k].k) + "</option>").join("") + "</select>";
+    h += '<p class="dim small">' + T("espx_" + spyOpK, E.ESPIONAGE[spyOpK].txt) + "</p>";
+  }
+  h += '<div class="row2"><button class="primary" id="btnLaunch">🔥 ' + T("launch", "Launch") + '</button><button class="ghost" id="btnCancelRaid">' + T("cancel", "Cancel") + "</button></div></div>";
   $("panel").innerHTML = h;
-  $("panel").querySelectorAll("[data-kind]").forEach((b) => b.onclick = () => { atkKind = b.dataset.kind; openRaid(owner); });
-  $("panel").querySelectorAll("[data-comp]").forEach((s) => s.oninput = () => { comp[s.dataset.comp] = s.value / 8; openRaid(owner); });
+  const P = $("panel");
+  P.querySelectorAll("[data-mode]").forEach((b) => b.onclick = () => { warMode = b.dataset.mode; openRaid(owner); });
+  P.querySelectorAll("[data-kind]").forEach((b) => b.onclick = () => { atkKind = b.dataset.kind; openRaid(owner); });
+  P.querySelectorAll("[data-tac]").forEach((b) => b.onclick = () => { tacType = b.dataset.tac; openRaid(owner); });
+  P.querySelectorAll("[data-mis2]").forEach((b) => b.onclick = () => { misType = b.dataset.mis2; openRaid(owner); });
+  P.querySelectorAll("[data-comp]").forEach((s) => s.oninput = () => { comp[s.dataset.comp] = s.value / 8; openRaid(owner); });
+  if (P.querySelector("#spySel")) P.querySelector("#spySel").onchange = (e) => { spyOpK = e.target.value; openRaid(owner); };
   $("btnCancelRaid").onclick = () => { tab = "world"; render(); };
   $("btnLaunch").onclick = () => {
-    if (me.ready < 40) return notify(T("notReady", "Your army is still regrouping — wait for readiness to recover."));
-    const pk = E.packComp(comp), k = kinds.indexOf(atkKind);
-    act(E.encAction(E.OP.attack, k, pk.b, pk.c), target.owner, "raid " + atkKind);
+    if (warMode === "attack") { if (me.ready < 40) return notify(T("notReady", "Your army is regrouping — wait for readiness."));
+      const pk = E.packComp(comp); act(E.encAction(E.OP.attack, Object.keys(E.ATTACK_KINDS).indexOf(atkKind), pk.b, pk.c), tgt.owner, "attack " + atkKind); }
+    else if (warMode === "tactical") { if (me.ready < 20) return notify(T("notReady2", "Not enough readiness for a strike."));
+      act(E.encAction(E.OP.tactical, E.TKEYS_TAC.indexOf(tacType)), tgt.owner, "tactical " + tacType); }
+    else if (warMode === "missile") { if ((me.rockets[misType] || 0) < 1) return notify(T("noMissiles", "You have no {m} to fire.", { m: T("m_" + misType, E.MISSILES[misType].k) }));
+      const q = Math.max(1, parseInt(prompt(T("fireHow", "Fire how many {m}?", { m: T("m_" + misType, E.MISSILES[misType].k) }), "1") || "0", 10));
+      if (q) act(E.encAction(E.OP.launch, E.MKEYS.indexOf(misType), q), tgt.owner, "launch " + misType); }
+    else if (warMode === "spy") { if (me.units.agent < 1) return notify(T("noAgents", "You have no agents — buy some on the market."));
+      const send = Math.max(1, Math.min(me.units.agent, parseInt(prompt(T("sendAgents", "Send how many agents?"), String(Math.min(me.units.agent, 100))) || "0", 10)));
+      if (send) act(E.encBig(E.OP.spy, E.ESP_KEYS.indexOf(spyOpK), send), tgt.owner, "spy " + spyOpK); }
     tab = "world";
   };
 }
