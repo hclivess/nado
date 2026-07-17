@@ -111,8 +111,17 @@ class _Alghash2:
         return alghash2.to_int(alghash2.hashn([alghash2.DOM_GRIND, *state, int(nonce) % F.P]))
 
     def grind_solve(self, state, bits):
-        """Native fast-path for the transcript PoW: the whole nonce scan in Rust. Returns the nonce, or None to
-        fall back to the generic Python loop. Byte-identical (same DOM_GRIND hash, same 0,1,2,… scan)."""
+        """Native fast-path for the transcript PoW: the whole nonce scan in Rust. Prefers the PARALLEL
+        holistic-prover grind (all cores, deterministic round-minimum == the serial first-hit nonce), falling
+        back to the serial native scan, then the generic Python loop. Byte-identical in every path (same
+        DOM_GRIND hash, same smallest-valid-nonce answer)."""
+        try:
+            from execnode.stark import stark_native
+            n = stark_native.grind(state, alghash2.DOM_GRIND, bits)
+            if n is not None:
+                return n
+        except Exception:
+            pass
         return alghash2.grind(state, alghash2.DOM_GRIND, bits)
 
     def to_field_elements(self, digest):

@@ -91,6 +91,20 @@ def reset(T, N, offset):
     _LIB.sp_reset(int(T), int(N), int(offset) % _P)
 
 
+def grind(state, dom, bits):
+    """PARALLEL transcript proof-of-work (sp_grind): the whole nonce scan across all cores, returning the SAME
+    smallest valid nonce as the serial scan (deterministic round-minimum), so proofs stay byte-identical.
+    Returns None when the lib (or the export) is unavailable — callers fall back to the serial native/Python
+    grind. NADO_NATIVE_THREADS caps the fan-out."""
+    if not available() or not hasattr(_LIB, "sp_grind"):
+        return None
+    _LIB.sp_grind.restype = ctypes.c_uint64
+    buf = (ctypes.c_uint64 * 4)(*[int(x) % _P for x in state])
+    n = int(_LIB.sp_grind(ctypes.cast(buf, ctypes.c_void_p), ctypes.c_uint64(int(dom) % _P),
+                          ctypes.c_uint32(int(bits))))
+    return None if n == (1 << 64) - 1 else n
+
+
 def lde_column(col_values, N, want_out=True):
     """Compute + RETAIN the LDE of one trace column (T values on the size-T domain). Returns (col_id, lde_list)
     where lde_list is the N-length result if want_out else None. Bit-identical to

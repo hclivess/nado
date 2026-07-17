@@ -455,9 +455,202 @@ fn a2_node(a: &[u64; CAP], b: &[u64; CAP]) -> [u64; CAP] {
     hashn(&[9, 2, a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]])
 }
 
+// ---- PARALLEL Merkle tree building --------------------------------------------------------------------
+// Column/row commits dominated fold/composition proving wall-clock (~80% in profiles): single-threaded
+// hashing on a multi-core box. Leaf hashing and every inner layer are embarrassingly parallel and PURE
+// (permute reads only the init-time constants), so scoped std threads split them into per-thread chunks —
+// NO new dependencies, and byte-identical output BY CONSTRUCTION (parallelism changes scheduling, never a
+// single hashed value). Threshold-gated so small trees keep the cheaper serial loop. NADO_NATIVE_THREADS
+// caps the fan-out (default: all cores).
+
+const PAR_MIN: usize = 2048; // below this many leaves a serial build wins
+
+fn nthreads() -> usize {
+    std::env::var("NADO_NATIVE_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map(|v| v.get()).unwrap_or(1))
+        .max(1)
+}
+
+#[inline]
+fn node_hash(a: &[u64; CAP], b: &[u64; CAP], a2: bool) -> [u64; CAP] {
+    if a2 {
+        a2_node(a, b)
+    } else {
+        rnode(a, b)
+    }
+}
+
+/// Build the flat 2n-1 digest tree (leaves, then each inner layer bottom-up — the exact layout the serial
+/// builder produced, so sp_open walks it identically) from a leaf function. `a2` picks the inner-node hash.
+///
+/// PARALLEL-SUBTREES: the tree splits into `s` (power of two ≤ cores) complete subtrees of m = n/s leaves;
+/// ONE thread scope builds every subtree fully locally (its leaves + all its inner layers — ~(2m−1)/(2n−1)
+/// of the total hashing each, no synchronization), then each local layer is memcpy'd into its slot of the
+/// global flat layout and the top s−1 nodes finish serially. Near-linear scaling, and every hashed VALUE is
+/// identical to the serial build (only the schedule changes).
+fn build_tree<F>(n: usize, a2: bool, leaf: F) -> Vec<[u64; CAP]>
+where
+    F: Fn(usize) -> [u64; CAP] + Sync,
+{
+    let mut digs = vec![[0u64; CAP]; 2 * n - 1];
+    let nt = nthreads();
+    let mut s = 1usize;
+    while s * 2 <= nt && n / (s * 2) >= 256 {
+        s *= 2;
+    }
+    if n < PAR_MIN || s < 2 {
+        for i in 0..n {
+            digs[i] = leaf(i);
+        }
+        let mut layer_start = 0usize;
+        let mut layer_len = n;
+        while layer_len > 1 {
+            let half = layer_len / 2;
+            for i in 0..half {
+                let a = digs[layer_start + 2 * i];
+                let b = digs[layer_start + 2 * i + 1];
+                digs[layer_start + layer_len + i] = node_hash(&a, &b, a2);
+            }
+            layer_start += layer_len;
+            layer_len = half;
+        }
+        return digs;
+    }
+    let m = n / s; // leaves per subtree (both powers of two ⇒ exact)
+    let locals: Vec<Vec<[u64; CAP]>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..s)
+            .map(|t| {
+                let leaf = &leaf;
+                scope.spawn(move || {
+                    let base = t * m;
+                    let mut ld = vec![[0u64; CAP]; 2 * m - 1];
+                    for i in 0..m {
+                        ld[i] = leaf(base + i);
+                    }
+                    let mut ls = 0usize;
+                    let mut ll = m;
+                    while ll > 1 {
+                        let half = ll / 2;
+                        for i in 0..half {
+                            let a = ld[ls + 2 * i];
+                            let b = ld[ls + 2 * i + 1];
+                            ld[ls + ll + i] = node_hash(&a, &b, a2);
+                        }
+                        ls += ll;
+                        ll = half;
+                    }
+                    ld
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    // gather: subtree t's local layer j (len m>>j) sits in global layer j at offset t·(m>>j)
+    let mut g_start = 0usize; // global start of layer j (global len n>>j)
+    let mut l_start = 0usize; // local start of layer j
+    let mut ll = m; // local layer len at j
+    loop {
+        for (t, ld) in locals.iter().enumerate() {
+            let dst = g_start + t * ll;
+            digs[dst..dst + ll].copy_from_slice(&ld[l_start..l_start + ll]);
+        }
+        if ll == 1 {
+            break;
+        }
+        g_start += ll * s;
+        l_start += ll;
+        ll /= 2;
+    }
+    // top of the tree: from the size-s layer of subtree roots (at g_start) up to the root, serially
+    let mut layer_start = g_start;
+    let mut layer_len = s;
+    while layer_len > 1 {
+        let half = layer_len / 2;
+        for i in 0..half {
+            let a = digs[layer_start + 2 * i];
+            let b = digs[layer_start + 2 * i + 1];
+            digs[layer_start + layer_len + i] = node_hash(&a, &b, a2);
+        }
+        layer_start += layer_len;
+        layer_len = half;
+    }
+    digs
+}
+
+/// PARALLEL, DETERMINISTIC transcript proof-of-work: the smallest nonce whose
+/// hashn([dom, s0..s3, nonce]) digest has `bits` leading zero bits. Scans rounds of nt·CHUNK nonces across
+/// scoped threads and returns the MINIMUM valid nonce of the first round with a hit — identical to the
+/// sequential 0,1,2,… first-hit (which IS the smallest valid nonce), so proofs stay byte-identical to the
+/// serial native/alghash2 grind and the pure-Python loop. hashn is pure after sp_init.
+///
+/// # Safety
+/// `state` must point to CAP readable u64; sp_init must have been called (else u64::MAX is returned).
+#[no_mangle]
+pub unsafe extern "C" fn sp_grind(state: *const u64, dom: u64, bits: u32) -> u64 {
+    if !HASH_READY {
+        return u64::MAX;
+    }
+    let base = [*state, *state.add(1), *state.add(2), *state.add(3)];
+    let shift = if bits >= 64 { 0u32 } else { 64 - bits };
+    let try_nonce = move |nonce: u64| -> bool {
+        let els = [CAP as u64 + 2, dom, base[0], base[1], base[2], base[3], nonce];
+        let out = hashn(&els);
+        if bits >= 64 {
+            out[0] == 0
+        } else {
+            (out[0] >> shift) == 0
+        }
+    };
+    let nt = nthreads();
+    if nt < 2 {
+        let mut nonce: u64 = 0;
+        loop {
+            if try_nonce(nonce) {
+                return nonce;
+            }
+            if nonce == u64::MAX {
+                return u64::MAX;
+            }
+            nonce += 1;
+        }
+    }
+    const CHUNK: u64 = 4096; // per-thread nonces per round
+    let mut round_start: u64 = 0;
+    loop {
+        let found: Vec<Option<u64>> = std::thread::scope(|s| {
+            let handles: Vec<_> = (0..nt as u64)
+                .map(|t| {
+                    let try_nonce = &try_nonce;
+                    s.spawn(move || {
+                        let lo = round_start.saturating_add(t * CHUNK);
+                        let hi = lo.saturating_add(CHUNK);
+                        for nonce in lo..hi {
+                            if try_nonce(nonce) {
+                                return Some(nonce);
+                            }
+                        }
+                        None
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        if let Some(min) = found.into_iter().flatten().min() {
+            return min;
+        }
+        match round_start.checked_add(nt as u64 * CHUNK) {
+            Some(next) => round_start = next,
+            None => return u64::MAX,
+        }
+    }
+}
+
 /// Merkle-commit a RETAINED LDE column. `hash_mode` 0 = RECURSION (leaf rleaf, inner rnode), 1 = ALGHASH2
 /// (leaf hashn([2,1,x]), inner hashn([9,2,a,b])) — the DEFAULT backend. Retains the whole tree for opening,
-/// writes the CAP-lane root, returns the tree id (or -1). Byte-identical to merkle.commit(col_lde[col], b).
+/// writes the CAP-lane root, returns the tree id (or -1). Byte-identical to merkle.commit(col_lde[col], b);
+/// hashing is PARALLEL across each tree level (build_tree).
 ///
 /// # Safety
 /// `root_ptr`, if non-null, must point to at least CAP writable u64.
@@ -476,25 +669,18 @@ pub unsafe extern "C" fn sp_commit_col(col: usize, root_ptr: *mut u64, hash_mode
         return -1;
     }
     let a2 = hash_mode == 1;
-    let mut digs: Vec<[u64; CAP]> = Vec::with_capacity(2 * n - 1);
-    for i in 0..n {
-        let x = arena.cols[col][i];
-        digs.push(if a2 { a2_leaf(x) } else { rleaf(x) });
-    }
-    // inner layers, bottom-up, appended after the leaves (same flat layout as native rmerkle_commit)
-    let mut layer_start = 0usize;
-    let mut layer_len = n;
-    while layer_len > 1 {
-        let half = layer_len / 2;
-        for i in 0..half {
-            let a = digs[layer_start + 2 * i];
-            let b = digs[layer_start + 2 * i + 1];
-            digs.push(if a2 { a2_node(&a, &b) } else { rnode(&a, &b) });
-        }
-        layer_start += layer_len;
-        layer_len = half;
-    }
-    let root = digs[digs.len() - 1];
+    let digs = {
+        let vals: &[u64] = &arena.cols[col];
+        build_tree(n, a2, |i| {
+            let x = vals[i];
+            if a2 {
+                a2_leaf(x)
+            } else {
+                rleaf(x)
+            }
+        })
+    };
+    let root = digs[2 * n - 2];
     if !root_ptr.is_null() {
         for k in 0..CAP {
             *root_ptr.add(k) = root[k];
@@ -532,29 +718,22 @@ pub unsafe extern "C" fn sp_commit_rows(col_ids: *const usize, w: usize, root_pt
     if n < 1 || (n & (n - 1)) != 0 {
         return -1;
     }
-    let mut digs: Vec<[u64; CAP]> = Vec::with_capacity(2 * n - 1);
-    let mut els = vec![0u64; w + 2];
-    els[0] = (w as u64) + 1; // len([DOM_LEAF, *row]) = 1 + w
-    els[1] = 1; // DOM_LEAF
-    for j in 0..n {
-        for (k, &c) in ids.iter().enumerate() {
-            els[2 + k] = arena.cols[c][j];
-        }
-        digs.push(hashn(&els));
-    }
-    let mut layer_start = 0usize;
-    let mut layer_len = n;
-    while layer_len > 1 {
-        let half = layer_len / 2;
-        for i in 0..half {
-            let a = digs[layer_start + 2 * i];
-            let b = digs[layer_start + 2 * i + 1];
-            digs.push(rnode(&a, &b));
-        }
-        layer_start += layer_len;
-        layer_len = half;
-    }
-    let root = digs[digs.len() - 1];
+    // row leaves in parallel (each row hashes [1+w, DOM_LEAF, row…]; per-call els buffer keeps threads
+    // independent), inner rnode layers via the shared parallel builder — layout + values unchanged.
+    let digs = {
+        let cols_ref: Vec<&[u64]> = ids.iter().map(|&c| arena.cols[c].as_slice()).collect();
+        let w64 = w as u64;
+        build_tree(n, false, |j| {
+            let mut els = vec![0u64; w + 2];
+            els[0] = w64 + 1; // len([DOM_LEAF, *row]) = 1 + w
+            els[1] = 1; // DOM_LEAF
+            for (k, c) in cols_ref.iter().enumerate() {
+                els[2 + k] = c[j];
+            }
+            hashn(&els)
+        })
+    };
+    let root = digs[2 * n - 2];
     if !root_ptr.is_null() {
         for k in 0..CAP {
             *root_ptr.add(k) = root[k];

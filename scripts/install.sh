@@ -283,16 +283,18 @@ if [ $WITH_EXEC -eq 1 ]; then
     else
       echo "    (build failed — the prover uses the pure-Python composition; still correct, just slower.)"
     fi
-    echo "==> building the holistic native prover arena (keeps recursion LDEs in Rust; opt-in)..."
+    echo "==> building the holistic native prover (recursion proving + PARALLEL fold/composition Merkle)..."
     if ( cd "$REPO_DIR/native/starkprove" && cargo build --release >/dev/null 2>&1 ); then
-      # confirm the .so loads (its bit-identity to stark._coset_evaluate is covered by tests/test_starkprove.py)
+      # confirm the .so loads (bit-identity to stark.prove is covered by tests/test_starkprove.py). stark.prove
+      # routes RECURSION/ALGHASH2 proving through this arena; the Merkle commits hash in parallel across all
+      # cores (NADO_NATIVE_THREADS caps the fan-out) — the fold/composition pipeline's dominant cost.
       if "$VENV_PY" -c "import sys; sys.path.insert(0,'$REPO_DIR'); from execnode.stark import stark_native as s; sys.exit(0 if s.available() else 1)" 2>/dev/null; then
         echo "    built + loaded: native/starkprove/target/release/libnado_starkprove.so"
       else
-        echo "    (built but the .so did not load — no effect yet; the arena is opt-in until wired.)"
+        echo "    (built but the .so did not load — recursion proving uses pure Python; still correct, much slower.)"
       fi
     else
-      echo "    (build failed — no effect; the holistic-prover arena is opt-in and not yet wired.)"
+      echo "    (build failed — recursion proving uses pure Python; still correct, much slower.)"
     fi
   else
     echo "==> Rust not available — the shielded-pool node will use the pure-Python prover (correct, ~2x slower)."
