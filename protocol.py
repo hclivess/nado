@@ -202,14 +202,22 @@ POSW_LEASE_EPOCHS = 240      # a registration/recert keeps you eligible this man
 
 # --- Registration-rate PoSW difficulty (doc/ip-spoofing-and-sybil.md): the required PoSW work SCALES with
 # recent registration volume, so a sudden identity FLOOD gets progressively more expensive. CONSENSUS-BOUND —
-# validate_transaction recomputes the requirement from the committed recert index (keyed off the FINALIZED PoSW
-# anchor epoch, so every node agrees) and REJECTS an under-worked registration; a modified node that "removes
-# the difficulty code" simply produces proofs that HONEST nodes reject. Self-scaling vs a trailing-average
-# baseline (with a floor), so a normal-sized network is never penalized — only abnormal bursts are. ---
+# validate_transaction recomputes the requirement (v2: counted from the CHAIN's blocks over complete epochs
+# strictly before the finalized PoSW anchor, so every node at any time computes the identical value) and
+# REJECTS an under-worked registration; a modified node that "removes the difficulty code" simply produces
+# proofs that HONEST nodes reject. Self-scaling vs a trailing-average baseline (with a floor), so a
+# normal-sized network is never penalized — only abnormal bursts are. ---
 POSW_DIFF_WINDOW = 20        # recent-registration window (epochs) whose rate sets the difficulty
 POSW_DIFF_TRAIL = 400        # longer trailing window defining the "normal" rate baseline (~2 days)
 POSW_DIFF_FLOOR = 20         # min baseline registrations/window (prevents tiny-network over-sensitivity + div-by-0)
 POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (bounds honest-user cost)
+# STRICT-v2 boundary (2026-07-17 alphanet-6 split at #2944, ops/reg_difficulty.py): a register with
+# max_block <= this is accepted at ANY proof multiplier 1..POSW_DIFF_MAX_MULT (grandfathers the finalized
+# past, whose v1 proofs were minted against per-node index state that provably diverged, and gives the fleet
+# a window to deploy); above it, the deterministic chain-derived requirement is enforced exactly. The
+# boundary must stay comfortably AHEAD of the live tip until every producing node runs v2 (~9.5k at fix
+# time, ~14.4k blocks/day -> ~50k = a ~3-day deploy window).
+REG_DIFF_V2_HEIGHT = 50_000
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

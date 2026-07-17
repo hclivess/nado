@@ -976,21 +976,24 @@ async def get_posw_difficulty(request):
     # sequential-step count for a registration anchored at the current finalized anchor epoch. The wallet reads
     # this to (a) prove at the right difficulty and (b) show the user the expected wait ("×N due to a spike").
     def _work():
-        """Compute the anchored difficulty multiplier + window stats (worker thread)."""
-        from ops.reg_difficulty import difficulty_multiplier
+        """Compute the difficulty a prover should use RIGHT NOW (worker thread). v2 chain-derived past the
+        strict boundary; inside the grandfather window it mirrors the last chain-accepted multiplier (what
+        un-upgraded v1 validators will actually accept) — mint_multiplier handles both."""
+        from ops.reg_difficulty import mint_multiplier, _window_count
         from ops.mining_ops import epoch_of
-        from ops import kv_ops
-        from protocol import POSW_T, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW
+        from protocol import POSW_T, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW, REG_DIFF_V2_HEIGHT
         try:
             h = memserver.latest_block["block_number"]
         except Exception:
             h = 0
-        anchor_epoch = epoch_of(max(0, h - POSW_ANCHOR_OFFSET))
-        mult = difficulty_multiplier(anchor_epoch)
-        recent = kv_ops.recert_count_in_window(anchor_epoch - POSW_DIFF_WINDOW + 1, anchor_epoch)
+        max_block = h + 6                      # the CLI/wallet target a registration a few blocks out
+        anchor_epoch = epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET))
+        mult = mint_multiplier(h, max_block)
+        recent = _window_count(anchor_epoch - POSW_DIFF_WINDOW, anchor_epoch - 1)
         return {"block_number": h, "anchor_epoch": anchor_epoch, "multiplier": mult,
                 "base_t": POSW_T, "required_t": POSW_T * mult,
-                "recent_registrations": recent, "window_epochs": POSW_DIFF_WINDOW}
+                "recent_registrations": recent, "window_epochs": POSW_DIFF_WINDOW,
+                "strict_after": REG_DIFF_V2_HEIGHT}
     return _resp(await asyncio.to_thread(_work))
 
 

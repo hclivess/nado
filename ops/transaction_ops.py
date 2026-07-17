@@ -772,14 +772,24 @@ def validate_transaction(transaction, logger, block_height):
         assert anchor, "PoSW anchor block not found"
         proof = transaction.get("posw")
         assert proof, "Missing registration PoSW"
-        # CONSENSUS registration-rate difficulty: the required sequential-work count scales with recent
-        # registration volume, keyed off the FINALIZED anchor epoch so every node computes the SAME requirement
-        # and rejects an under-worked proof (a modified node can't register cheaply). See ops/reg_difficulty.py.
-        from ops.reg_difficulty import required_posw_t
+        # CONSENSUS registration-rate difficulty v2 (ops/reg_difficulty.py): the required sequential-work
+        # count scales with recent registration volume, COUNTED FROM THE CHAIN'S BLOCKS over complete epochs
+        # strictly before the anchor — a pure function of (max_block, chain), so every node at any time
+        # computes the SAME requirement and rejects an under-worked proof (a modified node can't register
+        # cheaply). Below REG_DIFF_V2_HEIGHT the GRANDFATHER rule accepts any 1..MAX multiplier: the
+        # finalized chain contains v1 proofs minted against per-node index state that provably diverged
+        # (the 2026-07-17 split at #2944 — clean nodes demanded 3x, the fleet accepted 2x), and
+        # not-yet-upgraded peers keep producing such proofs until the boundary.
+        from ops.reg_difficulty import required_posw_t, proof_multiplier
         from ops.mining_ops import epoch_of
-        req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)))
-        assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
-                           req_t, POSW_S, POSW_K), "Invalid registration PoSW (or below the required difficulty)"
+        from protocol import REG_DIFF_V2_HEIGHT
+        challenge = posw.challenge_bytes(transaction["sender"], anchor)
+        if transaction["max_block"] > REG_DIFF_V2_HEIGHT:
+            req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)))
+            assert posw.verify(challenge, proof, req_t, POSW_S, POSW_K), \
+                "Invalid registration PoSW (or below the required difficulty)"
+        else:
+            assert proof_multiplier(challenge, proof) > 0, "Invalid registration PoSW"
     elif recipient == "msgkey":
         # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
         # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is

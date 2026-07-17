@@ -689,9 +689,10 @@ def recert_addresses_after(floor_epoch: int):
 
 
 def recert_count_in_window(lo_epoch: int, hi_epoch: int) -> int:
-    """Number of recerts/registrations recorded in epochs [lo_epoch, hi_epoch] inclusive — the committed
-    registration VOLUME, from the revert-safe recert_by_epoch index. Deterministic on every node; drives the
-    consensus registration-rate PoSW difficulty (ops/reg_difficulty.py)."""
+    """Number of recerts/registrations recorded in epochs [lo_epoch, hi_epoch] inclusive, from the
+    recert_by_epoch index. NOT consensus-bound: the index is incrementally maintained and survives
+    upgrades, so its counts can diverge across nodes — the registration-rate PoSW difficulty counts from
+    the chain's blocks instead (ops/reg_difficulty.py v2, 2026-07-17 split postmortem)."""
     if hi_epoch < lo_epoch:
         return 0
     lo = max(0, lo_epoch)

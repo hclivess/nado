@@ -1389,12 +1389,16 @@ class CoreClient(threading.Thread):
                     return
             from ops import posw
             from ops.block_ops import get_block_hash_by_number
-            from ops.reg_difficulty import required_posw_t
+            from ops.reg_difficulty import mint_multiplier
+            from protocol import POSW_T
             max_block = self.memserver.latest_block["block_number"] + 4
             anchor = get_block_hash_by_number(max(0, max_block - POSW_ANCHOR_OFFSET))
             if not anchor:
                 return
-            req_t = required_posw_t(epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET)))
+            # mint_multiplier: strict v2 requirement past the boundary; inside the grandfather window it
+            # MIRRORS the last register the chain accepted (v1 peers enforce exact-T against their private
+            # index state, so mirroring the observably-accepted multiplier is the only proof that lands).
+            req_t = POSW_T * mint_multiplier(self.memserver.latest_block["block_number"], max_block)
             proof = posw.prove(posw.challenge_bytes(self.memserver.address, anchor), T=req_t, S=POSW_S, k=POSW_K)
             tx = construct_register_tx(self.memserver.keydict, max_block, proof)
             self.memserver.merge_transaction(tx, user_origin=True)
