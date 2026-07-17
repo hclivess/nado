@@ -264,5 +264,24 @@ check("events fire deterministically and stay bounded", () => {
   finite(a);
 });
 
+check("alliances: members share government bonuses scaled by count", () => {
+  const mk = (o, gov) => { const n = newNation(o.padEnd(50, "a")); n.gov = gov; n.ally = 7; return n; };
+  const w = { A: mk("A", "republic"), B: mk("B", "technoc"), C: mk("C", "dictator"), D: mk("D", "commune") };
+  E.computeAlliances(w);
+  if (!w.A._ally || w.A._ally.members !== 4) throw new Error("alliance roster");
+  // republic contributes +tax, technocracy +food/energy/tech, dictator +atk, all ×floor(4/2)=2
+  if (!(E.allyB(w.A, "tax") > 0) || !(E.allyB(w.A, "atk") > 0)) throw new Error("bonuses not aggregated");
+  // a lone nation gets nothing
+  const solo = { S: mk("S", "republic") }; solo.S.ally = 9; E.computeAlliances(solo);
+  if (E.allyB(solo.S, "tax") !== 0) throw new Error("solo alliance shouldn't pay a bonus (floor(1/2)=0)");
+});
+
+check("medals award by threshold", () => {
+  const n = army("med"); n.units.soldier = 1100000; n.land = 6000;
+  const m = E.medals(n);
+  if (m.soldiers !== 2) throw new Error("soldier medal tier (1M→lvl2)");
+  if (m.territory !== 1) throw new Error("territory medal tier (5k→lvl1)");
+});
+
 console.log(fails ? fails + " FAILURES" : "ALL PASS");
 process.exit(fails ? 1 : 0);

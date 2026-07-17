@@ -246,23 +246,23 @@ export function production(n) {
   // money: every person earns; markets triple their land's tax; trade tech, gov, satisfaction stack
   let money = n.people * 0.0125;
   for (const k of BKEYS) if (B[k].money) money += n.bld[k] * B[k].money;
-  money *= (1 + (n.bld.market * 2) / Math.max(1, n.land)) * techMul(n, "money") * (gov.m || 1) * joyM;
+  money *= (1 + (n.bld.market * 2) / Math.max(1, n.land)) * techMul(n, "money") * (gov.m || 1) * joyM * (1 + allyB(n, "tax"));
   // food (agronomy tech + gov + GM crops advance)
   let food = 0; for (const k of BKEYS) if (B[k].food) food += n.bld[k] * B[k].food;
-  food *= techMul(n, "food") * (gov.food || 1) * (hasAdv(n, "gmcrops") ? 1.15 : 1);
+  food *= techMul(n, "food") * (gov.food || 1) * (hasAdv(n, "gmcrops") ? 1.15 : 1) * (1 + allyB(n, "food"));
   const eatPeople = n.people / 1000 * 0.25;
   const nonMech = UKEYS.reduce((s, k) => k === "mech" ? s : s + n.units[k], 0);
   const eatUnits = (robots ? 0 : nonMech / 1000 * 5) * vet.upkeepFood;   // rank 10: −15% consumption
   food -= eatPeople + eatUnits;
   // energy
   let mwh = 0; for (const k of BKEYS) if (B[k].mwh) mwh += n.bld[k] * B[k].mwh;
-  mwh *= techMul(n, "energy") * (gov.e || 1);
+  mwh *= techMul(n, "energy") * (gov.e || 1) * (1 + allyB(n, "energy"));
   for (const k of BKEYS) mwh -= n.bld[k] * (B[k].hi ? 0.2 : B[k].lo ? 0.1 : 0);
   const totTech = TKEYS.reduce((s, k) => s + n.tech[k], 0);
   mwh -= (totTech / 1000 * 5 + (robots ? n.units.mech / 1000 * 5 : 0)) * vet.upkeepFood;
   // tech points (labs; satisfaction, gov, supercomputer advance)
   let tech = 0; for (const k of BKEYS) if (B[k].tech) tech += n.bld[k] * B[k].tech;
-  tech *= joyMul(n, 0.5) * (gov.t || 1) * (hasAdv(n, "supercomp") ? 1.15 : 1);
+  tech *= joyMul(n, 0.5) * (gov.t || 1) * (hasAdv(n, "supercomp") ? 1.15 : 1) * (1 + allyB(n, "tech") + allyB(n, "econTech"));
   // components + soldier training (armorer general + gov + armorer)
   const comps = n.bld.factory * B.factory.comp * (gov.fac || 1) * generalBonus(n, "prod");
   const troops = n.bld.barracks * B.barracks.troop * (gov.bar || 1) * generalBonus(n, "prod");
@@ -309,6 +309,7 @@ export function settle(n, turns) {
     const tk = n.tick + t;                             // per-turn index → deterministic + turn-additive
     if (rollEvent(n, tk)) applyEvent(n, tk);           // rare random event (≈8%/turn)
     maybeCatastrophe(n, tk);                            // GM-crops / nuclear-plant disasters
+    maybeUFO(n, tk);                                    // alien contact (round 480+, every 96)
   }
   n.tick += turns;
   return n;
@@ -476,7 +477,7 @@ export function power(n, side, comp) {
     s += q * (side === "atk" ? U[k].a : U[k].d);
   }
   if (side === "def" && n.gov === "anarchy") s += Math.floor(n.people / 100);   // anarchy: people defend
-  return s * wm * baseM * joyM * readyM * expM * genM * vet.armyStr * (gov.atk || 1);
+  return s * wm * baseM * joyM * readyM * expM * genM * vet.armyStr * (gov.atk || 1) * (1 + allyB(n, "atk"));
 }
 // spy strength — source formula: agents/(land+2000) × (intel-tech+base bonus ×1000 + 10)
 export function spyPower(n) {
@@ -642,7 +643,7 @@ export function spyOp(atk, def, opKey, send, seed) {
 // params; ATTACK carries the target address in its own field.
 export const TURN_BLOCKS = 20;                    // one economy turn per 20 L1 blocks (~2 min at 6s)
 export const OP = { found: 0, build: 1, demolish: 2, recruit: 3, research: 4, revolt: 5, colonize: 6, attack: 7,
-  missile: 8, tactical: 9, launch: 10, spy: 11, market: 12, advance: 13 };
+  missile: 8, tactical: 9, launch: 10, spy: 11, market: 12, advance: 13, alliance: 14, warcry: 15 };
 const P = 4096;
 export const encAction = (op, a = 0, b = 0, c = 0) => op + 16 * (a + P * (b + P * c));
 export const decAction = (enc) => { let v = Math.floor(enc / 16); const op = enc % 16;
@@ -680,6 +681,12 @@ export function applyAction(world, e, seedOf) {
     case OP.colonize: return colonize(n) ? "ok" : "skip";
     case OP.missile:  return buildMissile(n, MKEYS[a], b) ? "ok" : "skip";
     case OP.advance:  return buildAdvance(n, ADV_KEYS[a]) ? "ok" : "skip";
+    case OP.alliance: { if (a === 1) { n.ally = 0; n.exp = Math.floor(n.exp * 2 / 3); return "ok"; }  // leave: −1/3 XP
+      if (n.tick > 500 && !n.ally) return "skip";           // can't found/join an alliance after turn 500 allianceless
+      n.ally = b || 0; return "ok"; }                        // join/create alliance id b
+    case OP.warcry: { const d = world[e.target]; if (!d) return "skip";
+      // declare war between the two nations' alliances: both sides' war clocks start (XP ×2 while at war)
+      n.warTurns = Math.max(n.warTurns, 1); if (d.warTurns != null) d.warTurns = Math.max(d.warTurns, 1); return "ok"; }
     case OP.market: { const sub = Math.floor(a / 64), ti = a % 64, item = MARKET_ITEMS[ti];
       if (!item) return "skip";
       return (sub === 0 ? marketBuy(n, item, big) : marketSell(n, item, big)) ? "ok" : "skip"; }
@@ -708,9 +715,56 @@ export function replayWorld(entries, nowCur, seedOf) {
     const r = applyAction(world, entries[i], seedOf);
     if (r === "blocked") { res.blocked = true; res.blockedAt = i; break; }
   }
+  computeAlliances(world);                             // roster + aggregated bonus onto each member (n._ally)
   for (const addr in world) { const n = world[addr];
     settle(n, turnsBetween(n.lastCur ?? nowCur, nowCur)); n.lastCur = nowCur; }
   return res;
+}
+// group nations by alliance id (≤10 members), aggregate each government's ALLY_BONUS × floor(members/2),
+// and stash {id, members, bonus} on every member so production()/power() can read it.
+export function computeAlliances(world) {
+  const rosters = {};
+  for (const addr in world) { const n = world[addr]; n._ally = null; if (n.ally) (rosters[n.ally] = rosters[n.ally] || []).push(n); }
+  for (const id in rosters) {
+    const members = rosters[id].slice(0, 10), mul = Math.floor(members.length / 2);
+    const bonus = {};
+    for (const m of members) { const ab = ALLY_BONUS[m.gov]; if (!ab) continue;
+      for (const k in ab) bonus[k] = (bonus[k] || 0) + ab[k] * mul; }
+    for (const m of members) m._ally = { id: +id, members: members.length, bonus };
+  }
+}
+export const allyB = (n, k) => (n._ally && n._ally.bonus[k]) || 0;
+
+// ---- UFO / alien contact (round 480+, a window every 96 turns; odds from bases + Lunar Base advance) --
+// Refusing raises exploration +10% (implicit: a miss); accepting grants an alien advance and −30% explore.
+function maybeUFO(n, tk) {
+  if (tk < 480 || tk % 96 !== 0) return;
+  const odds = clamp((n.bld.base / Math.max(1, n.land)) * 0.5 + (hasAdv(n, "lunarbase") ? 0.4 : 0) + n.ufoExplore / 100, 0, 0.95);
+  if (nrand(n, tk, "ufo") < odds) {
+    const aliens = ADV_KEYS.filter((k) => ADVANCES[k].type === "M" && !hasAdv(n, k));
+    if (aliens.length && nrand(n, tk, "ufoacc") < 0.6) {       // accept a gift
+      n.advances[aliens[Math.floor(nrand(n, tk, "ufopick") * aliens.length)]] = 1;
+      n.ufoExplore = Math.max(0, n.ufoExplore - 30); n.lastEvent = "ufo";
+    } else { n.ufoExplore += 10; }                             // refuse: exploration climbs
+  } else { n.ufoExplore += 2; }
+}
+
+// ---- medals: threshold achievements (levels 1–3), a pure function for display ------------------------
+export const MEDAL_TIERS = {
+  prestige:  { get: (n) => prestige(n),           lv: [600000, 1200000, 3600000] },
+  territory: { get: (n) => n.land,                lv: [5000, 10000, 20000] },
+  people:    { get: (n) => n.people,              lv: [1000000, 5000000, 10000000] },
+  soldiers:  { get: (n) => n.units.soldier,       lv: [300000, 1000000, 2000000] },
+  tanks:     { get: (n) => n.units.tank,          lv: [15000, 75000, 200000] },
+  agents:    { get: (n) => n.units.agent,         lv: [2000, 5000, 15000] },
+  armyexp:   { get: (n) => n.exp,                 lv: [75000, 100000, 150000] },
+  nukes:     { get: (n) => n.rockets ? n.rockets.nuke : 0, lv: [1, 3, 7] },
+};
+export function medals(n) {
+  const out = {};
+  for (const k in MEDAL_TIERS) { const M = MEDAL_TIERS[k], v = M.get(n); let lv = 0;
+    for (let i = 0; i < M.lv.length; i++) if (v >= M.lv[i]) lv = i + 1; if (lv) out[k] = lv; }
+  return out;
 }
 
 // ---- prestige (the world-ranking score) — EXACT source point values ----------------------------------
