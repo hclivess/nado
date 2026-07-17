@@ -991,8 +991,11 @@ def validate_transaction(transaction, logger, block_height):
         data = transaction.get("data") or {}
         spend, pid = data.get("spend") or {}, data.get("pid")
         sr, sa, memo, snonce, sexpiry = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce"), spend.get("expiry")
-        assert isinstance(sr, str) and sr.startswith("ndo") and len(sr) == 49, "treasury spend recipient must be a normal address"
-        assert sr not in RESERVED_RECIPIENTS, "treasury spend recipient cannot be a reserved recipient"
+        # recipient: a normal address — or the reserved FAUCET escrow, the one treasury->reserved payout that
+        # makes sense (governance tops up the prize bank; the exec layer mirrors it like a donation).
+        from protocol import FAUCET_ESCROW
+        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (sr.startswith("ndo") and len(sr) == 49
+            and sr not in RESERVED_RECIPIENTS)), "treasury spend recipient must be a normal address or 'faucet'"
         assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "treasury spend amount must be a positive int"
         assert isinstance(snonce, str) and 0 < len(snonce) <= 64, "treasury spend nonce must be 1..64 chars"
         assert isinstance(memo, str) and len(memo) <= 256, "treasury spend memo must be a string (<= 256 chars)"
@@ -1025,8 +1028,10 @@ def validate_transaction(transaction, logger, block_height):
         data = transaction.get("data") or {}
         spend, pid = data.get("spend") or {}, data.get("pid")
         sr, sa, memo, snonce, sexpiry = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce"), spend.get("expiry")
-        assert isinstance(sr, str) and sr.startswith("ndo") and len(sr) == 49, "bad treasury spend recipient"
-        assert sr not in RESERVED_RECIPIENTS, "treasury spend recipient cannot be a reserved recipient"
+        # same recipient rule as treasury_vote: normal address, or the FAUCET escrow (prize-bank top-up).
+        from protocol import FAUCET_ESCROW
+        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (sr.startswith("ndo") and len(sr) == 49
+            and sr not in RESERVED_RECIPIENTS)), "treasury spend recipient must be a normal address or 'faucet'"
         assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "bad treasury spend amount"
         assert isinstance(snonce, str) and 0 < len(snonce) <= 64 and isinstance(memo, str) and len(memo) <= 256, "bad treasury spend nonce/memo"
         assert isinstance(sexpiry, int) and not isinstance(sexpiry, bool) and sexpiry > 0, "treasury spend needs a positive int expiry block"

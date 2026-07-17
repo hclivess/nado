@@ -4673,13 +4673,13 @@ async function proposeSpend() {
   const msg = $("qPropMsg");
   try {
     let to = ($("qPropRecipient").value || "").trim().toLowerCase();
-    if (looksLikeAlias(to)) {                                     // accept a human-readable alias, resolve to its owner
-      msg.textContent = i18("quorum.resolving", "Resolving alias…");
+    if (to !== "faucet" && looksLikeAlias(to)) {                  // accept a human-readable alias, resolve to its owner
+      msg.textContent = i18("quorum.resolving", "Resolving alias…");   // ("faucet" is the reserved prize bank, never an alias)
       const owner = await resolveAlias(to);
       if (!owner) throw new Error(i18("quorum.aliasErr", "Alias not found."));
       to = owner;
     }
-    if (!(to.startsWith("ndo") && to.length === 49)) throw new Error(i18("quorum.badAddr", "Enter a valid ndo… address or a registered alias."));
+    if (to !== "faucet" && !(to.startsWith("ndo") && to.length === 49)) throw new Error(i18("quorum.badAddr", "Enter a valid ndo… address, a registered alias, or 'faucet'."));
     const amtRaw = nadoToRaw($("qPropAmount").value || "");
     if (!(amtRaw > 0n)) throw new Error(i18("quorum.badAmount", "Enter a positive amount."));
     const memo = ($("qPropMemo").value || "").slice(0, 256);
@@ -4745,7 +4745,7 @@ async function renderQuorum() {
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
         <b>${rawToNado(BigInt(p.amount || 0))} NADO</b>
         <span class="badge ${p.status === "open" ? "idle" : "ok"}">${i18(stKey, stEn)}</span></div>
-      <div class="small faint">→ ${escapeHtml((p.recipient || "").slice(0, 18))}…${p.memo ? " · " + escapeHtml(p.memo) : ""}</div>
+      <div class="small faint">→ ${escapeHtml((p.recipient || "").slice(0, 18))}${(p.recipient || "").length > 18 ? "…" : ""}${p.memo ? " · " + escapeHtml(p.memo) : ""}</div>
       <div class="progress mt"><span style="display:block;height:100%;width:${pct}%;background:var(--accent)"></span></div>
       <div class="small faint">${i18("quorum.tally", "{pct}% of stake · needs 2/3 · {v} voter(s)", { pct, v: p.voters || 0 })}${p.within_cap ? "" : " · " + i18("quorum.overCap", "over cap")}</div>
       ${canVote ? `<button class="accent mt small qvote" data-i="${i}" style="width:100%">${i18("quorum.voteYes", "Vote yes")}</button>` : ""}

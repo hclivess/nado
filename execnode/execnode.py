@@ -219,6 +219,16 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
             default_state.credit_deposit("faucet", tx.get("amount", 0))
             if verbose:
                 print(f"[execnode] block {h}: faucet donation {tx.get('amount')} by {(tx.get('sender') or '')[:12]}…", flush=True)
+        elif r == "treasury_execute":
+            # TREASURY -> FAUCET payout: a MINED treasury_execute is a completed payout (L1 validation gated
+            # the 2/3 quorum, funding and the one-shot pid nullifier, and apply credited the L1 faucet
+            # escrow). When the approved spend targets the reserved faucet name, mirror it into the faucet
+            # CONTRACT's spendable balance exactly like a donation, so game grants/prizes can pay from it.
+            spend = (tx.get("data") or {}).get("spend") or {}
+            if spend.get("recipient") == "faucet":
+                default_state.credit_deposit("faucet", int(spend.get("amount") or 0))
+                if verbose:
+                    print(f"[execnode] block {h}: treasury->faucet payout {spend.get('amount')}", flush=True)
         elif r == "shield":
             d = tx.get("data") or {}
             if d.get("field"):
