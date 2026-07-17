@@ -132,5 +132,49 @@ check("annihilation razes buildings into rubble (land conserved, not vanished)",
   }
 });
 
+check("world replay: deterministic, isolates nations, resolves a raid, seed-blocks", () => {
+  const A = "ndoA".padEnd(50, "a"), Bn = "ndoB".padEnd(50, "b");
+  const seedOf = (cur) => BigInt(cur) * 99991n + 7n;      // stand-in for the block-hash roll
+  const TB = E.TURN_BLOCKS;
+  // A founds, builds up; B founds; A raids B much later
+  const log = [
+    { actor: A, cursor: 0, enc: E.encAction(E.OP.found), target: 0 },
+    { actor: Bn, cursor: 0, enc: E.encAction(E.OP.found), target: 0 },
+    // A builds on its open land first (the anti-hoard rule blocks colonizing while >50% is empty), with
+    // turns between builds to afford them (the early economy is deliberately slow)…
+    { actor: A, cursor: 1 * TB, enc: E.encAction(E.OP.build, E.BUILDABLE.indexOf("village"), 12), target: 0 },
+    { actor: A, cursor: 80 * TB, enc: E.encAction(E.OP.build, E.BUILDABLE.indexOf("village"), 12), target: 0 },
+    // …then unbuilt is under half and it can colonize for more territory
+    { actor: A, cursor: 90 * TB, enc: E.encAction(E.OP.colonize), target: 0 },
+  ];
+  const now = 200 * TB;
+  const w1 = E.replayWorld(log, now, seedOf).world;
+  const w2 = E.replayWorld(JSON.parse(JSON.stringify(log)), now, seedOf).world;
+  if (JSON.stringify(w1) !== JSON.stringify(w2)) throw new Error("world replay not deterministic");
+  if (!w1[A] || !w1[Bn]) throw new Error("both nations should exist");
+  // A colonized so it has more land than the untouched B
+  if (!(w1[A].land > w1[Bn].land)) throw new Error("A should have colonized past B");
+  finite(w1[A]); finite(w1[Bn]);
+  // now a raid: A (with an army) attacks B after the newbie shield expires
+  const raidLog = log.concat([
+    { actor: A, cursor: 100 * TB, enc: E.encAction(E.OP.recruit, UKEYS.indexOf("tank"), 200), target: 0 },
+    { actor: A, cursor: 120 * TB, enc: E.encAction(E.OP.attack, 1, E.packComp({ soldier: 1, tank: 1 }).b, E.packComp({ soldier: 1, tank: 1 }).c), target: Bn },
+  ]);
+  // give A components by hand-seeding? no — engine passive comps accrue via factories; instead build factories first
+  const raidLog2 = [
+    { actor: A, cursor: 0, enc: E.encAction(E.OP.found), target: 0 },
+    { actor: Bn, cursor: 0, enc: E.encAction(E.OP.found), target: 0 },
+  ];
+  for (let k = 1; k <= 6; k++) raidLog2.push({ actor: A, cursor: k * TB, enc: E.encAction(E.OP.build, E.BUILDABLE.indexOf("barracks"), 12), target: 0 });
+  raidLog2.push({ actor: A, cursor: 130 * TB, enc: E.encAction(E.OP.attack, 1, E.packComp({ soldier: 1 }).b, E.packComp({ soldier: 1 }).c), target: Bn });
+  const bBefore = E.replayWorld(raidLog2.slice(0, -1), 130 * TB, seedOf).world[Bn];
+  const rw = E.replayWorld(raidLog2, 130 * TB, seedOf).world;
+  // B's money should have dropped or stayed (a plunder can't INCREASE the victim); the raid must have applied or been shielded
+  if (rw[Bn].money > bBefore.money + 1) throw new Error("victim gained money from being raided");
+  // seed-block pause: a null seed marks blocked, no partial corruption
+  const blocked = E.replayWorld(raidLog2, 130 * TB, (cur) => cur >= 130 * TB ? null : seedOf(cur));
+  if (!blocked.blocked) throw new Error("a pending seed block should pause replay");
+});
+
 console.log(fails ? fails + " FAILURES" : "ALL PASS");
 process.exit(fails ? 1 : 0);

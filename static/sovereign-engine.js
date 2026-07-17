@@ -301,6 +301,74 @@ export function combat(atk, def, kind, comp, seed) {
   return rep;
 }
 
+// ---- action encoding + world replay (the on-chain model) ----------------------------------------------
+// The contract is a THIN global append-only ACTION LOG (the stormhold free-actor pattern, world-scale):
+// every player's action is one entry {actor, cursor, enc, target}. Every client REPLAYS the whole log
+// through this engine to derive the world — settling each nation lazily between the actions that touch it,
+// and resolving raids against a block-hash roll pinned by the entry's cursor. enc packs op + three 12-bit
+// params; ATTACK carries the target address in its own field.
+export const TURN_BLOCKS = 20;                    // one economy turn per 20 L1 blocks (~2 min at 6s)
+export const OP = { found: 0, build: 1, demolish: 2, recruit: 3, research: 4, revolt: 5, colonize: 6, attack: 7 };
+const P = 4096;
+export const encAction = (op, a = 0, b = 0, c = 0) => op + 16 * (a + P * (b + P * c));
+export const decAction = (enc) => { let v = Math.floor(enc / 16); const op = enc % 16;
+  const a = v % P; v = Math.floor(v / P); const b = v % P; const c = Math.floor(v / P); return { op, a, b, c }; };
+// attack composition ⇄ 6-bit-per-unit eighths packed across b (soldier/tank/fighter) and c (bunker/mech)
+export const packComp = (comp) => {
+  const e = (k) => clamp(Math.round((comp[k] || 0) * 8), 0, 8);
+  return { b: e("soldier") + 16 * e("tank") + 256 * e("fighter"), c: e("bunker") + 16 * e("mech") };
+};
+const unpackComp = (b, c) => ({ soldier: (b % 16) / 8, tank: (Math.floor(b / 16) % 16) / 8, fighter: (Math.floor(b / 256) % 16) / 8,
+  bunker: (c % 16) / 8, mech: (Math.floor(c / 16) % 16) / 8 });
+
+const turnsBetween = (fromCur, toCur) => Math.max(0, Math.floor((toCur - fromCur) / TURN_BLOCKS));
+
+// applyAction(world, entry, seedOf): mutate the world by one log entry. seedOf(cursor)->BigInt|null (the
+// block-hash roll for a raid; null = the seed block isn't final yet → the caller pauses replay). Returns
+// "ok" | "blocked" | "skip" (an illegal/degenerate action is skipped, never corrupts — the fee already
+// charged the actor). PROTECT_TURNS shields a young nation from raids.
+export const PROTECT_TURNS = 60;
+export function applyAction(world, e, seedOf) {
+  const { op, a, b, c } = decAction(e.enc);
+  let n = world[e.actor];
+  if (op === OP.found) { if (!n) { const nn = newNation(e.actor, Math.floor(e.cursor / (TURN_BLOCKS * 720)));
+    nn.lastCur = e.cursor; world[e.actor] = nn; } return "ok"; }   // stamp the clock so a later touch settles from HERE
+  if (!n) return "skip";
+  settle(n, turnsBetween(n.lastCur ?? e.cursor, e.cursor)); n.lastCur = e.cursor;
+  switch (op) {
+    case OP.build:    return build(n, BUILDABLE[a], b) ? "ok" : "skip";
+    case OP.demolish: return demolish(n, BKEYS[a], b) ? "ok" : "skip";
+    case OP.recruit:  return recruit(n, UKEYS[a], b) ? "ok" : "skip";
+    case OP.research: return research(n, TKEYS[a]) ? "ok" : "skip";
+    case OP.revolt:   return revolt(n, GKEYS[a]) ? "ok" : "skip";
+    case OP.colonize: return colonize(n) ? "ok" : "skip";
+    case OP.attack: {
+      const d = world[e.target]; if (!d || e.target === e.actor) return "skip";
+      settle(d, turnsBetween(d.lastCur ?? e.cursor, e.cursor)); d.lastCur = e.cursor;
+      if (d.tick < PROTECT_TURNS && prestige(d) < 200) return "skip";   // newbie shield (age + weak)
+      if (n.ready < 40) return "skip";                       // must be rearmed
+      const seed = seedOf(e.cursor); if (seed == null) return "blocked";
+      const kind = Object.keys(ATTACK_KINDS)[a] || "plunder";
+      combat(n, d, kind, unpackComp(b, c), seed);
+      return "ok";
+    }
+    default: return "skip";
+  }
+}
+
+// replayWorld(entries, nowCur, seedOf): fold the whole log into { addr: nation }, then settle every nation
+// forward to `nowCur` for display. blocked=true (+blockedAt) when a raid's seed block isn't final yet.
+export function replayWorld(entries, nowCur, seedOf) {
+  const world = {}, res = { world, blocked: false, blockedAt: -1 };
+  for (let i = 0; i < entries.length; i++) {
+    const r = applyAction(world, entries[i], seedOf);
+    if (r === "blocked") { res.blocked = true; res.blockedAt = i; break; }
+  }
+  for (const addr in world) { const n = world[addr];
+    settle(n, turnsBetween(n.lastCur ?? nowCur, nowCur)); n.lastCur = nowCur; }
+  return res;
+}
+
 // ---- prestige (the world-ranking score) --------------------------------------------------------------
 export function prestige(n) {
   let s = n.land * 2 + Math.floor(n.people / 1000);
