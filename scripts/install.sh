@@ -21,15 +21,11 @@
 #
 #   sudo scripts/install.sh --service --auto-bond 25     # bond 25% of mined rewards, hands-free
 #
-# Auto-update (needs --service): install a systemd timer that fast-forwards this checkout to origin and
-# restarts the node whenever new code lands, so the fleet stays current hands-free. SAFE: fast-forward ONLY,
-# refuses a dirty/diverged tree, never touches the (gitignored) chain data (scripts/nado_autoupdate.sh).
-# With --service, install.sh PROMPTS for this interactively; --auto-update / --no-auto-update decide up-front:
-#
-#   sudo scripts/install.sh --service                         # asks: "Enable auto-update? [y/N]"
-#   sudo scripts/install.sh --service --auto-update           # yes, every 15 min (default, no prompt)
-#   sudo scripts/install.sh --service --auto-update=30min     # ... custom interval (any systemd time)
-#   sudo scripts/install.sh --service --no-auto-update        # never (skip the prompt)
+# Auto-update is BUILT INTO THE NODE (ops/self_update.py): a daily fast-forward check against origin/main
+# of the official repo, plus a remote GET /update trigger any peer can send (safe: ff-only, pinned repo +
+# branch, refuses a dirty/diverged tree, never touches the gitignored chain data). Default ON; opt out with
+# "auto_update": false in private/config.dat. The old nado-update.service/.timer pair is retired — this
+# installer removes it if found. Legacy --auto-update flags are accepted and ignored.
 #
 # Data directory: the node keeps its chain under $HOME/nado. Pass --home <dir> to put it elsewhere
 # (the services then run with HOME=<dir>, so chain data lands in <dir>/nado). Recommended whenever the
@@ -68,20 +64,15 @@ PQ_NATIVE=""
 # only baked into the service when explicitly requested, because NADO_AUTO_BOND_PERCENT OVERRIDES config —
 # an unconditional =0 here would silently switch auto-bond off on nodes that rely on the default.
 AUTO_BOND="${NADO_AUTO_BOND_PERCENT:-}"
-# Auto-update: a systemd timer that fast-forwards this checkout to origin and restarts the node when new code
-# lands (scripts/nado_autoupdate.sh). Empty = ASK interactively when --service is set (or default off when
-# non-interactive); 1 = on; 0 = off. --auto-update / --no-auto-update force it. Interval = any systemd time.
-AUTO_UPDATE=""
-UPDATE_INTERVAL="15min"
 while [ $# -gt 0 ]; do
   case "$1" in
     --wallet)      WITH_WALLET=1 ;;
     --service)     WITH_SERVICE=1 ;;
-    --auto-update)   AUTO_UPDATE=1 ;;                              # keep the node current: pull origin + restart on new code
-    --auto-update=*) AUTO_UPDATE=1; UPDATE_INTERVAL="${1#*=}" ;;   # ... every <systemd-time>, e.g. --auto-update=30min
-    --no-auto-update) AUTO_UPDATE=0 ;;                             # never prompt / never install the update timer
-    --update-interval)   shift; UPDATE_INTERVAL="${1:-15min}" ;;
-    --update-interval=*) UPDATE_INTERVAL="${1#*=}" ;;
+    # LEGACY (auto-update moved into the node itself — ops/self_update.py, config "auto_update"): accepted,
+    # ignored, so old provisioning scripts keep working.
+    --auto-update|--auto-update=*|--no-auto-update|--update-interval=*)
+      echo "note: auto-update is built into the node now (config auto_update, default on) — $1 ignored" ;;
+    --update-interval) shift; echo "note: auto-update is built into the node now — --update-interval ignored" ;;
     --pq-native)   PQ_NATIVE=1 ;;            # build the native Rust ML-DSA verify backend (55x faster)
     --no-pq-native) PQ_NATIVE=0 ;;           # skip it (stay pure-Python)
     --exec)        WITH_EXEC=1 ;;            # also run the execution / shielded-pool node (:9273)
@@ -105,11 +96,6 @@ if [ -n "$AUTO_BOND" ]; then
   fi
 fi
 
-# auto-update rides on systemd (it restarts the node service) — require --service when EXPLICITLY requested
-if [ "$AUTO_UPDATE" = "1" ] && [ $WITH_SERVICE -eq 0 ]; then
-  echo "ERROR: --auto-update needs --service (it installs a systemd timer that restarts the node service)." >&2; exit 2
-fi
-
 # validate/prepare the data home (must be absolute — it becomes the services' HOME)
 if [ -n "$DATA_HOME" ]; then
   case "$DATA_HOME" in
@@ -127,18 +113,7 @@ echo "    service:     $([ $WITH_SERVICE -eq 1 ] && echo yes || echo no)"
 echo "    exec node:   $([ $WITH_EXEC -eq 1 ] && echo "yes (shielded pool :9273$([ $EXEC_SETTLE -eq 1 ] && echo ", settles to L1"))" || echo no)"
 echo "    data home:   $([ -n "$DATA_HOME" ] && echo "$DATA_HOME (chain data in $DATA_HOME/nado)" || echo "(user home — chain data in ~/nado)")"
 echo "    auto-bond:   $([ -n "$AUTO_BOND" ] && echo "${AUTO_BOND}%" || echo "(node default: 80%, see auto_bond_percent in private/config.dat)")"
-echo "    auto-update: $([ "$AUTO_UPDATE" = "1" ] && echo "yes (fast-forward origin + restart every $UPDATE_INTERVAL)" || { [ "$AUTO_UPDATE" = "0" ] && echo no || { [ $WITH_SERVICE -eq 1 ] && echo "(will prompt)" || echo no; }; })"
-
-# Resolve auto-update: explicit flag wins; else ASK when installing a service interactively, off when not.
-if [ -z "$AUTO_UPDATE" ]; then
-  if [ $WITH_SERVICE -eq 1 ] && [ -t 0 ]; then
-    printf "==> Enable auto-update? A systemd timer fast-forwards this checkout to origin and restarts the node when new code lands (safe: ff-only, checks every %s). [y/N] " "$UPDATE_INTERVAL"
-    read -r _au_ans || _au_ans=""
-    case "$_au_ans" in y|Y|yes|YES) AUTO_UPDATE=1 ;; *) AUTO_UPDATE=0 ;; esac
-  else
-    AUTO_UPDATE=0   # non-interactive, or no --service: leave it off unless --auto-update was passed
-  fi
-fi
+echo "    auto-update: built into the node (daily origin/main check + remote /update trigger; disable with \"auto_update\": false in private/config.dat)"
 
 # ---- pick a Python >= 3.10 -----------------------------------------------------------------------
 pick_python() {
@@ -394,43 +369,12 @@ EXECEOF
     echo "    logs:    journalctl -u nado-exec -f"
   fi
 
-  # ---- auto-update timer (optional) --------------------------------------------------------------
-  if [ "$AUTO_UPDATE" = "1" ]; then
-    chmod +x "$REPO_DIR/scripts/nado_autoupdate.sh" 2>/dev/null || true
-    UPUNIT=/etc/systemd/system/nado-update.service
-    echo "==> writing $UPUNIT + nado-update.timer (fast-forward origin + restart node every $UPDATE_INTERVAL)"
-    cat > "$UPUNIT" <<UPEOF
-[Unit]
-Description=NADO auto-update (fast-forward to origin, restart node on new code)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-# Runs as root so it can systemctl-restart the node; git runs in the checkout ($REPO_DIR — the node=repo
-# layout is root-owned). FAST-FORWARD ONLY and refuses a dirty/diverged tree, so it can only ever advance a
-# checkout that cleanly tracks origin, and it never touches the (gitignored) chain DB. See the script header.
-ExecStart=$REPO_DIR/scripts/nado_autoupdate.sh $REPO_DIR
-UPEOF
-    cat > /etc/systemd/system/nado-update.timer <<UPTEOF
-[Unit]
-Description=NADO auto-update timer (every $UPDATE_INTERVAL)
-
-[Timer]
-OnBootSec=$UPDATE_INTERVAL
-OnUnitActiveSec=$UPDATE_INTERVAL
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-UPTEOF
+  # ---- retire the LEGACY auto-update timer (updating now lives inside the node) -------------------
+  if [ -f /etc/systemd/system/nado-update.timer ] || [ -f /etc/systemd/system/nado-update.service ]; then
+    echo "==> removing legacy nado-update.service/.timer (auto-update is built into the node now)"
+    systemctl disable --now nado-update.timer 2>/dev/null || true
+    rm -f /etc/systemd/system/nado-update.timer /etc/systemd/system/nado-update.service
     systemctl daemon-reload
-    systemctl enable nado-update.timer
-    systemctl start nado-update.timer
-    echo "==> auto-update ON: fast-forwards origin + restarts the node every $UPDATE_INTERVAL (safe: ff-only, refuses a dirty/diverged tree)."
-    echo "    status:  systemctl status nado-update.timer ; journalctl -u nado-update -f"
-    echo "    run now: sudo systemctl start nado-update.service"
-    echo "    disable: sudo systemctl disable --now nado-update.timer"
   fi
 else
   # env prefix for the manual-run hints (mirrors what --service would bake into the units)

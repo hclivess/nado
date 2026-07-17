@@ -23,7 +23,9 @@ def _zstd_wire():
     return c
 
 import versioner
-from config import get_config, get_timestamp_seconds
+import time
+from config import get_config, get_timestamp_seconds, hostport
+from ops import self_update
 from genesis import make_genesis, make_folders
 from loops.consensus_loop import ConsensusClient
 from loops.core_loop import CoreClient
@@ -200,6 +202,13 @@ async def status(request):
             "ffg_finalized": memserver.ffg_finalized,
             "protocol": memserver.protocol,
             "version": memserver.version,
+            # UPDATE VISIBILITY: the commit this process RUNS, the newest origin/main commit this node
+            # has SEEN (cached by the last /update or daily check — never fetched inline here), and
+            # whether it is running behind it. Lets anyone spot a lagging node from /status alone.
+            "running_commit": self_update.running_head(),
+            "latest_main": self_update.latest_known(),
+            "update_available": bool(self_update.latest_known() and self_update.running_head()
+                                     and self_update.latest_known() != self_update.running_head()),
             # NETWORK PARTITION KEY: peers gate admission on this (peer_loop) so nodes on a different
             # chain (e.g. a pre-relaunch alphanet) never enter the status/consensus pools — a foreign
             # chain's advertised weight would otherwise stall production via the caught-up gate.
@@ -1426,6 +1435,34 @@ async def interface_page(request):
     return _html_response(request, os.path.join(_HERE, "static", "interface.html"))
 
 
+async def update_node(request):
+    """GET /update: ask this node to SELF-UPDATE — fast-forward onto origin/main of the official repo and
+    restart its services when new code actually landed (ops/self_update.py has the full safety story).
+    Callable by ANYONE: the caller controls only the WHEN, never the WHAT, and an already-current node
+    answers up_to_date and does nothing. After a real update the node forwards the ping to its linked
+    peers (the update WAVE) before its own restart, so one call updates the whole reachable fleet;
+    current nodes do not re-forward, so the wave dies out on its own. ?wave=0 disables forwarding."""
+    result = await asyncio.to_thread(self_update.check_and_update, "remote")
+    if result.get("status") == "updated" and request.query.get("wave", "1") != "0":
+        peer_list = list(memserver.peers)
+
+        async def _fan_out():
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as s:
+                    async def _one(p):
+                        try:
+                            async with s.get(f"http://{hostport(p, get_config()['port'])}/update?wave=1"):
+                                pass
+                        except Exception:
+                            pass
+                    await asyncio.gather(*(_one(p) for p in peer_list))
+            except Exception:
+                pass
+        asyncio.create_task(_fan_out())
+    return _resp(result)
+
+
 async def make_app(port):
     """Build the aiohttp application with every route and serve it forever. Mainnet binds IPv4 on
     0.0.0.0 plus a best-effort SEPARATE IPV6_V6ONLY socket (so v4 clients keep plain v4 addresses for
@@ -1451,6 +1488,7 @@ async def make_app(port):
         web.get("/get_account", account),
         web.get("/get_account_mempool", account_mempool),
         web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool)),
+        web.get("/update", update_node),
         # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +
         # the bounded fetch-by-id — divergent peers no longer re-download each other's whole pools.
         web.get("/transaction_ids", _dump_handler("transaction_ids",
@@ -1619,5 +1657,26 @@ messages = MessageClient(memserver=memserver, consensus=consensus, core=core, pe
 messages.start()
 
 logger.info("Starting Request Handler")
+
+
+def _daily_update_loop():
+    """Integrated auto-updater cadence: check origin/main once a day (plus whenever someone hits
+    /update). First check 10 minutes after boot so a freshly restarted node settles/syncs first; a
+    check that pulls new code schedules its own restart, after which the node is up to date and the
+    next boot's timer re-arms. Opt out with \"auto_update\": false in private/config.dat."""
+    time.sleep(600)
+    while True:
+        try:
+            res = self_update.check_and_update("daily")
+            logger.info(f"Daily update check: {res.get('status')}"
+                        + (f" ({res.get('reason')})" if res.get("reason") else "")
+                        + (f" {res.get('from')} -> {res.get('to')}" if res.get("status") == "updated" else ""))
+        except Exception as e:
+            logger.info(f"Daily update check failed: {e}")
+        time.sleep(86400)
+
+
+_threading.Thread(target=_daily_update_loop, daemon=True, name="self_update").start()
+logger.info("Integrated auto-updater armed: daily origin/main check + remote /update trigger (wave-forwarding)")
 
 asyncio.run(make_app(get_config()["port"]))

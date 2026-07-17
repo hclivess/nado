@@ -131,6 +131,13 @@ def c_register(kd, node, a):
     _submit(node, T.construct_register_tx(kd, tb, proof))
 
 
+def c_update(kd, node, a):
+    """Trigger the node's integrated self-updater (GET /update): fast-forward onto origin/main of the
+    official repo and restart on new code. The node forwards the ping to its linked peers (update wave),
+    so pointing this at one node updates the whole reachable fleet."""
+    print(json.dumps(_get(node, "/update?wave=1"), indent=1))
+
+
 def _spend(a):   # shared treasury spend fields
     """Extract the treasury-spend identity tuple (recipient/amount/memo/nonce/expiry) shared by
     propose/vote/execute — votes only aggregate when every voter signs the exact same tuple."""
@@ -233,6 +240,7 @@ def main():
     s = sub.add_parser("alias"); s.add_argument("op", choices=["register", "transfer", "unregister"]); s.add_argument("name"); s.add_argument("--to")
     sub.add_parser("register")
     sub.add_parser("collect")
+    sub.add_parser("update")   # ask the node to self-update from origin/main; it wave-forwards to its peers
     for name in ("propose", "vote", "execute"):
         s = sub.add_parser(name); s.add_argument("--to", required=True); s.add_argument("--amount", required=True)
         s.add_argument("--memo", default=""); s.add_argument("--nonce", required=True); s.add_argument("--expiry", required=True)
@@ -254,7 +262,7 @@ def main():
     kd = load_keys(kf) if kf else load_keys()
 
     cmds = {"info": c_info, "send": c_send, "bond": c_bond, "unbond": c_unbond, "alias": c_alias,
-            "register": c_register, "collect": c_collect, "propose": c_propose, "vote": c_vote,
+            "register": c_register, "collect": c_collect, "update": c_update, "propose": c_propose, "vote": c_vote,
             "execute": c_execute, "bridge-deposit": c_bridge_deposit,
             "msig-address": c_msig_address, "msig-propose": c_msig_propose,
             "msig-sign": c_msig_sign, "msig-submit": c_msig_submit}

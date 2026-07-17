@@ -128,7 +128,7 @@ pk_done:
     slot r4 4 r2
     sload r6 r4
     add r6 r5
-    slot r4 2 r2
+    slot r4 3 r2
     sload r4 r4
     lt r4 r6
     notb r4
@@ -262,9 +262,6 @@ lost:
     sload r1 r4
     slot r4 21 r0
     sload r5 r4
-    slot r4 9 r0
-    sload r6 r4
-    sub r5 r6
     slot r4 4 r1
     sload r6 r4
     sub r6 r5
@@ -292,6 +289,10 @@ SRC = {
         movi r4 0
         lt r4 r3
         require r4
+        mov r5 r3
+        movi r6 1125899906842624
+        lt r5 r6
+        require r5
         slot r4 7 r0
         sload r5 r4
         nez r5
@@ -333,6 +334,10 @@ SRC = {
         sload r5 r4
         add r5 r3
         sstore r4 r5
+        slot r4 4 r1
+        sload r6 r4
+        add r6 r3
+        sstore r4 r6
         movi r4 1
         sload r5 r4
         slot r6 25 r5
@@ -376,9 +381,6 @@ SRC = {
         slot r4 18 r0
         sload r3 r4
         sub r6 r3
-        slot r4 9 r0
-        sload r3 r4
-        add r6 r3
         slot r4 4 r1
         sstore r4 r6
         slot r4 2 r1
@@ -421,6 +423,28 @@ SRC = {
         slot r4 3 r1
         sload r6 r4
         sub r6 r5
+        sstore r4 r6
+        slot r4 11 r0
+        sload r6 r4
+        nez r6
+        slot r4 21 r0
+        sload r3 r4
+        sub r3 r5
+        mul r3 r6
+        add r5 r3
+        slot r4 4 r1
+        sload r6 r4
+        sub r6 r5
+        sstore r4 r6
+        slot r4 2 r1
+        sload r6 r4
+        slot r4 9 r0
+        sload r3 r4
+        add r6 r3
+        slot r4 18 r0
+        sload r3 r4
+        sub r6 r3
+        slot r4 2 r1
         sstore r4 r6
         slot r4 14 r0
         movi r5 1

@@ -104,6 +104,11 @@ def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"
         # unattended. Defaults to protocol.AUTO_BOND_DEFAULT_PERCENT (80) so a fresh node joins the
         # bonded lane hands-free; set 0 to disable. Overridable via the NADO_AUTO_BOND_PERCENT env var.
         "auto_bond_percent": 80,
+        # INTEGRATED AUTO-UPDATE (non-consensus, ops/self_update.py): keep the node on origin/main of the
+        # official repo — a daily fast-forward check plus the remote /update trigger (harmless for anyone
+        # to call: it only decides WHEN, the code always comes from the repo you already run). Set False
+        # to update manually.
+        "auto_update": True,
         # ROLLING MODE (non-consensus, doc/rolling-mode-and-da.md): archive=True keeps ALL block bodies
         # forever (default — no data loss, current behaviour). Set False for a "rolling"/pruned node that
         # drops block BODIES older than history_retention_blocks (state + number<->hash indexes are always
