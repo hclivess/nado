@@ -13,8 +13,15 @@ permutation of F_p) to all lanes (full rounds), then mix by a t×t **Cauchy MDS*
 are nothing-up-my-sleeve (BLAKE2b of labels). A digest is the first CAPACITY=4 rate lanes = 4 field elements
 (a 256-bit value); helpers pack/compare them as tuples so `merkle`/`transcript` can treat a digest opaquely.
 
-Demonstration round count (like `alghash`); production pins audited Poseidon2/RPO rounds — the
-arithmetization + recursion pipeline is identical either way.
+ROUND COUNT. This hash's generic security is 128-bit (256-bit capacity ⇒ 2^128 collision). The round count
+must ensure no ALGEBRAIC shortcut beats that: an all-full-round x^7 permutation has algebraic degree 7^ROUNDS,
+and an interpolation/Gröbner inversion costs ~7^ROUNDS, so we need 7^ROUNDS ≥ 2^128 ⟹ ROUNDS ≥ 46
+(128 / log2 7). ROUNDS = 54 (7^54 ≈ 2^151.6, a ~20% margin over the 46 minimum) keeps the algebraic attack
+strictly above the 2^128 generic bound. (8 rounds — the old "demonstration" value — gave degree only
+7^8 ≈ 2^22.5, i.e. this "128-bit" hash was interpolation-invertible at ~2^22.5: a forged inner-proof Merkle
+tree in the recursion layer.) ROUNDS is a single source of truth consumed by the Python permute, the recursion
+AIRs (hash-block anatomy: block size = next_pow2(ROUNDS+2), see fri_verify._B), and the native Rust
+(native/alghash2 `R`, native/starkprove `HR` — REBUILD after changing this: cargo build --release).
 """
 from hashing import blake2b_hash
 from execnode.stark import field as F
@@ -24,7 +31,7 @@ RATE = 8
 CAPACITY = WIDTH - RATE          # 4 → 256-bit capacity
 DIGEST = CAPACITY                # a digest is CAPACITY field elements
 ALPHA = 7
-ROUNDS = 8                       # full rounds (demonstration)
+ROUNDS = 54                      # see ROUND COUNT above: 7^54 ≈ 2^151.6 ≥ the 2^128 collision bound
 
 
 def _c(*parts):

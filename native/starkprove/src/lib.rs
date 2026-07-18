@@ -193,12 +193,12 @@ fn lde_column(vals: &[u64], n: usize, offset: u64) -> Vec<u64> {
 }
 
 // ---- alghash2 (RECURSION backend) — the Merkle hash ---------------------------------------------------------
-// Width-12 wide sponge, RATE 8, CAPACITY 4, ROUNDS 8, x^7 S-box. The round constants / IV / MDS are the
+// Width-12 wide sponge, RATE 8, CAPACITY 4, ROUNDS 54, x^7 S-box. The round constants / IV / MDS are the
 // nothing-up-my-sleeve values Python computes (blake2b of labels) and hands in via sp_init — the SAME ones it
 // hands to native/alghash2 — so this permute is byte-identical to alghash2.py.permute. rleaf/rnode reproduce
 // alghash2.py exactly (guarded by tests/test_starkprove.py against merkle.commit over the RECURSION backend).
 const HW: usize = 12;
-const HR: usize = 8;
+const HR: usize = 54;  // alghash2 full rounds — MUST match execnode/stark/alghash2.py ROUNDS (7^54 ≥ 2^128)
 const RATE: usize = 8;
 const CAP: usize = 4;
 static mut RC: [[u64; HW]; HR] = [[0; HW]; HR];

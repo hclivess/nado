@@ -25,11 +25,13 @@ NO O(T) periodic interpolation: its cost is O(queries · layers), independent of
 from execnode.stark import alghash2 as a2, field as F, stark, backend
 from execnode.stark.transcript import Transcript
 from execnode.stark.fri import _expected_layers, _coset_interpolate, GRIND_BITS, NUM_QUERIES
-from execnode.stark.recursion import _permute_snapshots, _blocks_for  # snapshot + path-block helpers
+from execnode.stark.recursion import _permute_snapshots, _blocks_for, _next_pow2  # snapshot + path-block helpers
 
 _W, _R, _RATE, _CAP = a2.WIDTH, a2.ROUNDS, a2.RATE, a2.DIGEST
-_B = 16                         # rows per hash block: R+1=9 snapshot rows padded to 16 so the block pattern
-                                # is a true 16-periodic (16 | T) — the succinct-periodic requirement
+# rows per hash block: _R round rows + 1 absorb/digest row + ≥1 hold/link row, padded up to a POWER OF TWO so
+# the block pattern is a true _B-periodic column (_B | T, the succinct-periodic requirement). Derived from
+# ROUNDS (was a hardcoded 16 for the old 8-round hash: next_pow2(8+2)=16; at ROUNDS=54, next_pow2(56)=64).
+_B = _next_pow2(_R + 2)
 
 # witness column layout: 12 sponge lanes | SIBW(4 sibling lanes) | DIRW IACC | CLO CHI FOLDED (carries)
 _SIBW = _W                      # 12..15

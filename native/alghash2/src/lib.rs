@@ -12,7 +12,7 @@ const P: u128 = 0xFFFFFFFF00000001;   // Goldilocks 2^64 - 2^32 + 1
 const PU64: u64 = 0xFFFFFFFF00000001;
 const EPSILON: u64 = 0xFFFFFFFF;      // 2^32 - 1  ( = 2^64 mod p )
 const W: usize = 12;
-const R: usize = 8;
+const R: usize = 54;   // alghash2 full rounds — MUST match execnode/stark/alghash2.py ROUNDS (7^54 ≥ 2^128)
 const RATE: usize = 8;
 const CAP: usize = 4;
 
