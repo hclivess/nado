@@ -30,8 +30,14 @@ def ck(n, c):
 def j(u): return json.load(urllib.request.urlopen(u, timeout=8))
 def post(tx):
     r = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(), headers={"Content-Type": "application/json"})
-    try: out = json.load(urllib.request.urlopen(r, timeout=12))
-    except urllib.error.HTTPError as e: out = {"result": False, "message": e.read().decode()[:200]}
+    for attempt in range(4):                                   # transient connection drops during block bursts
+        try:
+            out = json.load(urllib.request.urlopen(r, timeout=12)); break
+        except urllib.error.HTTPError as e:
+            out = {"result": False, "message": e.read().decode()[:200]}; break
+        except Exception as e:                                 # RemoteDisconnected / timeout / conn refused
+            out = {"result": False, "message": f"submit connection error: {e}"}
+            time.sleep(3)
     if not out.get("result"): print("  [submit REJECTED]", str(out.get("message"))[:160], flush=True)
     return out
 def tip(): return j(L1 + "/get_latest_block")["block_number"]
