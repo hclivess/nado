@@ -783,12 +783,13 @@ def validate_transaction(transaction, logger, block_height):
         assert anchor, "PoSW anchor block not found"
         proof = transaction.get("posw")
         assert proof, "Missing registration PoSW"
-        # CONSENSUS registration-rate difficulty v2 (ops/reg_difficulty.py): the required sequential-work
-        # count scales with recent registration volume, COUNTED FROM THE CHAIN'S BLOCKS over complete epochs
-        # strictly before the anchor — a pure function of (max_block, chain), so every node at any time
-        # computes the SAME requirement and rejects an under-worked proof (a modified node can't register
-        # cheaply). STRICT at every height — no compatibility (policy): a chain whose history needs the old
-        # rule is resolved by a protocol bump / genesis reroll, not by leniency here.
+        # CONSENSUS registration-rate difficulty v3 (ops/reg_difficulty.py): the required sequential-work
+        # count scales with recent registration volume, counted from the recert_by_epoch CONSENSUS STATE
+        # (snapshot-carried + state_root-validated) over complete epochs strictly before the anchor — a
+        # pure function of the applied chain, independent of local BODY retention, so a from-genesis node
+        # and a snapshot-booted node compute the SAME requirement (the v2 block-scan did not: it silently
+        # counted pruned epochs as 0 and split every snapshot-booted node from every full-history node).
+        # STRICT at every height — no compatibility (policy): deployed as the PROTOCOL 4 flag day.
         from ops.reg_difficulty import required_posw_t
         from ops.mining_ops import epoch_of
         req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)))

@@ -1,5 +1,5 @@
 """
-Registration-rate PoSW difficulty (doc/ip-spoofing-and-sybil.md) — CONSENSUS-BOUND, v2 (chain-derived).
+Registration-rate PoSW difficulty (doc/ip-spoofing-and-sybil.md) — CONSENSUS-BOUND, v3 (state-derived).
 
 The required PoSW work for a `register` scales with recent registration volume, so a sudden flood of identities
 gets progressively more expensive. This is enforced in validate_transaction: every node recomputes the required
@@ -18,51 +18,46 @@ a validity rule requires:
      raise the requirement and invalidate an honest in-flight proof (posw.verify is EXACT-T: over- or
      under-working both fail), randomly rejecting honest registrants.
 
-v2 therefore derives counts by COUNTING `register` txs in the BLOCKS of COMPLETE epochs that end strictly
-BEFORE the anchor block. Blocks are the chain itself — there is no side index to desync, no partial epoch to
-race: the requirement is a pure function of (max_block, chain), identical on every node at any time with any
-DB history. Self-scaling is unchanged: recent rate vs. a longer trailing-average baseline (floored), capped.
+v2 derived counts by COUNTING `register` txs in the BLOCKS of complete epochs strictly before the anchor.
 
-STRICT, NO COMPATIBILITY (policy): there is no grandfather window and no leniency for v1-era proofs —
-every node computes the identical v2 requirement for every height. A chain containing old-rules blocks is
-simply not this protocol's chain; the deployment remedy for that is a protocol bump / genesis reroll,
-never a compat path in consensus code.
+WHY v3 (2026-07-18, the all-day re-anchor-churn postmortem): v2 was a pure function of (chain, LOCAL BODY
+VISIBILITY) — and visibility is node-local. Nodes bootstrap from SNAPSHOTS and prune bodies; v2's silent
+`return 0` for a locally-missing epoch turned heterogeneous retention into a consensus fork. Proven live
+with numbers: a full-history fleet node counted ~57 registers in the recent window over a partially visible
+trail (baseline floored at 20) and required 2×, while a snapshot-booted node saw only 9 (multiplier 1×);
+posw.verify is EXACT-T, so each side rejects the other's honest registers and every register-bearing block
+splits them — a freshly re-anchored node re-truncates its own visibility and loops forever, and EVERY new
+node joining by snapshot inherits the incompatibility on arrival.
+
+v3 therefore counts from the recert_by_epoch STATE INDEX, which since the alphanet-6 generation is
+CONSENSUS STATE, not a node-local convenience:
+  · it is snapshot-carried and validated by the snapshot state_root at import (ops/snapshot_ops) — a
+    snapshot-booted node holds EXACTLY the counts a from-genesis node derived, with zero bodies retained;
+  · apply_register maintains it revert-symmetrically (recert_put on apply, recert_del on rollback);
+  · validate_transaction enforces ONE register per (sender, epoch), so the DUPSORT pair-collapse is
+    unreachable and rows == register txs exactly.
+The v1 sin was never "an index" — it was an UNVALIDATED index (pre-reroll junk rows survived upgrades)
+plus a still-filling window. Both stay cured: the carriage is state_root-validated, and windows still end
+strictly before the anchor epoch, so every counted row is settled before the anchor block exists.
+
+STRICT, NO COMPATIBILITY (policy): every node computes the identical v3 requirement for every height —
+deployed as the PROTOCOL 4 flag day (old-rules nodes are shed at the handshake), never as a compat path
+in consensus code.
 """
 from protocol import (POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
                       POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH)
 
-# (epoch, epoch-final block hash) -> register-tx count. Keyed by the epoch's LAST block hash, which commits
-# (via parent linkage) to every block in the epoch — so a reorged epoch gets a different key and re-counts,
-# and a stale entry can never be served for the wrong fork. Process-local; a cold process re-counts each
-# epoch once (~EPOCH_LENGTH block reads) and then serves sums from here.
-_epoch_count_cache = {}
-
 
 def chain_register_count(epoch: int) -> int:
-    """Number of `register` txs the CURRENT chain landed in `epoch`'s blocks — counted from the blocks
-    themselves (ground truth), never from the recert index. Returns 0 for epochs before genesis or not
-    (fully) present locally; consensus callers only ever pass epochs complete before a finalized anchor,
-    which every synced node holds."""
-    from ops.block_ops import get_block, get_block_hash_by_number
+    """Number of `register` txs the CURRENT chain landed in `epoch` — read from the recert_by_epoch
+    CONSENSUS state index (see the module docstring: snapshot-carried + state_root-validated, revert-
+    symmetric, one-register-per-(sender,epoch) so rows == txs exactly). VISIBILITY-FREE: identical on a
+    from-genesis node and a snapshot-booted node with zero bodies retained. Epochs before genesis (or with
+    no registers) are a true 0 — never a silent stand-in for "blocks missing locally"."""
+    from ops import kv_ops
     if epoch < 0:
         return 0
-    end_hash = get_block_hash_by_number((epoch + 1) * EPOCH_LENGTH - 1)
-    if end_hash is None:
-        return 0
-    key = (epoch, end_hash)
-    hit = _epoch_count_cache.get(key)
-    if hit is not None:
-        return hit
-    n = 0
-    for height in range(epoch * EPOCH_LENGTH, (epoch + 1) * EPOCH_LENGTH):
-        block_hash = get_block_hash_by_number(height)
-        block = get_block(block_hash) if block_hash else None
-        if block:
-            n += sum(1 for t in block.get("block_transactions", []) if t.get("recipient") == "register")
-    if len(_epoch_count_cache) > 4096:   # bound: ~4k epochs ≈ 2 weeks of keys; a reorg only adds a few
-        _epoch_count_cache.clear()
-    _epoch_count_cache[key] = n
-    return n
+    return kv_ops.recert_count_in_window(epoch, epoch)
 
 
 def _window_count(lo_epoch: int, hi_epoch: int) -> int:
