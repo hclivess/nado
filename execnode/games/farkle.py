@@ -232,6 +232,18 @@ def _hold():
           f"movi r4 {_sc(29)}", "sload r6 r4", "mul r6 r5",                                     # fin*ng
           "movi r7 1", "sub r7 r5", "slot r4 18 r0", "sload r3 r4", "mul r3 r7", "add r6 r3",   # + (1-fin)*gsc
           "slot r4 18 r0", "sstore r4 r6",
+          # RUNNING MAX — writes the table winner tb (fixes the permanently-stranded pot: settle(t) requires
+          # tb!=0 but NOTHING wrote it). Promote this seat to tb if its banked score gsc now strictly exceeds
+          # the table best tw. gsc is only set on a finishing turn, so only finished seats can win; the strict
+          # compare keeps the first winner on a tie. Conditional-select via the compare bit (the sub wraps only
+          # when better==0, and is then masked to 0), so no branch.
+          "slot r4 12 r0", "sload r1 r4",                                                       # r1 = table (seat.gg)
+          "slot r4 18 r0", "sload r2 r4",                                                       # r2 = gsc
+          "slot r4 9 r1", "sload r3 r4",                                                        # r3 = tw (best so far)
+          "mov r5 r3", "lt r5 r2",                                                              # r5 = (tw < gsc) = better
+          "mov r6 r2", "sub r6 r3", "mul r6 r5", "add r3 r6", "slot r4 9 r1", "sstore r4 r3",   # tw = better ? gsc : tw
+          "slot r4 8 r1", "sload r6 r4", "mov r7 r0", "sub r7 r6", "mul r7 r5", "add r6 r7",    # tb = better ? seat : tb
+          "slot r4 8 r1", "sstore r4 r6",
           "ret r0"]
     return L
 
