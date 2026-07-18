@@ -105,7 +105,6 @@ def create_config(ip: str, config_path: str = None):
     config_contents = {
         "port": get_port(),
         "ip": ip,
-        "protocol": get_protocol(),
         "server_key": create_nonce(length=64),
         "min_peers": 2,
         "max_rollbacks": 10,

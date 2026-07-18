@@ -24,7 +24,7 @@ def _zstd_wire():
 
 import versioner
 import time
-from config import get_config, get_timestamp_seconds, hostport
+from config import get_protocol, get_config, get_timestamp_seconds, hostport
 from ops import self_update
 from genesis import make_genesis, make_folders
 from loops.consensus_loop import ConsensusClient
@@ -667,7 +667,7 @@ async def announce_peer(request):
             address = status_data["address"]
             protocol = status_data["protocol"]
             assert address, "No address detected"
-            assert protocol >= get_config()["protocol"], f"Protocol of {peer_ip} is too low"
+            assert protocol >= get_protocol(), f"Protocol of {peer_ip} is too low"
             await asyncio.to_thread(functools.partial(
                 save_peer, ip=peer_ip, address=address, port=get_config()["port"], overwrite=True))
             if peer_ip not in memserver.peer_buffer:

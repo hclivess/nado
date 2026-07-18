@@ -1,7 +1,7 @@
 import asyncio
 import threading
 
-from config import get_timestamp_seconds, get_config
+from config import get_protocol, get_timestamp_seconds, get_config
 from hashing import blake2b_hash
 from ops.account_ops import get_account, get_finalized_height
 from ops.block_ops import get_block_ends_info
@@ -37,7 +37,9 @@ class MemServer:
         self.start_time = get_timestamp_seconds()
         self.keydict = load_keys()
         self.config = get_config()
-        self.protocol = self.config["protocol"]
+        # the handshake protocol number is CONSENSUS-ADJACENT and comes from the CODE, never from a
+        # per-node config file (a stale persisted value silently kept old-rules peers admitted)
+        self.protocol = get_protocol()
         self.private_key = self.keydict["private_key"]
         self.public_key = self.keydict["public_key"]
         self.address = self.keydict["address"]
