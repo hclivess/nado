@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="hex.pageTitle">NADO Hexholm — settle the island, 2-4 players for stakes</title>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-CVV3P9KZFC"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-CVV3P9KZFC');
+</script>
+<meta name="description" content="Hexholm — the classic island-settlement strategy game on the NADO blockchain: roll for resources, build roads and homesteads, trade, and race to 10 points. 2-4 players for stakes, provably fair dice from future block hashes, hidden scrolls via commit-reveal, post-quantum signatures.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://hexholm.nadochain.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NADO">
+<meta property="og:url" content="https://hexholm.nadochain.com/">
+<meta property="og:title" content="NADO Hexholm — settle the island, 2-4 players for stakes">
+<meta property="og:description" content="Roll for resources, build, trade and race to 10 points — the classic island-settlement duel, fully on-chain with provably fair dice.">
+<meta property="og:image" content="https://nadochain.com/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@nadochain">
+<meta name="twitter:title" content="NADO Hexholm — settle the island, 2-4 players for stakes">
+<meta name="twitter:image" content="https://nadochain.com/og-image.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Hexholm", "url": "https://hexholm.nadochain.com/", "description": "Hexholm — the classic island-settlement strategy game on the NADO blockchain: roll for resources, build, trade, race to 10 points. 2-4 players for stakes.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%22http%3A//www.w3.org/2000/svg%22%20viewBox=%220%200%2048%2048%22%3E%3Cpolygon%20points=%2224,4%2041,14%2041,34%2024,44%207,34%207,14%22%20fill=%22%2300ad93%22%20stroke=%22%230b3d36%22%20stroke-width=%222%22/%3E%3Cpolygon%20points=%2224,12%2033,17%2033,27%2024,32%2015,27%2015,17%22%20fill=%22%23e3b341%22/%3E%3Crect%20x=%2221%22%20y=%2220%22%20width=%226%22%20height=%226%22%20fill=%22%237a3b1e%22/%3E%3Cpolygon%20points=%2220,20%2024,15%2028,20%22%20fill=%22%23a04a20%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js?v=a5049d98"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--gold:#e3b341;--green:#3fb950;--purple:#bc8cff;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:820px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input,select{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  input:focus,select:focus{outline:none;border-color:var(--accent2)}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  @keyframes btnpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:btnpulse 1.25s ease-in-out infinite}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.open{border-color:var(--accent2);color:var(--accent2)}.chip.live{border-color:var(--gold);color:var(--gold)}
+  .chip.pending{opacity:.6;border-style:dashed}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}#status:empty{display:none;min-height:0;margin:0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  table.score{width:100%;border-collapse:collapse;font-size:13px}
+  table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
+  table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.score tr.me td{background:rgba(0,201,167,.08)}
+  table.score .pos{color:var(--accent2)}table.score .neg{color:var(--danger)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+  /* ---- Hexholm table ---- */
+  .zone{border:1px solid var(--border);border-radius:12px;padding:10px;margin:8px 0;background:rgba(0,0,0,.14)}
+  .zone .zh{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);font-weight:700;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  #board{width:100%;display:block;user-select:none}
+  #board .hx{stroke:#0b0f14;stroke-width:.06}
+  #board .tok{font:.42px var(--mono);font-weight:800;text-anchor:middle;fill:#1a1206}
+  #board .tokc{fill:#f0e6cf;stroke:#8a7a52;stroke-width:.045}
+  #board .tokc.hot{stroke:#c22a2a;stroke-width:.08}
+  #board .tok.hot{fill:#a01818}
+  #board .port{font:.32px var(--sans);font-weight:800;text-anchor:middle;fill:#cfe8ff}
+  #board .tgt{fill:transparent;cursor:pointer}
+  #board .tgt.legal{fill:rgba(0,201,167,.35);stroke:var(--accent2);stroke-width:.05;cursor:pointer}
+  #board .tgt.legal:hover{fill:rgba(0,201,167,.6)}
+  #board .road{stroke-width:.22;stroke-linecap:round}
+  #board .stead{stroke:#0b0f14;stroke-width:.05}
+  #board .marauder{font:.6px var(--sans);text-anchor:middle}
+  .seatgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+  .seatp{border:1px solid var(--border);border-radius:10px;background:var(--elev2);padding:8px 10px;font-size:12.5px}
+  .seatp.turn{border-color:var(--accent2);box-shadow:0 0 0 1px rgba(0,201,167,.5)}
+  .seatp.me{background:rgba(0,201,167,.07)}
+  .seatp .nm{font-weight:800;display:flex;gap:6px;align-items:center;justify-content:space-between}
+  .seatp .vp{color:var(--gold);font-weight:800}
+  .seatp .resrow{margin-top:4px;font-family:var(--mono);font-size:12px}
+  .seatp .badges{margin-top:3px;font-size:11px;color:var(--dim)}
+  .seatp.resigned{opacity:.45;text-decoration:line-through}
+  #ctrls{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  #ctrls button{flex:1 1 auto;padding:9px 12px;font-size:13px}
+  #ctrls button.armed{border-color:var(--gold);box-shadow:0 0 0 2px rgba(227,179,65,.6)}
+  .cost{font-size:10px;color:var(--dim);display:block;font-weight:600}
+  #dicebar{font-size:20px;font-weight:800;margin:6px 0;letter-spacing:2px}
+  .tradegrid{display:grid;grid-template-columns:auto repeat(5,1fr);gap:4px;align-items:center;font-size:12px;margin-top:6px}
+  .tradegrid .rc{display:flex;align-items:center;gap:3px;justify-content:center}
+  .tradegrid .rc button{padding:2px 8px;font-size:13px;border-radius:7px}
+  .tradegrid .rc .n{min-width:16px;text-align:center;font-family:var(--mono);font-weight:800}
+  #offers .offer{border:1px solid var(--border);border-radius:9px;padding:6px 9px;margin:4px 0;font-size:12.5px;display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+  #scrolls .sc{display:inline-flex;flex-direction:column;gap:2px;border:1px solid var(--border);border-radius:9px;background:var(--elev2);padding:7px 10px;margin:3px;font-size:12.5px;min-width:96px}
+  #scrolls .sc b{color:var(--purple)}
+  #scrolls .sc button{padding:4px 8px;font-size:11.5px;margin-top:3px}
+  #logPane{font-size:12px;color:var(--dim);max-height:160px;overflow-y:auto;font-family:var(--mono);line-height:1.55}
+  #discardBar{border:1px solid var(--danger);border-radius:12px;background:rgba(248,81,73,.07);padding:10px 12px;margin:8px 0}
+  #discardBar:empty{display:none}
+  .yourturn{color:var(--accent2);font-weight:800}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true"><polygon points="24,4 41,14 41,34 24,44 7,34 7,14" fill="#00ad93" stroke="#0b3d36" stroke-width="2"/><polygon points="24,12 33,17 33,27 24,32 15,27 15,17" fill="#e3b341"/><rect x="21" y="20" width="6" height="6" fill="#7a3b1e"/><polygon points="20,20 24,15 28,20" fill="#a04a20"/></svg></span>
+    <h1>NADO <span class="a">Hexholm</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="hex.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="hex.sub">The <b>classic island-settlement strategy game, 2-4 players for stakes</b>, fully on-chain. Roll for resources, build roads, homesteads and keeps, trade with the table, and race to <b>10 points</b>. Dice and draws pin their randomness to <b>future L1 block hashes</b> — provably fair, nobody can rig a roll. Scrolls (development cards) stay <b>hidden by commit-reveal</b> until the game ends. The full rules run in your browser; the pot settles by result confirmation / resign / refund-timeout. Post-quantum wallet, no install.</p>
+
+  <div id="status"></div>
+
+  <div class="card" id="walletcard">
+    <h2 data-i18n="hex.wallet">Wallet</h2>
+    <p class="small dim" data-i18n-html="hex.walletHelp">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="hex.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="hex.walletL1">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="hex.tokensStakeable">🪙 Tokens (stakeable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="hex.signIn">Sign in with NADO wallet</button></div>
+  </div>
+
+  <!-- PLAY -->
+  <div class="card hidden" id="play">
+    <h2 data-i18n="hex.playHead">⬡ Play for stakes</h2>
+    <div class="row">
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="hex.stakePh" inputmode="decimal" autocomplete="off">
+      <select id="capSel" style="flex:0 0 110px">
+        <option value="2" data-i18n="hex.cap2">2 players</option>
+        <option value="3" data-i18n="hex.cap3">3 players</option>
+        <option value="4" data-i18n="hex.cap4">4 players</option>
+      </select>
+      <button class="primary" id="btnNew" style="flex:0 0 auto" data-i18n="hex.newGameBtn">New table</button>
+    </div>
+    <label class="mt" data-i18n="hex.joinByIdLabel">Join a table by ID</label>
+    <div class="row">
+      <input id="joinId" placeholder="table ID" data-i18n-ph="hex.gameIdPh" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnJoin" style="flex:0 0 auto" data-i18n="hex.join">Join</button>
+    </div>
+    <div class="small dim mt" data-i18n="hex.yourGames">Your tables</div>
+    <div class="small dim" id="recent"></div>
+  </div>
+
+  <!-- BANKROLL -->
+  <div class="card hidden" id="bankroll">
+    <h2 data-i18n="hex.bankHead">🪙 Tokens — buy in / cash out</h2>
+    <div class="row">
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="hex.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="hex.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="hex.withdraw">Withdraw</button>
+    </div>
+    <div class="small dim mt" data-i18n="hex.bankHelp">Deposit moves L1 → exec (stakeable); Withdraw moves exec → L1.</div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2 data-i18n="hex.lobbyHead">⬡ Open tables</h2>
+    <p class="small dim" data-i18n="hex.lobbyHelp">Take a seat at an open table or watch one in progress. A table starts the moment its last seat fills.</p>
+    <div class="small mt" id="lobbyList"><span class="dim" data-i18n="hex.loading">Loading…</span></div>
+  </div>
+
+  <!-- ACTIVE GAME -->
+  <div class="card hidden" id="activeGame">
+    <h2 data-i18n="hex.gameLabel">Table <span id="gameId" class="mono"></span></h2>
+    <div id="players" class="mt"></div>
+    <div class="kv"><span class="k" data-i18n="hex.pot">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div class="kv"><span class="k" data-i18n="hex.statusLabel">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div id="dicebar"></div>
+    <div id="discardBar"></div>
+
+    <div class="zone">
+      <div class="zh"><span data-i18n="hex.boardHead">The island</span><span id="boardHint" class="mono"></span></div>
+      <svg id="board" viewBox="-6 -9 12 18"></svg>
+    </div>
+
+    <div class="zone">
+      <div class="zh"><span data-i18n="hex.seatsHead">Players</span><span id="bankLine" class="mono"></span></div>
+      <div id="seatPanels" class="seatgrid"></div>
+    </div>
+
+    <div class="zone" id="myZone">
+      <div class="zh"><span data-i18n="hex.actionsHead">Your actions</span><span id="myRes" class="mono"></span></div>
+      <div id="ctrls"></div>
+      <div id="scrolls"></div>
+      <div id="tradeBox" class="hidden">
+        <div class="tradegrid" id="tradeGrid"></div>
+        <div class="row mt">
+          <button class="ghost" id="btnOfferSend" data-i18n="hex.offerSend">📣 Post this offer</button>
+          <button class="ghost" id="btnOfferClose" data-i18n="hex.offerClose">Close</button>
+        </div>
+      </div>
+      <div id="offers"></div>
+    </div>
+
+    <div class="zone">
+      <div class="zh"><span data-i18n="hex.logHead">Game log</span></div>
+      <div id="logPane"></div>
+    </div>
+
+    <div id="revealBar"></div>
+    <div id="settleHint" class="small dim"></div>
+    <div class="row mt">
+      <button class="primary hidden pulse" id="btnRematch" data-i18n="hex.playAgain">↻ Play again</button>
+      <button class="primary hidden" id="btnJoinGame"></button>
+      <button class="primary hidden" id="btnSettle"></button>
+      <button class="ghost hidden" id="btnResign" data-i18n="hex.resign">Resign</button>
+      <button class="ghost hidden" id="btnDraw"></button>
+      <button class="ghost hidden" id="btnLeave" data-i18n="hex.leave">Leave table (refund)</button>
+      <button class="ghost hidden" id="btnCancel" data-i18n="hex.cancel">Dissolve table (refund all)</button>
+      <button class="ghost hidden" id="btnAbort" data-i18n="hex.abort">⏱ Claim timeout refund</button>
+    </div>
+    <label class="mt" data-i18n="hex.inviteLabel">Invite link — anyone can take a seat</label>
+    <div class="row">
+      <input id="shareLink" readonly>
+      <button class="ghost" id="btnShare" style="flex:0 0 auto" data-i18n="hex.copy">Copy</button>
+    </div>
+  </div>
+
+  <!-- SCOREBOARD -->
+  <div class="card" id="scoreboard">
+    <h2 data-i18n="hex.scoreHead">🏆 Scoreboard — settled tables</h2>
+    <div id="scoreList"><span class="dim small" data-i18n="hex.loading">Loading…</span></div>
+  </div>
+
+  <footer>
+    <span data-i18n="hex.footer">Hexholm runs on the NADO execution layer — the island, every roll and every scroll re-derive from the on-chain log in any browser. Mechanics of the classic island-settlement genre; all names, text and artwork are original.</span>
+  </footer>
+</div>
+<script type="module" src="/static/hexholm.js"></script>
+</body>
+</html>
