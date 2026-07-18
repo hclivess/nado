@@ -55,7 +55,7 @@ DAILY_WORDS = 1
 NH = 6                      # six lanes — a fixed field keeps settle fully unrolled (no variable loop)
 GENE_DELAY = 2             # blocks from open() to the gene block (genes lock ~12s later)
 BET_BLOCKS = 20           # betting window after the gene block (~2 min)
-RACE_LEN = 6              # race blocks (~36s of running)
+RACE_LEN = 10            # race blocks — each block's hash advances every hamster by its own step; ~60s at 6s/block
 GENE_SPREAD = 8          # speed = 1 + gene % GENE_SPREAD  -> 1..8
 STEP_BASE = 6            # per-block step = roll % (speed + STEP_BASE)
 UNIT = 10_000            # raw NADO per pool unit (stakes must be UNIT multiples)

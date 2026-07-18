@@ -46,7 +46,7 @@ def test_full():
     R = 777
     st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [R]}, A, "o")
     gh, lk, fh = rd(H.GH, R), rd(H.LK, R), rd(H.FH, R)
-    ok(gh == 102 and lk == 122 and fh == 128, f"1 heights gh{gh} lk{lk} fh{fh}")
+    ok(gh == 102 and lk == 102 + H.BET_BLOCKS and fh == lk + H.RACE_LEN, f"1 heights gh{gh} lk{lk} fh{fh}")
     set_hashes(st, gh, lk)
     st.cursor = gh                                             # genes locked, betting open
     # uneven book: A→lane0 (5u), B→lane0 (2u) + lane3 (4u), C→lane1 (3u); lanes 2,4,5 unbacked

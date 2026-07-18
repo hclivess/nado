@@ -15,7 +15,7 @@ const CID = "2f8cc0ce02bc5e02abb10e4dc3af28e7";   // execnode/games/hamster.py (
 const dapp = new NadoDapp({ cid: CID, app: "Hamster" });
 
 // keep these in lockstep with execnode/games/hamster.py
-const NH = 6, GENE_DELAY = 2, BET_BLOCKS = 20, RACE_LEN = 6, GENE_SPREAD = 8, STEP_BASE = 6;
+const NH = 6, GENE_DELAY = 2, BET_BLOCKS = 20, RACE_LEN = 10, GENE_SPREAD = 8, STEP_BASE = 6;
 const UNIT = 10000n, BLOCK_SECS = 6;
 const P = ALG_P();
 
@@ -313,7 +313,7 @@ function render() {
   let state;
   if (r.phase === "incubating") state = window.t("hamster.stWarm", "🥚 Warming up — genes lock at block {b} (~{t})", { b: r.gh, t: toTime(r.gh - (r.cur || r.gh)) });
   else if (r.phase === "betting") state = window.t("hamster.stBet", "🟢 Betting OPEN — closes at block {b} (~{t}). Read the form, then back a hamster!", { b: r.lk, t: toTime(r.lk - (r.cur || r.lk)) });
-  else if (r.phase === "racing") state = window.t("hamster.stRun", "🏁 And they're off! Finish at block {b} (~{t}).", { b: r.fh, t: toTime(r.fh - (r.cur || r.fh)) });
+  else if (r.phase === "racing") { const lap = rows ? Math.max(0, ...rows.map((x) => x.blocks)) : 0; state = window.t("hamster.stRun", "🏁 And they're off — lap {k}/{n}! Each block nudges every hamster by its own step. Finish in ~{t}.", { k: lap, n: RACE_LEN, t: toTime(r.fh - (r.cur || r.fh)) }); }
   else if (r.phase === "settling") state = window.t("hamster.stPhoto", "📸 Photo finish — settling the result on-chain…");
   else state = r.vd ? window.t("hamster.stVoid", "↩ Void — no backers on the winning lane, every stake refunds 1:1.")
     : window.t("hamster.stDone", "🏆 {name} wins race #{r}!", { name: (rows && rows[wnLane]) ? rows[wnLane].name : ("Lane " + (wnLane + 1)), r: r.id });
