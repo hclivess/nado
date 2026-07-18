@@ -23,12 +23,15 @@ INV2 = F.inv(2)
 # openings. stark.prove always calls fri.prove with fri_blowup == 2, so FRI_BLOWUP is fixed at 2.
 #
 # C-1 soundness sizing: at FRI_BLOWUP=2 (rate 1/2) each query contributes ~0.4 bit (provable) / ~1 bit
-# (conjectured) of soundness, so 40 queries alone (~17-40 bits) fell short of the ~100-bit target. We raise the
-# query count AND add GRIND_BITS of proof-of-work on the transcript (transcript.grind), which adds soundness
-# UNCONDITIONALLY (a forger must redo 2^GRIND_BITS work per Fiat-Shamir attempt regardless of any FRI
-# conjecture). 64 queries + 18 grind ≈ 82 bits (conjectured) / ~45 bits (provable) + 18 unconditional — a large
-# lift over the prior config, at ~3s prover overhead (Python) / ~0.03s in the browser's WASM blake2b.
-NUM_QUERIES = 64
+# (conjectured) of soundness, plus GRIND_BITS of transcript proof-of-work (transcript.grind) that adds
+# soundness UNCONDITIONALLY (a forger redoes 2^GRIND_BITS work per Fiat-Shamir attempt, independent of any FRI
+# conjecture). Sized for a SERIOUS (mainnet-grade) margin BEFORE settlement ever trusts a proof: 128 queries +
+# 18 grind ≈ 146 bits (conjectured) / ~69 bits (provable) + 18 unconditional — comfortably past the 128-bit
+# bar on the conjectured (list-decoding) branch that STARK deployments rely on, with a healthy provable floor.
+# Query count is LINEAR cost (~2x the prior prover time / proof size); GRIND_BITS is EXPONENTIAL so it stays
+# at 18 (raising it 10 bits would add ~1000x grind time). Tests pass an explicit reduced count, so unaffected.
+# Further lift, if wanted: raise FRI_BLOWUP (a lower rate gives more bits/query, but changes the FRI shape).
+NUM_QUERIES = 128
 FRI_BLOWUP = 2
 GRIND_BITS = 18
 
