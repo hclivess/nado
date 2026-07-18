@@ -914,6 +914,9 @@ def validate_transaction(transaction, logger, block_height):
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
         assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
         assert transaction["fee"] >= MIN_TX_FEE, f"Bridge deposit fee below minimum {MIN_TX_FEE}"
+        # Deposits credit the DEFAULT-namespace escrow ledger (where the exec node credits the depositor);
+        # only that rollup's settled root can release them (per-namespace cap in bridge_withdraw), which is
+        # what closes the lone-quorum drain via any fresh/attacker namespace.
     elif recipient == "faucet":
         # FAUCET DONATION (doc/faucet.md): lock L1 coins into the faucet escrow; the exec layer credits
         # the faucet contract's balance. Same shape as a bridge deposit — anyone can fund it from any wallet.
@@ -942,6 +945,12 @@ def validate_transaction(transaction, logger, block_height):
         assert not kv_ops.bridge_nullifier_exists(ns, addr, nonce), "this withdrawal was already claimed"
         escrow = get_account(BRIDGE_ESCROW, create_on_error=False)
         assert escrow and escrow.get("balance", 0) >= amount, "bridge escrow underfunded"
+        # PER-NAMESPACE ESCROW CAP (SECURITY): a namespace can only ever release what was DEPOSITED targeting
+        # it. This is the L1 conservation boundary that closes the lone-quorum drain — a lone bonded validator
+        # can self-settle a fabricated root in a fresh namespace, but that namespace holds 0 escrow, so the
+        # exit releases nothing. Even a captured namespace can only reclaim its own deposits. Independent of
+        # the (attacker-influenced) settled root, so it holds regardless of quorum capture.
+        assert kv_ops.bridge_escrow_ns(ns) >= amount, "namespace bridge escrow underfunded"
     elif recipient == "xmsg":
         # CROSS-ROLLUP MESSAGE DELIVERY: verify the outbox message is committed in from_ns's SETTLED root,
         # then let the receiver rollup's exec node deliver it. L1 is the verifier (it holds the settled roots),

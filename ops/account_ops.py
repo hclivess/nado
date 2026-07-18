@@ -193,8 +193,18 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # --- BRIDGE DEPOSIT (Phase 2): move amount+fee from sender, LOCK `amount` in the escrow, burn the fee.
     # The execution node reads this deposit from the ordered stream and credits the sender exec-side. ---
     if recipient == "bridge":
+        from protocol import DEFAULT_NS
         change_balance(address=sender, amount=-(amount + fee), logger=logger, revert=revert)
         change_balance(address=BRIDGE_ESCROW, amount=amount, logger=logger, revert=revert)
+        # Credit the per-namespace escrow ledger under DEFAULT_NS — the namespace the exec node actually
+        # credits the depositor in (execnode._apply_block always calls default_state.credit_deposit). This is
+        # the exit cap: only the default rollup's settled root can release these coins, so a lone validator's
+        # fabricated root in any OTHER namespace releases 0 (revert un-credits). Multi-rollup deposits await
+        # ns-aware exec crediting + a settlement quorum floor.
+        if revert:
+            kv_ops.bridge_escrow_ns_sub(DEFAULT_NS, amount)
+        else:
+            kv_ops.bridge_escrow_ns_add(DEFAULT_NS, amount)
         return
 
     # --- FAUCET DONATION (doc/faucet.md): lock `amount` in the faucet escrow, burn the fee. The exec
@@ -215,8 +225,10 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         change_balance(address=addr, amount=amt, logger=logger, revert=revert)
         if revert:
             kv_ops.bridge_nullifier_del(ns, addr, nonce)
+            kv_ops.bridge_escrow_ns_add(ns, amt)      # revert re-credits the namespace escrow
         else:
             kv_ops.bridge_nullifier_put(ns, addr, nonce)
+            kv_ops.bridge_escrow_ns_sub(ns, amt)      # debit the namespace escrow (capped at validation)
         return
 
     # --- CROSS-ROLLUP MESSAGE DELIVERY (xmsg): validation already verified the message against from_ns's

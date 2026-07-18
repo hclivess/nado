@@ -776,6 +776,29 @@ def bridge_nullifier_del(ns: str, addr: str, nonce: str):
     meta_del(f"bridgenull:{ns}:{addr}:{nonce}")
 
 
+# --- Per-namespace bridge escrow ledger (Phase 2 SECURITY): the bridge escrow account is GLOBAL, but a
+# withdrawal is authorized against a namespace's settled root — and a lone bonded validator is 100% of the
+# settler quorum in any FRESH namespace (settlement_ops.active_settler_shares denominator), so it could
+# self-settle a fabricated root and drain the whole escrow. Cap each namespace's exits at what was actually
+# DEPOSITED targeting it: a fresh/attacker namespace holds 0, so a captured-quorum root can release nothing
+# beyond that namespace's own deposits. This ledger is the L1 conservation boundary, independent of the root.
+def bridge_escrow_ns(ns: str) -> int:
+    """Coins currently escrowed to namespace `ns` (deposits minus exits). Never negative in a valid chain."""
+    return meta_get_int(f"bridgeescrow:{ns}", 0)
+
+
+def bridge_escrow_ns_add(ns: str, amount: int):
+    """Credit a namespace's escrow on a bridge deposit (revert subtracts)."""
+    k = f"bridgeescrow:{ns}"
+    meta_set_int(k, meta_get_int(k, 0) + int(amount))
+
+
+def bridge_escrow_ns_sub(ns: str, amount: int):
+    """Debit a namespace's escrow on a bridge exit (revert adds back)."""
+    k = f"bridgeescrow:{ns}"
+    meta_set_int(k, meta_get_int(k, 0) - int(amount))
+
+
 # --- Cross-rollup message (xmsg) nullifiers: each (from_ns, seq) message may be delivered on L1 at most once ---
 
 def xmsg_nullifier_exists(from_ns: str, seq: int) -> bool:
