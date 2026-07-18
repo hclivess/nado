@@ -4,6 +4,9 @@
 #
 # PRECONDITIONS (the announced pre-snapshot window — doc/debrand.md):
 #   · open game tables settled / refunded
+#   · EXEC-LAYER (game-token) balances WITHDRAWN to L1 — the exec ledger resets at the reroll;
+#     only L1 balances carry (the bridge escrow row carries for supply accounting, but exec-side
+#     claims on it die: unwithdrawn game tokens are forfeit)
 #   · multisig + HD-DERIVED account balances moved to MAIN keyed accounts
 #   · shielded notes unshielded
 #   (anything not moved does NOT carry to alphanet-7)
