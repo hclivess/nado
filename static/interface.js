@@ -3075,7 +3075,7 @@ async function shareZcodeLink() {
   sdkShare(claimLink(code), i18("share.zcodeMsg", "A private NADO banknote for you — open to claim:"), $("btnZcodeShare"), "NADO shielded claim link");
 }
 
-// The shielded twin of sharePayLink — the same #pay deep link, carrying the znado… address instead.
+// The shielded twin of sharePayLink — the same #pay deep link, carrying the zaddr… address instead.
 async function shareZpayLink() {
   if (!state.wallet) return;
   sdkShare(payLink(shieldAddr(), currentZrecvAmount()), i18("share.zpayMsg", "Pay me privately on NADO — shielded payment link:"), $("btnZaddrShare"), "NADO private payment request");
@@ -3126,10 +3126,10 @@ function parsePayHash() {
   return { to: (params.get("to") || "").trim(), amount: (params.get("amount") || "").trim() };
 }
 
-// A #pay link's recipient can be transparent (mldsa44…) or shielded (znado…) — same link format, routed by prefix.
+// A #pay link's recipient can be transparent (mldsa44…) or shielded (zaddr…) — same link format, routed by prefix.
 function _isZAddr(a) { try { parseShieldAddr(a); return true; } catch (e) { return false; } }
 
-// A #pay link with a znado… recipient prefills the SHIELDED send (same review-first rule as a normal Send).
+// A #pay link with a zaddr… recipient prefills the SHIELDED send (same review-first rule as a normal Send).
 function applyZpayRequest(req) {
   showTab("shield");
   $("zsendTo").value = req.to;
@@ -3222,7 +3222,7 @@ function consumeClaimRequest() {
   const req = parseClaimHash();
   if (!req) return;
   try { history.replaceState(null, "", location.pathname); } catch (e) {}
-  if (!req.code.startsWith("znote") || req.code.indexOf(".") < 0) {
+  if (!req.code.startsWith("zbill") || req.code.indexOf(".") < 0) {
     log("err", "Claim link ignored — malformed claim code.");
     toast("Claim link ignored — the claim code is malformed.", "err");
     return;
@@ -3244,7 +3244,7 @@ function resumePendingClaim() {
   if (!req) return;
   pendingClaim = null;
   try { sessionStorage.removeItem(LS_PENDING_CLAIM); } catch (e) {}
-  if (req.code && req.code.startsWith("znote")) applyClaimRequest(req);
+  if (req.code && req.code.startsWith("zbill")) applyClaimRequest(req);
 }
 
 /* Transaction history: classify each tx relative to the wallet and show a signed amount. */
@@ -4821,15 +4821,15 @@ function _randField() {   // a random Goldilocks field element (note randomness 
 // reusable as a receive address (the on-chain commitments hide it, like a reusable Zcash address).
 function shieldNsk() { ensureShielded(); return BigInt("0x" + blake2bHash([DOMAIN_SHIELD_NSK, state.wallet.privateKey])) % alghash.P; }
 function shieldOwner() { return alghash.ownerOf(shieldNsk()); }
-function shieldAddr() { return "znado" + shieldOwner().toString(36); }
+function shieldAddr() { return "zaddr" + shieldOwner().toString(36); }
 function _b36(s) { let x = 0n; for (const c of s.toLowerCase()) { const d = "0123456789abcdefghijklmnopqrstuvwxyz".indexOf(c); if (d < 0) throw new Error("bad shielded address"); x = x * 36n + BigInt(d); } return x; }
 function parseShieldAddr(a) {
   a = String(a || "").trim();
-  if (!a.startsWith("znado")) throw new Error("not a znado… shielded address");
+  if (!a.startsWith("zaddr")) throw new Error("not a zaddr… shielded address");
   return _b36(a.slice(5));   // -> the recipient's owner id (a field element)
 }
 
-// Shielded receive: amount-aware payment-link QR + link text (mirrors renderReceiveQR; the raw znado…
+// Shielded receive: amount-aware payment-link QR + link text (mirrors renderReceiveQR; the raw zaddr…
 // address stays visible below for wallets that want the bare address).
 function renderZaddrQR() {
   if (!state.wallet) return;
@@ -5021,7 +5021,7 @@ async function doSendShielded() {
   if (!state.wallet) return; ensureShielded();
   let recipientOwner;
   try { recipientOwner = parseShieldAddr($("zsendTo").value); }
-  catch (e) { log("err", i18("shield.badZaddr", "Enter a valid znado… shielded address.")); return; }
+  catch (e) { log("err", i18("shield.badZaddr", "Enter a valid zaddr… shielded address.")); return; }
   const rawAmount = nadoToRaw($("zsendAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to send.")); return; }
   const notes = loadNotes();
@@ -5044,7 +5044,7 @@ async function doSendShielded() {
     if (change > 0n) notes.push({ value: change.toString(), rho: r2, cm: pr.cm_out2, spent: false, ts: Date.now() });
     saveNotes(notes);
     // the recipient reconstructs their note from (amount, r1) + THEIR key -> a claim code to deliver to them
-    const code = "znote" + _b36enc(rawAmount) + "." + _b36enc(r1);
+    const code = "zbill" + _b36enc(rawAmount) + "." + _b36enc(r1);
     $("zsendCode").textContent = code;
     if ($("zsendLink")) $("zsendLink").textContent = claimLink(code);
     show("zsendCodeBox", true);
@@ -5059,7 +5059,7 @@ async function doSendShielded() {
 async function doReceiveShielded() {
   if (!state.wallet) return; ensureShielded();
   const code = String($("zrecvCode").value || "").trim();
-  if (!code.startsWith("znote") || code.indexOf(".") < 0) { log("err", i18("shield.badCode", "Paste a znote… claim code.")); return; }
+  if (!code.startsWith("zbill") || code.indexOf(".") < 0) { log("err", i18("shield.badCode", "Paste a zbill… claim code.")); return; }
   try {
     const [vB, rB] = code.slice(5).split(".");
     const value = _b36(vB), rho = _b36(rB);
