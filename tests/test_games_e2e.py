@@ -320,10 +320,10 @@ def t_sovereign_act_proves():
 
 
 def t_faucet():
-    # the fixed-name system contract (doc/faucet.md): donations credited by the exec node, operator-
-    # curated registry, PoW-gated once-per-(address,game) claims under per-window budgets, solvent PAY.
+    # the fixed-name PRIZE BANK (doc/faucet.md): donations credited by the exec node; the ONLY payout
+    # path is operator-called leaderboard placement rewards — idempotent per (game, day, rank), solvent
+    # PAY. No self-serve claim path exists.
     from execnode.games import faucet as fc
-    from execnode.stark import alghash
     st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100_000
     code = fc.build()
     OP = fc.OPERATOR
@@ -331,31 +331,10 @@ def t_faucet():
     assert "deploy faucet" in r, r
     assert "not authorized" in st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "nonce": "g", "at": "faucet"}, A, "d2")
     st.credit_deposit("faucet", 1_000_000)                    # what the L1 `faucet` reserved tx mirrors
-    EASY = 1 << 31
-    assert "ok" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [0, 1234, 500, 2, EASY]}, OP, "s0")
-    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [0, 1, 1, 1, 1]}, A, "s1")
-    slots = st.contracts["faucet"]["storage"]["slots"]
-    assert int(slots.get("0", 0)) == 1, "gcnt"
-    def grind(addr, idx, easy=EASY, want_below=True):
-        d = runtimes.zkvm_addr_digest(addr); n = 0
-        while ((alghash.hashn([d, idx, n]) & 0xFFFFFFFF) < easy) != want_below: n += 1
-        return n
-    n1 = grind(A, 0)
-    assert "paid=500" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, n1]}, A, "c1")
-    assert st.bridge.get(A) == 500 and st.bridge.get("faucet") == 999_500
-    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, n1]}, A, "c2"), "double claim"
-    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(B, 0, want_below=False)]}, B, "c3"), "bad PoW"
-    assert "paid=500" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(B, 0)]}, B, "c4")
-    C2 = "ndoCCCC" + "C" * 41
-    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(C2, 0)]}, C2, "c5"), "window cap"
-    st.cursor += 14_400
-    assert "paid=500" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(C2, 0)]}, C2, "c6"), "window reset"
-    # pause + underfunded fail closed
-    assert "ok" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [0, 1234, 0, 2, EASY]}, OP, "s2")
-    D2 = "ndoDDDD" + "D" * 41
-    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(D2, 0)]}, D2, "c7"), "paused"
-    assert "ok" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [1, 99, 10 ** 9, 2, EASY]}, OP, "s3")
-    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [1, grind(D2, 1)]}, D2, "c8"), "underfunded"
+    # anyone may fund; a zero-value fund reverts
+    st.credit_deposit(A, 10_000)
+    assert "ok" in st.apply_blob({"op": "call", "contract": "faucet", "method": "fund", "args": [], "value": 1_000}, A, "f1")
+    assert st.bridge.get("faucet") == 1_001_000
     # LEADERBOARD PLACEMENT REWARDS: operator pays top finishers from the faucet balance, idempotent
     W1 = "ndoWIN1" + "1" * 41
     fb = st.bridge.get("faucet", 0)
@@ -363,8 +342,8 @@ def t_faucet():
     assert st.bridge.get(W1) == 450 and st.bridge.get("faucet") == fb - 450
     assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [0, 55, 1, W1, 450]}, OP, "rw2"), "double-pay same rank"
     assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [0, 55, 2, W1, 1]}, A, "rw3"), "non-operator reward"
-    assert "paid=450" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [0, 56, 1, W1, 450]}, OP, "rw4")   # next day OK
-
+    assert "paid=450" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [0, 56, 1, W1, 450]}, OP, "rw4"), "next day pays again"
+    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [1, 55, 1, W1, 10 ** 12]}, OP, "rw5"), "underfunded fails closed"
 
 def t_faucet_claim_proves():
     from execnode.games import faucet as fc

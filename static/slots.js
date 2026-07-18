@@ -7,7 +7,6 @@
 // for every open spin, so it can never welsh. Settle is permissionless; a pruned spin refunds via claim.
 import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
-import { faucetAttach } from "./faucet.js";   // airdrop-play claims (doc/faucet.md)   // the ONE banked-table reader/id-list (shared by every house game)
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "d4855b5b4c52bb65fdf7ec7a65c8b9f0";
@@ -260,7 +259,6 @@ async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("slots.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
   orderCards(["activeGame", "lobby", "practice", "opencard", "paytableCard", "walletcard", "bankroll", "scoreboard"]);
-  faucetAttach(dapp, "slots");   // airdrop-play banner under the header
   const q = new URLSearchParams(location.search).get("table");
   if (q) bg.active = parseInt(q, 10);
   render(); refreshAll();

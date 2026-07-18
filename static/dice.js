@@ -7,7 +7,6 @@
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
-import { faucetAttach } from "./faucet.js";   // free-play claims for broke newcomers (doc/faucet.md)   // the ONE banked-table reader/lobby (shared by every house game)
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "044be49f754c62fb7222d32ba84db81e";
@@ -309,5 +308,3 @@ if ($("pRoll")) {
   $("pSlider").oninput = pracRender;
   pracRender();
 }
-
-faucetAttach(dapp, "dice");

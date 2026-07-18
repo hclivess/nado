@@ -9,7 +9,6 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, 
          renderWallet, renderScore, scoreBump, scoreSort, resolveAliases, blocksToTime,
          randSecret, algHashn, ALG_P } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
-import { faucetAttach } from "./faucet.js";   // airdrop free-play claims for newcomers
 import * as E from "./hexholm-engine.js";
 
 const CID = "13b92dc630e513f11a68df9f405d7b2d";
@@ -617,4 +616,3 @@ const duel = new TableDuel(dapp, {
 duel.MAPS = ["nn", "st", "pt", "sd", "wr", "mc", "dl", "kh", "p1", "p2", "mv", "mh"].concat(duel.cfg.appendMaps);
 duel.mode = null; duel.tr = null; duel.disc = null;
 duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "scoreboard"]);
-faucetAttach(dapp, "hexholm");

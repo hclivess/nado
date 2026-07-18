@@ -7,7 +7,6 @@
 // tests/test_mines_contract.py — the contract enforces exactly this math.
 import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, notify, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
-import { faucetAttach } from "./faucet.js";   // airdrop-play claims (doc/faucet.md)
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "d9d271f3a3e8a68ef33cb8e89ee650c9";
@@ -359,7 +358,6 @@ async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("mines.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
   orderCards(["activeGame", "lobby", "play", "practice", "bankcard", "walletcard", "bankroll", "scoreboard"]);
-  faucetAttach(dapp, "mines");   // airdrop-play banner under the header
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (bg.active == null) bg.active = parseInt(q, 10); }
   render(); refreshAll();

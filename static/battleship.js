@@ -7,7 +7,6 @@
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores } from "./nadodapp.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
-import { faucetAttach } from "./faucet.js";   // airdrop-play claims for newcomers (doc/faucet.md)
 
 const CID = "9c3d01b6b70f507ecc0bbf75b0615940";   // execnode/games/battleship.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
@@ -435,7 +434,6 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   wireUI();
-  faucetAttach(dapp, "battleship");     // SDK inserts the airdrop-play banner under the header
   orderCards(["activeGame", "setup", "lobby", "practice", "scorecard", "walletcard", "bankroll"]);
   render();                                     // draw the fleet-placement UI immediately (needs no crypto/network)
   try { await dapp.init(); } catch (e) { alertBar(window.t("bs.cryptoFail", "Crypto bundle failed to load — reload.")); return; }

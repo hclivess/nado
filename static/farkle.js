@@ -5,7 +5,6 @@
 // takes the whole pot. Built on the shared SDK (nadodapp.js) — matches tests/test_farkle_contract.py exactly.
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, loadQR, resolveAliases, disp } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
-import { faucetAttach } from "./faucet.js";   // airdrop free-play claims for newcomers   // the ONE banked-table reader — farkle overlays its round phases
 import { Practice } from "./practice.js";      // free in-browser practice (solo score-attack, no chain)
 
 const CID = "b56dd48000707369be1630e41bfb038d";
@@ -448,4 +447,3 @@ function pracRender() {
   }
 }
 if ($("pStrip")) pracRender();
-faucetAttach(dapp, "farkle");
