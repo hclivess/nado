@@ -913,7 +913,21 @@ const LS_PENDING_CLAIM = "nado_pending_claim"; // sessionStorage: a banknote cla
 
 function persistWallet(w) { localStorage.setItem(LS_WALLET, JSON.stringify(w)); }
 function loadWallet() {
-  try { return JSON.parse(localStorage.getItem(LS_WALLET)); } catch { return null; }
+  let w;
+  try { w = JSON.parse(localStorage.getItem(LS_WALLET)); } catch { return null; }
+  if (!w) return null;
+  // SELF-HEAL across an address-format change (e.g. the ndo -> mldsa44 debrand reroll): the persisted
+  // wallet keeps a plaintext `address`, but the address is a pure function of the pubkey — so re-derive it
+  // and, if the stored one is stale (old prefix/checksum), correct + re-persist it. Without this a wallet
+  // saved under the old format keeps signing/mining/registering with an address the new chain rejects
+  // ("Invalid sender"), and a hard refresh can't fix it because the stale address lives in localStorage.
+  try {
+    if (w.publicKey) {
+      const fresh = makeAddress(w.publicKey);
+      if (w.address !== fresh) { w.address = fresh; persistWallet(w); }
+    }
+  } catch (e) {}
+  return w;
 }
 
 /* ----------------------------------------------------------------------------------------------
