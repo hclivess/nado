@@ -3774,6 +3774,7 @@ async function renderStats() {
   for (let i = 1; i < blocks.length; i++) { times.push(Math.max(0, (blocks[i].block_timestamp || 0) - (blocks[i - 1].block_timestamp || 0))); tlabels.push("#" + blocks[i].block_number); }
   barChart("chartBlockTime", times, tlabels, { color: _CACC, fmt: (v) => Math.round(v) + "s" });
   barChart("chartReward", blocks.map((b) => _nadoNum(b.block_reward)), blocks.map((b) => "#" + b.block_number), { color: _CGOLD, fmt: (v) => v.toFixed(2) });
+  barChart("chartTxCount", blocks.map((b) => (b.block_transactions || []).length), blocks.map((b) => "#" + b.block_number), { color: _CMUT, fmt: (v) => String(v) });
   try {
     const d = await (await fetch(relayBase() + "/get_rich_list?n=8", { cache: "no-store" })).json();
     const rows = ((d && d.rich_list) || []).slice(0, 8).map((e) => ({ label: ADDR_PRE_RE.test(e.address) ? e.address.slice(0, 8) + "…" : e.address, value: _nadoNum(e.total) }));
