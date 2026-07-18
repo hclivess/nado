@@ -55,6 +55,20 @@ Same class, same rule: **localStorage keys that hold secrets** — `nado_hexholm
 commit-reveal secrets: renaming mid-game forfeits stakes), wallet storage keys, `nado_msg_v1_*`
 (messaging identity). Preference keys (`nado_lang`, `nado_bg_sign`, …) merely lose a setting.
 
+## Class 3b — Shielded-pool display prefixes (client-only, rename anytime)
+
+Separate from the keyed-account prefix (Class 1), the private/shielded pool has its OWN address and
+banknote encodings — **client-only** display/parse tokens in `static/interface.js` (no consensus check,
+no Python). They carried the brand and were missed in the first pass:
+
+| token (was) | what | now |
+|---|---|---|
+| `znado…` | shielded address (`shieldAddr` = prefix + base36 owner id) | `zaddr…` |
+| `znote…` | shielded banknote / claim code (`prefix + b36(amt).b36(r)`) | `zbill…` |
+
+Kept both at 5 chars so every `startsWith(...)` / `slice(5)` stays correct. No legacy to migrate — the
+shielded pool resets at a reroll.
+
 ## Class 4 — Client/server pairs (non-consensus, rename in lockstep, anytime)
 
 - `nado-forum-login` — `forum/server.py DOMAIN_FORUM_LOGIN` / `interface.js DOMAIN_FORUM_LOGIN`.
@@ -66,6 +80,10 @@ commit-reveal secrets: renaming mid-game forfeits stakes), wallet storage keys, 
 
 ## Class 5 — Pure cosmetics / infra (rename whenever the rebrand happens; no chain impact)
 
+- **⚠ i18n LESSON:** the address-hint sed `ndo…`→`<new>…` is a WORD-BOUNDARY hazard — a blunt replace
+  mangles real words ending in `ndo…` (Spanish/Portuguese/Italian present-continuous: "confirmando…",
+  "cargando…", "liquidando…", "enviando…"). Anchor the replacement (e.g. only when preceded by a
+  space/quote/paren, or repair after with `/([a-z])<new>/`→`\1ndo`). Bit us once (298 strings).
 - **UI text**: "NADO" as currency/product name across `i18n.js` (16 languages), game pages, hub,
   whitepaper/README/doc — a text sweep.
 - **Domains**: `nadochain.com` + `get.` + `forum.` + ~20 game subdomains (nginx vhosts, DNS,
