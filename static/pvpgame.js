@@ -143,7 +143,7 @@ export class PvpGame {
         }
       }
       this.renderLobby(sto);
-      renderScore($("scoreList"), this.boardFrom(sto), this.dapp.me, T("noFinished", "No finished games yet — open the first challenge."));
+      renderScore($("scoreList"), this.boardFrom(sto), this.dapp.me, T("noFinished", "No finished games yet — open the first challenge."), true);   // prize=true: show the daily faucet airdrop (top winners paid automatically)
       const gm = this.last || {};
       await resolveAliases([this.dapp.me, gm.p1, gm.p2].filter(Boolean));
     }

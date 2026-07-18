@@ -35,6 +35,9 @@ GAMES = [
     (7, "d9d271f3a3e8a68ef33cb8e89ee650c9", "banked"),     # mines
     (8, "c532e36ac30f61619e9ac989a1c0994e", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
     (9, "2f8cc0ce02bc5e02abb10e4dc3af28e7", "hamster-daily"),  # hamster Daily Derby (free handicapping, replay-verified)
+    (10, "67349828b38443eda30de51dea8a3d67", "duel"),          # connect four (staked-win airdrop, like scrapline/stormhold)
+    (11, "eb12360a240be03382f2d0b33b345653", "duel"),          # reversi
+    (12, "d7744c41300ef02b6cc944f0cf1ccdae", "duel"),          # tic-tac-toe
 ]
 # provable free-play boards: kind -> the node replay oracle that ranks yesterday's verified claims
 DAILY_VERIFY = {"hexholm-daily": "tests/hexholm_daily_verify.mjs", "hamster-daily": "tests/hamster_daily_verify.mjs"}
