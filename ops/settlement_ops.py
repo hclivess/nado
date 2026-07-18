@@ -43,17 +43,15 @@ def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry:
     claim, as soon as non-settling validators bonded past 1/3). Both branches read only committed on-chain
     state, so the result is identical on every node. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM).
 
-    SOUNDNESS (DA binding): the trustless VALIDITY-PROOF shortcut is DISABLED. A settle-with-proof proves only
-    that SOME call sequence advances kv_pre -> kv_post; its calls_commitment is checked against the bundle's OWN
-    calls, never against the on-chain DA calldata (calls_commit.py documents this binding as the remaining
-    step). So a lone bonded prover could prove a FABRICATED call sequence to a favorable root and settle it
-    trustlessly. Until the proof's calls are bound to L1's ordered blob stream (a per-namespace on-chain calls
-    commitment the proof must equal), ALL settlements go through the bonded quorum below, which re-executes the
-    REAL DA blobs and therefore attests only the honest root. The proof is still cryptographically verified at
-    tx validation (defense-in-depth); it just no longer JUSTIFIES on its own. Re-enable by restoring the
-    settlement_proven shortcut once calls-vs-DA binding lands (there is no live prover today, so nothing regresses)."""
-    # if kv_ops.settlement_proven(ns, cursor, state_root):
-    #     return True   # DISABLED until settle-with-proof binds its calls to the on-chain DA calldata
+    TRUSTLESS PROOF (now sound): a settle-with-proof justifies with NO quorum. It is safe because tx validation
+    (ops/transaction_ops settle branch) now enforces the DA BINDING — every segment's calls_commitment must
+    equal L1's own commitment over the REAL on-chain blob calldata it settles (calls_commit.verify_calls_bound_to_da),
+    on top of the STARK verify + kv-chain composition + the BHASH/BEACON chain-read cross-check. So the proof
+    can only settle the state the honestly-posted calls produce — a fabricated call sequence has a different
+    calls_commitment and is rejected. The proof marker is therefore only set for roots that are both proven AND
+    bound to the DA, so trusting it here is as sound as the bonded-quorum re-execution."""
+    if kv_ops.settlement_proven(ns, cursor, state_root):
+        return True   # trustless: a recursion proof — verified + BOUND TO THE DA CALLDATA at validation
     total = active_settler_shares(ns, bonded_registry)
     if total == 0:
         return False

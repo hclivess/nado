@@ -920,6 +920,15 @@ def validate_transaction(transaction, logger, block_height):
                         "Settle proof BEACON does not match the finalized chain"
                 else:
                     raise AssertionError("unknown chain-read kind in settle proof")
+            # DA BINDING: the STARK proves SOME calls advance kv_pre->kv_post, but verify_settlement_sparse checks
+            # calls_commitment only against the bundle's OWN calls. Bind it to the REAL on-chain blob calldata so
+            # a bonded prover cannot settle a FABRICATED call sequence: every segment's calls_commitment must
+            # equal L1's own commitment over the namespace's `blob` calls in the L1 blocks that segment settles
+            # (exec_cursor == L1 height). This is what makes the trustless (no-quorum) settlement path sound.
+            from execnode.stark import calls_commit as _CC
+            from ops.block_ops import get_block_number as _get_block
+            _okc, _whyc = _CC.verify_calls_bound_to_da(proof, ns, _tip_cursor, cursor, _get_block)
+            assert _okc, f"Settle proof calls not bound to DA: {_whyc}"
     elif recipient == "bridge":
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
         assert transaction["amount"] > 0, "Bridge deposit amount must be positive"

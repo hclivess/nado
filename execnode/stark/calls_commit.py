@@ -19,11 +19,85 @@ from hashing import blake2b_hash
 
 def call_leaf(call, cursor=0, timestamp=0):
     """A field element committing to ONE call's PUBLIC fields (cid, method, caller, args, value, cursor,
-    timestamp) — the leaf the calls-commitment chains. Deterministic; a verifier recomputes it from the call."""
+    timestamp) — the leaf the calls-commitment chains. Deterministic; a verifier recomputes it from the call.
+    cursor/timestamp come from the CALL dict when present (per-call execution context, the DA-binding form),
+    else from the passed epoch-wide defaults (the legacy single-context form). Identical bytes on every layer:
+    blake2b over a canonical list, so Python (L1/exec) and the Rust prover agree."""
+    cur = int(call.get("cursor", cursor))
+    ts = int(call.get("timestamp", timestamp))
     payload = ["call", str(call.get("cid", "")), str(call.get("method", "")),
                str(call.get("caller", "epoch")), [int(a) for a in call.get("args", [])],
-               int(call.get("value", 0)), int(cursor), int(timestamp)]
+               int(call.get("value", 0)), cur, ts]
     return int(blake2b_hash(payload), 16) % F.P
+
+
+def block_calls(block, ns="default"):
+    """The ORDERED execution calls a namespace's `blob` txs in `block` carry (op == 'call') — the DETERMINISTIC
+    bridge that lets L1 (the settlement VERIFIER) and the exec node (the PROVER) build the IDENTICAL calls list
+    from the same on-chain block, so a settle-with-proof's calls_commitment can be BOUND to the real DA calldata
+    (a prover cannot substitute fabricated calls). Fields exactly as apply_blob reads them: cid = data.contract,
+    method = data.method, args = data.args, value = data.value; caller = the blob tx's L1 sender; and the
+    execution context cursor = block number, timestamp = block timestamp. ALL op=='call' blobs are included —
+    even ones that will skip/revert in the VM — so the commitment binds the RAW on-chain calldata; the proof's
+    state transition treats a skip/revert as a no-op (matching live apply). Deploys/other ops are excluded
+    (they don't move the kv half a bound-epoch proof settles)."""
+    h = int(block.get("block_number", 0))
+    ts = int(block.get("block_timestamp", 0))
+    calls = []
+    for tx in block.get("block_transactions", []):
+        if tx.get("recipient") != "blob":
+            continue
+        d = tx.get("data")
+        if not isinstance(d, dict) or d.get("op") != "call":
+            continue
+        if d.get("ns", "default") != ns:
+            continue
+        calls.append({"cid": d.get("contract"), "method": d.get("method"), "caller": tx.get("sender"),
+                      "args": d.get("args", []), "value": int(d.get("value", 0) or 0),
+                      "cursor": h, "timestamp": ts})
+    return calls
+
+
+def da_calls_commitment(blocks, ns="default"):
+    """The calls-commitment L1 EXPECTS for a settlement over `blocks` (ascending) in namespace `ns`: fold the
+    per-call leaves of every block's blob calls, in block-then-tx order, from IV. A settle-with-proof over that
+    span is bound to the DA iff its calls_commitment equals this — computed on-chain, independent of the prover."""
+    node = alghash.IV
+    for blk in blocks:
+        for call in block_calls(blk, ns):
+            node = alghash.merkle_node(node, call_leaf(call))
+    return node
+
+
+def verify_calls_bound_to_da(proof, ns, prev_cursor, cursor, get_block):
+    """DA-BINDING GATE (settle-with-proof): every segment's calls_commitment must equal L1's OWN
+    da_calls_commitment over the on-chain blob calldata it claims to settle, so a prover cannot substitute a
+    fabricated call sequence for the real one. The segments partition the settled span (prev_cursor, cursor] by
+    their end cursor (exec_cursor == L1 height in production, so a segment ending at C settles L1 blocks
+    (prev, C]). `get_block(h)` returns the L1 block dict at height h or falsy. Returns (ok, reason)."""
+    segs = proof.get("segments") or []
+    if not segs:
+        return False, "no segments to bind"
+    lo = int(prev_cursor)
+    for j, seg in enumerate(segs):
+        cc = seg.get("calls_commitment")
+        if cc is None:
+            return False, f"segment {j} carries no calls_commitment (unbound to the DA calldata)"
+        seg_end = int(seg.get("cursor", cursor))
+        if not (lo < seg_end <= int(cursor)):
+            return False, f"segment {j} cursor {seg_end} is outside the settled span ({lo}, {cursor}]"
+        blocks = []
+        for h in range(lo + 1, seg_end + 1):
+            blk = get_block(h)
+            if not blk:
+                return False, f"block {h} in the settled span is unavailable — cannot bind calls to DA"
+            blocks.append(blk)
+        if int(cc) % F.P != da_calls_commitment(blocks, ns) % F.P:
+            return False, f"segment {j} calls_commitment does not match the on-chain DA calldata (fabricated calls)"
+        lo = seg_end
+    if lo != int(cursor):
+        return False, f"segments do not cover the whole settled span (reached {lo}, expected {cursor})"
+    return True, "calls bound to DA"
 
 
 def leaves(calls, cursor=0, timestamp=0):
