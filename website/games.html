@@ -153,6 +153,15 @@ const SVG = {
     <rect x="14" y="20" width="20" height="12" rx="3" fill="#0b3d36"/>
     <circle cx="19.5" cy="26" r="2.6" fill="#00c9a7"/><circle cx="28.5" cy="26" r="2.6" fill="#00c9a7"/>
     <rect x="4.5" y="21.5" width="5" height="9" rx="2" fill="#00c9a7"/><rect x="38.5" y="21.5" width="5" height="9" rx="2" fill="#00c9a7"/></svg>`,
+  hexholm:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <polygon points="24,3 42,13.5 42,34.5 24,45 6,34.5 6,13.5" fill="#0e2f28" stroke="#00ad93" stroke-width="2"/>
+    <polygon points="24,10 34,15.5 34,26.5 24,32 14,26.5 14,15.5" fill="#00ad93"/>
+    <polygon points="24,15 29,17.8 29,23.2 24,26 19,23.2 19,17.8" fill="#e3b341"/>
+    <rect x="21.8" y="19" width="4.4" height="4.4" fill="#7a3b1e"/>
+    <polygon points="20.6,19 24,15.4 27.4,19" fill="#a04a20"/>
+    <circle cx="36" cy="33" r="4.6" fill="#f0e6cf" stroke="#8a7a52" stroke-width="1.2"/>
+    <text x="36" y="36" text-anchor="middle" font-size="7" font-weight="800" fill="#a01818" font-family="system-ui">8</text>
+    <rect x="9" y="30" width="8" height="2.6" rx="1.3" fill="#e0705f" transform="rotate(-28 13 31.3)"/></svg>`,
   stormhold:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true"><rect x="8" y="18" width="9" height="22" fill="#00c9a7"/><rect x="31" y="18" width="9" height="22" fill="#00c9a7"/><rect x="15" y="24" width="18" height="16" fill="#00ad93"/><rect x="8" y="15" width="3" height="3" fill="#00c9a7"/><rect x="14" y="15" width="3" height="3" fill="#00c9a7"/><rect x="31" y="15" width="3" height="3" fill="#00c9a7"/><rect x="37" y="15" width="3" height="3" fill="#00c9a7"/><rect x="15" y="21" width="3" height="3" fill="#00ad93"/><rect x="21" y="21" width="3" height="3" fill="#00ad93"/><rect x="27" y="21" width="3" height="3" fill="#00ad93"/><path d="M20 40v-7a4 4 0 0 1 8 0v7z" fill="#0b3d36"/><rect x="23.2" y="7" width="1.6" height="8" fill="#e3b341"/><path d="M24.8 7.5 30 9.5 24.8 11.5z" fill="#e3b341"/></svg>`,
   kostky:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
     <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>
@@ -254,6 +263,9 @@ const GAMES = [
   { svg:SVG.scrapline, name:"Scrapline", tag:"Live", live:true, slug:"scrapline", faucet:true, url:"https://scrapline.nadochain.com",
     blurb:"An auto-battler duel for stakes. Draft scrap-built weapons, shields and repair rigs from provably random offers (every offer is seeded by a future block hash), merge duplicates into higher ranks, lock a 6-slot build — then the machines fight a fully deterministic battle both browsers compute identically. An original game in the auto-battler genre.",
     meta:["2 players","Draft & merge","Deterministic combat","Provably fair offers"] },
+  { svg:SVG.hexholm, name:"Hexholm", tag:"Live", live:true, slug:"hexholm", faucet:true, url:"https://hexholm.nadochain.com",
+    blurb:"The classic island-settlement strategy game, 2-4 players for stakes. Roll for resources, build roads, homesteads and keeps, trade with the table and race to 10 points. Dice and draws are seeded by future block hashes — provably fair — and your development scrolls stay hidden by commit-reveal until the game ends; every claim is verified at reveal, so cheating can never profit.",
+    meta:["2-4 players","Build & trade","Hidden scrolls","Provably fair dice"] },
   { svg:SVG.stormhold, name:"Stormhold", tag:"Live", live:true, slug:"stormhold", faucet:true, url:"https://stormhold.nadochain.com",
     blurb:"A deck-building strategy duel for stakes. Start with 10 humble cards, buy engines and victory piles from a shared 17-pile supply, and out-build your opponent — attacks, reactions and all. Every move is logged on-chain and every shuffle is seeded by a future block hash, so decks are provably unriggable; the pot settles by concede / agree / refund-timeout.",
     meta:["2 players","Deck-building","Provably fair shuffles","Skill, not chance"] },
