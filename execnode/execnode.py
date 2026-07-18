@@ -243,6 +243,16 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
             d = tx.get("data") or {}
             for _st in states_map.values():
                 _st.record_reveal(d.get("target_epoch"), d.get("secret"))
+        elif r == "duty":
+            # The live path emits attest/commit/reveal MERGED into one `duty` tx (core_loop), and L1 records
+            # its carried reveal via reveal_put — but this loop only saw STANDALONE `reveal` txs, so every exec
+            # BEACON was computed reveal-free (predictable + grind-able) AND mismatched L1's with-reveals value,
+            # so a settle-with-proof over a BEACON contract could never pass the chain-read cross-check. Feed
+            # the duty-carried reveal in exactly like a standalone one so the exec beacon == L1's.
+            rv = (tx.get("data") or {}).get("reveal")
+            if rv:
+                for _st in states_map.values():
+                    _st.record_reveal(rv.get("target_epoch"), rv.get("secret"))
     for _st in states_map.values():
         _st.cursor = h
         _st.block_ts = int(block.get("block_timestamp") or _st.block_ts)   # TIME opcode: wall-clock of this block
