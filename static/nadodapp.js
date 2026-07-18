@@ -926,14 +926,16 @@ export class NadoDapp {
   }
   // Read-only contract call via GET /exec/view — how a game reads hash-keyed (per-user) zkVM slots that
   // decode_view can't enumerate (e.g. bet's claimable_of/stake_of). Returns the method's RET value as a
-  // Number, or null on error. Args may be ints or address strings (digested server-side).
+  // BigInt (the server sends it as a STRING so amounts/hashes over 2^53 survive JSON.parse), or null on
+  // error. A non-numeric RET falls back to the raw value. Args may be ints or address strings.
   async view(method, args) {
     try {
       const r = await (await fetch(base() + "/exec/view?ns=" + this.ns + "&cid=" + this.cid
         + "&method=" + encodeURIComponent(method) + "&args=" + encodeURIComponent(JSON.stringify(args || [])),
         { cache: "no-store" })).json();
       const v = r && (r.result !== undefined ? r.result : r.ret);
-      return v == null ? null : Number(v);
+      if (v == null) return null;
+      try { return BigInt(v); } catch { return v; }
     } catch { return null; }
   }
   _stickMerge(sto, append) {

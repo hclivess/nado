@@ -677,7 +677,11 @@ async def h_view(request):
         args = json.loads(request.query.get("args", "[]"))
     except Exception:
         args = []
-    return web.json_response({"cid": cid, "method": method, "result": st.view(cid, method, args)})
+    # RET is a 64-bit field element (up to ~1.8e19) — a raw JSON number loses precision past 2^53 the instant
+    # the browser JSON.parses it (amounts over ~900k NADO, hashes, commitments). Emit it as a STRING so the
+    # client can BigInt() it exactly; Number("123") still works for small legacy readers (forward-compatible).
+    _ret = st.view(cid, method, args)
+    return web.json_response({"cid": cid, "method": method, "result": None if _ret is None else str(_ret)})
 
 
 # (coinflip read endpoints removed — the Coin Flip dApp reads its state from the generic /exec/contract
