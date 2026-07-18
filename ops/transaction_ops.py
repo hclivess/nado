@@ -801,6 +801,14 @@ def validate_transaction(transaction, logger, block_height):
                 "Invalid registration PoSW (or below the required difficulty)"
         else:
             assert proof_multiplier(challenge, proof) > 0, "Invalid registration PoSW"
+        # ONE RECERT PER EPOCH (revert-symmetry / anti-fork): apply_register records the recert at
+        # epoch = block_height // EPOCH_LENGTH. Two registers landing in DIFFERENT blocks of the SAME epoch
+        # (the per-block reserved_uniqueness_key only stops same-block dups) would BOTH apply, but recert_put
+        # collapses under DUPSORT and the plain-KV hb_revert record overwrites — so a rollback pops only the
+        # last net and under-reverts the doubled FIDELITY_GAIN, leaving fidelity above a from-scratch sync.
+        # fidelity drives open-lane producer selection, so that residual is a reorg-fork, not cosmetic.
+        assert kv_ops.recert_latest(transaction["sender"]) < (block_height // EPOCH_LENGTH), \
+            "sender already recerted this epoch (one register per epoch)"
     elif recipient == "msgkey":
         # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
         # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is
