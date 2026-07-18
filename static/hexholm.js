@@ -94,10 +94,18 @@ class TableDuel extends DuelGame {
   submit(enc, label) {                                     // raw engine enc + ply binding
     if (this.practice) {
       if (!this.canAct()) return;
+      const wasDone = this.soloDone();
       this.practice.recs.push({ enc, side: 1 });
       this._soloBotLoop();
       this.prac.saveRun(this.practice);
       this.armed = null; this.mode = null;
+      if (!wasDone && this.soloDone() && this.eng && !this.eng.corrupt) {
+        const vp = E.totalVp(this.eng, 1), n = this.practice.recs.filter((r) => r.side === 1).length;
+        notify(this.practice.daily
+          ? T("dailyOverNotify", "🏁 Daily island complete — {vp} points in {n} moves. Post your score on the board!", { vp, n })
+          : this.eng.winner === 1 ? T("prYouWin", "🏆 YOU WIN — first to 10 points!")
+          : T("prCpuWins", "Game over — the computer reaches 10 points first. New island?"));
+      }
       this.render();
       return;
     }
@@ -238,12 +246,15 @@ class TableDuel extends DuelGame {
   }
   myEnds() { return (this.practice.recs || []).filter((r) => r.side === 1 && r.enc % 64 === E.OP.END).length; }
   soloDone() {
-    return !!this.practice && (this.myEnds() >= SOLO_TURNS || (this.eng && this.eng.over));
+    if (!this.practice) return false;
+    if (this.eng && (this.eng.over || this.eng.corrupt)) return true;
+    return !!this.practice.daily && this.myEnds() >= SOLO_TURNS;   // only the DAILY is turn-capped
   }
   _soloBotLoop() {
     for (let guard = 0; guard < 300; guard++) {
       this.eng = this.rebuild(this.pracGm());
-      if (!this.eng || this.eng.corrupt || this.eng.over || this.myEnds() >= SOLO_TURNS) return;
+      if (!this.eng || this.eng.corrupt || this.eng.over) return;
+      if (this.practice.daily && this.myEnds() >= SOLO_TURNS) return;
       if (!botMustAct(this.eng)) return;
       const mv = pickMove(this.eng, 2, prng(this.practice.seed + ":bot:" + this.practice.recs.length));
       if (mv == null) return;
@@ -382,11 +393,16 @@ class TableDuel extends DuelGame {
       : TS("prBanner", "PRACTICE — free play, nothing on-chain");
     $("players").innerHTML = gm.seats.slice(0, 2).map((nm, i) =>
       "<span class='chip'>" + SEAT_MARK[i] + " " + nm + "</span>").join(" ");
-    const done = this.soloDone(), vp = eng && eng.layout ? E.totalVp(eng, 1) : 0;
+    const done = this.soloDone(), daily = !!this.practice.daily, vp = eng && eng.layout ? E.totalVp(eng, 1) : 0;
+    const myN = (this.practice.recs || []).filter((r) => r.side === 1).length;
     $("gStatus").innerHTML = !eng ? "…"
       : eng.corrupt ? T("prCorrupt", "practice run desynced — start a new one")
-      : done ? T("dailyDone", "Run complete — {vp} points in {n} moves", { vp, n: (this.practice.recs || []).filter((r) => r.side === 1).length })
-      : this.canAct() ? "<span class='yourturn'>" + T("yourMove", "\u25B6 YOUR MOVE") + "</span>" + " · " + T("dailyTurnN", "turn {t}/{n}", { t: Math.min(SOLO_TURNS, this.myEnds() + 1), n: SOLO_TURNS })
+      : done ? (daily
+          ? "<span class='yourturn'>🏁 " + T("dailyDone", "Run complete — {vp} points in {n} moves", { vp, n: myN }) + "</span>"
+          : eng.winner === 1 ? "<span class='yourturn'>" + T("prYouWin", "🏆 YOU WIN — first to 10 points!") + "</span>"
+          : T("prCpuWins", "Game over — the computer reaches 10 points first. New island?"))
+      : this.canAct() ? "<span class='yourturn'>" + T("yourMove", "\u25B6 YOUR MOVE") + "</span>"
+          + (daily ? " · " + T("dailyTurnN", "turn {t}/{n}", { t: Math.min(SOLO_TURNS, this.myEnds() + 1), n: SOLO_TURNS }) : "")
       : TS("prCpuThinking", "computer to move…");
     $("dicebar").innerHTML = diceLine(eng);
     renderCtrls(this, gm, eng, 0);
@@ -603,6 +619,13 @@ function renderCtrls(duel, gm, eng, me) {
       duel.submit(E.enc(duel.mode.op, duel.mode.hex, Number(b.dataset.vic)), duel.mode.label));
     return;
   }
+  // bank/bounty/levy pickers are MODES (not one-off innerHTML), so the background poll's re-render
+  // redraws them instead of wiping them mid-choice; a mode whose move went illegal is dropped.
+  const _modeOp = { bank: E.OP.BANK, bounty: E.OP.BOUNTY, levy: E.OP.LEVY }[duel.mode && duel.mode.kind];
+  if (_modeOp && !ops.has(_modeOp)) duel.mode = null;
+  else if (_modeOp === E.OP.BANK) return renderBankPrompt(duel, st, meSeat);
+  else if (_modeOp === E.OP.BOUNTY) return renderBountyPrompt(duel);
+  else if (_modeOp === E.OP.LEVY) return renderLevyPrompt(duel);
   if (st.phase === "setup" && ops.has(E.OP.SETUP)) {
     duel.mode = duel.mode && duel.mode.kind === "setup" ? duel.mode : { kind: "setup", picks: [] };
     el.innerHTML = `<span class="small dim">${T("setupTurn", "Your founding turn — place a homestead and its road on the island above.")}</span>`;
@@ -625,7 +648,7 @@ function renderCtrls(duel, gm, eng, me) {
     // bank trade: pick give (best rate shown) + get
     const rates = E.RES.map((_, r) => E.bankRate(st, meSeat, r));
     const canBank = E.RES.some((_, r) => p.res[r] >= rates[r]);
-    B.push(`<button id="bBank" class="ghost" ${canBank ? "" : "disabled"}>⚖ ${T("bankTrade", "Bank trade")}</button>`);
+    B.push(`<button id="bBank" class="ghost${duel.mode && duel.mode.kind === "bank" ? " armed" : ""}" ${canBank ? "" : "disabled"}>⚖ ${T("bankTrade", "Bank trade")}</button>`);
     btn("bOffer", "📣 " + T("tableTrade", "Table trade"));
     btn("bEnd", "⏭ " + T("endTurn", "End turn"));
   } else if (st.phase === "main") {
@@ -640,23 +663,23 @@ function renderCtrls(duel, gm, eng, me) {
   if ($("bKeep")) $("bKeep").onclick = () => arm("keep");
   if ($("bBuy")) $("bBuy").onclick = () => duel.submit(E.enc(E.OP.BUY), "buy a scroll");
   if ($("bEnd")) $("bEnd").onclick = () => duel.submit(E.enc(E.OP.END), "end the turn");
-  if ($("bBank")) $("bBank").onclick = () => bankTradePrompt(duel, eng, meSeat);
+  if ($("bBank")) $("bBank").onclick = () => arm("bank");
   if ($("bOffer")) $("bOffer").onclick = () => { duel.tr = { give: [0, 0, 0, 0, 0], get: [0, 0, 0, 0, 0] }; $("tradeBox").classList.remove("hidden"); renderTradeGrid(duel); };
 }
-function bankTradePrompt(duel, st, meSeat) {
-  const p = st.players[meSeat];
+function renderBankPrompt(duel, st, meSeat) {
+  const p = st.players[meSeat], el = $("ctrls");
   const opts = [];
   for (let g = 0; g < 5; g++) { const rate = E.bankRate(st, meSeat, g);
     if (p.res[g] >= rate) for (let t = 0; t < 5; t++) if (t !== g && st.bank[t] > 0)
       opts.push({ g, t, rate }); }
-  if (!opts.length) return;
-  const el = $("ctrls");
-  el.innerHTML = opts.map((o, i) =>
+  if (!opts.length) { duel.mode = null; el.innerHTML = ""; return; }
+  el.innerHTML = `<span class="small dim">${T("bankPick", "Bank trade — pick an exchange:")}</span>`
+    + opts.map((o, i) =>
     `<button class="ghost" data-i="${i}">${E.RES_ICON[o.g]}×${o.rate} → ${E.RES_ICON[o.t]}</button>`).join("")
     + `<button class="ghost" id="bBankBack">↩</button>`;
   el.querySelectorAll("[data-i]").forEach((b) => b.onclick = () => { const o = opts[Number(b.dataset.i)];
     duel.submit(E.enc(E.OP.BANK, o.g * 8 + o.rate, o.t), "bank trade"); });
-  $("bBankBack").onclick = () => duel.render();
+  $("bBankBack").onclick = () => { duel.mode = null; duel.render(); };
 }
 function renderTradeGrid(duel) {
   const gr = $("tradeGrid"), tr = duel.tr;
@@ -717,23 +740,26 @@ function renderScrolls(duel, gm, eng, me) {
     const k = b.dataset.play;
     if (k === "w") { duel.mode = { kind: "warden", picks: [] }; duel.render(); }
     if (k === "p") { duel.mode = { kind: "path", picks: [] }; duel.render(); }
-    if (k === "b") pickTwoRes(duel);
-    if (k === "l") pickOneRes(duel);
+    if (k === "b") { duel.mode = { kind: "bounty", picks: [] }; duel.render(); }
+    if (k === "l") { duel.mode = { kind: "levy" }; duel.render(); }
   });
 }
-function pickTwoRes(duel) {
-  const el = $("ctrls"); const picks = [];
-  const draw = () => { el.innerHTML = `<span class="small dim">${T("bountyPick", "Bounty — pick {n} from the bank", { n: 2 - picks.length })}</span>`
-    + E.RES.map((_, r) => `<button class="ghost" data-r="${r}">${E.RES_ICON[r]}</button>`).join("");
-    el.querySelectorAll("[data-r]").forEach((b) => b.onclick = () => { picks.push(Number(b.dataset.r));
-      if (picks.length === 2) duel.submit(E.enc(E.OP.BOUNTY, picks[0], picks[1]), "play a Bounty"); else draw(); }); };
-  draw();
+function renderBountyPrompt(duel) {
+  const el = $("ctrls"), picks = duel.mode.picks;
+  el.innerHTML = `<span class="small dim">${T("bountyPick", "Bounty — pick {n} from the bank", { n: 2 - picks.length })}</span>`
+    + E.RES.map((_, r) => `<button class="ghost" data-r="${r}">${E.RES_ICON[r]}</button>`).join("")
+    + `<button class="ghost" id="bBountyBack">↩</button>`;
+  el.querySelectorAll("[data-r]").forEach((b) => b.onclick = () => { picks.push(Number(b.dataset.r));
+    if (picks.length === 2) duel.submit(E.enc(E.OP.BOUNTY, picks[0], picks[1]), "play a Bounty"); else duel.render(); });
+  $("bBountyBack").onclick = () => { duel.mode = null; duel.render(); };
 }
-function pickOneRes(duel) {
+function renderLevyPrompt(duel) {
   const el = $("ctrls");
   el.innerHTML = `<span class="small dim">${T("levyPick", "Levy — name the resource every rival must hand over")}</span>`
-    + E.RES.map((_, r) => `<button class="ghost" data-r="${r}">${E.RES_ICON[r]}</button>`).join("");
+    + E.RES.map((_, r) => `<button class="ghost" data-r="${r}">${E.RES_ICON[r]}</button>`).join("")
+    + `<button class="ghost" id="bLevyBack">↩</button>`;
   el.querySelectorAll("[data-r]").forEach((b) => b.onclick = () => duel.submit(E.enc(E.OP.LEVY, Number(b.dataset.r)), "play a Levy"));
+  $("bLevyBack").onclick = () => { duel.mode = null; duel.render(); };
 }
 function renderDiscard(duel, gm, eng, me) {
   const el = $("discardBar"), meSeat = me != null ? me + 1 : 0;
@@ -888,3 +914,6 @@ duel.MAPS = ["nn", "st", "pt", "sd", "wr", "mc", "dl", "kh", "p1", "p2", "mv", "
              "eday", "eaddr", "escore", "en", "ew", "ah", "av"].concat(duel.cfg.appendMaps);
 duel.mode = null; duel.tr = null; duel.disc = null; duel._anch = { day: 0, hash: null }; duel._boardBusy = false;
 duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "dailyBoard", "scoreboard"]);
+
+// test hook: UI E2E harnesses drive the real DOM against real engine states
+if (typeof window !== "undefined") window.__duel = duel;
