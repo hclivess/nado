@@ -947,7 +947,7 @@ export class NadoDapp {
       if (sto[m] != null && typeof sto[m] !== "object") continue;
       const cur = sto[m] || (sto[m] = {});
       for (const k in pv) {
-        const hk = m + " " + k;
+        const hk = m + "\x00" + k;
         if (k in cur) { delete held[hk]; continue; }          // still there → clear any grace timer
         if (held[hk] == null) held[hk] = now;                 // just vanished → start the grace clock
         if (now - held[hk] < STICKY_GRACE_MS) cur[k] = pv[k]; // within grace → keep showing it (rollback flicker)
