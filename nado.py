@@ -772,9 +772,14 @@ async def get_wealth_stats(request):
     # -> percentile ("richer than X% of wallets"), a distribution-based rank instead of "% of the single
     # richest wallet" (which one whale dominates). Cached per block height.
     def _work():
-        """Single-pass log-normal fit over non-zero accounts, cached per height (worker thread)."""
+        """Single-pass log-normal fit over non-zero accounts, cached per height (worker thread).
+        The same pass also builds the WALLET-DISTRIBUTION data the explorer stats chart shows:
+        `buckets` — non-zero wallet counts per NADO decade (<0.01, 0.01–0.1, …, 100k–1M, ≥1M) —
+        and the held-supply concentration (`sum_total`, `top10`, `top100`, raw as strings)."""
+        import heapq
         import math
         from ops import kv_ops
+        from protocol import DENOMINATION
         try:
             h = memserver.latest_block["block_number"]
         except Exception:
@@ -782,6 +787,8 @@ async def get_wealth_stats(request):
         if _wealth_cache["height"] == h and _wealth_cache["data"] is not None:
             return _wealth_cache["data"]
         n, s, s2, richest = 0, 0.0, 0.0, 0
+        buckets = [0] * 10
+        top, gsum = [], 0
         for _addr, acc in kv_ops.iter_accounts():
             tot = int(acc.get("balance", 0)) + int(acc.get("bonded", 0))
             if tot > richest:
@@ -789,9 +796,18 @@ async def get_wealth_stats(request):
             if tot > 0:
                 lt = math.log(tot)
                 n += 1; s += lt; s2 += lt * lt
+                gsum += tot
+                nado = tot / DENOMINATION
+                buckets[0 if nado < 0.01 else min(9, int(math.floor(math.log10(nado))) + 3)] += 1
+                heapq.heappush(top, tot)
+                if len(top) > 100:
+                    heapq.heappop(top)
         mean = (s / n) if n else 0.0
         std = math.sqrt(max(0.0, s2 / n - mean * mean)) if n else 0.0
-        data = {"count": n, "richest": richest, "log_mean": mean, "log_std": std, "block_number": h}
+        tops = sorted(top, reverse=True)
+        data = {"count": n, "richest": richest, "log_mean": mean, "log_std": std, "block_number": h,
+                "buckets": buckets, "sum_total": str(gsum),
+                "top10": str(sum(tops[:10])), "top100": str(sum(tops))}
         _wealth_cache.update(height=h, data=data)
         return data
     return _resp(await asyncio.to_thread(_work))

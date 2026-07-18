@@ -3691,6 +3691,20 @@ async function renderStats() {
     const rows = ((d && d.rich_list) || []).slice(0, 8).map((e) => ({ label: /^ndo/.test(e.address) ? e.address.slice(0, 8) + "…" : e.address, value: _nadoNum(e.total) }));
     hbarChart("chartWealth", rows, { color: _CGRN, fmt: (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(1)) });
   } catch {}
+  // WALLET DISTRIBUTION: how many wallets hold how much (NADO decades) + held-supply concentration.
+  try {
+    const w = await (await fetch(relayBase() + "/wealth_stats", { cache: "no-store" })).json();
+    if (w && Array.isArray(w.buckets)) {
+      const labels = ["<0.01", "0.01", "0.1", "1", "10", "100", "1k", "10k", "100k", "1M+"];
+      barChart("chartHolders", w.buckets.map(Number), labels, { color: _CPUR, fmt: (v) => String(v) });
+      const tot = Number(w.sum_total || 0);
+      const pct = (x) => (tot > 0 ? Math.round((Number(x) * 100) / tot) : 0);
+      const sub = $("holdersSub");
+      if (sub) sub.textContent = i18("stats.holdersSub",
+        "{n} wallets hold coins · top 10 hold {a}% · top 100 hold {b}% of held supply",
+        { n: w.count || 0, a: pct(w.top10), b: pct(w.top100) });
+    }
+  } catch {}
   let ms = state.lastMs;
   try { ms = await getMiningStatus(state.wallet.address); } catch {}
   if (ms) laneBar("chartLanes", ms.open_registry_size || 0, ms.bonded_registry_size || 0);
