@@ -1253,6 +1253,27 @@ def validate_single_spending(transaction_pool: list, transaction):
     return True
 
 
+def _escrow_release(tx):
+    """(escrow_account, amount, bridge_ns_or_None) that `tx` releases from a SHARED escrow, else None. Reads
+    only committed state (deterministic). Used to bound CUMULATIVE per-block releases — every escrow exit is
+    validated individually against the SAME parent escrow balance, so N valid exits summing above it all pass
+    validation yet over-draw at apply (change_balance floor_zero then either MINTS the unbacked credit or
+    RAISES inside incorporate_block = halt). The nullifiers stop double-claims of ONE record; this stops
+    distinct records collectively draining one pool."""
+    from protocol import BRIDGE_ESCROW, SHIELD_ESCROW, HTLC_ESCROW, DIVIDEND_POOL, DEFAULT_NS
+    r, d = tx.get("recipient"), (tx.get("data") or {})
+    if r == "bridge_withdraw":
+        return (BRIDGE_ESCROW, int(d.get("amount", 0) or 0), d.get("ns", DEFAULT_NS))
+    if r == "unshield":
+        return (SHIELD_ESCROW, int(d.get("amount", 0) or 0), None)
+    if r == "dividend_withdraw":
+        return (DIVIDEND_POOL, int(d.get("amount", 0) or 0), None)
+    if r in ("htlc_claim", "htlc_refund"):
+        doc = kv_ops.htlc_get(d.get("htlc_id")) or {}
+        return (HTLC_ESCROW, int(doc.get("amount", 0) or 0), None)
+    return None
+
+
 def validate_all_spending(transaction_pool: list):
     """validate spending of all spenders in a transaction pool against their balance AND
     their bonded stake (unbond draws from bonded, not from spendable balance)."""
@@ -1269,6 +1290,21 @@ def validate_all_spending(transaction_pool: list):
                 bonded_spent += bond_cost
                 assert balance_spent <= balance, "Overspending balance"
                 assert bonded_spent <= bonded, "Overspending bonded stake"
+    # CUMULATIVE ESCROW RELEASES: cap the total drawn from each shared escrow (bridge/shield/htlc/dividend)
+    # this block at its parent balance, and per-namespace for the bridge — so multiple distinct valid exits
+    # can't collectively over-draw one pool (mint or halt at apply). See _escrow_release.
+    esc_spent, ns_spent = {}, {}
+    for pool_tx in transaction_pool:
+        rel = _escrow_release(pool_tx)
+        if rel is None:
+            continue
+        acct, amt, bns = rel
+        esc_spent[acct] = esc_spent.get(acct, 0) + amt
+        eacc = get_account(acct, create_on_error=False)
+        assert eacc and esc_spent[acct] <= eacc.get("balance", 0), f"escrow {acct} over-drawn in one block"
+        if bns is not None:
+            ns_spent[bns] = ns_spent.get(bns, 0) + amt
+            assert ns_spent[bns] <= kv_ops.bridge_escrow_ns(bns), "namespace bridge escrow over-drawn in one block"
     return True
 
 
