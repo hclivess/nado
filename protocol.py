@@ -18,6 +18,17 @@ CHAIN_ID = "alphanet-6"
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
 
+# ---- ADDRESS FORMAT (single source of truth — doc/address-format.md) -------------------------------
+# address = ADDRESS_PREFIX + first ADDRESS_BODY hex chars of the pubkey + 4-hex blake2b checksum.
+# The prefix is deliberately a ONE-CONSTANT rebrand point: no other Python spells it (the JS mirrors
+# are static/nadotx.js ADDR_PREFIX and static/interface.js ADDR_PREFIX — three lines total).
+# Changing ANY of these orphans every existing address string, so a change ships only with a
+# CHAIN_GENERATION reroll whose genesis alloc is re-keyed by scripts/rekey_alloc.py.
+ADDRESS_PREFIX = "ndo"
+ADDRESS_BODY = 42              # hex chars of the pubkey carried in the address
+ADDRESS_CHECKSUM = 2           # checksum bytes (4 hex chars), blake2b over prefix+body
+ADDRESS_LENGTH = len(ADDRESS_PREFIX) + ADDRESS_BODY + ADDRESS_CHECKSUM * 2   # 49 today
+
 GENESIS_TIMESTAMP = 1784257440  # 2026-07-17 — alphanet-6 (FROZEN sparse alghash2 settled root, exec_root.py;
                                 # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
                                 # production starts immediately. The root scheme is final: depth 256 saturates

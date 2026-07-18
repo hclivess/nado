@@ -18,9 +18,11 @@ from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
+
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
                       POSW_S, POSW_K, POSW_ANCHOR_OFFSET, HTLC_MIN_TIMELOCK, TX_LANDING_WINDOW,
                       HTLC_MAX_TIMELOCK, SHIELD_ESCROW, RESERVED_RECIPIENTS, DEFAULT_NS, valid_namespace)
+from protocol import ADDRESS_PREFIX, ADDRESS_LENGTH
 
 
 def _is_hex(s) -> bool:
@@ -1020,7 +1022,7 @@ def validate_transaction(transaction, logger, block_height):
         # recipient: a normal address — or the reserved FAUCET escrow, the one treasury->reserved payout that
         # makes sense (governance tops up the prize bank; the exec layer mirrors it like a donation).
         from protocol import FAUCET_ESCROW
-        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (sr.startswith("ndo") and len(sr) == 49
+        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (sr.startswith(ADDRESS_PREFIX) and len(sr) == ADDRESS_LENGTH
             and sr not in RESERVED_RECIPIENTS)), "treasury spend recipient must be a normal address or 'faucet'"
         assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "treasury spend amount must be a positive int"
         assert isinstance(snonce, str) and 0 < len(snonce) <= 64, "treasury spend nonce must be 1..64 chars"
@@ -1056,7 +1058,7 @@ def validate_transaction(transaction, logger, block_height):
         sr, sa, memo, snonce, sexpiry = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce"), spend.get("expiry")
         # same recipient rule as treasury_vote: normal address, or the FAUCET escrow (prize-bank top-up).
         from protocol import FAUCET_ESCROW
-        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (sr.startswith("ndo") and len(sr) == 49
+        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (sr.startswith(ADDRESS_PREFIX) and len(sr) == ADDRESS_LENGTH
             and sr not in RESERVED_RECIPIENTS)), "treasury spend recipient must be a normal address or 'faucet'"
         assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "bad treasury spend amount"
         assert isinstance(snonce, str) and 0 < len(snonce) <= 64 and isinstance(memo, str) and len(memo) <= 256, "bad treasury spend nonce/memo"
@@ -1080,7 +1082,7 @@ def validate_transaction(transaction, logger, block_height):
         assert transaction["amount"] > 0, "HTLC lock amount must be positive"
         assert transaction["fee"] >= MIN_TX_FEE, f"HTLC lock fee below minimum {MIN_TX_FEE}"
         claimant, hashlock, expiry = data.get("claimant"), data.get("hashlock"), data.get("expiry")
-        assert isinstance(claimant, str) and claimant.startswith("ndo") and len(claimant) == 49, "bad HTLC claimant address"
+        assert isinstance(claimant, str) and claimant.startswith(ADDRESS_PREFIX) and len(claimant) == ADDRESS_LENGTH, "bad HTLC claimant address"
         assert claimant != transaction["sender"], "HTLC claimant must differ from the sender"
         assert isinstance(hashlock, str) and len(hashlock) == 64 and _is_hex(hashlock), "HTLC hashlock must be 32-byte SHA-256 hex"
         assert isinstance(expiry, int) and not isinstance(expiry, bool), "HTLC expiry must be an int block height"

@@ -26,6 +26,7 @@ genuine packages are present and used unchanged.
 """
 
 import os
+from protocol import ADDRESS_PREFIX
 import sys
 import json
 import types
@@ -855,7 +856,7 @@ class SendTab(QWidget):
         if not validate_address(recipient):
             # not an address — accept a registered alias (the chain credits its current owner)
             if (protocol.ALIAS_MIN_LEN <= len(recipient) <= protocol.ALIAS_MAX_LEN
-                    and not recipient.startswith("ndo")):
+                    and not recipient.startswith(ADDRESS_PREFIX)):
                 try:
                     resolved = self.app.client.resolve_alias(recipient)
                 except NodeError:

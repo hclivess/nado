@@ -66,7 +66,13 @@ export function canonicalBytes(data) { return _enc.encode(canonicalize(data)); }
 export function blake2bHash(data, size = 32) { return bytesToHex(blake2b(canonicalBytes(data), { dkLen: size })); }
 
 // ---- keys / address ------------------------------------------------------------------------------
-export function makeAddress(pubHex) { const body = "ndo" + pubHex.slice(0, 42); return body + blake2bHash(body, 2); }
+// ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
+export const ADDR_PREFIX = "ndo";
+export const ADDR_BODY = 42;                                   // hex chars of pubkey in the address
+export const ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;    // + 4-hex blake2b checksum (49 today)
+export const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");
+export const isAddress = (a) => typeof a === "string" && ADDR_RE.test(a);
+export function makeAddress(pubHex) { const body = ADDR_PREFIX + pubHex.slice(0, ADDR_BODY); return body + blake2bHash(body, 2); }
 // The seed MUST be exactly 32 bytes (64 hex). noble zero-PADS a short seed into the SHAKE preimage while the
 // node's dilithium builds a different-length preimage, so a 63-hex seed (e.g. a dropped leading-zero byte)
 // derives a DIFFERENT address in the browser than on the node -> the node rejects the tx as pubkey!=sender.

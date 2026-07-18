@@ -37,13 +37,21 @@ def make_checksum(public_key: str, checksum_size: int = 2) -> str:
 
 def make_address(
         public_key: str,
-        address_length: int = 42,
-        checksum_size: int = 2,
-        prefix: str = "ndo",
+        address_length: int = None,
+        checksum_size: int = None,
+        prefix: str = None,
 ) -> str:
-    """Derive the canonical address: "ndo" + first 42 hex chars of the public key + 4-hex blake2b
-    checksum (49 chars). Must stay DETERMINISTIC and stable — proof_sender re-derives it to bind a
-    pubkey to its sender, so any change here orphans every existing address."""
+    """Derive the canonical address: ADDRESS_PREFIX + first ADDRESS_BODY hex chars of the public key
+    + 4-hex blake2b checksum (protocol.py owns all three — the one-constant rebrand point). Must stay
+    DETERMINISTIC and stable — proof_sender re-derives it to bind a pubkey to its sender, so any
+    change here orphans every existing address (= ships only with a CHAIN_GENERATION reroll)."""
+    from protocol import ADDRESS_PREFIX, ADDRESS_BODY, ADDRESS_CHECKSUM
+    if address_length is None:
+        address_length = ADDRESS_BODY
+    if checksum_size is None:
+        checksum_size = ADDRESS_CHECKSUM
+    if prefix is None:
+        prefix = ADDRESS_PREFIX
     address_no_checksum = f"{prefix}{public_key[:address_length]}"
     address = f"{address_no_checksum}{make_checksum(address_no_checksum, checksum_size=checksum_size)}"
     return address

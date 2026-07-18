@@ -43,7 +43,7 @@ from ops.log_ops import get_logger
 from ops.peer_ops import save_peer, get_remote_status, check_ip, me_to, known_peer_ips
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
-from protocol import GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP, CHAIN_ID
+from protocol import GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP, CHAIN_ID, ADDRESS_PREFIX
 
 import gc  # replaces pympler/muppy — the full-heap walk fatally trips CPython GC under asyncio load
 
@@ -629,7 +629,7 @@ async def account_mempool(request):
                 else:
                     # incoming: direct address match, or a send addressed to one of the address's aliases
                     to = recipient
-                    if to and not to.startswith("ndo"):
+                    if to and not to.startswith(ADDRESS_PREFIX):
                         to = alias_ops.resolve_alias(recipient) or recipient
                     if to == addr:
                         fi += amount

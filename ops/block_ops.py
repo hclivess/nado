@@ -15,7 +15,9 @@ from . import segment_store
 from .mining_ops import (select_producer_two_lane, lane_of, epoch_of, compute_beacon,
                          total_bonded_shares, block_fork_weight, beacon_commitment)
 from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
+
                       B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS, BLOCK_TIMESTAMP_DRIFT)
+from protocol import ADDRESS_PREFIX
 import zstandard as zstd
 
 # Block bodies are stored as zstd(codec(block)) (#14) — ops/codec.py is a compact portable JSON
@@ -143,7 +145,7 @@ def _lands_flexibly(transaction):
     tip < max_block < tip + TX_LANDING_WINDOW), so an unincluded tx still expires and can't be replayed."""
     r = transaction.get("recipient")
     return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw")
-            or (isinstance(r, str) and r.startswith("ndo")))
+            or (isinstance(r, str) and r.startswith(ADDRESS_PREFIX)))
 
 
 def check_target_match(transaction_list, block_number, logger):

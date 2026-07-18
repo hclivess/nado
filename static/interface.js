@@ -44,6 +44,13 @@ const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, 
 // the chain passed target during proving and the node rejected it "Target block too low". Use the max (≈240 s).
 const POSW_TARGET_MARGIN = POSW_ANCHOR_OFFSET;
 const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
+// ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
+const ADDR_PREFIX = "ndo";
+const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;                     // 49 today
+const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");    // strict (lowercase)
+const ADDR_RE_I = new RegExp(ADDR_RE.source, "i");
+const ADDR_RE_LOOSE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{40,}$", "i");
+const ADDR_PRE_RE = new RegExp("^" + ADDR_PREFIX), ADDR_PRE_RE_I = new RegExp("^" + ADDR_PREFIX, "i");
 const MIN_TX_FEE = 1000;
 // Blocks to delay a flexibly-landing tx's earliest inclusion (min_block = tip + this) so it gossips to
 // every producer before any may include it -> identical mempools -> byte-identical blocks -> the node
@@ -180,7 +187,7 @@ function blake2bHashLink(a, b, size = 32) { return blake2bHash([a, b], size); }
  * Addresses, keys, registration PoW
  * -------------------------------------------------------------------------------------------- */
 function makeAddress(pubHex) {
-  const body = "ndo" + pubHex.slice(0, 42);
+  const body = ADDR_PREFIX + pubHex.slice(0, ADDR_BODY);
   return body + blake2bHash(body, 2);
 }
 
@@ -275,7 +282,7 @@ function renderAccountBar() {
 // (== 49 chars). A mistyped address fails the checksum and is rejected before any tx is built.
 function validateAddress(addr) {
   addr = (addr || "").trim();
-  if (!/^ndo[0-9a-f]{46}$/.test(addr)) return false; // ndo + 46 hex = 49 chars
+  if (!ADDR_RE.test(addr)) return false; // prefix + body + checksum hex
   return blake2bHash(addr.slice(0, -4), 2) === addr.slice(-4);
 }
 
@@ -283,7 +290,7 @@ function validateAddress(addr) {
 // ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter, not "ndo…").
 // case-insensitive on purpose: on-chain alias names are all-lowercase, and callers normalize with
 // .toLowerCase() before resolving/sending — typing "Alice" must behave exactly like "alice".
-function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/i.test(s || "") && !/^ndo/i.test(s || ""); }
+function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/i.test(s || "") && !ADDR_PRE_RE_I.test(s || ""); }
 // i18n helper for dynamic (JS-set) strings — translates via i18n.js's window.t, English fallback.
 function i18(k, fb, vars) { return (typeof window !== "undefined" && window.t) ? window.t(k, fb, vars) : (fb != null ? fb : k); }
 async function resolveAlias(name) {
@@ -339,12 +346,12 @@ function addrBookSetLabel(addr, label) {
 }
 const _abAlias = {};   // addr -> alias name ("" if none), resolved from chain
 async function abResolveAliases(addrs) {
-  await Promise.all([...new Set(addrs)].filter((a) => a && /^ndo/.test(a) && !(a in _abAlias)).map(async (a) => {
+  await Promise.all([...new Set(addrs)].filter((a) => a && ADDR_PRE_RE.test(a) && !(a in _abAlias)).map(async (a) => {
     try { const r = await (await fetch(relayBase() + "/get_aliases_of?address=" + encodeURIComponent(a), { cache: "no-store" })).json(); _abAlias[a] = (r.aliases && r.aliases[0]) || ""; }
     catch { _abAlias[a] = ""; }
   }));
 }
-const _abShort = (a) => /^ndo[0-9a-f]{46}$/.test(a) ? a.slice(0, 10) + "…" + a.slice(-4) : a;
+const _abShort = (a) => ADDR_RE.test(a) ? a.slice(0, 10) + "…" + a.slice(-4) : a;
 function _abRow(x) {
   const alias = _abAlias[x.addr] ? "@" + _abAlias[x.addr] : "", short = _abShort(x.addr);
   const name = x.label || alias || short;
@@ -3491,7 +3498,7 @@ async function exSearch() {
   $("exSearchErr").classList.add("hidden");
   if (!q) return;
   if (/^\d+$/.test(q)) return exOpen("b", q);
-  if (/^ndo[0-9a-f]{46}$/i.test(q)) return exOpen("a", q);
+  if (ADDR_RE_I.test(q)) return exOpen("a", q);
   if (/^[0-9a-f]{64}$/i.test(q)) return exOpen("b", q);       // 64-hex: block, falling back to tx
   if (looksLikeAlias(q)) {                                    // an alias -> its owner account
     const owner = await resolveAlias(q);
@@ -3688,7 +3695,7 @@ async function renderStats() {
   barChart("chartReward", blocks.map((b) => _nadoNum(b.block_reward)), blocks.map((b) => "#" + b.block_number), { color: _CGOLD, fmt: (v) => v.toFixed(2) });
   try {
     const d = await (await fetch(relayBase() + "/get_rich_list?n=8", { cache: "no-store" })).json();
-    const rows = ((d && d.rich_list) || []).slice(0, 8).map((e) => ({ label: /^ndo/.test(e.address) ? e.address.slice(0, 8) + "…" : e.address, value: _nadoNum(e.total) }));
+    const rows = ((d && d.rich_list) || []).slice(0, 8).map((e) => ({ label: ADDR_PRE_RE.test(e.address) ? e.address.slice(0, 8) + "…" : e.address, value: _nadoNum(e.total) }));
     hbarChart("chartWealth", rows, { color: _CGRN, fmt: (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(1)) });
   } catch {}
   // WALLET DISTRIBUTION: how many wallets hold how much (NADO decades) + held-supply concentration.
@@ -3751,7 +3758,7 @@ async function swapLock() {
   const amtRaw = nadoToRaw($("swapAmount").value || "0");
   const blocks = Math.max(10, parseInt($("swapTimelock").value || "120", 10) || 120);
   let hashlock = $("swapHashlock").value.trim().toLowerCase(), preimageHex = null;
-  if (!/^ndo[0-9a-f]{46}$/i.test(claimant)) { log("err", i18("swap.badClaimant", "Enter a valid ndo… claimant address.")); return; }
+  if (!ADDR_RE_I.test(claimant)) { log("err", i18("swap.badClaimant", "Enter a valid ndo… claimant address.")); return; }
   if (amtRaw <= 0n) { log("err", i18("swap.badAmount", "Enter an amount to lock.")); return; }
   try {
     if (!hashlock) { const pre = crypto.getRandomValues(new Uint8Array(32)); preimageHex = _hex(pre); hashlock = await _sha256hex(pre); }
@@ -4507,7 +4514,7 @@ async function msgSend() {
   const body = ($("msgBody").value || "").trim();
   if (!toRaw || !body) return;
   let addr = toRaw;
-  if (!/^ndo[0-9a-f]{40,}$/i.test(toRaw)) {                       // resolve an alias
+  if (!ADDR_RE_LOOSE.test(toRaw)) {                       // resolve an alias
     const owner = await resolveAlias(toRaw.replace(/^@/, ""));
     if (!owner) { $("msgHint").textContent = i18("msg.noAlias", "No such alias:") + " " + toRaw; return; }
     addr = owner;
@@ -4693,7 +4700,7 @@ async function proposeSpend() {
       if (!owner) throw new Error(i18("quorum.aliasErr", "Alias not found."));
       to = owner;
     }
-    if (to !== "faucet" && !(to.startsWith("ndo") && to.length === 49)) throw new Error(i18("quorum.badAddr", "Enter a valid ndo… address, a registered alias, or 'faucet'."));
+    if (to !== "faucet" && !(to.startsWith(ADDR_PREFIX) && to.length === ADDR_LEN)) throw new Error(i18("quorum.badAddr", "Enter a valid ndo… address, a registered alias, or 'faucet'."));
     const amtRaw = nadoToRaw($("qPropAmount").value || "");
     if (!(amtRaw > 0n)) throw new Error(i18("quorum.badAmount", "Enter a positive amount."));
     const memo = ($("qPropMemo").value || "").slice(0, 256);
@@ -4865,7 +4872,7 @@ async function doUnshield() {
   const rawAmount = nadoToRaw($("unshieldAmount").value || "0");
   const to = $("unshieldTo").value.trim() || state.wallet.address;
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to unshield.")); return; }
-  if (!/^ndo[0-9a-f]{46}$/i.test(to)) { log("err", i18("shield.badAddr", "Enter a valid ndo… address.")); return; }
+  if (!ADDR_RE_I.test(to)) { log("err", i18("shield.badAddr", "Enter a valid ndo… address.")); return; }
   const notes = loadNotes();
   const note = notes.find((n) => !n.spent && BigInt(n.value) >= rawAmount);
   if (!note) { log("err", i18("shield.noNote", "No single banknote covers that amount yet (splitting across banknotes isn't supported here).")); return; }
