@@ -25,6 +25,7 @@ Everything here re-derives from genesis at a reroll; renaming outside one is a f
 | `nado-rec-digest` | `DOMAIN_REC_DIGEST` | `execnode/exec_root.py` | `rec-digest-v1` |
 | `nado.shield` | `DOMAIN_SHIELD` | `execnode/shielded.py` / `static/shielded.js` | `shield-v1` |
 | `nado-empty-merkle` | `DOMAIN_EMPTY_MERKLE` | `hashing.py` | `empty-merkle-v1` |
+| `nado-randao-beacon` | `DOMAIN_RANDAO_BEACON` | `protocol.py` / (fold is node-side only) | `randao-beacon-v1` |
 
 `chain_id` is already brand-free (`alphanet-6`) and changes at every reroll anyway.
 `_GENESIS_BODY` in `protocol.py` is an address literal — re-derived at the reroll (flagged inline).
@@ -49,6 +50,7 @@ commit-reveal secrets: renaming mid-game forfeits stakes), wallet storage keys, 
 ## Class 4 — Client/server pairs (non-consensus, rename in lockstep, anytime)
 
 - `nado-forum-login` — `forum/server.py DOMAIN_FORUM_LOGIN` / `interface.js DOMAIN_FORUM_LOGIN`.
+- `nado-msg-pow` — `ops/message_pool.py DOMAIN_MSG_POW` / `static/messaging.js` (messaging hashcash).
 - `nado-pq-backend-interop-selftest` (`signatures.py`) — a local self-test message; rename freely.
 - Frozen wallet self-test vectors (`interface.js` — `chain_id: "nado-relaunch-1"`, `ndo…`
   fixtures): they pin historical derivation ON PURPOSE; re-derive them at the address switch,
