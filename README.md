@@ -28,8 +28,11 @@ confers no advantage and there is nothing to grind. Coins enter circulation only
 > **commit-reveal RANDAO**) are now implemented; the multi-node, epoch-crossing behaviour of the last
 > three is still only lightly exercised empirically (see [Security](#security)). What genuinely remains
 > is a subset of **eclipse hardening** (ASN-level peer diversity, pinned multi-seed bootstrap, snapshot-
-> bootstrap binding to a finalized signed checkpoint). Run it on testnet / at your own risk; do not
-> secure value of consequence with it yet. Chain id: `alphanet-1`.
+> bootstrap binding to a finalized signed checkpoint). On top of consensus, a **STARK-proven execution
+> layer** (a field-native zkVM) is live and carries real dApps — ~20 on-chain games, shielded transfers,
+> and end-to-end-encrypted on-chain messaging. Run it on testnet / at your own risk; do not secure value
+> of consequence with it yet. The alphanet **rerolls often** (fresh genesis, balances carried forward) as
+> consensus changes land strictly with no backward-compat; the current chain id is `alphanet-6`.
 
 ---
 
@@ -46,15 +49,24 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
 ## Key features
 
 - **Seamless — one client, any device, one tap.** Every node serves a single browser page (`/`) that
-  is at once the **wallet, block explorer, miner, and alias manager** — and, by design, where you'll
-  **interact with contracts** too — a **Rollup tab** now browses, deploys and calls execution-layer
-  contracts (a starter library ships: a counter, a tip jar, and a fair commit-reveal coin flip; the
-  contract runtime is pluggable). No install, no browser extension, no full node, no signup, no
-  seed-phrase ceremony. **Unlike a MetaMask-style extension wallet** — which only *holds keys*, can't
-  mine, and means "install the extension, back up a seed, buy gas, connect to a dApp" before you do
-  anything — NADO is just a URL. Open it and you're already a full participant: generate a post-quantum
-  wallet, mine, send/receive, register a human-readable **alias**, and browse the chain, all from one
-  link on any phone or laptop.
+  is at once the **wallet, block explorer, miner, and alias manager** — and, via a **Rollup tab**, a
+  window onto the execution layer that browses, deploys and calls contracts. No install, no browser
+  extension, no full node, no signup, no seed-phrase ceremony. **Unlike a MetaMask-style extension
+  wallet** — which only *holds keys*, can't mine, and means "install the extension, back up a seed, buy
+  gas, connect to a dApp" before you do anything — NADO is just a URL. Open it and you're already a full
+  participant: generate a post-quantum wallet, mine, send/receive, register a human-readable **alias**,
+  and browse the chain, all from one link on any phone or laptop.
+
+- **A real execution layer, already live.** Beyond payments, NADO runs a **field-native zkVM** whose
+  state is settled to L1 under **STARK proofs** (objective, stake-backed finality — L1 verifies a Merkle
+  proof against a bonded-quorum-settled root, not a re-execution). On it today: **~20 provably-fair
+  on-chain games** (dice, roulette, poker/hold'em, blackjack, mines, an original settlers-genre strategy
+  game, an auto-battler, a deck-builder, tamagotchi-style NFT pets, and more — each with its own
+  subdomain), **shielded transfers** (a private payments pool), and **end-to-end-encrypted on-chain
+  messaging** (ML-KEM-768) — so you can DM any address with no off-chain server. Randomness for games is
+  pinned to **future block hashes** (nobody can rig a roll); hidden information (hole cards, fog-of-war)
+  uses **commit-reveal**. Games self-serve from the wallet's background signer — no per-move wallet
+  round-trip.
 
 - **Everyone mining earns — a presence dividend, not a lottery.** Winner-take-all blocks mean most miners
   see *nothing* for long stretches. NADO redistributes most of the open lane's block reward to **everyone
@@ -288,6 +300,12 @@ override with `--dir <path>`) and re-runs from the fresh checkout, so a full una
 curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service
 ```
 
+This same one-liner is also the **universal upgrade / repair** command: it auto-installs `git` if
+missing, and if it finds a node laid down by an **older, git-less installer** it converts that directory
+into a real checkout in place and fast-forwards it to the latest code — your `private/` keys and chain
+data are gitignored and survive untouched. Any node, however it was first installed, gets current by
+running it again.
+
 Or the classic way:
 
 ```bash
@@ -361,7 +379,7 @@ only fires once the accrued amount clears a small dust floor (so each bond dwarf
 **stops automatically at `BOND_CAP`** (1,000 NADO — bonding past it buys no extra selection weight, so
 it never needlessly freezes coins). It is available in **all three clients**:
 
-- **Node (unattended):** set `auto_bond_percent` in `private/config.dat`, or the
+- **Node (unattended):** set `auto_bond_percent` in `private/config.json`, or the
   `NADO_AUTO_BOND_PERCENT` environment variable (which the `--service` installer wires into the unit).
   The node bonds the configured share of its own block rewards each epoch — ideal for a headless miner.
 - **Browser interface:** the **Stake** tab has an "Auto-bond mining rewards" field; while the tab is
@@ -371,6 +389,29 @@ it never needlessly freezes coins). It is available in **all three clients**:
 
 It is a **client/operator convenience and is never validated on-chain** — every auto-bond is just an
 ordinary signed `bond` transaction.
+
+### Keeping a node up to date
+
+NADO nodes update themselves. Two mechanisms:
+
+- **Integrated updater (`/update`).** Any node running current code exposes a harmless `/update`
+  endpoint — hitting it makes the node **fast-forward-pull the official `main`** (pinned to
+  `github.com/hclivess/nado`, ff-only, never an arbitrary branch), then relaunch its services. It also
+  **waves the request to its peers** and **runs itself automatically every 24 h**, so one nudge — from
+  anyone, since it only ever pulls the canonical repo — ripples the whole fleet current with no shell
+  access needed. A node's latest applied commit is visible in `/status` (`running_commit`).
+
+- **The installer one-liner** (above) is the fallback for a node too old to have `/update`, or one laid
+  down by an **old git-less installer**: re-running it installs `git`, converts the directory to a real
+  checkout, and fast-forwards it — keys and chain data preserved. *Old nodes with no `/update` and no
+  `git` cannot be reached remotely; their operator must run this one line once to rejoin the update path.*
+
+**Genesis rerolls.** Because consensus changes ship **strictly, with no backward compatibility**, the
+alphanet occasionally **rerolls to a fresh genesis** (balances carried forward from the prior chain).
+This is signalled in the code by a bumped `CHAIN_GENERATION`: on the next update a current node
+**automatically wipes its old chain data and boots the new genesis** — no manual step. (Keys in
+`private/` are never touched.) A node that has fallen too far behind to auto-detect the reroll clears
+its old state with `scripts/purge_resync.sh` and rejoins.
 
 Two more unattended behaviors round out a hands-free headless node (both best-effort, once per epoch, never
 disrupting consensus):
