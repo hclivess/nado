@@ -38,8 +38,9 @@ unreachable with no error anywhere.
 
 **Operator decision (2026-07-18): they flip WITH the alphanet cutover anyway** — this is alphanet;
 nothing here is worth preserving beyond main-account balances. Consequences, folded into the
-pre-snapshot notice: move DERIVED-account and MULTISIG balances to your MAIN account and unshield
-any shielded notes before the snapshot — only main keyed-account balances carry (via
+pre-snapshot notice: move DERIVED-account and MULTISIG balances to your MAIN account, WITHDRAW
+exec-layer (game-token) balances to L1 (the exec ledger resets — unwithdrawn tokens are
+forfeit), and unshield any shielded notes before the snapshot — only main keyed-account balances carry (via
 `rekey_alloc.py`); everything seed-derived re-derives fresh under the new tags on alphanet-7.
 **After mainnet, the frozen-forever rule applies**: renaming any of these post-launch requires
 explicit migration code, never a sed.
