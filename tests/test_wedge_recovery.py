@@ -66,9 +66,9 @@ def t_majority_on_other_fork_blocks_advance():
 # ---- escalated re-anchor candidates -------------------------------------------------------------------
 _PEERS = ["p1", "p2", "p3", "p4"]
 _ST = [
-    {"latest_block_weight": 500, "snapshot_height": 14000, "snapshot_hash": "s1"},   # heavier, below floor
-    {"latest_block_weight": 900, "snapshot_height": 14000, "snapshot_hash": "s2"},   # heaviest, below floor
-    {"latest_block_weight": 400, "snapshot_height": 15000, "snapshot_hash": "s3"},   # lighter (never)
+    {"protocol": 99, "latest_block_weight": 500, "snapshot_height": 14000, "snapshot_hash": "s1"},   # heavier, below floor
+    {"protocol": 99, "latest_block_weight": 900, "snapshot_height": 14000, "snapshot_hash": "s2"},   # heaviest, below floor
+    {"protocol": 99, "latest_block_weight": 400, "snapshot_height": 15000, "snapshot_hash": "s3"},   # lighter (never)
     None,                                                                            # dead peer
 ]
 _OUR_WEIGHT, _FLOOR = 450, 14913
@@ -88,14 +88,23 @@ def t_escalated_recovery_crosses_floor():
 
 def t_lighter_majority_can_never_pin():
     """Headcount is irrelevant: any number of lighter peers yields no candidate at any floor."""
-    light = [{"latest_block_weight": 449, "snapshot_height": 15000, "snapshot_hash": "sL"}] * 4
+    light = [{"protocol": 99, "latest_block_weight": 449, "snapshot_height": 15000, "snapshot_hash": "sL"}] * 4
     assert reanchor_candidates(_PEERS, light, _OUR_WEIGHT, 0) == []
 
 
 def t_malformed_statuses_skipped():
-    broken = [{"latest_block_weight": 999}, {"snapshot_hash": "x", "snapshot_height": 1},
-              {"latest_block_weight": 999, "snapshot_hash": "", "snapshot_height": 15000}, None]
+    broken = [{"protocol": 99, "latest_block_weight": 999}, {"snapshot_hash": "x", "snapshot_height": 1},
+              {"protocol": 99, "latest_block_weight": 999, "snapshot_hash": "", "snapshot_height": 15000}, None]
     assert reanchor_candidates(_PEERS, broken, _OUR_WEIGHT, 0) == []
+
+
+def t_foreign_protocol_donor_excluded():
+    """A protocol-2 straggler's heavier dead fork must never be picked as a re-anchor donor
+    (observed live 2026-07-18: donor 103.236.77.164, protocol 2, snapshot 49000)."""
+    foreign = [{"protocol": 2, "latest_block_weight": 10**9, "snapshot_height": 49000, "snapshot_hash": "sF"}]
+    assert reanchor_candidates(["1.2.3.4"], foreign, _OUR_WEIGHT, 0, min_protocol=3) == []
+    ours = [{"protocol": 3, "latest_block_weight": 10**9, "snapshot_height": 49000, "snapshot_hash": "sO"}]
+    assert len(reanchor_candidates(["1.2.3.4"], ours, _OUR_WEIGHT, 0, min_protocol=3)) == 1
 
 
 def t_escalation_threshold_sane():
@@ -111,6 +120,7 @@ if __name__ == "__main__":
     check("ESCALATED recovery crosses the floor, heaviest chain wins", t_escalated_recovery_crosses_floor)
     check("a lighter fork majority can never pin us", t_lighter_majority_can_never_pin)
     check("malformed peer statuses are skipped", t_malformed_statuses_skipped)
+    check("a foreign-protocol donor is never selected", t_foreign_protocol_donor_excluded)
     check("escalation threshold sane", t_escalation_threshold_sane)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

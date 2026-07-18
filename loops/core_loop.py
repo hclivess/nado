@@ -85,21 +85,35 @@ def majority_on_our_canonical(majority_hash, get_block_fn, canonical_hash_at_fn)
     return canonical_hash_at_fn(blk["block_number"]) == majority_hash
 
 
-def reanchor_candidates(peers, statuses, our_weight, floor):
+def _same_network(st, min_protocol):
+    """A status only counts toward weight comparisons if the peer speaks OUR protocol. A foreign-protocol
+    peer is a DIFFERENT NETWORK (no backward compat on this chain): its chain weight is meaningless here,
+    yet before this gate a protocol-2 straggler's heavier dead fork could both steal a re-anchor (observed
+    live 2026-07-18: donor 103.236.77.164, protocol 2, snapshot 49000) and suppress our block production.
+    Peer ADMISSION already enforces this; these fork-choice inputs must enforce it identically."""
+    return st.get("protocol", 0) >= min_protocol
+
+
+def reanchor_candidates(peers, statuses, our_weight, floor, min_protocol=None):
     """Weight-selected RE-ANCHOR candidates, extracted for direct testing: (weight, snapshot_height,
-    snapshot_hash, ip) for every peer advertising a chain STRICTLY heavier than ours whose snapshot sits
-    above `floor`. Normal wedge recovery passes the local finality floor; ESCALATED recovery (the wedge
-    persisted across REANCHOR_ESCALATE cooldowns) passes 0 — any snapshot on the heavier chain qualifies,
-    because a floor that keeps pinning us to a lighter chain is itself the fault being recovered from."""
+    snapshot_hash, ip) for every SAME-PROTOCOL peer advertising a chain STRICTLY heavier than ours whose
+    snapshot sits above `floor`. Normal wedge recovery passes the local finality floor; ESCALATED recovery
+    (the wedge persisted across REANCHOR_ESCALATE cooldowns) passes 0 — any snapshot on the heavier chain
+    qualifies, because a floor that keeps pinning us to a lighter chain is itself the fault being
+    recovered from."""
+    if min_protocol is None:
+        from config import get_protocol
+        min_protocol = get_protocol()
     return [(st["latest_block_weight"], st["snapshot_height"], st["snapshot_hash"], ip)
             for ip, st in zip(peers, statuses)
             if st and st.get("latest_block_weight") is not None
             and st.get("snapshot_hash") and st.get("snapshot_height") is not None
+            and _same_network(st, min_protocol)
             and st["latest_block_weight"] > our_weight
             and st["snapshot_height"] > floor]
 
 
-def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips):
+def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips, min_protocol=None):
     """The caught-up production gate's predicate, extracted for direct testing (Sybil-stall guard).
     True (= do NOT mint, we may be behind) when we have peers but no statuses yet, or when any peer
     advertises a strictly heavier tip that is NOT in rejected_tips. A rejected tip is one we already
@@ -107,8 +121,12 @@ def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips):
     weight advertisement suppress production indefinitely."""
     if have_peers and not statuses:
         return True
+    if min_protocol is None:
+        from config import get_protocol
+        min_protocol = get_protocol()
     return any(s.get("latest_block_weight", 0) > our_weight
                and s.get("latest_block_hash") not in rejected_tips
+               and _same_network(s, min_protocol)
                for s in statuses)
 
 

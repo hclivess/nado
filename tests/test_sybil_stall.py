@@ -29,9 +29,17 @@ def check(name, fn):
 
 W = 1000  # our tip weight
 
-def status(weight, tip):
+def status(weight, tip, protocol=99):
     """Build a minimal peer status dict advertising the given tip weight and hash."""
-    return {"latest_block_weight": weight, "latest_block_hash": tip}
+    return {"latest_block_weight": weight, "latest_block_hash": tip, "protocol": protocol}
+
+
+def t_foreign_protocol_weight_ignored():
+    """A foreign-protocol peer is a different network: its heavier tip must not stall our production."""
+    assert peer_claims_heavier_tip([status(W + 100, "old", protocol=2)], W,
+                                   have_peers=True, rejected_tips=set(), min_protocol=3) is False
+    assert peer_claims_heavier_tip([status(W + 100, "new", protocol=3)], W,
+                                   have_peers=True, rejected_tips=set(), min_protocol=3) is True
 
 def t_solo():
     """a solo node (no peers, no statuses) mints normally"""
@@ -98,6 +106,7 @@ check("lighter/equal tips never hold production", t_lighter_and_equal)
 check("rejected bogus-heavy tip does NOT stall production", t_rejected_sybil)
 check("2 Sybil clients cannot stall; a real heavier tip still counts", t_two_sybils)
 check("malformed statuses are harmless", t_malformed_status)
+check("foreign-protocol weight is invisible to the production gate", t_foreign_protocol_weight_ignored)
 check("emergency failure paths all reject the tip + loop re-checks behind", t_emergency_paths_reject)
 
 print()
