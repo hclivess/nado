@@ -582,6 +582,8 @@ async def account_mempool(request):
     (free_in/free_out) and moving into / out of the execution-layer playable balance (exec_in/exec_out),
     plus light per-tx summaries (no pubkeys/signatures/proofs — a pool dump is megabytes of PQ material,
     this is a few hundred bytes). Pure in-memory pool scan + at most a few alias lookups per call."""
+    if _rate_limited(request, 60):   # full O(mempool) scan + per-tx alias LMDB reads; throttle like the other scans
+        return _RL
     def _work():
         """Blocking pool scan (worker thread — alias resolution reads LMDB)."""
         try:

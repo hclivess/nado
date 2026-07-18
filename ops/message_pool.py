@@ -259,8 +259,10 @@ class MessagePool:
 
 
 def _rough_size(obj) -> int:
-    """Cheap upper-bound on the wire size of a str-keyed dict of str/int values (no msgpack dependency)."""
-    total = 0
-    for k, v in obj.items():
-        total += len(k) + (len(v) if isinstance(v, str) else 8)
-    return total
+    """EXACT wire size of the envelope (the JSON codec bytes). This is the ONLY size gate on an untrusted
+    message, so it must be exact: the previous heuristic summed len() of string values and charged every
+    non-string value a flat 8 bytes — a nested list/dict field (e.g. ct=[0,0,…] up to the 1 MiB body cap)
+    sized as ~8 bytes and passed the 16 KiB cap, then expanded into MBs of live Python objects per message
+    (× MSG_MAX_COUNT = a multi-GB OOM that also gossips network-wide). Serializing is bounded work: the raw
+    body was already capped upstream."""
+    return len(codec.pack(obj))
