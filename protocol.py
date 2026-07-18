@@ -211,13 +211,8 @@ POSW_DIFF_WINDOW = 20        # recent-registration window (epochs) whose rate se
 POSW_DIFF_TRAIL = 400        # longer trailing window defining the "normal" rate baseline (~2 days)
 POSW_DIFF_FLOOR = 20         # min baseline registrations/window (prevents tiny-network over-sensitivity + div-by-0)
 POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (bounds honest-user cost)
-# STRICT-v2 boundary (2026-07-17 alphanet-6 split at #2944, ops/reg_difficulty.py): a register with
-# max_block <= this is accepted at ANY proof multiplier 1..POSW_DIFF_MAX_MULT (grandfathers the finalized
-# past, whose v1 proofs were minted against per-node index state that provably diverged, and gives the fleet
-# a window to deploy); above it, the deterministic chain-derived requirement is enforced exactly. The
-# boundary must stay comfortably AHEAD of the live tip until every producing node runs v2 (~9.5k at fix
-# time, ~14.4k blocks/day -> ~50k = a ~3-day deploy window).
-REG_DIFF_V2_HEIGHT = 50_000
+# STRICT-v2 boundary: moved to the central FORK SCHEDULE — fork.py, "reg_difficulty_v2". Every
+# height-pinned consensus activation lives there (one named, documented place), not as loose constants.
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

@@ -787,15 +787,15 @@ def validate_transaction(transaction, logger, block_height):
         # count scales with recent registration volume, COUNTED FROM THE CHAIN'S BLOCKS over complete epochs
         # strictly before the anchor — a pure function of (max_block, chain), so every node at any time
         # computes the SAME requirement and rejects an under-worked proof (a modified node can't register
-        # cheaply). Below REG_DIFF_V2_HEIGHT the GRANDFATHER rule accepts any 1..MAX multiplier: the
+        # cheaply). Below the fork height ("reg_difficulty_v2") the GRANDFATHER rule accepts any 1..MAX multiplier: the
         # finalized chain contains v1 proofs minted against per-node index state that provably diverged
         # (the 2026-07-17 split at #2944 — clean nodes demanded 3x, the fleet accepted 2x), and
         # not-yet-upgraded peers keep producing such proofs until the boundary.
         from ops.reg_difficulty import required_posw_t, proof_multiplier
         from ops.mining_ops import epoch_of
-        from protocol import REG_DIFF_V2_HEIGHT
+        import fork
         challenge = posw.challenge_bytes(transaction["sender"], anchor)
-        if transaction["max_block"] > REG_DIFF_V2_HEIGHT:
+        if fork.active("reg_difficulty_v2", transaction["max_block"]):
             req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)))
             assert posw.verify(challenge, proof, req_t, POSW_S, POSW_K), \
                 "Invalid registration PoSW (or below the required difficulty)"

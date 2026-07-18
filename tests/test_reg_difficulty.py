@@ -13,8 +13,9 @@ os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_regdiff_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.getLogger().addHandler(logging.NullHandler())
 
-from protocol import (POSW_T, POSW_S, POSW_K, POSW_DIFF_FLOOR, POSW_DIFF_WINDOW, POSW_DIFF_MAX_MULT,
-                      REG_DIFF_V2_HEIGHT)
+from protocol import POSW_T, POSW_S, POSW_K, POSW_DIFF_FLOOR, POSW_DIFF_WINDOW, POSW_DIFF_MAX_MULT
+from fork import height as fork_height
+REG_DIFF_V2_HEIGHT = fork_height("reg_difficulty_v2")
 from ops import posw
 from ops import reg_difficulty as rd
 

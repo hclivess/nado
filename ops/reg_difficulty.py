@@ -23,13 +23,15 @@ BEFORE the anchor block. Blocks are the chain itself — there is no side index 
 race: the requirement is a pure function of (max_block, chain), identical on every node at any time with any
 DB history. Self-scaling is unchanged: recent rate vs. a longer trailing-average baseline (floored), capped.
 
-GRANDFATHER: a register with max_block <= REG_DIFF_V2_HEIGHT (the finalized past plus a fleet-deploy window)
+GRANDFATHER: a register with max_block at/below the "reg_difficulty_v2" fork height (fork.py — the
+finalized past plus a fleet-deploy window)
 is accepted with a proof at ANY multiplier 1..POSW_DIFF_MAX_MULT. This is what lets an upgraded node validate
 the existing chain (which contains v1-divergent proofs) and stay in consensus with not-yet-upgraded peers
 until the boundary; after it, every node computes the identical strict v2 value.
 """
+import fork
 from protocol import (POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
-                      POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH, REG_DIFF_V2_HEIGHT)
+                      POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH)
 
 # (epoch, epoch-final block hash) -> register-tx count. Keyed by the epoch's LAST block hash, which commits
 # (via parent linkage) to every block in the epoch — so a reorged epoch gets a different key and re-counts,
@@ -95,7 +97,7 @@ def required_posw_t(anchor_epoch: int) -> int:
 
 def proof_multiplier(challenge: bytes, proof: dict) -> int:
     """The multiplier this proof actually satisfies (posw.verify is exact-T, so scan m = 1..MAX), or 0 if it
-    verifies at none. Used by the grandfather acceptance for max_block <= REG_DIFF_V2_HEIGHT and by the
+    verifies at none. Used by the grandfather acceptance below the "reg_difficulty_v2" fork and by the
     interim mint mirror. Each verify attempt is O(k·S) hashes and garbage fails on the first opening, so the
     worst-case scan stays cheap."""
     from ops import posw
@@ -134,6 +136,6 @@ def mint_multiplier(tip_height: int, max_block: int) -> int:
     accepted (falling back to v2 when the chain holds none in range)."""
     from ops.mining_ops import epoch_of
     anchor_epoch = epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET))
-    if max_block > REG_DIFF_V2_HEIGHT:
+    if fork.active("reg_difficulty_v2", max_block):
         return difficulty_multiplier(anchor_epoch)
     return _observed_multiplier(tip_height) or difficulty_multiplier(anchor_epoch)

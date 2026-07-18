@@ -992,7 +992,8 @@ async def get_posw_difficulty(request):
         un-upgraded v1 validators will actually accept) — mint_multiplier handles both."""
         from ops.reg_difficulty import mint_multiplier, _window_count
         from ops.mining_ops import epoch_of
-        from protocol import POSW_T, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW, REG_DIFF_V2_HEIGHT
+        import fork
+        from protocol import POSW_T, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW
         try:
             h = memserver.latest_block["block_number"]
         except Exception:
@@ -1004,7 +1005,7 @@ async def get_posw_difficulty(request):
         return {"block_number": h, "anchor_epoch": anchor_epoch, "multiplier": mult,
                 "base_t": POSW_T, "required_t": POSW_T * mult,
                 "recent_registrations": recent, "window_epochs": POSW_DIFF_WINDOW,
-                "strict_after": REG_DIFF_V2_HEIGHT}
+                "strict_after": fork.height("reg_difficulty_v2")}
     return _resp(await asyncio.to_thread(_work))
 
 
