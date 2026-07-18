@@ -508,12 +508,20 @@ def transitions(bind_io=False, gamma_fp=0):
     cons.append(c_gb)
     for j, (ca, cb) in enumerate(_7BIT_PAIRS):
         def c_hs(c, n, p, ch, j=j, ca=ca, cb=cb):
-            va, vb = F.add(c[ca], TAG_7BIT), F.add(c[cb], TAG_7BIT)   # 7-bit values live in a byte-disjoint domain
+            # GAMMA-MIXED domain separation: the 7-bit range value is combine([TAG_7BIT, limb], gamma) =
+            # TAG_7BIT + gamma*limb, a gamma-DEPENDENT pole (exactly like the fetch/io/arg buses). An additive
+            # tag does NOT work here — over the prime field a limb can be set to (p - TAG + b) so (limb+TAG) mod p
+            # = b lands on a raw byte-table pole and the byte table absorbs it (an out-of-range 7-bit limb
+            # escapes). A gamma-mixed pole can collide with a raw byte pole only for one gamma value, drawn by
+            # Fiat-Shamir AFTER the columns commit -> negligible. So a 7-bit limb can only ever match the 7-bit
+            # table (limb in [0,128)); the raw byte bus and this one no longer cross-absorb.
+            va = logup.combine([TAG_7BIT, c[ca]], ch[1])
+            vb = logup.combine([TAG_7BIT, c[cb]], ch[1])
             lhs = F.mul(c[HS + j], F.mul(F.add(ch[0], va), F.add(ch[0], vb)))
             return F.sub(lhs, F.add(F.add(F.mul(2, ch[0]), va), vb))
         cons.append(c_hs)
     def c_gs(c, n, p, ch):
-        return F.sub(F.mul(c[GS], F.add(ch[0], F.add(p[PS], TAG_7BIT))), c[MS])
+        return F.sub(F.mul(c[GS], F.add(ch[0], logup.combine([TAG_7BIT, p[PS]], ch[1]))), c[MS])
     cons.append(c_gs)
     def c_z(c, n, p, ch):
         term = F.sub(c[HF], c[GF])
@@ -741,9 +749,9 @@ def make_aux_builder(periodic, bind_io=False, gamma_fp=0):
                 put(HB + jx, i, F.add(F.inv(F.add(beta, la)), F.inv(F.add(beta, lb))))
             put(GB, i, F.mul(cur[MB], F.inv(F.add(beta, p[PB]))))
             for jx, (ca, cb) in enumerate(_7BIT_PAIRS):
-                put(HS + jx, i, F.add(F.inv(F.add(beta, F.add(cur[ca], TAG_7BIT))),
-                                      F.inv(F.add(beta, F.add(cur[cb], TAG_7BIT)))))
-            put(GS, i, F.mul(cur[MS], F.inv(F.add(beta, F.add(p[PS], TAG_7BIT)))))
+                put(HS + jx, i, F.add(F.inv(F.add(beta, logup.combine([TAG_7BIT, cur[ca]], gamma))),
+                                      F.inv(F.add(beta, logup.combine([TAG_7BIT, cur[cb]], gamma)))))
+            put(GS, i, F.mul(cur[MS], F.inv(F.add(beta, logup.combine([TAG_7BIT, p[PS]], gamma)))))
         z = 0
         for i in range(T):
             put(Z, i, z)
