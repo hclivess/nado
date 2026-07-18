@@ -30,7 +30,7 @@ import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
  * adds no trust: the relay already supplies balances, fees and block targets. */
-let CHAIN_ID = "alphanet-6";
+let CHAIN_ID = "alphanet-7";   // default MUST track protocol.CHAIN_ID; initNetTag() re-adopts the relay's live chain at boot / before signing
 const EPOCH_LENGTH = 60;
 const FINALITY_DEPTH = 12;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
@@ -2060,6 +2060,8 @@ function _decodeArg(a) { return (a && typeof a === "object" && "$big" in a) ? Bi
 async function resumePendingExecSign() {
   const req = pendingExecSign;
   if (!req) return;
+  await initNetTag().catch(() => {});   // adopt the relay's CURRENT chain_id BEFORE signing — a game tx signed with a
+                                        // stale chain_id is rejected ("wrong chain id"); the boot call can still be racing
   // BACKGROUND signing: a game loaded us in a hidden iframe (bg=1) for a value-free autosign. We postMessage
   // the result to the game's origin instead of navigating. Anything that would need UI (locked wallet, an
   // untrusted origin, a manual confirm) posts {needui} so the game falls back to the visible full-page redirect.
