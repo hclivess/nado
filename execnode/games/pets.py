@@ -62,6 +62,7 @@ WA, WB, WS, WP, WH, WN, WW, WD = 50, 51, 52, 53, 54, 55, 56, 57
 PLIST, OLIST, WLIST = 60, 61, 62
 OCNT_SLOT, WCNT_SLOT = 2, 3
 SC = 950
+COMBINE_SALT = 888888         # fixed salt for combine()'s random stat pick (distinct from the 555/777/1000 rolls)
 DEBUG_PROBE = False           # test-only: resolve_battle persists its combat scratch to field 990 slots
 _2_32 = 1 << 32
 _INV232 = pow(1 << 32, F.P - 2, F.P)      # field inverse of 2^32 — exact hi-half extraction after LO32
@@ -100,6 +101,18 @@ def ref_train_roll(bh0, bh1, pid, i):
 def ref_train_ok(roll, cur, sp):
     k = 10 + 30 * sp
     return roll * (k + cur) < 100 * k
+
+
+def ref_same_species(gene_a, sp_a, gene_b, sp_b):
+    # two pets are the same species iff same tier AND same species-roll within that tier's band
+    if sp_a != sp_b:
+        return False
+    return roll32(gene_a + 777) % TIER_COUNT[sp_a] == roll32(gene_b + 777) % TIER_COUNT[sp_b]
+
+
+def ref_combine_stat(gene_keep, gene_consume):
+    # which of the 10 stats gets +1 when two duplicates are combined (deterministic from both genes)
+    return roll32(gene_keep + gene_consume + COMBINE_SALT) % 10
 
 
 def ref_battle_turns(bh0, bh1, bid, eff_a, eff_b):
@@ -362,6 +375,53 @@ def _train_resolve():
     return L
 
 
+def _combine():
+    """combine(keep=r0, consume=r1): merge two SAME-SPECIES pets you own — BURN consume and grant keep +1
+    to a random trained stat (index from both genes). Species match = same tier AND same species-roll
+    within that tier's band, both recomputed from the immutable gene (robust to any roster remap). A pure
+    sink: no NADO minted or paid, the burned pet is the whole cost. (Modelled on FEH 'merge allies'.)"""
+    L = ["movi r2 0", "lt r2 r0", "require r2", f"movi r2 {_2_32}", "mov r5 r0", "lt r5 r2", "require r5",
+         "movi r2 0", "lt r2 r1", "require r2", f"movi r2 {_2_32}", "mov r5 r1", "lt r5 r2", "require r5"]
+    L += ["mov r5 r0", "eq r5 r1", "notb r5", "require r5"]                       # keep != consume
+    L += ["ctx r5 caller"]
+    L += [f"slot r4 {OW} r0", "sload r6 r4", "mov r3 r5", "eq r6 r3", "require r6"]   # own keep
+    L += [f"slot r4 {OW} r1", "sload r6 r4", "mov r3 r5", "eq r6 r3", "require r6"]   # own consume
+    L += [f"slot r4 {GN} r0", "sload r5 r4", "require r5"]                        # keep hatched
+    L += [f"slot r4 {GN} r1", "sload r5 r4", "require r5"]                        # consume hatched
+    L += _alive_pid("r0")                                                        # keep alive
+    L += [f"slot r4 {EX} r0", "sload r5 r4", "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]   # keep rested
+    L += [f"slot r4 {EX} r1", "sload r5 r4", "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]   # consume rested
+    # same tier (sp -> r2) then same species-roll within the band
+    L += [f"slot r4 {SP} r0", "sload r2 r4", f"slot r4 {SP} r1", "sload r5 r4", "mov r6 r2", "eq r6 r5", "require r6"]
+    L += ["movi r3 0"]                                                           # count = Σ (sp==t)·COUNT[t]
+    for t in range(1, 7):
+        L += ["mov r5 r2", f"movi r6 {t}", "eq r5 r6", f"movi r6 {TIER_COUNT[t]}", "mul r5 r6", "add r3 r5"]
+    L += [f"slot r4 {GN} r0", "sload r5 r4", "movi r6 777", "add r5 r6"] + _roll32("r5", "r5")
+    L += ["divmod r5 r3", f"movi r4 {_sc(2)}", "sstore r4 r7"]                    # rA = roll%count -> SC2
+    L += [f"slot r4 {GN} r1", "sload r5 r4", "movi r6 777", "add r5 r6"] + _roll32("r5", "r5")
+    L += ["divmod r5 r3", "mov r6 r7", f"movi r4 {_sc(2)}", "sload r5 r4", "eq r5 r6", "require r5"]   # rA == rB
+    # reward: i = roll32(gn_keep + gn_consume + SALT) % 10 -> r2 ; tb[keep,i] += 1 ; pw[keep] += 1
+    L += [f"slot r4 {GN} r0", "sload r5 r4", f"slot r4 {GN} r1", "sload r6 r4", "add r5 r6",
+          f"movi r6 {COMBINE_SALT}", "add r5 r6"] + _roll32("r5", "r5") + ["movi r6 10", "divmod r5 r6", "mov r2 r7"]
+    L += [f"movi r4 {TB_BASE}", "add r4 r2", f"movi r5 {_2_32}", "mul r4 r5", "add r4 r0",
+          "sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5"]
+    L += _sl(PW, "r0") + ["sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5"]
+    # burn consume: no owner, clear its listing
+    L += [f"slot r4 {OW} r1", "movi r5 0", "sstore r4 r5"]
+    L += [f"slot r4 {MP} r1", "movi r5 0", "sstore r4 r5"]
+    L += [f"movi r4 {_sc(2)}", "movi r5 0", "sstore r4 r5", "ret r0"]             # scrub scratch
+    return L
+
+
+# release(pid): give up ANY pet or egg you own — a pure inventory-clear, no reward. Owner-only; blocked
+# while the pet is in/just-out of a battle (EX) so a wagered pet can't be burned out from under its stake.
+RELEASE = "\n".join(
+    ["movi r2 0", "lt r2 r0", "require r2", f"movi r2 {_2_32}", "mov r5 r0", "lt r5 r2", "require r5"]
+    + ["ctx r5 caller"] + _sl(OW) + ["sload r6 r4", "eq r6 r5", "require r6"]
+    + _sl(EX) + ["sload r5 r4", "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]
+    + _sl(OW) + ["movi r5 0", "sstore r4 r5"]
+    + _sl(MP) + ["movi r5 0", "sstore r4 r5", "ret r0"])
+
 CHALLENGE = "\n".join(
     ["movi r3 0", "lt r3 r0", "require r3",
      f"movi r3 {_2_32}", "mov r5 r0", "lt r5 r3", "require r5"]
@@ -562,7 +622,7 @@ REFUND_BATTLE = "\n".join(
 SRC = {"mint": MINT, "rebirth": REBIRTH, "feed": FEED, "transfer": TRANSFER, "name": NAME,
        "list": LIST_, "unlist": UNLIST, "buy": BUY, "offer": OFFER, "accept_offer": ACCEPT_OFFER,
        "cancel_offer": CANCEL_OFFER, "train": TRAIN, "challenge": CHALLENGE, "accept": ACCEPT,
-       "cancel_battle": CANCEL_BATTLE, "refund_battle": REFUND_BATTLE}
+       "cancel_battle": CANCEL_BATTLE, "refund_battle": REFUND_BATTLE, "release": RELEASE}
 
 ABI = {
     "mint": {"args": ["petId"], "value": True},
@@ -584,6 +644,8 @@ ABI = {
     "resolve_battle": {"args": ["battleId"]},
     "cancel_battle": {"args": ["battleId"]},
     "refund_battle": {"args": ["battleId"]},
+    "combine": {"args": ["keepPet", "consumePet"]},
+    "release": {"args": ["petId"]},
     "_view": {
         "maps": {"ow": {"field": OW, "index": "pets"}, "bh": {"field": BH, "index": "pets"},
                  "gl": {"field": GL, "index": "pets"}, "gh": {"field": GH, "index": "pets"},
@@ -613,4 +675,5 @@ def build():
     src["hatch"] = "\n".join(_hatch())
     src["train_resolve"] = "\n".join(_train_resolve())
     src["resolve_battle"] = "\n".join(_resolve_battle())
+    src["combine"] = "\n".join(_combine())
     return zkvmasm.assemble_contract(src)

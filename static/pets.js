@@ -794,6 +794,29 @@ async function transfer(pid) {
   if (to === dapp.me) return alertBar(window.t("pets.thatsYou", "That's you — pick another wallet."));
   dapp.call("transfer", [Number(pid), to], null, "transfer " + PETS[pid].label + " to " + to.slice(0, 10) + "…", { pid, phase: "xfer" }, { confirm: 1 });
 }
+// same-species duplicates you own that could be MERGED INTO p (hatched + rested; dead ones count — they're
+// cleanup fodder). `q.animal === p.animal` is exact-species (animalOf returns the one roster object per si).
+function combineDups(p) {
+  if (!p || !p.hatched || !p.animal) return [];
+  const cur = dapp.cursor;
+  return myPets().filter((q) => q.id !== p.id && q.hatched && q.animal === p.animal && cur != null && cur >= q.ex);
+}
+function combine(keepPid) {
+  const p = PETS[keepPid]; if (!p || !p.mine || p.dead) return;
+  const dups = combineDups(p);
+  if (!dups.length) return alertBar(window.t("pets.noDup", "You need a second pet of the same species — hatched and not in a battle — to combine into this one."));
+  dups.sort((a, b) => (a.dead ? 0 : 1) - (b.dead ? 0 : 1) || a.pw - b.pw);   // spend a dead dupe first, else the weakest
+  const fodder = dups[0], i = G.combineStatOf(p.gene, fodder.gene);
+  dapp.call("combine", [Number(keepPid), Number(fodder.id)], null,
+    window.t("pets.combineDesc", "combine {c} into {k} → +1 {stat} (the merged pet is gone)", { c: fodder.label, k: p.label, stat: G.STAT_NAMES[i] }),
+    { pid: keepPid, phase: "combine" }, { confirm: 1 });
+}
+function release(pid) {
+  const p = PETS[pid]; if (!p || !p.mine) return;
+  dapp.call("release", [Number(pid)], null,
+    window.t("pets.releaseDesc", "release {n} into the wild — gone forever, frees your roster (no reward)", { n: p.label }),
+    { pid, phase: "release" }, { confirm: 1 });
+}
 
 // ---- refresh loop ----------------------------------------------------------------------------------
 let BURNED = 0n;
@@ -905,6 +928,7 @@ function renderActive() {
          hatchRow: !p.hatched && !p.dead, feedRow: p.hatched && !p.dead,
          statsWrap: p.hatched, challengeRow: p.hatched && !p.dead && !p.mine && dapp.me,
          ownRow: p.mine && !p.dead, buyRow: !!p.price && !p.mine && !p.dead && dapp.me,
+         releaseRow: p.mine,
          offerRow: canOffer, offersInRow: p.mine && !p.dead && incoming.length > 0 });
   if (canOffer) {
     const mine = Object.values(OFFERS).filter((o) => o.state === 1 && o.pet === p.id && o.buyer === dapp.me);
@@ -929,6 +953,22 @@ function renderActive() {
     $("listPrice").classList.toggle("hidden", !!p.price);
     $("btnUnlist").classList.toggle("hidden", !p.price);
     if (p.price) $("btnUnlist").textContent = window.t("pets.removeListingPrice", "Remove listing (ask {price} NADO)", { price: rawToNado(p.price) });
+  }
+  if (p.mine) {
+    const cur = dapp.cursor, rested = cur != null && cur >= p.ex;
+    const dups = !p.dead ? combineDups(p) : [];
+    const cb = dapp.busy("combine", "pid", p.id);
+    $("btnCombine").classList.toggle("hidden", !dups.length && !cb);
+    $("mergeHint").classList.toggle("hidden", !dups.length);
+    $("btnCombine").disabled = cb || dapp.inflight;
+    $("btnCombine").textContent = cb ? window.t("pets.combiningConfirm", "⏳ Combining — confirming on-chain…")
+      : window.t("pets.combineN", "⊕ Combine a duplicate → +1 random stat · {n} spare", { n: dups.length });
+    if (dups.length) $("mergeHint").innerHTML = window.t("pets.mergeHintDup", "You own <b>{n}</b> spare <b>{sp}</b> — combine one in for a permanent <b>+1 to a random stat</b>. The spare is consumed (a dead one is spent first).", { n: dups.length, sp: esc(AN(p.animal)) });
+    const rb = dapp.busy("release", "pid", p.id);
+    $("btnRelease").disabled = rb || dapp.inflight || !rested;
+    $("btnRelease").textContent = rb ? window.t("pets.releasingConfirm", "⏳ Releasing — confirming on-chain…")
+      : (!rested ? window.t("pets.releaseResting", "🕊 Release — resting until the battle cooldown ends")
+                 : window.t("pets.release", "🕊 Release into the wild — free your roster"));
   }
   if (!p.hatched && !p.dead) {
     // busy() clears when the SDK stops tracking the call — but the egg stays hatchReady until the tx MINES,
@@ -1222,6 +1262,8 @@ function wireUI() {
   $("btnTransfer").onclick = () => transfer(active);
   $("btnList").onclick = () => listPet(active);
   $("btnUnlist").onclick = () => unlistPet(active);
+  $("btnCombine").onclick = () => combine(active);
+  $("btnRelease").onclick = () => release(active);
   $("btnBuy").onclick = () => buyPet(active);
   $("btnOffer").onclick = () => makeOffer(active);
   $("btnCard").onclick = () => { const p = PETS[active]; if (p && p.hatched && !p.dead) challengerCard(p); };
