@@ -767,13 +767,15 @@ function renderDiscard(duel, gm, eng, me) {
   const p = eng.players[meSeat], owe = p.owe;
   if (!duel.disc) duel.disc = [0, 0, 0, 0, 0];
   const n = duel.disc.reduce((a, b) => a + b, 0);
-  el.innerHTML = `<div class="small"><b>${T("discardOwed", "A 7 was rolled — discard {n} cards", { n: owe })}</b> (${n}/${owe})</div>`
+  el.innerHTML = `<div class="small"><b>${T("discardOwed", "A 7 was rolled — discard {n} cards", { n: owe })}</b> (${n}/${owe})${n === owe ? " ✓" : ""}</div>`
     + `<div class="tradegrid">` + `<div></div>` + E.RES.map((_, r) =>
-      `<div class="rc"><button data-r="${r}" data-d="-1">−</button><span class="n">${E.RES_ICON[r]}${duel.disc[r]}</span><button data-r="${r}" data-d="1">＋</button></div>`).join("") + `</div>`
-    + `<div class="row mt"><button class="primary" id="bDisc" ${n === owe ? "" : "disabled"}>${T("discardGo", "Discard")}</button></div>`;
+      `<div class="rc"><button data-r="${r}" data-d="-1" ${duel.disc[r] > 0 ? "" : "disabled"}>−</button><span class="n">${E.RES_ICON[r]}${duel.disc[r]}</span><button data-r="${r}" data-d="1" ${n < owe && duel.disc[r] < p.res[r] ? "" : "disabled"}>＋</button></div>`).join("") + `</div>`
+    + `<div class="row mt"><button class="primary${n === owe ? " pulse" : ""}" id="bDisc" ${n === owe ? "" : "disabled"}>${T("discardGo", "Discard")}</button></div>`;
   el.querySelectorAll("[data-r]").forEach((b) => b.onclick = () => {
     const r = Number(b.dataset.r), d = Number(b.dataset.d);
-    duel.disc[r] = Math.max(0, Math.min(eng.players[meSeat].res[r], duel.disc[r] + d));
+    const total = duel.disc.reduce((a, c) => a + c, 0);
+    if (d > 0 && total >= owe) return;                     // the TOTAL stops exactly at what you owe
+    duel.disc[r] = Math.max(0, Math.min(p.res[r], duel.disc[r] + d));
     duel.render();
   });
   if ($("bDisc")) $("bDisc").onclick = () => { const pack = E.pack5(duel.disc); duel.disc = null;
