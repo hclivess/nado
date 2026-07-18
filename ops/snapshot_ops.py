@@ -27,6 +27,7 @@ from ops import codec
 
 from ops.data_ops import get_home
 from ops import kv_ops
+from ops import segment_store
 
 # how many state entries (db, key, value triples) go into one transferable chunk
 CHUNK_ROWS = int(os.environ.get("NADO_SNAPSHOT_CHUNK_ROWS", "25000"))
@@ -371,10 +372,8 @@ def persist_checkpoint(height, block_hash, protocol, version, home=None, keep=2)
 
 def _checkpoint_is_canonical(height, home=None):
     """True iff the persisted checkpoint at `height` anchors to the block the CURRENT canonical chain
-    has at that height. A checkpoint captured on a since-abandoned fork (the node later re-anchored
-    away) stays on disk but must never be advertised or served: a fresh node bootstrapping onto it
-    lands on a chain no donor can extend — wedged at birth (observed live: a donor advertised its
-    dead fork's checkpoint 13000 while its canonical chain stood at 49k)."""
+    has at that height (number->hash index compare). Only the boot-time sweep needs this: at runtime
+    every persisted checkpoint is canonical BY CONSTRUCTION (see latest_final_checkpoint_height)."""
     manifest = load_checkpoint_manifest(height, home)
     if not isinstance(manifest, dict):
         return False
@@ -382,23 +381,55 @@ def _checkpoint_is_canonical(height, home=None):
 
 
 def latest_final_checkpoint_height(finalized_height, home=None):
-    """the highest persisted checkpoint at/below finalized_height that anchors to the CURRENT
-    canonical chain (safe to advertise/serve), or None. Fork-stale checkpoints are skipped."""
+    """the highest persisted checkpoint at/below finalized_height (safe to advertise/serve), or None.
+    Canonical BY CONSTRUCTION — no runtime re-check needed: capture happens on the just-incorporated
+    block, rollback drops reverted checkpoints (drop_checkpoints_above), a re-anchor wipes them all
+    (adopt_new_identity), and sweep_noncanonical_checkpoints cleans pre-invariant disks at boot."""
     finals = [h for h in list_checkpoint_heights(home) if h <= int(finalized_height)]
-    for h in reversed(finals):
-        if _checkpoint_is_canonical(h, home):
-            return h
-    return None
+    return finals[-1] if finals else None
 
 
 def drop_all_checkpoints(home=None):
-    """delete every persisted checkpoint, returning how many were dropped. Used after a re-anchor:
-    checkpoints captured on the abandoned identity are fork-stale — never advertised again thanks to
-    the canonical filter, but pure disk weight at best and operator confusion at worst."""
+    """delete every persisted checkpoint, returning how many were dropped (identity-change wipe:
+    checkpoints captured on an abandoned identity are statements about a dead chain)."""
     heights = list_checkpoint_heights(home)
     for h in heights:
         shutil.rmtree(_ckpt_path(h, home), ignore_errors=True)
     return len(heights)
+
+
+def sweep_noncanonical_checkpoints(home=None):
+    """BOOT hygiene: drop any persisted checkpoint whose anchor is not this node's canonical block at
+    that height. With adopt_new_identity wiping checkpoints on every re-anchor and rollback dropping
+    reverted ones, no new non-canonical checkpoint can come into existence — this cleans disks that
+    predate that invariant. (A poisoned advertised checkpoint wedges a fresh joiner at birth: it
+    bootstraps onto a chain no donor can extend — observed live at height 13000.) Returns the count."""
+    dropped = 0
+    for h in list_checkpoint_heights(home):
+        if not _checkpoint_is_canonical(h, home):
+            shutil.rmtree(_ckpt_path(h, home), ignore_errors=True)
+            dropped += 1
+    return dropped
+
+
+def adopt_new_identity(logger=None, home=None):
+    """LOCAL IDENTITY CHANGE — the root-cause invariant. When a node abandons its chain for another
+    (snapshot re-anchor), every artifact DERIVED from the abandoned chain must die with it, atomically
+    and by construction — not via per-artifact cleanup patches. import_snapshot has already replaced
+    the carried consensus state wholesale (restore_snapshot_state drops + repopulates SNAPSHOT_DBS);
+    this retires everything else that could still speak for the dead chain:
+      - the non-carried LMDB sub-DBs (tx history, block locators, GC reverts) — the set is COMPUTED
+        as all-minus-carried, so future sub-DBs are stale-safe by default,
+      - the block-body segment store (orphaned fork bodies were the "donor knows my tip" bait),
+      - our own persisted checkpoints (captured on the abandoned identity — the exact poison that
+        wedged a fresh joiner at 13000).
+    After this returns, the node's disk makes no statement the new identity does not vouch for."""
+    kv_ops.wipe_non_carried_dbs()
+    segment_store.reset(home)
+    dropped = drop_all_checkpoints(home)
+    if logger:
+        logger.warning("Adopted new chain identity: wiped tx history, block bodies, local indexes and "
+                       f"{dropped} checkpoint(s) of the abandoned chain")
 
 
 def load_checkpoint_manifest(height, home=None):

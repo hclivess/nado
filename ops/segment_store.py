@@ -181,6 +181,35 @@ class _Store:
             return None
         return payload
 
+    def reset(self):
+        """Delete EVERY segment and start over at an empty seg-0 — the block-body half of a local
+        identity change (ops/snapshot_ops.adopt_new_identity). Closes every cached handle first so
+        the unlinks work on Windows too. Callers must have already dropped/replaced the block_loc
+        locators (kv_ops.wipe_non_carried_dbs); by then the records are unreferenced bytes."""
+        with self.lock:
+            with self.read_lock:
+                for f in self.read_files.values():
+                    try:
+                        f.close()
+                    except OSError:
+                        pass
+                self.read_files.clear()
+            try:
+                self.active_f.close()
+            except Exception:
+                pass
+            d = segments_dir(self.home)
+            for name in os.listdir(d):
+                if name.startswith("seg-") and name.endswith(".dat"):
+                    try:
+                        os.remove(os.path.join(d, name))
+                    except OSError:
+                        pass
+            self.active_seg = 0
+            self.active_f = open(segment_path(0, self.home), "ab")
+            self.active_f.seek(0, os.SEEK_END)        # Windows 'ab' tell()==0 quirk, see __init__
+            self.active_size = self.active_f.tell()
+
     def delete_segment(self, seg: int) -> bool:
         """Unlink a fully-dead segment file (rolling-mode GC). Never the active one."""
         with self.lock:
@@ -229,6 +258,11 @@ def read(seg: int, off: int, total_len: int, expect_hash_hex: str, home=None):
 
 def delete_segment(seg: int, home=None) -> bool:
     return _store(home).delete_segment(seg)
+
+
+def reset(home=None):
+    """Wipe the whole block-body store back to an empty seg-0 (local identity change); _Store.reset."""
+    _store(home).reset()
 
 
 def active_segment(home=None) -> int:

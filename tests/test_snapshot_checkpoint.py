@@ -43,16 +43,6 @@ def t1():
     snapshot_ops.persist_checkpoint(height=5, block_hash="a" * 64, protocol=2, version="v")
     assert snapshot_ops.list_checkpoint_heights() == [5]
 
-    # CANONICAL FILTER (fork-stale regression): a checkpoint whose anchor is not the canonical block
-    # at its height (missing or mismatched number->hash row) must never be advertised — a donor that
-    # re-anchored off its old fork otherwise baits fresh joiners onto a dead chain no one can extend
-    # (observed live: dead-fork checkpoint 13000 advertised while the canonical chain stood at 49k).
-    assert snapshot_ops.latest_final_checkpoint_height(9) is None, "unanchored checkpoint advertised"
-    kv_ops.block_index_put(5, "x" * 64)    # canonical block at 5 is a DIFFERENT block
-    assert snapshot_ops.latest_final_checkpoint_height(9) is None, "fork-stale checkpoint advertised"
-    kv_ops.block_index_del(5, "x" * 64)
-    kv_ops.block_index_put(5, "a" * 64)    # the anchor IS canonical at 5 -> advertised once finalized
-
     # advertise-when-final: NOT offered until finalized_height >= 5 (reorg safety)
     assert snapshot_ops.latest_final_checkpoint_height(4) is None, "checkpoint advertised before final"
     assert snapshot_ops.latest_final_checkpoint_height(9) == 5
@@ -131,6 +121,57 @@ def t4():
     assert acc["registered"] == 1 and acc["fidelity"] == 7 and acc["bonded"] == 500, f"producer state lost: {acc}"
     assert kv_ops.recert_addresses_after(-1) == {"miner"}, "recert lease not carried -> open-lane fork"
 check("producer-selection state (registered/fidelity + recert lease) survives the snapshot", t4)
+
+
+def t5():
+    """Prove the BOOT SWEEP drops every checkpoint that does not anchor to the canonical chain
+    (pre-invariant poison — the live 13000 wedge) and keeps the ones that do."""
+    # add a canonical checkpoint and a fork-stale one (the keep=2 capture prune drops t4's @15),
+    # then sweep: only the canonical one may remain.
+    snapshot_ops.persist_checkpoint(height=20, block_hash="d" * 64, protocol=2, version="v")
+    snapshot_ops.persist_checkpoint(height=30, block_hash="e" * 64, protocol=2, version="v")
+    kv_ops.block_index_put(20, "d" * 64)      # canonical block at 20 == this checkpoint's anchor
+    kv_ops.block_index_put(30, "x" * 64)      # canonical block at 30 is a DIFFERENT block (fork-stale)
+    assert snapshot_ops.list_checkpoint_heights() == [20, 30]
+    assert snapshot_ops.sweep_noncanonical_checkpoints() == 1, "sweep count wrong"
+    assert snapshot_ops.list_checkpoint_heights() == [20], "sweep kept poison or dropped the canonical one"
+check("boot sweep drops fork-stale checkpoints, keeps canonical ones", t5)
+
+
+def t6():
+    """Prove adopt_new_identity retires EVERYTHING the abandoned chain wrote that a snapshot does not
+    carry — tx history rows, block bodies + locators, GC reverts, own checkpoints — while the carried
+    consensus state (accounts) survives, and the block store still works afterwards."""
+    from ops import segment_store
+    # artifacts of the "abandoned" chain: a tx-history row, a GC revert, a block body + locator
+    with kv_ops.write_txn() as txn:
+        txn.put(b"deadbeef", b"x", db=kv_ops._dbs()["tx"])
+        txn.put(b"gcrev", b"y", db=kv_ops._dbs()["gc_revert"])
+    seg, off, ln = segment_store.append("ab" * 32, b"orphaned-fork-body")
+    with kv_ops.write_txn():
+        kv_ops.block_loc_put("ab" * 32, seg, off, ln)
+    assert kv_ops.block_loc_get("ab" * 32) is not None
+    assert snapshot_ops.list_checkpoint_heights() == [20]      # survivor from t5
+
+    snapshot_ops.adopt_new_identity(logger=logger)
+
+    # everything non-carried is GONE
+    assert kv_ops.block_loc_get("ab" * 32) is None, "block locator survived the identity change"
+    with kv_ops.write_txn() as txn:
+        assert txn.get(b"deadbeef", db=kv_ops._dbs()["tx"]) is None, "tx history survived"
+        assert txn.get(b"gcrev", db=kv_ops._dbs()["gc_revert"]) is None, "gc revert survived"
+    assert snapshot_ops.list_checkpoint_heights() == [], "own checkpoints survived"
+    assert segment_store.active_segment() == 0
+    import os as _os
+    segdir = segment_store.segments_dir()
+    assert [n for n in _os.listdir(segdir) if n.startswith("seg-")] == ["seg-00000000.dat"], \
+        "old segment files survived the identity change"
+    # carried consensus state is untouched (import_snapshot owns replacing it)...
+    assert get_account("alice")["balance"] == 1000, "carried state was harmed by the wipe"
+    # ...and the store keeps working on the new identity
+    seg2, _off2, _ln2 = segment_store.append("cd" * 32, b"first-new-identity-body")
+    assert seg2 == 0
+check("adopt_new_identity wipes all non-carried artifacts, keeps carried state, store survives", t6)
 
 
 print(f"\n{'ALL SNAPSHOT-CHECKPOINT CHECKS PASSED' if fails == 0 else str(fails) + ' FAILED'}")

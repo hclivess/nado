@@ -1603,6 +1603,19 @@ except Exception as _e:
     logger.error(f"block-store segment migration failed: {_e}")
     raise SystemExit(1)   # a half-migrated store must not silently run — fix disk/permissions and restart
 
+# CHECKPOINT SWEEP (idempotent, boot-time): drop any persisted checkpoint that does not anchor to THIS
+# node's canonical chain. New non-canonical checkpoints can no longer come into existence (a re-anchor
+# wipes them via adopt_new_identity; a rollback drops reverted ones) — this cleans disks written before
+# that invariant existed. A stale advertised checkpoint poisons every fresh joiner that bootstraps from
+# this node (observed live: a dead fork's checkpoint 13000 wedged a new node at birth).
+try:
+    from ops.snapshot_ops import sweep_noncanonical_checkpoints
+    _sw = sweep_noncanonical_checkpoints()
+    if _sw:
+        logger.warning(f"Dropped {_sw} fork-stale checkpoint(s) that no longer anchor to the canonical chain")
+except Exception as _e:
+    logger.error(f"checkpoint sweep failed (non-fatal): {_e}")
+
 # Self-heal the recert_by_epoch presence index on EVERY boot (idempotent). get_open_registry reads this
 # epoch-keyed index; on a node upgraded across the heartbeat->lease refactor it starts empty, so any miner
 # whose recert predates the index would be reported ABSENT despite a valid lease. Mirroring the existing

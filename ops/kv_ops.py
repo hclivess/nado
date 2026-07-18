@@ -1353,46 +1353,6 @@ def tx_index_del(txid: str, block_number: int, sender: str, recipient: str):
     _write(_do)
 
 
-def index_drop_above(block_number: int) -> int:
-    """Purge every HISTORY-index row recorded ABOVE `block_number`: tx primary, both tx DUPSORT
-    secondaries, and both block-number indexes. RE-ANCHOR REPAIR: a snapshot re-import resets chain
-    state to the checkpoint but (by design) does not ship history indexes — so rows this node wrote on
-    its own ABANDONED fork above the checkpoint survive, and any tx the canonical chain re-mines then
-    trips the at-most-once gate ("Block replays already-mined tx") on every tail block: a permanent
-    sync/production wedge (2026-07-16). One write txn; returns rows removed."""
-    def _do(txn):
-        removed = 0
-        with txn.cursor(db=_dbs()["tx"]) as cur:
-            ok = cur.first()
-            while ok:
-                if _unpack(cur.value()).get("block_number", 0) > block_number:
-                    ok = cur.delete()          # delete positions the cursor on the NEXT row
-                    removed += 1
-                else:
-                    ok = cur.next()
-        for name in ("tx_by_sender", "tx_by_recipient"):
-            with txn.cursor(db=_dbs()[name]) as cur:
-                ok = cur.first()
-                while ok:
-                    bn, _txid = _split_dup_tx_value(cur.value())
-                    if bn > block_number:
-                        ok = cur.delete()
-                        removed += 1
-                    else:
-                        ok = cur.next()
-        with txn.cursor(db=_dbs()["block_by_num"]) as cur:
-            ok = cur.first()
-            while ok:
-                if un_be8(cur.key()) > block_number:
-                    txn.delete(bytes(cur.value()), db=_dbs()["block_by_hash"])
-                    ok = cur.delete()
-                    removed += 1
-                else:
-                    ok = cur.next()
-        return removed
-    return _write(_do)
-
-
 def tx_get(txid: str):
     """Primary tx-index doc {block_number, sender, recipient} for txid, or None — locates the block
     that carries the tx (get_transaction then reads the full tx from the block body)."""
@@ -1514,6 +1474,22 @@ def restore_snapshot_state(triples, txn=None):
             t.drop(_dbs()[name], delete=False)     # empty, keep the handle
         for name, key, value in triples:
             t.put(key, value, db=_dbs()[name], dupdata=(name in dup))
+    if txn is not None:
+        _do(txn)
+    else:
+        _write(_do)
+
+
+def wipe_non_carried_dbs(txn=None):
+    """Empty every sub-DB a snapshot does NOT carry (history + node-local): on a chain-identity change
+    (re-anchor) these are records about the ABANDONED chain — tx-history rows that trip the at-most-once
+    replay gate, block locators pointing at retired segments, GC revert records for heights that no
+    longer exist. COMPUTED as all-DBs-minus-SNAPSHOT_DBS, so any sub-DB added in the future is wiped by
+    default on identity change unless it is explicitly promoted into the snapshot carry-set."""
+    names = sorted(set(_PLAIN_DBS + _DUP_DBS) - set(SNAPSHOT_DBS))
+    def _do(t):
+        for name in names:
+            t.drop(_dbs()[name], delete=False)     # empty, keep the handle
     if txn is not None:
         _do(txn)
     else:

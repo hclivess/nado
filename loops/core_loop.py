@@ -646,16 +646,34 @@ class CoreClient(threading.Thread):
             if not manifest or manifest.get("snapshot_hash") != target_hash:
                 self.logger.warning("Fetched snapshot does not match the agreed hash")
                 return False
-            if not snapshot_ops.import_snapshot(manifest, chunks, logger=self.logger):
-                return False
 
-            # 3) anchor to block C so normal sync replays only the C..tip tail
+            # 3) PROBE BEFORE COMMIT: the donor must prove it can EXTEND its own snapshot before we
+            # touch ANY local state — serve the anchor block AND at least one block after it. A donor
+            # advertising a checkpoint it cannot extend (a dead fork's snapshot — the live wedge that
+            # pinned a fresh joiner at 13000) is refused while our current identity is fully intact,
+            # so a poisoned or inconsistent donor can never trade our working state for a dead end.
             anchor = asyncio.run(
                 snapshot_ops.fetch_block(source, self.memserver.port, manifest["block_hash"]))
             if (not anchor or anchor.get("block_hash") != manifest["block_hash"]
                     or anchor.get("block_number") != target_height):
-                self.logger.warning("Could not anchor snapshot to its checkpoint block; using full sync")
+                self.logger.warning("Snapshot donor cannot serve its own checkpoint block; refusing pre-import")
                 return False
+            if not asyncio.run(get_blocks_after(target_peer=source, from_hash=anchor["block_hash"],
+                                                count=1, logger=self.logger)):
+                self.logger.warning("Snapshot donor cannot extend its own checkpoint (no block after the "
+                                    "anchor) — dead-end snapshot refused pre-import")
+                return False
+
+            # 4) COMMIT: replace the carried consensus state. import_snapshot verifies every chunk
+            # sha256 + the re-derived state_root BEFORE its write txn, so a failure here still leaves
+            # the old identity fully intact.
+            if not snapshot_ops.import_snapshot(manifest, chunks, logger=self.logger):
+                return False
+
+            # ...and retire the abandoned identity: every artifact NOT carried by the snapshot dies
+            # with the chain it described (tx history, block bodies + locators, GC reverts, our own
+            # checkpoints). One invariant instead of per-artifact cleanups — see adopt_new_identity.
+            snapshot_ops.adopt_new_identity(logger=self.logger)
 
             save_block(anchor, logger=self.logger)
             set_latest_block_info(latest_block=anchor, logger=self.logger)
@@ -666,23 +684,9 @@ class CoreClient(threading.Thread):
             # from the real base and /status stops advertising finalized_height=0 until the first tail block.
             self.memserver.finalized_height = get_finalized_height()
 
-            # HISTORY-INDEX PURGE (wedge fix 2026-07-16): tx/block index rows this node wrote on its own
-            # now-abandoned fork ABOVE the checkpoint survive the snapshot import (tx history indexes are
-            # not part of the snapshot; block indexes ship only up to C). Any tx the canonical chain
-            # re-mines above C then trips the at-most-once gate ("Block N replays already-mined tx") and
-            # rejects EVERY tail block — the re-anchor-then-wedge loop observed live at #23042. The tail
-            # replay re-writes fresh rows for the canonical blocks as they incorporate.
-            stale = kv_ops.index_drop_above(target_height)
-            if stale:
-                self.logger.warning(f"Purged {stale} stale history-index rows above checkpoint {target_height}")
-
-            # CHECKPOINT HYGIENE: our own persisted checkpoints were captured on the identity we just
-            # abandoned. The canonical filter (snapshot_ops.latest_final_checkpoint_height) already
-            # refuses to advertise them, but there is no reason to keep fork-stale state on disk —
-            # fresh canonical checkpoints re-capture at the next interval boundaries.
-            dropped = snapshot_ops.drop_all_checkpoints()
-            if dropped:
-                self.logger.warning(f"Dropped {dropped} pre-reanchor checkpoint(s) captured on the abandoned chain")
+            # (The old HISTORY-INDEX PURGE (2026-07-16 wedge fix) and pre-reanchor CHECKPOINT drop that
+            # lived here are both subsumed by adopt_new_identity above: nothing of the abandoned chain
+            # survives the identity change, so there is nothing left to purge case by case.)
 
             # BACKFILL the recent block BODIES the C+1..tip tail replay can NOT rebuild. block_by_num/hash
             # arrived in the snapshot, so HASH lookbacks (beacon anchor (epoch-1)*EPOCH_LENGTH, FFG/PoSW
