@@ -69,7 +69,7 @@ The design is thin because NADO already ships the hard parts.
   **txid is the swap id**.
 - **The stack-VM + value escrow** ([`exec-instructions.md`](exec-instructions.md)) — deterministic
   contracts with `VALUE` escrow into `bridge[cid]` and `PAY` payouts that can never exceed escrow. The order
-  book is an ordinary `stackvm` contract, exactly like the games (`execnode/contracts/*.json`); nothing new
+  book is an ordinary `zkvm` contract, exactly like the games (`execnode/games/*.py`); nothing new
   in the VM is required.
 - **The L1↔exec bridge and namespaces** ([`rollups-and-settlement.md`](rollups-and-settlement.md)) — moving
   NADO between L1 and the exec layer, and isolating independent execution layers ("rollups") by namespace.
@@ -110,7 +110,7 @@ the system still clears.
 
 ## 4. The order book contract (`dex`) — concrete VM design
 
-An ordinary `stackvm` contract (see [`exec-instructions.md`](exec-instructions.md)), authored + differentially
+An ordinary `zkvm` contract (see [`exec-instructions.md`](exec-instructions.md)), authored + differentially
 verified against the real VM in `tests/test_dex_contract.py` exactly like `tests/test_bet_contract.py`. All
 money moves through the contract's `VALUE`/`PAY` escrow; **no method is gated on any admin address** — the
 contract has no owner. State is `{map: {key: int|str}}`; keys are `"|"`-namespaced (`key2`).

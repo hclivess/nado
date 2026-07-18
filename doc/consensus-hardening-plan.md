@@ -100,7 +100,7 @@ Files: `rollback.py`, `loops/core_loop.py`, `memserver.py`, `ops/account_ops.py`
 - `ops/account_ops.py`: `get_finalized_height()` / `set_finalized_height(h)` backed by a meta row
   (KV meta key after #21), default 0.
 - `memserver.py`: load `self.finalized_height` at startup; assert `max_rollbacks < finality_depth <
-  EPOCH_LENGTH` (10 < 30 < 60).
+  EPOCH_LENGTH` (10 < 12 < 60).
 - `incorporate_block` (core_loop ~610, AFTER `set_latest_block_info` commits): `new = max(finalized,
   block_number - finality_depth)`; if `new > current`, persist + update memserver (monotonic;
   crash-safe since recomputable as max).
@@ -157,13 +157,13 @@ Files: `ops/block_ops.py`, `memserver.py`, `protocol.py`
   HALTS instead of substituting; no divergent producer set at an epoch boundary.
 
 ### Step 5 — Pubkey-once in committed state + detached OPTIONAL ML-DSA winner signature + equivocation slashing (risk: medium, reversible) [also closes #19]
-Files: `ops/account_ops.py`, `ops/transaction_ops.py`, `ops/block_ops.py`, `loops/core_loop.py`, `Curve25519.py`
+Files: `ops/account_ops.py`, `ops/transaction_ops.py`, `ops/block_ops.py`, `loops/core_loop.py`, `signatures.py`
 - Store each identity's ML-DSA pubkey once in the account doc next to bonded/fidelity (read as-of-parent,
   deleted on rollback = revert-symmetric).
 - Add OPTIONAL signature field OUTSIDE the hash preimage (beside block_penalty/block_timestamp) = winner
   ML-DSA over `blake2b([chain_id, height, parent_hash, block_hash])`; `rebuild_block` drops it; never
   enters block_hash, cumulative_weight, validity, or reward. `verify_block` checks present sigs with
-  `Curve25519.verify()==True` (never equality).
+  `signatures.verify()==True` (never equality).
 - Two same-slot/same-parent signed blocks = portable equivocation proof → revert-symmetric bond/fidelity
   slash.
 - **Gate:** an OFFLINE winner's relay-built UNSIGNED block still accepted, credited by address, full
@@ -171,7 +171,7 @@ Files: `ops/account_ops.py`, `ops/transaction_ops.py`, `ops/block_ops.py`, `loop
   bond/fidelity revert-symmetrically.
 
 ### Step 6 — Objective FFG-lite finality: bonded checkpoint attestations advance finalized_height at >2/3 bonded shares (risk: high, NOT reversible)
-Files: `ops/attestation_ops.py` (new), `ops/account_ops.py`, `loops/consensus_loop.py`, `loops/core_loop.py`, `rollback.py`, `Curve25519.py`
+Files: `ops/attestation_ops.py` (new), `ops/account_ops.py`, `loops/consensus_loop.py`, `loops/core_loop.py`, `rollback.py`, `signatures.py`
 - Checkpoint at each epoch-boundary block. Bonded validators broadcast ~1 ML-DSA attestation/epoch
   (source→target), stored in a revert-symmetric `attestation_index` (UNIQUE(validator,epoch)).
 - Checkpoint justifies when attesting bonded shares > 2/3 of total bonded shares; finalizes on
@@ -211,6 +211,6 @@ Files: `nado.py`, `ops/peer_ops.py`, `loops/peer_loop.py`, `ops/snapshot_ops.py`
   Sybil snapshot; removing trust-median gate doesn't harm liveness under partial reachability.
 
 ## Constants introduced
-- `FINALITY_DEPTH = 30` (10 = max_rollbacks < 30 < 60 = EPOCH_LENGTH < 180 = `POSW_LEASE_EPOCHS`, the
+- `FINALITY_DEPTH = 12` (10 = max_rollbacks < 12 < 60 = EPOCH_LENGTH < 240 = `POSW_LEASE_EPOCHS`, the
   presence-recert lease that superseded the old `PRESENCE_WINDOW*EPOCH` heartbeat window).
 - `MAX_SHARES` per-identity weight cap for total_shares.

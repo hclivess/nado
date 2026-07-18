@@ -8,43 +8,43 @@ can import it without a cycle.
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `CHAIN_ID` | `"nado-relaunch-1"` | Bound into every signed tx + block body (anti cross-chain replay, M3) |
+| `CHAIN_ID` | `"alphanet-6"` | Bound into every signed tx + block body (anti cross-chain replay, M3); changes at every reroll |
 | `DENOMINATION` | `10_000_000_000` | 1 NADO in raw units (`to_readable_amount` divides by this) |
-| `GENESIS_TIMESTAMP` | `1669852800` | Genesis block timestamp |
+| `GENESIS_TIMESTAMP` | `1784257440` | Genesis block timestamp (alphanet-6) |
 
 ## Treasury & reserved addresses
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `GENESIS_ADDRESS` / `TREASURY_ADDRESS` | `ndo18c3afa…b803280` | The genesis address = the treasury (key-controlled); derived `_GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)` |
-| `TREASURY_GENESIS` | `1_000_000_000_000_000_000` (1e18 = 100M NADO) | Bootstrap allocation minted to the treasury at genesis. **Set 0 for a pure no-coins start.** |
-| `RESERVED_RECIPIENTS` | `{"bond", "unbond"}` | Keyless protocol pseudo-recipients. (No `burn` — removed.) |
+| `GENESIS_ADDRESS` | `ndo27f2870…9384ea` | The genesis producer address; derived `_GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)` |
+| `TREASURY_ADDRESS` | `"treasury"` | **Keyless** reserved account (no key, no founder, ≠ genesis address) that accrues the 10% treasury tax |
+| `TREASURY_GENESIS` | `0` | **No premine** — genesis mints zero coins; every coin was a block reward |
+| `RESERVED_RECIPIENTS` | 28 names — `bond`, `unbond`, `withdraw`, `register`, `slash`, `attest`, `commit`, `reveal`, `duty`, `alias`, `blob`, `settle`, `bridge`(+`_withdraw`), `dividend`(+`_withdraw`), `htlc`(+`_lock`/`_claim`/`_refund`), `shield`/`unshield`, `treasury`(+`_vote`/`_execute`), `msgkey`, `xmsg`, `faucet` | Keyless protocol pseudo-recipients (never a sender) |
 
 ## Reward & fees
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `TREASURY_BPS` / `BPS_DENOM` | `1000` / `10000` | Treasury share = 10.00% of each block reward |
-| `REWARD_WINDOW` | `100` | Trailing blocks averaged for the elastic reward |
-| `REWARD_CAP` | `5_000_000_000` (0.5 NADO) | Max reward per block |
+| `REWARD_WINDOW` | `100` | Rollback/prune safety window (the reward is bond-elastic, NOT fee-averaged) |
+| `BASE_SUBSIDY` | `1_000_000_000` (0.1 NADO) | Flat base subsidy; `reward = BASE_SUBSIDY·m(r)`, so this is the **max**/block (no `REWARD_CAP` — removed). See bond-elastic-emission.md |
 | `MIN_TX_FEE` | `1000` raw | Deterministic consensus minimum fee (anti-spam) |
 | `split_block_reward(R)` | fn | Returns `(producer_cut, treasury_cut)` summing to exactly `R` (90/10) |
 
 ## Mining (PROVISIONAL — simulate before locking)
 
-These gate the S4 bonded-mining mechanism. Values are placeholders pending economic simulation.
+These gate the S4 bonded-mining mechanism (live on alphanet-6).
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `B_MIN` | `1_000_000_000_000` (100 NADO) | Capital per selection share / minimum bond to be eligible |
-| `BOND_CAP` | `100_000_000_000_000` (10k NADO) | Max effective bond per identity (variance cap) |
+| `B_MIN` | `100_000_000_000` (10 NADO) | Capital per selection share / minimum bond to be eligible |
+| `BOND_CAP` | `10_000_000_000_000` (1,000 NADO) | Max effective bond per identity (variance cap) |
 | `MAX_SHARES` | `100` (`BOND_CAP // B_MIN`) | Max selection shares one identity can hold (anti-whale) |
 | `BOND_UNLOCK_DELAY` | `1440` blocks | Lock/cooldown after an unbond (anti-grind) |
 | `EPOCH_LENGTH` | `60` slots | Blocks per RANDAO beacon epoch |
-| `FAUCET_STARTER_BOND` | `B_MIN` | Treasury-funded starter bond for a fresh address (onboarding) |
-| `FIDELITY_CAP` | `1000` | Fidelity score ceiling; weight ramps to full at this value |
-| `FIDELITY_GAIN` | `1` | Fidelity gained per epoch present |
-| `FIDELITY_DECAY` | `2` | Fidelity lost per epoch absent (continuity costs more to fake than to keep) |
+| `POSW_LEASE_EPOCHS` | `240` (~1 day) | OPEN-lane presence lease — an identity re-proves PoSW within this window to stay eligible |
+| `FIDELITY_CAP` | `30` | Fidelity score ceiling; weight ramps to full at this value |
+| `FIDELITY_GAIN` | `1` | Fidelity gained per continuous recert (a lapse RESETS the streak; there is no `FIDELITY_DECAY` constant) |
 
 ## Block header fields (set in `construct_block`)
 

@@ -1,10 +1,10 @@
 # Privacy — a post-quantum zk-STARK shielded pool
 
-> **Status: IN PROGRESS.** Phase 1 (the shielded-pool state machine + a pluggable proof-verifier seam) is
-> implemented and tested (`execnode/shielded.py`, `tests/test_shielded.py`, 10 cases). Phase 2 (the FRI/STARK
-> prover + verifier that make it *private*) is the next, larger effort — it drops into the same seam without
-> changing the state machine. Privacy is not live until Phase 2 lands; Phase 1 is a *sound but transparent*
-> pool.
+> **Status: BUILT.** The shielded-pool state machine (`execnode/shielded.py`) AND the FRI/STARK join-split
+> proof are implemented and wired into `verify_transfer` — a shielded transfer verifies its **full** ZK
+> proof on-chain (see the §6 build table). What remains is **rollout**, not design: the pool-tree /
+> browser hash migration (BLAKE2b → alghash) and the client-side / delegated prover so a phone can produce
+> proofs itself. Until then proving is done by a helper; the pool is private and sound, not transparent.
 
 ## 1. Why this design (and not Monero/Zcash-as-is)
 

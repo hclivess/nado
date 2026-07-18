@@ -1,8 +1,11 @@
 # NADO treasury — a distribution & governance plan (deploy it, don't hoard it)
 
-> **Status: DRAFT / policy proposal.** NADO already *funds* a treasury (10% of every block reward, both
-> lanes, accruing to the genesis address — no premine). It has **no distribution or governance framework
-> yet**. This doc proposes one, drawing on both the treasuried projects that endured (Dash, Decred, Zcash,
+> **Status: LIVE (governance shipped); policy notes below are guidelines.** NADO funds a treasury
+> (10% of every block reward, both lanes — no premine) into a **keyless `treasury` account** (not the
+> genesis address, not any key), and **bonded-quorum spending governance is implemented**
+> (`treasury_vote` / `treasury_execute` reserved recipients; `nado_cli.py propose/vote/execute`;
+> `/treasury_status`), with an anti-hoard burn of idle balance each period. The policy discussion below
+> draws on both the treasuried projects that endured (Dash, Decred, Zcash,
 > Polkadot) **and** the treasury-less ones that endured (Bitcoin, Litecoin, Dogecoin, Monero) — and on the
 > ones in both camps that died. Numbers here are **tunable starting points**, not final consensus values.
 

@@ -162,6 +162,6 @@ cure for the whole class of "the proof trusted a prover-supplied public input" s
 
 ### Settlement (Phase-2b) / the seam
 The mechanism by which L1 accepts a settled zkVM state root because a PROOF justifies it, instead of a bonded-stake
-committee attesting it (`settlement_proofs.settlement_verifier` → `ops.settlement_ops.set_settlement_verifier`).
+committee attesting it. The proof path (on-chain `kv_ops.settlement_proven` marker, checked in `settlement_ops.settlement_justified`) is built but disabled today — quorum is the only live settlement authority.
 The fold plugs in here to make that single L1 check O(1) in the epoch size — once the recursion verifier is sound
 AND bound to the state root (composition spot-check for the execution AIR).

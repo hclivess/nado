@@ -32,7 +32,7 @@ structures must never contain floats** — amounts, fees, timestamps, block numb
 
 ## Chain-id binding (audit M3)
 
-A `chain_id` (`CHAIN_ID = "nado-relaunch-1"`) is included in:
+A `chain_id` (`CHAIN_ID = "alphanet-6"`, and it changes at every reroll) is included in:
 - every **transaction** body (added in `draft_transaction`, asserted in
   `validate_transaction`), so it is committed by the txid and bound by the signature; and
 - every **block** body (added in `construct_block`, checked in `verify_block`).
@@ -44,13 +44,13 @@ replayed here.
 
 - `txid = blake2b_hash(transaction_body)` (canonical) — commits the *whole* body, incl.
   `chain_id`.
-- The Ed25519 signature is always over `unhex(txid)` (the legacy `< 102000` "sign the packed
+- The ML-DSA-44 signature is always over `unhex(txid)` (the legacy `< 102000` "sign the packed
   body" branch is gone — fresh chain). `validate_origin` verifies the signature over the txid;
   `validate_txid` independently recomputes the txid from the body, so tampering any field is
   rejected.
 - `proof_sender` checks `make_address(public_key) == sender`.
 
-> Note: an Ed25519 signature is **not** a VRF — `Curve25519.verify` accepts non-unique
+> Note: an ML-DSA-44 signature is **not** a VRF — the scheme accepts non-unique
 > `(R,S)`, so a signature must never be used as selection randomness (see
 > [mining.md](mining.md)); the RANDAO beacon is used for that.
 
@@ -62,11 +62,11 @@ the checksum; the keyless reserved recipients `bond`/`unbond` are also accepted.
 checksum now uses canonical hashing, the genesis/treasury address is the legacy public-key body
 re-checksummed (`…b803280`, see [economics.md](economics.md)).
 
-## In-block transaction ordering — KNOWN OPEN (CO-8)
+## In-block transaction ordering — RESOLVED (CO-8)
 
 `construct_block` currently hashes `block_transactions` in the order they came from the local
 pool, while the network only converges the transaction *set*. Equal-fee transactions can
 therefore let two honest nodes compute different block hashes for the same set. The fix
-(recommended, **not yet implemented**) is to canonicalize the order — sort `block_transactions`
+(**now implemented**) is to canonicalize the order — `construct_block`/`rebuild_block` sort `block_transactions`
 by `txid` in `construct_block` and validate that ordering in `verify_block`. Track this for the
 S4.3 work.

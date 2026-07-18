@@ -1,6 +1,6 @@
 # NADO execution layer — design note (programmable contracts without burdening L1)
 
-**Status: DESIGN ONLY. Nothing here is built.** This note exists to record the
+**Status: BUILT — Phase 1 + Phase 2a are LIVE** (the field-native zkVM runtime settles to L1 under a bonded-stake quorum; Phase 2b validity-proof settlement is built off-path but not yet the live settlement rule). This note records the
 architecture *before* mainnet locks the L1 assumptions, so that adding programmability
 later is a clean extension rather than a retrofit. The L1 described in `protocol.py` and
 `ops/` is authoritative; this document is forward-looking.
@@ -84,7 +84,7 @@ programmability immediately with zero L1 risk, and the one later concession (a v
 > **Implementation status (Phase 1 AND Phase 2 built).**
 > - **Phase 1 (sovereign):** the `blob` reserved recipient (`protocol.py`, validated/burned in
 >   `transaction_ops`/`account_ops`, `tests/test_blob.py` incl. the **per-block blob-bytes cap** §3.3), a
->   deterministic stack VM (`execnode/vm.py`), a contract state store (`execnode/state.py`), a tailing
+>   field-native zkVM (`execnode/zkvm.py`), a contract state store (`execnode/state.py`), a tailing
 >   execution node + query API (`execnode/execnode.py`), submit CLI + example token; determinism tested in
 >   `tests/test_execnode_vm.py`. Proven live end-to-end (token deploy + transfer via blobs).
 > - **Phase 2 (settled + bridge):** `settle` records a bonded validator's `(exec_cursor, state_root)`;
@@ -332,4 +332,4 @@ execution-layer bet, sovereign-first and settlement-later.
 > Cross-references: `doc/whitepaper.md` §8 (roadmap), `doc/mining.md` (two-lane / phone
 > validation), `doc/storage.md` + `ops/kv_ops.py` (KV state index), `protocol.py`
 > (`RESERVED_RECIPIENTS`, fees, finality), `doc/determinism-and-chain-id.md` (canonical
-> bytes / browser reproducibility). This note is **design-only**; none of it is implemented.
+> bytes / browser reproducibility). Phase 1 + 2a of this design are now **live**; Phase 2b (validity-proof settlement) is built off-path but disabled (quorum-only).

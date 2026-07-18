@@ -18,8 +18,8 @@ with anything L1 does. Phones stay first-class (headers + DA sampling), exactly 
 
 | Primitive | Where | What it does |
 |---|---|---|
-| `blob` recipient | `protocol.RESERVED_RECIPIENTS`, `MAX_BLOB_BYTES_PER_BLOCK = 256 KiB` | opaque, size-capped, fee-metered byte carrier — L1 orders it, never decodes it |
-| `execnode` | `execnode/execnode.py`, `state.py`, `vm.py` | tails **finalized** L1 blocks, decodes blobs → exec txs, runs the VM, maintains a Merkle-rooted state store |
+| `blob` recipient | `protocol.RESERVED_RECIPIENTS`, `MAX_BLOB_BYTES_PER_BLOCK = 1 MiB` | opaque, size-capped, fee-metered byte carrier — L1 orders it, never decodes it |
+| `execnode` | `execnode/execnode.py`, `state.py`, `zkvm.py` | tails **finalized** L1 blocks, decodes blobs → exec txs, runs the zkVM, maintains a state store (sparse alghash2 root) |
 | `settle` tx | `construct_settle_tx` → `{exec_cursor, state_root}`, fee-exempt | a bonded validator running an exec node attests "at cursor C the exec state root is R" |
 | settlement verifier | `settlement_ops.settlement_justified(cursor, root, reg)` | a root is **SETTLED** when attesting bonded shares `> SETTLE_NUM/SETTLE_DEN` (2/3). `latest_settled()` derives the highest justified `(cursor, root)`; exposed at `/get_settled` |
 | trust-minimized bridge | `bridge` / `bridge_withdraw` recipients; `execnode.withdrawal_proof(nonce)` | L1 deposit escrows NADO → exec credit → exec burn → **Merkle proof against the settled root** → L1 releases escrow |
@@ -70,7 +70,7 @@ each is a strictly stronger security claim behind the same predicate.
 | Regime | `settlement_justified` body | Trust | Status |
 |---|---|---|---|
 | **2a — bonded quorum** | 2/3 of bonded stake attested `(ns, cursor, root)` | a validator committee is honest | **BUILT** |
-| **2b — validity proof** | one succinct **STARK** proves `apply(blobs[prev..new]) : prev_root → new_root` verifies | cryptographic soundness only | seam ready; recursion **BUILT off-path** (`doc/zk-recursion.md`), not yet wired as the settlement rule |
+| **2b — validity proof** | one succinct **STARK** proves `apply(blobs[prev..new]) : prev_root → new_root` verifies | cryptographic soundness only | recursion + on-chain settle-with-proof **BUILT** (`doc/zk-recursion.md`, `kv_ops.settlement_proven` marker) but **DISABLED** in `settlement_justified` — quorum-only today |
 | **2c — recursive aggregation** | one STARK proves **many** rollups' batches at once (proof-of-proofs) | cryptographic; **O(1) L1 cost for the whole ecosystem** | **BUILT + tested**; the full W=106 exec-AIR bundle now COMPLETES + VERIFIES with the native prover (`test_settlement_o1.py NADO_HEAVY=1`) |
 
 **2b — single validity proof (the trust flip).** The exec layer periodically posts `new_root` + a STARK that
@@ -98,7 +98,7 @@ above: **heavy to PROVE (specialized exec/settlement nodes with tens of GB — n
 VERIFY (~0.1–0.2 s, low memory — a phone could).** The two open items are engineering, not soundness: the
 **native Rust prover** for throughput (the pure-Python reference hits a memory/time wall at execution-AIR scale;
 the native NTT already cut recursion-prover memory ~4.5×) and **wiring the proof verifier as the authoritative
-settlement rule** (the `settlement_verifier` seam exists; it needs a decision on binding the claimed full-state
+settlement rule** (the on-chain `settlement_proven` marker path exists but is disabled; it needs a decision on binding the claimed full-state
 root — until then the bonded quorum governs and nothing on the money path depends on a proof).
 
 ---
@@ -111,7 +111,7 @@ exactly one thing: removing the honest-majority assumption.
 
 | | **Exec-node quorum (2a — shipped, possibly permanent)** | **zkVM validity proof (2b — optional)** |
 |---|---|---|
-| To settle a batch | bonded nodes **run the interpreter** (`execnode/vm.py`, **142 lines**) and attest the root | a prover generates a **STARK over every executed instruction** |
+| To settle a batch | bonded nodes **run the zkVM** (`execnode/zkvm.py`) and attest the root (2/3 bonded-stake quorum, live) | a prover generates a **STARK over every executed instruction** (built off-path; not yet the live rule) |
 | Compute to settle | ~**native execution** (µs–ms per call) | **~10³–10⁶× native** (modern GPU zkVMs ~10³–10⁴×); seconds–minutes per batch |
 | Prover hardware | commodity — the VM runs on a phone | tens of GB RAM, typically a GPU / proving cluster |
 | L1 verification | **8 lines — one integer compare** (`settlement_justified`) | verify a STARK — a large consensus-critical verifier |
@@ -134,7 +134,7 @@ seam is kept as cheap optionality, not a commitment to build a zkVM.
 
 Per settlement epoch, **L1's total work is bounded and independent of L2 transaction count**:
 
-1. **Carry blobs** — capped at `MAX_BLOB_BYTES_PER_BLOCK` (256 KiB/block today; a consensus constant tuned to
+1. **Carry blobs** — capped at `MAX_BLOB_BYTES_PER_BLOCK` (1 MiB/block today; a consensus constant tuned to
    keep slot-time relay phone-feasible). This bounds *DA bytes*, not computation.
 2. **Verify one proof** — in 2c, a single recursive STARK for the whole ecosystem.
 

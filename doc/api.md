@@ -157,7 +157,7 @@ Besides `blob`, `POST /submit_transaction` accepts these `recipient` values (bui
 ## 5. Coin Flip dApp flow (`coinflip.nadochain.com`)
 
 A fair, **staked** 2-player game that is an ordinary on-chain **contract** — not a native module. It lives at
-`execnode/contracts/coinflip.json` (runtime `stackvm`), deployed at cid `7ee95a0abd6e00d12edc3bf39f4c8f2d`
+the zkVM game `execnode/games/coinflip.py` (runtime `zkvm`; redeployed each reroll — the live cid is at coinflip.nadochain.com)
 (node-owned, so upgradable via the `upgrade` op), and is driven entirely through the generic `call` op with
 `value` escrow. It is the reference example of the VM's `VALUE`/`PAY` escrow primitive. Every call is signed by
 your NADO wallet (delegated via the `exec_sign` redirect — the key never touches the dApp):
@@ -170,6 +170,6 @@ your NADO wallet (delegated via the `exec_sign` redirect — the key never touch
 6. **Cash out** — `bridge_withdraw {amount}` → claim on L1 with `/exec/withdrawal_proof`.
 
 There is **no coinflip read API**: the dApp derives game / lobby / scoreboard from the contract's storage maps
-via the generic `GET /exec/contract?cid=7ee95a0abd6e00d12edc3bf39f4c8f2d` (storage maps: `st` stake, `pt` pot,
+via the generic `GET /exec/contract?cid=<coinflip-cid>` (storage maps: `st` stake, `pt` pot,
 `sd` settled, `nn` player count, `dl` deadline, `p1`/`p2` addresses, `c1`/`c2` commits, `s1`/`s2` secrets,
 `r1`/`r2` revealed flags, `ws` winner slot).

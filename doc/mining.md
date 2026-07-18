@@ -55,7 +55,7 @@ the model is a **capped, fair-launch bonded chain**: lock coins (you keep them) 
    **zero** advantage, and a whale is capped at `MAX_SHARES`.
 3. **Randomness = a commit-reveal RANDAO beacon**, chained with the previous beacon and
    produced by the always-on bonded set — **not** the grindable parent-hash, and **never** an
-   Ed25519 signature (`Curve25519.verify` accepts non-unique `(R,S)`, so a signature is
+   grindable signature (a malleable signature scheme accepts non-unique encodings, so a signature is
    grindable and is used only for authenticating reveals/attestations). Entry must be committed
    **before** the epoch beacon is revealed (kills just-in-time bond grinding).
 4. **Mobile/browser participation** is outbound-only and **passive**. On the **bonded** lane a
@@ -118,7 +118,7 @@ tip):
   gone); `rebuild_block` recomputes the winner from local parent state so a lying relay can't
   misattribute the reward.
 - **Bootstrap** — in `NADO_TESTNET` mode, `genesis.make_genesis` seeds bonded accounts from a
-  byte-identical `genesis_bonds.dat` manifest so there is an eligible producer set from block 1;
+  byte-identical genesis allocation (`genesis_data/genesis_alloc.dat` + `genesis_open.dat`) so there is an eligible producer set from block 1;
   startup logs the registry size + `total_shares` loudly.
 
 ### Deferred hardening (not in v1)
@@ -139,7 +139,7 @@ tip):
 - Enforce/document the **`max_rollbacks < EPOCH_LENGTH`** invariant for the epoch≥2 beacon anchor.
 
 ### S4b — browser light-miner (pending)
-Web-Crypto Ed25519, key in browser storage, `fetch()` to relays, reproducing the canonical
+Web-Crypto-hosted ML-DSA-44 (`@noble/post-quantum`), key in browser storage, `fetch()` to relays, reproducing the canonical
 encoding + address derivation in JS (BigInt-safe), offline-at-win.
 
 ## Bonded producer ramp (anti-sudden-takeover)
@@ -160,7 +160,7 @@ rationale and the takeover math: **doc/takeover-resistance.md**.
 
 ## Provisional parameters (simulate before locking)
 
-Bonded lane: `B_MIN = 1e12` (100 NADO), `BOND_CAP = 1e14` (10k NADO), `MAX_SHARES = 100`,
+Bonded lane: `B_MIN = 1e11` (10 NADO), `BOND_CAP = 1e13` (1,000 NADO), `MAX_SHARES = 100`,
 `EPOCH_LENGTH = 60`, `BOND_UNLOCK_DELAY = 1440`, `BOND_RAMP_EPOCHS = 30`.
 Open lane: `OPEN_BPS = 3000` (30% ⇒ `K_OPEN = 18` slots/epoch), `OPEN_BASE_FLOOR = 2`,
 `OPEN_FID_BONUS = 8` (open weight ranges 2..10), `POSW_LEASE_EPOCHS = 240` (≈ 1 day recert lease).

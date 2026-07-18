@@ -58,7 +58,12 @@ accrued off-L1 and collected on demand — so participation, not a rare jackpot,
 what an open miner feels. Consensus hashing is over canonical JSON so a vendored-crypto browser
 client reproduces addresses, transaction IDs, and verification byte-for-byte.
 Derived state lives in a single schemaless, memory-mapped, ACID **LMDB** key-value
-store. Both waves of consensus hardening are now **live in code**: objective
+store. Beyond payments, a **field-native zkVM execution layer** settles to L1 against a
+bonded-stake-quorum-justified state root and already runs a real ecosystem — **~20
+provably-fair on-chain games**, a **shielded private-transfer pool**, and
+**end-to-end-encrypted on-chain messaging** — with STARK-provable execution and single-proof
+settlement built behind the same settlement predicate (Sections 6, 8). Both waves of
+consensus hardening are now **live in code**: objective
 stake-weighted fork-choice, an enforced finality floor, a grind-proof chain-weight
 header, a fail-loud beacon, a detached optional winner signature, and pubkey-once,
 **plus** equivocation slashing (block-authorship *and* FFG-attestation double-votes),
@@ -417,23 +422,24 @@ mining lane — register for free, earn the base subsidy from block 1. *(impleme
 > coin allocation: `TREASURY_GENESIS` stays 0. Account seeding must not be
 > conflated with a balance premine.
 
-### 4.2 Per-block reward: base subsidy + elastic fee term
+### 4.2 Per-block reward: flat base × bond-elastic multiplier
 
-Every block reward is:
+The block reward is a **flat base subsidy scaled by a bond-elastic multiplier** —
+**fee-independent**, with no fee-averaging term and no `REWARD_CAP` (both removed):
 
-1. a flat **base subsidy floor** `BASE_SUBSIDY = 0.1 NADO/block` (~1,440 NADO/day
-   at 6s blocks), independent of fees. Without a floor, a no-premine chain
-   deadlocks (0 coins → 0 fees → 0 reward forever); plus
-2. a **fee-weighted elastic term** equal to the **trailing 100-block
-   (`REWARD_WINDOW = 100`) average fee per block**, computed from the block's own
-   ancestry via a single indexed cumulative-fee lookback (not a tip-anchored
-   walk) so full and pruned/snapshot nodes agree;
+    minted = BASE_SUBSIDY · m(r)            # m(r) ∈ [m_min, 1], r = bonded / total_supply
 
-clamped to `REWARD_CAP = 0.5 NADO` per block. *(implemented)*
+- `BASE_SUBSIDY = 0.1 NADO/block` (~1,440 NADO/day at 6 s); since `m(r) ≤ 1` this is
+  the **maximum** emission per block. Without it a no-premine chain would deadlock
+  (0 coins → nothing to bond → no producers), so the floor `m_min·BASE_SUBSIDY ≈ 0.015
+  NADO` is the fair-launch engine and the perpetual disinflationary tail.
+- `m(r)` (`bond_elastic_mult_bps`, tuned `M_MIN=0.15, k=4`) **shrinks** emission as the
+  bonded ratio rises — a better-secured chain mints less ("super hard money"). It is
+  recomputed and enforced deterministically from committed state, so full and
+  pruned/snapshot nodes agree. *(implemented; see [bond-elastic-emission.md](bond-elastic-emission.md))*
 
-> `BASE_SUBSIDY` is explicitly *tunable*; **no halving or issuance schedule
-> exists yet** — emission today is a perpetual flat floor plus a capped elastic
-> term. A halving schedule is noted as future work. *(planned)*
+> `BASE_SUBSIDY` and the `m(r)` shape are *tunable*; **no halving schedule exists** —
+> emission is a perpetual bond-elastic floor, not a scheduled decay. *(by design)*
 
 ### 4.3 Treasury tax + the lane-aware split
 
@@ -615,7 +621,7 @@ NADO's consensus crypto rests on three live pillars.
 
 Signatures are **ML-DSA-44 (FIPS 204 / Dilithium)**, via the pure-Python
 `dilithium-py` library (no native build). The module is still named
-`Curve25519.py` only for import stability — the algorithm is **not** Ed25519.
+signatures are handled in `signatures.py` — the algorithm is **not** Ed25519.
 Keys use a **32-byte seed** from which the 1312-byte public key and the ~2420-byte
 signatures are deterministically regenerated via `KeyGen_internal(seed)`. Signing
 uses ML-DSA **INTERNAL** mode with a fresh 32-byte hedge, chosen to match
@@ -654,7 +660,7 @@ recursively sorted keys (BigInt is required because raw amounts exceed JS's
   **registered alias** (a human-readable name), resolved to its owner's address at
   apply time (§Aliases / `doc/aliases.md`). *(implemented)*
 - **Transaction binding.** `txid = blake2b_hash(canonical body)`, including
-  `CHAIN_ID = "alphanet-1"`; the signature is taken over `unhex(txid)`.
+  `CHAIN_ID = "alphanet-6"`; the signature is taken over `unhex(txid)`.
   `validate_txid` independently recomputes the txid so any field tamper is
   rejected, and `validate_origin` checks both the signature and
   `make_address(public_key) == sender`. `CHAIN_ID` binding prevents
@@ -1155,13 +1161,17 @@ Additional hardening and feature items, all currently **planned/partial**:
   phone-mining/finality/simplicity are preserved. The contract engine is **pluggable**
   (`execnode/runtimes.py`): a contract records the runtime it deployed under and every
   call/view dispatches back to it, so the VM is swappable without touching consensus. The
-  default runtime is a tiny deterministic stack VM (`execnode/vm.py`, now with a `HASH`
-  primitive for commit-reveal), and a **starter contract library** ships from generalized
-  method patterns — a counter, a per-caller accumulator, and a **fair 2-player coin flip**
-  (commit-reveal: neither party can bias the parity of `HASH(secret₀‖secret₁)`). The live
-  wallet exposes all of it at a **Rollup tab** (browse / deploy / call, per namespace). See
-  [execution-layer.md](execution-layer.md), [rollups-and-settlement.md](rollups-and-settlement.md),
-  and the VM/proving-frontier survey in
+  live runtime is a **field-native zkVM** (`execnode/zkvm.py`) whose every execution is
+  **STARK-provable**, and it already carries a real ecosystem rather than toy examples:
+  **~20 provably-fair on-chain games** (dice, roulette, poker/hold'em, blackjack, mines, an
+  original settlers-genre strategy game, an auto-battler, a deck-builder, tamagotchi-style NFT
+  pets, and more), a **shielded (private) transfer pool**, and **end-to-end-encrypted on-chain
+  messaging** (ML-KEM-768). Game randomness is pinned to future block hashes (unriggable) and
+  hidden information uses commit-reveal. The live wallet exposes contracts at a **Rollup tab**
+  (browse / deploy / call, per namespace); each game additionally serves from its own
+  subdomain via the wallet's background signer (no per-move wallet round-trip). See
+  [execution-layer.md](execution-layer.md), [zk-execution-proofs.md](zk-execution-proofs.md),
+  [rollups-and-settlement.md](rollups-and-settlement.md), and the VM/proving-frontier survey in
   [execution-layer-vm-research.md](execution-layer-vm-research.md) (the PQ-soundness ↔
   cheap-verifier tension; Circle-STARK/Stwo + lookup VM as the forward bet).
 - **Data availability & the DA-backed shielded pool** ([privacy.md](privacy.md),
@@ -1278,7 +1288,7 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `CHAIN_ID` | `"alphanet-1"` | Bound into every signed tx/block (replay protection, M3). |
+| `CHAIN_ID` | `"alphanet-6"` | Bound into every signed tx/block (replay protection, M3); changes at every reroll. |
 | `DENOMINATION` | `10_000_000_000` (1e10) | Raw units per 1 NADO; all consensus amounts are integers. |
 | `GENESIS_BEACON` | `blake2b_hash(["nado-genesis-beacon", CHAIN_ID])` | Seed for epochs 0–1 and chaining base for epoch ≥ 2. |
 | `EPOCH_LENGTH` | `60` | Slots per epoch; beacon/RANDAO epoch; per-slot rotation period. |
@@ -1309,7 +1319,7 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `DIVIDEND_POOL` | `"dividend"` | Reserved L1 account the open-lane dividend accrues to (`O(1)` on L1; redistributed off-L1, fidelity-weighted). |
 | `BASE_SUBSIDY` | `1e9` (0.1 NADO) | Flat per-block emission floor (~1,440 NADO/day at 6s blocks). |
 | `REWARD_WINDOW` | `100` | Trailing blocks averaged for the elastic fee reward. |
-| `REWARD_CAP` | `5e9` (0.5 NADO) | Max reward per block. |
+| `BASE_SUBSIDY` | `1e9` (0.1 NADO) | Flat base; `reward = BASE_SUBSIDY·m(r)`, so the max/block (no `REWARD_CAP`). |
 | `MIN_TX_FEE` | `1000` raw | Deterministic minimum fee floor (ordinary transfers and `bond`; `register`/recert, `unbond`, `withdraw` and the reserved consensus/exec txns — `slash`/`attest`/`commit`/`reveal`/`settle`/`bridge_withdraw`/`dividend_withdraw` — are fee-exempt). |
 | `TREASURY_ADDRESS` / `GENESIS_ADDRESS` | `_GENESIS_BODY + blake2b_hash(body, 2)` | Founder key-controlled treasury == genesis address. |
 | ML-DSA-44 pubkey | `1312` bytes (from 32-byte seed) | Post-quantum public key (FIPS 204). |

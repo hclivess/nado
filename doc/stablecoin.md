@@ -35,13 +35,13 @@ oracle reliance drops sharply — see §4.3.
 
 ## 2. Can the execution node host it? — capability audit
 
-The execution layer (`doc/execution-layer.md`) is a deterministic VM (`execnode/vm.py`) replaying ordered
+The execution layer (`doc/execution-layer.md`) is a field-native zkVM (`execnode/zkvm.py`) replaying ordered
 L1 `blob` payloads, with a bonded-quorum-settled `state_root` and a bridge for value in/out
 (`SHIELD_ESCROW` / `BRIDGE_ESCROW` patterns). What it gives us for free is real: **deterministic replay,
 L1-ordered execution, quorum settlement, a value-escrow bridge, and an existing bonded-stake + slashing
 substrate.** What the *VM* cannot do is the problem.
 
-| Stablecoin needs | VM today (`execnode/vm.py`) | Verdict |
+| Stablecoin needs | zkVM today (`execnode/zkvm.py`, with `DIVMOD`/`DIVMODW` + bounded loops) | Verdict |
 |---|---|---|
 | Collateral-ratio / interest math | **No `DIV`** opcode; only `ADD SUB MUL` | ✗ blocker — can't compute `debt·PRECISION/collateral` |
 | Iterate positions for liquidation | **No loops / no jumps** — linear programs only | ✗ blocker |

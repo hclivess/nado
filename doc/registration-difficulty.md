@@ -89,7 +89,7 @@ show the scale. The point is not to make a flood impossible but **progressively,
 top of the two hard bounds that already cap the payoff:
 
 - the **structural 20% (`OPEN_BPS`) cap** — a zero-capital Sybil swarm can never pull more than the open lane's
-  20% of emission, no matter how many identities it mints ([reward-capture-theorem.md](reward-capture-theorem.md));
+  30% of blocks, no matter how many identities it mints ([reward-capture-theorem.md](reward-capture-theorem.md));
 - the **renewable lease** — each identity must redo the PoSW every `POSW_LEASE_EPOCHS` (~1 day) to stay present,
   so a farm's cost is *size × time*, not a one-off.
 

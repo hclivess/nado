@@ -41,7 +41,7 @@ a zkVM. The weight difference, with real numbers:
 
 | | Exec-node quorum (shipped) | zkVM validity proof (optional) |
 |---|---|---|
-| Settle a batch | run the VM (`execnode/vm.py`, **142 lines**), attest the root | prove every executed instruction (STARK) |
+| Settle a batch | run the zkVM (`execnode/zkvm.py`), attest the root (bonded quorum, live) | prove every executed instruction (STARK, built off-path) |
 | Compute | ~native (µs–ms) | **~10³–10⁶× native** — GPU/cluster, seconds–minutes |
 | L1 verify | **8 lines / one integer compare** | a large consensus-critical STARK verifier |
 | New audit surface | 142-line VM + 97-line predicate | a general zkVM: **~50k–100k+ lines** |

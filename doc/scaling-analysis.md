@@ -20,14 +20,14 @@ crypto.**
 ## Implementation bottlenecks (fixable without design change)
 
 ### 1. Pure-Python ML-DSA — the single biggest throughput cost — ✅ seam + NATIVE BACKEND SHIPPED
-`Curve25519.py` ran ML-DSA-44 via `dilithium-py` (pure Python); signature *verification*
+`signatures.py` ran ML-DSA-44 via `dilithium-py` (pure Python); signature *verification*
 dominates block validation. Native ML-DSA is a 10–100× win — but a blind swap would (a)
 break the deliberate "runs on anything / a phone / a 386" pure-Python design goal, and (b)
 hit an **interop trap**: the chain (node + browser `@noble/post-quantum`) signs with ML-DSA
 **internal** (no context wrapping), while standard native APIs (e.g. liboqs/`oqs`) wrap a
 domain-separation context — producing signatures that **won't cross-verify**.
 
-**Shipped:** a **pluggable backend** in `Curve25519.py`. Default = pure-Python (unchanged,
+**Shipped:** a **pluggable backend** in `signatures.py`. Default = pure-Python (unchanged,
 so phones keep working and the suite stays green). An operator can set
 `NADO_PQ_NATIVE_MODULE=<module>` to a native ML-DSA exposing the FIPS-204 *internal*
 primitives; it is adopted **only if it passes a startup interop self-test** (cross-verify
@@ -59,7 +59,7 @@ not change the canonical encoding;** the cheap win is already in place.
 ### 4. Idle-account GC — see `doc/rolling-mode-and-da.md` (consensus-critical)
 Idle-account GC is **IMPLEMENTED** (`ops/gc_ops.py` — deterministic in-block sweeps at epoch boundaries; see rolling-mode-and-da.md §3); presence itself is now self-bounding — the old per-epoch
 heartbeat rows are gone, replaced by the PoSW **recert lease** (`recerts` / `recert_by_epoch`), which
-a node must renew each `POSW_LEASE_EPOCHS` or lapse — but idle **account-row** GC is still not wired.
+a node must renew each `POSW_LEASE_EPOCHS` or lapse — and idle **account-row** GC is now shipped (`ops/gc_ops.py`).
 Pruning an account row changes the **state root**, so it must be deterministic and applied identically
 by every node *inside block processing* — not a local maintenance sweep, which would fork
 the chain. It is therefore designed (not blind-wired) as the state-pruning section of
@@ -168,5 +168,5 @@ Now bounded by the deterministic in-block idle-account GC (`ops/gc_ops.py`, §4 
 5. **Mempool O(N²)** — fixed (#5).
 
 > Cross-references: `doc/execution-layer.md`, `doc/execution-layer-vm-research.md`,
-> `doc/rolling-mode-and-da.md`, `doc/quantum-resistance-and-vms.md`, `Curve25519.py`
+> `doc/rolling-mode-and-da.md`, `doc/quantum-resistance-and-vms.md`, `signatures.py`
 > (PQ backend seam), `loops/core_loop.py` (per-epoch consensus txs).

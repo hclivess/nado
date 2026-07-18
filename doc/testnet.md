@@ -7,14 +7,14 @@ trusted on a real mesh of nodes.
 
 ## Status
 
-**Not yet run.** It depends on S4.3 being wired AND on a few local-networking blockers below.
+**SUPERSEDED.** This pre-relaunch bring-up plan predates the live bonded lanes. S4.3 (bonded selection) is wired and live on alphanet-6; the multi-node testnet runs via `scripts/testnet/`. Kept for the local-networking notes below.
 This document is the plan and the harness contract.
 
 ## What a node needs to boot
 
 `nado.py` starts a Tornado HTTP server plus four daemon threads (core/consensus/peer/message).
 To bring one up programmatically a node needs, under its own `$HOME/nado`:
-- `private/config.dat` (created by `config.create_config`) — `port`, `ip`, `server_key`,
+- `private/config.json` (created by `config.create_config`) — `port`, `ip`, `server_key`,
   `min_peers`, `auto_bond_percent`, …
 - `private/keys.dat` (an ML-DSA-44 / FIPS 204 keypair → `ndo…` address).
 - genesis (`genesis.make_genesis`) + the LMDB key-value index env (`create_indexers` → `ops/kv_ops`).
@@ -35,7 +35,7 @@ To bring one up programmatically a node needs, under its own `$HOME/nado`:
    `make_genesis` with identical params per node, or copy one node's genesis block file +
    `block_ends.dat` to the others.
 5. **Bonded eligibility (S4.3).** With bonded mining, the genesis/treasury (seeded) must bond,
-   and/or the faucet must grant starter bonds, or no node is eligible to produce. Until S4.3 is
+   (the faucet is a prize bank, not a starter-bond tap — a fresh node mines the OPEN lane for coins, then optionally bonds them). Until S4.3 is
    wired, the testnet exercises the legacy IP-based producer path with all the S1–S3 + S2b +
    burn-removal changes (still a valuable integration smoke test).
 

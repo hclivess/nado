@@ -101,9 +101,9 @@ withdrawal + a nullifier so each accrual epoch is claimed once). So:
   (`w=1`) and only ramps with real elapsed epochs of presence, each of which now costs a **PoSW recert** to
   sustain (see [ip-spoofing-and-sybil.md](ip-spoofing-and-sybil.md)). So a flood of new masks splits a floor-weighted
   sliver, not an equal cut.
-- The dividend is drawn **only from the open lane's `OPEN_BPS` (20%)** emission. The [reward-capture theorem](reward-capture-theorem.md)
+- The dividend is drawn **only from the open lane's `OPEN_BPS` (30%)** emission. The [reward-capture theorem](reward-capture-theorem.md)
   still holds: a free/Sybil actor cannot pull more than ~20% of emission, redistributed or not. Redistribution
-  changes *who inside the 20% gets paid and how smoothly* — it does **not** enlarge the 20%.
+  changes *who inside the 30% gets paid and how smoothly* — it does **not** enlarge the 30%.
 - Net: the dividend inherits the exact Sybil bound the architecture already proves. It is **not** "outside" the
   security architecture — it is deliberately *coupled* to it (fidelity + the 20% cap), which is the only way a
   per-capita payout can be safe.
@@ -156,5 +156,5 @@ Pre-mainnet alpha — a reward-split + reserved-recipient change is a clean cons
 4. Client: show accrued vs spendable, and an aggregate "withdraw dividend" action.
 5. Tests: split correctness + revert-symmetry (L1); accumulator/claim math + double-claim rejection (exec).
 
-Nothing here weakens the two-lane security model — it only changes how the open lane's *already-capped* 20% is
+Nothing here weakens the two-lane security model — it only changes how the open lane's *already-capped* 30% is
 paid out: from a per-block jackpot to a fidelity-weighted, off-L1, withdraw-when-worthwhile stream.

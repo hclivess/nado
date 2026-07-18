@@ -7,7 +7,7 @@ tested end-to-end:
 |---|---|---|
 | two-phase aux commitment + LogUp lookup argument | `stark/stark.py` (`aux_spec`), `stark/logup.py` | ✅ (`tests/test_stark_aux.py`; one-phase path byte-identical, shielded suites pass) |
 | zkVM — field-native provable register VM + assembler | `execnode/zkvm.py`, `execnode/zkvmasm.py` | ✅ (`tests/test_zkvm.py`) |
-| zkVM execution AIR (101 columns, 94 constraints, 4 LogUp buses) | `execnode/stark/vm_circuit.py` | ✅ (`tests/test_zkvm_circuit.py` — adversarial suite) |
+| zkVM execution AIR (101 columns, 94 constraints, 5 LogUp buses) | `execnode/stark/vm_circuit.py` | ✅ (`tests/test_zkvm_circuit.py` — adversarial suite) |
 | exec-layer runtime `"zkvm"` + digest registry + slot storage | `execnode/runtimes.py`, `state.py` | ✅ (`tests/test_zkvm_runtime.py` — 3-way differential) |
 | proven-execution endpoints | `/exec/prove_call`, `/exec/verify_call` | ✅ |
 | **epoch settlement proof** — binds `pre_root → post_root`, installs into the settlement seam | `execnode/settlement_proofs.py` | ✅ (`tests/test_settlement_proof.py` — incl. real `ops.settlement_ops` seam) |
@@ -26,8 +26,8 @@ to the `["kv", cid, "slots", …]` leaves `execnode/state.py` already commits in
 `settlement_proofs.settlement_verifier(...)` plugs straight into `ops.settlement_ops.set_settlement_verifier`
 — the Phase-2b seam — so L1 can justify a root by proof instead of by bonded quorum.
 
-**alphanet-5 reboot + game migration (2026-07-14, post-v1.0.0-alpha.9).** Deleting stackvm made the zkVM the
-only runtime, so the chain was rebooted to **alphanet-5** with every holder's balance + bonded stake carried
+**Reboot + game migration (2026-07-14, post-v1.0.0-alpha.9; the chain has since rerolled to alphanet-6).** Deleting stackvm made the zkVM the
+only runtime, so the chain was rebooted with every holder's balance + bonded stake carried
 forward (`tools/alphanet5_carryforward.py`; exec-side balances + dividends folded into L1, contract pots
 refunded to players, supply conserved exactly). Games return only as zkVM ports (`execnode/games/`):
 
@@ -36,7 +36,7 @@ refunded to players, supply conserved exactly). Games return only as zkVM ports 
   `ExecState.decode_view` presents the flat slots as the old named maps (a ported game's frontend changes
   only its `cid`); `chainResultAlg`/`algHashn` give a client-side preview that byte-matches the contract's
   in-VM alghash. Deploy with `python -m execnode.games.deploy <name>`.
-- **Live on alphanet-5 (ALL 15):** coinflip, dice, roulette, slots, mines, blackjack (banked/beacon);
+- **Live (the roster has since grown to ~20+ — hexholm, stormhold, scrapline, sovereign, and more):** coinflip, dice, roulette, slots, mines, blackjack (banked/beacon);
   tictactoe, connect4, reversi, chess (PvP board); farkle (multi-seat dice); **bet** (parimutuel — string
   metadata stored as digests, per-user positions via read-only view methods); **battleship** (alghash
   merkle-sum board, per-shot proofs on the `ARG` bus); **pets** (tamagotchi NFTs — gene/stat/train +

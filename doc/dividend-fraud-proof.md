@@ -11,7 +11,7 @@ The dividend **pool** accrues on L1 and is fully consensus-bound (integer-exact 
 enforced in incorporation, reversed on rollback). But the **per-address split** — who gets how much of the
 pool — is computed **off-L1** by the execution node and made canonical by a **2/3 bonded-quorum** settlement
 attestation (`settle` tx → `settlement_justified`). L1 verifies a claim's Merkle membership in the settled
-root but **never re-derives the allocation**. The security audit (2026-07-03) flagged this as the one part of
+root but **never re-derives the allocation**. The security audit (2026-07-02) flagged this as the one part of
 the reward path that is *not* consensus-bound:
 
 - **Supply is safe** regardless — every `dividend_withdraw` is capped at the live `DIVIDEND_POOL` balance and
