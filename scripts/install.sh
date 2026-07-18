@@ -75,7 +75,8 @@ if [ ! -f "$SCRIPT_DIR/../nado.py" ]; then
     exit 1
   fi
   if [ -f "$CLONE_DIR/nado.py" ]; then
-    echo "==> bootstrap: reusing the existing checkout at $CLONE_DIR"
+    echo "==> bootstrap: reusing the existing checkout at $CLONE_DIR (fast-forwarding to origin)"
+    git -C "$CLONE_DIR" pull --ff-only --quiet 2>/dev/null || true
   else
     echo "==> bootstrap: cloning https://github.com/hclivess/nado -> $CLONE_DIR"
     git clone https://github.com/hclivess/nado "$CLONE_DIR"
@@ -173,7 +174,32 @@ sudo apt install python3.10 python3.10-venv" >&2
 fi
 echo "==> using $("$PY" --version 2>&1) ($PY)"
 
+# ---- make sure this Python can actually create a venv --------------------------------------------
+# Debian/Ubuntu split ensurepip into a separate pythonX.Y-venv package; without it `python -m venv`
+# creates a broken half-venv and dies. Detect it up front and apt-install the right package.
+if ! "$PY" -m ensurepip --version >/dev/null 2>&1; then
+  PYV="$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+  if command -v apt-get >/dev/null 2>&1; then
+    APT="apt-get"; [ "$(id -u)" -ne 0 ] && APT="sudo apt-get"
+    echo "==> $PY lacks ensurepip (Debian/Ubuntu ships it separately) — installing python$PYV-venv"
+    if ! (DEBIAN_FRONTEND=noninteractive $APT update -qq && \
+          DEBIAN_FRONTEND=noninteractive $APT install -y -qq "python$PYV-venv"); then
+      echo "ERROR: could not install python$PYV-venv — install it manually, then re-run." >&2
+      exit 1
+    fi
+  else
+    echo "ERROR: $PY cannot create venvs (no ensurepip). Install your distro's python3-venv package, then re-run." >&2
+    exit 1
+  fi
+fi
+
 # ---- create / reuse the venv ---------------------------------------------------------------------
+# A venv whose pip does not work is a leftover from a failed creation (e.g. the missing-ensurepip
+# case above) — recreate it rather than "reusing" a corpse.
+if [ -x "$VENV_DIR/bin/python" ] && ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+  echo "==> existing venv at $VENV_DIR is broken (no working pip) — recreating it"
+  rm -rf "$VENV_DIR"
+fi
 if [ ! -x "$VENV_DIR/bin/python" ]; then
   echo "==> creating venv at $VENV_DIR"
   "$PY" -m venv "$VENV_DIR"
