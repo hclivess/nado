@@ -164,6 +164,7 @@ async function fetchTable(t) { const sto = await dapp.storage(); return sto ? ta
 
 // ---- actions -------------------------------------------------------------------------------------
 function sit(t, method, buyinRaw, anteRaw) {         // open or join: generate the secret (the "draw") locally
+  if (method === "open" ? dapp.busy("open") : dapp.busy("join", "table", t)) return notify(confirmingLabel());
   const g = randId(), x = randSecret() % ALG_P();   // field-sized: reveal passes x as a zkVM int arg (< P)
   activeTable = bg.active = t;                      // bg.active feeds rememberSeat's {table} field
   bg.rememberSeat(g, { secret: x.toString() });     // SDK seat record: { table, ts, secret }
@@ -213,6 +214,7 @@ async function joinTable() {
 function mySeat() { return lastSeats.find((s) => s.addr === dapp.me); }
 function doBet(amountRaw, label) {
   const s = mySeat(); if (!s) return;
+  if (dapp.busy("bet", "seat", s.g)) return notify(confirmingLabel());
   const k = lastTable && lastTable.street || 1;
   // amount is an ARG (chips move from your escrowed stack, no new value) — confirm:true so autosign never bets
   dapp.call("bet", [s.g, amountRaw], null, window.t("poker.betAction", "{label} · table #{t}", { label, t: activeTable }),
@@ -220,11 +222,12 @@ function doBet(amountRaw, label) {
 }
 function doReveal() {
   const s = mySeat(); if (!s) return;
+  if (dapp.busy("reveal", "seat", s.g)) return notify(confirmingLabel());
   const rec = bg.seatRec(s.g);
   if (!rec || !rec.secret) return alertBar(window.t("poker.noSecretHere", "This browser doesn't hold the secret for seat #{g} — show your cards from the device you joined with.", { g: s.g }));
   dapp.call("reveal", [s.g, BigInt(rec.secret)], null, window.t("poker.revealDesc", "showdown — show your cards · table #{t}", { t: activeTable }), { table: activeTable, seat: s.g, phase: "reveal" });
 }
-const settleTable = () => dapp.call("settle", [activeTable], null, window.t("poker.settleDesc", "pay the pot to the best hand · table #{t}", { t: activeTable }), { table: activeTable, phase: "settle" });
+const settleTable = () => { if (dapp.busy("settle", "table", activeTable)) return notify(confirmingLabel()); dapp.call("settle", [activeTable], null, window.t("poker.settleDesc", "pay the pot to the best hand · table #{t}", { t: activeTable }), { table: activeTable, phase: "settle" }); };
 // AUTO-COLLECT the WINNER's pot once the hand is over (shared SDK tick — opt-out slider, autoTried dedup)
 function maybeAutoSettle() {
   const tb = lastTable;
@@ -233,25 +236,36 @@ function maybeAutoSettle() {
   if (!s || s.g !== tb.leader) return;   // only the winner auto-collects the pot
   dapp.autoCollect([{ g: activeTable }], () => settleTable(), { blocked: watch });
 }
-const reclaimTable = () => dapp.call("reclaim", [activeTable], null, window.t("poker.reclaimDesc", "reclaim the dead pot · table #{t}", { t: activeTable }), { table: activeTable, phase: "reclaim" });
-const cancelTable = () => dapp.call("cancel", [activeTable], null, window.t("poker.cancelDesc", "cancel table #{t}", { t: activeTable }), { table: activeTable, phase: "cancel" });
+const reclaimTable = () => { if (dapp.busy("reclaim", "table", activeTable)) return notify(confirmingLabel()); dapp.call("reclaim", [activeTable], null, window.t("poker.reclaimDesc", "reclaim the dead pot · table #{t}", { t: activeTable }), { table: activeTable, phase: "reclaim" }); };
+const cancelTable = () => { if (dapp.busy("cancel", "table", activeTable)) return notify(confirmingLabel()); dapp.call("cancel", [activeTable], null, window.t("poker.cancelDesc", "cancel table #{t}", { t: activeTable }), { table: activeTable, phase: "cancel" }); };
 // the HOST deals: binds the hand to two blocks that don't exist yet — nobody can know the cards
-const startTable = () => dapp.call("start", [activeTable], null, window.t("poker.startDesc", "🃏 deal now · table #{t}", { t: activeTable }), { table: activeTable, phase: "start" });
+const startTable = () => { if (dapp.busy("start", "table", activeTable)) return notify(confirmingLabel()); dapp.call("start", [activeTable], null, window.t("poker.startDesc", "🃏 deal now · table #{t}", { t: activeTable }), { table: activeTable, phase: "start" }); };
 // the HOST fast-forwards a street once nobody owes a call — a checked-around street ends NOW
-const closeStreet = () => dapp.call("close_street", [activeTable], null, window.t("poker.closeDesc", "⏩ close the {street} · table #{t}", { street: streetName((lastTable && lastTable.street) || 1), t: activeTable }),
-  { table: activeTable, phase: "closest", k: (lastTable && lastTable.street) || 1 });
+const closeStreet = () => { if (dapp.busy("closest", "table", activeTable)) return notify(confirmingLabel()); dapp.call("close_street", [activeTable], null, window.t("poker.closeDesc", "⏩ close the {street} · table #{t}", { street: streetName((lastTable && lastTable.street) || 1), t: activeTable }),
+  { table: activeTable, phase: "closest", k: (lastTable && lastTable.street) || 1 }); };
 function leaveTable() {
   const s = mySeat(); if (!s) return;
+  if (dapp.busy("leave", "seat", s.g)) return notify(confirmingLabel());
   dapp.call("leave", [s.g], null, window.t("poker.leaveDesc", "leave table #{t} — full refund", { t: activeTable }), { table: activeTable, seat: s.g, phase: "leave" });
 }
 
 async function refreshActive() {
   await dapp.refresh();
-  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage();
   if (sto) {
     lastSto = sto;
     bg.track(sto);
+    // release the click guard the instant the effect is on-chain (same per-phase done-test the `watch` toast uses).
+    dapp.settleInflight((f) => {
+      const g = String(f.seat), t = String(f.table);
+      if (f.phase === "open" || f.phase === "join") return !!_m(sto, "gg")[g];
+      if (f.phase === "bet") return (_m(sto, "cs")[String(f.seat * 8 + f.k)] || 0) > (f.prev || 0);
+      if (f.phase === "reveal") return !!_m(sto, "gd")[g];
+      if (f.phase === "start") return (_m(sto, "td")[t] || 0) > 0;
+      if (f.phase === "closest") return (_m(sto, "sc")[String(Number(f.table) * 8 + f.k)] || 0) > 0;
+      if (f.phase === "leave") return !_m(sto, "gg")[g];
+      return !!_m(sto, "tz")[t] || !_m(sto, "ta")[t];   // settle / reclaim / cancel
+    });
     if (activeTable != null) {
       lastTable = tableFrom(sto, activeTable);
       if (lastTable.exists && lastTable.td && dapp.cursor != null) {

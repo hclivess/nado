@@ -6,7 +6,7 @@
 // unpredictable when you signed, replayable by every browser); once both have drafted 9 rounds the fight
 // resolves as a pure deterministic simulation and the wager settles concede / agree / refund-timeout.
 // This module owns ONLY the Scrapline half: offers, gear slots, and the combat report.
-import { NadoDapp, $, notify, disp, _m, renderTopScores, share, base } from "./nadodapp.js";
+import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./scrapline-engine.js";
 import { ART } from "./scrapline-art.js";
@@ -324,6 +324,7 @@ function renderSolo() {
       post.disabled = !mine;
       post.onclick = () => {
         if (!mine) return;
+        if (dapp.busy("post")) return notify(confirmingLabel());
         const words = E.packChoices(run.choices);
         dapp.call("post", [day, run.score, run.choices.length].concat(words), null,
           "post daily gauntlet score " + run.score, { phase: "post" });

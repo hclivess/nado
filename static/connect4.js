@@ -63,7 +63,7 @@ const pvp = new PvpGame(dapp, {
 
 function dropCol(c) {
   const gm = pvp.last;
-  if (!gm || gm.sd || gm.turnAddr !== dapp.me) return;
+  if (!gm || gm.sd || gm.turnAddr !== dapp.me || pvp.pendingMove) return;   // one move per turn — ignore taps while it confirms
   let row = 0; while (row < ROWS && gm.board[c][row]) row++;
   if (row >= ROWS) return;
   pvp.pendingMove = { ply: gm.mc, col: c, row };

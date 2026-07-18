@@ -6,7 +6,7 @@
 // rigged. All information is public on-chain (open-hand play); the skill is the deck-building itself.
 // This module owns ONLY the Stormhold-specific half: engine replay, the supply/hand/decision UI, and the
 // move encodings; everything else (escrow actions, lobby, invites, settle chrome) lives in duelgame.js.
-import { NadoDapp, $, notify, disp, randSecret, algHashn, ALG_P } from "./nadodapp.js";
+import { NadoDapp, $, notify, confirmingLabel, disp, randSecret, algHashn, ALG_P } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./stormhold-engine.js";
 import { ART } from "./stormhold-art.js";
@@ -300,8 +300,8 @@ function renderReveal(gm, eng) {
   const b = document.createElement("button");
   if (!myR) {
     b.className = "primary"; b.textContent = T("revealBtn", "🔓 Reveal your hand — settle the game");
-    b.onclick = () => dapp.call("reveal", [gm.id, mySecret(gm.id)], null,
-      T("revealDesc", "reveal your Stormhold hand · game #{g}", { g: gm.id }), { game: gm.id, phase: "reveal" });
+    b.onclick = () => { if (dapp.busy("reveal", "game", gm.id)) return notify(confirmingLabel()); dapp.call("reveal", [gm.id, mySecret(gm.id)], null,
+      T("revealDesc", "reveal your Stormhold hand · game #{g}", { g: gm.id }), { game: gm.id, phase: "reveal" }); };
     el.innerHTML = '<div class="dp">' + T("revealMine", "Game over — reveal your hand so the result can be verified.") + "</div>";
     el.appendChild(b);
   } else if (!theirR) {

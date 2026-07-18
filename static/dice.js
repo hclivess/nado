@@ -5,7 +5,7 @@
 //     roll_g = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + seatId ) % 100
 // Once the settle block is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
@@ -57,6 +57,7 @@ async function newTable() {
 async function doBet() {
   const t = bg.active;
   if (!t) return alertBar(window.t("dice.pickFirst", "Pick a table first."));
+  if (dapp.busy("bet", "table", t)) return notify(confirmingLabel());   // one bet confirming at a time — a re-click would place a second seat
   const stake = nadoToRaw($("stakeAmt").value);
   if (!stake) return alertBar(window.t("dice.enterStake", "Enter a stake (NADO)."));
   const tb = await fetchTable(t);
@@ -77,7 +78,7 @@ function fundTable() {
   if (!canPay(dapp, raw, "The top-up")) return;
   bg.fund(raw, window.t("dice.callFund", "top up table #{t} bankroll · {amt} NADO", { t: bg.active, amt: rawToNado(raw) }));
 }
-const settleSeat = (g) => dapp.call("settle", [g], null, window.t("dice.callSettle", "collect seat #{g}", { g }), { table: bg.active, phase: "settle" });
+const settleSeat = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("settle", [g], null, window.t("dice.callSettle", "collect seat #{g}", { g }), { table: bg.active, seat: g, phase: "settle" }); };
 // AUTO-COLLECT a resolved WINNING seat (shared SDK tick — opt-out slider, one-per-refresh, autoTried dedup)
 function maybeAutoSettle() {
   if (!lastTable || !lastTable.exists) return;
@@ -87,11 +88,13 @@ const closeTable = () => bg.close(window.t("dice.callClose", "close table #{t}",
 
 async function refreshActive() {
   await dapp.refresh();
-  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gm", "gh", "gr", "gw", "gd"] });
   if (sto) {
     lastSto = sto;
     bg.track(sto);
+    // release the click guard the instant an action's effect is on-chain (open/fund/close/bet via bg.landed;
+    // settle when the seat flips to settled). MUST run with sto in hand — tip-advance alone no longer clears it.
+    dapp.settleInflight((f) => bg.landed(f, sto) || (f.phase === "settle" && f.seat != null && !!_m(sto, "gd")[String(f.seat)]));
     if (bg.active != null) {
       lastTable = tableFrom(sto, bg.active);
       const cur = dapp.cursor, need = [];
@@ -192,8 +195,9 @@ function render() {
   const need = stake ? returnRaw(stake, target) - stake : null;
   const covers = !(tb && need != null && (BigInt(tb.pool) - BigInt(tb.committed)) < need);
   const canAfford = !(signedIn && stake && dapp.exec < stake);
-  const betable = !!tb && !!stake && canAfford && covers;
-  if ($("btnBet")) { $("btnBet").disabled = !betable; $("btnBet").classList.toggle("pulse", betable && signedIn); }
+  const betBusy = tb && dapp.busy("bet", "table", tb.id);
+  const betable = !!tb && !!stake && canAfford && covers && !betBusy;
+  if ($("btnBet")) { $("btnBet").disabled = !betable; $("btnBet").classList.toggle("pulse", betable && signedIn); $("btnBet").textContent = betBusy ? confirmingLabel() : window.t("dice.placeRoll", "Place roll"); }
   let hint = "";
   if (signedIn && bg.active != null) {
     if (!tb && !lastTable?.exists) hint = dapp.whereIs("table", bg.active, (bg.tableRec(bg.active) || {}).ts);

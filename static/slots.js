@@ -5,7 +5,7 @@
 // Symbols come off weighted 64-stop virtual reels; the paytable pays up to 150x (exact RTP 95.796%,
 // full-enumeration-proven — see tests/test_slots_contract.py). The machine's bank commits a 150x cover
 // for every open spin, so it can never welsh. Settle is permissionless; a pruned spin refunds via claim.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
@@ -66,6 +66,7 @@ function openMachine() {
 }
 async function doSpin() {
   const mc = lastTable; if (!mc || !mc.exists) return;
+  if (dapp.busy("spin", "table", bg.active)) return notify(confirmingLabel());   // one spin at a time — a re-click over a spinning reel would revert
   const raw = nadoToRaw($("stakeAmt").value);
   if (!raw) return alertBar(window.t("slots.enterBet", "Enter your bet in NADO."));
   const mb = maxBet(mc);
@@ -75,9 +76,9 @@ async function doSpin() {
   bg.rememberSeat(g);
   dapp.call("spin", [g, bg.active], raw, window.t("slots.spinLabel", "🎰 spin machine #{t} · {n} NADO", { t: bg.active, n: rawToNado(raw) }), { table: bg.active, seat: g, phase: "spin" });
 }
-const settleSpin = (g, m2, stake) => dapp.call("settle", [g], null,
-  (m2 > 0 ? window.t("slots.collectLabel", "💰 collect {n} NADO", { n: rawToNado(BigInt(stake) * BigInt(m2) / 2n) }) : window.t("slots.finishLabel", "finish spin #{g}", { g })), { table: bg.active, seat: g, phase: "settle" });
-const claimSpin = (g) => dapp.call("claim", [g], null, window.t("slots.refundLabel", "refund pruned spin #{g}", { g }), { table: bg.active, seat: g, phase: "settle" });
+const settleSpin = (g, m2, stake) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("settle", [g], null,
+  (m2 > 0 ? window.t("slots.collectLabel", "💰 collect {n} NADO", { n: rawToNado(BigInt(stake) * BigInt(m2) / 2n) }) : window.t("slots.finishLabel", "finish spin #{g}", { g })), { table: bg.active, seat: g, phase: "settle" }); };
+const claimSpin = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("claim", [g], null, window.t("slots.refundLabel", "refund pruned spin #{g}", { g }), { table: bg.active, seat: g, phase: "settle" }); };
 function fundMachine() {
   const raw = nadoToRaw($("fundAmt").value);
   if (!raw) return alertBar(window.t("slots.enterFund", "Enter how much NADO to add to the bank."));
@@ -103,11 +104,16 @@ const closeMachine = () => bg.close(window.t("slots.closeLabel", "close machine 
 // ---- refresh ---------------------------------------------------------------------------------------
 async function refreshAll() {
   await dapp.refresh();
-  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gh", "gr", "gw", "gd"] });
   if (sto) {
     lastSto = sto;
     bg.track(sto);
+    // release the click guard the instant the effect is on-chain (same per-phase done-test the `watch`
+    // toast uses). MUST run with sto in hand — the tip-advance fallback no longer clears the guard by itself.
+    dapp.settleInflight((f) =>
+      f.phase === "spin" ? !!_m(sto, "gg")[String(f.seat)] :
+      f.phase === "settle" ? !!_m(sto, "gd")[String(f.seat)] :
+      bg.landed(f, sto));   // open / fund / close
     if (bg.active != null) {
       lastTable = machineFrom(sto, bg.active);
       // FAST provisional hashes: slot results are PUBLIC + re-validated on-chain at settle

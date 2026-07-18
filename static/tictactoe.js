@@ -40,7 +40,7 @@ const pvp = new PvpGame(dapp, {
 
 function moveCell(i) {
   const gm = pvp.last;
-  if (!gm || gm.sd || gm.turnAddr !== dapp.me || gm.board[i] !== 0) return;
+  if (!gm || gm.sd || gm.turnAddr !== dapp.me || gm.board[i] !== 0 || pvp.pendingMove) return;   // one move per turn — ignore taps while it confirms
   pvp.pendingMove = { ply: gm.mc, cell: i };
   pvp.render();
   pvp.move([i], (gm.mc % 2 === 0 ? "✕" : "◯") + " on cell " + (i + 1) + " · game #" + pvp.active, { cell: i });

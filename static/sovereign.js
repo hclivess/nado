@@ -3,7 +3,7 @@
 // (sovereign-engine.js) for the whole economy + combat. This module reads the global action log, REPLAYS
 // it through the engine to derive the live world (my nation + every rival), and turns dashboard taps into
 // ply-bound act() calls. Practice mode runs the identical engine over a local sandbox of bot nations.
-import { NadoDapp, $, _m, base, notify, alertBar, disp, share, wireWallet, renderWallet, stickyInputs,
+import { NadoDapp, $, _m, base, notify, confirmingLabel, alertBar, disp, share, wireWallet, renderWallet, stickyInputs,
          orderCards, resolveAliases, renderTopScores, uiPrompt, uiConfirm } from "./nadodapp.js";
 import * as E from "./sovereign-engine.js";
 import { ART } from "./sovereign-art.js";
@@ -45,7 +45,9 @@ async function refresh() {
   await dapp.refresh();          // keep dapp.cursor advancing (lazy production settles forward) + balances live
   const sto = await dapp.storage({ append: MAPS });
   if (!sto) return;
-  const log = logFromSto(sto);
+  const log = logFromSto(sto);   // updates `mc` (the next action index) from the global log
+  // release the act click-guard the instant the log has grown past the ply I submitted at (my act landed).
+  dapp.settleInflight((f) => f.phase === "act" ? mc > (f.mc0 == null ? -1 : f.mc0) : true);
   // fetch the seed blocks every past raid needs (fast/provisional — public randomness)
   const need = [];
   for (const e of log) if (e.target) { const rh = e.rh; if (rh && dapp.cursor != null && dapp.cursor >= rh && dapp.bh(rh) === undefined) need.push(rh); }
@@ -105,7 +107,11 @@ function toastVictim(f) {
 function act(enc, tgt, label) {
   if (practice) return pracAct(enc, tgt);
   if (!dapp.me) return dapp.signIn();
-  dapp.call("act", [enc, tgt || 0, mc], null, label, { phase: "act" });
+  // CLICK-GATED: an act is ply-bound to the current log length (mc); a second act while the first is
+  // confirming would carry the SAME mc and REVERT on-chain. busy("act") holds from the tap until the log
+  // grows past mc0 (see refresh's settleInflight), self-expiring so a lost tx can be retried.
+  if (dapp.busy("act")) return notify(confirmingLabel());
+  dapp.call("act", [enc, tgt || 0, mc], null, label, { phase: "act", mc0: mc });
 }
 const found = () => act(E.encAction(E.OP.found), 0, T("cfFound", "found your nation"));
 

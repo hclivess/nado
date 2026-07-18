@@ -5,7 +5,7 @@
 // two FUTURE L1 block hashes when you pick, and draw_i = HASH(bh(gh)+bh(gh+1)+seat·100 + picks+i) mod
 // tilesLeft is a mine iff < N. Resolve is permissionless; reap() frees abandoned seats. See
 // tests/test_mines_contract.py — the contract enforces exactly this math.
-import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, notify, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
@@ -80,6 +80,7 @@ async function placeBet(stake, m) {
   const tb = lastTable();
   if (!tb || !tb.exists) return alertBar(dapp.whereIs("field", bg.active));
   if (tb.closed) return alertBar(window.t("mines.closedField", "That field is closed."));
+  if (dapp.busy("bet", "table", bg.active)) return notify(confirmingLabel());   // one round confirming at a time
   if (!stake) return alertBar(window.t("mines.enterStake", "Enter a stake (NADO)."));
   await dapp.refresh();
   if (!canPay(dapp, stake, window.t("mines.whatRound", "This round"))) return;
@@ -94,19 +95,19 @@ async function placeBet(stake, m) {
 const startRound = () => placeBet(nadoToRaw($("stakeAmt").value), mines);
 function reveal() {
   const s = mySeatObj();
-  if (!s || !s.alive || s.gh || !sel.length) return;
+  if (!s || !s.alive || s.gh || !sel.length || dapp.busy("pick", "seat", s.g)) return;
   bg.patchSeat(s.g, { tiles: (bg.seatRec(s.g)?.tiles || []).concat(sel) });
   dapp.call("pick", [s.g, sel.length], null, window.t("mines.callPick", "reveal {n} tiles · seat #{g}", { n: sel.length, g: s.g }), { table: bg.active, seat: s.g, phase: "pick" });
   sel = [];
   render();
 }
-const resolveSeat = (g) => dapp.call("resolve", [g], null, window.t("mines.callResolve", "resolve reveal · seat #{g}", { g }), { table: bg.active, seat: g, phase: "resolve" });
+const resolveSeat = (g) => { if (dapp.busy("resolve", "seat", g)) return; dapp.call("resolve", [g], null, window.t("mines.callResolve", "resolve reveal · seat #{g}", { g }), { table: bg.active, seat: g, phase: "resolve" }); };
 function cashout() {
   const s = mySeatObj();
-  if (!s || !s.alive || s.gh) return;
+  if (!s || !s.alive || s.gh || dapp.busy("cashout", "seat", s.g)) return;
   dapp.call("cashout", [s.g], null, window.t("mines.callCash", "💰 cash out {amt} NADO · seat #{g}", { amt: rawToNado(s.gv), g: s.g }), { table: bg.active, seat: s.g, phase: "cashout" });
 }
-const reapSeat = (g) => dapp.call("reap", [g], null, window.t("mines.callReap", "release abandoned seat #{g}", { g }), { table: bg.active, seat: g, phase: "resolve" });
+const reapSeat = (g) => { if (dapp.busy("resolve", "seat", g)) return; dapp.call("reap", [g], null, window.t("mines.callReap", "release abandoned seat #{g}", { g }), { table: bg.active, seat: g, phase: "resolve" }); };
 function fundTable() {
   const raw = nadoToRaw($("fundAmt").value);
   if (!raw) return alertBar(window.t("mines.enterFund", "Enter an amount to add to this field's bankroll."));
@@ -131,6 +132,15 @@ async function refreshAll() {
   if (sto) {
     lastSto = sto;
     bg.track(sto);
+    // release the click guard the instant the effect lands (same per-phase done-test the `watch` toast uses).
+    dapp.settleInflight((f) => {
+      const g = String(f.seat), t = String(f.table);
+      if (f.phase === "bet") return !!_m(sto, "gg")[g];
+      if (f.phase === "pick") return !!(_m(sto, "gh")[g] || _m(sto, "gd")[g]);
+      if (f.phase === "resolve") return !(_m(sto, "gh")[g]) || !!_m(sto, "gd")[g];
+      if (f.phase === "cashout") return !!_m(sto, "gd")[g];
+      return bg.landed(f, sto);   // open / fund / close
+    });
     if (bg.active != null) await bg.prefetchHashes(sto);
     if (watch) {
       const g = String(watch.seat), t = String(watch.table);

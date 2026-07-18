@@ -4,7 +4,7 @@
 // to rig. Your cards bind to future blocks at deal/hit time; every card is stored on-chain (pc/dk maps)
 // so the exact hand reconstructs from chain state alone. Win pays 2×, push refunds, natural blackjack
 // 5:2; European no-hole-card timing. See tests/test_blackjack_contract.py.
-import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
@@ -68,6 +68,7 @@ async function deal() {
   const tb = lastTable();
   if (!tb || !tb.exists) return alertBar(dapp.whereIs("table", bg.active));
   if (tb.closed) return alertBar(window.t("bj.closedTable", "That table is closed."));
+  if (dapp.busy("deal", "table", bg.active)) return notify(confirmingLabel());   // one deal confirming at a time
   const stake = nadoToRaw($("stakeAmt").value);
   if (!stake) return alertBar(window.t("bj.enterStake", "Enter a stake (NADO)."));
   await dapp.refresh();
@@ -80,11 +81,11 @@ async function deal() {
   dapp.call("deal", [g, bg.active], stake, window.t("bj.callDeal", "🃏 deal blackjack · {amt} NADO · table #{t}", { amt: rawToNado(stake), t: bg.active }), { table: bg.active, seat: g, phase: "deal" });
   render();
 }
-const hit = () => { const s = myHandObj(); if (s) dapp.call("hit", [s.g], null, window.t("bj.callHit", "hit — one more card · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "hit" }); };
-const stand = () => { const s = myHandObj(); if (s) dapp.call("stand", [s.g], null, window.t("bj.callStand", "stand on {n} · hand #{g}", { n: s.total.total, g: s.g }), { table: bg.active, seat: s.g, phase: "stand" }); };
+const hit = () => { const s = myHandObj(); if (s && !dapp.busy("hit", "seat", s.g)) dapp.call("hit", [s.g], null, window.t("bj.callHit", "hit — one more card · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "hit" }); };
+const stand = () => { const s = myHandObj(); if (s && !dapp.busy("stand", "seat", s.g)) dapp.call("stand", [s.g], null, window.t("bj.callStand", "stand on {n} · hand #{g}", { n: s.total.total, g: s.g }), { table: bg.active, seat: s.g, phase: "stand" }); };
 const RESOLVE_METHOD = { 1: "reveal", 3: "draw", 4: "settle" };
-const resolveHand = (s) => dapp.call(RESOLVE_METHOD[s.gf], [s.g], null, window.t("bj.callResolve", "land the cards · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "resolve" });
-const reapHand = (g) => dapp.call("reap", [g], null, window.t("bj.callReap", "release abandoned hand #{g}", { g }), { table: bg.active, seat: g, phase: "resolve" });
+const resolveHand = (s) => { if (dapp.busy("resolve", "seat", s.g)) return; dapp.call(RESOLVE_METHOD[s.gf], [s.g], null, window.t("bj.callResolve", "land the cards · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "resolve" }); };
+const reapHand = (g) => { if (dapp.busy("resolve", "seat", g)) return; dapp.call("reap", [g], null, window.t("bj.callReap", "release abandoned hand #{g}", { g }), { table: bg.active, seat: g, phase: "resolve" }); };
 function fundTable() {
   const raw = nadoToRaw($("fundAmt").value);
   if (!raw) return alertBar(window.t("bj.enterFund", "Enter an amount to add to this table's bankroll."));
@@ -106,6 +107,15 @@ async function refreshAll() {
   if (sto) {
     lastSto = sto;
     bg.track(sto);
+    // release the click guard the instant the effect lands (same per-phase done-test the `watch` toast uses).
+    dapp.settleInflight((f) => {
+      const g = String(f.seat), t = String(f.table), gf = _m(sto, "gf")[g] || 0;
+      if (f.phase === "deal") return !!_m(sto, "gg")[g];
+      if (f.phase === "hit") return gf === 3 || (gf === 2 && (_m(sto, "gn")[g] || 0) > (f.gn || 2)) || !!_m(sto, "gd")[g];
+      if (f.phase === "stand") return gf === 4 || !!_m(sto, "gd")[g];
+      if (f.phase === "resolve") return gf !== (f.gf || 0) || !!_m(sto, "gd")[g];
+      return bg.landed(f, sto);   // open / fund / close
+    });
     if (bg.active != null) await bg.prefetchHashes(sto, (g) => (!_m(sto, "gd")[g] && _m(sto, "gf")[g]) ? _m(sto, "gh")[g] || 0 : 0);
     if (watch) {
       const g = String(watch.seat), t = String(watch.table), gf = _m(sto, "gf")[g] || 0;

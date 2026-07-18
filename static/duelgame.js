@@ -22,7 +22,7 @@
 //     shareText(gm) {…}, inviteTitle: "…", inviteBody(gm) {…},
 //   });
 //   duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll"]);
-import { rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards,
+import { rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, confirmingLabel, orderCards,
          resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify,
          blocksToTime, renderScore, scoreBump, scoreSort } from "./nadodapp.js";
 import { Practice, prand, randomSeed } from "./practice.js";
@@ -150,6 +150,7 @@ export class DuelGame {
   // ---- actions ---------------------------------------------------------------------------------------
   newGame() {
     const T = this.T, dapp = this.dapp;
+    if (dapp.busy("open")) return notify(confirmingLabel());   // one open confirming at a time (each mints a fresh id)
     const raw = nadoToRaw($("stakeAmt").value);
     if (!raw) return alertBar(T("enterStake", "Enter a stake (NADO)."));
     if (!canPay(dapp, raw, T("whatOpen", "Opening this game"))) return;
@@ -163,6 +164,7 @@ export class DuelGame {
     const T = this.T, dapp = this.dapp;
     const g = parseInt($("joinId").value, 10);
     if (!g) return alertBar(T("enterGameId", "Enter a game ID (or pick one from the lobby)."));
+    if (dapp.busy("join", "game", g)) return notify(confirmingLabel());
     const sto = await dapp.storage({ append: this.MAPS });
     const gm = sto ? this.gameHead(sto, g) : null;
     if (!gm || !gm.exists) { alertBar(dapp.whereIs(T("gameWord", "game"), g)); if (gm) dapp.clearInvite(); return; }
@@ -186,6 +188,7 @@ export class DuelGame {
     const stake = BigInt(g.stake);
     if (!canPay(dapp, stake, T("whatRematch", "A rematch"))) return;
     const rid = rematchId(this.active);
+    if (dapp.busy("open", "game", rid) || dapp.busy("join", "game", rid)) return notify(confirmingLabel());
     const sto = await dapp.storage({ append: this.MAPS });
     const rg = sto ? this.gameHead(sto, rid) : null;
     this.active = rid; this.resetLocal(); $("joinId").value = String(rid);
@@ -221,10 +224,10 @@ export class DuelGame {
     this.dapp.call("move", [this.active, enc, ply], null, label + " · game #" + this.active, { game: this.active, phase: "move", ply });
     this.render();
   }
-  resign() { this.dapp.call("resign", [this.active], null, "resign game #" + this.active, { game: this.active, phase: "resign" }); }
-  agree(r) { this.dapp.call("agree", [this.active, r], null, (r === 3 ? "agree a draw" : "confirm the result") + " · game #" + this.active, { game: this.active, phase: "agree" }); }
-  abort() { this.dapp.call("abort", [this.active], null, "claim refund (stalled) · game #" + this.active, { game: this.active, phase: "abort" }); }
-  cancel() { this.dapp.call("cancel", [this.active], null, "cancel game #" + this.active, { game: this.active, phase: "cancel" }); }
+  resign() { if (this.dapp.busy("resign", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("resign", [this.active], null, "resign game #" + this.active, { game: this.active, phase: "resign" }); }
+  agree(r) { if (this.dapp.busy("agree", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("agree", [this.active, r], null, (r === 3 ? "agree a draw" : "confirm the result") + " · game #" + this.active, { game: this.active, phase: "agree" }); }
+  abort() { if (this.dapp.busy("abort", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("abort", [this.active], null, "claim refund (stalled) · game #" + this.active, { game: this.active, phase: "abort" }); }
+  cancel() { if (this.dapp.busy("cancel", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("cancel", [this.active], null, "cancel game #" + this.active, { game: this.active, phase: "cancel" }); }
   resetLocal() {
     this.pendingMove = null; this.armed = null; this.lastMi = -1; this.eng = null;
     if (this.practice) { this.practice = null; this.prac.clearRun(); }   // picking a real game leaves practice
@@ -430,6 +433,19 @@ export class DuelGame {
     $("btnCancel").classList.toggle("hidden", !(gm.exists && gm.nn === 1 && me === 0 && !gm.settled));
     $("btnJoinGame").classList.toggle("hidden", !(gm.exists && gm.nn === 1 && !iAmIn && !gm.settled));
     if (gm.exists && gm.nn === 1 && !iAmIn) $("btnJoinGame").textContent = dapp.me ? T("joinStake", "⚔ Join this game — stake {amt} NADO", { amt: rawToNado(gm.stake) }) : T("signJoinStake", "⚔ Sign in to join — stake {amt} NADO", { amt: rawToNado(gm.stake) });
+    // CLICK-TIME feedback: a lifecycle button whose action is confirming on-chain shows disabled + ⏳ so a
+    // re-tap can't fire a duplicate (guarded in the methods too). Keyed to the same game id the action uses.
+    // Stash the pre-busy label ONCE (on the busy transition) and restore it after, so a static-label button
+    // (abort/cancel/rematch, whose text render doesn't re-set each frame) recovers its label correctly.
+    const _bz = (id, phase, gid) => {
+      const b = $(id); if (!b || b.classList.contains("hidden")) return;
+      const busy = dapp.busy(phase, "game", gid);
+      if (busy) { if (!b.dataset.busyOn) { b.dataset.lbl0 = b.textContent; b.dataset.busyOn = "1"; } b.disabled = true; b.textContent = confirmingLabel(); }
+      else { if (b.dataset.busyOn) { b.textContent = b.dataset.lbl0 || b.textContent; delete b.dataset.busyOn; delete b.dataset.lbl0; } b.disabled = false; }
+    };
+    _bz("btnResign", "resign", this.active); _bz("btnAbort", "abort", this.active);
+    _bz("btnCancel", "cancel", this.active); _bz("btnJoinGame", "join", this.active);
+    _bz("btnRematch", "open", rematchId(this.active));   // rematch opens (or joins) the deterministic next id
     $("settleHint").textContent = over && !gm.settled
       ? (cfg.overHint ? cfg.overHint(eng, me) + " " : "")
         + (rc === 3 ? T("itsDraw", "It's a draw — both players agree to refund.")

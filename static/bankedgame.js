@@ -11,7 +11,7 @@
 //   bg.track(sto);  const tb = bg.read(sto, bg.active);
 //   bg.lobby($("lobbyList"), sto, (tb) => "…chip text…", select, sortFn);
 //   bg.recent($("recent"), select, tagFn);
-import { _m, $, lsLoad, lsSave, lsPrune, randId, recentChips } from "./nadodapp.js";
+import { _m, $, lsLoad, lsSave, lsPrune, randId, recentChips, notify, confirmingLabel } from "./nadodapp.js";
 
 export class BankedGame {
   constructor(dapp, { icon = "🎯", bankIcon = "🏦" } = {}) {
@@ -57,6 +57,7 @@ export class BankedGame {
 
   // ---- localStorage table/seat records (survive the signing redirect; pruned once gone on-chain) ----
   track(sto) {
+    this._sto = sto;   // freshest storage — fund() reads the current bankroll from here to record its tk0
     this.knownTables = lsPrune(this.LS_T, Object.keys(_m(sto, "ta")));
     this.knownSeats = lsPrune(this.LS_S, Object.keys(_m(sto, "gg")));
   }
@@ -66,21 +67,41 @@ export class BankedGame {
   tableRec(t) { return lsLoad(this.LS_T)[String(t)] || null; }
 
   // ---- bank actions (identical bytecode in every banked game) ----
+  // CLICK-GATED: dapp.busy(phase, "table", id) is true from the tap until the effect is seen on-chain
+  // (each game's settleInflight predicate — most now use bg.landed() below). A re-tap in the sign→mine
+  // window is swallowed with a toast rather than firing a duplicate open/fund/close.
   open(bankRaw, label) {
+    if (this.dapp.busy("open")) { notify(confirmingLabel()); return this.active; }   // one open confirming at a time (each mints a fresh id)
     const t = randId();
     const T = lsLoad(this.LS_T); T[t] = { bankroll: bankRaw.toString(), ts: Date.now() }; lsSave(this.LS_T, T);
     this.active = t;
     this.dapp.call("open", [t], bankRaw, label, { table: t, phase: "open" });
     return t;
   }
-  fund(raw, label) { this.dapp.call("fund", [this.active], raw, label, { table: this.active, phase: "fund" }); }
-  close(label, opts) { this.dapp.call("close", [this.active], null, label, { table: this.active, phase: "close" }, opts); }
+  fund(raw, label) { if (this.dapp.busy("fund", "table", this.active)) return notify(confirmingLabel()); const tk0 = this._sto ? (_m(this._sto, "tk")[String(this.active)] || 0) : null; this.dapp.call("fund", [this.active], raw, label, { table: this.active, phase: "fund", tk0 }); }
+  close(label, opts) { if (this.dapp.busy("close", "table", this.active)) return notify(confirmingLabel()); this.dapp.call("close", [this.active], null, label, { table: this.active, phase: "close" }, opts); }
   // reopen(t, bankRaw, label): re-bank a CLOSED table id you already own (same id keeps the history/link).
   reopen(t, bankRaw, label) {
+    if (this.dapp.busy("open")) { notify(confirmingLabel()); return t; }
     const T = lsLoad(this.LS_T); T[t] = { bankroll: bankRaw.toString(), ts: Date.now() }; lsSave(this.LS_T, T);
     this.active = t;
     this.dapp.call("open", [t], bankRaw, label, { table: t, phase: "open" });
     return t;
+  }
+  // landed(f, sto): the shared "did this action's effect appear on-chain?" test for the bank-level phases,
+  // so a game's settleInflight predicate can defer to it (release the click guard the instant it lands,
+  // not on the 2-min TTL). Games compose it: dapp.settleInflight((f) => bg.landed(f, sto) || myOwn(f)).
+  //   open  → the table's banker record (ta) exists   fund → bankroll (tk) rose past the pre-submit value
+  //   close → the table is flagged closed (tz)        seat-creating bet/spin/deal → the seat (gg) exists
+  // A seat-creating phase must pass its new seat id as pend.seat (every banked game already does).
+  landed(f, sto) {
+    if (!f || !sto) return false;
+    const t = String(f.table);
+    if (f.phase === "open") return !!_m(sto, "ta")[t];
+    if (f.phase === "close") return !!_m(sto, "tz")[t];
+    if (f.phase === "fund") return f.tk0 != null && BigInt(_m(sto, "tk")[t] || 0) > BigInt(f.tk0);
+    if (f.seat != null) return !!_m(sto, "gg")[String(f.seat)];   // bet/spin/deal created the seat
+    return false;
   }
 
   // seats(sto, t, readSeat): the shared per-seat iteration every banked game re-implemented — walk this

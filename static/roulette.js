@@ -7,7 +7,7 @@
 // Once the settle block is final, ANYONE can settle a seat (it pays the bettor) — a stalling bank can't rob
 // anyone. A win pays the true 36/count; losing stakes fold into the bankroll. Ordinary upgradable stackvm
 // contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader/lobby (shared by every house game)
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
@@ -71,6 +71,7 @@ async function doBet() {
   const t = bg.active;
   if (!t) return alertBar(window.t("roul.pickTableFirst", "Pick a table first."));
   if (!betCount()) return alertBar(window.t("roul.pickNumber", "Pick at least one number on the table to bet on."));
+  if (dapp.busy("bet", "table", t)) return notify(confirmingLabel());   // one bet confirming at a time — a re-click would place a second seat
   const stake = nadoToRaw($("stakeAmt").value);
   if (!stake) return alertBar(window.t("roul.enterStake", "Enter a stake (NADO)."));
   const tb = await fetchTable(t);
@@ -91,7 +92,7 @@ function fundTable() {
   if (!canPay(dapp, raw, "The top-up")) return;
   bg.fund(raw, "top up table #" + bg.active + " bankroll · " + rawToNado(raw) + " NADO");
 }
-const settleSeat = (g) => dapp.call("settle", [g], null, "collect seat #" + g, { table: bg.active, phase: "settle" });
+const settleSeat = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("settle", [g], null, "collect seat #" + g, { table: bg.active, seat: g, phase: "settle" }); };
 // AUTO-COLLECT a resolved WINNING seat (shared SDK tick — opt-out slider, one-per-refresh, autoTried dedup)
 function maybeAutoSettle() {
   if (!lastTable || !lastTable.exists) return;
@@ -101,11 +102,13 @@ const closeTable = () => bg.close("close table #" + bg.active);
 
 async function refreshActive() {
   await dapp.refresh();
-  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gmask", "gc", "gh", "gr", "gw", "gd"] });
   if (sto) {
     lastSto = sto;
     bg.track(sto);
+    // release the click guard the instant an action's effect is on-chain (bg.landed = open/fund/close/bet;
+    // settle when the seat flips to settled). MUST run with sto in hand — tip-advance alone no longer clears it.
+    dapp.settleInflight((f) => bg.landed(f, sto) || (f.phase === "settle" && f.seat != null && !!_m(sto, "gd")[String(f.seat)]));
     if (bg.active != null) {
       lastTable = tableFrom(sto, bg.active);
       // fetch the block hashes needed to resolve every finished-but-unsettled seat at this table
@@ -220,8 +223,9 @@ function render() {
   const canAfford = !(signedIn && stakeRaw && dapp.exec < stakeRaw);
   const need = (stakeRaw && M) ? stakeRaw * BigInt(M - 1) : null;
   const bankCovers = !(tb && need != null && (BigInt(tb.pool) - BigInt(tb.committed)) < need);
-  const betable = !!tb && !!c && !!stakeRaw && canAfford && bankCovers;
-  if ($("btnBet")) { $("btnBet").disabled = !betable; $("btnBet").classList.toggle("pulse", betable && signedIn); }
+  const betBusy = tb && dapp.busy("bet", "table", tb.id);
+  const betable = !!tb && !!c && !!stakeRaw && canAfford && bankCovers && !betBusy;
+  if ($("btnBet")) { $("btnBet").disabled = !betable; $("btnBet").classList.toggle("pulse", betable && signedIn); $("btnBet").textContent = betBusy ? confirmingLabel() : window.t("roul.placeBet", "Place bet"); }
   // hint (only meaningful once a table is open)
   let hint = "";
   if (signedIn && bg.active != null) {
