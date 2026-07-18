@@ -787,20 +787,13 @@ def validate_transaction(transaction, logger, block_height):
         # count scales with recent registration volume, COUNTED FROM THE CHAIN'S BLOCKS over complete epochs
         # strictly before the anchor — a pure function of (max_block, chain), so every node at any time
         # computes the SAME requirement and rejects an under-worked proof (a modified node can't register
-        # cheaply). Below the fork height ("reg_difficulty_v2") the GRANDFATHER rule accepts any 1..MAX multiplier: the
-        # finalized chain contains v1 proofs minted against per-node index state that provably diverged
-        # (the 2026-07-17 split at #2944 — clean nodes demanded 3x, the fleet accepted 2x), and
-        # not-yet-upgraded peers keep producing such proofs until the boundary.
-        from ops.reg_difficulty import required_posw_t, proof_multiplier
+        # cheaply). STRICT at every height — no compatibility (policy): a chain whose history needs the old
+        # rule is resolved by a protocol bump / genesis reroll, not by leniency here.
+        from ops.reg_difficulty import required_posw_t
         from ops.mining_ops import epoch_of
-        import fork
-        challenge = posw.challenge_bytes(transaction["sender"], anchor)
-        if fork.active("reg_difficulty_v2", transaction["max_block"]):
-            req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)))
-            assert posw.verify(challenge, proof, req_t, POSW_S, POSW_K), \
-                "Invalid registration PoSW (or below the required difficulty)"
-        else:
-            assert proof_multiplier(challenge, proof) > 0, "Invalid registration PoSW"
+        req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)))
+        assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
+                           req_t, POSW_S, POSW_K), "Invalid registration PoSW (or below the required difficulty)"
         # ONE RECERT PER EPOCH (revert-symmetry / anti-fork): apply_register records the recert at
         # epoch = block_height // EPOCH_LENGTH. Two registers landing in DIFFERENT blocks of the SAME epoch
         # (the per-block reserved_uniqueness_key only stops same-block dups) would BOTH apply, but recert_put

@@ -1395,9 +1395,7 @@ class CoreClient(threading.Thread):
             anchor = get_block_hash_by_number(max(0, max_block - POSW_ANCHOR_OFFSET))
             if not anchor:
                 return
-            # mint_multiplier: strict v2 requirement past the boundary; inside the grandfather window it
-            # MIRRORS the last register the chain accepted (v1 peers enforce exact-T against their private
-            # index state, so mirroring the observably-accepted multiplier is the only proof that lands).
+            # strict v2 requirement — the one and only difficulty mode
             req_t = POSW_T * mint_multiplier(self.memserver.latest_block["block_number"], max_block)
             proof = posw.prove(posw.challenge_bytes(self.memserver.address, anchor), T=req_t, S=POSW_S, k=POSW_K)
             tx = construct_register_tx(self.memserver.keydict, max_block, proof)

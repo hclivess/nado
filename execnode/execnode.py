@@ -90,6 +90,21 @@ from protocol import valid_namespace as _valid_ns
 _extra_ns = [s.strip() for s in os.environ.get("NADO_EXEC_NAMESPACES", "").split(",")
              if s.strip() and s.strip() != "default" and _valid_ns(s.strip())]
 NAMESPACES = ["default"] + _extra_ns
+
+# PURGE EPOCH (genesis-reroll flag): when protocol.PURGE_EPOCH moved past the node's stamped data epoch,
+# a reroll shipped — drop OUR exec state/DA before loading it, so a stale exec layer can never replay a
+# fresh chain (the L1 node purges the rest and restamps the marker; deletes are tolerant of racing it).
+from protocol import PURGE_EPOCH as _PURGE_EPOCH
+from ops.data_ops import stored_purge_epoch as _stored_purge_epoch
+if _stored_purge_epoch() is not None and _stored_purge_epoch() != _PURGE_EPOCH:
+    import glob as _glob
+    import shutil as _shutil
+    print("[execnode] PURGE_EPOCH bumped — reroll: dropping exec state + DA for a fresh replay", flush=True)
+    for _p in _glob.glob(STATE_PATH + "*"):
+        try: os.remove(_p)
+        except OSError: pass
+    _shutil.rmtree(DA_DIR, ignore_errors=True)
+
 states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
 state = states["default"]   # the full-featured default layer; shielded/bridge/dividend endpoints use it
 _last_settled_cursor = -1

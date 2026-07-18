@@ -987,12 +987,10 @@ async def get_posw_difficulty(request):
     # sequential-step count for a registration anchored at the current finalized anchor epoch. The wallet reads
     # this to (a) prove at the right difficulty and (b) show the user the expected wait ("×N due to a spike").
     def _work():
-        """Compute the difficulty a prover should use RIGHT NOW (worker thread). v2 chain-derived past the
-        strict boundary; inside the grandfather window it mirrors the last chain-accepted multiplier (what
-        un-upgraded v1 validators will actually accept) — mint_multiplier handles both."""
-        from ops.reg_difficulty import mint_multiplier, _window_count
+        """Compute the difficulty a prover should use RIGHT NOW (worker thread) — the strict v2
+        chain-derived requirement; there is no other mode."""
+        from ops.reg_difficulty import difficulty_multiplier, _window_count
         from ops.mining_ops import epoch_of
-        import fork
         from protocol import POSW_T, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW
         try:
             h = memserver.latest_block["block_number"]
@@ -1000,12 +998,11 @@ async def get_posw_difficulty(request):
             h = 0
         max_block = h + 6                      # the CLI/wallet target a registration a few blocks out
         anchor_epoch = epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET))
-        mult = mint_multiplier(h, max_block)
+        mult = difficulty_multiplier(anchor_epoch)
         recent = _window_count(anchor_epoch - POSW_DIFF_WINDOW, anchor_epoch - 1)
         return {"block_number": h, "anchor_epoch": anchor_epoch, "multiplier": mult,
                 "base_t": POSW_T, "required_t": POSW_T * mult,
-                "recent_registrations": recent, "window_epochs": POSW_DIFF_WINDOW,
-                "strict_after": fork.height("reg_difficulty_v2")}
+                "recent_registrations": recent, "window_epochs": POSW_DIFF_WINDOW}
     return _resp(await asyncio.to_thread(_work))
 
 
@@ -1572,6 +1569,15 @@ allow_async()
 updated_version = versioner.update_version()
 if updated_version:
     versioner.set_version(updated_version)
+
+# PURGE EPOCH (genesis-reroll flag): if the code's protocol.PURGE_EPOCH moved past the epoch this node's
+# data was built under, the operator's /update pull carried a REROLL — wipe every chain-derived artifact
+# (never private/) and fall through to a fresh genesis below. Fresh nodes just get stamped.
+from ops.data_ops import chain_purge_due, purge_chain_data, stamp_purge_epoch
+if chain_purge_due():
+    logger.warning("PURGE_EPOCH bumped — a genesis reroll shipped with this update; wiping chain data for regenesis")
+    purge_chain_data(logger)
+stamp_purge_epoch()
 
 # GENESIS SENTINEL: key off block_ends.dat (written LAST by make_genesis), NOT the blocks/ dir (created FIRST
 # by make_folders). Using blocks/ meant a genesis that died after make_folders but before block_ends.dat was

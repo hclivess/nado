@@ -211,8 +211,12 @@ POSW_DIFF_WINDOW = 20        # recent-registration window (epochs) whose rate se
 POSW_DIFF_TRAIL = 400        # longer trailing window defining the "normal" rate baseline (~2 days)
 POSW_DIFF_FLOOR = 20         # min baseline registrations/window (prevents tiny-network over-sensitivity + div-by-0)
 POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (bounds honest-user cost)
-# STRICT-v2 boundary: moved to the central FORK SCHEDULE — fork.py, "reg_difficulty_v2". Every
-# height-pinned consensus activation lives there (one named, documented place), not as loose constants.
+# PURGE EPOCH (genesis-reroll flag, ops/data_ops.py): bump this IN THE SAME COMMIT as a genesis reroll.
+# Every node stamps the epoch its on-disk data was built under; on boot after an update, a mismatch wipes
+# all chain-derived data (blocks/index/peers/snapshots/exec state+DA — never private/) and the node
+# regenesis/resyncs fresh. This makes one /update wave a COMPLETE reroll deployment. No compatibility:
+# old chains are not carried, they are purged.
+PURGE_EPOCH = 1
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

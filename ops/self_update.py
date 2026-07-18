@@ -18,6 +18,10 @@ SAFE BY DESIGN (this runs unattended on a live money node whose repo dir IS the 
 
 Triggers: GET /update (remote, cascades to peers), the 24h in-node timer (nado.py), or the CLI
 (`nado_cli.py update`). Opt out with "auto_update": false in private/config.json.
+
+GENESIS REROLLS are fully covered by one /update wave: a reroll commit bumps protocol.PURGE_EPOCH, and
+the post-update boot sees the bump, wipes all chain-derived data (never private/) and regenesis/resyncs
+(ops/data_ops.py purge-epoch machinery). No manual purge step on any operator's box.
 """
 import os
 import re

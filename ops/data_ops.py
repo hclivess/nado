@@ -12,6 +12,60 @@ def get_home():
     return f"{Path.home()}/nado"
 
 
+# ---- PURGE EPOCH (genesis-reroll support; see protocol.PURGE_EPOCH) --------------------------------
+# A reroll ships as ONE commit: the new genesis + a bumped protocol.PURGE_EPOCH. Every node persists the
+# epoch its on-disk data was built under; a mismatch at boot wipes all CHAIN-DERIVED data (blocks, index,
+# peers, snapshots, exec state/DA — NEVER private/ keys+config) and regenesis/resyncs. This is what makes
+# the integrated /update wave sufficient for a reroll: pull -> restart -> purge -> fresh chain.
+
+def _purge_marker():
+    return f"{get_home()}/purge_epoch"
+
+
+def stored_purge_epoch():
+    """The PURGE_EPOCH this node's data was built under, or None (fresh node / pre-flag data)."""
+    try:
+        with open(_purge_marker()) as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
+
+
+def stamp_purge_epoch():
+    from protocol import PURGE_EPOCH
+    with open(_purge_marker(), "w") as f:
+        f.write(str(PURGE_EPOCH))
+
+
+def chain_purge_due():
+    """True when the code's PURGE_EPOCH moved past the on-disk data's epoch. A missing marker is NOT
+    due: fresh installs and first-boot-after-this-feature just get stamped with the current epoch."""
+    from protocol import PURGE_EPOCH
+    stored = stored_purge_epoch()
+    return stored is not None and stored != PURGE_EPOCH
+
+
+def purge_chain_data(logger=None):
+    """Wipe every chain-derived artifact under the node home. EXPLICIT allowlist only — private/
+    (keys, config) and the repo checkout are never touched."""
+    import glob
+    import shutil
+    home = get_home()
+    say = (logger.warning if logger else print)
+    for d in ("blocks", "index", "peers", "snapshots", "exec_da"):
+        p = f"{home}/{d}"
+        if os.path.isdir(p):
+            shutil.rmtree(p, ignore_errors=True)
+            say(f"PURGE: removed {p}/")
+    for pat in ("peers.dat", "exec_state.json*", "version"):
+        for p in glob.glob(f"{home}/{pat}"):
+            try:
+                os.remove(p)
+                say(f"PURGE: removed {p}")
+            except OSError:
+                pass
+
+
 
 def is_hex_hash(value, length=64):
     """True only for a lowercase hex string of exactly `length` chars (a block or

@@ -14,8 +14,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.getLogger().addHandler(logging.NullHandler())
 
 from protocol import POSW_T, POSW_S, POSW_K, POSW_DIFF_FLOOR, POSW_DIFF_WINDOW, POSW_DIFF_MAX_MULT
-from fork import height as fork_height
-REG_DIFF_V2_HEIGHT = fork_height("reg_difficulty_v2")
 from ops import posw
 from ops import reg_difficulty as rd
 
@@ -68,36 +66,18 @@ def t5_window_bounds():
     COUNTS[E - POSW_DIFF_WINDOW - 1] = 5 * POSW_DIFF_FLOOR   # one epoch too old
     assert rd.difficulty_multiplier(E) == 1, "out-of-window epoch must not count"
 
-def t6_grandfather_proof_scan():
-    """proof_multiplier finds the exact multiplier a proof satisfies (verify is exact-T) and 0 for garbage.
-    Runs with a shrunken POSW_T so the sequential prove stays test-fast."""
-    orig_t = rd.POSW_T
-    rd.POSW_T = 4 * POSW_S                          # 4 segments at 1x — small but structurally real
-    try:
-        ch = posw.challenge_bytes("ndotest", "ab" * 32)
-        proof = posw.prove(ch, T=2 * rd.POSW_T, S=POSW_S, k=POSW_K)      # honest 2x proof
-        assert rd.proof_multiplier(ch, proof) == 2, "2x proof scans to multiplier 2"
-        assert rd.proof_multiplier(posw.challenge_bytes("ndoother", "ab" * 32), proof) == 0, \
-            "wrong-challenge proof scans to 0"
-    finally:
-        rd.POSW_T = orig_t
-
-def t7_mint_boundary():
-    """mint_multiplier: mirrors the chain-observed multiplier inside the grandfather window (what v1 peers
-    provably accept), switches to the strict v2 value past REG_DIFF_V2_HEIGHT."""
-    orig_obs, orig_dm = rd._observed_multiplier, rd.difficulty_multiplier
-    rd._observed_multiplier = lambda tip, scan_limit=2000: 2
+def t6_mint_is_strict():
+    """The mint-side multiplier IS the strict consensus requirement — no mirror, no other mode."""
+    orig = rd.difficulty_multiplier
     rd.difficulty_multiplier = lambda e: 3
     try:
-        assert rd.mint_multiplier(100, REG_DIFF_V2_HEIGHT) == 2, "inside window -> mirror the chain"
-        assert rd.mint_multiplier(100, REG_DIFF_V2_HEIGHT + 1) == 3, "past boundary -> strict v2"
-        rd._observed_multiplier = lambda tip, scan_limit=2000: None
-        assert rd.mint_multiplier(100, REG_DIFF_V2_HEIGHT) == 3, "no observable register -> v2 fallback"
+        assert rd.mint_multiplier(100, 10_000) == 3
+        assert rd.mint_multiplier(100, 10_000_000) == 3
     finally:
-        rd._observed_multiplier, rd.difficulty_multiplier = orig_obs, orig_dm
+        rd.difficulty_multiplier = orig
 
 for t in (t1_normal_load_is_1x, t2_flood_ramps_difficulty, t3_capped_at_max, t4_anchor_epoch_excluded,
-          t5_window_bounds, t6_grandfather_proof_scan, t7_mint_boundary):
+          t5_window_bounds, t6_mint_is_strict):
     check(t.__name__, t)
 
 print("ALL PASS" if fails == 0 else f"{fails} FAILURES"); sys.exit(1 if fails else 0)

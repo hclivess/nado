@@ -8,19 +8,13 @@ from ops.data_ops import get_home
 
 
 def _config_path():
-    """Canonical config path: private/config.json — the file has ALWAYS been JSON, the historical name
-    (config.dat) just hid it. One-time seamless MIGRATION on first touch: rename config.dat ->
-    config.json and leave a config.dat SYMLINK to it, so any not-yet-restarted process running older
-    code (forum, a mid-update mixed-version window, operator scripts) keeps resolving the same single
-    physical file — no divergence, no missing-file crash."""
+    """Canonical config path: private/config.json (the file has always been JSON). A pre-rename
+    config.dat is renamed ONCE to carry the operator's settings forward — data migration, not a
+    compatibility layer: nothing keeps answering to the old name."""
     base = f"{get_home()}/private"
     canon, legacy = f"{base}/config.json", f"{base}/config.dat"
-    if not os.path.exists(canon) and os.path.isfile(legacy):
-        try:
-            os.replace(legacy, canon)
-            os.symlink("config.json", legacy)
-        except Exception:
-            return legacy          # migration failed (read-only fs?) — keep working off the legacy file
+    if not os.path.exists(canon) and os.path.isfile(legacy) and not os.path.islink(legacy):
+        os.replace(legacy, canon)
     return canon
 
 
@@ -36,10 +30,9 @@ def get_timestamp_seconds():
     return int(time.time_ns() / 1000000000)
 
 
-def get_protcol():
+def get_protocol():
     """The node's protocol number — peers whose /status reports a LOWER protocol than ours are
     rejected at handshake, so bump this on breaking wire/consensus changes to shed old nodes.
-    (Yes, the name is misspelled; it is referenced as-is elsewhere — do not rename.)
     3 (2026-07-18): the bit-width-audit + reg-difficulty-v2 consensus changes are STRICT (no
     compatibility, per policy) — old-rules nodes are shed here instead of fought block-by-block."""
     return 3
@@ -112,7 +105,7 @@ def create_config(ip: str, config_path: str = None):
     config_contents = {
         "port": get_port(),
         "ip": ip,
-        "protocol": get_protcol(),
+        "protocol": get_protocol(),
         "server_key": create_nonce(length=64),
         "min_peers": 2,
         "max_rollbacks": 10,
