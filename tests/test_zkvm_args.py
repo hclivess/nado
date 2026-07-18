@@ -167,8 +167,10 @@ def t_dmw_parimutuel():
 
 def t_dmw_windows():
     code = zkvmasm.assemble_contract({"m": "divmodw r1 r2\nret r1"})
-    ok, _, _, _ = zkvm.run(code, "m", CALLER, [0, 100, 1 << 31], {})     # divisor too wide
-    assert not ok, "divisor >= 2^31 must revert"
+    ok, _, _, _ = zkvm.run(code, "m", CALLER, [0, 100, (1 << 31) + 1], {})  # divisor beyond the window
+    assert not ok, "divisor > 2^31 must revert"
+    ok, _, _, _ = zkvm.run(code, "m", CALLER, [0, 100, 1 << 31], {})        # b == 2^31 is the inclusive edge
+    assert ok, "divisor == 2^31 (window edge) must be accepted — interpreter and AIR agree here"
     ok, _, _, _ = zkvm.run(code, "m", CALLER, [0, 100, 0], {})           # divide by zero
     assert not ok, "divisor 0 must revert"
     ok, _, _, _ = zkvm.run(code, "m", CALLER, [0, (1 << 33) * 3, 2], {}) # quotient too wide

@@ -213,8 +213,8 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 bl[:7], sl[0] = dec[0], dec[1]
             elif op_name == "DIVMOD":
                 a, b = rd, rs
-                if not (1 <= b < (1 << 15)):                  # small divisor keeps q·b < 2^63 (no field wrap)
-                    raise ZkVMRevert("DIVMOD divisor outside [1, 2^15)")
+                if not (1 <= b <= (1 << 15)):                 # small divisor keeps q·b < 2^63 (no field wrap)
+                    raise ZkVMRevert("DIVMOD divisor outside [1, 2^15]")
                 q, rem = a // b, a % b
                 if q >= (1 << 48):                            # 48-bit quotient window (financial operands)
                     raise ZkVMRevert("DIVMOD quotient outside [0, 2^48)")
@@ -226,8 +226,8 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 res, wr = q, True
             elif op_name == "DIVMODW":
                 a, b = rd, rs
-                if not (1 <= b < (1 << 31)):              # wide divisor: data-sized (pool splits, ratios)
-                    raise ZkVMRevert("DIVMODW divisor outside [1, 2^31)")
+                if not (1 <= b <= (1 << 31)):             # wide divisor: data-sized (pool splits, ratios)
+                    raise ZkVMRevert("DIVMODW divisor outside [1, 2^31]")
                 q, rem = a // b, a % b
                 if q >= (1 << 32):                        # 32-bit quotient keeps q·b < 2^63 (no field wrap)
                     raise ZkVMRevert("DIVMODW quotient outside [0, 2^32)")
