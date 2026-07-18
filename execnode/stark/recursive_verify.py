@@ -30,7 +30,7 @@ commitment, draws the challenges, absorbs the aux commitment, then draws the con
 stark.prove(aux_spec=...). Two-phase requires row commitment (per-column trees would need 2·W paths per point).
 """
 from execnode.stark import field as F, stark, backend as B, fri_verify, comp_verify, rowcomp_verify, air_ir
-from execnode.stark.transcript import Transcript
+from execnode.stark.transcript import Transcript, DOMAIN_STARK
 
 
 def public_part(stark_proof):
@@ -71,10 +71,10 @@ def _fs(pub, n_chal, n_alphas, b):
         return chals, alphas
 
     def mk():
-        t = Transcript("nado-stark", backend=b)
+        t = Transcript(DOMAIN_STARK, backend=b)
         replay(t)
         return t
-    t = Transcript("nado-stark", backend=b)
+    t = Transcript(DOMAIN_STARK, backend=b)
     chals, alphas = replay(t)
     return mk, chals, alphas
 

@@ -19,7 +19,7 @@ Soundness assumption: BLAKE2b collision-resistance.
 """
 import os
 from execnode.stark import field as F, merkle, fri, backend as _backend
-from execnode.stark.transcript import Transcript
+from execnode.stark.transcript import Transcript, DOMAIN_STARK
 from execnode.stark.fri import NUM_QUERIES
 
 OFF = F.GENERATOR                    # LDE coset shift (disjoint from the trace subgroup)
@@ -239,7 +239,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     b = backend or _backend.DEFAULT
     if row_commit and getattr(b, "name", "") != "recursion":
         raise ValueError("row_commit requires the RECURSION backend")
-    t = Transcript("nado-stark", backend=b)
+    t = Transcript(DOMAIN_STARK, backend=b)
     if aux is not None:                      # H-4: bind an extra public input (e.g. an unshield withdraw_addr)
         t.absorb("aux", str(aux))            # into the transcript so the proof only verifies for THAT value
     # COMMITTED periodic columns (succinct verify): commit the listed columns' LDE and absorb their roots here,
@@ -370,7 +370,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
             col_roots = proof["col_roots"]
             if aux_spec is not None and len(col_roots) != W:
                 return False, "bad aux geometry"
-        t = Transcript("nado-stark", backend=b)
+        t = Transcript(DOMAIN_STARK, backend=b)
         if aux is not None:                  # H-4: same extra public input the prover bound (unshield addr)
             t.absorb("aux", str(aux))        # a tampered value here diverges the transcript -> proof rejected
         for r in per_roots:                  # committed-periodic roots: same public-parameter position as prove

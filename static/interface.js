@@ -51,6 +51,15 @@ const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "
 const ADDR_RE_I = new RegExp(ADDR_RE.source, "i");
 const ADDR_RE_LOOSE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{40,}$", "i");
 const ADDR_PRE_RE = new RegExp("^" + ADDR_PREFIX), ADDR_PRE_RE_I = new RegExp("^" + ADDR_PREFIX, "i");
+// DOMAIN-SEPARATION TAGS — mirror protocol.py DOMAIN_* (renamed only at a CHAIN_GENERATION reroll).
+const DOMAIN_MSIG = "nado-msig-v1", DOMAIN_REGISTER = "nado-register";
+const DOMAIN_RANDAO_COMMIT = "nado-randao-commit", DOMAIN_RANDAO_SECRET = "nado-randao-secret";
+// ⚠ KEY-DERIVED TAGS — these derive from the USER'S SEED, not the chain: a reroll does NOT reset
+// them, and renaming them silently orphans every derived account / shielded note. FROZEN FOREVER
+// (they are invisible to users); a rename would require explicit migration code, never a sed.
+const DOMAIN_HD_ACCOUNT = "nado-hd-account";      // child-account key derivation
+const DOMAIN_SHIELD_NSK = "nado.shield.nsk";      // shielded nullifier-secret derivation
+const DOMAIN_FORUM_LOGIN = "nado-forum-login";    // forum login challenge (matches forum/server.py)
 const MIN_TX_FEE = 1000;
 // Blocks to delay a flexibly-landing tx's earliest inclusion (min_block = tip + this) so it gossips to
 // every producer before any may include it -> identical mempools -> byte-identical blocks -> the node
@@ -217,7 +226,7 @@ function keypairFromPriv(privHex) {
 // same child addresses for recovery.
 const LS_HD_COUNT = "nado_hd_accounts";     // how many DERIVED accounts (beyond Main) the user has added
 function hdCount() { return Math.max(0, parseInt(localStorage.getItem(LS_HD_COUNT) || "0", 10) || 0); }
-function accountChildSeed(masterHex, index) { return blake2bHash(["nado-hd-account", masterHex, index], 32); }
+function accountChildSeed(masterHex, index) { return blake2bHash([DOMAIN_HD_ACCOUNT, masterHex, index], 32); }
 function accountKeypair(masterHex, index) {
   return keypairFromPriv(index === 0 ? masterHex : accountChildSeed(masterHex, index));
 }
@@ -388,7 +397,7 @@ function addrBookRender() {
 
 function powTarget() { return 1n << BigInt(256 - REGISTER_POW_BITS); }
 function powHashInt(address, nonce) {
-  return BigInt("0x" + blake2bHash(["nado-register", address, nonce]));
+  return BigInt("0x" + blake2bHash([DOMAIN_REGISTER, address, nonce]));
 }
 function powValid(address, nonce) { return powHashInt(address, nonce) < powTarget(); }
 
@@ -1958,7 +1967,7 @@ async function resumePendingForumLogin() {
   });
   if (!okc) return;
   try {
-    const msg = blake2bHash(["nado-forum-login", req.forum, state.wallet.address, req.nonce, req.issued], 32);
+    const msg = blake2bHash([DOMAIN_FORUM_LOGIN, req.forum, state.wallet.address, req.nonce, req.issued], 32);
     const { publicKey, secretKey } = ml_dsa44.keygen(hexToBytes(state.wallet.privateKey));
     const mb = hexToBytes(msg);
     let signature = null;
@@ -2331,7 +2340,7 @@ function runSelfTest() {
   const cases = [];
   const add = (name, got, want) => cases.push({ name, pass: got === want, got, want });
 
-  add("blake2b_hash(['nado-register','ndoTEST',5])", blake2bHash(["nado-register", "ndoTEST", 5]), VEC.hash_register_list);
+  add("blake2b_hash(['nado-register','ndoTEST',5])", blake2bHash([DOMAIN_REGISTER, "ndoTEST", 5]), VEC.hash_register_list);
   add("blake2b_hash(addr_body, size=2)", blake2bHash("ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80", 2), VEC.checksum_string_size2);
   add("make_address(pubkey)", makeAddress(VEC.make_address_pub), VEC.make_address_out);
   add("blake2b_hash_link('a','b')", blake2bHashLink("a", "b"), VEC.hash_link_a_b);
@@ -2824,7 +2833,7 @@ function saveRandao(m) { try { localStorage.setItem(randaoKey(), JSON.stringify(
 // The epoch secret is DERIVED from the wallet key (like ETH validators' deterministic randao_reveal):
 // every device holding this wallet computes the SAME secret, so multi-device mining can never
 // split-brain an epoch. Only the key holder can compute it; the commit binds it two epochs ahead.
-function randaoSecretFor(epoch) { return blake2bHash(["nado-randao-secret", masterSeedOf() || state.wallet.privateKey, Number(epoch)]); }
+function randaoSecretFor(epoch) { return blake2bHash([DOMAIN_RANDAO_SECRET, masterSeedOf() || state.wallet.privateKey, Number(epoch)]); }
 
 let _randaoBusy = false;
 const _randaoDead = new Set();     // epochs with a DETERMINISTIC reveal rejection — same inputs give the same
@@ -2872,7 +2881,7 @@ async function maybeRandao() {
       } catch (e) { /* skip attest this pass */ }
     }
     // RANDAO commit for X+2 (deterministic secret from the key)
-    data.commit = { target_epoch: X + 2, commitment: blake2bHash(["nado-randao-commit", randaoSecretFor(X + 2)]) };
+    data.commit = { target_epoch: X + 2, commitment: blake2bHash([DOMAIN_RANDAO_COMMIT, randaoSecretFor(X + 2)]) };
     // RANDAO reveal for X+1 (its E-1 finalized window), if the landing block is inside it
     if (tb <= revealHi && !_randaoDead.has(X + 1)) {
       data.reveal = { target_epoch: X + 1, secret: randaoSecretFor(X + 1) };
@@ -4181,7 +4190,7 @@ function rollupRenderHistory() {
 
 /* ----------------------------------------------------------------------------------------------
  * MULTISIG tab — opt-in M-of-N shared accounts, mirroring ops/multisig_ops.py byte-for-byte:
- *   address = make_address(blake2b(["nado-msig-v1", threshold, sortedMembers]))   (the address IS the policy)
+ *   address = make_address(blake2b([DOMAIN_MSIG, threshold, sortedMembers]))   (the address IS the policy)
  * A spend proposal is an ordinary tx whose SIGNED body carries the descriptor and whose `signature`
  * is a LIST of {public_key, signature} member entries over the txid. Because each entry signs the
  * txid (which commits everything), co-signers can sign independently in any order and exchange the
@@ -4191,7 +4200,7 @@ const MSIG_MAX_MEMBERS = 16;
 const MSIG_TARGET_HEADROOM = 300;   // blocks of co-signing time (mempool accepts < tip+360)
 
 function msigAddress(threshold, members) {
-  return makeAddress(blake2bHash(["nado-msig-v1", threshold, members]));
+  return makeAddress(blake2bHash([DOMAIN_MSIG, threshold, members]));
 }
 
 /* BigInt-safe JSON parse for PASTED proposals: raw amounts can exceed 2^53 and JSON.parse would
@@ -4795,7 +4804,7 @@ function _randField() {   // a random Goldilocks field element (note randomness 
 }
 // STABLE per-wallet shielded spend key, derived from the seed -> recoverable from the recovery phrase, and
 // reusable as a receive address (the on-chain commitments hide it, like a reusable Zcash address).
-function shieldNsk() { ensureShielded(); return BigInt("0x" + blake2bHash(["nado.shield.nsk", state.wallet.privateKey])) % alghash.P; }
+function shieldNsk() { ensureShielded(); return BigInt("0x" + blake2bHash([DOMAIN_SHIELD_NSK, state.wallet.privateKey])) % alghash.P; }
 function shieldOwner() { return alghash.ownerOf(shieldNsk()); }
 function shieldAddr() { return "znado" + shieldOwner().toString(36); }
 function _b36(s) { let x = 0n; for (const c of s.toLowerCase()) { const d = "0123456789abcdefghijklmnopqrstuvwxyz".indexOf(c); if (d < 0) throw new Error("bad shielded address"); x = x * 36n + BigInt(d); } return x; }

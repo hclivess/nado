@@ -25,8 +25,11 @@ function enc(items) {
   return parts;
 }
 
+// The Fiat-Shamir domain label (mirrors execnode/stark/transcript.py DOMAIN_STARK).
+export const DOMAIN_STARK = "nado-stark";
+
 export class Transcript {
-  constructor(label = "nado-stark") { this.state = b2b32(tag("T"), _TE.encode(String(label))); }
+  constructor(label = DOMAIN_STARK) { this.state = b2b32(tag("T"), _TE.encode(String(label))); }
   absorb(...items) { this.state = b2b32(tag("A"), hexToBytes(this.state), ...enc(items)); }
   challenge() { this.state = b2b32(tag("C"), hexToBytes(this.state)); return BigInt("0x" + this.state) % P; }
   challengeIndex(bound) { this.state = b2b32(tag("X"), hexToBytes(this.state)); return Number(BigInt("0x" + this.state) % BigInt(bound)); }

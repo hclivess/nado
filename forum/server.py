@@ -57,6 +57,10 @@ PID_MAX       = 128
 SESS_COOKIE   = "__Host-nadoforum" if COOKIE_SECURE else "nadoforum"
 LOGIN_COOKIE  = "__Host-nadologin" if COOKIE_SECURE else "nadologin"
 
+# Login-challenge domain tag (non-consensus; must match the wallet mirror in interface.js).
+DOMAIN_FORUM_LOGIN = "nado-forum-login"
+
+
 def _load_secret():
     """Load the HMAC session-signing secret from SECRET_FILE, generating a 0o600 32-byte one on first run."""
     if os.path.exists(SECRET_FILE):
@@ -210,7 +214,7 @@ def _reap_challenges():
 def challenge_message(address, nonce, issued):
     """Deterministic blake2b login-challenge digest the wallet must sign; domain-separated by the literal
     'nado-forum-login' tag and bound to FORUM_ORIGIN, address, nonce and issue time."""
-    return blake2b_hash(["nado-forum-login", FORUM_ORIGIN, address, nonce, int(issued)])
+    return blake2b_hash([DOMAIN_FORUM_LOGIN, FORUM_ORIGIN, address, nonce, int(issued)])
 
 # ---- on-chain lookups (shared session + short caches) ---------------------------------------------
 _acct_cache = {}     # address -> (ts, account dict | None)

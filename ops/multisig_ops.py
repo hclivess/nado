@@ -3,7 +3,7 @@
 A multisig account is an ordinary "ndo…" address derived from a DESCRIPTOR instead of a keypair:
 
     descriptor      = {"threshold": M, "members": [sorted unique member addresses]}
-    virtual pubkey  = blake2b_hash(["nado-msig-v1", M, members])         (domain-tagged, 64 hex)
+    virtual pubkey  = blake2b_hash([DOMAIN_MSIG, M, members])           (domain-tagged, 64 hex)
     multisig address= make_address(virtual pubkey)                       (normal checksummed address)
 
 Receiving needs nothing special — anyone can send to the derived address, and the account doc is
@@ -35,14 +35,14 @@ so a phone derives the identical address and txid.
 from signatures import verify, unhex
 from hashing import blake2b_hash
 from ops.address_ops import make_address, validate_address
-from protocol import MULTISIG_MAX_MEMBERS
+from protocol import MULTISIG_MAX_MEMBERS, DOMAIN_MSIG
 
 
 def multisig_virtual_pubkey(threshold: int, members: list) -> str:
     """The descriptor's domain-tagged hash — the string that stands in for a public key in address
     derivation. 64 hex chars (make_address uses the first 42). CONSENSUS-CRITICAL and mirrored by
-    the browser wallet: ["nado-msig-v1", M, members] through canonical_bytes -> blake2b."""
-    return blake2b_hash(["nado-msig-v1", int(threshold), list(members)])
+    the browser wallet: [DOMAIN_MSIG, M, members] through canonical_bytes -> blake2b."""
+    return blake2b_hash([DOMAIN_MSIG, int(threshold), list(members)])
 
 
 def multisig_address(threshold: int, members: list) -> str:

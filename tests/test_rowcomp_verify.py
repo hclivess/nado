@@ -10,7 +10,7 @@ wrong query index are rejected.
 import os, sys, copy, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import field as F, stark, backend as B, rowcomp_verify as RC, air_ir
-from execnode.stark.transcript import Transcript
+from execnode.stark.transcript import Transcript, DOMAIN_STARK
 
 fails = 0
 def check(name, fn):
@@ -28,7 +28,7 @@ def _points(proof, transitions, boundaries):
     W, N, blowup, Tn = proof["W"], proof["N"], proof["blowup"], proof["T"]
     gT = F.primitive_root_of_unity(Tn); wN = F.primitive_root_of_unity(N)
     last = F.pw(gT, Tn - 1)
-    t = Transcript("nado-stark", backend=B.RECURSION)
+    t = Transcript(DOMAIN_STARK, backend=B.RECURSION)
     for r in proof["row_roots"]:
         t.absorb(r)
     alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]

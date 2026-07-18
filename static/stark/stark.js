@@ -3,7 +3,7 @@
 import * as F from "./field.js";
 import * as merkle from "./merkle.js";
 import * as fri from "./fri.js";
-import { Transcript } from "./transcript.js";
+import { Transcript, DOMAIN_STARK } from "./transcript.js";
 
 export const OFF = F.GEN;
 export const NUM_QUERIES = fri.NUM_QUERIES;   // protocol query count (C-1), single source of truth = fri.js
@@ -70,7 +70,7 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
   const xLde = F.domain(N, OFF);
   const degBound = nextPow2(maxDegree) * T;
 
-  const t = new Transcript("nado-stark");
+  const t = new Transcript(DOMAIN_STARK);
   if (aux !== null && aux !== undefined) t.absorb("aux", String(aux));   // H-4: bind the unshield withdraw_addr
   const colRoots = [], colMlayers = [];
   for (let c = 0; c < W; c++) {

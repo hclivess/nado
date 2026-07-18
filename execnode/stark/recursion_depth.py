@@ -26,7 +26,7 @@ the prerequisite to make DEEP trees fast to PRODUCE; verification is already con
 validates the enabler + foldability fast and the full fold-of-folds step under NADO_HEAVY=1.
 """
 from execnode.stark import fri_verify, backend as B
-from execnode.stark.transcript import Transcript
+from execnode.stark.transcript import Transcript, DOMAIN_STARK
 
 
 def _fold_proof_fs(fold_proof, b=B.RECURSION):
@@ -40,7 +40,7 @@ def _fold_proof_fs(fold_proof, b=B.RECURSION):
     col_roots = fold_proof["col_roots"]
 
     def mk():
-        t = Transcript("nado-stark", backend=b)
+        t = Transcript(DOMAIN_STARK, backend=b)
         for r in col_roots:
             t.absorb(r)
         for _ in range(nt + nb):

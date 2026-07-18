@@ -95,7 +95,7 @@ def t_binds_real_stark_proof():
     stark.verify composition spot-check, done inside a recursion proof. The trace<->constraints half of an
     in-circuit STARK verifier, run against a real proof rather than hand-built values."""
     from execnode.stark import stark, backend as B
-    from execnode.stark.transcript import Transcript
+    from execnode.stark.transcript import Transcript, DOMAIN_STARK
     b = B.RECURSION
     Tn, NQ_IN = 8, 2
     colv = [SEED]
@@ -106,7 +106,7 @@ def t_binds_real_stark_proof():
     assert stark.verify(proof, TRANS, BND, max_degree=8, num_queries=NQ_IN, backend=b)[0], "inner proof must verify"
     N, blowup, col_roots = proof["N"], proof["blowup"], proof["col_roots"]
     nt, nb = len(TRANS), len(BND)
-    t = Transcript("nado-stark", backend=b)             # one-phase AIR: absorb col roots, draw nt+nb alphas
+    t = Transcript(DOMAIN_STARK, backend=b)             # one-phase AIR: absorb col roots, draw nt+nb alphas
     for r in col_roots:
         t.absorb(r)
     alphas = [t.challenge() for _ in range(nt + nb)]

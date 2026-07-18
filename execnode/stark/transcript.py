@@ -8,8 +8,15 @@ recursion layer (doc/zk-recursion.md). Post-quantum (hash-only) and byte-reprodu
 from execnode.stark import backend as _backend
 
 
+# The Fiat-Shamir domain label every NADO proof binds. Brand-carrying: renamed only at a
+# CHAIN_GENERATION reroll (doc/address-format.md). JS mirror: static/stark/transcript.js.
+DOMAIN_STARK = "nado-stark"
+
+
 class Transcript:
-    def __init__(self, label="nado-stark", backend=None):
+    def __init__(self, label=None, backend=None):
+        if label is None:
+            label = DOMAIN_STARK
         """Fresh transcript, domain-separated by `label`."""
         self.b = backend or _backend.DEFAULT
         self.state = self.b.t_init(label)

@@ -29,6 +29,14 @@ ADDRESS_BODY = 42              # hex chars of the pubkey carried in the address
 ADDRESS_CHECKSUM = 2           # checksum bytes (4 hex chars), blake2b over prefix+body
 ADDRESS_LENGTH = len(ADDRESS_PREFIX) + ADDRESS_BODY + ADDRESS_CHECKSUM * 2   # 49 today
 
+# ---- DOMAIN-SEPARATION TAGS (consensus; brand-carrying) --------------------------------------------
+# Renamed ONLY at a CHAIN_GENERATION reroll — everything re-derives from genesis there (see
+# doc/address-format.md "Domain-separation tags"). One constant per tag; no other Python spells
+# them. JS mirrors: static/interface.js DOMAIN_* block, static/stark/transcript.js DOMAIN_STARK.
+DOMAIN_MSIG = "nado-msig-v1"                  # multisig virtual-pubkey derivation (ops/multisig_ops)
+DOMAIN_REGISTER = "nado-register"             # open-lane registration PoW binding (ops/mining_ops)
+DOMAIN_RANDAO_COMMIT = "nado-randao-commit"   # RANDAO commitment preimage tag (ops/mining_ops)
+
 GENESIS_TIMESTAMP = 1784257440  # 2026-07-17 — alphanet-6 (FROZEN sparse alghash2 settled root, exec_root.py;
                                 # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
                                 # production starts immediately. The root scheme is final: depth 256 saturates
@@ -262,6 +270,7 @@ ALIAS_REGISTRATION_FEE = 10_000_000     # 0.001 NADO (10,000x MIN_TX_FEE): deter
 # canonical (new) checksum from the genesis public-key body so it validates. It starts EMPTY —
 # there is NO genesis allocation (TREASURY_GENESIS = 0 below); it only fills from the per-block cut.
 _GENESIS_BODY = "ndo27f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # genesis producer address (ML-DSA addr minus 4-hex checksum)
+# ^ ADDRESS LITERAL: re-derived at any address-format switch (doc/address-format.md cutover step 4)
 GENESIS_ADDRESS = _GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)
 # The TREASURY is a RESERVED, KEYLESS account (like "dividend"/"bridge") — NOT the founder's genesis address.
 # No private key exists for it, so the ONLY way coins leave it is a quorum-approved treasury_execute
@@ -511,7 +520,8 @@ SATURATION_LOOKBACK_EPOCHS = (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS
 # (no finalized prior epoch exists yet); epoch>=2 chains it with the hash of the first block of
 # the previous epoch (see block_ops.epoch_beacon). Replacing this with the full on-chain
 # commit-reveal RANDAO is the hardening step (mining_ops.compute_beacon already implements it).
-GENESIS_BEACON = blake2b_hash(["nado-genesis-beacon", CHAIN_ID])
+DOMAIN_GENESIS_BEACON = "nado-genesis-beacon"       # (brand-carrying; renamed only at a reroll)
+GENESIS_BEACON = blake2b_hash([DOMAIN_GENESIS_BEACON, CHAIN_ID])
 
 
 def split_block_reward(reward: int):

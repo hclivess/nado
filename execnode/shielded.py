@@ -31,9 +31,14 @@ ANCHOR_WINDOW = 128                                # recent roots a proof may ta
                                                    # never grows without limit — clients prove against a fresh root)
 
 
+# Shielded-pool hash domain (consensus for every note/nullifier; brand-carrying — renamed only
+# at a CHAIN_GENERATION reroll). JS mirror: static/shielded.js DOMAIN_SHIELD.
+DOMAIN_SHIELD = "nado.shield"
+
+
 def _h(*parts):
     """Domain-separated pool hash over canonical JSON (browser-reproducible)."""
-    return blake2b_hash(["nado.shield", *[str(p) for p in parts]])
+    return blake2b_hash([DOMAIN_SHIELD, *[str(p) for p in parts]])
 
 
 # --- empty-subtree roots (e[i] = root of an all-empty subtree of height i) -------------------------

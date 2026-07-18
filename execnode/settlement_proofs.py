@@ -207,14 +207,14 @@ def _stark_fri_transcript_factory(stark_proof):
     order: absorb the W_MAIN main-column roots, draw the 2 aux challenges (β,γ), absorb the NUM_AUX aux-column
     roots, draw the (#transitions + #boundaries) constraint α's. Returns a factory `() -> Transcript`."""
     from execnode.stark import backend as _bk
-    from execnode.stark.transcript import Transcript
+    from execnode.stark.transcript import Transcript, DOMAIN_STARK
     col_roots = stark_proof["col_roots"]
     Tlen = stark_proof["T"]
     w_main = vm_circuit.W_MAIN
     n_alpha = len(vm_circuit.transitions()) + len(vm_circuit._boundaries(Tlen))
 
     def make():
-        t = Transcript("nado-stark", backend=_bk.RECURSION)
+        t = Transcript(DOMAIN_STARK, backend=_bk.RECURSION)
         for r in col_roots[:w_main]:
             t.absorb(r)
         t.challenge(); t.challenge()                     # β, γ (aux_spec num_challenges = 2)

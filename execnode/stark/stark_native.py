@@ -266,7 +266,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     Python callback over small T-length columns — run in Python. Byte-identical proof dict to stark.prove;
     tests/test_starkprove.py gates it field-for-field end-to-end + verifies under stark.verify."""
     from execnode.stark import stark, air_ir, backend as _B
-    from execnode.stark.transcript import Transcript
+    from execnode.stark.transcript import Transcript, DOMAIN_STARK
     periodic = periodic or []
     if num_queries is None:
         num_queries = stark.NUM_QUERIES
@@ -281,7 +281,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     for c in range(W):                                   # main trace columns → arena ids 0..W
         lde_column([trace[i][c] for i in range(T)], N, want_out=False)
 
-    t = Transcript("nado-stark", backend=b)
+    t = Transcript(DOMAIN_STARK, backend=b)
     if aux is not None:
         t.absorb("aux", str(aux))
     col_roots, row_roots, trees, row_trees = [], [], [], []

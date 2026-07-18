@@ -5,6 +5,11 @@ from base64 import b64encode
 from hashlib import blake2b
 
 
+# Empty-merkle-root sentinel domain (CONSENSUS: the merkle root of a zero-tx block; brand-
+# carrying — renamed only at a CHAIN_GENERATION reroll, see doc/debrand.md).
+DOMAIN_EMPTY_MERKLE = b"nado-empty-merkle"
+
+
 def create_nonce(length: int = 8):
     """Random lowercase-ASCII string for node-local identifiers (and the config server_key at
     length 64). Uses `random`, NOT a CSPRNG — fine for nonces/ids, not for key material."""
@@ -87,7 +92,7 @@ def merkle_root(leaves) -> str:
     this is the settled exec-layer state_root that L1 withdrawal verification anchors to."""
     cur = _leaf_hashes(leaves)
     if not cur:
-        return _mh(b"nado-empty-merkle").hex()
+        return _mh(DOMAIN_EMPTY_MERKLE).hex()
     while len(cur) > 1:
         cur = _fold(cur)
     return cur[0].hex()

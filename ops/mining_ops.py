@@ -20,6 +20,7 @@ Design (from the red-teamed "Option A" hybrid):
     (R,S) and would be grindable); signing stays only for authenticating heartbeats/reveals.
 """
 from hashing import blake2b_hash
+from protocol import DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT
 from protocol import (B_MIN, BOND_CAP, EPOCH_LENGTH, FIDELITY_CAP, BOND_RAMP_EPOCHS,
                       K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS, REGISTER_POW_BITS)
 
@@ -106,7 +107,7 @@ def select_producer(registry: dict, beacon: str, slot: int):
 
 def beacon_commitment(reveal_secret: str) -> str:
     """commitment published in the commit phase; binds the secret without revealing it"""
-    return blake2b_hash(["nado-randao-commit", reveal_secret])
+    return blake2b_hash([DOMAIN_RANDAO_COMMIT, reveal_secret])
 
 
 def verify_reveal(commitment: str, reveal_secret: str) -> bool:
@@ -289,10 +290,10 @@ def registration_pow_target() -> int:
 
 
 def registration_pow_hash(address: str, nonce) -> int:
-    """Domain-separated ("nado-register") blake2b of (address, nonce) as an integer, compared
+    """Domain-separated (DOMAIN_REGISTER) blake2b of (address, nonce) as an integer, compared
     against registration_pow_target(). Binding the ADDRESS into the pre-image makes solutions
     non-transferable — a solved nonce registers exactly one identity."""
-    return int(blake2b_hash(["nado-register", address, nonce]), 16)
+    return int(blake2b_hash([DOMAIN_REGISTER, address, nonce]), 16)
 
 
 def verify_registration_pow(address: str, nonce) -> bool:

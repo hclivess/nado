@@ -11,6 +11,9 @@
  * browser (interface.js passes its CDN-backed blake2bHash) and under node (the cross-check harness passes one
  * built from the vendored @noble blake2b) — proving the two agree.
  */
+// Shielded-pool hash domain (mirrors execnode/shielded.py DOMAIN_SHIELD).
+export const DOMAIN_SHIELD = "nado.shield";
+
 export const SHIELD_DEPTH = 32;
 
 let _blake2bHash = null;
@@ -19,7 +22,7 @@ export function initShielded(blake2bHashFn) { _blake2bHash = blake2bHashFn; }
 // domain-separated pool hash over canonical JSON — mirrors Python _h(*parts) exactly (every part -> string)
 function _h(...parts) {
   if (!_blake2bHash) throw new Error("shielded.js not initialised (call initShielded)");
-  return _blake2bHash(["nado.shield", ...parts.map((p) => String(p))]);
+  return _blake2bHash([DOMAIN_SHIELD, ...parts.map((p) => String(p))]);
 }
 
 // --- empty-subtree roots (e[i] = root of an all-empty subtree of height i) ---
