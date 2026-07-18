@@ -91,15 +91,15 @@ _extra_ns = [s.strip() for s in os.environ.get("NADO_EXEC_NAMESPACES", "").split
              if s.strip() and s.strip() != "default" and _valid_ns(s.strip())]
 NAMESPACES = ["default"] + _extra_ns
 
-# PURGE EPOCH (genesis-reroll flag): when protocol.PURGE_EPOCH moved past the node's stamped data epoch,
+# CHAIN GENERATION (genesis-reroll flag): when protocol.CHAIN_GENERATION moved past the node's stamped data generation,
 # a reroll shipped — drop OUR exec state/DA before loading it, so a stale exec layer can never replay a
 # fresh chain (the L1 node purges the rest and restamps the marker; deletes are tolerant of racing it).
-from protocol import PURGE_EPOCH as _PURGE_EPOCH
-from ops.data_ops import stored_purge_epoch as _stored_purge_epoch
-if _stored_purge_epoch() is not None and _stored_purge_epoch() != _PURGE_EPOCH:
+from protocol import CHAIN_GENERATION as _CHAIN_GENERATION
+from ops.data_ops import stored_chain_generation as _stored_chain_generation
+if _stored_chain_generation() is not None and _stored_chain_generation() != _CHAIN_GENERATION:
     import glob as _glob
     import shutil as _shutil
-    print("[execnode] PURGE_EPOCH bumped — reroll: dropping exec state + DA for a fresh replay", flush=True)
+    print("[execnode] CHAIN_GENERATION bumped — reroll: dropping exec state + DA for a fresh replay", flush=True)
     for _p in _glob.glob(STATE_PATH + "*"):
         try: os.remove(_p)
         except OSError: pass

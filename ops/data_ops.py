@@ -12,18 +12,18 @@ def get_home():
     return f"{Path.home()}/nado"
 
 
-# ---- PURGE EPOCH (genesis-reroll support; see protocol.PURGE_EPOCH) --------------------------------
-# A reroll ships as ONE commit: the new genesis + a bumped protocol.PURGE_EPOCH. Every node persists the
-# epoch its on-disk data was built under; a mismatch at boot wipes all CHAIN-DERIVED data (blocks, index,
+# ---- CHAIN GENERATION (genesis-reroll support; see protocol.CHAIN_GENERATION) --------------------------------
+# A reroll ships as ONE commit: the new genesis + a bumped protocol.CHAIN_GENERATION. Every node persists the
+# GENERATION its on-disk data was built under; a mismatch at boot wipes all CHAIN-DERIVED data (blocks, index,
 # peers, snapshots, exec state/DA — NEVER private/ keys+config) and regenesis/resyncs. This is what makes
 # the integrated /update wave sufficient for a reroll: pull -> restart -> purge -> fresh chain.
 
 def _purge_marker():
-    return f"{get_home()}/purge_epoch"
+    return f"{get_home()}/chain_generation"
 
 
-def stored_purge_epoch():
-    """The PURGE_EPOCH this node's data was built under, or None (fresh node / pre-flag data)."""
+def stored_chain_generation():
+    """The CHAIN_GENERATION this node's data was built under, or None (fresh node / pre-flag data)."""
     try:
         with open(_purge_marker()) as f:
             return int(f.read().strip())
@@ -31,18 +31,18 @@ def stored_purge_epoch():
         return None
 
 
-def stamp_purge_epoch():
-    from protocol import PURGE_EPOCH
+def stamp_chain_generation():
+    from protocol import CHAIN_GENERATION
     with open(_purge_marker(), "w") as f:
-        f.write(str(PURGE_EPOCH))
+        f.write(str(CHAIN_GENERATION))
 
 
 def chain_purge_due():
-    """True when the code's PURGE_EPOCH moved past the on-disk data's epoch. A missing marker is NOT
-    due: fresh installs and first-boot-after-this-feature just get stamped with the current epoch."""
-    from protocol import PURGE_EPOCH
-    stored = stored_purge_epoch()
-    return stored is not None and stored != PURGE_EPOCH
+    """True when the code's CHAIN_GENERATION moved past the on-disk data's generation. A missing marker is NOT
+    due: fresh installs and first-boot-after-this-feature just get stamped with the current generation."""
+    from protocol import CHAIN_GENERATION
+    stored = stored_chain_generation()
+    return stored is not None and stored != CHAIN_GENERATION
 
 
 def purge_chain_data(logger=None):

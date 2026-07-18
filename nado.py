@@ -1570,14 +1570,14 @@ updated_version = versioner.update_version()
 if updated_version:
     versioner.set_version(updated_version)
 
-# PURGE EPOCH (genesis-reroll flag): if the code's protocol.PURGE_EPOCH moved past the epoch this node's
+# CHAIN GENERATION (genesis-reroll flag): if the code's protocol.CHAIN_GENERATION moved past the epoch this node's
 # data was built under, the operator's /update pull carried a REROLL — wipe every chain-derived artifact
 # (never private/) and fall through to a fresh genesis below. Fresh nodes just get stamped.
-from ops.data_ops import chain_purge_due, purge_chain_data, stamp_purge_epoch
+from ops.data_ops import chain_purge_due, purge_chain_data, stamp_chain_generation
 if chain_purge_due():
-    logger.warning("PURGE_EPOCH bumped — a genesis reroll shipped with this update; wiping chain data for regenesis")
+    logger.warning("CHAIN_GENERATION bumped — a genesis reroll shipped with this update; wiping chain data for regenesis")
     purge_chain_data(logger)
-stamp_purge_epoch()
+stamp_chain_generation()
 
 # GENESIS SENTINEL: key off block_ends.dat (written LAST by make_genesis), NOT the blocks/ dir (created FIRST
 # by make_folders). Using blocks/ meant a genesis that died after make_folders but before block_ends.dat was
