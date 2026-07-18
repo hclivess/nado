@@ -9,6 +9,12 @@
 #   scripts/install.sh --wallet        # also install the desktop-wallet deps (PySide6) for this machine
 #   sudo scripts/install.sh --service  # + install & enable a systemd service (unattended, boots on start)
 #
+# NO CHECKOUT YET? The script bootstraps itself: run it standalone (piped from curl works) and it
+# git-clones the official repo first (default: $HOME/nado, override with --dir <path>), then re-runs
+# from the fresh checkout with the same arguments — a complete one-liner node install:
+#
+#   curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service
+#
 # COMPLETE PACKAGE (L1 + shielded pool). --exec also runs the execution / shielded-pool node on :9273, which
 # powers private deposits/withdrawals + shielded transfers and the on-device (in-browser) zk-STARK prover:
 #
@@ -45,7 +51,37 @@
 set -euo pipefail
 
 # ---- locate the repo (this script lives in <repo>/scripts/) --------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# BOOTSTRAP: when there is no checkout around the script (downloaded alone, or piped via curl so
+# BASH_SOURCE is unset), clone the official repo first and hand off to the cloned copy of this
+# script with the same arguments. --dir only steers where the clone lands and is consumed here.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+if [ ! -f "$SCRIPT_DIR/../nado.py" ]; then
+  CLONE_DIR="$HOME/nado"
+  PASS=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir)   shift; CLONE_DIR="${1:?--dir needs a path}" ;;
+      --dir=*) CLONE_DIR="${1#*=}" ;;
+      *)       PASS+=("$1") ;;
+    esac
+    shift
+  done
+  case "$CLONE_DIR" in
+    /*) ;;
+    *) echo "ERROR: --dir must be an absolute path (got '$CLONE_DIR')." >&2; exit 2 ;;
+  esac
+  if ! command -v git >/dev/null 2>&1; then
+    echo "ERROR: git is required to fetch the repo. On Ubuntu/Debian: sudo apt install git" >&2
+    exit 1
+  fi
+  if [ -f "$CLONE_DIR/nado.py" ]; then
+    echo "==> bootstrap: reusing the existing checkout at $CLONE_DIR"
+  else
+    echo "==> bootstrap: cloning https://github.com/hclivess/nado -> $CLONE_DIR"
+    git clone https://github.com/hclivess/nado "$CLONE_DIR"
+  fi
+  exec bash "$CLONE_DIR/scripts/install.sh" ${PASS[@]+"${PASS[@]}"}
+fi
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$REPO_DIR/nado_venv"
 SERVICE_USER="${SUDO_USER:-$(id -un)}"
@@ -81,8 +117,11 @@ while [ $# -gt 0 ]; do
     --auto-bond=*) AUTO_BOND="${1#*=}" ;;
     --home)        shift; DATA_HOME="${1:-}" ;;   # chain data goes under <dir>/nado (services run with HOME=<dir>)
     --home=*)      DATA_HOME="${1#*=}" ;;
+    # --dir belongs to bootstrap mode (where to clone); inside a checkout the location is already fixed
+    --dir)         shift; echo "note: already inside a checkout ($REPO_DIR) — --dir ignored" ;;
+    --dir=*)       echo "note: already inside a checkout ($REPO_DIR) — --dir ignored" ;;
     -h|--help)
-      sed -n '3,40p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,47p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac

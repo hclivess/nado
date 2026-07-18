@@ -281,6 +281,15 @@ NADO runs on Python 3.10+. The entrypoint is `nado.py`; the node serves its API 
 `scripts/install.sh` creates a venv, installs the node dependencies (skipping the desktop-wallet-only
 `PySide6` so a server install stays lean), and prints how to run. Re-running is safe (idempotent).
 
+No checkout needed — piped standalone, the script git-clones the repo itself (default `~/nado`,
+override with `--dir <path>`) and re-runs from the fresh checkout, so a full unattended node is one line:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service
+```
+
+Or the classic way:
+
 ```bash
 git clone https://github.com/hclivess/nado
 cd nado
