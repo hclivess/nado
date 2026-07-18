@@ -851,6 +851,11 @@ def validate_transaction(transaction, logger, block_height):
         # every node (same class as the old min_block poison). The 2**64-1 ceiling also keeps a real cursor from
         # ever equaling the b'\xff'*8 end-of-namespace sentinel that settlement_max_cursor range-seeks past.
         assert isinstance(cursor, int) and not isinstance(cursor, bool) and 0 <= cursor < (1 << 64) - 1, "Settle exec_cursor must be an int in [0, 2**64-1)"
+        # The exec cursor is an L1 HEIGHT the exec node has processed, so it can never exceed this block's
+        # height. Without this a validator could settle at a huge FUTURE cursor whose block doesn't exist yet;
+        # latest_settled would then pin their (records-frozen) root forever and stall every legitimate later
+        # settlement / withdrawal for the namespace. Bind the cursor to reality.
+        assert cursor <= block_height, "Settle exec_cursor is beyond the current block height"
         assert isinstance(root, str) and len(root) == 64 and all(c in "0123456789abcdef" for c in root), "Settle state_root must be 64-hex"
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
