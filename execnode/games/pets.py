@@ -135,6 +135,7 @@ def ref_battle_turns(bh0, bh1, bid, eff_a, eff_b):
         dmg = dmg + crit * dmg
         dmg = dmg * 90 // (90 + B[4])
         dmg = max(1, dmg - B[5] // 2)
+        dmg = min(HP_OFF, dmg)        # cap at the +HP_OFF shift so a lethal hit can't underflow the shifted HP
         dmg = dmg * hit * alive
         if cur == 0:
             h1 -= dmg
@@ -543,6 +544,10 @@ def _resolve_battle():
                              "sub r3 r6", "mul r3 r5",                           # (dmg-cha2)·ge
                              "mov r5 r3", "movi r6 1", "lt r5 r6",               # became 0 -> force 1
                              "add r3 r5"]
+        # cap dmg at HP_OFF so a lethal hit can't underflow the +HP_OFF-shifted HP (trained str/app can push
+        # raw dmg past 1024 -> the shifted HP wraps to ~p and every later LT reverts, bricking resolve_battle).
+        # dmg -= (dmg - OFF)·(OFF < dmg); the field wrap of a negative diff is killed by the ×0 gate.
+        L += ["mov r5 r3", f"movi r6 {HP_OFF}", "lt r6 r5", f"movi r4 {HP_OFF}", "sub r5 r4", "mul r5 r6", "sub r3 r5"]
         # dmg *= hit * alive ; apply to the defender's shifted HP
         L += [f"movi r4 {_bsl(_IDX)}", "sload r5 r4", "mul r3 r5", "mul r3 r1"]
         L += ["mov r5 r2", "mul r5 r3",                                          # B attacking -> A loses
