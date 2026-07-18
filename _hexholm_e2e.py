@@ -18,7 +18,7 @@ from protocol import MIN_TX_FEE
 from execnode.stark import alghash, field as F
 
 L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
-CID = "13b92dc630e513f11a68df9f405d7b2d"
+CID = "c532e36ac30f61619e9ac989a1c0994e"
 NADO = 10**10
 STAKE = NADO // 100
 MOVES_TO_PLAY = 30

@@ -134,7 +134,13 @@ POST = f"""
     ret r3
 """
 
-SRC = dict(_s.SRC, move=MOVE, post=POST)
+# the day's seed anchor lives ON-CHAIN (_lib.daily_anchor): ah[day] = pinned height, av[day] = the
+# pinned block's hash value — what provableSeed() consumes; no verifier ever walks L1 history.
+from execnode.games import _lib
+DCNT_SLOT, A_H, A_V, DLIST = 5, 66, 67, 68
+ANCHOR = _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST)
+
+SRC = dict(_s.SRC, move=MOVE, post=POST, anchor=ANCHOR)
 
 _G = lambda f: {"field": f, "index": "games"}
 _E = lambda f: {"field": f, "index": "entries"}
@@ -147,13 +153,16 @@ ABI = {
     "abort": {"args": ["gameId"]},
     "cancel": {"args": ["gameId"]},
     "post": {"args": ["day", "score", "n", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"]},
+    "anchor": {"args": ["day"]},
     "_view": {
         "maps": {"nn": _G(NN), "st": _G(ST), "pt": _G(PT), "p1": _G(P1), "p2": _G(P2), "sd": _G(SD),
                  "wr": _G(WR), "mc": _G(MC), "dl": _G(DL), "a1": _G(A1), "a2": _G(A2), "kh": _G(KH),
                  "eday": _E(E_DAY), "eaddr": _E(E_ADDR), "escore": _E(E_SCORE), "en": _E(E_N),
                  "ea0": _E(E_A), "ea1": _E(E_A + 1), "ea2": _E(E_A + 2), "ea3": _E(E_A + 3), "ea4": _E(E_A + 4),
-                 "ea5": _E(E_A2), "ea6": _E(E_A2 + 1), "ea7": _E(E_A2 + 2)},
-        "indexes": {"games": {"cnt": 0, "list": LIST}, "entries": {"cnt": ECNT_SLOT, "list": ELIST}},
+                 "ea5": _E(E_A2), "ea6": _E(E_A2 + 1), "ea7": _E(E_A2 + 2),
+                 "ah": {"field": A_H, "index": "days"}, "av": {"field": A_V, "index": "days"}},
+        "indexes": {"games": {"cnt": 0, "list": LIST}, "entries": {"cnt": ECNT_SLOT, "list": ELIST},
+                    "days": {"cnt": DCNT_SLOT, "list": DLIST}},
         "board": {"name": "mv", "base": MV_BASE, "cells": MAXMOVES, "stride": 10000, "index": "games"},
         "board2": {"name": "mh", "base": MH_BASE, "cells": MAXMOVES, "stride": 10000, "index": "games"},
         "addr": ["p1", "p2", "eaddr"],

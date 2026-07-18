@@ -11,7 +11,7 @@ import { DuelGame } from "./duelgame.js";
 import * as E from "./scrapline-engine.js";
 import { ART } from "./scrapline-art.js";
 import { prand, Practice } from "./practice.js";   // practice-vs-computer + solo persistence
-import { dayAnchor, verifyEntries, entriesFrom } from "./provable.js";   // provable daily claims (see doc/provable-practice.md)
+import { anchorOf as anchorVal, ensureAnchor, verifyEntries, entriesFrom } from "./provable.js";   // provable daily claims (see doc/provable-practice.md)
 
 const CID = "634dc7c3eda3fea16fddfaca47a0c8aa";
 const dapp = new NadoDapp({ cid: CID, app: "Scrapline" });
@@ -25,7 +25,7 @@ const TAGC = ["tg-blade", "tg-bolt", "tg-spark", "tg-ember", "tg-plate", "tg-men
 
 const duel = new DuelGame(dapp, {
   prefix: "scrap", icon: "⚙", marks: ["⚙", "🔩"], prize: true,
-  appendMaps: ["eday", "eaddr", "escore", "en", "ea0", "ea1", "ea2", "ea3", "ea4", "ea5", "ea6", "ea7"],
+  appendMaps: ["eday", "eaddr", "escore", "en", "ea0", "ea1", "ea2", "ea3", "ea4", "ea5", "ea6", "ea7", "ah", "av"],
   onStorage(sto) { renderSoloBoard(sto); },
   rebuild(gm) {
     if (!gm.kh) return null;
@@ -230,13 +230,26 @@ let soloSel = null;
 // run they can play but never post; the daily button hints to sign in first.
 const today = () => Math.floor(Date.now() / 86400000);
 let _anch = { day: 0, hash: null };
-async function anchorOf(day) {
-  if (_anch.day !== day) _anch = { day, hash: await dayAnchor(base(), day).catch(() => null) };
-  return _anch.hash;
+// the anchor now lives in CONTRACT STORAGE (av[day], see _lib.daily_anchor) — read it out of any
+// storage snapshot; the dailySeed() button path below drives the pin/resolve calls when it's missing.
+function anchorFromSto(sto, day) {
+  if (sto) { const v = anchorVal(sto, _m, day); if (v) _anch = { day, hash: v }; }
+  return _anch.day === day ? _anch.hash : null;
 }
 const isDailySeed = (seed) => typeof seed === "string" && seed.startsWith("daily2-scrapline-" + today() + "-");
 async function dailySeed() {
-  const day = today(), anch = await anchorOf(day);
+  const day = today();
+  let sto = await dapp.storage({ append: duel.MAPS });
+  let anch = sto ? await ensureAnchor(dapp, base(), sto, _m, day).catch(() => null) : null;
+  if (!anch && dapp.me) {
+    notify(T("dailySeeding", "Seeding today's gauntlet from the chain — a few blocks, first time each day…"));
+    for (let i = 0; !anch && i < 20; i++) {                 // pin lands -> resolves -> the view updates
+      await new Promise((r) => setTimeout(r, 3000));
+      sto = await dapp.storage({ append: duel.MAPS });
+      if (sto) anch = await ensureAnchor(dapp, base(), sto, _m, day).catch(() => null);
+    }
+  }
+  if (anch) _anch = { day, hash: anch };
   return anch ? E.seedOfDay(day, anch, dapp.me || "anon") : null;
 }
 const soloLoad = () => soloPrac.run();
@@ -378,8 +391,8 @@ async function renderSoloBoard(sto) {
   const el = $("soloScoreList"); if (!el || _boardBusy) return;
   _boardBusy = true;
   try {
-    const day = today(), anch = await anchorOf(day);
-    if (!anch) { el.innerHTML = '<span class="dim">' + T("boardSeeding", "Today's board is being seeded by the chain…") + "</span>"; return; }
+    const day = today(), anch = anchorFromSto(sto, day);
+    if (!anch) { el.innerHTML = '<span class="dim">' + T("boardSeeding", "Today's board isn't seeded yet — press “Daily gauntlet” above to seed it and play the first run.") + "</span>"; return; }
     // provable.js pipeline: read today's entries, REPLAY each claim with the poster's own
     // address-bound seed (verdicts cached per entry) — a forged or copied claim never renders.
     const entries = entriesFrom(sto, _m, day, [0, 1, 2, 3, 4, 5, 6, 7].map((i) => "ea" + i));

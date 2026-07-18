@@ -213,3 +213,75 @@ def daily_post(ecnt_slot, e_day, e_addr, e_score, e_n, elist, ew_base, words, ma
 def daily_post_abi(words):
     """The matching ABI arg list for daily_post."""
     return ["day", "score", "n"] + [f"w{k}" for k in range(words)]
+
+
+def daily_anchor(a_h, a_v, dcnt_slot, dlist, gap=2, repin_after=18000):
+    """anchor(day): the PROVABLE-DAILY anchor, two-phase and grind-proof, stored ON-CHAIN FOREVER.
+
+    Why: daily seeds need a per-day randomness anchor every verifier can re-read at any later time.
+    Deriving it from historical L1 blocks breaks the moment a node bootstraps from a snapshot (no
+    pruned-block fetch), so the anchor lives in contract storage instead:
+      phase 1 (first call of the day)  — pin height h = cursor + gap. h is in the FUTURE: its hash
+               exists for nobody yet, so no caller can steer the day's seed by timing the call.
+      phase 2 (any call once h exists) — read blockhash(h) in-VM (BHASH) and store the VALUE at
+               a_v[day]. From then on clients/verifiers just read the map — no L1 history, ever.
+    A pin nobody resolved within `repin_after` blocks (hash-retention safety) is re-pinned. The call
+    is permissionless and value-free; a revert (already anchored / pin still in the future) is the
+    caller's cue to stop or retry. Day keys append to the dlist index so the standard _view map
+    reader can enumerate them ({"cnt": dcnt_slot, "list": dlist})."""
+    return f"""
+    ctx r5 time
+    movi r6 86400
+    divmodw r5 r6           ; r5 = today (UTC day index)
+    mov r6 r5
+    eq r6 r0
+    require r6              ; day must be TODAY (an anchor pins at play time, never retroactively)
+    slot r4 {a_v} r0
+    sload r3 r4
+    nez r3
+    notb r3
+    require r3              ; already anchored -> nothing to do
+    slot r4 {a_h} r0
+    sload r3 r4             ; r3 = pinned height (0 = none yet)
+    mov r6 r3
+    nez r6
+    jnz r6 @pinned
+    ctx r5 cursor
+    movi r6 {gap}
+    add r5 r6
+    slot r4 {a_h} r0
+    sstore r4 r5            ; phase 1: pin the future block
+    movi r4 {dcnt_slot}
+    sload r6 r4
+    slot r4 {dlist} r6
+    sstore r4 r0            ; append day to the day index
+    movi r4 {dcnt_slot}
+    movi r5 1
+    add r6 r5
+    sstore r4 r6
+    movi r5 1
+    ret r5
+pinned:
+    ctx r5 cursor
+    mov r6 r3
+    movi r7 {repin_after}
+    add r6 r7
+    lt r6 r5
+    jnz r6 @repin           ; pin went stale unresolved -> pin afresh
+    bhash r5 r3             ; phase 2 (reverts while the pinned block is still in the future)
+    mov r6 r5
+    nez r6
+    notb r6
+    add r5 r6               ; hash value 0 would read as "unset": nudge to 1
+    slot r4 {a_v} r0
+    sstore r4 r5
+    ret r5
+repin:
+    ctx r5 cursor
+    movi r6 {gap}
+    add r5 r6
+    slot r4 {a_h} r0
+    sstore r4 r5
+    movi r5 1
+    ret r5
+"""

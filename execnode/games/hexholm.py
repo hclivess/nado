@@ -559,9 +559,14 @@ ECNT_SLOT = 4
 E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE = 50, 51, 52, 53, 60, 100
 CLAIM_WORDS, MAX_MY = 150, 100                              # MUST match static/hexholm-bot.js
 POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, CLAIM_WORDS, MAX_MY)
+# the day's seed anchor lives ON-CHAIN (see _lib.daily_anchor): ah[day] = pinned height,
+# av[day] = the pinned block's hash value — what provableSeed() consumes; no L1 history needed, ever.
+DCNT_SLOT, A_H, A_V, DLIST = 5, 54, 55, 70
+ANCHOR = _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST, gap=GAP)
 
 SRC = {"open": OPEN, "join": JOIN, "move": MOVE, "agree": AGREE, "resign": RESIGN,
-       "reveal": REVEAL, "leave": LEAVE, "cancel": CANCEL, "abort": ABORT, "post": POST}
+       "reveal": REVEAL, "leave": LEAVE, "cancel": CANCEL, "abort": ABORT, "post": POST,
+       "anchor": ANCHOR}
 
 _G = lambda f: {"field": f, "index": "games"}
 _E = lambda f: {"field": f, "index": "entries"}
@@ -576,6 +581,7 @@ ABI = {
     "cancel": {"args": ["gameId"]},
     "abort": {"args": ["gameId"]},
     "post": {"args": _lib.daily_post_abi(CLAIM_WORDS)},
+    "anchor": {"args": ["day"]},
     "_view": {
         "maps": {"nn": _G(NN), "st": _G(ST), "pt": _G(PT), "p1": _G(4), "p2": _G(5), "p3": _G(6),
                  "p4": _G(7), "sd": _G(SD), "wr": _G(WR), "mc": _G(MC), "dl": _G(DL), "cap": _G(CAP),
@@ -583,8 +589,10 @@ ABI = {
                  "a2": _G(19), "a3": _G(20), "a4": _G(21), "rc": _G(RC), "rs1": _G(23), "rs2": _G(24),
                  "rs3": _G(25), "rs4": _G(26), "r1h": _G(27), "r1l": _G(28), "r2h": _G(29), "r2l": _G(30),
                  "r3h": _G(31), "r3l": _G(32), "r4h": _G(33), "r4l": _G(34),
-                 "eday": _E(E_DAY), "eaddr": _E(E_ADDR), "escore": _E(E_SCORE), "en": _E(E_N)},
-        "indexes": {"games": {"cnt": 0, "list": LIST}, "entries": {"cnt": ECNT_SLOT, "list": ELIST}},
+                 "eday": _E(E_DAY), "eaddr": _E(E_ADDR), "escore": _E(E_SCORE), "en": _E(E_N),
+                 "ah": {"field": A_H, "index": "days"}, "av": {"field": A_V, "index": "days"}},
+        "indexes": {"games": {"cnt": 0, "list": LIST}, "entries": {"cnt": ECNT_SLOT, "list": ELIST},
+                    "days": {"cnt": DCNT_SLOT, "list": DLIST}},
         "board": {"name": "mv", "base": MV_BASE, "cells": MAXMOVES, "stride": 10000, "index": "games"},
         "board2": {"name": "mh", "base": MH_BASE, "cells": MAXMOVES, "stride": 10000, "index": "games"},
         "board3": {"name": "ew", "base": EW_BASE, "cells": CLAIM_WORDS, "stride": 10000, "index": "entries"},

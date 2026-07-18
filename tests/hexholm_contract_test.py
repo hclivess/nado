@@ -158,8 +158,38 @@ def t_prove_move():
     ok, why = V.verify_call(proof, code, "move", cf, fa, io, num_queries=6, cursor=300)
     assert ok, f"move proof: {why}"
 
+def t_anchor():
+    st, code, cid, rd, call = _fresh(cursor=500)
+    day = 20600
+    st.block_ts = 86400 * day + 3600
+    cnt = lambda: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(hx.DCNT_SLOT), 0))
+    call(A, "a0", "anchor", [day - 1])                     # not today -> revert
+    assert rd(hx.A_H, day - 1) == 0 and cnt() == 0
+    call(A, "a1", "anchor", [day])                         # phase 1: pin cursor+GAP
+    assert rd(hx.A_H, day) == 500 + hx.GAP and rd(hx.A_V, day) == 0
+    assert cnt() == 1 and rd(hx.DLIST, 0) == day
+    call(B, "a2", "anchor", [day])                         # pinned block still future -> revert
+    assert rd(hx.A_V, day) == 0 and cnt() == 1
+    st.cursor = 510
+    st.block_hashes[500 + hx.GAP] = 0xDEADBEEF12345
+    call(B, "a3", "anchor", [day])                         # phase 2: hash VALUE stored forever
+    assert rd(hx.A_V, day) == 0xDEADBEEF12345 % F.P
+    call(C, "a4", "anchor", [day])                         # already anchored -> revert, unchanged
+    assert rd(hx.A_V, day) == 0xDEADBEEF12345 % F.P and cnt() == 1
+    day2 = day + 1                                         # stale-pin re-pin path
+    st.block_ts = 86400 * day2 + 50
+    call(A, "b1", "anchor", [day2])
+    assert rd(hx.A_H, day2) == 510 + hx.GAP
+    st.cursor = 510 + hx.GAP + 18001                       # retention window blown, never resolved
+    call(B, "b2", "anchor", [day2])
+    assert rd(hx.A_H, day2) == st.cursor + hx.GAP and rd(hx.A_V, day2) == 0
+    st.cursor += 5
+    st.block_hashes[st.cursor - 5 + hx.GAP] = 77
+    call(C, "b3", "anchor", [day2])
+    assert rd(hx.A_V, day2) == 77 and cnt() == 2 and rd(hx.DLIST, 1) == day2
+
 for t in (t_lobby_and_agree, t_resign_cascade, t_agree_excludes_resigned, t_cancel_refunds,
-          t_abort_split, t_prove_move):
+          t_abort_split, t_prove_move, t_anchor):
     check(t.__name__, t)
 print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

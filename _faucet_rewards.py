@@ -33,7 +33,7 @@ GAMES = [
     (5, "9c3d01b6b70f507ecc0bbf75b0615940", "battleship"), # battleship (efficiency: fewest shots to sink)
     (6, "d4855b5b4c52bb65fdf7ec7a65c8b9f0", "banked"),     # slots
     (7, "d9d271f3a3e8a68ef33cb8e89ee650c9", "banked"),     # mines
-    (8, "13b92dc630e513f11a68df9f405d7b2d", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
+    (8, "c532e36ac30f61619e9ac989a1c0994e", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
 ]
 SHIPS = 17
 

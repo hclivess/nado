@@ -174,7 +174,8 @@ function longestRoad(st, s) {
   for (const e of mine) { walk(GEO.edges[e].a, new Set([e]), 1) ; walk(GEO.edges[e].b, new Set([e]), 1); }
   return best;
 }
-function refreshBadges(st) {
+function refreshBadges(st, L) {
+  const prevRoad = st.roadHolder, prevWatch = st.watchHolder;
   for (let s = 1; s <= st.cap; s++) st.players[s].roadLen = longestRoad(st, s);
   // LONG ROAD: the holder keeps the badge until another road is STRICTLY longer; passes only to a UNIQUE
   // strict leader (>=5), is SHELVED (nobody holds it) when strict leaders tie, and a holder whose road
@@ -196,6 +197,20 @@ function refreshBadges(st) {
     if (k >= 3 && (!st.watchHolder || (s !== st.watchHolder && k > st.players[st.watchHolder].plays[WARDEN])))
       st.watchHolder = s;
   }
+  if (L) {
+    if (st.roadHolder !== prevRoad) L(st.roadHolder || prevRoad, st.roadHolder ? "longroad" : "longroadLost", { len: st.roadHolder ? st.players[st.roadHolder].roadLen : 0 });
+    if (st.watchHolder !== prevWatch && st.watchHolder) L(st.watchHolder, "banner", { k: st.players[st.watchHolder].plays[WARDEN] });
+  }
+}
+
+// human-readable LOCATIONS for the log (language-neutral): a vertex reads as its adjacent number
+// tokens (the way players think about spots), a hex as its token (or the Wastes flag).
+export function hexLabel(st, h) {
+  const t = st.layout.tokens[h];
+  return t ? String(t) : "\u{1F3F4}";
+}
+export function vertexLabel(st, v) {
+  return GEO.verts[v].hexes.map((h) => hexLabel(st, h)).join("\u00B7");
 }
 export function publicVp(st, s) {
   const p = st.players[s];
@@ -311,7 +326,8 @@ export function replay(qkh, recs, opts) {
   st.layout = layout(qkh, cap); st.first = st.layout.first; st.robber = st.layout.waste;
   const slots = setupSlots(st);
   const bad = (why, side) => { st.corrupt = side || 1; st.why = why; };
-  const L = (s, msg) => st.log.push({ s, msg, mi: st.mi });
+  // STRUCTURED log events {s, k, p, mi}: the client localizes them (engine stays language-neutral)
+  const L = (s, k, p) => st.log.push({ s, k, p: p || {}, mi: st.mi });
 
   for (let i = 0; i < recs.length && !st.corrupt && !st.over; i++) {
     const { enc: e, side, q } = recs[i];
@@ -328,9 +344,10 @@ export function replay(qkh, recs, opts) {
       if (!edgeFree(st, b) || (ed.a !== a && ed.b !== a)) { bad("setup road must touch the homestead", side); break; }
       p.steads.add(a); p.roads.add(b);
       if (st.setupIdx >= cap) {                             // second homestead pays out its tiles
-        for (const h of GEO.verts[a].hexes) { const r = st.layout.tiles[h]; if (r >= 0) grant(st, side, r, 1); }
-      }
-      L(side, "setup " + a);
+        const got = [0, 0, 0, 0, 0];
+        for (const h of GEO.verts[a].hexes) { const r = st.layout.tiles[h]; if (r >= 0) { grant(st, side, r, 1); got[r]++; } }
+        L(side, "found", { at: vertexLabel(st, a), gain: got });
+      } else L(side, "found", { at: vertexLabel(st, a) });
       st.setupIdx++;
       if (st.setupIdx === slots.length) { st.phase = "preroll"; st.turnSeat = st.first; st.turnNo = 1;
         for (let s = 1; s <= cap; s++) { st.players[s].buysBeforeTurn = 0; } }
@@ -368,7 +385,7 @@ export function replay(qkh, recs, opts) {
       const cnt = unpack5(b);
       if (total(cnt) !== p.owe || cnt.some((n, r) => n > p.res[r])) { bad("bad discard", side); break; }
       cnt.forEach((n, r) => { p.res[r] -= n; st.bank[r] += n; });
-      p.owe = 0; L(side, "discards " + p.owe);
+      p.owe = 0; L(side, "discard", { res: cnt });
       if (!Object.values(st.players).some((pl) => pl.owe > 0)) st.phase = "robber";
       continue;
     }
@@ -376,14 +393,23 @@ export function replay(qkh, recs, opts) {
     switch (op) {
       case OP.ROLL: {
         if (side !== st.turnSeat || st.phase !== "preroll") { bad("not your roll", side); break; }
-        const d1 = derN(q, 1, 6) + 1, d2 = derN(q, 2, 6) + 1;
-        st.dice = d1 + d2; st.rolled = true; L(side, "rolls " + st.dice);
+        let d1 = derN(q, 1, 6) + 1, d2 = derN(q, 2, 6) + 1;
+        // modern opening rule: a 7 in each player's first two rounds is re-rolled (no early Marauder)
+        for (let k = 0; st.turnNo <= 2 * cap && d1 + d2 === 7 && k < 8; k++) {
+          d1 = derN(q, 31 + 2 * k, 6) + 1; d2 = derN(q, 32 + 2 * k, 6) + 1;
+        }
+        st.dice = d1 + d2; st.rolled = true; L(side, "roll", { d1, d2, t: st.dice });
         if (st.dice === 7) {
           let owing = false;
           for (let s = 1; s <= cap; s++) { const n = total(st.players[s].res);
             if (n > HAND_LIMIT) { st.players[s].owe = Math.floor(n / 2); owing = true; } }
+          L(side, "seven", {});
           st.phase = owing ? "discard" : "robber";
-        } else { production(st, st.dice); st.phase = "main"; }
+        } else {
+          const gains = production(st, st.dice);
+          for (let s = 1; s <= cap; s++) if (gains[s] && gains[s].some(Boolean)) L(s, "gain", { res: gains[s] });
+          st.phase = "main";
+        }
         break;
       }
       case OP.ROBBER: {
@@ -392,9 +418,11 @@ export function replay(qkh, recs, opts) {
         st.robber = a;
         const vics = adjacentSeats(st, a); vics.delete(side);
         const withCards = [...vics].filter((s) => total(st.players[s].res) > 0);
-        if (b === 0) { if (withCards.length) { bad("must steal when possible", side); break; } }
+        if (b === 0) { if (withCards.length) { bad("must steal when possible", side); break; }
+               L(side, "marauder", { at: hexLabel(st, a) }); }
         else { if (!withCards.includes(b)) { bad("bad steal target", side); break; }
-               const got = stealFrom(st, side, b, q); L(side, "steals from " + b + (got >= 0 ? "" : " (empty)")); }
+               const got = stealFrom(st, side, b, q);
+               L(side, "marauder", { at: hexLabel(st, a), from: b, got }); }
         st.phase = "main";
         break;
       }
@@ -405,11 +433,13 @@ export function replay(qkh, recs, opts) {
         st.robber = a;
         const vics = adjacentSeats(st, a); vics.delete(side);
         const withCards = [...vics].filter((s) => total(st.players[s].res) > 0);
+        let wFrom = 0, wGot = -1;
         if (b === 0) { if (withCards.length) { bad("must steal when possible", side); break; } }
         else { if (!withCards.includes(b)) { bad("bad steal target", side); break; }
-               stealFrom(st, side, b, q); }
+               wFrom = b; wGot = stealFrom(st, side, b, q); }
         p.plays[WARDEN]++; st.playedScroll = true; st.playsLog.push({ s: side, t: WARDEN });
-        refreshBadges(st); L(side, "plays a Warden");
+        L(side, "warden", { at: hexLabel(st, a), from: wFrom, got: wGot });
+        refreshBadges(st, L);
         break;
       }
       case OP.PATH: {
@@ -423,7 +453,8 @@ export function replay(qkh, recs, opts) {
         }
         if (st.corrupt) break;
         p.plays[PATHWRIGHT]++; st.playedScroll = true; st.playsLog.push({ s: side, t: PATHWRIGHT });
-        refreshBadges(st); L(side, "plays a Pathwright");
+        L(side, "pathwright", {});
+        refreshBadges(st, L);
         break;
       }
       case OP.BOUNTY: {
@@ -432,39 +463,40 @@ export function replay(qkh, recs, opts) {
         if (a > 4 || b > 4) { bad("bad bounty", side); break; }
         grant(st, side, a, 1); grant(st, side, b, 1);
         p.plays[BOUNTY]++; st.playedScroll = true; st.playsLog.push({ s: side, t: BOUNTY });
-        L(side, "plays a Bounty");
+        L(side, "bounty", { r1: a, r2: b });
         break;
       }
       case OP.LEVY: {
         if (side !== st.turnSeat || st.phase !== "main") { bad("not your turn", side); break; }
         const g = playGate(LEVY); if (g) { bad(g, side); break; }
         if (a > 4) { bad("bad levy", side); break; }
+        let taken = 0;
         for (let s = 1; s <= cap; s++) if (s !== side) {
-          const n = st.players[s].res[a]; st.players[s].res[a] = 0; p.res[a] += n;
+          const n = st.players[s].res[a]; st.players[s].res[a] = 0; p.res[a] += n; taken += n;
         }
         p.plays[LEVY]++; st.playedScroll = true; st.playsLog.push({ s: side, t: LEVY });
-        L(side, "plays a Levy");
+        L(side, "levy", { r: a, n: taken });
         break;
       }
       case OP.ROAD: {
         if (side !== st.turnSeat || st.phase !== "main") { bad("not your turn", side); break; }
         if (p.roads.size >= SUPPLY.road || a >= NEDGE || !edgeFree(st, a) ||
             !edgeTouchesOwn(st, side, a) || !canPayCost(p.res, COST.road)) { bad("bad road", side); break; }
-        payCost(st, p, COST.road); p.roads.add(a); refreshBadges(st); L(side, "builds a road");
+        payCost(st, p, COST.road); p.roads.add(a); L(side, "road", {}); refreshBadges(st, L);
         break;
       }
       case OP.STEAD: {
         if (side !== st.turnSeat || st.phase !== "main") { bad("not your turn", side); break; }
         if (p.steads.size >= SUPPLY.stead || a >= NVERT || !steadSpotOk(st, side, a) ||
             !canPayCost(p.res, COST.stead)) { bad("bad homestead", side); break; }
-        payCost(st, p, COST.stead); p.steads.add(a); refreshBadges(st); L(side, "builds a homestead");
+        payCost(st, p, COST.stead); p.steads.add(a); L(side, "stead", { at: vertexLabel(st, a) }); refreshBadges(st, L);
         break;
       }
       case OP.KEEP: {
         if (side !== st.turnSeat || st.phase !== "main") { bad("not your turn", side); break; }
         if (p.keeps.size >= SUPPLY.keep || a >= NVERT || !p.steads.has(a) ||
             !canPayCost(p.res, COST.keep)) { bad("bad keep", side); break; }
-        payCost(st, p, COST.keep); p.steads.delete(a); p.keeps.add(a); L(side, "raises a keep");
+        payCost(st, p, COST.keep); p.steads.delete(a); p.keeps.add(a); L(side, "keep", { at: vertexLabel(st, a) });
         break;
       }
       case OP.BUY: {
@@ -477,7 +509,7 @@ export function replay(qkh, recs, opts) {
         const card = drawDev(st, side, q, p.devDrawn);
         p.devDrawn++; p.buysThisTurn++; st.devBought++;
         if (card) p.devKnown.push(card);
-        L(side, "buys a scroll");
+        L(side, "scroll", { left: DEV_CAP - st.devBought });
         break;
       }
       case OP.BANK: {
@@ -486,7 +518,7 @@ export function replay(qkh, recs, opts) {
         if (give > 4 || get > 4 || give === get || rate < 2 || rate > 4 || bankRate(st, side, give) > rate ||
             p.res[give] < rate || st.bank[get] < 1) { bad("bad bank trade", side); break; }
         p.res[give] -= rate; st.bank[give] += rate; grant(st, side, get, 1);
-        L(side, "trades the bank " + rate + ":1");
+        L(side, "bank", { gn: rate, gr: give, tr: get });
         break;
       }
       case OP.OFFER: {                                      // anyone may offer during the mover's main
@@ -495,7 +527,7 @@ export function replay(qkh, recs, opts) {
         if (!total(give) || !total(get) || give.some((n, r) => n && get[r])) { bad("bad offer", side); break; }
         if (give.some((n, r) => n > p.res[r])) { bad("offer exceeds hand", side); break; }
         st.offers.push({ by: side, give, get, at: i });
-        L(side, "offers a trade");
+        L(side, "offer", { give, get });
         break;
       }
       case OP.ACCEPT: {
@@ -508,7 +540,7 @@ export function replay(qkh, recs, opts) {
         off.give.forEach((n, r) => { from.res[r] -= n; to.res[r] += n; });
         off.get.forEach((n, r) => { to.res[r] -= n; from.res[r] += n; });
         st.offers = st.offers.filter((o) => o !== off);
-        L(side, "trade with " + off.by);
+        L(side, "tradeWith", { w: off.by, give: off.give, get: off.get });
         break;
       }
       case OP.RESCIND: {
@@ -519,14 +551,14 @@ export function replay(qkh, recs, opts) {
       }
       case OP.END: {
         if (side !== st.turnSeat || st.phase !== "main") { bad("not your turn", side); break; }
-        startTurn(); L(side, "ends the turn");
+        L(side, "end", { turn: st.turnNo }); startTurn();
         break;
       }
       case OP.WIN: {
         if (side !== st.turnSeat || (st.phase !== "main" && st.phase !== "preroll")) { bad("win on your turn", side); break; }
         const v = totalVp(st, side);
-        if (v == null) { st.pendingWin = side; st.over = true; st.winner = side; L(side, "calls the win (verify at reveal)"); }
-        else if (v >= WIN_VP) { st.over = true; st.winner = side; L(side, "wins with " + v); }
+        if (v == null) { st.pendingWin = side; st.over = true; st.winner = side; L(side, "winClaim", {}); }
+        else if (v >= WIN_VP) { st.over = true; st.winner = side; L(side, "win", { vp: v }); }
         else { bad("win claim below " + WIN_VP, side); }
         break;
       }
@@ -592,7 +624,7 @@ export function legalMoves(st, s) {
       for (let v = 0; v < NVERT; v++) if (steadSpotOk(st, s, v)) out.push(enc(OP.STEAD, v));
     if (p.keeps.size < SUPPLY.keep && canPayCost(p.res, COST.keep))
       for (const v of p.steads) out.push(enc(OP.KEEP, v));
-    if (st.devBought < DEV_CAP && canPayCost(p.res, COST.scroll)) out.push(enc(OP.BUY));
+    if (st.devBought < DEV_CAP && st.commits && st.commits[s - 1] && canPayCost(p.res, COST.scroll)) out.push(enc(OP.BUY));
     for (let g = 0; g < 5; g++) { const rate = bankRate(st, s, g);
       if (p.res[g] >= rate) for (let t = 0; t < 5; t++) if (t !== g && st.bank[t] > 0) out.push(enc(OP.BANK, g * 8 + rate, t)); }
     const v = totalVp(st, s); if (v != null && v >= WIN_VP) out.push(enc(OP.WIN));

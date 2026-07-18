@@ -12,10 +12,10 @@ import { DuelGame } from "./duelgame.js";
 import * as E from "./hexholm-engine.js";
 import { pickMove, prng, soloReplay, soloScore, botMustAct, seedOfDay, packRun, verifyClaim,
          MAX_MY, SOLO_TURNS } from "./hexholm-bot.js";
-import { dayAnchor, verifyEntries } from "./provable.js";
+import { anchorOf, ensureAnchor, todayIdx, verifyEntries } from "./provable.js";
 import { randomSeed } from "./practice.js";
 
-const CID = "13b92dc630e513f11a68df9f405d7b2d";
+const CID = "c532e36ac30f61619e9ac989a1c0994e";
 const dapp = new NadoDapp({ cid: CID, app: "Hexholm" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("hex." + k, d, v) : d;
 const TS = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;   // shared SDK strings (practice chrome)
@@ -23,6 +23,7 @@ const TS = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("
 const SEAT_MARK = ["🟥", "🟦", "🟨", "⬜"];
 const SEAT_COL = ["#e0705f", "#5fa8e0", "#e3c34a", "#e6edf3"];
 const TILE_COL = { 0: "#2b7a45", 1: "#b0563a", 2: "#8fbf76", 3: "#d9a94a", 4: "#7d8a99", "-1": "#c9b98a" };
+const TILE_LIGHT = { 0: "#3f9c5c", 1: "#cc7047", 2: "#abd28e", 3: "#eec55e", 4: "#9aa9b9" };
 const RESN = (r) => T("res_" + E.RES[r], E.RES[r]);
 const DEVN = (t) => T("dev_" + t, E.DEV_NAMES[t]);
 const SX = 0.8660254, SY = 0.5;                            // render-only lattice → pixel scale
@@ -258,12 +259,22 @@ class TableDuel extends DuelGame {
     try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
   }
   async startDaily() {
-    const day = Math.floor(Date.now() / 86400000);
-    if (!this.dapp.me) notify(T("dailyAnonHint", "Playing signed out — sign in BEFORE starting if you want this run to count on the board."));
-    if (this._anch.day !== day) this._anch = { day, hash: await dayAnchor(base(), day).catch(() => null) };
-    if (!this._anch.hash) return notify(T("dailyNotReady", "Today's island is still being seeded by the chain — try again in a minute."));
+    const dapp = this.dapp, day = todayIdx();
+    if (!dapp.me) notify(T("dailyAnonHint", "Playing signed out — sign in BEFORE starting if you want this run to count on the board."));
+    let sto = this.lastSto || await dapp.storage({ append: this.MAPS });
+    let anch = sto ? await ensureAnchor(dapp, base(), sto, _m, day).catch(() => null) : null;
+    if (!anch && dapp.me) {
+      notify(T("dailySeeding", "Seeding today's island from the chain — a few blocks, first time each day…"));
+      for (let i = 0; !anch && i < 20; i++) {               // pin lands -> resolves -> the view updates
+        await new Promise((r) => setTimeout(r, 3000));
+        sto = await dapp.storage({ append: this.MAPS });
+        if (sto) anch = await ensureAnchor(dapp, base(), sto, _m, day).catch(() => null);
+      }
+    }
+    if (!anch) return notify(T("dailyNotReady", "Today's island is still being seeded by the chain — try again in a minute."));
+    this._anch = { day, hash: anch };
     this.active = null; this.resetLocal();
-    this.practice = { seed: seedOfDay(day, this._anch.hash, this.dapp.me || "anon"), recs: [], daily: day };
+    this.practice = { seed: seedOfDay(day, anch, dapp.me || "anon"), recs: [], daily: day };
     this._soloBotLoop();
     this.prac.saveRun(this.practice);
     this.render();
@@ -284,9 +295,13 @@ class TableDuel extends DuelGame {
     const el = $("dailyList"); if (!el || this._boardBusy) return;
     this._boardBusy = true;
     try {
-      const day = Math.floor(Date.now() / 86400000);
-      if (this._anch.day !== day) this._anch = { day, hash: await dayAnchor(base(), day).catch(() => null) };
-      const anch = this._anch.hash; if (!anch) return;
+      const day = todayIdx();
+      this._anch = { day, hash: anchorOf(sto, _m, day) };
+      const anch = this._anch.hash;
+      if (!anch) {
+        el.innerHTML = "<span class='dim small'>" + T("dailyNoAnchor", "Today's island isn't seeded yet — press “Daily island” above to seed it and play the first run.") + "</span>";
+        return;
+      }
       const eday = _m(sto, "eday"), eaddr = _m(sto, "eaddr"), escore = _m(sto, "escore"), en = _m(sto, "en"), ew = _m(sto, "ew");
       const entries = [];
       for (const e of Object.keys(eday)) {
@@ -344,11 +359,10 @@ class TableDuel extends DuelGame {
         : T("waitingFor", "waiting for {who}…", { who: disp(gm.seats[(E.actorsNow(eng)[0] || 1) - 1] || "…") });
     }
     $("gStatus").innerHTML = st;
-    $("dicebar").textContent = eng && eng.dice && eng.phase !== "preroll"
-      ? "🎲 " + eng.dice + (eng.dice === 7 ? " — " + T("marauderMoves", "the Marauder moves!") : "") : "";
-    renderBoard(this, gm, eng, me);
+    $("dicebar").innerHTML = diceLine(eng);
+    renderCtrls(this, gm, eng, me);                       // FIRST: arms setup/robber modes...
+    renderBoard(this, gm, eng, me);                        // ...so the board draws their targets NOW
     renderSeats(this, gm, eng, me);
-    renderCtrls(this, gm, eng, me);
     renderOffers(this, gm, eng, me);
     renderScrolls(this, gm, eng, me);
     renderDiscard(this, gm, eng, me);
@@ -374,10 +388,10 @@ class TableDuel extends DuelGame {
       : done ? T("dailyDone", "Run complete — {vp} points in {n} moves", { vp, n: (this.practice.recs || []).filter((r) => r.side === 1).length })
       : this.canAct() ? "<span class='yourturn'>" + T("yourMove", "\u25B6 YOUR MOVE") + "</span>" + " · " + T("dailyTurnN", "turn {t}/{n}", { t: Math.min(SOLO_TURNS, this.myEnds() + 1), n: SOLO_TURNS })
       : TS("prCpuThinking", "computer to move…");
-    $("dicebar").textContent = eng && eng.dice && eng.phase !== "preroll" ? "\u{1F3B2} " + eng.dice : "";
+    $("dicebar").innerHTML = diceLine(eng);
+    renderCtrls(this, gm, eng, 0);
     renderBoard(this, gm, eng, 0);
     renderSeats(this, gm, eng, 0);
-    renderCtrls(this, gm, eng, 0);
     renderOffers(this, gm, eng, 0);
     renderScrolls(this, gm, eng, 0);
     renderDiscard(this, gm, eng, 0);
@@ -415,37 +429,61 @@ function renderBoard(duel, gm, eng, me) {
   svg.setAttribute("viewBox", "-5.6 -5.3 11.2 10.6");
   if (!eng || !eng.layout) { svg.innerHTML = ""; $("boardHint").textContent = ""; return; }
   const st = eng, lay = st.layout, mode = duel.mode, out = [];
+  out.push(`<defs>
+    <radialGradient id="gsea" cx="50%" cy="40%" r="80%"><stop offset="0%" stop-color="#14405c"/><stop offset="100%" stop-color="#091f30"/></radialGradient>
+    ${[0, 1, 2, 3, 4].map((r) => `<radialGradient id="gt${r}" cx="50%" cy="36%" r="85%"><stop offset="0%" stop-color="${TILE_LIGHT[r]}"/><stop offset="100%" stop-color="${TILE_COL[r]}"/></radialGradient>`).join("")}
+    <radialGradient id="gtw" cx="50%" cy="36%" r="85%"><stop offset="0%" stop-color="#dccfa4"/><stop offset="100%" stop-color="#b3a274"/></radialGradient>
+    <filter id="soft" x="-60%" y="-60%" width="220%" height="220%"><feDropShadow dx="0" dy=".05" stdDeviation=".05" flood-opacity=".5"/></filter>
+  </defs>`);
+  out.push(`<rect x="-5.6" y="-5.3" width="11.2" height="10.6" rx="1" fill="url(#gsea)"/>`);
+  for (const r of [4.55, 4.95]) out.push(`<circle cx="0" cy="0" r="${r}" fill="none" stroke="rgba(150,215,255,.06)" stroke-width=".05" stroke-dasharray=".32 .55"/>`);
+  const paying = st.rolled && st.dice && st.dice !== 7 && st.phase === "main";
   for (let h = 0; h < E.NHEX; h++) {
-    const cx = E.GEO.hexes[h].X * SX, cy = E.GEO.hexes[h].Y * SY;
-    out.push(`<polygon class="hx" points="${hexPoints(h)}" fill="${TILE_COL[lay.tiles[h]]}"/>`);
+    const cx = E.GEO.hexes[h].X * SX, cy = E.GEO.hexes[h].Y * SY, tile = lay.tiles[h];
+    out.push(`<polygon class="hx" points="${hexPoints(h)}" fill="url(#${tile < 0 ? "gtw" : "gt" + tile})"/>`);
+    if (paying && lay.tokens[h] === st.dice && h !== st.robber)
+      out.push(`<polygon class="paid" points="${hexPoints(h)}"/>`);
     if (lay.tokens[h]) {
-      const hot = lay.tokens[h] === 6 || lay.tokens[h] === 8;
-      out.push(`<circle class="tokc${hot ? " hot" : ""}" cx="${cx}" cy="${cy}" r=".34"/>`);
-      out.push(`<text class="tok${hot ? " hot" : ""}" x="${cx}" y="${cy + 0.15}">${lay.tokens[h]}</text>`);
+      const t = lay.tokens[h], hot = t === 6 || t === 8, pips = 6 - Math.abs(7 - t);
+      out.push(`<g filter="url(#soft)"><circle class="tokc${hot ? " hot" : ""}" cx="${cx}" cy="${cy}" r=".33"/></g>`);
+      out.push(`<text class="tok${hot ? " hot" : ""}" x="${cx}" y="${cy + 0.11}">${t}</text>`);
+      for (let d = 0; d < pips; d++)
+        out.push(`<circle cx="${cx + (d - (pips - 1) / 2) * 0.085}" cy="${cy + 0.22}" r=".024" fill="${hot ? "#a01818" : "#1a1206"}"/>`);
     }
-    if (st.robber === h) out.push(`<text class="marauder" x="${cx}" y="${cy - 0.28}">🏴</text>`);
+    if (st.robber === h) out.push(`<g class="marauder" filter="url(#soft)" transform="translate(${cx} ${cy - 0.42})">
+      <ellipse cx="0" cy=".30" rx=".21" ry=".08" fill="rgba(0,0,0,.35)"/>
+      <path d="M -.17 .30 Q -.15 -.08 0 -.15 Q .15 -.08 .17 .30 Z" fill="#232c36" stroke="#0a0e13" stroke-width=".025"/>
+      <circle cx="0" cy="-.20" r=".115" fill="#39485a" stroke="#0a0e13" stroke-width=".025"/>
+      <path d="M -.07 -.22 Q 0 -.30 .07 -.22" fill="none" stroke="#0a0e13" stroke-width=".03"/>
+    </g>`);
   }
   E.GEO.PORT_AT.forEach((e, i) => {                        // harbors float just off their coastal edge
     const ed = E.GEO.edges[e], a = E.GEO.verts[ed.a], b = E.GEO.verts[ed.b];
     const mx = (a.x + b.x) / 2 * SX, my = (a.y + b.y) / 2 * SY;
     const ox = mx * 1.18, oy = my * 1.18;
     const t = lay.ports[i];
-    out.push(`<text class="port" x="${ox}" y="${oy}">${t < 0 ? "3:1" : "2:1" + E.RES_ICON[t]}</text>`);
+    out.push(`<line x1="${mx}" y1="${my}" x2="${ox}" y2="${oy}" stroke="#6d5236" stroke-width=".07" stroke-linecap="round"/>`);
+    out.push(`<g filter="url(#soft)"><circle cx="${ox}" cy="${oy}" r=".27" fill="#10222f" stroke="#3c5b76" stroke-width=".035"/></g>`);
+    if (t < 0) out.push(`<text class="port" x="${ox}" y="${oy + 0.1}">3:1</text>`);
+    else { out.push(`<text class="porticon" x="${ox}" y="${oy - 0.005}">${E.RES_ICON[t]}</text>`);
+           out.push(`<text class="port sm" x="${ox}" y="${oy + 0.21}">2:1</text>`); }
   });
   for (let s = 1; s <= st.cap; s++) {                       // roads under buildings
     for (const e of st.players[s].roads) {
       const ed = E.GEO.edges[e];
-      out.push(`<line class="road" x1="${E.GEO.verts[ed.a].x * SX}" y1="${E.GEO.verts[ed.a].y * SY}" x2="${E.GEO.verts[ed.b].x * SX}" y2="${E.GEO.verts[ed.b].y * SY}" stroke="${SEAT_COL[s - 1]}"/>`);
+      const x1 = E.GEO.verts[ed.a].x * SX, y1 = E.GEO.verts[ed.a].y * SY, x2 = E.GEO.verts[ed.b].x * SX, y2 = E.GEO.verts[ed.b].y * SY;
+      out.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#0b0f14" stroke-width=".26" stroke-linecap="round"/>`);
+      out.push(`<line class="road" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${SEAT_COL[s - 1]}"/>`);
     }
   }
   for (let s = 1; s <= st.cap; s++) {
     for (const v of st.players[s].steads) {
       const x = E.GEO.verts[v].x * SX, y = E.GEO.verts[v].y * SY;
-      out.push(`<path class="stead" d="M${x - 0.22} ${y + 0.18} v-.22 l.22 -.18 l.22 .18 v.22 z" fill="${SEAT_COL[s - 1]}"/>`);
+      out.push(`<g filter="url(#soft)"><path class="stead" d="M${x - 0.22} ${y + 0.18} v-.22 l.22 -.18 l.22 .18 v.22 z" fill="${SEAT_COL[s - 1]}"/></g>`);
     }
     for (const v of st.players[s].keeps) {
       const x = E.GEO.verts[v].x * SX, y = E.GEO.verts[v].y * SY;
-      out.push(`<path class="stead" d="M${x - 0.28} ${y + 0.22} v-.3 h.16 v-.12 h.1 v.12 h.08 v-.12 h.1 v.12 h.12 v.3 z" fill="${SEAT_COL[s - 1]}"/>`);
+      out.push(`<g filter="url(#soft)"><path class="stead" d="M${x - 0.28} ${y + 0.22} v-.3 h.16 v-.12 h.1 v.12 h.08 v-.12 h.1 v.12 h.12 v.3 z" fill="${SEAT_COL[s - 1]}"/></g>`);
     }
   }
   // interactive targets by mode
@@ -518,6 +556,21 @@ function renderSeats(duel, gm, eng, me) {
   const el = $("seatPanels");
   if (!gm.exists || !eng || !eng.layout) { el.innerHTML = ""; $("bankLine").textContent = ""; return; }
   $("bankLine").textContent = T("bankLine", "bank") + ": " + eng.bank.map((n, r) => E.RES_ICON[r] + n).join(" ");
+  const meSeat = me != null ? me + 1 : 0, inc = $("incomeLine");
+  if (inc) {
+    if (meSeat && eng.players[meSeat] && eng.phase !== "setup") {
+      const by = incomeOf(eng, meSeat), keys = Object.keys(by).sort((a, b) => a - b);
+      inc.innerHTML = keys.length
+        ? "<span class='dim'>" + T("incomeLbl", "Your numbers:") + "</span> " + keys.map((t) =>
+            `<span class="inchip${Number(t) === eng.dice && eng.rolled ? " hit" : ""}"><b>${t}</b>→${resPack(by[t])}</span>`).join(" ")
+          + " <span class='dim'>" + T("incomeHint", "— the dice landing one of your numbers pays you these.") + "</span>"
+        : "<span class='dim'>" + T("incomeNone", "You produce nothing yet — homesteads pay from the numbered tiles they touch.") + "</span>";
+    } else inc.innerHTML = "";
+  }
+  const lgd = $("legendRow");
+  if (lgd) lgd.innerHTML = [0, 1, 2, 3, 4].map((r) =>
+    `<span class="lgd"><i style="background:${TILE_COL[r]}"></i>${E.RES_ICON[r]} ${RESN(r)}</span>`).join("")
+    + `<span class="lgd"><i style="background:#c9b98a"></i>${T("wastesLegend", "Wastes — pays nothing; the Marauder starts here")}</span>`;
   el.innerHTML = Array.from({ length: gm.cap }, (_, i) => {
     const s = i + 1, p = eng.players[s];
     const nm = gm.seatNames ? gm.seats[i] : disp(gm.seats[i] || "?") + "";
@@ -700,10 +753,73 @@ function renderDiscard(duel, gm, eng, me) {
   if ($("bDisc")) $("bDisc").onclick = () => { const pack = E.pack5(duel.disc); duel.disc = null;
     duel.submit(E.enc(E.OP.DISCARD, 0, pack), "discard"); };
 }
+const DICE_F = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+const resPack = (c) => (c || []).map((n, r) => n ? (n > 3 ? E.RES_ICON[r] + "×" + n : E.RES_ICON[r].repeat(n)) : "").filter(Boolean).join(" ") || "—";
+function diceLine(eng) {
+  if (!eng || !eng.dice || eng.phase === "preroll") return "";
+  const rolls = eng.log.filter((l) => l.k === "roll");
+  const last = rolls[rolls.length - 1];
+  const hist = rolls.slice(-10, -1).map((l) => l.p.t).join(" ");
+  return "🎲 " + (last ? DICE_F[last.p.d1] + DICE_F[last.p.d2] + " " : "") + eng.dice
+    + (eng.dice === 7 ? " — " + T("marauderMoves", "the Marauder moves!") : "")
+    + (hist ? ` <span class="dim" style="font-size:12px;letter-spacing:1px">· ${T("prevRolls", "earlier")}: ${hist}</span>` : "");
+}
+// which numbers pay this seat, and what (steads 1x, keeps 2x; the Marauder's hex pays nobody)
+function incomeOf(eng, s) {
+  const by = {};
+  E.GEO.hexes.forEach((h, i) => {
+    const tok = eng.layout.tokens[i], r = eng.layout.tiles[i];
+    if (!tok || r < 0 || i === eng.robber) return;
+    let n = 0;
+    for (const v of h.corners) { if (eng.players[s].steads.has(v)) n += 1; if (eng.players[s].keeps.has(v)) n += 2; }
+    if (n) (by[tok] = by[tok] || [0, 0, 0, 0, 0])[r] += n;
+  });
+  return by;
+}
+function stealTail(p, names) {
+  if (!p.from) return "";
+  return p.got >= 0
+    ? " — " + T("lgSteals", "steals {res} from {who}", { res: E.RES_ICON[p.got], who: names[p.from - 1] || "?" })
+    : " — " + T("lgStealsNone", "{who} had nothing to steal", { who: names[p.from - 1] || "?" });
+}
+function fmtLog(l, names) {
+  const p = l.p || {};
+  switch (l.k) {
+    case "found": return T("lgFound", "founds a homestead at {at}", { at: p.at })
+      + (p.gain && p.gain.some(Boolean) ? " (+" + resPack(p.gain) + ")" : "");
+    case "roll": return T("lgRoll", "rolls {d} {t}", { d: DICE_F[p.d1] + DICE_F[p.d2], t: p.t });
+    case "gain": return T("lgGain", "collects {res}", { res: resPack(p.res) });
+    case "seven": return T("lgSeven", "a 7 — no one produces, the Marauder stirs");
+    case "discard": return T("lgDiscard", "discards {res}", { res: resPack(p.res) });
+    case "marauder": return T("lgMarauder", "sends the Marauder to hex {at}", { at: p.at }) + stealTail(p, names);
+    case "warden": return T("lgWarden", "plays a Warden ⚔ — Marauder to hex {at}", { at: p.at }) + stealTail(p, names);
+    case "pathwright": return T("lgPath", "plays a Pathwright — two free roads");
+    case "bounty": return T("lgBounty", "plays a Bounty — takes {r} from the bank", { r: E.RES_ICON[p.r1] + " " + E.RES_ICON[p.r2] });
+    case "levy": return T("lgLevy", "plays a Levy — every rival hands over their {r} ({n} taken)", { r: E.RES_ICON[p.r], n: p.n });
+    case "road": return T("lgRoad", "builds a road 🛣");
+    case "stead": return T("lgStead", "founds a homestead 🏠 at {at} (+1 pt)", { at: p.at });
+    case "keep": return T("lgKeep", "raises a homestead into a keep 🏰 at {at} (+1 pt)", { at: p.at });
+    case "scroll": return T("lgScroll", "buys a scroll 📜 ({left} left in the world)", { left: p.left });
+    case "bank": return T("lgBank", "trades {gn}× {gr} → 1 {tr} with the bank", { gn: p.gn, gr: E.RES_ICON[p.gr], tr: E.RES_ICON[p.tr] });
+    case "offer": return T("lgOffer", "offers the table {give} ⇄ {get}", { give: resPack(p.give), get: resPack(p.get) });
+    case "tradeWith": return T("lgTradeWith", "trades {give} ⇄ {get} with {who}", { give: resPack(p.give), get: resPack(p.get), who: names[p.w - 1] || "?" });
+    case "end": return T("lgEnd", "ends turn {n}", { n: p.turn });
+    case "longroad": return T("lgLongroad", "claims the LONG ROAD 🏅 ({len} segments — +2 pts)", { len: p.len });
+    case "longroadLost": return T("lgLongroadLost", "the Long Road badge is shelved — the lead is tied");
+    case "banner": return T("lgBanner", "claims the WARDENS' BANNER 🏅 ({k} Wardens — +2 pts)", { k: p.k });
+    case "winClaim": return T("lgWinClaim", "calls the win 🏆 — scroll claims verify at reveal");
+    case "win": return T("lgWin", "WINS with {vp} points 🏆", { vp: p.vp });
+    default: return l.msg || l.k || "";
+  }
+}
 function renderLog(eng, gm) {
   const el = $("logPane");
   if (!eng) { el.innerHTML = ""; return; }
-  el.innerHTML = eng.log.slice(-40).map((l) => `<div>${SEAT_MARK[l.s - 1] || ""} ${l.msg}</div>`).join("");
+  const names = (gm.seats || []).slice(0, gm.cap || 2).map((a) => gm.seatNames ? a : disp(a || "?"));
+  if (gm.practice) names[0] = T("lgYouName", "Your settler");   // third person — the narration conjugates
+  el.innerHTML = eng.log.slice(-60).map((l) =>
+    `<div class="lg${l.k === "roll" ? " lgroll" : ""}${["win", "winClaim", "longroad", "banner"].includes(l.k) ? " lgbig" : ""}">`
+    + `${SEAT_MARK[l.s - 1] || ""} <b>${names[l.s - 1] || ""}</b> ${fmtLog(l, names)}</div>`).join("");
   el.scrollTop = el.scrollHeight;
 }
 function renderSettle(duel, gm, eng, me) {
@@ -769,6 +885,6 @@ const duel = new TableDuel(dapp, {
   },
 });
 duel.MAPS = ["nn", "st", "pt", "sd", "wr", "mc", "dl", "kh", "p1", "p2", "mv", "mh",
-             "eday", "eaddr", "escore", "en", "ew"].concat(duel.cfg.appendMaps);
+             "eday", "eaddr", "escore", "en", "ew", "ah", "av"].concat(duel.cfg.appendMaps);
 duel.mode = null; duel.tr = null; duel.disc = null; duel._anch = { day: 0, hash: null }; duel._boardBusy = false;
 duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "dailyBoard", "scoreboard"]);

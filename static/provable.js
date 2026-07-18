@@ -19,52 +19,37 @@
 import { blake2bHash } from "./nadotx.js";
 
 // ---- the day anchor -------------------------------------------------------------------------------------
-// anchor(day) = the hash of the FIRST finalized L1 block whose timestamp is >= day*86400 (UTC midnight).
-// Found by binary search over finalized heights (block timestamps are monotone enough: consensus enforces
-// ordering at the granularity that matters here — the first-crossing search is deterministic for every
-// client given the same finalized chain). Cached in localStorage: a finalized anchor never changes.
-const _anchorMem = {};
-async function _blk(base, h) {
-  try { const r = await fetch(base + "/get_block_number?number=" + h, { cache: "no-store" }); return await r.json(); }
-  catch { return null; }
+// The anchor lives IN THE GAME'S CONTRACT (execnode/games/_lib.daily_anchor — maps ah/av + a "days"
+// index): ah[day] pins a FUTURE L1 height (grind-proof — pinned before its hash exists for anyone),
+// av[day] then stores that block's hash VALUE forever. Historical L1 blocks are NOT assumed fetchable
+// (nodes bootstrap from snapshots and prune bodies — a chain bisection breaks the day it's needed most),
+// so no verifier ever walks the chain: everyone reads the same number out of contract storage.
+export const todayIdx = () => Math.floor(Date.now() / 86400000);
+export function anchorOf(sto, _m, day) {
+  const v = _m(sto, "av")[day];
+  return v ? String(v) : null;
 }
-// _blkNear: the chain may have BODY HOLES (rolling pruning / re-anchor backfills) — walk outward from h
-// to the nearest block the node actually serves. The bisection below adjusts on the FOUND height, so the
-// search stays sound; the rule is "the lowest SERVED finalized block with ts >= t0", deterministic for
-// every client of the same origin node (each game site's verifiers all query its own origin).
-async function _blkNear(base, h, lo, hi) {
-  const offs = [0];
-  for (let d = 1; d <= 8; d++) offs.push(d, -d);
-  for (let d = 16; d <= 4096; d *= 2) offs.push(d, -d);   // exponential jumps span wide pruned bands cheaply
-  for (const o of offs) {
-    const hh = h + o;
-    if (hh < lo || hh > hi) continue;
-    const b = await _blk(base, hh);
-    if (b && b.block_timestamp != null && b.block_hash) return b;
+// ensureAnchor: permissionless upkeep of today's anchor — pin if the day has no pin, resolve once the
+// pinned block exists (checked against /exec/blockhash so a premature call never burns a fee on a
+// revert). Fire-and-forget value-free dapp calls (background signing); at most one call per (day, pin)
+// per session so polls don't spam. Returns the anchor when ready, else null.
+const _anchDrive = {};
+export async function ensureAnchor(dapp, base, sto, _m, day) {
+  const ready = anchorOf(sto, _m, day);
+  if (ready) return ready;
+  if (!dapp.me) return null;                                  // upkeep needs a signer; readers just wait
+  const ah = _m(sto, "ah")[day] || 0;
+  if (ah) {
+    try {
+      const r = await (await fetch(base + "/exec/blockhash?height=" + ah, { cache: "no-store" })).json();
+      if (!r || !r.hashes || !r.hashes[ah]) return null;      // pinned block still in the future — wait
+    } catch { return null; }
   }
+  const k = day + ":" + ah;
+  if (_anchDrive[k]) return null;
+  _anchDrive[k] = 1;
+  dapp.call("anchor", [day], null, "seed the day-" + day + " provable board", { phase: "agree" });
   return null;
-}
-export async function dayAnchor(base, day) {
-  const key = "nado_day_anchor_" + day;
-  if (_anchorMem[day]) return _anchorMem[day];
-  try { const c = localStorage.getItem(key); if (c) { _anchorMem[day] = c; return c; } } catch {}
-  const st = await (await fetch(base + "/status", { cache: "no-store" })).json().catch(() => null);
-  const fin = (st && st.finalized_height) || 0;
-  const t0 = day * 86400;
-  let lo = 1, hi = fin, first = null;
-  const top = await _blkNear(base, hi, 1, fin);
-  if (!top || (top.block_timestamp || 0) < t0) return null;      // the day has no finalized block yet
-  first = top;                                                    // worst case the day anchors at the tip probe
-  for (let step = 0; step < 64 && lo <= hi; step++) {
-    const b = await _blkNear(base, (lo + hi) >> 1, lo, hi);
-    if (!b) break;
-    const h = Number(b.block_number);
-    if (b.block_timestamp >= t0) { first = b; hi = h - 1; } else lo = h + 1;
-  }
-  if (!first || !first.block_hash) return null;
-  _anchorMem[day] = first.block_hash;
-  try { localStorage.setItem(key, first.block_hash); } catch {}
-  return first.block_hash;
 }
 
 // ---- the canonical per-player daily seed ----------------------------------------------------------------
