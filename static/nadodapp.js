@@ -20,6 +20,7 @@ export { loadCrypto, blake2bHash };
 export const RAW = 10n ** 10n;                 // 1 NADO = 1e10 raw units
 const WALLET = "https://get.nadochain.com";
 const STICKY_GRACE_MS = 20000;   // how long a provisional state REGRESSION is treated as flicker (ignored) before it's accepted as a real reorg — see dapp.accept()
+const PEND_TTL_MS = 120000;      // how long a CLICKED action stays "pending" with no on-chain confirmation before its gate self-expires (a lost tx must re-enable retry — never brick a button); matches the proven pets hatch stamp
 export const base = () => location.origin.replace(/\/+$/, "");
 export const $ = (id) => document.getElementById(id);
 export const _m = (sto, name) => (sto && sto[name]) || {};
@@ -440,6 +441,10 @@ export function statusLabel(pend, ok, err, extra) {
     resolve: _t("resolve", "Rolling out — confirming…"), cancel: _t("cancel", "Cancelling…"), withdraw: _t("withdraw", "Cash-out submitted.") }, extra || {});
   return ok ? (labels[pend && pend.phase] || _t("submitted", "Submitted.")) : _t("rejected", "Rejected") + (err ? ": " + err : ".");
 }
+// confirmingLabel(): the ONE ⏳ label for a button whose action is click-pending/confirming on-chain, so
+// every game's disabled state reads identically. Pattern: btn.disabled = dapp.busy(phase, k, v); if so,
+// btn.textContent = confirmingLabel() (optionally confirmingLabel(origLabel) to keep the verb visible).
+export const confirmingLabel = (verb) => (verb ? verb + " — " : "") + _t("confirmingBtn", "⏳ confirming on-chain…");
 
 // ---- the shared auto-rolling table schema (roulette / dice / video-table games) -------------------
 // NOTE: the banked-table reader lives in ONE place — BankedGame (static/bankedgame.js): `bg.read(sto, t)` and
@@ -494,6 +499,7 @@ export class NadoDapp {
     this.cid = cid; this.app = app; this.ns = ns;
     const slug = app.replace(/\W+/g, "").toLowerCase();
     this.LS_ME = "nado_" + slug + "_me"; this.LS_P = "nado_" + slug + "_pending"; this.LS_INVITE = "nado_" + slug + "_invite";
+    this.LS_CLICK = "nado_" + slug + "_clickpend";   // the click-time pending registry (see busy/pending)
     this.LS_AUTOCOLLECT = "nado_" + slug + "_autocollect";   // opt-out flag for auto-collect (default ON)
     this._autoTried = new Set();   // settle targets already attempted this session (stops a rejected settle looping)
     this._bgOff = false;      // learned this session: the wallet can't background-sign at all (locked / bg off / untrusted) → always redirect
@@ -604,6 +610,9 @@ export class NadoDapp {
   _goBackground(obj, pend, isValue) {
     const svc = this._ensureBgSvc();
     if (!svc || svc.dead) return this._goRedirect(obj, pend);
+    // sub-second SPECIFIC feedback: name the action the instant it's queued (the 🔏 pill only says
+    // "Signing…"). Auto-dismisses; showReturn's "…confirming…" replaces it — a readable progression.
+    if (obj.label) notify(_t("submitting", "Submitting: {label}…", { label: obj.label }), 2500);
     svc.queue.push({ obj, pend, isValue });
     this._bgPump();
     this._bgSyncBusy();
@@ -651,7 +660,10 @@ export class NadoDapp {
   signIn() { this._goRedirect({ connect: true, label: "sign in" }, { phase: "connect" }); }
   deposit(raw) { this._goRedirect({ deposit: { amount: raw.toString() }, label: "buy in " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
   withdraw(raw, pend) { this.signBlob({ op: "bridge_withdraw", amount: raw }, "cash out " + rawToNado(raw) + " NADO", pend || { phase: "withdraw" }); }
-  signBlob(blob, label, pend, opts) { this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend, !!(opts && opts.bg), !!(opts && opts.isValue)); }
+  signBlob(blob, label, pend, opts) {
+    this._pendAdd(pend);   // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing
+    this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend, !!(opts && opts.bg), !!(opts && opts.isValue));
+  }
   // generic contract call; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance into the contract.
   // opts.confirm forces the wallet's manual confirm (e.g. a poker bet that moves chips you already escrowed) —
   // autosign must never place a bet for you. EVERY non-confirm call is BACKGROUND-able: it's attempted in a
@@ -675,6 +687,7 @@ export class NadoDapp {
     // A REJECTED action (ok=0 with a reason) must be shown LOUDLY — never left to masquerade as the
     // optimistic "confirming…" placeholder. The err is the node's real reason (e.g. a chain_id mismatch).
     if (!ok && err) { try { alertBar(_t("rejected", "Rejected") + ": " + err + (/chain id/i.test(err) ? _t("rejectedChainId", " — hard-refresh this page and your wallet to update to the current network.") : "")); } catch (e) {} }
+    if (!ok && pend) this._pendSettle(pend);   // rejected → release the click-guard immediately (no TTL lockout)
     // remember a just-submitted action so games can show "confirming…" and NEVER re-offer the button the
     // user already clicked (e.g. coinflip "Join this game" reappearing before the join confirms on-chain).
     if (ok && pend && pend.phase && !["connect", "deposit", "withdraw"].includes(pend.phase)) {
@@ -707,18 +720,59 @@ export class NadoDapp {
     localStorage.removeItem(this.LS_P);
     this._applyReturn(pend, r.ok, r.addr, r.err);
   }
-  // busy(phase, keyName, keyVal): is there an in-flight action of this phase for this game/table/seat?
-  // Auto-expires after 3 min (a lost tx) so a stuck flag can't hide the button forever. Games call
-  // dapp.clearInflight() once they SEE the effect on-chain (the definitive "it landed").
+  // ── CLICK-TIME PENDING (the instant-feedback registry) ──────────────────────────────────────────
+  // The gap this closes: between CLICKING an action and its effect being visible on-chain there are three
+  // silent windows — the ~1-2s background sign, the mempool wait after the tip-advance fallback retires
+  // `inflight`, and (for redirect wallets) the whole wallet round-trip — during which on-chain state can't
+  // gate anything yet. Un-gated buttons in that window invite re-clicks that each sign + submit a
+  // guaranteed-revert duplicate with zero feedback ("I click and nothing happens; my txs get stuck").
+  // Every call()/signBlob registers its pend HERE, SYNCHRONOUSLY at submit time, in localStorage (so it
+  // survives the redirect round-trip). busy()/pending() consult it — which upgrades every existing busy()
+  // gate in every game to click-instant with no per-game change. An entry is released the moment the game
+  // SEES the effect on-chain (settleInflight's landedFn, or clearInflight/clearPending), on a REJECTED
+  // sign, or by the TTL (a lost tx must re-enable retry — never brick a button).
+  _pendLoad() {
+    let a = []; try { a = JSON.parse(localStorage.getItem(this.LS_CLICK) || "[]"); } catch (e) {}
+    if (!Array.isArray(a)) a = [];
+    const now = Date.now(), fresh = a.filter((e) => e && e.p && e.p.phase && now - (e.ts || 0) < PEND_TTL_MS);
+    if (fresh.length !== a.length) this._pendSave(fresh);
+    return fresh;
+  }
+  _pendSave(a) { try { localStorage.setItem(this.LS_CLICK, JSON.stringify(a)); } catch (e) {} }
+  _pendAdd(pend) {
+    if (!pend || !pend.phase || ["connect", "deposit", "withdraw"].includes(pend.phase)) return;
+    const j = JSON.stringify(pend);
+    const a = this._pendLoad().filter((e) => JSON.stringify(e.p) !== j);   // a re-submit refreshes its entry, never duplicates
+    a.push({ ts: Date.now(), p: pend });
+    this._pendSave(a);
+  }
+  _pendDrop(fn) { const a = this._pendLoad(), keep = a.filter((e) => !fn(e.p)); if (keep.length !== a.length) this._pendSave(keep); }
+  // release every registry entry the action `f` covers: all of the ENTRY's own fields match f (f may carry
+  // extra bookkeeping like ts/cur0). Used when an action is confirmed landed, cleared, or rejected.
+  _pendSettle(f) { if (f) this._pendDrop((p) => Object.keys(p).every((k) => String(f[k]) === String(p[k]))); }
+  // clearPending(phase, keyName?, keyVal?): a game's explicit release — e.g. its render saw the effect via a
+  // path settleInflight doesn't cover, or the action became moot (table closed under it).
+  clearPending(phase, keyName, keyVal) { this._pendDrop((p) => p.phase === phase && (keyName == null || String(p[keyName]) === String(keyVal))); }
+  // pending(phase, keyName, keyVal): the pend of a matching in-flight OR just-clicked action, else null.
+  // Its fields are exactly what the game passed to call(), so render can show the pending state AT CLICK
+  // TIME — the ⏳ button, or a panel built from the pend's own data (e.g. pets "Training STR…").
+  pending(phase, keyName, keyVal) {
+    const f = this.inflight;
+    if (f && Date.now() - f.ts <= 180000 && f.phase === phase
+        && (keyName == null || String(f[keyName]) === String(keyVal))) return f;
+    const e = this._pendLoad().find((x) => x.p.phase === phase && (keyName == null || String(x.p[keyName]) === String(keyVal)));
+    return e ? e.p : null;
+  }
+  // busy(phase, keyName, keyVal): is there an in-flight OR just-clicked action of this phase for this
+  // game/table/seat? TRUE from the instant of the click (see the registry above) until the game sees the
+  // effect on-chain — with self-expiry (inflight 3 min, click registry 2 min) so a lost tx can't hide a
+  // button forever. Games call dapp.clearInflight() once they SEE the effect (the definitive "it landed").
   busy(phase, keyName, keyVal) {
     const f = this.inflight;
-    if (!f) return false;
-    if (Date.now() - f.ts > 180000) { this.inflight = null; return false; }   // expire FIRST, whatever the
-    if (f.phase !== phase) return false;   // phase asked about — else an unpolled phase sticks forever
-    if (keyName != null && String(f[keyName]) !== String(keyVal)) return false;
-    return true;
+    if (f && Date.now() - f.ts > 180000) this.inflight = null;   // expire FIRST, whatever the phase asked about
+    return !!this.pending(phase, keyName, keyVal);
   }
-  clearInflight() { this.inflight = null; }
+  clearInflight() { if (this.inflight) this._pendSettle(this.inflight); this.inflight = null; }
 
   // ── OPTIMISTIC STATUS LIFECYCLE (shared, so games don't each reimplement it) ──────────────────────
   // A value/game action submits -> we show "…confirming…" in #status; once it LANDS (or times out) we
@@ -740,12 +794,18 @@ export class NadoDapp {
   settleInflight(landedFn) {
     const f = this.inflight;
     if (!f) return;
-    let landed = Date.now() - (f.ts || 0) > 180000;                                  // hard timeout (lost tx)
-    if (!landed && typeof landedFn === "function") { try { landed = !!landedFn(f); } catch (e) {} }
-    if (!landed && f.cur0 != null && this.cursor != null && this.cursor >= f.cur0 + 2) landed = true;  // tip advanced
-    if (!landed) return;
+    const expired = Date.now() - (f.ts || 0) > 180000;                               // hard timeout (lost tx)
+    let seen = false;
+    if (typeof landedFn === "function") { try { seen = !!landedFn(f); } catch (e) {} }
+    // tip-advance fallback: retires the STATUS-LINE lifecycle optimistically ~2 tips after submit — but a
+    // moved tip is NOT proof the tx mined, so it does NOT release the click-pending guard. Only the game's
+    // own on-chain check (`seen`) or the timeouts do: buttons stay honestly ⏳ while a tx sits in the
+    // mempool instead of re-enabling into guaranteed-revert re-clicks (the pets hatch/train bug, everywhere).
+    const tipMoved = f.cur0 != null && this.cursor != null && this.cursor >= f.cur0 + 2;
+    if (!expired && !seen && !tipMoved) return;
+    if (seen || expired) this._pendSettle(f);
     const phase = f.phase;
-    this.clearInflight();
+    this.inflight = null;   // NOT clearInflight(): a tipMoved-only retire keeps the click registry gating
     if (this._stActive === phase) { const d = this._stDone && this._stDone[phase]; if (d) okBar(d); this._stActive = null; }
   }
   // ── ANTI-ROLLBACK (good-faith real-time state) ────────────────────────────────────────────────────
@@ -783,7 +843,9 @@ export class NadoDapp {
   // a game pass its own "already waiting on a tx" flag (e.g. a confirmation `watch`). opts.key ids an item
   // (default it.g). Returns true if it fired a settle.
   autoCollect(candidates, settle, opts = {}) {
-    if (!this.me || this.inflight || opts.blocked) return false;
+    // any click-pending action blocks the tick too: the old inflight-only check had a gap between a manual
+    // click and its sign-return during which an auto-settle could fire concurrently.
+    if (!this.me || this.inflight || opts.blocked || this._pendLoad().length) return false;
     try { if (localStorage.getItem(this.LS_AUTOCOLLECT) === "0") return false; } catch (e) {}
     const keyOf = opts.key || ((x) => x.g);
     const t = (candidates || []).find((x) => !this._autoTried.has(keyOf(x)));

@@ -65,7 +65,7 @@ Three things make this the opposite of Nyzo:
    asymmetry.
 2. **Per-address cap, split-neutral — capital only, no PoSW.** Bonded eligibility is purely `bonded >=
    B_MIN` (100 NADO/share); the bonded lane requires **no registration or PoSW** — that is the OPEN lane's
-   cost. A single address's weight is capped at `BOND_CAP` (10,000 NADO → 100 shares), so no single identity
+   cost. A single address's weight is capped at `BOND_CAP` (1,000 NADO → 100 shares), so no single identity
    dominates, but a holder above the cap **spreads real stake across addresses** to deploy all of it. That
    is **split-neutral**: every share costs the same `B_MIN` of real, farm-neutral coins whether concentrated
    or spread, so splitting buys **no Sybil discount** — total influence is ∝ real capital, which is the PoS

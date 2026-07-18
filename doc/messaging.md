@@ -278,7 +278,7 @@ over the registered set) without revealing which — plus a mixnet for timing. D
 2. **Node message pool** (`ops/message_pool.py` + memserver): store/gossip/TTL/anti-spam, mirroring
    `transaction_pool` but never block-bound. Endpoints: `POST /message`, `GET /messages?to=`,
    `GET /msg_key?addr=` (announcement lookup), `POST /msg_key` (publish announcement), gossip wiring.
-   **No new node crypto** — reuse `Curve25519.verify` for `sig` and the PoW check.
+   **No new node crypto** — reuse `signatures.verify` (ML-DSA-44, via `proof_sender`) for `sig` and the PoW check.
 3. **Client "Messages" tab** in the interface (like Quorum/Shield): conversation list, compose (alias-aware),
    local history, poll loop, key-announcement on first use. 16-lang like the rest.
 4. **Anti-spam** (§6) wired to the existing registered-check + a small hashcash + the forum's rate limiter.

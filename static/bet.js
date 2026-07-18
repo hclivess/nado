@@ -14,7 +14,7 @@
 // -> every stake refunds 1:1; an unbacked winner auto-voids. Payouts are pull-based (each bettor calls
 // claim). Outcomes are integers 0..nout-1 everywhere. Per-user positions are read through the contract's
 // /exec/view methods (claimable_of etc.) — see the myCache notes below.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, alertBar, notify, loadQR, share, shareInvite, esc } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js";
 
 const CID = "066b76360e669c91d81e57197d0c88e3";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });
@@ -132,6 +132,7 @@ function statusText(mk) {
 // ---- actions -------------------------------------------------------------------------------------
 async function placeBet() {
   if (activeMarket == null || selOutcome == null) return alertBar(window.t("bet.pickFirst", "Pick a match and an outcome first."));
+  if (dapp.busy("bet", "market", activeMarket)) return notify(confirmingLabel());
   const mk = lastSto && parseMarket(lastSto, activeMarket);
   if (!mk || mk.status !== "open") { alertBar(window.t("bet.notOpen", "This match isn't open for bets.")); render(); return; }
   // stakes must be UNIT multiples (the contract's pool-unit money model) — round down silently
@@ -145,11 +146,12 @@ async function placeBet() {
   dapp.call("bet", [activeMarket, selOutcome], stake, window.t("bet.callBet", "bet {amt} on {lab} · match #{id}", { amt: rawToNado(stake), lab, id: activeMarket }),
             { market: activeMarket, phase: "bet", prevUs: mk.myTotal });
 }
-const claimMarket = (m) => dapp.call("claim", [m], null, window.t("bet.callClaim", "collect from match #{id}", { id: m }), { market: m, phase: "claim" });
-const voidMarket  = (m) => dapp.call("void", [m], null, window.t("bet.callVoid", "void match #{id} (refund everyone)", { id: m }), { market: m, phase: "void" });
-const resolveMarket = (m, out, lab) => dapp.call("resolve", [m, out], null, window.t("bet.callResolve", "post result: {lab} won · match #{id}", { lab, id: m }), { market: m, phase: "resolve" });
+const claimMarket = (m) => { if (dapp.busy("claim", "market", m)) return; dapp.call("claim", [m], null, window.t("bet.callClaim", "collect from match #{id}", { id: m }), { market: m, phase: "claim" }); };
+const voidMarket  = (m) => { if (dapp.busy("void", "market", m)) return notify(confirmingLabel()); dapp.call("void", [m], null, window.t("bet.callVoid", "void match #{id} (refund everyone)", { id: m }), { market: m, phase: "void" }); };
+const resolveMarket = (m, out, lab) => { if (dapp.busy("resolve", "market", m)) return notify(confirmingLabel()); dapp.call("resolve", [m, out], null, window.t("bet.callResolve", "post result: {lab} won · match #{id}", { lab, id: m }), { market: m, phase: "resolve" }); };
 
 function createMarket() {
+  if (dapp.busy("create")) return notify(confirmingLabel());
   const title = ($("cmTitle").value || "").trim();
   const labels = ($("cmLabels").value || "").split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
   const source = $("cmSource").value || "";

@@ -105,7 +105,9 @@
   "sdk.whereOffline": "تعذّر الوصول إلى السلسلة الآن — جارٍ إعادة الاتصال… {kind} وأموالك آمنة على السلسلة.",
   "sdk.withdraw": "تم إرسال السحب.",
   "sdk.withdrawEnter": "أدخل مبلغًا للسحب.",
-  "sdk.withdrawShort": "لديك {bal} NADO فقط في طبقة التنفيذ."
+  "sdk.withdrawShort": "لديك {bal} NADO فقط في طبقة التنفيذ.",
+  "sdk.submitting": "جارٍ الإرسال: {label}…",
+  "sdk.confirmingBtn": "⏳ قيد التأكيد على السلسلة…"
  },
  "cs": {
   "sdk.bet": "Sázka podána — potvrzuje se…",
@@ -213,7 +215,9 @@
   "sdk.whereOffline": "Blockchain je teď nedostupný — připojuji… vaše {kind} i prostředky jsou bezpečně na blockchainu.",
   "sdk.withdraw": "Výběr odeslán.",
   "sdk.withdrawEnter": "Zadejte částku k výběru.",
-  "sdk.withdrawShort": "Ve výkonné vrstvě máte jen {bal} NADO."
+  "sdk.withdrawShort": "Ve výkonné vrstvě máte jen {bal} NADO.",
+  "sdk.submitting": "Odesílám: {label}…",
+  "sdk.confirmingBtn": "⏳ potvrzuje se on-chain…"
  },
  "de": {
   "sdk.bet": "Wette platziert — wird bestätigt…",
@@ -321,7 +325,9 @@
   "sdk.whereOffline": "Die Chain ist gerade nicht erreichbar — verbinde neu… dein {kind} und deine Mittel sind sicher on-chain.",
   "sdk.withdraw": "Auszahlung gesendet.",
   "sdk.withdrawEnter": "Gib einen Betrag zum Auszahlen ein.",
-  "sdk.withdrawShort": "Du hast nur {bal} NADO in der Ausführungsebene."
+  "sdk.withdrawShort": "Du hast nur {bal} NADO in der Ausführungsebene.",
+  "sdk.submitting": "Wird gesendet: {label}…",
+  "sdk.confirmingBtn": "⏳ wird on-chain bestätigt…"
  },
  "en": {
   "sdk.bet": "Bet placed — confirming…",
@@ -429,7 +435,9 @@
   "sdk.whereOffline": "Can't reach the chain right now — reconnecting… your {kind} and funds are safe on-chain.",
   "sdk.withdraw": "Cash-out submitted.",
   "sdk.withdrawEnter": "Enter an amount to withdraw.",
-  "sdk.withdrawShort": "You only have {bal} NADO in the exec layer."
+  "sdk.withdrawShort": "You only have {bal} NADO in the exec layer.",
+  "sdk.submitting": "Submitting: {label}…",
+  "sdk.confirmingBtn": "⏳ confirming on-chain…"
  },
  "es": {
   "sdk.bet": "Apuesta realizada — confirmando…",
@@ -537,7 +545,9 @@
   "sdk.whereOffline": "No se puede conectar a la cadena ahora — reconectando… tu {kind} y tus fondos están a salvo en cadena.",
   "sdk.withdraw": "Retiro enviado.",
   "sdk.withdrawEnter": "Introduce una cantidad para retirar.",
-  "sdk.withdrawShort": "Solo tienes {bal} NADO en la capa de ejecución."
+  "sdk.withdrawShort": "Solo tienes {bal} NADO en la capa de ejecución.",
+  "sdk.submitting": "Enviando: {label}…",
+  "sdk.confirmingBtn": "⏳ confirmando en la cadena…"
  },
  "fr": {
   "sdk.bet": "Pari placé — confirmation…",
@@ -645,7 +655,9 @@
   "sdk.whereOffline": "Impossible de joindre la chaîne pour l'instant — reconnexion… votre {kind} et vos fonds sont en sécurité sur la chaîne.",
   "sdk.withdraw": "Retrait envoyé.",
   "sdk.withdrawEnter": "Saisissez un montant à retirer.",
-  "sdk.withdrawShort": "Vous n'avez que {bal} NADO dans la couche d'exécution."
+  "sdk.withdrawShort": "Vous n'avez que {bal} NADO dans la couche d'exécution.",
+  "sdk.submitting": "Envoi : {label}…",
+  "sdk.confirmingBtn": "⏳ confirmation sur la chaîne…"
  },
  "hi": {
   "sdk.bet": "दांव लगाया — पुष्टि हो रही है…",
@@ -753,7 +765,9 @@
   "sdk.whereOffline": "अभी चेन तक नहीं पहुँच पा रहे — फिर से जोड़ रहे हैं… आपका {kind} और धन चेन पर सुरक्षित है।",
   "sdk.withdraw": "निकासी भेजी गई।",
   "sdk.withdrawEnter": "निकालने की राशि दर्ज करें।",
-  "sdk.withdrawShort": "एग्ज़ीक्यूशन लेयर में आपके पास केवल {bal} NADO है।"
+  "sdk.withdrawShort": "एग्ज़ीक्यूशन लेयर में आपके पास केवल {bal} NADO है।",
+  "sdk.submitting": "भेजा जा रहा है: {label}…",
+  "sdk.confirmingBtn": "⏳ चेन पर पुष्टि हो रही है…"
  },
  "id": {
   "sdk.bet": "Taruhan dipasang — mengonfirmasi…",
@@ -861,7 +875,9 @@
   "sdk.whereOffline": "Tidak bisa menjangkau rantai sekarang — menyambung ulang… {kind} dan danamu aman on-chain.",
   "sdk.withdraw": "Penarikan dikirim.",
   "sdk.withdrawEnter": "Masukkan jumlah untuk ditarik.",
-  "sdk.withdrawShort": "Kamu hanya punya {bal} NADO di lapisan eksekusi."
+  "sdk.withdrawShort": "Kamu hanya punya {bal} NADO di lapisan eksekusi.",
+  "sdk.submitting": "Mengirim: {label}…",
+  "sdk.confirmingBtn": "⏳ dikonfirmasi di chain…"
  },
  "it": {
   "sdk.bet": "Puntata piazzata — in conferma…",
@@ -969,7 +985,9 @@
   "sdk.whereOffline": "Impossibile raggiungere la catena ora — riconnessione… il tuo {kind} e i fondi sono al sicuro on-chain.",
   "sdk.withdraw": "Prelievo inviato.",
   "sdk.withdrawEnter": "Inserisci un importo da prelevare.",
-  "sdk.withdrawShort": "Hai solo {bal} NADO nel livello di esecuzione."
+  "sdk.withdrawShort": "Hai solo {bal} NADO nel livello di esecuzione.",
+  "sdk.submitting": "Invio: {label}…",
+  "sdk.confirmingBtn": "⏳ conferma on-chain…"
  },
  "ja": {
   "sdk.bet": "ベットしました — 確認中…",
@@ -1077,7 +1095,9 @@
   "sdk.whereOffline": "今チェーンに接続できません — 再接続中…あなたの{kind}と資金はオンチェーンで安全です。",
   "sdk.withdraw": "出金を送信しました。",
   "sdk.withdrawEnter": "出金する額を入力してください。",
-  "sdk.withdrawShort": "実行レイヤーには {bal} NADO しかありません。"
+  "sdk.withdrawShort": "実行レイヤーには {bal} NADO しかありません。",
+  "sdk.submitting": "送信中: {label}…",
+  "sdk.confirmingBtn": "⏳ チェーンで確認中…"
  },
  "ko": {
   "sdk.bet": "베팅 완료 — 확인 중…",
@@ -1185,7 +1205,9 @@
   "sdk.whereOffline": "지금 체인에 연결할 수 없습니다 — 재연결 중… 당신의 {kind}와 자금은 온체인에서 안전합니다.",
   "sdk.withdraw": "출금 제출됨.",
   "sdk.withdrawEnter": "출금할 금액을 입력하세요.",
-  "sdk.withdrawShort": "실행 계층에 {bal} NADO만 있습니다."
+  "sdk.withdrawShort": "실행 계층에 {bal} NADO만 있습니다.",
+  "sdk.submitting": "제출 중: {label}…",
+  "sdk.confirmingBtn": "⏳ 체인에서 확인 중…"
  },
  "pt": {
   "sdk.bet": "Aposta feita — confirmando…",
@@ -1293,7 +1315,9 @@
   "sdk.whereOffline": "Não é possível acessar a cadeia agora — reconectando… seu {kind} e fundos estão seguros na cadeia.",
   "sdk.withdraw": "Saque enviado.",
   "sdk.withdrawEnter": "Digite um valor para sacar.",
-  "sdk.withdrawShort": "Você só tem {bal} NADO na camada de execução."
+  "sdk.withdrawShort": "Você só tem {bal} NADO na camada de execução.",
+  "sdk.submitting": "A enviar: {label}…",
+  "sdk.confirmingBtn": "⏳ a confirmar na cadeia…"
  },
  "ru": {
   "sdk.bet": "Ставка сделана — подтверждается…",
@@ -1401,7 +1425,9 @@
   "sdk.whereOffline": "Сейчас не удаётся связаться с сетью — переподключение… ваш {kind} и средства в безопасности в сети.",
   "sdk.withdraw": "Вывод отправлен.",
   "sdk.withdrawEnter": "Введите сумму для вывода.",
-  "sdk.withdrawShort": "У вас только {bal} NADO в слое исполнения."
+  "sdk.withdrawShort": "У вас только {bal} NADO в слое исполнения.",
+  "sdk.submitting": "Отправка: {label}…",
+  "sdk.confirmingBtn": "⏳ подтверждается в сети…"
  },
  "tr": {
   "sdk.bet": "Bahis yapıldı — onaylanıyor…",
@@ -1509,7 +1535,9 @@
   "sdk.whereOffline": "Şu an zincire ulaşılamıyor — yeniden bağlanılıyor… {kind} ve paran zincirde güvende.",
   "sdk.withdraw": "Çekim gönderildi.",
   "sdk.withdrawEnter": "Çekilecek tutarı gir.",
-  "sdk.withdrawShort": "Yürütme katmanında yalnızca {bal} NADO var."
+  "sdk.withdrawShort": "Yürütme katmanında yalnızca {bal} NADO var.",
+  "sdk.submitting": "Gönderiliyor: {label}…",
+  "sdk.confirmingBtn": "⏳ zincirde onaylanıyor…"
  },
  "vi": {
   "sdk.bet": "Đã đặt cược — đang xác nhận…",
@@ -1617,7 +1645,9 @@
   "sdk.whereOffline": "Hiện không thể kết nối chuỗi — đang kết nối lại… {kind} và tiền của bạn an toàn on-chain.",
   "sdk.withdraw": "Đã gửi rút.",
   "sdk.withdrawEnter": "Nhập số tiền để rút.",
-  "sdk.withdrawShort": "Bạn chỉ có {bal} NADO ở lớp thực thi."
+  "sdk.withdrawShort": "Bạn chỉ có {bal} NADO ở lớp thực thi.",
+  "sdk.submitting": "Đang gửi: {label}…",
+  "sdk.confirmingBtn": "⏳ đang xác nhận trên chuỗi…"
  },
  "zh": {
   "sdk.bet": "已下注 — 确认中…",
@@ -1725,6 +1755,8 @@
   "sdk.whereOffline": "暂时无法连接链 — 正在重连…你的{kind}和资金在链上是安全的。",
   "sdk.withdraw": "提现已提交。",
   "sdk.withdrawEnter": "请输入提现金额。",
-  "sdk.withdrawShort": "你在执行层只有 {bal} NADO。"
+  "sdk.withdrawShort": "你在执行层只有 {bal} NADO。",
+  "sdk.submitting": "正在提交：{label}…",
+  "sdk.confirmingBtn": "⏳ 链上确认中…"
  }
 }

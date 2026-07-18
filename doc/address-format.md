@@ -78,7 +78,8 @@ any FUTURE format migration can enumerate policy accounts and define their carry
 
 Consensus domain tags also carry the brand — invisible to users, but they exist:
 `nado-stark`, `nado-msig-v1`, `nado-register`, `nado-randao-commit`/`-secret`, `nado-fx`,
-`nado-rec-digest`, the chain_id `nado-relaunch-1`, plus non-consensus ones (`nado-forum-login`,
+`nado-rec-digest` (the chain_id is already brand-free — `alphanet-6`, and it changes every reroll;
+`nado-relaunch-1` now survives only as the frozen wallet self-test vector), plus non-consensus ones (`nado-forum-login`,
 `nado-lang`, localStorage keys). Outside a reroll, renaming any consensus tag is a fork for zero
 value. AT the reroll everything re-derives from genesis anyway, so renaming them to brand-free
 tags (`chain-stark`, `msig-v2`, …) is free — fold it into the same cutover commit.

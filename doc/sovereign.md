@@ -1,6 +1,6 @@
 # Sovereign — a persistent nation-war MMO on NADO
 
-Status: **IN BUILD.** Engine + tests done (`static/sovereign-engine.js`, `tests/sovereign_engine_test.mjs`,
+Status: **LIVE** on alphanet-6 (`sovereign.nadochain.com`). Engine + tests (`static/sovereign-engine.js`, `tests/sovereign_engine_test.mjs`,
 ALL PASS). Contract + client + practice next.
 
 ## 1. What it is
@@ -61,27 +61,27 @@ partners), and the meta layer (info cards, per-age rewards/credits, the full med
 
 ## 3. The persistent-world contract model (the new SDK pattern)
 
-The hard, novel part is running a time-based economy on a zkVM with **no background process**. The
-pattern (reusable for any future idle/4X/territory game):
+The hard, novel part is running one shared, always-on world on a zkVM with **no background process** —
+and the shipped answer is the opposite of a fat per-nation contract. The pattern (reusable for any future
+idle/4X/territory game):
 
-- **One contract, keyed by owner.** Each nation's state lives in slots keyed by the owner's address
-  digest: resources, `tick` (the turn index at its last touch), land, the building/unit/tech vectors,
-  government, satisfaction, prestige, alliance.
-- **Lazy production — "settle on touch".** There is no cron. Every method first runs `settle(nation,
-  turns)` where `turns = (block_cursor − last_cursor) / TURN_BLOCKS`. Production is pure arithmetic ×
-  turns (O(1), not a loop over history), so it proves cheaply and every node computes the same result. A
-  nation nobody has read still "produced": its resources are whatever `settle()` yields from the elapsed
-  turns — the client shows the settled view, the contract writes it on the next action.
-- **PvP that mutates two accounts.** `attack(target, kind, comp, …)` settles BOTH nations to the same
-  turn, resolves `combat()` against a finalized block-hash roll, and writes back the loot transfer +
-  casualties to attacker AND defender. Deterministic and provable; the defender needs no signature (their
-  stored state is public and self-defending) — the raid is validated by re-execution, same trust model as
-  a duel's illegal-move dispute.
-- **Rankings + world map** are pure reads: the client enumerates nations from the registry, settles each
-  to `now` locally (the same engine the contract uses), sorts by prestige, and renders the target list.
-- **Anti-grief rails** (v1): a protection window for young nations, loot-band caps (the source's 2–16%
-  etc.), a raid cooldown via army readiness (`ready −30` per attack, recovers over turns), and a floor on
-  minimum land so a nation can't be wiped to zero.
+- **One GLOBAL append-only ACTION LOG; the contract is a thin RECORDER, not a referee.** `sovereign.py`
+  stores a single ordered log of packed actions (`op + params`, the engine's `encAction`), each bound to
+  its index (`ply == mc`, the same anti-rollback trick as a duel move so a stale re-signed action can't
+  double-append or land out of order). It does **not** store per-nation economies or run `settle`.
+- **All economy + combat rules live in the browser engine** (`static/sovereign-engine.js`); every client
+  **folds the whole log into the world state**, settling every nation's lazy production deterministically
+  as it replays. Because the referee is the engine, an illegal action (can't afford, hoarding, shielded
+  target, unarmed) is simply a **replay no-op** — no on-chain rules check is needed, and every honest
+  client derives byte-identical world state from the same log.
+- **PvP is just two log entries interpreted by the replay.** A raid records the attacker's action; the
+  engine resolves `combat()` against a finalized block-hash roll and applies loot + casualties to both
+  nations during the fold. The defender needs no signature (their state is public and self-defending),
+  exactly like a duel's illegal-move dispute — validated by re-execution.
+- **Rankings + world map** are pure reads over the replayed state: enumerate nations, sort by prestige,
+  render the target list — all from the same fold every client runs.
+- **Anti-grief rails** (v1, enforced in the engine's replay): a protection window for young nations,
+  loot-band caps (the source's 2–16% etc.), a raid cooldown via army readiness, and a minimum-land floor.
 
 Money/coins: Sovereign is a **free strategy world**, not a staked/banked game — no NADO escrow, no house.
 Founding and every action is a plain `blob` call (the L1 tx fee is the only cost, which also rate-limits
@@ -103,9 +103,10 @@ practice is the same rules with local opponents.
   practice + tests.
 - `tests/sovereign_engine_test.mjs` — determinism / boundedness / action-legality / loot-conservation
   (done, ALL PASS).
-- `execnode/games/sovereign.py` — the persistent-world contract (next): per-nation storage, settle,
-  found/build/demolish/recruit/research/revolt/colonize/attack, registry + prestige view.
-- `static/sovereign.js` + `.html` — the client (next): nation dashboard, build/army/tech/gov panels, the
+- `execnode/games/sovereign.py` — the contract: a **single global append-only ACTION LOG** (a thin
+  recorder, NOT a per-nation referee — the economy + combat rules live in the browser engine, which
+  every client replays; see §3). Registry + prestige view.
+- `static/sovereign.js` + `.html` — the client: nation dashboard, build/army/tech/gov panels, the
   world/ranking/target board, raid flow, practice mode.
 - `static/sovereign-art.js` — original SVG glyphs for buildings/units.
 - i18n `sovereign.*` ×16, nginx `sovereign.nadochain.com`, hub tile.

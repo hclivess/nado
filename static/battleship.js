@@ -5,7 +5,7 @@
 // ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
 // oracle beyond the math — field-native alghash, byte-identical to the zkVM contract's in-VM HASH
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores } from "./nadodapp.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
 const CID = "9c3d01b6b70f507ecc0bbf75b0615940";   // execnode/games/battleship.py (zkVM, nonce "a5")
@@ -132,6 +132,7 @@ const syncFleet = () => { placing = boardOf(ships); };
 function commit() { const board = placing.slice(), seed = randSeed(), salts = saltsFromSeed(seed), spec = fleetSpec(); return { root: buildTree(board, salts).root, board, salts, seed, spec }; }
 function saveBoard(g, role, board, salts, stake, seed, spec) { const G = load(LS_G); G[g] = { role, board, salts: salts.map((s) => s.toString()), seed: seed.toString(), spec, stake: String(stake), ts: Date.now() }; save(LS_G, G); }
 function openGame() {
+  if (dapp.busy("open")) return notify(confirmingLabel());
   const raw = nadoToRaw($("stakeAmt").value);
   if (!raw) return alertBar(window.t("bs.enterStake", "Enter your stake in NADO — your opponent matches it, winner takes both."));
   if (shipCount(placing) !== SHIPS) return alertBar(window.t("bs.placeFleet", "Place your whole fleet first (all {n} cells).", { n: SHIPS }));
@@ -143,6 +144,7 @@ function openGame() {
 async function joinGame() {
   const gm = lastGame; if (!gm || !gm.exists) { if (gm) dapp.clearInvite(); return; }
   if (gm.nn !== 1) { dapp.clearInvite(); return; }
+  if (dapp.busy("join", "game", activeGame)) return notify(confirmingLabel());
   if (shipCount(placing) !== SHIPS) return alertBar(window.t("bs.placeFleet", "Place your whole fleet first (all {n} cells).", { n: SHIPS }));
   const stake = BigInt(gm.stake);
   if (!canPay(dapp, stake, window.t("bs.whatJoin", "Joining this game"))) return;
@@ -183,9 +185,9 @@ function autoAnswer(sto) {
     dapp.call("answer", [Number(g), ...proof], null, "answer the shot at " + coord(c) + " · battleship #" + g, { game: Number(g), phase: "answer" });
   }
 }
-const resign = () => dapp.call("resign", [activeGame], null, "resign battleship #" + activeGame, { game: activeGame, phase: "resign" });
-const claimTimeout = () => dapp.call("timeout", [activeGame], null, "claim the stalled pot · battleship #" + activeGame, { game: activeGame, phase: "timeout" });
-const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel battleship #" + activeGame, { game: activeGame, phase: "cancel" });
+const resign = () => { if (dapp.busy("resign", "game", activeGame)) return notify(confirmingLabel()); dapp.call("resign", [activeGame], null, "resign battleship #" + activeGame, { game: activeGame, phase: "resign" }); };
+const claimTimeout = () => { if (dapp.busy("timeout", "game", activeGame)) return notify(confirmingLabel()); dapp.call("timeout", [activeGame], null, "claim the stalled pot · battleship #" + activeGame, { game: activeGame, phase: "timeout" }); };
+const cancelGame = () => { if (dapp.busy("cancel", "game", activeGame)) return notify(confirmingLabel()); dapp.call("cancel", [activeGame], null, "cancel battleship #" + activeGame, { game: activeGame, phase: "cancel" }); };
 // reveal-at-claim: the WINNER collects a decided pot by revealing their 5 ship placements + salt-seed; the
 // contract rebuilds the tree from them and pays only if it matches the committed root (a shape-cheat can't).
 function claimWin(g) {
@@ -195,7 +197,7 @@ function claimWin(g) {
   dapp.call("claim", args, null, "collect winnings · battleship #" + g, { game: g, phase: "claim" });
 }
 // if the winner never revealed a valid fleet by the deadline (e.g. a shape-cheater), the LOSER takes the pot.
-const forfeitPot = (g) => dapp.call("forfeit", [g], null, "claim the unrevealed pot · battleship #" + g, { game: g, phase: "forfeit" });
+const forfeitPot = (g) => { if (dapp.busy("forfeit", "game", Number(g))) return; dapp.call("forfeit", [g], null, "claim the unrevealed pot · battleship #" + g, { game: g, phase: "forfeit" }); };
 // a decided win that's mine + unpaid → auto-reveal my fleet to collect (once). Runs each refresh over my games.
 function autoSettle(sto) {
   if (!sto || !dapp.me) return;

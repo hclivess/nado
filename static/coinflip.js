@@ -6,7 +6,7 @@
 // is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "426b97a4b22f439cdb0bc0e4d24e6433";
@@ -63,6 +63,7 @@ async function fetchGame(gid) { const sto = await dapp.storage(); return sto ? g
 
 // ---- actions -------------------------------------------------------------------------------------
 function bet(gameId, stakeRaw, method) {   // method: "open" (slot 1) or "join" (slot 2)
+  if (dapp.busy("bet", "gameId", gameId)) return notify(confirmingLabel());   // this open/join is already confirming
   const g = gamesLoad();
   g[gameId] = { role: method, ts: Date.now(), bet: (g[gameId] || {}).bet, stake: stakeRaw.toString() }; gamesSave(g);
   active = gameId; render();
@@ -101,7 +102,7 @@ function reopenGame() {   // retry an open that never landed (same id is still f
   if (!canPay(dapp, raw, "Re-opening this game")) return;
   bet(active, raw, "open");
 }
-const settle = () => dapp.call("settle", [active], null, window.t("coinflip.settleDesc", "settle game #{id}", { id: active }), { gameId: active, phase: "settle" });
+const settle = () => { if (dapp.busy("settle", "gameId", active)) return; dapp.call("settle", [active], null, window.t("coinflip.settleDesc", "settle game #{id}", { id: active }), { gameId: active, phase: "settle" }); };
 // AUTO-COLLECT the WINNER's pot once the flip is decided (shared SDK tick — opt-out slider, autoTried dedup)
 function maybeAutoSettle() {
   if (active == null) return;
@@ -111,7 +112,7 @@ function maybeAutoSettle() {
   if (!mine || lg.winner_slot !== mine.slot) return;   // only auto-collect MY winnings
   dapp.autoCollect([{ g: active }], () => settle());
 }
-const cancelGame = () => dapp.call("cancel", [active], null, window.t("coinflip.cancelDesc", "cancel game #{id}", { id: active }), { gameId: active, phase: "cancel" });
+const cancelGame = () => { if (dapp.busy("cancel", "gameId", active)) return; dapp.call("cancel", [active], null, window.t("coinflip.cancelDesc", "cancel game #{id}", { id: active }), { gameId: active, phase: "cancel" }); };
 async function rematch() {
   const stake = (lastGame && lastGame.exists) ? BigInt(lastGame.stake) : ((gamesLoad()[active] || {}).stake ? BigInt(gamesLoad()[active].stake) : null);
   if (!stake) return alertBar(window.t("coinflip.openNewPanel", "Open a new game from the panel above."));
@@ -122,9 +123,17 @@ async function rematch() {
 
 async function refreshActive() {
   await dapp.refresh();
-  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage();
   if (sto) {
+    // release the click guard the instant the effect is on-chain — MUST run with sto (tip-advance alone
+    // no longer clears the guard): bet = my address committed, settle = flip recorded, cancel = game gone.
+    dapp.settleInflight((f) => {
+      const g = String(f.gameId);
+      if (f.phase === "bet") return _m(sto, "p1")[g] === dapp.me || _m(sto, "p2")[g] === dapp.me;
+      if (f.phase === "settle") return !!_m(sto, "sd")[g];
+      if (f.phase === "cancel") return !_m(sto, "p1")[g] || !!_m(sto, "sd")[g];
+      return false;
+    });
     for (const gid of allGids(sto)) stageCache[gid] = { settled: !!_m(sto, "sd")[gid], ncom: _m(sto, "nn")[gid] || 0, stake: _m(sto, "st")[gid] || 0 };
     // fetch block hashes to resolve the active game's flip client-side
     if (active != null) {

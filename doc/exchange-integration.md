@@ -24,7 +24,7 @@ deposit detection, confirmation/finality rules, and withdrawal signing + broadca
 | Min fee | `MIN_TX_FEE = 1000` raw | See `/get_recommended_fee`. |
 | Tx expiry | `target_block` landing window | Unmined txs expire — rebroadcast/reprice logic differs from BTC/ETH. |
 | Transport | REST over HTTP, default port **9173** | JSON by default; `?compress=zstd|msgpack` for binary. |
-| Network id | `chain_id` (e.g. `alphanet-1`) | Bound into every tx — cross-chain replay is impossible. |
+| Network id | `chain_id` (e.g. `alphanet-6`) | Bound into every tx — cross-chain replay is impossible. |
 
 ---
 
@@ -140,7 +140,7 @@ A transfer is a flat dict (field order is irrelevant — the txid uses a canonic
   "timestamp":   1783460000,          // unix seconds
   "nonce":       "…",                 // unique per tx (anti-replay)
   "target_block": 17600,              // the block window this tx must land in (expiry)
-  "chain_id":    "alphanet-1",        // from /status; binds the tx to this network
+  "chain_id":    "alphanet-6",        // from /status; binds the tx to this network
   "data":        "",                  // "" for a plain transfer
   "public_key":  "…",                 // ML-DSA-44 pubkey (hex); omittable after first on-chain use (pubkey-once)
   "txid":        "…",                 // blake2b of the canonical body, EXCLUDING public_key
@@ -181,7 +181,7 @@ Because `chain_id` is inside the signed body, a tx **cannot** be replayed on ano
   (pubkey-once) — but including it is always valid.
 * **Aliases:** users may hand out a human alias instead of an `ndo…` address; `GET /resolve_alias` maps it to the
   owner address. Deposits are still indexed under the resolved `ndo…` address.
-* **Alpha network:** this is testnet-stage (`chain_id: alphanet-1`); treat values as non-final until mainnet.
+* **Alpha network:** this is testnet-stage (`chain_id: alphanet-6`, and it rerolls); treat values as non-final until mainnet.
 
 ---
 
@@ -218,4 +218,3 @@ RPC-shape compatibility.
       handle `target_block` expiry + `429` backoff.
 - [ ] Accounting in **raw integer units** (`/1e10` only for display).
 - [ ] Ignore reserved-recipient txs.
-```

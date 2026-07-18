@@ -187,14 +187,15 @@ choice is performance, not soundness.
    `air_ir.gadget_max_degree`, which gives the gadget exactly the `max_degree` headroom the inner AIR needs
    (prover + verifier derive it identically). The wrapper is still committed as CAPABILITY, NOT wired as the
    authoritative settlement verifier UNTIL step 8; the proof it checks is producible + verifiable at real scale.
-8. ✅ **On-chain settle-with-proof — DONE (`ops/transaction_ops.py` `settle` branch, `ops/settlement_ops.py`,
+8. **On-chain settle-with-proof — BUILT but DISABLED (quorum-only today) (`ops/transaction_ops.py` `settle` branch, `ops/settlement_ops.py`,
    `ops/kv_ops.py`, `tests/test_settle_with_proof.py`).** A `settle` tx MAY carry the recursion bundle; EVERY
    node verifies it deterministically at block-validation — at the PROTOCOL query strength (never the bundle's
    own count), binding the proof's `post_root` to the tx's attested `state_root`, its `cursor` to `exec_cursor`,
    and its `pre_root` to the namespace's committed settled tip (`EXEC_GENESIS_ROOT` for the first settlement, so
    a proof can never start from a fabricated pre-state). On success it records the on-chain marker
-   `kv_ops.settlement_proven`, and `settlement_ops.settlement_justified` accepts a root when that marker is set
-   OR the bonded quorum is met — both PURE functions of committed on-chain state, so no node diverges (this is
+   `kv_ops.settlement_proven`, and `settlement_ops.settlement_justified` is WIRED to accept a root when that marker is set
+   OR the bonded quorum is met — both PURE functions of committed on-chain state — but the proof branch is currently
+   commented out, so the bonded quorum is the only live settlement authority (no prover posts proofs yet). When enabled (this is
    what makes it fork-safe: the old node-local `_EPOCH_PROOFS`/`settlement_verifier` callback — which would have
    forked a node that had a proof from one that didn't — is REMOVED). The soundness hole flagged here before
    (a verifier that ignored the attested full root) is closed: the exact `state_root` is the binding.
@@ -412,7 +413,7 @@ fallback until the single-bundle aggregation lands (soundness-first — no parti
 
 **DEPLOYMENT.** Swapping the sparse root in as THE consensus settled root (settle-tx `state_root`,
 `ops/transaction_ops` bridge/dividend/unshield exits, `state.py`) is a genesis-level state-root-scheme change,
-NOT inert on the live chain, so it rides the reroll (with CHAIN_ID→alphanet-6 + settle-with-proof).
+wired on the live chain, so it rides the reroll (CHAIN_ID→alphanet-6; settle-with-proof present but disabled, quorum-only).
 
 ## 6. Soundness ledger (what each piece rests on)
 

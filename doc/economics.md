@@ -1,55 +1,46 @@
 # Economics & supply
 
+> **SUPERSEDED — read [tokenomics.md](tokenomics.md), [treasury.md](treasury.md), and
+> [bond-elastic-emission.md](bond-elastic-emission.md) instead.** This early doc described a
+> now-abandoned model (a key-controlled treasury seeded with a 100M premine, and a fee-weighted
+> `REWARD_CAP` block reward). The live design is the opposite on both points — a *keyless* treasury,
+> *zero* premine, and *flat bond-elastic* emission. The core sections below have been corrected to the
+> live model, but the canonical economics docs are the three linked above.
+
 All amounts are integers in **raw** units; **1 NADO = 10,000,000,000 raw** (`DENOMINATION`).
 
-## No premine; the treasury is the genesis address
+## No premine; the treasury is a keyless account
 
-There is **no personal premine**. The single genesis mint goes to the **treasury**, which —
-per the project owner — **is the genesis address itself** (a normal, key-controlled address,
-not a keyless label):
+There is **no premine at all** — genesis mints **zero** coins (`TREASURY_GENESIS = 0`). Every coin in
+existence was minted as a block reward. The treasury is a **keyless reserved account** (`TREASURY_ADDRESS
+= "treasury"` — no key, no founder, no multisig), distinct from the genesis producer address:
 
-```
-TREASURY_ADDRESS = ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b803280
-```
+- it holds **no genesis seed**, and
+- **accrues 10%** of every block reward, spendable only by a **2/3 bonded-stake quorum vote** (see
+  [treasury.md](treasury.md)), with idle balance **burned each period**.
 
-This is the legacy genesis public-key body re-checksummed under the new canonical hashing
-(see [determinism-and-chain-id.md](determinism-and-chain-id.md)); it is derived in
-`protocol.py` as `_GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)` so it always validates.
+A brand-new, zero-coin miner earns spendable coins from block 1 via the flat base subsidy — so the chain
+bootstraps with no seed and no faucet-bond (the faucet is a prize bank, not an onboarding tap).
 
-The treasury:
-- is **seeded at genesis** with `TREASURY_GENESIS = 1e18 raw = 100,000,000 NADO`, and
-- **accrues 10%** of every block reward thereafter.
+## Block reward — flat base, bond-elastic multiplier
 
-### Why a genesis seed at all?
-
-A chain with literally zero coins cannot bootstrap: no coins ⇒ no fees ⇒ the fee-weighted
-reward is 0 forever ⇒ no coins are ever minted, and nobody can post a mining bond. The seed
-breaks that cycle. Because the treasury is key-controlled, **the seed is effectively a founder
-allocation** — set `TREASURY_GENESIS = 0` for a pure no-coins start (and provide another
-bootstrap, e.g. a faucet, instead).
-
-## Block reward — fee-weighted, elastic, capped
-
-The reward is a pure function of recent fee activity and is **recomputed and enforced** by
-every node (it is not merely range-checked). It is anchored to the block's **own ancestry**
-(not the verifier's tip) so full nodes and snapshot/pruned nodes always agree.
-
-Each block header carries `cumulative_fees` — the running total of all fees up to and
-including that block. The reward for the child of `parent` is the average fee per block over
-the last `REWARD_WINDOW` blocks:
+The reward is a **flat base subsidy scaled by a bond-elastic multiplier** — a pure function of
+the current bonded ratio (NOT a fee average, and there is no `REWARD_CAP`). It is **recomputed and
+enforced** by every node (`block_ops.get_block_reward`) and is deterministic from committed state,
+so full nodes and snapshot/pruned nodes always agree. Full derivation:
+[bond-elastic-emission.md](bond-elastic-emission.md).
 
 ```
-reward = (cumFee[parent] - cumFee[parent_height - REWARD_WINDOW]) // REWARD_WINDOW
-reward = min(max(reward, 0), REWARD_CAP)
+minted = BASE_SUBSIDY * m(r) // 1        # m(r) ∈ [m_min, 1], r = bonded / total_supply
 ```
 
-- `REWARD_WINDOW = 100`, `REWARD_CAP = 5e9 raw (0.5 NADO)`.
-- Implemented in `block_ops.get_block_reward(parent_block, logger)` — **one indexed lookback**
-  (`get_block_number(height-100)`), not a 100-block file walk.
-- Enforced in `core_loop.verify_block`: a block whose `block_reward` ≠ the deterministic value
-  is rejected. `rebuild_block` recomputes the reward + `cumulative_fees` from the local tip, so
-  a peer can never inject an inflated reward.
-- The old `fee_over_blocks` (buggy: it summed the last block N times) was replaced by `recommended_fee` - the tip block's mean fee, computed in memory for `/get_recommended_fee`.
+- `BASE_SUBSIDY = 1e9 raw (0.1 NADO)` — since `m(r) ≤ 1`, this is the **MAX** emission per block;
+  the floor `m_min·BASE_SUBSIDY ≈ 0.015 NADO` is the perpetual disinflationary tail.
+- `m(r)` (`bond_elastic_mult_bps`, tuned `M_MIN=0.15, k=4`) shrinks emission as the bonded ratio
+  rises — a more-secured chain mints less ("super hard money"). Fee-independent.
+- Enforced in `core_loop.verify_block`: a block whose `block_reward` ≠ the deterministic value is
+  rejected. `rebuild_block` recomputes it from committed state, so a peer can never inject an
+  inflated reward.
 
 ## The 90/10 split (canonical)
 

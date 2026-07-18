@@ -70,16 +70,33 @@ if [ ! -f "$SCRIPT_DIR/../nado.py" ]; then
     /*) ;;
     *) echo "ERROR: --dir must be an absolute path (got '$CLONE_DIR')." >&2; exit 2 ;;
   esac
+  REPO_URL="https://github.com/hclivess/nado"
   if ! command -v git >/dev/null 2>&1; then
-    echo "ERROR: git is required to fetch the repo. On Ubuntu/Debian: sudo apt install git" >&2
-    exit 1
+    # A node installed by the OLD (git-less) installer has no git AND no /update — its ONLY upgrade
+    # path is this script, so auto-install git rather than dead-ending (we are typically run as sudo).
+    echo "==> bootstrap: git missing — installing it"
+    (apt-get update -qq && apt-get install -y -qq git) \
+      || yum install -y -q git 2>/dev/null \
+      || apk add --no-cache git 2>/dev/null \
+      || { echo "ERROR: could not auto-install git. Install it (e.g. sudo apt install git) and re-run." >&2; exit 1; }
   fi
-  if [ -f "$CLONE_DIR/nado.py" ]; then
-    echo "==> bootstrap: reusing the existing checkout at $CLONE_DIR (fast-forwarding to origin)"
+  if [ -f "$CLONE_DIR/nado.py" ] && git -C "$CLONE_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "==> bootstrap: reusing the git checkout at $CLONE_DIR (fast-forwarding to origin/main)"
     git -C "$CLONE_DIR" pull --ff-only --quiet 2>/dev/null || true
+  elif [ -f "$CLONE_DIR/nado.py" ]; then
+    # SELF-HEAL a git-less checkout (old-installer / tarball node): convert it into a real checkout
+    # IN PLACE and hard-reset to origin/main. Only TRACKED files are overwritten; private/ (keys),
+    # blocks/, index/, snapshots/ are all gitignored, so wallet keys + chain data survive untouched.
+    echo "==> bootstrap: $CLONE_DIR has no git history (old installer) — converting to a checkout + updating"
+    git -C "$CLONE_DIR" init -q
+    git -C "$CLONE_DIR" remote add origin "$REPO_URL" 2>/dev/null || git -C "$CLONE_DIR" remote set-url origin "$REPO_URL"
+    git -C "$CLONE_DIR" fetch --quiet origin main
+    git -C "$CLONE_DIR" reset --hard --quiet FETCH_HEAD
+    git -C "$CLONE_DIR" branch -q -f main FETCH_HEAD 2>/dev/null || true
+    git -C "$CLONE_DIR" checkout -q main 2>/dev/null || true
   else
-    echo "==> bootstrap: cloning https://github.com/hclivess/nado -> $CLONE_DIR"
-    git clone https://github.com/hclivess/nado "$CLONE_DIR"
+    echo "==> bootstrap: cloning $REPO_URL -> $CLONE_DIR"
+    git clone "$REPO_URL" "$CLONE_DIR"
   fi
   exec bash "$CLONE_DIR/scripts/install.sh" ${PASS[@]+"${PASS[@]}"}
 fi

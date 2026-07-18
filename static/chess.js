@@ -3,7 +3,7 @@
 // full legality run in your browser; every move is recorded ON-CHAIN (a trustless, ordered game log with a move
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards, resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify, lsLoad, lsSave } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards, resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify, confirmingLabel, lsLoad, lsSave } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
@@ -87,6 +87,7 @@ async function fetchGame(g) { const sto = await dapp.storage({ append: ["wr", "m
 function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
   if (!raw) return alertBar(window.t("chess.enterStake", "Enter a stake (NADO)."));
+  if (dapp.busy("open")) return notify(confirmingLabel());   // one open confirming at a time
   if (!canPay(dapp, raw, "Opening this game")) return;
   const g = randId(), G = load(); G[g] = { role: "white", stake: raw.toString(), ts: Date.now() }; save(G);
   activeGame = g; pendingEnc = null; render();
@@ -98,6 +99,7 @@ async function joinGame() {
   const gm = await fetchGame(g);
   if (!gm || !gm.exists) { alertBar(dapp.whereIs("game", g)); if (gm) dapp.clearInvite(); return; }
   if (gm.nn >= 2 || gm.settled) { alertBar(window.t("chess.fullOrFinished", "That game is full or finished.")); dapp.clearInvite(); return; }
+  if (dapp.busy("join", "game", g)) return notify(confirmingLabel());
   await dapp.refresh();
   const stake = BigInt(gm.stake);
   if (!canPay(dapp, stake, "Joining this game")) { render(); return; }   // keep the invite: it re-fires when the deposit lands
@@ -113,6 +115,7 @@ async function rematch() {
   const stake = BigInt(g.stake);
   if (!canPay(dapp, stake, window.t("chess.whatRematch", "A rematch"))) return;
   const rid = rematchId(activeGame), rg = await fetchGame(rid);
+  if (dapp.busy("open", "game", rid) || dapp.busy("join", "game", rid)) return notify(confirmingLabel());
   activeGame = rid; pendingEnc = null; haveState = false; replayPly = null; $("joinId").value = String(rid);
   const G = load();
   if (rg && rg.exists && rg.nn === 1 && !rg.settled) {
@@ -125,6 +128,7 @@ async function rematch() {
   render();
 }
 function submitMove(m) {
+  if (dapp.busy("move", "game", activeGame)) return notify(confirmingLabel());   // a move is already in flight this turn
   const enc = encMove(m);
   // PLY BINDING: the tx names the exact ply it plays at (the contract requires it), so a stale
   // wallet retry of THIS move can never land turns later against a changed position.
@@ -132,10 +136,10 @@ function submitMove(m) {
   pendingEnc = enc; selected = null; render();
   dapp.call("move", [activeGame, enc, ply], null, "move " + m.from + m.to + (m.promotion ? "=" + m.promotion.toUpperCase() : "") + " · game #" + activeGame, { game: activeGame, phase: "move", ply });
 }
-const resignGame = () => dapp.call("resign", [activeGame], null, "resign game #" + activeGame, { game: activeGame, phase: "resign" });
-const agree = (r) => dapp.call("agree", [activeGame, r], null, (r === 3 ? "agree a draw" : "confirm the result") + " · game #" + activeGame, { game: activeGame, phase: "agree" });
-const abortGame = () => dapp.call("abort", [activeGame], null, "claim refund (opponent timed out) · game #" + activeGame, { game: activeGame, phase: "abort" });
-const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel game #" + activeGame, { game: activeGame, phase: "cancel" });
+const resignGame = () => { if (dapp.busy("resign", "game", activeGame)) return notify(confirmingLabel()); dapp.call("resign", [activeGame], null, "resign game #" + activeGame, { game: activeGame, phase: "resign" }); };
+const agree = (r) => { if (dapp.busy("agree", "game", activeGame)) return notify(confirmingLabel()); dapp.call("agree", [activeGame, r], null, (r === 3 ? "agree a draw" : "confirm the result") + " · game #" + activeGame, { game: activeGame, phase: "agree" }); };
+const abortGame = () => { if (dapp.busy("abort", "game", activeGame)) return notify(confirmingLabel()); dapp.call("abort", [activeGame], null, "claim refund (opponent timed out) · game #" + activeGame, { game: activeGame, phase: "abort" }); };
+const cancelGame = () => { if (dapp.busy("cancel", "game", activeGame)) return notify(confirmingLabel()); dapp.call("cancel", [activeGame], null, "cancel game #" + activeGame, { game: activeGame, phase: "cancel" }); };
 
 let lastSto = null;
 async function refreshActive() {
@@ -345,6 +349,13 @@ function renderActive() {
   // share-link visitors get the join CTA ON the board card — no hunting for the join panel below
   $("btnJoinGame").classList.toggle("hidden", !(g.exists && g.nn === 1 && !iAmIn && !g.settled));
   if (g.exists && g.nn === 1 && !iAmIn) $("btnJoinGame").textContent = dapp.me ? window.t("chess.joinStake", "♟ Join this game — stake {amt} NADO", { amt: rawToNado(g.stake) }) : window.t("chess.signJoinStake", "♟ Sign in to join — stake {amt} NADO", { amt: rawToNado(g.stake) });
+  // CLICK-TIME feedback: a lifecycle button whose action is confirming shows disabled + ⏳ (guarded in the
+  // methods too). Stash the pre-busy label once so a static-label button recovers it after.
+  const _bz = (id, phase, gid) => { const b = $(id); if (!b || b.classList.contains("hidden")) return; const busy = dapp.busy(phase, "game", gid);
+    if (busy) { if (!b.dataset.busyOn) { b.dataset.lbl0 = b.textContent; b.dataset.busyOn = "1"; } b.disabled = true; b.textContent = confirmingLabel(); }
+    else { if (b.dataset.busyOn) { b.textContent = b.dataset.lbl0 || b.textContent; delete b.dataset.busyOn; delete b.dataset.lbl0; } b.disabled = false; } };
+  _bz("btnResign", "resign", activeGame); _bz("btnAbort", "abort", activeGame); _bz("btnCancel", "cancel", activeGame);
+  _bz("btnJoinGame", "join", activeGame); _bz("btnRematch", "open", rematchId(activeGame));
   // agreement progress hint
   const drawShort = ["", "W", "B", window.t("chess.drawShort", "draw")];
   const agreed = (g.a1 || g.a2) ? window.t("chess.agreementsLabel", " · agreements:") + (g.a1 ? " " + window.t("chess.white", "White") + "=" + drawShort[g.a1] : "") + (g.a2 ? " " + window.t("chess.black", "Black") + "=" + drawShort[g.a2] : "") : "";

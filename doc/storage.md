@@ -105,7 +105,7 @@ index byte-identically from the block files and is the migration / repair path.
 
 ## Migration
 
-There is no live network; `reindex_fast.rebuild_from_blocks` wipes the index and rebuilds the KV
+On a reindex, `reindex_fast.rebuild_from_blocks` wipes the index and rebuilds the KV
 store from the block files (mirroring `incorporate_block`: fees-always, the 90/10 split, treasury,
 bond/unbond, no burn). The SQLite→LMDB cut-over itself is documented in
 [storage-kv-migration.md](storage-kv-migration.md).

@@ -136,9 +136,10 @@ pruned set must be reflected in the snapshot `state_root`. Design:
   every other state mutation).
 - **Re-creation:** a pruned address that later re-appears is just a fresh `register` — must
   be deterministic and indistinguishable from a never-seen address.
-- **Tests before shipping:** GC determinism across nodes, revert symmetry, snapshot-root
-  agreement after GC, and "never prunes a valued/staked/pending account." This is a
-  consensus change and gets its own test file — hence designed here, **not** blind-wired.
+- **Status: SHIPPED** (`ops/gc_ops.py`): the predicate above runs as an ordered epoch-boundary
+  pass folded into the committed state root, revert-symmetric, with its own test file — GC
+  determinism, revert symmetry, snapshot-root agreement, and "never prunes a valued/staked/pending
+  account" all covered.
 
 ---
 
@@ -210,7 +211,7 @@ must be designed together.
    Leverages existing finality + snapshots; Tier-1 DA = archival. No new crypto.
 2. **Idle-account GC (consensus change).** Deterministic, in-block, snapshot-root-bound,
    with its own test suite (§3).
-3. **Execution-layer blob DA (when the execution layer ships).** Reed–Solomon + **hash-based
+3. **Execution-layer blob DA (live — the execution layer shipped).** Reed–Solomon + **hash-based
    (PQ) DAS** + challenge window + external-DA fallback (§4.2).
 
 > Cross-references: `ops/snapshot_ops.py` (state snapshot + Merkle root + quorum),

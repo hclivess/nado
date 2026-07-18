@@ -17,7 +17,7 @@
 //     shareText(gm) { return "…"; }, inviteTitle: "…", inviteBody(gm) { return "…"; },
 //   });
 //   pvp.boot(["activeGame", "lobby", …]);
-import { _m, $, gate, canPay, orderCards, alertBar, notify, okBar, blocksToTime, inviteGate, lsLoad, lsSave, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, recentChips, randId, rematchId, rawToNado, nadoToRaw, loadQR, resolveAliases, disp, shareInvite } from "./nadodapp.js";
+import { _m, $, gate, canPay, orderCards, alertBar, notify, okBar, blocksToTime, inviteGate, lsLoad, lsSave, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, recentChips, randId, rematchId, rawToNado, nadoToRaw, loadQR, resolveAliases, disp, shareInvite, confirmingLabel } from "./nadodapp.js";
 
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("pvp." + k, d, v) : d;
 
@@ -48,7 +48,11 @@ export class PvpGame {
   rec(g, role) { const G = lsLoad(this.LS_G); if (role) { G[g] = { role, ts: Date.now() }; lsSave(this.LS_G, G); } return G[g]; }
 
   // ---- actions ----
+  // Every action is CLICK-GATED: dapp.busy(phase, "game", id) is true from the tap until the effect is seen
+  // on-chain (settleInflight predicate in refresh()), so a rapid re-tap during the sign→mine window can't fire
+  // a second, guaranteed-revert tx. The board/buttons also read busy() to show the ⏳ state (see render()).
   open() {
+    if (this.dapp.busy("open")) return notify(confirmingLabel());   // one open confirming at a time (each open mints a fresh id)
     const raw = nadoToRaw($("stakeAmt").value);
     if (!raw) return alertBar(T("enterStake", "Enter your stake in NADO — your opponent matches it, winner takes both."));
     if (!canPay(this.dapp, raw, T("whatOpen", "Opening this game"))) return;
@@ -61,6 +65,7 @@ export class PvpGame {
     const gm = this.last;
     if (!gm || !gm.exists) { if (gm) this.dapp.clearInvite(); return; }
     if (gm.nn !== 1) { this.dapp.clearInvite(); return; }
+    if (this.dapp.busy("join", "game", this.active)) return notify(confirmingLabel());
     const stake = BigInt(gm.stake);
     if (!canPay(this.dapp, stake, T("whatJoin", "Joining this game"))) return;   // keep the invite: it re-fires when the deposit lands
     this.dapp.clearInvite();
@@ -71,17 +76,19 @@ export class PvpGame {
   // (the chess retry-race lesson: a stale wallet retry can never land turns later).
   move(args, label, pend) {
     const gm = this.last; if (!gm || gm.sd || gm.turnAddr !== this.dapp.me) return;
+    if (this.dapp.busy("move", "game", this.active)) return notify(confirmingLabel());   // a move is already in flight this turn
     this.dapp.call("move", [this.active].concat(args).concat([gm.mc]), null, label,
       Object.assign({ game: this.active, phase: "move", ply: gm.mc }, pend || {}));
   }
-  resign() { this.dapp.call("resign", [this.active], null, "resign #" + this.active, { game: this.active, phase: "resign" }); }
-  abort() { this.dapp.call("abort", [this.active], null, "refund a stalled game #" + this.active, { game: this.active, phase: "abort" }); }
-  cancel() { this.dapp.call("cancel", [this.active], null, "cancel game #" + this.active, { game: this.active, phase: "cancel" }); }
+  resign() { if (this.dapp.busy("resign", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("resign", [this.active], null, "resign #" + this.active, { game: this.active, phase: "resign" }); }
+  abort() { if (this.dapp.busy("abort", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("abort", [this.active], null, "refund a stalled game #" + this.active, { game: this.active, phase: "abort" }); }
+  cancel() { if (this.dapp.busy("cancel", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("cancel", [this.active], null, "cancel game #" + this.active, { game: this.active, phase: "cancel" }); }
   async rematch(stakeRaw) {
     const stake = BigInt(stakeRaw);
     if (!canPay(this.dapp, stake, T("whatRematch", "A rematch"))) return;
     // DETERMINISTIC rematch: both players derive the SAME next-game id, so they reconvene in ONE game.
     const rid = rematchId(this.active), rg = await this.fetch(rid);
+    if (this.dapp.busy("open", "game", rid) || this.dapp.busy("join", "game", rid)) return notify(confirmingLabel());
     this.active = rid; this.pendingMove = null;
     if (rg && rg.exists && rg.nn === 1 && !rg.sd) {
       this.rec(rid, "p2");
@@ -95,10 +102,19 @@ export class PvpGame {
   // ---- refresh cycle ----
   async refresh() {
     await this.dapp.refresh();
-    this.dapp.settleInflight();
     const sto = await this.storage();
     if (sto) {
       this.lastSto = sto;
+      // Release the click-pending guard the instant the action's effect is visible on-chain (same per-phase
+      // completion test the `watch` toast uses below). MUST run with sto in hand — a tip-advance alone no
+      // longer clears the guard, so without this a gated button would sit ⏳ until the 2-min TTL.
+      this.dapp.settleInflight((f) => {
+        const g = String(f.game);
+        if (f.phase === "open") return !!_m(sto, "p1")[g];
+        if (f.phase === "join") return (_m(sto, "nn")[g] || 0) === 2;
+        if (f.phase === "move") return (_m(sto, "mc")[g] || 0) > (f.ply || 0) || !!_m(sto, "sd")[g];
+        return !!_m(sto, "sd")[g];   // resign / abort / cancel all settle the game
+      });
       lsPrune(this.LS_G, Object.keys(_m(sto, "p1")));
       if (this.active != null) {
         const ng = this.read(sto, this.active);
@@ -204,14 +220,19 @@ export class PvpGame {
     cfg.renderBoard(gm);
     // actions
     const wrap = $("gameActions"); wrap.innerHTML = "";
-    const btn = (txt, fn, primary, pulse) => { const b = document.createElement("button"); b.className = (primary ? "primary" : "ghost") + (pulse ? " pulse" : ""); b.style.flex = "1 1 auto"; b.textContent = txt; b.onclick = fn; wrap.appendChild(b); return b; };
+    // busy → disabled + the shared ⏳ label, so a confirming action reads as in-flight instead of clickable.
+    const btn = (txt, fn, primary, pulse, busyPhase) => {
+      const busy = busyPhase && dapp.busy(busyPhase, "game", this.active);
+      const b = document.createElement("button"); b.className = (primary ? "primary" : "ghost") + (pulse && !busy ? " pulse" : "");
+      b.style.flex = "1 1 auto"; b.textContent = busy ? confirmingLabel() : txt; b.disabled = !!busy; if (!busy) b.onclick = fn; wrap.appendChild(b); return b;
+    };
     if (gm.sd && dapp.me) btn(T("playAgain", "↻ Play again — new game at {stake} NADO", { stake: rawToNado(gm.stake) }), () => this.rematch(gm.stake), true);
     if (!gm.sd && dapp.me) {
-      if (gm.nn === 1 && !playing) btn(cfg.marks[1] + " " + T("joinStake", "Join — stake {stake} NADO", { stake: rawToNado(gm.stake) }), () => this.join(), true, true);
-      if (gm.nn === 1 && me1) btn(T("cancelRefund", "Cancel — refund my stake"), () => this.cancel(), false);
-      if (gm.nn === 2 && playing) btn(T("resignConcede", "🏳 Resign — concede the pot"), () => this.resign(), false);
+      if (gm.nn === 1 && !playing) btn(cfg.marks[1] + " " + T("joinStake", "Join — stake {stake} NADO", { stake: rawToNado(gm.stake) }), () => this.join(), true, true, "join");
+      if (gm.nn === 1 && me1) btn(T("cancelRefund", "Cancel — refund my stake"), () => this.cancel(), false, false, "cancel");
+      if (gm.nn === 2 && playing) btn(T("resignConcede", "🏳 Resign — concede the pot"), () => this.resign(), false, false, "resign");
       if (gm.nn === 2 && dapp.cursor != null && dapp.cursor > gm.dl)
-        btn(T("opponentTimedOut", "⏰ Opponent timed out — refund both stakes"), () => this.abort(), true);
+        btn(T("opponentTimedOut", "⏰ Opponent timed out — refund both stakes"), () => this.abort(), true, false, "abort");
       else if (gm.nn === 2 && dapp.cursor != null && gm.turnAddr !== dapp.me && playing)
         wrap.insertAdjacentHTML("beforeend", '<div class="small dim" style="flex:1 1 100%">' + T("moveClock", "move clock: refundable in {t} if they stall", { t: blocksToTime(gm.dl - dapp.cursor) }) + "</div>");
     }

@@ -3,7 +3,7 @@
 // roll FARKLES your turn. No autoplay. Each roll's randomness is pinned to a FUTURE block hash nobody can
 // predict, so the dice are objective and unriggable. Highest banked score when the table's play window ends
 // takes the whole pot. Built on the shared SDK (nadodapp.js) — matches tests/test_farkle_contract.py exactly.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, loadQR, resolveAliases, disp } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { Practice } from "./practice.js";      // free in-browser practice (solo score-attack, no chain)
 
@@ -96,6 +96,7 @@ const mySeat = () => lastSeats.find((s) => s.addr === dapp.me);
 // NOT bg.open: farkle's open signs open(t, g) — the host ALSO takes a seat and antes — and the table record
 // keeps the ANTE (per-player buy-in), not a bankroll. bg.open signs open(t) alone and records { bankroll }.
 function openTable(t, g, anteRaw) {
+  if (dapp.busy("open")) return notify(confirmingLabel());
   const T = load(bg.LS_T);
   T[t] = { ante: anteRaw.toString(), ts: Date.now() }; save(bg.LS_T, T);
   bg.rememberSeat(g, { table: t });
@@ -116,6 +117,7 @@ async function joinTable() {
   if (!tb || !tb.exists) return alertBar(dapp.whereIs("table", t));
   if (tb.phase !== "join") return alertBar(window.t("farkle.joinClosed", "The join window for that table has closed."));
   if (lastSeats.some((s) => s.addr === dapp.me)) return alertBar(window.t("farkle.alreadySeated", "You're already seated at this table."));
+  if (dapp.busy("join", "table", t)) return notify(confirmingLabel());
   await dapp.refresh();
   const ante = BigInt(tb.ante);
   if (!canPay(dapp, ante, "Joining this table")) { render(); return; }
@@ -146,22 +148,33 @@ async function rematch() {
   }
   openTable(rtid, randId(), ante);
 }
-const doRoll = (g) => { keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; dapp.call("roll", [g], null, window.t("farkle.callRoll", "roll the dice · Farkle #{t}", { t: activeTable }), { table: activeTable, seat: g, phase: "roll" }); };
+const doRoll = (g) => { if (dapp.busy("roll", "seat", g)) return notify(confirmingLabel()); const s0 = lastSeats.find((x) => x.g === g); keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; dapp.call("roll", [g], null, window.t("farkle.callRoll", "roll the dice · Farkle #{t}", { t: activeTable }), { table: activeTable, seat: g, phase: "roll", rn0: s0 ? s0.rollNonce : null }); };
 function doHold(g, cont) {
+  if (dapp.busy("hold", "seat", g)) return notify(confirmingLabel());
+  const s0 = lastSeats.find((x) => x.g === g);
   dapp.call("hold", [g, keep[1] | keep[2]<<3 | keep[3]<<6 | keep[4]<<9 | keep[5]<<12 | keep[6]<<15, cont], null,
-    window.t(cont ? "farkle.callHoldRoll" : "farkle.callHoldBank", cont ? "set aside + roll again" : "bank the turn") + " · Farkle #" + activeTable, { table: activeTable, seat: g, phase: "hold" });
+    window.t(cont ? "farkle.callHoldRoll" : "farkle.callHoldBank", cont ? "set aside + roll again" : "bank the turn") + " · Farkle #" + activeTable, { table: activeTable, seat: g, phase: "hold", ts0: s0 ? s0.turnScore : null });
 }
-const settleTable = () => dapp.call("settle", [activeTable], null, window.t("farkle.callSettle", "pay the winner · table #{t}", { t: activeTable }), { table: activeTable, phase: "settle" });
-const reclaimTable = () => dapp.call("reclaim", [activeTable], null, window.t("farkle.callReclaim", "reclaim the pot · table #{t}", { t: activeTable }), { table: activeTable, phase: "reclaim" });
-const cancelTable = () => dapp.call("cancel", [activeTable], null, window.t("farkle.callCancel", "cancel table #{t}", { t: activeTable }), { table: activeTable, phase: "cancel" });
-const timeoutSeat = (g) => dapp.call("timeout", [g], null, window.t("farkle.callTimeout", "time out seat #{g}", { g }), { table: activeTable, phase: "timeout" });
+const settleTable = () => { if (dapp.busy("settle", "table", activeTable)) return notify(confirmingLabel()); dapp.call("settle", [activeTable], null, window.t("farkle.callSettle", "pay the winner · table #{t}", { t: activeTable }), { table: activeTable, phase: "settle" }); };
+const reclaimTable = () => { if (dapp.busy("reclaim", "table", activeTable)) return notify(confirmingLabel()); dapp.call("reclaim", [activeTable], null, window.t("farkle.callReclaim", "reclaim the pot · table #{t}", { t: activeTable }), { table: activeTable, phase: "reclaim" }); };
+const cancelTable = () => { if (dapp.busy("cancel", "table", activeTable)) return notify(confirmingLabel()); dapp.call("cancel", [activeTable], null, window.t("farkle.callCancel", "cancel table #{t}", { t: activeTable }), { table: activeTable, phase: "cancel" }); };
+const timeoutSeat = (g) => { if (dapp.busy("timeout", "seat", g)) return; dapp.call("timeout", [g], null, window.t("farkle.callTimeout", "time out seat #{g}", { g }), { table: activeTable, phase: "timeout" }); };
 
 async function refreshActive() {
   await dapp.refresh();
-  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage();
   if (sto) {
     lastSto = sto; bg.track(sto);
+    // release the click guard the instant the effect is on-chain (MUST run with sto): roll = the seat's roll
+    // nonce advanced, hold = its turn score changed, open/join = the seat exists. Terminal table ops fall
+    // back to the TTL — their buttons hide once the table resolves.
+    dapp.settleInflight((f) => {
+      const g = String(f.seat || 0);
+      if (f.phase === "roll") return f.rn0 != null && (_m(sto, "grn")[g] || 0) !== f.rn0;
+      if (f.phase === "hold") return f.ts0 != null && (_m(sto, "gts")[g] || 0) !== f.ts0;
+      if (f.phase === "open" || f.phase === "join") return bg.landed(f, sto);
+      return false;
+    });
     if (activeTable != null) {
       lastTable = tableFrom(sto, activeTable);
       lastSeats = seatsOfTable(sto, activeTable);

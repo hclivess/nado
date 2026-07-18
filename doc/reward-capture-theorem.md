@@ -8,7 +8,7 @@ point there is no one else left to take from.** Monopoly has no cheap path.
 
 Constants referenced (`protocol.py`): `OPEN_BPS = 3000` bps = **30%** of slots are the OPEN lane
 (`K_OPEN = 18` of `EPOCH_LENGTH = 60`), the rest (**70%**) are the BONDED lane; `TREASURY_BPS = 1000` =
-**10%** of every block reward goes to the treasury, **90%** to the producer; `B_MIN` = 1 000 NADO per bonded
+**10%** of every block reward goes to the treasury, **90%** to the producer; `B_MIN` = 10 NADO per bonded
 selection share; `MAX_SHARES = 100` (per-identity bonded variance cap); `SLASH_BOND_PENALTY = B_MIN`.
 
 ---
@@ -41,9 +41,9 @@ emission**.
 >
 > the remaining `TREASURY_BPS = 10%` of every reward accruing to the treasury regardless of who produces
 > the block (so it is uncapturable by mining unless A *is* the treasury key holder). With the defaults
-> `OPEN_BPS = 0.20`, `TREASURY_BPS = 0.10`:
+> `OPEN_BPS = 0.30`, `TREASURY_BPS = 0.10`:
 >
-> &nbsp;&nbsp;&nbsp;&nbsp;**`ρ_A ≤ 0.20 + 0.80·s`  and  `E_A ≤ 0.18 + 0.72·s`.**
+> &nbsp;&nbsp;&nbsp;&nbsp;**`ρ_A ≤ 0.30 + 0.70·s`  and  `E_A ≤ 0.27 + 0.63·s`.**
 
 ## Proof
 
@@ -81,7 +81,7 @@ of any producer's cut. ∎
 
 ## Corollaries
 
-1. **A free botnet can never exceed 30% of blocks (18% of emission).** Set `s = 0`: `ρ_A ≤ OPEN_BPS =
+1. **A free botnet can never exceed 30% of blocks (27% of emission).** Set `s = 0`: `ρ_A ≤ OPEN_BPS =
    30%` for *any* number of Sybil identities and *any* amount of IP spoofing. This is the entire ceiling
    on zero-capital capture — the concern of `doc/ip-spoofing-and-sybil.md` — and it holds even if every IP
    and Sybil-friction control is bypassed.
@@ -92,9 +92,9 @@ of any producer's cut. ∎
    | target block share `ρ` | stake `s` A must own |
    |---|---|
    | 30% | 0% (free lane only) |
-   | 50% | 37.5% |
-   | 67% (a "majority-ish" grab) | 58.75% |
-   | 90% | 87.5% |
+   | 50% | 28.6% |
+   | 67% (a "majority-ish" grab) | 52.9% |
+   | 90% | 85.7% |
    | ~100% | ~100% |
 
 3. **Total monopoly ⇔ owning ~all the stake.** `ρ_A → 1` forces `s → 1`: A can take *every* reward only by

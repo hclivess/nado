@@ -45,7 +45,7 @@ python3 scripts/nado_cli.py [--node URL] [--keys PATH] <command> [args]
 | `bridge-deposit <amount>` | Escrow to the execution-layer bridge | `nado_cli.py bridge-deposit 10` |
 
 Treasury commands take the full spend so the proposal id binds to exactly that payout (byte-identical to the
-node's `hashing.treasury_proposal_id`), and require **bonded stake** (100 NADO min) to have voting weight:
+node's `hashing.treasury_proposal_id`), and require **bonded stake** (10 NADO min, `B_MIN`) to have voting weight:
 
 ```bash
 python3 scripts/nado_cli.py propose --to ndo… --amount 500 --memo "grant" --nonce 7 --expiry 60000
@@ -67,7 +67,7 @@ failure never disrupts consensus). Each runs at most **once per epoch**:
 | **Auto-collect** | **on** | `auto_collect_dividend` | `NADO_AUTO_COLLECT` | Sweeps the accrued **presence dividend**. Skipped unless the node is an **open-lane member** (bonded-only nodes accrue none, so it never burns a wasted fee). |
 | **Auto-register** | **off** | `auto_register` | `NADO_AUTO_REGISTER` | Keeps the open-lane **PoSW lease** alive: registers when absent, renews inside the lease tail. **Opt-in** so a headless node doesn't silently join (and Sybil-load) the open lane. The ~1–2 s sequential PoSW is computed inline. |
 
-Config lives in `private/config.dat` (JSON); env vars take precedence (handy for systemd). Example headless
+Config lives in `private/config.json`; env vars take precedence (handy for systemd). Example headless
 open-lane miner that also compounds and self-collects:
 
 ```bash

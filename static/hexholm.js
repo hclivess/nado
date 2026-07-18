@@ -5,7 +5,7 @@
 // heights + unanimous-alive agree settle), the referee is the deterministic engine (hexholm-engine.js),
 // and hidden scrolls use the battleship/hold'em commit-reveal model (the secret never leaves this
 // browser until the game is decided).
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, notify, disp, share,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, notify, confirmingLabel, disp, share,
          renderWallet, renderScore, renderTopScores, scoreBump, scoreSort, resolveAliases, blocksToTime,
          randSecret, algHashn, ALG_P } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
@@ -125,6 +125,7 @@ class TableDuel extends DuelGame {
     if (!gm || !gm.exists) { alertBar(dapp.whereIs(T("gameWord", "table"), g)); if (gm) dapp.clearInvite(); return; }
     if (gm.nn >= gm.cap || gm.settled) { alertBar(T("fullOrFinished", "That table is full or finished.")); dapp.clearInvite(); return; }
     if (this.myIdx(gm) != null) { alertBar(T("alreadySeated", "You are already seated at this table.")); return; }
+    if (dapp.busy("join", "game", g)) return notify(confirmingLabel());
     await dapp.refresh();
     const stake = BigInt(gm.stake);
     if (!canPay(dapp, stake, T("whatJoin", "Joining this table"))) { this.render(); return; }
@@ -140,6 +141,7 @@ class TableDuel extends DuelGame {
     const stake = BigInt(g.stake);
     if (!canPay(dapp, stake, T("whatRematch", "A rematch"))) return;
     const rid = (this.active % 1000000) + 1000000 * (1 + Math.floor(this.active / 1000000));
+    if (dapp.busy("open", "game", rid) || dapp.busy("join", "game", rid)) return notify(confirmingLabel());
     const sto = await dapp.storage({ append: this.MAPS });
     const rg = sto ? this.gameHead(sto, rid) : null;
     this.active = rid; this.resetLocal(); $("joinId").value = String(rid);
@@ -150,9 +152,9 @@ class TableDuel extends DuelGame {
       dapp.call("open", [rid, g.cap, commitFor(rid)], stake, "rematch #" + rid + " · stake " + rawToNado(stake) + " NADO", { game: rid, phase: "open" });
     this.render();
   }
-  leave() { this.dapp.call("leave", [this.active], null, "leave table #" + this.active, { game: this.active, phase: "leave" }); }
-  agreeSeat(w) { this.dapp.call("agree", [this.active, w], null, "confirm the result · table #" + this.active, { game: this.active, phase: "agree" }); }
-  reveal() { this.dapp.call("reveal", [this.active, mySecret(this.active)], null, "reveal scrolls · table #" + this.active, { game: this.active, phase: "agree" }); }
+  leave() { if (this.dapp.busy("leave", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("leave", [this.active], null, "leave table #" + this.active, { game: this.active, phase: "leave" }); }
+  agreeSeat(w) { if (this.dapp.busy("agree", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("agree", [this.active, w], null, "confirm the result · table #" + this.active, { game: this.active, phase: "agree" }); }
+  reveal() { if (this.dapp.busy("agree", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("reveal", [this.active, mySecret(this.active)], null, "reveal scrolls · table #" + this.active, { game: this.active, phase: "agree" }); }
 
   async refreshActive() {
     const dapp = this.dapp;
@@ -298,6 +300,7 @@ class TableDuel extends DuelGame {
     const my = p.recs.filter((r) => r.side === 1).map((r) => r.enc);
     if (!(my.length > 0 && my.length <= MAX_MY)) return notify(T("postTooLong", "This run is too long to post — dailies cap at {n} of your moves.", { n: MAX_MY }));
     const score = soloScore(eng, my.length);
+    if (this.dapp.busy("agree")) return notify(confirmingLabel());
     this.dapp.call("post", [p.daily, score, my.length].concat(packRun(my)), null,
       "post daily island score " + score, { phase: "agree" });
     notify(T("postSent", "Score submitted — it appears on the board once verified."));

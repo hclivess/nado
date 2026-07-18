@@ -687,12 +687,13 @@ function mintNext() {
 }
 function maybeAutoMint() {
   let left = 0; try { left = parseInt(localStorage.getItem("nado_pets_mintq") || "0", 10) || 0; } catch (e) {}
-  if (left <= 0 || !dapp.me || dapp.inflight) return;   // wait for the current mint to confirm first
+  if (left <= 0 || !dapp.me || dapp.inflight || dapp.busy("mint")) return;   // wait for the current mint to confirm first (incl. the click→sign gap)
   if (dapp.exec < G.MINT_FEE) { try { localStorage.removeItem("nado_pets_mintq"); } catch (e) {} return; }   // out of funds — stop
   mintNext();
 }
 function hatch(pid) {
-  const l = L(); (l[pid] = l[pid] || { ts: Date.now() }).hatchPending = Date.now(); Lsave(l);   // stamp: keeps the Hatch button disabled until the pet actually hatches (see render), self-expires for retry
+  if (dapp.busy("hatch", "pid", pid)) return;   // click-time SDK gate (button gating is also busy()-driven in render)
+  const l = L(); (l[pid] = l[pid] || { ts: Date.now() }).hatchPending = Date.now(); Lsave(l);   // stamp: marks "I hatched this one" so maybePlayHatch plays the crack animation for MY egg only
   dapp.call("hatch", [Number(pid)], null, "hatch egg #" + pid, { pid, phase: "hatch" });   // pid MUST be an int: the contract computes gene = HASH(bh0+bh1+pid); a string pid reverts on the ADD
 }
 // HATCH ALL: spam-adopting leaves several ready eggs; hatching them one card at a time feels stuck. This
@@ -707,7 +708,7 @@ function hatchAll() {
 }
 function maybeAutoHatch() {
   if (localStorage.getItem("nado_pets_hatchall") !== "1") return;
-  if (!dapp.me || dapp.inflight) return;                 // wait for the current hatch to confirm first
+  if (!dapp.me || dapp.inflight || dapp.busy("hatch")) return;   // wait for the current hatch to confirm first (busy() covers the click→sign gap the 3s tick could race into)
   const eggs = readyEggs();
   if (!eggs.length) { try { localStorage.removeItem("nado_pets_hatchall"); } catch (e) {} return; }
   hatch(eggs[0].id);
@@ -724,19 +725,16 @@ function feed(pid, raw) {
 // trainBusy(pid): a train call is between click and its session appearing on-chain. The contract allows ONE
 // session per pet (a second `train` while p.th is set just REVERTS, fee refunded) — so during the whole
 // submit→land window (sign ~1s + mine + poll, easily 10-20s) every extra click would burn a wallet round-trip
-// on a guaranteed no-op with zero feedback ("I clicked and nothing happened"). Same stamp pattern as
-// hatchPending: set on click, cleared when p.th lands / on a rejected sign, self-expires so a lost tx retries.
+// on a guaranteed no-op with zero feedback ("I clicked and nothing happened"). The SDK's click-time pending
+// registry (dapp.busy is TRUE from the click until the session is seen on-chain) carries the whole window.
 const trainBusy = (pid) => {
   const p = PETS[pid];
-  if (p && p.th) return true;                          // session already open on-chain
-  if (dapp.busy("train", "pid", pid)) return true;     // accepted, confirming
-  const ts = (L()[pid] || {}).trainTs;
-  return !!ts && Date.now() - ts < 120000;             // clicked, still signing/landing (expires for retry)
+  return !!(p && p.th) || dapp.busy("train", "pid", pid);   // session open on-chain, or clicked/confirming
 };
 function train(pid, i) {
   if (trainBusy(pid)) return notify(window.t("pets.trainBusy", "One training session at a time — this one is still confirming on-chain…"));
   if (!canPay(dapp, G.TRAIN_FEE, "Training")) return;
-  const l = L(); const r = (l[pid] = l[pid] || { ts: Date.now() }); r.trainPending = 1; r.trainStat = G.STAT_NAMES[i]; r.trainTs = Date.now(); Lsave(l);
+  const l = L(); const r = (l[pid] = l[pid] || { ts: Date.now() }); r.trainPending = 1; r.trainStat = G.STAT_NAMES[i]; Lsave(l);
   dapp.call("train", [Number(pid), i], G.TRAIN_FEE, "train " + PETS[pid].label + " · " + G.STAT_NAMES[i] + " · 0.5 NADO", { pid, phase: "train" });
 }
 const trainResolve = (pid) => dapp.call("train_resolve", [Number(pid)], null, "reveal training result for " + PETS[pid].label, { pid, phase: "trainres" });
@@ -984,12 +982,9 @@ function renderActive() {
                  : window.t("pets.release", "🕊 Release into the wild — free your roster"));
   }
   if (!p.hatched && !p.dead) {
-    // busy() clears when the SDK stops tracking the call — but the egg stays hatchReady until the tx MINES,
-    // so the button would re-enable while the hatch still sits in the mempool. Also gate on the local
-    // hatchPending stamp (set on click, cleared when the pet actually hatches); expire it after 2 min so a
-    // failed/dropped hatch can still be retried.
-    const _hp = (L()[p.id] || {}).hatchPending;
-    const _hatchBusy = dapp.busy("hatch", "pid", p.id) || (!!_hp && Date.now() - _hp < 120000);
+    // busy() is click-instant AND mempool-covering now (SDK click-time pending registry): true from the
+    // click until refreshAll's landedFn sees p.hatched, self-expiring so a lost tx can still be retried.
+    const _hatchBusy = dapp.busy("hatch", "pid", p.id);
     $("btnHatch").disabled = !p.hatchReady || _hatchBusy;
     $("btnHatch").classList.toggle("pulse", p.hatchReady && !_hatchBusy);
     $("btnHatch").textContent = _hatchBusy ? window.t("pets.hatchingConfirm", "⏳ Hatching — confirming on-chain…") : window.t("pets.hatchEgg", "🐣 Hatch the egg");
@@ -1013,7 +1008,7 @@ function renderActive() {
     $("statList").innerHTML = G.STAT_NAMES.map((_n, i) => statRow(p, i, tb)).join("");
     $("statList").querySelectorAll("[data-train]").forEach((b) => b.onclick = () => train(p.id, parseInt(b.dataset.train, 10)));
     const tp = $("trainPending");
-    if (p.th && local.trainPending === 1) { const l = L(); l[p.id].trainPending = 2; delete l[p.id].trainTs; Lsave(l); local.trainPending = 2; }   // session seen on-chain — the click stamp has done its job
+    if (p.th && local.trainPending === 1) { const l = L(); l[p.id].trainPending = 2; Lsave(l); local.trainPending = 2; }   // session seen on-chain
     if (!p.th && tb) {
       // the session was CLICKED but hasn't landed yet — show the panel NOW, so the very first click has an
       // immediate, in-place answer (the old p.th-only gate left this window silent: the exact "I click and
@@ -1034,7 +1029,7 @@ function renderActive() {
       if (local.trainPending === 2 && p.tr) {     // its resolve just landed — announce it once
         const ok = p.tr === 1;
         alertBar(ok ? window.t("pets.trainWin", "🎉 Training paid off — {label} got +1 {stat}!", { label: p.label, stat: local.trainStat || window.t("pets.aStat", "to a stat") }) : window.t("pets.trainFail", "Training didn't stick this time — the fee is spent, try again."));
-        const l = L(); delete l[p.id].trainPending; delete l[p.id].trainStat; delete l[p.id].trainTs; Lsave(l);
+        const l = L(); delete l[p.id].trainPending; delete l[p.id].trainStat; Lsave(l);
       }
     }
     $("trainHint").innerHTML = '<span style="color:var(--accent2)">' + window.t("pets.legBase", "▮ base") + '</span> ' + window.t("pets.legBaseNote", "(locked at hatch)") + ' · <span style="color:var(--gold)">' + window.t("pets.legTrained", "▮ trained") + '</span> ' + window.t("pets.legTrainedNote", "(your gains).") + ' '
@@ -1319,7 +1314,7 @@ dapp.onReturn((pend, ok, err) => {
     const l = L();
     if (l[pend.pid]) {
       if (ok) l[pend.pid].trainPending = 1;
-      else { delete l[pend.pid].trainPending; delete l[pend.pid].trainStat; delete l[pend.pid].trainTs; }   // rejected sign → free the buttons immediately (don't sit out the 2-min stamp)
+      else { delete l[pend.pid].trainPending; delete l[pend.pid].trainStat; }   // rejected sign → clear the announce markers (the SDK releases the click-guard itself)
       Lsave(l);
     }
   }

@@ -1,6 +1,6 @@
 # NADO forum — design draft (`quorum.nadochain.com`)
 
-**Status:** design draft. The wallet-auth core is prototyped and proven (see §4); the rest is unbuilt.
+**Status:** LIVE. Built and running — `forum/server.py` (aiohttp) serves it as `forum.service`, with wallet-signature login (`proof_sender` + ML-DSA `verify`).
 
 **Brief (owner):** NADO needs its own forum — **written from scratch** (no phpBB/bbPress, no PHP), hosted at
 **quorum.nadochain.com**. It should feel modern and be a natural home for community + governance discussion.
@@ -18,7 +18,7 @@ and is something no off-the-shelf forum can do.
   **Python `aiohttp`** backend (same framework the node's API already uses) + a **vanilla-JS SPA** frontend
   (same style as `static/interface.js`, no framework, no build step). One dependency-light service.
 - **Wallet-native identity (post-quantum).** Login = sign a server nonce with your ML-DSA key. Reuses
-  `Curve25519.verify` server-side and the `nado-crypto.js` bundle client-side — the same crypto the wallet
+  `signatures.verify` server-side and the `nado-crypto.js` bundle client-side — the same crypto the wallet
   already ships. No secondary account system to breach.
 - **Sybil-resistant by construction.** Optional posting gates keyed to *on-chain* status (registered miner /
   bonded staker), queried live from the node API — the same anti-Sybil the chain already enforces, so spam
@@ -33,7 +33,7 @@ and is something no off-the-shelf forum can do.
 
 | Layer | Choice | Why |
 |---|---|---|
-| Backend | Python 3 + `aiohttp` | Same as the node API; reuse `Curve25519`, `hashing`, `ops.address_ops`. |
+| Backend | Python 3 + `aiohttp` | Same as the node API; reuses `signatures.verify`, `hashing`, `ops.address_ops`. |
 | Storage | SQLite (WAL) → Postgres later | Zero-ops start; the schema (§5) ports cleanly. |
 | Frontend | Vanilla ES-module SPA | Matches `interface.js`; no build pipeline; CSP-friendly. |
 | Auth | ML-DSA challenge-response (§4) | Post-quantum, wallet-native, no passwords. |

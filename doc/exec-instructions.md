@@ -1,5 +1,12 @@
 # Execution-layer instructions (blobs) — developer reference
 
+> **⚠ Runtime note (2026-07):** the `stackvm` runtime and `execnode/vm.py` were **removed** — the only
+> runtime today is the **field-native zkVM** (`execnode/zkvm.py`, `runtime: "zkvm"`, `DEFAULT_RUNTIME="zkvm"`),
+> and contracts live at `execnode/games/*.py`, not `execnode/contracts/*.json`. The **blob envelope,
+> submission, and read paths in this doc are still exactly current**; only the VALUE-opcode sections below
+> (the `stackvm` primitives) and the `execnode/contracts/*.json` example cids are legacy. For authoring a
+> live contract, read a shipped game (e.g. `execnode/games/coinflip.py`) and `zk-execution-proofs.md`.
+
 Every instruction the NADO execution layer understands, how to submit it, and how to read the result.
 
 This is the operational companion to [`rollups-and-settlement.md`](rollups-and-settlement.md) (the whole

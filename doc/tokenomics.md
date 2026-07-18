@@ -43,10 +43,9 @@ payload (see `hashing.canonical_bytes`). Reference amounts:
 |---|---|---|
 | `MIN_TX_FEE` | 1 000 | 0.0000001 |
 | `BASE_SUBSIDY` | 1 000 000 000 | 0.1 |
-| `REWARD_CAP` | 5 000 000 000 | 0.5 |
 | `ALIAS_REGISTRATION_FEE` | 10 000 000 | 0.001 |
-| `B_MIN` (one bonded share) | 10 000 000 000 000 | 1 000 |
-| `BOND_CAP` (per identity) | 1 000 000 000 000 000 | 100 000 |
+| `B_MIN` (one bonded share) | 100 000 000 000 | 10 |
+| `BOND_CAP` (per identity) | 10 000 000 000 000 | 1 000 |
 
 ## 2. Fair launch — no premine
 
@@ -57,24 +56,23 @@ ever be *credited by the protocol* (its 10 % per-block cut) and *spent by bonded
 nobody holds its key. A zero-coin miner in the **open lane** earns real coins from block 1,
 which then circulate and pay fees; there is no capital requirement to start.
 
-## 3. Emission — elastic, floored, capped
+## 3. Emission — flat base, bond-elastic multiplier (super hard money)
 
-The block reward is a **pure function of recent fee activity**, recomputed and enforced by
-every node (not merely range-checked), anchored to the block's own ancestry so full nodes and
-snapshot/pruned nodes always agree (`block_ops.get_block_reward`).
+The block reward is a **flat base subsidy scaled by a bond-elastic multiplier `m(r)`** — a pure
+function of the current bonded ratio, recomputed and enforced by every node
+(`block_ops.get_block_reward`; see [bond-elastic-emission.md](bond-elastic-emission.md)). It is
+**fee-independent** — there is no fee-averaging term and no `REWARD_CAP`.
 
 ```
-reward = (cumFee[parent] − cumFee[parent_height − REWARD_WINDOW]) // REWARD_WINDOW
-reward = clamp(reward, BASE_SUBSIDY, REWARD_CAP)
+minted = BASE_SUBSIDY * m(r) // 1        # m(r) in [m_min, 1], r = bonded / total_supply
 ```
 
-- `REWARD_WINDOW = 100` — the reward tracks the trailing-100-block average fee.
-- `BASE_SUBSIDY = 0.1 NADO` — the floor. With no premine a new chain has no fees, so the
-  elastic term is 0 and the subsidy carries emission. This is the fair-launch engine.
-- `REWARD_CAP = 0.5 NADO` — the ceiling. As usage (and fees) rise, the reward rises **on top of**
-  the subsidy up to this cap, then stops.
+- `BASE_SUBSIDY = 0.1 NADO` — since `m(r) ≤ 1`, this is the **MAX** emission per block.
+- `m(r)` (`bond_elastic_mult_bps`, tuned `M_MIN=0.15, k=4`) shrinks emission as the bonded ratio
+  rises, so a more-secured chain mints less — self-throttling "super hard money."
+- Floor `m_min · BASE_SUBSIDY ≈ 0.015 NADO` is the perpetual disinflationary tail.
 
-**Supply is uncapped but rate-bounded.** Emission never falls below the base subsidy, so NADO
+**Supply is uncapped but rate-bounded.** Emission never falls below the floor, so NADO
 has a perpetual (disinflationary-by-ratio) tail rather than a hard cap. As an order of
 magnitude, at a ~6 s block cadence the floor is ~14 400 blocks/day × 0.1 = **~1,440 NADO/day**;
 at the cap, ~7,200 NADO/day. (Block cadence is a network parameter, so treat these as
@@ -122,9 +120,9 @@ a slice funded by the bonded lane. Full mechanics: [presence-dividend.md](presen
 
 Locking stake buys **producer-selection shares** in the bonded lane:
 
-- `B_MIN = 1 000 NADO` — capital per selection share. Bonded stake is *refundable locked stake*,
+- `B_MIN = 10 NADO` — capital per selection share. Bonded stake is *refundable locked stake*,
   **not** spendable balance.
-- `BOND_CAP = 100 000 NADO` → `MAX_SHARES = 100` — a per-identity variance cap so a whale can't
+- `BOND_CAP = 1 000 NADO` → `MAX_SHARES = 100` — a per-identity variance cap so a whale can't
   monopolise the bonded lane.
 - `BOND_RAMP_EPOCHS = 30` — a fresh bond's selection weight ramps linearly 0 → full over ~30
   epochs (stake-weighted bond age), giving the network reaction time against a sudden takeover.
@@ -203,14 +201,13 @@ part of emission and hold no key:
 |---|---|---|
 | `TREASURY_GENESIS` | 0 | No premine |
 | `BASE_SUBSIDY` | 0.1 NADO | Per-block emission floor |
-| `REWARD_CAP` | 0.5 NADO | Per-block emission cap |
 | `REWARD_WINDOW` | 100 | Trailing blocks averaged for the elastic reward |
 | `TREASURY_BPS` | 1000 (10 %) | Treasury cut of every block reward |
 | `EPOCH_LENGTH` | 60 | Slots per epoch |
 | `OPEN_BPS` | 3000 (30 %) | Open-lane share of slots (Sybil ceiling) |
 | `OPEN_TIP_BPS` | 2000 (20 %) | Open producer's own cut of an open block |
 | `BONDED_DIVIDEND_BPS` | 2000 (20 %) | Bonded block's contribution to the dividend pool |
-| `B_MIN` | 1 000 NADO | Capital per bonded selection share |
+| `B_MIN` | 10 NADO | Capital per bonded selection share |
 | `BOND_CAP` / `MAX_SHARES` | 100 000 NADO / 100 | Per-identity bond & share cap |
 | `BOND_RAMP_EPOCHS` | 30 | Fresh-bond selection-weight ramp |
 | `BOND_UNLOCK_DELAY` | 1440 blocks | Post-unbond lock (slashable) |
@@ -220,6 +217,6 @@ part of emission and hold no key:
 | `TREASURY_BURN_BPS` | 100 (1 %) | Self-burn of balance above the floor |
 | `MIN_TX_FEE` | 1 000 raw | Consensus anti-spam fee floor |
 
-> **Status:** testnet alpha (`chain_id = nado-relaunch-1`). Several parameters carry alpha
+> **Status:** testnet alpha (`chain_id = alphanet-6`). Several parameters carry alpha
 > values flagged for mainnet tuning (e.g. `TREASURY_VOTE_ACTIVATION_EPOCHS`,
 > `TREASURY_RUNWAY_FLOOR`). Always read the current value from `protocol.py`.

@@ -47,8 +47,8 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
   reorged). `state.cursor` = highest L1 height fully applied.
 - **Decode + execute.** Pulls `blob` payloads (and reserved exec ops: `bridge`, `shield`, `dividend`) out of
   each block in canonical (`txid`-sorted, CO-8) order and runs them through the deterministic stack **VM**
-  (`execnode/vm.py`) into the contract store (`execnode/state.py`).
-- **Commit.** `state.state_root()` is a **blake2b Merkle root** (`execnode/stark/merkle.py`) over the exec
+  (`execnode/zkvm.py`) into the contract store (`execnode/state.py`).
+- **Commit.** `state.state_root()` is a **depth-256 sparse alghash2 root** (`execnode/exec_root.py`) over the exec
   state — the object L1 settlement commits to and the tunnels prove against.
 - **Prove (privacy today).** `execnode/stark/` is a real **hash-based FRI/STARK prover over Goldilocks**
   (`fri.py`, `joinsplit_transfer.py`, `goldilocks_native.py`) that proves shielded-pool transfers in-browser.
@@ -73,7 +73,7 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
   | `/da/publish`, `/da/meta`, `/da/shard`, `/da/get`, `/da/accept` | erasure-coded DA store/serving (§3a) |
 
 - **Pluggable runtimes.** The contract engine is a **registry** (`execnode/runtimes.py`): a contract records the
-  runtime it deployed under (`{"op":"deploy","runtime":"<name>",...}`, default `stackvm`) and every call/view
+  runtime it deployed under (`{"op":"deploy","runtime":"<name>",...}`, default `zkvm`) and every call/view
   dispatches back to it, so the VM is swappable without touching `state.py` or L1 consensus. A runtime is any
   object with `validate_code` + `run(code, method, caller, args, storage) → (ok, ret, new_storage)`;
   determinism is the only hard requirement.
@@ -85,7 +85,7 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
 These are two different things, and conflating them causes confusion. The **VM** is a pure function; the
 **execution node** is the stateful service around it.
 
-| | **The VM** (`execnode/vm.py`) | **The execution node** (`execnode/execnode.py` + `execnode/state.py`) |
+| | **The zkVM** (`execnode/zkvm.py`) | **The execution node** (`execnode/execnode.py` + `execnode/state.py`) |
 |---|---|---|
 | What it is | a deterministic **interpreter for one contract call** | a long-running **service** that holds state and orchestrates everything |
 | Shape | `run(code, method, sender, args, storage) → (ok, ret, new_storage)` — a **pure function** | a process: tail loop + `ExecState` + `/exec/*` HTTP API |
@@ -124,7 +124,7 @@ Programmability data reaches the exec layer as **opaque blobs** carried in L1 bl
 - One reserved recipient, `blob`. L1 validates the envelope (real signer, fee ≥ `MIN_TX_FEE` per byte, size ≤
   `BLOB_MAX_BYTES`) and **never decodes the payload** — it is consensus-*ordered* and consensus-*available*,
   consensus-*opaque*. A blob can therefore never fork L1.
-- **Per-block cap `MAX_BLOB_BYTES_PER_BLOCK` (256 KiB)** keeps block size phone-relayable at slot time.
+- **Per-block cap `MAX_BLOB_BYTES_PER_BLOCK` (1 MiB)** keeps block size phone-relayable at slot time.
 - Blob bodies are prunable after the DA window (`rolling-mode-and-da.md`); phones **sample**, they don't store.
 - Because blobs are opaque, a blob's **namespace lives inside the bytes the exec node decodes** — L1 needs no
   blob change to support many rollups (contrast §4).
@@ -134,7 +134,7 @@ Programmability data reaches the exec layer as **opaque blobs** carried in L1 bl
 ## 3a. DA store & serving — for pruned blobs and oversized proofs — **BUILT**
 
 A blob rides L1 for *ordering*, but its body is prunable and some payloads (a shielded-transfer STARK proof is
-~1–4 MB) are far too big for the 64 KiB per-tx blob cap. Both need **data availability** beyond L1: an
+~1–4 MB) are far too big for the 512 KiB per-tx blob cap (`BLOB_MAX_BYTES`). Both need **data availability** beyond L1: an
 erasure-coded store served across the peer network.
 
 - **Codec (`ops/da.py`).** Reed–Solomon k-of-n over `P = 2⁶¹−1` (Lagrange), with an **index-bound hash-based
@@ -178,7 +178,7 @@ example contracts built from them, so new contracts compose from patterns instea
 This library `COIN_FLIP` is a fair-**result** oracle demo, not an escrow. (The VM has since gained a
 `VALUE`/`PAY` escrow primitive and `MSTORE` now stores addresses as string values, so a contract *can* hold and
 move real bridged NADO — the **live, staked** Coin Flip dApp is exactly that: a deployed contract
-`execnode/contracts/coinflip.json` at cid `7ee95a0abd6e00d12edc3bf39f4c8f2d`; see
+the zkVM game `execnode/games/coinflip.py` (redeployed each reroll — see the live cid at coinflip.nadochain.com); see
 [exec-instructions.md](exec-instructions.md) §3/§5.) The library example is served to the wallet's Rollup tab
 via `/exec/examples` for one-click deploy.
 
@@ -246,7 +246,7 @@ Contracts run in the RISC-V-class VM off L1 (`execution-layer.md` §5); contract
 **Finality coupling:** exec nodes consume only finalized blocks and settled roots sit below `FINALITY_DEPTH`
 (30), so a settled root is never reorged — settlement inherits L1 finality for free.
 
-**Phase-2b seam (real DI, currently inert).** `settlement_ops.set_settlement_verifier(fn)` installs a callable
+**Phase-2b (built, currently disabled).** The old `set_settlement_verifier` DI seam was removed; proof authority is now the on-chain `kv_ops.settlement_proven` marker, which `settlement_justified` deliberately ignores today (quorum-only). Historically a callable
 `(ns, cursor, state_root)->bool`. When set, a root is justified if the **validity proof verifies OR** the
 quorum is met (proof-preferred, quorum as liveness fallback). Default `None` ⇒ pure Phase-2a quorum — **no
 behavioural change until a real verifier is installed.** This is the single line that flips settlement from
@@ -346,7 +346,7 @@ routed through i18n.
 | Bridge / shielded / dividend tunnels (Merkle-proof exits) | **built** |
 | **Namespaces (multi-rollup): `ns` on settle/bridge, per-ns pointer, isolation** | **built (this work)** |
 | **Per-`ns` execution node** (registry of states, blob-routed, settle-per-ns, `/exec/*?ns=`) | **built (this work)** |
-| Phase-2b settlement verifier **seam** (`set_settlement_verifier`) | **built (inert DI)** |
+| Phase-2b settle-with-proof (on-chain `settlement_proven` marker) | **built, disabled (quorum-only)** |
 | Phase-2b **validity proof** (zkVM over arbitrary exec) | **designed — real crypto build, not stubbed** |
 | **DA erasure-coding + hash-based sampling** (`ops/da.py`: RS k-of-n + Merkle commit + sample verify) | **built (primitive); blob integration designed** |
 | Recursive proof aggregation (one proof settles many rollups) | designed (moot without a zkVM) |
@@ -361,13 +361,13 @@ routed through i18n.
 | Concern | Code |
 |---|---|
 | Namespaces | `protocol.DEFAULT_NS` / `valid_namespace`; `ops/kv_ops._settle_key`, `settlement_*(ns,…)` |
-| Settlement predicate + pointer + 2b seam | `ops/settlement_ops.settlement_justified` / `latest_settled` / `set_settlement_verifier` |
+| Settlement predicate + pointer + 2b marker | `ops/settlement_ops.settlement_justified` / `latest_settled` / `kv_ops.settlement_proven` |
 | Settle tx + validation + reflect | `ops/transaction_ops.construct_settle_tx` + settle validate arm; `ops/account_ops` reflect arm |
 | Bridge tunnel | `construct_bridge_deposit_tx` / `construct_bridge_withdraw_tx`; `bridge`/`bridge_withdraw` arms; `execnode.state.withdrawal_proof` |
 | Cross-domain outbox | `emit` op + `execnode.state.outbox` / `outbox_proof`; `/exec/outbox`, `/exec/outbox_proof` |
 | Cross-rollup delivery | `xmsg` arm + `construct_xmsg_tx`; shared `hashing.outbox_leaf`; `kv_ops.xmsg_nullifier_*`; `execnode.state.apply_xmsg` + inbox; `/exec/inbox` |
 | Data availability | `ops/da.py` — `encode` / `reconstruct` / `sample_proof` / `verify_sample` (Reed-Solomon + Merkle) |
-| Exec node | `execnode/execnode.py` (tail, `maybe_settle`, `/exec/*`), `execnode/state.py`, `execnode/vm.py`, `execnode/stark/` |
+| Exec node | `execnode/execnode.py` (tail, `maybe_settle`, `/exec/*`), `execnode/state.py`, `execnode/zkvm.py`, `execnode/stark/` |
 | Node API | `nado.py` `/get_settled?ns=`, `/exec/*` proxy |
 | Wallet | `static/interface.html` + `interface.js` Settlement tab; `nado._TAB_PATHS` |
 | Tests | `tests/test_settlement.py` (incl. namespaces), `tests/test_bridge.py`, `tests/test_blob.py`, `tests/test_execnode_vm.py` |

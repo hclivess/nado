@@ -3,7 +3,7 @@
 **Status: research note (2026-06-30), design input only — nothing here is built.** This
 records a multi-source, adversarially-verified survey of the *next-generation* VM /
 proving frontier, run to answer a sharp question: **is there a design "better than all of
-them"** for NADO's planned execution layer (`doc/execution-layer.md`)? The honest answer
+them"** for NADO's (now shipped) execution layer (`doc/execution-layer.md`)? The honest answer
 is **no — "better than all on every axis" is structurally impossible** for a
 post-quantum chain, and *why* it's impossible is the most useful result here.
 
