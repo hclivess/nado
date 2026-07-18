@@ -45,21 +45,22 @@ const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, 
 const POSW_TARGET_MARGIN = POSW_ANCHOR_OFFSET;
 const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
-const ADDR_PREFIX = "ndo";
+const ADDR_PREFIX = "mldsa44";
+const MSIG_PREFIX = "msig";                 // policy accounts (multisig) — own discriminator
 const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;                     // 49 today
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");    // strict (lowercase)
 const ADDR_RE_I = new RegExp(ADDR_RE.source, "i");
 const ADDR_RE_LOOSE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{40,}$", "i");
 const ADDR_PRE_RE = new RegExp("^" + ADDR_PREFIX), ADDR_PRE_RE_I = new RegExp("^" + ADDR_PREFIX, "i");
 // DOMAIN-SEPARATION TAGS — mirror protocol.py DOMAIN_* (renamed only at a CHAIN_GENERATION reroll).
-const DOMAIN_MSIG = "nado-msig-v1", DOMAIN_REGISTER = "nado-register";
-const DOMAIN_RANDAO_COMMIT = "nado-randao-commit", DOMAIN_RANDAO_SECRET = "nado-randao-secret";
+const DOMAIN_MSIG = "msig-v2", DOMAIN_REGISTER = "register-v1";
+const DOMAIN_RANDAO_COMMIT = "randao-commit-v1", DOMAIN_RANDAO_SECRET = "randao-secret-v1";
 // ⚠ KEY-DERIVED TAGS — these derive from the USER'S SEED, not the chain: a reroll does NOT reset
 // them, and renaming them silently orphans every derived account / shielded note. FROZEN FOREVER
 // (they are invisible to users); a rename would require explicit migration code, never a sed.
-const DOMAIN_HD_ACCOUNT = "nado-hd-account";      // child-account key derivation
-const DOMAIN_SHIELD_NSK = "nado.shield.nsk";      // shielded nullifier-secret derivation
-const DOMAIN_FORUM_LOGIN = "nado-forum-login";    // forum login challenge (matches forum/server.py)
+const DOMAIN_HD_ACCOUNT = "hd-account-v1";        // child-account key derivation
+const DOMAIN_SHIELD_NSK = "shield-nsk-v1";        // shielded nullifier-secret derivation
+const DOMAIN_FORUM_LOGIN = "forum-login-v1";      // forum login challenge (matches forum/server.py)
 const MIN_TX_FEE = 1000;
 // Blocks to delay a flexibly-landing tx's earliest inclusion (min_block = tip + this) so it gossips to
 // every producer before any may include it -> identical mempools -> byte-identical blocks -> the node
@@ -195,8 +196,8 @@ function blake2bHashLink(a, b, size = 32) { return blake2bHash([a, b], size); }
 /* ----------------------------------------------------------------------------------------------
  * Addresses, keys, registration PoW
  * -------------------------------------------------------------------------------------------- */
-function makeAddress(pubHex) {
-  const body = ADDR_PREFIX + pubHex.slice(0, ADDR_BODY);
+function makeAddress(pubHex, prefix = ADDR_PREFIX) {
+  const body = prefix + pubHex.slice(0, ADDR_BODY);
   return body + blake2bHash(body, 2);
 }
 
@@ -296,7 +297,7 @@ function validateAddress(addr) {
 }
 
 // ALIAS: a short human-readable name that resolves to an owner address on-chain. Client mirror of
-// ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter, not "ndo…").
+// ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter, not "mldsa44…").
 // case-insensitive on purpose: on-chain alias names are all-lowercase, and callers normalize with
 // .toLowerCase() before resolving/sending — typing "Alice" must behave exactly like "alice".
 function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/i.test(s || "") && !ADDR_PRE_RE_I.test(s || ""); }
@@ -310,7 +311,7 @@ async function resolveAlias(name) {
     return d && d.owner ? d.owner : null;
   } catch { return null; }
 }
-// Live validation of the Send "to" field: a valid ndo… address, OR a registered alias (resolved
+// Live validation of the Send "to" field: a valid mldsa44… address, OR a registered alias (resolved
 // against the node, so the ✗ clears once the alias exists). Guards against stale async results.
 async function validateSendTo() {
   const v = ($("sendTo").value || "").trim().toLowerCase();
@@ -323,7 +324,7 @@ async function validateSendTo() {
     setMsg("sendToMsg", owner ? `${i18("sto.aliasPre","✓ alias →")} ${owner.slice(0, 14)}…` : `${i18("sto.aliasNoPre","✗ alias")} “${v}” ${i18("sto.aliasNoSuf","is not registered")}`, owner ? "ok" : "err");
     return;
   }
-  setMsg("sendToMsg", i18("sto.invalid", "✗ invalid — a 49-char ndo… address or a registered alias name"), "err");
+  setMsg("sendToMsg", i18("sto.invalid", "✗ invalid — a 49-char mldsa44… address or a registered alias name"), "err");
 }
 
 // ADDRESS BOOK: every recipient you send to (alias or address) is remembered in localStorage, offered
@@ -378,7 +379,7 @@ async function saveCurrentContact() {
     if (!owner) { setMsg("sendMsg", `Alias "${to}" is not registered.`, "err"); return; }
     alias = to; to = owner;
   }
-  if (!validateAddress(to)) { setMsg("sendMsg", "Enter a valid ndo… address or a registered alias to save.", "err"); return; }
+  if (!validateAddress(to)) { setMsg("sendMsg", "Enter a valid mldsa44… address or a registered alias to save.", "err"); return; }
   const label = await uiPrompt({ title: i18("ab.nameIt", "Name this contact (optional):"), placeholder: alias || "e.g. Alice" });
   if (label === null) return;
   addrBookAdd(to, (label || "").trim() || alias);
@@ -2304,30 +2305,29 @@ function adoptWallet(w, { needsSavePrompt }) {
  * Vectors generated from the live repo (hashing.py / ops/*.py / signatures.py).
  * -------------------------------------------------------------------------------------------- */
 const VEC = {
-  hash_register_list: "8e90f8e4078206d119476611e907e6a829585d2f8393856ca461a26959067a65",
-  checksum_string_size2: "3280",
+  hash_register_list: "105d0518c85e8bf5a99702f1f26cb1a2ca98fdec706aab5d4e59e0dcc98fab1a",
+  checksum_string_size2: "ae09",
+  checksum_body: "18c3afa286439e7ebcb284710dbd4ae42bdaf21b80",
   make_address_pub: "96381e3725f85cfe0ab8de17623957b4565ca9b04d37b903075f2723600c21e3",
-  make_address_out: "ndo96381e3725f85cfe0ab8de17623957b4565ca9b04d75f7",
+  make_address_out: "mldsa4496381e3725f85cfe0ab8de17623957b4565ca9b04dbb32",
   hash_link_a_b: "d803f13f94cb4546f8f9d50368dfbb44ea46aa3db56fecfa2570a3ebf90f3a13",
   torture_canonical: "{\"a\":\"h\\u00e9llo \\\"x\\\"\\n\\t/end\",\"m\":[3,2,{\"big\":12345678901234567890,\"k\":true}],\"n\":null,\"unicode_key_\\u00fc\":\"\\u2603 snowman\",\"z\":1}",
   torture_hash: "69029840259d7c85d5c3e61f09abc352d0554c9b4320ef7d59bb6942647b840c",
   bigobj_canonical: "{\"amount\":99999999999999999999,\"x\":9007199254740993}",
   bigobj_hash: "8a09e2d0782c39dd1522f8a83c5338d2960d1b9710ec5c18e66d6cc20354de20",
-  pow_address: "ndo96381e3725f85cfe0ab8de17623957b4565ca9b04d75f7",
-  pow_nonce: 3324492,
+  pow_address: "mldsa4496381e3725f85cfe0ab8de17623957b4565ca9b04dbb32",
+  pow_nonce: 60876,
   pow_target_str: "1766847064778384329583297500742918515827483896875618958121606201292619776",
-  pow_hash_int_str: "17809026246977670515167752421706303018992963831983493225416033548923031",
+  pow_hash_int_str: "479210438811666333841655298381181555121843668852037799455165937879820557",
   fixed_priv: "4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a", // 32-byte ML-DSA-44 seed
-  // The tx vectors carry NO signature field: ML-DSA signatures are hedged/randomized by design, so only
-  // txid/canonical bytes are comparable. REGENERATE these whenever a tx FIELD is renamed — canonical
-  // encoding sorts keys, so a rename reorders the whole string (the target_block -> max_block rename
-  // silently broke them once: the old strings had max_block in target_block's sort slot).
-  register_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "register", amount: 0, timestamp: 1700000000, data: "", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", max_block: 12345, chain_id: "nado-relaunch-1", pow_nonce: 2108331, fee: 0, txid: "ee0f586670ed8ad37faff2b6bd180bf827a3e1fbf8a4075ea9fe522adae1d687" },
-  register_canonical: "{\"amount\":0,\"chain_id\":\"nado-relaunch-1\",\"data\":\"\",\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"pow_nonce\":2108331,\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"timestamp\":1700000000}",
-  heartbeat_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "heartbeat", amount: 0, timestamp: 1700000000, data: "", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", max_block: 12345, chain_id: "nado-relaunch-1", epoch: 205, fee: 0, txid: "2c87b709e41164f5a25bfae1e4be4cc2d9ca01aff46bd652082b1534cfb71f16" },
-  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"nado-relaunch-1\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"timestamp\":1700000000}",
-  transfer_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29", amount: 123456, timestamp: 1700000000, data: "hello world", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", max_block: 12345, chain_id: "nado-relaunch-1", fee: 1000, txid: "7b384a64496b39eb6006cc7342c10f22c843a831334b25ca1886613f32f1b8b6" },
-  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"nado-relaunch-1\",\"data\":\"hello world\",\"fee\":1000,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"timestamp\":1700000000}",
+  // Tx vectors carry NO signature (ML-DSA is hedged); only txid/canonical are comparable.
+  // REGENERATE via tools/gen_selftest_vectors.py after ANY field/format/tag/chain_id change.
+  register_tx: {"sender": "mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-7", "fee": 0, "recipient": "register", "pow_nonce": 2108331, "txid": "aeebd09bf694e154b24e7cdc7b813640cf57ae12c62da6c83882b4f8daad0730"},
+  register_canonical: "{\"amount\":0,\"chain_id\":\"alphanet-7\",\"data\":\"\",\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"pow_nonce\":2108331,\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6\",\"timestamp\":1700000000}",
+  heartbeat_tx: {"sender": "mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-7", "fee": 0, "recipient": "heartbeat", "epoch": 205, "txid": "d57992ea881d5d5748578e709b34bd2fda355b44b55e05f209528d7e9c6f2cc8"},
+  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"alphanet-7\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6\",\"timestamp\":1700000000}",
+  transfer_tx: {"sender": "mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6", "amount": 123456, "timestamp": 1700000000, "data": "hello world", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-7", "fee": 1000, "recipient": "mldsa446a7a7a6d26040d8d53ce66343a47347c9b79e814c6f301", "txid": "9c68398f51d18f51ed7b4e52fede0de19bd4b492c234d6a8be2e3cadc659fc05"},
+  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"alphanet-7\",\"data\":\"hello world\",\"fee\":1000,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"mldsa446a7a7a6d26040d8d53ce66343a47347c9b79e814c6f301\",\"sender\":\"mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6\",\"timestamp\":1700000000}",
 };
 
 function bodyOf(tx) {
@@ -2340,8 +2340,8 @@ function runSelfTest() {
   const cases = [];
   const add = (name, got, want) => cases.push({ name, pass: got === want, got, want });
 
-  add("blake2b_hash(['nado-register','ndoTEST',5])", blake2bHash([DOMAIN_REGISTER, "ndoTEST", 5]), VEC.hash_register_list);
-  add("blake2b_hash(addr_body, size=2)", blake2bHash("ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80", 2), VEC.checksum_string_size2);
+  add("blake2b_hash([DOMAIN_REGISTER, prefix+'TEST', 5])", blake2bHash([DOMAIN_REGISTER, ADDR_PREFIX + "TEST", 5]), VEC.hash_register_list);
+  add("blake2b_hash(addr_body, size=2)", blake2bHash(ADDR_PREFIX + VEC.checksum_body, 2), VEC.checksum_string_size2);
   add("make_address(pubkey)", makeAddress(VEC.make_address_pub), VEC.make_address_out);
   add("blake2b_hash_link('a','b')", blake2bHashLink("a", "b"), VEC.hash_link_a_b);
 
@@ -2601,7 +2601,7 @@ async function sendAllToAmount() {
 
 async function doSend() {
   // lowercase: alias names are all-lowercase on-chain (and THIS string becomes the signed tx
-  // recipient), while a valid ndo… address is lowercase hex anyway — so "Alice" sends to "alice".
+  // recipient), while a valid mldsa44… address is lowercase hex anyway — so "Alice" sends to "alice".
   const recipient = $("sendTo").value.trim().toLowerCase();
   let resolvedOwner = null;
   if (!validateAddress(recipient)) {
@@ -2610,7 +2610,7 @@ async function doSend() {
       resolvedOwner = await resolveAlias(recipient);
       if (!resolvedOwner) { setMsg("sendMsg", `Alias "${recipient}" is not registered.`, "err"); return; }
     } else {
-      setMsg("sendMsg", i18("msg.badRecipient", "Invalid recipient — a 49-char ndo… address or a registered alias name."), "err"); return;
+      setMsg("sendMsg", i18("msg.badRecipient", "Invalid recipient — a 49-char mldsa44… address or a registered alias name."), "err"); return;
     }
   }
   let rawAmount;
@@ -2667,7 +2667,7 @@ async function doAliasOp(op) {
       if (!owner) { setMsg("aliasMsg", i18("alias.xferAliasMissing", "That target alias isn't registered."), "err"); return; }
       to = owner;
     }
-    if (!validateAddress(to)) { setMsg("aliasMsg", i18("alias.xferTarget", "Transfer target must be a valid ndo… address or a registered alias."), "err"); return; }
+    if (!validateAddress(to)) { setMsg("aliasMsg", i18("alias.xferTarget", "Transfer target must be a valid mldsa44… address or a registered alias."), "err"); return; }
   }
   const fee = op === "register" ? ALIAS_REGISTRATION_FEE : await currentFeeRaw();
   const acc = await getAccount(state.wallet.address);
@@ -3111,7 +3111,7 @@ function parsePayHash() {
   return { to: (params.get("to") || "").trim(), amount: (params.get("amount") || "").trim() };
 }
 
-// A #pay link's recipient can be transparent (ndo…) or shielded (znado…) — same link format, routed by prefix.
+// A #pay link's recipient can be transparent (mldsa44…) or shielded (znado…) — same link format, routed by prefix.
 function _isZAddr(a) { try { parseShieldAddr(a); return true; } catch (e) { return false; } }
 
 // A #pay link with a znado… recipient prefills the SHIELDED send (same review-first rule as a normal Send).
@@ -3514,7 +3514,7 @@ async function exSearch() {
     if (owner) return exOpen("a", owner);
     $("exSearchErr").textContent = `Alias "${q}" is not registered.`; $("exSearchErr").classList.remove("hidden"); return;
   }
-  $("exSearchErr").textContent = i18("ex.searchErr", "Unrecognized — an ndo… address, an alias, a block number, or a 64-hex hash/txid.");
+  $("exSearchErr").textContent = i18("ex.searchErr", "Unrecognized — an mldsa44… address, an alias, a block number, or a 64-hex hash/txid.");
   $("exSearchErr").classList.remove("hidden");
 }
 
@@ -3767,7 +3767,7 @@ async function swapLock() {
   const amtRaw = nadoToRaw($("swapAmount").value || "0");
   const blocks = Math.max(10, parseInt($("swapTimelock").value || "120", 10) || 120);
   let hashlock = $("swapHashlock").value.trim().toLowerCase(), preimageHex = null;
-  if (!ADDR_RE_I.test(claimant)) { log("err", i18("swap.badClaimant", "Enter a valid ndo… claimant address.")); return; }
+  if (!ADDR_RE_I.test(claimant)) { log("err", i18("swap.badClaimant", "Enter a valid mldsa44… claimant address.")); return; }
   if (amtRaw <= 0n) { log("err", i18("swap.badAmount", "Enter an amount to lock.")); return; }
   try {
     if (!hashlock) { const pre = crypto.getRandomValues(new Uint8Array(32)); preimageHex = _hex(pre); hashlock = await _sha256hex(pre); }
@@ -4200,7 +4200,7 @@ const MSIG_MAX_MEMBERS = 16;
 const MSIG_TARGET_HEADROOM = 300;   // blocks of co-signing time (mempool accepts < tip+360)
 
 function msigAddress(threshold, members) {
-  return makeAddress(blake2bHash([DOMAIN_MSIG, threshold, members]));
+  return makeAddress(blake2bHash([DOMAIN_MSIG, threshold, members]), MSIG_PREFIX);
 }
 
 /* BigInt-safe JSON parse for PASTED proposals: raw amounts can exceed 2^53 and JSON.parse would
@@ -4267,7 +4267,7 @@ function msigReadDescriptor() {
   if (members.length < 2 || members.length > MSIG_MAX_MEMBERS)
     throw new Error(i18("msig.badCount", "Enter 2–16 distinct member addresses."));
   for (const m of members)
-    if (!validateAddress(m)) throw new Error(i18("msig.badMember", "Not a valid ndo… address: {a}", { a: m }));
+    if (!validateAddress(m)) throw new Error(i18("msig.badMember", "Not a valid mldsa44… address: {a}", { a: m }));
   const threshold = parseInt(($("msigThreshold").value || "").trim(), 10);
   if (!(threshold >= 1 && threshold <= members.length))
     throw new Error(i18("msig.badThreshold", "Signatures required must be between 1 and the number of members."));
@@ -4342,7 +4342,7 @@ async function msigPropose() {
         const owner = await resolveAlias(recipient);
         if (!owner) { setMsg("msigProposeMsg", i18("msig.aliasMissing", "That alias isn't registered."), "err"); return; }
       } else {
-        setMsg("msigProposeMsg", i18("msg.badRecipient", "Invalid recipient — a 49-char ndo… address or a registered alias name."), "err"); return;
+        setMsg("msigProposeMsg", i18("msg.badRecipient", "Invalid recipient — a 49-char mldsa44… address or a registered alias name."), "err"); return;
       }
     }
     let rawAmount;
@@ -4709,7 +4709,7 @@ async function proposeSpend() {
       if (!owner) throw new Error(i18("quorum.aliasErr", "Alias not found."));
       to = owner;
     }
-    if (to !== "faucet" && !(to.startsWith(ADDR_PREFIX) && to.length === ADDR_LEN)) throw new Error(i18("quorum.badAddr", "Enter a valid ndo… address, a registered alias, or 'faucet'."));
+    if (to !== "faucet" && !(to.startsWith(ADDR_PREFIX) && to.length === ADDR_LEN)) throw new Error(i18("quorum.badAddr", "Enter a valid mldsa44… address, a registered alias, or 'faucet'."));
     const amtRaw = nadoToRaw($("qPropAmount").value || "");
     if (!(amtRaw > 0n)) throw new Error(i18("quorum.badAmount", "Enter a positive amount."));
     const memo = ($("qPropMemo").value || "").slice(0, 256);
@@ -4881,7 +4881,7 @@ async function doUnshield() {
   const rawAmount = nadoToRaw($("unshieldAmount").value || "0");
   const to = $("unshieldTo").value.trim() || state.wallet.address;
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to unshield.")); return; }
-  if (!ADDR_RE_I.test(to)) { log("err", i18("shield.badAddr", "Enter a valid ndo… address.")); return; }
+  if (!ADDR_RE_I.test(to)) { log("err", i18("shield.badAddr", "Enter a valid mldsa44… address.")); return; }
   const notes = loadNotes();
   const note = notes.find((n) => !n.spent && BigInt(n.value) >= rawAmount);
   if (!note) { log("err", i18("shield.noNote", "No single banknote covers that amount yet (splitting across banknotes isn't supported here).")); return; }

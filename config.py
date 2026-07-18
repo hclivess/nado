@@ -34,12 +34,10 @@ def get_protocol():
     """The node's protocol number — peers whose /status reports a LOWER protocol than ours are
     rejected at handshake, so bump this on breaking wire/consensus changes to shed old nodes.
     3 (2026-07-18): the bit-width-audit + reg-difficulty-v2 consensus changes, strict.
-    4 (2026-07-18): reg-difficulty v3 — the required register multiplier counts from the
-    recert_by_epoch CONSENSUS STATE instead of scanning block bodies; v2's silent zero for
-    locally-pruned epochs made the requirement depend on each node's body retention and forked
-    every snapshot-booted node off every full-history node (proven live: 1x vs 2x, exact-T
-    mutual rejection, all-day re-anchor churn). STRICT, no compatibility (policy)."""
-    return 4
+    4 (2026-07-18): reg-difficulty v3 — state-index counts (see reg_difficulty.py).
+    5 (2026-07-18): the DEBRAND CUTOVER — alphanet-7 genesis reroll: mldsa44/msig address
+    prefixes, every domain-separation tag renamed brand-free (doc/debrand.md). STRICT."""
+    return 5
 
 
 def get_port():

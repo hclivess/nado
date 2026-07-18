@@ -7,7 +7,7 @@ from hashlib import blake2b
 
 # Empty-merkle-root sentinel domain (CONSENSUS: the merkle root of a zero-tx block; brand-
 # carrying — renamed only at a CHAIN_GENERATION reroll, see doc/debrand.md).
-DOMAIN_EMPTY_MERKLE = b"nado-empty-merkle"
+DOMAIN_EMPTY_MERKLE = b"empty-merkle-v1"
 
 
 def create_nonce(length: int = 8):

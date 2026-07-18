@@ -32,7 +32,7 @@ from hashing import blake2b_hash, canonical_bytes, outbox_leaf
 from execnode.stark import field as F, alghash2 as A2, storage_tree as ST, exec_state_bind as ESB
 
 # Leaf-digest domain tag (brand-carrying; renamed only at a CHAIN_GENERATION reroll).
-DOMAIN_REC_DIGEST = b"nado-rec-digest"
+DOMAIN_REC_DIGEST = b"rec-digest-v1"
 
 DEPTH = 256                       # FROZEN: the full digest — position security = the hash's own strength
 DOM_REC = 8                       # record-position domain (exec_state_bind DOM_KVPOS = 7)

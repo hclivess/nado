@@ -67,7 +67,7 @@ export function blake2bHash(data, size = 32) { return bytesToHex(blake2b(canonic
 
 // ---- keys / address ------------------------------------------------------------------------------
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
-export const ADDR_PREFIX = "ndo";
+export const ADDR_PREFIX = "mldsa44";
 export const ADDR_BODY = 42;                                   // hex chars of pubkey in the address
 export const ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;    // + 4-hex blake2b checksum (49 today)
 export const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");

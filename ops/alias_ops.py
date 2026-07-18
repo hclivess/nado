@@ -19,7 +19,7 @@ from ops.address_ops import validate_address
 from protocol import (RESERVED_RECIPIENTS, ALIAS_MIN_LEN, ALIAS_MAX_LEN,
 
                       ALIAS_REGISTRATION_FEE, MIN_TX_FEE)
-from protocol import ADDRESS_PREFIX
+from protocol import ADDRESS_PREFIX, MSIG_PREFIX
 
 _ALIAS_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
@@ -35,7 +35,7 @@ def valid_alias_name(name) -> bool:
         return False
     if name in RESERVED_RECIPIENTS:
         return False
-    if name.startswith(ADDRESS_PREFIX):             # never let an alias be mistaken for an address
+    if name.startswith(ADDRESS_PREFIX) or name.startswith(MSIG_PREFIX):   # never alias-as-address
         return False
     return True
 

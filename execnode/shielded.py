@@ -33,7 +33,7 @@ ANCHOR_WINDOW = 128                                # recent roots a proof may ta
 
 # Shielded-pool hash domain (consensus for every note/nullifier; brand-carrying — renamed only
 # at a CHAIN_GENERATION reroll). JS mirror: static/shielded.js DOMAIN_SHIELD.
-DOMAIN_SHIELD = "nado.shield"
+DOMAIN_SHIELD = "shield-v1"
 
 
 def _h(*parts):

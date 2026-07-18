@@ -10,7 +10,7 @@ from execnode.stark import backend as _backend
 
 # The Fiat-Shamir domain label every NADO proof binds. Brand-carrying: renamed only at a
 # CHAIN_GENERATION reroll (doc/address-format.md). JS mirror: static/stark/transcript.js.
-DOMAIN_STARK = "nado-stark"
+DOMAIN_STARK = "stark-v1"
 
 
 class Transcript:

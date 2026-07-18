@@ -336,7 +336,7 @@
     <label data-i18n="send.recipient">Recipient address
       <span class="hint" data-i18n-title="tip.recipient" title="A 49-character NADO address starting with 'ndo'. The final 4 characters are a checksum — a mistyped address fails validation and is never broadcast.">ⓘ</span>
     </label>
-    <input id="sendTo" placeholder="ndo… address or an alias name" autocomplete="off" spellcheck="false" list="sendToBook" />
+    <input id="sendTo" placeholder="mldsa44… address or an alias name" autocomplete="off" spellcheck="false" list="sendToBook" />
     <datalist id="sendToBook"></datalist>
     <div class="mt"><button type="button" id="btnSaveContact" class="copy">⭐ Save recipient to address book</button></div>
     <div id="sendToMsg" class="small mt faint"></div>
@@ -395,7 +395,7 @@
   <div id="aliasCard" class="card hidden" data-tab="aliases">
     <h2 data-i18n="alias.title">Aliases <span class="pill" data-i18n="alias.pill">a name instead of a hash</span></h2>
     <p class="small dim" data-i18n-html="alias.intro">Register a short name that resolves to <b>your own address</b> (self) — others
-      can then send to the name instead of your 49-char ndo… address. Names are global and first-come:
+      can then send to the name instead of your 49-char mldsa44… address. Names are global and first-come:
       3–32 chars, lowercase letters/digits/<code>_</code>/<code>-</code>, starting with a letter.
       Registering costs a small anti-squat fee; use <b>Transfer</b> to point it at a different address,
       or <b>Unregister</b> to free it.</p>
@@ -405,9 +405,9 @@
       <button id="btnAliasReg" class="accent" data-i18n="btn.register">Register</button>
       <button id="btnAliasUnreg" data-i18n="btn.unregister">Unregister</button>
     </div>
-    <label class="mt" data-i18n="alias.transferTo">Transfer ownership to (ndo… address)</label>
+    <label class="mt" data-i18n="alias.transferTo">Transfer ownership to (mldsa44… address)</label>
     <div class="row">
-      <input id="aliasTo" placeholder="ndo…" autocomplete="off" spellcheck="false" style="flex:1" />
+      <input id="aliasTo" placeholder="mldsa44…" autocomplete="off" spellcheck="false" style="flex:1" />
       <button id="btnAliasXfer" data-i18n="btn.transfer">Transfer</button>
     </div>
     <div id="aliasMsg" class="small mt"></div>
@@ -567,7 +567,7 @@
 
     <div class="mt"><div class="label" data-i18n="swap.newTitle">Create a lock</div></div>
     <label data-i18n="swap.claimant">Claimant address (who can claim with the secret)</label>
-    <input id="swapClaimant" placeholder="ndo…" autocomplete="off" spellcheck="false" />
+    <input id="swapClaimant" placeholder="mldsa44…" autocomplete="off" spellcheck="false" />
     <div class="row mt">
       <div style="flex:1"><label data-i18n="swap.amount">Amount (NADO)</label>
         <input id="swapAmount" type="number" min="0" step="0.0001" placeholder="0.0" /></div>
@@ -602,7 +602,7 @@
     <div class="hint-banner mt" style="display:block">
       <label data-i18n="quorum.proposeTitle">Propose a spend (bonded stakers)</label>
       <div class="row mt" style="gap:8px">
-        <input id="qPropRecipient" class="grow" placeholder="ndo… address · alias · faucet" autocomplete="off" />
+        <input id="qPropRecipient" class="grow" placeholder="mldsa44… address · alias · faucet" autocomplete="off" />
         <button id="qPropMine" class="ghost small" style="flex:0 0 auto" data-i18n="quorum.myAddr">My address</button>
       </div>
       <div class="row mt" style="gap:8px">
@@ -626,7 +626,7 @@
       and anyone submits it once enough have signed.</p>
 
     <label data-i18n="msig.members">Member addresses (one per line)</label>
-    <textarea id="msigMembers" rows="4" class="mono" placeholder="ndo…&#10;ndo…" autocomplete="off" spellcheck="false" style="width:100%"></textarea>
+    <textarea id="msigMembers" rows="4" class="mono" placeholder="mldsa44…&#10;mldsa44…" autocomplete="off" spellcheck="false" style="width:100%"></textarea>
     <label class="mt" data-i18n="msig.threshold">Signatures required to spend (M)</label>
     <input id="msigThreshold" inputmode="numeric" placeholder="2" autocomplete="off" style="max-width:120px" />
     <button id="btnMsigDerive" class="accent mt" data-i18n="btn.msigDerive">Derive shared address</button>
@@ -641,7 +641,7 @@
     <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:18px 0" />
     <label data-i18n="msig.proposeTitle">Propose a spend from the shared account</label>
     <div class="row mt" style="gap:8px">
-      <input id="msigTo" class="grow" placeholder="ndo… address or alias" autocomplete="off" spellcheck="false" />
+      <input id="msigTo" class="grow" placeholder="mldsa44… address or alias" autocomplete="off" spellcheck="false" />
       <input id="msigAmount" style="flex:0 0 130px" inputmode="decimal" placeholder="NADO" autocomplete="off" />
     </div>
     <button id="btnMsigPropose" class="primary mt" style="width:100%" data-i18n="btn.msigPropose">Create proposal + sign</button>
@@ -725,7 +725,7 @@
     <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:16px 0" />
     <div class="mt"><div class="label" data-i18n="shield.withdrawTitle">Withdraw (unshield)</div></div>
     <label data-i18n="shield.toAddr">To address (leave blank = your own address)</label>
-    <input id="unshieldTo" placeholder="ndo…" autocomplete="off" spellcheck="false" />
+    <input id="unshieldTo" placeholder="mldsa44…" autocomplete="off" spellcheck="false" />
     <label class="mt" data-i18n="shield.amount">Amount (NADO)</label>
     <input id="unshieldAmount" type="number" min="0" step="0.0001" placeholder="0.0" />
     <button id="btnUnshield" class="accent mt" style="width:100%" data-i18n="shield.unshield">Unshield</button>
@@ -736,7 +736,7 @@
   <div id="exploreSearchCard" class="card hidden" data-tab="explore">
     <h2 data-i18n="explore.title">Explore</h2>
     <div id="exSearch">
-      <input id="exQ" placeholder="address (ndo… or alias) · block number · block hash · txid" autocomplete="off" spellcheck="false" />
+      <input id="exQ" placeholder="address (mldsa44… or alias) · block number · block hash · txid" autocomplete="off" spellcheck="false" />
       <button id="exGo" class="accent" data-i18n="btn.search">Search</button>
     </div>
     <div id="exSearchErr" class="warnbox danger mt hidden"></div>
@@ -763,7 +763,7 @@
     <div class="msg-layout">
       <div class="msg-side">
         <div class="row" style="gap:6px">
-          <input id="msgTo" placeholder="alias or ndo… address" data-i18n-ph="msg.toPh" autocomplete="off" spellcheck="false" style="flex:1">
+          <input id="msgTo" placeholder="alias or mldsa44… address" data-i18n-ph="msg.toPh" autocomplete="off" spellcheck="false" style="flex:1">
           <button class="btn ghost sm" id="msgNewBtn" data-i18n="msg.new">New</button>
         </div>
         <div id="msgConvList" class="msgconv-list"></div>

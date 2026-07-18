@@ -58,7 +58,7 @@ SESS_COOKIE   = "__Host-nadoforum" if COOKIE_SECURE else "nadoforum"
 LOGIN_COOKIE  = "__Host-nadologin" if COOKIE_SECURE else "nadologin"
 
 # Login-challenge domain tag (non-consensus; must match the wallet mirror in interface.js).
-DOMAIN_FORUM_LOGIN = "nado-forum-login"
+DOMAIN_FORUM_LOGIN = "forum-login-v1"
 
 
 def _load_secret():

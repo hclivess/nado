@@ -12,7 +12,7 @@
  * built from the vendored @noble blake2b) — proving the two agree.
  */
 // Shielded-pool hash domain (mirrors execnode/shielded.py DOMAIN_SHIELD).
-export const DOMAIN_SHIELD = "nado.shield";
+export const DOMAIN_SHIELD = "shield-v1";
 
 export const SHIELD_DEPTH = 32;
 

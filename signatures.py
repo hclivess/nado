@@ -127,7 +127,7 @@ def _interop_ok(candidate) -> bool:
     consensus. Any exception or mismatch -> reject (stay pure-Python)."""
     try:
         seed = b"\x42" * 32
-        msg = b"nado-pq-backend-interop-selftest"
+        msg = b"pq-backend-interop-selftest"
         pub_p, sec_p = _PurePyBackend.keygen_internal(seed)
         pub_n, sec_n = candidate.keygen_internal(seed)
         if pub_n != pub_p or sec_n != sec_p:

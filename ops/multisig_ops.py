@@ -35,7 +35,7 @@ so a phone derives the identical address and txid.
 from signatures import verify, unhex
 from hashing import blake2b_hash
 from ops.address_ops import make_address, validate_address
-from protocol import MULTISIG_MAX_MEMBERS, DOMAIN_MSIG
+from protocol import MULTISIG_MAX_MEMBERS, DOMAIN_MSIG, MSIG_PREFIX
 
 
 def multisig_virtual_pubkey(threshold: int, members: list) -> str:
@@ -48,7 +48,7 @@ def multisig_virtual_pubkey(threshold: int, members: list) -> str:
 def multisig_address(threshold: int, members: list) -> str:
     """Derive the multisig account address from its policy. Deterministic: same (threshold, sorted
     members) on any client -> same address. Different threshold OR member set -> unrelated address."""
-    return make_address(multisig_virtual_pubkey(threshold, members))
+    return make_address(multisig_virtual_pubkey(threshold, members), prefix=MSIG_PREFIX)
 
 
 def validate_descriptor(descriptor) -> tuple:

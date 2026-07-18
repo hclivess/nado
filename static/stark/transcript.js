@@ -26,7 +26,7 @@ function enc(items) {
 }
 
 // The Fiat-Shamir domain label (mirrors execnode/stark/transcript.py DOMAIN_STARK).
-export const DOMAIN_STARK = "nado-stark";
+export const DOMAIN_STARK = "stark-v1";
 
 export class Transcript {
   constructor(label = DOMAIN_STARK) { this.state = b2b32(tag("T"), _TE.encode(String(label))); }

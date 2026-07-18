@@ -13,7 +13,7 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-6"
+CHAIN_ID = "alphanet-7"
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -24,7 +24,8 @@ DENOMINATION = 10_000_000_000  # 1e10
 # are static/nadotx.js ADDR_PREFIX and static/interface.js ADDR_PREFIX — three lines total).
 # Changing ANY of these orphans every existing address string, so a change ships only with a
 # CHAIN_GENERATION reroll whose genesis alloc is re-keyed by scripts/rekey_alloc.py.
-ADDRESS_PREFIX = "ndo"
+ADDRESS_PREFIX = "mldsa44"      # key-type discriminator: the FIPS-204 scheme whose pubkey the body hashes
+MSIG_PREFIX = "msig"           # policy accounts (M-of-N multisig) — the 1-vs-3 split; see doc/address-format.md
 ADDRESS_BODY = 42              # hex chars of the pubkey carried in the address
 ADDRESS_CHECKSUM = 2           # checksum bytes (4 hex chars), blake2b over prefix+body
 ADDRESS_LENGTH = len(ADDRESS_PREFIX) + ADDRESS_BODY + ADDRESS_CHECKSUM * 2   # 49 today
@@ -33,9 +34,9 @@ ADDRESS_LENGTH = len(ADDRESS_PREFIX) + ADDRESS_BODY + ADDRESS_CHECKSUM * 2   # 4
 # Renamed ONLY at a CHAIN_GENERATION reroll — everything re-derives from genesis there (see
 # doc/address-format.md "Domain-separation tags"). One constant per tag; no other Python spells
 # them. JS mirrors: static/interface.js DOMAIN_* block, static/stark/transcript.js DOMAIN_STARK.
-DOMAIN_MSIG = "nado-msig-v1"                  # multisig virtual-pubkey derivation (ops/multisig_ops)
-DOMAIN_REGISTER = "nado-register"             # open-lane registration PoW binding (ops/mining_ops)
-DOMAIN_RANDAO_COMMIT = "nado-randao-commit"   # RANDAO commitment preimage tag (ops/mining_ops)
+DOMAIN_MSIG = "msig-v2"                       # multisig virtual-pubkey derivation (ops/multisig_ops)
+DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW binding (ops/mining_ops)
+DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 
 GENESIS_TIMESTAMP = 1784257440  # 2026-07-17 — alphanet-6 (FROZEN sparse alghash2 settled root, exec_root.py;
                                 # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
@@ -236,7 +237,7 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 # wipes all chain-derived data (blocks/index/peers/snapshots/exec state+DA — never private/) and the node
 # regenesis/resyncs fresh. This makes one /update wave a COMPLETE reroll deployment. No compatibility:
 # old generations are not carried, they are purged.
-CHAIN_GENERATION = 1
+CHAIN_GENERATION = 2
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
@@ -269,7 +270,7 @@ ALIAS_REGISTRATION_FEE = 10_000_000     # 0.001 NADO (10,000x MIN_TX_FEE): deter
 # here. It is a normal KEY-CONTROLLED address (the founder holds its key), derived here under the
 # canonical (new) checksum from the genesis public-key body so it validates. It starts EMPTY —
 # there is NO genesis allocation (TREASURY_GENESIS = 0 below); it only fills from the per-block cut.
-_GENESIS_BODY = "ndo27f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # genesis producer address (ML-DSA addr minus 4-hex checksum)
+_GENESIS_BODY = "mldsa4427f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # genesis producer address (ML-DSA addr minus 4-hex checksum)
 # ^ ADDRESS LITERAL: re-derived at any address-format switch (doc/address-format.md cutover step 4)
 GENESIS_ADDRESS = _GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)
 # The TREASURY is a RESERVED, KEYLESS account (like "dividend"/"bridge") — NOT the founder's genesis address.
@@ -520,7 +521,7 @@ SATURATION_LOOKBACK_EPOCHS = (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS
 # (no finalized prior epoch exists yet); epoch>=2 chains it with the hash of the first block of
 # the previous epoch (see block_ops.epoch_beacon). Replacing this with the full on-chain
 # commit-reveal RANDAO is the hardening step (mining_ops.compute_beacon already implements it).
-DOMAIN_GENESIS_BEACON = "nado-genesis-beacon"       # (brand-carrying; renamed only at a reroll)
+DOMAIN_GENESIS_BEACON = "genesis-beacon-v1"
 GENESIS_BEACON = blake2b_hash([DOMAIN_GENESIS_BEACON, CHAIN_ID])
 
 
