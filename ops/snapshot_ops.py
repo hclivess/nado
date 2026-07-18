@@ -369,10 +369,36 @@ def persist_checkpoint(height, block_hash, protocol, version, home=None, keep=2)
     return manifest
 
 
+def _checkpoint_is_canonical(height, home=None):
+    """True iff the persisted checkpoint at `height` anchors to the block the CURRENT canonical chain
+    has at that height. A checkpoint captured on a since-abandoned fork (the node later re-anchored
+    away) stays on disk but must never be advertised or served: a fresh node bootstrapping onto it
+    lands on a chain no donor can extend — wedged at birth (observed live: a donor advertised its
+    dead fork's checkpoint 13000 while its canonical chain stood at 49k)."""
+    manifest = load_checkpoint_manifest(height, home)
+    if not isinstance(manifest, dict):
+        return False
+    return kv_ops.hash_by_number(height) == manifest.get("block_hash")
+
+
 def latest_final_checkpoint_height(finalized_height, home=None):
-    """the highest persisted checkpoint at/below finalized_height (safe to advertise/serve), or None"""
+    """the highest persisted checkpoint at/below finalized_height that anchors to the CURRENT
+    canonical chain (safe to advertise/serve), or None. Fork-stale checkpoints are skipped."""
     finals = [h for h in list_checkpoint_heights(home) if h <= int(finalized_height)]
-    return finals[-1] if finals else None
+    for h in reversed(finals):
+        if _checkpoint_is_canonical(h, home):
+            return h
+    return None
+
+
+def drop_all_checkpoints(home=None):
+    """delete every persisted checkpoint, returning how many were dropped. Used after a re-anchor:
+    checkpoints captured on the abandoned identity are fork-stale — never advertised again thanks to
+    the canonical filter, but pure disk weight at best and operator confusion at worst."""
+    heights = list_checkpoint_heights(home)
+    for h in heights:
+        shutil.rmtree(_ckpt_path(h, home), ignore_errors=True)
+    return len(heights)
 
 
 def load_checkpoint_manifest(height, home=None):

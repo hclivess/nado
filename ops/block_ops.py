@@ -999,22 +999,25 @@ def verify_block_signature(block) -> bool:
     return _verify_message(signed=signature, public_key=pubkey, message=block_signature_message(block))
 
 
-async def knows_block(target_peer, port, hash, logger):
-    """ask a peer whether it can serve a block (GET /get_block?hash=). False on non-200 AND on any
-    network error — an unreachable peer just counts as not knowing, never as an error the caller
-    must handle."""
+async def knows_block(target_peer, port, hash, number, logger):
+    """ask a peer whether OUR block at height `number` is on ITS canonical chain
+    (GET /get_block_number + hash compare). Storing the hash is NOT knowing it: a fork leftover
+    lingering in the peer's store by hash must answer False here, because a donor that "knows" a
+    block it cannot extend baits the fast-forward sync leg into serves-nothing tip rejection —
+    observed live wedging a fresh node on a donor's abandoned-fork checkpoint. False on non-200
+    AND on any network error — an unreachable peer just counts as not knowing."""
     try:
-        url_construct = f"http://{hostport(target_peer, port)}/get_block?hash={hash}"
+        url_construct = f"http://{hostport(target_peer, port)}/get_block_number?number={int(number)}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
-                if response.status == 200:
-                    return True
-                else:
+                if response.status != 200:
                     return False
+                data = await response.json(content_type=None)
+                return isinstance(data, dict) and data.get("block_hash") == hash
 
     except Exception as e:
-        logger.error(f"Failed to check block {hash} from {target_peer}: {e}")
+        logger.error(f"Failed to check block {hash} (height {number}) from {target_peer}: {e}")
         return False
 
 

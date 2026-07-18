@@ -363,6 +363,7 @@ class CoreClient(threading.Thread):
             target_peer=peer,
             port=self.memserver.port,
             hash=self.memserver.earliest_block["block_hash"],
+            number=self.memserver.earliest_block["block_number"],
             logger=self.logger))
 
     def _fetch_sync_batch(self, peer, from_hash):
@@ -675,6 +676,14 @@ class CoreClient(threading.Thread):
             if stale:
                 self.logger.warning(f"Purged {stale} stale history-index rows above checkpoint {target_height}")
 
+            # CHECKPOINT HYGIENE: our own persisted checkpoints were captured on the identity we just
+            # abandoned. The canonical filter (snapshot_ops.latest_final_checkpoint_height) already
+            # refuses to advertise them, but there is no reason to keep fork-stale state on disk —
+            # fresh canonical checkpoints re-capture at the next interval boundaries.
+            dropped = snapshot_ops.drop_all_checkpoints()
+            if dropped:
+                self.logger.warning(f"Dropped {dropped} pre-reanchor checkpoint(s) captured on the abandoned chain")
+
             # BACKFILL the recent block BODIES the C+1..tip tail replay can NOT rebuild. block_by_num/hash
             # arrived in the snapshot, so HASH lookbacks (beacon anchor (epoch-1)*EPOCH_LENGTH, FFG/PoSW
             # epoch boundaries) already resolve — but rollback and block serving read block BODIES just
@@ -816,6 +825,7 @@ class CoreClient(threading.Thread):
                         target_peer=peer,
                         port=self.memserver.port,
                         hash=block_hash,
+                        number=self.memserver.latest_block["block_number"],
                         logger=self.logger))
 
                     if known_block:
@@ -848,9 +858,15 @@ class CoreClient(threading.Thread):
             new_blocks = self._fetch_sync_batch(peer=peer, from_hash=from_hash)
             if not new_blocks:
                 # peer advertised heavier + claims to know our tip, then serves NOTHING —
-                # a lying/broken peer. Reject the tip or we loop on it forever.
+                # a lying/broken peer. Reject the tip or we loop on it forever. If a strictly-heavier
+                # chain exists this can also mean OUR tip is a dead end no donor extends (a fork all
+                # honest peers abandoned) — try the re-anchor jump (cooldown-limited internally)
+                # instead of only excluding tips one by one until the pool runs dry.
                 self.logger.info(f"No newer blocks found from {peer}")
                 self._reject_heaviest_tip()
+                if self._maybe_reanchor():
+                    self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
+                    return False
                 return True
 
             while new_blocks and not self.memserver.terminate:

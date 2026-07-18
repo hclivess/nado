@@ -43,6 +43,16 @@ def t1():
     snapshot_ops.persist_checkpoint(height=5, block_hash="a" * 64, protocol=2, version="v")
     assert snapshot_ops.list_checkpoint_heights() == [5]
 
+    # CANONICAL FILTER (fork-stale regression): a checkpoint whose anchor is not the canonical block
+    # at its height (missing or mismatched number->hash row) must never be advertised — a donor that
+    # re-anchored off its old fork otherwise baits fresh joiners onto a dead chain no one can extend
+    # (observed live: dead-fork checkpoint 13000 advertised while the canonical chain stood at 49k).
+    assert snapshot_ops.latest_final_checkpoint_height(9) is None, "unanchored checkpoint advertised"
+    kv_ops.block_index_put(5, "x" * 64)    # canonical block at 5 is a DIFFERENT block
+    assert snapshot_ops.latest_final_checkpoint_height(9) is None, "fork-stale checkpoint advertised"
+    kv_ops.block_index_del(5, "x" * 64)
+    kv_ops.block_index_put(5, "a" * 64)    # the anchor IS canonical at 5 -> advertised once finalized
+
     # advertise-when-final: NOT offered until finalized_height >= 5 (reorg safety)
     assert snapshot_ops.latest_final_checkpoint_height(4) is None, "checkpoint advertised before final"
     assert snapshot_ops.latest_final_checkpoint_height(9) == 5
@@ -91,6 +101,10 @@ def t3():
     assert snapshot_ops.list_checkpoint_heights() == [5, 10]
     snapshot_ops.drop_checkpoints_above(7)      # a rollback to tip 7
     assert snapshot_ops.list_checkpoint_heights() == [5], "reverted checkpoint not dropped"
+    # re-anchor hygiene: the post-reanchor sweep drops EVERY checkpoint (all were captured on the
+    # abandoned identity); fresh canonical ones re-capture at the next interval boundaries
+    assert snapshot_ops.drop_all_checkpoints() == 1
+    assert snapshot_ops.list_checkpoint_heights() == [], "pre-reanchor checkpoint survived the sweep"
 check("drop_checkpoints_above prunes checkpoints above the new tip", t3)
 
 
