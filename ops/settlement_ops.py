@@ -43,15 +43,20 @@ def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry:
     claim, as soon as non-settling validators bonded past 1/3). Both branches read only committed on-chain
     state, so the result is identical on every node. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM).
 
-    TRUSTLESS PROOF (now sound): a settle-with-proof justifies with NO quorum. It is safe because tx validation
-    (ops/transaction_ops settle branch) now enforces the DA BINDING — every segment's calls_commitment must
-    equal L1's own commitment over the REAL on-chain blob calldata it settles (calls_commit.verify_calls_bound_to_da),
-    on top of the STARK verify + kv-chain composition + the BHASH/BEACON chain-read cross-check. So the proof
-    can only settle the state the honestly-posted calls produce — a fabricated call sequence has a different
-    calls_commitment and is rejected. The proof marker is therefore only set for roots that are both proven AND
-    bound to the DA, so trusting it here is as sound as the bonded-quorum re-execution."""
-    if kv_ops.settlement_proven(ns, cursor, state_root):
-        return True   # trustless: a recursion proof — verified + BOUND TO THE DA CALLDATA at validation
+    TRUSTLESS PROOF: DISABLED (quorum-only). The calls_commit DA-binding closes the "fabricated call sequence"
+    hole for a single-block, revert-free, record-move-free epoch, but the trustless path is NOT yet safe to
+    trust: (1) the on-chain binding check reads every block in the settled span via get_block_number, which
+    returns falsy on a PRUNED node and the body on an archive node -> the same settle-with-proof validates
+    differently across the fleet -> consensus fork (the first proof-settle spans block 0, guaranteed pruned).
+    (2) the RECORDS half is unbound: a bound call with value>0 / PAY moves records, but the proof pins rec_hex
+    to the tip's records -> a records-frozen root omitting real payouts is provable. (3) block_calls binds ALL
+    op=='call' blobs (incl. skip/revert) but the prover can't build a bundle over a reverting call, and a
+    multi-block segment folds one epoch-wide cursor/ts vs L1's per-block -> valid proofs are rejected. Until the
+    prover emits per-call cursor/ts + in-proof skip/revert + a records-half binding, and the span is fenced to
+    the retention window, settlement stays on the bonded quorum (which re-executes the REAL DA blobs and is
+    sound). No live prover posts proofs today, so nothing regresses."""
+    # if kv_ops.settlement_proven(ns, cursor, state_root):
+    #     return True   # DISABLED — see above: DA-binding needs prover-side work + a prune-safe span before trust
     total = active_settler_shares(ns, bonded_registry)
     if total == 0:
         return False

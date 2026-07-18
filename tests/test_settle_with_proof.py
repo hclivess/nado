@@ -55,11 +55,6 @@ def _stub_verify(proof, num_queries=None, depth=None):
         return False, "stub: proof rejected", None, None
     return True, "stub ok", proof.get("kv_pre"), proof.get("kv_post")
 SS.verify_settlement_sparse = _stub_verify
-# DA-binding is stubbed here too (its real soundness — that calls_commitment binds to the on-chain blob
-# calldata — is covered by tests/test_da_binding.py); this file exercises the CONSENSUS WIRING with hand-built
-# proofs that carry no calls/blocks.
-from execnode.stark import calls_commit as _CC
-_CC.verify_calls_bound_to_da = lambda proof, ns, prev, cur, gb: (True, "stub bound")
 
 # --- the GENESIS decomposition: EXEC_GENESIS_ROOT == rnode(empty KV half, empty-state RECORDS half) ---
 KV_G = SST.digest_hex(SST.SparseStore(ER.DEPTH, {}).root())

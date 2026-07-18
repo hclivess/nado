@@ -913,15 +913,13 @@ def validate_transaction(transaction, logger, block_height):
                         "Settle proof BEACON does not match the finalized chain"
                 else:
                     raise AssertionError("unknown chain-read kind in settle proof")
-            # DA BINDING: the STARK proves SOME calls advance kv_pre->kv_post, but verify_settlement_sparse checks
-            # calls_commitment only against the bundle's OWN calls. Bind it to the REAL on-chain blob calldata so
-            # a bonded prover cannot settle a FABRICATED call sequence: every segment's calls_commitment must
-            # equal L1's own commitment over the namespace's `blob` calls in the L1 blocks that segment settles
-            # (exec_cursor == L1 height). This is what makes the trustless (no-quorum) settlement path sound.
-            from execnode.stark import calls_commit as _CC
-            from ops.block_ops import get_block_number as _get_block
-            _okc, _whyc = _CC.verify_calls_bound_to_da(proof, ns, _tip_cursor, cursor, _get_block)
-            assert _okc, f"Settle proof calls not bound to DA: {_whyc}"
+            # DA BINDING (calls_commit.verify_calls_bound_to_da) is NOT called here yet: it must read every block
+            # in the settled span via get_block_number, which returns falsy on a PRUNED node -> a settle-with-proof
+            # would validate differently on pruned vs archive nodes -> consensus fork. It is also not yet matched
+            # by the prover (per-call cursor/ts, in-proof skip/revert, records-half binding). Since the trustless
+            # justification is DISABLED (settlement_ops.settlement_justified) and no live prover posts proofs, the
+            # binding stays a validated primitive + spec (calls_commit + test_da_binding), wired in only once the
+            # prover side lands and the span is fenced to the retention window. Settlement rides the bonded quorum.
     elif recipient == "bridge":
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
         assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
