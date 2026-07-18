@@ -76,10 +76,11 @@ CLAIM = f"""
     require r5              ; enrolled & granting
     ctx r3 caller
     hash r5 <- r3 r0 r1
+    lo32 r5                 ; window the full-field digest to 32 bits so the PoW compare is SOUND (bounded < 2^32)
     slot r4 {GPOW} r0
     sload r6 r4
     lt r5 r6
-    require r5              ; proof of work: alghash(caller, idx, nonce) < target
+    require r5              ; proof of work: lo32(alghash(caller, idx, nonce)) < target
     hash r6 <- r3 r0        ; the (caller, game) claimed-marker's raw storage key
     sload r5 r6
     nez r5

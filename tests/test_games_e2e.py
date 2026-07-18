@@ -331,14 +331,14 @@ def t_faucet():
     assert "deploy faucet" in r, r
     assert "not authorized" in st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "nonce": "g", "at": "faucet"}, A, "d2")
     st.credit_deposit("faucet", 1_000_000)                    # what the L1 `faucet` reserved tx mirrors
-    EASY = 1 << 63
+    EASY = 1 << 31
     assert "ok" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [0, 1234, 500, 2, EASY]}, OP, "s0")
     assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [0, 1, 1, 1, 1]}, A, "s1")
     slots = st.contracts["faucet"]["storage"]["slots"]
     assert int(slots.get("0", 0)) == 1, "gcnt"
     def grind(addr, idx, easy=EASY, want_below=True):
         d = runtimes.zkvm_addr_digest(addr); n = 0
-        while (alghash.hashn([d, idx, n]) < easy) != want_below: n += 1
+        while ((alghash.hashn([d, idx, n]) & 0xFFFFFFFF) < easy) != want_below: n += 1
         return n
     n1 = grind(A, 0)
     assert "paid=500" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, n1]}, A, "c1")
@@ -370,9 +370,9 @@ def t_faucet_claim_proves():
     from execnode.games import faucet as fc
     from execnode.stark import alghash
     code = fc.build()
-    EASY = 1 << 63
+    EASY = 1 << 31
     d = runtimes.zkvm_addr_digest(A); n = 0
-    while alghash.hashn([d, 0, n]) >= EASY: n += 1
+    while (alghash.hashn([d, 0, n]) & 0xFFFFFFFF) >= EASY: n += 1
     S = lambda f, k: f * (1 << 32) + k
     slots = {S(fc.GGRANT, 0): 500, S(fc.GCAP, 0): 5, S(fc.GPOW, 0): EASY}
     _prove(code, "claim", A, [0, n], slots, cursor=100_000)

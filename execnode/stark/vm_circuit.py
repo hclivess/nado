@@ -154,7 +154,11 @@ def _recomp(row, spec):
     return acc
 
 
-_SPEC63 = [(BL + k, 1 << (8 * k)) for k in range(7)] + [(SL + 0, 1 << 56)]
+_SPEC63 = [(BL + k, 1 << (8 * k)) for k in range(7)] + [(SL + 0, 1 << 56)]      # LT difference window (63-bit)
+# RANGE proves a value < 2^62 (6 byte + 2 seven-bit limbs) — the SOUND operand bound. With P ~ 2^64 a windowed
+# comparison is unforgeable only when both operands are < 2^62; the `lt`/`gte` macros RANGE both operands, so
+# LT's 63-bit difference window can never admit the wrong comparison bit (its wrapped diff is >= P-2^62 > 2^63).
+_SPEC62 = [(BL + k, 1 << (8 * k)) for k in range(6)] + [(SL + 0, 1 << 48), (SL + 1, 1 << 55)]
 # DIVMOD (widened): q is 48-bit (6 byte limbs); b-1 / rem / b-rem-1 are 15-bit (byte + 7-bit) so a small
 # divisor keeps q·b < 2^63 < P — field division cannot wrap. LO32 keeps its own independent lo/hi window.
 _SPEC_Q = [(BL + k, 1 << (8 * k)) for k in range(6)]
@@ -448,7 +452,7 @@ def transitions(bind_io=False, gamma_fp=0):
         D = F.add(F.mul(b, F.sub(F.sub(rsv, rdv), 1)), F.mul(F.sub(1, b), F.sub(rdv, rsv)))
         return F.mul(c[F0 + _O["LT"]], F.sub(D, _recomp(c, _SPEC63)))
     def c_range(c, n, p, ch):
-        return F.mul(c[F0 + _O["RANGE"]], F.sub(_rd_val(c), _recomp(c, _SPEC63)))
+        return F.mul(c[F0 + _O["RANGE"]], F.sub(_rd_val(c), _recomp(c, _SPEC62)))   # sound < 2^62 operand bound
     def c_dm_main(c, n, p, ch):
         q, b, rem = _recomp(c, _SPEC_Q), _rs_val(c), _recomp(c, _SPEC_REM)
         return F.mul(c[F0 + _O["DIVMOD"]], F.sub(F.add(F.mul(q, b), rem), _rd_val(c)))

@@ -117,6 +117,17 @@ def _decomp63(v):
     return _bytes_of(v, 7), (v >> 56) & 127
 
 
+def _decomp62(v):
+    """62-bit window: 6 byte limbs + 2 seven-bit limbs (48 + 7 + 7 bits), or None if v >= 2^62. RANGE's SOUND
+    bound: with P ~ 2^64, a comparison is unforgeable only when both operands are < 2^62 (then the wrong bit's
+    field-wrapped difference is >= P - 2^62 > 2^63 and cannot fit LT's window). RANGE-checking both operands to
+    < 2^62 before an LT is exactly what makes LT sound — the `lt`/`gte` macros do it automatically."""
+    if v < 0 or v >= 1 << 62:
+        return None
+    hi = v >> 48                                          # bits 48..61 (14 bits) -> two 7-bit limbs
+    return _bytes_of(v, 6), hi & 127, (hi >> 7) & 127
+
+
 def _decomp31(v):
     """31-bit window: 3 byte limbs + 1 seven-bit limb, or None if v >= 2^31."""
     if v < 0 or v >= 1 << 31:
@@ -207,10 +218,10 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 wi = b                                        # the AIR's b-bit lives in the wi column
                 res, wr = b, True
             elif op_name == "RANGE":
-                dec = _decomp63(rd)
+                dec = _decomp62(rd)                            # SOUND bound: < 2^62 (makes a following LT unforgeable)
                 if dec is None:
-                    raise ZkVMRevert("RANGE failed (value >= 2^63)")
-                bl[:7], sl[0] = dec[0], dec[1]
+                    raise ZkVMRevert("RANGE failed (value >= 2^62)")
+                bl[0:6], sl[0], sl[1] = dec[0], dec[1], dec[2]
             elif op_name == "DIVMOD":
                 a, b = rd, rs
                 if not (1 <= b <= (1 << 15)):                 # small divisor keeps q·b < 2^63 (no field wrap)

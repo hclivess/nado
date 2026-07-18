@@ -82,8 +82,22 @@ def assemble(text):
             d = _reg(toks[1]); field = _imm(toks[2]); k = _reg(toks[3])
             out.append(["MOVI", d, 0, field << 32])
             out.append(["ADD", d, k, 0])
-        elif op == "GTE":                                      # gte d s  ->  lt d s ; notb d
+        elif op == "LT":                                       # lt d s  ->  range d ; range s ; LT d s
+            # SOUND COMPARISON: a windowed prime-field compare is only unforgeable when both operands are
+            # < 2^62 (P ~ 2^64). RANGE-checking both operands here makes EVERY authored `lt` sound — a contract
+            # cannot emit an un-bounded compare, and RANGE reverts on any operand >= 2^62 (never a real
+            # amount/id/roll; a full-field value must be windowed with lo32/rem before comparison).
             d, s = _reg(toks[1]), _reg(toks[2])
+            out.append(["RANGE", d, 0, 0])
+            out.append(["RANGE", s, 0, 0])
+            out.append(["LT", d, s, 0])
+        elif op == "LT_RAW":                                    # lt without the range checks — ONLY for operands
+            d, s = _reg(toks[1]), _reg(toks[2])                 # already proven < 2^62 in the same method (e.g. a
+            out.append(["LT", d, s, 0])                         # value that just came out of lo32/rem/divmod)
+        elif op == "GTE":                                      # gte d s  ->  range d ; range s ; LT d s ; notb d
+            d, s = _reg(toks[1]), _reg(toks[2])
+            out.append(["RANGE", d, 0, 0])
+            out.append(["RANGE", s, 0, 0])
             out.append(["LT", d, s, 0])
             out.append(["NOTB", d, 0, 0])
         elif op in ("REM", "MOD", "REMW"):                     # rem[w] d s  ->  d = d % s  (remainder to dest)
@@ -111,7 +125,7 @@ def assemble(text):
             out.append([op, 0, s, ("@", tgt[1:])])
         elif op == "MOVI":
             out.append(["MOVI", _reg(toks[1]), 0, _imm(toks[2])])
-        elif op in ("MOV", "ADD", "SUB", "MUL", "EQ", "LT", "DIVMOD", "DIVMODW", "SLOAD", "SSTORE", "PAY",
+        elif op in ("MOV", "ADD", "SUB", "MUL", "EQ", "DIVMOD", "DIVMODW", "SLOAD", "SSTORE", "PAY",
                     "ARG"):
             out.append([op, _reg(toks[1]), _reg(toks[2]), 0])
         elif op in ("NEZ", "NOTB", "RANGE", "LO32", "HOUT"):

@@ -50,7 +50,7 @@ export async function grindClaim(addr, idx, pow, onProgress) {
   let nonce = BigInt(Math.floor(Math.random() * 2 ** 40));       // random start — restarts don't redo work
   for (let chunk = 0; ; chunk++) {
     for (let i = 0; i < 4000; i++, nonce++) {
-      if (algHashn([d, I, nonce]) < pow) return nonce;
+      if ((algHashn([d, I, nonce]) & 0xFFFFFFFFn) < pow) return nonce;   // lo32 window — matches the VM's sound PoW
     }
     if (onProgress) onProgress(chunk * 4000);
     await new Promise((r) => setTimeout(r, 0));
