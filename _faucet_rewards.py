@@ -33,6 +33,7 @@ GAMES = [
     (5, "9c3d01b6b70f507ecc0bbf75b0615940", "battleship"), # battleship (efficiency: fewest shots to sink)
     (6, "d4855b5b4c52bb65fdf7ec7a65c8b9f0", "banked"),     # slots
     (7, "d9d271f3a3e8a68ef33cb8e89ee650c9", "banked"),     # mines
+    (8, "13b92dc630e513f11a68df9f405d7b2d", "table"),      # hexholm (2-4 seat table; winner seat in wr 1..4)
 ]
 SHIPS = 17
 
@@ -51,6 +52,16 @@ def leaderboard(cid, kind):
         for g in wr:
             if not sd.get(g): continue
             w = wr[g]; winner = p1.get(g) if w == 1 else p2.get(g) if w == 2 else None
+            if winner: score[winner] = score.get(winner, 0) + 1
+    elif kind == "table":
+        # N-seat table (hexholm): wr = the winning SEAT 1..4 (5 = dissolved/refunded — no ranking)
+        sd, wr = sto.get("sd", {}), sto.get("wr", {})
+        seats = {i: sto.get("p" + str(i), {}) for i in (1, 2, 3, 4)}
+        for g in wr:
+            if not sd.get(g): continue
+            w = int(wr[g] or 0)
+            if w not in (1, 2, 3, 4): continue
+            winner = seats[w].get(g)
             if winner: score[winner] = score.get(winner, 0) + 1
     elif kind == "battleship":
         # efficiency board: fewest shots to SINK the enemy fleet (17 proven hits). Only real sink-wins count.
