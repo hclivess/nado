@@ -7,8 +7,10 @@
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores } from "./nadodapp.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
+import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js";
+import * as SALVO from "./battleship-daily.js";
 
-const CID = "9c3d01b6b70f507ecc0bbf75b0615940";   // execnode/games/battleship.py (zkVM, nonce "a5")
+const CID = "c52b6e5c25acd393f9073dc0c2048e04";   // execnode/games/battleship.py (zkVM; alphanet-7 redeploy with the Daily Salvo)
 const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
 const N = 10, CELLS = 100, SHIPS = 17, WINDOW = 600, BLOCK_SECS = 6;
 const FLEET = [5, 4, 3, 3, 2];                 // ship lengths (17 cells)
@@ -325,7 +327,13 @@ function selectGame(id) { activeGame = Number(id); target = null; notify(window.
 function render() {
   dapp.reflectUrl("game", activeGame);
   const signedIn = renderWallet(dapp);
-  gate({ setup: true, bankroll: signedIn });
+  const dailyMode = mode === "daily";
+  if ($("tabPlay")) $("tabPlay").classList.toggle("on", !dailyMode);
+  if ($("tabDaily")) $("tabDaily").classList.toggle("on", dailyMode);
+  // in daily mode hide the PvP cards and show the salvo card; in play mode the reverse
+  gate({ dailyCard: dailyMode, setup: !dailyMode, lobby: !dailyMode, scorecard: !dailyMode, bankroll: !dailyMode && signedIn,
+         activeGame: !dailyMode && activeGame != null && !!lastSto });
+  if (dailyMode) { renderDaily(); return; }
   renderPlacement();
   const sto = lastSto;
   if (sto) { renderLobby(sto); if (activeGame != null) renderActive(sto); else gate({ activeGame: false }); }
@@ -348,6 +356,7 @@ async function refreshAll() {
          : f.phase === "answer" ? !g.pex                                         // the pending shot got answered
          : (f.phase === "claim" || f.phase === "forfeit") ? g.sd                 // pot paid out
          : f.phase === "cancel" ? (g.sd || !g.exists)
+         : f.phase === "post" ? (myBestSalvo(todayIdx()) != null)                // daily score is on-chain
          : (g.dc || g.sd || !g.exists);                                          // resign / timeout → decided
   });
   // sticky the APPEND-ONLY maps (fired flags, results, hit counts, settled/decided/winner, join) so they never
@@ -356,6 +365,11 @@ async function refreshAll() {
   if (sto) { lastSto = sto; ingestShots(sto, activeGame); lsPrune(LS_G, allGids(sto)); await resolveAliases(allGids(sto).flatMap((g) => [_m(sto, "p1")[g], _m(sto, "p2")[g]]).filter(Boolean).slice(0, 40)); }
   autoSettle(sto);                                                               // reveal my fleet to collect any decided win
   autoAnswer(sto);                                                               // auto-reveal the result of any shot fired at me
+  if (sto) {
+    daily.anchor = anchorOf(sto, _m, todayIdx());
+    if (!daily.anchor) { try { await ensureAnchor(dapp, base(), sto, _m, todayIdx()); } catch {} }   // permissionless upkeep
+    await renderDailyBoard(sto);
+  }
   render();
   if (sto) renderScoreboard(sto);
 }
@@ -391,6 +405,84 @@ function renderScoreboard(sto) {
     window.t("bs.scoreCol", "Best game (shots)"), true);
 }
 
+// ---- FREE DAILY SALVO (provable, faucet-rewarded) ------------------------------------------------
+let mode = "play";                          // "play" (real staked PvP) | "daily" (free solo salvo)
+let daily = { day: null, anchor: null, seed: null, fleet: null, fired: [] };
+const LS_DAILY = "nado_battleship_daily";   // {day, fired[]} — resume today's run across reloads
+function loadDailyFired(day) { try { const d = JSON.parse(localStorage.getItem(LS_DAILY) || "{}"); if (d.day === day && Array.isArray(d.fired)) return d.fired; } catch {} return []; }
+function saveDailyFired(day, fired) { try { localStorage.setItem(LS_DAILY, JSON.stringify({ day, fired })); } catch {} }
+function ensureDaily() {
+  const day = todayIdx();
+  if (daily.day !== day) daily = { day, anchor: null, seed: null, fleet: null, fired: [] };
+  if (!daily.anchor || !dapp.me) return;
+  const seed = provableSeed(SALVO.SLUG, day, daily.anchor, dapp.me);
+  if (daily.seed !== seed) { daily.seed = seed; daily.fleet = SALVO.dailyFleet(seed); daily.fired = loadDailyFired(day); }
+}
+function fireDaily(cell) {
+  ensureDaily();
+  if (!daily.fleet || daily.fired.includes(cell) || daily.fired.length >= SALVO.BUDGET) return;
+  const done = daily.fleet.occ.size && [...daily.fleet.occ].every((c) => daily.fired.includes(c));
+  if (done) return;                          // fleet already sunk
+  daily.fired.push(cell); saveDailyFired(daily.day, daily.fired); render();
+}
+function postDaily() {
+  ensureDaily();
+  if (!daily.fleet || !daily.fired.length) return;
+  if (dapp.busy("post")) return notify(confirmingLabel());
+  const score = SALVO.scoreShots(daily.fleet, daily.fired);
+  const words = packMoves(daily.fired, SALVO.SHOT_BITS);
+  while (words.length < SALVO.WORDS) words.push(0);
+  dapp.call("post", [daily.day, score, daily.fired.length].concat(words.slice(0, SALVO.WORDS)), null,
+    window.t("bs.callPost", "post my Daily Salvo score ({s})", { s: score }), { phase: "post" });
+  notify(window.t("bs.posted", "Score submitted — it appears on the board once verified on-chain."));
+}
+function myBestSalvo(day) {
+  if (!lastSto || !dapp.me) return null;
+  const e = entriesFrom(lastSto, _m, day, Array.from({ length: SALVO.WORDS }, (_x, k) => "ew" + k)).filter((x) => x.addr === dapp.me);
+  return e.length ? Math.max(...e.map((x) => x.score)) : null;
+}
+function renderDaily() {
+  const wrap = $("dailyGrid"); if (!wrap) return;
+  if (!dapp.me) { wrap.innerHTML = '<div class="dim">' + window.t("bs.dailySignIn", "Sign in to play today's free Daily Salvo — hunt & sink a hidden fleet, top the board, and the faucet pays the daily leaders.") + "</div>"; $("dailyInfo").textContent = ""; return; }
+  ensureDaily();
+  if (!daily.anchor || !daily.fleet) { wrap.innerHTML = '<div class="dim">' + window.t("bs.seeding", "Seeding today's fleet from the chain — a moment…") + "</div>"; return; }
+  const fired = new Set(daily.fired), occ = daily.fleet.occ;
+  const hits = daily.fired.filter((c) => occ.has(c)).length;
+  const sunk = daily.fleet.ships.filter((s) => s.length && s.every((x) => fired.has(x))).length;
+  const allSunk = hits === SALVO.SHIPS;
+  let g = '<div class="bgrid daily">';
+  for (let c = 0; c < CELLS; c++) {
+    const f = fired.has(c), hit = f && occ.has(c);
+    const cls = !f ? "sea" : hit ? "hit" : "miss";
+    g += '<div class="bcell ' + cls + '"' + (!f && !allSunk ? ' data-dfire="' + c + '"' : "") + ' title="' + SALVO.coord(c) + '">' + (hit ? "🔥" : f ? "·" : "") + "</div>";
+  }
+  g += "</div>";
+  wrap.innerHTML = g;
+  wrap.querySelectorAll("[data-dfire]").forEach((el) => el.onclick = () => fireDaily(parseInt(el.dataset.dfire, 10)));
+  const score = SALVO.scoreShots(daily.fleet, daily.fired);
+  const posted = myBestSalvo(daily.day);
+  let info = window.t("bs.dailyInfo", "Shots: {sh}/{bud} · sunk {sunk}/5 · score {s}", { sh: daily.fired.length, bud: SALVO.BUDGET, sunk, s: score });
+  if (allSunk) info = "🏆 " + window.t("bs.dailyAllSunk", "Fleet sunk in {sh} shots — score {s}!", { sh: daily.fired.length, s: score });
+  $("dailyInfo").textContent = info;
+  const post = $("btnPostSalvo");
+  if (post) {
+    post.classList.toggle("hidden", !daily.fired.length || posted != null);
+    post.disabled = dapp.busy("post");
+    post.textContent = dapp.busy("post") ? confirmingLabel() : window.t("bs.postScore", "🏆 Post my {s} points", { s: score });
+  }
+  const done = $("btnResetSalvo"); if (done) done.classList.toggle("hidden", !daily.fired.length);
+  if ($("salvoPosted")) $("salvoPosted").textContent = posted != null ? window.t("bs.postedBest", "Posted today: {s} pts", { s: posted }) : "";
+}
+async function renderDailyBoard(sto) {
+  const el = $("dailyBoard"); if (!el) return;
+  const day = todayIdx(), anchor = anchorOf(sto, _m, day);
+  if (!anchor) { el.innerHTML = '<span class="dim">' + window.t("bs.seeding", "Seeding today's fleet from the chain — a moment…") + "</span>"; return; }
+  const entries = entriesFrom(sto, _m, day, Array.from({ length: SALVO.WORDS }, (_x, k) => "ew" + k));
+  const rows = await verifyEntries(entries, (en) => SALVO.verifyClaim(day, en.n, en.words, anchor, en.addr));
+  await renderTopScores(el, rows.map((r) => ({ addr: r.addr, score: r.score })), dapp.me,
+    window.t("bs.boardEmpty", "No salvos yet today — sink the fleet and post the first score."), window.t("bs.points", "Points"), true);
+}
+
 // ---- boot ----------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp);
@@ -411,6 +503,10 @@ function wireUI() {
   $("btnRematch").onclick = rematch;
   $("btnShare").onclick = () => share(base() + "/?game=" + activeGame, window.t("bs.shareThis", "Play this Battleship game on NADO:"), $("btnShare"));
   if ($("btnMoreLobby")) $("btnMoreLobby").onclick = () => { lobbyN += 48; if (lastSto) renderLobby(lastSto); };
+  if ($("tabPlay")) $("tabPlay").onclick = () => { mode = "play"; render(); };
+  if ($("tabDaily")) $("tabDaily").onclick = () => { mode = "daily"; render(); };
+  if ($("btnPostSalvo")) $("btnPostSalvo").onclick = postDaily;
+  if ($("btnResetSalvo")) $("btnResetSalvo").onclick = () => { daily.fired = []; saveDailyFired(daily.day, []); render(); };
   // ship-based placement: tap a placed ship to pick it up, or tap empty water to drop the armed ship (delegated)
   $("placeGrid").addEventListener("click", (e) => {
     const c = e.target.closest("[data-place]"); if (!c) return;
@@ -432,7 +528,7 @@ dapp.onReturn((pend, ok, err) => {
   if (!ok && pend && pend.phase === "answer") delete answerAt[pend.game];   // rejected at signing → let the auto-answer retry now
   dapp.showReturn(pend, ok, err, { open: window.t("bs.cfOpen", "Opening — confirming…"), join: window.t("bs.cfJoin", "Joining — confirming…"),
     fire: window.t("bs.cfFire", "Firing — confirming on-chain…"), resign: window.t("bs.cfResign", "Resigning…"), timeout: window.t("bs.cfTimeout", "Claiming…"), cancel: window.t("bs.cfCancel", "Cancelling…"),
-    claim: window.t("bs.cfClaim", "Revealing your fleet to collect…"), forfeit: window.t("bs.cfForfeit", "Claiming the pot…") });
+    claim: window.t("bs.cfClaim", "Revealing your fleet to collect…"), forfeit: window.t("bs.cfForfeit", "Claiming the pot…"), post: window.t("bs.cfPost", "Posting your Daily Salvo score…") });
 });
 async function boot() {
   wireUI();

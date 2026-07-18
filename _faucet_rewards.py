@@ -30,7 +30,7 @@ GAMES = [
     (2, "fce697844f9b2b043abcaf4403953f9f", "duel"),      # stormhold
     (3, "b56dd48000707369be1630e41bfb038d", "banked"),    # farkle
     (4, "3d775ee563baae7c20ec39596fcd4f28", "banked"),    # blackjack
-    (5, "9c3d01b6b70f507ecc0bbf75b0615940", "battleship"), # battleship (efficiency: fewest shots to sink)
+    (5, "c52b6e5c25acd393f9073dc0c2048e04", "battleship-daily"),  # battleship Daily Salvo (free hunt-&-sink, replay-verified)
     (6, "d4855b5b4c52bb65fdf7ec7a65c8b9f0", "banked"),     # slots
     (7, "d9d271f3a3e8a68ef33cb8e89ee650c9", "banked"),     # mines
     (8, "c532e36ac30f61619e9ac989a1c0994e", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
@@ -40,7 +40,8 @@ GAMES = [
     (12, "d7744c41300ef02b6cc944f0cf1ccdae", "duel"),          # tic-tac-toe
 ]
 # provable free-play boards: kind -> the node replay oracle that ranks yesterday's verified claims
-DAILY_VERIFY = {"hexholm-daily": "tests/hexholm_daily_verify.mjs", "hamster-daily": "tests/hamster_daily_verify.mjs"}
+DAILY_VERIFY = {"hexholm-daily": "tests/hexholm_daily_verify.mjs", "hamster-daily": "tests/hamster_daily_verify.mjs",
+                "battleship-daily": "tests/battleship_daily_verify.mjs"}
 SHIPS = 17
 
 def j(u): return json.load(urllib.request.urlopen(u, timeout=12))

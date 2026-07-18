@@ -83,6 +83,11 @@
   .bcell.fog{cursor:crosshair}.bcell.fog:hover{background:#12384a;border-color:var(--accent2)}
   .bcell.fog.sel{outline:2px solid var(--accent2);outline-offset:-1px;background:rgba(0,201,167,.15)}
   .bcell.pending{background:#123;color:var(--gold);border-style:dashed}
+  #dailyGrid .bcell[data-dfire]{cursor:crosshair}#dailyGrid .bcell[data-dfire]:hover{background:#12384a;border-color:var(--accent2)}
+  #dailyGrid .bgrid{max-width:360px;margin:6px auto}
+  .tabs{display:flex;gap:8px;margin:0 0 12px}
+  .tabs button{flex:1;background:var(--elev,#131a23);border:1px solid var(--border,#243140);border-radius:11px;padding:10px;font-weight:800;color:var(--dim,#93a1b0);cursor:pointer}
+  .tabs button.on{background:linear-gradient(135deg,#00ad93,#00c9a7);color:#04110a;border-color:transparent}
   #placeGrid .bcell{cursor:pointer}
   #placeGrid .bcell.ship{background:linear-gradient(135deg,#00ad93,#00c9a7);border-color:transparent}
   #placeGrid .bcell.sea:hover{background:#12384a}
@@ -103,7 +108,27 @@
   <header><span class="logo">🚢</span><h1>NADO <span class="a" data-i18n="bs.title">Battleship</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="bs.allGames">🎮 All games</a></header>
   <p class="sub" data-i18n-html="bs.sub">Hidden-fleet naval combat for stakes — and your board <b>never leaves your browser</b>. You commit a cryptographic fingerprint of your fleet; each shot is answered by a proof the contract checks, so nobody can lie about a hit or hide a ship. Sink all 17 enemy cells to take the pot. No house, no oracle — just post-quantum hashes.</p>
 
+  <div class="tabs">
+    <button id="tabPlay" class="on" data-i18n="bs.tabPlay">⚓ Play for stakes</button>
+    <button id="tabDaily" data-i18n="bs.tabDaily">🏆 Daily Salvo (free)</button>
+  </div>
+
   <div id="status"></div>
+
+  <!-- FREE DAILY SALVO (provable, faucet-rewarded) -->
+  <div class="card hidden" id="dailyCard">
+    <h2>🏆 <span data-i18n="bs.dailyH">Daily Salvo</span> <span class="dim small" data-i18n="bs.dailyFree">— free, provably fair, faucet-rewarded</span></h2>
+    <p class="small dim" data-i18n="bs.dailyBlurb">A hidden five-ship fleet, unique to your wallet each day. No stake — hunt it down and sink all 17 in as few shots as you can, then post your score. The top finishers each day are paid automatically from the NADO faucet, and every score is replay-verified on-chain so nobody can fake the board.</p>
+    <div id="dailyInfo" class="small mt" style="font-weight:700;color:var(--gold,#e3b341)"></div>
+    <div id="dailyGrid" class="mt"></div>
+    <div class="row mt">
+      <button class="primary hidden" id="btnPostSalvo" style="flex:1"></button>
+      <button class="ghost hidden" id="btnResetSalvo" style="flex:0 0 auto" data-i18n="bs.resetSalvo">↺ Restart</button>
+    </div>
+    <div id="salvoPosted" class="small mt" style="color:var(--accent2)"></div>
+    <h2 class="mt" data-i18n="bs.dailyBoardH">Today's leaderboard</h2>
+    <div id="dailyBoard"><span class="dim" data-i18n="bs.loading">Loading…</span></div>
+  </div>
 
   <!-- THE GAME -->
   <div class="card hidden" id="activeGame">
