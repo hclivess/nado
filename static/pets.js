@@ -4,7 +4,7 @@
 // alive, trains with a rarity-scaled limit-function success chance, battles other pets for stakes (loser
 // has a 20% chance to die), and transfers between wallets like any NFT. All money moves happen in the
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shareInvite, esc } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shareInvite, esc } from "./nadodapp.js";
 import * as G from "./pets-genes.js";
 import { HAND_ART } from "./pets-art-hand.js";   // bespoke per-animal art (grows toward the full roster)
 import { loadCrypto } from "./nadotx.js";
@@ -721,9 +721,22 @@ function feed(pid, raw) {
   if (!canPay(dapp, raw, "This meal")) return;
   dapp.call("feed", [Number(pid)], raw, "feed " + PETS[pid].label + " · " + rawToNado(raw) + " NADO (+" + (blocks / BLOCKS_PER_DAY).toFixed(1) + "d)", { pid, phase: "feed", fu0: p.fu });
 }
+// trainBusy(pid): a train call is between click and its session appearing on-chain. The contract allows ONE
+// session per pet (a second `train` while p.th is set just REVERTS, fee refunded) — so during the whole
+// submit→land window (sign ~1s + mine + poll, easily 10-20s) every extra click would burn a wallet round-trip
+// on a guaranteed no-op with zero feedback ("I clicked and nothing happened"). Same stamp pattern as
+// hatchPending: set on click, cleared when p.th lands / on a rejected sign, self-expires so a lost tx retries.
+const trainBusy = (pid) => {
+  const p = PETS[pid];
+  if (p && p.th) return true;                          // session already open on-chain
+  if (dapp.busy("train", "pid", pid)) return true;     // accepted, confirming
+  const ts = (L()[pid] || {}).trainTs;
+  return !!ts && Date.now() - ts < 120000;             // clicked, still signing/landing (expires for retry)
+};
 function train(pid, i) {
+  if (trainBusy(pid)) return notify(window.t("pets.trainBusy", "One training session at a time — this one is still confirming on-chain…"));
   if (!canPay(dapp, G.TRAIN_FEE, "Training")) return;
-  const l = L(); const r = (l[pid] = l[pid] || { ts: Date.now() }); r.trainPending = 1; r.trainStat = G.STAT_NAMES[i]; Lsave(l);
+  const l = L(); const r = (l[pid] = l[pid] || { ts: Date.now() }); r.trainPending = 1; r.trainStat = G.STAT_NAMES[i]; r.trainTs = Date.now(); Lsave(l);
   dapp.call("train", [Number(pid), i], G.TRAIN_FEE, "train " + PETS[pid].label + " · " + G.STAT_NAMES[i] + " · 0.5 NADO", { pid, phase: "train" });
 }
 const trainResolve = (pid) => dapp.call("train_resolve", [Number(pid)], null, "reveal training result for " + PETS[pid].label, { pid, phase: "trainres" });
@@ -864,16 +877,16 @@ async function refreshAll() {
 }
 
 // ---- render ----------------------------------------------------------------------------------------
-function statRow(p, i) {
+function statRow(p, i, busy) {
   const base = p.base[i], bonus = p.bonus[i], val = base + bonus, chance = G.trainChance(p.sp, val);
-  const canTrain = p.mine && !p.dead && !p.th;
+  const canTrain = p.mine && !p.dead && !p.th && !busy;
   // two-segment bar: teal = base (locked at hatch), gold = trained bonus you added
   const baseW = Math.min(100, base), bonusW = Math.min(100 - baseW, bonus);
   const bar = `<div class="bar sbar"><i style="width:${baseW}%"></i>${bonusW > 0 ? `<b style="width:${bonusW}%" title="+${bonus} from training"></b>` : ""}</div>`;
   return `<div class="statrow"><span title="${G.STAT_ROLES[i]}">${G.STAT_ICONS[i]}</span><span title="In battle: ${G.STAT_ROLES[i]}">${G.STAT_NAMES[i]}</span>
     <span class="sv">${val}${bonus ? ` <span class="up" title="+${bonus} from training${i === 9 ? " — battle bonus only; the food bill stays at the hatched appetite" : ""}">+${bonus}</span>` : ""}</span>
     ${bar}
-    ${canTrain ? `<button class="mini train" data-train="${i}" title="Train ${G.STAT_NAMES[i]} — 0.5 NADO, ${chance.toFixed(0)}% chance to gain +1">🏋 Train · ${chance.toFixed(0)}%</button>` : `<span class="small dim" title="train success chance">${chance.toFixed(0)}%</span>`}
+    ${canTrain ? `<button class="mini train" data-train="${i}" title="Train ${G.STAT_NAMES[i]} — 0.5 NADO, ${chance.toFixed(0)}% chance to gain +1">🏋 Train · ${chance.toFixed(0)}%</button>` : `<span class="small dim" title="${busy && !p.th ? "training session confirming on-chain…" : "train success chance"}">${busy && !p.th ? "⏳" : chance.toFixed(0) + "%"}</span>`}
   </div>`;
 }
 function renderActive() {
@@ -996,11 +1009,19 @@ function renderActive() {
     dapp.syncPctSlider("feed", { slider: "feedSlider", input: "feedAmt" }, dapp.exec);   // feed: % of playable balance
   }
   if (p.hatched) {
-    $("statList").innerHTML = G.STAT_NAMES.map((_n, i) => statRow(p, i)).join("");
+    const tb = trainBusy(p.id);   // ONE session per pet — computed once, drives all 10 stat rows + the panel
+    $("statList").innerHTML = G.STAT_NAMES.map((_n, i) => statRow(p, i, tb)).join("");
     $("statList").querySelectorAll("[data-train]").forEach((b) => b.onclick = () => train(p.id, parseInt(b.dataset.train, 10)));
     const tp = $("trainPending");
-    if (p.th && local.trainPending === 1) { const l = L(); l[p.id].trainPending = 2; Lsave(l); local.trainPending = 2; }   // session seen on-chain
-    if (p.th) {
+    if (p.th && local.trainPending === 1) { const l = L(); l[p.id].trainPending = 2; delete l[p.id].trainTs; Lsave(l); local.trainPending = 2; }   // session seen on-chain — the click stamp has done its job
+    if (!p.th && tb) {
+      // the session was CLICKED but hasn't landed yet — show the panel NOW, so the very first click has an
+      // immediate, in-place answer (the old p.th-only gate left this window silent: the exact "I click and
+      // nothing happens" report). The stamp self-expires (trainBusy) so a lost tx re-opens the buttons.
+      tp.classList.remove("hidden");
+      tp.innerHTML = window.t("pets.trainingStat", "🏋 Training <b>{stat}</b>… ", { stat: local.trainStat || "" })
+        + '<span class="waitpulse">' + window.t("pets.trainBooking", "session confirming on-chain…") + "</span>";
+    } else if (p.th) {
       const ready = dapp.cursor != null && dapp.cursor >= p.th + 1 && dapp.bh(p.th) && dapp.bh(p.th + 1);
       const i = p.ti - 1;
       tp.classList.remove("hidden");
@@ -1013,7 +1034,7 @@ function renderActive() {
       if (local.trainPending === 2 && p.tr) {     // its resolve just landed — announce it once
         const ok = p.tr === 1;
         alertBar(ok ? window.t("pets.trainWin", "🎉 Training paid off — {label} got +1 {stat}!", { label: p.label, stat: local.trainStat || window.t("pets.aStat", "to a stat") }) : window.t("pets.trainFail", "Training didn't stick this time — the fee is spent, try again."));
-        const l = L(); delete l[p.id].trainPending; delete l[p.id].trainStat; Lsave(l);
+        const l = L(); delete l[p.id].trainPending; delete l[p.id].trainStat; delete l[p.id].trainTs; Lsave(l);
       }
     }
     $("trainHint").innerHTML = '<span style="color:var(--accent2)">' + window.t("pets.legBase", "▮ base") + '</span> ' + window.t("pets.legBaseNote", "(locked at hatch)") + ' · <span style="color:var(--gold)">' + window.t("pets.legTrained", "▮ trained") + '</span> ' + window.t("pets.legTrainedNote", "(your gains).") + ' '
@@ -1294,7 +1315,14 @@ function wireUI() {
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.pid != null) active = pend.pid;
   if (pend && pend.bid != null) activeBattle = pend.bid;
-  if (ok && pend && pend.phase === "train") { const l = L(); if (l[pend.pid]) { l[pend.pid].trainPending = 1; Lsave(l); } }
+  if (pend && pend.phase === "train") {
+    const l = L();
+    if (l[pend.pid]) {
+      if (ok) l[pend.pid].trainPending = 1;
+      else { delete l[pend.pid].trainPending; delete l[pend.pid].trainStat; delete l[pend.pid].trainTs; }   // rejected sign → free the buttons immediately (don't sit out the 2-min stamp)
+      Lsave(l);
+    }
+  }
   dapp.showReturn(pend, ok, err, {
     mint: window.t("pets.rtMint", "Egg adopted — confirming on-chain (~1 min)…"), hatch: window.t("pets.rtHatch", "Hatching — confirming on-chain…"),
     feed: window.t("pets.rtFeed", "Nom nom — the meal is confirming…"), train: window.t("pets.rtTrain", "Training session booked — confirming…"),

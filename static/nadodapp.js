@@ -559,6 +559,7 @@ export class NadoDapp {
   // so the worst case is exactly today's behaviour.
   _goRedirect(obj, pend) {
     const payload = btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+    this._redirecting = true;   // a navigation is committed — a later bg-flush must not clobber it (see _bgFlushToRedirect)
     localStorage.setItem(this.LS_P, JSON.stringify(pend || {}));
     // preserve the CURRENT url (path + query) as the return target, so a share-link's ?game=/?table= survives the
     // sign-in round-trip instead of being dropped — the invitee lands back on the invited game, not a blank slate.
@@ -592,7 +593,13 @@ export class NadoDapp {
     const svc = this._bgSvc; if (!svc) return;
     const jobs = svc.queue.splice(0); if (svc.cur) { svc.cur = null; }
     this._bgBusy(false);
-    for (const j of jobs) this._goRedirect(j.obj, j.pend);
+    // ONE navigation only. location.href assignments don't stack — the old per-job loop overwrote LS_P and
+    // the nav target once per job, so with N queued actions the LAST one silently replaced every earlier one
+    // (the user's FIRST click was the one that died, unretried and unreported). Redirect the first job in
+    // submission order; later ones can't survive a full-page handoff anyway and are dropped — games' own
+    // busy/pending guards keep this queue shallow. Skip entirely if a redirect is already committed (the
+    // _bgPump timeout path redirects its timed-out job right before flushing the rest).
+    if (jobs.length && !this._redirecting) this._goRedirect(jobs[0].obj, jobs[0].pend);
   }
   _goBackground(obj, pend, isValue) {
     const svc = this._ensureBgSvc();
