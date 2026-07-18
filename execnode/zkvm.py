@@ -102,6 +102,25 @@ def validate_code(code):
                 raise ZkVMError(f"{op} dest must not be r7 (r7 receives the remainder)")
             if op == "CTX" and imm > 3:
                 raise ZkVMError("CTX index must be 0..3 (caller/value/cursor/time)")
+        # SOUND-COMPARISON ENFORCEMENT (consensus, not just assembler discipline): a windowed prime-field
+        # compare is only unforgeable when both operands are proven < 2^62. Every LT MUST be the tail of an
+        # atomic `RANGE d ; RANGE s ; LT d s` block (what the `lt`/`gte` macros emit), and no jump may land on
+        # the LT or its second RANGE (which would skip a range-check). Without this, hand-crafted bytecode with
+        # a naked LT could forge the comparison bit for operands >= ~2^63 (the AIR only decomposes the
+        # difference in a 63-bit window). Enforced at the deploy gate, so ALL bytecode is covered.
+        no_jump = set()                                   # indices a jump must NOT target (would skip a RANGE)
+        for i, ins in enumerate(prog):
+            if ins[0] == "LT":
+                d, s = ins[1], ins[2]
+                if not (i >= 2 and prog[i - 2][0] == "RANGE" and prog[i - 2][1] == d
+                        and prog[i - 1][0] == "RANGE" and prog[i - 1][1] == s):
+                    raise ZkVMError(f"LT at {i} in {method} is not preceded by RANGE on both operands "
+                                    f"(unsound unbounded comparison)")
+                no_jump.add(i)          # the LT itself
+                no_jump.add(i - 1)      # its second RANGE (jumping here skips the first RANGE)
+        for ins in prog:
+            if ins[0] in ("JMP", "JNZ") and ins[3] in no_jump:
+                raise ZkVMError(f"jump into a compare macro at index {ins[3]} in {method} would skip a RANGE")
     return True
 
 

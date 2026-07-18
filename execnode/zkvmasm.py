@@ -91,9 +91,6 @@ def assemble(text):
             out.append(["RANGE", d, 0, 0])
             out.append(["RANGE", s, 0, 0])
             out.append(["LT", d, s, 0])
-        elif op == "LT_RAW":                                    # lt without the range checks — ONLY for operands
-            d, s = _reg(toks[1]), _reg(toks[2])                 # already proven < 2^62 in the same method (e.g. a
-            out.append(["LT", d, s, 0])                         # value that just came out of lo32/rem/divmod)
         elif op == "GTE":                                      # gte d s  ->  range d ; range s ; LT d s ; notb d
             d, s = _reg(toks[1]), _reg(toks[2])
             out.append(["RANGE", d, 0, 0])
