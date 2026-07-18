@@ -41,9 +41,19 @@ def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry:
     STRICTLY EXCEED SETTLE_NUM/SETTLE_DEN of the ACTIVE settler shares (the inactivity leak above — the
     denominator was ALL bonded stake, which froze settlement, and with it every dividend/bridge/unshield
     claim, as soon as non-settling validators bonded past 1/3). Both branches read only committed on-chain
-    state, so the result is identical on every node. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM)."""
-    if kv_ops.settlement_proven(ns, cursor, state_root):
-        return True   # trustless: a recursion proof was verified on-chain for exactly this root
+    state, so the result is identical on every node. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM).
+
+    SOUNDNESS (DA binding): the trustless VALIDITY-PROOF shortcut is DISABLED. A settle-with-proof proves only
+    that SOME call sequence advances kv_pre -> kv_post; its calls_commitment is checked against the bundle's OWN
+    calls, never against the on-chain DA calldata (calls_commit.py documents this binding as the remaining
+    step). So a lone bonded prover could prove a FABRICATED call sequence to a favorable root and settle it
+    trustlessly. Until the proof's calls are bound to L1's ordered blob stream (a per-namespace on-chain calls
+    commitment the proof must equal), ALL settlements go through the bonded quorum below, which re-executes the
+    REAL DA blobs and therefore attests only the honest root. The proof is still cryptographically verified at
+    tx validation (defense-in-depth); it just no longer JUSTIFIES on its own. Re-enable by restoring the
+    settlement_proven shortcut once calls-vs-DA binding lands (there is no live prover today, so nothing regresses)."""
+    # if kv_ops.settlement_proven(ns, cursor, state_root):
+    #     return True   # DISABLED until settle-with-proof binds its calls to the on-chain DA calldata
     total = active_settler_shares(ns, bonded_registry)
     if total == 0:
         return False
