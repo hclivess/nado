@@ -157,7 +157,7 @@ export const ART_DRAGONS = {
     <g class="head-tilt">
       <path d="M48 40 L60 30 L72 40 L70 56 L60 62 L50 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M48 40 L60 30 L60 46 Z" fill="${F}"/><path d="M60 46 L70 56 L60 62 Z" fill="${c.shade}" opacity=".5"/>
-      <path d="M50 32 l-4 -12 l8 6 Z M70 32 l4 -12 l-8 6 Z" fill="${F}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M50 38 L46 18 L55 34 Z M70 38 L74 18 L65 34 Z" fill="${F}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
       <path d="M60 34 l3 5 l-3 5 l-3 -5 Z" fill="${GLOW}" stroke="${c.line}" stroke-width="1"/>
       ${eyes(54, 66, 48, 3, eyeInk(c))}
     </g>`; },
@@ -328,7 +328,7 @@ export const ART_DRAGONS = {
   // ── Sun Dragon (t5, radiant) — front, blazing ray-mane halo, warm plated belly, flame-tipped wings, bright face
   sundragon: (c) => { const B = belly(c); const R = tint(c.body, 0.35); return `
     ${floorShadow(60, 112, 30)}
-    <g class="tail-wag">${[18, 38, 60, 82, 102, 120, -8].map((a) => { const r = a * Math.PI / 180; return `<path d="M60 52 l${(28 * Math.cos(r)).toFixed(1)} ${(28 * Math.sin(r) - 30).toFixed(1)} l6 6 Z" fill="${R}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>`; }).join("")}</g>
+    <g class="tail-wag">${[22, 45, 70, 90, 110, 135, 158].map((a) => { const r = a * Math.PI / 180; return `<path d="M60 52 l${(28 * Math.cos(r)).toFixed(1)} ${(28 * Math.sin(r) - 30).toFixed(1)} l6 6 Z" fill="${R}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>`; }).join("")}</g>
     <g class="tail-wag">
       <path d="M56 74 Q28 58 16 66 Q28 70 32 78 Q22 82 28 92 Q46 80 58 78 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       ${mirror(`<path d="M56 74 Q28 58 16 66 Q28 70 32 78 Q22 82 28 92 Q46 80 58 78 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>`)}

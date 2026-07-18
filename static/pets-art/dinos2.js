@@ -199,6 +199,8 @@ export const ART_DINOS2 = {
       <ellipse cx="48" cy="82" rx="19" ry="7" fill="${B}" opacity=".7"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 54 : 30}" y="86" width="11" height="16" rx="4" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`).join("")}
       <rect x="42" y="88" width="10" height="14" rx="4" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/></g>
+    <path d="M60 70 Q72 58 84 55 Q90 60 87 67 Q75 76 62 75 Z" fill="${c.body}"/>
+    <path d="M66 66 Q76 59 84 56" fill="none" stroke="${c.line}" stroke-width="2.4" stroke-linecap="round"/>
     <g class="head-tilt">
       <path d="M72 48 Q66 30 84 26 Q102 28 104 48 Q106 64 88 66 Q74 64 72 48 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <g stroke="${c.line}" stroke-width="1.3" opacity=".5"><path d="M84 30 v8 M94 32 l-2 8 M76 38 l7 3"/></g>
@@ -301,6 +303,8 @@ export const ART_DINOS2 = {
       <ellipse cx="46" cy="84" rx="19" ry="7" fill="${B}" opacity=".7"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 52 : 28}" y="88" width="11" height="16" rx="4" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`).join("")}
       <rect x="40" y="90" width="10" height="14" rx="4" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/></g>
+    <path d="M58 72 Q70 59 82 56 Q88 61 85 68 Q73 77 60 76 Z" fill="${c.body}"/>
+    <path d="M64 68 Q74 60 83 57" fill="none" stroke="${c.line}" stroke-width="2.4" stroke-linecap="round"/>
     <g class="head-tilt">
       <g>${[[70,30],[70,40],[74,22],[82,18],[90,20]].map(([x,y]) => `<path d="M${x} ${y+8} L${x-2} ${y-8} L${x+3} ${y+7} Z" fill="${IVORY}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`).join("")}</g>
       <path d="M70 46 Q66 30 82 28 Q98 30 98 48 Q98 62 84 64 Q72 62 70 46 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>

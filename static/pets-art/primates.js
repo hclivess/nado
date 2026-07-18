@@ -128,6 +128,7 @@ export const ART_PRIMATES = {
       <path d="M74 84 Q102 78 96 44 Q92 22 68 20" fill="none" stroke="${WHT}" stroke-width="10" stroke-linecap="round"/>
       <path d="M74 84 Q102 78 96 44 Q92 22 68 20" fill="none" stroke="${INK}" stroke-width="10" stroke-linecap="round" stroke-dasharray="7 9"/>
     </g>
+    <path d="M47 48 L65 48 L64 68 L46 68 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
     <g class="breathe"><ellipse cx="54" cy="80" rx="18" ry="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <ellipse cx="54" cy="84" rx="10" ry="8" fill="${c.shade}" opacity=".55"/></g>
     <g class="head-tilt">
@@ -171,6 +172,7 @@ export const ART_PRIMATES = {
       <path d="M72 84 Q98 82 94 52" fill="none" stroke="${c.body}" stroke-width="5" stroke-linecap="round"/>
       <path d="M72 84 Q98 82 94 52" fill="none" stroke="${INK}" stroke-width="5" stroke-linecap="round" stroke-dasharray="4 7" opacity=".8"/>
     </g>
+    <path d="M48 56 L64 56 L64 69 L48 69 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
     <g class="breathe"><ellipse cx="56" cy="80" rx="15" ry="14" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/></g>
     <g class="head-tilt">
       <circle cx="56" cy="46" r="14" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
@@ -189,6 +191,7 @@ export const ART_PRIMATES = {
       <path d="M72 82 Q100 84 96 54 Q94 42 82 46" fill="none" stroke="${c.line}" stroke-width="7" stroke-linecap="round"/>
       <path d="M72 82 Q100 84 96 54 Q94 42 82 46" fill="none" stroke="${c.body}" stroke-width="4.5" stroke-linecap="round"/>
     </g>
+    <path d="M48 55 L64 55 L63 68 L46 68 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
     <g class="breathe"><ellipse cx="54" cy="80" rx="17" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M44 74 Q54 68 64 74" fill="${c.shade}" opacity=".4"/></g>
     <g class="head-tilt">

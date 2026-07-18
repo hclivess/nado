@@ -67,7 +67,7 @@ export const ART_FANTASYBEASTS = {
       ${ceye(53, 40, 4.4)}${ceye(67, 40, 4.4)}
       <path d="M58 46 l-2.4 2.4 h4.8 Z" fill="${INK}"/>
       <path d="M47 52 Q60 64 73 52 Q60 58 47 52 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      <path d="M52 53 l2 5 l2 -5 Z M62 54 l2 5 l2 -5 Z" fill="${TUSK}"/>
+      <path d="M52 53 l2 5 l2 -5 Z M64 53 l2 5 l2 -5 Z" fill="${TUSK}"/>
       <path d="M52 55 h16" stroke="${TUSK}" stroke-width="2" stroke-linecap="round"/>
     </g>`; },
 

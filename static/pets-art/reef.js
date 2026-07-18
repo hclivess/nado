@@ -3,7 +3,7 @@
 // Coat: c.body (main fill), c.shade (underside/accent), c.line (outline). All aquatic => float:true,
 // bodies oriented HORIZONTALLY, head to the RIGHT (nautilus / sea dragon stand upright). Helpers from
 // ../pets-draw.js. Fixed bone/tooth/venom/spark accents below; nose/eyes = INK/eyeInk.
-import { pom, tube, eyes, eye, smile, eyeInk, INK, mirror } from "../pets-draw.js";
+import { pom, tube, eyes, eye, smile, eyeInk, INK, mirror, belly } from "../pets-draw.js";
 
 const IVORY = "#f2e6c8"; // bills / swords / beaks / tusk-ivory
 const TOOTH = "#fff";    // teeth / fangs
@@ -13,22 +13,23 @@ const GILL = "#bcd6ea";  // pale wash highlight
 
 export const ART_REEF = {
   // Manta Ray — top-down glider: vast triangular pectoral wings, forward cephalic head-fins, whip tail
-  mantaray: (c) => { const E = eyeInk(c); return `
+  // Manta — flat winged diamond seen from above, gliding right: swept pectoral wings, forward cephalic
+  // horns (the "devil ray" signature), tiny side eyes, a long whip tail trailing behind.
+  mantaray: (c) => { const E = eyeInk(c), B = belly(c); return `
     <g class="tail-wag">
-      <path d="M42 62 Q24 62 10 60 Q24 63 42 63 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M56 56 Q38 26 14 22 Q26 42 46 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="M56 68 Q38 98 14 102 Q26 82 46 66 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="M50 52 Q36 40 22 30 M50 72 Q36 84 22 94" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".4"/>
+      <path d="M46 60 Q28 60 12 63" fill="none" stroke="${c.line}" stroke-width="3.4" stroke-linecap="round"/>
+      <path d="M46 60 Q28 60 12 63" fill="none" stroke="${c.body}" stroke-width="1.7" stroke-linecap="round"/>
     </g>
     <g class="breathe">
-      <ellipse cx="66" cy="62" rx="24" ry="18" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
-      <ellipse cx="63" cy="62" rx="14" ry="9" fill="${c.shade}" opacity=".5"/>
+      <path d="M98 60 Q88 44 58 24 Q48 44 44 58 L44 62 Q48 76 58 96 Q88 76 98 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M92 60 Q80 47 62 35 Q54 48 50 58 L50 62 Q54 72 62 85 Q80 73 92 60 Z" fill="${B}" opacity=".4"/>
+      <path d="M84 54 Q70 44 60 32 M84 66 Q70 76 60 88" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".35"/>
     </g>
     <g class="head-tilt">
-      <path d="M86 54 Q100 49 106 43 Q100 55 92 58 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M86 70 Q100 75 106 81 Q100 69 92 66 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M86 62 h14" stroke="${c.line}" stroke-width="2" stroke-linecap="round"/>
-      ${eye(84, 55, 2.4, E)}${eye(84, 69, 2.4, E)}
+      <path d="M96 55 Q105 51 108 53 Q104 56 98 57 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M96 65 Q105 69 108 67 Q104 64 98 63 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M95 60 q5 0 8 0" stroke="${c.line}" stroke-width="1.4" stroke-linecap="round" opacity=".5"/>
+      ${eye(87, 54, 2.3, E)}${eye(87, 66, 2.3, E)}
     </g>`; },
 
   // Hammerhead Shark — torpedo body + the mallet cephalofoil head with an eye at each far tip

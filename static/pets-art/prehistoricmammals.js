@@ -198,10 +198,10 @@ export const ART_PREHISTORICMAMMALS = {
   // ── Doedicurus — armadillo dome (banded) + tail ending in a big SPIKED MACE club ────────────────
   doedicurus: (c) => { const dome = deepen(c.body, .12); return `
     <g class="tail-wag">
-      <path d="M82 88 Q96 88 100 92" fill="none" stroke="${c.line}" stroke-width="7" stroke-linecap="round"/>
-      <path d="M82 88 Q96 88 100 92" fill="none" stroke="${c.shade}" stroke-width="4" stroke-linecap="round"/>
-      <circle cx="104" cy="94" r="9" fill="${dome}" stroke="${c.line}" stroke-width="2.8"/>
-      ${[[-90],[-40],[10],[60],[110]].map(([a])=>{const r=(a*Math.PI/180);return `<path d="M${(104+7*Math.cos(r)).toFixed(1)} ${(94+7*Math.sin(r)).toFixed(1)} l${(7*Math.cos(r)).toFixed(1)} ${(7*Math.sin(r)).toFixed(1)}" stroke="${c.line}" stroke-width="3.4" stroke-linecap="round"/><path d="M${(104+7*Math.cos(r)).toFixed(1)} ${(94+7*Math.sin(r)).toFixed(1)} l${(5*Math.cos(r)).toFixed(1)} ${(5*Math.sin(r)).toFixed(1)}" stroke="${IVORY}" stroke-width="1.8" stroke-linecap="round"/>`;}).join("")}</g>
+      <path d="M80 88 Q92 88 97 92" fill="none" stroke="${c.line}" stroke-width="7" stroke-linecap="round"/>
+      <path d="M80 88 Q92 88 97 92" fill="none" stroke="${c.shade}" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="100" cy="94" r="9" fill="${dome}" stroke="${c.line}" stroke-width="2.8"/>
+      ${[[-90],[-40],[10],[60],[110]].map(([a])=>{const r=(a*Math.PI/180);return `<path d="M${(100+7*Math.cos(r)).toFixed(1)} ${(94+7*Math.sin(r)).toFixed(1)} l${(7*Math.cos(r)).toFixed(1)} ${(7*Math.sin(r)).toFixed(1)}" stroke="${c.line}" stroke-width="3.4" stroke-linecap="round"/><path d="M${(100+7*Math.cos(r)).toFixed(1)} ${(94+7*Math.sin(r)).toFixed(1)} l${(5*Math.cos(r)).toFixed(1)} ${(5*Math.sin(r)).toFixed(1)}" stroke="${IVORY}" stroke-width="1.8" stroke-linecap="round"/>`;}).join("")}</g>
     <g class="breathe">
       <path d="M22 94 C18 66 34 44 58 44 C82 44 98 66 94 94 Q58 102 22 94 Z" fill="${dome}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <path d="M26 62 q32 -8 64 0 M24 74 q34 -6 68 0 M23 86 q35 -5 70 0" fill="none" stroke="${c.line}" stroke-width="1.6" opacity=".55"/>
@@ -223,8 +223,8 @@ export const ART_PREHISTORICMAMMALS = {
     <path d="M50 80 Q44 58 52 44" fill="none" stroke="${c.line}" stroke-width="12" stroke-linecap="round"/>
     <path d="M50 80 Q44 58 52 44" fill="none" stroke="${c.body}" stroke-width="8" stroke-linecap="round"/>
     <g class="tail-wag">
-      <path d="M50 40 C38 34 20 34 12 22 C24 24 34 26 44 30 C34 22 24 20 20 10 C32 16 44 22 50 30 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      ${mirror(`<path d="M50 40 C38 34 20 34 12 22 C24 24 34 26 44 30 C34 22 24 20 20 10 C32 16 44 22 50 30 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>`)}</g>
+      <path d="M53 50 C38 34 20 34 12 22 C24 24 34 26 44 30 C34 22 24 20 20 10 C32 16 44 22 53 42 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      ${mirror(`<path d="M53 50 C38 34 20 34 12 22 C24 24 34 26 44 30 C34 22 24 20 20 10 C32 16 44 22 53 42 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>`)}</g>
     <g class="head-tilt">
       <path d="M48 44 Q40 42 40 50 Q46 53 51 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
       ${mirror(`<path d="M48 44 Q40 42 40 50 Q46 53 51 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`)}
@@ -295,11 +295,11 @@ export const ART_PREHISTORICMAMMALS = {
     <g class="head-tilt">
       <path d="M38 46 Q36 38 43 40 Q46 46 44 50 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
       ${mirror(`<path d="M38 46 Q36 38 43 40 Q46 46 44 50 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>`)}
-      <path d="M40 56 C34 40 50 32 58 32 C66 32 82 40 76 56 C82 60 82 70 74 74 C68 64 48 64 42 74 C34 70 34 60 40 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      <path d="M46 62 C42 70 46 78 58 78 C70 78 74 70 70 62 Q58 58 46 62 Z" fill="${B}"/>
-      <path d="M52 70 Q58 74 64 70 Q58 73 52 70 Z" fill="${c.shade}"/>
-      <path d="M54 66 l4 0 l-2 3 Z" fill="${INK}"/>
-      ${eye(50, 54, 3, eyeInk(c))}${eye(66, 54, 3, eyeInk(c))}</g>`; },
+      <path d="M42 56 C36 40 52 32 60 32 C68 32 84 40 78 56 C84 60 84 70 76 74 C70 64 50 64 44 74 C36 70 36 60 42 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M48 62 C44 70 48 78 60 78 C72 78 76 70 72 62 Q60 58 48 62 Z" fill="${B}"/>
+      <path d="M54 70 Q60 74 66 70 Q60 73 54 70 Z" fill="${c.shade}"/>
+      <path d="M58 66 l4 0 l-2 3 Z" fill="${INK}"/>
+      ${eye(52, 54, 3, eyeInk(c))}${eye(68, 54, 3, eyeInk(c))}</g>`; },
 
   // ── Short-faced Bear — bear on TALL long legs, short blunt face, upright imposing stance ─────────
   shortfacedbear: (c) => { const B = belly(c); return `

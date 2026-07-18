@@ -130,7 +130,7 @@ export const ART_SEA = {
   // Blue Whale — VERY long low body, broad blunt head, ventral throat pleats, tiny nub dorsal near tail, spout
   bluewhale: (c) => {
     const E = eyeInk(c);
-    const pleats = Array.from({ length: 8 }, (_, i) => `<path d="M${64 + i * 6} 74 q0 8 3 12" fill="none" stroke="${c.line}" stroke-width="1" opacity=".5"/>`).join("");
+    const pleats = Array.from({ length: 8 }, (_, i) => `<path d="M${54 + i * 4} 68 q1 3 2 6" fill="none" stroke="${c.line}" stroke-width="1" opacity=".5"/>`).join("");
     return `
     <g class="tail-wag"><path d="M16 62 Q6 50 2 47 Q9 62 2 77 Q6 74 16 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M6 55 Q-2 62 6 69" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".5"/></g>
@@ -420,7 +420,7 @@ export const ART_SEA = {
   // Narwhal — stocky body, BULBOUS melon forehead, NO dorsal fin, long spiral ivory tusk (the signature), fluke
   narwhal: (c) => {
     const E = eyeInk(c);
-    const spiral = Array.from({ length: 8 }, (_, i) => `<path d="M${99 + i * 2.6} ${55 - i * 0.3} l2.4 4.4" stroke="${c.line}" stroke-width="1" opacity=".85"/>`).join("");
+    const spiral = Array.from({ length: 8 }, (_, i) => `<path d="M${104 + i * 2} ${54 - i * 0.9} l2 3.6" stroke="${c.line}" stroke-width="1" opacity=".85"/>`).join("");
     return `
     <g class="tail-wag"><path d="M22 62 Q10 50 5 46 Q14 62 5 78 Q10 74 22 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/></g>
     <g class="breathe">

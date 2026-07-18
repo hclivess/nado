@@ -172,7 +172,7 @@ export const ART_CRUSTACEANS = {
     const smallClaw = `${tube("M70 72 Q80 78 86 84", c.body, c.line, 5)}<path d="M86 84 q6 2 8 8 q-6 -1 -9 -4 q4 5 1 9 q-4 -4 -4 -10 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`;
     const carapace = Array.from({ length: 9 }, (_, i) => { const a = (-90 + i * 40) * Math.PI / 180; const x1 = 52 + 20 * Math.cos(a), y1 = 62 + 18 * Math.sin(a), x2 = 52 + 27 * Math.cos(a), y2 = 62 + 25 * Math.sin(a); return `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} L${x2.toFixed(1)} ${y2.toFixed(1)} l3 3 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>`; }).join("");
     return `
-    <g class="tail-wag">${legs}${bigClaw}${smallClaw}</g>
+    <g class="tail-wag">${legs}${mirror(legs)}${bigClaw}${smallClaw}</g>
     <g class="tail-wag">${legs.replace(/M52 58/g, "M52 60").replace(/16 58/g, "16 56")}</g>
     <g class="breathe">
       ${carapace}

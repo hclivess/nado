@@ -245,7 +245,7 @@ export const ART_RAPTORS = {
     <g class="breathe">
       <path d="M60 30 C54 30 52 36 53 42 C44 46 40 58 42 72 C44 82 52 84 60 84 C68 84 76 82 78 72 C80 58 76 46 67 42 C68 36 66 30 60 30 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <path d="M60 46 C52 46 48 56 49 66 C50 76 55 80 60 80 C65 80 70 76 71 66 C72 56 68 46 60 46 Z" fill="${B}"/>
-      ${[[46, 12], [51, 8], [57, 7], [63, 8], [68, 12]].map(([tx, ty]) => `<path d="M60 34 Q${((60 + tx) / 2).toFixed(0)} 24 ${tx} ${ty}" fill="none" stroke="${c.shade}" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="${tx}" cy="${ty}" rx="1.8" ry="3.6" fill="${c.shade}" stroke="${c.line}" stroke-width="0.9" transform="rotate(${((tx - 60) * 2).toFixed(0)} ${tx} ${ty})"/>`).join("")}
+      ${[[49, 12], [55, 8], [60, 7], [65, 8], [71, 12]].map(([tx, ty]) => `<path d="M60 34 Q${((60 + tx) / 2).toFixed(0)} 24 ${tx} ${ty}" fill="none" stroke="${c.shade}" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="${tx}" cy="${ty}" rx="1.8" ry="3.6" fill="${c.shade}" stroke="${c.line}" stroke-width="0.9" transform="rotate(${((tx - 60) * 2).toFixed(0)} ${tx} ${ty})"/>`).join("")}
       <path d="M50 38 Q60 34 70 38 Q69 48 60 50 Q51 48 50 38 Z" fill="${ACC2}" opacity=".9"/>
       ${reye(54, 41, 3.4)}${reye(66, 41, 3.4)}
       ${hookbeak(60, 50, 0.85)}

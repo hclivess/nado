@@ -131,8 +131,8 @@ export const ART_CELESTIAL = {
   // ── Galaxy Cat — front-sitting cat with a starry, nebula-speckled coat and glossy eyes (grounded)
   galaxycat: (c) => { const B = belly(c); return `
     ${floor(60, 112, 28)}
-    <g class="tail-wag"><path d="M80 98 Q104 94 100 74 Q98 64 88 66 Q96 72 90 82 Q84 90 76 90 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
-      ${freckles([[95, 78], [90, 86]], 1.2, STAR)}</g>
+    <g class="tail-wag"><path d="M75 98 Q99 94 95 74 Q93 64 83 66 Q91 72 85 82 Q79 90 71 90 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
+      ${freckles([[90, 78], [85, 86]], 1.2, STAR)}</g>
     <g class="breathe">
       <path d="M60 112 C30 112 26 92 31 72 C33 60 36 54 41 49 L33 24 L54 43 Q60 39 66 43 L87 24 L79 49 C84 54 87 60 89 72 C94 92 90 112 60 112 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M39 30 L50 44 Q44 47 41 51 Z" fill="${c.shade}"/><path d="M81 30 L70 44 Q76 47 79 51 Z" fill="${c.shade}"/>

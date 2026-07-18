@@ -244,7 +244,7 @@ export const ART_GEMSTONE = {
     <g class="breathe">
       <path d="M42 54 L34 34 L48 50 Z" fill="${P}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M78 54 L86 34 L72 50 Z" fill="${P}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M52 34 L50 16 L60 32 L70 16 L68 34 Z" fill="${P}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M52 50 L50 16 L60 32 L70 16 L68 50 Z" fill="${P}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M44 52 L60 46 L76 52 L82 78 L72 106 L48 106 L38 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <path d="M60 46 L76 52 L60 62 Z" fill="${L}" opacity=".5"/>
       <path d="M60 46 L44 52 L60 62 Z" fill="${D}" opacity=".4"/>

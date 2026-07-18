@@ -275,7 +275,7 @@ export const ART_ELEMENTALS = {
     </g>
     <g class="breathe">
       <path d="M28 96 L30 78 C30 58 44 48 60 48 C76 48 90 58 90 78 L92 96 L80 96 L78 84 L66 96 L54 96 L42 84 L40 96 Z" fill="${S}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      ${[42, 54, 66, 78].map(x => `<path d="M${x} 50 l4 -13 l4 13 Z" fill="${S}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>`).join("")}
+      ${[44, 52, 60, 68].map(x => `<path d="M${x} 50 l4 -13 l4 13 Z" fill="${S}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>`).join("")}
       <path d="M36 72 Q60 64 84 72 M40 60 L52 74 M80 60 L68 74 M60 56 L60 74" fill="none" stroke="${FIRE}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
       <ellipse cx="60" cy="80" rx="18" ry="10" fill="${FIRE}" opacity=".28"/>
       ${ceye(50, 70, 4)}${ceye(70, 70, 4)}

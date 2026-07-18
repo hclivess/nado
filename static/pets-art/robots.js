@@ -239,7 +239,8 @@ export const ART_ROBOTS = {
       ${bolt(43, 78, c)}${bolt(77, 78, c)}
     </g>
     <g class="head-tilt">
-      ${antenna(60, 34, 60, 22, GLOW)}
+      <rect x="52" y="60" width="16" height="18" rx="5" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
+      ${antenna(60, 40, 60, 22, GLOW)}
       <path d="M44 62 L48 38 L72 38 L76 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <rect x="49" y="44" width="22" height="12" rx="6" fill="${deepen(c.body, 0.15)}" stroke="${c.line}" stroke-width="1.8"/>
       ${reyes(55, 65, 50, 3.6)}

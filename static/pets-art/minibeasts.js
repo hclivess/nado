@@ -281,7 +281,7 @@ export const ART_MINIBEASTS = {
     return `
     <circle cx="30" cy="34" r="4" fill="${WING}" stroke="${c.line}" stroke-width="1.2" opacity=".7"/>
     <circle cx="90" cy="28" r="3" fill="${WING}" stroke="${c.line}" stroke-width="1.2" opacity=".7"/>
-    ${leg("M46 66 q-14 -4 -22 -10")}${leg("M44 74 q-16 2 -24 2")}${leg("M74 66 q14 -4 22 -10")}
+    ${leg("M46 66 q-14 -4 -22 -10")}${leg("M44 74 q-16 2 -24 2")}${leg("M74 66 q14 -4 22 -10")}${leg("M76 74 q16 2 24 2")}
     <path d="M46 82 Q34 92 22 98" fill="none" stroke="${c.line}" stroke-width="2.2" stroke-linecap="round"/>
     ${[[32, 92], [28, 95], [24, 98]].map(([x, y]) => `<path d="M${x} ${y} l-4 3" stroke="${c.line}" stroke-width="1.3" stroke-linecap="round"/>`).join("")}
     <path d="M74 82 Q86 92 98 98" fill="none" stroke="${c.line}" stroke-width="2.2" stroke-linecap="round"/>

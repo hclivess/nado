@@ -285,7 +285,7 @@ export const ART_ALIENS = {
     <g class="breathe">
       ${tube("M46 70 Q34 78 34 90", c.body, c.line, 5)}
       ${tube("M74 70 Q86 78 86 90", c.body, c.line, 5)}
-      <path d="M46 100 l-3 4 m3 -4 l0 5 m0 -5 l4 4 M77 100 l-3 4 m3 -4 l0 5 m0 -5 l4 4" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+      <path d="M46 100 l-3 4 m3 -4 l0 5 m0 -5 l4 4 M74 100 l-3 4 m3 -4 l0 5 m0 -5 l4 4" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round" fill="none"/>
       <path d="M44 98 Q40 62 48 54 Q42 48 44 38 Q46 24 60 24 Q74 24 76 38 Q78 48 72 54 Q80 62 76 98 Q60 106 44 98 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <path d="M54 20 l3 -6 l3 6 M62 20 l3 -6 l3 6" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
       <path d="M50 62 Q60 58 70 62 L68 92 Q60 96 52 92 Z" fill="${B}"/>
