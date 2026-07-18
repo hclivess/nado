@@ -154,34 +154,37 @@ export const ART_MYTHICAL = {
 
   // ── Kraken — colossal squid-beast, domed spiky mantle, glowing eyes, eight thick suckered tentacles, hooked beak (float)
   kraken: (c) => {
-    // 4 dynamic curling tentacles per side (mirrored) — splayed wide with curling tips, not a stiff fringe
+    // 8 arms (4 per side, mirrored) fanning DOWN & OUT with curling tips — none droops straight down the centre
     const tent = [
-      "M46 62 Q22 72 15 94 Q11 110 25 106",
-      "M52 66 Q34 80 31 102 Q29 115 42 111",
-      "M56 68 Q48 86 49 106 Q50 117 60 112",
-      "M59 70 Q57 90 61 108 Q63 116 68 110",
+      "M42 66 Q18 76 11 98 Q8 113 22 108",
+      "M48 70 Q29 84 25 106 Q23 117 37 111",
+      "M53 72 Q41 90 41 108 Q41 118 52 113",
+      "M57 73 Q52 88 47 100 Q42 111 33 105",
     ];
     const arms = tent.map((p) => tube(p, c.body, c.line, 8)).join("")
                + tent.map((p) => mirror(tube(p, c.body, c.line, 8))).join("");
-    const sp = [[30, 76], [18, 96], [38, 84], [32, 104], [49, 92], [53, 108], [59, 96]];
+    // short facial tentacles (a writhing beard) hang from the lower face and fill the centre — no single droop
+    const beard = ["M53 60 Q49 74 54 86 Q56 93 62 88", "M60 62 Q60 78 60 91 Q60 97 66 92", "M67 60 Q71 74 66 86 Q64 93 58 88"]
+      .map((p) => tube(p, c.body, c.line, 6)).join("");
+    const sp = [[28, 80], [16, 96], [37, 90], [31, 106], [48, 96], [50, 110], [44, 76]];
     const suckers = sp.flatMap(([x, y]) => [[x, y], [120 - x, y]]).map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.6" fill="${c.shade}"/>`).join("");
     return `
     <g class="tail-wag">${arms}${suckers}</g>
     <g class="breathe">
-      <path d="M30 36 Q18 40 25 54 Q30 47 34 42 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      ${mirror(`<path d="M30 36 Q18 40 25 54 Q30 47 34 42 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>`)}
-      <path d="M60 8 Q90 14 90 44 Q90 66 60 70 Q30 66 30 44 Q30 14 60 8 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
-      <path d="M44 22 Q58 13 70 20 Q56 24 50 38 Z" fill="#fff" opacity=".18"/>
-      <path d="M38 54 Q60 66 82 54 Q60 62 38 54 Z" fill="${c.shade}" opacity=".35"/>
-      <path d="M48 56 Q60 70 72 56 Q65 66 60 66 Q55 66 48 56 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      <path d="M54 59 l2 6 l2 -6 Z M60 61 l2 6 l2 -6 Z M66 59 l-2 6 l-2 -6 Z" fill="${TOOTH}" stroke="${c.line}" stroke-width="0.5" stroke-linejoin="round"/>
+      <path d="M42 22 Q20 6 12 20 Q22 30 40 32 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      ${mirror(`<path d="M42 22 Q20 6 12 20 Q22 30 40 32 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>`)}
+      <path d="M60 4 Q44 6 38 22 Q31 38 33 52 Q38 66 52 71 Q60 74 68 71 Q82 66 87 52 Q89 38 82 22 Q76 6 60 4 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M50 16 Q62 9 74 16 Q60 22 52 36 Z" fill="#fff" opacity=".16"/>
+      <path d="M40 52 Q60 63 80 52 Q60 59 40 52 Z" fill="${c.shade}" opacity=".3"/>
+      ${beard}
+      <path d="M55 57 Q60 65 65 57 Q60 61 55 57 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>
     </g>
     <g class="head-tilt">
-      <path d="M38 40 Q47 33 56 39 M82 40 Q73 33 64 39" fill="none" stroke="${c.line}" stroke-width="3.4" stroke-linecap="round"/>
-      <ellipse cx="48" cy="45" rx="7.5" ry="6.5" fill="${GLOW}" stroke="${c.line}" stroke-width="2.2"/>
-      <ellipse cx="72" cy="45" rx="7.5" ry="6.5" fill="${GLOW}" stroke="${c.line}" stroke-width="2.2"/>
-      <ellipse cx="48" cy="45" rx="2.1" ry="5.6" fill="${INK}"/>
-      <ellipse cx="72" cy="45" rx="2.1" ry="5.6" fill="${INK}"/>
+      <path d="M40 42 Q49 35 57 41 M80 42 Q71 35 63 41" fill="none" stroke="${c.line}" stroke-width="3.6" stroke-linecap="round"/>
+      <ellipse cx="49" cy="47" rx="7.5" ry="6" fill="${GLOW}" stroke="${c.line}" stroke-width="2.2"/>
+      <ellipse cx="71" cy="47" rx="7.5" ry="6" fill="${GLOW}" stroke="${c.line}" stroke-width="2.2"/>
+      <ellipse cx="49" cy="47" rx="2" ry="5.2" fill="${INK}"/>
+      <ellipse cx="71" cy="47" rx="2" ry="5.2" fill="${INK}"/>
     </g>`;
   },
 

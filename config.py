@@ -39,8 +39,10 @@ def get_timestamp_seconds():
 def get_protcol():
     """The node's protocol number — peers whose /status reports a LOWER protocol than ours are
     rejected at handshake, so bump this on breaking wire/consensus changes to shed old nodes.
-    (Yes, the name is misspelled; it is referenced as-is elsewhere — do not rename.)"""
-    return 2
+    (Yes, the name is misspelled; it is referenced as-is elsewhere — do not rename.)
+    3 (2026-07-18): the bit-width-audit + reg-difficulty-v2 consensus changes are STRICT (no
+    compatibility, per policy) — old-rules nodes are shed here instead of fought block-by-block."""
+    return 3
 
 
 def get_port():
