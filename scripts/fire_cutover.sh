@@ -25,6 +25,11 @@ HOME=/root $PY tools/relaunch_carry_forward.py
 echo "== 2/5 re-key alloc + open registry ndo -> $NEW_PREFIX"
 $PY scripts/rekey_alloc.py /root/nado/private/genesis_alloc.dat ndo "$NEW_PREFIX" > genesis_data/genesis_alloc.dat
 $PY scripts/rekey_alloc.py genesis_data/genesis_open.dat ndo "$NEW_PREFIX" > /tmp/_open.$$ && mv /tmp/_open.$$ genesis_data/genesis_open.dat
+# CRITICAL: genesis.py PREFERS private/genesis_{alloc,open}.dat over the repo copies. relaunch_carry_forward
+# just wrote private/genesis_alloc.dat with the OLD prefix — leaving it (and a stale private/genesis_open.dat)
+# would make THIS operator node rebuild genesis from un-rekeyed addresses while the fleet uses the rekeyed
+# repo files, forking the operator off its own chain. Remove them so genesis loads the rekeyed repo alloc.
+rm -f /root/nado/private/genesis_alloc.dat /root/nado/private/genesis_open.dat /root/nado/private/genesis_bonds.dat
 python3 -m json.tool genesis_data/genesis_alloc.dat > /dev/null && echo "   alloc valid JSON"
 echo "== 3/5 stamp the new genesis"
 NOW=$(date +%s)
