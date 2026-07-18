@@ -5388,6 +5388,9 @@ async function boot() {
 
   // initial connectivity + dashboard (startMining already kicks a poll when we auto-resumed)
   if (!resumedMining) pollOnce().catch(() => setConn(false));
+  // keep the tip + dashboard LIVE for an idle (non-mining) wallet too: without the loop the single
+  // boot-time poll froze the header until a manual page refresh (startPollLoop() is idempotent).
+  if (!state.pollTimer) startPollLoop();
   initNetTag().catch(() => {});
 }
 
