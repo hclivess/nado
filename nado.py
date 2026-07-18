@@ -1480,6 +1480,23 @@ async def update_node(request):
     return _resp(result)
 
 
+async def update_peer(request):
+    """GET /update_peer?target=<ip>: ask ONE KNOWN peer to self-update, proxied server-side (the browser
+    can't reach a peer's plain-http /update from an https wallet page). Permissionless like /update — the
+    caller controls only the WHEN. The target MUST be a currently-known peer (no arbitrary-host SSRF), and
+    we do NOT cascade (?wave=0) so this button hits exactly the one node the user clicked."""
+    target = request.query.get("target", "")
+    if target not in set(memserver.peers):
+        return _resp({"status": "unknown_peer"}, status=400)
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
+            async with s.get(f"http://{hostport(target, get_config()['port'])}/update?wave=0") as r:
+                return _resp(await r.json())
+    except Exception as e:
+        return _resp({"status": "unreachable", "error": str(e)[:120]}, status=502)
+
+
 async def make_app(port):
     """Build the aiohttp application with every route and serve it forever. Mainnet binds IPv4 on
     0.0.0.0 plus a best-effort SEPARATE IPV6_V6ONLY socket (so v4 clients keep plain v4 addresses for
@@ -1506,6 +1523,7 @@ async def make_app(port):
         web.get("/get_account_mempool", account_mempool),
         web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool)),
         web.get("/update", update_node),
+        web.get("/update_peer", update_peer),
         # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +
         # the bounded fetch-by-id — divergent peers no longer re-download each other's whole pools.
         web.get("/transaction_ids", _dump_handler("transaction_ids",

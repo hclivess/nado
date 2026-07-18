@@ -3738,6 +3738,12 @@ async function renderNodes() {
     const chainBad = self && chain !== self.chain_id;
     const protoBad = self && st.protocol !== self.protocol;
     const ver = _verShort(st) + (st.running_commit ? ` <span class="mono faint">${st.running_commit.slice(0, 8)}</span>` : "");
+    // an Update button appears ONLY for a node that is behind (update_available); harmless + permissionless
+    // (it just triggers that node's /update). Self hits the same-origin /update; a peer is proxied via
+    // /update_peer (the browser can't reach a peer's plain-http endpoint from this https page).
+    const act = upd
+      ? `<button class="node-upd" data-upd="${isSelf ? "" : encodeURIComponent(label)}" style="padding:3px 9px;font-size:11px;border:1px solid var(--acc,#3aa0ff);border-radius:7px;background:transparent;color:var(--acc,#3aa0ff);cursor:pointer;white-space:nowrap">${i18("stats.ndUpdate", "Update")}</button>`
+      : `<span class="faint" style="font-size:11px">✓</span>`;
     return "<tr" + (isSelf ? ' style="background:rgba(58,160,255,.08)"' : "") + ">"
       + td(isSelf ? `<b>${label}</b>` : `<span class="mono">${label}</span>`)
       + td(ver + (upd ? ` <span title="update available" style="color:${_CGOLD}">⬆</span>` : ""))
@@ -3746,13 +3752,27 @@ async function renderNodes() {
       + td(`${st.finalized_height != null ? st.finalized_height : "?"}`)
       + td(`${st.latest_block_weight != null ? (st.latest_block_weight / 1e6).toFixed(2) + "M" : "?"}`)
       + td(_uptime(st.reported_uptime))
+      + td(act)
       + "</tr>";
   }).join("");
   box.innerHTML = `<table style="width:100%;border-collapse:collapse;min-width:520px">
     <thead><tr style="border-bottom:1px solid var(--line,#1c2530)">
       ${th(i18("stats.ndNode", "Node"))}${th(i18("stats.ndVersion", "Version"))}${th(i18("stats.ndProto", "Proto"))}
-      ${th(i18("stats.ndChain", "Chain"))}${th(i18("stats.ndHeight", "Height"))}${th(i18("stats.ndWeight", "Weight"))}${th(i18("stats.ndUptime", "Uptime"))}
+      ${th(i18("stats.ndChain", "Chain"))}${th(i18("stats.ndHeight", "Height"))}${th(i18("stats.ndWeight", "Weight"))}${th(i18("stats.ndUptime", "Uptime"))}${th("")}
     </tr></thead><tbody>${body}</tbody></table>`;
+  box.querySelectorAll(".node-upd").forEach((b) => b.onclick = async () => {
+    const ip = b.dataset.upd ? decodeURIComponent(b.dataset.upd) : "";
+    b.disabled = true; b.textContent = i18("stats.ndUpdating", "updating…");
+    try {
+      const url = ip ? `/update_peer?target=${encodeURIComponent(ip)}` : "/update";
+      const r = await (await fetch(relayBase() + url, { cache: "no-store" })).json();
+      const st = r.status || "?";
+      b.textContent = st === "updated" ? i18("stats.ndSent", "updating ✓")
+        : st === "up_to_date" ? i18("stats.ndCurrent", "current")
+        : st;
+      setTimeout(() => renderNodes().catch(() => {}), 4000);   // reflect the new state shortly after
+    } catch (e) { b.disabled = false; b.textContent = i18("stats.ndFailed", "failed — retry"); }
+  });
   if (sub) sub.textContent = i18("stats.nodesSub", "{n} nodes seen · {u} on the latest code · newest main {m}",
     { n: rows.length, u: onLatest, m: latestMain ? String(latestMain).slice(0, 8) : "—" });
 }
