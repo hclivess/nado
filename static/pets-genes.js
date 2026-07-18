@@ -20,8 +20,8 @@ export const EXHAUST     = 3600;              // post-battle rest: both fighters
 // geometric ~4.5x decay (see speciesOf); +6/stat per tier so each step is a beatable ~76% edge and
 // investment can overcome a rarity gap. MUST mirror tests/pets_ref.py (TIER_CUM/BASE/COUNT + bonus).
 export const TIER_CUM   = [78000, 95000, 98900, 99750, 99960];   // cumulative tier thresholds (mod 100000)
-export const TIER_BASE  = { 1: 1, 2: 205, 3: 570, 4: 839, 5: 964, 6: 1001 };  // first si of each tier's band
-export const TIER_COUNT = { 1: 204, 2: 365, 3: 269, 4: 125, 5: 37, 6: 7 };        // animals per tier (sum 1007)
+export const TIER_BASE  = { 1: 1, 2: 205, 3: 571, 4: 840, 5: 965, 6: 1002 };  // first si of each tier's band
+export const TIER_COUNT = { 1: 204, 2: 366, 3: 269, 4: 125, 5: 37, 6: 7 };        // animals per tier (sum 1007)
 export const TIERS = {
   1: { rarity: "Common",    pct: 78,   color: "#e3b341" },
   2: { rarity: "Rare",      pct: 17,   color: "#c86bfa" },
@@ -160,7 +160,7 @@ export const ANIMALS = [
   A("Labrador", "🐶", "labrador", "red"),
   A("Bulldog", "🐶", "bulldog", "orange"),
   A("Chihuahua", "🐕", "chihuahua", "brown"),
-  A("Pug", "🐶", "pug", "green"),
+  A("Pug", "🐶", "pug", "sand"),
   A("Pomeranian", "🐶", "pomeranian", "gold"),
   A("Shih Tzu", "🐶", "shihtzu", "teal"),
   A("Cocker Spaniel", "🐶", "cockerspaniel", "orange"),
@@ -273,7 +273,7 @@ export const ANIMALS = [
   A("Corn Snake", "🐍", "cornsnake", "green"),
   A("Rat Snake", "🐍", "ratsnake", "green"),
   A("Egg-eating Snake", "🐍", "eggeatingsnake", "green"),
-  // ---- rares (tier 2, si 205..569) ----
+  // ---- rares (tier 2, si 205..570) ----
   A("Corgi", "🐕", "corgi", "pink"),
   A("Golden Retriever", "🦮", "goldenretriever", "gold"),
   A("Poodle", "🐩", "poodle", "slate"),
@@ -379,13 +379,14 @@ export const ANIMALS = [
   A("Great Egret", "🐦", "egret", "white"),
   A("Ibis", "🐦", "ibis", "white"),
   A("Stork", "🐦", "stork", "red"),
+  A("Shoebill", "🦤", "shoebill", "slate"),
   A("Crane", "🐦", "crane", "purple"),
   A("Spoonbill", "🦩", "spoonbill", "brown"),
   A("Pheasant", "🐦", "pheasant", "brown"),
   A("Hoatzin", "🐦", "hoatzin", "red"),
   A("Kookaburra", "🐦", "kookaburra", "orange"),
   A("Chinchilla", "🐭", "chinchilla", "orange"),
-  A("Capybara", "🦫", "capybara", "slate"),
+  A("Capybara", "🦫", "capybara", "brown"),
   A("Sugar Glider", "🐿️", "sugarglider", "orange", 1),
   A("Flying Squirrel", "🐿️", "flyingsquirrel", "blue", 1),
   A("Red Panda", "🦊", "redpanda", "red"),
@@ -411,7 +412,7 @@ export const ANIMALS = [
   A("Rottweiler", "🐕", "rottweiler", "purple"),
   A("Doberman", "🐕", "doberman", "blue"),
   A("Greyhound", "🐕", "greyhound", "white"),
-  A("Shiba Inu", "🐕", "shibainu", "red"),
+  A("Shiba Inu", "🐕", "shibainu", "gold"),
   A("Border Collie", "🐕", "bordercollie", "night"),
   A("Great Dane", "🐕", "greatdane", "slate"),
   A("Saint Bernard", "🐕", "saintbernard", "purple"),
@@ -465,7 +466,7 @@ export const ANIMALS = [
   A("Oscar", "🐟", "oscar", "blue", 1),
   A("Bichir", "🐟", "bichir", "slate", 1),
   A("Fangtooth", "🦷", "fangtooth", "pink", 1),
-  A("Blobfish", "🐡", "blobfish", "slate", 1),
+  A("Blobfish", "🐡", "blobfish", "pink", 1),
   A("Hatchetfish", "🪓", "hatchetfish", "red", 1),
   A("Snipe Eel", "🐍", "snipeeel", "slate", 1),
   A("Coffinfish", "⚰️", "coffinfish", "teal", 1),
@@ -639,7 +640,7 @@ export const ANIMALS = [
   A("Bug-eyed Alien", "👽", "bugeyedalien", "pink"),
   A("Nebula Bug", "🛸", "nebulabug", "purple", 1),
   A("Meteor Slug", "👾", "meteorslug", "white"),
-  // ---- legendaries (tier 3, si 570..838) ----
+  // ---- legendaries (tier 3, si 571..839) ----
   A("Brown Bear", "🐻", "brownbear", "brown"),
   A("Moose", "🫎", "moose", "brown"),
   A("Elk", "🦌", "elk", "brown"),
@@ -714,7 +715,7 @@ export const ANIMALS = [
   A("Polar Bear", "🐻‍❄️", "polarbear", "white"),
   A("Musk Ox", "🐂", "muskox", "purple"),
   A("Beluga", "🐋", "beluga", "white", 1),
-  A("Platypus", "🦆", "platypus", "pink"),
+  A("Platypus", "🦆", "platypus", "brown"),
   A("Echidna", "🦔", "echidna", "blue"),
   A("Tasmanian Devil", "😈", "tasmaniandevil", "gold"),
   A("Numbat", "🐿️", "numbat", "night"),
@@ -909,7 +910,7 @@ export const ANIMALS = [
   A("Astro Hound", "🛸", "astrohound", "teal"),
   A("Comet Rider", "🛸", "cometrider", "blue", 1),
   A("Galaxy Squid", "🛸", "galaxysquid", "teal", 1),
-  // ---- epics (tier 4, si 839..963) ----
+  // ---- epics (tier 4, si 840..964) ----
   A("Lion", "🦁", "lion", "green"),
   A("Tiger", "🐯", "tiger", "orange"),
   A("Elephant", "🐘", "elephant", "slate"),
@@ -922,7 +923,7 @@ export const ANIMALS = [
   A("Stone Golem", "🗿", "golem", "slate"),
   A("Slime", "🟢", "slime", "green"),
   A("Cyclops", "👁️", "cyclops", "slate"),
-  A("Axolotl", "🐟", "axolotl", "green", 1),
+  A("Axolotl", "🐟", "axolotl", "pink", 1),
   A("Triceratops", "🦕", "triceratops", "gold"),
   A("Stegosaurus", "🦕", "stegosaurus", "slate"),
   A("Velociraptor", "🦖", "velociraptor", "green"),
@@ -1035,7 +1036,7 @@ export const ANIMALS = [
   A("Rock Titan", "👹", "rocktitan", "slate"),
   A("Storm Kaiju", "🐲", "stormkaiju", "orange", 1),
   A("Star Spawn", "👾", "starspawn", "teal"),
-  // ---- mythics (tier 5, si 964..1000) ----
+  // ---- mythics (tier 5, si 965..1001) ----
   A("Griffin", "🦅", "griffin", "slate"),
   A("Unicorn", "🦄", "unicorn", "white"),
   A("Pegasus", "🐎", "pegasus", "white", 1),
@@ -1073,7 +1074,7 @@ export const ANIMALS = [
   A("Rex Kaiju", "🦖", "rexkaiju", "green"),
   A("Ape Titan", "👹", "apetitan", "green"),
   A("Volcano Titan", "🦖", "volcanotitan", "red"),
-  // ---- omega (tier 6, si 1001..1007) ----
+  // ---- omega (tier 6, si 1002..1008) ----
   A("Elder Dragon", "🐉", "dragon", "dragon", 1),
   A("Phoenix", "🔥", "phoenix", "red", 1),
   A("Kraken", "🦑", "kraken", "teal", 1),
@@ -1083,7 +1084,7 @@ export const ANIMALS = [
   A("Kirin", "🦌", "kirin", "white"),
 ];
 // tier of a species id (1-based si): matches the contract's roster bands (TIER_BASE/TIER_COUNT) exactly
-export const tierOfSi = (si) => si <= 204 ? 1 : si <= 569 ? 2 : si <= 838 ? 3 : si <= 963 ? 4 : si <= 1000 ? 5 : 6;   // matches the contract bands (TIER_BASE/TIER_COUNT)
+export const tierOfSi = (si) => si <= 204 ? 1 : si <= 570 ? 2 : si <= 839 ? 3 : si <= 964 ? 4 : si <= 1001 ? 5 : 6;   // matches the contract bands (TIER_BASE/TIER_COUNT)
 // the animal an on-chain pet renders as: si>0 -> roster entry; si==0 (legacy, pre-roster) -> the OG three
 const LEGACY = { 1: 0, 2: 70, 3: 95 };   // sp tier -> roster index of Poodle / African Grey / Dragon
 export const animalOf = (si, sp) => ANIMALS[si > 0 ? si - 1 : (LEGACY[sp] ?? 0)];

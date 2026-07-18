@@ -49,8 +49,8 @@ CAP_BATTLE = 12
 HP_OFF = 1024                 # HP values ride shifted by +1024 so a one-hit overshoot below zero stays
                               # field-positive (max damage < 1024) — branchless signed math in a prime field
 TIER_CUM = [78000, 95000, 98900, 99750, 99960]                                     # tier odds (fixed forever)
-TIER_BASE = {1: 1, 2: 205, 3: 570, 4: 839, 5: 964, 6: 1001}                        # first si of each tier band
-TIER_COUNT = {1: 204, 2: 365, 3: 269, 4: 125, 5: 37, 6: 7}                         # species per tier (sum 1007)
+TIER_BASE = {1: 1, 2: 205, 3: 571, 4: 840, 5: 965, 6: 1002}                        # first si of each tier band
+TIER_COUNT = {1: 204, 2: 366, 3: 269, 4: 125, 5: 37, 6: 7}                         # species per tier (sum 1008)
 STAT_TIER_BONUS = 6
 
 BURN_SLOT = 1

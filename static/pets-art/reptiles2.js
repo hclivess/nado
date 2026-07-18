@@ -13,15 +13,16 @@ export const ART_REPTILES2 = {
   // ── Green Anaconda — massively THICK oval coil, big round dark spots in two rows, blunt head on top
   greenanaconda: (c) => {
     const B = belly(c), E = eyeInk(c);
-    const spots = [[34, 66], [52, 54], [78, 54], [96, 66], [40, 88], [80, 88], [60, 96]]
+    const spots = [[36, 68], [54, 56], [78, 56], [92, 68], [44, 88], [78, 88], [60, 94]]
       .map(([x, y]) => `<ellipse cx="${x}" cy="${y}" rx="6.6" ry="5.2" fill="${c.shade}" stroke="${c.line}" stroke-width="1.2"/>`).join("");
     return `
     ${floorShadow(60, 110, 35)}
     <g class="breathe">
       ${tube("M60 100 Q18 100 20 70 Q24 44 60 44 Q96 44 100 70 Q102 100 60 100", c.body, c.line, 21)}
-      ${tube("M60 92 Q34 90 36 74 Q40 60 60 60", c.shade, "none", 8)}
+      <ellipse cx="60" cy="72" rx="35" ry="23" fill="${c.body}"/>
+      <path d="M28 64 Q60 84 92 64" fill="none" stroke="${c.shade}" stroke-width="1.6" opacity=".3"/>
+      <ellipse cx="60" cy="90" rx="16" ry="6.5" fill="${B}" opacity=".45"/>
       ${spots}
-      <path d="M32 98 Q60 108 88 98" fill="none" stroke="${B}" stroke-width="4.4" stroke-linecap="round" opacity=".8"/>
     </g>
     <g class="head-tilt">
       <path d="M48 46 Q44 26 60 24 Q76 26 72 46 Q60 54 48 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
@@ -62,11 +63,12 @@ export const ART_REPTILES2 = {
     ${floorShadow(60, 110, 34)}
     <g class="breathe">
       ${tube("M60 100 Q20 98 22 72 Q26 50 60 50 Q94 50 98 72 Q100 100 60 100", c.body, c.line, 13)}
-      ${tube("M60 92 Q40 90 42 76 Q46 64 60 64 Q74 64 78 76 Q80 90 60 92", c.body, c.line, 12)}
-      <ellipse cx="60" cy="78" rx="11" ry="7" fill="${c.body}"/>
-      ${[[30, 72], [46, 56], [74, 56], [90, 72]].map(([x, y]) => saddle(x, y)).join("")}
-      ${[[48, 82], [72, 82]].map(([x, y]) => saddle(x, y)).join("")}
-      <path d="M46 88 Q60 96 74 88" fill="none" stroke="${B}" stroke-width="3" stroke-linecap="round" opacity=".7"/>
+      <ellipse cx="60" cy="75" rx="33" ry="24" fill="${c.body}"/>
+      ${tube("M60 90 Q40 88 42 74 Q46 62 60 62 Q74 62 78 74 Q80 88 60 90", c.body, c.line, 12)}
+      <ellipse cx="60" cy="76" rx="12" ry="8" fill="${c.body}"/>
+      ${[[32, 62], [50, 54], [70, 54], [88, 62]].map(([x, y]) => saddle(x, y)).join("")}
+      ${[[42, 88], [60, 90], [78, 88]].map(([x, y]) => saddle(x, y)).join("")}
+      <path d="M46 92 Q60 99 74 92" fill="none" stroke="${B}" stroke-width="3" stroke-linecap="round" opacity=".6"/>
     </g>
     <g class="head-tilt">
       <path d="M49 50 Q45 32 60 30 Q75 32 71 50 Q60 57 49 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
@@ -100,39 +102,42 @@ export const ART_REPTILES2 = {
     return `
     ${floorShadow(60, 112, 33)}
     <g class="breathe">
-      ${tube("M44 104 Q18 98 26 78 Q40 62 60 64 Q82 62 94 78 Q102 98 76 104", c.body, c.line, 20)}
-      ${[[40, 88], [60, 84], [78, 90]].map(([x, y]) => hour(x, y)).join("")}
+      ${tube("M52 104 Q20 102 22 82 Q26 60 60 60 Q94 60 98 82 Q100 102 68 104", c.body, c.line, 20)}
+      <ellipse cx="60" cy="84" rx="34" ry="20" fill="${c.body}"/>
+      ${[[40, 88], [60, 84], [80, 88]].map(([x, y]) => hour(x, y)).join("")}
     </g>
     <g class="head-tilt">
-      <path d="M60 42 L34 58 Q38 68 60 68 Q82 68 86 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      <path d="M60 46 L52 62 M60 46 L68 62" fill="none" stroke="${c.line}" stroke-width="1.6" opacity=".55"/>
-      <path d="M57 44 l-1.6 -6 l3.6 3 Z M63 44 l1.6 -6 l-3.6 3 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1" stroke-linejoin="round"/>
-      <path d="M60 42 q0 -5 0 -8 M60 34 l-3 -4 M60 34 l3 -4" fill="none" stroke="${TONGUE}" stroke-width="1.6" stroke-linecap="round"/>
-      ${eye(46, 57, 2.8, E)}${eye(74, 57, 2.8, E)}
+      <path d="M60 44 L34 60 Q38 72 60 72 Q82 72 86 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M60 48 L52 64 M60 48 L68 64" fill="none" stroke="${c.line}" stroke-width="1.6" opacity=".55"/>
+      <path d="M57 46 l-1.6 -6 l3.6 3 Z M63 46 l1.6 -6 l-3.6 3 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1" stroke-linejoin="round"/>
+      <path d="M60 44 q0 -5 0 -8 M60 36 l-3 -4 M60 36 l3 -4" fill="none" stroke="${TONGUE}" stroke-width="1.6" stroke-linecap="round"/>
+      ${eye(46, 59, 2.8, E)}${eye(74, 59, 2.8, E)}
     </g>`;
   },
 
   // ── Coral Snake — full ring loop with bright cross-BANDS all around (red-black-yellow), small head bump
   coralsnake: (c) => {
     const B = belly(c), E = eyeInk(c);
-    const cx = 60, cy = 66, R = 33;
-    const bands = Array.from({ length: 18 }, (_, i) => {
-      const a = (-70 + i * 20) * Math.PI / 180;
-      const x1 = cx + (R - 8) * Math.cos(a), y1 = cy + (R - 8) * Math.sin(a);
-      const x2 = cx + (R + 8) * Math.cos(a), y2 = cy + (R + 8) * Math.sin(a);
-      const col = i % 2 ? B : c.shade, w = i % 2 ? 2.4 : 5.2;
-      return `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} L${x2.toFixed(1)} ${y2.toFixed(1)}" stroke="${col}" stroke-width="${w}" stroke-linecap="round"/>`;
+    const cx = (t) => 16 + t * 82, cy = (t) => 66 - Math.sin(t * Math.PI * 2.4) * 15;
+    const pts = Array.from({ length: 33 }, (_, i) => { const t = i / 32; return `${cx(t).toFixed(1)} ${cy(t).toFixed(1)}`; });
+    const bodyD = "M" + pts.join(" L");
+    const bands = Array.from({ length: 13 }, (_, i) => {
+      const t = 0.05 + i * 0.075, x = cx(t), y = cy(t);
+      const dx = 82, dy = -Math.cos(t * Math.PI * 2.4) * 15 * Math.PI * 2.4, L = Math.hypot(dx, dy);
+      const px = (-dy / L) * 6, py = (dx / L) * 6;
+      const col = i % 2 ? B : c.shade, w = i % 2 ? 3 : 6;
+      return `<path d="M${(x - px).toFixed(1)} ${(y - py).toFixed(1)} L${(x + px).toFixed(1)} ${(y + py).toFixed(1)}" stroke="${col}" stroke-width="${w}" stroke-linecap="round"/>`;
     }).join("");
     return `
     ${floorShadow(60, 108, 32)}
     <g class="breathe">
-      ${tube(`M${cx} ${cy - R} A${R} ${R} 0 1 1 ${cx - 0.1} ${cy - R}`, c.body, c.line, 13)}
+      ${tube(bodyD, c.body, c.line, 13)}
       ${bands}
     </g>
     <g class="head-tilt">
-      <path d="M50 32 Q48 20 60 20 Q72 20 70 32 Q60 40 50 32 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
-      <path d="M60 20 q0 -6 0 -9 M60 11 l-3 -4 M60 11 l3 -4" fill="none" stroke="${TONGUE}" stroke-width="1.5" stroke-linecap="round"/>
-      ${eye(54, 28, 2.4, E)}${eye(66, 28, 2.4, E)}
+      <path d="M92 46 Q106 43 108 53 Q106 61 96 61 Q88 54 92 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
+      <path d="M108 53 q6 1 10 0 M118 53 l3 -3 M118 53 l3 3" fill="none" stroke="${TONGUE}" stroke-width="1.5" stroke-linecap="round"/>
+      ${eye(99, 50, 2.6, E)}
     </g>`;
   },
 
@@ -164,7 +169,7 @@ export const ART_REPTILES2 = {
     ${track}
     <g class="breathe">
       ${tube("M28 98 Q48 90 40 72 Q34 56 56 52 Q74 48 76 38", c.body, c.line, 12)}
-      ${[[46, 66], [56, 78], [66, 56]].map(([x, y]) => `<path d="M${x - 5} ${y} q5 4 10 0" fill="none" stroke="${c.shade}" stroke-width="2.4" opacity=".6"/>`).join("")}
+      ${[[40, 74], [50, 58], [64, 46]].map(([x, y]) => `<path d="M${x - 5} ${y} q5 4 10 0" fill="none" stroke="${c.shade}" stroke-width="2.4" opacity=".6"/>`).join("")}
     </g>
     <g class="head-tilt">
       <path d="M64 42 Q64 26 82 26 Q96 28 94 40 Q88 50 76 50 Q64 50 64 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>

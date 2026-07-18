@@ -10,6 +10,30 @@ import { INK, ceye, eye, eyes, floorShadow, belly, tint, deepen, tube, pom, mirr
 
 const TONGUE = "#e0564d"; // forked tongue (fixed warm accent, same across coats)
 
+// ── on-body marking helpers: sample a chain of quadratic segments [[P0,P1,P2],…] and place each
+// marking AT a point on the body centerline, oriented to the LOCAL tangent so bands cross the body
+// (never a fixed grid that ignores where the tube actually curves).
+const qPt  = (P0, P1, P2, t) => { const u = 1 - t; return [u*u*P0[0]+2*u*t*P1[0]+t*t*P2[0], u*u*P0[1]+2*u*t*P1[1]+t*t*P2[1]]; };
+const qTan = (P0, P1, P2, t) => { const u = 1 - t; return [2*u*(P1[0]-P0[0])+2*t*(P2[0]-P1[0]), 2*u*(P1[1]-P0[1])+2*t*(P2[1]-P1[1])]; };
+// short strokes crossing the tube perpendicular to its local direction (rings / cross-bands)
+const bandsOn = (segs, spots, col, w = 4, h = 7) => spots.map(([si, t]) => {
+  const s = segs[si], [x, y] = qPt(...s, t), [tx, ty] = qTan(...s, t), L = Math.hypot(tx, ty) || 1, nx = -ty/L, ny = tx/L;
+  return `<path d="M${(x-nx*h).toFixed(1)} ${(y-ny*h).toFixed(1)} L${(x+nx*h).toFixed(1)} ${(y+ny*h).toFixed(1)}" stroke="${col}" stroke-width="${w}" stroke-linecap="round"/>`;
+}).join("");
+// forward-pointing chevrons riding the centerline (arrow / pit-viper dorsal marks)
+const chevronsOn = (segs, spots, col, w = 3, h = 6) => spots.map(([si, t]) => {
+  const s = segs[si], [x, y] = qPt(...s, t), [tx, ty] = qTan(...s, t), L = Math.hypot(tx, ty) || 1;
+  const ux = tx/L, uy = ty/L, nx = -uy, ny = ux, ax = x+ux*h*0.7, ay = y+uy*h*0.7;
+  const l1x = x-ux*h*0.4+nx*h, l1y = y-uy*h*0.4+ny*h, l2x = x-ux*h*0.4-nx*h, l2y = y-uy*h*0.4-ny*h;
+  return `<path d="M${l1x.toFixed(1)} ${l1y.toFixed(1)} L${ax.toFixed(1)} ${ay.toFixed(1)} L${l2x.toFixed(1)} ${l2y.toFixed(1)}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+}).join("");
+// tangent-aligned hourglass saddles (copperhead "Hershey-kiss" crossbands, pinched at the spine)
+const hourglassOn = (segs, spots, col, line, hw = 6, hh = 7) => spots.map(([si, t]) => {
+  const s = segs[si], [x, y] = qPt(...s, t), [tx, ty] = qTan(...s, t), L = Math.hypot(tx, ty) || 1;
+  const ux = tx/L, uy = ty/L, nx = -uy, ny = ux, P = (a, b) => `${(x+ux*a+nx*b).toFixed(1)} ${(y+uy*a+ny*b).toFixed(1)}`;
+  return `<path d="M${P(-hw,-hh)} L${P(hw,-hh)} L${P(hw*0.3,0)} L${P(hw,hh)} L${P(-hw,hh)} L${P(-hw*0.3,0)} Z" fill="${col}" stroke="${line}" stroke-width="1" stroke-linejoin="round"/>`;
+}).join("");
+
 export const ART_SNAKES2 = {
   // ── Boomslang — slim TALL upright S rising from a base coil, short head with two BIG round eyes
   boomslang: (c) => {
@@ -32,13 +56,13 @@ export const ART_SNAKES2 = {
   // ── Copperhead — relaxed body lying in a shallow wave, three pinched HOURGLASS bands, head resting right
   copperhead: (c) => {
     const B = belly(c), E = eyeInk(c);
-    const hg = (x, y) => `<path d="M${x - 9} ${y - 7} Q${x} ${y - 2} ${x + 9} ${y - 7} L${x + 9} ${y + 7} Q${x} ${y + 2} ${x - 9} ${y + 7} Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>`;
+    const WAVE = [[[14, 82], [32, 66], [50, 82]], [[50, 82], [66, 96], [82, 82]]];
     return `
     ${floorShadow(58, 108, 32)}
     <g class="breathe">
       ${tube("M14 82 Q32 66 50 82 Q66 96 82 82", c.body, c.line, 13)}
-      ${[[28, 76], [50, 84], [70, 86]].map(([x, y]) => hg(x, y)).join("")}
-      ${tube("M16 84 Q32 72 48 84", B, "none", 3)}
+      ${tube("M18 83 Q32 71 46 83", B, "none", 2.4)}
+      ${hourglassOn(WAVE, [[0, 0.28], [0, 0.72], [1, 0.35], [1, 0.75]], c.shade, c.line, 6, 7)}
     </g>
     <g class="head-tilt">
       <path d="M78 80 Q96 74 100 84 Q96 92 80 90 Q72 85 78 80 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
@@ -53,9 +77,9 @@ export const ART_SNAKES2 = {
     return `
     ${floorShadow(58, 110, 34)}
     <g class="breathe">
+      <ellipse cx="55" cy="80" rx="30" ry="24" fill="${c.body}"/>
       ${tube("M58 102 Q20 100 22 74 Q26 54 58 56 Q86 56 90 76 Q92 100 62 100", c.body, c.line, 16)}
       ${tube("M62 100 Q40 94 42 74 Q44 60 58 60 Q72 60 72 72", c.body, c.line, 12)}
-      <ellipse cx="58" cy="76" rx="11" ry="8" fill="${c.shade}" opacity=".35"/>
       ${tube("M30 92 Q24 80 30 68", B, "none", 4)}
     </g>
     <g class="head-tilt">
@@ -90,13 +114,13 @@ export const ART_SNAKES2 = {
   // ── Fer-de-lance — coiled defensive body with the head THRUST forward striking, sharp arrow head
   ferdelance: (c) => {
     const B = belly(c), E = eyeInk(c);
-    const mk = (x, y) => `<path d="M${x - 6} ${y - 6} L${x} ${y} L${x - 6} ${y + 6} M${x + 6} ${y - 6} L${x} ${y} L${x + 6} ${y + 6}" fill="none" stroke="${c.shade}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
+    const BODY = [[[30, 100], [10, 90], [20, 72]], [[20, 72], [30, 56], [50, 62]], [[50, 62], [68, 68], [60, 84]], [[60, 84], [54, 96], [76, 92]]];
     return `
     ${floorShadow(56, 110, 33)}
     <g class="breathe">
       ${tube("M30 100 Q10 90 20 72 Q30 56 50 62 Q68 68 60 84 Q54 96 76 92", c.body, c.line, 13)}
-      ${[[26, 84], [36, 64], [58, 74]].map(([x, y]) => mk(x, y)).join("")}
       ${tube("M30 98 Q16 88 22 74", B, "none", 3)}
+      ${chevronsOn(BODY, [[0, 0.55], [1, 0.35], [1, 0.8], [2, 0.5], [3, 0.4]], c.shade, 3, 6)}
     </g>
     <g class="head-tilt">
       ${tube("M72 92 Q84 88 90 90", c.body, c.line, 11)}
@@ -127,22 +151,22 @@ export const ART_SNAKES2 = {
   // ── Tiger Snake — flat concentric spiral coil (cinnamon-roll) with radial TIGER cross-bands, head on rim
   tigersnake: (c) => {
     const B = belly(c), E = eyeInk(c);
-    const band = (a) => {
-      const rad = a * Math.PI / 180, x1 = 60 + 22 * Math.cos(rad), y1 = 64 + 30 * Math.sin(rad), x2 = 60 + 40 * Math.cos(rad), y2 = 64 + 40 * Math.sin(rad);
-      return `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} L${x2.toFixed(1)} ${y2.toFixed(1)}" stroke="${c.shade}" stroke-width="6" stroke-linecap="round" opacity=".8"/>`;
-    };
+    // one continuous spiral coiling inward, filled behind with a disc so the centre never shows through
+    const SP = [
+      [[60, 32], [96, 32], [96, 66]], [[96, 66], [96, 98], [60, 98]], [[60, 98], [28, 98], [28, 66]],
+      [[28, 66], [28, 40], [54, 42]], [[54, 42], [74, 44], [74, 66]], [[74, 66], [74, 82], [58, 80]],
+    ];
     return `
     ${floorShadow(60, 110, 34)}
     <g class="breathe">
-      ${tube("M60 98 Q22 96 22 64 Q22 32 60 32 Q98 32 98 64 Q98 92 66 96", c.body, c.line, 15)}
-      ${[20, 55, 90, 125, 160, -20, -55].map((a) => band(a)).join("")}
-      ${tube("M66 96 Q44 90 46 68 Q48 54 62 54 Q76 56 76 68", c.body, c.line, 13)}
-      <ellipse cx="61" cy="70" rx="10" ry="8" fill="${B}" opacity=".4"/>
+      <ellipse cx="60" cy="66" rx="34" ry="33" fill="${c.body}" stroke="${c.line}" stroke-width="3.2"/>
+      ${tube("M60 32 Q96 32 96 66 Q96 98 60 98 Q28 98 28 66 Q28 40 54 42 Q74 44 74 66 Q74 82 58 80", c.body, c.line, 13)}
+      ${bandsOn(SP, [[0, 0.4], [0, 0.85], [1, 0.4], [1, 0.85], [2, 0.4], [2, 0.85], [3, 0.5], [4, 0.5], [5, 0.5]], c.shade, 6, 6)}
     </g>
     <g class="head-tilt">
-      <path d="M50 34 Q48 22 60 20 Q72 22 70 34 Q60 42 50 34 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
-      <path d="M60 20 q0 -6 0 -9 M60 11 l-3 -4 M60 11 l3 -4" fill="none" stroke="${TONGUE}" stroke-width="1.5" stroke-linecap="round"/>
-      ${eye(54, 28, 2.6, E)}${eye(66, 28, 2.6, E)}
+      <path d="M50 36 Q48 24 60 22 Q72 24 70 36 Q60 44 50 36 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
+      <path d="M60 22 q0 -6 0 -9 M60 13 l-3 -4 M60 13 l3 -4" fill="none" stroke="${TONGUE}" stroke-width="1.5" stroke-linecap="round"/>
+      ${eye(54, 30, 2.6, E)}${eye(66, 30, 2.6, E)}
     </g>`;
   },
 
@@ -177,7 +201,6 @@ export const ART_SNAKES2 = {
     <g class="breathe">
       ${tube("M40 102 Q16 94 26 74 Q36 58 58 62 Q78 66 70 48", c.body, c.line, 15)}
       ${tube("M42 98 Q26 88 32 72", B, "none", 4)}
-      <ellipse cx="52" cy="82" rx="14" ry="7" fill="${c.shade}" opacity=".28"/>
     </g>
     <g class="head-tilt">
       <path d="M56 52 Q48 40 60 34 Q74 30 82 40 Q86 48 80 54 Q70 60 60 58 Q56 56 56 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
@@ -192,11 +215,9 @@ export const ART_SNAKES2 = {
   // ── Milk Snake — body folded into stacked rows (festoon), vivid tricolour ring-BANDS wrapping around
   milksnake: (c) => {
     const B = belly(c), E = eyeInk(c);
-    const rows = [48, 66, 84];
-    const bands = rows.map((y, ri) => [32, 44, 56, 68, 80].map((x, i) => {
-      const col = (i + ri) % 2 ? c.shade : B;
-      return `<rect x="${x - 3}" y="${y - 7.5}" width="6" height="15" rx="2" fill="${col}"/>`;
-    }).join("")).join("");
+    // tricolour ring-bands clamped ON each straight festoon row (never off the body, never on the turns)
+    const seg = (y, xs, o) => xs.map((x, i) => `<rect x="${x - 3}" y="${y - 6}" width="6" height="12" rx="1.5" fill="${(i + o) % 2 ? c.shade : B}"/>`).join("");
+    const bands = seg(48, [30, 43, 56, 69, 82], 0) + seg(66, [82, 69, 56, 43, 34], 1) + seg(84, [34, 47, 60, 73], 0);
     return `
     ${floorShadow(58, 110, 36)}
     <g class="breathe">
@@ -213,14 +234,16 @@ export const ART_SNAKES2 = {
   // ── Kingsnake — body tied in a loose overhand KNOT (two crossing arcs), chain-link band pattern
   kingsnake: (c) => {
     const B = belly(c), E = eyeInk(c);
-    const link = (x, y) => `<path d="M${x - 5} ${y - 4} L${x - 5} ${y + 4} M${x + 5} ${y - 4} L${x + 5} ${y + 4} M${x - 5} ${y} L${x + 5} ${y}" stroke="${B}" stroke-width="2.2" stroke-linecap="round"/>`;
+    const A1 = [[[32, 94], [6, 74], [32, 52]], [[32, 52], [54, 34], [76, 52]], [[76, 52], [92, 66], [80, 82]]];
+    const A2 = [[[46, 44], [72, 26], [94, 52]], [[94, 52], [112, 76], [82, 96]], [[82, 96], [60, 106], [52, 86]]];
     return `
     ${floorShadow(60, 110, 33)}
     <g class="tail-wag">${tube("M34 98 Q22 92 28 82", c.body, c.line, 6)}</g>
     <g class="breathe">
       ${tube("M32 94 Q6 74 32 52 Q54 34 76 52 Q92 66 80 82", c.body, c.line, 13)}
       ${tube("M46 44 Q72 26 94 52 Q112 76 82 96 Q60 106 52 86", c.body, c.line, 13)}
-      ${[[20, 68], [54, 42], [88, 66], [70, 94]].map(([x, y]) => link(x, y)).join("")}
+      ${bandsOn(A1, [[0, 0.5], [1, 0.5], [2, 0.4], [2, 0.8]], B, 4.5, 7)}
+      ${bandsOn(A2, [[0, 0.45], [1, 0.4], [1, 0.75], [2, 0.5]], B, 4.5, 7)}
     </g>
     <g class="head-tilt">
       <path d="M40 46 Q34 34 46 30 Q58 28 60 40 Q58 50 48 50 Q42 50 40 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
@@ -331,7 +354,6 @@ export const ART_SNAKES2 = {
     <g class="breathe">
       <circle cx="60" cy="64" r="30" fill="${c.body}" stroke="${c.line}" stroke-width="3.2"/>
       ${tube("M60 90 Q40 86 42 68 Q44 54 60 56 Q76 58 74 70", c.shade, "none", 10)}
-      <circle cx="60" cy="64" r="12" fill="${B}" opacity=".35"/>
       ${scales.join("")}
     </g>
     <g class="head-tilt">
@@ -365,9 +387,9 @@ export const ART_SNAKES2 = {
     return `
     ${floorShadow(60, 110, 36)}
     <g class="breathe">
+      <ellipse cx="60" cy="74" rx="42" ry="22" fill="${c.body}"/>
       ${tube("M60 98 Q14 96 14 72 Q14 50 60 50 Q106 50 106 72 Q106 96 64 98", c.body, c.line, 15)}
       ${tube("M64 96 Q34 92 36 74 Q38 62 60 64 Q82 66 80 78", c.body, c.line, 12)}
-      <ellipse cx="60" cy="76" rx="13" ry="7" fill="${B}" opacity=".4"/>
       <path d="M30 66 Q38 62 46 66 M74 66 Q82 62 90 66" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".5"/>
     </g>
     <g class="head-tilt">

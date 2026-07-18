@@ -314,6 +314,25 @@ export const ART_EXOTICBIRDS = {
       ${eye(74, 25, 2.6, eyeInk(c))}
     </g>`,
 
+  // Shoebill — the meme "dinosaur bird": huge bulbous shoe-shaped bill + a pale piercing death-stare.
+  shoebill: (c) => `
+    ${wlegs([54, 66], 76)}
+    <g class="tail-wag"><path d="M38 70 Q26 64 24 74 Q32 74 42 72 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
+    <g class="breathe">
+      <path d="M36 70 Q42 52 64 54 Q84 58 80 74 Q68 84 50 82 Q38 80 36 70 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+      <path d="M44 76 Q60 86 78 76 Q74 84 60 86 Q46 84 44 76 Z" fill="${INK}" opacity=".35"/>
+      <path d="M48 62 q10 -3 20 0 M50 68 q9 -2 18 0" fill="none" stroke="${c.line}" stroke-width="1" opacity=".4"/></g>
+    <g class="head-tilt">
+      ${tube("M62 56 Q60 40 70 30", c.body, c.line, 8)}
+      <path d="M66 24 Q60 14 64 12 M70 22 Q66 12 71 11" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
+      <ellipse cx="72" cy="28" rx="11" ry="10" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+      <path d="M78 22 Q104 20 109 32 Q108 43 92 43 Q80 41 77 34 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M107 33 q3 6 -4 8 q-2 -4 -1 -8 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M82 28 Q96 27 104 31" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".5"/>
+      <circle cx="70" cy="27" r="4.2" fill="#f2ecd0" stroke="${c.line}" stroke-width="1.8"/>
+      <circle cx="70" cy="27" r="1.8" fill="${INK}"/>
+    </g>`,
+
   // Crane — stately wader: long neck, red crown cap, dagger bill, drooping bustle of tail plumes
   crane: (c) => `
     ${wlegs([54, 66], 74)}
@@ -420,6 +439,7 @@ export const ROSTER_EXOTICBIRDS = [
   { n: "Egret", e: "🐦", tier: 2, float: false },
   { n: "Ibis", e: "🐦", tier: 2, float: false },
   { n: "Stork", e: "🐦", tier: 2, float: false },
+  { n: "Shoebill", e: "🦤", tier: 2, float: false },
   { n: "Crane", e: "🐦", tier: 2, float: false },
   { n: "Spoonbill", e: "🦩", tier: 2, float: false },
   { n: "Pheasant", e: "🐦", tier: 2, float: false },

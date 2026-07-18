@@ -185,15 +185,15 @@ export const ART_REPTILES = {
     const E = eyeInk(c);
     return `
     <g class="breathe">
-      <ellipse cx="60" cy="98" rx="34" ry="12" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
-      <ellipse cx="60" cy="92" rx="24" ry="9" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
-      <ellipse cx="60" cy="94" rx="12" ry="5" fill="${c.body}" opacity=".55"/>
-      <path d="M50 90 Q44 62 60 50 Q76 62 70 90 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="M56 88 q4 -16 0 -30 M64 88 q4 -16 0 -30" fill="none" stroke="${c.shade}" stroke-width="1.3" opacity=".5"/>
+      ${tube("M40 100 Q22 100 26 86 Q32 74 60 74 Q88 74 94 86 Q98 100 78 100", c.body, c.line, 12)}
+      <ellipse cx="60" cy="90" rx="26" ry="11" fill="${c.body}"/>
+      <path d="M40 90 Q60 100 80 90" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".4"/>
+      <path d="M50 88 Q46 64 60 52 Q74 64 70 88 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M56 86 q3 -16 0 -30 M64 86 q3 -16 0 -30" fill="none" stroke="${c.shade}" stroke-width="1.3" opacity=".45"/>
     </g>
     <g class="tail-wag">
-      <path d="M60 30 Q30 34 38 62 Q60 74 82 62 Q90 34 60 30 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M52 46 Q60 54 68 46 Q66 40 60 40 Q54 40 52 46 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M60 32 Q30 36 38 62 Q60 74 82 62 Q90 36 60 32 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M52 48 Q60 56 68 48 Q66 42 60 42 Q54 42 52 48 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round"/>
     </g>
     <g class="head-tilt">
       <ellipse cx="60" cy="34" rx="12" ry="9.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
@@ -205,11 +205,14 @@ export const ART_REPTILES = {
   // ── Python — thick heavy oval coil, blotched saddle pattern, blunt head resting on top, small eyes
   python: (c) => {
     const E = eyeInk(c);
-    const blotch = [[60, 46], [30, 66], [90, 66], [42, 92], [78, 92], [60, 96]].map(([x, y]) =>
+    const blotch = [[60, 54], [34, 66], [86, 66], [46, 84], [74, 84], [60, 82]].map(([x, y]) =>
       `<ellipse cx="${x}" cy="${y}" rx="7.5" ry="6" fill="${c.shade}" stroke="${c.line}" stroke-width="1.3"/><ellipse cx="${x}" cy="${y}" rx="3.5" ry="2.6" fill="${c.body}" opacity=".5"/>`).join("");
     return `
     <g class="breathe">
-      ${tube("M60 94 Q22 94 24 70 Q28 48 60 48 Q92 48 96 70 Q98 94 60 94", c.body, c.line, 18)}
+      ${tube("M60 94 Q22 94 24 70 Q28 48 60 48 Q92 48 96 70 Q98 94 60 94", c.body, c.line, 20)}
+      <ellipse cx="60" cy="71" rx="31" ry="20" fill="${c.body}"/>
+      <path d="M30 64 Q60 80 90 64" fill="none" stroke="${c.shade}" stroke-width="1.5" opacity=".4"/>
+      <path d="M32 80 Q60 92 88 80" fill="none" stroke="${c.shade}" stroke-width="1.5" opacity=".35"/>
       ${blotch}
     </g>
     <g class="head-tilt">
@@ -223,42 +226,48 @@ export const ART_REPTILES = {
   // ── Rattlesnake — tight coil with diamond pattern, raised striking head, forked tongue, segmented rattle
   rattlesnake: (c) => {
     const E = eyeInk(c);
-    const diamonds = [[60, 96], [30, 78], [90, 78], [40, 60], [80, 60]].map(([x, y]) =>
+    const diamonds = [[60, 84], [40, 80], [80, 80], [50, 68], [70, 68]].map(([x, y]) =>
       `<path d="M${x} ${y - 6} l6 6 l-6 6 l-6 -6 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.3" stroke-linejoin="round"/>`).join("");
-    const rattle = Array.from({ length: 4 }, (_, i) => `<path d="M${94 - i * 1} ${44 - i * 7} l6 0 l-1 6 l-4 0 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>`).join("");
+    const rattle = Array.from({ length: 4 }, (_, i) => `<path d="M${92 - i * 1} ${50 - i * 7} l6 0 l-1 6 l-4 0 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>`).join("");
     return `
     <g class="breathe">
-      ${tube("M56 98 Q20 96 24 74 Q28 54 58 54 Q86 54 84 74 Q82 90 58 90", c.body, c.line, 15)}
+      ${tube("M60 100 Q26 100 28 78 Q32 58 60 58 Q88 58 90 78 Q92 98 62 98", c.body, c.line, 16)}
+      <ellipse cx="60" cy="80" rx="27" ry="15" fill="${c.body}"/>
+      <path d="M34 74 Q60 90 86 74" fill="none" stroke="${c.shade}" stroke-width="1.5" opacity=".4"/>
       ${diamonds}
     </g>
     <g class="tail-wag">
-      ${tube("M82 72 Q94 62 92 48", c.body, c.line, 6)}
+      ${tube("M86 74 Q98 64 96 52", c.body, c.line, 6)}
       ${rattle}
     </g>
     <g class="head-tilt">
-      ${tube("M56 74 Q42 60 52 46 Q62 36 74 44", c.body, c.line, 11)}
-      <path d="M66 34 Q84 30 88 42 Q84 52 70 50 Q60 44 66 34 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="M67 41 q-4 -4 -9 -3 M74 40 q4 -4 9 -3" fill="none" stroke="${c.line}" stroke-width="1" opacity=".55"/>
-      <path d="M88 45 q6 1 11 -1 M96 43 l4 3 M96 43 l4 -3" fill="none" stroke="${TONGUE}" stroke-width="1.7" stroke-linecap="round"/>
-      ${eye(74, 40, 2.6, E)}
+      ${tube("M62 60 Q48 48 46 34 Q45 26 56 24", c.body, c.line, 11)}
+      <path d="M58 20 Q40 18 38 32 Q40 44 54 44 Q64 36 58 20 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M52 28 q-4 -3 -9 -2 M45 40 q-4 3 -9 2" fill="none" stroke="${c.line}" stroke-width="1" opacity=".5"/>
+      <path d="M40 30 q-6 0 -11 -2 M29 28 l-4 3 M29 28 l-4 -3" fill="none" stroke="${TONGUE}" stroke-width="1.7" stroke-linecap="round"/>
+      ${eye(50, 30, 2.6, E)}
     </g>`;
   },
 
   // ── Sea Snake — banded, flattened paddle tail, undulating body, tiny head; float:true (horizontal)
   seasnake: (c) => {
     const E = eyeInk(c);
-    const bands = Array.from({ length: 8 }, (_, i) => {
-      const t = i / 7, x = 22 + t * 66, y = 62 + Math.sin(t * Math.PI * 2.4) * 12;
-      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6.5" fill="${c.shade}" opacity=".85"/>`;
+    const cx = (t) => 18 + t * 82, cy = (t) => 62 - Math.sin(t * Math.PI * 2.2) * 13;
+    const pts = Array.from({ length: 33 }, (_, i) => { const t = i / 32; return `${cx(t).toFixed(1)} ${cy(t).toFixed(1)}`; });
+    const bodyD = "M" + pts.join(" L");
+    const bands = Array.from({ length: 9 }, (_, i) => {
+      const t = 0.06 + i * 0.108, x = cx(t), y = cy(t);
+      const dx = 82, dy = -Math.cos(t * Math.PI * 2.2) * 13 * Math.PI * 2.2, L = Math.hypot(dx, dy);
+      const px = (-dy / L) * 6, py = (dx / L) * 6;
+      return `<path d="M${(x - px).toFixed(1)} ${(y - py).toFixed(1)} L${(x + px).toFixed(1)} ${(y + py).toFixed(1)}" stroke="${c.shade}" stroke-width="4.5" stroke-linecap="round" opacity=".85"/>`;
     }).join("");
     return `
     <g class="tail-wag">
       <path d="M18 62 Q6 54 8 62 Q6 70 18 62 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
     </g>
     <g class="breathe">
-      ${tube("M18 62 Q34 44 50 62 Q66 80 82 62 Q92 52 100 58", c.body, c.line, 13)}
+      ${tube(bodyD, c.body, c.line, 13)}
       ${bands}
-      ${tube("M18 62 Q34 44 50 62 Q66 80 82 62 Q92 52 100 58", c.body, "none", 4)}
     </g>
     <g class="head-tilt">
       <path d="M92 54 Q108 52 108 60 Q108 68 96 66 Q88 60 92 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
