@@ -1541,7 +1541,9 @@ if __name__ == "__main__":
 
     key_dict = load_keys()
     address = key_dict["address"]
-    recipient = "ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29"
+    from ops.address_ops import make_checksum as _mc
+    recipient = ADDRESS_PREFIX + "6a7a7a6d26040d8d53ce66343a47347c9b79e814c6"
+    recipient = recipient + _mc(recipient)
     private_key = key_dict["private_key"]
     public_key = key_dict["public_key"]
     amount = to_raw_amount(0)

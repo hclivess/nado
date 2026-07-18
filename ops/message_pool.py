@@ -32,13 +32,16 @@ MSG_TS_SKEW       = 2 * 3600          # reject envelopes whose ts is >2 h in the
 MSG_POW_BITS      = 12                # per-message hashcash difficulty (leading zero bits) — ~a few k hashes
 PREKEY_MAX_BYTES  = 32 * 1024         # a prekey bundle (identity + signed prekey + one-time prekeys) cap
 
+# Messaging hashcash domain (client mirror: static/messaging.js).
+DOMAIN_MSG_POW = "msg-pow-v1"
+
 _ENVELOPE_FIELDS = ("v", "sender", "public_key", "tag", "hdr", "nonce", "ct", "ts", "pow", "sig")
 _PREKEY_FIELDS   = ("address", "public_key", "ik_pub", "spk_pub", "spk_ts", "ts", "sig")
 
 
 def pow_preimage(env: dict) -> list:
     """The canonical hashcash pre-image: everything the PoW commits to EXCEPT the pow nonce + signature."""
-    return ["nado-msg-pow", env.get("sender", ""), env.get("tag", ""), env.get("ct", ""), env.get("ts", 0)]
+    return [DOMAIN_MSG_POW, env.get("sender", ""), env.get("tag", ""), env.get("ct", ""), env.get("ts", 0)]
 
 
 def pow_ok(env: dict, bits: int = MSG_POW_BITS) -> bool:

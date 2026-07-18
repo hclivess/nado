@@ -20,7 +20,7 @@ Design (from the red-teamed "Option A" hybrid):
     (R,S) and would be grindable); signing stays only for authenticating heartbeats/reveals.
 """
 from hashing import blake2b_hash
-from protocol import DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT
+from protocol import DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, DOMAIN_RANDAO_BEACON
 from protocol import (B_MIN, BOND_CAP, EPOCH_LENGTH, FIDELITY_CAP, BOND_RAMP_EPOCHS,
                       K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS, REGISTER_POW_BITS)
 
@@ -123,7 +123,7 @@ def compute_beacon(prev_beacon: str, revealed_secrets: list) -> str:
     withheld (committed-but-not-revealed) secrets are simply absent here and are penalised at the
     integration layer. With zero reveals the beacon still advances deterministically off
     prev_beacon (liveness), at the cost of that one epoch being lower-entropy."""
-    return blake2b_hash(["nado-randao-beacon", prev_beacon, sorted(revealed_secrets)])
+    return blake2b_hash([DOMAIN_RANDAO_BEACON, prev_beacon, sorted(revealed_secrets)])
 
 
 # --- two-lane selection: OPEN (free) lane + BONDED (stake) lane -------------------------------

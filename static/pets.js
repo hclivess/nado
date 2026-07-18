@@ -5,6 +5,7 @@
 // has a 20% chance to die), and transfers between wallets like any NFT. All money moves happen in the
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shareInvite, esc } from "./nadodapp.js";
+import { ADDR_PREFIX } from "./nadotx.js";
 import * as G from "./pets-genes.js";
 import { HAND_ART } from "./pets-art-hand.js";   // bespoke per-animal art (grows toward the full roster)
 import { loadCrypto } from "./nadotx.js";
@@ -790,7 +791,7 @@ async function transfer(pid) {
     catch { to = ""; }
     if (!to) return alertBar(window.t("pets.aliasNoResolve", "That @alias doesn't resolve to an address."));
   }
-  if (!to || !to.startsWith("ndo")) return alertBar(window.t("pets.enterRecipient", "Enter the receiving NADO address (ndo…) or a registered @alias."));
+  if (!to || !to.startsWith(ADDR_PREFIX)) return alertBar(window.t("pets.enterRecipient", "Enter the receiving NADO address or a registered @alias."));
   if (to === dapp.me) return alertBar(window.t("pets.thatsYou", "That's you — pick another wallet."));
   dapp.call("transfer", [Number(pid), to], null, "transfer " + PETS[pid].label + " to " + to.slice(0, 10) + "…", { pid, phase: "xfer" }, { confirm: 1 });
 }

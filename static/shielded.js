@@ -4,7 +4,7 @@
  * Every hash here is byte-identical to the Python exec node, so a note committed / nullifier revealed / spend
  * authorised in the browser is accepted by the pool. That identity rests on ONE dependency: `blake2bHash`,
  * which is already byte-verified against Python vectors (see interface.js). We compose it exactly as Python's
- * _h does — blake2b_hash(["nado.shield", *map(str, parts)]) — and keep every scalar a STRING so there is no
+ * _h does — blake2b_hash([DOMAIN_SHIELD, *map(str, parts)]) — and keep every scalar a STRING so there is no
  * language-specific number/list formatting to diverge on.
  *
  * The blake2bHash primitive is INJECTED via initShielded(...) so this same module runs unchanged in the

@@ -51,6 +51,7 @@ const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;            
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");    // strict (lowercase)
 const ADDR_RE_I = new RegExp(ADDR_RE.source, "i");
 const ADDR_RE_LOOSE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{40,}$", "i");
+const MSIG_RE_I = new RegExp("^" + MSIG_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$", "i");   // policy accounts are payable
 const ADDR_PRE_RE = new RegExp("^" + ADDR_PREFIX), ADDR_PRE_RE_I = new RegExp("^" + ADDR_PREFIX, "i");
 // DOMAIN-SEPARATION TAGS — mirror protocol.py DOMAIN_* (renamed only at a CHAIN_GENERATION reroll).
 const DOMAIN_MSIG = "msig-v2", DOMAIN_REGISTER = "register-v1";
@@ -288,7 +289,7 @@ function renderAccountBar() {
 }
 
 // Validate a recipient address byte-identically to ops/address_ops.validate_address: a canonical
-// NADO address is "ndo" + 42-hex pubkey body + a 4-hex blake2b checksum over everything-but-the-last-4
+// An address is ADDR_PREFIX + 42-hex pubkey body + a 4-hex blake2b checksum over everything-but-the-last-4
 // (== 49 chars). A mistyped address fails the checksum and is rejected before any tx is built.
 function validateAddress(addr) {
   addr = (addr || "").trim();
@@ -4523,7 +4524,7 @@ async function msgSend() {
   const body = ($("msgBody").value || "").trim();
   if (!toRaw || !body) return;
   let addr = toRaw;
-  if (!ADDR_RE_LOOSE.test(toRaw)) {                       // resolve an alias
+  if (!ADDR_RE_LOOSE.test(toRaw) && !MSIG_RE_I.test(toRaw)) {   // resolve an alias (msig… pays directly)
     const owner = await resolveAlias(toRaw.replace(/^@/, ""));
     if (!owner) { $("msgHint").textContent = i18("msg.noAlias", "No such alias:") + " " + toRaw; return; }
     addr = owner;

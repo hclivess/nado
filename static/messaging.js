@@ -9,6 +9,9 @@
  * plus trial-decapsulation on fetch. The KEM Double Ratchet (forward secrecy + PCS) layers on top
  * of this transport later without changing the envelope shape or the node.
  * -------------------------------------------------------------------------------------------- */
+// Messaging hashcash domain (mirrors ops/message_pool.py DOMAIN_MSG_POW).
+const DOMAIN_MSG_POW = "msg-pow-v1";
+
 import { blake2b, bytesToHex, hexToBytes, ml_dsa44, ml_kem768 } from './vendor/nado-crypto.js?v=mlkem';
 
 const _enc = new TextEncoder();
@@ -103,7 +106,7 @@ function leadingZeroBits(hex) {
   return n;
 }
 function minePow(sender, tag, ct, ts, bits = POW_BITS) {
-  for (let i = 0; ; i++) { const p = i.toString(16); if (leadingZeroBits(b2hash(['nado-msg-pow', sender, tag, ct, ts, p])) >= bits) return p; }
+  for (let i = 0; ; i++) { const p = i.toString(16); if (leadingZeroBits(b2hash([DOMAIN_MSG_POW, sender, tag, ct, ts, p])) >= bits) return p; }
 }
 
 // ---- envelope + prekey bundle ------------------------------------------------------------------------------

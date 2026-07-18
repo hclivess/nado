@@ -19,7 +19,7 @@ Env:
 
 Run:  python execnode/execnode.py
 Query:  curl localhost:9273/exec/root
-        curl 'localhost:9273/exec/view?cid=<id>&method=balanceOf&args=["ndo…"]'
+        curl 'localhost:9273/exec/view?cid=<id>&method=balanceOf&args=["<address>"]'
 """
 import asyncio
 import json

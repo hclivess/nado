@@ -37,6 +37,7 @@ ADDRESS_LENGTH = len(ADDRESS_PREFIX) + ADDRESS_BODY + ADDRESS_CHECKSUM * 2   # 4
 DOMAIN_MSIG = "msig-v2"                       # multisig virtual-pubkey derivation (ops/multisig_ops)
 DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW binding (ops/mining_ops)
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
+DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
 GENESIS_TIMESTAMP = 1784257440  # 2026-07-17 — alphanet-6 (FROZEN sparse alghash2 settled root, exec_root.py;
                                 # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
@@ -260,7 +261,7 @@ MAX_BLOB_BYTES_PER_BLOCK = 1024 * 1024
 # --- Aliases (human-readable names -> address; register / transfer / unregister on-chain) ---
 # An alias lets a user send to a short name instead of the 49-char ndo address. Names are a scarce
 # global namespace: 3..32 chars, lowercase [a-z0-9_-], must start with a letter, and must NOT be a
-# reserved word or look like an address ("ndo…"). Registration pays a higher fee (anti-squat); the
+# reserved word or look like an address (ADDRESS_PREFIX/MSIG_PREFIX). Registration pays a higher fee (anti-squat); the
 # owner can transfer or unregister it. See ops/alias_ops.py.
 ALIAS_MIN_LEN = 3
 ALIAS_MAX_LEN = 32
@@ -358,7 +359,7 @@ BOND_ELASTIC_MULT_BPS = [
 TREASURY_GENESIS = 0  # no premine — fair launch via the open lane + base subsidy
 
 # --- Multisig (opt-in M-of-N accounts; see ops/multisig_ops.py) ---
-# A multisig address = make_address(blake2b(["nado-msig-v1", threshold, members])) — the address IS
+# A multisig address = make_address(blake2b([DOMAIN_MSIG, threshold, members]), MSIG_PREFIX) — the address IS
 # the policy, nothing is registered in advance. Spends carry the descriptor in the signed body and a
 # LIST of member signatures over the txid. Payment accounts only (reserved recipients are rejected),
 # so validator-identity assumptions stay one-key-one-identity. Live since introduction (alphanet — no

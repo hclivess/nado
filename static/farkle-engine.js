@@ -255,7 +255,7 @@ export function dieSamples(seedHex, n) {
 
 if (isMain()) {
   selfTest();
-  console.log("dieFromHash('nado-farkle', 0..9):", dieSamples("nado-farkle", 10).join(","));
+  console.log("dieFromHash('farkle-demo', 0..9):", dieSamples("farkle-demo", 10).join(","));
   const thresholds = [300, 400, 500, 600, 750, 1000, 1250, 1500, 2000, 3000];
   const TURNS = 300000;
   const rng = () => 1 + Math.floor(Math.random() * 6);
