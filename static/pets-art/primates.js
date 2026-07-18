@@ -109,8 +109,10 @@ export const ART_PRIMATES = {
     <g class="breathe">${pom(60, 82, 19, c.body, c.line, 15, 2.4)}
       <ellipse cx="60" cy="86" rx="11" ry="8" fill="${c.shade}" opacity=".5"/></g>
     <g class="tail-wag">
-      ${mirror(`<path d="M42 76 Q26 80 30 94 Q38 92 46 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>`)}
-      <path d="M42 76 Q26 80 30 94 Q38 92 46 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      ${mirror(`<g><path d="M47 70 Q37 78 40 90 Q42 100 53 97 Q60 95 58 87 Q55 78 56 71 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M44 94 q1 4 3 5 M48 95 q1 4 3 5 M52 94 q0 4 2 5" stroke="${c.line}" stroke-width="1.3" fill="none" stroke-linecap="round"/></g>`)}
+      <g><path d="M47 70 Q37 78 40 90 Q42 100 53 97 Q60 95 58 87 Q55 78 56 71 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M44 94 q1 4 3 5 M48 95 q1 4 3 5 M52 94 q0 4 2 5" stroke="${c.line}" stroke-width="1.3" fill="none" stroke-linecap="round"/></g>
     </g>
     <g class="head-tilt">
       ${pom(60, 46, 20, c.body, c.line, 11, 2.4)}
@@ -367,8 +369,10 @@ export const ART_PRIMATES = {
     <g class="breathe"><ellipse cx="60" cy="82" rx="19" ry="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <ellipse cx="60" cy="86" rx="10" ry="8" fill="${c.shade}" opacity=".5"/></g>
     <g class="tail-wag">
-      ${mirror(`<path d="M42 76 Q26 80 30 94 Q38 92 46 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>`)}
-      <path d="M42 76 Q26 80 30 94 Q38 92 46 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      ${mirror(`<g><path d="M47 70 Q37 78 40 90 Q42 100 53 97 Q60 95 58 87 Q55 78 56 71 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M44 94 q1 4 3 5 M48 95 q1 4 3 5 M52 94 q0 4 2 5" stroke="${c.line}" stroke-width="1.3" fill="none" stroke-linecap="round"/></g>`)}
+      <g><path d="M47 70 Q37 78 40 90 Q42 100 53 97 Q60 95 58 87 Q55 78 56 71 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M44 94 q1 4 3 5 M48 95 q1 4 3 5 M52 94 q0 4 2 5" stroke="${c.line}" stroke-width="1.3" fill="none" stroke-linecap="round"/></g>
     </g>
     <g class="head-tilt">
       ${mirror(`<circle cx="44" cy="44" r="6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><circle cx="44" cy="44" r="3" fill="${c.shade}"/>`)}

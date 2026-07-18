@@ -300,7 +300,7 @@ export const ART_BIRDS = {
 
   // Crow — sleek glossy all-dark bird, stout straight beak held open mid-caw, alert stance
   crow: (c) => `
-    <g class="tail-wag"><path d="M36 86 Q24 106 38 106 L48 90 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M46 82 Q28 102 42 106 L54 88 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
     <g class="breathe">
       <path d="M42 84 Q38 56 60 52 Q82 56 78 84 Q60 96 42 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M50 62 Q60 66 70 62 M52 72 Q60 76 68 72" stroke="${c.shade}" stroke-width="1.4" fill="none" opacity=".5"/>

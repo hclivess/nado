@@ -386,10 +386,9 @@ export const ART_SNAKES2 = {
     return `
     ${floorShadow(60, 110, 36)}
     <g class="breathe">
-      <ellipse cx="60" cy="74" rx="42" ry="22" fill="${c.body}"/>
-      ${tube("M60 98 Q14 96 14 72 Q14 50 60 50 Q106 50 106 72 Q106 96 64 98", c.body, c.line, 15)}
-      ${tube("M64 96 Q34 92 36 74 Q38 62 60 64 Q82 66 80 78", c.body, c.line, 12)}
-      <path d="M30 66 Q38 62 46 66 M74 66 Q82 62 90 66" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".5"/>
+      <ellipse cx="60" cy="74" rx="42" ry="22" fill="${c.body}" stroke="${c.line}" stroke-width="3"/>
+      <path d="M60 78 L60.3 78 L60.5 78.1 L60.8 78.2 L60.9 78.4 L61 78.6 L60.9 78.8 L60.8 79.1 L60.5 79.3 L60.2 79.5 L59.7 79.6 L59.2 79.7 L58.6 79.8 L57.9 79.8 L57.2 79.7 L56.5 79.5 L55.9 79.2 L55.3 78.8 L54.9 78.4 L54.5 77.9 L54.3 77.4 L54.3 76.8 L54.5 76.2 L54.9 75.6 L55.5 75 L56.3 74.5 L57.2 74 L58.4 73.7 L59.6 73.4 L61 73.3 L62.5 73.3 L63.9 73.4 L65.4 73.7 L66.7 74.2 L68 74.8 L69.1 75.5 L70 76.4 L70.6 77.3 L70.9 78.3 L71 79.4 L70.7 80.5 L70.1 81.5 L69.1 82.5 L67.8 83.5 L66.3 84.3 L64.5 84.9 L62.4 85.4 L60.3 85.7 L58 85.8 L55.6 85.7 L53.3 85.3 L51.1 84.7 L49.1 83.9 L47.3 82.8 L45.8 81.6 L44.7 80.3 L43.9 78.8 L43.6 77.3 L43.8 75.7 L44.4 74.1 L45.5 72.6 L47.1 71.2 L49.1 69.9 L51.4 68.9 L54.1 68 L57 67.4 L60.1 67.1 L63.3 67.1 L66.5 67.5 L69.6 68.1 L72.6 69 L75.2 70.2 L77.5 71.7 L79.4 73.4 L80.7 75.2 L81.5 77.2 L81.8 79.3 L81.4 81.4 L80.4 83.4 L78.7 85.4 L76.5 87.2 L73.8 88.7 L70.6 90 L67.1 91 L63.2 91.7 L59.2 92 L55.1 91.9 L51.1 91.4 L47.1 90.5 L43.5 89.2 L40.3 87.6 L37.5 85.7 L35.3 83.5 L33.8 81.1 L33 78.6 L32.9 76 L33.6 73.4 L35 70.9 L37.2 68.5" fill="none" stroke="${c.line}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity=".65"/>
+      <path d="M28 66 Q36 62 44 66 M76 66 Q84 62 92 66" fill="none" stroke="${B}" stroke-width="2" stroke-linecap="round" opacity=".4"/>
     </g>
     <g class="head-tilt">
       <path d="M48 50 Q46 36 60 34 Q74 36 72 50 Q62 58 48 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>

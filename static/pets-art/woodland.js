@@ -33,8 +33,8 @@ export const ART_WOODLAND = {
     <g class="breathe"><path d="M36 96 Q36 68 60 66 Q84 68 84 96 Q60 104 36 96 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 66 : 47}" y="94" width="8" height="16" rx="3.4" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`).join("")}</g>
     <g class="head-tilt">
-      <path d="M44 48 L40 24 L58 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M46 44 L44 30 L54 40 Z" fill="${c.shade}"/>
-      ${mirror(`<path d="M44 48 L40 24 L58 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M46 44 L44 30 L54 40 Z" fill="${c.shade}"/>`)}
+      <path d="M40 54 L42 22 L58 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M46 50 L43 31 L54 47 Z" fill="${c.shade}"/>
+      ${mirror(`<path d="M40 54 L42 22 L58 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M46 50 L43 31 L54 47 Z" fill="${c.shade}"/>`)}
       <path d="M38 56 Q38 74 48 82 L44 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.6"/>
       ${mirror(`<path d="M38 56 Q38 74 48 82 L44 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.6"/>`)}
       <path d="M40 54 Q40 74 60 78 Q80 74 80 54 Q60 44 40 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
