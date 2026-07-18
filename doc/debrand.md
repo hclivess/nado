@@ -30,12 +30,19 @@ Everything here re-derives from genesis at a reroll; renaming outside one is a f
 `chain_id` is already brand-free (`alphanet-6`) and changes at every reroll anyway.
 `_GENESIS_BODY` in `protocol.py` is an address literal — re-derived at the reroll (flagged inline).
 
-## Class 3 — ⚠ KEY-DERIVED tags → FROZEN FOREVER (a reroll does NOT reset these)
+## Class 3 — ⚠ KEY-DERIVED tags (special rules — read both paragraphs)
 
-These derive from the **user's seed**, not from the chain. Renaming them silently changes the
-derived keys — every derived account and shielded note becomes unreachable, with no error. They
-are invisible to users, so keeping the old strings forever costs nothing; a rename would require
-explicit migration code, **never** a sed.
+These derive from the **user's seed**, not from the chain: a reroll does NOT reset them, and
+renaming them silently changes the derived keys — derived accounts and shielded notes become
+unreachable with no error anywhere.
+
+**Operator decision (2026-07-18): they flip WITH the alphanet cutover anyway** — this is alphanet;
+nothing here is worth preserving beyond main-account balances. Consequences, folded into the
+pre-snapshot notice: move DERIVED-account and MULTISIG balances to your MAIN account and unshield
+any shielded notes before the snapshot — only main keyed-account balances carry (via
+`rekey_alloc.py`); everything seed-derived re-derives fresh under the new tags on alphanet-7.
+**After mainnet, the frozen-forever rule applies**: renaming any of these post-launch requires
+explicit migration code, never a sed.
 
 | tag | constant | derives |
 |---|---|---|
@@ -74,5 +81,5 @@ commit-reveal secrets: renaming mid-game forfeits stakes), wallet storage keys, 
 | when | what |
 |---|---|
 | anytime, no coordination | Class 5 cosmetics (except the autoupdater pin — coordinate with a wave), Class 4 pairs |
-| at the address-format reroll | Class 1 prefix + ALL of Class 2 in the same commit |
-| never (without migration code) | Class 3 key-derived tags + secret-bearing localStorage keys |
+| at the alphanet-7 cutover reroll | Class 1 prefix + ALL of Class 2 **and Class 3** in the same commit (operator decision: everything flips while it's still alphanet) |
+| never after mainnet (without migration code) | Class 3 key-derived tags + secret-bearing localStorage keys |
