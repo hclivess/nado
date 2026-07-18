@@ -81,8 +81,12 @@ def _try_native():
         return _NATIVE
     try:
         import ctypes, os
-        so = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                          "native", "alghash2", "target", "release", "libnado_alghash2.so")
+        from execnode.stark.native_guard import is_stale
+        crate = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                             "native", "alghash2")
+        so = os.path.join(crate, "target", "release", "libnado_alghash2.so")
+        if is_stale(so, crate):                            # .so predates its sources (pulled without rebuild)
+            raise OSError("native alghash2 .so is older than its sources — stale, using pure Python")
         lib = ctypes.CDLL(so)
         lib.init.argtypes = [ctypes.POINTER(ctypes.c_uint64)] * 3
         lib.hashn.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)]
@@ -101,6 +105,20 @@ def _try_native():
         iv = (u64 * CAPACITY)(*IV)
         mds = (u64 * (WIDTH * WIDTH))(*[_MDS[i][j] for i in range(WIDTH) for j in range(WIDTH)])
         lib.init(rc, iv, mds)
+        # INTEROP SELF-TEST — a stale/incompatible .so (e.g. one built for a different ROUNDS) is loaded and
+        # TRUSTED by every caller, so it would silently diverge from consensus. Before adopting the native lib,
+        # verify its permutation reproduces the pure-Python one on a fixed vector; on ANY mismatch reject it and
+        # keep the whole recursion layer on the bit-identical Python path. (Reference computed inline, NOT via
+        # permute(), which would recurse through _try_native.) Mirrors nado_pq_native's ML-DSA interop guard.
+        probe = [(7 * i + 1) % F.P for i in range(WIDTH)]
+        ref = list(probe)
+        for r in range(ROUNDS):
+            t = [sbox(F.add(ref[i], RC[r][i])) for i in range(WIDTH)]
+            ref = [sum(F.mul(_MDS[i][j], t[j]) for j in range(WIDTH)) % F.P for i in range(WIDTH)]
+        buf = (u64 * WIDTH)(*probe)
+        lib.permute12(buf)
+        if [buf[i] for i in range(WIDTH)] != ref:
+            raise ValueError("native alghash2 disagrees with Python (stale/incompatible .so) — rejected")
         _NATIVE = (lib, u64)
     except Exception:
         _NATIVE = False

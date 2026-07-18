@@ -158,8 +158,12 @@ def _native():
     if _LIB is not None:
         return _LIB or None
     try:
-        so = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
-                           "native", "starkcompose", "target", "release", "libnado_starkcompose.so")
+        from execnode.stark.native_guard import is_stale
+        crate = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
+                              "native", "starkcompose")
+        so = _os.path.join(crate, "target", "release", "libnado_starkcompose.so")
+        if is_stale(so, crate):                            # .so older than its sources (pulled without rebuild)
+            raise OSError("native starkcompose .so is older than its sources — stale, using pure Python")
         lib = _ct.CDLL(so)
         u32, u64, sz = _ct.c_uint32, _ct.c_uint64, _ct.c_size_t
         Pu32, Pu64 = _ct.POINTER(u32), _ct.POINTER(u64)

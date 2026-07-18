@@ -126,31 +126,91 @@ def check_and_update(trigger: str) -> dict:
         except Exception:
             return _blocked(f"fast-forward to {remote[:12]} failed — left on {local[:12]}")
 
-        _rebuild_native_if_changed(local, remote)
+        native = _rebuild_native_if_changed(local, remote)
         restarting = _schedule_restart()
-        return {"status": "updated", "from": local[:12], "to": remote[:12], "trigger": trigger,
-                "restarting": restarting,
-                "note": None if restarting else "no systemd services found — restart the node manually"}
+        out = {"status": "updated", "from": local[:12], "to": remote[:12], "trigger": trigger,
+               "restarting": restarting,
+               "note": None if restarting else "no systemd services found — restart the node manually"}
+        if native:
+            out["native"] = native                      # per-crate build outcome; "purged-stale" ⇒ fell back to pure-Python
+        return out
     finally:
         _lock.release()
 
 
+def _shared_libs(crate_path):
+    """Every compiled shared library a crate's loader could pick up: target/release artifacts AND any dropped
+    in the crate root (build_pq_native.sh copies libnado_mldsa44.so there)."""
+    out = []
+    for d in (os.path.join(crate_path, "target", "release"), crate_path):
+        try:
+            for fn in os.listdir(d):
+                if fn.endswith((".so", ".dylib", ".dll")):
+                    out.append(os.path.join(d, fn))
+        except Exception:
+            pass
+    return out
+
+
+def _purge_shared_libs(crate_path):
+    """Delete a crate's compiled shared libs so its loader sees an ABSENT (not STALE) artifact and takes the
+    pure-Python path. Returns True if anything was removed."""
+    removed = False
+    for p in _shared_libs(crate_path):
+        try:
+            os.remove(p); removed = True
+        except Exception:
+            pass
+    return removed
+
+
 def _rebuild_native_if_changed(old, new):
-    """Rebuild the optional Rust accelerator crates when their sources changed in the update. Best-effort:
-    a failed build is non-fatal (the node falls back to pure Python, still correct)."""
+    """Rebuild the Rust accelerator crates whose sources changed in this update, BEFORE the restart, so the
+    node never runs the new Python against a STALE binary.
+
+    Correctness hinges on one fact: a STALE .so is NOT the same as an ABSENT one. The STARK loaders
+    (alghash2/starkprove/starkcompose/goldilocks) fall back to pure Python only when the .so is ABSENT — a
+    stale one is loaded and TRUSTED, so e.g. an old 8-round alghash2 .so against new 54-round Python silently
+    diverges. Therefore a crate whose source changed but that we CANNOT rebuild (no cargo, or the build fails)
+    has its stale .so DELETED, forcing the pure-Python fallback (slower, but bit-identical and consensus-safe).
+    A crate with no prior .so and no cargo simply stays pure-Python — nothing to purge, safe to proceed.
+    (mldsa44 additionally self-guards via a startup interop self-test, and every STARK loader now runs the same
+    known-answer self-test at load, so a stale binary is rejected even outside this path — belt and suspenders.)
+
+    Returns {crate: "built" | "no-cargo-stale-purged" | "build-failed-purged" | "pure-python"} for the /update
+    response, so an operator (and the update wave) can SEE that a box fell back. Never raises — this runs on a
+    live money node right before the restart."""
+    report = {}
     try:
-        if not shutil.which("cargo"):
-            return
         changed = _git("diff", "--name-only", old, new, timeout=30)
-        if not re.search(r"^(native|wasm)/.*\.rs$", changed, re.M):
-            return
-        for crate in _CRATES:
-            path = os.path.join(_REPO_DIR, crate)
-            if os.path.isdir(path):
-                subprocess.run(["cargo", "build", "--release"], cwd=path, timeout=600,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     except Exception:
-        pass
+        changed = None                                   # diff unavailable → be conservative, treat all as touched
+    have_cargo = bool(shutil.which("cargo"))
+    for crate in _CRATES:
+      try:
+        path = os.path.join(_REPO_DIR, crate)
+        if not os.path.isdir(path):
+            continue
+        touched = changed is None or re.search(rf"^{re.escape(crate)}/.*\.(rs|toml|lock)$", changed, re.M)
+        if not touched:
+            continue                                     # this crate's sources unchanged → its .so is still valid
+        ok = False
+        if have_cargo:
+            try:
+                r = subprocess.run(["cargo", "build", "--release"], cwd=path, timeout=600,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                ok = (r.returncode == 0)
+            except Exception:
+                ok = False
+        if ok:
+            report[crate] = "built"
+        elif _purge_shared_libs(path):
+            report[crate] = "no-cargo-stale-purged" if not have_cargo else "build-failed-purged"
+        else:
+            report[crate] = "pure-python"                # no cargo / build failed, but no stale .so existed anyway
+      except Exception:
+        continue                                         # one crate's trouble never aborts the others (or the update)
+    return report
 
 
 def _schedule_restart():

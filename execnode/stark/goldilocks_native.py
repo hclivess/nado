@@ -53,8 +53,11 @@ def available():
     global _LIB, _BUF, _state
     if _state is not None:
         return _state
+    from execnode.stark.native_guard import is_stale
     for path in _candidates():
         if path and os.path.exists(path):
+            if is_stale(path, os.path.dirname(os.path.dirname(os.path.dirname(path)))):
+                continue                                   # .so older than its sources (pulled without rebuild)
             try:
                 lib = ctypes.CDLL(path)
                 lib.buf_ptr.restype = ctypes.c_void_p
