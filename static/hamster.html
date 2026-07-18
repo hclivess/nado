@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="hamster.title">NADO Hamster Racing — provably-fair parimutuel racing</title>
+<meta name="description" content="Bet on six hamsters racing on the NADO blockchain. Genes and the whole run are decided by future block hashes — no house, no oracle. Parimutuel pool, post-quantum wallet, no install.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://hamster.nadochain.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NADO">
+<meta property="og:url" content="https://hamster.nadochain.com/">
+<meta property="og:title" content="NADO Hamster Racing — provably-fair parimutuel racing">
+<meta property="og:description" content="Bet on six hamsters racing on-chain. Genes + the run come from future block hashes — no house, no oracle. Parimutuel pool, post-quantum, no install.">
+<meta property="og:image" content="https://nadochain.com/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@nadochain">
+<meta name="twitter:title" content="NADO Hamster Racing">
+<meta name="twitter:image" content="https://nadochain.com/og-image.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Hamster Racing", "url": "https://hamster.nadochain.com/", "description": "Provably-fair parimutuel hamster racing on the NADO execution layer — genes and the run decided by future block hashes, no house, no oracle.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Ctext%20y%3D%2238%22%20font-size%3D%2238%22%3E%F0%9F%90%B9%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--gold:#e3b341;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input:focus{outline:none;border-color:var(--accent2)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  button.mini{padding:7px 12px;font-size:13px;border-radius:9px;flex:0 0 auto}
+  @keyframes dpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:dpulse 1.25s ease-in-out infinite}
+  .switch{position:relative;width:46px;height:26px;-webkit-appearance:none;appearance:none;outline:none;border:0;padding:0;box-sizing:border-box;background:var(--border);border-radius:999px;cursor:pointer;transition:background .18s;flex:0 0 auto;margin:0}
+  .switch:checked{background:linear-gradient(135deg,#00ad93,#00c9a7)}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:left .18s}
+  .switch:checked::after{left:23px}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.betting{border-color:var(--accent2);color:var(--accent2)}
+  .b{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-left:6px}
+  .b.ok{background:rgba(0,173,147,.16);color:var(--accent2)}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}#status:empty{display:none;min-height:0;margin:0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  a{color:var(--accent2)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  /* --- the track --- */
+  #raceState{font-size:14px;font-weight:700;color:var(--txt);margin:2px 0 4px;line-height:1.4}
+  #potLine{font-size:12.5px;color:var(--gold);margin-bottom:10px}
+  .lane{margin:7px 0}
+  .laneHead{font-size:12px;margin-bottom:2px}
+  .rail{position:relative;height:34px;background:repeating-linear-gradient(90deg,#0e141b 0 22px,#111823 22px 44px);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+  .lane.win .rail{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset}
+  .lane.mine .rail{border-color:var(--accent2)}
+  .finish{position:absolute;top:0;right:5px;height:100%;width:6px;background:repeating-linear-gradient(180deg,#e6edf3 0 4px,#20242a 4px 8px)}
+  .runner{position:absolute;top:-2px;transition:left .55s cubic-bezier(.4,.7,.5,1)}
+  @keyframes hrun{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-2px) rotate(1deg)}}
+  .runner .hrun{transform-origin:center;animation:hrun .35s ease-in-out infinite}
+  .lane.win .runner .hrun{animation-play-state:paused}
+  .betrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13.5px}
+  .betrow .be{font-size:16px}
+  .betrow .odds{margin-left:auto;font-family:var(--mono);color:var(--accent2);font-weight:700}
+  .betrow .b.ok{margin-left:0}
+  .tabs{display:flex;gap:8px;margin:0 0 12px}
+  .tabs button{flex:1;background:var(--elev);border:1px solid var(--border);border-radius:11px;padding:10px;font-weight:800;color:var(--dim)}
+  .tabs button.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04110a;border-color:transparent}
+  .derbyRace{border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:6px}
+  .derbyDone b{font-size:15px;color:var(--gold)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo">🐹</span><h1>NADO <span class="a" data-i18n="hamster.brand">Hamster Racing</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="hamster.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="hamster.sub">Six hamsters, one shared pot, <b>no house</b>. When a race starts, each hamster's <b>speed gene</b> is fixed by a future block hash and shown to everyone — that's the form you bet on. Betting stays open for a window, then the next few block hashes decide the run: the hamster that covers the most ground <b>wins the whole pot</b>, split among its backers (parimutuel). Genes are public before betting closes; the run is unknown until after — so nobody can cheat. Post-quantum wallet, no install.</p>
+
+  <div class="tabs">
+    <button id="tabBet" class="on" data-i18n="hamster.tabBet">💰 Bet on races</button>
+    <button id="tabDaily" data-i18n="hamster.tabDaily">🏆 Daily Derby (free)</button>
+  </div>
+
+  <div id="status"></div>
+
+  <!-- DAILY DERBY (free, provable, faucet-rewarded) -->
+  <div class="card hidden" id="dailyCard">
+    <h2>🏆 <span data-i18n="hamster.derbyH">Daily Derby</span> <span class="dim small" data-i18n="hamster.derbyFree">— free, provably fair, faucet-rewarded</span></h2>
+    <p class="small dim" data-i18n="hamster.derbyBlurb">A fresh eight-race slate every day, unique to your wallet. No stake — read the form, pick your winners, and post your score. The top finishers each day are paid automatically from the NADO faucet. Every score is replay-verified on-chain, so nobody can fake the board.</p>
+    <div id="derby" class="mt"></div>
+  </div>
+
+  <div class="card" id="walletcard">
+    <h2 data-i18n="hamster.walletH">Wallet</h2>
+    <p class="small dim" data-i18n-html="hamster.walletHelp">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there; your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="hamster.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="hamster.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="hamster.tokensPlayable">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="hamster.signIn">Sign in with NADO wallet</button></div>
+  </div>
+
+  <!-- ACTIVE RACE (the track lives here) -->
+  <div class="card hidden" id="activeRace">
+    <h2>🐹 <span data-i18n="hamster.raceH">Race</span> <span id="raceId" class="mono"></span></h2>
+    <div id="raceState">…</div>
+    <div id="potLine"></div>
+    <div id="track"></div>
+    <div class="mt">
+      <label data-i18n="hamster.stakeLabel">Your stake per bet (NADO)</label>
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="hamster.stakePh" inputmode="decimal" autocomplete="off">
+      <input type="range" id="stakeSlider" min="0" max="100" value="0" step="1" class="mt">
+      <div class="small dim" style="display:flex;justify-content:space-between"><span id="stakeSlider_p"></span><span id="stakeSlider_m" class="mono"></span></div>
+    </div>
+    <div id="betPanel" class="mt"></div>
+    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1" data-i18n="hamster.autoCollect">Auto-run the finish &amp; collect my winnings — settles &amp; pays out for me the moment the race ends</span></label>
+    <!-- SHARE -->
+    <div class="mt">
+      <label data-i18n="hamster.shareLabel">Invite friends to this race</label>
+      <div class="row"><input id="shareLink" readonly><button class="ghost" id="btnShare" style="flex:0 0 auto" data-i18n="hamster.share">Share</button></div>
+      <canvas id="shareQR" class="mt" style="image-rendering:pixelated"></canvas><div id="shareQRNote" class="small dim hidden" data-i18n="hamster.qrNote">QR unavailable</div>
+    </div>
+  </div>
+
+  <!-- START A RACE -->
+  <div class="card" id="opencard">
+    <h2 data-i18n="hamster.startH">🏁 Start a race</h2>
+    <p class="small dim" data-i18n="hamster.startHelp">Anyone can start a race — it's free. Six hamsters roll their genes a couple of blocks later, then betting opens for everyone.</p>
+    <button class="primary" id="btnNewRace" style="width:100%" data-i18n="hamster.newRace">🐹 Start a new race</button>
+  </div>
+
+  <!-- BUY IN / CASH OUT -->
+  <div class="card hidden" id="bankroll">
+    <h2 data-i18n="hamster.tokensH">🪙 Tokens — buy in / cash out</h2>
+    <div class="row">
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="hamster.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="hamster.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="hamster.withdraw">Withdraw</button>
+    </div>
+    <div class="small dim mt" data-i18n="hamster.tokensHelp">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back to the wallet.</div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2 data-i18n="hamster.lobbyH">🏟 Races</h2>
+    <p class="small dim" data-i18n-html="hamster.lobbyHelp">Live races — tap one to watch or bet. <span style="opacity:.7">🟢 betting · 🏁 racing</span></p>
+    <div class="small mt" id="lobbyList"><span class="dim" data-i18n="hamster.loading">Loading…</span></div>
+  </div>
+
+  <!-- DAILY LEADERBOARD (faucet prizes) -->
+  <div class="card" id="scoreboard">
+    <h2 data-i18n="hamster.scoreH">🏆 Daily Derby leaderboard</h2>
+    <p class="small dim" data-i18n-html="hamster.scoreHelp">Today's top free-play scores — every one replay-verified on-chain. The daily leaders are paid automatically from the NADO faucet. (Real races pay out parimutuel: <span class="mono">your stake × pot ÷ the winner's pool</span>.)</p>
+    <div class="mt" id="scoreList"><span class="dim" data-i18n="hamster.loading">Loading…</span></div>
+  </div>
+
+  <footer data-i18n-html="hamster.footer">Provably fair — genes and the run are future block hashes, enforced on-chain. <a href="https://github.com/hclivess/nado/blob/main/execnode/games/hamster.py">See the contract →</a> · Play responsibly.</footer>
+</div>
+<script type="module" src="/static/hamster.js"></script>
+</body>
+</html>

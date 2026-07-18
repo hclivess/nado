@@ -56,6 +56,13 @@ def main():
                    "runtime": "zkvm", "abi": mod.ABI}
 
     keys = load_keys()
+    # Re-derive the sender from the PUBKEY under the current ADDRESS_PREFIX, rather than trusting the address
+    # cached in the keyfile. Across a debrand/prefix cutover (alphanet-7: ndo… → mldsa44…) the keyfile can hold
+    # a STALE address string while the funded account lives under the re-rolled current-prefix address — signing
+    # with the stale one is rejected "Empty account". make_address is deterministic, so this is a no-op when the
+    # stored address is already current.
+    from ops.address_ops import make_address
+    keys["address"] = make_address(keys["public_key"])
     tip = int(_get(args.l1, "/get_latest_block")["block_number"])
     tx = construct_blob_tx(keys, payload, max_block=tip + 20, fee=args.fee,
                            min_block=tip + TX_INCLUSION_DELAY)

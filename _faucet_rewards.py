@@ -34,7 +34,10 @@ GAMES = [
     (6, "d4855b5b4c52bb65fdf7ec7a65c8b9f0", "banked"),     # slots
     (7, "d9d271f3a3e8a68ef33cb8e89ee650c9", "banked"),     # mines
     (8, "c532e36ac30f61619e9ac989a1c0994e", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
+    (9, "2f8cc0ce02bc5e02abb10e4dc3af28e7", "hamster-daily"),  # hamster Daily Derby (free handicapping, replay-verified)
 ]
+# provable free-play boards: kind -> the node replay oracle that ranks yesterday's verified claims
+DAILY_VERIFY = {"hexholm-daily": "tests/hexholm_daily_verify.mjs", "hamster-daily": "tests/hamster_daily_verify.mjs"}
 SHIPS = 17
 
 def j(u): return json.load(urllib.request.urlopen(u, timeout=12))
@@ -53,14 +56,14 @@ def leaderboard(cid, kind):
             if not sd.get(g): continue
             w = wr[g]; winner = p1.get(g) if w == 1 else p2.get(g) if w == 2 else None
             if winner: score[winner] = score.get(winner, 0) + 1
-    elif kind == "hexholm-daily":
-        # the PROVABLE free-play board (doc/faucet.md + static/provable.js): rank YESTERDAY'S completed
+    elif kind in DAILY_VERIFY:
+        # the PROVABLE free-play boards (doc/faucet.md + static/provable.js): rank YESTERDAY'S completed
         # UTC day; every claim is replay-VERIFIED by the node oracle before it can rank — a forged or
-        # copied claim never pays. (The staked tables still rank on the game page; prizes reward the
+        # copied claim never pays. (The staked games still rank on their own page; prizes reward the
         # free airdrop play.)
         day = int(time.time()) // 86400 - 1
         try:
-            out = subprocess.run(["node", "tests/hexholm_daily_verify.mjs", cid, str(day)],
+            out = subprocess.run(["node", DAILY_VERIFY[kind], cid, str(day)],
                                  capture_output=True, text=True, cwd="/root/nado", timeout=600)
             rows = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 else []
         except Exception:
