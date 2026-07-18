@@ -110,7 +110,8 @@ export const ART_WATERFOWL = {
     <g class="head-tilt">
       ${tube("M78 74 Q82 66 82 60", c.body, c.line, 7)}
       <circle cx="84" cy="55" r="11.5" fill="${D}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M79 49 Q86 55 82 63" stroke="${WHT}" stroke-width="1.6" fill="none" opacity=".65"/>
+      <path d="M85 49 Q74 54 77 64 Q83 59 88 51 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round" opacity=".9"/>
+      <path d="M85 50 Q77 54 79 61" stroke="${WHT}" stroke-width="1.2" fill="none" opacity=".6"/>
       <path d="M93 53 L106 55 Q108 58 105 60 L93 59 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       ${eye(87, 52, 2.9, "#e9edf2")}
     </g>`; },

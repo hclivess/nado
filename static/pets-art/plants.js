@@ -373,9 +373,11 @@ export const ART_PLANTS = {
       <path d="M60 42 Q40 48 40 74 Q40 98 60 100 Q80 98 80 74 Q80 48 60 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <path d="M60 46 Q66 74 60 98" fill="none" stroke="${D}" stroke-width="1.8" opacity=".5"/>
       <ellipse cx="55" cy="74" rx="13" ry="15" fill="${B}"/>
+      <path d="M60 46 Q54 60 54 72 M60 46 Q66 60 66 72" fill="none" stroke="${D}" stroke-width="1.4" opacity=".45"/>
       ${ceye(52, 72, 4)}${ceye(68, 72, 4)}
       <path d="M60 76 l-2 2 h4 Z" fill="${INK}"/>
       ${smile(60, 79, 3, INK)}
+      <circle cx="54" cy="91" r="2.4" fill="${D}" opacity=".55"/><circle cx="64" cy="91" r="2.4" fill="${D}" opacity=".55"/>
     </g>`; },
 };
 

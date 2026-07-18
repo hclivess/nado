@@ -36,15 +36,16 @@ export const ART_DINOS2 = {
   baryonyx: (c) => { const B = belly(c); return `
     <g class="tail-wag"><path d="M40 78 Q16 74 6 86 Q12 90 20 88 Q32 82 46 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/></g>
     <path d="M52 82 Q48 96 54 102 L62 100 L58 82 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-    <g class="breathe"><path d="M36 78 Q38 60 58 58 Q80 58 82 76 Q82 86 58 88 Q40 88 36 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+    <g class="breathe"><path d="M44 74 Q56 46 72 50 Q82 53 82 74 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M56 66 Q58 54 63 50 M66 66 Q68 54 73 51" fill="none" stroke="${c.line}" stroke-width="1" opacity=".4"/>
+      <path d="M36 78 Q38 60 58 58 Q80 58 82 76 Q82 86 58 88 Q40 88 36 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <ellipse cx="58" cy="80" rx="18" ry="7" fill="${B}" opacity=".7"/></g>
     <path d="M58 82 Q52 98 58 106 L66 104 L64 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
     <path d="M56 106 l-5 3 M60 106 l1 4 M64 105 l5 3" stroke="${c.line}" stroke-width="2" stroke-linecap="round"/>
     <g class="tail-wag">
       <path d="M70 66 Q80 74 82 84" fill="none" stroke="${c.line}" stroke-width="4.5" stroke-linecap="round"/>
       <path d="M70 66 Q80 74 82 84" fill="none" stroke="${c.body}" stroke-width="2.6" stroke-linecap="round"/>
-      <path d="M82 84 Q98 88 96 102" fill="none" stroke="${c.line}" stroke-width="3.6" stroke-linecap="round"/>
-      <path d="M82 84 Q98 88 96 102" fill="none" stroke="${IVORY}" stroke-width="1.9" stroke-linecap="round"/>
+      <path d="M82 84 Q96 86 100 101 Q101 105 97 104 Q93 97 84 92 Q80 88 82 84 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
     </g>
     <g class="head-tilt">
       <path d="M68 54 Q70 48 104 46 Q112 46 112 52 L98 56 Q78 60 72 60 Q66 58 68 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
@@ -83,7 +84,7 @@ export const ART_DINOS2 = {
     <g class="breathe"><path d="M38 72 Q40 56 58 56 Q74 58 76 68 Q76 78 58 80 Q42 80 38 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <ellipse cx="58" cy="73" rx="15" ry="6" fill="${B}" opacity=".7"/></g>
     <path d="M56 78 Q50 92 56 100 L62 98 L60 80 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-    <path d="M50 100 Q44 102 42 98 Q47 98 50 100 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M52 99 Q41 100 36 93 Q40 100 47 103 Q51 103 52 99 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="1.7" stroke-linejoin="round"/>
     <path d="M56 100 l6 3 M60 100 l5 2" stroke="${c.line}" stroke-width="2" fill="none" stroke-linecap="round"/>
     <g class="tail-wag">
       <path d="M64 64 q9 4 8 12" fill="none" stroke="${c.line}" stroke-width="3.8" stroke-linecap="round"/>

@@ -84,7 +84,8 @@ export const ART_YOKAI = {
       <path d="M39 34 L49 46 Q44 49 42 53 Z" fill="${c.shade}"/><path d="M81 34 L71 46 Q76 49 78 53 Z" fill="${c.shade}"/>
       <ellipse cx="60" cy="88" rx="24" ry="20" fill="${B}"/>
       ${tube("M40 82 Q34 94 40 104", c.body, c.line, 6)}${tube("M80 82 Q86 94 80 104", c.body, c.line, 6)}
-      <ellipse cx="51" cy="64" rx="7.5" ry="6" fill="${c.shade}" opacity=".55"/><ellipse cx="69" cy="64" rx="7.5" ry="6" fill="${c.shade}" opacity=".55"/>
+      <path d="M42 58 Q49 53 55 58 Q58 62 54 69 Q48 73 43 68 Q39 63 42 58 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
+      <path d="M78 58 Q71 53 65 58 Q62 62 66 69 Q72 73 77 68 Q81 63 78 58 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
       ${ceye(51, 64, 4.2)}${ceye(69, 64, 4.2)}
       <path d="M60 70 l-3 3 h6 Z" fill="${INK}"/>
       <path d="M60 73 v2 M60 75 q-4 3 -8 2 M60 75 q4 3 8 2" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
@@ -97,9 +98,10 @@ export const ART_YOKAI = {
     return `
     ${floorShadow(60, 112, 28)}
     <g class="tail-wag">
-      <path d="M72 94 Q84 98 90 80 Q94 68 84 66 Q90 74 84 84 Q78 92 68 90 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
-      <path d="M84 90 Q106 84 104 62 Q103 52 93 56 Q100 64 94 76 Q88 86 78 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
-      <path d="M97 66 Q101 58 95 56" fill="none" stroke="${c.shade}" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M74 90 Q92 86 98 64 Q100 54 90 55 Q97 63 89 76 Q82 86 72 86 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M92 62 Q96 55 90 55" fill="none" stroke="${c.shade}" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M74 96 Q98 98 104 82 Q108 72 98 70 Q103 78 94 88 Q86 96 72 92 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M98 80 Q102 74 96 71" fill="none" stroke="${c.body}" stroke-width="2.6" stroke-linecap="round"/>
     </g>
     <g class="breathe">
       <path d="M60 112 C32 112 28 92 33 74 C35 62 38 56 43 51 L35 26 L56 45 Q60 41 64 45 L85 26 L77 51 C82 56 85 62 87 74 C92 92 88 112 60 112 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>

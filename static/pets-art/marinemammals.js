@@ -88,7 +88,7 @@ export const ART_MARINEMAMMALS = {
     <g class="breathe">
       <path d="M24 63 Q30 50 54 49 Q80 48 96 60 Q90 74 62 76 Q34 76 24 63 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <path d="M38 70 Q62 80 92 66 Q62 78 38 70 Z" fill="${B}"/>
-      <path d="M48 49 L54 39 L61 50 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M49 50 L54 43 L60 50 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       ${foreflip(c, 58, 72)}
     </g>
     <g class="head-tilt">
@@ -192,16 +192,16 @@ export const ART_MARINEMAMMALS = {
 
   // ── Vaquita — tiny porpoise with dark EYE RINGS + dark lip patch, small triangular dorsal (tier 3)
   vaquita: (c) => { const E = eyeInk(c), B = belly(c); return `
-    <g class="tail-wag">${fluke(c, 26, 63, 2.4)}</g>
+    <g class="tail-wag">${fluke(c, 30, 63, 2.4)}</g>
     <g class="breathe">
-      <path d="M24 63 Q30 50 54 49 Q80 48 96 60 Q90 74 62 76 Q34 76 24 63 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      <path d="M38 70 Q62 80 92 66 Q62 78 38 70 Z" fill="${B}"/>
-      <path d="M48 49 L55 38 L62 50 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M28 63 Q33 50 54 49 Q80 48 96 60 Q90 74 62 76 Q36 76 28 63 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M40 70 Q62 80 92 66 Q62 78 40 70 Z" fill="${B}"/>
+      <path d="M47 50 Q51 34 57 38 Q57 44 60 50 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       ${foreflip(c, 58, 72)}
     </g>
     <g class="head-tilt">
-      <ellipse cx="90" cy="58" rx="5" ry="4.4" fill="${deepen(c.body, 0.22)}"/>
-      <path d="M91 66 Q96 68 100 63" stroke="${deepen(c.body, 0.22)}" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <ellipse cx="90" cy="58" rx="6" ry="5" fill="${deepen(c.body, 0.28)}"/>
+      <path d="M90 66 Q96 69 101 62" stroke="${deepen(c.body, 0.28)}" stroke-width="2.6" fill="none" stroke-linecap="round"/>
       ${eye(90, 58, 2.4, E)}
     </g>`; },
 

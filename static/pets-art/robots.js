@@ -75,8 +75,8 @@ export const ART_ROBOTS = {
       <path d="M88 90 h6 M91 82 h5" stroke="${c.line}" stroke-width="1.2" opacity=".5"/>
     </g>
     <g class="breathe">
-      <path d="M60 110 C38 110 34 92 38 76 C40 66 44 60 48 56 L42 34 L58 50 Q60 47 62 50 L78 34 L72 56 C76 60 80 66 82 76 C86 92 82 110 60 110 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      <path d="M45 40 L54 51 Q49 53 47 57 Z" fill="${c.shade}"/><path d="M75 40 L66 51 Q71 53 73 57 Z" fill="${c.shade}"/>
+      <path d="M60 110 C38 110 34 92 38 76 C40 66 44 60 48 54 L44 40 L55 52 Q60 49 65 52 L76 40 L72 54 C76 60 80 66 82 76 C86 92 82 110 60 110 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M46 43 L54 52 Q50 53 48 55 Z" fill="${c.shade}"/><path d="M74 43 L66 52 Q70 53 72 55 Z" fill="${c.shade}"/>
       <ellipse cx="60" cy="80" rx="18" ry="15" fill="${B}"/>
       <path d="M45 74 h30" stroke="${c.line}" stroke-width="1.2" opacity=".4"/>
       ${led(60, 90, GLOW, 2.6)}

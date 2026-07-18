@@ -402,10 +402,10 @@ export const ART_FROGS2 = {
     <g class="breathe">
       ${treeTorso(c, { w: 26, ty: 56, by: 100 })}
       <ellipse cx="60" cy="82" rx="17" ry="12" fill="${B}"/>
-      <path d="M40 60 Q52 54 60 62 Q54 72 44 70 Q38 66 40 60 Z" fill="${S}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
-      <path d="M80 60 Q68 54 60 62 Q66 72 76 70 Q82 66 80 60 Z" fill="${S}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
-      <path d="M50 80 Q60 74 70 80 Q64 90 60 90 Q56 90 50 80 Z" fill="${S}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
-      ${spots([[60, 66, 3, 2.4]], P, c)}
+      <path d="M38 58 Q60 50 82 58 Q78 71 60 68 Q42 71 38 58 Z" fill="${S}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
+      <path d="M46 80 Q60 74 74 80 Q68 92 60 92 Q52 92 46 80 Z" fill="${S}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
+      <ellipse cx="60" cy="63" rx="4.5" ry="3" fill="${P}"/>
+      ${spots([[48, 62, 2.4, 2], [72, 62, 2.4, 2]], P, c)}
       ${grin(c, { y: 60, w: 14, drop: 8 })}${nost(c, 52, 3)}
     </g>
     <g class="head-tilt">

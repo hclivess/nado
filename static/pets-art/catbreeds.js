@@ -140,7 +140,7 @@ export const ART_CATBREEDS = {
       ${sit(c, o)}
       ${earsIn(o, deepen(c.body, 0.25), )}
       <path d="M34 24 L41 49 L54 43 Q47 34 34 24 Z" fill="${c.shade}" opacity=".85"/>${mirror(`<path d="M34 24 L41 49 L54 43 Q47 34 34 24 Z" fill="${c.shade}" opacity=".85"/>`)}
-      ${bib(c)}
+      <path d="M45 84 Q60 92 75 84 Q78 100 60 103 Q42 100 45 84 Z" fill="${belly(c)}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
       ${patch(c, 72, 20, 15)}
       <path d="M60 60 Q46 65 48 80 Q60 90 72 80 Q74 65 60 60 Z" fill="${c.shade}" opacity=".8"/>
       <ellipse cx="60" cy="74" rx="9" ry="7" fill="${belly(c)}" opacity=".9"/>
@@ -200,7 +200,7 @@ export const ART_CATBREEDS = {
 
   // ── British Shorthair — very ROUND & chunky, small wide-set ears, jowly cheeks, copper eyes ──
   britishshorthair: (c) => {
-    const o = { flare: 6, eLx: 38, eLy: 26, eRx: 82, eRy: 26, biL: 52, biR: 68, biY: 44, dip: 44, chL: 44, chY: 52 };
+    const o = { flare: 6, eLx: 40, eLy: 33, eRx: 80, eRy: 33, biL: 51, biR: 69, biY: 45, dip: 46, chL: 45, chY: 52 };
     return `
     ${floorShadow(60, 111, 34)}
     ${tailCurl(c, c.body)}

@@ -47,17 +47,19 @@ export const ART_WOODLAND = {
 
   // ── Brown Bear — big round ears, heavy shoulders, broad tan muzzle, tiny nose (tier 3 heavyweight)
   brownbear: (c) => `
-    <g class="breathe"><ellipse cx="60" cy="84" rx="30" ry="22" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
-      <ellipse cx="60" cy="92" rx="16" ry="11" fill="${c.shade}" opacity=".75"/>
-      ${["", "s"].map((_, i) => `<ellipse cx="${i ? 74 : 46}" cy="102" rx="9" ry="6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`).join("")}</g>
+    <g class="breathe"><ellipse cx="60" cy="86" rx="31" ry="21" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
+      <path d="M31 86 Q23 58 45 64 Q43 78 41 90 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      ${mirror(`<path d="M31 86 Q23 58 45 64 Q43 78 41 90 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>`)}
+      <ellipse cx="60" cy="94" rx="16" ry="11" fill="${c.shade}" opacity=".75"/>
+      ${["", "s"].map((_, i) => `<ellipse cx="${i ? 74 : 46}" cy="103" rx="9" ry="6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`).join("")}</g>
     <g class="head-tilt">
-      <circle cx="44" cy="42" r="11" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/><circle cx="44" cy="42" r="5" fill="${c.shade}"/>
-      ${mirror(`<circle cx="44" cy="42" r="11" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/><circle cx="44" cy="42" r="5" fill="${c.shade}"/>`)}
-      <ellipse cx="60" cy="56" rx="24" ry="21" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
-      <ellipse cx="60" cy="64" rx="13" ry="11" fill="${c.shade}"/>
-      <ellipse cx="60" cy="58" rx="5" ry="3.6" fill="${INK}"/>
-      <path d="M60 61 v6 M60 67 q-5 3 -8 1 M60 67 q5 3 8 1" stroke="${INK}" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-      ${eyes(50, 70, 50, 2.8, eyeInk(c))}
+      <circle cx="46" cy="46" r="8.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/><circle cx="46" cy="46" r="3.6" fill="${c.shade}"/>
+      ${mirror(`<circle cx="46" cy="46" r="8.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/><circle cx="46" cy="46" r="3.6" fill="${c.shade}"/>`)}
+      <ellipse cx="60" cy="56" rx="26" ry="20" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
+      <ellipse cx="60" cy="66" rx="16" ry="11" fill="${c.shade}"/>
+      <ellipse cx="60" cy="60" rx="6" ry="4" fill="${INK}"/>
+      <path d="M60 63 v6 M60 69 q-5 3 -9 1 M60 69 q5 3 9 1" stroke="${INK}" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      ${eyes(49, 71, 50, 2.8, eyeInk(c))}
     </g>`,
 
   // ── Black Bear — leaner build, taller ears, pale muzzle, longer snout than brown bear (tier 2)
@@ -65,9 +67,9 @@ export const ART_WOODLAND = {
     <g class="breathe"><path d="M36 96 Q34 62 60 60 Q86 62 84 96 Q60 106 36 96 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 68 : 44}" y="94" width="9" height="14" rx="4" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`).join("")}</g>
     <g class="head-tilt">
-      <circle cx="42" cy="38" r="10" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/><circle cx="42" cy="38" r="4.2" fill="${c.shade}"/>
-      ${mirror(`<circle cx="42" cy="38" r="10" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/><circle cx="42" cy="38" r="4.2" fill="${c.shade}"/>`)}
-      <path d="M40 50 Q40 76 60 78 Q80 76 80 50 Q60 40 40 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <circle cx="41" cy="35" r="12" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/><circle cx="41" cy="35" r="5.5" fill="${c.shade}"/>
+      ${mirror(`<circle cx="41" cy="35" r="12" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/><circle cx="41" cy="35" r="5.5" fill="${c.shade}"/>`)}
+      <path d="M41 50 Q41 76 60 78 Q79 76 79 50 Q60 41 41 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <path d="M50 62 Q50 78 60 80 Q70 78 70 62 Q60 56 50 62 Z" fill="${c.shade}"/>
       <ellipse cx="60" cy="62" rx="4.2" ry="3" fill="${INK}"/>
       <path d="M60 65 v5 M60 70 q-4 3 -7 1 M60 70 q4 3 7 1" stroke="${INK}" stroke-width="1.4" fill="none" stroke-linecap="round"/>

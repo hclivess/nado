@@ -174,7 +174,8 @@ export const ART_ELEMENTALS = {
     </g>
     <g class="breathe">
       <ellipse cx="60" cy="58" rx="34" ry="30" fill="${ICE}" opacity=".2"/>
-      <path d="M30 58 C30 30 90 30 90 58 L90 92 L82 82 L74 94 L66 82 L58 94 L50 82 L42 94 L34 82 L30 92 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M30 60 Q36 32 60 26 Q84 32 90 60 L90 92 L82 82 L74 94 L66 82 L58 94 L50 82 L42 94 L34 82 L30 92 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M60 27 L55 46 L65 46 Z" fill="${tint(c.body, 0.4)}" opacity=".55"/>
       <path d="M74 94 L72 104 M58 94 L56 104 M42 94 L40 104" stroke="${ICE}" stroke-width="2.4" stroke-linecap="round"/>
       <ellipse cx="60" cy="60" rx="20" ry="15" fill="${tint(c.body, 0.4)}" opacity=".7"/>
       <path d="M40 46 Q52 40 62 44" fill="none" stroke="${ICE}" stroke-width="2" stroke-linecap="round" opacity=".7"/>
@@ -318,9 +319,10 @@ export const ART_ELEMENTALS = {
       <ellipse cx="60" cy="60" rx="36" ry="32" fill="${tint(c.body, 0.45)}" opacity=".25"/>
       <path d="M28 60 C28 32 92 32 92 60 L92 88 Q86 98 78 90 Q70 98 62 90 Q54 98 46 90 Q38 98 32 88 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round" opacity=".95"/>
       <ellipse cx="60" cy="62" rx="22" ry="16" fill="${tint(c.body, 0.4)}" opacity=".6"/>
+      <ellipse cx="32" cy="42" rx="7" ry="4" fill="${tint(c.body, 0.5)}" opacity=".3"/><ellipse cx="90" cy="46" rx="6" ry="3.6" fill="${tint(c.body, 0.5)}" opacity=".3"/>
       <path d="M38 48 Q54 42 68 46 M40 72 Q52 78 66 74" fill="none" stroke="${tint(c.body, 0.6)}" stroke-width="2.2" stroke-linecap="round" opacity=".6"/>
       ${ceye(52, 58, 4.4)}${ceye(70, 58, 4.4)}
-      <ellipse cx="60" cy="70" rx="3.6" ry="4.6" fill="${INK}" opacity=".55"/>
+      <path d="M53 68 Q60 74 67 68" fill="none" stroke="${INK}" stroke-width="1.8" stroke-linecap="round" opacity=".6"/>
       <circle cx="44" cy="46" r="2.6" fill="#fff" opacity=".4"/>
     </g>`;
   },

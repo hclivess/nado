@@ -203,8 +203,8 @@ export const ART_POLAR = {
       ${["", "s"].map((_, i) => `<ellipse cx="${i ? 76 : 44}" cy="102" rx="10" ry="6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`).join("")}
     </g>
     <g class="head-tilt">
-      <path d="M50 40 Q46 20 54 18 Q60 22 58 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M52 22 Q50 18 55 19 L55 27 Z" fill="${INK}"/>
-      ${mirror(`<path d="M50 40 Q46 20 54 18 Q60 22 58 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M52 22 Q50 18 55 19 L55 27 Z" fill="${INK}"/>`)}
+      <path d="M49 42 Q45 29 54 27 Q61 30 59 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M51 31 Q49 28 55 29 L56 35 Z" fill="${INK}"/>
+      ${mirror(`<path d="M49 42 Q45 29 54 27 Q61 30 59 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M51 31 Q49 28 55 29 L56 35 Z" fill="${INK}"/>`)}
       <ellipse cx="60" cy="54" rx="18" ry="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M55 58 Q60 64 65 58 Q60 56 55 58 Z" fill="${c.shade}"/>
       <ellipse cx="60" cy="58" rx="2.4" ry="1.8" fill="${INK}"/>
@@ -218,12 +218,13 @@ export const ART_POLAR = {
     <g class="breathe">
       <ellipse cx="62" cy="80" rx="22" ry="21" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
       <ellipse cx="62" cy="88" rx="12" ry="9" fill="${c.shade}" opacity=".5"/>
-      <path d="M40 96 Q34 92 40 86 Q56 84 58 96 Q50 102 40 96 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <ellipse cx="74" cy="100" rx="8" ry="5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
+      <path d="M34 99 Q26 93 34 84 Q58 82 63 97 Q52 105 34 99 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M40 96 h18" stroke="${c.line}" stroke-width="1.2" fill="none" opacity=".4"/>
+      <ellipse cx="76" cy="100" rx="8" ry="5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
     </g>
     <g class="head-tilt">
-      <path d="M52 38 Q48 12 57 10 Q64 14 60 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M55 15 Q53 11 59 12 L58 24 Z" fill="${INK}"/>
-      ${mirror(`<path d="M52 38 Q48 12 57 10 Q64 14 60 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M55 15 Q53 11 59 12 L58 24 Z" fill="${INK}"/>`)}
+      <path d="M52 38 Q49 8 58 6 Q65 10 61 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M55 12 Q53 8 60 9 L59 22 Z" fill="${INK}"/>
+      ${mirror(`<path d="M52 38 Q49 8 58 6 Q65 10 61 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M55 12 Q53 8 60 9 L59 22 Z" fill="${INK}"/>`)}
       <ellipse cx="62" cy="52" rx="16" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M57 56 Q62 62 67 56 Q62 54 57 56 Z" fill="${c.shade}"/>
       <ellipse cx="62" cy="56" rx="2.2" ry="1.7" fill="${INK}"/>

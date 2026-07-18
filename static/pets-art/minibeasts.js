@@ -244,10 +244,11 @@ export const ART_MINIBEASTS = {
       ${smile(60, 50, 2.2, E)}
     </g>
     <g class="breathe">
-      <ellipse cx="60" cy="74" rx="27" ry="22" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
+      <ellipse cx="60" cy="76" rx="31" ry="19" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
       <path d="M40 58 Q60 50 80 58 Q82 66 60 66 Q38 66 40 58 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <ellipse cx="53" cy="57" rx="3" ry="3.8" fill="${deepen(c.body, .5)}"/><ellipse cx="67" cy="57" rx="3" ry="3.8" fill="${deepen(c.body, .5)}"/>
       <path d="M60 66 L60 94" stroke="${c.line}" stroke-width="1.8" opacity=".55"/>
-      <path d="M48 68 Q46 82 52 92 M72 68 Q74 82 68 92" fill="none" stroke="${c.shade}" stroke-width="1.5" opacity=".5"/>
+      <path d="M46 68 Q42 82 50 92 M74 68 Q78 82 70 92" fill="none" stroke="${c.shade}" stroke-width="1.5" opacity=".5"/>
     </g>`;
   },
 

@@ -106,7 +106,7 @@ export const ART_PRIMATES = {
 
   // ── Macaque — fluffy fur crown, bare pink face, snow-monkey rounded body ─────────────────────────
   macaque: (c) => `
-    <g class="breathe"><ellipse cx="60" cy="82" rx="20" ry="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+    <g class="breathe">${pom(60, 82, 19, c.body, c.line, 15, 2.4)}
       <ellipse cx="60" cy="86" rx="11" ry="8" fill="${c.shade}" opacity=".5"/></g>
     <g class="tail-wag">
       ${mirror(`<path d="M42 76 Q26 80 30 94 Q38 92 46 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>`)}

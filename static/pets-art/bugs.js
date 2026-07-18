@@ -270,13 +270,13 @@ export const ART_BUGS = {
       <path d="M30 66 Q54 60 80 65" fill="none" stroke="${c.shade}" stroke-width="1.6" opacity=".7"/>
     </g>
     <g class="tail-wag">
-      <path d="M40 64 Q54 44 70 52 Q66 66 52 72 Q42 72 40 64 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M62 52 Q86 56 100 84" fill="none" stroke="${c.line}" stroke-width="2.4" stroke-linecap="round"/>
-      <path d="M100 84 l6 -2 M100 84 l-1 6" stroke="${c.line}" stroke-width="2" stroke-linecap="round"/>
+      <path d="M36 66 Q48 38 74 50 Q72 66 54 74 Q40 74 36 66 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M66 50 Q94 54 106 88" fill="none" stroke="${c.line}" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M106 88 l6 -2 M106 88 l-1 6" stroke="${c.line}" stroke-width="2" stroke-linecap="round"/>
     </g>
     <g class="head-tilt">
       <path d="M84 58 Q98 56 98 68 Q98 78 86 76 Q80 68 84 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M94 56 Q108 40 116 22 M96 58 Q112 46 120 34" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M95 56 Q101 50 105 45 M97 59 Q103 55 108 51" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
       ${eye(92, 62, 3.2, E)}
       ${smile(96, 68, 2.4, E)}
     </g>`;
@@ -286,6 +286,7 @@ export const ART_BUGS = {
   cricket: (c) => {
     const E = eyeInk(c);
     return `
+    <path d="M28 72 L6 82 M28 76 L8 86" fill="none" stroke="${c.line}" stroke-width="1.8" stroke-linecap="round"/>
     <path d="M54 78 Q46 90 44 100 M60 78 Q56 92 56 102" fill="none" stroke="${c.line}" stroke-width="2.2" stroke-linecap="round"/>
     <g class="breathe">
       <path d="M24 72 Q26 52 56 52 Q86 54 94 70 Q86 80 56 80 Q30 80 24 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
@@ -468,11 +469,11 @@ export const ART_BUGS = {
       <ellipse cx="72" cy="42" rx="14" ry="7" transform="rotate(-4 72 42)" fill="${WING}" stroke="${c.line}" stroke-width="1.6" opacity=".85"/>
     </g>
     <g class="breathe">
-      <path d="M14 68 L6 66 M14 64 L6 68" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
-      <path d="M22 66 Q26 52 40 52 Q52 52 52 66 Q52 80 40 80 Q26 80 22 66 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      ${[[28, 12], [39, 15], [49, 11]].map(([x, ry]) => `<ellipse cx="${x}" cy="66" rx="3.4" ry="${ry}" fill="${INK}"/>`).join("")}
-      <path d="M52 66 Q58 62 66 64" fill="none" stroke="${c.line}" stroke-width="4.4" stroke-linecap="round"/>
-      <path d="M52 66 Q58 62 66 64" fill="none" stroke="${c.body}" stroke-width="2" stroke-linecap="round"/>
+      <path d="M18 62 L3 66 L18 70 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M16 66 Q30 48 46 52 Q57 55 57 66 Q57 78 46 80 Q30 84 16 66 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      ${[[30, 13], [42, 15], [52, 10]].map(([x, ry]) => `<ellipse cx="${x}" cy="66" rx="3.2" ry="${ry}" fill="${INK}"/>`).join("")}
+      <path d="M57 66 Q62 62 68 64" fill="none" stroke="${c.line}" stroke-width="3.2" stroke-linecap="round"/>
+      <path d="M57 66 Q62 62 68 64" fill="none" stroke="${c.body}" stroke-width="1.4" stroke-linecap="round"/>
       <ellipse cx="70" cy="64" rx="11" ry="12" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/>
     </g>
     <g class="head-tilt">

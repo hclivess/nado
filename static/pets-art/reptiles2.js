@@ -271,22 +271,22 @@ export const ART_REPTILES2 = {
   marineiguana: (c) => {
     const B = belly(c), E = eyeInk(c);
     const leg = (x, fwd) => `<path d="M${x} 78 q${fwd ? 6 : -6} 11 ${fwd ? 2 : -2} 17" fill="none" stroke="${c.line}" stroke-width="6.6" stroke-linecap="round"/><path d="M${x} 78 q${fwd ? 6 : -6} 11 ${fwd ? 2 : -2} 17" fill="none" stroke="${c.body}" stroke-width="4.2" stroke-linecap="round"/>`;
-    const crest = Array.from({ length: 8 }, (_, i) => `<path d="M${34 + i * 7} 55 l2 -6 l2 6 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.1" stroke-linejoin="round"/>`).join("");
+    const crest = Array.from({ length: 10 }, (_, i) => `<path d="M${32 + i * 6.4} 51 l1.6 -3.4 l1.6 3.4 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1" stroke-linejoin="round"/>`).join("");
     return `
     ${floorShadow(56, 108, 32)}
-    <g class="tail-wag">${tube("M34 70 Q14 74 8 88 Q6 98 16 96", c.body, c.line, 10)}</g>
+    <g class="tail-wag">${tube("M34 72 Q14 76 8 90 Q6 100 16 98", c.body, c.line, 11)}</g>
     <g class="breathe">
       ${leg(46, false)}${leg(72, true)}
-      <path d="M30 70 Q32 54 60 54 Q86 54 90 66 Q86 80 58 80 Q32 80 30 70 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M28 72 Q30 50 60 50 Q88 50 92 66 Q88 84 58 84 Q30 84 28 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       ${crest}
-      <path d="M38 74 q22 7 44 0" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".5"/>
+      <path d="M36 78 q24 7 48 0" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".5"/>
     </g>
     <g class="head-tilt">
-      <path d="M82 60 Q104 57 104 71 Q102 81 86 81 Q76 72 82 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
-      <path d="M100 64 Q108 66 106 74 Q100 76 99 72 Z" fill="${c.shade}"/>
-      <circle cx="97" cy="63" r="1.4" fill="${B}"/><circle cx="92" cy="61" r="1.2" fill="${B}"/><circle cx="99" cy="68" r="1.2" fill="${B}"/>
-      ${eye(90, 66, 2.8, E)}
-      ${smile(102, 71, 2, E)}
+      <path d="M80 58 Q80 48 92 48 Q105 49 106 63 Q105 76 91 77 Q79 77 79 66 Q77 62 80 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M100 60 Q108 62 107 71 Q100 73 99 68 Z" fill="${c.shade}"/>
+      <circle cx="96" cy="58" r="1.5" fill="${B}"/><circle cx="90" cy="55" r="1.3" fill="${B}"/><circle cx="99" cy="64" r="1.3" fill="${B}"/>
+      ${eye(89, 62, 2.8, E)}
+      ${smile(103, 67, 2, E)}
     </g>`;
   },
 
@@ -294,7 +294,7 @@ export const ART_REPTILES2 = {
   tuatara: (c) => {
     const B = belly(c), E = eyeInk(c);
     const leg = (x, fwd) => `<path d="M${x} 78 q${fwd ? 6 : -6} 11 ${fwd ? 2 : -2} 16" fill="none" stroke="${c.line}" stroke-width="6.2" stroke-linecap="round"/><path d="M${x} 78 q${fwd ? 6 : -6} 11 ${fwd ? 2 : -2} 16" fill="none" stroke="${c.body}" stroke-width="4" stroke-linecap="round"/>`;
-    const crest = Array.from({ length: 9 }, (_, i) => { const h = 7 - Math.abs(i - 4) * 0.5; return `<path d="M${32 + i * 7} 55 l2.4 -${h.toFixed(1)} l2.4 ${h.toFixed(1)} Z" fill="${B}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>`; }).join("");
+    const crest = Array.from({ length: 10 }, (_, i) => { const h = 12 - Math.abs(i - 4.5) * 1.1; return `<path d="M${33 + i * 6} 55 l3 -${h.toFixed(1)} l3 ${h.toFixed(1)} Z" fill="${B}" stroke="${c.line}" stroke-width="1.3" stroke-linejoin="round"/>`; }).join("");
     return `
     ${floorShadow(56, 108, 31)}
     <g class="tail-wag">${tube("M34 70 Q14 72 8 86 Q6 96 16 94", c.body, c.line, 9)}</g>
@@ -306,7 +306,7 @@ export const ART_REPTILES2 = {
     </g>
     <g class="head-tilt">
       <path d="M82 60 Q102 57 104 70 Q102 79 86 79 Q76 71 82 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
-      <path d="M83 56 l2 -5 l2 5 Z M89 55 l2 -5 l2 5 Z" fill="${B}" stroke="${c.line}" stroke-width="1" stroke-linejoin="round"/>
+      <path d="M82 56 l2.6 -7 l2.6 7 Z M89 55 l2.6 -7 l2.6 7 Z" fill="${B}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>
       ${eye(90, 65, 2.8, E)}
       ${smile(101, 69, 2.2, E)}
     </g>`;

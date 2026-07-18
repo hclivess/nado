@@ -108,6 +108,7 @@ export const ART_DEEPSEA = {
     return `
     <g class="breathe">
       <path d="${web}" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M40 66 L40 86 M52 66 L52 92 M60 66 L60 94 M68 66 L68 92 M80 66 L80 86" fill="none" stroke="${deepen(c.shade, .32)}" stroke-width="1.3" opacity=".55" stroke-linecap="round"/>
       ${[40, 52, 64, 76].map((x) => `<circle cx="${x}" cy="90" r="1.4" fill="${GLOW}" opacity=".7"/>`).join("")}
       <path d="M30 52 Q30 24 60 24 Q90 24 90 52 Q90 66 60 66 Q30 66 30 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
       <path d="M40 30 L34 18 Q44 22 46 32 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
@@ -115,15 +116,16 @@ export const ART_DEEPSEA = {
       <path d="M42 30 Q54 24 62 26 Q52 30 48 36 Z" fill="#fff" opacity=".22"/>
     </g>
     <g class="head-tilt">
-      ${ceye(49, 48, 5)}${ceye(71, 48, 5)}
-      ${smile(60, 56, 3.4, E)}
+      ${ceye(48, 47, 5.8)}${ceye(72, 47, 5.8)}
+      ${smile(60, 57, 3.4, E)}
     </g>`; },
 
   // Dumbo Octopus — domed mantle with two big elephant-ear fins, short webbed arm-skirt, big innocent eyes
   dumbooctopus: (c) => { const E = eyeInk(c), B = belly(c); return `
     <g class="tail-wag">
-      <path d="M32 46 Q10 40 8 54 Q18 58 30 56 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.3" stroke-linejoin="round"/>
-      <path d="M88 46 Q110 40 112 54 Q102 58 90 56 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.3" stroke-linejoin="round"/>
+      <path d="M34 42 Q5 30 3 52 Q6 66 26 58 Q31 50 34 42 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.3" stroke-linejoin="round"/>
+      <path d="M86 42 Q115 30 117 52 Q114 66 94 58 Q89 50 86 42 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.3" stroke-linejoin="round"/>
+      <path d="M11 44 Q19 49 23 55 M109 44 Q101 49 97 55" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".4"/>
     </g>
     <g class="breathe">
       <path d="M30 58 Q30 28 60 28 Q90 28 90 58 Q90 74 78 80 Q80 90 72 88 Q72 96 64 90 Q60 96 56 90 Q48 96 48 88 Q40 90 42 80 Q30 74 30 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>

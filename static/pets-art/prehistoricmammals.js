@@ -293,8 +293,8 @@ export const ART_PREHISTORICMAMMALS = {
       <path d="M46 94 Q66 102 86 92 Q66 98 46 94 Z" fill="${B}" opacity=".8"/>
       ${legs(c, 46, 68, 94, 11, 14, true)}</g>
     <g class="head-tilt">
-      <path d="M38 46 Q36 38 43 40 Q46 46 44 50 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
-      ${mirror(`<path d="M38 46 Q36 38 43 40 Q46 46 44 50 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>`)}
+      <ellipse cx="44" cy="43" rx="5.2" ry="5.6" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/>
+      ${mirror(`<ellipse cx="44" cy="43" rx="5.2" ry="5.6" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/>`)}
       <path d="M42 56 C36 40 52 32 60 32 C68 32 84 40 78 56 C84 60 84 70 76 74 C70 64 50 64 44 74 C36 70 36 60 42 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <path d="M48 62 C44 70 48 78 60 78 C72 78 76 70 72 62 Q60 58 48 62 Z" fill="${B}"/>
       <path d="M54 70 Q60 74 66 70 Q60 73 54 70 Z" fill="${c.shade}"/>
@@ -303,20 +303,20 @@ export const ART_PREHISTORICMAMMALS = {
 
   // ── Short-faced Bear — bear on TALL long legs, short blunt face, upright imposing stance ─────────
   shortfacedbear: (c) => { const B = belly(c); return `
-    <g class="tail-wag"><path d="M86 78 q7 2 5 10" fill="none" stroke="${c.line}" stroke-width="3.4" stroke-linecap="round"/></g>
+    <g class="tail-wag"><path d="M84 72 q7 2 5 10" fill="none" stroke="${c.line}" stroke-width="3.4" stroke-linecap="round"/></g>
     <g class="breathe">
-      <path d="M40 78 C38 58 50 50 64 50 C82 50 90 60 90 76 C90 86 84 90 78 90 L80 108 L70 108 L70 90 L52 90 L50 108 L40 108 L42 88 C38 86 40 82 40 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      <path d="M50 82 Q64 90 82 80 Q66 86 50 82 Z" fill="${B}" opacity=".8"/>
-      <ellipse cx="46" cy="106" rx="6.5" ry="3.4" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
-      <ellipse cx="74" cy="106" rx="6.5" ry="3.4" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/></g>
+      <path d="M42 72 C40 52 52 44 62 44 C80 44 88 54 88 70 C88 80 82 84 76 84 L78 110 L68 110 L68 84 L52 84 L50 110 L40 110 L42 82 C38 80 42 76 42 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M50 76 Q62 84 82 74 Q66 80 50 76 Z" fill="${B}" opacity=".8"/>
+      <ellipse cx="45" cy="108" rx="6.5" ry="3.4" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
+      <ellipse cx="73" cy="108" rx="6.5" ry="3.4" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/></g>
     <g class="head-tilt">
-      <path d="M42 40 Q40 30 48 32 Q51 38 49 44 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
-      ${mirror(`<path d="M42 40 Q40 30 48 32 Q51 38 49 44 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>`)}
-      <path d="M42 50 C38 34 52 28 60 28 C68 28 82 34 78 50 C84 54 84 62 76 66 C72 58 48 58 44 66 C36 62 36 54 42 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      <path d="M48 56 C44 62 48 70 60 70 C72 70 76 62 72 56 Q60 52 48 56 Z" fill="${B}"/>
-      <path d="M53 62 Q60 66 67 62 Q60 65 53 62 Z" fill="${c.shade}"/>
-      <path d="M57 58 l6 0 l-3 4 Z" fill="${INK}"/>
-      ${eye(50, 50, 3, eyeInk(c))}${eye(70, 50, 3, eyeInk(c))}</g>`; },
+      <path d="M40 34 Q38 24 46 26 Q49 32 47 38 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
+      ${mirror(`<path d="M40 34 Q38 24 46 26 Q49 32 47 38 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>`)}
+      <path d="M38 42 C34 26 52 20 60 20 C68 20 86 26 82 42 C88 46 88 54 80 58 C76 50 44 50 40 58 C32 54 32 46 38 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M48 48 C44 53 50 58 60 58 C70 58 76 53 72 48 Q60 45 48 48 Z" fill="${B}"/>
+      <path d="M53 52 Q60 56 67 52 Q60 55 53 52 Z" fill="${c.shade}"/>
+      <path d="M57 49 l6 0 l-3 4 Z" fill="${INK}"/>
+      ${eye(48, 42, 3, eyeInk(c))}${eye(72, 42, 3, eyeInk(c))}</g>`; },
 
   // ── Aurochs — wild ox: muscular, shoulder hump, big forward-curving pale horns, side profile ─────
   aurochs: (c) => { const B = belly(c); return `

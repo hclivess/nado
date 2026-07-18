@@ -100,7 +100,7 @@ export const ART_RODENTS = {
     <ellipse cx="52" cy="87" rx="4" ry="3" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
     <ellipse cx="68" cy="87" rx="4" ry="3" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
     <g class="head-tilt">
-      ${rEar(42, 36, 11, c)}${rEar(78, 36, 11, c)}
+      ${rEar(39, 33, 13, c)}${rEar(81, 33, 13, c)}
       <circle cx="60" cy="52" r="20" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M52 58 Q60 52 68 58 Q68 68 60 72 Q52 68 52 58 Z" fill="${c.shade}" opacity=".7"/>
       <ellipse cx="60" cy="61" rx="2.6" ry="2" fill="${INK}"/>
@@ -216,13 +216,13 @@ export const ART_RODENTS = {
     </g>
     <path d="M84 82 q10 2 14 6 l-9 3 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
     <g class="head-tilt">
-      <circle cx="80" cy="50" r="5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><circle cx="80" cy="50" r="2.2" fill="${c.shade}"/>
-      <path d="M74 58 Q74 44 90 42 Q104 44 104 60 Q104 74 88 76 Q74 72 74 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M96 60 Q106 62 104 70 Q98 72 92 68 Z" fill="${c.shade}" opacity=".6"/>
-      <ellipse cx="104" cy="64" rx="2.4" ry="1.8" fill="${INK}"/>
-      <path d="M92 68 q4 3 9 2" stroke="${INK}" stroke-width="1.1" fill="none"/>
-      ${eye(88, 55, 2.8, eyeInk(c))}
-      ${whiskersR(102, 66)}
+      ${rEar(80, 40, 6, c)}${rEar(94, 41, 5.5, c)}
+      <path d="M74 58 Q74 43 90 42 Q104 44 103 60 Q103 73 88 75 Q74 72 74 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M94 60 Q103 62 101 70 Q95 72 90 68 Z" fill="${c.shade}" opacity=".6"/>
+      <ellipse cx="101" cy="63" rx="3" ry="2.4" fill="${INK}"/>
+      <path d="M91 68 q4 3 8 1" stroke="${INK}" stroke-width="1.1" fill="none"/>
+      ${eye(87, 55, 2.8, eyeInk(c))}
+      ${whiskersR(99, 66)}
     </g>`,
 
   // Dormouse — tiny, HUGE eyes, small round ears, and a big fluffy curled squirrel-like tail wrapped beside it
@@ -255,12 +255,12 @@ export const ART_RODENTS = {
       <path d="M46 66 Q60 60 74 66 M46 74 Q60 70 74 74" stroke="${c.shade}" stroke-width="1.4" fill="none" opacity=".5"/>
     </g>
     <g class="head-tilt">
-      <circle cx="82" cy="52" r="5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><circle cx="82" cy="52" r="2.2" fill="${c.shade}"/>
-      <path d="M74 58 Q74 46 90 44 Q104 46 104 60 Q104 72 88 74 Q74 70 74 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M96 60 Q106 62 104 70 Q98 72 92 68 Z" fill="${c.shade}" opacity=".6"/>
-      <ellipse cx="104" cy="64" rx="2.4" ry="1.8" fill="${INK}"/>
+      <circle cx="80" cy="51" r="4.2" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><circle cx="80" cy="51" r="1.9" fill="${c.shade}"/>
+      <path d="M74 58 Q74 47 90 45 Q102 46 106 56 L114 62 L106 67 Q100 73 88 74 Q74 70 74 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M98 61 Q108 62 112 62 Q108 68 100 68 Z" fill="${c.shade}" opacity=".6"/>
+      <ellipse cx="112" cy="62" rx="2.2" ry="1.7" fill="${INK}"/>
       ${eye(88, 54, 2.6, eyeInk(c))}
-      ${whiskersR(102, 66)}
+      ${whiskersR(108, 64)}
     </g>`,
 
   // Pika — round potato "rock rabbit": big rounded mouse-ears, NO tail, short legs, compact and chunky
@@ -271,7 +271,7 @@ export const ART_RODENTS = {
     </g>
     ${[50, 70].map((x) => `<ellipse cx="${x}" cy="92" rx="5" ry="3.2" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/>`).join("")}
     <g class="head-tilt">
-      ${rEar(44, 42, 10, c)}${rEar(76, 42, 10, c)}
+      ${rEar(47, 45, 8, c)}${rEar(73, 45, 8, c)}
       <circle cx="60" cy="54" r="20" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M54 58 Q60 54 66 58 Q68 68 60 72 Q52 68 54 58 Z" fill="${c.shade}" opacity=".7"/>
       <ellipse cx="60" cy="62" rx="2.4" ry="1.8" fill="${INK}"/>
@@ -308,12 +308,13 @@ export const ART_RODENTS = {
     </g>
     ${[52, 72].map((x) => `<ellipse cx="${x}" cy="90" rx="4" ry="2.6" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>`).join("")}
     <g class="head-tilt">
-      <circle cx="72" cy="52" r="4" fill="${c.body}" stroke="${c.line}" stroke-width="1.8"/><circle cx="72" cy="52" r="1.6" fill="${c.shade}"/>
-      <path d="M74 60 Q72 48 88 46 Q102 48 102 62 Q102 74 88 76 Q76 74 74 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <ellipse cx="100" cy="64" rx="3" ry="2.4" fill="${INK}"/>
-      <path d="M93 68 q4 2 7 1" stroke="${INK}" stroke-width="1.1" fill="none"/>
-      ${eye(86, 58, 2.6, eyeInk(c))}
-      ${whiskersR(98, 66)}
+      <circle cx="79" cy="50" r="3.4" fill="${c.body}" stroke="${c.line}" stroke-width="1.8"/><circle cx="79" cy="50" r="1.4" fill="${c.shade}"/>
+      <path d="M73 61 Q73 48 86 47 Q99 48 99 61 Q99 74 86 75 Q73 74 73 61 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M92 60 Q99 61 99 65 Q95 69 90 67 Z" fill="${c.shade}" opacity=".55"/>
+      <ellipse cx="98" cy="62" rx="3.2" ry="2.8" fill="${INK}"/>
+      <path d="M92 67 q3 2 6 1" stroke="${INK}" stroke-width="1.1" fill="none"/>
+      ${eye(87, 58, 2.4, eyeInk(c))}
+      ${whiskersR(96, 65)}
     </g>`,
 
   // Shrew — tiny insectivore with an absurdly long pointed proboscis-snout, pin-prick eyes, velvety, thin tail

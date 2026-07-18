@@ -224,8 +224,8 @@ export const ART_CRYPTIDS = {
   sasquatch: (c) => { const B = belly(c); return `
     ${floorShadow(60, 112, 30)}
     <g class="tail-wag">
-      ${pom(28, 68, 11, c.body, c.line, 8, 3)}
-      ${pom(92, 68, 11, c.body, c.line, 8, 3)}
+      <path d="M40 62 Q28 64 26 78 Q25 90 31 96 Q38 100 42 92 Q39 82 44 74 Q41 66 48 64 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M80 62 Q92 64 94 78 Q95 90 89 96 Q82 100 78 92 Q81 82 76 74 Q79 66 72 64 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
     </g>
     <g class="breathe">
       ${pom(60, 80, 30, c.body, c.line, 14, 3.2)}

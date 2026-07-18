@@ -264,8 +264,8 @@ export const ART_ODDBALLS = {
       <path d="M40 100 l-2 4 m2 -4 l0 5 m0 -5 l2 4 M78 99 l-2 4 m2 -4 l0 5 m0 -5 l2 4" stroke="${CLAW}" stroke-width="1.5" stroke-linecap="round"/>
     </g>
     <g class="head-tilt">
-      <path d="M76 40 Q72 16 80 12 Q90 22 86 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M78 38 Q75 22 80 16" fill="none" stroke="${c.shade}" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M73 44 Q69 22 78 18 Q85 16 89 23 Q91 34 86 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M77 42 Q74 27 80 21 Q84 18 86 23" fill="none" stroke="${c.shade}" stroke-width="2.2" stroke-linecap="round"/>
       <path d="M78 62 Q78 44 92 44 Q104 44 112 60 Q112 68 104 70 Q90 72 78 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <ellipse cx="108" cy="64" rx="4.4" ry="4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
       <ellipse cx="106" cy="63" rx="1" ry="1.4" fill="${INK}"/><ellipse cx="110" cy="65" rx="1" ry="1.4" fill="${INK}"/>

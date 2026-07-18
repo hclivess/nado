@@ -230,7 +230,7 @@ export const ART_DOGBREEDS = {
     <g class="breathe">
       <path d="M28 56 Q26 44 42 44 Q56 38 74 42 Q80 32 90 32 Q102 32 101 44 Q101 51 92 51 L88 55 Q86 66 80 68 Q76 58 66 60 Q56 66 44 62 Q38 64 32 62 Q27 62 28 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <path d="M46 58 Q60 54 74 60 Q72 66 60 66 Q50 66 46 58 Z" fill="${B}"/>
-      <ellipse cx="50" cy="52" rx="8" ry="6" fill="${c.shade}"/>
+      <g fill="${c.shade}"><ellipse cx="48" cy="52" rx="8" ry="6"/><ellipse cx="67" cy="51" rx="6" ry="4.5"/><ellipse cx="37" cy="58" rx="4.6" ry="3.4"/><ellipse cx="78" cy="56" rx="4.6" ry="3.4"/></g>
     </g>
     ${tube("M46 64 L43 108", c.body, c.line, 6)}${tube("M72 62 L75 108", c.body, c.line, 6)}
     ${[41, 47, 72, 78].map((x) => paw(c, x, 108, 6.5)).join("")}
@@ -247,12 +247,12 @@ export const ART_DOGBREEDS = {
     <g class="breathe">${pom(60, 84, 27, c.body, c.line, 15, 3.2)}
       ${pom(60, 92, 14, B, c.line, 10, 1.2)}</g>
     <g class="breathe">
-      <path d="M47 44 L41 26 L54 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/><path d="M48 41 L45 31 L52 40 Z" fill="${c.shade}"/>
-      ${mirror(`<path d="M47 44 L41 26 L54 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/><path d="M48 41 L45 31 L52 40 Z" fill="${c.shade}"/>`)}
+      <path d="M48 44 L40 20 L56 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/><path d="M49 41 L44 27 L53 40 Z" fill="${c.shade}"/>
+      ${mirror(`<path d="M48 44 L40 20 L56 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/><path d="M49 41 L44 27 L53 40 Z" fill="${c.shade}"/>`)}
       ${pom(60, 52, 18, c.body, c.line, 12, 2.8)}
-      <path d="M52 54 Q60 50 68 54 Q70 62 60 66 Q50 62 52 54 Z" fill="${B}"/>
-      ${nose(60, 55, 3.2)}${smileMouth(c, 60, 58, 6)}
-      ${ceye(52, 49, 4)}${ceye(68, 49, 4)}
+      <path d="M54 52 Q60 49 66 52 Q65 63 60 69 Q55 63 54 52 Z" fill="${B}"/>
+      ${nose(60, 57, 3.2)}${smileMouth(c, 60, 60, 5.5)}
+      ${ceye(52, 48, 4)}${ceye(68, 48, 4)}
     </g>`; },
 
   // ── Shih Tzu — long silky draping fur, flat face, top-knot, floppy fur-buried ears, big eyes (t1) ──

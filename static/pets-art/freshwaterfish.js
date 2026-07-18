@@ -167,10 +167,11 @@ export const ART_FRESHWATERFISH = {
       ${bars}
       <path d="M40 76 Q64 84 90 68 Q64 80 40 76 Z" fill="${c.shade}" opacity=".5"/>
       <path d="M44 42 Q56 30 72 42 Q60 45 52 46 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.7" stroke-linejoin="round"/>
+      <ellipse cx="66" cy="40" rx="3.4" ry="3" fill="${deepen(c.body, .55)}"/>
       <path d="M52 84 Q58 92 66 84 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
     </g>
     <g class="head-tilt">
-      <ellipse cx="80" cy="52" rx="4.5" ry="6" fill="${D}" opacity=".85"/>
+      <path d="M76 48 Q84 50 84 56 Q84 61 78 60 Q73 54 76 48 Z" fill="${deepen(c.body, .62)}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
       <path d="M90 62 q5 1 8 -1" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
       ${eye(86, 55, 3, E)}
     </g>`; },
@@ -240,6 +241,7 @@ export const ART_FRESHWATERFISH = {
       <path d="M40 74 Q64 82 90 66 Q64 78 40 74 Z" fill="${c.shade}" opacity=".5"/>
       <path d="M38 45 Q60 31 82 48 Q60 47 48 46 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.7" stroke-linejoin="round"/>
       ${[44, 52, 60, 68, 76].map((x) => `<path d="M${x} 44 l-1 -6" stroke="${c.line}" stroke-width="1" opacity=".5"/>`).join("")}
+      <circle cx="76" cy="42" r="3" fill="${deepen(c.body, .5)}" stroke="${c.line}" stroke-width="1" opacity=".92"/>
       <path d="M52 80 Q58 90 66 80 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
     </g>
     <g class="head-tilt">

@@ -34,13 +34,13 @@ export const ART_SHARKSRAYS = {
   bullshark: (c) => { const E = eyeInk(c), B = belly(c); return `
     <g class="tail-wag"><path d="M28 62 L10 40 Q18 62 10 84 L26 68 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/></g>
     <g class="breathe">
-      <path d="M26 62 Q32 41 62 43 Q88 44 99 61 Q88 81 62 82 Q32 82 26 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
-      <path d="M38 74 Q66 86 99 66 Q66 80 38 74 Z" fill="${B}"/>
-      <path d="M50 45 L58 24 L72 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M74 78 L58 94 L86 80 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M26 62 Q30 38 60 40 Q86 41 96 61 Q86 84 60 85 Q30 85 26 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
+      <path d="M38 76 Q64 88 96 66 Q64 82 38 76 Z" fill="${B}"/>
+      <path d="M48 43 L56 21 L70 45 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M72 80 L56 96 L84 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       ${gills(c, 80)}
-      ${grin(c, 86, 68, 5)}
-      ${eye(90, 54, 2.2, E)}
+      ${grin(c, 85, 69, 5)}
+      ${eye(89, 53, 2.2, E)}
     </g>`; },
 
   // Nurse Shark — rounded snout with TWO nasal BARBELS, small mouth, two dorsals set well back
@@ -60,7 +60,8 @@ export const ART_SHARKSRAYS = {
 
   // Reef Shark — the sleek textbook grey reef shark: clean torpedo, dusky trailing fin edges, toothy grin
   reefshark: (c) => { const E = eyeInk(c), B = belly(c); return `
-    <g class="tail-wag"><path d="M30 62 L11 41 Q19 62 11 83 L28 68 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M30 62 L11 41 Q19 62 11 83 L28 68 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
+      <path d="M11 41 L11 83 Q17 62 11 41 Z" fill="${c.line}" opacity=".5"/></g>
     <g class="breathe">
       <path d="M28 62 Q40 47 70 48 Q95 49 107 61 Q95 73 70 76 Q40 77 28 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M40 71 Q68 82 105 66 Q68 78 40 71 Z" fill="${B}"/>
@@ -75,15 +76,16 @@ export const ART_SHARKSRAYS = {
   blacktipshark: (c) => { const E = eyeInk(c), B = belly(c); return `
     <g class="tail-wag">
       <path d="M30 62 L11 41 Q19 62 11 83 L28 68 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
-      <path d="M11 41 L21 55 L16 43 Z" fill="${INK}"/>
+      <path d="M11 41 L24 58 L16 43 Z" fill="${INK}"/>
+      <path d="M11 83 L23 66 L16 81 Z" fill="${INK}"/>
     </g>
     <g class="breathe">
       <path d="M28 62 Q40 49 72 50 Q96 51 108 61 Q96 71 72 74 Q40 75 28 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M40 71 Q68 80 106 65 Q68 77 40 71 Z" fill="${B}"/>
       <path d="M52 50 L60 28 L72 51 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M55 40 L60 28 L65 40 Z" fill="${INK}"/>
+      <path d="M53 43 L60 28 L67 44 Z" fill="${INK}"/>
       <path d="M78 74 L62 91 L88 77 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M65 82 L62 91 L74 85 Z" fill="${INK}"/>
+      <path d="M62 82 L62 91 L77 84 Z" fill="${INK}"/>
       ${gills(c, 84)}
       ${grin(c, 90, 66, 5)}
       ${eye(94, 55, 2.6, E)}
@@ -91,7 +93,7 @@ export const ART_SHARKSRAYS = {
 
   // Mako Shark — sharp POINTED conical snout, sleek metallic body, big eye, tall keeled lunate tail
   makoshark: (c) => { const E = eyeInk(c), B = belly(c); return `
-    <g class="tail-wag"><path d="M32 62 L12 40 Q22 62 12 84 L30 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M32 62 L14 34 L24 58 Q30 62 24 66 L14 90 L32 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/></g>
     <g class="breathe">
       <path d="M28 62 Q42 50 76 52 Q98 53 113 61 Q98 70 76 73 Q42 75 28 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M40 70 Q66 79 111 63 Q66 76 40 70 Z" fill="${B}"/>

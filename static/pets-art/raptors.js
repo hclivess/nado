@@ -57,11 +57,11 @@ export const ART_RAPTORS = {
   // Kestrel — dainty falcon: blue-grey cap, rufous back, TWO black malar moustaches, spotted breast
   kestrel: (c) => { const B = belly(c); return `
     ${floorShadow(60, 112, 24)}
-    <g class="tail-wag"><path d="M52 94 Q49 112 60 110 Q71 112 68 94 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/><path d="M54 106 h12" stroke="${c.line}" stroke-width="1.4" opacity=".5"/></g>
+    <g class="tail-wag"><path d="M52 94 Q49 112 60 110 Q71 112 68 94 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/><path d="M52 104 Q60 108 68 104" stroke="${deepen(c.body, 0.5)}" stroke-width="4.2" fill="none" stroke-linecap="round"/></g>
     <g class="breathe">
       ${body(BODC, c)}
       ${breast(B)}
-      ${[[53, 58], [67, 58], [60, 64], [53, 70], [67, 70], [60, 76]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.3" fill="${c.shade}" opacity=".65"/>`).join("")}
+      ${[[53, 57], [67, 57], [60, 63], [52, 69], [68, 69], [60, 75], [56, 52], [64, 52]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.2" fill="${c.shade}" opacity=".8"/>`).join("")}
       ${wings(c)}
       <path d="M60 19 C47 19 43 30 45 41 Q52 45 60 45 Q68 45 75 41 C77 30 73 19 60 19 Z" fill="${c.shade}"/>
       ${reye(51, 34)}${reye(69, 34)}
@@ -81,6 +81,7 @@ export const ART_RAPTORS = {
       ${wings(c)}
       <path d="M60 22 C49 22 44 33 46 44 Q53 50 60 50 Q67 50 74 44 C76 33 71 22 60 22 Z" fill="${B}" stroke="${c.line}" stroke-width="1.4"/>
       <path d="M46 44 Q60 49 74 44" stroke="${c.shade}" stroke-width="1.6" fill="none" opacity=".6"/>
+      <path d="M48 27 Q41 38 48 48" fill="none" stroke="${c.shade}" stroke-width="1.8" stroke-linecap="round" opacity=".6"/>${mirror(`<path d="M48 27 Q41 38 48 48" fill="none" stroke="${c.shade}" stroke-width="1.8" stroke-linecap="round" opacity=".6"/>`)}
       ${reye(52, 36)}${reye(68, 36)}
       ${hookbeak(60, 45, 0.82)}
     </g>
@@ -175,7 +176,7 @@ export const ART_RAPTORS = {
     <g class="breathe">
       ${body(BODC, c)}
       ${breast(B)}
-      ${[[54, 56], [60, 56], [66, 56], [56, 64], [64, 64], [60, 72], [54, 72], [66, 72]].map(([x, y]) => `<path d="M${x} ${y} v5" stroke="${c.shade}" stroke-width="1.5" stroke-linecap="round" opacity=".6"/>`).join("")}
+      ${[[52, 54], [58, 54], [64, 54], [68, 54], [55, 62], [61, 62], [67, 62], [52, 70], [58, 70], [64, 70], [68, 70]].map(([x, y]) => `<path d="M${x} ${y} v7" stroke="${deepen(c.shade, 0.15)}" stroke-width="2" stroke-linecap="round" opacity=".72"/>`).join("")}
       ${wings(c)}
       <path d="M60 18 C47 18 43 30 45 42 Q52 46 60 46 Q68 46 75 42 C77 30 73 18 60 18 Z" fill="${c.shade}"/>
       <path d="M54 40 L52 48 L56 47 Z" fill="${c.shade}"/><path d="M66 40 L68 48 L64 47 Z" fill="${c.shade}"/>

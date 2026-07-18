@@ -425,18 +425,22 @@ export const ART_UNDEAD = {
     </g>
     <g class="breathe">
       <path d="M60 16 Q42 20 42 42 Q42 54 48 62 L38 100 Q46 92 52 98 Q56 92 60 98 Q64 92 68 98 Q74 92 82 100 L72 62 Q78 54 78 42 Q78 20 60 16 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M52 56 Q42 40 42 18 Q49 34 57 48 Z" fill="${deepen(c.body, 0.18)}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M68 56 Q78 40 78 18 Q71 34 63 48 Z" fill="${deepen(c.body, 0.18)}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M50 40 Q50 58 60 62 Q70 58 70 40 Q60 46 50 40 Z" fill="${c.shade}" opacity=".65"/>
       <path d="M48 58 Q38 66 40 80 Q46 72 52 70 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M72 58 Q82 66 80 80 Q74 72 68 70 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
     </g>
     <g class="head-tilt">
       <path d="M48 34 Q48 22 60 22 Q72 22 72 34 Q72 46 60 50 Q48 46 48 34 Z" fill="${BONE}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M60 21 Q47 23 47 35 Q47 47 60 50 Z" fill="#fff" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M60 21 V50" stroke="${c.line}" stroke-width="1" opacity=".45"/>
       <path d="M52 32 q4 -3 7 0 q-4 4 -7 0 Z" fill="${INK}"/>
       <path d="M61 32 q3 -3 7 0 q-3 4 -7 0 Z" fill="${INK}"/>
       <circle cx="55" cy="32" r="1" fill="${GLOW}"/><circle cx="64" cy="32" r="1" fill="${GLOW}"/>
       <path d="M60 34 L58 40 h4 Z" fill="${c.shade}"/>
       <path d="M54 44 q6 3 12 0" stroke="${c.line}" stroke-width="1.4" fill="none" stroke-linecap="round"/>
-      <path d="M64 22 l-2 6 l2 4" fill="none" stroke="${c.line}" stroke-width="0.9" opacity=".5"/>
+      <path d="M69 25 q6 4 4 13 q-4 -7 -7 -9 Z" fill="${c.line}" opacity=".75"/>
     </g>`;
   },
 

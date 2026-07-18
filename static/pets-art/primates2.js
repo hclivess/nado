@@ -112,11 +112,11 @@ export const ART_PRIMATES2 = {
       ${peanut(c, 26, 28)}
       <ellipse cx="60" cy="94" rx="13" ry="12" fill="${B}" opacity=".85"/>
       ${feet(c)}${hands(c)}
-      ${pom(60, 42, 26, c.body, c.line, 18, 2.6)}
-      <ellipse cx="60" cy="46" rx="13" ry="14" fill="${tint(c.body, 0.55)}" stroke="${c.line}" stroke-width="1.6"/>
-      ${ceye(53, 43, 3.6)}${ceye(67, 43, 3.6)}
-      ${nose(60, 51)}
-      <path d="M55 55 Q60 58 65 55" stroke="${INK}" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+      ${pom(60, 42, 26, deepen(c.body, 0.4), c.line, 18, 2.6)}
+      <ellipse cx="60" cy="47" rx="12.5" ry="14.5" fill="${WHT}" stroke="${c.line}" stroke-width="1.6"/>
+      ${ceye(53, 44, 3.4)}${ceye(67, 44, 3.4)}
+      <path d="M60 51 l-2.4 2.6 h4.8 Z" fill="${INK}"/>
+      <path d="M55 57 Q60 59 65 57" stroke="${INK}" stroke-width="1.4" fill="none" stroke-linecap="round"/>
     </g>`; },
 
   // ── Bald Uakari — startling bright-RED bald face, shaggy coat, stubby tail ───────────────────

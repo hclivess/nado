@@ -146,8 +146,8 @@ export const ART_PARROTS2 = {
     <g class="head-tilt">
       <circle cx="56" cy="44" r="15" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       ${[40, 44, 48].map((y) => `<path d="M46 ${y} q9 -2 18 0" stroke="${deepen(c.body, 0.22)}" stroke-width="1" fill="none" opacity=".5"/>`).join("")}
-      <path d="M66 40 Q91 38 91 51 Q91 63 80 71 Q76 67 78 58 Q70 54 67 46 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M78 57 Q87 59 89 53 Q89 63 80 70 Q76 66 78 57 Z" fill="${BEAKD}"/>
+      <path d="M66 40 Q97 36 96 51 Q95 67 82 79 Q77 73 80 60 Q71 55 67 46 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M80 58 Q91 60 94 53 Q93 67 82 78 Q78 71 80 58 Z" fill="${BEAKD}"/>
       ${eye(56, 43, 3.2, eyeInk(c))}
     </g>`; },
 
@@ -245,7 +245,7 @@ export const ART_PARROTS2 = {
       <path d="M50 66 Q60 60 70 66 Q71 92 60 98 Q49 92 50 66 Z" fill="${B}"/></g>
     ${feet([54, 66], 101)}
     <g class="head-tilt">
-      ${[-10, 4].map((a) => `<g transform="rotate(${a} 60 28)"><path d="M60 28 Q55 16 61 12 Q66 17 63 28 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round"/></g>`).join("")}
+      ${[-20, -6, 8, 20].map((a) => `<g transform="rotate(${a} 60 30)"><path d="M60 30 Q53 8 60 2 Q67 8 62 30 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round"/></g>`).join("")}
       <circle cx="60" cy="41" r="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <ellipse cx="52" cy="43" rx="4.5" ry="5" fill="${WHT}" stroke="${c.line}" stroke-width="1"/>
       ${mirror(`<ellipse cx="52" cy="43" rx="4.5" ry="5" fill="${WHT}" stroke="${c.line}" stroke-width="1"/>`)}
@@ -280,7 +280,8 @@ export const ART_PARROTS2 = {
     <g class="breathe">
       <path d="M60 48 Q80 52 80 78 Q78 100 59 101 Q45 100 44 78 Q44 52 60 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M51 66 Q60 61 68 66 Q69 88 59 94 Q50 88 51 66 Z" fill="${B}"/>
-      <ellipse cx="72" cy="66" rx="8" ry="7" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
+      <ellipse cx="71" cy="67" rx="10.5" ry="8.5" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
+      <path d="M64 62 q6 4 12 1" stroke="${TIP}" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".6"/>
       <path d="M42 60 Q35 78 46 94 Q50 78 49 66 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/></g>
     ${feet([54, 66], 100)}
     <g class="head-tilt">

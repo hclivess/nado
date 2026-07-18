@@ -363,16 +363,18 @@ export const ART_SEAMONSTERS = {
       ${arms.map((d) => { const m = d.match(/(\d+) (\d+)$/); return `<circle cx="${+m[1]}" cy="${+m[2]}" r="1.6" fill="${c.shade}"/>`; }).join("")}
     </g>
     <g class="breathe">
-      <path d="M34 62 Q44 46 70 46 Q92 48 102 60 Q94 74 70 78 Q44 78 34 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M46 70 Q70 82 98 66 Q70 78 46 70 Z" fill="${B}"/>
-      <path d="M56 48 L64 28 L74 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      <path d="M56 76 L62 88 L72 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M78 52 q-2 8 0 16 M83 52 q-2 8 0 16" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".6"/>
+      <path d="M30 62 Q28 44 46 44 Q60 44 62 60 Q60 72 44 74 Q32 74 30 62 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      ${[40, 50].map((x) => `<circle cx="${x}" cy="58" r="2" fill="${B}" stroke="${c.line}" stroke-width="0.7"/>`).join("")}
+      <path d="M44 62 Q52 48 74 48 Q94 50 102 60 Q94 74 74 76 Q52 76 44 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M54 70 Q74 80 98 66 Q74 76 54 70 Z" fill="${B}"/>
+      <path d="M62 50 L70 30 L80 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M60 74 L66 86 L76 76 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M84 52 q-2 8 0 16 M89 52 q-2 8 0 16" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".6"/>
     </g>
     <g class="head-tilt">
-      <path d="M80 66 Q94 78 104 62 Q96 72 86 71 Q82 69 80 66 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      ${Array.from({ length: 5 }, (_, i) => `<path d="M${84 + i * 3.4} 67 l1.4 4 l1.4 -4 Z" fill="${TOOTH}" stroke="${c.line}" stroke-width="0.5"/>`).join("")}
-      ${eye(90, 56, 2.8, E)}
+      <path d="M84 66 Q96 78 106 62 Q98 72 88 71 Q86 69 84 66 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      ${Array.from({ length: 4 }, (_, i) => `<path d="M${88 + i * 3.4} 67 l1.4 4 l1.4 -4 Z" fill="${TOOTH}" stroke="${c.line}" stroke-width="0.5"/>`).join("")}
+      ${eye(94, 55, 3, E)}
     </g>`; },
 
   // ── Encantado — dolphin-shifter: graceful dolphin with a jaunty straw hat (hiding the blowhole) & a sparkle (t3)

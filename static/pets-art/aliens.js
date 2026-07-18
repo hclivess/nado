@@ -136,8 +136,8 @@ export const ART_ALIENS = {
       <path d="M26 62 Q26 34 60 34 Q94 34 94 62 Q94 88 88 98 Q82 92 76 98 Q70 92 64 98 Q58 92 52 98 Q46 92 40 98 Q34 92 30 96 Q23 90 26 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round" opacity=".93"/>
       <path d="M40 46 Q54 38 66 42 Q52 46 46 56 Z" fill="#fff" opacity=".4"/>
       <ellipse cx="50" cy="80" rx="10" ry="6" fill="${c.shade}" opacity=".4"/>
-      ${ceye(46, 58, 3.8)}${ceye(60, 54, 4.4)}${ceye(74, 58, 3.8)}
-      <path d="M52 70 q8 6 16 0" fill="none" stroke="${c.line}" stroke-width="1.7" stroke-linecap="round"/>
+      ${ceye(45, 56, 4)}${ceye(60, 56, 4)}${ceye(75, 56, 4)}
+      <path d="M54 70 q6 5 12 0" fill="none" stroke="${c.line}" stroke-width="1.7" stroke-linecap="round"/>
     </g>`;
   },
 

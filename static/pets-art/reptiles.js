@@ -339,13 +339,14 @@ export const ART_REPTILES = {
   // ── Salamander — long smooth horizontal body, four splayed legs, tapering tail, bright spot rows
   salamander: (c) => {
     const E = eyeInk(c);
-    const spots = [[44, 60], [58, 57], [72, 60], [50, 72], [66, 72]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3" fill="${c.shade}" stroke="${c.line}" stroke-width="1"/>`).join("");
-    const leg = (x, dy) => `<path d="M${x} ${dy > 0 ? 72 : 56} q${dy > 0 ? -6 : 6} ${dy} ${dy > 0 ? -11 : 11} ${dy * 1.1}" fill="none" stroke="${c.line}" stroke-width="4.6" stroke-linecap="round"/><path d="M${x} ${dy > 0 ? 72 : 56} q${dy > 0 ? -6 : 6} ${dy} ${dy > 0 ? -11 : 11} ${dy * 1.1}" fill="none" stroke="${c.body}" stroke-width="2.8" stroke-linecap="round"/>`;
+    // fire-salamander signature: big bold irregular blotches in two rows
+    const spots = [[46, 58], [60, 55], [74, 59], [52, 70], [68, 70]].map(([x, y], i) => `<ellipse cx="${x}" cy="${y}" rx="${i % 2 ? 5 : 4}" ry="3.6" fill="${c.shade}" stroke="${c.line}" stroke-width="1.3"/>`).join("");
+    const leg = (x, dy) => `<path d="M${x} ${dy > 0 ? 74 : 54} q${dy > 0 ? -6 : 6} ${dy} ${dy > 0 ? -11 : 11} ${dy * 1.1}" fill="none" stroke="${c.line}" stroke-width="4.6" stroke-linecap="round"/><path d="M${x} ${dy > 0 ? 74 : 54} q${dy > 0 ? -6 : 6} ${dy} ${dy > 0 ? -11 : 11} ${dy * 1.1}" fill="none" stroke="${c.body}" stroke-width="2.8" stroke-linecap="round"/>`;
     return `
-    <g class="tail-wag">${tube("M40 64 Q18 62 12 78 Q10 88 18 88", c.body, c.line, 7)}</g>
+    <g class="tail-wag">${tube("M40 64 Q18 62 12 78 Q10 88 18 88", c.body, c.line, 8)}</g>
     <g class="breathe">
       ${leg(50, 12)}${leg(72, 12)}${leg(50, -12)}${leg(72, -12)}
-      <path d="M40 64 Q40 52 62 52 Q86 52 92 64 Q86 74 62 74 Q42 74 40 64 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M40 64 Q40 50 62 50 Q86 50 92 64 Q86 78 62 78 Q42 78 40 64 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
       ${spots}
     </g>
     <g class="head-tilt">
@@ -358,15 +359,16 @@ export const ART_REPTILES = {
   // ── Newt — slender, wavy dorsal crest (breeding male), long finned tail, speckled belly
   newt: (c) => {
     const E = eyeInk(c);
+    // breeding-male crest: tall jagged zigzag sail (clearly taller than salamander's back)
     const crest = Array.from({ length: 9 }, (_, i) => {
-      const x = 34 + i * 5, h = 4 + Math.sin(i / 8 * Math.PI) * 5;
-      return `<path d="M${x} 56 q2 -${h.toFixed(1)} 4 0 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.1" stroke-linejoin="round"/>`;
+      const x = 36 + i * 5, h = 5 + Math.sin(i / 8 * Math.PI) * 9;
+      return `<path d="M${x} 54 l2 -${h.toFixed(1)} l2 ${h.toFixed(1)} Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.1" stroke-linejoin="round"/>`;
     }).join("");
     const speck = [[48, 68], [58, 70], [68, 68], [54, 63], [64, 63]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.6" fill="${c.shade}"/>`).join("");
     const leg = (x, dy) => `<path d="M${x} ${dy > 0 ? 70 : 58} l${dy > 0 ? -7 : 7} ${dy}" fill="none" stroke="${c.line}" stroke-width="4" stroke-linecap="round"/><path d="M${x} ${dy > 0 ? 70 : 58} l${dy > 0 ? -7 : 7} ${dy}" fill="none" stroke="${c.body}" stroke-width="2.4" stroke-linecap="round"/>`;
     return `
     <g class="tail-wag">
-      <path d="M42 64 Q22 60 12 68 Q8 74 12 80 Q24 74 42 66 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M42 62 Q20 56 10 66 Q6 76 12 84 Q26 76 42 68 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
       ${tube("M42 64 Q26 64 14 72", c.body, c.line, 5)}
     </g>
     <g class="breathe">

@@ -224,20 +224,21 @@ export const ART_FARM = {
 
   // Pony — stocky short-legged cousin: round barrel, shaggy forelock & thick mane, tier-1 charmer
   pony: (c) => `
-    <g class="tail-wag"><path d="M28 68 Q14 74 14 98 Q22 92 26 84 Q30 92 35 86 Q33 76 40 72 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
-    ${tube("M44 84 L42 102", c.body, c.line, 7)}${tube("M70 84 L72 102", c.body, c.line, 7)}
-    <g class="breathe"><ellipse cx="52" cy="76" rx="26" ry="17" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/></g>
-    ${tube("M48 82 L46 102", c.body, c.line, 7)}${tube("M66 82 L64 102", c.body, c.line, 7)}
-    ${[42, 46, 62, 70].map((x) => `<rect x="${x}" y="100" width="7" height="7" rx="1.5" fill="${HORN}" stroke="${c.line}" stroke-width="1.4"/>`).join("")}
+    <g class="tail-wag"><path d="M28 70 Q10 74 10 100 Q20 94 24 84 Q30 94 36 87 Q34 74 41 72 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/></g>
+    ${tube("M44 88 L42 100", c.body, c.line, 8)}${tube("M72 88 L74 100", c.body, c.line, 8)}
+    <g class="breathe"><ellipse cx="52" cy="78" rx="29" ry="19" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/></g>
+    ${tube("M48 86 L46 100", c.body, c.line, 8)}${tube("M66 86 L64 100", c.body, c.line, 8)}
+    ${[40, 45, 61, 70].map((x) => `<rect x="${x}" y="98" width="8" height="7" rx="1.5" fill="${HORN}" stroke="${c.line}" stroke-width="1.4"/>`).join("")}
     <g class="head-tilt">
-      ${tube("M70 68 Q78 58 82 48", c.body, c.line, 15)}
-      <path d="M76 40 Q94 40 94 56 Q94 66 84 68 Q74 66 73 54 Q73 44 76 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M74 40 Q66 52 70 70 Q64 64 64 70 Q60 52 68 42 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M76 42 Q82 32 88 40 Q84 40 82 46 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
-      <path d="M78 40 L78 28 L86 38 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <ellipse cx="89" cy="60" rx="5" ry="6" fill="${c.shade}" opacity=".5"/>
-      <ellipse cx="91" cy="60" rx="1.6" ry="2.2" fill="${INK}"/>
-      ${eye(83, 52, 2.8, eyeInk(c))}
+      ${tube("M70 70 Q78 60 82 50", c.body, c.line, 15)}
+      <path d="M63 70 L57 62 L64 61 L58 54 L66 55 L61 47 L70 49 L68 41 L78 43 Q83 53 77 63 Q71 71 63 70 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M76 42 Q94 42 94 58 Q94 68 84 70 Q74 68 73 56 Q73 46 76 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M74 42 Q66 54 70 72 Q64 66 64 72 Q60 54 68 44 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M74 44 Q77 31 84 35 Q83 41 88 42 Q82 47 75 46 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M79 42 L79 29 L87 39 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <ellipse cx="89" cy="62" rx="5" ry="6" fill="${c.shade}" opacity=".5"/>
+      <ellipse cx="91" cy="62" rx="1.6" ry="2.2" fill="${INK}"/>
+      ${eye(83, 54, 2.8, eyeInk(c))}
     </g>`,
 
   // Donkey — front-on, unmistakable enormous ears, long muzzle with pale mealy nose, forelock tuft

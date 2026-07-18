@@ -58,11 +58,11 @@ export const ART_WILDCATS = {
       ${spot(46, 82)}${spot(56, 80)}${spot(66, 83)}${spot(52, 88)}${spot(63, 88)}
       ${["", "s"].map((_, i) => `<rect x="${i ? 63 : 44}" y="92" width="10" height="16" rx="4.4" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`).join("")}</g>
     <g class="head-tilt">
-      ${mirror(`<path d="M45 32 Q43 20 52 24 Q54 30 54 36 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/><path d="M49 21 l-1 -10 l5 9 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>`)}
-      <path d="M45 32 Q43 20 52 24 Q54 30 54 36 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/><path d="M49 21 l-1 -10 l5 9 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>
+      ${mirror(`<path d="M45 32 Q43 20 52 24 Q54 30 54 36 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/><path d="M49 21 l-1 -13 l6 11 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>`)}
+      <path d="M45 32 Q43 20 52 24 Q54 30 54 36 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/><path d="M49 21 l-1 -13 l6 11 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>
       <ellipse cx="60" cy="52" rx="20" ry="18" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M40 52 Q33 61 40 67 Q46 60 48 56 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      ${mirror(`<path d="M40 52 Q33 61 40 67 Q46 60 48 56 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>`)}
+      <path d="M41 50 Q27 60 36 75 Q45 66 49 54 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      ${mirror(`<path d="M41 50 Q27 60 36 75 Q45 66 49 54 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>`)}
       <path d="M48 56 Q60 70 72 56 Q72 64 60 66 Q48 64 48 56 Z" fill="${c.shade}"/>
       <path d="M60 55 L55 60 L65 60 Z" fill="${INK}"/><path d="M60 60 v4" stroke="${c.line}" stroke-width="1.4"/>
       ${eyes(52, 68, 49, 2.8, eyeInk(c))}

@@ -73,8 +73,8 @@ export const ART_HOOFED = {
     <path d="M50 78 Q42 58 50 44" fill="none" stroke="${c.body}" stroke-width="8.5" stroke-linecap="round"/>
     <path d="M44 70 q3 -6 8 -10 M44 60 q2 -6 6 -10" fill="none" stroke="${INK}" stroke-width="2" stroke-linecap="round" opacity=".55"/>
     <g class="head-tilt">
-      <path d="M52 40 Q40 40 40 30 Q48 30 54 36 Z" fill="${HORNDK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
-      ${mirror(`<path d="M52 40 Q40 40 40 30 Q48 30 54 36 Z" fill="${HORNDK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`)}
+      <path d="M52 40 Q37 40 36 26 Q44 28 54 37 Z" fill="${HORNDK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      ${mirror(`<path d="M52 40 Q37 40 36 26 Q44 28 54 37 Z" fill="${HORNDK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`)}
       <path d="M50 40 q10 -5 20 0" fill="none" stroke="${HORNDK}" stroke-width="4" stroke-linecap="round"/>
       <path d="M50 44 Q48 62 54 70 Q60 74 66 70 Q72 62 70 44 Q60 38 50 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M55 66 q5 5 10 0 Q60 72 55 66 Z" fill="${c.shade}"/>
@@ -96,8 +96,8 @@ export const ART_HOOFED = {
     <path d="M50 78 Q44 58 52 44" fill="none" stroke="${c.body}" stroke-width="8.5" stroke-linecap="round"/>
     <g class="tail-wag">${["#f4efe6", c.line].map((col, i) => `<path d="M46 66 q4 -8 8 -16 M48 72 q5 -8 9 -16 M50 78 q6 -8 10 -14" fill="none" stroke="${col}" stroke-width="${i ? 3.6 : 2}" stroke-linecap="round"/>`).join("")}</g>
     <g class="head-tilt">
-      <path d="M52 42 Q42 46 44 36 Q46 28 54 34 Z" fill="${HORNDK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
-      ${mirror(`<path d="M52 42 Q42 46 44 36 Q46 28 54 34 Z" fill="${HORNDK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`)}
+      <path d="M53 42 Q39 52 42 40 Q45 30 55 35 Z" fill="${HORNDK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      ${mirror(`<path d="M53 42 Q39 52 42 40 Q45 30 55 35 Z" fill="${HORNDK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`)}
       <path d="M50 42 q10 -4 20 0" fill="none" stroke="${HORNDK}" stroke-width="3.5" stroke-linecap="round"/>
       <path d="M51 44 Q49 60 55 68 Q60 72 65 68 Q71 60 69 44 Q60 38 51 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M54 64 q6 5 12 0 Q60 70 54 64 Z" fill="${c.shade}"/>
@@ -182,8 +182,8 @@ export const ART_HOOFED = {
     <path d="M50 80 Q45 58 52 44" fill="none" stroke="${c.line}" stroke-width="12" stroke-linecap="round"/>
     <path d="M50 80 Q45 58 52 44" fill="none" stroke="${c.body}" stroke-width="8.5" stroke-linecap="round"/>
     <g class="head-tilt">
-      <path d="M57 47 L53 36 Q66 30 56 20 Q46 14 58 6 Q52 4 50 8" fill="none" stroke="${HORN}" stroke-width="3.4" stroke-linecap="round"/>
-      ${mirror(`<path d="M57 47 L53 36 Q66 30 56 20 Q46 14 58 6 Q52 4 50 8" fill="none" stroke="${HORN}" stroke-width="3.4" stroke-linecap="round"/>`)}
+      <path d="M57 47 L52 36 Q70 30 55 21 Q41 13 60 5 Q52 2 47 7" fill="none" stroke="${HORN}" stroke-width="3.4" stroke-linecap="round"/>
+      ${mirror(`<path d="M57 47 L52 36 Q70 30 55 21 Q41 13 60 5 Q52 2 47 7" fill="none" stroke="${HORN}" stroke-width="3.4" stroke-linecap="round"/>`)}
       <path d="M46 40 Q30 34 28 48 Q36 54 48 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
       <path d="M40 44 Q34 44 33 49" fill="none" stroke="${c.shade}" stroke-width="3" opacity=".7"/>
       ${mirror(`<path d="M46 40 Q30 34 28 48 Q36 54 48 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M40 44 Q34 44 33 49" fill="none" stroke="${c.shade}" stroke-width="3" opacity=".7"/>`)}
@@ -222,9 +222,9 @@ export const ART_HOOFED = {
       <path d="M40 90 q20 9 40 0" fill="${c.shade}" opacity=".5"/>
       ${legs(c, 48, 70, 96, 9, 14, true)}</g>
     <g class="head-tilt">
-      <path d="M50 42 Q32 42 32 26 Q32 12 48 15 Q60 18 55 32" fill="none" stroke="${HORN}" stroke-width="5.5" stroke-linecap="round"/>
+      <path d="M50 42 Q30 42 30 24 Q30 8 50 12 Q66 16 57 34 Q53 41 48 37" fill="none" stroke="${HORN}" stroke-width="6" stroke-linecap="round"/>
       ${["", "s"].map((_, i) => `<g${i ? ` transform="translate(120 0) scale(-1 1)"` : ""}><path d="M44 40 q-6 -2 -10 -6 M40 30 q-6 0 -9 -4 M42 20 q-4 -3 -6 -8" stroke="${c.line}" stroke-width="1.2" opacity=".6"/></g>`).join("")}
-      ${mirror(`<path d="M50 42 Q32 42 32 26 Q32 12 48 15 Q60 18 55 32" fill="none" stroke="${HORN}" stroke-width="5.5" stroke-linecap="round"/>`)}
+      ${mirror(`<path d="M50 42 Q30 42 30 24 Q30 8 50 12 Q66 16 57 34 Q53 41 48 37" fill="none" stroke="${HORN}" stroke-width="6" stroke-linecap="round"/>`)}
       <path d="M52 42 Q50 60 60 68 Q70 60 68 42 Q60 36 52 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M54 46 q6 -3 12 0" fill="none" stroke="${c.shade}" stroke-width="2" opacity=".5"/>
       <path d="M54 62 q6 4 12 0 Q60 68 54 62 Z" fill="${c.shade}"/>
@@ -258,13 +258,13 @@ export const ART_HOOFED = {
     <g class="tail-wag"><path d="M84 84 Q93 88 91 104" fill="none" stroke="${c.line}" stroke-width="4" stroke-linecap="round"/><path d="M89 102 q0 4 2 6 q3 -2 2 -6" fill="${INK}"/></g>
     <g class="breathe">
       <ellipse cx="60" cy="84" rx="25" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      <g stroke="#f4efe6" stroke-width="2.6" opacity=".85" stroke-linecap="round"><path d="M44 71 q-1 12 0 22 M53 70 q-1 13 0 24 M62 70 q1 12 0 23 M71 72 q1 11 0 20"/></g>
+      <g stroke="#f4efe6" stroke-width="2.6" opacity=".85" stroke-linecap="round"><path d="M42 71 q-1 12 0 22 M49 70 q-1 13 0 24 M56 70 q-1 13 0 24 M63 70 q1 13 0 24 M70 71 q1 12 0 22 M76 73 q1 10 0 18"/></g>
       ${legs(c, 48, 70, 94, 7, 16, true)}</g>
     <path d="M50 80 Q46 60 52 46" fill="none" stroke="${c.line}" stroke-width="11" stroke-linecap="round"/>
     <path d="M50 80 Q46 60 52 46" fill="none" stroke="${c.body}" stroke-width="7.5" stroke-linecap="round"/>
     <g class="head-tilt">
-      <path d="M57 46 L54 34 Q64 26 56 14 Q52 8 58 4" fill="none" stroke="${HORN}" stroke-width="3.2" stroke-linecap="round"/>
-      ${mirror(`<path d="M57 46 L54 34 Q64 26 56 14 Q52 8 58 4" fill="none" stroke="${HORN}" stroke-width="3.2" stroke-linecap="round"/>`)}
+      <path d="M57 46 L55 33 Q60 26 55 20 Q51 15 57 12" fill="none" stroke="${HORN}" stroke-width="3.2" stroke-linecap="round"/>
+      ${mirror(`<path d="M57 46 L55 33 Q60 26 55 20 Q51 15 57 12" fill="none" stroke="${HORN}" stroke-width="3.2" stroke-linecap="round"/>`)}
       <path d="M47 38 Q34 32 32 44 Q40 49 50 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
       ${mirror(`<path d="M47 38 Q34 32 32 44 Q40 49 50 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>`)}
       <path d="M52 42 Q50 60 60 68 Q70 60 68 42 Q60 36 52 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>

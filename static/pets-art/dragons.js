@@ -165,8 +165,10 @@ export const ART_DRAGONS = {
   // ── Bronze Dragon (t4, metallic) — burnished dragon, segmented back armour scutes + rivets, sheen, curled ram horns
   bronzedragon: (c) => { const B = belly(c); const M = tint(c.body, 0.5); return `
     ${floorShadow(58, 111, 32)}
-    <g class="tail-wag"><path d="M40 82 Q16 88 12 66 Q11 55 23 56 Q15 64 22 73 Q30 80 42 76 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      <path d="M14 64 l-10 -4 l4 6 l-6 4 l10 2 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M40 84 Q30 86 24 82 Q18 77 23 71 Q27 79 34 79 Q41 80 42 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M14 60 l3 -9 l4 9 Z M10 63 l-9 3 l9 5 Z M13 74 l1 9 l5 -7 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round"/>
+      <circle cx="18" cy="67" r="8" fill="${M}" stroke="${c.line}" stroke-width="2.4"/>
+      <circle cx="14" cy="63" r="2.2" fill="${tint(c.body, 0.7)}" opacity=".7"/></g>
     <g class="breathe">
       ${sideBody(c)}
       ${[44, 55, 66].map((x) => `<path d="M${x - 6} 57 q6 -7 12 0 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>`).join("")}
@@ -209,7 +211,7 @@ export const ART_DRAGONS = {
     <g class="tail-wag"><path d="M44 88 Q22 92 18 74 Q17 64 28 66 Q20 73 27 80 Q34 86 46 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/></g>
     <g class="breathe">
       <path d="M28 94 C26 76 38 68 56 68 C66 68 72 71 76 76 C80 70 92 68 100 74 C108 80 106 92 98 92 C96 96 88 96 86 90 C84 90 80 90 78 88 L78 104 L70 104 L70 92 L52 92 L52 104 L44 104 L44 92 C34 92 28 92 28 94 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      ${[[44, 74], [56, 71], [68, 73]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.2" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4"/>`).join("")}
+      ${[[44, 74], [56, 71], [68, 73]].map(([x, y]) => `<path d="M${x - 4} ${y + 2} L${x - 2} ${y - 4} L${x + 1} ${y - 2} L${x + 3} ${y - 5} L${x + 4} ${y + 2} Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>`).join("")}
       <path d="M44 88 Q62 96 80 88 Q62 92 44 88 Z" fill="${B}" opacity=".8"/>
       ${claw(48, 103)}${claw(74, 103)}
       <path d="M90 74 Q86 66 92 64 Q96 68 94 74 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>

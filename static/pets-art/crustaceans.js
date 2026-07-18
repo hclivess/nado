@@ -191,9 +191,9 @@ export const ART_CRUSTACEANS = {
   coconutcrab: (c) => { const E = eyeInk(c), B = belly(c);
     const legs = Array.from({ length: 3 }, (_, i) => tube(`M50 ${66 + i * 5} Q34 ${76 + i * 4} 22 ${84 + i * 4}`, c.body, c.line, 5)).join("");
     const claw = `
-      ${tube("M70 62 Q84 60 92 62", c.body, c.line, 7)}
-      <path d="M90 48 Q112 48 112 64 Q110 76 94 74 Q106 68 93 64 Q106 60 93 56 Q86 52 90 48 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M97 55 l6 1 M97 62 l7 1 M97 69 l6 1" stroke="${c.line}" stroke-width="1" opacity=".55"/>`;
+      ${tube("M68 62 Q84 60 92 62", c.body, c.line, 8)}
+      <path d="M88 45 Q116 45 116 64 Q114 80 94 78 Q110 69 91 65 Q110 58 91 54 Q84 50 88 45 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M98 53 l8 1 M98 62 l9 1 M98 71 l8 1" stroke="${c.line}" stroke-width="1.1" opacity=".55"/>`;
     return `
     <g class="tail-wag">${legs}${mirror(legs)}</g>
     <g class="tail-wag">${claw}${mirror(claw)}</g>

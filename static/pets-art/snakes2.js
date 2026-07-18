@@ -363,18 +363,18 @@ export const ART_SNAKES2 = {
   ratsnake: (c) => {
     const B = belly(c), E = eyeInk(c);
     return `
-    ${floorShadow(60, 110, 33)}
+    ${floorShadow(60, 110, 36)}
     <g class="breathe">
-      ${tube("M60 98 Q24 94 24 66 Q24 38 60 38 Q96 38 96 66 Q96 90 64 96", c.body, c.line, 15)}
-      ${tube("M64 96 Q42 90 44 70 Q46 56 60 58 Q74 60 72 72", c.body, c.line, 12)}
-      <ellipse cx="60" cy="72" rx="11" ry="8" fill="${B}" opacity=".4"/>
-      <path d="M34 62 Q40 58 46 62 M74 62 Q80 58 86 62" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".5"/>
+      ${tube("M60 98 Q14 96 14 72 Q14 50 60 50 Q106 50 106 72 Q106 96 64 98", c.body, c.line, 15)}
+      ${tube("M64 96 Q34 92 36 74 Q38 62 60 64 Q82 66 80 78", c.body, c.line, 12)}
+      <ellipse cx="60" cy="76" rx="13" ry="7" fill="${B}" opacity=".4"/>
+      <path d="M30 66 Q38 62 46 66 M74 66 Q82 62 90 66" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".5"/>
     </g>
     <g class="head-tilt">
-      <path d="M48 40 Q46 26 60 24 Q74 26 72 40 Q62 48 48 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
-      <path d="M60 24 q0 -6 0 -9 M60 15 l-3 -4 M60 15 l3 -4" fill="none" stroke="${TONGUE}" stroke-width="1.5" stroke-linecap="round"/>
-      ${eye(54, 34, 3, E)}${eye(66, 34, 3, E)}
-      ${smile(60, 40, 2.4, E)}
+      <path d="M48 50 Q46 36 60 34 Q74 36 72 50 Q62 58 48 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M60 34 q0 -6 0 -9 M60 25 l-3 -4 M60 25 l3 -4" fill="none" stroke="${TONGUE}" stroke-width="1.5" stroke-linecap="round"/>
+      ${eye(54, 44, 3, E)}${eye(66, 44, 3, E)}
+      ${smile(60, 50, 2.4, E)}
     </g>`;
   },
 

@@ -261,10 +261,11 @@ export const ART_EXOTICBIRDS = {
       <path d="M50 60 q14 4 26 2" stroke="${c.shade}" stroke-width="1.6" fill="none" opacity=".6"/>
       <path d="M60 66 q10 2 18 0 M58 70 q10 2 16 0" stroke="${c.line}" stroke-width="1" fill="none" opacity=".35"/></g>
     <g class="head-tilt">
-      ${tube("M66 56 Q60 40 70 30 Q74 24 82 24", c.body, c.line, 6)}
-      <ellipse cx="82" cy="24" rx="9" ry="7.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>
+      ${tube("M66 58 Q56 42 68 32 Q72 26 82 24", c.body, c.line, 8)}
+      <ellipse cx="82" cy="24" rx="9.5" ry="8" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>
       <path d="M84 22 L108 26 Q110 28 108 30 L84 28 Z" fill="${DAGGER}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
-      <path d="M78 20 Q92 14 100 16 Q90 20 82 24" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M80 20 Q94 16 104 22 Q95 22 86 24 Z" fill="${c.line}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
+      <path d="M79 22 Q90 18 99 22" fill="none" stroke="${c.shade}" stroke-width="1" opacity=".5"/>
       ${eye(84, 23, 2.6, eyeInk(c))}
     </g>`,
 
@@ -275,13 +276,14 @@ export const ART_EXOTICBIRDS = {
       <path d="M42 62 Q22 60 14 66 Q26 66 40 66 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.6" opacity=".8" stroke-linejoin="round"/>
       <path d="M42 66 Q24 68 16 74 Q28 72 42 70 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" opacity=".7" stroke-linejoin="round"/></g>
     <g class="breathe">
-      <path d="M40 66 Q46 50 66 54 Q80 58 76 68 Q66 76 52 74 Q42 72 40 66 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M50 62 q12 3 22 2" stroke="${c.shade}" stroke-width="1.4" fill="none" opacity=".5"/></g>
+      <path d="M42 66 Q48 52 64 56 Q76 60 73 68 Q64 74 52 72 Q44 71 42 66 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+      <path d="M62 66 Q42 74 22 86 M64 68 Q44 78 26 90 M66 68 Q48 80 32 92" fill="none" stroke="${c.body}" stroke-width="1.4" stroke-linecap="round" opacity=".85"/>
+      <path d="M52 62 q10 3 18 2" stroke="${c.shade}" stroke-width="1.4" fill="none" opacity=".5"/></g>
     <g class="head-tilt">
-      ${tube("M64 58 Q56 40 66 28 Q70 22 78 24", c.body, c.line, 5)}
-      <ellipse cx="80" cy="24" rx="8" ry="6.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>
-      <path d="M82 22 L106 25 Q108 27 106 29 L82 27 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="1.7" stroke-linejoin="round"/>
-      ${eye(82, 23, 2.4, eyeInk(c))}
+      ${tube("M64 60 Q60 42 66 26 Q68 20 76 22", c.body, c.line, 4)}
+      <ellipse cx="78" cy="22" rx="7" ry="6" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>
+      <path d="M81 20 L106 24 Q108 26 106 28 L81 25 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      ${eye(79, 21, 2.3, eyeInk(c))}
     </g>`,
 
   // Ibis — long legs & neck ending in a long slender down-curved sickle bill

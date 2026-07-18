@@ -26,6 +26,7 @@ export const ART_SONGBIRDS = {
     <g class="breathe">
       <ellipse cx="57" cy="76" rx="18" ry="17" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M48 76 Q57 66 66 76 Q68 88 57 90 Q48 88 48 76 Z" fill="${B}"/>
+      <path d="M52 78 l0 7 M57 79 l0 8 M62 79 l0 7" stroke="${deepen(c.body, 0.42)}" stroke-width="1.7" stroke-linecap="round" opacity=".7"/>
       <path d="M62 62 Q77 66 76 82 Q68 76 60 76 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       <path d="M64 68 h9 M63 73 h9" stroke="${c.line}" stroke-width="1.1" opacity=".4"/></g>
     ${legs([52, 64], 90, 12)}
@@ -147,10 +148,10 @@ export const ART_SONGBIRDS = {
       <path d="M60 62 Q77 66 76 84 Q68 77 58 77 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
     ${legs([51, 63], 91, 12)}
     <g class="head-tilt">
-      <circle cx="66" cy="51" r="13" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M77 48 L90 52 L77 56 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      <path d="M77 52 L90 52 L77 56 Z" fill="${BEAKD}"/>
-      ${eye(67, 49, 3.2, eyeInk(c))}
+      <circle cx="65" cy="50" r="13.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+      <path d="M76 45 L96 51 L76 58 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M76 51 L96 51 L76 58 Z" fill="${BEAKD}"/>
+      ${eye(66, 48, 3.2, eyeInk(c))}
     </g>`; },
 
   // Indigo Bunting — small, uniformly coloured, roundish: neat silvery conical bill, plain smooth wing
@@ -164,7 +165,8 @@ export const ART_SONGBIRDS = {
     ${legs([52, 63], 90, 12)}
     <g class="head-tilt">
       <circle cx="65" cy="52" r="12" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M76 50 L89 53 L76 56 Z" fill="${WHT}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M75 47 L87 53 L75 59 Z" fill="${WHT}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M75 53 L87 53 L75 59 Z" fill="${tint(c.shade, 0.4)}"/>
       ${eye(66, 50, 3, eyeInk(c))}
     </g>`; },
 

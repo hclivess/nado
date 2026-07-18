@@ -52,8 +52,8 @@ export const ART_SAVANNA = {
   leopard: (c) => {
     const rose = (x, y, r) => `<circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="${c.shade}" stroke-width="1.6"/><circle cx="${x}" cy="${y}" r="${(r * 0.35).toFixed(1)}" fill="${c.shade}"/>`;
     return `
-    <g class="tail-wag"><path d="M82 90 Q108 92 110 64 Q110 56 104 58 Q106 72 94 82 Q86 88 78 86 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      ${rose(102, 66, 3)}${rose(99, 76, 3)}</g>
+    <g class="tail-wag"><path d="M80 94 Q110 98 112 66 Q112 50 102 52 Q110 62 106 82 Q100 94 84 92 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      ${rose(105, 66, 3)}${rose(101, 80, 3)}</g>
     <g class="breathe"><ellipse cx="58" cy="86" rx="26" ry="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       ${rose(46, 82, 3.5)}${rose(58, 80, 3.5)}${rose(70, 83, 3.5)}${rose(52, 90, 3)}${rose(65, 91, 3)}
       ${["", "s"].map((_, i) => `<rect x="${i ? 64 : 44}" y="94" width="9" height="15" rx="4" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`).join("")}</g>
@@ -70,22 +70,22 @@ export const ART_SAVANNA = {
 
   // ── Cheetah — solid round spots, black tear-lines from eye to mouth, slim tall body ───────
   cheetah: (c) => {
-    const dot = (x, y) => `<circle cx="${x}" cy="${y}" r="2.4" fill="${c.shade}"/>`;
+    const dot = (x, y) => `<circle cx="${x}" cy="${y}" r="2.2" fill="${c.shade}"/>`;
     return `
-    <g class="tail-wag"><path d="M84 88 Q110 88 112 62 Q112 55 106 57 Q108 70 96 80 Q88 86 80 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      ${dot(101, 64)}${dot(98, 74)}<path d="M100 58 q6 -1 6 5" fill="none" stroke="${c.line}" stroke-width="2"/></g>
-    <g class="breathe"><ellipse cx="56" cy="86" rx="23" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      ${dot(44,82)}${dot(54,80)}${dot(64,82)}${dot(49,89)}${dot(60,90)}${dot(70,86)}
-      ${["", "s"].map((_, i) => `<rect x="${i ? 60 : 42}" y="94" width="8" height="16" rx="3.6" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`).join("")}</g>
+    <g class="tail-wag"><path d="M80 92 Q106 92 108 64 Q108 57 102 59 Q104 72 92 82 Q84 88 76 86 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      ${dot(99, 66)}${dot(96, 76)}<path d="M98 60 q6 -1 6 5" fill="none" stroke="${c.line}" stroke-width="1.8"/></g>
+    <g class="breathe"><ellipse cx="58" cy="84" rx="18" ry="18" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+      ${dot(48,80)}${dot(58,78)}${dot(68,81)}${dot(52,88)}${dot(64,89)}
+      ${["", "s"].map((_, i) => `<rect x="${i ? 62 : 46}" y="97" width="7" height="15" rx="3.4" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`).join("")}</g>
     <g class="head-tilt">
-      ${mirror(`<circle cx="48" cy="36" r="6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`)}
-      <circle cx="48" cy="36" r="6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
-      <ellipse cx="60" cy="52" rx="17" ry="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M50 55 Q60 66 70 55 Q70 61 60 63 Q50 61 50 55 Z" fill="${c.shade}"/>
-      ${dot(52,44)}${dot(68,44)}
-      <path d="M55 52 Q54 58 58 62 M65 52 Q66 58 62 62" stroke="${INK}" stroke-width="2" fill="none" stroke-linecap="round"/>
-      <path d="M60 53 L56 58 L64 58 Z" fill="${INK}"/>
-      ${eyes(53, 67, 49, 2.7, eyeInk(c))}
+      ${mirror(`<circle cx="50" cy="40" r="5.5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`)}
+      <circle cx="50" cy="40" r="5.5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
+      <ellipse cx="60" cy="52" rx="16" ry="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+      <path d="M51 54 Q60 64 69 54 Q69 60 60 62 Q51 60 51 54 Z" fill="${c.shade}"/>
+      ${dot(53,43)}${dot(67,43)}
+      <path d="M56 51 Q55 58 59 62 M64 51 Q65 58 61 62" stroke="${INK}" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path d="M60 52 L56 57 L64 57 Z" fill="${INK}"/>
+      ${eyes(53, 67, 48, 2.6, eyeInk(c))}
     </g>`;
   },
 

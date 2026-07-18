@@ -287,9 +287,9 @@ export const ART_FANTASYBEASTS = {
       ${foot(50, 104, c, 7, 5)}${foot(70, 104, c, 7, 5)}
       ${tube("M46 66 Q35 72 34 84", c.body, c.line, 5)}<path d="M34 84 l-3 5 m3 -5 l0 6 m0 -6 l3 5" stroke="${c.line}" stroke-width="1.8" fill="none" stroke-linecap="round"/>
       ${tube("M74 66 Q85 72 86 84", c.body, c.line, 5)}<path d="M86 84 l-3 5 m3 -5 l0 6 m0 -6 l3 5" stroke="${c.line}" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-      <path d="M45 44 Q22 40 16 52 Q28 52 34 50 Q26 58 30 66 Q40 56 48 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M75 44 Q98 40 104 52 Q92 52 86 50 Q94 58 90 66 Q80 56 72 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M40 48 Q26 48 22 56 M80 48 Q94 48 98 56" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".55"/>
+      <path d="M47 46 Q26 48 22 68 Q30 72 36 66 Q42 58 48 53 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M73 46 Q94 48 98 68 Q90 72 84 66 Q78 58 72 53 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M42 52 Q30 56 26 66 M78 52 Q90 56 94 66" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".55"/>
       <circle cx="60" cy="44" r="17" fill="${c.body}" stroke="${c.line}" stroke-width="3"/>
       <ellipse cx="60" cy="50" rx="11" ry="7" fill="${B}"/>
       ${ceye(53, 42, 4.6)}${ceye(67, 42, 4.6)}

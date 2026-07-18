@@ -72,13 +72,13 @@ export const ART_DINOS = {
 
   // ── Velociraptor — sleek killer, hooked jaws with fangs, grasping arm, deadly foot sickle-claw ────
   velociraptor: (c) => `
-    <g class="tail-wag"><path d="M40 66 Q16 62 8 70 Q14 72 22 72 Q34 72 44 74 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M42 66 L4 62 Q14 68 24 69 Q34 71 44 74 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/></g>
     <path d="M52 78 Q48 92 54 98 L60 96 L56 80 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
     <g class="breathe"><path d="M38 72 Q40 56 58 56 Q72 58 74 68 Q74 78 58 80 Q42 80 38 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M46 74 q14 5 24 0" fill="${c.shade}" opacity=".5"/></g>
     <path d="M56 76 Q50 90 56 98 L62 96 L60 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
     <path d="M56 98 l6 4 M60 98 l6 2" stroke="${c.line}" stroke-width="2" fill="none" stroke-linecap="round"/>
-    <path d="M50 98 Q44 100 42 96 Q47 96 50 98 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M58 97 Q65 90 73 85 Q67 92 63 99 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
     <path d="M66 66 q8 6 4 12" fill="none" stroke="${c.line}" stroke-width="4" stroke-linecap="round"/>
     <path d="M66 66 q8 6 4 12" fill="none" stroke="${c.body}" stroke-width="2.4" stroke-linecap="round"/>
     <path d="M70 78 l3 3 M70 78 l4 1" stroke="${c.line}" stroke-width="1.4" stroke-linecap="round"/>
@@ -318,8 +318,8 @@ export const ART_DINOS = {
       <path d="M66 48 Q70 40 90 40 Q106 40 106 50 L92 54 Q78 56 70 58 Q64 54 66 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M82 56 Q94 60 104 56 Q102 62 90 64 Q80 64 82 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
       <path d="M84 54 l1.5 4 l2 -4 M94 53 l1.5 4 l2 -4 M102 51 l1 3 l1.5 -3" fill="${TEETH}" stroke="${c.line}" stroke-width="0.9"/>
-      <path d="M74 44 Q74 36 78 38 Q78 42 78 46 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      <path d="M82 43 Q82 35 86 37 Q86 41 86 45 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M71 46 Q70 33 77 34 Q80 40 78 48 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.9" stroke-linejoin="round"/>
+      <path d="M80 45 Q80 31 88 33 Q90 40 86 47 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.9" stroke-linejoin="round"/>
       <ellipse cx="100" cy="45" rx="1.4" ry="1" fill="${INK}"/>
       ${eye(80, 48, 2.8, eyeInk(c))}
     </g>`,

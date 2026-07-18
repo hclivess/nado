@@ -199,7 +199,7 @@ export const ART_REEF = {
     const dorsal = Array.from({ length: 7 }, (_, i) => { const a = (-140 + i * 15) * Math.PI / 180; return ray(46 + i * 5, 50, (46 + i * 5 + 30 * Math.cos(a)).toFixed(1), (50 + 30 * Math.sin(a)).toFixed(1)); }).join("");
     const pect = Array.from({ length: 6 }, (_, i) => { const a = (110 + i * 22) * Math.PI / 180; return ray(48, 68, (48 + 28 * Math.cos(a)).toFixed(1), (68 + 28 * Math.sin(a)).toFixed(1)); }).join("");
     return `
-    <g class="tail-wag">${dorsal}${pect}</g>
+    <g>${dorsal}${pect}</g>
     <g class="breathe">
       <ellipse cx="62" cy="62" rx="22" ry="14" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
       ${[50, 58, 66, 74].map((x) => `<path d="M${x} 50 q-3 12 0 24" stroke="${c.shade}" stroke-width="3" fill="none" opacity=".7" stroke-linecap="round"/>`).join("")}
