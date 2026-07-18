@@ -46,5 +46,39 @@ outside `[0-9a-f]` at the START guarantee the prefix/body boundary is visually a
 unambiguous (e.g. "pq" qualifies; "beef" would not). Keep it lowercase, short, and — the whole
 point — **brand-free**.
 
-Candidate on the table: **`pq`** — describes the chain's post-quantum identity, survives any
-rebrand, 2 chars (addresses shorten to 48), no company or token name inside it.
+Candidate selected in discussion: **`mldsa44`** — the prefix as a KEY-TYPE DISCRIMINATOR (the
+address literally names the FIPS-204 scheme whose pubkey it hashes). A rebrand never touches it;
+a future scheme migration mints new keys — and therefore new addresses — under its own prefix
+(`mldsa65…`, `slh…`), coexisting like Bitcoin's `1`/`3`/`bc1q`/`bc1p` script discriminators.
+
+## Multisig (and future policy accounts)
+
+Today a multisig account is P2SH-style: the SAME prefix, with the "pubkey" slot holding the
+domain-tagged hash of the policy (`blake2b("nado-msig-v1", M, members)`). Nothing marks it
+on-chain until it spends — a keyed account and a policy account are indistinguishable by string.
+
+Under the discriminator model, policy accounts get their OWN prefix (candidate: **`msig`** —
+starts non-hex ✓), exactly the `1`-vs-`3` split: `mldsa44…` = hash of one ML-DSA-44 pubkey,
+`msig…` = hash of an M-of-N policy whose members are themselves `mldsa44…` addresses. Wallets
+and explorers can then label them, refuse identity ops (bond/mine/vote) client-side before the
+consensus rule even fires, and — critically — future migrations can IDENTIFY them (see below).
+
+**⚠ Cutover caveat (found the hard way, before it bit):** multisig addresses do NOT survive a
+prefix switch by re-keying. The member address STRINGS live inside the descriptor hash, so
+re-prefixing the members changes the multisig address BODY, not just its prefix — and because
+nothing marks a policy account on-chain, `rekey_alloc.py` cannot even tell which alloc entries
+are multisig. A naive re-key would land those balances on addresses no descriptor derives —
+bricked. Therefore the switch procedure includes: **announce a pre-snapshot window in which
+multisig balances must be moved to keyed accounts** (on alphanet today that is ~zero accounts);
+the new generation launches multisig as v2 — own `msig` prefix, new domain tag, new-format
+members. This is precisely why the discriminator prefix is worth having: with `msig…` visible,
+any FUTURE format migration can enumerate policy accounts and define their carry-over.
+
+## Domain-separation tags (rename free at the same reroll)
+
+Consensus domain tags also carry the brand — invisible to users, but they exist:
+`nado-stark`, `nado-msig-v1`, `nado-register`, `nado-randao-commit`/`-secret`, `nado-fx`,
+`nado-rec-digest`, the chain_id `nado-relaunch-1`, plus non-consensus ones (`nado-forum-login`,
+`nado-lang`, localStorage keys). Outside a reroll, renaming any consensus tag is a fork for zero
+value. AT the reroll everything re-derives from genesis anyway, so renaming them to brand-free
+tags (`chain-stark`, `msig-v2`, …) is free — fold it into the same cutover commit.

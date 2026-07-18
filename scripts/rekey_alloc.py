@@ -11,6 +11,11 @@ maps an alloc file old→new so a CHAIN_GENERATION reroll carries every balance 
 The alloc format is one JSON object per line (or a single JSON dict) — whatever genesis.py reads;
 addresses are re-keyed wherever they appear as dict keys or "address" fields. Reserved names
 (treasury/faucet/…) pass through untouched. Every produced address is checksum-validated.
+
+⚠ MULTISIG accounts CANNOT be re-keyed this way: their member address strings live INSIDE the
+descriptor hash, so the new-format descriptor derives a different BODY — and P2SH-style opacity
+means this tool cannot even identify which entries are multisig. Multisig balances must be moved
+to keyed accounts before the snapshot (see doc/address-format.md, "Cutover caveat").
 """
 import json
 import os
