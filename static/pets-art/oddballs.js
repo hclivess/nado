@@ -220,10 +220,10 @@ export const ART_ODDBALLS = {
       <path d="M46 82 q-2 9 3 11 M72 82 q2 9 -3 11" fill="none" stroke="${c.body}" stroke-width="2.8" stroke-linecap="round"/>
     </g>
     <g class="head-tilt">
-      <path d="M74 42 Q66 16 74 10 Q84 20 82 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M76 40 Q72 22 76 14" fill="none" stroke="${c.shade}" stroke-width="2.4" stroke-linecap="round"/>
-      <path d="M84 44 Q80 20 90 14 Q98 24 92 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M86 42 Q84 24 89 18" fill="none" stroke="${c.shade}" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M74 54 Q66 16 74 10 Q84 20 82 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M76 48 Q72 22 76 14" fill="none" stroke="${c.shade}" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M84 54 Q80 20 90 14 Q98 24 92 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M86 48 Q84 24 89 18" fill="none" stroke="${c.shade}" stroke-width="2.4" stroke-linecap="round"/>
       <path d="M70 60 Q70 46 84 46 Q98 46 108 60 Q100 66 86 66 Q72 66 70 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <path d="M104 58 l6 2 l-6 2 Z" fill="${PINK}" stroke="${c.line}" stroke-width="1" stroke-linejoin="round"/>
       <path d="M96 64 l10 3" stroke="${c.line}" stroke-width="0.9" opacity=".55"/>
@@ -264,8 +264,8 @@ export const ART_ODDBALLS = {
       <path d="M40 100 l-2 4 m2 -4 l0 5 m0 -5 l2 4 M78 99 l-2 4 m2 -4 l0 5 m0 -5 l2 4" stroke="${CLAW}" stroke-width="1.5" stroke-linecap="round"/>
     </g>
     <g class="head-tilt">
-      <path d="M73 44 Q69 22 78 18 Q85 16 89 23 Q91 34 86 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M77 42 Q74 27 80 21 Q84 18 86 23" fill="none" stroke="${c.shade}" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M80 54 Q69 22 78 18 Q85 16 89 23 Q91 34 90 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M82 50 Q78 28 82 21 Q85 18 87 23" fill="none" stroke="${c.shade}" stroke-width="2.2" stroke-linecap="round"/>
       <path d="M78 62 Q78 44 92 44 Q104 44 112 60 Q112 68 104 70 Q90 72 78 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <ellipse cx="108" cy="64" rx="4.4" ry="4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
       <ellipse cx="106" cy="63" rx="1" ry="1.4" fill="${INK}"/><ellipse cx="110" cy="65" rx="1" ry="1.4" fill="${INK}"/>
