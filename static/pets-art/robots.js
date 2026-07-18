@@ -365,8 +365,8 @@ export const ART_ROBOTS = {
       <path d="M46 32 Q42 12 50 8 Q56 14 54 34 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M74 32 Q78 12 70 8 Q64 14 66 34 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M47 30 h6 M67 30 h6" stroke="${c.line}" stroke-width="1.2" opacity=".5"/>
-      <path d="M50 34 Q50 44 50 50 Q46 44 47 36 Z" fill="${WARN}" opacity=".85"/>
-      <path d="M70 34 Q70 44 70 50 Q74 44 73 36 Z" fill="${WARN}" opacity=".85"/>
+      <path d="M50 34 Q50 48 50 58 Q46 48 47 36 Z" fill="${WARN}" opacity=".85"/>
+      <path d="M70 34 Q70 48 70 58 Q74 48 73 36 Z" fill="${WARN}" opacity=".85"/>
       <circle cx="50" cy="33" r="3" fill="${WARN}"/><circle cx="70" cy="33" r="3" fill="${WARN}"/>
     </g>
     <g class="breathe">

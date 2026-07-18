@@ -56,8 +56,7 @@ export const ART_DINOS = {
   // ── Stegosaurus — arched back with a double row of kite plates, spiked thagomizer tail, tiny head ──
   stegosaurus: (c) => `
     <g class="tail-wag"><path d="M40 78 Q18 76 10 66 Q14 72 20 74 Q30 78 44 80 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M18 70 l-6 -8 M15 72 l-6 -3 M22 66 l-3 -9 M26 66 l0 -8" stroke="${IVORY}" stroke-width="3.4" stroke-linecap="round"/>
-      <path d="M18 70 l-6 -8 M15 72 l-6 -3 M22 66 l-3 -9 M26 66 l0 -8" stroke="${c.line}" stroke-width="1.2" stroke-linecap="round"/></g>
+      ${[["14 71","19 68","9 55"],["19 70","24 68","18 52"],["25 71","30 69","28 53"],["30 73","35 71","36 58"]].map(([b1,b2,t]) => `<path d="M${b1} L${t} L${b2} Z" fill="${IVORY}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>`).join("")}</g>
     <g class="breathe"><path d="M30 82 Q30 58 58 54 Q84 54 88 78 Q88 88 60 90 Q34 90 30 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 66 : 40}" y="84" width="11" height="18" rx="4" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`).join("")}
       <rect x="52" y="86" width="10" height="16" rx="4" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/></g>
@@ -257,13 +256,14 @@ export const ART_DINOS = {
   // ── Pteranodon — gliding profile, huge backward head crest, long toothless beak, tapered wings (float) ─
   pteranodon: (c) => `
     <g class="tail-wag">
-      <path d="M56 56 Q30 40 12 48 Q28 54 40 60 Q26 60 18 66 Q36 66 50 62 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M54 55 Q30 42 12 48 Q24 58 48 64 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M50 56 Q32 49 16 51" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".5"/>
     </g>
     <g class="breathe"><ellipse cx="60" cy="62" rx="16" ry="9" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M50 64 q10 6 20 0" fill="${c.shade}" opacity=".45"/></g>
     <g class="tail-wag">
-      <path d="M64 58 Q90 42 108 52 Q90 58 78 62 Q92 62 100 68 Q82 68 68 64 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M70 60 q16 -2 30 -4" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".5"/>
+      <path d="M66 58 Q88 50 108 54 Q94 63 70 64 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M70 59 Q88 53 104 56" fill="none" stroke="${c.line}" stroke-width="1.2" opacity=".5"/>
     </g>
     <g class="head-tilt">
       <ellipse cx="60" cy="48" rx="9" ry="8" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>

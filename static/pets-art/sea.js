@@ -232,8 +232,8 @@ export const ART_SEA = {
     <g class="head-tilt">
       <path d="M52 28 l-3 -8 M57 26 l0 -9 M62 28 l4 -7" stroke="${c.shade}" stroke-width="2" stroke-linecap="round"/>
       <path d="M50 30 Q49 20 58 20 Q67 21 67 31 Q66 40 56 40 Q47 40 50 30 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      <path d="M64 30 Q88 28 92 37 Q84 42 65 39 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      <path d="M78 33 q7 1 10 3" fill="none" stroke="${c.line}" stroke-width="1" opacity=".5"/>
+      <path d="M64 33 Q77 34 78 45 Q73 47 64 41 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M69 37 q5 2 7 7" fill="none" stroke="${c.line}" stroke-width="1" opacity=".5"/>
       ${eye(58, 30, 2.8, E)}
     </g>`;
   },

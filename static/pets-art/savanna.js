@@ -195,8 +195,8 @@ export const ART_SAVANNA = {
       <path d="M40 44 Q26 46 24 60 Q34 62 42 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
       <ellipse cx="60" cy="58" rx="21" ry="19" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M46 40 Q60 32 74 40 Q74 47 60 47 Q46 47 46 40 Z" fill="${HORN}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      <path d="M48 44 Q32 44 24 56 Q20 62 23 51 Q27 46 39 46 Q45 46 48 44 Z" fill="${HORN}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      ${mirror(`<path d="M48 44 Q32 44 24 56 Q20 62 23 51 Q27 46 39 46 Q45 46 48 44 Z" fill="${HORN}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>`)}
+      <path d="M48 44 Q30 45 20 58 Q14 67 19 69 Q25 62 31 55 Q40 47 48 44 Z" fill="${HORN}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      ${mirror(`<path d="M48 44 Q30 45 20 58 Q14 67 19 69 Q25 62 31 55 Q40 47 48 44 Z" fill="${HORN}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>`)}
       <path d="M50 40 q10 -4 20 0" fill="none" stroke="${c.line}" stroke-width="1.4" opacity=".6"/>
       <path d="M50 62 Q60 74 70 62 Q70 70 60 72 Q50 70 50 62 Z" fill="${c.shade}"/>
       <ellipse cx="54" cy="66" rx="2" ry="1.4" fill="${INK}"/><ellipse cx="66" cy="66" rx="2" ry="1.4" fill="${INK}"/>

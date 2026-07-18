@@ -260,9 +260,9 @@ export const ART_MARINEMAMMALS = {
     <g class="tail-wag">${hind(c, 24, 66)}</g>
     <g class="breathe">
       <path d="M20 65 Q26 48 54 48 Q82 48 92 58 Q96 64 92 70 Q84 82 54 82 Q26 80 20 65 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      <path d="M35 53 Q41 65 35 77 Q28 72 28 65 Q28 58 35 53 Z" fill="${belly(c)}"/>
-      <path d="M64 50 Q72 65 64 80 Q57 65 64 50 Z" fill="${belly(c)}"/>
       <path d="M42 76 Q60 84 86 70 Q60 80 42 76 Z" fill="${B}" opacity=".5"/>
+      <path d="M36 51 Q32 66 37 80 L44 79 Q40 66 43 52 Z" fill="${tint(c.body, 0.55)}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M61 49 Q57 66 62 82 L70 80 Q66 66 69 51 Z" fill="${tint(c.body, 0.55)}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
       ${foreflip(c, 58, 74)}
     </g>
     <g class="head-tilt">

@@ -171,7 +171,7 @@ export const ART_DOGBREEDS = {
   // ── Greyhound — SIDE: lean racer, deep chest, tucked belly, long legs, rose ears, whip tail (t2) ──
   greyhound: (c) => { const B = belly(c); return `
     ${floorShadow(60, 112, 33)}
-    <g class="tail-wag"><path d="M30 74 Q14 82 15 98 Q22 92 26 84 Q24 92 31 90 Q32 80 40 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M36 60 Q16 76 16 96 Q22 92 28 82 Q26 92 33 88 Q37 74 46 64 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/></g>
     ${tube("M42 76 L39 108", c.body, c.line, 5)}${tube("M76 74 L79 108", c.body, c.line, 5)}
     <g class="breathe">
       <path d="M30 62 Q26 50 42 49 Q56 42 72 47 Q78 37 88 36 Q100 36 99 47 Q99 54 90 54 L86 57 Q84 68 79 71 Q75 60 66 62 Q57 74 46 66 Q40 68 34 66 Q29 66 30 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>

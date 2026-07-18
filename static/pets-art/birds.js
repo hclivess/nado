@@ -256,7 +256,7 @@ export const ART_BIRDS = {
     <g class="tail-wag"><path d="M34 82 Q20 84 22 74 Q30 76 40 74 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
     <g class="breathe">
       <ellipse cx="58" cy="74" rx="20" ry="19" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M43 67 Q58 55 73 67 Q76 88 58 93 Q42 90 43 67 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
+      <path d="M43 67 Q58 55 73 67 Q76 88 58 93 Q42 90 43 67 Z" fill="${TIP}" stroke="${c.line}" stroke-width="1.6"/>
       <path d="M66 62 Q80 66 78 82 Q70 76 62 76 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/></g>
     ${legs([52, 64])}
     <g class="head-tilt">

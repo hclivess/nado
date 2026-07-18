@@ -77,13 +77,12 @@ export const ART_SNAKES2 = {
     return `
     ${floorShadow(58, 110, 34)}
     <g class="breathe">
-      <ellipse cx="55" cy="80" rx="30" ry="24" fill="${c.body}"/>
-      ${tube("M58 102 Q20 100 22 74 Q26 54 58 56 Q86 56 90 76 Q92 100 62 100", c.body, c.line, 16)}
-      ${tube("M62 100 Q40 94 42 74 Q44 60 58 60 Q72 60 72 72", c.body, c.line, 12)}
-      ${tube("M30 92 Q24 80 30 68", B, "none", 4)}
+      <ellipse cx="58" cy="79" rx="30" ry="24" fill="${c.body}" stroke="${c.line}" stroke-width="3"/>
+      <path d="M31 74 Q27 84 34 93" fill="none" stroke="${B}" stroke-width="6" stroke-linecap="round" opacity=".55"/>
+      <path d="M57.3 58.5 L62.7 59.2 L67.7 60.8 L72.2 63.2 L75.7 66.3 L78.4 70.0 L79.9 74.0 L80.4 78.0 L79.7 82.0 L78.0 85.7 L75.4 89.0 L72.1 91.7 L68.2 93.6 L63.9 94.8 L59.5 95.2 L55.2 94.8 L51.2 93.6 L47.6 91.8 L44.7 89.4 L42.6 86.6 L41.3 83.5 L40.9 80.4 L41.3 77.3 L42.5 74.5 L44.4 71.9 L46.9 69.9 L49.8 68.4 L53.0 67.4 L56.2 67.1 L59.4 67.4 L62.4 68.2 L65.0 69.5 L67.1 71.2 L68.6 73.2 L69.6 75.4 L69.9 77.6 L69.6 79.7 L68.8 81.7 L67.5 83.4 L65.8 84.8 L63.8 85.8 L61.7 86.4 L59.6 86.6 L57.5 86.4 L55.7 85.9 L54.0 85.0 L52.8 83.9 L51.9 82.7 L51.4 81.4 L51.3 80.1 L51.5 78.8 L52.1 77.8 L52.9 76.9 L53.9 76.2 L54.9 75.8" fill="none" stroke="${c.line}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity=".7"/>
     </g>
     <g class="head-tilt">
-      ${tube("M88 74 Q98 58 82 48", c.body, c.line, 12)}
+      ${tube("M82 66 Q94 50 78 44", c.body, c.line, 12)}
       <path d="M62 44 Q60 30 76 28 Q90 28 90 40 Q84 50 72 50 Q62 50 62 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
       <path d="M64 42 Q76 38 88 42 Q84 50 74 50 Q66 48 64 42 Z" fill="#f6f3ec" stroke="${c.line}" stroke-width="1.4"/>
       <path d="M66 44 Q76 48 86 44" fill="none" stroke="${c.line}" stroke-width="1.1" opacity=".55"/>
@@ -295,7 +294,7 @@ export const ART_SNAKES2 = {
     <g class="breathe">
       <path d="M12 58 Q36 42 60 58 Q84 74 106 58 L106 72 Q84 88 60 72 Q36 56 12 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <path d="M12 66 Q36 50 60 66 Q84 82 106 66" fill="none" stroke="${B}" stroke-width="3" stroke-linecap="round" opacity=".75"/>
-      ${[24, 44, 64, 84].map((x) => `<path d="M${x} 52 q3 8 0 20" fill="none" stroke="${c.shade}" stroke-width="2.2" stroke-linecap="round" opacity=".5"/>`).join("")}
+      <g opacity=".5">${bandsOn([[[12, 65], [36, 49], [60, 65]], [[60, 65], [84, 81], [106, 65]]], [[0, 0.22], [0, 0.5], [0, 0.78], [1, 0.22], [1, 0.5], [1, 0.78]], c.shade, 2.4, 6)}</g>
     </g>
     <g class="head-tilt">
       <path d="M96 58 Q112 54 114 64 Q112 72 98 72 Q90 65 96 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
@@ -324,12 +323,12 @@ export const ART_SNAKES2 = {
   // ── Puff Adder — extremely FAT low broad squat S, bold chevron markings, small blunt head lifted at right
   puffadder: (c) => {
     const B = belly(c), E = eyeInk(c);
-    const chev = (x, y) => `<path d="M${x - 9} ${y - 6} L${x} ${y} L${x + 9} ${y - 6}" fill="none" stroke="${c.shade}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>`;
+    const BODY = [[[22, 98], [12, 78], [34, 74]], [[34, 74], [56, 70], [56, 90]], [[56, 90], [56, 100], [78, 96]], [[78, 96], [98, 92], [90, 72]]];
     return `
     ${floorShadow(58, 112, 36)}
     <g class="breathe">
       ${tube("M22 98 Q12 78 34 74 Q56 70 56 90 Q56 100 78 96 Q98 92 90 72", c.body, c.line, 22)}
-      ${[[34, 80], [56, 82], [78, 84]].map(([x, y]) => chev(x, y)).join("")}
+      ${chevronsOn(BODY, [[0, 0.5], [1, 0.5], [2, 0.5], [3, 0.55]], c.shade, 4, 9)}
       ${tube("M26 96 Q20 82 36 80", B, "none", 5)}
     </g>
     <g class="head-tilt">

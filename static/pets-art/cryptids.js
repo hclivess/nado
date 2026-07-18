@@ -141,7 +141,7 @@ export const ART_CRYPTIDS = {
     <g class="tail-wag">
       <path d="M52 60 Q40 68 28 64 Q33 73 29 82 Q40 78 51 80 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
       <path d="M68 60 Q80 68 92 64 Q87 73 91 82 Q80 78 69 80 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
-      ${tube("M60 92 Q66 104 58 112", c.body, c.line, 4)}
+      ${tube("M60 82 Q66 104 58 112", c.body, c.line, 4)}
       <path d="M58 112 l-3 4 l4 -1 l1 4 l3 -5 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
     </g>
     <g class="breathe">

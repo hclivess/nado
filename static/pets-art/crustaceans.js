@@ -287,7 +287,7 @@ export const ART_CRUSTACEANS = {
 
   // Cone Snail — smooth tapering cone shell with the classic triangular tent-net pattern, siphon + eyestalks up top
   conesnail: (c) => { const E = eyeInk(c), B = belly(c);
-    const net = [[46, 52], [58, 50], [70, 54], [52, 64], [64, 66], [76, 68], [58, 78], [70, 82], [50, 76]].map(([x, y]) => `<path d="M${x} ${y} l4 6 l4 -6 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="0.8" stroke-linejoin="round" opacity=".8"/>`).join("");
+    const net = [[44, 50], [56, 50], [68, 50], [46, 60], [58, 60], [68, 60], [50, 70], [62, 70], [55, 80]].map(([x, y]) => `<path d="M${x} ${y} l4 6 l4 -6 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="0.8" stroke-linejoin="round" opacity=".8"/>`).join("");
     return `
     <g class="breathe">
       <path d="M34 44 Q60 30 86 44 Q80 60 72 84 Q66 100 60 102 Q54 100 48 84 Q40 60 34 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
@@ -321,7 +321,7 @@ export const ART_CRUSTACEANS = {
       <path d="M34 51 l-4 -4 M34 51 l4 -4 M34 51 l0 -6 M34 51 l-5 1 M34 51 l5 1" stroke="${c.line}" stroke-width="1" stroke-linecap="round" opacity=".6"/>
     </g>
     <g class="head-tilt">
-      <path d="M82 50 Q84 40 80 36 M90 52 Q94 42 90 38" stroke="${c.line}" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M82 56 Q84 44 80 36 M90 58 Q94 44 90 38" stroke="${c.line}" stroke-width="2.6" fill="none" stroke-linecap="round"/>
       <path d="M79 37 q1 -4 4 -4 M89 39 q1 -4 4 -4" stroke="${c.shade}" stroke-width="2.6" fill="none" stroke-linecap="round"/>
       ${eye(84, 60, 2.8, E)}
       ${smile(88, 65, 2.2, E)}

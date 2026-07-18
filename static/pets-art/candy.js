@@ -48,7 +48,7 @@ export const ART_CANDY = {
       <ellipse cx="47" cy="99" rx="11" ry="4" fill="${c.shade}" opacity=".5"/>
       <path d="${cane}" fill="none" stroke="${c.line}" stroke-width="20" stroke-linecap="round"/>
       <path d="${cane}" fill="none" stroke="${c.body}" stroke-width="15.5" stroke-linecap="round"/>
-      ${[[45, 92, 52], [45, 80, 52], [46, 68, 52], [50, 56, 60], [58, 44, 78], [70, 34, 90], [81, 44, 66]].map(([x, y, a]) => stripe(x, y, a)).join("")}
+      ${[[44, 90, -11], [42, 74, -4], [42, 57, 8], [47, 41, 26], [59, 30, 70], [75, 29, 108], [85, 39, 163]].map(([x, y, a]) => stripe(x, y, a)).join("")}
       <path d="M80 48 Q92 48 93 60 Q93 71 82 71 Q73 70 73 59 Q73 50 80 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <ellipse cx="84" cy="64" rx="7" ry="4.5" fill="${B}"/>
       <path d="M89 68 q5 1 9 -2 M89 69 q4 4 5 8" fill="none" stroke="${CHERRY}" stroke-width="1.5" stroke-linecap="round"/>
@@ -235,8 +235,8 @@ export const ART_CANDY = {
     ${floorShadow(60, 108, 30)}
     <g class="breathe">
       <path d="${knot}" fill="none" stroke="${c.line}" stroke-width="18" stroke-linecap="round"/>
-      <path d="${knot}" fill="none" stroke="${c.body}" stroke-width="13.5" stroke-linecap="round"/>
       <path d="${cross}" fill="none" stroke="${c.line}" stroke-width="18" stroke-linecap="round"/>
+      <path d="${knot}" fill="none" stroke="${c.body}" stroke-width="13.5" stroke-linecap="round"/>
       <path d="${cross}" fill="none" stroke="${c.body}" stroke-width="13.5" stroke-linecap="round"/>
       ${[[34, 60], [86, 60], [40, 88], [80, 88], [60, 92], [30, 78], [90, 78], [60, 62]].map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="1.6" fill="${ICING}"/>`).join("")}
       <path d="M44 40 Q40 26 50 22 Q60 24 58 38 Q52 44 44 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
@@ -253,8 +253,8 @@ export const ART_CANDY = {
     return `
     ${floorShadow(60, 106, 30)}
     <g class="breathe">
-      ${[36, 84].map((x) => `<ellipse cx="${x}" cy="92" rx="8" ry="6" fill="${c.shade}" stroke="${c.line}" stroke-width="2.6"/>`).join("")}
-      <path d="M92 70 Q108 68 108 78 Q106 86 96 84 Q90 78 92 70 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
+      ${[[48, 78], [80, 78]].map(([x, y]) => `<ellipse cx="${x}" cy="${y}" rx="9" ry="8" fill="${c.shade}" stroke="${c.line}" stroke-width="2.8"/>`).join("")}
+      <path d="M84 62 Q100 60 100 70 Q98 78 88 76 Q82 70 84 62 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
       <path d="M40 62 Q22 60 20 74 Q20 86 34 86 Q46 84 46 72 Q46 62 40 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <ellipse cx="30" cy="76" rx="7" ry="5" fill="${B}"/>
       ${ceye(26, 72, 3.2)}
@@ -263,7 +263,6 @@ export const ART_CANDY = {
       <path d="M40 50 h40 M38 60 h44 M52 40 V70 M68 40 V70" stroke="${c.line}" stroke-width="1.8" opacity=".5"/>
       <ellipse cx="60" cy="54" rx="24" ry="12" fill="${B}" opacity=".3"/>
       <rect x="53" y="44" width="9" height="8" rx="2" fill="${ICING}" stroke="${c.line}" stroke-width="1.4"/>
-      <path d="M45 66 Q46 74 42 78 M75 66 Q74 74 78 78" fill="none" stroke="${c.shade}" stroke-width="2.6" stroke-linecap="round"/>
     </g>`;
   },
 

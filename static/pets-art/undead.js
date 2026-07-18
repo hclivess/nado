@@ -91,8 +91,8 @@ export const ART_UNDEAD = {
     return `
     ${floorShadow(60, 113, 26)}
     <g class="tail-wag">
-      <path d="M22 72 Q17 61 24 54 Q21 63 28 67 Q26 74 22 72 Z" fill="${FIRE}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
-      <circle cx="24" cy="61" r="2" fill="${FIRE2}"/>
+      <path d="M29 81 Q24 70 31 63 Q28 72 35 76 Q33 83 29 81 Z" fill="${FIRE}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
+      <circle cx="31" cy="70" r="2" fill="${FIRE2}"/>
     </g>
     <g class="breathe">
       <path d="M60 52 Q46 52 40 70 L30 108 Q60 116 90 108 L80 70 Q74 52 60 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>

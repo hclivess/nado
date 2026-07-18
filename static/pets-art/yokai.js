@@ -457,8 +457,6 @@ export const ART_YOKAI = {
     return `
     ${floorShadow(60, 113, 26)}
     <g class="tail-wag">
-      <path d="M22 60 Q16 50 22 44 Q22 52 28 54 Q22 48 22 60 Z" fill="${GLOW}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round" opacity=".9"/>
-      <circle cx="23" cy="53" r="1.6" fill="#fff"/>
       <path d="M78 96 Q98 96 98 76 Q97 66 88 70 Q94 76 90 84 Q86 92 76 92 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
     </g>
     <g class="breathe">
@@ -475,6 +473,8 @@ export const ART_YOKAI = {
       ${eyes(52, 68, 50, 3.4, E)}
       <path d="M60 58 l-3 3 h6 Z" fill="${INK}"/>
       <path d="M60 61 q-5 5 -9 3 M60 61 q5 5 9 3" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M54 46 Q50 34 59 24 Q61 31 64 27 Q68 38 63 46 Q59 41 54 46 Z" fill="${GLOW}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round" opacity=".92"/>
+      <circle cx="59" cy="37" r="1.8" fill="#fff"/>
     </g>`;
   },
 

@@ -246,7 +246,7 @@ export const ART_MYTHICAL = {
     <g class="breathe">
       <path d="M42 96 Q40 66 60 64 Q80 66 78 96 Q60 104 42 96 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <path d="M52 74 Q60 82 68 74 M52 82 Q60 88 68 82" fill="none" stroke="${c.shade}" stroke-width="1.6" opacity=".7"/>
-      ${["", "s"].map((_, i) => `<path d="M${i ? 90 : 30} 70 Q${i ? 104 : 16} 74 ${i ? 100 : 20} 90" fill="none" stroke="${c.line}" stroke-width="8.4" stroke-linecap="round"/><path d="M${i ? 90 : 30} 70 Q${i ? 104 : 16} 74 ${i ? 100 : 20} 90" fill="none" stroke="${c.body}" stroke-width="5.4" stroke-linecap="round"/><circle cx="${i ? 20 : 20}" cy="90" r="0"/>`).join("")}
+      ${["", "s"].map((_, i) => `<path d="M${i ? 74 : 46} 71 Q${i ? 96 : 24} 76 ${i ? 100 : 20} 90" fill="none" stroke="${c.line}" stroke-width="8.4" stroke-linecap="round"/><path d="M${i ? 74 : 46} 71 Q${i ? 96 : 24} 76 ${i ? 100 : 20} 90" fill="none" stroke="${c.body}" stroke-width="5.4" stroke-linecap="round"/>`).join("")}
       <circle cx="20" cy="91" r="5" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
       <circle cx="100" cy="91" r="5" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 62 : 48}" y="94" width="10" height="14" rx="2.4" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><path d="M${i ? 62 : 48} 106 h10 l-1 4 h-8 Z" fill="${INK}"/>`).join("")}
@@ -360,7 +360,7 @@ export const ART_MYTHICAL = {
       <path d="M51 97 l-4 3 m4 -3 l0 5 m0 -5 l4 3 M65 97 l-4 3 m4 -3 l0 5 m0 -5 l4 3" stroke="${IVORY}" stroke-width="1.5" stroke-linecap="round"/>
     </g>
     <g class="head-tilt">
-      <path d="M82 44 Q80 30 70 26 Q76 36 78 48 Z" fill="${HORN}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M84 49 Q83 30 73 23 Q80 33 91 49 Z" fill="${HORN}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
       <path d="M78 62 Q78 44 94 44 Q108 44 108 58 Q108 64 100 66 L112 66 Q110 74 100 72 Q80 74 78 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <path d="M104 66 l1.4 4 l1.4 -4 Z" fill="${TOOTH}" stroke="${c.line}" stroke-width="0.6" stroke-linejoin="round"/>
       <ellipse cx="108" cy="63" rx="1.3" ry="1" fill="${INK}"/>

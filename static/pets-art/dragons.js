@@ -121,24 +121,26 @@ export const ART_DRAGONS = {
       ${eye(76, 44, 3.2)}
     </g>`; },
 
-  // ── Shadow Dragon (t5, wispy) — crouched dark drake dissolving into smoke curls, glowing eyes, sharp horns
-  shadowdragon: (c) => { const D = deepen(c.body, 0.25); return `
-    ${floorShadow(60, 112, 30)}
+  // ── Shadow Dragon (t5, wispy) — side drake dissolving into shadow: dark tattered wing, smoky curling tail, glowing eye
+  shadowdragon: (c) => { const B = belly(c); const D = deepen(c.body, 0.3); return `
+    ${floorShadow(58, 112, 32)}
     <g class="tail-wag">
-      <path d="M46 86 Q26 92 22 80 Q30 84 34 78 Q24 80 24 70 Q32 78 42 78 Q36 84 48 84 Z" fill="${D}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round" opacity=".9"/>
+      <path d="M42 84 Q18 88 12 74 Q9 66 17 65 Q13 72 21 73 Q12 68 15 58 Q23 69 32 71 Q26 77 36 80 Q41 81 43 83 Z" fill="${D}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
     </g>
     <g class="tail-wag">
-      ${tube("M44 64 Q28 58 30 46 Q32 40 39 42", D, c.line, 7)}
-      ${tube("M76 64 Q92 58 90 46 Q88 40 81 42", D, c.line, 7)}
+      <path d="M62 54 Q32 22 8 28 Q26 37 29 50 Q13 45 6 54 Q25 61 39 58 Q24 67 19 82 Q43 70 52 60 Q47 72 50 82 Q58 68 64 58 Z" fill="${D}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M56 52 Q35 28 15 31 M54 56 Q36 47 22 51 M51 61 Q38 62 30 70" fill="none" stroke="${c.line}" stroke-width="1.3" opacity=".5"/>
     </g>
     <g class="breathe">
-      <path d="M34 92 Q30 62 60 60 Q90 62 86 92 Q84 100 74 96 Q78 84 72 74 Q60 96 48 74 Q42 84 46 96 Q36 100 34 92 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3" stroke-linejoin="round"/>
-      ${ridge([50, 60, 70], 62, 8, c.shade, c.line)}
-      <path d="M52 46 l-5 -12 l9 7 Z M68 46 l5 -12 l-9 7 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      <path d="M42 66 Q60 58 78 66 Q60 76 42 66 Z" fill="${deepen(c.body, 0.35)}" opacity=".55"/>
-      <ellipse cx="52" cy="66" rx="4.2" ry="5" fill="${GLOW}"/><ellipse cx="68" cy="66" rx="4.2" ry="5" fill="${GLOW}"/>
-      <ellipse cx="52" cy="67" rx="1.8" ry="2.6" fill="${INK}"/><ellipse cx="68" cy="67" rx="1.8" ry="2.6" fill="${INK}"/>
-      <path d="M54 76 q6 4 12 0" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
+      ${sideBody(c)}
+      <path d="M50 84 Q66 92 84 84 Q68 88 50 84 Z" fill="${B}" opacity=".85"/>
+      ${claw(44, 103)}${claw(68, 103)}
+      <path d="M60 53 q-4 -8 2 -13 M69 53 q3 -8 -2 -13" fill="none" stroke="${D}" stroke-width="2.4" stroke-linecap="round" opacity=".5"/>
+      <path d="M88 56 Q85 42 78 38 Q84 46 84 58 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M97 56 Q96 42 90 36 Q92 46 92 58 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <ellipse cx="105" cy="60" rx="1.3" ry="1" fill="${INK}"/>
+      <ellipse cx="91" cy="64" rx="4.4" ry="4.9" fill="${GLOW}"/>
+      <ellipse cx="91.4" cy="64" rx="2" ry="2.9" fill="${INK}"/>
     </g>`; },
 
   // ── Crystal Dragon (t5, faceted) — geometric gem-scaled dragon, angular shard wings, brow gemstone, faceted body
@@ -330,7 +332,7 @@ export const ART_DRAGONS = {
   // ── Sun Dragon (t5, radiant) — front, blazing ray-mane halo, warm plated belly, flame-tipped wings, bright face
   sundragon: (c) => { const B = belly(c); const R = tint(c.body, 0.35); return `
     ${floorShadow(60, 112, 30)}
-    <g class="tail-wag">${[22, 45, 70, 90, 110, 135, 158].map((a) => { const r = a * Math.PI / 180; return `<path d="M60 52 l${(28 * Math.cos(r)).toFixed(1)} ${(28 * Math.sin(r) - 30).toFixed(1)} l6 6 Z" fill="${R}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>`; }).join("")}</g>
+    <g class="tail-wag">${[22, 45, 70, 90, 110, 135, 158].map((a) => { const r = a * Math.PI / 180, cs = Math.cos(r), sn = Math.sin(r); const tx = 60 + 30 * cs, ty = 42 - 30 * sn, bx = 60 + 8 * cs, by = 42 - 8 * sn, px = -sn * 3, py = -cs * 3; return `<path d="M${(bx + px).toFixed(1)} ${(by + py).toFixed(1)} L${tx.toFixed(1)} ${ty.toFixed(1)} L${(bx - px).toFixed(1)} ${(by - py).toFixed(1)} Z" fill="${R}" stroke="${c.line}" stroke-width="1.2" stroke-linejoin="round"/>`; }).join("")}</g>
     <g class="tail-wag">
       <path d="M56 74 Q28 58 16 66 Q28 70 32 78 Q22 82 28 92 Q46 80 58 78 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       ${mirror(`<path d="M56 74 Q28 58 16 66 Q28 70 32 78 Q22 82 28 92 Q46 80 58 78 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>`)}

@@ -350,7 +350,7 @@ export const ART_GEMSTONE = {
     const B = belly(c), L = tint(c.body, 0.4), E = eyeInk(c);
     return `
     ${floorShadow(58, 108, 24)}
-    <g class="tail-wag"><path d="M30 62 L10 52 L14 64 L10 76 L32 70 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M40 60 L10 52 L14 64 L10 76 L40 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/></g>
     <g class="breathe">
       <path d="M34 58 Q34 38 60 38 Q86 40 90 60 Q90 80 62 82 Q36 80 34 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
       <path d="M44 66 Q58 82 76 74 Q64 78 54 72 Q46 68 44 66 Z" fill="${B}" opacity=".75"/>

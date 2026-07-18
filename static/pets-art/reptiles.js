@@ -395,10 +395,12 @@ export const ART_REPTILES = {
   // ── Axolotl — wide beaming face, six feathery external gill fronds, stubby legs, finned tail; float
   axolotl: (c) => {
     const E = eyeInk(c);
-    const gill = (bx, by, ang) => {
-      const branches = [-6, 0, 6].map((k) => `<path d="M${bx} ${by} q${k * 0.6} -8 ${k} -16" fill="none" stroke="${c.line}" stroke-width="3.4" stroke-linecap="round"/><path d="M${bx} ${by} q${k * 0.6} -8 ${k} -16" fill="none" stroke="${c.shade}" stroke-width="1.8" stroke-linecap="round"/>`).join("");
-      return `<g transform="rotate(${ang} ${bx} ${by})">${branches}</g>`;
-    };
+    // one feathery external gill-frond: a curved stalk with little branchlets (the axolotl's signature)
+    const gillFrond = (bx, by, ang, len) => `<g transform="translate(${bx} ${by}) rotate(${ang})">
+      <path d="M0 0 Q-3 ${(-len * 0.5).toFixed(0)} -1 ${-len}" fill="none" stroke="${c.line}" stroke-width="5.6" stroke-linecap="round"/>
+      <path d="M0 0 Q-3 ${(-len * 0.5).toFixed(0)} -1 ${-len}" fill="none" stroke="${c.body}" stroke-width="3.6" stroke-linecap="round"/>
+      ${[0.35, 0.6, 0.85].map((f) => `<path d="M${(-1.5 * f).toFixed(1)} ${(-len * f).toFixed(1)} q-5 -1 -7 -5 M${(-1.5 * f).toFixed(1)} ${(-len * f).toFixed(1)} q5 -2 7 -5" fill="none" stroke="${c.body}" stroke-width="2.4" stroke-linecap="round"/>`).join("")}
+    </g>`;
     const foot = (x, dir) => `<path d="M${x} 78 q${dir * 4} 8 ${dir * 2} 12" fill="none" stroke="${c.line}" stroke-width="4.4" stroke-linecap="round"/><path d="M${x} 78 q${dir * 4} 8 ${dir * 2} 12" fill="none" stroke="${c.body}" stroke-width="2.8" stroke-linecap="round"/>`;
     return `
     <g class="tail-wag">
@@ -410,7 +412,7 @@ export const ART_REPTILES = {
       <path d="M40 72 q22 8 44 0" fill="none" stroke="${c.shade}" stroke-width="1.4" opacity=".45"/>
     </g>
     <g class="tail-wag">
-      ${gill(74, 50, 12)}${gill(80, 56, 0)}${gill(78, 64, -14)}
+      ${gillFrond(80, 52, -52, 20)}${gillFrond(85, 49, -30, 23)}${gillFrond(89, 51, -10, 20)}
     </g>
     <g class="head-tilt">
       <ellipse cx="66" cy="72" rx="6" ry="4" fill="${c.shade}" opacity=".55"/>

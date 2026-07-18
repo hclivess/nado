@@ -285,24 +285,24 @@ export const ART_CELESTIAL = {
     </g>`; },
 
   // ── Nova Phoenix — brilliant reborn firebird, blazing spread wings and plumes over a nova star-burst (float)
+  // Celestial Stag — a mystic forest-cosmos stag crowned with glowing branching star-antlers (NOT a bird)
   novaphoenix: (c) => { const E = eyeInk(c);
-    const wing = `<path d="M60 58 Q42 36 22 28 Q35 43 35 52 Q24 47 16 49 Q31 58 44 60 Q31 63 24 71 Q46 67 60 62 Z" fill="${FIRE}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/><path d="M58 58 Q44 44 30 40 Q40 49 43 56 Z" fill="${FIRE2}" opacity=".9"/>`;
-    const plume = (x, s) => `<path d="M${x} 80 Q${x - s * 5} 102 ${x - s * 1.5} 116 Q${x + s * 3} 102 ${x + s * 5} 82 Z" fill="${FIRE}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/><path d="M${x} 84 Q${x - s * 3} 100 ${x} 110" fill="none" stroke="${FIRE2}" stroke-width="1.8"/>`;
+    const antler = `<path d="M52 30 Q44 18 36 8" fill="none" stroke="${c.line}" stroke-width="4.6" stroke-linecap="round"/><path d="M52 30 Q44 18 36 8" fill="none" stroke="${STAR}" stroke-width="2.6" stroke-linecap="round"/><path d="M46 21 L34 15 M42 14 L30 11 M49 12 L41 3" fill="none" stroke="${c.line}" stroke-width="3.4" stroke-linecap="round"/><path d="M46 21 L34 15 M42 14 L30 11 M49 12 L41 3" fill="none" stroke="${STAR}" stroke-width="2" stroke-linecap="round"/>${spark(35, 8, 2.4, GLOW)}${spark(30, 11, 2, GLOW)}${spark(41, 3, 2.2, GLOW)}`;
     return `
-    <g class="breathe">${rays(60, 58, 30, 44, 12, STAR, 2.4)}<circle cx="60" cy="58" r="10" fill="${STAR}" opacity=".25"/></g>
-    <g class="tail-wag">${plume(48, 1)}${plume(72, -1)}${plume(60, 0.3)}</g>
-    <g class="tail-wag">${wing}${mirror(wing)}</g>
+    <g class="breathe">${rays(60, 46, 24, 38, 10, STAR, 2.2)}<circle cx="60" cy="46" r="9" fill="${STAR}" opacity=".22"/></g>
     <g class="breathe">
-      <path d="M60 42 Q78 46 76 68 Q72 88 60 90 Q48 88 44 68 Q42 46 60 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M60 56 Q69 60 67 76 Q64 86 60 86 Q56 86 53 76 Q51 60 60 56 Z" fill="${FIRE2}" opacity=".85"/>
-      ${freckles([[54, 66], [66, 66], [60, 78]], 1.2, GLOW)}
+      <path d="M48 62 Q48 82 60 88 Q72 82 72 62 Q66 68 60 68 Q54 68 48 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      ${freckles([[54, 74], [66, 74], [60, 82]], 1.2, GLOW)}
     </g>
     <g class="head-tilt">
-      <path d="M51 28 Q46 12 39 8 Q49 18 52 30 Z M60 24 Q60 8 60 4 Q67 14 66 27 Z M69 28 Q74 12 81 8 Q71 18 68 30 Z" fill="${FIRE}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
-      <circle cx="60" cy="40" r="13" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
-      <path d="M56 46 L60 53 L64 46 Z" fill="${HORN}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      ${eyes(54, 66, 38, 3.2, E)}
-      ${spark(60, 12, 3, STAR)}
+      ${antler}${mirror(antler)}
+      <path d="M45 40 Q35 34 33 43 Q39 47 47 44 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      ${mirror(`<path d="M45 40 Q35 34 33 43 Q39 47 47 44 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>`)}
+      <path d="M46 42 Q46 28 60 26 Q74 28 74 42 Q72 58 60 66 Q48 58 46 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M54 55 Q60 61 66 55 Q64 63 60 64 Q56 63 54 55 Z" fill="${c.shade}"/>
+      <ellipse cx="60" cy="57" rx="3" ry="2.2" fill="${INK}"/>
+      ${eyes(53, 67, 44, 2.8, E)}
+      ${spark(60, 22, 2.8, STAR)}
     </g>`; },
 
   // ── Void Panther — sleek prowling panther, star-field speckled hide, blazing star eyes (grounded, head right)
@@ -471,7 +471,7 @@ export const ROSTER_CELESTIAL = [
   { n: "Cosmic Turtle",    e: "🐢", tier: 4, float: false },
   { n: "Meteor Hound",     e: "☄️", tier: 3, float: false },
   { n: "Eclipse Serpent",  e: "🐍", tier: 4, float: false },
-  { n: "Nova Phoenix",     e: "🔥", tier: 6, float: true },
+  { n: "Nova Phoenix",     e: "🦌", tier: 6, float: true },
   { n: "Void Panther",     e: "🐆", tier: 5, float: false },
   { n: "Astral Stag",      e: "🦌", tier: 4, float: false },
   { n: "Zenith Eagle",     e: "🦅", tier: 4, float: true },

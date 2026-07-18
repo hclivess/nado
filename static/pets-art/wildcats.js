@@ -230,8 +230,8 @@ export const ART_WILDCATS = {
       <path d="M48 90 q12 9 24 0" fill="${c.shade}" opacity=".7"/>
       ${["", "s"].map((_, i) => `<g><rect x="${i ? 65 : 47}" y="94" width="8" height="15" rx="3.4" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><rect x="${i ? 65 : 47}" y="104" width="8" height="5" rx="2.4" fill="${c.shade}"/></g>`).join("")}</g>
     <g class="head-tilt">
-      <path d="M46 44 L43 22 L58 38 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M48 40 L47 28 L54 37 Z" fill="${c.shade}"/>
-      ${mirror(`<path d="M46 44 L43 22 L58 38 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M48 40 L47 28 L54 37 Z" fill="${c.shade}"/>`)}
+      <path d="M46 52 L43 22 L58 47 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M48 40 L47 28 L54 37 Z" fill="${c.shade}"/>
+      ${mirror(`<path d="M46 52 L43 22 L58 47 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M48 40 L47 28 L54 37 Z" fill="${c.shade}"/>`)}
       <path d="M43 52 Q43 72 60 76 Q77 72 77 52 Q60 44 43 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M52 58 Q52 76 60 78 Q68 76 68 58 Q60 52 52 58 Z" fill="${c.shade}"/>
       <ellipse cx="60" cy="72" rx="2.8" ry="2.2" fill="${INK}"/>
@@ -308,8 +308,8 @@ export const ART_WILDCATS = {
       <path d="M48 90 q12 9 24 0" fill="${c.shade}" opacity=".7"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 65 : 47}" y="94" width="8" height="15" rx="3.4" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`).join("")}</g>
     <g class="head-tilt">
-      ${mirror(`<path d="M46 40 Q42 28 54 30 Q56 38 54 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M48 33 Q46 37 49 41 Z" fill="${c.shade}"/>`)}
-      <path d="M46 40 Q42 28 54 30 Q56 38 54 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M48 33 Q46 37 49 41 Z" fill="${c.shade}"/>
+      ${mirror(`<path d="M44 54 Q39 38 54 36 Q63 40 56 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M50 43 Q48 47 51 51 Z" fill="${c.shade}"/>`)}
+      <path d="M44 54 Q39 38 54 36 Q63 40 56 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M50 43 Q48 47 51 51 Z" fill="${c.shade}"/>
       <path d="M44 54 Q44 74 60 78 Q76 74 76 54 Q60 46 44 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M53 60 Q60 78 67 60 Q65 82 60 82 Q55 82 53 60 Z" fill="${c.shade}"/>
       <ellipse cx="60" cy="74" rx="2.8" ry="2.2" fill="${INK}"/>

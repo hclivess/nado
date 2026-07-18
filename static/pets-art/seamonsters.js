@@ -43,11 +43,11 @@ export const ART_SEAMONSTERS = {
       <path d="M20 64 Q34 54 50 62 Q66 70 78 60" fill="none" stroke="${B}" stroke-width="5" opacity=".5" stroke-linecap="round"/>
     </g>
     <g class="tail-wag">
-      ${[[24, 55], [40, 53], [56, 59]].map(([x, y]) => `<path d="M${x} ${y} l3 -9 l3 9 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>`).join("")}
+      ${[[24, 55], [40, 53], [54, 64]].map(([x, y]) => `<path d="M${x} ${y} l3 -9 l3 9 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>`).join("")}
     </g>
     <g class="head-tilt">
       <path d="M72 56 Q92 48 100 60 Q100 72 84 74 Q70 70 72 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M70 52 l2 -9 l5 6 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.3" stroke-linejoin="round"/>
+      <path d="M71 59 l2 -9 l5 6 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.3" stroke-linejoin="round"/>
       <path d="M82 66 Q94 72 100 63" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
       <path d="M86 66 l1.3 3.6 l1.4 -3.6 Z M92 66 l1.3 3.6 l1.4 -3.6 Z" fill="${TOOTH}" stroke="${c.line}" stroke-width="0.4"/>
       <path d="M100 64 q8 1 12 -2 M108 63 l4 -2 M108 64 l4 2" stroke="${TIP}" stroke-width="1.4" fill="none" stroke-linecap="round"/>
@@ -82,7 +82,7 @@ export const ART_SEAMONSTERS = {
       <path d="M50 56 Q34 42 20 38 M48 58 Q34 50 22 50" fill="none" stroke="${c.line}" stroke-width="1.1" opacity=".55"/>
     </g>
     <g class="breathe">
-      <path d="M34 66 Q30 82 44 84 Q40 74 46 70 Q40 68 34 66 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M40 66 Q34 84 48 85 Q44 74 54 70 Q46 68 40 66 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
       <path d="M46 60 Q46 46 62 44 Q78 44 80 60 Q76 76 60 76 Q46 74 46 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <path d="M52 66 Q62 74 74 66 Q62 70 52 66 Z" fill="${B}"/>
     </g>
@@ -240,7 +240,7 @@ export const ART_SEAMONSTERS = {
 
   // ── Charybdis — whirlpool maw: spiralling vortex disc, ring of fangs around a black gullet, water arms (t5)
   charybdis: (c) => {
-    const swirl = Array.from({ length: 30 }, (_, i) => { const a = i / 30 * Math.PI * 3.2; const r = 8 + i * 1.6; return `${(60 + r * Math.cos(a)).toFixed(1)} ${(62 + r * Math.sin(a)).toFixed(1)}`; }).join(" L");
+    const swirl = Array.from({ length: 30 }, (_, i) => { const a = i / 30 * Math.PI * 3.2; const r = 8 + i * 0.8; return `${(60 + r * Math.cos(a)).toFixed(1)} ${(62 + r * Math.sin(a)).toFixed(1)}`; }).join(" L");
     const arms = [0, 1, 2, 3, 4].map((k) => { const a = (-90 + k * 72) * Math.PI / 180; const x = 60 + 41 * Math.cos(a), y = 62 + 41 * Math.sin(a); return tube(`M${(60 + 24 * Math.cos(a)).toFixed(1)} ${(62 + 24 * Math.sin(a)).toFixed(1)} Q${(60 + 34 * Math.cos(a + 0.4)).toFixed(1)} ${(62 + 34 * Math.sin(a + 0.4)).toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)}`, c.body, c.line, 5); }).join("");
     const fangs = Array.from({ length: 12 }, (_, i) => { const a = i / 12 * 2 * Math.PI; const x1 = 60 + 14 * Math.cos(a), y1 = 62 + 14 * Math.sin(a); const x2 = 60 + 9 * Math.cos(a), y2 = 62 + 9 * Math.sin(a); const nx = 60 + 11.5 * Math.cos(a + 0.14), ny = 62 + 11.5 * Math.sin(a + 0.14); return `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} L${nx.toFixed(1)} ${ny.toFixed(1)} L${x2.toFixed(1)} ${y2.toFixed(1)} Z" fill="${TOOTH}" stroke="${c.line}" stroke-width="0.5"/>`; }).join("");
     return `

@@ -313,10 +313,10 @@ export const ART_PREHISTORICMAMMALS = {
       <path d="M40 34 Q38 24 46 26 Q49 32 47 38 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
       ${mirror(`<path d="M40 34 Q38 24 46 26 Q49 32 47 38 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>`)}
       <path d="M38 42 C34 26 52 20 60 20 C68 20 86 26 82 42 C88 46 88 54 80 58 C76 50 44 50 40 58 C32 54 32 46 38 42 Z" fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      <path d="M48 48 C44 53 50 58 60 58 C70 58 76 53 72 48 Q60 45 48 48 Z" fill="${B}"/>
-      <path d="M53 52 Q60 56 67 52 Q60 55 53 52 Z" fill="${c.shade}"/>
-      <path d="M57 49 l6 0 l-3 4 Z" fill="${INK}"/>
-      ${eye(48, 42, 3, eyeInk(c))}${eye(72, 42, 3, eyeInk(c))}</g>`; },
+      <path d="M51 47 C48 51 53 55 60 55 C67 55 72 51 69 47 Q60 44 51 47 Z" fill="${B}"/>
+      <path d="M54 50 Q60 53 66 50 Q60 52 54 50 Z" fill="${c.shade}"/>
+      <path d="M57 46 l6 0 l-3 4 Z" fill="${INK}"/>
+      ${eye(47, 41, 3, eyeInk(c))}${eye(73, 41, 3, eyeInk(c))}</g>`; },
 
   // ── Aurochs — wild ox: muscular, shoulder hump, big forward-curving pale horns, side profile ─────
   aurochs: (c) => { const B = belly(c); return `

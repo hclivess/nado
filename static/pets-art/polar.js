@@ -33,10 +33,10 @@ export const ART_POLAR = {
       <circle cx="47" cy="33" r="7.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><circle cx="47" cy="33" r="3.2" fill="${c.shade}"/>
       ${mirror(`<circle cx="47" cy="33" r="7.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><circle cx="47" cy="33" r="3.2" fill="${c.shade}"/>`)}
       <ellipse cx="60" cy="46" rx="19" ry="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
-      <path d="M50 52 Q50 74 60 74 Q70 74 70 52 Q60 47 50 52 Z" fill="${c.shade}" opacity=".55"/>
-      <ellipse cx="60" cy="60" rx="9" ry="8" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
-      <ellipse cx="60" cy="60" rx="4.6" ry="3.4" fill="${INK}"/>
-      <path d="M60 63 v5 M60 68 q-4 3 -7 1 M60 68 q4 3 7 1" stroke="${INK}" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <path d="M50 49 Q50 63 60 63 Q70 63 70 49 Q60 45 50 49 Z" fill="${c.shade}" opacity=".55"/>
+      <ellipse cx="60" cy="54" rx="9" ry="7.5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
+      <ellipse cx="60" cy="54" rx="4.6" ry="3.4" fill="${INK}"/>
+      <path d="M60 57 v3 M60 60 q-3.5 2.5 -6.5 1 M60 60 q3.5 2.5 6.5 1" stroke="${INK}" stroke-width="1.5" fill="none" stroke-linecap="round"/>
       ${eyes(52, 68, 44, 2.6, eyeInk(c))}
     </g>`,
 
@@ -254,7 +254,7 @@ export const ART_POLAR = {
   harpseal: (c) => {
     const E = eyeInk(c);
     return `
-    <g class="tail-wag"><path d="M22 62 Q10 52 8 62 Q10 72 22 62 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M32 62 Q10 52 8 62 Q10 72 32 62 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
     <g class="breathe">
       <ellipse cx="62" cy="66" rx="34" ry="24" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
       <path d="M40 52 Q62 42 84 52 Q80 62 62 62 Q44 62 40 52 Z" fill="${c.shade}" opacity=".7"/>
@@ -292,7 +292,7 @@ export const ART_POLAR = {
   beluga: (c) => {
     const E = eyeInk(c);
     return `
-    <g class="tail-wag"><path d="M20 62 Q8 50 6 60 Q10 62 8 64 Q6 74 20 62 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M30 62 Q8 50 6 60 Q10 62 8 64 Q6 74 30 62 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/></g>
     <g class="breathe">
       <path d="M28 62 Q34 44 66 42 Q92 42 100 54 Q104 60 100 66 Q92 82 66 82 Q34 80 28 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <path d="M40 70 Q64 78 90 70" stroke="${c.shade}" stroke-width="3" fill="none" opacity=".4" stroke-linecap="round"/>

@@ -157,9 +157,10 @@ export const ART_EXOTICBIRDS = {
       ${[0, 1, 2, 3, 4].map((i) => { const a = -40 + i * 20; return `<g transform="rotate(${a} 60 66)"><path d="M60 66 Q${44 - i} ${(44 - i * 2)} ${52 - i} 30 Q60 44 60 66 Z" fill="${i % 2 ? c.shade : TIP}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round" opacity=".92"/></g>`; }).join("")}
     </g>
     <g class="tail-wag">
-      <path d="M54 70 Q40 92 60 96 Q52 88 58 72 Z" fill="none" stroke="${c.line}" stroke-width="1.4"/>
-      <path d="M66 70 Q84 90 62 96 Q72 86 62 72 Z" fill="none" stroke="${c.line}" stroke-width="1.4"/>
-      <circle cx="42" cy="94" r="2.4" fill="${c.shade}"/><circle cx="82" cy="92" r="2.4" fill="${c.shade}"/></g>
+      <path d="M56 74 Q40 90 50 98" fill="none" stroke="${c.line}" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M64 74 Q80 90 70 98" fill="none" stroke="${c.line}" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="50" cy="98" r="2.8" fill="${c.shade}" stroke="${c.line}" stroke-width="0.8"/>
+      <circle cx="70" cy="98" r="2.8" fill="${c.shade}" stroke="${c.line}" stroke-width="0.8"/></g>
     <g class="breathe">
       <ellipse cx="60" cy="64" rx="15" ry="17" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M52 60 q8 4 16 0" stroke="${c.shade}" stroke-width="1.6" fill="none" opacity=".55"/></g>
@@ -414,8 +415,9 @@ export const ART_EXOTICBIRDS = {
     <g class="head-tilt">
       <circle cx="56" cy="44" r="17" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M42 40 Q56 34 68 42 Q56 44 42 44 Z" fill="${c.shade}" opacity=".55"/>
-      <path d="M58 40 L96 36 Q100 40 96 44 L58 47 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      <path d="M58 47 L94 47 Q98 50 94 52 L58 52 Z" fill="${BEAKD}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M58 37 L95 45 L58 53 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M58 45 L90 46 L58 53 Z" fill="${BEAKD}"/>
+      <path d="M60 45 L93 45.4" stroke="${c.line}" stroke-width="1.2" opacity=".55"/>
       <path d="M46 38 Q44 44 48 50" stroke="${INK}" stroke-width="2" fill="none" opacity=".5"/>
       ${eye(50, 42, 3.2, eyeInk(c))}
     </g>`,

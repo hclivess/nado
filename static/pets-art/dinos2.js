@@ -93,7 +93,7 @@ export const ART_DINOS2 = {
       <path d="M72 76 l3 3 M72 76 l4 1" stroke="${c.line}" stroke-width="1.3" stroke-linecap="round"/>
     </g>
     <g class="head-tilt">
-      <path d="M66 50 Q70 42 88 42 Q104 42 106 52 Q104 58 92 58 L84 60 Q72 62 68 56 Q64 52 66 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M66 50 Q70 42 88 42 Q104 42 106 52 Q104 58 92 58 L84 62 Q74 68 64 66 Q58 58 66 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M86 58 Q96 62 104 58 Q102 64 92 66 Q84 64 86 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
       <path d="M88 56 l1.5 4 l2 -4 M96 55 l1.5 4 l2 -4 M102 54 l1 3 l1.5 -3" fill="${TEETH}" stroke="${c.line}" stroke-width="0.9"/>
       <path d="M70 44 Q72 37 78 39 Q77 43 78 47 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
@@ -276,9 +276,9 @@ export const ART_DINOS2 = {
 
   // ── Kentrosaurus — plates up front, long paired spikes down the back & tail, jutting shoulder spikes ─
   kentrosaurus: (c) => { const B = belly(c); return `
-    <g class="tail-wag"><path d="M40 78 Q18 76 8 66 Q14 72 20 74 Q30 78 44 80 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M20 74 l-8 -6 M17 76 l-8 -2 M24 72 l-4 -8" stroke="${c.line}" stroke-width="1.2" stroke-linecap="round"/>
-      <path d="M20 74 l-7 -5 M17 76 l-7 -2 M24 72 l-3 -7" stroke="${IVORY}" stroke-width="2.8" stroke-linecap="round"/></g>
+    <g class="tail-wag"><path d="M40 78 Q18 76 8 66 Q12 78 26 82 Q34 84 44 80 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M20 77 l-8 -6 M17 78 l-8 -2 M25 75 l-4 -8" stroke="${c.line}" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M20 77 l-7 -5 M17 78 l-7 -2 M25 75 l-3 -7" stroke="${IVORY}" stroke-width="2.8" stroke-linecap="round"/></g>
     <g class="breathe"><path d="M30 82 Q30 60 58 56 Q84 56 88 78 Q88 88 60 90 Q34 90 30 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <ellipse cx="58" cy="82" rx="20" ry="7" fill="${B}" opacity=".65"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 66 : 40}" y="84" width="11" height="18" rx="4" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`).join("")}

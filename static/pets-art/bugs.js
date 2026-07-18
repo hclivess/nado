@@ -197,8 +197,8 @@ export const ART_BUGS = {
   stagbeetle: (c) => {
     const E = eyeInk(c);
     const leg = (d) => `<path d="${d}" fill="none" stroke="${c.line}" stroke-width="2.6" stroke-linecap="round"/>`;
-    const jaw = `<path d="M52 42 Q40 30 40 18 Q46 22 50 30 Q52 24 58 24" fill="none" stroke="${c.line}" stroke-width="5.2" stroke-linecap="round"/>
-      <path d="M52 42 Q40 30 40 18 Q46 22 50 30 Q52 24 58 24" fill="none" stroke="${c.shade}" stroke-width="2.6" stroke-linecap="round"/>`;
+    const jaw = `<path d="M54 54 Q40 30 40 18 Q46 22 50 30 Q52 24 58 24" fill="none" stroke="${c.line}" stroke-width="5.2" stroke-linecap="round"/>
+      <path d="M54 54 Q40 30 40 18 Q46 22 50 30 Q52 24 58 24" fill="none" stroke="${c.shade}" stroke-width="2.6" stroke-linecap="round"/>`;
     return `
     ${leg("M42 68 q-16 -3 -22 -12")}${leg("M40 80 q-18 1 -24 6")}${leg("M42 92 q-15 7 -18 16")}
     ${leg("M78 68 q16 -3 22 -12")}${leg("M80 80 q18 1 24 6")}${leg("M78 92 q15 7 18 16")}
@@ -317,9 +317,13 @@ export const ART_BUGS = {
       <path d="M56 68 Q64 58 68 48" fill="none" stroke="${c.body}" stroke-width="3.4" stroke-linecap="round"/>
     </g>
     <g class="tail-wag">
-      <path d="M60 66 Q76 66 80 78" fill="none" stroke="${c.line}" stroke-width="4" stroke-linecap="round"/>
-      <path d="M80 78 Q72 74 62 76" fill="none" stroke="${c.line}" stroke-width="4" stroke-linecap="round"/>
-      <path d="M64 74 l-3 3 M69 74 l-3 3 M74 75 l-3 3" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
+      ${["", "s"].map((_, i) => { const dx = i * 3, dy = i * 3.5; return `
+      <path d="M${56 - dx} ${66 + dy} Q${65 - dx} ${54 + dy} ${70 - dx} ${50 + dy}" fill="none" stroke="${c.line}" stroke-width="6" stroke-linecap="round"/>
+      <path d="M${56 - dx} ${66 + dy} Q${65 - dx} ${54 + dy} ${70 - dx} ${50 + dy}" fill="none" stroke="${c.body}" stroke-width="3.4" stroke-linecap="round"/>
+      <path d="M${70 - dx} ${50 + dy} Q${63 - dx} ${53 + dy} ${54 - dx} ${58 + dy}" fill="none" stroke="${c.line}" stroke-width="5" stroke-linecap="round"/>
+      <path d="M${70 - dx} ${50 + dy} Q${63 - dx} ${53 + dy} ${54 - dx} ${58 + dy}" fill="none" stroke="${c.body}" stroke-width="2.8" stroke-linecap="round"/>
+      <path d="M${64 - dx} ${53 + dy} l-1.5 2.5 M${60 - dx} ${55 + dy} l-1.5 2.5 M${56 - dx} ${57 + dy} l-1.5 2.5" stroke="${c.line}" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M${54 - dx} ${58 + dy} q-3 0 -4 3" fill="none" stroke="${c.line}" stroke-width="2" stroke-linecap="round"/>`; }).join("")}
     </g>
     <g class="head-tilt">
       <path d="M60 50 L82 42 L74 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>

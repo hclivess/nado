@@ -24,7 +24,7 @@ export const ART_SHARKSRAYS = {
       <path d="M38 72 Q68 82 104 66 Q68 78 38 72 Z" fill="${B}"/>
       ${[40, 50, 60, 70, 80].map((x) => `<path d="M${x} 47 Q${x - 3} 60 ${x} 71" stroke="${c.shade}" stroke-width="3.4" fill="none" opacity=".7" stroke-linecap="round"/>`).join("")}
       <path d="M52 47 L60 26 L73 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M78 74 L62 90 L88 76 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M78 74 L62 90 L88 73 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       ${gills(c, 84)}
       ${grin(c, 90, 66, 5)}
       ${eye(94, 55, 2.6, E)}
@@ -37,7 +37,7 @@ export const ART_SHARKSRAYS = {
       <path d="M26 62 Q30 38 60 40 Q86 41 96 61 Q86 84 60 85 Q30 85 26 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M38 76 Q64 88 96 66 Q64 82 38 76 Z" fill="${B}"/>
       <path d="M48 43 L56 21 L70 45 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M72 80 L56 96 L84 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M72 80 L56 96 L84 75 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       ${gills(c, 80)}
       ${grin(c, 85, 69, 5)}
       ${eye(89, 53, 2.2, E)}
@@ -51,7 +51,7 @@ export const ART_SHARKSRAYS = {
       <path d="M38 71 Q66 80 103 65 Q66 76 38 71 Z" fill="${B}"/>
       <path d="M40 50 Q47 40 54 51 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       <path d="M56 51 Q63 43 70 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M74 74 Q66 88 84 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M74 72 Q68 87 84 69 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       ${gills(c, 82, 56)}
       <path d="M100 66 q-2 7 -5 9 M104 65 q0 7 -2 10" fill="none" stroke="${c.line}" stroke-width="2" stroke-linecap="round"/>
       <path d="M92 68 q6 3 11 0" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
@@ -66,7 +66,7 @@ export const ART_SHARKSRAYS = {
       <path d="M28 62 Q40 47 70 48 Q95 49 107 61 Q95 73 70 76 Q40 77 28 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M40 71 Q68 82 105 66 Q68 78 40 71 Z" fill="${B}"/>
       <path d="M52 49 L60 27 L72 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M78 73 L62 90 L88 76 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M78 73 L62 90 L88 70 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       ${gills(c, 84)}
       ${grin(c, 90, 66, 5)}
       ${eye(94, 55, 2.6, E)}
@@ -84,8 +84,8 @@ export const ART_SHARKSRAYS = {
       <path d="M40 71 Q68 80 106 65 Q68 77 40 71 Z" fill="${B}"/>
       <path d="M52 50 L60 28 L72 51 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       <path d="M53 43 L60 28 L67 44 Z" fill="${INK}"/>
-      <path d="M78 74 L62 91 L88 77 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M62 82 L62 91 L77 84 Z" fill="${INK}"/>
+      <path d="M78 71 L62 89 L88 69 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M62 89 L67 83 L71 82 Z" fill="${INK}"/>
       ${gills(c, 84)}
       ${grin(c, 90, 66, 5)}
       ${eye(94, 55, 2.6, E)}
@@ -98,7 +98,7 @@ export const ART_SHARKSRAYS = {
       <path d="M28 62 Q42 50 76 52 Q98 53 113 61 Q98 70 76 73 Q42 75 28 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M40 70 Q66 79 111 63 Q66 76 40 70 Z" fill="${B}"/>
       <path d="M54 51 L62 30 L72 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M78 72 L64 89 L88 75 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M78 71 L64 89 L88 69 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       <path d="M31 60 h-6 M31 64 h-6" stroke="${c.line}" stroke-width="2" stroke-linecap="round"/>
       ${gills(c, 88, 55)}
       ${grin(c, 96, 66, 4)}
@@ -115,7 +115,7 @@ export const ART_SHARKSRAYS = {
       <path d="M38 62 Q48 50 74 51 Q96 52 108 61 Q96 70 74 73 Q48 74 38 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.8" stroke-linejoin="round"/>
       <path d="M48 70 Q72 78 106 64 Q72 75 48 70 Z" fill="${B}"/>
       <path d="M58 51 L64 32 L74 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M80 72 L68 88 L90 75 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M80 70 L68 88 L90 68 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       ${gills(c, 86, 55)}
       ${grin(c, 92, 66, 4)}
       ${eye(96, 56, 2.8, E)}
@@ -304,7 +304,7 @@ export const ART_SHARKSRAYS = {
       ${[40, 52, 64, 76].map((x) => `<path d="M${x} 50 q7 -1 8 6 q-1 5 -8 5 q-6 -1 -6 -6 q0 -5 6 -5 Z" fill="none" stroke="${c.shade}" stroke-width="2.8" opacity=".75"/>`).join("")}
       ${[[46, 66], [58, 68], [70, 66], [82, 62]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.8" fill="${c.shade}" opacity=".7"/>`).join("")}
       <path d="M52 49 L60 30 L72 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M78 73 L62 90 L88 76 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M78 71 L62 90 L88 70 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       ${gills(c, 86, 55)}
       ${grin(c, 91, 66, 5)}
       ${eye(94, 55, 2.6, E)}

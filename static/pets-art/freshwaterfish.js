@@ -195,7 +195,7 @@ export const ART_FRESHWATERFISH = {
 
   // Sturgeon — long armoured body with rows of bony scutes, hanging barbels, ventral sucker mouth, shark tail
   sturgeon: (c) => { const E = eyeInk(c);
-    const dscute = [34, 44, 54, 64, 74].map((x) => `<path d="M${x} 54 l3 -6 l3 6 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.3" stroke-linejoin="round"/>`).join("");
+    const dscute = [[34, 59], [44, 57], [54, 56], [64, 55], [74, 55]].map(([x, y]) => `<path d="M${x} ${y} l3 -6 l3 6 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.3" stroke-linejoin="round"/>`).join("");
     const lscute = [38, 50, 62, 74].map((x) => `<path d="M${x} 62 l3 -2.5 l3 2.5 l-3 2.5 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1" opacity=".8"/>`).join("");
     return `
     <g class="tail-wag"><path d="M26 60 L8 44 Q18 58 13 62 L5 68 Q16 66 26 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/></g>
@@ -334,7 +334,7 @@ export const ART_FRESHWATERFISH = {
 
   // Bichir — eel-like elongated body, the signature row of individual dorsal finlets, blunt reptilian head
   bichir: (c) => { const E = eyeInk(c);
-    const finlets = [30, 40, 50, 60, 70].map((x) => `<path d="M${x} 56 l2 -7 l4 2 l-1 5 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.3" stroke-linejoin="round"/>`).join("");
+    const finlets = [[30, 61], [40, 59], [50, 58], [60, 57], [70, 56]].map(([x, y]) => `<path d="M${x} ${y} l2 -7 l4 2 l-1 5 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.3" stroke-linejoin="round"/>`).join("");
     return `
     <g class="tail-wag"><path d="M18 62 Q8 54 4 56 Q9 62 4 68 Q8 70 18 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/></g>
     <g class="breathe">

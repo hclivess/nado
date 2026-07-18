@@ -225,7 +225,7 @@ export const ART_WOODLAND = {
 
   // ── Beaver — big orange buck TEETH, flat cross-hatched PADDLE tail, round ears
   beaver: (c) => `
-    <g class="tail-wag"><path d="M26 96 Q6 92 8 76 Q20 74 34 84 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+    <g class="tail-wag"><path d="M26 96 Q6 92 8 76 Q22 74 48 85 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M14 80 l14 6 M12 86 l16 4 M18 76 l10 8" stroke="${c.line}" stroke-width="1.2" opacity=".6"/></g>
     <g class="breathe"><ellipse cx="64" cy="84" rx="24" ry="18" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <ellipse cx="64" cy="90" rx="13" ry="9" fill="${c.shade}" opacity=".6"/>
@@ -258,8 +258,8 @@ export const ART_WOODLAND = {
 
   // ── Skunk — bold white STRIPE running head-to-tail over a black body, huge plume tail
   skunk: (c) => `
-    <g class="tail-wag"><path d="M32 90 C6 88 4 46 28 34 C36 44 30 68 44 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M30 38 C14 52 16 78 34 84" stroke="#f4efe6" stroke-width="5" fill="none" opacity=".9"/></g>
+    <g class="tail-wag"><path d="M46 74 C18 78 8 44 30 34 C40 46 34 66 52 70 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M30 40 C14 54 22 68 46 74" stroke="#f4efe6" stroke-width="5" fill="none" opacity=".9"/></g>
     <g class="breathe"><ellipse cx="64" cy="84" rx="24" ry="17" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M52 68 Q54 84 52 100 M76 68 Q74 84 76 100" fill="none"/>
       <path d="M58 68 Q60 84 58 101 L70 101 Q68 84 70 68 Z" fill="#f4efe6" opacity=".92"/>

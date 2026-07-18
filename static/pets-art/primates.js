@@ -230,6 +230,8 @@ export const ART_PRIMATES = {
     </g>
     ${mirror(`<path d="M52 66 Q32 74 28 96" fill="none" stroke="${c.line}" stroke-width="6" stroke-linecap="round"/><path d="M52 66 Q32 74 28 96" fill="none" stroke="${c.body}" stroke-width="3.5" stroke-linecap="round"/>`)}
     <path d="M52 66 Q32 74 28 96" fill="none" stroke="${c.line}" stroke-width="6" stroke-linecap="round"/><path d="M52 66 Q32 74 28 96" fill="none" stroke="${c.body}" stroke-width="3.5" stroke-linecap="round"/>
+    ${mirror(`<path d="M53 62 Q38 56 33 46" fill="none" stroke="${c.line}" stroke-width="6" stroke-linecap="round"/><path d="M53 62 Q38 56 33 46" fill="none" stroke="${c.body}" stroke-width="3.5" stroke-linecap="round"/>`)}
+    <path d="M53 62 Q38 56 33 46" fill="none" stroke="${c.line}" stroke-width="6" stroke-linecap="round"/><path d="M53 62 Q38 56 33 46" fill="none" stroke="${c.body}" stroke-width="3.5" stroke-linecap="round"/>
     <g class="breathe"><ellipse cx="60" cy="70" rx="13" ry="17" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <ellipse cx="60" cy="74" rx="7" ry="9" fill="${c.shade}" opacity=".5"/></g>
     <g class="head-tilt">
