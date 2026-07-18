@@ -83,5 +83,32 @@ check("tamper: reorder calls -> differs", lambda: tamper(
 check("tamper: change the block's cursor/timestamp context -> differs", lambda: tamper(
     lambda b1, b2: b1.__setitem__("block_number", 999)))
 
+# 5) verify_calls_bound_to_da — the L1 gate: accept a proof whose segment commitment matches the on-chain
+#    blocks it settles, reject a mismatch, a missing commitment, an unavailable block, or a gap in coverage.
+_BLOCKS = {100: BLK1, 101: BLK2}
+def _get_block(h):
+    return _BLOCKS.get(h)
+
+def _proof_over(prev, end):
+    """one segment covering (prev, end], carrying the HONEST commitment over those blocks."""
+    blks = [_BLOCKS[h] for h in range(prev + 1, end + 1)]
+    return {"segments": [{"cursor": end, "calls_commitment": CC.da_calls_commitment(blks, "default")}]}
+
+check("gate: honest proof over (99,101] is bound",
+      lambda: CC.verify_calls_bound_to_da(_proof_over(99, 101), "default", 99, 101, _get_block)[0])
+check("gate: multi-segment span (per block) is bound", lambda: CC.verify_calls_bound_to_da(
+      {"segments": [{"cursor": 100, "calls_commitment": CC.da_calls_commitment([BLK1], "default")},
+                    {"cursor": 101, "calls_commitment": CC.da_calls_commitment([BLK2], "default")}]},
+      "default", 99, 101, _get_block)[0])
+check("gate: FABRICATED commitment rejected", lambda: not CC.verify_calls_bound_to_da(
+      {"segments": [{"cursor": 101, "calls_commitment": 12345}]}, "default", 99, 101, _get_block)[0])
+check("gate: missing calls_commitment rejected", lambda: not CC.verify_calls_bound_to_da(
+      {"segments": [{"cursor": 101}]}, "default", 99, 101, _get_block)[0])
+check("gate: unavailable block rejected", lambda: not CC.verify_calls_bound_to_da(
+      _proof_over(99, 101), "default", 99, 105, lambda h: None)[0])
+check("gate: segments not covering the span rejected", lambda: not CC.verify_calls_bound_to_da(
+      {"segments": [{"cursor": 100, "calls_commitment": CC.da_calls_commitment([BLK1], "default")}]},
+      "default", 99, 101, _get_block)[0])
+
 print("\n" + ("ALL PASSED" if not fails else f"{fails} FAILED"))
 sys.exit(1 if fails else 0)
