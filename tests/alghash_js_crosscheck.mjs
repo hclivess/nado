@@ -22,13 +22,13 @@ let fails = 0;
 const eq = (n, got, want) => { const ok = got === want; if (!ok) fails++; console.log(`${ok ? "PASS" : "FAIL"}  ${n}${ok ? "" : `\n   got  ${got}\n   want ${want}`}`); };
 
 const p = A.permute([123n, 456n]);
-eq("permute[0]", p[0], 1192806953550782342n);
-eq("permute[1]", p[1], 5580551603808191996n);
-eq("hashn([1,2,3])", A.hashn([1, 2, 3]), 12635906630544909056n);
-eq("commit(500,0xBEEF,0x1234)", A.commit(500, 0xBEEFn, 0x1234n), 2628744782125704553n);
-eq("nullifier(0xCAFE,0x9999)", A.nullifier(0xCAFEn, 0x9999n), 12587072143559576023n);
-eq("owner_of(0xCAFE)", A.ownerOf(0xCAFEn), 15652256667896770334n);
-eq("merkle_node(111,222)", A.merkleNode(111, 222), 7229308049305194374n);
+eq("permute[0]", p[0], 4315221267995540352n);
+eq("permute[1]", p[1], 805932795842471149n);
+eq("hashn([1,2,3])", A.hashn([1, 2, 3]), 38947860171815534n);
+eq("commit(500,0xBEEF,0x1234)", A.commit(500, 0xBEEFn, 0x1234n), 5419927746975474554n);
+eq("nullifier(0xCAFE,0x9999)", A.nullifier(0xCAFEn, 0x9999n), 11665953938006595251n);
+eq("owner_of(0xCAFE)", A.ownerOf(0xCAFEn), 16555562624311152863n);
+eq("merkle_node(111,222)", A.merkleNode(111, 222), 12883855126046763304n);
 
 console.log(`\n${fails ? fails + " FAILED — JS and Python DIVERGE" : "ALL PASSED — JS field hash ≡ Python byte-for-byte"}`);
 process.exit(fails ? 1 : 0);

@@ -6,7 +6,7 @@
  * blake2bHash (injected) so they equal Python's exactly.
  */
 export const P = 18446744069414584321n;         // 2^64 - 2^32 + 1
-const ALPHA = 7n, ROUNDS = 8;
+const ALPHA = 7n, ROUNDS = 27;   // MUST match execnode/stark/alghash.py ROUNDS (7^27 ≈ 2^76 ≥ 2^64 output ceiling)
 const MDS = [[2n, 1n], [1n, 3n]];
 
 const mod = (x) => ((x % P) + P) % P;

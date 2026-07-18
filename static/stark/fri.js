@@ -16,7 +16,7 @@ function fold(evals, dom, alpha) {
   return out;
 }
 
-export const NUM_QUERIES = 64;   // protocol query count (C-1) — must match execnode/stark/fri.py
+export const NUM_QUERIES = 320;  // protocol query count (C-1) — MUST match execnode/stark/fri.py (was a stale 64)
 export const GRIND_BITS = 18;    // proof-of-work bits (C-1) — must match execnode/stark/fri.py
 
 export function prove(evals, offset, blowup = 4, numQueries = NUM_QUERIES, transcript = null) {

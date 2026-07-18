@@ -398,14 +398,14 @@ def transitions(bind_io=False, gamma_fp=0):
         d = F.sub(n[H0], c[H0])
         d = F.sub(d, F.mul(c[F0 + _O["HINIT"]], F.neg(c[H0])))
         d = F.sub(d, F.mul(c[F0 + _O["HABS"]], _rs_val(c)))
-        for r in range(8):
+        for r in range(alghash.ROUNDS):
             r0, _ = _sponge_round(c, r)
             d = F.sub(d, F.mul(c[F0 + _O[f"HR{r}"]], F.sub(r0, c[H0])))
         return F.mul(F.sub(1, p[P_END]), d)
     def c_h1(c, n, p, ch):
         d = F.sub(n[H1], c[H1])
         d = F.sub(d, F.mul(c[F0 + _O["HINIT"]], F.sub(alghash.IV, c[H1])))
-        for r in range(8):
+        for r in range(alghash.ROUNDS):
             _, r1 = _sponge_round(c, r)
             d = F.sub(d, F.mul(c[F0 + _O[f"HR{r}"]], F.sub(r1, c[H1])))
         return F.mul(F.sub(1, p[P_END]), d)

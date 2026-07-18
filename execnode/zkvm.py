@@ -34,7 +34,8 @@ mirrors the constraints bit-for-bit, and reverts wherever the constraints would 
              Remainder lands in r7 like DIVMOD. Fits the same 13-byte/4-sevenbit witness limbs exactly.
   LO32       canonical split x = hi*2^32 + lo, keeps lo. hi = 2^32-1 forces lo = 0 (the x vs x+p double
              decomposition of small values is excluded) — this is the sound "window a hash for DIVMOD" op.
-Commit-reveal / randomness: HINIT/HABS/HR0..HR7/HOUT are alghash.hashn laid out one round per row; BHASH and
+Commit-reveal / randomness: HINIT/HABS/HR0..HR{ROUNDS-1}/HOUT are alghash.hashn laid out one round per row (the
+HR block scales with alghash.ROUNDS — 27 rounds, one opcode each); BHASH and
 BEACON read finalized chain randomness through the I/O log (public, so the verifier checks them natively).
 """
 from execnode.stark import field as F, alghash
@@ -50,11 +51,14 @@ MAX_ARGS = 1024                  # statement-size guard, not a semantic limit: a
 NUM_REGS = 8
 
 # opcode ids — FROZEN once contracts deploy against them (they are baked into program tables inside proofs).
-# New ops are APPENDED so existing bytecode/proof statements never shift.
-OPS = ["NOP", "MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "RANGE", "DIVMOD", "LO32",
-       "JMP", "JNZ", "REQUIRE", "CTX", "HINIT", "HABS", "HOUT",
-       "HR0", "HR1", "HR2", "HR3", "HR4", "HR5", "HR6", "HR7",
-       "SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET", "ARG", "DIVMODW"]
+# New ops are APPENDED so existing bytecode/proof statements never shift. The HR round opcodes MUST stay a
+# CONTIGUOUS run HR0..HR{ROUNDS-1} (the interpreter/AIR select a round by op-HR0), and their count == the
+# alghash round count — so they are generated from alghash.ROUNDS rather than spelled out. Changing ROUNDS
+# shifts the ids of the ops AFTER the block, which is a hard reset only (bytecode is re-assembled from zkasm).
+OPS = (["NOP", "MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "RANGE", "DIVMOD", "LO32",
+        "JMP", "JNZ", "REQUIRE", "CTX", "HINIT", "HABS", "HOUT"]
+       + [f"HR{r}" for r in range(alghash.ROUNDS)]
+       + ["SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET", "ARG", "DIVMODW"])
 OP = {name: i for i, name in enumerate(OPS)}
 HR0 = OP["HR0"]
 
@@ -298,7 +302,7 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 h0 = F.add(h0, rs)
             elif op_name == "HOUT":
                 res, wr = h0, True
-            elif op >= HR0 and op < HR0 + 8:
+            elif op >= HR0 and op < HR0 + alghash.ROUNDS:
                 r = op - HR0
                 t0 = alghash.sbox(F.add(h0, alghash.RC[r][0]))
                 t1 = alghash.sbox(F.add(h1, alghash.RC[r][1]))

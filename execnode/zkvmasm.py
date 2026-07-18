@@ -32,7 +32,7 @@ divisor<2^31 — pro-rata pool splits, ratios). Both put the quotient in d and t
 from execnode import zkvm
 
 _CTX = {"caller": zkvm.CTX_CALLER, "value": zkvm.CTX_VALUE, "cursor": zkvm.CTX_CURSOR, "time": zkvm.CTX_TIME}
-_HR = [f"HR{r}" for r in range(8)]
+_HR = [op for op in zkvm.OPS if op.startswith("HR")]   # HR0..HR{ROUNDS-1}, in order (one per alghash round)
 
 
 def _reg(tok):

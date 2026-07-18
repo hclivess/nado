@@ -22,16 +22,22 @@ INV2 = F.inv(2)
 # every check). The verifier derives the whole FRI shape from N + FRI_BLOWUP and requires exactly NUM_QUERIES
 # openings. stark.prove always calls fri.prove with fri_blowup == 2, so FRI_BLOWUP is fixed at 2.
 #
-# C-1 soundness sizing: at FRI_BLOWUP=2 (rate 1/2) each query contributes ~0.4 bit (provable) / ~1 bit
-# (conjectured) of soundness, plus GRIND_BITS of transcript proof-of-work (transcript.grind) that adds
-# soundness UNCONDITIONALLY (a forger redoes 2^GRIND_BITS work per Fiat-Shamir attempt, independent of any FRI
-# conjecture). Sized for a SERIOUS (mainnet-grade) margin BEFORE settlement ever trusts a proof: 128 queries +
-# 18 grind ≈ 146 bits (conjectured) / ~69 bits (provable) + 18 unconditional — comfortably past the 128-bit
-# bar on the conjectured (list-decoding) branch that STARK deployments rely on, with a healthy provable floor.
-# Query count is LINEAR cost (~2x the prior prover time / proof size); GRIND_BITS is EXPONENTIAL so it stays
-# at 18 (raising it 10 bits would add ~1000x grind time). Tests pass an explicit reduced count, so unaffected.
-# Further lift, if wanted: raise FRI_BLOWUP (a lower rate gives more bits/query, but changes the FRI shape).
-NUM_QUERIES = 128
+# C-1 soundness sizing: at FRI_BLOWUP=2 (rate 1/2) each query contributes ~0.4 bit (provable / Johnson-bound) /
+# ~1 bit (conjectured / list-decoding) of soundness, plus GRIND_BITS of transcript proof-of-work
+# (transcript.grind) that adds soundness UNCONDITIONALLY (a forger redoes 2^GRIND_BITS work per Fiat-Shamir
+# attempt, independent of any FRI conjecture). Sized to clear 128 bits on the PROVABLE (unconditional-modulo-
+# collision-resistance) branch — not merely the conjectured branch that most STARK deployments settle for —
+# BEFORE settlement ever trusts a proof:
+#     320 queries · 0.4  +  18 grind  ≈  146 bits PROVABLE (Johnson),  and
+#     320 queries · 1.0  +  18 grind  ≈  338 bits CONJECTURED (list-decoding).
+# Raising NUM_QUERIES is the geometry-PRESERVING lever: it costs ~linear proof size (more Merkle openings) but
+# does NOT change the FRI rate/fold shape — so it leaves the recursion subsystem, which arithmetizes the FRI
+# fold geometry in-circuit (the fixed 16-row alghash2 block anatomy in recursion.py/fri_verify.py), untouched.
+# The prover's dominant cost (the LDE + Merkle tree) is UNCHANGED by query count; only the opening set grows.
+# GRIND_BITS stays 18 (EXPONENTIAL time; +10 bits ≈ 1000x grind) AND because the in-circuit recursion grind
+# check is calibrated to it. FRI_BLOWUP stays 2 for the SAME reason: a lower rate gives more bits/query but
+# changes the fold shape, which would ripple into every recursion AIR. Tests pass an explicit reduced count.
+NUM_QUERIES = 320
 FRI_BLOWUP = 2
 GRIND_BITS = 18
 

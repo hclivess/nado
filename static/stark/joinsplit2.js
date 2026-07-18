@@ -3,7 +3,7 @@
 import * as F from "./field.js";
 import * as A from "../alghash.js";
 
-const R = 8;                     // A.R_ROUNDS
+const R = A.R_ROUNDS;            // alghash round count (single source of truth = static/alghash.js)
 // …, ACC + 4 nibble-bit columns for the C-3 in-circuit range proof (must match execnode/stark/joinsplit2.py)
 export const [S0, S1, AB, CARRY, SIB, DIR, NSK, RHO, OWN, NFREG, VIN, VOUT1, VOUT2, CONS, ROOTREG, CMOUT1,
   ACC, RB0, RB1, RB2, RB3] = Array.from({ length: 21 }, (_, i) => i);

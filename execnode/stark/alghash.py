@@ -6,14 +6,23 @@ sponge: an x^7 S-box (7 is coprime to p-1, so it's a permutation over Goldilocks
 and a 2×2 MDS mix, over a width-2 state whose second element is a never-absorbed CAPACITY (that capacity is
 what makes the sponge binding — you can't freely invert to a chosen preimage).
 
-Demonstration parameters (8 full rounds). A production deployment would use audited Poseidon2 round
-counts/constants; the arithmetization technique is identical.
+ROUND COUNT. The digest is ONE field element, so this hash's generic security is capped by its output width:
+~2^32 collision (birthday) / ~2^64 preimage — no round count lifts that ceiling (widen the digest for more, see
+alghash2). What the round count MUST buy is that no ALGEBRAIC shortcut beats those generic bounds. An all-full-
+round x^7 permutation has algebraic degree 7^ROUNDS; an interpolation/Gröbner inversion costs ~7^ROUNDS. To keep
+that at or above the 2^64 preimage ceiling we need 7^ROUNDS ≥ 2^64 ⟹ ROUNDS ≥ 23 (64 / log2 7). ROUNDS = 27
+(7^27 ≈ 2^76, a ~15% Poseidon-style margin) makes the algebraic attack strictly costlier than generic, so the
+sponge delivers its full 64-bit-output strength. (8 rounds — the old "demonstration" value — gave degree only
+7^8 ≈ 2^22.5, i.e. the permutation was interpolation-invertible far BELOW even the birthday bound: an
+exploitable break of commit-reveal hiding and of any miner-biasable RNG seed.) The arithmetization technique is
+identical for any round count; ROUNDS is a single source of truth consumed by the zkVM AIR, the interpreter, the
+assembler, the shielded-pool joinsplit circuits, and the JS mirror.
 """
 from hashing import blake2b_hash
 from execnode.stark import field as F
 
 ALPHA = 7                                        # S-box exponent (gcd(7, p-1) = 1 over Goldilocks)
-ROUNDS = 8
+ROUNDS = 27                                      # see ROUND COUNT above: 7^27 ≈ 2^76 ≥ the 2^64 output ceiling
 MDS = [[2, 1], [1, 3]]                            # 2×2 MDS (all entries + determinant nonzero -> invertible/MDS)
 
 
