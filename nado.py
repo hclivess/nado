@@ -1212,9 +1212,10 @@ def _js_epoch():
     stamped URLs all change together, so a cache miss on one is a cache miss on all its dependencies."""
     newest = 0
     try:
-        for name in os.listdir(_STATIC_DIR):
-            if name.endswith(".js"):
-                newest = max(newest, int(os.stat(os.path.join(_STATIC_DIR, name)).st_mtime))
+        for root, _dirs, names in os.walk(_STATIC_DIR):
+            for name in names:
+                if name.endswith(".js"):
+                    newest = max(newest, int(os.stat(os.path.join(root, name)).st_mtime))
     except OSError:
         pass
     return newest

@@ -299,8 +299,8 @@ export const ART_FROGS2 = {
     <g class="breathe">
       <path d="M36 80 C36 60 44 50 60 50 C76 50 84 60 84 80 C84 96 74 104 60 104 C46 104 36 96 36 80 Z"
         fill="${c.body}" stroke="${c.line}" stroke-width="3.2" stroke-linejoin="round"/>
-      <ellipse cx="60" cy="86" rx="16" ry="11" fill="${B}"/>
-      <path d="M48 60 L72 88 M72 60 L48 88" stroke="${X}" stroke-width="4" stroke-linecap="round"/>
+      <path d="M52 67 L68 78 M68 67 L52 78" fill="none" stroke="${X}" stroke-width="3.4" stroke-linecap="round"/>
+      <ellipse cx="60" cy="88" rx="14" ry="9" fill="${B}"/>
       ${grin(c, { y: 62, w: 13, drop: 7 })}${nost(c, 54, 3)}
     </g>
     <g class="head-tilt">
