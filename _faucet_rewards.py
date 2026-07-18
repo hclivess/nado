@@ -12,7 +12,7 @@ Leaderboard = WINS (a uniform, on-chain-settled metric across both game shapes):
 
 Payout: a per-game daily budget split by rank (Webgame's Odměny taper). Run daily (cron / a NADO routine).
 """
-import sys, json, time, urllib.request
+import sys, json, time, urllib.request, subprocess
 sys.path.insert(0, "/root/nado")
 from ops.key_ops import load_keys
 from ops.transaction_ops import construct_blob_tx
@@ -33,7 +33,7 @@ GAMES = [
     (5, "9c3d01b6b70f507ecc0bbf75b0615940", "battleship"), # battleship (efficiency: fewest shots to sink)
     (6, "d4855b5b4c52bb65fdf7ec7a65c8b9f0", "banked"),     # slots
     (7, "d9d271f3a3e8a68ef33cb8e89ee650c9", "banked"),     # mines
-    (8, "13b92dc630e513f11a68df9f405d7b2d", "table"),      # hexholm (2-4 seat table; winner seat in wr 1..4)
+    (8, "13b92dc630e513f11a68df9f405d7b2d", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
 ]
 SHIPS = 17
 
@@ -53,6 +53,19 @@ def leaderboard(cid, kind):
             if not sd.get(g): continue
             w = wr[g]; winner = p1.get(g) if w == 1 else p2.get(g) if w == 2 else None
             if winner: score[winner] = score.get(winner, 0) + 1
+    elif kind == "hexholm-daily":
+        # the PROVABLE free-play board (doc/faucet.md + static/provable.js): rank YESTERDAY'S completed
+        # UTC day; every claim is replay-VERIFIED by the node oracle before it can rank — a forged or
+        # copied claim never pays. (The staked tables still rank on the game page; prizes reward the
+        # free airdrop play.)
+        day = int(time.time()) // 86400 - 1
+        try:
+            out = subprocess.run(["node", "tests/hexholm_daily_verify.mjs", cid, str(day)],
+                                 capture_output=True, text=True, cwd="/root/nado", timeout=600)
+            rows = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 else []
+        except Exception:
+            rows = []
+        return [(a, s) for a, s in rows]
     elif kind == "table":
         # N-seat table (hexholm): wr = the winning SEAT 1..4 (5 = dissolved/refunded — no ranking)
         sd, wr = sto.get("sd", {}), sto.get("wr", {})

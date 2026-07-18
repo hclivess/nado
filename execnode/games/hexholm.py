@@ -551,9 +551,20 @@ ABORT = f"""{_FULL}{_UNSETTLED}    slot r4 {DL} r0
     ret r0
 """
 
-SRC = {"open": OPEN, "join": JOIN, "move": MOVE, "agree": AGREE, "resign": RESIGN,
-       "reveal": REVEAL, "leave": LEAVE, "cancel": CANCEL, "abort": ABORT}
+# PROVABLE DAILY BOARD (static/provable.js + the _lib generator): the free 12-turn solo gauntlet posts
+# its claim (the player's packed move list) here; every browser and the faucet distributor replay it
+# (static/hexholm-bot.js verifyClaim) and drop entries that don't reproduce their score.
+from execnode.games import _lib
+ECNT_SLOT = 4
+E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE = 50, 51, 52, 53, 60, 100
+CLAIM_WORDS, MAX_MY = 150, 100                              # MUST match static/hexholm-bot.js
+POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, CLAIM_WORDS, MAX_MY)
 
+SRC = {"open": OPEN, "join": JOIN, "move": MOVE, "agree": AGREE, "resign": RESIGN,
+       "reveal": REVEAL, "leave": LEAVE, "cancel": CANCEL, "abort": ABORT, "post": POST}
+
+_G = lambda f: {"field": f, "index": "games"}
+_E = lambda f: {"field": f, "index": "entries"}
 ABI = {
     "open": {"args": ["gameId", "cap", "commit"], "value": True},
     "join": {"args": ["gameId", "commit"], "value": True},
@@ -564,16 +575,20 @@ ABI = {
     "leave": {"args": ["gameId"]},
     "cancel": {"args": ["gameId"]},
     "abort": {"args": ["gameId"]},
+    "post": {"args": _lib.daily_post_abi(CLAIM_WORDS)},
     "_view": {
-        "maps": {"nn": NN, "st": ST, "pt": PT, "p1": 4, "p2": 5, "p3": 6, "p4": 7, "sd": SD, "wr": WR,
-                 "mc": MC, "dl": DL, "cap": CAP, "kh": KH, "c1": 14, "c2": 15, "c3": 16, "c4": 17,
-                 "a1": 18, "a2": 19, "a3": 20, "a4": 21, "rc": RC, "rs1": 23, "rs2": 24, "rs3": 25,
-                 "rs4": 26, "r1h": 27, "r1l": 28, "r2h": 29, "r2l": 30, "r3h": 31, "r3l": 32,
-                 "r4h": 33, "r4l": 34},
-        "index": {"cnt": 0, "list": LIST},
-        "board": {"name": "mv", "base": MV_BASE, "cells": MAXMOVES, "stride": 10000},
-        "board2": {"name": "mh", "base": MH_BASE, "cells": MAXMOVES, "stride": 10000},
-        "addr": ["p1", "p2", "p3", "p4"],
+        "maps": {"nn": _G(NN), "st": _G(ST), "pt": _G(PT), "p1": _G(4), "p2": _G(5), "p3": _G(6),
+                 "p4": _G(7), "sd": _G(SD), "wr": _G(WR), "mc": _G(MC), "dl": _G(DL), "cap": _G(CAP),
+                 "kh": _G(KH), "c1": _G(14), "c2": _G(15), "c3": _G(16), "c4": _G(17), "a1": _G(18),
+                 "a2": _G(19), "a3": _G(20), "a4": _G(21), "rc": _G(RC), "rs1": _G(23), "rs2": _G(24),
+                 "rs3": _G(25), "rs4": _G(26), "r1h": _G(27), "r1l": _G(28), "r2h": _G(29), "r2l": _G(30),
+                 "r3h": _G(31), "r3l": _G(32), "r4h": _G(33), "r4l": _G(34),
+                 "eday": _E(E_DAY), "eaddr": _E(E_ADDR), "escore": _E(E_SCORE), "en": _E(E_N)},
+        "indexes": {"games": {"cnt": 0, "list": LIST}, "entries": {"cnt": ECNT_SLOT, "list": ELIST}},
+        "board": {"name": "mv", "base": MV_BASE, "cells": MAXMOVES, "stride": 10000, "index": "games"},
+        "board2": {"name": "mh", "base": MH_BASE, "cells": MAXMOVES, "stride": 10000, "index": "games"},
+        "board3": {"name": "ew", "base": EW_BASE, "cells": CLAIM_WORDS, "stride": 10000, "index": "entries"},
+        "addr": ["p1", "p2", "p3", "p4", "eaddr"],
     },
 }
 

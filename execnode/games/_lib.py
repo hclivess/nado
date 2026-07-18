@@ -131,3 +131,85 @@ def view_table_maps(index="tables"):
     return {"ta": {"field": TA, "index": index}, "tk": {"field": TK, "index": index},
             "tp": {"field": TP, "index": index}, "tc": {"field": TC, "index": index},
             "tz": {"field": TZ, "index": index}}
+
+
+# =====================================================================================================
+# PROVABLE DAILY BOARDS (static/provable.js model): the on-chain half of the free-practice leaderboard —
+# a `post(day, score, n, w0..w{W-1})` method that records a claim (the packed move list) which every
+# verifier replays through the game's real engine. The CONTRACT only gates the DAY against chain time
+# (±1 UTC day) and the bounds; VERIFICATION IS REPLAY-SIDE (browsers + the faucet distributor drop
+# entries whose replay doesn't reproduce the score — the chess-model trust shape; the tx fee caps spam).
+# Parameterized by word count so any game gets a provable board from one audited source (scrapline
+# predates this generator and keeps its historical two-range word layout — do not migrate a LIVE
+# contract's storage layout).
+# =====================================================================================================
+
+def daily_post(ecnt_slot, e_day, e_addr, e_score, e_n, elist, ew_base, words, max_n, max_score=4096):
+    """post(day, score, n, w0..w{words-1}): r0..r2 preload day/score/n; the claim words ride the ARG
+    bus (indices 3..words+2). Entry fields keyed by the append-log entry id; word k at ew_base+k
+    (serve them client-side as a _view board: base=ew_base, cells=words, index=entries)."""
+    body = f"""
+    movi r5 0
+    lt r5 r0
+    require r5              ; day > 0
+    movi r5 {max_score}
+    mov r6 r1
+    lt r6 r5
+    require r6              ; claimed score sane (the real check is the verifier's replay)
+    movi r5 0
+    lt r5 r2
+    require r5              ; n > 0
+    movi r5 {max_n + 1}
+    mov r6 r2
+    lt r6 r5
+    require r6              ; n <= {max_n}
+    ctx r5 time
+    movi r6 86400
+    divmodw r5 r6           ; r5 = today (UTC day index)
+    mov r6 r5
+    movi r7 1
+    add r6 r7
+    mov r7 r0
+    lt r6 r7
+    notb r6
+    require r6              ; !(today+1 < day)
+    mov r6 r0
+    movi r7 1
+    add r6 r7
+    mov r7 r5
+    lt r6 r7
+    notb r6
+    require r6              ; !(day+1 < today)
+    movi r4 {ecnt_slot}
+    sload r3 r4             ; r3 = e (entry id)
+    slot r4 {e_day} r3
+    sstore r4 r0
+    ctx r5 caller
+    slot r4 {e_addr} r3
+    sstore r4 r5
+    slot r4 {e_score} r3
+    sstore r4 r1
+    slot r4 {e_n} r3
+    sstore r4 r2
+"""
+    for k in range(words):
+        body += f"""    movi r5 {3 + k}
+    arg r6 r5
+    slot r4 {ew_base + k} r3
+    sstore r4 r6
+"""
+    body += f"""    slot r4 {elist} r3
+    sstore r4 r3            ; elist[e] = e (enum key)
+    movi r4 {ecnt_slot}
+    mov r5 r3
+    movi r6 1
+    add r5 r6
+    sstore r4 r5            ; cnt++
+    ret r3
+"""
+    return body
+
+
+def daily_post_abi(words):
+    """The matching ABI arg list for daily_post."""
+    return ["day", "score", "n"] + [f"w{k}" for k in range(words)]

@@ -6,14 +6,19 @@
 // and hidden scrolls use the battleship/hold'em commit-reveal model (the secret never leaves this
 // browser until the game is decided).
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, notify, disp, share,
-         renderWallet, renderScore, scoreBump, scoreSort, resolveAliases, blocksToTime,
+         renderWallet, renderScore, renderTopScores, scoreBump, scoreSort, resolveAliases, blocksToTime,
          randSecret, algHashn, ALG_P } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./hexholm-engine.js";
+import { pickMove, prng, soloReplay, soloScore, botMustAct, seedOfDay, packRun, verifyClaim,
+         MAX_MY, SOLO_TURNS } from "./hexholm-bot.js";
+import { dayAnchor, verifyEntries } from "./provable.js";
+import { randomSeed } from "./practice.js";
 
 const CID = "13b92dc630e513f11a68df9f405d7b2d";
 const dapp = new NadoDapp({ cid: CID, app: "Hexholm" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("hex." + k, d, v) : d;
+const TS = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;   // shared SDK strings (practice chrome)
 
 const SEAT_MARK = ["🟥", "🟦", "🟨", "⬜"];
 const SEAT_COL = ["#e0705f", "#5fa8e0", "#e3c34a", "#e6edf3"];
@@ -68,11 +73,17 @@ class TableDuel extends DuelGame {
     return h;
   }
   myIdx(gm) {
+    if (gm && gm.practice) return 0;
     if (!gm || !gm.seats) return null;
     const i = gm.seats.indexOf(this.dapp.me);
     return i >= 0 ? i : null;
   }
   canAct() {
+    if (this.practice) {
+      const eng = this.eng;
+      return !!(eng && eng.layout && !eng.corrupt && !eng.over && !eng.blocked && !this.soloDone()
+                && !botMustAct(eng) && E.actorsNow(eng).includes(1));
+    }
     const gm = this.last, eng = this.eng;
     if (!gm || !gm.exists || gm.nn !== gm.cap || gm.settled || this.pendingMove) return false;
     if (!eng || eng.blocked || eng.corrupt || eng.over || eng.mi !== gm.mc) return false;
@@ -80,6 +91,15 @@ class TableDuel extends DuelGame {
     return me != null && !gm.resigned[me] && E.actorsNow(eng).includes(me + 1);
   }
   submit(enc, label) {                                     // raw engine enc + ply binding
+    if (this.practice) {
+      if (!this.canAct()) return;
+      this.practice.recs.push({ enc, side: 1 });
+      this._soloBotLoop();
+      this.prac.saveRun(this.practice);
+      this.armed = null; this.mode = null;
+      this.render();
+      return;
+    }
     const gm = this.last;
     if (!gm || this.pendingMove || !this.canAct()) return;
     const ply = gm.mc;
@@ -135,7 +155,7 @@ class TableDuel extends DuelGame {
       const G = this.lsLoad(); let c = false;
       for (const g of Object.keys(G)) if (!this.knownGames.has(g) && Date.now() - (G[g].ts || 0) > 600000) { delete G[g]; c = true; }
       if (c) this.lsSave(G);
-      if (this.active != null) {
+      if (this.active != null && !this.practice) {
         const ng = this.gameFrom(sto, this.active);
         const prog = (ng.settled ? 1e9 : 0) + (ng.nn || 0) * 100000 + (ng.mc || 0)
           + (ng.reveals || []).filter((r) => r).length * 10000000;
@@ -160,11 +180,13 @@ class TableDuel extends DuelGame {
       this.renderLobby(sto);
       renderScore($("scoreList"), this.boardFrom(sto), dapp.me,
         T("noFinished", "No settled tables yet — win the first one."), true);
+      this.renderDailyBoard(sto).catch(() => {});
     }
     await resolveAliases([dapp.me].concat(this.last && this.last.seats ? this.last.seats : []).filter(Boolean));
     this.render();
   }
   rebuild(gm) {
+    if (gm && gm.practice) return soloReplay(this.practice.seed, gm.recs);
     const qkh = this.qOf(gm.kh);
     const recs = (gm.recs || []).map((r) => ({ enc: r.enc, side: r.side, q: this.qOf(r.rh) }));
     const me = this.myIdx(gm), secrets = {};
@@ -203,9 +225,89 @@ class TableDuel extends DuelGame {
       notify(T("gameSelected", "Table #{id} selected.", { id: this.active })); this.refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
   }
 
+  // ---- SOLO practice + the provable DAILY GAUNTLET (hexholm-bot.js soloState model) ----------------
+  pracGm() {
+    const recs = (this.practice.recs || []).map((r, i) => ({ enc: r.enc, side: r.side, rh: 1000 + i }));
+    return { exists: true, practice: true, id: 0, nn: 2, cap: 2,
+      seats: [TS("prYou", "You"), "\u{1F916} " + TS("prCpu", "Computer"), null, null],
+      seatNames: true, commits: [1, 1, 0, 0], agrees: [0, 0, 0, 0],
+      resigned: [false, false, false, false], reveals: [0n, 0n, 0n, 0n], rc: 0,
+      p1: "you", p2: "cpu", stake: 0, pot: 0, settled: false, mc: recs.length,
+      dl: Number.MAX_SAFE_INTEGER, kh: 999, wr: 0, recs };
+  }
+  myEnds() { return (this.practice.recs || []).filter((r) => r.side === 1 && r.enc % 64 === E.OP.END).length; }
+  soloDone() {
+    return !!this.practice && (this.myEnds() >= SOLO_TURNS || (this.eng && this.eng.over));
+  }
+  _soloBotLoop() {
+    for (let guard = 0; guard < 300; guard++) {
+      this.eng = this.rebuild(this.pracGm());
+      if (!this.eng || this.eng.corrupt || this.eng.over || this.myEnds() >= SOLO_TURNS) return;
+      if (!botMustAct(this.eng)) return;
+      const mv = pickMove(this.eng, 2, prng(this.practice.seed + ":bot:" + this.practice.recs.length));
+      if (mv == null) return;
+      this.practice.recs.push({ enc: mv, side: 2 });
+    }
+  }
+  startPractice(seed) {
+    this.active = null; this.resetLocal();
+    this.practice = { seed: seed || randomSeed("hexholm"), recs: [], daily: null };
+    this._soloBotLoop();
+    this.prac.saveRun(this.practice);
+    this.render();
+    try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
+  }
+  async startDaily() {
+    const day = Math.floor(Date.now() / 86400000);
+    if (!this.dapp.me) notify(T("dailyAnonHint", "Playing signed out — sign in BEFORE starting if you want this run to count on the board."));
+    if (this._anch.day !== day) this._anch = { day, hash: await dayAnchor(base(), day).catch(() => null) };
+    if (!this._anch.hash) return notify(T("dailyNotReady", "Today's island is still being seeded by the chain — try again in a minute."));
+    this.active = null; this.resetLocal();
+    this.practice = { seed: seedOfDay(day, this._anch.hash, this.dapp.me || "anon"), recs: [], daily: day };
+    this._soloBotLoop();
+    this.prac.saveRun(this.practice);
+    this.render();
+    try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
+  }
+  exitPractice() { this.practice = null; this.prac.clearRun(); this.eng = null; this.active = null; this.render(); }
+  postDaily() {
+    const p = this.practice, eng = this.eng;
+    if (!p || !p.daily || !eng || !this.soloDone() || eng.corrupt) return;
+    const my = p.recs.filter((r) => r.side === 1).map((r) => r.enc);
+    if (!(my.length > 0 && my.length <= MAX_MY)) return notify(T("postTooLong", "This run is too long to post — dailies cap at {n} of your moves.", { n: MAX_MY }));
+    const score = soloScore(eng, my.length);
+    this.dapp.call("post", [p.daily, score, my.length].concat(packRun(my)), null,
+      "post daily island score " + score, { phase: "agree" });
+    notify(T("postSent", "Score submitted — it appears on the board once verified."));
+  }
+  async renderDailyBoard(sto) {
+    const el = $("dailyList"); if (!el || this._boardBusy) return;
+    this._boardBusy = true;
+    try {
+      const day = Math.floor(Date.now() / 86400000);
+      if (this._anch.day !== day) this._anch = { day, hash: await dayAnchor(base(), day).catch(() => null) };
+      const anch = this._anch.hash; if (!anch) return;
+      const eday = _m(sto, "eday"), eaddr = _m(sto, "eaddr"), escore = _m(sto, "escore"), en = _m(sto, "en"), ew = _m(sto, "ew");
+      const entries = [];
+      for (const e of Object.keys(eday)) {
+        if (eday[e] !== day) continue;
+        const words = [];
+        for (let i = 0; i < 150; i++) words.push(ew[String(Number(e) * 10000 + i)] || 0);
+        entries.push({ e, day, addr: eaddr[e], score: escore[e] || 0, n: en[e] || 0, words });
+      }
+      const rows = await verifyEntries(entries, (en2) => verifyClaim(day, en2.n, en2.words, anch, en2.addr));
+      renderTopScores(el, rows, this.dapp.me,
+        T("noSoloScores", "No verified scores today — finish a daily island and post yours."),
+        T("scoreHeadCol", "Score"), true);
+    } finally { this._boardBusy = false; }
+  }
+
   // ---- the whole active-table chrome (N-seat rewrite of the base renderActive) ---------------------
   renderActive() {
     const dapp = this.dapp, box = $("activeGame");
+    if (this.practice) return this.renderPracticeTable();
+    const pn = $("btnPracNew"), px = $("btnPracExit"), pp = $("btnPracPost");
+    if (pn) { pn.classList.add("hidden"); px.classList.add("hidden"); if (pp) pp.classList.add("hidden"); }
     if (this.active == null) { box.classList.add("hidden"); return; }
     box.classList.remove("hidden");
     const gm = this.last || {}, local = this.lsLoad()[this.active] || {}, me = this.myIdx(gm), eng = this.eng;
@@ -252,6 +354,56 @@ class TableDuel extends DuelGame {
     renderDiscard(this, gm, eng, me);
     renderLog(eng, gm);
     renderSettle(this, gm, eng, me);
+  }
+
+  renderPracticeTable() {
+    const box = $("activeGame");
+    box.classList.remove("hidden");
+    const gm = this.pracGm(), eng = this.eng;
+    this.last = gm;
+    $("gameId").textContent = this.practice.daily ? "\u{1F4C5}" : "\u{1F3AF}";
+    $("shareLink").value = base();
+    $("gPot").textContent = this.practice.daily
+      ? T("dailyBanner", "DAILY ISLAND — {n} turns, free, postable to the board", { n: SOLO_TURNS })
+      : TS("prBanner", "PRACTICE — free play, nothing on-chain");
+    $("players").innerHTML = gm.seats.slice(0, 2).map((nm, i) =>
+      "<span class='chip'>" + SEAT_MARK[i] + " " + nm + "</span>").join(" ");
+    const done = this.soloDone(), vp = eng && eng.layout ? E.totalVp(eng, 1) : 0;
+    $("gStatus").innerHTML = !eng ? "…"
+      : eng.corrupt ? T("prCorrupt", "practice run desynced — start a new one")
+      : done ? T("dailyDone", "Run complete — {vp} points in {n} moves", { vp, n: (this.practice.recs || []).filter((r) => r.side === 1).length })
+      : this.canAct() ? "<span class='yourturn'>" + T("yourMove", "\u25B6 YOUR MOVE") + "</span>" + " · " + T("dailyTurnN", "turn {t}/{n}", { t: Math.min(SOLO_TURNS, this.myEnds() + 1), n: SOLO_TURNS })
+      : TS("prCpuThinking", "computer to move…");
+    $("dicebar").textContent = eng && eng.dice && eng.phase !== "preroll" ? "\u{1F3B2} " + eng.dice : "";
+    renderBoard(this, gm, eng, 0);
+    renderSeats(this, gm, eng, 0);
+    renderCtrls(this, gm, eng, 0);
+    renderOffers(this, gm, eng, 0);
+    renderScrolls(this, gm, eng, 0);
+    renderDiscard(this, gm, eng, 0);
+    renderLog(eng, gm);
+    for (const id of ["btnResign", "btnDraw", "btnSettle", "btnAbort", "btnCancel", "btnLeave", "btnJoinGame", "btnRematch"])
+      $(id).classList.add("hidden");
+    $("revealBar").innerHTML = "";
+    $("settleHint").textContent = "";
+    const row = $("btnResign").parentElement;
+    let pn = $("btnPracNew"), px = $("btnPracExit"), pp = $("btnPracPost");
+    if (!pn) {
+      pn = document.createElement("button"); pn.id = "btnPracNew"; pn.className = "ghost";
+      px = document.createElement("button"); px.id = "btnPracExit"; px.className = "ghost";
+      pp = document.createElement("button"); pp.id = "btnPracPost"; pp.className = "primary pulse";
+      row.appendChild(pp); row.appendChild(pn); row.appendChild(px);
+      pn.onclick = () => this.startPractice();
+      px.onclick = () => this.exitPractice();
+      pp.onclick = () => this.postDaily();
+    }
+    pn.classList.remove("hidden"); px.classList.remove("hidden");
+    pn.textContent = "\u21BB " + T("prNewGame", "New practice island");
+    px.textContent = TS("prExit", "Back to real play");
+    const canPost = done && this.practice.daily && eng && !eng.corrupt && this.dapp.me
+      && this.practice.seed === seedOfDay(this.practice.daily, this._anch.hash, this.dapp.me);
+    pp.classList.toggle("hidden", !canPost);
+    if (canPost) pp.textContent = "\u{1F3C6} " + T("postScore", "Post my score on the daily board");
   }
 }
 
@@ -368,11 +520,12 @@ function renderSeats(duel, gm, eng, me) {
   $("bankLine").textContent = T("bankLine", "bank") + ": " + eng.bank.map((n, r) => E.RES_ICON[r] + n).join(" ");
   el.innerHTML = Array.from({ length: gm.cap }, (_, i) => {
     const s = i + 1, p = eng.players[s];
+    const nm = gm.seatNames ? gm.seats[i] : disp(gm.seats[i] || "?") + "";
     const vp = E.totalVp(eng, s), pub = E.publicVp(eng, s);
     const held = p.devDrawn - eng.playsLog.filter((x) => x.s === s).length;
     const turn = eng.turnSeat === s && !eng.over && eng.phase !== "setup";
     return `<div class="seatp${turn ? " turn" : ""}${i === me ? " me" : ""}${gm.resigned[i] ? " resigned" : ""}">
-      <div class="nm"><span>${SEAT_MARK[i]} ${disp(gm.seats[i] || "?")}</span>
+      <div class="nm"><span>${SEAT_MARK[i]} ${nm}</span>
         <span class="vp">${vp != null ? vp : pub + "+?"} ${T("vp", "pts")}</span></div>
       <div class="resrow">${eng.secrets[s] != null || i === me ? p.res.map((n, r) => E.RES_ICON[r] + n).join(" ") : p.res.map((n, r) => E.RES_ICON[r] + n).join(" ")}</div>
       <div class="badges">🛣${p.roadLen}${eng.roadHolder === s ? "🏅" : ""} · ⚔${p.plays[E.WARDEN]}${eng.watchHolder === s ? "🏅" : ""} · 📜${held}</div>
@@ -606,13 +759,16 @@ const duel = new TableDuel(dapp, {
   shareText: (gm, id) => T("shareText", "Join my Hexholm table #{id} on NADO — settle the island, winner takes the pot!", { id }),
   inviteTitle: T("inviteTitle", "You are invited to a Hexholm table"),
   inviteBody: (gm) => T("inviteBody", "Stake {amt} NADO, take a seat, race to 10 points.", { amt: rawToNado(gm.stake) }),
-  rebuild() { return null; },                               // unused — the subclass drives its own replay
+  botMove: true,                                            // flag: enables the practice machinery + button
+  rebuild(gm) { return this.rebuild(gm); },                 // delegates to the CLASS method (not recursive)
   renderGame() {}, canAct() { return false; }, turnOf() { return null; }, resultOf() { return 0; },
   wire() {
     $("btnSettle").onclick = () => { const eng = this.eng; if (eng && eng.over && eng.winner) this.agreeSeat(eng.winner); };
     $("btnLeave").onclick = () => this.leave();
+    if ($("btnDaily")) $("btnDaily").onclick = () => this.startDaily();
   },
 });
-duel.MAPS = ["nn", "st", "pt", "sd", "wr", "mc", "dl", "kh", "p1", "p2", "mv", "mh"].concat(duel.cfg.appendMaps);
-duel.mode = null; duel.tr = null; duel.disc = null;
-duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "scoreboard"]);
+duel.MAPS = ["nn", "st", "pt", "sd", "wr", "mc", "dl", "kh", "p1", "p2", "mv", "mh",
+             "eday", "eaddr", "escore", "en", "ew"].concat(duel.cfg.appendMaps);
+duel.mode = null; duel.tr = null; duel.disc = null; duel._anch = { day: 0, hash: null }; duel._boardBusy = false;
+duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "dailyBoard", "scoreboard"]);
