@@ -1,11 +1,14 @@
 /* Binary Merkle over field vectors — exact port of execnode/stark/merkle.py (BLAKE2b leaves/nodes).
  * With the WASM backend (setMerkleWasm), the whole tree is built in one wasm call and layers are kept as raw
  * bytes; only the ~few path siblings actually opened are hex-encoded. Pure-JS fallback otherwise. */
-import { H } from "./hashing.js";
 import { bytesToHex } from "../vendor/nado-crypto.js";
+import { b2b32, tag, i8le, hexToBytes } from "./bhash.js";
 
-const leaf = (x) => H(["stark-leaf", String(BigInt(x))]);
-const node = (a, b) => H(["stark-node", a, b]);
+// byte-for-byte with execnode/stark/backend.py `_Blake2b` (and the wasm Merkle, vendor/blake2b-wasm.js):
+// leaf = blake2b(0x00 ‖ field-as-8-LE) ; node = blake2b(0x01 ‖ fromhex(a) ‖ fromhex(b)). Was canonical-JSON,
+// which the Python side no longer uses — so pure-JS-committed proofs failed Python verification.
+const leaf = (x) => b2b32(tag("\x00"), i8le(x));
+const node = (a, b) => b2b32(tag("\x01"), hexToBytes(a), hexToBytes(b));
 
 let _wm = null;
 export function setMerkleWasm(wm) { _wm = wm; }
