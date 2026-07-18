@@ -250,10 +250,15 @@ class ExecState:
         return c
 
     def load(self):
-        """Restore the last save()d snapshot from self.path, if any."""
+        """Restore the last save()d snapshot from self.path, if any. A torn/empty file — e.g. a crash between
+        os.replace and the data reaching disk — is treated as NO snapshot: the exec state is fully re-derivable
+        by replaying L1, so re-bootstrap instead of crash-looping on json.load every start."""
         if os.path.exists(self.path):
-            with open(self.path) as f:
-                d = json.load(f)
+            try:
+                with open(self.path) as f:
+                    d = json.load(f)
+            except (ValueError, OSError):
+                return
             self._restore(d)
 
     def save(self):
@@ -270,7 +275,17 @@ class ExecState:
         tmp = self.path + "~tmp"
         with open(tmp, "w") as f:
             json.dump(payload, f, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())              # data on disk BEFORE the rename (os.replace is atomic, not durable)
         os.replace(tmp, self.path)
+        try:                                  # fsync the directory so the rename itself survives a power loss
+            dfd = os.open(os.path.dirname(self.path) or ".", os.O_RDONLY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+        except OSError:
+            pass
 
     def _sparse_stores(self):
         """The two persistent depth-256 half-trees of the FROZEN root scheme (execnode/exec_root.py),

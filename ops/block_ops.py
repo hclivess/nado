@@ -427,9 +427,16 @@ def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
     are already gone, so each call scans only the new delta; per-call work is capped so enabling this on
     a long chain never stalls the loop (the rest prunes on later ticks). Monotonic — finalized_height
     only rises and pruned heights are far below any rollback window, so bodies are never wrongly removed."""
-    from protocol import FINALITY_DEPTH, HISTORY_RETENTION_BLOCKS
+    from protocol import (FINALITY_DEPTH, HISTORY_RETENTION_BLOCKS, POSW_ANCHOR_OFFSET, POSW_DIFF_TRAIL)
     retention = int(retention) if retention and int(retention) > 0 else HISTORY_RETENTION_BLOCKS
-    floor = REWARD_WINDOW + FINALITY_DEPTH + 1                 # hard safety floor, independent of config
+    # The v2 registration-difficulty read (ops/reg_difficulty) COUNTS registers in block BODIES over the
+    # POSW_DIFF_TRAIL epochs before a register's anchor (max_block - POSW_ANCHOR_OFFSET). If a rolling node
+    # prunes a body inside that window it UNDER-counts and derives a lower difficulty than archive nodes, so a
+    # register carrying the lower-difficulty proof is valid on the rolling node yet rejected elsewhere -> the
+    # node forks/wedges on any register-bearing block. Never prune within the whole read window (a hard
+    # consensus floor, independent of the config'd retention).
+    reg_diff_floor = POSW_ANCHOR_OFFSET + POSW_DIFF_TRAIL * EPOCH_LENGTH + FINALITY_DEPTH
+    floor = max(REWARD_WINDOW + FINALITY_DEPTH + 1, reg_diff_floor)   # hard safety floor, independent of config
     eff_retention = max(retention, floor)
     prune_below = int(finalized_height) - eff_retention
     if prune_below <= 0:
