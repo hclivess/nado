@@ -125,6 +125,42 @@ proof, ordering never re-imposes an execution cost — the ordering layer scales
 point is that O(1) verification, O(1) data-availability sampling, and Θ(N) sharded data are mutually compatible —
 so SCALE-OUT is an engineering target to build toward, the same way O(1) is.
 
+## 7. Agentic autonomy — the 2035 horizon
+
+The four goals above make the chain *machine-legible*: a state transition that is O(1) to verify, self-describing
+via its own proof, and canonical without a human in the loop is exactly the kind of object an autonomous agent can
+reason about, produce, and trust without asking anyone. The endpoint of that is not a faster chain humans operate —
+it is a chain that **operates, governs, and improves itself**, with humans as beneficiaries and boundary-setters
+rather than operators. By ~2035 we expect the following to be normal, not exotic:
+
+- **AI-run nodes as the default participant.** Producing, validating, serving DA, and proving are already
+  no-judgment, fully-specified jobs (that is what soundness-by-proof *buys* you). An agent runs a node the way it
+  runs any deterministic workload — spinning capacity up and down against demand, migrating across hosts, self-
+  healing — so the network's floor is set by agents, and phone-mining humans join a mesh that is already dense.
+
+- **Multi-agent quorum integration.** Bonded-stake finality (§5) and treasury governance become a substrate for
+  **panels of independent agents** that attest, vote, and settle — each an adversarial check on the others, the
+  same way a proof is checked before it is trusted. Diversity of models and operators is the anti-collusion
+  property (the agent analogue of ASN-diverse peers): a quorum whose members are *distinct* agents reaching the
+  same verifiable conclusion is stronger than any single one, and no member has to be trusted for the quorum to be.
+  Governance proposals arrive with their own machine-checkable impact analysis; ratification is a quorum of agents
+  each independently reproducing that analysis, not a popularity vote.
+
+- **Development autonomy.** The protocol's own evolution — a consensus change, a new game contract, a prover
+  optimization — is authored, adversarially reviewed, tested, and shipped by agents, gated by the *same*
+  non-negotiables below (soundness first; verifier-authoritative; adversarially re-audited before the money path).
+  The audit-history discipline this repo already practices is precisely the loop an agent fleet runs continuously:
+  propose → independently red-team → prove → converge → deploy → re-audit. A CHAIN_GENERATION reroll, a settlement
+  verifier flip, a whole address-format migration — all become routine agent-driven operations behind a proof and
+  a quorum, not week-long human scrambles.
+
+The wager is straightforward: **AI will take over the running of everything that can be specified precisely enough
+to hand off — and a proof-native, O(1)-verifiable, quorum-finalized chain is *designed* to be that specifiable.**
+The goals in §§1–6 are the preconditions; agentic autonomy is what a network built on them grows into once the
+agents are good enough. Our job now is to keep every layer soundness-first and machine-legible so that when that
+hand-off happens it inherits guarantees, not liabilities — the same non-negotiables below apply whether the author
+of the next change is a person or an agent.
+
 ---
 
 **Non-negotiables while pursuing these** (from hard lessons, see the audit history in doc/zk-recursion.md):

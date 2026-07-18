@@ -3701,10 +3701,67 @@ async function renderGeoMap() {
   }
 }
 
+// NETWORK NODES: one row per peer (+ this relay) from the cached /status_pool — what each is running
+// (version/commit), its protocol, chain, height, weight, uptime, and whether an update is available.
+function _uptime(sec) {
+  sec = Number(sec) || 0;
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+function _verShort(st) {
+  // prefer the trailing "-g<commit>" or the short running_commit; keep it compact
+  const v = String(st.version || "");
+  const m = v.match(/(alpha[.\-][\w.]+)/i);
+  const tag = m ? m[1] : (st.running_commit ? st.running_commit.slice(0, 10) : "?");
+  return tag;
+}
+async function renderNodes() {
+  const box = $("nodesTable"), sub = $("nodesSub");
+  if (!box) return;
+  let pool = {}, self = null;
+  try { const d = await (await fetch(relayBase() + "/status_pool", { cache: "no-store" })).json(); pool = d.status_pool || d || {}; } catch {}
+  try { self = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json(); } catch {}
+  const rows = [];
+  if (self) rows.push(["★ this relay", self, true]);
+  for (const [ip, st] of Object.entries(pool)) if (st && typeof st === "object") rows.push([ip, st, false]);
+  if (!rows.length) { box.innerHTML = "<span class='faint small'>" + i18("stats.nodata", "no data yet") + "</span>"; if (sub) sub.textContent = ""; return; }
+  // sort: self first, then by weight desc
+  rows.sort((a, b) => (b[2] - a[2]) || ((b[1].latest_block_weight || 0) - (a[1].latest_block_weight || 0)));
+  const th = (t) => `<th style="text-align:left;padding:5px 8px;color:var(--dim,#7c8b9a);font-weight:600;font-size:11px;white-space:nowrap">${t}</th>`;
+  const td = (t, extra) => `<td style="padding:5px 8px;font-size:12px;white-space:nowrap;${extra || ""}">${t}</td>`;
+  let latestMain = self && self.latest_main;
+  let onLatest = 0;
+  const body = rows.map(([label, st, isSelf]) => {
+    const upd = st.update_available;
+    if (!upd) onLatest++;
+    const chain = st.chain_id || "?";
+    const chainBad = self && chain !== self.chain_id;
+    const protoBad = self && st.protocol !== self.protocol;
+    const ver = _verShort(st) + (st.running_commit ? ` <span class="mono faint">${st.running_commit.slice(0, 8)}</span>` : "");
+    return "<tr" + (isSelf ? ' style="background:rgba(58,160,255,.08)"' : "") + ">"
+      + td(isSelf ? `<b>${label}</b>` : `<span class="mono">${label}</span>`)
+      + td(ver + (upd ? ` <span title="update available" style="color:${_CGOLD}">⬆</span>` : ""))
+      + td(`p${st.protocol != null ? st.protocol : "?"}`, protoBad ? `color:${_CRED}` : "")
+      + td(chain, chainBad ? `color:${_CRED}` : `color:${_CGRN}`)
+      + td(`${st.finalized_height != null ? st.finalized_height : "?"}`)
+      + td(`${st.latest_block_weight != null ? (st.latest_block_weight / 1e6).toFixed(2) + "M" : "?"}`)
+      + td(_uptime(st.reported_uptime))
+      + "</tr>";
+  }).join("");
+  box.innerHTML = `<table style="width:100%;border-collapse:collapse;min-width:520px">
+    <thead><tr style="border-bottom:1px solid var(--line,#1c2530)">
+      ${th(i18("stats.ndNode", "Node"))}${th(i18("stats.ndVersion", "Version"))}${th(i18("stats.ndProto", "Proto"))}
+      ${th(i18("stats.ndChain", "Chain"))}${th(i18("stats.ndHeight", "Height"))}${th(i18("stats.ndWeight", "Weight"))}${th(i18("stats.ndUptime", "Uptime"))}
+    </tr></thead><tbody>${body}</tbody></table>`;
+  if (sub) sub.textContent = i18("stats.nodesSub", "{n} nodes seen · {u} on the latest code · newest main {m}",
+    { n: rows.length, u: onLatest, m: latestMain ? String(latestMain).slice(0, 8) : "—" });
+}
+
 async function renderStats() {
   if (!state.wallet) return;
   const head = $("statsHeadline"); if (head) head.innerHTML = "";
   renderGeoMap().catch(() => {});   // independent of the block charts — paint it in parallel
+  renderNodes().catch(() => {});    // the network-nodes table (status_pool)
   let tip = state.latest;
   try { const lb = await getLatestBlock(); if (lb && typeof lb.block_number === "number") tip = lb.block_number; } catch {}
   const N = 16, nums = [];
