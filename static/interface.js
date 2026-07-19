@@ -628,6 +628,77 @@ function buildDividendWithdrawTx(wallet, addr, amount, nonce, proof, targetBlock
   return finalizeTransaction(draft, wallet.privateKey, 0);   // fee-exempt
 }
 
+/* ----------------------------------------------------------------------------------------------
+ * PENDING UNBOND — the second half of leaving savings.
+ *
+ * `unbond` only RECORDS the request: the coins stay bonded (and slashable) until a matured `withdraw`
+ * moves them to spendable. Nothing in the wallet built a withdraw, and nothing showed the request, so an
+ * exit begun here could never be finished from here — the amount simply stopped being visible and looked
+ * like it had been eaten. This surfaces the request, and completes it the moment it matures.
+ * -------------------------------------------------------------------------------------------- */
+/** blocks -> a rough human duration, for "unlocks in ~2h" style copy (block_time is 6s) */
+function blocksToEta(blocks) {
+  const secs = Math.max(0, Number(blocks) || 0) * 6;
+  if (secs < 90) return Math.round(secs) + "s";
+  if (secs < 5400) return Math.round(secs / 60) + " min";
+  if (secs < 172800) return (secs / 3600).toFixed(secs < 36000 ? 1 : 0) + " h";
+  return Math.round(secs / 86400) + " d";
+}
+
+function buildWithdrawUnbondTx(wallet, amount, releaseBlock, targetBlock, timestamp, includePubkey = true) {
+  // data is SELF-DESCRIBING and must match the pending record exactly; max_block must be >= release_block
+  // because max_block IS the landing block the maturity check is made against. Fee-exempt like unbond, so
+  // a fully-bonded wallet with nothing spendable can always get out.
+  const draft = { sender: wallet.address, recipient: "withdraw", amount: 0, timestamp,
+    data: { amount: String(amount), release_block: Number(releaseBlock) },
+    nonce: randNonce(), max_block: targetBlock, chain_id: CHAIN_ID };
+  if (includePubkey) draft.public_key = wallet.publicKey;
+  return finalizeTransaction(draft, wallet.privateKey, 0);
+}
+
+async function claimMaturedUnbond(pending, auto) {
+  if (!state.wallet || state._unbondClaiming) return;
+  state._unbondClaiming = true;
+  try {
+    const acc = await getAccount(state.wallet.address);
+    const targetBlock = await nextTargetBlock();
+    if (targetBlock < pending.release_block) return;         // not matured at the landing block yet
+    const tx = buildWithdrawUnbondTx(state.wallet, pending.amount, pending.release_block, targetBlock,
+                                     nowSeconds(), !pubkeyEstablished(acc));
+    await submitAndReport(tx, "Withdraw", "stakeMsg");
+  } catch (e) {
+    if (!auto) setMsg("stakeMsg", i18("msg.failed", "failed:") + " " + e.message, "err");
+  } finally { state._unbondClaiming = false; }
+}
+
+async function refreshUnbond() {
+  const panel = $("unbondPanel");
+  if (!panel || !state.wallet) return;
+  let d = null;
+  try {
+    const r = await rpcJSON("/get_unbond?address=" + encodeURIComponent(state.wallet.address), { retry: false });
+    if (r.ok && r.data) d = r.data;
+  } catch (e) { return; }                                     // relay blip — leave the panel as it was
+  const p = d && d.pending;
+  panel.classList.toggle("hidden", !p);
+  if (!p) return;
+  $("unbondAmt").textContent = rawToNado(p.amount) + " NADO";
+  const btn = $("btnWithdrawUnbond");
+  if (d.matured) {
+    $("unbondWhen").textContent = i18("unb.ready", "Unlocked — ready to move into your spendable balance.");
+    if (btn) { btn.classList.remove("hidden"); btn.onclick = () => claimMaturedUnbond(p, false); }
+    // finish it automatically: there is no decision left to make, and leaving it to the user is exactly
+    // how the coins came to look lost in the first place
+    claimMaturedUnbond(p, true).catch(() => {});
+  } else {
+    const left = d.blocks_left || 0;
+    $("unbondWhen").textContent = i18("unb.waiting",
+      "Unlocks in {n} blocks (~{t}) — at block {b}. It moves to your spendable balance automatically.",
+      { n: left, t: blocksToEta(left), b: p.release_block });
+    if (btn) btn.classList.add("hidden");
+  }
+}
+
 async function refreshDividend() {
   if (!state.wallet) return;
   // Surface the dividend section whenever you're actively MINING (so it's discoverable — you watch it
@@ -1973,6 +2044,7 @@ async function refreshDashboard() {
   const [acc, ms] = await Promise.all([getAccount(addr), getMiningStatus(addr)]);
   state.lastMs = ms;   // cache the authoritative mining status (pollOnce reads registered_present from it)
   refreshMiningChart(addr, acc, ms).catch(() => {});   // mined-per-day chart under the menu (never blocks the card)
+  refreshUnbond().catch(() => {});                     // surface + auto-finish a matured savings exit
 
   // wallet card + send/stake panels (balances are shared across tabs)
   if (acc) {
@@ -3828,6 +3900,11 @@ async function renderGeoMap() {
   if (ctry) ctry.textContent = "";
   let g = null;
   try { g = await (await fetch(relayBase() + "/geo_peers", { cache: "no-store" })).json(); } catch {}
+  // remember ip -> country for the NODES table (same server-side lookup, no second round trip)
+  if (g && Array.isArray(g.points)) {
+    state._geoCC = state._geoCC || {};
+    for (const pt of g.points) if (pt && pt.ip && pt.cc) state._geoCC[pt.ip] = { cc: pt.cc, country: pt.country, city: pt.city };
+  }
   const W = 640, H = 320;
   const img = _mk("image", { x: 0, y: 0, width: W, height: H, href: "/static/world.svg", preserveAspectRatio: "none" });
   img.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "/static/world.svg"); // legacy engines
@@ -3875,6 +3952,38 @@ function _uptime(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
 }
+/** cc ("DE") -> its flag emoji, via regional-indicator letters. Empty when we have no location. */
+function _ccFlag(ip) {
+  const g = (state._geoCC || {})[ip];
+  if (!g || !g.cc || g.cc.length !== 2) return "";
+  const f = String.fromCodePoint(...[...g.cc.toUpperCase()].map((c) => 0x1F1A5 + c.charCodeAt(0)));
+  const where = [g.city, g.country].filter(Boolean).join(", ");
+  return '<span title="' + where.replace(/"/g, "&quot;") + '">' + f + "</span> ";
+}
+
+/**
+ * _nodeType(st): what a peer IS, as opposed to which commit it runs — "archive" keeps every block body,
+ * "rolling" prunes bodies past its retention window. Snapshot-bootstrapped nodes are flagged too, since a
+ * node can be archive-configured yet still lack history from before the snapshot it started from, which
+ * is exactly the distinction that matters when you are working out who can serve old blocks.
+ */
+function _nodeType(st) {
+  const t = st && st.node_type;
+  const snap = st && st.snapshot_height ? ' <span class="mono faint" title="' +
+    i18("stats.ndSnapTip", "bootstrapped from a snapshot — no block bodies from before it") + '">snap</span>' : "";
+  if (t === "rolling") {
+    const n = st.history_retention ? " " + (st.history_retention >= 1000
+      ? Math.round(st.history_retention / 1000) + "k" : st.history_retention) : "";
+    return '<span title="' + i18("stats.ndRollingTip", "prunes block bodies past its retention window") + '">'
+      + i18("stats.ndRolling", "rolling") + n + "</span>" + snap;
+  }
+  if (t === "archive") {
+    return '<span title="' + i18("stats.ndArchiveTip", "keeps every block body") + '">'
+      + i18("stats.ndArchive", "archive") + "</span>" + snap;
+  }
+  return '<span class="faint" title="' + i18("stats.ndTypeUnknownTip", "this node does not report its type") + '">?</span>' + snap;
+}
+
 function _verShort(st) {
   // prefer the trailing "-g<commit>" or the short running_commit; keep it compact
   const v = String(st.version || "");
@@ -3896,11 +4005,24 @@ async function renderNodes() {
   rows.sort((a, b) => (b[2] - a[2]) || ((b[1].latest_block_weight || 0) - (a[1].latest_block_weight || 0)));
   const th = (t) => `<th style="text-align:left;padding:5px 8px;color:var(--dim,#7c8b9a);font-weight:600;font-size:11px;white-space:nowrap">${t}</th>`;
   const td = (t, extra) => `<td style="padding:5px 8px;font-size:12px;white-space:nowrap;${extra || ""}">${t}</td>`;
-  let latestMain = self && self.latest_main;
+  // REFERENCE COMMIT for "is this node behind?". It used to trust each peer's OWN update_available flag,
+  // which every node computes from its own cached view of origin/main — so two nodes on the SAME commit
+  // disagreed (one had refreshed its cache and said "behind", the other hadn't and said "fine"), and a
+  // node reporting no version at all showed a ✓ it had not earned. Decide it HERE, from one reference, so
+  // the same commit always gets the same verdict: prefer our own node's view of main, else the newest
+  // main any peer has seen. When nobody knows main we say so instead of implying everyone is current.
+  let latestMain = (self && self.latest_main) || null;
+  if (!latestMain) {
+    for (const [, st] of Object.entries(pool)) if (st && st.latest_main) { latestMain = st.latest_main; break; }
+  }
+  const sameCommit = (a, b) => !!(a && b) && (a === b || a.startsWith(b) || b.startsWith(a));
   let onLatest = 0;
   const body = rows.map(([label, st, isSelf]) => {
-    const upd = st.update_available;
-    if (!upd) onLatest++;
+    const commit = st.running_commit || null;
+    // behind = we have a reference AND we know what this node runs AND they differ. Unknown stays unknown.
+    const known = !!(latestMain && commit);
+    const upd = known && !sameCommit(commit, latestMain);
+    if (known && !upd) onLatest++;
     const chain = st.chain_id || "?";
     const chainBad = self && chain !== self.chain_id;
     const protoBad = self && st.protocol !== self.protocol;
@@ -3909,11 +4031,13 @@ async function renderNodes() {
     // (it just triggers that node's /update). Self hits the same-origin /update; a peer is proxied via
     // /update_peer (the browser can't reach a peer's plain-http endpoint from this https page).
     const act = upd
-      ? `<button class="node-upd" data-upd="${isSelf ? "" : encodeURIComponent(label)}" style="padding:3px 9px;font-size:11px;border:1px solid var(--acc,#3aa0ff);border-radius:7px;background:transparent;color:var(--acc,#3aa0ff);cursor:pointer;white-space:nowrap">${i18("stats.ndUpdate", "Update")}</button>`
-      : `<span class="faint" style="font-size:11px">✓</span>`;
+      ? `<button class="node-upd" data-upd="${isSelf ? "" : encodeURIComponent(label)}" title="${i18("stats.ndUpdate", "Update")}" aria-label="${i18("stats.ndUpdate", "Update")}" style="padding:2px 7px;font-size:13px;line-height:1.2;border:1px solid var(--acc,#3aa0ff);border-radius:7px;background:transparent;cursor:pointer">⬆</button>`
+      : known ? `<span class="faint" style="font-size:11px" title="${i18("stats.ndCurrent", "running the newest commit we know of")}">✓</span>`
+              : `<span class="faint" style="font-size:11px" title="${i18("stats.ndUnknownTip", "This node does not report which commit it runs, or nobody here knows the newest one — so we cannot tell whether it is up to date.")}">—</span>`;
     return "<tr" + (isSelf ? ' style="background:rgba(58,160,255,.08)"' : "") + ">"
-      + td(isSelf ? `<b>${label}</b>` : `<span class="mono">${label}</span>`)
+      + td(_ccFlag(label) + (isSelf ? `<b>${label}</b>` : `<span class="mono">${label}</span>`))
       + td(ver + (upd ? ` <span title="update available" style="color:${_CGOLD}">⬆</span>` : ""))
+      + td(_nodeType(st))
       + td(`p${st.protocol != null ? st.protocol : "?"}`, protoBad ? `color:${_CRED}` : "")
       + td(chain, chainBad ? `color:${_CRED}` : `color:${_CGRN}`)
       + td(`${st.finalized_height != null ? st.finalized_height : "?"}`)
@@ -3924,21 +4048,22 @@ async function renderNodes() {
   }).join("");
   box.innerHTML = `<table style="width:100%;border-collapse:collapse;min-width:520px">
     <thead><tr style="border-bottom:1px solid var(--line,#1c2530)">
-      ${th(i18("stats.ndNode", "Node"))}${th(i18("stats.ndVersion", "Version"))}${th(i18("stats.ndProto", "Proto"))}
+      ${th(i18("stats.ndNode", "Node"))}${th(i18("stats.ndVersion", "Version"))}${th(i18("stats.ndType", "Type"))}${th(i18("stats.ndProto", "Proto"))}
       ${th(i18("stats.ndChain", "Chain"))}${th(i18("stats.ndHeight", "Height"))}${th(i18("stats.ndWeight", "Weight"))}${th(i18("stats.ndUptime", "Uptime"))}${th("")}
     </tr></thead><tbody>${body}</tbody></table>`;
   box.querySelectorAll(".node-upd").forEach((b) => b.onclick = async () => {
     const ip = b.dataset.upd ? decodeURIComponent(b.dataset.upd) : "";
-    b.disabled = true; b.textContent = i18("stats.ndUpdating", "updating…");
+    // icons, not words — this column sits at the end of an already-wide row
+    b.disabled = true; b.textContent = "🔄"; b.title = i18("stats.ndUpdating", "updating…");
     try {
       const url = ip ? `/update_peer?target=${encodeURIComponent(ip)}` : "/update";
       const r = await (await fetch(relayBase() + url, { cache: "no-store" })).json();
       const st = r.status || "?";
-      b.textContent = st === "updated" ? i18("stats.ndSent", "updating ✓")
-        : st === "up_to_date" ? i18("stats.ndCurrent", "current")
-        : st;
+      b.textContent = st === "updated" ? "✅" : st === "up_to_date" ? "✓" : "⚠";
+      b.title = st === "updated" ? i18("stats.ndSent", "updating ✓")
+        : st === "up_to_date" ? i18("stats.ndCurrent", "running the newest commit we know of") : st;
       setTimeout(() => renderNodes().catch(() => {}), 4000);   // reflect the new state shortly after
-    } catch (e) { b.disabled = false; b.textContent = i18("stats.ndFailed", "failed — retry"); }
+    } catch (e) { b.disabled = false; b.textContent = "↻"; b.title = i18("stats.ndFailed", "failed — retry"); }
   });
   if (sub) sub.textContent = i18("stats.nodesSub", "{n} nodes seen · {u} on the latest code · newest main {m}",
     { n: rows.length, u: onLatest, m: latestMain ? String(latestMain).slice(0, 8) : "—" });

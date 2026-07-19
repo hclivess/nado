@@ -22,7 +22,7 @@ from ops import transaction_ops as T
 from ops import posw
 from config import get_timestamp_seconds
 from hashing import create_nonce
-from protocol import CHAIN_ID, MIN_TX_FEE, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, TX_TARGET_MARGIN
+from protocol import CHAIN_ID, MIN_TX_FEE, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, TX_TARGET_MARGIN, ALIAS_REGISTRATION_FEE
 
 DEC = 10 ** 10  # NADO has 10 decimals
 # max_block headroom. EXACT-landing txs (bond/unbond/alias/governance — must land at exactly max_block) use a
@@ -102,8 +102,12 @@ def c_unbond(kd, node, a):
 
 def c_alias(kd, node, a):
     """Register/transfer/unregister an alias; name and --to target are lowercased to the on-chain form."""
+    # REGISTER carries the anti-squat fee (protocol.ALIAS_REGISTRATION_FEE, 10,000x MIN_TX_FEE); transfer
+    # and unregister only need the ordinary minimum. Sending MIN_TX_FEE for a register is rejected outright
+    # ("alias registration fee too low"), which made this command unusable for its main purpose.
+    fee = ALIAS_REGISTRATION_FEE if a.op == "register" else MIN_TX_FEE
     _submit(node, T.construct_alias_tx(kd, a.op, a.name.strip().lower(), _tip(node) + MARGIN,
-                                       MIN_TX_FEE, to=(a.to.strip().lower() if a.to else a.to)))
+                                       fee, to=(a.to.strip().lower() if a.to else a.to)))
 
 
 def c_collect(kd, node, a):

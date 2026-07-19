@@ -208,6 +208,14 @@ async def status(request):
             # whether it is running behind it. Lets anyone spot a lagging node from /status alone.
             "running_commit": self_update.running_head(),
             "latest_main": self_update.latest_known(),
+            # NODE TYPE (non-consensus, doc/rolling-mode-and-da.md): "archive" keeps every block body
+            # forever; "rolling" drops bodies past its retention window (state + number<->hash indexes are
+            # always kept, so it still validates and serves the beacon/FFG). Advertised so the network
+            # panel can show WHAT each peer is, not just which commit it runs — the two answer different
+            # questions when you are working out who can serve history.
+            "node_type": "archive" if getattr(memserver, "archive", True) else "rolling",
+            "history_retention": (0 if getattr(memserver, "archive", True)
+                                  else int(getattr(memserver, "history_retention_blocks", 0) or 0)),
             "update_available": bool(self_update.latest_known() and self_update.running_head()
                                      and self_update.latest_known() != self_update.running_head()),
             # NETWORK PARTITION KEY: peers gate admission on this (peer_loop) so nodes on a different
@@ -301,6 +309,30 @@ async def mining_history_handler(request):
                   "building": state["building"], "covered_from": covered_from,
                   "indexed_to": state["upto"], "tip": memserver.latest_block["block_number"],
                   "gaps": state["gaps"]})
+
+
+async def get_unbond(request):
+    """GET /get_unbond?address=: the sender's PENDING unbond, or null.
+    {"pending": {"amount": raw, "release_block": N}, "matured": bool, "blocks_left": N, "height": tip}
+
+    Leaving savings is two steps — `unbond` records a request (the coins stay bonded and slashable), and
+    a matured `withdraw` actually moves them to spendable. Nothing exposed the request, so a wallet could
+    not tell the user their coins were mid-exit, let alone finish it: the amount simply vanished from view
+    until someone went looking in the KV store. Read-only and additive; the account doc is untouched
+    because it feeds consensus paths."""
+    address = _q(request, "address", memserver.address)
+    try:
+        from ops import kv_ops as _kv
+        pending = await asyncio.to_thread(_kv.unbond_get, address)
+    except Exception as e:
+        return _resp(f"Error: {e}", status=403)
+    tip = memserver.latest_block["block_number"]
+    if not pending:
+        return _resp({"address": address, "pending": None, "matured": False, "height": tip})
+    rb = int(pending.get("release_block", 0))
+    return _resp({"address": address,
+                  "pending": {"amount": int(pending.get("amount", 0)), "release_block": rb},
+                  "matured": tip >= rb, "blocks_left": max(0, rb - tip), "height": tip})
 
 
 async def get_recommended_fee(request):
@@ -1595,6 +1627,7 @@ async def make_app(port):
         web.get("/status_pool", _dump_handler("status_pool", lambda: consensus.status_pool)),
         web.get("/mining_status", mining_status),
         web.get("/mining_history", mining_history_handler),
+        web.get("/get_unbond", get_unbond),
         web.get("/status", status),
         web.get("/peers", _dump_handler("peers", lambda: me_to(list(memserver.peers)))),
         web.get("/geo_peers", geo_peers),

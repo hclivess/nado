@@ -485,6 +485,16 @@
     <div class="small faint mt" data-i18n="stake.noFee">No network fee — unbonding is free.</div>
     <button id="btnUnbond" class="ghost mt" style="width:100%" data-i18n="btn.unbond">Unbond stake</button>
     <div id="stakeMsg" class="small mt faint"></div>
+
+    <!-- PENDING UNBOND. Leaving savings is two steps: `unbond` records the request (coins stay bonded and
+         slashable), and a matured `withdraw` actually moves them. Nothing used to show the request, so an
+         in-flight exit was invisible and impossible to finish — the coins looked like they had vanished. -->
+    <div id="unbondPanel" class="pendnote hidden">
+      <div><b id="unbondAmt">—</b> <span data-i18n="unb.leaving">leaving savings</span></div>
+      <div id="unbondWhen" class="small mt"></div>
+      <button id="btnWithdrawUnbond" class="primary mt hidden" style="width:100%"
+              data-i18n="unb.claim">Move it to spendable now</button>
+    </div>
   </div>
 
   <!-- HISTORY -->

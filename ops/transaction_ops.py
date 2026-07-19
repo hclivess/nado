@@ -286,6 +286,29 @@ def construct_unbond_tx(keydict, amount, max_block):
     return tx
 
 
+def construct_withdraw_tx(keydict, amount, release_block, max_block):
+    """Build a SIGNED withdraw tx — the SECOND half of leaving savings, which actually moves the coins.
+
+    `unbond` only RECORDS a request: the amount stays bonded (still slashable, still selection-weighted)
+    until a matured `withdraw` claims it. Consensus has always validated this recipient, but nothing in
+    the tree could BUILD one — no wallet path, no CLI command, not even a constructor — so a user who
+    unbonded watched their coins sit in limbo with no way to complete the exit. That is what this is.
+
+    The data is SELF-DESCRIBING ({amount, release_block}) because apply/revert both read it: validation
+    requires it to match the pending record exactly, and `max_block` must be >= release_block, since
+    max_block IS the deterministic landing block the maturity check is made against. Fee-exempt, like
+    unbond — a fully-bonded wallet with no spendable balance must always be able to get out.
+    """
+    tx = {"sender": keydict["address"], "recipient": "withdraw", "amount": 0,
+          "timestamp": get_timestamp_seconds(),
+          "data": {"amount": int(amount), "release_block": int(release_block)},
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def construct_register_tx(keydict, max_block, posw_proof):
     """Build a SIGNED open-lane registration/renewal tx. FEE-EXEMPT + zero-amount; carries the sequential
     PoSW proof (ops.posw.prove of posw.challenge_bytes(sender, anchor-block-hash)) that gates open-lane entry.
