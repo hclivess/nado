@@ -327,6 +327,25 @@
     </div>
   </div>
 
+  <!-- Mined rewards over the past week. Sits under Selection lanes on the wallet landing tab, so the lane
+       context is read first and the chart then shows what those lanes actually paid. Hidden
+       entirely for a wallet with no mining presence and nothing mined, so it never becomes dead furniture
+       for someone who only holds coins. -->
+  <div id="mineCard" class="card hidden" data-tab="wallet">
+    <h2 data-i18n="mine.title">Mining rewards
+      <span class="pill"><span id="mineRange" class="badge idle" data-i18n="mine.range">last 7 days</span></span></h2>
+    <div class="mine-head">
+      <div class="mine-total"><span id="mineTotal">—</span> <small>NADO</small></div>
+      <div class="mine-legend">
+        <span class="lg"><i class="sw open"></i><span data-i18n="lanes.open">OPEN lane</span> <b id="mineOpen">—</b></span>
+        <span class="lg"><i class="sw bonded"></i><span data-i18n="lanes.bonded">BONDED lane</span> <b id="mineBonded">—</b></span>
+        <span class="lg" data-i18n-title="tip.mineDiv" title="Presence dividend — your fidelity-weighted share of the dividend pool, counted on the day the claim landed on-chain."><i class="sw div"></i><span data-i18n="mine.dividend">Dividend</span> <b id="mineDiv">—</b></span>
+      </div>
+    </div>
+    <div id="mineChart" class="mine-chart"></div>
+    <div id="mineNote" class="mine-note"></div>
+  </div>
+
   <!-- SEND -->
   <div id="sendCard" class="card hidden" data-tab="send">
     <h2 data-i18n="send.title">Send</h2>

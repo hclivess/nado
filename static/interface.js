@@ -1805,11 +1805,160 @@ function coinShower(originEl) {
   } catch (e) { /* cosmetic only */ }
 }
 
+/* ----------------------------------------------------------------------------------------------
+ * Mining rewards chart (wallet landing) — what this address actually MINED per day over the past week.
+ *
+ * Backed by /mining_history, which replays the per-block reward split from the blocks themselves. That
+ * matters for two reasons: `account.produced` is a single cumulative number (it can't say what yesterday
+ * was), and it also forgets WHICH LANE paid. This chain has two — open and bonded — and a miner running
+ * both needs them apart to see which one is actually earning, so they're stacked separately here.
+ * -------------------------------------------------------------------------------------------- */
+const MINE_DAYS = 7;
+let _mineData = null, _mineAt = 0, _mineFetching = false;
+
+/** rounded-TOP-corners bar; the lower segment of a stack stays square so the two meet flush */
+function _barPath(x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h));
+  return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} `
+       + `L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
+}
+
+/** compact NADO for axis/labels: 12.3 / 1.23 / 0.045 — full precision lives in the hover title */
+function _mineShort(raw) {
+  const n = Number(raw) / 1e10;
+  if (n === 0) return "0";
+  if (n >= 100) return n.toFixed(0);
+  if (n >= 10) return n.toFixed(1);
+  if (n >= 1) return n.toFixed(2);
+  return n.toFixed(3);
+}
+
+/** headline amount: up to 4 decimals, trailing zeros trimmed — 27.7196120906 reads as noise at 26px */
+function _mineAmt(raw) {
+  const s = rawToNado(raw), i = s.indexOf(".");
+  return i < 0 ? s : s.slice(0, i + 5).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function drawMiningChart(d) {
+  const host = $("mineChart");
+  if (!host || !d || !Array.isArray(d.series)) return;
+  const rows = d.series;
+  // Draw in the container's OWN pixel units rather than a fixed viewBox. A fixed viewBox scaled to fit
+  // shrinks the labels along with the bars, which on a phone renders the axis unreadable — the wallet is
+  // mobile-first, so the chart is redrawn at the real width and its type stays at true size.
+  const W = Math.max(300, Math.min(920, Math.round(host.clientWidth || 700)));
+  const narrow = W < 460;
+  const H = narrow ? 158 : 176, padL = narrow ? 30 : 40, padR = 10, padT = 14, padB = narrow ? 26 : 30;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(...rows.map((r) => r.total), 1);
+  // a rounded "nice" ceiling keeps the gridlines on readable numbers instead of 71.6752
+  const pow = Math.pow(10, Math.floor(Math.log10(max)));
+  const top = Math.ceil(max / pow * 2) / 2 * pow;
+  const step = plotW / rows.length, bw = Math.min(46, step * 0.56);
+  const yOf = (v) => padT + plotH - (v / top) * plotH;
+  const todayIdx = rows.length - 1;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${i18("mine.aria", "Mined rewards per day over the past week")}">`;
+  for (let g = 0; g <= 2; g++) {                       // baseline + two dashed gridlines, with y labels
+    const v = (top / 2) * g, y = yOf(v);
+    svg += `<line class="grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"`
+         + (g ? ` stroke-dasharray="3 4"` : ``) + ` />`
+         + `<text class="axis" x="${padL - 6}" y="${(y + 3.5).toFixed(1)}" text-anchor="end">${_mineShort(v)}</text>`;
+  }
+  rows.forEach((r, i) => {
+    const cx = padL + i * step + step / 2, x = cx - bw / 2;
+    // narrow: day-of-month only, so seven labels still fit without overlapping
+    const label = narrow ? String(Number((r.date || "").slice(8)) || "") : (r.date || "").slice(5).replace("-", "/");
+    const full = `${r.date}\n${i18("lanes.open", "OPEN lane")}: ${rawToNado(r.open)} NADO\n`
+               + `${i18("lanes.bonded", "BONDED lane")}: ${rawToNado(r.bonded)} NADO\n`
+               + `${i18("mine.dividend", "Dividend")}: ${rawToNado(r.dividend || 0)} NADO\n`
+               + `${i18("mine.tipTotal", "Total")}: ${rawToNado(r.total)} NADO`;
+    svg += `<g class="col"><title>${escapeHtml(full)}</title>`;
+    if (r.total > 0) {
+      // floor a nonzero day at a visible height: a day that earned a little must not render as nothing,
+      // which is what the zero tick means. The segments then split that height by their real ratio.
+      const hTot = Math.max(3, (r.total / top) * plotH), yTop = padT + plotH - hTot;
+      // stacked bottom-up: open, bonded, then dividend on top. Only the topmost segment is capped, so the
+      // stack reads as one column rather than three pills.
+      const segs = [[r.open, "var(--open)"], [r.bonded, "var(--bonded)"], [r.dividend || 0, "var(--accent)"]]
+        .filter((s) => s[0] > 0);
+      let yc = padT + plotH;
+      segs.forEach(([v, fill], k) => {
+        const hSeg = hTot * (v / r.total), yS = yc - hSeg;
+        svg += k === segs.length - 1
+          ? `<path class="bar" d="${_barPath(x, yS, bw, hSeg, 4)}" fill="${fill}"/>`
+          : `<rect class="bar" x="${x}" y="${yS.toFixed(1)}" width="${bw}" height="${hSeg.toFixed(1)}" fill="${fill}"/>`;
+        yc = yS;
+      });
+      svg += `<text class="val" x="${cx}" y="${(yTop - 5).toFixed(1)}" text-anchor="middle">${_mineShort(r.total)}</text>`;
+    } else {
+      // an explicit flat tick for a zero day — an ABSENT bar reads as "no data", a different claim
+      svg += `<line class="grid" x1="${x}" y1="${padT + plotH}" x2="${x + bw}" y2="${padT + plotH}" stroke-width="2"/>`;
+    }
+    svg += `<text class="axis${i === todayIdx ? " today" : ""}" x="${cx}" y="${H - 10}" text-anchor="middle">`
+         + `${i === todayIdx ? i18("mine.today", "today") : escapeHtml(label)}</text></g>`;
+  });
+  host.innerHTML = svg + `</svg>`;
+
+  $("mineTotal").textContent = _mineAmt(d.total);
+  $("mineOpen").textContent = _mineShort(d.open);
+  $("mineBonded").textContent = _mineShort(d.bonded);
+  if ($("mineDiv")) $("mineDiv").textContent = _mineShort(d.dividend || 0);
+
+  const note = $("mineNote");
+  if (d.building) {
+    note.className = "mine-note warn";
+    note.textContent = i18("mine.building", "Building history from the chain — this fills in within a minute.");
+  } else if (d.total === 0) {
+    note.className = "mine-note";
+    note.textContent = i18("mine.none", "No blocks won in the past week. Rewards appear here the day you produce one.");
+  } else {
+    note.className = "mine-note";
+    // say plainly where the window starts, so an early chain isn't mistaken for a week of zeros
+    note.textContent = i18("mine.src", "Per UTC day, replayed from blocks: both mining lanes, plus presence dividend on the day it was collected.")
+      + (d.covered_from > 0 ? " " + i18("mine.from", "History covers blocks from #{h}.").replace("{h}", d.covered_from) : "");
+  }
+}
+
+// geometry is derived from the container width, so a rotate/resize has to redraw (debounced)
+let _mineRz = null;
+window.addEventListener("resize", () => {
+  clearTimeout(_mineRz);
+  _mineRz = setTimeout(() => { if (_mineData) drawMiningChart(_mineData); }, 150);
+});
+
+async function refreshMiningChart(addr, acc, ms) {
+  const card = $("mineCard");
+  if (!card) return;
+  // Only for wallets that actually touch mining: lane presence right now, or anything ever produced. A
+  // pure holder never gets an empty chart they can do nothing about.
+  let produced = 0n;
+  try { produced = BigInt((acc && acc.produced) || 0); } catch (e) {}
+  const presence = !!(ms && ((ms.my_open_weight || 0) > 0 || (ms.my_bonded_shares || 0) > 0));
+  if (produced === 0n && !presence) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+
+  // The index barely moves between wallet polls; refetch at most once a minute. Keep the last drawing on
+  // a failed fetch — a relay blip must not blank a chart that was correct a moment ago.
+  const stale = !_mineData || Date.now() - _mineAt > 60000 || _mineData.building;
+  if (stale && !_mineFetching) {
+    _mineFetching = true;
+    try {
+      const r = await rpcJSON("/mining_history?address=" + encodeURIComponent(addr) + "&days=" + MINE_DAYS,
+                              { retry: false });
+      if (r.ok && r.data && Array.isArray(r.data.series)) { _mineData = r.data; _mineAt = Date.now(); }
+    } catch (e) { /* relay blip — keep showing the last good chart */ }
+    finally { _mineFetching = false; }
+  }
+  if (_mineData) drawMiningChart(_mineData);
+}
+
 async function refreshDashboard() {
   if (!state.wallet) return;
   const addr = state.wallet.address;
   const [acc, ms] = await Promise.all([getAccount(addr), getMiningStatus(addr)]);
   state.lastMs = ms;   // cache the authoritative mining status (pollOnce reads registered_present from it)
+  refreshMiningChart(addr, acc, ms).catch(() => {});   // mined-per-day chart under the menu (never blocks the card)
 
   // wallet card + send/stake panels (balances are shared across tabs)
   if (acc) {

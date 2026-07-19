@@ -381,3 +381,30 @@ a { color: var(--accent-2); }
 .pendnote.hidden { display: none; }
 @keyframes pendpulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .pend { animation: none; } }
+
+/* ---- MINING REWARDS chart (wallet landing, directly under the menu) -------------------------------
+   A week of mined rewards as a stacked column per UTC day, split by the two lanes and coloured with the
+   SAME --open / --bonded tokens the rest of the interface uses for them, so the lanes read identically
+   wherever they appear. Sized by viewBox + width:100%, so it stays wide and sharp at any width. */
+.mine-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: -2px 0 10px; }
+.mine-total { font-family: var(--mono); font-size: 26px; font-weight: 700; letter-spacing: -.5px;
+  line-height: 1.1; color: var(--txt); }
+.mine-total small { font-size: 12px; font-weight: 600; color: var(--txt-faint); letter-spacing: .06em; }
+.mine-legend { margin-left: auto; display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--txt-dim); }
+.mine-legend .lg { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.mine-legend b { font-family: var(--mono); color: var(--txt); font-weight: 600; }
+.mine-legend .sw { width: 9px; height: 9px; border-radius: 3px; display: inline-block; flex: none; }
+.mine-legend .sw.open { background: var(--open); }
+.mine-legend .sw.bonded { background: var(--bonded); }
+.mine-legend .sw.div { background: var(--accent); }
+.mine-chart { width: 100%; }
+.mine-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.mine-chart .grid { stroke: var(--border); stroke-width: 1; }
+.mine-chart .axis { fill: var(--txt-faint); font-size: 11px; font-family: var(--sans); }
+.mine-chart .axis.today { fill: var(--accent); font-weight: 700; }
+.mine-chart .val { fill: var(--txt-dim); font-size: 10.5px; font-family: var(--mono); }
+.mine-chart .bar { transition: opacity .15s ease; }
+.mine-chart g.col:hover .bar { opacity: .82; }
+.mine-chart .empty { fill: var(--txt-faint); font-size: 12px; font-family: var(--sans); }
+.mine-note { margin-top: 8px; font-size: 11.5px; color: var(--txt-faint); }
+.mine-note.warn { color: #f0d488; }

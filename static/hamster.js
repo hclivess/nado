@@ -16,6 +16,11 @@ const dapp = new NadoDapp({ cid: CID, app: "Hamster" });
 
 // keep these in lockstep with execnode/games/hamster.py
 const NH = 6, GENE_DELAY = 2, BET_BLOCKS = 20, RACE_LEN = 10, GENE_SPREAD = 8, STEP_BASE = 6;
+// UNIT = raw NADO per pool unit. MIND THE UNITS — the two sources differ and mixing them up silently
+// inflates every displayed amount by 10^4:
+//   • raw STORAGE maps (tot/pl/...) hold UNITs      -> multiply by UNIT before rawToNado()
+//   • the contract VIEWS (total_of / stake_of / claimable_of) already `mul UNIT` and return RAW NADO
+//     -> pass them to rawToNado() as-is. (A double-multiply here showed a 13.78 NADO stake as 137798.1.)
 const UNIT = 10000n, BLOCK_SECS = 6;
 const P = ALG_P();
 
@@ -345,7 +350,7 @@ function render() {
         const o = oddsOf(r, l), myU = (myCache[r.id] && myCache[r.id].stakes && myCache[r.id].stakes[l]) || 0n;
         return '<div class="betrow"><span class="be">' + laneEmoji[l] + "</span><b>" + esc(row.name) + '</b> <span class="dim">' + window.t("hamster.spd", "spd {s}", { s: row.speed }) + "</span>"
           + '<span class="odds">' + (o ? o.toFixed(2) + "×" : window.t("hamster.noBets", "no bets")) + "</span>"
-          + (myU > 0n ? '<span class="b ok" title="your stake">' + rawToNado(myU * UNIT) + "</span>" : "")
+          + (myU > 0n ? '<span class="b ok" title="your stake">' + rawToNado(myU) + "</span>" : "")
           + '<button class="mini primary" data-back="' + l + '"' + (busy ? " disabled" : "") + ">" + (busy ? confirmingLabel() : window.t("hamster.back", "Back")) + "</button></div>";
       }).join("");
     bp.querySelectorAll("[data-back]").forEach((b) => b.onclick = () => placeBet(parseInt(b.dataset.back, 10)));
@@ -356,7 +361,7 @@ function render() {
     const c = myCache[r.id] || {};
     let h = "";
     if ((c.total || 0n) > 0n) {
-      h += '<div class="small">' + window.t("hamster.myStake", "Your stake: {amt} NADO", { amt: rawToNado(c.total * UNIT) }) + "</div>";
+      h += '<div class="small">' + window.t("hamster.myStake", "Your stake: {amt} NADO", { amt: rawToNado(c.total) }) + "</div>";
       if ((r.sd || r.vd)) {
         const claimable = c.claimable || 0n;
         if (c.claimed) h += '<div class="b ok" style="margin-top:8px">' + window.t("hamster.claimed", "✓ Collected") + "</div>";

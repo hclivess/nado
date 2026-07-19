@@ -43,6 +43,7 @@ from ops.log_ops import get_logger
 from ops.peer_ops import save_peer, get_remote_status, check_ip, me_to, known_peer_ips
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
+from ops import mining_history
 from protocol import GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP, CHAIN_ID, ADDRESS_PREFIX
 
 import gc  # replaces pympler/muppy — the full-heap walk fatally trips CPython GC under asyncio load
@@ -244,6 +245,59 @@ async def mining_status(request):
         return _resp(serialize(name="mining_status", output=data, compress=compress))
     except Exception as e:
         return _resp(f"Error: {e}", status=403)
+
+
+_MH_TASK = None
+
+
+async def _mining_history_maintainer():
+    """Keeps the mined-per-day index (ops/mining_history) level with the tip, forever, in the background.
+
+    The scan is block-store bound, so it runs in a thread and in bounded slices with a sleep between them:
+    this node also PRODUCES blocks, and a multi-second synchronous walk on the event loop would stall
+    that. Started lazily on the first /mining_history request, so a node nobody points a wallet at never
+    pays for the index at all. Once caught up it only folds in the handful of blocks since the last pass."""
+    while True:
+        try:
+            info = await asyncio.to_thread(mining_history.catch_up,
+                                           memserver.latest_block["block_number"],
+                                           memserver.block_time, mining_history.KEEP_DAYS, 3.0)
+            await asyncio.sleep(0.5 if info["building"] else 10.0)
+        except Exception:
+            await asyncio.sleep(30)   # a torn read / restarting store — retry, never kill the maintainer
+
+
+async def mining_history_handler(request):
+    """GET /mining_history?address=&days=7: what this address actually EARNED per UTC day, split by source —
+    {"series":[{"date","open","bonded","dividend","total"}...], "building":bool, ...}.
+
+    `account.produced` is one cumulative number, so it cannot answer "how much did I earn each day"; this
+    replays the per-block reward split from the blocks themselves, which reconciles exactly with `produced`
+    (verified across every producer on the chain) AND recovers the lane attribution that `produced` drops.
+
+    Reads a prebuilt in-memory index, so it never scans inside the request. While the index is still being
+    built the answer is a correct but partial view and `building` is true — the client says so rather than
+    showing a truthful-looking chart of an incomplete window."""
+    if _rate_limited(request, 60):
+        return _RL
+    global _MH_TASK
+    if _MH_TASK is None or _MH_TASK.done():
+        _MH_TASK = asyncio.create_task(_mining_history_maintainer())
+    address = _q(request, "address", memserver.address)
+    try:
+        days = max(1, min(mining_history.KEEP_DAYS, int(_q(request, "days", 7))))
+    except (TypeError, ValueError):
+        days = 7
+    series, covered_from = mining_history.series(address, days)
+    state = mining_history.state()
+    return _resp({"address": address, "days": days, "series": series,
+                  "total": sum(r["total"] for r in series),
+                  "open": sum(r["open"] for r in series),
+                  "bonded": sum(r["bonded"] for r in series),
+                  "dividend": sum(r["dividend"] for r in series),
+                  "building": state["building"], "covered_from": covered_from,
+                  "indexed_to": state["upto"], "tip": memserver.latest_block["block_number"],
+                  "gaps": state["gaps"]})
 
 
 async def get_recommended_fee(request):
@@ -1537,6 +1591,7 @@ async def make_app(port):
         web.get("/announce_peer", announce_peer),
         web.get("/status_pool", _dump_handler("status_pool", lambda: consensus.status_pool)),
         web.get("/mining_status", mining_status),
+        web.get("/mining_history", mining_history_handler),
         web.get("/status", status),
         web.get("/peers", _dump_handler("peers", lambda: me_to(list(memserver.peers)))),
         web.get("/geo_peers", geo_peers),
