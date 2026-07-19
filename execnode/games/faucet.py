@@ -13,8 +13,17 @@ Methods: fund()[value] · reward(idx, day, rank, addr, amount) — operator-only
 (game, day, rank) via the H(idx, day, rank) idempotency marker; an underfunded payout reverts.
 """
 from execnode import zkvmasm, runtimes
+from ops.address_ops import make_address
 
-OPERATOR = "ndoebd27698662f14ee2389e509781d5ff57487f4289a2bf2"   # the game-fleet deployer key
+# The game-fleet deployer key, identified by its PUBLIC-KEY BODY rather than a pinned address string.
+# This gate was previously a hardcoded "ndo…" address; the alphanet-7 debrand moved the operator to
+# "mldsa44…", so the digest baked into `reward` stopped matching the caller and EVERY prize payout
+# reverted on the operator-only require — the faucet could not pay a single scoreboard winner. Deriving
+# the address through make_address() means a future prefix change follows the one-constant rebrand point
+# automatically instead of silently bricking payouts again. (Re-derivation is deterministic, so the
+# assembled code is stable for a given prefix.)
+OPERATOR_PUBKEY = "ebd27698662f14ee2389e509781d5ff57487f4289a"
+OPERATOR = make_address(OPERATOR_PUBKEY)
 OP_DIG = runtimes.zkvm_addr_digest(OPERATOR)
 
 # fund(): anyone may top the prize bank up exec-side (the call's VALUE is escrowed to this contract by

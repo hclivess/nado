@@ -72,7 +72,12 @@ def leaderboard(cid, kind):
             rows = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 else []
         except Exception:
             rows = []
-        return [(a, s) for a, s in rows]
+        # Pay under the UTC day this board is FOR, not the block-day it happened to be paid on. The two
+        # clocks tick at the same nominal rate (14400 blocks x 6s = 86400s) but are offset, and drift apart
+        # whenever real block time isn't exactly 6s — so a single UTC day's board can straddle two block-days
+        # and be paid TWICE under two different idempotency keys. Keying on the ranked day makes
+        # "this board has been paid" the thing the marker actually asserts.
+        return [(a, s) for a, s in rows], day
     elif kind == "table":
         # N-seat table (hexholm): wr = the winning SEAT 1..4 (5 = dissolved/refunded — no ranking)
         sd, wr = sto.get("sd", {}), sto.get("wr", {})
@@ -99,12 +104,12 @@ def leaderboard(cid, kind):
             shots = sum(1 for c in range(100) if fmap.get(str(int(g) * 100 + c)))
             if shots < SHIPS: continue
             if winner not in best or shots < best[winner]: best[winner] = shots
-        return sorted(best.items(), key=lambda kv: kv[1])   # [(addr, shots)] ascending — fewest shots ranks first
+        return sorted(best.items(), key=lambda kv: kv[1]), None   # [(addr, shots)] ascending — fewest shots ranks first
     else:  # banked: a won, settled seat
         gd, gw, ga = sto.get("gd", {}), sto.get("gw", {}), sto.get("ga", {})
         for s in gd:
             if gd.get(s) and gw.get(s) and ga.get(s): score[ga[s]] = score.get(ga[s], 0) + 1
-    return sorted(score.items(), key=lambda kv: -kv[1])   # [(addr, wins)] descending
+    return sorted(score.items(), key=lambda kv: -kv[1]), None   # [(addr, wins)] descending; no day override
 
 def main():
     keys = load_keys()
@@ -114,18 +119,20 @@ def main():
     print(f"faucet balance {bal} · rewarding day {day}", flush=True)
     total_paid = 0
     for idx, cid, kind in GAMES:
-        board = leaderboard(cid, kind)
+        board, board_day = leaderboard(cid, kind)
+        day_key = board_day if board_day is not None else day   # per-day boards key on the day they rank
         if not board:
             print(f"  game {idx}: no leaderboard yet", flush=True); continue
-        print(f"  game {idx} ({kind}) top: " + ", ".join(f"{a[:10]}…={w}" for a, w in board[:5]), flush=True)
+        print(f"  game {idx} ({kind}, day {day_key}) top: " + ", ".join(f"{a[:10]}…={w}" for a, w in board[:5]), flush=True)
         for rank, (addr, wins) in enumerate(board[:len(SHARES)], start=1):
             amt = int(BUDGET * SHARES[rank - 1])
             if amt <= 0 or total_paid + amt > bal:
                 print(f"    rank {rank}: skip (faucet can't cover)", flush=True); continue
             r = post(construct_blob_tx(keys, {"op": "call", "contract": "faucet", "method": "reward",
-                                              "args": [idx, day, rank, addr, amt]}, tip() + 25, MIN_TX_FEE))
+                                              "args": [idx, day_key, rank, addr, amt]}, tip() + 25, MIN_TX_FEE))
             ok = bool(r.get("result"))
-            print(f"    rank {rank} {addr[:12]}… ({wins} wins) → {amt}: {'sent' if ok else r.get('message','?')[:40]}", flush=True)
+            print(f"    rank {rank} {addr[:12]}… ({wins} wins) → {amt}: "
+                  f"{'submitted (reverts on-chain if this placement was already paid)' if ok else r.get('message','?')[:40]}", flush=True)
             if ok: total_paid += amt
             time.sleep(0.5)
     print(f"submitted rewards totalling {total_paid} raw", flush=True)
