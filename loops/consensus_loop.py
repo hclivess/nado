@@ -15,6 +15,10 @@ from ops.pool_ops import get_from_pool
 TIP_BENCH_BASE_S = 12
 TIP_BENCH_MAX_S = 600
 TIP_BENCH_FORGET_S = 1800
+# Consecutive failures against a LONE peer's chain before that peer leaves fork choice entirely. Three is
+# deliberately more than a blip: benching a peer is how the node stops chasing an unobtainable fork, and it
+# is also how the node could go blind to a real chain, so it must never fire on a transient fetch error.
+PEER_BENCH_AFTER = 3
 
 
 def get_pool_majority(pool):
@@ -109,10 +113,20 @@ class ConsensusClient(threading.Thread):
         self._tip_strikes[tip_hash] = n
         self._tip_until[tip_hash] = time.monotonic() + min(TIP_BENCH_BASE_S * (2 ** (n - 1)), TIP_BENCH_MAX_S)
         self.rejected_tips.add(tip_hash)
-        for peer, h in self.block_hash_pool.copy().items():
-            if h == tip_hash:
-                self._peer_strikes[peer] = pn = self._peer_strikes.get(peer, 0) + 1
-                self._peer_until[peer] = time.monotonic() + min(TIP_BENCH_BASE_S * (2 ** (pn - 1)), TIP_BENCH_MAX_S)
+        # Striking the PEER is the strong move, so it is reserved for the shape that actually needs it: a
+        # LONE fork. If several peers advertise this tip it is a chain the network holds and our failure to
+        # fetch it says more about us than about them — benching those peers would make the node ignore the
+        # real chain for minutes, which is a far worse failure than the one being fixed. A single peer
+        # advertising a tip nobody else has, repeatedly unobtainable, is the moving-target forker.
+        # The strike count has to live on the PEER, not the hash: the forker's hash is new every block, so a
+        # per-hash counter is stuck at 1 forever and would never reach the threshold.
+        holders = [p for p, h in self.block_hash_pool.copy().items() if h == tip_hash]
+        if len(holders) == 1:
+            p = holders[0]
+            self._peer_strikes[p] = pn = self._peer_strikes.get(p, 0) + 1
+            if pn >= PEER_BENCH_AFTER:
+                self._peer_until[p] = time.monotonic() + min(
+                    TIP_BENCH_BASE_S * (2 ** (pn - PEER_BENCH_AFTER)), TIP_BENCH_MAX_S)
         return n
 
     def tip_source_benched(self, peer):

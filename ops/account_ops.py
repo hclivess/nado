@@ -435,7 +435,13 @@ def get_finalized_height() -> int:
 
 
 def set_finalized_height(height: int):
-    """Persist the finalized-height floor. Callers MUST keep it monotonic (only ever increase it)."""
+    """Persist the finalized-height floor. Callers MUST keep it monotonic (only ever increase it).
+
+    ONE deliberate exception: core_loop._rejoin_by_rollback lowers it to the common ancestor when the node
+    is provably isolated on a minority fork — a strict majority of a real peer mesh is on one other heavier
+    chain, no donor can serve ours, and no snapshot exists to re-anchor to. At that point the floor is not
+    protecting consensus, it is the only thing keeping the node off it. Do not "restore monotonicity" there
+    without replacing the recovery path it implements."""
     kv_ops.meta_set_int("finalized_height", int(height))
 
 
