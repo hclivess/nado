@@ -10,7 +10,7 @@ import { H, provableSeed, unpackMoves } from "./provable.js";
 export const SLUG = "hamster";
 export const RACES = 8;         // races in a day's slate
 export const NH = 6;            // hamsters per race
-export const RACE_LEN = 6;      // race blocks
+export const RACE_LEN = 10;     // race blocks — matches the live bet-race (~1 min); each block advances every hamster
 export const GENE_SPREAD = 8;   // speed = 1 + rng % 8   (1..8), mirrors the on-chain feel
 export const STEP_BASE = 6;     // per-block step = rng % (speed + 6)
 export const PICK_BITS = 3;     // a pick is a lane 0..5 -> 3 bits; RACES picks pack into ONE word (<2^50)

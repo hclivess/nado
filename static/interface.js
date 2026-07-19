@@ -2060,8 +2060,6 @@ function _decodeArg(a) { return (a && typeof a === "object" && "$big" in a) ? Bi
 async function resumePendingExecSign() {
   const req = pendingExecSign;
   if (!req) return;
-  await initNetTag().catch(() => {});   // adopt the relay's CURRENT chain_id BEFORE signing — a game tx signed with a
-                                        // stale chain_id is rejected ("wrong chain id"); the boot call can still be racing
   // BACKGROUND signing: a game loaded us in a hidden iframe (bg=1) for a value-free autosign. We postMessage
   // the result to the game's origin instead of navigating. Anything that would need UI (locked wallet, an
   // untrusted origin, a manual confirm) posts {needui} so the game falls back to the visible full-page redirect.
@@ -2101,6 +2099,10 @@ async function resumePendingExecSign() {
     back(c ? "ok=1&addr=" + state.wallet.address : "ok=0");
     return;
   }
+  // Everything below BUILDS A SIGNED TX, so adopt the relay's CURRENT chain_id first (a tx signed with a stale
+  // chain_id is rejected "wrong chain id"; the boot initNetTag can still be racing). Sign-in (connect) above
+  // needs no tx and must never be blocked by this /status fetch.
+  await initNetTag().catch(() => {});
   if (call.deposit) {   // BRIDGE DEPOSIT: move the user's OWN L1 funds into their OWN exec balance (safe, bounded — no third-party recipient)
     let amt; try { amt = BigInt(call.deposit.amount); } catch (e) { back("ok=0&err=bad+amount"); return; }
     if (amt <= 0n) { back("ok=0"); return; }
