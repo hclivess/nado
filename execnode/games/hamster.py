@@ -23,8 +23,9 @@ from blocks mined AFTER betting closes (unknown to every bettor). So knowing the
 winner — you're reading form + the live tote (the pool ratios), exactly like a racetrack. The contract only
 escrows and redistributes: it never mints, never profits, never owes more than the pot it holds.
 
-PROTECTIONS. If the chain-picked winner had ZERO backers the pot is unpayable, so settle AUTO-VOIDS the race
-(every stake refunds 1:1 via claim). And if a race is never settled within the safety window it can be
+PROTECTIONS. If the chain-picked winner had ZERO backers the PARIMUTUEL pot is unpayable, so settle AUTO-VOIDS
+the race (every stake refunds 1:1 via claim). A race traded only on the BOOK has no such pot and settles
+normally, so the bank market still pays. And if a race is never settled within the safety window it can be
 void()ed by anyone past fh + VOID_AFTER, so a pot can never be stranded.
 
 zkVM data model: race ids are ints < 2^32. Money is tracked in UNITs of 10^4 raw NADO (stakes must be UNIT
@@ -48,6 +49,12 @@ BC = 9                                              # distinct bettors so far �
 PL_BASE, DI_BASE = 16, 24
 RLIST = 40
 TG_STK, TG_US, TG_CL = 101, 102, 103
+# --- FIXED-ODDS BOOK (play against a bank, no waiting for a second punter) ---
+BK, BR, BS, BD = 10, 11, 12, 13        # bank digest · bankroll(UNITs) · stakes taken(UNITs) · swept flag
+OD_BASE = 30                            # 30..35: quoted odds per lane, in PERCENT (100 = 1.00x)
+BP_BASE = 41                            # 41..46: per-lane TOTAL committed payout (UNITs)
+TG_BSTK, TG_BPAY, TG_BCL = 104, 105, 106
+ODDS_CAP = 100_000                      # 1000x — a sane bound so odds*stake stays far inside the field
 # --- free Daily Derby board (provable practice, faucet-rewarded — doc/provable-practice.md) ---
 DCNT_SLOT, ECNT_SLOT = 2, 3                         # bare index-count slots (slot 0 = races count)
 E_DAY, E_ADDR, E_SCORE, E_N = 50, 51, 52, 53       # per-entry fields
@@ -168,9 +175,14 @@ def _settle():
         L += [f"slot r4 {DI_BASE + h} r0", "sload r5 r4",
               "mov r6 r1", "lt r6 r5", f"jnz r6 @better{h}", f"jmp @next{h}",
               f"better{h}:", "mov r1 r5", f"movi r2 {h}", f"next{h}:"]
-    # auto-void if the winning lane's pool is empty (unpayable) -> vd = (pool[winner]==0)
+    # AUTO-VOID: a parimutuel pot whose winning lane has no backers is unpayable, so the race voids and
+    # every stake refunds. But that must NOT fire when there is no parimutuel pot at all — a race can be
+    # traded purely on the BOOK (bank vs punters), and voiding it would cancel a market that is perfectly
+    # payable. So: vd = (pot > 0) AND (pool[winner] == 0). Both terms are 0/1, so mul is the AND.
     L += [f"movi r4 {PL_BASE}", "add r4 r2", f"movi r5 {_2_32}", "mul r4 r5", "add r4 r0",
-          "sload r5 r4", "nez r5", "notb r5"] + _sl(VD) + ["sstore r4 r5"]
+          "sload r5 r4", "nez r5", "notb r5"]                        # r5 = winner pool is empty
+    L += _sl(TOT) + ["sload r6 r4", "nez r6", "mul r5 r6"]           # AND there was a pot to strand
+    L += _sl(VD) + ["sstore r4 r5"]
     # wn = winner + 1 ; sd = 1
     L += ["mov r5 r2", "movi r6 1", "add r5 r6"] + _sl(WN) + ["sstore r4 r5"]
     L += _sl(SD) + ["movi r5 1", "sstore r4 r5", "ret r0"]
@@ -246,7 +258,124 @@ CLAIMED_OF = "\n".join(_hash_slot("r3", TG_CL, "r0", "r1") + ["sload r3 r3", "re
 POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, DAILY_WORDS, max_n=8, max_score=200000)
 ANCHOR = _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST)
 
+# ---- FIXED-ODDS BOOK ------------------------------------------------------------------------------
+# The parimutuel race needs a crowd: your money is only matched by other punters, so a lone player waits.
+# A BOOK fixes that by putting a bank on the other side — it posts a bankroll, quotes a price per lane,
+# and anyone can back a hamster immediately at that price. Both markets run on the SAME race and the same
+# block-hash result; they only differ in who your counterparty is.
+#
+# The bank is NOT the house in the "trust us" sense: it can lose. Solvency is enforced per bet — after
+# every stake the contract requires this lane's TOTAL committed payout to be covered by bankroll + all
+# stakes taken (only one lane can win, so that is exactly the worst case) — and the quoted odds are public
+# on-chain, so the client can show the fair price beside them and let a player see the margin they accept.
+
+# book(race)[value]: post (or top up) the bankroll. First caller becomes the bank; only they may add more.
+BOOK = "\n".join(
+    ["ctx r3 value", "movi r2 0", "lt r2 r3", "require r2",
+     f"movi r5 {UNIT}", "divmod r3 r5",
+     "mov r2 r7", "nez r2", "notb r2", "require r2",                 # value % UNIT == 0
+     "movi r2 0", "lt r2 r3", "require r2"]                          # units > 0
+    + _race_open()
+    + ["ctx r6 caller"]
+    + _sl(BK) + ["sload r5 r4", "mov r2 r5", "nez r2", "notb r2", "jnz r2 @setbank",
+                 "eq r5 r6", "require r5", "jmp @addroll",           # a bank exists -> must be the caller
+                 "setbank:"]
+    + _sl(BK) + ["sstore r4 r6", "addroll:"]
+    + _sl(BR) + ["sload r5 r4", "add r5 r3", "sstore r4 r5", "ret r0"])
+
+# quote(race, lane, odds): the bank's price for one lane, in percent (250 = 2.5x). Bank only, and only
+# while the race is still open — a price can be moved as the book fills, but never after the off.
+QUOTE = "\n".join(
+    _race_open()
+    + ["ctx r6 caller"]
+    + _sl(BK) + ["sload r5 r4", "mov r3 r5", "nez r3", "require r3",  # a book exists
+                 "eq r5 r6", "require r5"]                            # caller is the bank
+    + ["mov r5 r1", f"movi r3 {NH}", "lt r5 r3", "require r5"]        # lane in range
+    + ["movi r5 100", "lt r5 r2", "require r5",                       # odds > 1.00x
+       f"movi r5 {ODDS_CAP}", "mov r3 r2", "lt r3 r5", "require r3"]  # and sane
+    + [f"movi r4 {OD_BASE}", "add r4 r1", f"movi r5 {_2_32}", "mul r4 r5", "add r4 r0",
+       "sstore r4 r2", "ret r0"])
+
+# back(race, lane)[stake]: take the bank's price. Locks YOUR payout at the odds quoted right now, so a
+# later re-quote cannot change what you are owed.
+BACK = "\n".join(
+    ["ctx r3 value", "movi r2 0", "lt r2 r3", "require r2",
+     f"movi r5 {UNIT}", "divmod r3 r5",
+     "mov r2 r7", "nez r2", "notb r2", "require r2",
+     "movi r2 0", "lt r2 r3", "require r2"]                          # r3 = stake units
+    + _race_open()
+    # genes must be locked: the price only means something once the speeds are public
+    + ["ctx r5 cursor"] + _sl(GH) + ["sload r6 r4", "lt r5 r6", "notb r5", "require r5"]
+    # betting open (lk == 0 means the clock has not started yet)
+    + _sl(LK) + ["sload r6 r4", "mov r2 r6", "nez r2", "notb r2", "jnz r2 @bopen",
+                 "ctx r5 cursor", "lt r5 r6", "require r5", "bopen:"]
+    + ["mov r5 r1", f"movi r6 {NH}", "lt r5 r6", "require r5"]        # lane in range
+    # payout = stake * odds / 100, at the CURRENT quote
+    + [f"movi r4 {OD_BASE}", "add r4 r1", f"movi r5 {_2_32}", "mul r4 r5", "add r4 r0",
+       "sload r6 r4", "movi r5 100", "lt r5 r6", "require r5",        # lane must be priced
+       "mov r2 r3", "mul r2 r6", "movi r5 100", "divmod r2 r5",       # r2 = payout units
+       "movi r5 0", "lt r5 r2", "require r5"]
+    # SOLVENCY, checked on every bet: this lane's total payout must be covered by bankroll + all stakes.
+    # Only one lane can win, so covering each lane separately covers every outcome.
+    + _sl(BS) + ["sload r5 r4", "add r5 r3", "sstore r4 r5"]          # r5 = stakes after this one
+    + [f"movi r4 {BP_BASE}", "add r4 r1", f"movi r6 {_2_32}", "mul r4 r6", "add r4 r0",
+       "sload r6 r4", "add r6 r2", "sstore r4 r6"]                    # r6 = this lane's payout after this
+    + _sl(BR) + ["sload r4 r4", "add r4 r5", "movi r5 1", "add r4 r5",
+                 "lt r6 r4", "require r6"]                            # lanePayout <= bankroll + stakes
+    # per-punter record: stake and the payout locked at this price
+    + ["ctx r5 caller", f"movi r4 {TG_BSTK}", "hash r6 <- r4 r0 r1 r5",
+       "sload r4 r6", "add r4 r3", "sstore r6 r4",
+       "ctx r5 caller", f"movi r4 {TG_BPAY}", "hash r6 <- r4 r0 r1 r5",
+       "sload r4 r6", "add r4 r2", "sstore r6 r4"]
+    # THE POINT OF ALL THIS: one backed bet starts the race. With a bank on the other side there is nobody
+    # left to wait for, so a lone player is never parked in front of a clock that will not start.
+    + _sl(LK) + ["sload r5 r4", "nez r5", "jnz r5 @bdone"]
+    + ["ctx r5 cursor", f"movi r6 {BET_BLOCKS}", "add r5 r6"] + _sl(LK) + ["sstore r4 r5"]
+    + [f"movi r6 {RACE_LEN}", "add r5 r6"] + _sl(FH) + ["sstore r4 r5"]
+    + ["bdone:", "ret r0"])
+
+# bclaim(race): a punter collects. Settled -> the payout locked on the winning lane; void -> every stake back.
+BCLAIM = "\n".join(
+    _sl(SD) + ["sload r5 r4"] + _sl(VD) + ["sload r6 r4", "add r5 r6", "nez r5", "require r5"]
+    + ["ctx r1 caller", f"movi r4 {TG_BCL}", "hash r2 <- r4 r0 r1",
+       "sload r5 r2", "nez r5", "notb r5", "require r5",              # not already collected
+       "movi r5 1", "sstore r2 r5"]
+    # BRANCH ON WHETHER THE RACE RAN, not on the void flag. A race can be auto-voided because the
+    # PARIMUTUEL pot was unpayable (winner had no pool backers) while still having a perfectly good
+    # result — settle recorded the winner. Refunding the book there would hand punters a free option:
+    # back a lane, and if some unbacked lane happens to win, get the stake back instead of losing it.
+    # So the book pays on the result whenever sd is set, and only refunds when there is NO result at
+    # all (the void() timeout path, where the race never settled).
+    + _sl(SD) + ["sload r2 r4", "nez r2", "notb r2", "jnz r2 @bvoid"]
+    + _sl(WN) + ["sload r5 r4", "movi r6 1", "sub r5 r6"]             # r5 = winning lane
+    + ["ctx r6 caller", f"movi r4 {TG_BPAY}", "hash r2 <- r4 r0 r5 r6", "sload r3 r2", "jmp @bpay"]
+    + ["bvoid:", "movi r3 0"]
+    + [op for L in range(NH) for op in
+       ["ctx r6 caller", f"movi r4 {TG_BSTK}", f"movi r5 {L}", "hash r2 <- r4 r0 r5 r6",
+        "sload r5 r2", "add r3 r5"]]
+    + ["bpay:", "movi r5 0", "lt r5 r3", "require r5",
+       f"movi r6 {UNIT}", "mul r3 r6", "ctx r1 caller", "pay r1 r3", "ret r3"])
+
+# bsweep(race): the bank takes back what the result left it — bankroll plus every losing stake, minus what
+# the winning lane owes. On a void the punters reclaim their own stakes, so the bank simply gets its roll.
+BSWEEP = "\n".join(
+    _sl(SD) + ["sload r5 r4"] + _sl(VD) + ["sload r6 r4", "add r5 r6", "nez r5", "require r5"]
+    + ["ctx r6 caller"]
+    + _sl(BK) + ["sload r5 r4", "mov r3 r5", "nez r3", "require r3", "eq r5 r6", "require r5"]
+    + _sl(BD) + ["sload r5 r4", "nez r5", "notb r5", "require r5",    # once only
+                 "movi r5 1", "sstore r4 r5"]
+    + _sl(BR) + ["sload r3 r4"]                                       # r3 = bankroll
+    + _sl(SD) + ["sload r2 r4", "nez r2", "notb r2", "jnz r2 @bswvoid"]   # no result -> just the roll back
+    + _sl(BS) + ["sload r5 r4", "add r3 r5"]                          # + every stake taken
+    + _sl(WN) + ["sload r5 r4", "movi r6 1", "sub r5 r6"]             # winning lane
+    + [f"movi r4 {BP_BASE}", "add r4 r5", f"movi r6 {_2_32}", "mul r4 r6", "add r4 r0",
+       "sload r6 r4", "sub r3 r6"]                                    # - what that lane is owed
+    + ["bswvoid:", "movi r5 0", "lt r5 r3", "require r5",
+       f"movi r6 {UNIT}", "mul r3 r6", "ctx r1 caller", "pay r1 r3", "ret r3"])
+
+
 SRC = {"open": OPEN, "bet": BET, "settle": SETTLE, "claim": CLAIM, "void": VOID,
+       "book": BOOK, "quote": QUOTE, "back": BACK, "bclaim": BCLAIM, "bsweep": BSWEEP,
        "claimable_of": CLAIMABLE_OF, "stake_of": STAKE_OF, "total_of": TOTAL_OF, "claimed_of": CLAIMED_OF,
        "post": POST, "anchor": ANCHOR}
 
@@ -256,6 +385,11 @@ ABI = {
     "settle": {"args": ["raceId"]},
     "claim": {"args": ["raceId"]},
     "void": {"args": ["raceId"]},
+    "book": {"args": ["raceId"], "value": True},
+    "quote": {"args": ["raceId", "lane", "odds"]},
+    "back": {"args": ["raceId", "lane"], "value": True},
+    "bclaim": {"args": ["raceId"]},
+    "bsweep": {"args": ["raceId"]},
     "claimable_of": {"args": ["raceId", "addr"]},
     "stake_of": {"args": ["raceId", "lane", "addr"]},
     "total_of": {"args": ["raceId", "addr"]},
@@ -268,6 +402,8 @@ ABI = {
                  "tot": {"field": TOT, "index": "races"}, "sd": {"field": SD, "index": "races"},
                  "wn": {"field": WN, "index": "races"}, "vd": {"field": VD, "index": "races"},
                  "bc": {"field": BC, "index": "races"},
+                 "bk": {"field": BK, "index": "races"}, "br": {"field": BR, "index": "races"},
+                 "bs": {"field": BS, "index": "races"}, "bd": {"field": BD, "index": "races"},
                  # Daily Derby board: per-entry fields + the day anchor
                  "eday": {"field": E_DAY, "index": "entries"}, "eaddr": {"field": E_ADDR, "index": "entries"},
                  "escore": {"field": E_SCORE, "index": "entries"}, "en": {"field": E_N, "index": "entries"},
@@ -276,10 +412,14 @@ ABI = {
         "indexes": {"races": {"cnt": 0, "list": RLIST}, "entries": {"cnt": ECNT_SLOT, "list": ELIST},
                     "days": {"cnt": DCNT_SLOT, "list": DLIST}},
         "board": {"name": "pl", "base": PL_BASE, "cells": NH, "stride": NH, "index": "races"},
-        "addr": ["eaddr"],
+        "addr": ["eaddr", "bk"],
     },
 }
 ABI["_view"]["board2"] = {"name": "di", "base": DI_BASE, "cells": NH, "stride": NH, "index": "races"}
+# the BOOK's two per-lane boards: the bank's quoted price and what it has already committed there,
+# so a client can show the price beside the tote AND how much room is left before the bank is full.
+ABI["_view"]["board3"] = {"name": "od", "base": OD_BASE, "cells": NH, "stride": NH, "index": "races"}
+ABI["_view"]["board4"] = {"name": "bp", "base": BP_BASE, "cells": NH, "stride": NH, "index": "races"}
 
 
 def build():

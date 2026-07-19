@@ -90,6 +90,15 @@ function readRace(sto, id) {
   for (let l = 0; l < NH; l++) { pools.push(BigInt(_m(sto, "pl")[Number(id) * NH + l] || 0) * UNIT); di.push(Number(_m(sto, "di")[Number(id) * NH + l] || 0)); }
   const sd = !!_m(sto, "sd")[id], vd = !!_m(sto, "vd")[id], wn = Number(_m(sto, "wn")[id] || 0);
   const bc = Number(_m(sto, "bc")[id] || 0);
+  // THE BOOK (bank vs punters) — a second market on the same race, so a lone player never waits for a
+  // crowd. od = the bank's price per lane in percent, bp = what it has already committed there.
+  const bank = _m(sto, "bk")[id] || null;
+  const br = BigInt(_m(sto, "br")[id] || 0) * UNIT, bs = BigInt(_m(sto, "bs")[id] || 0) * UNIT;
+  const od = [], bp = [];
+  for (let l = 0; l < NH; l++) {
+    od.push(Number(_m(sto, "od")[Number(id) * NH + l] || 0));
+    bp.push(BigInt(_m(sto, "bp")[Number(id) * NH + l] || 0) * UNIT);
+  }
   const cur = dapp.cursor;
   // lk/fh are 0 until the SECOND distinct bettor starts the countdown, so "cursor >= lk" would otherwise
   // read an unstarted race as already racing. That gap is its own phase: betting is open, the clock isn't.
@@ -99,7 +108,8 @@ function readRace(sto, id) {
     : (cur != null && cur >= fh) ? "settling"
     : (cur != null && cur >= lk) ? "racing"
     : (cur != null && cur >= gh) ? "betting" : "incubating";
-  return { id: Number(id), exists: true, gh, lk, fh, tot, pools, di, sd, vd, wn, bc, cur, phase, started };
+  return { id: Number(id), exists: true, gh, lk, fh, tot, pools, di, sd, vd, wn, bc, cur, phase, started,
+           bank, br, bs, od, bp };
 }
 const allRaces = (sto) => Object.keys(_m(sto, "ra")).map((id) => readRace(sto, id)).filter((r) => r.exists);
 // live tote odds for a lane: whole pot ÷ that lane's pool (what a winning unit pays back).
@@ -115,6 +125,77 @@ async function refreshMy(r) {
   if (claimed != null) c.claimed = Number(claimed);
   if (c.total > 0n) c.stakes = (await Promise.all([...Array(NH)].map((_x, l) => dapp.view("stake_of", [r.id, l, dapp.me])))).map((v) => BigInt(v || 0));
 }
+
+
+// ---- THE BOOK: fixed odds against a bank ----------------------------------------------------------
+// fairOdds(speeds): the TRUE chance each hamster wins, so the bank's price can be shown next to what the
+// race is actually worth. A lane's distance is the sum of RACE_LEN draws, each uniform on 0..speed+5, so
+// the distribution is an exact convolution — no simulation, no guessing. The client computes it purely to
+// keep the bank honest in the open: you always see the margin you are being asked to accept.
+function fairOdds(speeds) {
+  const dist = speeds.map((sp) => {
+    const faces = sp + STEP_BASE;                       // draws are 0..faces-1
+    let d = [1];
+    for (let k = 0; k < RACE_LEN; k++) {
+      const n = new Array(d.length + faces - 1).fill(0);
+      for (let i = 0; i < d.length; i++) if (d[i]) for (let f = 0; f < faces; f++) n[i + f] += d[i] / faces;
+      d = n;
+    }
+    return d;
+  });
+  // P(lane w wins) = Σ_x P(w = x) · Π_{o<w} P(o < x) · Π_{o>w} P(o <= x)   (ties break to the LOWEST lane,
+  // exactly as the contract does, so the numbers describe the real payout rule rather than an idealised one)
+  const cdfLt = dist.map((d) => { const c = [0]; for (let i = 0; i < d.length; i++) c.push(c[i] + d[i]); return c; });
+  const at = (c, x) => c[Math.max(0, Math.min(c.length - 1, x))];
+  return speeds.map((_sp, w) => {
+    let p = 0;
+    for (let x = 0; x < dist[w].length; x++) {
+      const pw = dist[w][x]; if (!pw) continue;
+      let prod = pw;
+      for (let o = 0; o < speeds.length; o++) {
+        if (o === w) continue;
+        prod *= o < w ? at(cdfLt[o], x) : at(cdfLt[o], x + 1);   // lower lanes must be STRICTLY below
+        if (!prod) break;
+      }
+      p += prod;
+    }
+    return p;
+  });
+}
+
+function bankRace() {
+  const r = lastRace; if (!r || !r.exists) return;
+  if (!dapp.me) return dapp.signIn();
+  const raw = nadoToRaw($("bookAmt").value || "0");
+  if (!raw) return alertBar(window.t("hamster.enterBank", "Enter a bankroll in NADO — this is what you put up to take the other side."));
+  if (raw % UNIT !== 0n) return alertBar(window.t("hamster.unitStake", "Stakes are in whole units of {u} NADO — round to the nearest {u}.", { u: rawToNado(UNIT) }));
+  if (dapp.busy("book", "race", r.id)) return notify(confirmingLabel());
+  dapp.call("book", [r.id], raw, window.t("hamster.callBook", "bank race #{r} with {amt} NADO", { r: r.id, amt: rawToNado(raw) }), { race: r.id, phase: "book" });
+}
+
+function quoteLane(lane, pct) {
+  const r = lastRace; if (!r || !r.exists || !dapp.me) return;
+  dapp.call("quote", [r.id, lane, pct], null, window.t("hamster.callQuote", "price lane {l} at {x}x", { l: lane + 1, x: (pct / 100).toFixed(2) }), { race: r.id, lane, phase: "quote" });
+}
+
+function backLane(lane) {
+  const r = lastRace; if (!r || !r.exists) return;
+  if (!dapp.me) return dapp.signIn();
+  const stake = nadoToRaw($("stakeAmt").value || "0");
+  if (!stake) return alertBar(window.t("hamster.enterStake", "Enter a stake in NADO."));
+  if (stake % UNIT !== 0n) return alertBar(window.t("hamster.unitStake", "Stakes are in whole units of {u} NADO — round to the nearest {u}.", { u: rawToNado(UNIT) }));
+  const pct = r.od[lane];
+  if (!pct || pct <= 100) return alertBar(window.t("hamster.noPrice", "The bank hasn't priced this hamster."));
+  const payout = (stake * BigInt(pct)) / 100n;
+  if (r.bp[lane] + payout > r.br + r.bs + stake) {
+    return alertBar(window.t("hamster.bankFull", "The bank can't cover that on this hamster — try a smaller stake."));
+  }
+  if (dapp.busy("back", "race", r.id)) return notify(confirmingLabel());
+  dapp.call("back", [r.id, lane], stake, window.t("hamster.callBack", "back {name} at {x}x for {amt} NADO", { name: "#" + (lane + 1), x: (pct / 100).toFixed(2), amt: rawToNado(stake) }), { race: r.id, lane, phase: "back" });
+}
+
+const bclaimRace = (id) => { if (dapp.busy("bclaim", "race", id)) return; dapp.call("bclaim", [id], null, window.t("hamster.callBclaim", "collect race #{r} book winnings", { r: id }), { race: id, phase: "bclaim" }); };
+const bsweepRace = (id) => { if (dapp.busy("bsweep", "race", id)) return; dapp.call("bsweep", [id], null, window.t("hamster.callBsweep", "sweep the book on race #{r}", { r: id }), { race: id, phase: "bsweep" }); };
 
 // ---- actions -------------------------------------------------------------------------------------
 function openRace() {
@@ -312,7 +393,8 @@ function hamsterSVG(coat, leading) {
 function wireUI() {
   wireWallet(dapp);
   dapp.wirePctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, () => dapp.exec, () => render());
-  stickyInputs(dapp, ["stakeAmt", "bankAmt"]);
+  stickyInputs(dapp, ["stakeAmt", "bankAmt", "bookAmt"]);
+  if ($("btnBook")) $("btnBook").onclick = bankRace;
   if ($("btnNewRace")) $("btnNewRace").onclick = openRace;
   if ($("btnShare")) $("btnShare").onclick = () => share(base() + "/?race=" + active, window.t("hamster.shareText", "Bet on the hamsters at NADO — race #{r}:", { r: active }), $("btnShare"));
   dapp.wireAutoCollect();
@@ -331,7 +413,7 @@ function render() {
       hint: window.t("hamster.tabDailyHint", "Today's free provable challenge — the faucet pays the daily leaders.") },
   ], mode, (k) => { mode = k; render(); });
   gate({ opencard: betMode, lobby: betMode, bankroll: betMode && signedIn, activeRace: betMode && active != null,
-         dailyCard: !betMode });
+         bookcard: betMode && signedIn && active != null, dailyCard: !betMode });
   if (!betMode) { renderDaily(); return; }
   if (active == null) return;
   const r = lastRace;
@@ -344,9 +426,15 @@ function render() {
   const toTime = (blocks) => blocksToTime(Math.max(0, blocks));
   let state;
   if (r.phase === "incubating") state = window.t("hamster.stWarm", "🥚 Warming up — genes lock at block {b} (~{t})", { b: r.gh, t: toTime(r.gh - (r.cur || r.gh)) });
-  else if (r.phase === "waiting") state = r.bc >= 1
-    ? window.t("hamster.stWaitOne", "⏳ One backer in — the {n}-block countdown starts the moment a SECOND player backs a hamster. Bet now to start the race.", { n: BET_BLOCKS })
-    : window.t("hamster.stWaitNone", "⏳ Open for bets — the countdown starts once TWO different players have backed a hamster. Be the first!");
+  else if (r.phase === "waiting") {
+    // with a BANK on the race there is nobody left to wait for: one bet at its price starts the clock.
+    const priced = r.bank && r.od.some((x) => x > 100);
+    state = priced
+      ? window.t("hamster.stWaitBank", "🏦 The bank is taking bets — back a hamster at its price and the race starts straight away ({n}-block countdown). Or join the pool and wait for another punter.", { n: BET_BLOCKS })
+      : r.bc >= 1
+        ? window.t("hamster.stWaitOne", "⏳ One backer in — the {n}-block countdown starts the moment a SECOND player backs a hamster. Bet now to start the race.", { n: BET_BLOCKS })
+        : window.t("hamster.stWaitNone", "⏳ Open for bets — the countdown starts once TWO different players have backed a hamster. Be the first, or bank the race yourself so anyone can play at once.");
+  }
   else if (r.phase === "betting") state = window.t("hamster.stBet", "🟢 Betting OPEN — closes at block {b} (~{t}). Read the form, then back a hamster!", { b: r.lk, t: toTime(r.lk - (r.cur || r.lk)) });
   else if (r.phase === "racing") { const lap = rows ? Math.max(0, ...rows.map((x) => x.blocks)) : 0; state = window.t("hamster.stRun", "🏁 And they're off — lap {k}/{n}! Each block nudges every hamster by its own step. Finish in ~{t}.", { k: lap, n: RACE_LEN, t: toTime(r.fh - (r.cur || r.fh)) }); }
   else if (r.phase === "settling") state = window.t("hamster.stPhoto", "📸 Photo finish — settling the result on-chain…");
@@ -374,16 +462,50 @@ function render() {
   const bp = $("betPanel");
   if ((r.phase === "betting" || r.phase === "waiting") && rows) {
     dapp.syncPctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, dapp.exec);
-    const busy = dapp.busy("bet", "race", r.id);
-    bp.innerHTML = '<div class="small dim" style="margin-bottom:8px">' + window.t("hamster.toteHint", "Odds are the live tote — whole pot ÷ a lane's pool. They shift as bets come in. Speed is the hamster's form (higher = faster on average).") + "</div>"
-      + rows.map((row, l) => {
-        const o = oddsOf(r, l), myU = (myCache[r.id] && myCache[r.id].stakes && myCache[r.id].stakes[l]) || 0n;
-        return '<div class="betrow"><span class="be">' + laneEmoji[l] + "</span><b>" + esc(row.name) + '</b> <span class="dim">' + window.t("hamster.spd", "spd {s}", { s: row.speed }) + "</span>"
-          + '<span class="odds">' + (o ? o.toFixed(2) + "×" : window.t("hamster.noBets", "no bets")) + "</span>"
-          + (myU > 0n ? '<span class="b ok" title="your stake">' + rawToNado(myU) + "</span>" : "")
-          + '<button class="mini primary" data-back="' + l + '"' + (busy ? " disabled" : "") + ">" + (busy ? confirmingLabel() : window.t("hamster.back", "Back")) + "</button></div>";
-      }).join("");
+    const busy = dapp.busy("bet", "race", r.id), bbusy = dapp.busy("back", "race", r.id);
+    // TWO markets on one race: the tote (your money matched by other punters) and the BOOK (matched by a
+    // bank at a fixed price). The book is what lets a lone player race immediately. The fair price is
+    // shown next to the bank's so the margin being asked for is never hidden.
+    const fair = fairOdds(rows.map((x) => x.speed));
+    const iAmBank = !!(r.bank && dapp.me && r.bank === dapp.me);
+    let h = '<div class="small dim" style="margin-bottom:8px">' + window.t("hamster.toteHint", "Odds are the live tote — whole pot ÷ a lane's pool. They shift as bets come in. Speed is the hamster's form (higher = faster on average).") + "</div>";
+    h += rows.map((row, l) => {
+      const o = oddsOf(r, l), myU = (myCache[r.id] && myCache[r.id].stakes && myCache[r.id].stakes[l]) || 0n;
+      const pct = r.od[l] || 0, priced = pct > 100;
+      const fairX = fair[l] > 0.000001 ? 1 / fair[l] : 0;
+      const room = r.br + r.bs - r.bp[l];      // how much more this lane can be committed to
+      return '<div class="betrow"><span class="be">' + laneEmoji[l] + "</span><b>" + esc(row.name) + '</b> <span class="dim">' + window.t("hamster.spd", "spd {s}", { s: row.speed }) + "</span>"
+        + '<span class="odds" title="' + window.t("hamster.toteTip", "live tote price") + '">' + (o ? o.toFixed(2) + "×" : window.t("hamster.noBets", "no bets")) + "</span>"
+        + (fairX ? '<span class="fair" title="' + window.t("hamster.fairTip", "the mathematically fair price for this hamster's form — anything shorter is the bank's margin") + '">' + window.t("hamster.fairLbl", "fair {x}×", { x: fairX.toFixed(2) }) + "</span>" : "")
+        + (myU > 0n ? '<span class="b ok" title="your stake">' + rawToNado(myU) + "</span>" : "")
+        + '<button class="mini" data-back="' + l + '"' + (busy ? " disabled" : "") + ' title="' + window.t("hamster.toteBtnTip", "join the pool — paid from the whole pot, split with everyone else on this hamster") + '">' + (busy ? confirmingLabel() : window.t("hamster.back", "Pool")) + "</button>"
+        + (priced
+            ? '<button class="mini primary" data-bookback="' + l + '"' + (bbusy || room <= 0n ? " disabled" : "") + ' title="' + window.t("hamster.bankBtnTip", "take the bank's fixed price — settles instantly against the bank, no need to wait for anyone else") + '">' + (bbusy ? confirmingLabel() : (pct / 100).toFixed(2) + "×") + "</button>"
+            : '<span class="small faint" title="' + window.t("hamster.unpricedTip", "the bank has not priced this hamster") + '">—</span>')
+        + "</div>";
+    }).join("");
+    // the bank's own desk: post a roll, then price each hamster
+    if (iAmBank) {
+      h += '<div class="bankdesk"><div class="small dim">' + window.t("hamster.bankDesk", "You are the bank on this race — roll {r} NADO, {s} taken in stakes. Price a hamster to accept bets on it.", { r: rawToNado(r.br), s: rawToNado(r.bs) }) + "</div>"
+        + rows.map((row, l) => {
+            const fairX = fair[l] > 0.000001 ? 1 / fair[l] : 0;
+            return '<div class="qrow"><span class="be">' + laneEmoji[l] + "</span><b>" + esc(row.name) + "</b>"
+              + (fairX ? '<span class="fair">' + window.t("hamster.fairLbl", "fair {x}×", { x: fairX.toFixed(2) }) + "</span>" : "")
+              + '<input class="qin" data-q="' + l + '" inputmode="decimal" placeholder="' + (fairX ? (fairX * 0.9).toFixed(2) : "2.00") + '" value="' + (r.od[l] > 100 ? (r.od[l] / 100).toFixed(2) : "") + '" />'
+              + '<button class="mini" data-setq="' + l + '">' + window.t("hamster.setPrice", "Set") + "</button></div>";
+          }).join("")
+        + "</div>";
+    }
+    bp.innerHTML = h;
     bp.querySelectorAll("[data-back]").forEach((b) => b.onclick = () => placeBet(parseInt(b.dataset.back, 10)));
+    bp.querySelectorAll("[data-bookback]").forEach((b) => b.onclick = () => backLane(parseInt(b.dataset.bookback, 10)));
+    bp.querySelectorAll("[data-setq]").forEach((b) => b.onclick = () => {
+      const l = parseInt(b.dataset.setq, 10);
+      const el = bp.querySelector('[data-q="' + l + '"]');
+      const x = Math.round(parseFloat(el && el.value) * 100);
+      if (!(x > 100)) return alertBar(window.t("hamster.badPrice", "A price must beat 1.00× — that is what the punter is paid per unit staked."));
+      quoteLane(l, x);
+    });
   } else if (r.phase === "incubating") {
     bp.innerHTML = '<div class="dim">' + window.t("hamster.warmHint", "Betting opens the moment the genes lock (block {b}). Hang tight.", { b: r.gh }) + "</div>";
   } else {
@@ -399,8 +521,28 @@ function render() {
         else h += '<div class="dim" style="margin-top:8px">' + window.t("hamster.noWin", "No winnings on this race.") + "</div>";
       } else h += '<div class="dim" style="margin-top:8px">' + window.t("hamster.raceOn", "Race in progress — results settle automatically.") + "</div>";
     } else h = '<div class="dim">' + (r.phase === "racing" ? window.t("hamster.watchRun", "Betting closed — watch them run!") : window.t("hamster.settlingHint", "Settling the finish on-chain…")) + "</div>";
+    // book winnings collect separately from the tote — a punter can have both on one race
+    if (r.sd || r.vd) h += '<button class="ghost mt" id="btnBclaim" style="width:100%">'
+      + (dapp.busy("bclaim", "race", r.id) ? confirmingLabel() : window.t("hamster.bclaim", "🏦 Collect book winnings")) + "</button>";
     bp.innerHTML = h;
     if ($("btnClaim")) $("btnClaim").onclick = () => claimRace(r.id);
+    if ($("btnBclaim")) $("btnBclaim").onclick = () => bclaimRace(r.id);
+  }
+
+  // the bank card's live state, whatever phase we are in
+  const bstate = $("bookState");
+  if (bstate) {
+    if (!r.bank) {
+      bstate.innerHTML = '<span class="dim">' + window.t("hamster.noBank", "No bank on this race yet — post a roll to become it.") + "</span>";
+    } else {
+      const mine = dapp.me && r.bank === dapp.me;
+      const exposure = r.od.map((_x, l) => r.bp[l]).reduce((a, b) => (b > a ? b : a), 0n);
+      bstate.innerHTML = '<span class="' + (mine ? "b ok" : "dim") + '">'
+        + (mine ? window.t("hamster.youAreBank", "You are the bank — roll {r} NADO, {s} taken, biggest single-lane liability {e} NADO.", { r: rawToNado(r.br), s: rawToNado(r.bs), e: rawToNado(exposure) })
+                : window.t("hamster.bankedBy", "Banked by {who} — roll {r} NADO.", { who: disp(r.bank), r: rawToNado(r.br) })) + "</span>"
+        + ((mine && (r.sd || r.vd) && !r.bd) ? '<button class="primary mt" id="btnSweep" style="width:100%">' + (dapp.busy("bsweep", "race", r.id) ? confirmingLabel() : window.t("hamster.sweep", "💰 Sweep the book")) + "</button>" : "");
+      if ($("btnSweep")) $("btnSweep").onclick = () => bsweepRace(r.id);
+    }
   }
 }
 
@@ -415,7 +557,7 @@ dapp.onReturn((pend, ok, err) => {
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("hamster.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
-  orderCards(["activeRace", "lobby", "opencard", "walletcard", "bankroll", "scoreboard"]);
+  orderCards(["activeRace", "bookcard", "lobby", "opencard", "walletcard", "bankroll", "scoreboard"]);
   const qs = new URLSearchParams(location.search);
   if (qs.get("race")) active = parseInt(qs.get("race"), 10);
   if (qs.get("daily") != null) mode = "daily";

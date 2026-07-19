@@ -22,7 +22,7 @@
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Hamster Racing", "url": "https://hamster.nadochain.com/", "description": "Provably-fair parimutuel hamster racing on the NADO execution layer — genes and the run decided by future block hashes, no house, no oracle.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Ctext%20y%3D%2238%22%20font-size%3D%2238%22%3E%F0%9F%90%B9%3C/text%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
-<script src="/static/i18n.js?v=94f8a8f7"></script>
+<script src="/static/i18n.js?v=9115572c"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--gold:#e3b341;
@@ -87,6 +87,12 @@
   .tabs{display:flex;gap:8px;margin:0 0 12px}
   .tabs button{flex:1;background:var(--elev);border:1px solid var(--border);border-radius:11px;padding:10px;font-weight:800;color:var(--dim)}
   .tabs button.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04110a;border-color:transparent}
+  .betrow .fair{color:var(--dim);font-size:11px;white-space:nowrap;opacity:.85}
+  .bankdesk{border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:10px;background:rgba(255,255,255,.02)}
+  .qrow{display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)}
+  .qrow:last-child{border-bottom:none}
+  .qrow b{flex:1;font-size:13px}
+  .qin{width:74px;flex:0 0 auto;padding:5px 7px;font-size:13px;text-align:right}
   .derbyRace{border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:6px}
   .derbyDone b{font-size:15px;color:var(--gold)}
 </style>
@@ -155,6 +161,18 @@
       <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="hamster.withdraw">Withdraw</button>
     </div>
     <div class="small dim mt" data-i18n="hamster.tokensHelp">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back to the wallet.</div>
+  </div>
+
+  <!-- BE THE BANK: post a roll and price the hamsters yourself. This is the passive side of the game —
+       you take the other side of punters' bets and keep what the result leaves you. -->
+  <div class="card hidden" id="bookcard">
+    <h2 data-i18n="hamster.bookH">🏦 Be the bank</h2>
+    <p class="small dim" data-i18n="hamster.bookHelp">Post a bankroll and quote a price for each hamster. Punters can then back one instantly at your price — nobody waits for a crowd. You keep every losing stake and pay the winners from your roll, so a good book earns and a bad one pays. The contract holds your roll and never lets you take a bet you could not cover.</p>
+    <div class="row">
+      <input id="bookAmt" value="10" placeholder="bankroll (NADO)" data-i18n-ph="hamster.bookPh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnBook" style="flex:0 0 auto" data-i18n="hamster.bookBtn">Bank this race</button>
+    </div>
+    <div id="bookState" class="small mt"></div>
   </div>
 
   <!-- LOBBY -->
