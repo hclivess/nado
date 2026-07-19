@@ -565,7 +565,13 @@ class ExecState:
         # both to a real coin range BEFORE any state mutation, so no field residue can be inflated into a P·k
         # payout. (Note VALUES are field elements mod P; the only realizable exit is via public_value.)
         pv, fee = int(js["public_value"]), int(js["fee"])
-        if not (-MAX_EXIT_VALUE <= pv <= MAX_EXIT_VALUE) or not (0 <= fee <= MAX_EXIT_VALUE):
+        # UNBACKED-MINT FENCE: public_value > 0 means coins ENTER the pool, and the ONLY thing that may
+        # authorise that is an L1 `shield` tx whose escrowed amount drives apply_field_shield. A transfer
+        # blob is user-supplied and escrow-free, so a positive public_value here would let anyone conjure
+        # notes from nothing (the circuit happily proves 0 + pv == v_out + fee — `pv` is a PUBLIC INPUT the
+        # prover chooses, not a fact about escrow) and unshield them back out against SHIELD_ESCROW,
+        # draining every other depositor. Entry is escrow-driven; a transfer may only be neutral or exiting.
+        if not (-MAX_EXIT_VALUE <= pv <= 0) or not (0 <= fee <= MAX_EXIT_VALUE):
             return "skip field-transfer: public_value/fee out of range"
         # Validate the exit destination BEFORE any mutation: the old order added the nullifier + appended the
         # outputs and only then rejected a missing withdraw_addr, burning the note for a malformed unshield.
@@ -842,10 +848,16 @@ class ExecState:
                 proof = payload.get("proof")
                 if not isinstance(public, dict) or not isinstance(proof, dict):
                     return "skip: bad shielded_transfer"
+                # UNBACKED-MINT FENCE (see apply_field_transfer): coins may only ENTER the pool via an L1
+                # `shield` tx, whose escrowed amount drives apply_shield. A transfer blob is user-supplied
+                # and escrow-free, so public_value > 0 here would mint notes backed by nothing. Checked
+                # BEFORE apply_transfer so a rejected blob never mutates the pool.
+                pv = int(public.get("public_value", 0))
+                if pv > 0:
+                    return "skip shielded_transfer: public_value > 0 (coins enter only via an L1 shield)"
                 ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
                 if not ok:
                     return f"skip shielded_transfer: {reason}"
-                pv = int(public.get("public_value", 0))
                 if pv < 0:
                     addr = public.get("withdraw_addr")
                     if not addr:
