@@ -15,6 +15,7 @@
 import { poswProveAsync, challengeBytes } from "./posw.js";
 import { share as sdkShare } from "./nadodapp.js";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js";
+import { flagSvg, ccBadge } from "./flags.js";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js";
 import * as sfield from "./stark/field.js";
 import { initHashing as initStarkHashing } from "./stark/hashing.js";
@@ -3952,13 +3953,17 @@ function _uptime(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
 }
-/** cc ("DE") -> its flag emoji, via regional-indicator letters. Empty when we have no location. */
+/**
+ * _ccFlag(ip): the peer's country as a drawn flag. Emoji flags were tried first and are useless here —
+ * they are regional-indicator pairs and Windows has no glyphs for them, so it prints "NL" as text. These
+ * are inline SVG (static/flags.js), with a two-letter badge for countries we have not drawn.
+ */
 function _ccFlag(ip) {
   const g = (state._geoCC || {})[ip];
   if (!g || !g.cc || g.cc.length !== 2) return "";
-  const f = String.fromCodePoint(...[...g.cc.toUpperCase()].map((c) => 0x1F1A5 + c.charCodeAt(0)));
-  const where = [g.city, g.country].filter(Boolean).join(", ");
-  return '<span title="' + where.replace(/"/g, "&quot;") + '">' + f + "</span> ";
+  const where = [g.city, g.country].filter(Boolean).join(", ").replace(/"/g, "&quot;");
+  const svg = flagSvg(g.cc) || ccBadge(g.cc);
+  return '<span title="' + where + '" style="margin-right:5px">' + svg + "</span>";
 }
 
 /**
