@@ -3966,6 +3966,12 @@ function _uptime(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
 }
+/** an IPv4 shortened for a narrow table: keep the two octets that actually distinguish peers (full IP on hover) */
+function _shortIp(ip) {
+  const m = String(ip).match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  return m ? "\u2026" + m[3] + "." + m[4] : String(ip);
+}
+
 /**
  * _ccFlag(ip): the peer's country as a drawn flag. Emoji flags were tried first and are useless here —
  * they are regional-indicator pairs and Windows has no glyphs for them, so it prints "NL" as text. These
@@ -4021,8 +4027,8 @@ async function renderNodes() {
   if (!rows.length) { box.innerHTML = "<span class='faint small'>" + i18("stats.nodata", "no data yet") + "</span>"; if (sub) sub.textContent = ""; return; }
   // sort: self first, then by weight desc
   rows.sort((a, b) => (b[2] - a[2]) || ((b[1].latest_block_weight || 0) - (a[1].latest_block_weight || 0)));
-  const th = (t) => `<th style="text-align:left;padding:5px 8px;color:var(--dim,#7c8b9a);font-weight:600;font-size:11px;white-space:nowrap">${t}</th>`;
-  const td = (t, extra) => `<td style="padding:5px 8px;font-size:12px;white-space:nowrap;${extra || ""}">${t}</td>`;
+  const th = (t) => `<th style="text-align:left;padding:4px 5px;color:var(--dim,#7c8b9a);font-weight:600;font-size:10.5px;white-space:nowrap">${t}</th>`;
+  const td = (t, extra) => `<td style="padding:4px 5px;font-size:11.5px;white-space:nowrap;${extra || ""}">${t}</td>`;
   // REFERENCE COMMIT for "is this node behind?". It used to trust each peer's OWN update_available flag,
   // which every node computes from its own cached view of origin/main — so two nodes on the SAME commit
   // disagreed (one had refreshed its cache and said "behind", the other hadn't and said "fine"), and a
@@ -4034,6 +4040,10 @@ async function renderNodes() {
     for (const [, st] of Object.entries(pool)) if (st && st.latest_main) { latestMain = st.latest_main; break; }
   }
   const sameCommit = (a, b) => !!(a && b) && (a === b || a.startsWith(b) || b.startsWith(a));
+  // Proto and Chain are the same for every healthy peer, so showing them always just made the table wide
+  // enough to need a horizontal scrollbar. They are only worth a column when something actually DISAGREES
+  // — which is exactly when you need to see them, and they are already coloured red in that case.
+  const showOdd = !!self && rows.some(([, st]) => st.protocol !== self.protocol || (st.chain_id || "?") !== self.chain_id);
   let onLatest = 0;
   const body = rows.map(([label, st, isSelf]) => {
     const commit = st.running_commit || null;
@@ -4053,21 +4063,23 @@ async function renderNodes() {
       : known ? `<span class="faint" style="font-size:11px" title="${i18("stats.ndCurrent", "running the newest commit we know of")}">✓</span>`
               : `<span class="faint" style="font-size:11px" title="${i18("stats.ndUnknownTip", "This node does not report which commit it runs, or nobody here knows the newest one — so we cannot tell whether it is up to date.")}">—</span>`;
     return "<tr" + (isSelf ? ' style="background:rgba(58,160,255,.08)"' : "") + ">"
-      + td(_ccFlag(label) + (isSelf ? `<b>${label}</b>` : `<span class="mono">${label}</span>`))
+      + td(_ccFlag(label) + `<span class="mono" title="${label}">`
+           + (isSelf ? `<b>${_shortIp(label)}</b>` : _shortIp(label)) + "</span>")
       + td(ver + (upd ? ` <span title="update available" style="color:${_CGOLD}">⬆</span>` : ""))
       + td(_nodeType(st))
-      + td(`p${st.protocol != null ? st.protocol : "?"}`, protoBad ? `color:${_CRED}` : "")
-      + td(chain, chainBad ? `color:${_CRED}` : `color:${_CGRN}`)
+      + (showOdd ? td(`p${st.protocol != null ? st.protocol : "?"}`, protoBad ? `color:${_CRED}` : "")
+                 + td(chain, chainBad ? `color:${_CRED}` : `color:${_CGRN}`) : "")
       + td(`${st.finalized_height != null ? st.finalized_height : "?"}`)
       + td(`${st.latest_block_weight != null ? (st.latest_block_weight / 1e6).toFixed(2) + "M" : "?"}`)
       + td(_uptime(st.reported_uptime))
       + td(act)
       + "</tr>";
   }).join("");
-  box.innerHTML = `<table style="width:100%;border-collapse:collapse;min-width:520px">
+  box.innerHTML = `<table style="width:100%;border-collapse:collapse;table-layout:auto">   <!-- no min-width: the table FITS the card; columns that carry no information are dropped instead -->
     <thead><tr style="border-bottom:1px solid var(--line,#1c2530)">
-      ${th(i18("stats.ndNode", "Node"))}${th(i18("stats.ndVersion", "Version"))}${th(i18("stats.ndType", "Type"))}${th(i18("stats.ndProto", "Proto"))}
-      ${th(i18("stats.ndChain", "Chain"))}${th(i18("stats.ndHeight", "Height"))}${th(i18("stats.ndWeight", "Weight"))}${th(i18("stats.ndUptime", "Uptime"))}${th("")}
+      ${th(i18("stats.ndNode", "Node"))}${th(i18("stats.ndVersion", "Version"))}${th(i18("stats.ndType", "Type"))}
+      ${showOdd ? th(i18("stats.ndProto", "Proto")) + th(i18("stats.ndChain", "Chain")) : ""}
+      ${th(i18("stats.ndHeight", "Height"))}${th(i18("stats.ndWeight", "Weight"))}${th(i18("stats.ndUptime", "Uptime"))}${th("")}
     </tr></thead><tbody>${body}</tbody></table>`;
   box.querySelectorAll(".node-upd").forEach((b) => b.onclick = async () => {
     const ip = b.dataset.upd ? decodeURIComponent(b.dataset.upd) : "";
