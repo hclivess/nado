@@ -109,7 +109,12 @@ def create_config(ip: str, config_path: str = None):
         "ip": ip,
         "server_key": create_nonce(length=64),
         "min_peers": 2,
-        "max_rollbacks": 10,
+        # Per-burst rollback allowance. MUST stay < FINALITY_DEPTH (45) so an honest reorg inside the
+        # unfinalized window always completes instead of stopping half-way and leaving the node wedged.
+        # Raised 10 -> 40 with the finality widening: a 10-deep cap could not even traverse its own
+        # unfinalized window, so a perfectly legal reorg hit "Rollbacks exhausted" and fell through to
+        # the snapshot path for no reason.
+        "max_rollbacks": 40,
         "finality_depth": 12,
         "block_time": 6,
         # AUTO-BOND (non-consensus): % of newly-mined earnings to auto-compound into bonded stake,

@@ -430,11 +430,18 @@ RANDAO_ENFORCED = False
 
 # ENFORCED FINALITY (#17, security step 1): a block at height H finalizes everything at/below
 # H - FINALITY_DEPTH; rollback_one_block REFUSES to cross the persisted monotonic finalized_height
-# (raises FinalityViolation). The ordering max_rollbacks(10) < FINALITY_DEPTH < EPOCH_LENGTH(60)
+# (raises FinalityViolation). The ordering max_rollbacks < FINALITY_DEPTH < EPOCH_LENGTH(60)
 # guarantees: an honest reorg (<= max_rollbacks deep) never hits the floor, and a malicious/long-range
 # reorg is capped below one epoch so the epoch-beacon anchor is un-reorgable. (The presence recert lease
 # spans POSW_LEASE_EPOCHS, far beyond any rollback window, so a reorg can never strand a valid lease.)
-FINALITY_DEPTH = 12
+#
+# WIDENED 12 -> 45 (2026-07-19). At 6s blocks a depth of 12 froze history after SEVENTY-TWO SECONDS: any
+# partition lasting longer than that finalized both sides onto incompatible histories, after which no
+# rollback could ever reconcile them and the only route back was a snapshot re-anchor. That is exactly how
+# the network split three ways, each side producing its own chain from a common ancestor ~4000 blocks back.
+# 45 gives a 4.5-minute window — long enough to ride out an ordinary network hiccup, still comfortably
+# inside one epoch (60) so the epoch-beacon anchor stays un-reorgable and long-range reorgs stay capped.
+FINALITY_DEPTH = 45
 
 # Bonded lane: locked refundable stake, split-neutral, per-identity capped.
 B_MIN = 100_000_000_000            # 10 NADO: capital per bonded selection share (staking-lane entry).

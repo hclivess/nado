@@ -153,6 +153,10 @@ def old_block(block):
         return False
 
 
+FORCE_SYNC_MAX_S = 900   # a pinned sync donor is a RECOVERY tool, never a permanent mode
+CHECKPOINT_CATCHUP_EVERY = 25   # while advertising NO checkpoint, capture this often (not 1000)
+
+
 class CoreClient(threading.Thread):
     """thread which takes control of basic mode switching, block creation and transaction pools operations"""
 
@@ -747,6 +751,27 @@ class CoreClient(threading.Thread):
                 oldest, filled = body, filled + 1
             set_earliest_block_info(earliest_block=oldest, logger=self.logger)
             self.memserver.earliest_block = oldest
+
+            # RE-PUBLISH the snapshot we just adopted as OUR OWN checkpoint, immediately.
+            #
+            # adopt_new_identity() drops every checkpoint (they described the abandoned chain), and new
+            # ones are only written at CHECKPOINT_INTERVAL boundaries — so a node that re-anchors
+            # advertises NO snapshot for up to a full interval. If that node is on the heaviest chain,
+            # nobody can re-anchor ONTO it, and the network cannot converge on the chain fork-choice
+            # actually wants: observed live with the heaviest peer sitting at snapshot_height=None while
+            # every other node bounced between the lighter forks that did publish one.
+            #
+            # We just fetched, verified and materialised exactly this state, so we can serve it onward
+            # at zero cost. Best-effort: failing to re-publish costs future donors a target, never this
+            # node's own sync.
+            try:
+                snapshot_ops.persist_checkpoint(height=target_height, block_hash=anchor["block_hash"],
+                                                protocol=self.memserver.protocol,
+                                                version=self.memserver.version)
+                self.logger.warning(f"Re-published the adopted snapshot as our own checkpoint at "
+                                    f"{target_height} — this node can now be re-anchored to")
+            except Exception as e:
+                self.logger.error(f"Could not re-publish the adopted checkpoint (non-fatal): {e}")
             self.logger.warning(f"Snapshot bootstrap complete at height {target_height}; "
                                 f"backfilled {filled} recent bodies behind C; replaying tail")
             return True
@@ -1212,8 +1237,25 @@ class CoreClient(threading.Thread):
         state@N). Best-effort and non-fatal — a failed checkpoint costs future donors a snapshot,
         never the block."""
         n = block["block_number"]
-        if n <= 0 or n % snapshot_ops.CHECKPOINT_INTERVAL != 0:
+        if n <= 0:
             return
+        # A node with NO checkpoint cannot be re-anchored to, which is how the heaviest chain ends up
+        # unreachable and the network fails to converge on it. So the interval is the NORMAL cadence, not
+        # the only trigger: if we are currently advertising nothing, take one as soon as a height is
+        # safely final, rather than waiting up to a full interval.
+        if n % snapshot_ops.CHECKPOINT_INTERVAL != 0:
+            # A node advertising NO checkpoint cannot be re-anchored to, which is how the heaviest chain
+            # becomes unreachable and the network stops converging on it. So the interval is the normal
+            # cadence, not the only trigger: while we have nothing to offer, capture far more often.
+            # (A capture is only ADVERTISED once its height is final — latest_final_checkpoint_height —
+            # so taking one at the tip is safe; a reorged-away capture is simply never published.)
+            try:
+                if snapshot_ops.list_checkpoint_heights():
+                    return
+            except Exception:
+                return
+            if n % CHECKPOINT_CATCHUP_EVERY != 0:
+                return
         try:
             snapshot_ops.persist_checkpoint(height=n, block_hash=block["block_hash"],
                                             protocol=self.memserver.protocol,
