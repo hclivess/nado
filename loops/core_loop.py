@@ -1009,6 +1009,17 @@ class CoreClient(threading.Thread):
                     # only exit — normal fast-forward/reorg both require a donor that knows our root).
                     elif self._maybe_reanchor():
                         self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
+                    else:
+                        # STRIKE THE HEAVIEST TIP even though we never got as far as fetching from it.
+                        # Donor selection only considers peers advertising the HEAVIEST tip, so a lone
+                        # forker with an inflated weight owns the donor pool: it cannot serve us, no fetch
+                        # is ever attempted, no failure is ever recorded, and the tip therefore stays
+                        # heaviest forever while the healthy peers — perfectly good donors for the chain we
+                        # are actually on — are never even considered. Observed live: our tip 17000 was on
+                        # the majority's canonical chain and they were 76 blocks ahead, yet the node sat
+                        # still because the only "qualified" donor was the 3500-block-stale fork. Failing
+                        # to find any donor for a tip IS a failure to obtain it, and must count as one.
+                        self._reject_heaviest_tip()
                     time.sleep(1)
                 else:
                     block_hash = self.memserver.latest_block["block_hash"]
