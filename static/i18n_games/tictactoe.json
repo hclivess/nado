@@ -36,7 +36,9 @@
   "ttt.wallet": "Wallet",
   "ttt.walletMain": "Wallet — NADO (main chain)",
   "ttt.withdraw": "Withdraw",
-  "ttt.yourMove": "▶ YOUR MOVE — tap a cell"
+  "ttt.yourMove": "▶ YOUR MOVE — tap a cell",
+  "ttt.dailyHead": "🏆 Daily Three — free, provable",
+  "ttt.dailyBlurb": "A fresh 3x3 board every day, seeded by the chain and personal to your wallet. Beat the day's bot in as few moves as you can — no stake, and the faucet pays the top scores automatically."
  },
  "cs": {
   "ttt.allGames": "🎮 Všechny hry",
@@ -75,7 +77,9 @@
   "ttt.wallet": "Peněženka",
   "ttt.walletMain": "Peněženka — NADO (hlavní řetězec)",
   "ttt.withdraw": "Vybrat",
-  "ttt.yourMove": "▶ VÁŠ TAH — klepněte na políčko"
+  "ttt.yourMove": "▶ VÁŠ TAH — klepněte na políčko",
+  "ttt.dailyHead": "🏆 Denní trojka — zdarma, prokazatelně",
+  "ttt.dailyBlurb": "Každý den nová 3x3 deska, nasazená blockchainem a osobní pro tvou peněženku. Poraz denního bota na co nejméně tahů — bez sázky a faucet automaticky odmění nejlepší skóre."
  },
  "es": {
   "ttt.allGames": "🎮 Todos los juegos",
@@ -114,7 +118,9 @@
   "ttt.wallet": "Monedero",
   "ttt.walletMain": "Monedero — NADO (cadena principal)",
   "ttt.withdraw": "Retirar",
-  "ttt.yourMove": "▶ TU TURNO — toca una casilla"
+  "ttt.yourMove": "▶ TU TURNO — toca una casilla",
+  "ttt.dailyHead": "🏆 Tres del día — gratis, demostrable",
+  "ttt.dailyBlurb": "Un tablero 3x3 nuevo cada día, generado por la cadena y personal para tu billetera. Vence al bot del día en las menos jugadas posibles — sin apuesta, y el faucet premia las mejores puntuaciones automáticamente."
  },
  "pt": {
   "ttt.allGames": "🎮 Todos os jogos",
@@ -153,7 +159,9 @@
   "ttt.wallet": "Carteira",
   "ttt.walletMain": "Carteira — NADO (cadeia principal)",
   "ttt.withdraw": "Sacar",
-  "ttt.yourMove": "▶ SUA VEZ — toque numa casa"
+  "ttt.yourMove": "▶ SUA VEZ — toque numa casa",
+  "ttt.dailyHead": "🏆 Três do dia — grátis, comprovável",
+  "ttt.dailyBlurb": "Um tabuleiro 3x3 novo todos os dias, gerado pela cadeia e pessoal para a tua carteira. Vence o bot do dia com o menor número de jogadas — sem aposta, e o faucet premeia as melhores pontuações automaticamente."
  },
  "fr": {
   "ttt.allGames": "🎮 Tous les jeux",
@@ -192,7 +200,9 @@
   "ttt.wallet": "Portefeuille",
   "ttt.walletMain": "Portefeuille — NADO (chaîne principale)",
   "ttt.withdraw": "Retirer",
-  "ttt.yourMove": "▶ À VOUS — touchez une case"
+  "ttt.yourMove": "▶ À VOUS — touchez une case",
+  "ttt.dailyHead": "🏆 Trois du jour — gratuit, prouvable",
+  "ttt.dailyBlurb": "Un plateau 3x3 nouveau chaque jour, généré par la chaîne et propre à votre portefeuille. Battez le bot du jour en un minimum de coups — sans mise, et le faucet récompense automatiquement les meilleurs scores."
  },
  "de": {
   "ttt.allGames": "🎮 Alle Spiele",
@@ -231,7 +241,9 @@
   "ttt.wallet": "Wallet",
   "ttt.walletMain": "Wallet — NADO (Hauptkette)",
   "ttt.withdraw": "Auszahlen",
-  "ttt.yourMove": "▶ DU BIST DRAN — tippe ein Feld an"
+  "ttt.yourMove": "▶ DU BIST DRAN — tippe ein Feld an",
+  "ttt.dailyHead": "🏆 Tages-Drei — kostenlos, beweisbar",
+  "ttt.dailyBlurb": "Jeden Tag ein frisches 3x3-Brett, von der Chain erzeugt und persönlich für deine Wallet. Schlag den Bot des Tages in möglichst wenigen Zügen — ohne Einsatz, und der Faucet zahlt die besten Ergebnisse automatisch aus."
  },
  "it": {
   "ttt.allGames": "🎮 Tutti i giochi",
@@ -270,7 +282,9 @@
   "ttt.wallet": "Portafoglio",
   "ttt.walletMain": "Portafoglio — NADO (catena principale)",
   "ttt.withdraw": "Preleva",
-  "ttt.yourMove": "▶ TOCCA A TE — tocca una casella"
+  "ttt.yourMove": "▶ TOCCA A TE — tocca una casella",
+  "ttt.dailyHead": "🏆 Tris del giorno — gratis, dimostrabile",
+  "ttt.dailyBlurb": "Ogni giorno una nuova tavola 3x3, generata dalla catena e personale per il tuo portafoglio. Batti il bot del giorno nel minor numero di mosse — senza puntata, e il faucet premia automaticamente i punteggi migliori."
  },
  "ru": {
   "ttt.allGames": "🎮 Все игры",
@@ -309,7 +323,9 @@
   "ttt.wallet": "Кошелёк",
   "ttt.walletMain": "Кошелёк — NADO (основная цепь)",
   "ttt.withdraw": "Вывести",
-  "ttt.yourMove": "▶ ВАШ ХОД — коснитесь клетки"
+  "ttt.yourMove": "▶ ВАШ ХОД — коснитесь клетки",
+  "ttt.dailyHead": "🏆 Тройка дня — бесплатно, с доказательством",
+  "ttt.dailyBlurb": "Каждый день новая доска 3x3, порождённая цепочкой и личная для вашего кошелька. Обыграйте бота дня за минимум ходов — без ставки, а фаусет автоматически награждает лучшие результаты."
  },
  "zh": {
   "ttt.allGames": "🎮 所有游戏",
@@ -348,7 +364,9 @@
   "ttt.wallet": "钱包",
   "ttt.walletMain": "钱包 — NADO（主链）",
   "ttt.withdraw": "提取",
-  "ttt.yourMove": "▶ 轮到你了 — 点一个格子"
+  "ttt.yourMove": "▶ 轮到你了 — 点一个格子",
+  "ttt.dailyHead": "🏆 每日三连 — 免费，可证明",
+  "ttt.dailyBlurb": "每天一块全新的3x3棋盘，由链上生成且与你的钱包绑定。用尽可能少的步数击败当日机器人 — 无需下注，水龙头自动奖励最高分。"
  },
  "ja": {
   "ttt.allGames": "🎮 すべてのゲーム",
@@ -387,7 +405,9 @@
   "ttt.wallet": "ウォレット",
   "ttt.walletMain": "ウォレット — NADO（メインチェーン）",
   "ttt.withdraw": "引き出し",
-  "ttt.yourMove": "▶ あなたの番 — マスをタップ"
+  "ttt.yourMove": "▶ あなたの番 — マスをタップ",
+  "ttt.dailyHead": "🏆 デイリー・スリー — 無料・証明可能",
+  "ttt.dailyBlurb": "毎日新しい3x3ボードがチェーンから生成され、あなたのウォレット専用になります。今日のボットをできるだけ少ない手数で倒しましょう — 賭けは不要、フォーセットが上位スコアに自動で支払います。"
  },
  "ko": {
   "ttt.allGames": "🎮 모든 게임",
@@ -426,7 +446,9 @@
   "ttt.wallet": "지갑",
   "ttt.walletMain": "지갑 — NADO (메인 체인)",
   "ttt.withdraw": "출금",
-  "ttt.yourMove": "▶ 당신 차례 — 칸을 누르세요"
+  "ttt.yourMove": "▶ 당신 차례 — 칸을 누르세요",
+  "ttt.dailyHead": "🏆 데일리 스리 — 무료, 증명 가능",
+  "ttt.dailyBlurb": "매일 새로운 3x3 판이 체인에서 생성되어 당신의 지갑 전용이 됩니다. 가능한 적은 수로 오늘의 봇을 이기세요 — 베팅 없이, 포시트가 상위 점수에 자동 지급합니다."
  },
  "ar": {
   "ttt.allGames": "🎮 كل الألعاب",
@@ -465,7 +487,9 @@
   "ttt.wallet": "المحفظة",
   "ttt.walletMain": "المحفظة — NADO (السلسلة الرئيسية)",
   "ttt.withdraw": "سحب",
-  "ttt.yourMove": "▶ دورك — انقر خانة"
+  "ttt.yourMove": "▶ دورك — انقر خانة",
+  "ttt.dailyHead": "🏆 ثلاثية اليوم — مجاناً وقابل للإثبات",
+  "ttt.dailyBlurb": "لوحة 3x3 جديدة كل يوم، تولّدها السلسلة وتخصّ محفظتك وحدها. اهزم روبوت اليوم بأقل عدد من النقلات — بلا رهان، والصنبور يكافئ أعلى النتائج تلقائياً."
  },
  "hi": {
   "ttt.allGames": "🎮 सभी गेम",
@@ -504,7 +528,9 @@
   "ttt.wallet": "वॉलेट",
   "ttt.walletMain": "वॉलेट — NADO (मुख्य चेन)",
   "ttt.withdraw": "निकालें",
-  "ttt.yourMove": "▶ आपकी बारी — किसी खाने पर टैप करें"
+  "ttt.yourMove": "▶ आपकी बारी — किसी खाने पर टैप करें",
+  "ttt.dailyHead": "🏆 डेली थ्री — मुफ़्त, प्रमाणित",
+  "ttt.dailyBlurb": "हर दिन एक नया 3x3 बोर्ड, चेन से बना और आपके वॉलेट के लिए निजी। कम से कम चालों में आज के बॉट को हराएँ — कोई दांव नहीं, और फ़ॉसेट शीर्ष स्कोर को अपने आप इनाम देता है।"
  },
  "tr": {
   "ttt.allGames": "🎮 Tüm oyunlar",
@@ -543,7 +569,9 @@
   "ttt.wallet": "Cüzdan",
   "ttt.walletMain": "Cüzdan — NADO (ana zincir)",
   "ttt.withdraw": "Çek",
-  "ttt.yourMove": "▶ SIRA SENDE — bir hücreye dokun"
+  "ttt.yourMove": "▶ SIRA SENDE — bir hücreye dokun",
+  "ttt.dailyHead": "🏆 Günün Üçlüsü — ücretsiz, kanıtlanabilir",
+  "ttt.dailyBlurb": "Her gün zincirden üretilen ve cüzdanına özel yeni bir 3x3 tahta. Günün botunu olabildiğince az hamlede yen — bahis yok ve musluk en iyi skorları otomatik ödüllendirir."
  },
  "id": {
   "ttt.allGames": "🎮 Semua permainan",
@@ -582,7 +610,9 @@
   "ttt.wallet": "Dompet",
   "ttt.walletMain": "Dompet — NADO (rantai utama)",
   "ttt.withdraw": "Tarik",
-  "ttt.yourMove": "▶ GILIRAN ANDA — ketuk sebuah sel"
+  "ttt.yourMove": "▶ GILIRAN ANDA — ketuk sebuah sel",
+  "ttt.dailyHead": "🏆 Tiga Harian — gratis, bisa dibuktikan",
+  "ttt.dailyBlurb": "Papan 3x3 baru setiap hari, dibuat oleh rantai dan khusus untuk dompetmu. Kalahkan bot hari ini dengan langkah sesedikit mungkin — tanpa taruhan, dan faucet membayar skor teratas otomatis."
  },
  "vi": {
   "ttt.allGames": "🎮 Tất cả trò chơi",
@@ -621,6 +651,8 @@
   "ttt.wallet": "Ví",
   "ttt.walletMain": "Ví — NADO (chuỗi chính)",
   "ttt.withdraw": "Rút",
-  "ttt.yourMove": "▶ LƯỢT CỦA BẠN — chạm một ô"
+  "ttt.yourMove": "▶ LƯỢT CỦA BẠN — chạm một ô",
+  "ttt.dailyHead": "🏆 Bộ Ba Hôm Nay — miễn phí, có thể chứng minh",
+  "ttt.dailyBlurb": "Mỗi ngày một bàn 3x3 mới, được chuỗi tạo ra và riêng cho ví của bạn. Hãy hạ bot hôm nay trong ít nước nhất có thể — không cần đặt cược, và faucet tự động thưởng cho những điểm cao nhất."
  }
 }

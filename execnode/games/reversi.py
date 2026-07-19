@@ -14,10 +14,23 @@ Scratch field 30 (0 base, 1 k, 2 opp, 3 fl/n1, 4 n2, 5 n, 6 i, 7 ci).  cell 0..6
 Methods: open(g)[stake] · join(g)[stake] · move(g,cell,ply) · resign(g) · abort(g) · cancel(g).
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 from execnode.games import tictactoe as _t
 from execnode.stark.field import P as _P
 
 NN, ST, PT, P1, P2, SD, WR, MC, DL, LIST, LP = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+
+# ---- free DAILY CHALLENGE board (provable solo-vs-bot run, faucet-rewarded) ------------------------
+# Fields sit at 1000+ so they can never collide with the game fields or the per-cell board fields, which
+# are keyed by gameId. The board itself is the SHARED one every provable game uses (_lib.daily_post /
+# daily_anchor); the run is replayed off-chain by static/board-daily.js against the day's anchor, so the
+# chain only ever stores a claim — never the rules.
+DCNT_SLOT, ECNT_SLOT = 1000, 1001
+E_DAY, E_ADDR, E_SCORE, E_N = 1010, 1011, 1012, 1013
+ELIST, EW_BASE = 1020, 1030
+A_H, A_V, DLIST = 1050, 1051, 1052
+DAILY_WORDS = 8                                    # ceil(60 moves / 8 per word) at 6 bits/move
+DAILY_MAX_N = 60
 BD_BASE = 20
 SC = 30
 DIRS = [16, -16, 1, -1, 17, 15, -15, -17]
@@ -157,10 +170,17 @@ def _open():
     return L
 
 
-SRC = {"open": None, "join": _t.SRC["join"], "move": None,
+POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, DAILY_WORDS,
+                       max_n=DAILY_MAX_N, max_score=2000)
+ANCHOR = _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST)
+
+SRC = {
+    "post": POST, "anchor": ANCHOR,"open": None, "join": _t.SRC["join"], "move": None,
        "resign": _t.SRC["resign"], "abort": _t.SRC["abort"], "cancel": _t.SRC["cancel"]}
 
 ABI = {
+    "post": {"args": _lib.daily_post_abi(DAILY_WORDS)},
+    "anchor": {"args": ["day"]},
     "open": {"args": ["gameId"], "value": True},
     "join": {"args": ["gameId"], "value": True},
     "move": {"args": ["gameId", "cell", "ply"]},
@@ -169,10 +189,16 @@ ABI = {
     "cancel": {"args": ["gameId"]},
     "_view": {
         "maps": {"nn": NN, "st": ST, "pt": PT, "p1": P1, "p2": P2, "sd": SD, "wr": WR, "mc": MC, "dl": DL,
-                 "lp": LP},
+                 "lp": LP,
+                 "eday": {"field": E_DAY, "index": "entries"}, "eaddr": {"field": E_ADDR, "index": "entries"},
+                 "escore": {"field": E_SCORE, "index": "entries"}, "en": {"field": E_N, "index": "entries"},
+                 **{f"ew{k}": {"field": EW_BASE + k, "index": "entries"} for k in range(DAILY_WORDS)},
+                 "ah": {"field": A_H, "index": "days"}, "av": {"field": A_V, "index": "days"},},
         "index": {"cnt": 0, "list": LIST},
+        "indexes": {"entries": {"cnt": ECNT_SLOT, "list": ELIST},
+                    "days": {"cnt": DCNT_SLOT, "list": DLIST}},
         "board": {"name": "bd", "base": BD_BASE, "cells": 160, "stride": 512},
-        "addr": ["p1", "p2"],
+        "addr": ["p1", "p2", "eaddr"],
     },
 }
 

@@ -35,13 +35,19 @@ GAMES = [
     (7, "f0a5b9e9f56ec87c97594999b8f9c595", "banked"),     # mines
     (8, "f2b244d3726a3ddb3ef4f48e81208dd6", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
     (9, "2f8cc0ce02bc5e02abb10e4dc3af28e7", "hamster-daily"),  # hamster Daily Derby (free handicapping, replay-verified)
-    (10, "2802404ecab39690130517e4a5f81b22", "duel"),          # connect four (staked-win airdrop, like scrapline/stormhold)
-    (11, "cbc677655ce3c82a052a1dcfcb2f676e", "duel"),          # reversi
-    (12, "52e8511ebd6e2af5b82380531276951b", "duel"),          # tic-tac-toe
+    (10, "2802404ecab39690130517e4a5f81b22", "connect4-daily"),   # connect four Daily Drop (free solo-vs-bot, replay-verified)
+    (11, "cbc677655ce3c82a052a1dcfcb2f676e", "reversi-daily"),    # reversi Daily Flip (free solo-vs-bot, replay-verified)
+    (12, "52e8511ebd6e2af5b82380531276951b", "tictactoe-daily"),  # tic-tac-toe Daily Three (free solo-vs-bot, replay-verified)
 ]
-# provable free-play boards: kind -> the node replay oracle that ranks yesterday's verified claims
-DAILY_VERIFY = {"hexholm-daily": "tests/hexholm_daily_verify.mjs", "hamster-daily": "tests/hamster_daily_verify.mjs",
-                "battleship-daily": "tests/battleship_daily_verify.mjs"}
+# Provable free-play boards: kind -> the node replay oracle that ranks yesterday's verified claims.
+# The value is an ARGV PREFIX (cid + day are appended), so one oracle can serve several games — the three
+# board games share a harness and differ only by their pure rule set, so they share an oracle too.
+DAILY_VERIFY = {"hexholm-daily": ["tests/hexholm_daily_verify.mjs"],
+                "hamster-daily": ["tests/hamster_daily_verify.mjs"],
+                "battleship-daily": ["tests/battleship_daily_verify.mjs"],
+                "tictactoe-daily": ["tests/board_daily_verify.mjs", "tictactoe"],
+                "connect4-daily": ["tests/board_daily_verify.mjs", "connect4"],
+                "reversi-daily": ["tests/board_daily_verify.mjs", "reversi"]}
 SHIPS = 17
 
 def j(u): return json.load(urllib.request.urlopen(u, timeout=12))
@@ -67,7 +73,7 @@ def leaderboard(cid, kind):
         # free airdrop play.)
         day = int(time.time()) // 86400 - 1
         try:
-            out = subprocess.run(["node", DAILY_VERIFY[kind], cid, str(day)],
+            out = subprocess.run(["node", *DAILY_VERIFY[kind], cid, str(day)],
                                  capture_output=True, text=True, cwd="/root/nado", timeout=600)
             rows = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 else []
         except Exception:

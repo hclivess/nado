@@ -30,3 +30,11 @@ export function bot(b, seed, ply) {
   }
   return open[Math.floor(r() * open.length)];
 }
+
+// view(state, legal): the display grid, so ONE shared renderer (board-daily-ui.js) can paint every board
+// game. cells run left-to-right, top-to-bottom; `mv` is the move that plays that cell (null = not playable).
+export const COLS_VIEW = 3;
+export function view(b, legalMoves) {
+  const ok = new Set(legalMoves || []);
+  return { cols: 3, cells: b.map((v, i) => ({ v, mv: ok.has(i) ? i : null })) };
+}

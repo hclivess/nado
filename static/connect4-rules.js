@@ -36,3 +36,15 @@ export function bot(b, seed, ply) {
   const top = order.filter((c) => Math.abs(c - 3) === Math.abs(order[0] - 3));   // ties among equally-central
   return top[Math.floor(r() * top.length)];
 }
+
+// view(state, legal): 7x6 painted TOP row first (so the grid reads the way the pieces fall). A cell's move
+// is its COLUMN, so tapping anywhere in a column drops there.
+export const COLS_VIEW = 7;
+export function view(b, legalMoves) {
+  const ok = new Set(legalMoves || []);
+  const cells = [];
+  for (let r = ROWS - 1; r >= 0; r--) {
+    for (let c = 0; c < COLS; c++) cells.push({ v: b[c][r] || 0, mv: ok.has(c) ? c : null });
+  }
+  return { cols: COLS, cells };
+}

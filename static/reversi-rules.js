@@ -42,3 +42,10 @@ export function bot(b, seed, ply) {
   }
   return best;
 }
+
+// view(state, legal): the 8x8 grid; a cell's move is its own index.
+export const COLS_VIEW = 8;
+export function view(b, legalMoves) {
+  const ok = new Set(legalMoves || []);
+  return { cols: 8, cells: b.map((v, i) => ({ v, mv: ok.has(i) ? i : null })) };
+}
