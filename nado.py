@@ -295,6 +295,9 @@ async def mining_history_handler(request):
                   "open": sum(r["open"] for r in series),
                   "bonded": sum(r["bonded"] for r in series),
                   "dividend": sum(r["dividend"] for r in series),
+                  # network-wide totals over the SAME window, so the client can show what share of each
+                  # stream this address earned rather than a bare figure with nothing to compare it to
+                  "network": mining_history.network_totals(days),
                   "building": state["building"], "covered_from": covered_from,
                   "indexed_to": state["upto"], "tip": memserver.latest_block["block_number"],
                   "gaps": state["gaps"]})

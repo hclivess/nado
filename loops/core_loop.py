@@ -374,15 +374,33 @@ class CoreClient(threading.Thread):
             raise
 
     def _root_known_to(self, peer) -> bool:
-        """the ONE network check of donor selection: does the peer serve our root (earliest) block?
-        This is what makes a donor able to full-sync us; dialed only for peers that already passed
-        every in-memory check."""
-        return asyncio.run(knows_block(
-            target_peer=peer,
-            port=self.memserver.port,
-            hash=self.memserver.earliest_block["block_hash"],
-            number=self.memserver.earliest_block["block_number"],
-            logger=self.logger))
+        """the ONE network check of donor selection: can this peer actually serve us blocks?
+
+        It asks about the block the sync leg will ask FROM — our TIP — because that is the precondition
+        _fast_forward_from documents ("the donor knows our tip, so pull the gap from it"): get_blocks_after
+        is keyed off our latest hash, so a donor carrying our tip on ITS canonical chain can extend us.
+
+        It used to probe our EARLIEST block instead, which is unsatisfiable on a snapshot-bootstrapped
+        network and wedged this node in a re-anchor loop: after a re-anchor our earliest is whatever the
+        body backfill reached (a couple of hundred blocks behind the snapshot), and the other peers are
+        snapshot-bootstrapped too, so none of them has a body that deep. Every donor failed the gate ->
+        "ran out of options" -> "wedged behind a heavier chain" -> re-anchor to the same snapshot ->
+        repeat, parked at one height while the chain moved on.
+
+        The earliest probe is kept as a FALLBACK, so a donor able to full-sync us from root still counts:
+        the gate now accepts strictly more donors than before, never fewer. knows_block itself checks
+        CANONICALITY (height -> hash on the peer's own chain), so a fork leftover still answers False and
+        the "donor knows a tip it cannot extend" bait this gate exists to stop remains closed."""
+        def _knows(block):
+            if not block:
+                return False
+            try:
+                return asyncio.run(knows_block(
+                    target_peer=peer, port=self.memserver.port,
+                    hash=block["block_hash"], number=block["block_number"], logger=self.logger))
+            except (KeyError, TypeError):
+                return False
+        return _knows(self.memserver.latest_block) or _knows(self.memserver.earliest_block)
 
     def _fetch_sync_batch(self, peer, from_hash):
         """pull one forward-sync batch (up to SYNC_BATCH_MAX blocks after from_hash) from the donor.

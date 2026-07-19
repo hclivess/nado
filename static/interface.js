@@ -1900,10 +1900,24 @@ function drawMiningChart(d) {
   });
   host.innerHTML = svg + `</svg>`;
 
+  // each stream also shows what SHARE of the whole network's earnings it was, over the same window —
+  // "0.36 NADO" alone says nothing about whether that is a lot. Omitted when you earned nothing from a
+  // stream (a "0 (0%)" is noise) or when the network figure isn't available.
+  const net = d.network || {};
+  const share = (mine, total) => {
+    if (!mine || !total) return "";
+    const p = (Number(mine) / Number(total)) * 100;
+    return ' <span class="mshare">' + (p >= 10 ? p.toFixed(0) : p.toFixed(1)) + "%</span>";
+  };
   $("mineTotal").textContent = _mineAmt(d.total);
-  $("mineOpen").textContent = _mineShort(d.open);
-  $("mineBonded").textContent = _mineShort(d.bonded);
-  if ($("mineDiv")) $("mineDiv").textContent = _mineShort(d.dividend || 0);
+  $("mineOpen").innerHTML = _mineShort(d.open) + share(d.open, net.open);
+  $("mineBonded").innerHTML = _mineShort(d.bonded) + share(d.bonded, net.bonded);
+  if ($("mineDiv")) $("mineDiv").innerHTML = _mineShort(d.dividend || 0) + share(d.dividend, net.dividend);
+  // one shared explanation on the legend row rather than three tooltips
+  const lg = document.querySelector("#mineCard .mine-legend");
+  if (lg) lg.title = i18("mine.shareTip",
+    "The percentage is your share of everything the whole network earned from that stream over the same {n} days.",
+    { n: d.days });
 
   const note = $("mineNote");
   if (d.building) {

@@ -155,6 +155,22 @@ def catch_up(tip, block_time=6, days=KEEP_DAYS, budget_s=SCAN_BUDGET_S):
                 "gaps": _IDX["gaps"], "start": _IDX["start"]}
 
 
+def network_totals(days=7, now_ts=None):
+    """NETWORK-WIDE [open, bonded, dividend] over the same window `series` reports, so a caller can say
+    what SHARE of each stream an address earned. Summed from the same index, so the two figures can never
+    disagree about the window they cover."""
+    now_ts = time.time() if now_ts is None else now_ts
+    today = int(now_ts // DAY)
+    lo = today - days + 1
+    tot = [0, 0, 0]
+    with _LOCK:
+        for buckets in _IDX["days"].values():
+            for d, v in buckets.items():
+                if lo <= d <= today:
+                    tot[0] += v[0]; tot[1] += v[1]; tot[2] += v[2]
+    return {"open": tot[0], "bonded": tot[1], "dividend": tot[2], "total": sum(tot)}
+
+
 def state():
     """index progress, for callers that must tell the user the view is still partial"""
     with _LOCK:

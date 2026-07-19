@@ -408,3 +408,5 @@ a { color: var(--accent-2); }
 .mine-chart .empty { fill: var(--txt-faint); font-size: 12px; font-family: var(--sans); }
 .mine-note { margin-top: 8px; font-size: 11.5px; color: var(--txt-faint); }
 .mine-note.warn { color: #f0d488; }
+/* the share-of-network figure next to each stream's total — a quiet companion to the number, not a rival */
+.mine-legend .mshare { color: var(--txt-faint); font-weight: 600; font-size: 10.5px; }
