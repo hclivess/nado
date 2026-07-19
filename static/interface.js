@@ -2026,6 +2026,12 @@ window.addEventListener("resize", () => {
   _mineRz = setTimeout(() => { if (_mineData) drawMiningChart(_mineData); }, 150);
 });
 
+/** the mining card is visible only when it has something to show AND the wallet tab is the active one */
+function _applyMineVisibility() {
+  const card = $("mineCard");
+  if (card) card.classList.toggle("hidden", !state._mineShow || (state.activeTab || "wallet") !== "wallet");
+}
+
 async function refreshMiningChart(addr, acc, ms) {
   const card = $("mineCard");
   if (!card) return;
@@ -2034,8 +2040,13 @@ async function refreshMiningChart(addr, acc, ms) {
   let produced = 0n;
   try { produced = BigInt((acc && acc.produced) || 0); } catch (e) {}
   const presence = !!(ms && ((ms.my_open_weight || 0) > 0 || (ms.my_bonded_shares || 0) > 0));
-  if (produced === 0n && !presence) { card.classList.add("hidden"); return; }
-  card.classList.remove("hidden");
+  // ELIGIBILITY only — never visibility. Un-hiding the card directly overrode showTab (which hides every
+  // [data-tab] element that isn't the active tab), so the mining card reappeared on whatever tab you were
+  // looking at: it turned up in Messages. Visibility is the tab system's job; we only say whether this
+  // card has anything worth showing.
+  state._mineShow = !(produced === 0n && !presence);
+  _applyMineVisibility();
+  if (!state._mineShow) return;
 
   // The index barely moves between wallet polls; refetch at most once a minute. Keep the last drawing on
   // a failed fetch — a relay blip must not blank a chart that was correct a moment ago.
@@ -4316,6 +4327,7 @@ function showTab(name) {
   if (TAB_NAMES.has(name) && location.pathname !== "/" + name) history.pushState(null, "", "/" + name);
   document.querySelectorAll("#tabbar .tab").forEach((b) => b.classList.toggle("active", b.dataset.tabbtn === name));
   document.querySelectorAll("[data-tab]").forEach((el) => el.classList.toggle("hidden", el.dataset.tab !== name));
+  _applyMineVisibility();   // the mining card also depends on whether there is anything to show
   if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
   if (name === "receive") renderReceiveQR();
   else if (name === "aliases") loadMyAliases();
