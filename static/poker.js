@@ -12,7 +12,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m
 import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader — hold'em overlays its street phases
 import { Practice } from "./practice.js";       // free in-browser practice (play chips, no chain)
 
-const CID = "2fb48456656d5aa253b32ff5d72401ec";   // execnode/games/holdem.py (zkVM, nonce "a5")
+const CID = "66d43e2662586adb07463ad187b9946b";   // execnode/games/holdem.py (zkVM, nonce "a5")
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="8" y="13" width="18" height="24" rx="3" fill="#e6edf3" stroke="#243140" stroke-width="1.6" transform="rotate(-9 17 25)"/>     <path d="M14 20c-2.4 2.4-4 3.4-4 5.4 0 1.4 1.1 2.2 2.2 2.2.5 0 1-.2 1.3-.5-.2 1-.6 1.7-1.2 2.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5 1.3.5 1.1 0 2.2-.8 2.2-2.2 0-2-1.6-3-4-5.4z" fill="#20272f" transform="rotate(-9 14 25)"/>     <rect x="22" y="13" width="18" height="24" rx="3" fill="#fff" stroke="#243140" stroke-width="1.6" transform="rotate(9 31 25)"/>     <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Hold'em" });
 const bg = new BankedGame(dapp, { icon: GICON, bankIcon: GICON });   // shared reader for existence + ta/tp/tn/tz; streets overlaid below

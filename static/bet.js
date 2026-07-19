@@ -16,7 +16,7 @@
 // /exec/view methods (claimable_of etc.) — see the myCache notes below.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js";
 
-const CID = "066b76360e669c91d81e57197d0c88e3";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
+const CID = "497f7032def19ecc30ab22f80b4854cb";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });
 // Markets close/void by WALL-CLOCK time (the contract's TIME opcode = L1 block timestamp), never block height —
 // block rate drifts, so a height deadline fires at an unpredictable real moment (that bug voided live matches a

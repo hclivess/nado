@@ -9,7 +9,7 @@ import { BankedGame } from "./bankedgame.js";
 import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
-const CID = "3d775ee563baae7c20ec39596fcd4f28";
+const CID = "0f513c38ee16a7882d2a0efddd8d7625";
 const REAP = 1200;
 const dapp = new NadoDapp({ cid: CID, app: "Blackjack" });
 const bg = new BankedGame(dapp, { icon: "🃏" });

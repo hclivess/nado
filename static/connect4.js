@@ -6,7 +6,7 @@ import { NadoDapp, rawToNado, _m, $, disp } from "./nadodapp.js";
 import { PvpGame } from "./pvpgame.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
-const CID = "67349828b38443eda30de51dea8a3d67";
+const CID = "2802404ecab39690130517e4a5f81b22";
 const COLS = 7, ROWS = 6;
 const dapp = new NadoDapp({ cid: CID, app: "ConnectFour" });
 

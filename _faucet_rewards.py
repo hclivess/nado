@@ -25,19 +25,19 @@ BUDGET = 1_000_000_000                          # 0.1 NADO per game per day (tun
 
 # idx → (cid, kind); mirrors faucet.js FAUCET_GAMES + the live game cids
 GAMES = [
-    (0, "044be49f754c62fb7222d32ba84db81e", "banked"),   # dice
-    (1, "634dc7c3eda3fea16fddfaca47a0c8aa", "duel"),      # scrapline
-    (2, "fce697844f9b2b043abcaf4403953f9f", "duel"),      # stormhold
-    (3, "b56dd48000707369be1630e41bfb038d", "banked"),    # farkle
-    (4, "3d775ee563baae7c20ec39596fcd4f28", "banked"),    # blackjack
+    (0, "04d0a76d6aa8837ceda71e2fb0701996", "banked"),   # dice
+    (1, "901de4f0f88c24e26839d0f6dbf55822", "duel"),      # scrapline
+    (2, "97abd5b368723d3b3d5bd1c8cd6ec152", "duel"),      # stormhold
+    (3, "d320c196192b04923c45c13a7a46c887", "banked"),    # farkle
+    (4, "0f513c38ee16a7882d2a0efddd8d7625", "banked"),    # blackjack
     (5, "c52b6e5c25acd393f9073dc0c2048e04", "battleship-daily"),  # battleship Daily Salvo (free hunt-&-sink, replay-verified)
-    (6, "d4855b5b4c52bb65fdf7ec7a65c8b9f0", "banked"),     # slots
-    (7, "d9d271f3a3e8a68ef33cb8e89ee650c9", "banked"),     # mines
-    (8, "c532e36ac30f61619e9ac989a1c0994e", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
+    (6, "3d9ec5fe92cb93182c7f532212cfa5ea", "banked"),     # slots
+    (7, "f0a5b9e9f56ec87c97594999b8f9c595", "banked"),     # mines
+    (8, "f2b244d3726a3ddb3ef4f48e81208dd6", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
     (9, "2f8cc0ce02bc5e02abb10e4dc3af28e7", "hamster-daily"),  # hamster Daily Derby (free handicapping, replay-verified)
-    (10, "67349828b38443eda30de51dea8a3d67", "duel"),          # connect four (staked-win airdrop, like scrapline/stormhold)
-    (11, "eb12360a240be03382f2d0b33b345653", "duel"),          # reversi
-    (12, "d7744c41300ef02b6cc944f0cf1ccdae", "duel"),          # tic-tac-toe
+    (10, "2802404ecab39690130517e4a5f81b22", "duel"),          # connect four (staked-win airdrop, like scrapline/stormhold)
+    (11, "cbc677655ce3c82a052a1dcfcb2f676e", "duel"),          # reversi
+    (12, "52e8511ebd6e2af5b82380531276951b", "duel"),          # tic-tac-toe
 ]
 # provable free-play boards: kind -> the node replay oracle that ranks yesterday's verified claims
 DAILY_VERIFY = {"hexholm-daily": "tests/hexholm_daily_verify.mjs", "hamster-daily": "tests/hamster_daily_verify.mjs",

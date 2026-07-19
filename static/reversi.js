@@ -7,7 +7,7 @@ import { NadoDapp, rawToNado, _m, $, disp } from "./nadodapp.js";
 import { PvpGame } from "./pvpgame.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
-const CID = "eb12360a240be03382f2d0b33b345653";
+const CID = "cbc677655ce3c82a052a1dcfcb2f676e";
 const PASS = 64;
 const dapp = new NadoDapp({ cid: CID, app: "Reversi" });
 
