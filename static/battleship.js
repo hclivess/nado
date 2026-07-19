@@ -5,7 +5,7 @@
 // ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
 // oracle beyond the math — field-native alghash, byte-identical to the zkVM contract's in-VM HASH
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame } from "./nadodapp.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js";
 import * as SALVO from "./battleship-daily.js";
@@ -328,8 +328,13 @@ function render() {
   dapp.reflectUrl("game", activeGame);
   const signedIn = renderWallet(dapp);
   const dailyMode = mode === "daily";
-  if ($("tabPlay")) $("tabPlay").classList.toggle("on", !dailyMode);
-  if ($("tabDaily")) $("tabDaily").classList.toggle("on", dailyMode);
+  // ONE shared picker across every game (SDK)
+  modeBar($("modeBar"), [
+    { key: "play", icon: "\u2693", label: window.t("bs.tabPlay", "Play for stakes"),
+      hint: window.t("bs.tabPlayHint", "Head-to-head battleship for real NADO stakes.") },
+    { key: "daily", icon: "\uD83C\uDFC6", label: window.t("bs.tabDaily", "Daily Salvo"), badge: window.t("sdk.free", "free"),
+      hint: window.t("bs.tabDailyHint", "Today's free provable challenge \u2014 the faucet pays the daily leaders.") },
+  ], dailyMode ? "daily" : "play", (k) => { mode = k; render(); });
   // in daily mode hide the PvP cards and show the salvo card; in play mode the reverse
   gate({ dailyCard: dailyMode, setup: !dailyMode, lobby: !dailyMode, scorecard: !dailyMode, bankroll: !dailyMode && signedIn,
          activeGame: !dailyMode && activeGame != null && !!lastSto });
@@ -443,35 +448,46 @@ function myBestSalvo(day) {
 }
 function renderDaily() {
   const wrap = $("dailyGrid"); if (!wrap) return;
-  if (!dapp.me) { wrap.innerHTML = '<div class="dim">' + window.t("bs.dailySignIn", "Sign in to play today's free Daily Salvo — hunt & sink a hidden fleet, top the board, and the faucet pays the daily leaders.") + "</div>"; $("dailyInfo").textContent = ""; return; }
   ensureDaily();
-  if (!daily.anchor || !daily.fleet) { wrap.innerHTML = '<div class="dim">' + window.t("bs.seeding", "Seeding today's fleet from the chain — a moment…") + "</div>"; return; }
-  const fired = new Set(daily.fired), occ = daily.fleet.occ;
-  const hits = daily.fired.filter((c) => occ.has(c)).length;
-  const sunk = daily.fleet.ships.filter((s) => s.length && s.every((x) => fired.has(x))).length;
-  const allSunk = hits === SALVO.SHIPS;
-  let g = '<div class="bgrid daily">';
-  for (let c = 0; c < CELLS; c++) {
-    const f = fired.has(c), hit = f && occ.has(c);
-    const cls = !f ? "sea" : hit ? "hit" : "miss";
-    g += '<div class="bcell ' + cls + '"' + (!f && !allSunk ? ' data-dfire="' + c + '"' : "") + ' title="' + SALVO.coord(c) + '">' + (hit ? "🔥" : f ? "·" : "") + "</div>";
-  }
-  g += "</div>";
-  wrap.innerHTML = g;
-  wrap.querySelectorAll("[data-dfire]").forEach((el) => el.onclick = () => fireDaily(parseInt(el.dataset.dfire, 10)));
-  const score = SALVO.scoreShots(daily.fleet, daily.fired);
+  const ready = !!(daily.anchor && daily.fleet);
+  const fired = new Set(daily.fired), occ = ready ? daily.fleet.occ : new Set();
+  const hits = ready ? daily.fired.filter((c) => occ.has(c)).length : 0;
+  const sunk = ready ? daily.fleet.ships.filter((s) => s.length && s.every((x) => fired.has(x))).length : 0;
+  const allSunk = ready && hits === SALVO.SHIPS;
+  const score = ready ? SALVO.scoreShots(daily.fleet, daily.fired) : 0;
   const posted = myBestSalvo(daily.day);
-  let info = window.t("bs.dailyInfo", "Shots: {sh}/{bud} · sunk {sunk}/5 · score {s}", { sh: daily.fired.length, bud: SALVO.BUDGET, sunk, s: score });
-  if (allSunk) info = "🏆 " + window.t("bs.dailyAllSunk", "Fleet sunk in {sh} shots — score {s}!", { sh: daily.fired.length, s: score });
-  $("dailyInfo").textContent = info;
-  const post = $("btnPostSalvo");
-  if (post) {
-    post.classList.toggle("hidden", !daily.fired.length || posted != null);
-    post.disabled = dapp.busy("post");
-    post.textContent = dapp.busy("post") ? confirmingLabel() : window.t("bs.postScore", "🏆 Post my {s} points", { s: score });
+
+  // Only the grid is battleship's own; the sign-in pitch, the seeding wait and the score/post/replay
+  // footer come from the SDK (dailyFrame), identical to every other game's Daily Challenge.
+  let body = "";
+  if (ready) {
+    body = '<div class="small dim" style="margin-bottom:8px">'
+      + (allSunk ? "🏆 " + window.t("bs.dailyAllSunk", "Fleet sunk in {sh} shots — score {s}!", { sh: daily.fired.length, s: score })
+                 : window.t("bs.dailyInfo", "Shots: {sh}/{bud} · sunk {sunk}/5 · score {s}", { sh: daily.fired.length, bud: SALVO.BUDGET, sunk, s: score }))
+      + "</div><div class=\"bgrid daily\">";
+    for (let c = 0; c < CELLS; c++) {
+      const f = fired.has(c), hit = f && occ.has(c);
+      const cls = !f ? "sea" : hit ? "hit" : "miss";
+      body += '<div class="bcell ' + cls + '"' + (!f && !allSunk ? ' data-dfire="' + c + '"' : "") + ' title="' + SALVO.coord(c) + '">' + (hit ? "🔥" : f ? "·" : "") + "</div>";
+    }
+    body += "</div>";
   }
-  const done = $("btnResetSalvo"); if (done) done.classList.toggle("hidden", !daily.fired.length);
-  if ($("salvoPosted")) $("salvoPosted").textContent = posted != null ? window.t("bs.postedBest", "Posted today: {s} pts", { s: posted }) : "";
+  dailyFrame(dapp, {
+    el: wrap,
+    name: window.t("bs.dailyName", "Daily Salvo"),
+    signedOut: window.t("bs.dailySignIn", "Sign in to play today's free Daily Salvo — hunt & sink a hidden fleet, top the board, and the faucet pays the daily leaders."),
+    seeding: window.t("bs.seeding", "Seeding today's fleet from the chain — a moment…"),
+    ready,
+    done: ready && (allSunk || daily.fired.length >= SALVO.BUDGET),
+    score, posted,
+    scoreLabel: window.t("bs.dailyScoreLine", "Salvo complete — {sh} shots, {s} points!", { sh: daily.fired.length, s: score }),
+    postLabel: window.t("bs.postScore", "🏆 Post my {s} points", { s: score }),
+    body,
+    wire: (el) => el.querySelectorAll("[data-dfire]").forEach((x) => x.onclick = () => fireDaily(parseInt(x.dataset.dfire, 10))),
+    onPost: postDaily,
+    onReplay: () => { daily.fired = []; saveDailyFired(daily.day, []); render(); },
+  });
+  if ($("dailyInfo")) $("dailyInfo").textContent = "";
 }
 async function renderDailyBoard(sto) {
   const el = $("dailyBoard"); if (!el) return;
@@ -503,10 +519,6 @@ function wireUI() {
   $("btnRematch").onclick = rematch;
   $("btnShare").onclick = () => share(base() + "/?game=" + activeGame, window.t("bs.shareThis", "Play this Battleship game on NADO:"), $("btnShare"));
   if ($("btnMoreLobby")) $("btnMoreLobby").onclick = () => { lobbyN += 48; if (lastSto) renderLobby(lastSto); };
-  if ($("tabPlay")) $("tabPlay").onclick = () => { mode = "play"; render(); };
-  if ($("tabDaily")) $("tabDaily").onclick = () => { mode = "daily"; render(); };
-  if ($("btnPostSalvo")) $("btnPostSalvo").onclick = postDaily;
-  if ($("btnResetSalvo")) $("btnResetSalvo").onclick = () => { daily.fired = []; saveDailyFired(daily.day, []); render(); };
   // ship-based placement: tap a placed ship to pick it up, or tap empty water to drop the armed ship (delegated)
   $("placeGrid").addEventListener("click", (e) => {
     const c = e.target.closest("[data-place]"); if (!c) return;

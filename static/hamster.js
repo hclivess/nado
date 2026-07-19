@@ -7,7 +7,7 @@
 // every bettor) — so you read form + the live tote, exactly like a racetrack. The client mirrors the
 // contract's alghash math (algHashn) to show genes and animate the run; the contract is the authority.
 // Contract: execnode/games/hamster.py.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js";
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js";
 import * as DERBY from "./hamster-daily.js";
 
@@ -232,32 +232,42 @@ async function renderBoard(sto) {
 }
 function renderDaily() {
   const c = $("dailyCard"); if (!c) return;
-  if (!dapp.me) { $("derby").innerHTML = '<div class="dim">' + window.t("hamster.derbySignIn", "Sign in to play today's free Daily Derby — pick winners, top the board, and the faucet pays the daily leaders automatically.") + "</div>"; return; }
   ensureDaily();
-  if (!daily.anchor) { $("derby").innerHTML = '<div class="dim">' + window.t("hamster.seeding", "Seeding today's derby from the chain — a moment…") + "</div>"; return; }
-  if (!daily.races) { $("derby").innerHTML = '<div class="dim">' + window.t("hamster.loading", "Loading…") + "</div>"; return; }
-  const i = daily.picks.length, done = i >= DERBY.RACES;
-  const score = DERBY.scorePicks(daily.races, daily.picks);
-  let h = '<div class="small dim" style="margin-bottom:8px">' + window.t("hamster.derbyIntro", "Race {n} of {t} · your score: {s} pts. Read each hamster's form (speed) and back one — a winning longshot pays its odds.", { n: Math.min(i + 1, DERBY.RACES), t: DERBY.RACES, s: score }) + "</div>";
-  if (!done) {
-    const race = daily.races[i];
-    h += '<div class="derbyRace"><div class="small" style="margin-bottom:6px">🏁 <b>' + window.t("hamster.derbyPick", "Race {n} — pick your winner", { n: i + 1 }) + "</b></div>";
-    h += race.speeds.map((sp, l) => '<div class="betrow"><span class="be">' + laneEmoji[l] + '</span><b>' + esc(DERBY.dailyName(daily.seed, i, l)) + '</b> <span class="dim">' + window.t("hamster.spd", "spd {s}", { s: sp }) + '</span><span class="odds">' + (race.odds[l] / 100).toFixed(1) + "×</span><button class='mini primary' data-pick='" + l + "'>" + window.t("hamster.pickBtn", "Pick") + "</button></div>").join("");
-    h += "</div>";
-  } else {
-    const c2 = daily.races.reduce((n, race, r) => n + (daily.picks[r] === race.winner ? 1 : 0), 0);
-    h += '<div class="derbyDone"><b>' + window.t("hamster.derbyDone", "Derby complete — {c}/{t} winners, {s} points!", { c: c2, t: DERBY.RACES, s: score }) + "</b>"
-      + '<div class="small dim mt">' + window.t("hamster.derbyResults", "Results (your pick vs the winner):") + "</div>"
-      + '<div class="small mono" style="margin-top:4px">' + daily.races.map((race, r) => (daily.picks[r] === race.winner ? "✅" : "❌") + " R" + (r + 1) + ": " + window.t("hamster.laneN", "lane {n}", { n: daily.picks[r] + 1 }) + " / " + window.t("hamster.wonN", "won {n}", { n: race.winner + 1 })).join("<br>") + "</div>";
-    const mine = myBestToday(daily.day);
-    if (mine != null) h += '<div class="b ok mt" style="display:inline-block">' + window.t("hamster.postedBest", "Posted: {s} pts", { s: mine }) + "</div>";
-    else h += '<button class="primary mt" id="btnPost" style="width:100%">' + (dapp.busy("post") ? confirmingLabel() : window.t("hamster.postScore", "🏆 Post my {s} points to the board", { s: score })) + "</button>";
-    h += '<button class="ghost mt" id="btnReplayDerby" style="width:100%">' + window.t("hamster.replay", "↺ Replay today (won't repost)") + "</button></div>";
+  const ready = !!(daily.anchor && daily.races);
+  const i = ready ? daily.picks.length : 0;
+  const done = ready && i >= DERBY.RACES;
+  const score = ready ? DERBY.scorePicks(daily.races, daily.picks) : 0;
+  const mine = myBestToday(daily.day);
+
+  // ONLY the play area is game-specific; the sign-in pitch, the anchor wait, and the score/post/replay
+  // footer are the SDK's dailyFrame, so every game's Daily Challenge behaves and reads the same.
+  let body = "";
+  if (ready) {
+    body = '<div class="small dim" style="margin-bottom:8px">' + window.t("hamster.derbyIntro", "Race {n} of {t} · your score: {s} pts. Read each hamster's form (speed) and back one — a winning longshot pays its odds.", { n: Math.min(i + 1, DERBY.RACES), t: DERBY.RACES, s: score }) + "</div>";
+    if (!done) {
+      const race = daily.races[i];
+      body += '<div class="derbyRace"><div class="small" style="margin-bottom:6px">🏁 <b>' + window.t("hamster.derbyPick", "Race {n} — pick your winner", { n: i + 1 }) + "</b></div>";
+      body += race.speeds.map((sp, l) => '<div class="betrow"><span class="be">' + laneEmoji[l] + '</span><b>' + esc(DERBY.dailyName(daily.seed, i, l)) + '</b> <span class="dim">' + window.t("hamster.spd", "spd {s}", { s: sp }) + '</span><span class="odds">' + (race.odds[l] / 100).toFixed(1) + "×</span><button class='mini primary' data-pick='" + l + "'>" + window.t("hamster.pickBtn", "Pick") + "</button></div>").join("");
+      body += "</div>";
+    } else {
+      body += '<div class="derbyDone"><div class="small dim">' + window.t("hamster.derbyResults", "Results (your pick vs the winner):") + "</div>"
+        + '<div class="small mono" style="margin-top:4px">' + daily.races.map((race, r) => (daily.picks[r] === race.winner ? "✅" : "❌") + " R" + (r + 1) + ": " + window.t("hamster.laneN", "lane {n}", { n: daily.picks[r] + 1 }) + " / " + window.t("hamster.wonN", "won {n}", { n: race.winner + 1 })).join("<br>") + "</div></div>";
+    }
   }
-  $("derby").innerHTML = h;
-  $("derby").querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => playPick(parseInt(b.dataset.pick, 10)));
-  if ($("btnPost")) $("btnPost").onclick = postDaily;
-  if ($("btnReplayDerby")) $("btnReplayDerby").onclick = () => { daily.picks = []; saveDailyPicks(daily.day, []); render(); };
+  const hits = ready ? daily.races.reduce((n, race, r) => n + (daily.picks[r] === race.winner ? 1 : 0), 0) : 0;
+  dailyFrame(dapp, {
+    el: $("derby"),
+    name: window.t("hamster.derbyName", "Daily Derby"),
+    signedOut: window.t("hamster.derbySignIn", "Sign in to play today's free Daily Derby — pick winners, top the board, and the faucet pays the daily leaders automatically."),
+    seeding: window.t("hamster.seeding", "Seeding today's derby from the chain — a moment…"),
+    ready, done, score, posted: mine,
+    scoreLabel: window.t("hamster.derbyDone", "Derby complete — {c}/{t} winners, {s} points!", { c: hits, t: DERBY.RACES, s: score }),
+    postLabel: window.t("hamster.postScore", "🏆 Post my {s} points to the board", { s: score }),
+    body,
+    wire: (el) => el.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => playPick(parseInt(b.dataset.pick, 10))),
+    onPost: postDaily,
+    onReplay: () => { daily.picks = []; saveDailyPicks(daily.day, []); render(); },
+  });
 }
 // my posted best score for the day (from the on-chain entries) — hides the Post button once I've posted.
 function myBestToday(day) {
@@ -305,8 +315,6 @@ function wireUI() {
   stickyInputs(dapp, ["stakeAmt", "bankAmt"]);
   if ($("btnNewRace")) $("btnNewRace").onclick = openRace;
   if ($("btnShare")) $("btnShare").onclick = () => share(base() + "/?race=" + active, window.t("hamster.shareText", "Bet on the hamsters at NADO — race #{r}:", { r: active }), $("btnShare"));
-  if ($("tabBet")) $("tabBet").onclick = () => { mode = "bet"; render(); };
-  if ($("tabDaily")) $("tabDaily").onclick = () => { mode = "daily"; render(); };
   dapp.wireAutoCollect();
 }
 
@@ -315,8 +323,13 @@ function render() {
   dapp.reflectUrl("race", active);
   // mode toggle: BET (real parimutuel races) vs DAILY (free provable derby)
   const betMode = mode === "bet";
-  if ($("tabBet")) $("tabBet").classList.toggle("on", betMode);
-  if ($("tabDaily")) $("tabDaily").classList.toggle("on", !betMode);
+  // ONE shared picker across every game (SDK) instead of per-game tab markup + toggling
+  modeBar($("modeBar"), [
+    { key: "bet", icon: "💰", label: window.t("hamster.tabBet", "Bet on races"),
+      hint: window.t("hamster.tabBetHint", "Parimutuel races for real NADO stakes.") },
+    { key: "daily", icon: "🏆", label: window.t("hamster.tabDaily", "Daily Derby"), badge: window.t("sdk.free", "free"),
+      hint: window.t("hamster.tabDailyHint", "Today's free provable challenge — the faucet pays the daily leaders.") },
+  ], mode, (k) => { mode = k; render(); });
   gate({ opencard: betMode, lobby: betMode, bankroll: betMode && signedIn, activeRace: betMode && active != null,
          dailyCard: !betMode });
   if (!betMode) { renderDaily(); return; }

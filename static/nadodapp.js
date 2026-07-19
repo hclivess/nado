@@ -427,6 +427,109 @@ const _prizeCell = (i) => { const raw = faucetPrizeRaw(i + 1);
   return raw ? '<td class="pos" style="color:var(--gold,#e3b341);white-space:nowrap">🏆 ' + rawToNado(raw) + "</td>" : '<td class="dim">—</td>'; };
 const _prizeHead = (prize) => prize ? "<th>" + _t("prizeCol", "Daily prize") + "</th>" : "";
 const _prizeNote = (prize) => prize ? '<div class="small" style="margin-top:8px;color:var(--gold,#e3b341)">🏆 ' + _t("prizeNote", "Top {k} each day win NADO from the faucet prize pool — paid automatically to the leaders.", { k: FAUCET_TAPER.length }) + "</div>" : "";
+/* ---- ONE play-mode picker + ONE daily-challenge frame -------------------------------------------
+ * Every game offers roughly the same three things — play for stakes, practise free against a bot, and
+ * the free provable Daily Challenge that the faucet pays out on — but each one used to present them
+ * differently: hamster had "Bet | Daily" tabs, battleship "Play | Daily", hexholm and scrapline a lone
+ * button somewhere in the page, and the trio had no entry point at all. Same concepts, four shapes, so
+ * a player who learned one game had to relearn the next. These two helpers own that surface instead.
+ *
+ * modeBar renders the picker; dailyFrame renders EVERYTHING around a daily challenge (the signed-out
+ * pitch, the anchor-seeding wait, the score/post/replay footer, the verified board and the prize note),
+ * leaving the game to supply only the part that is genuinely its own: the play area.
+ * -------------------------------------------------------------------------------------------- */
+
+/**
+ * modeBar(el, modes, active, onChange) — the shared mode picker.
+ * modes: [{key, label, icon?, hint?, badge?}]. Renders nothing for a single mode (no picker needed).
+ */
+// The picker/daily styling ships WITH the component. Each game page carries its own inline <style>, so
+// shipping the CSS from here is what actually makes the surface identical everywhere — otherwise every
+// game would re-declare it and drift again, which is the problem this is meant to end. Uses each page's
+// own theme variables (with literal fallbacks) so it inherits the game's palette rather than fighting it.
+let _modeCssDone = false;
+function _modeCss() {
+  if (_modeCssDone || typeof document === "undefined") return;
+  _modeCssDone = true;
+  const s = document.createElement("style");
+  s.textContent = `
+.modebar{display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap}
+.modebar .modetab{flex:1 1 0;min-width:118px;background:var(--elev,#131a23);border:1px solid var(--border,#243140);
+  border-radius:11px;padding:10px;font-weight:800;color:var(--dim,#93a1b0);font-family:inherit;font-size:14px;
+  cursor:pointer;line-height:1.25;transition:background .15s ease,color .15s ease,border-color .15s ease}
+.modebar .modetab:hover{color:var(--txt,#e6edf3)}
+.modebar .modetab.on{background:linear-gradient(135deg,var(--accent,#00ad93),var(--accent2,#00c9a7));
+  color:#04110a;border-color:transparent}
+.modebar .mbadge{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;font-size:10px;
+  font-weight:800;background:rgba(0,0,0,.18);vertical-align:middle}
+.dailyFoot{margin-top:12px}
+.dailyScore b{font-size:15px;color:var(--gold,#e3b341)}
+@media (max-width:420px){.modebar .modetab{min-width:0;font-size:13px;padding:9px 6px}}`;
+  document.head.appendChild(s);
+}
+
+export function modeBar(el, modes, active, onChange) {
+  if (!el) return;
+  _modeCss();
+  const list = (modes || []).filter(Boolean);
+  if (list.length < 2) { el.innerHTML = ""; el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  el.className = (el.className.replace(/\bhidden\b/g, "") + " modebar").trim();
+  el.innerHTML = list.map((m) =>
+    '<button type="button" class="modetab' + (m.key === active ? " on" : "") + '" data-mode="' + esc(m.key) + '"'
+    + (m.hint ? ' title="' + esc(m.hint) + '"' : "") + ">"
+    + (m.icon ? '<span class="mi" aria-hidden="true">' + m.icon + "</span> " : "") + esc(m.label)
+    + (m.badge ? ' <span class="mbadge">' + esc(m.badge) + "</span>" : "") + "</button>").join("");
+  el.querySelectorAll("[data-mode]").forEach((b) => {
+    b.onclick = () => { if (b.dataset.mode !== active) onChange(b.dataset.mode); };
+  });
+}
+
+/**
+ * dailyFrame(dapp, o) — the shared Daily Challenge frame. The game passes its own play area as `body`
+ * (an HTML string) and wires it in `wire`; everything else is identical across games so it lives here.
+ *
+ * o: { el, name, signedOut?, seeding?, loading?, ready, done, score, posted, body, wire?,
+ *      onPost, onReplay, postLabel?, scoreLabel? }
+ *   ready   — the day's anchor is resolved and the challenge is playable
+ *   done    — the player has finished today's run (show the post/replay footer)
+ *   posted  — the score already on-chain for today (null if not posted), so we never offer a re-post
+ * Returns nothing; it owns el's innerHTML.
+ */
+export function dailyFrame(dapp, o) {
+  const el = o.el; if (!el) return;
+  _modeCss();
+  const pitch = o.signedOut || _t("dailyPitch",
+    "Sign in to play today's free {name} — no stake, provably fair, and the faucet pays the daily leaders automatically.",
+    { name: o.name || _t("dailyName", "Daily Challenge") });
+  if (!dapp.me) { el.innerHTML = '<div class="dim">' + pitch + "</div>"; return; }
+  if (!o.ready) {
+    el.innerHTML = '<div class="dim">' + (o.seeding || _t("dailySeeding",
+      "Seeding today's challenge from the chain — this takes a moment the first time each day.")) + "</div>";
+    return;
+  }
+  let h = String(o.body || "");
+  if (o.done) {
+    h += '<div class="dailyFoot">';
+    h += '<div class="dailyScore"><b>' + (o.scoreLabel
+      || _t("dailyScore", "Final score: {s}", { s: o.score })) + "</b></div>";
+    if (o.posted != null) {
+      h += '<div class="b ok mt" style="display:inline-block">'
+        + _t("dailyPosted", "Posted to the board: {s}", { s: o.posted }) + "</div>";
+    } else {
+      h += '<button class="primary mt" id="sdkDailyPost" style="width:100%">'
+        + (dapp.busy("post") ? confirmingLabel()
+           : (o.postLabel || _t("dailyPost", "🏆 Post my score to the board"))) + "</button>";
+    }
+    h += '<button class="ghost mt" id="sdkDailyReplay" style="width:100%">'
+      + _t("dailyReplay", "↺ Replay today (won't repost)") + "</button></div>";
+  }
+  el.innerHTML = h;
+  if (typeof o.wire === "function") { try { o.wire(el); } catch (e) {} }
+  const p = el.querySelector("#sdkDailyPost"); if (p && o.onPost) p.onclick = o.onPost;
+  const r = el.querySelector("#sdkDailyReplay"); if (r && o.onReplay) r.onclick = o.onReplay;
+}
+
 // renderScore(el, board, me, empty): the shared win/loss leaderboard table.
 export async function renderScore(el, board, me, empty, prize) {
   if (!el) return;
