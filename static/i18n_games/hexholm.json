@@ -210,7 +210,9 @@
   "hex.dailySeedingBtn": "⏳ يجري تجهيز الجزيرة اليوم…",
   "hex.dailySeedingWait": "يجري التجهيز على السلسلة — سيبدأ الجزيرة تلقائياً بمجرد جاهزية لوحة اليوم.",
   "hex.dailyNeedsSignIn": "لوحة اليوم لم تُنشأ بعد — تحتاج نداءً واحداً على السلسلة. سجّل الدخول وسننشئها ونبدأ الجزيرة.",
-  "hex.dailyStillSeeding": "ما زال الجزيرة اليوم قيد التجهيز على السلسلة — ينتهي خلال دقيقة ويبدأ تلقائياً. جرّب واحدة عشوائية في الأثناء."
+  "hex.dailyStillSeeding": "ما زال الجزيرة اليوم قيد التجهيز على السلسلة — ينتهي خلال دقيقة ويبدأ تلقائياً. جرّب واحدة عشوائية في الأثناء.",
+  "hex.modeDaily": "جزيرة اليوم",
+  "hex.modeDailyHint": "جزيرة اليوم المجانية القابلة للإثبات — الصنبور يكافئ المتصدرين."
  },
  "cs": {
   "hex.abort": "⏱ Nárokovat refundaci po timeoutu",
@@ -423,7 +425,9 @@
   "hex.dailySeedingBtn": "⏳ Připravuji dnešní ostrov…",
   "hex.dailySeedingWait": "Připravuji on-chain — ostrov se spustí sama, jakmile bude dnešní tabulka připravená.",
   "hex.dailyNeedsSignIn": "Dnešní tabulka ještě není založená — potřebuje jedno on-chain volání. Přihlas se a my ji založíme a spustíme ti ostrov.",
-  "hex.dailyStillSeeding": "Dnešní ostrov se stále zakládá on-chain — do minuty to doběhne a spustí se samo. Zatím si zahraj náhodnou."
+  "hex.dailyStillSeeding": "Dnešní ostrov se stále zakládá on-chain — do minuty to doběhne a spustí se samo. Zatím si zahraj náhodnou.",
+  "hex.modeDaily": "Denní ostrov",
+  "hex.modeDailyHint": "Dnešní prokazatelný ostrov zdarma — faucet odměňuje denní nejlepší."
  },
  "de": {
   "hex.abort": "⏱ Timeout-Erstattung einfordern",
@@ -636,7 +640,9 @@
   "hex.dailySeedingBtn": "⏳ Heutige Insel wird vorbereitet…",
   "hex.dailySeedingWait": "Wird on-chain vorbereitet — deine Insel startet automatisch, sobald die heutige Tabelle bereit ist.",
   "hex.dailyNeedsSignIn": "Die heutige Tabelle existiert noch nicht — das braucht einen On-Chain-Aufruf. Melde dich an, dann legen wir sie an und starten deine Insel.",
-  "hex.dailyStillSeeding": "Die heutige Insel wird noch on-chain vorbereitet — in etwa einer Minute fertig, dann startet sie von selbst. Spiel solange eine zufällige."
+  "hex.dailyStillSeeding": "Die heutige Insel wird noch on-chain vorbereitet — in etwa einer Minute fertig, dann startet sie von selbst. Spiel solange eine zufällige.",
+  "hex.modeDaily": "Tages-Insel",
+  "hex.modeDailyHint": "Die kostenlose beweisbare Insel von heute — der Faucet zahlt die Tagesbesten."
  },
  "en": {
   "hex.abort": "⏱ Claim timeout refund",
@@ -849,7 +855,9 @@
   "hex.dailySeedingBtn": "⏳ Seeding today's island…",
   "hex.dailySeedingWait": "Seeding on-chain — your island starts automatically as soon as today's board is ready.",
   "hex.dailyNeedsSignIn": "Today's board hasn't been seeded yet — that takes one on-chain call, so sign in and we'll seed it and start your island.",
-  "hex.dailyStillSeeding": "Still seeding today's island on-chain — it finishes in about a minute and starts by itself. Play a random one meanwhile."
+  "hex.dailyStillSeeding": "Still seeding today's island on-chain — it finishes in about a minute and starts by itself. Play a random one meanwhile.",
+  "hex.modeDaily": "Daily island",
+  "hex.modeDailyHint": "Today's free provable island — the faucet pays the daily leaders."
  },
  "es": {
   "hex.abort": "⏱ Reclamar reembolso por timeout",
@@ -1062,7 +1070,9 @@
   "hex.dailySeedingBtn": "⏳ Preparando isla de hoy…",
   "hex.dailySeedingWait": "Preparando en cadena — tu isla empieza automáticamente en cuanto la tabla de hoy esté lista.",
   "hex.dailyNeedsSignIn": "La tabla de hoy aún no está creada — requiere una llamada en cadena. Inicia sesión y la creamos y empezamos tu isla.",
-  "hex.dailyStillSeeding": "Aún preparando isla de hoy en la cadena — termina en un minuto y empieza solo. Juega una aleatoria mientras tanto."
+  "hex.dailyStillSeeding": "Aún preparando isla de hoy en la cadena — termina en un minuto y empieza solo. Juega una aleatoria mientras tanto.",
+  "hex.modeDaily": "Isla diaria",
+  "hex.modeDailyHint": "La isla demostrable gratuita de hoy — el faucet premia a los líderes del día."
  },
  "fr": {
   "hex.abort": "⏱ Réclamer le remboursement (délai)",
@@ -1275,7 +1285,9 @@
   "hex.dailySeedingBtn": "⏳ Préparation du île du jour…",
   "hex.dailySeedingWait": "Préparation sur la chaîne — votre île démarre automatiquement dès que le classement du jour est prêt.",
   "hex.dailyNeedsSignIn": "Le classement du jour n'est pas encore créé — cela demande un appel sur la chaîne. Connectez-vous et nous le créons et lançons votre île.",
-  "hex.dailyStillSeeding": "Préparation du île du jour toujours en cours — cela se termine en une minute et démarre tout seul. Jouez-en un aléatoire en attendant."
+  "hex.dailyStillSeeding": "Préparation du île du jour toujours en cours — cela se termine en une minute et démarre tout seul. Jouez-en un aléatoire en attendant.",
+  "hex.modeDaily": "Île du jour",
+  "hex.modeDailyHint": "L'île prouvable gratuite du jour — le faucet récompense les meilleurs."
  },
  "hi": {
   "hex.abort": "⏱ टाइमआउट रिफंड लें",
@@ -1488,7 +1500,9 @@
   "hex.dailySeedingBtn": "⏳ आज का द्वीप तैयार हो रहा है…",
   "hex.dailySeedingWait": "चेन पर तैयार हो रहा है — आज का बोर्ड तैयार होते ही आपका द्वीप अपने आप शुरू हो जाएगा।",
   "hex.dailyNeedsSignIn": "आज का बोर्ड अभी नहीं बना — इसके लिए एक ऑन-चेन कॉल चाहिए। साइन इन करें, हम बनाकर आपका द्वीप शुरू कर देंगे।",
-  "hex.dailyStillSeeding": "आज का द्वीप अब भी चेन पर तैयार हो रहा है — लगभग एक मिनट में पूरा होकर खुद शुरू होगा। तब तक कोई रैंडम खेलें।"
+  "hex.dailyStillSeeding": "आज का द्वीप अब भी चेन पर तैयार हो रहा है — लगभग एक मिनट में पूरा होकर खुद शुरू होगा। तब तक कोई रैंडम खेलें।",
+  "hex.modeDaily": "डेली आइलैंड",
+  "hex.modeDailyHint": "आज का मुफ़्त प्रमाणित द्वीप — फ़ॉसेट रोज़ के अग्रणी को इनाम देता है।"
  },
  "id": {
   "hex.abort": "⏱ Klaim refund timeout",
@@ -1701,7 +1715,9 @@
   "hex.dailySeedingBtn": "⏳ Menyiapkan pulau hari ini…",
   "hex.dailySeedingWait": "Disiapkan di rantai — pulau kamu mulai otomatis begitu papan hari ini siap.",
   "hex.dailyNeedsSignIn": "Papan hari ini belum dibuat — perlu satu panggilan di rantai. Masuk dan kami buatkan lalu mulai pulau kamu.",
-  "hex.dailyStillSeeding": "Masih menyiapkan pulau hari ini di rantai — selesai sekitar semenit lalu mulai sendiri. Mainkan yang acak dulu."
+  "hex.dailyStillSeeding": "Masih menyiapkan pulau hari ini di rantai — selesai sekitar semenit lalu mulai sendiri. Mainkan yang acak dulu.",
+  "hex.modeDaily": "Pulau harian",
+  "hex.modeDailyHint": "Pulau gratis yang bisa dibuktikan hari ini — faucet membayar pemuncak harian."
  },
  "it": {
   "hex.abort": "⏱ Richiedi rimborso per timeout",
@@ -1914,7 +1930,9 @@
   "hex.dailySeedingBtn": "⏳ Preparo la isola di oggi…",
   "hex.dailySeedingWait": "Preparazione on-chain — la tua isola parte da sola non appena la classifica di oggi è pronta.",
   "hex.dailyNeedsSignIn": "La classifica di oggi non è ancora creata — serve una chiamata on-chain. Accedi e la creiamo avviando la tua isola.",
-  "hex.dailyStillSeeding": "Sto ancora preparando la isola di oggi on-chain — finisce in un minuto e parte da sola. Intanto giocane una casuale."
+  "hex.dailyStillSeeding": "Sto ancora preparando la isola di oggi on-chain — finisce in un minuto e parte da sola. Intanto giocane una casuale.",
+  "hex.modeDaily": "Isola del giorno",
+  "hex.modeDailyHint": "L'isola dimostrabile gratuita di oggi — il faucet premia i migliori del giorno."
  },
  "ja": {
   "hex.abort": "⏱ タイムアウト返金を請求",
@@ -2127,7 +2145,9 @@
   "hex.dailySeedingBtn": "⏳ 今日のアイランドを準備中…",
   "hex.dailySeedingWait": "チェーン上で準備中 — 今日のボードが整い次第、アイランドは自動で始まります。",
   "hex.dailyNeedsSignIn": "今日のボードはまだ作成されていません — オンチェーン呼び出しが1回必要です。サインインすれば作成してアイランドを開始します。",
-  "hex.dailyStillSeeding": "今日のアイランドをまだチェーン上で準備中 — 1分ほどで完了し自動で始まります。それまではランダムをどうぞ。"
+  "hex.dailyStillSeeding": "今日のアイランドをまだチェーン上で準備中 — 1分ほどで完了し自動で始まります。それまではランダムをどうぞ。",
+  "hex.modeDaily": "デイリー・アイランド",
+  "hex.modeDailyHint": "今日の無料・証明可能なアイランド — フォーセットが上位に支払います。"
  },
  "ko": {
   "hex.abort": "⏱ 타임아웃 환불 청구",
@@ -2340,7 +2360,9 @@
   "hex.dailySeedingBtn": "⏳ 오늘의 섬 준비 중…",
   "hex.dailySeedingWait": "체인에서 준비 중 — 오늘 보드가 준비되면 섬이 자동으로 시작됩니다.",
   "hex.dailyNeedsSignIn": "오늘 보드가 아직 생성되지 않았습니다 — 온체인 호출이 한 번 필요합니다. 로그인하면 생성하고 섬을 시작합니다.",
-  "hex.dailyStillSeeding": "오늘의 섬을 아직 체인에서 준비 중입니다 — 1분쯤 뒤 완료되어 자동으로 시작됩니다. 그동안 랜덤을 즐기세요."
+  "hex.dailyStillSeeding": "오늘의 섬을 아직 체인에서 준비 중입니다 — 1분쯤 뒤 완료되어 자동으로 시작됩니다. 그동안 랜덤을 즐기세요.",
+  "hex.modeDaily": "데일리 아일랜드",
+  "hex.modeDailyHint": "오늘의 무료 증명 가능한 섬 — 포시트가 일일 상위권에 지급합니다."
  },
  "pt": {
   "hex.abort": "⏱ Reivindicar reembolso por timeout",
@@ -2553,7 +2575,9 @@
   "hex.dailySeedingBtn": "⏳ A preparar ilha de hoje…",
   "hex.dailySeedingWait": "A preparar na cadeia — o teu ilha começa automaticamente assim que a tabela de hoje estiver pronta.",
   "hex.dailyNeedsSignIn": "A tabela de hoje ainda não foi criada — precisa de uma chamada na cadeia. Entra e nós criamo-la e começamos o teu ilha.",
-  "hex.dailyStillSeeding": "Ainda a preparar ilha de hoje na cadeia — termina num minuto e começa sozinho. Joga um aleatório entretanto."
+  "hex.dailyStillSeeding": "Ainda a preparar ilha de hoje na cadeia — termina num minuto e começa sozinho. Joga um aleatório entretanto.",
+  "hex.modeDaily": "Ilha diária",
+  "hex.modeDailyHint": "A ilha comprovável gratuita de hoje — o faucet premeia os líderes do dia."
  },
  "ru": {
   "hex.abort": "⏱ Забрать возврат по таймауту",
@@ -2766,7 +2790,9 @@
   "hex.dailySeedingBtn": "⏳ Готовим сегодняшний остров…",
   "hex.dailySeedingWait": "Готовим в сети — ваш остров начнётся автоматически, как только таблица дня будет готова.",
   "hex.dailyNeedsSignIn": "Таблица на сегодня ещё не создана — нужен один вызов в сети. Войдите, и мы создадим её и запустим ваш остров.",
-  "hex.dailyStillSeeding": "Сегодняшний остров ещё готовится в сети — примерно через минуту всё будет готово и запустится само. Пока сыграйте случайный."
+  "hex.dailyStillSeeding": "Сегодняшний остров ещё готовится в сети — примерно через минуту всё будет готово и запустится само. Пока сыграйте случайный.",
+  "hex.modeDaily": "Остров дня",
+  "hex.modeDailyHint": "Бесплатный проверяемый остров дня — фаусет награждает лидеров."
  },
  "tr": {
   "hex.abort": "⏱ Zaman aşımı iadesini al",
@@ -2979,7 +3005,9 @@
   "hex.dailySeedingBtn": "⏳ Bugünün ada hazırlanıyor…",
   "hex.dailySeedingWait": "Zincirde hazırlanıyor — bugünün tablosu hazır olur olmaz ada kendiliğinden başlar.",
   "hex.dailyNeedsSignIn": "Bugünün tablosu henüz oluşturulmadı — bir zincir çağrısı gerekiyor. Giriş yap, oluşturup ada başlatalım.",
-  "hex.dailyStillSeeding": "Bugünün ada hâlâ zincirde hazırlanıyor — yaklaşık bir dakikada bitip kendiliğinden başlar. Bu arada rastgele bir tane oyna."
+  "hex.dailyStillSeeding": "Bugünün ada hâlâ zincirde hazırlanıyor — yaklaşık bir dakikada bitip kendiliğinden başlar. Bu arada rastgele bir tane oyna.",
+  "hex.modeDaily": "Günün adası",
+  "hex.modeDailyHint": "Bugünün ücretsiz kanıtlanabilir adası — musluk günün liderlerine ödeme yapar."
  },
  "vi": {
   "hex.abort": "⏱ Nhận hoàn tiền timeout",
@@ -3192,7 +3220,9 @@
   "hex.dailySeedingBtn": "⏳ Đang chuẩn bị đảo hôm nay…",
   "hex.dailySeedingWait": "Đang chuẩn bị trên chuỗi — đảo của bạn sẽ tự bắt đầu ngay khi bảng hôm nay sẵn sàng.",
   "hex.dailyNeedsSignIn": "Bảng hôm nay chưa được tạo — cần một lệnh gọi trên chuỗi. Hãy đăng nhập, chúng tôi sẽ tạo và bắt đầu đảo cho bạn.",
-  "hex.dailyStillSeeding": "Vẫn đang chuẩn bị đảo hôm nay trên chuỗi — khoảng một phút nữa là xong và tự bắt đầu. Chơi tạm một ván ngẫu nhiên."
+  "hex.dailyStillSeeding": "Vẫn đang chuẩn bị đảo hôm nay trên chuỗi — khoảng một phút nữa là xong và tự bắt đầu. Chơi tạm một ván ngẫu nhiên.",
+  "hex.modeDaily": "Đảo hôm nay",
+  "hex.modeDailyHint": "Hòn đảo miễn phí có thể chứng minh hôm nay — faucet thưởng cho người dẫn đầu."
  },
  "zh": {
   "hex.abort": "⏱ 领取超时退款",
@@ -3405,6 +3435,8 @@
   "hex.dailySeedingBtn": "⏳ 正在准备今天的岛屿…",
   "hex.dailySeedingWait": "正在链上准备 — 今天的榜单就绪后，你的岛屿会自动开始。",
   "hex.dailyNeedsSignIn": "今天的榜单尚未创建 — 需要一次链上调用。登录后我们会创建并开始你的岛屿。",
-  "hex.dailyStillSeeding": "今天的岛屿仍在链上准备中 — 大约一分钟后完成并自动开始。你可以先玩一个随机的。"
+  "hex.dailyStillSeeding": "今天的岛屿仍在链上准备中 — 大约一分钟后完成并自动开始。你可以先玩一个随机的。",
+  "hex.modeDaily": "每日岛屿",
+  "hex.modeDailyHint": "今天的免费可证明岛屿 — 水龙头奖励当日榜首。"
  }
 }

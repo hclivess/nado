@@ -7,7 +7,7 @@
 // browser until the game is decided).
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, notify, confirmingLabel, disp, share,
          renderWallet, renderScore, renderTopScores, scoreBump, scoreSort, resolveAliases, blocksToTime,
-         randSecret, algHashn, ALG_P } from "./nadodapp.js";
+         randSecret, algHashn, ALG_P , installModes } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./hexholm-engine.js";
 import { pickMove, prng, soloReplay, soloScore, botMustAct, seedOfDay, packRun, verifyClaim,
@@ -935,6 +935,23 @@ duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "dailyBoard"
   // resume a daily seed interrupted by the wallet round-trip (see provable.seedDaily)
   .then(() => { if (pendingDaily("hexholm", todayIdx()) && duel.dapp.me) duel.startDaily(); })
   .catch(() => {});
+
+// ONE mode picker, from the SDK — identical to every other game. Installed at MODULE scope (not inside
+// boot's .then) so a ?mode=daily deep link is read before the first render canonicalises the URL.
+const modes = installModes(dapp, {
+  modes: [
+    { key: "play", icon: "\uD83C\uDFDD", label: window.t("sdk.modePlay", "Play for stakes"),
+      hint: window.t("sdk.modePlayHint", "Head-to-head against another player for real NADO."),
+      cards: ["activeGame", "lobby", "play", "scoreboard"] },
+    { key: "daily", icon: "\uD83C\uDFC6", label: window.t("hex.modeDaily", "Daily island"),
+      badge: window.t("sdk.free", "free"),
+      hint: window.t("hex.modeDailyHint", "Today's free provable island — the faucet pays the daily leaders."),
+      cards: ["activeGame", "dailyBoard"] },
+  ],
+});
+const _duelRender = duel.render.bind(duel);
+duel.render = function () { _duelRender(); modes.apply(); };
+modes.apply();
 
 // test hook: UI E2E harnesses drive the real DOM against real engine states
 if (typeof window !== "undefined") window.__duel = duel;

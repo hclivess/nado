@@ -6,7 +6,7 @@
 // unpredictable when you signed, replayable by every browser); once both have drafted 9 rounds the fight
 // resolves as a pure deterministic simulation and the wager settles concede / agree / refund-timeout.
 // This module owns ONLY the Scrapline half: offers, gear slots, and the combat report.
-import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base } from "./nadodapp.js";
+import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base , installModes } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./scrapline-engine.js";
 import { ART } from "./scrapline-art.js";
@@ -432,6 +432,25 @@ duel.boot(["activeGame", "solo", "lobby", "play", "walletcard", "bankroll", "sco
   // to guess that they are supposed to press the button a second time
   .then(() => { if (pendingDaily("scrapline", today()) && dapp.me) startDaily(); })
   .catch(() => {});
+
+// ONE mode picker, from the SDK — identical to every other game. The solo gauntlet used to be a card
+// further down the page with nothing pointing at it; now it is a choice, and ?mode=solo links straight
+// to it. Installed at MODULE scope (not inside boot's .then) so the deep link is read before the first
+// render canonicalises the URL.
+const modes = installModes(dapp, {
+  modes: [
+    { key: "play", icon: "\u2694", label: window.t("sdk.modePlay", "Play for stakes"),
+      hint: window.t("sdk.modePlayHint", "Head-to-head against another player for real NADO."),
+      cards: ["activeGame", "lobby", "play", "scoreboard"] },
+    { key: "solo", icon: "\uD83E\uDD16", label: window.t("scrap.modeSolo", "Solo gauntlet"),
+      badge: window.t("sdk.free", "free"),
+      hint: window.t("scrap.modeSoloHint", "Fight an endless line of wrecks in your browser, and race the free daily board."),
+      cards: ["solo"] },
+  ],
+});
+const _duelRender = duel.render.bind(duel);
+duel.render = function () { _duelRender(); modes.apply(); };   // mode gating layers over the scaffold's own
+modes.apply();
 
 // test hook: the UI E2E harness (tests/*_ui_e2e.mjs) drives the real DOM against crafted engine states
 if (typeof window !== "undefined") window.__duel = duel;

@@ -1048,7 +1048,13 @@ export class NadoDapp {
   // actually changes. Pass null/"" to clear the param. Call from render().
   reflectUrl(key, id) {
     try {
-      const want = (id != null && id !== "") ? "?" + key + "=" + id : "";
+      // MERGE, don't replace. This used to overwrite the entire query string, which quietly destroyed any
+      // other param the page was carrying — notably ?mode=, so a link straight to a game's free mode died
+      // on the first render. Only `key` is ours to set or clear; everything else is left alone.
+      const u = new URLSearchParams(location.search);
+      if (id != null && id !== "") u.set(key, id); else u.delete(key);
+      const q = u.toString();
+      const want = q ? "?" + q : "";
       if (location.search !== want) history.replaceState(null, "", location.pathname + want + location.hash);
     } catch (e) {}
   }
