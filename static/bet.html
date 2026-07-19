@@ -31,7 +31,7 @@
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Bet", "url": "https://bet.nadochain.com/", "description": "Parimutuel betting on any event on the NADO blockchain — no house edge, pooled odds, oracle-resolved outcomes and instant on-chain payouts. Post-quantum secure, plays in your browser.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%2218%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%222%22/%3E%3Cpath%20d%3D%22M24%2010%20l4%208%20-4%206%20-4%20-6%20z%20M14%2020%20l8%202%202%206%20-6%204%20-6%20-6%20z%20M34%2020%20l-8%202%20-2%206%206%204%206%20-6%20z%22%20fill%3D%22%2300ad93%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
-<script src="/static/i18n.js?v=c31af281"></script>
+<script src="/static/i18n.js?v=9825ff99"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--lose:#f85149;--gold:#e3b341;
@@ -81,6 +81,13 @@
   .mkt .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
   .mkt .ttl{font-weight:700;font-size:14.5px}
   .mkt .meta{font-size:11.5px;color:var(--dim);margin-top:3px}
+  /* fixture browser: a scrollable list of real upcoming matches from the chosen public source */
+  .fixlist{max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:12px;background:var(--bg);padding:6px}
+  .fixlist:empty{display:none}
+  .fix{display:flex;flex-direction:column;gap:2px;padding:9px 10px;border-radius:9px;cursor:pointer;transition:background .12s}
+  .fix:hover{background:var(--elev2)}
+  .fix.sel{background:rgba(0,173,147,.14);box-shadow:0 0 0 1px var(--accent2) inset}
+  .fix .ttl{font-weight:700;font-size:13.5px}
   .outs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   .out{flex:1 1 0;min-width:96px;border:1px solid var(--border);border-radius:10px;padding:9px 10px;text-align:center;background:var(--bg);cursor:pointer;transition:border-color .12s,background .12s}
   .out:hover{border-color:var(--accent)}
@@ -176,6 +183,12 @@
 
     <div id="myPositions"></div>
     <div class="row mt" id="claimRow"></div>
+
+    <!-- THE BOOK: fixed odds beside the tote. Anyone can be the bank; anyone can bet against it. -->
+    <div id="bookPanel" class="hidden">
+      <div class="divlabel" data-i18n="bet.bookHead">🏦 The bank — fixed odds</div>
+      <div id="bookBody"></div>
+    </div>
     <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1" data-i18n="bet.autoCollect">Auto-collect my winnings — claims a settled market for me the moment it resolves in my favour</span></label>
 
     <!-- ORACLE controls (only for an oracle key) -->
@@ -214,6 +227,16 @@
       <div><label data-i18n="bet.sourceLabel">Source (optional)</label><select id="cmSource"></select></div>
       <div><label data-i18n="bet.eventLabel">Event id (if a source)</label><input id="cmEvent" placeholder="e.g. 133602" data-i18n-ph="bet.eventPh" autocomplete="off"></div>
     </div>
+
+    <!-- FIXTURE BROWSER: pick a real match from the chosen source instead of hunting for an event id -->
+    <div id="fixtureBrowser" class="hidden">
+      <div class="row mt">
+        <div style="flex:1 1 auto"><label data-i18n="bet.leagueLabel">Competition</label><select id="cmLeague"></select></div>
+        <button class="ghost" id="btnBrowse" style="flex:0 0 auto;align-self:flex-end" data-i18n="bet.browse">Browse fixtures</button>
+      </div>
+      <div id="fixList" class="fixlist mt"></div>
+      <div class="small dim mt" data-i18n="bet.fixNote">Tap a fixture and the title, outcomes, event id and closing time fill themselves in — the named source then resolves it automatically.</div>
+    </div>
     <div class="row mt">
       <div><label data-i18n="bet.closesLabel">Betting closes in (minutes)</label><input id="cmCloseMin" value="60" inputmode="numeric" autocomplete="off"></div>
       <div><label data-i18n="bet.voidAfterLabel">Auto-void after (hours)</label><input id="cmVoidHrs" value="24" inputmode="numeric" autocomplete="off"></div>
@@ -222,6 +245,9 @@
     <input id="cmResolvers" class="mono" placeholder="mldsa44… , mldsa44… , mldsa44…" data-i18n-ph="bet.resolversPh" autocomplete="off">
     <label class="mt" data-i18n="bet.thresholdLabel">Threshold (M-of-N — how many resolvers must agree)</label>
     <input id="cmThreshold" placeholder="1" inputmode="numeric" autocomplete="off" style="max-width:160px">
+    <label class="mt" data-i18n="bet.bankrollLabel">Bank it yourself (optional) — bankroll in NADO</label>
+    <input id="cmBankroll" placeholder="0 = parimutuel only" data-i18n-ph="bet.bankrollCreatePh" inputmode="decimal" autocomplete="off">
+    <div class="small dim" data-i18n="bet.bankrollNote">Leave at 0 for a pure pool market. Put up a bankroll and you also become its bank: you publish a price per outcome, keep every losing stake, and the contract refuses any bet it could not pay you out of. You can set prices right after it's listed.</div>
     <button class="primary mt" id="btnCreate" style="width:100%" data-i18n="bet.createBtn">Create market</button>
 
     <div id="adminCfg" class="hidden">

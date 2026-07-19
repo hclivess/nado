@@ -14,7 +14,7 @@
 // -> every stake refunds 1:1; an unbacked winner auto-voids. Payouts are pull-based (each bettor calls
 // claim). Outcomes are integers 0..nout-1 everywhere. Per-user positions are read through the contract's
 // /exec/view methods (claimable_of etc.) — see the myCache notes below.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, disp, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js";
 
 const CID = "497f7032def19ecc30ab22f80b4854cb";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });
@@ -43,9 +43,14 @@ function visibleMarkets(mkts) {
 // optimistic-status labels (SDK owns the lifecycle via showReturn/settleInflight/doneLabels)
 const CONFIRMING = { bet: window.t("bet.cfBet", "Bet placed — confirming on-chain…"), claim: window.t("bet.cfClaim", "Collecting your winnings — confirming…"),
   create: window.t("bet.cfCreate", "Listing your market — confirming…"), resolve: window.t("bet.cfResolve", "Posting the result — confirming…"),
-  void: window.t("bet.cfVoid", "Voiding — refunding bettors…"), src: window.t("bet.cfSrc", "Adding source — confirming…") };
+  void: window.t("bet.cfVoid", "Voiding — refunding bettors…"), src: window.t("bet.cfSrc", "Adding source — confirming…"),
+  book: window.t("bet.cfBook", "Posting your bankroll — confirming…"), quote: window.t("bet.cfQuote", "Publishing your price — confirming…"),
+  back: window.t("bet.cfBack", "Bet taken by the bank — confirming…"), bclaim: window.t("bet.cfBclaim", "Collecting from the bank — confirming…"),
+  bsweep: window.t("bet.cfBsweep", "Sweeping the book — confirming…") };
 const DONE = { bet: window.t("bet.dnBet", "✓ Bet confirmed"), claim: window.t("bet.dnClaim", "✓ Winnings collected"), create: window.t("bet.dnCreate", "✓ Market listed"),
-  resolve: window.t("bet.dnResolve", "✓ Result posted"), void: window.t("bet.dnVoid", "✓ Market voided"), src: window.t("bet.dnSrc", "✓ Source added") };
+  resolve: window.t("bet.dnResolve", "✓ Result posted"), void: window.t("bet.dnVoid", "✓ Market voided"), src: window.t("bet.dnSrc", "✓ Source added"),
+  book: window.t("bet.dnBook", "✓ You are the bank"), quote: window.t("bet.dnQuote", "✓ Price published"), back: window.t("bet.dnBack", "✓ Bet matched by the bank"),
+  bclaim: window.t("bet.dnBclaim", "✓ Collected from the bank"), bsweep: window.t("bet.dnBsweep", "✓ Book swept") };
 // game-specific "did the in-flight action land on-chain?" check for dapp.settleInflight
 function actionLanded(f) {
   const sto = lastSto, me = dapp.me, m = f.market, my = myCache[m] || {};
@@ -55,6 +60,12 @@ function actionLanded(f) {
   if (f.phase === "create") return !!_m(sto, "mk")[m];
   if (f.phase === "resolve") return !!_m(sto, "dn")[m] || !!_m(sto, "vd")[m] || Number(my.vote || 0) > 0;
   if (f.phase === "void") return !!_m(sto, "vd")[m];
+  // BOOK phases. book/quote/back are visible in plain storage; bclaim/bsweep flip a flag we can read.
+  if (f.phase === "book") return !!_m(sto, "bk")[m];
+  if (f.phase === "quote") return Number(_m(sto, "od")[m * 8 + f.outcome] || 0) >= Number(f.od0 || 1);
+  if (f.phase === "back") return Number((my.book && my.book.stakes[f.outcome]) || 0) > 0;
+  if (f.phase === "bclaim") return !!(my.book && my.book.claimed);
+  if (f.phase === "bsweep") return !!_m(sto, "bd")[m];
   return false;
 }
 
@@ -69,7 +80,82 @@ function actionLanded(f) {
 const UNIT = 10000;
 const myCache = {};   // id -> {total, claimable, claimed, stakes:[...], resolver, vote} — RAW amounts
 let sweepIdx = 0;
-const KNOWN_SOURCES = ["thesportsdb", "football-data"];   // free public feeds a resolver bot can read
+// ---- the public sources a market can name -------------------------------------------------------
+// A market's `source` is the free public feed its resolver reads. Naming one used to mean typing a source
+// name and a numeric event id you had no way to find — so in practice nobody could list a real fixture, and
+// the "sources" were decoration. Each source here is BROWSABLE from the browser instead: pick a competition,
+// see what's coming up, tap it, and the whole market (title, outcomes, event id, kickoff) fills itself in.
+//
+// Both are free, keyless and send CORS headers, which is the entire bar for being usable here. The old
+// `football-data` entry met neither (403 without a paid token, and no CORS at all — the browser could never
+// read it, and the resolver bot never implemented it), so it is replaced by ESPN, which is genuinely open.
+const SOURCES = {
+  thesportsdb: {
+    label: "TheSportsDB", site: "thesportsdb.com",
+    leagues: [["4429", "World Cup"], ["4480", "Champions League"], ["4481", "Europa League"], ["4328", "Premier League"],
+              ["4335", "La Liga"], ["4332", "Serie A"], ["4331", "Bundesliga"], ["4334", "Ligue 1"],
+              ["4337", "Eredivisie"], ["4344", "Primeira Liga"], ["4346", "MLS"], ["4351", "Brasileirão"],
+              ["4356", "Primera División (ARG)"], ["4499", "Allsvenskan"], ["4406", "A-League"]],
+    async fixtures(lg) {
+      const d = await (await fetch("https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=" + encodeURIComponent(lg))).json();
+      return ((d && d.events) || []).filter((e) => (e.strSport || "Soccer") === "Soccer").map((e) => ({
+        ev: String(e.idEvent || ""), home: (e.strHomeTeam || "").trim(), away: (e.strAwayTeam || "").trim(),
+        title: (e.strEvent || "").trim(), league: e.strLeague || "", kickoff: _tsOf(e.strTimestamp || (e.dateEvent && e.strTime ? e.dateEvent + "T" + e.strTime : "")),
+      })).filter((f) => f.ev && f.home && f.away && f.kickoff);
+    },
+    async detail(ev) {
+      const d = await (await fetch("https://www.thesportsdb.com/api/v1/json/3/lookupevent.php?id=" + encodeURIComponent(ev))).json();
+      const e = (d && d.events && d.events[0]) || null;
+      if (!e) return null;
+      const hs = e.intHomeScore, as = e.intAwayScore;
+      return { title: e.strEvent || "", kickoff: _tsOf(e.strTimestamp || ""), league: e.strLeague || "",
+               sport: e.strSport || "", status: (e.strStatus || "").trim(),
+               hs: hs === "" || hs == null ? null : Number(hs), as: as === "" || as == null ? null : Number(as) };
+    },
+  },
+  espn: {
+    label: "ESPN", site: "espn.com",
+    leagues: [["fifa.world", "World Cup"], ["uefa.champions", "Champions League"], ["uefa.europa", "Europa League"],
+              ["eng.1", "Premier League"], ["esp.1", "La Liga"], ["ita.1", "Serie A"], ["ger.1", "Bundesliga"],
+              ["fra.1", "Ligue 1"], ["ned.1", "Eredivisie"], ["por.1", "Primeira Liga"], ["usa.1", "MLS"],
+              ["bra.1", "Brasileirão"], ["arg.1", "Primera División (ARG)"], ["mex.1", "Liga MX"]],
+    async fixtures(lg) {
+      // the scoreboard defaults to TODAY, which is empty most days — ask for the next six weeks instead,
+      // which is what makes this source actually usable (20 fixtures where TheSportsDB's free tier gives 1)
+      const dd = (t) => { const x = new Date(t * 1000); return x.getUTCFullYear() + String(x.getUTCMonth() + 1).padStart(2, "0") + String(x.getUTCDate()).padStart(2, "0"); };
+      const now = Math.floor(Date.now() / 1000);
+      const d = await (await fetch("https://site.api.espn.com/apis/site/v2/sports/soccer/" + encodeURIComponent(lg)
+        + "/scoreboard?dates=" + dd(now) + "-" + dd(now + 45 * 86400))).json();
+      return ((d && d.events) || []).map((e) => {
+        const cs = ((e.competitions || [])[0] || {}).competitors || [];
+        const home = (cs.find((c) => c.homeAway === "home") || {}).team || {};
+        const away = (cs.find((c) => c.homeAway === "away") || {}).team || {};
+        return { ev: String(e.id || ""), home: home.displayName || "", away: away.displayName || "",
+                 title: (home.displayName && away.displayName) ? home.displayName + " vs " + away.displayName : (e.name || ""),
+                 league: (d.leagues && d.leagues[0] && d.leagues[0].name) || "", kickoff: _tsOf(e.date) };
+      }).filter((f) => f.ev && f.home && f.away && f.kickoff);
+    },
+    async detail(ev) {
+      const d = await (await fetch("https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event=" + encodeURIComponent(ev))).json();
+      const c = (d && d.header && (d.header.competitions || [])[0]) || null;
+      if (!c) return null;
+      const cs = c.competitors || [];
+      const home = cs.find((x) => x.homeAway === "home") || {}, away = cs.find((x) => x.homeAway === "away") || {};
+      const nm = (t) => ((t || {}).team || {}).displayName || "";
+      return { title: nm(home) && nm(away) ? nm(home) + " vs " + nm(away) : "", kickoff: _tsOf(c.date),
+               league: (d.header && d.header.league && d.header.league.name) || "", sport: "Soccer",
+               status: ((c.status || {}).type || {}).description || "",
+               hs: home.score == null ? null : Number(home.score), as: away.score == null ? null : Number(away.score) };
+    },
+  },
+};
+const KNOWN_SOURCES = Object.keys(SOURCES);
+// epoch seconds from an ISO-ish timestamp; the feeds are UTC but only sometimes say so
+function _tsOf(s) {
+  if (!s) return 0;
+  const t = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s.replace(" ", "T") + "Z");
+  return isNaN(t) ? 0 : Math.floor(t / 1000);
+}
 const canResolveMkt = (_sto, m) => !!((myCache[m] || {}).resolver);
 async function refreshMy(mk) {
   if (!dapp.me || !mk) return;
@@ -86,6 +172,16 @@ async function refreshMy(mk) {
   if (c.total > 0) {
     const st = await Promise.all(mk.labels.map((_l, i) => dapp.view("stake_of", [id, i, dapp.me])));
     c.stakes = st.map((v) => Number(v || 0));
+  }
+  // book position: only worth a view call once this market HAS a bank (bs > 0 means stakes were taken).
+  // Read per outcome, because a punter may have backed more than one at different prices.
+  if (mk.bookTaken > 0) {
+    const [bst, bpy, bcl] = await Promise.all([
+      Promise.all(mk.labels.map((_l, i) => dapp.view("bstake_of", [id, i, dapp.me]))),
+      Promise.all(mk.labels.map((_l, i) => dapp.view("bpay_of", [id, i, dapp.me]))),
+      dapp.view("bclaimed_of", [id, dapp.me])]);
+    const stakes = bst.map((v) => Number(v || 0)), pays = bpy.map((v) => Number(v || 0));
+    c.book = { stakes, pays, claimed: !!Number(bcl || 0), total: stakes.reduce((a, b) => a + b, 0) };
   }
 }
 
@@ -108,9 +204,21 @@ function parseMarket(sto, id) {
   const myStakes = []; for (let i = 0; i < nout; i++) myStakes.push(Number((my.stakes || [])[i] || 0));
   const myTotal = Number(my.total || 0);
   const claimed = !!my.claimed;
+  // THE BOOK (a bank beside the tote). bk = who banks this match ("" = nobody yet), br = the bankroll they
+  // put up, bs = every stake they have taken, bd = they have swept. od[i] is the price they publish for an
+  // outcome in PERCENT (250 = 2.50x) and bp[i] the payout already committed there — the pair is the whole
+  // shop window: what you'd be paid, and how much room is left before the bank must refuse.
+  const odds = [], bookPay = [];
+  for (let i = 0; i < nout; i++) {
+    odds.push(Number(_m(sto, "od")[id * 8 + i] || 0));
+    bookPay.push(Number(_m(sto, "bp")[id * 8 + i] || 0) * UNIT);
+  }
   return { id: Number(id), nout, title, labels, total, pools, resolved, voided, winner, lock, deadline, cur,
            locked, status, myStakes, myTotal, claimed, claimableAmt: Number(my.claimable || 0),
-           source: String(G("so") || ""), ev: String(G("ev") || "") };
+           source: String(G("so") || ""), ev: String(G("ev") || ""),
+           bank: String(G("bk") || ""), bankroll: Number(G("br") || 0) * UNIT,
+           bookTaken: Number(G("bs") || 0) * UNIT, bookSwept: !!G("bd"), odds, bookPay,
+           myBook: my.book || null };
 }
 const allMarkets = (sto) => Object.keys(_m(sto, "mk")).map((id) => parseMarket(sto, id)).filter(Boolean);
 // live decimal odds for outcome i: whole pool ÷ that outcome's pool (what a winning unit returns)
@@ -150,6 +258,96 @@ const claimMarket = (m) => { if (dapp.busy("claim", "market", m)) return; dapp.c
 const voidMarket  = (m) => { if (dapp.busy("void", "market", m)) return notify(confirmingLabel()); dapp.call("void", [m], null, window.t("bet.callVoid", "void match #{id} (refund everyone)", { id: m }), { market: m, phase: "void" }); };
 const resolveMarket = (m, out, lab) => { if (dapp.busy("resolve", "market", m)) return notify(confirmingLabel()); dapp.call("resolve", [m, out], null, window.t("bet.callResolve", "post result: {lab} won · match #{id}", { lab, id: m }), { market: m, phase: "resolve" }); };
 
+// ---- the BOOK: a bank beside the tote ------------------------------------------------------------
+// Why both exist: the tote is fair but blind — you never know your price until betting closes, and with a
+// thin board your "odds" are whatever two other people happened to do. A bank posts a PRICE you can see
+// and take immediately. It is the same escrow contract: the bank's money is locked up front and the
+// contract refuses any bet it could not pay, so "the bank" is a role anyone can take, not a house.
+const fmtPrice = (od) => (od / 100).toFixed(2) + "×";
+// The contract's per-bet solvency rule is: committed_payout[i] + stake*price <= bankroll + all_stakes + stake.
+// Solving for stake gives the largest bet this outcome can still accept — shown to the punter so the UI
+// never offers a bet the chain will refuse (and rounded DOWN to a whole UNIT, which is all it accepts).
+// The ceiling shown to a punter must never be ROUNDED UP — a displayed max the chain would refuse is worse
+// than a slightly conservative one — so this floors to 4 decimals rather than formatting the exact figure
+// ("max 0.456521" reads like noise; "max 0.4565" reads like a limit).
+const trimMax = (raw) => String(Math.floor(Number(rawToNado(raw)) * 1e4) / 1e4);
+function maxBack(mk, i) {
+  const od = mk.odds[i] || 0;
+  if (od <= 100) return 0;
+  const head = mk.bankroll + mk.bookTaken - mk.bookPay[i];
+  if (head <= 0) return 0;
+  return Math.floor(head / (od / 100 - 1) / UNIT) * UNIT;
+}
+// What the bank walks away with if outcome i wins: everything it holds (its own roll + every stake taken)
+// minus what it owes there. The contract's solvency rule keeps this >= 0 for every outcome, so the bank
+// can see its worst case is still whole before it prices anything.
+const bankPnL = (mk, i) => mk.bankroll + mk.bookTaken - mk.bookPay[i];
+function postBankroll(m, raw) {
+  if (dapp.busy("book", "market", m)) return notify(confirmingLabel());
+  dapp.call("book", [m], raw, window.t("bet.callBook", "put up {amt} NADO as the bank · match #{id}", { amt: rawToNado(raw), id: m }),
+            { market: m, phase: "book" });
+}
+function setPrice(m, i, od, lab) {
+  if (dapp.busy("quote", "market", m)) return notify(confirmingLabel());
+  dapp.call("quote", [m, i, od], null, window.t("bet.callQuote", "price {lab} at {p} · match #{id}", { lab, p: fmtPrice(od), id: m }),
+            { market: m, phase: "quote", outcome: i, od0: od });
+}
+function backOutcome(m, i, raw, lab, od) {
+  if (dapp.busy("back", "market", m)) return notify(confirmingLabel());
+  dapp.call("back", [m, i], raw, window.t("bet.callBack", "back {lab} at {p} for {amt} · match #{id}", { lab, p: fmtPrice(od), amt: rawToNado(raw), id: m }),
+            { market: m, phase: "back", outcome: i });
+}
+const bclaimMarket = (m) => { if (dapp.busy("bclaim", "market", m)) return notify(confirmingLabel()); dapp.call("bclaim", [m], null, window.t("bet.callBclaim", "collect from the bank · match #{id}", { id: m }), { market: m, phase: "bclaim" }); };
+const bsweepMarket = (m) => { if (dapp.busy("bsweep", "market", m)) return notify(confirmingLabel()); dapp.call("bsweep", [m], null, window.t("bet.callBsweep", "sweep the book · match #{id}", { id: m }), { market: m, phase: "bsweep" }); };
+
+// ---- fixture picker: list a real match without knowing any ids -----------------------------------
+let _fixtures = [], _fixBusy = false;
+async function loadFixtures() {
+  const src = $("cmSource").value, lg = $("cmLeague").value;
+  const box = $("fixList");
+  if (!src || !SOURCES[src]) { box.innerHTML = '<span class="dim">' + window.t("bet.pickSourceFirst", "Pick a source above to browse its fixtures.") + "</span>"; return; }
+  if (_fixBusy) return;
+  _fixBusy = true;
+  box.innerHTML = '<span class="dim">' + window.t("bet.loadingFixtures", "Loading fixtures from {src}…", { src: SOURCES[src].label }) + "</span>";
+  try {
+    const now = dapp.chainNow();
+    _fixtures = (await SOURCES[src].fixtures(lg)).filter((f) => f.kickoff > now + 300);
+    _fixtures.sort((a, b) => a.kickoff - b.kickoff);
+  } catch (e) { _fixtures = []; }
+  _fixBusy = false;
+  if (!_fixtures.length) {
+    // an empty list is normal (off-season, or the free tier only returns the very next fixture) — say which
+    box.innerHTML = '<span class="dim">' + window.t("bet.noFixtures", "No upcoming fixtures from {src} for this competition — try another, or fill the form in by hand.", { src: SOURCES[src].label }) + "</span>";
+    return;
+  }
+  box.innerHTML = _fixtures.map((f, i) => {
+    const when = new Date(f.kickoff * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    return '<div class="fix" data-f="' + i + '"><span class="ttl">' + esc(f.title || (f.home + " vs " + f.away)) + "</span>"
+      + '<span class="dim small">' + esc(f.league || "") + " · " + esc(when) + "</span></div>";
+  }).join("");
+  box.querySelectorAll(".fix").forEach((el) => el.onclick = () => useFixture(_fixtures[Number(el.dataset.f)]));
+}
+// Fill the create form from a fixture: 1X2 outcomes in the order the resolver bot expects (HOME/DRAW/AWAY),
+// betting closing at kickoff, and the source+event id wired so the market resolves itself.
+function useFixture(f) {
+  if (!f) return;
+  $("cmTitle").value = f.title || (f.home + " vs " + f.away);
+  $("cmLabels").value = [f.home, window.t("bet.draw", "Draw"), f.away].join(", ");
+  $("cmEvent").value = f.ev;
+  const mins = Math.max(1, Math.round((f.kickoff - dapp.chainNow()) / 60));
+  $("cmCloseMin").value = String(mins);
+  $("fixList").querySelectorAll(".fix").forEach((el) => el.classList.toggle("sel", _fixtures[Number(el.dataset.f)] === f));
+  notify(window.t("bet.fixturePicked", "“{t}” loaded — betting closes at kickoff. Choose parimutuel or bank it below.", { t: $("cmTitle").value }));
+}
+function fillLeagues() {
+  const src = $("cmSource").value, sel = $("cmLeague");
+  const s = SOURCES[src];
+  gate({ fixtureBrowser: !!s });
+  if (!s) return;
+  sel.innerHTML = s.leagues.map(([id, name]) => '<option value="' + esc(id) + '">' + esc(name) + "</option>").join("");
+  $("fixList").innerHTML = '<span class="dim">' + window.t("bet.tapBrowse", "Tap Browse to see what {src} has coming up.", { src: s.label }) + "</span>";
+}
+
 function createMarket() {
   if (dapp.busy("create")) return notify(confirmingLabel());
   const title = ($("cmTitle").value || "").trim();
@@ -170,8 +368,28 @@ function createMarket() {
   const id = randId();
   const desc = [title].concat(labels).join("\n");
   const r = resolvers.concat([0, 0, 0]);                    // 0 = empty resolver slot (zkVM: ints, not "")
+  // "Open a banked match" is one form, but two txs: the contract can only take a bankroll for a market that
+  // already exists. Rather than make the user come back and find their own match, we remember the bankroll
+  // (in localStorage, so a wallet redirect survives it) and post it the moment the market lands on-chain.
+  const bankRaw = Math.floor(Number(nadoToRaw($("cmBankroll").value || 0)) / UNIT) * UNIT;
+  if (bankRaw > 0) {
+    if (!canPay(dapp, bankRaw, window.t("bet.thisBankroll", "This bankroll"))) return;
+    try { localStorage.setItem(LS_BANK, JSON.stringify({ m: id, raw: bankRaw, ts: Date.now() })); } catch (e) {}
+  }
   dapp.call("create_market", [id, labels.length, lock, deadline, desc, source, ev, thr, r[0], r[1], r[2]], null,
             window.t("bet.callCreate", "list “{title}”", { title }), { market: id, phase: "create" });
+}
+const LS_BANK = "nado_bet_pending_bank";
+// post the queued bankroll once its market is visible on-chain (see createMarket)
+function followUpBank(mkts) {
+  let p = null;
+  try { p = JSON.parse(localStorage.getItem(LS_BANK) || "null"); } catch (e) {}
+  if (!p || !p.m) return;
+  if (Date.now() - (p.ts || 0) > 900000) { try { localStorage.removeItem(LS_BANK); } catch (e) {} return; }
+  const mk = mkts.find((x) => x.id === Number(p.m));
+  if (!mk) return;                                   // market not on-chain yet — wait for the next tick
+  try { localStorage.removeItem(LS_BANK); } catch (e) {}
+  if (!mk.bank) postBankroll(mk.id, p.raw);
 }
 
 // ---- refresh + render ----------------------------------------------------------------------------
@@ -191,6 +409,7 @@ async function refreshAll() {
       if (mk.id !== activeMarket) await refreshMy(mk);
     }
   }
+  if (lastSto) followUpBank(allMarkets(lastSto));   // "open a banked match": post the queued bankroll once the market exists
   render();
   dapp.settleInflight(actionLanded);   // SDK retires the optimistic "confirming…" line once the action lands
   // AUTO-COLLECT (shared SDK tick, opt-out): claim any settled market that owes me, one per refresh
@@ -238,14 +457,12 @@ const _evCache = {};
 async function loadEventDetails(mk) {
   const el = $("mDetails");
   if (!el) return;
-  if (mk.source !== "thesportsdb" || !mk.ev) { el.innerHTML = ""; return; }
+  if (!SOURCES[mk.source] || !mk.ev) { el.innerHTML = ""; return; }
   const key = mk.source + ":" + mk.ev;
   if (!(key in _evCache)) {
     _evCache[key] = null;   // in-flight: don't refetch on the next 4s tick
     try {
-      const r = await fetch("https://www.thesportsdb.com/api/v1/json/3/lookupevent.php?id=" + encodeURIComponent(mk.ev));
-      const d = await r.json();
-      _evCache[key] = (d && d.events && d.events[0]) || false;
+      _evCache[key] = (await SOURCES[mk.source].detail(mk.ev)) || false;
     } catch (e) { _evCache[key] = false; }
     if (activeMarket === mk.id && lastSto) renderActive(lastSto);   // re-render once details arrive
     return;
@@ -254,12 +471,12 @@ async function loadEventDetails(mk) {
   if (e == null) return;                     // still loading
   if (e === false) { el.innerHTML = '<span class="dim">match details unavailable from ' + esc(mk.source) + "</span>"; return; }
   const bits = [];
-  if (e.strEvent) bits.push("<b>" + esc(e.strEvent) + "</b>");
-  if (e.strTimestamp) { const dt = new Date(e.strTimestamp + (/[zZ]|[+-]\d\d:?\d\d$/.test(e.strTimestamp) ? "" : "Z")); if (!isNaN(dt)) bits.push("🗓 " + dt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })); }
-  if (e.strLeague) bits.push("🏆 " + esc(e.strLeague) + (e.strSport ? " (" + esc(e.strSport) + ")" : ""));
-  const hs = e.intHomeScore, as = e.intAwayScore, st = (e.strStatus || "").trim();
-  if (hs != null && hs !== "" && as != null && as !== "") bits.push('<b class="under">' + esc(hs) + "–" + esc(as) + "</b>" + (st && !/finished|ft/i.test(st) ? " " + esc(st) : ""));
-  else if (st && !/not started|ns/i.test(st)) bits.push(esc(st));
+  if (e.title) bits.push("<b>" + esc(e.title) + "</b>");
+  if (e.kickoff) bits.push("🗓 " + new Date(e.kickoff * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }));
+  if (e.league) bits.push("🏆 " + esc(e.league) + (e.sport ? " (" + esc(e.sport) + ")" : ""));
+  const st = e.status || "";
+  if (e.hs != null && e.as != null) bits.push('<b class="under">' + esc(String(e.hs)) + "–" + esc(String(e.as)) + "</b>" + (st && !/finished|ft|final/i.test(st) ? " " + esc(st) : ""));
+  else if (st && !/not started|ns|scheduled/i.test(st)) bits.push(esc(st));
   el.innerHTML = bits.join(" · ");
 }
 
@@ -310,12 +527,16 @@ function render() {
 
   // sources panel — the well-known free public feeds a resolver bot can read (no on-chain registry in the
   // zkVM port: each market simply names its source as free text, resolved back from its digest)
-  $("sourcesList").innerHTML = KNOWN_SOURCES.map((s) => '<span class="b dimb" style="margin:0 4px 4px 0;display:inline-block">' + esc(s) + "</span>").join("");
+  $("sourcesList").innerHTML = KNOWN_SOURCES.map((k) => '<span class="b dimb" style="margin:0 4px 4px 0;display:inline-block">'
+    + esc(SOURCES[k].label) + ' <span class="dim">' + esc(SOURCES[k].site) + "</span></span>").join("");
   gate({ oraclePanel: signedIn });   // creating a market is PERMISSIONLESS — anyone signed in can list one
   if (signedIn) {
     // source is optional: pick a known public source (auto-resolvable) or leave it self-resolved
-    $("cmSource").innerHTML = '<option value="">' + esc(window.t("bet.sourceNone", "— none / I'll resolve it —")) + '</option>'
-      + KNOWN_SOURCES.map((s) => '<option>' + esc(s) + "</option>").join("");
+    // keep the user's choice across re-renders (this runs every poll) and drive the fixture browser from it
+    const cur = $("cmSource").value;
+    const want = '<option value="">' + esc(window.t("bet.sourceNone", "— none / I'll resolve it —")) + '</option>'
+      + KNOWN_SOURCES.map((k) => '<option value="' + esc(k) + '">' + esc(SOURCES[k].label) + " · " + esc(SOURCES[k].site) + "</option>").join("");
+    if ($("cmSource").innerHTML !== want) { $("cmSource").innerHTML = want; $("cmSource").value = cur; fillLeagues(); }
     gate({ adminCfg: false });   // no admin/protocol config in the permissionless zkVM port
   }
   renderActive(sto);
@@ -386,6 +607,8 @@ function renderActive(sto) {
     cr.innerHTML = '<div class="small dim">' + window.t("bet.alreadyCollected", "You already collected from this match.") + '</div>';
   }
 
+  renderBook(mk);
+
   // resolve/void controls — shown to anyone who may resolve THIS market (its named resolvers, or the
   // admin for a legacy market)
   const canRes = canResolveMkt(sto, mk.id);
@@ -399,11 +622,114 @@ function renderActive(sto) {
   }
 }
 
+// ---- the bank panel: take the other side, or bet against whoever did ------------------------------
+// One card, four honest states: nobody banks this yet · I am the bank · someone else banks it · it's over.
+// Every number shown comes from the contract's own storage or views, so the panel can never promise a
+// price the chain would refuse.
+function renderBook(mk) {
+  const el = $("bookBody");
+  if (!el) return;
+  const signedIn = !!dapp.me, iAmBank = signedIn && mk.bank === dapp.me;
+  const settled = mk.resolved || mk.voided;
+  const my = mk.myBook || null;
+  gate({ bookPanel: true });
+  let h = "";
+
+  if (!mk.bank) {
+    h += '<div class="small dim">' + window.t("bet.bankPitch", "Nobody is banking this match. Put up a bankroll, publish your own prices, and you keep every losing stake — the contract holds your money and refuses any bet it could not pay, so your worst case is capped before you price anything.") + "</div>";
+    if (signedIn && mk.status === "open") {
+      h += '<div class="row mt"><input id="bookAmt" placeholder="' + window.t("bet.bankrollPh", "bankroll (NADO)") + '" inputmode="decimal" autocomplete="off">'
+        + '<button class="primary" id="btnBook" style="flex:0 0 auto">'
+        + (dapp.busy("book", "market", mk.id) ? confirmingLabel() : window.t("bet.becomeBank", "🏦 Become the bank")) + "</button></div>";
+    } else if (!signedIn) h += '<div class="small dim mt">' + window.t("bet.signInToBank", "Sign in to bank this match.") + "</div>";
+    else h += '<div class="small dim mt">' + window.t("bet.bankTooLate", "Betting is closed — a bank can only be posted while a match is open.") + "</div>";
+  } else {
+    const who = iAmBank ? window.t("bet.youAreBank", "you") : disp(mk.bank);
+    h += '<div class="kv"><span class="k">' + window.t("bet.bankIs", "Bank") + '</span><span class="mono">' + esc(who) + "</span></div>"
+      + '<div class="kv"><span class="k">' + window.t("bet.bankroll", "Bankroll") + '</span><span class="mono">' + rawToNado(mk.bankroll) + " NADO</span></div>"
+      + '<div class="kv"><span class="k">' + window.t("bet.bookTaken", "Stakes taken") + '</span><span class="mono">' + rawToNado(mk.bookTaken) + " NADO</span></div>";
+    if (iAmBank) {
+      // the bank's own view: what it keeps if each outcome wins, and the price controls
+      h += '<div class="divlabel">' + window.t("bet.yourBookHead", "Your book — set a price per outcome") + "</div>"
+        + '<div class="small dim">' + window.t("bet.yourBookNote", "A price of 2.50× pays a punter 2.50 NADO per 1 staked. Leave an outcome unpriced and nobody can back it. The row shows what you walk away with if that outcome wins.") + "</div>";
+      h += mk.labels.map((lab, i) =>
+        '<div class="row mt" style="align-items:center">'
+        + '<span style="flex:1 1 auto;min-width:0">' + esc(lab)
+        + ' <span class="dim small">' + window.t("bet.ifWins", "if it wins: {amt}", { amt: rawToNado(bankPnL(mk, i)) }) + "</span></span>"
+        + '<input class="bkPrice" data-o="' + i + '" style="max-width:90px" inputmode="decimal" placeholder="2.50" value="'
+        + (mk.odds[i] > 100 ? (mk.odds[i] / 100).toFixed(2) : "") + '">'
+        + '<button class="ghost bkSet" data-o="' + i + '" style="flex:0 0 auto">' + window.t("bet.setPrice", "Set") + "</button></div>").join("");
+      if (mk.status === "open") h += '<div class="row mt"><input id="bookAmt" placeholder="' + window.t("bet.topUpPh", "add to bankroll (NADO)") + '" inputmode="decimal" autocomplete="off">'
+        + '<button class="ghost" id="btnBook" style="flex:0 0 auto">' + (dapp.busy("book", "market", mk.id) ? confirmingLabel() : window.t("bet.topUp", "Top up")) + "</button></div>";
+      if (settled && !mk.bookSwept) h += '<button class="primary mt" id="btnSweep" style="width:100%">'
+        + (dapp.busy("bsweep", "market", mk.id) ? confirmingLabel() : window.t("bet.sweep", "🧹 Sweep the book")) + "</button>";
+      else if (mk.bookSwept) h += '<div class="small dim mt">' + window.t("bet.swept", "Book swept ✓") + "</div>";
+    } else if (mk.status === "open") {
+      // a punter's view: only outcomes the bank has actually priced, with the real ceiling on each
+      const priced = mk.labels.map((lab, i) => ({ lab, i, od: mk.odds[i], max: maxBack(mk, i) })).filter((x) => x.od > 100);
+      if (!priced.length) h += '<div class="small dim mt">' + window.t("bet.noPrices", "The bank hasn't published any prices yet.") + "</div>";
+      else {
+        h += '<div class="divlabel">' + window.t("bet.backHead", "Back an outcome at a fixed price") + "</div>";
+        h += priced.map((x) =>
+          '<div class="row mt" style="align-items:center">'
+          + '<span style="flex:1 1 auto;min-width:0">' + esc(x.lab) + ' <b>' + fmtPrice(x.od) + "</b>"
+          + '<span class="dim small"> · ' + window.t("bet.maxStake", "max {amt}", { amt: trimMax(x.max) }) + "</span></span>"
+          + '<input class="bkStake" data-o="' + x.i + '" style="max-width:90px" inputmode="decimal" placeholder="1">'
+          + '<button class="primary bkBack" data-o="' + x.i + '" style="flex:0 0 auto"'
+          + (x.max <= 0 ? " disabled" : "") + ">" + window.t("bet.backIt", "Back") + "</button></div>").join("");
+        if (dapp.busy("back", "market", mk.id)) h += '<div class="small dim mt">' + confirmingLabel() + "</div>";
+      }
+    }
+    // the punter's own book position, on any market state
+    if (my && my.total > 0) {
+      h += '<div class="divlabel">' + window.t("bet.yourBookBets", "Your bets against the bank") + "</div>"
+        + my.stakes.map((s, i) => s > 0
+          ? '<div class="pos"><span>' + esc(mk.labels[i]) + " · " + rawToNado(s) + " NADO</span><span>"
+            + window.t("bet.paysIf", "pays {amt}", { amt: rawToNado(my.pays[i]) }) + "</span></div>" : "").join("");
+      if (settled) {
+        const owed = mk.voided ? my.total : (mk.winner != null ? my.pays[mk.winner] : 0);
+        if (my.claimed) h += '<div class="small dim mt">' + window.t("bet.bookCollected", "Collected from the bank ✓") + "</div>";
+        else if (owed > 0) h += '<button class="primary pulse mt" id="btnBclaim" style="width:100%">'
+          + (dapp.busy("bclaim", "market", mk.id) ? confirmingLabel() : window.t("bet.bookCollect", "💰 Collect {amt} from the bank", { amt: rawToNado(owed) })) + "</button>";
+        else h += '<div class="small dim mt">' + window.t("bet.bookNoWin", "Nothing owed by the bank on this match.") + "</div>";
+      }
+    }
+  }
+  el.innerHTML = h;
+  if ($("btnBook")) $("btnBook").onclick = () => {
+    const raw = Math.floor(Number(nadoToRaw($("bookAmt").value)) / UNIT) * UNIT;
+    if (!raw) return alertBar(window.t("bet.enterBankroll", "Enter a bankroll (NADO)."));
+    if (!canPay(dapp, raw, window.t("bet.thisBankroll", "This bankroll"))) return;
+    postBankroll(mk.id, raw);
+  };
+  el.querySelectorAll(".bkSet").forEach((b) => b.onclick = () => {
+    const i = Number(b.dataset.o);
+    const od = Math.round(parseFloat(el.querySelector('.bkPrice[data-o="' + i + '"]').value) * 100);
+    if (!(od > 100)) return alertBar(window.t("bet.badPrice", "A price must beat 1.00× — that is what the punter is paid per 1 NADO staked."));
+    setPrice(mk.id, i, od, mk.labels[i]);
+  });
+  el.querySelectorAll(".bkBack").forEach((b) => b.onclick = () => {
+    const i = Number(b.dataset.o);
+    const raw = Math.floor(Number(nadoToRaw(el.querySelector('.bkStake[data-o="' + i + '"]').value)) / UNIT) * UNIT;
+    if (!raw) return alertBar(window.t("bet.enterStake", "Enter a stake (NADO)."));
+    const max = maxBack(mk, i);
+    if (raw > max) return alertBar(window.t("bet.overMax", "The bank can only cover {amt} at that price right now.", { amt: rawToNado(max) }));
+    if (!canPay(dapp, raw, window.t("bet.thisBet", "This bet"))) return;
+    backOutcome(mk.id, i, raw, mk.labels[i], mk.odds[i]);
+  });
+  if ($("btnSweep")) $("btnSweep").onclick = () => bsweepMarket(mk.id);
+  if ($("btnBclaim")) $("btnBclaim").onclick = () => bclaimMarket(mk.id);
+}
+
 // ---- boot ----------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp);
   dapp.wireAutoCollect();   // shared "Auto-collect my winnings" opt-out toggle (#autoCollect)
-  stickyInputs(dapp, ["stakeAmt", "bankAmt", "cmTitle", "cmLabels", "cmEvent", "cmCloseMin", "cmVoidHrs"]);
+  stickyInputs(dapp, ["stakeAmt", "bankAmt", "cmTitle", "cmLabels", "cmEvent", "cmCloseMin", "cmVoidHrs", "cmBankroll"]);
+  // the fixture browser: source picks the competition list, Browse pulls what's actually coming up
+  $("cmSource").onchange = () => { fillLeagues(); $("fixList").innerHTML = ""; };
+  $("btnBrowse").onclick = () => loadFixtures().catch(() => {});
+  $("cmLeague").onchange = () => loadFixtures().catch(() => {});
   $("btnBet").onclick = placeBet;
   // shared SDK stake slider: the stake input + a 0–100% slider + Max, bound to your playable balance
   dapp.wireStakeSlider(() => dapp.exec, () => { if (lastSto) renderActive(lastSto); });

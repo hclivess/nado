@@ -174,13 +174,21 @@ def winning_outcome(mk, hs, as_):
     return None, f"{mk['nout']}-way market — resolve by hand"
 
 
-def submit(l1, method, args, keys, fee):
-    latest = _get(f"{l1}/get_latest_block")
-    tip = int(latest["block_number"])
-    payload = {"op": "call", "contract": BET_CID, "method": method, "args": args}
-    tx = construct_blob_tx(keys, payload, max_block=tip + 20, fee=fee, min_block=tip + TX_INCLUSION_DELAY)
-    resp = _post(f"{l1}/submit_transaction", tx)
-    return tx["txid"][:16], resp.get("message")
+def submit(l1, method, args, keys, fee, retries=2):
+    """Sign and submit one contract call. NEVER raises: a single dropped connection used to abort the whole
+    run mid-fill (the node restarts, or a burst of submissions trips it), leaving a half-seeded board and a
+    systemd unit in `failed` with no markets to show for it. One retry, then report and move on."""
+    for attempt in range(retries + 1):
+        try:
+            tip = int(_get(f"{l1}/get_latest_block")["block_number"])
+            payload = {"op": "call", "contract": BET_CID, "method": method, "args": args}
+            tx = construct_blob_tx(keys, payload, max_block=tip + 20, fee=fee, min_block=tip + TX_INCLUSION_DELAY)
+            resp = _post(f"{l1}/submit_transaction", tx)
+            return tx["txid"][:16], resp.get("message")
+        except Exception as ex:
+            if attempt >= retries:
+                return None, f"submit failed: {type(ex).__name__}: {ex}"
+            time.sleep(2)
 
 
 def chain_time(l1):
@@ -191,6 +199,47 @@ def chain_time(l1):
         return int(_get(f"{l1}/get_latest_block")["block_timestamp"])
     except Exception:
         return int(time.time())
+
+
+def espn_result(ev):
+    """ESPN's public summary for one event -> (status, home_score, away_score). Free, keyless and
+    CORS-open, which is why the website can browse the same feed the resolver reads: a market listed from
+    the fixture picker can be checked by the bettor against the exact source that will settle it."""
+    try:
+        d = _get("https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event="
+                 + urllib.parse.quote(str(ev)))
+        c = ((d or {}).get("header") or {}).get("competitions") or []
+        if not c:
+            return (None, None, None)
+        c = c[0]
+        st = (((c.get("status") or {}).get("type") or {}).get("description") or "").strip()
+        comp = c.get("competitors") or []
+        home = next((x for x in comp if x.get("homeAway") == "home"), None)
+        away = next((x for x in comp if x.get("homeAway") == "away"), None)
+        if not home or not away or home.get("score") in (None, "") or away.get("score") in (None, ""):
+            return (st or "unknown", None, None)
+        return (st or "Final", int(home["score"]), int(away["score"]))
+    except Exception as ex:
+        return (f"fetch-error: {ex}", None, None)
+
+
+def source_result(source, ev, sportsdb_key):
+    """Ask the market's OWN named source for the result. A market names its source at creation and the
+    resolver must honour that — reading a different feed than the one advertised to bettors would settle
+    a bet on evidence they were never shown."""
+    if source == "thesportsdb":
+        return thesportsdb_result(ev, sportsdb_key)
+    if source == "espn":
+        return espn_result(ev)
+    return (None, None, None)
+
+
+# a source is auto-resolvable when this bot knows how to read it AND the market names an event on it
+RESOLVABLE = ("thesportsdb", "espn")
+# ESPN reports finished games as "Final"/"FT"; TheSportsDB as "Match Finished". Both must be recognised or
+# the bot silently lets a settled match run to its deadline and void — refunding a decided bet.
+def _is_final(st):
+    return isinstance(st, str) and ("finished" in st.lower() or st.strip().upper() in ("FT", "FINAL"))
 
 
 def thesportsdb_next(league, key):
@@ -226,6 +275,70 @@ def kickoff_epoch(e):
         return None
 
 
+
+# ---- normalized fixture feeds ---------------------------------------------------------------------
+# Each source yields the SAME dict, so fill() has one code path: {ev, home, away, title, league, kickoff}.
+# ESPN is asked for a six-week window because its scoreboard defaults to today (empty most days); that one
+# parameter is the difference between 1 fixture per competition and ~20, which is what keeps the board full
+# between the free tier's stingy "next event only" answers.
+ESPN_LEAGUES = ["fifa.world", "uefa.champions", "uefa.europa", "eng.1", "esp.1", "ita.1", "ger.1",
+                "fra.1", "ned.1", "por.1", "usa.1", "bra.1", "arg.1", "mex.1"]
+ESPN_WINDOW_DAYS = 45
+
+
+def espn_next(league):
+    """Upcoming fixtures for an ESPN soccer league slug, normalized."""
+    try:
+        now = int(time.time())
+        dd = lambda t: time.strftime("%Y%m%d", time.gmtime(t))
+        d = _get("https://site.api.espn.com/apis/site/v2/sports/soccer/" + urllib.parse.quote(league)
+                 + f"/scoreboard?dates={dd(now)}-{dd(now + ESPN_WINDOW_DAYS * 86400)}")
+    except Exception:
+        return []
+    lg = (((d or {}).get("leagues") or [{}])[0] or {}).get("name") or league
+    out = []
+    for e in (d or {}).get("events") or []:
+        comp = ((e.get("competitions") or [{}])[0] or {}).get("competitors") or []
+        home = ((next((x for x in comp if x.get("homeAway") == "home"), {}) or {}).get("team") or {}).get("displayName") or ""
+        away = ((next((x for x in comp if x.get("homeAway") == "away"), {}) or {}).get("team") or {}).get("displayName") or ""
+        ko = _iso_epoch(e.get("date"))
+        if not (e.get("id") and home and away and ko):
+            continue
+        out.append({"ev": str(e["id"]), "home": home, "away": away,
+                    "title": f"{home} vs {away}", "league": lg, "kickoff": ko})
+    return out
+
+
+def _iso_epoch(s):
+    """epoch seconds from an ISO timestamp that may or may not carry a zone (the feeds are UTC either way)."""
+    if not s:
+        return None
+    s = s.strip().replace("Z", "")
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+        try:
+            return calendar.timegm(time.strptime(s[:len(time.strftime(fmt))], fmt))
+        except Exception:
+            continue
+    return None
+
+
+def sportsdb_next_norm(league, key):
+    """thesportsdb_next, normalized to the shared fixture shape (soccer only — see the soccer guard)."""
+    out = []
+    for e in thesportsdb_next(league, key):
+        if (e.get("strSport") or "Soccer") != "Soccer":
+            continue
+        ev = str(e.get("idEvent") or "")
+        home, away = event_teams(e)
+        ko = kickoff_epoch(e)
+        if not (ev.isdigit() and home and away and ko):
+            continue
+        out.append({"ev": ev, "home": home, "away": away,
+                    "title": (e.get("strEvent") or f"{home} vs {away}").strip(),
+                    "league": e.get("strLeague") or "?", "kickoff": ko})
+    return out
+
+
 def main():
     global BET_CID
     ap = argparse.ArgumentParser()
@@ -235,6 +348,8 @@ def main():
     ap.add_argument("--exec", dest="exec_url", default=os.environ.get("NADO_EXEC_URL", "http://127.0.0.1:9273").rstrip("/"))
     ap.add_argument("--cid", default=None, help="pin the contract id (default: discover — see resolve_cid)")
     ap.add_argument("--sportsdb-key", default=os.environ.get("SPORTSDB_KEY", "3"))
+    ap.add_argument("--sources", default=os.environ.get("BET_SOURCES", "all"),
+                    choices=["all", "espn", "thesportsdb"], help="which public feeds to seed fixtures from")
     ap.add_argument("--leagues", default=os.environ.get("BET_LEAGUES", ""), help="comma-separated TheSportsDB league ids (default: majors)")
     ap.add_argument("--max", type=int, default=int(os.environ.get("BET_FILL_MAX", "24")), help="max new markets to create per fill")
     ap.add_argument("--min-lead-min", type=int, default=30, help="skip matches kicking off sooner than this (need a betting window)")
@@ -267,35 +382,32 @@ def main():
         live_ev = {str(sto.get("ev", {}).get(m, "")) for m in sto.get("mk", {}) if not vd.get(m) and not dn.get(m)}
         existing_mk = set(sto.get("mk", {}))
         leagues = [x.strip() for x in (args.leagues.split(",") if args.leagues else DEFAULT_LEAGUES) if x.strip()]
+        # (source, league) pairs. Both feeds are free, keyless and CORS-open — the same two the website's
+        # fixture picker browses, so a market the bot lists can be checked by a bettor against the exact
+        # source that will settle it. ESPN goes first because its date-window query returns whole
+        # fixture lists rather than the free tier's single next event.
+        feeds = ([("espn", lg) for lg in ESPN_LEAGUES] if args.sources in ("all", "espn") else []) \
+              + ([("thesportsdb", lg) for lg in leagues] if args.sources in ("all", "thesportsdb") else [])
         created = 0
-        print(f"fill: chain-time {now} · {len(leagues)} leagues · cap {args.max}"
+        print(f"fill: chain-time {now} · {len(feeds)} feeds · cap {args.max}"
               + ("" if args.submit else "  (DRY-RUN — add --submit to create)"))
-        for li, lg in enumerate(leagues):
+        for li, (src, lg) in enumerate(feeds):
             if created >= args.max:
                 break
             if li:
                 time.sleep(0.3)   # pace the per-league calls so a wide list stays under the free-key rate limit
-            for e in thesportsdb_next(lg, args.sportsdb_key):
+            fixtures = espn_next(lg) if src == "espn" else sportsdb_next_norm(lg, args.sportsdb_key)
+            for e in fixtures:
                 if created >= args.max:
                     break
-                # soccer-guard: on the free key some league ids map to a non-soccer event (ice hockey, motorsport).
-                # We only build 3-way 1X2 (HOME/DRAW/AWAY) markets, so anything that isn't soccer is skipped —
-                # this makes it safe to seed a broad league list without minting nonsense markets.
-                if (e.get("strSport") or "Soccer") != "Soccer":
+                ev = e["ev"]
+                if ev in live_ev:
                     continue
-                ev = str(e.get("idEvent") or "")
-                if not ev or not ev.isdigit() or ev in live_ev:
-                    continue
-                ko = kickoff_epoch(e)
-                if ko is None:
-                    continue
+                ko = e["kickoff"]
                 lead = ko - now
                 if lead < args.min_lead_min * 60:      # too soon / already kicked off -> no betting window
                     continue
-                home, away = event_teams(e)
-                if not home or not away:
-                    continue
-                title = (e.get("strEvent") or f"{home} vs {away}").strip()
+                home, away, title = e["home"], e["away"], e["title"]
                 desc = "\n".join([title, home, "Draw", away])
                 lock = ko                                          # betting closes at kickoff (epoch secs)
                 deadline = ko + int(args.void_hours * 3600)        # anyone may void this long after kickoff if unresolved
@@ -306,6 +418,8 @@ def main():
                 # zkVM market ids must be < 2^32 (composite-slot keys) — the offset is sized so an event id
                 # (~7 digits) survives 4 relists before hitting the ceiling.
                 RELIST_OFFSET = 10**9
+                if not ev.isdigit():
+                    continue                        # market ids are ints (composite-slot keys)
                 mid = int(ev)
                 while str(mid) in existing_mk:
                     mid += RELIST_OFFSET
@@ -314,9 +428,9 @@ def main():
                 existing_mk.add(str(mid))
                 live_ev.add(ev)
                 created += 1
-                tag = f"{e.get('strLeague', '?')}, kickoff {e.get('strTimestamp', '?')}Z"
+                tag = f"{e['league']}, kickoff {time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime(ko))}, via {src}"
                 if args.submit:
-                    txid, msg = submit(args.l1, "create_market", [mid, 3, lock, deadline, desc, "thesportsdb", ev, 1, resolver, 0, 0], keys, args.fee)
+                    txid, msg = submit(args.l1, "create_market", [mid, 3, lock, deadline, desc, src, ev, 1, resolver, 0, 0], keys, args.fee)
                     print(f"  + {mid}  {title}  ({tag}) -> {msg}")
                 else:
                     print(f"  [dry] {mid}  {title}  ({tag}, closes in {int(lead / 60)} min)")
@@ -348,8 +462,8 @@ def main():
         # also show what the source currently reports for each pending market
         print("\n--- source results for pending markets ---")
         for m in pending:
-            if m["source"] == "thesportsdb" and m["ev"]:
-                st, hs, as_ = thesportsdb_result(m["ev"], args.sportsdb_key)
+            if m["source"] in RESOLVABLE and m["ev"]:
+                st, hs, as_ = source_result(m["source"], m["ev"], args.sportsdb_key)
                 print(f"#{m['id']} {m['title']}: status={st} score={hs}-{as_}")
             else:
                 print(f"#{m['id']} {m['title']}: no automatic source (resolve by hand)")
@@ -358,11 +472,11 @@ def main():
     # resolve
     print("\n--- resolution plan" + ("" if args.submit else " (DRY-RUN — add --submit to post)") + " ---")
     for m in pending:
-        if m["source"] != "thesportsdb" or not m["ev"]:
+        if m["source"] not in RESOLVABLE or not m["ev"]:
             print(f"#{m['id']} SKIP — no automatic source")
             continue
-        st, hs, as_ = thesportsdb_result(m["ev"], args.sportsdb_key)
-        finished = isinstance(st, str) and ("Finished" in st or "FT" == st) and hs is not None
+        st, hs, as_ = source_result(m["source"], m["ev"], args.sportsdb_key)
+        finished = _is_final(st) and hs is not None
         if not finished:
             if m["past_deadline"]:
                 print(f"#{m['id']} PAST DEADLINE, not finished (status={st}) -> void" + ("" if args.submit else " [dry-run]"))
