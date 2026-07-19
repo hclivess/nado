@@ -25,6 +25,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -280,33 +281,97 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
 # tip_hash pins the whole unfinalized tail (parent-hash linkage), the version sum pins the base states —
 # so an identical key proves the rebuild would reproduce the exact same clones. None -> always rebuild.
 _prov_key = None
+# incremental-tail bookkeeping (see _refresh_provisional): the last (height, hash) applied to prov_states,
+# and how many polls since the last full rebuild. PROV_FULL_EVERY bounds any drift the incremental path
+# could accumulate — at one poll per block that is a fresh clone every few minutes, which costs one slow
+# poll and makes the fast path unable to go quietly wrong for long.
+_prov_last = None
+_prov_since_full = 0
+PROV_FULL_EVERY = 50
+PROV_DEBUG = os.environ.get("NADO_EXEC_PROV_DEBUG") == "1"
 
 
 async def _refresh_provisional(session, finalized, tip, tip_hash=None):
-    """Rebuild the provisional states: clone the finalized states and speculatively apply the UNFINALIZED
-    tail (finalized+1 .. tip). Rebuilt from the finalized checkpoint every poll, so a reorg self-heals and no
-    persistent state can be corrupted. Best-effort: leaves prov_states None (readers fall back to finalized)
-    if there's nothing unfinalized."""
-    global prov_states, _prov_key
+    """Refresh the provisional states: the finalized states plus the speculatively-applied UNFINALIZED tail
+    (finalized+1 .. tip). Best-effort: leaves prov_states None (readers fall back to finalized) if there's
+    nothing unfinalized.
+
+    EXTENDS the existing tail whenever it can, and only rebuilds from the finalized checkpoint when it must.
+    Rebuilding every poll is O(tail) per block, and the tail is the finality window — raising FINALITY_DEPTH
+    to 45 quietly turned that into ~20 SECONDS of re-execution per poll, measured live. Every game client
+    polls /exec/root?provisional=1 on its own tick, so that latency was the whole site feeling frozen.
+
+    Extending is not an optimisation gamble, it is the same state by construction: provisional(F+1, T+1) is
+    finalized(F+1) + blocks F+2..T+1, and finalized(F+1) is finalized(F) + block F+1 — so it equals the tail
+    we already applied plus the one new block. The window slides; the applied set only grows. What must NOT
+    be assumed is that the chain under us is the same one, so the anchor block is re-checked by hash every
+    poll (one request) and ANY mismatch — reorg, re-anchor, shorter chain — falls back to the full rebuild.
+    A periodic forced rebuild bounds any drift the incremental path could ever accumulate."""
+    global prov_states, _prov_key, _prov_last, _prov_since_full
     tip = min(tip, finalized + PROV_MAX_TAIL)
     if tip <= finalized:
         prov_states = None
         _prov_key = None
+        _prov_last = None
         return
     key = (finalized, tip, tip_hash, sum(st._mut_gen for st in states.values()))
     if prov_states is not None and tip_hash is not None and key == _prov_key:
         return                                   # nothing changed since the last COMPLETE build — keep it
-    clones = {ns: st.clone() for ns, st in states.items()}
+
+    t0, start_h = time.time(), finalized + 1
+    clones, h, keep = None, finalized + 1, False
+    if (prov_states is not None and _prov_last and _prov_since_full < PROV_FULL_EVERY
+            and finalized <= _prov_last[0] < tip):
+        anchor = await _get_json(session, f"/get_block_number?number={_prov_last[0]}")
+        if isinstance(anchor, dict) and anchor.get("block_hash") == _prov_last[1]:
+            # same chain: keep the tail we already executed and add only what's new. Clone it rather than
+            # mutating in place — readers hold prov_states while we work, and a half-applied block is a
+            # board that shows a bet placed and the balance not yet moved. The clone is what the old code
+            # paid every poll anyway; the replay it replaces is the part that cost 20 seconds.
+            clones, h, keep = {ns: st.clone() for ns, st in prov_states.items()}, _prov_last[0] + 1, True
+    if clones is None:
+        clones, h, keep = {ns: st.clone() for ns, st in states.items()}, finalized + 1, False
+        _prov_since_full = 0
+    start_h = h
     default_clone = clones.get("default")
-    h = finalized + 1
+    last = _prov_last if keep else None
     while h <= tip:
         block = await _get_json(session, f"/get_block_number?number={h}")
         if not isinstance(block, dict) or "block_transactions" not in block:
             break                                # unfetchable / body-less -> stop the speculative tail here
         if not await _apply_block(session, clones, default_clone, block, verbose=False):
             break
+        last = (h, block.get("block_hash"))
         h += 1
+    # AUDIT: every PROV_FULL_EVERY polls the extended tail is re-derived from the finalized checkpoint and
+    # the two are compared root-for-root. The incremental path must be bit-identical to the rebuild — this
+    # state root is what the bonded quorum settles on L1 — so rather than trust the argument, prove it on
+    # live data at a 1/PROV_FULL_EVERY amortised cost and shout if it is ever wrong. The rebuild always
+    # wins, so a drift self-corrects within one audit window instead of settling something false.
+    if keep and _prov_since_full + 1 >= PROV_FULL_EVERY and h > tip:
+        fresh = {ns: st.clone() for ns, st in states.items()}
+        fdef, fh = fresh.get("default"), finalized + 1
+        while fh <= tip:
+            b = await _get_json(session, f"/get_block_number?number={fh}")
+            if not isinstance(b, dict) or "block_transactions" not in b:
+                break
+            if not await _apply_block(session, fresh, fdef, b, verbose=False):
+                break
+            fh += 1
+        if fh > tip:
+            bad = [ns for ns in fresh if ns in clones and fresh[ns].state_root() != clones[ns].state_root()]
+            if bad:
+                print(f"[execnode] PROVISIONAL DRIFT at {finalized}..{tip} in {bad} — "
+                      f"incremental tail disagreed with the rebuild; using the rebuild", flush=True)
+            clones = fresh
+            _prov_since_full = -1                # this WAS the full build; start the next window from it
+
+    if PROV_DEBUG:
+        print(f"[execnode] prov {'extend' if keep else 'FULL'} {finalized}..{tip} "
+              f"applied={h - (start_h)} in {time.time() - t0:.2f}s", flush=True)
     prov_states = clones
+    _prov_last = last
+    _prov_since_full += 1
     # record the key only for a COMPLETE build; a partial one (fetch break) must retry next poll
     _prov_key = key if h > tip else None
 
@@ -591,11 +656,22 @@ async def h_state_snapshot(request):
 
 
 async def h_root(request):
-    """Node summary for ?ns= (default): exec state_root, applied cursor, contract count, L1 tailed."""
+    """Node summary for ?ns= (default): exec state_root, applied cursor, contract count, L1 tailed.
+
+    The PROVISIONAL root is not computed unless it is already cached (or ?root=1 asks for it). Measured on
+    this state: a cold state_root is ~24 SECONDS — the two depth-256 sparse trees are incremental, but a
+    clone starts with an empty store, and the provisional view is a fresh clone after every rebuild. Since
+    this handler shares the event loop with the whole query API, one poll of this endpoint froze EVERY exec
+    request for 20+ seconds, which is what made the games feel dead. Nothing consumes the provisional root:
+    the SDK reads cursor/block_ts, and settlement is always the FINALIZED root (only that one is ever posted
+    to L1). So it is reported when free and null otherwise, rather than being paid for on every poll."""
     st = _state_for(request)
     if st is None:
         return _NS404()
-    return web.json_response({"ns": request.query.get("ns", "default"), "state_root": st.state_root(),
+    prov = st is not states.get(request.query.get("ns", "default"))
+    want_root = (not prov) or request.query.get("root") == "1" or st._root_cache is not None
+    return web.json_response({"ns": request.query.get("ns", "default"),
+                              "state_root": st.state_root() if want_root else None,
                               "cursor": st.cursor, "block_ts": st.block_ts, "contracts": len(st.contracts), "l1": L1})
 
 

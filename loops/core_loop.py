@@ -69,6 +69,9 @@ REANCHOR_COOLDOWN = 30
 # — the inactivity leak lets each side "quorum" its own branch), and the only remaining objective ordering
 # is cumulative weight: follow the strictly-heavier chain, re-verifying every tail block after the import.
 REANCHOR_ESCALATE = 3
+# Fork rejoin (see _rejoin_by_rollback) needs a real mesh before it will drop the local finality floor:
+# with one or two peers a "majority" is meaningless and an isolated pair could talk each other off the chain.
+MIN_REJOIN_PEERS = 3
 
 
 def majority_on_our_canonical(majority_hash, get_block_fn, canonical_hash_at_fn):
@@ -855,7 +858,109 @@ class CoreClient(threading.Thread):
             self.memserver.rollbacks = 0
             return True
         self._reanchor_failures += 1
-        return False
+        return self._rejoin_by_rollback()
+
+    def _rejoin_by_rollback(self) -> bool:
+        """LAST-RESORT fork rejoin: roll back to the last block we share with the majority, EVEN BELOW our
+        own finalized floor, when the node is provably isolated on a minority fork.
+
+        Why this has to exist. Finality makes the local prefix immutable, and re-anchoring is the escape
+        hatch when that prefix turns out to be on a fork — but re-anchoring needs a peer SNAPSHOT to import,
+        and checkpoints are only captured every so often. Live here: this node finalized 16863 on a branch
+        the rest of the network abandoned, every donor answered "our root hash is unknown to them", no peer
+        advertised any snapshot, and the log settled into "no peer advertises a strictly-heavier chain with
+        a snapshot above our finality floor; staying put" — forever. A node that can neither extend, reorg,
+        nor re-anchor is dead, and "stay dead" is not a safer answer than "rejoin the chain everyone else
+        is on": our finality was only ever a local claim, and it is now provably a minority one.
+
+        The escalation is the same one the re-anchor path already makes, applied where no snapshot exists.
+        It fires only when ALL of these hold, so it cannot become a long-range reorg lever:
+          · we have a real peer mesh (>= MIN_REJOIN_PEERS linked peers with tips),
+          · a STRICT MAJORITY of them are on ONE other tip, heavier than ours, same protocol+chain,
+          · re-anchoring has already failed REANCHOR_ESCALATE times in a row,
+          · and there is a common ancestor we can identify BY ASKING THEM (binary search on
+            knows_block), which is the block we roll back to — never further.
+        Everything above that ancestor is re-mined from the mempool by the normal reorg path."""
+        if self._reanchor_failures < REANCHOR_ESCALATE:
+            return False
+        pool = self.consensus.status_pool.copy()
+        ours = self.memserver.latest_block.get("block_hash")
+        our_w = self.memserver.latest_block.get("cumulative_weight", 0)
+        from config import get_protocol
+        min_proto = get_protocol()
+        linked = [(ip, st) for ip, st in pool.items()
+                  if isinstance(st, dict) and st.get("latest_block_hash") and _same_network(st, min_proto)]
+        if len(linked) < MIN_REJOIN_PEERS:
+            return False
+        against = [(ip, st) for ip, st in linked
+                   if st["latest_block_hash"] != ours and (st.get("latest_block_weight") or 0) > our_w]
+        counts = {}
+        for ip, st in against:
+            counts.setdefault(st["latest_block_hash"], []).append(ip)
+        if not counts:
+            return False
+        tip, holders = max(counts.items(), key=lambda kv: len(kv[1]))
+        if len(holders) * 2 <= len(linked):        # not a majority: this is noise, not an isolated node
+            return False
+
+        ancestor = self._common_ancestor(holders)
+        if ancestor is None or ancestor >= self.memserver.latest_block["block_number"]:
+            return False
+        self.logger.warning(
+            f"ISOLATED on a minority fork: {len(holders)}/{len(linked)} peers are on {tip[:12]} and none can "
+            f"serve our chain. Rejoining by rolling back to the last block we share with them ({ancestor}) — "
+            f"this drops our local finality floor, which is provably a minority claim.")
+        set_finalized_height(ancestor)     # the floor must yield BEFORE the reorg, or every revert refuses
+        self.memserver.rollbacks = 0
+        reverted = 0
+        while self.memserver.latest_block["block_number"] > ancestor and not self.memserver.terminate:
+            txs = self.memserver.latest_block.get("block_transactions", []) or []
+            try:
+                self.memserver.latest_block = rollback_one_block(
+                    logger=self.logger, block=self.memserver.latest_block)
+            except Exception as e:
+                self.logger.error(f"Fork rejoin stopped at {self.memserver.latest_block['block_number']}: {e}")
+                break
+            for tx in txs:                 # revert symmetry: a reorg re-mines user txs, never drops them
+                try:
+                    self.memserver.merge_transaction(tx, user_origin=False)
+                except Exception:
+                    pass
+            reverted += 1
+        self._reanchor_failures = 0
+        self.logger.warning(f"Fork rejoin: reverted {reverted} block(s); tip is now "
+                            f"{self.memserver.latest_block['block_number']} — resyncing forward")
+        return reverted > 0
+
+    def _common_ancestor(self, peers):
+        """Highest height at which the given peers still carry OUR block — binary search over
+        [earliest, tip] using knows_block (which compares height->hash on the PEER's canonical chain, so a
+        fork leftover sitting in their store by hash answers False). Asking them is the only honest way to
+        find the split point: our own store cannot see which of our blocks they abandoned. None when even
+        our earliest block is unknown to them (nothing to rejoin to — that is a re-anchor's job)."""
+        lo = int(self.memserver.earliest_block.get("block_number", 0) or 0)
+        hi = int(self.memserver.latest_block["block_number"])
+
+        def shared(h):
+            bh = get_block_hash_by_number(h)
+            if not bh:
+                return False
+            return any(asyncio.run(knows_block(target_peer=p, port=self.memserver.port,
+                                               hash=bh, number=h, logger=self.logger)) for p in peers)
+
+        try:
+            if not shared(lo):
+                return None
+            while lo < hi:                 # invariant: shared(lo) is True, shared(hi+1) is False
+                mid = (lo + hi + 1) // 2
+                if shared(mid):
+                    lo = mid
+                else:
+                    hi = mid - 1
+            return lo
+        except Exception as e:
+            self.logger.error(f"Common-ancestor search failed: {e}")
+            return None
 
     def emergency_mode(self):
         """BEHIND-mode loop (entered when fork-choice says a strictly-better tip exists, or under
@@ -1197,6 +1302,24 @@ class CoreClient(threading.Thread):
             index_transactions(block=block,
                                sorted_transactions=sorted_transactions,
                                logger=self.logger)
+
+            # EXEC SUMMARY (settle-with-proof binding, kv_ops.exec_summary_put): derive the call leaves +
+            # the records-inertness bit from the body HERE, where the body is present by definition, so the
+            # settle branch never has to re-read a prunable body (a snapshot re-anchor wipes bodies
+            # wholesale, so no depth fence can make that read fleet-safe). Commits atomically with the
+            # block; reverted in rollback_one_block. Not in any block hash preimage.
+            try:
+                from execnode.stark.calls_commit import block_summary
+                _inert, _calls = block_summary(block)
+                kv_ops.exec_summary_put(block["block_number"], _inert, _calls)
+            except Exception as e:
+                # Never let summary derivation break block application. HONEST CAVEAT: this is only safe
+                # because block_summary is a PURE function of the body, so a genuine failure is
+                # deterministic and every node lacks the summary identically. A NON-deterministic failure
+                # here (OOM) would leave one node refusing a settle-with-proof its peers accept -> fork. It
+                # is inert while settlement_justified's proof branch stays disabled, and it is the reason
+                # that branch must not be enabled on the strength of this mechanism alone.
+                self.logger.error(f"exec summary for block {block.get('block_number')} failed: {e}")
 
             # LANE-AWARE reward (doc/presence-dividend.md): bonded block = 90/10 winner-take-all; open block =
             # producer tip + DIVIDEND_POOL (redistributed off-L1) + treasury. Single source (ops.reward_ops)
