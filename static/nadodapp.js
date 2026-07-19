@@ -21,6 +21,38 @@ export const RAW = 10n ** 10n;                 // 1 NADO = 1e10 raw units
 const WALLET = "https://get.nadochain.com";
 const STICKY_GRACE_MS = 20000;   // how long a provisional state REGRESSION is treated as flicker (ignored) before it's accepted as a real reorg — see dapp.accept()
 const PEND_TTL_MS = 120000;      // how long a CLICKED action stays "pending" with no on-chain confirmation before its gate self-expires (a lost tx must re-enable retry — never brick a button); matches the proven pets hatch stamp
+// ---- address format (ONE constant — see the rebrand-proofing rule) --------------------------------
+// An address is ADDR_PREFIX + 42 hex of the pubkey + a 4-hex blake2b checksum over prefix+body.
+export const ADDR_PREFIX = "mldsa44";
+const ADDR_BODY = 42;
+const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");
+
+/**
+ * SELF-HEAL a signed-in session address across an address-format change (the alphanet-7 debrand:
+ * ndo… → mldsa44…). Games persist only the ADDRESS from the wallet handshake, so a session established
+ * before the change keeps the OLD string in localStorage forever — the game then reads balances/state for
+ * an address that owns nothing and shows the player an empty account ("0 NADO", "Playing as ndo…") while
+ * their funds sit under the new-format address for the very same key. A hard refresh can't fix it.
+ *
+ * The pubkey body is always the 42 chars before the 4-hex checksum, so the new address is recoverable
+ * from the old one WITHOUT the pubkey and without knowing the old prefix — which keeps this correct for
+ * any future rename too. The old checksum is verified first; anything that isn't a well-formed address of
+ * SOME generation is dropped (null) rather than guessed at, forcing a clean re-sign-in.
+ */
+export function healAddress(a) {
+  if (!a || typeof a !== "string") return null;
+  a = a.trim().toLowerCase();
+  if (ADDR_RE.test(a)) return a;                                  // already current — the common path
+  if (!/^[a-z][a-z0-9]*[0-9a-f]{46}$/.test(a)) return null;       // not an address of any generation
+  try {
+    const tail = a.slice(0, -4);                                  // prefix + body
+    if (blake2bHash(tail, 2) !== a.slice(-4)) return null;         // failed its own checksum → junk
+    const body = tail.slice(-ADDR_BODY);                          // the pubkey body, prefix-agnostic
+    const fresh = ADDR_PREFIX + body;
+    return fresh + blake2bHash(fresh, 2);
+  } catch (e) { return null; }                                     // crypto not bound yet → retry in init()
+}
+
 export const base = () => location.origin.replace(/\/+$/, "");
 export const $ = (id) => document.getElementById(id);
 export const _m = (sto, name) => (sto && sto[name]) || {};
@@ -505,8 +537,9 @@ export class NadoDapp {
     this._bgOff = false;      // learned this session: the wallet can't background-sign at all (locked / bg off / untrusted) → always redirect
     this._bgValueUI = false;  // learned: staked calls need a manual confirm here → redirect them directly (value-free still backgrounds)
     this._stakeMode = "amount";   // bet slider: "amount" = user typed a NADO figure; "pct" = user set a % of the table max
-    this.me = localStorage.getItem(this.LS_ME) || null;
+    this.me = this._healMe();
     this.exec = 0n; this.l1 = 0n; this.cursor = null; this.now = null;
+    this._healedMe = false;   // whether the stored session address has been checked against the current format
     // Capture a wallet return (?ok=1&addr=…) SYNCHRONOUSLY at construction — before any early render() can
     // canonicalise the URL via reflectUrl() and wipe these params. _handleReturn() (in init, after the game has
     // wired onReturn) then applies the stashed result. Games that render before init (e.g. for an instant grid)
@@ -552,7 +585,36 @@ export class NadoDapp {
     return this._bh;
   }
   bh(h) { return this._bh[h]; }
-  async init() { enableClickFeedback(); await loadCrypto(); this._handleReturn(); if (this.me) await this.refresh(); }
+  /**
+   * Read the persisted session address, migrating it if it predates an address-format change (see
+   * healAddress). Runs at construction AND again in init() after loadCrypto(), because the checksum needs
+   * blake2b — if the binding wasn't ready at construction the heal is simply retried once crypto is up.
+   * A stored address that can't be healed is REMOVED, so the game shows a clean signed-out state instead
+   * of an address that owns nothing.
+   */
+  _healMe() {
+    const raw = localStorage.getItem(this.LS_ME) || null;
+    if (!raw) { this._healedMe = true; return null; }
+    const fixed = healAddress(raw);
+    if (fixed === null) {
+      // couldn't verify: either junk, or crypto isn't bound yet. Only DROP it once we know crypto works.
+      let cryptoUp = false;
+      try { cryptoUp = typeof blake2bHash("00", 2) === "string"; } catch (e) {}
+      if (!cryptoUp) return raw;                    // keep as-is; init() retries the heal after loadCrypto()
+      this._healedMe = true;
+      localStorage.removeItem(this.LS_ME);
+      return null;
+    }
+    this._healedMe = true;
+    if (fixed !== raw) localStorage.setItem(this.LS_ME, fixed);
+    return fixed;
+  }
+
+  async init() {
+    enableClickFeedback(); await loadCrypto();
+    if (!this._healedMe) this.me = this._healMe();   // crypto is bound now — finish any deferred session heal
+    this._handleReturn(); if (this.me) await this.refresh();
+  }
   onReturn(fn) { this._onReturn = fn; }        // fn(pend, ok, err) — game marks its own local state + status
 
   // --- delegated signing (the wallet holds the key; the game NEVER sees it) -------------------------
@@ -683,7 +745,9 @@ export class NadoDapp {
   }
   // apply a signing RESULT (from either transport) — set the address / inflight / balance-watch and fire onReturn
   _applyReturn(pend, ok, addr, err) {
-    if (ok && addr) { this.me = addr; localStorage.setItem(this.LS_ME, addr); }
+    // heal here too: an older wallet build (or a stale wallet tab) can hand back a pre-debrand address,
+    // which would re-poison the session we just cleaned up at load.
+    if (ok && addr) { const a = healAddress(addr) || addr; this.me = a; localStorage.setItem(this.LS_ME, a); }
     // A REJECTED action (ok=0 with a reason) must be shown LOUDLY — never left to masquerade as the
     // optimistic "confirming…" placeholder. The err is the node's real reason (e.g. a chain_id mismatch).
     if (!ok && err) { try { alertBar(_t("rejected", "Rejected") + ": " + err + (/chain id/i.test(err) ? _t("rejectedChainId", " — hard-refresh this page and your wallet to update to the current network.") : "")); } catch (e) {} }
