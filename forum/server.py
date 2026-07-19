@@ -26,7 +26,8 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from signatures import verify as mldsa_verify, unhex
-from ops.address_ops import proof_sender, validate_address
+from ops.address_ops import proof_sender, validate_address, make_address
+from protocol import ADDRESS_PREFIX, ADDRESS_BODY
 from hashing import blake2b_hash
 
 import aiohttp
@@ -41,7 +42,31 @@ SECRET_FILE   = os.environ.get("FORUM_SECRET_FILE", os.path.join(HERE, ".secret"
 NADO_NODE     = os.environ.get("NADO_NODE", "http://127.0.0.1:9173").rstrip("/")
 INTERFACE_URL = os.environ.get("INTERFACE_URL", "https://get.nadochain.com").rstrip("/")
 FORUM_ORIGIN  = os.environ.get("FORUM_ORIGIN", "https://forum.nadochain.com").rstrip("/")
-MODS          = set(a.strip() for a in os.environ.get("FORUM_MODS", "").split(",") if a.strip())
+def _heal_addr(a):
+    """Normalise a configured address to the CURRENT address format.
+
+    FORUM_MODS is written once into a unit file and then forgotten, so an address-format change (the
+    alphanet-7 debrand: ndo… -> mldsa44…) silently locks the bootstrap admins out of their own forum —
+    the stored strings stop matching the addresses those same keys now log in with, and there is no error
+    anywhere, just moderation that no longer works. The pubkey body is the 42 hex chars before the 4-hex
+    checksum, so the current address is recoverable from any generation of the string without the pubkey
+    and without knowing the old prefix. Anything already current, or not address-shaped, is passed through
+    untouched (an operator may legitimately configure something we can't parse; that must not be dropped).
+    """
+    try:
+        if not validate_address(a):
+            return a                                  # not an address of ANY generation — leave it alone
+        if a.startswith(ADDRESS_PREFIX):
+            return a                                  # already current (validate_address checks only the
+                                                      # checksum, never the prefix, so test that separately)
+        body = a[:-4][-ADDRESS_BODY:]                 # 4 HEX chars of checksum (ADDRESS_CHECKSUM is bytes)
+        fresh = make_address(body)
+        return fresh if validate_address(fresh) else a
+    except Exception:
+        return a
+
+
+MODS          = set(_heal_addr(a.strip()) for a in os.environ.get("FORUM_MODS", "").split(",") if a.strip())
 REQUIRE_REG   = os.environ.get("FORUM_REQUIRE_REGISTERED", "1") == "1"
 COOKIE_SECURE = os.environ.get("FORUM_COOKIE_SECURE", "1") == "1"   # set 0 for local http testing
 

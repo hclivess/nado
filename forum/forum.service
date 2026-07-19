@@ -16,7 +16,7 @@ Environment=INTERFACE_URL=https://get.nadochain.com
 Environment=FORUM_ORIGIN=https://forum.nadochain.com
 Environment=FORUM_REQUIRE_REGISTERED=1
 # Bootstrap moderator addresses (comma-separated). Set to your own ndo… to seed the first mod:
-Environment=FORUM_MODS=ndoebd27698662f14ee2389e509781d5ff57487f4289a2bf2,ndo27f2870bb2969a4d2b9d4eea303bedea996b9ccc9384ea
+Environment=FORUM_MODS=mldsa44ebd27698662f14ee2389e509781d5ff57487f4289afd34,mldsa4427f2870bb2969a4d2b9d4eea303bedea996b9ccc93d22e
 ExecStart=/root/nado/nado_venv/bin/python /root/nado/forum/server.py
 Restart=always
 RestartSec=5
