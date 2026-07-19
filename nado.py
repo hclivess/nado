@@ -298,6 +298,17 @@ async def mining_history_handler(request):
         days = 7
     series, covered_from = mining_history.series(address, days)
     state = mining_history.state()
+    # RECONCILE against the chain's own cumulative counter. account.produced is consensus state and rides
+    # through a snapshot re-anchor; the per-day breakdown is replayed from block BODIES, which a re-anchor
+    # deletes. So after one, the chart can be missing history the chain still credits — and rendering that
+    # as a row of zeros reads as "you earned nothing", which is false. Reporting both lets the client say
+    # what it cannot attribute instead of quietly implying it never happened.
+    try:
+        acc = await asyncio.to_thread(get_account, address, False)
+        produced_total = int((acc or {}).get("produced", 0))
+    except Exception:
+        produced_total = None
+    attributed = mining_history.attributed(address)
     return _resp({"address": address, "days": days, "series": series,
                   "total": sum(r["total"] for r in series),
                   "open": sum(r["open"] for r in series),
@@ -306,6 +317,8 @@ async def mining_history_handler(request):
                   # network-wide totals over the SAME window, so the client can show what share of each
                   # stream this address earned rather than a bare figure with nothing to compare it to
                   "network": mining_history.network_totals(days),
+                  # what the chain says you have mined in total, vs what this index could place on a day
+                  "produced_total": produced_total, "attributed": attributed,
                   "building": state["building"], "covered_from": covered_from,
                   "indexed_to": state["upto"], "tip": memserver.latest_block["block_number"],
                   "gaps": state["gaps"]})

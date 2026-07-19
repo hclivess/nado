@@ -1742,8 +1742,26 @@ class CoreClient(threading.Thread):
         else:
             self.memserver.emergency_mode = False
 
-        if self.consensus.block_hash_pool_percentage > 80 and self.memserver.since_last_block < self.memserver.block_time:
-            self.memserver.force_sync_ip = None
+        # RELEASE the forced donor once it has done its job. The old condition also required a FRESH block
+        # (since_last_block < block_time), which is unreachable in the very situation force-sync is used
+        # for: a pinned donor keeps us in emergency mode, emergency mode does not produce, and with the
+        # chain stalled no fresh block ever arrives — so the pin never lifts and our own producer stays
+        # switched off. Agreement with >80% of peers is the real signal that fork-choice can take over;
+        # and a pin is dropped after FORCE_SYNC_MAX_S regardless, so a recovery tool can never become a
+        # permanent handbrake on production.
+        if self.memserver.force_sync_ip:
+            if self.consensus.block_hash_pool_percentage > 80:
+                self.logger.info("Forced sync released — back in agreement with the peer majority")
+                self.memserver.force_sync_ip = None
+                self._force_sync_since = None
+            else:
+                if not getattr(self, "_force_sync_since", None):
+                    self._force_sync_since = get_timestamp_seconds()
+                elif get_timestamp_seconds() - self._force_sync_since > FORCE_SYNC_MAX_S:
+                    self.logger.warning("Forced sync expired after %ds — releasing so this node can produce again"
+                                        % FORCE_SYNC_MAX_S)
+                    self.memserver.force_sync_ip = None
+                    self._force_sync_since = None
 
     def run(self) -> None:
         """Thread entry: once per run_interval, re-evaluate our consensus position (check_mode) and

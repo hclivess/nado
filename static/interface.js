@@ -2000,9 +2000,22 @@ function drawMiningChart(d) {
     note.textContent = i18("mine.none", "No blocks won in the past week. Rewards appear here the day you produce one.");
   } else {
     note.className = "mine-note";
-    // say plainly where the window starts, so an early chain isn't mistaken for a week of zeros
     note.textContent = i18("mine.src", "Per UTC day, replayed from blocks: both mining lanes, plus presence dividend on the day it was collected.")
       + (d.covered_from > 0 ? " " + i18("mine.from", "History covers blocks from #{h}.").replace("{h}", d.covered_from) : "");
+  }
+  // A day the chart cannot SEE must never read as a day you earned nothing. The per-day breakdown is
+  // replayed from block bodies, and a snapshot re-anchor deletes them — while account.produced (consensus
+  // state) rides straight through. When the two disagree, say so with the chain's number, not our silence.
+  const miss = $("mineMissing");
+  if (miss) {
+    const gap = Math.max(0, Number(d.produced_total || 0) - Number(d.attributed || 0));
+    const show = d.produced_total != null && gap > 0;
+    miss.classList.toggle("hidden", !show);
+    if (show) {
+      miss.textContent = i18("mine.unattributed",
+        "Plus {a} NADO mined earlier that this node can no longer break down by day — its block history was replaced when the node re-synced from a snapshot. The chain still credits it: {t} NADO mined in total.",
+        { a: _mineAmt(gap), t: _mineAmt(d.produced_total) });
+    }
   }
 }
 
