@@ -6,7 +6,7 @@
 // is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes } from "./nadodapp.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "c89f2236dc02504007f881aeb1327e2e";
@@ -184,7 +184,7 @@ function wireUI() {
   $("btnReopen").onclick = reopenGame;
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">' + window.t("coinflip.confirmed", "confirmed ✓") + '</span>' : s === "pending" ? '<span class="b pend">' + window.t("coinflip.pending", "pending…") + '</span>' : '<span class="b dimb">—</span>';
-function render() {
+var render = function render() {
   dapp.reflectUrl("game", active);   // address bar = the shareable link to the selected game
   dapp.syncPctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, dapp.exec);
   const signedIn = renderWallet(dapp);
@@ -280,6 +280,24 @@ dapp.onReturn((pend, ok, err) => {
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("coinflip.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR(); orderCards(["activeGame","lobby","play","practice","walletcard","bankroll","scoreboard"]);
+
+// ONE mode picker, from the SDK — the same control in every game. Practice used to be a card parked
+// below the staked game with no way to switch to it; now it is a mode you choose, and ?mode=practice
+// links straight to it.
+const modes = installModes(dapp, {
+  modes: [
+    { key: "play", icon: "🪙", label: window.t("sdk.modePlay", "Play for stakes"),
+      hint: window.t("sdk.modePlayHint", "Real NADO on the execution layer."), cards: ["activeGame", "lobby", "play", "scoreboard"] },
+    { key: "practice", icon: "🤖", label: window.t("sdk.modePractice", "Practice"),
+      badge: window.t("sdk.free", "free"),
+      hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),
+      cards: ["practice"] },
+  ],
+});
+// mode gating layers OVER the game's own render, which gates cards by sign-in/table state
+const _render0 = render;
+render = function () { _render0.apply(this, arguments); modes.apply(); };
+modes.apply();
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); }
   render(); refreshActive();

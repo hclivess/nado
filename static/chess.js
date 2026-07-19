@@ -3,7 +3,7 @@
 // full legality run in your browser; every move is recorded ON-CHAIN (a trustless, ordered game log with a move
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards, resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify, confirmingLabel, lsLoad, lsSave } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards, resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify, confirmingLabel, lsLoad, lsSave , installModes } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
@@ -265,7 +265,7 @@ function resultCode() {   // 1=white wins, 2=black wins, 3=draw ; null if not ov
   if (engine.isCheckmate()) return engine.turn() === "w" ? 2 : 1;   // side to move is mated -> other side wins
   return 3;   // stalemate / draw
 }
-function render() {
+var render = function render() {
   dapp.reflectUrl("game", activeGame);   // address bar = the shareable link to the selected game
   dapp.syncPctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, dapp.exec);
   const signedIn = renderWallet(dapp);
@@ -396,6 +396,24 @@ dapp.onReturn((pend, ok, err) => {
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("chess.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); orderCards(["activeGame","lobby","play","practice","walletcard","bankroll"]);
+
+// ONE mode picker, from the SDK — the same control in every game. Practice used to be a card parked
+// below the staked game with no way to switch to it; now it is a mode you choose, and ?mode=practice
+// links straight to it.
+const modes = installModes(dapp, {
+  modes: [
+    { key: "play", icon: "♟", label: window.t("sdk.modePlay", "Play for stakes"),
+      hint: window.t("sdk.modePlayHint", "Real NADO on the execution layer."), cards: ["activeGame", "lobby", "play"] },
+    { key: "practice", icon: "🤖", label: window.t("sdk.modePractice", "Practice"),
+      badge: window.t("sdk.free", "free"),
+      hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),
+      cards: ["practice"] },
+  ],
+});
+// mode gating layers OVER the game's own render, which gates cards by sign-in/table state
+const _render0 = render;
+render = function () { _render0.apply(this, arguments); modes.apply(); };
+modes.apply();
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (activeGame == null) { activeGame = parseInt(q, 10); haveState = false; } }
   if (q && !dapp.me) { const sto = await dapp.storage({ append: ["wr", "mv", "mc", "p2", "nn"] }); const gm = sto ? gameFrom(sto, parseInt(q,10)) : null;

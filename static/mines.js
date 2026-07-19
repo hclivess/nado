@@ -5,7 +5,7 @@
 // two FUTURE L1 block hashes when you pick, and draw_i = HASH(bh(gh)+bh(gh+1)+seat·100 + picks+i) mod
 // tilesLeft is a mine iff < N. Resolve is permissionless; reap() frees abandoned seats. See
 // tests/test_mines_contract.py — the contract enforces exactly this math.
-import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
@@ -223,7 +223,7 @@ function tileStates(s) {
   for (const i of sel) if (!st[i]) st[i] = "sel";
   return st;
 }
-function render() {
+var render = function render() {
   dapp.reflectUrl("table", bg.active);
   dapp.syncPctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, dapp.exec);
   dapp.syncPctSlider("fund", { slider: "fundSlider", input: "fundAmt" }, dapp.exec);
@@ -368,6 +368,24 @@ async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("mines.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
   orderCards(["activeGame", "lobby", "play", "practice", "bankcard", "walletcard", "bankroll", "scoreboard"]);
+
+// ONE mode picker, from the SDK — the same control in every game. Practice used to be a card parked
+// below the staked game with no way to switch to it; now it is a mode you choose, and ?mode=practice
+// links straight to it.
+const modes = installModes(dapp, {
+  modes: [
+    { key: "play", icon: "💣", label: window.t("sdk.modePlay", "Play for stakes"),
+      hint: window.t("sdk.modePlayHint", "Real NADO on the execution layer."), cards: ["activeGame", "lobby", "play", "bankcard", "scoreboard"] },
+    { key: "practice", icon: "🤖", label: window.t("sdk.modePractice", "Practice"),
+      badge: window.t("sdk.free", "free"),
+      hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),
+      cards: ["practice"] },
+  ],
+});
+// mode gating layers OVER the game's own render, which gates cards by sign-in/table state
+const _render0 = render;
+render = function () { _render0.apply(this, arguments); modes.apply(); };
+modes.apply();
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (bg.active == null) bg.active = parseInt(q, 10); }
   render(); refreshAll();

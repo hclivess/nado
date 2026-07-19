@@ -3,7 +3,7 @@
 // roll FARKLES your turn. No autoplay. Each roll's randomness is pinned to a FUTURE block hash nobody can
 // predict, so the dice are objective and unriggable. Highest banked score when the table's play window ends
 // takes the whole pot. Built on the shared SDK (nadodapp.js) — matches tests/test_farkle_contract.py exactly.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp , installModes } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { Practice } from "./practice.js";      // free in-browser practice (solo score-attack, no chain)
 
@@ -259,7 +259,7 @@ function wireUI() {
   $("btnReclaim").onclick = reclaimTable;
   $("btnCancel").onclick = cancelTable;
 }
-function render() {
+var render = function render() {
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, opencard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
   bg.recent($("recent"), selectTable, (x) => {
@@ -376,6 +376,24 @@ dapp.onReturn((pend, ok, err) => {
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("farkle.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR(); orderCards(["activeGame", "lobby", "play", "practice", "opencard", "walletcard", "bankroll", "scoreboard"]);
+
+// ONE mode picker, from the SDK — the same control in every game. Practice used to be a card parked
+// below the staked game with no way to switch to it; now it is a mode you choose, and ?mode=practice
+// links straight to it.
+const modes = installModes(dapp, {
+  modes: [
+    { key: "play", icon: "🎲", label: window.t("sdk.modePlay", "Play for stakes"),
+      hint: window.t("sdk.modePlayHint", "Real NADO on the execution layer."), cards: ["activeGame", "lobby", "play", "opencard", "scoreboard"] },
+    { key: "practice", icon: "🤖", label: window.t("sdk.modePractice", "Practice"),
+      badge: window.t("sdk.free", "free"),
+      hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),
+      cards: ["practice"] },
+  ],
+});
+// mode gating layers OVER the game's own render, which gates cards by sign-in/table state
+const _render0 = render;
+render = function () { _render0.apply(this, arguments); modes.apply(); };
+modes.apply();
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
   render(); refreshActive();

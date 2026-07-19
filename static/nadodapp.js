@@ -486,6 +486,58 @@ export function modeBar(el, modes, active, onChange) {
 }
 
 /**
+ * installModes(dapp, o) — the WHOLE mode surface for a game in one call: the picker, which cards each
+ * mode owns, the remembered choice, and ?mode= deep links.
+ *
+ * Every game had been doing this by hand (or not at all): a "practice" card parked below the staked one
+ * with no way to switch, different tab markup per game, and no way to link someone straight to the free
+ * mode. o.modes lists the modes with the card ids each one OWNS; a card no mode claims is always visible
+ * (wallet, help, and so on), so a game only has to name the cards that actually differ.
+ *
+ * o: { slug?, modes: [{ key, icon?, label, badge?, hint?, cards: [elementId] }], onChange?(key) }
+ * Returns { get(), set(key), apply() }. Call apply() at the end of your render so mode gating lands on
+ * top of whatever the game just gated.
+ */
+export function installModes(dapp, o) {
+  const slug = o.slug || String(dapp && dapp.app || "game").replace(/\W+/g, "").toLowerCase();
+  const LS = "nado_" + slug + "_mode";
+  const modes = (o.modes || []).filter(Boolean);
+  const keys = modes.map((m) => m.key);
+  let cur = (() => {
+    try {
+      const q = new URLSearchParams(location.search).get("mode");
+      if (keys.includes(q)) return q;
+      const v = localStorage.getItem(LS);
+      return keys.includes(v) ? v : keys[0];
+    } catch (e) { return keys[0]; }
+  })();
+  // The container lives directly under #status. It is re-seated on every apply() because games call
+  // orderCards() after boot, which lifts the cards above anything already sitting there — without this
+  // the picker silently sinks below the cards it switches between.
+  function host() {
+    let e = document.getElementById("modeBar");
+    if (!e) { e = document.createElement("div"); e.id = "modeBar"; }
+    const ref = document.getElementById("status");
+    if (ref && ref.parentNode && ref.nextSibling !== e) ref.parentNode.insertBefore(e, ref.nextSibling);
+    else if (!e.parentNode) document.body.insertBefore(e, document.body.firstChild);
+    return e;
+  }
+  const owned = new Set();
+  modes.forEach((m) => (m.cards || []).forEach((c) => owned.add(c)));
+  function apply() {
+    const pick = (k) => { cur = k; try { localStorage.setItem(LS, k); } catch (e) {} apply(); if (o.onChange) o.onChange(k); };
+    modeBar(host(), modes, cur, pick);
+    const g = {};
+    owned.forEach((c) => { g[c] = false; });
+    const m = modes.find((x) => x.key === cur);
+    (m && m.cards || []).forEach((c) => { g[c] = true; });
+    gate(g);
+  }
+  return { get: () => cur, set: (k) => { if (keys.includes(k)) { cur = k; apply(); o.onChange && o.onChange(k); } }, apply };
+}
+
+
+/**
  * dailyFrame(dapp, o) — the shared Daily Challenge frame. The game passes its own play area as `body`
  * (an HTML string) and wires it in `wire`; everything else is identical across games so it lives here.
  *
