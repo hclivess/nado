@@ -9,6 +9,13 @@ from ops.peer_ops import (
 )
 from ops.pool_ops import get_from_pool
 
+# A tip we FAIL to obtain is benched, doubling each failure up to TIP_BENCH_MAX_S. The first bench is short
+# so an ordinary transient fetch failure barely delays a REAL heavier tip; the cap is what stops an
+# unreachable chain from owning the donor pool forever.
+TIP_BENCH_BASE_S = 12
+TIP_BENCH_MAX_S = 600
+TIP_BENCH_FORGET_S = 1800
+
 
 def get_pool_majority(pool):
     """Plurality hash of a fully-populated peer pool, or None while the pool is empty or ANY entry
@@ -73,10 +80,28 @@ class ConsensusClient(threading.Thread):
         # REAL heavier tip is retried.
         self.rejected_tips = set()
         self._reject_clear_counter = 0
+        # BACKOFF state for benched tips. A tip we repeatedly fail to obtain is one nothing can serve; the
+        # flat ~12s bench meant the node spent every window chasing it and never synced the best chain it
+        # COULD reach. Observed live: a single-node fork stayed heaviest while a four-node chain was kept
+        # out of the donor pool for being lighter, so the node sat still for hours.
+        self._tip_strikes = {}      # tip hash -> consecutive failures to obtain it
+        self._tip_until = {}        # tip hash -> monotonic deadline while it stays benched
 
         self.transaction_hash_pool_percentage = 0
         self.upcoming_block_hash_pool_percentage = 0
         self.block_hash_pool_percentage = 0
+
+    def reject_tip(self, tip_hash):
+        """Bench an advertised-heavier tip we just failed to obtain, with exponential backoff. Repeated
+        failures mean nothing can serve that chain, so the node must stop spending every window on it and
+        get on with syncing the heaviest chain it can actually reach."""
+        if not tip_hash:
+            return
+        n = self._tip_strikes.get(tip_hash, 0) + 1
+        self._tip_strikes[tip_hash] = n
+        self._tip_until[tip_hash] = time.monotonic() + min(TIP_BENCH_BASE_S * (2 ** (n - 1)), TIP_BENCH_MAX_S)
+        self.rejected_tips.add(tip_hash)
+        return n
 
     def refresh_hashes(self):
         """make sure our node knows the current state of affairs quickly"""
@@ -146,10 +171,14 @@ class ConsensusClient(threading.Thread):
         # 12 passes (~12s ≈ 2 block times at 6s blocks), was 30: a single transient fetch failure
         # benched the REAL heavier tip for ~5 blocks — nearly half the finality-depth healing window
         # a forked node has to reorg back before its divergent prefix finalizes and wedges it.
-        self._reject_clear_counter += 1
-        if self._reject_clear_counter >= 12:
-            self.rejected_tips = set()
-            self._reject_clear_counter = 0
+        # Rebuild the bench from the per-tip deadlines. Doing it every pass (rather than clearing wholesale
+        # on a counter) also means a re-anchor cannot silently reset the backoff: a tip that has failed ten
+        # times stays benched across chain-identity changes, which is exactly when it used to come straight
+        # back and re-wedge us.
+        now_m = time.monotonic()
+        self.rejected_tips = {h for h, until in self._tip_until.items() if until > now_m}
+        for h in [h for h, until in self._tip_until.items() if until <= now_m - TIP_BENCH_FORGET_S]:
+            self._tip_until.pop(h, None); self._tip_strikes.pop(h, None)   # long gone: forget the strikes too
 
         weight_pool = {}
         for peer, status in self.status_pool.copy().items():

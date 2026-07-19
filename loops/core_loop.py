@@ -830,7 +830,9 @@ class CoreClient(threading.Thread):
             # our chain identity changed under us: drop stale fork-choice exclusions and the rollback burst
             # counter so the fresh tail sync starts clean.
             self._reanchor_failures = 0
-            self.consensus.rejected_tips = set()
+            # NOTE: rejected_tips is NOT cleared here any more. It is rebuilt from per-tip deadlines every
+            # consensus pass, so a chain we have repeatedly failed to obtain stays benched across a
+            # chain-identity change — previously the wipe handed the donor pool straight back to it.
             self.memserver.rollbacks = 0
             return True
         self._reanchor_failures += 1
@@ -1027,8 +1029,9 @@ class CoreClient(threading.Thread):
         transiently-unreachable REAL heavier tip is retried later."""
         hh = self.consensus.heaviest_block_hash
         if hh and hh != self.memserver.latest_block["block_hash"]:
-            self.consensus.rejected_tips.add(hh)
-            self.logger.warning(f"Excluding unreachable heavier-advertised tip {hh[:12]} (weight-DoS guard)")
+            n = self.consensus.reject_tip(hh)      # exponential backoff: see consensus_loop.reject_tip
+            self.logger.warning(f"Excluding unreachable heavier-advertised tip {hh[:12]} "
+                                f"(weight-DoS guard, failure #{n})")
         # the donor that fed us this tip just failed — drop it from the donor cache so the next
         # get_peer_to_sync_from pass re-scans instead of re-serving it (sorted_hashes does not
         # consult rejected_tips, so the cache key alone would not miss).
