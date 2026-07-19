@@ -4029,6 +4029,13 @@ function _verShort(st) {
 async function renderNodes() {
   const box = $("nodesTable"), sub = $("nodesSub");
   if (!box) return;
+  // the layout below is chosen from the viewport width, so a rotate/resize has to repaint it once
+  if (!renderNodes._mq && typeof window !== "undefined" && window.matchMedia) {
+    renderNodes._mq = window.matchMedia("(max-width: 620px)");
+    const on = () => renderNodes().catch(() => {});
+    if (renderNodes._mq.addEventListener) renderNodes._mq.addEventListener("change", on);
+    else if (renderNodes._mq.addListener) renderNodes._mq.addListener(on);
+  }
   let pool = {}, self = null;
   try { const d = await (await fetch(relayBase() + "/status_pool", { cache: "no-store" })).json(); pool = d.status_pool || d || {}; } catch {}
   try { self = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json(); } catch {}
@@ -4056,6 +4063,12 @@ async function renderNodes() {
   // — which is exactly when you need to see them, and they are already coloured red in that case.
   const showOdd = !!self && rows.some(([, st]) => st.protocol !== self.protocol || (st.chain_id || "?") !== self.chain_id);
   let onLatest = 0;
+  // PHONE LAYOUT: eight nowrap columns cannot fit ~360px, and the two ways a table can respond to that are
+  // both bad — a horizontal scrollbar (stats hidden off-screen behind a swipe) or letting it overflow the
+  // card. So below NARROW_PX the same data is rendered as one stacked block per node instead: identity +
+  // action on top, the numbers as a second wrapping line. Nothing is dropped, nothing scrolls sideways.
+  const narrow = typeof window !== "undefined" && window.matchMedia
+    && window.matchMedia("(max-width: 620px)").matches;
   const body = rows.map(([label, st, isSelf]) => {
     const commit = st.running_commit || null;
     // behind = we have a reference AND we know what this node runs AND they differ. Unknown stays unknown.
@@ -4073,20 +4086,42 @@ async function renderNodes() {
       ? `<button class="node-upd" data-upd="${isSelf ? "" : encodeURIComponent(label)}" title="${i18("stats.ndUpdate", "Update")}" aria-label="${i18("stats.ndUpdate", "Update")}" style="padding:2px 7px;font-size:13px;line-height:1.2;border:1px solid var(--acc,#3aa0ff);border-radius:7px;background:transparent;cursor:pointer">⬆</button>`
       : known ? `<span class="faint" style="font-size:11px" title="${i18("stats.ndCurrent", "running the newest commit we know of")}">✓</span>`
               : `<span class="faint" style="font-size:11px" title="${i18("stats.ndUnknownTip", "This node does not report which commit it runs, or nobody here knows the newest one — so we cannot tell whether it is up to date.")}">—</span>`;
+    const height = `${st.finalized_height != null ? st.finalized_height : "?"}`;
+    const weight = `${st.latest_block_weight != null ? (st.latest_block_weight / 1e6).toFixed(2) + "M" : "?"}`;
+    const who = _ccFlag(label) + `<span class="mono" title="${label}">`
+      + (isSelf ? `<b>${_shortIp(label)}</b>` : _shortIp(label)) + "</span>";
+    const oddCells = showOdd
+      ? [[`p${st.protocol != null ? st.protocol : "?"}`, protoBad ? `color:${_CRED}` : ""],
+         [chain, chainBad ? `color:${_CRED}` : `color:${_CGRN}`]] : [];
+    if (narrow) {
+      // stat chips carry their own label, because without a header row "15988 · 5.41M · 2h" is unreadable
+      const chip = (k, v, extra) => `<span style="white-space:nowrap;${extra || ""}"><span class="faint">${k}</span> ${v}</span>`;
+      return `<div style="padding:6px 4px;border-bottom:1px solid var(--line,#1c2530)${isSelf ? ";background:rgba(58,160,255,.08)" : ""}">`
+        + `<div style="display:flex;align-items:center;gap:6px;font-size:12px">`
+        + `<span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${who}`
+        + ` <span class="faint">${_nodeType(st)}</span></span>`
+        + `<span style="flex:0 0 auto">${act}</span></div>`
+        + `<div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;margin-top:2px">`
+        + chip(i18("stats.ndVersion", "Version"), ver + (upd ? ` <span style="color:${_CGOLD}">⬆</span>` : ""))
+        + oddCells.map(([t, ex]) => chip("", t, ex)).join("")
+        + chip(i18("stats.ndHeight", "Height"), height)
+        + chip(i18("stats.ndWeight", "Weight"), weight)
+        + chip(i18("stats.ndUptime", "Uptime"), _uptime(st.reported_uptime))
+        + "</div></div>";
+    }
     return "<tr" + (isSelf ? ' style="background:rgba(58,160,255,.08)"' : "") + ">"
-      + td(_ccFlag(label) + `<span class="mono" title="${label}">`
-           + (isSelf ? `<b>${_shortIp(label)}</b>` : _shortIp(label)) + "</span>")
+      + td(who)
       + td(ver + (upd ? ` <span title="update available" style="color:${_CGOLD}">⬆</span>` : ""))
       + td(_nodeType(st))
-      + (showOdd ? td(`p${st.protocol != null ? st.protocol : "?"}`, protoBad ? `color:${_CRED}` : "")
-                 + td(chain, chainBad ? `color:${_CRED}` : `color:${_CGRN}`) : "")
-      + td(`${st.finalized_height != null ? st.finalized_height : "?"}`)
-      + td(`${st.latest_block_weight != null ? (st.latest_block_weight / 1e6).toFixed(2) + "M" : "?"}`)
+      + oddCells.map(([t, ex]) => td(t, ex)).join("")
+      + td(height)
+      + td(weight)
       + td(_uptime(st.reported_uptime))
       + td(act)
       + "</tr>";
   }).join("");
-  box.innerHTML = `<table style="width:100%;border-collapse:collapse;table-layout:auto">   <!-- no min-width: the table FITS the card; columns that carry no information are dropped instead -->
+  box.innerHTML = narrow ? body
+    : `<table style="width:100%;border-collapse:collapse;table-layout:auto">   <!-- no min-width: the table FITS the card; columns that carry no information are dropped instead -->
     <thead><tr style="border-bottom:1px solid var(--line,#1c2530)">
       ${th(i18("stats.ndNode", "Node"))}${th(i18("stats.ndVersion", "Version"))}${th(i18("stats.ndType", "Type"))}
       ${showOdd ? th(i18("stats.ndProto", "Proto")) + th(i18("stats.ndChain", "Chain")) : ""}

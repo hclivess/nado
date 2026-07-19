@@ -21,6 +21,7 @@ export const RAW = 10n ** 10n;                 // 1 NADO = 1e10 raw units
 const WALLET = "https://get.nadochain.com";
 const STICKY_GRACE_MS = 20000;   // how long a provisional state REGRESSION is treated as flicker (ignored) before it's accepted as a real reorg — see dapp.accept()
 const PEND_TTL_MS = 120000;      // how long a CLICKED action stays "pending" with no on-chain confirmation before its gate self-expires (a lost tx must re-enable retry — never brick a button); matches the proven pets hatch stamp
+const STALL_MS = 45000;          // exec cursor frozen this long = the chain isn't advancing (node catching up / partition), not "your tx is slow" — see chainStalled()
 // ---- address format (ONE constant — see the rebrand-proofing rule) --------------------------------
 // An address is ADDR_PREFIX + 42 hex of the pubkey + a 4-hex blake2b checksum over prefix+body.
 export const ADDR_PREFIX = "mldsa44";
@@ -1186,7 +1187,23 @@ export class NadoDapp {
       }
     }
   }
-  async _cursor() { try { const s = await (await fetch(base() + "/exec/root?ns=" + this.ns + "&provisional=1", { cache: "no-store" })).json(); this.cursor = s.cursor != null ? Number(s.cursor) : this.cursor; if (s.block_ts != null) this.now = Number(s.block_ts); } catch {} }
+  async _cursor() {
+    try {
+      const s = await (await fetch(base() + "/exec/root?ns=" + this.ns + "&provisional=1", { cache: "no-store" })).json();
+      const c = s.cursor != null ? Number(s.cursor) : this.cursor;
+      // STALL CLOCK: remember when the cursor last MOVED. A node that has fallen behind the network (or a
+      // partition that stopped producing) still answers every request perfectly — it just never advances —
+      // so "confirming on-chain (~1 min)…" would sit there forever while the truth is "no blocks are being
+      // made". Nothing a player submits can land until this moves, and saying so is the difference between
+      // "the game ate my egg" and "the chain is catching up". Only the FIRST observation seeds the clock.
+      if (this._cursorAt == null || c !== this.cursor) this._cursorAt = this._nowMs();
+      this.cursor = c;
+      if (s.block_ts != null) this.now = Number(s.block_ts);
+    } catch {}
+  }
+  // chainStalled(): ms the exec cursor has been frozen, or 0 while blocks are flowing. STALL_MS is ~7 block
+  // times, so ordinary jitter (a slow block, one missed poll) never trips it — only a real halt does.
+  chainStalled() { return this._cursorAt != null && this._nowMs() - this._cursorAt > STALL_MS ? this._nowMs() - this._cursorAt : 0; }
   // chainNow(): the L1 wall-clock the contracts see (the TIME opcode), in epoch seconds. Prefer the chain's
   // clock over the browser's so a skewed local clock can't misjudge a deadline; fall back to Date.now() until
   // the first root poll lands.
@@ -1258,6 +1275,11 @@ export class NadoDapp {
   whereIs(kind, id, openedTs) {
     if (this.online === null) return _t("whereLoading", "Loading {kind} #{id} from the chain…", { kind, id });
     if (this.online === false) return _t("whereOffline", "Can't reach the chain right now — reconnecting… your {kind} and funds are safe on-chain.", { kind });
+    // The node answers but produces nothing: no submission can land until blocks resume, so never blame the
+    // player's tx for it. Say what is actually happening and that waiting is the whole remedy.
+    const stalled = this.chainStalled();
+    if (stalled) return _t("whereStalled", "The chain isn't advancing right now (this node is catching up — {mins} min). Nothing is lost: your {kind} appears as soon as blocks resume.",
+                           { kind, mins: Math.max(1, Math.round(stalled / 60000)) });
     // We ALWAYS check the exec balance BEFORE submitting (canPay), so a "didn't confirm" is never a funds
     // problem — it's the network not landing it in time. Say that plainly and point to the retry; never ask
     // the user a question they can't answer, and never touch their money to find out.
