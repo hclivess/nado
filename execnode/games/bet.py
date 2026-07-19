@@ -44,6 +44,12 @@ MK, NO, LK, DL, DS, SO, EV, RS, DN, VD, TOT, MRC, MTH, MCR = 1, 2, 3, 4, 5, 6, 7
 PL_BASE, VC_BASE = 16, 24
 MLIST = 40
 TG_STK, TG_US, TG_CL, TG_VT, TG_RES = 101, 102, 103, 104, 105
+# --- FIXED-ODDS BOOK: a bookmaker beside the tote, so a punter gets a price instead of a pool share ---
+BK, BR, BS, BD = 15, 50, 51, 52         # bank digest · bankroll(UNITs) · stakes taken(UNITs) · swept
+OD_BASE = 32                             # 32..39: the bank's price per outcome, in PERCENT (100 = 1.00x)
+BP_BASE = 60                             # 60..67: per-outcome TOTAL committed payout (UNITs)
+TG_BSTK, TG_BPAY, TG_BCL = 106, 107, 108
+ODDS_CAP = 100_000                       # 1000x
 UNIT = 10_000                     # raw NADO per pool unit (stakes must be UNIT multiples)
 MAX_OUT = 8
 POT_CAP = 1 << 31                 # per-market pot cap in UNITs — keeps stake×pot < 2^62 (DIVMODW-sound)
@@ -159,10 +165,14 @@ RESOLVE = "\n".join(
     + _sl(MTH) + ["sload r5 r4", "mov r2 r3", "lt r2 r5", "notb r2"]                     # r2 = reached
     + [f"movi r4 {PL_BASE}", "add r4 r1", f"movi r5 {_2_32}", "mul r4 r5", "add r4 r0",
        "sload r6 r4", "nez r6"]                                                          # r6 = backed
-    # dn = reached·backed ; vd = reached·(1-backed) ; rs = dn·(i+1)
-    + ["mov r5 r2", "mul r5 r6"] + _sl(DN) + ["sstore r4 r5",
-       "mov r3 r5",                                                                      # r3 = dn
-       "mov r5 r6", "notb r5", "mul r5 r2"] + _sl(VD) + ["sstore r4 r5"]
+    # An unbacked winner makes the TOTE pot unpayable, so the market voids and every stake refunds. But
+    # that must not fire when there is no tote pot at all — a market can be traded purely on the BOOK,
+    # where the oracle's answer is perfectly payable. So the void term needs a pot to strand:
+    #   v  = (1 - backed) · (pot > 0)      vd = reached · v      dn = reached · (1 - v)      rs = dn · (i+1)
+    + _sl(TOT) + ["sload r3 r4", "nez r3"]                                               # r3 = pot exists
+    + ["mov r5 r6", "notb r5", "mul r5 r3"]                                              # r5 = v
+    + ["mov r3 r5", "mul r3 r2"] + _sl(VD) + ["sstore r4 r3"]                            # vd
+    + ["notb r5", "mul r5 r2"] + _sl(DN) + ["sstore r4 r5", "mov r3 r5"]                 # dn
     + ["mov r5 r1", "movi r6 1", "add r5 r6", "mul r5 r3"] + _sl(RS) + ["sstore r4 r5", "ret r0"])
 
 # void(m): a resolver anytime before resolution; ANYONE once the deadline passes. Refunds via claim().
@@ -221,7 +231,101 @@ CLAIMED_OF = "\n".join(_hash_slot("r3", TG_CL, "r0", "r1") + ["sload r3 r3", "re
 VOTE_OF = "\n".join(_hash_slot("r3", TG_VT, "r0", "r1") + ["sload r3 r3", "ret r3"])
 RESOLVER_OF = "\n".join(_hash_slot("r3", TG_RES, "r0", "r1") + ["sload r3 r3", "ret r3"])
 
-SRC = {"create_market": CREATE, "bet": BET, "resolve": RESOLVE, "void": VOID, "claim": CLAIM,
+# ---- FIXED-ODDS BOOK -------------------------------------------------------------------------------
+# The tote pays you a SHARE OF THE POOL, which nobody knows until betting closes — you find out what your
+# bet was worth after the fact. A book quotes a PRICE: you know exactly what you are owed the moment you
+# take it. Both markets sit on the same market id and the same oracle resolution; they differ only in who
+# is on the other side of your bet and whether your return is known in advance.
+#
+# The bank can lose. Solvency is enforced on every bet: an outcome's TOTAL committed payout must stay
+# covered by bankroll + all stakes taken. Only one outcome can win, so covering each separately covers
+# every result. Prices are on-chain and public, so a client can show them beside the tote for comparison.
+
+# book(m)[value]: post or top up the bankroll. First caller becomes the bank; only they may add.
+BOOK = "\n".join(
+    ["ctx r3 value", "movi r2 0", "lt r2 r3", "require r2",
+     f"movi r5 {UNIT}", "divmod r3 r5",
+     "mov r2 r7", "nez r2", "notb r2", "require r2",
+     "movi r2 0", "lt r2 r3", "require r2"]
+    + _mopen()
+    + ["ctx r6 caller"]
+    + _sl(BK) + ["sload r5 r4", "mov r2 r5", "nez r2", "notb r2", "jnz r2 @setbank",
+                 "eq r5 r6", "require r5", "jmp @addroll", "setbank:"]
+    + _sl(BK) + ["sstore r4 r6", "addroll:"]
+    + _sl(BR) + ["sload r5 r4", "add r5 r3", "sstore r4 r5", "ret r0"])
+
+# quote(m, outcome, odds): the bank's price for one outcome, in percent. Bank only, before the lock.
+QUOTE = "\n".join(
+    _mopen()
+    + ["ctx r6 caller"]
+    + _sl(BK) + ["sload r5 r4", "mov r3 r5", "nez r3", "require r3", "eq r5 r6", "require r5"]
+    + ["ctx r5 time"] + _sl(LK) + ["sload r6 r4", "lt r5 r6", "require r5"]        # TIME < lock
+    + ["mov r5 r1"] + _sl(NO) + ["sload r6 r4", "lt r5 r6", "require r5"]          # outcome in range
+    + ["movi r5 100", "lt r5 r2", "require r5",
+       f"movi r5 {ODDS_CAP}", "mov r3 r2", "lt r3 r5", "require r3"]
+    + [f"movi r4 {OD_BASE}", "add r4 r1", f"movi r5 {_2_32}", "mul r4 r5", "add r4 r0",
+       "sstore r4 r2", "ret r0"])
+
+# back(m, outcome)[stake]: take the price. Your payout is locked at the quote standing right now.
+BACK = "\n".join(
+    ["ctx r3 value", "movi r2 0", "lt r2 r3", "require r2",
+     f"movi r5 {UNIT}", "divmod r3 r5",
+     "mov r2 r7", "nez r2", "notb r2", "require r2",
+     "movi r2 0", "lt r2 r3", "require r2"]
+    + _mopen()
+    + ["ctx r5 time"] + _sl(LK) + ["sload r6 r4", "lt r5 r6", "require r5"]        # TIME < lock
+    + ["mov r5 r1"] + _sl(NO) + ["sload r6 r4", "lt r5 r6", "require r5"]
+    + [f"movi r4 {OD_BASE}", "add r4 r1", f"movi r5 {_2_32}", "mul r4 r5", "add r4 r0",
+       "sload r6 r4", "movi r5 100", "lt r5 r6", "require r5",                     # must be priced
+       "mov r2 r3", "mul r2 r6", "movi r5 100", "divmod r2 r5",                    # r2 = payout units
+       "movi r5 0", "lt r5 r2", "require r5"]
+    # SOLVENCY per bet: this outcome's total payout <= bankroll + every stake taken
+    + _sl(BS) + ["sload r5 r4", "add r5 r3", "sstore r4 r5"]
+    + [f"movi r4 {BP_BASE}", "add r4 r1", f"movi r6 {_2_32}", "mul r4 r6", "add r4 r0",
+       "sload r6 r4", "add r6 r2", "sstore r4 r6"]
+    + _sl(BR) + ["sload r4 r4", "add r4 r5", "movi r5 1", "add r4 r5", "lt r6 r4", "require r6"]
+    + ["ctx r5 caller", f"movi r4 {TG_BSTK}", "hash r6 <- r4 r0 r1 r5",
+       "sload r4 r6", "add r4 r3", "sstore r6 r4",
+       "ctx r5 caller", f"movi r4 {TG_BPAY}", "hash r6 <- r4 r0 r1 r5",
+       "sload r4 r6", "add r4 r2", "sstore r6 r4", "ret r0"])
+
+# bclaim(m): resolved -> the payout locked on the winning outcome; unresolved void -> stakes back.
+BCLAIM = "\n".join(
+    _sl(DN) + ["sload r5 r4"] + _sl(VD) + ["sload r6 r4", "add r5 r6", "nez r5", "require r5"]
+    + ["ctx r1 caller", f"movi r4 {TG_BCL}", "hash r2 <- r4 r0 r1",
+       "sload r5 r2", "nez r5", "notb r5", "require r5",
+       "movi r5 1", "sstore r2 r5"]
+    # Branch on whether the market RESOLVED, not on the void flag: a market can auto-void because the
+    # winning outcome had no TOTE backers while still having a real, oracle-agreed result. Refunding the
+    # book there would be a free option against the bank.
+    + _sl(DN) + ["sload r2 r4", "nez r2", "notb r2", "jnz r2 @bvoid"]
+    + _sl(RS) + ["sload r5 r4", "movi r6 1", "sub r5 r6"]                          # winning outcome
+    + ["ctx r6 caller", f"movi r4 {TG_BPAY}", "hash r2 <- r4 r0 r5 r6", "sload r3 r2", "jmp @bpay"]
+    + ["bvoid:", "movi r3 0"]
+    + [op for O in range(MAX_OUT) for op in
+       ["ctx r6 caller", f"movi r4 {TG_BSTK}", f"movi r5 {O}", "hash r2 <- r4 r0 r5 r6",
+        "sload r5 r2", "add r3 r5"]]
+    + ["bpay:", "movi r5 0", "lt r5 r3", "require r5",
+       f"movi r6 {UNIT}", "mul r3 r6", "ctx r1 caller", "pay r1 r3", "ret r3"])
+
+# bsweep(m): the bank takes back bankroll + every stake, minus what the winning outcome owes.
+BSWEEP = "\n".join(
+    _sl(DN) + ["sload r5 r4"] + _sl(VD) + ["sload r6 r4", "add r5 r6", "nez r5", "require r5"]
+    + ["ctx r6 caller"]
+    + _sl(BK) + ["sload r5 r4", "mov r3 r5", "nez r3", "require r3", "eq r5 r6", "require r5"]
+    + _sl(BD) + ["sload r5 r4", "nez r5", "notb r5", "require r5", "movi r5 1", "sstore r4 r5"]
+    + _sl(BR) + ["sload r3 r4"]
+    + _sl(DN) + ["sload r2 r4", "nez r2", "notb r2", "jnz r2 @bswvoid"]
+    + _sl(BS) + ["sload r5 r4", "add r3 r5"]
+    + _sl(RS) + ["sload r5 r4", "movi r6 1", "sub r5 r6"]
+    + [f"movi r4 {BP_BASE}", "add r4 r5", f"movi r6 {_2_32}", "mul r4 r6", "add r4 r0",
+       "sload r6 r4", "sub r3 r6"]
+    + ["bswvoid:", "movi r5 0", "lt r5 r3", "require r5",
+       f"movi r6 {UNIT}", "mul r3 r6", "ctx r1 caller", "pay r1 r3", "ret r3"])
+
+
+SRC = {"book": BOOK, "quote": QUOTE, "back": BACK, "bclaim": BCLAIM, "bsweep": BSWEEP,
+       "create_market": CREATE, "bet": BET, "resolve": RESOLVE, "void": VOID, "claim": CLAIM,
        "claimable_of": CLAIMABLE_OF, "stake_of": STAKE_OF, "total_of": TOTAL_OF,
        "claimed_of": CLAIMED_OF, "vote_of": VOTE_OF, "resolver_of": RESOLVER_OF}
 
@@ -232,6 +336,11 @@ ABI = {
     "resolve": {"args": ["marketId", "outcome"]},
     "void": {"args": ["marketId"]},
     "claim": {"args": ["marketId"]},
+    "book": {"args": ["marketId"], "value": True},
+    "quote": {"args": ["marketId", "outcome", "odds"]},
+    "back": {"args": ["marketId", "outcome"], "value": True},
+    "bclaim": {"args": ["marketId"]},
+    "bsweep": {"args": ["marketId"]},
     "claimable_of": {"args": ["marketId", "addr"]},
     "stake_of": {"args": ["marketId", "outcome", "addr"]},
     "total_of": {"args": ["marketId", "addr"]},
