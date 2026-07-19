@@ -555,6 +555,58 @@ def settlement_del(ns: str, cursor: int, validator: str, state_root: str):
     meta_del(_settle_unique_key(ns, validator, cursor))
 
 
+# --- per-block EXEC SUMMARY (prune-safe settle-with-proof binding) --------------------------------
+#
+# The settle-with-proof DA binding used to re-read every block BODY in the settled span to rebuild the
+# calls commitment. Bodies are node-local prunable AND are wiped wholesale by a snapshot re-anchor
+# (snapshot_ops.adopt_new_identity -> segment_store.reset), so the same tx validated differently across the
+# fleet -> consensus FORK. Since the checks are bare asserts in validate_transaction, the pruned node
+# REJECTED THE WHOLE BLOCK the archive node accepted.
+#
+# Fix: derive the facts ONCE, at incorporate time, when the body is present by definition, and persist them
+# as committed state. Pruning never touches the KV store, so the settle branch can then be a pure function
+# of state that every node provably has. Stored per BLOCK HEIGHT:
+#     {"inert": 0|1, "calls": {ns: [call_leaf, ...]}}
+# `calls` holds the ORDERED call leaves (not a running chain) so the settle branch folds them itself — the
+# span is bounded by the settled tip, folding is cheap, and there is no running-chain state to keep in sync
+# or to GC incorrectly. `inert` is calls_commit.block_records_inert (the records-frozen precondition).
+#
+# NOT part of any block hash preimage (construct_block commits no state root), so writing these cannot fork
+# block validity on its own — only READING them in the settle branch can, which is why the settle branch
+# must refuse any span it lacks a summary for rather than treating absence as "no calls".
+
+def _exec_summary_key(height: int) -> str:
+    """meta key of a block's exec summary."""
+    return f"execsum:{int(height)}"
+
+
+def exec_summary_put(height: int, inert: bool, calls_by_ns: dict):
+    """Persist block `height`'s exec summary. Called inside incorporate_block's atomic write txn, so it
+    commits with the block or not at all. `calls_by_ns` maps namespace -> ordered list of call leaves."""
+    doc = {"inert": 1 if inert else 0,
+           "calls": {str(ns): [int(x) for x in leaves] for ns, leaves in (calls_by_ns or {}).items() if leaves}}
+    def _do(txn):
+        txn.put(_exec_summary_key(height).encode(), _pack(doc), db=_dbs()["meta"])
+    _write(_do)
+
+
+def exec_summary_get(height: int):
+    """A block's exec summary dict, or None if this node has none for that height (pre-upgrade block,
+    below a snapshot anchor, or GC'd). The settle branch MUST treat None as 'refuse the span' — never as
+    'this block had no calls', which would let a prover settle a span whose calls it cannot see."""
+    def _do(txn):
+        raw = txn.get(_exec_summary_key(height).encode(), db=_dbs()["meta"])
+        return _unpack(raw) if raw is not None else None
+    return _read(_do)
+
+
+def exec_summary_del(height: int):
+    """Revert exec_summary_put exactly (rollback), and the GC path below the settled cursor."""
+    def _do(txn):
+        txn.delete(_exec_summary_key(height).encode(), db=_dbs()["meta"])
+    _write(_do)
+
+
 def _settle_proof_key(ns: str, cursor: int, state_root: str) -> str:
     """meta key of the on-chain VALIDITY-PROOF marker. A `settle`-with-proof tx whose recursion proof
     verified DETERMINISTICALLY at block-validation records (ns, cursor, state_root) as proven. This is the

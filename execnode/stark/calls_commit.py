@@ -58,6 +58,94 @@ def block_calls(block, ns="default"):
     return calls
 
 
+# --- RECORDS-INERTNESS (settle-with-proof binding, doc/rollups-and-settlement.md §6) ----------------
+#
+# A settle-with-proof covers only the KV half of the exec root; the composition in the L1 settle branch
+# pins the SAME rec_hex into both the pre and post root, i.e. it REQUIRES the RECORDS half to be unchanged
+# across the proven span. Nothing used to check that it SHOULD be. A span that really did move records
+# (a value>0 call, a bridge deposit, an emit, a shield) can still be proven with records FROZEN, settling a
+# root that silently omits those payouts — after which L1's settled pointer diverges permanently from what
+# every honest exec node computes, with no quorum to correct it (the proof path needs none).
+#
+# `block_records_inert` is the on-chain predicate that closes it. It is deliberately an ALLOWLIST: a block
+# is inert only if every transaction in it is something we have positively established cannot move RECORDS.
+# A new blob op or reserved recipient added later is therefore NON-inert by default -> the proof path
+# refuses the span -> it falls back to the bonded quorum. The denylist shape (enumerate what moves records)
+# is what rotted here twice: it fails OPEN when someone adds a tenth record type.
+#
+# Deliberately CONSERVATIVE in two ways, both erring toward rejection:
+#   * an exec-relevant L1 tx makes the block non-inert for EVERY namespace, not just the one it targets;
+#   * a non-safe blob op does the same, regardless of which namespace the blob names.
+# Both may refuse a span that was actually provable. Neither can ever accept one that was not.
+
+# L1 reserved recipients whose APPLY moves exec-layer RECORDS (execnode/execnode.py block tail:
+# credit_deposit / apply_shield / apply_field_shield / apply_xmsg / drop_claimed / drop_consumed_outbox).
+_RECORDS_MOVING_RECIPIENTS = frozenset({
+    "bridge", "bridge_withdraw", "dividend", "dividend_withdraw",
+    "shield", "unshield", "xmsg", "faucet", "treasury_execute",
+})
+
+# Blob ops that touch the KV half ONLY (execnode/state.py apply_blob). `call` is conditional on value==0 —
+# a value>0 call escrows sender->cid across two T_BRIDGE_BAL record positions BEFORE the VM even runs.
+# NOT here, because each moves RECORDS: emit (outbox), bridge_withdraw, collect_dividend, field_transfer,
+# shielded_transfer.
+_RECORDS_SAFE_BLOB_OPS = frozenset({"deploy", "lock", "upgrade", "transfer_contract", "call"})
+
+
+def block_records_inert(block):
+    """True iff NOTHING in `block` can move the exec layer's RECORDS half — the on-chain precondition for a
+    records-frozen settle-with-proof to be honest. Allowlist: every tx must be positively known-safe.
+
+    Namespace-independent by design (see the conservatism note above): the caller asks "is this block inert
+    for the whole exec layer", so one namespace's bridge deposit blocks a proof in another. That costs some
+    provable spans and buys the property that a records-moving tx can never be silently skipped.
+
+    Does NOT cover the presence-dividend accrual, which fires on an EPOCH boundary with no transaction at
+    all (execnode/execnode.py tail_loop). That is span-level, not block-level, and the settle branch asserts
+    it separately by refusing a span that crosses an epoch boundary."""
+    for tx in block.get("block_transactions", []) or []:
+        recipient = tx.get("recipient")
+        if recipient in _RECORDS_MOVING_RECIPIENTS:
+            return False
+        if recipient != "blob":
+            continue                                  # ordinary transfer / bond / register / … : no exec state
+        d = tx.get("data")
+        if not isinstance(d, dict):
+            return False                              # undecodable blob — cannot establish safety, so refuse
+        op = d.get("op")
+        if op not in _RECORDS_SAFE_BLOB_OPS:
+            return False
+        if op == "call" and int(d.get("value", 0) or 0) != 0:
+            return False                              # value escrow moves two bridge-balance records
+    return True
+
+
+def block_summary(block):
+    """(inert, {ns: [call_leaf, ...]}) for one block — everything the settle-with-proof binding needs from a
+    block BODY, derived ONCE at incorporate time so the consensus path never re-reads a prunable body.
+    Namespaces are discovered from the block's own call blobs, so a namespace with no calls simply has no
+    entry (and folds to an unchanged chain)."""
+    calls_by_ns = {}
+    for tx in block.get("block_transactions", []) or []:
+        if tx.get("recipient") != "blob":
+            continue
+        d = tx.get("data")
+        if not isinstance(d, dict) or d.get("op") != "call":
+            continue
+        calls_by_ns.setdefault(d.get("ns", "default"), [])
+    for ns in list(calls_by_ns):
+        calls_by_ns[ns] = [call_leaf(c) for c in block_calls(block, ns)]
+    return block_records_inert(block), calls_by_ns
+
+
+def fold_leaves(node, leaves):
+    """Extend a calls-commitment chain by `leaves` in order — the same fold da_calls_commitment does, but
+    over PERSISTED leaves instead of freshly-parsed block bodies."""
+    for lf in leaves:
+        node = alghash.merkle_node(node, int(lf))
+    return node
+
+
 def da_calls_commitment(blocks, ns="default"):
     """The calls-commitment L1 EXPECTS for a settlement over `blocks` (ascending) in namespace `ns`: fold the
     per-call leaves of every block's blob calls, in block-then-tx order, from IV. A settle-with-proof over that
@@ -97,6 +185,52 @@ def verify_calls_bound_to_da(proof, ns, prev_cursor, cursor, get_block):
         lo = seg_end
     if lo != int(cursor):
         return False, f"segments do not cover the whole settled span (reached {lo}, expected {cursor})"
+    return True, "calls bound to DA"
+
+
+def verify_calls_bound_to_summaries(proof, ns, prev_cursor, cursor, get_summary, max_span):
+    """PRUNE-SAFE DA-BINDING GATE — the replacement for verify_calls_bound_to_da on the consensus path.
+
+    Identical statement (every segment's calls_commitment must equal L1's OWN fold over the real on-chain
+    calldata it claims to settle), but sourced from the per-block exec summaries persisted at incorporate
+    time (kv_ops.exec_summary_get) instead of from block BODIES. Bodies are prunable and are wiped wholesale
+    by a snapshot re-anchor, so reading them made this check fork the fleet; summaries live in the KV store,
+    which pruning never touches.
+
+    Also enforces the RECORDS-frozen precondition the settle composition silently assumes: every block in
+    the span must be records-inert, else a span that really moved records could be settled with records
+    frozen, permanently diverging L1's settled pointer from every honest exec node's state.
+
+    A MISSING summary is a hard refusal, never 'no calls' — otherwise a node that lacks the summary would
+    bind the span to an empty call list and accept a fabricated one. Returns (ok, reason)."""
+    segs = proof.get("segments") or []
+    if not segs:
+        return False, "no segments to bind"
+    lo, hi = int(prev_cursor), int(cursor)
+    if hi <= lo:
+        return False, f"settled span ({lo}, {hi}] is empty"
+    if hi - lo > int(max_span):
+        return False, f"settled span ({lo}, {hi}] exceeds the {int(max_span)}-block proof cap"
+    for j, seg in enumerate(segs):
+        cc = seg.get("calls_commitment")
+        if cc is None:
+            return False, f"segment {j} carries no calls_commitment (unbound to the DA calldata)"
+        seg_end = int(seg.get("cursor", hi))
+        if not (lo < seg_end <= hi):
+            return False, f"segment {j} cursor {seg_end} is outside the settled span ({lo}, {hi}]"
+        node = alghash.IV
+        for h in range(lo + 1, seg_end + 1):
+            summary = get_summary(h)
+            if summary is None:
+                return False, f"no exec summary for block {h} — cannot bind calls to DA"
+            if not int(summary.get("inert", 0)):
+                return False, f"block {h} moved exec RECORDS; a records-frozen proof cannot settle it"
+            node = fold_leaves(node, (summary.get("calls") or {}).get(ns, []))
+        if int(cc) % F.P != node % F.P:
+            return False, f"segment {j} calls_commitment does not match the on-chain DA calldata (fabricated calls)"
+        lo = seg_end
+    if lo != hi:
+        return False, f"segments do not cover the whole settled span (reached {lo}, expected {hi})"
     return True, "calls bound to DA"
 
 

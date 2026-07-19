@@ -939,13 +939,38 @@ def validate_transaction(transaction, logger, block_height):
                         "Settle proof BEACON does not match the finalized chain"
                 else:
                     raise AssertionError("unknown chain-read kind in settle proof")
-            # DA BINDING (calls_commit.verify_calls_bound_to_da) is NOT called here yet: it must read every block
-            # in the settled span via get_block_number, which returns falsy on a PRUNED node -> a settle-with-proof
-            # would validate differently on pruned vs archive nodes -> consensus fork. It is also not yet matched
-            # by the prover (per-call cursor/ts, in-proof skip/revert, records-half binding). Since the trustless
-            # justification is DISABLED (settlement_ops.settlement_justified) and no live prover posts proofs, the
-            # binding stays a validated primitive + spec (calls_commit + test_da_binding), wired in only once the
-            # prover side lands and the span is fenced to the retention window. Settlement rides the bonded quorum.
+            # DA BINDING — PRUNE-SAFE. The old check read every block BODY in the span via get_block_number,
+            # which returns False on a pruned node and the body on an archive node, so the same tx validated
+            # differently across the fleet -> consensus FORK (and because these are bare asserts, the pruned
+            # node rejected the WHOLE BLOCK its peers accepted). No depth fence can fix that: a snapshot
+            # re-anchor (snapshot_ops.adopt_new_identity -> segment_store.reset) wipes ALL bodies, blob-bearing
+            # included, and backfills only a best-effort ~265-block tail. So the binding now reads the per-block
+            # EXEC SUMMARIES persisted at incorporate time (kv_ops.exec_summary_get) — committed state, which
+            # pruning never touches — instead of bodies.
+            #
+            # FIRST SETTLEMENT MUST BE BY QUORUM. This is what makes the summary window bounded and therefore
+            # obtainable: a proof may only EXTEND an already-settled tip, so the span is always
+            # (settled_cursor, cursor] — recent and small — never "from block 0", which was guaranteed pruned
+            # and was the concrete case that broke the previous attempt.
+            assert tip_root is not None, "first settlement in a namespace must be by bonded quorum, not by proof"
+            # NO EPOCH BOUNDARY. The presence dividend accrues with NO transaction at all, in the exec node's
+            # tail loop, once per EPOCH_LENGTH blocks (execnode.tail_loop -> accrue_dividend_epoch), and it
+            # writes st.dividend — a RECORDS position. It is therefore invisible to any per-block body scan.
+            # A span that crosses an epoch boundary may carry that accrual, so a records-frozen proof must not
+            # settle it. Cursor arithmetic only — no body, no exec state.
+            assert (int(_tip_cursor) // _protocol.EPOCH_LENGTH) == (int(cursor) // _protocol.EPOCH_LENGTH), \
+                "settle-with-proof span crosses an epoch boundary (possible presence-dividend accrual)"
+            # NO PAYOUTS IN-PROOF. A PAY opcode moves bridge balances at the runtime boundary (state.py), i.e.
+            # RECORDS, while the proof pins records frozen. block_records_inert cannot see this — PAY is
+            # emitted by execution, not visible in the calldata — so it is caught here, on the proof's own io.
+            for _seg in (proof.get("segments") or []):
+                for _e in (_seg.get("io") or []):
+                    assert int(_e[0]) != _zkvm.IO_PAY, \
+                        "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
+            from execnode.stark import calls_commit as _CC
+            _ok, _why = _CC.verify_calls_bound_to_summaries(
+                proof, ns, _tip_cursor, cursor, kv_ops.exec_summary_get, _protocol.SETTLE_PROOF_MAX_SPAN)
+            assert _ok, f"Settle proof not bound to the on-chain calldata: {_why}"
     elif recipient == "bridge":
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
         assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
