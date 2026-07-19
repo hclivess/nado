@@ -19,9 +19,22 @@ def save_keys(keydict, file=f"{get_home()}/private/keys.dat"):
 
 
 def load_keys(file=f"{get_home()}/private/keys.dat"):
-    """{"private_key": "", "public_key": "", "address": ""}"""
+    """{"private_key": "", "public_key": "", "address": ""}
+
+    The address is ALWAYS re-derived from the public key under the CURRENT ADDRESS_PREFIX rather than
+    trusted from the file. A keyfile written before an address-format change (the alphanet-7 debrand:
+    ndo… → mldsa44…) caches the OLD string, and every consumer — the node's own mining identity in
+    /mining_status and the producer registries, contract deploys, operator scripts — would then act as
+    an address that owns nothing. make_address is deterministic, so this is a no-op for a current keyfile.
+    """
     with open(file, "r") as keyfile:
         keydict = json.load(keyfile)
+    try:
+        from ops.address_ops import make_address
+        if keydict.get("public_key"):
+            keydict["address"] = make_address(keydict["public_key"])
+    except Exception:
+        pass          # never make key loading fail on a derivation problem — fall back to the stored value
     return keydict
 
 
