@@ -59,6 +59,11 @@ def rollback_one_block(logger, block) -> dict:
         index_totals(produced=totals["produced"], fees=totals["fees"])
 
         unindex_transactions(block=block, logger=logger, block_height=block['block_number'])
+        # Mirror of incorporate_block's exec_summary_put — the summary is per-HEIGHT, and a reorg replaces
+        # the block at that height, so a stale summary would describe the orphaned body's calls. Dropping it
+        # here means the replacement block's own incorporate rewrites it (and a span over an un-summarised
+        # height is refused rather than mis-bound).
+        kv_ops.exec_summary_del(block["block_number"])
         unindex_block(block, logger=logger)
 
     set_latest_block_info(latest_block=previous_block, logger=logger)

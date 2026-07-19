@@ -410,6 +410,15 @@ HISTORY_RETENTION_BLOCKS = 100_800
 # of blocks regardless of how many identities exist -> a zero-capital Sybil/botnet is structurally
 # bounded to OPEN_BPS of production. See doc/mining.md and ops/mining_ops.py.
 EPOCH_LENGTH = 60                  # slots per epoch (also the beacon/RANDAO epoch)
+
+# Largest span (in exec cursors == L1 heights) one settle-with-proof may cover. Defined HERE, not with the
+# other SETTLE_* constants above, only because it derives from EPOCH_LENGTH — Python needs the definition
+# first. Bounds the work the DA binding does inside validate_transaction: a settle tx is cheap to make and
+# the binding folds one stored exec summary per block in the span, so an unbounded span is a free
+# validation-cost amplifier on every node. Also keeps the required summary window small enough that a
+# snapshot-synced node reliably has it. A settler posts every SETTLE_EVERY (5) blocks, so 4 epochs is
+# generous headroom for a lagging settler; a genuinely larger gap rides the bonded quorum instead.
+SETTLE_PROOF_MAX_SPAN = 4 * EPOCH_LENGTH
 OPEN_BPS = 3000                    # SECURITY DIAL: open-lane share of slots (30.00%); Sybil ceiling.
                                    # Bonded keeps the 70% majority — above the 2/3 settlement/finality quorum,
                                    # so fork-choice + finality stay stake-controlled. MUST stay <= 3333 (33.3%)
