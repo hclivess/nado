@@ -32,7 +32,9 @@ multiples) so stake×pot stays inside the DIVMODW soundness window; a race's pot
 positions live in alghash-keyed slots the frontend reads via /exec/view (claimable_of / stake_of / total_of).
 
 Race fields (key = race id): 1 ra(exists=1)  2 gh(gene height)  3 lk(bet-close height)  4 fh(finish height)
-  5 tot(pot, UNITs)  6 sd(settled)  7 wn(winner lane +1)  8 vd(void)
+  5 tot(pot, UNITs)  6 sd(settled)  7 wn(winner lane +1)  8 vd(void)  9 bc(distinct bettors)
+lk/fh are 0 until the SECOND distinct bettor bets — the countdown starts then, so a race can't run (and
+can't be won by default) with one player. See BET.
 Per-hamster boards (lane i < 6): pools 16+i, final distances 24+i, keyed by race. Index: slot 0 count, field 40 list.
 Hash slots: stk HASH(101,race,lane,addr) · us HASH(102,race,addr) · cl HASH(103,race,addr).
 Methods: open(race) · bet(race,lane)[stake] · settle(race) · claim(race) · void(race) ·
@@ -42,6 +44,7 @@ from execnode import zkvmasm
 from execnode.games import _lib
 
 RA, GH, LK, FH, TOT, SD, WN, VD = 1, 2, 3, 4, 5, 6, 7, 8
+BC = 9                                              # distinct bettors so far — the countdown starts at 2
 PL_BASE, DI_BASE = 16, 24
 RLIST = 40
 TG_STK, TG_US, TG_CL = 101, 102, 103
@@ -80,17 +83,15 @@ def _race_open():
             + _sl(VD) + ["sload r5 r4", "nez r5", "notb r5", "require r5"])
 
 
-# open(race): pin the gene/lock/finish heights off the current tip; permissionless, value-free.
+# open(race): pin the GENE height off the current tip; permissionless, value-free. lk/fh stay 0 — the
+# betting countdown is started by the second distinct bettor (BET), not by opening the race, so an empty
+# or one-player race never runs down a clock nobody is racing against.
 OPEN = "\n".join(
     ["movi r1 0", "lt r1 r0", "require r1",                              # race > 0
      f"movi r1 {_2_32}", "mov r2 r0", "lt r2 r1", "require r2"]         # race < 2^32
     + _sl(RA) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]      # fresh id
     # gh = cursor + GENE_DELAY
     + ["ctx r5 cursor", f"movi r6 {GENE_DELAY}", "add r5 r6"] + _sl(GH) + ["sstore r4 r5"]
-    # lk = gh + BET_BLOCKS
-    + [f"movi r6 {BET_BLOCKS}", "add r5 r6"] + _sl(LK) + ["sstore r4 r5"]
-    # fh = lk + RACE_LEN
-    + [f"movi r6 {RACE_LEN}", "add r5 r6"] + _sl(FH) + ["sstore r4 r5"]
     # mark live + append to the race index
     + _sl(RA) + ["movi r5 1", "sstore r4 r5"]
     + ["movi r4 0", "sload r5 r4", f"slot r6 {RLIST} r5", "sstore r6 r0",
@@ -103,9 +104,13 @@ BET = "\n".join(
      "mov r2 r7", "nez r2", "notb r2", "require r2",                    # stake % UNIT == 0
      "movi r2 0", "lt r2 r3", "require r2"]                             # units > 0
     + _race_open()
-    # genes locked (cursor >= gh) AND betting open (cursor < lk)
+    # genes locked (cursor >= gh)
     + ["ctx r5 cursor"] + _sl(GH) + ["sload r6 r4", "lt r5 r6", "notb r5", "require r5"]
-    + ["ctx r5 cursor"] + _sl(LK) + ["sload r6 r4", "lt r5 r6", "require r5"]
+    # betting open: while lk == 0 the countdown has not started (fewer than 2 bettors) and bets are always
+    # accepted; once it has started the usual cursor < lk window applies.
+    + _sl(LK) + ["sload r6 r4", "mov r2 r6", "nez r2", "notb r2", "jnz r2 @betopen",
+                 "ctx r5 cursor", "lt r5 r6", "require r5",
+                 "betopen:"]
     # lane in [0, NH)
     + ["mov r5 r1", f"movi r6 {NH}", "lt r5 r6", "require r5"]
     # pool[lane] += units   (slot = (PL_BASE+lane)*2^32 + race, lane is runtime -> MUL)
@@ -119,7 +124,19 @@ BET = "\n".join(
     + _hash_slot("r2", TG_STK, "r0", "r1", "r6")
     + ["sload r5 r2", "add r5 r3", "sstore r2 r5"]
     + _hash_slot("r2", TG_US, "r0", "r6")
-    + ["sload r5 r2", "add r5 r3", "sstore r2 r5", "ret r0"])
+    # us += units, but read the PRIOR total first: 0 means this caller is a NEW distinct bettor. (r1 held
+    # the lane and is free from here on.)
+    + ["sload r5 r2", "mov r1 r5", "nez r1", "notb r1",                 # r1 = (prior == 0) -> new bettor
+       "add r5 r3", "sstore r2 r5",
+       "jnz r1 @newbettor", "jmp @betdone", "newbettor:"]
+    # bc += 1; the SECOND distinct bettor starts the countdown: lk = cursor + BET_BLOCKS, fh = lk + RACE_LEN.
+    # Guarded on lk == 0 so a third/fourth bettor can never restart (and extend) a running clock.
+    + _sl(BC) + ["sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5",
+                 "movi r6 2", "lt r5 r6", "jnz r5 @betdone"]            # bc < 2 -> nothing to start yet
+    + _sl(LK) + ["sload r5 r4", "nez r5", "jnz r5 @betdone"]            # already running
+    + ["ctx r5 cursor", f"movi r6 {BET_BLOCKS}", "add r5 r6"] + _sl(LK) + ["sstore r4 r5"]
+    + [f"movi r6 {RACE_LEN}", "add r5 r6"] + _sl(FH) + ["sstore r4 r5"]
+    + ["betdone:", "ret r0"])
 
 
 def _settle():
@@ -127,7 +144,11 @@ def _settle():
     if the winner had no backers), record final distances. Fully unrolled over NH lanes × RACE_LEN blocks."""
     L = _race_open()
     # all race blocks must exist: cursor >= fh
-    L += ["ctx r5 cursor"] + _sl(FH) + ["sload r6 r4", "lt r5 r6", "notb r5", "require r5"]
+    # fh != 0 FIRST: an unstarted clock stores fh = 0, and "cursor >= 0" would otherwise settle a race that
+    # never ran. (r6 must survive the check, so the zero test goes through r2.)
+    L += (["ctx r5 cursor"] + _sl(FH)
+          + ["sload r6 r4", "mov r2 r6", "nez r2", "require r2",
+             "lt r5 r6", "notb r5", "require r5"])
     # Phase A — per lane h: speed from BLOCKHASH(gh), distance = Σ step over the race blocks -> DI[h]
     for h in range(NH):
         # speed_h -> r3
@@ -158,14 +179,20 @@ def _settle():
 
 SETTLE = "\n".join(_settle())
 
-# void(race): a safety refund path — anyone, once fh + VOID_AFTER passed and the race is still unsettled.
+# void(race): a safety refund path — anyone, once the race is stale and still unsettled.
 VOID_AFTER = 20000
+STALE_AFTER = 600        # a race that never drew a 2nd bettor: refundable ~1h after the gene lock
 VOID = "\n".join(
     _sl(RA) + ["sload r5 r4", "require r5"]
     + _sl(SD) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]
     + _sl(VD) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]
-    + ["ctx r5 cursor"] + _sl(FH) + ["sload r6 r4", f"movi r3 {VOID_AFTER}", "add r6 r3",
-                                     "lt r6 r5", "require r6"]        # cursor > fh + VOID_AFTER
+    # Two deadlines, because a race whose countdown never started has no finish height to count from. With
+    # the clock running: fh + VOID_AFTER. Never started (fh == 0): gh + STALE_AFTER — a lone bettor gets
+    # their stake back in about an hour instead of being stranded waiting for a second player forever.
+    + ["ctx r5 cursor"] + _sl(FH) + ["sload r6 r4", "mov r2 r6", "nez r2", "jnz r2 @fhset"]
+    + _sl(GH) + ["sload r6 r4", f"movi r3 {STALE_AFTER}", "add r6 r3", "jmp @voidchk"]
+    + ["fhset:", f"movi r3 {VOID_AFTER}", "add r6 r3"]
+    + ["voidchk:", "lt r6 r5", "require r6"]                          # cursor > deadline
     + _sl(VD) + ["movi r5 1", "sstore r4 r5", "ret r0"])
 
 
@@ -240,6 +267,7 @@ ABI = {
                  "lk": {"field": LK, "index": "races"}, "fh": {"field": FH, "index": "races"},
                  "tot": {"field": TOT, "index": "races"}, "sd": {"field": SD, "index": "races"},
                  "wn": {"field": WN, "index": "races"}, "vd": {"field": VD, "index": "races"},
+                 "bc": {"field": BC, "index": "races"},
                  # Daily Derby board: per-entry fields + the day anchor
                  "eday": {"field": E_DAY, "index": "entries"}, "eaddr": {"field": E_ADDR, "index": "entries"},
                  "escore": {"field": E_SCORE, "index": "entries"}, "en": {"field": E_N, "index": "entries"},

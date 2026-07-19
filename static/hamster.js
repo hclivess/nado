@@ -63,6 +63,7 @@ function standings(race) {
   const genes = []; for (let l = 0; l < NH; l++) genes.push(geneOf(race, l));
   if (genes.some((g) => !g)) return null;
   const rows = genes.map((g) => ({ ...g, dist: 0, blocks: 0 }));
+  if (!race.lk) return rows;    // countdown not started (< 2 backers): no race blocks exist yet, all at the gate
   for (let bi = 1; bi <= RACE_LEN; bi++) {
     const bh = race.lk + bi;
     if (dapp.cursor == null || dapp.cursor < bh) break;      // block not reached yet
@@ -88,10 +89,17 @@ function readRace(sto, id) {
   const pools = [], di = [];
   for (let l = 0; l < NH; l++) { pools.push(BigInt(_m(sto, "pl")[Number(id) * NH + l] || 0) * UNIT); di.push(Number(_m(sto, "di")[Number(id) * NH + l] || 0)); }
   const sd = !!_m(sto, "sd")[id], vd = !!_m(sto, "vd")[id], wn = Number(_m(sto, "wn")[id] || 0);
+  const bc = Number(_m(sto, "bc")[id] || 0);
   const cur = dapp.cursor;
-  const phase = sd ? "done" : (cur != null && cur >= fh) ? "settling"
-    : (cur != null && cur >= lk) ? "racing" : (cur != null && cur >= gh) ? "betting" : "incubating";
-  return { id: Number(id), exists: true, gh, lk, fh, tot, pools, di, sd, vd, wn, cur, phase };
+  // lk/fh are 0 until the SECOND distinct bettor starts the countdown, so "cursor >= lk" would otherwise
+  // read an unstarted race as already racing. That gap is its own phase: betting is open, the clock isn't.
+  const started = lk > 0;
+  const phase = sd ? "done"
+    : !started ? (cur != null && cur >= gh ? "waiting" : "incubating")
+    : (cur != null && cur >= fh) ? "settling"
+    : (cur != null && cur >= lk) ? "racing"
+    : (cur != null && cur >= gh) ? "betting" : "incubating";
+  return { id: Number(id), exists: true, gh, lk, fh, tot, pools, di, sd, vd, wn, bc, cur, phase, started };
 }
 const allRaces = (sto) => Object.keys(_m(sto, "ra")).map((id) => readRace(sto, id)).filter((r) => r.exists);
 // live tote odds for a lane: whole pot ÷ that lane's pool (what a winning unit pays back).
@@ -118,7 +126,7 @@ function openRace() {
 }
 function placeBet(lane) {
   const r = lastRace; if (!r || !r.exists) return;
-  if (r.phase !== "betting") return notify(window.t("hamster.notOpen", "Betting isn't open on this race right now."));
+  if (r.phase !== "betting" && r.phase !== "waiting") return notify(window.t("hamster.notOpen", "Betting isn't open on this race right now."));
   if (dapp.busy("bet", "race", r.id)) return notify(confirmingLabel());
   const stake = nadoToRaw($("stakeAmt").value);
   if (!stake) return alertBar(window.t("hamster.enterStake", "Enter a stake in NADO."));
@@ -152,7 +160,9 @@ async function refreshAll() {
       const want = [];
       if (lastRace.exists) {
         if (dapp.cursor != null && dapp.cursor >= lastRace.gh) want.push(lastRace.gh);
-        for (let bi = 1; bi <= RACE_LEN; bi++) { const b = lastRace.lk + bi; if (dapp.cursor != null && dapp.cursor >= b) want.push(b); }
+        // only once the countdown has started — with lk == 0 these would be heights 1..RACE_LEN, real blocks
+        // that have nothing to do with this race
+        if (lastRace.lk) for (let bi = 1; bi <= RACE_LEN; bi++) { const b = lastRace.lk + bi; if (dapp.cursor != null && dapp.cursor >= b) want.push(b); }
       }
       // PUBLIC, contract-re-validated randomness -> fast (provisional) is safe (a reorg just re-runs settle).
       if (want.length) await dapp.blockHashes(want, { fast: true });
@@ -260,7 +270,11 @@ function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
   const races = allRaces(sto).filter((r) => !r.sd && !r.vd).sort((a, b) => b.id - a.id).slice(0, 24);
   el.innerHTML = races.length ? races.map((r) => {
-    const tag = r.phase === "betting" ? window.t("hamster.lobBet", "🟢 betting") : r.phase === "racing" ? window.t("hamster.lobRun", "🏁 racing") : r.phase === "incubating" ? window.t("hamster.lobWarm", "🥚 warming up") : window.t("hamster.lobSettle", "📸 finishing");
+    const tag = r.phase === "betting" ? window.t("hamster.lobBet", "🟢 betting")
+      : r.phase === "waiting" ? window.t("hamster.lobWait", "⏳ needs a 2nd backer")
+      : r.phase === "racing" ? window.t("hamster.lobRun", "🏁 racing")
+      : r.phase === "incubating" ? window.t("hamster.lobWarm", "🥚 warming up")
+      : window.t("hamster.lobSettle", "📸 finishing");
     return '<button class="chip betting" data-r="' + r.id + '">🐹 #' + r.id + " · " + tag + (r.tot > 0n ? " · " + rawToNado(r.tot) + " NADO" : "") + "</button>";
   }).join(" ") : '<span class="dim">' + window.t("hamster.noRaces", "No races yet — start one below and let the tote fill up.") + "</span>";
   if (!el._deleg) { el._deleg = true; el.addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (b) { active = parseInt(b.dataset.r, 10); myCache = {}; refreshAll(); try { $("activeRace").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} } }); }
@@ -317,6 +331,9 @@ function render() {
   const toTime = (blocks) => blocksToTime(Math.max(0, blocks));
   let state;
   if (r.phase === "incubating") state = window.t("hamster.stWarm", "🥚 Warming up — genes lock at block {b} (~{t})", { b: r.gh, t: toTime(r.gh - (r.cur || r.gh)) });
+  else if (r.phase === "waiting") state = r.bc >= 1
+    ? window.t("hamster.stWaitOne", "⏳ One backer in — the {n}-block countdown starts the moment a SECOND player backs a hamster. Bet now to start the race.", { n: BET_BLOCKS })
+    : window.t("hamster.stWaitNone", "⏳ Open for bets — the countdown starts once TWO different players have backed a hamster. Be the first!");
   else if (r.phase === "betting") state = window.t("hamster.stBet", "🟢 Betting OPEN — closes at block {b} (~{t}). Read the form, then back a hamster!", { b: r.lk, t: toTime(r.lk - (r.cur || r.lk)) });
   else if (r.phase === "racing") { const lap = rows ? Math.max(0, ...rows.map((x) => x.blocks)) : 0; state = window.t("hamster.stRun", "🏁 And they're off — lap {k}/{n}! Each block nudges every hamster by its own step. Finish in ~{t}.", { k: lap, n: RACE_LEN, t: toTime(r.fh - (r.cur || r.fh)) }); }
   else if (r.phase === "settling") state = window.t("hamster.stPhoto", "📸 Photo finish — settling the result on-chain…");
@@ -342,7 +359,7 @@ function render() {
 
   // the bet panel: one row per hamster with tote odds + a Back button (only in the betting phase)
   const bp = $("betPanel");
-  if (r.phase === "betting" && rows) {
+  if ((r.phase === "betting" || r.phase === "waiting") && rows) {
     dapp.syncPctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, dapp.exec);
     const busy = dapp.busy("bet", "race", r.id);
     bp.innerHTML = '<div class="small dim" style="margin-bottom:8px">' + window.t("hamster.toteHint", "Odds are the live tote — whole pot ÷ a lane's pool. They shift as bets come in. Speed is the hamster's form (higher = faster on average).") + "</div>"

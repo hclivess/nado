@@ -94,7 +94,10 @@
   "hamster.watchRun": "Betting closed — watch them run!",
   "hamster.whatBet": "This bet",
   "hamster.wonN": "won {n}",
-  "hamster.yours": "yours"
+  "hamster.yours": "yours",
+  "hamster.lobWait": "⏳ needs a 2nd backer",
+  "hamster.stWaitOne": "⏳ One backer in — the {n}-block countdown starts the moment a SECOND player backs a hamster. Bet now to start the race.",
+  "hamster.stWaitNone": "⏳ Open for bets — the countdown starts once TWO different players have backed a hamster. Be the first!"
  },
  "cs": {
   "hamster.title": "NADO Hamster Racing — prokazatelně férové parimutuel závody",
@@ -191,7 +194,10 @@
   "hamster.watchRun": "Sázení uzavřeno — sledujte, jak běží!",
   "hamster.whatBet": "Tato sázka",
   "hamster.wonN": "výhra {n}",
-  "hamster.yours": "vaše"
+  "hamster.yours": "vaše",
+  "hamster.lobWait": "⏳ chybí 2. sázející",
+  "hamster.stWaitOne": "⏳ Jeden sázející je tu — odpočet {n} bloků se spustí, jakmile na křečka vsadí DRUHÝ hráč. Vsaď si a rozjeď závod.",
+  "hamster.stWaitNone": "⏳ Sázky otevřeny — odpočet začne, až si na křečka vsadí DVA různí hráči. Buď první!"
  },
  "es": {
   "hamster.title": "NADO Hamster Racing — carreras parimutuel demostrablemente justas",
@@ -288,7 +294,10 @@
   "hamster.watchRun": "Apuestas cerradas — ¡míralos correr!",
   "hamster.whatBet": "Esta apuesta",
   "hamster.wonN": "ganó {n}",
-  "hamster.yours": "tuyo"
+  "hamster.yours": "tuyo",
+  "hamster.lobWait": "⏳ falta un 2º apostador",
+  "hamster.stWaitOne": "⏳ Ya hay un apostador — la cuenta atrás de {n} bloques empieza en cuanto un SEGUNDO jugador apueste por un hámster. Apuesta y arranca la carrera.",
+  "hamster.stWaitNone": "⏳ Apuestas abiertas — la cuenta atrás empieza cuando DOS jugadores distintos hayan apostado. ¡Sé el primero!"
  },
  "pt": {
   "hamster.title": "NADO Hamster Racing — corridas parimutuel comprovadamente justas",
@@ -385,7 +394,10 @@
   "hamster.watchRun": "Apostas fechadas — veja-os correr!",
   "hamster.whatBet": "Esta aposta",
   "hamster.wonN": "ganhou {n}",
-  "hamster.yours": "seu"
+  "hamster.yours": "seu",
+  "hamster.lobWait": "⏳ falta um 2º apostador",
+  "hamster.stWaitOne": "⏳ Um apostador presente — a contagem de {n} blocos começa assim que um SEGUNDO jogador apostar num hamster. Aposta e começa a corrida.",
+  "hamster.stWaitNone": "⏳ Apostas abertas — a contagem começa quando DOIS jogadores diferentes tiverem apostado. Sê o primeiro!"
  },
  "fr": {
   "hamster.title": "NADO Hamster Racing — courses parimutuel à l'équité prouvable",
@@ -482,7 +494,10 @@
   "hamster.watchRun": "Paris clôturés — regardez-les courir !",
   "hamster.whatBet": "Ce pari",
   "hamster.wonN": "gagné {n}",
-  "hamster.yours": "le vôtre"
+  "hamster.yours": "le vôtre",
+  "hamster.lobWait": "⏳ il manque un 2e parieur",
+  "hamster.stWaitOne": "⏳ Un parieur présent — le compte à rebours de {n} blocs démarre dès qu'un SECOND joueur mise sur un hamster. Misez pour lancer la course.",
+  "hamster.stWaitNone": "⏳ Paris ouverts — le compte à rebours démarre quand DEUX joueurs différents ont misé. Soyez le premier !"
  },
  "de": {
   "hamster.title": "NADO Hamster Racing — beweisbar faire Parimutuel-Rennen",
@@ -579,7 +594,10 @@
   "hamster.watchRun": "Wetten geschlossen — schau ihnen beim Laufen zu!",
   "hamster.whatBet": "Diese Wette",
   "hamster.wonN": "gewann {n}",
-  "hamster.yours": "deiner"
+  "hamster.yours": "deiner",
+  "hamster.lobWait": "⏳ 2. Wetter fehlt",
+  "hamster.stWaitOne": "⏳ Ein Wetter ist dabei — der {n}-Block-Countdown startet, sobald ein ZWEITER Spieler auf einen Hamster setzt. Jetzt setzen und das Rennen starten.",
+  "hamster.stWaitNone": "⏳ Wetten offen — der Countdown startet, sobald ZWEI verschiedene Spieler gesetzt haben. Sei der Erste!"
  },
  "it": {
   "hamster.title": "NADO Hamster Racing — corse parimutuel dimostrabilmente eque",
@@ -676,7 +694,10 @@
   "hamster.watchRun": "Scommesse chiuse — guardali correre!",
   "hamster.whatBet": "Questa scommessa",
   "hamster.wonN": "vinto {n}",
-  "hamster.yours": "tua"
+  "hamster.yours": "tua",
+  "hamster.lobWait": "⏳ manca un 2° scommettitore",
+  "hamster.stWaitOne": "⏳ C'è un scommettitore — il conto alla rovescia di {n} blocchi parte appena un SECONDO giocatore punta su un criceto. Scommetti e avvia la corsa.",
+  "hamster.stWaitNone": "⏳ Scommesse aperte — il conto alla rovescia parte quando DUE giocatori diversi hanno puntato. Sii il primo!"
  },
  "ru": {
   "hamster.title": "NADO Hamster Racing — доказуемо честные тотализаторные гонки",
@@ -773,7 +794,10 @@
   "hamster.watchRun": "Ставки закрыты — смотрите, как они бегут!",
   "hamster.whatBet": "Эта ставка",
   "hamster.wonN": "выигрыш {n}",
-  "hamster.yours": "ваша"
+  "hamster.yours": "ваша",
+  "hamster.lobWait": "⏳ нужен 2-й игрок",
+  "hamster.stWaitOne": "⏳ Один игрок сделал ставку — отсчёт в {n} блоков начнётся, как только ВТОРОЙ игрок поставит на хомяка. Ставьте и запускайте забег.",
+  "hamster.stWaitNone": "⏳ Ставки открыты — отсчёт начнётся, когда поставят ДВА разных игрока. Будьте первым!"
  },
  "zh": {
   "hamster.title": "NADO Hamster Racing — 可证明公平的同注分彩赛跑",
@@ -870,7 +894,10 @@
   "hamster.watchRun": "下注已截止——看它们奔跑吧！",
   "hamster.whatBet": "本次下注",
   "hamster.wonN": "赢 {n}",
-  "hamster.yours": "你的"
+  "hamster.yours": "你的",
+  "hamster.lobWait": "⏳ 需要第二位下注者",
+  "hamster.stWaitOne": "⏳ 已有一位下注者 — 当第二位玩家押注仓鼠时，{n} 个区块的倒计时才开始。下注即可开跑。",
+  "hamster.stWaitNone": "⏳ 开放下注 — 需两位不同玩家下注后才开始倒计时。抢先下注吧！"
  },
  "ja": {
   "hamster.title": "NADO Hamster Racing — 証明可能に公正なパリミュチュエル・レース",
@@ -967,7 +994,10 @@
   "hamster.watchRun": "賭け締切——彼らの走りを見守ろう！",
   "hamster.whatBet": "このベット",
   "hamster.wonN": "{n} 獲得",
-  "hamster.yours": "あなた"
+  "hamster.yours": "あなた",
+  "hamster.lobWait": "⏳ 2人目待ち",
+  "hamster.stWaitOne": "⏳ 1人が賭けました — 2人目のプレイヤーがハムスターに賭けた時点で {n} ブロックのカウントダウンが始まります。賭けてレースを始めよう。",
+  "hamster.stWaitNone": "⏳ 賭け受付中 — 異なる2人が賭けるとカウントダウンが始まります。最初の1人になろう！"
  },
  "ko": {
   "hamster.title": "NADO Hamster Racing — 증명 가능하게 공정한 패리뮤추얼 레이스",
@@ -1064,7 +1094,10 @@
   "hamster.watchRun": "베팅 마감 — 달리는 모습을 지켜보세요!",
   "hamster.whatBet": "이번 베팅",
   "hamster.wonN": "{n} 획득",
-  "hamster.yours": "내 것"
+  "hamster.yours": "내 것",
+  "hamster.lobWait": "⏳ 두 번째 참가자 필요",
+  "hamster.stWaitOne": "⏳ 한 명이 베팅했습니다 — 두 번째 플레이어가 햄스터에 베팅하는 순간 {n}블록 카운트다운이 시작됩니다. 베팅해서 경주를 시작하세요.",
+  "hamster.stWaitNone": "⏳ 베팅 오픈 — 서로 다른 두 명이 베팅하면 카운트다운이 시작됩니다. 첫 주자가 되어보세요!"
  },
  "ar": {
   "hamster.title": "NADO Hamster Racing — سباقات باري ميتشل عادلة بشكل قابل للإثبات",
@@ -1161,7 +1194,10 @@
   "hamster.watchRun": "أُغلق الرهان — شاهدهم يركضون!",
   "hamster.whatBet": "هذا الرهان",
   "hamster.wonN": "ربح {n}",
-  "hamster.yours": "لك"
+  "hamster.yours": "لك",
+  "hamster.lobWait": "⏳ بحاجة إلى مراهن ثانٍ",
+  "hamster.stWaitOne": "⏳ مراهن واحد حاضر — يبدأ العد التنازلي ({n} كتلة) لحظة مراهنة لاعب ثانٍ على أحد الهامستر. راهن الآن لتبدأ السباق.",
+  "hamster.stWaitNone": "⏳ المراهنات مفتوحة — يبدأ العد التنازلي بعد مراهنة لاعبَين مختلفين. كن أول المراهنين!"
  },
  "hi": {
   "hamster.title": "NADO Hamster Racing — प्रमाणिक रूप से निष्पक्ष पैरिम्यूचुअल रेसिंग",
@@ -1258,7 +1294,10 @@
   "hamster.watchRun": "दांव बंद — उन्हें दौड़ते देखें!",
   "hamster.whatBet": "यह दांव",
   "hamster.wonN": "{n} जीते",
-  "hamster.yours": "आपका"
+  "hamster.yours": "आपका",
+  "hamster.lobWait": "⏳ दूसरे दांव की ज़रूरत",
+  "hamster.stWaitOne": "⏳ एक खिलाड़ी दांव लगा चुका — {n} ब्लॉक की उलटी गिनती तभी शुरू होगी जब दूसरा खिलाड़ी किसी हैम्स्टर पर दांव लगाएगा। दांव लगाकर रेस शुरू करें।",
+  "hamster.stWaitNone": "⏳ दांव खुले हैं — उलटी गिनती तब शुरू होगी जब दो अलग खिलाड़ी दांव लगा देंगे। पहले बनें!"
  },
  "tr": {
   "hamster.title": "NADO Hamster Racing — kanıtlanabilir adil müşterek bahis yarışları",
@@ -1355,7 +1394,10 @@
   "hamster.watchRun": "Bahis kapandı — koşularını izle!",
   "hamster.whatBet": "Bu bahis",
   "hamster.wonN": "{n} kazandı",
-  "hamster.yours": "senin"
+  "hamster.yours": "senin",
+  "hamster.lobWait": "⏳ 2. bahisçi gerek",
+  "hamster.stWaitOne": "⏳ Bir bahisçi var — {n} bloklu geri sayım, İKİNCİ bir oyuncu bir hamster'a oynadığı anda başlar. Bahis yap ve yarışı başlat.",
+  "hamster.stWaitNone": "⏳ Bahisler açık — geri sayım İKİ farklı oyuncu bahis yapınca başlar. İlk sen ol!"
  },
  "id": {
   "hamster.title": "NADO Hamster Racing — balapan parimutuel yang terbukti adil",
@@ -1452,7 +1494,10 @@
   "hamster.watchRun": "Taruhan ditutup — saksikan mereka berlari!",
   "hamster.whatBet": "Taruhan ini",
   "hamster.wonN": "menang {n}",
-  "hamster.yours": "milikmu"
+  "hamster.yours": "milikmu",
+  "hamster.lobWait": "⏳ butuh petaruh ke-2",
+  "hamster.stWaitOne": "⏳ Satu petaruh sudah masuk — hitung mundur {n} blok dimulai begitu pemain KEDUA memasang taruhan pada hamster. Pasang taruhan untuk memulai balapan.",
+  "hamster.stWaitNone": "⏳ Taruhan dibuka — hitung mundur dimulai setelah DUA pemain berbeda memasang taruhan. Jadilah yang pertama!"
  },
  "vi": {
   "hamster.title": "NADO Hamster Racing — đua ngựa cá cược tương hỗ công bằng có thể chứng minh",
@@ -1549,6 +1594,9 @@
   "hamster.watchRun": "Đã đóng cược — xem chúng chạy nào!",
   "hamster.whatBet": "Cược này",
   "hamster.wonN": "thắng {n}",
-  "hamster.yours": "của bạn"
+  "hamster.yours": "của bạn",
+  "hamster.lobWait": "⏳ cần người cược thứ 2",
+  "hamster.stWaitOne": "⏳ Đã có một người cược — đồng hồ đếm ngược {n} khối bắt đầu ngay khi người chơi THỨ HAI đặt cược cho một chú hamster. Đặt cược để khởi động cuộc đua.",
+  "hamster.stWaitNone": "⏳ Đang mở cược — đồng hồ đếm ngược bắt đầu khi HAI người chơi khác nhau đã đặt cược. Hãy là người đầu tiên!"
  }
 }
