@@ -11,7 +11,7 @@ import { DuelGame } from "./duelgame.js";
 import * as E from "./scrapline-engine.js";
 import { ART } from "./scrapline-art.js";
 import { prand, Practice } from "./practice.js";   // practice-vs-computer + solo persistence
-import { anchorOf as anchorVal, ensureAnchor, verifyEntries, entriesFrom } from "./provable.js";   // provable daily claims (see doc/provable-practice.md)
+import { anchorOf as anchorVal, ensureAnchor, verifyEntries, entriesFrom, seedDaily, pendingDaily, markDaily } from "./provable.js";   // provable daily claims (see doc/provable-practice.md)
 
 const CID = "901de4f0f88c24e26839d0f6dbf55822";
 const dapp = new NadoDapp({ cid: CID, app: "Scrapline" });
@@ -236,19 +236,44 @@ function anchorFromSto(sto, day) {
   if (sto) { const v = anchorVal(sto, _m, day); if (v) _anch = { day, hash: v }; }
   return _anch.day === day ? _anch.hash : null;
 }
+// Seeding today's daily board needs an on-chain anchor call. For a fresh account the wallet ALSO has to
+// register the address first, which is a full redirect — so the await below used to die with the page and
+// the player came back to a game that looked untouched, having seen only the wallet say "registered".
+// The intent is therefore persisted: the button shows a real progress state, the seed resumes by itself
+// after the round-trip, and the run auto-starts the moment the anchor resolves.
+let dailyWaiting = false;
+
+async function startDaily() {
+  if (dailyWaiting) return;
+  const day = today();
+  // Signing in is only needed to SEED the day (an on-chain call) and to post. If someone already seeded
+  // today, a signed-out player can still play the same board — so try first and ask only if we must.
+  dailyWaiting = true;
+  renderSolo();
+  try {
+    const seed = await dailySeed();
+    dailyWaiting = false; renderSolo();
+    if (seed) {
+      if (!dapp.me) notify(T("dailyAnonHint", "Playing signed out — sign in BEFORE starting if you want this run to count on the board."));
+      soloStart(seed);
+      return;
+    }
+    if (!dapp.me) {
+      notify(T("dailyNeedsSignIn", "Today's board hasn't been seeded yet — that takes one on-chain call, so sign in and we'll seed it and start your run."));
+      return dapp.signIn();
+    }
+    notify(T("dailyStillSeeding", "Still seeding today's gauntlet on-chain — it finishes in about a minute and your run starts by itself. Play a random gauntlet meanwhile."));
+  } catch (e) { dailyWaiting = false; renderSolo(); }
+}
+
 const isDailySeed = (seed) => typeof seed === "string" && seed.startsWith("daily2-scrapline-" + today() + "-");
 async function dailySeed() {
   const day = today();
-  let sto = await dapp.storage({ append: duel.MAPS });
-  let anch = sto ? await ensureAnchor(dapp, base(), sto, _m, day).catch(() => null) : null;
-  if (!anch && dapp.me) {
-    notify(T("dailySeeding", "Seeding today's gauntlet from the chain — a few blocks, first time each day…"));
-    for (let i = 0; !anch && i < 20; i++) {                 // pin lands -> resolves -> the view updates
-      await new Promise((r) => setTimeout(r, 3000));
-      sto = await dapp.storage({ append: duel.MAPS });
-      if (sto) anch = await ensureAnchor(dapp, base(), sto, _m, day).catch(() => null);
-    }
-  }
+  const anch = await seedDaily(dapp, {
+    slug: "scrapline", day, base: base(), _m,
+    getStorage: () => dapp.storage({ append: duel.MAPS }),
+    onProgress: () => renderSolo(),
+  });
   if (anch) _anch = { day, hash: anch };
   return anch ? E.seedOfDay(day, anch, dapp.me || "anon") : null;
 }
@@ -282,12 +307,10 @@ function renderSolo() {
   top.innerHTML = "";
   const mkBtn = (txt, fn, primary) => { const x = document.createElement("button"); x.className = primary ? "primary" : "ghost"; x.textContent = txt; x.onclick = fn; top.appendChild(x); };
   const isDaily = soloRun && isDailySeed(soloRun.seed);
-  mkBtn(T("dailyRun", "📅 Daily gauntlet") + (bd ? " · " + T("bestN", "best {n}", { n: bd }) : ""), async () => {
-    if (!dapp.me) notify(T("dailyAnonHint", "Playing signed out — sign in BEFORE starting if you want this run to count on the board."));
-    const seed = await dailySeed();
-    if (!seed) return notify(T("dailyNotReady", "Today's gauntlet is still being seeded by the chain — try again in a minute."));
-    soloStart(seed);
-  }, !soloRun || (soloRun.over && isDaily));
+  mkBtn(dailyWaiting ? T("dailySeedingBtn", "\u23f3 Seeding today's gauntlet\u2026")
+                     : T("dailyRun", "\ud83d\udcc5 Daily gauntlet") + (bd ? " \u00b7 " + T("bestN", "best {n}", { n: bd }) : ""),
+        dailyWaiting ? () => notify(T("dailySeedingWait", "Seeding on-chain \u2014 your run starts automatically as soon as today's board is ready.")) : startDaily,
+        !soloRun || (soloRun.over && isDaily));
   mkBtn(T("randomRun", "🎲 Random gauntlet") + (br ? " · " + T("bestN", "best {n}", { n: br }) : ""), () => soloStart("rnd-" + Math.random().toString(36).slice(2, 10)));
   if (!soloRun) { hud.innerHTML = ""; zones.classList.add("hidden"); return; }
   zones.classList.remove("hidden");
@@ -404,7 +427,11 @@ async function renderSoloBoard(sto) {
   } finally { _boardBusy = false; }
 }
 
-duel.boot(["activeGame", "solo", "lobby", "play", "walletcard", "bankroll", "scoreboard"]);
+duel.boot(["activeGame", "solo", "lobby", "play", "walletcard", "bankroll", "scoreboard"])
+  // a daily seed interrupted by the wallet round-trip resumes itself here, so the player never has
+  // to guess that they are supposed to press the button a second time
+  .then(() => { if (pendingDaily("scrapline", today()) && dapp.me) startDaily(); })
+  .catch(() => {});
 
 // test hook: the UI E2E harness (tests/*_ui_e2e.mjs) drives the real DOM against crafted engine states
 if (typeof window !== "undefined") window.__duel = duel;

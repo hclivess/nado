@@ -289,7 +289,11 @@
   "scrap.youWonWaiting": "لقد فزت! بانتظار استسلام خصمك (أو طالب بالاسترداد بعد انتهاء المهلة).",
   "scrap.yourGames": "معاركك",
   "scrap.yourGear": "عتادك",
-  "scrap.yourMove": "▶ دورك"
+  "scrap.yourMove": "▶ دورك",
+  "scrap.dailySeedingBtn": "⏳ يجري تجهيز التحدي اليوم…",
+  "scrap.dailySeedingWait": "يجري التجهيز على السلسلة — سيبدأ التحدي تلقائياً بمجرد جاهزية لوحة اليوم.",
+  "scrap.dailyNeedsSignIn": "لوحة اليوم لم تُنشأ بعد — تحتاج نداءً واحداً على السلسلة. سجّل الدخول وسننشئها ونبدأ التحدي.",
+  "scrap.dailyStillSeeding": "ما زال التحدي اليوم قيد التجهيز على السلسلة — ينتهي خلال دقيقة ويبدأ تلقائياً. جرّب واحدة عشوائية في الأثناء."
  },
  "cs": {
   "scrap.abort": "Nárokovat vrácení (soupeř nehraje)",
@@ -581,7 +585,11 @@
   "scrap.youWonWaiting": "Vyhrál jsi! Čeká se, až se soupeř vzdá (nebo po timeoutu nárokuj vrácení).",
   "scrap.yourGames": "Tvé souboje",
   "scrap.yourGear": "Tvá výstroj",
-  "scrap.yourMove": "▶ TVŮJ TAH"
+  "scrap.yourMove": "▶ TVŮJ TAH",
+  "scrap.dailySeedingBtn": "⏳ Připravuji dnešní gauntlet…",
+  "scrap.dailySeedingWait": "Připravuji on-chain — gauntlet se spustí sama, jakmile bude dnešní tabulka připravená.",
+  "scrap.dailyNeedsSignIn": "Dnešní tabulka ještě není založená — potřebuje jedno on-chain volání. Přihlas se a my ji založíme a spustíme ti gauntlet.",
+  "scrap.dailyStillSeeding": "Dnešní gauntlet se stále zakládá on-chain — do minuty to doběhne a spustí se samo. Zatím si zahraj náhodnou."
  },
  "de": {
   "scrap.abort": "Rückerstattung einfordern (Gegner reagiert nicht)",
@@ -873,7 +881,11 @@
   "scrap.youWonWaiting": "Du hast gewonnen! Warte, bis dein Gegner aufgibt (oder fordere nach dem Timeout die Rückerstattung ein).",
   "scrap.yourGames": "Deine Kämpfe",
   "scrap.yourGear": "Deine Ausrüstung",
-  "scrap.yourMove": "▶ DEIN ZUG"
+  "scrap.yourMove": "▶ DEIN ZUG",
+  "scrap.dailySeedingBtn": "⏳ Heutige Gauntlet wird vorbereitet…",
+  "scrap.dailySeedingWait": "Wird on-chain vorbereitet — deine Gauntlet startet automatisch, sobald die heutige Tabelle bereit ist.",
+  "scrap.dailyNeedsSignIn": "Die heutige Tabelle existiert noch nicht — das braucht einen On-Chain-Aufruf. Melde dich an, dann legen wir sie an und starten deine Gauntlet.",
+  "scrap.dailyStillSeeding": "Die heutige Gauntlet wird noch on-chain vorbereitet — in etwa einer Minute fertig, dann startet sie von selbst. Spiel solange eine zufällige."
  },
  "en": {
   "scrap.abort": "Claim refund (opponent stalled)",
@@ -1165,7 +1177,11 @@
   "scrap.youWonWaiting": "You won! Waiting for your opponent to concede (or claim a refund after the timeout).",
   "scrap.yourGames": "Your fights",
   "scrap.yourGear": "Your gear",
-  "scrap.yourMove": "▶ YOUR MOVE"
+  "scrap.yourMove": "▶ YOUR MOVE",
+  "scrap.dailySeedingBtn": "⏳ Seeding today's gauntlet…",
+  "scrap.dailySeedingWait": "Seeding on-chain — your gauntlet starts automatically as soon as today's board is ready.",
+  "scrap.dailyNeedsSignIn": "Today's board hasn't been seeded yet — that takes one on-chain call, so sign in and we'll seed it and start your gauntlet.",
+  "scrap.dailyStillSeeding": "Still seeding today's gauntlet on-chain — it finishes in about a minute and starts by itself. Play a random one meanwhile."
  },
  "es": {
   "scrap.abort": "Reclamar reembolso (el rival no juega)",
@@ -1457,7 +1473,11 @@
   "scrap.youWonWaiting": "¡Ganaste! Esperando a que tu rival conceda (o reclama el reembolso tras el timeout).",
   "scrap.yourGames": "Tus combates",
   "scrap.yourGear": "Tu equipo",
-  "scrap.yourMove": "▶ TU JUGADA"
+  "scrap.yourMove": "▶ TU JUGADA",
+  "scrap.dailySeedingBtn": "⏳ Preparando gauntlet de hoy…",
+  "scrap.dailySeedingWait": "Preparando en cadena — tu gauntlet empieza automáticamente en cuanto la tabla de hoy esté lista.",
+  "scrap.dailyNeedsSignIn": "La tabla de hoy aún no está creada — requiere una llamada en cadena. Inicia sesión y la creamos y empezamos tu gauntlet.",
+  "scrap.dailyStillSeeding": "Aún preparando gauntlet de hoy en la cadena — termina en un minuto y empieza solo. Juega una aleatoria mientras tanto."
  },
  "fr": {
   "scrap.abort": "Réclamer le remboursement (adversaire inactif)",
@@ -1749,7 +1769,11 @@
   "scrap.youWonWaiting": "Vous avez gagné ! En attente de l'abandon de votre adversaire (ou réclamez le remboursement après le délai).",
   "scrap.yourGames": "Vos combats",
   "scrap.yourGear": "Votre équipement",
-  "scrap.yourMove": "▶ À VOUS DE JOUER"
+  "scrap.yourMove": "▶ À VOUS DE JOUER",
+  "scrap.dailySeedingBtn": "⏳ Préparation du gauntlet du jour…",
+  "scrap.dailySeedingWait": "Préparation sur la chaîne — votre gauntlet démarre automatiquement dès que le classement du jour est prêt.",
+  "scrap.dailyNeedsSignIn": "Le classement du jour n'est pas encore créé — cela demande un appel sur la chaîne. Connectez-vous et nous le créons et lançons votre gauntlet.",
+  "scrap.dailyStillSeeding": "Préparation du gauntlet du jour toujours en cours — cela se termine en une minute et démarre tout seul. Jouez-en un aléatoire en attendant."
  },
  "hi": {
   "scrap.abort": "रिफ़ंड का दावा करें (प्रतिद्वंद्वी रुका हुआ है)",
@@ -2041,7 +2065,11 @@
   "scrap.youWonWaiting": "आप जीत गए! प्रतिद्वंद्वी के हार मानने का इंतज़ार है (या टाइमआउट के बाद रिफ़ंड का दावा करें)।",
   "scrap.yourGames": "आपके मुकाबले",
   "scrap.yourGear": "आपका गियर",
-  "scrap.yourMove": "▶ आपकी चाल"
+  "scrap.yourMove": "▶ आपकी चाल",
+  "scrap.dailySeedingBtn": "⏳ आज का गॉन्टलेट तैयार हो रहा है…",
+  "scrap.dailySeedingWait": "चेन पर तैयार हो रहा है — आज का बोर्ड तैयार होते ही आपका गॉन्टलेट अपने आप शुरू हो जाएगा।",
+  "scrap.dailyNeedsSignIn": "आज का बोर्ड अभी नहीं बना — इसके लिए एक ऑन-चेन कॉल चाहिए। साइन इन करें, हम बनाकर आपका गॉन्टलेट शुरू कर देंगे।",
+  "scrap.dailyStillSeeding": "आज का गॉन्टलेट अब भी चेन पर तैयार हो रहा है — लगभग एक मिनट में पूरा होकर खुद शुरू होगा। तब तक कोई रैंडम खेलें।"
  },
  "id": {
   "scrap.abort": "Klaim refund (lawan menunda)",
@@ -2333,7 +2361,11 @@
   "scrap.youWonWaiting": "Kamu menang! Menunggu lawan menyerah (atau klaim refund setelah timeout).",
   "scrap.yourGames": "Duelmu",
   "scrap.yourGear": "Gear kamu",
-  "scrap.yourMove": "▶ GILIRANMU"
+  "scrap.yourMove": "▶ GILIRANMU",
+  "scrap.dailySeedingBtn": "⏳ Menyiapkan gauntlet hari ini…",
+  "scrap.dailySeedingWait": "Disiapkan di rantai — gauntlet kamu mulai otomatis begitu papan hari ini siap.",
+  "scrap.dailyNeedsSignIn": "Papan hari ini belum dibuat — perlu satu panggilan di rantai. Masuk dan kami buatkan lalu mulai gauntlet kamu.",
+  "scrap.dailyStillSeeding": "Masih menyiapkan gauntlet hari ini di rantai — selesai sekitar semenit lalu mulai sendiri. Mainkan yang acak dulu."
  },
  "it": {
   "scrap.abort": "Richiedi il rimborso (avversario fermo)",
@@ -2625,7 +2657,11 @@
   "scrap.youWonWaiting": "Hai vinto! In attesa che l'avversario si arrenda (o richiedi il rimborso dopo il timeout).",
   "scrap.yourGames": "I tuoi scontri",
   "scrap.yourGear": "Il tuo equipaggiamento",
-  "scrap.yourMove": "▶ TOCCA A TE"
+  "scrap.yourMove": "▶ TOCCA A TE",
+  "scrap.dailySeedingBtn": "⏳ Preparo la gauntlet di oggi…",
+  "scrap.dailySeedingWait": "Preparazione on-chain — la tua gauntlet parte da sola non appena la classifica di oggi è pronta.",
+  "scrap.dailyNeedsSignIn": "La classifica di oggi non è ancora creata — serve una chiamata on-chain. Accedi e la creiamo avviando la tua gauntlet.",
+  "scrap.dailyStillSeeding": "Sto ancora preparando la gauntlet di oggi on-chain — finisce in un minuto e parte da sola. Intanto giocane una casuale."
  },
  "ja": {
   "scrap.abort": "返金を請求（相手が停滞）",
@@ -2917,7 +2953,11 @@
   "scrap.youWonWaiting": "勝利です！相手の降参を待っています（またはタイムアウト後に返金を請求できます）。",
   "scrap.yourGames": "あなたの対戦",
   "scrap.yourGear": "あなたの装備",
-  "scrap.yourMove": "▶ あなたの番"
+  "scrap.yourMove": "▶ あなたの番",
+  "scrap.dailySeedingBtn": "⏳ 今日のガントレットを準備中…",
+  "scrap.dailySeedingWait": "チェーン上で準備中 — 今日のボードが整い次第、ガントレットは自動で始まります。",
+  "scrap.dailyNeedsSignIn": "今日のボードはまだ作成されていません — オンチェーン呼び出しが1回必要です。サインインすれば作成してガントレットを開始します。",
+  "scrap.dailyStillSeeding": "今日のガントレットをまだチェーン上で準備中 — 1分ほどで完了し自動で始まります。それまではランダムをどうぞ。"
  },
  "ko": {
   "scrap.abort": "환불 청구 (상대가 지연 중)",
@@ -3209,7 +3249,11 @@
   "scrap.youWonWaiting": "승리했습니다! 상대의 기권을 기다리는 중입니다 (또는 타임아웃 후 환불을 청구하세요).",
   "scrap.yourGames": "내 대전",
   "scrap.yourGear": "내 장비",
-  "scrap.yourMove": "▶ 내 차례"
+  "scrap.yourMove": "▶ 내 차례",
+  "scrap.dailySeedingBtn": "⏳ 오늘의 건틀릿 준비 중…",
+  "scrap.dailySeedingWait": "체인에서 준비 중 — 오늘 보드가 준비되면 건틀릿이 자동으로 시작됩니다.",
+  "scrap.dailyNeedsSignIn": "오늘 보드가 아직 생성되지 않았습니다 — 온체인 호출이 한 번 필요합니다. 로그인하면 생성하고 건틀릿을 시작합니다.",
+  "scrap.dailyStillSeeding": "오늘의 건틀릿을 아직 체인에서 준비 중입니다 — 1분쯤 뒤 완료되어 자동으로 시작됩니다. 그동안 랜덤을 즐기세요."
  },
  "pt": {
   "scrap.abort": "Reivindicar reembolso (oponente parou de jogar)",
@@ -3501,7 +3545,11 @@
   "scrap.youWonWaiting": "Você venceu! Aguardando seu oponente conceder (ou reivindique o reembolso após o timeout).",
   "scrap.yourGames": "Suas lutas",
   "scrap.yourGear": "Seu equipamento",
-  "scrap.yourMove": "▶ SUA VEZ"
+  "scrap.yourMove": "▶ SUA VEZ",
+  "scrap.dailySeedingBtn": "⏳ A preparar gauntlet de hoje…",
+  "scrap.dailySeedingWait": "A preparar na cadeia — o teu gauntlet começa automaticamente assim que a tabela de hoje estiver pronta.",
+  "scrap.dailyNeedsSignIn": "A tabela de hoje ainda não foi criada — precisa de uma chamada na cadeia. Entra e nós criamo-la e começamos o teu gauntlet.",
+  "scrap.dailyStillSeeding": "Ainda a preparar gauntlet de hoje na cadeia — termina num minuto e começa sozinho. Joga um aleatório entretanto."
  },
  "ru": {
   "scrap.abort": "Забрать возврат (соперник тянет время)",
@@ -3793,7 +3841,11 @@
   "scrap.youWonWaiting": "Вы победили! Ждём, пока соперник сдастся (или заберите возврат после таймаута).",
   "scrap.yourGames": "Ваши бои",
   "scrap.yourGear": "Ваше снаряжение",
-  "scrap.yourMove": "▶ ВАШ ХОД"
+  "scrap.yourMove": "▶ ВАШ ХОД",
+  "scrap.dailySeedingBtn": "⏳ Готовим сегодняшний испытание…",
+  "scrap.dailySeedingWait": "Готовим в сети — ваш испытание начнётся автоматически, как только таблица дня будет готова.",
+  "scrap.dailyNeedsSignIn": "Таблица на сегодня ещё не создана — нужен один вызов в сети. Войдите, и мы создадим её и запустим ваш испытание.",
+  "scrap.dailyStillSeeding": "Сегодняшний испытание ещё готовится в сети — примерно через минуту всё будет готово и запустится само. Пока сыграйте случайный."
  },
  "tr": {
   "scrap.abort": "İade talep et (rakip oyalanıyor)",
@@ -4085,7 +4137,11 @@
   "scrap.youWonWaiting": "Kazandın! Rakibinin pes etmesi bekleniyor (ya da zaman aşımından sonra iadeyi talep et).",
   "scrap.yourGames": "Dövüşlerin",
   "scrap.yourGear": "Donanımın",
-  "scrap.yourMove": "▶ SIRA SENDE"
+  "scrap.yourMove": "▶ SIRA SENDE",
+  "scrap.dailySeedingBtn": "⏳ Bugünün gauntlet hazırlanıyor…",
+  "scrap.dailySeedingWait": "Zincirde hazırlanıyor — bugünün tablosu hazır olur olmaz gauntlet kendiliğinden başlar.",
+  "scrap.dailyNeedsSignIn": "Bugünün tablosu henüz oluşturulmadı — bir zincir çağrısı gerekiyor. Giriş yap, oluşturup gauntlet başlatalım.",
+  "scrap.dailyStillSeeding": "Bugünün gauntlet hâlâ zincirde hazırlanıyor — yaklaşık bir dakikada bitip kendiliğinden başlar. Bu arada rastgele bir tane oyna."
  },
  "vi": {
   "scrap.abort": "Đòi hoàn tiền (đối thủ trì hoãn)",
@@ -4377,7 +4433,11 @@
   "scrap.youWonWaiting": "Bạn thắng rồi! Đang chờ đối thủ chịu thua (hoặc đòi hoàn tiền sau khi hết giờ).",
   "scrap.yourGames": "Trận của bạn",
   "scrap.yourGear": "Trang bị của bạn",
-  "scrap.yourMove": "▶ ĐẾN LƯỢT BẠN"
+  "scrap.yourMove": "▶ ĐẾN LƯỢT BẠN",
+  "scrap.dailySeedingBtn": "⏳ Đang chuẩn bị gauntlet hôm nay…",
+  "scrap.dailySeedingWait": "Đang chuẩn bị trên chuỗi — gauntlet của bạn sẽ tự bắt đầu ngay khi bảng hôm nay sẵn sàng.",
+  "scrap.dailyNeedsSignIn": "Bảng hôm nay chưa được tạo — cần một lệnh gọi trên chuỗi. Hãy đăng nhập, chúng tôi sẽ tạo và bắt đầu gauntlet cho bạn.",
+  "scrap.dailyStillSeeding": "Vẫn đang chuẩn bị gauntlet hôm nay trên chuỗi — khoảng một phút nữa là xong và tự bắt đầu. Chơi tạm một ván ngẫu nhiên."
  },
  "zh": {
   "scrap.abort": "领取退款（对手拖延不动）",
@@ -4669,6 +4729,10 @@
   "scrap.youWonWaiting": "你赢了！等待对手认输（或在超时后领取退款）。",
   "scrap.yourGames": "你的对战",
   "scrap.yourGear": "你的装备",
-  "scrap.yourMove": "▶ 轮到你行动"
+  "scrap.yourMove": "▶ 轮到你行动",
+  "scrap.dailySeedingBtn": "⏳ 正在准备今天的挑战…",
+  "scrap.dailySeedingWait": "正在链上准备 — 今天的榜单就绪后，你的挑战会自动开始。",
+  "scrap.dailyNeedsSignIn": "今天的榜单尚未创建 — 需要一次链上调用。登录后我们会创建并开始你的挑战。",
+  "scrap.dailyStillSeeding": "今天的挑战仍在链上准备中 — 大约一分钟后完成并自动开始。你可以先玩一个随机的。"
  }
 }

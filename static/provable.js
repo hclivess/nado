@@ -52,6 +52,50 @@ export async function ensureAnchor(dapp, base, sto, _m, day) {
   return null;
 }
 
+/* ---- seeding today's board, ACROSS a wallet round-trip -------------------------------------------
+ * ensureAnchor drives one step; getting a fresh day all the way to "ready" needs several, spread over
+ * up to a minute of block time. Games used to inline that as an await-loop behind a button, which broke
+ * in the one case that matters most — a player's FIRST ever action. Seeding needs an on-chain call, a
+ * brand-new account has to be registered before it can make one, and registration is a full wallet
+ * redirect: the page is destroyed mid-await, the loop dies with it, and the player lands back on a game
+ * that looks like nothing happened (having seen the wallet say only "registered").
+ *
+ * seedDaily persists the INTENT under nado_<slug>_dailywait, so after any round-trip the game can ask
+ * pendingDaily(slug) and simply resume — and reports progress through a callback instead of a one-shot
+ * toast, so the button can show that something is actually happening.
+ * ------------------------------------------------------------------------------------------------ */
+const _dwKey = (slug) => "nado_" + slug + "_dailywait";
+export function pendingDaily(slug, day) {
+  try { return Number(localStorage.getItem(_dwKey(slug)) || 0) === day; } catch (e) { return false; }
+}
+export function markDaily(slug, day) {
+  try { day ? localStorage.setItem(_dwKey(slug), String(day)) : localStorage.removeItem(_dwKey(slug)); } catch (e) {}
+}
+
+/**
+ * seedDaily(dapp, o) -> anchor hash, or null if it still isn't ready.
+ * o: { slug, day, base, getStorage: async () => sto, _m, tries?, everyMs?, onProgress? }
+ * Only marks the intent for a SIGNED-IN player, since an anonymous one can't drive the calls anyway —
+ * they simply wait for somebody else to seed the day, which is why an already-seeded day returns
+ * immediately here regardless of sign-in state.
+ */
+export async function seedDaily(dapp, o) {
+  const { slug, day, base, getStorage, _m: m, tries = 20, everyMs = 3000, onProgress } = o;
+  let sto = await getStorage();
+  let anch = sto ? await ensureAnchor(dapp, base, sto, m, day).catch(() => null) : null;
+  if (anch) { markDaily(slug, 0); return anch; }
+  if (!dapp.me) return null;                     // nothing to drive; the caller prompts a sign-in
+  markDaily(slug, day);
+  for (let i = 0; !anch && i < tries; i++) {
+    if (onProgress) { try { onProgress(i + 1, tries); } catch (e) {} }
+    await new Promise((r) => setTimeout(r, everyMs));
+    sto = await getStorage();
+    if (sto) anch = await ensureAnchor(dapp, base, sto, m, day).catch(() => null);
+  }
+  markDaily(slug, anch ? 0 : day);               // still pending -> resume after the next load/return
+  return anch || null;
+}
+
 // ---- the canonical per-player daily seed ----------------------------------------------------------------
 // CONSENSUS for claims: every verifier derives the same string from on-chain data (day + anchor) plus the
 // poster's address (from the entry itself). Do not restyle.

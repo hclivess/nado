@@ -12,7 +12,7 @@ import { DuelGame } from "./duelgame.js";
 import * as E from "./hexholm-engine.js";
 import { pickMove, prng, soloReplay, soloScore, botMustAct, seedOfDay, packRun, verifyClaim,
          MAX_MY, SOLO_TURNS } from "./hexholm-bot.js";
-import { anchorOf, ensureAnchor, todayIdx, verifyEntries } from "./provable.js";
+import { anchorOf, ensureAnchor, todayIdx, verifyEntries, seedDaily, pendingDaily } from "./provable.js";
 import { randomSeed } from "./practice.js";
 
 const CID = "f2b244d3726a3ddb3ef4f48e81208dd6";
@@ -273,18 +273,24 @@ class TableDuel extends DuelGame {
   }
   async startDaily() {
     const dapp = this.dapp, day = todayIdx();
-    if (!dapp.me) notify(T("dailyAnonHint", "Playing signed out — sign in BEFORE starting if you want this run to count on the board."));
-    let sto = this.lastSto || await dapp.storage({ append: this.MAPS });
-    let anch = sto ? await ensureAnchor(dapp, base(), sto, _m, day).catch(() => null) : null;
-    if (!anch && dapp.me) {
-      notify(T("dailySeeding", "Seeding today's island from the chain — a few blocks, first time each day…"));
-      for (let i = 0; !anch && i < 20; i++) {               // pin lands -> resolves -> the view updates
-        await new Promise((r) => setTimeout(r, 3000));
-        sto = await dapp.storage({ append: this.MAPS });
-        if (sto) anch = await ensureAnchor(dapp, base(), sto, _m, day).catch(() => null);
-      }
+    if (this._dailyWaiting) return notify(T("dailySeedingWait", "Seeding on-chain — your island opens automatically as soon as today's board is ready."));
+    this._dailyWaiting = true; this.render();
+    // Shared driver (provable.seedDaily): persists the intent, so a wallet redirect — which a brand-new
+    // account always triggers, since seeding needs an on-chain call and that needs a registered address —
+    // no longer kills the wait and leaves the player staring at an unchanged page.
+    let anch = null;
+    try {
+      anch = await seedDaily(dapp, {
+        slug: "hexholm", day, base: base(), _m,
+        getStorage: () => dapp.storage({ append: this.MAPS }),
+        onProgress: () => this.render(),
+      });
+    } finally { this._dailyWaiting = false; this.render(); }
+    if (!anch) {
+      if (!dapp.me) { notify(T("dailyNeedsSignIn", "Today's board hasn't been seeded yet — that takes one on-chain call, so sign in and we'll seed it and start your island.")); return dapp.signIn(); }
+      return notify(T("dailyStillSeeding", "Still seeding today's island on-chain — it finishes in about a minute and your island opens by itself."));
     }
-    if (!anch) return notify(T("dailyNotReady", "Today's island is still being seeded by the chain — try again in a minute."));
+    if (!dapp.me) notify(T("dailyAnonHint", "Playing signed out — sign in BEFORE starting if you want this run to count on the board."));
     this._anch = { day, hash: anch };
     this.active = null; this.resetLocal();
     this.practice = { seed: seedOfDay(day, anch, dapp.me || "anon"), recs: [], daily: day };
@@ -293,6 +299,7 @@ class TableDuel extends DuelGame {
     this.render();
     try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
   }
+
   exitPractice() { this.practice = null; this.prac.clearRun(); this.eng = null; this.active = null; this.render(); }
   postDaily() {
     const p = this.practice, eng = this.eng;
@@ -912,13 +919,22 @@ const duel = new TableDuel(dapp, {
   wire() {
     $("btnSettle").onclick = () => { const eng = this.eng; if (eng && eng.over && eng.winner) this.agreeSeat(eng.winner); };
     $("btnLeave").onclick = () => this.leave();
-    if ($("btnDaily")) $("btnDaily").onclick = () => this.startDaily();
+    if ($("btnDaily")) {
+      const b = $("btnDaily");
+      b.onclick = () => this.startDaily();
+      b.disabled = !!this._dailyWaiting;
+      b.textContent = this._dailyWaiting ? T("dailySeedingBtn", "⏳ Seeding today's island…")
+                                         : T("dailyBtn", "📅 Daily island — free, post your score");
+    }
   },
 });
 duel.MAPS = ["nn", "st", "pt", "sd", "wr", "mc", "dl", "kh", "p1", "p2", "mv", "mh",
              "eday", "eaddr", "escore", "en", "ew", "ah", "av"].concat(duel.cfg.appendMaps);
 duel.mode = null; duel.tr = null; duel.disc = null; duel._anch = { day: 0, hash: null }; duel._boardBusy = false;
-duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "dailyBoard", "scoreboard"]);
+duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "dailyBoard", "scoreboard"])
+  // resume a daily seed interrupted by the wallet round-trip (see provable.seedDaily)
+  .then(() => { if (pendingDaily("hexholm", todayIdx()) && duel.dapp.me) duel.startDaily(); })
+  .catch(() => {});
 
 // test hook: UI E2E harnesses drive the real DOM against real engine states
 if (typeof window !== "undefined") window.__duel = duel;
