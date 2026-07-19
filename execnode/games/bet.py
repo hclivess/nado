@@ -228,6 +228,14 @@ STAKE_OF = "\n".join(_hash_slot("r3", TG_STK, "r0", "r1", "r2")
 TOTAL_OF = "\n".join(_hash_slot("r3", TG_US, "r0", "r1")
                      + ["sload r3 r3", f"movi r5 {UNIT}", "mul r3 r5", "ret r3"])
 CLAIMED_OF = "\n".join(_hash_slot("r3", TG_CL, "r0", "r1") + ["sload r3 r3", "ret r3"])
+# BOOK positions, per punter. Without these the client can only offer a blind "collect" button that either
+# pays or reverts — the player cannot see what they backed or what it is worth. bstake_of/bpay_of mirror the
+# two slots back() writes; bclaimed_of is the once-only flag bclaim sets.
+BSTAKE_OF = "\n".join(_hash_slot("r3", TG_BSTK, "r0", "r1", "r2")
+                      + ["sload r3 r3", f"movi r5 {UNIT}", "mul r3 r5", "ret r3"])
+BPAY_OF = "\n".join(_hash_slot("r3", TG_BPAY, "r0", "r1", "r2")
+                    + ["sload r3 r3", f"movi r5 {UNIT}", "mul r3 r5", "ret r3"])
+BCLAIMED_OF = "\n".join(_hash_slot("r3", TG_BCL, "r0", "r1") + ["sload r3 r3", "ret r3"])
 VOTE_OF = "\n".join(_hash_slot("r3", TG_VT, "r0", "r1") + ["sload r3 r3", "ret r3"])
 RESOLVER_OF = "\n".join(_hash_slot("r3", TG_RES, "r0", "r1") + ["sload r3 r3", "ret r3"])
 
@@ -327,7 +335,8 @@ BSWEEP = "\n".join(
 SRC = {"book": BOOK, "quote": QUOTE, "back": BACK, "bclaim": BCLAIM, "bsweep": BSWEEP,
        "create_market": CREATE, "bet": BET, "resolve": RESOLVE, "void": VOID, "claim": CLAIM,
        "claimable_of": CLAIMABLE_OF, "stake_of": STAKE_OF, "total_of": TOTAL_OF,
-       "claimed_of": CLAIMED_OF, "vote_of": VOTE_OF, "resolver_of": RESOLVER_OF}
+       "claimed_of": CLAIMED_OF, "vote_of": VOTE_OF, "resolver_of": RESOLVER_OF,
+       "bstake_of": BSTAKE_OF, "bpay_of": BPAY_OF, "bclaimed_of": BCLAIMED_OF}
 
 ABI = {
     "create_market": {"args": ["marketId", "outcomes", "lock", "deadline", "desc", "source", "event",
@@ -347,6 +356,9 @@ ABI = {
     "claimed_of": {"args": ["marketId", "addr"]},
     "vote_of": {"args": ["marketId", "addr"]},
     "resolver_of": {"args": ["marketId", "addr"]},
+    "bstake_of": {"args": ["marketId", "outcome", "addr"]},
+    "bpay_of": {"args": ["marketId", "outcome", "addr"]},
+    "bclaimed_of": {"args": ["marketId", "addr"]},
     "_view": {
         "maps": {"mk": {"field": MK, "index": "markets"}, "no": {"field": NO, "index": "markets"},
                  "lk": {"field": LK, "index": "markets"}, "dl": {"field": DL, "index": "markets"},
@@ -354,13 +366,23 @@ ABI = {
                  "ev": {"field": EV, "index": "markets"}, "rs": {"field": RS, "index": "markets"},
                  "dn": {"field": DN, "index": "markets"}, "vd": {"field": VD, "index": "markets"},
                  "tot": {"field": TOT, "index": "markets"}, "mrc": {"field": MRC, "index": "markets"},
-                 "mth": {"field": MTH, "index": "markets"}, "mcr": {"field": MCR, "index": "markets"}},
+                 "mth": {"field": MTH, "index": "markets"}, "mcr": {"field": MCR, "index": "markets"},
+                 # the BOOK's public state: who banks this market, what they put up, what they have taken,
+                 # and whether they have swept. Without these the site cannot show a bank exists at all.
+                 "bk": {"field": BK, "index": "markets"}, "br": {"field": BR, "index": "markets"},
+                 "bs": {"field": BS, "index": "markets"}, "bd": {"field": BD, "index": "markets"}},
         "indexes": {"markets": {"cnt": 0, "list": MLIST}},
-        "addr": ["ds", "so", "ev", "mcr"],
+        "addr": ["ds", "so", "ev", "mcr", "bk"],
         "board": {"name": "pl", "base": PL_BASE, "cells": MAX_OUT, "stride": MAX_OUT, "index": "markets"},
     },
 }
 ABI["_view"]["board2"] = {"name": "vc", "base": VC_BASE, "cells": MAX_OUT, "stride": MAX_OUT,
+                          "index": "markets"}
+# od = the bank's posted price per outcome (percent, 100 = 1.00x); bp = payout it has already committed
+# there. Together they are the whole shop window: what you'd be paid, and how much room is left.
+ABI["_view"]["board3"] = {"name": "od", "base": OD_BASE, "cells": MAX_OUT, "stride": MAX_OUT,
+                          "index": "markets"}
+ABI["_view"]["board4"] = {"name": "bp", "base": BP_BASE, "cells": MAX_OUT, "stride": MAX_OUT,
                           "index": "markets"}
 
 

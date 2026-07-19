@@ -34,7 +34,16 @@ from ops.transaction_ops import construct_blob_tx
 from ops.key_ops import load_keys
 from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
 
-BET_CID = "066b76360e669c91d81e57197d0c88e3"   # execnode/games/bet.py (zkVM port, nonce "a5")
+# The live contract id is DISCOVERED, never pasted here. It used to be a constant, and when the contract was
+# redeployed the constant kept pointing at a dead cid: every fill/resolve 404'd against a contract that no
+# longer existed, the timer failed silently for days, and the site showed "no matches" with nothing in the
+# logs to explain it. A hardcoded id is a bug waiting for the next redeploy, so resolve_cid() asks, in order:
+# an explicit --cid, the cid the WEBSITE is using (static/bet.js — the deployed truth, and the one place that
+# is guaranteed to be current because it is what players load), then a shape match against the exec node's
+# own contract list. Every candidate is verified to exist and expose the bet methods before it is used.
+BET_CID = None
+BET_METHODS = {"create_market", "bet", "resolve", "void", "claim"}   # the signature of a bet contract
+CLIENT_JS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "bet.js")
 VOID_GRACE_SEC = 300   # wiggle room past the deadline before auto-voiding (the chain clock is only ~tens-of-seconds precise)
 # Soccer competitions to seed 1X2 (home/draw/away) markets from (TheSportsDB league ids). Override with
 # --leagues "4328,4335,…". The free key returns only the SINGLE next fixture per league, so BREADTH of leagues
@@ -61,6 +70,47 @@ def _post(url, body, timeout=15):
                                  headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
+
+
+def _contract(exec_url, cid):
+    """The deployed contract, or None if the exec node doesn't have it."""
+    try:
+        c = _get(f"{exec_url}/exec/contract?ns=default&cid={cid}")
+        return c if c and BET_METHODS.issubset(set(c.get("methods") or [])) else None
+    except Exception:
+        return None
+
+
+def _cid_from_client():
+    """The cid static/bet.js is pointing at — what the website actually reads and writes."""
+    try:
+        import re
+        with open(CLIENT_JS) as f:
+            m = re.search(r'const\s+CID\s*=\s*"([0-9a-f]{32})"', f.read())
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def resolve_cid(exec_url, explicit=None):
+    """The live bet contract id. Tries --cid, then the website's cid, then a method-shape match over every
+    deployed contract; each candidate must EXIST on this exec node and expose the bet methods. Raises with
+    what it tried, so a redeploy can never turn into a silent no-op again."""
+    tried = []
+    for src, cid in (("--cid", explicit), ("static/bet.js", _cid_from_client())):
+        if not cid:
+            continue
+        tried.append(f"{src}={cid}")
+        if _contract(exec_url, cid):
+            return cid, src
+    try:
+        for c in (_get(f"{exec_url}/exec/contracts?ns=default").get("contracts") or []):
+            if BET_METHODS.issubset(set(c.get("methods") or [])):
+                return c["cid"], "exec-node discovery"
+    except Exception as ex:
+        tried.append(f"discovery failed: {ex}")
+    raise SystemExit("bet_oracle: no live bet contract found on " + exec_url
+                     + (" (tried " + ", ".join(tried) + ")" if tried else ""))
 
 
 def read_storage(exec_url, cid):
@@ -183,7 +233,7 @@ def main():
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--l1", default=os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/"))
     ap.add_argument("--exec", dest="exec_url", default=os.environ.get("NADO_EXEC_URL", "http://127.0.0.1:9273").rstrip("/"))
-    ap.add_argument("--cid", default=BET_CID)
+    ap.add_argument("--cid", default=None, help="pin the contract id (default: discover — see resolve_cid)")
     ap.add_argument("--sportsdb-key", default=os.environ.get("SPORTSDB_KEY", "3"))
     ap.add_argument("--leagues", default=os.environ.get("BET_LEAGUES", ""), help="comma-separated TheSportsDB league ids (default: majors)")
     ap.add_argument("--max", type=int, default=int(os.environ.get("BET_FILL_MAX", "24")), help="max new markets to create per fill")
@@ -192,7 +242,8 @@ def main():
     ap.add_argument("--fee", type=int, default=MIN_TX_FEE)
     ap.add_argument("--submit", action="store_true", help="actually post (default: dry-run)")
     args = ap.parse_args()
-    BET_CID = args.cid
+    BET_CID, _src = resolve_cid(args.exec_url, args.cid)
+    print(f"bet contract {BET_CID} (via {_src})")
 
     root = _get(f"{args.exec_url}/exec/root?ns=default&provisional=1")
     cursor = root.get("cursor")

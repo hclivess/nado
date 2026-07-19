@@ -133,8 +133,37 @@ def test_book_solvency_and_guards():
     ok(rd(B.BS, M) == 10, "cannot back after the lock")
 
 
+def test_book_position_views_report_what_the_punter_actually_holds():
+    """The three views the site needs to show a book position instead of a blind "collect" button:
+    what you staked, what it pays if it comes in, and whether you already took it. A view that
+    disagreed with bclaim's payout would have players chasing money that isn't there."""
+    st, cid, rd = fresh()
+    M = 61
+    lock = market(st, cid, M)
+    for w, amt in ((BANK, 500 * UNIT), (C, 40 * UNIT)):
+        st.credit_deposit(w, amt)
+    call(st, cid, BANK, "book", [M], 500 * UNIT)
+    call(st, cid, BANK, "quote", [M, 2, 250])                 # 2.50x on the away side
+    call(st, cid, C, "back", [M, 2], 40 * UNIT)               # stake 40u -> payout 100u
+    v = lambda meth, args: st.view(cid, meth, args)
+    ok(v("bstake_of", [M, 2, C]) == 40 * UNIT, "bstake_of reports the stake in raw NADO")
+    ok(v("bpay_of", [M, 2, C]) == 100 * UNIT, "bpay_of reports stake x price")
+    ok(v("bstake_of", [M, 0, C]) == 0, "an outcome the punter did not back reads zero")
+    ok(v("bstake_of", [M, 2, A]) == 0, "another address's position is not reported as mine")
+    ok(v("bclaimed_of", [M, C]) == 0, "not collected yet")
+    st.block_ts = lock + 1
+    call(st, cid, R1, "resolve", [M, 2])
+    before = st.bridge.get(C, 0)
+    call(st, cid, C, "bclaim", [M])
+    ok(st.bridge.get(C, 0) - before == 100 * UNIT, "bclaim pays exactly what bpay_of promised")
+    ok(v("bclaimed_of", [M, C]) == 1, "bclaimed_of flips once collected")
+    call(st, cid, C, "bclaim", [M], tag="again")
+    ok(st.bridge.get(C, 0) - before == 100 * UNIT, "a second bclaim pays nothing")
+
+
 for t in (test_book_pays_on_a_market_with_no_tote_action, test_tote_still_auto_voids_when_its_pot_is_unpayable,
-          test_tote_pays_normally, test_book_solvency_and_guards):
+          test_tote_pays_normally, test_book_solvency_and_guards,
+          test_book_position_views_report_what_the_punter_actually_holds):
     t()
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
