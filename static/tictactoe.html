@@ -75,8 +75,12 @@
   a{color:var(--accent2)}
 
   /* ---- the board ---- */
-  .board{display:grid;grid-template-columns:repeat(3,92px);grid-template-rows:repeat(3,92px);gap:8px;justify-content:center;margin:10px auto}
-  .cell{background:var(--elev2);border:1.5px solid var(--border);border-radius:14px;font-size:46px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:border-color .12s,background .12s;user-select:none}
+  /* STATIC square board — sized by a single --tttsize var (configurable), locked aspect so cells never
+     change size during play or between states. Scales down only on very narrow screens. */
+  :root{--tttsize:300px}
+  .board{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:8px;margin:10px auto;
+    width:var(--tttsize);max-width:92vw;aspect-ratio:1/1}
+  .cell{background:var(--elev2);border:1.5px solid var(--border);border-radius:14px;font-size:clamp(28px,13vw,46px);font-weight:900;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:border-color .12s,background .12s;user-select:none;aspect-ratio:1/1;min-width:0}
   .cell:hover{border-color:var(--accent2)}
   .cell.x{color:var(--accent2)}.cell.o{color:var(--gold)}
   .cell.win{background:rgba(47,191,113,.16);border-color:var(--win)}
