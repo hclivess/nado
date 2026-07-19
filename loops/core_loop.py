@@ -113,14 +113,21 @@ def reanchor_candidates(peers, statuses, our_weight, floor, min_protocol=None):
             and st["snapshot_height"] > floor]
 
 
-def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips, min_protocol=None):
+def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips, min_protocol=None,
+                            benched=None):
     """The caught-up production gate's predicate, extracted for direct testing (Sybil-stall guard).
     True (= do NOT mint, we may be behind) when we have peers but no statuses yet, or when any peer
     advertises a strictly heavier tip that is NOT in rejected_tips. A rejected tip is one we already
     tried and failed to sync a valid heavier chain for — counting it would let a Sybil's bogus
-    weight advertisement suppress production indefinitely."""
+    weight advertisement suppress production indefinitely.
+
+    `benched` is the set of TIP HASHES belonging to peers whose whole chain is currently out of fork
+    choice (consensus_loop.reject_tip). A long-forked peer still mining publishes a new hash every
+    block, so rejected_tips alone — keyed by hash — never catches up with it."""
     if have_peers and not statuses:
         return True
+    if benched:
+        statuses = [s for s in statuses if s.get("latest_block_hash") not in benched]
     if min_protocol is None:
         from config import get_protocol
         min_protocol = get_protocol()
@@ -313,7 +320,8 @@ class CoreClient(threading.Thread):
                 # blipped is re-honoured on the next advertisement.
                 _peer_ahead = peer_claims_heavier_tip(
                     statuses=_statuses, our_weight=_our_w, have_peers=len(peers) > 0,
-                    rejected_tips=self.consensus.rejected_tips)
+                    rejected_tips=self.consensus.rejected_tips,
+                    benched=self._benched_tip_hashes())
 
                 # min_peers == 0 enables SOLO production (a single node mints without a peer mesh) —
                 # used for a stable single-node relay/demo where multi-node fork-choice churn is undesirable.
@@ -798,11 +806,22 @@ class CoreClient(threading.Thread):
     def _heavier_chain_exists(self) -> bool:
         """True if ANY peer advertises a chain STRICTLY heavier than our tip. This is the objective trigger
         for a re-anchor — the heaviest valid chain wins, with no privileged voter. Weight units match
-        refresh_heaviest_tip (advertised latest_block_weight vs our cumulative_weight)."""
+        refresh_heaviest_tip (advertised latest_block_weight vs our cumulative_weight).
+
+        A BENCHED peer does not count. Live failure this closes: one node forked ~3000 blocks back kept
+        mining its own branch, and because a lone miner's branch can out-accumulate weight, it advertised
+        the heaviest chain on the network — while serving no snapshot and knowing none of our blocks, so
+        it was impossible to adopt by any route. Every healthy node therefore re-anchored toward it,
+        failed, wedged in emergency mode for minutes (dropping every transaction submitted meanwhile),
+        recovered, and did it again — 39 times in three hours here. Weight alone cannot be the trigger:
+        a chain we have repeatedly PROVEN we cannot obtain is not a chain we are behind."""
         our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
-        for st in self.consensus.status_pool.copy().values():
-            if isinstance(st, dict) and (st.get("latest_block_weight") or 0) > our_weight:
-                return True
+        for peer, st in self.consensus.status_pool.copy().items():
+            if not isinstance(st, dict) or (st.get("latest_block_weight") or 0) <= our_weight:
+                continue
+            if self.consensus.tip_source_benched(peer):
+                continue
+            return True
         return False
 
     def _maybe_reanchor(self) -> bool:
@@ -1021,6 +1040,16 @@ class CoreClient(threading.Thread):
         # roll back unboundedly (closes the force_sync leak).
         self.memserver.rollbacks += 1
         return False
+
+    def _benched_tip_hashes(self):
+        """Tip hashes currently advertised by peers whose chain is benched (see consensus.reject_tip).
+        Resolved fresh each call from the live status pool, because the whole point is that a benched
+        peer's hash CHANGES every block — a cached set would go stale immediately."""
+        try:
+            return {h for p, h in self.consensus.block_hash_pool.copy().items()
+                    if h and self.consensus.tip_source_benched(p)}
+        except Exception:
+            return set()
 
     def _reject_heaviest_tip(self):
         """AUDIT FIX (weight-DoS): exclude the advertised-heaviest tip we just FAILED to obtain a valid

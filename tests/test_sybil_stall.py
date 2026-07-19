@@ -106,6 +106,52 @@ check("lighter/equal tips never hold production", t_lighter_and_equal)
 check("rejected bogus-heavy tip does NOT stall production", t_rejected_sybil)
 check("2 Sybil clients cannot stall; a real heavier tip still counts", t_two_sybils)
 check("malformed statuses are harmless", t_malformed_status)
+
+def t_moving_target_fork_is_benched_by_peer_not_hash():
+    """THE 2026-07-20 wedge. A node that forked ~3000 blocks back kept MINING its own branch, so it
+    advertised a new tip hash every block — and a lone miner's branch can out-accumulate weight, so it
+    looked heaviest to the whole network while serving no snapshot and knowing none of our blocks. Benching
+    by hash could never catch it: each pass saw a fresh "heaviest" tip, burned a sync window failing to
+    obtain it, and re-wedged (39 times in three hours, dropping every transaction submitted meanwhile).
+    The bench therefore has to be keyed on the PEER, so its next hash is excluded before we chase it."""
+    # by hash alone: yesterday's rejected tip is useless once the forker mints a new one
+    assert peer_claims_heavier_tip([status(W + 500, "fork_block_2")], W,
+                                   have_peers=True, rejected_tips={"fork_block_1"}, min_protocol=1) is True
+    # by peer: the forker's CURRENT hash is benched because the peer is
+    assert peer_claims_heavier_tip([status(W + 500, "fork_block_2")], W,
+                                   have_peers=True, rejected_tips={"fork_block_1"}, min_protocol=1,
+                                   benched={"fork_block_2"}) is False
+    # and an honest heavier peer alongside the benched one still counts — we must not go blind
+    assert peer_claims_heavier_tip([status(W + 500, "fork_block_2"), status(W + 10, "real_tip")], W,
+                                   have_peers=True, rejected_tips=set(), min_protocol=1,
+                                   benched={"fork_block_2"}) is True
+
+
+def t_reject_tip_strikes_the_advertising_peer():
+    """reject_tip must strike every peer advertising the failed tip, and the bench must be readable
+    per-peer — that is the whole mechanism the moving-target fork above depends on."""
+    import loops.consensus_loop as CL
+
+    class FakeMem:
+        latest_block = {"block_hash": "ours", "cumulative_weight": W, "block_timestamp": 0}
+        terminate = False
+    c = CL.ConsensusClient.__new__(CL.ConsensusClient)
+    c.memserver = FakeMem()
+    c.block_hash_pool = {"1.2.3.4": "forktip", "5.6.7.8": "realtip"}
+    c.rejected_tips = set(); c._tip_strikes = {}; c._tip_until = {}
+    c._peer_strikes = {}; c._peer_until = {}
+    assert c.tip_source_benched("1.2.3.4") is False
+    c.reject_tip("forktip")
+    assert c.tip_source_benched("1.2.3.4") is True, "the peer that fed us the bad tip must be benched"
+    assert c.tip_source_benched("5.6.7.8") is False, "an unrelated peer must not be collateral damage"
+    # repeated failures back off further, never shorter
+    first = c._peer_until["1.2.3.4"]
+    c.reject_tip("forktip")
+    assert c._peer_until["1.2.3.4"] > first, "backoff must grow with consecutive failures"
+
+
+check("moving-target fork is benched by PEER, not by hash", t_moving_target_fork_is_benched_by_peer_not_hash)
+check("reject_tip strikes the advertising peer", t_reject_tip_strikes_the_advertising_peer)
 check("foreign-protocol weight is invisible to the production gate", t_foreign_protocol_weight_ignored)
 check("emergency failure paths all reject the tip + loop re-checks behind", t_emergency_paths_reject)
 

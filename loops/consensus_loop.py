@@ -86,6 +86,8 @@ class ConsensusClient(threading.Thread):
         # out of the donor pool for being lighter, so the node sat still for hours.
         self._tip_strikes = {}      # tip hash -> consecutive failures to obtain it
         self._tip_until = {}        # tip hash -> monotonic deadline while it stays benched
+        self._peer_strikes = {}     # peer -> consecutive failures to obtain the chain IT advertises
+        self._peer_until = {}       # peer -> monotonic deadline while its whole chain is out of fork choice
 
         self.transaction_hash_pool_percentage = 0
         self.upcoming_block_hash_pool_percentage = 0
@@ -94,14 +96,28 @@ class ConsensusClient(threading.Thread):
     def reject_tip(self, tip_hash):
         """Bench an advertised-heavier tip we just failed to obtain, with exponential backoff. Repeated
         failures mean nothing can serve that chain, so the node must stop spending every window on it and
-        get on with syncing the heaviest chain it can actually reach."""
+        get on with syncing the heaviest chain it can actually reach.
+
+        Benching the HASH alone is not enough against the case that actually happens: a peer that forked
+        long ago and is still mining its own branch publishes a NEW tip hash every block, so per-hash
+        strikes never accumulate — each pass sees a brand-new "heaviest" tip, spends a full sync window
+        failing to obtain it, and re-wedges. Every failure therefore also strikes the ADVERTISING PEERS,
+        and while a peer is benched none of its tips enter fork choice at all."""
         if not tip_hash:
             return
         n = self._tip_strikes.get(tip_hash, 0) + 1
         self._tip_strikes[tip_hash] = n
         self._tip_until[tip_hash] = time.monotonic() + min(TIP_BENCH_BASE_S * (2 ** (n - 1)), TIP_BENCH_MAX_S)
         self.rejected_tips.add(tip_hash)
+        for peer, h in self.block_hash_pool.copy().items():
+            if h == tip_hash:
+                self._peer_strikes[peer] = pn = self._peer_strikes.get(peer, 0) + 1
+                self._peer_until[peer] = time.monotonic() + min(TIP_BENCH_BASE_S * (2 ** (pn - 1)), TIP_BENCH_MAX_S)
         return n
+
+    def tip_source_benched(self, peer):
+        """Is this peer's advertised chain currently excluded from fork choice? (see reject_tip)"""
+        return self._peer_until.get(peer, 0) > time.monotonic()
 
     def refresh_hashes(self):
         """make sure our node knows the current state of affairs quickly"""
@@ -179,6 +195,8 @@ class ConsensusClient(threading.Thread):
         self.rejected_tips = {h for h, until in self._tip_until.items() if until > now_m}
         for h in [h for h, until in self._tip_until.items() if until <= now_m - TIP_BENCH_FORGET_S]:
             self._tip_until.pop(h, None); self._tip_strikes.pop(h, None)   # long gone: forget the strikes too
+        for p in [p for p, until in self._peer_until.items() if until <= now_m - TIP_BENCH_FORGET_S]:
+            self._peer_until.pop(p, None); self._peer_strikes.pop(p, None)  # a peer that healed gets a clean slate
 
         weight_pool = {}
         for peer, status in self.status_pool.copy().items():
@@ -191,7 +209,9 @@ class ConsensusClient(threading.Thread):
         tip_weights = {}
         for peer, tip_hash in self.block_hash_pool.copy().items():
             w = weight_pool.get(peer)
-            if tip_hash is None or w is None or tip_hash in self.rejected_tips:
+            # a benched PEER contributes nothing: it forked long ago and mints a fresh unobtainable tip
+            # every block, so excluding only the hash we last failed on would let the next one back in
+            if tip_hash is None or w is None or tip_hash in self.rejected_tips or self.tip_source_benched(peer):
                 continue
             if tip_hash not in tip_weights or w > tip_weights[tip_hash]:
                 tip_weights[tip_hash] = w
