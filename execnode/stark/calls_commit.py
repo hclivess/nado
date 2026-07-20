@@ -50,6 +50,15 @@ def _arg_field(a):
     return a if isinstance(a, int) else runtimes.zkvm_addr_digest(a)
 
 
+def _safe_int(v):
+    """A call's `value` as a non-negative int, or 0 for anything else. block_summary derives a WHOLE block's
+    leaves at once, so a bare int() on a poison `value:"abc"` used to kill the summary for every call in the
+    block (audit 2026-07). L1 admission now rejects such a blob; this keeps the summary total for any block
+    already in history. Deterministic — every node coerces identically, and a non-int value reverts on apply
+    anyway, so the leaf's exact number is immaterial."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+
+
 def block_calls(block, ns="default"):
     """The ORDERED execution calls a namespace's `blob` txs in `block` carry (op == 'call') — the DETERMINISTIC
     bridge that lets L1 (the settlement VERIFIER) and the exec node (the PROVER) build the IDENTICAL calls list
@@ -72,7 +81,7 @@ def block_calls(block, ns="default"):
         if d.get("ns", "default") != ns:
             continue
         calls.append({"cid": d.get("contract"), "method": d.get("method"), "caller": tx.get("sender"),
-                      "args": d.get("args", []), "value": int(d.get("value", 0) or 0),
+                      "args": d.get("args", []), "value": _safe_int(d.get("value")),
                       "cursor": h, "timestamp": ts})
     return calls
 
@@ -134,7 +143,7 @@ def block_records_inert(block):
         op = d.get("op")
         if op not in _RECORDS_SAFE_BLOB_OPS:
             return False
-        if op == "call" and int(d.get("value", 0) or 0) != 0:
+        if op == "call" and _safe_int(d.get("value")) != 0:
             return False                              # value escrow moves two bridge-balance records
     return True
 
@@ -151,7 +160,10 @@ def block_summary(block):
         d = tx.get("data")
         if not isinstance(d, dict) or d.get("op") != "call":
             continue
-        calls_by_ns.setdefault(d.get("ns", "default"), [])
+        _ns = d.get("ns", "default")
+        if not isinstance(_ns, str):
+            continue                                   # unhashable ns -> not a real namespace; skip (admission rejects it too)
+        calls_by_ns.setdefault(_ns, [])
     for ns in list(calls_by_ns):
         calls_by_ns[ns] = [call_leaf(c) for c in block_calls(block, ns)]
     return block_records_inert(block), calls_by_ns

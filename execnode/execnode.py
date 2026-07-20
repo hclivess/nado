@@ -187,20 +187,36 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
         d = tx.get("data")
         if (tx.get("recipient") == "blob" and isinstance(d, dict)
                 and d.get("op") == "field_transfer" and d.get("proof_da") and "bundle_json" not in d):
-            bb = await da_fetch(session, d["proof_da"])
-            if bb is None:
+            # A MALFORMED proof_da (path chars -> DaStore._dir raises) or non-UTF-8 DA bytes are NOT a
+            # temporarily-unavailable proof — they are a permanently-bad tx, so SKIP it (apply_blob then
+            # no-ops the field_transfer) rather than stall or crash the whole block forever. `bb is None`
+            # (genuinely unavailable) still stalls in L1 order, unchanged. L1 admission now rejects such a
+            # proof_da anyway (transaction_ops); this is defence in depth for any block already in history.
+            try:
+                bb = await da_fetch(session, d["proof_da"])
+                if bb is None:
+                    if verbose:
+                        print(f"[execnode] block {h}: a field_transfer proof is UNAVAILABLE via DA — stalling at {h}", flush=True)
+                    return False
+                resolved[tx.get("txid")] = bb.decode()
+            except Exception as e:
                 if verbose:
-                    print(f"[execnode] block {h}: a field_transfer proof is UNAVAILABLE via DA — stalling at {h}", flush=True)
-                return False
-            resolved[tx.get("txid")] = bb.decode()
+                    print(f"[execnode] block {h}: skipping field_transfer with bad DA proof ({type(e).__name__})", flush=True)
     for tx in block.get("block_transactions", []):
+      # PER-TX GUARD (halt-class, audit 2026-07): this DISPATCH code — not apply_blob, which is already
+      # fully guarded — used a payload field (`ns`) as a dict key with no type check, so a blob carrying an
+      # unhashable ns raised TypeError HERE and aborted the whole block before the cursor advance below. The
+      # tail loop then refetched the same block forever: a permanent, fleet-wide exec halt for one
+      # MIN_TX_FEE tx. L1 admission now refuses such a payload; this ensures ONE bad tx can never freeze the
+      # cursor regardless (a block from history, or any future field this loop reads without checking).
+      try:
         if tx.get("txid") in resolved and isinstance(tx.get("data"), dict):
             tx = {**tx, "data": {**tx["data"], "bundle_json": resolved[tx["txid"]]}}
         r = tx.get("recipient")
         if r == "blob":
             d = tx.get("data")
             bns = d.get("ns", "default") if isinstance(d, dict) else "default"
-            tgt = states_map.get(bns)
+            tgt = states_map.get(bns) if isinstance(bns, str) else None
             if tgt is not None:
                 res = tgt.apply_blob(d, tx.get("sender"), tx.get("txid"))
                 if verbose:
@@ -269,6 +285,12 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
             if rv:
                 for _st in states_map.values():
                     _st.record_reveal(rv.get("target_epoch"), rv.get("secret"))
+      except Exception as e:
+        # A single malformed tx must never abort the block — that is the permanent-wedge bug. Skip it and
+        # go on; the cursor still advances below. Deterministic: every node hits the same exception on the
+        # same tx and skips identically, so no fork. (apply_blob's own effects are already guarded upstream.)
+        if verbose:
+            print(f"[execnode] block {h}: skipped tx {(tx.get('txid') or '')[:12]}… ({type(e).__name__}: {e})", flush=True)
     for _st in states_map.values():
         _st.cursor = h
         _st.block_ts = int(block.get("block_timestamp") or _st.block_ts)   # TIME opcode: wall-clock of this block

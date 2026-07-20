@@ -705,6 +705,12 @@ async def account_mempool(request):
             height = int(lb.get("block_number") or 0)
             from ops import alias_ops
             free_in = free_out = exec_in = exec_out = 0
+            # HALT-CLASS belt (audit 2026-07): read UNVALIDATED payload numbers through a safe coercion. A
+            # non-int data field used to make this O(mempool) scan's bare int() raise, and the one outer
+            # except returned 403 for EVERY address while the poison sat in the pool. Admission now rejects
+            # such a blob so it cannot be pooled; this keeps the endpoint up even if one somehow were.
+            def _si(x):
+                return int(x) if isinstance(x, int) and not isinstance(x, bool) else 0
             txs = []
             for tx in list(memserver.transaction_pool):
                 if not isinstance(tx, dict):
@@ -717,10 +723,10 @@ async def account_mempool(request):
                 fi = fo = ei = eo = 0
                 # exits proven straight to data["addr"] (bridge/shield claims), whoever submitted them
                 if recipient in ("bridge_withdraw", "unshield") and data.get("addr") == addr:
-                    fi += int(data.get("amount") or 0)
+                    fi += _si(data.get("amount"))
                 if sender == addr:
                     if recipient == "withdraw":            # matured unbond claim: bonded -> spendable
-                        fi += int(data.get("amount") or 0)
+                        fi += _si(data.get("amount"))
                     elif recipient == "bridge":            # L1 -> exec (playable) deposit
                         fo += amount + fee
                         ei += amount
@@ -728,9 +734,9 @@ async def account_mempool(request):
                         fo += fee
                         op = data.get("op")
                         if op == "call":
-                            eo += int(data.get("value") or 0)
+                            eo += _si(data.get("value"))
                         elif op == "bridge_withdraw":      # playable -> L1 (lands via a later bridge_withdraw claim)
-                            eo += int(data.get("amount") or 0)
+                            eo += _si(data.get("amount"))
                     elif recipient in ("bridge_withdraw", "unshield", "unbond", "register", "heartbeat",
                                        "msgkey", "attest", "commit", "reveal", "settle", "slash",
                                        "xmsg", "htlc_claim"):

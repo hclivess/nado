@@ -105,6 +105,74 @@ def t8_non_blob_txs_never_dropped_by_cap():
     kept = cap_block_blobs([normal, big] + [construct_blob_tx(A, "y" * (BLOB_MAX_BYTES), 1, MIN_TX_FEE) for _ in range(20)])
     assert normal in kept, "non-blob tx must never be dropped by the blob cap"
 
+# ---- HALT-CLASS admission gates (audit 2026-07): a validly-SIGNED blob whose payload would crash the exec
+# layer or block storage downstream must be REJECTED at admission (this gate runs in the mempool AND in
+# verify_block). Each poison below permanently wedged a live money layer for one MIN_TX_FEE tx. -----------
+def t9_surrogate_in_data_rejected():
+    """A lone UTF-16 surrogate in `data` signs valid (txid is ensure_ascii=True) but makes save_block's
+    codec (ensure_ascii=False) raise inside incorporate_block. Must be refused."""
+    for payload in ("\ud800", {"op": "call", "contract": "c", "method": "m", "args": ["ok\ud800"]}):
+        tx = construct_blob_tx(A, payload, max_block=1, fee=MIN_TX_FEE)
+        assert raises(lambda: validate_transaction(tx, logger, 1)), f"surrogate payload must reject: {payload!r}"
+
+def t10_unhashable_ns_rejected():
+    """A blob whose `ns` is a list/dict/int is unhashable or wrong — it wedged the exec cursor via
+    states_map.get(ns)."""
+    for bad in ([], {}, 5):
+        tx = construct_blob_tx(A, {"op": "call", "ns": bad, "contract": "c", "method": "m", "args": []},
+                               max_block=1, fee=MIN_TX_FEE)
+        assert raises(lambda: validate_transaction(tx, logger, 1)), f"ns={bad!r} must reject"
+
+def t11_bad_value_asset_proofda_rejected():
+    """value must be a non-negative int (int()'d in the exec summary), asset a str/int id, proof_da a
+    path-safe commitment (path chars reach DaStore._dir)."""
+    for payload in ({"op": "call", "contract": "c", "method": "m", "args": [], "value": "abc"},
+                    {"op": "call", "contract": "c", "method": "m", "args": [], "value": -1},
+                    {"op": "call", "contract": "c", "method": "m", "args": [], "asset": []},
+                    {"op": "field_transfer", "proof_da": "../etc/passwd"},
+                    {"op": "field_transfer", "proof_da": "a/b"},
+                    {"op": "field_transfer", "proof_da": ".."}):
+        tx = construct_blob_tx(A, payload, max_block=1, fee=MIN_TX_FEE)
+        assert raises(lambda: validate_transaction(tx, logger, 1)), f"poison must reject: {payload}"
+
+def t12_clean_asset_call_still_validates():
+    """No false positives: a well-formed asset-denominated call passes admission."""
+    tx = construct_blob_tx(A, {"op": "call", "contract": "c", "method": "swap", "args": [1, 2],
+                               "value": 250, "asset": "8037232546941009142", "ns": "default"},
+                           max_block=1, fee=MIN_TX_FEE)
+    validate_transaction(tx, logger, 1)   # must not raise
+
+def t13_exec_layer_survives_poison_blobs():
+    """DEFENCE IN DEPTH: even if a poison blob reached a block (history / a bug), _apply_block must SKIP it
+    and advance the cursor — never wedge. Reproduces the exact halt inputs."""
+    import asyncio
+    from execnode.execnode import _apply_block
+    from execnode.state import ExecState
+    st = ExecState(tempfile.mktemp(suffix=".json"))
+    S = "mldsa44" + "a" * 42
+    block = {"block_number": 7, "block_hash": "ab" * 32, "block_timestamp": 0, "block_transactions": [
+        {"recipient": "blob", "txid": "p1", "sender": S, "data": {"op": "call", "ns": []}},            # unhashable ns
+        {"recipient": "blob", "txid": "p2", "sender": S, "data": {"op": "call", "contract": "c",
+                                                                  "method": "m", "args": [], "value": "abc"}},
+        {"recipient": "blob", "txid": "p3", "sender": S, "data": {"op": "deploy", "code": {"m": [["RET", 0, 0, 0]]}}},
+    ]}
+    ok = asyncio.new_event_loop().run_until_complete(_apply_block(None, {"default": st}, st, block, verbose=False))
+    assert ok is True, "a poison blob must not stall the block"
+    assert st.cursor == 7, "the exec cursor must advance past a poison block"
+
+def t14_block_summary_survives_poison():
+    """The per-block exec summary must not be killed by one poison call (value/ns)."""
+    from execnode.stark.calls_commit import block_summary
+    S = "mldsa44" + "b" * 42
+    block = {"block_number": 7, "block_timestamp": 0, "block_transactions": [
+        {"recipient": "blob", "txid": "p1", "sender": S, "data": {"op": "call", "contract": "c",
+                                                                  "method": "m", "args": [], "value": "abc"}},
+        {"recipient": "blob", "txid": "p2", "sender": S, "data": {"op": "call", "contract": "c",
+                                                                  "method": "m", "args": [], "ns": []}},
+    ]}
+    block_summary(block)   # must not raise
+
+
 for name, fn in list(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():
         check(name, fn)

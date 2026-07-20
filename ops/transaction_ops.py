@@ -664,6 +664,18 @@ def validate_transaction(transaction, logger, block_height):
     Rejection is what stands between the ledger and forged, replayed, underpaid or double-claimed txs."""
     assert isinstance(transaction, dict), "Data structure incomplete"
     assert transaction.get("chain_id") == CHAIN_ID, "Wrong or missing chain id"
+    # HALT-CLASS (codec safety, audit 2026-07): `data` must survive the STORAGE codec, which
+    # incorporate_block -> save_block packs with ensure_ascii=False. A lone UTF-16 surrogate ("\ud800")
+    # passes the txid/signature (canonical_bytes is ensure_ascii=True) yet makes that pack raise
+    # UnicodeEncodeError inside a path that must never raise — ~30s of blocked production and a lost slot per
+    # MIN_TX_FEE tx, network-wide. Reject it here (this gate runs at mempool admission AND in verify_block)
+    # so it can never reach block storage on any node. Cheap: the encode is work save_block does anyway.
+    if "data" in transaction:
+        from ops import codec as _codec
+        try:
+            _codec.pack(transaction["data"])
+        except Exception:
+            raise AssertionError("transaction data is not storage-encodable")
     if transaction.get("multisig") is not None:
         # OPT-IN MULTISIG (ops/multisig_ops.py). Cheap consensus gates BEFORE the M signature
         # verifications in validate_origin:
@@ -853,6 +865,32 @@ def validate_transaction(transaction, logger, block_height):
         payload = transaction.get("data")
         assert payload not in (None, "", {}, []), "Blob tx must carry a data payload"
         assert blob_payload_size(payload) <= BLOB_MAX_BYTES, f"Blob payload exceeds {BLOB_MAX_BYTES} bytes"
+        # HALT-CLASS field typing (audit 2026-07): the exec node replays these payloads and uses some fields
+        # as DICT KEYS or coerces them. A wrong TYPE there raises INSIDE the exec tail loop, which has no
+        # per-tx guard, so the cursor never advances — one MIN_TX_FEE blob permanently wedges every exec node
+        # (every game + every asset frozen; assets have no L1 exit). L1 orders the blob and never decodes it,
+        # but it must still REFUSE a payload that would halt the layer downstream — the same discipline the
+        # `settle` op below already applies to exec_cursor. Only dict payloads carry ops.
+        if isinstance(payload, dict):
+            _op = payload.get("op")
+            assert _op is None or isinstance(_op, str), "Blob op must be a string"
+            # ns/to_ns/from_ns index the per-namespace state map: a list/dict there is unhashable -> TypeError.
+            assert valid_namespace(payload.get("ns", DEFAULT_NS)), "Blob ns must be a valid namespace id"
+            for _k in ("to_ns", "from_ns"):
+                if _k in payload:
+                    assert valid_namespace(payload[_k]), f"Blob {_k} must be a valid namespace id"
+            if "value" in payload:                         # int()'d in the exec summary AND the ledger
+                _v = payload["value"]
+                assert isinstance(_v, int) and not isinstance(_v, bool) and _v >= 0, \
+                    "Blob value must be a non-negative int"
+            if "asset" in payload:                         # a str/int id; anything else breaks ledger keys
+                _a = payload["asset"]
+                assert (isinstance(_a, int) and not isinstance(_a, bool)) or isinstance(_a, str), \
+                    "Blob asset must be an int or string id"
+            if "proof_da" in payload:                      # a DA commitment; path chars reach DaStore._dir
+                _pda = payload["proof_da"]
+                assert isinstance(_pda, str) and _pda and "/" not in _pda and "\\" not in _pda \
+                    and _pda not in (".", ".."), "Blob proof_da must be a safe commitment string"
     elif recipient == "settle":
         # EXECUTION-LAYER SETTLEMENT (Phase 2): a BONDED validator attests an exec-layer checkpoint
         # {exec_cursor, state_root}. Fee-exempt validator duty; one attestation per (validator, cursor).
