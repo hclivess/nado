@@ -65,16 +65,36 @@ def main():
 
 
 def bust_pages():
-    """Stamp every static/*.html i18n.js reference with a content hash — Cloudflare caches /static js,
-    so without this the freshly merged bundle never reaches visitors (the 'translations missing' bug)."""
+    """Stamp every static/*.html with content hashes — Cloudflare serves /static js with max-age=14400, so
+    without this a fresh bundle never reaches visitors (the 'translations missing' bug).
+
+    Two stamps, for the same reason:
+      * i18n.js — the merged translation bundle;
+      * each page's OWN game module, static/<game>.js. That one used to go unstamped, which means a shipped
+        JS BUGFIX was invisible for four hours to exactly the people who had already hit the bug. The page
+        itself is served no-cache, so stamping the module reference inside it takes effect on the next
+        reload.
+    """
     import hashlib, re as _re
-    h = hashlib.md5(open(I18N, "rb").read()).hexdigest()[:8]
+
+    def h8(path):
+        return hashlib.md5(open(path, "rb").read()).hexdigest()[:8]
+
+    h = h8(I18N)
+    stamped = 0
     for page in glob.glob(os.path.join(HERE, "..", "*.html")):
         src = open(page, encoding="utf-8").read()
         out = _re.sub(r'src="/static/i18n\.js[^"]*"', 'src="/static/i18n.js?v=%s"' % h, src)
+        # the page's own module, matched by filename so a page never stamps someone else's script
+        name = os.path.splitext(os.path.basename(page))[0]
+        mod = os.path.join(HERE, "..", name + ".js")
+        if os.path.exists(mod):
+            out = _re.sub(r'src="/static/%s\.js[^"]*"' % _re.escape(name),
+                          'src="/static/%s.js?v=%s"' % (name, h8(mod)), out)
         if out != src:
             open(page, "w", encoding="utf-8").write(out)
-    print("stamped i18n.js?v=%s into game pages" % h)
+            stamped += 1
+    print("stamped i18n.js?v=%s + each page's own module into %d pages" % (h, stamped))
 
 if __name__ == "__main__":
     main()
