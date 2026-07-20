@@ -7,16 +7,25 @@ proofs are BYTE-IDENTICAL, then verifying the holistic one. If native/starkprove
 
 Run: python3 tests/test_holistic_wired.py
 """
-import os, sys, traceback
+import os, sys, time, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import field as F, fri, fri_verify, backend as B, recursive_verify as RV, stark_native as SN
 
 fails = 0
 def check(name, fn):
+    """Run fn, reporting PASS/FAIL — and announce the check BEFORE running it.
+
+    Each check proves a real recursion AIR TWICE (native holistic, then NADO_NO_HOLISTIC=1 pure Python) to
+    assert the two are byte-identical. The pure-Python leg is minutes per AIR by design — doc/zk-recursion.md
+    measures a level-1 fold at ~19 min in pure Python. Without the announcement this test prints NOTHING for
+    tens of minutes and is indistinguishable from a hang, which is exactly how it got misread as broken on
+    2026-07-20 (it was fine; the box was at load 27). Flushed so it survives being piped or timed out."""
     global fails
-    try: fn(); print(f"PASS  {name}")
+    t0 = time.time()
+    print(f"....  {name} (proving twice: native + pure-Python — minutes)", flush=True)
+    try: fn(); print(f"PASS  {name}  [{time.time() - t0:.0f}s]", flush=True)
     except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+        fails += 1; print(f"FAIL  {name}: {e}", flush=True); traceback.print_exc()
 
 
 def deep_eq(a, b, path="proof"):
