@@ -147,9 +147,21 @@ def t_replay_dividend_overcredit():
     accts = {DIVIDEND_POOL: 100}
     ahead = FakeState(dividend={"m": 40})
     assert INV.check_dividend(getter(accts), ahead)[0], "an undistributed surplus is legal, not a violation"
+    ok_a, da = INV.check_dividend(getter(accts), ahead)
+    assert da["status"] == "undistributed", f"a surplus must be labelled, not left None: {da}"
     over = FakeState(dividend={"m": 500})
     ok, d = INV.check_dividend(getter(accts), over)
-    assert not ok, f"entitlement exceeding the pool MUST trip check_dividend: {d}"
+    assert not ok and d["status"] == INV.MINT, f"entitlement exceeding the pool MUST trip check_dividend: {d}"
+
+
+def t_every_check_reports_a_status():
+    """Every domain must speak the same vocabulary — a report where one check says status=None is one a
+    reader has to special-case, and special cases are where things get skimmed past."""
+    accts = {BRIDGE_ESCROW: 10, SHIELD_ESCROW: 10, DIVIDEND_POOL: 10, "m": 10}
+    st = FakeState(bridge={"x": 10}, pool_value=10, dividend={"m": 10})
+    _ok, res = INV.check_all(accounts_of(accts), {"produced": 40, "fees": 0}, getter(accts), st)
+    for r in res:
+        assert r.get("status"), f"check {r.get('domain')} reported no status: {r}"
 
 
 # ------------------------------------------------------------------ fuzz: unknown paths
@@ -244,6 +256,7 @@ for name, fn in [
     ("fuzz: conserving activity never false-positives", t_fuzz_conserving_transfers_never_trip),
     ("fuzz: any injected delta is caught exactly", t_fuzz_any_injected_delta_is_caught),
     ("skipped checks are reported, not silently passed", t_skipped_checks_are_reported_not_silently_passed),
+    ("every check reports a status", t_every_check_reports_a_status),
     ("stranded coin reported but does not alarm", t_stranded_is_reported_but_does_not_alarm),
     ("mint vs stranded are distinguished", t_mint_and_stranded_are_distinguished),
     ("check_all never raises into the caller", t_check_all_never_raises),

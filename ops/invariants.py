@@ -136,9 +136,13 @@ def check_dividend(get_account, exec_state):
                   for w in (getattr(exec_state, "dividend_withdrawals", None) or {}).values())
     carry = int(getattr(exec_state, "div_carry", 0) or 0)
     claimable = accrued + pending + carry
-    return pool >= claimable, {"domain": "dividend", "pool": pool, "accrued": accrued,
+    undistributed = pool - claimable
+    # Same directional vocabulary as the other domains so a reader never has to special-case this one:
+    # a surplus is normal here (inflow the exec layer has not distributed yet), a deficit is a mint.
+    status = OK if undistributed == 0 else ("undistributed" if undistributed > 0 else MINT)
+    return pool >= claimable, {"domain": "dividend", "status": status, "pool": pool, "accrued": accrued,
                                "pending_exits": pending, "carry": carry,
-                               "undistributed": pool - claimable}
+                               "undistributed": undistributed}
 
 
 ESCROW_DOMAINS = ("bridge", "shielded", "dividend")
