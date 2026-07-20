@@ -22,7 +22,7 @@
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Autogame", "url": "https://autogame.nadochain.com/", "description": "A chain-paced side-scrolling warrior march on the NADO execution layer: one step per L1 block, terrain from a committed block hash, dice from a future one.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Ctext%20y%3D%2238%22%20font-size%3D%2238%22%3E%E2%9A%94%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
-<script src="/static/i18n.js?v=9f130597"></script>
+<script src="/static/i18n.js?v=6e067427"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--gold:#e3b341;--blood:#c9484a;
@@ -214,7 +214,7 @@
 </div>
 
 <div class="card">
-  <h2 data-i18n="autogame.roadH">The road ahead — tap a tile to queue a reaction</h2>
+  <h2 data-i18n="autogame.roadH">The road ahead — already fixed, not yet rolled</h2>
   <div id="road"></div>
   <div class="legend" data-i18n="autogame.roadHelp">This is the next sixteen steps, already fixed by a mined
     block. The dice that resolve them come from a block sixteen later that does not exist yet.</div>
@@ -222,11 +222,7 @@
 
 <div class="card">
   <h2 data-i18n="autogame.doctrineH">Your doctrine — what you do about each thing you meet</h2>
-  <p class="hint" data-i18n="autogame.doctrineHelp">You are not picking moves for particular squares: the road
-    is different every time. You are giving <b>standing orders by what a thing IS</b> — "strike monsters,
-    guard hazards, take the right fork" — and they hold for the rest of the march until you change them.
-    New orders take effect from the next unresolved leg, so they can never rewrite a fight whose dice have
-    already been rolled.</p>
+  <p class="hint" data-i18n-html="autogame.doctrineHelp">You are not picking moves for particular squares: the road is different every time. You are giving <b>standing orders by what a thing IS</b> — "strike monsters, guard hazards, take the right fork" — and they hold for the rest of the march until you change them. New orders take effect from the next unresolved leg, so they can never rewrite a fight whose dice have already been rolled.</p>
   <div id="doctrine"></div>
   <div class="row spread" style="margin-top:12px">
     <span class="hint" id="doctrineNote"></span>
