@@ -17,7 +17,8 @@ import {
   renderWallet, resolveAliases, disp, share, algHashn, ALG_P, esc, blocksToTime, lsLoad, lsSave,
 } from "./nadodapp.js";
 import * as E from "./autogame-engine.js";
-import { drawWarrior, unpackItem, MATERIALS, FRAME_W, FRAME_H } from "./autogame-art.js";
+import * as ART from "./autogame-art.js";
+import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js";
 
 const CID = "e1642eac82cb17f08b43dc427ac2df1f";          // execnode/games/autogame.py (zkVM) — set by the deploy script
 const dapp = new NadoDapp({ cid: CID, app: "Autogame" });
@@ -228,28 +229,57 @@ function drawWorld() {
   ctx.fillStyle = bio.ground; ctx.fillRect(0, GY, W, H - GY);
   ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(0, GY, W, 2);
 
-  // tile markers scrolling past — what is coming, in world space
+  // What is coming, standing ON the road in world space. These used to be 20px EMOJI at half opacity next
+  // to a hand-drawn pixel warrior, which read as the player swinging his sword at nothing.
   const heroX = Math.round(W * 0.30);
+  const now = performance.now();
+  const RANK = { [E.ELITE]: 1, [E.BOSS]: 2 };
+  const PROP = { [E.HAZARD]: "hazard", [E.CACHE]: "cache", [E.SHRINE]: "shrine",
+                 [E.FORGE]: "forge", [E.RELIC]: "relic", [E.FORK]: "fork" };
+  let engaging = false;
   if (chain) {
     for (const t of road) {
-      const x = heroX + Math.round((t.depth - camera) * TILE);
-      if (x < -TILE || x > W + TILE) continue;
-      if (t.tile === E.ROAD) continue;
-      ctx.font = "20px system-ui"; ctx.textAlign = "center";
-      ctx.globalAlpha = t.depth < camera ? 0.25 : 1;
-      ctx.fillText(TILE_ICON[t.tile], x, GY - 6);
-      ctx.globalAlpha = 1;
+      const dx = t.depth - camera;
+      const x = heroX + Math.round(dx * TILE);
+      if (x < -2 * TILE || x > W + 2 * TILE || t.tile === E.ROAD) continue;
+      const passed = dx < -0.25;                       // already walked through: it is done for
+      const combat = t.tile === E.MONSTER || t.tile === E.ELITE || t.tile === E.BOSS || t.tile === E.FORK;
+
+      if (combat && ART.drawMonster) {
+        const rank = RANK[t.tile] || 0;
+        const scale = rank === 2 ? 4 : 3;
+        const mw = (ART.MON_W || 32) * scale, mh = (ART.MON_H || 32) * scale;
+        // frames 0..2 idle, 3 attack, 4 death — see autogame-art.js
+        const near = Math.abs(dx) < 0.6;
+        const frame = passed ? 4 : near ? 3 : Math.floor(now / 220) % 3;
+        if (near) engaging = true;
+        ART.drawMonster(ctx, Math.round(x - mw / 2), GY + 2 - mh,
+          { family: t.fam, rank, level: t.ml, frame, scale, facing: -1, dead: passed });
+      } else if (PROP[t.tile] && ART.drawProp) {
+        const scale = 3;
+        const pw = (ART.MON_W || 32) * scale, ph = (ART.MON_H || 32) * scale;
+        ctx.globalAlpha = passed ? 0.35 : 1;
+        ART.drawProp(ctx, Math.round(x - pw / 2), GY + 2 - ph,
+          { kind: PROP[t.tile], frame: Math.floor(now / 220) % 3, scale });
+        ctx.globalAlpha = 1;
+      } else {
+        // fallback while the sprite for this tile does not exist yet — never leave the road blank
+        ctx.font = "22px system-ui"; ctx.textAlign = "center";
+        ctx.globalAlpha = passed ? 0.3 : 1;
+        ctx.fillText(TILE_ICON[t.tile], x, GY - 6);
+        ctx.globalAlpha = 1; ctx.textAlign = "left";
+      }
     }
-    ctx.textAlign = "left";
   }
 
-  // the warrior — always at the same screen x; the world moves, not him
-  const frame = Math.floor((performance.now() / 140) % 4);
+  // the warrior — always at the same screen x; the world moves, not him. He swings when something is
+  // actually in front of him, not merely when the event queue happens to hold a fight.
+  const frame = Math.floor((now / 140) % 4);
   const hurt = view && view.hp * 4 < view.maxhp;
   drawWarrior(ctx, footX(heroX, 3), footY(GY + 2, 3), {
     gear: view ? view.gear : new Array(6).fill(0),
     frame, scale: 3, facing: 1, hurt, dead: view ? !view.alive : false,
-    attacking: queue.length > 0 && (queue[0].tile === E.MONSTER || queue[0].tile === E.ELITE || queue[0].tile === E.BOSS),
+    attacking: engaging,
   });
 
   // night veil / weather

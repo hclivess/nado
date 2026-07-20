@@ -60,9 +60,10 @@
   /* ── the stage: the scrolling world ─────────────────────────────────────── */
   #stage{position:relative;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#0a1119;margin:0 0 14px}
   #world{display:block;width:100%;height:auto;image-rendering:pixelated}
-  #hud{position:absolute;left:0;right:0;top:0;padding:10px 12px;display:flex;gap:12px;align-items:flex-start;
-    background:linear-gradient(180deg,rgba(5,9,14,.82),rgba(5,9,14,0));pointer-events:none;font-size:12px}
-  #hud .bars{flex:1;min-width:0}
+  #hud{position:absolute;left:0;right:0;top:0;padding:10px 12px;display:flex;gap:18px;align-items:flex-start;
+    background:linear-gradient(180deg,rgba(5,9,14,.88),rgba(5,9,14,0));pointer-events:none;font-size:12px}
+  #hud .bars{flex:1;min-width:0;max-width:60%}
+  #hud .stats{display:flex;gap:16px;margin-left:auto}
   .bar{height:7px;border-radius:4px;background:#0d151d;border:1px solid var(--border);overflow:hidden;margin:3px 0 6px}
   .bar i{display:block;height:100%;background:var(--win);transition:width .25s}
   .bar.hp i{background:linear-gradient(90deg,var(--blood),#e0736f)}
@@ -154,7 +155,7 @@
 </div>
 
 <div id="stage">
-  <canvas id="world" width="720" height="260"></canvas>
+  <canvas id="world" width="720" height="300"></canvas>
   <div id="hud">
     <div class="bars">
       <div class="row spread"><span class="dim" data-i18n="autogame.hpLabel">Health</span><span class="mono" id="hpTxt">—</span></div>
@@ -162,15 +163,17 @@
       <div class="row spread"><span class="dim" data-i18n="autogame.stamLabel">Stamina</span><span class="mono" id="stamTxt">—</span></div>
       <div class="bar stam"><i id="stamBar" style="width:100%"></i></div>
     </div>
-    <div class="stat">
-      <span class="dim" data-i18n="autogame.renownLabel">Renown</span>
-      <b class="mono" id="xpTxt">0</b>
-      <span class="streak" id="streakTxt"></span>
-    </div>
-    <div class="stat">
-      <span class="dim" data-i18n="autogame.depthLabel">Depth</span>
-      <b class="mono" id="depthTxt">0</b>
-      <span class="faint mono" id="rankTxt"></span>
+    <div class="stats">
+      <div class="stat">
+        <span class="dim" data-i18n="autogame.renownLabel">Renown</span>
+        <b class="mono" id="xpTxt">0</b>
+        <span class="streak" id="streakTxt"></span>
+      </div>
+      <div class="stat">
+        <span class="dim" data-i18n="autogame.depthLabel">Depth</span>
+        <b class="mono" id="depthTxt">0</b>
+        <span class="faint mono" id="rankTxt"></span>
+      </div>
     </div>
   </div>
   <div id="stagemsg" class="dim"></div>
@@ -265,6 +268,6 @@
 </footer>
 
 </div>
-<script type="module" src="/static/autogame.js?v=c0238416"></script>
+<script type="module" src="/static/autogame.js?v=b76f2d4c"></script>
 </body>
 </html>
