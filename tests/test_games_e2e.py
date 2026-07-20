@@ -345,16 +345,16 @@ def t_faucet():
     assert "paid=450" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [0, 56, 1, W1, 450]}, OP, "rw4"), "next day pays again"
     assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [1, 55, 1, W1, 10 ** 12]}, OP, "rw5"), "underfunded fails closed"
 
-def t_faucet_claim_proves():
+def t_faucet_reward_proves():
+    """The faucet's money path must be PROVABLE, not merely replayable.
+
+    This used to prove `claim`, the self-serve PoW grind — which was ripped out (the faucet is the
+    airdrop-play prize bank, nothing else), leaving the test referencing constants the contract no longer
+    defines. It had been failing on an AttributeError ever since, i.e. proving nothing. `reward` is the
+    method that actually moves money now, so it is the one that has to carry a proof."""
     from execnode.games import faucet as fc
-    from execnode.stark import alghash
     code = fc.build()
-    EASY = 1 << 31
-    d = runtimes.zkvm_addr_digest(A); n = 0
-    while (alghash.hashn([d, 0, n]) & 0xFFFFFFFF) >= EASY: n += 1
-    S = lambda f, k: f * (1 << 32) + k
-    slots = {S(fc.GGRANT, 0): 500, S(fc.GCAP, 0): 5, S(fc.GPOW, 0): EASY}
-    _prove(code, "claim", A, [0, n], slots, cursor=100_000)
+    _prove(code, "reward", fc.OPERATOR, [0, 55, 1, "mldsa44" + "1" * 42, 450], {}, cursor=100_000)
 
 
 def t_scrapline():
@@ -1059,7 +1059,7 @@ if __name__ == "__main__":
     check("sovereign: persistent nation world — global log, ply binding, address resolution", t_sovereign)
     check("sovereign: act proves", t_sovereign_act_proves)
     check("faucet: fixed-name deploy, PoW claims, budgets, pause, solvency", t_faucet)
-    check("faucet: claim proves", t_faucet_claim_proves)
+    check("faucet: reward proves", t_faucet_reward_proves)
     check("farkle: roll/hold scoring + banking vs reference", t_farkle)
     check("blackjack: deal/reveal/stand/settle vs dealer S17 + payouts + view", t_blackjack)
     check("blackjack: hit-then-bust loses immediately", t_blackjack_hit_bust)
