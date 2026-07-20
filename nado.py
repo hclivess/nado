@@ -218,6 +218,12 @@ async def status(request):
                                   else int(getattr(memserver, "history_retention_blocks", 0) or 0)),
             "update_available": bool(self_update.latest_known() and self_update.running_head()
                                      and self_update.latest_known() != self_update.running_head()),
+            # CAN THIS NODE UPDATE AT ALL? `running_commit: null` across 21 of 25 peers is what exposed the
+            # gap: a node installed by hand or by an old installer has no git metadata, so it can never
+            # self-update and cannot even be version-checked — it just silently drifts until it forks.
+            # Advertised so the condition is visible from the OUTSIDE (network panel, a sweep of peers),
+            # not only to whoever happens to call /update. False here is a node that WILL diverge.
+            "update_capable": (memserver.updatability or {}).get("capable"),
             # NETWORK PARTITION KEY: peers gate admission on this (peer_loop) so nodes on a different
             # chain (e.g. a pre-relaunch alphanet) never enter the status/consensus pools — a foreign
             # chain's advertised weight would otherwise stall production via the caught-up gate.
@@ -1838,9 +1844,19 @@ def _daily_update_loop():
     /update). First check 10 minutes after boot so a freshly restarted node settles/syncs first; a
     check that pulls new code schedules its own restart, after which the node is up to date and the
     next boot's timer re-arms. Opt out with \"auto_update\": false in private/config.json."""
+    # STARTUP GATE first: a node that cannot update itself is a node that will eventually fork, so it
+    # diagnoses that at boot, shouts about it, and repairs itself by running THE LOCAL INSTALLER (never a
+    # curl — the fixer ships with the node like everything else). Runs before the 10-minute settle wait so
+    # the operator sees it immediately in the journal.
+    try:
+        memserver.updatability = self_update.ensure_updatable(logger=logger)
+    except Exception as e:
+        logger.warning(f"updatability self-check failed: {e}")
     time.sleep(600)
     while True:
         try:
+            # Re-diagnose each day: a unit can be removed, a remote re-pointed, git uninstalled.
+            memserver.updatability = self_update.ensure_updatable(logger=logger)
             res = self_update.check_and_update("daily")
             logger.info(f"Daily update check: {res.get('status')}"
                         + (f" ({res.get('reason')})" if res.get("reason") else "")

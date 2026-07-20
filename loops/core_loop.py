@@ -832,6 +832,65 @@ class CoreClient(threading.Thread):
             return True
         return False
 
+    def _maybe_escape_dead_fork(self) -> bool:
+        """LAST-RESORT AUTORECOVERY: purge + resync when the node is provably stranded on a minority fork
+        AT OR BELOW its own finality floor.
+
+        Every other recovery path assumes the finalized prefix is sound. When it is not, they all fail
+        together: rollback refuses to cross the floor, re-anchor needs a snapshot ABOVE a floor that is on
+        the wrong chain, and _heavier_chain_exists() — which gates re-anchor — reads the status pool and
+        skips benched peers, so a collapsed peer set or a wrong bench makes the true chain invisible.
+        Observed live 2026-07-20: our finalized 19988 hashed 7c7a7c08 while the network had eb9d6de8; the
+        node sat wedged 40+ minutes through a restart AND a force_sync, and only scripts/purge_resync.sh
+        moved it. A human had to notice. That is the gap this closes.
+
+        DELIBERATELY PARANOID, because the remedy destroys chain-derived data:
+          * only after the tip has been frozen for DEAD_FORK_STALL_S (a healthy node never qualifies),
+          * only if peers we ask DIRECTLY (seed set + known peers — not the status pool, not weights, not
+            benching) report a different hash at OUR finalized height,
+          * only if NOBODY agrees with us: one agreeing peer means we are merely poorly connected, and
+            wiping then would be far worse than staying wedged,
+          * only every DEAD_FORK_COOLDOWN_S, and never when the operator has opted out.
+        private/ (keys, config) is never touched — purge_chain_data drops chain-derived data only."""
+        from protocol import DEAD_FORK_STALL_S, DEAD_FORK_COOLDOWN_S, DEAD_FORK_QUORUM
+        try:
+            if self.memserver.config.get("auto_escape_dead_fork", True) is False:
+                return False
+            now = get_timestamp_seconds()
+            if now - getattr(self, "_last_dead_fork_check", 0) < DEAD_FORK_COOLDOWN_S:
+                return False
+            if self.memserver.since_last_block < DEAD_FORK_STALL_S:
+                return False                      # still moving (or only briefly stalled) -> nothing to do
+            self._last_dead_fork_check = now
+
+            from ops.peer_ops import seed_peers, stranded_below_finality
+            from ops.account_ops import get_finalized_height
+            from ops.block_ops import get_block_hash_by_number
+            height = get_finalized_height()
+            ours = get_block_hash_by_number(height)
+            if not ours:
+                return False
+            # Ask the operator seed set FIRST (the weak-subjectivity anchor) plus whatever peers we know.
+            peers = list(dict.fromkeys(list(seed_peers()) + list(self.memserver.peers)))[:12]
+            stranded, detail = stranded_below_finality(ours, height, peers, quorum=DEAD_FORK_QUORUM,
+                                                       port=self.memserver.port)
+            if not stranded:
+                return False
+            self.logger.error("=" * 78)
+            self.logger.error(f"DEAD FORK: our FINALIZED block {height} is {str(ours)[:16]}… but "
+                              f"{len(detail['disagree'])} peers have a different block there and NONE agree.")
+            self.logger.error("Finality refuses to roll back across it, so no local recovery can work. "
+                              "Purging chain-derived data and resyncing. private/ (keys) is untouched.")
+            self.logger.error("=" * 78)
+            from ops.data_ops import purge_chain_data, stamp_chain_generation
+            purge_chain_data(logger=self.logger)
+            stamp_chain_generation()
+            self.memserver.terminate = True       # clean shutdown; systemd restarts us onto a fresh sync
+            return True
+        except Exception as e:
+            self.logger.warning(f"dead-fork escape check failed: {e}")
+            return False
+
     def _maybe_reanchor(self) -> bool:
         """WEDGE RECOVERY. Called from the emergency loop when normal sync cannot make progress — the donor
         can't serve our (forked) root, or the reorg leg hit a floor it can't cross. If a strictly-heavier
@@ -1012,7 +1071,7 @@ class CoreClient(threading.Thread):
                     # ESTABLISHED node, no donor can serve our root: we are on a minority fork whose root no
                     # honest canonical peer holds. If a strictly-heavier chain exists, re-anchor onto it (the
                     # only exit — normal fast-forward/reorg both require a donor that knows our root).
-                    elif self._maybe_reanchor():
+                    elif self._maybe_reanchor() or self._maybe_escape_dead_fork():
                         self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
                     else:
                         # STRIKE THE HEAVIEST TIP even though we never got as far as fetching from it.

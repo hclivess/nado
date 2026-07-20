@@ -73,6 +73,154 @@ def _blocked(why):
     return {"status": "blocked", "reason": why}
 
 
+# --- SELF-DIAGNOSIS: can this node update itself AT ALL? -------------------------------------------
+#
+# The refusal reasons in check_and_update ("not a git checkout", "no 'origin' remote", …) were only ever
+# discovered when somebody called /update. A node laid down by an old installer could therefore sit
+# un-updatable for months with nobody aware — which is exactly what happened: 21 of 25 peers answer
+# `running_commit: null` because they have no git metadata, so the fleet cannot even be VERSION-CHECKED,
+# let alone updated. Consensus changes ship strictly with no backward compatibility, so an un-updatable
+# node does not merely go stale: it eventually diverges and forks the network.
+#
+# So the node now diagnoses its OWN updatability at startup, advertises the verdict in /status, and can
+# repair itself. The repair is deliberately "run scripts/install.sh" and nothing else: the installer is the
+# single supported fixer (it converts a git-less directory into a real checkout in place, and writes the
+# systemd unit), so there is exactly ONE definition of a correct install and no second, drifting copy of
+# that logic living here.
+#
+# DEFECTS ARE SPLIT BY KIND, because the response differs:
+#   BLOCKING  local + permanent (no git binary, not a checkout, wrong origin, nothing to restart). The node
+#             cannot ever update until a human or the installer fixes it. Healable.
+#   WARNING   transient (origin unreachable). A node that was updatable yesterday and is offline today is
+#             FINE — it will update when connectivity returns. Never treated as fatal, because doing so
+#             would let one GitHub outage take down the entire fleet at once.
+
+def _has_restart_capability():
+    """True if at least one repo-running systemd unit exists — i.e. an applied update would actually take
+    effect. Without this, /update fast-forwards the repo and the OLD process keeps running forever, which
+    is the state three peers are in right now (repo current, running_commit stale)."""
+    for svc in _SERVICES:
+        try:
+            subprocess.run(["systemctl", "cat", f"{svc}.service"], timeout=10, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def updatability(probe_remote=True) -> dict:
+    """Diagnose whether this node can self-update. Pure inspection — never mutates anything. Returns
+    {capable, blocking[], warnings[], checks{}} where `capable` is False ONLY for local permanent defects."""
+    checks, blocking, warnings = {}, [], []
+
+    try:
+        subprocess.check_output(["git", "--version"], timeout=10, stderr=subprocess.DEVNULL)
+        checks["git_binary"] = True
+    except Exception:
+        checks["git_binary"] = False
+        blocking.append("git is not installed")
+
+    if checks.get("git_binary"):
+        try:
+            branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+            checks["git_checkout"] = True
+            checks["branch"] = branch
+            if branch != _BRANCH:
+                blocking.append(f"checkout is on '{branch}', not '{_BRANCH}'")
+        except Exception:
+            checks["git_checkout"] = False
+            blocking.append("not a git checkout (installed by hand or by an old installer)")
+        if checks.get("git_checkout"):
+            try:
+                url = _git("remote", "get-url", "origin")
+                checks["origin"] = url
+                if not _OFFICIAL_REPO_RE.search(url):
+                    blocking.append(f"origin is '{url}', not the official repo")
+            except Exception:
+                checks["origin"] = None
+                blocking.append("no 'origin' remote")
+
+    checks["restart_capable"] = _has_restart_capability()
+    if not checks["restart_capable"]:
+        blocking.append("no systemd unit — an update would apply to the repo but never restart the process")
+
+    if probe_remote and checks.get("git_checkout") and not blocking:
+        try:
+            _git("ls-remote", "--exit-code", "origin", _BRANCH, timeout=30)
+            checks["remote_reachable"] = True
+        except Exception:
+            checks["remote_reachable"] = False
+            warnings.append("origin unreachable right now (offline?) — transient, will retry")
+
+    return {"capable": not blocking, "blocking": blocking, "warnings": warnings, "checks": checks}
+
+
+_heal_attempted = [False]
+
+
+def heal(logger=None, force=False) -> dict:
+    """Repair an un-updatable node by running THE INSTALLER — the only supported fixer. scripts/install.sh
+    is idempotent, converts a git-less directory into a real checkout in place (keys and chain data are
+    gitignored and untracked, so a hard reset cannot touch them), reuses the existing venv, and writes the
+    systemd unit. Detached, because the installer restarts the very services this process belongs to.
+
+    Attempted at most ONCE per process (a heal that does not take must not become a restart loop), and only
+    as root — writing a systemd unit needs it."""
+    if _heal_attempted[0] and not force:
+        return {"status": "already_attempted"}
+    script = os.path.join(_REPO_DIR, "scripts", "install.sh")
+    if not os.path.isfile(script):
+        return {"status": "unavailable", "reason": "scripts/install.sh is missing from this directory"}
+    if os.geteuid() != 0:
+        return {"status": "needs_root",
+                "reason": "run: sudo scripts/install.sh --service   (writing a systemd unit needs root)"}
+    _heal_attempted[0] = True
+    args = ["bash", script, "--service"]
+    if os.path.isfile("/etc/systemd/system/nado-exec.service"):
+        args.append("--exec")                             # preserve an exec node this box already runs
+    if logger:
+        logger.warning(f"SELF-HEAL: running the installer to restore updatability: {' '.join(args)}")
+    try:
+        subprocess.Popen(args, cwd=_REPO_DIR, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"status": "healing", "cmd": " ".join(args)}
+    except Exception as e:
+        return {"status": "failed", "reason": repr(e)}
+
+
+def ensure_updatable(logger=None, auto_heal=True) -> dict:
+    """Startup gate: diagnose, shout, and (optionally) repair. Returns the report so /status can serve it.
+
+    NOTE ON WHAT THIS CAN AND CANNOT FIX: a node already in the broken state cannot receive this code — it
+    is un-updatable, that is the defect. So this does NOT rescue the existing stranded peers; a human runs
+    the installer once for those. What it does is stop the fleet from silently rotting into that state
+    again, and make the condition VISIBLE (in /status, so peers and the operator can see it) instead of
+    discoverable only by calling /update."""
+    try:
+        report = updatability()
+    except Exception as e:
+        return {"capable": None, "error": repr(e)}
+    if report["capable"]:
+        for w in report["warnings"]:
+            if logger:
+                logger.warning(f"self-update: {w}")
+        return report
+    if logger:
+        logger.error("=" * 78)
+        logger.error("THIS NODE CANNOT UPDATE ITSELF — it will drift out of consensus and fork.")
+        for b in report["blocking"]:
+            logger.error(f"  - {b}")
+        logger.error("  FIX: curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/"
+                     "install.sh | sudo bash -s -- --service")
+        logger.error("=" * 78)
+    if auto_heal:
+        report["heal"] = heal(logger=logger)
+        if logger:
+            logger.error(f"self-heal: {report['heal']}")
+    return report
+
+
 def check_and_update(trigger: str) -> dict:
     """One update check: fetch origin/main of the official repo and fast-forward onto it if it is
     strictly ahead; schedule a detached service restart when code actually changed. Every refusal is a

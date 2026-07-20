@@ -170,6 +170,9 @@ class MemServer:
         # periodic duty and served read-only at /invariants. None until the first check runs. Purely a
         # detector cache — nothing consensus reads it.
         self.invariant_report = None
+        # Latest self-update capability diagnosis (ops/self_update.ensure_updatable), refreshed at boot and
+        # daily, advertised in /status as update_capable so a lagging/unfixable node is visible fleet-wide.
+        self.updatability = None
         # Optional exec-layer view for the escrow invariants. A node with no exec side leaves this None and
         # only the L1 supply invariant runs.
         self.exec_state_view = None

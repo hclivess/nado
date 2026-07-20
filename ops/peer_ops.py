@@ -196,6 +196,56 @@ def seed_peers():
     return list(dict.fromkeys(DEFAULT_SEED_PEERS + extra))
 
 
+def probe_block_hash(peer, height, port=9173, timeout=6):
+    """One peer's block hash at `height`, or None. Deliberately a plain blocking GET against the peer's
+    public API rather than anything routed through the status pool — see stranded_below_finality for why
+    that independence is the whole point."""
+    import json as _json, urllib.request as _rq
+    try:
+        with _rq.urlopen(f"http://{peer}:{port}/get_block_number?number={int(height)}", timeout=timeout) as r:
+            d = _json.loads(r.read(1_000_000))
+        h = d.get("block_hash") if isinstance(d, dict) else None
+        return h if isinstance(h, str) and len(h) == 64 else None
+    except Exception:
+        return None
+
+
+def stranded_below_finality(our_hash, height, peers, quorum=2, port=9173):
+    """Is this node provably on a MINORITY FORK at or below its own finality floor?
+
+    THE WEDGE THIS DETECTS (live, 2026-07-20). The node finalized height H on a branch the network
+    abandoned. Enforced finality then correctly refuses to roll back across H — so emergency sync,
+    re-anchor and force_sync all operate above a floor that is itself on the wrong chain, and the node
+    cannot heal by ANY local route. It sat wedged for 40+ minutes across a restart and a force_sync; only
+    purge+resync moved it.
+
+    WHY THIS CHECK IS INDEPENDENT OF EVERYTHING ELSE. The existing recovery (_maybe_reanchor) is gated on
+    _heavier_chain_exists(), which reads consensus.status_pool and skips BENCHED peers. Both of those
+    failed simultaneously here: the peer set had collapsed to ONE, so the pool held no evidence, and
+    benching (added to stop a lone forker owning the donor pool) can hide the true chain when the bench is
+    wrong. So this asks peers DIRECTLY, over plain HTTP, for their hash at OUR finalized height. No status
+    pool, no weights, no benching, no fork-choice — just: do others have a different block where we are
+    immutable?
+
+    A hash mismatch at a FINALIZED height is not a judgement call. If `quorum` independent peers that are
+    not behind us disagree, we are in the minority by definition, and staying put is not the safe option
+    (the same argument _rejoin_by_rollback already makes). Returns (stranded, detail)."""
+    agree, disagree, unknown = [], [], []
+    for peer in peers:
+        theirs = probe_block_hash(peer, height, port=port)
+        if theirs is None:
+            unknown.append(peer)
+        elif theirs == our_hash:
+            agree.append(peer)
+        else:
+            disagree.append(peer)
+    # ANY peer agreeing means our prefix is not provably abandoned — refuse to act. Wiping a node that is
+    # merely poorly connected would be far worse than leaving it wedged for a human to look at.
+    stranded = not agree and len(disagree) >= int(quorum)
+    return stranded, {"height": height, "ours": our_hash, "agree": agree,
+                      "disagree": disagree, "unknown": unknown, "stranded": stranded}
+
+
 def seed_default_peers(logger, my_ip=None):
     """Ensure the baked-in bootstrap seed(s) are present so a node is NEVER stranded with no one to dial.
     save_peer is a no-op for a seed that already exists or for our own IP, so this is idempotent — but it

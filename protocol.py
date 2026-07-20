@@ -435,6 +435,16 @@ EXEC_SUMMARY_RETENTION = 4 * SETTLE_PROOF_MAX_SPAN
 # costing one scan per EPOCH_LENGTH blocks. Purely a detector cadence — NOT consensus-critical, so nodes
 # disagreeing on it cannot fork (nothing reads the result but the operator and /invariants).
 INVARIANT_CHECK_BLOCKS = EPOCH_LENGTH
+
+# DEAD-FORK ESCAPE (loops/core_loop._maybe_escape_dead_fork). A node whose FINALIZED prefix is on a
+# minority fork cannot heal by any local route — finality refuses the rollback and re-anchor needs a
+# snapshot above a floor that is itself wrong. The escape is purge+resync, which destroys chain-derived
+# data, so the trigger is deliberately slow and needs corroboration: the tip must have been frozen this
+# long, and this many INDEPENDENTLY-ASKED peers must report a different block at our finalized height with
+# none agreeing. A healthy node never comes close; the live wedge sat frozen for 40+ minutes.
+DEAD_FORK_STALL_S = 900          # 15 min of a completely frozen tip before the question is even asked
+DEAD_FORK_COOLDOWN_S = 1800      # at most one purge attempt per 30 min
+DEAD_FORK_QUORUM = 2             # distinct peers that must disagree at our finalized height
 OPEN_BPS = 3000                    # SECURITY DIAL: open-lane share of slots (30.00%); Sybil ceiling.
                                    # Bonded keeps the 70% majority — above the 2/3 settlement/finality quorum,
                                    # so fork-choice + finality stay stake-controlled. MUST stay <= 3333 (33.3%)
