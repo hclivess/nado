@@ -99,24 +99,20 @@ def drive(rid, plans, legs, stance=None, focus=None, healpct=None, start_cursor=
 
     run = M.Run()
     if stance is not None:
-        ok, _r, st, _ = _call("stance", [rid, stance], st, cursor=start_cursor)
-        assert ok, "stance reverted"
         run.stance = stance
     if focus is not None:
-        ok, _r, st, _ = _call("focus", [rid, focus], st, cursor=start_cursor)
-        assert ok, "focus reverted"
         run.focus = focus
     if healpct is not None:
-        ok, _r, st, _ = _call("orders", [rid, healpct], st, cursor=start_cursor)
-        assert ok, "orders reverted"
         run.healpct = healpct
 
     doctrine, agg = plans if plans else ([A.A_DEFAULT] * A.NTILE, 1)
-    if plans:
-        # standing orders, set ONCE and before any leg resolves — so every leg below is governed by them
-        ok, _r, st, _ = _call("plan", [rid, _pack(doctrine), agg], st, cursor=start_cursor)
-        assert ok, "plan reverted"
-        run.doctrine, run.agg = list(doctrine), agg
+    # ONE call now carries every standing order, and it is also what ARMS the march: a run does not start
+    # walking until its orders exist, so the first legs cannot resolve before the player has configured
+    # anything (which, on a chain whose exec layer trails ten minutes, they always did).
+    ok, _r, st, _ = _call("plan", [rid, _pack(doctrine), agg, run.stance, run.focus, run.healpct],
+                          st, cursor=start_cursor)
+    assert ok, "plan reverted"
+    run.doctrine, run.agg = list(doctrine), agg
 
     lh = st[A.RLH * (1 << 32) + rid]
     for leg in range(legs):
@@ -201,15 +197,18 @@ def t_doctrine_cannot_rewrite_a_rolled_leg():
     """
     d = _doctrine(monster=A.A_STRIKE, elite=A.A_STRIKE, boss=A.A_STRIKE)
     rid = 51
+    ARM = ([A.A_DEFAULT] * A.NTILE, 1)
     st = {}
     _ok, _r, st, _ = _call("constructor", [], st)
     _ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
+    # arm it with neutral orders so there IS a window to talk about
+    _ok, _r, st, _ = _call("plan", [rid, _pack(ARM[0]), 1, 0, 50, 35], st, cursor=100)
     lh = st[A.RLH * (1 << 32) + rid]
     nh = st[A.RNH * (1 << 32) + rid]
 
     # orders issued LATE — after this leg's dice are already public
     late = dict(st)
-    ok, _r, late, _ = _call("plan", [rid, _pack(d), 8], late, cursor=nh + 5)
+    ok, _r, late, _ = _call("plan", [rid, _pack(d), 8, 1, 90, 20], late, cursor=nh + 5)
     assert ok, "setting a doctrine must always be allowed — there is no window"
     ok, _r, late, _ = _call("advance", [rid], late, cursor=nh + 6)
     assert ok, "advance reverted"
@@ -225,7 +224,7 @@ def t_doctrine_cannot_rewrite_a_rolled_leg():
 
     # and orders issued BEFORE the roll DO govern that leg (otherwise the fence would be vacuous)
     early = dict(st)
-    ok, _r, early, _ = _call("plan", [rid, _pack(d), 8], early, cursor=lh)
+    ok, _r, early, _ = _call("plan", [rid, _pack(d), 8, 1, 90, 20], early, cursor=lh)
     assert ok
     ok, _r, early, _ = _call("advance", [rid], early, cursor=nh + 6)
     assert ok
@@ -237,15 +236,18 @@ def t_plan_validates_its_arguments():
     st = {}
     _ok, _r, st, _ = _call("constructor", [], st)
     _ok, _r, st, _ = _call("begin", [52], st, cursor=100)
-    ok, _r, _s, _ = _call("plan", [52, _pack([1] * A.NTILE), 4], dict(st), cursor=200)
-    assert ok, "a well-formed doctrine must be accepted"
-    ok, _r, _s, _ = _call("plan", [52, _pack([1] * A.NTILE), 99], dict(st), cursor=200)
-    assert not ok, "aggression above AGG_MAX must revert"
-    ok, _r, _s, _ = _call("plan", [52, _pack([1] * A.NTILE), 0], dict(st), cursor=200)
-    assert not ok, "aggression below 1 must revert"
-    ok, _r, _s, _ = _call("plan", [52, 1 << (3 * A.NTILE), 4], dict(st), cursor=200)
-    assert not ok, "an over-wide doctrine word must revert"
-    ok, _r, _s, _ = _call("plan", [52, _pack([1] * A.NTILE), 4], dict(st), caller=999, cursor=200)
+    W = _pack([1] * A.NTILE)
+    ok, _r, _s, _ = _call("plan", [52, W, 4, 0, 50, 35], dict(st), cursor=200)
+    assert ok, "a well-formed order set must be accepted"
+    for args, why in (([52, W, 99, 0, 50, 35], "aggression above AGG_MAX"),
+                      ([52, W, 0, 0, 50, 35], "aggression below 1"),
+                      ([52, 1 << (3 * A.NTILE), 4, 0, 50, 35], "an over-wide doctrine word"),
+                      ([52, W, 4, 9, 50, 35], "an out-of-range stance"),
+                      ([52, W, 4, 0, 200, 35], "focus above 100"),
+                      ([52, W, 4, 0, 50, 200], "a heal threshold above 100")):
+        ok, _r, _s, _ = _call("plan", args, dict(st), cursor=200)
+        assert not ok, f"{why} must revert"
+    ok, _r, _s, _ = _call("plan", [52, W, 4, 0, 50, 35], dict(st), caller=999, cursor=200)
     assert not ok, "a non-owner must not set orders"
 
 
@@ -255,10 +257,11 @@ def _seed_planned_run(rid, plans, legs, caller=1234):
     _ok, _r, st, _ = _call("constructor", [], st)
     ok, _r, st, _ = _call("begin", [rid], st, caller=caller, cursor=100)
     assert ok
-    lh = st[A.RLH * (1 << 32) + rid]
+    # the window does not exist until the orders do — committing them is what arms the march
     doctrine, agg = plans
-    ok, _r, st, _ = _call("plan", [rid, _pack(doctrine), agg], st, caller=caller, cursor=lh)
+    ok, _r, st, _ = _call("plan", [rid, _pack(doctrine), agg, 0, 50, 35], st, caller=caller, cursor=100)
     assert ok, "plan reverted"
+    assert st.get(A.RLH * (1 << 32) + rid), "committing orders must arm the march"
     return st
 
 
@@ -280,13 +283,14 @@ def t_advance_is_permissionless_and_late_safe():
     # (a) the owner, promptly, one leg at a time as each rolling height becomes available
     st_a = dict(st0)
     for _ in range(LEGS):
-        lh = st_a[A.RLH * (1 << 32) + RID]
+        lh = st_a.get(A.RLH * (1 << 32) + RID, 0)
         ok, _r, st_a, _ = _call("advance", [RID], st_a, caller=1234, cursor=lh + A.LEG + 1)
         if not ok:
             break                                   # run ended (death / chapter); (b) will end there too
 
     # (b) a stranger, hours later, clearing the whole backlog MAX_LEGS_PER_CALL at a time
     st_b = dict(st0)
+    assert st_b.get(A.RLH * (1 << 32) + RID, 0), "the seeded run must be armed before it can be advanced"
     while st_b.get(A.RLG * (1 << 32) + RID, 0) < LEGS:
         ok, _r, st_b, _ = _call("advance", [RID], st_b, caller=999999, cursor=19000)
         assert ok or st_b.get(A.RAV * (1 << 32) + RID, 0) == 0, "advance must be permissionless"
@@ -334,6 +338,7 @@ def t_worst_case_advance_has_headroom():
     st = {}
     _ok, _r, st, _ = _call("constructor", [], st)
     _ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
+    _ok, _r, st, _ = _call("plan", [rid, 0, 4, M.ST_GUARDED, 0, 35], st, cursor=100)   # arm the march
 
     # expensive AND survivable, or the run dies in three steps and stresses nothing: top-tier armour in
     # every slot, all-armour focus, Guarded stance, plus `blazing` so every kill drops and _take_item runs
@@ -344,20 +349,15 @@ def t_worst_case_advance_has_headroom():
     st[(A.AFFX + A.AF_BLAZE) * (1 << 32) + rid] = 1
     st[(A.AFFX + A.AF_KEEN) * (1 << 32) + rid] = 1
     st[A.RAL * (1 << 32) + rid] = A.LEVEL_CAP
-    st[A.RSN * (1 << 32) + rid] = M.ST_GUARDED
-    st[A.RFO * (1 << 32) + rid] = 0
 
     real_limit = zkvm.GAS_LIMIT
     zkvm.GAS_LIMIT = int(real_limit * HEADROOM)
     try:
         legs_done = 0
-        lh = st[A.RLH * (1 << 32) + rid]
+        lh = st.get(A.RLH * (1 << 32) + rid, 0)
         for leg in range(24):
             if st.get(A.RAV * (1 << 32) + rid, 0) != 1 or st.get(A.RDN * (1 << 32) + rid, 0) != 0:
                 break
-            ok, _r, st2, _ = _call("plan", [rid, leg, _pack([A.A_STRIKE] * A.LEG), 4], dict(st), cursor=lh)
-            if ok:
-                st = st2
             ok, _r, st2, _ = _call("advance", [rid], dict(st), caller=999, cursor=lh + A.LEG + 1)
             assert ok, (f"advance reverted at leg {leg} inside {HEADROOM:.0%} of the trace budget — this is "
                         f"the brick case: a lucky kit made a step too expensive to ever settle")
@@ -446,6 +446,9 @@ def t_storage_view_actually_decodes():
     for rid in ids:
         ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
         assert ok, f"begin({rid}) reverted"
+        # arm it: an unarmed run has no window, so lh/nh are legitimately absent until orders exist
+        ok, _r, st, _ = _call("plan", [rid, 0, 1, 0, 50, 35], st, cursor=100)
+        assert ok, f"plan({rid}) reverted"
 
     c = {"abi": A.ABI, "runtime": "zkvm",
          "storage": {"slots": {str(k): str(v) for k, v in st.items()}}}

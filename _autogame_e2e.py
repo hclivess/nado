@@ -18,7 +18,7 @@ from tests import autogame_model as M
 
 L1 = "http://127.0.0.1:9173"
 EX = "http://127.0.0.1:9273"
-CID = "8b0754255991ec52566ddb91d68b8e37"
+CID = "ba8bebc9693f5aaec0e338a13d5812c4"
 
 
 def j(u):

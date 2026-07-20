@@ -272,7 +272,7 @@ inverse. And a bloodlust-aware pilot beats the best fixed dial on both counts (1
 
 ## 7. Determinism: three implementations, cross-checked
 
-Deployed contract id: **`8b0754255991ec52566ddb91d68b8e37`** (`autogame.nadochain.com`).
+Deployed contract id: **`ba8bebc9693f5aaec0e338a13d5812c4`** (`autogame.nadochain.com`).
 
 | implementation | path | role |
 |---|---|---|

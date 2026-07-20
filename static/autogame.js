@@ -20,7 +20,7 @@ import * as E from "./autogame-engine.js";
 import * as ART from "./autogame-art.js";
 import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js";
 
-const CID = "8b0754255991ec52566ddb91d68b8e37";          // execnode/games/autogame.py (zkVM) — set by the deploy script
+const CID = "ba8bebc9693f5aaec0e338a13d5812c4";          // execnode/games/autogame.py (zkVM) — set by the deploy script
 const dapp = new NadoDapp({ cid: CID, app: "Autogame" });
 const P = ALG_P();
 const BLOCK_SECS = 6;
@@ -123,6 +123,8 @@ let chain = null;               // the run exactly as the contract has it
 let view = null;                // the run the ANIMATOR is showing; catches up to `chain`, snaps on mismatch
 let road = [];                  // peekLeg() of the pending leg — the visible, committed terrain
 let planAgg = 1;
+// staged locally until committed: the whole point of one call is that you tune everything, THEN send it
+let pendStance = 0, pendFocus = 50, pendHeal = 35;
 let queue = [];                 // settled step events waiting to be animated
 let camera = 0;                 // fractional depth the camera is at
 let lastLegSeen = -1;
@@ -212,9 +214,8 @@ function syncView() {
     // Replay under the same orders the contract used for this leg: the doctrine, but only if it predates
     // the leg's rolling height (the POLH fence). Standing orders are readable from storage, so unlike the
     // old hash-keyed plan word the animator can reproduce a governed leg exactly.
-    const governed = E.doctrineGoverns(chain, view.nh);
-    const evs = E.playLeg(algHashn, view, myId, tileH, rollH,
-                          governed ? chain.doctrine : null, governed ? chain.agg : 1);
+    // replay under whichever generation of orders governed THAT leg — the same choice the contract makes
+    const evs = E.playLeg(algHashn, view, myId, tileH, rollH, E.ordersFor(chain, view.nh));
     view.leg += 1;
     view.lh = view.nh; view.nh = view.nh + E.LEG;
     queue.push(...evs);
@@ -419,6 +420,7 @@ function idleMessage() {
   const el = $("stagemsg");
   if (!el || queue.length) return;
   if (!chain) { el.innerHTML = `<span class="faint">${esc(t("idleNoRun", "No march yet — set out to begin."))}</span>`; return; }
+  if (!chain.lh) { el.innerHTML = `<span class="dim">${esc(t("idleUnarmed", "Waiting on your orders — the march starts when you commit them."))}</span>`; return; }
   if (!chain.alive) { el.innerHTML = `<b style="color:var(--danger)">${esc(t("idleDead", "You fell here."))}</b>`; return; }
   if (chain.done) { el.innerHTML = `<b style="color:var(--win)">${esc(t("idleDone", "The road is walked. Chapter complete."))}</b>`; return; }
   if (chain.retired) { el.innerHTML = `<span class="dim">${esc(t("idleRetired", "Retired, on your feet."))}</span>`; return; }
@@ -486,12 +488,15 @@ function render() {
   // enable/disable helper. Calling it per-element did nothing at all, which is why every button stayed
   // clickable and a signed-out tap on "Set out" silently went nowhere.
   const live = !!(chain && chain.alive && !chain.done && !chain.retired);
+  const armed = !!(chain && chain.lh);          // an unarmed run exists but has not started walking
   const canSettle = live && dapp.cursor != null && dapp.cursor >= chain.nh;
   // Standing orders have NO window: they govern legs whose dice do not exist yet, and the contract's POLH
   // fence stops them touching a leg that already rolled. The old per-leg plan needed a 96-second window,
   // which is unreachable whenever the exec layer trails L1 by more than a leg — and it does.
   const canPlan = live;
-  gate({ beginBtn: !live, advBtn: live, retireBtn: live, planBtn: live });
+  gate({ beginBtn: !live, advBtn: live && armed, retireBtn: live && armed, planBtn: live });
+  $("planBtn").textContent = armed ? t("commitPlan", "Commit orders")
+                                   : t("beginMarch", "Begin the march");
   // "Set out" stays clickable while signed out ON PURPOSE: the click routes through canPay(), which raises
   // the SDK's sign-in bar. Hiding it would leave a signed-out visitor staring at a page with no way in.
   $("beginBtn").disabled = dapp.busy("begin");
@@ -501,7 +506,11 @@ function render() {
   $("advBtn").title = canSettle ? "" : t("advWait", "The dice for this leg have not landed yet.");
 
   // the clock: how long until this leg can be settled
-  if (chain && live && dapp.cursor != null) {
+  if (chain && live && !armed) {
+    $("clockHint").innerHTML = t("clockUnarmed",
+      "Your march has not begun. Set your orders below — the clock starts when you commit them, so nothing "
+      + "resolves before you have decided how to fight it.");
+  } else if (chain && live && dapp.cursor != null) {
     const left = chain.nh - dapp.cursor;
     $("clockHint").innerHTML = left > 0
       ? t("clockWait", "This leg resolves in {n} blocks (~{time}). Your plan is locked in when it does.",
@@ -520,6 +529,9 @@ function render() {
     $("agg").value = String(chain.agg || 1);
     planAgg = chain.agg || 1;
     $("aggVal").textContent = planAgg;
+    pendStance = chain.stance; pendFocus = chain.focus; pendHeal = chain.healpct;
+    $("focus").value = String(pendFocus); $("focusVal").textContent = `${pendFocus} / ${100 - pendFocus}`;
+    $("heal").value = String(pendHeal); $("healVal").textContent = pendHeal + "%";
   }
   renderRoad();
   renderDoctrine();
@@ -618,7 +630,8 @@ function renderDoctrine() {
   });
   const note = $("doctrineNote");
   if (note) {
-    const dirty = chain && doctrine.some((v, i) => v !== chain.doctrine[i]) ;
+    const dirty = chain && (doctrine.some((v, i) => v !== chain.doctrine[i])
+      || pendStance !== chain.stance || pendFocus !== chain.focus || pendHeal !== chain.healpct);
     const aggDirty = chain && planAgg !== chain.agg;
     note.innerHTML = !chain ? esc(t("docNoRun", "Set out first — orders belong to a march."))
       : (dirty || aggDirty) ? `<b style="color:var(--gold)">${esc(t("docDirty", "Unsaved changes — commit them to make them law."))}</b>`
@@ -652,13 +665,13 @@ function renderDials() {
     ss.querySelectorAll("button").forEach((b) => b.onclick = () => setStance(Number(b.dataset.s)));
   }
   const r = chain;
-  if (ss) ss.querySelectorAll("button").forEach((b) => b.classList.toggle("on", r && Number(b.dataset.s) === r.stance));
-  if (r) {
-    const [dn, xn, sg, cap] = E.STANCES[r.stance];
+  if (ss) ss.querySelectorAll("button").forEach((b) => b.classList.toggle("on", Number(b.dataset.s) === pendStance));
+  {
+    const [dn, xn, sg, cap] = E.STANCES[pendStance];
     $("stanceHint").textContent = cap === 0
       ? "Guarded takes a quarter less damage and can never build a greed streak — it wins by finishing, not by compounding."
       : `Damage ×${(dn / 4).toFixed(2)} · renown ×${(xn / 4).toFixed(2)} · streak +${sg} per fight, capped ×${((E.STREAK_DIV + cap) / E.STREAK_DIV).toFixed(1)}`;
-    $("stanceVal").textContent = STANCE_KEY[r.stance];
+    $("stanceVal").textContent = STANCE_KEY[pendStance];
   }
 }
 
@@ -747,9 +760,12 @@ function commitPlan() {
   // drop any entry the tile cannot actually use, so what is committed is exactly what will happen
   const clean = (doctrine || []).map((a, tile) => ((ACTS_FOR[tile] || [0]).includes(a) ? a : 0));
   const word = E.packDoctrine(clean);
-  act("plan", t("whatPlan", "Committing your doctrine"), () => {
-    dapp.call("plan", [myId, word, planAgg], 0n,
-      t("labelPlan", "Commit doctrine"), { phase: "plan", word, agg: planAgg });
+  // ONE call carries every standing order — doctrine, aggression, stance, focus and the auto-drink
+  // threshold — because they are one decision and four transactions is forty minutes on this chain.
+  // It is also what ARMS an unarmed run: the march does not start until you have said how to fight it.
+  act("plan", t("whatPlan", "Committing your orders"), () => {
+    dapp.call("plan", [myId, word, planAgg, pendStance, pendFocus, pendHeal], 0n,
+      t("labelPlan", "Commit orders"), { phase: "plan", word, agg: planAgg });
   }, "word", word);
 }
 function advance() {
@@ -763,12 +779,7 @@ function retire() {
   act("retire", t("whatRetire", "Retiring"), () =>
     dapp.call("retire", [myId], 0n, t("labelRetire", "Retire on your feet"), { phase: "retire" }));
 }
-function setStance(s) {
-  if (!chain) return;
-  act("stance", t("whatStance", "Changing stance"), () =>
-    dapp.call("stance", [myId, s], 0n, `${t("labelStance", "Stance")}: ${STANCE_KEY[s]}`,
-      { phase: "stance", want: s }));
-}
+function setStance(s) { pendStance = s; renderDials(); renderDoctrine(); }
 
 /**
  * DELIBERATELY NOT AUTOMATIC.
@@ -794,16 +805,11 @@ function wireDials() {
   const agg = $("agg"), heal = $("heal"), focus = $("focus");
   agg.oninput = () => { agg.dataset.touched = "1"; planAgg = Number(agg.value);
                         $("aggVal").textContent = planAgg; updateAggHint(); renderDoctrine(); };
-  heal.oninput = () => { $("healVal").textContent = heal.value + "%"; };
-  heal.onchange = () => { if (!chain) return; act("orders", t("whatOrders", "Changing standing orders"),
-    () => dapp.call("orders", [myId, Number(heal.value)], 0n,
-      t("labelOrders", "Auto-drink below {n}%", { n: heal.value }),
-      { phase: "orders", want: Number(heal.value) })); };
-  focus.oninput = () => { $("focusVal").textContent = `${focus.value} / ${100 - focus.value}`; };
-  focus.onchange = () => { if (!chain) return; act("focus", t("whatFocus", "Changing focus"),
-    () => dapp.call("focus", [myId, Number(focus.value)], 0n,
-      t("labelFocus", "Focus {n}% weapon", { n: focus.value }),
-      { phase: "focus", want: Number(focus.value) })); };
+  heal.oninput = () => { $("healVal").textContent = heal.value + "%"; pendHeal = Number(heal.value); };
+  heal.onchange = () => { pendHeal = Number(heal.value); renderDoctrine(); };
+  focus.oninput = () => { $("focusVal").textContent = `${focus.value} / ${100 - focus.value}`;
+                         pendFocus = Number(focus.value); };
+  focus.onchange = () => { pendFocus = Number(focus.value); renderDoctrine(); };
 }
 
 /** Price the pull against the heaviest swing waiting in the visible leg — the number the dial exists for. */

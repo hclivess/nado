@@ -67,6 +67,9 @@ export function runFromStorage(sto, id) {
     alive: m("av"), done: m("dn"), retired: m("rt"),
     doctrine: Array.from({ length: R.NTILE }, (_x, k) => m("p" + k)),
     agg: Math.max(1, m("pa")), polh: m("ph"),
+    prevDoctrine: Array.from({ length: R.NTILE }, (_x, k) => m("q" + k)),
+    prevAgg: Math.max(1, m("qa")), polph: m("qh"),
+    prevStance: m("qs"), prevFocus: m("qf"), prevHealpct: m("ql"),
     lh: m("lh"), nh: m("nh"), leg: m("lg"), owner: (sto.ra || {})[id],
   };
 }
@@ -78,8 +81,9 @@ export function armorPower(run) {
   for (let s = 1; s < R.NSLOT; s++) d += idiv(power(run.gear[s]), R.DEF_DIV[s]);
   return d;
 }
-export const weaponPts = (run) => idiv(weaponPower(run) * run.focus, 100);
-export const armorPts = (run) => idiv(armorPower(run) * (100 - run.focus), 100);
+// `focus` is the GOVERNING generation's, which is not necessarily the one currently stored on the run
+export const weaponPts = (run, focus) => idiv(weaponPower(run) * (focus == null ? run.focus : focus), 100);
+export const armorPts = (run, focus) => idiv(armorPower(run) * (100 - (focus == null ? run.focus : focus)), 100);
 
 /** What the board shows. Banked + what you carry out, and the road bonus only if you are standing. */
 export function score(run) {
@@ -156,11 +160,12 @@ function drink(run) {
   return true;
 }
 
-function tryCraft(run) {
+function tryCraft(run, focus) {
+  if (focus == null) focus = run.focus;
   const [s, h, e] = run.mats;
   const wantW = run.wlevel < R.LEVEL_CAP && s >= R.SHARPEN_COST[0] && e >= R.SHARPEN_COST[2];
   const wantA = run.alevel < R.LEVEL_CAP && s >= R.REINFORCE_COST[0] && h >= R.REINFORCE_COST[1];
-  if (wantW && (run.focus >= 50 || !wantA)) {
+  if (wantW && (focus >= 50 || !wantA)) {
     run.mats[0] -= R.SHARPEN_COST[0]; run.mats[2] -= R.SHARPEN_COST[2]; run.wlevel += 1; return 1;
   }
   if (wantA) {
@@ -170,13 +175,15 @@ function tryCraft(run) {
 }
 
 // ── the engagement — MAMEC's formula ────────────────────────────────────────────────────────────
-function fight(run, tile, b, x, y, z, agg, act, ev) {
+function fight(run, tile, b, x, y, z, agg, act, ev, stance, focus) {
+  if (stance == null) stance = run.stance;
+  if (focus == null) focus = run.focus;
   const depth = run.depth;
   const ml = monsterLevel(tile, depth);
   const fam = imod(b, 3);
   const bv = idiv(b, 3);
   const foes = tile === R.BOSS ? 1 : agg;             // a boss is one big thing, not a crowd
-  const [dmgNum, expNum, streakGain, streakCap] = R.STANCES[run.stance];
+  const [dmgNum, expNum, streakGain, streakCap] = R.STANCES[stance];
 
   let atkEach = R.FAM_ATK[fam][0] + R.FAM_ATK[fam][1] * ml + imod(bv, 4);
   let xpEach = R.FAM_XP[fam][0] + R.FAM_XP[fam][1] * ml;
@@ -187,13 +194,13 @@ function fight(run, tile, b, x, y, z, agg, act, ev) {
   if (act === R.A_STRIKE) atkEach = idiv(atkEach * 5, 4);
   else if (act === R.A_GUARD) atkEach = idiv(atkEach * 2, 4);
   atkEach = idiv(atkEach * (100 + imod(x, 21) - 10), 100);
-  const absorb = armorPts(run) * (hasAffix(run, R.AF_HEAVY) ? foes : 1);
+  const absorb = armorPts(run, focus) * (hasAffix(run, R.AF_HEAVY) ? foes : 1);
   let dmg = csub(foes * atkEach, absorb);
   if (dmg < foes) dmg = foes;                         // a horde always draws blood
 
   // renown out — bloodlust reads the hp you went IN with
   const hpBefore = run.hp;
-  const wp = weaponPts(run);
+  const wp = weaponPts(run, focus);
   let base = idiv(foes * xpEach * (R.HORDE_DIV + foes), R.HORDE_DIV);
   base = idiv(base * (8 + wp), 8);
   base += idiv(wp * run.kills, 64);
@@ -243,10 +250,15 @@ function fight(run, tile, b, x, y, z, agg, act, ev) {
  * Advance one tile. `tw`/`rw` are the two 32-bit hash windows, `act` this tile's queued reaction, `agg`
  * the leg's aggression dial. Mutates `run` and returns an event describing what to animate.
  */
-export function step(run, tw, rw, doctrine, agg) {
+export function step(run, tw, rw, doctrine, agg, stance, focus, healpct) {
   if (!run.alive || run.done || run.retired) return { tile: R.ROAD, skip: true };
+  // the GOVERNING generation of orders — stance, focus and the heal threshold are orders too, and passing
+  // only the doctrine would let a re-tune silently re-judge a leg whose dice already rolled
   if (doctrine == null) doctrine = run.doctrine;
   if (agg == null) agg = run.agg;
+  if (stance == null) stance = run.stance;
+  if (focus == null) focus = run.focus;
+  if (healpct == null) healpct = run.healpct;
 
   const depth = run.depth;
   const { a, b, c, scen } = sliceTile(tw);
@@ -288,11 +300,11 @@ export function step(run, tw, rw, doctrine, agg) {
 
   if (!skip) {
     if (combat) {
-      fight(run, tile, b, x, y, z, agg, act, ev);
+      fight(run, tile, b, x, y, z, agg, act, ev, stance, focus);
     } else if (tile === R.HAZARD) {
       let took = 2 + 2 * tier + imod(y, 6);
-      if (run.stance === R.ST_EVASIVE) took = idiv(took, 2);
-      took = csub(took, idiv(armorPts(run), 8));
+      if (stance === R.ST_EVASIVE) took = idiv(took, 2);
+      took = csub(took, idiv(armorPts(run, focus), 8));
       if (hasAffix(run, R.AF_WARD)) took = 0;         // warding: hazards do nothing
       run.hp = csub(run.hp, took);
       ev.dmg = took;
@@ -307,7 +319,7 @@ export function step(run, tw, rw, doctrine, agg) {
       run.streak = 0;                                 // a shrine is a heal like any other
       ev.heal = 1;
     } else if (tile === R.FORGE) {
-      ev.craft = tryCraft(run);
+      ev.craft = tryCraft(run, focus);
       if (run.mats[0] >= R.POTION_PRICE && run.potions < R.POTION_CAP) {
         run.mats[0] -= R.POTION_PRICE; run.potions += 1; ev.bought = 1;
       }
@@ -317,7 +329,7 @@ export function step(run, tw, rw, doctrine, agg) {
   }
 
   // the standing order — what keeps an absent player alive, and under bloodlust the sharpest dial there is
-  if (run.hp > 0 && run.potions > 0 && run.hp * 100 < run.maxhp * run.healpct) {
+  if (run.hp > 0 && run.potions > 0 && run.hp * 100 < run.maxhp * healpct) {
     if (drink(run)) ev.auto = 1;
   }
 
@@ -354,20 +366,38 @@ export function words(algHashn, blockHashField, runId, i) {
  * Replay one leg: `tileHash`/`rollHash` are BHASH(lh) and BHASH(nh) reduced into the field. Returns the
  * per-step events so the renderer can animate what already happened on chain.
  */
-export function playLeg(algHashn, run, runId, tileHash, rollHash, doctrine, agg) {
+export function playLeg(algHashn, run, runId, tileHash, rollHash, orders) {
+  const o = orders || {};
   const evs = [];
   for (let i = 0; i < R.LEG; i++) {
     if (!run.alive || run.done || run.retired) break;
     const tw = words(algHashn, tileHash, runId, i);
     const rw = words(algHashn, rollHash, runId, i);
-    evs.push(step(run, tw, rw, doctrine, agg));
+    evs.push(step(run, tw, rw, o.doctrine, o.agg, o.stance, o.focus, o.healpct));
   }
   return evs;
 }
 
+/**
+ * Which generation of orders governs a leg with rolling height `nh`: the newest one that PREDATES it.
+ * Mirrors the contract exactly — current if old enough, else the superseded generation, else none.
+ */
+export function ordersFor(run, nh) {
+  if ((run.polh || 0) < nh) {
+    return { doctrine: run.doctrine, agg: run.agg, stance: run.stance, focus: run.focus,
+             healpct: run.healpct };
+  }
+  if ((run.polph || 0) < nh && run.prevDoctrine) {
+    return { doctrine: run.prevDoctrine, agg: run.prevAgg, stance: run.prevStance,
+             focus: run.prevFocus, healpct: run.prevHealpct };
+  }
+  return { doctrine: new Array(R.NTILE).fill(R.A_DEFAULT), agg: 1, stance: R.ST_BALANCED,
+           focus: 50, healpct: 35 };
+}
+
 /** Does this leg obey the run's current doctrine? The contract's POLH fence: orders govern a leg only if
  *  they predate that leg's rolling height. */
-export const doctrineGoverns = (run, nh) => (run.polh || 0) < nh;
+
 
 /**
  * The ROAD AHEAD: what the next LEG tiles are, derived from a hash that already exists. This is the whole

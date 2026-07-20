@@ -145,6 +145,25 @@ TCOST, TSDMG, TSXP, TSGAIN, TSCAP, TFA0, TFA1, TFX0, TFX1, TDEFD = range(60, 70)
 POL0 = 110                    # POL0 .. POL0+9, keyed by run id: the reaction for each tile class
 POLH = 109                    # the cursor at which the doctrine was last set — the fairness fence
 POLA = 108                    # aggression, part of the same standing order
+# THE PREVIOUS GENERATION of orders, kept so a backlog can be walked HONESTLY.
+#
+# You are not tied to the chain tip. Blocks stay readable ~20k back, so a run can walk forward through
+# history at your own pace — days later if you like. What must not happen is that catching up re-judges
+# those legs under orders you wrote after seeing their dice. Superseded orders are therefore retained, and
+# each leg obeys whichever generation was in force when ITS block was mined. Without this, re-tuning while
+# behind either silently discarded the backlog or (worse) let you neuter your own doctrine after reading a
+# bad roll.
+# NOTE THE SPACING: POL0 occupies 110..119 and POLP0 occupies 120..129, so the scalars that go with them
+# must sit clear of BOTH ranges. POLPH was briefly 119 — the doctrine cell for tile 9 — and silently
+# overwrote it, which the backlog test caught as a previous generation that read back as zero.
+POLP0 = 120                   # POLP0 .. POLP0+9: the superseded doctrine
+POLPH = 130                   # the height IT was set at
+POLPA = 131                   # and its aggression
+# Stance, focus and the auto-drink threshold are ORDERS TOO, and were the hole in the fence: they used to
+# be written immediately, so re-tuning while behind still re-judged legs that had already rolled — which is
+# precisely the "neuter your doctrine after reading a bad roll" exploit the fence exists to prevent. They
+# are now versioned with everything else.
+RPS, RPF, RPL = 132, 133, 134  # the superseded stance / focus / heal threshold
 
 # scratch indices
 (S_A, S_B, S_C, S_X, S_Y, S_Z, S_TILE, S_ML, S_ACT, S_AGG, S_TIER, S_ATK, S_DMG, S_GAIN, S_WP, S_ABS,
@@ -152,8 +171,8 @@ POLA = 108                    # aggression, part of the same standing order
  S_ITEM, S_SLOT, S_COMBAT, S_SCEN, S_DROPS,
  S_T0, S_T1, S_T2, S_T3, S_T4, S_T5, S_T6,
  S_R0, S_R1, S_R2, S_R3,
- S_AF0, S_AF1, S_AF2, S_AF3, S_AF4, S_AF5, S_EQ) = range(54)
-NSCRATCH = 54
+ S_AF0, S_AF1, S_AF2, S_AF3, S_AF4, S_AF5, S_EQ, S_LEGGEN, S_SN, S_FO, S_HL) = range(58)
+NSCRATCH = 58
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────────────────────────
@@ -233,9 +252,10 @@ def _armor_power(m, into):
 
 
 def _armor_pts(m, into):
-    """Armour after the focus split — what actually absorbs."""
+    """Armour after the focus split — what actually absorbs. Uses the LEG's focus (S_FO), which is the
+    governing generation's, not whatever the player has since typed."""
     _armor_power(m, into)
-    _s(m, into).set(_s(m, into).get() * (100 - _r(m, RFO).get()) // 100)
+    _s(m, into).set(_s(m, into).get() * (100 - _s(m, S_FO).get()) // 100)
     return _s(m, into).get()
 
 
@@ -396,7 +416,7 @@ def _fight(m):
     """One engagement, MAMEC's shape: damage scales with the pull, renown scales with the pull AND with how
     hurt you already are, armour absorbs one swing's worth, the weapon feeds renown rather than damage, and
     a fight that did not hurt you heals you nothing."""
-    st = _r(m, RSN).get()
+    st = _s(m, S_SN).get()                           # the governing generation's stance, not the live one
     _s(m, S_DN).set(m.slot(TSDMG, st).get())
     _s(m, S_XN).set(m.slot(TSXP, st).get())
     _s(m, S_SG).set(m.slot(TSGAIN, st).get())
@@ -438,7 +458,7 @@ def _fight(m):
     # ---- renown out (bloodlust reads the hp you went IN with) ----------------------------------------
     _s(m, S_HPB).set(_r(m, RHP).get())
     _weapon_power(m, S_WP)
-    _s(m, S_WP).set(_s(m, S_WP).get() * _r(m, RFO).get() // 100)
+    _s(m, S_WP).set(_s(m, S_WP).get() * _s(m, S_FO).get() // 100)
 
     foes = _s(m, S_FOES).get()
     _s(m, S_BASE).set(foes * _s(m, S_XPE).get())
@@ -510,7 +530,7 @@ def _noncombat(m):
 
     # hazard — chip damage, halved for Evasive, softened by a little armour
     took = 2 + 2 * tier + _s(m, S_Y).get() % 6
-    took = select(_r(m, RSN).get() == ST_EVASIVE, took // 2, took)
+    took = select(_s(m, S_SN).get() == ST_EVASIVE, took // 2, took)
     _s(m, S_T4).set(took)
     _armor_pts(m, S_T5)
     _s(m, S_T4).set(csub(_s(m, S_T4).get(), _s(m, S_T5).get() // 8))
@@ -545,7 +565,7 @@ def _noncombat(m):
     _s(m, S_T2).set(_r(m, RM1).get() >= REINFORCE_COST[1])
     _s(m, S_SLOT).set(_s(m, S_T0).get() * _s(m, S_T1).get() * _s(m, S_T2).get())      # can reinforce
 
-    _s(m, S_T3).set(_r(m, RFO).get() >= 50)
+    _s(m, S_T3).set(_s(m, S_FO).get() >= 50)
     _s(m, S_T3).set(vmax(_s(m, S_T3).get(), csub(1, _s(m, S_SLOT).get())))            # prefer the weapon?
     _s(m, S_DROPS).set(_s(m, S_ITEM).get() * _s(m, S_T3).get() * forge)               # do sharpen
     _s(m, S_T4).set(_s(m, S_SLOT).get() * csub(1, _s(m, S_DROPS).get()) * forge)      # do reinforce
@@ -571,8 +591,12 @@ def _step(m):
     _classify(m)
     # the reaction is whatever your doctrine says about the tile you just walked onto. S_PW is 1 when this
     # leg is governed by the doctrine (set before its dice existed) and 0 when it is not.
+    # S_PW / S_T3 were set per leg: which generation of orders governs it (see advance).
     _s(m, S_T0).set(m.const(POL0 << 32) + _s(m, S_TILE).get() * (1 << 32) + m.arg(0))
-    _s(m, S_ACT).set(m.at(_s(m, S_T0).get()).get() * _s(m, S_PW).get())
+    _s(m, S_T1).set(m.at(_s(m, S_T0).get()).get() * _s(m, S_PW).get())
+    _s(m, S_T0).set(m.const(POLP0 << 32) + _s(m, S_TILE).get() * (1 << 32) + m.arg(0))
+    _s(m, S_T2).set(m.at(_s(m, S_T0).get()).get() * _s(m, S_LEGGEN).get())
+    _s(m, S_ACT).set(_s(m, S_T1).get() + _s(m, S_T2).get())
     # A fork is a CHOICE, not an event: the right lane re-rolls as an elite, the left as a monster. This
     # happens AFTER the doctrine is read, because the doctrine is what picks the lane.
     # `isfork` MUST be snapshotted before S_TILE is rewritten — a zkpy Val is a lazy re-read of the cell,
@@ -633,7 +657,7 @@ def _step(m):
 
     # standing order: auto-drink under the threshold. This is what keeps an absent player alive through a
     # bad leg — and under bloodlust, picking the threshold is the sharpest decision in the game.
-    low = park(m, S_T0, _r(m, RHP).get() * 100 < _r(m, RMX).get() * _r(m, RHL).get())
+    low = park(m, S_T0, _r(m, RHP).get() * 100 < _r(m, RMX).get() * _s(m, S_HL).get())
     alive = park(m, S_T1, _r(m, RHP).get() > 0)
     have = park(m, S_T2, _r(m, RPO).get() > 0)
     _s(m, S_DN).set(low * alive * have)
@@ -676,8 +700,12 @@ def build():
         m.require(m.arg(0) > 0)
         m.require(_r(m, RA).get() == 0)
         _r(m, RA).set(m.caller())
-        _r(m, RLH).set(m.cursor() + START_GAP)
-        _r(m, RNH).set(m.cursor() + START_GAP + LEG)
+        # UNARMED. The clock does NOT start here — RLH stays 0 until you commit your orders.
+        #
+        # Starting the march at begin() meant the first legs resolved before the player had configured
+        # anything, and on a chain whose execution layer trails ten minutes they resolved before the player
+        # could even SEE the run. You would never watch your own choices take effect. Now: set out, take as
+        # long as you like over your doctrine, and committing it is what sets you walking.
         _r(m, RHP).set(m.const(HP0))
         _r(m, RMX).set(m.const(HP0))
         _r(m, RST).set(m.const(STAM_MAX))
@@ -701,30 +729,13 @@ def build():
         cnt.set(cnt.get() + 1)
         m.ret(m.arg(0))
 
-    with c.method("stance") as m:                    # stance(runId, s)
-        _own_or_die(m)
-        _live(m)
-        m.require(m.arg(1) < 4)
-        _r(m, RSN).set(m.arg(1))
-        m.ret(m.arg(1))
-
-    with c.method("focus") as m:                     # focus(runId, f) — 100 = all weapon, 0 = all armour
-        _own_or_die(m)
-        _live(m)
-        m.require(m.arg(1) <= 100)
-        _r(m, RFO).set(m.arg(1))
-        m.ret(m.arg(1))
-
-    with c.method("orders") as m:                    # orders(runId, healPct)
-        _own_or_die(m)
-        _live(m)
-        m.require(m.arg(1) <= 100)
-        _r(m, RHL).set(m.arg(1))
-        m.ret(m.arg(1))
-
     with c.method("plan") as m:
-        # plan(runId, doctrine, agg): your standing orders — one reaction per tile class, packed 3 bits
-        # each (class 0 in the low bits), plus the aggression dial.
+        # plan(runId, doctrine, agg, stance, focus, healPct): ALL of your standing orders, in ONE call.
+        #
+        # These used to be four separate methods, so changing your stance, your focus, your auto-drink
+        # threshold and your doctrine cost four transactions — four wallet round-trips, and on a chain whose
+        # execution layer trails by ten minutes that is the better part of an hour to retune a build. They
+        # are one decision; they are now one call.
         #
         # There is deliberately NO window check here. A doctrine governs legs whose dice do not exist yet,
         # so setting it is always a commitment made before the roll; the fence is POLH, recorded below and
@@ -736,13 +747,37 @@ def build():
         m.require(m.arg(1) < (1 << (3 * NTILE)))
         m.require(m.arg(2) >= 1)
         m.require(m.arg(2) <= AGG_MAX)
+        m.require(m.arg(3) < 4)                      # stance
+        m.require(m.arg(4) <= 100)                   # focus
+        m.require(m.arg(5) <= 100)                   # auto-drink threshold
         # unpack the doctrine into one cell per tile class so the step can index it by tile
+        # retire the current orders into the previous slot BEFORE overwriting, so any leg already rolled
+        # under them still resolves under them
+        for k in range(NTILE):
+            m.slot(POLP0 + k, m.arg(0)).set(m.slot(POL0 + k, m.arg(0)).get())
+        m.slot(POLPA, m.arg(0)).set(m.slot(POLA, m.arg(0)).get())
+        m.slot(POLPH, m.arg(0)).set(m.slot(POLH, m.arg(0)).get())
+        m.slot(RPS, m.arg(0)).set(_r(m, RSN).get())
+        m.slot(RPF, m.arg(0)).set(_r(m, RFO).get())
+        m.slot(RPL, m.arg(0)).set(_r(m, RHL).get())
+        # ONLY NOW may the live values move. Writing them above the copy meant the "previous" generation
+        # was the new one — the retired orders were overwritten by the very orders retiring them.
+        _r(m, RSN).set(m.arg(3))
+        _r(m, RFO).set(m.arg(4))
+        _r(m, RHL).set(m.arg(5))
+
         _s(m, S_T0).set(m.arg(1))
         for k in range(NTILE):
             m.slot(POL0 + k, m.arg(0)).set(_s(m, S_T0).get() % 8)
             _s(m, S_T0).set(_s(m, S_T0).get() // 8)
         m.slot(POLA, m.arg(0)).set(m.arg(2))
         m.slot(POLH, m.arg(0)).set(m.cursor())       # the fairness fence
+        # ARM. Only an unarmed run pins a window here — committing orders is what sets you walking. A run
+        # already under way keeps its window: its backlog is WALKED, never discarded, and each pending leg
+        # is judged by whichever generation of orders predates its own roll.
+        _s(m, S_T1).set(_r(m, RLH).get() == 0)
+        _r(m, RLH).set(select(_s(m, S_T1).get(), m.cursor() + START_GAP, _r(m, RLH).get()))
+        _r(m, RNH).set(select(_s(m, S_T1).get(), m.cursor() + START_GAP + LEG, _r(m, RNH).get()))
         for i in range(NSCRATCH):
             _s(m, i).set(m.const(0))
         m.ret(m.arg(1))
@@ -760,6 +795,7 @@ def build():
         # PERMISSIONLESS — the outcome is a pure function of two already-final hashes, so who calls it and
         # when cannot change a single step.
         m.require(_r(m, RA).get() != 0)
+        m.require(_r(m, RLH).get() != 0)             # an unarmed run has not begun marching
         m.require(_r(m, RAV).get() == 1)
         m.require(_r(m, RDN).get() == 0)
         m.require(_r(m, RRT).get() == 0)
@@ -774,8 +810,34 @@ def build():
         # THE FAIRNESS FENCE: this leg obeys the doctrine only if the doctrine predates the leg's rolling
         # height. Setting new orders after a roll is public therefore cannot rewrite the leg that roll
         # belongs to — it takes effect from the next unresolved leg onward.
+        # WHICH ORDERS GOVERN THIS LEG: the newest generation that predates its rolling height. Current if
+        # it is old enough, else the superseded one, else none at all (a leg older than any orders you ever
+        # gave resolves with no reaction and a pull of one).
         _s(m, S_PW).set(m.slot(POLH, m.arg(0)).get() < _r(m, RNH).get())
-        _s(m, S_AGG).set(vmax(1, m.slot(POLA, m.arg(0)).get() * _s(m, S_PW).get()))
+        _s(m, S_T3).set(m.slot(POLPH, m.arg(0)).get() < _r(m, RNH).get())
+        _s(m, S_T3).set(_s(m, S_T3).get() * csub(1, _s(m, S_PW).get()))     # only if current does not apply
+        _s(m, S_LEGGEN).set(_s(m, S_T3).get())       # held for the whole leg: "use the superseded orders"
+        # the governing generation's stance / focus / heal threshold, held for the whole leg
+        _s(m, S_SN).set(_r(m, RSN).get() * _s(m, S_PW).get())
+        _s(m, S_T3).set(m.slot(RPS, m.arg(0)).get() * _s(m, S_LEGGEN).get())
+        _s(m, S_SN).set(_s(m, S_SN).get() + _s(m, S_T3).get())
+        _s(m, S_T2).set(_s(m, S_PW).get() + _s(m, S_LEGGEN).get())      # is ANY generation in force?
+        _s(m, S_T2).set(csub(1, _s(m, S_T2).get()))                      # neither -> use neutral defaults
+        # split one term per statement: the six-register budget cannot hold a three-way blend in one go
+        _s(m, S_FO).set(_r(m, RFO).get() * _s(m, S_PW).get())
+        _s(m, S_T3).set(m.slot(RPF, m.arg(0)).get() * _s(m, S_LEGGEN).get())
+        _s(m, S_FO).set(_s(m, S_FO).get() + _s(m, S_T3).get())
+        _s(m, S_FO).set(_s(m, S_FO).get() + 50 * _s(m, S_T2).get())
+        _s(m, S_HL).set(_r(m, RHL).get() * _s(m, S_PW).get())
+        _s(m, S_T3).set(m.slot(RPL, m.arg(0)).get() * _s(m, S_LEGGEN).get())
+        _s(m, S_HL).set(_s(m, S_HL).get() + _s(m, S_T3).get())
+        _s(m, S_HL).set(_s(m, S_HL).get() + 35 * _s(m, S_T2).get())
+        # S_LEGGEN, not S_T3: the block above reuses S_T3 as a scratch temp, so reading it here picked up
+        # a heal threshold instead of a 0/1 flag and multiplied the aggression by it. Third time this file
+        # has been bitten by a shared scratch cell read after something else wrote it — hold flags that
+        # outlive a statement in their OWN cell.
+        _s(m, S_AGG).set(vmax(1, m.slot(POLA, m.arg(0)).get() * _s(m, S_PW).get()
+                                 + m.slot(POLPA, m.arg(0)).get() * _s(m, S_LEGGEN).get()))
         _s(m, S_I).set(m.const(0))
 
         m.label("step")
@@ -856,10 +918,7 @@ def rules_js():
 ABI = {
     "constructor": {"args": []},
     "begin": {"args": ["runId"]},
-    "stance": {"args": ["runId", "stance"]},
-    "focus": {"args": ["runId", "focus"]},
-    "orders": {"args": ["runId", "healPct"]},
-    "plan": {"args": ["runId", "doctrine", "agg"]},
+    "plan": {"args": ["runId", "doctrine", "agg", "stance", "focus", "healPct"]},
     "retire": {"args": ["runId"]},
     "advance": {"args": ["runId"]},
     "_view": {
@@ -872,8 +931,9 @@ ABI = {
             "g5": GEAR0 + 5,
             "af1": AFFX + 1, "af2": AFFX + 2, "af3": AFFX + 3, "af4": AFFX + 4, "af5": AFFX + 5,
             "af6": AFFX + 6, "af7": AFFX + 7,
-            "pa": POLA, "ph": POLH,
+            "pa": POLA, "ph": POLH, "qa": POLPA, "qh": POLPH, "qs": RPS, "qf": RPF, "ql": RPL,
             **{f"p{k}": POL0 + k for k in range(NTILE)},
+            **{f"q{k}": POLP0 + k for k in range(NTILE)},
         },
         "addr": ["ra"],
     },

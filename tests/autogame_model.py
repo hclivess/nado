@@ -151,13 +151,14 @@ def armor_power(run):
     return d
 
 
-def weapon_pts(run):
-    """Weapon power after the focus split — MAMEC's weapon_efficiency."""
-    return weapon_power(run) * run.focus // 100
+def weapon_pts(run, focus=None):
+    """Weapon power after the focus split — MAMEC's weapon_efficiency. `focus` is the GOVERNING generation's,
+    which is not necessarily the one currently stored on the run."""
+    return weapon_power(run) * (run.focus if focus is None else focus) // 100
 
 
-def armor_pts(run):
-    return armor_power(run) * (100 - run.focus) // 100
+def armor_pts(run, focus=None):
+    return armor_power(run) * (100 - (run.focus if focus is None else focus)) // 100
 
 
 # ── world derivation ─────────────────────────────────────────────────────────────────────────────
@@ -243,9 +244,11 @@ def drink(run):
     return True
 
 
-def try_craft(run):
+def try_craft(run, focus=None):
     """Auto-craft at a forge, cheapest-useful-first. Keeps an absent player progressing, exactly like
     auto-equip — MAMEC made you walk into the menu; the march does it on your behalf."""
+    if focus is None:
+        focus = run.focus
     s, h, e = run.mats
     want_w = run.wlevel < LEVEL_CAP and s >= SHARPEN_COST[0] and e >= SHARPEN_COST[2]
     want_a = run.alevel < LEVEL_CAP and s >= REINFORCE_COST[0] and h >= REINFORCE_COST[1]
@@ -263,19 +266,23 @@ def try_craft(run):
 
 
 # ── the fight — MAMEC's formula, ported ──────────────────────────────────────────────────────────
-def fight(run, tile, b, x, y, z, agg, act, ev):
+def fight(run, tile, b, x, y, z, agg, act, ev, stance=None, focus=None):
     """One engagement. You pull `agg` foes; you always kill them, the only question is what it costs.
 
     MAMEC's shape exactly: damage scales with the count, exp scales with the count AND with how hurt you
     already were (bloodlust), armour divides the damage, the weapon feeds exp rather than damage, and a
     fight that didn't hurt you heals you nothing.
     """
+    if stance is None:
+        stance = run.stance
+    if focus is None:
+        focus = run.focus
     depth = run.depth
     ml = monster_level(tile, depth)
     fam = b % 3
     bv = b // 3
     foes = 1 if tile == BOSS else agg            # a boss is one big thing, not a crowd
-    dmg_num, exp_num, streak_gain, streak_cap = STANCES[run.stance]
+    dmg_num, exp_num, streak_gain, streak_cap = STANCES[stance]
 
     atk_c0, atk_c1 = FAM_ATK[fam]
     xp_c0, xp_c1 = FAM_XP[fam]
@@ -299,7 +306,7 @@ def fight(run, tile, b, x, y, z, agg, act, ev):
     atk_each = atk_each * (100 + (x % 21) - 10) // 100    # ±10% variance
     # A horde ALWAYS draws blood: at least 1 hp per foe, no matter how armoured you are. Without this
     # floor, enough armour nullifies any pull and greed becomes free — which is exactly what the sim found.
-    absorb = armor_pts(run) * (foes if has_affix(run, AF_HEAVY) else 1)   # heavy: absorb every swing
+    absorb = armor_pts(run, focus) * (foes if has_affix(run, AF_HEAVY) else 1)   # heavy: absorb every swing
     dmg = c_sub(foes * atk_each, absorb)
     if dmg < foes:
         dmg = foes
@@ -309,7 +316,7 @@ def fight(run, tile, b, x, y, z, agg, act, ev):
     # The focus slider has to be a genuine trade, so the two halves buy different currencies: armour buys
     # survival (absorb, above), the weapon MULTIPLIES renown. When the weapon only fed MAMEC's veteran
     # bonus, armour was strictly better and every sim converged on focus 0-25.
-    wp = weapon_pts(run)
+    wp = weapon_pts(run, focus)
     base = foes * xp_each * (HORDE_DIV + foes) // HORDE_DIV       # superlinear in the pull
     base = base * (8 + wp) // 8                                   # weapon scales everything you earn
     base += wp * run.kills // 64                                  # MAMEC's veteran bonus, kept small
@@ -372,7 +379,7 @@ def fight(run, tile, b, x, y, z, agg, act, ev):
 
 
 # ── the step ─────────────────────────────────────────────────────────────────────────────────────
-def step(run, tw, rw, doctrine=None, agg=None):
+def step(run, tw, rw, doctrine=None, agg=None, stance=None, focus=None, healpct=None):
     """Advance the run one tile. `tw`/`rw` are the two 32-bit hash windows.
 
     `doctrine` is the standing reaction per TILE CLASS (a list of NTILE entries) and `agg` the aggression
@@ -385,10 +392,19 @@ def step(run, tw, rw, doctrine=None, agg=None):
     """
     if not run.alive or run.done or run.retired:
         return {"tile": ROAD, "skip": True}
+    # The GOVERNING GENERATION of orders. Stance, focus and the auto-drink threshold are orders too, and
+    # must be passed alongside the doctrine — otherwise re-tuning mid-run silently re-judges legs whose dice
+    # already rolled, which is exactly the exploit the contract's fence exists to prevent.
     if doctrine is None:
         doctrine = run.doctrine
     if agg is None:
         agg = run.agg
+    if stance is None:
+        stance = run.stance
+    if focus is None:
+        focus = run.focus
+    if healpct is None:
+        healpct = run.healpct
 
     depth = run.depth
     a, b, c, scen = slice_tile(tw)
@@ -441,12 +457,12 @@ def step(run, tw, rw, doctrine=None, agg=None):
 
     if not skip:
         if combat:
-            fight(run, tile, b, x, y, z, agg, act, ev)
+            fight(run, tile, b, x, y, z, agg, act, ev, stance, focus)
         elif tile == HAZARD:
             took = 2 + 2 * tier + (y % 6)
-            if run.stance == ST_EVASIVE:
+            if stance == ST_EVASIVE:
                 took //= 2
-            took = c_sub(took, armor_pts(run) // 8)
+            took = c_sub(took, armor_pts(run, focus) // 8)
             if has_affix(run, AF_WARD):           # warding: hazards do nothing at all
                 took = 0
             run.hp = c_sub(run.hp, took)
@@ -461,7 +477,7 @@ def step(run, tw, rw, doctrine=None, agg=None):
             run.streak = 0                        # a shrine is a heal like any other — it costs the streak
             ev["heal"] = 1
         elif tile == FORGE:
-            ev["craft"] = try_craft(run)
+            ev["craft"] = try_craft(run, focus)
             if run.mats[M_SCRAP] >= POTION_PRICE and run.potions < POTION_CAP:
                 run.mats[M_SCRAP] -= POTION_PRICE
                 run.potions += 1
@@ -470,7 +486,7 @@ def step(run, tw, rw, doctrine=None, agg=None):
     # Standing order: auto-drink once hp drops under the threshold. This is what keeps an absent player
     # alive through a bad leg — and under bloodlust, choosing the threshold is the sharpest decision in
     # the game: heal early and you earn nothing, heal late and the run is over.
-    if run.hp > 0 and run.potions > 0 and run.hp * 100 < run.maxhp * run.healpct:
+    if run.hp > 0 and run.potions > 0 and run.hp * 100 < run.maxhp * healpct:
         if drink(run):
             ev["auto"] = 1
 
