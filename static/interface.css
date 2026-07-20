@@ -101,6 +101,19 @@ input, textarea, select {
   padding: 11px 12px;
 }
 textarea { resize: vertical; min-height: 64px; }
+/* Native <select> ignores the background above on most platforms — the closed control and its dropdown
+ * render in the OS default (white) unless appearance is reset. Reset it, draw our own chevron, and paint
+ * the option list dark. option/optgroup colours are honoured by Chromium+Firefox on Windows/Linux; macOS
+ * draws the popup natively regardless, but the control itself is then dark either way. */
+select {
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2393a1b0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 34px; cursor: pointer;
+}
+select option, select optgroup { background: var(--bg-elev); color: var(--txt); }
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent-2); }
 
 .mono { font-family: var(--mono); }

@@ -3051,6 +3051,7 @@ async function renderAssets() {
   fill("assetSendId", _myAssets);
   fill("assetBurnId", _myAssets);
   fill("assetIssuedId", _myIssued.filter((a) => a.mintable));
+  renderVaults().catch(() => {});   // vaults read the reserve contract + reuse _myAssets/_myIssued just set above
 }
 
 function _assetById(id) {
@@ -3171,6 +3172,251 @@ function assetsWire() {
   if ($("btnAssetMint")) $("btnAssetMint").onclick = () => assetMint().catch((e) => setMsg("assetIssueMsg", e.message, "err"));
   if ($("btnAssetRenounce")) $("btnAssetRenounce").onclick = () => assetRenounce().catch((e) => setMsg("assetIssueMsg", e.message, "err"));
   if ($("btnAssetBurn")) $("btnAssetBurn").onclick = () => assetBurn().catch((e) => setMsg("assetBurnMsg", e.message, "err"));
+}
+
+/* ---------------------------------------------------------------------------------------------------
+ * RESERVE VAULTS (doc/reserve.md) — back a token with locked NADO, redeemable pro-rata by holders,
+ * releasable by the creator only after an announced notice. Same deployment serves every vault, keyed by
+ * a `vid`; state reads as decoded _view maps (own/ast/res/out/ntc/pnd/rdy), reserve in UNITs (1 UNIT =
+ * VAULT_UNIT raw), notice/rdy in blocks. The FLOOR is display-only and cross-checked: the contract cannot
+ * see an asset's supply or mintable flag, so a declared floor is only trustworthy when the registry says
+ * the asset is fixed-supply AND its live supply still equals the vault's outstanding (renderVaults).
+ * ------------------------------------------------------------------------------------------------- */
+const RESERVE_CID = "243abeed686b04e4d75aecee9f2d9813";   // execnode/games/reserve.py, nonce a5 (deterministic)
+const VAULT_UNIT = 100000000n;                            // reserve.UNIT — raw per stored reserve unit
+const VAULT_MIN_NOTICE = 14400;                           // reserve.MIN_NOTICE — 1 day at 6s blocks
+const VAULT_BOUND = 1n << 31n;                            // reserve.BOUND — both reserve(UNITs) and outstanding < this
+let _vaults = [];
+
+// reserve UNITs -> NADO display (a UNIT is VAULT_UNIT raw; rawToNado divides by RAW)
+function vaultResToNado(units) { return rawToNado(BigInt(units) * VAULT_UNIT); }
+
+async function renderVaults() {
+  if (!$("vaultList")) return;
+  let sto = {}, allAssets = [], tipNum = 0;
+  try {
+    const [c, assets, latest] = await Promise.all([
+      fetch(execBase() + "/exec/contract?cid=" + RESERVE_CID + "&provisional=1", { cache: "no-store" }).then((r) => r.json()),
+      assetFetch({}),                          // every asset's metadata (provisional) -> id -> meta for the cross-check
+      getLatestBlock(),
+    ]);
+    sto = (c && c.storage) || {};
+    allAssets = assets;
+    tipNum = (latest && latest.block_number) || 0;
+  } catch (e) {
+    $("vaultList").textContent = i18("assets.execDown", "Execution node unreachable.");
+    return;
+  }
+  // decode_view returns an asset id (`ast`) as a raw field element — a JSON number past 2^53, so JS has
+  // already rounded it by the time we see it (the registry, by contrast, sends `id` as an exact STRING).
+  // Match on the lossy double on BOTH sides — Number(exact-string) === the-rounded-number for the same
+  // integer — then take the EXACT id back from the matched asset, because `redeem` must escrow against the
+  // real id, not the rounded one. (A collision needs two ids rounding to one double: spacing is ~1024 at
+  // 2^63 over pseudo-random ids, so it is astronomically unlikely for any realistic asset count.)
+  const meta = {}; allAssets.forEach((a) => { meta[Number(a.id)] = a; });
+  const own = sto.own || {}, ast = sto.ast || {}, res = sto.res || {}, out = sto.out || {},
+        ntc = sto.ntc || {}, pnd = sto.pnd || {}, rdy = sto.rdy || {};
+  const me = state.wallet && state.wallet.address;
+
+  _vaults = Object.keys(own).map((vid) => {
+    const a = meta[ast[vid]] || null;
+    const assetId = a ? a.id : String(ast[vid]);         // exact when matched — what redeem/selects must use
+    const reserve = BigInt(res[vid] || 0), outstanding = BigInt(out[vid] || 0);
+    // The floor is real ONLY if the asset is fixed-supply AND its live supply still equals the vault's
+    // outstanding (redemptions burn, so those two fall together — a gap means the declaration was inflated
+    // or the creator kept minting). doc/reserve.md §4. Never show a floor number we cannot stand behind.
+    let verified = false, why = "";
+    if (!a) { why = i18("vault.assetGone", "asset not found"); }
+    else if (a.mintable) { why = i18("vault.unverMint", "unverified — token can still be minted"); }
+    else if (BigInt(a.supply) !== outstanding) { why = i18("vault.unverSupply", "unverified — declared supply ≠ live supply"); }
+    else { verified = true; }
+    // floor per WHOLE token, in NADO: (reserve/outstanding) tokens-base-units, scaled by 10^dec, UNIT->raw
+    let floorNado = null;
+    if (a && outstanding > 0n) {
+      const rawPerToken = reserve * VAULT_UNIT * (10n ** BigInt(a.dec)) / outstanding;
+      floorNado = rawToNado(rawPerToken);
+    }
+    const pending = BigInt(pnd[vid] || 0), readyAt = Number(rdy[vid] || 0);
+    return { vid, assetId, a, sym: a ? a.sym : "?", dec: a ? a.dec : 0,
+             reserve, outstanding, notice: Number(ntc[vid] || 0), verified, why, floorNado,
+             pending, readyAt, mine: own[vid] === me, ownerAddr: own[vid] };
+  }).sort((x, y) => Number(y.notice - x.notice));   // longest-commitment first — the strongest signal on top
+
+  // list
+  $("vaultList").innerHTML = _vaults.length ? _vaults.map((v) => {
+    const floor = v.verified && v.floorNado != null
+      ? '<b>' + escapeHtml(v.floorNado) + " NADO</b> " + i18("vault.perToken", "floor / " + v.sym)
+      : '<span class="warn">⚠ ' + escapeHtml(v.why) + '</span>'
+        + (v.floorNado != null ? ' <span class="faint">(' + i18("vault.wouldBe", "would show") + " "
+            + escapeHtml(v.floorNado) + " NADO)</span>" : "");
+    let release = "";
+    if (v.pending > 0n) {
+      const left = v.readyAt - tipNum;
+      release = left > 0
+        ? '<span class="warn">· ' + i18("vault.releasing", "creator withdrawing {a} NADO — releasable in {n} blocks (~{t})",
+            { a: vaultResToNado(v.pending), n: left, t: blocksToEta(left) }) + "</span>"
+        : '<span class="warn">· ' + i18("vault.releasable", "creator can withdraw {a} NADO now",
+            { a: vaultResToNado(v.pending) }) + "</span>";
+    }
+    return '<div style="margin:.4rem 0;padding:.4rem .6rem;border:1px solid var(--border);border-radius:10px">'
+      + '<b>' + escapeHtml(v.sym) + '</b> ' + floor
+      + ' <span class="faint">· ' + i18("vault.reserveIs", "reserve") + " " + escapeHtml(vaultResToNado(v.reserve)) + " NADO"
+      + ' · ' + i18("vault.noticeIs", "notice") + " " + escapeHtml(blocksToEta(v.notice))
+      + (v.mine ? " · " + i18("vault.yours", "yours") : "") + '</span> ' + release + '</div>';
+  }).join("") : '<span class="faint">' + i18("vault.none", "No reserve vaults yet.") + '</span>';
+
+  // selects
+  const optFor = (v) => '<option value="' + escapeHtml(v.vid) + '">' + escapeHtml(v.sym)
+    + " — " + i18("vault.reserveIs", "reserve") + " " + escapeHtml(vaultResToNado(v.reserve)) + " NADO</option>";
+  const held = new Set((_myAssets || []).map((a) => a.id));
+  const fillV = (id, list) => {
+    const sel = $(id); if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = list.map(optFor).join("");
+    if (prev && list.some((v) => v.vid === prev)) sel.value = prev;
+  };
+  fillV("vaultRedeemId", _vaults.filter((v) => held.has(v.assetId)));   // vaults whose token you hold
+  fillV("vaultBackId", _vaults);
+  fillV("vaultManageId", _vaults.filter((v) => v.mine));
+  // open: your issued fixed-supply assets not already vaulted (a floor over a mintable token can't verify)
+  const vaulted = new Set(_vaults.map((v) => v.assetId));
+  const openable = (_myIssued || []).filter((a) => !a.mintable && !vaulted.has(a.id));
+  const osel = $("vaultOpenAsset");
+  if (osel) osel.innerHTML = openable.length
+    ? openable.map((a) => '<option value="' + escapeHtml(a.id) + '">' + escapeHtml(a.sym) + " — "
+        + i18("assets.supplyIs", "supply") + " " + escapeHtml(assetToDisplay(a.supply, a.dec)) + "</option>").join("")
+    : '<option value="" disabled>' + i18("vault.noOpenable", "issue a fixed-supply token first") + "</option>";
+  vaultsWire();
+}
+
+function _vaultById(vid) { return _vaults.find((v) => v.vid === vid) || null; }
+
+/* One vault write = a signed `call` blob. value (native reserve) / asset (redeemed tokens) ride INSIDE the
+ * payload, escrowed from your EXECUTION-LAYER balance and refunded exactly on revert — same as any game. The
+ * L1 fee below is separate (native, from spendable). Mirrors assetBlob so the six actions can't drift. */
+async function vaultCall(method, args, opts, label, msgId, rows) {
+  if (!state.wallet) return false;
+  const acc = await getAccount(state.wallet.address);
+  const fee = await currentFeeRaw();
+  if (BigInt(fee) > BigInt((acc && acc.balance) || 0)) {
+    setMsg(msgId, i18("assets.needFee", "Not enough NADO for the network fee."), "err"); return false;
+  }
+  rows = (rows || []).concat([{ k: i18("dlg.fee", "Network fee"), v: rawToNado(fee) + " NADO" }]);
+  if (!await uiConfirm({ title: label, rows })) { setMsg(msgId, i18("msg.cancelled", "Cancelled."), null); return false; }
+  const latest = await getLatestBlock();
+  if (!latest) { setMsg(msgId, i18("rollup.relayDown", "Relay unavailable."), "err"); return false; }
+  const payload = { op: "call", contract: RESERVE_CID, method, args };
+  if (opts && opts.value != null) payload.value = opts.value;
+  if (opts && opts.asset != null) payload.asset = opts.asset;
+  const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, fee, nowSeconds(),
+    latest.block_number + TX_INCLUSION_DELAY);
+  const ok = await submitAndReport(tx, label, msgId);
+  if (ok) setTimeout(() => renderAssets().catch(() => {}), 1800);   // renderAssets() also refreshes vaults
+  return ok;
+}
+
+// NADO string -> whole reserve UNITs, or throw. Reserve granularity is 0.01 NADO (one UNIT); anything
+// finer would be silently dropped by the contract's value==units*UNIT check, so reject it loudly here.
+function vaultNadoToUnits(nadoStr) {
+  const raw = nadoToRaw(nadoStr);                       // -> raw (10^10 = 1 NADO)
+  if (raw <= 0n) throw new Error(i18("msg.amountPos", "Amount must be greater than zero."));
+  if (raw % VAULT_UNIT !== 0n) throw new Error(i18("vault.granular", "Reserve is in steps of 0.01 NADO."));
+  const units = raw / VAULT_UNIT;
+  if (units >= VAULT_BOUND) throw new Error(i18("vault.tooBig", "Reserve is too large (max ~21.4M NADO)."));
+  return { units, raw };
+}
+
+async function vaultRedeem() {
+  const v = _vaultById($("vaultRedeemId").value);
+  if (!v) { setMsg("vaultRedeemMsg", i18("vault.pick", "Pick a vault first."), "err"); return; }
+  let amt;
+  try { amt = assetToRaw($("vaultRedeemAmt").value, v.dec); } catch (e) { setMsg("vaultRedeemMsg", e.message, "err"); return; }
+  if (amt <= 0n) { setMsg("vaultRedeemMsg", i18("msg.amountPos", "Amount must be greater than zero."), "err"); return; }
+  const mine = (_myAssets || []).find((a) => a.id === v.assetId);
+  if (!mine || amt > BigInt(mine.balance)) { setMsg("vaultRedeemMsg", i18("assets.tooMuch", "More than you hold."), "err"); return; }
+  const share = v.outstanding > 0n ? vaultResToNado(v.reserve * amt / v.outstanding) : "0";
+  const ok = await vaultCall("redeem", [Number(v.vid)], { value: Number(amt), asset: v.assetId },
+    i18("vault.dlgRedeem", "Redeem tokens"), "vaultRedeemMsg",
+    [{ k: i18("assets.asset", "Asset"), v: v.sym },
+     { k: i18("vault.giveUp", "You hand back"), v: assetToDisplay(amt, v.dec) + " " + v.sym },
+     { k: i18("vault.youGet", "You receive"), v: "~" + share + " NADO" }]);
+  if (ok) $("vaultRedeemAmt").value = "";
+}
+
+async function vaultBack() {
+  const v = _vaultById($("vaultBackId").value);
+  if (!v) { setMsg("vaultBackMsg", i18("vault.pick", "Pick a vault first."), "err"); return; }
+  let u;
+  try { u = vaultNadoToUnits($("vaultBackAmt").value); } catch (e) { setMsg("vaultBackMsg", e.message, "err"); return; }
+  if (v.reserve + u.units >= VAULT_BOUND) { setMsg("vaultBackMsg", i18("vault.tooBig", "Reserve is too large (max ~21.4M NADO)."), "err"); return; }
+  const ok = await vaultCall("back", [Number(v.vid), Number(u.units)], { value: Number(u.raw) },
+    i18("vault.dlgBack", "Add reserve"), "vaultBackMsg",
+    [{ k: i18("assets.asset", "Asset"), v: v.sym },
+     { k: i18("vault.adds", "Adds to reserve"), v: rawToNado(u.raw) + " NADO" }]);
+  if (ok) $("vaultBackAmt").value = "";
+}
+
+async function vaultOpen() {
+  const assetId = $("vaultOpenAsset").value;
+  const a = (_myIssued || []).find((x) => x.id === assetId);
+  if (!a) { setMsg("vaultOpenMsg", i18("vault.pickAsset", "Pick a token you issued."), "err"); return; }
+  if (a.mintable) { setMsg("vaultOpenMsg", i18("vault.mustFix", "Renounce minting first — a floor over a mintable token can't be verified."), "err"); return; }
+  if (BigInt(a.supply) >= VAULT_BOUND) { setMsg("vaultOpenMsg", i18("vault.supplyBig", "This token's supply is too large to back (max ~2.1B base units)."), "err"); return; }
+  const days = parseInt($("vaultOpenNotice").value, 10);
+  if (!(days >= 1)) { setMsg("vaultOpenMsg", i18("vault.noticeMin", "Notice must be at least 1 day."), "err"); return; }
+  let u;
+  try { u = vaultNadoToUnits($("vaultOpenReserve").value); } catch (e) { setMsg("vaultOpenMsg", e.message, "err"); return; }
+  const notice = days * VAULT_MIN_NOTICE;
+  const vid = _vaults.reduce((mx, v) => Math.max(mx, Number(v.vid)), 0) + 1;   // next free vid
+  await vaultCall("open", [vid, a.id, Number(a.supply), notice, Number(u.units)], { value: Number(u.raw) },
+    i18("vault.dlgOpen", "Open reserve vault"), "vaultOpenMsg",
+    [{ k: i18("assets.asset", "Asset"), v: a.sym + " (" + assetToDisplay(a.supply, a.dec) + ")" },
+     { k: i18("vault.reserveIs", "reserve"), v: rawToNado(u.raw) + " NADO" },
+     { k: i18("vault.noticeIs", "notice"), v: days + " " + i18("vault.days", "days") + " (" + blocksToEta(notice) + ")" },
+     { k: i18("assets.warn", "Warning"), v: i18("vault.noticeLock", "The notice period is PERMANENT and can never be shortened.") }]);
+}
+
+async function vaultAnnounce() {
+  const v = _vaultById($("vaultManageId").value);
+  if (!v) { setMsg("vaultManageMsg", i18("vault.pick", "Pick a vault first."), "err"); return; }
+  let u;
+  try { u = vaultNadoToUnits($("vaultAnnounceAmt").value); } catch (e) { setMsg("vaultManageMsg", e.message, "err"); return; }
+  if (u.units > v.reserve) { setMsg("vaultManageMsg", i18("vault.overReserve", "More than the reserve holds."), "err"); return; }
+  await vaultCall("announce", [Number(v.vid), Number(u.units)], null,
+    i18("vault.dlgAnnounce", "Announce a withdrawal"), "vaultManageMsg",
+    [{ k: i18("assets.asset", "Asset"), v: v.sym },
+     { k: i18("vault.withdraws", "Withdraw after notice"), v: rawToNado(u.raw) + " NADO" },
+     { k: i18("vault.noticeIs", "notice"), v: blocksToEta(v.notice) + " — " + i18("vault.reAnnounce", "re-announcing restarts the clock") }]);
+}
+
+async function vaultCancel() {
+  const v = _vaultById($("vaultManageId").value);
+  if (!v) { setMsg("vaultManageMsg", i18("vault.pick", "Pick a vault first."), "err"); return; }
+  await vaultCall("cancel", [Number(v.vid)], null,
+    i18("vault.dlgCancel", "Cancel the withdrawal"), "vaultManageMsg",
+    [{ k: i18("assets.asset", "Asset"), v: v.sym }]);
+}
+
+async function vaultRelease() {
+  const v = _vaultById($("vaultManageId").value);
+  if (!v) { setMsg("vaultManageMsg", i18("vault.pick", "Pick a vault first."), "err"); return; }
+  await vaultCall("release", [Number(v.vid)], null,
+    i18("vault.dlgRelease", "Release the reserve"), "vaultManageMsg",
+    [{ k: i18("assets.asset", "Asset"), v: v.sym },
+     { k: i18("vault.releases", "Releases up to"), v: vaultResToNado(v.pending) + " NADO" }]);
+}
+
+let _vaultsWired = false;
+function vaultsWire() {
+  if (_vaultsWired) return;
+  _vaultsWired = true;
+  const bind = (id, fn, msg) => { if ($(id)) $(id).onclick = () => fn().catch((e) => setMsg(msg, e.message, "err")); };
+  bind("btnVaultRedeem", vaultRedeem, "vaultRedeemMsg");
+  bind("btnVaultBack", vaultBack, "vaultBackMsg");
+  bind("btnVaultOpen", vaultOpen, "vaultOpenMsg");
+  bind("btnVaultAnnounce", vaultAnnounce, "vaultManageMsg");
+  bind("btnVaultCancel", vaultCancel, "vaultManageMsg");
+  bind("btnVaultRelease", vaultRelease, "vaultManageMsg");
 }
 
 /* bond/unbond move coins between spendable balance and bonded stake. They are ordinary signed txs

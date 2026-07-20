@@ -460,8 +460,13 @@
         <input id="assetNewSupply" placeholder="1000000" autocomplete="off" spellcheck="false" />
       </div>
     </div>
-    <label class="mt"><input type="checkbox" id="assetNewMintable" />
-      <span data-i18n="assets.mintable">Mintable — I can issue more later (holders can verify this; leave off for a fixed supply)</span></label>
+    <div class="row mt" style="align-items:flex-start;gap:10px">
+      <input id="assetNewMintable" type="checkbox" class="switch" />
+      <label for="assetNewMintable" style="margin:0;flex:1;cursor:pointer">
+        <b data-i18n="assets.mintableLabel">Mintable supply</b>
+        <span class="small faint" style="display:block" data-i18n="assets.mintable">Mintable — I can issue more later (holders can verify this; leave off for a fixed supply)</span>
+      </label>
+    </div>
     <div class="row mt">
       <button id="btnAssetCreate" class="accent" data-i18n="btn.issue">Issue</button>
     </div>
@@ -485,6 +490,66 @@
       <button id="btnAssetBurn" data-i18n="btn.burn">Burn</button>
     </div>
     <div id="assetBurnMsg" class="small mt"></div>
+
+    <!-- RESERVE VAULTS (doc/reserve.md): back a token with locked NADO, redeemable pro-rata by holders,
+         releasable by the creator only after an announced notice. The floor shown is cross-checked against
+         the asset registry — a floor is only real when the asset is fixed-supply AND its live supply still
+         equals the vault's outstanding (see renderVaults). -->
+    <h3 class="mt" data-i18n="vault.head">Reserve vaults</h3>
+    <p class="small faint" data-i18n="vault.intro">A creator locks NADO behind a token. Any holder can redeem
+      their tokens for a pro-rata share of that reserve at any time — so the reserve is a floor price you can
+      always take, not a badge. The creator can only take the NADO back after an announced waiting period, and
+      redemption stays open the whole time.</p>
+    <div id="vaultList" class="small mt">—</div>
+
+    <h4 class="mt" data-i18n="vault.redeemHead">Redeem — hand tokens back for your share of the reserve</h4>
+    <div class="row">
+      <select id="vaultRedeemId" style="flex:2"></select>
+      <input id="vaultRedeemAmt" placeholder="tokens" autocomplete="off" spellcheck="false" style="width:8rem" />
+      <button id="btnVaultRedeem" class="accent" data-i18n="vault.redeem">Redeem</button>
+    </div>
+    <div id="vaultRedeemMsg" class="small mt"></div>
+
+    <h4 class="mt" data-i18n="vault.backHead">Back a vault — add NADO to its reserve (raises the floor)</h4>
+    <div class="row">
+      <select id="vaultBackId" style="flex:2"></select>
+      <input id="vaultBackAmt" placeholder="NADO" autocomplete="off" spellcheck="false" style="width:8rem" />
+      <button id="btnVaultBack" data-i18n="vault.back">Add reserve</button>
+    </div>
+    <div id="vaultBackMsg" class="small mt"></div>
+
+    <details class="mt">
+      <summary data-i18n="vault.ownerHead">Create or manage a vault (issuers)</summary>
+      <h4 class="mt" data-i18n="vault.openHead">Back a token you issued</h4>
+      <div class="row">
+        <select id="vaultOpenAsset" style="flex:2"></select>
+        <input id="vaultOpenReserve" placeholder="NADO reserve" autocomplete="off" spellcheck="false" style="flex:1" />
+      </div>
+      <div class="row mt">
+        <div style="flex:1">
+          <label data-i18n="vault.noticeDays">Notice period (days)</label>
+          <input id="vaultOpenNotice" type="number" min="1" value="30" />
+        </div>
+        <div style="flex:1;align-self:flex-end">
+          <button id="btnVaultOpen" class="accent" data-i18n="vault.open">Open vault</button>
+        </div>
+      </div>
+      <p class="small faint" data-i18n="vault.openNote">The notice period is fixed forever once set and can
+        never be shortened — a longer commitment is a stronger signal to holders. One vault per token.</p>
+      <div id="vaultOpenMsg" class="small mt"></div>
+
+      <h4 class="mt" data-i18n="vault.manageHead">Announce, cancel or release a withdrawal</h4>
+      <div class="row">
+        <select id="vaultManageId" style="flex:2"></select>
+        <input id="vaultAnnounceAmt" placeholder="NADO to withdraw" autocomplete="off" spellcheck="false" style="width:9rem" />
+      </div>
+      <div class="row mt">
+        <button id="btnVaultAnnounce" data-i18n="vault.announce">Announce</button>
+        <button id="btnVaultCancel" data-i18n="vault.cancel">Cancel</button>
+        <button id="btnVaultRelease" data-i18n="vault.release">Release (after notice)</button>
+      </div>
+      <div id="vaultManageMsg" class="small mt"></div>
+    </details>
   </div>
 
   <div id="aliasCard" class="card hidden" data-tab="aliases">
@@ -998,7 +1063,7 @@
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=f21abd9d"></script>
-<script type="module" src="/static/interface.js?v=0c9209dc"></script>
+<script defer src="/static/i18n.js?v=2d30264f"></script>
+<script type="module" src="/static/interface.js?v=e321a141"></script>
 </body>
 </html>
