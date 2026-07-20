@@ -16,11 +16,17 @@ def ck(n, c): print(("  ok  " if c else " FAIL ") + n); (F.append(n) if not c el
 # ---- 1. PRODUCER FILTER: an already-mined txid is never re-selected ---------------------------------
 from unittest import mock
 import ops.block_ops as B
+from protocol import ADDRESS_PREFIX
 
+# The recipient is NOT decoration here: _lands_flexibly() routes on `recipient.startswith(ADDRESS_PREFIX)`,
+# so a plain-transfer recipient must carry the LIVE prefix or these txs silently take the exact-landing
+# path (max_block 100 != block 10), match nothing, and the dedup assertion below grades an empty list.
+# It used to read "ndoX" and stopped exercising the dedup the moment the prefix was rebranded — derive it.
+PAYEE = ADDRESS_PREFIX + "X"
 pool = [
-    {"txid": "aaaa", "max_block": 100, "recipient": "ndoX", "amount": 1},   # never mined
+    {"txid": "aaaa", "max_block": 100, "recipient": PAYEE, "amount": 1},    # never mined
     {"txid": "bbbb", "max_block": 100, "recipient": "bridge", "amount": 5}, # already mined -> must be skipped
-    {"txid": "aaaa", "max_block": 100, "recipient": "ndoX", "amount": 1},   # duplicate of aaaa in the pool
+    {"txid": "aaaa", "max_block": 100, "recipient": PAYEE, "amount": 1},    # duplicate of aaaa in the pool
 ]
 MINED = {"bbbb": {"block_number": 7}}
 with mock.patch("ops.kv_ops.tx_get", side_effect=lambda t: MINED.get(t)):
@@ -43,7 +49,7 @@ ms.mempool_lock = threading.RLock()
 ms.transaction_pool_max_txs = 1000
 ms.latest_block = {"block_number": 5}
 ms.logger = mock.Mock()
-tx_mined = {"txid": "cccc", "sender": "ndoS", "max_block": 9, "recipient": "bridge", "amount": 3}
+tx_mined = {"txid": "cccc", "sender": ADDRESS_PREFIX + "S", "max_block": 9, "recipient": "bridge", "amount": 3}
 with mock.patch("ops.kv_ops.tx_get", side_effect=lambda t: {"cccc": {"block_number": 4}}.get(t)):
     r = ms.merge_transaction(tx_mined)
 ck("mempool rejects an already-mined txid with 'Already mined'", r.get("result") is False and r.get("message") == "Already mined")
