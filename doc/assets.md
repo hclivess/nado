@@ -1,9 +1,12 @@
 # Assets — a second value type on the exec layer
 
-> **Status: BUILT (ledger + opcodes + proofs), with two named gaps.** The asset ledger, the five zkVM
-> opcodes, the blob ops, state-root commitment and the execution AIR are implemented and tested
-> (`tests/test_assets.py`, 18 checks including one real proof). **Not** yet built: settlement BY PROOF for
-> asset calls (§8), and the wallet UI (§9). Both are called out explicitly below rather than glossed.
+> **Status: BUILT and usable — ledger, opcodes, proofs, blob ops, and the wallet UI.** The asset ledger,
+> the five zkVM opcodes, the blob ops, state-root commitment and the execution AIR are implemented and
+> tested (`tests/test_assets.py`, 18 checks including one real proof); the wallet's Assets tab
+> (`static/interface.html`/`interface.js`) issues, sends, mints, burns and renounces, and hosts the Reserve
+> vault UI (`doc/reserve.md`). **One named gap remains:** settlement BY PROOF for asset *calls* (§8) — the
+> quorum settles them today, a validity proof does not yet. It is called out explicitly below rather than
+> glossed. Feature parity against modern token standards is surveyed in §9.
 
 Until now the exec layer knew exactly one kind of value: native NADO, held in `ExecState.bridge`. Every
 contract — 21 of them — could only ever move that. This note specifies the second: **fungible assets**,
@@ -180,11 +183,14 @@ either.
 
 | op | payload | notes |
 |---|---|---|
-| `asset_create` | `seed, name, sym, dec, supply, mintable`, opt `for` | sender is the issuer; initial supply credited to the issuer. `for: <cid>` makes a CONTRACT the issuer — see below |
+| `asset_create` | `seed, name, sym, dec, supply, mintable`, opt `uri`, opt `for` | sender is the issuer; initial supply credited to the issuer. `for: <cid>` makes a CONTRACT the issuer — see below |
 | `asset_transfer` | `asset, to, amount` | |
 | `asset_mint` | `asset, to, amount` | issuer only, mintable only |
 | `asset_burn` | `asset, amount` | from sender's own holding |
 | `asset_renounce` | `asset` | issuer only, permanent |
+| `asset_set_uri` | `asset, uri` | issuer only; reversible (metadata pointer, not a supply promise) |
+| `asset_approve` | `asset, spender, amount` | owner authorises a spender; OVERWRITES, 0 revokes (§7a) |
+| `asset_transfer_from` | `asset, from, to, amount` | spender moves owner→to, gated by allowance AND balance (§7a) |
 
 Read endpoints: `GET /exec/assets` (registry; `?issuer=`, `?holder=` filters — a wallet renders its whole
 token list in ONE request, per the full-storage-per-poll rule) and `GET /exec/asset?id=`.
@@ -219,6 +225,21 @@ Renouncing is the deployer's for the same reason creation is, and it is safe to 
 only ever *removes* power. The gap that remains: a contract cannot renounce **autonomously** — a launchpad
 sealing its token's supply at graduation needs an `ARENOUNCE` opcode, which does not exist yet.
 
+### 7a. Delegated spend (approve / allowance / transferFrom)
+
+`allow[asset][owner][spender] → amount`, committed under `T_ASSET_ALLOW` and provable like a balance.
+`asset_approve` sets it (ERC-20 semantics: it OVERWRITES rather than accumulates, 0 revokes, and there is no
+balance check — an allowance is a ceiling, not a promise the tokens are there). `asset_transfer_from` spends
+it, and passes **two independent gates**: the standing allowance and the owner's *live* balance, decrementing
+the allowance by exactly what moved. Absence == zero throughout, so a revoked and a never-set allowance are
+indistinguishable and both pruned — two nodes with the same authorizations commit the same root. Read via
+`GET /exec/allowances` (`?owner=` for grants you made, `?spender=` for grants made to you).
+
+The `spender` is any identity string — an address (a custodian or keeper spending on your behalf) or a cid.
+Note what this does and does not enable: it is complete for account-to-account delegation, but a *contract*
+cannot yet consume an allowance in-circuit — see §9 item 3 for why that (`APULL`) is deliberately left to
+call-value escrow rather than built.
+
 ---
 
 ## 8. Settlement — the honest gap
@@ -242,20 +263,80 @@ against the node's ledger before reporting `state_match`.
 
 ---
 
-## 9. What this unlocks, and what is still missing
+## 9. Feature parity with modern token standards
 
-Built and usable now: a contract can **hold** assets, **receive** them as call value, **read** its own
-balance, **pay** them out under a solvency rule, and **mint/burn its own** asset whose id it derives
-in-circuit from its own digest. That is the complete primitive set an AMM pool, a bonding-curve launchpad,
-and an LP token need.
+These are not ERC-20 contracts, so the comparison is by *capability*, not by ABI. Measured against ERC-20
+and the extensions people actually expect, here is where NADO assets stand — including, honestly, where they
+do not.
 
-Still missing before any of that is a product:
+**Present.** transfer · balanceOf · totalSupply · name / symbol / decimals (bounded: sym ≤ 12, name ≤ 64,
+dec 0–18) · **mintable** (issuer-gated, opt-in, off by default) · **burnable** (holder-side) · **fixed
+supply by default** with a hard cap (`ASSET_SUPPLY_CAP = 2^62`) · **renounce minting** (one-way, permanent) ·
+**metadata URI** (a bounded logo/details pointer, issuer-updatable, committed in the root) · **approve /
+allowance / transferFrom** (delegated spend — `asset_approve` + `asset_transfer_from`, committed under
+`T_ASSET_ALLOW`, read via `/exec/allowances`). Every balance, allowance and the metadata are **provable
+against the settled root** (§2) — stronger than an ERC-20, whose balances are only as good as one contract's
+storage.
 
-- **Wallet UI** — asset list, balances, send/receive. The blob ops and read endpoints exist; nothing in
-  `static/interface.html` uses them yet.
-- **Explorer** — asset pages, holders, supply.
-- **Proof settlement for asset calls** (§8).
-- **The apps themselves** — AMM, launchpad, router (`ROADMAP.md` phases 2–4).
+**Ahead of the standard**, because the ledger is native rather than a contract:
+
+- **A contract holds assets directly** — no `WETH`-style wrapper. An AMM owns its LP token; a vault holds
+  what it backs (`doc/reserve.md`).
+- **Atomic call-value escrow** (§6) — you send tokens *with* a call, escrowed and refunded-on-revert in one
+  step. This is the ERC-1363 "transferAndCall" idea, built in and atomic, and it removes the main reason
+  `approve`/`transferFrom` exists (see below).
+- **Contract-issued assets with in-circuit id derivation** (§2, §7) — `hash aid <- me seed`, no registry,
+  no oracle. A launchpad can own the token it launches.
+- **Atomic multi-asset settlement** (§6) — one call moving several assets commits all-or-nothing across both
+  ledgers.
+
+**Deliberately omitted — a decentralization property, not a gap** (§5): no freeze, no blacklist, no
+clawback, no admin transfer, no pause. There is nowhere to add one — `stage_asset_effects` is the only
+writer and the ledger has no privileged path. A holder's balance cannot be touched by anyone but the holder.
+This is a stronger trust story than most tokens ship, and it is intended to stay that way.
+
+**Remaining gaps, with a reasoned disposition** (not everything on this list should be built — where the
+answer is "no", the reason is the deliverable):
+
+1. **Proof settlement for asset calls** (§8) — the one gap worth closing outright, and being worked. A
+   soundness-*completeness* gap, not a token feature: the bonded quorum settles asset calls today, but the
+   epoch validity-proof path refuses them. Closing it changes **no committed root** (the proof binds only
+   contract storage; balances live in the records half it does not bind) and touches no live path (the
+   trustless settle path is disabled), so it is low-risk. The AIR, `replay_io(with_assets=True)`, the
+   per-call `/exec/prove_call`, and `stage_asset_effects` already exist — only the epoch-aggregation shadow
+   in `execnode/settlement_proofs.py` is missing.
+2. **`ARENOUNCE` opcode** (§7) — genuinely needed and with no substitute: a contract cannot seal its own
+   token's supply autonomously (only its deployer can, via a blob), yet a launchpad graduating a token wants
+   to do it in-circuit. This is a VM-opcode addition (like the five in §3), so it changes consensus and is
+   deployed as a coordinated update.
+3. **`APULL` — a VM opcode letting a CONTRACT consume an allowance — deliberately NOT built.** The
+   account-level `approve`/`transferFrom` above covers a person/keeper spending on another's behalf. The
+   remaining case, a contract *pulling* pre-authorised tokens, is already served better by call-value escrow
+   (§6): the user pushes tokens *with* the call, atomically and refunded-on-revert, so there is nothing to
+   pre-authorise and no standing-approval attack surface. Adding a pull opcode would duplicate a stronger
+   mechanism on consensus-critical code. If a genuine pull-across-transactions need appears (a keeper
+   contract acting while the user is absent), the design is a straight parallel to `APAY`: `ASEL asset ;
+   APULL owner amount`, staged against `allow[asset][owner][self]`.
+4. **Snapshots / vote-checkpointing (ERC-20Votes-style) — deferred by design.** Checkpointing every balance
+   at every block is a standing storage cost, and building it speculatively before a governance token exists
+   would be the wrong commitment. When one is needed, the clean shape is an opt-in per-asset flag that
+   records `(holder, block) → balance` deltas in a committed side-map, queried by `/exec/asset_balance_at`.
+5. **Permit (EIP-2612) — not applicable, on purpose.** Permit exists so a third party can submit *your*
+   approval without you paying gas. On NADO a signature already *is* the transaction, and `asset_approve` is
+   an ordinary signed blob anyone may relay — so the mechanism permit adds is already the default. There is
+   nothing to build.
+
+Not planned, and mostly on purpose: fee-on-transfer and rebasing (transfers are exact, with no holder-side
+hook — usually an anti-feature); ERC-1155-style multi-token ids (each asset is already one row in one
+ledger, so the composability 1155 buys is native here); flash-mint.
+
+## 9a. What this unlocks
+
+A contract can **hold** assets, **receive** them as call value, **read** its own balance, **pay** them out
+under a solvency rule, and **mint/burn its own** asset whose id it derives in-circuit — the complete
+primitive set an AMM pool, a bonding-curve launchpad, and an LP token need. The wallet already issues and
+moves assets and runs the Reserve vault. Still ahead: an **explorer** (asset pages, holders, supply) and the
+**apps** — AMM, launchpad, router (`ROADMAP.md` phases 2–4).
 
 ---
 
