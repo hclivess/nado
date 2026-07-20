@@ -179,7 +179,7 @@ either.
 
 | op | payload | notes |
 |---|---|---|
-| `asset_create` | `seed, name, sym, dec, supply, mintable` | sender is the issuer; initial supply credited to sender |
+| `asset_create` | `seed, name, sym, dec, supply, mintable`, opt `for` | sender is the issuer; initial supply credited to the issuer. `for: <cid>` makes a CONTRACT the issuer — see below |
 | `asset_transfer` | `asset, to, amount` | |
 | `asset_mint` | `asset, to, amount` | issuer only, mintable only |
 | `asset_burn` | `asset, amount` | from sender's own holding |
@@ -190,6 +190,33 @@ token list in ONE request, per the full-storage-per-poll rule) and `GET /exec/as
 
 An asset created by a person and one created by a contract are indistinguishable afterwards. There is no
 system-asset concept and no allowlist.
+
+### Contract-issued assets, and why they need a `for`
+
+A contract **cannot submit a blob**: a blob's sender is an L1 address derived from a pubkey, and a cid is a
+32-hex hash, so no transaction can ever carry `sender == cid`. Taking the issuer from the sender therefore
+made it impossible for a contract to *be* an issuer — which would have left `AMINT` unreachable in
+production and the entire point of in-circuit derived ids ("an AMM owns its LP token") a dead letter. It
+looked like it worked only because the test faked the sender.
+
+So `asset_create` takes an optional `for: <cid>`, authorised to that contract's **deployer**. They already
+control the code, so it grants no new power. What matters is the split it creates, and it is worth stating
+as a rule:
+
+| | create | renounce | mint | move the contract's holdings |
+|---|---|---|---|---|
+| the contract's **deployer** | ✅ | ✅ | ❌ | ❌ |
+| the contract's **code** | ❌ | ❌ (needs an opcode) | ✅ `AMINT` | ✅ `ASEL`+`PAY` / `ABURN` |
+| anyone else | ❌ | ❌ | ❌ | ❌ |
+
+`asset_mint`, `asset_transfer` and `asset_burn` all act as `sender`, and the issuer is the *cid*, so the
+deployer is refused by the ordinary issuer check — no special case was needed to keep them out. Initial
+supply is credited to the **issuer**, not the sender: crediting the deployer would hand them free units of
+a token the contract is supposed to own, which is the rug this layer exists to prevent.
+
+Renouncing is the deployer's for the same reason creation is, and it is safe to grant because renouncing
+only ever *removes* power. The gap that remains: a contract cannot renounce **autonomously** — a launchpad
+sealing its token's supply at graduation needs an `ARENOUNCE` opcode, which does not exist yet.
 
 ---
 

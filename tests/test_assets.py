@@ -237,10 +237,24 @@ def t_contract_pays_and_is_solvent():
 
 def t_contract_mints_its_own_asset():
     """The launchpad/LP-token shape: a contract owns an asset whose id it derives IN-CIRCUIT from its own
-    digest, so nobody had to tell it the id and nobody else can mint it."""
+    digest, so nobody had to tell it the id and nobody else can mint it.
+
+    THE CREATION PATH IS THE POINT, and this test originally faked it: it passed `cid` as the blob sender,
+    which cannot happen — a blob sender is an L1 address derived from a pubkey and a cid is a 32-hex hash,
+    so no transaction can ever carry one. Under the real rules a contract could not be an issuer at all,
+    which made AMINT unreachable in production while this test reported it working. The contract's
+    DEPLOYER now creates the asset FOR it (`for`: cid), and the assertions below pin the authority split
+    that makes that safe."""
     st = fresh()
     cid = deploy_shop(st)
-    aid = create(st, sender=cid, seed=1, supply=0, mintable=True, sym="LP")
+    # only the deployer, and only for a contract that exists
+    assert st.apply_blob({"op": "asset_create", "seed": 1, "name": "LP", "sym": "LP", "dec": 0,
+                          "supply": 0, "mintable": True, "for": cid}, BOB, "tx").startswith("skip")
+    assert st.apply_blob({"op": "asset_create", "seed": 1, "name": "LP", "sym": "LP", "dec": 0,
+                          "supply": 0, "mintable": True, "for": "nosuch"}, ALICE, "tx").startswith("skip")
+    st.apply_blob({"op": "asset_create", "seed": 1, "name": "LP", "sym": "LP", "dec": 0,
+                   "supply": 0, "mintable": True, "for": cid}, ALICE, "tx")
+    aid = str(asset_id(cid, 1))
     assert st.assets[aid]["issuer"] == cid
     r = st.apply_blob({"op": "call", "contract": cid, "method": "issue",
                        "args": [0, BOB, 500]}, ALICE, "tx")
@@ -268,8 +282,21 @@ def t_contract_mints_its_own_asset():
                          BOB, "tx").startswith("skip")
     assert st.assets[aid]["supply"] == 500 and st.asset_balance(aid, BOB) == 500
 
-    # renouncing shuts the contract's mint down too
-    st.apply_blob({"op": "asset_renounce", "asset": aid}, cid, "tx")   # sender == the issuing contract
+    #   (d) the DEPLOYER — who created it — still cannot mint it or move the contract's holdings. Creating
+    #       and renouncing are theirs; minting and moving belong to the contract's code alone.
+    assert st.apply_blob({"op": "asset_mint", "asset": aid, "to": ALICE, "amount": 1},
+                         ALICE, "tx").startswith("skip"), "the deployer minted a contract's asset"
+    st.apply_blob({"op": "call", "contract": cid, "method": "issue", "args": [0, cid, 40]}, ALICE, "tx")
+    held = st.asset_balance(aid, cid)
+    assert held == 40
+    assert st.apply_blob({"op": "asset_transfer", "asset": aid, "to": ALICE, "amount": 1},
+                         ALICE, "tx").startswith("skip"), "the deployer moved a contract's holding"
+    assert st.asset_balance(aid, cid) == held
+
+    # renouncing shuts the contract's mint down too — done by the deployer, since the contract cannot
+    # send a blob. Safe to grant: renouncing only ever REMOVES power.
+    assert st.apply_blob({"op": "asset_renounce", "asset": aid}, BOB, "tx").startswith("skip")
+    st.apply_blob({"op": "asset_renounce", "asset": aid}, ALICE, "tx")
     r = st.apply_blob({"op": "call", "contract": cid, "method": "issue", "args": [0, BOB, 1]}, ALICE, "tx")
     assert "revert" in r, r
 

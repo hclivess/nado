@@ -918,18 +918,42 @@ class ExecState:
                 if (not isinstance(supply, int) or isinstance(supply, bool)
                         or not (0 <= supply < ASSET_SUPPLY_CAP)):
                     return "skip: asset supply out of range"
-                aid = str(asset_id(sender, seed))
+                # CONTRACT-ISSUED ASSETS (`for`: a cid). A contract cannot submit a blob — a blob sender is
+                # an L1 address derived from a pubkey, and a cid is a 32-hex hash, so no transaction can
+                # ever carry sender == cid. Without this branch a contract could therefore never BE an
+                # issuer, which would make AMINT unreachable in production and the whole point of
+                # in-circuit derived ids ("an AMM owns its LP token") a dead letter.
+                #
+                # The contract's DEPLOYER creates it on the contract's behalf. That grants no new power:
+                # they already control the code. Note carefully what it does NOT grant — the issuer is the
+                # CID, and `asset_mint`/`asset_transfer`/`asset_burn` all act as `sender`, so the deployer
+                # can never mint the token or move the contract's holdings. Creating and renouncing belong
+                # to the deployer; minting and moving belong to the contract's code alone.
+                issuer = sender
+                for_cid = payload.get("for")
+                if for_cid is not None:
+                    c = self.contracts.get(for_cid)
+                    if not c:
+                        return f"skip: no contract {str(for_cid)[:16]}… to issue for"
+                    if c.get("deployer") != sender:
+                        return "skip: only a contract's deployer may issue an asset for it"
+                    issuer = for_cid
+                aid = str(asset_id(issuer, seed))
                 if aid in self.assets:
                     return f"skip: asset {aid[:12]}… already exists"
                 # MINT AUTHORITY is opt-IN and renounceable, never implicit: an asset created with
                 # mintable=false (the default) can never grow past this supply, and the guarantee is
                 # readable from the ledger by anyone before they buy a single unit.
-                self.assets[aid] = {"issuer": sender, "seed": seed, "name": name, "sym": sym, "dec": dec,
+                self.assets[aid] = {"issuer": issuer, "seed": seed, "name": name, "sym": sym, "dec": dec,
                                     "supply": supply, "mintable": payload.get("mintable", False) is True}
                 if supply:
-                    self._asset_credit(aid, sender, supply)
+                    # to the ISSUER, not the sender: a contract-issued asset's initial supply belongs to
+                    # the contract. Crediting the deployer instead would hand them free units of a token
+                    # the contract is supposed to own — the rug this layer exists to make impossible.
+                    self._asset_credit(aid, issuer, supply)
                 return (f"asset_create {sym} ({aid[:12]}…) supply={supply} "
-                        f"{'mintable' if self.assets[aid]['mintable'] else 'fixed'} by {sender[:12]}…")
+                        f"{'mintable' if self.assets[aid]['mintable'] else 'fixed'} "
+                        f"for {issuer[:12]}… by {sender[:12]}…")
 
             if op == "asset_transfer":
                 aid = str(payload.get("asset") or "")
@@ -990,7 +1014,14 @@ class ExecState:
                 if meta is None:
                     return f"skip: no such asset {aid[:12]}…"
                 if meta["issuer"] != sender:
-                    return f"skip: only {meta['sym']}'s issuer may renounce minting"
+                    # A contract-issued asset is renounced by the contract's DEPLOYER, for the same reason
+                    # they create it: the contract itself can never send a blob. Safe to grant, because
+                    # renouncing only ever REMOVES power — there is no way to abuse the ability to make a
+                    # supply permanently fixed. (A contract that wants to renounce autonomously — a
+                    # launchpad sealing its token at graduation — needs an opcode; see doc/assets.md.)
+                    c = self.contracts.get(meta["issuer"])
+                    if not (c and c.get("deployer") == sender):
+                        return f"skip: only {meta['sym']}'s issuer may renounce minting"
                 meta["mintable"] = False
                 return f"asset_renounce {meta['sym']} ({aid[:12]}…) — supply fixed at {meta['supply']}"
 
