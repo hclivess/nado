@@ -4529,13 +4529,12 @@ async function renderNodes() {
               : `<span class="faint" style="font-size:11px" title="${i18("stats.ndUnknownTip", "This node does not report which commit it runs, or nobody here knows the newest one — so we cannot tell whether it is up to date.")}">—</span>`;
     // Height = the TIP, not finalized: finality legitimately trails the tip (by up to the finality
     // depth), so showing finalized here made every healthy node look ~dozens of blocks "behind" — twice
-    // mistaken for a sync problem. Finalized stays visible on hover; old peers that don't advertise a
-    // tip height fall back to finalized (marked with a trailing ° so the two are never conflated).
+    // mistaken for a sync problem. Finalized stays visible on hover. No fallback for nodes that don't
+    // advertise a tip height: consensus changes ship with no backward compatibility — the fleet updates,
+    // and a node that cannot is already broken in ways a display shim would only paper over.
     const height = st.latest_block_height != null
       ? `<span title="${i18("stats.ndFinalized", "finalized")}: ${st.finalized_height != null ? st.finalized_height : "?"}">${st.latest_block_height}</span>`
-      : (st.finalized_height != null
-          ? `<span title="${i18("stats.ndFinOnlyTip", "this node only reports its finalized height — its tip is a little ahead of this")}">${st.finalized_height}°</span>`
-          : "?");
+      : "?";
     const weight = `${st.latest_block_weight != null ? (st.latest_block_weight / 1e6).toFixed(2) + "M" : "?"}`;
     const who = _ccFlag(label) + `<span class="mono" title="${label}">`
       + (isSelf ? `<b>${_shortIp(label)}</b>` : _shortIp(label)) + "</span>";
