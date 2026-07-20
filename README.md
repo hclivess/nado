@@ -386,10 +386,46 @@ NADO nodes update themselves. Two mechanisms:
   anyone, since it only ever pulls the canonical repo — ripples the whole fleet current with no shell
   access needed. A node's latest applied commit is visible in `/status` (`running_commit`).
 
+- **Self-healing updatability (startup check + auto-repair).** A node that *cannot* update is not merely
+  stale — since consensus changes ship with no backward compatibility, it eventually **diverges and forks**.
+  So at boot (and again daily) the node checks whether it could update *at all*: is `git` installed, is
+  this a real checkout, does `origin` point at the official repo, and is there a **systemd unit** so an
+  applied update actually restarts the process. If any of those fail it logs the defect loudly and
+  **repairs itself by running its own `scripts/install.sh --service`** — the local installer that ships
+  with the node, never a download. The verdict is published in `/status` as **`update_capable`**, so a
+  node that will drift is visible from the outside instead of discoverable only by calling `/update`.
+  An **unreachable origin is a warning, never a failure** — treating a GitHub outage as fatal would take
+  the whole fleet down at once.
+
+  > Why this exists: a fleet sweep found **21 of 25 peers reporting `running_commit: null`** — installed
+  > by hand or by an old installer, so they could never self-update and could not even be version-checked.
+  > Three more had current repos but stale running processes, because nothing existed to restart them.
+  > Note the limit: a node already in that state **cannot receive this fix** (that is the defect). It stops
+  > the fleet rotting into it again; the stranded ones still need their operator to run the one-liner once.
+
 - **The installer one-liner** (above) is the fallback for a node too old to have `/update`, or one laid
   down by an **old git-less installer**: re-running it installs `git`, converts the directory to a real
   checkout, and fast-forwards it — keys and chain data preserved. *Old nodes with no `/update` and no
   `git` cannot be reached remotely; their operator must run this one line once to rejoin the update path.*
+
+- **Fork resolution — one measurement, one decision.** Recovery used to be *inferred* from chain weights,
+  donor behaviour and peer benching across five overlapping paths. Those mis-fired together on 2026-07-20:
+  a node that was simply ~500 blocks **behind on the correct chain** read that as "forked", rolled back
+  into a snapshot with no history beneath it, and looped for 40+ minutes. The inference is gone, replaced
+  by a single measured number — **the highest height where our block hash equals the majority's**:
+
+  | measurement | state | action |
+  |---|---|---|
+  | ancestor == our tip | `BEHIND` | ordinary forward sync — **never** a rollback |
+  | ancestor ≥ finalized | `REORG` | roll back to the ancestor, then sync |
+  | ancestor < finalized | `DEAD_FORK` | finality forbids the rollback → **purge chain data + resync** |
+  | no majority / peers silent | `UNKNOWN` | do nothing |
+
+  Hash equality at a height is a fact, not a heuristic, and the binary search costs ~log₂(depth) probes.
+  It asks peers **directly**, so it cannot be blinded by a collapsed peer set or a wrong bench — both of
+  which happened. `DEAD_FORK` is the case that previously required a human: it is now automatic, but
+  deliberately hard to trigger (frozen tip for 15 min, two independent probes must agree, **any** peer
+  agreeing with us vetoes it), because the remedy destroys chain-derived data. `private/` is never touched.
 
 **Genesis rerolls.** Because consensus changes ship **strictly, with no backward compatibility**, the
 alphanet occasionally **rerolls to a fresh genesis** (balances carried forward from the prior chain).

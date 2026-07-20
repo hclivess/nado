@@ -7,7 +7,7 @@ a minority fork and, if it ever is wedged, guarantee it recovers:
     corroborate; a majority tip we don't have, or that we hold only as an orphan of another fork, blocks the
     advance. This is what used to let a starved node self-finalize a solo fork and wedge permanently.
   * ESCALATED RE-ANCHOR (reanchor_candidates): normal wedge recovery only accepts a heavier-chain snapshot
-    ABOVE the local finality floor; after REANCHOR_ESCALATE consecutive failures the floor restriction drops
+    ABOVE the local finality floor. (The old escalation ladder that dropped the floor restriction is
     (floor=0) — a wedge persisting across weight-selected attempts proves the floor itself is on a minority
     fork, and waiting for donors' snapshot cadence to cross it (observed live: ~25 min stuck) is the bug.
 
@@ -15,7 +15,7 @@ a minority fork and, if it ever is wedged, guarantee it recovers:
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from loops.core_loop import majority_on_our_canonical, reanchor_candidates, REANCHOR_ESCALATE
+from loops.core_loop import majority_on_our_canonical, reanchor_candidates
 
 fails = 0
 def check(name, fn):
@@ -107,9 +107,6 @@ def t_foreign_protocol_donor_excluded():
     assert len(reanchor_candidates(["1.2.3.4"], ours, _OUR_WEIGHT, 0, min_protocol=3)) == 1
 
 
-def t_escalation_threshold_sane():
-    assert isinstance(REANCHOR_ESCALATE, int) and 1 <= REANCHOR_ESCALATE <= 10
-
 
 if __name__ == "__main__":
     check("majority at our tip corroborates", t_majority_at_our_tip_corroborates)
@@ -121,6 +118,5 @@ if __name__ == "__main__":
     check("a lighter fork majority can never pin us", t_lighter_majority_can_never_pin)
     check("malformed peer statuses are skipped", t_malformed_statuses_skipped)
     check("a foreign-protocol donor is never selected", t_foreign_protocol_donor_excluded)
-    check("escalation threshold sane", t_escalation_threshold_sane)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

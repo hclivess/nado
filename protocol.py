@@ -445,6 +445,9 @@ INVARIANT_CHECK_BLOCKS = EPOCH_LENGTH
 DEAD_FORK_STALL_S = 900          # 15 min of a completely frozen tip before the question is even asked
 DEAD_FORK_COOLDOWN_S = 1800      # at most one purge attempt per 30 min
 DEAD_FORK_QUORUM = 2             # distinct peers that must disagree at our finalized height
+# How long a measured fork state stays cached. The probe costs ~log2(depth) direct peer round-trips, so it
+# must not run every ~1s pass; but it gates reorg/re-anchor decisions, so it must not go badly stale either.
+FORK_STATE_TTL_S = 60
 OPEN_BPS = 3000                    # SECURITY DIAL: open-lane share of slots (30.00%); Sybil ceiling.
                                    # Bonded keeps the 70% majority — above the 2/3 settlement/finality quorum,
                                    # so fork-choice + finality stay stake-controlled. MUST stay <= 3333 (33.3%)

@@ -32,6 +32,7 @@ from ops.block_ops import (
 )
 from ops.mining_ops import select_producer_two_lane, epoch_of, block_fork_weight
 from ops import kv_ops
+from ops import fork_resolution
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
     TX_INCLUSION_DELAY, TX_TARGET_MARGIN
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size
@@ -63,15 +64,6 @@ NO_SYNCABLE_LOG_INTERVAL = 30
 # failing import can't hammer the seed every pass.
 REANCHOR_COOLDOWN = 30
 
-# Consecutive failed re-anchor attempts (each REANCHOR_COOLDOWN apart) after which the finality-floor
-# restriction on the re-anchor target is DROPPED. A wedge that persists across this many weight-selected
-# attempts proves our local floors sit on a minority fork (under partition even the FFG signal is subjective
-# — the inactivity leak lets each side "quorum" its own branch), and the only remaining objective ordering
-# is cumulative weight: follow the strictly-heavier chain, re-verifying every tail block after the import.
-REANCHOR_ESCALATE = 3
-# Fork rejoin (see _rejoin_by_rollback) needs a real mesh before it will drop the local finality floor:
-# with one or two peers a "majority" is meaningless and an isolated pair could talk each other off the chain.
-MIN_REJOIN_PEERS = 3
 
 
 def majority_on_our_canonical(majority_hash, get_block_fn, canonical_hash_at_fn):
@@ -101,7 +93,7 @@ def reanchor_candidates(peers, statuses, our_weight, floor, min_protocol=None):
     """Weight-selected RE-ANCHOR candidates, extracted for direct testing: (weight, snapshot_height,
     snapshot_hash, ip) for every SAME-PROTOCOL peer advertising a chain STRICTLY heavier than ours whose
     snapshot sits above `floor`. Normal wedge recovery passes the local finality floor; ESCALATED recovery
-    (the wedge persisted across REANCHOR_ESCALATE cooldowns) passes 0 — any snapshot on the heavier chain
+    (an escalated wedge recovery) passes 0 — any snapshot on the heavier chain
     qualifies, because a floor that keeps pinning us to a lighter chain is itself the fault being
     recovered from."""
     if min_protocol is None:
@@ -201,7 +193,6 @@ class CoreClient(threading.Thread):
         # cooldown for the seed-anchored RE-ANCHOR (wedge recovery): re-importing a seed's snapshot is
         # expensive, so a wedged node attempts it at most once per this interval rather than every ~1s pass.
         self._last_reanchor_ts = 0
-        self._reanchor_failures = 0        # consecutive failed wedge re-anchors (drives REANCHOR_ESCALATE)
         # throttle the once-per-block-interval consensus mempool reconcile (normal_mode).
         self._last_reconcile = 0
         # once-per-new-block throttle for the periodic duties in normal_mode (FFG/RANDAO/auto-*).
@@ -611,7 +602,7 @@ class CoreClient(threading.Thread):
         count-based agree_snapshot allowed. Everything below the new earliest block (our dead fork's blocks)
         is simply orphaned in the block store — never referenced.
 
-        allow_below_floor=True (ESCALATED wedge recovery, set by _maybe_reanchor after REANCHOR_ESCALATE
+        allow_below_floor=True (reserved for operator recovery; the fork-state machine never sets it,
         consecutive failed attempts): the heavier chain's advertised snapshots all sit BELOW our finality
         floor — the exact geometry that used to wedge a node for as long as the donors' snapshot cadence
         lagged (observed live: a self-finalized minority fork pinned until a peer crossed the floor ~25 min
@@ -811,26 +802,36 @@ class CoreClient(threading.Thread):
             return True
         return majority_on_our_canonical(majority, get_block, get_block_hash_by_number)
 
-    def _heavier_chain_exists(self) -> bool:
-        """True if ANY peer advertises a chain STRICTLY heavier than our tip. This is the objective trigger
-        for a re-anchor — the heaviest valid chain wins, with no privileged voter. Weight units match
-        refresh_heaviest_tip (advertised latest_block_weight vs our cumulative_weight).
+    def _fork_state(self):
+        """Measured fork state (ops/fork_resolution.resolve), cached for FORK_STATE_TTL_S.
 
-        A BENCHED peer does not count. Live failure this closes: one node forked ~3000 blocks back kept
-        mining its own branch, and because a lone miner's branch can out-accumulate weight, it advertised
-        the heaviest chain on the network — while serving no snapshot and knowing none of our blocks, so
-        it was impossible to adopt by any route. Every healthy node therefore re-anchored toward it,
-        failed, wedged in emergency mode for minutes (dropping every transaction submitted meanwhile),
-        recovered, and did it again — 39 times in three hours here. Weight alone cannot be the trigger:
-        a chain we have repeatedly PROVEN we cannot obtain is not a chain we are behind."""
-        our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
-        for peer, st in self.consensus.status_pool.copy().items():
-            if not isinstance(st, dict) or (st.get("latest_block_weight") or 0) <= our_weight:
-                continue
-            if self.consensus.tip_source_benched(peer):
-                continue
-            return True
-        return False
+        Costs ~log2(depth) direct peer probes, so it is NOT run every pass — but it is the only input here
+        that cannot be blinded the way consensus.status_pool can (a collapsed peer set or a wrong bench).
+        Returns UNKNOWN on any failure, which every caller must treat as "change nothing"."""
+        from protocol import FORK_STATE_TTL_S
+        try:
+            now = get_timestamp_seconds()
+            cached = getattr(self, "_fork_state_cache", None)
+            if cached and now - cached[0] < FORK_STATE_TTL_S:
+                return cached[1]
+            from ops.peer_ops import seed_peers, probe_block_hash
+            from ops.block_ops import get_block_hash_by_number
+            from ops.account_ops import get_finalized_height
+            peers = list(dict.fromkeys(list(self.memserver.peers) + list(seed_peers())))[:8]
+            if not peers:
+                return fork_resolution.UNKNOWN
+            tip = self.memserver.latest_block["block_number"]
+            verdict = fork_resolution.resolve(
+                our_hash_at=get_block_hash_by_number,
+                tip=tip, finalized=get_finalized_height(), peers=peers,
+                probe=lambda peer, h: probe_block_hash(peer, h, port=self.memserver.port))
+            self._fork_state_cache = (now, verdict["state"])
+            self.logger.info(f"Fork state: {verdict['state']} (ancestor={verdict['ancestor']}, "
+                             f"tip={tip}, probes={verdict['probes']})")
+            return verdict["state"]
+        except Exception as e:
+            self.logger.warning(f"fork-state probe failed: {e}")
+            return fork_resolution.UNKNOWN
 
     def _maybe_escape_dead_fork(self) -> bool:
         """LAST-RESORT AUTORECOVERY: purge + resync when the node is provably stranded on a minority fork
@@ -876,6 +877,12 @@ class CoreClient(threading.Thread):
                                                        port=self.memserver.port)
             if not stranded:
                 return False
+            # SECOND, INDEPENDENT CONFIRMATION before destroying chain data: the measured fork state must
+            # ALSO say DEAD_FORK. Two different probes have to agree that the divergence is below the
+            # finality floor, so a single bad answer can never trigger a purge.
+            if self._fork_state() != fork_resolution.DEAD_FORK:
+                self.logger.warning("dead-fork suspected but the measured fork state disagrees — not purging")
+                return False
             self.logger.error("=" * 78)
             self.logger.error(f"DEAD FORK: our FINALIZED block {height} is {str(ours)[:16]}… but "
                               f"{len(detail['disagree'])} peers have a different block there and NONE agree.")
@@ -892,139 +899,47 @@ class CoreClient(threading.Thread):
             return False
 
     def _maybe_reanchor(self) -> bool:
-        """WEDGE RECOVERY. Called from the emergency loop when normal sync cannot make progress — the donor
-        can't serve our (forked) root, or the reorg leg hit a floor it can't cross. If a strictly-heavier
-        chain exists, our snapshot/finality floor is on a minority fork: re-import that heavier chain's
-        snapshot (weight-selected, see snapshot_bootstrap) and tail-sync onto it. Rate-limited
-        (REANCHOR_COOLDOWN) so a failing import can't hammer peers. ESCALATION: after REANCHOR_ESCALATE
-        consecutive failures the finality-floor restriction on the target snapshot is dropped — the wedge
-        persisting across cooldowns proves the floor itself sits on a minority fork, so waiting for a donor
-        snapshot to cross it (the old behavior) just stalls the node for the donors' snapshot cadence.
-        Returns True iff we re-anchored (caller then resumes the loop on the new chain)."""
-        if not self._heavier_chain_exists():
-            self._reanchor_failures = 0
+        """WEDGE RECOVERY, driven by the MEASURED fork state (ops/fork_resolution) — not inferred.
+
+        This replaces the old ladder (_heavier_chain_exists -> weight comparison -> escalation counter ->
+        _rejoin_by_rollback -> _common_ancestor), all of which is DELETED. That ladder inferred the fork
+        state from weights, donor behaviour and bench state, and on 2026-07-20 every rung mis-fired at once:
+        the node was ~500 blocks BEHIND on the CORRECT chain, weights truthfully said "they are heavier",
+        the inference concluded "we are forked", it rolled back into a snapshot with no history beneath it
+        ("Parent None ... is not on disk"), aborted, re-anchored, and looped for 40+ minutes across a
+        restart. _heavier_chain_exists() was additionally gated on consensus.status_pool minus BENCHED
+        peers, so a collapsed peer set (it fell to ONE) left nothing to act on at all.
+
+        Now there is one input — the highest height where our hash equals the majority's — and one action
+        per state. Hash equality at a height is a fact; weight comparison is a heuristic that cannot tell
+        "behind" from "forked", which is the exact distinction that mattered.
+
+            BEHIND / UNKNOWN  do nothing here. Ordinary forward sync handles being short, and an
+                              unestablished majority must never move a node.
+            REORG             forked ABOVE the finality floor -> re-anchor by weight. The rollback this
+                              implies is legal, so no floor override is needed and none is passed.
+            DEAD_FORK         forked AT/BELOW the floor -> finality forbids the rollback, so no local
+                              remedy exists; hand to the purge+resync escape.
+
+        Returns True iff the chain identity changed (caller resumes on the new chain)."""
+        state = self._fork_state()
+        if state in (fork_resolution.BEHIND, fork_resolution.UNKNOWN, fork_resolution.SYNCED):
             return False
+        if state == fork_resolution.DEAD_FORK:
+            return self._maybe_escape_dead_fork()
         now = get_timestamp_seconds()
         if now - self._last_reanchor_ts < REANCHOR_COOLDOWN:
-            return False
+            return False                                  # a failing import must not hammer peers
         self._last_reanchor_ts = now
-        escalate = self._reanchor_failures >= REANCHOR_ESCALATE
-        self.logger.warning("Wedged behind a strictly-heavier chain and normal sync cannot reconcile "
-                            "(our snapshot/finality floor is on a minority fork) — re-anchoring by weight"
-                            + (" [ESCALATED: floor restriction dropped]" if escalate else ""))
-        if self.snapshot_bootstrap(force_reanchor=True, allow_below_floor=escalate):
-            # our chain identity changed under us: drop stale fork-choice exclusions and the rollback burst
-            # counter so the fresh tail sync starts clean.
-            self._reanchor_failures = 0
-            # NOTE: rejected_tips is NOT cleared here any more. It is rebuilt from per-tip deadlines every
-            # consensus pass, so a chain we have repeatedly failed to obtain stays benched across a
-            # chain-identity change — previously the wipe handed the donor pool straight back to it.
+        self.logger.warning("Forked above the finality floor — re-anchoring by weight onto the majority chain")
+        if self.snapshot_bootstrap(force_reanchor=True, allow_below_floor=False):
+            # Chain identity changed under us: reset the rollback burst counter so the fresh tail sync
+            # starts clean. rejected_tips is deliberately NOT cleared — it is rebuilt from per-tip
+            # deadlines each consensus pass, so a chain we repeatedly failed to obtain stays benched.
             self.memserver.rollbacks = 0
+            self._fork_state_cache = None                 # identity changed; the cached verdict is stale
             return True
-        self._reanchor_failures += 1
-        return self._rejoin_by_rollback()
-
-    def _rejoin_by_rollback(self) -> bool:
-        """LAST-RESORT fork rejoin: roll back to the last block we share with the majority, EVEN BELOW our
-        own finalized floor, when the node is provably isolated on a minority fork.
-
-        Why this has to exist. Finality makes the local prefix immutable, and re-anchoring is the escape
-        hatch when that prefix turns out to be on a fork — but re-anchoring needs a peer SNAPSHOT to import,
-        and checkpoints are only captured every so often. Live here: this node finalized 16863 on a branch
-        the rest of the network abandoned, every donor answered "our root hash is unknown to them", no peer
-        advertised any snapshot, and the log settled into "no peer advertises a strictly-heavier chain with
-        a snapshot above our finality floor; staying put" — forever. A node that can neither extend, reorg,
-        nor re-anchor is dead, and "stay dead" is not a safer answer than "rejoin the chain everyone else
-        is on": our finality was only ever a local claim, and it is now provably a minority one.
-
-        The escalation is the same one the re-anchor path already makes, applied where no snapshot exists.
-        It fires only when ALL of these hold, so it cannot become a long-range reorg lever:
-          · we have a real peer mesh (>= MIN_REJOIN_PEERS linked peers with tips),
-          · a STRICT MAJORITY of them are on ONE other tip, heavier than ours, same protocol+chain,
-          · re-anchoring has already failed REANCHOR_ESCALATE times in a row,
-          · and there is a common ancestor we can identify BY ASKING THEM (binary search on
-            knows_block), which is the block we roll back to — never further.
-        Everything above that ancestor is re-mined from the mempool by the normal reorg path."""
-        if self._reanchor_failures < REANCHOR_ESCALATE:
-            return False
-        pool = self.consensus.status_pool.copy()
-        ours = self.memserver.latest_block.get("block_hash")
-        our_w = self.memserver.latest_block.get("cumulative_weight", 0)
-        from config import get_protocol
-        min_proto = get_protocol()
-        linked = [(ip, st) for ip, st in pool.items()
-                  if isinstance(st, dict) and st.get("latest_block_hash") and _same_network(st, min_proto)]
-        if len(linked) < MIN_REJOIN_PEERS:
-            return False
-        against = [(ip, st) for ip, st in linked
-                   if st["latest_block_hash"] != ours and (st.get("latest_block_weight") or 0) > our_w]
-        counts = {}
-        for ip, st in against:
-            counts.setdefault(st["latest_block_hash"], []).append(ip)
-        if not counts:
-            return False
-        tip, holders = max(counts.items(), key=lambda kv: len(kv[1]))
-        if len(holders) * 2 <= len(linked):        # not a majority: this is noise, not an isolated node
-            return False
-
-        ancestor = self._common_ancestor(holders)
-        if ancestor is None or ancestor >= self.memserver.latest_block["block_number"]:
-            return False
-        self.logger.warning(
-            f"ISOLATED on a minority fork: {len(holders)}/{len(linked)} peers are on {tip[:12]} and none can "
-            f"serve our chain. Rejoining by rolling back to the last block we share with them ({ancestor}) — "
-            f"this drops our local finality floor, which is provably a minority claim.")
-        set_finalized_height(ancestor)     # the floor must yield BEFORE the reorg, or every revert refuses
-        self.memserver.rollbacks = 0
-        reverted = 0
-        while self.memserver.latest_block["block_number"] > ancestor and not self.memserver.terminate:
-            txs = self.memserver.latest_block.get("block_transactions", []) or []
-            try:
-                self.memserver.latest_block = rollback_one_block(
-                    logger=self.logger, block=self.memserver.latest_block)
-            except Exception as e:
-                self.logger.error(f"Fork rejoin stopped at {self.memserver.latest_block['block_number']}: {e}")
-                break
-            for tx in txs:                 # revert symmetry: a reorg re-mines user txs, never drops them
-                try:
-                    self.memserver.merge_transaction(tx, user_origin=False)
-                except Exception:
-                    pass
-            reverted += 1
-        self._reanchor_failures = 0
-        self.logger.warning(f"Fork rejoin: reverted {reverted} block(s); tip is now "
-                            f"{self.memserver.latest_block['block_number']} — resyncing forward")
-        return reverted > 0
-
-    def _common_ancestor(self, peers):
-        """Highest height at which the given peers still carry OUR block — binary search over
-        [earliest, tip] using knows_block (which compares height->hash on the PEER's canonical chain, so a
-        fork leftover sitting in their store by hash answers False). Asking them is the only honest way to
-        find the split point: our own store cannot see which of our blocks they abandoned. None when even
-        our earliest block is unknown to them (nothing to rejoin to — that is a re-anchor's job)."""
-        lo = int(self.memserver.earliest_block.get("block_number", 0) or 0)
-        hi = int(self.memserver.latest_block["block_number"])
-
-        def shared(h):
-            bh = get_block_hash_by_number(h)
-            if not bh:
-                return False
-            return any(asyncio.run(knows_block(target_peer=p, port=self.memserver.port,
-                                               hash=bh, number=h, logger=self.logger)) for p in peers)
-
-        try:
-            if not shared(lo):
-                return None
-            while lo < hi:                 # invariant: shared(lo) is True, shared(hi+1) is False
-                mid = (lo + hi + 1) // 2
-                if shared(mid):
-                    lo = mid
-                else:
-                    hi = mid - 1
-            return lo
-        except Exception as e:
-            self.logger.error(f"Common-ancestor search failed: {e}")
-            return None
+        return False
 
     def emergency_mode(self):
         """BEHIND-mode loop (entered when fork-choice says a strictly-better tip exists, or under

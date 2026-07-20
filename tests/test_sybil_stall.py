@@ -174,56 +174,20 @@ def t_reject_tip_strikes_the_advertising_peer():
 
 
 
-def t_fork_rejoin_only_fires_when_provably_isolated():
-    """The escalation that drops the local finality floor must be impossible to trigger casually: it needs a
-    real mesh, a STRICT majority of it on ONE other heavier tip, and repeated re-anchor failures first.
-    Anything less and a couple of noisy peers could talk a healthy node off the canonical chain."""
-    import types
-    from loops.core_loop import CoreClient, MIN_REJOIN_PEERS, REANCHOR_ESCALATE
+def t_fork_rejoin_machinery_is_gone():
+    """The old _rejoin_by_rollback / _common_ancestor / REANCHOR_ESCALATE ladder is DELETED.
 
-    def node(pool, failures=REANCHOR_ESCALATE, tip="ours", weight=W):
-        c = CoreClient.__new__(CoreClient)
-        c._reanchor_failures = failures
-        c.consensus = types.SimpleNamespace(status_pool=pool)
-        c.memserver = types.SimpleNamespace(
-            latest_block={"block_hash": tip, "cumulative_weight": weight, "block_number": 100},
-            earliest_block={"block_number": 0}, port=9173, terminate=False, rollbacks=0)
-        c.logger = types.SimpleNamespace(warning=lambda *a: None, error=lambda *a: None)
-        c._common_ancestor = lambda peers: None      # never actually reorg in a unit test
-        return c
+    It inferred the fork state from weights + donor behaviour + bench state, and on 2026-07-20 every rung
+    mis-fired together on a node that was merely BEHIND on the correct chain. Its replacement measures the
+    state instead (ops/fork_resolution: the highest height where our hash equals the majority's), and the
+    Sybil properties this test used to guard now live in tests/test_fork_resolution.py — split peers and
+    silent peers both resolve to UNKNOWN, so noisy or absent peers can never move a healthy node, and
+    tests/test_dead_fork_escape.py requires that a single agreeing peer vetoes a purge.
 
-    heavier = lambda tip: {"latest_block_hash": tip, "latest_block_weight": W + 50, "protocol": 99}
-    majority = {"a": heavier("theirs"), "b": heavier("theirs"), "c": heavier("theirs"), "d": heavier("theirs")}
+    Asserted here so the ladder cannot quietly come back."""
+    import loops.core_loop as CL
+    for gone in ("_rejoin_by_rollback", "_common_ancestor", "_heavier_chain_exists"):
+        assert not hasattr(CL.CoreClient, gone), f"{gone} was deleted — it must not return"
+    for gone in ("REANCHOR_ESCALATE", "MIN_REJOIN_PEERS"):
+        assert not hasattr(CL, gone), f"{gone} was deleted — it must not return"
 
-    assert node(majority, failures=REANCHOR_ESCALATE - 1)._rejoin_by_rollback() is False, \
-        "must not fire before re-anchoring has repeatedly failed"
-    assert node(dict(list(majority.items())[:MIN_REJOIN_PEERS - 1]))._rejoin_by_rollback() is False, \
-        "must not fire without a real peer mesh"
-    split = {"a": heavier("x"), "b": heavier("y"), "c": heavier("z"), "d": heavier("w")}
-    assert node(split)._rejoin_by_rollback() is False, \
-        "peers disagreeing with each other are noise, not one canonical chain"
-    lighter = {k: {"latest_block_hash": "theirs", "latest_block_weight": W - 1, "protocol": 99}
-               for k in ("a", "b", "c", "d")}
-    assert node(lighter)._rejoin_by_rollback() is False, "a LIGHTER chain never justifies dropping finality"
-    tie = {"a": heavier("theirs"), "b": heavier("theirs"),
-           "c": {"latest_block_hash": "ours", "latest_block_weight": W, "protocol": 99},
-           "d": {"latest_block_hash": "ours", "latest_block_weight": W, "protocol": 99}}
-    assert node(tie)._rejoin_by_rollback() is False, "half is not a strict majority"
-    # the real thing: mesh + strict majority + heavier + escalated -> it looks for the common ancestor
-    seen = {}
-    n = node(majority)
-    n._common_ancestor = lambda peers: seen.setdefault("peers", sorted(peers)) and None
-    n._rejoin_by_rollback()
-    assert seen.get("peers") == ["a", "b", "c", "d"], "should ask exactly the majority-tip holders"
-
-
-check("fork rejoin only fires when provably isolated", t_fork_rejoin_only_fires_when_provably_isolated)
-check("moving-target fork is benched by PEER, not by hash", t_moving_target_fork_is_benched_by_peer_not_hash)
-check("reject_tip strikes the advertising peer", t_reject_tip_strikes_the_advertising_peer)
-check("a tip several peers hold never benches them", t_shared_tip_never_benches_its_peers)
-check("foreign-protocol weight is invisible to the production gate", t_foreign_protocol_weight_ignored)
-check("emergency failure paths all reject the tip + loop re-checks behind", t_emergency_paths_reject)
-
-print()
-print("ALL SYBIL-STALL CHECKS PASSED" if not fails else f"{fails} SYBIL-STALL CHECK(S) FAILED")
-sys.exit(1 if fails else 0)
