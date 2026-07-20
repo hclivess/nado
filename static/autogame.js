@@ -51,6 +51,16 @@ let brush = E.A_STRIKE;         // which reaction a tile tap assigns
 let queue = [];                 // settled step events waiting to be animated
 let camera = 0;                 // fractional depth the camera is at
 let lastLegSeen = -1;
+// Gore is part of the animation, not decoration: a fight you cannot see the cost of does not read as a
+// fight. Each entry is anchored to a WORLD DEPTH so it scrolls with the road and stays where it happened.
+let gore = [];
+let fatality = null;            // {which, t0} once the hero falls
+const GORE_MS = 1400;           // spray/spurt lifetime; pools and splatter persist until they scroll away
+
+function addGore(depth, kind, amount, seed) {
+  gore.push({ depth, kind, amount, seed, t0: performance.now() });
+  if (gore.length > 120) gore.splice(0, gore.length - 120);   // the road is long; do not grow forever
+}
 // A committed plan word is HASH-KEYED on chain, so it is not in the storage view and the animator cannot
 // read back what you queued. Your own browser knows, though — remembering it here is what lets a planned
 // leg replay with your actual reactions instead of mismatching and snapping to the chain.
@@ -132,7 +142,12 @@ function planOnChain(leg) { return false; }
  * chain wins and the view snaps — a pretty animation that disagrees with settlement is a lie.
  */
 function syncView() {
-  if (!view || view.depth > chain.depth) { view = { ...chain, gear: [...chain.gear], mats: [...chain.mats] }; queue = []; camera = view.depth; lastLegSeen = chain.leg; return; }
+  if (!view || view.depth > chain.depth) {
+    view = { ...chain, gear: [...chain.gear], mats: [...chain.mats] };
+    queue = []; camera = view.depth; lastLegSeen = chain.leg;
+    gore = []; fatality = null;                       // a new run starts on clean ground
+    return;
+  }
   while (view.leg < chain.leg) {
     const tileH = hashField(view.lh), rollH = hashField(view.nh);
     if (tileH == null || rollH == null) break;                 // hashes not cached yet; try next poll
@@ -272,15 +287,41 @@ function drawWorld() {
     }
   }
 
+  // ground-level gore first, so sprites stand ON it
+  if (ART.drawBlood) {
+    for (const g of gore) {
+      const gx = heroX + Math.round((g.depth - camera) * TILE);
+      if (gx < -TILE || gx > W + TILE) continue;
+      const age = now - g.t0;
+      const lasting = g.kind === "pool" || g.kind === "splatter";
+      if (!lasting && age > GORE_MS) continue;
+      const frame = lasting ? Math.min(5, Math.floor(age / 160)) : Math.floor(age / (GORE_MS / 6));
+      ART.drawBlood(ctx, gx, GY + 2, { kind: g.kind, frame, scale: 3, facing: 1,
+                                       seed: g.seed, amount: g.amount });
+    }
+    gore = gore.filter((g) => g.kind === "pool" || g.kind === "splatter" || now - g.t0 <= GORE_MS
+                              || g.depth > camera - 40);
+  }
+
   // the warrior — always at the same screen x; the world moves, not him. He swings when something is
   // actually in front of him, not merely when the event queue happens to hold a fight.
   const frame = Math.floor((now / 140) % 4);
   const hurt = view && view.hp * 4 < view.maxhp;
-  drawWarrior(ctx, footX(heroX, 3), footY(GY + 2, 3), {
-    gear: view ? view.gear : new Array(6).fill(0),
-    frame, scale: 3, facing: 1, hurt, dead: view ? !view.alive : false,
-    attacking: engaging,
-  });
+  const dead = view ? !view.alive : false;
+  if (dead && fatality && ART.drawFatality) {
+    const fr = Math.floor((now - fatality.t0) / 130);
+    const spec = ART.FATALITIES[fatality.which] || { frames: 8 };
+    ART.drawFatality(ctx, footX(heroX, 3), footY(GY + 2, 3), {
+      which: fatality.which, frame: Math.min(fr, (spec.frames || 8) - 1), scale: 3, facing: 1,
+      gear: view ? view.gear : new Array(6).fill(0),
+    });
+  } else {
+    drawWarrior(ctx, footX(heroX, 3), footY(GY + 2, 3), {
+      gear: view ? view.gear : new Array(6).fill(0),
+      frame, scale: 3, facing: 1, hurt, dead,
+      attacking: engaging,
+    });
+  }
 
   // night veil / weather
   if (night) { ctx.fillStyle = "rgba(6,10,20,.35)"; ctx.fillRect(0, 0, W, H); }
@@ -302,6 +343,20 @@ function tick() {
 }
 
 function showEvent(ev) {
+  // spawn the blood this step earned, anchored where it happened
+  const at = ev.depth != null ? ev.depth : Math.floor(camera);
+  const seed = ((at * 2654435761) ^ (myId || 1)) >>> 0;
+  if (ev.dmg) addGore(at, "hit", Math.min(8, 1 + Math.floor(ev.dmg / 6)), seed);
+  if (ev.kill) {
+    addGore(at, "spurt", Math.min(10, ev.foes || 1), seed ^ 0x9e37);
+    addGore(at, "pool", Math.min(10, ev.foes || 1), seed ^ 0x51ed);
+    addGore(at, "splatter", Math.min(10, ev.foes || 1), seed ^ 0x2f6d);
+  }
+  if (ev.died && ART.FATALITIES && ART.FATALITIES.length) {
+    // deterministic: the same death always replays as the same fatality
+    fatality = { which: seed % ART.FATALITIES.length, t0: performance.now() };
+    addGore(at, "pool", 10, seed ^ 0xdead);
+  }
   const bits = [];
   if (ev.gain) bits.push(`<span style="color:var(--gold)">+${ev.gain} renown</span>`);
   if (ev.dmg) bits.push(`<span style="color:var(--danger)">−${ev.dmg} hp</span>`);
@@ -390,9 +445,15 @@ function renderRoad() {
       : (t.tile === E.CACHE || t.tile === E.SHRINE || t.tile === E.RELIC) ? "good" : "",
       t.depth === (chain ? chain.depth : -1) ? "now" : ""].join(" ");
     const act = plan[i] ? `<span class="act">${ACT_ICON[plan[i]]}</span>` : "";
+    // A canvas, not an emoji. The chip background is a dark blue-grey, and a stock ⚔️ glyph sitting in it
+    // reads as clip-art in a blue box rather than as the monster you are about to fight.
+    const art = ART.drawMonster
+      ? `<canvas class="tico" width="${ART.MON_W || 32}" height="${ART.MON_H || 32}" data-i="${i}"></canvas>`
+      : `<span>${TILE_ICON[t.tile]}</span>`;
     return `<div class="tile ${cls}" data-i="${i}" title="${esc(E.TILE_NAMES[t.tile])}${t.swing ? " · swing " + t.swing : ""}">
-      ${act}<span>${TILE_ICON[t.tile]}</span><span class="sw">${t.swing || ""}</span></div>`;
+      ${act}${art}<span class="sw">${t.swing || ""}</span></div>`;
   }).join("");
+  paintRoadIcons();
   el.querySelectorAll(".tile").forEach((n) => n.onclick = () => {
     const i = Number(n.dataset.i);
     plan[i] = plan[i] === brush ? 0 : brush;            // tap again to clear
@@ -404,6 +465,30 @@ function renderRoad() {
  *  creation or they stay English until the user toggles the language picker. */
 function relocalize(root) {
   try { if (window.NADO_i18n && window.NADO_i18n.apply) window.NADO_i18n.apply(root); } catch (e) {}
+}
+
+/** Paint each road chip with the SAME sprite the world uses, so the strip and the stage agree about what
+ *  is standing on that tile. */
+function paintRoadIcons() {
+  if (!ART.drawMonster) return;
+  const RANK = { [E.ELITE]: 1, [E.BOSS]: 2 };
+  const PROP = { [E.HAZARD]: "hazard", [E.CACHE]: "cache", [E.SHRINE]: "shrine",
+                 [E.FORGE]: "forge", [E.RELIC]: "relic", [E.FORK]: "fork" };
+  document.querySelectorAll("#road .tico").forEach((cv) => {
+    const t = road[Number(cv.dataset.i)];
+    if (!t) return;
+    const ctx = cv.getContext("2d");
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.imageSmoothingEnabled = false;
+    if (t.tile === E.ROAD) return;                       // empty road draws nothing, on purpose
+    const combat = t.tile === E.MONSTER || t.tile === E.ELITE || t.tile === E.BOSS || t.tile === E.FORK;
+    if (combat) {
+      ART.drawMonster(ctx, 0, 0, { family: t.fam, rank: RANK[t.tile] || 0, level: t.ml,
+                                   frame: 0, scale: 1, facing: -1 });
+    } else if (PROP[t.tile] && ART.drawProp) {
+      ART.drawProp(ctx, 0, 0, { kind: PROP[t.tile], frame: 0, scale: 1 });
+    }
+  });
 }
 
 function renderDials() {
