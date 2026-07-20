@@ -4527,7 +4527,15 @@ async function renderNodes() {
       ? `<button class="node-upd" data-upd="${isSelf ? "" : encodeURIComponent(label)}" title="${i18("stats.ndUpdate", "Update")}" aria-label="${i18("stats.ndUpdate", "Update")}" style="padding:2px 7px;font-size:13px;line-height:1.2;border:1px solid var(--acc,#3aa0ff);border-radius:7px;background:transparent;cursor:pointer">⬆</button>`
       : known ? `<span class="faint" style="font-size:11px" title="${i18("stats.ndCurrent", "running the newest commit we know of")}">✓</span>`
               : `<span class="faint" style="font-size:11px" title="${i18("stats.ndUnknownTip", "This node does not report which commit it runs, or nobody here knows the newest one — so we cannot tell whether it is up to date.")}">—</span>`;
-    const height = `${st.finalized_height != null ? st.finalized_height : "?"}`;
+    // Height = the TIP, not finalized: finality legitimately trails the tip (by up to the finality
+    // depth), so showing finalized here made every healthy node look ~dozens of blocks "behind" — twice
+    // mistaken for a sync problem. Finalized stays visible on hover; old peers that don't advertise a
+    // tip height fall back to finalized (marked with a trailing ° so the two are never conflated).
+    const height = st.latest_block_height != null
+      ? `<span title="${i18("stats.ndFinalized", "finalized")}: ${st.finalized_height != null ? st.finalized_height : "?"}">${st.latest_block_height}</span>`
+      : (st.finalized_height != null
+          ? `<span title="${i18("stats.ndFinOnlyTip", "this node only reports its finalized height — its tip is a little ahead of this")}">${st.finalized_height}°</span>`
+          : "?");
     const weight = `${st.latest_block_weight != null ? (st.latest_block_weight / 1e6).toFixed(2) + "M" : "?"}`;
     const who = _ccFlag(label) + `<span class="mono" title="${label}">`
       + (isSelf ? `<b>${_shortIp(label)}</b>` : _shortIp(label)) + "</span>";

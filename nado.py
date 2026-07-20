@@ -197,6 +197,11 @@ async def status(request):
             "transaction_pool_hash": memserver.transaction_pool_hash,
             "upcoming_block_hash": memserver.upcoming_block_hash,
             "latest_block_hash": lb.get("block_hash"),
+            # TIP height, not just its hash: the network panel showed finalized_height in its Height
+            # column (the only height advertised), and finality legitimately trails the tip — so a
+            # healthy node "lagged" by its finality gap on every dashboard, twice mistaken for a sync
+            # problem. Old peers without this field fall back to finalized_height in the UI.
+            "latest_block_height": lb.get("block_number"),
             "latest_block_weight": lb.get("cumulative_weight", 0),
             "earliest_block_hash": eb.get("block_hash"),
             "finalized_height": memserver.finalized_height,
