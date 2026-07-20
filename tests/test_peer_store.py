@@ -16,6 +16,21 @@ logger = logging.getLogger("peerstore"); logger.addHandler(logging.NullHandler()
 import config as _cfg
 _cfg.create_config(ip="1.2.3.4")
 
+OWN_IP = "1.2.3.4"
+
+def fresh_home(prefix):
+    """A brand-new node home, WITH a config. Every scenario that needs a clean peer table swaps HOME, and
+    each one must bring a config with it: get_config() raises on a missing file by deliberate design ("a
+    node without a config must not limp along on invented defaults"), so a home without one does not
+    exercise the peer store — it just makes every peer call blow up, and the surrounding assertion then
+    grades an exception instead of the behaviour it names. Two scenarios here used to do exactly that, and
+    leaked the broken HOME into the one between them as well."""
+    home = tempfile.mkdtemp(prefix=prefix)
+    os.environ["HOME"] = home
+    os.makedirs(f"{home}/nado/private", exist_ok=True)
+    _cfg.create_config(ip=OWN_IP)
+    return home
+
 from ops import peer_ops
 from ops.data_ops import get_home
 
@@ -53,8 +68,7 @@ check("own IP is never stored as a peer", t2_never_stores_own_ip)
 def t4_migrates_legacy_dir_then_retires_it():
     """Prove legacy peers/<b64>.dat files migrate into peers.dat (dropping peer_trust) and are removed."""
     # fresh home with ONLY a legacy peers/ dir
-    home2 = tempfile.mkdtemp(prefix="nado_legacy_")
-    os.environ["HOME"] = home2
+    home2 = fresh_home("nado_legacy_")
     os.makedirs(f"{home2}/nado/peers", exist_ok=True)
     for ip, tr in [("11.11.11.11", 60), ("22.22.22.22", 40)]:
         b64 = base64.b64encode(ip.encode()).decode()
@@ -72,25 +86,25 @@ def t5_seed_recovers_a_poisoned_table():
     """Prove seed_default_peers re-asserts the bootstrap seed on a poisoned own-IP-only table."""
     # a node whose table contains ONLY its own IP (load_ips excludes it -> 0 dialable peers) must still get
     # the bootstrap seed re-asserted, or it loops "Loaded 0 reachable peers" forever (the bug the user hit).
-    peer_ops._save_peers({"1.2.3.4": {"peer_ip": "1.2.3.4", "peer_port": 9173}})
-    peer_ops.seed_default_peers(logger, my_ip="1.2.3.4")
+    seed = peer_ops.DEFAULT_SEED_PEERS[0]        # DERIVED, not pinned: a changed seed must not silently
+                                                 # turn this into an assertion about a retired IP
+    peer_ops._save_peers({OWN_IP: {"peer_ip": OWN_IP, "peer_port": 9173}})
+    peer_ops.seed_default_peers(logger, my_ip=OWN_IP)
     tbl = peer_ops._load_peers()
-    assert "38.242.201.206" in tbl, "bootstrap seed not re-asserted on a non-empty/poisoned table"
-    assert "1.2.3.4" not in tbl or True  # own IP may linger from the poison, but it's excluded when dialing
+    assert seed in tbl, "bootstrap seed not re-asserted on a non-empty/poisoned table"
 check("seed_default_peers recovers the bootstrap on a poisoned (own-IP-only) table", t5_seed_recovers_a_poisoned_table)
 
 
 def t6_migration_skips_own_ip():
     """Prove the legacy migration filters out our own IP but keeps legitimate peers."""
-    home3 = tempfile.mkdtemp(prefix="nado_ownip_")
-    os.environ["HOME"] = home3
+    home3 = fresh_home("nado_ownip_")
     os.makedirs(f"{home3}/nado/peers", exist_ok=True)
-    for ip in ("1.2.3.4", "44.44.44.44"):    # own IP (per config) + a real peer
+    for ip in (OWN_IP, "44.44.44.44"):       # own IP (per config) + a real peer
         b64 = base64.b64encode(ip.encode()).decode()
         json.dump({"peer_ip": ip, "peer_address": "", "peer_port": 9173, "peer_trust": 50},
                   open(f"{home3}/nado/peers/{b64}.dat", "w"))
     tbl = peer_ops._load_peers()             # migration
-    assert "1.2.3.4" not in tbl, "migration must NOT carry our own IP (ghost self-peer) into peers.dat"
+    assert OWN_IP not in tbl, "migration must NOT carry our own IP (ghost self-peer) into peers.dat"
     assert "44.44.44.44" in tbl, "migration dropped a legitimate peer"
 check("legacy migration filters out our own IP", t6_migration_skips_own_ip)
 
