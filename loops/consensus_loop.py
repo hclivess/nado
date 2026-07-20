@@ -19,6 +19,14 @@ TIP_BENCH_FORGET_S = 1800
 # deliberately more than a blip: benching a peer is how the node stops chasing an unobtainable fork, and it
 # is also how the node could go blind to a real chain, so it must never fire on a transient fetch error.
 PEER_BENCH_AFTER = 3
+# PEER benches escalate far beyond the tip cap. 2026-07-20: four stranded old-code peers (git-less, each a
+# LONE holder of a distinct fork with pre-difficulty-fix INFLATED weight) rotated through the 600s cap and
+# put the node through 272 emergency entries in 4h, pinning finality ~45 behind tip. A permanently-broken
+# chain re-fails the moment its bench expires, so the cap is the only thing that decides steady-state churn:
+# 2h ≈ two flaps per wreck per day. Safe for real chains twice over: multiple holders never peer-strike at
+# all (see below), and a lone-bridge peer that heals is retried within 2h worst-case, then a SUCCESS stops
+# the striking and TIP_BENCH_FORGET_S clears its slate.
+PEER_BENCH_MAX_S = 7200
 
 
 def get_pool_majority(pool):
@@ -126,7 +134,7 @@ class ConsensusClient(threading.Thread):
             self._peer_strikes[p] = pn = self._peer_strikes.get(p, 0) + 1
             if pn >= PEER_BENCH_AFTER:
                 self._peer_until[p] = time.monotonic() + min(
-                    TIP_BENCH_BASE_S * (2 ** (pn - PEER_BENCH_AFTER)), TIP_BENCH_MAX_S)
+                    TIP_BENCH_BASE_S * (2 ** (pn - PEER_BENCH_AFTER)), PEER_BENCH_MAX_S)
         return n
 
     def tip_source_benched(self, peer):
