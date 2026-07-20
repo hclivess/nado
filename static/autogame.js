@@ -14,7 +14,7 @@
 // chain wins and the view snaps to it.
 import {
   NadoDapp, rawToNado, randId, _m, $, base, gate, canPay, alertBar, notify, okBar, wireWallet,
-  renderWallet, resolveAliases, disp, share, algHashn, ALG_P, esc, blocksToTime,
+  renderWallet, resolveAliases, disp, share, algHashn, ALG_P, esc, blocksToTime, lsLoad, lsSave,
 } from "./nadodapp.js";
 import * as E from "./autogame-engine.js";
 import { drawWarrior, unpackItem, MATERIALS, FRAME_W, FRAME_H } from "./autogame-art.js";
@@ -50,6 +50,20 @@ let brush = E.A_STRIKE;         // which reaction a tile tap assigns
 let queue = [];                 // settled step events waiting to be animated
 let camera = 0;                 // fractional depth the camera is at
 let lastLegSeen = -1;
+// A committed plan word is HASH-KEYED on chain, so it is not in the storage view and the animator cannot
+// read back what you queued. Your own browser knows, though — remembering it here is what lets a planned
+// leg replay with your actual reactions instead of mismatching and snapping to the chain.
+const LS_PLANS = "nado_autogame_plans";
+const planKey = (run, leg) => `${run}:${leg}`;
+const rememberPlan = (run, leg, word, agg) => {
+  const all = lsLoad(LS_PLANS);
+  all[planKey(run, leg)] = { word: String(word), agg, ts: Date.now() };
+  for (const k of Object.keys(all)) {            // keep it small: a chapter is 32 legs
+    if (Date.now() - (all[k].ts || 0) > 6 * 3600 * 1000) delete all[k];
+  }
+  lsSave(LS_PLANS, all);
+};
+const recallPlan = (run, leg) => lsLoad(LS_PLANS)[planKey(run, leg)] || null;
 
 // ── reading the chain ───────────────────────────────────────────────────────────────────────────
 /** My run: the live one if I have it, else my most recent. The contract's `ra` map is the owner index. */
@@ -121,10 +135,11 @@ function syncView() {
   while (view.leg < chain.leg) {
     const tileH = hashField(view.lh), rollH = hashField(view.nh);
     if (tileH == null || rollH == null) break;                 // hashes not cached yet; try next poll
-    const word = null;                                          // the plan word is hash-keyed and not in
-    // the flat view; replaying with the *default* plan is wrong whenever the player queued reactions, so
-    // the replay is only trusted when it reproduces the contract's state exactly (checked below).
-    const evs = E.playLeg(algHashn, view, myId, tileH, rollH, word, view.aggUsed || 1);
+    // Replay with the plan this browser committed for that leg, if it has one. Without it a planned leg
+    // never reproduces the contract's state, so the animation is thrown away and the view snaps — the
+    // player would watch their own carefully queued reactions vanish.
+    const p = recallPlan(myId, view.leg);
+    const evs = E.playLeg(algHashn, view, myId, tileH, rollH, p ? p.word : null, p ? p.agg : 1);
     view.leg += 1;
     view.lh = view.nh; view.nh = view.nh + E.LEG;
     queue.push(...evs);
@@ -473,10 +488,12 @@ function begin() {
 }
 function commitPlan() {
   if (!chain) return;
-  act("plan", t("whatPlan", "Committing a plan"), () =>
-    dapp.call("plan", [myId, chain.leg, E.packPlan(plan), planAgg], 0n,
-      t("labelPlan", "Commit the plan for leg {n}", { n: chain.leg }), { phase: "plan", leg: chain.leg }),
-    "leg", chain.leg);
+  const word = E.packPlan(plan);
+  act("plan", t("whatPlan", "Committing a plan"), () => {
+    rememberPlan(myId, chain.leg, word, planAgg);      // so the animator can replay YOUR leg, not a default
+    dapp.call("plan", [myId, chain.leg, word, planAgg], 0n,
+      t("labelPlan", "Commit the plan for leg {n}", { n: chain.leg }), { phase: "plan", leg: chain.leg });
+  }, "leg", chain.leg);
 }
 function advance() {
   if (!chain) return;
