@@ -563,9 +563,12 @@ PathExists=/run/nado/restart-request
 [Install]
 WantedBy=multi-user.target
 BRIDGEEOF
-    # future self-updates rebuild the native crates AS the account — give it its own Rust toolchain
+    # future self-updates rebuild the native crates AS the account — give it its own Rust toolchain.
+    # The probe gets a SANITIZED PATH: the invoking root shell's PATH (with root's ~/.cargo/bin) leaks
+    # through runuser, and `command -v` reports a hit the account cannot even traverse /root to reach.
     if command -v cargo >/dev/null 2>&1 && \
-       ! runuser -u "$SERVICE_ACCOUNT" -- env HOME="$SERVICE_HOME" sh -c 'command -v cargo >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/cargo" ]' 2>/dev/null; then
+       ! runuser -u "$SERVICE_ACCOUNT" -- env HOME="$SERVICE_HOME" PATH=/usr/local/bin:/usr/bin:/bin \
+           sh -c 'command -v cargo >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/cargo" ]' 2>/dev/null; then
       echo "==> installing a Rust toolchain for '$SERVICE_ACCOUNT' (self-update rebuilds native crates as the service user)"
       runuser -u "$SERVICE_ACCOUNT" -- env HOME="$SERVICE_HOME" sh -c \
         'curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal' >/dev/null 2>&1 \
