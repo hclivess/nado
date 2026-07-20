@@ -3002,7 +3002,12 @@ function assetToDisplay(raw, dec) {
 }
 
 async function assetFetch(params) {
-  const u = execBase() + "/exec/assets?" + new URLSearchParams(params).toString();
+  // provisional=1 — the fast pre-finality view, the SAME read the wallet's own playable balance uses
+  // (/exec/bridge?provisional=1). Without it this reads the SETTLED state, so a token you just created or
+  // just received is invisible for a whole finality window (~45 blocks, minutes) — you issue TKN, open the
+  // Assets tab, and see nothing. Provisional shows it ~one block after it lands. Display-only, exactly like
+  // the balance: no signature or settlement ever reads this path.
+  const u = execBase() + "/exec/assets?" + new URLSearchParams({ ...params, provisional: 1 }).toString();
   const j = await (await fetch(u, { cache: "no-store" })).json();
   return (j && j.assets) || [];
 }
