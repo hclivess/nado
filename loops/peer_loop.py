@@ -158,6 +158,17 @@ class PeerClient(threading.Thread):
                     if peer in _seeds or (get_timestamp_seconds() - ban_time) > UNREACHABLE_COOLDOWN:
                         self.memserver.unreachable.pop(peer)
                         self.logger.info(f"Restored {peer} to the dial set")
+                # SEEDS ARE ALWAYS DIALED: "restored" above only clears the bench — purge_peers had also
+                # REMOVED the peer from the dial set, and nothing re-added it until the peer itself
+                # announced (~its 5-min heavy-refresh). Measured live: a seed restarting for an update
+                # wave stayed out of our pools for 351s despite the cooldown exemption. Re-adding here
+                # closes the loop: the next status pass re-links the anchor within seconds of its boot.
+                _my_ip = getattr(self.memserver, "ip", None)
+                for _s in _seeds:
+                    if (_s != _my_ip and _s not in self.memserver.peers
+                            and _s not in self.memserver.unreachable):
+                        self.memserver.peers.append(_s)
+                        self.logger.info(f"Re-dialing operator seed {_s}")
 
                 if get_timestamp_seconds() > self.heavy_refresh_timer + self.memserver.heavy_refresh_interval:
                     """heavy refresh triggered"""
