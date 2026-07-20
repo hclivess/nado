@@ -297,7 +297,12 @@
   "pets.fuseCapped": "At the fusing cap — better than this has to be FOUND by a rarer pet.",
   "pets.fuseNoFood": "To fuse this up a tier, feed it another {kind} of the same tier or better.",
   "pets.fuseFor": "⚗ Fuse → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Re-roll · {n} ✨"
+  "pets.rerollFor": "🎲 Re-roll · {n} ✨",
+  "pets.needFuse": "Fusing costs {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ and {f} NADO.",
+  "pets.thisFuse": "This fusion",
+  "pets.needReroll2": "Rerolling this costs {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ and {f} NADO.",
+  "pets.thisReroll": "This re-roll",
+  "pets.fuseFor2": "⚗ Fuse → {r}"
  },
  "cs": {
   "pets.cardRenderFail": "Kartu se nepodařilo vykreslit — zkus to znovu.",
@@ -597,7 +602,12 @@
   "pets.fuseCapped": "Strop slučování — lepší musí NAJÍT vzácnější mazlíček.",
   "pets.fuseNoFood": "Pro stupeň výš mu obětuj další kus typu {kind} stejného nebo lepšího stupně.",
   "pets.fuseFor": "⚗ Sloučit → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Přehodit · {n} ✨"
+  "pets.rerollFor": "🎲 Přehodit · {n} ✨",
+  "pets.needFuse": "Sloučení stojí {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ a {f} NADO.",
+  "pets.thisFuse": "Toto sloučení",
+  "pets.needReroll2": "Přehození stojí {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ a {f} NADO.",
+  "pets.thisReroll": "Toto přehození",
+  "pets.fuseFor2": "⚗ Sloučit → {r}"
  },
  "es": {
   "pets.cardRenderFail": "No se pudo generar la imagen de la carta — inténtalo de nuevo.",
@@ -897,7 +907,12 @@
   "pets.fuseCapped": "Tope de fusión — algo mejor hay que ENCONTRARLO con una mascota más rara.",
   "pets.fuseNoFood": "Para subirlo un nivel, dale otra pieza del tipo {kind} de igual nivel o mejor.",
   "pets.fuseFor": "⚗ Fusionar → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Volver a tirar · {n} ✨"
+  "pets.rerollFor": "🎲 Volver a tirar · {n} ✨",
+  "pets.needFuse": "Fusionar cuesta {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ y {f} NADO.",
+  "pets.thisFuse": "Esta fusión",
+  "pets.needReroll2": "Volver a tirarlo cuesta {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ y {f} NADO.",
+  "pets.thisReroll": "Esta tirada",
+  "pets.fuseFor2": "⚗ Fusionar → {r}"
  },
  "pt": {
   "pets.cardRenderFail": "Não foi possível gerar a imagem do card — tente novamente.",
@@ -1197,7 +1212,12 @@
   "pets.fuseCapped": "Limite de fusão — melhor que isto só se ACHA com um pet mais raro.",
   "pets.fuseNoFood": "Para subir um nível, alimente com outra peça do tipo {kind} de nível igual ou melhor.",
   "pets.fuseFor": "⚗ Fundir → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Rolar de novo · {n} ✨"
+  "pets.rerollFor": "🎲 Rolar de novo · {n} ✨",
+  "pets.needFuse": "Fundir custa {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ e {f} NADO.",
+  "pets.thisFuse": "Esta fusão",
+  "pets.needReroll2": "Rolar isto de novo custa {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ e {f} NADO.",
+  "pets.thisReroll": "Esta rolagem",
+  "pets.fuseFor2": "⚗ Fundir → {r}"
  },
  "fr": {
   "pets.cardRenderFail": "Impossible de générer l'image de la carte — réessayez.",
@@ -1497,7 +1517,12 @@
   "pets.fuseCapped": "Plafond de fusion — mieux que ça, il faut le TROUVER avec un compagnon plus rare.",
   "pets.fuseNoFood": "Pour monter d'un niveau, donnez-lui une autre pièce de type {kind} de niveau égal ou supérieur.",
   "pets.fuseFor": "⚗ Fusionner → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Relancer · {n} ✨"
+  "pets.rerollFor": "🎲 Relancer · {n} ✨",
+  "pets.needFuse": "Fusionner coûte {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ et {f} NADO.",
+  "pets.thisFuse": "Cette fusion",
+  "pets.needReroll2": "Relancer coûte {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ et {f} NADO.",
+  "pets.thisReroll": "Ce relancer",
+  "pets.fuseFor2": "⚗ Fusionner → {r}"
  },
  "de": {
   "pets.cardRenderFail": "Kartenbild konnte nicht erzeugt werden — versuch es nochmal.",
@@ -1797,7 +1822,12 @@
   "pets.fuseCapped": "Verschmelzungsgrenze — Besseres muss ein selteneres Haustier FINDEN.",
   "pets.fuseNoFood": "Für eine Stufe höher füttere ein weiteres Stück vom Typ {kind} gleicher oder besserer Stufe.",
   "pets.fuseFor": "⚗ Verschmelzen → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Neu würfeln · {n} ✨"
+  "pets.rerollFor": "🎲 Neu würfeln · {n} ✨",
+  "pets.needFuse": "Verschmelzen kostet {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ und {f} NADO.",
+  "pets.thisFuse": "Diese Verschmelzung",
+  "pets.needReroll2": "Neu würfeln kostet {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ und {f} NADO.",
+  "pets.thisReroll": "Dieses Neuwürfeln",
+  "pets.fuseFor2": "⚗ Verschmelzen → {r}"
  },
  "it": {
   "pets.cardRenderFail": "Impossibile generare l'immagine della carta — riprova.",
@@ -2097,7 +2127,12 @@
   "pets.fuseCapped": "Limite di fusione — di meglio si può solo TROVARE con un pet più raro.",
   "pets.fuseNoFood": "Per salire di un livello, dagli un altro pezzo di tipo {kind} di livello uguale o migliore.",
   "pets.fuseFor": "⚗ Fondi → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Rilancia · {n} ✨"
+  "pets.rerollFor": "🎲 Rilancia · {n} ✨",
+  "pets.needFuse": "Fondere costa {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ e {f} NADO.",
+  "pets.thisFuse": "Questa fusione",
+  "pets.needReroll2": "Rilanciarlo costa {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ e {f} NADO.",
+  "pets.thisReroll": "Questo rilancio",
+  "pets.fuseFor2": "⚗ Fondi → {r}"
  },
  "ru": {
   "pets.cardRenderFail": "Не удалось отрисовать изображение карточки — попробуйте снова.",
@@ -2397,7 +2432,12 @@
   "pets.fuseCapped": "Предел сплавки — лучше можно только НАЙТИ более редким питомцем.",
   "pets.fuseNoFood": "Чтобы поднять на категорию выше, скормите ещё один предмет типа {kind} той же категории или лучше.",
   "pets.fuseFor": "⚗ Сплавить → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Переброс · {n} ✨"
+  "pets.rerollFor": "🎲 Переброс · {n} ✨",
+  "pets.needFuse": "Сплавка стоит {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ и {f} NADO.",
+  "pets.thisFuse": "Эта сплавка",
+  "pets.needReroll2": "Переброс стоит {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ и {f} NADO.",
+  "pets.thisReroll": "Этот переброс",
+  "pets.fuseFor2": "⚗ Сплавить → {r}"
  },
  "zh": {
   "pets.cardRenderFail": "无法渲染卡片图片 — 请重试。",
@@ -2697,7 +2737,12 @@
   "pets.fuseCapped": "已到合成上限 — 更好的只能靠更稀有的宠物去挖到。",
   "pets.fuseNoFood": "想升一个等级，就再喂它一件同类（{kind}）且等级不低的道具。",
   "pets.fuseFor": "⚗ 合成 → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 重新生成 · {n} ✨"
+  "pets.rerollFor": "🎲 重新生成 · {n} ✨",
+  "pets.needFuse": "合成需要 {t} 🪵、{s} 🪨、{o} ⛏、{e} ✨ 和 {f} NADO。",
+  "pets.thisFuse": "本次合成",
+  "pets.needReroll2": "重新生成需要 {e} ✨、{t} 🪵、{s} 🪨、{o} ⛏ 和 {f} NADO。",
+  "pets.thisReroll": "本次重新生成",
+  "pets.fuseFor2": "⚗ 合成 → {r}"
  },
  "ja": {
   "pets.cardRenderFail": "カードの画像を生成できませんでした — もう一度お試しください。",
@@ -2997,7 +3042,12 @@
   "pets.fuseCapped": "合成の上限です — これより上はよりレアなペットが見つけるしかありません。",
   "pets.fuseNoFood": "ティアを上げるには、同じ種類（{kind}）で同ティア以上のアイテムを与えてください。",
   "pets.fuseFor": "⚗ 合成 → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 振り直す · {n} ✨"
+  "pets.rerollFor": "🎲 振り直す · {n} ✨",
+  "pets.needFuse": "合成には {t} 🪵、{s} 🪨、{o} ⛏、{e} ✨ と {f} NADO が必要です。",
+  "pets.thisFuse": "この合成",
+  "pets.needReroll2": "振り直しには {e} ✨、{t} 🪵、{s} 🪨、{o} ⛏ と {f} NADO が必要です。",
+  "pets.thisReroll": "この振り直し",
+  "pets.fuseFor2": "⚗ 合成 → {r}"
  },
  "ko": {
   "pets.cardRenderFail": "카드 이미지를 렌더링하지 못했습니다 — 다시 시도하세요.",
@@ -3297,7 +3347,12 @@
   "pets.fuseCapped": "합성 상한입니다 — 이보다 좋은 건 더 희귀한 펫이 찾아내야 합니다.",
   "pets.fuseNoFood": "등급을 올리려면 같은 종류({kind})의 동급 이상 아이템을 먹이세요.",
   "pets.fuseFor": "⚗ 합성 → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 다시 굴리기 · {n} ✨"
+  "pets.rerollFor": "🎲 다시 굴리기 · {n} ✨",
+  "pets.needFuse": "합성에는 {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ 와 {f} NADO 이(가) 필요합니다.",
+  "pets.thisFuse": "이 합성",
+  "pets.needReroll2": "다시 굴리려면 {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ 와 {f} NADO 이(가) 필요합니다.",
+  "pets.thisReroll": "이 재굴림",
+  "pets.fuseFor2": "⚗ 합성 → {r}"
  },
  "ar": {
   "pets.cardRenderFail": "تعذّر إنشاء صورة البطاقة — حاول مجددًا.",
@@ -3597,7 +3652,12 @@
   "pets.fuseCapped": "بلغتَ سقف الدمج — الأفضل من هذا يجب أن يُعثر عليه بحيوان أندر.",
   "pets.fuseNoFood": "لرفع الفئة، أطعِمه عنصرًا آخر من النوع ({kind}) بنفس الفئة أو أفضل.",
   "pets.fuseFor": "⚗ دمج → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 إعادة الرمي · {n} ✨"
+  "pets.rerollFor": "🎲 إعادة الرمي · {n} ✨",
+  "pets.needFuse": "الدمج يكلف {t} 🪵 و{s} 🪨 و{o} ⛏ و{e} ✨ و{f} NADO.",
+  "pets.thisFuse": "هذا الدمج",
+  "pets.needReroll2": "إعادة الرمي تكلف {e} ✨ و{t} 🪵 و{s} 🪨 و{o} ⛏ و{f} NADO.",
+  "pets.thisReroll": "إعادة الرمي هذه",
+  "pets.fuseFor2": "⚗ دمج → {r}"
  },
  "hi": {
   "pets.cardRenderFail": "कार्ड की छवि नहीं बन सकी — फिर से कोशिश करें।",
@@ -3897,7 +3957,12 @@
   "pets.fuseCapped": "मिलाने की सीमा — इससे बेहतर तो ज़्यादा दुर्लभ पेट को खोजना ही होगा।",
   "pets.fuseNoFood": "एक स्तर ऊपर ले जाने के लिए उसी प्रकार ({kind}) का बराबर या बेहतर स्तर का आइटम खिलाएं।",
   "pets.fuseFor": "⚗ मिलाएँ → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 फिर से रोल · {n} ✨"
+  "pets.rerollFor": "🎲 फिर से रोल · {n} ✨",
+  "pets.needFuse": "मिलाने में {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ और {f} NADO लगते हैं।",
+  "pets.thisFuse": "यह मिलाव",
+  "pets.needReroll2": "इसे फिर से रोल करने में {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ और {f} NADO लगते हैं।",
+  "pets.thisReroll": "यह फिर से रोल",
+  "pets.fuseFor2": "⚗ मिलाएँ → {r}"
  },
  "tr": {
   "pets.cardRenderFail": "Kart görseli oluşturulamadı — tekrar dene.",
@@ -4197,7 +4262,12 @@
   "pets.fuseCapped": "Birleştirme tavanı — bundan iyisini daha nadir bir hayvan BULMALI.",
   "pets.fuseNoFood": "Bir kademe yükseltmek için aynı türden ({kind}) eşit ya da daha iyi bir eşya ver.",
   "pets.fuseFor": "⚗ Birleştir → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Yeniden at · {n} ✨"
+  "pets.rerollFor": "🎲 Yeniden at · {n} ✨",
+  "pets.needFuse": "Birleştirme {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ ve {f} NADO tutar.",
+  "pets.thisFuse": "Bu birleştirme",
+  "pets.needReroll2": "Yeniden atmak {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ ve {f} NADO tutar.",
+  "pets.thisReroll": "Bu yeniden atış",
+  "pets.fuseFor2": "⚗ Birleştir → {r}"
  },
  "id": {
   "pets.cardRenderFail": "Gagal merender gambar kartu — coba lagi.",
@@ -4497,7 +4567,12 @@
   "pets.fuseCapped": "Sudah batas penggabungan — yang lebih baik harus DITEMUKAN peliharaan yang lebih langka.",
   "pets.fuseNoFood": "Untuk naik satu tingkat, beri item sejenis ({kind}) dengan tingkat sama atau lebih baik.",
   "pets.fuseFor": "⚗ Gabung → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Gulung ulang · {n} ✨"
+  "pets.rerollFor": "🎲 Gulung ulang · {n} ✨",
+  "pets.needFuse": "Menggabung butuh {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨, dan {f} NADO.",
+  "pets.thisFuse": "Penggabungan ini",
+  "pets.needReroll2": "Menggulung ulang ini butuh {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏, dan {f} NADO.",
+  "pets.thisReroll": "Gulungan ulang ini",
+  "pets.fuseFor2": "⚗ Gabung → {r}"
  },
  "vi": {
   "pets.cardRenderFail": "Không dựng được ảnh thẻ — thử lại.",
@@ -4797,6 +4872,11 @@
   "pets.fuseCapped": "Đã tới trần ghép — tốt hơn nữa thì phải TÌM được bằng thú hiếm hơn.",
   "pets.fuseNoFood": "Để lên một bậc, hãy cho ăn một món cùng loại ({kind}) bậc bằng hoặc cao hơn.",
   "pets.fuseFor": "⚗ Ghép → {r} · {n} ⛏",
-  "pets.rerollFor": "🎲 Gieo lại · {n} ✨"
+  "pets.rerollFor": "🎲 Gieo lại · {n} ✨",
+  "pets.needFuse": "Ghép tốn {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ và {f} NADO.",
+  "pets.thisFuse": "Lần ghép này",
+  "pets.needReroll2": "Gieo lại món này tốn {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ và {f} NADO.",
+  "pets.thisReroll": "Lần gieo lại này",
+  "pets.fuseFor2": "⚗ Ghép → {r}"
  }
 }

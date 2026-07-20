@@ -124,7 +124,14 @@
   "hamster.callBack": "back {name} at {x}x for {amt} NADO",
   "hamster.callBclaim": "collect race #{r} book winnings",
   "hamster.callBsweep": "sweep the book on race #{r}",
-  "hamster.stWaitBank": "🏦 The bank is taking bets — back a hamster at its price and the race starts straight away ({n}-block countdown). Or join the pool and wait for another punter."
+  "hamster.stWaitBank": "🏦 The bank is taking bets — back a hamster at its price and the race starts straight away ({n}-block countdown). Or join the pool and wait for another punter.",
+  "hamster.derbyName": "Daily Derby",
+  "hamster.tabBetHint": "Parimutuel races for real NADO stakes.",
+  "hamster.tabDailyHint": "Today's free provable challenge — the faucet pays the daily leaders.",
+  "hamster.stWaitBank2": "🏦 The bank is taking bets — take a fixed price and you are matched instantly, no waiting for a crowd. Backing also starts the {t} countdown, and betting stays open through it so others can join the same race.",
+  "hamster.stWaitOne2": "⏳ One backer in — a SECOND player starts the {t} countdown. That is a countdown, not a start gun: betting stays open the whole time, so everyone still gets in on the same race.",
+  "hamster.stWaitNone2": "⏳ Open for bets — the {t} countdown starts once TWO different players have backed a hamster, and betting stays open right through it. Be the first, or bank the race yourself so anyone can play at once.",
+  "hamster.stBet2": "🟢 Betting OPEN — anyone can still join. Closes in ~{t} (block {b}). Read the form, then back a hamster!"
  },
  "cs": {
   "hamster.title": "NADO Hamster Racing — prokazatelně férové parimutuel závody",
@@ -251,7 +258,14 @@
   "hamster.callBack": "sázka na {name} za {x}x, {amt} NADO",
   "hamster.callBclaim": "vybrat výhru od banky, závod #{r}",
   "hamster.callBsweep": "vybrat banku závodu #{r}",
-  "hamster.stWaitBank": "🏦 Banka přijímá sázky — vsaď si na křečka za její kurz a závod se hned rozjede (odpočet {n} bloků). Nebo jdi do poolu a počkej na dalšího sázejícího."
+  "hamster.stWaitBank": "🏦 Banka přijímá sázky — vsaď si na křečka za její kurz a závod se hned rozjede (odpočet {n} bloků). Nebo jdi do poolu a počkej na dalšího sázejícího.",
+  "hamster.derbyName": "Denní derby",
+  "hamster.tabBetHint": "Parimutuelní závody o skutečné NADO.",
+  "hamster.tabDailyHint": "Dnešní bezplatná ověřitelná výzva — faucet vyplácí denní vítěze.",
+  "hamster.stWaitBank2": "🏦 Banka přijímá sázky — vezměte pevný kurz a jste spárováni okamžitě, na dav se nečeká. Sázka také spustí odpočet {t} a sázení zůstává po celou jeho dobu otevřené, takže se ostatní stihnou přidat do stejného závodu.",
+  "hamster.stWaitOne2": "⏳ Jeden sázející je tu — odpočet {t} spustí DRUHÝ hráč. Je to odpočet, ne startovní výstřel: sázení zůstává celou dobu otevřené, takže se do stejného závodu dostanou všichni.",
+  "hamster.stWaitNone2": "⏳ Sázky otevřeny — odpočet {t} začne, až si na křečka vsadí DVA různí hráči, a sázení zůstává otevřené i po celou jeho dobu. Buďte první, nebo si závod sami zabankujte, ať můžou hrát všichni najednou.",
+  "hamster.stBet2": "🟢 Sázení OTEVŘENO — přidat se může kdokoli. Uzávěrka za ~{t} (blok {b}). Přečtěte formu a vsaďte na křečka!"
  },
  "es": {
   "hamster.title": "NADO Hamster Racing — carreras parimutuel demostrablemente justas",
@@ -378,7 +392,14 @@
   "hamster.callBack": "respaldar {name} a {x}x por {amt} NADO",
   "hamster.callBclaim": "cobrar de la banca en la carrera #{r}",
   "hamster.callBsweep": "retirar la banca de la carrera #{r}",
-  "hamster.stWaitBank": "🏦 La banca acepta apuestas — respalda un hámster a su precio y la carrera empieza enseguida (cuenta atrás de {n} bloques). O entra al bote y espera a otro apostador."
+  "hamster.stWaitBank": "🏦 La banca acepta apuestas — respalda un hámster a su precio y la carrera empieza enseguida (cuenta atrás de {n} bloques). O entra al bote y espera a otro apostador.",
+  "hamster.derbyName": "Derby diario",
+  "hamster.tabBetHint": "Carreras parimutuel con apuestas reales en NADO.",
+  "hamster.tabDailyHint": "El reto gratuito y verificable de hoy — el faucet paga a los líderes del día.",
+  "hamster.stWaitBank2": "🏦 La banca acepta apuestas — toma un precio fijo y quedas emparejado al instante, sin esperar a que se junte gente. Apostar también arranca la cuenta atrás de {t}, y las apuestas siguen abiertas durante ella para que otros entren en la misma carrera.",
+  "hamster.stWaitOne2": "⏳ Ya hay un apostador — un SEGUNDO jugador arranca la cuenta atrás de {t}. Es una cuenta atrás, no un pistoletazo de salida: las apuestas siguen abiertas todo el rato, así que todos entran en la misma carrera.",
+  "hamster.stWaitNone2": "⏳ Apuestas abiertas — la cuenta atrás de {t} empieza cuando DOS jugadores distintos hayan apostado por un hámster, y las apuestas siguen abiertas durante toda ella. Sé el primero, o haz tú de banca para que todos puedan jugar a la vez.",
+  "hamster.stBet2": "🟢 Apuestas ABIERTAS — cualquiera puede entrar todavía. Cierran en ~{t} (bloque {b}). ¡Lee la forma y apuesta por un hámster!"
  },
  "pt": {
   "hamster.title": "NADO Hamster Racing — corridas parimutuel comprovadamente justas",
@@ -505,7 +526,14 @@
   "hamster.callBack": "apostar em {name} a {x}x por {amt} NADO",
   "hamster.callBclaim": "receber da banca na corrida #{r}",
   "hamster.callBsweep": "levantar a banca da corrida #{r}",
-  "hamster.stWaitBank": "🏦 A banca está a aceitar apostas — aposta num hamster ao preço dela e a corrida começa já (contagem de {n} blocos). Ou entra no bolo e espera por outro apostador."
+  "hamster.stWaitBank": "🏦 A banca está a aceitar apostas — aposta num hamster ao preço dela e a corrida começa já (contagem de {n} blocos). Ou entra no bolo e espera por outro apostador.",
+  "hamster.derbyName": "Derby diário",
+  "hamster.tabBetHint": "Corridas parimutuel com apostas reais em NADO.",
+  "hamster.tabDailyHint": "O desafio gratuito e verificável de hoje — o faucet paga os líderes do dia.",
+  "hamster.stWaitBank2": "🏦 A banca está aceitando apostas — pegue um preço fixo e você é pareado na hora, sem esperar juntar gente. Apostar também dispara a contagem de {t}, e as apostas continuam abertas durante ela para que outros entrem na mesma corrida.",
+  "hamster.stWaitOne2": "⏳ Um apostador presente — um SEGUNDO jogador dispara a contagem de {t}. É uma contagem, não um tiro de largada: as apostas continuam abertas o tempo todo, então todos entram na mesma corrida.",
+  "hamster.stWaitNone2": "⏳ Apostas abertas — a contagem de {t} começa quando DOIS jogadores diferentes tiverem apostado num hamster, e as apostas continuam abertas durante toda ela. Seja o primeiro, ou banque a corrida você mesmo para que todos possam jogar de uma vez.",
+  "hamster.stBet2": "🟢 Apostas ABERTAS — qualquer um ainda pode entrar. Fecham em ~{t} (bloco {b}). Leia a forma e aposte num hamster!"
  },
  "fr": {
   "hamster.title": "NADO Hamster Racing — courses parimutuel à l'équité prouvable",
@@ -632,7 +660,14 @@
   "hamster.callBack": "miser sur {name} à {x}x pour {amt} NADO",
   "hamster.callBclaim": "encaisser la banque sur la course #{r}",
   "hamster.callBsweep": "récupérer la banque de la course #{r}",
-  "hamster.stWaitBank": "🏦 La banque prend les paris — misez sur un hamster à sa cote et la course démarre aussitôt (compte à rebours de {n} blocs). Ou rejoignez la poule et attendez un autre parieur."
+  "hamster.stWaitBank": "🏦 La banque prend les paris — misez sur un hamster à sa cote et la course démarre aussitôt (compte à rebours de {n} blocs). Ou rejoignez la poule et attendez un autre parieur.",
+  "hamster.derbyName": "Derby quotidien",
+  "hamster.tabBetHint": "Courses parimutuel avec de vraies mises en NADO.",
+  "hamster.tabDailyHint": "Le défi gratuit et vérifiable du jour — le faucet paie les meneurs quotidiens.",
+  "hamster.stWaitBank2": "🏦 La banque prend les paris — prenez une cote fixe et vous êtes apparié immédiatement, sans attendre la foule. Miser lance aussi le compte à rebours de {t}, et les paris restent ouverts pendant tout ce temps pour que les autres rejoignent la même course.",
+  "hamster.stWaitOne2": "⏳ Un parieur présent — un SECOND joueur lance le compte à rebours de {t}. C'est un compte à rebours, pas un coup de pistolet : les paris restent ouverts tout du long, donc tout le monde participe à la même course.",
+  "hamster.stWaitNone2": "⏳ Paris ouverts — le compte à rebours de {t} démarre dès que DEUX joueurs différents ont misé sur un hamster, et les paris restent ouverts pendant toute sa durée. Soyez le premier, ou tenez vous-même la banque pour que tout le monde puisse jouer d'un coup.",
+  "hamster.stBet2": "🟢 Paris OUVERTS — n'importe qui peut encore entrer. Clôture dans ~{t} (bloc {b}). Lisez la forme, puis pariez sur un hamster !"
  },
  "de": {
   "hamster.title": "NADO Hamster Racing — beweisbar faire Parimutuel-Rennen",
@@ -759,7 +794,14 @@
   "hamster.callBack": "{name} zu {x}x für {amt} NADO setzen",
   "hamster.callBclaim": "Bankgewinn aus Rennen #{r} abholen",
   "hamster.callBsweep": "Buch von Rennen #{r} abräumen",
-  "hamster.stWaitBank": "🏦 Die Bank nimmt Wetten an — setze zu ihrem Kurs auf einen Hamster und das Rennen startet sofort ({n}-Block-Countdown). Oder geh in den Pool und warte auf einen weiteren Wetter."
+  "hamster.stWaitBank": "🏦 Die Bank nimmt Wetten an — setze zu ihrem Kurs auf einen Hamster und das Rennen startet sofort ({n}-Block-Countdown). Oder geh in den Pool und warte auf einen weiteren Wetter.",
+  "hamster.derbyName": "Tages-Derby",
+  "hamster.tabBetHint": "Parimutuel-Rennen um echte NADO-Einsätze.",
+  "hamster.tabDailyHint": "Die kostenlose beweisbare Tagesaufgabe — der Faucet zahlt die Tagesbesten.",
+  "hamster.stWaitBank2": "🏦 Die Bank nimmt Wetten an — nimm eine feste Quote und du bist sofort gematcht, ohne auf eine Menge zu warten. Eine Wette startet außerdem den {t}-Countdown, und das Wetten bleibt währenddessen offen, damit andere im selben Rennen mitmachen.",
+  "hamster.stWaitOne2": "⏳ Ein Wetter ist dabei — ein ZWEITER Spieler startet den {t}-Countdown. Das ist ein Countdown, kein Startschuss: Das Wetten bleibt die ganze Zeit offen, also kommen alle noch ins selbe Rennen.",
+  "hamster.stWaitNone2": "⏳ Wetten offen — der {t}-Countdown startet, sobald ZWEI verschiedene Spieler auf einen Hamster gesetzt haben, und das Wetten bleibt die ganze Zeit über offen. Sei der Erste — oder mach selbst die Bank, damit alle auf einmal spielen können.",
+  "hamster.stBet2": "🟢 Wetten OFFEN — es kann noch jeder einsteigen. Schließt in ~{t} (Block {b}). Lies die Form, dann setze auf einen Hamster!"
  },
  "it": {
   "hamster.title": "NADO Hamster Racing — corse parimutuel dimostrabilmente eque",
@@ -886,7 +928,14 @@
   "hamster.callBack": "punta su {name} a {x}x per {amt} NADO",
   "hamster.callBclaim": "riscuoti dal banco nella corsa #{r}",
   "hamster.callBsweep": "incassa il libro della corsa #{r}",
-  "hamster.stWaitBank": "🏦 Il banco accetta scommesse — punta su un criceto alla sua quota e la corsa parte subito (conto alla rovescia di {n} blocchi). Oppure entra nel pool e aspetta un altro scommettitore."
+  "hamster.stWaitBank": "🏦 Il banco accetta scommesse — punta su un criceto alla sua quota e la corsa parte subito (conto alla rovescia di {n} blocchi). Oppure entra nel pool e aspetta un altro scommettitore.",
+  "hamster.derbyName": "Derby giornaliero",
+  "hamster.tabBetHint": "Corse parimutuel con puntate reali in NADO.",
+  "hamster.tabDailyHint": "La sfida gratuita e verificabile di oggi — il faucet paga i leader del giorno.",
+  "hamster.stWaitBank2": "🏦 Il banco accetta scommesse — prendi una quota fissa e sei abbinato all'istante, senza aspettare la folla. Puntare avvia anche il conto alla rovescia di {t}, e le scommesse restano aperte per tutta la sua durata, così altri entrano nella stessa corsa.",
+  "hamster.stWaitOne2": "⏳ C'è uno scommettitore — un SECONDO giocatore avvia il conto alla rovescia di {t}. È un conto alla rovescia, non uno sparo di partenza: le scommesse restano aperte per tutto il tempo, quindi entrano tutti nella stessa corsa.",
+  "hamster.stWaitNone2": "⏳ Scommesse aperte — il conto alla rovescia di {t} parte quando DUE giocatori diversi hanno puntato su un criceto, e le scommesse restano aperte per tutta la sua durata. Sii il primo, oppure fai tu il banco così tutti possono giocare insieme.",
+  "hamster.stBet2": "🟢 Scommesse APERTE — può ancora entrare chiunque. Chiudono tra ~{t} (blocco {b}). Leggi la forma, poi punta su un criceto!"
  },
  "ru": {
   "hamster.title": "NADO Hamster Racing — доказуемо честные тотализаторные гонки",
@@ -1013,7 +1062,14 @@
   "hamster.callBack": "ставка на {name} по {x}x, {amt} NADO",
   "hamster.callBclaim": "получить у банка в забеге #{r}",
   "hamster.callBsweep": "забрать книгу забега #{r}",
-  "hamster.stWaitBank": "🏦 Банк принимает ставки — поставьте на хомяка по его коэффициенту, и забег начнётся сразу (отсчёт {n} блоков). Или идите в пул и ждите второго игрока."
+  "hamster.stWaitBank": "🏦 Банк принимает ставки — поставьте на хомяка по его коэффициенту, и забег начнётся сразу (отсчёт {n} блоков). Или идите в пул и ждите второго игрока.",
+  "hamster.derbyName": "Дейли-дерби",
+  "hamster.tabBetHint": "Тотализаторные забеги на реальные NADO.",
+  "hamster.tabDailyHint": "Сегодняшнее бесплатное проверяемое испытание — кран платит дневным лидерам.",
+  "hamster.stWaitBank2": "🏦 Банк принимает ставки — возьмите фиксированный коэффициент, и вас сведут мгновенно, ждать толпу не нужно. Ставка также запускает отсчёт {t}, и приём ставок остаётся открытым всё это время, так что другие успеют попасть в тот же забег.",
+  "hamster.stWaitOne2": "⏳ Один игрок сделал ставку — отсчёт {t} запустит ВТОРОЙ игрок. Это отсчёт, а не стартовый выстрел: приём ставок остаётся открытым всё время, так что в этот же забег успевают все.",
+  "hamster.stWaitNone2": "⏳ Ставки открыты — отсчёт {t} начнётся, когда на хомяка поставят ДВА разных игрока, и приём ставок остаётся открытым всё это время. Будьте первым — или сами станьте банком, чтобы играть могли все сразу.",
+  "hamster.stBet2": "🟢 Ставки ОТКРЫТЫ — присоединиться может ещё любой. Закрытие через ~{t} (блок {b}). Читайте форму и ставьте на хомяка!"
  },
  "zh": {
   "hamster.title": "NADO Hamster Racing — 可证明公平的同注分彩赛跑",
@@ -1140,7 +1196,14 @@
   "hamster.callBack": "以 {x}x 押 {name}，{amt} NADO",
   "hamster.callBclaim": "领取比赛 #{r} 的庄家赔付",
   "hamster.callBsweep": "收回比赛 #{r} 的庄家资金",
-  "hamster.stWaitBank": "🏦 庄家正在接注 — 按庄家价格押一只仓鼠，比赛立刻开始（{n} 个区块倒计时）。或者加入彩池等待另一位玩家。"
+  "hamster.stWaitBank": "🏦 庄家正在接注 — 按庄家价格押一只仓鼠，比赛立刻开始（{n} 个区块倒计时）。或者加入彩池等待另一位玩家。",
+  "hamster.derbyName": "每日大赛",
+  "hamster.tabBetHint": "用真实 NADO 下注的彩池赛马。",
+  "hamster.tabDailyHint": "今天的免费可验证挑战 — 水龙头奖励每日领先者。",
+  "hamster.stWaitBank2": "🏦 庄家正在接注 — 接受固定赔率即刻成交，无需等人凑齐。下注同时启动 {t} 倒计时，倒计时期间仍然开放下注，其他人也能加入同一场比赛。",
+  "hamster.stWaitOne2": "⏳ 已有一位下注者 — 第二位玩家会启动 {t} 倒计时。那是倒计时，不是发令枪：全程仍然开放下注，所以大家都还能进同一场比赛。",
+  "hamster.stWaitNone2": "⏳ 开放下注 — 需两位不同玩家押注仓鼠后才开始 {t} 倒计时，且倒计时全程仍可下注。抢先下注吧，或者自己坐庄，让所有人一起玩。",
+  "hamster.stBet2": "🟢 下注开放 — 任何人都还能加入。约 {t} 后截止（区块 {b}）。阅读状态，然后押一只仓鼠！"
  },
  "ja": {
   "hamster.title": "NADO Hamster Racing — 証明可能に公正なパリミュチュエル・レース",
@@ -1267,7 +1330,14 @@
   "hamster.callBack": "{name} に {x}x で {amt} NADO 賭ける",
   "hamster.callBclaim": "レース #{r} の胴元配当を受け取る",
   "hamster.callBsweep": "レース #{r} の帳簿を回収",
-  "hamster.stWaitBank": "🏦 胴元が賭けを受付中 — その価格でハムスターに賭ければレースはすぐ始まります（{n}ブロックのカウントダウン）。あるいはプールに入って別の参加者を待つこともできます。"
+  "hamster.stWaitBank": "🏦 胴元が賭けを受付中 — その価格でハムスターに賭ければレースはすぐ始まります（{n}ブロックのカウントダウン）。あるいはプールに入って別の参加者を待つこともできます。",
+  "hamster.derbyName": "デイリーダービー",
+  "hamster.tabBetHint": "本物の NADO を賭けるパリミュチュエル・レース。",
+  "hamster.tabDailyHint": "今日の無料・検証可能なチャレンジ — フォーセットが毎日の上位者に支払います。",
+  "hamster.stWaitBank2": "🏦 胴元が賭けを受付中 — 固定オッズを取れば待ち人なしで即成立。賭けると {t} のカウントダウンも始まりますが、その間も受付は続くので、ほかの人も同じレースに参加できます。",
+  "hamster.stWaitOne2": "⏳ 1人が賭けました — 2人目のプレイヤーが {t} のカウントダウンを始めます。これはカウントダウンであってスタートの合図ではありません。その間も受付は続くので、全員が同じレースに入れます。",
+  "hamster.stWaitNone2": "⏳ 賭け受付中 — 異なる2人がハムスターに賭けると {t} のカウントダウンが始まり、その間も受付は続きます。最初の1人になるか、自分が胴元になってみんなが一斉に遊べるようにしましょう。",
+  "hamster.stBet2": "🟢 賭付オープン — まだ誰でも参加できます。約 {t} で締切（ブロック {b}）。状態を読んでハムスターに賭けよう！"
  },
  "ko": {
   "hamster.title": "NADO Hamster Racing — 증명 가능하게 공정한 패리뮤추얼 레이스",
@@ -1394,7 +1464,14 @@
   "hamster.callBack": "{name}에 {x}x로 {amt} NADO 베팅",
   "hamster.callBclaim": "경주 #{r}의 뱅커 배당 받기",
   "hamster.callBsweep": "경주 #{r}의 북 회수",
-  "hamster.stWaitBank": "🏦 뱅커가 베팅을 받고 있습니다 — 그 배당으로 햄스터에 걸면 경주가 바로 시작됩니다({n}블록 카운트다운). 아니면 풀에 들어가 다른 참가자를 기다리세요."
+  "hamster.stWaitBank": "🏦 뱅커가 베팅을 받고 있습니다 — 그 배당으로 햄스터에 걸면 경주가 바로 시작됩니다({n}블록 카운트다운). 아니면 풀에 들어가 다른 참가자를 기다리세요.",
+  "hamster.derbyName": "데일리 더비",
+  "hamster.tabBetHint": "실제 NADO를 걸고 겨루는 패리뮤추얼 레이스.",
+  "hamster.tabDailyHint": "오늘의 무료 검증 가능 챌린지 — 포싯이 매일 상위권에게 지급합니다.",
+  "hamster.stWaitBank2": "🏦 뱅커가 베팅을 받고 있습니다 — 고정 배당을 잡으면 사람이 모일 때까지 기다릴 필요 없이 즉시 체결됩니다. 베팅하면 {t} 카운트다운도 시작되지만, 그동안에도 베팅은 계속 열려 있어 다른 사람도 같은 경주에 참여할 수 있습니다.",
+  "hamster.stWaitOne2": "⏳ 한 명이 베팅했습니다 — 두 번째 플레이어가 {t} 카운트다운을 시작합니다. 출발 신호가 아니라 카운트다운입니다: 그동안 내내 베팅이 열려 있어 모두 같은 경주에 들어올 수 있습니다.",
+  "hamster.stWaitNone2": "⏳ 베팅 오픈 — 서로 다른 두 명이 햄스터에 베팅하면 {t} 카운트다운이 시작되며, 그동안에도 베팅은 계속 열려 있습니다. 첫 주자가 되거나, 직접 뱅커를 맡아 모두가 한꺼번에 즐기게 해보세요.",
+  "hamster.stBet2": "🟢 베팅 오픈 — 아직 누구나 참여할 수 있습니다. 약 {t} 후 마감(블록 {b}). 폼을 읽고 햄스터에 베팅하세요!"
  },
  "ar": {
   "hamster.title": "NADO Hamster Racing — سباقات باري ميتشل عادلة بشكل قابل للإثبات",
@@ -1521,7 +1598,14 @@
   "hamster.callBack": "راهن على {name} بسعر {x}x بمبلغ {amt} NADO",
   "hamster.callBclaim": "اقبض من البنك في السباق #{r}",
   "hamster.callBsweep": "اسحب دفتر السباق #{r}",
-  "hamster.stWaitBank": "🏦 البنك يقبل الرهانات — راهن على هامستر بسعره ويبدأ السباق فوراً (عد تنازلي {n} كتلة). أو ادخل المجمّع وانتظر مراهناً آخر."
+  "hamster.stWaitBank": "🏦 البنك يقبل الرهانات — راهن على هامستر بسعره ويبدأ السباق فوراً (عد تنازلي {n} كتلة). أو ادخل المجمّع وانتظر مراهناً آخر.",
+  "hamster.derbyName": "ديربي يومي",
+  "hamster.tabBetHint": "سباقات مجمّع رهانات بمبالغ NADO حقيقية.",
+  "hamster.tabDailyHint": "تحدي اليوم المجاني القابل للإثبات — يدفع الصنبور للمتصدرين كل يوم.",
+  "hamster.stWaitBank2": "🏦 البنك يقبل الرهانات — خذ سعراً ثابتاً وتُطابَق فوراً بلا انتظار حشد. المراهنة تبدأ أيضاً العد التنازلي {t}، ويبقى باب الرهان مفتوحاً طوال مدته ليلحق الآخرون بالسباق نفسه.",
+  "hamster.stWaitOne2": "⏳ مراهن واحد حاضر — لاعب ثانٍ يبدأ العد التنازلي {t}. إنه عد تنازلي وليس إشارة انطلاق: يبقى باب الرهان مفتوحاً طوال الوقت، فيدخل الجميع السباق نفسه.",
+  "hamster.stWaitNone2": "⏳ المراهنات مفتوحة — يبدأ العد التنازلي {t} بعد أن يراهن لاعبان مختلفان على هامستر، ويبقى باب الرهان مفتوحاً طوال مدته. كن أول المراهنين، أو كن بنك السباق بنفسك ليلعب الجميع دفعة واحدة.",
+  "hamster.stBet2": "🟢 الرهان مفتوح — لا يزال بإمكان أي شخص الانضمام. يُغلق بعد ~{t} (الكتلة {b}). اقرأ الحالة ثم راهن على هامستر!"
  },
  "hi": {
   "hamster.title": "NADO Hamster Racing — प्रमाणिक रूप से निष्पक्ष पैरिम्यूचुअल रेसिंग",
@@ -1648,7 +1732,14 @@
   "hamster.callBack": "{name} पर {x}x भाव से {amt} NADO",
   "hamster.callBclaim": "दौड़ #{r} में बैंक से जीत लें",
   "hamster.callBsweep": "दौड़ #{r} की बुक समेटें",
-  "hamster.stWaitBank": "🏦 बैंक दांव ले रहा है — उसके भाव पर किसी हैम्स्टर पर दांव लगाएँ और दौड़ तुरंत शुरू ({n} ब्लॉक की उलटी गिनती)। या पूल में जाकर दूसरे खिलाड़ी का इंतज़ार करें।"
+  "hamster.stWaitBank": "🏦 बैंक दांव ले रहा है — उसके भाव पर किसी हैम्स्टर पर दांव लगाएँ और दौड़ तुरंत शुरू ({n} ब्लॉक की उलटी गिनती)। या पूल में जाकर दूसरे खिलाड़ी का इंतज़ार करें।",
+  "hamster.derbyName": "डेली डर्बी",
+  "hamster.tabBetHint": "असली NADO दांव वाली पैरीम्यूचुअल रेस।",
+  "hamster.tabDailyHint": "आज की मुफ़्त, सिद्ध-करने-योग्य चुनौती — फ़ॉसेट रोज़ के अग्रणी खिलाड़ियों को भुगतान करता है।",
+  "hamster.stWaitBank2": "🏦 बैंकर दांव ले रहा है — तय भाव लें और भीड़ का इंतज़ार किए बिना तुरंत मिलान हो जाएगा। दांव लगाने से {t} की उलटी गिनती भी शुरू होती है, और उस दौरान भी दांव खुले रहते हैं ताकि दूसरे भी उसी रेस में शामिल हो सकें।",
+  "hamster.stWaitOne2": "⏳ एक खिलाड़ी दांव लगा चुका — दूसरा खिलाड़ी {t} की उलटी गिनती शुरू करेगा। यह उलटी गिनती है, शुरुआती सीटी नहीं: पूरे समय दांव खुले रहते हैं, इसलिए सभी उसी रेस में आ जाते हैं।",
+  "hamster.stWaitNone2": "⏳ दांव खुले हैं — {t} की उलटी गिनती तब शुरू होगी जब दो अलग खिलाड़ी किसी हैम्स्टर पर दांव लगा देंगे, और उस पूरे समय दांव खुले रहते हैं। पहले बनें, या ख़ुद रेस के बैंकर बनें ताकि सब एक साथ खेल सकें।",
+  "hamster.stBet2": "🟢 दांव खुले — कोई भी अब भी शामिल हो सकता है। ~{t} में बंद (ब्लॉक {b})। फ़ॉर्म पढ़ें, फिर किसी हैम्स्टर पर दांव लगाएं!"
  },
  "tr": {
   "hamster.title": "NADO Hamster Racing — kanıtlanabilir adil müşterek bahis yarışları",
@@ -1775,7 +1866,14 @@
   "hamster.callBack": "{name} üzerine {x}x ile {amt} NADO",
   "hamster.callBclaim": "#{r} yarışında kasadan tahsil et",
   "hamster.callBsweep": "#{r} yarışının defterini topla",
-  "hamster.stWaitBank": "🏦 Kasa bahis alıyor — onun fiyatından bir hamster'a oyna, yarış hemen başlasın ({n} bloklu geri sayım). Ya da havuza katılıp başka bir oyuncuyu bekle."
+  "hamster.stWaitBank": "🏦 Kasa bahis alıyor — onun fiyatından bir hamster'a oyna, yarış hemen başlasın ({n} bloklu geri sayım). Ya da havuza katılıp başka bir oyuncuyu bekle.",
+  "hamster.derbyName": "Günlük Derbi",
+  "hamster.tabBetHint": "Gerçek NADO bahisleriyle ortak havuzlu yarışlar.",
+  "hamster.tabDailyHint": "Bugünün ücretsiz, kanıtlanabilir mücadelesi — musluk her gün liderlere ödeme yapar.",
+  "hamster.stWaitBank2": "🏦 Kasa bahis alıyor — sabit oranı al, kalabalık beklemeden anında eşleş. Bahis yapmak {t} geri sayımını da başlatır ve bu süre boyunca bahisler açık kalır, böylece başkaları da aynı yarışa girer.",
+  "hamster.stWaitOne2": "⏳ Bir bahisçi var — {t} geri sayımını İKİNCİ bir oyuncu başlatır. Bu bir geri sayım, başlangıç düdüğü değil: bahisler tüm süre boyunca açık kalır, yani herkes yine aynı yarışa yetişir.",
+  "hamster.stWaitNone2": "⏳ Bahisler açık — {t} geri sayımı İKİ farklı oyuncu bir hamster'a oynayınca başlar ve bu süre boyunca bahisler açık kalır. İlk sen ol ya da yarışın kasasını sen tut ki herkes aynı anda oynayabilsin.",
+  "hamster.stBet2": "🟢 Bahis AÇIK — hâlâ herkes katılabilir. ~{t} içinde kapanır (blok {b}). Formu oku, sonra bir hamstere oyna!"
  },
  "id": {
   "hamster.title": "NADO Hamster Racing — balapan parimutuel yang terbukti adil",
@@ -1902,7 +2000,14 @@
   "hamster.callBack": "pasang {name} di {x}x sebesar {amt} NADO",
   "hamster.callBclaim": "ambil dari bandar di balapan #{r}",
   "hamster.callBsweep": "tarik buku balapan #{r}",
-  "hamster.stWaitBank": "🏦 Bandar sedang menerima taruhan — pasang pada hamster di harganya dan balapan langsung mulai (hitung mundur {n} blok). Atau masuk pool dan tunggu petaruh lain."
+  "hamster.stWaitBank": "🏦 Bandar sedang menerima taruhan — pasang pada hamster di harganya dan balapan langsung mulai (hitung mundur {n} blok). Atau masuk pool dan tunggu petaruh lain.",
+  "hamster.derbyName": "Derby Harian",
+  "hamster.tabBetHint": "Balapan parimutuel dengan taruhan NADO sungguhan.",
+  "hamster.tabDailyHint": "Tantangan gratis dan bisa dibuktikan hari ini — faucet membayar para pemuncak harian.",
+  "hamster.stWaitBank2": "🏦 Bandar sedang menerima taruhan — ambil harga tetap dan kamu langsung dipasangkan, tanpa menunggu ramai. Memasang taruhan juga memulai hitung mundur {t}, dan taruhan tetap dibuka selama itu supaya yang lain ikut balapan yang sama.",
+  "hamster.stWaitOne2": "⏳ Satu petaruh sudah masuk — pemain KEDUA yang memulai hitung mundur {t}. Itu hitung mundur, bukan pistol start: taruhan tetap dibuka sepanjang waktu itu, jadi semua tetap masuk balapan yang sama.",
+  "hamster.stWaitNone2": "⏳ Taruhan dibuka — hitung mundur {t} dimulai setelah DUA pemain berbeda memasang taruhan pada hamster, dan taruhan tetap dibuka selama hitung mundur berjalan. Jadilah yang pertama, atau jadi bandar balapan ini sendiri supaya semua bisa main sekaligus.",
+  "hamster.stBet2": "🟢 Taruhan BUKA — siapa pun masih bisa ikut. Tutup dalam ~{t} (blok {b}). Baca form, lalu taruh satu hamster!"
  },
  "vi": {
   "hamster.title": "NADO Hamster Racing — đua ngựa cá cược tương hỗ công bằng có thể chứng minh",
@@ -2029,6 +2134,13 @@
   "hamster.callBack": "đặt {name} ở {x}x với {amt} NADO",
   "hamster.callBclaim": "nhận từ nhà cái ở cuộc đua #{r}",
   "hamster.callBsweep": "thu sổ cuộc đua #{r}",
-  "hamster.stWaitBank": "🏦 Nhà cái đang nhận cược — đặt vào một chú hamster theo giá của họ và cuộc đua bắt đầu ngay ({n} khối đếm ngược). Hoặc vào hũ và chờ người chơi khác."
+  "hamster.stWaitBank": "🏦 Nhà cái đang nhận cược — đặt vào một chú hamster theo giá của họ và cuộc đua bắt đầu ngay ({n} khối đếm ngược). Hoặc vào hũ và chờ người chơi khác.",
+  "hamster.derbyName": "Derby Hằng Ngày",
+  "hamster.tabBetHint": "Đua cược chung hũ bằng NADO thật.",
+  "hamster.tabDailyHint": "Thử thách miễn phí và chứng minh được của hôm nay — vòi NADO trả cho những người dẫn đầu mỗi ngày.",
+  "hamster.stWaitBank2": "🏦 Nhà cái đang nhận cược — lấy tỷ lệ cố định là khớp ngay, không phải chờ đủ người. Đặt cược cũng khởi động đồng hồ đếm ngược {t}, và cược vẫn mở suốt thời gian đó để người khác kịp vào cùng cuộc đua.",
+  "hamster.stWaitOne2": "⏳ Đã có một người cược — người chơi THỨ HAI sẽ khởi động đồng hồ đếm ngược {t}. Đó là đếm ngược chứ không phải phát súng xuất phát: cược vẫn mở suốt thời gian đó, nên ai cũng kịp vào cùng cuộc đua.",
+  "hamster.stWaitNone2": "⏳ Đang mở cược — đồng hồ đếm ngược {t} bắt đầu khi HAI người chơi khác nhau đã cược cho một chú hamster, và cược vẫn mở suốt thời gian đó. Hãy là người đầu tiên, hoặc tự làm nhà cái để mọi người cùng chơi một lúc.",
+  "hamster.stBet2": "🟢 Cược MỞ — vẫn còn ai cũng có thể tham gia. Đóng sau ~{t} (khối {b}). Đọc phong độ rồi cược một hamster!"
  }
 }

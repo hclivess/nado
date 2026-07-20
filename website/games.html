@@ -192,13 +192,6 @@ const SVG = {
     <path d="M18 8v32M30 8v32M8 18h32M8 30h32" stroke="#e6edf3" stroke-width="2.6" stroke-linecap="round"/>
     <path d="M10.5 10.5l5 5m0-5l-5 5M33 33l5 5m0-5l-5 5" stroke="#00c9a7" stroke-width="2.6" stroke-linecap="round"/>
     <circle cx="24" cy="24" r="3.6" fill="none" stroke="#e3b341" stroke-width="2.6"/></svg>`,
-  tcg:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
-    <rect x="12" y="7" width="24" height="34" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>
-    <path d="M12 11a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v5H12z" fill="#00ad93"/>
-    <rect x="15" y="18" width="18" height="12" rx="2" fill="#1a232e"/>
-    <path d="M24 19.4l1.8 3.7 4 .6-2.9 2.8.7 4-3.6-1.9-3.6 1.9.7-4-2.9-2.8 4-.6z" fill="#e3b341"/>
-    <rect x="15" y="32.5" width="18" height="2.3" rx="1.15" fill="#93a1b0"/>
-    <rect x="15" y="36.2" width="12" height="2.3" rx="1.15" fill="#93a1b0"/></svg>`,
   bet:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
     <rect x="6" y="13" width="36" height="22" rx="6" fill="#131a23" stroke="#243140" stroke-width="1.6"/>
     <circle cx="11.8" cy="24" r="4.2" fill="#00c9a7"/>
@@ -299,9 +292,6 @@ const GAMES = [
   { svg:SVG.ttt, name:"Tic-Tac-Toe", tag:"Live", live:true, slug:"ttt", faucet:true, url:"https://tictactoe.nadochain.com",
     blurb:"The classic, for stakes — and the contract itself referees: every move is validated on-chain, three-in-a-row pays the pot instantly, a full board refunds both. Or play the free Daily Three: a fresh 3x3 board unique to your wallet each day, beat the day's bot in as few moves as you can, and the faucet pays the top scores automatically — every run replay-verified.",
     meta:["2 players","Contract-refereed","Free daily + faucet prizes","Winner takes the pot"] },
-  { svg:SVG.tcg, name:"Trading Card Game", tag:"Soon", live:false, slug:"tcg", url:null,
-    blurb:"A collectible card game on NADO — mint, own and trade post-quantum cards, then battle for stakes. Cards are on-chain assets you truly own; matches settle objectively on the execution layer. Think Pokémon, but yours to keep and trade.",
-    meta:["Collect & trade","On-chain cards","Battle for stakes","Coming soon"] },
 ];
 const el = document.getElementById("games");
 // window.t comes from /static/i18n.js (loaded in <head>); it falls back to the English arg if the key
