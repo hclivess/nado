@@ -135,18 +135,42 @@ ck("terrain height was pinned in the FUTURE", lh > cursor_at_begin,
    f"lh={lh} cursor_at_begin={cursor_at_begin}")
 ck("rolling height is one leg later", nh == lh + A.LEG, f"lh={lh} nh={nh}")
 
-print("\n2. wait for the terrain block, then read the road the way the browser does", flush=True)
-wait(lambda: cursor() >= lh, f"terrain height {lh} mined", 900)
+print("\n2. find a leg whose plan window is still OPEN, and read its committed road", flush=True)
+# The exec layer trails L1 by a finality window and catches up in BULK, so it can blow past both lh and nh
+# between two polls. That is an environment condition, not a protocol failure — the fairness property is
+# enforced by the contract (step 7 proves a stale plan is refused), not by this test winning a race. So
+# rather than assert a window that may already have closed, walk forward until one is genuinely open.
+def leg_window():
+    s_ = sto()
+    return field(s_, "lg", RID), field(s_, "lh", RID), field(s_, "nh", RID)
+
+
+LEGN, lh, nh = leg_window()
+for _ in range(12):
+    wait(lambda: cursor() >= lh, f"terrain height {lh} mined", 900)
+    if cursor() < nh:
+        break                                   # the dice for this leg do not exist yet — window open
+    print(f"   leg {LEGN}: exec already past nh={nh} (cursor {cursor()}) — settling it and trying the next",
+          flush=True)
+    call("advance", [RID])
+    wait(lambda: field(sto(), "lg", RID) > LEGN, f"leg {LEGN} settled", 900)
+    if not field(sto(), "av", RID):
+        print("   the run died before a window opened — nothing left to plan", flush=True)
+        break
+    LEGN, lh, nh = leg_window()
+
+ck("found a leg with the dice still unknown", cursor() < nh, f"cursor={cursor()} nh={nh} leg={LEGN}")
 th = blockhash(lh)
 road = []
+base_depth = field(sto(), "dp", RID)
 for i in range(A.LEG):
     tw = alghash.hashn([th, RID, i]) & 0xFFFFFFFF
     a, b, c, _sc = M.slice_tile(tw)
-    road.append(M.tile_of(a, i))
+    road.append(M.tile_of(a, base_depth + i))
 names = [["road", "monster", "elite", "hazard", "cache", "shrine", "forge", "fork", "relic", "boss"][t]
          for t in road]
 print("   road ahead:", " ".join(names), flush=True)
-ck("the committed road is readable before the dice exist", len(road) == A.LEG and cursor() < nh,
+ck("the committed road is readable while the dice are still unknown", len(road) == A.LEG and cursor() < nh,
    f"cursor={cursor()} nh={nh}")
 
 print("\n3. queue a plan against terrain we can see", flush=True)
@@ -155,18 +179,31 @@ word = 0
 for i, a in enumerate(acts):
     word |= (a & 7) << (3 * i)
 AGG = 3
-call("plan", [RID, 0, word, AGG])
+call("plan", [RID, LEGN, word, AGG])
 time.sleep(20)
 
 print("\n4. wait for the rolling height and settle", flush=True)
 wait(lambda: cursor() >= nh, f"rolling height {nh} mined", timeout=900)
 rh = blockhash(nh)
+before = sto()                      # the run as it stood going INTO this leg
+depth_before = field(before, "dp", RID)
 call("advance", [RID])
-wait(lambda: field(sto(), "dp", RID) > 0, "leg settled", 900)
+wait(lambda: field(sto(), "lg", RID) > LEGN, "leg settled", 900)
 
 print("\n5. does the chain agree with the reference model?", flush=True)
 s = sto()
-run = M.Run()
+run0_stance = field(before, "sn", RID)
+run0_heal = field(before, "hl", RID) or 35
+run0_focus = field(before, "fo", RID) if (before.get("fo") or {}) else 50
+run = M.Run(stance=run0_stance, healpct=run0_heal, focus=run0_focus)
+# seed the model from the run as it stood BEFORE this leg, so the comparison is of one leg's work
+run.hp, run.maxhp = field(before, "hp", RID), field(before, "mx", RID)
+run.stam, run.potions = field(before, "st", RID), field(before, "po", RID)
+run.xp, run.banked, run.streak = field(before, "xp", RID), field(before, "bk", RID), field(before, "sk", RID)
+run.depth, run.kills = field(before, "dp", RID), field(before, "ki", RID)
+run.wlevel, run.alevel = field(before, "wl", RID) or 1, field(before, "al", RID) or 1
+run.mats = [field(before, "m0", RID), field(before, "m1", RID), field(before, "m2", RID)]
+run.gear = [field(before, f"g{i}", RID) for i in range(A.NSLOT)]
 for i in range(A.LEG):
     if not run.alive or run.done:
         break
@@ -181,23 +218,53 @@ got = {k: field(s, v, RID) for k, v in
 want = {"hp": run.hp, "maxhp": run.maxhp, "stam": run.stam, "potions": run.potions, "xp": run.xp,
         "banked": run.banked, "streak": run.streak, "depth": run.depth, "kills": run.kills,
         "alive": run.alive, "wlevel": run.wlevel, "alevel": run.alevel}
+bad = [k for k in want if got[k] != want[k]]
 for k in want:
     ck(f"{k} matches the model", got[k] == want[k], f"chain={got[k]} model={want[k]}")
+
+if bad:
+    # A call can SUBMIT fine and still revert on-chain, which looks exactly like success from here — and a
+    # plan word is hash-keyed, so it cannot be read back out of the storage view to check. Replay the leg as
+    # if no plan had landed: if THAT matches the chain, the contract is fine and the plan tx was the problem
+    # (submitted after the window closed, or reverted), which is a completely different bug to chase.
+    unplanned = M.Run(stance=run0_stance, healpct=run0_heal, focus=run0_focus)
+    unplanned.hp, unplanned.maxhp = field(before, "hp", RID), field(before, "mx", RID)
+    unplanned.stam, unplanned.potions = field(before, "st", RID), field(before, "po", RID)
+    unplanned.xp = field(before, "xp", RID)
+    unplanned.banked, unplanned.streak = field(before, "bk", RID), field(before, "sk", RID)
+    unplanned.depth, unplanned.kills = field(before, "dp", RID), field(before, "ki", RID)
+    unplanned.wlevel = field(before, "wl", RID) or 1
+    unplanned.alevel = field(before, "al", RID) or 1
+    unplanned.mats = [field(before, "m0", RID), field(before, "m1", RID), field(before, "m2", RID)]
+    unplanned.gear = [field(before, f"g{i}", RID) for i in range(A.NSLOT)]
+    for i in range(A.LEG):
+        if not unplanned.alive or unplanned.done:
+            break
+        M.step(unplanned, alghash.hashn([th, RID, i]) & 0xFFFFFFFF,
+               alghash.hashn([rh, RID, i]) & 0xFFFFFFFF, 0, 1)
+    same_unplanned = all(got[k] == v for k, v in
+                         (("hp", unplanned.hp), ("xp", unplanned.xp), ("kills", unplanned.kills),
+                          ("streak", unplanned.streak)))
+    print("   DIAGNOSIS: " + ("the chain matches an UNPLANNED leg — the contract is fine and the plan tx "
+                              "never took effect (window closed, or it reverted)"
+                              if same_unplanned else
+                              "the chain matches neither the planned nor the unplanned replay — this is a "
+                              "real divergence between the contract and the model"), flush=True)
 gear = [field(s, f"g{i}", RID) for i in range(A.NSLOT)]
 ck("gear matches the model", gear == list(run.gear), f"chain={gear} model={list(run.gear)}")
 print(f"   depth {run.depth}  hp {run.hp}/{run.maxhp}  renown {run.xp}  kills {run.kills}", flush=True)
 
 print("\n6. the leg window slid forward", flush=True)
 s = sto()
-ck("leg counter advanced", field(s, "lg", RID) == 1, f"lg={field(s, 'lg', RID)}")
+ck("leg counter advanced", field(s, "lg", RID) == LEGN + 1, f"lg={field(s, 'lg', RID)}")
 ck("terrain height became the old rolling height", field(s, "lh", RID) == nh)
 ck("next rolling height is one leg on", field(s, "nh", RID) == nh + A.LEG)
 
 print("\n7. a stale plan is refused (the fairness window)", flush=True)
-p = {"op": "call", "contract": CID, "method": "plan", "args": [RID, 0, word, AGG]}
+p = {"op": "call", "contract": CID, "method": "plan", "args": [RID, LEGN, word, AGG]}
 r = post(construct_blob_tx(K, p, tip() + 12, MIN_TX_FEE, min_block=tip() + TX_INCLUSION_DELAY))
 time.sleep(25)
-ck("planning an already-settled leg does not move the run", field(sto(), "lg", RID) == 1)
+ck("planning an already-settled leg does not move the run", field(sto(), "lg", RID) == LEGN + 1)
 
 print("\n" + ("ALL PASS" if not FAILS else f"{len(FAILS)} FAILURES: " + ", ".join(FAILS)), flush=True)
 sys.exit(1 if FAILS else 0)
