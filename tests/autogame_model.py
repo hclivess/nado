@@ -22,100 +22,23 @@ Everything here is integer-only and clamped, mirroring the VM exactly:
     the same order with the same divisors, so the bit budget cannot silently drift.
 """
 
-# ── clock ────────────────────────────────────────────────────────────────────────────────────────
-LEG = 16                 # steps per leg == blocks per leg (1 step per block, by construction)
-MAX_LEGS_PER_CALL = 4    # bounded catch-up so one advance() can never approach the 131070-step trace budget
-CHAPTER = 512            # steps in a chapter == 32 legs ≈ 51 min. MAMEC's "50 turns": a FIXED budget, so the
-                         # game is how much you extract from it, never how long you can hide.
+# ── the rules live in the CONTRACT, not here ─────────────────────────────────────────────────────
+# execnode/games/autogame.py is the authority; importing its constants is what makes "three
+# implementations, cross-checked" honest. If they were restated here, a retune would silently desync the
+# oracle from the thing it is meant to be checking, and the differential test would pass while the game
+# changed underneath it.
+from execnode.games.autogame import (      # noqa: E402
+    LEG, MAX_LEGS_PER_CALL, CHAPTER, HP0, STAM_MAX, AGG_MAX, REGEN_DIV, REGEN_CAP_DIV, BOSS_EVERY,
+    TIER_EVERY, NIGHT_EVERY, LEVEL_CAP, LIFESTEAL_DIV, HORDE_DIV, STREAK_DIV, DEATH_KEEP, COMPLETE_BONUS,
+    POTIONS0, POTION_CAP, POTION_PRICE, HEAL_BASE, SHRINE_BASE, RALLY_BASE, NSLOT, TILE_CUTS,
+    ROAD, MONSTER, ELITE, HAZARD, CACHE, SHRINE, FORGE, FORK, RELIC, BOSS,
+    A_DEFAULT, A_STRIKE, A_GUARD, A_DODGE, A_POTION, A_SPRINT, A_REST, A_RIGHT, A_RALLY, COST,
+    ST_BALANCED, ST_AGGRESSIVE, ST_GUARDED, ST_EVASIVE, STANCES,
+    FAM_ATK, FAM_XP, M_SCRAP, M_HIDE, M_ESSENCE, SHARPEN_COST, REINFORCE_COST,
+    G_WEAPON, G_HELM, G_BODY, G_SHIELD, G_BOOTS, G_CLOAK, DEF_DIV, RANKS,
+)
 
-# ── tuning ───────────────────────────────────────────────────────────────────────────────────────
-HP0 = 100                # MAMEC's scale — bloodlust is expressed as a fraction of it
-STAM_MAX = 12
-AGG_MAX = 16             # MAMEC lets you pull 1,000,000; that is field-overflow bait, so the dial is capped
-                         # and the *tier* does the scaling instead
-REGEN_DIV = 20           # hp += xp // 20 on a fight step — MAMEC's exp/20 heal …
-REGEN_CAP_DIV = 8        # … but capped at maxhp/8 per step. MAMEC could leave it uncapped because it only
-                         # ran 50 turns; over a 512-step chapter an uncapped exp/20 makes you immortal at
-                         # ~2000 renown, and the sim showed that turning the whole game into "pull 2 foes
-                         # and idle for an hour". The cap is what keeps you mortal at depth.
-BOSS_EVERY = 128         # four bosses per chapter — each one a CHECKPOINT that banks your renown
-TIER_EVERY = 32          # danger tier = depth // 32. The road must outrun your growth, or the correct play
-                         # is to hide; at //64 most runs finished the chapter and that is not a roguelike.
-NIGHT_EVERY = 64         # dusk every 64 steps; night adds +1 monster level
-
-# ── the push-or-bank loop (the addictive part) ───────────────────────────────────────────────────
-# Renown is UNBANKED until a boss falls. Die with a fat unbanked pile and most of it is gone; retire or
-# reach a checkpoint and it is yours. Bloodlust pays you for staying hurt, banking pays you for stopping —
-# the two pull in opposite directions on every single leg, which is the whole game.
-DEATH_KEEP = 25          # % of unbanked renown that survives your death
-COMPLETE_BONUS = 200000  # FLAT prize for reaching step 512 alive — the turtle's route to the top of the
-                         # board. Deliberately not a multiplier: as a x4 it compounded with the greed streak,
-                         # so the one build that could both finish AND compound (evasive) ran away with a
-                         # 3.2x ceiling lead. Flat, it rewards the thing it is meant to reward — walking the
-                         # whole road — without scaling whatever else you were doing. Retiring early does
-                         # NOT earn it.
-LIFESTEAL_DIV = 4        # weapon focus heals wp/4 per engagement — the weapon build's own sustain, and the
-                         # only one that does not break the greed streak. Armour absorbs, weapons drain.
-STREAK_CAP = 20          # hard ceiling on the streak; each stance has its own lower cap (see STANCES)
-STREAK_DIV = 4           # multiplier = (STREAK_DIV + streak) / STREAK_DIV  ->  up to x4 at the cap
-HORDE_DIV = 4            # xp is SUPERLINEAR in the pull: foes * xp_each * (4 + foes) / 4. Damage is linear
-                         # in the pull, so a bigger bite must pay a premium or the dial is a pure death
-                         # switch — which is what the first sim measured. Death costs you the REST OF THE
-                         # CHAPTER, so the premium has to be steep enough to out-earn that truncation.
-LEVEL_CAP = 8            # crafted weapon/armour levels. Uncapped, armour absorption outgrew the road and
-                         # focus=25 survived 39/80 with the best score on the board — the same unbounded
-                         # -sustain failure as MAMEC's uncapped regen, one layer down.
-POTIONS0 = 3
-POTION_CAP = 5
-POTION_PRICE = 10
-
-# tile classes
-ROAD, MONSTER, ELITE, HAZARD, CACHE, SHRINE, FORGE, RELIC, FORK, BOSS = range(10)
-
-# actions (3 bits each, 16 per leg, packed little-endian => 48 bits, safely under Goldilocks P)
-# Action 7 does double duty and costs no bits for it: on a FORK tile it picks the right-hand lane, anywhere
-# else it is RALLY — a small heal that is the ONLY one that does not reset the greed streak. Nursing a
-# 12-stack through a bad patch on Rally instead of a potion is the highest-skill line in the game.
-A_DEFAULT, A_STRIKE, A_GUARD, A_DODGE, A_POTION, A_SPRINT, A_REST, A_RIGHT = range(8)
-A_RALLY = A_RIGHT
-COST = [0, 2, 1, 2, 0, 3, 0, 3]          # stamina price; unaffordable => degrades to A_DEFAULT
-
-# stance: (incoming damage /4, renown /4, streak gain per fight) — MAMEC's 1.25/0.75 pair, widened.
-# Guarded kept surviving its way to dominance no matter how hard its renown was cut, because survival
-# compounds and a flat multiplier does not. The fix is structural: a turtle does not build GREED. Guarded
-# earns no streak at all, so it can never reach the x4 multiplier, while Aggressive builds it twice as fast
-# and pays for that with the highest damage taken. The stance now decides which curve you are on, not just
-# a coefficient.
-# (incoming damage /4, renown /4, streak gain per fight, streak CAP)
-# The cap is the archetype knob: Aggressive compounds twice as fast AND further, and pays with the highest
-# damage taken; Guarded cannot compound at all and wins by FINISHING instead; Evasive trades renown rate AND a low
-# streak cap for hazard immunity — it was otherwise the only stance that both survived to the checkpoints
-# and compounded, which made it strictly the best of both worlds. Guarded pays no renown-rate penalty on top of its zero cap — losing the x4 streak is
-# already the steepest cost in the game, and double-charging it left the turtle 6.5x off the pace.
-ST_BALANCED, ST_AGGRESSIVE, ST_GUARDED, ST_EVASIVE = range(4)
-STANCES = [(4, 4, 1, 12), (5, 6, 2, 20), (3, 4, 0, 0), (4, 3, 1, 8)]
-
-# monster families — MAMEC's grunt / brute / glass cannon, each dropping its own material
-FAM_GRUNT, FAM_BRUTE, FAM_CANNON = range(3)
-FAM_ATK = [(1, 1), (3, 3), (2, 2)]       # atk_each = c0 + c1*ml
-FAM_XP = [(0, 1), (0, 3), (0, 5)]        # xp_each  = c0 + c1*ml
-FAM_MAT = [0, 1, 2]                      # scrap, hide, essence
-
-M_SCRAP, M_HIDE, M_ESSENCE = range(3)
-
-# crafting (MAMEC's recipes, unchanged): sharpen -> weapon+1, reinforce -> armor+1
-SHARPEN_COST = (2, 0, 1)                 # scrap, hide, essence
-REINFORCE_COST = (1, 2, 0)
-
-# gear slots — storage field order; the sprite layers use the same order
-G_WEAPON, G_HELM, G_BODY, G_SHIELD, G_BOOTS, G_CLOAK = range(6)
-NSLOT = 6
-DEF_DIV = [0, 4, 2, 3, 4, 4]             # how much of an item's power each slot lends to armour
-
-# MAMEC's rank ladder, rescaled to this xp curve
-RANKS = [(60, "commoner"), (180, "apprentice"), (450, "journeyman"), (1100, "knight"),
-         (2600, "banneret"), (6000, "lord"), (14000, "baron"), (32000, "duke"),
-         (75000, "king"), (170000, "emperor"), (400000, "demigod"), (1 << 40, "creator")]
+FAM_MAT = (M_SCRAP, M_HIDE, M_ESSENCE)   # family -> the material it drops
 
 
 def c_sub(a, b):
@@ -244,26 +167,13 @@ def slice_roll(rw):
 
 
 def tile_of(a, depth):
-    """The tile class entered at `depth`. Bosses override the roll on the chapter marks."""
+    """The tile class entered at `depth`. Bosses override the roll on the chapter marks.
+
+    Expressed as a count of thresholds passed, because that is literally what the contract computes —
+    `sum(a >= cut for cut in TILE_CUTS)` — and the class ordering is load-bearing for it."""
     if depth > 0 and depth % BOSS_EVERY == 0:
         return BOSS
-    if a < 30:
-        return ROAD
-    if a < 58:
-        return MONSTER
-    if a < 66:
-        return ELITE
-    if a < 74:
-        return HAZARD
-    if a < 82:
-        return CACHE
-    if a < 87:
-        return SHRINE
-    if a < 92:
-        return FORGE
-    if a < 99:
-        return FORK
-    return RELIC
+    return sum(1 for cut in TILE_CUTS if a >= cut)
 
 
 def tier_of(depth):
@@ -401,6 +311,10 @@ def fight(run, tile, b, x, y, z, agg, act, ev):
     gain = gain * (STREAK_DIV + streak) // STREAK_DIV
     run.streak += streak_gain
 
+    # drinking forfeits your offence: you eat the exchange and earn nothing from it. This zeroed only the
+    # event field before, so the model still banked the renown while the contract did not.
+    if act == A_POTION:
+        gain = 0
     run.kills += foes
     run.xp += gain
     ev["ml"], ev["fam"], ev["foes"], ev["dmg"], ev["gain"], ev["streak"] = ml, fam, foes, dmg, gain, run.streak
@@ -424,7 +338,10 @@ def fight(run, tile, b, x, y, z, agg, act, ev):
 
     if tile in (BOSS, ELITE) or z % 4 == 0:
         bonus = 2 if tile == BOSS else (1 if tile == ELITE else 0)
-        item, slot = roll_item(b ^ z, z, depth, bonus), z % NSLOT
+        # (b + z) % 64, not b ^ z: the zkVM has no XOR opcode, and the reference model may only use
+        # operations the contract can actually execute. Mixing by addition is field-native and just as
+        # uncorrelated here, since b and z come from two independent hash windows.
+        item, slot = roll_item((b + z) % 64, z, depth, bonus), z % NSLOT
         take_item_at(run, slot, item)
         ev["item"], ev["slot"] = item, slot
     if tile == BOSS:
@@ -469,58 +386,53 @@ def step(run, tw, rw, act, agg):
     elif agg > AGG_MAX:
         agg = AGG_MAX
 
-    ev = {"tile": tile, "act": act, "agg": agg, "scen": scen, "dmg": 0, "gain": 0, "item": 0, "slot": -1}
+    ev = {"tile": tile, "act": act, "agg": agg, "dmg": 0, "gain": 0, "item": 0, "slot": -1}
     combat = tile in (MONSTER, ELITE, BOSS)
+    skip = act == A_SPRINT or act == A_DODGE      # forfeit the tile: no damage, no reward
 
-    if act == A_SPRINT:                           # skip the tile outright: no damage, no reward
-        ev["sprint"] = 1
-    elif act == A_DODGE:                          # avoid what it does, forfeit what it offers
-        ev["dodge"] = 1
-    elif act == A_RALLY:                          # keeps the streak — the skill line
-        run.hp = min(run.maxhp, run.hp + 4 + tier)
+    # The reaction and the tile are INDEPENDENT: healing on a shrine tile still lets the shrine heal, and
+    # drinking mid-fight still means you eat the exchange. (An earlier elif chain let Rally/Rest/Potion
+    # swallow the tile entirely, which the contract never did.) The three are mutually exclusive anyway —
+    # `act` holds one value — so only one of these bodies can fire.
+    if act == A_RALLY:                            # the only heal that KEEPS the streak — the skill line
+        run.hp = min(run.maxhp, run.hp + RALLY_BASE + tier)
         run.stam = min(STAM_MAX, run.stam + 2)
         ev["rally"] = 1
-    elif act == A_REST:                           # MAMEC's rest: buy hp with score
+    if act == A_REST:                             # MAMEC's rest: buy hp with score
         heal = 8 + run.xp // 32
         run.hp = min(run.maxhp, run.hp + heal)
         run.xp = c_sub(run.xp, 4 + run.xp // 20)
         run.banked = min(run.banked, run.xp)      # you cannot rest away more than you still have
         run.streak = 0
-        run.stam = min(STAM_MAX, run.stam + 4)
         ev["rest"] = heal
-    elif act == A_POTION:
+    if act == A_POTION:
         ev["drank"] = 1 if drink(run) else 0
-        if combat:                                # drinking forfeits your offence — you eat the exchange
-            fight(run, tile, b, x, y, z, agg, A_GUARD, ev)
-            ev["gain"] = 0
-    elif combat:
-        fight(run, tile, b, x, y, z, agg, act, ev)
-    elif tile == HAZARD:
-        took = 2 + 2 * tier + (y % 6)
-        if run.stance == ST_EVASIVE:
-            took //= 2
-        took = c_sub(took, armor_pts(run) // 8)
-        run.hp = c_sub(run.hp, took)
-        ev["dmg"] = took
-    elif tile == CACHE:
-        item, slot = roll_item(c, z, depth, 0), z % NSLOT
-        take_item_at(run, slot, item)
-        ev["item"], ev["slot"] = item, slot
-    elif tile == RELIC:
-        item, slot = roll_item(c, z, depth, 3), z % NSLOT
-        take_item_at(run, slot, item)
-        ev["item"], ev["slot"] = item, slot
-    elif tile == SHRINE:
-        run.hp = min(run.maxhp, run.hp + 10 + 4 * tier)
-        run.potions = min(POTION_CAP, run.potions + (1 if z % 4 == 0 else 0))
-        run.streak = 0                            # a shrine is a heal like any other — it costs the streak
-        ev["heal"] = 1
-    elif tile == FORGE:
-        ev["craft"] = try_craft(run)
-        if run.mats[M_SCRAP] >= POTION_PRICE and run.potions < POTION_CAP:
-            run.mats[M_SCRAP] -= POTION_PRICE
-            run.potions += 1
-            ev["bought"] = 1
+
+    if not skip:
+        if combat:
+            fight(run, tile, b, x, y, z, agg, act, ev)
+        elif tile == HAZARD:
+            took = 2 + 2 * tier + (y % 6)
+            if run.stance == ST_EVASIVE:
+                took //= 2
+            took = c_sub(took, armor_pts(run) // 8)
+            run.hp = c_sub(run.hp, took)
+            ev["dmg"] = took
+        elif tile == CACHE or tile == RELIC:
+            item, slot = roll_item(c, z, depth, 3 if tile == RELIC else 0), z % NSLOT
+            take_item_at(run, slot, item)
+            ev["item"], ev["slot"] = item, slot
+        elif tile == SHRINE:
+            run.hp = min(run.maxhp, run.hp + SHRINE_BASE + 4 * tier)
+            run.potions = min(POTION_CAP, run.potions + (1 if z % 4 == 0 else 0))
+            run.streak = 0                        # a shrine is a heal like any other — it costs the streak
+            ev["heal"] = 1
+        elif tile == FORGE:
+            ev["craft"] = try_craft(run)
+            if run.mats[M_SCRAP] >= POTION_PRICE and run.potions < POTION_CAP:
+                run.mats[M_SCRAP] -= POTION_PRICE
+                run.potions += 1
+                ev["bought"] = 1
 
     # Standing order: auto-drink once hp drops under the threshold. This is what keeps an absent player
     # alive through a bad leg — and under bloodlust, choosing the threshold is the sharpest decision in

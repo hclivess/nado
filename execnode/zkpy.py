@@ -86,8 +86,14 @@ def _wrap(o):
 
 
 class _Cell:
-    """A storage cell m.slot(field, key): .get() reads it, .set(v) writes it. `field` is a compile-time int;
-    `key` is a Val (or int)."""
+    """A storage cell: .get() reads it, .set(v) writes it.
+
+    Two addressing modes:
+      * m.slot(field, key) — the flat convention, address = field*2^32 + key, with `field` a compile-time
+        int. The frontend can compute the same address without hashing, so these slots are enumerable.
+      * m.at(addr)         — the address IS `addr`, for hash-keyed cells (per-(run, leg), per-(user, id)…)
+        where the key space is too large to enumerate. `field` is None in this mode.
+    """
     def __init__(self, m, field, key):
         self.m, self.field, self.key = m, field, _wrap(key)
 
@@ -100,6 +106,12 @@ class _Cell:
         collision impossible; no register needs reserving, and the allocator stays the single authority
         on who owns what."""
         kr, owned = self.key.materialize(self.m)
+        if self.field is None:                                       # m.at(): the value IS the address
+            if owned:
+                return kr, True
+            d = self.m.alloc.take()
+            self.m.emit(f"mov {_r(d)} {_r(kr)}")                     # own a copy of a pinned register
+            return d, True
         d = self.m.alloc.take()
         self.m.emit(f"slot {_r(d)} {self.field} {_r(kr)}")           # macro: MOVI d field<<32 ; ADD d kr
         if owned:
@@ -137,6 +149,8 @@ def _mat(self, m):
         r = m.alloc.take(); m.emit(f"movi {_r(r)} {i}"); m.emit(f"arg {_r(r)} {_r(r)}"); return r, True
     if k == "ctx":
         r = m.alloc.take(); m.emit(f"ctx {_r(r)} {self.a[0]}"); return r, True
+    if k == "actx":
+        r = m.alloc.take(); m.emit(f"actx {_r(r)} {self.a[0]}"); return r, True
     if k == "sload":
         cell = self.a[0]
         addr, a_owned = cell._addr()
@@ -145,7 +159,7 @@ def _mat(self, m):
         if a_owned:
             m.alloc.give(addr)                  # the address dies here; only the loaded value survives
         return r, True
-    if k in ("bhash", "beacon"):
+    if k in ("bhash", "beacon", "abal"):
         hr, owned = self.a[0].materialize(m)
         r = m.alloc.take(); m.emit(f"{k} {_r(r)} {_r(hr)}")
         if owned:
@@ -300,11 +314,30 @@ class _Method:
     def slot(self, field, key):
         return _Cell(self, field, _wrap(key))
 
+    def at(self, addr):
+        """A storage cell addressed directly by `addr` — for hash-keyed slots, e.g.
+        m.at(hash(TAG, runId, leg)). Not enumerable by the storage view, so pair it with a view method."""
+        return _Cell(self, None, _wrap(addr))
+
     def bhash(self, height):
         return Val("bhash", _wrap(height))
 
     def beacon(self, epoch):
         return Val("beacon", _wrap(epoch))
+
+    # assets (doc/assets.md) ------------------------------------------------------------------------
+    def in_asset(self):
+        """The asset id escrowed WITH this call — 0 when the caller sent native NADO. Pair with
+        m.value() (the amount, which is the same context field for both)."""
+        return Val("actx", "asset")
+
+    def me(self):
+        """This contract's own address digest — what an issuer-derived asset id is bound to."""
+        return Val("actx", "self")
+
+    def abal(self, asset):
+        """This contract's balance of `asset` (0 for one it has never held)."""
+        return Val("abal", _wrap(asset))
 
     # statements ------------------------------------------------------------------------------------
     def set(self, v, into):
@@ -356,6 +389,38 @@ class _Method:
         self.emit(f"pay {_r(tr)} {_r(ar)}")
         if to_owned:
             self.alloc.give(tr)
+        if a_owned:
+            self.alloc.give(ar)
+
+    def _asset_move(self, op, asset, to, amount):
+        """apay/amint share one shape: three operands materialized, then the atomic ASEL+spend macro. The
+        registers are freed only AFTER both instructions are emitted — the pair is one statement, and a
+        register reused between the ASEL and the spend would select one asset and move another."""
+        sr, s_owned = _wrap(asset).materialize(self)
+        tr, t_owned = _wrap(to).materialize(self)
+        ar, a_owned = _wrap(amount).materialize(self)
+        self.emit(f"{op} {_r(sr)} {_r(tr)} {_r(ar)}")
+        for r, owned in ((sr, s_owned), (tr, t_owned), (ar, a_owned)):
+            if owned:
+                self.alloc.give(r)
+
+    def apay(self, asset, to, amount):
+        """Move `amount` of `asset` out of this contract's holding to `to`. Reverts the call if the contract
+        does not hold that much — the same solvency rule PAY has for native NADO."""
+        self._asset_move("apay", asset, to, amount)
+
+    def amint(self, asset, to, amount):
+        """Mint `amount` of `asset` to `to`. Only the asset's ISSUER may mint, and only while the asset is
+        still mintable; the exec layer checks both and reverts the call otherwise."""
+        self._asset_move("amint", asset, to, amount)
+
+    def aburn(self, asset, amount):
+        """Burn `amount` of `asset` from this contract's own holding (supply falls; nobody receives it)."""
+        sr, s_owned = _wrap(asset).materialize(self)
+        ar, a_owned = _wrap(amount).materialize(self)
+        self.emit(f"aburn {_r(sr)} {_r(ar)}")
+        if s_owned:
+            self.alloc.give(sr)
         if a_owned:
             self.alloc.give(ar)
 
