@@ -31,7 +31,7 @@
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Pets", "url": "https://pets.nadochain.com/", "description": "NADO Pets — collectible on-chain tamagotchi NFTs you hatch, train and battle. 1000+ animals, real genetics, true ownership on a post-quantum blockchain. Plays in your browser.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Cellipse%20cx%3D%2224%22%20cy%3D%2226%22%20rx%3D%2214%22%20ry%3D%2217%22%20fill%3D%22%23f5e9d0%22%20stroke%3D%22%23c8a96a%22%20stroke-width%3D%222%22/%3E%3Ccircle%20cx%3D%2219%22%20cy%3D%2220%22%20r%3D%222.2%22%20fill%3D%22%23c8a96a%22/%3E%3Ccircle%20cx%3D%2229%22%20cy%3D%2230%22%20r%3D%222.8%22%20fill%3D%22%23c8a96a%22/%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2213%22%20r%3D%221.8%22%20fill%3D%22%23c8a96a%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
-<script src="/static/i18n.js?v=9825ff99"></script>
+<script src="/static/i18n.js?v=f46477dc"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--gold:#e3b341;--purp:#c86bfa;
@@ -251,6 +251,35 @@
 
   /* ---- gallery ---- */
   .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
+  /* ---- homestead ---- */
+  .resbar{display:flex;gap:5px}
+  /* all five resources on ONE row even on a 360px phone — a wrapped fifth chip reads as a second group */
+  .res{flex:1 1 0;min-width:0;text-align:center;padding:7px 3px;border:1px solid var(--border);
+       border-radius:10px;background:var(--bg);font-size:12px}
+  .res b{display:block;font-size:14px;font-family:var(--mono)}
+  .base{border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin:9px 0;background:var(--elev2)}
+  .base .top{display:flex;align-items:center;gap:8px;justify-content:space-between}
+  .base .ttl{font-weight:800;font-size:14px}
+  .base .rowb{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  .base .rowb select{flex:1 1 130px;min-width:0}
+  .base .rowb button{flex:0 0 auto}
+  /* the bag: a fixed grid of slots, so an empty bag still reads as a bag (Diablo's stash, not a list) */
+  .bag{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:7px}
+  .slot{aspect-ratio:1;border:1px solid var(--border);border-radius:9px;background:var(--bg);display:flex;
+        align-items:center;justify-content:center;font-size:22px;cursor:pointer;position:relative;
+        transition:border-color .12s,transform .06s}
+  .slot.empty{opacity:.35;cursor:default}
+  .slot:not(.empty):hover{border-color:var(--accent);transform:translateY(-1px)}
+  .slot.sel{box-shadow:0 0 0 2px var(--accent2) inset}
+  .slot .wear{position:absolute;right:2px;bottom:1px;font-size:10px}
+  .slot.q1{border-color:#8d99a6}.slot.q2{border-color:#4aa3ff}.slot.q3{border-color:#2fbf71}
+  .slot.q4{border-color:#c86bfa}.slot.q5{border-color:#e3b341}.slot.q6{border-color:#ff6b6b;box-shadow:0 0 10px rgba(255,107,107,.35)}
+  .aff{font-family:var(--mono);font-size:12px;color:var(--accent2)}
+  .gearrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .gslot{flex:1 1 60px;min-width:56px;text-align:center;border:1px dashed var(--border);border-radius:9px;
+         padding:6px 4px;font-size:18px;cursor:pointer;background:var(--bg)}
+  .gslot .lbl{display:block;font-size:9.5px;color:var(--faint);font-family:var(--sans)}
+  .gslot.filled{border-style:solid;border-color:var(--accent)}
   .pgrid .dim{grid-column:1/-1}
   .pcard{background:var(--elev2);border:1px solid var(--border);border-radius:12px;padding:8px;text-align:center;cursor:pointer;transition:border-color .15s}
   .pcard:hover{border-color:var(--accent2)}
@@ -297,6 +326,7 @@
     <circle cx="19" cy="20" r="2.2" fill="#c8a96a"/><circle cx="29" cy="30" r="2.8" fill="#c8a96a"/><circle cx="25" cy="13" r="1.8" fill="#c8a96a"/></svg></span>
     <h1>NADO <span class="a">Pets</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="pets.allGames">🎮 All games</a></header>
   <p class="sub" data-i18n-html="pets.sub">Digital pets that <b>live on the chain</b> — true NFTs you own, name, feed, train, battle and trade. Adopt an egg for <b>1 NADO</b>; a <b>future block hash</b> nobody can predict decides which of <b>1000+ hand-drawn animals</b> hatches — dogs, cats, turtles, fish, bugs, octopuses, dragons… across <b>six rarity tiers</b> from Common to Omega (Dragon, Phoenix, Kraken, Unicorn…), with 10 stats locked at hatch. Pets eat real NADO to stay alive — <b>stop feeding and they die</b> (a full belly lasts 30 days). Train them (rarer = easier), then challenge other pets to <b>turn-based duels</b> for stakes where <b>every stat fights</b> — the winner takes the pot and <b>claims the losing pet</b>, though the loser has a small <b>10% chance to die</b>; both fighters are <b>exhausted for 6 hours</b> after. Sell and buy pets on the built-in <b>marketplace</b>. Everything — genes, species, coats, meals, training rolls, fights, sales — is decided and recorded on-chain.</p>
+  <p class="sub" data-i18n-html="pets.subWork" style="margin-top:-8px">🏡 <b>New — Homestead:</b> every species is born to a <b>trade</b>. Raise a building of that trade, staff it with a matching pet, and it works while you are away: <b>farmed fodder feeds your barn for free</b>, materials build the base, and working pets dig up <b>gear</b> whose random stat rolls scale with the finder's rarity — equipping it makes that pet measurably stronger in the arena.</p>
 
   <div id="status"></div>
 
@@ -365,6 +395,13 @@
     </div>
 
     <!-- stats + training -->
+    <!-- what this pet is worth at the homestead, and what it is wearing -->
+    <div class="mt hidden" id="tradeWrap">
+      <div class="divlabel" data-i18n="pets.tradeHead">Trade &amp; gear</div>
+      <div id="tradeLine" class="small"></div>
+      <div id="gearRow" class="gearrow"></div>
+    </div>
+
     <div class="mt hidden" id="statsWrap">
       <h2 data-i18n="pets.abilities">Abilities <span class="dim" style="text-transform:none;letter-spacing:0" data-i18n="pets.abilitiesHint">— tap 🏋 Train on a stat to improve it (0.5 NADO/try)</span></h2>
       <div id="statList"></div>
@@ -476,6 +513,33 @@
     <button class="primary hidden mt" id="btnHatchAll" style="width:100%" data-i18n="pets.hatchAllBtn">🐣 Hatch all ready eggs</button>
     <div class="pgrid mt" id="myPetGrid"></div>
     <button class="ghost mt hidden" id="btnMoreMine" style="width:100%" data-i18n="pets.showMore">Show more</button>
+  </div>
+
+  <!-- HOMESTEAD: bases, trades and resources -->
+  <div class="card hidden" id="homestead">
+    <h2 data-i18n="pets.homeHead">🏡 Homestead — put your pets to work</h2>
+    <p class="small dim" data-i18n-html="pets.homeNote">Every pet is born to a <b>trade</b> its species decides. Raise a building of that trade, staff it with a matching pet, and it produces while you're away — <b>fodder feeds your whole barn for free</b>, and the rest builds the base. Work also turns up <b>gear</b>. Nothing runs on a timer: a base banks what it earned and you collect when you like.</p>
+    <div id="resBar" class="resbar mt"></div>
+    <div class="row mt">
+      <button class="primary" id="btnCollectAll" style="flex:1 1 auto" data-i18n="pets.collectAll">🧺 Collect everything</button>
+      <button class="ghost" id="btnFeedAll" style="flex:1 1 auto" data-i18n="pets.feedAllFodder">🌾 Feed the barn</button>
+    </div>
+    <div id="baseList" class="mt"></div>
+    <div class="divlabel" data-i18n="pets.raiseHead">Raise a building</div>
+    <div class="row">
+      <div style="flex:1 1 auto"><label data-i18n="pets.buildWhat">Building</label><select id="buildTrade"></select></div>
+      <div style="flex:1 1 auto"><label data-i18n="pets.buildWho">Builder</label><select id="buildPet"></select></div>
+    </div>
+    <button class="primary mt" id="btnBuild" style="width:100%" data-i18n="pets.buildBtn">Raise it</button>
+    <div class="small dim mt" id="buildHint"></div>
+  </div>
+
+  <!-- INVENTORY: the bag, Diablo-style -->
+  <div class="card hidden" id="inventory">
+    <h2 data-i18n="pets.bagHead">🎒 Bag</h2>
+    <p class="small dim" data-i18n-html="pets.bagNote">Gear your pets dig up rolls <b>random points on real stats</b>, scaled by the rarity of the pet that found it — a Legendary miner finds better things than a Common one. Equipping is not decoration: those points go straight into the pet's stats and into the arena. Junk scraps for <b>essence</b>.</p>
+    <div id="bagGrid" class="bag mt"></div>
+    <div id="bagDetail" class="mt"></div>
   </div>
 
   <!-- ADOPT -->

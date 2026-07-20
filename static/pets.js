@@ -4,7 +4,7 @@
 // alive, trains with a rarity-scaled limit-function success chance, battles other pets for stakes (loser
 // has a 20% chance to die), and transfers between wallets like any NFT. All money moves happen in the
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shareInvite, esc } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shareInvite, confirmingLabel, esc } from "./nadodapp.js";
 import * as G from "./pets-genes.js";
 import { HAND_ART } from "./pets-art-hand.js";   // bespoke per-animal art (grows toward the full roster)
 import { loadCrypto, ADDR_PREFIX } from "./nadotx.js";
@@ -623,7 +623,13 @@ function petsFrom(sto) {
     p.mine = dapp.me && p.owner === dapp.me;
     p.hatchReady = !p.hatched && !!(dapp.bh(p.bh) && dapp.bh(p.bh + 1));
     p.stale = !p.hatched && cur != null && cur >= p.bh + G.STALE;         // gene block pruned -> rebirth
-    p.bonus = p.gene ? G.STAT_NAMES.map((_n, i) => _m(sto, "tb")[pid + "|" + i] || 0) : null;
+    // Board maps are keyed `id * stride + cell` by the exec node's view decoder — the same convention every
+    // other game reads. This used to concatenate `pid + "|" + i`, a key the decoder never emits, so EVERY
+    // trained stat point silently rendered as zero while the chain was paying on the real number.
+    p.bonus = p.gene ? G.STAT_NAMES.map((_n, i) => Number(_m(sto, "tb")[pid * 10 + i] || 0)) : null;
+    // gear points, from equipment worn right now — the contract folds these into the same effective stat
+    p.gear = p.gene ? G.STAT_NAMES.map((_n, i) => Number(_m(sto, "gb")[pid * 10 + i] || 0)) : null;
+    p.trade = p.si ? Number(p.si) % NJOBS : null;
     p.level = G.levelOf(p.tf || 0);
     p.label = p.nm ? p.nm : (p.hatched ? AN(p.animal) : window.t("pets.egg", "Egg")) + " #" + String(pid).slice(-4);
     out[pid] = p;
@@ -647,9 +653,82 @@ function battlesFrom(sto) {
   }
   return out;
 }
+// ---- HOMESTEAD: trades, bases, resources and gear -------------------------------------------------
+// A pet is born to a TRADE (its species decides it, so every Beagle is the same kind of worker) and a base
+// of that trade can be staffed with it. Production accrues lazily against the block cursor: nothing runs on
+// a timer, so the numbers below are computed the same way the contract will when you collect.
+const NJOBS = 5, GEAR_SLOTS = 4, RATE_DIV = 900, ACCRUE_CAP = 20000, MAX_LEVEL = 5;
+// one unit of fodder buys this many blocks of life. Unlike bought food it does NOT scale with appetite —
+// a farm's harvest feeds a glutton and a sparrow the same, which is the whole reward for farming.
+const FODDER_BLOCKS = 1400;
+const BUILD_FEE = 5000000000n;                 // 0.5 NADO per level — mirrors the contract
+const RES = [
+  { k: "fodder", icon: "🌾", name: () => window.t("pets.resFodder", "Fodder") },
+  { k: "timber", icon: "🪵", name: () => window.t("pets.resTimber", "Timber") },
+  { k: "stone",  icon: "🪨", name: () => window.t("pets.resStone", "Stone") },
+  { k: "ore",    icon: "⛏", name: () => window.t("pets.resOre", "Ore") },
+  { k: "essence", icon: "✨", name: () => window.t("pets.resEssence", "Essence") },
+];
+const TRADES = [
+  { icon: "🌾", name: () => window.t("pets.tradeFarmer", "Farmhand"), build: () => window.t("pets.bldFarm", "Farm") },
+  { icon: "🪓", name: () => window.t("pets.tradeForester", "Forester"), build: () => window.t("pets.bldMill", "Sawmill") },
+  { icon: "🧱", name: () => window.t("pets.tradeMason", "Mason"), build: () => window.t("pets.bldQuarry", "Quarry") },
+  { icon: "⛏", name: () => window.t("pets.tradeMiner", "Miner"), build: () => window.t("pets.bldMine", "Mine") },
+  { icon: "🔮", name: () => window.t("pets.tradeSeeker", "Seeker"), build: () => window.t("pets.bldShrine", "Shrine") },
+];
+const GEAR_KIND = [
+  { icon: "🗡", name: () => window.t("pets.slotTool", "Tool") },
+  { icon: "🛡", name: () => window.t("pets.slotBarding", "Barding") },
+  { icon: "📿", name: () => window.t("pets.slotCharm", "Charm") },
+  { icon: "💎", name: () => window.t("pets.slotRelic", "Relic") },
+];
+let BASES = {}, ITEMS = {}, RESOURCES = [0, 0, 0, 0, 0], GEARED = {};   // GEARED: pid -> [iid per slot]
+
+function basesFrom(sto) {
+  const bo = _m(sto, "bo"), out = {};
+  for (const bid of Object.keys(bo)) {
+    const b = { id: bid, owner: String(bo[bid] || ""), trade: Number(_m(sto, "bt")[bid] || 0),
+      level: Number(_m(sto, "bl")[bid] || 0), op: String(_m(sto, "bp")[bid] || "0"),
+      since: Number(_m(sto, "bsi")[bid] || 0) };
+    b.mine = dapp.me && b.owner === dapp.me;
+    b.staffed = b.op !== "0" && b.op !== "";
+    const pet = b.staffed ? PETS[b.op] : null;
+    // the contract's own rate: level x (10 + the operator's trade stat) x rarity, over RATE_DIV
+    b.rate = (pet && pet.hatched)
+      ? b.level * (10 + (effOf(pet) || [])[b.trade] || 0) * (pet.sp || 1) : 0;
+    const elapsed = dapp.cursor == null ? 0 : Math.max(0, Math.min(dapp.cursor - b.since, ACCRUE_CAP));
+    b.pending = Math.floor(elapsed * b.rate / RATE_DIV);
+    b.capped = dapp.cursor != null && dapp.cursor - b.since >= ACCRUE_CAP;
+    out[bid] = b;
+  }
+  return out;
+}
+function itemsFrom(sto) {
+  const io = _m(sto, "io"), out = {}, geared = {};
+  for (const iid of Object.keys(io)) {
+    const owner = String(io[iid] || "");
+    if (!owner || owner === "0") continue;                    // scrapped
+    const worn = String(_m(sto, "ie")[iid] || "0");
+    const it = { id: iid, owner, kind: Number(_m(sto, "it")[iid] || 0),
+      rarity: Number(_m(sto, "ir")[iid] || 1), worn: worn !== "0" ? worn : null,
+      mine: dapp.me && owner === dapp.me, affixes: [] };
+    for (let k = 0; k < 3; k++) {
+      const packed = Number(_m(sto, "ia")[iid * 3 + k] || 0);
+      if (packed > 0) it.affixes.push({ stat: Math.floor(packed / 256), points: packed % 256 });
+    }
+    if (it.worn) (geared[it.worn] = geared[it.worn] || [])[it.kind] = it.id;
+    out[iid] = it;
+  }
+  GEARED = geared;
+  return out;
+}
+const myItems = () => Object.values(ITEMS).filter((i) => i.mine);
+const tradeOf = (p) => (p && p.si) ? Number(p.si) % NJOBS : null;
+const canWork = (p, trade) => p && p.hatched && !p.dead && tradeOf(p) === trade;
+
 const myPets = () => Object.values(PETS).filter((p) => p.mine);
-// effective stats (base gene stat + trained bonus) — what the turn-based battle actually fights with
-const effOf = (p) => (p.base && p.bonus) ? p.base.map((b, i) => b + p.bonus[i]) : null;
+// effective stats: gene base + training + GEAR — the exact sum the contract fights and produces with
+const effOf = (p) => (p.base && p.bonus) ? p.base.map((b, i) => b + p.bonus[i] + ((p.gear || [])[i] || 0)) : null;
 const recordOf = (p) => (p.wins || 0) + "W–" + (p.loss || 0) + "L";
 const lifeBlocks = (p) => dapp.cursor == null ? null : p.fu - dapp.cursor;
 const dhm = (b) => { const d = Math.floor(b / BLOCKS_PER_DAY), h = Math.floor((b % BLOCKS_PER_DAY) * BLOCK_SECS / 3600);
@@ -722,6 +801,71 @@ function feed(pid, raw) {
   if (!canPay(dapp, raw, "This meal")) return;
   dapp.call("feed", [Number(pid)], raw, "feed " + PETS[pid].label + " · " + rawToNado(raw) + " NADO (+" + (blocks / BLOCKS_PER_DAY).toFixed(1) + "d)", { pid, phase: "feed", fu0: p.fu });
 }
+// ---- HOMESTEAD actions ----------------------------------------------------------------------------
+function buildBase(trade, builderPid) {
+  if (dapp.busy("build")) return notify(confirmingLabel());
+  const p = PETS[builderPid];
+  if (!canWork(p, trade)) return alertBar(window.t("pets.needTrade", "A {trade} has to raise a {bld} — pick a pet born to that trade.",
+    { trade: TRADES[trade].name(), bld: TRADES[trade].build() }));
+  if (!canPay(dapp, BUILD_FEE, window.t("pets.thisBuild", "This building"))) return;
+  const bid = randId();
+  dapp.call("build", [bid, trade, Number(builderPid)], BUILD_FEE,
+    window.t("pets.callBuild", "raise a {bld}", { bld: TRADES[trade].build() }), { bid, phase: "build" });
+}
+function upgradeBase(bid, builderPid) {
+  const b = BASES[bid];
+  if (!b || dapp.busy("upgb", "bid", bid)) return notify(confirmingLabel());
+  const cost = BUILD_FEE * BigInt(b.level + 1);
+  if (!canPay(dapp, cost, window.t("pets.thisUpgrade", "This upgrade"))) return;
+  dapp.call("upgrade", [Number(bid), Number(builderPid)], cost,
+    window.t("pets.callUpgrade", "upgrade {bld} to level {n}", { bld: TRADES[b.trade].build(), n: b.level + 1 }),
+    { bid, phase: "upgb", lvl0: b.level });
+}
+function staffBase(bid, pid) {
+  if (dapp.busy("staff", "bid", bid)) return notify(confirmingLabel());
+  dapp.call("staff", [Number(bid), Number(pid) || 0], null,
+    Number(pid) ? window.t("pets.callStaff", "put {pet} to work", { pet: (PETS[pid] || {}).label || pid })
+                : window.t("pets.callUnstaff", "clock off"), { bid, phase: "staff", op0: (BASES[bid] || {}).op });
+}
+const collectBase = (bid) => { if (dapp.busy("collect", "bid", bid)) return; dapp.call("collect", [Number(bid)], null,
+  window.t("pets.callCollect", "collect the harvest"), { bid, phase: "collect", since0: (BASES[bid] || {}).since }); };
+// COLLECT ALL: a base per call (the contract settles one at a time), serialised the same way Hatch all is.
+function collectAll() {
+  const due = Object.values(BASES).filter((b) => b.mine && b.pending > 0);
+  if (!due.length) return alertBar(window.t("pets.nothingDue", "Nothing to collect yet — your bases need time to work."));
+  try { localStorage.setItem("nado_pets_collectall", "1"); } catch (e) {}
+  collectBase(due[0].id);
+}
+function maybeAutoCollect() {
+  if (localStorage.getItem("nado_pets_collectall") !== "1") return;
+  if (!dapp.me || dapp.inflight || dapp.busy("collect")) return;
+  const due = Object.values(BASES).filter((b) => b.mine && b.pending > 0);
+  if (!due.length) { try { localStorage.removeItem("nado_pets_collectall"); } catch (e) {} return; }
+  collectBase(due[0].id);
+}
+function provision(pid, units) {
+  if (dapp.busy("provision", "pid", pid)) return notify(confirmingLabel());
+  if (units <= 0) return alertBar(window.t("pets.noFodder", "No fodder in store — staff a Farm to grow some."));
+  dapp.call("provision", [Number(pid), Number(units)], null,
+    window.t("pets.callProvision", "feed {pet} from the barn", { pet: (PETS[pid] || {}).label || pid }),
+    { pid, phase: "provision", fu0: (PETS[pid] || {}).fu });
+}
+const equipItem = (iid, pid) => { if (dapp.busy("equip", "iid", iid)) return notify(confirmingLabel());
+  dapp.call("equip", [Number(iid), Number(pid)], null, window.t("pets.callEquip", "equip item #{id}", { id: iid }), { iid, phase: "equip" }); };
+const unequipItem = (iid) => { if (dapp.busy("equip", "iid", iid)) return notify(confirmingLabel());
+  dapp.call("unequip", [Number(iid)], null, window.t("pets.callUnequip", "unequip item #{id}", { id: iid }), { iid, phase: "unequip" }); };
+const scrapItem = (iid) => { if (dapp.busy("scrap", "iid", iid)) return notify(confirmingLabel());
+  dapp.call("scrap", [Number(iid)], null, window.t("pets.callScrap", "scrap item #{id} for essence", { id: iid }), { iid, phase: "scrap" }); };
+function rerollItem(iid) {
+  const it = ITEMS[iid];
+  if (!it || dapp.busy("reroll", "iid", iid)) return notify(confirmingLabel());
+  const cost = it.rarity * REROLL_ESSENCE;
+  if (RESOURCES[4] < cost) return alertBar(window.t("pets.needEssence",
+    "Rerolling this needs {n} essence — scrap junk or work a Shrine to get some.", { n: cost }));
+  dapp.call("reroll", [Number(iid)], null,
+    window.t("pets.callReroll", "re-roll item #{id}", { id: iid }), { iid, phase: "reroll", a0: (it.affixes[0] || {}).points });
+}
+
 // trainBusy(pid): a train call is between click and its session appearing on-chain. The contract allows ONE
 // session per pet (a second `train` while p.th is set just REVERTS, fee refunded) — so during the whole
 // submit→land window (sign ~1s + mine + poll, easily 10-20s) every extra click would burn a wallet round-trip
@@ -849,6 +993,14 @@ async function refreshAll() {
     // hatch/resolve — a pre-finality reorg just reverts that tx visibly, never a silent unfairness
     if (want.length) await dapp.blockHashes(want.slice(0, 40), { fast: true });
     PETS = petsFrom(sto);                       // re-derive with hashes cached (hatchReady)
+    BASES = basesFrom(sto);                     // homestead: bases derive their pending yield from PETS
+    ITEMS = itemsFrom(sto);
+    // resource balances live in hash-keyed slots the storage view can't enumerate, so they come from the
+    // contract's own res_of view — one call per resource, only while signed in
+    if (dapp.me) {
+      const got = await Promise.all(RES.map((_r, k) => dapp.view("res_of", [dapp.me, k])));
+      RESOURCES = got.map((v) => Number(v || 0));
+    }
     // prune local records that never landed
     const l = L(); let ch = false;
     for (const pid of Object.keys(l)) if (!PETS[pid] && Date.now() - (l[pid].ts || 0) > 600000) { delete l[pid]; ch = true; }
@@ -865,8 +1017,19 @@ async function refreshAll() {
         || (f.phase === "market" && p && String(p.price) !== String(f.mp0))
         || (f.phase === "offer" && o) || (f.phase === "offeract" && o && o.state === 2)
         || (f.phase === "challenge" && b) || (f.phase === "accept" && b && b.wn >= 2)
-        || ((f.phase === "resolveb" || f.phase === "cancelb") && b && b.wn === 3);
+        || ((f.phase === "resolveb" || f.phase === "cancelb") && b && b.wn === 3)
+        // homestead
+        || (f.phase === "build" && !!BASES[f.bid])
+        || (f.phase === "upgb" && BASES[f.bid] && BASES[f.bid].level > (f.lvl0 || 0))
+        || (f.phase === "staff" && BASES[f.bid] && String(BASES[f.bid].op) !== String(f.op0))
+        || (f.phase === "collect" && BASES[f.bid] && BASES[f.bid].since > (f.since0 || 0))
+        || (f.phase === "provision" && p && p.fu > (f.fu0 || 0))
+        || (f.phase === "equip" && ITEMS[f.iid] && ITEMS[f.iid].worn)
+        || (f.phase === "unequip" && ITEMS[f.iid] && !ITEMS[f.iid].worn)
+        || (f.phase === "scrap" && !ITEMS[f.iid])
+        || (f.phase === "reroll" && ITEMS[f.iid] && (ITEMS[f.iid].affixes[0] || {}).points !== f.a0);
     });
+    maybeAutoCollect(); // continue a "Collect all" sweep once the previous base has settled
     maybeAutoHatch();   // continue a "Hatch all" run once the previous hatch has confirmed
     maybeAutoMint();    // continue a "Adopt N eggs" batch once the previous mint has confirmed
     maybeAutoReveal();  // auto-reveal any finished training the moment its result blocks finalize
@@ -919,6 +1082,7 @@ function renderActive() {
   $("petLp").textContent = p.hatched ? "Lv " + p.level + " · ⚡ " + p.pw + " · " + recordOf(p) : "—";
   $("petUpkeep").textContent = p.hatched ? window.t("pets.upkeepLine", "{ap} (locked at hatch) · {perday} NADO/day", { ap: p.ap, perday: rawToNado(G.feedCost(BLOCKS_PER_DAY, p.ap)) }) : window.t("pets.decidedAtHatch", "decided at hatch");
   if ($("petInvested")) $("petInvested").textContent = p.hatched || p.tf ? rawToNado(p.tf) + " NADO" : "—";
+  renderTradeAndGear(p);
   if ($("petGene")) { $("petGene").textContent = p.gs ? "0x" + p.gene.toString(16) : "—"; $("petGene").title = p.gs || ""; }
   // life bar
   const lb = lifeBlocks(p), pct = lb == null ? 0 : Math.max(0, Math.min(100, 100 * lb / G.BELLY_CAP));
@@ -1246,9 +1410,190 @@ function maybePlayHatch(p) {
   }, t + 600);
   setTimeout(() => { hatchPlaying = false; render(); }, t + 2400);
 }
+// The pet card's homestead half: what this animal is born to do, and what it is carrying. The gear slots
+// are tappable — an empty one jumps to the bag, a full one takes the item off — so equipment is managed
+// from the pet you are looking at, not only from the bag.
+function renderTradeAndGear(p) {
+  const wrap = $("tradeWrap");
+  if (!wrap) return;
+  gate({ tradeWrap: !!p.hatched });
+  if (!p.hatched) return;
+  const t = tradeOf(p), T = TRADES[t];
+  const gearPts = (p.gear || []).reduce((a, b) => a + b, 0);
+  $("tradeLine").innerHTML = T.icon + " <b>" + esc(T.name()) + "</b> "
+    + '<span class="dim">' + window.t("pets.canWork", "can raise and work a {bld}", { bld: T.build() }) + "</span>"
+    + (gearPts ? ' · <span class="under">' + window.t("pets.gearPts", "+{n} from gear", { n: gearPts }) + "</span>" : "");
+  const worn = GEARED[p.id] || [];
+  $("gearRow").innerHTML = GEAR_KIND.map((k, i) => {
+    const iid = worn[i], it = iid ? ITEMS[iid] : null;
+    return '<div class="gslot' + (it ? " filled q" + it.rarity : "") + '" data-g="' + i + '"'
+      + (iid ? ' data-i="' + iid + '"' : "") + ' title="' + esc(it ? itemTitle(it) : k.name()) + '">'
+      + (it ? k.icon : '<span style="opacity:.4">' + k.icon + "</span>")
+      + '<span class="lbl">' + esc(k.name()) + "</span></div>";
+  }).join("");
+  $("gearRow").querySelectorAll(".gslot").forEach((el) => el.onclick = () => {
+    if (el.dataset.i) { bagSel = el.dataset.i; renderBag(); }
+    else { bagSel = null; renderBag(); }
+    try { $("inventory").scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+  });
+}
+
+// FEED THE BARN: spend fodder on the hungriest pet first, one call per tap. The contract feeds one pet per
+// call, so this is deliberately a nudge rather than a loop — you can see each meal land.
+function feedBarn() {
+  const store = RESOURCES[0];
+  if (!store) return alertBar(window.t("pets.noFodder", "No fodder in store — staff a Farm to grow some."));
+  const hungry = myPets().filter((p) => p.hatched && !p.dead)
+    .sort((a, b) => lifeBlocks(a) - lifeBlocks(b))[0];
+  if (!hungry) return alertBar(window.t("pets.noPetsToFeed", "No living pets to feed."));
+  // never overfill: the contract caps the belly, so spend only what the pet can actually hold
+  const room = Math.max(0, G.BELLY_CAP - lifeBlocks(hungry));
+  const units = Math.max(1, Math.min(store, Math.floor(room / FODDER_BLOCKS)));
+  provision(hungry.id, units);
+}
+
+// ---- HOMESTEAD render ------------------------------------------------------------------------------
+function renderHomestead() {
+  const store = $("resBar");
+  if (store) store.innerHTML = RES.map((r, k) =>
+    '<div class="res" title="' + esc(r.name()) + '">' + r.icon + "<b>" + RESOURCES[k] + "</b></div>").join("");
+
+  const mine = Object.values(BASES).filter((b) => b.mine)
+    .sort((a, b) => a.trade - b.trade || Number(a.id) - Number(b.id));
+  const workers = myPets().filter((p) => p.hatched && !p.dead);
+  const list = $("baseList");
+  if (!mine.length) {
+    list.innerHTML = '<span class="dim small">' + window.t("pets.noBases",
+      "No buildings yet. Raise one below with a pet born to its trade — that's the whole gate: the right animal for the job.") + "</span>";
+  } else {
+    list.innerHTML = mine.map((b) => {
+      const T = TRADES[b.trade], op = b.staffed ? PETS[b.op] : null;
+      const staffOpts = ['<option value="0">' + esc(window.t("pets.nobody", "— nobody —")) + "</option>"]
+        .concat(workers.filter((p) => tradeOf(p) === b.trade)
+          .map((p) => '<option value="' + p.id + '"' + (b.op === p.id ? " selected" : "") + ">"
+            + esc(p.label) + " · " + esc(p.tier ? p.tier.rarity : "") + "</option>")).join("");
+      const bldOpts = workers.filter((p) => tradeOf(p) === b.trade)
+        .map((p) => '<option value="' + p.id + '">' + esc(p.label) + "</option>").join("");
+      const busyC = dapp.busy("collect", "bid", b.id), busyS = dapp.busy("staff", "bid", b.id),
+            busyU = dapp.busy("upgb", "bid", b.id);
+      let yieldLine;
+      if (!b.staffed) yieldLine = '<span class="dim">' + window.t("pets.idleBase", "idle — nobody working") + "</span>";
+      else if (b.capped) yieldLine = '<span style="color:var(--gold)">' + window.t("pets.baseFull",
+        "🧺 {n} {res} — full, collect to keep earning", { n: b.pending, res: RES[b.trade].name() }) + "</span>";
+      else yieldLine = window.t("pets.basePending", "🧺 {n} {res} ready · {rate}/1k blocks",
+        { n: b.pending, res: RES[b.trade].name(), rate: Math.floor(b.rate * 1000 / RATE_DIV) });
+      return '<div class="base" data-b="' + b.id + '">'
+        + '<div class="top"><span class="ttl">' + T.icon + " " + esc(T.build())
+        + ' <span class="dim small">' + window.t("pets.lvl", "lv{n}", { n: b.level }) + "</span></span>"
+        + "<span class='small'>" + yieldLine + "</span></div>"
+        + '<div class="rowb"><select class="bStaff" data-b="' + b.id + '">' + staffOpts + "</select>"
+        + '<button class="ghost bColl" data-b="' + b.id + '">' + (busyC ? confirmingLabel() : window.t("pets.collect", "Collect")) + "</button>"
+        + (b.level < MAX_LEVEL && bldOpts
+            ? '<button class="ghost bUp" data-b="' + b.id + '" data-p="' + workers.filter((p) => tradeOf(p) === b.trade)[0].id + '">'
+              + (busyU ? confirmingLabel() : window.t("pets.upgradeTo", "⬆ lv{n} · {cost} NADO",
+                  { n: b.level + 1, cost: rawToNado(BUILD_FEE * BigInt(b.level + 1)) })) + "</button>"
+            : "")
+        + "</div>"
+        + (op ? '<div class="small dim" style="margin-top:5px">' + window.t("pets.workedBy", "worked by {pet}", { pet: esc(op.label) })
+                + (busyS ? " · " + confirmingLabel() : "") + "</div>" : "")
+        + "</div>";
+    }).join("");
+    list.querySelectorAll(".bColl").forEach((el) => el.onclick = () => collectBase(el.dataset.b));
+    list.querySelectorAll(".bUp").forEach((el) => el.onclick = () => upgradeBase(el.dataset.b, el.dataset.p));
+    list.querySelectorAll(".bStaff").forEach((el) => el.onchange = () => staffBase(el.dataset.b, el.value));
+  }
+
+  // raise-a-building form: the builder list is filtered to the trade, so the gate is visible before you pay
+  const tSel = $("buildTrade"), pSel = $("buildPet");
+  const want = tSel.value === "" ? 0 : Number(tSel.value);
+  const opts = TRADES.map((T, i) => '<option value="' + i + '"' + (i === want ? " selected" : "") + ">"
+    + T.icon + " " + esc(T.build()) + "</option>").join("");
+  if (tSel.innerHTML !== opts) tSel.innerHTML = opts;
+  const able = workers.filter((p) => tradeOf(p) === want);
+  pSel.innerHTML = able.map((p) => '<option value="' + p.id + '">' + esc(p.label) + " · "
+    + esc(TRADES[want].name()) + "</option>").join("");
+  $("btnBuild").disabled = !able.length || dapp.busy("build");
+  $("btnBuild").textContent = dapp.busy("build") ? confirmingLabel()
+    : window.t("pets.raiseFor", "Raise a {bld} · {cost} NADO", { bld: TRADES[want].build(), cost: rawToNado(BUILD_FEE) });
+  $("buildHint").textContent = able.length
+    ? window.t("pets.buildOkHint", "{n} of your pets can build this.", { n: able.length })
+    : window.t("pets.buildNoHint", "None of your pets is a {trade}. Every species has one trade — adopt or buy one that does.",
+        { trade: TRADES[want].name() });
+  const due = Object.values(BASES).filter((b) => b.mine && b.pending > 0).length;
+  $("btnCollectAll").disabled = !due || dapp.busy("collect");
+  $("btnCollectAll").textContent = due
+    ? window.t("pets.collectAllN", "🧺 Collect everything ({n} ready)", { n: due })
+    : window.t("pets.collectAll", "🧺 Collect everything");
+  const hungry = myPets().filter((p) => p.hatched && !p.dead && lifeBlocks(p) < G.BELLY_CAP / 2).length;
+  $("btnFeedAll").disabled = !RESOURCES[0] || !hungry;
+  $("btnFeedAll").textContent = RESOURCES[0]
+    ? window.t("pets.feedAllN", "🌾 Feed the barn ({n} hungry)", { n: hungry })
+    : window.t("pets.feedAllNone", "🌾 No fodder yet");
+}
+
+// ---- BAG render (Diablo-style) ----------------------------------------------------------------------
+let bagSel = null;
+const RAR_NAME = (r) => (G.TIERS[r] || {}).rarity || "?";
+function itemTitle(it) {
+  const k = GEAR_KIND[it.kind] || GEAR_KIND[0];
+  return RAR_NAME(it.rarity) + " " + k.name();
+}
+function renderBag() {
+  const bag = myItems().sort((a, b) => b.rarity - a.rarity || Number(a.id) - Number(b.id));
+  const grid = $("bagGrid");
+  const CELLS = Math.max(12, Math.ceil((bag.length + 1) / 6) * 6);
+  let html = "";
+  for (let i = 0; i < CELLS; i++) {
+    const it = bag[i];
+    if (!it) { html += '<div class="slot empty"></div>'; continue; }
+    const k = GEAR_KIND[it.kind] || GEAR_KIND[0];
+    html += '<div class="slot q' + it.rarity + (bagSel === it.id ? " sel" : "") + '" data-i="' + it.id
+      + '" title="' + esc(itemTitle(it)) + '">' + k.icon
+      + (it.worn ? '<span class="wear">🔗</span>' : "") + "</div>";
+  }
+  grid.innerHTML = html;
+  grid.querySelectorAll(".slot[data-i]").forEach((el) => el.onclick = () => {
+    bagSel = bagSel === el.dataset.i ? null : el.dataset.i; renderBag();
+  });
+
+  const det = $("bagDetail"), it = bagSel ? ITEMS[bagSel] : null;
+  if (!it) {
+    det.innerHTML = bag.length
+      ? '<span class="dim small">' + window.t("pets.bagPick", "Tap an item to see its rolls.") + "</span>"
+      : '<span class="dim small">' + window.t("pets.bagEmpty", "Empty. Staff a building — working pets turn things up.") + "</span>";
+    return;
+  }
+  const worn = it.worn ? PETS[it.worn] : null;
+  const wearers = myPets().filter((p) => p.hatched && !p.dead);
+  det.innerHTML = '<div class="base"><div class="top"><span class="ttl">'
+    + (GEAR_KIND[it.kind] || GEAR_KIND[0]).icon + " " + esc(itemTitle(it))
+    + '</span><span class="rar r' + it.rarity + '">' + esc(RAR_NAME(it.rarity)) + "</span></div>"
+    + '<div class="mt">' + it.affixes.map((a) =>
+        '<div class="aff">+' + a.points + " " + esc(G.STAT_NAMES[a.stat] || "?") + "</div>").join("")
+    + "</div>"
+    + (worn ? '<div class="small dim mt">' + window.t("pets.wornBy", "worn by {pet}", { pet: esc(worn.label) }) + "</div>" : "")
+    + '<div class="rowb">'
+    + (it.worn
+        ? '<button class="ghost" id="btnUnequip">' + (dapp.busy("equip", "iid", it.id) ? confirmingLabel() : window.t("pets.unequip", "Take off")) + "</button>"
+        : '<select id="equipTo">' + wearers.map((p) => '<option value="' + p.id + '">' + esc(p.label) + "</option>").join("") + "</select>"
+          + '<button class="primary" id="btnEquip"' + (wearers.length ? "" : " disabled") + ">"
+          + (dapp.busy("equip", "iid", it.id) ? confirmingLabel() : window.t("pets.equip", "Equip")) + "</button>"
+          + '<button class="ghost" id="btnScrap">' + (dapp.busy("scrap", "iid", it.id) ? confirmingLabel() : window.t("pets.scrap", "♻ Scrap")) + "</button>"
+          + '<button class="ghost" id="btnReroll"' + (RESOURCES[4] >= it.rarity * REROLL_ESSENCE ? "" : " disabled") + ">"
+          + (dapp.busy("reroll", "iid", it.id) ? confirmingLabel()
+             : window.t("pets.rerollFor", "🎲 Re-roll · {n} ✨", { n: it.rarity * REROLL_ESSENCE })) + "</button>")
+    + "</div></div>";
+  if ($("btnEquip")) $("btnEquip").onclick = () => equipItem(it.id, $("equipTo").value);
+  if ($("btnUnequip")) $("btnUnequip").onclick = () => unequipItem(it.id);
+  if ($("btnScrap")) $("btnScrap").onclick = () => scrapItem(it.id);
+  if ($("btnReroll")) $("btnReroll").onclick = () => rerollItem(it.id);
+}
+
 function render() {
   const signedIn = renderWallet(dapp);
-  gate({ bankroll: signedIn, myPets: signedIn, adopt: signedIn, battlesCard: signedIn });
+  gate({ bankroll: signedIn, myPets: signedIn, adopt: signedIn, battlesCard: signedIn,
+         homestead: signedIn, inventory: signedIn });
+  if (signedIn) { renderHomestead(); renderBag(); }
   let mintLeft = 0; try { mintLeft = parseInt(localStorage.getItem("nado_pets_mintq") || "0", 10) || 0; } catch (e) {}
   const qty = Math.max(1, Math.min(20, parseInt(($("mintQty") || {}).value, 10) || 1));
   $("btnMint").disabled = dapp.busy("mint") || mintLeft > 0;
@@ -1266,6 +1611,11 @@ function wireUI() {
   if ($("mintQty")) $("mintQty").oninput = () => render();
   $("btnHatch").onclick = () => hatch(active);
   if ($("btnHatchAll")) $("btnHatchAll").onclick = hatchAll;
+  // homestead
+  if ($("btnBuild")) $("btnBuild").onclick = () => buildBase(Number($("buildTrade").value || 0), $("buildPet").value);
+  if ($("buildTrade")) $("buildTrade").onchange = () => renderHomestead();
+  if ($("btnCollectAll")) $("btnCollectAll").onclick = collectAll;
+  if ($("btnFeedAll")) $("btnFeedAll").onclick = feedBarn;
   $("btnRebirth").onclick = () => rebirth(active);
   $("btnFeed").onclick = () => { const raw = nadoToRaw($("feedAmt").value); if (!raw) return alertBar(window.t("pets.enterFeed", "Enter how much NADO to feed.")); feed(active, raw); };
   dapp.wirePctSlider("feed", { slider: "feedSlider", input: "feedAmt" }, () => dapp.exec, render);   // feed: % of your playable balance
@@ -1330,7 +1680,8 @@ dapp.onReturn((pend, ok, err) => {
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("pets.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
-  orderCards(["activePet", "arenaCard", "battlesCard", "myPets", "adopt", "marketCard", "galleryCard", "fameCard", "walletcard", "bankroll"]);
+  orderCards(["activePet", "arenaCard", "battlesCard", "myPets", "homestead", "inventory", "adopt",
+              "marketCard", "galleryCard", "fameCard", "walletcard", "bankroll"]);
   const q = new URLSearchParams(location.search);
   if (q.get("pet")) active = q.get("pet");
   if (q.get("battle")) activeBattle = q.get("battle");
