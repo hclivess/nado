@@ -106,10 +106,20 @@ def play(seed, mode, agg=4, healpct=35, stance=0, focus=50, budget=40, react=Fal
                     act = M.A_STRIKE
             elif t == M.FORK and r.hp * 100 > r.maxhp * 55:
                 act = M.A_RIGHT
-        M.step(r, tw, rw, act, ag)
+        M.step(r, tw, rw, doc_for(act), ag)
         if not r.alive or r.done or r.retired:
             break
     return r
+
+
+def doc_for(act):
+    """The pilots below still think in per-tile reactions; the model now takes a doctrine (one reaction per
+    TILE CLASS). Applying the chosen action to every combat class reproduces what those pilots meant."""
+    d = [M.A_DEFAULT] * M.NTILE
+    if act:
+        for tile in (M.MONSTER, M.ELITE, M.BOSS, M.FORK):
+            d[tile] = act
+    return d
 
 
 SEEDS = [f"s{i}" for i in range(80)]

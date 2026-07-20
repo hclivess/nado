@@ -116,6 +116,7 @@ RANKS = ((60, "commoner"), (180, "apprentice"), (450, "journeyman"), (1100, "kni
 # run scalars, keyed by run id
 (RA, RLH, RNH, RHP, RMX, RST, RPO, RXP, RBK, RDP, RKI, RSN, RHL, RFO, RWL, RAL,
  RM0, RM1, RM2, RAV, RDN, RRT, RLG, RSK) = range(1, 25)
+NTILE = 10                    # tile classes ROAD..BOSS — one doctrine cell each
 GEAR0 = 30                    # gear slots occupy GEAR0 .. GEAR0+5, keyed by run id
 AFFX = 36                     # AFFX+1 .. AFFX+7: "is this affix equipped anywhere", keyed by run id.
                               # Cached rather than rescanned: the step function reads them constantly and
@@ -128,7 +129,22 @@ SC = 90                       # per-call scratch, keyed by the S_* indices below
 # become auditable in storage rather than buried in emitted asm
 TCOST, TSDMG, TSXP, TSGAIN, TSCAP, TFA0, TFA1, TFX0, TFX1, TDEFD = range(60, 70)
 
-PLAN_TAG, AGG_TAG = 101, 102  # hash(tag, run, leg) -> packed action word / aggression
+# THE DOCTRINE. A reaction per TILE CLASS, one cell each, addressed at runtime as
+# (POL0 + tile)*2^32 + run — plain arithmetic, so the step can index it by the tile it just rolled.
+#
+# This replaced a per-leg plan word, and the reason is worth recording. The old design had you commit 16
+# positional reactions inside the 96-second window between a leg's terrain hash and its rolling hash. That
+# is unreachable the moment the execution layer trails L1 by more than a leg — measured at 102 blocks
+# (~10 min) — because a plan submitted now EXECUTES ten minutes later, long after the dice it was meant to
+# precede. Every run on the contract had a permanently closed window; the central mechanic was unusable.
+#
+# A doctrine has no such race: it governs legs whose dice do not exist YET, so it can be set at any time and
+# still be committed-before-the-roll. Fairness is preserved by POLH (the height it was set at): a leg only
+# obeys the doctrine if POLH < that leg's rolling height, so changing it after seeing a roll cannot rewrite
+# the leg that roll belongs to.
+POL0 = 110                    # POL0 .. POL0+9, keyed by run id: the reaction for each tile class
+POLH = 109                    # the cursor at which the doctrine was last set — the fairness fence
+POLA = 108                    # aggression, part of the same standing order
 
 # scratch indices
 (S_A, S_B, S_C, S_X, S_Y, S_Z, S_TILE, S_ML, S_ACT, S_AGG, S_TIER, S_ATK, S_DMG, S_GAIN, S_WP, S_ABS,
@@ -359,16 +375,6 @@ def _classify(m):
     isboss = select(depth == 0, 0, depth % BOSS_EVERY == 0)
     _s(m, S_TILE).set(select(isboss, BOSS, klass))
 
-    # A fork is a CHOICE, not an event: the right lane re-rolls as an elite, the left as a monster.
-    # `isfork` MUST be snapshotted before S_TILE is rewritten — a zkpy Val is a lazy re-read of the cell,
-    # not a captured value, so testing it after the write compared the NEW tile against FORK, always came
-    # out false, and the action was never cleared. A Sprint queued on a fork then paid its stamina and
-    # skipped the fight the model fought.
-    isfork = park(m, S_T0, _s(m, S_TILE).get() == FORK)
-    _s(m, S_T1).set(select(_s(m, S_ACT).get() == A_RIGHT, ELITE, MONSTER))
-    _s(m, S_TILE).set(select(isfork, _s(m, S_T1).get(), _s(m, S_TILE).get()))
-    _s(m, S_ACT).set(select(isfork, A_DEFAULT, _s(m, S_ACT).get()))
-
     t = _s(m, S_TILE).get()
     ml = 1 + _s(m, S_TIER).get() + select(t == ELITE, 2, 0) + select(t == BOSS, 4, 0)
     _s(m, S_ML).set(ml + (_r(m, RDP).get() // NIGHT_EVERY) % 2)
@@ -562,11 +568,29 @@ def _step(m):
     """One tile. Mirrors tests/autogame_model.step() statement for statement."""
     _derive(m)
 
-    # unpack this step's 3-bit reaction from the packed plan word, then consume it
-    _s(m, S_ACT).set(_s(m, S_PW).get() % 8)
-    _s(m, S_PW).set(_s(m, S_PW).get() // 8)
-
     _classify(m)
+    # the reaction is whatever your doctrine says about the tile you just walked onto. S_PW is 1 when this
+    # leg is governed by the doctrine (set before its dice existed) and 0 when it is not.
+    _s(m, S_T0).set(m.const(POL0 << 32) + _s(m, S_TILE).get() * (1 << 32) + m.arg(0))
+    _s(m, S_ACT).set(m.at(_s(m, S_T0).get()).get() * _s(m, S_PW).get())
+    # A fork is a CHOICE, not an event: the right lane re-rolls as an elite, the left as a monster. This
+    # happens AFTER the doctrine is read, because the doctrine is what picks the lane.
+    # `isfork` MUST be snapshotted before S_TILE is rewritten — a zkpy Val is a lazy re-read of the cell,
+    # not a captured value, so testing it after the write compares the NEW tile against FORK and is always
+    # false (which once let a Sprint pay its stamina and skip a fight the model fought).
+    isfork = park(m, S_T0, _s(m, S_TILE).get() == FORK)
+    _s(m, S_T1).set(select(_s(m, S_ACT).get() == A_RIGHT, ELITE, MONSTER))
+    _s(m, S_TILE).set(select(isfork, _s(m, S_T1).get(), _s(m, S_TILE).get()))
+    _s(m, S_ACT).set(select(isfork, A_DEFAULT, _s(m, S_ACT).get()))
+    # the monster level was derived from the pre-fork tile; redo it now the lane is known
+    _s(m, S_T2).set(_s(m, S_TILE).get())
+    _s(m, S_ML).set(1 + _s(m, S_TIER).get()
+                    + select(_s(m, S_T2).get() == ELITE, 2, 0)
+                    + select(_s(m, S_T2).get() == BOSS, 4, 0)
+                    + (_r(m, RDP).get() // NIGHT_EVERY) % 2)
+    _s(m, S_COMBAT).set(select(_s(m, S_T2).get() == MONSTER, 1,
+                        select(_s(m, S_T2).get() == ELITE, 1, _s(m, S_T2).get() == BOSS)))
+
     _stamina(m)
 
     act = _s(m, S_ACT).get()
@@ -699,18 +723,28 @@ def build():
         m.ret(m.arg(1))
 
     with c.method("plan") as m:
-        # plan(runId, leg, word, agg): the reactions for one leg, plus its aggression dial. Only accepted
-        # for the PENDING leg and only while its resolving hash does not exist yet — that is the whole
-        # fairness argument, so both checks are hard requires.
+        # plan(runId, doctrine, agg): your standing orders — one reaction per tile class, packed 3 bits
+        # each (class 0 in the low bits), plus the aggression dial.
+        #
+        # There is deliberately NO window check here. A doctrine governs legs whose dice do not exist yet,
+        # so setting it is always a commitment made before the roll; the fence is POLH, recorded below and
+        # tested in advance(). The previous per-leg plan DID need a window, and that window was unreachable
+        # whenever the exec layer trailed L1 by more than one leg — which it does, by about a hundred
+        # blocks — leaving the mechanic permanently dead.
         _own_or_die(m)
         _live(m)
-        m.require(m.arg(1) == _r(m, RLG).get())
-        m.require(m.cursor() < _r(m, RNH).get())
-        m.require(m.arg(2) < (1 << 48))              # 16 actions x 3 bits
-        m.require(m.arg(3) >= 1)
-        m.require(m.arg(3) <= AGG_MAX)
-        m.at(zhash(m.const(PLAN_TAG), m.arg(0), m.arg(1))).set(m.arg(2))
-        m.at(zhash(m.const(AGG_TAG), m.arg(0), m.arg(1))).set(m.arg(3))
+        m.require(m.arg(1) < (1 << (3 * NTILE)))
+        m.require(m.arg(2) >= 1)
+        m.require(m.arg(2) <= AGG_MAX)
+        # unpack the doctrine into one cell per tile class so the step can index it by tile
+        _s(m, S_T0).set(m.arg(1))
+        for k in range(NTILE):
+            m.slot(POL0 + k, m.arg(0)).set(_s(m, S_T0).get() % 8)
+            _s(m, S_T0).set(_s(m, S_T0).get() // 8)
+        m.slot(POLA, m.arg(0)).set(m.arg(2))
+        m.slot(POLH, m.arg(0)).set(m.cursor())       # the fairness fence
+        for i in range(NSCRATCH):
+            _s(m, i).set(m.const(0))
         m.ret(m.arg(1))
 
     with c.method("retire") as m:
@@ -736,9 +770,12 @@ def build():
         m.jnz(_s(m, S_LEGS).get() >= MAX_LEGS_PER_CALL, "done")
 
         _s(m, S_T).set(m.bhash(_r(m, RLH).get()))               # tiles: pinned, already visible
-        _s(m, S_R).set(m.bhash(_r(m, RNH).get()))               # rolls: unknowable while planning
-        _s(m, S_PW).set(m.at(zhash(m.const(PLAN_TAG), m.arg(0), _r(m, RLG).get())).get())
-        _s(m, S_AGG).set(vmax(1, m.at(zhash(m.const(AGG_TAG), m.arg(0), _r(m, RLG).get())).get()))
+        _s(m, S_R).set(m.bhash(_r(m, RNH).get()))               # rolls: unknowable when the doctrine was set
+        # THE FAIRNESS FENCE: this leg obeys the doctrine only if the doctrine predates the leg's rolling
+        # height. Setting new orders after a roll is public therefore cannot rewrite the leg that roll
+        # belongs to — it takes effect from the next unresolved leg onward.
+        _s(m, S_PW).set(m.slot(POLH, m.arg(0)).get() < _r(m, RNH).get())
+        _s(m, S_AGG).set(vmax(1, m.slot(POLA, m.arg(0)).get() * _s(m, S_PW).get()))
         _s(m, S_I).set(m.const(0))
 
         m.label("step")
@@ -785,7 +822,7 @@ def rules_js():
         "LEG", "MAX_LEGS_PER_CALL", "CHAPTER", "START_GAP", "HP0", "STAM_MAX", "AGG_MAX", "REGEN_DIV",
         "REGEN_CAP_DIV", "BOSS_EVERY", "TIER_EVERY", "NIGHT_EVERY", "LEVEL_CAP", "LIFESTEAL_DIV",
         "HORDE_DIV", "STREAK_DIV", "DEATH_KEEP", "COMPLETE_BONUS", "POTIONS0", "POTION_CAP",
-        "POTION_PRICE", "HEAL_BASE", "SHRINE_BASE", "RALLY_BASE", "NSLOT", "TILE_CUTS",
+        "POTION_PRICE", "HEAL_BASE", "SHRINE_BASE", "RALLY_BASE", "NSLOT", "TILE_CUTS", "NTILE",
         "ROAD", "MONSTER", "ELITE", "HAZARD", "CACHE", "SHRINE", "FORGE", "FORK", "RELIC", "BOSS",
         "A_DEFAULT", "A_STRIKE", "A_GUARD", "A_DODGE", "A_POTION", "A_SPRINT", "A_REST", "A_RIGHT",
         "A_RALLY", "COST", "ST_BALANCED", "ST_AGGRESSIVE", "ST_GUARDED", "ST_EVASIVE", "STANCES",
@@ -822,7 +859,7 @@ ABI = {
     "stance": {"args": ["runId", "stance"]},
     "focus": {"args": ["runId", "focus"]},
     "orders": {"args": ["runId", "healPct"]},
-    "plan": {"args": ["runId", "leg", "word", "agg"]},
+    "plan": {"args": ["runId", "doctrine", "agg"]},
     "retire": {"args": ["runId"]},
     "advance": {"args": ["runId"]},
     "_view": {
@@ -835,6 +872,8 @@ ABI = {
             "g5": GEAR0 + 5,
             "af1": AFFX + 1, "af2": AFFX + 2, "af3": AFFX + 3, "af4": AFFX + 4, "af5": AFFX + 5,
             "af6": AFFX + 6, "af7": AFFX + 7,
+            "pa": POLA, "ph": POLH,
+            **{f"p{k}": POL0 + k for k in range(NTILE)},
         },
         "addr": ["ra"],
     },

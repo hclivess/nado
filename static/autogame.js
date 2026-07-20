@@ -14,13 +14,13 @@
 // chain wins and the view snaps to it.
 import {
   NadoDapp, rawToNado, randId, _m, $, base, gate, canPay, alertBar, notify, okBar, wireWallet,
-  renderWallet, resolveAliases, disp, share, algHashn, ALG_P, esc, blocksToTime, lsLoad, lsSave,
+  renderWallet, resolveAliases, disp, share, algHashn, ALG_P, esc, blocksToTime,
 } from "./nadodapp.js";
 import * as E from "./autogame-engine.js";
 import * as ART from "./autogame-art.js";
 import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js";
 
-const CID = "e1642eac82cb17f08b43dc427ac2df1f";          // execnode/games/autogame.py (zkVM) — set by the deploy script
+const CID = "8b0754255991ec52566ddb91d68b8e37";          // execnode/games/autogame.py (zkVM) — set by the deploy script
 const dapp = new NadoDapp({ cid: CID, app: "Autogame" });
 const P = ALG_P();
 const BLOCK_SECS = 6;
@@ -40,14 +40,41 @@ const ACT_ICON = ["", "⚡", "🛡️", "💨", "🧪", "🏃", "🔥", "🔀"];
 const ACT_KEY = ["default", "strike", "guard", "dodge", "potion", "sprint", "rest", "right"];
 const STANCE_KEY = ["balanced", "aggressive", "guarded", "evasive"];
 
+// What every action actually DOES, and what it costs. Nothing in this game is guessable from an emoji, and
+// a player choosing between seven unlabelled icons is not making a decision — they are guessing.
+const ACT_INFO = [
+  ["Nothing special", "Meet it head on. No stamina."],
+  ["Strike", "+25% renown, but you take 25% more. 2 stamina."],
+  ["Guard", "Take half the damage. 1 stamina."],
+  ["Dodge", "Skip the tile entirely — no damage, but no loot or renown either. 2 stamina."],
+  ["Potion", "Drink now. Heals, but forfeits your attack AND breaks your streak."],
+  ["Sprint", "Run past. No damage, no reward. 3 stamina."],
+  ["Rest", "Heal by spending renown. Breaks your streak."],
+  ["Rally / right lane", "At a fork: take the greedier right lane. Anywhere else: a small heal that KEEPS your streak. 3 stamina."],
+];
+// What every tile IS. Ordered by how much the choice matters.
+const TILE_INFO = [
+  ["Open road", "Nothing happens. Breathing room."],
+  ["Monster", "A fight. You pull as many as your aggression says."],
+  ["Elite", "A harder fight, two levels up, and a guaranteed drop."],
+  ["Hazard", "Chip damage you cannot fight — only avoid or absorb."],
+  ["Cache", "Loot. Better gear the deeper you are."],
+  ["Shrine", "Heals you — and costs you your streak, like every heal."],
+  ["Forge", "Crafts a permanent weapon or armour level from your materials."],
+  ["Fork", "The road splits. Right is greedier: it re-rolls as an elite."],
+  ["Relic", "A guaranteed high-tier drop. Where the run-defining affixes come from."],
+  ["Boss", "Every 128 steps. One big thing, huge renown — and a CHECKPOINT that banks everything you carry."],
+];
+const DOCTRINE_ORDER = [E.MONSTER, E.ELITE, E.BOSS, E.FORK, E.HAZARD, E.RELIC, E.CACHE, E.SHRINE,
+                        E.FORGE, E.ROAD];
+let doctrine = null;            // the 10 standing reactions being edited
+
 let sto = null;                 // last contract storage view
 let myId = null;                // my run id
 let chain = null;               // the run exactly as the contract has it
 let view = null;                // the run the ANIMATOR is showing; catches up to `chain`, snaps on mismatch
 let road = [];                  // peekLeg() of the pending leg — the visible, committed terrain
-let plan = new Array(E.LEG).fill(0);
 let planAgg = 1;
-let brush = E.A_STRIKE;         // which reaction a tile tap assigns
 let queue = [];                 // settled step events waiting to be animated
 let camera = 0;                 // fractional depth the camera is at
 let lastLegSeen = -1;
@@ -61,20 +88,7 @@ function addGore(depth, kind, amount, seed) {
   gore.push({ depth, kind, amount, seed, t0: performance.now() });
   if (gore.length > 120) gore.splice(0, gore.length - 120);   // the road is long; do not grow forever
 }
-// A committed plan word is HASH-KEYED on chain, so it is not in the storage view and the animator cannot
-// read back what you queued. Your own browser knows, though — remembering it here is what lets a planned
-// leg replay with your actual reactions instead of mismatching and snapping to the chain.
-const LS_PLANS = "nado_autogame_plans";
-const planKey = (run, leg) => `${run}:${leg}`;
-const rememberPlan = (run, leg, word, agg) => {
-  const all = lsLoad(LS_PLANS);
-  all[planKey(run, leg)] = { word: String(word), agg, ts: Date.now() };
-  for (const k of Object.keys(all)) {            // keep it small: a chapter is 32 legs
-    if (Date.now() - (all[k].ts || 0) > 6 * 3600 * 1000) delete all[k];
-  }
-  lsSave(LS_PLANS, all);
-};
-const recallPlan = (run, leg) => lsLoad(LS_PLANS)[planKey(run, leg)] || null;
+
 
 // ── reading the chain ───────────────────────────────────────────────────────────────────────────
 /** My run: the live one if I have it, else my most recent. The contract's `ra` map is the owner index. */
@@ -118,7 +132,7 @@ async function refreshAll() {
     if (!chain) return false;
     switch (f.phase) {
       case "begin": return myId != null;
-      case "plan": return Number(chain.leg) > Number(f.leg) || planOnChain(f.leg);
+      case "plan": return E.packDoctrine(chain.doctrine) === String(f.word) && Number(chain.agg) === Number(f.agg);
       case "advance": return Number(chain.leg) > Number(f.leg);
       case "retire": return !!chain.retired;
       case "stance": return Number(chain.stance) === Number(f.want);
@@ -131,10 +145,6 @@ async function refreshAll() {
   render();
   settlePrompt();
 }
-
-/** A committed plan is invisible in the flat storage view (it is hash-keyed), so a landed `plan` is
- *  confirmed by the leg advancing past it — or, while it is still pending, by nothing at all. */
-function planOnChain(leg) { return false; }
 
 /**
  * Walk `view` forward to wherever the chain is, replaying each settled leg through the engine so the
@@ -151,11 +161,12 @@ function syncView() {
   while (view.leg < chain.leg) {
     const tileH = hashField(view.lh), rollH = hashField(view.nh);
     if (tileH == null || rollH == null) break;                 // hashes not cached yet; try next poll
-    // Replay with the plan this browser committed for that leg, if it has one. Without it a planned leg
-    // never reproduces the contract's state, so the animation is thrown away and the view snaps — the
-    // player would watch their own carefully queued reactions vanish.
-    const p = recallPlan(myId, view.leg);
-    const evs = E.playLeg(algHashn, view, myId, tileH, rollH, p ? p.word : null, p ? p.agg : 1);
+    // Replay under the same orders the contract used for this leg: the doctrine, but only if it predates
+    // the leg's rolling height (the POLH fence). Standing orders are readable from storage, so unlike the
+    // old hash-keyed plan word the animator can reproduce a governed leg exactly.
+    const governed = E.doctrineGoverns(chain, view.nh);
+    const evs = E.playLeg(algHashn, view, myId, tileH, rollH,
+                          governed ? chain.doctrine : null, governed ? chain.agg : 1);
     view.leg += 1;
     view.lh = view.nh; view.nh = view.nh + E.LEG;
     queue.push(...evs);
@@ -171,7 +182,7 @@ function syncView() {
 function rebuildRoad() {
   const tileH = hashField(chain.lh);
   road = tileH == null ? [] : E.peekLeg(algHashn, chain, myId, tileH);
-  if (chain.leg !== lastLegSeen) { plan = new Array(E.LEG).fill(0); lastLegSeen = chain.leg; }
+  if (chain.leg !== lastLegSeen) lastLegSeen = chain.leg;
 }
 
 // ── the world ───────────────────────────────────────────────────────────────────────────────────
@@ -224,7 +235,11 @@ function drawWorld() {
 
   // three parallax ridges from the visible tiles' scenery values
   const rows = road.length ? road.map((t) => t.scen) : [4096];
-  const TILE = 44;                                     // pixels per step at 1x
+  // Pixels per step. This MUST exceed the sprite width or the road becomes a shoulder-to-shoulder lineup:
+  // at 44px with 96px sprites every creature overlapped its neighbours and sixteen of them read as a zoo
+  // rather than a world. At 120 only ~4 tiles ahead are on screen at once, which is what a side-scroller
+  // should show — the road strip below already lists the whole leg.
+  const TILE = 120;
   for (let layer = 0; layer < 3; layer++) {
     const par = 0.25 + layer * 0.3;
     const base = H * (0.45 + layer * 0.09);
@@ -254,7 +269,10 @@ function drawWorld() {
   let engaging = false;
   if (chain) {
     for (const t of road) {
-      const dx = t.depth - camera;
+      // Half a tile forward: a creature standing at exactly (depth - camera) sits ON the hero the moment he
+      // reaches its tile, and the two sprites merge into an unreadable blob. Offsetting it to the far side
+      // of its own tile means he WALKS INTO it, which is also what the fight is.
+      const dx = t.depth - camera + 0.5;
       const x = heroX + Math.round(dx * TILE);
       if (x < -2 * TILE || x > W + 2 * TILE || t.tile === E.ROAD) continue;
       const passed = dx < -0.25;                       // already walked through: it is done for
@@ -265,7 +283,7 @@ function drawWorld() {
         const scale = rank === 2 ? 4 : 3;
         const mw = (ART.MON_W || 32) * scale, mh = (ART.MON_H || 32) * scale;
         // frames 0..2 idle, 3 attack, 4 death — see autogame-art.js
-        const near = Math.abs(dx) < 0.6;
+        const near = Math.abs(dx) < 0.75;
         const frame = passed ? 4 : near ? 3 : Math.floor(now / 220) % 3;
         if (near) engaging = true;
         ART.drawMonster(ctx, Math.round(x - mw / 2), GY + 2 - mh,
@@ -305,7 +323,11 @@ function drawWorld() {
 
   // the warrior — always at the same screen x; the world moves, not him. He swings when something is
   // actually in front of him, not merely when the event queue happens to hold a fight.
-  const frame = Math.floor((now / 140) % 4);
+  // He also STANDS STILL when the world is not moving: a walk cycle playing against a static background
+  // reads as a treadmill, and this game spends most of its time waiting for the next block.
+  const moving = camera > (drawWorld._lastCam ?? camera) + 0.0005;
+  drawWorld._lastCam = camera;
+  const frame = moving ? Math.floor((now / 140) % 4) : 0;
   const hurt = view && view.hp * 4 < view.maxhp;
   const dead = view ? !view.alive : false;
   if (dead && fatality && ART.drawFatality) {
@@ -339,7 +361,24 @@ function tick() {
     }
   }
   drawWorld();
+  idleMessage();
   requestAnimationFrame(tick);
+}
+
+/** What the stage says when nothing is being animated — otherwise the player stares at a silent picture
+ *  and cannot tell whether the game is broken or simply waiting for a block. */
+function idleMessage() {
+  const el = $("stagemsg");
+  if (!el || queue.length) return;
+  if (!chain) { el.innerHTML = `<span class="faint">${esc(t("idleNoRun", "No march yet — set out to begin."))}</span>`; return; }
+  if (!chain.alive) { el.innerHTML = `<b style="color:var(--danger)">${esc(t("idleDead", "You fell here."))}</b>`; return; }
+  if (chain.done) { el.innerHTML = `<b style="color:var(--win)">${esc(t("idleDone", "The road is walked. Chapter complete."))}</b>`; return; }
+  if (chain.retired) { el.innerHTML = `<span class="dim">${esc(t("idleRetired", "Retired, on your feet."))}</span>`; return; }
+  const left = dapp.cursor != null ? chain.nh - dapp.cursor : null;
+  el.innerHTML = left != null && left > 0
+    ? `<span class="dim">${esc(t("idleWaiting", "Marching · depth {d}/{c} · the next {n} blocks decide this leg",
+        { d: chain.depth, c: E.CHAPTER, n: left }))}</span>`
+    : `<b style="color:var(--accent2)">${esc(t("idleReady", "The dice have landed — settle the leg."))}</b>`;
 }
 
 function showEvent(ev) {
@@ -400,7 +439,10 @@ function render() {
   // clickable and a signed-out tap on "Set out" silently went nowhere.
   const live = !!(chain && chain.alive && !chain.done && !chain.retired);
   const canSettle = live && dapp.cursor != null && dapp.cursor >= chain.nh;
-  const canPlan = live && dapp.cursor != null && dapp.cursor < chain.nh;
+  // Standing orders have NO window: they govern legs whose dice do not exist yet, and the contract's POLH
+  // fence stops them touching a leg that already rolled. The old per-leg plan needed a 96-second window,
+  // which is unreachable whenever the exec layer trails L1 by more than a leg — and it does.
+  const canPlan = live;
   gate({ beginBtn: !live, advBtn: live, retireBtn: live, planBtn: live });
   // "Set out" stays clickable while signed out ON PURPOSE: the click routes through canPay(), which raises
   // the SDK's sign-in bar. Hiding it would leave a signed-out visitor staring at a page with no way in.
@@ -426,7 +468,13 @@ function render() {
     $("clockHint").textContent = "";
   }
 
+  if (chain && !$("agg").dataset.touched) {
+    $("agg").value = String(chain.agg || 1);
+    planAgg = chain.agg || 1;
+    $("aggVal").textContent = planAgg;
+  }
   renderRoad();
+  renderDoctrine();
   renderDials();
   renderGear(r);
   renderBoard();
@@ -444,7 +492,7 @@ function renderRoad() {
     const cls = [t.tile === E.HAZARD || t.tile === E.ELITE || t.tile === E.BOSS ? "danger"
       : (t.tile === E.CACHE || t.tile === E.SHRINE || t.tile === E.RELIC) ? "good" : "",
       t.depth === (chain ? chain.depth : -1) ? "now" : ""].join(" ");
-    const act = plan[i] ? `<span class="act">${ACT_ICON[plan[i]]}</span>` : "";
+    const act = (doctrine && doctrine[t.tile]) ? `<span class="act">${ACT_ICON[doctrine[t.tile]]}</span>` : "";
     // A canvas, not an emoji. The chip background is a dark blue-grey, and a stock ⚔️ glyph sitting in it
     // reads as clip-art in a blue box rather than as the monster you are about to fight.
     const art = ART.drawMonster
@@ -454,11 +502,6 @@ function renderRoad() {
       ${act}${art}<span class="sw">${t.swing || ""}</span></div>`;
   }).join("");
   paintRoadIcons();
-  el.querySelectorAll(".tile").forEach((n) => n.onclick = () => {
-    const i = Number(n.dataset.i);
-    plan[i] = plan[i] === brush ? 0 : brush;            // tap again to clear
-    renderRoad();
-  });
 }
 
 /** The segmented controls are built after i18n's DOMContentLoaded pass, so they must be localized on
@@ -491,17 +534,65 @@ function paintRoadIcons() {
   });
 }
 
-function renderDials() {
-  const seg = $("actseg");
-  if (seg && !seg.dataset.built) {
-    seg.dataset.built = "1";
-    seg.innerHTML = [1, 2, 3, 4, 5, 6, 7].map((a) =>
-      `<button data-a="${a}" data-i18n="autogame.act_${ACT_KEY[a]}">${ACT_KEY[a]}<span> ${ACT_ICON[a]}</span></button>`).join("");
-    seg.querySelectorAll("button").forEach((b) => b.onclick = () => { brush = Number(b.dataset.a); renderDials(); });
-    relocalize(seg);
+/** The doctrine editor: one row per tile class, each saying what the thing IS and offering what you can do
+ *  about it, in words. This is the whole game's decision surface, so it explains itself. */
+function renderDoctrine() {
+  const el = $("doctrine");
+  if (!el) return;
+  if (!doctrine) doctrine = chain ? [...chain.doctrine] : new Array(E.NTILE).fill(0);
+  if (!el.dataset.built) {
+    el.dataset.built = "1";
+    el.innerHTML = DOCTRINE_ORDER.map((tile) => `
+      <div class="drow" data-t="${tile}">
+        <canvas class="dico" width="${ART.MON_W || 32}" height="${ART.MON_H || 32}" data-t="${tile}"></canvas>
+        <div class="what"><div class="nm">${esc(t("tile_" + tile, TILE_INFO[tile][0]))}</div>
+          <div class="de">${esc(t("tiled_" + tile, TILE_INFO[tile][1]))}</div>
+          <div class="de eff" data-t="${tile}"></div></div>
+        <select data-t="${tile}">${ACT_INFO.map((ai, a) =>
+          `<option value="${a}">${esc(t("actn_" + ACT_KEY[a], ai[0]))}</option>`).join("")}</select>
+      </div>`).join("");
+    el.querySelectorAll("select").forEach((sel) => sel.onchange = () => {
+      doctrine[Number(sel.dataset.t)] = Number(sel.value);
+      renderRoad();
+      renderDoctrine();
+    });
+    paintDoctrineIcons();
   }
-  if (seg) seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", Number(b.dataset.a) === brush));
+  // the full effect of whatever is currently chosen, spelled out in the row — an option list wide enough
+  // to hold these sentences would not fit on a phone, and a truncated one explains nothing
+  el.querySelectorAll("select").forEach((sel) => { sel.value = String(doctrine[Number(sel.dataset.t)] || 0); });
+  el.querySelectorAll(".eff").forEach((n) => {
+    const a = doctrine[Number(n.dataset.t)] || 0;
+    n.innerHTML = a ? `<b style="color:var(--accent2)">${esc(t("actn_" + ACT_KEY[a], ACT_INFO[a][0]))}</b> — ${esc(t("actd_" + ACT_KEY[a], ACT_INFO[a][1]))}`
+                    : `<span class="faint">${esc(t("actd_default", ACT_INFO[0][1]))}</span>`;
+  });
+  const note = $("doctrineNote");
+  if (note) {
+    const dirty = chain && doctrine.some((v, i) => v !== chain.doctrine[i]) ;
+    const aggDirty = chain && planAgg !== chain.agg;
+    note.innerHTML = !chain ? esc(t("docNoRun", "Set out first — orders belong to a march."))
+      : (dirty || aggDirty) ? `<b style="color:var(--gold)">${esc(t("docDirty", "Unsaved changes — commit them to make them law."))}</b>`
+      : esc(t("docSaved", "These orders are in force from the next unresolved leg."));
+  }
+}
 
+function paintDoctrineIcons() {
+  if (!ART.drawMonster) return;
+  const RANK = { [E.ELITE]: 1, [E.BOSS]: 2 };
+  const PROP = { [E.HAZARD]: "hazard", [E.CACHE]: "cache", [E.SHRINE]: "shrine",
+                 [E.FORGE]: "forge", [E.RELIC]: "relic", [E.FORK]: "fork" };
+  document.querySelectorAll("#doctrine .dico").forEach((cv) => {
+    const tile = Number(cv.dataset.t);
+    const ctx = cv.getContext("2d");
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.imageSmoothingEnabled = false;
+    if (tile === E.ROAD) return;
+    if (PROP[tile] && ART.drawProp) ART.drawProp(ctx, 0, 0, { kind: PROP[tile], frame: 0, scale: 1 });
+    else ART.drawMonster(ctx, 0, 0, { family: 1, rank: RANK[tile] || 0, level: 3, frame: 0, scale: 1, facing: -1 });
+  });
+}
+
+function renderDials() {
   const ss = $("stanceseg");
   if (ss && !ss.dataset.built) {
     ss.dataset.built = "1";
@@ -603,12 +694,11 @@ function begin() {
 }
 function commitPlan() {
   if (!chain) return;
-  const word = E.packPlan(plan);
-  act("plan", t("whatPlan", "Committing a plan"), () => {
-    rememberPlan(myId, chain.leg, word, planAgg);      // so the animator can replay YOUR leg, not a default
-    dapp.call("plan", [myId, chain.leg, word, planAgg], 0n,
-      t("labelPlan", "Commit the plan for leg {n}", { n: chain.leg }), { phase: "plan", leg: chain.leg });
-  }, "leg", chain.leg);
+  const word = E.packDoctrine(doctrine || []);
+  act("plan", t("whatPlan", "Committing your doctrine"), () => {
+    dapp.call("plan", [myId, word, planAgg], 0n,
+      t("labelPlan", "Commit doctrine"), { phase: "plan", word, agg: planAgg });
+  }, "word", word);
 }
 function advance() {
   if (!chain) return;
@@ -650,7 +740,8 @@ function settlePrompt() {
 // ── wiring ──────────────────────────────────────────────────────────────────────────────────────
 function wireDials() {
   const agg = $("agg"), heal = $("heal"), focus = $("focus");
-  agg.oninput = () => { planAgg = Number(agg.value); $("aggVal").textContent = planAgg; updateAggHint(); };
+  agg.oninput = () => { agg.dataset.touched = "1"; planAgg = Number(agg.value);
+                        $("aggVal").textContent = planAgg; updateAggHint(); renderDoctrine(); };
   heal.oninput = () => { $("healVal").textContent = heal.value + "%"; };
   heal.onchange = () => { if (!chain) return; act("orders", t("whatOrders", "Changing standing orders"),
     () => dapp.call("orders", [myId, Number(heal.value)], 0n,

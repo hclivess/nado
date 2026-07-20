@@ -32,6 +32,7 @@ export const SHRINE_BASE = 10;
 export const RALLY_BASE = 4;
 export const NSLOT = 6;
 export const TILE_CUTS = [30, 58, 66, 74, 82, 87, 92, 99];
+export const NTILE = 10;
 export const ROAD = 0;
 export const MONSTER = 1;
 export const ELITE = 2;

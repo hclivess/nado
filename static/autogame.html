@@ -89,6 +89,19 @@
   .tile.good{background:#16241d}
   .legend{font-size:11px;color:var(--faint);margin-top:8px;line-height:1.7}
   .legend b{color:var(--dim)}
+  /* ── doctrine table ─────────────────────────────────────────────────────── */
+  #doctrine{display:flex;flex-direction:column;gap:6px}
+  .drow{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:10px;
+    background:var(--elev2);padding:7px 10px}
+  .drow canvas{width:34px;height:34px;image-rendering:pixelated;flex:none}
+  .drow .what{flex:1;min-width:0}
+  .drow .nm{font-weight:800;font-size:13px}
+  .drow .de{font-size:11px;color:var(--faint);line-height:1.35}
+  .drow select{font:inherit;font-size:12px;font-weight:700;background:var(--elev);color:var(--txt);
+    border:1px solid var(--border);border-radius:8px;padding:6px 8px;flex:none;min-width:132px}
+  .drow .eff{margin-top:2px}
+  .drow select:focus{outline:none;border-color:var(--accent2)}
+  @media(max-width:560px){ .drow{flex-wrap:wrap} .drow select{max-width:100%;width:100%} }
 
   /* ── dials ──────────────────────────────────────────────────────────────── */
   .dial{margin:0 0 12px}
@@ -203,13 +216,21 @@
 <div class="card">
   <h2 data-i18n="autogame.roadH">The road ahead — tap a tile to queue a reaction</h2>
   <div id="road"></div>
-  <div class="row spread" style="margin-top:10px">
-    <div class="seg" id="actseg"></div>
-    <button id="planBtn" class="primary" data-i18n="autogame.commitPlan">Commit plan</button>
-  </div>
-  <div class="legend">
-    <b data-i18n="autogame.legendH">Tiles:</b>
-    <span data-i18n="autogame.legend">🛣️ road · ⚔️ monster · 💀 elite · 🔥 hazard · 📦 cache · ⛲ shrine · 🔨 forge · 🔀 fork · 💎 relic · 👑 boss</span>
+  <div class="legend" data-i18n="autogame.roadHelp">This is the next sixteen steps, already fixed by a mined
+    block. The dice that resolve them come from a block sixteen later that does not exist yet.</div>
+</div>
+
+<div class="card">
+  <h2 data-i18n="autogame.doctrineH">Your doctrine — what you do about each thing you meet</h2>
+  <p class="hint" data-i18n="autogame.doctrineHelp">You are not picking moves for particular squares: the road
+    is different every time. You are giving <b>standing orders by what a thing IS</b> — "strike monsters,
+    guard hazards, take the right fork" — and they hold for the rest of the march until you change them.
+    New orders take effect from the next unresolved leg, so they can never rewrite a fight whose dice have
+    already been rolled.</p>
+  <div id="doctrine"></div>
+  <div class="row spread" style="margin-top:12px">
+    <span class="hint" id="doctrineNote"></span>
+    <button id="planBtn" class="primary" data-i18n="autogame.commitPlan">Commit doctrine</button>
   </div>
 </div>
 
@@ -269,6 +290,6 @@
 </footer>
 
 </div>
-<script type="module" src="/static/autogame.js?v=c254c823"></script>
+<script type="module" src="/static/autogame.js?v=ae933cfe"></script>
 </body>
 </html>

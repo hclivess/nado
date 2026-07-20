@@ -70,18 +70,27 @@ def _model_state(run):
                 mats=list(run.mats), gear=list(run.gear))
 
 
-def _pack(actions):
-    """16 reactions x 3 bits, little-endian — the same word plan() accepts."""
+def _pack(doctrine):
+    """One reaction per TILE CLASS, 3 bits each, class 0 in the low bits — the word plan() accepts."""
     w = 0
-    for i, a in enumerate(actions):
+    for i, a in enumerate(doctrine):
         w |= (a & 7) << (3 * i)
     return w
+
+
+def _doctrine(**kw):
+    """Readable doctrine builder: _doctrine(monster=A_STRIKE, hazard=A_GUARD)."""
+    d = [A.A_DEFAULT] * A.NTILE
+    for name, act in kw.items():
+        d[getattr(A, name.upper())] = act
+    return d
 
 
 def drive(rid, plans, legs, stance=None, focus=None, healpct=None, start_cursor=100):
     """Run `legs` legs through BOTH implementations and compare after each one.
 
-    `plans` maps leg index -> (list of 16 actions, aggression).
+    `plans` is either a (doctrine, aggression) pair applied as standing orders before the run, or {} for a
+    run with no orders at all (the absent player).
     """
     st = {}
     _ok, _r, st, _ = _call("constructor", [], st)
@@ -102,21 +111,23 @@ def drive(rid, plans, legs, stance=None, focus=None, healpct=None, start_cursor=
         assert ok, "orders reverted"
         run.healpct = healpct
 
+    doctrine, agg = plans if plans else ([A.A_DEFAULT] * A.NTILE, 1)
+    if plans:
+        # standing orders, set ONCE and before any leg resolves — so every leg below is governed by them
+        ok, _r, st, _ = _call("plan", [rid, _pack(doctrine), agg], st, cursor=start_cursor)
+        assert ok, "plan reverted"
+        run.doctrine, run.agg = list(doctrine), agg
+
     lh = st[A.RLH * (1 << 32) + rid]
     for leg in range(legs):
-        acts, agg = plans.get(leg, ([0] * A.LEG, 1))
         nh = lh + A.LEG
-        if any(acts) or agg != 1:
-            ok, _r, st, _ = _call("plan", [rid, leg, _pack(acts), agg], st, cursor=lh)
-            assert ok, f"plan(leg={leg}) reverted"
-
         # model: same two hashes, same order
         for i in range(A.LEG):
             if not run.alive or run.done:
                 break
             tw = _words(BH[lh], rid, i)
             rw = _words(BH[nh], rid, i)
-            M.step(run, tw, rw, acts[i], agg)
+            M.step(run, tw, rw)
 
         ok, _r, st, _ = _call("advance", [rid], st, cursor=nh + 1)
         assert ok, f"advance(leg={leg}) reverted"
@@ -140,14 +151,11 @@ def t_idle_run():
 def t_planned_reactions():
     """Every reaction exercised, including the unaffordable ones that must degrade to Default rather than
     revert, and action 7 doing double duty (fork lane / Rally)."""
-    plans = {
-        0: ([A.A_STRIKE, A.A_GUARD, A.A_DODGE, A.A_SPRINT, A.A_RALLY, A.A_REST, A.A_POTION, A.A_RIGHT] * 2, 3),
-        1: ([A.A_STRIKE] * 16, 6),            # cannot afford 16 strikes: most must degrade
-        2: ([A.A_RALLY] * 16, 2),
-        3: ([A.A_RIGHT] * 16, 8),
-        4: ([A.A_POTION, A.A_REST] * 8, 5),
-    }
-    drive(12, plans, legs=6)
+    # every reaction represented, including ones that cannot always be afforded (they must degrade to
+    # Default rather than revert) and the fork entry that picks a lane
+    d = _doctrine(monster=A.A_STRIKE, elite=A.A_GUARD, hazard=A.A_DODGE, cache=A.A_SPRINT,
+                  shrine=A.A_RALLY, forge=A.A_REST, relic=A.A_POTION, fork=A.A_RIGHT, boss=A.A_STRIKE)
+    drive(12, (d, 3), legs=6)
 
 
 def t_all_stances_and_focus():
@@ -155,14 +163,13 @@ def t_all_stances_and_focus():
     lifesteal, evasive halves hazards."""
     for i, (stance, focus, heal) in enumerate([(0, 50, 35), (1, 75, 20), (2, 0, 60), (3, 25, 45),
                                                (0, 100, 25)]):
-        plans = {leg: ([A.A_STRIKE, 0, A.A_GUARD, 0] * 4, 2 + leg) for leg in range(6)}
-        drive(20 + i, plans, legs=6, stance=stance, focus=focus, healpct=heal)
+        d = _doctrine(monster=A.A_STRIKE, elite=A.A_GUARD)
+        drive(20 + i, (d, 2 + i), legs=6, stance=stance, focus=focus, healpct=heal)
 
 
 def t_long_run_to_boss():
     """Far enough to cross a boss checkpoint (depth 128) — banking, +10 maxhp, the guaranteed drop."""
-    plans = {leg: ([0] * 16, 2) for leg in range(12)}
-    st, run = drive(31, plans, legs=12, stance=M.ST_GUARDED, focus=25)
+    st, run = drive(31, ([A.A_DEFAULT] * A.NTILE, 2), legs=12, stance=M.ST_GUARDED, focus=25)
     assert run.depth >= 128 or not run.alive, f"expected to reach the checkpoint, got depth {run.depth}"
     if run.depth >= 128 and run.alive:
         assert run.banked > 0, "crossing a boss must bank the renown"
@@ -171,8 +178,8 @@ def t_long_run_to_boss():
 
 def t_death_is_terminal():
     """A reckless pull kills, and a dead run stops advancing — no further legs, no further renown."""
-    plans = {leg: ([A.A_STRIKE] * 16, A.AGG_MAX) for leg in range(10)}
-    st, run = drive(41, plans, legs=10, stance=M.ST_AGGRESSIVE, focus=100)
+    d = _doctrine(monster=A.A_STRIKE, elite=A.A_STRIKE, boss=A.A_STRIKE)
+    st, run = drive(41, (d, A.AGG_MAX), legs=10, stance=M.ST_AGGRESSIVE, focus=100)
     assert not run.alive, "agg 16 from step 0 on an aggressive/all-weapon build should be fatal"
     before = _contract_state(st, 41)
     ok, _r, st2, _ = _call("advance", [41], dict(st), cursor=99999)
@@ -180,41 +187,78 @@ def t_death_is_terminal():
     assert _contract_state(st2, 41) == before, "a reverted advance must not mutate the run"
 
 
-def t_plan_window_is_enforced():
-    """The fairness argument in one test: you may not plan a leg once its rolling hash exists, and you may
-    not plan a leg that is not the pending one."""
+def t_doctrine_cannot_rewrite_a_rolled_leg():
+    """THE fairness property, restated for standing orders.
+
+    A doctrine may be set at any time — there is no window to hit, which is the whole point, because a
+    window narrower than the exec layer's lag is unreachable. What keeps it honest is the POLH fence: a leg
+    obeys the doctrine only if the doctrine PREDATES that leg's rolling height. So seeing a roll and then
+    issuing new orders cannot change the leg that roll belongs to; the orders take effect from the next
+    unresolved leg onward.
+
+    This test proves exactly that: the same run, same hashes, orders issued AFTER the first leg's rolling
+    height, must resolve leg 0 as if it had no orders at all.
+    """
+    d = _doctrine(monster=A.A_STRIKE, elite=A.A_STRIKE, boss=A.A_STRIKE)
+    rid = 51
     st = {}
     _ok, _r, st, _ = _call("constructor", [], st)
-    _ok, _r, st, _ = _call("begin", [51], st, cursor=100)
-    nh = st[A.RNH * (1 << 32) + 51]
+    _ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
+    lh = st[A.RLH * (1 << 32) + rid]
+    nh = st[A.RNH * (1 << 32) + rid]
 
-    ok, _r, _s, _ = _call("plan", [51, 0, _pack([1] * 16), 4], dict(st), cursor=nh - 1)
-    assert ok, "planning before the rolling height must be allowed"
-    ok, _r, _s, _ = _call("plan", [51, 0, _pack([1] * 16), 4], dict(st), cursor=nh)
-    assert not ok, "planning AT the rolling height must revert — the dice are knowable"
-    ok, _r, _s, _ = _call("plan", [51, 1, _pack([1] * 16), 4], dict(st), cursor=nh - 1)
-    assert not ok, "planning a leg that is not pending must revert"
-    ok, _r, _s, _ = _call("plan", [51, 0, _pack([1] * 16), 99], dict(st), cursor=nh - 1)
+    # orders issued LATE — after this leg's dice are already public
+    late = dict(st)
+    ok, _r, late, _ = _call("plan", [rid, _pack(d), 8], late, cursor=nh + 5)
+    assert ok, "setting a doctrine must always be allowed — there is no window"
+    ok, _r, late, _ = _call("advance", [rid], late, cursor=nh + 6)
+    assert ok, "advance reverted"
+
+    # the same run with NO orders at all
+    none_ = dict(st)
+    ok, _r, none_, _ = _call("advance", [rid], none_, cursor=nh + 6)
+    assert ok, "advance reverted"
+
+    a, b = _contract_state(late, rid), _contract_state(none_, rid)
+    assert a == b, ("a doctrine set AFTER the roll changed the leg that roll belongs to — the fence is "
+                    f"broken: {[(k, a[k], b[k]) for k in a if a[k] != b[k]]}")
+
+    # and orders issued BEFORE the roll DO govern that leg (otherwise the fence would be vacuous)
+    early = dict(st)
+    ok, _r, early, _ = _call("plan", [rid, _pack(d), 8], early, cursor=lh)
+    assert ok
+    ok, _r, early, _ = _call("advance", [rid], early, cursor=nh + 6)
+    assert ok
+    c = _contract_state(early, rid)
+    assert c != b, "orders set before the roll must actually change the outcome, or nothing is being applied"
+
+
+def t_plan_validates_its_arguments():
+    st = {}
+    _ok, _r, st, _ = _call("constructor", [], st)
+    _ok, _r, st, _ = _call("begin", [52], st, cursor=100)
+    ok, _r, _s, _ = _call("plan", [52, _pack([1] * A.NTILE), 4], dict(st), cursor=200)
+    assert ok, "a well-formed doctrine must be accepted"
+    ok, _r, _s, _ = _call("plan", [52, _pack([1] * A.NTILE), 99], dict(st), cursor=200)
     assert not ok, "aggression above AGG_MAX must revert"
-    ok, _r, _s, _ = _call("plan", [51, 0, 1 << 48, 4], dict(st), cursor=nh - 1)
-    assert not ok, "an over-wide action word must revert"
+    ok, _r, _s, _ = _call("plan", [52, _pack([1] * A.NTILE), 0], dict(st), cursor=200)
+    assert not ok, "aggression below 1 must revert"
+    ok, _r, _s, _ = _call("plan", [52, 1 << (3 * A.NTILE), 4], dict(st), cursor=200)
+    assert not ok, "an over-wide doctrine word must revert"
+    ok, _r, _s, _ = _call("plan", [52, _pack([1] * A.NTILE), 4], dict(st), caller=999, cursor=200)
+    assert not ok, "a non-owner must not set orders"
 
 
 def _seed_planned_run(rid, plans, legs, caller=1234):
-    """Begin a run and plan LEG 0 only.
-
-    Only the PENDING leg can be planned — the next leg's tiles come from a hash that does not exist yet, so
-    there is nothing to plan against. A player who walks away therefore leaves a backlog that is unplanned
-    by construction, which is precisely the absent-player path.
-    """
+    """Begin a run and set standing orders once, before anything resolves."""
     st = {}
     _ok, _r, st, _ = _call("constructor", [], st)
     ok, _r, st, _ = _call("begin", [rid], st, caller=caller, cursor=100)
     assert ok
     lh = st[A.RLH * (1 << 32) + rid]
-    acts, agg = plans[0]
-    ok, _r, st, _ = _call("plan", [rid, 0, _pack(acts), agg], st, caller=caller, cursor=lh)
-    assert ok, "plan(leg=0) reverted"
+    doctrine, agg = plans
+    ok, _r, st, _ = _call("plan", [rid, _pack(doctrine), agg], st, caller=caller, cursor=lh)
+    assert ok, "plan reverted"
     return st
 
 
@@ -228,7 +272,7 @@ def t_advance_is_permissionless_and_late_safe():
     """
     LEGS = 8                                        # even, so both schedules land on the same leg boundary
     RID = 61
-    plans = {0: ([A.A_STRIKE, 0, 0, A.A_GUARD] * 4, 3)}
+    plans = (_doctrine(monster=A.A_STRIKE, elite=A.A_GUARD), 3)
     # ONE run, one starting state — the world is seeded by run id, so comparing two ids would only prove
     # that different runs get different worlds.
     st0 = _seed_planned_run(RID, plans, LEGS)
@@ -266,7 +310,7 @@ def t_only_owner_controls():
 
 def t_scratch_leaves_no_residue():
     """advance() uses fixed scratch slots as working registers; none may survive into the state root."""
-    st, _run = drive(81, {0: ([A.A_STRIKE] * 16, 4)}, legs=3)
+    st, _run = drive(81, (_doctrine(monster=A.A_STRIKE), 4), legs=3)
     left = [k for k in st if k >> 32 == A.SC and st[k] != 0]
     assert not left, f"scratch residue in the state root: {left}"
 
@@ -349,16 +393,22 @@ def t_js_engine_matches_the_model():
     cases = []
     configs = [("balanced", 0, 35, 50, 3), ("berserker", 1, 20, 75, 6), ("turtle", 2, 60, 0, 2),
                ("skirmisher", 3, 45, 25, 4), ("vampire", 0, 25, 100, 5)]
-    acts = [A.A_DEFAULT, A.A_STRIKE, A.A_GUARD, A.A_DODGE, A.A_POTION, A.A_SPRINT, A.A_REST, A.A_RIGHT]
-    for name, stance, heal, focus, agg in configs:
+    doctrines = [
+        _doctrine(monster=A.A_STRIKE, elite=A.A_GUARD, hazard=A.A_DODGE, fork=A.A_RIGHT),
+        _doctrine(monster=A.A_GUARD, elite=A.A_STRIKE, shrine=A.A_RALLY, forge=A.A_REST),
+        _doctrine(monster=A.A_SPRINT, hazard=A.A_GUARD, relic=A.A_POTION, boss=A.A_STRIKE),
+        _doctrine(),
+        _doctrine(monster=A.A_STRIKE, elite=A.A_STRIKE, boss=A.A_STRIKE, fork=A.A_RIGHT),
+    ]
+    for (name, stance, heal, focus, agg), doc in zip(configs, doctrines):
         run = M.Run(stance=stance, healpct=heal, focus=focus)
+        run.doctrine, run.agg = list(doc), agg
         steps = []
         for n in range(400):
             tw = _words(BH[3000 + n], 7, n % A.LEG)
             rw = _words(BH[9000 + n], 7, n % A.LEG)
-            act = acts[n % len(acts)]
-            M.step(run, tw, rw, act, agg)
-            steps.append({"tw": tw, "rw": rw, "act": act, "agg": agg,
+            M.step(run, tw, rw)
+            steps.append({"tw": tw, "rw": rw, "doctrine": list(doc), "agg": agg,
                           "after": {"hp": run.hp, "maxhp": run.maxhp, "stam": run.stam,
                                     "potions": run.potions, "xp": run.xp, "banked": run.banked,
                                     "streak": run.streak, "depth": run.depth, "kills": run.kills,
@@ -367,7 +417,7 @@ def t_js_engine_matches_the_model():
             if not run.alive or run.done:
                 break
         cases.append({"name": name, "stance": stance, "healpct": heal, "focus": focus,
-                      "steps": steps, "score": run.score()})
+                      "doctrine": list(doc), "agg": agg, "steps": steps, "score": run.score()})
 
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump(cases, f)
@@ -428,7 +478,8 @@ if __name__ == "__main__":
     check("all stances x focus splits", t_all_stances_and_focus)
     check("long run across a boss checkpoint", t_long_run_to_boss)
     check("death is terminal and a dead run cannot advance", t_death_is_terminal)
-    check("plan window enforces the fairness argument", t_plan_window_is_enforced)
+    check("a doctrine cannot rewrite a leg whose dice already rolled", t_doctrine_cannot_rewrite_a_rolled_leg)
+    check("plan validates its arguments", t_plan_validates_its_arguments)
     check("advance is permissionless and late-safe", t_advance_is_permissionless_and_late_safe)
     check("only the owner controls a run", t_only_owner_controls)
     check("scratch leaves no residue in the state root", t_scratch_leaves_no_residue)

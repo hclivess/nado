@@ -30,7 +30,7 @@ Everything here is integer-only and clamped, mirroring the VM exactly:
 from execnode.games.autogame import (      # noqa: E402
     LEG, MAX_LEGS_PER_CALL, CHAPTER, HP0, STAM_MAX, AGG_MAX, REGEN_DIV, REGEN_CAP_DIV, BOSS_EVERY,
     TIER_EVERY, NIGHT_EVERY, LEVEL_CAP, LIFESTEAL_DIV, HORDE_DIV, STREAK_DIV, DEATH_KEEP, COMPLETE_BONUS,
-    POTIONS0, POTION_CAP, POTION_PRICE, HEAL_BASE, SHRINE_BASE, RALLY_BASE, NSLOT, TILE_CUTS,
+    POTIONS0, POTION_CAP, POTION_PRICE, HEAL_BASE, SHRINE_BASE, RALLY_BASE, NSLOT, TILE_CUTS, NTILE,
     ROAD, MONSTER, ELITE, HAZARD, CACHE, SHRINE, FORGE, FORK, RELIC, BOSS,
     A_DEFAULT, A_STRIKE, A_GUARD, A_DODGE, A_POTION, A_SPRINT, A_REST, A_RIGHT, A_RALLY, COST,
     ST_BALANCED, ST_AGGRESSIVE, ST_GUARDED, ST_EVASIVE, STANCES,
@@ -106,6 +106,10 @@ class Run:
         self.alevel = 1
         self.mats = [0, 0, 0]          # scrap, hide, essence
         self.gear = [0] * NSLOT
+        # THE DOCTRINE: one queued reaction per tile class, and the aggression dial. Standing orders, not a
+        # per-leg plan — see execnode/games/autogame.py for why the per-leg window was unreachable.
+        self.doctrine = [A_DEFAULT] * NTILE
+        self.agg = 1
         self.alive = 1
         self.done = 0                  # reached step CHAPTER on your feet — the only state that doubles
         self.retired = 0               # walked away voluntarily: you keep everything, but no completion bonus
@@ -368,14 +372,23 @@ def fight(run, tile, b, x, y, z, agg, act, ev):
 
 
 # ── the step ─────────────────────────────────────────────────────────────────────────────────────
-def step(run, tw, rw, act, agg):
-    """Advance the run one tile. `tw`/`rw` are the two 32-bit hash windows, `act` the planned reaction for
-    this tile, `agg` the leg's aggression dial. Mutates `run`; returns an event dict for the animator.
+def step(run, tw, rw, doctrine=None, agg=None):
+    """Advance the run one tile. `tw`/`rw` are the two 32-bit hash windows.
+
+    `doctrine` is the standing reaction per TILE CLASS (a list of NTILE entries) and `agg` the aggression
+    dial; both default to the run's own standing orders. Passing them explicitly is how the caller models a
+    leg that predates the current doctrine — the contract does the same via its POLH fence, feeding a
+    doctrine of all-Default and an aggression of 1 to any leg whose dice already existed when the orders
+    were set.
 
     This function and the contract's step loop are the same program written twice.
     """
     if not run.alive or run.done or run.retired:
         return {"tile": ROAD, "skip": True}
+    if doctrine is None:
+        doctrine = run.doctrine
+    if agg is None:
+        agg = run.agg
 
     depth = run.depth
     a, b, c, scen = slice_tile(tw)
@@ -383,8 +396,12 @@ def step(run, tw, rw, act, agg):
     tile = tile_of(a, depth)
     tier = tier_of(depth)
 
-    # A fork is a choice, not an event: the road splits and the plan's A_RIGHT bit picks the lane. The
-    # right lane is always the greedier one — it re-rolls as an elite.
+    # The reaction is whatever the doctrine says about the tile you walked onto — read BEFORE the fork is
+    # resolved, because the doctrine's FORK entry is what picks the lane.
+    act = doctrine[tile] if tile < len(doctrine) else A_DEFAULT
+
+    # A fork is a choice, not an event: the road splits and A_RIGHT takes the greedier lane, which re-rolls
+    # as an elite.
     if tile == FORK:
         tile = ELITE if act == A_RIGHT else MONSTER
         act = A_DEFAULT

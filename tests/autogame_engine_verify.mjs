@@ -25,14 +25,16 @@ const FIELDS = ["hp", "maxhp", "stam", "potions", "xp", "banked", "streak", "dep
 let checked = 0;
 for (const c of cases) {
   const run = E.newRun({ stance: c.stance, healpct: c.healpct, focus: c.focus });
+  run.doctrine = c.doctrine;
+  run.agg = c.agg;
   for (let n = 0; n < c.steps.length; n++) {
     const s = c.steps[n];
-    E.step(run, s.tw, s.rw, s.act, s.agg);
+    E.step(run, s.tw, s.rw, s.doctrine, s.agg);
     const want = s.after;
     for (const f of FIELDS) {
       if (run[f] !== want[f]) {
         console.error(`case ${c.name} step ${n}: ${f} = ${run[f]}, python model says ${want[f]}`);
-        console.error(`  inputs: tw=${s.tw} rw=${s.rw} act=${s.act} agg=${s.agg}`);
+        console.error(`  inputs: tw=${s.tw} rw=${s.rw} agg=${s.agg} doctrine=[${s.doctrine}]`);
         process.exit(1);
       }
     }

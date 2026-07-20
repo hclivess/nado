@@ -49,6 +49,9 @@ export function newRun(opts = {}) {
     wlevel: 1, alevel: 1,
     mats: [0, 0, 0],
     gear: new Array(R.NSLOT).fill(0),
+    // standing orders: one reaction per TILE CLASS plus the aggression dial
+    doctrine: new Array(R.NTILE).fill(R.A_DEFAULT),
+    agg: 1,
     alive: 1, done: 0, retired: 0,
   };
 }
@@ -62,6 +65,8 @@ export function runFromStorage(sto, id) {
     wlevel: m("wl"), alevel: m("al"), mats: [m("m0"), m("m1"), m("m2")],
     gear: [m("g0"), m("g1"), m("g2"), m("g3"), m("g4"), m("g5")],
     alive: m("av"), done: m("dn"), retired: m("rt"),
+    doctrine: Array.from({ length: R.NTILE }, (_x, k) => m("p" + k)),
+    agg: Math.max(1, m("pa")), polh: m("ph"),
     lh: m("lh"), nh: m("nh"), leg: m("lg"), owner: (sto.ra || {})[id],
   };
 }
@@ -238,14 +243,20 @@ function fight(run, tile, b, x, y, z, agg, act, ev) {
  * Advance one tile. `tw`/`rw` are the two 32-bit hash windows, `act` this tile's queued reaction, `agg`
  * the leg's aggression dial. Mutates `run` and returns an event describing what to animate.
  */
-export function step(run, tw, rw, act, agg) {
+export function step(run, tw, rw, doctrine, agg) {
   if (!run.alive || run.done || run.retired) return { tile: R.ROAD, skip: true };
+  if (doctrine == null) doctrine = run.doctrine;
+  if (agg == null) agg = run.agg;
 
   const depth = run.depth;
   const { a, b, c, scen } = sliceTile(tw);
   const { x, y, z } = sliceRoll(rw);
   let tile = tileOf(a, depth);
   const tier = tierOf(depth);
+
+  // the reaction is whatever the doctrine says about this tile, read BEFORE the fork resolves — the
+  // doctrine's FORK entry is what picks the lane
+  let act = (doctrine && doctrine[tile] != null) ? doctrine[tile] : R.A_DEFAULT;
 
   // a fork is a CHOICE: the right lane re-rolls as an elite, the left as a monster
   if (tile === R.FORK) { tile = act === R.A_RIGHT ? R.ELITE : R.MONSTER; act = R.A_DEFAULT; }
@@ -317,16 +328,16 @@ export function step(run, tw, rw, act, agg) {
 }
 
 // ── driving a leg ───────────────────────────────────────────────────────────────────────────────
-/** Unpack a packed plan word into its 16 three-bit reactions. */
-export function unpackPlan(word) {
-  const acts = [];
+/** A doctrine word <-> one 3-bit reaction per tile class, class 0 in the low bits. */
+export function unpackDoctrine(word) {
+  const d = [];
   let w = BigInt(word || 0);
-  for (let i = 0; i < R.LEG; i++) { acts.push(Number(w & 7n)); w >>= 3n; }
-  return acts;
+  for (let i = 0; i < R.NTILE; i++) { d.push(Number(w & 7n)); w >>= 3n; }
+  return d;
 }
-export function packPlan(acts) {
+export function packDoctrine(d) {
   let w = 0n;
-  for (let i = 0; i < Math.min(acts.length, R.LEG); i++) w |= BigInt(acts[i] & 7) << BigInt(3 * i);
+  for (let i = 0; i < Math.min(d.length, R.NTILE); i++) w |= BigInt(d[i] & 7) << BigInt(3 * i);
   return w.toString();
 }
 
@@ -343,17 +354,20 @@ export function words(algHashn, blockHashField, runId, i) {
  * Replay one leg: `tileHash`/`rollHash` are BHASH(lh) and BHASH(nh) reduced into the field. Returns the
  * per-step events so the renderer can animate what already happened on chain.
  */
-export function playLeg(algHashn, run, runId, tileHash, rollHash, planWord, agg) {
-  const acts = unpackPlan(planWord);
+export function playLeg(algHashn, run, runId, tileHash, rollHash, doctrine, agg) {
   const evs = [];
   for (let i = 0; i < R.LEG; i++) {
     if (!run.alive || run.done || run.retired) break;
     const tw = words(algHashn, tileHash, runId, i);
     const rw = words(algHashn, rollHash, runId, i);
-    evs.push(step(run, tw, rw, acts[i], agg));
+    evs.push(step(run, tw, rw, doctrine, agg));
   }
   return evs;
 }
+
+/** Does this leg obey the run's current doctrine? The contract's POLH fence: orders govern a leg only if
+ *  they predate that leg's rolling height. */
+export const doctrineGoverns = (run, nh) => (run.polh || 0) < nh;
 
 /**
  * The ROAD AHEAD: what the next LEG tiles are, derived from a hash that already exists. This is the whole
