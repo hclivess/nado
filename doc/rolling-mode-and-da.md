@@ -57,7 +57,7 @@ than finality:
 - `get_block_reward` reads `cumulative_fees` from the block at **`tip − REWARD_WINDOW`** — and
   today reads it by loading that whole **body**. So bodies must be retained past
   `REWARD_WINDOW`, or the reward calc forks.
-- Rollback re-reads bodies within `FINALITY_DEPTH (30)` of the tip.
+- Rollback re-reads bodies within `FINALITY_DEPTH` (45) of the tip.
 - The beacon (~2 epochs) and FFG (`_FFG_LOOKBACK_EPOCHS = 8` → 480 blocks) read only **hashes**
   via `get_block_hash_by_number`, which hits the **`block_by_num` index, not bodies** — so
   keeping the index (always) satisfies them regardless of body pruning.
@@ -65,12 +65,45 @@ than finality:
   record, not the 1440-block-old bond body — `BOND_UNLOCK_DELAY = 1440` does **not** force body
   retention).
 
-So the **body** floor = `max(retention, REWARD_WINDOW + FINALITY_DEPTH + 1)`.
-`block_ops.prune_block_bodies` enforces that floor internally, so even a misconfigured tiny
-`retention` can never corrupt the reward calc or a legal rollback. Pruning **keeps the index**
-(beacon/FFG still resolve) and is incremental via a `pruned_below` meta watermark. A future
-optimization — index `cumulative_fees` by height to decouple `get_block_reward` from the body —
-would let the floor drop to `FINALITY_DEPTH`; not needed at a 10 000-block window.
+**A SECOND floor was added later and it dominates: the registration-difficulty read.** v2
+registration difficulty is chain-derived — it COUNTS `register` txs in block **BODIES** over the
+`POSW_DIFF_TRAIL` epochs preceding a register's anchor (`max_block − POSW_ANCHOR_OFFSET`). A
+rolling node that has pruned a body inside that window **under-counts**, derives a *lower*
+difficulty than archive nodes, and then accepts a register carrying the lower-difficulty proof
+that every archive node rejects — it forks on any register-bearing block. So the read window is a
+hard consensus floor, independent of the configured retention:
+
+```
+reg_diff_floor = POSW_ANCHOR_OFFSET + POSW_DIFF_TRAIL · EPOCH_LENGTH + FINALITY_DEPTH
+               = 30 + 400·60 + 45  =  24 075 blocks  ≈ 40 h at 6 s
+```
+
+So the real **body** floor is
+
+```
+max(retention, REWARD_WINDOW + FINALITY_DEPTH + 1, reg_diff_floor)
+  = max(retention, 146, 24 075)
+```
+
+`block_ops.prune_block_bodies` enforces it internally, so no misconfigured `retention` can
+corrupt the reward calc, a legal rollback, or the difficulty derivation.
+
+**What this does and does not cost.** At the DEFAULT retention (100 800 ≈ 1 week) the new floor
+never binds — a default rolling node was already keeping four times as much. What changed is the
+*minimum*: `NADO_HISTORY_RETENTION_BLOCKS` is advertised as operator-tunable, but **any value
+below 24 075 is silently raised to it**. An operator who sets 1 000 expecting ~100 MB of bodies
+gets ~40 hours of them and no warning. That is the trap worth knowing about; it is not a
+regression in the default configuration.
+
+**Lowering it is a consensus change, deliberately not made here.** The floor exists only because
+the difficulty read walks bodies. Maintaining the per-epoch register count as *committed state*,
+updated at block-apply time, would make the read O(1) and collapse the floor back to 146 — but
+that changes how a consensus value is derived, which is exactly the class of change that produced
+the #2944 split this floor was introduced to fix. It belongs to whoever owns registration
+difficulty, with its own migration story, not to a pruning cleanup.
+
+Pruning **keeps the index** (beacon/FFG still resolve) and is incremental via a `pruned_below`
+meta watermark.
 
 **Earliest-block-pointer maintenance (part of pruning — a fix).** Dropping the oldest bodies means
 the recorded **earliest block** can point at a body that no longer exists on disk. `prune_block_bodies`
