@@ -138,6 +138,10 @@ class ExecState:
         # a DELEGATED PROVER (client sends the witness -> exec builds the path + proves the full join-split).
         from execnode.shielded_field import FieldShieldedPool
         self.field_pool = FieldShieldedPool()
+        # Shielded aggregate supply — see _restore. Note VALUES are private; every CHANGE to their total is
+        # public, so the pool's total is auditable without seeing into it (ops/invariants.py).
+        self.pool_value = 0        # live total value of all notes in both pools
+        self.pool_fees = 0         # cumulative fee burned inside the pool (leaves the notes, not the escrow)
         # M-10: the delegated-prover POST handlers apply field transfers in worker threads
         # (asyncio.to_thread), so the nullifier check->add and the state serialization can run concurrently.
         # This reentrant lock makes the double-spend check + the mutation atomic, and gives save() a
@@ -215,6 +219,16 @@ class ExecState:
         self.unshield_withdrawals = d.get("unshield_withdrawals", {})
         self.uw_nonce = d.get("uw_nonce", 0)
         self.field_pool = FieldShieldedPool.from_dict(d["field_pool"]) if "field_pool" in d else FieldShieldedPool()
+        # SHIELDED SUPPLY (ops/invariants.py). Individual note VALUES are private, but every CHANGE to the
+        # pool's total is public by construction — a deposit carries its L1 amount, and a transfer's
+        # public_value/fee are public inputs. So the pool's aggregate value is auditable even though its
+        # contents are not (the Zcash turnstile property). pool_value is the live note total; pool_fees is
+        # the cumulative fee burned INSIDE the pool (value that leaves the notes but never leaves escrow).
+        # Derived bookkeeping only — deliberately NOT in exec_root.records_projection, so it cannot change
+        # the state root. Recomputed exactly on replay, so an old snapshot without it starts at 0 and is
+        # re-derived from the blocks that follow.
+        self.pool_value = int(d.get("pool_value", 0))
+        self.pool_fees = int(d.get("pool_fees", 0))
         self.randao_reveals = {int(e): set(v) for e, v in d.get("randao_reveals", {}).items()}
         self.beacons = {int(e): int(v) for e, v in d.get("beacons", {}).items()}
         self.beacon_floor = d.get("beacon_floor")
@@ -234,6 +248,7 @@ class ExecState:
                     "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
                     "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
                     "field_pool": self.field_pool.to_dict(),
+                    "pool_value": self.pool_value, "pool_fees": self.pool_fees,
                     "randao_reveals": {str(e): sorted(v) for e, v in self.randao_reveals.items()},
                     "beacons": {str(e): str(v) for e, v in self.beacons.items()}, "beacon_floor": self.beacon_floor,
                     "block_hashes": {str(h): str(v) for h, v in self.block_hashes.items()},
@@ -537,6 +552,7 @@ class ExecState:
             cm = alghash.commit(amount, int(owner) % _F.P, int(rho) % _F.P)
             with self._mutate_lock:                       # M-10: serialize field_pool mutation vs thread-applies
                 self.field_pool.append(cm)
+                self.pool_value += amount                 # shielded supply (ops/invariants): escrow-backed entry
                 self._touch()
             return f"field-shield {amount} -> field note #{len(self.field_pool.commitments)}"
         except Exception as e:
@@ -589,6 +605,10 @@ class ExecState:
             self.field_pool.nullifiers.add(nf)
             for c in cm_outs:
                 self.field_pool.append(c)
+            # shielded supply: pv is <=0 (fenced above), so this only ever DECREASES the live note total.
+            # fee leaves the notes but never leaves escrow, so it is tracked separately.
+            self.pool_value += pv - fee
+            self.pool_fees += fee
             if pv < 0:
                 self.uw_nonce += 1
                 nonce = str(self.uw_nonce)
@@ -609,6 +629,8 @@ class ExecState:
             proof = {"inputs": [], "outputs": list(outputs)}
             with self._mutate_lock:
                 ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
+                if ok:
+                    self.pool_value += int(amount)        # shielded supply (ops/invariants)
                 self._touch()
             return f"shield {amount} -> {len(out_commitments)} note(s)" if ok else f"skip shield: {reason}"
         except Exception as e:
@@ -858,6 +880,9 @@ class ExecState:
                 ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
                 if not ok:
                     return f"skip shielded_transfer: {reason}"
+                _fee = int(public.get("fee", 0) or 0)
+                self.pool_value += pv - _fee              # shielded supply (ops/invariants)
+                self.pool_fees += _fee
                 if pv < 0:
                     addr = public.get("withdraw_addr")
                     if not addr:

@@ -292,6 +292,11 @@ class CoreClient(threading.Thread):
                 self.maybe_auto_register()
                 # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
                 self.maybe_prune_history()
+                # CONSERVATION INVARIANTS (ops/invariants.py): supply is a closed system, so any "coins from
+                # thin air" bug — the class this codebase has hit ~10 times — must break one of them. Runs
+                # in the node so it needs no external step, throttled hard because it scans the account
+                # table. LOGS, never halts: a false positive must not stop the chain.
+                self.maybe_check_invariants()
 
             if mode == "produce":
                 peers = self.memserver.peers.copy()
@@ -1580,6 +1585,38 @@ class CoreClient(threading.Thread):
                 return _json.loads(r.read(1_000_000))
         except Exception:
             return None
+
+    def maybe_check_invariants(self):
+        """CONSERVATION INVARIANTS (ops/invariants.py) — reconcile supply against emission and every escrow
+        against what the exec layer says it owes. Roughly ten separate mint/drain bugs have shipped here,
+        all of the same shape: a value that was proven or validated but never authorised against a
+        conservation rule. These make the CLASS self-announcing rather than the instance findable.
+
+        Runs inside the node (no external step — everything ships with the node) once per
+        INVARIANT_CHECK_BLOCKS, because it scans the whole account table. The result is cached on the
+        memserver so `/invariants` can serve it without rescanning.
+
+        NEVER raises and NEVER halts. An invariant is a detector, not a consensus rule: a false positive
+        that stopped block production would be a worse bug than the one it was hunting. A violation is a
+        loud ERROR log — the operator's signal to stop trusting balances until it is explained."""
+        from protocol import INVARIANT_CHECK_BLOCKS
+        try:
+            height = self.memserver.latest_block["block_number"]
+            if height % INVARIANT_CHECK_BLOCKS:
+                return
+            from ops import invariants, kv_ops
+            from ops.account_ops import get_account
+            exec_state = getattr(self.memserver, "exec_state_view", None)   # None on a node with no exec side
+            ok, results = invariants.check_all(kv_ops.iter_accounts, kv_ops.totals_get(),
+                                               get_account, exec_state)
+            self.memserver.invariant_report = {"height": height, "ok": ok, "checks": results}
+            if not ok:
+                for r in results:
+                    if not r.get("ok"):
+                        self.logger.error(f"CONSERVATION INVARIANT VIOLATED at height {height}: {r}")
+        except Exception as e:
+            # A detector that takes the node down defeats its own purpose.
+            self.logger.warning(f"invariant check skipped: {e}")
 
     def maybe_auto_collect(self):
         """AUTO-COLLECT (default on, memserver.auto_collect_dividend): once per epoch, sweep this node's

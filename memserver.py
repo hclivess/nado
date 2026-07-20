@@ -166,6 +166,13 @@ class MemServer:
             v = self.config.get(cfg, default) if v is None else v
             return str(v).strip().lower() not in ("0", "false", "no", "off")
         self.auto_collect_dividend = _flag("NADO_AUTO_COLLECT", "auto_collect_dividend", True)
+        # Latest conservation-invariant reconciliation (ops/invariants.py), refreshed by the core loop's
+        # periodic duty and served read-only at /invariants. None until the first check runs. Purely a
+        # detector cache — nothing consensus reads it.
+        self.invariant_report = None
+        # Optional exec-layer view for the escrow invariants. A node with no exec side leaves this None and
+        # only the L1 supply invariant runs.
+        self.exec_state_view = None
         # AUTO-REGISTER + renew the open-lane PoSW lease, unattended — DEFAULT OFF (opt-in: a headless node does
         # not silently join the open lane). NADO_AUTO_REGISTER=1 (or config auto_register:true) turns it on.
         self.auto_register = _flag("NADO_AUTO_REGISTER", "auto_register", False)

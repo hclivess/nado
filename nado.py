@@ -1554,6 +1554,18 @@ async def interface_page(request):
     return _html_response(request, os.path.join(_HERE, "static", "interface.html"))
 
 
+async def invariants_report(request):
+    """GET /invariants: the node's latest CONSERVATION reconciliation (ops/invariants.py) — supply vs total
+    emission, and every escrow vs what the exec layer says it owes. Read-only, permissionless, cached by the
+    core loop's periodic duty (never recomputed per request; it scans the account table).
+
+    `ok: false` means coins exist that nothing backs, or an escrow is short — the operator's signal to stop
+    trusting balances until it is explained. Deliberately NOT consensus: nothing reads this but humans, so a
+    node reporting a violation still follows the chain (a detector that halted the chain on a false positive
+    would be worse than the bug it hunts). `null` before the first check completes."""
+    return _resp(memserver.invariant_report or {"ok": None, "note": "no reconciliation yet"})
+
+
 async def update_node(request):
     """GET /update: ask this node to SELF-UPDATE — fast-forward onto origin/main of the official repo and
     restart its services when new code actually landed (ops/self_update.py has the full safety story).
@@ -1624,6 +1636,7 @@ async def make_app(port):
         web.get("/get_account", account),
         web.get("/get_account_mempool", account_mempool),
         web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool)),
+        web.get("/invariants", invariants_report),
         web.get("/update", update_node),
         web.get("/update_peer", update_peer),
         # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +

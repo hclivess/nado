@@ -429,6 +429,12 @@ SETTLE_PROOF_MAX_SPAN = 4 * EPOCH_LENGTH
 # catches up (a liveness fallback, never a soundness question). Far below FINALITY_DEPTH's reorg reach, so
 # a GC'd height can never be rolled back and rollback never needs to restore one.
 EXEC_SUMMARY_RETENTION = 4 * SETTLE_PROOF_MAX_SPAN
+
+# How often the node reconciles its conservation invariants (ops/invariants.py). Every block would rescan
+# the whole account table; once an epoch is frequent enough that a mint is caught within minutes while
+# costing one scan per EPOCH_LENGTH blocks. Purely a detector cadence — NOT consensus-critical, so nodes
+# disagreeing on it cannot fork (nothing reads the result but the operator and /invariants).
+INVARIANT_CHECK_BLOCKS = EPOCH_LENGTH
 OPEN_BPS = 3000                    # SECURITY DIAL: open-lane share of slots (30.00%); Sybil ceiling.
                                    # Bonded keeps the 70% majority — above the 2/3 settlement/finality quorum,
                                    # so fork-choice + finality stay stake-controlled. MUST stay <= 3333 (33.3%)
