@@ -77,6 +77,49 @@ def zkvm_statement(caller, args, registry=None):
     return cf, out
 
 
+def split_io(io, reg):
+    """Split a VM io log into (native `payouts`, asset `effects`), enforcing the ASEL pairing and resolving
+    recipients through the digest→address registry `reg`. Returns `(payouts, effects)` or `None` on any
+    pairing/resolution failure (a deterministic revert): a stray selection, an unresolvable BARE payee, an
+    AMINT with no live selection, or a trailing selection.
+
+    This is the ONE reader of a log's meaning, shared by the interpreter (`_ZkVM.run`) and the epoch prover's
+    shadow (`settlement_proofs._run_call`), so the two can never disagree about what an io log settles.
+    `payouts` are (address, amount) for native NADO; `effects` are ("pay"|"mint"|"burn"|"bal", asset_id,
+    recipient_or_None, amount) staged against the asset ledger by stage_asset_effects_pure. An unresolvable
+    ASSET recipient is left as None here and rejected by that staging (uniform with the native rule)."""
+    from execnode import zkvm                              # imported per-call like elsewhere in this module
+    payouts, effects, sel = [], [], 0
+    for kind, a, b in io:
+        if sel and kind not in (zkvm.IO_PAY, zkvm.IO_AMINT):
+            return None
+        if kind == zkvm.IO_ASEL:
+            if a == 0:
+                return None
+            sel = a
+        elif kind == zkvm.IO_PAY:
+            if sel:
+                effects.append(("pay", str(sel), reg.get(str(a)), b))
+                sel = 0
+            elif b > 0:
+                addr = reg.get(str(a))
+                if addr is None:
+                    return None                           # unresolvable payee -> deterministic revert
+                payouts.append((addr, b))
+        elif kind == zkvm.IO_AMINT:
+            if not sel:
+                return None
+            effects.append(("mint", str(sel), reg.get(str(a)), b))
+            sel = 0
+        elif kind == zkvm.IO_ABURN:
+            effects.append(("burn", str(a), None, b))
+        elif kind == zkvm.IO_ABAL:
+            effects.append(("bal", str(a), None, b))
+    if sel:
+        return None
+    return payouts, effects
+
+
 class _ZkVM:
     """The PROVABLE runtime (doc/zk-execution-proofs.md): execnode/zkvm.py behind the same interface.
     Storage is {"slots": {str(slot): value}} (flat field map — canonical in state_root leaves like any
@@ -108,39 +151,13 @@ class _ZkVM:
                                          asset=asset, selfd=selfd, abal=abal)
         if not ok:
             return (False, None, storage, [], [])
-        # ASSET EFFECTS ride the SAME digest→address registry as payouts, and revert on the same rule: a
-        # recipient the layer cannot name is not a recipient. The pairing (an ASEL binding the entry after
-        # it) is re-derived here rather than trusted, because this loop is also what a foreign io log would
-        # go through — see zkvm.replay_io, which enforces the identical rule for the verifying path.
-        payouts, effects, sel = [], [], 0
-        for kind, a, b in io:
-            if sel and kind not in (zkvm.IO_PAY, zkvm.IO_AMINT):
-                return (False, None, storage, [], [])
-            if kind == zkvm.IO_ASEL:
-                if a == 0:
-                    return (False, None, storage, [], [])
-                sel = a
-            elif kind == zkvm.IO_PAY:
-                if sel:
-                    to = reg.get(str(a))
-                    effects.append(("pay", str(sel), to, b))
-                    sel = 0
-                elif b > 0:
-                    addr = reg.get(str(a))
-                    if addr is None:
-                        return (False, None, storage, [], [])   # unresolvable payee -> deterministic revert
-                    payouts.append((addr, b))
-            elif kind == zkvm.IO_AMINT:
-                if not sel:
-                    return (False, None, storage, [], [])
-                effects.append(("mint", str(sel), reg.get(str(a)), b))
-                sel = 0
-            elif kind == zkvm.IO_ABURN:
-                effects.append(("burn", str(a), None, b))
-            elif kind == zkvm.IO_ABAL:
-                effects.append(("bal", str(a), None, b))
-        if sel:
+        # ASSET EFFECTS ride the SAME digest→address registry as payouts and revert on the same rule (see
+        # split_io). The epoch prover's shadow (settlement_proofs._run_call) calls the identical split_io,
+        # so the interpreter and the proof path can never disagree on what a log MEANS.
+        split = split_io(io, reg)
+        if split is None:
             return (False, None, storage, [], [])
+        payouts, effects = split
         new_storage = {"slots": {str(k): v for k, v in sorted(new_slots.items())}}
         return (True, ret, new_storage, payouts, effects)
 

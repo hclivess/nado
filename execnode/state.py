@@ -121,6 +121,88 @@ def asset_id(issuer, seed):
     return alghash.hashn([runtimes.zkvm_addr_digest(issuer), int(seed) % _F.P]) % _F.P
 
 
+# ---- asset ledger: the money rules, in ONE place (doc/assets.md §8) --------------------------------------
+# These operate on plain dicts (`abal` = {str(aid): {holder: bal}}, `assets` = {str(aid): meta}), so BOTH
+# the live apply path (ExecState, on self.abal/self.assets) and the epoch prover's SHADOW
+# (settlement_proofs._run_call, on throwaway copies) validate asset moves through the identical code. That
+# is the whole point: mint authority, the supply cap and holder solvency can never drift between "what the
+# chain applies" and "what a validity proof will settle" — a drift would let the prover prove a transition
+# the chain reverts. The VM/AIR enforces only holder-side solvency; issuer-only / mintable-only / cap live
+# HERE and nowhere else.
+def asset_credit_dict(abal, aid, holder, delta):
+    """Move signed `delta` on `holder`'s row of `aid`, pruning to canonical absence at zero."""
+    key = str(aid)
+    row = abal.setdefault(key, {})
+    v = int(row.get(holder, 0)) + int(delta)
+    if v:
+        row[holder] = v
+    else:
+        row.pop(holder, None)
+    if not row:
+        abal.pop(key, None)
+
+
+def stage_asset_effects_pure(abal, assets, actor, effects):
+    """Validate a call's asset intents as ONE atomic batch against the plain-dict ledgers. Returns
+    (ok, reason, deltas, supply_deltas) and mutates NOTHING — the caller commits only if every effect is
+    legal, so a call that pays three assets and overdraws the fourth moves none of them."""
+    deltas, sup = {}, {}
+
+    def bal(aid, who):
+        return int(abal.get(str(aid), {}).get(who, 0)) + deltas.get((aid, who), 0)
+
+    for kind, aid, to, amt in effects:
+        aid, amt = str(aid), int(amt)
+        meta = assets.get(aid)
+        if kind == "bal":
+            # The ABAL read the VM logged must equal what the ledger says. On the apply path the exec node
+            # supplied that value itself; the check earns its keep on the PROOF path, where the log is a
+            # stranger's claim about a balance.
+            if bal(aid, actor) != amt:
+                return False, f"asset {aid[:12]}… balance read {amt} != ledger", {}, {}
+            continue
+        if amt == 0:
+            continue                                      # a zero move is a no-op, not an error (as PAY 0 is)
+        if amt < 0 or amt >= ASSET_SUPPLY_CAP:
+            return False, "asset amount out of range", {}, {}
+        if meta is None:
+            return False, f"no such asset {aid[:12]}…", {}, {}
+        if kind == "pay":
+            if to is None:
+                return False, "unresolvable asset recipient", {}, {}
+            if bal(aid, actor) < amt:
+                return False, f"asset {meta['sym']} payout {amt} > holding", {}, {}
+            deltas[(aid, actor)] = deltas.get((aid, actor), 0) - amt
+            deltas[(aid, to)] = deltas.get((aid, to), 0) + amt
+        elif kind == "mint":
+            if meta["issuer"] != actor:
+                return False, f"only {meta['sym']}'s issuer may mint", {}, {}
+            if not meta["mintable"]:
+                return False, f"{meta['sym']} minting was renounced", {}, {}
+            if to is None:
+                return False, "unresolvable mint recipient", {}, {}
+            if meta["supply"] + sup.get(aid, 0) + amt > ASSET_SUPPLY_CAP:
+                return False, f"{meta['sym']} supply cap exceeded", {}, {}
+            deltas[(aid, to)] = deltas.get((aid, to), 0) + amt
+            sup[aid] = sup.get(aid, 0) + amt
+        elif kind == "burn":
+            if bal(aid, actor) < amt:
+                return False, f"asset {meta['sym']} burn {amt} > holding", {}, {}
+            deltas[(aid, actor)] = deltas.get((aid, actor), 0) - amt
+            sup[aid] = sup.get(aid, 0) - amt
+        else:
+            return False, f"unknown asset effect {kind!r}", {}, {}
+    return True, "", deltas, sup
+
+
+def commit_asset_effects_pure(abal, assets, deltas, sup):
+    """Apply what stage_asset_effects_pure validated. Never called without that validation."""
+    for (aid, who), d in deltas.items():
+        asset_credit_dict(abal, aid, who, d)
+    for aid, d in sup.items():
+        assets[aid]["supply"] += d
+
+
 class ExecState:
     def __init__(self, path):
         """Initialise every state component empty, then load() the last snapshot from `path` if one
@@ -710,15 +792,7 @@ class ExecState:
     def _asset_credit(self, aid, holder, delta):
         """Move `delta` (signed) of asset `aid` on `holder`'s row, pruning to absence at zero. Callers have
         already validated solvency — this is the commit half of a staged, all-or-nothing settlement."""
-        key = str(aid)
-        row = self.abal.setdefault(key, {})
-        v = int(row.get(holder, 0)) + int(delta)
-        if v:
-            row[holder] = v
-        else:
-            row.pop(holder, None)
-        if not row:
-            self.abal.pop(key, None)
+        asset_credit_dict(self.abal, aid, holder, delta)
 
     def asset_allowance(self, aid, owner, spender):
         """How much of `aid` `spender` may move on `owner`'s behalf. Absent == 0, same canonical rule as a
@@ -741,65 +815,14 @@ class ExecState:
             self.allow.pop(key, None)
 
     def stage_asset_effects(self, actor, effects):
-        """Validate a call's asset intents as ONE atomic batch against the ledger `actor` (a cid or address)
-        would move them from. Returns (ok, reason, deltas, supply_deltas) and mutates NOTHING — the caller
-        commits only if every effect in the call is legal, so a call that pays three assets and overdraws
-        the fourth moves none of them. Mirrors the native-NADO rule one line up in `call`: a contract may
-        only ever move what it HOLDS, and only an issuer may mint."""
-        deltas, sup = {}, {}
-
-        def bal(aid, who):
-            return self.asset_balance(aid, who) + deltas.get((aid, who), 0)
-
-        for kind, aid, to, amt in effects:
-            aid, amt = str(aid), int(amt)
-            meta = self.assets.get(aid)
-            if kind == "bal":
-                # The ABAL read the VM logged must equal what the ledger says. On this path the exec node
-                # supplied that value itself, so it always does; the check earns its keep on the
-                # PROOF-verifying path (/exec/verify_call), where the log arrives from a stranger.
-                if bal(aid, actor) != amt:
-                    return False, f"asset {aid[:12]}… balance read {amt} != ledger", {}, {}
-                continue
-            if amt == 0:
-                continue                                  # a zero move is a no-op, not an error (as PAY 0 is)
-            if amt < 0 or amt >= ASSET_SUPPLY_CAP:
-                return False, "asset amount out of range", {}, {}
-            if meta is None:
-                return False, f"no such asset {aid[:12]}…", {}, {}
-            if kind == "pay":
-                if to is None:
-                    return False, "unresolvable asset recipient", {}, {}
-                if bal(aid, actor) < amt:
-                    return False, f"asset {meta['sym']} payout {amt} > holding", {}, {}
-                deltas[(aid, actor)] = deltas.get((aid, actor), 0) - amt
-                deltas[(aid, to)] = deltas.get((aid, to), 0) + amt
-            elif kind == "mint":
-                if meta["issuer"] != actor:
-                    return False, f"only {meta['sym']}'s issuer may mint", {}, {}
-                if not meta["mintable"]:
-                    return False, f"{meta['sym']} minting was renounced", {}, {}
-                if to is None:
-                    return False, "unresolvable mint recipient", {}, {}
-                if meta["supply"] + sup.get(aid, 0) + amt > ASSET_SUPPLY_CAP:
-                    return False, f"{meta['sym']} supply cap exceeded", {}, {}
-                deltas[(aid, to)] = deltas.get((aid, to), 0) + amt
-                sup[aid] = sup.get(aid, 0) + amt
-            elif kind == "burn":
-                if bal(aid, actor) < amt:
-                    return False, f"asset {meta['sym']} burn {amt} > holding", {}, {}
-                deltas[(aid, actor)] = deltas.get((aid, actor), 0) - amt
-                sup[aid] = sup.get(aid, 0) - amt
-            else:
-                return False, f"unknown asset effect {kind!r}", {}, {}
-        return True, "", deltas, sup
+        """Validate a call's asset intents against THIS state's ledgers — a thin delegate to the module-level
+        `stage_asset_effects_pure`, which is the single source of the money rules shared with the epoch
+        prover's shadow (doc/assets.md §8). Mutates nothing; the caller commits only what it validates."""
+        return stage_asset_effects_pure(self.abal, self.assets, actor, effects)
 
     def commit_asset_effects(self, deltas, sup):
         """Apply what stage_asset_effects validated. Never called without that validation."""
-        for (aid, who), d in deltas.items():
-            self._asset_credit(aid, who, d)
-        for aid, d in sup.items():
-            self.assets[aid]["supply"] += d
+        commit_asset_effects_pure(self.abal, self.assets, deltas, sup)
 
     def contract_id(self, deployer, code, nonce):
         """Deterministic contract id H(deployer, code, nonce) (truncated) — identical on every exec node,

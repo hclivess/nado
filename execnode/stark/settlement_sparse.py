@@ -73,13 +73,17 @@ def _cid_io(bundle):
 
 
 def prove_bound_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
-                      pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, depth=DEFAULT_DEPTH,
+                      pre_bridge=None, pre_abal=None, pre_assets=None,
+                      num_queries=vm_circuit.stark.NUM_QUERIES, depth=DEFAULT_DEPTH,
                       backend=None, row_commit=False):
     """Prove an epoch AND its sparse state transition. Returns a bound bundle = the ordinary epoch bundle (exec
     proof + io) plus {sparse_pre_root, sparse_post_root, transition, cid_io, depth}, where the transition proves
-    the epoch's net writes advance sparse_pre_root → sparse_post_root."""
+    the epoch's net writes advance sparse_pre_root → sparse_post_root. `pre_abal`/`pre_assets` (doc/assets.md
+    §8) are the asset shadow — pass the state's to settle asset-touching calls; they gate the proof but never
+    enter the sparse root (which projects contract STORAGE only)."""
     bundle = SP.prove_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
-                            block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
+                            block_hashes=block_hashes, pre_bridge=pre_bridge, pre_abal=pre_abal,
+                            pre_assets=pre_assets, num_queries=num_queries,
                             backend=backend, row_commit=row_commit)
     cid_io = _cid_io(bundle)
     pre_store = ST.SparseStore(depth, sparse_projection(pre_contracts, depth))
@@ -140,15 +144,18 @@ def verify_bound_epoch(bundle, num_queries=None):
 
 
 def prove_bound_epoch_replay(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
-                             pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, depth=DEFAULT_DEPTH,
+                             pre_bridge=None, pre_abal=None, pre_assets=None,
+                             num_queries=vm_circuit.stark.NUM_QUERIES, depth=DEFAULT_DEPTH,
                              backend=None, row_commit=False):
     """Like prove_bound_epoch, but the state binding is the fully IN-CIRCUIT io replay (io_replay) — the state
     half of the in-circuit statement rebuild — and the public statement is the O(1)-shaped
     (calls_commitment, io_commitment, sparse_pre_root, sparse_post_root). One proof per storage io entry
-    (heavier to prove than the net-update transition; all foldable)."""
+    (heavier to prove than the net-update transition; all foldable). `pre_abal`/`pre_assets` settle asset
+    calls (doc/assets.md §8); they gate the proof and never enter the sparse root."""
     from execnode.stark import io_replay as IR, calls_commit as CC
     bundle = SP.prove_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
-                            block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
+                            block_hashes=block_hashes, pre_bridge=pre_bridge, pre_abal=pre_abal,
+                            pre_assets=pre_assets, num_queries=num_queries,
                             backend=backend, row_commit=row_commit)
     cid_io = _cid_io(bundle)
     pre_store = ST.SparseStore(depth, sparse_projection(pre_contracts, depth))

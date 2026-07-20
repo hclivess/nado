@@ -507,23 +507,122 @@ def t_supply_invariant_catches_a_mismatch():
     assert ok, "the check did not go green again"
 
 
-def t_settlement_prover_refuses_asset_io():
-    """Until the epoch prover carries an asset ledger, an asset call must be REFUSED by it rather than
-    proven against a shadow ledger that would read the move as native NADO."""
+def _pre(st, *cids):
+    return {c: {"code": st.contracts[c]["code"], "storage": st.contracts[c]["storage"], "runtime": "zkvm"}
+            for c in cids}
+
+
+def t_settlement_prover_settles_asset_io():
+    """§8 CLOSED: the epoch prover now carries an asset shadow, so an asset-touching call is PROVEN (and its
+    proof verifies), not refused. Two shapes: an asset-DENOMINATED call (its `asset` rides in the public
+    statement, the escrow path), and a held-asset PAYOUT (moves the ledger; storage post_root matches a
+    native apply)."""
+    import copy
     from execnode import settlement_proofs as SP
     st = fresh()
     cid = deploy_shop(st)
     aid = create(st, supply=1000)
-    st.apply_blob({"op": "call", "contract": cid, "method": "note", "args": [], "value": 500,
-                   "asset": aid}, ALICE, "tx")
-    pre = {cid: dict(st.contracts[cid])}
+
+    # (1) an asset-denominated call — `note` deposits 500 of `aid`. pre-state is BEFORE the deposit; the
+    #     call's asset must appear in the public statement (it drives ACTX_ASSET / ABAL).
+    pre = _pre(st, cid)
+    bundle = SP.prove_epoch(pre, [{"cid": cid, "method": "note", "caller": ALICE, "args": [],
+                                   "value": 500, "asset": int(aid)}], cursor=st.cursor,
+                            pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
+    okv, why, _ = SP.verify_epoch(bundle, num_queries=8)
+    assert okv, why
+    assert bundle["calls"][0]["asset"] == int(aid), "the call-value asset is not in the public statement"
+    st.apply_blob({"op": "call", "contract": cid, "method": "note", "args": [], "value": 500, "asset": aid}, ALICE, "tx")
+    assert bundle["post_root"] == SP.zkvm_root({cid: st.contracts[cid]}), "post_root != native storage root"
+
+    # (2) a held-asset payout — moves the ledger (asset=0 on the call, since nothing is sent WITH it).
+    bundle2 = SP.prove_epoch(_pre(st, cid), [{"cid": cid, "method": "payout", "caller": ALICE,
+                                             "args": [int(aid), BOB, 120]}], cursor=st.cursor,
+                             pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
+    okv2, why2, _ = SP.verify_epoch(bundle2, num_queries=8)
+    assert okv2, why2
+    st.apply_blob({"op": "call", "contract": cid, "method": "payout", "args": [int(aid), BOB, 120]}, ALICE, "tx")
+    assert bundle2["post_root"] == SP.zkvm_root({cid: st.contracts[cid]})
+    assert (st.asset_balance(aid, cid), st.asset_balance(aid, BOB)) == (380, 120)
+
+
+def t_settlement_prover_mint_burn():
+    """The prover settles a contract minting its OWN asset and burning from its holding — the launchpad
+    shapes. Authority (issuer==cid, mintable) is enforced by the shadow, which the VM does not check."""
+    import copy
+    from execnode import settlement_proofs as SP
+    st = fresh()
+    cid = deploy_shop(st)
+    st.apply_blob({"op": "asset_create", "seed": 1, "name": "LP", "sym": "LP", "dec": 0,
+                   "supply": 0, "mintable": True, "for": cid}, ALICE, "tx")
+    aid = str(asset_id(cid, 1))
+    st.apply_blob({"op": "call", "contract": cid, "method": "issue", "args": [0, cid, 400]}, ALICE, "tx")  # cid holds 400
+    # prove a burn of 150 of its own holding
+    bundle = SP.prove_epoch(_pre(st, cid), [{"cid": cid, "method": "scorch", "caller": ALICE,
+                                             "args": [int(aid), 0, 150]}], cursor=st.cursor,
+                            pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
+    okv, why, _ = SP.verify_epoch(bundle, num_queries=8)
+    assert okv, why
+    # prove a mint of 500 to BOB (the contract issuing its own token)
+    bundle2 = SP.prove_epoch(_pre(st, cid), [{"cid": cid, "method": "issue", "caller": ALICE,
+                                             "args": [0, BOB, 500]}], cursor=st.cursor,
+                             pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
+    okv2, why2, _ = SP.verify_epoch(bundle2, num_queries=8)
+    assert okv2, why2
+
+
+def t_settlement_prover_rejects_overdraw():
+    """A payout exceeding the contract's holding is a VM revert — the prover raises, exactly as the native
+    apply reverts. (Holder-side solvency IS enforced by the VM.)"""
+    import copy
+    from execnode import settlement_proofs as SP
+    st = fresh()
+    cid = deploy_shop(st)
+    aid = create(st, supply=1000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "note", "args": [], "value": 100, "asset": aid}, ALICE, "tx")
     try:
-        SP.prove_epoch(pre, [{"cid": cid, "method": "payout", "caller": ALICE,
-                              "args": [int(aid), BOB, 10]}], cursor=st.cursor, num_queries=8)
-    except ValueError as e:
-        assert "asset io" in str(e), e
+        SP.prove_epoch(_pre(st, cid), [{"cid": cid, "method": "payout", "caller": ALICE,
+                                        "args": [int(aid), BOB, 101]}], cursor=st.cursor,
+                       pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
+    except ValueError:
         return
-    raise AssertionError("the settlement prover proved an asset call it cannot settle")
+    raise AssertionError("the prover proved a payout larger than the holding")
+
+
+def t_settlement_prover_enforces_mint_authority():
+    """THE CRITICAL ASSERTION. The VM emits a well-formed AMINT for ANY asset — it does NOT check who may
+    mint. Only stage_asset_effects does, and on the proof path the shadow is the SOLE enforcer. A second
+    contract naming a victim's asset (issue_at) produces a valid mint log the shadow must reject on issuer,
+    and a renounced asset a mint the shadow must reject on mintable — either would let the prover prove a
+    transition the chain reverts if the shadow stopped mirroring authority."""
+    import copy
+    from execnode import settlement_proofs as SP
+    st = fresh()
+    cid = deploy_shop(st)
+    st.apply_blob({"op": "asset_create", "seed": 1, "name": "LP", "sym": "LP", "dec": 0,
+                   "supply": 0, "mintable": True, "for": cid}, ALICE, "tx")
+    aid = str(asset_id(cid, 1))
+    st.apply_blob({"op": "deploy", "code": shop_code(), "nonce": 2}, BOB, "tx")
+    other = [k for k in st.contracts if k != cid][0]
+
+    # (a) a DIFFERENT contract mints the victim's asset by naming it — the shadow rejects on issuer
+    try:
+        SP.prove_epoch(_pre(st, other), [{"cid": other, "method": "issue_at", "caller": BOB,
+                                          "args": [int(aid), BOB, 1]}], cursor=st.cursor,
+                       pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
+        raise AssertionError("the prover minted a victim's asset from another contract")
+    except ValueError as e:
+        assert "issuer" in str(e), e
+
+    # (b) the issuer contract itself, but AFTER renounce — the shadow rejects on mintable
+    st.apply_blob({"op": "asset_renounce", "asset": aid}, ALICE, "tx")
+    try:
+        SP.prove_epoch(_pre(st, cid), [{"cid": cid, "method": "issue", "caller": ALICE,
+                                        "args": [0, BOB, 1]}], cursor=st.cursor,
+                       pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
+        raise AssertionError("the prover minted a renounced asset")
+    except ValueError as e:
+        assert "renounced" in str(e), e
 
 
 def t_uri_metadata():
@@ -636,6 +735,9 @@ if __name__ == "__main__":
     check("replay_io: pairing re-checked, fail-closed by default", t_replay_io_pairing_and_failclosed)
     check("native == interpreter == proven-and-replayed", t_proven_call_matches_native)
     check("supply invariant catches a mismatch", t_supply_invariant_catches_a_mismatch)
-    check("settlement prover refuses asset io", t_settlement_prover_refuses_asset_io)
+    check("settlement prover SETTLES asset io (§8 closed)", t_settlement_prover_settles_asset_io)
+    check("settlement prover: mint + burn", t_settlement_prover_mint_burn)
+    check("settlement prover: overdraw reverts", t_settlement_prover_rejects_overdraw)
+    check("settlement prover: shadow enforces mint authority", t_settlement_prover_enforces_mint_authority)
     print("ALL PASS" if not fails else f"{fails} FAILURE(S)")
     sys.exit(1 if fails else 0)

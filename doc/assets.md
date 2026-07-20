@@ -2,11 +2,11 @@
 
 > **Status: BUILT and usable — ledger, opcodes, proofs, blob ops, and the wallet UI.** The asset ledger,
 > the five zkVM opcodes, the blob ops, state-root commitment and the execution AIR are implemented and
-> tested (`tests/test_assets.py`, 18 checks including one real proof); the wallet's Assets tab
-> (`static/interface.html`/`interface.js`) issues, sends, mints, burns and renounces, and hosts the Reserve
-> vault UI (`doc/reserve.md`). **One named gap remains:** settlement BY PROOF for asset *calls* (§8) — the
-> quorum settles them today, a validity proof does not yet. It is called out explicitly below rather than
-> glossed. Feature parity against modern token standards is surveyed in §9.
+> tested (`tests/test_assets.py`, now 25 checks including real proofs); the wallet's Assets tab
+> (`static/interface.html`/`interface.js`) issues, sends, mints, burns, renounces, approves/transfers-from
+> and hosts the Reserve vault UI (`doc/reserve.md`). Asset *calls* now settle both by the bonded quorum AND
+> by validity proof (§8). Feature parity against modern token standards — present, deliberately omitted, or
+> reasoned out — is surveyed in §9. The one genuinely-needed opcode not yet built is `ARENOUNCE` (§9 item 2).
 
 Until now the exec layer knew exactly one kind of value: native NADO, held in `ExecState.bridge`. Every
 contract — 21 of them — could only ever move that. This note specifies the second: **fungible assets**,
@@ -242,24 +242,35 @@ call-value escrow rather than built.
 
 ---
 
-## 8. Settlement — the honest gap
+## 8. Settlement by validity proof — CLOSED
 
-Asset calls are settled today by the **bonded quorum**, the same path that settles everything else.
+Asset calls are settled by the **bonded quorum** (the path that settles everything else) AND, now, by
+**validity proof**. The gap this section used to describe — `settlement_proofs._run_call` carried only a
+shadow `bridge`, so an `ASEL`+`PAY` looked to it like a native payout and it *refused* asset io — is closed.
 
-They are **not** yet settleable **by validity proof**. `settlement_proofs._run_call` carries a shadow
-`bridge` and nothing else, and to that loop an `ASEL`+`PAY` pair is indistinguishable from a native
-payout — proving it would move NADO where the contract moved a token. So it **raises** on asset io rather
-than proving something false. That refusal is tested.
+The epoch prover now carries an **asset half of the shadow ledger** (`abal`/`assets`), symmetric to the
+native `bridge`: `_run_call` escrows an asset-denominated call value, threads the contract's balances into
+the VM, splits the io log into native payouts vs asset effects through the shared `runtimes.split_io`, and
+stages those effects against the shadow. `verify_epoch`'s replay opts into `with_assets=True`. The AIR
+needed **nothing** — it already proves the io log that carries every asset effect.
 
-Closing it means giving the epoch prover an asset half: a shadow `abal`, the issuer/mintable checks
-inside `_run_call`, and `verify_epoch`'s replay opting into `with_assets=True`. The AIR needs nothing more
-— it already proves the io log that carries every asset effect, which is why the differential test
-(interpreter == proof == replay) passes for a call using all five opcodes.
+The rule that makes this sound: the VM/AIR enforces only *holder-side solvency* (a contract can't pay or
+burn more than it holds). **Mint authority** — issuer-only, mintable-only, the supply cap — lives in
+`stage_asset_effects`, and the shadow calls the **exact same function** the live apply path does
+(`stage_asset_effects_pure`, extracted so the two can never diverge). So the prover can never prove a mint
+the chain would reject. `tests/test_assets.py` pins this with the authority test: the VM emits a well-formed
+`AMINT` for a victim's asset or a renounced one, and the prover **raises** because the shadow refuses it —
+the assertion that fails the instant the two paths drift.
 
-The `/exec/prove_call` + `/exec/verify_call` pair **does** handle assets: the proof binds `ACTX_ASSET` and
-`ACTX_SELF` as public columns (`selfd` is *derived from the cid* on both sides, so a prover cannot choose
-what a contract thinks its own address is), and verify re-checks every `ABAL` read and every declared move
-against the node's ledger before reporting `state_match`.
+**No consensus/root impact.** The settlement proof's `post_root` binds contract STORAGE only; asset balances
+live in the records half (`T_ASSET_BAL`/`T_ASSET_META`/`T_ASSET_ALLOW`) that this proof does not bind. The
+shadow gates the proof (so it never proves a transition the chain reverts-and-refunds) but never enters any
+root — exactly like the native `bridge` shadow always has.
+
+The per-call `/exec/prove_call` + `/exec/verify_call` pair already handled assets and is the template this
+followed: the proof binds `ACTX_ASSET` and `ACTX_SELF` as public columns (`selfd` is *derived from the cid*
+on both sides, so a prover cannot choose what a contract thinks its own address is), and verify re-checks
+every `ABAL` read and declared move against the node's ledger before reporting `state_match`.
 
 ---
 
@@ -298,13 +309,9 @@ This is a stronger trust story than most tokens ship, and it is intended to stay
 **Remaining gaps, with a reasoned disposition** (not everything on this list should be built — where the
 answer is "no", the reason is the deliverable):
 
-1. **Proof settlement for asset calls** (§8) — the one gap worth closing outright, and being worked. A
-   soundness-*completeness* gap, not a token feature: the bonded quorum settles asset calls today, but the
-   epoch validity-proof path refuses them. Closing it changes **no committed root** (the proof binds only
-   contract storage; balances live in the records half it does not bind) and touches no live path (the
-   trustless settle path is disabled), so it is low-risk. The AIR, `replay_io(with_assets=True)`, the
-   per-call `/exec/prove_call`, and `stage_asset_effects` already exist — only the epoch-aggregation shadow
-   in `execnode/settlement_proofs.py` is missing.
+1. **Proof settlement for asset calls** (§8) — **DONE.** The epoch prover carries an asset shadow and settles
+   asset-touching calls by validity proof, gated by the same `stage_asset_effects_pure` the chain applies, so
+   authority can never drift between apply and proof. Changed no committed root.
 2. **`ARENOUNCE` opcode** (§7) — genuinely needed and with no substitute: a contract cannot seal its own
    token's supply autonomously (only its deployer can, via a blob), yet a launchpad graduating a token wants
    to do it in-circuit. This is a VM-opcode addition (like the five in §3), so it changes consensus and is

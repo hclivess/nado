@@ -53,64 +53,83 @@ def _apply_payouts(bridge, cid, payouts):
     return True
 
 
-_ASSET_OPS = ("ASEL", "AMINT", "ABURN", "ABAL")   # see the refusal in _run_call / doc/assets.md §8
+def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timestamp, beacons, block_hashes,
+              want_rows):
+    """Execute ONE call against the mutable shadows (contracts, bridge, abal, assets, registry): advance
+    storage, resolve native payouts AND asset effects, and return (epoch_call, public_call, rows). `rows`
+    (executed step count, only when want_rows) is what the segmenter packs against MAX_T. Raises on
+    revert/bad payout/illegal asset effect — the same conditions that make the call unprovable.
 
-
-def _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons, block_hashes, want_rows):
-    """Execute ONE call against the mutable (contracts, bridge, registry): advance storage, resolve payouts,
-    and return (epoch_call, public_call, rows). `rows` (the executed step count = trace rows this call adds,
-    computed only when want_rows) is what the segmenter packs against MAX_T. Raises on revert/bad payout —
-    the same conditions that make the call unprovable."""
+    ASSETS (doc/assets.md §8): the shadow `abal`/`assets` are the prover's asset half, symmetric to the
+    native `bridge`. They are prove-time only (they never enter any root) and exist so the prover never
+    proves a storage transition the real chain would revert-and-refund. Crucially, the VM/AIR enforces only
+    holder-side solvency; issuer-only / mintable-only / supply-cap live in stage_asset_effects_pure — the
+    SAME function the live apply path calls — so authority can never drift between apply and proof."""
+    from execnode.state import stage_asset_effects_pure, commit_asset_effects_pure, asset_credit_dict
     cid, method = call["cid"], call["method"]
     c = contracts.get(cid)
     if not c or c.get("runtime") != "zkvm":
         raise ValueError(f"call {i}: no zkvm contract {cid}")
     caller = call.get("caller", "epoch")
     value = int(call.get("value", 0))
+    in_asset = int(call.get("asset", 0))                  # 0 == native NADO
     cf, fargs = runtimes.zkvm_statement(caller, call.get("args", []), registry)
     slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
     if value > 0:
-        bridge[cid] = bridge.get(cid, 0) + value
-    # ASSETS (doc/assets.md) are not in the settlement prover's shadow ledger yet — it carries `bridge` and
-    # nothing else. Refusing them is the only safe reading: an ASEL+PAY pair looks exactly like a native
-    # payout to the payout loop below, so silently proving it would move NADO where the contract moved a
-    # token. Checked on the PROGRAM, before execution, so the refusal is about capability and does not
-    # depend on whether this particular call happened to reach its asset instruction (with no shadow asset
-    # ledger to read, it would revert first and report the wrong reason). Asset calls stay on the equally
-    # valid bonded-quorum settlement path until this ledger grows an asset half — doc/assets.md §8.
-    if any(ins[0] in _ASSET_OPS for ins in c["code"].get(method, [])):
-        raise ValueError(f"call {i}: asset io is not yet settleable by proof")
+        # Escrow the call value into the contract, same as the live path. Native lands in the bridge shadow;
+        # an asset-denominated value lands in the asset shadow — credited BEFORE the abal-view below, so
+        # ABAL and pay-out solvency see the escrowed units.
+        if in_asset:
+            if str(in_asset) not in assets:
+                raise ValueError(f"call {i}: no such asset {in_asset}")
+            asset_credit_dict(abal, in_asset, cid, value)
+        else:
+            bridge[cid] = bridge.get(cid, 0) + value
+    # the VM sees ONLY this contract's asset balances, {int(aid) -> bal} — the shadow of holder_assets(cid)
+    abal_view = {int(aid): int(row.get(cid, 0)) for aid, row in abal.items() if row.get(cid)}
     selfd = runtimes.zkvm_addr_digest(cid)
     res = zkvm.run(c["code"], method, cf, fargs, slots, value=value, cursor=cursor, timestamp=timestamp,
-                   beacons=beacons, block_hashes=block_hashes, selfd=selfd, witness=want_rows)
+                   beacons=beacons, block_hashes=block_hashes, selfd=selfd, asset=in_asset, abal=abal_view,
+                   witness=want_rows)
     ok, _ret, new_slots, io = res[:4]
     if not ok:
         raise ValueError(f"call {i} reverted — nothing to prove")
-    if any(k in zkvm.IO_ASSET_KINDS for k, _a, _b in io):   # belt and braces, if a future op emits asset io
-        raise ValueError(f"call {i}: asset io is not yet settleable by proof")
     rows = len(res[4]) if want_rows else 0
-    payouts = [(registry[str(to)], amt) for k, to, amt in io if k == zkvm.IO_PAY and amt > 0
-               and str(to) in registry]
-    if sum(1 for k, to, amt in io if k == zkvm.IO_PAY and amt > 0) != len(payouts) \
-            or not _apply_payouts(bridge, cid, payouts):
-        raise ValueError(f"call {i}: unresolved or unaffordable payout")
+    # ONE reader of the log's meaning, shared with the interpreter: native payouts + asset effects, ASEL
+    # pairing enforced, recipients resolved through the same registry (unresolvable -> revert).
+    split = runtimes.split_io(io, registry)
+    if split is None:
+        raise ValueError(f"call {i}: bad io (unresolved payee / broken asset pairing)")
+    payouts, effects = split
+    if not _apply_payouts(bridge, cid, payouts):
+        raise ValueError(f"call {i}: unaffordable payout")
+    if effects:
+        aok, reason, deltas, sup = stage_asset_effects_pure(abal, assets, cid, effects)
+        if not aok:
+            raise ValueError(f"call {i}: illegal asset effect — {reason}")
+        commit_asset_effects_pure(abal, assets, deltas, sup)
     c["storage"] = {"slots": {str(k): v for k, v in sorted(new_slots.items())}}
     epoch_call = {"code": c["code"], "method": method, "caller_f": cf, "args_f": fargs,
                   "caller": caller, "args": call.get("args", []), "value": value, "cursor": cursor,
                   "timestamp": timestamp, "beacons": beacons, "block_hashes": block_hashes, "slots": slots,
-                  "selfd": selfd}
+                  "selfd": selfd, "asset": in_asset, "abal": abal_view}
     public_call = {"cid": cid, "method": method, "caller": caller, "args": call.get("args", []),
-                   "value": value}
+                   "value": value, "asset": in_asset}
     return epoch_call, public_call, rows
 
 
 def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
-                pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, backend=None, row_commit=False):
+                pre_bridge=None, pre_abal=None, pre_assets=None,
+                num_queries=vm_circuit.stark.NUM_QUERIES, backend=None, row_commit=False):
     """Prove a batch of zkVM calls as ONE aggregated epoch proof. `pre_contracts` is the pre-state
     {cid: {"code", "storage": {"slots":{...}}, "runtime":"zkvm"}}; `calls` an ordered list of
-    {cid, method, caller, args, value?}. Returns a self-contained bundle: a SINGLE proof binding
+    {cid, method, caller, args, value?, asset?}. Returns a self-contained bundle: a SINGLE proof binding
     pre_root → post_root over the whole batch. Raises ValueError if the batch exceeds one trace — use
     prove_settlement for unbounded epochs (it segments automatically).
+
+    `pre_abal`/`pre_assets` (doc/assets.md §8) are the asset half of the shadow ledger — pass the state's
+    `abal`/`assets` to settle asset-touching calls. They gate the proof (so it never proves a transition the
+    chain reverts) but never enter `post_root`, which binds contract STORAGE only.
 
     `backend` (doc/zk-recursion.md): None/blake2b is the fast native-hash proof L1 verifies directly;
     pass the alghash2 backend to produce a RECURSION-READY proof (field-native verification), the hybrid-wrap
@@ -118,11 +137,13 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
     import copy
     contracts = copy.deepcopy(pre_contracts)
     bridge = dict(pre_bridge or {})
+    abal = {a: dict(h) for a, h in (pre_abal or {}).items()}   # nested copy: never mutate the caller's rows
+    assets = copy.deepcopy(pre_assets or {})                   # supply mutates on mint/burn
     registry = {}
     pre_root = zkvm_root(contracts)
     epoch_calls, public_calls = [], []
     for i, call in enumerate(calls):
-        ec, pc, _ = _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons,
+        ec, pc, _ = _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timestamp, beacons,
                               block_hashes, want_rows=False)
         epoch_calls.append(ec); public_calls.append(pc)
     proof, epoch_io, _per = vm_circuit.prove_epoch_calls(epoch_calls, num_queries=num_queries, backend=backend,
@@ -136,7 +157,8 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
 
 
 def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
-                     pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, max_rows=None, backend=None,
+                     pre_bridge=None, pre_abal=None, pre_assets=None,
+                     num_queries=vm_circuit.stark.NUM_QUERIES, max_rows=None, backend=None,
                      row_commit=False):
     """Prove an epoch of ANY size by SEGMENTING it into consecutive chunks that each fit one trace, then
     chaining their state roots: segment j binds root_j → root_{j+1}, and the whole batch is proven by
@@ -152,6 +174,8 @@ def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, bl
         max_rows = vm_circuit.MAX_T - 2
     contracts = copy.deepcopy(pre_contracts)
     bridge = dict(pre_bridge or {})
+    abal = {a: dict(h) for a, h in (pre_abal or {}).items()}
+    assets = copy.deepcopy(pre_assets or {})
     pre_root = zkvm_root(contracts)
     # pass 1: run every call once (chaining state) to measure its trace-row cost, packing into segments so
     # each segment's (rows + distinct program sizes + io length + headroom) stays under one trace.
@@ -163,10 +187,12 @@ def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, bl
         c = contracts.get(call["cid"])
         prog = c["code"][call["method"]] if c else []
         pkey = id(prog)
-        # peek the row cost WITHOUT mutating committed state yet: run on a scratch copy
+        # peek the row cost WITHOUT mutating committed state yet: run on scratch copies. The abal shadow is
+        # NESTED, so a shallow dict() here would let the peek mutate the real holder rows.
         peek = copy.deepcopy({call["cid"]: c}) if c else {}
-        _ec, _pc, rows = _run_call(peek, dict(bridge), dict(registry), call, i, cursor, timestamp,
-                                   beacons, block_hashes, want_rows=True)
+        peek_abal = {a: dict(h) for a, h in abal.items()}
+        _ec, _pc, rows = _run_call(peek, dict(bridge), peek_abal, copy.deepcopy(assets), dict(registry),
+                                   call, i, cursor, timestamp, beacons, block_hashes, want_rows=True)
         add_prog = 0 if pkey in seg_progs else len(prog)
         if i > start and rows_acc + rows + progs_acc + add_prog + io_acc + 256 > max_rows:
             boundaries.append((start, i)); start = i
@@ -177,24 +203,27 @@ def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, bl
         rows_acc += rows; io_acc += rows            # io is bounded by steps; a safe over-estimate
         if pkey not in seg_progs:
             seg_progs.add(pkey); progs_acc += add_prog
-        # advance the REAL committed state so the next call (and the next segment's pre-state) chains
-        _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons, block_hashes,
-                  want_rows=False)
+        # advance the REAL committed shadows so the next call (and the next segment's pre-state) chains
+        _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timestamp, beacons,
+                  block_hashes, want_rows=False)
     boundaries.append((start, len(calls)))
     # pass 2: prove each segment from the chained pre-state
     contracts = copy.deepcopy(pre_contracts)
     bridge2 = dict(pre_bridge or {})
+    abal2 = {a: dict(h) for a, h in (pre_abal or {}).items()}
+    assets2 = copy.deepcopy(pre_assets or {})
     segments = []
     for (lo, hi) in boundaries:
         seg_calls = calls[lo:hi]
         bundle = prove_epoch(contracts, seg_calls, cursor, timestamp=timestamp, beacons=beacons,
-                             block_hashes=block_hashes, pre_bridge=bridge2, num_queries=num_queries,
-                             backend=backend, row_commit=row_commit)
+                             block_hashes=block_hashes, pre_bridge=bridge2, pre_abal=abal2, pre_assets=assets2,
+                             num_queries=num_queries, backend=backend, row_commit=row_commit)
         segments.append(bundle)
-        # advance contracts + bridge to this segment's post-state (replay is cheaper than re-running)
+        # advance contracts + bridge + asset shadows to this segment's post-state (replay < re-running)
         reg = {}
         for j, call in enumerate(seg_calls):
-            _run_call(contracts, bridge2, reg, call, lo + j, cursor, timestamp, beacons, block_hashes, False)
+            _run_call(contracts, bridge2, abal2, assets2, reg, call, lo + j, cursor, timestamp, beacons,
+                      block_hashes, False)
     return {"cursor": cursor, "timestamp": timestamp, "pre_root": pre_root,
             "post_root": zkvm_root(contracts), "segments": segments, "num_segments": len(segments)}
 
@@ -400,7 +429,7 @@ def _epoch_pub_statement(bundle):
         # own digest from public data, so a prover cannot choose what ACTX_SELF reads.
         pub_calls.append({"code": c["code"], "method": call["method"], "caller": call.get("caller", "epoch"),
                           "args": call.get("args", []), "value": int(call.get("value", 0)),
-                          "cursor": cursor, "timestamp": ts,
+                          "cursor": cursor, "timestamp": ts, "asset": int(call.get("asset", 0)),
                           "selfd": runtimes.zkvm_addr_digest(call["cid"])})
     return pub_calls, epoch_io
 
@@ -440,7 +469,11 @@ def verify_epoch(bundle, num_queries=None, check_proof=True):
         for call, seg in zip(bundle["calls"], segs):
             c = contracts[call["cid"]]
             slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
-            ok2, _ret, new_slots, _pay, _chain = zkvm.replay_io(seg, slots)
+            # with_assets=True so an asset-carrying log replays instead of failing closed. The storage
+            # advance (new_slots) is identical either way — the asset `effects` (6th element) are ignored
+            # here exactly as native `_pay` is, because the asset LEDGER is not part of this proof's root
+            # (post_root binds contract storage; balances live in the records half it does not bind).
+            ok2, _ret, new_slots, _pay, _chain, _effects = zkvm.replay_io(seg, slots, with_assets=True)
             if not ok2:
                 return False, "log replay failed", None
             c["storage"] = {"slots": {str(k): v for k, v in sorted(new_slots.items())}}
