@@ -411,9 +411,7 @@ const modes = installModes(dapp, {
   ],
 });
 // mode gating layers OVER the game's own render, which gates cards by sign-in/table state
-const _render0 = render;
-render = function () { _render0.apply(this, arguments); modes.apply(); };
-modes.apply();
+render = modes.wrap(render);   // re-apply the mode gating after every render
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (activeGame == null) { activeGame = parseInt(q, 10); haveState = false; } }
   if (q && !dapp.me) { const sto = await dapp.storage({ append: ["wr", "mv", "mc", "p2", "nn"] }); const gm = sto ? gameFrom(sto, parseInt(q,10)) : null;

@@ -136,7 +136,10 @@
   "sdk.whereOffline": "تعذّر الوصول إلى السلسلة الآن — جارٍ إعادة الاتصال… {kind} وأموالك آمنة على السلسلة.",
   "sdk.withdraw": "تم إرسال السحب.",
   "sdk.withdrawEnter": "أدخل مبلغًا للسحب.",
-  "sdk.withdrawShort": "لديك {bal} NADO فقط في طبقة التنفيذ."
+  "sdk.withdrawShort": "لديك {bal} NADO فقط في طبقة التنفيذ.",
+  "sdk.modePracticeHead": "🎯 تدريب ضد الحاسوب",
+  "sdk.modePracticeCard": "مباراة واحدة ضد الحاسوب، الآن، في متصفحك. لا رهان، ولا شيء يُسجَّل على السلسلة، ولا حاجة لمحفظة — الغرض تعلّم القواعد.",
+  "sdk.prStart": "🎯 ابدأ مباراة تدريب"
  },
  "cs": {
   "sdk.bet": "Sázka podána — potvrzuje se…",
@@ -275,7 +278,10 @@
   "sdk.whereOffline": "Blockchain je teď nedostupný — připojuji… vaše {kind} i prostředky jsou bezpečně na blockchainu.",
   "sdk.withdraw": "Výběr odeslán.",
   "sdk.withdrawEnter": "Zadejte částku k výběru.",
-  "sdk.withdrawShort": "Ve výkonné vrstvě máte jen {bal} NADO."
+  "sdk.withdrawShort": "Ve výkonné vrstvě máte jen {bal} NADO.",
+  "sdk.modePracticeHead": "🎯 Trénink proti počítači",
+  "sdk.modePracticeCard": "Jeden zápas proti počítači, hned teď, přímo v prohlížeči. Nic nesázíš, nic se nezapisuje na řetězec a peněženka není potřeba — je to na naučení pravidel.",
+  "sdk.prStart": "🎯 Spustit trénink"
  },
  "de": {
   "sdk.bet": "Wette platziert — wird bestätigt…",
@@ -414,7 +420,10 @@
   "sdk.whereOffline": "Die Chain ist gerade nicht erreichbar — verbinde neu… dein {kind} und deine Mittel sind sicher on-chain.",
   "sdk.withdraw": "Auszahlung gesendet.",
   "sdk.withdrawEnter": "Gib einen Betrag zum Auszahlen ein.",
-  "sdk.withdrawShort": "Du hast nur {bal} NADO in der Ausführungsebene."
+  "sdk.withdrawShort": "Du hast nur {bal} NADO in der Ausführungsebene.",
+  "sdk.modePracticeHead": "🎯 Übung gegen den Computer",
+  "sdk.modePracticeCard": "Eine Partie gegen den Computer, sofort, im Browser. Kein Einsatz, nichts on-chain, keine Wallet nötig — zum Regeln lernen.",
+  "sdk.prStart": "🎯 Übungspartie starten"
  },
  "en": {
   "sdk.bet": "Bet placed — confirming…",
@@ -553,7 +562,10 @@
   "sdk.whereOffline": "Can't reach the chain right now — reconnecting… your {kind} and funds are safe on-chain.",
   "sdk.withdraw": "Cash-out submitted.",
   "sdk.withdrawEnter": "Enter an amount to withdraw.",
-  "sdk.withdrawShort": "You only have {bal} NADO in the exec layer."
+  "sdk.withdrawShort": "You only have {bal} NADO in the exec layer.",
+  "sdk.modePracticeHead": "🎯 Practice vs computer",
+  "sdk.modePracticeCard": "One free match against the computer, right now, in your browser. Nothing is staked, nothing is recorded on-chain, and no wallet is needed — it is here to learn the rules.",
+  "sdk.prStart": "🎯 Start a practice match"
  },
  "es": {
   "sdk.bet": "Apuesta realizada — confirmando…",
@@ -692,7 +704,10 @@
   "sdk.whereOffline": "No se puede conectar a la cadena ahora — reconectando… tu {kind} y tus fondos están a salvo en cadena.",
   "sdk.withdraw": "Retiro enviado.",
   "sdk.withdrawEnter": "Introduce una cantidad para retirar.",
-  "sdk.withdrawShort": "Solo tienes {bal} NADO en la capa de ejecución."
+  "sdk.withdrawShort": "Solo tienes {bal} NADO en la capa de ejecución.",
+  "sdk.modePracticeHead": "🎯 Práctica contra la máquina",
+  "sdk.modePracticeCard": "Una partida contra la máquina, ahora mismo, en tu navegador. No apuestas nada, no se registra nada en cadena y no hace falta monedero — está para aprender las reglas.",
+  "sdk.prStart": "🎯 Empezar práctica"
  },
  "fr": {
   "sdk.bet": "Pari placé — confirmation…",
@@ -831,7 +846,10 @@
   "sdk.whereOffline": "Impossible de joindre la chaîne pour l'instant — reconnexion… votre {kind} et vos fonds sont en sécurité sur la chaîne.",
   "sdk.withdraw": "Retrait envoyé.",
   "sdk.withdrawEnter": "Saisissez un montant à retirer.",
-  "sdk.withdrawShort": "Vous n'avez que {bal} NADO dans la couche d'exécution."
+  "sdk.withdrawShort": "Vous n'avez que {bal} NADO dans la couche d'exécution.",
+  "sdk.modePracticeHead": "🎯 Entraînement contre l'ordinateur",
+  "sdk.modePracticeCard": "Une partie contre l'ordinateur, tout de suite, dans ton navigateur. Aucune mise, rien on-chain, pas de portefeuille — c'est pour apprendre les règles.",
+  "sdk.prStart": "🎯 Lancer l'entraînement"
  },
  "hi": {
   "sdk.bet": "दांव लगाया — पुष्टि हो रही है…",
@@ -970,7 +988,10 @@
   "sdk.whereOffline": "अभी चेन तक नहीं पहुँच पा रहे — फिर से जोड़ रहे हैं… आपका {kind} और धन चेन पर सुरक्षित है।",
   "sdk.withdraw": "निकासी भेजी गई।",
   "sdk.withdrawEnter": "निकालने की राशि दर्ज करें।",
-  "sdk.withdrawShort": "एग्ज़ीक्यूशन लेयर में आपके पास केवल {bal} NADO है।"
+  "sdk.withdrawShort": "एग्ज़ीक्यूशन लेयर में आपके पास केवल {bal} NADO है।",
+  "sdk.modePracticeHead": "🎯 कंप्यूटर के विरुद्ध अभ्यास",
+  "sdk.modePracticeCard": "अभी, आपके ब्राउज़र में, कंप्यूटर के विरुद्ध एक मुफ़्त मैच। कोई दांव नहीं, चेन पर कुछ दर्ज नहीं, वॉलेट की ज़रूरत नहीं — यह नियम सीखने के लिए है।",
+  "sdk.prStart": "🎯 अभ्यास मैच शुरू करें"
  },
  "id": {
   "sdk.bet": "Taruhan dipasang — mengonfirmasi…",
@@ -1109,7 +1130,10 @@
   "sdk.whereOffline": "Tidak bisa menjangkau rantai sekarang — menyambung ulang… {kind} dan danamu aman on-chain.",
   "sdk.withdraw": "Penarikan dikirim.",
   "sdk.withdrawEnter": "Masukkan jumlah untuk ditarik.",
-  "sdk.withdrawShort": "Kamu hanya punya {bal} NADO di lapisan eksekusi."
+  "sdk.withdrawShort": "Kamu hanya punya {bal} NADO di lapisan eksekusi.",
+  "sdk.modePracticeHead": "🎯 Latihan lawan komputer",
+  "sdk.modePracticeCard": "Satu pertandingan gratis lawan komputer, sekarang juga, di peramban. Tidak ada taruhan, tidak ada catatan on-chain, tanpa dompet — untuk belajar aturannya.",
+  "sdk.prStart": "🎯 Mulai latihan"
  },
  "it": {
   "sdk.bet": "Puntata piazzata — in conferma…",
@@ -1248,7 +1272,10 @@
   "sdk.whereOffline": "Impossibile raggiungere la catena ora — riconnessione… il tuo {kind} e i fondi sono al sicuro on-chain.",
   "sdk.withdraw": "Prelievo inviato.",
   "sdk.withdrawEnter": "Inserisci un importo da prelevare.",
-  "sdk.withdrawShort": "Hai solo {bal} NADO nel livello di esecuzione."
+  "sdk.withdrawShort": "Hai solo {bal} NADO nel livello di esecuzione.",
+  "sdk.modePracticeHead": "🎯 Allenamento contro il computer",
+  "sdk.modePracticeCard": "Una partita contro il computer, subito, nel browser. Nessuna posta, niente on-chain, nessun wallet — serve a imparare le regole.",
+  "sdk.prStart": "🎯 Inizia allenamento"
  },
  "ja": {
   "sdk.bet": "ベットしました — 確認中…",
@@ -1387,7 +1414,10 @@
   "sdk.whereOffline": "今チェーンに接続できません — 再接続中…あなたの{kind}と資金はオンチェーンで安全です。",
   "sdk.withdraw": "出金を送信しました。",
   "sdk.withdrawEnter": "出金する額を入力してください。",
-  "sdk.withdrawShort": "実行レイヤーには {bal} NADO しかありません。"
+  "sdk.withdrawShort": "実行レイヤーには {bal} NADO しかありません。",
+  "sdk.modePracticeHead": "🎯 コンピュータと練習",
+  "sdk.modePracticeCard": "ブラウザで今すぐ、コンピュータと1試合。賭けなし、チェーンに記録なし、ウォレット不要 — ルールを覚えるためのものです。",
+  "sdk.prStart": "🎯 練習を始める"
  },
  "ko": {
   "sdk.bet": "베팅 완료 — 확인 중…",
@@ -1526,7 +1556,10 @@
   "sdk.whereOffline": "지금 체인에 연결할 수 없습니다 — 재연결 중… 당신의 {kind}와 자금은 온체인에서 안전합니다.",
   "sdk.withdraw": "출금 제출됨.",
   "sdk.withdrawEnter": "출금할 금액을 입력하세요.",
-  "sdk.withdrawShort": "실행 계층에 {bal} NADO만 있습니다."
+  "sdk.withdrawShort": "실행 계층에 {bal} NADO만 있습니다.",
+  "sdk.modePracticeHead": "🎯 컴퓨터와 연습",
+  "sdk.modePracticeCard": "지금 바로 브라우저에서 컴퓨터와 한 판. 판돈도, 체인 기록도, 지갑도 필요 없습니다 — 규칙을 익히기 위한 모드입니다.",
+  "sdk.prStart": "🎯 연습 시작"
  },
  "pt": {
   "sdk.bet": "Aposta feita — confirmando…",
@@ -1665,7 +1698,10 @@
   "sdk.whereOffline": "Não é possível acessar a cadeia agora — reconectando… seu {kind} e fundos estão seguros na cadeia.",
   "sdk.withdraw": "Saque enviado.",
   "sdk.withdrawEnter": "Digite um valor para sacar.",
-  "sdk.withdrawShort": "Você só tem {bal} NADO na camada de execução."
+  "sdk.withdrawShort": "Você só tem {bal} NADO na camada de execução.",
+  "sdk.modePracticeHead": "🎯 Treino contra o computador",
+  "sdk.modePracticeCard": "Uma partida contra o computador, já, no teu navegador. Sem aposta, nada na cadeia e sem carteira — está aqui para aprenderes as regras.",
+  "sdk.prStart": "🎯 Começar treino"
  },
  "ru": {
   "sdk.bet": "Ставка сделана — подтверждается…",
@@ -1804,7 +1840,10 @@
   "sdk.whereOffline": "Сейчас не удаётся связаться с сетью — переподключение… ваш {kind} и средства в безопасности в сети.",
   "sdk.withdraw": "Вывод отправлен.",
   "sdk.withdrawEnter": "Введите сумму для вывода.",
-  "sdk.withdrawShort": "У вас только {bal} NADO в слое исполнения."
+  "sdk.withdrawShort": "У вас только {bal} NADO в слое исполнения.",
+  "sdk.modePracticeHead": "🎯 Тренировка против компьютера",
+  "sdk.modePracticeCard": "Одна партия против компьютера, прямо сейчас, в браузере. Ставок нет, в блокчейн ничего не пишется, кошелёк не нужен — это чтобы выучить правила.",
+  "sdk.prStart": "🎯 Начать тренировку"
  },
  "tr": {
   "sdk.bet": "Bahis yapıldı — onaylanıyor…",
@@ -1943,7 +1982,10 @@
   "sdk.whereOffline": "Şu an zincire ulaşılamıyor — yeniden bağlanılıyor… {kind} ve paran zincirde güvende.",
   "sdk.withdraw": "Çekim gönderildi.",
   "sdk.withdrawEnter": "Çekilecek tutarı gir.",
-  "sdk.withdrawShort": "Yürütme katmanında yalnızca {bal} NADO var."
+  "sdk.withdrawShort": "Yürütme katmanında yalnızca {bal} NADO var.",
+  "sdk.modePracticeHead": "🎯 Bilgisayara karşı alıştırma",
+  "sdk.modePracticeCard": "Bilgisayara karşı tek bir maç, hemen, tarayıcında. Bahis yok, zincire hiçbir şey yazılmaz, cüzdan gerekmez — kuralları öğrenmek için.",
+  "sdk.prStart": "🎯 Alıştırmayı başlat"
  },
  "vi": {
   "sdk.bet": "Đã đặt cược — đang xác nhận…",
@@ -2082,7 +2124,10 @@
   "sdk.whereOffline": "Hiện không thể kết nối chuỗi — đang kết nối lại… {kind} và tiền của bạn an toàn on-chain.",
   "sdk.withdraw": "Đã gửi rút.",
   "sdk.withdrawEnter": "Nhập số tiền để rút.",
-  "sdk.withdrawShort": "Bạn chỉ có {bal} NADO ở lớp thực thi."
+  "sdk.withdrawShort": "Bạn chỉ có {bal} NADO ở lớp thực thi.",
+  "sdk.modePracticeHead": "🎯 Luyện tập với máy",
+  "sdk.modePracticeCard": "Một trận miễn phí với máy, ngay bây giờ, trong trình duyệt. Không đặt cược, không ghi lên chuỗi, không cần ví — để học luật.",
+  "sdk.prStart": "🎯 Bắt đầu luyện tập"
  },
  "zh": {
   "sdk.bet": "已下注 — 确认中…",
@@ -2221,6 +2266,9 @@
   "sdk.whereOffline": "暂时无法连接链 — 正在重连…你的{kind}和资金在链上是安全的。",
   "sdk.withdraw": "提现已提交。",
   "sdk.withdrawEnter": "请输入提现金额。",
-  "sdk.withdrawShort": "你在执行层只有 {bal} NADO。"
+  "sdk.withdrawShort": "你在执行层只有 {bal} NADO。",
+  "sdk.modePracticeHead": "🎯 与电脑练习",
+  "sdk.modePracticeCard": "在浏览器里立刻与电脑打一局。不下注、不上链、不需要钱包——用来熟悉规则。",
+  "sdk.prStart": "🎯 开始练习"
  }
 }

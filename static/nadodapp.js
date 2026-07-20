@@ -534,7 +534,18 @@ export function installModes(dapp, o) {
     (m && m.cards || []).forEach((c) => { g[c] = true; });
     gate(g);
   }
-  return { get: () => cur, set: (k) => { if (keys.includes(k)) { cur = k; apply(); o.onChange && o.onChange(k); } }, apply };
+  // wrap(render): re-apply the mode gating after every render, and paint once now. Nine games each carried
+  // the identical three lines to do this by hand —
+  //     const _render0 = render;
+  //     render = function () { _render0.apply(this, arguments); modes.apply(); };
+  //     modes.apply();
+  // — which is boilerplate a caller can only get wrong. `render = modes.wrap(render);` says the same thing.
+  function wrap(renderFn) {
+    const wrapped = function () { renderFn.apply(this, arguments); apply(); };
+    apply();
+    return wrapped;
+  }
+  return { get: () => cur, set: (k) => { if (keys.includes(k)) { cur = k; apply(); o.onChange && o.onChange(k); } }, apply, wrap };
 }
 
 

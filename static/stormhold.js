@@ -6,7 +6,7 @@
 // rigged. All information is public on-chain (open-hand play); the skill is the deck-building itself.
 // This module owns ONLY the Stormhold-specific half: engine replay, the supply/hand/decision UI, and the
 // move encodings; everything else (escrow actions, lobby, invites, settle chrome) lives in duelgame.js.
-import { NadoDapp, $, notify, confirmingLabel, disp, randSecret, algHashn, ALG_P } from "./nadodapp.js";
+import { NadoDapp, $, notify, confirmingLabel, disp, randSecret, algHashn, ALG_P, installModes } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./stormhold-engine.js";
 import { ART } from "./stormhold-art.js";
@@ -482,4 +482,22 @@ function renderGame(gm, eng) {
 duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "scoreboard"]);
 
 // test hook: the UI E2E harness (tests/*_ui_e2e.mjs) drives the real DOM against crafted engine states
+
+// The same two-mode picker the other duel games use, so "for stakes" and "free vs the computer" are a
+// visible CHOICE rather than a button hidden inside the stakes lobby.
+const modes = installModes(dapp, {
+  modes: [
+    { key: "play", icon: "\u2694", label: window.t("sdk.modePlay", "Play for stakes"),
+      hint: window.t("sdk.modePlayHint", "Head-to-head against another player for real NADO."),
+      cards: ["activeGame", "lobby", "play", "scoreboard"] },
+    { key: "practice", icon: "\uD83C\uDFAF", label: window.t("sdk.modePractice", "Practice"),
+      badge: window.t("sdk.free", "free"),
+      hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),
+      cards: ["practice", "activeGame"] },
+  ],
+});
+const _shRender = duel.render.bind(duel);
+duel.render = function () { _shRender(); modes.apply(); };   // mode gating layers over the scaffold's own
+modes.apply();
+
 if (typeof window !== "undefined") window.__duel = duel;
