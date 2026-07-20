@@ -3,7 +3,7 @@
 // roll FARKLES your turn. No autoplay. Each roll's randomness is pinned to a FUTURE block hash nobody can
 // predict, so the dice are objective and unriggable. Highest banked score when the table's play window ends
 // takes the whole pot. Built on the shared SDK (nadodapp.js) — matches tests/test_farkle_contract.py exactly.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp , installModes } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp , installModes , playModes} from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { Practice } from "./practice.js";      // free in-browser practice (solo score-attack, no chain)
 
@@ -381,14 +381,7 @@ async function boot() {
 // below the staked game with no way to switch to it; now it is a mode you choose, and ?mode=practice
 // links straight to it.
 const modes = installModes(dapp, {
-  modes: [
-    { key: "play", icon: "🎲", label: window.t("sdk.modePlay", "Play for stakes"),
-      hint: window.t("sdk.modePlayHint", "Real NADO on the execution layer."), cards: ["lobby", "play", "opencard", "scoreboard"], keep: ["activeGame"] },
-    { key: "practice", icon: "🤖", label: window.t("sdk.modePractice", "Practice"),
-      badge: window.t("sdk.free", "free"),
-      hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),
-      cards: ["practice"] },
-  ],
+  modes: playModes({ icon: "🎲", play: ["lobby", "play", "opencard", "scoreboard"] }),
 });
 // mode gating layers OVER the game's own render, which gates cards by sign-in/table state
 render = modes.wrap(render);   // re-apply the mode gating after every render

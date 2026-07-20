@@ -5,7 +5,7 @@
 // Symbols come off weighted 64-stop virtual reels; the paytable pays up to 150x (exact RTP 95.796%,
 // full-enumeration-proven — see tests/test_slots_contract.py). The machine's bank commits a 150x cover
 // for every open spin, so it can never welsh. Settle is permissionless; a pruned spin refunds via claim.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
@@ -270,14 +270,7 @@ async function boot() {
 // below the staked game with no way to switch to it; now it is a mode you choose, and ?mode=practice
 // links straight to it.
 const modes = installModes(dapp, {
-  modes: [
-    { key: "play", icon: "🎰", label: window.t("sdk.modePlay", "Play for stakes"),
-      hint: window.t("sdk.modePlayHint", "Real NADO on the execution layer."), cards: ["lobby", "opencard", "scoreboard"], keep: ["activeGame"] },
-    { key: "practice", icon: "🤖", label: window.t("sdk.modePractice", "Practice"),
-      badge: window.t("sdk.free", "free"),
-      hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),
-      cards: ["practice"] },
-  ],
+  modes: playModes({ icon: "🎰", play: ["lobby", "opencard", "scoreboard"] }),
 });
 // mode gating layers OVER the game's own render, which gates cards by sign-in/table state
 render = modes.wrap(render);   // re-apply the mode gating after every render

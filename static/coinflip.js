@@ -6,7 +6,7 @@
 // is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "c89f2236dc02504007f881aeb1327e2e";
@@ -285,14 +285,7 @@ async function boot() {
 // below the staked game with no way to switch to it; now it is a mode you choose, and ?mode=practice
 // links straight to it.
 const modes = installModes(dapp, {
-  modes: [
-    { key: "play", icon: "🪙", label: window.t("sdk.modePlay", "Play for stakes"),
-      hint: window.t("sdk.modePlayHint", "Real NADO on the execution layer."), cards: ["lobby", "play", "scoreboard"], keep: ["activeGame"] },
-    { key: "practice", icon: "🤖", label: window.t("sdk.modePractice", "Practice"),
-      badge: window.t("sdk.free", "free"),
-      hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),
-      cards: ["practice"] },
-  ],
+  modes: playModes({ icon: "🪙", play: ["lobby", "play", "scoreboard"] }),
 });
 // mode gating layers OVER the game's own render, which gates cards by sign-in/table state
 render = modes.wrap(render);   // re-apply the mode gating after every render

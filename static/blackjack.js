@@ -4,7 +4,7 @@
 // to rig. Your cards bind to future blocks at deal/hit time; every card is stored on-chain (pc/dk maps)
 // so the exact hand reconstructs from chain state alone. Win pays 2×, push refunds, natural blackjack
 // 5:2; European no-hole-card timing. See tests/test_blackjack_contract.py.
-import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
@@ -302,14 +302,7 @@ async function boot() {
 // below the staked game with no way to switch to it; now it is a mode you choose, and ?mode=practice
 // links straight to it.
 const modes = installModes(dapp, {
-  modes: [
-    { key: "play", icon: "🃏", label: window.t("sdk.modePlay", "Play for stakes"),
-      hint: window.t("sdk.modePlayHint", "Real NADO on the execution layer."), cards: ["lobby", "play", "bankcard", "scoreboard"], keep: ["activeGame"] },
-    { key: "practice", icon: "🤖", label: window.t("sdk.modePractice", "Practice"),
-      badge: window.t("sdk.free", "free"),
-      hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),
-      cards: ["practice"] },
-  ],
+  modes: playModes({ icon: "🃏", play: ["lobby", "play", "bankcard", "scoreboard"] }),
 });
 // mode gating layers OVER the game's own render, which gates cards by sign-in/table state
 render = modes.wrap(render);   // re-apply the mode gating after every render

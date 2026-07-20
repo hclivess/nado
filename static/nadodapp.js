@@ -491,6 +491,33 @@ export function modeBar(el, modes, active, onChange) {
 }
 
 /**
+ * playModes({icon, play, practice, keep, extra}) — the mode set nearly every staked game wants:
+ * "Play for stakes" plus a free "Practice" against the computer. Twelve games declared this by hand,
+ * four of them byte-identical, and the same i18n key carried two different English fallbacks depending
+ * on which game you read. Worse, each copy repeated the `keep: ["activeGame"]` decision — and when that
+ * was wrong (it used to be `cards`, which force-shows) every one of the twelve displayed an empty board.
+ * Building the shape here makes that class of mistake impossible to make per-game.
+ *
+ *   modes: playModes({ icon: "🃏", play: ["lobby", "play", "bankcard", "scoreboard"] })
+ *
+ * `extra` appends game-specific modes (scrapline's solo gauntlet, hexholm's daily island).
+ */
+export function playModes({ icon = "\uD83C\uDFB2", play = [], practice = ["practice"],
+                            keep = ["activeGame"], extra = [] } = {}) {
+  const t = (k, d) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d) : d;
+  return [
+    { key: "play", icon, label: t("modePlay", "Play for stakes"),
+      hint: t("modePlayHint", "Head-to-head for real NADO on the execution layer."),
+      cards: play, keep },
+    { key: "practice", icon: "\uD83C\uDFAF", label: t("modePractice", "Practice"),
+      badge: t("free", "free"),
+      hint: t("modePracticeHint", "Play the computer in your browser — nothing on-chain."),
+      cards: practice, keep },
+    ...extra,
+  ];
+}
+
+/**
  * installModes(dapp, o) — the WHOLE mode surface for a game in one call: the picker, which cards each
  * mode owns, the remembered choice, and ?mode= deep links.
  *
