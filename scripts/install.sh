@@ -39,6 +39,22 @@
 #
 #   sudo scripts/install.sh --service --home /srv/nado-data
 #
+# Service account (RECOMMENDED for servers): --user <name> runs everything as a dedicated non-root system
+# account instead of the invoking user. The account is created if missing (system user, no login shell,
+# home /srv/<name>-home) and the checkout + chain data live at ITS $HOME/nado — the standard layout, just
+# not in root's home. The units gain a filesystem/syscall hardening block (NoNewPrivileges,
+# ProtectSystem=strict, empty capability set, ...), and because an unprivileged node cannot call
+# `systemctl restart` on itself, the installer also writes a root-owned restart bridge (nado-restart.path):
+# the self-updater writes /run/nado/restart-request and root applies the delayed restart — self-update
+# keeps working end to end. An existing root install is MIGRATED in place: services are stopped cleanly,
+# the directory moves into the account home, a compatibility symlink stays at the old path (operator
+# tooling, cron jobs and stale shebangs keep resolving), extra repo-run units (forum, bet-oracle) are
+# re-pointed and de-rooted, and ownership + git safe.directory are fixed up. Re-runs and the node's
+# self-heal AUTO-ADOPT an existing non-root install, so a later plain `--service` run can never quietly
+# hand the node back to root:
+#
+#   curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service --user nado
+#
 # Native ML-DSA verify backend (Rust, optional): 55x faster signature verification — the L1 node's main
 # CPU cost. install.sh ASKS interactively; force it either way with --pq-native / --no-pq-native. It offers
 # to install Rust via rustup if missing, builds native/mldsa44, and enables it ONLY if it passes the startup
@@ -118,6 +134,7 @@ PQ_NATIVE=""
 # only baked into the service when explicitly requested, because NADO_AUTO_BOND_PERCENT OVERRIDES config —
 # an unconditional =0 here would silently switch auto-bond off on nodes that rely on the default.
 AUTO_BOND="${NADO_AUTO_BOND_PERCENT:-}"
+SERVICE_ACCOUNT=""   # --user: dedicated non-root system account that owns and runs everything
 while [ $# -gt 0 ]; do
   case "$1" in
     --wallet)      WITH_WALLET=1 ;;
@@ -131,6 +148,8 @@ while [ $# -gt 0 ]; do
     --no-pq-native) PQ_NATIVE=0 ;;           # skip it (stay pure-Python)
     --exec)        WITH_EXEC=1 ;;            # also run the execution / shielded-pool node (:9273)
     --exec-settle) WITH_EXEC=1; EXEC_SETTLE=1 ;;  # + settle the exec state-root to L1 (uses this node's keys)
+    --user)        shift; SERVICE_ACCOUNT="${1:?--user needs an account name}" ;;  # run as a dedicated system account
+    --user=*)      SERVICE_ACCOUNT="${1#*=}" ;;
     --auto-bond)   shift; AUTO_BOND="${1:-0}" ;;
     --auto-bond=*) AUTO_BOND="${1#*=}" ;;
     --home)        shift; DATA_HOME="${1:-}" ;;   # chain data goes under <dir>/nado (services run with HOME=<dir>)
@@ -139,12 +158,34 @@ while [ $# -gt 0 ]; do
     --dir)         shift; echo "note: already inside a checkout ($REPO_DIR) — --dir ignored" ;;
     --dir=*)       echo "note: already inside a checkout ($REPO_DIR) — --dir ignored" ;;
     -h|--help)
-      sed -n '3,47p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
   shift
 done
+
+# ---- preserve an existing install's choices on re-runs -------------------------------------------
+# Units are REGENERATED from flags, and re-runs (incl. the node's self-heal, which only knows --service
+# [--exec]) must never silently drop what a previous run or the operator configured: a forgotten
+# --exec-settle would stop L1 settlement, a lost NADO_EXEC_STATE would boot the exec node with EMPTY
+# state, a lost PQ env would quietly cost the 55x native verify. Explicit flags still win.
+if [ -f /etc/systemd/system/nado-exec.service ]; then
+  if [ $WITH_EXEC -ne 1 ]; then
+    echo "note: nado-exec.service already installed — keeping the exec node (implies --exec)"
+    WITH_EXEC=1
+  fi
+  grep -q '^Environment=NADO_EXEC_SETTLE=1' /etc/systemd/system/nado-exec.service 2>/dev/null && EXEC_SETTLE=1
+  EXEC_STATE_KEEP="$(sed -n 's/^Environment=NADO_EXEC_STATE=//p' /etc/systemd/system/nado-exec.service | head -n1)"
+else
+  EXEC_STATE_KEEP=""
+fi
+if [ -z "$AUTO_BOND" ] && [ -f /etc/systemd/system/nado.service ]; then
+  AUTO_BOND="$(sed -n 's/^Environment=NADO_AUTO_BOND_PERCENT=//p' /etc/systemd/system/nado.service | head -n1)"
+fi
+if [ -z "$PQ_NATIVE" ] && grep -qs '^Environment=NADO_PQ_NATIVE_MODULE=' /etc/systemd/system/nado.service; then
+  PQ_NATIVE=1   # this box runs the native verify backend — rebuild + re-verify it, don't drop to pure-Python
+fi
 
 # validate auto-bond is an int 0..100 (only when given; empty = leave the node's default in charge)
 if [ -n "$AUTO_BOND" ]; then
@@ -162,6 +203,75 @@ if [ -n "$DATA_HOME" ]; then
   mkdir -p "$DATA_HOME"
 fi
 
+# ---- service-account mode (--user): run the node as a dedicated non-root system user -------------
+# Re-runs and the self-heal path AUTO-ADOPT an existing non-root install, so a plain
+# `install.sh --service` can never silently hand a migrated box back to root.
+if [ -z "$SERVICE_ACCOUNT" ] && [ $WITH_SERVICE -eq 1 ] && [ -f /etc/systemd/system/nado.service ]; then
+  _existing_user="$(sed -n 's/^User=//p' /etc/systemd/system/nado.service 2>/dev/null | head -n1)"
+  if [ -n "$_existing_user" ] && [ "$_existing_user" != "root" ]; then
+    echo "==> nado.service already runs as '$_existing_user' — keeping the non-root install (auto-adopt)"
+    SERVICE_ACCOUNT="$_existing_user"
+  fi
+fi
+SERVICE_HOME=""
+if [ -n "$SERVICE_ACCOUNT" ]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "ERROR: --user needs root (creates the account, moves the checkout, writes units)." >&2; exit 1
+  fi
+  if [ $WITH_SERVICE -ne 1 ]; then
+    echo "ERROR: --user only makes sense with --service (systemd runs the node as that account)." >&2; exit 2
+  fi
+  if ! getent passwd "$SERVICE_ACCOUNT" >/dev/null; then
+    echo "==> creating system account '$SERVICE_ACCOUNT' (home /srv/${SERVICE_ACCOUNT}-home, no login shell)"
+    useradd --system --create-home --home-dir "/srv/${SERVICE_ACCOUNT}-home" \
+            --shell /usr/sbin/nologin "$SERVICE_ACCOUNT"
+  fi
+  SERVICE_HOME="$(getent passwd "$SERVICE_ACCOUNT" | cut -d: -f6)"
+  mkdir -p "$SERVICE_HOME"
+  TARGET_REPO="$SERVICE_HOME/nado"
+  if [ "$(realpath "$REPO_DIR")" != "$(realpath -m "$TARGET_REPO")" ]; then
+    # MIGRATE the checkout (code + chain data, one dir) into the account's home. Services stop first
+    # (clean SIGTERM shutdown), the move is a rename, and a compatibility symlink stays at the old
+    # path so operator tooling, cron jobs and stale venv shebangs keep resolving. Any extra repo-run
+    # units (forum, bet-oracle) are re-pointed and de-rooted too — they read the same keys/paths.
+    OLD_REPO="$(realpath "$REPO_DIR")"
+    if [ -e "$TARGET_REPO" ] || [ -L "$TARGET_REPO" ]; then
+      echo "ERROR: $TARGET_REPO already exists — refusing to overwrite it. Move it aside and re-run." >&2
+      exit 1
+    fi
+    echo "==> migrating $OLD_REPO -> $TARGET_REPO (stopping services for the move)"
+    for _u in nado.service nado-exec.service forum.service bet-oracle.timer bet-oracle.service; do
+      systemctl stop "$_u" 2>/dev/null || true
+    done
+    mv "$OLD_REPO" "$TARGET_REPO"
+    ln -sT "$TARGET_REPO" "$OLD_REPO"
+    for _u in forum.service bet-oracle.service bet-oracle.timer; do
+      _f="/etc/systemd/system/$_u"
+      [ -f "$_f" ] || continue
+      sed -i "s|$OLD_REPO|$TARGET_REPO|g; s|^Environment=HOME=.*|Environment=HOME=$SERVICE_HOME|" "$_f"
+      if grep -q '^User=' "$_f"; then
+        sed -i "s|^User=.*|User=$SERVICE_ACCOUNT|" "$_f"
+      elif grep -q '^ExecStart=' "$_f"; then
+        sed -i "/^\[Service\]/a User=$SERVICE_ACCOUNT" "$_f"
+      fi
+    done
+    EXEC_STATE_KEEP="${EXEC_STATE_KEEP/$OLD_REPO/$TARGET_REPO}"
+    # root keeps using git here (dev boxes, the self-heal path) — without safe.directory git refuses the
+    # now-foreign-owned tree, and sharedRepository=group keeps objects/refs written by either side usable
+    # by the other (git chmods its own files g+w under this setting).
+    git config --system --add safe.directory "$TARGET_REPO" 2>/dev/null || true
+    git config --system --add safe.directory "$OLD_REPO"    2>/dev/null || true
+    git -C "$TARGET_REPO" config core.sharedRepository group 2>/dev/null || true
+    chgrp -R "$SERVICE_ACCOUNT" "$TARGET_REPO/.git" 2>/dev/null || true
+    find "$TARGET_REPO/.git" -type d -exec chmod g+ws {} + 2>/dev/null || true
+  fi
+  REPO_DIR="$TARGET_REPO"
+  VENV_DIR="$REPO_DIR/nado_venv"
+  SERVICE_USER="$SERVICE_ACCOUNT"
+  # services get HOME=<account home>, so chain data at $HOME/nado IS the repo — the standard layout
+  [ -n "$DATA_HOME" ] || DATA_HOME="$SERVICE_HOME"
+fi
+
 echo "==> NADO install"
 echo "    repo:        $REPO_DIR"
 echo "    venv:        $VENV_DIR"
@@ -169,6 +279,7 @@ echo "    wallet deps: $([ $WITH_WALLET -eq 1 ] && echo yes || echo no)"
 echo "    service:     $([ $WITH_SERVICE -eq 1 ] && echo yes || echo no)"
 echo "    exec node:   $([ $WITH_EXEC -eq 1 ] && echo "yes (shielded pool :9273$([ $EXEC_SETTLE -eq 1 ] && echo ", settles to L1"))" || echo no)"
 echo "    data home:   $([ -n "$DATA_HOME" ] && echo "$DATA_HOME (chain data in $DATA_HOME/nado)" || echo "(user home — chain data in ~/nado)")"
+echo "    run as:      $([ -n "$SERVICE_ACCOUNT" ] && echo "$SERVICE_ACCOUNT (dedicated system account, hardened units + restart bridge)" || echo "${SUDO_USER:-$(id -un)}")"
 echo "    auto-bond:   $([ -n "$AUTO_BOND" ] && echo "${AUTO_BOND}%" || echo "(node default: 80%, see auto_bond_percent in private/config.json)")"
 echo "    auto-update: built into the node (daily origin/main check + remote /update trigger; disable with \"auto_update\": false in private/config.json)"
 
@@ -362,6 +473,31 @@ if [ $WITH_EXEC -eq 1 ]; then
 fi
 
 # ---- systemd service (unattended) ----------------------------------------------------------------
+# hardening block for service-account installs: no privileges to gain, read-only OS, writable only in
+# the account home = checkout + chain data (the node writes nowhere else; /run/nado via RuntimeDirectory,
+# which ProtectSystem=strict implicitly whitelists).
+harden_unit() {
+  local ph=true
+  case "$SERVICE_HOME" in /root*|/home/*) ph=false ;; esac   # a home under /home must stay reachable
+  cat <<HARDEOF
+# hardening (service-account mode)
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=$ph
+ReadWritePaths=$SERVICE_HOME
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+HARDEOF
+}
+
 if [ $WITH_SERVICE -eq 1 ]; then
   if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: --service needs root (run with sudo) to write /etc/systemd/system/nado.service." >&2
@@ -395,12 +531,52 @@ RestartSec=5
 TimeoutStopSec=60
 # raise the open-file limit (the node keeps many block/peer handles)
 LimitNOFILE=65535
+$([ -n "$SERVICE_ACCOUNT" ] && echo "Group=$SERVICE_ACCOUNT
+# the self-updater signals restarts by writing /run/nado/restart-request (see nado-restart.path)
+RuntimeDirectory=nado")
+$([ -n "$SERVICE_ACCOUNT" ] && harden_unit)
 
 [Install]
 WantedBy=multi-user.target
 UNITEOF
+  if [ -n "$SERVICE_ACCOUNT" ]; then
+    # restart bridge: the unprivileged node cannot systemctl-restart itself after a self-update; it
+    # writes a flag into /run/nado (its RuntimeDirectory) and this root-owned pair applies the restart.
+    # The unit list is FIXED here — root never executes anything from the account-owned checkout.
+    cat > /etc/systemd/system/nado-restart.service <<BRIDGEEOF
+[Unit]
+Description=NADO restart bridge (applies a self-update restart requested by the unprivileged node)
+
+[Service]
+Type=oneshot
+# the sleep mirrors the updater's restart delay: the /update HTTP response + peer update wave get out
+# first ($$ because systemd itself expands \$VAR in ExecStart before the shell runs)
+ExecStart=/bin/sh -c 'sleep 5; rm -f /run/nado/restart-request; for u in nado nado-exec forum; do systemctl try-restart "\$\$u.service" 2>/dev/null || true; done'
+BRIDGEEOF
+    cat > /etc/systemd/system/nado-restart.path <<BRIDGEEOF
+[Unit]
+Description=Watch for the NADO self-update restart flag
+
+[Path]
+PathExists=/run/nado/restart-request
+
+[Install]
+WantedBy=multi-user.target
+BRIDGEEOF
+    # future self-updates rebuild the native crates AS the account — give it its own Rust toolchain
+    if command -v cargo >/dev/null 2>&1 && \
+       ! runuser -u "$SERVICE_ACCOUNT" -- env HOME="$SERVICE_HOME" sh -c 'command -v cargo >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/cargo" ]' 2>/dev/null; then
+      echo "==> installing a Rust toolchain for '$SERVICE_ACCOUNT' (self-update rebuilds native crates as the service user)"
+      runuser -u "$SERVICE_ACCOUNT" -- env HOME="$SERVICE_HOME" sh -c \
+        'curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal' >/dev/null 2>&1 \
+        || echo "    (rustup install failed — updates that touch native crates fall back to pure Python until '$SERVICE_ACCOUNT' has cargo)"
+    fi
+    echo "==> chowning $SERVICE_HOME to $SERVICE_ACCOUNT (checkout + chain data + venv)"
+    chown -R "$SERVICE_ACCOUNT:" "$SERVICE_HOME"
+  fi
   systemctl daemon-reload
   systemctl enable nado.service
+  if [ -n "$SERVICE_ACCOUNT" ]; then systemctl enable --now nado-restart.path; fi
   systemctl restart nado.service
   echo "==> service installed, enabled and started."
   echo "    status:  systemctl status nado"
@@ -411,8 +587,9 @@ UNITEOF
   if [ $WITH_EXEC -eq 1 ]; then
     EUNIT=/etc/systemd/system/nado-exec.service
     # exec state (the replayable shielded-pool/contract state snapshot) lives beside the chain data
-    # when --home is given, else in the repo dir (historical default).
-    EXEC_STATE="${DATA_HOME:-$REPO_DIR}/exec_state.json"
+    # when --home is given, else in the repo dir (historical default). An existing unit's location always
+    # wins (scraped above): regenerating must never point the exec node at an EMPTY state file.
+    EXEC_STATE="${EXEC_STATE_KEEP:-${DATA_HOME:-$REPO_DIR}/exec_state.json}"
     echo "==> writing $EUNIT (shielded pool on :9273$([ $EXEC_SETTLE -eq 1 ] && echo ", settles to L1"); state: $EXEC_STATE)"
     cat > "$EUNIT" <<EXECEOF
 [Unit]
@@ -439,6 +616,8 @@ Restart=always
 RestartSec=5
 TimeoutStopSec=60
 LimitNOFILE=65535
+$([ -n "$SERVICE_ACCOUNT" ] && echo "Group=$SERVICE_ACCOUNT")
+$([ -n "$SERVICE_ACCOUNT" ] && harden_unit)
 
 [Install]
 WantedBy=multi-user.target
@@ -457,6 +636,14 @@ EXECEOF
     systemctl disable --now nado-update.timer 2>/dev/null || true
     rm -f /etc/systemd/system/nado-update.timer /etc/systemd/system/nado-update.service
     systemctl daemon-reload
+  fi
+
+  # a migration stopped EVERY repo-run unit; the installer only rewrote + restarted its own — bring
+  # back the extras it re-pointed (forum, the bet-oracle timer) so they don't stay down until reboot
+  if [ -n "$SERVICE_ACCOUNT" ]; then
+    for _u in forum.service bet-oracle.timer; do
+      if [ -f "/etc/systemd/system/$_u" ]; then systemctl start "$_u" 2>/dev/null || true; fi
+    done
   fi
 else
   # env prefix for the manual-run hints (mirrors what --service would bake into the units)

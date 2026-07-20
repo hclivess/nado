@@ -38,6 +38,13 @@ _RESTART_DELAY = 5                    # s between "updated" and the service rest
 _SERVICES = ("nado", "nado-exec", "forum")   # every service that runs repo code (only installed ones restart)
 _CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/starkprove", "wasm/goldilocks")
 
+# Service-account installs (install.sh --user) run the node unprivileged, so it cannot call
+# `systemctl restart` itself. The installer writes a root-owned path unit (nado-restart.path) that
+# watches this flag; the updater writes the flag, root applies the delayed restart of the fixed unit
+# list. Root installs keep the direct systemctl path and never need the bridge.
+_RESTART_FLAG = "/run/nado/restart-request"
+_RESTART_BRIDGE = "/etc/systemd/system/nado-restart.path"
+
 _lock = threading.Lock()
 _last_check = [0.0]
 _latest_remote = [None]               # origin/main head seen by the LAST fetch — /status advertises it
@@ -127,9 +134,13 @@ def _blocked(why):
 #             would let one GitHub outage take down the entire fleet at once.
 
 def _has_restart_capability():
-    """True if at least one repo-running systemd unit exists — i.e. an applied update would actually take
-    effect. Without this, /update fast-forwards the repo and the OLD process keeps running forever, which
-    is the state three peers are in right now (repo current, running_commit stale)."""
+    """True if at least one repo-running systemd unit exists AND this process has a way to actually invoke
+    the restart: directly (root) or via the nado-restart bridge (service-account installs). Without the
+    unit, /update fast-forwards the repo and the OLD process keeps running forever, which is the state
+    three peers were in (repo current, running_commit stale); without restart access the failure is the
+    same but QUIETER — systemctl exits non-zero into a discarded pipe — so it must count as incapable."""
+    if os.geteuid() != 0 and not os.path.isfile(_RESTART_BRIDGE):
+        return False
     for svc in _SERVICES:
         try:
             subprocess.run(["systemctl", "cat", f"{svc}.service"], timeout=10, check=True,
@@ -173,8 +184,14 @@ def updatability(probe_remote=True) -> dict:
                 blocking.append("no 'origin' remote")
 
     checks["restart_capable"] = _has_restart_capability()
+    checks["restart_bridge"] = os.path.isfile(_RESTART_BRIDGE)
     if not checks["restart_capable"]:
-        blocking.append("no systemd unit — an update would apply to the repo but never restart the process")
+        if os.geteuid() != 0 and not checks["restart_bridge"]:
+            blocking.append("running unprivileged without the nado-restart bridge — an update could apply to "
+                            "the repo but never restart the process; re-run: sudo scripts/install.sh --service "
+                            "--user <account>")
+        else:
+            blocking.append("no systemd unit — an update would apply to the repo but never restart the process")
 
     if probe_remote and checks.get("git_checkout") and not blocking:
         try:
@@ -364,7 +381,9 @@ def _rebuild_native_if_changed(old, new):
         changed = _git("diff", "--name-only", old, new, timeout=30)
     except Exception:
         changed = None                                   # diff unavailable → be conservative, treat all as touched
-    have_cargo = bool(shutil.which("cargo"))
+    # service-account installs get a per-user rustup under $HOME/.cargo which is NOT on systemd's PATH
+    cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
+    have_cargo = bool(shutil.which("cargo")) or os.access(cargo, os.X_OK)
     for crate in _CRATES:
       try:
         path = os.path.join(_REPO_DIR, crate)
@@ -376,7 +395,7 @@ def _rebuild_native_if_changed(old, new):
         ok = False
         if have_cargo:
             try:
-                r = subprocess.run(["cargo", "build", "--release"], cwd=path, timeout=600,
+                r = subprocess.run([cargo, "build", "--release"], cwd=path, timeout=600,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 ok = (r.returncode == 0)
             except Exception:
@@ -395,7 +414,11 @@ def _rebuild_native_if_changed(old, new):
 def _schedule_restart():
     """Restart the node services DETACHED and DELAYED so this process can still flush its HTTP response
     (and forward the update wave to peers) before systemd tears it down. Returns the service list, or []
-    when there is nothing systemd-managed to restart (manual runs: new code applies on next start)."""
+    when there is nothing systemd-managed to restart (manual runs: new code applies on next start).
+
+    Unprivileged (service-account) installs cannot call systemctl restart; they signal the root-owned
+    nado-restart.path bridge by writing the flag file instead — the bridge sleeps, then restarts the
+    fixed unit list, so the delayed/detached semantics are identical."""
     services = []
     for svc in _SERVICES:
         try:
@@ -406,6 +429,13 @@ def _schedule_restart():
             pass
     if not services:
         return []
+    if os.geteuid() != 0 and os.path.isfile(_RESTART_BRIDGE):
+        try:
+            with open(_RESTART_FLAG, "w") as fh:
+                fh.write(str(int(time.time())))
+            return services
+        except Exception:
+            pass                                         # bridge present but flag unwritable — try systemctl anyway
     cmd = ["systemctl", "restart", *services]
     try:
         subprocess.run(["systemd-run", f"--on-active={_RESTART_DELAY}", "--collect", *cmd],

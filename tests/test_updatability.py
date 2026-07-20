@@ -97,6 +97,37 @@ def t_offline_is_a_WARNING_not_fatal():
     assert r["warnings"] and not r["blocking"], f"offline is a warning, not blocking: {r}"
 
 
+def t_unprivileged_without_bridge_is_detected():
+    """A service-account node (install.sh --user) without the root restart bridge could fast-forward the
+    repo but NEVER restart — the same silent rot as a missing unit, only quieter (systemctl fails into a
+    discarded pipe). Must be blocking, and must name the fix."""
+    real_euid, SU.os.geteuid = SU.os.geteuid, (lambda: 1000)
+    try:
+        with patched(_RESTART_BRIDGE=os.path.join(tempfile.mkdtemp(prefix="nado_nobridge_"), "absent.path")):
+            r = SU.updatability(probe_remote=False)
+    finally:
+        SU.os.geteuid = real_euid
+    assert not r["capable"], "unprivileged without a bridge MUST be reported incapable"
+    assert any("unprivileged" in b for b in r["blocking"]), f"and say why: {r['blocking']}"
+
+
+def t_unprivileged_with_bridge_restarts_via_flag():
+    """With the bridge installed, the unprivileged updater must signal the flag file (root applies the
+    restart) instead of calling systemctl — and count as restart-capable."""
+    d = tempfile.mkdtemp(prefix="nado_bridge_")
+    bridge, flag = os.path.join(d, "nado-restart.path"), os.path.join(d, "restart-request")
+    open(bridge, "w").write("[Path]\n")
+    real_euid, SU.os.geteuid = SU.os.geteuid, (lambda: 1000)
+    try:
+        with patched(_RESTART_BRIDGE=bridge, _RESTART_FLAG=flag):
+            assert SU._has_restart_capability(), "bridge present -> restart capable"
+            services = SU._schedule_restart()
+    finally:
+        SU.os.geteuid = real_euid
+    assert services, "must still report which services the bridge will restart"
+    assert os.path.isfile(flag), "must have written the restart flag for the root bridge"
+
+
 def t_heal_runs_the_LOCAL_installer():
     """The fixer must be the installer that ships with the node, not a curl. Asserted by pointing the repo
     dir at a fixture and requiring the spawned command to be that fixture's own install.sh."""
@@ -156,6 +187,8 @@ for name, fn in [
     ("missing systemd unit IS detected", t_missing_service_is_detected),
     ("non-official origin IS detected", t_wrong_origin_is_detected),
     ("offline is a WARNING, never fatal", t_offline_is_a_WARNING_not_fatal),
+    ("unprivileged without the restart bridge IS detected", t_unprivileged_without_bridge_is_detected),
+    ("unprivileged with the bridge signals the flag file", t_unprivileged_with_bridge_restarts_via_flag),
     ("heal runs the LOCAL installer, never a curl", t_heal_runs_the_LOCAL_installer),
     ("heal is attempted at most once", t_heal_is_attempted_once),
     ("heal without root reports the exact command", t_heal_without_root_reports_the_command),
