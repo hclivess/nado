@@ -19,13 +19,22 @@ logger = logging.getLogger("prune"); logger.addHandler(logging.NullHandler())
 from genesis import create_indexers
 create_indexers()
 
-from protocol import REWARD_WINDOW, FINALITY_DEPTH
+from protocol import (REWARD_WINDOW, FINALITY_DEPTH, POSW_ANCHOR_OFFSET, POSW_DIFF_TRAIL, EPOCH_LENGTH)
 from ops import kv_ops, segment_store
 from ops.block_ops import prune_block_bodies
 from ops.data_ops import get_home
 
 HOME = get_home()
-FLOOR = REWARD_WINDOW + FINALITY_DEPTH + 1   # hard safety floor inside prune_block_bodies
+# The hard safety floor inside prune_block_bodies, DERIVED exactly as the code derives it. This used to
+# read `REWARD_WINDOW + FINALITY_DEPTH + 1` (146) and stopped describing the code the moment the v2
+# registration-difficulty read window was added as a second floor: a rolling node that prunes a body inside
+# that window under-counts registers, derives a lower difficulty than archive nodes, and wedges. The real
+# floor is now ~24k blocks, so every scenario below was silently computing prune_below <= 0 and asserting
+# against a prune that never happened — five checks red, all of them measuring nothing.
+FLOOR = max(REWARD_WINDOW + FINALITY_DEPTH + 1,
+            POSW_ANCHOR_OFFSET + POSW_DIFF_TRAIL * EPOCH_LENGTH + FINALITY_DEPTH)
+RET = FLOOR + 150            # a configured retention comfortably ABOVE the floor, so the floor is not what
+                             # binds in t1-t3 (t4 is the one that deliberately tests the floor binding)
 
 fails = 0
 def check(name, fn):
@@ -50,8 +59,16 @@ def segment_files():
 # Build fake blocks 1..600: an index entry (number<->hash) + a segment-store body each. Payloads are
 # opaque bytes (not decodable blocks) — the prune blob-check load fails CLOSED to "not a blob" (same
 # as before with raw body files), so eviction proceeds exactly like a plain value-transfer block.
-N = 600
-for h in range(1, N + 1):
+# The fixture is SPARSE, in two bands, and that is not a shortcut — it is what keeps the test runnable.
+# The floor is ~24k blocks, so a contiguous 1..FLOOR+600 chain means ~24,700 index+segment writes: 15
+# minutes of wall time on a busy box for 87 seconds of CPU, i.e. pure I/O. It buys nothing, because
+# prune_block_bodies skips any height with no index entry (`if not bh: continue`) and caps each call at
+# start+4000 heights. Only two ranges are ever touched: the LOW band the scans actually walk, and the HIGH
+# band around `finalized` that the "must still be present" assertions probe.
+LOW_HI = 700                       # prune zone: t1 takes 1..249, t3 250..449, t4 450..599
+HIGH_LO, HIGH_HI = RET + 100, RET + 500      # covers RET+150/250/350/405/450 — every high probe below
+HEIGHTS = list(range(1, LOW_HI + 1)) + list(range(HIGH_LO, HIGH_HI + 1))
+for h in HEIGHTS:
     bh = f"{h:064x}"
     kv_ops.block_index_put(block_number=h, block_hash=bh)
     seg, off, ln = segment_store.append(bh, b"body-%d" % h)
@@ -60,15 +77,15 @@ SEGS_BEFORE = segment_files()
 
 def t1_prunes_below_window_keeps_index():
     """Prove pruning unreferences bodies below finalized-retention, keeps the number<->hash index and reward-window body, and advances the watermark."""
-    # finalized=400, retention=150 (>= FLOOR) -> prune_below = 400 - 150 = 250
-    n = prune_block_bodies(400, 150, logger)
+    # finalized = RET+250, retention = RET -> prune_below = 250
+    n = prune_block_bodies(RET + 250, RET, logger)
     assert n == 249, f"expected 249 pruned (heights 1..249), got {n}"
     assert not body_exists(1) and not body_exists(249), "old bodies must be unreferenced"
-    assert body_exists(250) and body_exists(400), "bodies within retention must remain"
+    assert body_exists(250) and body_exists(RET + 250), "bodies within retention must remain"
     # index is KEPT even for pruned heights (beacon/FFG resolve hashes without the body)
     assert indexed(1) and indexed(249), "number<->hash index must survive a body prune"
     # correctness floor: the reward-window body (finalized - REWARD_WINDOW = 300) must still be present
-    assert body_exists(400 - REWARD_WINDOW), "reward-window body must never be pruned"
+    assert body_exists(RET + 250 - REWARD_WINDOW), "reward-window body must never be pruned"
     assert kv_ops.meta_get_int("pruned_below", -1) == 250, "watermark advances to prune_below"
 
 def t1b_dead_segments_reclaimed():
@@ -86,25 +103,26 @@ def t1b_dead_segments_reclaimed():
 
 def t2_idempotent_noop():
     """Prove a second identical prune call is a no-op (watermark makes it idempotent)."""
-    n = prune_block_bodies(400, 150, logger)  # same inputs -> nothing new
+    n = prune_block_bodies(RET + 250, RET, logger)  # same inputs -> nothing new
     assert n == 0, f"second identical call must be a no-op, pruned {n}"
     assert kv_ops.meta_get_int("pruned_below", -1) == 250
 
 def t3_incremental_on_new_finality():
     """Prove advancing finality prunes only the delta between the old and new watermark."""
-    # finalized advances to 600 -> prune_below = 600 - 150 = 450; prunes only the delta 250..449
-    n = prune_block_bodies(600, 150, logger)
+    # finalized advances to RET+450 -> prune_below = 450; prunes only the delta 250..449
+    n = prune_block_bodies(RET + 450, RET, logger)
     assert n == 200, f"expected 200 pruned (heights 250..449), got {n}"
     assert not body_exists(449), "newly-out-of-window body gone"
-    assert body_exists(450) and body_exists(600), "bodies within the new window remain"
+    assert body_exists(450) and body_exists(RET + 450), "bodies within the new window remain"
     assert kv_ops.meta_get_int("pruned_below", -1) == 450
 
 def t4_safety_floor_protects_reward_and_rollback_window():
-    """Prove a tiny misconfigured retention is floored at REWARD_WINDOW+FINALITY_DEPTH+1 so reward and rollback bodies survive."""
-    n = prune_block_bodies(600, 1, logger)          # retention=1 -> effective floor FLOOR
-    expected_prune_below = 600 - FLOOR              # never above this
-    assert body_exists(600 - REWARD_WINDOW), "reward-window body must survive even a tiny retention"
-    assert body_exists(600 - FINALITY_DEPTH), "rollback-window body must survive"
+    """Prove a tiny misconfigured retention is floored at FLOOR so reward and rollback bodies survive."""
+    fin = RET + 450
+    n = prune_block_bodies(fin, 1, logger)          # retention=1 -> effective floor FLOOR
+    expected_prune_below = fin - FLOOR              # never above this
+    assert body_exists(fin - REWARD_WINDOW), "reward-window body must survive even a tiny retention"
+    assert body_exists(fin - FINALITY_DEPTH), "rollback-window body must survive"
     assert kv_ops.meta_get_int("pruned_below", -1) == expected_prune_below, \
         f"floor must cap prune_below at {expected_prune_below}"
 
