@@ -1321,8 +1321,17 @@ class CoreClient(threading.Thread):
             # block; reverted in rollback_one_block. Not in any block hash preimage.
             try:
                 from execnode.stark.calls_commit import block_summary
+                from protocol import EXEC_SUMMARY_RETENTION
                 _inert, _calls = block_summary(block)
-                kv_ops.exec_summary_put(block["block_number"], _inert, _calls)
+                _h = block["block_number"]
+                kv_ops.exec_summary_put(_h, _inert, _calls)
+                # O(1) rolling GC: drop the one height falling out of the retention window. These live in
+                # the `meta` sub-DB, which IS snapshot-carried, so an unbounded set would grow with chain
+                # length and bloat every snapshot. Nothing a proof could use is lost — a span reaching
+                # further back than SETTLE_PROOF_MAX_SPAN is refused by the cap anyway. The dropped height
+                # is far below the reorg window, so rollback never needs to restore it.
+                if _h > EXEC_SUMMARY_RETENTION:
+                    kv_ops.exec_summary_del(_h - EXEC_SUMMARY_RETENTION)
             except Exception as e:
                 # Never let summary derivation break block application. HONEST CAVEAT: this is only safe
                 # because block_summary is a PURE function of the body, so a genuine failure is

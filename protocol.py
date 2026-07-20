@@ -419,6 +419,16 @@ EPOCH_LENGTH = 60                  # slots per epoch (also the beacon/RANDAO epo
 # snapshot-synced node reliably has it. A settler posts every SETTLE_EVERY (5) blocks, so 4 epochs is
 # generous headroom for a lagging settler; a genuinely larger gap rides the bonded quorum instead.
 SETTLE_PROOF_MAX_SPAN = 4 * EPOCH_LENGTH
+
+# How many recent heights keep an exec summary (kv_ops.exec_summary_*). These live in the `meta` sub-DB,
+# which IS carried in SNAPSHOT_DBS, so without a bound they would grow with chain length AND bloat every
+# snapshot. A settle-with-proof span is capped at SETTLE_PROOF_MAX_SPAN, so any span reaching further back
+# than this is refused by the cap regardless of whether the summary survives — dropping below the window
+# costs nothing a proof could have used. 4x the cap leaves generous room for a lagging settler; if
+# settlement falls further behind than this, proof-settlement simply yields to the bonded quorum until it
+# catches up (a liveness fallback, never a soundness question). Far below FINALITY_DEPTH's reorg reach, so
+# a GC'd height can never be rolled back and rollback never needs to restore one.
+EXEC_SUMMARY_RETENTION = 4 * SETTLE_PROOF_MAX_SPAN
 OPEN_BPS = 3000                    # SECURITY DIAL: open-lane share of slots (30.00%); Sybil ceiling.
                                    # Bonded keeps the 70% majority — above the 2/3 settlement/finality quorum,
                                    # so fork-choice + finality stay stake-controlled. MUST stay <= 3333 (33.3%)
