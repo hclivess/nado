@@ -755,6 +755,11 @@ shape is unchanged (49 chars).
 
 - **Whitepaper** — [`doc/whitepaper.md`](doc/whitepaper.md): the authoritative, accuracy-reviewed
   overview of the mechanism, with a full constants table and an explicit implemented-vs-planned split.
+- **Roadmap** — [`ROADMAP.md`](ROADMAP.md): where the app layer goes next. An honest gap analysis
+  against the chains that actually generate app revenue (assets → AMM → launchpad → router → wallet
+  swap → terminal), the on-ramp/fair-ordering/dev-surface tracks that run alongside it, and the rule
+  that keeps it NADO-shaped: **the protocol takes nothing, apps declare their fees on-chain, and the
+  default sink is burn.**
 - **Consensus hardening plan** — [`doc/consensus-hardening-plan.md`](doc/consensus-hardening-plan.md):
   the locked, ordered design for the remaining security milestones.
 - **Storage design** — [`doc/storage-kv-migration.md`](doc/storage-kv-migration.md).
