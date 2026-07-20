@@ -346,6 +346,12 @@ def _eff_stat(pid_reg, i_sc, out):
                f"movi r6 {STAT_TIER_BONUS}", "mul r5 r6", f"add {out} r5",
                # + trained bonus: field (TB_BASE + i) keyed pid
                f"movi r4 {TB_BASE}", f"movi r5 {i_sc}", "sload r5 r5", "add r4 r5",
+               f"movi r5 {_2_32}", "mul r4 r5", f"add r4 {pid_reg}", "sload r5 r4", f"add {out} r5",
+               # + GEAR: field (GB_BASE + i) keyed pid. Adding it HERE is the whole integration — every
+               # place a stat is read (the arena's 20 effective stats, the card, the training preview)
+               # picks equipment up for free, so a found sword actually makes the pet better rather than
+               # being a number in a bag the combat code never sees.
+               f"movi r4 {GB_BASE}", f"movi r5 {i_sc}", "sload r5 r5", "add r4 r5",
                f"movi r5 {_2_32}", "mul r4 r5", f"add r4 {pid_reg}", "sload r5 r4", f"add {out} r5"])
 
 
@@ -624,10 +630,302 @@ REFUND_BATTLE = "\n".join(
     + _sl(WP) + ["sload r6 r4"] + _sl(WS) + ["sload r3 r4", "sub r6 r3", "pay r5 r6"]
     + _sl(WN) + ["movi r5 3", "sstore r4 r5"] + _sl(WP) + ["movi r5 0", "sstore r4 r5", "ret r0"])
 
+# ==== HOMESTEAD: trades, base building, resources and gear =========================================
+# The tamagotchi loop only ever ran DOWN: every pet costs NADO to feed and dies without it. Homestead is
+# the other half — pets that WORK. A pet has a TRADE it was born to (derived from its species, so it is a
+# fact about the animal, not a choice), a building of that trade can be staffed with it, and the building
+# produces a resource for as long as it is staffed. Fodder feeds the whole barn for free, which closes the
+# upkeep loop; the other four resources build and upgrade the base. Work also turns up GEAR, which is where
+# the Diablo part lives: items roll random affixes on real stats, scaled by the finder's rarity, and
+# equipping one adds those points to the pet — so a found sword makes that pet measurably better in the
+# arena rather than being a trophy in a bag.
+#
+# Everything accrues LAZILY: a building stores only WHEN it was last collected, and collect() pays out
+# elapsed_blocks x rate. Nothing runs on a timer, nothing needs a keeper, and an idle base costs nothing to
+# hold — the same shape the rest of these games use for anything time-based.
+NJOBS = 5                     # trade / resource ids: 0 fodder · 1 timber · 2 stone · 3 ore · 4 essence
+GB_BASE = 70                  # 70..79: GEAR bonus per stat index, keyed pid (parallel to TB_BASE)
+BO, BT, BL, BP, BSI = 80, 81, 82, 83, 84    # building: owner · trade · level · operator pid · since-block
+IO, IT, IR, IE = 90, 91, 92, 93             # item: owner · gear slot · rarity · equipped pid (0 = in the bag)
+IA_BASE = 94                                # 94..96: three affixes, each = stat_index * AFFIX_MUL + points
+BLIST, ILIST = 63, 64                       # index lists (mirrors PLIST/OLIST/WLIST)
+BCNT_SLOT, ICNT_SLOT = 4, 5                 # their counters (field 0, like OCNT_SLOT/WCNT_SLOT)
+TG_RES = 700                  # per-owner resource balance: HASH(TG_RES, owner, kind)
+TG_GEAR = 701                 # pet's equipped item per gear slot: HASH(TG_GEAR, pid, slot)
+BUILD_FEE = 5 * 10**9         # 0.5 NADO per level, paid on build/upgrade — burned, like the mint fee
+MAX_LEVEL = 5
+GEAR_SLOTS = 4                # 0 tool · 1 barding · 2 charm · 3 relic — one item per slot per pet
+AFFIX_MUL = 256               # affix packing: stat_index * AFFIX_MUL + points (points < AFFIX_MUL)
+AFFIX_CAP = 12                # max points one affix can roll at tier 1 (scales with the finder's rarity)
+ACCRUE_CAP = 20000            # blocks of production a building banks unattended (~33h at 6s) — an idle
+                              # base keeps earning, but not forever, so nobody farms a year in one call
+RATE_DIV = 9000               # production divisor: units = elapsed x level x (10 + trade stat) x sp / this
+FODDER_BLOCKS = 200           # blocks of life one unit of fodder buys. Deliberately NOT enough to retire the
+                              # NADO food sink: a level-1 farm roughly feeds the pet working it, and only a
+                              # heavily upgraded base with a rare worker feeds a barn. Unlike bought food it
+                              # ignores appetite, which is the actual reward for farming.
+UPG_TIMBER, UPG_STONE, UPG_ORE = 40, 30, 25   # per level of the NEW level; ore only from level 4 up
+DROP_ONE_IN = 6               # roughly one collect in this many turns up an item
+SCRAP_ESSENCE = 3             # essence returned for scrapping an item, x its rarity
+REROLL_ESSENCE = 8            # essence to re-roll an item's affixes, x its rarity — the sink that makes
+                              # essence (and therefore Shrines and scrapping junk) worth anything
+
+
+def _trade(pid_reg, out):
+    """out = the pet's trade (0..NJOBS-1), derived from its SPECIES: si % NJOBS. Deriving it means every
+    pet of a species shares a trade — "you need a miner for a mine" is a fact players can learn and trade
+    on — and it costs no storage and no migration for the pets that already exist. Clobbers r4/r6/r7.
+
+    `out` must not be r4/r6/r7. The divisor deliberately lives in r6 rather than r5: an earlier version
+    took it in r5 while callers passed out="r5", so `divmod r5 r5` divided the species by itself and every
+    pet read as trade 0 — which silently opened every building to every animal."""
+    assert out not in ("r4", "r6", "r7"), f"_trade: {out} collides with its own scratch"
+    return [f"slot r4 {SI} {pid_reg}", f"sload {out} r4",
+            f"movi r6 {NJOBS}", f"divmod {out} r6", f"mov {out} r7"]
+
+
+def _owned_alive(pid_reg):
+    """require: caller owns this pet AND it is alive. The pair guards every job/gear action. Clobbers r4-r6."""
+    return ([f"slot r4 {OW} {pid_reg}", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+            + _alive_pid(pid_reg))
+
+
+def _res_slot(out, owner_reg, kind_reg):
+    """out = the resource-balance slot for (owner, kind). Hash-keyed like every other per-user balance in
+    these contracts, read back through the res_of view. Clobbers r4."""
+    return [f"movi r4 {TG_RES}", f"hash {out} <- r4 {owner_reg} {kind_reg}"]
+
+
+def _res_add(owner_reg, kind_reg, amt_reg):
+    """credit `amt` of resource `kind` to `owner`. Clobbers r2/r4."""
+    return _res_slot("r2", owner_reg, kind_reg) + ["sload r4 r2", f"add r4 {amt_reg}", "sstore r2 r4"]
+
+
+def _res_take(kind, amt_reg):
+    """REQUIRE the caller holds `amt` of resource `kind`, and spend it. Reverts the whole call when short —
+    so a half-paid upgrade is impossible. Clobbers r2/r4/r5/r6."""
+    return (["ctx r5 caller", f"movi r6 {kind}"] + _res_slot("r2", "r5", "r6")
+            + ["sload r4 r2", f"mov r5 r4", f"lt r5 {amt_reg}", "notb r5", "require r5",
+               f"sub r4 {amt_reg}", "sstore r2 r4"])
+
+
+# ---- production ----------------------------------------------------------------------------------
+# _accrue banks everything a building earned since it was last touched, and is shared by collect(), staff()
+# and upgrade() — every path that changes what a building produces must first pay out what it already
+# produced at the OLD terms, or the change would silently rewrite history.
+def _accrue():
+    """Pay out building r0's production and reset its clock. Produces nothing (and still resets the clock)
+    when the building is unstaffed. Emits NO ret — the caller continues. Clobbers r1..r7."""
+    L = _sl(BSI) + ["sload r1 r4"]                                          # r1 = since
+    L += ["ctx r2 cursor", "mov r3 r2", "sub r3 r1"]                        # r3 = elapsed
+    # cap the banked window, then re-anchor the clock to now
+    L += [f"movi r5 {ACCRUE_CAP}", "mov r6 r3", "lt r6 r5", "notb r6",      # r6 = elapsed >= CAP
+          "mul r5 r6", "notb r6", "mul r6 r3", "add r5 r6", "mov r3 r5"]    # r3 = min(elapsed, CAP)
+    L += _sl(BSI) + ["ctx r5 cursor", "sstore r4 r5"]
+    L += _sl(BP) + ["sload r1 r4", "nez r1"]                                # r1 = staffed?
+    L += ["mul r3 r1"]                                                      # unstaffed -> nothing accrues
+    # rate = level * (10 + operator's trade stat) * rarity
+    L += _sl(BP) + ["sload r1 r4"]                                          # r1 = operator pid
+    L += _sl(BT) + ["sload r5 r4", f"movi r4 {_sc(0)}", "sstore r4 r5"]     # scratch0 = trade index
+    L += _eff_stat("r1", _sc(0), "r2") + ["movi r5 10", "add r2 r5"]        # r2 = 10 + trade stat
+    L += _sl(BL) + ["sload r5 r4", "mul r2 r5"]                             # x level
+    L += [f"slot r4 {SP} r1", "sload r5 r4", "mul r2 r5"]                   # x rarity tier
+    L += ["mul r3 r2", f"movi r5 {RATE_DIV}", "divmod r3 r5"]               # r3 = units produced
+    # credit the OWNER (not the caller — collect is permissionless, the yield is never the caller's)
+    L += _sl(BO) + ["sload r6 r4"] + _sl(BT) + ["sload r5 r4"]
+    L += _res_add("r6", "r5", "r3")
+    return L
+
+
+def _roll_affixes(iid_reg, rarity_reg, salt_reg):
+    """Write item `iid`'s three affixes: a stat index (0..9) and points 1..AFFIX_CAP*rarity, each rolled off
+    a distinct salt. Shared by the find and the reroll so a rerolled item is drawn from exactly the same
+    distribution as a found one. Clobbers r3/r4/r6."""
+    L = []
+    for k in range(3):
+        L += [f"mov r6 {salt_reg}", f"movi r4 {5000 + k}", "add r6 r4"] + _roll32("r6", "r6")
+        L += ["mov r3 r6", "movi r4 10", "divmod r3 r4", "mov r3 r7"]       # r3 = stat index 0..9
+        # points scale with rarity — that is what makes a legendary pet worth working a base
+        L += [f"movi r4 {AFFIX_CAP}", f"mul r4 {rarity_reg}", "divmod r6 r4", "mov r6 r7",
+              "movi r4 1", "add r6 r4"]                                     # r6 = 1..AFFIX_CAP*rarity
+        L += [f"movi r4 {AFFIX_MUL}", "mul r3 r4", "add r3 r6",
+              f"slot r4 {IA_BASE + k} {iid_reg}", "sstore r4 r3"]
+    return L
+
+
+def _item_drop():
+    """Roll for a find and, on a hit, mint an item owned by the building's owner. The roll is the previous
+    block's hash mixed with the building id and its clock — public, replayable, and not choosable by the
+    caller (the block hash is fixed before collect() can be sent). Clobbers r1..r7."""
+    L = ["ctx r5 cursor", "movi r6 1", "sub r5 r6", "bhash r2 r5"]          # r2 = last block hash
+    L += _sl(BSI) + ["sload r5 r4", "add r2 r5", "mov r5 r0", "add r2 r5"]
+    L += _roll32("r2", "r2")
+    L += ["mov r3 r2", f"movi r5 {DROP_ONE_IN}", "divmod r3 r5", "mov r3 r7", "nez r3", "notb r3"]
+    L += ["jnz r3 @drop", "ret r0", "drop:"]                                # r3 == 1 -> a find
+    # item id = the next counter value, appended 0-INDEXED like every other list here (offers/battles) —
+    # the storage view enumerates list[0..cnt-1], so an off-by-one hides the newest item from the client.
+    # Ids themselves start at 1, because 0 is "no item" everywhere else in this contract.
+    L += [f"movi r4 {ICNT_SLOT}", "sload r5 r4",                            # r5 = old count = the new index
+          "mov r1 r5", "movi r6 1", "add r1 r6", "sstore r4 r1"]            # r1 = iid = old + 1
+    L += [f"slot r4 {ILIST} r5", "sstore r4 r1"]
+    L += _sl(BO) + ["sload r5 r4", f"slot r4 {IO} r1", "sstore r4 r5"]      # owner = the base's owner
+    # gear slot = roll % GEAR_SLOTS ; rarity = the OPERATOR's tier (a rare pet finds rare things)
+    L += ["mov r5 r2", f"movi r6 {GEAR_SLOTS}", "divmod r5 r6", f"slot r4 {IT} r1", "sstore r4 r7"]
+    L += _sl(BP) + ["sload r6 r4", f"slot r4 {SP} r6", "sload r5 r4",
+                    f"slot r4 {IR} r1", "sstore r4 r5"]                     # r5 = rarity
+    L += [f"slot r4 {IE} r1", "movi r6 0", "sstore r4 r6"]                  # not equipped
+    L += _roll_affixes("r1", "r5", "r2")
+    # RET the new item id. Without this the drop path ran off the end of the program, which the VM treats
+    # as a revert — so every collect that actually FOUND something silently failed and paid nothing, while
+    # the (far more common) no-drop path returned fine and looked healthy.
+    return L + ["ret r1"]
+# ---- methods -------------------------------------------------------------------------------------
+# build(bid, trade, builderPid)[value]: raise a building of `trade`. It costs NADO (burned, like minting)
+# AND a pet born to that trade to raise it — a base is something you commit to, not something you spam.
+BUILD = "\n".join(
+    ["movi r5 0", "lt r5 r0", "require r5",
+     f"movi r5 {_2_32}", "mov r6 r0", "lt r6 r5", "require r6"]
+    + _sl(BO) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]              # fresh building id
+    + [f"movi r5 {NJOBS}", "mov r6 r1", "lt r6 r5", "require r6"]               # a real trade
+    + ["ctx r5 value", f"movi r6 {BUILD_FEE}", "eq r5 r6", "require r5"]
+    + _owned_alive("r2")
+    + _trade("r2", "r5") + ["mov r6 r1", "eq r5 r6", "require r5"]              # the builder's trade matches
+    + [f"movi r4 {BURN_SLOT}", "sload r5 r4", f"movi r6 {BUILD_FEE}", "add r5 r6", "sstore r4 r5"]
+    + ["ctx r5 caller"] + _sl(BO) + ["sstore r4 r5"]
+    + _sl(BT) + ["sstore r4 r1"]
+    + _sl(BL) + ["movi r5 1", "sstore r4 r5"]
+    + _sl(BP) + ["movi r5 0", "sstore r4 r5"]
+    + _sl(BSI) + ["ctx r5 cursor", "sstore r4 r5"]
+    + [f"movi r4 {BCNT_SLOT}", "sload r5 r4", f"slot r6 {BLIST} r5", "sstore r6 r0",
+       "movi r3 1", "add r5 r3", "sstore r4 r5", "ret r0"])
+
+# upgrade(bid, builderPid)[value]: +1 level, which multiplies output. Banks the old level's production
+# FIRST — changing the rate without settling what the building already earned would rewrite history.
+UPGRADE_B = "\n".join(
+    _sl(BO) + ["sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+    + _sl(BL) + ["sload r5 r4", f"movi r6 {MAX_LEVEL}", "lt r5 r6", "require r5"]
+    + _owned_alive("r1")
+    + _trade("r1", "r5") + _sl(BT) + ["sload r6 r4", "eq r5 r6", "require r5"]
+    # price is BUILD_FEE per level of the NEW level, so each step up costs more than the last
+    + _sl(BL) + ["sload r5 r4", "movi r6 1", "add r5 r6", f"movi r6 {BUILD_FEE}", "mul r5 r6",
+                 "ctx r6 value", "eq r5 r6", "require r5"]
+    + [f"movi r4 {BURN_SLOT}", "sload r5 r4", "ctx r6 value", "add r5 r6", "sstore r4 r5"]
+    # MATERIALS, scaled by the new level. Without this, timber/stone/ore are numbers nobody ever spends and
+    # every base is an island; with it a Farm needs a Sawmill and a Quarry, which is the whole base game.
+    + _sl(BL) + ["sload r3 r4", "movi r5 1", "add r3 r5"]                       # r3 = the new level
+    + ["mov r1 r3", f"movi r5 {UPG_TIMBER}", "mul r1 r5"] + _res_take(1, "r1")
+    + ["mov r1 r3", f"movi r5 {UPG_STONE}", "mul r1 r5"] + _res_take(2, "r1")
+    # ore only from level 4 up: (new_level >= 4) x UPG_ORE x new_level
+    + ["mov r1 r3", "movi r5 4", "lt r1 r5", "notb r1", "mul r1 r3",
+       f"movi r5 {UPG_ORE}", "mul r1 r5"] + _res_take(3, "r1")
+    + _accrue()
+    + _sl(BL) + ["sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5", "ret r5"])
+
+# staff(bid, pid): put a pet to work (pid 0 clocks the current one off). Banks first, for the same reason.
+STAFF = "\n".join(
+    _sl(BO) + ["sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+    # _accrue needs r1 for its own bookkeeping, so the incoming pet is parked in scratch across the payout
+    # and read back. (Without this, staff() re-assigned whatever the PREVIOUS operator was.)
+    + [f"movi r4 {_sc(1)}", "sstore r4 r1"]
+    + _accrue()
+    + [f"movi r4 {_sc(1)}", "sload r1 r4"]
+    + ["mov r5 r1", "nez r5", "notb r5", "jnz r5 @clear"]                       # pid 0 -> just clear it
+    + _owned_alive("r1")
+    + _trade("r1", "r5") + _sl(BT) + ["sload r6 r4", "eq r5 r6", "require r5"]  # trade must match
+    + ["clear:"] + _sl(BP) + ["sstore r4 r1", "ret r1"])
+
+# collect(bid): permissionless — anyone may settle a base, the yield always goes to its OWNER. That keeps
+# a shared "collect all" possible without handing anyone else's harvest to the caller.
+COLLECT = "\n".join(_accrue() + _item_drop())
+
+# provision(pid, units): feed from the barn's own stores instead of from the wallet. This is the point of
+# farming — fodder a farm produced costs nothing to use, so a working base feeds itself.
+PROVISION = "\n".join(
+    ["movi r5 0", "lt r5 r1", "require r5"]
+    + [f"slot r4 {OW} r0", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+    + [f"slot r4 {GN} r0", "sload r5 r4", "nez r5", "require r5"]               # hatched pets only
+    + ["ctx r5 caller", "movi r6 0"] + _res_slot("r2", "r5", "r6")              # kind 0 = fodder
+    + ["sload r5 r2", "mov r6 r1", "lt r5 r6", "notb r5", "require r5"]         # enough in store
+    + ["sload r5 r2", "sub r5 r1", "sstore r2 r5"]
+    + [f"movi r5 {FODDER_BLOCKS}", "mul r1 r5"]                                 # units -> belly blocks
+    + [f"slot r4 {FU} r0", "sload r5 r4", "add r5 r1",
+       "ctx r6 cursor", f"movi r2 {BELLY_CAP}", "add r6 r2",                    # cap at cursor + BELLY_CAP
+       "mov r2 r5", "lt r2 r6", "notb r2",                                      # r2 = over the cap
+       "mul r6 r2", "notb r2", "mul r2 r5", "add r6 r2",
+       "sstore r4 r6", "ret r6"])
+
+# equip(itemId, pid): the Diablo half. An item's affixes are POINTS ON REAL STATS, so equipping it adds
+# them to the pet's gear board and _eff_stat picks them up everywhere — the arena, the card, the previews.
+# One item per gear slot per pet; the item remembers its own rolls, so unequip is exact.
+EQUIP = "\n".join(
+    [f"slot r4 {IO} r0", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+    + [f"slot r4 {IE} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]    # not already worn
+    + _owned_alive("r1")
+    + [f"slot r4 {IT} r0", "sload r2 r4"]                                       # r2 = gear slot
+    + [f"movi r4 {TG_GEAR}", "hash r3 <- r4 r1 r2", "sload r5 r3", "nez r5", "notb r5", "require r5"]
+    + ["sstore r3 r0"]                                                          # slot -> this item
+    + [f"slot r4 {IE} r0", "sstore r4 r1"]
+    + [op for k in range(3) for op in
+       ([f"slot r4 {IA_BASE + k} r0", "sload r5 r4", f"movi r6 {AFFIX_MUL}", "divmod r5 r6",
+         "mov r6 r7",                                                           # r5 = stat idx, r6 = points
+         f"movi r4 {GB_BASE}", "add r4 r5", f"movi r5 {_2_32}", "mul r4 r5", "add r4 r1",
+         "sload r5 r4", "add r5 r6", "sstore r4 r5"])]
+    + ["ret r0"])
+
+# unequip(itemId): exact reverse — the item still holds the rolls that were added, so nothing drifts.
+UNEQUIP = "\n".join(
+    [f"slot r4 {IO} r0", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+    + [f"slot r4 {IE} r0", "sload r1 r4", "nez r1", "require r1"]
+    + [f"slot r4 {IE} r0", "sload r1 r4"]                                       # r1 = the wearer
+    + [f"slot r4 {IT} r0", "sload r2 r4",
+       f"movi r4 {TG_GEAR}", "hash r3 <- r4 r1 r2", "movi r5 0", "sstore r3 r5"]
+    + [f"slot r4 {IE} r0", "movi r5 0", "sstore r4 r5"]
+    + [op for k in range(3) for op in
+       ([f"slot r4 {IA_BASE + k} r0", "sload r5 r4", f"movi r6 {AFFIX_MUL}", "divmod r5 r6",
+         "mov r6 r7",
+         f"movi r4 {GB_BASE}", "add r4 r5", f"movi r5 {_2_32}", "mul r4 r5", "add r4 r1",
+         "sload r5 r4", "sub r5 r6", "sstore r4 r5"])]
+    + ["ret r0"])
+
+# scrap(itemId): inventory management with a floor — a bag full of junk converts to essence rather than
+# needing a delete button. Must be off the pet first, so scrapping can never strip a pet mid-battle.
+SCRAP = "\n".join(
+    [f"slot r4 {IO} r0", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+    + [f"slot r4 {IE} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]
+    + [f"slot r4 {IR} r0", "sload r1 r4", f"movi r5 {SCRAP_ESSENCE}", "mul r1 r5"]
+    + ["ctx r5 caller", "movi r6 4"] + _res_add("r5", "r6", "r1")               # kind 4 = essence
+    + [f"slot r4 {IO} r0", "movi r5 0", "sstore r4 r5", "ret r1"])              # owner 0 = gone
+
+# reroll(itemId): spend essence to re-roll an item's affixes. The Diablo half needs a way to CHASE a roll,
+# or a bag of near-misses is just clutter; this is also the only sink essence has, which is what gives
+# Shrines and scrapping a point. The item keeps its slot and rarity — you are re-rolling the affixes, not
+# gambling for a better item — and it must be off the pet, so the gear board can never drift.
+REROLL = "\n".join(
+    [f"slot r4 {IO} r0", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+    + [f"slot r4 {IE} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]
+    + [f"slot r4 {IR} r0", "sload r5 r4"]                                       # r5 = rarity (kept)
+    + ["mov r1 r5", f"movi r6 {REROLL_ESSENCE}", "mul r1 r6"] + _res_take(4, "r1")
+    + [f"slot r4 {IR} r0", "sload r5 r4"]                                       # reload: _res_take clobbers r5
+    # fresh entropy: last block's hash, mixed with the item and the block it is being rerolled in
+    + ["ctx r2 cursor", "movi r6 1", "sub r2 r6", "bhash r2 r2",
+       "mov r6 r0", "add r2 r6", "ctx r6 cursor", "add r2 r6"]
+    + _roll_affixes("r0", "r5", "r2")
+    + ["ret r0"])
+
+# ---- views ---------------------------------------------------------------------------------------
+RES_OF = "\n".join(_res_slot("r3", "r0", "r1") + ["sload r3 r3", "ret r3"])
+GEAR_OF = "\n".join([f"movi r4 {TG_GEAR}", "hash r3 <- r4 r0 r1", "sload r3 r3", "ret r3"])
+TRADE_OF = "\n".join(_trade("r0", "r3") + ["ret r3"])
+# ==== end HOMESTEAD ================================================================================
+
 SRC = {"mint": MINT, "rebirth": REBIRTH, "feed": FEED, "transfer": TRANSFER, "name": NAME,
        "list": LIST_, "unlist": UNLIST, "buy": BUY, "offer": OFFER, "accept_offer": ACCEPT_OFFER,
        "cancel_offer": CANCEL_OFFER, "train": TRAIN, "challenge": CHALLENGE, "accept": ACCEPT,
-       "cancel_battle": CANCEL_BATTLE, "refund_battle": REFUND_BATTLE, "release": RELEASE}
+       "cancel_battle": CANCEL_BATTLE, "refund_battle": REFUND_BATTLE, "release": RELEASE,
+       # homestead
+       "build": BUILD, "upgrade": UPGRADE_B, "staff": STAFF, "collect": COLLECT, "provision": PROVISION,
+       "equip": EQUIP, "unequip": UNEQUIP, "scrap": SCRAP, "reroll": REROLL,
+       "res_of": RES_OF, "gear_of": GEAR_OF, "trade_of": TRADE_OF}
 
 ABI = {
     "mint": {"args": ["petId"], "value": True},
@@ -651,6 +949,19 @@ ABI = {
     "refund_battle": {"args": ["battleId"]},
     "combine": {"args": ["keepPet", "consumePet"]},
     "release": {"args": ["petId"]},
+    # ---- homestead ----
+    "build": {"args": ["buildingId", "trade", "builderPetId"], "value": True},
+    "upgrade": {"args": ["buildingId", "builderPetId"], "value": True},
+    "staff": {"args": ["buildingId", "petId"]},
+    "collect": {"args": ["buildingId"]},
+    "provision": {"args": ["petId", "units"]},
+    "equip": {"args": ["itemId", "petId"]},
+    "unequip": {"args": ["itemId"]},
+    "scrap": {"args": ["itemId"]},
+    "reroll": {"args": ["itemId"]},
+    "res_of": {"args": ["addr", "kind"]},
+    "gear_of": {"args": ["petId", "slot"]},
+    "trade_of": {"args": ["petId"]},
     "_view": {
         "maps": {"ow": {"field": OW, "index": "pets"}, "bh": {"field": BH, "index": "pets"},
                  "gl": {"field": GL, "index": "pets"}, "gh": {"field": GH, "index": "pets"},
@@ -663,14 +974,23 @@ ABI = {
                  "wins": {"field": WINS, "index": "pets"}, "loss": {"field": LOSS, "index": "pets"},
                  "ob": {"field": OB, "index": "offers"}, "op": {"field": OP_, "index": "offers"},
                  "ov": {"field": OV, "index": "offers"}, "os": {"field": OS, "index": "offers"},
+                 "bo": {"field": BO, "index": "bases"}, "bt": {"field": BT, "index": "bases"},
+                 "bl": {"field": BL, "index": "bases"}, "bp": {"field": BP, "index": "bases"},
+                 "bsi": {"field": BSI, "index": "bases"},
+                 "io": {"field": IO, "index": "items"}, "it": {"field": IT, "index": "items"},
+                 "ir": {"field": IR, "index": "items"}, "ie": {"field": IE, "index": "items"},
                  "wa": {"field": WA, "index": "battles"}, "wb": {"field": WB, "index": "battles"},
                  "ws": {"field": WS, "index": "battles"}, "wp": {"field": WP, "index": "battles"},
                  "wh": {"field": WH, "index": "battles"}, "wn": {"field": WN, "index": "battles"},
                  "ww": {"field": WW, "index": "battles"}, "wd": {"field": WD, "index": "battles"}},
         "indexes": {"pets": {"cnt": 0, "list": PLIST}, "offers": {"cnt": OCNT_SLOT, "list": OLIST},
+                    "bases": {"cnt": BCNT_SLOT, "list": BLIST}, "items": {"cnt": ICNT_SLOT, "list": ILIST},
                     "battles": {"cnt": WCNT_SLOT, "list": WLIST}},
-        "addr": ["ow", "nm", "ob"],
+        "addr": ["ow", "nm", "ob", "bo", "io"],
         "board": {"name": "tb", "base": TB_BASE, "cells": 10, "stride": 10, "index": "pets"},
+        # gear points per stat (parallel to tb) and each item's three rolled affixes
+        "board2": {"name": "gb", "base": GB_BASE, "cells": 10, "stride": 10, "index": "pets"},
+        "board3": {"name": "ia", "base": IA_BASE, "cells": 3, "stride": 3, "index": "items"},
     },
 }
 
