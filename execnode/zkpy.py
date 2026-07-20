@@ -20,20 +20,25 @@ LT/EQ + branchless-fixup idiom), `hash(a, b, ...)`, `select(cond, a, b)` (branch
 (`m.slot(field, key)` with `.get()`/`.set()`), `m.require`, `m.pay`, `m.ret`, and raw `m.emit("…")` for the
 handful of ops the DSL doesn't wrap yet (jumps/labels/loops — control flow stays explicit for now). It emits
 zkasm text, so everything downstream (the assembler, the VM, the execution AIR) is unchanged — zkpy is a
-front-end, not a new runtime. Register model: r0 preloads arg 0 (zkVM ABI); r4 is reserved (storage
-addressing, see below); r7 is reserved (DIVMOD remainder); r1..r3, r5..r6 are the allocatable temp pool.
-`arg(i)` for i>=1 loads via the ARG opcode into a temp.
+front-end, not a new runtime. Register model: r0 preloads arg 0 (zkVM ABI); r7 is reserved (DIVMOD
+remainder); r1..r6 are the allocatable temp pool — including slot addresses, which are allocated like any
+other temporary. `arg(i)` for i>=1 loads via the ARG opcode into a temp.
+
+CONTROL FLOW. Jumps and labels are explicit (`m.label`, `m.jmp`, `m.jnz`). The allocator is a linear scan
+that knows nothing about branches, so every label/jump is a BALANCE POINT: it asserts that no anonymous
+temporary is live, because a backward jump arriving with a different free-list than the label was compiled
+under would silently reuse a live register. That state is currently unreachable through the public API —
+Val trees are lazy and every statement frees what it took — so the assertion documents and *enforces* an
+invariant that holds by construction, and will fail loudly the day a statement type stops honouring it.
+Loop-carried values belong in `m.set()` named temps (pinned for the whole method) or in storage.
+
+THE ONE REMAINING SHARP EDGE is raw `m.emit("…")`: it bypasses the allocator entirely, so any register it
+names can collide with an allocated temp. Use it for opcodes the DSL doesn't wrap yet, keep it to registers
+you obtained from `m.set()`, and prefer adding a wrapper here over sprinkling raw asm at the call site.
 """
 from execnode import zkvmasm
 
-# r4 is RESERVED, not allocatable. `_Cell._addr()` builds every slot address in r4 unconditionally, so any
-# live temp that happened to be allocated r4 was silently destroyed by the next storage access. The victim
-# case was `cell.set(expr)` when `expr` was complex enough to land in r4: `set()` materialized the value,
-# then `_addr()` overwrote it, and the emitted `sstore r4 r4` stored the slot ADDRESS as the value — no
-# revert, no proof failure, just a wrong number (a select() over four cells reproduced it exactly). Keeping
-# r4 out of the pool costs one temp and makes the collision structurally impossible, which is the whole
-# premise of this module.
-_ALLOC = [1, 2, 3, 5, 6]           # allocatable temps (r0 = arg0, r4 = slot address, r7 = divmod remainder)
+_ALLOC = [1, 2, 3, 4, 5, 6]        # allocatable temp registers (r0 = arg0, r7 = divmod remainder)
 
 
 class _Alloc:
@@ -87,22 +92,29 @@ class _Cell:
         self.m, self.field, self.key = m, field, _wrap(key)
 
     def _addr(self):
-        # r4 = field*2^32 + key. If key is arg0 (r0) we can use the `slot` macro; else compute.
+        """Compute `field*2^32 + key` into a FRESHLY ALLOCATED register; returns (reg, owned).
+
+        This used to hardcode r4, which silently destroyed any live temp the allocator had placed there —
+        `cell.set(expr)` emitted `sstore r4 r4` and stored the slot address instead of the value. Taking
+        the address register from the same free-list as everything else is what actually makes the
+        collision impossible; no register needs reserving, and the allocator stays the single authority
+        on who owns what."""
         kr, owned = self.key.materialize(self.m)
-        self.m.emit(f"movi r4 {self.field << 32}")
-        self.m.emit(f"add r4 {_r(kr)}")
+        d = self.m.alloc.take()
+        self.m.emit(f"slot {_r(d)} {self.field} {_r(kr)}")           # macro: MOVI d field<<32 ; ADD d kr
         if owned:
             self.m.alloc.give(kr)
-        return "r4"
+        return d, True
 
     def get(self):
         return Val("sload", self)
 
     def set(self, v):
-        vr, owned = _wrap(v).materialize(self.m)
-        addr = self._addr()                                          # clobbers r4 — safe only because r4 is
-                                                                     # reserved and vr can never live there
-        self.m.emit(f"sstore {addr} {_r(vr)}")
+        vr, owned = _wrap(v).materialize(self.m)                     # value FIRST: it must survive addressing
+        addr, a_owned = self._addr()
+        self.m.emit(f"sstore {_r(addr)} {_r(vr)}")
+        if a_owned:
+            self.m.alloc.give(addr)
         if owned:
             self.m.alloc.give(vr)
 
@@ -126,8 +138,13 @@ def _mat(self, m):
     if k == "ctx":
         r = m.alloc.take(); m.emit(f"ctx {_r(r)} {self.a[0]}"); return r, True
     if k == "sload":
-        cell = self.a[0]; addr = cell._addr()   # r4
-        r = m.alloc.take(); m.emit(f"sload {_r(r)} {addr}"); return r, True
+        cell = self.a[0]
+        addr, a_owned = cell._addr()
+        r = m.alloc.take()
+        m.emit(f"sload {_r(r)} {_r(addr)}")
+        if a_owned:
+            m.alloc.give(addr)                  # the address dies here; only the loaded value survives
+        return r, True
     if k in ("bhash", "beacon"):
         hr, owned = self.a[0].materialize(m)
         r = m.alloc.take(); m.emit(f"{k} {_r(r)} {_r(hr)}")
@@ -200,8 +217,12 @@ def _mat(self, m):
         if ro:
             m.alloc.give(rb)
         return la, True
-    if k == "select":                           # cond ? t : f  = f + cond*(t-f), cond a 0/1 bit
-        cond, co = self.a[0].materialize(m)
+    if k == "select":                           # cond ? t : f  = f + cond*(t-f)
+        # NEZ first: the identity only holds for a 0/1 cond, and any other value silently yielded a
+        # garbage blend rather than t or f. Normalising costs one row and makes select total — "non-zero
+        # is true", the same rule REQUIRE and JNZ already use. It is a no-op on a real 0/1 comparison.
+        cond, co = _own(self.a[0], m)
+        m.emit(f"nez {_r(cond)}")
         t, to = self.a[1].materialize(m)
         f, fo = self.a[2].materialize(m)
         d = m.alloc.take()
@@ -244,6 +265,7 @@ class _Method:
         self.contract, self.name = contract, name
         self.lines = []
         self.alloc = _Alloc()
+        self.named = set()          # registers pinned by m.set() — live for the whole method, by design
 
     def __enter__(self):
         return self
@@ -291,7 +313,36 @@ class _Method:
         r, owned = _wrap(v).materialize(self)
         if not owned:
             d = self.alloc.take(); self.emit(f"mov {_r(d)} {_r(r)}"); r = d
+        self.named.add(r)
         return Val("reg", r)
+
+    # control flow ------------------------------------------------------------------------------------
+    def _balanced(self, what):
+        """Assert no ANONYMOUS temporary is live. Every label and jump must sit at such a point, or the
+        allocator's linear scan and the actual execution order disagree — see the CONTROL FLOW note up
+        top. Named temps (m.set) are exempt: they are pinned for the whole method on purpose."""
+        live = [r for r in _ALLOC if r not in self.alloc.free and r not in self.named]
+        if live:
+            raise RuntimeError(
+                f"zkpy: {what} with temporaries still live in {', '.join('r%d' % r for r in live)} — a "
+                "branch may not cross a half-computed expression. Park the value in an m.set() named temp "
+                "or a storage cell first.")
+
+    def label(self, name):
+        self._balanced(f"label @{name}")
+        self.emit(f"{name}:")
+
+    def jmp(self, name):
+        self._balanced(f"jmp @{name}")
+        self.emit(f"jmp @{name}")
+
+    def jnz(self, cond, name):
+        """Jump to @name when `cond` is non-zero."""
+        r, owned = _wrap(cond).materialize(self)
+        self.emit(f"jnz {_r(r)} @{name}")
+        if owned:
+            self.alloc.give(r)
+        self._balanced(f"jnz @{name}")
 
     def require(self, cond):
         r, owned = _wrap(cond).materialize(self)
