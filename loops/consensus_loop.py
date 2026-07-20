@@ -6,6 +6,7 @@ from config import get_timestamp_seconds
 from ops.peer_ops import (
     get_majority,
     percentage,
+    seed_peers,
 )
 from ops.pool_ops import get_from_pool
 
@@ -144,6 +145,15 @@ class ConsensusClient(threading.Thread):
         # they actually are the network. A TWO-node cluster mining a shared fork sailed straight through
         # the lone-holder test and churned emergency mode indefinitely. Strike every advertiser when they
         # are a strict minority of the pool; a majority-held tip still never peer-strikes.
+        #
+        # OPERATOR SEEDS ARE EXEMPT (bitten live within an hour of shipping the escalated bench): during
+        # a fleet update wave the seed restarted, its STALE pool status kept advertising a tip nothing
+        # could serve for ~a minute, it was the ONLY peer on the real chain — lone holder — and the 2h
+        # bench then locked this node onto its own slower fork, 70+ blocks adrift. Seeds are already the
+        # weak-subjectivity anchor (snapshot_bootstrap) and are never kept unreachable-benched
+        # (peer_loop); fork choice must not be able to go blind to them either.
+        seeds = seed_peers()
+        holders = [p for p in holders if p not in seeds]
         if holders and (len(holders) == 1 or len(holders) * 2 < max(pool_n, 2)):
             for p in holders:
                 self._peer_strikes[p] = pn = self._peer_strikes.get(p, 0) + 1
@@ -151,6 +161,13 @@ class ConsensusClient(threading.Thread):
                     self._peer_until[p] = time.monotonic() + min(
                         TIP_BENCH_BASE_S * (2 ** (pn - PEER_BENCH_AFTER)), PEER_BENCH_MAX_S)
         return n
+
+    def peer_fetch_succeeded(self, peer):
+        """A block fetch from `peer` actually WORKED — the only honest healing signal there is. Clear its
+        strikes and bench so a peer that was struck while briefly down (restart, update wave) is fully
+        rehabilitated the moment it serves again, instead of sitting out the rest of an escalated bench."""
+        self._peer_strikes.pop(peer, None)
+        self._peer_until.pop(peer, None)
 
     def tip_source_benched(self, peer):
         """Is this peer's advertised chain currently excluded from fork choice? (see reject_tip)"""

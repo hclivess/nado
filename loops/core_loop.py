@@ -1094,6 +1094,12 @@ class CoreClient(threading.Thread):
                 prefetch_thread.join()
                 if rejected:
                     return True
+                # A batch from this donor VERIFIED AND APPLIED — the only honest healing signal there
+                # is. A peer struck while briefly down (update-wave restart) is rehabilitated on first
+                # service instead of sitting out an escalated bench; for a lone seed bridge that bench
+                # meant coasting adrift on our own fork for its whole lifetime (observed live: 70+
+                # blocks within the hour of shipping the 2h bench).
+                self.consensus.peer_fetch_succeeded(peer)
                 new_blocks = prefetch.get("batch")
             return False
 
