@@ -11,6 +11,11 @@ A RUNTIME is any object exposing:
 NAMES them — solvency, issuer authority and the supply cap are the exec layer's to enforce, in
 ExecState.stage_asset_effects, so one rule covers native execution and proof replay alike.
 
+`effects` is OPTIONAL: a runtime that predates assets, or simply does not implement them, may return the
+4-tuple `(ok, ret, new_storage, payouts)` and the exec layer reads that as "no asset effects"
+(ExecState._rt_run). This seam exists so another engine can plug in; silently requiring every
+implementation to grow a return value the day the built-in VM does would defeat the point.
+
 The exec node's execution engine is SWAPPABLE without touching state.py or L1 consensus: a contract records
 which runtime it was deployed under, and every call/view dispatches back to that runtime. NADO ships exactly
 ONE runtime — "zkvm", the field-native PROVABLE VM (execnode/zkvm.py, doc/zk-execution-proofs.md). The old

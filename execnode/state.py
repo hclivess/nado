@@ -666,6 +666,21 @@ class ExecState:
         except Exception as e:
             return f"skip shield: {e}"
 
+    @staticmethod
+    def _rt_run(rt, *a, **kw):
+        """Call a runtime and normalise its result to (ok, ret, storage, payouts, effects).
+
+        The registry is a SEAM for other execution engines (execnode/runtimes.py), and its documented
+        result was 4-tuple `(ok, ret, storage, payouts)` before assets existed. Widening it to 5 broke
+        every implementation that is not the built-in zkVM — which is precisely the thing the seam exists
+        to allow. A runtime that knows nothing about assets should not have to return an empty effects
+        list to stay compatible, so BOTH arities are valid and a 4-tuple simply means "no asset effects".
+        Anything shorter is a broken runtime and still raises."""
+        r = rt.run(*a, **kw)
+        if len(r) == 4:
+            return (*r, [])
+        return r
+
     # --- asset ledger (doc/assets.md) ------------------------------------------------------------
     def asset_balance(self, aid, holder):
         """`holder`'s balance of asset `aid` (int or str id). 0 for an asset nobody has ever held — an
@@ -800,7 +815,7 @@ class ExecState:
                 storage = {}
                 if "constructor" in code:
                     kw = {"registry": self.zk_addrs} if getattr(rt, "wants_registry", False) else {}
-                    ok, _ret, storage, _pay, _fx = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
+                    ok, _ret, storage, _pay, _fx = self._rt_run(rt, code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
                 abi = payload.get("abi")   # optional, non-consensus UX metadata {method:{args,doc}}
@@ -855,8 +870,8 @@ class ExecState:
                             del self.bridge[sender]
                         self.bridge[cid] = self.bridge.get(cid, 0) + value
                 kw = {"registry": self.zk_addrs} if getattr(rt, "wants_registry", False) else {}
-                ok, _ret, new_storage, payouts, effects = rt.run(
-                    c["code"], method, sender, args, c["storage"],
+                ok, _ret, new_storage, payouts, effects = self._rt_run(
+                    rt, c["code"], method, sender, args, c["storage"],
                     value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons,
                     block_hashes=self.block_hashes, asset=int(in_asset or 0),
                     selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
@@ -1250,5 +1265,5 @@ class ExecState:
         if rt is None:
             return None
         kw = {"registry": dict(self.zk_addrs)} if getattr(rt, "wants_registry", False) else {}
-        ok, ret, _, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
+        ok, ret, _, _, _ = self._rt_run(rt, c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
         return ret if ok else None
