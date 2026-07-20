@@ -89,6 +89,39 @@ def t_alloc_is_automatic():
         assert ok and ret == (a + b) * (b + cc) + (a * cc) - (a + b + cc), (args, ret)
 
 
+def t_store_of_deep_expr_not_clobbered():
+    """REGRESSION: `_Cell._addr()` builds every slot address in r4. While r4 was also allocatable, a value
+    that happened to land there was destroyed by the very next storage access — `cell.set(expr)` emitted
+    `sstore r4 r4` and silently stored the slot ADDRESS instead of the value, with ok=True and a valid
+    proof. Found while authoring the Autogame step function; r4 is now reserved. See execnode/zkpy.py."""
+    c = zkpy.Contract()
+    with c.method("f") as m:
+        a, b, t, f = m.slot(1, 0), m.slot(2, 0), m.slot(3, 0), m.slot(4, 0)
+        out = m.slot(5, 0)
+        out.set(select(a.get() < b.get(), t.get(), f.get()))
+        m.ret(out.get())
+    code = c.build()
+    for aa, bb, exp in ((1, 9, 777), (9, 1, 111), (5, 5, 111)):
+        st = {1 << 32: aa, 2 << 32: bb, 3 << 32: 777, 4 << 32: 111}
+        ok, ret, storage, _ = zkvm.run(code, "f", 12345, [0], dict(st))
+        assert ok and ret == exp, f"select({aa}<{bb}) returned {ret}, want {exp}"
+        assert storage.get(5 << 32) == exp, f"stored {storage.get(5 << 32)}, want {exp}"
+
+    # and the general form: every allocatable temp must survive a storage access
+    c2 = zkpy.Contract()
+    with c2.method("g") as m:
+        cells = [m.slot(10 + i, 0) for i in range(5)]
+        acc = cells[0].get() + cells[1].get() * cells[2].get() + cells[3].get() - cells[4].get()
+        m.slot(20, 0).set(acc)
+        m.ret(m.slot(20, 0).get())
+    code2 = c2.build()
+    vals = [7, 3, 5, 11, 4]
+    st = {(10 + i) << 32: v for i, v in enumerate(vals)}
+    ok, ret, _, _ = zkvm.run(code2, "g", 12345, [0], dict(st))
+    want = vals[0] + vals[1] * vals[2] + vals[3] - vals[4]
+    assert ok and ret == want, f"deep store returned {ret}, want {want}"
+
+
 if __name__ == "__main__":
     check("zkpy contract compiles + validates", t_compiles)
     check("bet: divmod + storage RMW + require reverts", t_bet)
@@ -96,5 +129,6 @@ if __name__ == "__main__":
     check("select: branchless mux", t_select)
     check("named temp read 3× never clobbered", t_named_temp_not_clobbered)
     check("deep expression: automatic allocation, no collision", t_alloc_is_automatic)
+    check("store of a deep expr survives slot addressing (r4 reserved)", t_store_of_deep_expr_not_clobbered)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

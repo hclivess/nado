@@ -20,12 +20,20 @@ LT/EQ + branchless-fixup idiom), `hash(a, b, ...)`, `select(cond, a, b)` (branch
 (`m.slot(field, key)` with `.get()`/`.set()`), `m.require`, `m.pay`, `m.ret`, and raw `m.emit("…")` for the
 handful of ops the DSL doesn't wrap yet (jumps/labels/loops — control flow stays explicit for now). It emits
 zkasm text, so everything downstream (the assembler, the VM, the execution AIR) is unchanged — zkpy is a
-front-end, not a new runtime. Register model: r0 preloads arg 0 (zkVM ABI); r7 is reserved (DIVMOD remainder);
-r1..r6 are the allocatable temp pool. `arg(i)` for i>=1 loads via the ARG opcode into a temp.
+front-end, not a new runtime. Register model: r0 preloads arg 0 (zkVM ABI); r4 is reserved (storage
+addressing, see below); r7 is reserved (DIVMOD remainder); r1..r3, r5..r6 are the allocatable temp pool.
+`arg(i)` for i>=1 loads via the ARG opcode into a temp.
 """
 from execnode import zkvmasm
 
-_ALLOC = [1, 2, 3, 4, 5, 6]        # allocatable temp registers (r0 = arg0, r7 = divmod remainder)
+# r4 is RESERVED, not allocatable. `_Cell._addr()` builds every slot address in r4 unconditionally, so any
+# live temp that happened to be allocated r4 was silently destroyed by the next storage access. The victim
+# case was `cell.set(expr)` when `expr` was complex enough to land in r4: `set()` materialized the value,
+# then `_addr()` overwrote it, and the emitted `sstore r4 r4` stored the slot ADDRESS as the value — no
+# revert, no proof failure, just a wrong number (a select() over four cells reproduced it exactly). Keeping
+# r4 out of the pool costs one temp and makes the collision structurally impossible, which is the whole
+# premise of this module.
+_ALLOC = [1, 2, 3, 5, 6]           # allocatable temps (r0 = arg0, r4 = slot address, r7 = divmod remainder)
 
 
 class _Alloc:
@@ -92,7 +100,8 @@ class _Cell:
 
     def set(self, v):
         vr, owned = _wrap(v).materialize(self.m)
-        addr = self._addr()                                          # clobbers r4 (safe: vr already held)
+        addr = self._addr()                                          # clobbers r4 — safe only because r4 is
+                                                                     # reserved and vr can never live there
         self.m.emit(f"sstore {addr} {_r(vr)}")
         if owned:
             self.m.alloc.give(vr)
