@@ -4719,28 +4719,19 @@ async function renderExecStats(tip, tipTs) {
     const lag = Math.max(0, tip - ex.cursor);
     // The finality WINDOW = tip − finalized (read live off L1, no hardcoded constant). The exec layer
     // applies blobs only once their block is final, so a HEALTHY delay equals this window (currently 45).
+    // Show it as lag/window: green while at the window, amber only if the delay grows past it.
     const fin = st && typeof st.finalized_height === "number" ? st.finalized_height : null;
     const win = (fin != null && tip >= fin) ? (tip - fin) : null;
-    const secs = (tipTs && ex.block_ts) ? Math.max(0, tipTs - ex.block_ts) : null;
-    const dur = (s) => (s >= 3600 ? _uptime(s) : s >= 60 ? Math.floor(s / 60) + "m " + (s % 60) + "s" : s + "s");
-    // "expected" is obvious: show the window as its own chip, and mark the delay ✓ when it matches, ⚠ when
-    // it has grown past the window (the exec node falling behind finality — the one thing that is NOT fine).
-    let cls, note = "";
+    let val, cls;
     if (win != null) {
-      const growing = lag > win + Math.max(3, Math.round(win * 0.2));
-      cls = growing ? "warn" : "ok";
-      note = growing ? " · " + i18("stats.execDelayGrow", "⚠ growing — should be ~{w}", { w: win })
-                     : " · " + i18("stats.execDelayOk", "✓ = finality window ({w})", { w: win });
+      val = lag + " / " + win;
+      cls = lag > win + Math.max(3, Math.round(win * 0.2)) ? "warn" : "ok";
+    } else {
+      val = i18("stats.execDelayVal", "{n} blocks", { n: lag });
     }
-    chip(i18("stats.execDelay", "Delay behind L1"),
-         i18("stats.execDelayVal", "{n} blocks", { n: lag }) + (secs != null ? " · ~" + dur(secs) : "") + note,
-         i18("stats.execDelayTip2", "The exec layer applies each block only once it is FINAL, so this should hold steady at the finality window (tip − finalized = {w} blocks). A steady delay is health; a growing one means the exec node is falling behind finality.", { w: win != null ? win : "~45" }),
+    chip(i18("stats.execDelay", "Delay behind L1"), val,
+         i18("stats.execDelayTip2", "The exec layer applies each block only once it is FINAL, so this should hold steady at the finality window (tip − finalized). A steady delay is health; a growing one means the exec node is falling behind finality."),
          cls);
-    if (win != null) {
-      chip(i18("stats.execWindow", "Finality window"),
-           i18("stats.execDelayVal", "{n} blocks", { n: win }),
-           i18("stats.execWindowTip", "how far L1 finality trails the tip (tip − finalized) — the exec delay above should equal this."));
-    }
   }
   chip(i18("stats.execContracts", "Contracts"), String(ex.contracts ?? "—"));
   const sCur = (settled && typeof settled.exec_cursor === "number" && settled.exec_cursor >= 0) ? settled.exec_cursor : null;
