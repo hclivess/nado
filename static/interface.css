@@ -60,6 +60,9 @@ header.app .conn { margin-left: auto; text-align: right; font-size: 11px; color:
 .dot.ok { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
 .dot.bad { background: var(--danger); }
 .dot.warn { background: var(--warn); }
+/* stat-value status tints (e.g. the exec "Delay behind L1" chip: green at the finality window, amber if it grows) */
+.value.ok { color: var(--accent); }
+.value.warn { color: var(--warn); }
 
 .card {
   background: var(--bg-elev);

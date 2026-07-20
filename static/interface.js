@@ -4701,12 +4701,14 @@ async function renderNodes() {
 async function renderExecStats(tip, tipTs) {
   const grid = $("execStatsGrid"), rootEl = $("execRootLine");
   if (!grid) return;
-  let ex = null, settled = null;
+  let ex = null, settled = null, st = null;
   try { ex = await (await fetch(execBase() + "/exec/root", { cache: "no-store" })).json(); } catch (e) {}
   try { settled = await (await fetch(relayBase() + "/get_settled", { cache: "no-store" })).json(); } catch (e) {}
+  try { st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json(); } catch (e) {}
   grid.innerHTML = "";
   if (rootEl) rootEl.textContent = "";
-  const chip = (label, val, title) => { const d = document.createElement("div"); d.className = "stat"; if (title) d.title = title; d.innerHTML = `<div class="label"></div><div class="value sm"></div>`; d.children[0].textContent = label; d.children[1].textContent = val; grid.appendChild(d); };
+  // cls tints the value: "ok" (green) when the delay sits at the finality window, "warn" (amber) if it grows.
+  const chip = (label, val, title, cls) => { const d = document.createElement("div"); d.className = "stat"; if (title) d.title = title; d.innerHTML = `<div class="label"></div><div class="value sm"></div>`; d.children[0].textContent = label; d.children[1].textContent = val; if (cls) d.children[1].classList.add(cls); grid.appendChild(d); };
   if (!ex || typeof ex.cursor !== "number" || ex.cursor < 0) {
     chip(i18("stats.execHeight", "Exec height"), ex ? "syncing…" : i18("stats.execDown", "exec node unreachable"));
     return;
@@ -4715,11 +4717,30 @@ async function renderExecStats(tip, tipTs) {
        i18("stats.execHeightTip", "the last L1 block the execution layer has applied"));
   if (typeof tip === "number") {
     const lag = Math.max(0, tip - ex.cursor);
+    // The finality WINDOW = tip − finalized (read live off L1, no hardcoded constant). The exec layer
+    // applies blobs only once their block is final, so a HEALTHY delay equals this window (currently 45).
+    const fin = st && typeof st.finalized_height === "number" ? st.finalized_height : null;
+    const win = (fin != null && tip >= fin) ? (tip - fin) : null;
     const secs = (tipTs && ex.block_ts) ? Math.max(0, tipTs - ex.block_ts) : null;
     const dur = (s) => (s >= 3600 ? _uptime(s) : s >= 60 ? Math.floor(s / 60) + "m " + (s % 60) + "s" : s + "s");
+    // "expected" is obvious: show the window as its own chip, and mark the delay ✓ when it matches, ⚠ when
+    // it has grown past the window (the exec node falling behind finality — the one thing that is NOT fine).
+    let cls, note = "";
+    if (win != null) {
+      const growing = lag > win + Math.max(3, Math.round(win * 0.2));
+      cls = growing ? "warn" : "ok";
+      note = growing ? " · " + i18("stats.execDelayGrow", "⚠ growing — should be ~{w}", { w: win })
+                     : " · " + i18("stats.execDelayOk", "✓ = finality window ({w})", { w: win });
+    }
     chip(i18("stats.execDelay", "Delay behind L1"),
-         i18("stats.execDelayVal", "{n} blocks", { n: lag }) + (secs != null ? " · ~" + dur(secs) : ""),
-         i18("stats.execDelayTip", "applies at finality — a steady delay of about the finality window is normal; a growing one is not"));
+         i18("stats.execDelayVal", "{n} blocks", { n: lag }) + (secs != null ? " · ~" + dur(secs) : "") + note,
+         i18("stats.execDelayTip2", "The exec layer applies each block only once it is FINAL, so this should hold steady at the finality window (tip − finalized = {w} blocks). A steady delay is health; a growing one means the exec node is falling behind finality.", { w: win != null ? win : "~45" }),
+         cls);
+    if (win != null) {
+      chip(i18("stats.execWindow", "Finality window"),
+           i18("stats.execDelayVal", "{n} blocks", { n: win }),
+           i18("stats.execWindowTip", "how far L1 finality trails the tip (tip − finalized) — the exec delay above should equal this."));
+    }
   }
   chip(i18("stats.execContracts", "Contracts"), String(ex.contracts ?? "—"));
   const sCur = (settled && typeof settled.exec_cursor === "number" && settled.exec_cursor >= 0) ? settled.exec_cursor : null;
