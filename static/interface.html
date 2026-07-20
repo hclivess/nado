@@ -591,6 +591,10 @@
   <div id="statsCard" class="card hidden" data-tab="stats">
     <h2 data-i18n="stats.title">📊 Network stats</h2>
     <div id="statsHeadline" class="stat-grid mt"></div>
+    <div class="mt"><div class="label" data-i18n="stats.execTitle">zkVM execution layer (L2)</div>
+      <div id="execStatsGrid" class="stat-grid mt"><div class="faint small" data-i18n="stats.nodata">no data yet</div></div>
+      <div id="execRootLine" class="mono small" style="word-break:break-all;margin-top:6px"></div>
+      <div class="faint small" data-i18n="stats.execSub">The execution layer applies contract blobs once their L1 block is final, so its height intentionally trails the L1 tip by the finality window. Deploy and call contracts on the Rollup tab; settlement detail is on the Settlement tab.</div></div>
     <div class="mt"><div class="label" data-i18n="stats.blockTimes">Block interval (recent, seconds)</div>
       <svg id="chartBlockTime" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
     <div class="mt"><div class="label" data-i18n="stats.rewards">Block reward (recent, NADO)</div>
@@ -994,7 +998,7 @@
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=6e067427"></script>
-<script type="module" src="/static/interface.js?v=5c7afc9a"></script>
+<script defer src="/static/i18n.js?v=6ad92f83"></script>
+<script type="module" src="/static/interface.js?v=f2da6a55"></script>
 </body>
 </html>

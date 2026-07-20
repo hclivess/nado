@@ -4335,13 +4335,50 @@ async function renderNodes() {
     { n: rows.length, u: onLatest, m: latestMain ? String(latestMain).slice(0, 8) : "—" });
 }
 
+// zkVM EXEC-LAYER (L2) vitals on the Stats tab: how far the exec cursor trails the L1 tip, contract count,
+// and the checkpoint the bonded quorum has settled to L1. The exec layer applies blobs at FINALITY, so a
+// STEADY delay of ~the finality window is health — a GROWING one means the exec node is stalling. Fail-soft:
+// the exec node may be down or syncing; render what we can. /exec/root never computes a provisional root
+// (the 20s-freeze lesson), so this poll is cheap for the exec node.
+async function renderExecStats(tip, tipTs) {
+  const grid = $("execStatsGrid"), rootEl = $("execRootLine");
+  if (!grid) return;
+  let ex = null, settled = null;
+  try { ex = await (await fetch(execBase() + "/exec/root", { cache: "no-store" })).json(); } catch (e) {}
+  try { settled = await (await fetch(relayBase() + "/get_settled", { cache: "no-store" })).json(); } catch (e) {}
+  grid.innerHTML = "";
+  if (rootEl) rootEl.textContent = "";
+  const chip = (label, val, title) => { const d = document.createElement("div"); d.className = "stat"; if (title) d.title = title; d.innerHTML = `<div class="label"></div><div class="value sm"></div>`; d.children[0].textContent = label; d.children[1].textContent = val; grid.appendChild(d); };
+  if (!ex || typeof ex.cursor !== "number" || ex.cursor < 0) {
+    chip(i18("stats.execHeight", "Exec height"), ex ? "syncing…" : i18("stats.execDown", "exec node unreachable"));
+    return;
+  }
+  chip(i18("stats.execHeight", "Exec height"), String(ex.cursor),
+       i18("stats.execHeightTip", "the last L1 block the execution layer has applied"));
+  if (typeof tip === "number") {
+    const lag = Math.max(0, tip - ex.cursor);
+    const secs = (tipTs && ex.block_ts) ? Math.max(0, tipTs - ex.block_ts) : null;
+    const dur = (s) => (s >= 3600 ? _uptime(s) : s >= 60 ? Math.floor(s / 60) + "m " + (s % 60) + "s" : s + "s");
+    chip(i18("stats.execDelay", "Delay behind L1"),
+         i18("stats.execDelayVal", "{n} blocks", { n: lag }) + (secs != null ? " · ~" + dur(secs) : ""),
+         i18("stats.execDelayTip", "applies at finality — a steady delay of about the finality window is normal; a growing one is not"));
+  }
+  chip(i18("stats.execContracts", "Contracts"), String(ex.contracts ?? "—"));
+  const sCur = (settled && typeof settled.exec_cursor === "number" && settled.exec_cursor >= 0) ? settled.exec_cursor : null;
+  chip(i18("stats.execSettledAt", "Settled at block"), sCur != null ? String(sCur) : "—",
+       i18("stats.execSettledTip", "the exec checkpoint the bonded quorum has attested on L1"));
+  if (sCur != null) chip(i18("stats.execUnsettled", "Unsettled blocks"), String(Math.max(0, ex.cursor - sCur)));
+  if (rootEl && ex.state_root) rootEl.textContent = i18("stats.execRootLabel", "Exec state root") + ": " + ex.state_root;
+}
+
 async function renderStats() {
   if (!state.wallet) return;
   const head = $("statsHeadline"); if (head) head.innerHTML = "";
   renderGeoMap().catch(() => {});   // independent of the block charts — paint it in parallel
   renderNodes().catch(() => {});    // the network-nodes table (status_pool)
-  let tip = state.latest;
-  try { const lb = await getLatestBlock(); if (lb && typeof lb.block_number === "number") tip = lb.block_number; } catch {}
+  let tip = state.latest, tipTs = null;
+  try { const lb = await getLatestBlock(); if (lb && typeof lb.block_number === "number") { tip = lb.block_number; tipTs = lb.block_timestamp; } } catch {}
+  renderExecStats(tip, tipTs).catch(() => {});  // zkVM L2 vitals — independent of the block charts
   const N = 16, nums = [];
   for (let i = Math.max(1, (tip || 0) - N + 1); i <= (tip || 0); i++) nums.push(i);
   const blocks = (await Promise.all(nums.map((n) =>
