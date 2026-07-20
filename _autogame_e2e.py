@@ -94,7 +94,22 @@ def wait(cond, label, timeout=900):
 
 
 def field(s, name, rid, default=0):
-    return int((s.get(name) or {}).get(str(rid), (s.get(name) or {}).get(rid, default)) or default)
+    """One decoded map cell as an int.
+
+    NOT every map is numeric: decode_view resolves the fields listed in the ABI's `addr` back to L1 address
+    STRINGS, so `ra` reads as "mldsa44…". int() on that raises — and inside a wait() predicate the raise is
+    swallowed by the retry loop, so the test waits out the full timeout on a run that already exists. That
+    cost half an hour of chasing the chain for a bug in this helper."""
+    v = (s.get(name) or {}).get(str(rid), (s.get(name) or {}).get(rid, default))
+    try:
+        return int(v or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def owner(s, rid):
+    """The run's owner address as decode_view presents it — a string, via the ABI's `addr` list."""
+    return str((s.get("ra") or {}).get(str(rid), "") or "")
 
 
 print("autogame e2e as", ME, flush=True)
@@ -106,9 +121,10 @@ wait(lambda: j(EX + f"/exec/contract?ns=default&cid={CID}").get("cid") == CID, "
 RID = int(time.time()) % 900000000 + 1
 print(f"\n1. set out (run {RID})", flush=True)
 call("begin", [RID])
-wait(lambda: field(sto(), "ra", RID) != 0 or (sto().get("hp") or {}).get(str(RID)), "run exists", 900)
+wait(lambda: owner(sto(), RID) == ME, "run exists", 900)
 s = sto()
 lh, nh = field(s, "lh", RID), field(s, "nh", RID)
+ck("the run is mine", owner(s, RID) == ME, owner(s, RID)[:18])
 ck("starts at full health", field(s, "hp", RID) == A.HP0, f"hp={field(s, 'hp', RID)}")
 ck("terrain height is in the FUTURE at begin", lh > cursor() - 3, f"lh={lh} cursor={cursor()}")
 ck("rolling height is one leg later", nh == lh + A.LEG, f"lh={lh} nh={nh}")
