@@ -67,6 +67,54 @@ const TILE_INFO = [
 ];
 const DOCTRINE_ORDER = [E.MONSTER, E.ELITE, E.BOSS, E.FORK, E.HAZARD, E.RELIC, E.CACHE, E.SHRINE,
                         E.FORGE, E.ROAD];
+
+// WHICH ACTIONS ACTUALLY DO SOMETHING ON WHICH TILE. Offering all eight everywhere was a lie: the contract
+// discards most of them on most tiles, so the menu was inviting choices that silently evaporate.
+//   * On a FORK the contract forces the action to Default the instant the lane is picked — the ONLY thing
+//     that survives is which lane, so that row offers exactly two options.
+//   * Guard and Strike only touch a monster's swing, so they mean nothing outside a fight.
+//   * Dodge and Sprint forfeit a tile, which is real on a shrine (keep your streak) and merely wasted
+//     stamina on empty road.
+//
+// SPRINT IS NOT OFFERED ANYWHERE. In the rules it is byte-for-byte identical to Dodge — both set the same
+// `skip` flag and forfeit the tile — but it costs 3 stamina against Dodge's 2. It is strictly dominated, so
+// listing it is offering the player a worse version of a choice they already have. The rules should
+// eventually give it a distinct effect or lose the action id; until then the menu tells the truth.
+const A_ = E;
+const COMBAT_ACTS = [0, E.A_STRIKE, E.A_GUARD, E.A_DODGE, E.A_POTION, E.A_RALLY, E.A_REST];
+const HEALS = [0, E.A_POTION, E.A_RALLY, E.A_REST];        // available anywhere: they act on YOU, not the tile
+const ACTS_FOR = {
+  [E.MONSTER]: COMBAT_ACTS,
+  [E.ELITE]:   COMBAT_ACTS,
+  [E.BOSS]:    COMBAT_ACTS,
+  // a fork discards every action the moment the lane is chosen, so the lane IS the only choice
+  [E.FORK]:    [0, E.A_RIGHT],
+  // Dodge is offered only where forfeiting the tile actually buys something: skipping a fight, or skipping
+  // a shrine to protect the greed streak a heal would break
+  [E.HAZARD]:  [0, E.A_DODGE, E.A_POTION, E.A_RALLY, E.A_REST],
+  [E.SHRINE]:  [0, E.A_DODGE, E.A_POTION, E.A_RALLY, E.A_REST],
+  [E.CACHE]:   HEALS,
+  [E.RELIC]:   HEALS,
+  [E.FORGE]:   HEALS,
+  [E.ROAD]:    HEALS,
+};
+/** Action 7 is two different things depending on where you meet it, so it must not be labelled one way. */
+function actName(a, tile) {
+  if (a === E.A_RIGHT) {
+    return tile === E.FORK ? t("actn_right_fork", "Take the right lane")
+                           : t("actn_right_rally", "Rally");
+  }
+  return t("actn_" + ACT_KEY[a], ACT_INFO[a][0]);
+}
+function actDesc(a, tile) {
+  if (a === E.A_RIGHT) {
+    return tile === E.FORK
+      ? t("actd_right_fork", "The greedier road: it re-rolls as an elite — harder, but a guaranteed drop.")
+      : t("actd_right_rally", "A small heal that KEEPS your streak — the only one that does. 3 stamina.");
+  }
+  if (a === 0 && tile === E.FORK) return t("actd_left_fork", "The safer road: it re-rolls as an ordinary monster.");
+  return t("actd_" + ACT_KEY[a], ACT_INFO[a][1]);
+}
 let doctrine = null;            // the 10 standing reactions being edited
 
 let sto = null;                 // last contract storage view
@@ -548,8 +596,9 @@ function renderDoctrine() {
         <div class="what"><div class="nm">${esc(t("tile_" + tile, TILE_INFO[tile][0]))}</div>
           <div class="de">${esc(t("tiled_" + tile, TILE_INFO[tile][1]))}</div>
           <div class="de eff" data-t="${tile}"></div></div>
-        <select data-t="${tile}">${ACT_INFO.map((ai, a) =>
-          `<option value="${a}">${esc(t("actn_" + ACT_KEY[a], ai[0]))}</option>`).join("")}</select>
+        <select data-t="${tile}">${(ACTS_FOR[tile] || [0]).map((a) =>
+          `<option value="${a}">${esc(a === 0 && tile === E.FORK ? t("actn_left_fork", "Left lane")
+                                     : a === 0 ? t("actn_default", ACT_INFO[0][0]) : actName(a, tile))}</option>`).join("")}</select>
       </div>`).join("");
     el.querySelectorAll("select").forEach((sel) => sel.onchange = () => {
       doctrine[Number(sel.dataset.t)] = Number(sel.value);
@@ -562,9 +611,10 @@ function renderDoctrine() {
   // to hold these sentences would not fit on a phone, and a truncated one explains nothing
   el.querySelectorAll("select").forEach((sel) => { sel.value = String(doctrine[Number(sel.dataset.t)] || 0); });
   el.querySelectorAll(".eff").forEach((n) => {
-    const a = doctrine[Number(n.dataset.t)] || 0;
-    n.innerHTML = a ? `<b style="color:var(--accent2)">${esc(t("actn_" + ACT_KEY[a], ACT_INFO[a][0]))}</b> — ${esc(t("actd_" + ACT_KEY[a], ACT_INFO[a][1]))}`
-                    : `<span class="faint">${esc(t("actd_default", ACT_INFO[0][1]))}</span>`;
+    const tile = Number(n.dataset.t);
+    const a = doctrine[tile] || 0;
+    n.innerHTML = a ? `<b style="color:var(--accent2)">${esc(actName(a, tile))}</b> — ${esc(actDesc(a, tile))}`
+                    : `<span class="faint">${esc(actDesc(0, tile))}</span>`;
   });
   const note = $("doctrineNote");
   if (note) {
@@ -694,7 +744,9 @@ function begin() {
 }
 function commitPlan() {
   if (!chain) return;
-  const word = E.packDoctrine(doctrine || []);
+  // drop any entry the tile cannot actually use, so what is committed is exactly what will happen
+  const clean = (doctrine || []).map((a, tile) => ((ACTS_FOR[tile] || [0]).includes(a) ? a : 0));
+  const word = E.packDoctrine(clean);
   act("plan", t("whatPlan", "Committing your doctrine"), () => {
     dapp.call("plan", [myId, word, planAgg], 0n,
       t("labelPlan", "Commit doctrine"), { phase: "plan", word, agg: planAgg });
