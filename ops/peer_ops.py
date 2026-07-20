@@ -185,7 +185,16 @@ def save_peer(ip, port, address, overwrite=False):
 
 # Baked-in bootstrap seed(s). A freshly-cloned node (`python node.py`) has an EMPTY peers/ dir and no way
 # to discover the network, so it starts from these. Extend/override with NADO_SEED_PEERS (comma-separated).
-DEFAULT_SEED_PEERS = ["38.242.201.206"]   # get.nadochain.com — the public bootstrap node
+# Seed status also carries privileges beyond bootstrap: exempt from the unreachable cooldown (retried
+# immediately — matters now that update waves restart the fleet routinely, or the anchors drop each other
+# for 5 min on every deploy), exempt from fork-choice peer benches (consensus_loop.reject_tip), and
+# eligible as the lone-donor weak-subjectivity anchor (core_loop.snapshot_bootstrap). TWO seeds so the
+# anchors cover each other: with only one, the other operator box was just a peer and got benched/cooled
+# like any stranger during its own update restarts.
+DEFAULT_SEED_PEERS = [
+    "38.242.201.206",    # get.nadochain.com — the public bootstrap node
+    "208.87.242.141",    # second operator anchor (the Tezos-baker box)
+]
 
 def seed_peers():
     """Operator seed set: baked-in DEFAULT_SEED_PEERS + any NADO_SEED_PEERS the operator configured
