@@ -12,11 +12,12 @@ the equalities below. They are PURE functions of committed state: no mutation, n
 call from anywhere. A violation is reported, never raised into the consensus path (a false positive must
 never halt the chain; see loops/core_loop where this runs as a periodic duty).
 
-The four domains:
+The five domains:
   L1 SUPPLY      sum(balance + bonded) over every account == TREASURY_GENESIS + produced - fees
   BRIDGE         BRIDGE_ESCROW  == exec-side credited balances + unclaimed exit records
   SHIELDED       SHIELD_ESCROW  == live note total + unclaimed exits + fees burned in-pool
   DIVIDEND       DIVIDEND_POOL  >= accrued + unclaimed exits + carry     (see check_dividend on why >=)
+  ASSETS         each asset's supply == the sum of its balances       (no L1 escrow — see check_assets)
 
 SEVERITY FOLLOWS DIRECTION (see _verdict). Escrow holding MORE than is owed is coin STRANDED — unspendable
 by anyone, no supply created. Escrow holding LESS is a MINT. Only the second sets ok=False, because the
@@ -145,7 +146,44 @@ def check_dividend(get_account, exec_state):
                                "undistributed": undistributed}
 
 
-ESCROW_DOMAINS = ("bridge", "shielded", "dividend")
+def check_assets(get_account, exec_state):
+    """Every asset's recorded supply equals the sum of its balances (doc/assets.md).
+
+    The odd one out, and deliberately so: the other three domains reconcile an exec-side figure against an
+    L1 ESCROW, because they are all denominated in NADO. An asset has no L1 backing to reconcile against —
+    it exists only on this layer — so the invariant that makes it money is INTERNAL consistency. Every path
+    that changes a supply must change a balance by the same amount and vice versa.
+
+    DIRECTION, in this domain's own terms (delta = balances - supply):
+      delta > 0  balances exceed the declared supply — units somebody can SPEND that the supply does not
+                 account for. That is the MINT.
+      delta < 0  the declared supply exceeds every balance — the total is overstated (it is what holders
+                 read and what the cap is measured against) but the difference is not spendable.
+    Unlike the escrow domains, BOTH set ok=False. Their STRANDED case is tolerated only because the live
+    chain carries known long-standing escrow gaps; here no legitimate gap of either sign exists, so a
+    permanently-red check cannot arise and nothing is gained by softening one direction.
+
+    Reports the worst offender rather than just a verdict, so a failure names the asset without a second
+    query. Returns (ok, detail)."""
+    assets = getattr(exec_state, "assets", None) or {}
+    abal = getattr(exec_state, "abal", None) or {}
+    worst, worst_delta, bad = None, 0, 0
+    for aid, meta in assets.items():
+        delta = sum(int(v) for v in (abal.get(aid) or {}).values()) - int(meta.get("supply", 0))
+        if delta:
+            bad += 1
+            if abs(delta) > abs(worst_delta):
+                worst, worst_delta = aid, delta
+    # An orphan balance row for an asset that does not exist is the same class of bug, and would otherwise
+    # be invisible above (the loop only walks known assets).
+    orphans = [aid for aid in abal if aid not in assets]
+    ok = not bad and not orphans
+    status = OK if ok else (MINT if worst_delta > 0 else ("unaccounted" if worst_delta < 0 else "orphan"))
+    return ok, {"domain": "assets", "status": status, "assets": len(assets), "mismatched": bad,
+                "orphan_ledgers": len(orphans), "worst_asset": worst, "worst_delta": worst_delta}
+
+
+ESCROW_DOMAINS = ("bridge", "shielded", "dividend", "assets")
 
 
 def check_all(iter_accounts, totals, get_account, exec_state=None):
@@ -170,6 +208,7 @@ def check_all(iter_accounts, totals, get_account, exec_state=None):
         _run(check_bridge, get_account, exec_state)
         _run(check_shielded, get_account, exec_state)
         _run(check_dividend, get_account, exec_state)
+        _run(check_assets, get_account, exec_state)
     else:
         for d in ESCROW_DOMAINS:
             results.append({"domain": d, "ok": None,

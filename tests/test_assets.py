@@ -447,6 +447,39 @@ def t_proven_call_matches_native():
     assert not ok5, "a forged ABAL read was accepted"
 
 
+def t_supply_invariant_catches_a_mismatch():
+    """ops/invariants: an asset's supply must equal the sum of its balances. The other invariant domains
+    reconcile against an L1 escrow; an asset has none, so INTERNAL consistency is the whole guarantee —
+    and a detector nobody has watched fail is not a detector."""
+    from ops import invariants
+    st = fresh()
+    aid = create(st, supply=1000)
+    st.apply_blob({"op": "asset_transfer", "asset": aid, "to": BOB, "amount": 400}, ALICE, "tx")
+    ok, d = invariants.check_assets(lambda *a, **k: None, st)
+    assert ok and d["status"] == "ok" and d["mismatched"] == 0, d
+
+    # supply inflated with no balance behind it: the total is overstated, but nobody can SPEND the
+    # difference — so it is unaccounted, not a mint. Both still fail; the status has to tell them apart.
+    st.assets[aid]["supply"] += 7
+    ok, d = invariants.check_assets(lambda *a, **k: None, st)
+    assert not ok and d["status"] == "unaccounted" and d["worst_delta"] == -7 and d["worst_asset"] == aid, d
+    st.assets[aid]["supply"] -= 7
+
+    # a balance the supply does not account for IS a mint — those units are spendable
+    st.abal[aid][CAROL] = 5
+    ok, d = invariants.check_assets(lambda *a, **k: None, st)
+    assert not ok and d["status"] == "mint" and d["worst_delta"] == 5, d
+    del st.abal[aid][CAROL]
+
+    # a balance row for an asset that does not exist would otherwise be invisible (the walk is over assets)
+    st.abal["999999"] = {CAROL: 1}
+    ok, d = invariants.check_assets(lambda *a, **k: None, st)
+    assert not ok and d["orphan_ledgers"] == 1, d
+    del st.abal["999999"]
+    ok, _d = invariants.check_assets(lambda *a, **k: None, st)
+    assert ok, "the check did not go green again"
+
+
 def t_settlement_prover_refuses_asset_io():
     """Until the epoch prover carries an asset ledger, an asset call must be REFUSED by it rather than
     proven against a shadow ledger that would read the move as native NADO."""
@@ -483,6 +516,7 @@ if __name__ == "__main__":
     check("ASEL of asset 0 reverts", t_asel_zero_reverts)
     check("replay_io: pairing re-checked, fail-closed by default", t_replay_io_pairing_and_failclosed)
     check("native == interpreter == proven-and-replayed", t_proven_call_matches_native)
+    check("supply invariant catches a mismatch", t_supply_invariant_catches_a_mismatch)
     check("settlement prover refuses asset io", t_settlement_prover_refuses_asset_io)
     print("ALL PASS" if not fails else f"{fails} FAILURE(S)")
     sys.exit(1 if fails else 0)

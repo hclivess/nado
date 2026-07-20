@@ -203,6 +203,25 @@ try {
     assert((await evl(`location.pathname`)) === "/assets", "tab did not push /assets");
   });
 
+  await scenario("the tab is fully translated (no English left in a non-English locale)", async () => {
+    // i18n falls back to the element's existing English text when a key is missing, so an untranslated
+    // string is INVISIBLE unless something asserts on it. Czech stands in for all 15 (tools/check_i18n.py
+    // proves the tables are key-complete; this proves they actually reach the DOM).
+    await evl(`(() => { const s = document.getElementById("langSelect"); s.value = "cs";
+                        s.dispatchEvent(new Event("change")); })()`);
+    await sleep(1500);
+    const tab = await text('[data-tabbtn="assets"]');
+    assert(tab === "Aktiva", "tab label not translated: " + tab);
+    const h = await text("#assetsCard h2");
+    assert(h.includes("Aktiva") && h.includes("exeku"), "card heading not translated: " + h);
+    assert((await text("#assetsCard h3")) === "Vaše aktiva", "section heading not translated");
+    const btn = await text("#btnAssetCreate");
+    assert(btn === "Vydat", "issue button not translated: " + btn);
+    await evl(`(() => { const s = document.getElementById("langSelect"); s.value = "en";
+                        s.dispatchEvent(new Event("change")); })()`);
+    await sleep(1200);
+  });
+
   const shot = await send("Page.captureScreenshot", { format: "png" });
   if (shot.result && shot.result.data) {
     const { writeFileSync } = await import("node:fs");

@@ -159,6 +159,16 @@ interpreter-vs-proof-vs-replay check our money-code rule demands. Wallet half ou
 
 **Goal:** a constant-product pool contract so any asset has a price and a NADO pair.
 
+> **The runtime gap this phase will hit: there are no cross-contract calls.** A zkVM call runs exactly one
+> contract — `selfd`, storage and the escrowed value are per-call periodic columns in the AIR, so there is
+> no frame to switch. A single pool contract does not need one (assets compose natively now, which is the
+> point of putting them in the ledger rather than in a contract). A **router** does: best-execution across
+> venues means calling pool A then pool B atomically. Solana's equivalent is CPI; ours would be a `CALL`
+> opcode plus a call-frame vocabulary in the io log and per-frame context in the circuit. That is a
+> project in its own right, not a line item — so Phase 2 ships single-pool swaps, and Phase 4's router is
+> where the design has to be settled. Until then a multi-hop route is two transactions and not atomic,
+> which is a real UX and MEV cost worth naming rather than discovering.
+
 **Deliverables**
 - `execnode/games/`-style contract `amm.py` (it belongs in a new `execnode/apps/` — see Track D):
   `createPool`, `addLiquidity`, `removeLiquidity`, `swapExactIn`, `swapExactOut`.
