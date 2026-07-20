@@ -55,10 +55,45 @@ def t_foldable_recursion_backend():
     assert ok, f"RECURSION-committed calls-commitment must verify (foldable): {why}"
 
 
+
+def t_string_args_do_not_kill_the_summary():
+    """REGRESSION: call_leaf did int() on every arg, so ONE call carrying a string arg raised — and because
+    block_summary derives a whole block's leaves at once, that killed the summary for every call in the
+    block. It was live on alphanet: the bet oracle posts fixture names as args and the node logged
+    `exec summary for block N failed: invalid literal for int()` block after block, leaving those heights
+    with no settle-with-proof binding at all.
+
+    String args are legal — that is how addresses enter the field-native VM — so the leaf must digest them
+    exactly as runtimes.zkvm_statement does, and a string must commit to the SAME leaf as its already
+    digested int form."""
+    from execnode.stark.calls_commit import call_leaf, block_summary
+    from execnode import runtimes
+
+    base = {"cid": "c", "method": "m", "caller": "mldsa44abc", "value": 0, "cursor": 5, "timestamp": 9}
+    addr = "mldsa44deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    assert call_leaf({**base, "args": [addr]}) == call_leaf({**base, "args": [runtimes.zkvm_addr_digest(addr)]}), \
+        "a string arg must commit to the same leaf as its digested form"
+
+    poison = "AS Roma vs Fiorentina\nAS Roma\nDraw\nFiorentina"
+    call_leaf({**base, "args": [poison]})                      # must not raise
+    call_leaf({**base, "args": [1, poison, 2]})
+
+    # and the whole-block path survives a poison call sitting next to a healthy one
+    block = {"block_number": 7, "block_timestamp": 11, "block_transactions": [
+        {"recipient": "blob", "sender": "mldsa44s1",
+         "data": {"op": "call", "contract": "c", "method": "ok", "args": [1, 2]}},
+        {"recipient": "blob", "sender": "mldsa44s2",
+         "data": {"op": "call", "contract": "c", "method": "oracle", "args": [poison]}},
+    ]}
+    _inert, calls = block_summary(block)
+    assert calls.get("default") and len(calls["default"]) == 2, \
+        f"a string arg must not drop calls from the summary: {calls}"
+
 if __name__ == "__main__":
     check("native commitment == IV→leaves membership fold", t_commitment_is_a_membership_fold)
     check("call order changes the commitment", t_order_matters)
     check("in-circuit proof verifies (+ soundness)", t_in_circuit_proof_verifies)
     check("provable + verifiable under RECURSION backend (foldable)", t_foldable_recursion_backend)
+    check("string args do not kill the block summary", t_string_args_do_not_kill_the_summary)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

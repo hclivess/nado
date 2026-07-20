@@ -98,12 +98,15 @@ def field(s, name, rid, default=0):
 
 
 print("autogame e2e as", ME, flush=True)
-wait(lambda: j(EX + f"/exec/contract?ns=default&cid={CID}").get("cid") == CID, "contract live", 180)
+# The exec layer trails L1 by roughly a finality window — measured at ~60 blocks (~6 min) on this node —
+# so a freshly deployed contract is simply not visible for several minutes. Every wait here has to be
+# sized against the EXEC cursor, not the L1 tip, or the test reports a failure that is only impatience.
+wait(lambda: j(EX + f"/exec/contract?ns=default&cid={CID}").get("cid") == CID, "contract live", 900)
 
 RID = int(time.time()) % 900000000 + 1
 print(f"\n1. set out (run {RID})", flush=True)
 call("begin", [RID])
-wait(lambda: field(sto(), "ra", RID) != 0 or (sto().get("hp") or {}).get(str(RID)), "run exists")
+wait(lambda: field(sto(), "ra", RID) != 0 or (sto().get("hp") or {}).get(str(RID)), "run exists", 900)
 s = sto()
 lh, nh = field(s, "lh", RID), field(s, "nh", RID)
 ck("starts at full health", field(s, "hp", RID) == A.HP0, f"hp={field(s, 'hp', RID)}")
@@ -111,7 +114,7 @@ ck("terrain height is in the FUTURE at begin", lh > cursor() - 3, f"lh={lh} curs
 ck("rolling height is one leg later", nh == lh + A.LEG, f"lh={lh} nh={nh}")
 
 print("\n2. wait for the terrain block, then read the road the way the browser does", flush=True)
-wait(lambda: cursor() >= lh, f"terrain height {lh} mined")
+wait(lambda: cursor() >= lh, f"terrain height {lh} mined", 900)
 th = blockhash(lh)
 road = []
 for i in range(A.LEG):
@@ -137,7 +140,7 @@ print("\n4. wait for the rolling height and settle", flush=True)
 wait(lambda: cursor() >= nh, f"rolling height {nh} mined", timeout=900)
 rh = blockhash(nh)
 call("advance", [RID])
-wait(lambda: field(sto(), "dp", RID) > 0, "leg settled")
+wait(lambda: field(sto(), "dp", RID) > 0, "leg settled", 900)
 
 print("\n5. does the chain agree with the reference model?", flush=True)
 s = sto()

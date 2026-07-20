@@ -26,9 +26,28 @@ def call_leaf(call, cursor=0, timestamp=0):
     cur = int(call.get("cursor", cursor))
     ts = int(call.get("timestamp", timestamp))
     payload = ["call", str(call.get("cid", "")), str(call.get("method", "")),
-               str(call.get("caller", "epoch")), [int(a) for a in call.get("args", [])],
+               str(call.get("caller", "epoch")), [_arg_field(a) for a in call.get("args", [])],
                int(call.get("value", 0)), cur, ts]
     return int(blake2b_hash(payload), 16) % F.P
+
+
+def _arg_field(a):
+    """One call arg in the SAME field form the VM boundary gives it (runtimes.zkvm_statement): ints pass
+    through, strings are digested.
+
+    A bare int() here crashed on every legal string arg — and because block_summary derives the leaves for a
+    whole block at once, ONE call carrying a string killed the summary for every call in that block. It was
+    live: the bet oracle posts fixture names ("AS Roma vs Fiorentina\n…") as args, and the node logged
+    `exec summary for block N failed: invalid literal for int()` on block after block, silently leaving
+    those heights with no settle-with-proof binding at all.
+
+    Anything that is neither an int nor a string cannot reach the VM (zkvm_statement rejects it), so it
+    cannot appear in a call that executes; digesting its repr keeps the leaf total rather than throwing,
+    since this function must never be the reason a block has no summary."""
+    from execnode import runtimes
+    if isinstance(a, bool) or not isinstance(a, (int, str)):
+        return runtimes.zkvm_addr_digest(repr(a))
+    return a if isinstance(a, int) else runtimes.zkvm_addr_digest(a)
 
 
 def block_calls(block, ns="default"):
