@@ -47,8 +47,11 @@ def cursor():
 
 
 def blockhash(h):
-    """BHASH(h) as the contract sees it — the L1 block hash reduced into the field."""
-    b = j(L1 + f"/get_block_number?block_number={h}")
+    """BHASH(h) as the contract sees it — the L1 block hash reduced into the field.
+
+    The param is `number`, not `block_number` (nado.py: GET /get_block_number?number=). The wrong name 404s,
+    and a 404 here reads as 'the chain is missing a block' rather than 'the test typed the URL wrong'."""
+    b = j(L1 + f"/get_block_number?number={h}")
     return int(b["block_hash"], 16) % F.P
 
 
@@ -120,13 +123,16 @@ wait(lambda: j(EX + f"/exec/contract?ns=default&cid={CID}").get("cid") == CID, "
 
 RID = int(time.time()) % 900000000 + 1
 print(f"\n1. set out (run {RID})", flush=True)
+cursor_at_begin = cursor()          # captured BEFORE the call: the pin is future-relative to THIS, and by
+                                    # the time the run is visible the cursor has naturally moved past it
 call("begin", [RID])
 wait(lambda: owner(sto(), RID) == ME, "run exists", 900)
 s = sto()
 lh, nh = field(s, "lh", RID), field(s, "nh", RID)
 ck("the run is mine", owner(s, RID) == ME, owner(s, RID)[:18])
 ck("starts at full health", field(s, "hp", RID) == A.HP0, f"hp={field(s, 'hp', RID)}")
-ck("terrain height is in the FUTURE at begin", lh > cursor() - 3, f"lh={lh} cursor={cursor()}")
+ck("terrain height was pinned in the FUTURE", lh > cursor_at_begin,
+   f"lh={lh} cursor_at_begin={cursor_at_begin}")
 ck("rolling height is one leg later", nh == lh + A.LEG, f"lh={lh} nh={nh}")
 
 print("\n2. wait for the terrain block, then read the road the way the browser does", flush=True)
