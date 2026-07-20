@@ -9,6 +9,7 @@ from config import test_self_port
 from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers
 from ops.peer_ops import get_public_ip, update_local_ip, check_ip, subnet_diversity_ok
 from ops.peer_ops import seed_default_peers, seed_peers, status_fields_well_typed
+from ops import self_update
 from protocol import CHAIN_ID
 
 # How often (seconds) a node BELOW min_peers re-seeds + reloads peers from drive. The peer loop still spins
@@ -218,6 +219,12 @@ class PeerClient(threading.Thread):
                         self.memserver.ban_peer(key)
                     else:
                         self.consensus.status_pool[key]=value
+                        # NEAR-REAL-TIME UPDATE CASCADE: a peer advertising a commit we do not recognize
+                        # is the freshest "origin/main moved" signal there is — the first node to update
+                        # restarts, advertises the new head, and this hint pulls every OTHER node current
+                        # within seconds instead of whenever the 15-min timer happens to fire. Ff-only
+                        # against the pinned official repo; recognized/old/cooled-down values are no-ops.
+                        self_update.peer_hint(value.get("latest_main") or value.get("running_commit"))
 
                 self.purge_peers()
                 self.duration = get_timestamp_seconds() - start

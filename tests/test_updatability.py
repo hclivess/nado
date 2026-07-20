@@ -128,6 +128,33 @@ def t_unprivileged_with_bridge_restarts_via_flag():
     assert os.path.isfile(flag), "must have written the restart flag for the root bridge"
 
 
+def t_peer_hint_ignores_recognized_and_old_commits():
+    """The cascade must be QUIET in steady state: our own head, the origin head we last saw, and any
+    ancestor already in our history (a merely LAGGING peer) must never cause a fetch."""
+    import subprocess as sp
+    head = sp.check_output(["git", "rev-parse", "HEAD"], cwd=SU._REPO_DIR, text=True).strip()[:12]
+    old = sp.check_output(["git", "rev-parse", "HEAD~1"], cwd=SU._REPO_DIR, text=True).strip()[:12]
+    with patched(_hints={}):
+        assert not SU.peer_hint(None), "empty value must be a no-op"
+        assert not SU.peer_hint(head), "our own HEAD is recognized"
+        assert not SU.peer_hint(old), "an ancestor (lagging peer) must not trigger a fetch"
+
+
+def t_peer_hint_unknown_commit_kicks_a_check_once():
+    """An advertised commit outside our history IS the origin-moved signal — it must kick exactly one
+    async check; the same value again inside the cooldown must not."""
+    import threading as th
+    fired = th.Event()
+    calls = []
+    def fake_check(trigger):
+        calls.append(trigger); fired.set()
+    with patched(_hints={}, check_and_update=fake_check):
+        assert SU.peer_hint("deadbeefcafe"), "unknown commit must kick a check"
+        assert fired.wait(5), "the check thread must actually run"
+        assert calls == ["peer-hint"], calls
+        assert not SU.peer_hint("deadbeefcafe"), "same value inside the cooldown must be a no-op"
+
+
 def t_heal_runs_the_LOCAL_installer():
     """The fixer must be the installer that ships with the node, not a curl. Asserted by pointing the repo
     dir at a fixture and requiring the spawned command to be that fixture's own install.sh."""
@@ -189,6 +216,8 @@ for name, fn in [
     ("offline is a WARNING, never fatal", t_offline_is_a_WARNING_not_fatal),
     ("unprivileged without the restart bridge IS detected", t_unprivileged_without_bridge_is_detected),
     ("unprivileged with the bridge signals the flag file", t_unprivileged_with_bridge_restarts_via_flag),
+    ("peer hint ignores recognized/old commits", t_peer_hint_ignores_recognized_and_old_commits),
+    ("peer hint on an unknown commit checks once", t_peer_hint_unknown_commit_kicks_a_check_once),
     ("heal runs the LOCAL installer, never a curl", t_heal_runs_the_LOCAL_installer),
     ("heal is attempted at most once", t_heal_is_attempted_once),
     ("heal without root reports the exact command", t_heal_without_root_reports_the_command),

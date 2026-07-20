@@ -393,9 +393,12 @@ NADO nodes update themselves. Two mechanisms:
 - **Integrated updater (`/update`).** Any node running current code exposes a harmless `/update`
   endpoint — hitting it makes the node **fast-forward-pull the official `main`** (pinned to
   `github.com/hclivess/nado`, ff-only, never an arbitrary branch), then relaunch its services. It also
-  **waves the request to its peers** and **runs itself automatically every 24 h**, so one nudge — from
-  anyone, since it only ever pulls the canonical repo — ripples the whole fleet current with no shell
-  access needed. A node's latest applied commit is visible in `/status` (`running_commit`).
+  **waves the request to its peers**, **checks on its own every 15 minutes**, and — the part that makes
+  fleet versioning near-real-time — **reacts to peer hints**: the moment any peer's status advertises a
+  commit a node does not recognize, that node checks origin immediately. So the first node to pick up a
+  push (timer or nudge) pulls the entire mesh current within seconds; a hostile peer controls only *when*
+  a node glances at the canonical repo, never *what* it pulls. A node's latest applied commit is visible
+  in `/status` (`running_commit`).
 
 - **Self-healing updatability (startup check + auto-repair).** A node that *cannot* update is not merely
   stale — since consensus changes ship with no backward compatibility, it eventually **diverges and forks**.

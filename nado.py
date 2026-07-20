@@ -1839,7 +1839,7 @@ messages.start()
 logger.info("Starting Request Handler")
 
 
-def _daily_update_loop():
+def _periodic_update_loop():
     """Integrated auto-updater cadence: check origin/main once a day (plus whenever someone hits
     /update). First check 10 minutes after boot so a freshly restarted node settles/syncs first; a
     check that pulls new code schedules its own restart, after which the node is up to date and the
@@ -1855,18 +1855,22 @@ def _daily_update_loop():
     time.sleep(600)
     while True:
         try:
-            # Re-diagnose each day: a unit can be removed, a remote re-pointed, git uninstalled.
+            # Re-diagnose each pass: a unit can be removed, a remote re-pointed, git uninstalled.
             memserver.updatability = self_update.ensure_updatable(logger=logger)
-            res = self_update.check_and_update("daily")
-            logger.info(f"Daily update check: {res.get('status')}"
+            # 15 min (was 24 h) bounds how long the FIRST node in the mesh can lag a push — every other
+            # node then catches up within seconds via the peer-hint cascade (ops/self_update.peer_hint):
+            # the updated node's status advertises the new commit and its peers check immediately. One
+            # git fetch per node per 15 min is negligible; fleet versioning stays near-real-time.
+            res = self_update.check_and_update("periodic")
+            logger.info(f"Periodic update check: {res.get('status')}"
                         + (f" ({res.get('reason')})" if res.get("reason") else "")
                         + (f" {res.get('from')} -> {res.get('to')}" if res.get("status") == "updated" else ""))
         except Exception as e:
-            logger.info(f"Daily update check failed: {e}")
-        time.sleep(86400)
+            logger.info(f"Periodic update check failed: {e}")
+        time.sleep(900)
 
 
-_threading.Thread(target=_daily_update_loop, daemon=True, name="self_update").start()
-logger.info("Integrated auto-updater armed: daily origin/main check + remote /update trigger (wave-forwarding)")
+_threading.Thread(target=_periodic_update_loop, daemon=True, name="self_update").start()
+logger.info("Integrated auto-updater armed: 15-min origin/main check + peer-hint cascade + remote /update trigger (wave-forwarding)")
 
 asyncio.run(make_app(get_config()["port"]))

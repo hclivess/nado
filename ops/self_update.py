@@ -16,7 +16,9 @@ SAFE BY DESIGN (this runs unattended on a live money node whose repo dir IS the 
   • Restart is DETACHED and DELAYED (systemd-run) so the HTTP response and the peer-wave forwarding get
     out before this process dies; systemd waits for the node's graceful shutdown.
 
-Triggers: GET /update (remote, cascades to peers), the 24h in-node timer (nado.py), or the CLI
+Triggers: GET /update (remote, cascades to peers), the 15-min in-node timer (nado.py), a PEER HINT —
+any peer's status advertising a commit this node does not recognize kicks an immediate check, so one
+updated node ripples the whole mesh current within seconds (see peer_hint below) — or the CLI
 (`nado_cli.py update`). Opt out with "auto_update": false in private/config.json.
 
 GENESIS REROLLS are fully covered by one /update wave: a reroll commit bumps protocol.CHAIN_GENERATION, and
@@ -105,6 +107,51 @@ def _git(*args, timeout=15):
     """Run a git command in the repo root; returns stripped stdout, raises on non-zero exit."""
     return subprocess.check_output(["git", *args], cwd=_REPO_DIR, stderr=subprocess.DEVNULL,
                                    text=True, timeout=timeout).strip()
+
+
+# --- NEAR-REAL-TIME UPDATE CASCADE (peer hints) ----------------------------------------------------
+#
+# The periodic origin check (15 min, nado.py) only bounds how long the FIRST node lags a push. Every
+# other node gets there much faster: an updated peer restarts, advertises the new commit in its status,
+# and every current-code node sees it within one status pass (~1s). A commit we do not RECOGNIZE is
+# therefore the freshest possible "origin moved" signal — kick an async check on it. The hint decides
+# only WHEN we look at the PINNED official repo (ff-only), never WHAT we pull, so a hostile peer gets
+# nothing beyond making us glance at GitHub (bounded below + by check_and_update's _MIN_INTERVAL).
+
+_HINT_COOLDOWN = 3600                  # s per distinct advertised value — a stale or lying peer cannot loop us
+_hints = {}                            # advertised short-commit -> monotonic ts of its last evaluation
+
+
+def peer_hint(commit):
+    """A peer's status advertised `commit` (its running_commit or its view of origin/main). If it is not
+    one we recognize — not our HEAD, not the origin head we last saw, and not an ancestor already in our
+    history (that is just a LAGGING peer) — start an async check_and_update. Returns True when a check
+    was kicked; False for recognized/cooled-down/empty values. Never raises (runs in the peer loop)."""
+    try:
+        if not commit:
+            return False
+        c = str(commit)[:12]
+        known = {k for k in (latest_known(), running_head(), repo_head()) if k}
+        if any(c == k or c.startswith(k) or k.startswith(c) for k in known):
+            return False
+        now = time.monotonic()
+        if now - _hints.get(c, -_HINT_COOLDOWN) < _HINT_COOLDOWN:
+            return False
+        if len(_hints) > 64:           # bounded: rotating fake values cannot grow this forever
+            _hints.clear()
+        _hints[c] = now
+        try:
+            # an OLD commit is recognizable LOCALLY: it exists in our history as an ancestor of HEAD, so
+            # origin has not moved and no fetch is needed. (Unknown-to-git or diverged -> fall through.)
+            _git("merge-base", "--is-ancestor", c, "HEAD")
+            return False
+        except Exception:
+            pass
+        threading.Thread(target=check_and_update, args=("peer-hint",), daemon=True,
+                         name="peer_hint_update").start()
+        return True
+    except Exception:
+        return False
 
 
 def _blocked(why):
