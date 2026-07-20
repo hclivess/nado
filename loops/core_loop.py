@@ -797,10 +797,28 @@ class CoreClient(threading.Thread):
         pool = self.consensus.block_hash_pool
         if not pool:
             return True
-        majority = self.consensus.majority_block_hash
-        if not majority:
+        # THE OBJECTIVE TIP, NOT THE PLURALITY. This used to consult `majority_block_hash`, which
+        # consensus_loop.py itself documents as "the Sybil-swingable plurality … replaced [for] the BLOCK
+        # chain [by] OBJECTIVE heaviest-cumulative_weight fork-choice … (Plurality is kept for the tx-pool /
+        # block-producer pools, WHICH ARE NOT THE CHAIN FORK-CHOICE)". Whether our chain may finalize is a
+        # chain decision, so it had no business reading the one signal peer IPs can swing.
+        #
+        # What that cost, observed live on 2026-07-20: seven peers advertising seven DISTINCT tips, six of
+        # them on chains we do not even hold blocks for. "Majority" was therefore a ONE-VOTE plurality (14%)
+        # belonging to a peer on a foreign chain, so corroboration failed and this node's finality floor sat
+        # frozen for hours while its tip advanced normally — and any single peer could have done that to any
+        # node, deliberately, by advertising a tip nobody shares.
+        #
+        # `heaviest_block_hash` is the right input and needs no new machinery: it is argmax over
+        # cumulative_weight, it already EXCLUDES rejected tips and benched peers, and it always includes our
+        # own tip. The guard's purpose survives intact — a node alone on a minority fork still sees a
+        # strictly heavier foreign chain as heaviest and still refuses to self-finalize — while a lone forker
+        # advertising an unobtainable heavier tip is benched out of the computation, exactly as fork choice
+        # already treats it.
+        heaviest = self.consensus.heaviest_block_hash
+        if not heaviest:
             return True
-        return majority_on_our_canonical(majority, get_block, get_block_hash_by_number)
+        return majority_on_our_canonical(heaviest, get_block, get_block_hash_by_number)
 
     def _fork_state(self):
         """Measured fork state (ops/fork_resolution.resolve), cached for FORK_STATE_TTL_S.
