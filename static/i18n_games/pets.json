@@ -289,7 +289,15 @@
   "pets.buildWho": "Builder",
   "pets.buildBtn": "Raise it",
   "pets.bagHead": "🎒 Bag",
-  "pets.bagNote": "Gear your pets dig up rolls <b>random points on real stats</b>, scaled by the rarity of the pet that found it — a Legendary miner finds better things than a Common one. Equipping is not decoration: those points go straight into the pet's stats and into the arena. Junk scraps for <b>essence</b>."
+  "pets.bagNote": "Gear your pets dig up rolls <b>random points on real stats</b>, scaled by the rarity of the pet that found it — a Legendary miner finds better things than a Common one. Equipping is not decoration: those points go straight into the pet's stats and into the arena. Junk scraps for <b>essence</b>.",
+  "pets.needOre": "Fusing costs {n} ⛏ ore — work a Mine.",
+  "pets.callFuse": "fuse #{f} into #{t}",
+  "pets.needReroll": "Rerolling this costs {e} ✨, {t} 🪵 and {s} 🪨.",
+  "pets.callReroll": "re-roll item #{id}",
+  "pets.fuseCapped": "At the fusing cap — better than this has to be FOUND by a rarer pet.",
+  "pets.fuseNoFood": "To fuse this up a tier, feed it another {kind} of the same tier or better.",
+  "pets.fuseFor": "⚗ Fuse → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Re-roll · {n} ✨"
  },
  "cs": {
   "pets.cardRenderFail": "Kartu se nepodařilo vykreslit — zkus to znovu.",
@@ -581,7 +589,15 @@
   "pets.buildWho": "Stavitel",
   "pets.buildBtn": "Postavit",
   "pets.bagHead": "🎒 Batoh",
-  "pets.bagNote": "Výbava, kterou mazlíčci vyhrabou, dostává <b>náhodné body do skutečných vlastností</b>, škálované vzácností mazlíčka, který ji našel — legendární havíř najde lepší věci než obyčejný. Nasazení není ozdoba: ty body jdou rovnou do vlastností mazlíčka a do arény. Šunt rozebereš na <b>esenci</b>."
+  "pets.bagNote": "Výbava, kterou mazlíčci vyhrabou, dostává <b>náhodné body do skutečných vlastností</b>, škálované vzácností mazlíčka, který ji našel — legendární havíř najde lepší věci než obyčejný. Nasazení není ozdoba: ty body jdou rovnou do vlastností mazlíčka a do arény. Šunt rozebereš na <b>esenci</b>.",
+  "pets.needOre": "Sloučení stojí {n} ⛏ rudy — obsaď Důl.",
+  "pets.callFuse": "sloučit #{f} do #{t}",
+  "pets.needReroll": "Přehození stojí {e} ✨, {t} 🪵 a {s} 🪨.",
+  "pets.callReroll": "přehodit předmět #{id}",
+  "pets.fuseCapped": "Strop slučování — lepší musí NAJÍT vzácnější mazlíček.",
+  "pets.fuseNoFood": "Pro stupeň výš mu obětuj další kus typu {kind} stejného nebo lepšího stupně.",
+  "pets.fuseFor": "⚗ Sloučit → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Přehodit · {n} ✨"
  },
  "es": {
   "pets.cardRenderFail": "No se pudo generar la imagen de la carta — inténtalo de nuevo.",
@@ -873,7 +889,15 @@
   "pets.buildWho": "Constructor",
   "pets.buildBtn": "Levantarlo",
   "pets.bagHead": "🎒 Mochila",
-  "pets.bagNote": "El equipo que desentierran tus mascotas saca <b>puntos aleatorios en estadísticas reales</b>, escalados por la rareza de la que lo encontró — un minero Legendario encuentra mejores cosas que uno Común. Equipar no es decoración: esos puntos van directos a las estadísticas de la mascota y a la arena. La chatarra se desguaza por <b>esencia</b>."
+  "pets.bagNote": "El equipo que desentierran tus mascotas saca <b>puntos aleatorios en estadísticas reales</b>, escalados por la rareza de la que lo encontró — un minero Legendario encuentra mejores cosas que uno Común. Equipar no es decoración: esos puntos van directos a las estadísticas de la mascota y a la arena. La chatarra se desguaza por <b>esencia</b>.",
+  "pets.needOre": "Fusionar cuesta {n} ⛏ de mineral — asigna una mascota a una Mina.",
+  "pets.callFuse": "fusionar #{f} en #{t}",
+  "pets.needReroll": "Volver a tirarlo cuesta {e} ✨, {t} 🪵 y {s} 🪨.",
+  "pets.callReroll": "volver a tirar el objeto #{id}",
+  "pets.fuseCapped": "Tope de fusión — algo mejor hay que ENCONTRARLO con una mascota más rara.",
+  "pets.fuseNoFood": "Para subirlo un nivel, dale otra pieza del tipo {kind} de igual nivel o mejor.",
+  "pets.fuseFor": "⚗ Fusionar → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Volver a tirar · {n} ✨"
  },
  "pt": {
   "pets.cardRenderFail": "Não foi possível gerar a imagem do card — tente novamente.",
@@ -1165,7 +1189,15 @@
   "pets.buildWho": "Construtor",
   "pets.buildBtn": "Erguer",
   "pets.bagHead": "🎒 Mochila",
-  "pets.bagNote": "O equipamento que seus pets desencavam vem com <b>pontos aleatórios em atributos reais</b>, escalados pela raridade do pet que o achou — um mineiro Lendário acha coisas melhores que um Comum. Equipar não é enfeite: esses pontos vão direto para os atributos do pet e para a arena. Sucata se desmancha por <b>essência</b>."
+  "pets.bagNote": "O equipamento que seus pets desencavam vem com <b>pontos aleatórios em atributos reais</b>, escalados pela raridade do pet que o achou — um mineiro Lendário acha coisas melhores que um Comum. Equipar não é enfeite: esses pontos vão direto para os atributos do pet e para a arena. Sucata se desmancha por <b>essência</b>.",
+  "pets.needOre": "Fundir custa {n} ⛏ de minério — coloque um pet numa Mina.",
+  "pets.callFuse": "fundir #{f} em #{t}",
+  "pets.needReroll": "Rolar isto de novo custa {e} ✨, {t} 🪵 e {s} 🪨.",
+  "pets.callReroll": "rolar o item #{id} de novo",
+  "pets.fuseCapped": "Limite de fusão — melhor que isto só se ACHA com um pet mais raro.",
+  "pets.fuseNoFood": "Para subir um nível, alimente com outra peça do tipo {kind} de nível igual ou melhor.",
+  "pets.fuseFor": "⚗ Fundir → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Rolar de novo · {n} ✨"
  },
  "fr": {
   "pets.cardRenderFail": "Impossible de générer l'image de la carte — réessayez.",
@@ -1457,7 +1489,15 @@
   "pets.buildWho": "Bâtisseur",
   "pets.buildBtn": "Bâtir",
   "pets.bagHead": "🎒 Sac",
-  "pets.bagNote": "L'équipement que vos compagnons dénichent tire <b>des points aléatoires sur de vraies stats</b>, à la mesure de la rareté de celui qui l'a trouvé — un mineur Légendaire trouve mieux qu'un Commun. Équiper n'est pas décoratif : ces points passent direct dans les stats du compagnon et dans l'arène. La camelote se recycle en <b>essence</b>."
+  "pets.bagNote": "L'équipement que vos compagnons dénichent tire <b>des points aléatoires sur de vraies stats</b>, à la mesure de la rareté de celui qui l'a trouvé — un mineur Légendaire trouve mieux qu'un Commun. Équiper n'est pas décoratif : ces points passent direct dans les stats du compagnon et dans l'arène. La camelote se recycle en <b>essence</b>.",
+  "pets.needOre": "Fusionner coûte {n} ⛏ de minerai — affectez un compagnon à une Mine.",
+  "pets.callFuse": "fusionner #{f} dans #{t}",
+  "pets.needReroll": "Relancer coûte {e} ✨, {t} 🪵 et {s} 🪨.",
+  "pets.callReroll": "relancer l'objet #{id}",
+  "pets.fuseCapped": "Plafond de fusion — mieux que ça, il faut le TROUVER avec un compagnon plus rare.",
+  "pets.fuseNoFood": "Pour monter d'un niveau, donnez-lui une autre pièce de type {kind} de niveau égal ou supérieur.",
+  "pets.fuseFor": "⚗ Fusionner → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Relancer · {n} ✨"
  },
  "de": {
   "pets.cardRenderFail": "Kartenbild konnte nicht erzeugt werden — versuch es nochmal.",
@@ -1749,7 +1789,15 @@
   "pets.buildWho": "Baumeister",
   "pets.buildBtn": "Bauen",
   "pets.bagHead": "🎒 Tasche",
-  "pets.bagNote": "Ausrüstung, die deine Haustiere ausgraben, würfelt <b>zufällige Punkte auf echte Werte</b>, skaliert mit der Seltenheit des Finders — ein legendärer Bergmann findet Besseres als ein gewöhnlicher. Anlegen ist keine Deko: diese Punkte fließen direkt in die Werte des Haustiers und in die Arena. Schrott wird zu <b>Essenz</b> verwertet."
+  "pets.bagNote": "Ausrüstung, die deine Haustiere ausgraben, würfelt <b>zufällige Punkte auf echte Werte</b>, skaliert mit der Seltenheit des Finders — ein legendärer Bergmann findet Besseres als ein gewöhnlicher. Anlegen ist keine Deko: diese Punkte fließen direkt in die Werte des Haustiers und in die Arena. Schrott wird zu <b>Essenz</b> verwertet.",
+  "pets.needOre": "Verschmelzen kostet {n} ⛏ Erz — besetze eine Mine.",
+  "pets.callFuse": "#{f} in #{t} verschmelzen",
+  "pets.needReroll": "Neu würfeln kostet {e} ✨, {t} 🪵 und {s} 🪨.",
+  "pets.callReroll": "Gegenstand #{id} neu würfeln",
+  "pets.fuseCapped": "Verschmelzungsgrenze — Besseres muss ein selteneres Haustier FINDEN.",
+  "pets.fuseNoFood": "Für eine Stufe höher füttere ein weiteres Stück vom Typ {kind} gleicher oder besserer Stufe.",
+  "pets.fuseFor": "⚗ Verschmelzen → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Neu würfeln · {n} ✨"
  },
  "it": {
   "pets.cardRenderFail": "Impossibile generare l'immagine della carta — riprova.",
@@ -2041,7 +2089,15 @@
   "pets.buildWho": "Costruttore",
   "pets.buildBtn": "Erigilo",
   "pets.bagHead": "🎒 Zaino",
-  "pets.bagNote": "L'equipaggiamento che i tuoi pet dissotterrano tira <b>punti casuali su statistiche vere</b>, scalati sulla rarità del pet che l'ha trovato — un minatore Leggendario trova cose migliori di uno Comune. Equipaggiare non è decorazione: quei punti finiscono dritti nelle statistiche del pet e nell'arena. La paccottiglia si smantella per <b>essenza</b>."
+  "pets.bagNote": "L'equipaggiamento che i tuoi pet dissotterrano tira <b>punti casuali su statistiche vere</b>, scalati sulla rarità del pet che l'ha trovato — un minatore Leggendario trova cose migliori di uno Comune. Equipaggiare non è decorazione: quei punti finiscono dritti nelle statistiche del pet e nell'arena. La paccottiglia si smantella per <b>essenza</b>.",
+  "pets.needOre": "Fondere costa {n} ⛏ di minerale — assegna un pet a una Miniera.",
+  "pets.callFuse": "fondere #{f} in #{t}",
+  "pets.needReroll": "Rilanciarlo costa {e} ✨, {t} 🪵 e {s} 🪨.",
+  "pets.callReroll": "rilanciare l'oggetto #{id}",
+  "pets.fuseCapped": "Limite di fusione — di meglio si può solo TROVARE con un pet più raro.",
+  "pets.fuseNoFood": "Per salire di un livello, dagli un altro pezzo di tipo {kind} di livello uguale o migliore.",
+  "pets.fuseFor": "⚗ Fondi → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Rilancia · {n} ✨"
  },
  "ru": {
   "pets.cardRenderFail": "Не удалось отрисовать изображение карточки — попробуйте снова.",
@@ -2333,7 +2389,15 @@
   "pets.buildWho": "Строитель",
   "pets.buildBtn": "Построить",
   "pets.bagHead": "🎒 Сумка",
-  "pets.bagNote": "Снаряжение, которое выкапывают питомцы, получает <b>случайные очки к настоящим характеристикам</b>, по редкости нашедшего питомца — легендарный шахтёр находит вещи получше обычного. Надеть — не украшение: эти очки идут прямо в характеристики питомца и на арену. Хлам разбирается на <b>эссенцию</b>."
+  "pets.bagNote": "Снаряжение, которое выкапывают питомцы, получает <b>случайные очки к настоящим характеристикам</b>, по редкости нашедшего питомца — легендарный шахтёр находит вещи получше обычного. Надеть — не украшение: эти очки идут прямо в характеристики питомца и на арену. Хлам разбирается на <b>эссенцию</b>.",
+  "pets.needOre": "Сплавка стоит {n} ⛏ руды — поставьте питомца на Шахту.",
+  "pets.callFuse": "сплавить #{f} в #{t}",
+  "pets.needReroll": "Переброс стоит {e} ✨, {t} 🪵 и {s} 🪨.",
+  "pets.callReroll": "перебросить предмет #{id}",
+  "pets.fuseCapped": "Предел сплавки — лучше можно только НАЙТИ более редким питомцем.",
+  "pets.fuseNoFood": "Чтобы поднять на категорию выше, скормите ещё один предмет типа {kind} той же категории или лучше.",
+  "pets.fuseFor": "⚗ Сплавить → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Переброс · {n} ✨"
  },
  "zh": {
   "pets.cardRenderFail": "无法渲染卡片图片 — 请重试。",
@@ -2625,7 +2689,15 @@
   "pets.buildWho": "建造者",
   "pets.buildBtn": "开建",
   "pets.bagHead": "🎒 背包",
-  "pets.bagNote": "宠物挖出的装备会随机掷出<b>真实属性上的点数</b>，按找到它的宠物稀有度放大 — 传说矿工找到的东西比普通的更好。装备不是摆设：这些点数直接加进宠物属性、带上竞技场。没用的可以分解成<b>精华</b>。"
+  "pets.bagNote": "宠物挖出的装备会随机掷出<b>真实属性上的点数</b>，按找到它的宠物稀有度放大 — 传说矿工找到的东西比普通的更好。装备不是摆设：这些点数直接加进宠物属性、带上竞技场。没用的可以分解成<b>精华</b>。",
+  "pets.needOre": "合成需要 {n} ⛏ 矿石 — 派宠物去矿井。",
+  "pets.callFuse": "把 #{f} 合成进 #{t}",
+  "pets.needReroll": "重新生成需要 {e} ✨、{t} 🪵 和 {s} 🪨。",
+  "pets.callReroll": "重新生成道具 #{id}",
+  "pets.fuseCapped": "已到合成上限 — 更好的只能靠更稀有的宠物去挖到。",
+  "pets.fuseNoFood": "想升一个等级，就再喂它一件同类（{kind}）且等级不低的道具。",
+  "pets.fuseFor": "⚗ 合成 → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 重新生成 · {n} ✨"
  },
  "ja": {
   "pets.cardRenderFail": "カードの画像を生成できませんでした — もう一度お試しください。",
@@ -2917,7 +2989,15 @@
   "pets.buildWho": "建てる子",
   "pets.buildBtn": "建てる",
   "pets.bagHead": "🎒 バッグ",
-  "pets.bagNote": "ペットが掘り当てた装備には<b>実際のステータスにランダムな数値</b>が付き、見つけたペットのレア度に応じて大きくなります — レジェンダリーの鉱夫はコモンより良い物を見つけます。装備は飾りではなく、その数値はそのままペットのステータスとアリーナに反映されます。要らない物は分解して<b>エッセンス</b>に。"
+  "pets.bagNote": "ペットが掘り当てた装備には<b>実際のステータスにランダムな数値</b>が付き、見つけたペットのレア度に応じて大きくなります — レジェンダリーの鉱夫はコモンより良い物を見つけます。装備は飾りではなく、その数値はそのままペットのステータスとアリーナに反映されます。要らない物は分解して<b>エッセンス</b>に。",
+  "pets.needOre": "合成には鉱石 {n} ⛏ が必要 — 鉱山にペットを配置しましょう。",
+  "pets.callFuse": "#{f} を #{t} に合成する",
+  "pets.needReroll": "振り直しには {e} ✨、{t} 🪵、{s} 🪨 が必要です。",
+  "pets.callReroll": "アイテム #{id} を振り直す",
+  "pets.fuseCapped": "合成の上限です — これより上はよりレアなペットが見つけるしかありません。",
+  "pets.fuseNoFood": "ティアを上げるには、同じ種類（{kind}）で同ティア以上のアイテムを与えてください。",
+  "pets.fuseFor": "⚗ 合成 → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 振り直す · {n} ✨"
  },
  "ko": {
   "pets.cardRenderFail": "카드 이미지를 렌더링하지 못했습니다 — 다시 시도하세요.",
@@ -3209,7 +3289,15 @@
   "pets.buildWho": "짓는 펫",
   "pets.buildBtn": "짓기",
   "pets.bagHead": "🎒 가방",
-  "pets.bagNote": "펫이 캐낸 장비는 <b>실제 스탯에 무작위 수치</b>가 붙고, 찾아낸 펫의 희귀도에 따라 커집니다 — 전설 광부는 일반 광부보다 좋은 물건을 찾습니다. 장착은 장식이 아닙니다: 그 수치는 그대로 펫의 스탯과 배틀에 반영됩니다. 잡템은 분해해 <b>정수</b>로 만드세요."
+  "pets.bagNote": "펫이 캐낸 장비는 <b>실제 스탯에 무작위 수치</b>가 붙고, 찾아낸 펫의 희귀도에 따라 커집니다 — 전설 광부는 일반 광부보다 좋은 물건을 찾습니다. 장착은 장식이 아닙니다: 그 수치는 그대로 펫의 스탯과 배틀에 반영됩니다. 잡템은 분해해 <b>정수</b>로 만드세요.",
+  "pets.needOre": "합성에는 광석 {n} ⛏ 필요 — 광산에 펫을 배치하세요.",
+  "pets.callFuse": "#{f}을(를) #{t}에 합성",
+  "pets.needReroll": "다시 굴리려면 {e} ✨, {t} 🪵, {s} 🪨 이(가) 필요합니다.",
+  "pets.callReroll": "아이템 #{id} 다시 굴리기",
+  "pets.fuseCapped": "합성 상한입니다 — 이보다 좋은 건 더 희귀한 펫이 찾아내야 합니다.",
+  "pets.fuseNoFood": "등급을 올리려면 같은 종류({kind})의 동급 이상 아이템을 먹이세요.",
+  "pets.fuseFor": "⚗ 합성 → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 다시 굴리기 · {n} ✨"
  },
  "ar": {
   "pets.cardRenderFail": "تعذّر إنشاء صورة البطاقة — حاول مجددًا.",
@@ -3501,7 +3589,15 @@
   "pets.buildWho": "البنّاء",
   "pets.buildBtn": "ابنِه",
   "pets.bagHead": "🎒 الحقيبة",
-  "pets.bagNote": "العتاد الذي تستخرجه حيواناتك يحصل على <b>نقاط عشوائية في صفات حقيقية</b>، تتناسب مع ندرة الحيوان الذي وجده — المنقّب الأسطوري يجد أشياء أفضل من العادي. التجهيز ليس زينة: هذه النقاط تدخل مباشرة في صفات الحيوان وفي الحلبة. الخردة تُفكَّك للحصول على <b>جوهر</b>."
+  "pets.bagNote": "العتاد الذي تستخرجه حيواناتك يحصل على <b>نقاط عشوائية في صفات حقيقية</b>، تتناسب مع ندرة الحيوان الذي وجده — المنقّب الأسطوري يجد أشياء أفضل من العادي. التجهيز ليس زينة: هذه النقاط تدخل مباشرة في صفات الحيوان وفي الحلبة. الخردة تُفكَّك للحصول على <b>جوهر</b>.",
+  "pets.needOre": "الدمج يكلف {n} ⛏ من الخام — شغّل حيوانًا في منجم.",
+  "pets.callFuse": "دمج #{f} في #{t}",
+  "pets.needReroll": "إعادة الرمي تكلف {e} ✨ و{t} 🪵 و{s} 🪨.",
+  "pets.callReroll": "إعادة رمي العنصر #{id}",
+  "pets.fuseCapped": "بلغتَ سقف الدمج — الأفضل من هذا يجب أن يُعثر عليه بحيوان أندر.",
+  "pets.fuseNoFood": "لرفع الفئة، أطعِمه عنصرًا آخر من النوع ({kind}) بنفس الفئة أو أفضل.",
+  "pets.fuseFor": "⚗ دمج → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 إعادة الرمي · {n} ✨"
  },
  "hi": {
   "pets.cardRenderFail": "कार्ड की छवि नहीं बन सकी — फिर से कोशिश करें।",
@@ -3793,7 +3889,15 @@
   "pets.buildWho": "बनाने वाला",
   "pets.buildBtn": "बनाएं",
   "pets.bagHead": "🎒 बैग",
-  "pets.bagNote": "आपके पेट जो गियर खोद लाते हैं उस पर <b>असली स्टैट्स पर रैंडम पॉइंट</b> मिलते हैं, जो खोजने वाले पेट की दुर्लभता के हिसाब से बढ़ते हैं — लेजेंडरी खनिक कॉमन से बेहतर चीज़ें पाता है। पहनाना सजावट नहीं है: वे पॉइंट सीधे पेट के स्टैट्स और अखाड़े में जाते हैं। कबाड़ को तोड़कर <b>सार</b> मिलता है।"
+  "pets.bagNote": "आपके पेट जो गियर खोद लाते हैं उस पर <b>असली स्टैट्स पर रैंडम पॉइंट</b> मिलते हैं, जो खोजने वाले पेट की दुर्लभता के हिसाब से बढ़ते हैं — लेजेंडरी खनिक कॉमन से बेहतर चीज़ें पाता है। पहनाना सजावट नहीं है: वे पॉइंट सीधे पेट के स्टैट्स और अखाड़े में जाते हैं। कबाड़ को तोड़कर <b>सार</b> मिलता है।",
+  "pets.needOre": "मिलाने में {n} ⛏ अयस्क लगता है — खान पर पेट लगाएं।",
+  "pets.callFuse": "#{f} को #{t} में मिलाना",
+  "pets.needReroll": "इसे फिर से रोल करने में {e} ✨, {t} 🪵 और {s} 🪨 लगते हैं।",
+  "pets.callReroll": "आइटम #{id} फिर से रोल करना",
+  "pets.fuseCapped": "मिलाने की सीमा — इससे बेहतर तो ज़्यादा दुर्लभ पेट को खोजना ही होगा।",
+  "pets.fuseNoFood": "एक स्तर ऊपर ले जाने के लिए उसी प्रकार ({kind}) का बराबर या बेहतर स्तर का आइटम खिलाएं।",
+  "pets.fuseFor": "⚗ मिलाएँ → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 फिर से रोल · {n} ✨"
  },
  "tr": {
   "pets.cardRenderFail": "Kart görseli oluşturulamadı — tekrar dene.",
@@ -4085,7 +4189,15 @@
   "pets.buildWho": "Kuran",
   "pets.buildBtn": "Kur",
   "pets.bagHead": "🎒 Çanta",
-  "pets.bagNote": "Evcil hayvanlarının çıkardığı ekipman <b>gerçek statlara rastgele puanlar</b> alır; bulan hayvanın nadirliğine göre büyür — Efsanevi bir madenci, Sıradan olandan daha iyisini bulur. Kuşanmak süs değildir: o puanlar doğrudan hayvanın statlarına ve arenaya geçer. İşe yaramazı <b>öz</b> için sök."
+  "pets.bagNote": "Evcil hayvanlarının çıkardığı ekipman <b>gerçek statlara rastgele puanlar</b> alır; bulan hayvanın nadirliğine göre büyür — Efsanevi bir madenci, Sıradan olandan daha iyisini bulur. Kuşanmak süs değildir: o puanlar doğrudan hayvanın statlarına ve arenaya geçer. İşe yaramazı <b>öz</b> için sök.",
+  "pets.needOre": "Birleştirme {n} ⛏ cevher tutar — bir Madene evcil hayvan koy.",
+  "pets.callFuse": "#{f} eşyasını #{t} ile birleştir",
+  "pets.needReroll": "Yeniden atmak {e} ✨, {t} 🪵 ve {s} 🪨 tutar.",
+  "pets.callReroll": "#{id} eşyasını yeniden at",
+  "pets.fuseCapped": "Birleştirme tavanı — bundan iyisini daha nadir bir hayvan BULMALI.",
+  "pets.fuseNoFood": "Bir kademe yükseltmek için aynı türden ({kind}) eşit ya da daha iyi bir eşya ver.",
+  "pets.fuseFor": "⚗ Birleştir → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Yeniden at · {n} ✨"
  },
  "id": {
   "pets.cardRenderFail": "Gagal merender gambar kartu — coba lagi.",
@@ -4377,7 +4489,15 @@
   "pets.buildWho": "Pembangun",
   "pets.buildBtn": "Bangun",
   "pets.bagHead": "🎒 Tas",
-  "pets.bagNote": "Perlengkapan yang digali peliharaanmu mendapat <b>poin acak pada stat sungguhan</b>, seukuran kelangkaan peliharaan yang menemukannya — penambang Legendaris menemukan barang lebih baik daripada yang Biasa. Memakainya bukan hiasan: poin itu langsung masuk ke stat peliharaan dan ke arena. Barang rongsok dibongkar jadi <b>esensi</b>."
+  "pets.bagNote": "Perlengkapan yang digali peliharaanmu mendapat <b>poin acak pada stat sungguhan</b>, seukuran kelangkaan peliharaan yang menemukannya — penambang Legendaris menemukan barang lebih baik daripada yang Biasa. Memakainya bukan hiasan: poin itu langsung masuk ke stat peliharaan dan ke arena. Barang rongsok dibongkar jadi <b>esensi</b>.",
+  "pets.needOre": "Menggabung butuh {n} ⛏ bijih — tempatkan peliharaan di Tambang.",
+  "pets.callFuse": "gabung #{f} ke #{t}",
+  "pets.needReroll": "Menggulung ulang ini butuh {e} ✨, {t} 🪵, dan {s} 🪨.",
+  "pets.callReroll": "gulung ulang item #{id}",
+  "pets.fuseCapped": "Sudah batas penggabungan — yang lebih baik harus DITEMUKAN peliharaan yang lebih langka.",
+  "pets.fuseNoFood": "Untuk naik satu tingkat, beri item sejenis ({kind}) dengan tingkat sama atau lebih baik.",
+  "pets.fuseFor": "⚗ Gabung → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Gulung ulang · {n} ✨"
  },
  "vi": {
   "pets.cardRenderFail": "Không dựng được ảnh thẻ — thử lại.",
@@ -4669,6 +4789,14 @@
   "pets.buildWho": "Người dựng",
   "pets.buildBtn": "Dựng",
   "pets.bagHead": "🎒 Túi đồ",
-  "pets.bagNote": "Trang bị thú của bạn đào lên nhận <b>điểm ngẫu nhiên vào các chỉ số thật</b>, tỉ lệ theo độ hiếm của con tìm ra nó — thợ mỏ Huyền thoại tìm được đồ tốt hơn con Thường. Trang bị không phải để trưng: những điểm đó vào thẳng chỉ số của thú và vào đấu trường. Đồ bỏ đi thì rã lấy <b>tinh chất</b>."
+  "pets.bagNote": "Trang bị thú của bạn đào lên nhận <b>điểm ngẫu nhiên vào các chỉ số thật</b>, tỉ lệ theo độ hiếm của con tìm ra nó — thợ mỏ Huyền thoại tìm được đồ tốt hơn con Thường. Trang bị không phải để trưng: những điểm đó vào thẳng chỉ số của thú và vào đấu trường. Đồ bỏ đi thì rã lấy <b>tinh chất</b>.",
+  "pets.needOre": "Ghép tốn {n} ⛏ quặng — cho thú vào làm ở Hầm mỏ.",
+  "pets.callFuse": "ghép #{f} vào #{t}",
+  "pets.needReroll": "Gieo lại món này tốn {e} ✨, {t} 🪵 và {s} 🪨.",
+  "pets.callReroll": "gieo lại vật phẩm #{id}",
+  "pets.fuseCapped": "Đã tới trần ghép — tốt hơn nữa thì phải TÌM được bằng thú hiếm hơn.",
+  "pets.fuseNoFood": "Để lên một bậc, hãy cho ăn một món cùng loại ({kind}) bậc bằng hoặc cao hơn.",
+  "pets.fuseFor": "⚗ Ghép → {r} · {n} ⛏",
+  "pets.rerollFor": "🎲 Gieo lại · {n} ✨"
  }
 }

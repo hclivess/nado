@@ -659,6 +659,7 @@ AFFIX_MUL = 256               # affix packing: stat_index * AFFIX_MUL + points (
 AFFIX_CAP = 12                # max points one affix can roll at tier 1 (scales with the finder's rarity)
 ACCRUE_CAP = 20000            # blocks of production a building banks unattended (~33h at 6s) — an idle
                               # base keeps earning, but not forever, so nobody farms a year in one call
+RARITY_RATE = 6               # production points a worker's rarity adds (ADDITIVE — see _accrue)
 RATE_DIV = 9000               # production divisor: units = elapsed x level x (10 + trade stat) x sp / this
 FODDER_BLOCKS = 200           # blocks of life one unit of fodder buys. Deliberately NOT enough to retire the
                               # NADO food sink: a level-1 farm roughly feeds the pet working it, and only a
@@ -667,8 +668,32 @@ FODDER_BLOCKS = 200           # blocks of life one unit of fodder buys. Delibera
 UPG_TIMBER, UPG_STONE, UPG_ORE = 40, 30, 25   # per level of the NEW level; ore only from level 4 up
 DROP_ONE_IN = 6               # roughly one collect in this many turns up an item
 SCRAP_ESSENCE = 3             # essence returned for scrapping an item, x its rarity
-REROLL_ESSENCE = 8            # essence to re-roll an item's affixes, x its rarity — the sink that makes
+REROLL_ESSENCE = 10           # essence to re-roll an item's affixes, x its rarity — SYMMETRIC with
+                              # the three materials on purpose: every trade produces at the same
+                              # rate, so the sinks have to drain at the same rate or whichever
+                              # resource is under-demanded piles into the hundreds of thousands. — the sink that makes
                               # essence (and therefore Shrines and scrapping junk) worth anything
+REROLL_TIMBER, REROLL_STONE, REROLL_ORE = 10, 10, 10   # ...and materials, x rarity. Upgrades alone are a FINITE sink
+                              # (a building consumes 560 timber over its whole life and then never again), so
+                              # without a repeatable one, timber and stone pile up worthless the moment every
+                              # base is maxed — the dead-end that kills a resource economy.
+FUSE_MAX_TIER = 4             # fuse lifts an item at most to here. The top two tiers stay gated behind
+                              # FINDING them with a rare pet, which is what keeps the best gear scarce.
+FUSE_TIMBER, FUSE_STONE, FUSE_ORE, FUSE_ESSENCE = 20, 20, 20, 25   # per tier to fuse, paid in flooded junk.
+                              # Essence is the one resource with TWO faucets (Shrines produce it AND scrapping
+                              # yields it), so it needs a second sink or it is the only thing that runs away —
+                              # simulation had a whale sitting on 279k of it after a year. Fusing consuming it
+                              # closes the junk loop: scrap the unwearable, spend the essence fusing the rest. Every endgame
+                              # sink pulls on ALL the materials on purpose: simulation showed that when one
+                              # resource was the only thing rerolling consumed, it became the binding
+                              # constraint while ore, stone and essence piled into the millions unused.
+# NADO burned by the endgame loop. Homestead REMOVES a sink — farmed fodder replaces bought food — and
+# simulating a year showed a mid-size player burning 0.48x what they would have without it, a whale 0.31x.
+# The fix is not to weaken farming but to MOVE the sink: feeding stops costing NADO, so the gear chase
+# starts. At these values the same simulated players land at 1.07x and 1.08x — the currency is no worse off,
+# and a casual with one base still gets a real subsidy (0.72x) because they cannot afford to chase rolls.
+REROLL_FEE = 5 * 10**8        # 0.05 NADO, burned
+FUSE_FEE = 10 * 10**8         # 0.10 NADO, burned
 
 
 def _trade(pid_reg, out):
@@ -728,8 +753,14 @@ def _accrue():
     L += _sl(BP) + ["sload r1 r4"]                                          # r1 = operator pid
     L += _sl(BT) + ["sload r5 r4", f"movi r4 {_sc(0)}", "sstore r4 r5"]     # scratch0 = trade index
     L += _eff_stat("r1", _sc(0), "r2") + ["movi r5 10", "add r2 r5"]        # r2 = 10 + trade stat
+    # rarity is ADDITIVE, not another multiplier. Multiplying level x stat x rarity compounded to a 57x
+    # spread: a maxed base with a top-tier worker fed FIFTY pets forever, which permanently destroys the
+    # NADO food-burn sink for that whole herd in exchange for a one-time 7.5 NADO build. Additive keeps
+    # rarity worth chasing (a top pet still roughly triples a base) without letting one player opt an
+    # entire stable out of the economy.
+    L += [f"slot r4 {SP} r1", "sload r5 r4", "movi r6 1", "sub r5 r6",
+          f"movi r6 {RARITY_RATE}", "mul r5 r6", "add r2 r5"]               # + rarity bonus
     L += _sl(BL) + ["sload r5 r4", "mul r2 r5"]                             # x level
-    L += [f"slot r4 {SP} r1", "sload r5 r4", "mul r2 r5"]                   # x rarity tier
     L += ["mul r3 r2", f"movi r5 {RATE_DIV}", "divmod r3 r5"]               # r3 = units produced
     # credit the OWNER (not the caller — collect is permissionless, the yield is never the caller's)
     L += _sl(BO) + ["sload r6 r4"] + _sl(BT) + ["sload r5 r4"]
@@ -905,12 +936,44 @@ REROLL = "\n".join(
     + [f"slot r4 {IE} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]
     + [f"slot r4 {IR} r0", "sload r5 r4"]                                       # r5 = rarity (kept)
     + ["mov r1 r5", f"movi r6 {REROLL_ESSENCE}", "mul r1 r6"] + _res_take(4, "r1")
+    + [f"slot r4 {IR} r0", "sload r5 r4", "mov r1 r5", f"movi r6 {REROLL_TIMBER}", "mul r1 r6"] + _res_take(1, "r1")
+    + [f"slot r4 {IR} r0", "sload r5 r4", "mov r1 r5", f"movi r6 {REROLL_STONE}", "mul r1 r6"] + _res_take(2, "r1")
+    + [f"slot r4 {IR} r0", "sload r5 r4", "mov r1 r5", f"movi r6 {REROLL_ORE}", "mul r1 r6"] + _res_take(3, "r1")
+    + ["ctx r5 value", f"movi r6 {REROLL_FEE}", "eq r5 r6", "require r5"]
+    + [f"movi r4 {BURN_SLOT}", "sload r5 r4", f"movi r6 {REROLL_FEE}", "add r5 r6", "sstore r4 r5"]
     + [f"slot r4 {IR} r0", "sload r5 r4"]                                       # reload: _res_take clobbers r5
     # fresh entropy: last block's hash, mixed with the item and the block it is being rerolled in
     + ["ctx r2 cursor", "movi r6 1", "sub r2 r6", "bhash r2 r2",
        "mov r6 r0", "add r2 r6", "ctx r6 cursor", "add r2 r6"]
     + _roll_affixes("r0", "r5", "r2")
     + ["ret r0"])
+
+# fuse(targetId, foodId): destroy one item to lift another's rarity by a tier. This is what the flood of
+# common gear is FOR. An item economy with unbounded supply and bounded demand (four slots per pet) ends
+# with everything worthless and the chase over — the Diablo 3 failure. Fusing gives junk a permanent use,
+# gives ore a permanent sink, and keeps a goal after a pet is fully kitted. It stops at FUSE_MAX_TIER, so
+# the best gear still has to be FOUND by a rare pet: the scarcity anchor is never craftable.
+FUSE = "\n".join(
+    ["mov r5 r0", "eq r5 r1", "notb r5", "require r5"]                          # not the same item
+    + [f"slot r4 {IO} r0", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+    + [f"slot r4 {IO} r1", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+    + [f"slot r4 {IE} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]    # neither is being worn
+    + [f"slot r4 {IE} r1", "sload r5 r4", "nez r5", "notb r5", "require r5"]
+    + [f"slot r4 {IT} r0", "sload r5 r4", f"slot r4 {IT} r1", "sload r6 r4",
+       "eq r5 r6", "require r5"]                                                # same gear slot
+    + [f"slot r4 {IR} r0", "sload r3 r4", f"movi r5 {FUSE_MAX_TIER}",
+       "mov r6 r3", "lt r6 r5", "require r6"]                                   # r3 = target rarity < cap
+    + [f"slot r4 {IR} r1", "sload r5 r4", "mov r6 r3", "lt r5 r6", "notb r5", "require r5"]  # food >= target
+    + ["ctx r5 value", f"movi r6 {FUSE_FEE}", "eq r5 r6", "require r5"]
+    + [f"movi r4 {BURN_SLOT}", "sload r5 r4", f"movi r6 {FUSE_FEE}", "add r5 r6", "sstore r4 r5"]
+    # Price each material into r3, re-deriving the tier from storage every time. r0/r1 hold the two items
+    # and _res_take clobbers r2/r4/r5/r6 — including r2, so caching the tier there silently priced the
+    # second and third materials off garbage (the whole fuse then failed).
+    + [op for kind, per in ((1, FUSE_TIMBER), (2, FUSE_STONE), (3, FUSE_ORE)) for op in
+       ([f"slot r4 {IR} r0", "sload r3 r4", "movi r5 1", "add r3 r5",
+         f"movi r5 {per}", "mul r3 r5"] + _res_take(kind, "r3"))]
+    + [f"slot r4 {IO} r1", "movi r5 0", "sstore r4 r5"]                         # the food item is destroyed
+    + [f"slot r4 {IR} r0", "sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5", "ret r5"])
 
 # ---- views ---------------------------------------------------------------------------------------
 RES_OF = "\n".join(_res_slot("r3", "r0", "r1") + ["sload r3 r3", "ret r3"])
@@ -924,7 +987,7 @@ SRC = {"mint": MINT, "rebirth": REBIRTH, "feed": FEED, "transfer": TRANSFER, "na
        "cancel_battle": CANCEL_BATTLE, "refund_battle": REFUND_BATTLE, "release": RELEASE,
        # homestead
        "build": BUILD, "upgrade": UPGRADE_B, "staff": STAFF, "collect": COLLECT, "provision": PROVISION,
-       "equip": EQUIP, "unequip": UNEQUIP, "scrap": SCRAP, "reroll": REROLL,
+       "equip": EQUIP, "unequip": UNEQUIP, "scrap": SCRAP, "reroll": REROLL, "fuse": FUSE,
        "res_of": RES_OF, "gear_of": GEAR_OF, "trade_of": TRADE_OF}
 
 ABI = {
@@ -958,7 +1021,8 @@ ABI = {
     "equip": {"args": ["itemId", "petId"]},
     "unequip": {"args": ["itemId"]},
     "scrap": {"args": ["itemId"]},
-    "reroll": {"args": ["itemId"]},
+    "reroll": {"args": ["itemId"], "value": True},
+    "fuse": {"args": ["targetItemId", "foodItemId"], "value": True},
     "res_of": {"args": ["addr", "kind"]},
     "gear_of": {"args": ["petId", "slot"]},
     "trade_of": {"args": ["petId"]},

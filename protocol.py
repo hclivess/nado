@@ -480,7 +480,14 @@ MAX_SHARES = BOND_CAP // B_MIN     # 100: variance cap so a whale can't monopoli
 # weight over ~BOND_RAMP_EPOCHS, buying the network reaction time. It only DELAYS a patient whale — the hard
 # bound stays real capital cost + the per-address cap + slashing/finality (doc/takeover-resistance.md).
 BOND_RAMP_EPOCHS = 30              # epochs for a fresh bond's selection weight to ramp 0 -> full (~= FIDELITY_CAP)
-BOND_UNLOCK_DELAY = 1440           # blocks a bond stays locked after an unbond request
+BOND_UNLOCK_DELAY = 14400          # blocks a bond stays locked after an unbond request = ONE DAY at the
+                                   # 6s target. It was 1440, which reads like "a day" only if you assume
+                                   # 60s blocks — at the real block time that is 2.4 hours, far too short
+                                   # for the thing it exists to do (give the network time to react to a
+                                   # validator pulling stake). CONSENSUS PARAMETER: every node must agree,
+                                   # because the release_block it computes goes into account state.
+                                   # Already-recorded pending unbonds store an ABSOLUTE release_block, so
+                                   # nothing in flight is retroactively extended.
 # SLASHING (#15/#16 step 5C/6): bonded stake burned from an identity proven to have EQUIVOCATED — two
 # validly-signed blocks at the same height+parent (block authorship #15), or a double/surround vote
 # in the FFG attestation set (#6). One share (B_MIN) per proven offence; validation requires the

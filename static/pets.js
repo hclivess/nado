@@ -657,10 +657,20 @@ function battlesFrom(sto) {
 // A pet is born to a TRADE (its species decides it, so every Beagle is the same kind of worker) and a base
 // of that trade can be staffed with it. Production accrues lazily against the block cursor: nothing runs on
 // a timer, so the numbers below are computed the same way the contract will when you collect.
-const NJOBS = 5, GEAR_SLOTS = 4, RATE_DIV = 900, ACCRUE_CAP = 20000, MAX_LEVEL = 5;
+// MIRRORS execnode/games/pets.py — tests/pets_homestead_test.py asserts these match, because they silently
+// drifted once (RATE_DIV and FODDER_BLOCKS were left at their pre-tuning values and RARITY_RATE was never
+// declared at all, which threw on every refresh and froze the whole page — nothing rendered, nothing hatched).
+const NJOBS = 5, GEAR_SLOTS = 4, RATE_DIV = 9000, ACCRUE_CAP = 20000, MAX_LEVEL = 5;
+const RARITY_RATE = 6;
 // one unit of fodder buys this many blocks of life. Unlike bought food it does NOT scale with appetite —
 // a farm's harvest feeds a glutton and a sparrow the same, which is the whole reward for farming.
-const FODDER_BLOCKS = 1400;
+const FODDER_BLOCKS = 200;
+// endgame prices, also mirrored. Costs are SYMMETRIC across the four materials because every trade produces
+// at the same rate — a simulated year showed any under-demanded resource piling into six figures.
+const REROLL_ESSENCE = 10, REROLL_TIMBER = 10, REROLL_STONE = 10, REROLL_ORE = 10;
+const FUSE_TIMBER = 20, FUSE_STONE = 20, FUSE_ORE = 20, FUSE_ESSENCE = 25;
+const FUSE_MAX_TIER = 4;
+const REROLL_FEE = 500000000n, FUSE_FEE = 1000000000n;   // burned — the sink that replaces the food burn
 const BUILD_FEE = 5000000000n;                 // 0.5 NADO per level — mirrors the contract
 const RES = [
   { k: "fodder", icon: "🌾", name: () => window.t("pets.resFodder", "Fodder") },
@@ -694,8 +704,9 @@ function basesFrom(sto) {
     b.staffed = b.op !== "0" && b.op !== "";
     const pet = b.staffed ? PETS[b.op] : null;
     // the contract's own rate: level x (10 + the operator's trade stat) x rarity, over RATE_DIV
+    // mirrors the contract exactly: rarity is ADDITIVE, not a third multiplier (see _accrue)
     b.rate = (pet && pet.hatched)
-      ? b.level * (10 + (effOf(pet) || [])[b.trade] || 0) * (pet.sp || 1) : 0;
+      ? b.level * (10 + ((effOf(pet) || [])[b.trade] || 0) + RARITY_RATE * ((pet.sp || 1) - 1)) : 0;
     const elapsed = dapp.cursor == null ? 0 : Math.max(0, Math.min(dapp.cursor - b.since, ACCRUE_CAP));
     b.pending = Math.floor(elapsed * b.rate / RATE_DIV);
     b.capped = dapp.cursor != null && dapp.cursor - b.since >= ACCRUE_CAP;
@@ -854,15 +865,34 @@ const equipItem = (iid, pid) => { if (dapp.busy("equip", "iid", iid)) return not
   dapp.call("equip", [Number(iid), Number(pid)], null, window.t("pets.callEquip", "equip item #{id}", { id: iid }), { iid, phase: "equip" }); };
 const unequipItem = (iid) => { if (dapp.busy("equip", "iid", iid)) return notify(confirmingLabel());
   dapp.call("unequip", [Number(iid)], null, window.t("pets.callUnequip", "unequip item #{id}", { id: iid }), { iid, phase: "unequip" }); };
+// FUSE: feed one item to another of the same slot to lift its tier. This is what a bag full of junk is FOR —
+// item supply grows forever while a pet only has four slots, so without a permanent use the flood becomes
+// worthless and the chase ends. It stops below the top tiers on purpose: the best gear stays findable-only.
+function fuseItems(targetId, foodId) {
+  const t = ITEMS[targetId], f = ITEMS[foodId];
+  if (!t || !f || dapp.busy("fuse", "iid", targetId)) return notify(confirmingLabel());
+  const nt = t.rarity + 1;
+  if (RESOURCES[1] < nt * FUSE_TIMBER || RESOURCES[2] < nt * FUSE_STONE
+      || RESOURCES[3] < nt * FUSE_ORE || RESOURCES[4] < nt * FUSE_ESSENCE)
+    return alertBar(window.t("pets.needFuse", "Fusing costs {t} 🪵, {s} 🪨, {o} ⛏, {e} ✨ and {f} NADO.",
+      { t: nt * FUSE_TIMBER, s: nt * FUSE_STONE, o: nt * FUSE_ORE, e: nt * FUSE_ESSENCE, f: rawToNado(FUSE_FEE) }));
+  if (!canPay(dapp, FUSE_FEE, window.t("pets.thisFuse", "This fusion"))) return;
+  dapp.call("fuse", [Number(targetId), Number(foodId)], FUSE_FEE,
+    window.t("pets.callFuse", "fuse #{f} into #{t}", { f: foodId, t: targetId }),
+    { iid: targetId, phase: "fuse", r0: t.rarity });
+}
 const scrapItem = (iid) => { if (dapp.busy("scrap", "iid", iid)) return notify(confirmingLabel());
   dapp.call("scrap", [Number(iid)], null, window.t("pets.callScrap", "scrap item #{id} for essence", { id: iid }), { iid, phase: "scrap" }); };
 function rerollItem(iid) {
   const it = ITEMS[iid];
   if (!it || dapp.busy("reroll", "iid", iid)) return notify(confirmingLabel());
   const cost = it.rarity * REROLL_ESSENCE;
-  if (RESOURCES[4] < cost) return alertBar(window.t("pets.needEssence",
-    "Rerolling this needs {n} essence — scrap junk or work a Shrine to get some.", { n: cost }));
-  dapp.call("reroll", [Number(iid)], null,
+  const mt = it.rarity * REROLL_TIMBER, ms = it.rarity * REROLL_STONE, mo = it.rarity * REROLL_ORE;
+  if (RESOURCES[4] < cost || RESOURCES[1] < mt || RESOURCES[2] < ms || RESOURCES[3] < mo)
+    return alertBar(window.t("pets.needReroll2", "Rerolling this costs {e} ✨, {t} 🪵, {s} 🪨, {o} ⛏ and {f} NADO.",
+      { e: cost, t: mt, s: ms, o: mo, f: rawToNado(REROLL_FEE) }));
+  if (!canPay(dapp, REROLL_FEE, window.t("pets.thisReroll", "This re-roll"))) return;
+  dapp.call("reroll", [Number(iid)], REROLL_FEE,
     window.t("pets.callReroll", "re-roll item #{id}", { id: iid }), { iid, phase: "reroll", a0: (it.affixes[0] || {}).points });
 }
 
@@ -1027,7 +1057,8 @@ async function refreshAll() {
         || (f.phase === "equip" && ITEMS[f.iid] && ITEMS[f.iid].worn)
         || (f.phase === "unequip" && ITEMS[f.iid] && !ITEMS[f.iid].worn)
         || (f.phase === "scrap" && !ITEMS[f.iid])
-        || (f.phase === "reroll" && ITEMS[f.iid] && (ITEMS[f.iid].affixes[0] || {}).points !== f.a0);
+        || (f.phase === "reroll" && ITEMS[f.iid] && (ITEMS[f.iid].affixes[0] || {}).points !== f.a0)
+        || (f.phase === "fuse" && ITEMS[f.iid] && ITEMS[f.iid].rarity > (f.r0 || 0));
     });
     maybeAutoCollect(); // continue a "Collect all" sweep once the previous base has settled
     maybeAutoHatch();   // continue a "Hatch all" run once the previous hatch has confirmed
@@ -1538,6 +1569,25 @@ function itemTitle(it) {
   const k = GEAR_KIND[it.kind] || GEAR_KIND[0];
   return RAR_NAME(it.rarity) + " " + k.name();
 }
+// The fuse control, only shown when this item can actually be lifted and you own something legal to feed
+// it — the rules (same slot, food at least as good, below the cap, not worn) are visible up front rather
+// than discovered as a revert.
+function fuseRow(it) {
+  if (it.worn) return "";
+  if (it.rarity >= FUSE_MAX_TIER) return '<div class="small dim mt">'
+    + window.t("pets.fuseCapped", "At the fusing cap — better than this has to be FOUND by a rarer pet.") + "</div>";
+  const food = myItems().filter((x) => x.id !== it.id && !x.worn && x.kind === it.kind && x.rarity >= it.rarity);
+  if (!food.length) return '<div class="small dim mt">'
+    + window.t("pets.fuseNoFood", "To fuse this up a tier, feed it another {kind} of the same tier or better.",
+        { kind: (GEAR_KIND[it.kind] || GEAR_KIND[0]).name() }) + "</div>";
+  const nt = it.rarity + 1;
+  return '<div class="rowb"><select id="fuseFood">' + food.map((x) =>
+      '<option value="' + x.id + '">' + esc(itemTitle(x)) + " #" + x.id + "</option>").join("") + "</select>"
+    + '<button class="ghost" id="btnFuse">' 
+    + (dapp.busy("fuse", "iid", it.id) ? confirmingLabel()
+       : window.t("pets.fuseFor2", "⚗ Fuse → {r}", { r: RAR_NAME(nt) })) + "</button></div>";
+}
+
 function renderBag() {
   const bag = myItems().sort((a, b) => b.rarity - a.rarity || Number(a.id) - Number(b.id));
   const grid = $("bagGrid");
@@ -1582,11 +1632,14 @@ function renderBag() {
           + '<button class="ghost" id="btnReroll"' + (RESOURCES[4] >= it.rarity * REROLL_ESSENCE ? "" : " disabled") + ">"
           + (dapp.busy("reroll", "iid", it.id) ? confirmingLabel()
              : window.t("pets.rerollFor", "🎲 Re-roll · {n} ✨", { n: it.rarity * REROLL_ESSENCE })) + "</button>")
-    + "</div></div>";
+    + "</div>"
+    + fuseRow(it)
+    + "</div>";
   if ($("btnEquip")) $("btnEquip").onclick = () => equipItem(it.id, $("equipTo").value);
   if ($("btnUnequip")) $("btnUnequip").onclick = () => unequipItem(it.id);
   if ($("btnScrap")) $("btnScrap").onclick = () => scrapItem(it.id);
   if ($("btnReroll")) $("btnReroll").onclick = () => rerollItem(it.id);
+  if ($("btnFuse")) $("btnFuse").onclick = () => fuseItems(it.id, $("fuseFood").value);
 }
 
 function render() {

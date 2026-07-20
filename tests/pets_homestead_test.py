@@ -329,17 +329,20 @@ def test_reroll_costs_essence_keeps_the_item_and_only_off_the_pet():
     before = [rd(P.IA_BASE + k, iid) for k in range(3)]
     view = lambda m, a: st.view(cid, m, a)
 
-    call(st, cid, A, "reroll", [iid], tag="broke")
+    call(st, cid, A, "reroll", [iid], P.REROLL_FEE, tag="broke")
     ok([rd(P.IA_BASE + k, iid) for k in range(3)] == before, "no essence, no reroll")
 
     grant(st, cid, A, 4, rar * P.REROLL_ESSENCE)
+    grant(st, cid, A, 1, rar * P.REROLL_TIMBER)      # rerolling costs materials too (the repeatable sink)
+    grant(st, cid, A, 2, rar * P.REROLL_STONE)
+    grant(st, cid, A, 3, rar * P.REROLL_ORE)
     call(st, cid, A, "equip", [iid, pid])
-    call(st, cid, A, "reroll", [iid], tag="worn")
+    call(st, cid, A, "reroll", [iid], P.REROLL_FEE, tag="worn")
     ok([rd(P.IA_BASE + k, iid) for k in range(3)] == before, "cannot reroll gear that is being worn")
     call(st, cid, A, "unequip", [iid])
 
     st.cursor += 1                                   # fresh block -> fresh entropy
-    call(st, cid, A, "reroll", [iid], tag="ok")
+    call(st, cid, A, "reroll", [iid], P.REROLL_FEE, tag="ok")
     after = [rd(P.IA_BASE + k, iid) for k in range(3)]
     ok(after != before, "with essence and off the pet, the affixes change")
     ok(rd(P.IT, iid) == kind and rd(P.IR, iid) == rar, "the item keeps its slot and rarity")
@@ -350,6 +353,109 @@ def test_reroll_costs_essence_keeps_the_item_and_only_off_the_pet():
         ok(1 <= pts <= P.AFFIX_CAP * rar, "rerolled points stay within the rarity band")
 
 
+
+def _mint_item(st, cid, rd, owner, iid, kind, rarity):
+    """Place an item directly. Fusing needs several of the same slot, and farming them honestly would take
+    hundreds of collect rolls — the drop path itself is covered by the gear test."""
+    from execnode.runtimes import zkvm_addr_digest
+    slots = st.contracts[cid]["storage"].setdefault("slots", {})
+    B = 1 << 32
+    slots[str(P.IO * B + iid)] = zkvm_addr_digest(owner)
+    slots[str(P.IT * B + iid)] = kind
+    slots[str(P.IR * B + iid)] = rarity
+    slots[str(P.IE * B + iid)] = 0
+    for k in range(3):
+        slots[str((P.IA_BASE + k) * B + iid)] = 1 * P.AFFIX_MUL + 3      # +3 Agility, three times
+
+
+def test_fusing_absorbs_junk_but_cannot_craft_the_rarest_gear():
+    """The anti-Diablo-3 sink. Item supply is unbounded in time while demand is four slots per pet, so junk
+    MUST have a permanent use or it ends up worthless and the chase is over. Fusing gives it one — and stops
+    at FUSE_MAX_TIER, because the best gear staying FINDABLE-ONLY (by a rare pet, which costs burned NADO
+    and luck) is the one scarcity anchor the economy has."""
+    st, cid, rd = fresh()
+    st.credit_deposit(A, 200 * P.MINT_FEE)
+    view = lambda m, a: st.view(cid, m, a)
+    for i, (iid, kind, rar) in enumerate([(1, 0, 1), (2, 0, 1), (3, 1, 1), (4, 0, 1), (5, 0, P.FUSE_MAX_TIER)]):
+        _mint_item(st, cid, rd, A, iid, kind, rar)
+    for k in (1, 2, 3, 4):
+        grant(st, cid, A, k, 10000)                              # fusing pulls on every material + essence
+    st.credit_deposit(A, 100 * P.FUSE_FEE)
+
+    call(st, cid, A, "fuse", [1, 3], P.FUSE_FEE)
+    ok(rd(P.IR, 1) == 1, "cannot fuse across gear slots")
+    call(st, cid, B, "fuse", [1, 2], tag="thief")
+    ok(rd(P.IR, 1) == 1, "cannot fuse someone else's items")
+    call(st, cid, A, "fuse", [1, 1], P.FUSE_FEE, tag="self")
+    ok(rd(P.IR, 1) == 1, "cannot fuse an item into itself")
+
+    ore0 = view("res_of", [A, 3])
+    call(st, cid, A, "fuse", [1, 2], P.FUSE_FEE, tag="ok")
+    ok(rd(P.IR, 1) == 2, "same slot, owned, unworn -> the target goes up a tier")
+    ok(rd(P.IO, 2) == 0, "and the food item is destroyed")
+    ok(view("res_of", [A, 3]) < ore0, "materials are spent — the permanent sink for them")
+
+    call(st, cid, A, "fuse", [1, 4], P.FUSE_FEE, tag="weak")
+    ok(rd(P.IR, 1) == 2, "food must be at least as good as the target")
+
+    # the ceiling: an item already at the cap cannot be pushed further, whatever you feed it
+    _mint_item(st, cid, rd, A, 6, 0, 6)
+    call(st, cid, A, "fuse", [5, 6], P.FUSE_FEE, tag="cap")
+    ok(rd(P.IR, 5) == P.FUSE_MAX_TIER, "fusing stops at the cap — the top tiers must be FOUND")
+
+    _mint_item(st, cid, rd, A, 7, 2, 1)
+    _mint_item(st, cid, rd, A, 8, 2, 1)
+    call(st, cid, A, "equip", [7, pet_of_trade(st, cid, rd, A, 0, 11000)])
+    call(st, cid, A, "fuse", [7, 8], P.FUSE_FEE, tag="worn")
+    ok(rd(P.IR, 7) == 1, "cannot fuse gear that is being worn")
+
+
+def test_reroll_also_spends_materials():
+    """Upgrades are a FINITE material sink (a building consumes 560 timber over its whole life and then
+    never again). Without a repeatable one, timber and stone pile up worthless the moment every base is
+    maxed — so rerolling costs them too, forever."""
+    st, cid, rd = fresh()
+    st.credit_deposit(A, 200 * P.MINT_FEE)
+    _mint_item(st, cid, rd, A, 12, 0, 2)
+    view = lambda m, a: st.view(cid, m, a)
+    grant(st, cid, A, 4, 1000)                                   # essence only
+    before = [rd(P.IA_BASE + k, 12) for k in range(3)]
+    call(st, cid, A, "reroll", [12], P.REROLL_FEE, tag="nomat")
+    ok([rd(P.IA_BASE + k, 12) for k in range(3)] == before, "essence alone is not enough any more")
+    ok(view("res_of", [A, 4]) == 1000, "and the essence was NOT taken on the failed attempt")
+    grant(st, cid, A, 1, 1000); grant(st, cid, A, 2, 1000); grant(st, cid, A, 3, 1000)
+    st.cursor += 1
+    call(st, cid, A, "reroll", [12], P.REROLL_FEE, tag="mat")
+    ok([rd(P.IA_BASE + k, 12) for k in range(3)] != before, "with materials it rerolls")
+    ok(view("res_of", [A, 1]) < 1000 and view("res_of", [A, 2]) < 1000, "timber and stone are spent")
+
+
+
+def test_client_constants_match_the_contract():
+    """static/pets.js MIRRORS a dozen contract constants so it can show what a base will produce before you
+    collect. They drifted the moment the contract was retuned: RATE_DIV and FODDER_BLOCKS were left at their
+    pre-tuning values (so every yield on screen was 10x wrong) and RARITY_RATE was never declared at all,
+    which threw a ReferenceError on EVERY refresh — the whole page froze at "Loading pet from the chain",
+    and hatching, feeding and battling all stopped working. A mirrored constant needs a test or it is a
+    silent time bomb."""
+    import re
+    js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "static", "pets.js"), encoding="utf-8").read()
+    for name in ("NJOBS", "GEAR_SLOTS", "RATE_DIV", "ACCRUE_CAP", "MAX_LEVEL", "RARITY_RATE",
+                 "FODDER_BLOCKS", "FUSE_MAX_TIER", "REROLL_ESSENCE", "REROLL_TIMBER", "REROLL_STONE",
+                 "REROLL_ORE", "FUSE_TIMBER", "FUSE_STONE", "FUSE_ORE", "FUSE_ESSENCE"):
+        m = re.search(r"\b" + name + r"\s*=\s*(\d+)", js)
+        ok(m is not None, f"pets.js never declares {name} (a ReferenceError at runtime)")
+        if m:
+            ok(int(m.group(1)) == getattr(P, name),
+               f"pets.js {name}={m.group(1)} but the contract says {getattr(P, name)}")
+    for name, raw in (("BUILD_FEE", P.BUILD_FEE), ("REROLL_FEE", P.REROLL_FEE), ("FUSE_FEE", P.FUSE_FEE)):
+        m = re.search(r"\b" + name + r"\s*=\s*(\d+)n", js)
+        ok(m is not None, f"pets.js never declares {name}")
+        if m:
+            ok(int(m.group(1)) == raw, f"pets.js {name}={m.group(1)} but the contract says {raw}")
+
+
 for t in (test_trade_gates_who_can_build_and_work,
           test_production_is_lazy_capped_and_paid_to_the_owner,
           test_changing_the_terms_banks_the_old_terms_first,
@@ -357,7 +463,10 @@ for t in (test_trade_gates_who_can_build_and_work,
           test_gear_is_points_on_real_stats_and_exactly_reversible,
           test_gear_shows_up_in_the_arena,
           test_upgrades_cost_materials_and_cannot_be_half_paid,
-          test_reroll_costs_essence_keeps_the_item_and_only_off_the_pet):
+          test_reroll_costs_essence_keeps_the_item_and_only_off_the_pet,
+          test_fusing_absorbs_junk_but_cannot_craft_the_rarest_gear,
+          test_reroll_also_spends_materials,
+          test_client_constants_match_the_contract):
     t()
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

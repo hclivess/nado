@@ -73,7 +73,7 @@ const TX_INCLUSION_DELAY = 2;
 // re-gossip-flood "Target block too low") before a producer includes it. Kept below the tip+360 mempool cap.
 // Mirror of protocol.TX_TARGET_MARGIN. (Exact-landing txs — bond/unbond/register/governance — do NOT use it.)
 const TX_TARGET_MARGIN = 300;
-const BOND_UNLOCK_DELAY = 1440; // protocol.py: blocks a bond stays locked after an unbond request
+const BOND_UNLOCK_DELAY = 14400; // protocol.py: blocks a bond stays locked after an unbond request (= 1 day at 6s)
 const BOND_CAP = 100_000_000_000_000n;  // protocol.py: 10,000 NADO — bonding past this buys no weight
 const ALIAS_REGISTRATION_FEE = 10_000_000; // protocol.py: 0.001 NADO anti-squat fee for `alias` register
 const AUTO_BOND_MIN_RAW = 10_000_000n;  // protocol.py: dust floor for an auto-bond (0.001 NADO)
