@@ -72,7 +72,10 @@ PC_CALL = PA + NR                                        # index of the call own
                                                          # per call — two calls sharing a program have distinct
                                                          # args, so the bus must bind (call, idx, val))
 PT_CALL, PT_IDX, PT_VAL = PC_CALL + 1, PC_CALL + 2, PC_CALL + 3   # args table row: (call, index, value)
-NUM_PERIODIC = PT_VAL + 1
+PC_ASSET, PC_SELF = PT_VAL + 1, PT_VAL + 2      # asset context of the owning call: the asset id escrowed with
+                                                # it (0 = native NADO) and the callee's own address digest —
+                                                # what ACTX reads. Appended, so no existing index shifts.
+NUM_PERIODIC = PC_SELF + 1
 
 # The epoch-DATA periodic columns — the ones whose SIZE scales with the epoch (fetch/io/args tables + per-row
 # context/args). These are what make a public verify O(epoch): each is a dense length-T column the verifier
@@ -98,13 +101,14 @@ MAX_T = 131072                # the FULL stark.MAX_TRACE_ROWS (2^17) — zkvm.GA
                               # ACTUAL length; this ceiling costs nothing until a contract uses it.
 
 _O = zkvm.OP
-_IO_OPS = ("SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET")
+_IO_OPS = ("SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET", "ASEL", "AMINT", "ABURN", "ABAL")
 _IO_KIND = {"SLOAD": zkvm.IO_SLOAD, "SSTORE": zkvm.IO_SSTORE, "PAY": zkvm.IO_PAY,
-            "BHASH": zkvm.IO_BHASH, "BEACON": zkvm.IO_BEACON, "RET": zkvm.IO_RET}
+            "BHASH": zkvm.IO_BHASH, "BEACON": zkvm.IO_BEACON, "RET": zkvm.IO_RET,
+            "ASEL": zkvm.IO_ASEL, "AMINT": zkvm.IO_AMINT, "ABURN": zkvm.IO_ABURN, "ABAL": zkvm.IO_ABAL}
 _WRITE_OPS = ("MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "DIVMOD", "DIVMODW", "LO32",
-              "CTX", "HOUT")
-_LOAD_OPS = ("SLOAD", "BHASH", "BEACON", "ARG")   # dest register is bus-supplied, not from the update mux
-                                                  # (SLOAD/BHASH/BEACON via the io bus, ARG via the args bus)
+              "CTX", "ACTX", "HOUT")
+_LOAD_OPS = ("SLOAD", "BHASH", "BEACON", "ARG", "ABAL")   # dest register is bus-supplied, not from the update
+                                                  # mux (SLOAD/BHASH/BEACON/ABAL via the io bus, ARG via args)
 
 
 def _next_pow2(x):
@@ -207,12 +211,14 @@ def _io_kind_expr(row):
 
 
 def _io_a_expr(row):
-    """First I/O tuple payload per op: slot / slot / to / height / epoch / retval."""
+    """First I/O tuple payload per op: slot / slot / to / height / epoch / retval, and for the asset ops
+    asset (ASEL/ABAL, from rs) or recipient/asset (AMINT/ABURN, from rd)."""
     rdv, rsv = _rd_val(row), _rs_val(row)
     acc = F.mul(row[F0 + _O["SLOAD"]], rsv)
     acc = F.add(acc, F.mul(row[F0 + _O["SSTORE"]], rdv))
-    acc = F.add(acc, F.mul(row[F0 + _O["PAY"]], rdv))
-    for name in ("BHASH", "BEACON", "RET"):
+    for name in ("PAY", "AMINT", "ABURN"):
+        acc = F.add(acc, F.mul(row[F0 + _O[name]], rdv))
+    for name in ("BHASH", "BEACON", "RET", "ASEL", "ABAL"):
         acc = F.add(acc, F.mul(row[F0 + _O[name]], rsv))
     return acc
 
@@ -223,11 +229,13 @@ def _io_b_expr(row, nxt):
     nxt_rd = 0
     for i in range(NR):
         nxt_rd = F.add(nxt_rd, F.mul(row[D0 + i], nxt[R0 + i]))
-    loads = F.add(row[F0 + _O["SLOAD"]], F.add(row[F0 + _O["BHASH"]], row[F0 + _O["BEACON"]]))
+    loads = row[F0 + _O["SLOAD"]]
+    for name in ("BHASH", "BEACON", "ABAL"):
+        loads = F.add(loads, row[F0 + _O[name]])
     acc = F.mul(loads, nxt_rd)
-    acc = F.add(acc, F.mul(row[F0 + _O["SSTORE"]], _rs_val(row)))
-    acc = F.add(acc, F.mul(row[F0 + _O["PAY"]], _rs_val(row)))
-    return acc                                              # RET: b = 0
+    for name in ("SSTORE", "PAY", "AMINT", "ABURN"):
+        acc = F.add(acc, F.mul(row[F0 + _O[name]], _rs_val(row)))
+    return acc                                              # RET, ASEL: b = 0
 
 
 def _io_active(row):
@@ -307,6 +315,10 @@ def _res_expr(row, per):
         "DIVMODW": _recomp(row, _SPEC_QW),
         "LO32": _recomp(row, _SPEC_LO),
         "CTX": _lagrange4(row[IMM], [per[PC_CALLER], per[PC_VALUE], per[PC_CURSOR], per[PC_TIME]]),
+        # ACTX is its OWN 4-point mux rather than two more slots on CTX's: widening CTX to 6 points would
+        # raise its Lagrange to degree 5 and the whole register-update mux with it (MAX_DEGREE = 8 is set by
+        # the sponge's x^7). Two independent degree-3 muxes cost one extra column and leave the degree alone.
+        "ACTX": _lagrange4(row[IMM], [per[PC_ASSET], per[PC_SELF], 0, 0]),
         "HOUT": row[H0],
     }
     acc = 0
@@ -381,8 +393,14 @@ def transitions(bind_io=False, gamma_fp=0):
     #    disabled on a boundary row (P_END), where the successor's START pin sets the registers instead. --
     for i in range(NR):
         def c_reg(c, n, p, ch, i=i):
-            load_i = F.mul(c[D0 + i], F.add(F.add(c[F0 + _O["SLOAD"]], c[F0 + _O["ARG"]]),
-                                            F.add(c[F0 + _O["BHASH"]], c[F0 + _O["BEACON"]])))
+            # Derived from _LOAD_OPS, NOT spelled out: this list used to be duplicated here, and a load op
+            # missing from THIS copy is silently unprovable — the hold constraint demands the destination
+            # register not change on a row where the bus is about to change it, so every proof of a program
+            # using that opcode fails composition with no hint as to why.
+            loads = 0
+            for nm in _LOAD_OPS:
+                loads = F.add(loads, c[F0 + _O[nm]])
+            load_i = F.mul(c[D0 + i], loads)
             write = F.mul(c[D0 + i], F.sub(_res_expr(c, p), F.mul(_wr_expr(c), c[R0 + i])))
             # write = d_i·(Σf·res - wr·R_i) = d_i·Σf·(res - R_i)
             rem7 = 0
@@ -572,7 +590,9 @@ def build_epoch_trace(calls):
         cf, fargs = call["caller_f"], call["args_f"]
         r = zkvm.run(code, method, cf, list(fargs), call["slots"], value=call.get("value", 0),
                      cursor=call.get("cursor", 0), timestamp=call.get("timestamp", 0),
-                     beacons=call.get("beacons"), block_hashes=call.get("block_hashes"), witness=True)
+                     beacons=call.get("beacons"), block_hashes=call.get("block_hashes"),
+                     asset=call.get("asset", 0), selfd=call.get("selfd", 0), abal=call.get("abal"),
+                     witness=True)
         ok, ret, new_slots, io, steps = r
         if not ok:
             raise ValueError("a call reverted — nothing to prove")
@@ -694,8 +714,10 @@ def build_periodic(blocks, progs, epoch_io, T):
         args8 = [(call["args_f"][k] if k < len(call["args_f"]) else 0) % F.P for k in range(NR)]
         ctx = (call["caller_f"] % F.P, call.get("value", 0) % F.P,
                call.get("cursor", 0) % F.P, call.get("timestamp", 0) % F.P)
+        actx = (call.get("asset", 0) % F.P, call.get("selfd", 0) % F.P)
         for i in range(start, start + nrows):
             cols[PC_CALLER][i], cols[PC_VALUE][i], cols[PC_CURSOR][i], cols[PC_TIME][i] = ctx
+            cols[PC_ASSET][i], cols[PC_SELF][i] = actx
             cols[PC_PROG][i] = pid
             cols[PC_CALL][i] = bi
             for k in range(NR):
@@ -970,25 +992,28 @@ def verify_epoch_o1(proof, per_roots, num_queries=stark.NUM_QUERIES, backend=Non
 
 # ---- single-call convenience (the N=1 epoch) — the endpoints' interface ------------------------------
 def prove_call(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None,
-               block_hashes=None, num_queries=stark.NUM_QUERIES, backend=None):
+               block_hashes=None, asset=0, selfd=0, abal=None, num_queries=stark.NUM_QUERIES, backend=None):
     """Execute + prove ONE zkVM call (the N=1 epoch). Returns (proof, io_log, ret, new_storage). `caller`/
-    `args` are already field-form (the runtime digests them at the boundary). `backend` as in
-    prove_epoch_calls (alghash2 ⇒ a recursion-ready, field-verifiable proof)."""
+    `args` are already field-form (the runtime digests them at the boundary). `asset`/`selfd` are the asset
+    call-context ACTX reads and `abal` the asset balances ABAL reads (doc/assets.md) — the first two are
+    PUBLIC (they become periodic columns the verifier rebuilds), the third is witness whose every read lands
+    in the io log. `backend` as in prove_epoch_calls (alghash2 ⇒ a recursion-ready, field-verifiable proof)."""
     call = {"code": code, "method": method, "caller_f": caller % F.P,
             "args_f": [a % F.P for a in args], "caller": caller, "args": list(args),
             "value": value, "cursor": cursor, "timestamp": timestamp, "beacons": beacons,
-            "block_hashes": block_hashes, "slots": storage}
+            "block_hashes": block_hashes, "slots": storage,
+            "asset": asset, "selfd": selfd, "abal": abal}
     proof, epoch_io, per_call = prove_epoch_calls([call], num_queries=num_queries, backend=backend)
     pc0 = per_call[0]
     return proof, pc0["io"], pc0["ret"], pc0["new_slots"]
 
 
 def verify_call(proof, code, method, caller, args, io_log, value=0, cursor=0, timestamp=0,
-                num_queries=stark.NUM_QUERIES):
+                asset=0, selfd=0, num_queries=stark.NUM_QUERIES):
     """Verify one proven call (N=1 epoch) WITHOUT executing it. Returns (ok, reason)."""
     if sum(1 for e in io_log if e[0] == zkvm.IO_RET) != 1 or not io_log or io_log[-1][0] != zkvm.IO_RET:
         return False, "io log must end with exactly one RET"
     call = {"code": code, "method": method, "caller_f": caller % F.P,
             "args_f": [a % F.P for a in args], "caller": caller, "args": list(args),
-            "value": value, "cursor": cursor, "timestamp": timestamp}
+            "value": value, "cursor": cursor, "timestamp": timestamp, "asset": asset, "selfd": selfd}
     return verify_epoch_calls(proof, [call], io_log, num_queries=num_queries)

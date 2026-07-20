@@ -22,7 +22,9 @@ magnitude smaller in fees.
 
 **The conclusion for us:** a chain's economy is not bootstrapped by having *applications*. It is
 bootstrapped by having **assets people want to trade** and **the shortest possible path between a
-user and a trade**. NADO has 21 deployed contracts and no tradeable asset other than NADO itself.
+user and a trade**. When this document was written NADO had 21 deployed contracts and no tradeable asset
+other than NADO itself. Phase 1 below has since closed the chain half of that gap; everything downstream
+of it is still open.
 
 ---
 
@@ -30,7 +32,7 @@ user and a trade**. NADO has 21 deployed contracts and no tradeable asset other 
 
 | Layer | Solana Q1'26 | NADO status | Blocker |
 |---|---|---|---|
-| **Fungible asset primitive** | SPL token | **ABSENT** — the only value in exec state is `state.bridge` (native NADO); op set has no mint/issue; the only money opcode is `PAY` | Keystone. Nothing below is possible without it. |
+| **Fungible asset primitive** | SPL token | **BUILT** (was ABSENT) — state-level ledger committed in the settled root, derived ids a contract computes in-circuit, 5 zkVM opcodes, asset-denominated call value ([`doc/assets.md`](doc/assets.md)). Open: wallet UI, settlement-by-proof | Keystone. Was blocking everything below. |
 | **Launchpad** | $144M (42%) — Pump.fun, Bags, LetsBonk | **ABSENT** | Needs asset primitive |
 | **Trading terminals** | $79M — Axiom, Photon, BullX, GMGN, Trojan | **ABSENT** — no charts, no indexer, no price history | Needs markets + indexer |
 | **Wallet swaps** | $49.6M — Phantom | **PARTIAL** — wallet has send/receive/stake/deploy/HTLC lock, but the "swap" UI is a raw HTLC lock/claim/refund form: no pair, no price, no counterparty discovery | Needs AMM + router |
@@ -93,12 +95,26 @@ Concretely:
 
 ---
 
-## Phase 1 — The asset primitive (the keystone)
+## Phase 1 — The asset primitive (the keystone) — **LEDGER + OPCODES BUILT**
 
 **Goal:** anyone can create a fungible asset on the exec layer, hold it, and transfer it, with the
 wallet and explorer treating it as a first-class thing.
 
-**The design decision to make up front:** contract-level standard vs. state-level primitive.
+> **Status.** The chain half is done and tested — see [`doc/assets.md`](doc/assets.md) and
+> `tests/test_assets.py` (16 checks, incl. one real proof). Built: the state-level ledger, committed in
+> the settled root; derived asset ids (`hashn([issuer_digest, seed])`) a contract can compute in-circuit;
+> five zkVM opcodes (`ASEL`/`AMINT`/`ABURN`/`ABAL`/`ACTX`) with AIR constraints and assembler + zkpy
+> wrappers; asset-denominated call value with exact refund-on-revert; all-or-nothing staging across the
+> native and asset ledgers; the blob ops and `/exec/assets`. Two gaps still open and named:
+> **settlement-by-proof for asset calls** (the epoch prover refuses them rather than proving something
+> false), and the **wallet/explorer UI**.
+>
+> One AIR bug this shook out and is worth remembering: `_LOAD_OPS` in `vm_circuit.py` was documentation
+> while the register-hold constraint hardcoded its own copy of the list. A load op missing from the
+> hardcoded copy is *silently unprovable* — every proof of a program using it fails composition with no
+> hint why. It is now derived from the one list.
+
+**The design decision that was made:** contract-level standard vs. state-level primitive.
 
 - *Option A — a standard contract* (ERC-20 shaped, one deploy per asset, balances in contract
   storage). Zero consensus change, ships fastest, matches how `pets.py` already implements a full
@@ -110,27 +126,32 @@ wallet and explorer treating it as a first-class thing.
   (which `doc/dex-bridge.md` §7 already calls the "atomic VM swap"). Downside: touches
   `execnode/state.py` op dispatch and the settled-root layout, i.e. a state-format change.
 
-**Recommendation: B, with A as the compatibility shim.** The exec state root is sparse and already
-carries multiple namespaces; adding an asset ledger now is far cheaper than retrofitting one after
-liquidity exists in a hundred incompatible contract tokens. Ship a canonical asset contract too, so
-existing game contracts can hold and pay assets without opcode changes.
+**Chosen: B.** The exec state root is sparse and already carries multiple namespaces; adding an asset
+ledger now is far cheaper than retrofitting one after liquidity has settled into a hundred mutually
+incompatible token contracts. Full rationale and the resulting design: [`doc/assets.md`](doc/assets.md).
 
 **Deliverables**
-- `execnode/state.py`: `assets` ledger + `asset_create` / `asset_transfer` / `asset_burn` blob ops,
-  with supply invariants added to `ops/invariants.py` (mirroring how the bridge balance is already
-  conserved).
-- zkVM: an asset-aware pay path (`PAYA` or `PAY` with an asset selector) so contracts can escrow and
-  settle non-native assets — the single most important VM change in this roadmap.
-- Metadata: name/ticker/decimals/logo-URI, immutable after create; **no admin key by default**, opt-in
-  mint authority that can be permanently renounced (mirror the existing `lock` op's one-way model).
-- Wallet: asset list, per-asset balance, send/receive, the same status lifecycle every game uses.
-- Explorer: asset pages, holder lists, supply.
-- Indexer: asset registry endpoint (`/exec/assets`, `/exec/asset?id=`) alongside `/exec/contracts`.
-- Docs: `doc/assets.md`, plus a real "build your first dApp" guide (we don't have one — see Track D).
+- ~~`execnode/state.py`: `assets` ledger + `asset_create`/`asset_transfer`/`asset_burn`/`asset_mint`/
+  `asset_renounce` blob ops, supply conserved and staged all-or-nothing with the native ledger.~~ **done**
+- ~~zkVM: an asset-aware pay path so contracts can escrow and settle non-native assets — the single most
+  important VM change in this roadmap.~~ **done** — `ASEL` publishes the asset and binds the instruction
+  after it (a 2-register instruction cannot carry asset+to+amount), enforced at the deploy gate *and* in
+  the verifier's log replay, because an unpaired `PAY` moves NADO where the contract meant to move a token.
+- ~~Metadata: name/ticker/decimals, immutable after create; **no admin key by default**, opt-in mint
+  authority that can be permanently renounced (mirroring the existing `lock` op's one-way model).~~ **done**
+- ~~Indexer: asset registry endpoint (`/exec/assets`, `/exec/asset?id=`) alongside `/exec/contracts`.~~ **done**
+- ~~Docs: `doc/assets.md`.~~ **done**
+- **Wallet: asset list, per-asset balance, send/receive, the same status lifecycle every game uses.** ← next
+- **Explorer: asset pages, holder lists, supply.**
+- **Settlement by proof for asset calls** — give `settlement_proofs._run_call` a shadow asset ledger and
+  let `verify_epoch` replay with `with_assets=True`. The AIR needs nothing more; it already proves the io
+  log that carries every asset effect.
+- A real "build your first dApp" guide (we still don't have one — see Track D).
 
 **Exit criteria:** a user creates an asset in the wallet in under 60 seconds, sends it to a friend,
-and both see it in their balance list; `tests/test_assets.py` covers supply conservation, revert
-symmetry, and the settled-root effect; differential-verified three ways per our money-code rule.
+and both see it in their balance list. *(Chain half met: `tests/test_assets.py` covers supply
+conservation, revert symmetry, authority, the settled-root effect, and the differential
+interpreter-vs-proof-vs-replay check our money-code rule demands. Wallet half outstanding.)*
 
 ---
 
@@ -330,7 +351,7 @@ honestly is rarer than it should be.
 
 | # | Phase | Depends on | Why it's here |
 |---|---|---|---|
-| 1 | **Asset primitive** | — | Keystone; nothing else is possible |
+| 1 | **Asset primitive** | — | Keystone — **chain half BUILT**; wallet UI + proof settlement open |
 | 2 | **AMM** | 1 | Price discovery; the venue everything routes into |
 | 3 | **Launchpad** | 1, 2 | 42% of app revenue on the reference chain |
 | 4 | **Router + wallet swap** | 2, 3 | 15% of app revenue; highest-converting surface |

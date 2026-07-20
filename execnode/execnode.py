@@ -884,6 +884,50 @@ async def h_bridge(request):
     return web.json_response({"balances": st.bridge, "withdrawals": st.withdrawals, "cursor": st.cursor})
 
 
+async def h_assets(request):
+    """The asset registry (doc/assets.md): every asset's metadata plus its holder count. ?issuer= filters to
+    one issuer's assets; ?holder= adds that holder's balance per asset (so a wallet renders its whole token
+    list in ONE request instead of one per asset — the full-storage-per-poll ceiling applies here too)."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    issuer, holder = request.query.get("issuer"), request.query.get("holder")
+    out = []
+    for aid, meta in sorted(st.assets.items()):
+        if issuer and meta["issuer"] != issuer:
+            continue
+        # supply/balance go out as STRINGS. The cap is 2^62 and JSON numbers are IEEE doubles, so a browser
+        # would silently truncate anything past 2^53 on parse — a balance that reads slightly wrong is worse
+        # than one that fails loudly. Strings feed BigInt() exactly. (`dec`, `seed`, `holders` are small.)
+        row = dict(meta, id=aid, supply=str(meta["supply"]), holders=len(st.abal.get(aid, {})))
+        if holder:
+            bal = st.asset_balance(aid, holder)
+            if not bal:
+                continue
+            row["balance"] = str(bal)
+        out.append(row)
+    return web.json_response({"assets": out, "cursor": st.cursor})
+
+
+async def h_asset(request):
+    """One asset (?id=) with its metadata and holder table; ?holder= narrows to a single balance."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    aid = str(request.query.get("id") or "")
+    meta = st.assets.get(aid)
+    if meta is None:
+        return web.json_response({"error": "no such asset"}, status=404)
+    holder = request.query.get("holder")
+    row = dict(meta, id=aid, supply=str(meta["supply"]))    # string amounts — see h_assets
+    if holder:
+        return web.json_response({"asset": row, "holder": holder,
+                                  "balance": str(st.asset_balance(aid, holder)), "cursor": st.cursor})
+    return web.json_response({"asset": row,
+                              "holders": {h: str(v) for h, v in st.abal.get(aid, {}).items()},
+                              "cursor": st.cursor})
+
+
 async def h_withdrawal_proof(request):
     """Merkle proof for a bridge-withdrawal record (?nonce=) against the CURRENT state_root (also
     returned); the claim only succeeds on L1 once a settled root covers it. 404 if the nonce is unknown."""
@@ -1132,13 +1176,21 @@ async def h_prove_call(request):
         beacons = {e: v % _F.P for e, v in st.beacons.items()}
         bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
 
+        # ASSET CONTEXT (doc/assets.md): `asset` names the currency of `value`; `selfd` is DERIVED from the
+        # cid on both sides, so it is never something the requester gets to choose.
+        in_asset = int(body.get("asset") or 0)
+        selfd = _rt.zkvm_addr_digest(cid)
+        abal = st.holder_assets(cid)
+
         def _prove():
             """Blocking STARK prove (~tens of seconds), run in a worker thread via asyncio.to_thread."""
             return vm_circuit.prove_call(c["code"], method, cf, fargs, slots, value=value, cursor=cursor,
-                                         timestamp=ts, beacons=beacons, block_hashes=bhashes)
+                                         timestamp=ts, beacons=beacons, block_hashes=bhashes,
+                                         asset=in_asset, selfd=selfd, abal=abal)
         async with _sem():                               # H-7: bound concurrent proving
             proof, io, ret, _new = await asyncio.to_thread(_prove)
         bundle = {"cid": cid, "method": method, "caller": caller, "args": args, "value": value,
+                  "asset": in_asset,
                   "cursor": cursor, "timestamp": ts, "io": [list(e) for e in io], "proof": proof}
         return web.json_response({"bundle_json": json.dumps(bundle), "ret": str(ret), "cursor": cursor})
     except KeyError as e:
@@ -1174,20 +1226,30 @@ async def h_verify_call(request):
         def _verify():
             return vm_circuit.verify_call(b["proof"], c["code"], b["method"], cf, fargs, io,
                                           value=int(b.get("value", 0)), cursor=int(b.get("cursor", 0)),
-                                          timestamp=int(b.get("timestamp", 0)))
+                                          timestamp=int(b.get("timestamp", 0)),
+                                          asset=int(b.get("asset") or 0),
+                                          selfd=_rt.zkvm_addr_digest(b["cid"]))
         async with _sem():
             ok, why = await asyncio.to_thread(_verify)
         if not ok:
             return web.json_response({"ok": False, "reason": why})
         slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
-        ok2, ret, _new_slots, payouts, chain = zkvm.replay_io(io, slots)
+        ok2, ret, _new_slots, payouts, chain, effects = zkvm.replay_io(io, slots, with_assets=True)
         chain_ok = all(
             (k == zkvm.IO_BHASH and st.block_hashes.get(a) is not None and st.block_hashes[a] % _F.P == v) or
             (k == zkvm.IO_BEACON and st.beacons.get(a) is not None and st.beacons[a] % _F.P == v)
             for k, a, v in chain)
+        # The asset half of state_match: the log's ABAL reads must match this node's ledger and every move
+        # it declares must be one the contract is actually allowed to make. Staged, never committed — this
+        # is a query endpoint; it reports whether the call WOULD apply, it does not apply it.
+        named = [(k, a, st.zk_addrs.get(str(t)) if t else None, amt) for k, a, t, amt in effects]
+        assets_ok, assets_why, _d, _s = st.stage_asset_effects(b["cid"], named)
         pays = [[st.zk_addrs.get(str(to)), amt] for to, amt in payouts]
         return web.json_response({"ok": True, "reason": "ok", "ret": str(ret),
-                                  "state_match": bool(ok2 and chain_ok), "payouts": pays})
+                                  "state_match": bool(ok2 and chain_ok and assets_ok),
+                                  "assets_reason": assets_why or "ok",
+                                  "payouts": pays,
+                                  "asset_effects": [[k, a, t, amt] for k, a, t, amt in named]})
     except KeyError as e:
         return web.json_response({"error": f"missing field {e}"}, status=400)
     except Exception as e:
@@ -1222,6 +1284,8 @@ async def main():
                     web.get("/exec/outbox_proof", h_outbox_proof),
                     web.get("/exec/inbox", h_inbox),
                     web.get("/exec/bridge", h_bridge),
+                    web.get("/exec/assets", h_assets),
+                    web.get("/exec/asset", h_asset),
                     web.get("/exec/withdrawal_proof", h_withdrawal_proof),
                     web.get("/exec/dividend", h_dividend),
                     web.get("/exec/dividend_proof", h_dividend_proof),

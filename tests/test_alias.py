@@ -15,7 +15,7 @@ logger = logging.getLogger("alias"); logger.addHandler(logging.NullHandler())
 from genesis import create_indexers
 create_indexers()
 
-from protocol import ALIAS_REGISTRATION_FEE, MIN_TX_FEE, CHAIN_ID
+from protocol import ALIAS_REGISTRATION_FEE, MIN_TX_FEE, CHAIN_ID, ADDRESS_PREFIX, MSIG_PREFIX
 from ops import kv_ops, alias_ops
 from ops.account_ops import create_account, get_account, reflect_transaction
 from ops.transaction_ops import construct_alias_tx, validate_transaction, create_txid, create_nonce
@@ -112,7 +112,11 @@ def t6_unregister_frees_name():
 
 def t7_name_validation():
     """Prove valid_alias_name rejects short/cased/reserved/malformed names and accepts good ones."""
-    for bad in ("ab", "Alice", "bond", "alias", "ndofoo", "has space", "1abc", "a" * 33, "", 123):
+    # The address-shaped case is DERIVED from the live prefix, never spelled out: this assertion used to
+    # read "ndofoo" and silently stopped testing anything the moment the prefix was rebranded (see
+    # doc/debrand.md — a pinned address literal is the recurring bug in this repo, not a one-off).
+    for bad in ("ab", "Alice", "bond", "alias", ADDRESS_PREFIX + "foo", MSIG_PREFIX + "foo",
+                "has space", "1abc", "a" * 33, "", 123):
         assert not alias_ops.valid_alias_name(bad), f"{bad!r} should be invalid"
     for good in ("alice", "shop_1", "my-name", "abc"):
         assert alias_ops.valid_alias_name(good), f"{good!r} should be valid"

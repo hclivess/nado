@@ -3,7 +3,7 @@
 > **Status: DESIGN, building on BUILT primitives.** The trustless cross-chain leg (HTLC atomic swaps) and
 > the on-chain contract VM this order book runs on are already implemented and tested — HTLCs in
 > [`htlc.md`](htlc.md) (`tests/test_htlc.py`), the stack-VM + escrow in [`exec-instructions.md`](exec-instructions.md)
-> and the example game contracts (`execnode/contracts/*.json`). This note specifies the layer *above* them:
+> and the example game contracts (`execnode/games/*.py`). This note specifies the layer *above* them:
 > a **decentralized order book, matching, atomic settlement, and cross-chain verification** with **no bridge
 > operator, no multisig federation, no custodian, and no privileged relayer**. Security comes only from
 > cryptography (hashlock/timelock), each chain's own consensus, and the exec layer's determinism.
@@ -391,7 +391,7 @@ and being a watchtower requires no permission, stake, or identity.
 | **4** | Watchtower/relayer bounties + a reference permissionless relayer daemon (`scripts/dex_watchtower.py`, dry-run default like `bet_oracle.py`) | integration |
 | **5 (optional, future)** | premium/collateral for the free option; L3 gossip discovery relay; a `bridge.nadochain.com` Swap dApp | — |
 
-**File map (to build):** `execnode/contracts/dex.json` (+ `tests/test_dex_contract.py` as its source of
+**File map (to build):** `execnode/apps/dex.py` (+ `tests/test_dex_contract.py` as its source of
 truth), `static/dex.{html,js}` (the Swap dApp, on the shared `nadodapp.js` SDK), `scripts/dex_watchtower.py`,
 `website/nginx-bridge.nadochain.com.conf`, a card in `website/games.html`/the app catalog, and this doc.
 

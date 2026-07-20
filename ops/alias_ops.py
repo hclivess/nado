@@ -26,7 +26,8 @@ _ALIAS_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 def valid_alias_name(name) -> bool:
     """A syntactically valid, non-colliding alias name: ALIAS_MIN_LEN..ALIAS_MAX_LEN chars, lowercase
-    [a-z0-9_-] starting with a letter, NOT a reserved word, and NOT address-shaped ("ndo…")."""
+    [a-z0-9_-] starting with a letter, NOT a reserved word, and NOT address-shaped (does not start with
+    ADDRESS_PREFIX or MSIG_PREFIX — derived from the constants, so a rebrand cannot leave this stale)."""
     if not isinstance(name, str):
         return False
     if not (ALIAS_MIN_LEN <= len(name) <= ALIAS_MAX_LEN):

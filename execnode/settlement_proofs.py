@@ -53,6 +53,9 @@ def _apply_payouts(bridge, cid, payouts):
     return True
 
 
+_ASSET_OPS = ("ASEL", "AMINT", "ABURN", "ABAL")   # see the refusal in _run_call / doc/assets.md §8
+
+
 def _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons, block_hashes, want_rows):
     """Execute ONE call against the mutable (contracts, bridge, registry): advance storage, resolve payouts,
     and return (epoch_call, public_call, rows). `rows` (the executed step count = trace rows this call adds,
@@ -68,11 +71,23 @@ def _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons, 
     slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
     if value > 0:
         bridge[cid] = bridge.get(cid, 0) + value
+    # ASSETS (doc/assets.md) are not in the settlement prover's shadow ledger yet — it carries `bridge` and
+    # nothing else. Refusing them is the only safe reading: an ASEL+PAY pair looks exactly like a native
+    # payout to the payout loop below, so silently proving it would move NADO where the contract moved a
+    # token. Checked on the PROGRAM, before execution, so the refusal is about capability and does not
+    # depend on whether this particular call happened to reach its asset instruction (with no shadow asset
+    # ledger to read, it would revert first and report the wrong reason). Asset calls stay on the equally
+    # valid bonded-quorum settlement path until this ledger grows an asset half — doc/assets.md §8.
+    if any(ins[0] in _ASSET_OPS for ins in c["code"].get(method, [])):
+        raise ValueError(f"call {i}: asset io is not yet settleable by proof")
+    selfd = runtimes.zkvm_addr_digest(cid)
     res = zkvm.run(c["code"], method, cf, fargs, slots, value=value, cursor=cursor, timestamp=timestamp,
-                   beacons=beacons, block_hashes=block_hashes, witness=want_rows)
+                   beacons=beacons, block_hashes=block_hashes, selfd=selfd, witness=want_rows)
     ok, _ret, new_slots, io = res[:4]
     if not ok:
         raise ValueError(f"call {i} reverted — nothing to prove")
+    if any(k in zkvm.IO_ASSET_KINDS for k, _a, _b in io):   # belt and braces, if a future op emits asset io
+        raise ValueError(f"call {i}: asset io is not yet settleable by proof")
     rows = len(res[4]) if want_rows else 0
     payouts = [(registry[str(to)], amt) for k, to, amt in io if k == zkvm.IO_PAY and amt > 0
                and str(to) in registry]
@@ -82,7 +97,8 @@ def _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons, 
     c["storage"] = {"slots": {str(k): v for k, v in sorted(new_slots.items())}}
     epoch_call = {"code": c["code"], "method": method, "caller_f": cf, "args_f": fargs,
                   "caller": caller, "args": call.get("args", []), "value": value, "cursor": cursor,
-                  "timestamp": timestamp, "beacons": beacons, "block_hashes": block_hashes, "slots": slots}
+                  "timestamp": timestamp, "beacons": beacons, "block_hashes": block_hashes, "slots": slots,
+                  "selfd": selfd}
     public_call = {"cid": cid, "method": method, "caller": caller, "args": call.get("args", []),
                    "value": value}
     return epoch_call, public_call, rows
@@ -380,9 +396,12 @@ def _epoch_pub_statement(bundle):
         c = contracts.get(call["cid"])
         if not c or c.get("runtime") != "zkvm":
             raise ValueError("unknown contract")
+        # `selfd` is DERIVED from the cid, never carried in the bundle: the verifier recomputes the callee's
+        # own digest from public data, so a prover cannot choose what ACTX_SELF reads.
         pub_calls.append({"code": c["code"], "method": call["method"], "caller": call.get("caller", "epoch"),
                           "args": call.get("args", []), "value": int(call.get("value", 0)),
-                          "cursor": cursor, "timestamp": ts})
+                          "cursor": cursor, "timestamp": ts,
+                          "selfd": runtimes.zkvm_addr_digest(call["cid"])})
     return pub_calls, epoch_io
 
 

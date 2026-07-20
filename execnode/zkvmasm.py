@@ -23,6 +23,9 @@ runs and the execution AIR proves. Text form:
 Macros: hash d <- s1 s2 ... (HINIT/HABS/HR0..7 per element/HOUT) · gte d s (LT;NOTB) · not d (alias NOTB) ·
 rem/mod d s (d = d % s — DIVMOD then move r7 remainder into d; the safe form of the card/id/roll pattern) ·
 slot d field k (d = field*2^32 + k). CTX accepts caller|value|cursor|time. Jump targets are @label (pass 2).
+Assets (doc/assets.md): apay <asset> <to> <amt> · amint <asset> <to> <amt> (issuer-only, checked by the exec
+layer) · aburn <asset> <amt> · abal d <asset> (this contract's holding) · actx d asset|self (the asset
+escrowed WITH this call, and the contract's own address digest).
 Args: the first 8 call args preload r0..r7; `arg rd rs` loads args[rs] (any of up to 1024) by dynamic index —
 loop over it for variadic inputs (merkle proofs, batches) instead of packing into bitmasks.
 Division: `divmod d s` (q<2^48, divisor<2^15 — big value by small constant) · `divmodw d s` (q<2^32,
@@ -32,6 +35,7 @@ divisor<2^31 — pro-rata pool splits, ratios). Both put the quotient in d and t
 from execnode import zkvm
 
 _CTX = {"caller": zkvm.CTX_CALLER, "value": zkvm.CTX_VALUE, "cursor": zkvm.CTX_CURSOR, "time": zkvm.CTX_TIME}
+_ACTX = {"asset": zkvm.ACTX_ASSET, "self": zkvm.ACTX_SELF}
 _HR = [op for op in zkvm.OPS if op.startswith("HR")]   # HR0..HR{ROUNDS-1}, in order (one per alghash round)
 
 
@@ -114,6 +118,23 @@ def assemble(text):
             if toks[2] not in _CTX:
                 raise zkvm.ZkVMError(f"ctx wants caller|value|cursor|time ({line!r})")
             out.append(["CTX", _reg(toks[1]), 0, _CTX[toks[2]]])
+        elif op == "ACTX":
+            if len(toks) < 3 or toks[2] not in _ACTX:
+                raise zkvm.ZkVMError(f"actx wants asset|self ({line!r})")
+            out.append(["ACTX", _reg(toks[1]), 0, _ACTX[toks[2]]])
+        elif op in ("APAY", "AMINT"):                          # apay/amint <asset> <to> <amount>
+            # An asset move needs three registers and an instruction holds two, so it assembles to the atomic
+            # pair `ASEL asset ; PAY|AMINT to amount` that zkvm.validate_code enforces. Only the MACRO is
+            # exposed — there is deliberately no way to write a bare `asel` in zkasm, so an author cannot
+            # separate the selection from the spend (the fund-substitution footgun the deploy gate rejects).
+            if len(toks) != 4:
+                raise zkvm.ZkVMError(f"{op.lower()} syntax: {op.lower()} <asset> <to> <amount> ({line!r})")
+            out.append(["ASEL", 0, _reg(toks[1]), 0])
+            out.append(["PAY" if op == "APAY" else "AMINT", _reg(toks[2]), _reg(toks[3]), 0])
+        elif op == "ABURN":                                    # aburn <asset> <amount> — burns from SELF
+            out.append(["ABURN", _reg(toks[1]), _reg(toks[2]), 0])
+        elif op == "ABAL":                                     # abal rd <asset> — SELF's balance of an asset
+            out.append(["ABAL", _reg(toks[1]), _reg(toks[2]), 0])
         elif op in ("JMP", "JNZ"):
             tgt = toks[-1]
             if not tgt.startswith("@"):

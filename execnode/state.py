@@ -95,6 +95,28 @@ def _normalize_bundle(bundle):
 FIXED_CIDS = {"faucet": "mldsa44ebd27698662f14ee2389e509781d5ff57487f4289afd34",
               "sovereign": "mldsa44ebd27698662f14ee2389e509781d5ff57487f4289afd34"}
 
+# ---- ASSETS (doc/assets.md) ------------------------------------------------------------------------
+# A fungible asset other than native NADO. There is exactly ONE ledger for them, at the exec layer, so an
+# asset composes with the zkVM the way the bridge balance already does — a contract can hold, receive, move,
+# mint and burn assets, and every one of those is a public io entry the settlement machinery replays.
+#
+# The id is DERIVED, never assigned: asset_id = alghash.hashn([issuer_digest, seed]). Two consequences that
+# are the whole point: an issuer knows its asset's id before creating it, and a CONTRACT can compute the id
+# of its own assets IN-CIRCUIT with the ordinary `hash` macro (`hash aid <- me seed`) — no registry lookup,
+# no oracle, no id passed in on trust. That is what makes an AMM able to own its LP token and a launchpad
+# able to own the token it launches.
+ASSET_SUPPLY_CAP = 1 << 62      # every balance is <= total supply, so this keeps ALL asset amounts inside the
+                                # RANGE window (2^62) that makes an in-contract `lt` on them sound. Without it
+                                # a big-supply asset would silently produce unprovable/forgeable comparisons.
+ASSET_NAME_MAX, ASSET_SYM_MAX, ASSET_DEC_MAX = 64, 12, 18
+
+
+def asset_id(issuer, seed):
+    """The deterministic id of `issuer`'s asset number `seed` — the same field element the contract computes
+    in-circuit as `hash aid <- me seed`. `issuer` is an L1 address / cid string."""
+    from execnode.stark import alghash, field as _F
+    return alghash.hashn([runtimes.zkvm_addr_digest(issuer), int(seed) % _F.P]) % _F.P
+
 
 class ExecState:
     def __init__(self, path):
@@ -108,6 +130,11 @@ class ExecState:
                                    # from the same finalized block, so TIME stays deterministic without it being
                                    # a root leaf. Defaults to 0 for a cold view before the first block is applied.
         self.bridge = {}           # addr -> exec-side bridged balance (credited by L1 `bridge` deposits)
+        # ASSET LEDGER (doc/assets.md) — the second value type this layer knows about. Both halves are
+        # committed in state_root (exec_root.records_projection), so an asset balance is as provable as a
+        # bridge balance; unlike the bridge there is no L1 exit for them (an asset exists only here).
+        self.assets = {}           # str(asset_id) -> {issuer, seed, name, sym, dec, supply, mintable}
+        self.abal = {}             # str(asset_id) -> {holder(addr or cid) -> balance}
         self.withdrawals = {}      # nonce(str) -> {"addr":.., "amount":..} : provable exit records
         self.wd_nonce = 0          # monotonic withdrawal-nonce counter (deterministic)
         # CROSS-DOMAIN OUTBOX: messages emitted by this layer (via the `emit` blob op), each committed as a
@@ -198,6 +225,8 @@ class ExecState:
         self.contracts = d.get("contracts", {})
         self.cursor = d.get("cursor", -1)
         self.bridge = d.get("bridge", {})
+        self.assets = d.get("assets", {})
+        self.abal = {a: dict(h) for a, h in d.get("abal", {}).items()}
         self.withdrawals = d.get("withdrawals", {})
         self.wd_nonce = d.get("wd_nonce", 0)
         ob = d.get("outbox", {})
@@ -241,6 +270,7 @@ class ExecState:
         concurrent thread-apply can't tear it. Shared by save() and clone()."""
         with self._mutate_lock:
             return {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
+                    "assets": self.assets, "abal": self.abal,
                     "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
                     "outbox": self.outbox, "outbox_seq": self.outbox_seq, "inbox": self.inbox,
                     "dividend": self.dividend, "last_div_epoch": self.last_div_epoch,
@@ -636,6 +666,96 @@ class ExecState:
         except Exception as e:
             return f"skip shield: {e}"
 
+    # --- asset ledger (doc/assets.md) ------------------------------------------------------------
+    def asset_balance(self, aid, holder):
+        """`holder`'s balance of asset `aid` (int or str id). 0 for an asset nobody has ever held — an
+        absent row and a zero row are the same balance, which is what keeps the ledger canonical."""
+        return int(self.abal.get(str(aid), {}).get(holder, 0))
+
+    def holder_assets(self, holder):
+        """A lazy {asset_id(int) -> balance} view of ONE holder, for the VM's ABAL opcode. A dict would be
+        O(#assets on the chain) to build per call; this is O(1) per read and identical on every node."""
+        st, h = self, holder
+
+        class _View:
+            def get(self, aid, default=0):
+                return int(st.abal.get(str(int(aid)), {}).get(h, default))
+        return _View()
+
+    def _asset_credit(self, aid, holder, delta):
+        """Move `delta` (signed) of asset `aid` on `holder`'s row, pruning to absence at zero. Callers have
+        already validated solvency — this is the commit half of a staged, all-or-nothing settlement."""
+        key = str(aid)
+        row = self.abal.setdefault(key, {})
+        v = int(row.get(holder, 0)) + int(delta)
+        if v:
+            row[holder] = v
+        else:
+            row.pop(holder, None)
+        if not row:
+            self.abal.pop(key, None)
+
+    def stage_asset_effects(self, actor, effects):
+        """Validate a call's asset intents as ONE atomic batch against the ledger `actor` (a cid or address)
+        would move them from. Returns (ok, reason, deltas, supply_deltas) and mutates NOTHING — the caller
+        commits only if every effect in the call is legal, so a call that pays three assets and overdraws
+        the fourth moves none of them. Mirrors the native-NADO rule one line up in `call`: a contract may
+        only ever move what it HOLDS, and only an issuer may mint."""
+        deltas, sup = {}, {}
+
+        def bal(aid, who):
+            return self.asset_balance(aid, who) + deltas.get((aid, who), 0)
+
+        for kind, aid, to, amt in effects:
+            aid, amt = str(aid), int(amt)
+            meta = self.assets.get(aid)
+            if kind == "bal":
+                # The ABAL read the VM logged must equal what the ledger says. On this path the exec node
+                # supplied that value itself, so it always does; the check earns its keep on the
+                # PROOF-verifying path (/exec/verify_call), where the log arrives from a stranger.
+                if bal(aid, actor) != amt:
+                    return False, f"asset {aid[:12]}… balance read {amt} != ledger", {}, {}
+                continue
+            if amt == 0:
+                continue                                  # a zero move is a no-op, not an error (as PAY 0 is)
+            if amt < 0 or amt >= ASSET_SUPPLY_CAP:
+                return False, "asset amount out of range", {}, {}
+            if meta is None:
+                return False, f"no such asset {aid[:12]}…", {}, {}
+            if kind == "pay":
+                if to is None:
+                    return False, "unresolvable asset recipient", {}, {}
+                if bal(aid, actor) < amt:
+                    return False, f"asset {meta['sym']} payout {amt} > holding", {}, {}
+                deltas[(aid, actor)] = deltas.get((aid, actor), 0) - amt
+                deltas[(aid, to)] = deltas.get((aid, to), 0) + amt
+            elif kind == "mint":
+                if meta["issuer"] != actor:
+                    return False, f"only {meta['sym']}'s issuer may mint", {}, {}
+                if not meta["mintable"]:
+                    return False, f"{meta['sym']} minting was renounced", {}, {}
+                if to is None:
+                    return False, "unresolvable mint recipient", {}, {}
+                if meta["supply"] + sup.get(aid, 0) + amt > ASSET_SUPPLY_CAP:
+                    return False, f"{meta['sym']} supply cap exceeded", {}, {}
+                deltas[(aid, to)] = deltas.get((aid, to), 0) + amt
+                sup[aid] = sup.get(aid, 0) + amt
+            elif kind == "burn":
+                if bal(aid, actor) < amt:
+                    return False, f"asset {meta['sym']} burn {amt} > holding", {}, {}
+                deltas[(aid, actor)] = deltas.get((aid, actor), 0) - amt
+                sup[aid] = sup.get(aid, 0) - amt
+            else:
+                return False, f"unknown asset effect {kind!r}", {}, {}
+        return True, "", deltas, sup
+
+    def commit_asset_effects(self, deltas, sup):
+        """Apply what stage_asset_effects validated. Never called without that validation."""
+        for (aid, who), d in deltas.items():
+            self._asset_credit(aid, who, d)
+        for aid, d in sup.items():
+            self.assets[aid]["supply"] += d
+
     def contract_id(self, deployer, code, nonce):
         """Deterministic contract id H(deployer, code, nonce) (truncated) — identical on every exec node,
         so a deployer can know its cid before the blob even lands (submit_blob echoes it)."""
@@ -680,7 +800,7 @@ class ExecState:
                 storage = {}
                 if "constructor" in code:
                     kw = {"registry": self.zk_addrs} if getattr(rt, "wants_registry", False) else {}
-                    ok, _ret, storage, _pay = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, **kw)
+                    ok, _ret, storage, _pay, _fx = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
                 abi = payload.get("abi")   # optional, non-consensus UX metadata {method:{args,doc}}
@@ -706,23 +826,46 @@ class ExecState:
                     return "skip: args must be a list"
                 if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                     return "skip: bad call value"
+                # ASSET-DENOMINATED CALL VALUE (doc/assets.md): `asset` names WHICH value is escrowed. Absent
+                # or 0 means native NADO and every existing contract is untouched; otherwise the same `value`
+                # is a quantity of that asset, escrowed from the caller's asset row instead of their bridge.
+                # One `value` field, two ledgers — so a contract reads the amount through CTX_VALUE either
+                # way and only has to consult ACTX_ASSET when it cares which currency arrived.
+                in_asset = payload.get("asset") or 0
+                if in_asset:
+                    in_asset = str(in_asset)
+                    if in_asset not in self.assets:
+                        return f"skip: no such asset {str(in_asset)[:12]}…"
                 rt = runtimes.get(c.get("runtime", runtimes.DEFAULT_RUNTIME))
                 if rt is None:
                     return f"skip: unknown runtime for {cid}"
                 # VALUE ESCROW: debit the caller's bridge INTO the contract (keyed by cid) BEFORE running, so the
                 # VALUE opcode reflects it and PAY can draw on it. A revert refunds exactly — no NADO created or lost.
                 if value > 0:
-                    if self.bridge.get(sender, 0) < value:
-                        return f"skip: insufficient bridge balance for call value ({sender[:12]}…)"
-                    self.bridge[sender] -= value
-                    if self.bridge[sender] == 0:
-                        del self.bridge[sender]
-                    self.bridge[cid] = self.bridge.get(cid, 0) + value
+                    if in_asset:
+                        if self.asset_balance(in_asset, sender) < value:
+                            return f"skip: insufficient {self.assets[in_asset]['sym']} for call value ({sender[:12]}…)"
+                        self._asset_credit(in_asset, sender, -value)
+                        self._asset_credit(in_asset, cid, value)
+                    else:
+                        if self.bridge.get(sender, 0) < value:
+                            return f"skip: insufficient bridge balance for call value ({sender[:12]}…)"
+                        self.bridge[sender] -= value
+                        if self.bridge[sender] == 0:
+                            del self.bridge[sender]
+                        self.bridge[cid] = self.bridge.get(cid, 0) + value
                 kw = {"registry": self.zk_addrs} if getattr(rt, "wants_registry", False) else {}
-                ok, _ret, new_storage, payouts = rt.run(c["code"], method, sender, args, c["storage"],
-                                                        value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, **kw)
+                ok, _ret, new_storage, payouts, effects = rt.run(
+                    c["code"], method, sender, args, c["storage"],
+                    value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons,
+                    block_hashes=self.block_hashes, asset=int(in_asset or 0),
+                    selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
                 def _refund():
                     if value > 0:
+                        if in_asset:
+                            self._asset_credit(in_asset, cid, -value)
+                            self._asset_credit(in_asset, sender, value)
+                            return
                         self.bridge[cid] = self.bridge.get(cid, 0) - value
                         if self.bridge.get(cid, 0) == 0:
                             self.bridge.pop(cid, None)
@@ -736,14 +879,120 @@ class ExecState:
                 if total_pay > self.bridge.get(cid, 0):
                     _refund()
                     return f"call {cid}.{method} -> revert (payout {total_pay} > contract balance)"
+                # The same rule for the asset ledger, staged so it is ALL-OR-NOTHING with the native half:
+                # nothing is written until every asset move in the call is known legal.
+                a_ok, a_why, a_deltas, a_sup = self.stage_asset_effects(cid, effects)
+                if not a_ok:
+                    _refund()
+                    return f"call {cid}.{method} -> revert ({a_why})"
                 c["storage"] = new_storage
                 for to, amt in payouts:
                     self.bridge[cid] = self.bridge.get(cid, 0) - amt
                     if self.bridge.get(cid, 0) == 0:
                         self.bridge.pop(cid, None)
                     self.bridge[to] = self.bridge.get(to, 0) + amt
-                tag = (f" value={value}" if value else "") + (f" paid={total_pay}" if payouts else "")
+                self.commit_asset_effects(a_deltas, a_sup)
+                moved = sum(1 for k, *_ in effects if k != "bal")
+                tag = ((f" value={value}" + (f" {self.assets[in_asset]['sym']}" if in_asset else "")) if value else "") \
+                    + (f" paid={total_pay}" if payouts else "") + (f" assetfx={moved}" if moved else "")
                 return f"call {cid}.{method} by {sender[:12]}…{tag} -> ok"
+
+            # ---- assets (doc/assets.md) -------------------------------------------------------------
+            # The USER-facing half of the asset layer: what a person does from a wallet, as opposed to what a
+            # contract does through ASEL/AMINT/ABURN. Same ledger, same rules, no privileged path — an asset
+            # created here and one created by a contract are indistinguishable afterwards.
+            if op == "asset_create":
+                seed = payload.get("seed", 0)
+                if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
+                    return "skip: asset seed must be a non-negative int"
+                name = payload.get("name", "")
+                sym = payload.get("sym", "")
+                dec = payload.get("dec", 0)
+                supply = payload.get("supply", 0)
+                if not (isinstance(name, str) and 0 < len(name) <= ASSET_NAME_MAX):
+                    return f"skip: asset name must be 1..{ASSET_NAME_MAX} chars"
+                if not (isinstance(sym, str) and 0 < len(sym) <= ASSET_SYM_MAX):
+                    return f"skip: asset symbol must be 1..{ASSET_SYM_MAX} chars"
+                if not isinstance(dec, int) or isinstance(dec, bool) or not (0 <= dec <= ASSET_DEC_MAX):
+                    return f"skip: asset decimals must be 0..{ASSET_DEC_MAX}"
+                if (not isinstance(supply, int) or isinstance(supply, bool)
+                        or not (0 <= supply < ASSET_SUPPLY_CAP)):
+                    return "skip: asset supply out of range"
+                aid = str(asset_id(sender, seed))
+                if aid in self.assets:
+                    return f"skip: asset {aid[:12]}… already exists"
+                # MINT AUTHORITY is opt-IN and renounceable, never implicit: an asset created with
+                # mintable=false (the default) can never grow past this supply, and the guarantee is
+                # readable from the ledger by anyone before they buy a single unit.
+                self.assets[aid] = {"issuer": sender, "seed": seed, "name": name, "sym": sym, "dec": dec,
+                                    "supply": supply, "mintable": payload.get("mintable", False) is True}
+                if supply:
+                    self._asset_credit(aid, sender, supply)
+                return (f"asset_create {sym} ({aid[:12]}…) supply={supply} "
+                        f"{'mintable' if self.assets[aid]['mintable'] else 'fixed'} by {sender[:12]}…")
+
+            if op == "asset_transfer":
+                aid = str(payload.get("asset") or "")
+                to = payload.get("to")
+                amount = payload.get("amount", 0)
+                if aid not in self.assets:
+                    return f"skip: no such asset {aid[:12]}…"
+                if not isinstance(to, str) or not to:
+                    return "skip: asset_transfer needs a `to` address"
+                if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
+                    return "skip: asset_transfer amount must be positive"
+                if self.asset_balance(aid, sender) < amount:
+                    return f"skip: insufficient {self.assets[aid]['sym']} ({sender[:12]}…)"
+                self._asset_credit(aid, sender, -amount)
+                self._asset_credit(aid, to, amount)
+                return f"asset_transfer {amount} {self.assets[aid]['sym']} {sender[:12]}… -> {to[:12]}…"
+
+            if op == "asset_burn":
+                aid = str(payload.get("asset") or "")
+                amount = payload.get("amount", 0)
+                if aid not in self.assets:
+                    return f"skip: no such asset {aid[:12]}…"
+                if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
+                    return "skip: asset_burn amount must be positive"
+                if self.asset_balance(aid, sender) < amount:
+                    return f"skip: insufficient {self.assets[aid]['sym']} to burn ({sender[:12]}…)"
+                self._asset_credit(aid, sender, -amount)
+                self.assets[aid]["supply"] -= amount
+                return f"asset_burn {amount} {self.assets[aid]['sym']} by {sender[:12]}…"
+
+            if op == "asset_mint":
+                aid = str(payload.get("asset") or "")
+                to = payload.get("to")
+                amount = payload.get("amount", 0)
+                meta = self.assets.get(aid)
+                if meta is None:
+                    return f"skip: no such asset {aid[:12]}…"
+                if meta["issuer"] != sender:
+                    return f"skip: only {meta['sym']}'s issuer may mint"
+                if not meta["mintable"]:
+                    return f"skip: {meta['sym']} minting was renounced"
+                if not isinstance(to, str) or not to:
+                    return "skip: asset_mint needs a `to` address"
+                if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
+                    return "skip: asset_mint amount must be positive"
+                if meta["supply"] + amount > ASSET_SUPPLY_CAP:
+                    return f"skip: {meta['sym']} supply cap exceeded"
+                self._asset_credit(aid, to, amount)
+                meta["supply"] += amount
+                return f"asset_mint {amount} {meta['sym']} -> {to[:12]}…"
+
+            if op == "asset_renounce":
+                # PERMANENT, one-way, exactly like `lock` on a contract: after this the supply can only ever
+                # fall. It is the difference between a token you can hold and one whose issuer can dilute you
+                # at will, so it is a first-class op rather than a convention.
+                aid = str(payload.get("asset") or "")
+                meta = self.assets.get(aid)
+                if meta is None:
+                    return f"skip: no such asset {aid[:12]}…"
+                if meta["issuer"] != sender:
+                    return f"skip: only {meta['sym']}'s issuer may renounce minting"
+                meta["mintable"] = False
+                return f"asset_renounce {meta['sym']} ({aid[:12]}…) — supply fixed at {meta['supply']}"
 
             if op == "lock":
                 # RENOUNCE UPGRADABILITY (permanent): the deployer of an upgradable contract locks it forever
@@ -970,5 +1219,5 @@ class ExecState:
         if rt is None:
             return None
         kw = {"registry": dict(self.zk_addrs)} if getattr(rt, "wants_registry", False) else {}
-        ok, ret, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, **kw)
+        ok, ret, _, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
         return ret if ok else None

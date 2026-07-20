@@ -37,8 +37,9 @@ DOMAIN_REC_DIGEST = b"rec-digest-v1"
 DEPTH = 256                       # FROZEN: the full digest — position security = the hash's own strength
 DOM_REC = 8                       # record-position domain (exec_state_bind DOM_KVPOS = 7)
 
-# record tags (FROZEN)
+# record tags (FROZEN — APPEND only; an existing tag's number is part of every settled root ever computed)
 T_BRIDGE_BAL, T_DIV_BAL, T_BRIDGE_WD, T_DIV_WD, T_UNSHIELD_WD, T_DIGEST, T_KVX = 1, 2, 3, 4, 5, 6, 7
+T_ASSET_BAL, T_ASSET_META = 8, 9   # (asset, holder) -> balance, and asset -> a digest of its metadata
 
 
 def _limbs(part):
@@ -109,6 +110,17 @@ def records_projection(st):
         out[record_key(T_BRIDGE_BAL, addr)] = int(amt) % F.P
     for addr, amt in st.dividend.items():
         out[record_key(T_DIV_BAL, addr)] = int(amt) % F.P
+    # ASSETS (doc/assets.md): one leaf per (asset, holder) balance — the same shape as a bridge balance, so
+    # an asset holding is provable against the settled root by the SAME bounded verifier. The metadata leaf
+    # binds issuer/supply/mintable, so "this asset's supply is fixed at N" is a checkable claim, not a promise.
+    for aid, row in getattr(st, "abal", {}).items():
+        for holder, amt in row.items():
+            out[record_key(T_ASSET_BAL, aid, holder)] = int(amt) % F.P
+    for aid, meta in getattr(st, "assets", {}).items():
+        out[record_key(T_ASSET_META, aid, blake2b_hash(["asset", meta["issuer"], int(meta["seed"]),
+                                                        meta["name"], meta["sym"], int(meta["dec"]),
+                                                        int(meta["supply"]),
+                                                        bool(meta["mintable"])]))] = 1
     for nonce, w in st.withdrawals.items():
         out[record_key(T_BRIDGE_WD, w["addr"], nonce)] = int(w["amount"]) % F.P
     for nonce, w in st.dividend_withdrawals.items():

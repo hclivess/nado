@@ -167,6 +167,7 @@
         <button class="tab active" data-tabbtn="wallet" data-i18n="tab.overview">Overview</button>
         <button class="tab" data-tabbtn="send" data-i18n="tab.send">Send</button>
         <button class="tab" data-tabbtn="receive" data-i18n="tab.receive">Receive</button>
+        <button class="tab" data-tabbtn="assets" data-i18n="tab.assets">Assets</button>
         <button class="tab" data-tabbtn="aliases" data-i18n="tab.aliases">Aliases</button>
         <button class="tab" data-tabbtn="history" data-i18n="tab.history">History</button>
       </div>
@@ -413,6 +414,79 @@
     </div>
 
   <!-- ALIASES -->
+  <!-- ASSETS (doc/assets.md) -->
+  <div id="assetsCard" class="card hidden" data-tab="assets">
+    <h2 data-i18n="assets.title">Assets <span class="pill" data-i18n="assets.pill">tokens on the execution layer</span></h2>
+    <p class="small dim" data-i18n-html="assets.intro">Anyone can issue a token here. Balances live on the
+      execution layer and are committed in its settled root, so a holding is as provable as a NADO balance —
+      but a token is <b>not</b> NADO and has no bridge back to L1. An asset is <b>fixed-supply by default</b>;
+      tick <b>mintable</b> only if you need to issue more later, and remember you can <b>renounce</b> that
+      power permanently but never get it back. Moves apply at finality (a few minutes).</p>
+
+    <h3 class="mt" data-i18n="assets.yours">Your assets</h3>
+    <div id="assetsList" class="small mono">—</div>
+
+    <h3 class="mt" data-i18n="assets.send">Send</h3>
+    <label data-i18n="assets.asset">Asset</label>
+    <select id="assetSendId"></select>
+    <label class="mt" data-i18n="assets.to">To (address or alias)</label>
+    <input id="assetSendTo" placeholder="mldsa44…" autocomplete="off" spellcheck="false" />
+    <label class="mt" data-i18n="assets.amount">Amount</label>
+    <div class="row">
+      <input id="assetSendAmt" placeholder="0.0" autocomplete="off" spellcheck="false" style="flex:1" />
+      <button id="btnAssetSendMax" data-i18n="btn.max">Max</button>
+      <button id="btnAssetSend" class="accent" data-i18n="btn.send">Send</button>
+    </div>
+    <div id="assetSendMsg" class="small mt"></div>
+
+    <h3 class="mt" data-i18n="assets.create">Issue a new asset</h3>
+    <div class="row">
+      <div style="flex:1">
+        <label data-i18n="assets.sym">Symbol</label>
+        <input id="assetNewSym" placeholder="TKN" maxlength="12" autocomplete="off" spellcheck="false" />
+      </div>
+      <div style="flex:2">
+        <label data-i18n="assets.name">Name</label>
+        <input id="assetNewName" placeholder="My Token" maxlength="64" autocomplete="off" spellcheck="false" />
+      </div>
+    </div>
+    <div class="row mt">
+      <div style="flex:1">
+        <label data-i18n="assets.dec">Decimals</label>
+        <input id="assetNewDec" type="number" min="0" max="18" value="4" />
+      </div>
+      <div style="flex:2">
+        <label data-i18n="assets.supply">Initial supply</label>
+        <input id="assetNewSupply" placeholder="1000000" autocomplete="off" spellcheck="false" />
+      </div>
+    </div>
+    <label class="mt"><input type="checkbox" id="assetNewMintable" />
+      <span data-i18n="assets.mintable">Mintable — I can issue more later (holders can verify this; leave off for a fixed supply)</span></label>
+    <div class="row mt">
+      <button id="btnAssetCreate" class="accent" data-i18n="btn.issue">Issue</button>
+    </div>
+    <div id="assetCreateMsg" class="small mt"></div>
+
+    <h3 class="mt" data-i18n="assets.issued">Assets you issued</h3>
+    <div id="assetIssuedList" class="small mono">—</div>
+    <div class="row mt">
+      <select id="assetIssuedId" style="flex:1"></select>
+      <input id="assetMintTo" placeholder="mldsa44… (mint to)" autocomplete="off" spellcheck="false" style="flex:1" />
+      <input id="assetMintAmt" placeholder="amount" autocomplete="off" spellcheck="false" style="width:9rem" />
+      <button id="btnAssetMint" data-i18n="btn.mint">Mint</button>
+      <button id="btnAssetRenounce" data-i18n="btn.renounce">Renounce minting</button>
+    </div>
+    <div id="assetIssueMsg" class="small mt"></div>
+
+    <h3 class="mt" data-i18n="assets.burn">Burn</h3>
+    <div class="row">
+      <select id="assetBurnId" style="flex:1"></select>
+      <input id="assetBurnAmt" placeholder="amount" autocomplete="off" spellcheck="false" style="width:9rem" />
+      <button id="btnAssetBurn" data-i18n="btn.burn">Burn</button>
+    </div>
+    <div id="assetBurnMsg" class="small mt"></div>
+  </div>
+
   <div id="aliasCard" class="card hidden" data-tab="aliases">
     <h2 data-i18n="alias.title">Aliases <span class="pill" data-i18n="alias.pill">a name instead of a hash</span></h2>
     <p class="small dim" data-i18n-html="alias.intro">Register a short name that resolves to <b>your own address</b> (self) — others

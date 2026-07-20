@@ -58,15 +58,25 @@ NUM_REGS = 8
 OPS = (["NOP", "MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "RANGE", "DIVMOD", "LO32",
         "JMP", "JNZ", "REQUIRE", "CTX", "HINIT", "HABS", "HOUT"]
        + [f"HR{r}" for r in range(alghash.ROUNDS)]
-       + ["SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET", "ARG", "DIVMODW"])
+       + ["SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET", "ARG", "DIVMODW"]
+       + ["ASEL", "AMINT", "ABURN", "ABAL", "ACTX"])
 OP = {name: i for i, name in enumerate(OPS)}
 HR0 = OP["HR0"]
 
 # I/O log kinds — the public effect vocabulary a verifier replays
 IO_SLOAD, IO_SSTORE, IO_PAY, IO_BHASH, IO_BEACON, IO_RET = 1, 2, 3, 4, 5, 6
+# ASSET I/O (doc/assets.md): the same replay discipline as PAY — the VM EMITS the intent, the exec layer
+# checks authority/solvency against the committed asset ledger. The AIR proves only that the program emitted
+# exactly these entries in this order; what they MEAN is public, deterministic replay in execnode/state.py.
+IO_ASEL, IO_AMINT, IO_ABURN, IO_ABAL = 7, 8, 9, 10
+IO_ASSET_KINDS = (IO_ASEL, IO_AMINT, IO_ABURN, IO_ABAL)
 
 # CTX indices (imm operand of the CTX opcode)
 CTX_CALLER, CTX_VALUE, CTX_CURSOR, CTX_TIME = 0, 1, 2, 3
+# ACTX indices (imm operand of the ACTX opcode) — the asset-layer half of the call context, kept in its OWN
+# opcode rather than widening CTX so the CTX mux stays a degree-3 Lagrange over 4 points in the AIR.
+# 2 and 3 are reserved and read as 0 (the mux must be total on 0..3 for the constraint to be sound).
+ACTX_ASSET, ACTX_SELF = 0, 1
 
 # limb geometry shared with the AIR: 13 byte limbs (B0..B12) + 4 seven-bit limbs (S0..S3)
 NUM_BYTE_LIMBS, NUM_7BIT_LIMBS = 13, 4
@@ -106,6 +116,8 @@ def validate_code(code):
                 raise ZkVMError(f"{op} dest must not be r7 (r7 receives the remainder)")
             if op == "CTX" and imm > 3:
                 raise ZkVMError("CTX index must be 0..3 (caller/value/cursor/time)")
+            if op == "ACTX" and imm > 3:
+                raise ZkVMError("ACTX index must be 0..3 (asset/self; 2-3 reserved, read 0)")
         # SOUND-COMPARISON ENFORCEMENT (consensus, not just assembler discipline): a windowed prime-field
         # compare is only unforgeable when both operands are proven < 2^62. Every LT MUST be the tail of an
         # atomic `RANGE d ; RANGE s ; LT d s` block (what the `lt`/`gte` macros emit), and no jump may land on
@@ -122,6 +134,20 @@ def validate_code(code):
                                     f"(unsound unbounded comparison)")
                 no_jump.add(i)          # the LT itself
                 no_jump.add(i - 1)      # its second RANGE (jumping here skips the first RANGE)
+        # ASSET-SELECTION ENFORCEMENT (same shape, same reason as the compare block above): an asset move
+        # needs THREE values — asset, recipient, amount — and an instruction carries only two registers. So
+        # `ASEL rs` publishes the asset and the very next instruction spends it. That pairing is only
+        # meaningful if it is ATOMIC: a jump landing on the PAY/AMINT would move the asset the PREVIOUS
+        # ASEL selected (or, with no prior ASEL, would silently move native NADO instead of the token —
+        # a fund-substitution bug the replayer cannot detect, because both logs are individually well-formed).
+        # Enforced at the deploy gate so no hand-crafted bytecode can construct the unpaired form.
+        for i, ins in enumerate(prog):
+            if ins[0] == "ASEL":
+                if i + 1 >= len(prog) or prog[i + 1][0] not in ("PAY", "AMINT"):
+                    raise ZkVMError(f"ASEL at {i} in {method} must be immediately followed by PAY or AMINT")
+                no_jump.add(i + 1)      # jumping onto the spend would use a stale/absent selection
+            if ins[0] == "AMINT" and not (i >= 1 and prog[i - 1][0] == "ASEL"):
+                raise ZkVMError(f"AMINT at {i} in {method} is not preceded by ASEL (no asset selected)")
         for ins in prog:
             if ins[0] in ("JMP", "JNZ") and ins[3] in no_jump:
                 raise ZkVMError(f"jump into a compare macro at index {ins[3]} in {method} would skip a RANGE")
@@ -167,7 +193,7 @@ def _decomp15(v):
 
 
 def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None, block_hashes=None,
-        witness=False):
+        asset=0, selfd=0, abal=None, witness=False):
     """Execute code[method] with r0..r7 = the first 8 args (padded); ARG reaches all of them (up to
     MAX_ARGS) by dynamic index. `caller` is a FIELD element (the alghash address
     digest — address strings never enter zkVM; the exec layer digests them at the call boundary). `storage` is
@@ -175,6 +201,10 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
       io_log = ordered [(kind, a, b)] — SLOAD/SSTORE (slot,value), PAY (to_digest, amount),
                BHASH/BEACON (height/epoch, value), RET (value, 0) — always ending in exactly one RET on ok.
       steps (witness=True) = per-row prover witness: regs/pc/sponge after each step + wi/wj inverses + limbs.
+    Asset context (doc/assets.md): `asset` is the asset id escrowed with this call (0 = native NADO), `selfd`
+    the running contract's own address digest — both read through ACTX. `abal` is {asset_id: balance} of what
+    the contract HOLDS, read through ABAL exactly the way `beacons`/`block_hashes` are read through
+    BEACON/BHASH: supplied by the exec layer, echoed into the public io log, replayed by the verifier.
     On any revert (REQUIRE fail, window violation, gas, missing chain data) returns (False, None, storage, [])
     — a no-op, and equally unprovable in the AIR."""
     if method not in code:
@@ -186,6 +216,20 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
         return (False, None, storage, []) + (([],) if witness else ())
     caller %= F.P
     ctxv = [caller, value % F.P, cursor % F.P, timestamp % F.P]
+    actxv = [asset % F.P, selfd % F.P, 0, 0]             # 2-3 reserved: the AIR mux must be total on 0..3
+    selfd %= F.P
+    asel = 0                # the asset a live ASEL published, spent by the very next instruction
+    apend = {}              # asset -> this call's pending delta on SELF's holding (see the ABAL case)
+
+    def _aspend(a, amt):
+        """Debit `amt` of asset `a` from the contract's own holding for the rest of this call, reverting if
+        that would take it negative. The exec layer re-derives the identical arithmetic when it settles the
+        call's effects in order (ExecState.stage_asset_effects); reverting HERE only means the VM refuses to
+        produce a log for a call the layer would reject anyway, and keeps every ABAL a sane number."""
+        have = int((abal or {}).get(a, 0)) + apend.get(a, 0)
+        if amt > have:
+            raise ZkVMRevert("asset move exceeds the contract's holding")
+        apend[a] = apend.get(a, 0) - amt
     st = dict(storage)
     io = []
     steps = []
@@ -318,6 +362,10 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                     st[rd] = rs
                 io_entry = (IO_SSTORE, rd, rs)
             elif op_name == "PAY":
+                if asel:                                  # the ASEL right before this one made it an ASSET pay
+                    if not (selfd and rd == selfd):       # paying ITSELF is a no-op on its own holding
+                        _aspend(asel, rs)
+                    asel = 0
                 io_entry = (IO_PAY, rd, rs)
             elif op_name == "BHASH":
                 hv = (block_hashes or {}).get(rs)
@@ -339,6 +387,38 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 if rs >= len(fargs):
                     raise ZkVMRevert("ARG index out of range")
                 res, wr = fargs[rs], True
+            elif op_name == "ASEL":
+                # Publish the asset the NEXT instruction spends. Emits no value and writes no register — its
+                # whole effect is the io entry, which the deploy gate has already bound to the instruction
+                # that follows it (validate_code). asset 0 would mean "native", which ASEL must never select
+                # (a contract writing `asel r; pay` with r=0 would move NADO where it meant to move a token).
+                if rs == 0:
+                    raise ZkVMRevert("ASEL of asset 0 (native NADO needs no selection)")
+                asel = rs
+                io_entry = (IO_ASEL, rs, 0)
+            elif op_name == "AMINT":
+                if selfd and rd == selfd:                 # minting to ITSELF raises its own holding
+                    apend[asel] = apend.get(asel, 0) + rs
+                asel = 0
+                io_entry = (IO_AMINT, rd, rs)             # mint rs of the SELECTED asset to digest rd
+            elif op_name == "ABURN":
+                _aspend(rd, rs)
+                io_entry = (IO_ABURN, rd, rs)             # burn rs of asset rd from the contract's own holding
+            elif op_name == "ABAL":
+                # The contract's own balance of asset rs — a LOAD off the io bus, identical in shape to
+                # SLOAD/BHASH/BEACON: the value is supplied by the exec layer, published in the log, and the
+                # verifier replays it against the committed asset ledger. Unknown asset reads 0 (an asset
+                # nobody holds and an asset that does not exist are the same balance), so this never reverts.
+                #
+                # It reads the ledger PLUS this call's own pending moves. It has to: the exec layer settles
+                # a call's effects IN ORDER, so `apay(x); abal(x)` must see the reduced holding or the VM and
+                # the settlement replay would disagree about the same number and the call would revert on a
+                # balance check it thought it had passed.
+                bv = (int((abal or {}).get(rs, 0)) + apend.get(rs, 0)) % F.P
+                io_entry = (IO_ABAL, rs, bv)
+                res, wr = bv, True
+            elif op_name == "ACTX":
+                res, wr = actxv[imm], True
             elif op_name == "RET":
                 ret = rs
                 io_entry = (IO_RET, rs, 0)
@@ -359,37 +439,74 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
         return (False, None, storage, []) + (([],) if witness else ())
 
 
-def replay_io(io_log, storage):
+def replay_io(io_log, storage, with_assets=False):
     """What a VERIFIER does instead of executing: replay a proven call's public I/O log against its copy of
     the contract storage. Returns (ok, ret, new_storage, payouts, chain_reads). Read entries must match the
     current state exactly (read-after-write works because entries apply in order); chain_reads (BHASH/BEACON)
-    are returned for the caller to check against finalized chain data. ok requires exactly one RET, last."""
+    are returned for the caller to check against finalized chain data. ok requires exactly one RET, last.
+
+    ASSETS (doc/assets.md). `with_assets=True` returns a SIXTH element, `effects` — the ordered asset
+    intents ("pay"/"mint"/"burn", asset, to, amount) and reads ("bal", asset, value) the caller must settle
+    and check against the asset ledger. It defaults to FALSE and then REJECTS any log containing an asset
+    entry: fail-closed, because a verifier that silently dropped the asset half of a log would confirm a
+    state transition it had not actually checked. Opting in is how a caller states it can settle them."""
     st = dict(storage)
-    payouts, chain_reads = [], []
+    payouts, chain_reads, effects = [], [], []
     ret, ret_seen = None, False
+    bad = (False, None, storage, [], []) + (([],) if with_assets else ())
+    sel = 0                                          # asset published by an ASEL, live for exactly one entry
     for i, entry in enumerate(io_log):
         if ret_seen:
-            return (False, None, storage, [], [])
+            return bad
         if not (isinstance(entry, (list, tuple)) and len(entry) == 3
                 and all(isinstance(x, int) and not isinstance(x, bool) and 0 <= x < F.P for x in entry)):
-            return (False, None, storage, [], [])
+            return bad
         kind, a, b = entry
+        if kind in IO_ASSET_KINDS and not with_assets:
+            return bad                               # fail-closed: see the with_assets note above
+        # Mirror of validate_code's ASEL pairing rule, re-checked HERE because replay_io verifies a LOG, not
+        # a program: an unpaired PAY after an ASEL would move native NADO where the contract meant to move a
+        # token, and an AMINT with no selection has no asset at all. Both entries are well-formed in
+        # isolation, so the pairing is the only thing that makes the log unambiguous.
+        if sel and kind not in (IO_PAY, IO_AMINT):
+            return bad                               # a selection MUST be spent by the very next entry
         if kind == IO_SLOAD:
             if st.get(a, 0) != b:
-                return (False, None, storage, [], [])
+                return bad
         elif kind == IO_SSTORE:
             if b == 0:
                 st.pop(a, None)
             else:
                 st[a] = b
         elif kind == IO_PAY:
-            payouts.append((a, b))
+            if sel:
+                effects.append(("pay", sel, a, b))
+                sel = 0
+            else:
+                payouts.append((a, b))
+        elif kind == IO_AMINT:
+            if not sel:
+                return bad                           # a mint with no asset selected
+            effects.append(("mint", sel, a, b))
+            sel = 0
         elif kind in (IO_BHASH, IO_BEACON):
             chain_reads.append((kind, a, b))
         elif kind == IO_RET:
             ret, ret_seen = a, True
+        elif kind == IO_ASEL:
+            if a == 0 or b != 0:
+                return bad
+            sel = a
+        elif kind == IO_ABURN:
+            if a == 0:
+                return bad
+            effects.append(("burn", a, 0, b))
+        elif kind == IO_ABAL:                        # a read the caller checks against the ledger
+            if a == 0:
+                return bad
+            effects.append(("bal", a, 0, b))
         else:
-            return (False, None, storage, [], [])
-    if not ret_seen:
-        return (False, None, storage, [], [])
-    return (True, ret, st, payouts, chain_reads)
+            return bad
+    if not ret_seen or sel:
+        return bad
+    return (True, ret, st, payouts, chain_reads) + ((effects,) if with_assets else ())

@@ -2978,6 +2978,196 @@ async function loadMyAliases() {
   } catch { $("myAliases").textContent = "—"; }
 }
 
+/* ----------------------------------------------------------------------------------------------
+ * ASSETS tab (doc/assets.md) — fungible tokens on the execution layer. Every write is an ordinary
+ * signed `blob` tx (so it lands at finality like every other exec-layer op); every read is live from
+ * the exec node's /exec/assets. Amounts are per-asset DECIMAL: an asset declares `dec` at issue and
+ * the ledger stores integers, so the UI converts on both edges and never floats a balance.
+ * -------------------------------------------------------------------------------------------- */
+let _assetsWired = false, _myAssets = [], _myIssued = [];
+
+function assetToRaw(amountStr, dec) {
+  const m = String(amountStr).trim().match(/^(\d+)(?:\.(\d+))?$/);
+  if (!m) throw new Error("invalid amount");
+  const frac = (m[2] || "");
+  if (frac.length > dec) throw new Error("too many decimals for this asset");
+  return BigInt(m[1]) * (10n ** BigInt(dec)) + BigInt(frac.padEnd(dec, "0") || "0");
+}
+function assetToDisplay(raw, dec) {
+  raw = BigInt(raw);
+  if (!dec) return raw.toString();
+  const unit = 10n ** BigInt(dec);
+  const frac = (raw % unit).toString().padStart(dec, "0").replace(/0+$/, "");
+  return (raw / unit).toString() + (frac ? "." + frac : "");
+}
+
+async function assetFetch(params) {
+  const u = execBase() + "/exec/assets?" + new URLSearchParams(params).toString();
+  const j = await (await fetch(u, { cache: "no-store" })).json();
+  return (j && j.assets) || [];
+}
+
+async function renderAssets() {
+  assetsWire();
+  if (!state.wallet) return;
+  const me = state.wallet.address;
+  try {
+    [_myAssets, _myIssued] = await Promise.all([assetFetch({ holder: me }), assetFetch({ issuer: me })]);
+  } catch (e) {
+    $("assetsList").textContent = i18("assets.execDown", "Execution node unreachable.");
+    return;
+  }
+  // held
+  // NOT class="row": that is the wallet's space-between flex helper, and it scatters a balance line into
+  // far-apart columns. A holding reads as one sentence — amount first, because that is what the eye wants.
+  $("assetsList").innerHTML = _myAssets.length ? _myAssets.map((a) =>
+    '<div style="margin:.35rem 0"><b>' + escapeHtml(assetToDisplay(a.balance, a.dec)) + " " + escapeHtml(a.sym) + '</b>'
+    + ' <span class="dim">' + escapeHtml(a.name) + '</span>'
+    + ' <span class="faint">· ' + (a.mintable ? i18("assets.isMintable", "mintable") : i18("assets.isFixed", "fixed supply"))
+    + ' · ' + i18("assets.supplyIs", "supply") + " " + escapeHtml(assetToDisplay(a.supply, a.dec))
+    + ' · ' + escapeHtml(String(a.id).slice(0, 12)) + '…</span></div>').join("")
+    : '<span class="faint">' + i18("assets.none", "You hold no assets yet.") + '</span>';
+  // issued
+  $("assetIssuedList").innerHTML = _myIssued.length ? _myIssued.map((a) =>
+    '<div style="margin:.35rem 0"><b>' + escapeHtml(a.sym) + '</b> <span class="dim">' + escapeHtml(a.name) + '</span>'
+    + ' <span class="faint">· ' + i18("assets.supplyIs", "supply") + " "
+    + escapeHtml(assetToDisplay(a.supply, a.dec)) + ' · ' + a.holders + " " + i18("assets.holders", "holders")
+    + ' · ' + (a.mintable ? i18("assets.isMintable", "mintable") : i18("assets.isFixed", "fixed supply"))
+    + '</span></div>').join("")
+    : '<span class="faint">' + i18("assets.noneIssued", "You have not issued an asset.") + '</span>';
+
+  const fill = (id, list) => {
+    const sel = $(id); if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = list.map((a) => '<option value="' + escapeHtml(a.id) + '">' + escapeHtml(a.sym)
+      + " — " + escapeHtml(a.name) + "</option>").join("");
+    if (prev && list.some((a) => a.id === prev)) sel.value = prev;   // keep the user's choice across refreshes
+  };
+  fill("assetSendId", _myAssets);
+  fill("assetBurnId", _myAssets);
+  fill("assetIssuedId", _myIssued.filter((a) => a.mintable));
+}
+
+function _assetById(id) {
+  return _myAssets.find((a) => a.id === id) || _myIssued.find((a) => a.id === id) || null;
+}
+
+/* Every asset write is the same shape: sign a `blob` tx carrying the op. Factored so the confirm
+ * dialog, the fee check and the post-submit refresh cannot drift apart between the five ops. */
+async function assetBlob(payload, label, msgId, rows) {
+  if (!state.wallet) return false;
+  const acc = await getAccount(state.wallet.address);
+  const fee = await currentFeeRaw();
+  if (BigInt(fee) > BigInt((acc && acc.balance) || 0)) {
+    setMsg(msgId, i18("assets.needFee", "Not enough NADO for the network fee."), "err"); return false;
+  }
+  rows = (rows || []).concat([{ k: i18("dlg.fee", "Network fee"), v: rawToNado(fee) + " NADO" }]);
+  if (!await uiConfirm({ title: label, rows })) { setMsg(msgId, i18("msg.cancelled", "Cancelled."), null); return false; }
+  const latest = await getLatestBlock();
+  if (!latest) { setMsg(msgId, i18("rollup.relayDown", "Relay unavailable."), "err"); return false; }
+  const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, fee, nowSeconds(),
+    latest.block_number + TX_INCLUSION_DELAY);
+  const ok = await submitAndReport(tx, label, msgId);
+  if (ok) setTimeout(() => renderAssets().catch(() => {}), 1500);
+  return ok;
+}
+
+async function assetSend() {
+  const id = $("assetSendId").value, a = _assetById(id);
+  if (!a) { setMsg("assetSendMsg", i18("assets.pick", "Pick an asset first."), "err"); return; }
+  let to = ($("assetSendTo").value || "").trim();
+  if (looksLikeAlias(to.toLowerCase())) {
+    const owner = await resolveAlias(to.toLowerCase());
+    if (!owner) { setMsg("assetSendMsg", i18("assets.aliasMissing", "That alias isn't registered."), "err"); return; }
+    to = owner;
+  }
+  if (!validateAddress(to)) { setMsg("assetSendMsg", i18("assets.badTo", "Recipient must be a valid address or registered alias."), "err"); return; }
+  let amount;
+  try { amount = assetToRaw($("assetSendAmt").value, a.dec); } catch (e) { setMsg("assetSendMsg", e.message, "err"); return; }
+  if (amount <= 0n) { setMsg("assetSendMsg", i18("msg.amountPos", "Amount must be greater than zero."), "err"); return; }
+  if (amount > BigInt(a.balance)) { setMsg("assetSendMsg", i18("assets.tooMuch", "More than you hold."), "err"); return; }
+  const ok = await assetBlob({ op: "asset_transfer", asset: a.id, to, amount },
+    i18("assets.dlgSend", "Send asset"), "assetSendMsg",
+    [{ k: i18("assets.asset", "Asset"), v: a.sym }, { k: i18("dlg.to", "To"), v: to },
+     { k: i18("assets.amount", "Amount"), v: assetToDisplay(amount, a.dec) + " " + a.sym }]);
+  if (ok) { $("assetSendAmt").value = ""; }
+}
+
+async function assetCreate() {
+  const sym = ($("assetNewSym").value || "").trim();
+  const name = ($("assetNewName").value || "").trim();
+  const dec = parseInt($("assetNewDec").value, 10);
+  const mintable = $("assetNewMintable").checked;
+  if (!sym || sym.length > 12) { setMsg("assetCreateMsg", i18("assets.symRule", "Symbol must be 1–12 characters."), "err"); return; }
+  if (!name || name.length > 64) { setMsg("assetCreateMsg", i18("assets.nameRule", "Name must be 1–64 characters."), "err"); return; }
+  if (!(dec >= 0 && dec <= 18)) { setMsg("assetCreateMsg", i18("assets.decRule", "Decimals must be 0–18."), "err"); return; }
+  let supply;
+  try { supply = assetToRaw($("assetNewSupply").value || "0", dec); } catch (e) { setMsg("assetCreateMsg", e.message, "err"); return; }
+  // The id is DERIVED from (issuer, seed), so the seed only has to be one this issuer has not used. Pick the
+  // next free one from what they already issued rather than a random number, so ids stay small and legible.
+  const used = new Set(_myIssued.map((a) => a.seed));
+  let seed = 1; while (used.has(seed)) seed++;
+  await assetBlob({ op: "asset_create", seed, name, sym, dec, supply, mintable },
+    i18("assets.dlgIssue", "Issue asset"), "assetCreateMsg",
+    [{ k: i18("assets.sym", "Symbol"), v: sym }, { k: i18("assets.name", "Name"), v: name },
+     { k: i18("assets.supply", "Initial supply"), v: assetToDisplay(supply, dec) },
+     { k: i18("assets.mintableQ", "Mintable"), v: mintable ? i18("assets.yes", "yes — you can issue more later")
+                                                           : i18("assets.noFixed", "no — supply is fixed forever") }]);
+}
+
+async function assetMint() {
+  const id = $("assetIssuedId").value, a = _assetById(id);
+  if (!a) { setMsg("assetIssueMsg", i18("assets.pickMintable", "Pick a mintable asset you issued."), "err"); return; }
+  let to = ($("assetMintTo").value || "").trim() || state.wallet.address;
+  if (looksLikeAlias(to.toLowerCase())) to = (await resolveAlias(to.toLowerCase())) || to;
+  if (!validateAddress(to)) { setMsg("assetIssueMsg", i18("assets.badTo", "Recipient must be a valid address or registered alias."), "err"); return; }
+  let amount;
+  try { amount = assetToRaw($("assetMintAmt").value, a.dec); } catch (e) { setMsg("assetIssueMsg", e.message, "err"); return; }
+  if (amount <= 0n) { setMsg("assetIssueMsg", i18("msg.amountPos", "Amount must be greater than zero."), "err"); return; }
+  await assetBlob({ op: "asset_mint", asset: a.id, to, amount },
+    i18("assets.dlgMint", "Mint asset"), "assetIssueMsg",
+    [{ k: i18("assets.asset", "Asset"), v: a.sym }, { k: i18("dlg.to", "To"), v: to },
+     { k: i18("assets.amount", "Amount"), v: assetToDisplay(amount, a.dec) + " " + a.sym }]);
+}
+
+async function assetRenounce() {
+  const id = $("assetIssuedId").value, a = _assetById(id);
+  if (!a) { setMsg("assetIssueMsg", i18("assets.pickMintable", "Pick a mintable asset you issued."), "err"); return; }
+  await assetBlob({ op: "asset_renounce", asset: a.id },
+    i18("assets.dlgRenounce", "Renounce minting"), "assetIssueMsg",
+    [{ k: i18("assets.asset", "Asset"), v: a.sym },
+     { k: i18("assets.warn", "Warning"), v: i18("assets.renounceWarn", "PERMANENT — the supply can never grow again.") }]);
+}
+
+async function assetBurn() {
+  const id = $("assetBurnId").value, a = _assetById(id);
+  if (!a) { setMsg("assetBurnMsg", i18("assets.pick", "Pick an asset first."), "err"); return; }
+  let amount;
+  try { amount = assetToRaw($("assetBurnAmt").value, a.dec); } catch (e) { setMsg("assetBurnMsg", e.message, "err"); return; }
+  if (amount <= 0n) { setMsg("assetBurnMsg", i18("msg.amountPos", "Amount must be greater than zero."), "err"); return; }
+  if (amount > BigInt(a.balance)) { setMsg("assetBurnMsg", i18("assets.tooMuch", "More than you hold."), "err"); return; }
+  const ok = await assetBlob({ op: "asset_burn", asset: a.id, amount },
+    i18("assets.dlgBurn", "Burn asset"), "assetBurnMsg",
+    [{ k: i18("assets.asset", "Asset"), v: a.sym },
+     { k: i18("assets.amount", "Amount"), v: assetToDisplay(amount, a.dec) + " " + a.sym },
+     { k: i18("assets.warn", "Warning"), v: i18("assets.burnWarn", "Destroyed — this lowers the total supply.") }]);
+  if (ok) $("assetBurnAmt").value = "";
+}
+
+function assetsWire() {
+  if (_assetsWired) return;
+  _assetsWired = true;
+  if ($("btnAssetSend")) $("btnAssetSend").onclick = () => assetSend().catch((e) => setMsg("assetSendMsg", e.message, "err"));
+  if ($("btnAssetSendMax")) $("btnAssetSendMax").onclick = () => {
+    const a = _assetById($("assetSendId").value);
+    if (a) $("assetSendAmt").value = assetToDisplay(a.balance, a.dec);
+  };
+  if ($("btnAssetCreate")) $("btnAssetCreate").onclick = () => assetCreate().catch((e) => setMsg("assetCreateMsg", e.message, "err"));
+  if ($("btnAssetMint")) $("btnAssetMint").onclick = () => assetMint().catch((e) => setMsg("assetIssueMsg", e.message, "err"));
+  if ($("btnAssetRenounce")) $("btnAssetRenounce").onclick = () => assetRenounce().catch((e) => setMsg("assetIssueMsg", e.message, "err"));
+  if ($("btnAssetBurn")) $("btnAssetBurn").onclick = () => assetBurn().catch((e) => setMsg("assetBurnMsg", e.message, "err"));
+}
+
 /* bond/unbond move coins between spendable balance and bonded stake. They are ordinary signed txs
  * whose recipient is the reserved protocol name "bond" / "unbond" (see protocol.RESERVED_RECIPIENTS
  * and account_ops.reflect_transaction) — so we reuse buildTransferTx unchanged. */
@@ -4310,7 +4500,7 @@ async function renderSwaps() {
 }
 
 // Deep-linkable tab URLs — /aliases, /messages, /send, … (the node serves the interface at each path).
-const TAB_NAMES = new Set(["wallet", "send", "receive", "aliases", "stake", "quorum", "multisig", "messages", "history", "rich", "stats", "swap", "shield", "settlement", "rollup", "explore", "settings"]);
+const TAB_NAMES = new Set(["wallet", "send", "receive", "assets", "aliases", "stake", "quorum", "multisig", "messages", "history", "rich", "stats", "swap", "shield", "settlement", "rollup", "explore", "settings"]);
 
 // Read-only Settlement (L2) view: L1's justified settled root (/get_settled) vs this exec node's tip
 // (/exec/settlement) vs the mining wallet's bonded role. Fail-soft: any source may be down (exec node not
@@ -4366,6 +4556,7 @@ function showTab(name) {
   if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
   if (name === "receive") renderReceiveQR();
   else if (name === "aliases") loadMyAliases();
+  else if (name === "assets") renderAssets().catch(() => {});
   else if (name === "explore") { _exTipSeen = null; exTick(); }   // immediate load; the 6s timer keeps it live
   else if (name === "history") loadHistory().catch(() => {});
   else if (name === "rich") loadRichList().catch(() => {});
