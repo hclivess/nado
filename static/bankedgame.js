@@ -11,7 +11,7 @@
 //   bg.track(sto);  const tb = bg.read(sto, bg.active);
 //   bg.lobby($("lobbyList"), sto, (tb) => "…chip text…", select, sortFn);
 //   bg.recent($("recent"), select, tagFn);
-import { _m, $, lsLoad, lsSave, lsPrune, randId, recentChips, notify, confirmingLabel } from "./nadodapp.js";
+import { _m, $, lsLoad, lsSave, lsPrune, randId, recentChips, notify, confirmingLabel, scoreBump, scoreSort } from "./nadodapp.js";
 
 export class BankedGame {
   constructor(dapp, { icon = "🎯", bankIcon = "🏦" } = {}) {
@@ -169,4 +169,30 @@ export class BankedGame {
     }
     if (need.length) await this.dapp.blockHashes(need.slice(0, 30), { fast: true });
   }
+  /**
+   * The per-player profit scoreboard every banked game shows. All four of them (dice, roulette, mines,
+   * blackjack) walked the settled-games map with byte-identical code and differed in exactly ONE line:
+   * how that game's payout rule turns a stake into a net. So the walk lives here and the rule is the
+   * argument.
+   *
+   * `netOf(gameId, stake)` returns the PLAYER's net for one settled game (negative when they lost).
+   *
+   * The subtlety worth keeping in one place: a table's bank is credited the mirror of every player's net,
+   * EXCEPT when the player is the bank. Self-play would otherwise cancel your own win against yourself to
+   * a bogus zero, and the board would quietly under-report everyone who tests their own table.
+   */
+  scoreboard(sto, netOf) {
+    const stats = {};
+    for (const g of Object.keys(_m(sto, "gd"))) {
+      if (!_m(sto, "gd")[g]) continue;
+      const bank = _m(sto, "ta")[String(_m(sto, "gg")[g])];
+      if (!bank) continue;
+      const who = _m(sto, "ga")[g];
+      const net = netOf(g, Number(_m(sto, "gs")[g] || 0));
+      scoreBump(stats, who, net);
+      if (bank !== who) scoreBump(stats, bank, -net);
+    }
+    return scoreSort(stats);
+  }
+
 }

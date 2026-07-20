@@ -144,18 +144,13 @@ async function refreshAll() {
   }
   render();
 }
-function boardFrom(sto) {
-  const stats = {};
-  for (const g of Object.keys(_m(sto, "gd"))) {
-    if (!_m(sto, "gd")[g]) continue;
-    const t = String(_m(sto, "gg")[g]), bank = _m(sto, "ta")[t]; if (!bank) continue;
-    const stake = _m(sto, "gs")[g] || 0, res = _m(sto, "gw")[g] || 0;
-    const pay = res === 1 ? 2 * stake : res === 2 ? stake : res === 3 ? Math.floor(stake * 5 / 2) : 0;
-    const who = _m(sto, "ga")[g];
-    scoreBump(stats, who, pay - stake); if (bank !== who) scoreBump(stats, bank, stake - pay);   // self-play: the bank leg would cancel your own win to a bogus ±0
-  }
-  return scoreSort(stats);
-}
+// the shared banked-game scoreboard walk; this game supplies only its own payout rule
+// (1 = win pays 2x, 2 = push returns the stake, 3 = blackjack pays 5:2)
+const boardFrom = (sto) => bg.scoreboard(sto, (g, stake) => {
+  const res = _m(sto, "gw")[g] || 0;
+  const pay = res === 1 ? 2 * stake : res === 2 ? stake : res === 3 ? Math.floor(stake * 5 / 2) : 0;
+  return pay - stake;
+});
 function selectTable(id) {
   bg.active = id; myHand = null;
   $("joinId").value = String(id);

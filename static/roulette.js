@@ -126,18 +126,9 @@ async function refreshActive() {
   render();
   maybeAutoSettle();
 }
-function boardFrom(sto) {
-  const stats = {};
-  for (const g of Object.keys(_m(sto, "gd"))) {
-    if (!_m(sto, "gd")[g]) continue;
-    const t = String(_m(sto, "gg")[g]), bank = _m(sto, "ta")[t]; if (!bank) continue;
-    const cn = _m(sto, "gc")[g] || 1, stake = _m(sto, "gs")[g] || 0, win = !!_m(sto, "gw")[g];
-    const net = win ? stake * (Math.floor(36 / cn) - 1) : -stake;
-    const who = _m(sto, "ga")[g];
-    scoreBump(stats, who, net); if (bank !== who) scoreBump(stats, bank, -net);   // self-play: the bank leg would cancel your own win to a bogus ±0
-  }
-  return scoreSort(stats);
-}
+// the shared banked-game scoreboard walk; this game supplies only its own payout rule
+const boardFrom = (sto) => bg.scoreboard(sto, (g, stake) =>
+  _m(sto, "gw")[g] ? stake * (Math.floor(36 / (_m(sto, "gc")[g] || 1)) - 1) : -stake);
 const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("roul.noScores", "No settled bets yet — be the first on the board."));
 function renderLobby(sto) {
   bg.lobby($("lobbyList"), sto, (t) => {

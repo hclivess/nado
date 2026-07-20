@@ -170,18 +170,10 @@ async function refreshAll() {
   }
   render();
 }
-function boardFrom(sto) {
-  const stats = {};
-  for (const g of Object.keys(_m(sto, "gd"))) {
-    if (!_m(sto, "gd")[g]) continue;
-    const t = String(_m(sto, "gg")[g]), bank = _m(sto, "ta")[t]; if (!bank) continue;
-    const stake = _m(sto, "gs")[g] || 0, gw = _m(sto, "gw")[g] || 0, gv = _m(sto, "gv")[g] || 0;
-    const net = gw ? gv - stake : -stake;   // cashed/reaped at gv, busted loses the stake
-    const who = _m(sto, "ga")[g];
-    scoreBump(stats, who, net); if (bank !== who) scoreBump(stats, bank, -net);   // self-play: the bank leg would cancel your own win to a bogus ±0
-  }
-  return scoreSort(stats);
-}
+// the shared banked-game scoreboard walk; this game supplies only its own payout rule
+// (cashed out or reaped pays gv; a bust loses the stake)
+const boardFrom = (sto) => bg.scoreboard(sto, (g, stake) =>
+  _m(sto, "gw")[g] ? Number(_m(sto, "gv")[g] || 0) - stake : -stake);
 function selectTable(id) {
   bg.active = id; mySeat = null; sel = [];
   $("joinId").value = String(id);
