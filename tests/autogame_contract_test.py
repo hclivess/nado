@@ -271,6 +271,60 @@ def t_scratch_leaves_no_residue():
     assert not left, f"scratch residue in the state root: {left}"
 
 
+HEADROOM = 0.85          # the worst-case advance must fit in 85% of the trace budget
+
+
+def t_worst_case_advance_has_headroom():
+    """A run must NEVER become unadvanceable.
+
+    Per-step cost is state-dependent: a step that drops walks six gear cells, one that equips also rescans
+    the affix cache, and a `blazing` relic makes EVERY kill drop. So the expensive runs are the ones going
+    WELL — if the budget were sized for a typical run, getting lucky would brick your own game permanently,
+    with no way to move it forward ever again.
+
+    Headroom is proven by lowering the VM's actual ceiling to HEADROOM of its real value and requiring the
+    adversarial run to still settle. That is a stronger claim than reading a gas counter: it is the same
+    check the VM performs, just stricter.
+    """
+    rid = 91
+    st = {}
+    _ok, _r, st, _ = _call("constructor", [], st)
+    _ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
+
+    # expensive AND survivable, or the run dies in three steps and stresses nothing: top-tier armour in
+    # every slot, all-armour focus, Guarded stance, plus `blazing` so every kill drops and _take_item runs
+    # on every combat step. Aggression stays moderate — this is a budget test, not a lethality test.
+    for sl in range(A.NSLOT):
+        affix = A.AF_BLAZE if sl == 0 else A.AF_KEEN
+        st[(A.GEAR0 + sl) * (1 << 32) + rid] = 1 + 7 * 64 + 7 * 8 + affix
+    st[(A.AFFX + A.AF_BLAZE) * (1 << 32) + rid] = 1
+    st[(A.AFFX + A.AF_KEEN) * (1 << 32) + rid] = 1
+    st[A.RAL * (1 << 32) + rid] = A.LEVEL_CAP
+    st[A.RSN * (1 << 32) + rid] = M.ST_GUARDED
+    st[A.RFO * (1 << 32) + rid] = 0
+
+    real_limit = zkvm.GAS_LIMIT
+    zkvm.GAS_LIMIT = int(real_limit * HEADROOM)
+    try:
+        legs_done = 0
+        lh = st[A.RLH * (1 << 32) + rid]
+        for leg in range(24):
+            if st.get(A.RAV * (1 << 32) + rid, 0) != 1 or st.get(A.RDN * (1 << 32) + rid, 0) != 0:
+                break
+            ok, _r, st2, _ = _call("plan", [rid, leg, _pack([A.A_STRIKE] * A.LEG), 4], dict(st), cursor=lh)
+            if ok:
+                st = st2
+            ok, _r, st2, _ = _call("advance", [rid], dict(st), caller=999, cursor=lh + A.LEG + 1)
+            assert ok, (f"advance reverted at leg {leg} inside {HEADROOM:.0%} of the trace budget — this is "
+                        f"the brick case: a lucky kit made a step too expensive to ever settle")
+            st = st2
+            legs_done += 1
+            lh = st[A.RLH * (1 << 32) + rid]
+        assert legs_done >= 4, f"stress run only advanced {legs_done} legs — it is not stressing anything"
+    finally:
+        zkvm.GAS_LIMIT = real_limit
+
+
 def t_constants_are_not_duplicated():
     """The model must IMPORT the rules, never restate them — otherwise a retune desyncs the oracle from
     the thing it checks and this whole file silently stops meaning anything."""
@@ -291,6 +345,7 @@ if __name__ == "__main__":
     check("advance is permissionless and late-safe", t_advance_is_permissionless_and_late_safe)
     check("only the owner controls a run", t_only_owner_controls)
     check("scratch leaves no residue in the state root", t_scratch_leaves_no_residue)
+    check("worst-case advance has trace headroom (a lucky run must not brick)", t_worst_case_advance_has_headroom)
     check("rules are imported, not duplicated", t_constants_are_not_duplicated)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

@@ -36,6 +36,8 @@ from execnode.games.autogame import (      # noqa: E402
     ST_BALANCED, ST_AGGRESSIVE, ST_GUARDED, ST_EVASIVE, STANCES,
     FAM_ATK, FAM_XP, M_SCRAP, M_HIDE, M_ESSENCE, SHARPEN_COST, REINFORCE_COST,
     G_WEAPON, G_HELM, G_BODY, G_SHIELD, G_BOOTS, G_CLOAK, DEF_DIV, RANKS,
+    AF_NONE, AF_KEEN, AF_HEAVY, AF_WARD, AF_SWIFT, AF_VAMP, AF_BLAZE, AF_HALLOW, AFFIX_NAMES,
+    KEEN_BONUS, SWIFT_BONUS, JACKPOT_EVERY,
 )
 
 FAM_MAT = (M_SCRAP, M_HIDE, M_ESSENCE)   # family -> the material it drops
@@ -65,6 +67,15 @@ def unpack_item(v):
         return (-1, 0, 0)
     v -= 1
     return (v // 64, (v // 8) % 8, v % 8)
+
+
+def has_affix(run, a):
+    """Is affix `a` equipped in any slot? The contract caches this in storage and refreshes it on equip;
+    deriving it from gear here is the same function, so the two cannot disagree."""
+    for g in run.gear:
+        if g and unpack_item(g)[2] == a:
+            return 1
+    return 0
 
 
 def power(v):
@@ -198,6 +209,8 @@ def monster_level(tile, depth):
 # ── loot ─────────────────────────────────────────────────────────────────────────────────────────
 def roll_item(c, z, depth, bonus):
     tier = min(7, tier_of(depth) + (c % 3) + bonus)
+    if c % JACKPOT_EVERY == 0:            # the jackpot: ignores depth, rolls the top tier outright
+        tier = 7
     mat = (c // 8) % 8
     affix = 1 + (z // 4) % 7 if z % 4 == 0 else 0
     return pack_item(tier, mat, affix)
@@ -220,8 +233,9 @@ def drink(run):
     if run.potions <= 0:
         return False
     run.potions -= 1
-    run.hp = min(run.maxhp, run.hp + 20 + 4 * tier_of(run.depth))
-    run.streak = 0
+    run.hp = min(run.maxhp, run.hp + HEAL_BASE + 4 * tier_of(run.depth))
+    if not has_affix(run, AF_HALLOW):     # hallowed: the heal no longer cancels the streak
+        run.streak = 0
     return True
 
 
@@ -281,7 +295,7 @@ def fight(run, tile, b, x, y, z, agg, act, ev):
     atk_each = atk_each * (100 + (x % 21) - 10) // 100    # ±10% variance
     # A horde ALWAYS draws blood: at least 1 hp per foe, no matter how armoured you are. Without this
     # floor, enough armour nullifies any pull and greed becomes free — which is exactly what the sim found.
-    absorb = armor_pts(run)
+    absorb = armor_pts(run) * (foes if has_affix(run, AF_HEAVY) else 1)   # heavy: absorb every swing
     dmg = c_sub(foes * atk_each, absorb)
     if dmg < foes:
         dmg = foes
@@ -307,7 +321,7 @@ def fight(run, tile, b, x, y, z, agg, act, ev):
     # Greed streak: every fight since your last heal compounds the payout, up to x4. Bloodlust pays you for
     # being hurt; the streak pays you for REFUSING TO FIX IT. Together they are what make the standing-order
     # threshold the hardest number in the game.
-    streak = min(streak_cap, run.streak)
+    streak = min(streak_cap + KEEN_BONUS * has_affix(run, AF_KEEN), run.streak)
     gain = gain * (STREAK_DIV + streak) // STREAK_DIV
     run.streak += streak_gain
 
@@ -327,7 +341,7 @@ def fight(run, tile, b, x, y, z, agg, act, ev):
 
     # ---- hp: damage, then renown regen, then the easy-win clamp ---------------------------------
     regen = min(run.maxhp // REGEN_CAP_DIV, run.xp // REGEN_DIV)
-    drain = wp // LIFESTEAL_DIV                   # weapon lifesteal — sustain that keeps the streak intact
+    drain = wp // LIFESTEAL_DIV * (1 + has_affix(run, AF_VAMP))   # lifesteal — sustain that keeps the streak
     hp = c_sub(hp_before + regen + drain, dmg)
     ev["drain"] = drain
     hp = c_sub(hp, y % 2)
@@ -336,7 +350,7 @@ def fight(run, tile, b, x, y, z, agg, act, ev):
         ev["easy"] = 1
     run.hp = min(run.maxhp, hp)
 
-    if tile in (BOSS, ELITE) or z % 4 == 0:
+    if tile in (BOSS, ELITE) or z % 4 == 0 or has_affix(run, AF_BLAZE):
         bonus = 2 if tile == BOSS else (1 if tile == ELITE else 0)
         # (b + z) % 64, not b ^ z: the zkVM has no XOR opcode, and the reference model may only use
         # operations the contract can actually execute. Mixing by addition is field-native and just as
@@ -377,7 +391,7 @@ def step(run, tw, rw, act, agg):
 
     # Stamina regenerates before the reaction is priced, so a queued action can be paid for by the regen
     # of the very step it fires on.
-    run.stam = min(STAM_MAX, run.stam + 1)
+    run.stam = min(STAM_MAX, run.stam + 1 + SWIFT_BONUS * has_affix(run, AF_SWIFT))
     if COST[act] > run.stam:                      # unaffordable reactions degrade; they never revert
         act = A_DEFAULT
     run.stam -= COST[act]
@@ -416,6 +430,8 @@ def step(run, tw, rw, act, agg):
             if run.stance == ST_EVASIVE:
                 took //= 2
             took = c_sub(took, armor_pts(run) // 8)
+            if has_affix(run, AF_WARD):           # warding: hazards do nothing at all
+                took = 0
             run.hp = c_sub(run.hp, took)
             ev["dmg"] = took
         elif tile == CACHE or tile == RELIC:

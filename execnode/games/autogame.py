@@ -32,11 +32,17 @@ from execnode.zkpy import hash as zhash, lo32, select
 
 # ── clock ────────────────────────────────────────────────────────────────────────────────────────
 LEG = 16                 # steps per leg == blocks per leg (1 step per block, by construction)
-MAX_LEGS_PER_CALL = 2    # bounded catch-up: 32 steps/call. Measured at ~2730 trace rows per step, so 32
-                         # steps is ~87k rows and 48 steps blows the 131070 ceiling. 2 is also the EFFICIENT
-                         # choice, not merely the largest that fits: the trace pads to the next power of two,
-                         # so a 32-step call and two 16-step calls both cost 131072 rows to prove — one call
-                         # gets the same proving work done in half the transactions.
+MAX_LEGS_PER_CALL = 1    # bounded catch-up: ONE leg (16 steps) per call.
+                         #
+                         # Sized for the WORST case, not the typical one. Per-step cost is state-dependent:
+                         # a step that drops an item walks six gear cells, and one that equips also rescans
+                         # the affix cache. A `blazing` relic makes EVERY kill drop, so a lucky run is
+                         # systematically more expensive than an idle one — and 32 steps fits comfortably
+                         # for an idle run while blowing the 131070-row ceiling for a blazing one.
+                         #
+                         # Getting this wrong does not merely cost a retry: an advance() that can never fit
+                         # is a run that can never move again. Gas that depends on how well you are doing
+                         # must be budgeted at its maximum, or winning bricks your own game.
 CHAPTER = 512            # steps per chapter (32 legs, ~51 min). A FIXED budget: the game is how much you
                          # extract from it, never how long you can hide.
 START_GAP = 2            # begin() pins the first tile height in the FUTURE so it cannot be steered
@@ -87,6 +93,18 @@ M_SCRAP, M_HIDE, M_ESSENCE = range(3)
 SHARPEN_COST = (2, 0, 1)      # scrap, hide, essence -> weapon +1
 REINFORCE_COST = (1, 2, 0)    # -> armour +1
 
+# Affixes are the STOLEN CAR: luck hands you a capability, never a score. Each one changes a RULE rather
+# than a number, so it is worthless until you change how you play — and it can absolutely get you killed.
+# A hallowed relic on step 12 means you can ride bloodlust at 10% hp indefinitely, which is simultaneously
+# the highest-scoring and most lethal line in the game. That is the point: the story starts with something
+# unearned and ends with something earned.
+AF_NONE, AF_KEEN, AF_HEAVY, AF_WARD, AF_SWIFT, AF_VAMP, AF_BLAZE, AF_HALLOW = range(8)
+AFFIX_NAMES = ("none", "keen", "heavy", "warding", "swift", "vampiric", "blazing", "hallowed")
+KEEN_BONUS = 6           # +6 streak cap: your compounding runs further than anyone's
+SWIFT_BONUS = 2          # +2 stamina per step: react to twice as many tiles
+JACKPOT_EVERY = 32       # 1-in-32 drops ignore depth entirely and roll TIER 7 — the windfall can land on
+                         # step 12, which is where a hook has to land to set
+
 G_WEAPON, G_HELM, G_BODY, G_SHIELD, G_BOOTS, G_CLOAK = range(NSLOT)
 DEF_DIV = (1, 4, 2, 3, 4, 4)  # slot 0 is the weapon and is skipped; 1 keeps the divisor legal
 
@@ -99,6 +117,9 @@ RANKS = ((60, "commoner"), (180, "apprentice"), (450, "journeyman"), (1100, "kni
 (RA, RLH, RNH, RHP, RMX, RST, RPO, RXP, RBK, RDP, RKI, RSN, RHL, RFO, RWL, RAL,
  RM0, RM1, RM2, RAV, RDN, RRT, RLG, RSK) = range(1, 25)
 GEAR0 = 30                    # gear slots occupy GEAR0 .. GEAR0+5, keyed by run id
+AFFX = 36                     # AFFX+1 .. AFFX+7: "is this affix equipped anywhere", keyed by run id.
+                              # Cached rather than rescanned: the step function reads them constantly and
+                              # they only change when gear does.
 RLIST = 50                    # run-id list (count in slot 0)
 OWNRUN = 51                   # caller digest -> their current run id
 SC = 90                       # per-call scratch, keyed by the S_* indices below
@@ -114,8 +135,9 @@ PLAN_TAG, AGG_TAG = 101, 102  # hash(tag, run, leg) -> packed action word / aggr
  S_HPB, S_FOES, S_PW, S_I, S_T, S_R, S_LEGS, S_FAM, S_XPE, S_BASE, S_STK, S_DN, S_XN, S_SG, S_SCAP,
  S_ITEM, S_SLOT, S_COMBAT, S_SCEN, S_DROPS,
  S_T0, S_T1, S_T2, S_T3, S_T4, S_T5, S_T6,
- S_R0, S_R1, S_R2, S_R3) = range(47)
-NSCRATCH = 47
+ S_R0, S_R1, S_R2, S_R3,
+ S_AF0, S_AF1, S_AF2, S_AF3, S_AF4, S_AF5, S_EQ) = range(54)
+NSCRATCH = 54
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────────────────────────
@@ -208,7 +230,10 @@ def _drink(m):
     _r(m, RPO).set(csub(_r(m, RPO).get(), got))
     _s(m, S_T2).set(_r(m, RHP).get() + (HEAL_BASE + 4 * _s(m, S_TIER).get()) * got)
     _r(m, RHP).set(vmin(_r(m, RMX).get(), _s(m, S_T2).get()))
-    _r(m, RSK).set(_r(m, RSK).get() * csub(1, got))
+    # hallowed: the heal no longer cancels the streak. This is the run-defining one — it collapses the
+    # sharpest tension in the game (heal and earn nothing, or hold and die) into "just keep going".
+    _s(m, S_T2).set(got * csub(1, _aff(m, AF_HALLOW)))
+    _r(m, RSK).set(_r(m, RSK).get() * csub(1, _s(m, S_T2).get()))
 
 
 _LBL = [0]
@@ -244,6 +269,7 @@ def _take_item(m):
     address: gear slots are enumerable flat fields, not hash-keyed."""
     any_drop = park(m, S_T5, _s(m, S_ITEM).get() != 0)
     newp = park(m, S_T4, _power_of(m, _s(m, S_ITEM), S_T6))
+    _s(m, S_EQ).set(m.const(0))
     for sl in range(NSLOT):
         cell = m.slot(GEAR0 + sl, m.arg(0))
         oldp = park(m, S_T3, _power_of(m, cell, S_T6))
@@ -253,8 +279,33 @@ def _take_item(m):
         # melt whatever did NOT get equipped: the item it replaced, or the drop itself
         _s(m, S_T1).set(select(take, oldp, newp))
         cell.set(select(take, _s(m, S_ITEM).get(), cell.get()))
+        _s(m, S_EQ).set(vmax(_s(m, S_EQ).get(), take))
         _s(m, S_T1).set((1 + _s(m, S_T1).get() // 8) * hit * any_drop)
         _r(m, RM0).set(_r(m, RM0).get() + _s(m, S_T1).get())
+    # Refresh the affix cache only when something was actually EQUIPPED. Most drops are melted, and the
+    # scan is six slots x seven affixes — running it on every drop is what blew the trace budget.
+    lbl = _uniq("noequip")
+    m.jnz(csub(1, _s(m, S_EQ).get()), lbl)
+    _refresh_affixes(m)
+    m.label(lbl)
+
+
+def _aff(m, a):
+    """Is affix `a` equipped anywhere? One SLOAD — the flags are refreshed on equip, not rescanned here."""
+    return m.slot(AFFX + a, m.arg(0)).get()
+
+
+def _refresh_affixes(m):
+    """Recompute the equipped-affix flags. Called only when gear actually changes, which is rare enough
+    that scanning six slots x seven affixes here is far cheaper than rescanning inside the step."""
+    for sl in range(NSLOT):
+        _s(m, S_AF0 + sl).set(csub(m.slot(GEAR0 + sl, m.arg(0)).get(), 1) % 8)   # empty cell -> AF_NONE
+    for a in range(1, 8):
+        _s(m, S_R0).set(m.const(0))
+        for sl in range(NSLOT):
+            _s(m, S_R1).set(_s(m, S_AF0 + sl).get() == a)
+            _s(m, S_R0).set(vmax(_s(m, S_R0).get(), _s(m, S_R1).get()))
+        m.slot(AFFX + a, m.arg(0)).set(_s(m, S_R0).get())
 
 
 def _roll_item(m, mixed, bonus):
@@ -267,6 +318,9 @@ def _roll_item(m, mixed, bonus):
     _s(m, S_R0).set(_s(m, S_TIER).get() + mixed % 3)
     _s(m, S_R0).set(_s(m, S_R0).get() + bonus)
     _s(m, S_R0).set(vmin(7, _s(m, S_R0).get()))                  # tier
+    # the jackpot: 1 in 32 drops ignores depth and rolls the top tier outright
+    _s(m, S_R2).set(mixed % JACKPOT_EVERY == 0)
+    _s(m, S_R0).set(select(_s(m, S_R2).get(), 7, _s(m, S_R0).get()))
     _s(m, S_R1).set((mixed // 8) % 8)                            # material
     _s(m, S_R2).set(_s(m, S_Z).get() % 4 == 0)
     _s(m, S_R3).set((1 + (_s(m, S_Z).get() // 4) % 7) * _s(m, S_R2).get())   # affix, mostly none
@@ -324,7 +378,8 @@ def _classify(m):
 def _stamina(m):
     """Regenerate, then price the reaction. An unaffordable reaction degrades to Default — it never
     reverts, because a revert would let a mistimed plan brick a run that the chain has already decided."""
-    _r(m, RST).set(vmin(STAM_MAX, _r(m, RST).get() + 1))
+    _s(m, S_T0).set(_r(m, RST).get() + 1 + SWIFT_BONUS * _aff(m, AF_SWIFT))
+    _r(m, RST).set(vmin(STAM_MAX, _s(m, S_T0).get()))
     cost = park(m, S_T0, m.slot(TCOST, _s(m, S_ACT).get()).get())
     aff = park(m, S_T1, cost <= _r(m, RST).get())
     _s(m, S_ACT).set(select(aff, _s(m, S_ACT).get(), A_DEFAULT))
@@ -339,7 +394,7 @@ def _fight(m):
     _s(m, S_DN).set(m.slot(TSDMG, st).get())
     _s(m, S_XN).set(m.slot(TSXP, st).get())
     _s(m, S_SG).set(m.slot(TSGAIN, st).get())
-    _s(m, S_SCAP).set(m.slot(TSCAP, st).get())
+    _s(m, S_SCAP).set(m.slot(TSCAP, st).get() + KEEN_BONUS * _aff(m, AF_KEEN))
 
     tile = _s(m, S_TILE).get()
     _s(m, S_FAM).set(_s(m, S_B).get() % 3)
@@ -366,6 +421,8 @@ def _fight(m):
     _s(m, S_ATK).set(_s(m, S_ATK).get() * (90 + _s(m, S_X).get() % 21) // 100)
 
     _armor_pts(m, S_ABS)
+    _s(m, S_T0).set(select(_aff(m, AF_HEAVY), _s(m, S_FOES).get(), 1))   # heavy: absorb every swing
+    _s(m, S_ABS).set(_s(m, S_ABS).get() * _s(m, S_T0).get())
     _s(m, S_T0).set(_s(m, S_FOES).get() * _s(m, S_ATK).get())
     raw = park(m, S_T1, csub(_s(m, S_T0).get(), _s(m, S_ABS).get()))
     # a horde ALWAYS draws blood: at least 1 hp per foe, however armoured you are. Without this floor,
@@ -409,7 +466,8 @@ def _fight(m):
 
     # ---- hp: regen + lifesteal - damage, then the easy-win clamp -------------------------------------
     _s(m, S_T0).set(vmin(_r(m, RMX).get() // REGEN_CAP_DIV, _r(m, RXP).get() // REGEN_DIV))
-    _s(m, S_T0).set(_s(m, S_T0).get() + _s(m, S_WP).get() // LIFESTEAL_DIV)   # lifesteal keeps the streak
+    _s(m, S_T1).set(_s(m, S_WP).get() // LIFESTEAL_DIV * (1 + _aff(m, AF_VAMP)))
+    _s(m, S_T0).set(_s(m, S_T0).get() + _s(m, S_T1).get())   # lifesteal — sustain that keeps the streak
     _s(m, S_T0).set(_s(m, S_HPB).get() + _s(m, S_T0).get())
     _s(m, S_ATK).set(csub(_s(m, S_T0).get(), _s(m, S_DMG).get()))    # S_ATK is now the hp accumulator
     _s(m, S_T1).set(_s(m, S_Y).get() % 2)
@@ -423,6 +481,7 @@ def _fight(m):
     # ---- drop -----------------------------------------------------------------------------------------
     t = _s(m, S_TILE).get()
     _s(m, S_T0).set(select(t == BOSS, 1, select(t == ELITE, 1, _s(m, S_Z).get() % 4 == 0)))
+    _s(m, S_T0).set(vmax(_s(m, S_T0).get(), _aff(m, AF_BLAZE)))          # blazing: every kill drops
     _s(m, S_T1).set(select(t == BOSS, 2, select(t == ELITE, 1, 0)))
     _s(m, S_T2).set((_s(m, S_B).get() + _s(m, S_Z).get()) % 64)
     _roll_item(m, _s(m, S_T2).get(), _s(m, S_T1).get())
@@ -450,6 +509,7 @@ def _noncombat(m):
     _armor_pts(m, S_T5)
     _s(m, S_T4).set(csub(_s(m, S_T4).get(), _s(m, S_T5).get() // 8))
     _s(m, S_T4).set(_s(m, S_T4).get() * (t == HAZARD))
+    _s(m, S_T4).set(_s(m, S_T4).get() * csub(1, _aff(m, AF_WARD)))       # warding: hazards do nothing
     _r(m, RHP).set(csub(_r(m, RHP).get(), _s(m, S_T4).get()))
 
     # cache / relic — a drop, with the relic guaranteed high tier
@@ -716,6 +776,8 @@ ABI = {
             "m0": RM0, "m1": RM1, "m2": RM2, "av": RAV, "dn": RDN, "rt": RRT, "lg": RLG, "sk": RSK,
             "g0": GEAR0, "g1": GEAR0 + 1, "g2": GEAR0 + 2, "g3": GEAR0 + 3, "g4": GEAR0 + 4,
             "g5": GEAR0 + 5,
+            "af1": AFFX + 1, "af2": AFFX + 2, "af3": AFFX + 3, "af4": AFFX + 4, "af5": AFFX + 5,
+            "af6": AFFX + 6, "af7": AFFX + 7,
         },
         "addr": ["ra"],
     },
