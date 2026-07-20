@@ -199,6 +199,29 @@ def t_skipped_checks_are_reported_not_silently_passed():
     assert ok, "skipped checks must not make the run fail either — they are unknown, not violated"
 
 
+def t_stranded_is_reported_but_does_not_alarm():
+    """Escrow holding MORE than is owed is coin nobody can claim — undesirable, but no supply was created.
+    It must be REPORTED (status=stranded, exact delta) without setting ok=False. This is what stops the two
+    long-standing gaps on the live chain from rendering the check permanently red, which is how a detector
+    gets ignored right up until the run that matters."""
+    accts = {SHIELD_ESCROW: 310_000_000_000}                  # 31 NADO escrowed, pool empty (the live case)
+    st = FakeState(pool_value=0)
+    ok, d = INV.check_shielded(getter(accts), st)
+    assert ok, "stranded coin must NOT alarm — nothing was minted"
+    assert d["status"] == INV.STRANDED and d["delta"] == -310_000_000_000, f"but it must be reported: {d}"
+
+
+def t_mint_and_stranded_are_distinguished():
+    """The two directions must never collapse into one verdict — that distinction is the whole point."""
+    accts = {BRIDGE_ESCROW: 1_000}
+    mint = FakeState(bridge={"eve": 9_000})
+    strand = FakeState(bridge={"honest": 100})
+    ok_m, dm = INV.check_bridge(getter(accts), mint)
+    ok_s, ds = INV.check_bridge(getter(accts), strand)
+    assert not ok_m and dm["status"] == INV.MINT and dm["delta"] > 0, f"over-credit is a MINT: {dm}"
+    assert ok_s and ds["status"] == INV.STRANDED and ds["delta"] < 0, f"under-credit is STRANDED: {ds}"
+
+
 def t_check_all_never_raises():
     """check_all is called from the node's periodic duty. A broken input must degrade to a reported
     failure, never an exception into the caller."""
@@ -221,6 +244,8 @@ for name, fn in [
     ("fuzz: conserving activity never false-positives", t_fuzz_conserving_transfers_never_trip),
     ("fuzz: any injected delta is caught exactly", t_fuzz_any_injected_delta_is_caught),
     ("skipped checks are reported, not silently passed", t_skipped_checks_are_reported_not_silently_passed),
+    ("stranded coin reported but does not alarm", t_stranded_is_reported_but_does_not_alarm),
+    ("mint vs stranded are distinguished", t_mint_and_stranded_are_distinguished),
     ("check_all never raises into the caller", t_check_all_never_raises),
 ]:
     check(name, fn)

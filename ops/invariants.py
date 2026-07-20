@@ -18,6 +18,10 @@ The four domains:
   SHIELDED       SHIELD_ESCROW  == live note total + unclaimed exits + fees burned in-pool
   DIVIDEND       DIVIDEND_POOL  >= accrued + unclaimed exits + carry     (see check_dividend on why >=)
 
+SEVERITY FOLLOWS DIRECTION (see _verdict). Escrow holding MORE than is owed is coin STRANDED — unspendable
+by anyone, no supply created. Escrow holding LESS is a MINT. Only the second sets ok=False, because the
+live chain carries long-standing stranded gaps and a permanently-red check is one nobody reads.
+
 THE SHIELDED ONE IS THE POINT. A shielded pool's individual note values are private, but every CHANGE to
 their total is public by construction: a deposit carries its L1 amount, and a transfer's public_value/fee
 are public inputs to the proof. So the pool's AGGREGATE supply is auditable even though its contents are
@@ -26,6 +30,33 @@ unbacked mint — a transfer blob with public_value > 0 minting notes with no es
 tripped check_shielded in the block it landed, with no review and no reasoning about join-splits.
 """
 from protocol import (TREASURY_GENESIS, BRIDGE_ESCROW, SHIELD_ESCROW, DIVIDEND_POOL, HTLC_ESCROW)
+
+
+# Severity by DIRECTION — the distinction that keeps these checks worth reading.
+#
+# An escrow holding MORE than the exec layer accounts for is coin STRANDED: a malformed deposit whose notes
+# were never created, an old exec state that was re-anchored, value locked with nothing entitled to claim
+# it. Undesirable and worth explaining, but nobody can spend it and no supply was created.
+#
+# An escrow holding LESS than is claimed against it is a MINT: entitlement exists that no locked coin backs.
+# That is the bug class these invariants exist for.
+#
+# Collapsing both into "failed" is how a detector dies. The live chain carries two long-standing stranded
+# gaps (bridge, shield); if those render permanently red, operators learn to ignore the check and the one
+# time it goes red for a MINT nobody looks. So only MINT sets ok=False; STRANDED is reported with its own
+# status and full numbers, and is meant to be driven to zero or written down as a known constant.
+OK, STRANDED, MINT = "ok", "stranded", "mint"
+
+
+def _verdict(accounted, backing):
+    """Classify a reconciliation by DIRECTION. `accounted` is what the exec layer says is owed; `backing`
+    is the escrow that must cover it. Returns (ok_for_alerting, status, delta)."""
+    delta = accounted - backing
+    if delta == 0:
+        return True, OK, 0
+    if delta < 0:
+        return True, STRANDED, delta      # escrow > owed: locked coin nobody can claim. Not a mint.
+    return False, MINT, delta             # owed > escrow: entitlement with no coin behind it. THE bug class.
 
 
 class Violation(Exception):
@@ -51,20 +82,26 @@ def check_l1_supply(iter_accounts, totals):
         actual += int(doc.get("balance", 0) or 0) + int(doc.get("bonded", 0) or 0)
         n += 1
     expected = TREASURY_GENESIS + int(totals.get("produced", 0)) - int(totals.get("fees", 0))
-    return actual == expected, {"domain": "l1_supply", "accounts": n, "actual": actual,
-                                "expected": expected, "delta": actual - expected}
+    # L1 is the one domain where BOTH directions are alarming: supply above emission is a mint, and supply
+    # below it means coin was destroyed outside the fee path (a rollback that debited without crediting).
+    # Neither is ever legitimate here, so this one stays strict.
+    ok, status, delta = _verdict(actual, expected)
+    return actual == expected, {"domain": "l1_supply", "status": OK if delta == 0 else MINT if delta > 0 else "lost",
+                                "accounts": n, "actual": actual, "expected": expected, "delta": delta}
 
 
 def check_bridge(get_account, exec_state):
     """Every coin locked in BRIDGE_ESCROW is either credited to somebody exec-side or sitting in an
-    unclaimed exit record. A gap in the POSITIVE direction (escrow > accounted) is stranded coin; a gap in
-    the NEGATIVE direction is exec-side value with no L1 backing — i.e. a mint. Returns (ok, detail)."""
+    unclaimed exit record. delta = accounted - escrow, so delta > 0 is exec-side value with no L1 coin
+    behind it (a MINT, ok=False) and delta < 0 is coin locked with nothing entitled to it (STRANDED, ok=True
+    but reported). Returns (ok, detail)."""
     escrow = _bal(get_account, BRIDGE_ESCROW)
     credited = sum(int(v) for v in (getattr(exec_state, "bridge", None) or {}).values())
     pending = sum(int(w.get("amount", 0)) for w in (getattr(exec_state, "withdrawals", None) or {}).values())
     accounted = credited + pending
-    return escrow == accounted, {"domain": "bridge", "escrow": escrow, "credited": credited,
-                                 "pending_exits": pending, "delta": accounted - escrow}
+    ok, status, delta = _verdict(accounted, escrow)
+    return ok, {"domain": "bridge", "status": status, "escrow": escrow, "credited": credited,
+                "pending_exits": pending, "delta": delta}
 
 
 def check_shielded(get_account, exec_state):
@@ -72,17 +109,18 @@ def check_shielded(get_account, exec_state):
 
     Coins enter ONLY via an L1 `shield` (escrow +amount, pool_value +amount) and leave ONLY via a recorded
     unshield exit that L1 later releases. A fee burned in a transfer leaves the notes but never leaves
-    escrow, hence the third term. delta > 0 means notes exist that no escrowed coin backs — an unbacked
-    mint. Returns (ok, detail)."""
+    escrow, hence the third term. delta > 0 means notes (or exits) exist that no escrowed coin backs — an
+    unbacked MINT, ok=False. delta < 0 is a stranded deposit whose notes were never created: reported as
+    STRANDED, ok=True. Returns (ok, detail)."""
     escrow = _bal(get_account, SHIELD_ESCROW)
     notes = int(getattr(exec_state, "pool_value", 0) or 0)
     fees = int(getattr(exec_state, "pool_fees", 0) or 0)
     pending = sum(int(w.get("amount", 0))
                   for w in (getattr(exec_state, "unshield_withdrawals", None) or {}).values())
     accounted = notes + pending + fees
-    return escrow == accounted, {"domain": "shielded", "escrow": escrow, "note_value": notes,
-                                 "pending_exits": pending, "fees_burned": fees,
-                                 "delta": accounted - escrow}
+    ok, status, delta = _verdict(accounted, escrow)
+    return ok, {"domain": "shielded", "status": status, "escrow": escrow, "note_value": notes,
+                "pending_exits": pending, "fees_burned": fees, "delta": delta}
 
 
 def check_dividend(get_account, exec_state):
