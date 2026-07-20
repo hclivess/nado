@@ -2,7 +2,7 @@
 
 > **Status: BUILT (ledger + opcodes + proofs), with two named gaps.** The asset ledger, the five zkVM
 > opcodes, the blob ops, state-root commitment and the execution AIR are implemented and tested
-> (`tests/test_assets.py`, 16 checks including one real proof). **Not** yet built: settlement BY PROOF for
+> (`tests/test_assets.py`, 18 checks including one real proof). **Not** yet built: settlement BY PROOF for
 > asset calls (§8), and the wallet UI (§9). Both are called out explicitly below rather than glossed.
 
 Until now the exec layer knew exactly one kind of value: native NADO, held in `ExecState.bridge`. Every
@@ -147,7 +147,8 @@ caller states it can actually settle them.
 ## 5. Authority
 
 - **Only the issuer mints**, and only while `mintable`. Checked in `ExecState.stage_asset_effects` against
-  the ledger's `issuer` field — *not* against the derivation. Ids are public, so a hostile contract can
+  the ledger's `issuer` field — *not* against the derivation. When the issuer is a contract, see §7 for
+  who may create and renounce (the deployer) versus who may mint and move (the code, and only the code). Ids are public, so a hostile contract can
   name your asset id perfectly well; what stops it is the issuer field. (Both attacks are tested.)
 - **`mintable` defaults to `false`.** A fixed-supply asset is the default, not the special case.
 - **`asset_renounce` is one-way and permanent**, exactly like `lock` on a contract. After it, supply can
