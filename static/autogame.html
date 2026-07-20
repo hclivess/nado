@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="autogame.title">NADO Autogame — the march that walks while you sleep</title>
+<meta name="description" content="A side-scrolling warrior march paced by the blockchain: one step per block, forever. The road you can see is committed; the dice that resolve it don't exist yet. Set your stance and standing orders and it plays while you're away.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://autogame.nadochain.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NADO">
+<meta property="og:url" content="https://autogame.nadochain.com/">
+<meta property="og:title" content="NADO Autogame — the march that walks while you sleep">
+<meta property="og:description" content="One step per block, until the chapter ends. You commit reactions against road you can see; the dice come from a block that doesn't exist yet. No house, no server.">
+<meta property="og:image" content="https://nadochain.com/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@nadochain">
+<meta name="twitter:title" content="NADO Autogame">
+<meta name="twitter:image" content="https://nadochain.com/og-image.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Autogame", "url": "https://autogame.nadochain.com/", "description": "A chain-paced side-scrolling warrior march on the NADO execution layer: one step per L1 block, terrain from a committed block hash, dice from a future one.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Ctext%20y%3D%2238%22%20font-size%3D%2238%22%3E%E2%9A%94%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--gold:#e3b341;--blood:#c9484a;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:720px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:14px;margin:0 0 14px}
+  .card h2{font-size:13px;margin:0 0 10px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .spread{justify-content:space-between}
+  button{font:inherit;font-weight:700;border-radius:10px;border:1px solid var(--border);background:var(--elev2);color:var(--txt);padding:9px 14px;cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--accent2);color:var(--accent2)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#04211d}
+  button.primary:hover:not(:disabled){background:var(--accent2);border-color:var(--accent2);color:#04211d}
+  button.danger{border-color:#59323a;color:#f0a0a0}
+  .mono{font-family:var(--mono)}
+  .dim{color:var(--dim)}
+  .faint{color:var(--faint)}
+
+  /* ── the stage: the scrolling world ─────────────────────────────────────── */
+  #stage{position:relative;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#0a1119;margin:0 0 14px}
+  #world{display:block;width:100%;height:auto;image-rendering:pixelated}
+  #hud{position:absolute;left:0;right:0;top:0;padding:10px 12px;display:flex;gap:12px;align-items:flex-start;
+    background:linear-gradient(180deg,rgba(5,9,14,.82),rgba(5,9,14,0));pointer-events:none;font-size:12px}
+  #hud .bars{flex:1;min-width:0}
+  .bar{height:7px;border-radius:4px;background:#0d151d;border:1px solid var(--border);overflow:hidden;margin:3px 0 6px}
+  .bar i{display:block;height:100%;background:var(--win);transition:width .25s}
+  .bar.hp i{background:linear-gradient(90deg,var(--blood),#e0736f)}
+  .bar.stam i{background:linear-gradient(90deg,#3a7bd5,#63a4ff)}
+  #hud .stat{white-space:nowrap;text-align:right}
+  #hud .stat b{display:block;font-size:15px;line-height:1.2}
+  .streak{color:var(--gold);font-weight:800}
+  #stagemsg{position:absolute;left:0;right:0;bottom:0;padding:8px 12px;font-size:12px;
+    background:linear-gradient(0deg,rgba(5,9,14,.86),rgba(5,9,14,0));min-height:30px}
+
+  /* ── the road ahead ─────────────────────────────────────────────────────── */
+  #road{display:grid;grid-template-columns:repeat(16,1fr);gap:3px}
+  .tile{position:relative;aspect-ratio:1/1.5;border:1px solid var(--border);border-radius:6px;background:var(--elev2);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;cursor:pointer;padding:2px 0;
+    font-size:13px;line-height:1;user-select:none}
+  .tile:hover{border-color:var(--accent2)}
+  .tile.now{border-color:var(--accent2);box-shadow:0 0 0 1px var(--accent2) inset}
+  .tile .sw{font-size:8.5px;color:var(--faint);font-family:var(--mono)}
+  .tile .act{position:absolute;top:-3px;right:-3px;font-size:9px;background:var(--accent);color:#04211d;
+    border-radius:5px;padding:0 3px;font-weight:800}
+  .tile.danger{background:#241a1c}
+  .tile.good{background:#16241d}
+  .legend{font-size:11px;color:var(--faint);margin-top:8px;line-height:1.7}
+  .legend b{color:var(--dim)}
+
+  /* ── dials ──────────────────────────────────────────────────────────────── */
+  .dial{margin:0 0 12px}
+  .dial label{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin-bottom:5px}
+  .dial label b{color:var(--txt)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .seg{display:flex;gap:5px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:74px;padding:7px 6px;font-size:12px}
+  .seg button.on{background:var(--accent);border-color:var(--accent);color:#04211d}
+  .hint{font-size:11.5px;color:var(--faint);margin-top:5px}
+
+  /* ── gear ───────────────────────────────────────────────────────────────── */
+  #gearwrap{display:flex;gap:14px;align-items:flex-start}
+  #hero{border:1px solid var(--border);border-radius:10px;background:#0d151d;image-rendering:pixelated;flex:none}
+  #slots{flex:1;min-width:0;display:grid;grid-template-columns:1fr 1fr;gap:5px;font-size:12px}
+  .slot{border:1px solid var(--border);border-radius:8px;padding:5px 7px;background:var(--elev2);min-width:0}
+  .slot .nm{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.4px}
+  .slot .it{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .slot.empty .it{color:var(--faint)}
+  .aff{color:var(--gold);font-weight:700}
+  #affixes{margin-top:10px;font-size:12px;display:flex;gap:6px;flex-wrap:wrap}
+  .affpill{border:1px solid var(--gold);color:var(--gold);border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700}
+  .affpill span{color:var(--dim);font-weight:400}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+  th{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:700}
+  td.num{text-align:right;font-family:var(--mono)}
+  .me{color:var(--accent2);font-weight:700}
+  details{border:1px solid var(--border);border-radius:14px;background:var(--elev);padding:12px 14px;margin:0 0 14px}
+  details summary{cursor:pointer;font-weight:700;font-size:13px;color:var(--dim)}
+  details p{font-size:13px;color:var(--dim)}
+  details b{color:var(--txt)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  footer a{color:var(--dim)}
+  @media(max-width:560px){
+    #road{grid-template-columns:repeat(8,1fr)}
+    #gearwrap{flex-direction:column;align-items:center}
+    #slots{width:100%}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="logo">⚔️</div>
+  <h1>NADO <span class="a">Autogame</span></h1>
+  <a class="hub" href="https://nadochain.com/games" data-i18n="autogame.navGames">All games</a>
+</header>
+<p class="sub" data-i18n="autogame.tagline">One step per block, until the chapter ends. The road ahead is already committed — the dice that resolve it are not.</p>
+
+<div id="alerts"></div>
+<div id="walletcard" class="card"></div>
+
+<div id="stage">
+  <canvas id="world" width="720" height="260"></canvas>
+  <div id="hud">
+    <div class="bars">
+      <div class="row spread"><span class="dim" data-i18n="autogame.hpLabel">Health</span><span class="mono" id="hpTxt">—</span></div>
+      <div class="bar hp"><i id="hpBar" style="width:100%"></i></div>
+      <div class="row spread"><span class="dim" data-i18n="autogame.stamLabel">Stamina</span><span class="mono" id="stamTxt">—</span></div>
+      <div class="bar stam"><i id="stamBar" style="width:100%"></i></div>
+    </div>
+    <div class="stat">
+      <span class="dim" data-i18n="autogame.renownLabel">Renown</span>
+      <b class="mono" id="xpTxt">0</b>
+      <span class="streak" id="streakTxt"></span>
+    </div>
+    <div class="stat">
+      <span class="dim" data-i18n="autogame.depthLabel">Depth</span>
+      <b class="mono" id="depthTxt">0</b>
+      <span class="faint mono" id="rankTxt"></span>
+    </div>
+  </div>
+  <div id="stagemsg" class="dim"></div>
+</div>
+
+<div class="card" id="runcard">
+  <div class="row spread">
+    <div>
+      <div class="row" style="gap:6px">
+        <span class="dim" data-i18n="autogame.bankedLabel">Banked</span>
+        <b class="mono" id="bankedTxt">0</b>
+        <span class="faint" data-i18n="autogame.atRiskLabel">at risk</span>
+        <b class="mono" id="riskTxt">0</b>
+      </div>
+      <div class="hint" id="cashoutHint" data-i18n="autogame.cashoutHint">Renown is only safe once a boss falls. Retire on your feet and you keep it all, plus the road bonus for how far you walked. Die and most of it is gone.</div>
+    </div>
+    <div class="row">
+      <button id="beginBtn" class="primary" data-i18n="autogame.begin">Set out</button>
+      <button id="advBtn" data-i18n="autogame.advance">Settle leg</button>
+      <button id="retireBtn" class="danger" data-i18n="autogame.retire">Retire</button>
+    </div>
+  </div>
+  <div class="hint" id="clockHint"></div>
+</div>
+
+<div class="card">
+  <h2 data-i18n="autogame.roadH">The road ahead — tap a tile to queue a reaction</h2>
+  <div id="road"></div>
+  <div class="row spread" style="margin-top:10px">
+    <div class="seg" id="actseg"></div>
+    <button id="planBtn" class="primary" data-i18n="autogame.commitPlan">Commit plan</button>
+  </div>
+  <div class="legend">
+    <b data-i18n="autogame.legendH">Tiles:</b>
+    <span data-i18n="autogame.legend">🛣️ road · ⚔️ monster · 💀 elite · 🔥 hazard · 📦 cache · ⛲ shrine · 🔨 forge · ⑂ fork · 💎 relic · 👑 boss</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2 data-i18n="autogame.dialsH">Standing orders — these play while you're away</h2>
+  <div class="dial">
+    <label><span data-i18n="autogame.aggLabel">Aggression — how many you pull</span><b class="mono" id="aggVal">1</b></label>
+    <input type="range" id="agg" min="1" max="16" value="1">
+    <div class="hint" id="aggHint" data-i18n="autogame.aggHint">Damage grows with the pull; renown grows faster. This is the dial the whole game turns on.</div>
+  </div>
+  <div class="dial">
+    <label><span data-i18n="autogame.healLabel">Auto-drink below</span><b class="mono" id="healVal">35%</b></label>
+    <input type="range" id="heal" min="0" max="100" value="35">
+    <div class="hint" data-i18n="autogame.healHint">The sharpest number in the game: heal early and you earn nothing, heal late and the run is over. Any heal also breaks your streak.</div>
+  </div>
+  <div class="dial">
+    <label><span data-i18n="autogame.focusLabel">Focus — weapon vs armour</span><b class="mono" id="focusVal">50 / 50</b></label>
+    <input type="range" id="focus" min="0" max="100" value="50">
+    <div class="hint" data-i18n="autogame.focusHint">Armour absorbs one swing per engagement; the weapon multiplies everything you earn and drains life back.</div>
+  </div>
+  <div class="dial">
+    <label><span data-i18n="autogame.stanceLabel">Stance</span><b id="stanceVal">Balanced</b></label>
+    <div class="seg" id="stanceseg"></div>
+    <div class="hint" id="stanceHint"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 data-i18n="autogame.gearH">Your kit</h2>
+  <div id="gearwrap">
+    <canvas id="hero" width="192" height="192"></canvas>
+    <div>
+      <div id="slots"></div>
+      <div id="affixes"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 data-i18n="autogame.boardH">Deepest marches</h2>
+  <div id="board"></div>
+</div>
+
+<details>
+  <summary data-i18n="autogame.fairH">Why nobody can cheat this — including us</summary>
+  <p data-i18n-html="autogame.fairBody">Every leg needs <b>two</b> block hashes. The first was pinned before you could see anything and generates the <b>terrain</b> — that's the road drawn above, and it is already fixed. The second is <b>sixteen blocks later</b> and rolls the dice: hits, drops, variance. You commit your reactions in between. Nobody — not you, not us, not a block producer — can know the second hash while the plan window is open, and the terrain was pinned before anyone could steer toward it. Settling is <b>permissionless</b>: a friend, a bot, or you tomorrow can push the run forward, and none of them can change a single step, because both hashes are already final. <a href="https://github.com/hclivess/nado/blob/main/doc/autogame.md">Read the design →</a></p>
+</details>
+
+<details>
+  <summary data-i18n="autogame.awayH">What happens while you're asleep</summary>
+  <p data-i18n-html="autogame.awayBody">The march never stops — it is paced by the chain, not by your browser. With no plan queued, your <b>stance</b> and <b>standing orders</b> play for you: you fight at your chosen aggression, auto-drink at your threshold, auto-equip anything better and auto-craft at forges. You bleed rank, not life. Come back and settle the backlog; it resolves exactly as it would have if you'd watched every block. <b>Lateness cannot hurt you</b> — but leaving a run unsettled for more than about a day puts it past the chain's block-hash horizon, and it concludes where it stood.</p>
+</details>
+
+<footer>
+  <span data-i18n="autogame.footer">Descended from Autogame on Bismuth (2017) and MAMEC "math sword". Play responsibly.</span>
+  · <a href="https://nadochain.com/games" data-i18n="autogame.navGames2">All games</a>
+</footer>
+
+</div>
+<script type="module" src="/static/autogame.js"></script>
+</body>
+</html>

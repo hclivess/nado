@@ -272,12 +272,17 @@ inverse. And a bloodlust-aware pilot beats the best fixed dial on both counts (1
 
 ## 7. Determinism: three implementations, cross-checked
 
+Deployed contract id: **`a281642554a4f5efc86f0989e78469bd`** (`autogame.nadochain.com`).
+
 | implementation | path | role |
 |---|---|---|
 | zkasm contract | `execnode/games/autogame.py` | **authoritative** |
 | Python reference | `tests/autogame_model.py` | readable spec; differential oracle |
 | JS engine | `static/autogame-engine.js` | client prediction, animation, independent verification |
 | balance sim | `tests/autogame_balance.py` | economy harness (see its header) |
+| generated rules | `static/autogame-rules.js` | emitted from the contract; the browser's copy of every constant |
+| pixel art | `static/autogame-art.js` | the layered warrior — gear composes the silhouette |
+| live e2e | `_autogame_e2e.py` | the whole loop against the running node |
 
 `tests/autogame_contract_test.py` runs the contract and the Python model over the same hashes and asserts
 step-for-step equality. A divergence in any of the three is a bug in the other two until proven otherwise.

@@ -97,6 +97,16 @@
 <script>
 // clean inline SVG logos (no external assets; each ~44px, on the NADO palette)
 const SVG = {
+  autogame:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <path d="M4 38h40" stroke="#3b4a3a" stroke-width="3" stroke-linecap="round"/>
+    <path d="M4 33l7-5 6 3 7-6 6 4 7-5 7 4" fill="none" stroke="#22402f" stroke-width="2" stroke-linejoin="round"/>
+    <rect x="19" y="20" width="8" height="11" rx="1.5" fill="#7f8a99" stroke="#2b3440" stroke-width="1.6"/>
+    <circle cx="23" cy="15" r="4.2" fill="#d9b48a" stroke="#2b3440" stroke-width="1.6"/>
+    <path d="M18.6 14.2h8.8" stroke="#2b3440" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M30 8l3 3-9.5 12.5-2.6-2.2z" fill="#cfd8e3" stroke="#2b3440" stroke-width="1.5" stroke-linejoin="round"/>
+    <rect x="12.5" y="21" width="5" height="8" rx="1" fill="#b08d4a" stroke="#2b3440" stroke-width="1.5"/>
+    <path d="M20 31l-2 7M27 31l2 7" stroke="#2b3440" stroke-width="1.8" stroke-linecap="round"/>
+  </svg>`,
   hamster:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
     <ellipse cx="22" cy="30" rx="15" ry="11" fill="#e8b06b" stroke="#8a5a2a" stroke-width="1.8"/>
     <circle cx="35" cy="24" r="8" fill="#e8b06b" stroke="#8a5a2a" stroke-width="1.8"/>
@@ -241,6 +251,9 @@ const GAMES = [
   { svg:SVG.coin, name:"Coin Flip", tag:"Live", live:true, slug:"coinflip", url:"https://coinflip.nadochain.com",
     blurb:"A fair 2-player coin flip for stakes. Both stake into a pot; the winner is decided by a future L1 block hash nobody can predict — no secrets, nothing to reveal, you sign once. Winner takes the pot.",
     meta:["2 players","Winner takes the pot","Beacon-decided","0% house edge"] },
+  { svg:SVG.autogame, name:"Autogame", tag:"Live", live:true, slug:"autogame", url:"https://autogame.nadochain.com",
+    blurb:"A warrior march paced by the chain itself: one step per block, until the chapter ends. The sixteen tiles ahead of you are already committed by a mined block hash — the dice that resolve them come from a block sixteen later that does not exist yet. Queue reactions against terrain you can see, then live with the roll. Walk away and your stance and standing orders keep marching without you.",
+    meta:["One step per block","Plays while you sleep","Push or bank","Descended from Bismuth"] },
   { svg:SVG.roulette, name:"Roulette", tag:"Live", live:true, slug:"roulette", url:"https://roulette.nadochain.com",
     blurb:"Peer-banked multiplayer European roulette that spins itself every ~2 minutes from a future block hash — no house spin, no secrets. A win pays the true 36 ÷ numbers-covered, the exact 2.70% single-zero edge.",
     meta:["Bank or bet","Self-spinning","Multiplayer","2.70% edge"] },
