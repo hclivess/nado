@@ -118,7 +118,7 @@ async function refreshAll() {
   });
   await resolveAliases([dapp.me].filter(Boolean));
   render();
-  maybeAutoAdvance();
+  settlePrompt();
 }
 
 /** A committed plan is invisible in the flat storage view (it is hash-keyed), so a landed `plan` is
@@ -513,12 +513,23 @@ function setStance(s) {
       { phase: "stance", want: s }));
 }
 
-/** Anyone may settle a leg, so the client does it for you the moment the dice exist. This is upkeep, not
- *  an edge: the outcome was fixed by two already-final hashes and cannot be steered by who calls it. */
-function maybeAutoAdvance() {
-  if (!dapp.autoCollect || !chain) return;
-  if (!chain.alive || chain.done || chain.retired) return;
-  if (dapp.cursor != null && dapp.cursor >= chain.nh && !dapp.pending("advance")) advance();
+/**
+ * DELIBERATELY NOT AUTOMATIC.
+ *
+ * Settling is permissionless, so it is tempting to have the client just do it the moment the dice exist.
+ * That shipped, and it was a trap: dapp.call() falls back to a full WALLET REDIRECT when it cannot sign in
+ * the background, so the page bounced to get.nadochain.com on load, came back, fired again, and bounced
+ * again — an infinite redirect loop with no way to reach the game. "Looks stuck, I can't progress."
+ *
+ * Nothing is lost by waiting for a tap: the leg's outcome was fixed by two already-final block hashes, so
+ * settling it now or in an hour gives the identical result, and anyone at all can settle it. So the button
+ * simply lights up and says so.
+ */
+function settlePrompt() {
+  if (!chain || !chain.alive || chain.done || chain.retired) return;
+  const ready = dapp.cursor != null && dapp.cursor >= chain.nh;
+  if (ready && !dapp.busy("advance")) $("advBtn").classList.add("pulse");
+  else $("advBtn").classList.remove("pulse");
 }
 
 // ── wiring ──────────────────────────────────────────────────────────────────────────────────────
