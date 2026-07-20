@@ -115,7 +115,12 @@ def create_config(ip: str, config_path: str = None):
         # unfinalized window, so a perfectly legal reorg hit "Rollbacks exhausted" and fell through to
         # the snapshot path for no reason.
         "max_rollbacks": 40,
-        "finality_depth": 12,
+        # MUST match protocol.FINALITY_DEPTH (45, the 2026-07-19 widening — depth 12 froze incompatible
+        # histories after a 72s partition and split the network three ways). This line briefly said 12
+        # after the widening, which made every FRESH install fail memserver's boot assert
+        # (max_rollbacks 40 < finality_depth 12 is false) — new nodes could not start at all. Old
+        # configs without the key correctly fall back to the protocol constant.
+        "finality_depth": 45,
         "block_time": 6,
         # AUTO-BOND (non-consensus): % of newly-mined earnings to auto-compound into bonded stake,
         # unattended. Defaults to protocol.AUTO_BOND_DEFAULT_PERCENT (80) so a fresh node joins the

@@ -128,6 +128,23 @@ class MemServer:
         # disable the protection. (Stake-weighted fork-choice that bounds reorg COST is steps 2-3.)
         from protocol import EPOCH_LENGTH, FINALITY_DEPTH
         self.finality_depth = self.config.get("finality_depth") or FINALITY_DEPTH
+        # CONFIG MIGRATION (2026-07-20): the 2026-07-19 finality widening (12 -> 45) shipped as a code
+        # default, but a config file WRITTEN before it pins the old pair forever — /update never touches
+        # private/, and no shell exists on some fleet boxes. A node left at depth 12 re-exposes the
+        # 72s-partition freeze the widening prevents (and its duty reveals violate the new window on
+        # every current peer), so an explicitly-NARROWER depth is lifted to the protocol constant and
+        # persisted; max_rollbacks rides along per the widening rationale (a cap below the window cannot
+        # traverse it). An operator pinning a DEEPER depth is left alone.
+        if self.finality_depth < FINALITY_DEPTH:
+            self.logger.warning(f"config migration: finality_depth {self.finality_depth} predates the "
+                                f"{FINALITY_DEPTH} widening — lifting (and max_rollbacks -> 40)")
+            self.finality_depth = FINALITY_DEPTH
+            self.max_rollbacks = max(self.max_rollbacks, 40)
+            try:
+                from config import update_config
+                update_config({"finality_depth": FINALITY_DEPTH, "max_rollbacks": self.max_rollbacks})
+            except Exception as _e:
+                self.logger.warning(f"config migration could not persist (applies in-memory anyway): {_e}")
         assert self.max_rollbacks < self.finality_depth < EPOCH_LENGTH, (
             f"need max_rollbacks ({self.max_rollbacks}) < finality_depth ({self.finality_depth}) "
             f"< EPOCH_LENGTH ({EPOCH_LENGTH}) for enforced-finality safety")
@@ -137,9 +154,25 @@ class MemServer:
         # which is the deeper time-based floor that bounds rollback). Updated by core_loop.maybe_attest.
         self.ffg_finalized = 0
         # RANDAO (#7): this validator's locally-held secrets {target_epoch: secret}, committed in E-2
-        # and revealed in E-1. In-memory only (a secret never revealed after a restart is simply a
-        # wasted commit — harmless; the beacon falls back to the anchor + other validators' reveals).
+        # and revealed in E-1. PERSISTED to private/randao_secrets.json (node-local, gitignored, beside
+        # the keys): they were in-memory only ("a wasted commit — harmless") until the integrated
+        # auto-updater made restarts ROUTINE — an update wave landing between a commit (E-2) and its
+        # reveal (E-1) wasted the commit every time; on 2026-07-20 an evening of deploys produced four
+        # straight epochs of reveal=False from this node. Saved on every new commit + pruned to live
+        # epochs in core_loop.maybe_epoch_duty.
         self.randao_secrets = {}
+        try:
+            import json as _json, os as _os
+            _rs_path = f"{get_home()}/private/randao_secrets.json"
+            if _os.path.isfile(_rs_path):
+                with open(_rs_path) as _rs:
+                    self.randao_secrets = {int(k): v for k, v in _json.load(_rs).items()
+                                           if isinstance(v, str) and v}
+                if self.randao_secrets:
+                    self.logger.info(f"Recovered {len(self.randao_secrets)} unrevealed RANDAO secret(s) "
+                                     f"for epoch(s) {sorted(self.randao_secrets)}")
+        except Exception as _e:
+            self.logger.warning(f"could not load persisted RANDAO secrets (continuing fresh): {_e}")
         # Fast bootstrap is snapshot sync (ops/snapshot_ops.py) — quorum/checkpoint-gated, never a
         # validation-skipping bypass. Do NOT add one (it enables forged-tx injection).
         # AUTO-BOND (non-consensus): route this % of newly-mined spendable earnings straight into

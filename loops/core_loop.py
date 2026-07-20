@@ -1,4 +1,6 @@
 import asyncio
+import json
+import os
 import sys
 import threading
 import time
@@ -35,7 +37,7 @@ from ops import kv_ops
 from ops import fork_resolution
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
     TX_INCLUSION_DELAY, TX_TARGET_MARGIN
-from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size
+from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size, get_home
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
 from ops.pool_ops import cull_buffer
@@ -1491,6 +1493,18 @@ class CoreClient(threading.Thread):
                 secret = self.memserver.randao_secrets.get(e_commit) or _secrets.token_hex(32)
                 self.memserver.randao_secrets[e_commit] = secret
                 commit = {"target_epoch": e_commit, "commitment": beacon_commitment(secret)}
+                # PERSIST (atomic replace) + prune to epochs that can still be revealed (>= X+1). A
+                # restart between commit and reveal used to waste the commit — routine now that update
+                # waves restart the whole fleet; see memserver.randao_secrets for the load side.
+                try:
+                    self.memserver.randao_secrets = {e: s for e, s in self.memserver.randao_secrets.items()
+                                                     if e >= X + 1}
+                    _rs_path = f"{get_home()}/private/randao_secrets.json"
+                    with open(_rs_path + ".tmp", "w") as _rs:
+                        json.dump({str(k): v for k, v in self.memserver.randao_secrets.items()}, _rs)
+                    os.replace(_rs_path + ".tmp", _rs_path)
+                except Exception as _e:
+                    self.logger.warning(f"could not persist RANDAO secrets: {_e}")
             e_reveal = X + 1
             secret = self.memserver.randao_secrets.get(e_reveal)
             if (secret and kv_ops.commit_get(me, e_reveal) is not None
