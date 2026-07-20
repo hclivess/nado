@@ -57,12 +57,52 @@ resolved step and scores what it had. It does not die, and it is not lost — it
 One block hash does two jobs, and that is the whole design:
 
     H(lh)  →  the TILES of the pending leg   (terrain, monsters, forks — visible to the player)
-    H(nh)  →  the ROLLS of the pending leg   (variance, drops — unknown while planning)
+    H(nh)  →  the ROLLS of the pending leg   (variance, drops — not yet in existence)
 
-You are always looking at 16 tiles of committed road with ~96 s to decide, and the dice are drawn afterward.
 You cannot grind the terrain (it comes from a height pinned before you could see it) and you cannot grind the
-dice (they come from a height later still). The tiles of leg *k* are revealed by the same hash that resolves
-leg *k-1*, so the reveal is free: as the previous leg settles, the next stretch of road scrolls into view.
+dice (they come from a height later still).
+
+### What you commit, and why it is not a 96-second window
+
+The first design had you commit sixteen positional reactions inside the gap between those two hashes. That
+was wrong twice over:
+
+* **It was unreachable.** A transaction submitted now EXECUTES when the exec layer reaches its L1 height —
+  measured at ~102 blocks, about ten minutes, behind the tip. A 96-second window cannot be hit from ten
+  minutes away. Every run on the deployed contract had a permanently closed window; the mechanic was dead
+  for everyone.
+* **It was the wrong unit.** The road is different every leg, so committing moves for *positions* is
+  committing to a shape you will never see again.
+
+So orders are keyed to **what a thing is**, not where it is:
+
+    plan(runId, doctrine, agg, stance, focus, healPct)
+
+A **doctrine** is one reaction per tile class — *strike monsters, guard hazards, take the right fork* — and
+it holds for the rest of the march until you change it. It can be set at any time, because it governs legs
+whose dice do not exist yet, and it is still committed-before-the-roll.
+
+### The fence, and playing in the past
+
+`POLH` records the height at which orders were set. **A leg obeys a generation of orders only if that
+generation predates the leg's own rolling height.** Issuing new orders after seeing a roll therefore cannot
+rewrite the leg that roll belongs to.
+
+One **superseded generation is retained**, which is what lets a run be walked at your own pace. Block hashes
+stay readable ~20 000 heights back, so a backlog is *walked, never discarded* — settle it now or tomorrow and
+the outcome is identical, each leg judged by the orders that were in force when its block was mined. Without
+the retained generation, catching up would either strand the backlog or let a player neuter their own
+doctrine after reading a bad roll.
+
+Stance, focus and the auto-drink threshold are **orders too**, versioned with the doctrine. Leaving them
+unfenced was a live exploit: they were applied immediately, so re-tuning after a roll changed a leg that had
+already rolled.
+
+### The march waits for you
+
+`begin()` creates a run **unarmed** — no window is pinned and `advance()` refuses it. Committing your orders
+is what starts the clock. Otherwise the first legs resolve before the player has configured anything, and on
+a ten-minute-lagged layer, before they can even see the run exists.
 
 ---
 
@@ -106,11 +146,14 @@ equilibria it caught.
 
 | dial | scope | set by | MAMEC ancestor |
 |---|---|---|---|
-| **Aggression** 1–16 | one leg | `plan(...)` | `enemy_count` — the math-sword dial |
-| **Stance** | until changed | `stance()` | aggressive / defensive / balanced |
-| **Focus** 0–100 | until changed | `focus()` | the weapon/armour slider |
-| **Standing orders** | until changed | `orders()` | *(new — this is what makes absence survivable)* |
-| **Reactions** | one leg, per-tile | `plan(...)` | *(new — Autogame had no input at all)* |
+| **Aggression** 1–16 | until changed | `plan(...)` | `enemy_count` — the math-sword dial |
+| **Stance** | until changed | `plan(...)` | aggressive / defensive / balanced |
+| **Focus** 0–100 | until changed | `plan(...)` | the weapon/armour slider |
+| **Auto-drink threshold** | until changed | `plan(...)` | *(new — what makes absence survivable)* |
+| **Doctrine** (one reaction per tile class) | until changed | `plan(...)` | *(new — Autogame had no input at all)* |
+
+All five travel in **one call**. They were four separate methods once, which on a chain with this lag meant
+forty minutes to retune a build.
 
 **Aggression** is how many foes you pull, committed *before* the hash that resolves them. Damage is linear in
 the pull; renown is **superlinear** (`foes * xp_each * (4+foes)/4`), so a bigger bite must pay a premium or
@@ -142,16 +185,17 @@ the game: heal early and you earn nothing, heal late and the run is over. The ba
 around 35%, and it moves with your build. The mechanic that keeps an absent player alive and the mechanic
 that prices risk are *the same dial* — that is the fusion.
 
-**Reactions** — 16 tiles × 3 bits packed into one field element (48 bits, safely under Goldilocks P). Action
-`0` = "use the stance default", so an all-zero word (or no word at all) is exactly the absent-player
-behaviour.
+**The doctrine** — one 3-bit reaction per tile class, packed into one field element and unpacked on chain
+into a cell per class, addressed at runtime as `(POL0 + tile)*2^32 + run`. Action `0` = "nothing special", so
+an all-zero doctrine is exactly the absent-player behaviour. The FORK entry is read *before* the fork
+resolves, because it is what chooses the lane.
 
     0  Default   follow stance                                         —
     1  Strike    +25% renown, +25% damage taken                        2 stamina
     2  Guard     -50% damage taken                                     1 stamina
     3  Dodge     avoid the tile entirely, forfeit its reward           2 stamina
     4  Potion    drink now; forfeits your offence — BREAKS THE STREAK  0 stamina, 1 potion
-    5  Sprint    skip the tile: no damage, no loot, no renown          3 stamina
+    5  Sprint    (dead: identical to Dodge but dearer — offered nowhere)  3 stamina
     6  Rest      heal, PAY renown for it (MAMEC's rest); breaks streak 0 stamina
     7  Right     at a FORK: take the right lane                        —
        Rally     anywhere else: small heal, KEEPS THE STREAK           3 stamina
