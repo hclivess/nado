@@ -759,6 +759,56 @@ def build():
     return c.build()
 
 
+# ── the rules, emitted for the browser ───────────────────────────────────────────────────────────
+# The JS engine cannot import Python, so the one place where cross-language drift could still creep in is
+# the constant table. Generating static/autogame-rules.js from THIS module closes it: the browser, the
+# contract and the reference model all trace back to the same definitions, and a test fails the moment the
+# checked-in file stops matching. Regenerate with:  python3 -m execnode.games.autogame --emit-js
+def rules_js():
+    def lit(v):
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, (list, tuple)):
+            return "[" + ", ".join(lit(x) for x in v) + "]"
+        if isinstance(v, str):
+            return '"' + v + '"'
+        return str(v)
+
+    names = [
+        "LEG", "MAX_LEGS_PER_CALL", "CHAPTER", "START_GAP", "HP0", "STAM_MAX", "AGG_MAX", "REGEN_DIV",
+        "REGEN_CAP_DIV", "BOSS_EVERY", "TIER_EVERY", "NIGHT_EVERY", "LEVEL_CAP", "LIFESTEAL_DIV",
+        "HORDE_DIV", "STREAK_DIV", "DEATH_KEEP", "COMPLETE_BONUS", "POTIONS0", "POTION_CAP",
+        "POTION_PRICE", "HEAL_BASE", "SHRINE_BASE", "RALLY_BASE", "NSLOT", "TILE_CUTS",
+        "ROAD", "MONSTER", "ELITE", "HAZARD", "CACHE", "SHRINE", "FORGE", "FORK", "RELIC", "BOSS",
+        "A_DEFAULT", "A_STRIKE", "A_GUARD", "A_DODGE", "A_POTION", "A_SPRINT", "A_REST", "A_RIGHT",
+        "A_RALLY", "COST", "ST_BALANCED", "ST_AGGRESSIVE", "ST_GUARDED", "ST_EVASIVE", "STANCES",
+        "FAM_ATK", "FAM_XP", "SHARPEN_COST", "REINFORCE_COST", "DEF_DIV",
+        "G_WEAPON", "G_HELM", "G_BODY", "G_SHIELD", "G_BOOTS", "G_CLOAK",
+        "AF_NONE", "AF_KEEN", "AF_HEAVY", "AF_WARD", "AF_SWIFT", "AF_VAMP", "AF_BLAZE", "AF_HALLOW",
+        "AFFIX_NAMES", "KEEN_BONUS", "SWIFT_BONUS", "JACKPOT_EVERY",
+    ]
+    g = globals()
+    out = [
+        "// autogame-rules.js — GENERATED from execnode/games/autogame.py. Do not edit by hand.",
+        "//   regenerate:  python3 -m execnode.games.autogame --emit-js",
+        "//",
+        "// The contract is the authority on every number in this game. The browser cannot import Python, so",
+        "// this file is emitted from it rather than transcribed — the engine, the contract and the Python",
+        "// reference model then all trace back to one definition, and tests/autogame_contract_test.py fails",
+        "// the moment this file stops matching its source.",
+        "",
+    ]
+    for n in names:
+        out.append(f"export const {n} = {lit(g[n])};")
+    out.append("")
+    out.append("// tile class -> display name, in the order the class ordinal is derived (see TILE_CUTS)")
+    out.append('export const TILE_NAMES = ["road", "monster", "elite", "hazard", "cache", "shrine", '
+               '"forge", "fork", "relic", "boss"];')
+    out.append("export const RANKS = [" + ", ".join(f'[{t}, "{n}"]' for t, n in RANKS) + "];")
+    out.append("")
+    return "\n".join(out)
+
+
 ABI = {
     "constructor": {"args": []},
     "begin": {"args": ["runId"]},
@@ -782,3 +832,14 @@ ABI = {
         "addr": ["ra"],
     },
 }
+
+
+if __name__ == "__main__":
+    import sys as _sys
+    if "--emit-js" in _sys.argv:
+        import os as _os
+        _p = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
+                           "static", "autogame-rules.js")
+        with open(_p, "w") as _f:
+            _f.write(rules_js())
+        print("wrote", _p)

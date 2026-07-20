@@ -325,6 +325,62 @@ def t_worst_case_advance_has_headroom():
         zkvm.GAS_LIMIT = real_limit
 
 
+def t_js_engine_matches_the_model():
+    """The browser engine is the THIRD implementation, and the client uses it to preview a plan before you
+    commit it. A preview that disagrees with settlement is worse than no preview, so it gets the same
+    treatment as everything else here: driven over identical inputs and diffed field by field.
+
+    The model is already proven against the contract above, so this chains the browser engine transitively
+    to the chain. Vectors carry raw hash windows rather than block hashes — what is under test is the step
+    function, not the sponge."""
+    import json, shutil, subprocess, tempfile
+    node = shutil.which("node")
+    if not node:
+        print("      (node not installed — skipping the browser-engine check)")
+        return
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # regenerating the rules must be a no-op: if it is not, the browser is running different numbers
+    from execnode.games.autogame import rules_js
+    on_disk = open(os.path.join(root, "static", "autogame-rules.js")).read()
+    assert on_disk == rules_js(), \
+        "static/autogame-rules.js is stale — regenerate: python3 -m execnode.games.autogame --emit-js"
+
+    cases = []
+    configs = [("balanced", 0, 35, 50, 3), ("berserker", 1, 20, 75, 6), ("turtle", 2, 60, 0, 2),
+               ("skirmisher", 3, 45, 25, 4), ("vampire", 0, 25, 100, 5)]
+    acts = [A.A_DEFAULT, A.A_STRIKE, A.A_GUARD, A.A_DODGE, A.A_POTION, A.A_SPRINT, A.A_REST, A.A_RIGHT]
+    for name, stance, heal, focus, agg in configs:
+        run = M.Run(stance=stance, healpct=heal, focus=focus)
+        steps = []
+        for n in range(400):
+            tw = _words(BH[3000 + n], 7, n % A.LEG)
+            rw = _words(BH[9000 + n], 7, n % A.LEG)
+            act = acts[n % len(acts)]
+            M.step(run, tw, rw, act, agg)
+            steps.append({"tw": tw, "rw": rw, "act": act, "agg": agg,
+                          "after": {"hp": run.hp, "maxhp": run.maxhp, "stam": run.stam,
+                                    "potions": run.potions, "xp": run.xp, "banked": run.banked,
+                                    "streak": run.streak, "depth": run.depth, "kills": run.kills,
+                                    "alive": run.alive, "done": run.done, "wlevel": run.wlevel,
+                                    "alevel": run.alevel, "gear": list(run.gear), "mats": list(run.mats)}})
+            if not run.alive or run.done:
+                break
+        cases.append({"name": name, "stance": stance, "healpct": heal, "focus": focus,
+                      "steps": steps, "score": run.score()})
+
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(cases, f)
+        vec = f.name
+    try:
+        r = subprocess.run([node, os.path.join(root, "tests", "autogame_engine_verify.mjs"), vec],
+                           capture_output=True, text=True, timeout=180)
+        assert r.returncode == 0, f"browser engine diverged:\n{r.stdout}{r.stderr}"
+        print(f"      {r.stdout.strip()}")
+    finally:
+        os.unlink(vec)
+
+
 def t_constants_are_not_duplicated():
     """The model must IMPORT the rules, never restate them — otherwise a retune desyncs the oracle from
     the thing it checks and this whole file silently stops meaning anything."""
@@ -346,6 +402,7 @@ if __name__ == "__main__":
     check("only the owner controls a run", t_only_owner_controls)
     check("scratch leaves no residue in the state root", t_scratch_leaves_no_residue)
     check("worst-case advance has trace headroom (a lucky run must not brick)", t_worst_case_advance_has_headroom)
+    check("browser engine matches the model (transitively, the chain)", t_js_engine_matches_the_model)
     check("rules are imported, not duplicated", t_constants_are_not_duplicated)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
