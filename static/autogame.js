@@ -13,8 +13,8 @@
 // uses it to preview and to animate; the contract remains the authority, and wherever the two disagree the
 // chain wins and the view snaps to it.
 import {
-  NadoDapp, rawToNado, randId, _m, $, base, gate, alertBar, notify, okBar, wireWallet, renderWallet,
-  resolveAliases, disp, share, algHashn, ALG_P, esc, blocksToTime,
+  NadoDapp, rawToNado, randId, _m, $, base, gate, canPay, alertBar, notify, okBar, wireWallet,
+  renderWallet, resolveAliases, disp, share, algHashn, ALG_P, esc, blocksToTime,
 } from "./nadodapp.js";
 import * as E from "./autogame-engine.js";
 import { drawWarrior, unpackItem, MATERIALS, FRAME_W, FRAME_H } from "./autogame-art.js";
@@ -29,6 +29,8 @@ const BLOCK_SECS = 6;
 // keeps that mismatch from being re-derived (wrongly) at each call site.
 const footX = (x, scale) => Math.round(x - (FRAME_W * scale) / 2);
 const footY = (y, scale) => Math.round(y - FRAME_H * scale);
+
+const t = (k, d, v) => (window.t ? window.t("autogame." + k, d, v) : d);
 
 const SLOT_NAMES = ["Weapon", "Helm", "Body", "Shield", "Boots", "Cloak"];
 const MAT_NAMES = ["bronze", "iron", "steel", "silver", "obsidian", "gold", "meteoric", "living"];
@@ -278,7 +280,6 @@ function showEvent(ev) {
 function render() {
   renderWallet(dapp);
   const r = view || chain;
-  const t = (k, d, v) => (window.t ? window.t("autogame." + k, d, v) : d);
 
   // HUD
   if (r) {
@@ -294,11 +295,20 @@ function render() {
     $("riskTxt").textContent = E.csub(r.xp, r.banked).toLocaleString();
   }
 
+  // gate() takes a MAP of {elementId: shouldBeVisible} and toggles the `hidden` class — it is not an
+  // enable/disable helper. Calling it per-element did nothing at all, which is why every button stayed
+  // clickable and a signed-out tap on "Set out" silently went nowhere.
   const live = !!(chain && chain.alive && !chain.done && !chain.retired);
-  gate($("beginBtn"), !chain || !live, dapp);
-  gate($("advBtn"), live && dapp.cursor != null && dapp.cursor >= chain.nh, dapp);
-  gate($("retireBtn"), live && chain.depth > 0, dapp);
-  gate($("planBtn"), live && dapp.cursor != null && dapp.cursor < chain.nh, dapp);
+  const canSettle = live && dapp.cursor != null && dapp.cursor >= chain.nh;
+  const canPlan = live && dapp.cursor != null && dapp.cursor < chain.nh;
+  gate({ beginBtn: !live, advBtn: live, retireBtn: live, planBtn: live });
+  // "Set out" stays clickable while signed out ON PURPOSE: the click routes through canPay(), which raises
+  // the SDK's sign-in bar. Hiding it would leave a signed-out visitor staring at a page with no way in.
+  $("beginBtn").disabled = dapp.busy("begin");
+  $("advBtn").disabled = !canSettle || dapp.busy("advance");
+  $("planBtn").disabled = !canPlan || dapp.busy("plan");
+  $("retireBtn").disabled = !live || !chain.depth || dapp.busy("retire");
+  $("advBtn").title = canSettle ? "" : t("advWait", "The dice for this leg have not landed yet.");
 
   // the clock: how long until this leg can be settled
   if (chain && live && dapp.cursor != null) {
@@ -441,26 +451,49 @@ function renderBoard() {
 }
 
 // ── actions ─────────────────────────────────────────────────────────────────────────────────────
+/**
+ * Every action goes through the SDK's two guards, in this order:
+ *   canPay(dapp, 0n, what) — no wallet? raise the shared sign-in bar and stop. These calls escrow nothing,
+ *                            so the amount is 0; what canPay is doing here is the SIGN-IN check.
+ *   dapp.busy(phase)       — already clicked? stop. The guard is armed from the TAP, not from the receipt,
+ *                            so a double-tap cannot submit twice while the first is in flight.
+ * Doing this by hand per game is how games drift apart; this is the whole reason the SDK exists.
+ */
+function act(phase, what, fn, keyName, keyVal) {
+  if (!canPay(dapp, 0n, what)) return false;
+  if (dapp.busy(phase, keyName, keyVal)) return false;
+  fn();
+  render();                       // reflect the click-time guard immediately
+  return true;
+}
+
 function begin() {
-  const id = randId();
-  dapp.call("begin", [id], 0n, "Set out on a new march", { phase: "begin" });
+  act("begin", t("whatBegin", "Setting out"), () =>
+    dapp.call("begin", [randId()], 0n, t("labelBegin", "Set out on a new march"), { phase: "begin" }));
 }
 function commitPlan() {
   if (!chain) return;
-  dapp.call("plan", [myId, chain.leg, E.packPlan(plan), planAgg],
-    0n, `Commit the plan for leg ${chain.leg}`, { phase: "plan", leg: chain.leg });
+  act("plan", t("whatPlan", "Committing a plan"), () =>
+    dapp.call("plan", [myId, chain.leg, E.packPlan(plan), planAgg], 0n,
+      t("labelPlan", "Commit the plan for leg {n}", { n: chain.leg }), { phase: "plan", leg: chain.leg }),
+    "leg", chain.leg);
 }
 function advance() {
   if (!chain) return;
-  dapp.call("advance", [myId], 0n, "Settle the leg", { phase: "advance", leg: chain.leg });
+  act("advance", t("whatAdvance", "Settling the leg"), () =>
+    dapp.call("advance", [myId], 0n, t("labelAdvance", "Settle the leg"),
+      { phase: "advance", leg: chain.leg }), "leg", chain.leg);
 }
 function retire() {
   if (!chain) return;
-  dapp.call("retire", [myId], 0n, "Retire on your feet", { phase: "retire" });
+  act("retire", t("whatRetire", "Retiring"), () =>
+    dapp.call("retire", [myId], 0n, t("labelRetire", "Retire on your feet"), { phase: "retire" }));
 }
 function setStance(s) {
   if (!chain) return;
-  dapp.call("stance", [myId, s], 0n, `Stance: ${STANCE_KEY[s]}`, { phase: "stance", want: s });
+  act("stance", t("whatStance", "Changing stance"), () =>
+    dapp.call("stance", [myId, s], 0n, `${t("labelStance", "Stance")}: ${STANCE_KEY[s]}`,
+      { phase: "stance", want: s }));
 }
 
 /** Anyone may settle a leg, so the client does it for you the moment the dice exist. This is upkeep, not
@@ -476,11 +509,15 @@ function wireDials() {
   const agg = $("agg"), heal = $("heal"), focus = $("focus");
   agg.oninput = () => { planAgg = Number(agg.value); $("aggVal").textContent = planAgg; updateAggHint(); };
   heal.oninput = () => { $("healVal").textContent = heal.value + "%"; };
-  heal.onchange = () => { if (chain) dapp.call("orders", [myId, Number(heal.value)], 0n,
-    `Auto-drink below ${heal.value}%`, { phase: "orders", want: Number(heal.value) }); };
+  heal.onchange = () => { if (!chain) return; act("orders", t("whatOrders", "Changing standing orders"),
+    () => dapp.call("orders", [myId, Number(heal.value)], 0n,
+      t("labelOrders", "Auto-drink below {n}%", { n: heal.value }),
+      { phase: "orders", want: Number(heal.value) })); };
   focus.oninput = () => { $("focusVal").textContent = `${focus.value} / ${100 - focus.value}`; };
-  focus.onchange = () => { if (chain) dapp.call("focus", [myId, Number(focus.value)], 0n,
-    `Focus ${focus.value}% weapon`, { phase: "focus", want: Number(focus.value) }); };
+  focus.onchange = () => { if (!chain) return; act("focus", t("whatFocus", "Changing focus"),
+    () => dapp.call("focus", [myId, Number(focus.value)], 0n,
+      t("labelFocus", "Focus {n}% weapon", { n: focus.value }),
+      { phase: "focus", want: Number(focus.value) })); };
 }
 
 /** Price the pull against the heaviest swing waiting in the visible leg — the number the dial exists for. */
@@ -498,8 +535,8 @@ function updateAggHint() {
 async function boot() {
   wireWallet(dapp);
   dapp.onReturn((pend, ok, err) => {
-    if (err) alertBar($("alerts"), err);
-    else if (ok) okBar($("alerts"), pend && pend.label ? pend.label + " — landed" : "Done");
+    if (err) alertBar(err);
+    else if (ok) okBar(pend && pend.label ? `${pend.label} — landed` : t("done", "Done"));
   });
   wireDials();
   $("beginBtn").onclick = begin;
@@ -513,4 +550,4 @@ async function boot() {
   requestAnimationFrame(tick);
 }
 
-boot().catch((e) => alertBar($("alerts"), String(e && e.message || e)));
+boot().catch((e) => alertBar(String((e && e.message) || e)));
