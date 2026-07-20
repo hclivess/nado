@@ -16,7 +16,9 @@ const CID = "2f8cc0ce02bc5e02abb10e4dc3af28e7";   // execnode/games/hamster.py (
 const dapp = new NadoDapp({ cid: CID, app: "Hamster" });
 
 // keep these in lockstep with execnode/games/hamster.py
-const NH = 6, GENE_DELAY = 2, BET_BLOCKS = 20, RACE_LEN = 10, GENE_SPREAD = 8, STEP_BASE = 6;
+// MIRRORS execnode/games/hamster.py — these are display-only here, but a drift makes every countdown
+// on screen a lie (and pets showed how a stale mirrored constant can take a page down entirely).
+const NH = 6, GENE_DELAY = 2, BET_BLOCKS = 50, RACE_LEN = 10, GENE_SPREAD = 8, STEP_BASE = 6;
 // UNIT = raw NADO per pool unit. MIND THE UNITS — the two sources differ and mixing them up silently
 // inflates every displayed amount by 10^4:
 //   • raw STORAGE maps (tot/pl/...) hold UNITs      -> multiply by UNIT before rawToNado()
@@ -428,12 +430,12 @@ function render() {
     // with a BANK on the race there is nobody left to wait for: one bet at its price starts the clock.
     const priced = r.bank && r.od.some((x) => x > 100);
     state = priced
-      ? window.t("hamster.stWaitBank", "🏦 The bank is taking bets — back a hamster at its price and the race starts straight away ({n}-block countdown). Or join the pool and wait for another punter.", { n: BET_BLOCKS })
+      ? window.t("hamster.stWaitBank2", "🏦 The bank is taking bets — take a fixed price and you are matched instantly, no waiting for a crowd. Backing also starts the {t} countdown, and betting stays open through it so others can join the same race.", { t: toTime(BET_BLOCKS) })
       : r.bc >= 1
-        ? window.t("hamster.stWaitOne", "⏳ One backer in — the {n}-block countdown starts the moment a SECOND player backs a hamster. Bet now to start the race.", { n: BET_BLOCKS })
-        : window.t("hamster.stWaitNone", "⏳ Open for bets — the countdown starts once TWO different players have backed a hamster. Be the first, or bank the race yourself so anyone can play at once.");
+        ? window.t("hamster.stWaitOne2", "⏳ One backer in — a SECOND player starts the {t} countdown. That is a countdown, not a start gun: betting stays open the whole time, so everyone still gets in on the same race.", { t: toTime(BET_BLOCKS) })
+        : window.t("hamster.stWaitNone2", "⏳ Open for bets — the {t} countdown starts once TWO different players have backed a hamster, and betting stays open right through it. Be the first, or bank the race yourself so anyone can play at once.", { t: toTime(BET_BLOCKS) });
   }
-  else if (r.phase === "betting") state = window.t("hamster.stBet", "🟢 Betting OPEN — closes at block {b} (~{t}). Read the form, then back a hamster!", { b: r.lk, t: toTime(r.lk - (r.cur || r.lk)) });
+  else if (r.phase === "betting") state = window.t("hamster.stBet2", "🟢 Betting OPEN — anyone can still join. Closes in ~{t} (block {b}). Read the form, then back a hamster!", { b: r.lk, t: toTime(r.lk - (r.cur || r.lk)) });
   else if (r.phase === "racing") { const lap = rows ? Math.max(0, ...rows.map((x) => x.blocks)) : 0; state = window.t("hamster.stRun", "🏁 And they're off — lap {k}/{n}! Each block nudges every hamster by its own step. Finish in ~{t}.", { k: lap, n: RACE_LEN, t: toTime(r.fh - (r.cur || r.fh)) }); }
   else if (r.phase === "settling") state = window.t("hamster.stPhoto", "📸 Photo finish — settling the result on-chain…");
   else state = r.vd ? window.t("hamster.stVoid", "↩ Void — no backers on the winning lane, every stake refunds 1:1.")

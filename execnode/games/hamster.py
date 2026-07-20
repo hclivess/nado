@@ -64,7 +64,12 @@ DAILY_WORDS = 1
 
 NH = 6                      # six lanes — a fixed field keeps settle fully unrolled (no variable loop)
 GENE_DELAY = 2             # blocks from open() to the gene block (genes lock ~12s later)
-BET_BLOCKS = 20           # betting window after the gene block (~2 min)
+BET_BLOCKS = 50           # betting window once the countdown starts (~5 min). The SECOND distinct bettor
+                          # starts this clock — it is a COUNTDOWN, not a start gun: everyone else still has
+                          # the whole window to join the same race. At 20 blocks (~2 min) that window was so
+                          # short it read as "the second bet starts the race", which is the opposite of the
+                          # intent. Races already counting down keep their stored lk/fh, so nothing in
+                          # flight changes.
 RACE_LEN = 10            # race blocks — each block's hash advances every hamster by its own step; ~60s at 6s/block
 GENE_SPREAD = 8          # speed = 1 + gene % GENE_SPREAD  -> 1..8
 STEP_BASE = 6            # per-block step = roll % (speed + STEP_BASE)

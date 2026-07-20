@@ -74,15 +74,15 @@
 
   <section class="hero">
     <h1>NADO <span class="g" data-i18n="games.title">Games</span></h1>
-    <p class="lead" data-i18n="games.lead">Provably-fair games on the NADO execution layer. Sign in with your post-quantum wallet, stake real NADO, and win — every outcome is decided by future block hashes and enforced on-chain, so nobody can cheat. No install, no house account.</p>
+    <p class="lead" data-i18n="games.lead">Provably-fair games on the NADO execution layer. Sign in with your post-quantum wallet, stake real NADO, and win — every outcome is decided by future block hashes and enforced on-chain, so nobody can cheat. Some games are player-versus-player with no house at all; the rest have a house that is another PLAYER, never us — anyone can put up the bankroll and take the other side. No install, no operator account.</p>
   </section>
 
   <div class="grid" id="games"></div>
 
   <div class="fair">
     <h2 data-i18n="games.fairH">Provably fair — by construction</h2>
-    <span data-i18n-html="games.fairBody">Every game is an ordinary <b>on-chain contract</b> on NADO's execution layer (no special server, no house
-    account). Outcomes come from <b>future L1 block hashes</b> that don't exist yet while betting is open —
+    <span data-i18n-html="games.fairBody">Every game is an ordinary <b>on-chain contract</b> on NADO's execution layer (no special server, and no house account belonging to us —
+    where a game has a bank, it is funded by a player who chose to take that side, and you can be that player). Outcomes come from <b>future L1 block hashes</b> that don't exist yet while betting is open —
     no player, no host, no block producer can know or steer a result (Hold'em adds commit-reveal so your hole
     cards stay yours alone). Payouts are escrowed and settled by the contract itself — nothing is minted or lost. Your key never leaves your <a href="https://get.nadochain.com/">NADO wallet</a>; each game
     only bounces you there to sign. <a href="https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md">See how the contracts work →</a></span>
@@ -240,11 +240,11 @@ const SVG = {
 // The game directory — add a new game by appending one object here (the page renders it automatically).
 const GAMES = [
   { svg:SVG.bet, name:"Bet", tag:"Live", live:true, slug:"bet", url:"https://bet.nadochain.com",
-    blurb:"Parimutuel betting on any event — no house, no bookmaker. Everyone's stake goes into one pool and the winning side splits it pro-rata (a racetrack tote), so the odds are set by the crowd, not a book. Results are posted on-chain by a configurable oracle reading free public sources; a postponed or unresolved event refunds every stake 1:1.",
-    meta:["No house","Crowd-set odds","Oracle-resolved","Postponed → refund"] },
+    blurb:"Bet on any event, two ways. Pool your stake with everyone else and the winning side splits the whole pot pro-rata (a racetrack tote), so the odds are set by the crowd and there is no bookmaker at all — or take a fixed price from a peer bank: any player can put up a bankroll, publish a price per outcome, and keep every losing stake. Results are posted on-chain by a configurable oracle reading free public feeds you can browse yourself; a postponed or unresolved event refunds every stake 1:1.",
+    meta:["Pool or fixed odds","Bank it yourself","Oracle-resolved","Postponed → refund"] },
   { svg:SVG.hamster, name:"Hamster Racing", tag:"Live", live:true, slug:"hamster", faucet:true, url:"https://hamster.nadochain.com",
-    blurb:"Bet on six hamsters, no house. Each race pins its speed genes to a future block hash and shows them — that's the form you handicap — then the next few block hashes run the race and the winner's backers split the whole pot (parimutuel). Or play the free Daily Derby: a fresh eight-race slate unique to your wallet, pick the winners, and the faucet pays the top scorers every day — every score replay-verified on-chain.",
-    meta:["No house","Crowd-set tote odds","Free daily + faucet prizes","Provably fair"] },
+    blurb:"Bet on six hamsters, two ways. Each race pins its speed genes to a future block hash and shows them — that's the form you handicap — then the next few block hashes run the race. Pool with the other punters and the winner's backers split the whole pot, or take a fixed price from a peer bank so you never wait for a crowd; any player can be that bank. Or play the free Daily Derby: a fresh eight-race slate unique to your wallet, pick the winners, and the faucet pays the top scorers every day — every score replay-verified on-chain.",
+    meta:["Pool or fixed odds","Bank it yourself","Free daily + faucet prizes","Provably fair"] },
   { svg:SVG.coin, name:"Coin Flip", tag:"Live", live:true, slug:"coinflip", url:"https://coinflip.nadochain.com",
     blurb:"A fair 2-player coin flip for stakes. Both stake into a pot; the winner is decided by a future L1 block hash nobody can predict — no secrets, nothing to reveal, you sign once. Winner takes the pot.",
     meta:["2 players","Winner takes the pot","Beacon-decided","0% house edge"] },
@@ -252,7 +252,7 @@ const GAMES = [
     blurb:"Peer-banked multiplayer European roulette that spins itself every ~2 minutes from a future block hash — no house spin, no secrets. A win pays the true 36 ÷ numbers-covered, the exact 2.70% single-zero edge.",
     meta:["Bank or bet","Self-spinning","Multiplayer","2.70% edge"] },
   { svg:SVG.dice, name:"Dice", tag:"Live", live:true, slug:"dice", faucet:true, url:"https://dice.nadochain.com",
-    blurb:"Adjustable-odds dice that rolls itself every ~2 minutes from a future block hash. Slide your win chance and the payout auto-scales (99 ÷ target, a flat 1% edge). Peer-banked, multiplayer, no house action.",
+    blurb:"Adjustable-odds dice that rolls itself every ~2 minutes from a future block hash. Slide your win chance and the payout auto-scales (99 ÷ target, a flat 1% edge). The house here is another player — anyone can bank a table and earn that edge, or roll against someone else's.",
     meta:["Bank or roll","Win-chance slider","Self-rolling","1% edge"] },
   { svg:SVG.chess, name:"Chess", tag:"Live", live:true, slug:"chess", url:"https://chess.nadochain.com",
     blurb:"Play a real game of chess for stakes — a perft-verified engine referees the board in your browser, every move is logged on-chain, and the pot settles by resign / agree / refund-timeout, so a stall can never rob you.",
@@ -279,17 +279,17 @@ const GAMES = [
     blurb:"The push-your-luck dice classic (aka Ten Thousand): pick how far you dare to push, and the chain auto-plays your whole turn from a future block hash — set aside 1s, 5s and three-of-a-kinds, but a scoreless roll busts it all. Open table, highest score takes the pot.",
     meta:["6 dice","Push your luck","Multiplayer","Winner takes the pot"] },
   { svg:SVG.pets, name:"NADO Pets", tag:"Live", live:true, slug:"pets", url:"https://pets.nadochain.com",
-    blurb:"On-chain tamagotchi NFTs. Adopt an egg and a future block hash decides what hatches — Poodle, African Grey Parrot or a legendary Dragon — with 10 stats locked at birth. Feed them real NADO or they die, train them (rarer trains easier), battle other pets for stakes (losers can die), and trade them on the marketplace.",
-    meta:["True NFTs","Feed or they die","Train & battle","Marketplace"] },
+    blurb:"On-chain tamagotchi NFTs. Adopt an egg and a future block hash decides what hatches — Poodle, African Grey Parrot or a legendary Dragon — with 10 stats locked at birth. Feed them or they die, train them, battle other pets for stakes, and trade them on the marketplace. Every species is also born to a TRADE: raise a building of that trade, staff it with a matching pet, and it works while you're away — farmed fodder feeds your barn for free, and working pets dig up gear whose random stat rolls make them measurably stronger in the arena.",
+    meta:["True NFTs","Feed or they die","Work, build & gear","Marketplace"] },
   { svg:SVG.slots, name:"Slots", tag:"Live", live:true, slug:"slots", faucet:true, url:"https://slots.nadochain.com",
     blurb:"Classic 3-reel slots where players own the machines. Open one, bank it, and earn the published 4.2% edge — or spin someone else's for up to 150× on triple sevens. Every spin is decided by two future block hashes; the exact 95.80% RTP is proven by full enumeration and enforced on-chain.",
     meta:["Own the machine","150× jackpot","RTP 95.80% exact","Results in seconds"] },
   { svg:SVG.blackjack, name:"Blackjack", tag:"Live", live:true, slug:"blackjack", faucet:true, url:"https://blackjack.nadochain.com",
-    blurb:"Blackjack with literally no dealer to trust: the house plays a fixed on-chain strategy (stands on 17), your cards bind to future block hashes when you bet or hit, and the dealer's cards are drawn only after you stand — nothing to peek at, nothing to rig. Win pays 2×, blackjack 5:2, every card verifiable on-chain.",
+    blurb:"Blackjack with no dealer to trust: the dealer is a fixed on-chain strategy (stands on 17), your cards bind to future block hashes when you bet or hit, and the dealer's cards are drawn only after you stand — nothing to peek at, nothing to rig. The bankroll behind the table belongs to another player, and you can put it up yourself. Win pays 2×, blackjack 5:2, every card verifiable on-chain.",
     meta:["Hit or stand","Dealer is an algorithm","Blackjack pays 5:2","Every card on-chain"] },
   { svg:SVG.mines, name:"Mines", tag:"Live", live:true, slug:"mines", faucet:true, url:"https://mines.nadochain.com",
-    blurb:"The crypto classic with no house and no hidden layout to rig: pick how many mines lurk in the 5×5 field, reveal tiles — every safe one multiplies your payout — and cash out any time before one blows. Each reveal is drawn from two future block hashes at the exact fair odds (flat 1% edge), enforced on-chain.",
-    meta:["Choose your risk","Cash out anytime","No hidden layout","Million-× ceilings"] },
+    blurb:"The crypto classic with no hidden layout to rig: pick how many mines lurk in the 5×5 field, reveal tiles — every safe one multiplies your payout — and cash out any time before one blows. Each reveal is drawn from two future block hashes at the exact fair odds (flat 1% edge), enforced on-chain. The house is a player who banked the table, and you can be it.",
+    meta:["Choose your risk","Cash out anytime","The bank is a player","Million-× ceilings"] },
   { svg:SVG.connect4, name:"Connect Four", tag:"Live", live:true, slug:"connect4", faucet:true, url:"https://connect4.nadochain.com",
     blurb:"The classic drop-four, for stakes — and the contract itself referees: every drop is checked on-chain (turn and gravity), four-in-a-row pays the pot instantly, a full board refunds both. Or play the free Daily Drop: a fresh seven-column board unique to your wallet each day, beat the day's bot in as few moves as you can, and the faucet pays the top scores automatically — every run replay-verified.",
     meta:["2 players","Contract-refereed","Free daily + faucet prizes","Winner takes the pot"] },
