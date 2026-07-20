@@ -3012,6 +3012,15 @@ async function assetFetch(params) {
   return (j && j.assets) || [];
 }
 
+// A safe 🔗 for an asset's metadata pointer. The uri is issuer-supplied, so it is an XSS vector in an href:
+// ONLY http(s)/ipfs/ar schemes become a link (rel=noopener, no referrer, escaped), anything else is dropped.
+function assetUriLink(uri) {
+  if (!uri || typeof uri !== "string") return "";
+  if (!/^(https?|ipfs|ar):\/\//i.test(uri)) return "";
+  return ' <a href="' + escapeHtml(uri) + '" target="_blank" rel="noopener noreferrer nofollow" title="'
+    + escapeHtml(uri) + '">🔗</a>';
+}
+
 async function renderAssets() {
   assetsWire();
   if (!state.wallet) return;
@@ -3027,14 +3036,14 @@ async function renderAssets() {
   // far-apart columns. A holding reads as one sentence — amount first, because that is what the eye wants.
   $("assetsList").innerHTML = _myAssets.length ? _myAssets.map((a) =>
     '<div style="margin:.35rem 0"><b>' + escapeHtml(assetToDisplay(a.balance, a.dec)) + " " + escapeHtml(a.sym) + '</b>'
-    + ' <span class="dim">' + escapeHtml(a.name) + '</span>'
+    + ' <span class="dim">' + escapeHtml(a.name) + '</span>' + assetUriLink(a.uri)
     + ' <span class="faint">· ' + (a.mintable ? i18("assets.isMintable", "mintable") : i18("assets.isFixed", "fixed supply"))
     + ' · ' + i18("assets.supplyIs", "supply") + " " + escapeHtml(assetToDisplay(a.supply, a.dec))
     + ' · ' + escapeHtml(String(a.id).slice(0, 12)) + '…</span></div>').join("")
     : '<span class="faint">' + i18("assets.none", "You hold no assets yet.") + '</span>';
   // issued
   $("assetIssuedList").innerHTML = _myIssued.length ? _myIssued.map((a) =>
-    '<div style="margin:.35rem 0"><b>' + escapeHtml(a.sym) + '</b> <span class="dim">' + escapeHtml(a.name) + '</span>'
+    '<div style="margin:.35rem 0"><b>' + escapeHtml(a.sym) + '</b> <span class="dim">' + escapeHtml(a.name) + '</span>' + assetUriLink(a.uri)
     + ' <span class="faint">· ' + i18("assets.supplyIs", "supply") + " "
     + escapeHtml(assetToDisplay(a.supply, a.dec)) + ' · ' + a.holders + " " + i18("assets.holders", "holders")
     + ' · ' + (a.mintable ? i18("assets.isMintable", "mintable") : i18("assets.isFixed", "fixed supply"))
@@ -3051,7 +3060,8 @@ async function renderAssets() {
   fill("assetSendId", _myAssets);
   fill("assetBurnId", _myAssets);
   fill("assetIssuedId", _myIssued.filter((a) => a.mintable));
-  renderVaults().catch(() => {});   // vaults read the reserve contract + reuse _myAssets/_myIssued just set above
+  renderAllowances().catch(() => {});   // delegated-spend lists, reuse _myAssets just set above
+  renderVaults().catch(() => {});       // vaults read the reserve contract + reuse _myAssets/_myIssued
 }
 
 function _assetById(id) {
@@ -3104,16 +3114,20 @@ async function assetCreate() {
   const name = ($("assetNewName").value || "").trim();
   const dec = parseInt($("assetNewDec").value, 10);
   const mintable = $("assetNewMintable").checked;
+  const uri = ($("assetNewUri").value || "").trim();
   if (!sym || sym.length > 12) { setMsg("assetCreateMsg", i18("assets.symRule", "Symbol must be 1–12 characters."), "err"); return; }
   if (!name || name.length > 64) { setMsg("assetCreateMsg", i18("assets.nameRule", "Name must be 1–64 characters."), "err"); return; }
   if (!(dec >= 0 && dec <= 18)) { setMsg("assetCreateMsg", i18("assets.decRule", "Decimals must be 0–18."), "err"); return; }
+  if (uri.length > 128) { setMsg("assetCreateMsg", i18("assets.uriRule", "Link must be 128 characters or fewer."), "err"); return; }
   let supply;
   try { supply = assetToRaw($("assetNewSupply").value || "0", dec); } catch (e) { setMsg("assetCreateMsg", e.message, "err"); return; }
   // The id is DERIVED from (issuer, seed), so the seed only has to be one this issuer has not used. Pick the
   // next free one from what they already issued rather than a random number, so ids stay small and legible.
   const used = new Set(_myIssued.map((a) => a.seed));
   let seed = 1; while (used.has(seed)) seed++;
-  await assetBlob({ op: "asset_create", seed, name, sym, dec, supply, mintable },
+  const payload = { op: "asset_create", seed, name, sym, dec, supply, mintable };
+  if (uri) payload.uri = uri;
+  await assetBlob(payload,
     i18("assets.dlgIssue", "Issue asset"), "assetCreateMsg",
     [{ k: i18("assets.sym", "Symbol"), v: sym }, { k: i18("assets.name", "Name"), v: name },
      { k: i18("assets.supply", "Initial supply"), v: assetToDisplay(supply, dec) },
@@ -3160,6 +3174,84 @@ async function assetBurn() {
   if (ok) $("assetBurnAmt").value = "";
 }
 
+/* DELEGATED SPEND (doc/assets.md §7a) — approve/allowance/transferFrom in the wallet. Two lists: approvals
+ * you GRANTED (with revoke) and approvals granted TO YOU (spendable). Amounts are per-asset decimal. */
+let _allowGranted = [], _allowToYou = [];
+
+async function allowFetch(params) {
+  const u = execBase() + "/exec/allowances?" + new URLSearchParams({ ...params, provisional: 1 }).toString();
+  const j = await (await fetch(u, { cache: "no-store" })).json();
+  return (j && j.allowances) || [];
+}
+
+async function renderAllowances() {
+  if (!$("allowGranted") || !state.wallet) return;
+  const me = state.wallet.address;
+  try {
+    [_allowGranted, _allowToYou] = await Promise.all([allowFetch({ owner: me }), allowFetch({ spender: me })]);
+  } catch (e) {
+    $("allowGranted").textContent = i18("assets.execDown", "Execution node unreachable."); return;
+  }
+  $("allowGranted").innerHTML = _allowGranted.length ? _allowGranted.map((x) =>
+    '<div style="margin:.3rem 0"><b>' + escapeHtml(assetToDisplay(x.amount, x.dec)) + " " + escapeHtml(x.sym) + '</b>'
+    + ' → <span class="mono">' + escapeHtml(_abShort(x.spender)) + '</span> '
+    + '<button class="revoke" data-asset="' + escapeHtml(x.asset) + '" data-spender="' + escapeHtml(x.spender)
+    + '" style="padding:2px 8px">' + escapeHtml(i18("allow.revoke", "revoke")) + '</button></div>').join("")
+    : '<span class="faint">' + i18("allow.noneGranted", "You have granted no approvals.") + '</span>';
+  $("allowToYou").innerHTML = _allowToYou.length ? _allowToYou.map((x) =>
+    '<div style="margin:.3rem 0"><b>' + escapeHtml(assetToDisplay(x.amount, x.dec)) + " " + escapeHtml(x.sym) + '</b>'
+    + ' ' + i18("allow.from", "from") + ' <span class="mono">' + escapeHtml(_abShort(x.owner)) + '</span></div>').join("")
+    : '<span class="faint">' + i18("allow.noneToYou", "No one has approved you.") + '</span>';
+  // selects: approve against an asset you hold; spend an allowance granted to you
+  const sel = $("allowAsset");
+  if (sel) {
+    const prev = sel.value;
+    sel.innerHTML = (_myAssets || []).map((a) => '<option value="' + escapeHtml(a.id) + '">' + escapeHtml(a.sym)
+      + " — " + escapeHtml(a.name) + "</option>").join("");
+    if (prev && (_myAssets || []).some((a) => a.id === prev)) sel.value = prev;
+  }
+  const ssel = $("allowSpendId");
+  if (ssel) {
+    ssel.innerHTML = _allowToYou.map((x, i) => '<option value="' + i + '">' + escapeHtml(x.sym) + " — "
+      + i18("allow.upTo", "up to") + " " + escapeHtml(assetToDisplay(x.amount, x.dec)) + " "
+      + i18("allow.of", "of") + " " + escapeHtml(_abShort(x.owner)) + "</option>").join("");
+  }
+}
+
+async function assetApprove(assetId, spender, amountStr) {
+  const a = (_myAssets || []).find((x) => x.id === assetId) || _allowGranted.find((x) => x.asset === assetId);
+  if (!a) { setMsg("allowMsg", i18("assets.pick", "Pick an asset first."), "err"); return; }
+  let sp = (spender || "").trim();
+  if (looksLikeAlias(sp.toLowerCase())) sp = (await resolveAlias(sp.toLowerCase())) || sp;
+  if (!validateAddress(sp)) { setMsg("allowMsg", i18("assets.badTo", "Recipient must be a valid address or registered alias."), "err"); return; }
+  let amount;
+  try { amount = assetToRaw(amountStr, a.dec); } catch (e) { setMsg("allowMsg", e.message, "err"); return; }
+  if (amount < 0n) { setMsg("allowMsg", i18("msg.amountPos", "Amount must be greater than zero."), "err"); return; }
+  const ok = await assetBlob({ op: "asset_approve", asset: assetId, spender: sp, amount: Number(amount) },
+    amount > 0n ? i18("allow.dlgApprove", "Approve spender") : i18("allow.dlgRevoke", "Revoke approval"), "allowMsg",
+    [{ k: i18("assets.asset", "Asset"), v: a.sym }, { k: i18("allow.spender", "Spender"), v: _abShort(sp) },
+     { k: i18("assets.amount", "Amount"), v: amount > 0n ? assetToDisplay(amount, a.dec) + " " + a.sym : i18("allow.revoked", "0 (revoked)") }]);
+  if (ok) { $("allowSpender").value = ""; $("allowAmt").value = ""; setTimeout(() => renderAssets().catch(() => {}), 1500); }
+}
+
+async function assetTransferFrom() {
+  const x = _allowToYou[parseInt($("allowSpendId").value, 10)];
+  if (!x) { setMsg("allowSpendMsg", i18("allow.pickGrant", "Pick an approval to spend."), "err"); return; }
+  let to = ($("allowSpendTo").value || "").trim();
+  if (looksLikeAlias(to.toLowerCase())) to = (await resolveAlias(to.toLowerCase())) || to;
+  if (!validateAddress(to)) { setMsg("allowSpendMsg", i18("assets.badTo", "Recipient must be a valid address or registered alias."), "err"); return; }
+  let amount;
+  try { amount = assetToRaw($("allowSpendAmt").value, x.dec); } catch (e) { setMsg("allowSpendMsg", e.message, "err"); return; }
+  if (amount <= 0n) { setMsg("allowSpendMsg", i18("msg.amountPos", "Amount must be greater than zero."), "err"); return; }
+  if (amount > BigInt(x.amount)) { setMsg("allowSpendMsg", i18("allow.overGrant", "More than you are approved for."), "err"); return; }
+  const ok = await assetBlob({ op: "asset_transfer_from", asset: x.asset, from: x.owner, to, amount: Number(amount) },
+    i18("allow.dlgSpend", "Spend an approval"), "allowSpendMsg",
+    [{ k: i18("assets.asset", "Asset"), v: x.sym }, { k: i18("allow.fromOwner", "From"), v: _abShort(x.owner) },
+     { k: i18("dlg.to", "To"), v: _abShort(to) },
+     { k: i18("assets.amount", "Amount"), v: assetToDisplay(amount, x.dec) + " " + x.sym }]);
+  if (ok) { $("allowSpendAmt").value = ""; }
+}
+
 function assetsWire() {
   if (_assetsWired) return;
   _assetsWired = true;
@@ -3172,6 +3264,14 @@ function assetsWire() {
   if ($("btnAssetMint")) $("btnAssetMint").onclick = () => assetMint().catch((e) => setMsg("assetIssueMsg", e.message, "err"));
   if ($("btnAssetRenounce")) $("btnAssetRenounce").onclick = () => assetRenounce().catch((e) => setMsg("assetIssueMsg", e.message, "err"));
   if ($("btnAssetBurn")) $("btnAssetBurn").onclick = () => assetBurn().catch((e) => setMsg("assetBurnMsg", e.message, "err"));
+  if ($("btnAllowApprove")) $("btnAllowApprove").onclick = () =>
+    assetApprove($("allowAsset").value, $("allowSpender").value, $("allowAmt").value).catch((e) => setMsg("allowMsg", e.message, "err"));
+  if ($("btnAllowSpend")) $("btnAllowSpend").onclick = () => assetTransferFrom().catch((e) => setMsg("allowSpendMsg", e.message, "err"));
+  // revoke buttons are rendered per-row: one delegated listener reads the row's asset+spender and approves 0
+  if ($("allowGranted")) $("allowGranted").onclick = (e) => {
+    const b = e.target.closest(".revoke"); if (!b) return;
+    assetApprove(b.getAttribute("data-asset"), b.getAttribute("data-spender"), "0").catch((err) => setMsg("allowMsg", err.message, "err"));
+  };
 }
 
 /* ---------------------------------------------------------------------------------------------------

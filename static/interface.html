@@ -460,6 +460,10 @@
         <input id="assetNewSupply" placeholder="1000000" autocomplete="off" spellcheck="false" />
       </div>
     </div>
+    <div class="mt">
+      <label data-i18n="assets.uri">Logo / details link (optional)</label>
+      <input id="assetNewUri" placeholder="https://… or ipfs://…" maxlength="128" autocomplete="off" spellcheck="false" />
+    </div>
     <div class="row mt" style="align-items:flex-start;gap:10px">
       <input id="assetNewMintable" type="checkbox" class="switch" />
       <label for="assetNewMintable" style="margin:0;flex:1;cursor:pointer">
@@ -490,6 +494,33 @@
       <button id="btnAssetBurn" data-i18n="btn.burn">Burn</button>
     </div>
     <div id="assetBurnMsg" class="small mt"></div>
+
+    <!-- DELEGATED SPEND (doc/assets.md §7a): approve a spender to move your tokens; spend an approval
+         someone granted you. Absent == 0; approve OVERWRITES; 0 revokes. -->
+    <h3 class="mt" data-i18n="allow.head">Approvals (delegated spend)</h3>
+    <p class="small faint" data-i18n="allow.intro">Authorise someone else to move a set amount of your token
+      on your behalf — a keeper, a custodian, or another account. They can never move more than you approve
+      or more than you hold. Approving again replaces the amount; approving 0 revokes.</p>
+    <div class="row">
+      <select id="allowAsset" style="flex:1"></select>
+      <input id="allowSpender" placeholder="mldsa44… (spender)" autocomplete="off" spellcheck="false" style="flex:2" />
+      <input id="allowAmt" placeholder="amount" autocomplete="off" spellcheck="false" style="width:8rem" />
+      <button id="btnAllowApprove" data-i18n="allow.approve">Approve</button>
+    </div>
+    <div id="allowMsg" class="small mt"></div>
+
+    <h4 class="mt" data-i18n="allow.granted">Approvals you granted</h4>
+    <div id="allowGranted" class="small mono">—</div>
+
+    <h4 class="mt" data-i18n="allow.toYou">Approvals granted to you</h4>
+    <div id="allowToYou" class="small mono">—</div>
+    <div class="row mt">
+      <select id="allowSpendId" style="flex:2"></select>
+      <input id="allowSpendTo" placeholder="mldsa44… (to)" autocomplete="off" spellcheck="false" style="flex:2" />
+      <input id="allowSpendAmt" placeholder="amount" autocomplete="off" spellcheck="false" style="width:8rem" />
+      <button id="btnAllowSpend" class="accent" data-i18n="allow.spend">Spend</button>
+    </div>
+    <div id="allowSpendMsg" class="small mt"></div>
 
     <!-- RESERVE VAULTS (doc/reserve.md): back a token with locked NADO, redeemable pro-rata by holders,
          releasable by the creator only after an announced notice. The floor shown is cross-checked against
@@ -1063,7 +1094,7 @@
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=2d30264f"></script>
-<script type="module" src="/static/interface.js?v=e321a141"></script>
+<script defer src="/static/i18n.js?v=745b1be9"></script>
+<script type="module" src="/static/interface.js?v=0f926b21"></script>
 </body>
 </html>
