@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# _scrapline_e2e.py — LIVE smoke test of the Stormhold contract with real (tiny) NADO: the node key
+# _scrapline_e2e.py — LIVE smoke test of the Scrapline contract with real (tiny) NADO: the node key
 # opens, a freshly generated funded key joins, and both play REAL engine-legal moves for a while — each
 # move computed by tests/scrapline_next_move.mjs, which replays the on-chain log through the browser's
 # actual rules engine with the actual pinned block hashes. Exercises the full loop on-chain: open/join
