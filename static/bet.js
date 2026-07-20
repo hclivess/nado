@@ -14,10 +14,14 @@
 // -> every stake refunds 1:1; an unbacked winner auto-voids. Payouts are pull-based (each bettor calls
 // claim). Outcomes are integers 0..nout-1 everywhere. Per-user positions are read through the contract's
 // /exec/view methods (claimable_of etc.) — see the myCache notes below.
+import { Book } from "./bookgame.js";
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, disp, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js";
 
 const CID = "497f7032def19ecc30ab22f80b4854cb";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });
+// the fixed-odds BOOK (bank vs punters) — model, solvency maths, actions and settle predicates all
+// live in the shared scaffold, so this game and hamster cannot drift on the part that moves money
+const book = new Book(dapp, { idKey: "market", stride: 8, unit: 10000n });
 // Markets close/void by WALL-CLOCK time (the contract's TIME opcode = L1 block timestamp), never block height —
 // block rate drifts, so a height deadline fires at an unpredictable real moment (that bug voided live matches a
 // day early). lk/dl are epoch seconds. VOID_GRACE_SEC is UI wiggle room: the chain clock is only precise to tens
@@ -60,12 +64,9 @@ function actionLanded(f) {
   if (f.phase === "create") return !!_m(sto, "mk")[m];
   if (f.phase === "resolve") return !!_m(sto, "dn")[m] || !!_m(sto, "vd")[m] || Number(my.vote || 0) > 0;
   if (f.phase === "void") return !!_m(sto, "vd")[m];
-  // BOOK phases. book/quote/back are visible in plain storage; bclaim/bsweep flip a flag we can read.
-  if (f.phase === "book") return !!_m(sto, "bk")[m];
-  if (f.phase === "quote") return Number(_m(sto, "od")[m * 8 + f.outcome] || 0) >= Number(f.od0 || 1);
-  if (f.phase === "back") return Number((my.book && my.book.stakes[f.outcome]) || 0) > 0;
-  if (f.phase === "bclaim") return !!(my.book && my.book.claimed);
-  if (f.phase === "bsweep") return !!_m(sto, "bd")[m];
+  // BOOK phases — the scaffold owns these, so hamster and bet retire them identically
+  const mk = parseMarket(sto, m);
+  if (mk) return book.settled(f, mk.book, my.book);
   return false;
 }
 
@@ -204,21 +205,12 @@ function parseMarket(sto, id) {
   const myStakes = []; for (let i = 0; i < nout; i++) myStakes.push(Number((my.stakes || [])[i] || 0));
   const myTotal = Number(my.total || 0);
   const claimed = !!my.claimed;
-  // THE BOOK (a bank beside the tote). bk = who banks this match ("" = nobody yet), br = the bankroll they
-  // put up, bs = every stake they have taken, bd = they have swept. od[i] is the price they publish for an
-  // outcome in PERCENT (250 = 2.50x) and bp[i] the payout already committed there — the pair is the whole
-  // shop window: what you'd be paid, and how much room is left before the bank must refuse.
-  const odds = [], bookPay = [];
-  for (let i = 0; i < nout; i++) {
-    odds.push(Number(_m(sto, "od")[id * 8 + i] || 0));
-    bookPay.push(Number(_m(sto, "bp")[id * 8 + i] || 0) * UNIT);
-  }
+  // THE BOOK (a bank beside the tote) — read through the shared scaffold, which also owns the solvency
+  // ceiling and the five actions. Two games publish prices this way; only one copy of that maths exists.
   return { id: Number(id), nout, title, labels, total, pools, resolved, voided, winner, lock, deadline, cur,
            locked, status, myStakes, myTotal, claimed, claimableAmt: Number(my.claimable || 0),
            source: String(G("so") || ""), ev: String(G("ev") || ""),
-           bank: String(G("bk") || ""), bankroll: Number(G("br") || 0) * UNIT,
-           bookTaken: Number(G("bs") || 0) * UNIT, bookSwept: !!G("bd"), odds, bookPay,
-           myBook: my.book || null };
+           book: book.read(sto, id, nout), myBook: my.book || null };
 }
 const allMarkets = (sto) => Object.keys(_m(sto, "mk")).map((id) => parseMarket(sto, id)).filter(Boolean);
 // live decimal odds for outcome i: whole pool ÷ that outcome's pool (what a winning unit returns)
@@ -263,43 +255,6 @@ const resolveMarket = (m, out, lab) => { if (dapp.busy("resolve", "market", m)) 
 // thin board your "odds" are whatever two other people happened to do. A bank posts a PRICE you can see
 // and take immediately. It is the same escrow contract: the bank's money is locked up front and the
 // contract refuses any bet it could not pay, so "the bank" is a role anyone can take, not a house.
-const fmtPrice = (od) => (od / 100).toFixed(2) + "×";
-// The contract's per-bet solvency rule is: committed_payout[i] + stake*price <= bankroll + all_stakes + stake.
-// Solving for stake gives the largest bet this outcome can still accept — shown to the punter so the UI
-// never offers a bet the chain will refuse (and rounded DOWN to a whole UNIT, which is all it accepts).
-// The ceiling shown to a punter must never be ROUNDED UP — a displayed max the chain would refuse is worse
-// than a slightly conservative one — so this floors to 4 decimals rather than formatting the exact figure
-// ("max 0.456521" reads like noise; "max 0.4565" reads like a limit).
-const trimMax = (raw) => String(Math.floor(Number(rawToNado(raw)) * 1e4) / 1e4);
-function maxBack(mk, i) {
-  const od = mk.odds[i] || 0;
-  if (od <= 100) return 0;
-  const head = mk.bankroll + mk.bookTaken - mk.bookPay[i];
-  if (head <= 0) return 0;
-  return Math.floor(head / (od / 100 - 1) / UNIT) * UNIT;
-}
-// What the bank walks away with if outcome i wins: everything it holds (its own roll + every stake taken)
-// minus what it owes there. The contract's solvency rule keeps this >= 0 for every outcome, so the bank
-// can see its worst case is still whole before it prices anything.
-const bankPnL = (mk, i) => mk.bankroll + mk.bookTaken - mk.bookPay[i];
-function postBankroll(m, raw) {
-  if (dapp.busy("book", "market", m)) return notify(confirmingLabel());
-  dapp.call("book", [m], raw, window.t("bet.callBook", "put up {amt} NADO as the bank · match #{id}", { amt: rawToNado(raw), id: m }),
-            { market: m, phase: "book" });
-}
-function setPrice(m, i, od, lab) {
-  if (dapp.busy("quote", "market", m)) return notify(confirmingLabel());
-  dapp.call("quote", [m, i, od], null, window.t("bet.callQuote", "price {lab} at {p} · match #{id}", { lab, p: fmtPrice(od), id: m }),
-            { market: m, phase: "quote", outcome: i, od0: od });
-}
-function backOutcome(m, i, raw, lab, od) {
-  if (dapp.busy("back", "market", m)) return notify(confirmingLabel());
-  dapp.call("back", [m, i], raw, window.t("bet.callBack", "back {lab} at {p} for {amt} · match #{id}", { lab, p: fmtPrice(od), amt: rawToNado(raw), id: m }),
-            { market: m, phase: "back", outcome: i });
-}
-const bclaimMarket = (m) => { if (dapp.busy("bclaim", "market", m)) return notify(confirmingLabel()); dapp.call("bclaim", [m], null, window.t("bet.callBclaim", "collect from the bank · match #{id}", { id: m }), { market: m, phase: "bclaim" }); };
-const bsweepMarket = (m) => { if (dapp.busy("bsweep", "market", m)) return notify(confirmingLabel()); dapp.call("bsweep", [m], null, window.t("bet.callBsweep", "sweep the book · match #{id}", { id: m }), { market: m, phase: "bsweep" }); };
-
 // ---- fixture picker: list a real match without knowing any ids -----------------------------------
 let _fixtures = [], _fixBusy = false;
 async function loadFixtures() {
@@ -622,103 +577,38 @@ function renderActive(sto) {
   }
 }
 
-// ---- the bank panel: take the other side, or bet against whoever did ------------------------------
-// One card, four honest states: nobody banks this yet · I am the bank · someone else banks it · it's over.
-// Every number shown comes from the contract's own storage or views, so the panel can never promise a
-// price the chain would refuse.
+// ---- the bank panel ------------------------------------------------------------------------------
+// One call into the shared scaffold, which renders the four honest states of a book (nobody banks this
+// yet · you are the bank · someone else banks it · settled) and wires its own buttons. The only thing
+// this game supplies is what those states MEAN here: whether the market is still open, who won, and the
+// labels for the money lines.
 function renderBook(mk) {
   const el = $("bookBody");
   if (!el) return;
-  const signedIn = !!dapp.me, iAmBank = signedIn && mk.bank === dapp.me;
-  const settled = mk.resolved || mk.voided;
-  const my = mk.myBook || null;
   gate({ bookPanel: true });
-  let h = "";
-
-  if (!mk.bank) {
-    h += '<div class="small dim">' + window.t("bet.bankPitch", "Nobody is banking this match. Put up a bankroll, publish your own prices, and you keep every losing stake — the contract holds your money and refuses any bet it could not pay, so your worst case is capped before you price anything.") + "</div>";
-    if (signedIn && mk.status === "open") {
-      h += '<div class="row mt"><input id="bookAmt" placeholder="' + window.t("bet.bankrollPh", "bankroll (NADO)") + '" inputmode="decimal" autocomplete="off">'
-        + '<button class="primary" id="btnBook" style="flex:0 0 auto">'
-        + (dapp.busy("book", "market", mk.id) ? confirmingLabel() : window.t("bet.becomeBank", "🏦 Become the bank")) + "</button></div>";
-    } else if (!signedIn) h += '<div class="small dim mt">' + window.t("bet.signInToBank", "Sign in to bank this match.") + "</div>";
-    else h += '<div class="small dim mt">' + window.t("bet.bankTooLate", "Betting is closed — a bank can only be posted while a match is open.") + "</div>";
-  } else {
-    const who = iAmBank ? window.t("bet.youAreBank", "you") : disp(mk.bank);
-    h += '<div class="kv"><span class="k">' + window.t("bet.bankIs", "Bank") + '</span><span class="mono">' + esc(who) + "</span></div>"
-      + '<div class="kv"><span class="k">' + window.t("bet.bankroll", "Bankroll") + '</span><span class="mono">' + rawToNado(mk.bankroll) + " NADO</span></div>"
-      + '<div class="kv"><span class="k">' + window.t("bet.bookTaken", "Stakes taken") + '</span><span class="mono">' + rawToNado(mk.bookTaken) + " NADO</span></div>";
-    if (iAmBank) {
-      // the bank's own view: what it keeps if each outcome wins, and the price controls
-      h += '<div class="divlabel">' + window.t("bet.yourBookHead", "Your book — set a price per outcome") + "</div>"
-        + '<div class="small dim">' + window.t("bet.yourBookNote", "A price of 2.50× pays a punter 2.50 NADO per 1 staked. Leave an outcome unpriced and nobody can back it. The row shows what you walk away with if that outcome wins.") + "</div>";
-      h += mk.labels.map((lab, i) =>
-        '<div class="row mt" style="align-items:center">'
-        + '<span style="flex:1 1 auto;min-width:0">' + esc(lab)
-        + ' <span class="dim small">' + window.t("bet.ifWins", "if it wins: {amt}", { amt: rawToNado(bankPnL(mk, i)) }) + "</span></span>"
-        + '<input class="bkPrice" data-o="' + i + '" style="max-width:90px" inputmode="decimal" placeholder="2.50" value="'
-        + (mk.odds[i] > 100 ? (mk.odds[i] / 100).toFixed(2) : "") + '">'
-        + '<button class="ghost bkSet" data-o="' + i + '" style="flex:0 0 auto">' + window.t("bet.setPrice", "Set") + "</button></div>").join("");
-      if (mk.status === "open") h += '<div class="row mt"><input id="bookAmt" placeholder="' + window.t("bet.topUpPh", "add to bankroll (NADO)") + '" inputmode="decimal" autocomplete="off">'
-        + '<button class="ghost" id="btnBook" style="flex:0 0 auto">' + (dapp.busy("book", "market", mk.id) ? confirmingLabel() : window.t("bet.topUp", "Top up")) + "</button></div>";
-      if (settled && !mk.bookSwept) h += '<button class="primary mt" id="btnSweep" style="width:100%">'
-        + (dapp.busy("bsweep", "market", mk.id) ? confirmingLabel() : window.t("bet.sweep", "🧹 Sweep the book")) + "</button>";
-      else if (mk.bookSwept) h += '<div class="small dim mt">' + window.t("bet.swept", "Book swept ✓") + "</div>";
-    } else if (mk.status === "open") {
-      // a punter's view: only outcomes the bank has actually priced, with the real ceiling on each
-      const priced = mk.labels.map((lab, i) => ({ lab, i, od: mk.odds[i], max: maxBack(mk, i) })).filter((x) => x.od > 100);
-      if (!priced.length) h += '<div class="small dim mt">' + window.t("bet.noPrices", "The bank hasn't published any prices yet.") + "</div>";
-      else {
-        h += '<div class="divlabel">' + window.t("bet.backHead", "Back an outcome at a fixed price") + "</div>";
-        h += priced.map((x) =>
-          '<div class="row mt" style="align-items:center">'
-          + '<span style="flex:1 1 auto;min-width:0">' + esc(x.lab) + ' <b>' + fmtPrice(x.od) + "</b>"
-          + '<span class="dim small"> · ' + window.t("bet.maxStake", "max {amt}", { amt: trimMax(x.max) }) + "</span></span>"
-          + '<input class="bkStake" data-o="' + x.i + '" style="max-width:90px" inputmode="decimal" placeholder="1">'
-          + '<button class="primary bkBack" data-o="' + x.i + '" style="flex:0 0 auto"'
-          + (x.max <= 0 ? " disabled" : "") + ">" + window.t("bet.backIt", "Back") + "</button></div>").join("");
-        if (dapp.busy("back", "market", mk.id)) h += '<div class="small dim mt">' + confirmingLabel() + "</div>";
-      }
-    }
-    // the punter's own book position, on any market state
-    if (my && my.total > 0) {
-      h += '<div class="divlabel">' + window.t("bet.yourBookBets", "Your bets against the bank") + "</div>"
-        + my.stakes.map((s, i) => s > 0
-          ? '<div class="pos"><span>' + esc(mk.labels[i]) + " · " + rawToNado(s) + " NADO</span><span>"
-            + window.t("bet.paysIf", "pays {amt}", { amt: rawToNado(my.pays[i]) }) + "</span></div>" : "").join("");
-      if (settled) {
-        const owed = mk.voided ? my.total : (mk.winner != null ? my.pays[mk.winner] : 0);
-        if (my.claimed) h += '<div class="small dim mt">' + window.t("bet.bookCollected", "Collected from the bank ✓") + "</div>";
-        else if (owed > 0) h += '<button class="primary pulse mt" id="btnBclaim" style="width:100%">'
-          + (dapp.busy("bclaim", "market", mk.id) ? confirmingLabel() : window.t("bet.bookCollect", "💰 Collect {amt} from the bank", { amt: rawToNado(owed) })) + "</button>";
-        else h += '<div class="small dim mt">' + window.t("bet.bookNoWin", "Nothing owed by the bank on this match.") + "</div>";
-      }
-    }
-  }
-  el.innerHTML = h;
-  if ($("btnBook")) $("btnBook").onclick = () => {
-    const raw = Math.floor(Number(nadoToRaw($("bookAmt").value)) / UNIT) * UNIT;
-    if (!raw) return alertBar(window.t("bet.enterBankroll", "Enter a bankroll (NADO)."));
-    if (!canPay(dapp, raw, window.t("bet.thisBankroll", "This bankroll"))) return;
-    postBankroll(mk.id, raw);
-  };
-  el.querySelectorAll(".bkSet").forEach((b) => b.onclick = () => {
-    const i = Number(b.dataset.o);
-    const od = Math.round(parseFloat(el.querySelector('.bkPrice[data-o="' + i + '"]').value) * 100);
-    if (!(od > 100)) return alertBar(window.t("bet.badPrice", "A price must beat 1.00× — that is what the punter is paid per 1 NADO staked."));
-    setPrice(mk.id, i, od, mk.labels[i]);
+  book.panel(el, mk.book, {
+    labels: mk.labels,
+    open: mk.status === "open",
+    settled: mk.resolved || mk.voided,
+    voided: mk.voided,
+    winner: mk.winner,
+    myBook: mk.myBook,
+    onPost: (v) => {
+      const raw = BigInt(Math.floor(Number(nadoToRaw(v)) / UNIT) * UNIT);
+      if (!raw) return alertBar(window.t("bet.enterBankroll", "Enter a bankroll (NADO)."));
+      book.post(mk.id, raw, window.t("bet.callBook", "put up {amt} NADO as the bank · match #{id}",
+        { amt: rawToNado(raw), id: mk.id }));
+    },
+    onBack: (i, v) => {
+      const raw = BigInt(Math.floor(Number(nadoToRaw(v)) / UNIT) * UNIT);
+      book.back(mk.book, i, raw, window.t("bet.callBack", "back {lab} at {p} for {amt} · match #{id}",
+        { lab: mk.labels[i], p: (mk.book.odds[i] / 100).toFixed(2) + "×", amt: rawToNado(raw), id: mk.id }));
+    },
+    quoteLabel: (i, pct) => window.t("bet.callQuote", "price {lab} at {p} · match #{id}",
+      { lab: mk.labels[i], p: (pct / 100).toFixed(2) + "×", id: mk.id }),
+    claimLabel: window.t("bet.callBclaim", "collect from the bank · match #{id}", { id: mk.id }),
+    sweepLabel: window.t("bet.callBsweep", "sweep the book · match #{id}", { id: mk.id }),
   });
-  el.querySelectorAll(".bkBack").forEach((b) => b.onclick = () => {
-    const i = Number(b.dataset.o);
-    const raw = Math.floor(Number(nadoToRaw(el.querySelector('.bkStake[data-o="' + i + '"]').value)) / UNIT) * UNIT;
-    if (!raw) return alertBar(window.t("bet.enterStake", "Enter a stake (NADO)."));
-    const max = maxBack(mk, i);
-    if (raw > max) return alertBar(window.t("bet.overMax", "The bank can only cover {amt} at that price right now.", { amt: rawToNado(max) }));
-    if (!canPay(dapp, raw, window.t("bet.thisBet", "This bet"))) return;
-    backOutcome(mk.id, i, raw, mk.labels[i], mk.odds[i]);
-  });
-  if ($("btnSweep")) $("btnSweep").onclick = () => bsweepMarket(mk.id);
-  if ($("btnBclaim")) $("btnBclaim").onclick = () => bclaimMarket(mk.id);
 }
 
 // ---- boot ----------------------------------------------------------------------------------------

@@ -7,6 +7,7 @@
 // every bettor) — so you read form + the live tote, exactly like a racetrack. The client mirrors the
 // contract's alghash math (algHashn) to show genes and animate the run; the contract is the authority.
 // Contract: execnode/games/hamster.py.
+import { Book } from "./bookgame.js";
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js";
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js";
 import * as DERBY from "./hamster-daily.js";
@@ -22,6 +23,11 @@ const NH = 6, GENE_DELAY = 2, BET_BLOCKS = 20, RACE_LEN = 10, GENE_SPREAD = 8, S
 //   • the contract VIEWS (total_of / stake_of / claimable_of) already `mul UNIT` and return RAW NADO
 //     -> pass them to rawToNado() as-is. (A double-multiply here showed a 13.78 NADO stake as 137798.1.)
 const UNIT = 10000n, BLOCK_SECS = 6;
+// the fixed-odds BOOK — the model, the solvency ceiling, the five actions and the settle predicates
+// come from the shared scaffold, so this game and bet cannot drift on the part that moves money.
+// The RENDERING stays here: prices belong in the lane table, not in a separate card.
+const book = new Book(dapp, { idKey: "race", stride: NH, unit: UNIT });   // declared AFTER NH/UNIT: it reads both at construction
+
 const P = ALG_P();
 
 let lastSto = null, active = null, lastRace = null, myCache = {};
@@ -91,14 +97,10 @@ function readRace(sto, id) {
   const sd = !!_m(sto, "sd")[id], vd = !!_m(sto, "vd")[id], wn = Number(_m(sto, "wn")[id] || 0);
   const bc = Number(_m(sto, "bc")[id] || 0);
   // THE BOOK (bank vs punters) — a second market on the same race, so a lone player never waits for a
-  // crowd. od = the bank's price per lane in percent, bp = what it has already committed there.
-  const bank = _m(sto, "bk")[id] || null;
-  const br = BigInt(_m(sto, "br")[id] || 0) * UNIT, bs = BigInt(_m(sto, "bs")[id] || 0) * UNIT;
-  const od = [], bp = [];
-  for (let l = 0; l < NH; l++) {
-    od.push(Number(_m(sto, "od")[Number(id) * NH + l] || 0));
-    bp.push(BigInt(_m(sto, "bp")[Number(id) * NH + l] || 0) * UNIT);
-  }
+  // crowd. Read through the shared scaffold; od = the bank's price per lane in percent, bp = what it has
+  // already committed there.
+  const bk = book.read(sto, id, NH);
+  const bank = bk.bank, br = bk.bankroll, bs = bk.taken, od = bk.odds, bp = bk.pay;
   const cur = dapp.cursor;
   // lk/fh are 0 until the SECOND distinct bettor starts the countdown, so "cursor >= lk" would otherwise
   // read an unstarted race as already racing. That gap is its own phase: betting is open, the clock isn't.
@@ -109,7 +111,7 @@ function readRace(sto, id) {
     : (cur != null && cur >= lk) ? "racing"
     : (cur != null && cur >= gh) ? "betting" : "incubating";
   return { id: Number(id), exists: true, gh, lk, fh, tot, pools, di, sd, vd, wn, bc, cur, phase, started,
-           bank, br, bs, od, bp };
+           bank, br, bs, od, bp, bk };
 }
 const allRaces = (sto) => Object.keys(_m(sto, "ra")).map((id) => readRace(sto, id)).filter((r) => r.exists);
 // live tote odds for a lane: whole pot ÷ that lane's pool (what a winning unit pays back).
@@ -163,39 +165,31 @@ function fairOdds(speeds) {
   });
 }
 
+// The five book actions are the scaffold's — including the busy gate, the unit check and the SOLVENCY
+// refusal, which is the one that costs money if it drifts. This game only supplies its own wording.
 function bankRace() {
   const r = lastRace; if (!r || !r.exists) return;
   if (!dapp.me) return dapp.signIn();
   const raw = nadoToRaw($("bookAmt").value || "0");
   if (!raw) return alertBar(window.t("hamster.enterBank", "Enter a bankroll in NADO — this is what you put up to take the other side."));
-  if (raw % UNIT !== 0n) return alertBar(window.t("hamster.unitStake", "Stakes are in whole units of {u} NADO — round to the nearest {u}.", { u: rawToNado(UNIT) }));
-  if (dapp.busy("book", "race", r.id)) return notify(confirmingLabel());
-  dapp.call("book", [r.id], raw, window.t("hamster.callBook", "bank race #{r} with {amt} NADO", { r: r.id, amt: rawToNado(raw) }), { race: r.id, phase: "book" });
+  book.post(r.id, raw, window.t("hamster.callBook", "bank race #{r} with {amt} NADO", { r: r.id, amt: rawToNado(raw) }));
 }
 
 function quoteLane(lane, pct) {
   const r = lastRace; if (!r || !r.exists || !dapp.me) return;
-  dapp.call("quote", [r.id, lane, pct], null, window.t("hamster.callQuote", "price lane {l} at {x}x", { l: lane + 1, x: (pct / 100).toFixed(2) }), { race: r.id, lane, phase: "quote" });
+  book.quote(r.id, lane, pct, window.t("hamster.callQuote", "price lane {l} at {x}x", { l: lane + 1, x: (pct / 100).toFixed(2) }));
 }
 
 function backLane(lane) {
   const r = lastRace; if (!r || !r.exists) return;
   if (!dapp.me) return dapp.signIn();
   const stake = nadoToRaw($("stakeAmt").value || "0");
-  if (!stake) return alertBar(window.t("hamster.enterStake", "Enter a stake in NADO."));
-  if (stake % UNIT !== 0n) return alertBar(window.t("hamster.unitStake", "Stakes are in whole units of {u} NADO — round to the nearest {u}.", { u: rawToNado(UNIT) }));
-  const pct = r.od[lane];
-  if (!pct || pct <= 100) return alertBar(window.t("hamster.noPrice", "The bank hasn't priced this hamster."));
-  const payout = (stake * BigInt(pct)) / 100n;
-  if (r.bp[lane] + payout > r.br + r.bs + stake) {
-    return alertBar(window.t("hamster.bankFull", "The bank can't cover that on this hamster — try a smaller stake."));
-  }
-  if (dapp.busy("back", "race", r.id)) return notify(confirmingLabel());
-  dapp.call("back", [r.id, lane], stake, window.t("hamster.callBack", "back {name} at {x}x for {amt} NADO", { name: "#" + (lane + 1), x: (pct / 100).toFixed(2), amt: rawToNado(stake) }), { race: r.id, lane, phase: "back" });
+  book.back(r.bk, lane, stake, window.t("hamster.callBack", "back {name} at {x}x for {amt} NADO",
+    { name: "#" + (lane + 1), x: ((r.od[lane] || 0) / 100).toFixed(2), amt: rawToNado(stake) }));
 }
 
-const bclaimRace = (id) => { if (dapp.busy("bclaim", "race", id)) return; dapp.call("bclaim", [id], null, window.t("hamster.callBclaim", "collect race #{r} book winnings", { r: id }), { race: id, phase: "bclaim" }); };
-const bsweepRace = (id) => { if (dapp.busy("bsweep", "race", id)) return; dapp.call("bsweep", [id], null, window.t("hamster.callBsweep", "sweep the book on race #{r}", { r: id }), { race: id, phase: "bsweep" }); };
+const bclaimRace = (id) => book.claim(id, window.t("hamster.callBclaim", "collect race #{r} book winnings", { r: id }));
+const bsweepRace = (id) => book.sweep(id, window.t("hamster.callBsweep", "sweep the book on race #{r}", { r: id }));
 
 // ---- actions -------------------------------------------------------------------------------------
 function openRace() {
@@ -261,6 +255,10 @@ async function refreshAll() {
         : f.phase === "settle" ? r.sd
         : f.phase === "claim" ? !!(myCache[f.race] && myCache[f.race].claimed)
         : f.phase === "post" ? (myBestToday(todayIdx()) != null)
+        // BOOK phases go through the shared scaffold. They used to fall through to the `true` below, which
+        // releases the click guard on any tip advance — a moved tip is NOT proof the tx mined, so a bank's
+        // price or a punter's stake could look settled while it was still in the mempool.
+        : ["book", "quote", "back", "bclaim", "bsweep"].includes(f.phase) ? book.settled(f, r.bk, myCache[f.race] && myCache[f.race].book)
         : true;   // anchor upkeep etc. — release on any tip advance
     });
     await resolveAliases([dapp.me].filter(Boolean));
