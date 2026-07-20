@@ -100,6 +100,8 @@ class ConsensusClient(threading.Thread):
         self._tip_until = {}        # tip hash -> monotonic deadline while it stays benched
         self._peer_strikes = {}     # peer -> consecutive failures to obtain the chain IT advertises
         self._peer_until = {}       # peer -> monotonic deadline while its whole chain is out of fork choice
+        self._heavy_holders = {}    # heaviest tip hash -> (advertisers, pool size) AT SELECTION TIME (see
+                                    # refresh_heaviest_tip: failure-time attribution loses a rotating tip)
 
         self.transaction_hash_pool_percentage = 0
         self.upcoming_block_hash_pool_percentage = 0
@@ -129,12 +131,25 @@ class ConsensusClient(threading.Thread):
         # The strike count has to live on the PEER, not the hash: the forker's hash is new every block, so a
         # per-hash counter is stuck at 1 forever and would never reach the threshold.
         holders = [p for p, h in self.block_hash_pool.copy().items() if h == tip_hash]
-        if len(holders) == 1:
-            p = holders[0]
-            self._peer_strikes[p] = pn = self._peer_strikes.get(p, 0) + 1
-            if pn >= PEER_BENCH_AFTER:
-                self._peer_until[p] = time.monotonic() + min(
-                    TIP_BENCH_BASE_S * (2 ** (pn - PEER_BENCH_AFTER)), PEER_BENCH_MAX_S)
+        pool_n = len(self.block_hash_pool)
+        if not holders:
+            # RACE FIX (observed live 2026-07-20): an actively-MINING forker's hash rotates every block,
+            # so by the time the fetch fails NOBODY advertises the failed hash anymore — failure-time
+            # attribution found no one, every exclusion sat at "failure #1" forever, and the churn never
+            # ended. Fall back to who advertised it when fork choice SELECTED it (refresh_heaviest_tip).
+            holders, pool_n = self._heavy_holders.get(tip_hash, ((), 0))
+            holders = list(holders)
+        # MINORITY-CLUSTER GUARD (was: lone holder only). The honest-peers hypothesis — "several peers
+        # hold this tip, so failing to fetch it says more about us than about them" — only holds when
+        # they actually are the network. A TWO-node cluster mining a shared fork sailed straight through
+        # the lone-holder test and churned emergency mode indefinitely. Strike every advertiser when they
+        # are a strict minority of the pool; a majority-held tip still never peer-strikes.
+        if holders and (len(holders) == 1 or len(holders) * 2 < max(pool_n, 2)):
+            for p in holders:
+                self._peer_strikes[p] = pn = self._peer_strikes.get(p, 0) + 1
+                if pn >= PEER_BENCH_AFTER:
+                    self._peer_until[p] = time.monotonic() + min(
+                        TIP_BENCH_BASE_S * (2 ** (pn - PEER_BENCH_AFTER)), PEER_BENCH_MAX_S)
         return n
 
     def tip_source_benched(self, peer):
@@ -248,6 +263,15 @@ class ConsensusClient(threading.Thread):
             # with no incumbent — an equal-weight peer never displaces our tip, see minority_block_consensus).
             self.heaviest_block_hash = sorted(tip_weights, key=lambda h: (-tip_weights[h], h))[0]
             self.heaviest_block_weight = tip_weights[self.heaviest_block_hash]
+            # Record WHO advertised the winner NOW (plus the pool size for the minority test). A failed
+            # fetch strikes advertisers via reject_tip, but a mining forker's hash has rotated out of the
+            # pool by then — attribution must come from selection time. Bounded keep-last window.
+            hh = self.heaviest_block_hash
+            self._heavy_holders[hh] = (
+                tuple(p for p, h in self.block_hash_pool.copy().items() if h == hh),
+                len(self.block_hash_pool))
+            while len(self._heavy_holders) > 64:
+                self._heavy_holders.pop(next(iter(self._heavy_holders)))
 
     def run(self) -> None:
         """Thread entry: once per second, re-hash our own tx pool and re-derive the whole consensus
