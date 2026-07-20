@@ -403,7 +403,7 @@ async function boot() {
 const modes = installModes(dapp, {
   modes: [
     { key: "play", icon: "♟", label: window.t("sdk.modePlay", "Play for stakes"),
-      hint: window.t("sdk.modePlayHint", "Real NADO on the execution layer."), cards: ["activeGame", "lobby", "play"] },
+      hint: window.t("sdk.modePlayHint", "Real NADO on the execution layer."), cards: ["lobby", "play"], keep: ["activeGame"] },
     { key: "practice", icon: "🤖", label: window.t("sdk.modePractice", "Practice"),
       badge: window.t("sdk.free", "free"),
       hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),

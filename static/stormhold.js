@@ -489,11 +489,11 @@ const modes = installModes(dapp, {
   modes: [
     { key: "play", icon: "\u2694", label: window.t("sdk.modePlay", "Play for stakes"),
       hint: window.t("sdk.modePlayHint", "Head-to-head against another player for real NADO."),
-      cards: ["activeGame", "lobby", "play", "scoreboard"] },
+      cards: ["lobby", "play", "scoreboard"], keep: ["activeGame"] },
     { key: "practice", icon: "\uD83C\uDFAF", label: window.t("sdk.modePractice", "Practice"),
       badge: window.t("sdk.free", "free"),
       hint: window.t("sdk.modePracticeHint", "Play the computer in your browser — nothing on-chain."),
-      cards: ["practice", "activeGame"] },
+      cards: ["practice"], keep: ["activeGame"] },
   ],
 });
 const _shRender = duel.render.bind(duel);

@@ -459,6 +459,9 @@ function _modeCss() {
   border-radius:11px;padding:10px;font-weight:800;color:var(--dim,#93a1b0);font-family:inherit;font-size:14px;
   cursor:pointer;line-height:1.25;transition:background .15s ease,color .15s ease,border-color .15s ease}
 .modebar .modetab:hover{color:var(--txt,#e6edf3)}
+/* the tab you are already on is not a button that does nothing — say so with the cursor too, or it reads
+   as broken ("clicking Play for stakes does nothing") */
+.modebar .modetab.on{cursor:default}
 .modebar .modetab.on{background:linear-gradient(135deg,var(--accent,#00ad93),var(--accent2,#00c9a7));
   color:#04110a;border-color:transparent}
 .modebar .mbadge{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;font-size:10px;
@@ -478,6 +481,7 @@ export function modeBar(el, modes, active, onChange) {
   el.className = (el.className.replace(/\bhidden\b/g, "") + " modebar").trim();
   el.innerHTML = list.map((m) =>
     '<button type="button" class="modetab' + (m.key === active ? " on" : "") + '" data-mode="' + esc(m.key) + '"'
+    + ' aria-pressed="' + (m.key === active ? "true" : "false") + '"'
     + (m.hint ? ' title="' + esc(m.hint) + '"' : "") + ">"
     + (m.icon ? '<span class="mi" aria-hidden="true">' + m.icon + "</span> " : "") + esc(m.label)
     + (m.badge ? ' <span class="mbadge">' + esc(m.badge) + "</span>" : "") + "</button>").join("");
@@ -523,8 +527,18 @@ export function installModes(dapp, o) {
     else if (!e.parentNode) document.body.insertBefore(e, document.body.firstChild);
     return e;
   }
+  // A mode declares two kinds of card:
+  //   cards — the mode owns visibility outright: shown here, hidden in every other mode.
+  //   keep  — the GAME owns visibility (an active-game panel exists only while a game is running); the
+  //           mode hides it when you are somewhere else, but never forces it back on.
+  // Without that second kind, gating force-SHOWS the panel, and because it runs after the game's own
+  // render it overrides the game's decision to hide it — so twelve games displayed an empty board ("Pot —,
+  // Status …, Your gear —") before any game had started, which reads as a broken page.
   const owned = new Set();
-  modes.forEach((m) => (m.cards || []).forEach((c) => owned.add(c)));
+  modes.forEach((m) => {
+    (m.cards || []).forEach((c) => owned.add(c));
+    (m.keep || []).forEach((c) => owned.add(c));
+  });
   function apply() {
     const pick = (k) => { cur = k; try { localStorage.setItem(LS, k); } catch (e) {} apply(); if (o.onChange) o.onChange(k); };
     modeBar(host(), modes, cur, pick);
@@ -532,6 +546,7 @@ export function installModes(dapp, o) {
     owned.forEach((c) => { g[c] = false; });
     const m = modes.find((x) => x.key === cur);
     (m && m.cards || []).forEach((c) => { g[c] = true; });
+    (m && m.keep || []).forEach((c) => { delete g[c]; });   // leave whatever the game decided
     gate(g);
   }
   // wrap(render): re-apply the mode gating after every render, and paint once now. Nine games each carried
