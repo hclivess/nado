@@ -485,6 +485,10 @@
       <button id="btnAssetMint" data-i18n="btn.mint">Mint</button>
       <button id="btnAssetRenounce" data-i18n="btn.renounce">Renounce minting</button>
     </div>
+    <div class="row mt">
+      <input id="assetSetUri" placeholder="https://… or ipfs://… (update logo / link)" maxlength="128" autocomplete="off" spellcheck="false" style="flex:1" />
+      <button id="btnAssetSetUri" data-i18n="btn.setUri">Update link</button>
+    </div>
     <div id="assetIssueMsg" class="small mt"></div>
 
     <h3 class="mt" data-i18n="assets.burn">Burn</h3>
@@ -1094,7 +1098,7 @@
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=745b1be9"></script>
-<script type="module" src="/static/interface.js?v=0f926b21"></script>
+<script defer src="/static/i18n.js?v=dab43f8b"></script>
+<script type="module" src="/static/interface.js?v=58a8a183"></script>
 </body>
 </html>

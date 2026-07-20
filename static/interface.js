@@ -3159,6 +3159,19 @@ async function assetRenounce() {
      { k: i18("assets.warn", "Warning"), v: i18("assets.renounceWarn", "PERMANENT — the supply can never grow again.") }]);
 }
 
+// Update an issued asset's metadata/logo pointer (asset_set_uri). Reversible, issuer-only — unlike renounce.
+async function assetUpdateUri() {
+  const id = $("assetIssuedId").value, a = _myIssued.find((x) => x.id === id);
+  if (!a) { setMsg("assetIssueMsg", i18("assets.pickIssued", "Pick an asset you issued."), "err"); return; }
+  const uri = ($("assetSetUri").value || "").trim();
+  if (uri.length > 128) { setMsg("assetIssueMsg", i18("assets.uriRule", "Link must be 128 characters or fewer."), "err"); return; }
+  const ok = await assetBlob({ op: "asset_set_uri", asset: a.id, uri },
+    i18("assets.dlgSetUri", "Update logo / link"), "assetIssueMsg",
+    [{ k: i18("assets.asset", "Asset"), v: a.sym },
+     { k: i18("assets.uriLabel", "Link"), v: uri || i18("assets.uriCleared", "(cleared)") }]);
+  if (ok) $("assetSetUri").value = "";
+}
+
 async function assetBurn() {
   const id = $("assetBurnId").value, a = _assetById(id);
   if (!a) { setMsg("assetBurnMsg", i18("assets.pick", "Pick an asset first."), "err"); return; }
@@ -3263,6 +3276,7 @@ function assetsWire() {
   if ($("btnAssetCreate")) $("btnAssetCreate").onclick = () => assetCreate().catch((e) => setMsg("assetCreateMsg", e.message, "err"));
   if ($("btnAssetMint")) $("btnAssetMint").onclick = () => assetMint().catch((e) => setMsg("assetIssueMsg", e.message, "err"));
   if ($("btnAssetRenounce")) $("btnAssetRenounce").onclick = () => assetRenounce().catch((e) => setMsg("assetIssueMsg", e.message, "err"));
+  if ($("btnAssetSetUri")) $("btnAssetSetUri").onclick = () => assetUpdateUri().catch((e) => setMsg("assetIssueMsg", e.message, "err"));
   if ($("btnAssetBurn")) $("btnAssetBurn").onclick = () => assetBurn().catch((e) => setMsg("assetBurnMsg", e.message, "err"));
   if ($("btnAllowApprove")) $("btnAllowApprove").onclick = () =>
     assetApprove($("allowAsset").value, $("allowSpender").value, $("allowAmt").value).catch((e) => setMsg("allowMsg", e.message, "err"));
