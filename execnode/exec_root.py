@@ -40,6 +40,7 @@ DOM_REC = 8                       # record-position domain (exec_state_bind DOM_
 # record tags (FROZEN — APPEND only; an existing tag's number is part of every settled root ever computed)
 T_BRIDGE_BAL, T_DIV_BAL, T_BRIDGE_WD, T_DIV_WD, T_UNSHIELD_WD, T_DIGEST, T_KVX = 1, 2, 3, 4, 5, 6, 7
 T_ASSET_BAL, T_ASSET_META = 8, 9   # (asset, holder) -> balance, and asset -> a digest of its metadata
+T_ASSET_ALLOW = 10                 # (asset, owner, spender) -> allowance (delegated-spend authorization)
 
 
 def _limbs(part):
@@ -120,7 +121,14 @@ def records_projection(st):
         out[record_key(T_ASSET_META, aid, blake2b_hash(["asset", meta["issuer"], int(meta["seed"]),
                                                         meta["name"], meta["sym"], int(meta["dec"]),
                                                         int(meta["supply"]),
-                                                        bool(meta["mintable"])]))] = 1
+                                                        bool(meta["mintable"]),
+                                                        meta.get("uri", "")]))] = 1  # metadata pointer, committed
+    # DELEGATED-SPEND authorizations — one leaf per (asset, owner, spender), so an allowance is provable
+    # against the settled root exactly like the balance it can move.
+    for aid, owners in getattr(st, "allow", {}).items():
+        for owner, row in owners.items():
+            for spender, amt in row.items():
+                out[record_key(T_ASSET_ALLOW, aid, owner, spender)] = int(amt) % F.P
     for nonce, w in st.withdrawals.items():
         out[record_key(T_BRIDGE_WD, w["addr"], nonce)] = int(w["amount"]) % F.P
     for nonce, w in st.dividend_withdrawals.items():

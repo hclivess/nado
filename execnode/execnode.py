@@ -928,6 +928,31 @@ async def h_asset(request):
                               "cursor": st.cursor})
 
 
+async def h_allowances(request):
+    """Delegated-spend authorizations (doc/assets.md §7a). Filters: ?owner= (approvals I GRANTED),
+    ?spender= (approvals granted TO me), ?asset= (narrow to one asset). A wallet renders both of its
+    allowance lists in two requests. Amounts are STRINGS (see h_assets — past 2^53 a browser truncates)."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    want_asset = request.query.get("asset")
+    owner_f, spender_f = request.query.get("owner"), request.query.get("spender")
+    out = []
+    for aid, owners in st.allow.items():
+        if want_asset and aid != want_asset:
+            continue
+        meta = st.assets.get(aid) or {}
+        for owner, row in owners.items():
+            if owner_f and owner != owner_f:
+                continue
+            for spender, amt in row.items():
+                if spender_f and spender != spender_f:
+                    continue
+                out.append({"asset": aid, "sym": meta.get("sym", "?"), "dec": meta.get("dec", 0),
+                            "owner": owner, "spender": spender, "amount": str(amt)})
+    return web.json_response({"allowances": out, "cursor": st.cursor})
+
+
 async def h_withdrawal_proof(request):
     """Merkle proof for a bridge-withdrawal record (?nonce=) against the CURRENT state_root (also
     returned); the claim only succeeds on L1 once a settled root covers it. 404 if the nonce is unknown."""
@@ -1286,6 +1311,7 @@ async def main():
                     web.get("/exec/bridge", h_bridge),
                     web.get("/exec/assets", h_assets),
                     web.get("/exec/asset", h_asset),
+                    web.get("/exec/allowances", h_allowances),
                     web.get("/exec/withdrawal_proof", h_withdrawal_proof),
                     web.get("/exec/dividend", h_dividend),
                     web.get("/exec/dividend_proof", h_dividend_proof),

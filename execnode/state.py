@@ -109,6 +109,9 @@ ASSET_SUPPLY_CAP = 1 << 62      # every balance is <= total supply, so this keep
                                 # RANGE window (2^62) that makes an in-contract `lt` on them sound. Without it
                                 # a big-supply asset would silently produce unprovable/forgeable comparisons.
 ASSET_NAME_MAX, ASSET_SYM_MAX, ASSET_DEC_MAX = 64, 12, 18
+ASSET_URI_MAX = 128             # a metadata/logo pointer (an https/ipfs/ar URL). Capped short ON PURPOSE: a
+                                # link, not inline data — 128 chars fits any real URL while making a
+                                # multi-KB data: URI (which would bloat every committed metadata leaf) impossible.
 
 
 def asset_id(issuer, seed):
@@ -133,8 +136,14 @@ class ExecState:
         # ASSET LEDGER (doc/assets.md) — the second value type this layer knows about. Both halves are
         # committed in state_root (exec_root.records_projection), so an asset balance is as provable as a
         # bridge balance; unlike the bridge there is no L1 exit for them (an asset exists only here).
-        self.assets = {}           # str(asset_id) -> {issuer, seed, name, sym, dec, supply, mintable}
+        self.assets = {}           # str(asset_id) -> {issuer, seed, name, sym, dec, supply, mintable, uri}
         self.abal = {}             # str(asset_id) -> {holder(addr or cid) -> balance}
+        # DELEGATED SPEND (doc/assets.md §7a): owner authorises a spender (an address OR a cid) to move up to
+        # `amount` of an asset on their behalf — the ERC-20 approve/allowance/transferFrom primitive. A blob
+        # `asset_transfer_from` spends it account-to-account; the VM `APULL` opcode lets a CONTRACT pull it,
+        # which is what a router/AMM standing-authorization actually needs. Committed in the root like a
+        # balance, absence == zero.
+        self.allow = {}            # str(asset_id) -> {owner -> {spender -> amount}}
         self.withdrawals = {}      # nonce(str) -> {"addr":.., "amount":..} : provable exit records
         self.wd_nonce = 0          # monotonic withdrawal-nonce counter (deterministic)
         # CROSS-DOMAIN OUTBOX: messages emitted by this layer (via the `emit` blob op), each committed as a
@@ -227,6 +236,7 @@ class ExecState:
         self.bridge = d.get("bridge", {})
         self.assets = d.get("assets", {})
         self.abal = {a: dict(h) for a, h in d.get("abal", {}).items()}
+        self.allow = {a: {o: dict(s) for o, s in owners.items()} for a, owners in d.get("allow", {}).items()}
         self.withdrawals = d.get("withdrawals", {})
         self.wd_nonce = d.get("wd_nonce", 0)
         ob = d.get("outbox", {})
@@ -270,7 +280,7 @@ class ExecState:
         concurrent thread-apply can't tear it. Shared by save() and clone()."""
         with self._mutate_lock:
             return {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
-                    "assets": self.assets, "abal": self.abal,
+                    "assets": self.assets, "abal": self.abal, "allow": self.allow,
                     "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
                     "outbox": self.outbox, "outbox_seq": self.outbox_seq, "inbox": self.inbox,
                     "dividend": self.dividend, "last_div_epoch": self.last_div_epoch,
@@ -710,6 +720,26 @@ class ExecState:
         if not row:
             self.abal.pop(key, None)
 
+    def asset_allowance(self, aid, owner, spender):
+        """How much of `aid` `spender` may move on `owner`'s behalf. Absent == 0, same canonical rule as a
+        balance: a never-set allowance and a revoked one are indistinguishable."""
+        return int(self.allow.get(str(aid), {}).get(owner, {}).get(spender, 0))
+
+    def _allow_set(self, aid, owner, spender, amount):
+        """Write an allowance to an EXACT value (approve overwrites, ERC-20 style), pruning empty rows so two
+        nodes with the same authorizations commit the same root."""
+        key = str(aid)
+        owners = self.allow.setdefault(key, {})
+        row = owners.setdefault(owner, {})
+        if int(amount) > 0:
+            row[spender] = int(amount)
+        else:
+            row.pop(spender, None)
+        if not row:
+            owners.pop(owner, None)
+        if not owners:
+            self.allow.pop(key, None)
+
     def stage_asset_effects(self, actor, effects):
         """Validate a call's asset intents as ONE atomic batch against the ledger `actor` (a cid or address)
         would move them from. Returns (ok, reason, deltas, supply_deltas) and mutates NOTHING — the caller
@@ -933,6 +963,11 @@ class ExecState:
                 if (not isinstance(supply, int) or isinstance(supply, bool)
                         or not (0 <= supply < ASSET_SUPPLY_CAP)):
                     return "skip: asset supply out of range"
+                # Optional metadata pointer (logo/details). A LINK only — no privileged meaning, no
+                # on-chain fetch; the wallet/explorer render it. Empty is fine and is the default.
+                uri = payload.get("uri", "")
+                if not isinstance(uri, str) or len(uri) > ASSET_URI_MAX:
+                    return f"skip: asset uri must be a string of 0..{ASSET_URI_MAX} chars"
                 # CONTRACT-ISSUED ASSETS (`for`: a cid). A contract cannot submit a blob — a blob sender is
                 # an L1 address derived from a pubkey, and a cid is a 32-hex hash, so no transaction can
                 # ever carry sender == cid. Without this branch a contract could therefore never BE an
@@ -960,7 +995,8 @@ class ExecState:
                 # mintable=false (the default) can never grow past this supply, and the guarantee is
                 # readable from the ledger by anyone before they buy a single unit.
                 self.assets[aid] = {"issuer": issuer, "seed": seed, "name": name, "sym": sym, "dec": dec,
-                                    "supply": supply, "mintable": payload.get("mintable", False) is True}
+                                    "supply": supply, "mintable": payload.get("mintable", False) is True,
+                                    "uri": uri}
                 if supply:
                     # to the ISSUER, not the sender: a contract-issued asset's initial supply belongs to
                     # the contract. Crediting the deployer instead would hand them free units of a token
@@ -985,6 +1021,50 @@ class ExecState:
                 self._asset_credit(aid, sender, -amount)
                 self._asset_credit(aid, to, amount)
                 return f"asset_transfer {amount} {self.assets[aid]['sym']} {sender[:12]}… -> {to[:12]}…"
+
+            if op == "asset_approve":
+                # Owner (sender) authorises `spender` to move up to `amount` on their behalf. ERC-20
+                # semantics: this OVERWRITES any prior allowance (it is not additive), and 0 revokes. No
+                # balance check — you may approve more than you hold; the pull is bounded by your balance at
+                # spend time, not now. `spender` is any string identity: an address (a person delegating) OR
+                # a cid (authorising a contract to pull — see the APULL opcode).
+                aid = str(payload.get("asset") or "")
+                spender = payload.get("spender")
+                amount = payload.get("amount", 0)
+                if aid not in self.assets:
+                    return f"skip: no such asset {aid[:12]}…"
+                if not isinstance(spender, str) or not spender:
+                    return "skip: asset_approve needs a `spender`"
+                if spender == sender:
+                    return "skip: cannot approve yourself"
+                if not isinstance(amount, int) or isinstance(amount, bool) or amount < 0 or amount >= ASSET_SUPPLY_CAP:
+                    return "skip: asset_approve amount out of range"
+                self._allow_set(aid, sender, spender, amount)
+                return f"asset_approve {amount} {self.assets[aid]['sym']} {sender[:12]}… -> {spender[:12]}…"
+
+            if op == "asset_transfer_from":
+                # Spender (sender) moves `amount` from `owner` to `to`, consuming the allowance `owner`
+                # granted them. Both gates apply: the standing allowance AND `owner`'s live balance — an
+                # allowance is a ceiling, never a promise the tokens are there. The allowance decrements by
+                # exactly what moved (no infinite-approval special case: exactness over a gas micro-saving).
+                aid = str(payload.get("asset") or "")
+                owner = payload.get("from")
+                to = payload.get("to")
+                amount = payload.get("amount", 0)
+                if aid not in self.assets:
+                    return f"skip: no such asset {aid[:12]}…"
+                if not isinstance(owner, str) or not owner or not isinstance(to, str) or not to:
+                    return "skip: asset_transfer_from needs `from` and `to`"
+                if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
+                    return "skip: asset_transfer_from amount must be positive"
+                if self.asset_allowance(aid, owner, sender) < amount:
+                    return f"skip: allowance too low for {self.assets[aid]['sym']} ({sender[:12]}… on {owner[:12]}…)"
+                if self.asset_balance(aid, owner) < amount:
+                    return f"skip: insufficient {self.assets[aid]['sym']} ({owner[:12]}…)"
+                self._allow_set(aid, owner, sender, self.asset_allowance(aid, owner, sender) - amount)
+                self._asset_credit(aid, owner, -amount)
+                self._asset_credit(aid, to, amount)
+                return f"asset_transfer_from {amount} {self.assets[aid]['sym']} {owner[:12]}… -> {to[:12]}… by {sender[:12]}…"
 
             if op == "asset_burn":
                 aid = str(payload.get("asset") or "")
@@ -1039,6 +1119,25 @@ class ExecState:
                         return f"skip: only {meta['sym']}'s issuer may renounce minting"
                 meta["mintable"] = False
                 return f"asset_renounce {meta['sym']} ({aid[:12]}…) — supply fixed at {meta['supply']}"
+
+            if op == "asset_set_uri":
+                # Update the metadata/logo pointer. Issuer-only (or the contract's deployer, mirroring
+                # renounce), because the uri is committed in the metadata digest — it is state, not a hint.
+                # It carries NO privileged meaning: it cannot touch supply or balances, so unlike renounce
+                # this is intentionally reversible (a logo host or IPFS pin changes over a token's life).
+                aid = str(payload.get("asset") or "")
+                uri = payload.get("uri", "")
+                meta = self.assets.get(aid)
+                if meta is None:
+                    return f"skip: no such asset {aid[:12]}…"
+                if not isinstance(uri, str) or len(uri) > ASSET_URI_MAX:
+                    return f"skip: asset uri must be a string of 0..{ASSET_URI_MAX} chars"
+                if meta["issuer"] != sender:
+                    c = self.contracts.get(meta["issuer"])
+                    if not (c and c.get("deployer") == sender):
+                        return f"skip: only {meta['sym']}'s issuer may set its uri"
+                meta["uri"] = uri
+                return f"asset_set_uri {meta['sym']} ({aid[:12]}…) -> {uri[:40]!r}"
 
             if op == "lock":
                 # RENOUNCE UPGRADABILITY (permanent): the deployer of an upgradable contract locks it forever

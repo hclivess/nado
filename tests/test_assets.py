@@ -526,7 +526,99 @@ def t_settlement_prover_refuses_asset_io():
     raise AssertionError("the settlement prover proved an asset call it cannot settle")
 
 
+def t_uri_metadata():
+    """A metadata/logo pointer: optional at create, issuer-updatable, bounded, and COMMITTED in the root
+    (so a wallet showing a logo is showing committed state, not an off-chain claim it made up)."""
+    from execnode.state import ASSET_URI_MAX
+    st = fresh()
+    st.apply_blob({"op": "asset_create", "seed": 1, "name": "Token", "sym": "TKN", "dec": 4,
+                   "supply": 1000, "mintable": False, "uri": "ipfs://QmLogo"}, ALICE, "tx")
+    aid = str(asset_id(ALICE, 1))
+    assert st.assets[aid]["uri"] == "ipfs://QmLogo"
+    r0 = st.state_root()
+
+    # issuer updates it -> the root MOVES (it is committed, not a hint)
+    st.apply_blob({"op": "asset_set_uri", "asset": aid, "uri": "https://x.io/t.png"}, ALICE, "tx")
+    assert st.assets[aid]["uri"] == "https://x.io/t.png"
+    assert st.state_root() != r0, "uri is not committed in the state root"
+
+    # only the issuer may set it
+    st.apply_blob({"op": "asset_set_uri", "asset": aid, "uri": "https://evil"}, BOB, "tx")
+    assert st.assets[aid]["uri"] == "https://x.io/t.png", "a non-issuer changed the uri"
+
+    # bounds + type
+    st.apply_blob({"op": "asset_set_uri", "asset": aid, "uri": "x" * (ASSET_URI_MAX + 1)}, ALICE, "tx")
+    assert st.assets[aid]["uri"] == "https://x.io/t.png", "an over-long uri was accepted"
+    r = st.apply_blob({"op": "asset_create", "seed": 2, "name": "T2", "sym": "T2", "dec": 0,
+                       "supply": 1, "uri": 123}, ALICE, "tx")
+    assert "skip" in r and str(asset_id(ALICE, 2)) not in st.assets, "a non-string uri was accepted"
+
+    # DEFAULT is empty, and an asset created without a uri still commits deterministically (backward compat)
+    st.apply_blob({"op": "asset_create", "seed": 3, "name": "T3", "sym": "T3", "dec": 0, "supply": 1}, ALICE, "tx")
+    aid3 = str(asset_id(ALICE, 3))
+    assert st.assets[aid3]["uri"] == ""
+    st.state_root()   # must not raise on a mix of uri and no-uri assets
+
+
+def t_allowance_approve_transfer_from():
+    """Delegated spend (approve / allowance / transferFrom), account-to-account. The two gates that make it
+    safe: the standing allowance AND the owner's live balance, each independently, and the allowance
+    decrements by exactly what moves."""
+    st = fresh()
+    aid = create(st, supply=1000)                       # ALICE holds 1000
+    assert st.asset_allowance(aid, ALICE, BOB) == 0, "an unset allowance must read 0"
+
+    # ALICE approves BOB for 400
+    st.apply_blob({"op": "asset_approve", "asset": aid, "spender": BOB, "amount": 400}, ALICE, "tx")
+    assert st.asset_allowance(aid, ALICE, BOB) == 400
+
+    # BOB pulls 250 ALICE -> CAROL
+    r = st.apply_blob({"op": "asset_transfer_from", "asset": aid, "from": ALICE, "to": CAROL, "amount": 250}, BOB, "tx")
+    assert not r.startswith("skip"), r
+    assert (st.asset_balance(aid, ALICE), st.asset_balance(aid, CAROL)) == (750, 250)
+    assert st.asset_allowance(aid, ALICE, BOB) == 150, "allowance did not decrement by exactly what moved"
+
+    # over-allowance is refused, nothing moves
+    r = st.apply_blob({"op": "asset_transfer_from", "asset": aid, "from": ALICE, "to": CAROL, "amount": 151}, BOB, "tx")
+    assert "skip" in r and st.asset_balance(aid, ALICE) == 750 and st.asset_allowance(aid, ALICE, BOB) == 150
+
+    # allowance is a CEILING, not a promise: approve more than the balance, the pull is still bounded by balance
+    st.apply_blob({"op": "asset_approve", "asset": aid, "spender": BOB, "amount": 10 ** 9}, ALICE, "tx")  # overwrite, not add
+    assert st.asset_allowance(aid, ALICE, BOB) == 10 ** 9, "approve must OVERWRITE, not accumulate"
+    r = st.apply_blob({"op": "asset_transfer_from", "asset": aid, "from": ALICE, "to": CAROL, "amount": 751}, BOB, "tx")
+    assert "skip" in r and st.asset_balance(aid, ALICE) == 750, "a pull exceeding the balance leaked"
+
+    # revoke (approve 0) and the row is pruned to absence
+    st.apply_blob({"op": "asset_approve", "asset": aid, "spender": BOB, "amount": 0}, ALICE, "tx")
+    assert st.asset_allowance(aid, ALICE, BOB) == 0
+    assert ALICE not in st.allow.get(aid, {}), "a zeroed allowance must be pruned, not stored as 0"
+
+    # you cannot approve yourself; unknown asset / bad amounts are refused
+    assert "skip" in st.apply_blob({"op": "asset_approve", "asset": aid, "spender": ALICE, "amount": 5}, ALICE, "tx")
+    assert "skip" in st.apply_blob({"op": "asset_approve", "asset": "deadbeef", "spender": BOB, "amount": 5}, ALICE, "tx")
+
+
+def t_allowance_committed_in_root():
+    """An allowance is provable against the settled root, like a balance — setting one moves the root, and a
+    reloaded snapshot reproduces it exactly."""
+    import tempfile, os as _os
+    st = fresh()
+    aid = create(st, supply=1000)
+    r0 = st.state_root()
+    st.apply_blob({"op": "asset_approve", "asset": aid, "spender": BOB, "amount": 400}, ALICE, "tx")
+    assert st.state_root() != r0, "an allowance is not committed in the state root"
+    # persist + reload round-trips the allowance and the root
+    d = tempfile.mkdtemp(); p = _os.path.join(d, "s.json")
+    st.path = p; st.save()
+    st2 = ExecState(p)
+    assert st2.asset_allowance(aid, ALICE, BOB) == 400
+    assert st2.state_root() == st.state_root(), "allowance did not survive a save/load round-trip"
+
+
 if __name__ == "__main__":
+    check("metadata uri: optional, issuer-only, committed", t_uri_metadata)
+    check("allowance: approve / transfer_from, two gates, exact decrement", t_allowance_approve_transfer_from)
+    check("allowance committed in root + survives reload", t_allowance_committed_in_root)
     check("asset create + transfer + canonical absence", t_create_and_transfer)
     check("transfer guards (overdraft/zero/negative/unknown)", t_transfer_guards)
     check("mint authority + supply cap + one-way renounce", t_mint_authority_and_renounce)
