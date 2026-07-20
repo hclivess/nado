@@ -1586,6 +1586,21 @@ class CoreClient(threading.Thread):
         except Exception:
             return None
 
+    class _ExecView:
+        """Duck-typed stand-in for ExecState built from /exec/accounting's aggregate totals — the shape
+        ops/invariants.py reads. The exec node serves only TOTALS (no per-address detail, nothing private),
+        so the L1 node reconciles escrows against it without holding exec state or seeing into the pool."""
+        def __init__(self, d):
+            g = lambda k: int(d.get(k, 0) or 0)
+            self.bridge = {"_total": g("bridge_credited")}
+            self.withdrawals = {"_total": {"amount": g("bridge_pending")}}
+            self.pool_value = g("pool_value")
+            self.pool_fees = g("pool_fees")
+            self.unshield_withdrawals = {"_total": {"amount": g("unshield_pending")}}
+            self.dividend = {"_total": g("dividend_accrued")}
+            self.dividend_withdrawals = {"_total": {"amount": g("dividend_pending")}}
+            self.div_carry = g("div_carry")
+
     def maybe_check_invariants(self):
         """CONSERVATION INVARIANTS (ops/invariants.py) — reconcile supply against emission and every escrow
         against what the exec layer says it owes. Roughly ten separate mint/drain bugs have shipped here,
@@ -1606,7 +1621,13 @@ class CoreClient(threading.Thread):
                 return
             from ops import invariants, kv_ops
             from ops.account_ops import get_account
-            exec_state = getattr(self.memserver, "exec_state_view", None)   # None on a node with no exec side
+            # Pull the exec layer's AGGREGATE owed-value figures from this box's exec node. Without it only
+            # the L1 supply invariant can run — and the escrow checks (including the shielded one, the
+            # whole point) would silently not execute. check_all reports those as skipped rather than
+            # letting a bare ok=true imply they passed.
+            acct = self._exec_get("/exec/accounting")
+            exec_state = self._ExecView(acct) if acct else None
+            self.memserver.exec_state_view = exec_state
             ok, results = invariants.check_all(kv_ops.iter_accounts, kv_ops.totals_get(),
                                                get_account, exec_state)
             self.memserver.invariant_report = {"height": height, "ok": ok, "checks": results}

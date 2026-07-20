@@ -103,11 +103,18 @@ def check_dividend(get_account, exec_state):
                                "undistributed": pool - claimable}
 
 
+ESCROW_DOMAINS = ("bridge", "shielded", "dividend")
+
+
 def check_all(iter_accounts, totals, get_account, exec_state=None):
-    """Run every invariant that the available inputs allow. Returns (ok, [detail, ...]) — each detail
-    carries `domain` and `ok`, so a caller can log the failures without knowing the check set. Never
-    raises: a check that blows up is reported as a failure with its error, not propagated into a caller
-    that may be on the block path."""
+    """Run every invariant the available inputs allow. Returns (ok, [detail, ...]) — each detail carries
+    `domain` and `ok`, so a caller can log failures without knowing the check set. Never raises: a check
+    that blows up is reported as a failure with its error, not propagated into a caller on the block path.
+
+    SKIPPED CHECKS ARE REPORTED EXPLICITLY. Without `exec_state` only the L1 supply invariant can run, and
+    a bare `ok: true` would then read as "everything reconciles" when three of four domains never
+    executed — precisely the false comfort an invariant is supposed to eliminate. Skipped domains come back
+    as entries with ok=None and a reason, and they do NOT count toward the overall `ok`."""
     results = []
     def _run(fn, *a):
         try:
@@ -121,7 +128,11 @@ def check_all(iter_accounts, totals, get_account, exec_state=None):
         _run(check_bridge, get_account, exec_state)
         _run(check_shielded, get_account, exec_state)
         _run(check_dividend, get_account, exec_state)
-    return all(r["ok"] for r in results), results
+    else:
+        for d in ESCROW_DOMAINS:
+            results.append({"domain": d, "ok": None,
+                            "skipped": "no exec-layer view (this node has no local exec node reachable)"})
+    return all(r["ok"] for r in results if r["ok"] is not None), results
 
 
 def assert_all(iter_accounts, totals, get_account, exec_state=None):

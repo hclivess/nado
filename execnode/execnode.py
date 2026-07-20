@@ -655,6 +655,32 @@ async def h_state_snapshot(request):
     return web.Response(text=raw, content_type="application/json")
 
 
+async def h_accounting(request):
+    """GET /exec/accounting?ns=: the exec layer's AGGREGATE owed-value figures, for the L1 node's
+    conservation invariants (ops/invariants.py). Totals only — no per-address detail, nothing private.
+
+    The shielded numbers are the interesting ones: individual note VALUES are private, but every CHANGE to
+    their total is public by construction (a deposit carries its L1 amount; a transfer's public_value/fee
+    are public proof inputs), so `pool_value` is the pool's live total and IS safe to publish. That is what
+    lets L1 reconcile SHIELD_ESCROW against the pool without seeing into it."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    def _sum(d):
+        return sum(int(w.get("amount", 0)) for w in (d or {}).values())
+    return web.json_response({
+        "cursor": st.cursor,
+        "bridge_credited": sum(int(v) for v in (st.bridge or {}).values()),
+        "bridge_pending": _sum(st.withdrawals),
+        "pool_value": int(getattr(st, "pool_value", 0) or 0),
+        "pool_fees": int(getattr(st, "pool_fees", 0) or 0),
+        "unshield_pending": _sum(st.unshield_withdrawals),
+        "dividend_accrued": sum(int(v) for v in (st.dividend or {}).values()),
+        "dividend_pending": _sum(st.dividend_withdrawals),
+        "div_carry": int(getattr(st, "div_carry", 0) or 0),
+    })
+
+
 async def h_root(request):
     """Node summary for ?ns= (default): exec state_root, applied cursor, contract count, L1 tailed.
 
@@ -1173,6 +1199,7 @@ async def main():
     loop forever — the HTTP server and the L1 tail share one event loop."""
     app = web.Application(middlewares=[_cors], client_max_size=MAX_BODY_BYTES)   # H-7: cap POST body size
     app.add_routes([web.get("/exec/root", h_root),
+                    web.get("/exec/accounting", h_accounting),
                     web.get("/exec/state_snapshot", h_state_snapshot),
                     web.get("/exec/settlement", h_settlement),
                     web.get("/exec/shielded", h_shielded),

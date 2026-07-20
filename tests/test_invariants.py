@@ -186,6 +186,19 @@ def t_fuzz_any_injected_delta_is_caught():
         assert not ok and d["delta"] == delta, f"injected delta {delta} must be caught exactly: {d}"
 
 
+def t_skipped_checks_are_reported_not_silently_passed():
+    """Without an exec view only the L1 supply check can run. A bare ok=true would then read as
+    "everything reconciles" when three of four domains never executed — the exact false comfort an
+    invariant exists to remove. Skipped domains must appear explicitly with ok=None."""
+    accts = {"a": 100}
+    ok, res = INV.check_all(accounts_of(accts), {"produced": 100, "fees": 0}, getter(accts), None)
+    skipped = [r for r in res if r.get("ok") is None]
+    assert len(skipped) == len(INV.ESCROW_DOMAINS), f"every escrow domain must be reported skipped: {res}"
+    assert all("skipped" in r for r in skipped), "a skipped check must say WHY"
+    assert {r["domain"] for r in skipped} == set(INV.ESCROW_DOMAINS)
+    assert ok, "skipped checks must not make the run fail either — they are unknown, not violated"
+
+
 def t_check_all_never_raises():
     """check_all is called from the node's periodic duty. A broken input must degrade to a reported
     failure, never an exception into the caller."""
@@ -207,6 +220,7 @@ for name, fn in [
     ("REPLAY dividend over-credit", t_replay_dividend_overcredit),
     ("fuzz: conserving activity never false-positives", t_fuzz_conserving_transfers_never_trip),
     ("fuzz: any injected delta is caught exactly", t_fuzz_any_injected_delta_is_caught),
+    ("skipped checks are reported, not silently passed", t_skipped_checks_are_reported_not_silently_passed),
     ("check_all never raises into the caller", t_check_all_never_raises),
 ]:
     check(name, fn)
