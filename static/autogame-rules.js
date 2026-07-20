@@ -85,3 +85,7 @@ export const JACKPOT_EVERY = 32;
 // tile class -> display name, in the order the class ordinal is derived (see TILE_CUTS)
 export const TILE_NAMES = ["road", "monster", "elite", "hazard", "cache", "shrine", "forge", "fork", "relic", "boss"];
 export const RANKS = [[60, "commoner"], [180, "apprentice"], [450, "journeyman"], [1100, "knight"], [2600, "banneret"], [6000, "lord"], [14000, "baron"], [32000, "duke"], [75000, "king"], [170000, "emperor"], [400000, "demigod"], [1099511627776, "creator"]];
+
+// which actions actually change the outcome on each tile class — DERIVED by
+// tests/autogame_action_matrix.py from the rules themselves, never hand-written
+export const ACTS_FOR = {[0]: [0, 4, 6, 7], [1]: [0, 1, 2, 3, 4, 6, 7], [2]: [0, 1, 2, 3, 4, 6, 7], [3]: [0, 3, 4, 6, 7], [4]: [0, 3, 4, 6, 7], [5]: [0, 3, 4, 6, 7], [6]: [0, 3, 4, 6, 7], [7]: [0, 7], [8]: [0, 3, 4, 6, 7], [9]: [0, 1, 2, 3, 4, 6, 7]};

@@ -32,6 +32,14 @@ from execnode.zkpy import hash as zhash, lo32, select
 
 # ── clock ────────────────────────────────────────────────────────────────────────────────────────
 LEG = 16                 # steps per leg == blocks per leg (1 step per block, by construction)
+#
+# RNH == 0 MEANS "THE DICE ARE NOT SCHEDULED YET".
+#
+# This is what makes per-tile play possible on a chain you cannot outrun. The old design pinned the rolling
+# height in advance, so a per-tile answer had to beat a 96-second window from ten minutes away — impossible.
+# Now the terrain is pinned and visible, and the roll is scheduled ONLY when you commit your answer to it.
+# There is no window to lose: the dice are drawn after your choice by construction, however long you take.
+# With RAUTO set, settling schedules the next roll immediately and the doctrine answers for you.
 MAX_LEGS_PER_CALL = 1    # bounded catch-up: ONE leg (16 steps) per call.
                          #
                          # Sized for the WORST case, not the typical one. Per-step cost is state-dependent:
@@ -156,6 +164,8 @@ POLA = 108                    # aggression, part of the same standing order
 # NOTE THE SPACING: POL0 occupies 110..119 and POLP0 occupies 120..129, so the scalars that go with them
 # must sit clear of BOTH ranges. POLPH was briefly 119 — the doctrine cell for tile 9 — and silently
 # overwrote it, which the backlog test caught as a previous generation that read back as zero.
+RAUTO = 135                   # 1 = schedule each leg's dice automatically; 0 = wait for my orders on it
+OVR_TAG = 141                 # hash(OVR_TAG, run, leg) -> this leg's PER-TILE overrides, 16 x 3 bits
 POLP0 = 120                   # POLP0 .. POLP0+9: the superseded doctrine
 POLPH = 130                   # the height IT was set at
 POLPA = 131                   # and its aggression
@@ -171,8 +181,8 @@ RPS, RPF, RPL = 132, 133, 134  # the superseded stance / focus / heal threshold
  S_ITEM, S_SLOT, S_COMBAT, S_SCEN, S_DROPS,
  S_T0, S_T1, S_T2, S_T3, S_T4, S_T5, S_T6,
  S_R0, S_R1, S_R2, S_R3,
- S_AF0, S_AF1, S_AF2, S_AF3, S_AF4, S_AF5, S_EQ, S_LEGGEN, S_SN, S_FO, S_HL) = range(58)
-NSCRATCH = 58
+ S_AF0, S_AF1, S_AF2, S_AF3, S_AF4, S_AF5, S_EQ, S_LEGGEN, S_SN, S_FO, S_HL, S_OVR) = range(59)
+NSCRATCH = 59
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────────────────────────
@@ -591,12 +601,18 @@ def _step(m):
     _classify(m)
     # the reaction is whatever your doctrine says about the tile you just walked onto. S_PW is 1 when this
     # leg is governed by the doctrine (set before its dice existed) and 0 when it is not.
-    # S_PW / S_T3 were set per leg: which generation of orders governs it (see advance).
+    # S_PW / S_LEGGEN were set per leg: which generation of orders governs it (see advance).
     _s(m, S_T0).set(m.const(POL0 << 32) + _s(m, S_TILE).get() * (1 << 32) + m.arg(0))
     _s(m, S_T1).set(m.at(_s(m, S_T0).get()).get() * _s(m, S_PW).get())
     _s(m, S_T0).set(m.const(POLP0 << 32) + _s(m, S_TILE).get() * (1 << 32) + m.arg(0))
     _s(m, S_T2).set(m.at(_s(m, S_T0).get()).get() * _s(m, S_LEGGEN).get())
     _s(m, S_ACT).set(_s(m, S_T1).get() + _s(m, S_T2).get())
+    # A PER-TILE ANSWER OVERRIDES THE DOCTRINE. Zero means "no opinion, use my standing orders"; anything
+    # else is what you chose for this exact tile, having looked at it.
+    _s(m, S_T3).set(_s(m, S_OVR).get() % 8)
+    _s(m, S_OVR).set(_s(m, S_OVR).get() // 8)
+    _s(m, S_T2).set(_s(m, S_T3).get() != 0)
+    _s(m, S_ACT).set(select(_s(m, S_T2).get(), _s(m, S_T3).get(), _s(m, S_ACT).get()))
     # A fork is a CHOICE, not an event: the right lane re-rolls as an elite, the left as a monster. This
     # happens AFTER the doctrine is read, because the doctrine is what picks the lane.
     # `isfork` MUST be snapshotted before S_TILE is rewritten — a zkpy Val is a lazy re-read of the cell,
@@ -750,6 +766,7 @@ def build():
         m.require(m.arg(3) < 4)                      # stance
         m.require(m.arg(4) <= 100)                   # focus
         m.require(m.arg(5) <= 100)                   # auto-drink threshold
+        m.require(m.arg(6) < 2)                      # auto: schedule rolls without waiting for me
         # unpack the doctrine into one cell per tile class so the step can index it by tile
         # retire the current orders into the previous slot BEFORE overwriting, so any leg already rolled
         # under them still resolves under them
@@ -777,10 +794,35 @@ def build():
         # is judged by whichever generation of orders predates its own roll.
         _s(m, S_T1).set(_r(m, RLH).get() == 0)
         _r(m, RLH).set(select(_s(m, S_T1).get(), m.cursor() + START_GAP, _r(m, RLH).get()))
-        _r(m, RNH).set(select(_s(m, S_T1).get(), m.cursor() + START_GAP + LEG, _r(m, RNH).get()))
+        # In AUTO the first roll is scheduled straight away; otherwise it waits for commit() — the terrain
+        # will be visible and you answer it tile by tile.
+        _s(m, S_T2).set(_s(m, S_T1).get() * m.arg(6))
+        _r(m, RNH).set(select(_s(m, S_T2).get(), m.cursor() + START_GAP + LEG, _r(m, RNH).get()))
+        _r(m, RAUTO).set(m.arg(6))
         for i in range(NSCRATCH):
             _s(m, i).set(m.const(0))
         m.ret(m.arg(1))
+
+    with c.method("commit") as m:
+        # commit(runId, word): your answer to the SPECIFIC sixteen tiles now in front of you — 3 bits each,
+        # step 0 in the low bits. A zero entry means "whatever my doctrine says about that tile"; anything
+        # else overrides it for this leg only.
+        #
+        # Committing is what SCHEDULES THE DICE. That is the whole trick: the roll height is set here, from
+        # here, so it cannot already exist. Per-tile play therefore works at any lag, and cannot be gamed —
+        # you are answering terrain you can see with dice that do not exist yet.
+        _own_or_die(m)
+        _live(m)
+        m.require(_r(m, RLH).get() != 0)             # the march must have begun
+        m.require(_r(m, RNH).get() == 0)             # the dice for this leg are not scheduled yet
+        m.require(m.cursor() >= _r(m, RLH).get())    # ... and its terrain is actually visible
+        m.require(m.arg(1) < (1 << (3 * LEG)))
+        m.at(zhash(m.const(OVR_TAG), m.arg(0), _r(m, RLG).get())).set(m.arg(1))
+        # A FULL LEG ahead, not a couple of blocks: the march is paced one step per block, so the sixteen
+        # steps you just answered play out over the next sixteen blocks. Scheduling them two blocks out
+        # would resolve the whole leg almost instantly and throw the pacing away.
+        _r(m, RNH).set(m.cursor() + LEG)
+        m.ret(_r(m, RNH).get())
 
     with c.method("retire") as m:
         # retire(runId): walk away on your feet. Keeps everything, and earns the road bonus pro-rata on the
@@ -802,6 +844,7 @@ def build():
         _s(m, S_LEGS).set(m.const(0))
 
         m.label("leg")
+        m.jnz(_r(m, RNH).get() == 0, "done")                    # waiting on your answer to this leg
         m.jnz(m.cursor() < _r(m, RNH).get(), "done")            # the rolls do not exist yet
         m.jnz(_s(m, S_LEGS).get() >= MAX_LEGS_PER_CALL, "done")
 
@@ -838,6 +881,7 @@ def build():
         # outlive a statement in their OWN cell.
         _s(m, S_AGG).set(vmax(1, m.slot(POLA, m.arg(0)).get() * _s(m, S_PW).get()
                                  + m.slot(POLPA, m.arg(0)).get() * _s(m, S_LEGGEN).get()))
+        _s(m, S_OVR).set(m.at(zhash(m.const(OVR_TAG), m.arg(0), _r(m, RLG).get())).get())
         _s(m, S_I).set(m.const(0))
 
         m.label("step")
@@ -849,8 +893,12 @@ def build():
         m.jmp("step")
 
         m.label("legdone")
-        _r(m, RLH).set(_r(m, RNH).get())                        # slide the window one leg forward
-        _r(m, RNH).set(_r(m, RNH).get() + LEG)
+        # Slide the window: this leg's ROLL hash becomes the next leg's TERRAIN, so the road that just
+        # resolved reveals the road ahead. The next roll is scheduled only in AUTO; otherwise it stays 0 and
+        # the march waits for you to answer the tiles now visible.
+        _r(m, RLH).set(_r(m, RNH).get())
+        _s(m, S_T0).set(_r(m, RAUTO).get())
+        _r(m, RNH).set(_s(m, S_T0).get() * (m.cursor() + LEG))
         _r(m, RLG).set(_r(m, RLG).get() + 1)
         _s(m, S_LEGS).set(_s(m, S_LEGS).get() + 1)
         m.jnz(_r(m, RAV).get() == 0, "done")
@@ -918,7 +966,8 @@ def rules_js():
 ABI = {
     "constructor": {"args": []},
     "begin": {"args": ["runId"]},
-    "plan": {"args": ["runId", "doctrine", "agg", "stance", "focus", "healPct"]},
+    "plan": {"args": ["runId", "doctrine", "agg", "stance", "focus", "healPct", "auto"]},
+    "commit": {"args": ["runId", "word"]},
     "retire": {"args": ["runId"]},
     "advance": {"args": ["runId"]},
     "_view": {

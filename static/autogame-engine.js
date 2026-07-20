@@ -69,7 +69,7 @@ export function runFromStorage(sto, id) {
     agg: Math.max(1, m("pa")), polh: m("ph"),
     prevDoctrine: Array.from({ length: R.NTILE }, (_x, k) => m("q" + k)),
     prevAgg: Math.max(1, m("qa")), polph: m("qh"),
-    prevStance: m("qs"), prevFocus: m("qf"), prevHealpct: m("ql"),
+    prevStance: m("qs"), prevFocus: m("qf"), prevHealpct: m("ql"), auto: m("au"),
     lh: m("lh"), nh: m("nh"), leg: m("lg"), owner: (sto.ra || {})[id],
   };
 }
@@ -250,7 +250,7 @@ function fight(run, tile, b, x, y, z, agg, act, ev, stance, focus) {
  * Advance one tile. `tw`/`rw` are the two 32-bit hash windows, `act` this tile's queued reaction, `agg`
  * the leg's aggression dial. Mutates `run` and returns an event describing what to animate.
  */
-export function step(run, tw, rw, doctrine, agg, stance, focus, healpct) {
+export function step(run, tw, rw, doctrine, agg, stance, focus, healpct, override) {
   if (!run.alive || run.done || run.retired) return { tile: R.ROAD, skip: true };
   // the GOVERNING generation of orders — stance, focus and the heal threshold are orders too, and passing
   // only the doctrine would let a re-tune silently re-judge a leg whose dice already rolled
@@ -269,6 +269,8 @@ export function step(run, tw, rw, doctrine, agg, stance, focus, healpct) {
   // the reaction is whatever the doctrine says about this tile, read BEFORE the fork resolves — the
   // doctrine's FORK entry is what picks the lane
   let act = (doctrine && doctrine[tile] != null) ? doctrine[tile] : R.A_DEFAULT;
+  // a per-tile answer overrides the doctrine; 0 means "no opinion, use my standing orders"
+  if (override) act = override;
 
   // a fork is a CHOICE: the right lane re-rolls as an elite, the left as a monster
   if (tile === R.FORK) { tile = act === R.A_RIGHT ? R.ELITE : R.MONSTER; act = R.A_DEFAULT; }
@@ -366,16 +368,30 @@ export function words(algHashn, blockHashField, runId, i) {
  * Replay one leg: `tileHash`/`rollHash` are BHASH(lh) and BHASH(nh) reduced into the field. Returns the
  * per-step events so the renderer can animate what already happened on chain.
  */
-export function playLeg(algHashn, run, runId, tileHash, rollHash, orders) {
+export function playLeg(algHashn, run, runId, tileHash, rollHash, orders, overrideWord) {
   const o = orders || {};
+  const ovr = unpackLeg(overrideWord);
   const evs = [];
   for (let i = 0; i < R.LEG; i++) {
     if (!run.alive || run.done || run.retired) break;
     const tw = words(algHashn, tileHash, runId, i);
     const rw = words(algHashn, rollHash, runId, i);
-    evs.push(step(run, tw, rw, o.doctrine, o.agg, o.stance, o.focus, o.healpct));
+    evs.push(step(run, tw, rw, o.doctrine, o.agg, o.stance, o.focus, o.healpct, ovr[i]));
   }
   return evs;
+}
+
+/** A per-leg override word <-> 16 three-bit answers, step 0 in the low bits. 0 = "use my doctrine". */
+export function unpackLeg(word) {
+  const out = [];
+  let w = BigInt(word || 0);
+  for (let i = 0; i < R.LEG; i++) { out.push(Number(w & 7n)); w >>= 3n; }
+  return out;
+}
+export function packLeg(acts) {
+  let w = 0n;
+  for (let i = 0; i < Math.min(acts.length, R.LEG); i++) w |= BigInt(acts[i] & 7) << BigInt(3 * i);
+  return w.toString();
 }
 
 /**

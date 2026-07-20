@@ -109,14 +109,18 @@ def drive(rid, plans, legs, stance=None, focus=None, healpct=None, start_cursor=
     # ONE call now carries every standing order, and it is also what ARMS the march: a run does not start
     # walking until its orders exist, so the first legs cannot resolve before the player has configured
     # anything (which, on a chain whose exec layer trails ten minutes, they always did).
-    ok, _r, st, _ = _call("plan", [rid, _pack(doctrine), agg, run.stance, run.focus, run.healpct],
+    ok, _r, st, _ = _call("plan", [rid, _pack(doctrine), agg, run.stance, run.focus, run.healpct, 1],
                           st, cursor=start_cursor)
     assert ok, "plan reverted"
     run.doctrine, run.agg = list(doctrine), agg
 
-    lh = st[A.RLH * (1 << 32) + rid]
     for leg in range(legs):
-        nh = lh + A.LEG
+        # READ the heights from the contract rather than assuming a +LEG progression: auto mode schedules
+        # each roll from the cursor at settle time, so the window is not a fixed arithmetic series.
+        lh = st.get(A.RLH * (1 << 32) + rid, 0)
+        nh = st.get(A.RNH * (1 << 32) + rid, 0)
+        if not lh or not nh:
+            break
         # model: same two hashes, same order
         for i in range(A.LEG):
             if not run.alive or run.done:
@@ -134,7 +138,6 @@ def drive(rid, plans, legs, stance=None, focus=None, healpct=None, start_cursor=
             raise AssertionError(f"leg {leg} diverged (contract, model): {diff}")
         if not run.alive or run.done:
             break
-        lh = nh
     return st, run
 
 
@@ -202,13 +205,13 @@ def t_doctrine_cannot_rewrite_a_rolled_leg():
     _ok, _r, st, _ = _call("constructor", [], st)
     _ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
     # arm it with neutral orders so there IS a window to talk about
-    _ok, _r, st, _ = _call("plan", [rid, _pack(ARM[0]), 1, 0, 50, 35], st, cursor=100)
+    _ok, _r, st, _ = _call("plan", [rid, _pack(ARM[0]), 1, 0, 50, 35, 1], st, cursor=100)
     lh = st[A.RLH * (1 << 32) + rid]
     nh = st[A.RNH * (1 << 32) + rid]
 
     # orders issued LATE — after this leg's dice are already public
     late = dict(st)
-    ok, _r, late, _ = _call("plan", [rid, _pack(d), 8, 1, 90, 20], late, cursor=nh + 5)
+    ok, _r, late, _ = _call("plan", [rid, _pack(d), 8, 1, 90, 20, 1], late, cursor=nh + 5)
     assert ok, "setting a doctrine must always be allowed — there is no window"
     ok, _r, late, _ = _call("advance", [rid], late, cursor=nh + 6)
     assert ok, "advance reverted"
@@ -224,7 +227,7 @@ def t_doctrine_cannot_rewrite_a_rolled_leg():
 
     # and orders issued BEFORE the roll DO govern that leg (otherwise the fence would be vacuous)
     early = dict(st)
-    ok, _r, early, _ = _call("plan", [rid, _pack(d), 8, 1, 90, 20], early, cursor=lh)
+    ok, _r, early, _ = _call("plan", [rid, _pack(d), 8, 1, 90, 20, 1], early, cursor=lh)
     assert ok
     ok, _r, early, _ = _call("advance", [rid], early, cursor=nh + 6)
     assert ok
@@ -237,17 +240,18 @@ def t_plan_validates_its_arguments():
     _ok, _r, st, _ = _call("constructor", [], st)
     _ok, _r, st, _ = _call("begin", [52], st, cursor=100)
     W = _pack([1] * A.NTILE)
-    ok, _r, _s, _ = _call("plan", [52, W, 4, 0, 50, 35], dict(st), cursor=200)
+    ok, _r, _s, _ = _call("plan", [52, W, 4, 0, 50, 35, 1], dict(st), cursor=200)
     assert ok, "a well-formed order set must be accepted"
-    for args, why in (([52, W, 99, 0, 50, 35], "aggression above AGG_MAX"),
-                      ([52, W, 0, 0, 50, 35], "aggression below 1"),
-                      ([52, 1 << (3 * A.NTILE), 4, 0, 50, 35], "an over-wide doctrine word"),
-                      ([52, W, 4, 9, 50, 35], "an out-of-range stance"),
-                      ([52, W, 4, 0, 200, 35], "focus above 100"),
-                      ([52, W, 4, 0, 50, 200], "a heal threshold above 100")):
+    for args, why in (([52, W, 99, 0, 50, 35, 1], "aggression above AGG_MAX"),
+                      ([52, W, 0, 0, 50, 35, 1], "aggression below 1"),
+                      ([52, 1 << (3 * A.NTILE), 4, 0, 50, 35, 1], "an over-wide doctrine word"),
+                      ([52, W, 4, 9, 50, 35, 1], "an out-of-range stance"),
+                      ([52, W, 4, 0, 200, 35, 1], "focus above 100"),
+                      ([52, W, 4, 0, 50, 200, 1], "a heal threshold above 100"),
+                      ([52, W, 4, 0, 50, 35, 2], "a non-boolean auto flag")):
         ok, _r, _s, _ = _call("plan", args, dict(st), cursor=200)
         assert not ok, f"{why} must revert"
-    ok, _r, _s, _ = _call("plan", [52, W, 4, 0, 50, 35], dict(st), caller=999, cursor=200)
+    ok, _r, _s, _ = _call("plan", [52, W, 4, 0, 50, 35, 1], dict(st), caller=999, cursor=200)
     assert not ok, "a non-owner must not set orders"
 
 
@@ -259,7 +263,7 @@ def _seed_planned_run(rid, plans, legs, caller=1234):
     assert ok
     # the window does not exist until the orders do — committing them is what arms the march
     doctrine, agg = plans
-    ok, _r, st, _ = _call("plan", [rid, _pack(doctrine), agg, 0, 50, 35], st, caller=caller, cursor=100)
+    ok, _r, st, _ = _call("plan", [rid, _pack(doctrine), agg, 0, 50, 35, 1], st, caller=caller, cursor=100)
     assert ok, "plan reverted"
     assert st.get(A.RLH * (1 << 32) + rid), "committing orders must arm the march"
     return st
@@ -338,7 +342,7 @@ def t_worst_case_advance_has_headroom():
     st = {}
     _ok, _r, st, _ = _call("constructor", [], st)
     _ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
-    _ok, _r, st, _ = _call("plan", [rid, 0, 4, M.ST_GUARDED, 0, 35], st, cursor=100)   # arm the march
+    _ok, _r, st, _ = _call("plan", [rid, 0, 4, M.ST_GUARDED, 0, 35, 1], st, cursor=100)  # arm, auto
 
     # expensive AND survivable, or the run dies in three steps and stresses nothing: top-tier armour in
     # every slot, all-armour focus, Guarded stance, plus `blazing` so every kill drops and _take_item runs
@@ -447,7 +451,7 @@ def t_storage_view_actually_decodes():
         ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
         assert ok, f"begin({rid}) reverted"
         # arm it: an unarmed run has no window, so lh/nh are legitimately absent until orders exist
-        ok, _r, st, _ = _call("plan", [rid, 0, 1, 0, 50, 35], st, cursor=100)
+        ok, _r, st, _ = _call("plan", [rid, 0, 1, 0, 50, 35, 1], st, cursor=100)
         assert ok, f"plan({rid}) reverted"
 
     c = {"abi": A.ABI, "runtime": "zkvm",
@@ -463,6 +467,56 @@ def t_storage_view_actually_decodes():
     assert all(v == A.HP0 for v in view["hp"].values()), f"hp map wrong: {view['hp']}"
     # a run the client can actually find: the owner map must resolve, not be a bare digest
     assert set((view.get("ra") or {}).keys()) == {str(i) for i in ids}, "owner map must list every run"
+
+
+def t_per_tile_answers_and_the_unscheduled_roll():
+    """The point of the whole hold-and-wait design: you answer the SPECIFIC tiles in front of you, and the
+    dice for them do not exist until you do.
+
+    With auto off, settling a leg leaves the next roll UNSCHEDULED (nh == 0). advance() refuses. The terrain
+    is visible, you commit an answer to those sixteen tiles, and committing is what schedules the roll — so
+    a per-tile answer can never be racing a window, at any lag.
+    """
+    rid = 71
+    st = {}
+    _ok, _r, st, _ = _call("constructor", [], st)
+    _ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
+    ok, _r, st, _ = _call("plan", [rid, 0, 1, 0, 50, 35, 0], st, cursor=100)      # auto OFF
+    assert ok
+    lh = st[A.RLH * (1 << 32) + rid]
+    assert st.get(A.RNH * (1 << 32) + rid, 0) == 0, "with auto off the roll must NOT be scheduled yet"
+
+    ok, _r, _s, _ = _call("advance", [rid], dict(st), cursor=lh + 500)
+    assert not ok, "advance must refuse a leg whose dice were never scheduled"
+
+    # answering the visible tiles schedules the roll
+    answers = [A.A_STRIKE if i % 2 == 0 else A.A_GUARD for i in range(A.LEG)]
+    word = 0
+    for i, a in enumerate(answers):
+        word |= (a & 7) << (3 * i)
+    ok, _r, _s, _ = _call("commit", [rid, word], dict(st), cursor=lh - 1)
+    assert not ok, "committing before the terrain is visible must revert"
+    ok, _r, st, _ = _call("commit", [rid, word], st, cursor=lh + 3)
+    assert ok, "commit reverted"
+    nh = st[A.RNH * (1 << 32) + rid]
+    assert nh > lh + 3, f"committing must schedule the roll in the FUTURE (nh={nh}, cursor={lh + 3})"
+    ok, _r, _s, _ = _call("commit", [rid, word], dict(st), cursor=nh - 1)
+    assert not ok, "a second commit for the same leg must revert — the dice are already scheduled"
+
+    # and the answers actually change the outcome
+    ok, _r, st2, _ = _call("advance", [rid], dict(st), cursor=nh + 1)
+    assert ok, "advance reverted"
+    bare = dict(st)
+    bare[A.OVR_TAG] = 0
+    import execnode.stark.alghash as _ah
+    bare.pop(_ah.hashn([A.OVR_TAG, rid, 0]), None)                # same leg, no answers at all
+    ok, _r, st3, _ = _call("advance", [rid], bare, cursor=nh + 1)
+    assert ok
+    a, b = _contract_state(st2, rid), _contract_state(st3, rid)
+    assert a != b, "per-tile answers must actually change what happens"
+
+    # with auto off, the next roll is unscheduled again — the march waits for you
+    assert st2.get(A.RNH * (1 << 32) + rid, 0) == 0, "auto off: the next roll must wait for your answer"
 
 
 def t_constants_are_not_duplicated():
@@ -488,6 +542,8 @@ if __name__ == "__main__":
     check("scratch leaves no residue in the state root", t_scratch_leaves_no_residue)
     check("worst-case advance has trace headroom (a lucky run must not brick)", t_worst_case_advance_has_headroom)
     check("storage view decodes into the maps the client reads", t_storage_view_actually_decodes)
+    check("per-tile answers, and a roll that is not scheduled until you give them",
+          t_per_tile_answers_and_the_unscheduled_roll)
     check("browser engine matches the model (transitively, the chain)", t_js_engine_matches_the_model)
     check("rules are imported, not duplicated", t_constants_are_not_duplicated)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")

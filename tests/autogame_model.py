@@ -379,7 +379,7 @@ def fight(run, tile, b, x, y, z, agg, act, ev, stance=None, focus=None):
 
 
 # ── the step ─────────────────────────────────────────────────────────────────────────────────────
-def step(run, tw, rw, doctrine=None, agg=None, stance=None, focus=None, healpct=None):
+def step(run, tw, rw, doctrine=None, agg=None, stance=None, focus=None, healpct=None, override=0):
     """Advance the run one tile. `tw`/`rw` are the two 32-bit hash windows.
 
     `doctrine` is the standing reaction per TILE CLASS (a list of NTILE entries) and `agg` the aggression
@@ -413,8 +413,12 @@ def step(run, tw, rw, doctrine=None, agg=None, stance=None, focus=None, healpct=
     tier = tier_of(depth)
 
     # The reaction is whatever the doctrine says about the tile you walked onto — read BEFORE the fork is
-    # resolved, because the doctrine's FORK entry is what picks the lane.
+    # resolved, because the FORK entry is what picks the lane.
     act = doctrine[tile] if tile < len(doctrine) else A_DEFAULT
+    # ...unless you looked at THIS tile and said otherwise. A per-tile answer is only possible because the
+    # dice for the leg are not scheduled until you commit it, so the override always predates the roll.
+    if override:
+        act = override
 
     # A fork is a choice, not an event: the road splits and A_RIGHT takes the greedier lane, which re-rolls
     # as an elite.

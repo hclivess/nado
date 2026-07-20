@@ -17,6 +17,7 @@ import {
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime,
 } from "./nadodapp.js";
 import * as E from "./autogame-engine.js";
+import { ACTS_FOR } from "./autogame-rules.js";
 import * as ART from "./autogame-art.js";
 import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js";
 
@@ -75,29 +76,15 @@ const DOCTRINE_ORDER = [E.MONSTER, E.ELITE, E.BOSS, E.FORK, E.HAZARD, E.RELIC, E
 //   * Guard and Strike only touch a monster's swing, so they mean nothing outside a fight.
 //   * Dodge and Sprint forfeit a tile, which is real on a shrine (keep your streak) and merely wasted
 //     stamina on empty road.
+// WHICH ACTIONS DO SOMETHING ON WHICH TILE — imported, not written here. ACTS_FOR is DERIVED from the rules
+// by tests/autogame_action_matrix.py: for every (tile, action) it runs the reference model against plain
+// Default across many worlds and keeps only the actions that change something OTHER than their own stamina
+// cost, dropping any that are strictly dominated by a cheaper action with identical effect.
 //
-// SPRINT IS NOT OFFERED ANYWHERE. In the rules it is byte-for-byte identical to Dodge — both set the same
-// `skip` flag and forfeit the tile — but it costs 3 stamina against Dodge's 2. It is strictly dominated, so
-// listing it is offering the player a worse version of a choice they already have. The rules should
-// eventually give it a distinct effect or lose the action id; until then the menu tells the truth.
-const A_ = E;
-const COMBAT_ACTS = [0, E.A_STRIKE, E.A_GUARD, E.A_DODGE, E.A_POTION, E.A_RALLY, E.A_REST];
-const HEALS = [0, E.A_POTION, E.A_RALLY, E.A_REST];        // available anywhere: they act on YOU, not the tile
-const ACTS_FOR = {
-  [E.MONSTER]: COMBAT_ACTS,
-  [E.ELITE]:   COMBAT_ACTS,
-  [E.BOSS]:    COMBAT_ACTS,
-  // a fork discards every action the moment the lane is chosen, so the lane IS the only choice
-  [E.FORK]:    [0, E.A_RIGHT],
-  // Dodge is offered only where forfeiting the tile actually buys something: skipping a fight, or skipping
-  // a shrine to protect the greed streak a heal would break
-  [E.HAZARD]:  [0, E.A_DODGE, E.A_POTION, E.A_RALLY, E.A_REST],
-  [E.SHRINE]:  [0, E.A_DODGE, E.A_POTION, E.A_RALLY, E.A_REST],
-  [E.CACHE]:   HEALS,
-  [E.RELIC]:   HEALS,
-  [E.FORGE]:   HEALS,
-  [E.ROAD]:    HEALS,
-};
+// I wrote this table by hand once and got it wrong both ways — offering "Strike forge" (a pure 2-stamina
+// waste), offering "take the right lane" on shrines where action 7 means something else entirely, and
+// removing Dodge from caches where forfeiting the loot IS a real choice. Deriving it means the menu can no
+// longer disagree with the game.
 /** Action 7 is two different things depending on where you meet it, so it must not be labelled one way. */
 function actName(a, tile) {
   if (a === E.A_RIGHT) {
@@ -124,7 +111,12 @@ let view = null;                // the run the ANIMATOR is showing; catches up t
 let road = [];                  // peekLeg() of the pending leg — the visible, committed terrain
 let planAgg = 1;
 // staged locally until committed: the whole point of one call is that you tune everything, THEN send it
-let pendStance = 0, pendFocus = 50, pendHeal = 35;
+let pendStance = 0, pendFocus = 50, pendHeal = 35, pendAuto = 0;
+// YOUR ANSWER TO THE SIXTEEN TILES IN FRONT OF YOU. 0 = "no opinion, fall through to my standing orders".
+// This is only possible because the dice for the leg are not scheduled until you commit it, so an answer
+// can never be racing a roll — see the RNH == 0 note in execnode/games/autogame.py.
+let answers = new Array(E.LEG).fill(0);
+let brush = E.A_STRIKE;         // which action a tile tap assigns
 let queue = [];                 // settled step events waiting to be animated
 let camera = 0;                 // fractional depth the camera is at
 let lastLegSeen = -1;
@@ -184,6 +176,7 @@ async function refreshAll() {
       case "begin": return myId != null;
       case "plan": return E.packDoctrine(chain.doctrine) === String(f.word) && Number(chain.agg) === Number(f.agg);
       case "advance": return Number(chain.leg) > Number(f.leg);
+      case "commit": return !!chain.nh || Number(chain.leg) > Number(f.leg);
       case "retire": return !!chain.retired;
       case "stance": return Number(chain.stance) === Number(f.want);
       case "focus": return Number(chain.focus) === Number(f.want);
@@ -231,7 +224,7 @@ function syncView() {
 function rebuildRoad() {
   const tileH = hashField(chain.lh);
   road = tileH == null ? [] : E.peekLeg(algHashn, chain, myId, tileH);
-  if (chain.leg !== lastLegSeen) lastLegSeen = chain.leg;
+  if (chain.leg !== lastLegSeen) { answers = new Array(E.LEG).fill(0); lastLegSeen = chain.leg; }
 }
 
 // ── the world ───────────────────────────────────────────────────────────────────────────────────
@@ -529,11 +522,12 @@ function render() {
     $("agg").value = String(chain.agg || 1);
     planAgg = chain.agg || 1;
     $("aggVal").textContent = planAgg;
-    pendStance = chain.stance; pendFocus = chain.focus; pendHeal = chain.healpct;
+    pendStance = chain.stance; pendFocus = chain.focus; pendHeal = chain.healpct; pendAuto = chain.auto || 0;
     $("focus").value = String(pendFocus); $("focusVal").textContent = `${pendFocus} / ${100 - pendFocus}`;
     $("heal").value = String(pendHeal); $("healVal").textContent = pendHeal + "%";
   }
   renderRoad();
+  renderAnswerBar();
   renderDoctrine();
   renderDials();
   renderGear(r);
@@ -548,11 +542,17 @@ function renderRoad() {
       chain ? "Waiting for the terrain block…" : "Set out to see the road."}</div>`;
     return;
   }
+  const answering = !!(chain && chain.lh && !chain.nh);      // the dice are not scheduled: your move
+  el.classList.toggle("answering", answering);
   el.innerHTML = road.map((t, i) => {
     const cls = [t.tile === E.HAZARD || t.tile === E.ELITE || t.tile === E.BOSS ? "danger"
       : (t.tile === E.CACHE || t.tile === E.SHRINE || t.tile === E.RELIC) ? "good" : "",
       t.depth === (chain ? chain.depth : -1) ? "now" : ""].join(" ");
-    const act = (doctrine && doctrine[t.tile]) ? `<span class="act">${ACT_ICON[doctrine[t.tile]]}</span>` : "";
+    // your own answer if you gave one, otherwise a dim hint of what the standing orders would do
+    const mine = answers[i];
+    const fallback = doctrine && doctrine[t.tile];
+    const act = mine ? `<span class="act">${ACT_ICON[mine]}</span>`
+      : fallback ? `<span class="act" style="background:var(--faint);opacity:.55">${ACT_ICON[fallback]}</span>` : "";
     // A canvas, not an emoji. The chip background is a dark blue-grey, and a stock ⚔️ glyph sitting in it
     // reads as clip-art in a blue box rather than as the monster you are about to fight.
     const art = ART.drawMonster
@@ -562,6 +562,19 @@ function renderRoad() {
       ${act}${art}<span class="sw">${t.swing || ""}</span></div>`;
   }).join("");
   paintRoadIcons();
+  if (answering) {
+    el.querySelectorAll(".tile").forEach((n) => n.onclick = () => {
+      const i = Number(n.dataset.i);
+      const allowed = ACTS_FOR[road[i].tile] || [0];
+      // tapping cycles through only what this tile can actually use, so you cannot pick a no-op
+      const cur = allowed.indexOf(answers[i]);
+      answers[i] = allowed[(cur + 1) % allowed.length];
+      renderRoad();
+      renderDoctrine();
+    });
+  } else {
+    el.querySelectorAll(".tile").forEach((n) => n.onclick = null);
+  }
 }
 
 /** Paint each road chip with the SAME sprite the world uses, so the strip and the stage agree about what
@@ -649,7 +662,42 @@ function paintDoctrineIcons() {
   });
 }
 
+/** The answer bar: a brush picker plus the commit that SCHEDULES THE DICE. */
+function renderAnswerBar() {
+  const answering = !!(chain && chain.lh && !chain.nh && road.length);
+  gate({ answerBar: answering });
+  const help = $("roadHelp");
+  if (help) {
+    help.innerHTML = !chain || !chain.lh
+      ? esc(t("roadHelp", "This is the next sixteen steps, already fixed by a mined block. The dice that resolve them come from a block that does not exist yet."))
+      : answering
+        ? `<b style="color:var(--gold)">${esc(t("roadAnswer", "Tap each tile to say what you will do about it. The dice are not scheduled until you commit — so you are never racing a roll. Anything you leave blank uses your standing orders."))}</b>`
+        : esc(t("roadRolling", "Your answers are in and the dice are scheduled. Nothing can change this leg now."));
+  }
+  const seg = $("ansSeg");
+  if (seg && !seg.dataset.built) {
+    seg.dataset.built = "1";
+    seg.innerHTML = [E.A_STRIKE, E.A_GUARD, E.A_DODGE, E.A_POTION, E.A_RALLY, E.A_REST].map((a) =>
+      `<button data-a="${a}">${esc(ACT_INFO[a][0])}<span> ${ACT_ICON[a]}</span></button>`).join("");
+    seg.querySelectorAll("button").forEach((b) => b.onclick = () => { brush = Number(b.dataset.a); renderAnswerBar(); });
+    relocalize(seg);
+  }
+  if (seg) seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", Number(b.dataset.a) === brush));
+  if ($("commitBtn")) $("commitBtn").disabled = !answering || dapp.busy("commit");
+}
+
 function renderDials() {
+  const au = $("autoSeg");
+  if (au && !au.dataset.built) {
+    au.dataset.built = "1";
+    au.innerHTML = [[0, t("autoOff", "Wait for me")], [1, t("autoOn", "March on its own")]]
+      .map(([v, lbl]) => `<button data-v="${v}">${esc(lbl)}</button>`).join("");
+    au.querySelectorAll("button").forEach((b) => b.onclick = () => {
+      pendAuto = Number(b.dataset.v); renderDials(); renderDoctrine();
+    });
+  }
+  if (au) au.querySelectorAll("button").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === pendAuto));
+  if ($("autoVal")) $("autoVal").textContent = pendAuto ? t("autoOn", "March on its own") : t("autoOff", "Wait for me");
   const ss = $("stanceseg");
   if (ss && !ss.dataset.built) {
     ss.dataset.built = "1";
@@ -747,7 +795,7 @@ function commitPlan() {
   // threshold — because they are one decision and four transactions is forty minutes on this chain.
   // It is also what ARMS an unarmed run: the march does not start until you have said how to fight it.
   act("plan", t("whatPlan", "Committing your orders"), () => {
-    dapp.call("plan", [myId, word, planAgg, pendStance, pendFocus, pendHeal], 0n,
+    dapp.call("plan", [myId, word, planAgg, pendStance, pendFocus, pendHeal, pendAuto], 0n,
       t("labelPlan", "Commit orders"), { phase: "plan", word, agg: planAgg });
   }, "word", word);
 }
@@ -757,6 +805,19 @@ function advance() {
     dapp.call("advance", [myId], 0n, t("labelAdvance", "Settle the leg"),
       { phase: "advance", leg: chain.leg }), "leg", chain.leg);
 }
+/** Commit your answers to the sixteen visible tiles — and thereby schedule their dice. */
+function commitLeg() {
+  if (!chain) return;
+  const clean = answers.map((a, i) => {
+    const allowed = ACTS_FOR[road[i] ? road[i].tile : E.ROAD] || [0];
+    return allowed.includes(a) ? a : 0;
+  });
+  const word = E.packLeg(clean);
+  act("commit", t("whatCommit", "Answering this stretch of road"), () =>
+    dapp.call("commit", [myId, word], 0n, t("labelCommit", "Commit your answers"),
+      { phase: "commit", leg: chain.leg }), "leg", chain.leg);
+}
+
 function retire() {
   if (!chain) return;
   act("retire", t("whatRetire", "Retiring"), () =>
@@ -815,6 +876,7 @@ async function boot() {
   });
   wireDials();
   $("beginBtn").onclick = begin;
+  $("commitBtn").onclick = commitLeg;
   $("planBtn").onclick = commitPlan;
   $("advBtn").onclick = advance;
   $("retireBtn").onclick = retire;
