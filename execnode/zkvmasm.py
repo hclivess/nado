@@ -135,6 +135,8 @@ def assemble(text):
             out.append(["ABURN", _reg(toks[1]), _reg(toks[2]), 0])
         elif op == "ABAL":                                     # abal rd <asset> — SELF's balance of an asset
             out.append(["ABAL", _reg(toks[1]), _reg(toks[2]), 0])
+        elif op == "ARENOUNCE":                                # arenounce <asset> — SELF seals its own mint
+            out.append(["ARENOUNCE", _reg(toks[1]), 0, 0])
         elif op in ("JMP", "JNZ"):
             tgt = toks[-1]
             if not tgt.startswith("@"):

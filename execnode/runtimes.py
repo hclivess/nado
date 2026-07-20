@@ -115,6 +115,8 @@ def split_io(io, reg):
             effects.append(("burn", str(a), None, b))
         elif kind == zkvm.IO_ABAL:
             effects.append(("bal", str(a), None, b))
+        elif kind == zkvm.IO_ARENOUNCE:
+            effects.append(("renounce", str(a), None, 0))   # seal the asset's mintability (issuer-checked)
     if sel:
         return None
     return payouts, effects

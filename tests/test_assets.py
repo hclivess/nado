@@ -183,6 +183,13 @@ def shop_code():
     with c.method("issue_at") as m:                     # mint an asset named by the CALLER (arg0)
         m.amint(m.arg(0), m.arg(1), m.arg(2))
         m.ret(m.const(1))
+    with c.method("seal") as m:                        # renounce the contract's OWN asset (seed 1), in-circuit
+        aid = m.set(zhash(m.me(), m.const(1)), None)
+        m.arenounce(aid)
+        m.ret(m.const(1))
+    with c.method("seal_at") as m:                     # attempt to renounce an asset named by the CALLER
+        m.arenounce(m.arg(0))
+        m.ret(m.const(1))
     with c.method("scorch") as m:                      # burn arg2 of arg0 from its own holding
         m.aburn(m.arg(0), m.arg(2))
         m.ret(m.const(1))
@@ -464,13 +471,13 @@ def t_proven_call_matches_native():
 
     # 4) and the exec layer settles that replayed effect to the same balances the native apply reaches
     named = [(k, str(a), reg.get(str(t)) if t else None, amt) for k, a, t, amt in fx3]
-    ok4, why4, deltas, sup = st.stage_asset_effects(cid, named)
+    ok4, why4, deltas, sup, _meta = st.stage_asset_effects(cid, named)
     assert ok4, why4
     assert deltas == {(aid, cid): -500, (aid, BOB): 500} and sup == {}
     # a log whose ABAL read does NOT match the ledger is refused — that read is a claim about state, and
     # this is where a stranger's proof gets checked against what this node actually holds
     lied = [("bal", aid, None, 499)] + named[1:]
-    ok5, _why5, _d, _s = st.stage_asset_effects(cid, lied)
+    ok5, _why5, _d, _s, _m5 = st.stage_asset_effects(cid, lied)
     assert not ok5, "a forged ABAL read was accepted"
 
 
@@ -714,8 +721,79 @@ def t_allowance_committed_in_root():
     assert st2.state_root() == st.state_root(), "allowance did not survive a save/load round-trip"
 
 
+def t_arenounce_opcode():
+    """A contract seals its OWN asset's supply in-circuit (the launchpad-graduation shape). Authority is the
+    ledger's: a contract can only renounce an asset it issues."""
+    st = fresh()
+    cid = deploy_shop(st)
+    st.apply_blob({"op": "asset_create", "seed": 1, "name": "LP", "sym": "LP", "dec": 0,
+                   "supply": 0, "mintable": True, "for": cid}, ALICE, "tx")
+    aid = str(asset_id(cid, 1))
+    assert st.assets[aid]["mintable"] is True
+    st.apply_blob({"op": "call", "contract": cid, "method": "issue", "args": [0, BOB, 100]}, ALICE, "tx")
+    assert st.asset_balance(aid, BOB) == 100
+
+    # the contract renounces its own mint — mintable flips, and a later mint reverts
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "seal", "args": []}, ALICE, "tx")
+    assert r.endswith("-> ok"), r
+    assert st.assets[aid]["mintable"] is False, "arenounce did not seal the supply"
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "issue", "args": [0, BOB, 1]}, ALICE, "tx")
+    assert "revert" in r, "minting continued after the contract renounced"
+    assert st.asset_balance(aid, BOB) == 100
+
+    # AUTHORITY: another contract cannot renounce an asset it does not issue
+    st.apply_blob({"op": "deploy", "code": shop_code(), "nonce": 2}, BOB, "tx")
+    other = [k for k in st.contracts if k != cid][0]
+    st.apply_blob({"op": "asset_create", "seed": 5, "name": "M", "sym": "M", "dec": 0,
+                   "supply": 0, "mintable": True, "for": other}, BOB, "tx")
+    victim = str(asset_id(other, 5))
+    # a THIRD contract naming the victim's asset — reverts on issuer
+    st.apply_blob({"op": "deploy", "code": shop_code(), "nonce": 3}, CAROL, "tx")
+    third = [k for k in st.contracts if k not in (cid, other)][0]
+    r = st.apply_blob({"op": "call", "contract": third, "method": "seal_at", "args": [int(victim)]}, CAROL, "tx")
+    assert "revert" in r, "a contract renounced an asset it does not issue"
+    assert st.assets[victim]["mintable"] is True, "a non-issuer sealed someone else's asset"
+
+
+def t_arenounce_proves_and_replays():
+    """DIFFERENTIAL soundness for the new opcode: interpreter == proof == replay for a call that renounces.
+    This is the check that the AIR actually CONSTRAINS the ARENOUNCE io (a new opcode that under-constrains
+    would let a prover forge it); it verifies for the honest statement and REJECTS a tampered self digest."""
+    st = fresh()
+    cid = deploy_shop(st)
+    st.apply_blob({"op": "asset_create", "seed": 1, "name": "LP", "sym": "LP", "dec": 0,
+                   "supply": 0, "mintable": True, "for": cid}, ALICE, "tx")
+    aid = str(asset_id(cid, 1))
+    code = st.contracts[cid]["code"]
+    slots = {int(k): int(v) for k, v in (st.contracts[cid]["storage"].get("slots") or {}).items()}
+    cf, fargs = runtimes.zkvm_statement(ALICE, [], dict(st.zk_addrs))
+    selfd = runtimes.zkvm_addr_digest(cid)
+
+    ok, ret, new_slots, io = zkvm.run(code, "seal", cf, fargs, slots, cursor=st.cursor, selfd=selfd)
+    assert ok and any(k == zkvm.IO_ARENOUNCE for k, _a, _b in io), io
+
+    proof, pio, pret, _ns = vm_circuit.prove_call(code, "seal", cf, fargs, slots, cursor=st.cursor,
+                                                  selfd=selfd, num_queries=8)
+    assert list(pio) == list(io)
+    okv, why = vm_circuit.verify_call(proof, code, "seal", cf, fargs, pio, cursor=st.cursor,
+                                      selfd=selfd, num_queries=8)
+    assert okv, why
+    okv2, _ = vm_circuit.verify_call(proof, code, "seal", cf, fargs, pio, cursor=st.cursor,
+                                     selfd=selfd + 1, num_queries=8)
+    assert not okv2, "verify accepted a forged ACTX_SELF for a renounce"
+
+    ok3, _ret, _st, _pay, _ch, fx = zkvm.replay_io(pio, slots, with_assets=True)
+    assert ok3 and ("renounce", int(aid) % F.P, 0, 0) in fx, fx
+    # the exec layer stages that replayed renounce to the same authority decision
+    named = [(k, str(a), None, amt) for k, a, t, amt in fx]
+    ok4, why4, _d, _s, meta = st.stage_asset_effects(cid, named)
+    assert ok4 and str(aid) in meta, (why4, meta)
+
+
 if __name__ == "__main__":
     check("metadata uri: optional, issuer-only, committed", t_uri_metadata)
+    check("ARENOUNCE opcode: a contract seals its own asset", t_arenounce_opcode)
+    check("ARENOUNCE proves and replays (AIR soundness)", t_arenounce_proves_and_replays)
     check("allowance: approve / transfer_from, two gates, exact decrement", t_allowance_approve_transfer_from)
     check("allowance committed in root + survives reload", t_allowance_committed_in_root)
     check("asset create + transfer + canonical absence", t_create_and_transfer)

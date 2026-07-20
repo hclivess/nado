@@ -1268,7 +1268,7 @@ async def h_verify_call(request):
         # it declares must be one the contract is actually allowed to make. Staged, never committed — this
         # is a query endpoint; it reports whether the call WOULD apply, it does not apply it.
         named = [(k, a, st.zk_addrs.get(str(t)) if t else None, amt) for k, a, t, amt in effects]
-        assets_ok, assets_why, _d, _s = st.stage_asset_effects(b["cid"], named)
+        assets_ok, assets_why, _d, _s, _m = st.stage_asset_effects(b["cid"], named)
         pays = [[st.zk_addrs.get(str(to)), amt] for to, amt in payouts]
         return web.json_response({"ok": True, "reason": "ok", "ret": str(ret),
                                   "state_match": bool(ok2 and chain_ok and assets_ok),

@@ -59,7 +59,7 @@ OPS = (["NOP", "MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "R
         "JMP", "JNZ", "REQUIRE", "CTX", "HINIT", "HABS", "HOUT"]
        + [f"HR{r}" for r in range(alghash.ROUNDS)]
        + ["SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET", "ARG", "DIVMODW"]
-       + ["ASEL", "AMINT", "ABURN", "ABAL", "ACTX"])
+       + ["ASEL", "AMINT", "ABURN", "ABAL", "ACTX", "ARENOUNCE"])
 OP = {name: i for i, name in enumerate(OPS)}
 HR0 = OP["HR0"]
 
@@ -68,8 +68,8 @@ IO_SLOAD, IO_SSTORE, IO_PAY, IO_BHASH, IO_BEACON, IO_RET = 1, 2, 3, 4, 5, 6
 # ASSET I/O (doc/assets.md): the same replay discipline as PAY — the VM EMITS the intent, the exec layer
 # checks authority/solvency against the committed asset ledger. The AIR proves only that the program emitted
 # exactly these entries in this order; what they MEAN is public, deterministic replay in execnode/state.py.
-IO_ASEL, IO_AMINT, IO_ABURN, IO_ABAL = 7, 8, 9, 10
-IO_ASSET_KINDS = (IO_ASEL, IO_AMINT, IO_ABURN, IO_ABAL)
+IO_ASEL, IO_AMINT, IO_ABURN, IO_ABAL, IO_ARENOUNCE = 7, 8, 9, 10, 11
+IO_ASSET_KINDS = (IO_ASEL, IO_AMINT, IO_ABURN, IO_ABAL, IO_ARENOUNCE)
 
 # CTX indices (imm operand of the CTX opcode)
 CTX_CALLER, CTX_VALUE, CTX_CURSOR, CTX_TIME = 0, 1, 2, 3
@@ -419,6 +419,11 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 res, wr = bv, True
             elif op_name == "ACTX":
                 res, wr = actxv[imm], True
+            elif op_name == "ARENOUNCE":
+                # Seal asset rd's supply — the contract renounces its OWN mint (doc/assets.md §7). Emits the
+                # intent; the exec layer checks self==issuer and applies mintable=False (settlement rule),
+                # exactly like AMINT publishes a mint the ledger authorises. Writes no register.
+                io_entry = (IO_ARENOUNCE, rd, 0)          # renounce asset rd (from self, checked at settle)
             elif op_name == "RET":
                 ret = rs
                 io_entry = (IO_RET, rs, 0)
@@ -505,6 +510,10 @@ def replay_io(io_log, storage, with_assets=False):
             if a == 0:
                 return bad
             effects.append(("bal", a, 0, b))
+        elif kind == IO_ARENOUNCE:
+            if a == 0 or b != 0:
+                return bad
+            effects.append(("renounce", a, 0, 0))
         else:
             return bad
     if not ret_seen or sel:

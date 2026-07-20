@@ -101,10 +101,11 @@ MAX_T = 131072                # the FULL stark.MAX_TRACE_ROWS (2^17) — zkvm.GA
                               # ACTUAL length; this ceiling costs nothing until a contract uses it.
 
 _O = zkvm.OP
-_IO_OPS = ("SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET", "ASEL", "AMINT", "ABURN", "ABAL")
+_IO_OPS = ("SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET", "ASEL", "AMINT", "ABURN", "ABAL", "ARENOUNCE")
 _IO_KIND = {"SLOAD": zkvm.IO_SLOAD, "SSTORE": zkvm.IO_SSTORE, "PAY": zkvm.IO_PAY,
             "BHASH": zkvm.IO_BHASH, "BEACON": zkvm.IO_BEACON, "RET": zkvm.IO_RET,
-            "ASEL": zkvm.IO_ASEL, "AMINT": zkvm.IO_AMINT, "ABURN": zkvm.IO_ABURN, "ABAL": zkvm.IO_ABAL}
+            "ASEL": zkvm.IO_ASEL, "AMINT": zkvm.IO_AMINT, "ABURN": zkvm.IO_ABURN, "ABAL": zkvm.IO_ABAL,
+            "ARENOUNCE": zkvm.IO_ARENOUNCE}
 _WRITE_OPS = ("MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "DIVMOD", "DIVMODW", "LO32",
               "CTX", "ACTX", "HOUT")
 _LOAD_OPS = ("SLOAD", "BHASH", "BEACON", "ARG", "ABAL")   # dest register is bus-supplied, not from the update
@@ -216,7 +217,7 @@ def _io_a_expr(row):
     rdv, rsv = _rd_val(row), _rs_val(row)
     acc = F.mul(row[F0 + _O["SLOAD"]], rsv)
     acc = F.add(acc, F.mul(row[F0 + _O["SSTORE"]], rdv))
-    for name in ("PAY", "AMINT", "ABURN"):
+    for name in ("PAY", "AMINT", "ABURN", "ARENOUNCE"):   # asset in rd; ARENOUNCE's b stays 0 (see _io_b_expr)
         acc = F.add(acc, F.mul(row[F0 + _O[name]], rdv))
     for name in ("BHASH", "BEACON", "RET", "ASEL", "ABAL"):
         acc = F.add(acc, F.mul(row[F0 + _O[name]], rsv))

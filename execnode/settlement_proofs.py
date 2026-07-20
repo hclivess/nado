@@ -104,10 +104,10 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
     if not _apply_payouts(bridge, cid, payouts):
         raise ValueError(f"call {i}: unaffordable payout")
     if effects:
-        aok, reason, deltas, sup = stage_asset_effects_pure(abal, assets, cid, effects)
+        aok, reason, deltas, sup, meta_ops = stage_asset_effects_pure(abal, assets, cid, effects)
         if not aok:
             raise ValueError(f"call {i}: illegal asset effect — {reason}")
-        commit_asset_effects_pure(abal, assets, deltas, sup)
+        commit_asset_effects_pure(abal, assets, deltas, sup, meta_ops)
     c["storage"] = {"slots": {str(k): v for k, v in sorted(new_slots.items())}}
     epoch_call = {"code": c["code"], "method": method, "caller_f": cf, "args_f": fargs,
                   "caller": caller, "args": call.get("args", []), "value": value, "cursor": cursor,

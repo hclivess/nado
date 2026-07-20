@@ -1,12 +1,13 @@
 # Assets — a second value type on the exec layer
 
 > **Status: BUILT and usable — ledger, opcodes, proofs, blob ops, and the wallet UI.** The asset ledger,
-> the five zkVM opcodes, the blob ops, state-root commitment and the execution AIR are implemented and
-> tested (`tests/test_assets.py`, now 25 checks including real proofs); the wallet's Assets tab
+> the six zkVM opcodes, the blob ops, state-root commitment and the execution AIR are implemented and
+> tested (`tests/test_assets.py`, now 29 checks including real proofs); the wallet's Assets tab
 > (`static/interface.html`/`interface.js`) issues, sends, mints, burns, renounces, approves/transfers-from
-> and hosts the Reserve vault UI (`doc/reserve.md`). Asset *calls* now settle both by the bonded quorum AND
-> by validity proof (§8). Feature parity against modern token standards — present, deliberately omitted, or
-> reasoned out — is surveyed in §9. The one genuinely-needed opcode not yet built is `ARENOUNCE` (§9 item 2).
+> and hosts the Reserve vault UI (`doc/reserve.md`). Asset *calls* settle both by the bonded quorum AND by
+> validity proof (§8), a contract can seal its own token's supply in-circuit (`ARENOUNCE`, §3), and delegated
+> spend (approve/allowance/transferFrom, §7a) and a metadata URI are in the ledger. Feature parity against
+> modern token standards — present, deliberately omitted, or reasoned out — is surveyed in §9.
 
 Until now the exec layer knew exactly one kind of value: native NADO, held in `ExecState.bridge`. Every
 contract — 21 of them — could only ever move that. This note specifies the second: **fungible assets**,
@@ -37,7 +38,7 @@ contracts is the migration nobody survives. The secondary argument is that `doc/
 specifies the "atomic VM swap" as *one deterministic transaction moving both legs* — which is only
 straightforward if both legs are in one ledger.
 
-Cost paid: `ExecState` gained two fields, the root gained two record tags, and the VM gained five opcodes.
+Cost paid: `ExecState` gained two fields, the root gained three record tags, and the VM gained six opcodes.
 
 ---
 
@@ -82,7 +83,7 @@ Consequences, and this is the part that makes the rest of the roadmap buildable:
 
 ---
 
-## 3. The five opcodes
+## 3. The six opcodes
 
 Appended to `zkvm.OPS` (ids are frozen once contracts deploy against them; appending never shifts an
 existing id).
@@ -94,6 +95,7 @@ existing id).
 | `ABURN` | `aburn rd rs` | burn `rs` of asset `rd` from **self** | `(IO_ABURN, asset, amt)` |
 | `ABAL` | `abal rd rs` | `rd` = self's balance of asset `rs` | `(IO_ABAL, asset, bal)` |
 | `ACTX` | `actx rd i` | `i=0` → the asset escrowed with this call, `i=1` → self's digest | — (context) |
+| `ARENOUNCE` | `arenounce rd` | seal asset `rd`'s supply — self renounces its own mint (issuer-checked) | `(IO_ARENOUNCE, asset, 0)` |
 
 `PAY` is unchanged, and gains a meaning: **`PAY` immediately after an `ASEL` moves that asset instead of
 NADO.** A bare `PAY` is native NADO exactly as before, so all 21 existing contracts are untouched.
@@ -106,9 +108,10 @@ amint <asset> <to> <amt>      ; ASEL asset ; AMINT to amt
 aburn <asset> <amt>
 abal  d <asset>
 actx  d asset|self
+arenounce <asset>            ; seal SELF's own asset supply (issuer-checked at settle)
 ```
 
-zkpy: `m.apay(...)`, `m.amint(...)`, `m.aburn(...)`, `m.abal(a)`, `m.in_asset()`, `m.me()`.
+zkpy: `m.apay(...)`, `m.amint(...)`, `m.aburn(...)`, `m.arenounce(a)`, `m.abal(a)`, `m.in_asset()`, `m.me()`.
 
 There is deliberately **no way to write a bare `asel` in zkasm.** See §4.
 
@@ -222,8 +225,10 @@ supply is credited to the **issuer**, not the sender: crediting the deployer wou
 a token the contract is supposed to own, which is the rug this layer exists to prevent.
 
 Renouncing is the deployer's for the same reason creation is, and it is safe to grant because renouncing
-only ever *removes* power. The gap that remains: a contract cannot renounce **autonomously** — a launchpad
-sealing its token's supply at graduation needs an `ARENOUNCE` opcode, which does not exist yet.
+only ever *removes* power. A contract can ALSO renounce **autonomously**, in-circuit, via the `ARENOUNCE`
+opcode (§3): a launchpad sealing its token's supply at graduation emits `arenounce aid`, and the exec layer
+applies `mintable=False` after checking self==issuer — the same authority rule as a blob renounce, so the
+two paths cannot diverge. One-way and permanent, exactly like the blob form.
 
 ### 7a. Delegated spend (approve / allowance / transferFrom)
 
@@ -312,10 +317,10 @@ answer is "no", the reason is the deliverable):
 1. **Proof settlement for asset calls** (§8) — **DONE.** The epoch prover carries an asset shadow and settles
    asset-touching calls by validity proof, gated by the same `stage_asset_effects_pure` the chain applies, so
    authority can never drift between apply and proof. Changed no committed root.
-2. **`ARENOUNCE` opcode** (§7) — genuinely needed and with no substitute: a contract cannot seal its own
-   token's supply autonomously (only its deployer can, via a blob), yet a launchpad graduating a token wants
-   to do it in-circuit. This is a VM-opcode addition (like the five in §3), so it changes consensus and is
-   deployed as a coordinated update.
+2. **`ARENOUNCE` opcode** (§3, §7) — **DONE.** A contract seals its own token's supply in-circuit; the exec
+   layer applies it through the same authority check as a blob renounce, and the AIR constrains the new io
+   (a differential prove/replay/forgery test pins the soundness). A coordinated update, since it is a VM
+   opcode.
 3. **`APULL` — a VM opcode letting a CONTRACT consume an allowance — deliberately NOT built.** The
    account-level `approve`/`transferFrom` above covers a person/keeper spending on another's behalf. The
    remaining case, a contract *pulling* pre-authorised tokens, is already served better by call-value escrow

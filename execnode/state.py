@@ -144,12 +144,16 @@ def asset_credit_dict(abal, aid, holder, delta):
 
 def stage_asset_effects_pure(abal, assets, actor, effects):
     """Validate a call's asset intents as ONE atomic batch against the plain-dict ledgers. Returns
-    (ok, reason, deltas, supply_deltas) and mutates NOTHING — the caller commits only if every effect is
-    legal, so a call that pays three assets and overdraws the fourth moves none of them."""
-    deltas, sup = {}, {}
+    (ok, reason, deltas, supply_deltas, meta_ops) and mutates NOTHING — the caller commits only if every
+    effect is legal, so a call that pays three assets and overdraws the fourth moves none of them. `meta_ops`
+    is the list of asset ids to RENOUNCE (seal mintability, one-way — the in-circuit ARENOUNCE, §7)."""
+    deltas, sup, meta_ops = {}, {}, []
 
     def bal(aid, who):
         return int(abal.get(str(aid), {}).get(who, 0)) + deltas.get((aid, who), 0)
+
+    def fail(reason):
+        return False, reason, {}, {}, []
 
     for kind, aid, to, amt in effects:
         aid, amt = str(aid), int(amt)
@@ -159,48 +163,59 @@ def stage_asset_effects_pure(abal, assets, actor, effects):
             # supplied that value itself; the check earns its keep on the PROOF path, where the log is a
             # stranger's claim about a balance.
             if bal(aid, actor) != amt:
-                return False, f"asset {aid[:12]}… balance read {amt} != ledger", {}, {}
+                return fail(f"asset {aid[:12]}… balance read {amt} != ledger")
+            continue
+        if kind == "renounce":
+            # Seal mintability — a metadata change, not a balance move, so it is handled BEFORE the amt==0
+            # skip below (its amt is 0). Issuer-only, exactly like mint; idempotent and one-way.
+            if meta is None:
+                return fail(f"no such asset {aid[:12]}…")
+            if meta["issuer"] != actor:
+                return fail(f"only {meta['sym']}'s issuer may renounce")
+            meta_ops.append(aid)
             continue
         if amt == 0:
             continue                                      # a zero move is a no-op, not an error (as PAY 0 is)
         if amt < 0 or amt >= ASSET_SUPPLY_CAP:
-            return False, "asset amount out of range", {}, {}
+            return fail("asset amount out of range")
         if meta is None:
-            return False, f"no such asset {aid[:12]}…", {}, {}
+            return fail(f"no such asset {aid[:12]}…")
         if kind == "pay":
             if to is None:
-                return False, "unresolvable asset recipient", {}, {}
+                return fail("unresolvable asset recipient")
             if bal(aid, actor) < amt:
-                return False, f"asset {meta['sym']} payout {amt} > holding", {}, {}
+                return fail(f"asset {meta['sym']} payout {amt} > holding")
             deltas[(aid, actor)] = deltas.get((aid, actor), 0) - amt
             deltas[(aid, to)] = deltas.get((aid, to), 0) + amt
         elif kind == "mint":
             if meta["issuer"] != actor:
-                return False, f"only {meta['sym']}'s issuer may mint", {}, {}
+                return fail(f"only {meta['sym']}'s issuer may mint")
             if not meta["mintable"]:
-                return False, f"{meta['sym']} minting was renounced", {}, {}
+                return fail(f"{meta['sym']} minting was renounced")
             if to is None:
-                return False, "unresolvable mint recipient", {}, {}
+                return fail("unresolvable mint recipient")
             if meta["supply"] + sup.get(aid, 0) + amt > ASSET_SUPPLY_CAP:
-                return False, f"{meta['sym']} supply cap exceeded", {}, {}
+                return fail(f"{meta['sym']} supply cap exceeded")
             deltas[(aid, to)] = deltas.get((aid, to), 0) + amt
             sup[aid] = sup.get(aid, 0) + amt
         elif kind == "burn":
             if bal(aid, actor) < amt:
-                return False, f"asset {meta['sym']} burn {amt} > holding", {}, {}
+                return fail(f"asset {meta['sym']} burn {amt} > holding")
             deltas[(aid, actor)] = deltas.get((aid, actor), 0) - amt
             sup[aid] = sup.get(aid, 0) - amt
         else:
-            return False, f"unknown asset effect {kind!r}", {}, {}
-    return True, "", deltas, sup
+            return fail(f"unknown asset effect {kind!r}")
+    return True, "", deltas, sup, meta_ops
 
 
-def commit_asset_effects_pure(abal, assets, deltas, sup):
+def commit_asset_effects_pure(abal, assets, deltas, sup, meta_ops=()):
     """Apply what stage_asset_effects_pure validated. Never called without that validation."""
     for (aid, who), d in deltas.items():
         asset_credit_dict(abal, aid, who, d)
     for aid, d in sup.items():
         assets[aid]["supply"] += d
+    for aid in meta_ops:
+        assets[aid]["mintable"] = False
 
 
 class ExecState:
@@ -820,9 +835,9 @@ class ExecState:
         prover's shadow (doc/assets.md §8). Mutates nothing; the caller commits only what it validates."""
         return stage_asset_effects_pure(self.abal, self.assets, actor, effects)
 
-    def commit_asset_effects(self, deltas, sup):
+    def commit_asset_effects(self, deltas, sup, meta_ops=()):
         """Apply what stage_asset_effects validated. Never called without that validation."""
-        commit_asset_effects_pure(self.abal, self.assets, deltas, sup)
+        commit_asset_effects_pure(self.abal, self.assets, deltas, sup, meta_ops)
 
     def contract_id(self, deployer, code, nonce):
         """Deterministic contract id H(deployer, code, nonce) (truncated) — identical on every exec node,
@@ -949,7 +964,7 @@ class ExecState:
                     return f"call {cid}.{method} -> revert (payout {total_pay} > contract balance)"
                 # The same rule for the asset ledger, staged so it is ALL-OR-NOTHING with the native half:
                 # nothing is written until every asset move in the call is known legal.
-                a_ok, a_why, a_deltas, a_sup = self.stage_asset_effects(cid, effects)
+                a_ok, a_why, a_deltas, a_sup, a_meta = self.stage_asset_effects(cid, effects)
                 if not a_ok:
                     _refund()
                     return f"call {cid}.{method} -> revert ({a_why})"
@@ -959,7 +974,7 @@ class ExecState:
                     if self.bridge.get(cid, 0) == 0:
                         self.bridge.pop(cid, None)
                     self.bridge[to] = self.bridge.get(to, 0) + amt
-                self.commit_asset_effects(a_deltas, a_sup)
+                self.commit_asset_effects(a_deltas, a_sup, a_meta)
                 moved = sum(1 for k, *_ in effects if k != "bal")
                 tag = ((f" value={value}" + (f" {self.assets[in_asset]['sym']}" if in_asset else "")) if value else "") \
                     + (f" paid={total_pay}" if payouts else "") + (f" assetfx={moved}" if moved else "")

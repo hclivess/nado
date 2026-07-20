@@ -450,6 +450,15 @@ class _Method:
         if a_owned:
             self.alloc.give(ar)
 
+    def arenounce(self, asset):
+        """Seal `asset`'s supply — this contract renounces its own mint, in-circuit and PERMANENTLY (a
+        launchpad graduating a token). Only works when this contract IS the asset's issuer; the exec layer
+        checks that and reverts otherwise. One-way: after it, supply can only ever fall."""
+        sr, s_owned = _wrap(asset).materialize(self)
+        self.emit(f"arenounce {_r(sr)}")
+        if s_owned:
+            self.alloc.give(sr)
+
     def ret(self, v):
         r, owned = _wrap(v).materialize(self)
         self.emit(f"ret {_r(r)}")
@@ -464,6 +473,19 @@ class Contract:
 
     def method(self, name):
         return _Method(self, name)
+
+    def asm(self, name, text):
+        """Add a method written directly in zkasm.
+
+        zkpy and hand-written zkasm assemble to the same thing, so a zkpy contract can still mount an
+        audited shared routine from execnode/games/_lib.py (the provable-daily board, the banked-table
+        helpers) rather than reimplementing it in a second language. Reimplementing is how two versions of
+        one rule drift apart; this keeps ONE copy for every game that mounts it, zkpy or not.
+        """
+        if name in self._src:
+            raise ValueError(f"method {name!r} already defined")
+        self._src[name] = text
+        return self
 
     def source(self):
         """The generated zkasm text per method (for inspection / golden tests)."""
