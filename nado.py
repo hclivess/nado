@@ -1840,19 +1840,23 @@ logger.info("Starting Request Handler")
 
 
 def _periodic_update_loop():
-    """Integrated auto-updater cadence: check origin/main once a day (plus whenever someone hits
-    /update). First check 10 minutes after boot so a freshly restarted node settles/syncs first; a
-    check that pulls new code schedules its own restart, after which the node is up to date and the
-    next boot's timer re-arms. Opt out with \"auto_update\": false in private/config.json."""
+    """Integrated auto-updater cadence: check origin/main every 15 minutes (plus whenever someone hits
+    /update, plus the peer-hint cascade in peer_loop). A check that pulls new code schedules its own
+    restart, after which the node is up to date and the next boot's timer re-arms. Opt out with
+    \"auto_update\": false in private/config.json."""
     # STARTUP GATE first: a node that cannot update itself is a node that will eventually fork, so it
     # diagnoses that at boot, shouts about it, and repairs itself by running THE LOCAL INSTALLER (never a
-    # curl — the fixer ships with the node like everything else). Runs before the 10-minute settle wait so
-    # the operator sees it immediately in the journal.
+    # curl — the fixer ships with the node like everything else). Runs before the settle wait so the
+    # operator sees it immediately in the journal.
     try:
         memserver.updatability = self_update.ensure_updatable(logger=logger)
     except Exception as e:
         logger.warning(f"updatability self-check failed: {e}")
-    time.sleep(600)
+    # Short settle only (was 600s): until its first fetch a node advertises latest_main = null, so the
+    # network panel cannot judge who is current — and after an update WAVE every node restarts at once,
+    # blanking the whole version column for 10 minutes. One fetch 60s after boot is negligible and puts
+    # real verdicts back on the panel almost immediately.
+    time.sleep(60)
     while True:
         try:
             # Re-diagnose each pass: a unit can be removed, a remote re-pointed, git uninstalled.
