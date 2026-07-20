@@ -288,49 +288,36 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
 NADO runs on Python 3.10+. The entrypoint is `nado.py`; the node serves its API and web UI on port
 **9173**.
 
-### One-command install (recommended)
+### Install
 
-`scripts/install.sh` creates a venv, installs the node dependencies (skipping the desktop-wallet-only
-`PySide6` so a server install stays lean), and prints how to run. Re-running is safe (idempotent).
-
-No checkout needed — piped standalone, the script git-clones the repo itself (default `~/nado`,
-override with `--dir <path>`) and re-runs from the fresh checkout, so a full unattended node is one line:
+> ### This one line is the ONLY official, supported way to install or run a NADO node.
+> There is no manual setup, no hand-rolled venv, no `pip install -r requirements.txt`, no `nohup`, no
+> Docker image. Those paths are **unsupported** — a node installed any other way falls off the update
+> path (`/update` refuses a directory that is not a git checkout), drifts out of consensus as protocol
+> changes ship, and will not be helped. If you already run a node that was installed some other way, run
+> this command on it: it repairs the install in place.
 
 ```bash
 curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service
 ```
 
-This same one-liner is also the **universal upgrade / repair** command: it auto-installs `git` if
-missing, and if it finds a node laid down by an **older, git-less installer** it converts that directory
-into a real checkout in place and fast-forwards it to the latest code — your `private/` keys and chain
-data are gitignored and survive untouched. Any node, however it was first installed, gets current by
-running it again.
+No checkout needed — piped standalone, the script installs `git` if missing, clones the repo itself
+(default `~/nado`, override with `--dir <path>`), builds the venv, installs the node dependencies, and
+registers a **systemd service** that boots on start and restarts on failure.
 
-Or the classic way:
+It is also the **universal upgrade / repair** command. Re-running is always safe (idempotent). If it finds
+a node laid down by an **older, git-less installer** it converts that directory into a real checkout in
+place and fast-forwards it to the latest code — your `private/` keys and `blocks/` / `index/` chain data
+are gitignored, so nothing it does can touch them. Any node, however it was first installed, gets current
+by running this again.
 
-```bash
-git clone https://github.com/hclivess/nado
-cd nado
-scripts/install.sh                 # venv + node deps
-nado_venv/bin/python nado.py       # run it
-```
+> **Check the path first.** Under `sudo` the default is `/root/nado`. If your node lives anywhere else,
+> pass `--dir /path/to/your/nado` — otherwise you install a *second* node and the original stays stale.
 
-Flags: `--wallet` also installs the desktop-wallet deps; `--service` (as root) installs a systemd
-service for **unattended** running; `--auto-bond <pct>` auto-compounds mined rewards (see below);
-`--home <dir>` keeps chain data under `<dir>/nado` instead of `~/nado` (recommended when the repo
-itself is checked out at `~/nado`). Run `scripts/install.sh --help` for all options.
-
-### Manual setup
-
-```bash
-git clone https://github.com/hclivess/nado
-cd nado
-python3.10 -m venv nado_venv
-source nado_venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt   # PySide6 (last line) is wallet-only; the node doesn't need it
-python nado.py
-```
+Flags: `--exec` also runs the execution / shielded-pool node on `:9273`; `--wallet` adds the desktop-wallet
+deps; `--auto-bond <pct>` auto-compounds mined rewards (see below); `--home <dir>` keeps chain data under
+`<dir>/nado` instead of `~/nado` (recommended when the repo itself is checked out at `~/nado`). Run
+`scripts/install.sh --help` for all options.
 
 Once running, open <http://127.0.0.1:9173> for the node's web interface and JSON endpoints. To join a
 network, announce your node to a peer:
@@ -339,33 +326,31 @@ network, announce your node to a peer:
 http://127.0.0.1:9173/announce_peer?ip=<peer-ip>
 ```
 
-For public reachability and rewards, forward **port 9173**. Close the node cleanly with **CTRL+C** or
-`http://127.0.0.1:9173/terminate` (never the window's **X**, to avoid database corruption). To wipe
-local data and resync from scratch, stop the node and run `python purge.py` — it clears the chain
-state (`blocks/`, `index/`, `logs/`) under your data home while keeping your keys and peers; on the
-next start the node rebuilds genesis (re-seeding the public bootstrap) and resyncs from the network.
+For public reachability and rewards, forward **port 9173**. Always stop the node cleanly — `systemctl stop
+nado`, or `http://127.0.0.1:9173/terminate` — never `kill -9`, which can corrupt the database. To wipe
+local data and resync from scratch, stop the service and run `nado_venv/bin/python purge.py` from the
+checkout: it clears the chain state (`blocks/`, `index/`, `logs/`) under your data home while keeping your
+keys and peers; on the next start the node rebuilds genesis (re-seeding the public bootstrap) and resyncs
+from the network.
 
-### Run unattended (mine 24/7, no terminal)
+### Operate the service
 
-For a node that **mines on its own** — starts on boot, restarts on crash, needs no open terminal —
-install the systemd service (Linux):
-
-```bash
-sudo scripts/install.sh --service                 # boots on start, restarts on failure
-sudo scripts/install.sh --service --auto-bond 25  # ...and auto-bonds 25% of mined rewards
-sudo scripts/install.sh --service --home /srv/nado-data   # chain data in /srv/nado-data/nado
-```
+The install above already runs the node unattended — it **mines on its own**, starts on boot, restarts on
+crash, and needs no open terminal. To manage it:
 
 ```bash
 systemctl status nado        # health
 journalctl -u nado -f        # live logs
+systemctl restart nado       # pick up new code after a manual pull
 systemctl stop nado          # clean shutdown (never kill -9 — it can corrupt the DB)
 ```
 
-Without systemd, run it detached with `nohup`:
+Common variants (re-run the one-liner with these appended, or `sudo scripts/install.sh` from the checkout):
 
 ```bash
-cd nado && nohup nado_venv/bin/python nado.py > nado.out 2>&1 &
+--service --auto-bond 25            # auto-bond 25% of mined rewards
+--service --home /srv/nado-data     # chain data in /srv/nado-data/nado
+--service --exec                    # also run the execution / shielded-pool node on :9273
 ```
 
 ### Auto-bond — compound mined rewards into stake, hands-free
@@ -439,14 +424,15 @@ It uses throwaway temp dirs and sets `NADO_TESTNET=1` per child (relaxes the SSR
 ### Ubuntu notes
 
 For a production-style node, raise the open-file limit (`/etc/security/limits.conf`:
-`root soft/hard nofile 65535`, `fs.file-max = 100000` via `sysctl`), run inside `screen`, and use the
-`deadsnakes` PPA for `python3.10-venv`. Update an existing install with `git reset --hard origin/main
-&& git pull origin main`.
+`root soft/hard nofile 65535`, `fs.file-max = 100000` via `sysctl`). The installer handles Python and the
+venv itself; update with `/update` or by re-running the one-liner — never by hand-pulling, which leaves the
+running process on the old code until you `systemctl restart nado`.
 
 ### Windows
 
-Install [Python](https://www.python.org/downloads/), `python -m pip install -r requirements.txt`, then
-`python nado.py`. Run the console as Administrator and close with **CTRL+C** or `/terminate`.
+Not a supported node platform — the installer targets Linux with systemd. To mine from Windows, open any
+running node's light-miner in a browser (see [Mine from a phone](#mine-from-a-phone)); it needs no install
+at all. For a full node, use a Linux VM or WSL2 and run the one-liner inside it.
 
 ---
 
