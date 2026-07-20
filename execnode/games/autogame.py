@@ -665,8 +665,15 @@ def build():
         _r(m, RAL).set(m.const(1))
         _r(m, RAV).set(m.const(1))
         m.slot(OWNRUN, m.caller()).set(m.arg(0))
-        cnt = m.slot(RLIST, 0)                       # append to the enumerable run index
-        m.slot(RLIST, cnt.get() + 1).set(m.arg(0))
+        # Append to the enumerable run index, following decode_view's schema EXACTLY (state.py):
+        #   * the count lives at a RAW SLOT NUMBER (slot 0), not at RLIST*2^32 — the view reads
+        #     slots[str(cnt)] literally;
+        #   * the list is 0-INDEXED, because the view enumerates list[0 .. cnt-1].
+        # Getting either wrong enumerates no keys at all, so every named map decodes EMPTY and the client
+        # sees a contract with no state while the slots are sitting right there. Both were wrong here, and
+        # the symptom was a page that rendered perfectly and showed nothing.
+        cnt = m.slot(0, m.const(0))
+        m.slot(RLIST, cnt.get()).set(m.arg(0))
         cnt.set(cnt.get() + 1)
         m.ret(m.arg(0))
 

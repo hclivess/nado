@@ -381,6 +381,37 @@ def t_js_engine_matches_the_model():
         os.unlink(vec)
 
 
+def t_storage_view_actually_decodes():
+    """The client reads named maps, not slots — so the ABI's `_view` schema is load-bearing UI, and getting
+    it wrong is invisible from the contract's side.
+
+    decode_view enumerates keys from an index whose count lives at a RAW SLOT NUMBER and whose list is
+    0-INDEXED. This contract originally wrote the count to RLIST*2^32 and appended at cnt+1, so the view
+    enumerated nothing, every map decoded empty, and the page rendered perfectly while showing a contract
+    with no state. Only running it caught that."""
+    from execnode.state import ExecState
+    st = {}
+    _ok, _r, st, _ = _call("constructor", [], st)
+    ids = [101, 202, 303]
+    for rid in ids:
+        ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
+        assert ok, f"begin({rid}) reverted"
+
+    c = {"abi": A.ABI, "runtime": "zkvm",
+         "storage": {"slots": {str(k): str(v) for k, v in st.items()}}}
+    es = ExecState.__new__(ExecState)
+    es.zk_addrs = {}
+    view = ExecState.decode_view(es, c)
+
+    assert view, "the view decoded to nothing at all"
+    for name in ("hp", "mx", "av", "fo", "hl", "lh", "nh"):
+        got = sorted((view.get(name) or {}).keys())
+        assert got == [str(i) for i in ids], f"map {name!r} enumerated {got}, want {ids}"
+    assert all(v == A.HP0 for v in view["hp"].values()), f"hp map wrong: {view['hp']}"
+    # a run the client can actually find: the owner map must resolve, not be a bare digest
+    assert set((view.get("ra") or {}).keys()) == {str(i) for i in ids}, "owner map must list every run"
+
+
 def t_constants_are_not_duplicated():
     """The model must IMPORT the rules, never restate them — otherwise a retune desyncs the oracle from
     the thing it checks and this whole file silently stops meaning anything."""
@@ -402,6 +433,7 @@ if __name__ == "__main__":
     check("only the owner controls a run", t_only_owner_controls)
     check("scratch leaves no residue in the state root", t_scratch_leaves_no_residue)
     check("worst-case advance has trace headroom (a lucky run must not brick)", t_worst_case_advance_has_headroom)
+    check("storage view decodes into the maps the client reads", t_storage_view_actually_decodes)
     check("browser engine matches the model (transitively, the chain)", t_js_engine_matches_the_model)
     check("rules are imported, not duplicated", t_constants_are_not_duplicated)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")

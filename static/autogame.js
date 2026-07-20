@@ -17,17 +17,23 @@ import {
   resolveAliases, disp, share, algHashn, ALG_P, esc, blocksToTime,
 } from "./nadodapp.js";
 import * as E from "./autogame-engine.js";
-import { drawWarrior, unpackItem, MATERIALS } from "./autogame-art.js";
+import { drawWarrior, unpackItem, MATERIALS, FRAME_W, FRAME_H } from "./autogame-art.js";
 
-const CID = "a281642554a4f5efc86f0989e78469bd";          // execnode/games/autogame.py (zkVM) — set by the deploy script
+const CID = "e1642eac82cb17f08b43dc427ac2df1f";          // execnode/games/autogame.py (zkVM) — set by the deploy script
 const dapp = new NadoDapp({ cid: CID, app: "Autogame" });
 const P = ALG_P();
 const BLOCK_SECS = 6;
 
+// drawWarrior anchors the sprite's TOP-LEFT corner, but everything here thinks in ground coordinates —
+// the warrior stands ON the road line, and the gear panel stands him on its floor. Converting once, here,
+// keeps that mismatch from being re-derived (wrongly) at each call site.
+const footX = (x, scale) => Math.round(x - (FRAME_W * scale) / 2);
+const footY = (y, scale) => Math.round(y - FRAME_H * scale);
+
 const SLOT_NAMES = ["Weapon", "Helm", "Body", "Shield", "Boots", "Cloak"];
 const MAT_NAMES = ["bronze", "iron", "steel", "silver", "obsidian", "gold", "meteoric", "living"];
-const TILE_ICON = ["🛣️", "⚔️", "💀", "🔥", "📦", "⛲", "🔨", "⑂", "💎", "👑"];
-const ACT_ICON = ["", "⚡", "🛡️", "💨", "🧪", "🏃", "🔥", "⑂"];
+const TILE_ICON = ["🛣️", "⚔️", "💀", "🔥", "📦", "⛲", "🔨", "🔀", "💎", "👑"];
+const ACT_ICON = ["", "⚡", "🛡️", "💨", "🧪", "🏃", "🔥", "🔀"];
 const ACT_KEY = ["default", "strike", "guard", "dodge", "potion", "sprint", "rest", "right"];
 const STANCE_KEY = ["balanced", "aggressive", "guarded", "evasive"];
 
@@ -46,7 +52,10 @@ let lastLegSeen = -1;
 // ── reading the chain ───────────────────────────────────────────────────────────────────────────
 /** My run: the live one if I have it, else my most recent. The contract's `ra` map is the owner index. */
 function findMyRun(s) {
-  const ids = (s.runs || []).map(Number).filter((n) => n > 0);
+  // decode_view has no named-index output: the index only supplies the KEY SET for the maps, so the run
+  // ids are the keys of any map. `ra` is the right one because every run has an owner, while a map like
+  // `xp` is absent for a run still sitting at zero (a zero slot is a deleted slot).
+  const ids = Object.keys(s.ra || {}).map(Number).filter((n) => n > 0);
   const mine = ids.filter((id) => String((s.ra || {})[id] || "").toLowerCase() === String(dapp.me || "").toLowerCase());
   if (!mine.length) return null;
   const live = mine.find((id) => Number((s.av || {})[id]) === 1 && !Number((s.dn || {})[id]) && !Number((s.rt || {})[id]));
@@ -220,7 +229,7 @@ function drawWorld() {
   // the warrior — always at the same screen x; the world moves, not him
   const frame = Math.floor((performance.now() / 140) % 4);
   const hurt = view && view.hp * 4 < view.maxhp;
-  drawWarrior(ctx, heroX, GY, {
+  drawWarrior(ctx, footX(heroX, 3), footY(GY + 2, 3), {
     gear: view ? view.gear : new Array(6).fill(0),
     frame, scale: 3, facing: 1, hurt, dead: view ? !view.alive : false,
     attacking: queue.length > 0 && (queue[0].tile === E.MONSTER || queue[0].tile === E.ELITE || queue[0].tile === E.BOSS),
@@ -267,7 +276,7 @@ function showEvent(ev) {
 
 // ── rendering the panels ────────────────────────────────────────────────────────────────────────
 function render() {
-  renderWallet(dapp, $("walletcard"));
+  renderWallet(dapp);
   const r = view || chain;
   const t = (k, d, v) => (window.t ? window.t("autogame." + k, d, v) : d);
 
@@ -336,13 +345,20 @@ function renderRoad() {
   });
 }
 
+/** The segmented controls are built after i18n's DOMContentLoaded pass, so they must be localized on
+ *  creation or they stay English until the user toggles the language picker. */
+function relocalize(root) {
+  try { if (window.NADO_i18n && window.NADO_i18n.apply) window.NADO_i18n.apply(root); } catch (e) {}
+}
+
 function renderDials() {
   const seg = $("actseg");
   if (seg && !seg.dataset.built) {
     seg.dataset.built = "1";
     seg.innerHTML = [1, 2, 3, 4, 5, 6, 7].map((a) =>
-      `<button data-a="${a}" data-i18n="autogame.act_${ACT_KEY[a]}">${ACT_ICON[a]} ${ACT_KEY[a]}</button>`).join("");
+      `<button data-a="${a}" data-i18n="autogame.act_${ACT_KEY[a]}">${ACT_KEY[a]}<span> ${ACT_ICON[a]}</span></button>`).join("");
     seg.querySelectorAll("button").forEach((b) => b.onclick = () => { brush = Number(b.dataset.a); renderDials(); });
+    relocalize(seg);
   }
   if (seg) seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", Number(b.dataset.a) === brush));
 
@@ -351,6 +367,7 @@ function renderDials() {
     ss.dataset.built = "1";
     ss.innerHTML = STANCE_KEY.map((k, i) =>
       `<button data-s="${i}" data-i18n="autogame.stance_${k}">${k}</button>`).join("");
+    relocalize(ss);
     ss.querySelectorAll("button").forEach((b) => b.onclick = () => setStance(Number(b.dataset.s)));
   }
   const r = chain;
@@ -365,14 +382,22 @@ function renderDials() {
 }
 
 function renderGear(r) {
+  // Draw the warrior even with no run: a signed-out visitor should see who they would be marching as, not
+  // an empty box. The bare figure is exactly what an all-empty kit renders, so this costs nothing extra.
   const cv = $("hero");
-  if (cv && r) {
+  if (cv) {
     const ctx = cv.getContext("2d");
     ctx.clearRect(0, 0, cv.width, cv.height);
     ctx.imageSmoothingEnabled = false;
-    drawWarrior(ctx, cv.width / 2, cv.height - 18, { gear: r.gear, frame: 0, scale: 5, facing: 1 });
+    drawWarrior(ctx, footX(cv.width / 2, 5), footY(cv.height - 10, 5),
+      { gear: r ? r.gear : new Array(E.NSLOT).fill(0), frame: 0, scale: 5, facing: 1,
+        dead: !!(r && !r.alive) });
   }
   const el = $("slots");
+  if (!r && el) {
+    el.innerHTML = new Array(E.NSLOT).fill(0).map((_x, i) =>
+      `<div class="slot empty"><div class="nm">${esc(SLOT_NAMES[i])}</div><div class="it">—</div></div>`).join("");
+  }
   if (el && r) {
     el.innerHTML = r.gear.map((g, i) => {
       const it = unpackItem(g);
@@ -397,7 +422,7 @@ const AFFIX_BLURB = ["", "+6 streak cap", "absorb every swing", "hazards do noth
 function renderBoard() {
   const el = $("board");
   if (!el || !sto) return;
-  const ids = (sto.runs || []).map(Number).filter((n) => n > 0);
+  const ids = Object.keys(sto.ra || {}).map(Number).filter((n) => n > 0);
   const rows = ids.map((id) => {
     const r = E.runFromStorage(sto, id);
     return { id, r, sc: E.score(r), who: (sto.ra || {})[id] };
@@ -471,7 +496,7 @@ function updateAggHint() {
 }
 
 async function boot() {
-  wireWallet(dapp, $("walletcard"));
+  wireWallet(dapp);
   dapp.onReturn((pend, ok, err) => {
     if (err) alertBar($("alerts"), err);
     else if (ok) okBar($("alerts"), pend && pend.label ? pend.label + " — landed" : "Done");
