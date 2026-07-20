@@ -904,7 +904,13 @@ def validate_transaction(transaction, logger, block_height):
             # only the REAL decomposition of the tip can satisfy this; a proof can never start from a
             # fabricated pre-state, and only one settlement extends the tip per block.
             _tip_cursor, tip_root = latest_settled(ns)
-            expected_pre = tip_root if tip_root is not None else _protocol.EXEC_GENESIS_ROOT
+            # FIRST SETTLEMENT MUST BE BY QUORUM — asserted HERE, before any verification work, so a
+            # genesis-spanning proof is rejected outright rather than fully verified and then thrown away.
+            # This is also what bounds the exec-summary window the DA binding needs: a proof only ever
+            # extends a real committed tip, so its span is recent and small, never "from block 0" (which
+            # was guaranteed pruned and is what broke the previous attempt).
+            assert tip_root is not None, "first settlement in a namespace must be by bonded quorum, not by proof"
+            expected_pre = tip_root
             # Verify every bound epoch at the PROTOCOL query strength (None ⇒ the protocol constant — never
             # the bundle's own word) and at the PROTOCOL tree depth, deterministically on every node.
             ok, why, kv_pre, kv_post = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
@@ -952,7 +958,6 @@ def validate_transaction(transaction, logger, block_height):
             # obtainable: a proof may only EXTEND an already-settled tip, so the span is always
             # (settled_cursor, cursor] — recent and small — never "from block 0", which was guaranteed pruned
             # and was the concrete case that broke the previous attempt.
-            assert tip_root is not None, "first settlement in a namespace must be by bonded quorum, not by proof"
             # NO EPOCH BOUNDARY. The presence dividend accrues with NO transaction at all, in the exec node's
             # tail loop, once per EPOCH_LENGTH blocks (execnode.tail_loop -> accrue_dividend_epoch), and it
             # writes st.dividend — a RECORDS position. It is therefore invisible to any per-block body scan.

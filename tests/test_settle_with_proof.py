@@ -81,26 +81,50 @@ V = generate_keys(); create_account(V["address"], balance=B_MIN, bonded=4 * B_MI
 REG = get_bonded_registry()
 
 
-def _proof(kv_pre, cursor, kv_post, ok=True, rec=REC_G):
+def _seed_span(lo, hi):
+    """Persist the per-block EXEC SUMMARIES the DA binding reads for the span (lo, hi].
+
+    The binding is a pure function of committed state (kv_ops.exec_summary_get) rather than of block
+    BODIES, because bodies are prunable AND are wiped wholesale by a snapshot re-anchor — reading them made
+    the check fork the fleet. Empty, records-inert blocks here: no calls, so each segment's honest
+    calls_commitment is just the unextended chain start (alghash.IV)."""
+    for h in range(int(lo) + 1, int(hi) + 1):
+        kv_ops.exec_summary_put(h, True, {})
+
+
+def _proof(kv_pre, cursor, kv_post, ok=True, rec=REC_G, prev=None):
+    """A stub settlement proof. `prev` (the settled cursor this extends) seeds the span's exec summaries so
+    the DA binding can be satisfied honestly instead of bypassed."""
+    from execnode.stark import alghash
+    if prev is not None:
+        _seed_span(prev, cursor)
     return {"cursor": int(cursor), "kv_pre": kv_pre, "kv_post": kv_post, "rec": rec,
-            "segments": [{"depth": ER.DEPTH}], "_verify_ok": ok}
+            "segments": [{"depth": ER.DEPTH, "cursor": int(cursor), "calls_commitment": alghash.IV}],
+            "_verify_ok": ok}
 
 
 def _settle(cursor, root, proof, sender=V, ns=DEFAULT_NS):
     return construct_settle_tx(sender, cursor, root, max_block=BH + 50, proof=proof, ns=ns)
 
 
-def t1_valid_proof_settles_trustlessly():
-    """A proof whose (kv_pre, rec) composes to EXEC_GENESIS_ROOT validates, applies, and justifies R0 with
-    NO quorum — and the marker binds the EXACT root."""
+def t1_first_settlement_must_be_quorum():
+    """A proof may only EXTEND an already-settled tip — the FIRST settlement in a namespace must come from
+    the bonded quorum.
+
+    This is what bounds the exec-summary window the DA binding reads: a proof's span is always
+    (settled_cursor, cursor], i.e. recent and small, never "from block 0". Block 0 is guaranteed pruned on
+    every node, and a genesis-spanning proof was the concrete case that broke the previous attempt at a
+    trustless path (a0453c5). Seeds the tip by QUORUM here, which the later tests then extend by proof."""
     tx = _settle(0, R0, _proof(KV_G, 0, _kv(1)))
-    assert validate_transaction(tx, logger, block_height=BH), "valid proof-settle must validate"
-    assert not kv_ops.settlement_proven(DEFAULT_NS, 0, R0), "marker must not exist before apply"
-    reflect_transaction(tx, logger, block_height=BH)
-    assert kv_ops.settlement_proven(DEFAULT_NS, 0, R0), "apply must set the on-chain proof marker"
-    assert settlement_justified(DEFAULT_NS, 0, R0, REG), "a proven root is justified with no quorum"
-    assert latest_settled(DEFAULT_NS) == (0, R0), "latest_settled must point at the proven root"
-    assert not settlement_justified(DEFAULT_NS, 0, "cc" * 32, REG), "only the proven root is justified"
+    assert raises(lambda: validate_transaction(tx, logger, block_height=BH)), \
+        "a proof-settle with no prior settled tip must be REJECTED"
+    assert not kv_ops.settlement_proven(DEFAULT_NS, 0, R0), "and must set no marker"
+    # Seed the tip the legitimate way: a bonded attestation, no proof. V holds every active settler share,
+    # so its single attestation clears the 2/3 quorum.
+    kv_ops.settlement_put(DEFAULT_NS, 0, V["address"], R0)
+    assert settlement_justified(DEFAULT_NS, 0, R0, REG), "the quorum path must justify the first root"
+    assert latest_settled(DEFAULT_NS) == (0, R0), "latest_settled must point at the quorum-settled root"
+    assert not settlement_justified(DEFAULT_NS, 0, "cc" * 32, REG), "only the attested root is justified"
 
 
 def t2_post_root_must_equal_state_root():
@@ -134,8 +158,11 @@ def t5_failed_crypto_verify_rejected():
 
 
 def t6_chain_extends():
-    """A second proof extending tip 0 (kv_pre = kv of R0) settles cursor 1 -> R1; latest_settled advances."""
-    tx = _settle(1, R1, _proof(_kv(1), 1, _kv(2)))
+    """A proof extending tip 0 (kv_pre = kv of R0) settles cursor 1 -> R1 TRUSTLESSLY: latest_settled
+    advances with NO bonded attestation at cursor 1 at all. This is the actual trustless-settlement claim."""
+    assert not kv_ops.settlements_for_cursor(DEFAULT_NS, 1), \
+        "cursor 1 must carry no quorum attestation — otherwise this proves nothing about the proof path"
+    tx = _settle(1, R1, _proof(_kv(1), 1, _kv(2), prev=0))
     assert validate_transaction(tx, logger, BH), "proof extending the tip must validate"
     reflect_transaction(tx, logger, block_height=BH)
     assert kv_ops.settlement_proven(DEFAULT_NS, 1, R1)
@@ -145,7 +172,7 @@ def t6_chain_extends():
 def t7_revert_symmetry():
     """Reverting a settle-with-proof clears the marker exactly: the root is no longer justified."""
     R2 = _full(_kv(3))
-    tx = _settle(2, R2, _proof(_kv(2), 2, _kv(3)))
+    tx = _settle(2, R2, _proof(_kv(2), 2, _kv(3), prev=1))
     validate_transaction(tx, logger, BH)
     reflect_transaction(tx, logger, block_height=BH)
     assert kv_ops.settlement_proven(DEFAULT_NS, 2, R2)
@@ -218,7 +245,7 @@ def t10_real_proof_end_to_end():
 
 
 if __name__ == "__main__":
-    check("valid proof settles trustlessly (no quorum)", t1_valid_proof_settles_trustlessly)
+    check("first settlement must be quorum, not proof", t1_first_settlement_must_be_quorum)
     check("post_root must equal state_root", t2_post_root_must_equal_state_root)
     check("chain break / moved records half rejected", t3_chain_break_rejected)
     check("cursor binding", t4_cursor_binding)

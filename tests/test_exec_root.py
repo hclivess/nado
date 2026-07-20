@@ -31,7 +31,23 @@ def t_empty_root_deterministic():
     a = ER.state_root_hex({}, _empty_state())
     b = ER.state_root_hex({}, _empty_state())
     assert a == b and len(a) == 64 and all(c in "0123456789abcdef" for c in a)
-    print(f"      EXEC_GENESIS_ROOT (alphanet-6) = {a}")
+
+
+def t_empty_root_matches_the_protocol_constant():
+    """protocol.EXEC_GENESIS_ROOT must EQUAL the recomputed empty-state root.
+
+    This is the scheme canary, and until 2026-07-20 it did not exist: the constant's own comment claimed
+    "tests assert it still equals the recomputed empty-state root so a scheme change can never silently
+    desync this constant", but this test only PRINTED the value. So the constant drifted twice unnoticed —
+    when alghash2 went 8 -> 54 rounds (db03a1f) and again at the alphanet-7 debrand — and the drift only
+    surfaced because an unrelated test imported it.
+
+    If this fails, the exec-root SCHEME changed. Update the constant deliberately (and understand what
+    moved); do not paper over it."""
+    from protocol import EXEC_GENESIS_ROOT
+    recomputed = ER.state_root_hex({}, _empty_state())
+    assert recomputed == EXEC_GENESIS_ROOT, (
+        f"exec-root scheme drifted: recomputed {recomputed} != protocol.EXEC_GENESIS_ROOT {EXEC_GENESIS_ROOT}")
 
 
 def t_withdrawal_exit_roundtrip():
@@ -93,6 +109,7 @@ def t_incremental_equals_cold():
 
 if __name__ == "__main__":
     check("empty-state root deterministic (the genesis constant)", t_empty_root_deterministic)
+    check("empty root == protocol.EXEC_GENESIS_ROOT (scheme canary)", t_empty_root_matches_the_protocol_constant)
     check("withdrawal exit round-trip + every tamper rejected", t_withdrawal_exit_roundtrip)
     check("outbox message (xmsg) round-trip + tamper rejected", t_outbox_msg_roundtrip)
     check("apply_projection incremental == cold rebuild", t_incremental_equals_cold)

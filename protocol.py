@@ -149,12 +149,17 @@ SETTLE_ACTIVITY_CURSORS = 1440
 # The exec-layer GENESIS state root every namespace's settled chain extends from. A settle-with-proof for a
 # namespace with no prior settled tip must carry a proof whose pre_root is EXACTLY this — so the very first
 # settlement cannot start from a fabricated pre-state (the same strict chaining every later settlement gets
-# by extending the committed tip). It is the FROZEN alphanet-6 root of an EMPTY execution state
+# by extending the committed tip). It is the root of an EMPTY execution state
 # (execnode/exec_root.state_root_hex({}, empty ExecState): rnode(empty KV half, records half holding only the
 # empty shielded/field-pool digest records) over the two depth-256 sparse alghash2 trees).
-# Hardcoded (protocol.py stays a leaf: no execnode import); tests/test_exec_root.py + the settle tests assert
-# it still equals the recomputed empty-state root so a scheme change can never silently desync this constant.
-EXEC_GENESIS_ROOT = "0dd0b4378e5b7a68b325bf3dc13dcd62a1eda80524f342f9661b90312c5bcb5c"
+# Hardcoded (protocol.py stays a leaf: no execnode import), so it is a SCHEME CANARY: if the exec-root
+# scheme ever changes, this stops matching the recomputed empty-state root and the assertion in
+# tests/test_exec_root.py fails loudly. That is exactly how the 2026-07-20 drift was found — the value below
+# had silently desynced when alghash2 went 8 -> 54 rounds (db03a1f) and again at the alphanet-7 debrand,
+# because the guard the comment PROMISED did not exist: test_exec_root only PRINTED the value. It asserts now.
+# (The settle path no longer consumes this: a first settlement must come from the bonded quorum, so a proof
+# always extends a real committed tip. Kept because the canary is worth more than the one call site was.)
+EXEC_GENESIS_ROOT = "076885ee6a32444b8f3aeb99829c7f8994e6436ce69be7080af1ebaa4726a4a8"
 
 # The FROZEN depth of the two sparse halves of the settled root (see exec_root.DEPTH — kept equal by test).
 # 256 = the full alghash2 digest: position security saturates the hash itself, so this never changes.
