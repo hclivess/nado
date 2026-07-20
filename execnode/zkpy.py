@@ -207,6 +207,25 @@ def _mat(self, m):
         if ro:
             m.alloc.give(rb)
         return la, True
+    if k == "muldiv":
+        # a·b//c in ONE divmodw, the pro-rata shape (`bet.py`, `hamster.py` both hand-rolled it in raw asm).
+        # Not expressible as `a * b // c`: `//` is DIVMOD, whose divisor must be < 2^15 — a share count or a
+        # pool size is data-sized, not a small constant. DIVMODW is the op for that, and it carries its own
+        # budget: 1 <= c < 2^31 and the quotient < 2^32 (zkvm.py). Out of range is not a wrong answer, it is
+        # an UNPROVABLE trace, so the caller must `require` those bounds — this wrapper cannot check them,
+        # since all three operands are runtime values.
+        la, lo = self.a[0].materialize(m)
+        if not lo:                              # mul writes the dest in place — own a copy of a pinned lhs
+            d = m.alloc.take(); m.emit(f"mov {_r(d)} {_r(la)}"); la, lo = d, True
+        rb, ro = self.a[1].materialize(m)
+        m.emit(f"mul {_r(la)} {_r(rb)}")
+        if ro:
+            m.alloc.give(rb)
+        rc, co = self.a[2].materialize(m)       # AFTER the mul: freeing rb first lets c reuse that register
+        m.emit(f"divmodw {_r(la)} {_r(rc)}")    # quotient stays in la; remainder -> r7
+        if co:
+            m.alloc.give(rc)
+        return la, True
     if k == "eq":
         la, lo = _own(self.a[0], m); rb, ro = self.a[1].materialize(m)
         m.emit(f"eq {_r(la)} {_r(rb)}")
@@ -338,6 +357,13 @@ class _Method:
     def abal(self, asset):
         """This contract's balance of `asset` (0 for one it has never held)."""
         return Val("abal", _wrap(asset))
+
+    def muldiv(self, a, b, c):
+        """`a·b//c` via DIVMODW — the pro-rata split (payout = share · pot // total). Use this instead of
+        `a * b // c`: `//` compiles to DIVMOD, which only divides by a divisor < 2^15, while a pot or a
+        share count is data-sized. DIVMODW's budget is `1 <= c < 2^31` and quotient `< 2^32`; REQUIRE both
+        at the call site, because an out-of-range divmodw yields an unprovable trace rather than a revert."""
+        return Val("muldiv", _wrap(a), _wrap(b), _wrap(c))
 
     # statements ------------------------------------------------------------------------------------
     def set(self, v, into):
