@@ -9,7 +9,7 @@ import { BoardDaily, gameModes } from "./board-daily-ui.js";   // shared free Da
 import * as RULES from "./reversi-rules.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
-const CID = "cbc677655ce3c82a052a1dcfcb2f676e";
+const CID = "20931f1cbce1f1040f9d0c8f6c78c29c";
 const PASS = 64;
 const dapp = new NadoDapp({ cid: CID, app: "Reversi" });
 

@@ -15,7 +15,7 @@ import { pickMove, prng, soloReplay, soloScore, botMustAct, seedOfDay, packRun, 
 import { anchorOf, ensureAnchor, todayIdx, verifyEntries, seedDaily, pendingDaily } from "./provable.js";
 import { randomSeed } from "./practice.js";
 
-const CID = "f2b244d3726a3ddb3ef4f48e81208dd6";
+const CID = "b746da32189cea218aad9c8acdae5b7b";
 const dapp = new NadoDapp({ cid: CID, app: "Hexholm" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("hex." + k, d, v) : d;
 const TS = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;   // shared SDK strings (practice chrome)

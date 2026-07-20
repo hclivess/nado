@@ -8,7 +8,7 @@ import { BoardDaily, gameModes } from "./board-daily-ui.js";   // shared free Da
 import * as RULES from "./connect4-rules.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
-const CID = "2802404ecab39690130517e4a5f81b22";
+const CID = "245392ed584d5fc88546d496ce05f47c";
 const COLS = 7, ROWS = 6;
 const dapp = new NadoDapp({ cid: CID, app: "ConnectFour" });
 

@@ -9,7 +9,7 @@ from ops.transaction_ops import construct_blob_tx
 from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
 
 L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
-CID = "2f8cc0ce02bc5e02abb10e4dc3af28e7"
+CID = "1e40bed8f325ecd3e6d8a59db0406b19"
 def j(u): return json.load(urllib.request.urlopen(u, timeout=10))
 def post(tx):
     r = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(), headers={"Content-Type": "application/json"})
