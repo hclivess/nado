@@ -63,6 +63,37 @@ def running_head():
     return _RUNNING_HEAD
 
 
+_repo_head_cache = [0.0, None]         # (checked_at, short_hash) — git is a subprocess; health polls at 10s
+
+
+def repo_head(max_age=60.0):
+    """Short hash of the commit the CHECKOUT is on right now, cached for `max_age` seconds.
+
+    The pair (repo_head, running_head) is the only way to see the state this module already names one
+    comment up — "an applied-but-not-yet-restarted update moves repo HEAD" — and which nothing ever
+    actually CHECKED. `update_available` compares against `latest_known()`, i.e. what a FETCH last saw on
+    origin, so it says nothing about a fix committed locally: the repo can be correct, the process an hour
+    stale, and /status still cheerful. That is not hypothetical — it cost 1.5 hours of frozen finality on
+    2026-07-20, when a fix for a per-block exec-summary crash sat committed in the checkout while the
+    process that needed it kept running the broken code."""
+    now = time.time()
+    if now - _repo_head_cache[0] < max_age:
+        return _repo_head_cache[1]
+    try:
+        h = _git("rev-parse", "HEAD")[:12]
+    except Exception:
+        h = None
+    _repo_head_cache[0], _repo_head_cache[1] = now, h
+    return h
+
+
+def code_is_stale():
+    """True when the running process predates the checkout — i.e. a restart would change the code.
+    False when either hash is unknown (a non-git deploy is a DIFFERENT defect, reported by updatability)."""
+    run, repo = running_head(), repo_head()
+    return bool(run and repo and run != repo)
+
+
 def _git(*args, timeout=15):
     """Run a git command in the repo root; returns stripped stdout, raises on non-zero exit."""
     return subprocess.check_output(["git", *args], cwd=_REPO_DIR, stderr=subprocess.DEVNULL,

@@ -6,6 +6,7 @@ import time
 import traceback
 
 from config import get_timestamp_seconds
+from ops import self_update
 
 
 class MessageClient(threading.Thread):
@@ -86,6 +87,56 @@ class MessageClient(threading.Thread):
             components["Ports"] = ("ok", "open (mineable)")
         else:
             components["Ports"] = ("warn", "closed — not accepting inbound")
+
+        # --- Finality ------------------------------------------------------
+        # Finality is supposed to trail the tip by finality_depth and no further. On 2026-07-20 it froze
+        # for ~1.5 hours — every block's exec summary was failing, so no height got a settle binding —
+        # while EVERY check above stayed green and this loop printed NODE HEALTHY the entire time. Peers
+        # were linked, blocks were fresh, the hash was in the majority: nothing here looks at whether the
+        # chain is still FINALIZING, which is the one thing that had stopped. A frozen floor is the
+        # clearest single symptom that settlement has died, so it gets its own line.
+        # The signal is FROZEN, not merely LAGGING. The real outage sat 109 blocks behind a depth-45 rule,
+        # which any lag-only threshold generous enough to avoid false alarms would still have called
+        # "degraded" rather than "dead" — and it had been going for ninety minutes. What actually
+        # distinguishes a stalled chain from a busy one is that the floor STOPS MOVING while the tip keeps
+        # going, so that is what this measures. Catching it by elapsed-frozen time also flags the incident
+        # within minutes, long before the lag grows large enough for any depth multiple to notice.
+        tip = int(self.memserver.latest_block.get("block_number") or 0)
+        fin = int(self.memserver.finalized_height or 0)
+        depth = self.memserver.finality_depth
+        lag = tip - fin
+        now = time.monotonic()
+        if getattr(self, "_fin_last", None) is None or fin > self._fin_last:
+            self._fin_last, self._fin_moved_at = fin, now      # advanced: restart the clock
+        frozen_for = now - getattr(self, "_fin_moved_at", now)
+
+        if frozen_for >= 300 or lag > depth * 4:
+            fin_level = "down"
+        elif frozen_for >= 120 or lag > depth * 2:
+            fin_level = "warn"
+        else:
+            fin_level = "ok"
+        if self.memserver.emergency_mode and fin_level == "down":
+            fin_level = "warn"                       # catching up legitimately runs a big gap; don't cry wolf
+        components["Finality"] = (
+            fin_level,
+            f"#{fin} · {lag} behind tip (depth {depth})"
+            + (f" · FROZEN {int(frozen_for)}s" if frozen_for >= 120 else "")
+            + (" — syncing" if self.memserver.emergency_mode else ""),
+        )
+
+        # --- Running code --------------------------------------------------
+        # A fix that is committed but not RUNNING is not a fix. `update_available` in /status compares
+        # against origin as of the last fetch, so it stays silent when the repair was committed locally —
+        # which is exactly how the finality stall above survived 34 minutes past its own fix landing.
+        try:
+            if self_update.code_is_stale():
+                components["Code"] = ("warn", f"running {self_update.running_head()}, checkout at "
+                                              f"{self_update.repo_head()} — RESTART to apply")
+            else:
+                components["Code"] = ("ok", f"{self_update.running_head() or 'no git metadata'}")
+        except Exception as e:                       # observability must never be able to break the loop
+            components["Code"] = ("ok", f"unknown ({type(e).__name__})")
 
         # --- Sync mode -----------------------------------------------------
         components["Sync"] = (
