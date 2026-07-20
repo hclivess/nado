@@ -298,12 +298,20 @@ NADO runs on Python 3.10+. The entrypoint is `nado.py`; the node serves its API 
 > this command on it: it repairs the install in place.
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service
+curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service --user nado
 ```
 
-No checkout needed — piped standalone, the script installs `git` if missing, clones the repo itself
-(default `~/nado`, override with `--dir <path>`), builds the venv, installs the node dependencies, and
-registers a **systemd service** that boots on start and restarts on failure.
+No checkout needed — piped standalone, the script installs `git` if missing, clones the repo itself,
+builds the venv, installs the node dependencies, and registers a **systemd service** that boots on start
+and restarts on failure.
+
+`--user nado` runs the node as a dedicated **non-root system account** instead of root: the checkout and
+chain data live at `/srv/nado-home/nado`, the units get a hardening block (`NoNewPrivileges`,
+`ProtectSystem=strict`, no capabilities), and a root-owned restart bridge keeps self-update working end to
+end. An existing root install is migrated in place — services stopped cleanly, directory moved, a
+compatibility symlink left at the old path — and later re-runs auto-adopt the account, so nothing ever
+quietly hands the node back to root. Omit the flag only if you have a reason to keep the node running as
+the invoking user.
 
 It is also the **universal upgrade / repair** command. Re-running is always safe (idempotent). If it finds
 a node laid down by an **older, git-less installer** it converts that directory into a real checkout in
@@ -311,13 +319,15 @@ place and fast-forwards it to the latest code — your `private/` keys and `bloc
 are gitignored, so nothing it does can touch them. Any node, however it was first installed, gets current
 by running this again.
 
-> **Check the path first.** Under `sudo` the default is `/root/nado`. If your node lives anywhere else,
-> pass `--dir /path/to/your/nado` — otherwise you install a *second* node and the original stays stale.
+> **Check the path first.** If your node lives somewhere non-standard, pass `--dir /path/to/your/nado` —
+> otherwise you install a *second* node and the original stays stale. (With `--user nado` the standard
+> locations are found automatically: an install at `~/nado` is migrated to `/srv/nado-home/nado` and a
+> symlink keeps the old path working.)
 
-Flags: `--exec` also runs the execution / shielded-pool node on `:9273`; `--wallet` adds the desktop-wallet
-deps; `--auto-bond <pct>` auto-compounds mined rewards (see below); `--home <dir>` keeps chain data under
-`<dir>/nado` instead of `~/nado` (recommended when the repo itself is checked out at `~/nado`). Run
-`scripts/install.sh --help` for all options.
+Flags: `--user <name>` runs everything as a dedicated non-root account (recommended, see above); `--exec`
+also runs the execution / shielded-pool node on `:9273`; `--wallet` adds the desktop-wallet deps;
+`--auto-bond <pct>` auto-compounds mined rewards (see below); `--home <dir>` keeps chain data under
+`<dir>/nado` instead of `~/nado`. Run `scripts/install.sh --help` for all options.
 
 Once running, open <http://127.0.0.1:9173> for the node's web interface and JSON endpoints. To join a
 network, announce your node to a peer:
@@ -348,6 +358,7 @@ systemctl stop nado          # clean shutdown (never kill -9 — it can corrupt 
 Common variants (re-run the one-liner with these appended, or `sudo scripts/install.sh` from the checkout):
 
 ```bash
+--service --user nado               # run as a dedicated non-root account (recommended; migrates in place)
 --service --auto-bond 25            # auto-bond 25% of mined rewards
 --service --home /srv/nado-data     # chain data in /srv/nado-data/nado
 --service --exec                    # also run the execution / shielded-pool node on :9273
