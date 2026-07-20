@@ -80,10 +80,14 @@ def choose_agg(run, leg, budget_pct):
     return max(1, min(M.AGG_MAX, n))
 
 
-def play(seed, mode, agg=4, healpct=35, stance=0, focus=50, budget=40, react=False):
+def play(seed, mode, agg=4, healpct=35, stance=0, focus=50, budget=40, react=False, bank_at=0):
     r = M.Run(stance=stance, healpct=healpct, focus=focus)
     leg, ag = None, agg
     for i in range(M.CHAPTER):
+        # push-or-bank: retire on your feet rather than lose DEATH_KEEP% of a fat unbanked pile
+        if bank_at and (r.xp - r.banked) > bank_at and r.hp * 100 < r.maxhp * 45 and r.depth > bank_at // 100:
+            r.retired = 1          # walked away: keeps everything, but earns no completion bonus
+            break
         if i % M.LEG == 0:
             leg = peek_leg(seed, i)
             if mode == "adaptive":
@@ -103,7 +107,7 @@ def play(seed, mode, agg=4, healpct=35, stance=0, focus=50, budget=40, react=Fal
             elif t == M.FORK and r.hp * 100 > r.maxhp * 55:
                 act = M.A_RIGHT
         M.step(r, tw, rw, act, ag)
-        if not r.alive or r.done:
+        if not r.alive or r.done or r.retired:
             break
     return r
 
@@ -114,7 +118,7 @@ SEEDS = [f"s{i}" for i in range(80)]
 def sweep(label, **kw):
     rs = [play(s, **kw) for s in SEEDS]
     alive = sum(1 for r in rs if r.alive)
-    xps = sorted(r.xp for r in rs)
+    xps = sorted(r.score() for r in rs)
     print(f"{label:34s} survive {alive:2d}/80  xp med {statistics.median(xps):>9.0f} "
           f"p90 {xps[int(.9*len(xps))]:>9.0f}  depth med {statistics.median([r.depth for r in rs]):>4.0f}")
     return statistics.median(xps)
@@ -146,6 +150,10 @@ print("\n=== heal threshold (adaptive 40%) — does bloodlust reward late healin
 for hp in (10, 20, 35, 50, 70):
     sweep(f"heal<{hp}%", mode="adaptive", budget=40, healpct=hp)
 
+print("\n=== push-or-bank: retire while you still can ===")
+for ba in (0, 8000, 25000, 60000):
+    sweep(f"bank_at={ba or 'never'}", mode="bloodlust", budget=40, bank_at=ba)
+
 print("\n=== bloodlust-aware pilot (lean in while hurt) ===")
 for b in (25, 40, 60, 80):
     sweep(f"bloodlust budget={b}%", mode="bloodlust", budget=b)
@@ -153,3 +161,29 @@ for b in (40, 60):
     sweep(f"bloodlust {b}% + reactions", mode="bloodlust", budget=b, react=True)
 
 print(f"\nbest fixed = {best_fixed:.0f}")
+
+
+# ── archetype head-to-head ───────────────────────────────────────────────────────────────────────
+# The real bar is not "is every dial setting equal" — it is "does every PATH have its own route to the top
+# of the board". Prizes pay the ceiling, so p90 is the number that has to be competitive; median and
+# survival are allowed (and meant) to differ wildly between builds.
+ARCHETYPES = [
+    ("berserker  aggr/wpn ", dict(stance=1, focus=75, budget=60, healpct=20, react=True)),
+    ("turtle     guard/arm", dict(stance=2, focus=0,  budget=20, healpct=60, react=True)),
+    ("duelist    bal/even ", dict(stance=0, focus=50, budget=40, healpct=35, react=True)),
+    ("vampire    bal/wpn  ", dict(stance=0, focus=100, budget=45, healpct=25, react=True)),
+    ("skirmisher evas/arm ", dict(stance=3, focus=25, budget=35, healpct=45, react=True)),
+]
+
+print("\n=== ARCHETYPES: every path needs its own way to win ===")
+best = {}
+for name, kw in ARCHETYPES:
+    rs = [play(s, mode="bloodlust", **kw) for s in SEEDS]
+    xps = sorted(r.score() for r in rs)
+    alive = sum(1 for r in rs if r.done)
+    p90 = xps[int(.9 * len(xps))]
+    best[name] = p90
+    print(f"{name}  finish {alive:2d}/80  med {statistics.median(xps):>9.0f}  p90 {p90:>9.0f}  "
+          f"max {xps[-1]:>9.0f}  depth med {statistics.median([r.depth for r in rs]):>4.0f}")
+lo, hi = min(best.values()), max(best.values())
+print(f"\nceiling spread: {lo:.0f} .. {hi:.0f}  (ratio {hi/max(lo,1):.2f}x — want under ~2x)")

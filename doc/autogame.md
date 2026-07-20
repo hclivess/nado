@@ -74,8 +74,28 @@ extract before the road runs out**. Three rules, inherited intact, make hiding u
 | rule | formula | why it bites |
 |---|---|---|
 | **Bloodlust** | `gain = base * (maxhp + 4*(maxhp-hp)) / maxhp` | ×1 at full health, **×5 at death's door**. Renown is paid for damage taken. |
+| **Greed streak** | `gain = gain * (4 + streak) / 4`, **reset by any heal** | the potion that saves your life cancels twelve fights of compounding |
+| **Lifesteal** | `hp += weapon_pts / 4` per engagement | the weapon build's own sustain — and the only one that does *not* break the streak |
 | **Renown regen** | `hp += min(maxhp/8, xp/20)` on a fight step | your score *is* your healing, so wealth compounds into survivability |
 | **Easy win** | if the step left you no worse off, `hp = hp_before - (y%2)` | a fight that didn't hurt you heals you nothing. You must keep escalating. |
+
+### Push or bank — the cash-out meter
+
+Renown is **unbanked** until a boss falls. Every 128 steps a boss is a **checkpoint** that locks in
+everything you carry; die before you reach one and only `DEATH_KEEP = 25%` of the unbanked pile survives.
+
+On top of that sits the **road bonus**: `COMPLETE_BONUS = 200 000` for reaching step 512 on your feet, paid
+**pro-rata on the depth you reached** if you `retire()` instead — and forfeited entirely if you die. So
+every step forward raises what walking away is worth, and the question "one more leg, or take the money?"
+is live at every depth.
+
+It is a genuine fork, not a trap. Retiring at the right moment is the best *median* strategy
+(189 664 vs 123 937 for never banking); never banking keeps the best *ceiling* (511 761 vs 303 260). The
+flat shape matters: as a ×4 multiplier the bonus compounded with the greed streak and the one build that
+could both finish and compound ran away with a 3.2× ceiling lead.
+
+Bloodlust pays you for staying hurt. The meter pays you for stopping. The balance sim's typical run dies at
+depth 257 — just past the second checkpoint, carrying a fat unbanked pile. That is the intended feeling.
 
 MAMEC used ×3 bloodlust and an *uncapped* `exp/20`; both were calibrated for a 50-turn cart. Over 512 steps
 the uncapped regen makes you immortal at ~2000 renown and ×3 does not cover the risk of dying. Both were
@@ -95,11 +115,27 @@ equilibria it caught.
 **Aggression** is how many foes you pull, committed *before* the hash that resolves them. Damage is linear in
 the pull; renown is **superlinear** (`foes * xp_each * (4+foes)/4`), so a bigger bite must pay a premium or
 the dial would be a pure death switch. Capped at 16 — MAMEC allowed 1 000 000, which here is field-overflow
-bait; the *tier* does the scaling instead.
+bait; the *tier* does the scaling instead. Early on a pull of 3 is suicide; the dial's usable range grows
+with your kit, which is the shape of the whole progression.
 
 **Focus** splits your kit: armour buys **absorption**, the weapon **multiplies renown** (`base * (8+wp)/8`).
 Absorption is per *engagement*, not per foe and not a percentage — armour eats one swing's worth, so a small
-pull can be free while a horde always draws blood. Armour buys safe chip-farming, never safe greed.
+pull can be free while a horde always draws blood. Two hard floors keep that honest: a pull always costs at
+least **1 hp per foe** no matter how armoured you are, and crafted levels stop at `LEVEL_CAP = 8`. Without
+either, absorption outgrows the road and greed becomes free — the same unbounded-sustain failure as MAMEC's
+uncapped regen.
+
+**Stance** decides which *curve* you are on, not just a coefficient. The streak cap is the archetype knob:
+
+| stance | damage taken | renown rate | streak gain | streak cap |
+|---|---|---|---|---|
+| Balanced | ×1 | ×1 | +1 | 12 |
+| Aggressive | ×1.25 | ×1.5 | **+2** | **20** |
+| Guarded | ×0.75 | ×1 | **0** | **0** |
+| Evasive | ×1 | ×0.75 | +1 | 8 (+ half hazard damage) |
+
+Guarded pays no renown-rate penalty on top of its zero cap — losing the ×4 streak is already the steepest
+cost in the game, and double-charging it left the turtle 6.5× off the pace.
 
 **Standing orders** — auto-drink below `healPct` of max HP. Under bloodlust this is the sharpest decision in
 the game: heal early and you earn nothing, heal late and the run is over. The balance sim puts the optimum
@@ -114,10 +150,14 @@ behaviour.
     1  Strike    +25% renown, +25% damage taken                        2 stamina
     2  Guard     -50% damage taken                                     1 stamina
     3  Dodge     avoid the tile entirely, forfeit its reward           2 stamina
-    4  Potion    drink now; forfeits your offence this step            0 stamina, 1 potion
+    4  Potion    drink now; forfeits your offence — BREAKS THE STREAK  0 stamina, 1 potion
     5  Sprint    skip the tile: no damage, no loot, no renown          3 stamina
-    6  Rest      heal, PAY renown for it (MAMEC's rest)                0 stamina
-    7  Right     take the right lane at a fork                         —
+    6  Rest      heal, PAY renown for it (MAMEC's rest); breaks streak 0 stamina
+    7  Right     at a FORK: take the right lane                        —
+       Rally     anywhere else: small heal, KEEPS THE STREAK           3 stamina
+
+Action 7 doing double duty costs no bits and buys the highest-skill line in the game: nursing a 12-stack
+through a bad patch on Rally instead of spending a potion.
 
 Stamina regenerates +1 per step, caps at 12, and an unaffordable reaction silently degrades to Default — it
 never reverts. **You cannot react to all 16 tiles.** Choosing which three or four deserve it is the game.
@@ -154,8 +194,8 @@ window):
 | `92–98` | **fork** | the road splits — action `7` takes the right (greedier, re-rolls as elite) |
 | `99` | relic | guaranteed high-tier drop |
 
-`depth % 256 == 0` overrides with a **boss**: one big thing rather than a crowd, `ml+4`, ×12 renown,
-guaranteed drop, `+10` max HP.
+`depth % 128 == 0` overrides with a **boss**: one big thing rather than a crowd, `ml+4`, ×12 renown,
+guaranteed drop, `+10` max HP — and a **checkpoint** that banks every point of renown you are carrying.
 
 ### Families — MAMEC's three enemies, and why you care which
 
@@ -166,7 +206,10 @@ automatic so an absent player still progresses, the same way auto-equip works.
 
 ### Danger
 
-    tier = depth // 64;   ml = 1 + tier (+2 elite, +4 boss, +1 at night)
+    tier = depth // 32;   ml = 1 + tier (+2 elite, +4 boss, +1 at night)
+
+The road has to outrun your growth or the correct play is to hide. At `//64` most runs finished the chapter;
+at `//32` roughly one in eight does, and the median run dies at depth 257.
 
 ### Biome, horizon, weather
 
@@ -178,7 +221,7 @@ automatic so an absent player still progresses, the same way auto-equip works.
   the skyline is continuous across block boundaries because adjacent legs share endpoints.
 - **Weather / time of day** run on slow accumulators off `depth`, so dusk actually falls.
 
-**Consensus-critical**: `night` (`(depth/128) % 2`) adds +1 to `ml`. Everything else is renderer-only.
+**Consensus-critical**: `night` (`(depth/64) % 2`) adds +1 to `ml`. Everything else is renderer-only.
 
 ---
 
@@ -198,7 +241,8 @@ across the room, and a relic drop looks like one.
 ## 6. Conclusion, score, leagues
 
 A chapter concludes on **death**, at **512 steps**, on **retiring**, or in the **mists** (§1). Score is
-renown, and the rank ladder is MAMEC's (commoner → creator), rescaled to this curve.
+banked renown plus what you carried out — all of it if you finished or retired on your feet, `DEATH_KEEP`%
+if you didn't. The rank ladder is MAMEC's (commoner → creator), rescaled to this curve.
 
 - **Free league** — anyone may march; daily faucet prizes to the top boards, on the existing
   `_lib.daily_post` / `daily_anchor` rail.
@@ -206,6 +250,23 @@ renown, and the rank ladder is MAMEC's (commoner → creator), rescaled to this 
 
 Prizes pay the **top** of the board, which is why the balance target is *ceiling*, not median: the idle
 player survives and scores respectably, while only active edge-riding play reaches the money.
+
+### Every path has its own way to win
+
+The bar is not "is every dial equal" — it is that each build reaches a competitive ceiling by a different
+route, with a wildly different shape. `tests/autogame_balance.py` measures it:
+
+| build | finishes | median | p90 | max | identity |
+|---|---|---|---|---|---|
+| turtle (guarded/armour) | **71/80** | **257 050** | 266 912 | 274 143 | reliable income, almost no variance |
+| berserker (aggr/weapon) | 0/80 | 123 036 | **437 896** | **800 092** | glass cannon, dies around depth 129 |
+| skirmisher (evasive/armour) | 16/80 | 98 704 | 394 326 | 456 604 | hazard-immune, reaches checkpoints |
+| duelist (balanced/even) | 5/80 | 120 184 | 304 907 | 531 983 | the all-rounder |
+| vampire (balanced/weapon) | 1/80 | 102 268 | 287 526 | 564 013 | lifesteal sustain, high variance |
+
+Ceiling spread 1.64×. The turtle has the best median and the *worst* ceiling; the berserker is the exact
+inverse. And a bloodlust-aware pilot beats the best fixed dial on both counts (123 937 / 511 761 vs
+115 544), which is the skill cap doing its job.
 
 ---
 
