@@ -6085,6 +6085,15 @@ function wireEvents() {
   if ($("exGo")) $("exGo").onclick = () => exSearch();
   if ($("exQ")) $("exQ").addEventListener("keydown", (e) => { if (e.key === "Enter") exSearch(); });
   if (!window._exploreTimer) window._exploreTimer = setInterval(exTick, 6000);   // no-op unless Explore is open + visible
+  // Stats live-refresh: the whole tab (headline, charts, nodes table, zkVM vitals, geo map) was rendered
+  // ONCE on open and then sat frozen — heights and versions drifted stale the moment anything moved
+  // on-chain. Same guard pattern as exTick: only while the tab is open and the page visible; geo is
+  // server-side TTL-cached so the periodic repaint costs the relay nothing new.
+  if (!window._statsTimer) window._statsTimer = setInterval(() => {
+    if (window._statsTickBusy || state.activeTab !== "stats" || document.visibilityState !== "visible") return;
+    window._statsTickBusy = true;
+    Promise.resolve(renderStats()).catch(() => {}).finally(() => { window._statsTickBusy = false; });
+  }, 15000);   // blocks land every ~6s; 15s keeps the panel current without hammering the relay
   document.addEventListener("click", (e) => {           // delegated explorer links (module-safe)
     const a = e.target.closest && e.target.closest("a.ex-link[data-exk]");
     if (a) {
