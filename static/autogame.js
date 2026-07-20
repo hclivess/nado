@@ -13,8 +13,8 @@
 // uses it to preview and to animate; the contract remains the authority, and wherever the two disagree the
 // chain wins and the view snaps to it.
 import {
-  NadoDapp, rawToNado, randId, _m, $, base, gate, canPay, alertBar, notify, okBar, wireWallet,
-  renderWallet, resolveAliases, disp, share, algHashn, ALG_P, esc, blocksToTime,
+  NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
+  renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime,
 } from "./nadodapp.js";
 import * as E from "./autogame-engine.js";
 import * as ART from "./autogame-art.js";
@@ -564,12 +564,6 @@ function renderRoad() {
   paintRoadIcons();
 }
 
-/** The segmented controls are built after i18n's DOMContentLoaded pass, so they must be localized on
- *  creation or they stay English until the user toggles the language picker. */
-function relocalize(root) {
-  try { if (window.NADO_i18n && window.NADO_i18n.apply) window.NADO_i18n.apply(root); } catch (e) {}
-}
-
 /** Paint each road chip with the SAME sprite the world uses, so the strip and the stage agree about what
  *  is standing on that tile. */
 function paintRoadIcons() {
@@ -721,34 +715,23 @@ function renderBoard() {
     const r = E.runFromStorage(sto, id);
     return { id, r, sc: E.score(r), who: (sto.ra || {})[id] };
   }).filter((x) => x.r.depth > 0).sort((a, b) => b.sc - a.sc).slice(0, 15);
-  if (!rows.length) { el.innerHTML = '<p class="faint">No marches yet. Be the first out of the gate.</p>'; return; }
-  el.innerHTML = `<table><thead><tr><th>#</th><th>Marcher</th><th class="num">Depth</th>
-    <th class="num">Renown</th><th>Rank</th></tr></thead><tbody>` +
-    rows.map((x, i) => {
-      const me = String(x.who || "").toLowerCase() === String(dapp.me || "").toLowerCase();
-      const state = x.r.done ? "🏁" : x.r.alive ? "🚶" : x.r.retired ? "🚪" : "💀";
-      return `<tr class="${me ? "me" : ""}"><td>${i + 1}</td>
-        <td>${state} ${esc(disp(x.who) || "—")}</td>
-        <td class="num">${x.r.depth}</td><td class="num">${x.sc.toLocaleString()}</td>
-        <td>${esc(E.rankOf(x.sc))}</td></tr>`;
-    }).join("") + "</tbody></table>";
+  // the SDK's shared high-score table: it resolves aliases, highlights you, and looks identical to every
+  // other game's board. `tag` carries what is specific to a march.
+  renderTopScores(el, rows.map((x) => ({
+    addr: x.who,
+    score: x.sc.toLocaleString(),
+    tag: `${x.r.done ? "🏁" : x.r.alive ? "🚶" : x.r.retired ? "🚪" : "💀"} ${t("depthLabel", "Depth")} ${x.r.depth} · ${E.rankOf(x.sc)}`,
+  })), dapp.me, t("boardEmpty", "No marches yet. Be the first out of the gate."),
+     t("renownLabel", "Renown"));
 }
 
 // ── actions ─────────────────────────────────────────────────────────────────────────────────────
-/**
- * Every action goes through the SDK's two guards, in this order:
- *   canPay(dapp, 0n, what) — no wallet? raise the shared sign-in bar and stop. These calls escrow nothing,
- *                            so the amount is 0; what canPay is doing here is the SIGN-IN check.
- *   dapp.busy(phase)       — already clicked? stop. The guard is armed from the TAP, not from the receipt,
- *                            so a double-tap cannot submit twice while the first is in flight.
- * Doing this by hand per game is how games drift apart; this is the whole reason the SDK exists.
- */
+/** Every action goes through the SDK's guarded-action wrapper (sign-in check, then the click-time pending
+ *  guard), then re-renders so the guard is visible immediately. */
 function act(phase, what, fn, keyName, keyVal) {
-  if (!canPay(dapp, 0n, what)) return false;
-  if (dapp.busy(phase, keyName, keyVal)) return false;
-  fn();
-  render();                       // reflect the click-time guard immediately
-  return true;
+  const fired = guardedAction(dapp, phase, what, fn, keyName, keyVal);
+  if (fired) render();
+  return fired;
 }
 
 function begin() {

@@ -310,6 +310,35 @@ export const okBar = (msg, ms) => alertBar(msg, null, null, { tone: "ok", ms });
 // canPay(dapp, raw, what): the ONE affordability gate before any join/bet/open. True if payable; otherwise
 // shows the toast with the exact shortfall + a "Go to Deposit" shortcut (scrolls to the bankroll box and
 // pulses Deposit). Signed-out users get a sign-in prompt instead. NO game may fail a stake check silently.
+/**
+ * relocalize(root): re-apply i18n to markup a game built AFTER i18n.js's DOMContentLoaded pass.
+ * Any control rendered from JS (a segmented picker, a table of rows) is invisible to that pass and stays in
+ * English until the user toggles the language — which looks like broken translations, not late ones.
+ */
+export function relocalize(root) {
+  try {
+    if (window.NADO_i18n && window.NADO_i18n.apply) window.NADO_i18n.apply(root || document);
+  } catch (e) { /* i18n is optional; never let it break a render */ }
+}
+
+/**
+ * guardedAction(dapp, phase, what, fn, keyName, keyVal): the two guards EVERY game action needs, in the
+ * one order that is correct.
+ *   1. canPay(dapp, 0n, what) — no wallet? raise the shared sign-in bar and stop. (0 because the guard is
+ *      the sign-in check; pass a real amount when the action actually escrows.)
+ *   2. dapp.busy(phase, …) — already clicked? stop. Armed from the TAP, not the receipt, so a double-tap
+ *      cannot submit twice while the first is in flight.
+ * Hand-rolling this per game is how a game ends up with a button that is clickable while signed out and
+ * silently does nothing — which is exactly what shipped in autogame before this existed.
+ * Returns true if `fn` ran.
+ */
+export function guardedAction(dapp, phase, what, fn, keyName, keyVal) {
+  if (!canPay(dapp, 0n, what)) return false;
+  if (dapp.busy(phase, keyName, keyVal)) return false;
+  fn();
+  return true;
+}
+
 export function canPay(dapp, raw, what) {
   if (!dapp.me) {
     alertBar(_t("payNeedWallet", "{what} needs a wallet — sign in first.", { what }), _t("paySignIn", "Sign in with NADO wallet"), () => dapp.signIn());
