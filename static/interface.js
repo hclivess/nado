@@ -4901,7 +4901,10 @@ async function renderSwaps() {
     const expired = tip >= (h.expiry || 0);
     const row = document.createElement("div"); row.className = "ex-row";
     const left = document.createElement("div");
-    const role = iAmSender ? i18("swap.roleSender", "you → " + exShort(h.claimant, 8)) : i18("swap.roleClaimant", exShort(h.sender, 8) + " → you");
+    // {who} via vars, not a computed fallback: the tables used to hold static "you → " strings that
+    // silently DROPPED the counterparty address in every non-English language (T49 fixed the entries).
+    const role = iAmSender ? i18("swap.roleSender", "you → {who}", { who: exShort(h.claimant, 8) })
+                           : i18("swap.roleClaimant", "{who} → you", { who: exShort(h.sender, 8) });
     // H-5: /htlcs is relay JSON — coerce the amount (bnum guards BigInt from throwing on a hostile value),
     // escape the free-form status fallback, and coerce the expiry before they reach this innerHTML sink.
     left.innerHTML = `<div class="mono small">${exShort(id, 14)}</div><div class="faint small">${rawToNado(bnum(h.amount))} NADO · ${role} · ${i18("swap.status." + h.status, exEsc(h.status))} · exp #${num(h.expiry)}</div>`;
