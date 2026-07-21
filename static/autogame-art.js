@@ -18,9 +18,20 @@
 
 import { unpackItem as unpackRaw } from "./autogame-engine.js";
 
-export const FRAME_W = 32;
-export const FRAME_H = 32; // square ON PURPOSE: the death pose is the standing pose rotated 90°, which is
-                           // only an exact integer-rect remap (no resampling, no gaps) when W === H.
+// ── native resolution ────────────────────────────────────────────────────────────────────
+// The sprites are AUTHORED on the classic coarse grid (32 warrior / 48 monster) — poses, anchors and every
+// layer's coordinates live there — but they RENDER on a grid twice as fine: the pen multiplies every
+// authored rect by HR, and painters lay half-authored-pixel detail on top through `p.fine()`/`p.fraw()`
+// (1-px outlines on tapers, sub-pixel glints, smoother diagonals). So the exported frame constants are
+// NATIVE (a monster cell is 96×96 device px at scale 1) while the painter code below keeps its authored
+// coordinates — one grid for placement, one for detail, and a caller never sees the seam.
+const HR = 2; // native pixels per authored pixel
+
+const FRAME_W = 32;
+const FRAME_H = 32; // square ON PURPOSE: the death pose is the standing pose rotated 90°, which is
+                    // only an exact integer-rect remap (no resampling, no gaps) when W === H.
+const FRAME_W_N = FRAME_W * HR, FRAME_H_N = FRAME_H * HR;
+export { FRAME_W_N as FRAME_W, FRAME_H_N as FRAME_H };
 
 export const SLOTS = ["weapon", "helm", "body", "shield", "boots", "cloak"]; // index order is contract order
 export const WALK_FRAMES = 4;
@@ -61,6 +72,17 @@ const SKIN  = { base: "#d9a06a", shade: "#a97442", light: "#f0c48f", line: "#4a2
 const CLOTH = { base: "#7d6a55", shade: "#544636", light: "#a08a70", line: "#2a2118" }; // undershirt/trousers
 const HAIR  = { base: "#4a3423", shade: "#2c1e14", light: "#6d4d33", line: "#1a1009" };
 
+// ── detail level ─────────────────────────────────────────────────────────────────────────
+// The client used to blit these sprites at a coarse effective pixel size; it now draws finer, so painters
+// may OPT IN to sub-features (strap pixels, knuckles, extra teeth) that would have read as noise before.
+// `detail: 2` in any public draw's opts requests them; absent or anything else keeps the classic look.
+// A module flag rather than a threaded parameter because it has to reach every layer — including the ones
+// the fatalities re-enter through paintWarrior — without touching the shared layer signature. It is set at
+// every public entry point, so one caller passing `detail` can never leak its choice into another's draw,
+// and the same opts still always produce the same pixels.
+let DETAIL = 1;
+const d2 = () => DETAIL === 2;
+
 /** 0 → null (empty slot); otherwise the packed tier/mat/affix triple.
  *
  * The arithmetic is NOT repeated here — it is delegated to the engine, which gets it from the generated
@@ -84,20 +106,21 @@ function mix(a, b, f) {
 }
 
 // ── skeleton ─────────────────────────────────────────────────────────────────────────────
-// One shared skeleton in frame-local pixels. Every layer positions off these + the pose, so a helm never
-// drifts off the head when a pose is retuned. Rows: 0-4 headroom (plumes/halo), 5-11 head, 12-20 torso,
-// 21-29 legs, 30 ground.
-const CX = 15;        // torso centre column
-const HEAD_TOP = 5;
-const TORSO_Y = 12, TORSO_W = 7, TORSO_H = 9;
-const SHO_Y = 13;     // shoulder row (arms pivot here)
-const HIP_Y = 21;
-const KNEE_Y = 25;
-const FOOT_Y = 29;    // last row of the body
-const GROUND_Y = 30;  // contact shadow / grit
+// The REDESIGNED warrior is authored directly on the 64-px NATIVE grid (that is what the grid was doubled
+// for): heroic-chibi, ~2.6 head-heights, a big readable head, a broad chest, thick limbs and planted boots.
+// Native rows 0-23 are the head band, 24-41 the torso band, 42-63 the legs — exactly the fatality clip
+// bands (authored 0-11 / 12-20 / 21-31 × HR), so a decapitation still knows where the neck is without a
+// single clip constant moving.
+const CX = 15;        // authored centre column (affix boxes and the fatality scatter still read it)
+const GROUND_Y = 30;  // authored ground row — the affix "weight" mode drops its grit here
+const N_CX = 30;      // native centre column of the mass
+const N_HEAD_Y = 8;   // crown of the bare head (helm crests get rows 0-7 of headroom)
+const N_TORSO_Y = 24; // chest top; the neck seam sits at rows 22-23
+const N_KNEE_Y = 50;
+const N_ANKLE_Y = 56; // the boot block takes over here
+const N_FOOT_Y = 59;  // last body row; the ground shadow lies on 60-61
 
-// Poses are hand-authored, not interpolated: at 24 px tall a computed in-between reads as a mistake, and
-// hand-picked contact/pass frames are what make the walk legible at 1x.
+// Poses are hand-authored, not interpolated — in NATIVE units now.
 //   bob   = torso+head sink (feet stay planted, so the whole body bobs against the ground)
 //   lean  = torso x shift, sells the lunge
 //   footF/footB, kneeF/kneeB = x offsets from the hip for front/back leg
@@ -105,19 +128,19 @@ const GROUND_Y = 30;  // contact shadow / grit
 //   dir   = weapon direction, restricted to the 8 compass steps so a stepped line stays crisp
 const POSES = {
   walk: [
-    { bob: 0, lean: 0, kneeF:  2, footF:  4, kneeB: -1, footB: -4, hw: [20, 15], hs: [13, 16], dir: [1, -1] }, // contact
-    { bob: 1, lean: 0, kneeF:  1, footF:  1, kneeB:  0, footB: -1, hw: [19, 16], hs: [13, 17], dir: [1, -1] }, // pass
-    { bob: 0, lean: 0, kneeF: -1, footF: -4, kneeB:  2, footB:  4, hw: [19, 15], hs: [14, 16], dir: [1, -1] }, // contact (mirrored legs)
-    { bob: 1, lean: 0, kneeF:  0, footF: -1, kneeB:  1, footB:  1, hw: [20, 16], hs: [13, 17], dir: [1, -1] }, // pass
+    { bob: 0, lean: 0, kneeF:  3, footF:  7, kneeB: -2, footB: -7, hw: [44, 33], hs: [22, 35], dir: [1, -1] }, // contact
+    { bob: 2, lean: 0, kneeF:  1, footF:  2, kneeB:  0, footB: -2, hw: [43, 35], hs: [23, 36], dir: [1, -1] }, // pass
+    { bob: 0, lean: 0, kneeF: -2, footF: -7, kneeB:  3, footB:  7, hw: [42, 33], hs: [24, 35], dir: [1, -1] }, // contact (mirrored legs)
+    { bob: 2, lean: 0, kneeF:  0, footF: -2, kneeB:  1, footB:  2, hw: [44, 35], hs: [23, 36], dir: [1, -1] }, // pass
   ],
   attack: [
-    { bob: 0, lean: -1, kneeF:  1, footF:  2, kneeB: -1, footB: -3, hw: [15, 12], hs: [12, 16], dir: [-1, -1] }, // wind-up, blade back
-    { bob: 1, lean:  2, kneeF:  3, footF:  5, kneeB: -2, footB: -4, hw: [18, 17], hs: [14, 18], dir: [ 1,  0] }, // strike, lunge
-    { bob: 0, lean:  1, kneeF:  2, footF:  3, kneeB: -1, footB: -3, hw: [19, 18], hs: [13, 17], dir: [ 1,  1] }, // follow-through, low
+    { bob: 0, lean: -2, kneeF:  2, footF:  5, kneeB: -2, footB: -6, hw: [34, 18], hs: [24, 35], dir: [-1, -1] }, // wind-up, blade back over the shoulder
+    { bob: 2, lean:  4, kneeF:  6, footF: 11, kneeB: -4, footB: -8, hw: [47, 33], hs: [27, 37], dir: [ 1,  0] }, // strike: the WHOLE body lunges
+    { bob: 2, lean:  2, kneeF:  4, footF:  8, kneeB: -3, footB: -7, hw: [46, 41], hs: [26, 37], dir: [ 1,  1] }, // follow-through, low
   ],
   // Drawn rotated 90° (see pen), so `dir:[1,-1]` lands on screen as down-forward: a dropped blade stuck in
   // the dirt. Limbs are splayed rather than mid-stride.
-  dead: { bob: 0, lean: 0, kneeF: 3, footF: 5, kneeB: -3, footB: -5, hw: [20, 18], hs: [12, 18], dir: [1, -1] },
+  dead: { bob: 0, lean: 0, kneeF: 5, footF: 10, kneeB: -5, footB: -10, hw: [45, 37], hs: [22, 37], dir: [1, -1] },
 };
 
 const SWAY = [0, 1, 2, 1];               // cloak / plume trail, one entry per walk frame
@@ -142,10 +165,13 @@ const FLAME = [0, 2, 3, 1, 2, 4, 1, 3];  // per-column flame heights, indexed by
 function pen(ctx, ox, oy, scale, facing, rot, recolor, fw = FRAME_W, fh = FRAME_H, clip = null, bound = null) {
   const s = Math.max(1, scale | 0);
   const flip = facing < 0;
-  const ROT_DY = 11; // after rotating, drop the lying body onto the ground line instead of mid-frame
-                     // (warrior-only: nothing with a non-square frame may pass rot)
-  const lx = bound ? bound.x0 : 0, ly = bound ? bound.y0 : 0;
-  const hx = bound ? bound.x1 : fw, hy = bound ? bound.y1 : fh;
+  const ROT_DY = 6;  // after rotating, drop the lying body onto the ground line instead of mid-frame
+                     // (warrior-only: nothing with a non-square frame may pass rot). Authored units — the
+                     // native-authored redesign reaches it through fine() as ROT_DY*HR.
+  // clamp bounds in NATIVE units — put() is handed native rects, whether they came from an authored rect
+  // (px/raw, ×HR) or straight from a fine stroke
+  const lx = (bound ? bound.x0 : 0) * HR, ly = (bound ? bound.y0 : 0) * HR;
+  const hx = (bound ? bound.x1 : fw) * HR, hy = (bound ? bound.y1 : fh) * HR;
   const put = (X, Y, W, H, col) => {
     if (X < lx) { W -= lx - X; X = lx; }
     if (Y < ly) { H -= ly - Y; Y = ly; }
@@ -157,7 +183,8 @@ function pen(ctx, ox, oy, scale, facing, rot, recolor, fw = FRAME_W, fh = FRAME_
   };
   return {
     scale: s, facing, fx: !rot, // fx: corpses stop glowing — affix particles are switched off when down
-    /** the one primitive: an integer rect in frame-local, facing-right, standing coordinates */
+    /** the one primitive: an integer rect in frame-local, facing-right, standing AUTHORED coordinates —
+     *  the pen turns it into an HR×HR native block, so classic painter code renders on the fine grid */
     px(x, y, w, h, col) {
       if (!col) return;
       x |= 0; y |= 0; w |= 0; h |= 0;
@@ -169,12 +196,34 @@ function pen(ctx, ox, oy, scale, facing, rot, recolor, fw = FRAME_W, fh = FRAME_
       let X = x, Y = y, W = w, H = h;
       if (rot) { X = fh - y - h; Y = x + ROT_DY; W = h; H = w; } // 90° CW, exact because W === H
       if (flip) X = fw - X - W;
+      put(X * HR, Y * HR, W * HR, H * HR, col);
+    },
+    /** the NATIVE-grid primitive: same transforms as px, but in half-authored-pixel units — this is where
+     *  the extra resolution actually lives (1-native-px outlines, sub-pixel glints, smoothed tapers) */
+    fine(x, y, w, h, col) {
+      if (!col) return;
+      x |= 0; y |= 0; w |= 0; h |= 0;
+      if (clip) { // the same authored clip bands, scaled: a fine stroke on the head is still "the head"
+        const c0 = clip.y0 * HR, c1 = clip.y1 * HR + HR - 1;
+        if (y < c0) { h -= c0 - y; y = c0; }
+        if (y + h > c1 + 1) h = c1 + 1 - y;
+        if (h <= 0) return;
+      }
+      let X = x, Y = y, W = w, H = h;
+      if (rot) { X = fh * HR - y - h; Y = x + ROT_DY * HR; W = h; H = w; }
+      if (flip) X = fw * HR - X - W;
       put(X, Y, W, H, col);
     },
     /** ground-anchored decals (contact shadow) must not tip over when the body does */
     raw(x, y, w, h, col) {
       let X = x | 0;
       if (flip) X = fw - X - (w | 0);
+      put(X * HR, (y | 0) * HR, (w | 0) * HR, (h | 0) * HR, col);
+    },
+    /** raw's native twin: ground decals on the fine grid */
+    fraw(x, y, w, h, col) {
+      let X = x | 0;
+      if (flip) X = fw * HR - X - (w | 0);
       put(X, y | 0, w | 0, h | 0, col);
     },
     /** checkerboard fill — our stand-in for alpha, because translucency has no place on a pixel grid */
@@ -194,15 +243,15 @@ function pen(ctx, ox, oy, scale, facing, rot, recolor, fw = FRAME_W, fh = FRAME_
   };
 }
 
-// shared attachment points, derived once per draw so a helm and a head can never disagree
+// shared attachment points, derived once per draw so a helm and a head can never disagree — NATIVE units
 function anchors(ps) {
-  const torsoX = CX - 3 + (ps.lean >> 1), torsoY = TORSO_Y + ps.bob;
+  const torsoX = 20 + ps.lean, torsoY = N_TORSO_Y + ps.bob;    // chest box top-left; the chest is ~20 wide
   return {
     torsoX, torsoY,
-    headX: torsoX + 1, headY: HEAD_TOP + ps.bob,
-    shoF: [torsoX + 5, SHO_Y + ps.bob], // front (weapon) shoulder
-    shoB: [torsoX + 1, SHO_Y + ps.bob], // back (shield) shoulder
-    hipF: torsoX + 4, hipB: torsoX + 2, hipY: HIP_Y + ps.bob,
+    headX: torsoX + 2 + (ps.lean >> 1), headY: N_HEAD_Y + ps.bob, // the 16-wide head sits over the chest
+    shoF: [torsoX + 16, torsoY + 4],    // front (weapon) shoulder
+    shoB: [torsoX + 3, torsoY + 4],     // back (shield) shoulder
+    hipF: 32 + (ps.lean >> 1), hipB: 24 + (ps.lean >> 1), hipY: 42 + ps.bob,
   };
 }
 
@@ -213,59 +262,120 @@ function anchors(ps) {
 function affixAura(p, affix, box, frame, seed = 0) {
   const A = AFFIX_GLOW[affix | 0];
   if (!A || !p.fx) return;
-  const f = frame & 3, { x, y, w, h } = box;
+  // Boxes arrive in authored units (the layers' contract); the PARTICLES are native now — half their old
+  // size, hugging the item instead of scattering around it. Loose 2×2 blocks on a big sprite read as
+  // rendering glitches, not as magic; 1-px sparks in a tight formation read as an enchantment.
+  const f = frame & 3;
+  const x = box.x * HR, y = box.y * HR, w = box.w * HR, h = box.h * HR;
   switch (A.mode) {
-    case "spark": { // keen — a glint hops corner to corner: reads as an edge you do not want to touch
+    case "spark": { // keen — a glint hops corner to corner: an edge you do not want to touch
       const pts = [[x + w - 1, y], [x, y + h - 1], [x + w - 1, y + h - 1], [x, y]];
       const [sx, sy] = pts[f];
-      p.px(sx, sy - 1, 1, 3, A.glow);
-      p.px(sx - 1, sy, 3, 1, A.glow);
-      p.px(sx, sy, 1, 1, A.spark);
+      p.fine(sx, sy - 2, 1, 5, A.glow);
+      p.fine(sx - 2, sy, 5, 1, A.glow);
+      p.fine(sx, sy, 1, 1, A.spark);
       break;
     }
-    case "weight": { // heavy — the piece drags: a hard shadow under it and grit kicked off the ground
-      p.dither(x, y + h, w, 2, A.glow, f & 1);
-      p.px(x + (f & 1), GROUND_Y - 1, 1, 1, A.spark);
-      p.px(x + w - 1 - (f & 1), GROUND_Y - 1, 1, 1, A.spark);
+    case "weight": { // heavy — a hard under-shadow and grit kicked at the ground
+      for (let i = 0; i < w; i += 3) p.fine(x + i + (f & 1), y + h + 1, 2, 1, A.glow);
+      p.fine(x + (f & 1) * 2, GROUND_Y * HR - 2, 1, 1, A.spark);
+      p.fine(x + w - 2 - (f & 1) * 2, GROUND_Y * HR - 2, 1, 1, A.spark);
       break;
     }
-    case "ward": { // warding — a dashed rune box standing off the item, rotating one pixel per frame
-      const ox = x - 2, oy = y - 2, ow = w + 4, oh = h + 4;
-      for (let i = 0; i < ow; i++) if (((i + f) & 1) === 0) { p.px(ox + i, oy, 1, 1, A.glow); p.px(ox + i, oy + oh - 1, 1, 1, A.glow); }
-      for (let j = 0; j < oh; j++) if (((j + f) & 1) === 0) { p.px(ox, oy + j, 1, 1, A.glow); p.px(ox + ow - 1, oy + j, 1, 1, A.glow); }
-      p.px(ox, oy, 1, 1, A.spark);
-      p.px(ox + ow - 1, oy + oh - 1, 1, 1, A.spark);
+    case "ward": { // warding — a dashed rune box standing off the item, crawling one step per frame
+      const ox = x - 3, oy = y - 3, ow = w + 6, oh = h + 6;
+      for (let i = 0; i < ow; i += 2) if ((((i >> 1) + f) & 1) === 0) {
+        p.fine(ox + i, oy, 1, 1, A.glow);
+        p.fine(ox + ow - 1 - i, oy + oh - 1, 1, 1, A.glow);
+      }
+      for (let j = 0; j < oh; j += 2) if ((((j >> 1) + f) & 1) === 0) {
+        p.fine(ox, oy + j, 1, 1, A.glow);
+        p.fine(ox + ow - 1, oy + oh - 1 - j, 1, 1, A.glow);
+      }
+      p.fine(ox, oy, 1, 1, A.spark);
+      p.fine(ox + ow - 1, oy + oh - 1, 1, 1, A.spark);
       break;
     }
-    case "streak": { // swift — speed lines trailing behind, lengths cycling so they read as motion at rest
-      for (let i = 0; i < 3; i++) {
-        const yy = y + 1 + i * Math.max(1, (h - 2) >> 1);
-        p.px(x - 3 - ((f + i) & 3), yy, 2 + ((f + i) & 1), 1, i === 1 ? A.spark : A.glow);
+    case "streak": { // swift — three speed lines behind the item: STRUCTURED dashes (a body and a bright
+      for (let i = 0; i < 3; i++) {                    // head), never lone pixels that read as glitches
+        const yy = y + 2 + i * Math.max(2, (h - 4) >> 1);
+        const ln = 5 + ((f + i) & 1) * 2, sx = x - 4 - ((f + i) & 3) * 2 - ln;
+        p.fine(sx, yy, ln, 2, A.glow);
+        p.fine(sx + ln, yy, 1, 2, A.spark);
       }
       break;
     }
-    case "drip": { // vampiric — beads that fall out of the piece and reset: it is always bleeding something
-      p.px(x + 1, y + h + ((f + seed) & 3), 1, 1, A.glow);
-      p.px(x + w - 2, y + h + ((f + seed + 2) & 3), 1, 1, A.spark);
+    case "drip": { // vampiric — fat beads falling off the lower edge, never past the boot line: a droplet
+      for (const [bx, ph] of [[x + 2, 0], [x + w - 4, 2]]) { // is a 2×2 body with a bright cap, not a fleck
+        const by = Math.min(y + h + ((f + seed + ph) & 3) * 2, GROUND_Y * HR - 5);
+        p.fine(bx, by, 2, 2, A.glow);
+        p.fine(bx, by, 1, 1, A.spark);
+      }
       break;
     }
-    case "flame": { // blazing — tongues off the top edge, per-column heights from a fixed table
-      for (let i = 0; i < w; i++) {
-        const t = FLAME[(i + f * 3 + seed) % FLAME.length];
+    case "flame": { // blazing — native-column tongues off the top edge, fixed table, no noise
+      for (let i = 0; i < w; i += 2) {
+        const t = FLAME[((i >> 1) + f * 3 + seed) % FLAME.length];
         if (!t) continue;
-        p.px(x + i, y - t, 1, t, A.glow);
-        p.px(x + i, y - t, 1, 1, A.spark);
+        p.fine(x + i, y - t * 2, 1, t * 2, A.glow);
+        p.fine(x + i, y - t * 2, 1, 1, A.spark);
       }
       break;
     }
-    case "halo": { // hallowed — a short ring of light centred over the piece, plus a mote rising out of it.
-      // Centred and capped at 6 px on purpose: six full-width bands (one per slot) turn into a cloud of
-      // loose dashes floating beside the warrior instead of six haloes.
-      const rw = Math.min(6, w + 2), rx = x + ((w - rw) >> 1);
-      p.dither(rx, y - 3, rw, 2, A.glow, f & 1);
-      p.px(rx + (rw >> 1), y - 4 - (f & 1), 1, 1, A.spark);
+    case "halo": { // hallowed — a short arc of light over the piece and one rising mote
+      const rw = Math.min(12, w + 4), rx = x + ((w - rw) >> 1);
+      for (let i = 0; i < rw; i += 2) p.fine(rx + i + (f & 1), y - 5, 1, 1, A.glow);
+      p.fine(rx + (rw >> 1), y - 7 - (f & 1), 1, 1, A.spark);
       break;
     }
+  }
+}
+
+// ── native construction kit ──────────────────────────────────────────────────────────────
+// The redesigned characters are SILHOUETTE-FIRST: each major mass is blocked as a filled shape with a
+// continuous 1-px outline, and only then carved with big cel-shaded tone planes. These helpers work in
+// NATIVE pixels through p.fine()/p.fraw(); the classic authored-grid helpers further down still serve the
+// props, which keep their look.
+
+/** far-side ramp: everything on the far side of the body is one tone step darker */
+const dk = (C) => ({ base: C.shade, shade: C.line, light: C.base, line: C.line });
+
+/** an outlined filled silhouette from row spans. spans[j] = [dx, w] (relative to x0) or null.
+ *  Pass 1 stamps every row as a 3-tall line-colour block (a 1-px dilation in all four directions), pass 2
+ *  fills the row itself — whatever survives of pass 1 is exactly the continuous 1-px outline. */
+function blob(p, x0, y0, spans, C) {
+  spans.forEach((s, j) => { if (s && s[1] > 0) p.fine(x0 + s[0] - 1, y0 + j - 1, s[1] + 2, 3, C.line); });
+  spans.forEach((s, j) => { if (s && s[1] > 0) p.fine(x0 + s[0], y0 + j, s[1], 1, C.base); });
+}
+
+/** a THICK outlined limb in native px: outline pass first, mass second, then one lit ridge along the
+ *  upper-left — the same three passes every mass in the redesign gets */
+function limbF(p, x0, y0, x1, y1, w, C) {
+  const dx = x1 - x0, dy = y1 - y0, n = Math.max(Math.abs(dx), Math.abs(dy));
+  const at = (i) => { const t = n ? i / n : 0; return [Math.round(x0 + dx * t), Math.round(y0 + dy * t)]; };
+  for (let i = 0; i <= n; i++) { const [X, Y] = at(i); p.fine(X - 1, Y - 1, w + 2, w + 2, C.line); }
+  for (let i = 0; i <= n; i++) { const [X, Y] = at(i); p.fine(X, Y, w, w, C.base); }
+  for (let i = 0; i <= n; i++) { const [X, Y] = at(i); p.fine(X, Y, 1, 1, C.light); }
+}
+
+/** native horn/ear/spike: same taper discipline as horn(), but its inputs are native px */
+function hornF(p, x, y, dx, dy, n, C, w0) {
+  const W0 = Math.max(2, w0 || (n >> 1));
+  for (let i = 0; i < n; i++) {
+    const w = Math.max(1, Math.round(W0 * (n - i) / n));
+    const xx = dx < 0 ? x + dx * i - (w - 1) : x + dx * i;
+    p.fine(xx - 1, y + dy * i, w + 2, 1, C.line);
+    p.fine(xx, y + dy * i, w, 1, i >= n - 3 ? C.light : C.base);
+  }
+}
+
+/** native eye: socket, hot iris, catchlight, pupil — big enough to have all four at last */
+function eyeF(p, x, y, w, h, col, line) {
+  p.fine(x - 1, y - 1, w + 2, h + 2, line);
+  p.fine(x, y, w, h, col);
+  if (w >= 2 && h >= 2) {
+    p.fine(x, y, 1, 1, "#ffffff");
+    p.fine(x + w - 1, y + h - 1, 1, Math.min(2, h - 1), line);
   }
 }
 
@@ -279,238 +389,342 @@ function drawCloak(p, tier, mat, affix, frame, facing, ps) {
   if (tier === null) return; // the one slot whose bare version is genuinely nothing — a bare back, already
                              // covered by the body layer drawn on top of it
   const M = MATERIALS[mat], a = anchors(ps);
-  const len = 8 + tier;              // t0 barely past the belt, t7 sweeps the ankles
-  const sway = SWAY[frame % SWAY.length];
-  const top = a.shoF[1] - 1;
+  const len = 20 + tier * 2;         // t0 past the belt, t7 sweeps the boot tops
+  const sway = SWAY[frame % SWAY.length] * 2;
+  const top = a.torsoY - 1;
+  // ONE solid shaped mass hanging behind the torso: pinned at the shoulder, flaring backward (left) as it
+  // falls, the bottom third swinging with the walk. Built as a blob so the outline never breaks.
+  const spans = [];
   for (let i = 0; i < len; i++) {
-    const y = top + i;
-    // Flare is spread over the WHOLE length, not ramped to its cap in the first few rows: a cloak that is
-    // already at full width at the shoulder is a sail, and it swallows the body it is supposed to frame.
-    // Only the bottom third swings, so the shoulders stay pinned to the walk.
-    const flare = Math.round((i / Math.max(1, len - 1)) * (2 + (tier >> 1))) + (i > len - 4 ? sway : 0);
-    const x0 = a.torsoX - 1 - flare;
-    if (tier >= 5 && i >= len - 2 && ((x0 + i) & 1)) continue; // tattered hem on the high tiers
-    p.px(x0, y, flare + 3, 1, i % 3 === 2 ? M.shade : M.base);
-    p.px(x0, y, 1, 1, M.line);       // dark trailing edge keeps the silhouette off the background
-    if (tier >= 2) p.px(x0 + 1, y, 1, 1, i % 2 ? M.shade : M.light); // fold
+    const t = i / Math.max(1, len - 1);
+    const flare = Math.round(t * (7 + tier)) + (i > len - 7 ? sway : 0);
+    let w = 7 + Math.round(t * (4 + (tier >> 1))) + (i > len - 7 ? sway : 0);
+    if (tier >= 5 && i === len - 1) w -= 3;                    // tattered hem on the high tiers…
+    spans.push([-flare, w]);
   }
+  blob(p, a.torsoX - 2, top, spans, M);
+  // cel pass: the cloak is one big plane, so it gets ONE big light and ONE big shadow
+  for (let i = 2; i < len - 1; i++) {
+    const [dxx, w] = spans[i];
+    p.fine(a.torsoX - 2 + dxx + w - 2, top + i, 2, 1, M.shade);  // the side tucked behind the body
+    if (i < len * 0.6) p.fine(a.torsoX - 2 + dxx, top + i, 2, 1, M.light); // lit trailing edge up top
+  }
+  p.fine(a.torsoX - 2 + spans[len - 1][0], top + len - 1, spans[len - 1][1], 1, M.shade); // hem turns under
+  const [fdx] = spans[len >> 1];
+  p.fine(a.torsoX - 2 + fdx + 3, top + 6, 1, len - 10, M.shade); // one long fold crease, hem to mantle
+  if (tier >= 4) p.fine(a.torsoX - 2 + fdx + 6, top + 8, 1, len - 13, M.shade); // a second on the big cloaks
+  if (tier >= 5) for (let k = 0; k < 4; k++)                    // …with native notches worn into it
+    p.fine(a.torsoX - 2 + spans[len - 1][0] + 1 + k * 3, top + len - 1, 1, 2, M.line);
   if (tier >= 3) { // mantle: the first thing that makes a cloak read as gear and not a towel
-    p.px(a.torsoX - 2, top, 9, 2, M.base);
-    p.px(a.torsoX - 2, top, 9, 1, M.light);
-    p.px(a.torsoX - 2, top + 2, 9, 1, M.line);
+    p.fine(a.torsoX - 4, top, 15, 4, M.line);
+    p.fine(a.torsoX - 3, top + 1, 13, 2, M.base);
+    p.fine(a.torsoX - 3, top + 1, 13, 1, M.light);
   }
   if (tier >= 6) { // clasp
-    p.px(a.torsoX + 5, top + 1, 2, 2, M.light);
-    p.px(a.torsoX + 5, top + 2, 2, 1, M.line);
+    p.fine(a.torsoX + 9, top + 2, 3, 3, M.line);
+    p.fine(a.torsoX + 10, top + 2, 2, 2, M.light);
   }
-  affixAura(p, affix, { x: a.torsoX - 8, y: top, w: 10, h: len }, frame, 5);
+  affixAura(p, affix, { x: (a.torsoX - 14 - tier) >> 1, y: top >> 1, w: (16 + tier) >> 1, h: len >> 1 }, frame, 5);
+  // ^ the aura box spans the WHOLE flare, so streaks launch from clear air and drips hang off the true hem
 }
 
 // one leg, drawn row by row: the x is lerped along hip→knee→foot so the limb bends without any curve math
+// one THICK leg (native): thigh 6 px, shin 5 px, x row-lerped hip→knee→ankle so the limb bends without any
+// curve math, ending in a real planted boot. Returns the ankle x so callers can hang things off it.
 function drawLeg(p, hipX, hipY, kneeDx, footDx, skin, boot, bootTop) {
-  let fx = hipX;
-  for (let y = hipY; y < FOOT_Y; y++) {
-    const x = y <= KNEE_Y
-      ? Math.round(hipX + kneeDx * (y - hipY) / Math.max(1, KNEE_Y - hipY))
-      : Math.round(hipX + kneeDx + (footDx - kneeDx) * (y - KNEE_Y) / Math.max(1, FOOT_Y - 1 - KNEE_Y));
+  const kneeX = hipX + kneeDx;
+  let ax = hipX;
+  for (let y = hipY; y < N_ANKLE_Y; y++) {
+    const x = y <= N_KNEE_Y
+      ? Math.round(hipX + kneeDx * (y - hipY) / Math.max(1, N_KNEE_Y - hipY))
+      : Math.round(kneeX + (footDx - kneeDx) * (y - N_KNEE_Y) / Math.max(1, N_ANKLE_Y - N_KNEE_Y));
+    const w = y < N_KNEE_Y - 2 ? 6 : 5;
     const c = boot && y >= bootTop ? boot : skin;
-    p.px(x, y, 2, 1, c.base);
-    p.px(x, y, 1, 1, c.shade); // a single shaded column is enough to round a 2 px leg
-    fx = x;
+    p.fine(x - 1, y, w + 2, 1, c.line);
+    p.fine(x, y, w, 1, c.base);
+    p.fine(x, y, 2, 1, c.light);              // lit left edge — the sun sits upper-left
+    p.fine(x + w - 1, y, 1, 1, c.shade);
+    ax = x;
   }
-  return fx;
+  // the boot: a solid toe-forward block, PLANTED. The outline block's bottom row survives as the sole.
+  const bc = boot || skin;
+  const fx = ax - 1, fw = 9;
+  p.fine(fx - 1, N_ANKLE_Y, fw + 2, 4, bc.line);
+  p.fine(fx, N_ANKLE_Y, fw, 3, bc.base);
+  p.fine(fx, N_ANKLE_Y, fw - 3, 1, bc.light);
+  p.fine(fx + fw - 3, N_ANKLE_Y + 1, 3, 2, bc.light);       // the toe cap catching the light
+  p.fine(fx, N_ANKLE_Y + 2, 2, 1, bc.shade);                // heel turning away
+  return ax;
 }
 
 function drawBoots(p, tier, mat, affix, frame, facing, ps) {
   const M = tier === null ? null : MATERIALS[mat];
   const a = anchors(ps);
-  const bootTop = tier === null ? FOOT_Y : Math.max(HIP_Y + 1, FOOT_Y - (2 + tier)); // t0 ankle, t7 thigh
-  // the far leg is drawn one ramp step darker — the cheapest way to keep two overlapping 2 px legs apart
-  const far = M ? { base: M.shade, shade: M.line, light: M.base, line: M.line } : CLOTH;
-  const foot = (fx, c, back) => {
-    p.px(fx - 1, FOOT_Y, 4, 1, back ? c.shade : c.base);
-    p.px(fx + 2, FOOT_Y, 1, 1, c.light);
-    p.px(fx - 1, FOOT_Y, 1, 1, c.line);
-    if (tier !== null && tier >= 6) p.px(fx + 3, FOOT_Y, 1, 1, c.light);     // sabaton toe
-    if (tier !== null && tier >= 7) p.px(fx - 2, FOOT_Y - 1, 1, 1, c.light); // spur
-  };
-  const bx = drawLeg(p, a.hipB, a.hipY, ps.kneeB, ps.footB, CLOTH, M && far, bootTop);
-  foot(bx, far, true);
-  const fxp = drawLeg(p, a.hipF, a.hipY, ps.kneeF, ps.footF, SKIN, M, bootTop);
-  foot(fxp, M || SKIN, false);
+  const bootTop = tier === null ? N_ANKLE_Y : Math.max(a.hipY + 2, N_ANKLE_Y - 4 - tier * 2); // ankle→thigh
+  // the far leg is one ramp step darker — the cheapest way to keep two overlapping thick legs apart
+  drawLeg(p, a.hipB, a.hipY, ps.kneeB, ps.footB, dk(SKIN), M ? dk(M) : dk(CLOTH), bootTop);
+  const ax = drawLeg(p, a.hipF, a.hipY, ps.kneeF, ps.footF, SKIN, M || CLOTH, bootTop);
   if (M && tier >= 4) { // knee cop — the silhouette change that says "this is armour, not a shoe"
-    p.px(a.hipF + ps.kneeF - 1, KNEE_Y - 1, 4, 2, M.base);
-    p.px(a.hipF + ps.kneeF - 1, KNEE_Y - 1, 4, 1, M.light);
-    p.px(a.hipF + ps.kneeF - 1, KNEE_Y + 1, 4, 1, M.line);
+    const kx = a.hipF + ps.kneeF;
+    p.fine(kx - 2, N_KNEE_Y - 3, 9, 6, M.line);
+    p.fine(kx - 1, N_KNEE_Y - 2, 7, 4, M.base);
+    p.fine(kx - 1, N_KNEE_Y - 2, 7, 1, M.light);
+    if (d2()) p.fine(kx + 2, N_KNEE_Y, 1, 1, M.light);      // the cop's centre rivet
   }
-  if (M) affixAura(p, affix, { x: a.hipB - 2, y: bootTop, w: 10, h: FOOT_Y - bootTop + 1 }, frame, 3);
+  if (M && tier >= 1) p.fine(ax, bootTop, 5, 1, M.light);   // the boot cuff, lit
+  if (M && tier >= 6) p.fine(ax + 8, N_ANKLE_Y + 1, 2, 2, M.light);       // sabaton toe
+  if (M && tier >= 7) { p.fine(ax - 4, N_ANKLE_Y + 1, 3, 1, M.light); p.fine(ax - 5, N_ANKLE_Y + 1, 1, 1, M.line); } // spur
+  if (M) affixAura(p, affix, { x: (a.hipB >> 1) - 1, y: bootTop >> 1, w: 9, h: (N_FOOT_Y - bootTop) >> 1 }, frame, 3);
 }
 
 function drawBody(p, tier, mat, affix, frame, facing, ps) {
   const M = tier === null ? CLOTH : MATERIALS[mat];
   const a = anchors(ps), x = a.torsoX, y = a.torsoY;
   // Drawn AFTER the legs on purpose: the fauld/skirt of a high-tier cuirass has to fall over the thighs.
-  p.px(x, y, TORSO_W, TORSO_H, M.base);
-  p.px(x, y, 1, TORSO_H, M.line);             // hard back edge: without it a same-material cloak and torso
-  p.px(x + 1, y, 1, TORSO_H, M.shade);        // fuse into one unreadable blob
-  p.px(x + TORSO_W - 1, y, 1, TORSO_H, M.light); // lit front edge
-  p.px(x, y + TORSO_H - 1, TORSO_W, 1, M.line);
-  p.px(x, y, TORSO_W, 1, M.line);
-  if (tier === null) { // bare: an undershirt with an open collar, so the neck and chest still read as skin
-    p.px(x + 2, y, 3, 2, SKIN.base);
-    p.px(x + 3, y + 2, 1, 1, SKIN.shade);
-    p.px(x + 1, y + 4, 5, 1, CLOTH.shade);
+  // Silhouette first: broad shoulders → a real waist → hips under the belt, one outlined blob.
+  blob(p, x, y, [
+    [1, 18], [0, 20], [0, 20], [0, 20], [0, 20], [0, 20], [0, 20], [1, 18],  // rows 0-7: the chest
+    [2, 16], [2, 16], [3, 14], [3, 14],                                      // 8-11: taper to the waist
+    [3, 14], [3, 14],                                                        // 12-13: belt band
+    [2, 15], [2, 15],                                                        // 14-15: hips
+  ], M);
+  // cel pass: two big planes — the upper-left chest in light, the lower-right flank in shadow
+  p.fine(x + 2, y + 1, 7, 6, M.light);
+  p.fine(x + 15, y + 2, 4, 8, M.shade);
+  p.fine(x + 4, y + 8, 12, 1, M.shade);                       // the shadow under the chest
+  p.fine(x + 8, y + 1, 4, 2, SKIN.base);                      // a sliver of neck keeps the figure human
+  p.fine(x + 8, y + 2, 4, 1, SKIN.shade);
+  if (tier === null) { // bare: an open-collared tunic — folds, a rope belt, big readable planes
+    p.fine(x + 7, y + 3, 6, 3, SKIN.base);                    // open collar, chest showing
+    p.fine(x + 12, y + 3, 1, 3, SKIN.shade);
+    p.fine(x + 6, y + 3, 1, 4, CLOTH.line);                   // the collar's cut edges
+    p.fine(x + 13, y + 3, 1, 4, CLOTH.line);
+    p.fine(x + 5, y + 9, 1, 4, CLOTH.shade);                  // two long tunic folds, whole-height
+    p.fine(x + 12, y + 9, 1, 4, CLOTH.shade);
+    p.fine(x + 3, y + 12, 14, 2, CLOTH.shade);                // rope belt
+    p.fine(x + 3, y + 12, 14, 1, CLOTH.light);
+    if (d2()) p.fine(x + 8, y + 12, 2, 2, CLOTH.light);       // the knot
+    affixAura(p, 0, { x: x >> 1, y: y >> 1, w: 10, h: 8 }, frame, 1);
     return;
   }
-  p.px(x + 2, y + 1, 3, 1, SKIN.base); // a sliver of neck under any breastplate keeps the figure human
-  if (tier >= 1) { // belt
-    p.px(x, y + 6, TORSO_W, 1, M.shade);
-    p.px(x + 3, y + 6, 2, 1, M.light);
+  if (tier >= 1) { // belt: a real strap with weight
+    p.fine(x + 3, y + 12, 14, 2, M.shade);
+    p.fine(x + 3, y + 13, 14, 1, M.line);
+    p.fine(x + 8, y + 11, 4, 4, M.line);                      // buckle plate…
+    p.fine(x + 9, y + 12, 2, 2, M.light);                     // …and its catch
   }
-  if (tier >= 2) p.px(x + 4, y + 2, 1, 4, M.light);  // chest ridge
-  if (tier >= 3) { p.px(x + 1, y + 1, 5, 1, M.light); p.px(x + 1, y + 2, 5, 1, M.shade); } // gorget
-  if (tier >= 4) { // fauld — the first big silhouette gain: the torso stops being a rectangle
-    p.px(x, y + TORSO_H, TORSO_W, 2, M.base);
-    p.px(x, y + TORSO_H + 1, TORSO_W, 1, M.shade);
-    p.px(x + 3, y + TORSO_H, 1, 2, M.line);
+  if (tier >= 2) { // chest ridge: the cuirass's centre line, one clean native column
+    p.fine(x + 10, y + 1, 2, 7, M.light);
+    p.fine(x + 11, y + 2, 1, 6, M.base);
+    if (tier < 5) { p.fine(x + 5, y + 6, 3, 1, M.shade);      // rivet shadow pair on the pecs —
+                    p.fine(x + 13, y + 6, 3, 1, M.shade); }   // dropped once the plates arrive
   }
-  if (tier >= 6) { p.px(x, y + TORSO_H + 2, TORSO_W - 1, 1, M.base); p.px(x, y + TORSO_H + 2, TORSO_W - 1, 1, M.shade); }
+  if (tier >= 3) { // gorget closing over the neck sliver
+    p.fine(x + 6, y, 8, 3, M.base);
+    p.fine(x + 6, y, 8, 1, M.light);
+    p.fine(x + 6, y + 2, 8, 1, M.shade);
+  }
+  if (tier >= 4) { // fauld: two plate rows skirting over the thighs — the torso stops being a rectangle
+    p.fine(x + 1, y + 16, 18, 3, M.line);
+    p.fine(x + 2, y + 16, 16, 2, M.base);
+    p.fine(x + 2, y + 16, 16, 1, M.light);
+    p.fine(x + 7, y + 16, 1, 2, M.line);                      // plate seams
+    p.fine(x + 12, y + 16, 1, 2, M.line);
+    if (d2()) { p.fine(x + 4, y + 17, 1, 1, M.light); p.fine(x + 15, y + 17, 1, 1, M.light); } // rivets
+  }
+  if (tier >= 6) { // tassets: a second, lower plate row on the hero who has everything
+    p.fine(x + 3, y + 19, 14, 2, M.base);
+    p.fine(x + 3, y + 20, 14, 1, M.shade);
+  }
   if (tier >= 3) { // pauldrons, growing with tier — the width of the shoulders IS the tier read
-    const pw = Math.min(5, 2 + ((tier - 2) >> 1));
-    p.px(a.shoF[0] - pw + 2, a.shoF[1] - 2, pw, 3, M.base);
-    p.px(a.shoF[0] - pw + 2, a.shoF[1] - 2, pw, 1, M.light);
-    p.px(a.shoF[0] - pw + 2, a.shoF[1] + 1, pw, 1, M.line);
+    const pw = Math.min(10, 5 + (tier - 2));
+    const px0 = a.shoF[0] - 2, py0 = a.shoF[1] - 5;
+    blob(p, px0, py0, [[1, pw - 2], [0, pw], [0, pw], [0, pw], [1, pw - 2]], M);
+    p.fine(px0 + 1, py0 + 1, pw - 3, 1, M.light);
+    p.fine(px0 + 1, py0 + 3, pw - 2, 1, M.shade);
     if (tier >= 5) { // back pauldron too, and a spike off the front one
-      p.px(a.shoB[0] - 1, a.shoB[1] - 2, pw - 1, 3, M.shade);
-      p.px(a.shoF[0] + 1, a.shoF[1] - 3, 1, 2, M.light);
+      blob(p, a.shoB[0] - 3, py0 + 1, [[1, pw - 3], [0, pw - 1], [0, pw - 1], [1, pw - 3]], dk(M));
+      hornF(p, px0 + pw - 1, py0 - 1, 1, -1, 5, M, 3);
     }
-    if (tier >= 7) { // winged pauldron + full trim: unmistakable, even as a 24 px silhouette
-      p.px(a.shoF[0] + 1, a.shoF[1] - 4, 2, 1, M.light);
-      p.px(a.shoF[0] + 2, a.shoF[1] - 5, 2, 1, M.base);
-      p.px(a.shoB[0] - 2, a.shoB[1] - 4, 2, 1, M.light);
-      p.px(x, y + 3, 1, 1, M.light);
-      p.px(x + TORSO_W - 1, y + 3, 1, 1, M.light);
+    if (tier >= 7) { // winged pauldrons + trim: unmistakable in silhouette
+      hornF(p, px0 + 2, py0 - 1, 0, -1, 6, M, 3);
+      hornF(p, a.shoB[0] - 2, py0, 0, -1, 5, M, 3);
+      p.fine(x + 9, y + 9, 2, 2, "#ffd7e8");                  // the heart-stone set over the sternum —
+                                                              // ONE ornament where trim rows were noise
     }
   }
-  affixAura(p, affix, { x, y, w: TORSO_W, h: TORSO_H }, frame, 1);
+  affixAura(p, affix, { x: x >> 1, y: y >> 1, w: 10, h: 8 }, frame, 1);
 }
 
 function drawHelm(p, tier, mat, affix, frame, facing, ps) {
-  const a = anchors(ps), x = a.headX, y = a.headY, W = 6, H = 7;
-  p.px(x, y, W, H, SKIN.base);            // the head is always skin first; a helm is drawn ON it
-  p.px(x, y, 1, H, SKIN.shade);
-  p.px(x + W - 1, y + H - 1, 1, 1, SKIN.shade);
-  if (tier === null) { // bare head: hair, ear, brow, eye, mouth — a face at 6x7 is 5 pixels of intent
-    p.px(x, y, W, 2, HAIR.base);
-    p.px(x, y, W - 1, 1, HAIR.shade);
-    p.px(x, y + 2, 2, 2, HAIR.base);
-    p.px(x + 4, y + 3, 1, 1, SKIN.line);  // eye
-    p.px(x + 3, y + 2, 2, 1, HAIR.shade); // brow
-    p.px(x + 2, y + 4, 1, 1, SKIN.shade); // ear
-    p.px(x + 4, y + 5, 2, 1, SKIN.shade); // jaw/mouth
-    affixAura(p, 0, { x, y, w: W, h: H }, frame, 2);
+  const a = anchors(ps), x = a.headX, y = a.headY;
+  // The head is the personality budget: 16×16, skull + jaw as ONE blob, face on the marching side.
+  blob(p, x, y, [
+    [4, 8], [2, 12], [1, 14], [0, 16], [0, 16], [0, 16], [0, 16], [0, 16],
+    [0, 16], [0, 16], [0, 16], [1, 15], [1, 14], [2, 12], [3, 10], [5, 7],
+  ], SKIN);
+  p.fine(x + 2, y + 3, 3, 8, SKIN.light);          // the lit back-crown plane (sun upper-left)
+  p.fine(x + 5, y + 14, 8, 1, SKIN.shade);         // jaw shadow rooting the head on the neck
+  if (tier === null || tier < 2) { // the FACE — visible bare and under the open helms
+    p.fine(x + 9, y + 6, 5, 1, HAIR.shade);        // brow
+    p.fine(x + 10, y + 7, 3, 3, "#efe6d8");        // a real eye: white…
+    p.fine(x + 12, y + 7, 1, 3, SKIN.line);        // …pupil looking down the road…
+    p.fine(x + 9, y + 7, 1, 3, SKIN.shade);        // …and the socket's inner shadow
+    p.fine(x + 14, y + 8, 1, 2, SKIN.light);       // nose bridge
+    p.fine(x + 13, y + 10, 3, 1, SKIN.shade);      // nose underside
+    p.fine(x + 10, y + 12, 4, 1, SKIN.line);       // mouth, set
+    p.fine(x + 10, y + 13, 3, 1, SKIN.shade);      // lower lip
+    p.fine(x + 2, y + 7, 3, 4, SKIN.base);         // ear
+    p.fine(x + 3, y + 8, 1, 2, SKIN.shade);
+  }
+  if (tier === null) { // bare head: a proper head of hair, one shaped mass with a fringe
+    blob(p, x - 1, y - 2, [
+      [5, 9], [3, 13], [2, 15], [1, 16], [1, 8], [1, 6], [1, 4], [1, 3],
+    ], HAIR);
+    p.fine(x + 2, y - 1, 6, 2, HAIR.light);        // the lit sweep
+    p.fine(x + 5, y + 2, 4, 1, HAIR.shade);        // shadow inside the fringe
+    p.fine(x + 1, y + 5, 2, 5, HAIR.base);         // a sideburn framing the ear
+    p.fine(x + 8, y + 2, 3, 2, HAIR.base);         // one fringe tooth breaking the hairline
+    p.fine(x + 8, y + 2, 1, 1, HAIR.light);
+    if (d2()) p.fine(x + 12, y - 2, 1, 2, HAIR.base); // one flyaway strand at fine scales
+    affixAura(p, 0, { x: x >> 1, y: y >> 1, w: 8, h: 8 }, frame, 2);
     return;
   }
   const M = MATERIALS[mat];
-  p.px(x, y, W, 3, M.base);               // skull cap
-  p.px(x, y, W, 1, M.light);
-  p.px(x, y + 3, W, 1, M.line);           // brow rim
-  p.px(x, y, 1, 3, M.shade);
-  if (tier >= 1) p.px(x + 4, y + 3, 1, 2, M.base);                    // nasal bar
-  if (tier >= 2) { // cheek plates close the face down to a slit — and the slit keeps ONE lit eye pixel, or
-                   // the warrior stops looking alive
-    p.px(x, y + 3, W, 3, M.base);
-    p.px(x, y + 4, W, 1, M.line);
-    p.px(x + 3, y + 4, 2, 1, "#ffcf6a");
-    p.px(x, y + 3, 1, 3, M.shade);
-    p.px(x + W - 1, y + 3, 1, 3, M.light);
+  if (tier < 2) { // t0-1: an open sallet — cap over the crown, the face still his
+    blob(p, x - 1, y - 2, [
+      [5, 9], [3, 13], [2, 15], [1, 17], [0, 18], [0, 18], [0, 18], [0, 18], [0, 5],
+    ], M);
+    p.fine(x + 2, y - 1, 8, 2, M.light);                     // polished crown
+    p.fine(x + 13, y + 1, 3, 4, M.shade);
+    p.fine(x - 1, y + 5, 18, 1, M.line);                     // brow rim
+    if (tier >= 1) { p.fine(x + 13, y + 5, 3, 6, M.base); p.fine(x + 13, y + 5, 1, 6, M.light); } // nasal bar
+  } else { // t2+: the closed greathelm — the whole head becomes armour with a glowing slit
+    blob(p, x - 1, y - 2, [
+      [5, 9], [3, 13], [2, 15], [1, 17], [0, 18], [0, 18], [0, 18], [0, 18],
+      [0, 18], [0, 18], [0, 18], [0, 18], [1, 17], [2, 15], [3, 13], [4, 10],
+    ], M);
+    p.fine(x + 2, y - 1, 7, 3, M.light);                     // crown plane
+    p.fine(x + 2, y + 2, 3, 8, M.light);                     // lit cheek plane
+    p.fine(x + 12, y + 2, 4, 9, M.shade);                    // far cheek rolls away
+    p.fine(x - 1, y + 5, 18, 1, M.shade);                    // brow seam
+    p.fine(x + 7, y + 6, 9, 3, M.line);                      // the visor slot…
+    p.fine(x + 9, y + 7, 6, 1, "#ffcf6a");                   // …and the eye-glow inside it
+    p.fine(x + 9, y + 7, 1, 1, "#fff2c0");
+    p.fine(x + 5, y + 11, 1, 3, M.line);                     // cheek-plate seam
+    if (tier >= 3) for (let k = 0; k < 3; k++) p.fine(x + 11 + k * 2, y + 11, 1, 1, M.line); // breath holes
+    if (d2()) p.fine(x + 4, y + 12, 1, 1, M.light);          // the cheek rivet
   }
-  if (tier >= 3) p.px(x + W, y + 3, 1, 1, M.light);                   // brow ridge pushes forward
-  if (tier >= 4) { p.px(x + 1, y - 1, W - 2, 1, M.light); p.px(x + 2, y - 2, 2, 1, M.base); } // crest
-  if (tier >= 5) { // horns, angled forward — the first read-at-a-glance tier tell on the head
-    p.px(x + W - 1, y - 1, 1, 1, M.base);
-    p.px(x + W, y - 2, 1, 2, M.light);
-    p.px(x - 1, y - 1, 1, 1, M.shade);
+  if (tier >= 4) blob(p, x + 3, y - 6, [[3, 5], [1, 9], [0, 11], [0, 12]], M); // crest ridge
+  if (tier >= 5) { // horns — the first read-at-a-glance tier tell on the head
+    hornF(p, x, y - 2, -1, -1, 7, M, 3);
+    hornF(p, x + 15, y - 2, 1, -1, 7, M, 3);
   }
   if (tier >= 6) { // plume, swaying against the walk so the head never looks frozen
     const s = SWAY[frame % SWAY.length];
-    const ph = tier >= 7 ? 5 : 3;
-    for (let i = 0; i < ph; i++) p.px(x + 2 - ((i * s) >> 1), y - 2 - i, 2, 1, i & 1 ? M.shade : M.light);
-    if (tier >= 7) { // back-swept plume tail + a crown of points: the tier-7 helm has a profile, not a cap
-      for (let i = 0; i < 4; i++) p.px(x - 1 - i, y - 1 + i + s, 2, 1, i & 1 ? M.base : M.light);
-      p.px(x, y - 1, 1, 1, M.light);
-      p.px(x + W - 2, y - 1, 1, 1, M.light);
-    }
+    const ph = tier >= 7 ? 8 : 6;                            // fits the rows of headroom the crest leaves
+    blob(p, x + 4 - s, y - ph - 1, [
+      [4, 4], [2, 7], [1, 8], [0, 9], [0, 9], [0, 8], [1, 7], [1, 6],
+    ].slice(0, ph), M);
+    p.fine(x + 6 - s, y - ph, 3, ph - 3, M.light);           // the plume's lit spine
+    if (tier >= 7) for (let i = 0; i < 5; i++)               // tail streaming behind the march
+      p.fine(x + 2 - s - i * 2, y - ph + 1 + i * 2, 3, 2, i & 1 ? M.shade : M.base);
   }
-  affixAura(p, affix, { x, y, w: W, h: H }, frame, 2);
+  affixAura(p, affix, { x: x >> 1, y: y >> 1, w: 8, h: 8 }, frame, 2);
 }
 
 function drawShield(p, tier, mat, affix, frame, facing, ps) {
   const a = anchors(ps), [hx, hy] = ps.hs;
   const M = tier === null ? null : MATERIALS[mat];
   // the far arm belongs to this layer: an empty shield slot still has to show a bare arm and fist
-  const arm = M && tier >= 2 ? { base: M.shade, shade: M.line, light: M.base } : { base: SKIN.shade, shade: SKIN.line, light: SKIN.base };
-  p.limb(a.shoB[0], a.shoB[1], hx, hy, 2, arm.base);
-  p.px(hx, hy, 2, 2, arm.light);
-  p.px(hx, hy + 1, 2, 1, arm.shade);
+  const arm = M && tier >= 2 ? dk(M) : dk(SKIN);
+  limbF(p, a.shoB[0], a.shoB[1], hx, hy, 4, arm);
+  p.fine(hx - 1, hy - 1, 6, 6, arm.line);              // the fist
+  p.fine(hx, hy, 4, 4, arm.base);
+  p.fine(hx, hy, 4, 1, arm.light);
   if (!M) return;
-  const w = 4 + ((tier * 5) >> 3);   // t0 buckler 4x5 … t7 tower 8x12
-  const h = 5 + tier;
-  const sx = hx - 1, sy = hy - ((h / 2) | 0);
-  // outlined all round in `line`: a shield of the same material as the cuirass it hangs in front of has to
-  // stay a separate object, and the outline is the only thing that does that at this size
-  p.px(sx - 1, sy - 1, w + 2, h + 2, M.line);
-  p.px(sx, sy, w, h, M.base);
-  p.px(sx, sy, w, 1, M.light);
-  p.px(sx, sy + h - 1, w, 1, M.line);
-  p.px(sx, sy, 1, h, M.shade);
-  p.px(sx + w - 1, sy, 1, h, M.light);
-  p.px(sx + 1, sy + ((h / 2) | 0) - 1, 2, 2, M.light);  // boss
-  if (tier >= 3) { p.px(sx, sy + ((h / 2) | 0), w, 1, M.shade); p.px(sx + ((w / 2) | 0), sy, 1, h, M.shade); } // bands
-  if (tier >= 5) { // rivets
-    p.px(sx + 1, sy + 1, 1, 1, M.light);
-    p.px(sx + w - 2, sy + 1, 1, 1, M.light);
-    p.px(sx + 1, sy + h - 2, 1, 1, M.light);
+  const w = 10 + tier, h = 14 + tier * 2;              // t0 buckler … t7 tower
+  const sx = hx - 3, sy = hy - (h >> 1);
+  const spans = [];
+  for (let j = 0; j < h; j++) {                        // rounded-corner slab
+    const r = Math.min(j, h - 1 - j);
+    const ins = r === 0 ? 2 : r === 1 ? 1 : 0;
+    spans.push([ins, w - ins * 2]);
   }
-  if (tier >= 6) { p.px(sx + 1, sy + h, w - 2, 1, M.base); p.px(sx + 2, sy + h + 1, w - 4, 1, M.shade); } // pointed foot
-  if (tier >= 7) { p.px(sx + w, sy + ((h / 2) | 0) - 1, 2, 2, M.light); p.px(sx - 1, sy - 1, w + 2, 1, M.light); } // spike + trim
-  affixAura(p, affix, { x: sx, y: sy, w, h }, frame, 4);
+  blob(p, sx, sy, spans, M);
+  p.fine(sx + 2, sy + 1, w - 4, 2, M.light);           // cel: the top edge and the lit left rim…
+  p.fine(sx + 1, sy + 2, 2, h - 5, M.light);
+  p.fine(sx + w - 3, sy + 3, 2, h - 6, M.shade);       // …the far rim rolling away…
+  p.fine(sx + 2, sy + h - 3, w - 4, 2, M.shade);       // …and the bottom in shadow
+  if (tier >= 1) { // the DEVICE: a pale lozenge on the face — heraldry, not a plank
+    const dcx = sx + (w >> 1), dcy = sy + (h >> 1) - 1;
+    for (let j = -3; j <= 3; j++) {
+      const dw = 7 - 2 * Math.abs(j);
+      p.fine(dcx - (dw >> 1), dcy + j, dw, 1, M.light);
+    }
+    p.fine(dcx - 1, dcy + 1, 2, 2, M.shade);           // the lozenge's own lower facet
+  } else { // t0: just a boss dome
+    p.fine(sx + (w >> 1) - 2, sy + (h >> 1) - 2, 4, 4, M.light);
+    p.fine(sx + (w >> 1) - 1, sy + (h >> 1) + 1, 3, 1, M.shade);
+  }
+  if (tier >= 3) { // reinforcing bands above and below the device
+    p.fine(sx + 1, sy + 3, w - 2, 1, M.shade);
+    p.fine(sx + 1, sy + h - 5, w - 2, 1, M.shade);
+  }
+  if (tier >= 5) { // rivets in the corners, native-sized
+    p.fine(sx + 2, sy + 2, 1, 1, M.light);
+    p.fine(sx + w - 3, sy + 2, 1, 1, M.light);
+    p.fine(sx + 2, sy + h - 3, 1, 1, M.light);
+    p.fine(sx + w - 3, sy + h - 3, 1, 1, M.light);
+  }
+  if (tier >= 6) hornF(p, sx + (w >> 1), sy + h, 0, 1, 5, M, 4);   // the pointed foot: it can be PLANTED
+  if (tier >= 7) { // top spike + edge trim
+    hornF(p, sx + (w >> 1), sy - 1, 0, -1, 5, M, 3);
+    p.fine(sx, sy + 2, 1, h - 4, M.light);
+  }
+  affixAura(p, affix, { x: sx >> 1, y: sy >> 1, w: w >> 1, h: h >> 1 }, frame, 4);
 }
 
 function drawWeapon(p, tier, mat, affix, frame, facing, ps) {
   const a = anchors(ps), [hx, hy] = ps.hw, [dx, dy] = ps.dir;
   const M = tier === null ? null : MATERIALS[mat];
-  const arm = M && tier >= 4 ? { base: M.base, shade: M.shade, light: M.light } : { base: SKIN.base, shade: SKIN.shade, light: SKIN.light };
-  p.limb(a.shoF[0], a.shoF[1], hx, hy, 2, arm.base);   // near arm, drawn last so it sits over the shield
-  p.px(hx, hy, 2, 2, arm.light);
-  p.px(hx, hy, 1, 2, arm.shade);
-  if (!M) { p.px(hx, hy + 1, 2, 1, SKIN.line); return; } // bare fist: the unarmed pose is still a pose
-  // t0 knife, t7 greatsword — LENGTH is the tier read. Clamped to the room actually left in the cell so the
-  // TAPER lands on the last visible pixel: a blade chopped off flat by the frame edge reads as a bug, and
-  // sprite cells sit shoulder to shoulder on a sheet, so growing the frame is not an option.
-  const room = (at, d, edge) => (d > 0 ? (edge - 2 - at) / d : d < 0 ? (at - 1) / -d : 99);
-  const fits = Math.floor(Math.min(room(hx, dx, FRAME_W), room(hy, dy, FRAME_H)));
-  const len = Math.max(2, Math.min(4 + Math.round(tier * 1.4), fits));
-  const th = tier >= 4 ? 2 : 1;                        // …thickness is not: past 2 px a diagonal blade
-                                                       // stops being a blade and becomes a plank
-  const guard = tier < 2 ? 0 : tier < 5 ? 1 : 2;       // likewise capped: a long crossguard on a diagonal
-                                                       // blade reads as a second sword through the face
-  p.px(hx - dx, hy - dy, 2, 2, M.shade);               // grip
-  p.px(hx - dx * 2, hy - dy * 2, 2, 2, M.light);       // pommel
-  // crossguard: perpendicular to the blade, so it stays a cross at every one of the 8 directions
-  for (let i = -guard; i <= guard; i++) p.px(hx + dy * i, hy - dx * i, 1, 1, i === 0 ? M.light : M.base);
-  let tipX = hx, tipY = hy;
-  for (let i = 1; i <= len; i++) {
-    const bx = hx + dx * i, by = hy + dy * i;
-    if (bx < 0 || by < 0 || bx >= FRAME_W || by >= FRAME_H) break; // never let a long blade leave its cell
-    const w = i > len - 2 ? 1 : tier >= 6 && i <= 3 ? th + 1 : th; // heavy at the ricasso, taper to a point
-    p.px(bx, by, w, w, M.base);
-    p.px(bx, by, 1, 1, M.light);                                   // lit edge down the whole blade
-    if (tier >= 5 && i > 2 && i < len - 1) p.px(bx + w - 1, by + w - 1, 1, 1, M.shade); // fuller/back edge
-    tipX = bx; tipY = by;
+  const arm = M && tier >= 4 ? M : SKIN;
+  limbF(p, a.shoF[0], a.shoF[1], hx, hy, 4, arm);      // near arm, drawn last so it sits over the shield
+  p.fine(hx - 1, hy - 1, 7, 7, arm.line);              // the fist: big, closed, outlined
+  p.fine(hx, hy, 5, 5, arm.base);
+  p.fine(hx, hy, 5, 1, arm.light);
+  p.fine(hx + 1, hy + 2, 3, 1, arm.shade);             // knuckle crease
+  if (!M) { p.fine(hx, hy + 4, 5, 1, SKIN.line); return; } // bare fist: the unarmed pose is still a pose
+  // t0 knife, t7 greatsword — LENGTH is the tier read, and the blade is finally a BLADE: parallel edges,
+  // a lit edge line, a fuller groove, and a taper that lands its point inside the cell.
+  const cx0 = hx + 2, cy0 = hy + 2;                    // the centre of the fist
+  const room = (at, d, edge) => (d > 0 ? (edge - 3 - at) / d : d < 0 ? (at - 2) / -d : 99);
+  const fits = Math.floor(Math.min(room(cx0, dx, FRAME_W_N), room(cy0, dy, FRAME_H_N)));
+  const len = Math.max(8, Math.min(11 + tier * 4, fits));
+  const bw = tier >= 4 ? 4 : 3;
+  p.fine(cx0 - dx * 3 - 2, cy0 - dy * 3 - 2, 4, 4, M.shade);     // grip behind the fist
+  p.fine(cx0 - dx * 5 - 2, cy0 - dy * 5 - 2, 4, 4, M.line);      // pommel…
+  p.fine(cx0 - dx * 5 - 1, cy0 - dy * 5 - 1, 2, 2, M.light);     // …with its catch
+  const gl = tier < 2 ? 3 : tier < 5 ? 5 : 7;          // crossguard: perpendicular, THICK, a real cross
+  for (let i = -gl; i <= gl; i++)
+    p.fine(cx0 + dy * i - 1, cy0 - dx * i - 1, 3, 3, Math.abs(i) === gl ? M.line : i === 0 ? M.light : M.base);
+  const wAt = (i) => (i > len - 5 ? Math.max(1, bw - (i - (len - 5))) : bw);
+  for (let i = 4; i <= len; i++) {                     // outline pass first — the blade is one solid object
+    const w = wAt(i);
+    p.fine(cx0 + dx * i - (w >> 1) - 1, cy0 + dy * i - (w >> 1) - 1, w + 2, w + 2, M.line);
   }
-  const bx0 = Math.min(hx, tipX), by0 = Math.min(hy, tipY);
-  affixAura(p, affix, { x: bx0, y: by0, w: Math.abs(tipX - hx) + 2, h: Math.abs(tipY - hy) + 2 }, frame, 0);
+  for (let i = 4; i <= len; i++) {
+    const w = wAt(i);
+    p.fine(cx0 + dx * i - (w >> 1), cy0 + dy * i - (w >> 1), w, w, M.base);
+  }
+  for (let i = 4; i <= len - 4; i++) {
+    p.fine(cx0 + dx * i - (bw >> 1), cy0 + dy * i - (bw >> 1), 1, 1, M.light);  // the honed edge line
+    if (tier >= 3) p.fine(cx0 + dx * i, cy0 + dy * i, 1, 1, M.shade);           // the fuller groove
+  }
+  p.fine(cx0 + dx * len, cy0 + dy * len, 1, 1, M.light);                        // the point itself
+  const tipX = cx0 + dx * len, tipY = cy0 + dy * len;
+  affixAura(p, affix, { x: (Math.min(cx0, tipX) >> 1) - 1, y: (Math.min(cy0, tipY) >> 1) - 1,
+                        w: (Math.abs(tipX - cx0) >> 1) + 3, h: (Math.abs(tipY - cy0) >> 1) + 3 }, frame, 0);
 }
 
 // ── public draw ──────────────────────────────────────────────────────────────────────────
@@ -523,6 +737,7 @@ const EMPTY_GEAR = [0, 0, 0, 0, 0, 0];
  * sheet by (gear, frame) and diff renders in tests.
  */
 export function drawWarrior(ctx, x, y, opts = {}) {
+  DETAIL = opts.detail === 2 ? 2 : 1;
   const gear = opts.gear || EMPTY_GEAR;
   const scale = Math.max(1, opts.scale | 0 || 1);
   const facing = opts.facing === -1 ? -1 : 1;
@@ -543,11 +758,12 @@ export function drawWarrior(ctx, x, y, opts = {}) {
 
   // contact shadow, dithered so it reads as translucent without touching alpha; `raw` keeps it flat on the
   // ground even when the body is rotated into the death pose
-  const sw = dead ? 20 : 11;
-  for (let i = 0; i < sw; i++) if ((i & 1) === 0) p.raw((dead ? 5 : CX - 5) + i, GROUND_Y, 1, 1, "#1a1420");
+  const sw = dead ? 44 : 28, sx0 = dead ? 8 : N_CX - (sw >> 1);
+  for (let i = 0; i < sw; i += 2)                            // native stipple: half-size dots on both ground
+    p.fraw(sx0 + i, GROUND_Y * HR + ((i & 2) ? 1 : 0), 1, 1, "#1a1420"); // rows — soft without alpha
 
   paintWarrior(p, gear, ps, frame, facing);
-  return { w: FRAME_W * scale, h: FRAME_H * scale };
+  return { w: FRAME_W_N * scale, h: FRAME_H_N * scale };
 }
 
 /** The six slot layers, back to front, against an already-configured pen. Split out of drawWarrior so the
@@ -580,8 +796,8 @@ export function drawWarriorSheet(ctx, x, y, opts = {}) {
   for (let f = 0; f < ATTACK_FRAMES; f++) cells.push({ frame: f, attacking: true });
   cells.push({ frame: 0, dead: true });
   cells.forEach((c, i) =>
-    drawWarrior(ctx, x + i * FRAME_W * scale, y, { ...opts, ...c, scale }));
-  return { w: cells.length * FRAME_W * scale, h: FRAME_H * scale, cells: cells.length };
+    drawWarrior(ctx, x + i * FRAME_W_N * scale, y, { ...opts, ...c, scale }));
+  return { w: cells.length * FRAME_W_N * scale, h: FRAME_H_N * scale, cells: cells.length };
 }
 
 // ══ MONSTERS ═════════════════════════════════════════════════════════════════════════════
@@ -601,13 +817,20 @@ export function drawWarriorSheet(ctx, x, y, opts = {}) {
 //
 // Everything is anchored to one frame box shared by monsters, props, blood and fatalities, so a caller
 // converts ground coordinates to a top-left corner exactly once.
-export const MON_W = 48;
-export const MON_H = 48;
-export const MON_CX = 24;        // centre column
-export const MON_FOOT_Y = 44;    // last row the feet occupy…
-export const MON_GROUND_Y = 45;  // …and the row the contact shadow lies on
-export const PROP_W = MON_W;     // props share the box: one footX/footY conversion for the whole world layer
-export const PROP_H = MON_H;
+const MON_W = 48;         // authored box — painters below work here; the EXPORTS are native (×HR)
+const MON_H = 48;
+const MON_CX = 24;        // centre column
+const MON_FOOT_Y = 44;    // last row the feet occupy…
+const MON_GROUND_Y = 45;  // …and the row the contact shadow lies on
+const PROP_W = MON_W;     // props share the box: one footX/footY conversion for the whole world layer
+const PROP_H = MON_H;
+const MON_W_N = MON_W * HR, MON_H_N = MON_H * HR;
+const MON_CX_N = MON_CX * HR;                       // centre column of the native box
+const MON_FOOT_Y_N = MON_FOOT_Y * HR + (HR - 1);    // "last row" constants keep their last-row meaning:
+const MON_GROUND_Y_N = MON_GROUND_Y * HR + (HR - 1);// an authored row is HR native rows, feet end on 89
+export { MON_W_N as MON_W, MON_H_N as MON_H, MON_CX_N as MON_CX,
+         MON_FOOT_Y_N as MON_FOOT_Y, MON_GROUND_Y_N as MON_GROUND_Y,
+         MON_W_N as PROP_W, MON_H_N as PROP_H };
 
 // Frame convention — the renderer indexes these directly, so they are exported rather than commented.
 export const MON_IDLE_FRAMES = 3;   // 0,1,2 = idle/menace cycle (loop with frame % MON_IDLE_FRAMES)
@@ -616,7 +839,7 @@ export const MON_DEATH_FRAME = 4;   // 4     = death (collapsed heap; also force
 export const MON_FRAMES = 5;
 export const FAMILY_NAMES = ["grunt", "brute", "cannon"];
 export const MON_RANK_NAMES = ["normal", "elite", "boss"];
-export const PROP_KINDS = ["hazard", "cache", "shrine", "forge", "relic", "fork"];
+export const PROP_KINDS = ["hazard", "cache", "shrine", "forge", "relic", "fork", "gale", "idol"];
 
 // ── monster palettes ─────────────────────────────────────────────────────────────────────
 // Four bands per family, hand-authored rather than mixed at runtime so a deep monster is still LIT, not just
@@ -651,23 +874,35 @@ const bandOf = (level) => Math.max(0, Math.min(3, ((level | 0) / 5) | 0));
 // Sizes are TABLES, not a multiplier: a scaled-up grunt is a bigger grunt, but a boss has to be a different
 // drawing, and integer pixels do not survive a 1.4× anyway. Rank order is enforced by the numbers here —
 // every dimension grows normal → elite → boss, which is what makes the footprint test hold.
+// Rank dimension tables — NATIVE pixels. Sizes are tables, not multipliers: a boss is a different DRAWING.
 const GRUNT_D = [ // small and hunched: the head is nearly half of it, and the ears are half of the head
-  { bw:  8, bh:  8, hw:  8, hh:  7, leg: 5, legW: 2, ear: 4 },
-  { bw: 10, bh: 10, hw: 10, hh:  9, leg: 6, legW: 3, ear: 5 },
-  { bw: 16, bh: 13, hw: 15, hh: 13, leg: 8, legW: 5, ear: 8 },
+  { bw: 20, bh: 20, hw: 22, hh: 17, leg: 14, legW: 5, ear: 10, arm: 5 },
+  { bw: 24, bh: 24, hw: 26, hh: 20, leg: 17, legW: 6, ear: 13, arm: 6 },
+  { bw: 34, bh: 30, hw: 34, hh: 26, leg: 22, legW: 8, ear: 17, arm: 8 },
 ];
-// Kept nearly square: a body wider than it is tall reads as a QUADRUPED the moment you hang four visible
-// limbs off it. The "heavy" is carried by wide shoulders over narrow hips instead.
-const BRUTE_D = [
-  { bw: 13, bh: 15, hw:  9, hh: 6, leg:  7, legW: 5, arm: 3 },
-  { bw: 16, bh: 18, hw: 10, hh: 7, leg:  8, legW: 6, arm: 4 },
-  { bw: 23, bh: 21, hw: 13, hh: 9, leg: 10, legW: 8, arm: 5 },
+const BRUTE_D = [ // a trapezoid: shoulder width → hip width is the whole personality
+  { sw: 38, hip: 20, bh: 38, hw: 13, hh: 11, leg: 16, legW: 8, arm: 8, maul: 10 },
+  { sw: 46, hip: 24, bh: 44, hw: 15, hh: 12, leg: 18, legW: 9, arm: 9, maul: 12 },
+  { sw: 62, hip: 32, bh: 52, hw: 19, hh: 15, leg: 22, legW: 12, arm: 12, maul: 16 },
 ];
-const CANNON_D = [ // a bell of robe on two bone stilts, hood on top, light in front
-  { bw: 6, bh: 14, hw:  7, hh:  7, leg: 7, legW: 1, hem: 12 },
-  { bw: 7, bh: 17, hw:  9, hh:  8, leg: 8, legW: 2, hem: 16 },
-  { bw: 9, bh: 20, hw: 12, hh: 10, leg: 9, legW: 2, hem: 23 },
+const CANNON_D = [ // a hovering bell of robe — no legs at all; the hem floats over its own shadow
+  { bw: 14, hem: 26, robeH: 40, hw: 16, hh: 15, orb: 6 },
+  { bw: 17, hem: 32, robeH: 46, hw: 19, hh: 17, orb: 7 },
+  { bw: 22, hem: 44, robeH: 56, hw: 24, hh: 21, orb: 9 },
 ];
+
+/** a squat monster leg (native): thick bent shin + a big splayed foot, toes toward the hero (left) */
+function mLeg(p, x, top, w, C, toe) {
+  const FY = MON_FOOT_Y * HR + 1;                       // last foot row (89)
+  p.fine(x - 1, top - 1, w + 2, FY - 3 - top + 1, C.line);
+  p.fine(x, top, w, FY - 3 - top - 1, C.base);
+  p.fine(x, top, 2, FY - 3 - top - 1, C.light);
+  p.fine(x + w - 1, top, 1, FY - 3 - top - 1, C.shade);
+  p.fine(x - toe - 1, FY - 3, w + toe + 2, 4, C.line);  // foot block; the outline's bottom row is the sole
+  p.fine(x - toe, FY - 3, w + toe, 3, C.base);
+  p.fine(x - toe, FY - 3, w + toe - 2, 1, C.light);
+  p.fine(x - toe - 1, FY - 1, 2, 1, C.line);            // one claw off the toe
+}
 
 // Poses are hand-picked like the warrior's, and `lean` points FORWARD, which for a monster is −x: the whole
 // family is authored facing left, into the oncoming hero.
@@ -752,6 +987,7 @@ function legPair(p, fxx, bxx, top, w, C, toe) {
     p.px(lx - toe, gy, w + toe, 1, R.base);        // foot, toes forward (left)
     p.px(lx - toe, gy, 1, 1, R.line);
     p.px(lx - toe, gy - 1, 1, 1, R.shade);
+    if (d2()) p.px(lx - toe - 1, gy, 1, 1, R.shade); // one claw's worth of toe splay at fine scales
   };
   one(bxx, darker(C));
   one(fxx, C);
@@ -778,79 +1014,124 @@ function ring(p, x, y, w, h, col, phase = 0) {
 function eye(p, x, y, w, h, col, line) {
   p.px(x - 1, y - 1, w + 2, h + 2, line); // socket
   p.px(x, y, w, h, col);
-  p.px(x, y, 1, 1, "#ffffff");
-  p.px(x + w - 1, y + h - 1, 1, 1, line); // pupil corner: without it the eye is a lamp, not an eye
+  // The glint and the pupil are only affordable when pixels remain for the COLOUR: on a 1×1 eye they
+  // painted the whole thing back in socket colour, and on a 2×1 they split it white/black — which is how
+  // every low-rank monster used to march down the road stone blind.
+  if (w * h > 2) {
+    p.px(x, y, 1, 1, "#ffffff");
+    p.px(x + w - 1, y + h - 1, 1, 1, line); // pupil corner: without it the eye is a lamp, not an eye
+  } else if (w * h === 2) {
+    p.px(x, y, 1, 1, "#ffffff");            // glint only: one white, one hot
+  }
 }
 
 // ── family: grunt ────────────────────────────────────────────────────────────────────────
 // Small, hunched, more head than body, oversized ears and a cleaver it can barely hold. Reads as "there
 // will be twelve of these" — which is exactly what a `fam 0` pull is.
 function drawGrunt(p, R, C, ps, level) {
-  const D = GRUNT_D[R], gy = MON_FOOT_Y;
-  const legTop = gy - D.leg + 1;
-  const byTop = legTop - D.bh + ps.bob;                 // torso
-  const cx = MON_CX + 1;                                // body sits a touch behind the head
-  const hcx = cx - 2 + ps.lean;                         // head juts forward over its toes
-  const hy = byTop - D.hh + 1 + ps.bob;                 // …and sits ON TOP: this is a biped, not a beast
-  const hx = hcx - (D.hw >> 1);
+  const D = GRUNT_D[R], FY = MON_FOOT_Y * HR + 1;       // native throughout; FY = last foot row (89)
+  const cx = MON_CX * HR + 2;                           // the mass sits a touch behind centre
+  const bob = ps.bob * 2, lean = ps.lean * 2, jaw2 = ps.jaw * 2;
+  const legTop = FY - D.leg;
+  const byBot = legTop + 6;                             // the body swallows the leg roots
+  const byTop = byBot - D.bh + bob;
+  const bodyL = cx - (D.bw >> 1), bodyR = cx + (D.bw >> 1);
+  const hunch = 7;                                      // shoulders pitched over the toes
+  const hx = bodyL - (D.hw >> 1) + 4 + lean;            // the head hangs FORWARD of the chest, low
+  const hy = byTop - D.hh + 9;
 
-  legPair(p, cx - (D.bw >> 1) + 1, cx + (D.bw >> 1) - 1 - D.legW, legTop, D.legW, C.hide, 1 + R);
-  // back arm, behind the torso: a scrap of silhouette on the far side so the body is not a flat card
-  p.limb(cx + 2, byTop + 2, cx + (D.bw >> 1) + 1, byTop + D.bh - 1, 2, darker(C.hide).base);
-  torso(p, cx, byTop, D.bh, D.bw, D.bw - 2, D.bw - 1, C.hide, -1); // hunched: shoulders over the toes
-  p.px(cx - (D.bw >> 1), byTop + D.bh - 3, D.bw, 2, C.trim.base);  // rag belt
-  p.px(cx - (D.bw >> 1), byTop + D.bh - 2, D.bw, 1, C.trim.shade);
-  p.px(cx - (D.bw >> 1) + 1, byTop + D.bh - 1, 2, 2, C.trim.base); // loincloth scrap
-  // dorsal spines — the level tell. COUNT only, never length: the silhouette stays the family's.
-  const spines = Math.min(3, ((level | 0) / 6) | 0);
-  for (let i = 0; i < spines; i++) horn(p, cx + (D.bw >> 1) - 1, byTop + 2 + i * 3, 1, -1, 3, C.trim);
+  // back arm first: a scrap of far-side silhouette so the body is not a flat card
+  limbF(p, bodyR - 4, byTop + 8, bodyR + 2, byBot - 2, 5, dk(C.hide));
+  mLeg(p, bodyR - D.legW - 3, legTop, D.legW, dk(C.hide), 3 + R);   // far leg…
+  mLeg(p, bodyL + 3 + (lean >> 1), legTop, D.legW, C.hide, 3 + R);  // …near leg, planted apart
+  // the hunched bean of a body: top rows pitched forward, one blob, one outline
+  const spans = [];
+  for (let j = 0; j < D.bh; j++) {
+    const t = j / (D.bh - 1);
+    const w = D.bw - Math.round(3 * t) - Math.round(4 * (1 - t) * (1 - t)); // shoulders roll off
+    spans.push([-Math.round(hunch * (1 - t)) + ((D.bw - w) >> 1), w]);
+  }
+  blob(p, bodyL, byTop, spans, C.hide);
+  p.fine(bodyL - hunch + 3, byTop + 2, 8, 5, C.hide.light);   // light pooling on the hunched back
+  p.fine(bodyR - 7, byTop + 8, 4, D.bh - 14, C.hide.shade);   // the flank turned from the light
+  p.fine(bodyL + 1, byBot - 8, D.bw - 4, 2, C.trim.base);     // rag belt…
+  p.fine(bodyL + 1, byBot - 6, D.bw - 4, 1, C.trim.shade);
+  p.fine(bodyL + 2, byBot - 5, 5, 6, C.trim.base);            // …and the loincloth scrap under it
+  p.fine(bodyL + 2, byBot - 2, 5, 3, C.trim.shade);
+  const spines = Math.min(3, ((level | 0) / 6) | 0);          // dorsal spines — the level tell, COUNT only
+  for (let i = 0; i < spines; i++) hornF(p, bodyR - 8 - i, byTop + 2 + i * 6, 1, -1, 7, C.trim, 4);
 
-  // head: wide, low-browed, and wider than the shoulders — that top-heavy read is the family
-  torso(p, hcx, hy, D.hh, D.hw - 2, D.hw, D.hw - 3, C.hide, -1);
-  horn(p, hx, hy + 2, -1, -1, D.ear, C.hide);                      // ears flare sideways, not up: at 1x
-  horn(p, hx + D.hw - 1, hy + 2, 1, -1, D.ear - 1, C.hide);        // they are the whole grunt read
-  const ey = hy + 2 + (R > 1 ? 1 : 0);
-  p.px(hx + 1, ey - 1, 4 + R, 1, C.hide.line);                     // heavy brow
-  eye(p, hx + 2, ey, 1 + R, 1 + R, C.eye, C.hide.line);
-  p.px(hx, ey + 2, 2, 2, C.hide.light);                            // snout
-  const my = hy + D.hh - 3 + (R > 1 ? 1 : 0);                      // maw, opening with the pose
-  p.px(hx + 1, my, D.hw - 4, 1 + ps.jaw, C.hide.line);
-  for (let i = 0; i < 2 + R; i++) p.px(hx + 2 + i * 2, my, 1, 1, "#f2e6c8"); // teeth
-  if (ps.jaw) p.px(hx + 2, my + ps.jaw, D.hw - 6, 1, "#f2e6c8");             // lower row when it gapes
+  // the HEAD: nearly half the monster. Skull first, then the underbite jaw that owns the silhouette.
+  blob(p, hx, hy, [
+    [7, D.hw - 13], [4, D.hw - 8], [2, D.hw - 4], [1, D.hw - 2],
+    ...Array.from({ length: D.hh - 9 }, () => [0, D.hw]),
+    [0, D.hw - 1], [1, D.hw - 3], [2, D.hw - 6], [4, D.hw - 10], [7, D.hw - 14],
+  ], C.hide);
+  p.fine(hx + 4, hy + 2, D.hw - 12, 3, C.hide.light);         // crown catching the sky
+  p.fine(hx + D.hw - 6, hy + 5, 4, D.hh - 10, C.hide.shade);  // the back of the skull
+  if (jaw2) p.fine(hx - 2, hy + D.hh - 6, D.hw - 6, jaw2 + 2, "#160f08"); // the maw void when it gapes
+  blob(p, hx - 4, hy + D.hh - 5 + jaw2, [                     // the JAW: forward of the skull — underbite
+    [0, D.hw - 3], [0, D.hw - 4], [1, D.hw - 6], [3, D.hw - 10],
+  ], C.hide);
+  p.fine(hx - 3, hy + D.hh - 5 + jaw2, D.hw - 5, 1, C.hide.light); // lip catching light
+  for (let k = 0; k < 2 + R; k++)                             // fangs point UP out of the underbite
+    p.fine(hx - 1 + k * 5, hy + D.hh - 8 + jaw2, 2, 4, k & 1 ? "#e8dcc0" : "#f2e6c8");
+  hornF(p, hx + D.hw - 9, hy + 2, 1, -1, D.ear, C.hide, 6);   // two huge ears swept up and back:
+  hornF(p, hx + D.hw - 3, hy + 6, 1, -1, D.ear - 3, C.hide, 5); // the whole grunt read at distance
+  p.fine(hx + 2, hy + 5, 10 + R * 2, 2, C.hide.line);         // heavy brow, angry
+  p.fine(hx + 1, hy + 6, 3, 1, C.hide.line);                  // …dipping at the snout
+  eyeF(p, hx + 4, hy + 7, 4 + R, 3 + R, C.eye, C.hide.line);
+  p.fine(hx, hy + 11, 2, 2, C.hide.shade);                    // snout shadow
+  p.fine(hx + 1, hy + 12, 2, 1, C.hide.line);                 // nostril
 
-  // front arm + crude chopper. A slab on a stick, never a sword: it must not read as loot.
-  const shx = cx - (D.bw >> 1) + 1, shy = byTop + 2;
-  const hnx = shx - 2 - ps.arm, hny = byTop + 5 + (ps.arm > 2 ? 1 : 0);
-  limbOut(p, shx, shy, hnx, hny, 2, C.hide);
-  p.px(hnx - 1, hny - 1, 4, 4, C.hide.line);
-  p.px(hnx, hny, 2, 2, C.hide.light);                              // fist
-  // The chopper is a SLAB, not a stepped diagonal: at this size a 45° blade is three loose pixels, and the
-  // grunt's weapon has to be legible enough that a swing has a cause.
-  const up = ps.arm <= 2;                                          // idle rests it up, the attack chops down
-  const bl = 4 + R * 2, bt = 3 + R * 2;
-  p.px(hnx - 2, hny, 2, 2, C.trim.shade);                          // haft
-  const bxp = hnx - 2 - bl, byp = hny - (up ? bt - 1 : 0);
-  for (let j = 0; j < bt; j++) {
-    const w = bl - Math.max(0, (up ? bt - 1 - j : j) - 1);         // taper away from the cutting edge
-    p.px(bxp - 1, byp + j, w + 2, 1, C.trim.line);
-    p.px(bxp, byp + j, w, 1, C.trim.base);
-    p.px(bxp, byp + j, 1, 1, C.trim.light);
+  // front arm dragging a crude chopper — a SLAB on a haft, never loot
+  const atk = ps.arm > 2;
+  const shx = bodyL - hunch + 5, shy = byTop + 5;
+  const bl = 9 + R * 2, bh2 = 14 + R * 3;                     // cleaver blade: width / length
+  const fx = Math.max(bh2 + 6 + R * 2, hx - 4 - ps.arm * 2);
+  const fy = byBot - 10 + (atk ? 6 : 0);
+  limbF(p, shx, shy, fx + 2, fy + 2, D.arm, C.hide);
+  p.fine(fx - 1, fy - 1, 8, 8, C.hide.line);                  // the fist
+  p.fine(fx, fy, 6, 6, C.hide.base);
+  p.fine(fx, fy, 6, 1, C.hide.light);
+  // the CLEAVER, unmistakably a blade: an angled slab swept UP-FORWARD at rest (down-forward on the
+  // chop), heavier at the tip, grip visible in the fist, cutting edge lit along the leading contour
+  p.fine(fx + 2, fy + 5, 3, 5, C.trim.shade);                 // the grip coming out of the fist…
+  p.fine(fx + 2, fy + 5, 1, 5, C.trim.light);
+  p.fine(fx + 1, fy + 10, 5, 2, C.trim.line);                 // …capped by a pommel nub
+  const rootX = fx - 5;
+  const rootY = atk ? Math.min(fy + 2, MON_FOOT_Y * HR - bh2) : fy - 4;
+  const spans2 = [];
+  for (let j = 0; j < bh2; j++) {                             // j runs tip → root
+    const heavy = j < 5 ? 4 - (j >> 1) : 0;                   // the tip carries the extra steel
+    spans2.push([-Math.round((bh2 - 1 - j) * 0.8) - heavy, bl + heavy]);
+  }
+  blob(p, rootX, atk ? rootY : rootY - bh2, atk ? spans2.slice().reverse() : spans2, C.trim);
+  for (let j = 0; j < bh2; j++) {                             // the honed edge catches the light
+    const [dxx, w2] = spans2[j];
+    const yy = atk ? rootY + (bh2 - 1 - j) : rootY - bh2 + j;
+    p.fine(rootX + dxx, yy, 2, 1, C.trim.light);
+    if (j < 5) p.fine(rootX + dxx + w2 - 1, yy, 1, 1, C.trim.shade); // the tip's back edge rolls dark
+  }
+  p.fine(rootX + spans2[2][0] + 3, atk ? rootY + bh2 - 3 : rootY - bh2 + 2, 2, 2, C.trim.line); // grip hole
+  if (atk) {                                                  // the chop's after-image: it came DOWN
+    p.fine(rootX - 10, rootY - 6, 2, 6, C.trim.light);
+    p.fine(rootX - 4, rootY - 9, 2, 7, C.trim.base);
+    p.fine(rootX + 3, rootY - 6, 2, 5, C.trim.light);
   }
 
   if (R >= 1) { // elite: an iron cap and a shoulder scale — the crowd's sergeant
-    p.px(hx, hy - 2, D.hw - 2, 3, C.trim.base);
-    p.px(hx, hy - 2, D.hw - 2, 1, C.trim.light);
-    p.px(hx, hy + 1, D.hw - 2, 1, C.trim.line);
-    p.px(cx - (D.bw >> 1), byTop - 1, 5, 3, C.trim.base);
-    p.px(cx - (D.bw >> 1), byTop - 1, 5, 1, C.trim.light);
+    blob(p, hx + 3, hy - 5, [[3, D.hw - 12], [1, D.hw - 8], [0, D.hw - 6], [0, D.hw - 6]], C.trim);
+    p.fine(hx + 4, hy - 4, D.hw - 10, 1, C.trim.light);
+    blob(p, bodyL - hunch + 2, byTop - 1, [[1, 8], [0, 10], [0, 10], [1, 8]], C.trim);
   }
   if (R >= 2) { // boss: a crown of horns and a bone bib — the doubled footprint does the rest
-    horn(p, hx + 1, hy - 2, -1, -1, 4, C.trim);
-    horn(p, hcx, hy - 3, 0, -1, 5, C.trim);
-    horn(p, hx + D.hw - 2, hy - 2, 1, -1, 4, C.trim);
-    p.px(cx - (D.bw >> 1) + 1, byTop + 1, D.bw - 3, 3, C.trim.base);
-    p.px(cx - (D.bw >> 1) + 1, byTop + 1, D.bw - 3, 1, C.trim.light);
-    p.px(cx - (D.bw >> 1) + 2, byTop + 4, D.bw - 5, 1, C.trim.shade);
+    hornF(p, hx + 6, hy - 1, -1, -1, 8, C.trim, 4);
+    hornF(p, hx + (D.hw >> 1), hy - 3, 0, -1, 10, C.trim, 5);
+    hornF(p, hx + D.hw - 8, hy - 1, 1, -1, 8, C.trim, 4);
+    p.fine(bodyL - 2, byTop + 3, D.bw - 8, 6, C.trim.base);   // the bib
+    p.fine(bodyL - 2, byTop + 3, D.bw - 8, 2, C.trim.light);
+    for (let k = 0; k < 3; k++) p.fine(bodyL + k * 6, byTop + 9, 3, 3, C.trim.shade); // bone beads
   }
 }
 
@@ -858,102 +1139,131 @@ function drawGrunt(p, R, C, ps, level) {
 // A wall. Twice as wide as it is interesting, head sunk between the shoulders, one arm dragging on the floor
 // and a club the size of the grunt. Slow: the idle bob is the only thing that moves.
 function drawBrute(p, R, C, ps, level) {
-  const D = BRUTE_D[R], gy = MON_FOOT_Y;
-  const legTop = gy - D.leg + 1;
-  const byTop = legTop - D.bh + ps.bob;
-  const cx = MON_CX, bx = cx - (D.bw >> 1);
-  const hipW = D.bw - 6 - R * 2;                             // hips much narrower than the shoulders
+  const D = BRUTE_D[R], FY = MON_FOOT_Y * HR + 1;       // native throughout
+  const cx = MON_CX * HR, bob = ps.bob * 2, lean = ps.lean * 2;
   const atk = ps.arm > 2;
+  const legTop = FY - D.leg;
+  const byBot = legTop + 8;
+  const byTop = byBot - D.bh + bob;
+  const shL = cx - (D.sw >> 1), shR = cx + (D.sw >> 1); // shoulder extents — the whole personality
 
-  legPair(p, cx - (hipW >> 1), cx + (hipW >> 1) - D.legW, legTop, D.legW, C.hide, 2 + R);
+  // the maul first, behind everything: a thick shaft and one heavy head. Idle rests it OVER the far
+  // shoulder — shaft and head clear of the silhouette, unmistakably a weapon; the attack brings the head
+  // down the front in one arc.
+  const dark = dk(C.hide);
+  const bhx = atk ? shL + 2 + lean : shR + 2;           // the hand that holds it, outside the shoulder edge
+  const bhy = atk ? byTop + 14 : byTop + 6;
+  const hx2 = atk ? bhx - 14 : bhx + 10;                // where the head ends up
+  const hy2 = atk ? bhy + D.maul : bhy - D.maul - 6;
+  limbF(p, bhx + 1, bhy + 1, hx2 + 1, hy2 + (atk ? -3 : 5), 4,
+        { base: C.trim.shade, light: C.trim.base, shade: C.trim.line, line: C.trim.line });
+  const mh = 12 + (R << 1), mx0 = hx2 - (D.maul >> 1), my0 = hy2 - 5;
+  blob(p, mx0, my0, Array.from({ length: mh }, (_, j) => {     // a DRUM: rounded ends, not a crate
+    const r = Math.min(j, mh - 1 - j);
+    const ins = r === 0 ? 2 : r === 1 ? 1 : 0;
+    return [ins, D.maul - ins * 2];
+  }), C.trim);
+  p.fine(mx0 + 1, my0 + 3, 3, mh - 6, C.trim.light);           // the striking face, lit toward the road
+  p.fine(mx0 + D.maul - 4, my0 + 3, 3, mh - 6, C.trim.shade);  // the back face rolling away
+  p.fine(mx0 + 1, my0 + 2, D.maul - 2, 2, C.trim.line);        // iron binding bands…
+  p.fine(mx0 + 1, my0 + mh - 4, D.maul - 2, 2, C.trim.line);
+  p.fine(mx0 + 2, my0 + 2, 2, 1, C.trim.light);                // …with their forward rivets glinting
+  p.fine(mx0 + 2, my0 + mh - 4, 2, 1, C.trim.light);
+  p.fine(mx0 + (D.maul >> 1) - 1, my0 + (atk ? -3 : mh), 2, 3, C.trim.shade); // the strap to the shaft
+  if (atk) for (let i = 0; i < 3; i++)                  // the swing's after-image, arcing down the front
+    p.fine(hx2 + 6 + i * 4, hy2 - 10 - i * 5, 3, 2, i === 1 ? C.trim.light : C.trim.base);
+  // back arm from the far hump up to that hand, then the fist closed around the shaft
+  limbF(p, shR - 10, byTop + 4, bhx, bhy, D.arm - 1, dark);
+  p.fine(bhx - 2, bhy - 2, 8, 8, dark.line);
+  p.fine(bhx - 1, bhy - 1, 6, 6, dark.base);
+  p.fine(bhx - 1, bhy - 1, 6, 1, dark.light);
 
-  // back arm, drawn BEFORE the body so the shoulder swallows its root; the club hangs off the hand
-  const bsx = cx + (D.bw >> 1) - 3, bsy = byTop + 3;
-  const bhx = atk ? cx - (D.bw >> 1) + 2 : cx + (D.bw >> 1) + 2;
-  const bhy = atk ? byTop + 9 : byTop + 6;
-  const dark = darker(C.hide);
-  limbOut(p, bsx, bsy, bhx, bhy, D.arm, dark);
-  p.px(bhx - 1, bhy - 1, D.arm + 2, D.arm + 2, dark.line);
-  p.px(bhx, bhy, D.arm, D.arm, dark.base);
-  // A maul: a shaft and a HEAD. A tapered chain of squares running out of the hand at 45° reads as a golf
-  // club on its way out of the frame; a short shaft plus one heavy block reads as a weapon. Idle holds it
-  // upright, the attack brings it down the front.
-  const clen = (atk ? 5 : 4) + R * 2, hw2 = 4 + R;
-  const cdx = atk ? -1 : 0, cdy = atk ? 1 : -1;               // straight up at rest, 45° forward on the swing
-  for (let i = 1; i <= clen; i++) {
-    const kx = bhx + cdx * i, ky = bhy + cdy * i;
-    p.px(kx - 1, ky - 1, 4, 3, C.trim.line);
-    p.px(kx, ky, 2, 2, C.trim.base);
-    p.px(kx, ky, 1, 2, C.trim.light);
+  mLeg(p, cx - (D.hip >> 1) + 1, legTop, D.legW, dk(C.hide), 3 + R);  // pillars under the hips
+  mLeg(p, cx + (D.hip >> 1) - D.legW - 1, legTop, D.legW, C.hide, 3 + R);
+
+  // the WEDGE: shoulders → gut → narrow hips, one blob. A brute is a trapezoid; a rectangle is a crate.
+  const spans = [];
+  for (let j = 0; j < D.bh; j++) {
+    const t = j / (D.bh - 1);
+    const w = Math.round(D.sw + (D.hip - D.sw) * t * t);       // hips pull in late: the gut stays wide
+    spans.push([cx - (w >> 1) - shL + Math.round(lean * (1 - t)), w]);
   }
-  const mx = bhx + cdx * clen - ((hw2 - 2) >> 1), my2 = bhy + cdy * clen - (atk ? 0 : hw2 - 2);
-  p.px(mx - 1, my2 - 1, hw2 + 2, hw2 + 2, C.trim.line);
-  p.px(mx, my2, hw2, hw2, C.trim.base);
-  p.px(mx, my2, 1, hw2, C.trim.light);
-  p.px(mx, my2, hw2, 1, C.trim.light);
-  for (let i = 1; i < hw2; i += 2) { p.px(mx - 1, my2 + i, 1, 1, C.trim.light); p.px(mx + hw2, my2 + i, 1, 1, C.trim.light); } // nails
-
-  // the wedge: shoulders → gut → narrow hips. A brute is a triangle; a rectangle is a crate.
-  torso(p, cx, byTop, D.bh, D.bw, D.bw - 3, hipW, C.hide, ps.lean);
-  p.px(cx - (D.bw >> 1) + 4, byTop + D.bh - 7, D.bw - 11, 4, C.hide.light); // gut, catching the light
-  p.px(cx - (hipW >> 1) - 1, byTop + D.bh - 2, hipW + 2, 2, C.trim.shade);  // belt
-  p.px(cx - 1, byTop + D.bh - 2, 3, 2, C.trim.light);                       // buckle
-  // scars — the level tell, short dark ticks across the chest
-  const scars = Math.min(3, ((level | 0) / 6) | 0);
-  for (let i = 0; i < scars; i++) p.px(bx + 4 + i * 4, byTop + 3 + i, 1, 4, C.hide.line);
-
-  // head: sunk between the shoulders and shoved FORWARD, so it breaks the shoulder line on the front side
-  // only — that overhang is what says "no neck" instead of "small head on a box".
-  const hcx = cx - 2 + ps.lean, hy = byTop - D.hh + 1;
-  const hx = hcx - (D.hw >> 1);
-  // shoulder lumps on BOTH corners of the wedge: they are what the arms hang off, and they are the reason
-  // the top of the body reads as shoulders rather than as the top of a crate
-  for (const sxx of [cx - (D.bw >> 1) - 1, cx + (D.bw >> 1) - 3]) {
-    p.px(sxx - 1, byTop, 6, 6, C.hide.line);
-    p.px(sxx, byTop + 1, 4, 4, C.hide.base);
-    p.px(sxx, byTop + 1, 4, 1, C.hide.light);
+  blob(p, shL, byTop, spans, C.hide);
+  p.fine(shL + 4 + lean, byTop + 2, (D.sw >> 1) - 4, 4, C.hide.light);   // light across the near shoulder
+  p.fine(cx + (D.sw >> 2), byTop + 6, (D.sw >> 2) - 2, D.bh - 18, C.hide.shade); // far flank in shadow
+  p.fine(cx - 1 + lean, byTop + 4, 2, 10, C.hide.shade);       // sternum crease
+  p.fine(shL + 6 + lean, byTop + 9, (D.sw >> 1) - 8, 2, C.hide.shade);   // the underside of each pec:
+  p.fine(cx + 3 + lean, byTop + 9, (D.sw >> 1) - 10, 2, C.hide.shade);   // two shadows make a chest
+  p.fine(cx - (D.hip >> 1) + 2, byBot - 12, D.hip - 6, 5, C.hide.light); // the gut, catching the light
+  p.fine(cx - (D.hip >> 1) - 1, byBot - 6, D.hip + 2, 4, C.trim.shade);  // belt
+  p.fine(cx - (D.hip >> 1) - 1, byBot - 6, D.hip + 2, 1, C.trim.line);
+  p.fine(cx - 2, byBot - 6, 5, 4, C.trim.light);               // buckle
+  p.fine(cx - 1, byBot - 5, 2, 2, C.trim.shade);
+  const scars = Math.min(3, ((level | 0) / 6) | 0);            // scars — the level tell
+  for (let i = 0; i < scars; i++) {
+    p.fine(shL + 8 + i * 7 + lean, byTop + 12 + i * 2, 2, 7, C.hide.line);
+    p.fine(shL + 6 + i * 7 + lean, byTop + 15 + i * 2, 6, 2, C.hide.line);
   }
-  torso(p, hcx, hy, D.hh, D.hw - 2, D.hw, D.hw - 1, C.hide, -1);
-  p.px(hx, hy + D.hh, D.hw, 1, C.hide.line);                  // neck shadow: without it the head is just
-  p.px(hx + 1, hy, D.hw - 2, 1, C.hide.light);                // more shoulder. Skull lit on top for the same reason.
-  p.px(hx, hy + 2, D.hw, 1, C.hide.line);                     // brow ridge over both eyes
-  eye(p, hx + 1, hy + 3, 1 + (R > 1 ? 1 : 0), 1, C.eye, C.hide.line);
-  eye(p, hx + 4 + R, hy + 3, 1 + (R > 1 ? 1 : 0), 1, C.eye, C.hide.line);
-  // The jaw JUTS: a slab pushed out past the brow with the tusks coming up out of it. A brute whose mouth
-  // is one dark line under two eyes reads as a helmet with a visor, not as a face.
-  const my = hy + D.hh - 2;
-  p.px(hx - 2, my - 1, D.hw - 1, 4 + ps.jaw, C.hide.line);
-  p.px(hx - 1, my, D.hw - 3, 2 + ps.jaw, C.hide.base);
-  p.px(hx - 1, my, D.hw - 3, 1, C.hide.shade);
-  horn(p, hx, my - 1, 0, -1, 3 + R, C.trim);                  // tusks, pointing UP out of the lower jaw
-  horn(p, hx + D.hw - 5, my - 1, 0, -1, 3 + R, C.trim);
 
-  // front arm: OUTSIDE the silhouette on the front edge, hanging past the knee in idle — a brute's arms are
-  // half the reason it is frightening and they were invisible while they ran down the inside of the body
-  const fsx = cx - (D.bw >> 1) - 1, fsy = byTop + 2;
-  const elx = fsx - 2, ely = byTop + ((D.bh * 2) / 3) | 0;    // an ELBOW: a straight column of arm beside a
-  const fhx = cx - (D.bw >> 1) - 3 - ps.arm;                  // straight column of leg reads as four legs,
-  const fhy = atk ? byTop + 1 : legTop - 1;                   // which is how this thing first came out
-  limbOut(p, fsx, fsy, elx, ely, D.arm, C.hide);
-  limbOut(p, elx, ely, fhx, fhy, D.arm - 1, C.hide);
-  p.px(fhx - 1, fhy - 1, D.arm + 3, D.arm + 3, C.hide.line);  // fist, stopping clear of the ground
-  p.px(fhx, fhy, D.arm + 1, D.arm + 1, C.hide.base);
-  p.px(fhx, fhy, 1, D.arm + 1, C.hide.light);
-
-  if (R >= 1) { // elite: a riveted shoulder plate, the first thing you see over the hero's head
-    p.px(cx + 1, byTop - 2, 9, 4, C.trim.base);
-    p.px(cx + 1, byTop - 2, 9, 1, C.trim.light);
-    p.px(cx + 1, byTop + 2, 9, 1, C.trim.line);
-    p.px(cx + 3, byTop - 1, 1, 1, C.trim.light);
-    p.px(cx + 7, byTop - 1, 1, 1, C.trim.light);
+  // shoulder HUMPS on both corners — they are what the arms hang off, and they are why the top of the
+  // body reads as shoulders rather than as the top of a crate
+  const humpW = (D.sw >> 1) - 4;
+  for (const [sx0, ramp] of [[shR - humpW + 4, dark], [shL - 4 + lean, C.hide]]) {
+    blob(p, sx0, byTop - 6, [
+      [4, humpW - 8], [2, humpW - 4], [1, humpW - 2], [0, humpW], [0, humpW], [0, humpW],
+    ], ramp);
+    p.fine(sx0 + 3, byTop - 5, humpW - 8, 2, ramp.light);
   }
-  if (R >= 2) { // boss: horns off the skull, a chest plate and a chain across the gut
-    horn(p, hx, hy, -1, -1, 5, C.trim);
-    horn(p, hx + D.hw - 1, hy, 1, -1, 5, C.trim);
-    p.px(bx + 5, byTop + 2, D.bw - 11, 6, C.trim.base);
-    p.px(bx + 5, byTop + 2, D.bw - 11, 1, C.trim.light);
-    p.px(bx + 5, byTop + 8, D.bw - 11, 1, C.trim.line);
-    for (let i = 0; i < D.bw - 12; i += 2) p.px(bx + 6 + i, byTop + 10 + (i & 2 ? 1 : 0), 1, 1, C.trim.light);
+
+  // the head: TINY, sunk low between the humps, all brow and jaw
+  const hx = cx - (D.hw >> 1) - 4 + lean, hy = byTop - (D.hh >> 1) - 1;
+  blob(p, hx, hy, [
+    [2, D.hw - 4], [1, D.hw - 2],
+    ...Array.from({ length: D.hh - 4 }, () => [0, D.hw]),
+    [0, D.hw - 1], [1, D.hw - 3],
+  ], C.hide);
+  p.fine(hx + 1, hy + 1, D.hw - 3, 2, C.hide.light);           // skull lit on top
+  p.fine(hx - 1, hy + 3, D.hw, 2, C.hide.line);                // one heavy brow across both eyes
+  eyeF(p, hx + 2, hy + 5, 3 + (R >> 1), 2, C.eye, C.hide.line);
+  eyeF(p, hx + D.hw - 6 - (R >> 1), hy + 5, 3 + (R >> 1), 2, C.eye, C.hide.line);
+  const my = hy + D.hh - 3 + (ps.jaw ? 2 : 0);                 // the jaw JUTS past the brow
+  blob(p, hx - 3, my, [[0, D.hw + 2], [0, D.hw + 1], [1, D.hw - 2]], C.hide);
+  p.fine(hx - 2, my, D.hw, 1, C.hide.light);                   // the jut's lit lip
+  for (let k = 0; k < 3; k++) p.fine(hx + 1 + k * 4, my + 1, 2, 2, "#f2e6c8"); // teeth hang INTO the jaw,
+                                                               // a full row below the eyes
+  hornF(p, hx - 2, my - 1, 0, -1, 7 + R, C.trim, 4);           // tusks UP out of the lower jaw,
+  hornF(p, hx + D.hw - 2, my - 1, 0, -1, 7 + R, C.trim, 4);    // outside the eye columns
+
+  // front arm: a gorilla arm OUTSIDE the silhouette, knuckles ON the ground in idle
+  const fsx = shL + 2 + lean, fsy = byTop + 2;
+  const elx = shL - 8 + lean, ely = byTop + (D.bh >> 1);
+  const fhx = shL - 12 + lean - (atk ? ps.arm : 0);
+  const fhy = atk ? byTop + 10 : FY - D.arm - 2;       // idle: the knuckles rest ON the foot row, never
+                                                       // through it — the fist bottom lands at FY-1
+  limbF(p, fsx, fsy, elx, ely, D.arm, C.hide);
+  limbF(p, elx, ely, fhx + 3, fhy + 3, D.arm - 1, C.hide);
+  p.fine(elx + 2, ely + 1, 2, 2, C.hide.shade);                // the crook of the elbow: a JOINT, not a kink
+  p.fine(fhx - 1, fhy - 1, D.arm + 4, D.arm + 3, C.hide.line); // the FIST — nearly a second head
+  p.fine(fhx, fhy, D.arm + 2, D.arm + 1, C.hide.base);
+  p.fine(fhx, fhy, 2, D.arm + 1, C.hide.light);
+  for (let i = 2; i <= D.arm; i += 3)                          // knuckles along the top
+    p.fine(fhx + i, fhy + 1, 1, 2, C.hide.shade);
+  if (d2()) p.fine(fhx + 1, fhy + D.arm + 1, 3, 1, C.hide.shade); // the thumb folded under, fine scales
+
+  if (R >= 1) { // elite: a riveted plate bolted over the far hump
+    blob(p, shR - humpW + 2, byTop - 9, [[2, humpW - 4], [1, humpW - 2], [0, humpW], [0, humpW], [0, humpW]], C.trim);
+    p.fine(shR - humpW + 4, byTop - 8, humpW - 6, 1, C.trim.light);
+    p.fine(shR - humpW + 5, byTop - 6, 2, 2, C.trim.light);    // rivets
+    p.fine(shR - 7, byTop - 6, 2, 2, C.trim.light);
+  }
+  if (R >= 2) { // boss: horns off the skull, a chest plate, a chain across the gut
+    hornF(p, hx - 1, hy + 1, -1, -1, 9, C.trim, 5);
+    hornF(p, hx + D.hw, hy + 1, 1, -1, 9, C.trim, 5);
+    blob(p, cx - (D.sw >> 2) + lean, byTop + 6, Array.from({ length: 10 }, (_, j) =>
+      [j >> 3, (D.sw >> 1) - (j >> 3) * 2]), C.trim);
+    p.fine(cx - (D.sw >> 2) + 1 + lean, byTop + 7, (D.sw >> 1) - 2, 2, C.trim.light);
+    for (let i = 0; i < (D.hip >> 2); i++)                     // the chain, link by link
+      p.fine(cx - (D.hip >> 1) + 2 + i * 4, byBot - 11 + ((i & 1) << 1), 3, 3, i & 1 ? C.trim.light : C.trim.base);
   }
 }
 
@@ -961,119 +1271,163 @@ function drawBrute(p, R, C, ps, level) {
 // Stilts, a robe and a light source. Nothing about it says "hit me and I survive" — which is the point: it
 // pays the most renown and dies to one good swing.
 function drawCannon(p, R, C, ps, level, frame) {
-  const D = CANNON_D[R], gy = MON_FOOT_Y;
-  const legTop = gy - D.leg + 1;
-  const byTop = legTop - D.bh + ps.bob;
-  const cx = MON_CX;
-  const sway = SWAY[frame % SWAY.length];
+  const D = CANNON_D[R], FY = MON_FOOT_Y * HR + 1;      // native throughout
+  const cx = MON_CX * HR + 2, lean = ps.lean * 2;
+  const hover = [0, -2, 1, -1][frame % 4];              // it does not stand — it DRIFTS
   const atk = ps.arm > 2;
+  const hemBot = FY - 8 + hover;                        // the hem floats WELL clear of its own shadow
+  const robeTop = hemBot - D.robeH;
 
-  legPair(p, cx - 2, cx + 2 - D.legW, legTop, D.legW, C.trim, 1); // bone stilts, under the hem
-
-  // staff, planted on the back side — vertical, so it reads against every horizon
-  const stx = cx + (D.hem >> 1) - 1, sty = byTop - 5 - R * 2;
-  p.px(stx, sty, 1, gy - sty, C.trim.line);
-  p.px(stx, sty, 1, gy - sty - 1, C.trim.base);
-  p.px(stx - 1, sty - 3, 3, 4, C.hide.line);
-  p.px(stx - 1, sty - 2, 3, 2, C.glow);
-  p.px(stx, sty - 4, 1, 1, C.glow);
-
-  // The robe IS the body: one bell from the shoulders to a hem past the knees. Drawn as a single tapered
-  // mass rather than a torso plus a skirt, because two shapes at this size read as a seam, not a robe.
-  const robeH = legTop - byTop + 3;
-  torso(p, cx - (sway >> 1), byTop, robeH, D.bw, D.bw + 2 + R, D.hem, C.hide, ps.lean);
-  for (let i = 0; i < D.hem; i += 2)                                  // ragged hem
-    p.px(cx - (D.hem >> 1) + i, byTop + robeH - 1, 1, 2, C.hide.line);
-  p.px(cx - (D.bw >> 1) - 1, byTop + 4, D.bw + 2, 1, C.hide.shade);   // a fold across the chest
-  // runes down the robe — the level tell, and the only pure light on the body
-  const runes = Math.min(3, ((level | 0) / 5) | 0);
-  for (let i = 0; i < runes; i++) p.px(cx - 1 + (i & 1), byTop + 6 + i * 4, 2, 1, C.glow);
-
-  // hood: a mass with a black void where a face should be, and two coals in it
-  const hcx = cx - 1 + ps.lean, hy = byTop - D.hh + 2;
-  const hx = hcx - (D.hw >> 1);
-  torso(p, hcx, hy, D.hh, D.hw - 3, D.hw, D.hw - 2, C.hide, -1);
-  horn(p, hx, hy + 1, -1, -1, 3 + R, C.hide);                  // hood peaks: one forward…
-  horn(p, hx + D.hw - 1, hy + 2, 1, -1, 4 + R * 2, C.hide);    // …one swept back, longer
-  const vw = D.hw - 4, vh = D.hh - 4;
-  p.px(hx + 1, hy + 2, vw, vh, "#0b0a12");                     // the void
-  eye(p, hx + 2, hy + 3, 1 + (R > 1 ? 1 : 0), 1 + (R > 1 ? 1 : 0), C.eye, "#0b0a12");
-  eye(p, hx + 4 + R, hy + 3, 1 + (R > 1 ? 1 : 0), 1 + (R > 1 ? 1 : 0), C.eye, "#0b0a12");
-  if (ps.jaw) p.px(hx + 2, hy + 2 + vh, vw - 2, 1, C.glow);    // it lights up before it speaks
-
-  // casting arm + orb(s), held out FORWARD and clear of the hood — a floating light where a weapon should
-  // be is the family read at distance, and it is worthless if it overlaps the face.
-  const orbN = R + 1, pulse = [0, 1, 0, 2][frame % 4];
-  const ahx = cx - (D.bw >> 1) - 3 - ps.arm, ahy = byTop + 3;
-  limbOut(p, cx - (D.bw >> 1), byTop + 3, ahx, ahy, 1, C.trim);
-  p.px(ahx - 1, ahy - 1, 3, 3, C.hide.line);
-  p.px(ahx, ahy, 2, 2, C.trim.light);                          // skeletal hand
-  for (let k = 0; k < orbN; k++) {
-    const ang = (frame + k * 2) % 4;                           // fixed 4-step orbit: no trig, no clock
-    const ox = ahx - 4 - [0, 1, 2, 1][ang] - k;      // stacked upward rather than fanned forward, or the
-    const oy = ahy - 3 + [-1, 0, 1, 0][ang] - k * 4; // boss's third orb flares off the front of the cell
-    const rr = 2 + R + pulse;
-    for (let d = 2; d < 4 + (frame & 1); d++) { // flare: four spokes. A dithered box around the orb reads as
-      p.px(ox + (rr >> 1), oy - d, 1, 1, C.glow); // a UI panel behind the sprite; spokes read as light.
-      p.px(ox + (rr >> 1), oy + rr - 1 + d, 1, 1, C.glow);
-      p.px(ox - d, oy + (rr >> 1), 1, 1, C.glow);
-      p.px(ox + rr - 1 + d, oy + (rr >> 1), 1, 1, C.glow);
-    }
-    p.px(ox - 1, oy - 1, rr + 2, rr + 2, "#0b0a12");
-    p.px(ox, oy, rr, rr, C.glow);
-    p.px(ox, oy, 1, 1, "#ffffff");
+  // the robe IS the body: one bell, no legs anywhere under it
+  const spans = [];
+  for (let j = 0; j < D.robeH; j++) {
+    const t = j / (D.robeH - 1);
+    const w = Math.round(D.bw + (D.hem - D.bw) * (0.35 * t + 0.65 * t * t));
+    spans.push([-(w >> 1) + Math.round(lean * (1 - t)), w]);
   }
-  if (atk) { // the bolt: the orb has left the hand and is on its way to the hero
-    for (let i = 0; i < 6; i++) p.px(ahx - 7 - i, ahy - 1 + (i >> 2), 2, 1, i & 1 ? C.glow : C.eye);
-    ring(p, ahx - 12, ahy - 3, 6, 6, C.glow, 1);
+  blob(p, cx, robeTop, spans, C.hide);
+  for (let i = 0; i < 5; i++)                           // the hem hangs in TATTERS, points drifting
+    hornF(p, cx - (D.hem >> 1) + 3 + i * ((D.hem - 6) >> 2), hemBot + ((i + frame) % 3 === 0 ? 3 : 1), 0, 1, 4 + ((i * 5) % 3), C.hide, 4);
+  p.fine(cx - (D.bw >> 1) + lean, robeTop + 3, D.bw - 2, 4, C.hide.light);  // lit yoke at the shoulders
+  p.fine(cx - 4 + lean, robeTop + 8, 2, D.robeH - 14, C.hide.shade);        // two long falls of cloth…
+  p.fine(cx + 3 + lean, robeTop + 10, 2, D.robeH - 18, C.hide.shade);       // …make the bell DRAPE
+  p.fine(cx + (D.hem >> 2), robeTop + (D.robeH >> 1), (D.hem >> 2), D.robeH >> 2, C.hide.shade); // far side
+  p.fine(cx - (D.hem >> 1) + 2, hemBot - 3, D.hem - 4, 2, C.hide.shade);    // gathering above the hem
+  const runes = Math.min(3, ((level | 0) / 5) | 0);     // runes down the robe — the level tell, and the
+  for (let i = 0; i < runes; i++) {                     // only pure light on the cloth
+    const ry = robeTop + 10 + i * 8, rx = cx - 2 + ((i & 1) << 1);
+    p.fine(rx, ry, 4, 2, C.glow);
+    p.fine(rx + 1, ry - 2, 2, 2, C.glow);
+    p.fine(rx + (i & 1 ? 0 : 2), ry + 2, 2, 2, C.glow);
   }
-  if (R >= 1) { // elite: a thin crown of spines around the hood
-    for (let i = 0; i < 3; i++) horn(p, hx + 2 + i * ((D.hw - 3) >> 1), hy - 1, 0, -1, 3, C.trim);
+
+  // the hood: a cowl with a BLACK VOID where the face should be, and two coals hanging in it
+  const hx = cx - (D.hw >> 1) - 1 + lean, hy = robeTop - D.hh + 7;
+  blob(p, hx, hy, [
+    [5, D.hw - 9], [3, D.hw - 6], [2, D.hw - 4], [1, D.hw - 2],
+    ...Array.from({ length: D.hh - 6 }, () => [0, D.hw]),
+    [0, D.hw], [1, D.hw],
+  ], C.hide);
+  hornF(p, hx + D.hw - 5, hy - 1, 1, -1, 7 + R * 2, C.hide, 5);   // the peak, swept back off the crown
+  p.fine(hx + 2, hy + 1, 6, 3, C.hide.light);                     // moonlight on the cowl
+  const vw = D.hw - 7, vh = D.hh - 8;
+  p.fine(hx + 2, hy + 5, vw, vh, "#0b0a12");                      // the void
+  p.fine(hx + 2, hy + 4, vw, 1, C.hide.shade);                    // the brim overhanging it: the darkness
+                                                                  // is INSIDE something
+  const ew = 4 + (R >> 1);                                        // two BURNING coals, no face
+  for (const ex of [hx + 3, hx + 5 + ew]) {
+    p.fine(ex - 1, hy + 7, ew + 2, 4, "#0b0a12");                 // re-cut the socket…
+    p.fine(ex, hy + 8, ew, 3, C.eye);                             // …so the glow floats in it
+    p.fine(ex + 1, hy + 7, ew - 2, 1, C.eye);                     // flame licking upward
+    p.fine(ex, hy + 8, 2, 1, "#ffffff");
   }
-  if (R >= 2) { // boss: three runes hanging in the air beside it — it is holding the road hostage
-    for (let i = 0; i < 3; i++) {
-      const rx = cx + (D.hem >> 1) + 3, ry = byTop - 2 + i * 7 + ((frame + i) & 1);
-      p.px(rx, ry, 3, 1, C.glow);
-      p.px(rx + 1, ry - 1, 1, 3, C.glow);
-      ring(p, rx - 1, ry - 2, 5, 5, C.glow, i & 1);
-    }
+  if (ps.jaw) p.fine(hx + 3, hy + 5 + vh - 2, vw - 2, 1, C.glow); // it lights up before it speaks
+
+  // the staff: planted DOWN the front, orb burning at the top — the family read at any distance
+  // (the boss's orb is clamped down off the frame edge so its spokes never clip)
+  const stx = cx - (D.hem >> 1) - 4, orbY = Math.max(D.orb + 12, hy - 4 - (D.orb >> 1));
+  p.fine(stx - 1, orbY + 4, 4, hemBot - orbY + 2, C.trim.line);
+  p.fine(stx, orbY + 4, 2, hemBot - orbY, C.trim.base);
+  p.fine(stx, orbY + 4, 1, hemBot - orbY, C.trim.light);
+  p.fine(stx - 2, orbY + 8, 6, 2, C.trim.shade);                  // a binding ring below the crook
+  // the casting arm: a thin sleeve out to the staff, ending in a skeletal claw around it
+  limbF(p, cx - (D.bw >> 1) + 2 + lean, robeTop + 6, stx + 4, robeTop + 10, 4, C.hide);
+  p.fine(stx - 1, robeTop + 9, 6, 4, C.trim.light);               // the claw
+  p.fine(stx, robeTop + 10, 1, 2, C.trim.shade);                  // gaps between bones
+  p.fine(stx + 3, robeTop + 10, 1, 2, C.trim.shade);
+  // the ORB: the family's signature, so it gets real geometry — circle spans inside a dark halo, a
+  // white-hot heart high on the sphere, and a crescent of the eye-colour cooling the lower rim
+  const pulse = [0, 1, 0, 2][frame % 4], rr = D.orb + 2 + pulse;            // diameter
+  const ox0 = stx - (rr >> 1), oy0 = orbY - (rr >> 1);
+  p.fine(ox0 - 1, oy0 + (rr >> 1), 2, (rr >> 1) + 2, C.trim.base);          // the crook's two prongs
+  p.fine(ox0 + rr - 1, oy0 + (rr >> 1), 2, (rr >> 1) + 2, C.trim.base);
+  const orbSpans = [];
+  for (let j = 0; j < rr; j++) {
+    const dyy = j + 0.5 - rr / 2;
+    const half = Math.sqrt(Math.max(0, (rr / 2) * (rr / 2) - dyy * dyy));
+    const w2 = Math.max(2, Math.round(half * 2));
+    orbSpans.push([Math.round((rr - w2) / 2), w2]);
+  }
+  blob(p, ox0, oy0, orbSpans, { base: C.glow, line: "#0b0a12", light: C.glow, shade: C.glow });
+  for (let j = (rr >> 1) + 1; j < rr - 1; j++) {                            // the crescent
+    const [dxx, w2] = orbSpans[j];
+    p.fine(ox0 + dxx + 1, oy0 + j, w2 - 2, 1, C.eye);
+  }
+  p.fine(ox0 + (rr >> 2), oy0 + (rr >> 2), 3, 2, "#ffffff");                // the white-hot heart
+  p.fine(ox0 + (rr >> 2) + 1, oy0 + (rr >> 2) - 1, 1, 1, "#ffffff");
+  for (let d = 3; d < 6 + (frame & 1); d++) {                     // four spokes of light off it
+    p.fine(stx, orbY - (rr >> 1) - d, 1, 1, C.glow);
+    p.fine(stx, orbY + (rr >> 1) + d, 1, 1, C.glow);
+    p.fine(stx - (rr >> 1) - d, orbY, 1, 1, C.glow);
+    p.fine(stx + (rr >> 1) + d, orbY, 1, 1, C.glow);
+  }
+  if (atk) { // the BOLT: fire has left the orb and is on its way to the hero
+    for (let i = 0; i < 12; i += 2) p.fine(stx - 8 - i, orbY + 6 + (i >> 2), 3, 2, i & 2 ? C.glow : C.eye);
+    p.fine(stx - 22, orbY + 8, 4, 4, C.eye);
+    p.fine(stx - 21, orbY + 9, 2, 2, "#ffffff");
+    p.fine(stx - 14, orbY + 3, 2, 2, C.glow);                     // sparks shed in the wake
+    p.fine(stx - 12, orbY + 13, 2, 2, C.glow);
+  }
+  if (R >= 1) for (let i = 0; i < 3; i++)                         // elite: a crown of spines on the cowl
+    hornF(p, hx + 4 + i * ((D.hw - 8) >> 1), hy + 1 - (i === 1 ? 2 : 0), 0, -1, 5, C.trim, 3);
+  if (R >= 2) for (let i = 0; i < 3; i++) {                       // boss: runes hanging in the air beside
+    const rx = cx + (D.hem >> 1) + 6, ry = robeTop + 4 + i * 14 + ((frame + i) & 1) * 2; // it — the road
+    p.fine(rx, ry, 6, 2, C.glow);                                 // itself is hostage
+    p.fine(rx + 2, ry - 2, 2, 6, C.glow);
+    p.fine(rx - 2, ry + (i & 1 ? -1 : 3), 2, 2, C.glow);
   }
 }
 
 // ── death ────────────────────────────────────────────────────────────────────────────────
 // A monster corpse is authored, not the standing pose knocked over: the point of frame 4 is that the road
 // behind you is LITTERED, so it has to read as a heap in one glance. Sized by rank like everything else.
-const CORPSE_D = [ // [family][rank] = [body w, body h]; the head is laid end-to-end with it
-  [[11, 5], [14, 6], [19, 9]],
-  [[17, 7], [20, 8], [24, 11]],
-  [[13, 5], [16, 6], [21, 9]],
+const CORPSE_D = [ // [family][rank] = [body w, body h] — NATIVE px; the head is laid end-to-end with it
+  [[24, 12], [30, 14], [40, 20]],
+  [[36, 16], [42, 18], [52, 24]],
+  [[28, 12], [34, 14], [44, 20]],
 ];
 function drawCorpse(p, fam, R, C, level, frame) {
-  const [w, h] = CORPSE_D[fam][R];
-  const hw = Math.max(5, (w >> 2) + 3);                          // the head, and it needs to be BIG enough
-  const left = MON_CX - ((hw + w) >> 1);                         // head + body laid end to end, centred
-  const x = left + hw, y = MON_FOOT_Y - h + 1;                   // x = where the body starts
-  // the ribcage/back of the body, tapering away from the shoulders
-  torso(p, x + (w >> 1), y, h, w - 2, w, w - 4, C.hide, 0);
-  p.dither(x + 1, y, w - 2, 2, C.hide.shade, 1);                 // the top of the heap, going cold
-  // splayed limbs: one thrown forward, one folded back — the asymmetry is the only thing stopping a corpse
-  // from reading as a rock
-  limbOut(p, x + 2, y + 1, left - 1, MON_FOOT_Y, 2, darker(C.hide));
-  p.px(left - 3, MON_FOOT_Y - 1, 3, 2, C.hide.shade);            // the hand it died reaching with
-  limbOut(p, x + w - 4, y + 2, x + w + 2, MON_FOOT_Y - 4, 2, darker(C.hide));
-  p.px(x + w + 1, MON_FOOT_Y - 6, 2, 3, C.hide.shade);
-  // head, off the body, tipped over, eye out. It is drawn CLEAR of the mass with its own outline: a head
-  // touching the body at this size is just more body.
-  const hy = MON_FOOT_Y - hw + 1;
-  torso(p, left + (hw >> 1), hy, hw, hw - 2, hw, hw - 3, C.hide, 0);
-  p.px(left + (hw >> 1) - 2, hy + 2, 2, 1, C.hide.line);         // ✕ where the eye was
-  p.px(left + (hw >> 1) - 1, hy + 1, 1, 3, C.hide.line);
-  p.px(left + 1, hy + hw - 2, hw - 3, 1, "#f2e6c8");             // teeth, lolling open
-  if (fam === 0) horn(p, left, hy + 1, -1, -1, 4, C.hide);                  // grunt keeps its ears
-  if (fam === 1) { horn(p, left, hy, -1, -1, 5, C.trim); horn(p, left + hw - 1, hy, 1, -1, 4, C.trim); }
-  if (fam === 2) { // the cannon's staff, fallen across it, still lit — the loot is still on the road
-    for (let i = 0; i < 12; i++) p.px(x - 1 + i, MON_FOOT_Y - 5 + (i >> 2), 1, 1, C.trim.base);
-    p.px(x - 3, MON_FOOT_Y - 5, 2, 2, C.glow);
+  const [w, h] = CORPSE_D[fam][R];                     // native heap size
+  const FY = MON_FOOT_Y * HR + 1;
+  const hw = Math.max(12, (w >> 2) + 8);               // the head, big enough to read on its own
+  const left = MON_CX * HR - ((hw + w) >> 1) - 2;      // head + body laid end to end, centred
+  const x = left + hw + 2, y = FY - h;                 // x = where the body starts
+  // the heap: a slumped mass, high at the shoulders, pressed wide and flat at the ground
+  blob(p, x, y, Array.from({ length: h }, (_, j) => {
+    const t = j / (h - 1);
+    const wj = Math.round(w * (0.5 + 0.5 * t));
+    return [Math.round((w - wj) * 0.3), wj];
+  }), C.hide);
+  p.fine(x + 3, y + 1, (w >> 1), 2, C.hide.light);     // rim light along the top of the heap
+  p.fine(x + (w >> 2), y + h - 3, (w >> 1), 2, C.hide.shade); // dead weight pressed into the road
+  for (let i = 0; i < ((w / 12) | 0); i++)             // slump creases: the mass SETTLED and folded —
+    p.fine(x + 6 + i * 10, y + 2, 2, h - 5, C.hide.shade); // it did not just tip over rigid
+  limbF(p, x + 4, y + 3, left - 2, FY - 3, 4, dk(C.hide));      // the arm it died reaching with…
+  p.fine(left - 4, FY - 5, 5, 4, C.hide.shade);                 // …and the open hand on the end of it
+  limbF(p, x + w - 6, y + 4, x + w + 5, FY - 8, 4, dk(C.hide)); // a leg folded out the back
+  // the head, tipped over CLEAR of the mass with its own outline — touching, it is just more body
+  const hy = FY - hw + 2;
+  blob(p, left, hy, Array.from({ length: hw - 2 }, (_, j) => {
+    const r = Math.min(j, hw - 3 - j);
+    const ins = r === 0 ? 3 : r === 1 ? 2 : r === 2 ? 1 : 0;
+    return [ins, hw - ins * 2];
+  }), C.hide);
+  p.fine(left + 2, hy + 1, hw - 6, 2, C.hide.light);
+  const ex = left + (hw >> 1) - 3, ey = hy + (hw >> 1) - 4;     // a true ✕ over the near eye, native-sized
+  for (let i = 0; i < 5; i++) {
+    p.fine(ex + i, ey + i, 2, 2, C.hide.line);
+    p.fine(ex + 4 - i, ey + i, 2, 2, C.hide.line);
+  }
+  p.fine(left + 2, FY - 6, hw - 6, 2, "#f2e6c8");               // teeth, lolling open…
+  for (let k = 0; k < hw - 8; k += 3) p.fine(left + 3 + k, FY - 5, 1, 1, C.hide.shade); // …one by one
+  p.fine(left + 3, FY - 4, 4, 2, GORE.base);                    // the tongue is out over the jaw
+  if (fam === 0) { hornF(p, left + 2, hy + 2, -1, -1, 9, C.hide, 4); hornF(p, left + hw - 4, hy, 1, -1, 7, C.hide, 4); } // ears
+  if (fam === 1) { hornF(p, left + 1, hy + 3, 0, -1, 8, C.trim, 4); hornF(p, left + hw - 3, hy + 3, 0, -1, 8, C.trim, 4); } // tusks
+  if (fam === 2) { // the cannon's staff, fallen across the heap, the orb guttering out
+    p.fine(x - 4, FY - 10, w + 6, 2, C.trim.base);
+    p.fine(x - 4, FY - 10, w + 6, 1, C.trim.light);
+    p.fine(x - 8, FY - 12, 5, 5, "#0b0a12");
+    p.fine(x - 7, FY - 11, 3, 3, C.glow);
   }
   drawBloodInto(p, "pool", { frame: 3 + (frame & 1), amount: 3 + R * 4, seed: fam * 7 + R, cy: MON_GROUND_Y });
   drawBloodInto(p, "splatter", { amount: 2 + R * 3, seed: fam * 13 + R });
@@ -1100,6 +1454,7 @@ function drawCorpse(p, fam, R, C, level, frame) {
  * Returns { w, h } in device pixels, like drawWarrior.
  */
 export function drawMonster(ctx, x, y, opts = {}) {
+  DETAIL = opts.detail === 2 ? 2 : 1;
   const fam = Math.max(0, Math.min(2, opts.family | 0));
   const R = Math.max(0, Math.min(2, opts.rank | 0));
   const level = Math.max(0, opts.level | 0);
@@ -1116,8 +1471,9 @@ export function drawMonster(ctx, x, y, opts = {}) {
   const p = pen(ctx, x, y, scale, facing === 1 ? -1 : 1, false, recolor, MON_W, MON_H);
 
   // contact shadow, dithered like the warrior's; wider for a boss, wider still for a heap
-  const sw = dead ? 22 + R * 6 : [13, 17, 27][R] + (fam === 1 ? 6 : 0);
-  for (let i = 0; i < sw; i++) if ((i & 1) === 0) p.raw(MON_CX - (sw >> 1) + i, MON_GROUND_Y, 1, 1, "#1a1420");
+  const sw = (dead ? 25 + R * 7 : [15, 19, 28][R] + (fam === 1 ? 8 : 0)) * HR;
+  for (let i = 0; i < sw; i += 2)
+    p.fraw(MON_CX * HR - (sw >> 1) + i, MON_GROUND_Y * HR + ((i & 2) ? 1 : 0), 1, 1, "#1a1420");
 
   if (dead) drawCorpse(p, fam, R, C, level, opts.frame | 0);
   else {
@@ -1126,14 +1482,14 @@ export function drawMonster(ctx, x, y, opts = {}) {
     else if (fam === 1) drawBrute(p, R, C, ps, level);
     else drawCannon(p, R, C, ps, level, frame);
   }
-  return { w: MON_W * scale, h: MON_H * scale };
+  return { w: MON_W_N * scale, h: MON_H_N * scale };
 }
 
 /** The whole monster strip in one call — 3 idle, attack, death — for a bestiary widget or an offscreen bake. */
 export function drawMonsterSheet(ctx, x, y, opts = {}) {
   const scale = Math.max(1, opts.scale | 0 || 1);
-  for (let f = 0; f < MON_FRAMES; f++) drawMonster(ctx, x + f * MON_W * scale, y, { ...opts, frame: f, scale });
-  return { w: MON_FRAMES * MON_W * scale, h: MON_H * scale, cells: MON_FRAMES };
+  for (let f = 0; f < MON_FRAMES; f++) drawMonster(ctx, x + f * MON_W_N * scale, y, { ...opts, frame: f, scale });
+  return { w: MON_FRAMES * MON_W_N * scale, h: MON_H_N * scale, cells: MON_FRAMES };
 }
 
 // ══ PROPS ════════════════════════════════════════════════════════════════════════════════
@@ -1146,6 +1502,7 @@ const GOLD  = MATERIALS[5];
 const GEM   = { base: "#7d5ae0", shade: "#4a2f9a", light: "#c4b0ff", line: "#1d1240" };
 const FIRE  = { base: "#ff7a18", shade: "#c23a06", light: "#ffd24a", line: "#5a1a02" };
 const WATER = { base: "#3f8fd0", shade: "#245e94", light: "#9fdcff", line: "#123049" };
+const GALE  = { base: "#5c6c80", shade: "#3a4452", light: "#8fa5bb", line: "#1a202a" };
 
 function propHazard(p, f) { // a spiked, burning pit — the tile that chips you if you do not dodge
   const gy = MON_FOOT_Y;
@@ -1154,6 +1511,7 @@ function propHazard(p, f) { // a spiked, burning pit — the tile that chips you
   for (let i = 0; i < 4; i++) {                                  // spikes, alternating heights
     const sx = MON_CX - 8 + i * 5, sh = 5 + (i & 1) * 3;
     horn(p, sx, gy - 1, 0, -1, sh, IRON);
+    p.px(sx, gy - 2, 1, 1, IRON.shade);                          // soot climbing the root of each spike
   }
   for (let i = 0; i < 18; i++) {                                 // flame tongues off the coal bed
     const t = FLAME[(i + f * 3) % FLAME.length] + 2;
@@ -1162,6 +1520,10 @@ function propHazard(p, f) { // a spiked, burning pit — the tile that chips you
     p.px(MON_CX - 9 + i, gy - 1 - t, 1, 1, FIRE.light);
   }
   p.px(MON_CX - 8, gy - 1, 16, 1, FIRE.shade);                   // embers under it all
+  for (let i = 0; i < 16; i += 4)                                // hot coals crawling along the ember row —
+    p.px(MON_CX - 8 + i + f, gy - 1, 1, 1, FIRE.light);          // the pit breathes even between flame frames
+  p.px(MON_CX + 9, gy - 2, 3, 2, "#d8cfb4");                     // a half-buried skull at the rim:
+  p.px(MON_CX + 10, gy - 1, 1, 1, "#1a1510");                    // somebody did not dodge
 }
 
 function propCache(p, f) { // a chest, lid ajar, with a pulse of gold coming out of the gap
@@ -1176,15 +1538,23 @@ function propCache(p, f) { // a chest, lid ajar, with a pulse of gold coming out
   p.px(x + 2, y, 2, 1, IRON.light);
   p.px(x + w - 4, y, 2, h, IRON.base);
   p.px(x + w - 4, y, 2, 1, IRON.light);
+  p.px(x + 4, y + 3, 1, 2, WOOD.shade);                           // short grain ticks between the seams,
+  p.px(x + 10, y + 5, 1, 2, WOOD.shade);                          // staggered — so the planks read as wood
+  p.px(x + 14, y + 2, 1, 2, WOOD.shade);                          // and not as a striped box
+  p.px(x + 2, y + h - 2, 2, 1, IRON.shade);                       // the bands sit proud of the wood: they
+  p.px(x + w - 4, y + h - 2, 2, 1, IRON.shade);                   // darken where they wrap under the belly
   p.px(x + ((w >> 1) - 1), y + 2, 3, 4, GOLD.base);               // lock plate, front and centre
   p.px(x + ((w >> 1) - 1), y + 2, 3, 1, GOLD.light);
   p.px(x + (w >> 1), y + 3, 1, 2, GOLD.line);                     // keyhole
+  if (f === 2) p.px(x + (w >> 1) - 1, y + 2, 1, 1, "#ffffff");    // the lock glints exactly when the lid
+                                                                  // breathes: one beat, two tells
   p.dither(x + 1, y - 1 - lift, w - 2, 1 + lift, GOLD.light, f & 1); // the glow escaping the seam
   p.px(x - 1, y - 4 - lift, w + 2, 4, WOOD.line);                 // the lid, tipped back off the seam
   p.px(x, y - 3 - lift, w, 3, WOOD.base);
   p.px(x, y - 3 - lift, w, 1, WOOD.light);
   p.px(x + 2, y - 3 - lift, 2, 3, IRON.base);
   p.px(x + w - 4, y - 3 - lift, 2, 3, IRON.base);
+  if (d2()) { p.px(x + 6, y - 2 - lift, 1, 1, IRON.light); p.px(x + 10, y - 2 - lift, 1, 1, IRON.light); } // lid nails
   for (let i = 0; i < 5; i++) p.px(x + 3 + i * 3, y - 6 - lift - ((f + i) % 3), 1, 1, GOLD.light); // motes
 }
 
@@ -1202,12 +1572,18 @@ function propShrine(p, f) { // a fountain: wide steps, a narrow pillar, a bowl o
   step(18, gy - 1, 2, STONE);           // ground step
   step(13, gy - 4, 3, STONE);           // plinth
   step(6, gy - 10, 6, STONE);           // pillar
+  p.px(MON_CX - 2, gy - 8, 1, 2, STONE.shade);                    // a crack up the pillar and one on the
+  p.px(MON_CX + 3, gy - 3, 2, 1, STONE.shade);                    // plinth: old stone, not fresh masonry
+  if (d2()) { p.px(MON_CX - 8, gy - 1, 1, 1, "#4f7a3a"); p.px(MON_CX + 5, gy - 2, 1, 1, "#4f7a3a"); } // moss
   step(14, gy - 15, 5, STONE);          // bowl
   p.px(MON_CX - 6, gy - 14, 12, 3, WATER.base);
   p.dither(MON_CX - 6, gy - 14, 12, 2, WATER.light, f & 1);       // surface, catching the sky
+  p.px(MON_CX - 5 + f * 4, gy - 14, 2, 1, "#ffffff");             // one hard specular WALKING the surface:
+                                                                  // the read that the water is moving
   for (const sx of [MON_CX - 7, MON_CX + 5]) {                    // water running over the lip
     p.px(sx, gy - 12, 2, 3 + ((f + 1) % 3), WATER.base);
     p.px(sx, gy - 12, 1, 2, WATER.light);
+    p.px(sx, gy - 4, 2, 1, WATER.shade);                          // and the plinth stained dark where it lands
   }
   p.px(MON_CX - 1, gy - 18 - (f % 3), 2, 2, WATER.light);         // the droplet, rising
   p.px(MON_CX, gy - 21 - (f % 3), 1, 1, WATER.light);
@@ -1221,13 +1597,22 @@ function propForge(p, f) { // an anvil on a stump over a coal bed; sparks hop of
   const gy = MON_FOOT_Y;
   p.px(MON_CX - 5, gy - 5, 10, 5, WOOD.base);                     // stump
   p.px(MON_CX - 5, gy - 5, 10, 1, WOOD.light);
+  p.px(MON_CX - 2, gy - 4, 1, 3, WOOD.shade);                     // split grain down the stump: a plain
+  p.px(MON_CX + 1, gy - 3, 1, 2, WOOD.shade);                     // brown block reads as a crate, not a log
   p.px(MON_CX - 5, gy - 1, 10, 1, WOOD.line);
   p.px(MON_CX - 8, gy - 12, 15, 3, IRON.base);                    // anvil face + horn
   p.px(MON_CX - 8, gy - 12, 15, 1, IRON.light);
+  p.px(MON_CX - 8, gy - 10, 15, 1, IRON.shade);                   // the face's underside rolls into shadow
   p.px(MON_CX - 10, gy - 11, 2, 1, IRON.base);
+  p.px(MON_CX - 10, gy - 11, 1, 1, IRON.light);                   // a glint off the horn's tip
   p.px(MON_CX - 3, gy - 9, 5, 3, IRON.shade);                     // waist
   p.px(MON_CX - 6, gy - 6, 11, 2, IRON.base);                     // base
   p.px(MON_CX - 6, gy - 6, 11, 1, IRON.light);
+  p.px(MON_CX - 2, gy - 13, 5, 1, f === 1 ? FIRE.light : FIRE.base); // the WORKPIECE on the face, pulsing
+  p.px(MON_CX - 2, gy - 13, 1, 1, FIRE.shade);                    // as it cools — this is a forge mid-job,
+  if (f === 0) p.px(MON_CX + 1, gy - 14, 1, 1, "#ffffff");        // and the hammer lands white-hot on f0
+  if (d2()) { p.px(MON_CX - 7, gy - 3, 1, 3, IRON.shade); p.px(MON_CX - 8, gy - 1, 1, 1, IRON.base); } // a
+                                                                  // poker leaning on the stump, fine scales
   p.px(MON_CX + 6, gy - 3, 10, 3, FIRE.shade);                    // coal bed beside it
   p.dither(MON_CX + 6, gy - 4, 10, 3, FIRE.base, f & 1);
   for (let i = 0; i < 6; i++) {                                    // sparks off the face, on a fixed arc
@@ -1256,7 +1641,12 @@ function propRelic(p, f) { // a gem floating over nothing at all, throwing spoke
     p.px(MON_CX - (w >> 1), cy - 1 + j, w, 1, j < 2 ? GEM.light : GEM.base);
     p.px(MON_CX - (w >> 1), cy - 1 + j, 1, 1, GEM.light);
   });
+  p.px(MON_CX - 1, cy + 3, 3, 1, GEM.shade);                        // the cut below the girdle: one dark
+                                                                    // facet is what says CARVED, not blown
   p.px(MON_CX - 1, cy + 1, 2, 1, "#ffffff");                        // core
+  const sp = [[3, -1], [-4, 2], [2, 3]][f];                         // a single sparkle walking the facets
+  p.px(MON_CX + sp[0], cy + sp[1], 1, 1, "#ffffff");                // frame to frame — the idle glitter
+  if (d2()) p.px(MON_CX - 2, cy, 1, 1, "#ffffff");                  // an inner reflection at fine scales
   ring(p, MON_CX - 6, cy - 3, 13, 11, GEM.base, f & 1);             // halo: a ring, so the cut stone
                                                                     // inside it is still a stone
   for (let i = 0; i < 3; i++) p.px(MON_CX - 3 + i * 3, cy + 7 - ((f + i) % 4) * 2, 1, 1, GEM.light); // motes
@@ -1270,12 +1660,16 @@ function propFork(p, f) { // a signpost where the road splits: left board is the
   }
   p.px(px0, gy - 20, 2, 21, WOOD.base);                             // post
   p.px(px0, gy - 20, 1, 21, WOOD.light);
+  p.px(px0 + 1, gy - 14, 1, 1, WOOD.shade);                         // grain nicks down the post, in the gaps
+  p.px(px0, gy - 6, 1, 2, WOOD.shade);                              // between the boards
   p.px(px0 - 1, gy - 1, 4, 1, WOOD.line);
   const board = (by, dir, C) => {                                   // an arrow board: rect + a pointed end
     const w = 10, bx = dir < 0 ? px0 - w - 1 : px0 + 2;
     p.px(bx - 1, by - 1, w + 2, 6, WOOD.line);
     p.px(bx, by, w, 4, C.base);
     p.px(bx, by, w, 1, C.light);
+    p.px(bx, by + 3, w, 1, C.shade);                                // underside in shadow: the board is a
+                                                                    // plank with thickness, not a sticker
     const tip = dir < 0 ? bx - 1 : bx + w;
     p.px(tip, by + 1, 1, 2, C.base);
     p.px(tip + (dir < 0 ? -1 : 1), by + 2, 1, 1, C.base);
@@ -1285,18 +1679,144 @@ function propFork(p, f) { // a signpost where the road splits: left board is the
   board(gy - 12, 1, { base: "#a05a2a", shade: WOOD.shade, light: "#d08a4a", line: WOOD.line });
   p.px(px0 - 1, gy - 21, 4, 1, WOOD.shade);                          // cap
   if (f & 1) p.px(px0 + 3, gy - 22, 1, 1, GOLD.light);               // a glint off the nail: it is not dead
+  if (f === 2) p.px(px0 + 3, gy - 11, 1, 1, GOLD.light);             // …and the greed board's nail answers
+                                                                     // on the off-beat
+  if (d2()) { p.px(MON_CX - 10, gy - 1, 1, 1, "#4f7a3a"); p.px(MON_CX - 5, gy - 2, 1, 1, "#4f7a3a"); } // grass
+                                                                     // tufts where the road splits
+}
+
+function propGale(p, f) { // a windstorm parked over the road — a storm you WALK INTO, deliberately not a creature
+  const gy = MON_FOOT_Y, cx = MON_CX;
+  for (let i = 0; i < 11; i++)                                      // the road scoured in streaks beneath it,
+    p.raw(cx - 11 + i * 2, gy, 2, 1, (i + f) % 3 ? "#2b2018" : "#3a3026"); // grit crawling with the wind
+  for (const [ty, ln, ph] of [[4, 4, 0], [7, 5, 1], [10, 4, 2]]) {  // trails streaming out ahead of the roll,
+    const t = (f + ph) % 3;                                          // each tearing off on its own beat
+    p.px(cx - 13 - t * 2, gy - ty, ln, 1, GALE.shade);
+    p.px(cx - 13 - t * 2, gy - ty, 1, 1, GALE.base);                 // the torn head is a step lighter: dust
+  }                                                                  // thinning out, not a floating stick
+  for (const [ty, ph] of [[5, 0], [9, 1]]) {                         // …and short inflow dashes behind it —
+    const t = (f + ph) % 3;                                          // the storm eats road as it goes
+    p.px(cx + 12 + t, gy - ty, 3, 1, GALE.shade);
+  }
+  p.dither(cx - 8, gy - 1, 16, 1, "#3a3026", f);                     // the dust skirt where it meets the road
+  const ROWS = [ // the roll itself, bottom to top: [rise, half-width, lean] — fat at the shoulder, and the
+                 // whole crest streamed FORWARD (the monsters' left) so the thing is going somewhere
+    [2, 5, 0], [3, 8, 0], [4, 10, 0], [5, 11, 0], [6, 12, 0], [7, 12, 0], [8, 12, -1],
+    [9, 12, -1], [10, 11, -2], [11, 10, -2], [12, 8, -3], [13, 6, -5], [14, 4, -7],
+  ];
+  const LS = [-2, 4, -6, 2, -8, 5, -3, 1, -6, 3, -1, 2, 0];          // where each row's lit rim sits
+  const THROAT = [-1, 0, 1, 2, 2, 1, 0, -1, -2, -2, -1, 0, 1];       // the eye of it, a slow S down the middle
+  ROWS.forEach(([ry, hw, xo], j) => {
+    const beat = (j + f) % 3;                                        // striations travel UP the roll frame to
+    const tat = (j + f) & 1;                                         // frame: the read that the whole thing
+    const y = gy - ry;                                               // spins — and the silhouette TATTERS, each
+    const x0 = cx + xo - hw + tat, xR = cx + xo + hw - tat;          // edge pulling in a pixel on its own beat
+    const gp = cx + xo + THROAT[(j + f * 2) % THROAT.length];        // a TORN GAP spirals through the roll —
+    const body = j < 10 ? GALE.shade : GALE.base;                    // the road shows through a storm, which is
+    p.px(x0, y, gp - x0, 1, body);                                   // what keeps it weather and not a boulder
+    p.px(gp + 2, y, xR - gp - 2, 1, body);                           // (and the crest rows thin to paler dust)
+    p.px(gp + 2, y, 1, 1, GALE.line);                                // the tear's inner edge falls into shadow
+    if (beat !== 1 && j < 10) {                                      // two bands in three carry the paler dust…
+      const ins = beat === 0 ? 2 : 4;
+      p.px(x0 + ins, y, gp - x0 - ins, 1, GALE.base);
+      p.px(gp + 3, y, xR - gp - 3, 1, GALE.base);
+    }
+    if (beat === 0) p.px(cx + xo + LS[j], y, 3, 1, GALE.light);      // …one hard lit rim walks the band,
+    if (beat === 2 && j < 10) p.px(xR - 3, y, 2, 1, GALE.light);     // …and the trailing rim answers it
+    if (beat === 1) p.px(x0 - 2, y, 1, 1, GALE.shade);               // dust flying off the leading edge
+  });
+  p.px(cx - 12 - f, gy - 15, 2, 1, GALE.base);                       // spray ripped off the crest tip
+  for (let i = 0; i < 4; i++)                                        // wisps torn off the crown: LOOSE motes
+    p.px(cx - 10 + i * 3, gy - 15 - ((f + i * 2) % 3), 1, 1, GALE.base); // on their own beats — a dithered
+  for (let i = 0; i < 3; i++)                                        // band up here reads as battlements, and
+    p.px(cx - 9 + i * 5, gy - 17 - ((f + i) % 3), 1, 1, GALE.shade); // a dashed box reads as UI
+  const LEAF = [[-11, 4], [-8, 13], [-1, 15], [8, 12], [12, 6], [4, 2]]; // perimeter stations for the debris
+  for (let i = 0; i < 3; i++) {
+    const [lx, ly] = LEAF[(i * 2 + f) % LEAF.length];                // each leaf hops one station per frame:
+    p.px(cx + lx, gy - ly, 1, 1, i === 1 ? "#6d8a3a" : WOOD.light);  // orbiting, not twinkling
+  }
+  const [tx, ty2] = LEAF[(3 + f) % LEAF.length];                     // a snapped twig rides the same orbit,
+  p.px(cx + tx, gy - ty2 + 1, 2, 1, WOOD.shade);                     // half a beat behind the leaves
+  if (d2()) { p.px(cx - 9, gy - 3, 1, 1, GALE.light); p.px(cx + 7, gy - 11, 1, 1, GALE.light); } // fine spray
+                                                                     // glints on the flanks at fine scales
+}
+
+function propIdol(p, f) { // a squat carved watcher on a plinth: the stone is ancient, the eyes are not
+  const gy = MON_FOOT_Y, cx = MON_CX;
+  const slab = (wd, yy, hh) => {                                     // the shrine's masonry, restated — the
+    p.px(cx - (wd >> 1) - 1, yy - 1, wd + 2, hh + 1, STONE.line);    // two monuments must read as one quarry
+    p.px(cx - (wd >> 1), yy, wd, hh, STONE.base);
+    p.px(cx - (wd >> 1), yy, wd, 1, STONE.light);
+    p.px(cx - (wd >> 1), yy, 1, hh, STONE.light);
+    p.px(cx + (wd >> 1) - 1, yy, 1, hh, STONE.shade);
+  };
+  slab(16, gy - 1, 2);                                               // ground step
+  slab(13, gy - 4, 3);                                               // plinth
+  slab(12, gy - 11, 7);                                              // the folded body…
+  slab(10, gy - 17, 2);                                              // …under a head it never grew a neck for:
+  slab(12, gy - 15, 4);                                              // crown narrow, cheeks wide — a stepped
+                                                                     // dome, whose border row IS the heavy brow
+  p.px(cx - 9, gy - 15, 2, 3, STONE.line);                           // carved side flanges — ears on a thing
+  p.px(cx - 9, gy - 15, 2, 2, STONE.base);                           // that only ever listens
+  p.px(cx - 9, gy - 15, 1, 1, STONE.light);
+  p.px(cx + 7, gy - 15, 2, 3, STONE.line);
+  p.px(cx + 7, gy - 15, 2, 2, STONE.base);
+  p.px(cx + 8, gy - 15, 1, 2, STONE.shade);
+  p.px(cx - 2, gy - 19, 4, 2, STONE.line);                           // a squat stone topknot
+  p.px(cx - 1, gy - 19, 2, 1, STONE.base);
+  p.px(cx - 1, gy - 19, 1, 1, STONE.light);
+  for (let i = 0; i < 2; i++) p.px(cx - 3 + i * 6, gy - 17, 1, 1, STONE.shade); // the crown's light row
+                                                                     // notched twice: weathered, not cut
+  const ecol = [FIRE.base, FIRE.light, FIRE.shade][f];               // the pulse: waking, blazing, banked
+  for (const ex of [cx - 4, cx + 2]) {
+    p.px(ex - 1, gy - 15, 4, 2, STONE.line);                         // socket, carved up under the brow
+    p.px(ex, gy - 14, 2, 1, ecol);                                   // the amber gem is a lit SLIT, not a lamp
+    if (f === 1) {                                                   // at the peak of the pulse the glow leaks
+      p.px(ex - 1, gy - 14, 1, 1, FIRE.shade);                       // past both corners of the socket…
+      p.px(ex + 2, gy - 14, 1, 1, FIRE.shade);
+      p.px(ex, gy - 13, 2, 1, FIRE.shade);                           // …and spills down onto the cheek
+    }
+  }
+  p.px(cx - 1, gy - 15, 2, 3, STONE.base);                           // the nose ridge between the sockets,
+  p.px(cx - 1, gy - 15, 1, 3, STONE.light);                          // catching what light gets under the brow
+  p.px(cx - 1, gy - 12, 2, 1, STONE.shade);                          // and throwing its little shadow
+  p.px(cx - 3, gy - 12, 2, 1, STONE.line);                           // the mouth: a grimace of carved teeth,
+  p.px(cx + 1, gy - 12, 3, 1, STONE.line);                           // split by the nose shadow
+  for (let i = 0; i < 3; i++) p.px(cx - 3 + i * 3, gy - 11, 1, 1, STONE.line); // teeth hanging off the slot —
+                                                                     // it has not liked anything for centuries
+  p.px(cx - 5, gy - 9, 10, 1, STONE.shade);                          // arms folded across the belly, one groove
+  p.px(cx - 1, gy - 8, 2, 1, STONE.shade);                           // hands stacked beneath them
+  if (f === 1) p.px(cx, gy - 7, 1, 1, FIRE.shade);                   // a belly rune that only shows when the
+                                                                     // eyes blaze: the glow is INSIDE the stone
+  p.px(cx - 4, gy - 6, 1, 2, STONE.shade);                           // crossed legs carved into the base,
+  p.px(cx + 3, gy - 6, 1, 2, STONE.shade);                           // two short grooves
+  p.px(cx + 4, gy - 10, 1, 2, STONE.shade);                          // a crack down the shoulder…
+  p.px(cx - 3, gy - 3, 2, 1, STONE.shade);                           // …and one on the plinth: old masonry
+  p.px(cx - 5, gy - 12, 1, 1, "#4f7a3a");                            // moss in the neck seam
+  p.px(cx + 4, gy - 2, 1, 1, "#4f7a3a");                             // moss on the plinth
+  if (d2()) { p.px(cx + 6, gy - 13, 1, 1, "#4f7a3a"); p.px(cx - 7, gy - 1, 1, 1, "#4f7a3a"); } // more moss
+                                                                     // creeping in at fine scales
+  const bx = cx - 13;                                                // the offering bowl at its feet, set
+  p.px(bx - 1, gy - 2, 7, 3, STONE.line);                            // toward the road it watches
+  p.px(bx, gy - 2, 5, 1, STONE.base);
+  p.px(bx, gy - 2, 1, 1, STONE.light);
+  p.px(bx + 1, gy - 1, 3, 1, FIRE.shade);                            // an ember bed — someone still feeds it
+  if (f === 2) p.px(bx + 2, gy - 1, 1, 1, FIRE.base);                // …and it answers the eyes on the off-beat
+  p.px(bx + 2 + (f & 1), gy - 4 - f, 1, 1, "#4a4550");               // one thread of smoke, climbing
+  if (d2()) p.px(bx + 6, gy, 1, 1, GOLD.base);                       // a dropped coin at fine scales
 }
 
 /**
  * Draw one prop with its TOP-LEFT CORNER at (x, y) — same convention and the same PROP_W × PROP_H
  * (= MON_W × MON_H) box as drawMonster, so the world renderer converts ground coordinates once and uses it
  * for every tile.
- * opts = { kind: "hazard"|"cache"|"shrine"|"forge"|"relic"|"fork" (or its index in PROP_KINDS),
+ * opts = { kind: "hazard"|"cache"|"shrine"|"forge"|"relic"|"fork"|"gale"|"idol" (or its index in PROP_KINDS),
  *          frame: int — flame flicker / lid breath / gem pulse, cycle length 3 (frame % 3 is enough),
  *          scale: int ≥ 1, facing: 1|-1 (only the fork really cares) }
  * Deterministic: nothing here reads a clock.
  */
 export function drawProp(ctx, x, y, opts = {}) {
+  DETAIL = opts.detail === 2 ? 2 : 1;
   const kind = typeof opts.kind === "number" ? PROP_KINDS[opts.kind] : opts.kind;
   const scale = Math.max(1, opts.scale | 0 || 1);
   const f = Math.max(0, opts.frame | 0) % 3;
@@ -1309,10 +1829,12 @@ export function drawProp(ctx, x, y, opts = {}) {
     case "forge":  propForge(p, f);  break;
     case "relic":  propRelic(p, f);  break;
     case "fork":   propFork(p, f);   break;
-    default: return { w: PROP_W * scale, h: PROP_H * scale }; // unknown kind draws NOTHING rather than a
-                                                             // wrong thing — the caller keeps its fallback
+    case "gale":   propGale(p, f);   break;
+    case "idol":   propIdol(p, f);   break;
+    default: return { w: MON_W_N * scale, h: MON_H_N * scale }; // unknown kind draws NOTHING rather than a
+                                                                // wrong thing — the caller keeps its fallback
   }
-  return { w: PROP_W * scale, h: PROP_H * scale };
+  return { w: MON_W_N * scale, h: MON_H_N * scale };
 }
 
 // ══ BLOOD ════════════════════════════════════════════════════════════════════════════════
@@ -1323,11 +1845,12 @@ export function drawProp(ctx, x, y, opts = {}) {
 // Determinism is not optional here: the whole game replays from two block hashes, so a splatter has to be a
 // pure function of (seed, kind, frame, amount). `seed` is the caller's — a step index, a run id, anything —
 // and is run through an integer hash so consecutive seeds do not produce near-identical sprays.
-export const BLOOD_W = MON_W;
-export const BLOOD_H = MON_H;
-export const BLOOD_KINDS = ["hit", "spurt", "pool", "splatter"];
+const BLOOD_W = MON_W;
+const BLOOD_H = MON_H;
+export { MON_W_N as BLOOD_W, MON_H_N as BLOOD_H };
+export const BLOOD_KINDS = ["hit", "spurt", "pool", "splatter", "gib", "mist"];
 // frames per kind; a caller that runs past the end just gets the last frame (spray gone, pool full grown)
-export const BLOOD_FRAMES = { hit: 5, spurt: 7, pool: 6, splatter: 1 };
+export const BLOOD_FRAMES = { hit: 5, spurt: 7, pool: 6, splatter: 1, gib: 8, mist: 6 };
 
 // One ramp, shaped like a MATERIAL, so blood shades with the same four stops as everything else. Arterial
 // red is deliberately dark at the base and hot only on the lit edge — a flat bright red on a pixel grid
@@ -1381,6 +1904,61 @@ function drawBloodInto(p, kind, o = {}) {
       p.raw(cx + dx, gy - dy, big ? 2 : 1, 1, big ? BLOOD_DRY.base : BLOOD_DRY.shade);
       if (big) p.raw(cx + dx, gy - dy, 1, 1, BLOOD_DRY.light);
     }
+    return;
+  }
+
+  if (kind === "mist") { // a fine arterial cloud that BLOOMS out of the wound and thins as it drifts up —
+    // the after-image of a killing blow. Density falls with the frame so it fades without any alpha channel.
+    const cy = o.cy == null ? MON_FOOT_Y - 13 : o.cy | 0;
+    const spread = 4 + f * 4;                         // widens every frame
+    const rise = f * 2;                               // and lifts
+    const density = Math.max(1, 4 - (f >> 1));        // 1 in `density` pixels lit — thins as it disperses
+    const n = Math.min(90, 20 + amount * 4);
+    for (let i = 0; i < n; i++) {
+      const r = hash32(seed * 0x9e3779b1 + i * 131 + 51);
+      if ((r % density) !== 0) continue;
+      const ang = (r >> 4) % 360;
+      const rad = (r >> 9) % spread;
+      const dx = (((r & 1) ? 1 : -1) * ((ang * rad) % (spread + 1))) % (spread + 3);
+      const dy = -((rad >> 1)) - rise + (((r >> 12) & 1));
+      const px0 = cx + dx, py = cy + dy;
+      if (py < 0 || py >= MON_FOOT_Y) continue;
+      const hot = (r >> 3) & 3;
+      p.px(px0, py, 1, 1, hot === 0 ? BLOOD_RED.light : hot === 1 ? GORE.base : BLOOD_RED.base);
+    }
+    return;
+  }
+
+  if (kind === "gib") { // CHUNKS. Meat and bone torn loose on a heavy kill: fat 2×2/3×2 gobbets that arc
+    // out, TUMBLE (they flip colour every frame so they read as spinning), fall under the same integer
+    // gravity as a droplet, and SLAP down into a lasting smear. This is the "absolutely brutal" layer.
+    const cy = o.cy == null ? MON_FOOT_Y - 12 : o.cy | 0;
+    const n = Math.min(18, 4 + amount);
+    for (let i = 0; i < n; i++) {
+      const r = hash32(seed * 2246822519 + i * 61 + 13);
+      const back = ((r >> 2) & 3) === 0;
+      const vx = (2 + (r % 4)) * (back ? -1 : 1);
+      const vy = -2 - ((r >> 5) % 3);
+      const t = f - (((r >> 8) % 2) | 0);
+      if (t < 0) continue;
+      const dx = vx * t, dy = vy * t + ((t * (t + 1)) >> 1);
+      const gx0 = cx + dx, gyp = cy + dy;
+      const big = (r >> 11) & 1;                       // some bone-white, most meat
+      const bw = big ? 3 : 2, bh = 2;
+      if (gyp >= MON_FOOT_Y) {                         // landed: a torn smear that stays on the road
+        p.raw(gx0 - 1, gy, bw + 1, 1, GORE.shade);
+        p.raw(gx0, gy, bw, 1, GORE.base);
+        if (big) p.px(gx0, gy, 1, 1, BLOOD_RED.light);
+        continue;
+      }
+      const tumble = (t & 1);                          // flip lit/shade each frame → it spins
+      p.raw(gx0 - 1, gyp, bw + 2, bh, GORE.line);      // dark outline so a chunk reads against a monster
+      p.raw(gx0, gyp, bw, bh, tumble ? GORE.base : GORE.shade);
+      p.px(gx0 + (tumble ? 0 : bw - 1), gyp, 1, 1, big ? "#d8c4b0" : GORE.light); // bone glint / wet highlight
+      // a thin blood tail off the trailing edge — a chunk with a streak reads as flung, not floating
+      p.px(gx0 - Math.sign(vx), gyp + 1, 1, 1, BLOOD_RED.shade);
+    }
+    if (f >= 2) drawBloodInto(p, "mist", { frame: f - 2, amount: (amount >> 1) + 1, seed: seed ^ 0x5bd1, cx, cy });
     return;
   }
 
@@ -1452,8 +2030,13 @@ export function drawBlood(ctx, x, y, opts = {}) {
   const scale = Math.max(1, opts.scale | 0 || 1);
   ctx.imageSmoothingEnabled = false;
   const p = pen(ctx, x, y, scale, opts.facing === -1 ? -1 : 1, false, null, BLOOD_W, BLOOD_H);
-  drawBloodInto(p, kind, opts);
-  return { w: BLOOD_W * scale, h: BLOOD_H * scale };
+  // public cx/cy are NATIVE frame pixels (the exported box); the painter itself works on the authored grid
+  drawBloodInto(p, kind, {
+    ...opts,
+    cx: opts.cx == null ? null : Math.round(opts.cx / HR),
+    cy: opts.cy == null ? null : Math.round(opts.cy / HR),
+  });
+  return { w: MON_W_N * scale, h: MON_H_N * scale };
 }
 
 // ══ FATALITIES ═══════════════════════════════════════════════════════════════════════════
@@ -1468,8 +2051,9 @@ export function drawBlood(ctx, x, y, opts = {}) {
 //
 // Frame convention: frames run 0 → frames-1 for the fatality you selected; the LAST frame is the resting
 // corpse and is safe to hold indefinitely. Frames past the end clamp to it.
-export const FAT_W = MON_W;
-export const FAT_H = MON_H;
+const FAT_W = MON_W;
+const FAT_H = MON_H;
+export { MON_W_N as FAT_W, MON_H_N as FAT_H };
 const FAT_DX = 9, FAT_DY = 15; // where the 32×32 warrior cell sits inside the 48×48 gore frame: this maps
                                // his FOOT_Y/GROUND_Y onto MON_FOOT_Y/MON_GROUND_Y and his CX onto MON_CX,
                                // so warrior art, monster art and blood all share one ground line.
@@ -1504,7 +2088,8 @@ function fatPart(ctx, x, y, scale, facing, gear, ps, frame, dx, dy, clip, recolo
     x0: Math.max(0, -ox), y0: Math.max(0, -oy),
     x1: Math.min(FRAME_W, FAT_W - ox), y1: Math.min(FRAME_H, FAT_H - oy),
   };
-  const p = pen(ctx, x + ox * scale, y + oy * scale, scale, facing, !!rot, recolor || null,
+  // ox/oy are authored offsets inside the gore frame → HR native px each → HR*scale device px
+  const p = pen(ctx, x + ox * HR * scale, y + oy * HR * scale, scale, facing, !!rot, recolor || null,
                 FRAME_W, FRAME_H, clip || null, bound);
   paintWarrior(p, gear, ps, frame, facing);
 }
@@ -1757,6 +2342,7 @@ const FAT_FN = [fatDecap, fatBisect, fatImpale, fatBurn, fatTear, fatCrush];
  * Returns { w, h } in device pixels.
  */
 export function drawFatality(ctx, x, y, opts = {}) {
+  DETAIL = opts.detail === 2 ? 2 : 1;
   const which = ((opts.which | 0) % FATALITIES.length + FATALITIES.length) % FATALITIES.length;
   const n = FATALITIES[which].frames;
   const f = Math.max(0, Math.min(n - 1, opts.frame | 0));
@@ -1768,7 +2354,7 @@ export function drawFatality(ctx, x, y, opts = {}) {
   // contact shadow first, on the ground, never rotated with the body
   for (let i = 0; i < 15; i++) if ((i & 1) === 0) gp.raw(MON_CX - 7 + i, MON_GROUND_Y, 1, 1, "#1a1420");
   FAT_FN[which](ctx, x, y, scale, facing, gear, f, gp);
-  return { w: FAT_W * scale, h: FAT_H * scale };
+  return { w: MON_W_N * scale, h: MON_H_N * scale };
 }
 
 /** Every frame of one fatality, laid out in a strip — for tuning the timing and for the visual test. */
@@ -1776,6 +2362,6 @@ export function drawFatalitySheet(ctx, x, y, opts = {}) {
   const which = ((opts.which | 0) % FATALITIES.length + FATALITIES.length) % FATALITIES.length;
   const n = FATALITIES[which].frames;
   const scale = Math.max(1, opts.scale | 0 || 1);
-  for (let f = 0; f < n; f++) drawFatality(ctx, x + f * FAT_W * scale, y, { ...opts, which, frame: f, scale });
-  return { w: n * FAT_W * scale, h: FAT_H * scale, cells: n };
+  for (let f = 0; f < n; f++) drawFatality(ctx, x + f * MON_W_N * scale, y, { ...opts, which, frame: f, scale });
+  return { w: n * MON_W_N * scale, h: MON_H_N * scale, cells: n };
 }
