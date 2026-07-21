@@ -155,8 +155,41 @@ def t10_log_shape_pinned():
     assert not ok
 
 
+def t11_beacon_proves_and_replays():
+    """BEACON was the one opcode with no proof-level coverage (no shipped game reads epoch randomness). Its
+    AIR path is byte-identical to BHASH, but "identical, therefore fine" is an argument, not evidence — so
+    prove a call that reads a beacon, verify it, replay it, and confirm the chain-read lands in the log. A
+    forged beacon value in the log is then rejected (the AIR pins the io tuple to the trace)."""
+    BEAC = {"draw": zkvmasm.assemble("""
+        movi r1 7
+        beacon r2 r1
+        lo32 r2
+        movi r3 6
+        rem r2 r3
+        ret r2
+    """)}
+    beacons = {7: 999999999999999999}
+    proof, io, ret, st1 = vm_circuit.prove_call(BEAC, "draw", CALLER, [], {}, cursor=100,
+                                                beacons=beacons, num_queries=NQ)
+    assert ret == ((999999999999999999 % F.P) & 0xFFFFFFFF) % 6, ret   # window then roll, the dice pattern
+    okv, why = vm_circuit.verify_call(proof, BEAC, "draw", CALLER, [], io, cursor=100, num_queries=NQ)
+    assert okv, f"honest beacon call must verify: {why}"
+    ok2, ret2, _st, _pay, chain = zkvm.replay_io(io, {})
+    assert ok2 and ret2 == ret
+    assert chain == [(zkvm.IO_BEACON, 7, 999999999999999999 % F.P)], chain
+    # forge the beacon value in the log -> the AIR binds the io tuple to the trace, so verify must reject
+    forged = [list(e) for e in io]
+    for e in forged:
+        if e[0] == zkvm.IO_BEACON:
+            e[2] = (e[2] + 1) % F.P
+    okf, _ = vm_circuit.verify_call(proof, BEAC, "draw", CALLER, [], [tuple(e) for e in forged],
+                                    cursor=100, num_queries=NQ)
+    assert not okf, "a forged beacon value must be rejected"
+
+
 if __name__ == "__main__":
     check("dice call proves, verifies, replays to identical state", t1_dice_proves_and_replays)
+    check("beacon call proves, verifies, replays (+ forged value rejected)", t11_beacon_proves_and_replays)
     check("forged payout rejected", t2_forged_payout_rejected)
     check("forged storage read rejected", t3_forged_read_rejected)
     check("reordered/truncated log rejected", t4_reordered_or_truncated_log_rejected)
