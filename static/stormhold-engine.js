@@ -40,7 +40,7 @@
 //   wsh  Foundry    gain card id ≤4
 //   moat Windbreak  (defender) 1 = reveal (immune to the attack) · 0 = take the hit
 //   tr2  (auto — Echo's second play; resolves itself, never needs input)
-import { blake2bHash } from "./nadotx.js";
+import { blake2bHash } from "./nadotx.js?v=6d199166";
 
 const H = (v) => BigInt("0x" + blake2bHash(v));
 

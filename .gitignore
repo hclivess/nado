@@ -168,15 +168,13 @@ version
 .myflip_secret
 .coinflip_cid
 .roulette_cid
-_cf_e2e.py
-_cf_open.py
-_cf_stakes_e2e.py
-_cf_finish.py
-_cf_settle.py
-_cf_auto.py
 .dice_cid
 .chess_cid
 .poker_cid
 .farkle_cid
 native/mldsa44/libnado_mldsa44.so
 chain_generation
+
+# node-local runtime telemetry (stats sampler) — never source
+daily_stats.json
+rollback_stats.json

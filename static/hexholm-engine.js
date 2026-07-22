@@ -29,7 +29,7 @@
 //   • Badges: LONG ROAD (2 VP, first 5+ continuous, passes only to a strict leader, shelved on ties) and
 //     WARDENS' BANNER (2 VP, first 3+ wardens played, same passing rule). Homestead 1 VP · keep 2 VP ·
 //     charter 1 hidden VP. First to 10 on their own turn calls the win.
-import { blake2bHash } from "./nadotx.js";
+import { blake2bHash } from "./nadotx.js?v=6d199166";
 
 // ---- resources / costs / scrolls -------------------------------------------------------------------
 export const RES = ["timber", "clay", "wool", "grain", "ore"];

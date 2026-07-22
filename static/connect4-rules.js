@@ -2,7 +2,7 @@
 // connect4.js and tests/connect4_daily_verify.mjs via board-daily.js). You are player 1 (drop first), the
 // seeded bot is player 2. Board is 7 columns x 6 rows; a move is a column 0..6. The bot takes a win, blocks
 // a loss, avoids handing you a win, else plays center-biased with a seeded tie-break — solid but not perfect.
-import { prng } from "./board-daily.js";
+import { prng } from "./board-daily.js?v=ff35df1e";
 
 export const SLUG = "connect4", MOVE_BITS = 3, MAX_MOVES = 42;
 export const COLS = 7, ROWS = 6;

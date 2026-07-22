@@ -3,7 +3,7 @@
  * on-chain E2E oracle AND the in-browser practice mode (duelgame.js "vs computer"): given a replayed
  * state it produces one legal move for the current actor, mirroring what the UI would allow.
  */
-import * as E from "./stormhold-engine.js";
+import * as E from "./stormhold-engine.js?v=9d8be3f7";
 const { CARDS, encMove, gainable } = E;
 const isA = (id) => !!(CARDS[id].t & 1), isT = (id) => !!(CARDS[id].t & 2), isV = (id) => !!(CARDS[id].t & 4);
 const SKIP = 4095;

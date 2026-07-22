@@ -2,7 +2,7 @@
 // tictactoe.js and tests/tictactoe_daily_verify.mjs via board-daily.js). No DOM. You are player 1 (✕), the
 // seeded bot is player 2 (◯). The bot takes a win, else blocks a loss, else plays center/corner/edge with a
 // seeded tie-break — good but NOT perfect, so a sharp player can fork it and win.
-import { prng } from "./board-daily.js";
+import { prng } from "./board-daily.js?v=ff35df1e";
 
 export const SLUG = "tictactoe", MOVE_BITS = 4, MAX_MOVES = 9;
 const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];

@@ -16,7 +16,7 @@
 // whose optimal play is TRIVIALLY COMPUTABLE from the RNG stream (dice, slots, mines, blackjack, …)
 // would turn its board into a solver race. Provable boards belong on SEARCH-HARD games only
 // (scrapline drafting, deck-builders, board games vs a deterministic bot). See doc/provable-practice.md.
-import { blake2bHash } from "./nadotx.js";
+import { blake2bHash } from "./nadotx.js?v=6d199166";
 
 // ---- the day anchor -------------------------------------------------------------------------------------
 // The anchor lives IN THE GAME'S CONTRACT (execnode/games/_lib.daily_anchor — maps ah/av + a "days"

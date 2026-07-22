@@ -192,7 +192,7 @@ export const EVENTS = [
 ];
 
 // ---- deterministic hashing (shared with the contract's beacon rolls) ----------------------------------
-import { blake2bHash } from "./nadotx.js";
+import { blake2bHash } from "./nadotx.js?v=6d199166";
 const H = (v) => BigInt("0x" + blake2bHash(v));
 // roll(seed, i) -> a float in [0,1); seed is the block-hash-derived BigInt the contract also uses.
 export const roll = (seed, i) => Number(H((seed % (1n << 200n)).toString(16) + ":" + i) % 1000000n) / 1000000;

@@ -16,8 +16,8 @@ Three things neither parent did:
 
 1. **Input matters *and* cannot cheat.** You commit actions against terrain you can see; the dice that
    resolve them come from a block hash that does not exist yet.
-2. **Absence is survivable.** No input = your stance and standing orders play for you. You bleed rank, not
-   life.
+2. **Absence is survivable.** No input = the march parks. Nothing resolves without your answers, so
+   nothing can kill you while you are gone.
 3. **The world has structure.** Biomes persist across dozens of steps, the horizon is continuous across block
    boundaries, weather changes what you should do.
 
@@ -32,19 +32,25 @@ Three things neither parent did:
 A run stores two heights:
 
     lh  — the height whose hash GENERATED the tiles of the pending leg   (you can see these)
-    nh  — the height whose hash will RESOLVE the pending leg, nh = lh + LEG  (nobody can see these)
+    nh  — the height whose hash will RESOLVE it: pinned by commit() at cursor + START_GAP (2 blocks).
+          Fairness needs only that nh postdates the commit — two blocks is as unknowable as sixteen,
+          and it makes the loop SNAPPY: answer, ~12 s, watch, answer again. (The old +LEG gap was the
+          auto-march's one-step-per-block pacing; manual-only kept the wait and lost the reason.)
 
-`advance()` resolves the pending leg once `cursor >= nh`, then slides the window: `lh ← nh`, `nh ← lh + LEG`.
-The march advances at exactly one step per block *on average, by construction*, whenever anybody calls
-anything.
+`advance()` resolves the pending leg once `cursor >= nh`, then slides the window and PARKS: `lh ← nh`,
+`nh ← 0` — the next roll exists only when you commit your next answers. The client makes the whole loop
+feel continuous: the moment the dice block exists it REPLAYS the leg from provisional data (the outcome is
+already determined), files the close itself through the SDK's auto-collect, opens the NEXT sixteen for
+answering while that close is in flight, and queues an early commit to send itself the instant the chain
+parks. The only thing a player ever consciously does is answer tiles.
 
 ### Why lateness is harmless
 
 `bhash` reaches ~20 000 heights back (`ExecState.record_block_hash`, ~33 h at 6 s). Every leg's outcome is a
 pure function of two hashes that are already final, so settling it now or in six hours yields the identical
 result. `advance()` is permissionless — a friend, a keeper, or you-tomorrow can walk the state forward, and
-none of them can change it. Bounded to `MAX_LEGS_PER_CALL = 4` legs (64 steps) per call, well inside the
-131 070-step trace budget.
+none of them can change it — every dice height was pinned by one of the owner's own commits. One leg per
+call (`MAX_LEGS_PER_CALL = 1`), sized for the worst-case step inside the 131 070-row trace budget.
 
 **The mists.** A run left unsettled past the block-hash horizon can never be resolved. That is a
 deterministic, publicly-checkable condition, so it gets a deterministic rule: the run concludes at its last
@@ -62,47 +68,51 @@ One block hash does two jobs, and that is the whole design:
 You cannot grind the terrain (it comes from a height pinned before you could see it) and you cannot grind the
 dice (they come from a height later still).
 
-### What you commit, and why it is not a 96-second window
+### What you commit — MANUAL ONLY
 
-The first design had you commit sixteen positional reactions inside the gap between those two hashes. That
-was wrong twice over:
+You look at the sixteen tiles, choose an action for each one, and commit the lot as one word:
 
-* **It was unreachable.** A transaction submitted now EXECUTES when the exec layer reaches its L1 height —
-  measured at ~102 blocks, about ten minutes, behind the tip. A 96-second window cannot be hit from ten
-  minutes away. Every run on the deployed contract had a permanently closed window; the mechanic was dead
-  for everyone.
-* **It was the wrong unit.** The road is different every leg, so committing moves for *positions* is
-  committing to a shape you will never see again.
+    commit(runId, word)          # 16 x 3-bit answers, step 0 in the low bits; 0 = walk in, fight plainly
 
-So orders are keyed to **what a thing is**, not where it is:
+**Committing is what schedules the dice.** The roll height is set by the commit itself, so it cannot
+already exist — a per-tile answer is committed-before-the-roll *by construction*, at any exec lag, however
+long you deliberate. There is no window to hit and no window to lose. After the leg settles, the march
+**parks** (`nh = 0`) and waits for your next sixteen answers; `advance()` refuses a parked run.
 
-    plan(runId, doctrine, agg, stance, focus, healPct)
+Two earlier designs died here, and both corpses are instructive:
 
-A **doctrine** is one reaction per tile class — *strike monsters, guard hazards, take the right fork* — and
-it holds for the rest of the march until you change it. It can be set at any time, because it governs legs
-whose dice do not exist yet, and it is still committed-before-the-roll.
+* **The 96-second positional window** (commit reactions between the two hashes) was unreachable the moment
+  the exec layer trailed L1 by more than a leg — measured at ~102 blocks. Every run had a permanently
+  closed window.
+* **The doctrine + auto-march** (a standing reaction per tile CLASS, with an optional self-scheduling
+  mode) was reachable but unplayable in a different way: two modes meant two readings of every screen, and
+  the doctrine table kept being mistaken for the game while the real per-tile answering sat behind an
+  undiscoverable two-step arm. Three real players set out and never saw a single tappable tile. Manual-only
+  removed the second mode, the doctrine, and the arming step in one cut.
 
-### The fence, and playing in the past
+Absence is still harmless — *more* harmless than the autopilot ever was: a parked march cannot die,
+because nothing resolves without your answers.
 
-`POLH` records the height at which orders were set. **A leg obeys a generation of orders only if that
-generation predates the leg's own rolling height.** Issuing new orders after seeing a roll therefore cannot
-rewrite the leg that roll belongs to.
+### The dials, and the fence
 
-One **superseded generation is retained**, which is what lets a run be walked at your own pace. Block hashes
-stay readable ~20 000 heights back, so a backlog is *walked, never discarded* — settle it now or tomorrow and
-the outcome is identical, each leg judged by the orders that were in force when its block was mined. Without
-the retained generation, catching up would either strand the backlog or let a player neuter their own
-doctrine after reading a bad roll.
+The four **dials** — aggression, stance, focus, auto-drink threshold — are the one piece of standing state
+that shapes a leg after it is committed:
 
-Stance, focus and the auto-drink threshold are **orders too**, versioned with the doctrine. Leaving them
-unfenced was a live exploit: they were applied immediately, so re-tuning after a roll changed a leg that had
-already rolled.
+    plan(runId, agg, stance, focus, healPct)     # optional; begin() ships playable defaults
 
-### The march waits for you
+`POLH` records the height at which the dials were set. **A leg obeys a generation of dials only if that
+generation predates the leg's own rolling height**, and one superseded generation is retained — so
+re-tuning after seeing a roll cannot rewrite the in-flight leg, and an unsettled leg is judged by the dials
+in force when its dice were mined. (The per-tile *actions* need no fence at all: commit stores them before
+it schedules the roll.)
 
-`begin()` creates a run **unarmed** — no window is pinned and `advance()` refuses it. Committing your orders
-is what starts the clock. Otherwise the first legs resolve before the player has configured anything, and on
-a ten-minute-lagged layer, before they can even see the run exists.
+### The march starts armed
+
+`begin()` claims the run **and pins the first terrain window** — the road appears seconds later, dice
+unscheduled, waiting on you. Arming used to be a separate `plan()` call, and that two-step was the single
+worst discovery failure the game shipped: players set out, saw "waiting for the terrain block…" forever,
+and never found the second button. An armed run with no scheduled roll has no clock, so there is nothing
+left to protect by deferring.
 
 ---
 
@@ -185,10 +195,7 @@ the game: heal early and you earn nothing, heal late and the run is over. The ba
 around 35%, and it moves with your build. The mechanic that keeps an absent player alive and the mechanic
 that prices risk are *the same dial* — that is the fusion.
 
-**The doctrine** — one 3-bit reaction per tile class, packed into one field element and unpacked on chain
-into a cell per class, addressed at runtime as `(POL0 + tile)*2^32 + run`. Action `0` = "nothing special", so
-an all-zero doctrine is exactly the absent-player behaviour. The FORK entry is read *before* the fork
-resolves, because it is what chooses the lane.
+**The answers** — sixteen 3-bit actions per leg, packed into one field element by `commit()` and unpacked on chain one symbol per step. Zero is A_DEFAULT (walk in, fight plainly), so an all-zero word is a legal, plain-Jane leg. The FORK answer is read *before* the fork resolves, because the answer is what picks the lane.
 
     0  Default   follow stance                                         —
     1  Strike    +25% renown, +25% damage taken                        2 stamina
@@ -224,19 +231,40 @@ window):
          tw //= 64
          d = tw % 8192  scenery
 
-### Tiles
+### Tiles — twenty-five of them
 
 | `a` | tile | effect |
 |---|---|---|
-| `0–29` | road | nothing (the breathing room) |
-| `30–57` | monster | engagement at level `ml` |
-| `58–65` | elite | engagement at `ml+2`, better drop |
-| `66–73` | hazard | chip damage unless dodged/sprinted |
-| `74–81` | cache | loot roll |
-| `82–86` | shrine | heal |
-| `87–91` | forge | auto-craft; buy a potion |
-| `92–98` | **fork** | the road splits — action `7` takes the right (greedier, re-rolls as elite) |
+| `0–17` | road | nothing (the breathing room) |
+| `18–35` | monster | engagement at level `ml` |
+| `36–42` | horde | DOUBLE the pull, one level down. Dodge cannot slip it — it only thins the pack back to a normal pull; only Sprint gets past |
+| `43–49` | elite | engagement at `ml+2`, better drop |
+| `50–54` | ambush | strikes FIRST: an armour-proof sting of `2·ml` unless you Guard or Dodge; the fight pays +25% renown for the danger |
+| `55–56` | **mimic** | the chest that bites: ONE body at `ml+2`, double its family's attack, ×4 renown — and it ALWAYS drops at boss grade. Dodge slips it (it cannot chase) |
+| `57–61` | hazard | chip damage unless dodged/sprinted (halved in evasive stance) |
+| `62–63` | **snare** | eats 3 STAMINA; Guard springs it on the shield — no loss, +2 scrap |
+| `64` | **quag** | deep mud: `1+tier` hp armour can't stop AND 2 stamina; Dodge hops the stones, Evasive wades at half |
+| `65–67` | gale | arms a 3-step storm: +25% renown out AND +25% damage in; Dodge shelters from it |
+| `68–69` | **tollgate** | the reeve takes `4 + xp/32` (~3% of everything you carry). STRIKE robs the strongbox — which re-rolls as the MIMIC. Dodge/Sprint dash the chain and take an armour-proof `2+2·tier` lash |
+| `70–73` | cache | loot roll |
+| `74–76` | **barrow** | dig for a +1-tier loot roll and eat the grave-curse (`2+2·tier`, armour-proof); Guard braces it to half, warding voids it |
+| `77–78` | **armory** | a loot roll FORCED to the weapon slot |
+| `79–80` | **vein** | Strike mines `4 + 2·tier + z%3` scrap; anything else walks past scenery |
+| `81–82` | **grove** | Rally communes: `2 + tier/2 + z%2` essence AND +1 streak — the only streak growth outside a fight |
+| `83–85` | shrine | heal (breaks the streak, like every heal) |
+| `86–87` | **well** | Rest drinks deep: stamina to FULL + a small heal (still a rest: streak breaks, renown spent); Potion BOTTLES it: +1 flask, streak kept |
+| `88–89` | **camp** | Rest here heals DOUBLE and costs no renown — the one free rest on the road |
+| `90–91` | idol | Strike SMASHES it for bloodlust-scaled renown; offering a potion pays TRIPLE (and costs the auto-drink lifeline) |
+| `92–93` | **pyre** | Strike lights the beacon: 3 steps of +25% renown out, no damage rider — the gale's generous twin, and they stack |
+| `94–96` | forge | auto-craft; buy a potion |
+| `97–98` | fork | the road splits — action `7` takes the right (greedier, re-rolls as elite) |
 | `99` | relic | guaranteed high-tier drop |
+
+Every new tile is a counter, an amplifier or a purchase — never scenery. The action set stays eight (a
+3-bit answer × 16 steps is a 48-bit word; a fourth bit would overflow the field), so the new tiles extend
+the actions **contextually**: Strike also robs, mines, smashes and lights; Rest drinks deep at wells and
+camps free; Guard springs snares and braces curses; Potion offers and bottles. One button, many meanings,
+disambiguated by what you are standing in front of — exactly like action 7 always was.
 
 `depth % 128 == 0` overrides with a **boss**: one big thing rather than a crowd, `ml+4`, ×12 renown,
 guaranteed drop, `+10` max HP — and a **checkpoint** that banks every point of renown you are carrying.
@@ -255,15 +283,31 @@ automatic so an absent player still progresses, the same way auto-equip works.
 The road has to outrun your growth or the correct play is to hide. At `//64` most runs finished the chapter;
 at `//32` roughly one in eight does, and the median run dies at depth 257.
 
-### Biome, horizon, weather
+### The five realms — the chain rolls the biome
 
-**Presentation** (client-side, from the same hashes, not consensus-critical):
+The road wanders five REALMS — **Greenwood → Fen → Crags → Ashway → Nether** — and the realm a leg wears
+is **rolled by the chain**: `biomeFor` (autogame-engine.js) hashes the leg's own terrain hash and drifts
+one realm either side of the depth stage, so the march darkens as the chapter deepens but never on a fixed
+schedule. Visible the moment the leg's terrain is, unknowable before it — the same fairness story as the
+tiles themselves.
 
-- **Biome** is a Markov walk stepped once per leg, not a per-tile roll, so regions persist for dozens of
-  steps — plains to forest to marsh — instead of flickering every block.
-- **Horizon** is value noise: one control point per leg, smoothstep-interpolated between consecutive legs, so
-  the skyline is continuous across block boundaries because adjacent legs share endpoints.
-- **Weather / time of day** run on slow accumulators off `depth`, so dusk actually falls.
+Like scenery, the biome is **presentation**: consensus never derives it (the contract's own precedent —
+"the renderer recomputes it from the same hash; consensus pays for nothing it does not decide"). What it
+decides is WHAT YOU MEET. Each realm keeps its own bestiary over the three contract families × two ranks:
+
+| realm | swarm (fam 0) | wall (fam 1) | spark (fam 2) | boss |
+|---|---|---|---|---|
+| greenwood | redcap · barghest | basilisk · moss troll | harpy · antler shaman | the elder treant |
+| fen | the drowned · grindylow | mire lurker · knucker | will-o-wisp · bog witch | the fen hydra |
+| crags | gargoyle · dread weaver | stone golem · pass ogre | geode imp · storm caller | the cyclops of the pass |
+| ashway | hellhound · ash ghoul | magma brute · iron revenant | fire imp · pyromancer | the ash dragon |
+| nether | grave shade · bone scuttler | flesh husk · crypt knight | veil eye · lich | the death herald |
+
+…plus the **mimic**, which follows the treasure everywhere. Thirty-six creatures, every one hand-authored
+in `static/autogame-art.js` with a breath loop, a wind-up, a strike, a crumple and a corpse — stats stay
+`(family, rank, level)`, exactly what the contract computes; the realm only decides which creature wears
+them. Family still owns the tactical read in every realm alike: the swarm is small and many, the wall is
+the swing you price aggression against, the spark reaches you at range.
 
 **Consensus-critical**: `night` (`(depth/64) % 2`) adds +1 to `ml`. Everything else is renderer-only.
 
@@ -286,7 +330,10 @@ across the room, and a relic drop looks like one.
 
 A chapter concludes on **death**, at **512 steps**, on **retiring**, or in the **mists** (§1). Score is
 banked renown plus what you carried out — all of it if you finished or retired on your feet, `DEATH_KEEP`%
-if you didn't. The rank ladder is MAMEC's (commoner → creator), rescaled to this curve.
+if you didn't. The rank ladder is twenty titles (peasant → creator), spaced against the simulated score
+distribution in `tests/autogame_balance.py`: the median finished run lands mid-table (veteran), king is a
+top-3% run, emperor top-1%, and demigod needs the kind of 1M+ storm only the ceiling builds ever print.
+Creator is `1<<40` — a joke that stays a joke.
 
 - **Free league** — anyone may march; daily faucet prizes to the top boards, on the existing
   `_lib.daily_post` / `daily_anchor` rail.
@@ -302,15 +349,75 @@ route, with a wildly different shape. `tests/autogame_balance.py` measures it:
 
 | build | finishes | median | p90 | max | identity |
 |---|---|---|---|---|---|
-| turtle (guarded/armour) | **71/80** | **257 050** | 266 912 | 274 143 | reliable income, almost no variance |
-| berserker (aggr/weapon) | 0/80 | 123 036 | **437 896** | **800 092** | glass cannon, dies around depth 129 |
-| skirmisher (evasive/armour) | 16/80 | 98 704 | 394 326 | 456 604 | hazard-immune, reaches checkpoints |
-| duelist (balanced/even) | 5/80 | 120 184 | 304 907 | 531 983 | the all-rounder |
-| vampire (balanced/weapon) | 1/80 | 102 268 | 287 526 | 564 013 | lifesteal sustain, high variance |
+| berserker (aggr/weapon) | 8/80 | 290 960 | **896 699** | **1 234 753** | the ceiling |
+| warmonger (aggr/armour) | 15/80 | 241 680 | 748 165 | 974 730 | sustainable aggression |
+| duelist (balanced/armour) | 38/80 | 271 573 | 542 269 | 580 677 | the best floor |
+| vanguard (balanced/weapon) | 14/80 | 225 556 | 704 019 | 1 029 320 | balanced greed |
+| turtle (guarded/armour) | **66/80** | 334 948 | 365 218 | 406 558 | the consistency king |
+| grinder (guarded/weapon) | 43/80 | **429 910** | 522 734 | 554 494 | safe volume farming |
+| skirmisher (evasive/weapon) | 19/80 | 239 528 | 764 526 | 1 060 871 | hit-and-run greed |
+| scout (evasive/armour) | 27/80 | 179 666 | 520 406 | 704 325 | the safe ceiling |
+| stormrider (gale-leaning) | 4/80 | 305 718 | 748 373 | 1 407 955 | rides the amplifiers |
+| zealot (idol offerings) | 56/80 | 322 536 | 354 229 | 373 031 | feeds the idols |
 
-Ceiling spread 1.64×. The turtle has the best median and the *worst* ceiling; the berserker is the exact
-inverse. And a bloodlust-aware pilot beats the best fixed dial on both counts (123 937 / 511 761 vs
-115 544), which is the skill cap doing its job.
+Dials are the per-stance optima from a grid search, so the table judges the mechanics rather than a
+parameterization. The harness enforces its gates on every run:
+
+1. **Pareto** — no archetype clearly worse than another everywhere (each owns a point on the
+   risk/consistency frontier);
+2. **no dominant brush** — a pilot answering EVERY tile with one action must not beat the road-reading
+   pilot's ceiling. This gate has now forced FOUR balance changes: Guard covers only TWO foes' swings,
+   costs 2 stamina and pauses the streak — and **Rally lost its stamina refund** (at net-1 stamina the
+   all-rally brush was self-sustaining and crowned the easiest route through the chapter; at its full 3
+   it must be rationed);
+3. **rank ceiling** — on the simulated population, king is reached by <5% of runs, emperor <2%,
+   demigod <1% (measured: 0.3% / 0.3% / 0.2%).
+
+The 25-tile world runs through a **deep probe** on top (same file, last sections): per-tile counter
+ablations (11/13 pay for themselves — the toll had to scale with the carried pile and the vein's yield
+doubled before theirs did), synergy measures (reading the economy tiles adds ~5.5 crafted levels per
+chapter; the grove is the only streak growth outside a fight; pyre stacks on gale on streak), and
+addictivity bands: 73% of deaths land in sight of the bank (the story a player retells), readers answer
+half their tiles, and the p99 run earns ~6× the median — lottery enough to chase, not so wild the ladder
+is luck.
+
+---
+
+## 6b. The Daily Gauntlet — a free, provable board
+
+The march is the staked game and the chain paces it: one leg per `LEG` blocks, for as long as you keep
+walking. That pacing is the whole point of it — and it is also exactly why the march can never *be* a daily
+leaderboard, which wants everyone walking the same road on the same day.
+
+So the **Daily Gauntlet** is the same rules with the pacing removed. A player gets one fixed 124-step road
+for the UTC day, seeded by the day's on-chain anchor **and their own address**, and walks the whole thing in
+the browser at their own speed, free. The run is posted as a claim carrying the score *and* the packed move
+list; every browser and the faucet distributor replay it through the same engine and drop any claim whose
+replay does not reproduce the score. The faucet pays yesterday's verified top of the board automatically.
+
+Two properties make it forgery-proof, both from `static/provable.js`'s standard rail:
+- the seed binds the **day anchor** (`_lib.daily_anchor`: pin a future L1 height, then store its hash
+  forever — no verifier ever needs L1 history), so the road is unknowable before the day starts;
+- the seed binds the **poster's address**, so a claim is non-transferable — reposting someone else's move
+  list under your own address produces a different run and a different score.
+
+Autogame qualifies for a provable board on `provable.js`'s own soundness rule (search-hard games only): the
+road is visible at play time, but choosing 124 reactions to maximise a compounding renown/gear/streak/stamina
+economy — with a live cash-out decision at every step — is a planning problem, not an RNG stream you can read
+off.
+
+Everything runs through **one** engine: `static/autogame-daily.js` walks `autogame-engine.step`, the same
+function the march animates and the contract is diff-tested against; it never restates a rule. The board's
+two methods (`post`, `anchor`) are the shared `_lib` routines mounted on the contract verbatim via
+`zkpy.Contract.asm()`. Files: `autogame-daily.js` (rules), `autogame-dailyui.js` (SDK panel),
+`tests/autogame_daily_verify.mjs` (the faucet oracle), `tests/autogame_daily_play.mjs`,
+`_autogame_daily_e2e.py` (the whole rail live: anchor → play → post → the distributor ranks it → a stolen
+claim does not).
+
+> One subtlety worth carrying: a day anchor is a field element up to 2^64, and JSON has no integers, so a
+> JavaScript verifier reads it as a rounded double while Python keeps every digit. Every verifier is
+> JavaScript, so they all agree — but the anchor is *defined* as what the verifiers read, so anything that
+> handles it (the play harness) reads it in JavaScript too, never hands in a Python-exact string.
 
 ---
 
@@ -325,7 +432,7 @@ Deployed contract id: **`ba8bebc9693f5aaec0e338a13d5812c4`** (`autogame.nadochai
 | JS engine | `static/autogame-engine.js` | client prediction, animation, independent verification |
 | balance sim | `tests/autogame_balance.py` | economy harness (see its header) |
 | generated rules | `static/autogame-rules.js` | emitted from the contract; the browser's copy of every constant |
-| pixel art | `static/autogame-art.js` | the layered warrior — gear composes the silhouette |
+| pixel art | `static/autogame-art.js` | the whole sprite world, ground-up: the wayfarer (gear composes the silhouette), 36 realm creatures, 18 animated props, gore, six fatalities — one primitive (fillRect), deterministic, verified by `tests/autogame_art_verify.mjs` |
 | live e2e | `_autogame_e2e.py` | the whole loop against the running node |
 
 `tests/autogame_contract_test.py` runs the contract and the Python model over the same hashes and asserts

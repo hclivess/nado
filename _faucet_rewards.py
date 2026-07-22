@@ -38,6 +38,7 @@ GAMES = [
     (10, "245392ed584d5fc88546d496ce05f47c", "connect4-daily"),   # connect four Daily Drop (free solo-vs-bot, replay-verified)
     (11, "20931f1cbce1f1040f9d0c8f6c78c29c", "reversi-daily"),    # reversi Daily Flip (free solo-vs-bot, replay-verified)
     (12, "bd279df315335d99fdc6b91e623895f4", "tictactoe-daily"),  # tic-tac-toe Daily Three (free solo-vs-bot, replay-verified)
+    (13, "ba8bebc9693f5aaec0e338a13d5812c4", "autogame-daily"),   # autogame Daily Gauntlet (free 124-step march, replay-verified)
 ]
 # Provable free-play boards: kind -> the node replay oracle that ranks yesterday's verified claims.
 # The value is an ARGV PREFIX (cid + day are appended), so one oracle can serve several games — the three
@@ -47,7 +48,8 @@ DAILY_VERIFY = {"hexholm-daily": ["tests/hexholm_daily_verify.mjs"],
                 "battleship-daily": ["tests/battleship_daily_verify.mjs"],
                 "tictactoe-daily": ["tests/board_daily_verify.mjs", "tictactoe"],
                 "connect4-daily": ["tests/board_daily_verify.mjs", "connect4"],
-                "reversi-daily": ["tests/board_daily_verify.mjs", "reversi"]}
+                "reversi-daily": ["tests/board_daily_verify.mjs", "reversi"],
+                "autogame-daily": ["tests/autogame_daily_verify.mjs"]}
 SHIPS = 17
 
 def j(u): return json.load(urllib.request.urlopen(u, timeout=12))

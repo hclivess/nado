@@ -68,17 +68,39 @@ def ck(name, cond, extra=""):
         FAILS.append(name)
 
 
-def call(method, args, value=0):
+def call(method, args, value=0, applied=None, tries=4):
+    """Submit — and when given an `applied` predicate, keep RESUBMITTING until the chain shows the effect.
+    A pool-accepted tx is not a landed tx: the first manual-flow run of this script lost its begin() in the
+    pool and sat four minutes waiting on a run that was never going to exist. Every method here is
+    idempotent-by-guard (a duplicate begin/commit/plan/advance reverts rather than double-acting), so
+    resubmitting on a state predicate is safe."""
     p = {"op": "call", "contract": CID, "method": method, "args": args}
     if value:
         p["value"] = int(value)
-    for _ in range(8):
-        r = post(construct_blob_tx(K, p, tip() + 12, MIN_TX_FEE, min_block=tip() + TX_INCLUSION_DELAY))
-        if r.get("result"):
+    for _attempt in range(tries):
+        for _ in range(8):
+            # tip+40, not tip+12: max_block is the tx's EXPIRY, and a ~72-second life loses the race whenever
+            # gossip to the actual producer is slow — tonight that meant three resubmits per call. The wide
+            # window is safe here (all methods are idempotent-by-guard, a stale duplicate just reverts).
+            r = post(construct_blob_tx(K, p, tip() + 40, MIN_TX_FEE, min_block=tip() + TX_INCLUSION_DELAY))
+            if r.get("result"):
+                break
+            print("   retry", method, r.get("message"), flush=True)
+            time.sleep(12)
+        else:
+            print("   [GIVEUP submit]", method, flush=True)
+            sys.exit(1)
+        if applied is None:
             return r
-        print("   retry", method, r.get("message"), flush=True)
-        time.sleep(12)
-    print("   [GIVEUP]", method, flush=True)
+        for _ in range(14):
+            time.sleep(8)
+            try:
+                if applied():
+                    return r
+            except Exception:
+                pass
+        print(f"   {method} accepted but never landed — resubmitting", flush=True)
+    print("   [GIVEUP landed]", method, flush=True)
     sys.exit(1)
 
 
@@ -122,149 +144,207 @@ print("autogame e2e as", ME, flush=True)
 wait(lambda: j(EX + f"/exec/contract?ns=default&cid={CID}").get("cid") == CID, "contract live", 900)
 
 RID = int(time.time()) % 900000000 + 1
-print(f"\n1. set out (run {RID})", flush=True)
-cursor_at_begin = cursor()          # captured BEFORE the call: the pin is future-relative to THIS, and by
-                                    # the time the run is visible the cursor has naturally moved past it
-call("begin", [RID])
+AGG, STANCE, FOCUS, HEAL = 3, 1, 70, 40
+
+
+def peek_tiles(s, rid, lh):
+    """The 16 tile classes of the pending leg — derived from the terrain hash exactly as the road strip
+    derives them, because building the answer word from what you can SEE is the whole game."""
+    th = blockhash(lh)
+    d0 = field(s, "dp", rid)
+    out = []
+    for i in range(A.LEG):
+        a, _b, _c, _sc = M.slice_tile(alghash.hashn([th, rid, i]) & 0xFFFFFFFF)
+        out.append(M.tile_of(a, d0 + i))
+    return out
+
+
+def word_of(acts):
+    w = 0
+    for i, a in enumerate(acts):
+        w |= (a & 7) << (3 * i)
+    return w
+
+
+# per-class answers that exercise the NEW tiles too: guard the ambush (blocks the sting), sprint the
+# horde (the only slip), dodge the gale (shelter), offer at the idol
+CLASSMAP = {M.MONSTER: A.A_STRIKE, M.HORDE: A.A_SPRINT, M.ELITE: A.A_GUARD, M.AMBUSH: A.A_GUARD,
+            M.HAZARD: A.A_DODGE, M.GALE: A.A_DODGE, M.IDOL: A.A_POTION, M.FORK: A.A_RIGHT}
+
+print(f"\n1. set out (run {RID}) — begin() ARMS the march itself now", flush=True)
+# MANUAL-ONLY: there is no auto mode and no doctrine. begin() pins the terrain window immediately (the
+# two-step "begin, then find the second button" lost three real players to runs stuck at lh=0), and the
+# dice stay unscheduled until the sixteen visible tiles are answered with commit().
+cursor_at_begin = cursor()
+call("begin", [RID], applied=lambda: owner(sto(), RID) == ME)
 wait(lambda: owner(sto(), RID) == ME, "run exists", 900)
 s = sto()
-lh, nh = field(s, "lh", RID), field(s, "nh", RID)
 ck("the run is mine", owner(s, RID) == ME, owner(s, RID)[:18])
 ck("starts at full health", field(s, "hp", RID) == A.HP0, f"hp={field(s, 'hp', RID)}")
-ck("terrain height was pinned in the FUTURE", lh > cursor_at_begin,
+lh = field(s, "lh", RID)
+ck("begin armed the march (terrain pinned in the future)", lh > cursor_at_begin,
    f"lh={lh} cursor_at_begin={cursor_at_begin}")
-ck("rolling height is one leg later", nh == lh + A.LEG, f"lh={lh} nh={nh}")
+ck("...but scheduled NO dice — the march waits for answers", field(s, "nh", RID) == 0,
+   f"nh={field(s, 'nh', RID)}")
 
-print("\n2. find a leg whose plan window is still OPEN, and read its committed road", flush=True)
-# The exec layer trails L1 by a finality window and catches up in BULK, so it can blow past both lh and nh
-# between two polls. That is an environment condition, not a protocol failure — the fairness property is
-# enforced by the contract (step 7 proves a stale plan is refused), not by this test winning a race. So
-# rather than assert a window that may already have closed, walk forward until one is genuinely open.
-def leg_window():
-    s_ = sto()
-    return field(s_, "lg", RID), field(s_, "lh", RID), field(s_, "nh", RID)
+print("\n2. set the dials (optional — begin ships playable defaults)", flush=True)
+call("plan", [RID, AGG, STANCE, FOCUS, HEAL],
+     applied=lambda: field(sto(), "sn", RID) == STANCE and field(sto(), "fo", RID) == FOCUS)
+wait(lambda: field(sto(), "sn", RID) == STANCE and field(sto(), "fo", RID) == FOCUS, "dials landed", 900)
+s = sto()
+ck("all four dials landed in ONE call",
+   field(s, "pa", RID) == AGG and field(s, "sn", RID) == STANCE
+   and field(s, "fo", RID) == FOCUS and field(s, "hl", RID) == HEAL,
+   f"agg={field(s, 'pa', RID)} stance={field(s, 'sn', RID)} focus={field(s, 'fo', RID)} heal={field(s, 'hl', RID)}")
 
-
-LEGN, lh, nh = leg_window()
-for _ in range(12):
-    wait(lambda: cursor() >= lh, f"terrain height {lh} mined", 900)
-    if cursor() < nh:
-        break                                   # the dice for this leg do not exist yet — window open
-    print(f"   leg {LEGN}: exec already past nh={nh} (cursor {cursor()}) — settling it and trying the next",
-          flush=True)
-    call("advance", [RID])
-    wait(lambda: field(sto(), "lg", RID) > LEGN, f"leg {LEGN} settled", 900)
-    if not field(sto(), "av", RID):
-        print("   the run died before a window opened — nothing left to plan", flush=True)
-        break
-    LEGN, lh, nh = leg_window()
-
-ck("found a leg with the dice still unknown", cursor() < nh, f"cursor={cursor()} nh={nh} leg={LEGN}")
-th = blockhash(lh)
-road = []
-base_depth = field(sto(), "dp", RID)
-for i in range(A.LEG):
-    tw = alghash.hashn([th, RID, i]) & 0xFFFFFFFF
-    a, b, c, _sc = M.slice_tile(tw)
-    road.append(M.tile_of(a, base_depth + i))
-names = [["road", "monster", "elite", "hazard", "cache", "shrine", "forge", "fork", "relic", "boss"][t]
-         for t in road]
+print("\n3. read the committed road and ANSWER it, tile by tile", flush=True)
+wait(lambda: cursor() >= lh, f"terrain height {lh} mined", 900)
+s = sto()
+tiles = peek_tiles(s, RID, lh)
+names = [["road", "monster", "horde", "elite", "ambush", "hazard", "gale", "cache", "shrine", "idol",
+          "forge", "fork", "relic", "boss"][t]
+         for t in tiles]
 print("   road ahead:", " ".join(names), flush=True)
-ck("the committed road is readable while the dice are still unknown", len(road) == A.LEG and cursor() < nh,
-   f"cursor={cursor()} nh={nh}")
+answers = [CLASSMAP.get(t, A.A_DEFAULT) for t in tiles]
+WORD = word_of(answers)
+ck("the road is readable from a hash that is already final", len(tiles) == A.LEG)
 
-print("\n3. queue a plan against terrain we can see", flush=True)
-acts = [A.A_STRIKE if t in (M.MONSTER, M.ELITE) else A.A_GUARD if t == M.HAZARD else 0 for t in road]
-word = 0
-for i, a in enumerate(acts):
-    word |= (a & 7) << (3 * i)
-AGG = 3
-call("plan", [RID, LEGN, word, AGG])
-time.sleep(20)
+cursor_at_commit = cursor()
+call("commit", [RID, WORD], applied=lambda: field(sto(), "nh", RID) != 0)
+wait(lambda: field(sto(), "nh", RID) != 0, "committing the answers scheduled the dice", 900)
+s = sto()
+nh = field(s, "nh", RID)
+ck("the dice are in the FUTURE relative to the commit", nh > cursor_at_commit,
+   f"nh={nh} cursor_at_commit={cursor_at_commit}")
+ck("the answer word is mirrored readably for the animator (cw/cl)",
+   field(s, "cw", RID) == WORD and field(s, "cl", RID) == field(s, "lg", RID),
+   f"cw={field(s, 'cw', RID)} want={WORD}")
 
-print("\n4. wait for the rolling height and settle", flush=True)
+print(f"\n4. wait for the rolling height {nh} and settle", flush=True)
 wait(lambda: cursor() >= nh, f"rolling height {nh} mined", timeout=900)
 rh = blockhash(nh)
 before = sto()                      # the run as it stood going INTO this leg
 depth_before = field(before, "dp", RID)
-call("advance", [RID])
+LEGN = field(before, "lg", RID)
+call("advance", [RID], applied=lambda: field(sto(), "lg", RID) > LEGN)
 wait(lambda: field(sto(), "lg", RID) > LEGN, "leg settled", 900)
 
 print("\n5. does the chain agree with the reference model?", flush=True)
 s = sto()
-run0_stance = field(before, "sn", RID)
-run0_heal = field(before, "hl", RID) or 35
-run0_focus = field(before, "fo", RID) if (before.get("fo") or {}) else 50
-run = M.Run(stance=run0_stance, healpct=run0_heal, focus=run0_focus)
 # seed the model from the run as it stood BEFORE this leg, so the comparison is of one leg's work
-run.hp, run.maxhp = field(before, "hp", RID), field(before, "mx", RID)
-run.stam, run.potions = field(before, "st", RID), field(before, "po", RID)
-run.xp, run.banked, run.streak = field(before, "xp", RID), field(before, "bk", RID), field(before, "sk", RID)
-run.depth, run.kills = field(before, "dp", RID), field(before, "ki", RID)
-run.wlevel, run.alevel = field(before, "wl", RID) or 1, field(before, "al", RID) or 1
+run = M.Run(stance=STANCE, focus=FOCUS, healpct=HEAL)
+run.agg = AGG
+run.hp = field(before, "hp", RID)
+run.maxhp = field(before, "mx", RID)
+run.stam = field(before, "st", RID)
+run.potions = field(before, "po", RID)
+run.xp = field(before, "xp", RID)
+run.banked = field(before, "bk", RID)
+run.streak = field(before, "sk", RID)
+run.depth = depth_before
+run.kills = field(before, "ki", RID)
+run.wlevel = field(before, "wl", RID) or 1
+run.alevel = field(before, "al", RID) or 1
 run.mats = [field(before, "m0", RID), field(before, "m1", RID), field(before, "m2", RID)]
 run.gear = [field(before, f"g{i}", RID) for i in range(A.NSLOT)]
+th = blockhash(lh)
 for i in range(A.LEG):
     if not run.alive or run.done:
         break
     tw = alghash.hashn([th, RID, i]) & 0xFFFFFFFF
     rw = alghash.hashn([rh, RID, i]) & 0xFFFFFFFF
-    M.step(run, tw, rw, acts[i], AGG)
-
-got = {k: field(s, v, RID) for k, v in
-       (("hp", "hp"), ("maxhp", "mx"), ("stam", "st"), ("potions", "po"), ("xp", "xp"), ("banked", "bk"),
-        ("streak", "sk"), ("depth", "dp"), ("kills", "ki"), ("alive", "av"), ("wlevel", "wl"),
-        ("alevel", "al"))}
-want = {"hp": run.hp, "maxhp": run.maxhp, "stam": run.stam, "potions": run.potions, "xp": run.xp,
-        "banked": run.banked, "streak": run.streak, "depth": run.depth, "kills": run.kills,
-        "alive": run.alive, "wlevel": run.wlevel, "alevel": run.alevel}
-bad = [k for k in want if got[k] != want[k]]
-for k in want:
-    ck(f"{k} matches the model", got[k] == want[k], f"chain={got[k]} model={want[k]}")
-
-if bad:
-    # A call can SUBMIT fine and still revert on-chain, which looks exactly like success from here — and a
-    # plan word is hash-keyed, so it cannot be read back out of the storage view to check. Replay the leg as
-    # if no plan had landed: if THAT matches the chain, the contract is fine and the plan tx was the problem
-    # (submitted after the window closed, or reverted), which is a completely different bug to chase.
-    unplanned = M.Run(stance=run0_stance, healpct=run0_heal, focus=run0_focus)
-    unplanned.hp, unplanned.maxhp = field(before, "hp", RID), field(before, "mx", RID)
-    unplanned.stam, unplanned.potions = field(before, "st", RID), field(before, "po", RID)
-    unplanned.xp = field(before, "xp", RID)
-    unplanned.banked, unplanned.streak = field(before, "bk", RID), field(before, "sk", RID)
-    unplanned.depth, unplanned.kills = field(before, "dp", RID), field(before, "ki", RID)
-    unplanned.wlevel = field(before, "wl", RID) or 1
-    unplanned.alevel = field(before, "al", RID) or 1
-    unplanned.mats = [field(before, "m0", RID), field(before, "m1", RID), field(before, "m2", RID)]
-    unplanned.gear = [field(before, f"g{i}", RID) for i in range(A.NSLOT)]
-    for i in range(A.LEG):
-        if not unplanned.alive or unplanned.done:
-            break
-        M.step(unplanned, alghash.hashn([th, RID, i]) & 0xFFFFFFFF,
-               alghash.hashn([rh, RID, i]) & 0xFFFFFFFF, 0, 1)
-    same_unplanned = all(got[k] == v for k, v in
-                         (("hp", unplanned.hp), ("xp", unplanned.xp), ("kills", unplanned.kills),
-                          ("streak", unplanned.streak)))
-    print("   DIAGNOSIS: " + ("the chain matches an UNPLANNED leg — the contract is fine and the plan tx "
-                              "never took effect (window closed, or it reverted)"
-                              if same_unplanned else
-                              "the chain matches neither the planned nor the unplanned replay — this is a "
-                              "real divergence between the contract and the model"), flush=True)
+    M.step(run, tw, rw, action=answers[i])
+pairs = [("hp", "hp"), ("mx", "maxhp"), ("st", "stam"), ("po", "potions"), ("xp", "xp"), ("bk", "banked"),
+         ("sk", "streak"), ("dp", "depth"), ("ki", "kills"), ("lv", "alive"), ("wl", "wlevel"),
+         ("al", "alevel")]
+diffs = [(fk, field(s, fk, RID), getattr(run, mk)) for fk, mk in pairs
+         if field(s, fk, RID) != getattr(run, mk)]
+ck("every field matches the model, step for step", not diffs,
+   str(diffs) if diffs else "real divergence between the contract and the model")
 gear = [field(s, f"g{i}", RID) for i in range(A.NSLOT)]
 ck("gear matches the model", gear == list(run.gear), f"chain={gear} model={list(run.gear)}")
 print(f"   depth {run.depth}  hp {run.hp}/{run.maxhp}  renown {run.xp}  kills {run.kills}", flush=True)
 
-print("\n6. the leg window slid forward", flush=True)
+print("\n6. after settling, the march PARKS and waits for the next answers", flush=True)
 s = sto()
 ck("leg counter advanced", field(s, "lg", RID) == LEGN + 1, f"lg={field(s, 'lg', RID)}")
-ck("terrain height became the old rolling height", field(s, "lh", RID) == nh)
-ck("next rolling height is one leg on", field(s, "nh", RID) == nh + A.LEG)
+ck("terrain slid: the old dice became the new road", field(s, "lh", RID) == nh)
+ck("no new dice were scheduled — that is YOUR move, nobody else's", field(s, "nh", RID) == 0,
+   f"nh={field(s, 'nh', RID)}")
 
-print("\n7. a stale plan is refused (the fairness window)", flush=True)
-p = {"op": "call", "contract": CID, "method": "plan", "args": [RID, LEGN, word, AGG]}
-r = post(construct_blob_tx(K, p, tip() + 12, MIN_TX_FEE, min_block=tip() + TX_INCLUSION_DELAY))
-time.sleep(25)
-ck("planning an already-settled leg does not move the run", field(sto(), "lg", RID) == LEGN + 1)
+if field(s, "lv", RID) == 1 and not field(s, "dn", RID):
+    print("\n7. dials re-tuned late cannot rewrite the NEXT leg either — and a second leg walks", flush=True)
+    lh2 = field(s, "lh", RID)
+    wait(lambda: cursor() >= lh2, f"terrain {lh2} visible", 900)
+    s = sto()
+    tiles2 = peek_tiles(s, RID, lh2)
+    answers2 = [CLASSMAP.get(t, A.A_DEFAULT) for t in tiles2]
+    call("commit", [RID, word_of(answers2)], applied=lambda: field(sto(), "nh", RID) != 0)
+    wait(lambda: field(sto(), "nh", RID) != 0, "second leg's dice scheduled", 900)
+    nh2 = field(sto(), "nh", RID)
+    # Re-tune only once the dice are PUBLIC. Submitting "late" in wall-time is not enough: the fence
+    # compares the cursor the plan LANDS at against nh2, and a plan submitted during the leg's sixteen-block
+    # flight usually lands inside it — at which point the new dials legitimately govern the leg and the
+    # comparison below would be testing nothing (the first live run of this script failed exactly there,
+    # blaming a fence that had behaved perfectly). Waiting for nh2 first makes the claim the sharp one:
+    # dials set after the roll is PUBLIC cannot rewrite the leg that roll belongs to.
+    wait(lambda: cursor() >= nh2, f"rolling height {nh2} mined (dice now public)", 900)
+    call("plan", [RID, 1, 2, 10, 90], applied=lambda: field(sto(), "pa", RID) == 1)
+    wait(lambda: field(sto(), "pa", RID) == 1, "late dials landed", 900)
+    ck("the superseded generation was retired intact",
+       field(sto(), "qa", RID) == AGG and field(sto(), "qs", RID) == STANCE,
+       f"qa={field(sto(), 'qa', RID)} qs={field(sto(), 'qs', RID)}")
+    polh = field(sto(), "ph", RID)
+    ck("the late dials really did land after the roll (or this proves nothing)", polh >= nh2,
+       f"polh={polh} nh2={nh2}")
+    before2 = sto()
+    LEG2 = field(before2, "lg", RID)
+    call("advance", [RID], applied=lambda: field(sto(), "lg", RID) > LEG2)
+    wait(lambda: field(sto(), "lg", RID) > LEG2, "second leg settled", 900)
+    s = sto()
+    run2 = M.Run(stance=STANCE, focus=FOCUS, healpct=HEAL)          # the OLD dials — the fence's choice
+    run2.agg = AGG
+    for fk, mk in (("hp", "hp"), ("mx", "maxhp"), ("st", "stam"), ("po", "potions"), ("xp", "xp"),
+                   ("bk", "banked"), ("sk", "streak"), ("dp", "depth"), ("ki", "kills"),
+                   ("wl", "wlevel"), ("al", "alevel")):
+        setattr(run2, mk, field(before2, fk, RID) or (1 if mk in ("wlevel", "alevel") else 0))
+    run2.mats = [field(before2, "m0", RID), field(before2, "m1", RID), field(before2, "m2", RID)]
+    run2.gear = [field(before2, f"g{i}", RID) for i in range(A.NSLOT)]
+    th2, rh2 = blockhash(lh2), blockhash(nh2)
+    for i in range(A.LEG):
+        if not run2.alive or run2.done:
+            break
+        tw = alghash.hashn([th2, RID, i]) & 0xFFFFFFFF
+        rw = alghash.hashn([rh2, RID, i]) & 0xFFFFFFFF
+        M.step(run2, tw, rw, action=answers2[i])
+    diffs2 = [(fk, field(s, fk, RID), getattr(run2, mk)) for fk, mk in pairs
+              if field(s, fk, RID) != getattr(run2, mk)]
+    ck("the in-flight leg resolved under the OLD dials (the fence held)", not diffs2, str(diffs2))
+else:
+    print("\n7. (the run ended on leg 1 — the fence is covered by the contract tests)", flush=True)
+
+print("\n8. a run that ENDS lets you set out again", flush=True)
+# Retire is the deterministic way to end one (dying is not something a test can schedule); what matters
+# afterwards is identical either way: the old run must be closed and a fresh one claimable and WALKING.
+if field(sto(), "lv", RID) == 1 and not field(sto(), "dn", RID):
+    call("retire", [RID], applied=lambda: field(sto(), "rt", RID) == 1)
+    wait(lambda: field(sto(), "rt", RID) == 1, "run retired", 900)
+s = sto()
+banked = field(s, "bk", RID)
+RID2 = (RID + 7) % 900000000 + 1
+print(f"   setting out again as run {RID2}", flush=True)
+cursor_at_begin2 = cursor()
+call("begin", [RID2], applied=lambda: owner(sto(), RID2) == ME)
+wait(lambda: owner(sto(), RID2) == ME, "the SECOND run exists", 900)
+s = sto()
+ck("the new run is mine", owner(s, RID2) == ME, owner(s, RID2)[:18])
+ck("the new run starts fresh, not carrying the old one's state",
+   field(s, "hp", RID2) == A.HP0 and field(s, "dp", RID2) == 0 and field(s, "xp", RID2) == 0,
+   f"hp={field(s, 'hp', RID2)} dp={field(s, 'dp', RID2)} xp={field(s, 'xp', RID2)}")
+ck("the new run is armed from birth and waiting on its first answers",
+   field(s, "lh", RID2) > cursor_at_begin2 and field(s, "nh", RID2) == 0,
+   f"lh={field(s, 'lh', RID2)} nh={field(s, 'nh', RID2)}")
+ck("the old run was NOT reopened", field(s, "bk", RID) == banked)
 
 print("\n" + ("ALL PASS" if not FAILS else f"{len(FAILS)} FAILURES: " + ", ".join(FAILS)), flush=True)
 sys.exit(1 if FAILS else 0)

@@ -16,7 +16,7 @@
 // MOVE ENCODING (enc = op + payload·16):
 //   op 1 PICK  payload = choice(0..2) + 4·slot(0..5)
 //   op 2 SKIP  scrap the whole offer for max HP (8 + 4·round, cap 50)
-import { blake2bHash } from "./nadotx.js";
+import { blake2bHash } from "./nadotx.js?v=6d199166";
 
 const H = (v) => BigInt("0x" + blake2bHash(v));
 
@@ -320,7 +320,7 @@ export function soloPick(run, choice, slot) {
 // POSTER'S ADDRESS (claims are non-transferable — copying the day's best move list verifies only for its
 // owner). The contract stores claims blindly; every browser verifies by REPLAYING the run and silently
 // drops claims that don't reproduce (posting costs a tx fee, which caps spam).
-import { packMoves, unpackMoves, provableSeed } from "./provable.js";
+import { packMoves, unpackMoves, provableSeed } from "./provable.js?v=a13bb487";
 export const ATT_PER_WORD = 10, MAX_WORDS = 8, MAX_ATT = ATT_PER_WORD * MAX_WORDS;
 export const packChoices = (choices) => {
   const padded = choices.slice();

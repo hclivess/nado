@@ -24,7 +24,7 @@
 //   const book = new Book(dapp, { idKey: "market", stride: 8, unit: 10000n });
 //   const b = book.read(sto, id, nOutcomes);
 //   book.maxBack(b, i);  book.post(id, raw);  book.quote(id, i, 250);  book.back(id, i, raw, label);
-import { _m, $, rawToNado, gate, canPay, alertBar, notify, confirmingLabel, disp, esc } from "./nadodapp.js";
+import { _m, $, rawToNado, gate, canPay, alertBar, notify, confirmingLabel, disp, esc } from "./nadodapp.js?v=4984604e";
 
 const _t = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("book." + k, d, v) : d;
 

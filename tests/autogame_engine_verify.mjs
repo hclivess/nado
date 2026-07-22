@@ -25,11 +25,11 @@ const FIELDS = ["hp", "maxhp", "stam", "potions", "xp", "banked", "streak", "dep
 let checked = 0;
 for (const c of cases) {
   const run = E.newRun({ stance: c.stance, healpct: c.healpct, focus: c.focus });
-  run.doctrine = c.doctrine;
   run.agg = c.agg;
   for (let n = 0; n < c.steps.length; n++) {
     const s = c.steps[n];
-    E.step(run, s.tw, s.rw, s.doctrine, s.agg);
+    // manual-only: the per-step ACTION is the whole order; the dials ride on the run itself
+    E.step(run, s.tw, s.rw, s.agg, null, null, null, s.act);
     const want = s.after;
     for (const f of FIELDS) {
       if (run[f] !== want[f]) {

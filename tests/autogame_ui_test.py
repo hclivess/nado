@@ -107,6 +107,30 @@ async def run():
                          "if(d[i])k++;return k;})()") or 0) > 500,
                "the warrior is actually drawn, not an empty box")
 
+            # the two modes: the SDK mode bar, and switching to the free Daily Gauntlet must swap the cards
+            # (this is the bug class that showed twelve other games an empty board when the mode decision was
+            # made per-game — here it is one gate() over each mode's cards)
+            ck(await ev("document.querySelectorAll('#modes .modetab').length >= 2"),
+               "the march / Daily Gauntlet mode bar is built")
+            await ev("document.querySelectorAll('#modes .modetab')[1].click()")
+            await asyncio.sleep(1.5)
+            ck(not await ev("document.getElementById('dailyWrap')?.classList.contains('hidden')"),
+               "switching to the Gauntlet shows its card")
+            # the road strip is SHARED between the modes on purpose — the Gauntlet is the march at your own
+            # pace, played on the same surface (a player called out the separate panel on sight). What must
+            # swap is the mode-specific config/boards, not the play surface.
+            ck(not await ev("document.getElementById('roadcard')?.classList.contains('hidden')"),
+               "...the road strip stays — it is the shared play surface")
+            # the dials card is shared too now ("Battle orders" drives the Gauntlet's loadout, snapped to
+            # the claim's eight rungs) — the ONLY march-only card left is its board
+            ck(not await ev("document.getElementById('dialscard')?.classList.contains('hidden')")
+               and await ev("document.getElementById('marchBoardWrap')?.classList.contains('hidden')"),
+               "...the dials stay too; only the march's board swaps out")
+            ck(bool(await ev("document.getElementById('dailyCard')?.textContent.trim()")),
+               "the signed-out Gauntlet card explains itself (SDK dailyFrame)")
+            await ev("document.querySelectorAll('#modes .modetab')[0].click()")
+            await asyncio.sleep(1)
+
             # the one that matters: a signed-out click must SAY something
             await ev(f"document.getElementById('alertBar')?.remove()")
             await ev("document.getElementById('beginBtn').click()")

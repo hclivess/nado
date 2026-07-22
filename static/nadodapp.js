@@ -13,8 +13,8 @@
 //   dapp.call("bet", [g, t, ...args], stakeRaw, "human label", { table: t, phase: "bet" });
 //   await dapp.refresh();                    // dapp.me, dapp.exec, dapp.l1, dapp.cursor
 //   const sto = await dapp.storage();        // the contract's storage maps
-import { loadCrypto, blake2bHash } from "./nadotx.js";
-import * as alghash from "./alghash.js";
+import { loadCrypto, blake2bHash } from "./nadotx.js?v=6d199166";
+import * as alghash from "./alghash.js?v=849f345a";
 export { loadCrypto, blake2bHash };
 
 export const RAW = 10n ** 10n;                 // 1 NADO = 1e10 raw units
@@ -771,7 +771,9 @@ export class NadoDapp {
     this.LS_ME = "nado_" + slug + "_me"; this.LS_P = "nado_" + slug + "_pending"; this.LS_INVITE = "nado_" + slug + "_invite";
     this.LS_CLICK = "nado_" + slug + "_clickpend";   // the click-time pending registry (see busy/pending)
     this.LS_AUTOCOLLECT = "nado_" + slug + "_autocollect";   // opt-out flag for auto-collect (default ON)
-    this._autoTried = new Set();   // settle targets already attempted this session (stops a rejected settle looping)
+    this._autoTried = new Map();   // settle key -> last attempt ms (stops a rejected settle machine-gunning,
+                                   // but lets a DROPPED one retry — fire-once-per-session stalled flows for
+                                   // minutes until a manual reload)
     this._bgOff = false;      // learned this session: the wallet can't background-sign at all (locked / bg off / untrusted) → always redirect
     this._bgValueUI = false;  // learned: staked calls need a manual confirm here → redirect them directly (value-free still backgrounds)
     this._stakeMode = "amount";   // bet slider: "amount" = user typed a NADO figure; "pct" = user set a % of the table max
@@ -1156,9 +1158,19 @@ export class NadoDapp {
     if (!this.me || this.inflight || opts.blocked || this._pendLoad().length) return false;
     try { if (localStorage.getItem(this.LS_AUTOCOLLECT) === "0") return false; } catch (e) {}
     const keyOf = opts.key || ((x) => x.g);
-    const t = (candidates || []).find((x) => !this._autoTried.has(keyOf(x)));
+    // One attempt per key per RETRY WINDOW, not per page load. The caller keeps offering a candidate
+    // precisely BECAUSE it is still unsettled on chain — so an attempt whose transaction visibly went
+    // nowhere (pool wipe, node hiccup, dismissed signature) earns another try instead of stalling the
+    // whole flow until an F5. No double-fire is possible: while an attempt is genuinely pending, the
+    // inflight/_pendLoad guards above block this entirely, and a landed settle drops out of candidates.
+    const RETRY_MS = opts.retryMs || 45000;
+    const now = Date.now();
+    const t = (candidates || []).find((x) => {
+      const at = this._autoTried.get(keyOf(x));
+      return at == null || now - at > RETRY_MS;
+    });
     if (!t) return false;
-    this._autoTried.add(keyOf(t));
+    this._autoTried.set(keyOf(t), now);
     settle(t);
     return true;
   }

@@ -3,7 +3,7 @@
 // bot is player 2 (white). Board is 8x8; a move is a cell 0..63. The bot is GREEDY (grabs the most flips,
 // loves corners) with a seeded tie-break — a well-known weak strategy, so skilled positional play beats it,
 // and your final disc MARGIN feeds the score, so this daily genuinely differentiates.
-import { prng } from "./board-daily.js";
+import { prng } from "./board-daily.js?v=ff35df1e";
 
 export const SLUG = "reversi", MOVE_BITS = 6, MAX_MOVES = 60;
 const NB = 8, DIRS = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];

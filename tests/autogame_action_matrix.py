@@ -37,7 +37,11 @@ CLASS_A[len(A.TILE_CUTS)] = A.TILE_CUTS[-1]        # the last class runs to 99
 # "have an effect" on every tile — which is how "Strike forge" looked defensible. The question that matters
 # is whether an action changes anything BESIDES its own cost; if it does not, choosing it is pure waste.
 FIELDS = ("hp", "maxhp", "potions", "xp", "banked", "streak", "depth", "kills", "alive",
-          "wlevel", "alevel")
+          "wlevel", "alevel", "pyre")
+# Stamina is observed too — but ADJUSTED, not raw. The snare eats it, the well refills it and Rally
+# grants it, so two actions on those tiles can differ in nothing else; yet raw stamina would make every
+# action "effective" everywhere through its own price. observe() re-adds the cost of the action the model
+# actually charged (ev["act"], post-degradation), so only EXTERNAL stamina effects remain visible.
 
 
 def tile_word(a, b, c, scen=0):
@@ -58,14 +62,15 @@ def observe(tile, action, seedset):
         run.streak, run.xp = stk, xp
         run.mats = list(mats)
         run.gear = list(gear)
-        doctrine = [A.A_DEFAULT] * A.NTILE
-        doctrine[tile] = action
         # BOSS only occurs on the chapter marks, so place the run there when probing it
         if tile == A.BOSS:
             run.depth = A.BOSS_EVERY
         a = CLASS_A[tile] if tile != A.BOSS else CLASS_A[A.ROAD]
-        M.step(run, tile_word(a, b, c), roll_word(x, y, z), doctrine, 4)
-        out.append(tuple(getattr(run, f) for f in FIELDS) + (tuple(run.gear), tuple(run.mats)))
+        # manual-only: the action IS the per-tile answer, exactly as commit() delivers it
+        ev = M.step(run, tile_word(a, b, c), roll_word(x, y, z), agg=4, action=action)
+        adj_stam = run.stam + A.COST[ev.get("act", 0)]     # cancel the action's own price (see FIELDS)
+        out.append(tuple(getattr(run, f) for f in FIELDS)
+                   + (adj_stam, tuple(run.gear), tuple(run.mats)))
     return tuple(out)
 
 
@@ -124,7 +129,9 @@ def matrix():
     return out
 
 
-TILE_NAMES = ["road", "monster", "elite", "hazard", "cache", "shrine", "forge", "fork", "relic", "boss"]
+TILE_NAMES = ["road", "monster", "horde", "elite", "ambush", "mimic", "hazard", "snare", "quag", "gale",
+              "tollgate", "cache", "barrow", "armory", "vein", "grove", "shrine", "well", "camp", "idol",
+              "pyre", "forge", "fork", "relic", "boss"]
 ACT_NAMES = ["default", "strike", "guard", "dodge", "potion", "sprint", "rest", "right/rally"]
 
 

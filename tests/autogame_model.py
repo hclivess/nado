@@ -31,12 +31,14 @@ from execnode.games.autogame import (      # noqa: E402
     LEG, MAX_LEGS_PER_CALL, CHAPTER, HP0, STAM_MAX, AGG_MAX, REGEN_DIV, REGEN_CAP_DIV, BOSS_EVERY,
     TIER_EVERY, NIGHT_EVERY, LEVEL_CAP, LIFESTEAL_DIV, HORDE_DIV, STREAK_DIV, DEATH_KEEP, COMPLETE_BONUS,
     POTIONS0, POTION_CAP, POTION_PRICE, HEAL_BASE, SHRINE_BASE, RALLY_BASE, NSLOT, TILE_CUTS, NTILE,
-    ROAD, MONSTER, ELITE, HAZARD, CACHE, SHRINE, FORGE, FORK, RELIC, BOSS,
+    ROAD, MONSTER, HORDE, ELITE, AMBUSH, MIMIC, HAZARD, SNARE, QUAG, GALE, TOLLGATE, CACHE, BARROW,
+    ARMORY, VEIN, GROVE, SHRINE, WELL, CAMP, IDOL, PYRE, FORGE, FORK, RELIC, BOSS,
     A_DEFAULT, A_STRIKE, A_GUARD, A_DODGE, A_POTION, A_SPRINT, A_REST, A_RIGHT, A_RALLY, COST,
     ST_BALANCED, ST_AGGRESSIVE, ST_GUARDED, ST_EVASIVE, STANCES,
     FAM_ATK, FAM_XP, M_SCRAP, M_HIDE, M_ESSENCE, SHARPEN_COST, REINFORCE_COST,
     G_WEAPON, G_HELM, G_BODY, G_SHIELD, G_BOOTS, G_CLOAK, DEF_DIV, RANKS,
     AF_NONE, AF_KEEN, AF_HEAVY, AF_WARD, AF_SWIFT, AF_VAMP, AF_BLAZE, AF_HALLOW, AFFIX_NAMES,
+    W_SWORD, W_AXE, W_MAUL, W_SPEAR, NWKIND, WKIND_NAMES,
     KEEN_BONUS, SWIFT_BONUS, JACKPOT_EVERY,
 )
 
@@ -58,15 +60,23 @@ def rank_of(xp):
 # ── item packing ─────────────────────────────────────────────────────────────────────────────────
 # A gear cell stores 1 + tier*64 + mat*8 + affix, so 0 unambiguously means "empty" (the VM treats a zero
 # store as deletion, so 0 must never be a legal item). The slot is implied by WHICH cell holds it.
-def pack_item(tier, mat, affix):
-    return 1 + tier * 64 + mat * 8 + affix
+def pack_item(tier, mat, affix, kind=0):
+    # 1 + kind*512 + tier*64 + mat*8 + affix — `kind` is the WEAPON CLASS (0..3), meaningful only in the
+    # weapon slot; every other slot rolls 0. 0 still means "empty".
+    return 1 + kind * 512 + tier * 64 + mat * 8 + affix
 
 
 def unpack_item(v):
     if v == 0:
-        return (-1, 0, 0)
+        return (-1, 0, 0, 0)          # (tier, mat, affix, kind)
     v -= 1
-    return (v // 64, (v // 8) % 8, v % 8)
+    return ((v // 64) % 8, (v // 8) % 8, v % 8, (v // 512) % 4)
+
+
+def weapon_kind(run):
+    """The class of the currently equipped weapon (W_SWORD for a bare-handed run — a neutral baseline)."""
+    w = run.gear[G_WEAPON]
+    return unpack_item(w)[3] if w else W_SWORD
 
 
 def has_affix(run, a):
@@ -82,7 +92,7 @@ def power(v):
     """An item's single power score: tier dominates, material is the tiebreak."""
     if v == 0:
         return 0
-    tier, mat, _affix = unpack_item(v)
+    tier, mat, _affix, _kind = unpack_item(v)
     return tier * 4 + mat
 
 
@@ -106,10 +116,11 @@ class Run:
         self.alevel = 1
         self.mats = [0, 0, 0]          # scrap, hide, essence
         self.gear = [0] * NSLOT
-        # THE DOCTRINE: one queued reaction per tile class, and the aggression dial. Standing orders, not a
-        # per-leg plan — see execnode/games/autogame.py for why the per-leg window was unreachable.
-        self.doctrine = [A_DEFAULT] * NTILE
+        # the aggression dial — the one standing order besides stance/focus/heal. (The per-tile-class
+        # doctrine and auto-march died together: manual-only, actions come from commit() per actual tile.)
         self.agg = 1
+        self.gale = 0                  # steps of storm left: renown out and damage in both x5/4
+        self.pyre = 0                  # steps of lit beacon left: renown out x5/4, no damage rider
         self.alive = 1
         self.done = 0                  # reached step CHAPTER on your feet — the only state that doubles
         self.retired = 0               # walked away voluntarily: you keep everything, but no completion bonus
@@ -135,7 +146,8 @@ class Run:
         return dict(hp=self.hp, maxhp=self.maxhp, stam=self.stam, potions=self.potions, xp=self.xp,
                     banked=self.banked, streak=self.streak, score=self.score(),
                     depth=self.depth, kills=self.kills, alive=self.alive, done=self.done,
-                    wlevel=self.wlevel, alevel=self.alevel, mats=list(self.mats), gear=list(self.gear))
+                    wlevel=self.wlevel, alevel=self.alevel, mats=list(self.mats), gear=list(self.gear),
+                    pyre=self.pyre)
 
 
 # ── derived player stats ─────────────────────────────────────────────────────────────────────────
@@ -202,12 +214,14 @@ def is_night(depth):
 
 def monster_level(tile, depth):
     ml = 1 + tier_of(depth)
-    if tile == ELITE:
+    if tile == ELITE or tile == MIMIC:            # a mimic fights at elite level
         ml += 2
     elif tile == BOSS:
         ml += 4
     if is_night(depth):
         ml += 1
+    if tile == HORDE:                             # many and weak: two levels down, floored at 1
+        ml = max(1, ml - 2)
     return ml
 
 
@@ -218,11 +232,13 @@ def roll_item(c, z, depth, bonus):
         tier = 7
     mat = (c // 8) % 8
     affix = 1 + (z // 4) % 7 if z % 4 == 0 else 0
-    return pack_item(tier, mat, affix)
+    kind = (c + z) % 4                        # WEAPON CLASS — used only if this lands in slot 0
+    return pack_item(tier, mat, affix, kind)
 
 
 def take_item_at(run, slot, item):
-    """Auto-equip if strictly better, else melt for materials. An absent player still improves."""
+    """Auto-equip if strictly better, else melt for materials. An absent player still improves — and the
+    player ADAPTS TO THE GEAR THE ROAD GIVES: no inventory, no take-backs."""
     new, old = power(item), power(run.gear[slot])
     if new > old:
         run.gear[slot] = item
@@ -281,7 +297,14 @@ def fight(run, tile, b, x, y, z, agg, act, ev, stance=None, focus=None):
     ml = monster_level(tile, depth)
     fam = b % 3
     bv = b // 3
-    foes = 1 if tile == BOSS else agg            # a boss is one big thing, not a crowd
+    if tile == BOSS or tile == MIMIC:
+        foes = 1                                  # a boss is one big thing; a mimic does not come in packs
+    elif tile == HORDE:
+        # twice the bodies, capped at the dial's own maximum; Dodge cannot slip a horde, it only halves
+        # the pull back to the plain number
+        foes = agg if act == A_DODGE else min(AGG_MAX, agg * 2)
+    else:
+        foes = agg
     dmg_num, exp_num, streak_gain, streak_cap = STANCES[stance]
 
     atk_c0, atk_c1 = FAM_ATK[fam]
@@ -291,6 +314,9 @@ def fight(run, tile, b, x, y, z, agg, act, ev, stance=None, focus=None):
     if tile == BOSS:
         atk_each *= 4
         xp_each *= 12
+    elif tile == MIMIC:                           # bites twice its family's weight, pays 4x the renown
+        atk_each *= 2
+        xp_each *= 4
 
     # ---- damage in ------------------------------------------------------------------------------
     # Absorption is PER ENGAGEMENT, not per foe and not a percentage. Armour eats one swing's worth, so a
@@ -301,13 +327,18 @@ def fight(run, tile, b, x, y, z, agg, act, ev, stance=None, focus=None):
     atk_each = atk_each * dmg_num // 4                    # stance
     if act == A_STRIKE:
         atk_each = atk_each * 5 // 4
-    elif act == A_GUARD:
-        atk_each = atk_each * 2 // 4
     atk_each = atk_each * (100 + (x % 21) - 10) // 100    # ±10% variance
     # A horde ALWAYS draws blood: at least 1 hp per foe, no matter how armoured you are. Without this
     # floor, enough armour nullifies any pull and greed becomes free — which is exactly what the sim found.
     absorb = armor_pts(run, focus) * (foes if has_affix(run, AF_HEAVY) else 1)   # heavy: absorb every swing
-    dmg = c_sub(foes * atk_each, absorb)
+    total = foes * atk_each
+    # Guard is a SHIELD, not a fortress: it takes HALF of up to TWO foes' swings, and the rest of the pull
+    # hits you full. A duel or a boss is truly halved; a greedy eight-pull is barely dented. Flat -50% on
+    # everything made "aggressive pull + always guard" the dominant strategy in the sim (all-guard brush:
+    # 79/80 survival, 2x every reading pilot) — and no renown tax fixed it, because the win was survival.
+    if act == A_GUARD:
+        total = c_sub(total, min(foes, 2) * (atk_each // 2))
+    dmg = c_sub(total, absorb)
     if dmg < foes:
         dmg = foes
 
@@ -323,6 +354,7 @@ def fight(run, tile, b, x, y, z, agg, act, ev, stance=None, focus=None):
     base = base * exp_num // 4
     if act == A_STRIKE:
         base = base * 5 // 4
+
     # Bloodlust: ×1 at full hp, ×5 at death's door. MAMEC's ×3 was calibrated for a 50-turn run where dying
     # cost you little; over a 512-step chapter it did not cover the risk, and the sim showed healing EARLY
     # (<70%) out-earning riding the edge (<20%) — the exact opposite of the intended tension.
@@ -332,9 +364,38 @@ def fight(run, tile, b, x, y, z, agg, act, ev, stance=None, focus=None):
     # Greed streak: every fight since your last heal compounds the payout, up to x4. Bloodlust pays you for
     # being hurt; the streak pays you for REFUSING TO FIX IT. Together they are what make the standing-order
     # threshold the hardest number in the game.
+    # AMBUSH danger pay (+25% renown) and the GALE amplifier (+25% renown out AND +25% damage in),
+    # applied in the contract's exact spot: after bloodlust, before the streak.
+    if tile == AMBUSH:
+        gain = gain * 5 // 4
+    if run.gale > 0:
+        gain = gain * 5 // 4
+        dmg = dmg * 5 // 4
+    if run.pyre > 0:                   # the lit beacon: +25% renown, no damage rider — the gale's kind twin
+        gain = gain * 5 // 4
+
+    # WEAPON CLASS — the equipped weapon rewrites the engagement against a different axis of the road,
+    # applied after every environmental rider and before the streak so it stacks the same way. Kept to the
+    # game's ×5/4 / ×3/2 / ×3/4 quantum.
+    wk = weapon_kind(run)
+    if wk == W_AXE:                    # aggressor: +25% renown AND +25% damage taken
+        gain = gain * 5 // 4
+        dmg = dmg * 5 // 4
+    elif wk == W_MAUL:                 # crusher: fells the big ones, clumsy in a crowd
+        if tile in (BOSS, ELITE, MIMIC):
+            gain = gain * 3 // 2
+        elif foes > 1:
+            gain = gain * 3 // 4
+    elif wk == W_SPEAR:               # skirmisher: keeps a pack at bay, poor in a duel
+        if foes > 1:
+            dmg = dmg * 3 // 4
+        else:
+            gain = gain * 3 // 4
+
     streak = min(streak_cap + KEEN_BONUS * has_affix(run, AF_KEEN), run.streak)
     gain = gain * (STREAK_DIV + streak) // STREAK_DIV
-    run.streak += streak_gain
+    if act != A_GUARD:                 # no momentum behind a shield: guarded fights pause the streak
+        run.streak += streak_gain
 
     # drinking forfeits your offence: you eat the exchange and earn nothing from it. This zeroed only the
     # event field before, so the model still banked the renown while the contract did not.
@@ -352,7 +413,7 @@ def fight(run, tile, b, x, y, z, agg, act, ev, stance=None, focus=None):
 
     # ---- hp: damage, then renown regen, then the easy-win clamp ---------------------------------
     regen = min(run.maxhp // REGEN_CAP_DIV, run.xp // REGEN_DIV)
-    drain = wp // LIFESTEAL_DIV * (1 + has_affix(run, AF_VAMP))   # lifesteal — sustain that keeps the streak
+    drain = wp * foes // LIFESTEAL_DIV * (1 + has_affix(run, AF_VAMP))   # lifesteal per BODY — sustain that keeps the streak
     hp = c_sub(hp_before + regen + drain, dmg)
     ev["drain"] = drain
     hp = c_sub(hp, y % 2)
@@ -361,8 +422,8 @@ def fight(run, tile, b, x, y, z, agg, act, ev, stance=None, focus=None):
         ev["easy"] = 1
     run.hp = min(run.maxhp, hp)
 
-    if tile in (BOSS, ELITE) or z % 4 == 0 or has_affix(run, AF_BLAZE):
-        bonus = 2 if tile == BOSS else (1 if tile == ELITE else 0)
+    if tile in (BOSS, ELITE, MIMIC) or z % 4 == 0 or has_affix(run, AF_BLAZE):
+        bonus = 2 if tile in (BOSS, MIMIC) else (1 if tile == ELITE else 0)   # a mimic IS treasure
         # (b + z) % 64, not b ^ z: the zkVM has no XOR opcode, and the reference model may only use
         # operations the contract can actually execute. Mixing by addition is field-native and just as
         # uncorrelated here, since b and z come from two independent hash windows.
@@ -379,24 +440,19 @@ def fight(run, tile, b, x, y, z, agg, act, ev, stance=None, focus=None):
 
 
 # ── the step ─────────────────────────────────────────────────────────────────────────────────────
-def step(run, tw, rw, doctrine=None, agg=None, stance=None, focus=None, healpct=None, override=0):
+def step(run, tw, rw, agg=None, stance=None, focus=None, healpct=None, action=A_DEFAULT):
     """Advance the run one tile. `tw`/`rw` are the two 32-bit hash windows.
 
-    `doctrine` is the standing reaction per TILE CLASS (a list of NTILE entries) and `agg` the aggression
-    dial; both default to the run's own standing orders. Passing them explicitly is how the caller models a
-    leg that predates the current doctrine — the contract does the same via its POLH fence, feeding a
-    doctrine of all-Default and an aggression of 1 to any leg whose dice already existed when the orders
-    were set.
+    `action` is YOUR ANSWER to this exact tile — one 3-bit symbol of the leg's committed word, and the only
+    action channel there is (manual-only: the tile-class doctrine and auto-march are gone). Zero is itself
+    an action, A_DEFAULT: walk in and fight plainly. The DIALS (agg/stance/focus/healpct) default to the
+    run's own; the caller passes them explicitly to model a leg governed by an older generation — the
+    contract does the same through its POLH fence.
 
     This function and the contract's step loop are the same program written twice.
     """
     if not run.alive or run.done or run.retired:
         return {"tile": ROAD, "skip": True}
-    # The GOVERNING GENERATION of orders. Stance, focus and the auto-drink threshold are orders too, and
-    # must be passed alongside the doctrine — otherwise re-tuning mid-run silently re-judges legs whose dice
-    # already rolled, which is exactly the exploit the contract's fence exists to prevent.
-    if doctrine is None:
-        doctrine = run.doctrine
     if agg is None:
         agg = run.agg
     if stance is None:
@@ -412,52 +468,81 @@ def step(run, tw, rw, doctrine=None, agg=None, stance=None, focus=None, healpct=
     tile = tile_of(a, depth)
     tier = tier_of(depth)
 
-    # The reaction is whatever the doctrine says about the tile you walked onto — read BEFORE the fork is
-    # resolved, because the FORK entry is what picks the lane.
-    act = doctrine[tile] if tile < len(doctrine) else A_DEFAULT
-    # ...unless you looked at THIS tile and said otherwise. A per-tile answer is only possible because the
-    # dice for the leg are not scheduled until you commit it, so the override always predates the roll.
-    if override:
-        act = override
+    act = action & 7
 
     # A fork is a choice, not an event: the road splits and A_RIGHT takes the greedier lane, which re-rolls
     # as an elite.
     if tile == FORK:
         tile = ELITE if act == A_RIGHT else MONSTER
         act = A_DEFAULT
+    # TOLLGATE robbery is the same shape: Strike cracks the reeve's strongbox and the STRONGBOX BITES —
+    # a MIMIC fight (one body, elite level, double teeth, 4x renown, always drops). The Strike stays the
+    # answer. Same pre-pricing spot as the fork.
+    if tile == TOLLGATE and act == A_STRIKE:
+        tile = MIMIC
 
     # Stamina regenerates before the reaction is priced, so a queued action can be paid for by the regen
     # of the very step it fires on.
     run.stam = min(STAM_MAX, run.stam + 1 + SWIFT_BONUS * has_affix(run, AF_SWIFT))
-    if COST[act] > run.stam:                      # unaffordable reactions degrade; they never revert
+    cost = COST[act]
+    if stance == ST_EVASIVE and act in (A_DODGE, A_SPRINT):
+        cost -= 1                                 # evasive footwork: the skips are the stance's identity
+    if cost > run.stam:                           # unaffordable reactions degrade; they never revert
         act = A_DEFAULT
-    run.stam -= COST[act]
+    else:
+        run.stam -= cost
     if agg < 1:
         agg = 1
     elif agg > AGG_MAX:
         agg = AGG_MAX
 
     ev = {"tile": tile, "act": act, "agg": agg, "dmg": 0, "gain": 0, "item": 0, "slot": -1}
-    combat = tile in (MONSTER, ELITE, BOSS)
-    skip = act == A_SPRINT or act == A_DODGE      # forfeit the tile: no damage, no reward
+    combat = tile in (MONSTER, HORDE, ELITE, AMBUSH, MIMIC, BOSS)
+    # Sprint always slips a tile. Dodge slips too — EXCEPT a horde: too many bodies, it only halves the
+    # pull (see fight()). That asymmetry is what finally gives Sprint a tile where it is the right answer.
+    skip = act == A_SPRINT or (act == A_DODGE and tile != HORDE)
 
     # The reaction and the tile are INDEPENDENT: healing on a shrine tile still lets the shrine heal, and
     # drinking mid-fight still means you eat the exchange. (An earlier elif chain let Rally/Rest/Potion
     # swallow the tile entirely, which the contract never did.) The three are mutually exclusive anyway —
     # `act` holds one value — so only one of these bodies can fire.
-    if act == A_RALLY:                            # the only heal that KEEPS the streak — the skill line
-        run.hp = min(run.maxhp, run.hp + RALLY_BASE + tier)
-        run.stam = min(STAM_MAX, run.stam + 2)
-        ev["rally"] = 1
-    if act == A_REST:                             # MAMEC's rest: buy hp with score
-        heal = 8 + run.xp // 32
+    if act == A_RALLY:                            # the only heal that KEEPS the streak — the skill line.
+        run.hp = min(run.maxhp, run.hp + RALLY_BASE + tier)   # it pays its FULL 3 stamina: the old +2
+        ev["rally"] = 1                                        # refund made all-rally self-sustaining
+    if act == A_REST:                             # MAMEC's rest: buy hp with score. At a CAMP the fire is
+        camp = tile == CAMP                       # already laid: heal DOUBLES and the renown price is waived
+        heal = (8 + run.xp // 32) * (2 if camp else 1)
         run.hp = min(run.maxhp, run.hp + heal)
-        run.xp = c_sub(run.xp, 4 + run.xp // 20)
+        if not camp:
+            run.xp = c_sub(run.xp, 4 + run.xp // 20)
         run.banked = min(run.banked, run.xp)      # you cannot rest away more than you still have
         run.streak = 0
         ev["rest"] = heal
-    if act == A_POTION:
+        if camp:
+            ev["camp"] = 1
+    # at an idol the flask is an OFFERING, at a well it is BOTTLED — neither is a drink
+    if act == A_POTION and tile != IDOL and tile != WELL:
         ev["drank"] = 1 if drink(run) else 0
+
+    # AMBUSH strikes first: an armour-free sting of 2 per level unless the answer was Guard (brace) or
+    # Dodge (slip). It lands even on a Sprint-past — running through an ambush is running through an ambush.
+    if tile == AMBUSH and act not in (A_GUARD, A_DODGE):
+        sting = 2 * monster_level(tile, depth)
+        run.hp = c_sub(run.hp, sting)
+        ev["sting"] = sting
+
+    # the TOLLGATE'S LASH: dashing past the chain (Dodge or Sprint) skips the toll but not the whip —
+    # an armour-free 2+2*tier, landed here because the skip path never reaches the tile body at all
+    if tile == TOLLGATE and act in (A_DODGE, A_SPRINT):
+        lash = 2 + 2 * tier
+        run.hp = c_sub(run.hp, lash)
+        ev["lash"] = lash
+
+    # GALE arms the storm for the next three steps (the end-of-step decay eats one on this very tile,
+    # hence 4) — unless you answered Dodge and sheltered through it.
+    if tile == GALE and act != A_DODGE:
+        run.gale = 4
+        ev["gale"] = 1
 
     if not skip:
         if combat:
@@ -471,10 +556,73 @@ def step(run, tw, rw, doctrine=None, agg=None, stance=None, focus=None, healpct=
                 took = 0
             run.hp = c_sub(run.hp, took)
             ev["dmg"] = took
-        elif tile == CACHE or tile == RELIC:
-            item, slot = roll_item(c, z, depth, 3 if tile == RELIC else 0), z % NSLOT
+        elif tile in (CACHE, RELIC, BARROW, ARMORY):
+            # one merged loot family: they differ in the roll's bonus (relic +3, barrow +1), the slot
+            # (armory is FORCED to the weapon rack), and whether the dead mind being robbed
+            item = roll_item(c, z, depth, 3 if tile == RELIC else (1 if tile == BARROW else 0))
+            slot = G_WEAPON if tile == ARMORY else z % NSLOT
             take_item_at(run, slot, item)
             ev["item"], ev["slot"] = item, slot
+            if tile == BARROW:                    # the grave-curse: straight through armour; Guard braces
+                curse = 2 + 2 * tier              # it to half, warding voids it. You always dig first.
+                if act == A_GUARD:
+                    curse //= 2
+                if has_affix(run, AF_WARD):
+                    curse = 0
+                run.hp = c_sub(run.hp, curse)
+                ev["curse"] = curse
+        elif tile == SNARE:
+            if act == A_GUARD:                    # spring it on the shield: no loss, +2 scrap of broken iron
+                run.mats[M_SCRAP] += 2
+                ev["sprung"] = 1
+            else:
+                run.stam = c_sub(run.stam, 3)
+                ev["snare"] = 1
+        elif tile == QUAG:
+            took = 1 + tier                       # armour is useless in a bog; Evasive wades it halved
+            if stance == ST_EVASIVE:
+                took //= 2
+            run.hp = c_sub(run.hp, took)
+            run.stam = c_sub(run.stam, 2)
+            ev["quag"] = took
+        elif tile == TOLLGATE:                    # walked through (Strike re-rolled it into the MIMIC
+            toll = 4 + run.xp // 32               # fight up top): the reeve takes ~3% of the whole pile
+            run.xp = c_sub(run.xp, toll)
+            run.banked = min(run.banked, run.xp)
+            ev["toll"] = toll
+        elif tile == VEIN:
+            if act == A_STRIKE:                   # swing the pick: the deep lodes pay double-digit scrap
+                mined = 4 + 2 * tier + z % 3
+                run.mats[M_SCRAP] += mined
+                ev["mined"] = mined
+        elif tile == GROVE:
+            if act == A_RALLY:                    # commune: essence + the spirits KEEP YOUR MOMENTUM (+1 streak)
+                essence = 2 + tier // 2 + z % 2
+                run.mats[M_ESSENCE] += essence
+                run.streak += 1
+                ev["commune"] = essence
+        elif tile == WELL:
+            if act == A_REST:                     # drink deep: stamina to FULL plus a small heal (the rest
+                run.stam = STAM_MAX               # itself already broke the streak and spent renown above)
+                run.hp = min(run.maxhp, run.hp + SHRINE_BASE // 2 + 2 * tier)
+                ev["well"] = 1
+            elif act == A_POTION:                 # bottle the spring: +1 flask, nothing drunk, streak kept
+                run.potions = min(POTION_CAP, run.potions + 1)
+                ev["bottled"] = 1
+        elif tile == PYRE:
+            if act == A_STRIKE:                   # light the beacon: 3 amplified steps after this one's decay
+                run.pyre = 4
+                ev["pyre"] = 1
+        elif tile == IDOL:
+            base = (20 + 20 * tier) * (run.maxhp + 4 * c_sub(run.maxhp, run.hp)) // run.maxhp
+            if act == A_STRIKE:                   # smash: bloodlust-scaled renown
+                run.xp += base
+                ev["gain"] = base
+            elif act == A_POTION and run.potions > 0:   # offer the flask: triple, flask gone
+                run.xp += base * 3
+                run.potions -= 1
+                ev["gain"] = base * 3
+                ev["offered"] = 1
         elif tile == SHRINE:
             run.hp = min(run.maxhp, run.hp + SHRINE_BASE + 4 * tier)
             run.potions = min(POTION_CAP, run.potions + (1 if z % 4 == 0 else 0))
@@ -486,6 +634,9 @@ def step(run, tw, rw, doctrine=None, agg=None, stance=None, focus=None, healpct=
                 run.mats[M_SCRAP] -= POTION_PRICE
                 run.potions += 1
                 ev["bought"] = 1
+
+    run.gale = c_sub(run.gale, 1)                 # the storm blows itself out one step at a time
+    run.pyre = c_sub(run.pyre, 1)                 # …and the beacon burns down the same way
 
     # Standing order: auto-drink once hp drops under the threshold. This is what keeps an absent player
     # alive through a bad leg — and under bloodlust, choosing the threshold is the sharpest decision in

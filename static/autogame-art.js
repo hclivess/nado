@@ -1,2367 +1,3047 @@
-// autogame-art.js — dependency-free CANVAS pixel-art warrior, composed from the six equipment slots so the
-// SILHOUETTE is the build: you should be able to see a tier-7 drop landed from across the room, without
-// reading a number. Pure functions: nothing here touches game state, the DOM, storage or the network — the
-// only thing that leaves this module is `ctx.fillRect` calls on the ctx you hand in.
+// autogame-art.js — the March's entire sprite world, drawn from nothing but ctx.fillRect.
 //
-// Deliberately canvas + integer rects (the pets art is SVG): sprites are blitted every frame at several
-// scales, and hard pixel edges are the whole aesthetic. There is exactly one drawing primitive, `p.px()`,
-// which fills an integer rect — no paths, no gradients, no anti-aliased curves anywhere.
+// GROUND-UP REBUILD, second generation. Nothing survives from the first art file: new figure, new
+// palettes, new poses, new monsters, new props, new gore. What DID survive is the contract with the
+// renderer — export names, cell sizes, frame indices — so the game shell never had to learn anything.
 //
-// Item encoding (fixed by the contract, never re-derived here — see unpackItem below):
-//   cell = 0 (empty) | 1 + tier*64 + mat*8 + affix
-//   tier  0..7  quality  — drives SIZE and ornament count (stub → plume/pauldron/tower shield/longsword)
-//   mat   0..7  material — drives the PALETTE only (see MATERIALS)
-//   affix 0..7  affix    — drives a GLOW/particle treatment (see AFFIX_GLOW); an affix is the single most
-//                          run-defining thing a player can own, so each one gets a different MOTION, not
-//                          just a different colour: a colour-blind player still tells drip from flame.
-// Slots are drawn back-to-front: cloak → boots → body → helm → shield → weapon.
+// The world in one paragraph: a lone WAYFARER walks a chain-rolled road through five REALMS (the biome a
+// leg wears is rolled by the same terrain hash its tiles are — see autogame-engine.js/biomeFor). Every
+// realm keeps its own bestiary: 3 contract families × 2 ranks of local species, plus one realm BOSS, plus
+// the MIMIC that follows the treasure everywhere — 36 creatures, every one with a breath loop, a wind-up,
+// a strike, a crumple and a corpse. Seventeen non-combat tiles get standing PROPS with four-frame loops.
+//
+// Discipline (unchanged in spirit, rewritten in fact):
+//   * ONE primitive — an integer rect. No paths, no gradients, no alpha, no anti-aliasing. Translucency
+//     is a checkerboard, a curve is a stair, a glow is a brighter pixel.
+//   * DETERMINISTIC — same opts, same pixels. No clocks, no randomness; every flicker is a table lookup
+//     indexed by frame. A seed, where accepted, is folded through an integer hash.
+//   * AUTHORED AT NATIVE RESOLUTION — the warrior lives in a 64×64 cell, everything else in 96×96. There
+//     is no coarse grid and no doubling pen: what you write is what blits.
+//   * SILHOUETTE FIRST — every mass is an outlined shape before it is a shaded one; rank changes the
+//     DRAWING, never a scale factor.
 
-import { unpackItem as unpackRaw } from "./autogame-engine.js";
+import { unpackItem as unpackRaw } from "./autogame-engine.js?v=eb6129b3";
 
-// ── native resolution ────────────────────────────────────────────────────────────────────
-// The sprites are AUTHORED on the classic coarse grid (32 warrior / 48 monster) — poses, anchors and every
-// layer's coordinates live there — but they RENDER on a grid twice as fine: the pen multiplies every
-// authored rect by HR, and painters lay half-authored-pixel detail on top through `p.fine()`/`p.fraw()`
-// (1-px outlines on tapers, sub-pixel glints, smoother diagonals). So the exported frame constants are
-// NATIVE (a monster cell is 96×96 device px at scale 1) while the painter code below keeps its authored
-// coordinates — one grid for placement, one for detail, and a caller never sees the seam.
-const HR = 2; // native pixels per authored pixel
+// ── cells ────────────────────────────────────────────────────────────────────────────────
+export const FRAME_W = 64;
+export const FRAME_H = 64;
+const W_GROUND = 60;        // warrior: the row the contact shadow lies on; soles end on 59
 
-const FRAME_W = 32;
-const FRAME_H = 32; // square ON PURPOSE: the death pose is the standing pose rotated 90°, which is
-                    // only an exact integer-rect remap (no resampling, no gaps) when W === H.
-const FRAME_W_N = FRAME_W * HR, FRAME_H_N = FRAME_H * HR;
-export { FRAME_W_N as FRAME_W, FRAME_H_N as FRAME_H };
+const MW = 96, MH = 96;     // the world box: monsters, props, blood, fatalities all share it
+const MCX = 48;
+const MFOOT = 89;           // last row feet may occupy
+const MGROUND = 91;         // the shadow row
+export { MW as MON_W, MH as MON_H, MCX as MON_CX, MFOOT as MON_FOOT_Y, MGROUND as MON_GROUND_Y,
+         MW as PROP_W, MH as PROP_H, MW as BLOOD_W, MH as BLOOD_H, MW as FAT_W, MH as FAT_H };
 
-export const SLOTS = ["weapon", "helm", "body", "shield", "boots", "cloak"]; // index order is contract order
-export const WALK_FRAMES = 4;
-export const ATTACK_FRAMES = 3;
+export const SLOTS = ["weapon", "helm", "body", "shield", "boots", "cloak"];
+export const WALK_FRAMES = 4;            // reach → plant → cross → drive
+export const ATTACK_FRAMES = 3;          // raise → cleave → carry-through
+export const WARRIOR_ATTACK_FRAMES = 3;
+export const WARRIOR_HIT_FRAMES = 1;
 
-// ── palettes ─────────────────────────────────────────────────────────────────────────────
-// Four ramps per material is the minimum that still reads as a lit solid at 1x: `line` outlines the
-// silhouette, `shade` is the far/underside, `base` the mass, `light` the single lit edge. Materials are
-// ordered by rarity, and the hues are kept far apart (warm → cool → dark → warm → violet → green) so two
-// adjacent tiers of *different* material never look like the same drop.
+export const MON_IDLE_FRAMES = 3;        // 0,1,2 breath loop
+export const MON_ATTACK_FRAME = 3;       // wind-up
+export const MON_STRIKE_FRAME = 4;       // the blow lands
+export const MON_ATTACK_FRAMES = 2;
+export const MON_CRUMPLE_FRAME = 5;      // knees gone, light going out
+export const MON_DEATH_FRAME = 6;        // the heap
+export const MON_DEATH_FRAMES = 2;
+export const MON_FRAMES = 7;
+
+export const FAMILY_NAMES = ["grunt", "brute", "cannon"];
+export const MON_RANK_NAMES = ["normal", "elite", "boss"];
+export const BIOMES = 5;
+export const BIOME_NAMES = ["greenwood", "fen", "crags", "ashway", "nether"];
+
+export const PROP_FRAMES = 4;            // every prop breathes on a four-count
+export const PROP_KINDS = ["hazard", "snare", "quag", "gale", "tollgate", "cache", "barrow", "armory",
+                           "vein", "grove", "shrine", "well", "camp", "idol", "pyre", "forge", "fork",
+                           "relic"];
+
+// ── ramps ────────────────────────────────────────────────────────────────────────────────
+// Five stops per ramp: o outline · d deep · m mid · l lit · s spark. The spark stop is new in this
+// generation: one near-white accent per material is what lets a sprite glint without a glow filter.
+const ramp = (o, d, m, l, s) => ({ o, d, m, l, s });
+
+// Equipment materials — a fresh octave. Hues chosen so neighbouring tiers of different material never
+// blur together at fight distance: umber → ash-blue → polished steel → moonsilver → voidglass → sunmetal
+// → starfall violet → verdant.
+// LOW KEY ON PURPOSE. The first draft of this rebuild ran the ramps bright and warm and the figure read
+// as a cartoon; this game is a man walking a road that kills him, and the light behaves accordingly:
+// near-black outlines, masses that sit in shadow, and the spark stop reserved for the few points of light
+// (an edge, an ember, an eye) that carry the whole silhouette. Rarity still reads — by hue and by those
+// sparks — but nothing glows that hasn't earned it.
 export const MATERIALS = [
-  { base: "#b0763a", shade: "#7a4d21", light: "#e0a962", line: "#3a2410" }, // 0 bronze
-  { base: "#8a8f98", shade: "#5b6068", light: "#b9bec6", line: "#2a2d33" }, // 1 iron
-  { base: "#a8b8c8", shade: "#6d7d8d", light: "#dfe9f2", line: "#2c343d" }, // 2 steel
-  { base: "#ccd3dc", shade: "#93a0ad", light: "#ffffff", line: "#3a4450" }, // 3 silver
-  { base: "#3b3745", shade: "#221f2a", light: "#6a6480", line: "#100e15" }, // 4 obsidian
-  { base: "#e0b53c", shade: "#a67a1e", light: "#fff0a0", line: "#4a3208" }, // 5 gold
-  { base: "#6c5fa8", shade: "#443a70", light: "#b3a6e6", line: "#1c1730" }, // 6 meteoric
-  { base: "#62a544", shade: "#3a6b2c", light: "#9fdc76", line: "#17300f" }, // 7 living
+  ramp("#140b04", "#3f2812", "#5f3d1c", "#82562a", "#ab7a42"), // 0 bronze — old blood and dirt
+  ramp("#0b0c10", "#23262e", "#3a3e4a", "#545968", "#767c8e"), // 1 iron — grave-cold
+  ramp("#0c1014", "#2b343e", "#46545f", "#66798a", "#8fa5b5"), // 2 steel — a dull edge that still cuts
+  ramp("#14161c", "#3e4450", "#636b7a", "#8c94a5", "#c2c9d6"), // 3 silver — moonlight on a blade
+  ramp("#050308", "#16111f", "#292234", "#3f3650", "#5c527a"), // 4 obsidian — the dark that drinks light
+  ramp("#1c1002", "#4c350c", "#7a5716", "#a87c24", "#d4a83c"), // 5 gold — tarnished, not gaudy
+  ramp("#0c0716", "#251739", "#3d2a5c", "#5a4384", "#8064b2"), // 6 meteoric — bruise-violet
+  ramp("#060f04", "#1c3410", "#31541c", "#4c7a2c", "#71a444"), // 7 living — moss in a crypt
 ];
 export const MATERIAL_NAMES = ["bronze", "iron", "steel", "silver", "obsidian", "gold", "meteoric", "living"];
 
-// `mode` is the important field: it selects the particle BEHAVIOUR in affixAura(). Index 0 is null because
-// "no affix" must be falsy at the call site — every layer does `if (A)`.
+// the bare wayfarer: a knight out of the cold north — ASHEN. Skin the grey of a man three winters past
+// sunlight, hair lank and black; the only warmth anywhere on him is the dried blood at his throat.
+const SKIN  = ramp("#100e0d", "#33322f", "#4f4d48", "#6e6b64", "#8f8c82");
+const WOOL  = ramp("#08080d", "#1a1b24", "#2b2d3a", "#3f4252", "#585c70"); // iron-dusk travel clothes
+const SCARF = ramp("#160408", "#3c0d14", "#5c1620", "#7c222c", "#9e3440"); // dried-blood crimson
+const HAIRC = ramp("#050404", "#141210", "#232019", "#353026", "#494435"); // black, unwashed
+const AURA  = ramp("#07050c", "#120d1c", "#1d1530", "#2b2044", "#3d2f5c"); // the dark that walks with him
+const RIM   = "#8fa8c8";   // Symphony's moon: one cold rim on the trailing edge, and nothing else pale
+
+// affix treatments — each one a MOTION, not a colour swap; index 0 falsy on purpose
 export const AFFIX_GLOW = [
   null,
-  { name: "keen",     glow: "#bff6ff", spark: "#ffffff", mode: "spark"  }, // 1 hopping edge glints
-  { name: "heavy",    glow: "#6a4b33", spark: "#c9b79a", mode: "weight" }, // 2 drag shadow + kicked grit
-  { name: "warding",  glow: "#4fa8ff", spark: "#bfe2ff", mode: "ward"   }, // 3 dashed rune box
-  { name: "swift",    glow: "#6ff0bf", spark: "#d8fff0", mode: "streak" }, // 4 speed lines behind
-  { name: "vampiric", glow: "#c8102e", spark: "#ff5a6a", mode: "drip"   }, // 5 falling beads
-  { name: "blazing",  glow: "#ff7a18", spark: "#ffd24a", mode: "flame"  }, // 6 flickering tongues
-  { name: "hallowed", glow: "#ffe9a8", spark: "#fffce8", mode: "halo"   }, // 7 ring of light + rising motes
+  { name: "keen",     a: "#d8fbff", b: "#8ae9f6", mode: "shimmer" }, // razor shimmer running the edge
+  { name: "heavy",    a: "#8a7358", b: "#4c3d2a", mode: "crack"   }, // the ground remembers each step
+  { name: "warding",  a: "#7fc4ff", b: "#2a72c8", mode: "orbit"   }, // rune points circling the piece
+  { name: "swift",    a: "#9ff7d0", b: "#3fc492", mode: "ghost"   }, // after-images trailing behind
+  { name: "vampiric", a: "#ff5a5a", b: "#8e1020", mode: "thirst"  }, // red threads curling upward
+  { name: "blazing",  a: "#ffd75a", b: "#ff7a1a", mode: "burn"    }, // fire teeth off the top edge
+  { name: "hallowed", a: "#fff7d8", b: "#ffd88a", mode: "grace"   }, // a standing halo and slow motes
 ];
 
-// bare-body ramps, shaped exactly like a material so the layers can treat "no item" as just another palette
-const SKIN  = { base: "#d9a06a", shade: "#a97442", light: "#f0c48f", line: "#4a2c16" };
-const CLOTH = { base: "#7d6a55", shade: "#544636", light: "#a08a70", line: "#2a2118" }; // undershirt/trousers
-const HAIR  = { base: "#4a3423", shade: "#2c1e14", light: "#6d4d33", line: "#1a1009" };
-
-// ── detail level ─────────────────────────────────────────────────────────────────────────
-// The client used to blit these sprites at a coarse effective pixel size; it now draws finer, so painters
-// may OPT IN to sub-features (strap pixels, knuckles, extra teeth) that would have read as noise before.
-// `detail: 2` in any public draw's opts requests them; absent or anything else keeps the classic look.
-// A module flag rather than a threaded parameter because it has to reach every layer — including the ones
-// the fatalities re-enter through paintWarrior — without touching the shared layer signature. It is set at
-// every public entry point, so one caller passing `detail` can never leak its choice into another's draw,
-// and the same opts still always produce the same pixels.
-let DETAIL = 1;
-const d2 = () => DETAIL === 2;
-
-/** 0 → null (empty slot); otherwise the packed tier/mat/affix triple.
- *
- * The arithmetic is NOT repeated here — it is delegated to the engine, which gets it from the generated
- * rules, which come from the contract. Renderers that re-derive a packing are exactly how a sprite ends up
- * showing a different item than the one the chain settled. Only the empty-slot convention differs: drawing
- * code wants a falsy "nothing here", game math wants a tier of -1 that scores 0. */
+/** 0 → null (an empty slot draws the bare body); else the engine's tier/mat/affix unpack. */
 export function unpackItem(v) {
   if (!v) return null;
   return unpackRaw(v);
 }
 
-// mix two #rrggbb toward each other — used only for whole-sprite states (hurt flash, corpse fade), never
-// for shading: shading comes from the authored ramps so the art stays hand-tuned.
-function mix(a, b, f) {
-  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
-  const ch = (s) => {
-    const x = Math.round(((pa >> s) & 255) + (((pb >> s) & 255) - ((pa >> s) & 255)) * f);
-    return (x < 16 ? "0" : "") + x.toString(16);
-  };
-  return "#" + ch(16) + ch(8) + ch(0);
+// integer hash for seed-folded effects (blood): xorshift-ish, deterministic, dependency-free
+function ihash(n) {
+  let x = (n | 0) + 0x9e37;
+  x = ((x ^ (x >> 7)) * 2654435761) >>> 0;
+  x = (x ^ (x >> 13)) >>> 0;
+  return x;
 }
 
-// ── skeleton ─────────────────────────────────────────────────────────────────────────────
-// The REDESIGNED warrior is authored directly on the 64-px NATIVE grid (that is what the grid was doubled
-// for): heroic-chibi, ~2.6 head-heights, a big readable head, a broad chest, thick limbs and planted boots.
-// Native rows 0-23 are the head band, 24-41 the torso band, 42-63 the legs — exactly the fatality clip
-// bands (authored 0-11 / 12-20 / 21-31 × HR), so a decapitation still knows where the neck is without a
-// single clip constant moving.
-const CX = 15;        // authored centre column (affix boxes and the fatality scatter still read it)
-const GROUND_Y = 30;  // authored ground row — the affix "weight" mode drops its grit here
-const N_CX = 30;      // native centre column of the mass
-const N_HEAD_Y = 8;   // crown of the bare head (helm crests get rows 0-7 of headroom)
-const N_TORSO_Y = 24; // chest top; the neck seam sits at rows 22-23
-const N_KNEE_Y = 50;
-const N_ANKLE_Y = 56; // the boot block takes over here
-const N_FOOT_Y = 59;  // last body row; the ground shadow lies on 60-61
-
-// Poses are hand-authored, not interpolated — in NATIVE units now.
-//   bob   = torso+head sink (feet stay planted, so the whole body bobs against the ground)
-//   lean  = torso x shift, sells the lunge
-//   footF/footB, kneeF/kneeB = x offsets from the hip for front/back leg
-//   hw/hs = absolute weapon-hand / shield-hand positions
-//   dir   = weapon direction, restricted to the 8 compass steps so a stepped line stays crisp
-const POSES = {
-  walk: [
-    { bob: 0, lean: 0, kneeF:  3, footF:  7, kneeB: -2, footB: -7, hw: [44, 33], hs: [22, 35], dir: [1, -1] }, // contact
-    { bob: 2, lean: 0, kneeF:  1, footF:  2, kneeB:  0, footB: -2, hw: [43, 35], hs: [23, 36], dir: [1, -1] }, // pass
-    { bob: 0, lean: 0, kneeF: -2, footF: -7, kneeB:  3, footB:  7, hw: [42, 33], hs: [24, 35], dir: [1, -1] }, // contact (mirrored legs)
-    { bob: 2, lean: 0, kneeF:  0, footF: -2, kneeB:  1, footB:  2, hw: [44, 35], hs: [23, 36], dir: [1, -1] }, // pass
-  ],
-  attack: [
-    { bob: 0, lean: -2, kneeF:  2, footF:  5, kneeB: -2, footB: -6, hw: [34, 18], hs: [24, 35], dir: [-1, -1] }, // wind-up, blade back over the shoulder
-    { bob: 2, lean:  4, kneeF:  6, footF: 11, kneeB: -4, footB: -8, hw: [47, 33], hs: [27, 37], dir: [ 1,  0] }, // strike: the WHOLE body lunges
-    { bob: 2, lean:  2, kneeF:  4, footF:  8, kneeB: -3, footB: -7, hw: [46, 41], hs: [26, 37], dir: [ 1,  1] }, // follow-through, low
-  ],
-  // Drawn rotated 90° (see pen), so `dir:[1,-1]` lands on screen as down-forward: a dropped blade stuck in
-  // the dirt. Limbs are splayed rather than mid-stride.
-  dead: { bob: 0, lean: 0, kneeF: 5, footF: 10, kneeB: -5, footB: -10, hw: [45, 37], hs: [22, 37], dir: [1, -1] },
-};
-
-const SWAY = [0, 1, 2, 1];               // cloak / plume trail, one entry per walk frame
-const FLAME = [0, 2, 3, 1, 2, 4, 1, 3];  // per-column flame heights, indexed by (column + frame) — a fixed
-                                         // table instead of noise keeps every frame byte-identical
-
-// ── the pen ──────────────────────────────────────────────────────────────────────────────
-// The pen carries origin/scale/mirror/rotation/recolour so no layer can forget to apply one of them, and so
-// facing and the death rotation cost exactly zero extra art. It is passed to layers as `p` in place of a raw
-// ctx for that reason. Everything is clamped to the frame: sprite cells get packed side by side on sheets,
-// and a stray plume or blade tip bleeding into the neighbouring cell is the classic pixel-art bug.
-// `fw`/`fh` default to the warrior cell but are parameters, not constants, because the monster, prop, blood
-// and fatality frames below are bigger boxes drawn with this exact same pen — one clamp, one flip, one
-// recolour path for every sprite in the file.
-// `clip` is an optional {y0,y1} band in AUTHORED (pre-transform) rows: it selects a BODY PART, which is how
-// a fatality re-uses the warrior's own gear layers to send a head one way and a torso the other without a
-// single new pixel of art.
-// `bound` narrows the clamp further, in the SAME coordinates the clamp already uses. A fatality paints the
-// warrior's own 32×32 layers into a 48×48 gore frame at an offset, and without this the 32-box clamp would
-// happily let a flying head land outside the 48-box — the exact bleeding-into-the-next-cell bug the clamp
-// exists to prevent.
-function pen(ctx, ox, oy, scale, facing, rot, recolor, fw = FRAME_W, fh = FRAME_H, clip = null, bound = null) {
-  const s = Math.max(1, scale | 0);
-  const flip = facing < 0;
-  const ROT_DY = 6;  // after rotating, drop the lying body onto the ground line instead of mid-frame
-                     // (warrior-only: nothing with a non-square frame may pass rot). Authored units — the
-                     // native-authored redesign reaches it through fine() as ROT_DY*HR.
-  // clamp bounds in NATIVE units — put() is handed native rects, whether they came from an authored rect
-  // (px/raw, ×HR) or straight from a fine stroke
-  const lx = (bound ? bound.x0 : 0) * HR, ly = (bound ? bound.y0 : 0) * HR;
-  const hx = (bound ? bound.x1 : fw) * HR, hy = (bound ? bound.y1 : fh) * HR;
-  const put = (X, Y, W, H, col) => {
-    if (X < lx) { W -= lx - X; X = lx; }
-    if (Y < ly) { H -= ly - Y; Y = ly; }
-    if (X + W > hx) W = hx - X;
-    if (Y + H > hy) H = hy - Y;
-    if (W <= 0 || H <= 0) return;
-    ctx.fillStyle = recolor ? recolor(col) : col;
-    ctx.fillRect(ox + X * s, oy + Y * s, W * s, H * s);
+// blend two #rrggbb — used ONLY for whole-sprite state maps (hurt wash, corpse chill, char), never for
+// shading; shading is authored in the ramps
+function tint(a, b, t) {
+  const A = parseInt(a.slice(1), 16), B = parseInt(b.slice(1), 16);
+  const c = (sh) => {
+    const v = Math.round(((A >> sh) & 255) * (1 - t) + ((B >> sh) & 255) * t);
+    return (v < 16 ? "0" : "") + v.toString(16);
   };
-  return {
-    scale: s, facing, fx: !rot, // fx: corpses stop glowing — affix particles are switched off when down
-    /** the one primitive: an integer rect in frame-local, facing-right, standing AUTHORED coordinates —
-     *  the pen turns it into an HR×HR native block, so classic painter code renders on the fine grid */
-    px(x, y, w, h, col) {
+  return "#" + c(16) + c(8) + c(0);
+}
+const CHILL = (c) => tint(c, "#232030", 0.5);    // dead things cool toward slate
+const WOUND = (c) => tint(c, "#ff4646", 0.5);    // the hurt wash
+const CHAR  = (c) => tint(c, "#120c0a", 0.7);    // burnt to the bone
+
+// ── the stylus ───────────────────────────────────────────────────────────────────────────
+// Carries origin, scale, mirror, cell clamp, colour map and an optional row BAND — the band selects a
+// body zone (head / torso / legs) so a fatality can paint one part of the composed figure somewhere else.
+// Every coordinate below is native cell pixels; the stylus is the only thing that touches the ctx.
+function stylus(ctx, ox, oy, s, flip, cw, ch, map, band, lx = 0, ly = 0) {
+  // lx/ly: extra LOW-side clamp, used when this cell is a part placed inside a larger box (fatalities
+  // shift the warrior cell around the 96-box; without this a falling torso draws through the box floor)
+  const put = (X, Y, w, h, col) => {
+    if (X < lx) { w -= lx - X; X = lx; }
+    if (Y < ly) { h -= ly - Y; Y = ly; }
+    if (X + w > cw) w = cw - X;
+    if (Y + h > ch) h = ch - Y;
+    if (w <= 0 || h <= 0) return;
+    ctx.fillStyle = map ? map(col) : col;
+    ctx.fillRect(ox + X * s, oy + Y * s, w * s, h * s);
+  };
+  const g = {
+    /** the one primitive: an integer rect, cell-local, authored facing-right */
+    r(x, y, w, h, col) {
       if (!col) return;
       x |= 0; y |= 0; w |= 0; h |= 0;
-      if (clip) { // trim in authored rows first, so "the head" stays the head whatever the pen does after
-        if (y < clip.y0) { h -= clip.y0 - y; y = clip.y0; }
-        if (y + h > clip.y1 + 1) h = clip.y1 + 1 - y;
+      if (band) {
+        if (y < band.y0) { h -= band.y0 - y; y = band.y0; }
+        if (y + h > band.y1 + 1) h = band.y1 + 1 - y;
         if (h <= 0) return;
       }
-      let X = x, Y = y, W = w, H = h;
-      if (rot) { X = fh - y - h; Y = x + ROT_DY; W = h; H = w; } // 90° CW, exact because W === H
-      if (flip) X = fw - X - W;
-      put(X * HR, Y * HR, W * HR, H * HR, col);
+      put(flip ? cw - x - w : x, y, w, h, col);
     },
-    /** the NATIVE-grid primitive: same transforms as px, but in half-authored-pixel units — this is where
-     *  the extra resolution actually lives (1-native-px outlines, sub-pixel glints, smoothed tapers) */
-    fine(x, y, w, h, col) {
-      if (!col) return;
-      x |= 0; y |= 0; w |= 0; h |= 0;
-      if (clip) { // the same authored clip bands, scaled: a fine stroke on the head is still "the head"
-        const c0 = clip.y0 * HR, c1 = clip.y1 * HR + HR - 1;
-        if (y < c0) { h -= c0 - y; y = c0; }
-        if (y + h > c1 + 1) h = c1 + 1 - y;
-        if (h <= 0) return;
-      }
-      let X = x, Y = y, W = w, H = h;
-      if (rot) { X = fh * HR - y - h; Y = x + ROT_DY * HR; W = h; H = w; }
-      if (flip) X = fw * HR - X - W;
-      put(X, Y, W, H, col);
-    },
-    /** ground-anchored decals (contact shadow) must not tip over when the body does */
-    raw(x, y, w, h, col) {
-      let X = x | 0;
-      if (flip) X = fw - X - (w | 0);
-      put(X * HR, (y | 0) * HR, (w | 0) * HR, (h | 0) * HR, col);
-    },
-    /** raw's native twin: ground decals on the fine grid */
-    fraw(x, y, w, h, col) {
-      let X = x | 0;
-      if (flip) X = fw * HR - X - (w | 0);
-      put(X, y | 0, w | 0, h | 0, col);
-    },
-    /** checkerboard fill — our stand-in for alpha, because translucency has no place on a pixel grid */
-    dither(x, y, w, h, col, phase = 0) {
+    /** checkerboard — translucency, pixel-art dialect */
+    d(x, y, w, h, col, ph = 0) {
       for (let j = 0; j < h; j++)
         for (let i = 0; i < w; i++)
-          if (((x + i + y + j + phase) & 1) === 0) this.px(x + i, y + j, 1, 1, col);
+          if (((x + i + y + j + ph) & 1) === 0) g.r(x + i, y + j, 1, 1, col);
     },
-    /** stepped line: the pixel-art way to get a diagonal limb or blade with no anti-aliasing */
-    limb(x0, y0, x1, y1, w, col) {
-      const dx = x1 - x0, dy = y1 - y0, n = Math.max(Math.abs(dx), Math.abs(dy));
-      for (let i = 0; i <= n; i++) {
-        const t = n === 0 ? 0 : i / n;
-        this.px(Math.round(x0 + dx * t), Math.round(y0 + dy * t), w, w, col);
+    /** stepped thick line — limbs, hafts, tails */
+    seg(x0, y0, x1, y1, t, col) {
+      const dx = x1 - x0, dy = y1 - y0, n = Math.max(Math.abs(dx), Math.abs(dy)) || 1;
+      for (let i = 0; i <= n; i++)
+        g.r(Math.round(x0 + dx * i / n), Math.round(y0 + dy * i / n), t, t, col);
+    },
+    /** outlined mass from row spans: spans[j] = [dx, w] | null. The outline is a dilation pass in the
+     *  ramp's `o`, the fill a second pass in `m` — one continuous 1px rim, whatever the shape. Then the
+     *  PAINTERLY pass: a dithered half-tone rolls the trailing quarter of every wide row into shadow and
+     *  kisses the crown with light, so every mass in the game carries Symphony's soft tonal turn instead
+     *  of a flat cel plane. Painters overpaint their own hard planes afterwards; the dither lives in the
+     *  transitions between them, which is exactly where SotN keeps its paint. */
+    rows(x0, y0, spans, P) {
+      spans.forEach((sp, j) => { if (sp && sp[1] > 0) g.r(x0 + sp[0] - 1, y0 + j - 1, sp[1] + 2, 3, P.o); });
+      spans.forEach((sp, j) => { if (sp && sp[1] > 0) g.r(x0 + sp[0], y0 + j, sp[1], 1, P.m); });
+      const nrow = spans.length;
+      spans.forEach((sp, j) => {
+        if (!sp || sp[1] < 5) return;
+        const [dx, w] = sp;
+        for (let i = w - 1 - (w >> 2); i < w - 1; i++)
+          if (((x0 + dx + i + y0 + j) & 1) === 0) g.r(x0 + dx + i, y0 + j, 1, 1, P.d);
+        if (j < (nrow >> 2) && ((x0 + dx + y0 + j) & 1) === 0) g.r(x0 + dx + 1, y0 + j, 1, 1, P.l);
+      });
+    },
+    /** outlined thick limb with a lit top-left ridge */
+    tube(x0, y0, x1, y1, t, P) {
+      g.seg(x0 - 1, y0 - 1, x1 - 1, y1 - 1, t + 2, P.o);
+      g.seg(x0, y0, x1, y1, t, P.m);
+      g.seg(x0, y0, x1, y1, 1, P.l);
+    },
+    /** tapering spike — horns, claws, blades of grass, icicles. dir in eighth-turns via (dx,dy). */
+    taper(x, y, dx, dy, n, w0, P, litTip = true) {
+      for (let i = 0; i < n; i++) {
+        const w = Math.max(1, Math.round(w0 * (n - i) / n));
+        const xx = dx < 0 ? x + dx * i - (w - 1) : x + dx * i;
+        g.r(xx - 1, y + dy * i, w + 2, 1, P.o);
+        g.r(xx, y + dy * i, w, 1, litTip && i >= n - 2 ? P.l : P.m);
+      }
+    },
+    /** an eye with nothing behind it: socket, a hot iris, and a SLIT pupil that drifts with the idle —
+     *  the drift is the "awake" tell. No white catchlight anywhere: a sparkle in the eye is a toy's. */
+    orb(x, y, w, h, iris, sock, f = 0) {
+      g.r(x - 1, y - 1, w + 2, h + 2, sock);
+      g.r(x, y, w, h, iris);
+      if (w >= 3) {
+        const px2 = x + Math.min(w - 1, Math.max(0, (w >> 1) + [0, 1, -1][f % 3]));
+        g.r(px2, y, 1, h, sock);
       }
     },
   };
+  return g;
 }
 
-// shared attachment points, derived once per draw so a helm and a head can never disagree — NATIVE units
-function anchors(ps) {
-  const torsoX = 20 + ps.lean, torsoY = N_TORSO_Y + ps.bob;    // chest box top-left; the chest is ~20 wide
+// ══ THE WAYFARER ═════════════════════════════════════════════════════════════════════════
+// The figure is new from the boots up: ~3 head-heights, long-legged, a traveller more than a tank — the
+// SILHOUETTE is still the build (six slots compose him), but the reads moved: tier now grows EDGES
+// (pauldron points, crown horns, blade length) rather than sheer bulk, and the one constant across every
+// kit is the red scarf, so "that is my guy" survives any gear roll.
+//
+// ADULT PROPORTIONS — the chibi DNA is dead. A ~54px figure at nearly six head-heights: a small skull
+// over broad shoulders, a narrow waist, and LONG legs. The silhouette language is Blasphemous, not
+// Saturday morning: gaunt, vertical, heavy at the shoulder and light at the hip.
+// Skeleton bands (cell rows) — fatalities cut on these, so they are named once:
+const HEAD_BAND  = { y0: 0,  y1: 17 };
+const TORSO_BAND = { y0: 18, y1: 37 };
+const LEGS_BAND  = { y0: 38, y1: 63 };
+const HEAD_X = 27, HEAD_Y = 7;      // bare skull box 9×10, crown row 7
+const TORSO_X = 23, TORSO_Y = 18;   // chest box 15 wide at the shoulder
+const HIP_F = 31, HIP_B = 28, HIP_Y = 38;
+const KNEE_Y = 47, ANKLE_Y = 56;    // soles end on 59, shadow on W_GROUND (60)
+
+// Poses — hand-authored freeze-frames, facing right.
+//   sink: whole-figure drop  ·  lean: torso/head push  ·  hx/hy: extra head snap
+//   fk/ff bk/bf: knee/foot dx for front/back leg  ·  wp/sp: weapon/shield hand  ·  dir: blade eighth-dir
+const W_POSES = {
+  // leg offsets kept TIGHT: the first draft splayed feet ±9 and the row-lerp legs read as broken sticks —
+  // a walker plants under his own weight, and the two-segment limbs below need honest knee angles
+  walk: [
+    { sink: 1, lean: 1,  fk: 2,  ff: 6,  bk: -2, bf: -5, wp: [42, 36], sp: [20, 33], dir: [0, -1], sw: 0 }, // reach
+    { sink: 2, lean: 1,  fk: 2,  ff: 3,  bk: -1, bf: -2, wp: [43, 37], sp: [19, 34], dir: [0, -1], sw: 1 }, // plant
+    { sink: 0, lean: 0,  fk: 0,  ff: 0,  bk: 0,  bf: 1,  wp: [41, 36], sp: [21, 33], dir: [0, -1], sw: 2 }, // cross
+    { sink: 1, lean: 1,  fk: -1, ff: -4, bk: 2,  bf: 5,  wp: [40, 37], sp: [22, 34], dir: [0, -1], sw: 3 }, // drive
+  ],
+  attack: [
+    { sink: 0, lean: -3, fk: 1,  ff: 4,  bk: -3, bf: -7, wp: [32, 6],  sp: [21, 32], dir: [-1, -1], sw: 1 }, // raise
+    { sink: 2, lean: 5,  fk: 5,  ff: 10, bk: -3, bf: -6, wp: [47, 27], sp: [25, 34], dir: [1, 1], arc: 1, sw: 3 }, // cleave
+    { sink: 2, lean: 3,  fk: 4,  ff: 7,  bk: -2, bf: -5, wp: [46, 39], sp: [24, 34], dir: [1, 0], sw: 2 }, // carry
+  ],
+  hit: { sink: 1, lean: -4, hx: -3, hy: -2, fk: 2, ff: 6, bk: -3, bf: -5, wp: [37, 30], sp: [17, 27], dir: [-1, 0], sw: 0 },
+};
+const TRAIL = [0, 1, 2, 1];          // cloak / scarf / plume trail per walk frame
+
+// shared attachment points so a helm and a skull can never disagree
+function joints(ps) {
+  const tx = TORSO_X + ps.lean, ty = TORSO_Y + ps.sink;
   return {
-    torsoX, torsoY,
-    headX: torsoX + 2 + (ps.lean >> 1), headY: N_HEAD_Y + ps.bob, // the 16-wide head sits over the chest
-    shoF: [torsoX + 16, torsoY + 4],    // front (weapon) shoulder
-    shoB: [torsoX + 3, torsoY + 4],     // back (shield) shoulder
-    hipF: 32 + (ps.lean >> 1), hipB: 24 + (ps.lean >> 1), hipY: 42 + ps.bob,
+    tx, ty,
+    hx: HEAD_X + ps.lean + (ps.hx || 0), hy: HEAD_Y + ps.sink + (ps.hy || 0),
+    shF: [tx + 10, ty + 2], shB: [tx + 4, ty + 3],
+    hipF: HIP_F + (ps.lean >> 1), hipB: HIP_B + (ps.lean >> 1), hipY: HIP_Y + ps.sink,
   };
 }
 
-// ── affixes ──────────────────────────────────────────────────────────────────────────────
-// One generic decorator applied by every layer to ITS OWN item box, so a blazing sword flames and a warding
-// shield wards independently, and a full blazing set is unmistakable. `seed` de-phases the per-item
-// animation (all six pieces flickering in lockstep looks like a bug, not an effect).
-function affixAura(p, affix, box, frame, seed = 0) {
+const dim = (P) => ({ o: P.o, d: P.o, m: P.d, l: P.m, s: P.l });   // far-side: one step into shadow
+
+// ── affix motion ─────────────────────────────────────────────────────────────────────────
+// Applied by each layer to its OWN item box {x,y,w,h}; `ph` de-phases the pieces of a matched set.
+function affixFx(g, affix, box, f, ph = 0, live = true) {
   const A = AFFIX_GLOW[affix | 0];
-  if (!A || !p.fx) return;
-  // Boxes arrive in authored units (the layers' contract); the PARTICLES are native now — half their old
-  // size, hugging the item instead of scattering around it. Loose 2×2 blocks on a big sprite read as
-  // rendering glitches, not as magic; 1-px sparks in a tight formation read as an enchantment.
-  const f = frame & 3;
-  const x = box.x * HR, y = box.y * HR, w = box.w * HR, h = box.h * HR;
+  if (!A || !live) return;
+  const { x, y, w, h } = box, k = (f + ph) & 3;
   switch (A.mode) {
-    case "spark": { // keen — a glint hops corner to corner: an edge you do not want to touch
-      const pts = [[x + w - 1, y], [x, y + h - 1], [x + w - 1, y + h - 1], [x, y]];
-      const [sx, sy] = pts[f];
-      p.fine(sx, sy - 2, 1, 5, A.glow);
-      p.fine(sx - 2, sy, 5, 1, A.glow);
-      p.fine(sx, sy, 1, 1, A.spark);
+    case "shimmer": {  // one glint SLIDING along the top edge — light catching metal. The old version
+      // flashed a full border edge per beat, which read as a rotating frame around the gear, not a shine.
+      const px = x + ((k * 3 + 1) % Math.max(1, w - 1));
+      g.r(px, y - 1, 2, 1, A.a);
+      g.r(px + 1, y - 1, 1, 1, "#ffffff");
       break;
     }
-    case "weight": { // heavy — a hard under-shadow and grit kicked at the ground
-      for (let i = 0; i < w; i += 3) p.fine(x + i + (f & 1), y + h + 1, 2, 1, A.glow);
-      p.fine(x + (f & 1) * 2, GROUND_Y * HR - 2, 1, 1, A.spark);
-      p.fine(x + w - 2 - (f & 1) * 2, GROUND_Y * HR - 2, 1, 1, A.spark);
+    case "crack": {    // stress marks stamped into the ground under the piece
+      const gy = W_GROUND - 1;
+      g.r(x + 1, gy, 3, 1, A.b);
+      g.r(x + w - 3, gy - (k & 1), 3, 1, A.b);
+      g.r(x + (w >> 1), gy - 1, 1, 1, A.a);
       break;
     }
-    case "ward": { // warding — a dashed rune box standing off the item, crawling one step per frame
-      const ox = x - 3, oy = y - 3, ow = w + 6, oh = h + 6;
-      for (let i = 0; i < ow; i += 2) if ((((i >> 1) + f) & 1) === 0) {
-        p.fine(ox + i, oy, 1, 1, A.glow);
-        p.fine(ox + ow - 1 - i, oy + oh - 1, 1, 1, A.glow);
-      }
-      for (let j = 0; j < oh; j += 2) if ((((j >> 1) + f) & 1) === 0) {
-        p.fine(ox, oy + j, 1, 1, A.glow);
-        p.fine(ox + ow - 1, oy + oh - 1 - j, 1, 1, A.glow);
-      }
-      p.fine(ox, oy, 1, 1, A.spark);
-      p.fine(ox + ow - 1, oy + oh - 1, 1, 1, A.spark);
+    case "orbit": {    // four rune points circling the box
+      const px = [x + (w >> 1), x + w + 2, x + (w >> 1), x - 3][k];
+      const py = [y - 3, y + (h >> 1), y + h + 2, y + (h >> 1)][k];
+      g.r(px, py, 2, 2, A.b);
+      g.r(px, py, 1, 1, A.a);
       break;
     }
-    case "streak": { // swift — three speed lines behind the item: STRUCTURED dashes (a body and a bright
-      for (let i = 0; i < 3; i++) {                    // head), never lone pixels that read as glitches
-        const yy = y + 2 + i * Math.max(2, (h - 4) >> 1);
-        const ln = 5 + ((f + i) & 1) * 2, sx = x - 4 - ((f + i) & 3) * 2 - ln;
-        p.fine(sx, yy, ln, 2, A.glow);
-        p.fine(sx + ln, yy, 1, 2, A.spark);
+    case "ghost": {    // two after-images trailing off the back edge
+      g.d(x - 4 - k, y + 1, 2, h - 2, A.a, k);
+      g.d(x - 8 - k, y + 2, 2, h - 4, A.b, k + 1);
+      break;
+    }
+    case "thirst": {   // red threads curling UP off the piece — hunger rising, not blood falling
+      for (const [tx2, pp] of [[x + 1, 0], [x + w - 2, 2]]) {
+        const rise = ((k + pp) & 3) * 2;
+        g.r(tx2 + ((k & 1) ? 1 : 0), y - 3 - rise, 1, 3, A.a);
+        g.r(tx2, y - 1 - rise, 1, 1, A.b);
       }
       break;
     }
-    case "drip": { // vampiric — fat beads falling off the lower edge, never past the boot line: a droplet
-      for (const [bx, ph] of [[x + 2, 0], [x + w - 4, 2]]) { // is a 2×2 body with a bright cap, not a fleck
-        const by = Math.min(y + h + ((f + seed + ph) & 3) * 2, GROUND_Y * HR - 5);
-        p.fine(bx, by, 2, 2, A.glow);
-        p.fine(bx, by, 1, 1, A.spark);
-      }
-      break;
-    }
-    case "flame": { // blazing — native-column tongues off the top edge, fixed table, no noise
+    case "burn": {     // fire teeth off the top edge, heights from a fixed table
+      const T = [2, 4, 1, 3, 2, 5, 3, 1];
       for (let i = 0; i < w; i += 2) {
-        const t = FLAME[((i >> 1) + f * 3 + seed) % FLAME.length];
-        if (!t) continue;
-        p.fine(x + i, y - t * 2, 1, t * 2, A.glow);
-        p.fine(x + i, y - t * 2, 1, 1, A.spark);
+        const t = T[((i >> 1) + k * 3) % T.length];
+        g.r(x + i, y - t, 1, t, A.b);
+        g.r(x + i, y - t, 1, 1, A.a);
       }
       break;
     }
-    case "halo": { // hallowed — a short arc of light over the piece and one rising mote
-      const rw = Math.min(12, w + 4), rx = x + ((w - rw) >> 1);
-      for (let i = 0; i < rw; i += 2) p.fine(rx + i + (f & 1), y - 5, 1, 1, A.glow);
-      p.fine(rx + (rw >> 1), y - 7 - (f & 1), 1, 1, A.spark);
+    case "grace": {    // a standing halo arc and one slow mote
+      const rw = Math.min(14, w + 6), rx = x + ((w - rw) >> 1);
+      for (let i = 0; i < rw; i += 2) g.r(rx + i + (k & 1), y - 6, 1, 1, A.b);
+      g.r(rx + (rw >> 1), y - 9 - k, 1, 1, A.a);
       break;
     }
   }
 }
 
-// ── native construction kit ──────────────────────────────────────────────────────────────
-// The redesigned characters are SILHOUETTE-FIRST: each major mass is blocked as a filled shape with a
-// continuous 1-px outline, and only then carved with big cel-shaded tone planes. These helpers work in
-// NATIVE pixels through p.fine()/p.fraw(); the classic authored-grid helpers further down still serve the
-// props, which keep their look.
+// ── layers, back to front ────────────────────────────────────────────────────────────────
+// Every layer: (g, it, f, ps, J) — it = unpacked item or null (null draws the bare body part).
 
-/** far-side ramp: everything on the far side of the body is one tone step darker */
-const dk = (C) => ({ base: C.shade, shade: C.line, light: C.base, line: C.line });
-
-/** an outlined filled silhouette from row spans. spans[j] = [dx, w] (relative to x0) or null.
- *  Pass 1 stamps every row as a 3-tall line-colour block (a 1-px dilation in all four directions), pass 2
- *  fills the row itself — whatever survives of pass 1 is exactly the continuous 1-px outline. */
-function blob(p, x0, y0, spans, C) {
-  spans.forEach((s, j) => { if (s && s[1] > 0) p.fine(x0 + s[0] - 1, y0 + j - 1, s[1] + 2, 3, C.line); });
-  spans.forEach((s, j) => { if (s && s[1] > 0) p.fine(x0 + s[0], y0 + j, s[1], 1, C.base); });
-}
-
-/** a THICK outlined limb in native px: outline pass first, mass second, then one lit ridge along the
- *  upper-left — the same three passes every mass in the redesign gets */
-function limbF(p, x0, y0, x1, y1, w, C) {
-  const dx = x1 - x0, dy = y1 - y0, n = Math.max(Math.abs(dx), Math.abs(dy));
-  const at = (i) => { const t = n ? i / n : 0; return [Math.round(x0 + dx * t), Math.round(y0 + dy * t)]; };
-  for (let i = 0; i <= n; i++) { const [X, Y] = at(i); p.fine(X - 1, Y - 1, w + 2, w + 2, C.line); }
-  for (let i = 0; i <= n; i++) { const [X, Y] = at(i); p.fine(X, Y, w, w, C.base); }
-  for (let i = 0; i <= n; i++) { const [X, Y] = at(i); p.fine(X, Y, 1, 1, C.light); }
-}
-
-/** native horn/ear/spike: same taper discipline as horn(), but its inputs are native px */
-function hornF(p, x, y, dx, dy, n, C, w0) {
-  const W0 = Math.max(2, w0 || (n >> 1));
-  for (let i = 0; i < n; i++) {
-    const w = Math.max(1, Math.round(W0 * (n - i) / n));
-    const xx = dx < 0 ? x + dx * i - (w - 1) : x + dx * i;
-    p.fine(xx - 1, y + dy * i, w + 2, 1, C.line);
-    p.fine(xx, y + dy * i, w, 1, i >= n - 3 ? C.light : C.base);
+function wCloak(g, it, f, ps, J) {
+  if (!it) { // bare back: the scarf's tail is the only thing that flies
+    const s = TRAIL[ps.sw];
+    g.rows(J.tx - 3 - s, J.ty + 1, [[0, 5], [-1, 6], [-2, 6], [-3, 5], [-3, 3]], SCARF);
+    g.r(J.tx - 3 - s, J.ty + 2, 2, 2, SCARF.l);
+    return;
   }
-}
-
-/** native eye: socket, hot iris, catchlight, pupil — big enough to have all four at last */
-function eyeF(p, x, y, w, h, col, line) {
-  p.fine(x - 1, y - 1, w + 2, h + 2, line);
-  p.fine(x, y, w, h, col);
-  if (w >= 2 && h >= 2) {
-    p.fine(x, y, 1, 1, "#ffffff");
-    p.fine(x + w - 1, y + h - 1, 1, Math.min(2, h - 1), line);
-  }
-}
-
-// ── layers (back to front) ───────────────────────────────────────────────────────────────
-// Every layer takes (p, tier, mat, affix, frame, facing) — the pose rides last so that shared signature
-// stays intact. `facing` reaches the layers even though the pen has already applied it, so a layer can bias
-// a detail that must NOT mirror; most never need it. `tier === null` means the slot is empty and the layer
-// draws the BARE body part: the warrior is never incomplete, an empty slot is a naked slot.
-
-function drawCloak(p, tier, mat, affix, frame, facing, ps) {
-  if (tier === null) return; // the one slot whose bare version is genuinely nothing — a bare back, already
-                             // covered by the body layer drawn on top of it
-  const M = MATERIALS[mat], a = anchors(ps);
-  const len = 20 + tier * 2;         // t0 past the belt, t7 sweeps the boot tops
-  const sway = SWAY[frame % SWAY.length] * 2;
-  const top = a.torsoY - 1;
-  // ONE solid shaped mass hanging behind the torso: pinned at the shoulder, flaring backward (left) as it
-  // falls, the bottom third swinging with the walk. Built as a blob so the outline never breaks.
+  const M = MATERIALS[it.mat], t = it.tier;
+  const len = 22 + t * 2, s = TRAIL[ps.sw];      // long — the sweep of it is half the silhouette now
+  const top = J.ty - 1;
   const spans = [];
   for (let i = 0; i < len; i++) {
-    const t = i / Math.max(1, len - 1);
-    const flare = Math.round(t * (7 + tier)) + (i > len - 7 ? sway : 0);
-    let w = 7 + Math.round(t * (4 + (tier >> 1))) + (i > len - 7 ? sway : 0);
-    if (tier >= 5 && i === len - 1) w -= 3;                    // tattered hem on the high tiers…
-    spans.push([-flare, w]);
+    const u = i / (len - 1);
+    const back = Math.round(u * (6 + t)) + (i > len - 6 ? s : 0);       // flares behind as it falls
+    let w = 6 + Math.round(u * (3 + (t >> 1))) + (i > len - 6 ? s : 0);
+    if (t >= 5 && (i === len - 1 || i === len - 3)) w -= 2;             // storm-worn hem
+    spans.push([-back, w]);
   }
-  blob(p, a.torsoX - 2, top, spans, M);
-  // cel pass: the cloak is one big plane, so it gets ONE big light and ONE big shadow
-  for (let i = 2; i < len - 1; i++) {
-    const [dxx, w] = spans[i];
-    p.fine(a.torsoX - 2 + dxx + w - 2, top + i, 2, 1, M.shade);  // the side tucked behind the body
-    if (i < len * 0.6) p.fine(a.torsoX - 2 + dxx, top + i, 2, 1, M.light); // lit trailing edge up top
+  g.rows(J.tx - 1, top, spans, M);
+  for (let i = 2; i < len; i += 1) {                                    // one big lit plane, one shadow
+    const [dx, w] = spans[i];
+    if (i < len * 0.55) g.r(J.tx - 1 + dx, top + i, 2, 1, M.l);
+    g.r(J.tx - 1 + dx + w - 2, top + i, 2, 1, M.d);
+    if (i > 2 && (i & 1)) g.r(J.tx - 2 + dx, top + i, 1, 1, RIM);       // the MOONLIGHT RIM down the
+  }                                                                     // trailing edge — Symphony's edge
+  const [hdx, hw] = spans[len - 1];
+  g.r(J.tx - 1 + hdx, top + len - 1, hw, 1, M.d);
+  if (t >= 2) {                                                          // shoulder mantle
+    g.r(J.tx - 3, top, 11, 2, M.o);
+    g.r(J.tx - 2, top + 1, 9, 1, M.l);
   }
-  p.fine(a.torsoX - 2 + spans[len - 1][0], top + len - 1, spans[len - 1][1], 1, M.shade); // hem turns under
-  const [fdx] = spans[len >> 1];
-  p.fine(a.torsoX - 2 + fdx + 3, top + 6, 1, len - 10, M.shade); // one long fold crease, hem to mantle
-  if (tier >= 4) p.fine(a.torsoX - 2 + fdx + 6, top + 8, 1, len - 13, M.shade); // a second on the big cloaks
-  if (tier >= 5) for (let k = 0; k < 4; k++)                    // …with native notches worn into it
-    p.fine(a.torsoX - 2 + spans[len - 1][0] + 1 + k * 3, top + len - 1, 1, 2, M.line);
-  if (tier >= 3) { // mantle: the first thing that makes a cloak read as gear and not a towel
-    p.fine(a.torsoX - 4, top, 15, 4, M.line);
-    p.fine(a.torsoX - 3, top + 1, 13, 2, M.base);
-    p.fine(a.torsoX - 3, top + 1, 13, 1, M.light);
-  }
-  if (tier >= 6) { // clasp
-    p.fine(a.torsoX + 9, top + 2, 3, 3, M.line);
-    p.fine(a.torsoX + 10, top + 2, 2, 2, M.light);
-  }
-  affixAura(p, affix, { x: (a.torsoX - 14 - tier) >> 1, y: top >> 1, w: (16 + tier) >> 1, h: len >> 1 }, frame, 5);
-  // ^ the aura box spans the WHOLE flare, so streaks launch from clear air and drips hang off the true hem
+  if (t >= 4) g.r(J.tx - 1 + spans[len >> 1][0] + 2, top + 5, 1, len - 9, M.d);  // travel crease
+  if (t >= 6) g.r(J.tx + 7, top + 1, 2, 2, M.s);                         // clasp — one glint, no white
+  affixFx(g, it.affix, { x: J.tx - 6 - t, y: top, w: 12 + t, h: len }, f, 5, g.fx);
 }
 
-// one leg, drawn row by row: the x is lerped along hip→knee→foot so the limb bends without any curve math
-// one THICK leg (native): thigh 6 px, shin 5 px, x row-lerped hip→knee→ankle so the limb bends without any
-// curve math, ending in a real planted boot. Returns the ankle x so callers can hang things off it.
-function drawLeg(p, hipX, hipY, kneeDx, footDx, skin, boot, bootTop) {
-  const kneeX = hipX + kneeDx;
-  let ax = hipX;
-  for (let y = hipY; y < N_ANKLE_Y; y++) {
-    const x = y <= N_KNEE_Y
-      ? Math.round(hipX + kneeDx * (y - hipY) / Math.max(1, N_KNEE_Y - hipY))
-      : Math.round(kneeX + (footDx - kneeDx) * (y - N_KNEE_Y) / Math.max(1, N_ANKLE_Y - N_KNEE_Y));
-    const w = y < N_KNEE_Y - 2 ? 6 : 5;
-    const c = boot && y >= bootTop ? boot : skin;
-    p.fine(x - 1, y, w + 2, 1, c.line);
-    p.fine(x, y, w, 1, c.base);
-    p.fine(x, y, 2, 1, c.light);              // lit left edge — the sun sits upper-left
-    p.fine(x + w - 1, y, 1, 1, c.shade);
-    ax = x;
+function wLeg(g, hipX, hipY, kdx, fdx, sink, torso, boot, bootTop, P, B) {
+  // TWO SOLID SEGMENTS with a real knee — thigh 6 thick, shin 5 — drawn as outlined tubes, not a
+  // row-lerped stair of 1px steps (the first draft's "crooked legs", killed with prejudice). The boot
+  // ramp takes over the shin from bootTop down, so armoured greaves still climb with tier.
+  const ay = ANKLE_Y + sink;
+  const kx = hipX + kdx, ky = KNEE_Y + sink - 1;
+  const ax = hipX + fdx;
+  g.tube(hipX, hipY, kx, ky, 5, P);                       // the thigh — LONG and lean now, not a stump
+  g.r(kx, ky - 1, 5, 2, P.d);                             // knee crease seats the joint
+  const shinC = boot && bootTop <= ky + 2 ? B : P;
+  g.tube(kx + 1, ky + 1, ax + 1, ay - 1, 4, shinC);       // the shin
+  if (boot && bootTop > ky + 2 && bootTop < ay) {         // low boot: cuff partway up the shin
+    g.tube(kx + 1 + Math.round((ax - kx) * (bootTop - ky) / Math.max(1, ay - ky)), bootTop, ax + 1, ay - 1, 4, B);
   }
-  // the boot: a solid toe-forward block, PLANTED. The outline block's bottom row survives as the sole.
-  const bc = boot || skin;
-  const fx = ax - 1, fw = 9;
-  p.fine(fx - 1, N_ANKLE_Y, fw + 2, 4, bc.line);
-  p.fine(fx, N_ANKLE_Y, fw, 3, bc.base);
-  p.fine(fx, N_ANKLE_Y, fw - 3, 1, bc.light);
-  p.fine(fx + fw - 3, N_ANKLE_Y + 1, 3, 2, bc.light);       // the toe cap catching the light
-  p.fine(fx, N_ANKLE_Y + 2, 2, 1, bc.shade);                // heel turning away
+  const C = boot ? B : P;
+  g.r(ax - 2, ay, 9, 4, C.o);                             // the boot block; outline bottom row is the sole
+  g.r(ax - 1, ay, 7, 3, C.m);
+  g.r(ax - 1, ay, 3, 1, C.l);
+  g.r(ax + 4, ay + 1, 2, 1, C.l);                         // toe light
+  g.r(ax - 1, ay + 2, 2, 1, C.d);                         // heel
   return ax;
 }
 
-function drawBoots(p, tier, mat, affix, frame, facing, ps) {
-  const M = tier === null ? null : MATERIALS[mat];
-  const a = anchors(ps);
-  const bootTop = tier === null ? N_ANKLE_Y : Math.max(a.hipY + 2, N_ANKLE_Y - 4 - tier * 2); // ankle→thigh
-  // the far leg is one ramp step darker — the cheapest way to keep two overlapping thick legs apart
-  drawLeg(p, a.hipB, a.hipY, ps.kneeB, ps.footB, dk(SKIN), M ? dk(M) : dk(CLOTH), bootTop);
-  const ax = drawLeg(p, a.hipF, a.hipY, ps.kneeF, ps.footF, SKIN, M || CLOTH, bootTop);
-  if (M && tier >= 4) { // knee cop — the silhouette change that says "this is armour, not a shoe"
-    const kx = a.hipF + ps.kneeF;
-    p.fine(kx - 2, N_KNEE_Y - 3, 9, 6, M.line);
-    p.fine(kx - 1, N_KNEE_Y - 2, 7, 4, M.base);
-    p.fine(kx - 1, N_KNEE_Y - 2, 7, 1, M.light);
-    if (d2()) p.fine(kx + 2, N_KNEE_Y, 1, 1, M.light);      // the cop's centre rivet
+function wBoots(g, it, f, ps, J) {
+  const M = it ? MATERIALS[it.mat] : null, t = it ? it.tier : -1;
+  const bootTop = it ? Math.max(J.hipY + 2, ANKLE_Y - 3 - t) : ANKLE_Y;
+  wLeg(g, J.hipB, J.hipY, ps.bk, ps.bf, ps.sink, WOOL, true, bootTop, dim(WOOL), M ? dim(M) : dim(WOOL));
+  const ax = wLeg(g, J.hipF, J.hipY, ps.fk, ps.ff, ps.sink, WOOL, true, bootTop, WOOL, M || WOOL);
+  if (M && t >= 3) {                             // poleyn: the knee stops being cloth
+    const kx = J.hipF + ps.fk;
+    g.r(kx - 1, KNEE_Y - 2, 6, 4, M.o);
+    g.r(kx, KNEE_Y - 1, 4, 2, M.m);
+    g.r(kx, KNEE_Y - 1, 4, 1, M.l);
   }
-  if (M && tier >= 1) p.fine(ax, bootTop, 5, 1, M.light);   // the boot cuff, lit
-  if (M && tier >= 6) p.fine(ax + 8, N_ANKLE_Y + 1, 2, 2, M.light);       // sabaton toe
-  if (M && tier >= 7) { p.fine(ax - 4, N_ANKLE_Y + 1, 3, 1, M.light); p.fine(ax - 5, N_ANKLE_Y + 1, 1, 1, M.line); } // spur
-  if (M) affixAura(p, affix, { x: (a.hipB >> 1) - 1, y: bootTop >> 1, w: 9, h: (N_FOOT_Y - bootTop) >> 1 }, frame, 3);
+  if (M && t >= 1) g.r(ax - 1, bootTop, 6, 1, M.l);          // cuff
+  if (M && t >= 5) g.taper(ax + 6, ANKLE_Y + ps.sink + 1, 1, 0, 3, 2, M);  // sabaton point
+  if (M && t >= 7) g.taper(ax - 2, ANKLE_Y + ps.sink, -1, -1, 4, 2, M);    // heel spur
+  if (M) affixFx(g, it.affix, { x: J.hipB - 1, y: bootTop, w: 14, h: ANKLE_Y - bootTop + 4 }, f, 3, g.fx);
 }
 
-function drawBody(p, tier, mat, affix, frame, facing, ps) {
-  const M = tier === null ? CLOTH : MATERIALS[mat];
-  const a = anchors(ps), x = a.torsoX, y = a.torsoY;
-  // Drawn AFTER the legs on purpose: the fauld/skirt of a high-tier cuirass has to fall over the thighs.
-  // Silhouette first: broad shoulders → a real waist → hips under the belt, one outlined blob.
-  blob(p, x, y, [
-    [1, 18], [0, 20], [0, 20], [0, 20], [0, 20], [0, 20], [0, 20], [1, 18],  // rows 0-7: the chest
-    [2, 16], [2, 16], [3, 14], [3, 14],                                      // 8-11: taper to the waist
-    [3, 14], [3, 14],                                                        // 12-13: belt band
-    [2, 15], [2, 15],                                                        // 14-15: hips
+function wBody(g, it, f, ps, J) {
+  const M = it ? MATERIALS[it.mat] : WOOL, t = it ? it.tier : -1;
+  const x = J.tx, y = J.ty;
+  // a MAN'S torso: 15 at the shoulder, 9 at the waist, 20 rows tall — the V of someone who has carried
+  // a blade for years, drawn over the legs so skirts and tassets can fall
+  g.rows(x + 2, y, [
+    [0, 11], [0, 11], [0, 11], [0, 11], [0, 10],
+    [1, 9], [1, 9], [2, 8], [2, 7], [2, 7],
+    [2, 7], [2, 7], [2, 7], [2, 8], [1, 9],
+    [1, 9], [1, 9], [1, 10], [2, 9], [2, 8],
   ], M);
-  // cel pass: two big planes — the upper-left chest in light, the lower-right flank in shadow
-  p.fine(x + 2, y + 1, 7, 6, M.light);
-  p.fine(x + 15, y + 2, 4, 8, M.shade);
-  p.fine(x + 4, y + 8, 12, 1, M.shade);                       // the shadow under the chest
-  p.fine(x + 8, y + 1, 4, 2, SKIN.base);                      // a sliver of neck keeps the figure human
-  p.fine(x + 8, y + 2, 4, 1, SKIN.shade);
-  if (tier === null) { // bare: an open-collared tunic — folds, a rope belt, big readable planes
-    p.fine(x + 7, y + 3, 6, 3, SKIN.base);                    // open collar, chest showing
-    p.fine(x + 12, y + 3, 1, 3, SKIN.shade);
-    p.fine(x + 6, y + 3, 1, 4, CLOTH.line);                   // the collar's cut edges
-    p.fine(x + 13, y + 3, 1, 4, CLOTH.line);
-    p.fine(x + 5, y + 9, 1, 4, CLOTH.shade);                  // two long tunic folds, whole-height
-    p.fine(x + 12, y + 9, 1, 4, CLOTH.shade);
-    p.fine(x + 3, y + 12, 14, 2, CLOTH.shade);                // rope belt
-    p.fine(x + 3, y + 12, 14, 1, CLOTH.light);
-    if (d2()) p.fine(x + 8, y + 12, 2, 2, CLOTH.light);       // the knot
-    affixAura(p, 0, { x: x >> 1, y: y >> 1, w: 10, h: 8 }, frame, 1);
+  g.r(x + 3, y + 1, 3, 6, M.l);                  // lit chest plane (what light there is, upper-left)
+  g.r(x + 10, y + 1, 2, 9, M.d);                 // the chest curve rolling into shadow
+  g.r(x + 4, y + 8, 6, 1, M.d);                  // under-chest shadow
+  g.r(x + 6, y - 1, 3, 1, SKIN.m);               // the neck, one hard sliver
+  // THE SCARF — the one blood-note he owns, at the throat, every kit
+  g.r(x + 4, y, 7, 2, SCARF.o);
+  g.r(x + 5, y, 5, 1, SCARF.m);
+  g.r(x + 9, y + 1, 2, 3, SCARF.d);              // the knot, at the throat's lee side
+  if (!it) {                                     // bare: a belted travel tunic, no ornament
+    g.r(x + 4, y + 5, 1, 7, WOOL.d);
+    g.r(x + 9, y + 5, 1, 7, WOOL.d);
+    g.r(x + 3, y + 12, 9, 2, WOOL.o);
+    g.r(x + 4, y + 12, 7, 1, WOOL.l);
+    affixFx(g, 0, { x, y, w: 13, h: 18 }, f, 1, g.fx);
     return;
   }
-  if (tier >= 1) { // belt: a real strap with weight
-    p.fine(x + 3, y + 12, 14, 2, M.shade);
-    p.fine(x + 3, y + 13, 14, 1, M.line);
-    p.fine(x + 8, y + 11, 4, 4, M.line);                      // buckle plate…
-    p.fine(x + 9, y + 12, 2, 2, M.light);                     // …and its catch
+  if (t >= 1) {                                  // war-belt + square buckle, slung at the hip
+    g.r(x + 3, y + 14, 9, 2, M.d);
+    g.r(x + 6, y + 13, 3, 4, M.o);
+    g.r(x + 7, y + 14, 1, 2, M.s);
   }
-  if (tier >= 2) { // chest ridge: the cuirass's centre line, one clean native column
-    p.fine(x + 10, y + 1, 2, 7, M.light);
-    p.fine(x + 11, y + 2, 1, 6, M.base);
-    if (tier < 5) { p.fine(x + 5, y + 6, 3, 1, M.shade);      // rivet shadow pair on the pecs —
-                    p.fine(x + 13, y + 6, 3, 1, M.shade); }   // dropped once the plates arrive
+  if (t >= 2) {                                  // cuirass ridge down the sternum
+    g.r(x + 7, y + 1, 1, 10, M.l);
+    g.r(x + 8, y + 2, 1, 9, M.d);
   }
-  if (tier >= 3) { // gorget closing over the neck sliver
-    p.fine(x + 6, y, 8, 3, M.base);
-    p.fine(x + 6, y, 8, 1, M.light);
-    p.fine(x + 6, y + 2, 8, 1, M.shade);
+  if (t >= 3) {                                  // pauldron POINTS — tier grows edges, never bulk
+    const pw = Math.min(7, 3 + (t >> 1));
+    g.rows(J.shF[0] - 1, J.shF[1] - 3, [[1, pw - 1], [0, pw + 1], [0, pw + 1], [1, pw - 1]], M);
+    g.r(J.shF[0], J.shF[1] - 2, pw - 1, 1, M.l);
+    g.taper(J.shF[0] + pw, J.shF[1] - 2, 1, -1, Math.min(4, t - 1), 2, M);
+    g.rows(J.shB[0] - 2, J.shB[1] - 2, [[1, pw - 2], [0, pw], [1, pw - 2]], dim(M));
   }
-  if (tier >= 4) { // fauld: two plate rows skirting over the thighs — the torso stops being a rectangle
-    p.fine(x + 1, y + 16, 18, 3, M.line);
-    p.fine(x + 2, y + 16, 16, 2, M.base);
-    p.fine(x + 2, y + 16, 16, 1, M.light);
-    p.fine(x + 7, y + 16, 1, 2, M.line);                      // plate seams
-    p.fine(x + 12, y + 16, 1, 2, M.line);
-    if (d2()) { p.fine(x + 4, y + 17, 1, 1, M.light); p.fine(x + 15, y + 17, 1, 1, M.light); } // rivets
+  if (t >= 4) {                                  // faulds skirting the hips
+    g.r(x + 3, y + 16, 9, 2, M.o);
+    g.r(x + 4, y + 16, 7, 1, M.m);
+    g.r(x + 4, y + 18, 7, 2, M.d);
+    g.r(x + 7, y + 16, 1, 3, M.o);
   }
-  if (tier >= 6) { // tassets: a second, lower plate row on the hero who has everything
-    p.fine(x + 3, y + 19, 14, 2, M.base);
-    p.fine(x + 3, y + 20, 14, 1, M.shade);
+  if (t >= 6) {                                  // the star-stone at the sternum — the ONE jewel
+    g.r(x + 6, y + 5, 3, 3, M.o);
+    g.r(x + 7, y + 5, 1, 3, M.s);
   }
-  if (tier >= 3) { // pauldrons, growing with tier — the width of the shoulders IS the tier read
-    const pw = Math.min(10, 5 + (tier - 2));
-    const px0 = a.shoF[0] - 2, py0 = a.shoF[1] - 5;
-    blob(p, px0, py0, [[1, pw - 2], [0, pw], [0, pw], [0, pw], [1, pw - 2]], M);
-    p.fine(px0 + 1, py0 + 1, pw - 3, 1, M.light);
-    p.fine(px0 + 1, py0 + 3, pw - 2, 1, M.shade);
-    if (tier >= 5) { // back pauldron too, and a spike off the front one
-      blob(p, a.shoB[0] - 3, py0 + 1, [[1, pw - 3], [0, pw - 1], [0, pw - 1], [1, pw - 3]], dk(M));
-      hornF(p, px0 + pw - 1, py0 - 1, 1, -1, 5, M, 3);
-    }
-    if (tier >= 7) { // winged pauldrons + trim: unmistakable in silhouette
-      hornF(p, px0 + 2, py0 - 1, 0, -1, 6, M, 3);
-      hornF(p, a.shoB[0] - 2, py0, 0, -1, 5, M, 3);
-      p.fine(x + 9, y + 9, 2, 2, "#ffd7e8");                  // the heart-stone set over the sternum —
-                                                              // ONE ornament where trim rows were noise
-    }
-  }
-  affixAura(p, affix, { x: x >> 1, y: y >> 1, w: 10, h: 8 }, frame, 1);
+  affixFx(g, it.affix, { x: x + 2, y, w: 11, h: 18 }, f, 1, g.fx);
 }
 
-function drawHelm(p, tier, mat, affix, frame, facing, ps) {
-  const a = anchors(ps), x = a.headX, y = a.headY;
-  // The head is the personality budget: 16×16, skull + jaw as ONE blob, face on the marching side.
-  blob(p, x, y, [
-    [4, 8], [2, 12], [1, 14], [0, 16], [0, 16], [0, 16], [0, 16], [0, 16],
-    [0, 16], [0, 16], [0, 16], [1, 15], [1, 14], [2, 12], [3, 10], [5, 7],
-  ], SKIN);
-  p.fine(x + 2, y + 3, 3, 8, SKIN.light);          // the lit back-crown plane (sun upper-left)
-  p.fine(x + 5, y + 14, 8, 1, SKIN.shade);         // jaw shadow rooting the head on the neck
-  if (tier === null || tier < 2) { // the FACE — visible bare and under the open helms
-    p.fine(x + 9, y + 6, 5, 1, HAIR.shade);        // brow
-    p.fine(x + 10, y + 7, 3, 3, "#efe6d8");        // a real eye: white…
-    p.fine(x + 12, y + 7, 1, 3, SKIN.line);        // …pupil looking down the road…
-    p.fine(x + 9, y + 7, 1, 3, SKIN.shade);        // …and the socket's inner shadow
-    p.fine(x + 14, y + 8, 1, 2, SKIN.light);       // nose bridge
-    p.fine(x + 13, y + 10, 3, 1, SKIN.shade);      // nose underside
-    p.fine(x + 10, y + 12, 4, 1, SKIN.line);       // mouth, set
-    p.fine(x + 10, y + 13, 3, 1, SKIN.shade);      // lower lip
-    p.fine(x + 2, y + 7, 3, 4, SKIN.base);         // ear
-    p.fine(x + 3, y + 8, 1, 2, SKIN.shade);
+function wHead(g, it, f, ps, J) {
+  const x = J.hx, y = J.hy;
+  // a REAL skull: 9 wide, 10 tall, one-sixth of the man — the single strongest adult-proportion signal
+  g.rows(x, y, [
+    [2, 6], [1, 8], [0, 9], [0, 9], [0, 10], [0, 10], [0, 8], [1, 7], [2, 5], [3, 3],
+  ], SKIN);                                       // rows 4-5: the NOSE breaks the front edge — profile
+  g.r(x + 1, y + 2, 2, 4, SKIN.l);               // back-crown light
+  const M = it ? MATERIALS[it.mat] : null, t = it ? it.tier : -1;
+  if (!it || t < 2) {                            // the FACE in profile — planes of dark, one glint
+    g.r(x + 4, y + 2, 5, 1, SKIN.o);             // the brow's shadow band
+    g.r(x + 6, y + 3, 2, 1, SKIN.d);             // the sunken socket
+    g.r(x + 7, y + 3, 1, 1, "#b8b2a4");          // the glint, fixed down the road
+    g.r(x + 9, y + 5, 1, 1, SKIN.d);             // the nostril under the nose's break
+    g.r(x + 6, y + 7, 3, 1, SKIN.o);             // the mouth, a hard line drawn back
+    g.r(x + 5, y + 5, 1, 2, SKIN.o);             // gaunt cheek hollow
   }
-  if (tier === null) { // bare head: a proper head of hair, one shaped mass with a fringe
-    blob(p, x - 1, y - 2, [
-      [5, 9], [3, 13], [2, 15], [1, 16], [1, 8], [1, 6], [1, 4], [1, 3],
-    ], HAIR);
-    p.fine(x + 2, y - 1, 6, 2, HAIR.light);        // the lit sweep
-    p.fine(x + 5, y + 2, 4, 1, HAIR.shade);        // shadow inside the fringe
-    p.fine(x + 1, y + 5, 2, 5, HAIR.base);         // a sideburn framing the ear
-    p.fine(x + 8, y + 2, 3, 2, HAIR.base);         // one fringe tooth breaking the hairline
-    p.fine(x + 8, y + 2, 1, 1, HAIR.light);
-    if (d2()) p.fine(x + 12, y - 2, 1, 2, HAIR.base); // one flyaway strand at fine scales
-    affixAura(p, 0, { x: x >> 1, y: y >> 1, w: 8, h: 8 }, frame, 2);
+  if (!it) {                                     // bare: lank black hair down the back of the skull
+    g.rows(x - 2, y - 2, [
+      [3, 6], [1, 9], [0, 10], [0, 5], [0, 4], [0, 4], [0, 3], [0, 3], [0, 3], [1, 2],
+    ], HAIRC);
+    g.r(x, y - 1, 3, 1, HAIRC.l);                // one cold sheen along the crown
+    g.r(x + 5, y, 3, 1, HAIRC.m);                // the fringe cutting the brow
+    g.d(x + 5, y + 8, 3, 1, SKIN.d, 0);          // stubble on the gaunt jaw
+    const s = TRAIL[ps.sw];
+    g.r(x - 3 - (s >> 1), y + 3, 1, 4, HAIRC.d); // a loose strand drifting with the walk
+    affixFx(g, 0, { x, y, w: 9, h: 10 }, f, 2, g.fx);
     return;
   }
-  const M = MATERIALS[mat];
-  if (tier < 2) { // t0-1: an open sallet — cap over the crown, the face still his
-    blob(p, x - 1, y - 2, [
-      [5, 9], [3, 13], [2, 15], [1, 17], [0, 18], [0, 18], [0, 18], [0, 18], [0, 5],
+  if (t < 2) {                                   // t0-1: an open war-hood / kettle rim
+    g.rows(x - 1, y - 2, [[3, 6], [1, 9], [0, 11], [0, 11], [-1, 13], [0, 3]], M);
+    g.r(x, y - 1, 4, 1, M.l);
+    g.r(x - 2, y + 2, 13, 1, M.o);               // the brim line
+    if (t >= 1) { g.r(x + 7, y + 2, 2, 4, M.m); g.r(x + 7, y + 2, 1, 4, M.l); }  // nasal bar
+  } else {                                       // t2+: the closed helm — a burning slit for a face
+    g.rows(x - 1, y - 2, [
+      [3, 6], [1, 9], [0, 11], [0, 11], [0, 11], [0, 11], [0, 11], [0, 11],
+      [1, 10], [1, 9], [2, 7], [3, 5],
     ], M);
-    p.fine(x + 2, y - 1, 8, 2, M.light);                     // polished crown
-    p.fine(x + 13, y + 1, 3, 4, M.shade);
-    p.fine(x - 1, y + 5, 18, 1, M.line);                     // brow rim
-    if (tier >= 1) { p.fine(x + 13, y + 5, 3, 6, M.base); p.fine(x + 13, y + 5, 1, 6, M.light); } // nasal bar
-  } else { // t2+: the closed greathelm — the whole head becomes armour with a glowing slit
-    blob(p, x - 1, y - 2, [
-      [5, 9], [3, 13], [2, 15], [1, 17], [0, 18], [0, 18], [0, 18], [0, 18],
-      [0, 18], [0, 18], [0, 18], [0, 18], [1, 17], [2, 15], [3, 13], [4, 10],
-    ], M);
-    p.fine(x + 2, y - 1, 7, 3, M.light);                     // crown plane
-    p.fine(x + 2, y + 2, 3, 8, M.light);                     // lit cheek plane
-    p.fine(x + 12, y + 2, 4, 9, M.shade);                    // far cheek rolls away
-    p.fine(x - 1, y + 5, 18, 1, M.shade);                    // brow seam
-    p.fine(x + 7, y + 6, 9, 3, M.line);                      // the visor slot…
-    p.fine(x + 9, y + 7, 6, 1, "#ffcf6a");                   // …and the eye-glow inside it
-    p.fine(x + 9, y + 7, 1, 1, "#fff2c0");
-    p.fine(x + 5, y + 11, 1, 3, M.line);                     // cheek-plate seam
-    if (tier >= 3) for (let k = 0; k < 3; k++) p.fine(x + 11 + k * 2, y + 11, 1, 1, M.line); // breath holes
-    if (d2()) p.fine(x + 4, y + 12, 1, 1, M.light);          // the cheek rivet
+    g.r(x, y - 1, 4, 2, M.l);
+    g.r(x - 1, y + 1, 1, 5, RIM);                // moonlight on the trailing cheek
+    g.r(x + 7, y, 3, 7, M.d);
+    g.r(x - 1, y + 2, 11, 1, M.d);               // brow seam
+    g.r(x + 3, y + 3, 7, 2, M.o);                // the visor slot…
+    g.r(x + 4, y + 4, 5, 1, "#ffb84a");          // …and the ember behind it
+    g.r(x + 4, y + 4, 1, 1, "#fff1c8");
+    if (t >= 3) for (let k2 = 0; k2 < 2; k2++) g.r(x + 5 + k2 * 2, y + 7, 1, 1, M.o); // breaths
   }
-  if (tier >= 4) blob(p, x + 3, y - 6, [[3, 5], [1, 9], [0, 11], [0, 12]], M); // crest ridge
-  if (tier >= 5) { // horns — the first read-at-a-glance tier tell on the head
-    hornF(p, x, y - 2, -1, -1, 7, M, 3);
-    hornF(p, x + 15, y - 2, 1, -1, 7, M, 3);
+  if (t >= 4) {                                  // crest fin sweeping backward
+    g.rows(x, y - 5, [[4, 3], [2, 6], [0, 8]], M);
+    g.r(x + 2, y - 4, 3, 1, M.l);
   }
-  if (tier >= 6) { // plume, swaying against the walk so the head never looks frozen
-    const s = SWAY[frame % SWAY.length];
-    const ph = tier >= 7 ? 8 : 6;                            // fits the rows of headroom the crest leaves
-    blob(p, x + 4 - s, y - ph - 1, [
-      [4, 4], [2, 7], [1, 8], [0, 9], [0, 9], [0, 8], [1, 7], [1, 6],
-    ].slice(0, ph), M);
-    p.fine(x + 6 - s, y - ph, 3, ph - 3, M.light);           // the plume's lit spine
-    if (tier >= 7) for (let i = 0; i < 5; i++)               // tail streaming behind the march
-      p.fine(x + 2 - s - i * 2, y - ph + 1 + i * 2, 3, 2, i & 1 ? M.shade : M.base);
+  if (t >= 5) {                                  // crown horns — small, honed, mean
+    g.taper(x - 1, y - 2, -1, -1, 4, 2, M);
+    g.taper(x + 9, y - 2, 1, -1, 4, 2, M);
   }
-  affixAura(p, affix, { x: x >> 1, y: y >> 1, w: 8, h: 8 }, frame, 2);
+  if (t >= 6) {                                  // the plume, streaming with the walk
+    const s = TRAIL[ps.sw];
+    g.rows(x - 3 - s, y - 6, [[3, 3], [1, 5], [-1, 6], [-3, 6], [-5, 5]], SCARF);
+    g.r(x - 1 - s, y - 5, 3, 1, SCARF.l);
+  }
+  if (t >= 7) g.r(x + 4, y - 4, 1, 1, M.s);      // the crown star — one point of light, no white
+  affixFx(g, it.affix, { x, y: y - (t >= 5 ? 4 : 0), w: 9, h: 10 }, f, 2, g.fx);
 }
 
-function drawShield(p, tier, mat, affix, frame, facing, ps) {
-  const a = anchors(ps), [hx, hy] = ps.hs;
-  const M = tier === null ? null : MATERIALS[mat];
-  // the far arm belongs to this layer: an empty shield slot still has to show a bare arm and fist
-  const arm = M && tier >= 2 ? dk(M) : dk(SKIN);
-  limbF(p, a.shoB[0], a.shoB[1], hx, hy, 4, arm);
-  p.fine(hx - 1, hy - 1, 6, 6, arm.line);              // the fist
-  p.fine(hx, hy, 4, 4, arm.base);
-  p.fine(hx, hy, 4, 1, arm.light);
-  if (!M) return;
-  const w = 10 + tier, h = 14 + tier * 2;              // t0 buckler … t7 tower
-  const sx = hx - 3, sy = hy - (h >> 1);
+function wShield(g, it, f, ps, J) {
+  const M = it ? MATERIALS[it.mat] : null, t = it ? it.tier : -1;
+  if (!M) return;                                // bare back: nothing slung, the cloak owns it
+  // slung across the BACK, tilted with the stride — a knight in profile carries it, he does not hold
+  // it at arm's length like a waiter with a tray (which is what the frontal draft looked like)
+  const w = 8 + t, h = 10 + t * 2;
+  const s = TRAIL[ps.sw];
+  const sx = J.tx - 6 - (t >> 1), sy = J.ty + 1 + (s >> 1);
   const spans = [];
-  for (let j = 0; j < h; j++) {                        // rounded-corner slab
-    const r = Math.min(j, h - 1 - j);
-    const ins = r === 0 ? 2 : r === 1 ? 1 : 0;
-    spans.push([ins, w - ins * 2]);
+  for (let j = 0; j < h; j++) {
+    const rr = Math.min(j, h - 1 - j);
+    const ins = rr === 0 ? 2 : rr === 1 ? 1 : 0;
+    const pt = t >= 3 && j === h - 1 ? 1 : 0;    // kite point grows from t3
+    const tilt = -(j >> 2);                      // the slung tilt: top leans out over the cloak
+    spans.push([ins + pt + tilt, w - (ins + pt) * 2]);
   }
-  blob(p, sx, sy, spans, M);
-  p.fine(sx + 2, sy + 1, w - 4, 2, M.light);           // cel: the top edge and the lit left rim…
-  p.fine(sx + 1, sy + 2, 2, h - 5, M.light);
-  p.fine(sx + w - 3, sy + 3, 2, h - 6, M.shade);       // …the far rim rolling away…
-  p.fine(sx + 2, sy + h - 3, w - 4, 2, M.shade);       // …and the bottom in shadow
-  if (tier >= 1) { // the DEVICE: a pale lozenge on the face — heraldry, not a plank
-    const dcx = sx + (w >> 1), dcy = sy + (h >> 1) - 1;
-    for (let j = -3; j <= 3; j++) {
-      const dw = 7 - 2 * Math.abs(j);
-      p.fine(dcx - (dw >> 1), dcy + j, dw, 1, M.light);
+  g.rows(sx, sy, spans, M);
+  g.r(sx + 1, sy + 1, w - 4, 2, M.l);
+  g.r(sx - (h >> 3), sy + 2, 2, h - 6, RIM);     // the moon catches the slung edge
+  g.r(sx + w - 4, sy + 3, 2, h - 6, M.d);
+  if (t >= 1) {                                  // the DEVICE: a scarf-red CHEVRON — his heraldry
+    const cy = sy + (h >> 1) - 2;
+    for (let i = 0; i < (w >> 1) - 1; i++) {
+      g.r(sx + i - 1, cy + i, 2, 2, SCARF.m);
+      g.r(sx + w - 4 - i, cy + i, 2, 2, SCARF.m);
     }
-    p.fine(dcx - 1, dcy + 1, 2, 2, M.shade);           // the lozenge's own lower facet
-  } else { // t0: just a boss dome
-    p.fine(sx + (w >> 1) - 2, sy + (h >> 1) - 2, 4, 4, M.light);
-    p.fine(sx + (w >> 1) - 1, sy + (h >> 1) + 1, 3, 1, M.shade);
   }
-  if (tier >= 3) { // reinforcing bands above and below the device
-    p.fine(sx + 1, sy + 3, w - 2, 1, M.shade);
-    p.fine(sx + 1, sy + h - 5, w - 2, 1, M.shade);
-  }
-  if (tier >= 5) { // rivets in the corners, native-sized
-    p.fine(sx + 2, sy + 2, 1, 1, M.light);
-    p.fine(sx + w - 3, sy + 2, 1, 1, M.light);
-    p.fine(sx + 2, sy + h - 3, 1, 1, M.light);
-    p.fine(sx + w - 3, sy + h - 3, 1, 1, M.light);
-  }
-  if (tier >= 6) hornF(p, sx + (w >> 1), sy + h, 0, 1, 5, M, 4);   // the pointed foot: it can be PLANTED
-  if (tier >= 7) { // top spike + edge trim
-    hornF(p, sx + (w >> 1), sy - 1, 0, -1, 5, M, 3);
-    p.fine(sx, sy + 2, 1, h - 4, M.light);
-  }
-  affixAura(p, affix, { x: sx >> 1, y: sy >> 1, w: w >> 1, h: h >> 1 }, frame, 4);
+  if (t >= 4) for (let j = 3; j < h - 3; j += 3) g.r(sx + w - 2 - (j >> 2), sy + j, 1, 1, M.s);  // rim studs
+  if (t >= 6) g.taper(sx + 1 - (h >> 3), sy - 1, 0, -1, 4, 2, M);                     // crown spike
+  affixFx(g, it.affix, { x: sx - 2, y: sy, w, h }, f, 4, g.fx);
 }
 
-function drawWeapon(p, tier, mat, affix, frame, facing, ps) {
-  const a = anchors(ps), [hx, hy] = ps.hw, [dx, dy] = ps.dir;
-  const M = tier === null ? null : MATERIALS[mat];
-  const arm = M && tier >= 4 ? M : SKIN;
-  limbF(p, a.shoF[0], a.shoF[1], hx, hy, 4, arm);      // near arm, drawn last so it sits over the shield
-  p.fine(hx - 1, hy - 1, 7, 7, arm.line);              // the fist: big, closed, outlined
-  p.fine(hx, hy, 5, 5, arm.base);
-  p.fine(hx, hy, 5, 1, arm.light);
-  p.fine(hx + 1, hy + 2, 3, 1, arm.shade);             // knuckle crease
-  if (!M) { p.fine(hx, hy + 4, 5, 1, SKIN.line); return; } // bare fist: the unarmed pose is still a pose
-  // t0 knife, t7 greatsword — LENGTH is the tier read, and the blade is finally a BLADE: parallel edges,
-  // a lit edge line, a fuller groove, and a taper that lands its point inside the cell.
-  const cx0 = hx + 2, cy0 = hy + 2;                    // the centre of the fist
-  const room = (at, d, edge) => (d > 0 ? (edge - 3 - at) / d : d < 0 ? (at - 2) / -d : 99);
-  const fits = Math.floor(Math.min(room(cx0, dx, FRAME_W_N), room(cy0, dy, FRAME_H_N)));
-  const len = Math.max(8, Math.min(11 + tier * 4, fits));
-  const bw = tier >= 4 ? 4 : 3;
-  p.fine(cx0 - dx * 3 - 2, cy0 - dy * 3 - 2, 4, 4, M.shade);     // grip behind the fist
-  p.fine(cx0 - dx * 5 - 2, cy0 - dy * 5 - 2, 4, 4, M.line);      // pommel…
-  p.fine(cx0 - dx * 5 - 1, cy0 - dy * 5 - 1, 2, 2, M.light);     // …with its catch
-  const gl = tier < 2 ? 3 : tier < 5 ? 5 : 7;          // crossguard: perpendicular, THICK, a real cross
-  for (let i = -gl; i <= gl; i++)
-    p.fine(cx0 + dy * i - 1, cy0 - dx * i - 1, 3, 3, Math.abs(i) === gl ? M.line : i === 0 ? M.light : M.base);
-  const wAt = (i) => (i > len - 5 ? Math.max(1, bw - (i - (len - 5))) : bw);
-  for (let i = 4; i <= len; i++) {                     // outline pass first — the blade is one solid object
-    const w = wAt(i);
-    p.fine(cx0 + dx * i - (w >> 1) - 1, cy0 + dy * i - (w >> 1) - 1, w + 2, w + 2, M.line);
+/** The weapon's class — a REAL item property the contract rolls and the combat math uses (see the engine's
+ *  weaponKind + fight), not a look derived here. The art just draws the iron the chain already decided. */
+const W_KIND = (it) => it.kind | 0;   // 0 sword · 1 axe · 2 maul · 3 spear
+
+/** Affix glow laid ALONG the weapon — walked cell by cell down the actual metal, never a bounding box.
+ *  The box version put burn teeth and orbit runes on the CORNERS of the blade's bbox, which for a raised
+ *  or diagonal blade is empty air: glow floating NEXT TO the sword, the exact recurring complaint.
+ *  (qx,qy) is the blade's own perpendicular; drift that must read as "rising" uses world-up. */
+function weaponFx(g, affix, bx, by, dx, dy, reach, f, live) {
+  const A = AFFIX_GLOW[affix | 0];
+  if (!A || !live) return;
+  const qx = -dy, qy = dx, k = f & 3;
+  const cx = (i) => bx + dx * i, cy = (i) => by + dy * i;
+  switch (A.mode) {
+    case "shimmer": {  // one glint travelling up the metal
+      const i = 3 + ((k * 3 + 1) % Math.max(1, reach - 3));
+      g.r(cx(i) + qx, cy(i) + qy, 1, 1, "#ffffff");
+      g.r(cx(i + 1) + qx, cy(i + 1) + qy, 1, 1, A.a);
+      break;
+    }
+    case "crack": {    // sparks grinding off the tip
+      g.r(cx(reach) + dx + ((k & 1) ? qx : -qx), cy(reach) + dy + ((k & 1) ? qy : -qy), 1, 1, A.a);
+      g.r(cx(reach - 1) - qx, cy(reach - 1) - qy, 1, 1, A.b);
+      break;
+    }
+    case "orbit": {    // two runes sliding along the metal, opposite faces
+      const span = Math.max(1, reach - 3);
+      const i1 = 3 + ((k * 4) % span), i2 = 3 + ((k * 4 + (span >> 1)) % span);
+      g.r(cx(i1) + qx * 2, cy(i1) + qy * 2, 2, 2, A.b);
+      g.r(cx(i1) + qx * 2, cy(i1) + qy * 2, 1, 1, A.a);
+      g.r(cx(i2) - qx * 2, cy(i2) - qy * 2, 2, 2, A.b);
+      break;
+    }
+    case "ghost": {    // an after-image of the metal itself, one step behind the trailing face
+      for (let i = 3; i <= reach; i += 2) g.r(cx(i) - qx * 2, cy(i) - qy * 2, 1, 1, A.a);
+      for (let i = 4; i <= reach; i += 3) g.r(cx(i) - qx * 4, cy(i) - qy * 4, 1, 1, A.b);
+      break;
+    }
+    case "thirst": {   // red threads curling up off the metal
+      for (const [i, pp] of [[4, 0], [Math.max(5, reach - 2), 2]]) {
+        const rise = ((k + pp) & 3) * 2;
+        g.r(cx(i), cy(i) - 3 - rise, 1, 3, A.a);
+        g.r(cx(i), cy(i) - 1 - rise, 1, 1, A.b);
+      }
+      break;
+    }
+    case "burn": {     // fire teeth off the edge cells, rising in world space
+      const T = [2, 4, 1, 3, 2, 5, 3, 1];
+      for (let i = 3; i <= reach; i += 2) {
+        const h = T[((i >> 1) + k * 3) % T.length];
+        g.r(cx(i) + qx, cy(i) + qy - h, 1, h, A.b);
+        g.r(cx(i) + qx, cy(i) + qy - h, 1, 1, A.a);
+      }
+      break;
+    }
+    case "grace": {    // motes strung along the metal + one drifting off the tip
+      for (let i = 4; i <= reach; i += 3) {
+        const s = (i + k) & 1 ? 1 : -1;
+        g.r(cx(i) + qx * s, cy(i) + qy * s, 1, 1, A.b);
+      }
+      g.r(cx(reach), cy(reach) - 2 - k, 1, 1, A.a);
+      break;
+    }
   }
-  for (let i = 4; i <= len; i++) {
-    const w = wAt(i);
-    p.fine(cx0 + dx * i - (w >> 1), cy0 + dy * i - (w >> 1), w, w, M.base);
-  }
-  for (let i = 4; i <= len - 4; i++) {
-    p.fine(cx0 + dx * i - (bw >> 1), cy0 + dy * i - (bw >> 1), 1, 1, M.light);  // the honed edge line
-    if (tier >= 3) p.fine(cx0 + dx * i, cy0 + dy * i, 1, 1, M.shade);           // the fuller groove
-  }
-  p.fine(cx0 + dx * len, cy0 + dy * len, 1, 1, M.light);                        // the point itself
-  const tipX = cx0 + dx * len, tipY = cy0 + dy * len;
-  affixAura(p, affix, { x: (Math.min(cx0, tipX) >> 1) - 1, y: (Math.min(cy0, tipY) >> 1) - 1,
-                        w: (Math.abs(tipX - cx0) >> 1) + 3, h: (Math.abs(tipY - cy0) >> 1) + 3 }, frame, 0);
 }
 
-// ── public draw ──────────────────────────────────────────────────────────────────────────
-const EMPTY_GEAR = [0, 0, 0, 0, 0, 0];
+function wWeapon(g, it, f, ps, J) {
+  const M = it ? MATERIALS[it.mat] : null, t = it ? it.tier : -1;
+  const [hx2, hy2] = ps.wp;
+  g.tube(J.shF[0], J.shF[1], hx2, hy2, 3, SKIN); // the near arm is his — gauntlets read on the blade hand
+  g.r(hx2 - 1, hy2 - 1, 5, 5, M && t >= 2 ? M.o : SKIN.o);
+  g.r(hx2, hy2, 3, 3, M && t >= 2 ? M.m : SKIN.m);
+  g.r(hx2, hy2, 1, 1, M && t >= 2 ? M.l : SKIN.l);
+  if (!M) {                                      // bare hands: a walking stick
+    g.seg(hx2 + 1, hy2 - 8, hx2 + 1, hy2 + 10, 2, HAIRC.d);
+    g.r(hx2, hy2 - 8, 3, 2, HAIRC.m);
+    return;
+  }
+  const [dx, dy] = ps.dir;
+  const qx = -dy, qy = dx;                       // the weapon's own perpendicular
+  const kind = W_KIND(it);
+  const bx = hx2 + 1, by = hy2 + 1;
+  let reach;                                     // how far the metal actually extends — wake + glow use THIS
+  if (kind === 1) {                              // ── AXE: wooden haft, bearded bit, double-bit at t5+
+    reach = 13 + t;
+    g.seg(bx, by, bx + dx * reach, by + dy * reach, 2, HAIRC.d);
+    g.r(bx + dx * 2, by + dy * 2, 1, 1, M.d);    // grip wrap
+    g.r(bx + dx * 4, by + dy * 4, 1, 1, M.d);
+    const hh = reach - 3;                        // where the head sits on the haft
+    const BIT = [3, 5, 6, 6, 5, 3];              // convex cutting face, bearded top and bottom
+    // per-pixel walks along the perpendicular: the pose axis can be diagonal, so a rect span can't
+    // carry the head shape (and g.r silently drops negative extents)
+    for (let j = 0; j < BIT.length; j++) {
+      const ax = bx + dx * (hh - 2 + j), ay = by + dy * (hh - 2 + j);
+      for (let w = 1; w <= BIT[j]; w++)
+        g.r(ax + qx * w, ay + qy * w, 1, 1, w === BIT[j] ? (j >= 2 && j <= 3 ? M.s : M.l)   // the true edge
+          : w === 1 || BIT[j] <= 3 ? M.o : M.m);
+      if (t >= 5) {                              // double-bit: a smaller mirror on the back face
+        const b2 = BIT[j] - 2;
+        for (let w = 1; w <= b2; w++)
+          g.r(ax - qx * w, ay - qy * w, 1, 1, w === b2 ? M.l : M.o);
+      }
+    }
+    if (t >= 3) g.taper(bx + dx * (reach + 1), by + dy * (reach + 1), dx, dy, 3, 1, M);   // top spike
+  } else if (kind === 2) {                       // ── MAUL: short haft, a head that ENDS arguments
+    reach = 12 + t;
+    g.seg(bx, by, bx + dx * reach, by + dy * reach, 2, HAIRC.d);
+    g.r(bx + dx * 3, by + dy * 3, 1, 1, M.d);    // ferrule band
+    const tx2 = bx + dx * reach, ty2 = by + dy * reach;
+    g.r(tx2 - 3, ty2 - 3, 7, 6, M.o);            // the block
+    g.r(tx2 - 2, ty2 - 2, 5, 4, M.m);
+    g.r(tx2 - 2 + (qx > 0 ? 3 : 0), ty2 - 2 + (qy > 0 ? 2 : 0), 2, 2, M.l);   // striking face catches light
+    if (t >= 2) { g.r(tx2 - 3, ty2 - 3, 1, 1, M.s); g.r(tx2 + 3, ty2 + 2, 1, 1, M.s); }  // studs
+    if (t >= 5) {                                // flanges: spikes off every face
+      g.taper(tx2 + dx * 3, ty2 + dy * 3, dx, dy, 3, 1, M);
+      g.taper(tx2 + qx * 4, ty2 + qy * 4, qx, qy, 2, 1, M);
+      g.taper(tx2 - qx * 4, ty2 - qy * 4, -qx, -qy, 2, 1, M);
+    }
+    reach += 2;                                  // the head extends past the haft
+  } else if (kind === 3) {                       // ── SPEAR: the longest reach, a leaf point, tassel at t6+
+    reach = 16 + t * 2;
+    g.seg(bx - dx * 3, by - dy * 3, bx + dx * reach, by + dy * reach, 1, HAIRC.m);   // full haft, both ways
+    g.r(bx + dx * 2, by + dy * 2, 1, 1, M.d);    // binding wraps
+    g.r(bx + dx * 5, by + dy * 5, 1, 1, M.d);
+    g.taper(bx + dx * reach, by + dy * reach, dx, dy, 6, 2, M);                       // the leaf head
+    g.r(bx + dx * (reach + 5), by + dy * (reach + 5), 1, 1, M.s);                     // its bright point
+    if (t >= 4) { g.r(bx + dx * (reach - 1) + qx * 2, by + dy * (reach - 1) + qy * 2, 1, 1, M.o);   // lugs
+      g.r(bx + dx * (reach - 1) - qx * 2, by + dy * (reach - 1) - qy * 2, 1, 1, M.o); }
+    if (t >= 6) { g.r(bx + dx * (reach - 2), by + dy * (reach - 2) + 1, 1, 3, SCARF.m);           // tassel
+      g.r(bx + dx * (reach - 2), by + dy * (reach - 2) + 4, 1, 1, SCARF.d); }
+    reach += 5;                                  // the point extends past the haft
+  } else {                                       // ── SWORD: crossguard, true edge, dark spine
+    const len = 15 + t * 2;                      // t0 short sword … t7 greatblade
+    reach = len;
+    // crossguard, perpendicular to the blade
+    g.r(bx - (dy !== 0 ? 3 : 1), by - (dx !== 0 ? 3 : 1), dy !== 0 ? 8 : 3, dx !== 0 ? 8 : 3, M.o);
+    g.r(bx - (dy !== 0 ? 2 : 0), by - (dx !== 0 ? 2 : 0), dy !== 0 ? 6 : 2, dx !== 0 ? 6 : 2, M.m);
+    // the blade: a 3px core with a bright true edge and a dark spine
+    for (let i = 2; i <= len; i++) {
+      const X = bx + dx * i, Y = by + dy * i;
+      g.r(X - 1, Y - 1, 3, 3, M.o);
+    }
+    for (let i = 2; i <= len; i++) {
+      const X = bx + dx * i, Y = by + dy * i;
+      g.r(X, Y, 1, 1, i > len - 3 ? M.s : M.m);
+      if (t >= 2) g.r(X + (dy !== 0 ? 1 : 0), Y + (dx !== 0 ? 1 : 0), 1, 1, M.l);   // the edge
+      if (t >= 4) g.r(X - (dy !== 0 ? 1 : 0), Y - (dx !== 0 ? 1 : 0), 1, 1, M.d);   // the spine
+    }
+    if (t >= 5) { g.r(bx - 1, by + 3, 1, 1, M.s); }                       // pommel gem
+    if (t >= 7) g.taper(bx + dx * (len >> 1) + (dy !== 0 ? 2 : 0), by + dy * (len >> 1), dx, dy, 4, 2, M); // parry hook
+  }
+  const len = reach;                             // the wake below measures from the true tip, any kind
+  if (ps.arc) {
+    // The wake GLOWS OUT OF THE SWORD. The old trail was an arc at tip-radius plus an inner echo —
+    // two thin concentric crescents that touched the blade at exactly one point and read as separate
+    // effects stacked behind it. Now: radial streaks that each run ALONG a recent blade position,
+    // hugging the metal at the freshest angle and shrinking/dimming as they trail back through the
+    // swept angle — light peeling off the edge, attached to it for its whole length.
+    const scx = J.shF[0], scy = J.shF[1];
+    const tpX = bx + dx * len, tpY = by + dy * len;
+    const R2 = Math.max(10, Math.round(Math.hypot(tpX - scx, tpY - scy)));
+    const a1 = Math.atan2(tpY - scy, tpX - scx);      // where the edge IS, right now
+    for (let i2 = 0; i2 < 6; i2++) {
+      const aa = a1 - 0.16 - i2 * 0.24;               // just behind the edge, sweeping back
+      const r1 = R2 * (1 - i2 * 0.06);                // the wake decays away from the tip…
+      const r0 = R2 * (0.35 + i2 * 0.07);             // …and pulls off the hilt as it ages
+      g.seg(Math.round(scx + Math.cos(aa) * r0), Math.round(scy + Math.sin(aa) * r0),
+            Math.round(scx + Math.cos(aa) * r1), Math.round(scy + Math.sin(aa) * r1),
+            i2 < 2 ? 2 : 1, i2 === 0 ? M.s : i2 < 3 ? M.l : M.m);
+    }
+    // and the edge itself BURNS: a bright sheath laid directly on the blade's leading side
+    for (let i = 4; i <= len; i += 2)
+      g.r(bx + dx * i + (dy !== 0 ? 2 : 0), by + dy * i + (dx !== 0 ? 2 : 0), 1, 1, M.s);
+  }
+  weaponFx(g, it.affix, bx, by, dx, dy, reach, f, g.fx);
+}
+
+// ── composing him ────────────────────────────────────────────────────────────────────────
+const NO_GEAR = [0, 0, 0, 0, 0, 0];
+
+/** THE DARK THAT WALKS WITH HIM — a standing shade behind the shoulders, wisps tearing loose, one ember
+ *  of the old blood. Drawn FIRST so it hangs behind the figure; it is what the bright first draft lost. */
+function wAura(g, J, f) {
+  const k = f & 3;
+  g.d(J.tx - 6, J.ty - 10 - k, 7, 15, AURA.m, k);
+  g.d(J.tx - 10, J.ty - 3, 4, 11, AURA.d, k + 1);
+  g.d(J.tx + 12, J.ty - 6, 3, 9, AURA.d, k);
+  g.r(J.tx - 4 - k, J.ty - 13 - k * 2, 1, 3, AURA.l);     // a wisp tearing free
+  g.r(J.tx + 11 + (k & 1), J.ty - 9 - k, 1, 2, AURA.l);
+  g.r(J.tx - 1, J.ty - 15 - k * 2, 1, 1, SCARF.m);        // one ember of the old blood
+}
+
+function paintWayfarer(g, gear, ps, f) {
+  const it = (i) => unpackItem(gear[i] | 0);
+  const J = joints(ps);
+  if (g.fx) wAura(g, J, f);
+  wCloak(g, it(5), f, ps, J);
+  wShield(g, it(3), f, ps, J);
+  wBoots(g, it(4), f, ps, J);
+  wBody(g, it(2), f, ps, J);
+  wHead(g, it(1), f, ps, J);
+  wWeapon(g, it(0), f, ps, J);
+}
+
+/** The warrior, felled — an AUTHORED sprawl, not a pose knocked sideways: face-up along the road, one
+ *  arm flung, the blade fallen a stride away. Drawn in his gear's colours so the corpse is still HIS. */
+function paintFallen(g, gear) {
+  const it = (i) => unpackItem(gear[i] | 0);
+  const bM = it(2) ? MATERIALS[it(2).mat] : WOOL;
+  const hM = it(1) ? MATERIALS[it(1).mat] : null;
+  const wM = it(0) ? MATERIALS[it(0).mat] : null;
+  const gy = W_GROUND;
+  // legs folded left, torso centre, head right — reading order is feet-first like a battlefield find
+  g.rows(8, gy - 7, [[2, 12], [0, 16], [0, 16], [1, 14]], WOOL);            // folded legs
+  g.r(10, gy - 6, 4, 1, WOOL.l);
+  g.rows(22, gy - 9, [[2, 15], [0, 19], [0, 20], [0, 19], [1, 16]], bM);    // the chest, side-on
+  g.r(24, gy - 8, 8, 2, bM.l);
+  g.r(26, gy - 5, 12, 2, bM.d);
+  g.r(30, gy - 10, 6, 2, SCARF.m);                                          // the scarf, spilled
+  g.r(34, gy - 9, 8, 2, SCARF.d);
+  const hx2 = 43;                                                           // the head, tipped back
+  g.rows(hx2, gy - 8, [[2, 6], [0, 10], [0, 10], [0, 10], [1, 8], [3, 4]], hM || SKIN);
+  if (hM) { g.r(hx2 + 2, gy - 7, 5, 1, hM.l); g.r(hx2 + 2, gy - 5, 6, 1, hM.o); }
+  else {
+    g.r(hx2 + 3, gy - 6, 4, 1, SKIN.d);                                     // shut eyes
+    g.r(hx2 + 4, gy - 3, 3, 1, SKIN.o);
+  }
+  g.tube(26, gy - 8, 18, gy - 2, 3, dim(bM));                               // the flung arm
+  g.r(16, gy - 3, 4, 3, SKIN.m);                                            // open hand
+  if (wM) {                                                                 // the dropped weapon — HIS kind
+    const wk = W_KIND(it(0));
+    if (wk === 1) {                 // axe: haft + bearded bit standing proud of the ground
+      g.seg(52, gy - 2, 61, gy - 2, 2, HAIRC.d);
+      g.rows(59, gy - 7, [[1, 3], [0, 4], [0, 4], [1, 3]], wM);
+      g.r(62, gy - 6, 1, 3, wM.l);
+    } else if (wk === 2) {          // maul: haft + the block
+      g.seg(52, gy - 2, 60, gy - 2, 2, HAIRC.d);
+      g.r(59, gy - 5, 5, 4, wM.o);
+      g.r(60, gy - 4, 3, 2, wM.m);
+      g.r(60, gy - 4, 1, 1, wM.s);
+    } else if (wk === 3) {          // spear: the long haft, point past the reading edge
+      g.seg(48, gy - 2, 62, gy - 2, 1, HAIRC.m);
+      g.taper(62, gy - 2, 1, 0, 4, 2, wM);
+      g.r(55, gy - 2, 1, 1, wM.d);
+    } else {                        // sword, as it always fell
+      g.seg(52, gy - 2, 62, gy - 2, 2, wM.o);
+      g.seg(53, gy - 2, 60, gy - 2, 1, wM.m);
+      g.r(61, gy - 2, 1, 1, wM.s);
+      g.r(52, gy - 4, 2, 5, wM.d);
+    }
+  }
+}
 
 /**
- * Draw one warrior frame with its top-left corner at (x, y).
- * opts = { gear:[6 ints], frame:int, scale:int, facing:1|-1, hurt:bool, dead:bool, attacking:bool }
- * Same inputs always produce the same pixels — no clocks, no randomness — so callers can cache a rendered
- * sheet by (gear, frame) and diff renders in tests.
+ * Draw one warrior frame with its TOP-LEFT corner at (x, y) — a 64×64 cell, feet on row 59, contact
+ * shadow on row 60. opts = { gear[6 packed], frame, scale, facing (+1 right), hurt, dead, attacking }.
+ * Same opts, same pixels — always.
  */
 export function drawWarrior(ctx, x, y, opts = {}) {
-  DETAIL = opts.detail === 2 ? 2 : 1;
-  const gear = opts.gear || EMPTY_GEAR;
+  const gear = opts.gear || NO_GEAR;
+  const f = Math.max(0, opts.frame | 0);
   const scale = Math.max(1, opts.scale | 0 || 1);
   const facing = opts.facing === -1 ? -1 : 1;
-  const frame = Math.max(0, opts.frame | 0);
   const dead = !!opts.dead;
-  const ps = dead ? POSES.dead
-    : opts.attacking ? POSES.attack[frame % POSES.attack.length]
-    : POSES.walk[frame % POSES.walk.length];
-  // Whole-sprite states are a colour map, not extra art: a hurt flash pushes everything toward red, a corpse
-  // toward cold grey, and every layer inherits it through the pen.
-  const recolor = dead ? (c) => mix(c, "#2b2430", 0.45)
-    : opts.hurt ? (c) => mix(c, "#ff5a5a", 0.55)
-    : null;
-  // We only fill rects, but callers routinely blit this canvas into a bigger one — smoothing there would
-  // undo every hard edge, so turn it off on the context we were handed.
+  const map = dead ? CHILL : opts.hurt && !opts.attacking ? WOUND : null;
   ctx.imageSmoothingEnabled = false;
-  const p = pen(ctx, x, y, scale, facing, dead, recolor);
-
-  // contact shadow, dithered so it reads as translucent without touching alpha; `raw` keeps it flat on the
-  // ground even when the body is rotated into the death pose
-  const sw = dead ? 44 : 28, sx0 = dead ? 8 : N_CX - (sw >> 1);
-  for (let i = 0; i < sw; i += 2)                            // native stipple: half-size dots on both ground
-    p.fraw(sx0 + i, GROUND_Y * HR + ((i & 2) ? 1 : 0), 1, 1, "#1a1420"); // rows — soft without alpha
-
-  paintWarrior(p, gear, ps, frame, facing);
-  return { w: FRAME_W_N * scale, h: FRAME_H_N * scale };
+  const g = stylus(ctx, x, y, scale, facing === -1, FRAME_W, FRAME_H, map, null);
+  g.fx = !dead;                                   // corpses stop glowing
+  for (let i = 0; i < 44; i += 2) g.r(10 + i, W_GROUND + ((i & 2) ? 1 : 0), 1, 1, "#191420");
+  if (dead) paintFallen(g, gear);
+  else {
+    const ps = opts.attacking ? W_POSES.attack[f % 3]
+      : opts.hurt ? W_POSES.hit
+      : W_POSES.walk[f % 4];
+    paintWayfarer(g, gear, ps, f);
+  }
+  return { w: FRAME_W * scale, h: FRAME_H * scale };
 }
 
-/** The six slot layers, back to front, against an already-configured pen. Split out of drawWarrior so the
- *  fatalities at the bottom of this file can paint the SAME gear-composed warrior into a clipped/offset pen
- *  — a decapitated head has to keep wearing its helm, and the only way to guarantee that is to keep one
- *  painter. */
-function paintWarrior(p, gear, ps, frame, facing) {
-  const it = (gear || EMPTY_GEAR).map(unpackItem);
-  const call = (fn, slot) => {
-    const g = it[slot];
-    fn(p, g ? g.tier : null, g ? g.mat : 0, g ? g.affix : 0, frame, facing, ps);
-  };
-  call(drawCloak, 5);   // back to front: a cloak hangs behind everything…
-  call(drawBoots, 4);
-  call(drawBody, 2);    // …the cuirass fauld falls over the legs…
-  call(drawHelm, 1);
-  call(drawShield, 3);
-  call(drawWeapon, 0);  // …and the weapon arm crosses in front of the shield.
-}
-
-/**
- * Render the whole animation strip in one call: 4 walk frames, 3 attack frames, then the death pose.
- * Handy for a gear-preview widget or for baking to an offscreen canvas once and blitting cells after.
- * Returns the strip size in device pixels.
- */
+/** The full strip — 4 walk, 3 attack, hit, death — for baking or a gear-preview reel. */
 export function drawWarriorSheet(ctx, x, y, opts = {}) {
   const scale = Math.max(1, opts.scale | 0 || 1);
-  const cells = [];
-  for (let f = 0; f < WALK_FRAMES; f++) cells.push({ frame: f });
-  for (let f = 0; f < ATTACK_FRAMES; f++) cells.push({ frame: f, attacking: true });
-  cells.push({ frame: 0, dead: true });
-  cells.forEach((c, i) =>
-    drawWarrior(ctx, x + i * FRAME_W_N * scale, y, { ...opts, ...c, scale }));
-  return { w: cells.length * FRAME_W_N * scale, h: FRAME_H_N * scale, cells: cells.length };
+  let cx2 = x;
+  for (let f = 0; f < 4; f++) { drawWarrior(ctx, cx2, y, { ...opts, frame: f, scale }); cx2 += FRAME_W * scale; }
+  for (let f = 0; f < 3; f++) { drawWarrior(ctx, cx2, y, { ...opts, frame: f, scale, attacking: true }); cx2 += FRAME_W * scale; }
+  drawWarrior(ctx, cx2, y, { ...opts, frame: 0, scale, hurt: true }); cx2 += FRAME_W * scale;
+  drawWarrior(ctx, cx2, y, { ...opts, frame: 0, scale, dead: true }); cx2 += FRAME_W * scale;
+  return { w: cx2 - x, h: FRAME_H * scale, cells: 9 };
 }
 
-// ══ MONSTERS ═════════════════════════════════════════════════════════════════════════════
-// The world renderer used to draw enemies as EMOJI beside this hand-drawn warrior, which read as the hero
-// swinging his sword at nothing. Monsters are built from the same machinery as everything above: the same
-// pen, the same single `px` rect, the same four-stop ramps, the same dither-instead-of-alpha rule.
+// ══ THE BESTIARY ═════════════════════════════════════════════════════════════════════════
+// Thirty-six creatures: five realms × three contract families × two ranks, five realm BOSSES, and the
+// MIMIC. The contract only knows (family, rank, level); WHICH creature wears those stats is the realm's
+// business — the biome is rolled by the chain (autogame-engine.js/biomeFor) and handed in as opts.biome.
+// Family still owns the tactical READ, in every realm alike:
+//   family 0 · the SWARM — small, low, fast-looking. You will fight many.
+//   family 1 · the WALL  — a mass with a weapon. The swing you price your aggression against.
+//   family 2 · the SPARK — a caster. Thin, strange, and it reaches you at range on the strike frame.
+// Rank changes the DRAWING (species!), never a scale factor; level warms the eyes and studs the spine.
 //
-// Three axes that deliberately own different things:
-//   family 0 grunt | 1 brute | 2 cannon → the SILHOUETTE. Small hunched scrapper / wide low slab / tall
-//                                        thin spike. Three shapes you can tell apart at 1x before colour.
-//   rank   0 normal | 1 elite | 2 boss  → the SIZE and the ornament (cap, plate, crown of horns). A boss is
-//                                        roughly double the normal footprint: the chapter climax must be
-//                                        unmistakable without a label.
-//   level  depth-scaled int             → the PALETTE BAND plus a couple of spines/runes, and NOTHING else.
-//                                        If depth reshaped the silhouette you could no longer read "brute"
-//                                        before it reached you, which is the only read that matters.
-//
-// Everything is anchored to one frame box shared by monsters, props, blood and fatalities, so a caller
-// converts ground coordinates to a top-left corner exactly once.
-const MON_W = 48;         // authored box — painters below work here; the EXPORTS are native (×HR)
-const MON_H = 48;
-const MON_CX = 24;        // centre column
-const MON_FOOT_Y = 44;    // last row the feet occupy…
-const MON_GROUND_Y = 45;  // …and the row the contact shadow lies on
-const PROP_W = MON_W;     // props share the box: one footX/footY conversion for the whole world layer
-const PROP_H = MON_H;
-const MON_W_N = MON_W * HR, MON_H_N = MON_H * HR;
-const MON_CX_N = MON_CX * HR;                       // centre column of the native box
-const MON_FOOT_Y_N = MON_FOOT_Y * HR + (HR - 1);    // "last row" constants keep their last-row meaning:
-const MON_GROUND_Y_N = MON_GROUND_Y * HR + (HR - 1);// an authored row is HR native rows, feet end on 89
-export { MON_W_N as MON_W, MON_H_N as MON_H, MON_CX_N as MON_CX,
-         MON_FOOT_Y_N as MON_FOOT_Y, MON_GROUND_Y_N as MON_GROUND_Y,
-         MON_W_N as PROP_W, MON_H_N as PROP_H };
+// All monsters are authored FACING LEFT, into the oncoming wayfarer.
 
-// Frame convention — the renderer indexes these directly, so they are exported rather than commented.
-export const MON_IDLE_FRAMES = 3;   // 0,1,2 = idle/menace cycle (loop with frame % MON_IDLE_FRAMES)
-export const MON_ATTACK_FRAME = 3;  // 3     = attack (lunge + swing + maw open)
-export const MON_DEATH_FRAME = 4;   // 4     = death (collapsed heap; also forced by opts.dead)
-export const MON_FRAMES = 5;
-export const FAMILY_NAMES = ["grunt", "brute", "cannon"];
-export const MON_RANK_NAMES = ["normal", "elite", "boss"];
-export const PROP_KINDS = ["hazard", "cache", "shrine", "forge", "relic", "fork", "gale", "idol"];
+const FY = MFOOT;                        // feet end here
+const heatOf = (lvl) => Math.min(3, ((lvl | 0) / 6) | 0);
+const HEAT = ["#ffd23a", "#ff9e2e", "#ff5a24", "#ff2222"];  // eye temperature by depth
 
-// ── monster palettes ─────────────────────────────────────────────────────────────────────
-// Four bands per family, hand-authored rather than mixed at runtime so a deep monster is still LIT, not just
-// darker. Each family sours in its own direction — grunt goes bruised, brute goes charred, cannon goes cold
-// — so two families at the same depth never converge on the same colour.
-//   hide = the flesh/robe mass · trim = its gear (rag, iron, bone) · eye = the one hot pixel · glow = magic
-const MON_PALS = [
-  [ // 0 grunt — swamp green → bruise
-    { hide: { base: "#6f9440", shade: "#41602a", light: "#a2c96a", line: "#16210f" }, trim: { base: "#8a6a3c", shade: "#55401f", light: "#b18c52", line: "#1e1509" }, eye: "#ffd23a", glow: "#b6ff6a" },
-    { hide: { base: "#4f8f6a", shade: "#2d5a41", light: "#82c49b", line: "#10231a" }, trim: { base: "#7a6a86", shade: "#4a3d55", light: "#a99bb8", line: "#1a1420" }, eye: "#ffae2e", glow: "#7affc0" },
-    { hide: { base: "#6a6a9a", shade: "#3d3d63", light: "#9c9cd0", line: "#14142a" }, trim: { base: "#6d5a86", shade: "#42345a", light: "#9c86b8", line: "#170f22" }, eye: "#ff7a2e", glow: "#9a9aff" },
-    { hide: { base: "#7d4a86", shade: "#4a2650", light: "#b57cc0", line: "#200f24" }, trim: { base: "#55506a", shade: "#332f42", light: "#7d788f", line: "#120f19" }, eye: "#ff3a3a", glow: "#ff6ae0" },
-  ],
-  [ // 1 brute — ruddy hide → charred
-    { hide: { base: "#a4664a", shade: "#6d3f2c", light: "#cf8f6c", line: "#2a1610" }, trim: { base: "#8a8f98", shade: "#5b6068", light: "#b9bec6", line: "#2a2d33" }, eye: "#ffdf6a", glow: "#ffb46a" },
-    { hide: { base: "#8f6a55", shade: "#5c412f", light: "#bb9077", line: "#241610" }, trim: { base: "#6d6a62", shade: "#45433d", light: "#9a968a", line: "#1d1c18" }, eye: "#ffb43a", glow: "#ff9a4a" },
-    { hide: { base: "#7a5f66", shade: "#4a3740", light: "#a68d94", line: "#201519" }, trim: { base: "#4f4a55", shade: "#302c34", light: "#7a7382", line: "#151218" }, eye: "#ff7a3a", glow: "#ff7a3a" },
-    { hide: { base: "#5e4a4a", shade: "#392c2c", light: "#8c7070", line: "#180f0f" }, trim: { base: "#3b3745", shade: "#221f2a", light: "#6a6480", line: "#100e15" }, eye: "#ff3030", glow: "#ff5020" },
-  ],
-  [ // 2 cannon — arcane robe + bone, cooling toward spectral
-    { hide: { base: "#4a5aa8", shade: "#2c376d", light: "#7d8ce0", line: "#131735" }, trim: { base: "#d9d2b8", shade: "#a49b7c", light: "#f4f0dd", line: "#3a3423" }, eye: "#7ff0ff", glow: "#9fe8ff" },
-    { hide: { base: "#5a44a0", shade: "#362766", light: "#8e78e0", line: "#171034" }, trim: { base: "#cfc8ad", shade: "#9a9276", light: "#efe9d4", line: "#35301f" }, eye: "#b58cff", glow: "#c79cff" },
-    { hide: { base: "#7a2f8c", shade: "#4a1a56", light: "#b968c8", line: "#250d2c" }, trim: { base: "#c6bfa8", shade: "#918a72", light: "#e9e2ce", line: "#302b1c" }, eye: "#ff7ce0", glow: "#ff9ae8" },
-    { hide: { base: "#1f3c46", shade: "#12242b", light: "#3f7180", line: "#08131a" }, trim: { base: "#eaf6ff", shade: "#a8bcc8", light: "#ffffff", line: "#2a3a44" }, eye: "#ffffff", glow: "#d8ffff" },
-  ],
-];
-// Bands step every 5 levels: `ml` runs ~1..21 over a chapter (1 + depth/32, +2 elite, +4 boss, +1 at night),
-// so four bands land roughly one per quarter of the road.
-const bandOf = (level) => Math.max(0, Math.min(3, ((level | 0) / 5) | 0));
-
-// ── monster geometry ─────────────────────────────────────────────────────────────────────
-// Sizes are TABLES, not a multiplier: a scaled-up grunt is a bigger grunt, but a boss has to be a different
-// drawing, and integer pixels do not survive a 1.4× anyway. Rank order is enforced by the numbers here —
-// every dimension grows normal → elite → boss, which is what makes the footprint test hold.
-// Rank dimension tables — NATIVE pixels. Sizes are tables, not multipliers: a boss is a different DRAWING.
-const GRUNT_D = [ // small and hunched: the head is nearly half of it, and the ears are half of the head
-  { bw: 20, bh: 20, hw: 22, hh: 17, leg: 14, legW: 5, ear: 10, arm: 5 },
-  { bw: 24, bh: 24, hw: 26, hh: 20, leg: 17, legW: 6, ear: 13, arm: 6 },
-  { bw: 34, bh: 30, hw: 34, hh: 26, leg: 22, legW: 8, ear: 17, arm: 8 },
-];
-const BRUTE_D = [ // a trapezoid: shoulder width → hip width is the whole personality
-  { sw: 38, hip: 20, bh: 38, hw: 13, hh: 11, leg: 16, legW: 8, arm: 8, maul: 10 },
-  { sw: 46, hip: 24, bh: 44, hw: 15, hh: 12, leg: 18, legW: 9, arm: 9, maul: 12 },
-  { sw: 62, hip: 32, bh: 52, hw: 19, hh: 15, leg: 22, legW: 12, arm: 12, maul: 16 },
-];
-const CANNON_D = [ // a hovering bell of robe — no legs at all; the hem floats over its own shadow
-  { bw: 14, hem: 26, robeH: 40, hw: 16, hh: 15, orb: 6 },
-  { bw: 17, hem: 32, robeH: 46, hw: 19, hh: 17, orb: 7 },
-  { bw: 22, hem: 44, robeH: 56, hw: 24, hh: 21, orb: 9 },
+// shared poses — dy sinks the mass, lx lunges it (left = toward the hero), jaw opens the maw,
+// br swells the chest, wind/hit/fall flag the special frames
+const M_POSES = [
+  { dy: 0,  lx: 0,  jaw: 0, br: 0 },            // 0 settle — most of the loop is spent HERE, dead still
+  { dy: -1, lx: 0,  jaw: 0, br: 1 },            // 1 inhale: the chest swells, nothing else moves
+  { dy: 0,  lx: -1, jaw: 0, br: 0 },            // 2 the weight shifts one pace toward you. that is all
+  { dy: -2, lx: 4,  jaw: 1, br: 1, wind: 1 },   // 3 wind-up: rear back and away
+  { dy: 1,  lx: -7, jaw: 2, br: 0, hit: 1 },    // 4 strike: everything forward
+  { dy: 4,  lx: -2, jaw: 2, br: 0, fall: 1 },   // 5 crumple
 ];
 
-/** a squat monster leg (native): thick bent shin + a big splayed foot, toes toward the hero (left) */
-function mLeg(p, x, top, w, C, toe) {
-  const FY = MON_FOOT_Y * HR + 1;                       // last foot row (89)
-  p.fine(x - 1, top - 1, w + 2, FY - 3 - top + 1, C.line);
-  p.fine(x, top, w, FY - 3 - top - 1, C.base);
-  p.fine(x, top, 2, FY - 3 - top - 1, C.light);
-  p.fine(x + w - 1, top, 1, FY - 3 - top - 1, C.shade);
-  p.fine(x - toe - 1, FY - 3, w + toe + 2, 4, C.line);  // foot block; the outline's bottom row is the sole
-  p.fine(x - toe, FY - 3, w + toe, 3, C.base);
-  p.fine(x - toe, FY - 3, w + toe - 2, 1, C.light);
-  p.fine(x - toe - 1, FY - 1, 2, 1, C.line);            // one claw off the toe
+function monShadow(g, w, dead) {
+  const sw = dead ? w + 10 : w;
+  for (let i = 0; i < sw; i += 2)
+    g.r(MCX - (sw >> 1) + i, MGROUND + ((i & 2) ? 1 : 0), 1, 1, "#151020");
 }
 
-// Poses are hand-picked like the warrior's, and `lean` points FORWARD, which for a monster is −x: the whole
-// family is authored facing left, into the oncoming hero.
-const MON_POSES = [
-  { bob:  0, lean:  0, arm:  0, jaw: 0 }, // 0 idle: settled, weight down
-  { bob: -1, lean:  1, arm:  1, jaw: 0 }, // 1 idle: rears back, inhales
-  { bob:  1, lean: -1, arm: -1, jaw: 1 }, // 2 idle: hunches in, maw cracks open
-  { bob:  1, lean: -3, arm:  4, jaw: 2 }, // 3 ATTACK: lunge, weapon out, maw wide
-];
+// ── body plans ───────────────────────────────────────────────────────────────────────────
+// Each returns an ANCHOR MAP the species' detail hook draws onto — ears, tusks, staves, dripping weed —
+// so a plan is a chassis and a species is a chassis plus a soul.
 
-// ── monster primitives ───────────────────────────────────────────────────────────────────
-const darker = (C) => ({ base: C.shade, shade: C.line, light: C.base, line: C.line }); // far-side limbs
-
-/** row spans of a rounded mass: only the first/last `r` rows are inset, so the middle keeps its full width
- *  and the shape stays a MASS instead of a lozenge. */
-function rowsOf(x, y, w, h, r) {
-  const out = [];
-  for (let j = 0; j < h; j++) {
-    const t = Math.min(j, h - 1 - j);
-    const ins = t >= r ? 0 : r - t;
-    const ww = w - ins * 2;
-    if (ww > 0) out.push([x + ins, y + j, ww]);
-  }
-  return out;
-}
-
-/** The monster equivalent of the warrior's torso block: a rounded body mass with a one-pixel `line` fringe
- *  all round. The fringe is not decoration — monsters stand on a parallax landscape, not a UI panel, and an
- *  un-outlined green blob dissolves into the treeline. (Same trick as the shield layer.) */
-function mass(p, x, y, w, h, C, r = 1) {
-  const rows = rowsOf(x, y, w, h, r);
-  if (!rows.length) return;
-  for (const [rx, ry, rw] of rows) p.px(rx - 1, ry, rw + 2, 1, C.line);
-  p.px(rows[0][0], rows[0][1] - 1, rows[0][2], 1, C.line);
-  const last = rows[rows.length - 1];
-  p.px(last[0], last[1] + 1, last[2], 1, C.line);
-  for (const [rx, ry, rw] of rows) {
-    p.px(rx, ry, rw, 1, C.base);
-    p.px(rx, ry, 1, 1, C.light);            // lit FRONT rim. The light follows the FACE — the warrior's lit
-    p.px(rx + rw - 1, ry, 1, 1, C.shade);   // edge is his front too, he just happens to face the other way.
-  }
-}
-
-/** A body with a BUILD: every row's width is interpolated shoulder → waist → hip, so the mass tapers.
- *  A rounded rectangle makes every monster a box; the taper is what turns the brute into a wedge and the
- *  cannon into a bell, and it separates the three families further than any amount of colour does.
- *  `lean` slides the upper rows forward. */
-function torso(p, cx, top, h, wTop, wMid, wBot, C, lean = 0) {
-  for (let j = 0; j < h; j++) {
-    const t = h === 1 ? 0 : j / (h - 1);
-    const w = t < 0.5 ? Math.round(wTop + (wMid - wTop) * t * 2)
-                      : Math.round(wMid + (wBot - wMid) * (t - 0.5) * 2);
-    const off = Math.round(lean * (1 - t));       // the hunch: shoulders forward, hips planted
-    const x = cx - (w >> 1) + off;
-    p.px(x - 1, top + j, w + 2, 1, C.line);
-    p.px(x, top + j, w, 1, C.base);
-    p.px(x, top + j, 1, 1, C.light);
-    p.px(x + w - 1, top + j, 1, 1, C.shade);
-    if (j === 0) p.px(x, top - 1, w, 1, C.line);
-    if (j === h - 1) p.px(x, top + h, w, 1, C.line);
-  }
-}
-
-/** stepped horn / ear / spine / tusk: a taper is the only way to get a point with no anti-aliasing */
-function horn(p, x, y, dx, dy, n, C) {
-  for (let i = 0; i < n; i++) {
-    const w = Math.max(1, (n - i + 1) >> 1);
-    const xx = dx < 0 ? x + dx * i - (w - 1) : x + dx * i;
-    p.px(xx - 1, y + dy * i, w + 2, 1, C.line); // fringe first, same reason as mass()
-    p.px(xx, y + dy * i, w, 1, i > n - 3 ? C.light : C.base);
-  }
-}
-
-/** two legs; the far one is one ramp step darker, the cheapest way to keep overlapping limbs apart (the
- *  warrior's boots layer does the same). `toe` is how far the foot splays forward. */
-function legPair(p, fxx, bxx, top, w, C, toe) {
-  const gy = MON_FOOT_Y;
-  const one = (lx, R) => {
-    p.px(lx - 1, top, w + 2, gy - top + 1, R.line);
-    p.px(lx, top, w, gy - top, R.base);
-    p.px(lx, top, 1, gy - top, R.light);
-    p.px(lx - toe, gy, w + toe, 1, R.base);        // foot, toes forward (left)
-    p.px(lx - toe, gy, 1, 1, R.line);
-    p.px(lx - toe, gy - 1, 1, 1, R.shade);
-    if (d2()) p.px(lx - toe - 1, gy, 1, 1, R.shade); // one claw's worth of toe splay at fine scales
+/** quadruped beast: body slab on four legs, a head with a working jaw, a tail. */
+function planQuad(g, S, D, ps, f) {
+  const bl = D.bl, bh = D.bh + (ps.br ? 1 : 0);
+  const by = FY - D.leg - bh + ps.dy;
+  const bx = MCX - (bl >> 1) - 6 + ps.lx;
+  // far legs first, one tone down
+  const P = S.P, Q = dim(S.P);
+  const legAt = (x, R2, bend) => {
+    g.r(x - 1, by + bh - 2, D.lw + 2, D.leg + 2 - (ps.fall ? 3 : 0), R2.o);
+    g.r(x, by + bh - 2, D.lw, D.leg + 1 - (ps.fall ? 3 : 0), R2.m);
+    g.r(x, by + bh - 2, 1, D.leg, R2.l);
+    g.r(x - bend - 1, FY - 2, D.lw + bend + 2, 3, R2.o);     // paw, toes forward
+    g.r(x - bend, FY - 2, D.lw + bend, 2, R2.m);
   };
-  one(bxx, darker(C));
-  one(fxx, C);
-}
-
-/** an outlined limb: the fringe pass is what keeps an arm visible where it crosses its own body, which is
- *  most of the time on a monster whose arms hang inside its silhouette */
-function limbOut(p, x0, y0, x1, y1, w, C) {
-  p.limb(x0 - 1, y0 - 1, x1 - 1, y1 - 1, w + 2, C.line);
-  p.limb(x0, y0, x1, y1, w, C.base);
-  p.limb(x0, y0, x1, y1, 1, C.light);
-}
-
-/** a dithered RING, not a dithered block: a filled checkerboard square reads as a UI panel behind the
- *  sprite, where a ring reads as light coming off it */
-function ring(p, x, y, w, h, col, phase = 0) {
-  p.dither(x, y, w, 1, col, phase);
-  p.dither(x, y + h - 1, w, 1, col, phase);
-  p.dither(x, y + 1, 1, h - 2, col, phase);
-  p.dither(x + w - 1, y + 1, 1, h - 2, col, phase);
-}
-
-/** an eye that reads as ALIVE at 1x: one hot pixel block, a brow above it, a lit corner inside it */
-function eye(p, x, y, w, h, col, line) {
-  p.px(x - 1, y - 1, w + 2, h + 2, line); // socket
-  p.px(x, y, w, h, col);
-  // The glint and the pupil are only affordable when pixels remain for the COLOUR: on a 1×1 eye they
-  // painted the whole thing back in socket colour, and on a 2×1 they split it white/black — which is how
-  // every low-rank monster used to march down the road stone blind.
-  if (w * h > 2) {
-    p.px(x, y, 1, 1, "#ffffff");
-    p.px(x + w - 1, y + h - 1, 1, 1, line); // pupil corner: without it the eye is a lamp, not an eye
-  } else if (w * h === 2) {
-    p.px(x, y, 1, 1, "#ffffff");            // glint only: one white, one hot
-  }
-}
-
-// ── family: grunt ────────────────────────────────────────────────────────────────────────
-// Small, hunched, more head than body, oversized ears and a cleaver it can barely hold. Reads as "there
-// will be twelve of these" — which is exactly what a `fam 0` pull is.
-function drawGrunt(p, R, C, ps, level) {
-  const D = GRUNT_D[R], FY = MON_FOOT_Y * HR + 1;       // native throughout; FY = last foot row (89)
-  const cx = MON_CX * HR + 2;                           // the mass sits a touch behind centre
-  const bob = ps.bob * 2, lean = ps.lean * 2, jaw2 = ps.jaw * 2;
-  const legTop = FY - D.leg;
-  const byBot = legTop + 6;                             // the body swallows the leg roots
-  const byTop = byBot - D.bh + bob;
-  const bodyL = cx - (D.bw >> 1), bodyR = cx + (D.bw >> 1);
-  const hunch = 7;                                      // shoulders pitched over the toes
-  const hx = bodyL - (D.hw >> 1) + 4 + lean;            // the head hangs FORWARD of the chest, low
-  const hy = byTop - D.hh + 9;
-
-  // back arm first: a scrap of far-side silhouette so the body is not a flat card
-  limbF(p, bodyR - 4, byTop + 8, bodyR + 2, byBot - 2, 5, dk(C.hide));
-  mLeg(p, bodyR - D.legW - 3, legTop, D.legW, dk(C.hide), 3 + R);   // far leg…
-  mLeg(p, bodyL + 3 + (lean >> 1), legTop, D.legW, C.hide, 3 + R);  // …near leg, planted apart
-  // the hunched bean of a body: top rows pitched forward, one blob, one outline
+  legAt(bx + 3 + (ps.hit ? -3 : 0), Q, 2);
+  legAt(bx + bl - D.lw - 2 + (ps.wind ? 2 : 0), Q, 1);
+  // the body: rounded slab with a spine ridge
   const spans = [];
-  for (let j = 0; j < D.bh; j++) {
-    const t = j / (D.bh - 1);
-    const w = D.bw - Math.round(3 * t) - Math.round(4 * (1 - t) * (1 - t)); // shoulders roll off
-    spans.push([-Math.round(hunch * (1 - t)) + ((D.bw - w) >> 1), w]);
+  for (let j = 0; j < bh; j++) {
+    const rr = Math.min(j, bh - 1 - j);
+    const ins = rr === 0 ? 3 : rr === 1 ? 1 : 0;
+    spans.push([ins, bl - ins * 2]);
   }
-  blob(p, bodyL, byTop, spans, C.hide);
-  p.fine(bodyL - hunch + 3, byTop + 2, 8, 5, C.hide.light);   // light pooling on the hunched back
-  p.fine(bodyR - 7, byTop + 8, 4, D.bh - 14, C.hide.shade);   // the flank turned from the light
-  p.fine(bodyL + 1, byBot - 8, D.bw - 4, 2, C.trim.base);     // rag belt…
-  p.fine(bodyL + 1, byBot - 6, D.bw - 4, 1, C.trim.shade);
-  p.fine(bodyL + 2, byBot - 5, 5, 6, C.trim.base);            // …and the loincloth scrap under it
-  p.fine(bodyL + 2, byBot - 2, 5, 3, C.trim.shade);
-  const spines = Math.min(3, ((level | 0) / 6) | 0);          // dorsal spines — the level tell, COUNT only
-  for (let i = 0; i < spines; i++) hornF(p, bodyR - 8 - i, byTop + 2 + i * 6, 1, -1, 7, C.trim, 4);
-
-  // the HEAD: nearly half the monster. Skull first, then the underbite jaw that owns the silhouette.
-  blob(p, hx, hy, [
-    [7, D.hw - 13], [4, D.hw - 8], [2, D.hw - 4], [1, D.hw - 2],
-    ...Array.from({ length: D.hh - 9 }, () => [0, D.hw]),
-    [0, D.hw - 1], [1, D.hw - 3], [2, D.hw - 6], [4, D.hw - 10], [7, D.hw - 14],
-  ], C.hide);
-  p.fine(hx + 4, hy + 2, D.hw - 12, 3, C.hide.light);         // crown catching the sky
-  p.fine(hx + D.hw - 6, hy + 5, 4, D.hh - 10, C.hide.shade);  // the back of the skull
-  if (jaw2) p.fine(hx - 2, hy + D.hh - 6, D.hw - 6, jaw2 + 2, "#160f08"); // the maw void when it gapes
-  blob(p, hx - 4, hy + D.hh - 5 + jaw2, [                     // the JAW: forward of the skull — underbite
-    [0, D.hw - 3], [0, D.hw - 4], [1, D.hw - 6], [3, D.hw - 10],
-  ], C.hide);
-  p.fine(hx - 3, hy + D.hh - 5 + jaw2, D.hw - 5, 1, C.hide.light); // lip catching light
-  for (let k = 0; k < 2 + R; k++)                             // fangs point UP out of the underbite
-    p.fine(hx - 1 + k * 5, hy + D.hh - 8 + jaw2, 2, 4, k & 1 ? "#e8dcc0" : "#f2e6c8");
-  hornF(p, hx + D.hw - 9, hy + 2, 1, -1, D.ear, C.hide, 6);   // two huge ears swept up and back:
-  hornF(p, hx + D.hw - 3, hy + 6, 1, -1, D.ear - 3, C.hide, 5); // the whole grunt read at distance
-  p.fine(hx + 2, hy + 5, 10 + R * 2, 2, C.hide.line);         // heavy brow, angry
-  p.fine(hx + 1, hy + 6, 3, 1, C.hide.line);                  // …dipping at the snout
-  eyeF(p, hx + 4, hy + 7, 4 + R, 3 + R, C.eye, C.hide.line);
-  p.fine(hx, hy + 11, 2, 2, C.hide.shade);                    // snout shadow
-  p.fine(hx + 1, hy + 12, 2, 1, C.hide.line);                 // nostril
-
-  // front arm dragging a crude chopper — a SLAB on a haft, never loot
-  const atk = ps.arm > 2;
-  const shx = bodyL - hunch + 5, shy = byTop + 5;
-  const bl = 9 + R * 2, bh2 = 14 + R * 3;                     // cleaver blade: width / length
-  const fx = Math.max(bh2 + 6 + R * 2, hx - 4 - ps.arm * 2);
-  const fy = byBot - 10 + (atk ? 6 : 0);
-  limbF(p, shx, shy, fx + 2, fy + 2, D.arm, C.hide);
-  p.fine(fx - 1, fy - 1, 8, 8, C.hide.line);                  // the fist
-  p.fine(fx, fy, 6, 6, C.hide.base);
-  p.fine(fx, fy, 6, 1, C.hide.light);
-  // the CLEAVER, unmistakably a blade: an angled slab swept UP-FORWARD at rest (down-forward on the
-  // chop), heavier at the tip, grip visible in the fist, cutting edge lit along the leading contour
-  p.fine(fx + 2, fy + 5, 3, 5, C.trim.shade);                 // the grip coming out of the fist…
-  p.fine(fx + 2, fy + 5, 1, 5, C.trim.light);
-  p.fine(fx + 1, fy + 10, 5, 2, C.trim.line);                 // …capped by a pommel nub
-  const rootX = fx - 5;
-  const rootY = atk ? Math.min(fy + 2, MON_FOOT_Y * HR - bh2) : fy - 4;
-  const spans2 = [];
-  for (let j = 0; j < bh2; j++) {                             // j runs tip → root
-    const heavy = j < 5 ? 4 - (j >> 1) : 0;                   // the tip carries the extra steel
-    spans2.push([-Math.round((bh2 - 1 - j) * 0.8) - heavy, bl + heavy]);
+  g.rows(bx, by, spans, P);
+  g.r(bx + 3, by + 1, bl - 8, 2, P.l);                        // lit back
+  g.r(bx + 2, by + bh - 3, bl - 5, 2, P.d);                   // belly shadow
+  // near legs
+  legAt(bx + 5 + (ps.hit ? -4 : 0), P, 3);
+  legAt(bx + bl - D.lw - 5 + (ps.wind ? 3 : 0), P, 1);
+  // head: forward of the body, dropped when striking
+  const hh = D.hh, hw = D.hw;
+  const hx = bx - hw + 3 - (ps.hit ? 4 : 0);
+  const hy = by - (hh >> 2) + (ps.hit ? 6 : ps.jaw ? 1 : 0);
+  g.rows(hx, hy, Array.from({ length: hh }, (_, j) => {
+    const rr = Math.min(j, hh - 1 - j);
+    return [rr === 0 ? 2 : rr === 1 ? 1 : 0, hw - (rr === 0 ? 4 : rr === 1 ? 2 : 0)];
+  }), P);
+  g.r(hx + 2, hy + 1, hw - 6, 2, P.l);
+  // the maw: a wedge cut out of the head's lower-left, deeper as jaw opens
+  const maw = ps.jaw * 2;
+  if (maw) {
+    g.r(hx - 1, hy + hh - 4, 7 + maw, 3 + maw, P.o);
+    g.r(hx, hy + hh - 3 - (maw >> 1), 6 + maw, 2 + maw, "#1c0a10");
+    for (let k = 0; k < 3; k++) g.r(hx + 1 + k * 2, hy + hh - 3 - (maw >> 1), 1, 1, "#e8dcc0");  // teeth
   }
-  blob(p, rootX, atk ? rootY : rootY - bh2, atk ? spans2.slice().reverse() : spans2, C.trim);
-  for (let j = 0; j < bh2; j++) {                             // the honed edge catches the light
-    const [dxx, w2] = spans2[j];
-    const yy = atk ? rootY + (bh2 - 1 - j) : rootY - bh2 + j;
-    p.fine(rootX + dxx, yy, 2, 1, C.trim.light);
-    if (j < 5) p.fine(rootX + dxx + w2 - 1, yy, 1, 1, C.trim.shade); // the tip's back edge rolls dark
-  }
-  p.fine(rootX + spans2[2][0] + 3, atk ? rootY + bh2 - 3 : rootY - bh2 + 2, 2, 2, C.trim.line); // grip hole
-  if (atk) {                                                  // the chop's after-image: it came DOWN
-    p.fine(rootX - 10, rootY - 6, 2, 6, C.trim.light);
-    p.fine(rootX - 4, rootY - 9, 2, 7, C.trim.base);
-    p.fine(rootX + 3, rootY - 6, 2, 5, C.trim.light);
-  }
-
-  if (R >= 1) { // elite: an iron cap and a shoulder scale — the crowd's sergeant
-    blob(p, hx + 3, hy - 5, [[3, D.hw - 12], [1, D.hw - 8], [0, D.hw - 6], [0, D.hw - 6]], C.trim);
-    p.fine(hx + 4, hy - 4, D.hw - 10, 1, C.trim.light);
-    blob(p, bodyL - hunch + 2, byTop - 1, [[1, 8], [0, 10], [0, 10], [1, 8]], C.trim);
-  }
-  if (R >= 2) { // boss: a crown of horns and a bone bib — the doubled footprint does the rest
-    hornF(p, hx + 6, hy - 1, -1, -1, 8, C.trim, 4);
-    hornF(p, hx + (D.hw >> 1), hy - 3, 0, -1, 10, C.trim, 5);
-    hornF(p, hx + D.hw - 8, hy - 1, 1, -1, 8, C.trim, 4);
-    p.fine(bodyL - 2, byTop + 3, D.bw - 8, 6, C.trim.base);   // the bib
-    p.fine(bodyL - 2, byTop + 3, D.bw - 8, 2, C.trim.light);
-    for (let k = 0; k < 3; k++) p.fine(bodyL + k * 6, byTop + 9, 3, 3, C.trim.shade); // bone beads
-  }
+  g.orb(hx + 4, hy + 3, D.eye + 1, Math.max(1, D.eye - 1), S.eye, P.o, f);
+  // tail off the rump
+  const tx = bx + bl - 2, ty = by + 2;
+  g.taper(tx, ty - (ps.wind ? 3 : 1), 1, -1, D.tail, D.tw, P);
+  return { bx, by, bl, bh, hx, hy, hw, hh, P };
 }
 
-// ── family: brute ────────────────────────────────────────────────────────────────────────
-// A wall. Twice as wide as it is interesting, head sunk between the shoulders, one arm dragging on the floor
-// and a club the size of the grunt. Slow: the idle bob is the only thing that moves.
-function drawBrute(p, R, C, ps, level) {
-  const D = BRUTE_D[R], FY = MON_FOOT_Y * HR + 1;       // native throughout
-  const cx = MON_CX * HR, bob = ps.bob * 2, lean = ps.lean * 2;
-  const atk = ps.arm > 2;
-  const legTop = FY - D.leg;
-  const byBot = legTop + 8;
-  const byTop = byBot - D.bh + bob;
-  const shL = cx - (D.sw >> 1), shR = cx + (D.sw >> 1); // shoulder extents — the whole personality
+/** small biped: a head too big for its body, hunched over two quick legs, one working arm. */
+function planGrot(g, S, D, ps, f) {
+  const P = S.P, T = S.T;
+  const bw = D.bw + (ps.br ? 1 : 0), bh = D.bh;
+  const by = FY - D.leg - bh + ps.dy;
+  const bx = MCX - (bw >> 1) + ps.lx;
+  // legs: short, springy, splayed on the strike
+  const leg = (x, R2, splay) => {
+    g.r(x - 1, by + bh - 3, 5, D.leg + 4 - (ps.fall ? 3 : 0), R2.o);
+    g.r(x, by + bh - 3, 3, D.leg + 3 - (ps.fall ? 3 : 0), R2.m);
+    g.r(x - splay - 1, FY - 2, 6 + splay, 3, R2.o);
+    g.r(x - splay, FY - 2, 4 + splay, 2, R2.m);
+  };
+  leg(bx + 1 + (ps.hit ? -2 : 0), dim(P), 2);
+  leg(bx + bw - 5 + (ps.wind ? 2 : 0), P, 1);
+  // the hunched body
+  g.rows(bx, by, Array.from({ length: bh }, (_, j) => {
+    const rr = Math.min(j, bh - 1 - j);
+    return [rr === 0 ? 2 : rr === 1 ? 1 : 0, bw - (rr === 0 ? 4 : rr === 1 ? 2 : 0)];
+  }), P);
+  g.r(bx + 2, by + 1, bw - 6, 2, P.l);
+  // the head: half the creature, thrust forward
+  const hw = D.hw, hh = D.hh;
+  const hx = bx - (hw >> 1) - 2 - (ps.hit ? 4 : 0) + (ps.wind ? 3 : 0);
+  const hy = by - hh + 4 + (ps.jaw ? 1 : 0);
+  g.rows(hx, hy, Array.from({ length: hh }, (_, j) => {
+    const rr = Math.min(j, hh - 1 - j);
+    return [rr === 0 ? 3 : rr === 1 ? 1 : 0, hw - (rr === 0 ? 6 : rr === 1 ? 2 : 0)];
+  }), P);
+  g.r(hx + 2, hy + 1, hw - 7, 2, P.l);
+  g.r(hx + hw - 4, hy + 2, 3, hh - 5, P.d);
+  const maw = ps.jaw * 2;
+  g.r(hx + 1, hy + hh - 4, 8 + maw, 2 + maw, P.o);
+  g.r(hx + 2, hy + hh - 3, 6 + maw, maw + 1, "#1c0a10");
+  if (maw) for (let k = 0; k < 3; k++) g.r(hx + 2 + k * 2, hy + hh - 3, 1, 1, "#e8dcc0");
+  g.orb(hx + 3, hy + 4, D.eye + 1, Math.max(1, D.eye - 1), S.eye, P.o, f);
+  // the weapon arm: cocked on wind-up, thrown on strike
+  const ax = bx + 2, ay = by + 3;
+  const wx = ps.hit ? bx - 12 : ps.wind ? bx + bw + 2 : bx - 6;
+  const wy = ps.hit ? by + 4 : ps.wind ? by - 4 : by + 6;
+  g.tube(ax, ay, wx, wy, 3, P);
+  g.r(wx - 1, wy - 1, 4, 4, P.o);
+  g.r(wx, wy, 2, 2, P.m);
+  return { bx, by, bw, bh, hx, hy, hw, hh, wx, wy, P, T };
+}
 
-  // the maul first, behind everything: a thick shaft and one heavy head. Idle rests it OVER the far
-  // shoulder — shaft and head clear of the silhouette, unmistakably a weapon; the attack brings the head
-  // down the front in one arc.
-  const dark = dk(C.hide);
-  const bhx = atk ? shL + 2 + lean : shR + 2;           // the hand that holds it, outside the shoulder edge
-  const bhy = atk ? byTop + 14 : byTop + 6;
-  const hx2 = atk ? bhx - 14 : bhx + 10;                // where the head ends up
-  const hy2 = atk ? bhy + D.maul : bhy - D.maul - 6;
-  limbF(p, bhx + 1, bhy + 1, hx2 + 1, hy2 + (atk ? -3 : 5), 4,
-        { base: C.trim.shade, light: C.trim.base, shade: C.trim.line, line: C.trim.line });
-  const mh = 12 + (R << 1), mx0 = hx2 - (D.maul >> 1), my0 = hy2 - 5;
-  blob(p, mx0, my0, Array.from({ length: mh }, (_, j) => {     // a DRUM: rounded ends, not a crate
-    const r = Math.min(j, mh - 1 - j);
-    const ins = r === 0 ? 2 : r === 1 ? 1 : 0;
-    return [ins, D.maul - ins * 2];
-  }), C.trim);
-  p.fine(mx0 + 1, my0 + 3, 3, mh - 6, C.trim.light);           // the striking face, lit toward the road
-  p.fine(mx0 + D.maul - 4, my0 + 3, 3, mh - 6, C.trim.shade);  // the back face rolling away
-  p.fine(mx0 + 1, my0 + 2, D.maul - 2, 2, C.trim.line);        // iron binding bands…
-  p.fine(mx0 + 1, my0 + mh - 4, D.maul - 2, 2, C.trim.line);
-  p.fine(mx0 + 2, my0 + 2, 2, 1, C.trim.light);                // …with their forward rivets glinting
-  p.fine(mx0 + 2, my0 + mh - 4, 2, 1, C.trim.light);
-  p.fine(mx0 + (D.maul >> 1) - 1, my0 + (atk ? -3 : mh), 2, 3, C.trim.shade); // the strap to the shaft
-  if (atk) for (let i = 0; i < 3; i++)                  // the swing's after-image, arcing down the front
-    p.fine(hx2 + 6 + i * 4, hy2 - 10 - i * 5, 3, 2, i === 1 ? C.trim.light : C.trim.base);
-  // back arm from the far hump up to that hand, then the fist closed around the shaft
-  limbF(p, shR - 10, byTop + 4, bhx, bhy, D.arm - 1, dark);
-  p.fine(bhx - 2, bhy - 2, 8, 8, dark.line);
-  p.fine(bhx - 1, bhy - 1, 6, 6, dark.base);
-  p.fine(bhx - 1, bhy - 1, 6, 1, dark.light);
-
-  mLeg(p, cx - (D.hip >> 1) + 1, legTop, D.legW, dk(C.hide), 3 + R);  // pillars under the hips
-  mLeg(p, cx + (D.hip >> 1) - D.legW - 1, legTop, D.legW, C.hide, 3 + R);
-
-  // the WEDGE: shoulders → gut → narrow hips, one blob. A brute is a trapezoid; a rectangle is a crate.
+/** the wall: a huge trapezoid torso on stump legs, a small sunken head, one weapon arm. */
+function planHulk(g, S, D, ps, f) {
+  const P = S.P, T = S.T;
+  const sw = D.sw + (ps.br ? 2 : 0), hip = D.hip, bh = D.bh;
+  const by = FY - D.leg - bh + ps.dy;
+  const cx2 = MCX + 2 + ps.lx;
+  // stump legs
+  const leg = (x, R2) => {
+    g.r(x - 1, FY - D.leg - 2, D.lw + 2, D.leg + 2 - (ps.fall ? 4 : 0), R2.o);
+    g.r(x, FY - D.leg - 2, D.lw, D.leg + 1 - (ps.fall ? 4 : 0), R2.m);
+    g.r(x, FY - D.leg - 2, 2, D.leg, R2.l);
+    g.r(x - 3, FY - 2, D.lw + 4, 3, R2.o);
+    g.r(x - 2, FY - 2, D.lw + 2, 2, R2.m);
+  };
+  leg(cx2 - (hip >> 1) - 2, dim(P));
+  leg(cx2 + 2, P);
+  // torso: shoulders wide, hips narrow — width row-lerped
   const spans = [];
-  for (let j = 0; j < D.bh; j++) {
-    const t = j / (D.bh - 1);
-    const w = Math.round(D.sw + (D.hip - D.sw) * t * t);       // hips pull in late: the gut stays wide
-    spans.push([cx - (w >> 1) - shL + Math.round(lean * (1 - t)), w]);
+  for (let j = 0; j < bh; j++) {
+    const u = j / (bh - 1);
+    const w = Math.round(sw + (hip - sw) * u);
+    spans.push([Math.round((sw - w) / 2) + Math.round(ps.lx * 0.2 * (1 - u)), w]);
   }
-  blob(p, shL, byTop, spans, C.hide);
-  p.fine(shL + 4 + lean, byTop + 2, (D.sw >> 1) - 4, 4, C.hide.light);   // light across the near shoulder
-  p.fine(cx + (D.sw >> 2), byTop + 6, (D.sw >> 2) - 2, D.bh - 18, C.hide.shade); // far flank in shadow
-  p.fine(cx - 1 + lean, byTop + 4, 2, 10, C.hide.shade);       // sternum crease
-  p.fine(shL + 6 + lean, byTop + 9, (D.sw >> 1) - 8, 2, C.hide.shade);   // the underside of each pec:
-  p.fine(cx + 3 + lean, byTop + 9, (D.sw >> 1) - 10, 2, C.hide.shade);   // two shadows make a chest
-  p.fine(cx - (D.hip >> 1) + 2, byBot - 12, D.hip - 6, 5, C.hide.light); // the gut, catching the light
-  p.fine(cx - (D.hip >> 1) - 1, byBot - 6, D.hip + 2, 4, C.trim.shade);  // belt
-  p.fine(cx - (D.hip >> 1) - 1, byBot - 6, D.hip + 2, 1, C.trim.line);
-  p.fine(cx - 2, byBot - 6, 5, 4, C.trim.light);               // buckle
-  p.fine(cx - 1, byBot - 5, 2, 2, C.trim.shade);
-  const scars = Math.min(3, ((level | 0) / 6) | 0);            // scars — the level tell
-  for (let i = 0; i < scars; i++) {
-    p.fine(shL + 8 + i * 7 + lean, byTop + 12 + i * 2, 2, 7, C.hide.line);
-    p.fine(shL + 6 + i * 7 + lean, byTop + 15 + i * 2, 6, 2, C.hide.line);
+  g.rows(cx2 - (sw >> 1), by, spans, P);
+  g.r(cx2 - (sw >> 1) + 3, by + 1, (sw >> 1), 3, P.l);
+  g.r(cx2 + (sw >> 2), by + 3, (sw >> 2) + 2, bh - 8, P.d);
+  g.r(cx2 - (sw >> 1) + 2, by + bh - 3, sw - 8, 2, P.d);
+  // the head, sunk between the shoulders
+  const hw = D.hw, hh = D.hh;
+  const hx = cx2 - (sw >> 1) - (ps.hit ? 5 : 0) + (ps.wind ? 3 : 0);
+  const hy = by - hh + 3 + (ps.jaw ? 1 : 0);
+  g.rows(hx, hy, Array.from({ length: hh }, (_, j) => {
+    const rr = Math.min(j, hh - 1 - j);
+    return [rr === 0 ? 2 : rr === 1 ? 1 : 0, hw - (rr === 0 ? 4 : rr === 1 ? 2 : 0)];
+  }), P);
+  g.r(hx + 1, hy + 1, hw - 5, 1, P.l);
+  const maw = ps.jaw;
+  if (maw) {
+    g.r(hx, hy + hh - 3, 6 + maw, 2 + maw, P.o);
+    g.r(hx + 1, hy + hh - 2, 4 + maw, maw, "#1c0a10");
   }
-
-  // shoulder HUMPS on both corners — they are what the arms hang off, and they are why the top of the
-  // body reads as shoulders rather than as the top of a crate
-  const humpW = (D.sw >> 1) - 4;
-  for (const [sx0, ramp] of [[shR - humpW + 4, dark], [shL - 4 + lean, C.hide]]) {
-    blob(p, sx0, byTop - 6, [
-      [4, humpW - 8], [2, humpW - 4], [1, humpW - 2], [0, humpW], [0, humpW], [0, humpW],
-    ], ramp);
-    p.fine(sx0 + 3, byTop - 5, humpW - 8, 2, ramp.light);
-  }
-
-  // the head: TINY, sunk low between the humps, all brow and jaw
-  const hx = cx - (D.hw >> 1) - 4 + lean, hy = byTop - (D.hh >> 1) - 1;
-  blob(p, hx, hy, [
-    [2, D.hw - 4], [1, D.hw - 2],
-    ...Array.from({ length: D.hh - 4 }, () => [0, D.hw]),
-    [0, D.hw - 1], [1, D.hw - 3],
-  ], C.hide);
-  p.fine(hx + 1, hy + 1, D.hw - 3, 2, C.hide.light);           // skull lit on top
-  p.fine(hx - 1, hy + 3, D.hw, 2, C.hide.line);                // one heavy brow across both eyes
-  eyeF(p, hx + 2, hy + 5, 3 + (R >> 1), 2, C.eye, C.hide.line);
-  eyeF(p, hx + D.hw - 6 - (R >> 1), hy + 5, 3 + (R >> 1), 2, C.eye, C.hide.line);
-  const my = hy + D.hh - 3 + (ps.jaw ? 2 : 0);                 // the jaw JUTS past the brow
-  blob(p, hx - 3, my, [[0, D.hw + 2], [0, D.hw + 1], [1, D.hw - 2]], C.hide);
-  p.fine(hx - 2, my, D.hw, 1, C.hide.light);                   // the jut's lit lip
-  for (let k = 0; k < 3; k++) p.fine(hx + 1 + k * 4, my + 1, 2, 2, "#f2e6c8"); // teeth hang INTO the jaw,
-                                                               // a full row below the eyes
-  hornF(p, hx - 2, my - 1, 0, -1, 7 + R, C.trim, 4);           // tusks UP out of the lower jaw,
-  hornF(p, hx + D.hw - 2, my - 1, 0, -1, 7 + R, C.trim, 4);    // outside the eye columns
-
-  // front arm: a gorilla arm OUTSIDE the silhouette, knuckles ON the ground in idle
-  const fsx = shL + 2 + lean, fsy = byTop + 2;
-  const elx = shL - 8 + lean, ely = byTop + (D.bh >> 1);
-  const fhx = shL - 12 + lean - (atk ? ps.arm : 0);
-  const fhy = atk ? byTop + 10 : FY - D.arm - 2;       // idle: the knuckles rest ON the foot row, never
-                                                       // through it — the fist bottom lands at FY-1
-  limbF(p, fsx, fsy, elx, ely, D.arm, C.hide);
-  limbF(p, elx, ely, fhx + 3, fhy + 3, D.arm - 1, C.hide);
-  p.fine(elx + 2, ely + 1, 2, 2, C.hide.shade);                // the crook of the elbow: a JOINT, not a kink
-  p.fine(fhx - 1, fhy - 1, D.arm + 4, D.arm + 3, C.hide.line); // the FIST — nearly a second head
-  p.fine(fhx, fhy, D.arm + 2, D.arm + 1, C.hide.base);
-  p.fine(fhx, fhy, 2, D.arm + 1, C.hide.light);
-  for (let i = 2; i <= D.arm; i += 3)                          // knuckles along the top
-    p.fine(fhx + i, fhy + 1, 1, 2, C.hide.shade);
-  if (d2()) p.fine(fhx + 1, fhy + D.arm + 1, 3, 1, C.hide.shade); // the thumb folded under, fine scales
-
-  if (R >= 1) { // elite: a riveted plate bolted over the far hump
-    blob(p, shR - humpW + 2, byTop - 9, [[2, humpW - 4], [1, humpW - 2], [0, humpW], [0, humpW], [0, humpW]], C.trim);
-    p.fine(shR - humpW + 4, byTop - 8, humpW - 6, 1, C.trim.light);
-    p.fine(shR - humpW + 5, byTop - 6, 2, 2, C.trim.light);    // rivets
-    p.fine(shR - 7, byTop - 6, 2, 2, C.trim.light);
-  }
-  if (R >= 2) { // boss: horns off the skull, a chest plate, a chain across the gut
-    hornF(p, hx - 1, hy + 1, -1, -1, 9, C.trim, 5);
-    hornF(p, hx + D.hw, hy + 1, 1, -1, 9, C.trim, 5);
-    blob(p, cx - (D.sw >> 2) + lean, byTop + 6, Array.from({ length: 10 }, (_, j) =>
-      [j >> 3, (D.sw >> 1) - (j >> 3) * 2]), C.trim);
-    p.fine(cx - (D.sw >> 2) + 1 + lean, byTop + 7, (D.sw >> 1) - 2, 2, C.trim.light);
-    for (let i = 0; i < (D.hip >> 2); i++)                     // the chain, link by link
-      p.fine(cx - (D.hip >> 1) + 2 + i * 4, byBot - 11 + ((i & 1) << 1), 3, 3, i & 1 ? C.trim.light : C.trim.base);
-  }
+  g.orb(hx + 2, hy + 3, D.eye + 1, Math.max(1, D.eye - 1), S.eye, P.o, f);
+  // the weapon arm — a JOINTED limb: thick upper arm to an elbow, leaner forearm to a fist.
+  // A uniform shoulder-to-shin tube reads as a noodle; the elbow break is what makes the
+  // mass read as muscle. Idle keeps the fist at belt height — coiled, not dangling.
+  const shx = cx2 - (sw >> 1) + 3, shy = by + 4;
+  g.r(shx - 3, shy - 3, 8, 6, P.m);                                    // shoulder boulder
+  g.r(shx - 3, shy - 3, 8, 2, P.l);
+  const ex = ps.hit ? shx - 9 : ps.wind ? shx + 3 : shx - 4;           // the elbow
+  const ey = ps.hit ? by + (bh >> 1) : ps.wind ? by - 8 : shy + (bh >> 1);
+  const wx = ps.hit ? cx2 - (sw >> 1) - 14 : ps.wind ? cx2 + (sw >> 1) + 4 : shx - 7;
+  const wy = ps.hit ? FY - 8 : ps.wind ? by - 12 : by + bh - 8;
+  g.tube(shx, shy, ex, ey, D.aw + 1, P);                               // upper arm, thick
+  g.tube(ex, ey, wx, wy, Math.max(2, D.aw - 1), P);                    // forearm, leaner
+  g.r(ex - 1, ey - 1, 3, 3, P.d);                                      // elbow shadow pins the joint
+  g.r(wx - 2, wy - 2, D.aw + 4, D.aw + 3, P.o);                        // the fist
+  g.r(wx - 1, wy - 1, D.aw + 2, D.aw + 1, P.m);
+  g.r(wx - 1, wy - 1, D.aw + 2, 1, P.l);                               // knuckle light
+  // the OFF arm — same jointed build on the far flank, dimmed
+  const DP = dim(P);
+  const shx2 = cx2 + (sw >> 1) - 4, ey2 = by + 5 + (bh >> 1);
+  g.tube(shx2, by + 5, shx2 + 3, ey2, D.aw, DP);
+  g.tube(shx2 + 3, ey2, shx2, by + bh - 6, Math.max(2, D.aw - 1), DP);
+  g.r(shx2 - 2, by + bh - 8, D.aw + 3, D.aw + 2, DP.o);
+  g.r(shx2 - 1, by + bh - 7, D.aw + 1, D.aw, DP.m);
+  return { cx: cx2, by, sw, hip, bh, hx, hy, hw, hh, wx, wy, P, T };
 }
 
-// ── family: glass cannon ─────────────────────────────────────────────────────────────────
-// Stilts, a robe and a light source. Nothing about it says "hit me and I survive" — which is the point: it
-// pays the most renown and dies to one good swing.
-function drawCannon(p, R, C, ps, level, frame) {
-  const D = CANNON_D[R], FY = MON_FOOT_Y * HR + 1;      // native throughout
-  const cx = MON_CX * HR + 2, lean = ps.lean * 2;
-  const hover = [0, -2, 1, -1][frame % 4];              // it does not stand — it DRIFTS
-  const atk = ps.arm > 2;
-  const hemBot = FY - 8 + hover;                        // the hem floats WELL clear of its own shadow
-  const robeTop = hemBot - D.robeH;
-
-  // the robe IS the body: one bell, no legs anywhere under it
+/** floater: an airborne mass with a bob, no legs, a smaller shadow — wings or nothing by species. */
+function planFly(g, S, D, ps, f) {
+  const P = S.P;
+  const bob = [0, -2, 0, 1][f & 3] + ps.dy - 14 + (ps.fall ? 12 : 0);
+  const bw = D.bw + (ps.br ? 1 : 0), bh = D.bh;
+  const by = FY - D.alt - bh + bob;
+  const bx = MCX - (bw >> 1) - 4 + ps.lx;
   const spans = [];
-  for (let j = 0; j < D.robeH; j++) {
-    const t = j / (D.robeH - 1);
-    const w = Math.round(D.bw + (D.hem - D.bw) * (0.35 * t + 0.65 * t * t));
-    spans.push([-(w >> 1) + Math.round(lean * (1 - t)), w]);
+  for (let j = 0; j < bh; j++) {
+    const rr = Math.min(j, bh - 1 - j);
+    const ins = rr === 0 ? 3 : rr === 1 ? 1 : 0;
+    spans.push([ins, bw - ins * 2]);
   }
-  blob(p, cx, robeTop, spans, C.hide);
-  for (let i = 0; i < 5; i++)                           // the hem hangs in TATTERS, points drifting
-    hornF(p, cx - (D.hem >> 1) + 3 + i * ((D.hem - 6) >> 2), hemBot + ((i + frame) % 3 === 0 ? 3 : 1), 0, 1, 4 + ((i * 5) % 3), C.hide, 4);
-  p.fine(cx - (D.bw >> 1) + lean, robeTop + 3, D.bw - 2, 4, C.hide.light);  // lit yoke at the shoulders
-  p.fine(cx - 4 + lean, robeTop + 8, 2, D.robeH - 14, C.hide.shade);        // two long falls of cloth…
-  p.fine(cx + 3 + lean, robeTop + 10, 2, D.robeH - 18, C.hide.shade);       // …make the bell DRAPE
-  p.fine(cx + (D.hem >> 2), robeTop + (D.robeH >> 1), (D.hem >> 2), D.robeH >> 2, C.hide.shade); // far side
-  p.fine(cx - (D.hem >> 1) + 2, hemBot - 3, D.hem - 4, 2, C.hide.shade);    // gathering above the hem
-  const runes = Math.min(3, ((level | 0) / 5) | 0);     // runes down the robe — the level tell, and the
-  for (let i = 0; i < runes; i++) {                     // only pure light on the cloth
-    const ry = robeTop + 10 + i * 8, rx = cx - 2 + ((i & 1) << 1);
-    p.fine(rx, ry, 4, 2, C.glow);
-    p.fine(rx + 1, ry - 2, 2, 2, C.glow);
-    p.fine(rx + (i & 1 ? 0 : 2), ry + 2, 2, 2, C.glow);
+  // `plain` species own their whole silhouette — no chassis mass, no chassis face
+  if (!D.plain) {
+    g.rows(bx, by, spans, P);
+    g.r(bx + 2, by + 1, bw - 6, 2, P.l);
+    g.r(bx + 2, by + bh - 2, bw - 5, 1, P.d);
+    const maw = ps.jaw;
+    if (maw) {
+      g.r(bx, by + bh - 5, 5 + maw, 2 + maw, P.o);
+      g.r(bx + 1, by + bh - 4, 3 + maw, maw, "#1c0a10");
+    }
+    g.orb(bx + 3, by + (bh >> 1) - 2, D.eye + 1, Math.max(1, D.eye - 1), S.eye, P.o, f);
   }
-
-  // the hood: a cowl with a BLACK VOID where the face should be, and two coals hanging in it
-  const hx = cx - (D.hw >> 1) - 1 + lean, hy = robeTop - D.hh + 7;
-  blob(p, hx, hy, [
-    [5, D.hw - 9], [3, D.hw - 6], [2, D.hw - 4], [1, D.hw - 2],
-    ...Array.from({ length: D.hh - 6 }, () => [0, D.hw]),
-    [0, D.hw], [1, D.hw],
-  ], C.hide);
-  hornF(p, hx + D.hw - 5, hy - 1, 1, -1, 7 + R * 2, C.hide, 5);   // the peak, swept back off the crown
-  p.fine(hx + 2, hy + 1, 6, 3, C.hide.light);                     // moonlight on the cowl
-  const vw = D.hw - 7, vh = D.hh - 8;
-  p.fine(hx + 2, hy + 5, vw, vh, "#0b0a12");                      // the void
-  p.fine(hx + 2, hy + 4, vw, 1, C.hide.shade);                    // the brim overhanging it: the darkness
-                                                                  // is INSIDE something
-  const ew = 4 + (R >> 1);                                        // two BURNING coals, no face
-  for (const ex of [hx + 3, hx + 5 + ew]) {
-    p.fine(ex - 1, hy + 7, ew + 2, 4, "#0b0a12");                 // re-cut the socket…
-    p.fine(ex, hy + 8, ew, 3, C.eye);                             // …so the glow floats in it
-    p.fine(ex + 1, hy + 7, ew - 2, 1, C.eye);                     // flame licking upward
-    p.fine(ex, hy + 8, 2, 1, "#ffffff");
-  }
-  if (ps.jaw) p.fine(hx + 3, hy + 5 + vh - 2, vw - 2, 1, C.glow); // it lights up before it speaks
-
-  // the staff: planted DOWN the front, orb burning at the top — the family read at any distance
-  // (the boss's orb is clamped down off the frame edge so its spokes never clip)
-  const stx = cx - (D.hem >> 1) - 4, orbY = Math.max(D.orb + 12, hy - 4 - (D.orb >> 1));
-  p.fine(stx - 1, orbY + 4, 4, hemBot - orbY + 2, C.trim.line);
-  p.fine(stx, orbY + 4, 2, hemBot - orbY, C.trim.base);
-  p.fine(stx, orbY + 4, 1, hemBot - orbY, C.trim.light);
-  p.fine(stx - 2, orbY + 8, 6, 2, C.trim.shade);                  // a binding ring below the crook
-  // the casting arm: a thin sleeve out to the staff, ending in a skeletal claw around it
-  limbF(p, cx - (D.bw >> 1) + 2 + lean, robeTop + 6, stx + 4, robeTop + 10, 4, C.hide);
-  p.fine(stx - 1, robeTop + 9, 6, 4, C.trim.light);               // the claw
-  p.fine(stx, robeTop + 10, 1, 2, C.trim.shade);                  // gaps between bones
-  p.fine(stx + 3, robeTop + 10, 1, 2, C.trim.shade);
-  // the ORB: the family's signature, so it gets real geometry — circle spans inside a dark halo, a
-  // white-hot heart high on the sphere, and a crescent of the eye-colour cooling the lower rim
-  const pulse = [0, 1, 0, 2][frame % 4], rr = D.orb + 2 + pulse;            // diameter
-  const ox0 = stx - (rr >> 1), oy0 = orbY - (rr >> 1);
-  p.fine(ox0 - 1, oy0 + (rr >> 1), 2, (rr >> 1) + 2, C.trim.base);          // the crook's two prongs
-  p.fine(ox0 + rr - 1, oy0 + (rr >> 1), 2, (rr >> 1) + 2, C.trim.base);
-  const orbSpans = [];
-  for (let j = 0; j < rr; j++) {
-    const dyy = j + 0.5 - rr / 2;
-    const half = Math.sqrt(Math.max(0, (rr / 2) * (rr / 2) - dyy * dyy));
-    const w2 = Math.max(2, Math.round(half * 2));
-    orbSpans.push([Math.round((rr - w2) / 2), w2]);
-  }
-  blob(p, ox0, oy0, orbSpans, { base: C.glow, line: "#0b0a12", light: C.glow, shade: C.glow });
-  for (let j = (rr >> 1) + 1; j < rr - 1; j++) {                            // the crescent
-    const [dxx, w2] = orbSpans[j];
-    p.fine(ox0 + dxx + 1, oy0 + j, w2 - 2, 1, C.eye);
-  }
-  p.fine(ox0 + (rr >> 2), oy0 + (rr >> 2), 3, 2, "#ffffff");                // the white-hot heart
-  p.fine(ox0 + (rr >> 2) + 1, oy0 + (rr >> 2) - 1, 1, 1, "#ffffff");
-  for (let d = 3; d < 6 + (frame & 1); d++) {                     // four spokes of light off it
-    p.fine(stx, orbY - (rr >> 1) - d, 1, 1, C.glow);
-    p.fine(stx, orbY + (rr >> 1) + d, 1, 1, C.glow);
-    p.fine(stx - (rr >> 1) - d, orbY, 1, 1, C.glow);
-    p.fine(stx + (rr >> 1) + d, orbY, 1, 1, C.glow);
-  }
-  if (atk) { // the BOLT: fire has left the orb and is on its way to the hero
-    for (let i = 0; i < 12; i += 2) p.fine(stx - 8 - i, orbY + 6 + (i >> 2), 3, 2, i & 2 ? C.glow : C.eye);
-    p.fine(stx - 22, orbY + 8, 4, 4, C.eye);
-    p.fine(stx - 21, orbY + 9, 2, 2, "#ffffff");
-    p.fine(stx - 14, orbY + 3, 2, 2, C.glow);                     // sparks shed in the wake
-    p.fine(stx - 12, orbY + 13, 2, 2, C.glow);
-  }
-  if (R >= 1) for (let i = 0; i < 3; i++)                         // elite: a crown of spines on the cowl
-    hornF(p, hx + 4 + i * ((D.hw - 8) >> 1), hy + 1 - (i === 1 ? 2 : 0), 0, -1, 5, C.trim, 3);
-  if (R >= 2) for (let i = 0; i < 3; i++) {                       // boss: runes hanging in the air beside
-    const rx = cx + (D.hem >> 1) + 6, ry = robeTop + 4 + i * 14 + ((frame + i) & 1) * 2; // it — the road
-    p.fine(rx, ry, 6, 2, C.glow);                                 // itself is hostage
-    p.fine(rx + 2, ry - 2, 2, 6, C.glow);
-    p.fine(rx - 2, ry + (i & 1 ? -1 : 3), 2, 2, C.glow);
-  }
+  return { bx, by, bw, bh, bob, P };
 }
+
+/** standing caster: a bell robe, a head under a hood or hat, a staff arm that reaches on the strike. */
+function planRobe(g, S, D, ps, f) {
+  const P = S.P, T = S.T;
+  const hem = D.hem, top2 = D.top, rh = D.rh;
+  const by = FY - rh + ps.dy + 1;
+  const cx2 = MCX + 2 + ps.lx;
+  const spans = [];
+  for (let j = 0; j < rh; j++) {
+    const u = j / (rh - 1);
+    const w = Math.round(top2 + (hem - top2) * u * u);        // bell curve: narrow → flare
+    const swy = j > rh - 5 ? [0, 1, 0, -1][f & 3] : 0;        // the hem breathes
+    spans.push([Math.round((hem - w) / 2) + swy, w]);
+  }
+  g.rows(cx2 - (hem >> 1), by, spans, P);
+  g.r(cx2 - (top2 >> 1) + 1, by + 1, 3, rh - 6, P.l);
+  g.r(cx2 + (top2 >> 1) - 2, by + 3, 3, rh - 8, P.d);
+  for (let i = 0; i < hem; i += 3) g.r(cx2 - (hem >> 1) + i, by + rh - 2, 1, 2, P.d);  // hem folds
+  // head over the collar
+  const hw = D.hw, hh = D.hh;
+  const hx = cx2 - (hw >> 1) - 2 - (ps.hit ? 3 : 0);
+  const hy = by - hh + 3 + (ps.wind ? -2 : 0);
+  g.rows(hx, hy, Array.from({ length: hh }, (_, j) => {
+    const rr = Math.min(j, hh - 1 - j);
+    return [rr === 0 ? 2 : rr === 1 ? 1 : 0, hw - (rr === 0 ? 4 : rr === 1 ? 2 : 0)];
+  }), S.F || P);
+  g.orb(hx + 3, hy + (hh >> 1) - 1, D.eye + 1, Math.max(1, D.eye - 1), S.eye, (S.F || P).o, f);
+  // the staff: planted at idle, raised on wind-up, LEVELLED at the hero on the strike
+  const sx = ps.hit ? cx2 - 22 : ps.wind ? cx2 + 8 : cx2 - (hem >> 1) - 4;
+  const sy = ps.hit ? by + 6 : ps.wind ? by - 16 : by - 6;
+  const ex2 = ps.hit ? cx2 - 4 : ps.wind ? cx2 + 2 : cx2 - (hem >> 1) - 2;
+  const ey = ps.hit ? by + 8 : ps.wind ? by - 2 : FY - 1;
+  g.seg(ex2 - 1, ey - 1, sx - 1, sy - 1, 3, T.o);
+  g.seg(ex2, ey, sx, sy, 1, T.m);
+  g.r(sx - 2, sy - 2, 5, 5, T.o);                             // the head of the staff
+  g.r(sx - 1, sy - 1, 3, 3, S.glow);
+  g.r(sx - 1, sy - 1, 1, 1, "#ffffff");
+  if (ps.hit) {                                               // the bolt, mid-flight
+    g.d(sx - 12, sy - 1, 8, 3, S.glow, f);
+    g.r(sx - 14, sy, 3, 1, "#ffffff");
+  }
+  g.tube(cx2 - (top2 >> 1), by + 4, ex2 + 1, ey - (ps.hit ? 0 : 8), 3, P);
+  return { cx: cx2, by, hem, top: top2, rh, hx, hy, hw, hh, sx, sy, P, T };
+}
+
+/** low crawler: a wide flat carapace over rowed legs — spiders, scuttlers, things with too many knees. */
+function planCrawl(g, S, D, ps, f) {
+  const P = S.P;
+  const bw = D.bw, bh = D.bh;
+  const by = FY - D.leg - bh + ps.dy + (ps.hit ? 2 : 0);
+  const bx = MCX - (bw >> 1) - 2 + ps.lx;
+  // legs: three visible pairs, knees ABOVE the shell — the unmistakable crawler silhouette
+  for (let k = 0; k < 3; k++) {
+    const lx2 = bx + 4 + k * ((bw - 8) >> 1);
+    const kx = lx2 - 4 + (f & 1 ? 1 : 0) + (ps.hit ? -2 : 0);
+    const ky = by - 4 - (k === 1 ? 2 : 0);
+    g.seg(lx2, by + 2, kx, ky, 2, P.o);
+    g.seg(kx, ky, kx - 3, FY, 2, P.o);
+    g.seg(lx2, by + 2, kx, ky, 1, P.m);
+    g.seg(kx, ky, kx - 3, FY, 1, P.m);
+    // far pair, dimmed, mirrored a little back
+    g.seg(lx2 + 2, by + 3, lx2 + 6, FY, 1, dim(P).m);
+  }
+  // the carapace
+  const spans = [];
+  for (let j = 0; j < bh; j++) {
+    const rr = Math.min(j, bh - 1 - j);
+    const ins = rr === 0 ? 3 : rr === 1 ? 1 : 0;
+    spans.push([ins, bw - ins * 2]);
+  }
+  g.rows(bx, by, spans, P);
+  g.r(bx + 3, by + 1, bw - 9, 2, P.l);
+  g.r(bx + 2, by + bh - 2, bw - 5, 1, P.d);
+  g.orb(bx + 3, by + (bh >> 1) - 1, D.eye + 1, Math.max(1, D.eye - 1), S.eye, P.o, f);
+  if (ps.jaw) {                                               // fangs part
+    g.taper(bx + 1, by + bh - 2, -1, 1, 3, 2, P);
+    g.taper(bx + 5, by + bh - 2, 0, 1, 3, 2, P);
+  }
+  return { bx, by, bw, bh, P };
+}
+
+/** segmented slug — leeches and worse: a fat low body that REARS its front third to strike. */
+function planSlug(g, S, D, ps, f) {
+  const P = S.P;
+  const bl = D.bl, bh = D.bh + (ps.br ? 1 : 0);
+  const by = FY - bh + ps.dy - 1;
+  const bx = MCX - (bl >> 1) - 4 + ps.lx;
+  const rear = ps.hit ? 10 : ps.wind ? -2 : [0, 1, 0, 0][f & 3] * 2;
+  const spans = [];
+  for (let j = 0; j < bh; j++) {
+    const rr = Math.min(j, bh - 1 - j);
+    spans.push([rr === 0 ? 3 : rr === 1 ? 1 : 0, bl - (rr === 0 ? 6 : rr === 1 ? 2 : 0)]);
+  }
+  g.rows(bx, by, spans, P);
+  if (!D.plain) for (let i = 6; i < bl - 3; i += 5) g.r(bx + i, by + 1, 1, bh - 2, P.d);  // segment rings
+  g.r(bx + 3, by + 1, bl - 10, 2, P.l);
+  // the reared front
+  const fx2 = bx - 6, fy2 = by - rear;
+  g.rows(fx2, fy2, Array.from({ length: bh + (rear > 0 ? 8 : 6) - bh }, (_, j) => [j >> 1, 9 - (j >> 1)]), P);
+  g.r(fx2 + 1, fy2 + 1, 4, 2, P.l);
+  const maw = ps.jaw;
+  if (maw) {
+    g.r(fx2 - 1, fy2 + 3, 4 + maw, 2 + maw, P.o);
+    g.r(fx2, fy2 + 4, 3 + maw, maw, "#2a0812");
+    for (let k = 0; k < 3; k++) g.r(fx2 + k, fy2 + 4 + (k & 1), 1, 1, "#e8dcc0");  // the rasp
+  }
+  g.orb(fx2 + 2, fy2 + 1, D.eye + 1, Math.max(1, D.eye - 1), S.eye, P.o, f);
+  return { bx, by, bl, bh, fx: fx2, fy: fy2, P };
+}
+
+// ── the fall ─────────────────────────────────────────────────────────────────────────────
+// Frame 5 is A BODY LEARNING IT IS DEAD — authored mid-collapse per chassis, not the standing pose with
+// a red tint (which is what the first draft shipped, and it read as a blink, not a death). Every one
+// pitches TOWARD the hero: he is what killed it.
+
+function fallQuad(g, S, D, f) {
+  const P = S.P;
+  // forelegs gone: the body tilts nose-down, hind leg still pushing at nothing
+  const bl = D.bl, bh = D.bh;
+  const bx = MCX - (bl >> 1) - 8;
+  for (let i = 0; i < bl; i++) {                              // the slab, slanting nose-first into the dirt
+    const y = FY - bh - 8 + Math.round(i / 2.5);              // nose-down slant
+    g.r(bx + i, y - 1, 1, bh + 2, P.o);
+    g.r(bx + i, y, 1, bh, P.m);
+    g.r(bx + i, y, 1, 2, P.l);
+  }
+  g.tube(bx + bl - 6, FY - bh - 4, bx + bl - 2, FY - 12, D.lw, P);   // the hind leg, up and useless
+  g.r(bx + bl - 4, FY - 13, D.lw + 1, 2, P.d);
+  g.tube(bx + 8, FY - 6, bx + 2, FY - 1, D.lw, dim(P));       // a foreleg folded under
+  // the head, cheek in the road, jaw knocked open
+  g.rows(bx - D.hw + 4, FY - D.hh + 2, Array.from({ length: D.hh - 2 }, (_, j) =>
+    [Math.min(j, D.hh - 3 - j) === 0 ? 2 : 0, D.hw - (Math.min(j, D.hh - 3 - j) === 0 ? 4 : 0)]), P);
+  g.r(bx - D.hw + 5, FY - 4, D.hw - 6, 2, "#1c0a10");         // the slack maw
+  for (let k = 0; k < 3; k++) g.r(bx - D.hw + 6 + k * 3, FY - 4, 1, 1, "#cfc4a8");
+  g.r(bx - D.hw + 8, FY - D.hh + 5, 3, 1, P.o);               // the eye already a line
+  g.taper(bx + bl - 2, FY - bh - 6, 1, 0, D.tail - 2, D.tw, P);      // tail flat along the ground
+}
+
+function fallBiped(g, S, D, sw2, bh, f) {
+  const P = S.P;
+  // knees gone: shins flat on the road, torso pitched forward over them, head hanging, arm to the dirt
+  const cx2 = MCX + 1;
+  g.r(cx2 - (sw2 >> 1) - 2, FY - 4, sw2 + 6, 4, P.o);          // the folded legs, a low plinth of itself
+  g.r(cx2 - (sw2 >> 1) - 1, FY - 3, sw2 + 4, 3, P.d);
+  for (let j = 0; j < bh - 6; j++) {                           // the torso, pitched ~40° toward the hero
+    const u = j / Math.max(1, bh - 7);
+    const w = Math.round(sw2 - u * (sw2 * 0.3));
+    const x = cx2 - (w >> 1) - Math.round(u * 10);             // leaning out over the fall
+    const y = FY - 4 - (bh - 6) + j + Math.round(u * 3);
+    g.r(x - 1, y, w + 2, 1, P.o);
+    g.r(x, y, w, 1, P.m);
+    g.r(x, y, 1, 1, P.l);
+    g.r(x + w - 1, y, 1, 1, P.d);
+  }
+  // the head, hanging off the pitch — face already gone from it
+  const hx = cx2 - (sw2 >> 1) - D.hw + 2, hy = FY - 10;
+  g.rows(hx, hy, Array.from({ length: 8 }, (_, j) =>
+    [Math.min(j, 7 - j) === 0 ? 2 : 0, D.hw - (Math.min(j, 7 - j) === 0 ? 4 : 0)]), P);
+  g.r(hx + 2, hy + 3, D.hw - 6, 1, P.o);
+  g.tube(cx2 - (sw2 >> 1) + 2, FY - bh + 4, hx - 2, FY - 2, 3, dim(P));   // the arm, palm to the road
+  g.r(hx - 5, FY - 3, 4, 2, P.d);
+}
+
+function fallFly(g, S, D, f) {
+  const P = S.P;
+  // out of the air: the mass on the ground, wings flung up, the last lift streaking above it
+  const bw = D.bw + 2, bh = Math.max(6, D.bh - 3);
+  const bx = MCX - (bw >> 1) - 4, by = FY - bh;
+  g.rows(bx, by, Array.from({ length: bh }, (_, j) => {
+    const rr = Math.min(j, bh - 1 - j);
+    return [rr === 0 ? 3 : rr === 1 ? 1 : 0, bw - (rr === 0 ? 6 : rr === 1 ? 2 : 0)];
+  }), P);
+  g.rows(bx + bw - 3, by - 8, [[0, 4], [1, 6], [2, 7]], dim(P));       // a wing thrown up
+  g.rows(bx - 6, by - 5, [[2, 5], [0, 6]], dim(P));
+  g.d(bx + 2, by - 14 - (f & 1) * 2, bw - 2, 3, P.d, f);               // the fall it just finished
+  g.r(bx - 3, FY - 1, bw + 8, 1, P.o);                                 // the dust line of impact
+}
+
+function fallRobe(g, S, D, f) {
+  const P = S.P, T = S.T;
+  // the robe folding into itself: hem pooled wide, the head bowing INTO the collapse, staff clattering
+  const hem = D.hem + 6, rh = Math.max(10, (D.rh * 3) >> 2) - 4;
+  const cx2 = MCX + 2, by = FY - rh + 1;
+  for (let j = 0; j < rh; j++) {
+    const u = j / (rh - 1);
+    const w = Math.round(D.top + (hem - D.top) * u * u);
+    g.r(cx2 - (w >> 1) - 1, by + j, w + 2, 1, P.o);
+    g.r(cx2 - (w >> 1), by + j, w, 1, j > rh - 4 ? P.d : P.m);
+  }
+  const hx = cx2 - (D.hw >> 1) - 4, hy = by - 3;                       // the head, bowed to the chest
+  g.rows(hx, hy, Array.from({ length: D.hh - 3 }, (_, j) =>
+    [Math.min(j, D.hh - 4 - j) === 0 ? 2 : 0, D.hw - (Math.min(j, D.hh - 4 - j) === 0 ? 4 : 0)]), S.F || P);
+  g.seg(cx2 - (hem >> 1) - 8, FY - 2, cx2 - (hem >> 1) + 10, FY - 6, 1, T.m);   // the staff, down
+  g.r(cx2 - (hem >> 1) - 10, FY - 8, 4, 4, T.o);
+  g.d(cx2 - (hem >> 1) - 9, FY - 7, 2, 2, S.glow, f);                  // its light guttering
+}
+
+function fallCrawl(g, S, D, f) {
+  const P = S.P;
+  // the knees quit all at once: shell flat on the road, legs splayed straight out
+  const bw = D.bw + 4, bh = Math.max(6, D.bh - 3);
+  const bx = MCX - (bw >> 1) - 2, by = FY - bh;
+  g.rows(bx, by, Array.from({ length: bh }, (_, j) => {
+    const rr = Math.min(j, bh - 1 - j);
+    return [rr === 0 ? 3 : rr === 1 ? 1 : 0, bw - (rr === 0 ? 6 : rr === 1 ? 2 : 0)];
+  }), P);
+  for (let k = 0; k < 3; k++) {
+    g.seg(bx + 3 + k * (bw >> 2), by + bh - 2, bx - 6 + k * 3, FY - 1, 1, P.m);       // legs flat, near side
+    g.seg(bx + bw - 4 - k * 3, by + bh - 2, bx + bw + 5 - k * 2, FY - 1, 1, dim(P).m); // far side
+  }
+  g.r(bx + 3, by + 2, 2, 1, P.o);                                      // the eyes gone flat
+  g.r(bx + 7, by + 3, 2, 1, P.o);
+}
+
+function fallSlug(g, S, D, f) {
+  const P = S.P;
+  const bl = D.bl + 4, bh = Math.max(5, D.bh - 2);
+  const bx = MCX - (bl >> 1) - 4;
+  g.rows(bx, FY - bh, Array.from({ length: bh }, (_, j) =>
+    [Math.min(j, bh - 1 - j) === 0 ? 3 : 0, bl - (Math.min(j, bh - 1 - j) === 0 ? 6 : 0)]), P);
+  for (let i = 5; i < bl - 3; i += 5) g.r(bx + i, FY - bh + 1, 1, bh - 2, P.d);
+  g.rows(bx - 6, FY - 4, [[1, 6], [0, 8]], P);                          // the front, face-down
+  g.r(bx - 4, FY - 3, 3, 1, P.o);
+}
+
+const FALLS = {
+  quad: fallQuad,
+  grot: (g, S, D, f) => fallBiped(g, S, D, D.bw, D.bh + 4, f),
+  hulk: (g, S, D, f) => fallBiped(g, S, D, D.sw - 6, D.bh, f),
+  fly: fallFly,
+  robe: fallRobe,
+  crawl: fallCrawl,
+  slug: fallSlug,
+};
+
+const PLANS = { quad: planQuad, grot: planGrot, hulk: planHulk, fly: planFly, robe: planRobe,
+                crawl: planCrawl, slug: planSlug };
+
+// ── the species ──────────────────────────────────────────────────────────────────────────
+// A species = a chassis (plan), a hide (P) and trim (T) ramp, an eye, a glow, ONE dims table, and a
+// detail hook `dt(g, a, ps, f, heat)` that paints the parts no chassis could guess. Elite-rank species
+// are not "the same but bigger" — they are the realm's second, meaner answer to the same family slot.
+function sp(name, plan, P, T, eye, glow, d, dt, dead) {
+  return { name, plan, P, T, eye, glow, d, dt, dead };
+}
+
+// GRIM PASS — every hide is pulled toward the dark before it is ever used. The bestiary's first draft
+// ran bright and it read as a children's book; one transform here keeps all thirty palettes in the same
+// cold register as the knight without re-authoring a single hue relationship.
+const grim = (P) => ({ o: tint(P.o, "#020208", 0.45), d: tint(P.d, "#0c0a16", 0.40),
+                       m: tint(P.m, "#14121f", 0.38), l: tint(P.l, "#1c1929", 0.32),
+                       s: tint(P.s, "#282436", 0.25) });
+const mr = (...a) => grim(ramp(...a));
+
+// realm hides
+const GW_FUR  = mr("#241408", "#54341c", "#7e522c", "#a87944", "#d4ab6e"); // greenwood russet
+const GW_GREY = mr("#181c22", "#3a4450", "#5d6b7a", "#8697a6", "#b8c8d4"); // wolf smoke
+const GW_HIDE = mr("#1c1410", "#463024", "#6a4a34", "#93684a", "#c09a70"); // boar umber
+const GW_MOSS = mr("#101c10", "#2c4426", "#48663a", "#6c8f54", "#a0c47e"); // troll moss
+const GW_LEAF = mr("#122208", "#2f5215", "#4c8024", "#74b23e", "#aede6e"); // sprite leaf
+const GW_BARK = mr("#180f08", "#3c281a", "#5c422c", "#806044", "#a98a64"); // shaman bark
+const FN_LCH  = mr("#160c14", "#3c1e30", "#5c3448", "#845066", "#b07e8c"); // leech bruise
+const FN_TOAD = mr("#0f1c14", "#2a4a30", "#417048", "#619a62", "#8fc488"); // croaker green
+const FN_MIRE = mr("#121710", "#333d28", "#525f3c", "#748356", "#a2b07c"); // lurker weed
+const FN_SNAP = mr("#101408", "#2e3a16", "#4c5c24", "#6e8038", "#9cae5c"); // snapjaw scale
+const FN_WISP = mr("#0c1420", "#22405c", "#3f6f94", "#68a4c8", "#a8dcf0"); // wisp glowflesh
+const FN_HAG  = mr("#161020", "#3a2c48", "#5a476c", "#7f6a92", "#ab97bc"); // witch dusk
+const CR_BAT  = mr("#14101c", "#342a44", "#544668", "#78688e", "#a495b8"); // bat felt
+const CR_SPID = mr("#0e0e12", "#2a2a34", "#464653", "#6a6a7c", "#9494a8"); // spider slate
+const CR_GOL  = mr("#15181c", "#3c4348", "#636d74", "#8c979e", "#bcc8ce"); // granite
+const CR_OGRE = mr("#1a1512", "#443830", "#6a594c", "#93806a", "#c0ac92"); // ogre leather
+const CR_GEO  = mr("#140e1e", "#382a52", "#5c4884", "#8168b4", "#af92e2"); // geode violet
+const CR_STRM = mr("#0e141e", "#2a3c56", "#456186", "#6689b2", "#96bade"); // storm slate-blue
+const AS_HND  = mr("#140a06", "#38180c", "#5c2a12", "#84421a", "#b06428"); // hound char-ember
+const AS_GHL  = mr("#16130f", "#3c352c", "#5f574a", "#847b6a", "#aca394"); // ash grey
+const AS_MAG  = mr("#170c08", "#401e10", "#66301a", "#8e4826", "#c06a36"); // magma crust
+const AS_REV  = mr("#14161c", "#363c48", "#585f70", "#7d8598", "#a8b0c2"); // revenant iron
+const AS_IMP  = mr("#1c0a08", "#4a1a10", "#762c18", "#a44424", "#d46a36"); // imp brick
+const AS_PYR  = mr("#1c1008", "#48280e", "#744018", "#a05e24", "#cc8438"); // pyromancer ochre
+const NT_SHD  = mr("#0c0a16", "#241f3c", "#3d3660", "#585088", "#7f78b2"); // shade violet
+const NT_BONE = mr("#181410", "#4a4238", "#7a7060", "#a89a86", "#d8ccb4"); // old bone
+const NT_HUSK = mr("#141008", "#38301c", "#5a4e2e", "#7e6e44", "#a89662"); // husk tallow
+const NT_KNT  = mr("#10121a", "#2c3244", "#4a5268", "#6c7590", "#969fba"); // crypt steel
+const NT_EYE  = mr("#160c18", "#3c2440", "#613e66", "#885c8e", "#b488ba"); // veil flesh
+const NT_LICH = mr("#0e141a", "#283a48", "#436074", "#6288a0", "#92bcd0"); // lich shroud
+
+const SPECIES = [
+  [ // ── GREENWOOD — the old wood; nothing here is merely an animal. Fae, fiends and worse,
+    //    wearing the wood's shapes badly
+    [
+      sp("redcap", "grot", GW_BARK, GW_BARK, "#ff6a5a", "#b6ff6a",
+        { bw: 16, bh: 14, leg: 7, hw: 11, hh: 10, eye: 2 },
+        (g, a, ps, f) => {
+          // the murderous fae of the border ballads: iron boots, a butcher's cleaver, and a cap
+          // kept red the only way a cap stays red
+          const RC = ramp("#2c0a12", "#5a1420", "#8a2430", "#b43848", "#e06a6a");
+          const IR = ramp("#14161c", "#242832", "#3a4050", "#525a70", "#8a92a8");
+          g.rows(a.hx - 1, a.hy - 4, [[2, 9], [1, 11], [0, 13], [0, 13]], RC);   // the sodden cap
+          g.taper(a.hx + a.hw - 1, a.hy - 6, 1, -1, 6, 3, RC);                   // its point, flopped back
+          g.r(a.hx, a.hy - 1, a.hw - 3, 1, RC.d);                                // brim shadow on the eyes
+          g.taper(a.hx - 3, a.hy + 4, -1, 0, 4, 2, a.P);                         // the hooked nose
+          g.r(a.hx - 1, a.hy + a.hh - 3, 4, 1, "#0c0a10");                       // a thin, joyless mouth
+          g.r(a.wx - 4, a.wy - 6, 7, 8, IR.m);                                   // the CLEAVER at the fist
+          g.r(a.wx - 4, a.wy - 6, 7, 1, IR.l);
+          g.r(a.wx - 4, a.wy - 6, 1, 8, "#c8d4dc");                              // the edge, kept keen
+          g.r(a.wx - 4, a.wy + 1, 2, 1, "#6a1420");                              // old blood on the corner
+          g.r(a.bx, FY - 3, 5, 3, IR.d);                                         // the iron boots
+          g.r(a.bx + a.bw - 5, FY - 3, 5, 3, IR.o);
+        }),
+      sp("barghest", "quad", ramp("#0a0c12", "#181c26", "#262c3a", "#3a4252", "#5a6478"), GW_GREY, "#ff7a1a", "#ff9e2e",
+        { bl: 34, bh: 15, leg: 12, lw: 4, hw: 16, hh: 12, eye: 3, tail: 11, tw: 3 },
+        (g, a, ps, f) => {
+          // the death-omen hound: coal-black, horned, smoking at the edges — a dog only in outline
+          g.taper(a.hx + 3, a.hy - 4, 0, -1, 5, 2, a.P);                   // horns, swept back
+          g.taper(a.hx + 8, a.hy - 5, 1, -1, 6, 2, a.P);
+          g.r(a.hx - 2, a.hy + a.hh - 5, 2, 4, "#f4f4f4");                 // fangs past the lip
+          g.r(a.hx + 1, a.hy + a.hh - 4, 1, 3, "#e8e0d0");
+          for (let i = 0; i < 4; i++)                                      // spine spurs breaking the hide
+            g.taper(a.bx + 6 + i * 6, a.by - 2, 0, -1, 3 + (i & 1), 2, a.P);
+          g.d(a.bx + a.bl - 6, a.by - 4 - (f & 1), 4, 4, "#20242e", f);    // it SMOKES at the edges
+          g.d(a.hx - 4, a.hy - 2 + (f & 1), 3, 3, "#20242e", f + 1);
+          g.r(a.hx + 3, a.hy + 5, 2, 1, "#ff7a1a");                        // the second ember eye
+        }),
+    ],
+    [
+      sp("basilisk", "quad", ramp("#101408", "#242c12", "#38441c", "#4e5e2a", "#78904a"), NT_BONE, "#e8ffb0", "#b6ff6a",
+        { bl: 34, bh: 14, leg: 8, lw: 5, hw: 15, hh: 12, eye: 3, tail: 16, tw: 4 },
+        (g, a, ps, f) => {
+          // the king of serpents, low-slung: a horn-plate crest, scutes, and a gaze that GATHERS
+          const CB = ramp("#2c1418", "#54242c", "#7c343c", "#a44850", "#d07a80");
+          for (let i = 0; i < 4; i++)                                      // the crest comb
+            g.taper(a.hx + 2 + i * 3, a.hy - 3 - (i === 1 ? 2 : 0), 0, -1, 4 + (i === 1 ? 2 : 0), 2, CB);
+          g.r(a.hx - 3, a.hy + a.hh - 6, 4, 2, a.P.d);                     // the beaked snout
+          g.r(a.hx - 3, a.hy + a.hh - 6, 4, 1, a.P.o);
+          for (let i = 0; i < a.bl - 12; i += 4)                           // scale ridge down the spine
+            g.r(a.bx + 6 + i, a.by - 1, 2, 2, a.P.d);
+          g.r(a.bx + 4, a.by + a.bh - 2, a.bl - 10, 1, "#7a6830");         // pale belly scutes
+          if (ps.wind || ps.hit) {                                         // the KILLING GAZE
+            g.r(a.hx + 2, a.hy + 3, 4, 3, "#e8ffb0");
+            g.d(a.hx - 8, a.hy + 3, 7, 2, "#e8ffb0", f);
+          }
+        }),
+      sp("moss troll", "hulk", GW_MOSS, GW_BARK, "#ffd23a", "#b6ff6a",
+        { sw: 34, hip: 20, bh: 30, leg: 12, lw: 9, hw: 13, hh: 11, eye: 2, aw: 6 },
+        (g, a, ps, f) => {
+          g.seg(a.wx - 2, a.wy - 10, a.wx + 2, a.wy + 4, 6, GW_BARK.o);   // the log club
+          g.seg(a.wx - 1, a.wy - 9, a.wx + 2, a.wy + 3, 4, GW_BARK.m);
+          g.r(a.wx - 1, a.wy - 8, 2, 3, GW_BARK.l);
+          g.d(a.cx - 12, a.by + 2, 10, 5, GW_LEAF.m, f);                  // moss shoulders
+          g.d(a.cx + 2, a.by + 8, 8, 4, GW_LEAF.d, f + 1);
+          g.r(a.hx, a.hy + a.hh - 3, 6, 1, "#12180c");                    // the mouth: a dark gash, no mirth
+          g.r(a.hx + 1, a.hy + a.hh - 5, 2, 3, "#e8dcc0");                // ONE tusk jutting from the underbite
+          g.r(a.hx + 1, a.hy + a.hh - 5, 1, 1, "#c8bc9e");                // its worn tip
+        }),
+    ],
+    [
+      sp("harpy", "fly", ramp("#16100e", "#2e211c", "#48342a", "#64483a", "#8a6a52"), NT_SHD, "#ffd23a", "#ffb46a",
+        { bw: 17, bh: 14, alt: 26, eye: 2, plain: 1 },
+        (g, a, ps, f) => {
+          // the carrion-woman of the old stories, drawn from the WINGBEAT out: two raised feathered
+          // wings, a woman's head and chest, bird's legs ending in spread talons. The first draft
+          // laid both wings flat at torso height — it read as a plank through a pigeon.
+          const P2 = a.P, W2 = dim(P2);
+          const SKIN2 = ramp("#4a4238", "#6a6052", "#8a8070", "#a89e8c", "#d0c8b8");
+          const HAIR2 = ramp("#0a0a0c", "#16161a", "#242430", "#36364a", "#50506a");
+          const dive = ps.hit ? -6 : 0;                       // the strike is a DIVE, talons first
+          const bx = a.bx + dive, by = a.by;
+          // wing pose: idle beats slow (up/mid/down), windup rears both wings HIGH, the dive sweeps back.
+          // Each pose is a SOLID silhouette — contiguous rows, scalloped only on the trailing edge
+          const UP  = [[13, 6], [9, 11], [5, 15], [2, 17], [0, 16], [0, 11], [1, 6]];
+          const MID = [[8, 9], [4, 14], [1, 17], [0, 16], [0, 12], [1, 7]];
+          const DN  = [[0, 12], [0, 16], [2, 17], [5, 14], [9, 10], [13, 5]];
+          const pose = ps.wind ? UP : ps.hit ? MID : [UP, MID, DN][f % 3];
+          const lift = pose === UP ? -7 : pose === MID ? -3 : -1;
+          const wing = (ox, oy, R5) => {
+            pose.forEach((s2, j) => {
+              g.r(ox + s2[0], oy + lift + j, s2[1], 1,
+                  j === 0 ? R5.l : j < pose.length - 2 ? R5.m : R5.d);
+            });
+            const last = pose[pose.length - 1];
+            for (let s3 = 0; s3 < last[1] + 6; s3 += 3)       // trailing-edge feather scallops
+              g.r(ox + last[0] + s3, oy + lift + pose.length, 1, 1, R5.d);
+            g.r(ox, oy + lift, 3, 2, R5.o);                   // the wrist bone
+          };
+          wing(bx + 6, by - 3, W2);                           // far wing, one tone down
+          // the torso: a woman's chest narrowing into a feathered waist
+          g.rows(bx - 1, by, [[1, 8], [0, 9], [0, 9], [0, 8], [1, 7], [1, 6]], P2);
+          g.r(bx, by + 1, 4, 2, SKIN2.m);                     // bare chest above the feathers
+          g.r(bx, by + 1, 2, 1, SKIN2.l);
+          // the head, thrust forward: pale profile, gold eye, screech, hair STREAMING back
+          g.rows(bx - 7, by - 6, [[1, 6], [0, 7], [0, 7], [0, 7], [1, 5]], SKIN2);
+          g.rows(bx - 5, by - 9, [[0, 12], [1, 13], [3, 12]], HAIR2);        // hair whipped behind her
+          g.d(bx + 5, by - 7 + (f & 1), 6, 2, HAIR2.m, f);                   // its torn ends
+          g.r(bx - 6, by - 4, 1, 1, "#ffd23a");                              // the gold eye
+          g.r(bx - 7, by - 2, 3, 1 + (ps.wind ? 1 : 0), "#0c0a10");          // the screech
+          g.r(bx - 6, by - 2, 1, 1, "#cfc6b8");                              // one tooth in it
+          wing(bx + 4, by - 1, P2);                                          // near wing, over the torso
+          // feathered hips + a short tail fan
+          g.rows(bx + 1, by + 6, [[0, 7], [0, 6], [1, 5]], P2);
+          for (let k = 0; k < 3; k++) g.r(bx + 7 + k * 2, by + 7 + k, 3, 1, W2.m);
+          // bird legs: thigh, backward knee, shank — ending in SPREAD talons
+          for (let k = 0; k < 2; k++) {
+            const hx2 = bx + 2 + k * 3, R5 = k ? P2 : W2;
+            const fx2 = hx2 - 2 + (ps.hit ? -4 : 0), fy2 = by + 13 + (ps.hit ? 1 : 0);
+            g.seg(hx2, by + 8, hx2 + 2, by + 10, 1, R5.m);                   // thigh, back
+            g.seg(hx2 + 2, by + 10, fx2, fy2, 1, R5.d);                      // shank, forward
+            g.r(fx2 - 2, fy2, 2, 1, "#cfc6b8");                              // fore talons
+            g.r(fx2 - 1, fy2 + 1, 1, 1, "#cfc6b8");
+            g.r(fx2 + 1, fy2, 1, 1, "#cfc6b8");                              // the rear spur
+          }
+        }),
+      sp("antler shaman", "robe", GW_BARK, GW_BARK, "#eaffb0", "#8dff5a",
+        { hem: 22, top: 12, rh: 30, hw: 12, hh: 11, eye: 2 },
+        (g, a, ps, f) => {
+          g.taper(a.hx + 1, a.hy - 1, -1, -1, 7, 2, NT_BONE);             // the antlers
+          g.taper(a.hx + a.hw - 2, a.hy - 1, 1, -1, 7, 2, NT_BONE);
+          g.taper(a.hx + 3, a.hy - 3, 0, -1, 4, 1, NT_BONE);
+          g.d(a.cx - (a.hem >> 1) + 2, a.by + a.rh - 8, a.hem - 4, 3, GW_LEAF.d, f); // lichen hem
+          g.r(a.hx + 2, a.hy + a.hh - 2, a.hw - 5, 1, GW_LEAF.m);         // painted jaw stripe
+        }),
+    ],
+  ],
+  [ // ── FEN — the drowned road; soft bodies, patient hunters, marsh light
+    [
+      sp("the drowned", "slug", NT_HUSK, FN_MIRE, "#9fe8ff", "#7affc0",
+        { bl: 24, bh: 6, eye: 1, plain: 1 },
+        (g, a, ps, f) => {
+          // A DEAD MAN, prone, dragging himself down the road at you. The low base is his sodden torso;
+          // everything human about him is drawn here: shoulders, a lolling head, planted forearms, boots
+          // trailing in the wet. (Take one had segment rings and read as a caterpillar. Never again.)
+          const P2 = NT_HUSK;
+          g.rows(a.fx - 3, a.fy - 4, [[1, 8], [0, 10], [0, 10], [1, 9]], P2);      // the shoulders, hunched
+          g.rows(a.fx - 5, a.fy - 9, [[2, 5], [1, 7], [0, 8], [0, 8], [1, 6]], P2); // the head, hanging
+          g.r(a.fx - 4, a.fy - 7, 2, 1, "#050409");                          // sockets full of bog water
+          g.r(a.fx - 1, a.fy - 7, 2, 1, "#050409");
+          g.r(a.fx - 4, a.fy - 7, 1, 1, "#9fe8ff");                          // lit from somewhere below
+          g.r(a.fx - 4, a.fy - 4, 5, 1, P2.o);                               // the slack mouth
+          const rch = ps.hit ? 7 : ps.wind ? -2 : (f & 1);                   // the ARMS do the walking
+          g.tube(a.fx - 2, a.fy - 2, a.fx - 10 - rch, a.fy + 4, 2, dim(P2));
+          g.r(a.fx - 13 - rch, a.fy + 4, 4, 2, P2.d);                        // fingers full of mud
+          g.tube(a.fx + 3, a.fy - 1, a.fx - 4, a.fy + 5, 2, P2);
+          g.r(a.fx - 6, a.fy + 5, 4, 2, P2.m);
+          g.d(a.bx + 6, a.by - 1, a.bl - 12, 2, FN_MIRE.d, f);               // weed across the spine
+          g.r(a.bx + a.bl - 7, a.by + 1, 6, 3, dim(WOOL).m);                 // the legs that quit,
+          g.r(a.bx + a.bl - 2, a.by + 2, 4, 3, dim(WOOL).d);                 // boots trailing behind
+        }),
+
+      sp("grindylow", "grot", FN_MIRE, FN_TOAD, "#9fe8ff", "#7affc0",
+        { bw: 16, bh: 13, leg: 8, hw: 16, hh: 13, eye: 3 },
+        (g, a, ps, f) => {
+          // the bog-strangler that waits under the weed for wrists — bulbous skull, needle teeth,
+          // fingers far too long, and a cold lure to bring you close enough
+          g.d(a.hx + 2, a.hy - 2, a.hw - 5, 3, FN_MIRE.d, f);                // weed lank over the skull
+          const sx3 = a.hx + a.hw - 3;
+          g.seg(sx3, a.hy - 1, sx3 + 3, a.hy - 6 + (f & 1), 1, FN_MIRE.m);   // the lure stalk
+          g.r(sx3 + 3, a.hy - 8 + (f & 1), 2, 2, "#9fe8ff");                 // its cold light
+          g.r(a.hx + 1, a.hy + a.hh - 4, a.hw - 8, 1, "#08131a");            // a lipless slit of a mouth
+          for (let k = 0; k < 3; k++)                                        // needle teeth
+            g.r(a.hx + 2 + k * 2, a.hy + a.hh - 4, 1, 2, "#d8e8e0");
+          for (let k = 0; k < 3; k++) {                                      // the FINGERS, made for wrists
+            const fx2 = a.wx - 2 - k * 2 + (ps.hit ? -4 : 0);
+            g.seg(a.wx, a.wy, fx2, a.wy + 5 + k, 1, a.P.m);
+            g.r(fx2, a.wy + 5 + k, 1, 2, a.P.d);
+          }
+        }),
+    ],
+    [
+      sp("mire lurker", "hulk", FN_MIRE, FN_MIRE, "#9fe8ff", "#7affc0",
+        { sw: 36, hip: 22, bh: 30, leg: 10, lw: 9, hw: 14, hh: 11, eye: 3, aw: 6 },
+        (g, a, ps, f) => {
+          for (let i = 0; i < 5; i++) {                                    // hanging weed
+            const wx2 = a.cx - (a.sw >> 1) + 3 + i * 7;
+            g.r(wx2, a.by + 2 + (i & 1) * 3, 2, 8 + (i % 3) * 3, FN_MIRE.d);
+            g.r(wx2, a.by + 2, 2, 2, FN_MIRE.o);
+          }
+          const dy2 = (f & 3) * 2;                                         // a drip falling off the arm
+          g.r(a.wx + 1, a.wy + 4 + dy2, 1, 2, FN_WISP.m);
+        }),
+      sp("knucker", "quad", FN_SNAP, FN_SNAP, "#ffe27a", "#7affc0",
+        { bl: 38, bh: 13, leg: 6, lw: 4, hw: 20, hh: 10, eye: 2, tail: 18, tw: 4 },
+        (g, a, ps, f) => {
+          // the water-wyrm of the fen pools — a lesser dragon that never grew wings, all jaw and sail
+          const open = ps.jaw * 3;
+          g.rows(a.hx - 10, a.hy + a.hh - 6 - open, [[0, 14], [0, 14]], a.P);       // the long top jaw
+          g.rows(a.hx - 10, a.hy + a.hh - 2 + open, [[0, 13], [1, 11]], dim(a.P));  // bottom jaw
+          for (let i = 0; i < 5; i++) {
+            g.r(a.hx - 9 + i * 3, a.hy + a.hh - 4 - open, 1, 2, "#f0e8d0");
+            g.r(a.hx - 8 + i * 3, a.hy + a.hh - 2 + open, 1, 2, "#f0e8d0");
+          }
+          g.seg(a.hx - 10, a.hy + a.hh + open, a.hx - 14, a.hy + a.hh + 3 + open, 1, a.P.d);   // barbels
+          g.seg(a.hx - 8, a.hy + a.hh - 6 - open, a.hx - 11, a.hy + a.hh - 9 - open, 1, a.P.d);
+          for (let i = 0; i < 3; i++)                                        // the SAIL: fin spines…
+            g.seg(a.bx + 8 + i * 7, a.by - 1, a.bx + 6 + i * 7, a.by - 6 - (i === 1 ? 2 : 0), 1, a.P.d);
+          g.rows(a.bx + 6, a.by - 4, [[0, 15], [2, 11]], dim(a.P));          // …and the web between them
+          g.d(a.bx + 6, a.by + 2, a.bl - 14, 2, a.P.l, f);                   // wet scale sheen
+        }),
+    ],
+    [
+      sp("will-o-wisp", "fly", FN_WISP, FN_WISP, "#ffffff", "#9fe8ff",
+        { bw: 7, bh: 5, alt: 24, eye: 2, plain: 1 },
+        (g, a, ps, f) => {
+          // A CORPSE-LIGHT, not a mascot: cold flame around a hollow, and the small skull the fen
+          // refuses to give back. The chassis blob underneath gave it a face; plain kills the face.
+          const cx3 = a.bx + (a.bw >> 1), top2 = a.by - 10;
+          const lean = [0, 1, 0, -1][f & 3];
+          const FLW = [2, 3, 4, 5, 7, 9, 11, 12, 12, 10];
+          const spans = FLW.map((w, j) =>
+            [cx3 - (w >> 1) + Math.round(lean * (FLW.length - 1 - j) / 4) - (a.bx - 2), w]);
+          g.rows(a.bx - 2, top2, spans, FN_WISP);
+          for (let j = 3; j < FLW.length - 1; j++) {                      // the cold sheath
+            const w2 = Math.max(1, FLW[j] - 5);
+            g.r(cx3 - (w2 >> 1) + Math.round(lean * (FLW.length - 1 - j) / 6), top2 + j, w2, 1,
+                j > 5 ? "#e8fbff" : FN_WISP.l);
+          }
+          g.r(cx3 - 2, top2 + 5, 5, 4, "#08131a");                        // the hollow it burns around
+          g.r(cx3 - 1, top2 + 5, 3, 3, "#d8d8e0");                        // the skull inside it
+          g.r(cx3 - 1, top2 + 6, 1, 1, "#08131a");                        // socket
+          g.r(cx3 + 1, top2 + 6, 1, 1, "#08131a");                        // socket
+          g.r(cx3 - 1, top2 + 8, 3, 1, "#8a8a96");                        // the jaw, unlit
+          g.r(cx3 + 2 + lean, top2 - 3 - (f & 1) * 2, 1, 2, FN_WISP.l);   // an ember tearing off the tip
+          g.r(cx3 - 3 - lean, top2 - 1 - ((f + 1) & 1) * 2, 1, 1, "#e8fbff");
+          if (ps.hit) g.d(cx3 - 14, top2 + 5, 9, 3, "#e8fbff", f);
+        }),
+      sp("bog witch", "robe", FN_HAG, GW_BARK, "#b6ff6a", "#7affc0",
+        { hem: 24, top: 11, rh: 32, hw: 12, hh: 11, eye: 2 },
+        (g, a, ps, f) => {
+          g.rows(a.hx - 3, a.hy - 4, [[2, 15], [5, 8], [6, 5], [7, 3]], FN_HAG);   // the drooping hat
+          g.r(a.hx - 4, a.hy - 1, 18, 2, FN_HAG.o);                        // brim
+          g.taper(a.hx - 4, a.hy + 4, -1, 0, 5, 2, SKIN);                  // the NOSE. it matters.
+          g.r(a.cx + (a.hem >> 1) - 3, a.by + a.rh - 10, 4, 5, FN_WISP.d); // potion at the hip
+          g.r(a.cx + (a.hem >> 1) - 2, a.by + a.rh - 9, 2, 3, FN_WISP.l);
+        }),
+    ],
+  ],
+  [ // ── CRAGS — the cold pass; stone, silk and thunder
+    [
+      sp("gargoyle", "fly", CR_GOL, CR_GOL, "#ff9e2e", "#9a9aff",
+        { bw: 13, bh: 12, alt: 28, eye: 2 },
+        (g, a, ps, f) => {
+          // cathedral stone that got tired of the roof: horned, muzzled, a spade on its tail
+          const up = (f & 1) ? -5 : 2;
+          g.rows(a.bx + a.bw - 2, a.by - 3 + up, [[0, 13], [1, 11], [3, 8], [6, 4]], dim(a.P)); // far wing
+          g.seg(a.bx + a.bw - 1, a.by - 3 + up, a.bx + a.bw + 9, a.by - 6 + up, 1, dim(a.P).l); // its spar
+          g.taper(a.bx + 2, a.by - 4, 0, -1, 4, 2, a.P);                   // horns, forward-curled
+          g.taper(a.bx + 6, a.by - 5, 1, -1, 5, 2, a.P);
+          g.r(a.bx + 1, a.by + 3, 4, 1, a.P.d);                            // the heavy brow
+          g.r(a.bx + 2, a.by + a.bh - 4, 3, 2, a.P.o);                     // the muzzle, pushed out
+          g.r(a.bx + 2, a.by + a.bh - 3, 1, 2, "#e8e8f0");                 // one snag tooth
+          g.rows(a.bx - 9, a.by - 2 + up, [[0, 10], [1, 8], [3, 5]], a.P); // near wing
+          g.taper(a.bx + a.bw - 1, a.by + a.bh - 2, 1, 1, 8, 2, a.P);      // the tail…
+          g.r(a.bx + a.bw + 7, a.by + a.bh + 5, 3, 2, a.P.d);              // …and its spade
+          for (let k = 0; k < 2; k++)                                      // stone claws tucked under
+            g.r(a.bx + 3 + k * 4, a.by + a.bh, 2, 2 + (k & 1), a.P.d);
+        }),
+      sp("dread weaver", "crawl", CR_SPID, CR_SPID, "#d8fbff", "#9a9aff",
+        { bw: 26, bh: 12, leg: 10, eye: 2 },
+        (g, a, ps, f) => {
+          // a spider grown into an omen: the death's-head on its back is why miners walk out
+          g.orb(a.bx + 8, a.by + 2, 2, 2, "#d8fbff", a.P.o, f + 1);        // the extra eyes
+          g.orb(a.bx + 12, a.by + 3, 2, 2, "#d8fbff", a.P.o, f + 2);
+          g.r(a.bx + a.bw - 9, a.by + 3, 5, 4, "#6e7482");                 // the DEATH'S-HEAD marking, faded
+          g.r(a.bx + a.bw - 8, a.by + 4, 1, 1, a.P.o);                     // its sockets
+          g.r(a.bx + a.bw - 6, a.by + 4, 1, 1, a.P.o);
+          g.r(a.bx + a.bw - 8, a.by + 6, 3, 1, a.P.o);
+          g.taper(a.bx + 2, a.by + a.bh - 3, -1, 1, 4, 2, a.P);            // fang chelicerae
+          g.taper(a.bx + 5, a.by + a.bh - 2, -1, 1, 3, 2, a.P);
+          g.r(a.bx + 3, a.by + a.bh - 2, 1, 2, "#e8f4ff");                 // a venom bead
+          if (ps.wind) g.r(a.bx + a.bw + 2, a.by - 6, 1, 6 + a.bh, "#e8f4ff"); // the anchor line
+        }),
+    ],
+    [
+      sp("stone golem", "hulk", CR_GOL, CR_GOL, "#8ae9f6", "#8ae9f6",
+        { sw: 38, hip: 26, bh: 32, leg: 11, lw: 11, hw: 12, hh: 10, eye: 3, aw: 8 },
+        (g, a, ps, f) => {
+          const c = ["#3f707c", "#4f8c9a", "#3f707c", "#356470"][f & 3];    // the core BREATHES light
+          g.r(a.cx - 4, a.by + 6, 6, 8, a.P.o);
+          g.r(a.cx - 3, a.by + 7, 4, 6, c);
+          g.r(a.cx - 2, a.by + 9, 2, 2, "#d8fbff");
+          g.seg(a.cx - (a.sw >> 1) + 4, a.by + 14, a.cx - 3, a.by + 8, 1, c);   // glow seams
+          g.seg(a.cx + 4, a.by + 10, a.cx + (a.sw >> 1) - 6, a.by + 18, 1, c);
+          g.r(a.hx - 2, a.hy - 3, a.hw + 2, 3, a.P.d);                     // brow slab
+        }),
+      sp("pass ogre", "hulk", CR_OGRE, AS_REV, "#ffd23a", "#9a9aff",
+        { sw: 40, hip: 24, bh: 32, leg: 12, lw: 10, hw: 15, hh: 13, eye: 2, aw: 7 },
+        (g, a, ps, f) => {
+          g.seg(a.wx, a.wy - 12, a.wx + 3, a.wy + 5, 7, CR_GOL.o);         // the stone-head club
+          g.seg(a.wx + 1, a.wy - 11, a.wx + 3, a.wy + 4, 5, CR_GOL.m);
+          g.r(a.wx - 1, a.wy - 12, 7, 6, CR_GOL.o);
+          g.r(a.wx, a.wy - 11, 5, 4, CR_GOL.m);
+          g.r(a.cx - 8, a.by + a.bh - 8, 16, 4, AS_REV.d);                 // the belt plate
+          g.r(a.cx - 3, a.by + a.bh - 7, 4, 2, AS_REV.l);
+          g.r(a.hx + 1, a.hy + a.hh - 3, 2, 3, "#e8dcc0");                 // one proud tooth
+        }),
+    ],
+    [
+      sp("geode imp", "grot", CR_GEO, CR_GEO, "#d8fbff", "#af92e2",
+        { bw: 16, bh: 12, leg: 7, hw: 14, hh: 12, eye: 3 },
+        (g, a, ps, f) => {
+          g.taper(a.hx + 3, a.hy - 2, 0, -1, 5, 3, CR_GEO);                // crystal crown
+          g.taper(a.hx + 8, a.hy - 3, 0, -1, 6, 3, CR_GEO);
+          g.taper(a.hx + 12, a.hy - 2, 1, -1, 4, 2, CR_GEO);
+          g.r(a.bx + 3, a.by + 2, 3, 3, CR_GEO.s);                         // shard growths
+          g.r(a.bx + a.bw - 5, a.by + 5, 2, 2, CR_GEO.s);
+          if (ps.hit) { g.r(a.wx - 8, a.wy - 1, 5, 3, CR_GEO.s); g.r(a.wx - 7, a.wy, 3, 1, "#ffffff"); } // thrown shard
+        }),
+      sp("storm caller", "robe", CR_STRM, CR_GOL, "#ffffff", "#d8fbff",
+        { hem: 22, top: 12, rh: 33, hw: 12, hh: 12, eye: 2 },
+        (g, a, ps, f) => {
+          g.rows(a.hx - 1, a.hy - 3, [[1, 13], [0, 15], [2, 12]], CR_STRM);   // storm hood
+          if (ps.hit || ps.wind) {                                         // forked lightning
+            const jx = ps.hit ? a.sx - 3 : a.sx;
+            g.seg(jx, a.sy - 8, jx - 4, a.sy - 3, 1, "#e8f8ff");
+            g.seg(jx - 4, a.sy - 3, jx + 1, a.sy + 1, 1, "#e8f8ff");
+            g.r(jx - 5, a.sy - 4, 2, 2, "#ffffff");
+          }
+          for (let i = 0; i < 4; i++) g.r(a.cx - (a.hem >> 1) + 3 + i * 5, a.by + a.rh - 6, 1, 1, "#d8fbff"); // static
+        }),
+    ],
+  ],
+  [ // ── ASHWAY — the burnt mile; everything glows from inside or has given up glowing
+    [
+      sp("hellhound", "quad", AS_HND, AS_HND, "#ffd75a", "#ff7a1a",
+        { bl: 30, bh: 13, leg: 11, lw: 4, hw: 14, hh: 10, eye: 2, tail: 9, tw: 3 },
+        (g, a, ps, f) => {
+          // one dog is a dog. TWO heads on one neck is a monster — plus a mane that actually burns
+          const c = ["#ff7a1a", "#ffb84a", "#ff7a1a", "#c85a10"][f & 3];    // ember seams pulse
+          const h2x = a.hx + 3, h2y = a.hy - 6;
+          g.rows(h2x, h2y, [[2, 9], [1, 11], [0, 12], [1, 10], [2, 8]], dim(a.P));  // the SECOND head
+          g.r(h2x + 2, h2y + 2, 2, 1, c);                                   // its ember eye
+          g.r(h2x - 1, h2y + 3, 3, 1, "#1c0a10");                           // its jaw ajar
+          g.r(h2x, h2y + 3, 1, 1, "#f4f4f4");
+          g.seg(a.bx + 5, a.by + 3, a.bx + a.bl - 8, a.by + 5, 1, c);
+          g.seg(a.bx + 8, a.by + a.bh - 4, a.bx + a.bl - 12, a.by + a.bh - 3, 1, c);
+          g.r(a.hx + 2, a.hy + a.hh - 4, 3, 1, c);                          // the lit gullet
+          for (let i = 0; i < 4; i++)                                       // the burning mane
+            g.r(a.bx + 3 + i * 2, a.by - 3 - ((i + f) & 1), 1, 2 + ((i + f) & 1), ["#ff7a1a", "#ffb84a"][(i + f) & 1]);
+          g.r(a.bx + a.bl - 4, a.by - 2 - (f & 1), 1, 2, c);                // sparks off the tail
+        }),
+      sp("ash ghoul", "grot", AS_GHL, AS_GHL, "#ff5a24", "#ff7a1a",
+        { bw: 18, bh: 16, leg: 10, hw: 13, hh: 12, eye: 2 },
+        (g, a, ps, f) => {
+          for (let k = 0; k < 4; k++) g.taper(a.wx - 1 + k * 2, a.wy + 2, -1, 1, 5, 1, NT_BONE); // the CLAWS
+          g.r(a.hx + 2, a.hy + 2, a.hw - 6, 1, a.P.d);                      // sunken brow
+          g.r(a.bx + 2, a.by + 3, 1, a.bh - 6, a.P.d);                      // showing ribs
+          g.r(a.bx + 4, a.by + 4, 1, a.bh - 8, a.P.d);
+          g.d(a.bx - 2, a.by - 3, a.bw + 4, 2, AS_GHL.l, f);                // ash falling off it
+        }),
+    ],
+    [
+      sp("magma brute", "hulk", AS_MAG, AS_MAG, "#ffd75a", "#ff7a1a",
+        { sw: 38, hip: 24, bh: 31, leg: 11, lw: 10, hw: 13, hh: 10, eye: 2, aw: 8 },
+        (g, a, ps, f) => {
+          const c = ["#ff9e2e", "#ffd75a", "#ff9e2e", "#e07018"][f & 3];    // lava in the cracks
+          g.seg(a.cx - (a.sw >> 1) + 5, a.by + 5, a.cx - 2, a.by + 12, 1, c);
+          g.seg(a.cx + 2, a.by + 8, a.cx + (a.sw >> 1) - 7, a.by + 16, 1, c);
+          g.seg(a.cx - 6, a.by + 16, a.cx + 3, a.by + 24, 1, c);
+          g.r(a.wx - 1, a.wy - 1, 3, 3, c);                                 // molten fist
+          g.d(a.cx - 6, a.by - 4, 12, 2, AS_GHL.m, f);                      // smoke off the shoulders
+        }),
+      sp("iron revenant", "hulk", AS_REV, AS_REV, "#8ae9f6", "#d8fbff",
+        { sw: 34, hip: 22, bh: 32, leg: 12, lw: 9, hw: 12, hh: 11, eye: 3, aw: 6 },
+        (g, a, ps, f) => {
+          g.seg(a.wx - 2, a.wy - 14, a.wx + 1, a.wy + 6, 3, AS_REV.o);      // the greatsword
+          g.seg(a.wx - 1, a.wy - 13, a.wx + 1, a.wy + 5, 1, AS_REV.l);
+          g.r(a.wx - 4, a.wy - 2, 8, 2, AS_REV.o);                          // crossguard
+          g.r(a.hx + 2, a.hy + 4, a.hw - 6, 2, "#8ae9f6");                  // the empty visor glow
+          g.r(a.hx + 3, a.hy + 4, 1, 1, "#ffffff");
+          g.r(a.cx - 10, a.by + 6, 8, 10, AS_REV.d);                        // dented breastplate
+          g.r(a.cx - 9, a.by + 7, 3, 3, AS_REV.o);
+          // horned pauldrons with MASS — the old 2px spikes read as radio aerials
+          g.rows(a.cx - (a.sw >> 1) - 2, a.by - 4, [[2, 2], [1, 3], [0, 5]], AS_REV);
+          g.rows(a.cx + (a.sw >> 1) - 3, a.by - 4, [[0, 2], [0, 3], [0, 5]], AS_REV);
+        }),
+    ],
+    [
+      sp("fire imp", "fly", AS_IMP, AS_IMP, "#ffd75a", "#ff7a1a",
+        { bw: 14, bh: 13, alt: 20, eye: 2 },
+        (g, a, ps, f) => {
+          const up = (f & 1) ? -4 : 1;
+          g.rows(a.bx + a.bw - 2, a.by - 1 + up, [[0, 10], [2, 7], [4, 4]], AS_IMP);   // scorched wings
+          g.rows(a.bx - 7, a.by + up, [[0, 8], [1, 6], [3, 3]], dim(AS_IMP));
+          g.taper(a.bx + 2, a.by - 2, -1, -1, 4, 2, a.P);                   // horns
+          g.taper(a.bx + a.bw - 3, a.by - 2, 1, -1, 4, 2, a.P);
+          g.taper(a.bx + a.bw + 1, a.by + a.bh - 2, 1, 1, 5, 2, a.P);       // barbed tail
+          if (ps.hit) { g.r(a.bx - 11, a.by + 4, 4, 4, "#ff7a1a"); g.r(a.bx - 10, a.by + 5, 2, 2, "#ffd75a"); } // fireball
+        }),
+      sp("pyromancer", "robe", AS_PYR, AS_MAG, "#ffd75a", "#ff9e2e",
+        { hem: 23, top: 12, rh: 32, hw: 12, hh: 11, eye: 2 },
+        (g, a, ps, f) => {
+          g.rows(a.hx, a.hy - 2, [[2, 10], [0, 14], [1, 12]], AS_PYR);      // the cowl
+          const c = ["#ff9e2e", "#ffd75a"][f & 1];
+          g.r(a.cx - (a.hem >> 1) + 2, a.by + 4, 2, a.rh - 10, c);          // burning trim
+          g.d(a.hx + 2, a.hy - 6, 8, 3, AS_GHL.m, f);                       // smoke off the cowl
+        }),
+    ],
+  ],
+  [ // ── NETHER — the pale road; what walks here forgot how to stop
+    [
+      sp("grave shade", "fly", NT_SHD, NT_SHD, "#d8fbff", "#7f78b2",
+        { bw: 7, bh: 5, alt: 15, eye: 2 },
+        (g, a, ps, f) => {
+          // A WRAITH with a silhouette: hooded dome, a skirt that tears into streamers, one arm of smoke
+          // reaching for the hero. The old dithered rectangle read as "a purple ball" — a bug, not a ghost.
+          const cx3 = a.bx + (a.bw >> 1), top2 = a.by - 8;
+          g.rows(cx3 - 7, top2, [
+            [4, 6], [2, 10], [1, 12], [0, 14], [0, 14], [0, 14], [0, 14],   // the hooded dome
+            [0, 14], [1, 13], [1, 12], [2, 11],
+          ], NT_SHD);
+          g.r(cx3 - 5, top2 + 2, 3, 4, NT_SHD.l);                           // moonlit crown
+          for (let k = 0; k < 4; k++) {                                     // the skirt, torn to streamers
+            const sx2 = cx3 - 6 + k * 4, ln = 5 + ((k + f) % 3) * 2;
+            g.r(sx2 - 1, top2 + 11, 4, 2, NT_SHD.o);
+            g.r(sx2, top2 + 11, 2, ln, NT_SHD.m);
+            g.r(sx2, top2 + 10 + ln, 2, 1, NT_SHD.d);
+          }
+          g.r(cx3 - 4, top2 + 4, 3, 5, "#050409");                          // the hood's void…
+          g.r(cx3 - 3, top2 + 5, 1, 3, "#d8fbff");                          // …and the long eyes in it
+          g.r(cx3 + 1, top2 + 5, 1, 3, "#d8fbff");
+          const rx2 = ps.hit ? cx3 - 16 : cx3 - 11;                         // the reaching arm
+          g.seg(cx3 - 5, top2 + 8, rx2, top2 + 6 + (f & 1), 2, NT_SHD.m);
+          g.taper(rx2, top2 + 5 + (f & 1), -1, 0, 4, 2, NT_SHD);            // fingers of smoke
+          g.d(cx3 + 5, top2 + 3, 4, 8, NT_SHD.d, f);                        // it frays where it ends
+        }),
+      sp("bone scuttler", "crawl", NT_BONE, NT_BONE, "#7f78b2", "#9a9aff",
+        { bw: 24, bh: 11, leg: 9, eye: 2 },
+        (g, a, ps, f) => {
+          g.rows(a.bx - 6, a.by - 2, [[1, 8], [0, 10], [0, 10], [1, 8]], NT_BONE);   // it wears a SKULL
+          g.r(a.bx - 4, a.by, 2, 2, "#0c0a16");                             // socket
+          g.r(a.bx, a.by, 2, 2, "#0c0a16");
+          g.r(a.bx - 4, a.by, 1, 1, "#9a9aff");                             // the light inside it
+          for (let i = 0; i < 3; i++) g.r(a.bx - 5 + i * 3, a.by + 3, 2, 1, NT_BONE.d);  // teeth line
+          for (let i = 0; i < a.bw - 8; i += 4) g.r(a.bx + 4 + i, a.by - 1, 1, 2, NT_BONE.l); // vertebrae
+        }),
+    ],
+    [
+      sp("flesh husk", "hulk", NT_HUSK, NT_HUSK, "#b6ff6a", "#7f78b2",
+        { sw: 32, hip: 22, bh: 30, leg: 11, lw: 9, hw: 13, hh: 12, eye: 2, aw: 6 },
+        (g, a, ps, f) => {
+          g.seg(a.cx - 8, a.by + 4, a.cx - 2, a.by + 12, 1, NT_HUSK.o);     // the stitching
+          g.seg(a.cx + 1, a.by + 14, a.cx + 8, a.by + 20, 1, NT_HUSK.o);
+          for (let k = 0; k < 3; k++) g.r(a.cx - 7 + k * 3, a.by + 5 + k * 3, 1, 1, NT_KNT.m); // staples
+          g.r(a.cx - 12, a.by + 10, 6, 8, tint(NT_HUSK.m, "#6a8a4a", 0.5)); // the wrong-coloured patch
+          g.r(a.hx + a.hw - 3, a.hy + 2, 2, 3, a.P.d);                      // lolling head shadow
+        }),
+      sp("crypt knight", "hulk", NT_KNT, NT_KNT, "#8ae9f6", "#9a9aff",
+        { sw: 32, hip: 21, bh: 32, leg: 12, lw: 8, hw: 12, hh: 11, eye: 3, aw: 5 },
+        (g, a, ps, f) => {
+          g.seg(a.wx - 1, a.wy - 12, a.wx + 1, a.wy + 5, 3, NT_KNT.o);      // ancient blade
+          g.seg(a.wx, a.wy - 11, a.wx + 1, a.wy + 4, 1, NT_KNT.l);
+          g.r(a.wx - 3, a.wy - 3, 7, 2, NT_KNT.o);
+          g.rows(a.cx + 4, a.by + 8, [[1, 8], [0, 10], [0, 10], [0, 10], [1, 8]], dim(NT_KNT)); // the shield
+          g.r(a.cx + 6, a.by + 10, 3, 3, NT_SHD.m);                          // its dead device
+          // SOLID helm wings, swept back — the old 2px tapers read as robot antennae
+          g.rows(a.hx - 4, a.hy - 3, [[3, 3], [1, 5], [0, 6]], NT_KNT);
+          g.rows(a.hx + a.hw - 2, a.hy - 3, [[0, 3], [0, 5], [0, 6]], NT_KNT);
+          g.r(a.hx - 2, a.hy - 3, 2, 1, NT_KNT.l);                           // moonlit wing edge
+          g.r(a.hx + 2, a.hy + 4, a.hw - 6, 2, "#8ae9f6");                   // visor light
+        }),
+    ],
+    [
+      sp("veil eye", "fly", NT_EYE, NT_EYE, "#ffffff", "#b488ba",
+        { bw: 18, bh: 16, alt: 24, eye: 2, plain: 1 },
+        (g, a, ps, f) => {
+          // ONE great lidless eye wrapped in a torn shroud. The veil is the body; the eye is the point.
+          // (The chassis box under the old version made it a television with aerials. Never again.)
+          const ex2 = a.bx + 1, ey2 = a.by + 1;
+          g.rows(ex2 - 3, ey2 - 2, [                                       // the shroud, a ragged cowl
+            [5, 8], [3, 13], [2, 16], [1, 18], [0, 20], [0, 20], [0, 20],
+            [0, 20], [1, 18], [1, 17], [2, 15], [3, 13],
+          ], a.P);
+          for (let k = 0; k < 4; k++) {                                     // streamers tearing off below
+            const sx2 = ex2 - 1 + k * 5, ln = 3 + ((k + f) % 3) * 2;
+            g.r(sx2, ey2 + 9, 2, ln, a.P.m);
+            g.r(sx2, ey2 + 8 + ln, 2, 1, a.P.d);
+          }
+          [[4, 6], [2, 10], [1, 12], [0, 14], [0, 14], [1, 12], [2, 10], [4, 6]]
+            .forEach((s, j) => g.r(ex2 + s[0], ey2 + j, s[1], 1, a.P.o));   // the socket's almond mouth
+          [[3, 8], [2, 10], [1, 12], [1, 12], [2, 10], [3, 8]]
+            .forEach((s, j) => g.r(ex2 + s[0], ey2 + 1 + j, s[1], 1, "#cfc6dc")); // sclera, moon-pale
+          g.seg(ex2 + 2, ey2 + 3, ex2 + 4, ey2 + 4, 1, "#7a3244");          // veins crawling inward
+          g.seg(ex2 + 12, ey2 + 5, ex2 + 10, ey2 + 4, 1, "#7a3244");
+          const dil = ps.wind ? 1 : 0;                                      // it DILATES before the gaze
+          g.r(ex2 + 5 - dil, ey2 + 2 - dil, 4 + dil * 2, 4 + dil * 2, "#3c1440");
+          g.r(ex2 + 6, ey2 + 2, 2, 4, "#0c0616");                           // slit pupil
+          if ((f & 3) === 2 && !ps.wind && !ps.hit)                         // the slow lid, half down
+            g.r(ex2 + 1, ey2, 12, 4, a.P.m);
+          if (ps.hit) g.d(a.bx - 10, ey2 + 5, 8, 2, "#b488ba", f);          // the gaze made visible
+        }),
+      sp("lich", "robe", NT_LICH, NT_KNT, "#8ae9f6", "#8ae9f6",
+        { hem: 24, top: 12, rh: 34, hw: 12, hh: 12, eye: 3 },
+        (g, a, ps, f) => {
+          // the head override: a bare skull under the crown
+          g.rows(a.hx, a.hy, Array.from({ length: a.hh }, (_, j) => {
+            const rr = Math.min(j, a.hh - 1 - j);
+            return [rr === 0 ? 2 : rr === 1 ? 1 : 0, a.hw - (rr === 0 ? 4 : rr === 1 ? 2 : 0)];
+          }), NT_BONE);
+          g.r(a.hx + 2, a.hy + 4, 3, 3, "#0c0a16");                          // sockets…
+          g.r(a.hx + 7, a.hy + 4, 3, 3, "#0c0a16");
+          g.r(a.hx + 3, a.hy + 5, 1, 1, "#8ae9f6");                          // …lit from far inside
+          g.r(a.hx + 8, a.hy + 5, 1, 1, "#8ae9f6");
+          for (let i = 0; i < 3; i++) g.r(a.hx + 3 + i * 2, a.hy + a.hh - 2, 1, 2, NT_BONE.d); // teeth
+          g.taper(a.hx + 1, a.hy - 1, 0, -1, 4, 2, MATERIALS[5]);            // the CROWN
+          g.taper(a.hx + 5, a.hy - 2, 0, -1, 5, 2, MATERIALS[5]);
+          g.taper(a.hx + 9, a.hy - 1, 0, -1, 4, 2, MATERIALS[5]);
+          const ch = (f & 3);                                                // the phylactery, swinging
+          g.seg(a.cx + (a.hem >> 1) - 2, a.by + 8, a.cx + (a.hem >> 1) + 2 - ch, a.by + 16, 1, MATERIALS[5].d);
+          g.r(a.cx + (a.hem >> 1) - ch, a.by + 16, 3, 4, MATERIALS[5].m);
+          g.r(a.cx + (a.hem >> 1) + 1 - ch, a.by + 17, 1, 1, "#8ae9f6");
+        }),
+    ],
+  ],
+];
+
+// ── the realm bosses ─────────────────────────────────────────────────────────────────────
+// One per realm, drawn whole — no chassis. A boss fills the box: the chapter climax must be unmistakable
+// from across the screen, before colour, before label.
+
+function bossTreant(g, ps, f, heat) {
+  const P = GW_BARK, L = GW_LEAF;
+  const dy = ps.dy, lx = ps.lx;
+  // two trunk legs
+  g.r(28 + lx - 1, FY - 26 - 2, 12, 28 - (ps.fall ? 6 : 0), P.o);
+  g.r(28 + lx, FY - 26, 10, 25 - (ps.fall ? 6 : 0), P.m);
+  g.r(28 + lx, FY - 26, 2, 25, P.l);
+  g.r(52 + lx - 1, FY - 24 - 2, 13, 26 - (ps.fall ? 6 : 0), P.o);
+  g.r(52 + lx, FY - 24, 11, 23 - (ps.fall ? 6 : 0), P.m);
+  g.taper(26 + lx, FY - 1, -1, 0, 6, 3, P);                    // root toes
+  g.taper(64 + lx, FY - 1, 1, 0, 5, 3, P);
+  // the trunk body
+  const by = FY - 62 + dy, bx = 30 + lx;
+  g.rows(bx, by, Array.from({ length: 38 }, (_, j) => {
+    const w = 30 - ((j * 6 / 38) | 0) + ((j & 6) === 4 ? 1 : 0);
+    return [((30 - w) >> 1), w];
+  }), P);
+  g.r(bx + 4, by + 3, 5, 30, P.l);
+  g.r(bx + 20, by + 5, 5, 28, P.d);
+  // the FACE grown into the bark
+  g.r(bx + 5, by + 10, 5, 4, "#120c06");
+  g.r(bx + 13, by + 10, 5, 4, "#120c06");
+  g.r(bx + 6, by + 11, 2, 2, heat ? HEAT[heat] : "#eaffb0");
+  g.r(bx + 14, by + 11, 2, 2, heat ? HEAT[heat] : "#eaffb0");
+  g.r(bx + 7, by + 18 + ps.jaw, 8, 2 + ps.jaw, "#120c06");     // a mouth that splits the grain
+  // the crown of foliage — HELD UP BY BOUGHS. It used to hover clear of the trunk like a green
+  // saucer; three branches now grow out of the trunk top and into the canopy's underside.
+  const sw2 = TRAIL[f & 3];
+  g.taper(bx + 5, by + 3, 0, -1, 12, 3, P);
+  g.taper(bx + 15, by + 2, 1, -1, 13, 3, P);
+  g.taper(bx + 23, by + 4, 1, -1, 10, 2, P);
+  g.rows(bx - 8 - sw2, by - 14, [
+    [10, 24], [6, 32], [3, 38], [1, 42], [0, 44], [0, 44], [0, 44], [1, 42], [2, 40],
+    [4, 36], [7, 30], [10, 24], [14, 16], [18, 8],
+  ], L);
+  g.d(bx - 4 - sw2, by - 12, 36, 5, L.l, f);
+  g.d(bx + 2 - sw2, by - 5, 30, 3, L.d, f + 1);
+  // the branch arm: hangs, rises on wind-up, SLAMS on strike
+  const ax = ps.hit ? 12 : ps.wind ? 78 : 20;
+  const ay = ps.hit ? FY - 10 : ps.wind ? by - 10 : by + 26;
+  g.seg(bx + 2, by + 12, ax + 4, ay - 4, 5, P.o);
+  g.seg(bx + 2, by + 12, ax + 4, ay - 4, 3, P.m);
+  g.taper(ax + 4, ay - 6, -1, 1, 8, 4, P);
+  g.taper(ax + 8, ay - 2, -1, 1, 5, 2, P);
+  if (ps.hit) for (let k = 0; k < 4; k++) g.r(ax - 2 + k * 5, FY - 2 - (k & 1) * 2, 2, 2, P.d);  // thrown dirt
+}
+
+function bossHydra(g, ps, f, heat) {
+  const P = FN_SNAP, W = FN_MIRE;
+  const dy = ps.dy, lx = ps.lx;
+  // the pool it never leaves
+  g.d(14, FY - 2, 68, 4, FN_WISP.d, f);
+  // the mound body
+  const bx = 34 + lx, by = FY - 26 + dy;
+  g.rows(bx, by, Array.from({ length: 24 }, (_, j) => {
+    const rr = Math.min(j, 23 - j);
+    const ins = rr === 0 ? 5 : rr === 1 ? 2 : rr === 2 ? 1 : 0;
+    return [ins, 44 - ins * 2];
+  }), P);
+  g.r(bx + 5, by + 2, 20, 3, P.l);
+  g.d(bx + 3, by + 16, 38, 4, W.d, f);
+  // three necks, weaving on their own beats
+  const neck = (rootX, amp, ph, len, hw) => {
+    const sway = ps.hit ? -6 : ps.wind ? 5 : Math.round(Math.sin(0) * 0) + [0, amp, 0, -amp][(f + ph) & 3];
+    const hx = rootX - len + sway + (ps.hit ? -8 : 0);
+    const hy = by - 18 - ((len - 14) >> 1) + (ps.hit ? 10 : ps.fall ? 14 : 0);
+    g.seg(rootX, by + 4, hx + 6, hy + 6, 5, P.o);
+    g.seg(rootX, by + 4, hx + 6, hy + 6, 3, P.m);
+    g.seg(rootX, by + 4, hx + 6, hy + 6, 1, P.l);
+    // the head: a blunt wedge with the snapjaw teeth
+    g.rows(hx, hy, Array.from({ length: 9 }, (_, j) => {
+      const rr = Math.min(j, 8 - j);
+      return [rr === 0 ? 2 : 0, hw - (rr === 0 ? 4 : 0)];
+    }), P);
+    const open = ps.jaw * 2;
+    g.r(hx - 3, hy + 5 + open, hw - 3, 2, P.o);
+    g.r(hx - 2, hy + 4, hw - 5, 2 + open, "#1c0a10");
+    for (let k = 0; k < 3; k++) g.r(hx - 1 + k * 3, hy + 4, 1, 1, "#e8dcc0");
+    g.orb(hx + 3, hy + 2, 2, 2, heat ? HEAT[heat] : "#ffe27a", P.o, f + ph);
+    g.taper(hx + hw - 3, hy - 2, 1, -1, 4, 2, P);              // head frill
+  };
+  neck(bx + 10, 3, 0, 16, 13);
+  neck(bx + 22, 4, 1, 22, 14);
+  neck(bx + 34, 3, 2, 12, 12);
+  // the tail arch
+  g.taper(bx + 42, by + 4, 1, -1, 9, 4, P);
+}
+
+function bossCyclops(g, ps, f, heat) {
+  const P = CR_OGRE, T = CR_GOL;
+  const dy = ps.dy, lx = ps.lx;
+  const cx2 = 50 + lx;
+  // legs
+  const leg = (x, R2) => {
+    g.r(x - 1, FY - 18 - 2, 13, 20 - (ps.fall ? 5 : 0), R2.o);
+    g.r(x, FY - 18 - 2, 11, 19 - (ps.fall ? 5 : 0), R2.m);
+    g.r(x, FY - 18 - 2, 2, 18, R2.l);
+    g.r(x - 4, FY - 2, 16, 3, R2.o);
+    g.r(x - 3, FY - 2, 14, 2, R2.m);
+  };
+  leg(cx2 - 16, dim(P));
+  leg(cx2 + 4, P);
+  // the torso: a boulder of a man
+  const by = FY - 58 + dy;
+  g.rows(cx2 - 24, by, Array.from({ length: 40 }, (_, j) => {
+    const u = j / 39;
+    const w = Math.round(48 - 18 * u);
+    return [Math.round((48 - w) / 2) + Math.round(lx * 0.15 * (1 - u)), w];
+  }), P);
+  g.r(cx2 - 20, by + 2, 16, 4, P.l);
+  g.r(cx2 + 6, by + 6, 12, 26, P.d);
+  g.r(cx2 - 18, by + 34, 30, 3, P.d);
+  g.r(cx2 - 10, by + 20, 20, 6, CR_GOL.d);                     // the rock belt
+  for (let i = 0; i < 3; i++) g.r(cx2 - 8 + i * 7, by + 21, 4, 4, CR_GOL.m);
+  // the head: all EYE
+  const hy = by - 14 + (ps.jaw ? 2 : 0);
+  g.rows(cx2 - 12, hy, Array.from({ length: 16 }, (_, j) => {
+    const rr = Math.min(j, 15 - j);
+    return [rr === 0 ? 3 : rr === 1 ? 1 : 0, 22 - (rr === 0 ? 6 : rr === 1 ? 2 : 0)];
+  }), P);
+  // the EYE: an almond under a heavy brow — the old rectangular white block with a square iris
+  // read as a television set in a stone face
+  g.r(cx2 - 12, hy + 2, 22, 3, P.d);                           // the single brow, always angry
+  [[2, 5], [1, 7], [0, 9], [1, 7], [2, 5]].forEach((s, j) =>
+    g.r(cx2 - 8 + s[0], hy + 5 + j, s[1], 1, j === 0 || j === 4 ? P.o : "#e8dcc2"));
+  g.r(cx2 - 5, hy + 6, 3, 3, heat ? HEAT[heat] : "#3a76c8");   // the iris — depth heats it
+  g.r(cx2 - 4, hy + 6, 1, 3, "#0c0a10");                       // the slit
+  const open = ps.jaw * 2;
+  g.r(cx2 - 8, hy + 13, 12, 1 + open, "#1c0a10");
+  if (open) for (let k = 0; k < 4; k++) g.r(cx2 - 7 + k * 3, hy + 13, 1, 2, "#e8dcc0");
+  // the club arm — JOINTED, like every other heavy in the bestiary
+  const wx = ps.hit ? cx2 - 38 : ps.wind ? cx2 + 30 : cx2 - 30;
+  const wy = ps.hit ? FY - 12 : ps.wind ? by - 14 : by + 26;
+  const ex2 = ps.hit ? cx2 - 28 : ps.wind ? cx2 + 12 : cx2 - 26;
+  const ey2 = ps.hit ? by + 24 : ps.wind ? by - 6 : by + 18;
+  g.tube(cx2 - 20, by + 6, ex2, ey2, 8, P);                    // upper arm, thick
+  g.tube(ex2, ey2, wx + 2, wy, 6, P);                          // forearm past the elbow
+  g.r(ex2 - 2, ey2 - 2, 4, 4, P.d);                            // the elbow pins the joint
+  g.seg(wx + 2, wy - 16, wx + 5, wy + 4, 9, T.o);
+  g.seg(wx + 3, wy - 15, wx + 5, wy + 3, 7, T.m);
+  g.r(wx + 2, wy - 15, 2, 4, T.l);
+  g.tube(cx2 + 16, by + 8, cx2 + 22, by + 22, 6, dim(P));      // off arm, bent at rest
+  g.tube(cx2 + 22, by + 22, cx2 + 19, by + 36, 5, dim(P));
+  g.r(cx2 + 17, by + 35, 6, 5, dim(P).m);                      // its fist
+}
+
+function bossDragon(g, ps, f, heat) {
+  const P = mr("#1a0c10", "#48141c", "#75222a", "#a03a34", "#d06a4a");   // ash-wyrm scale
+  const B = mr("#241408", "#54341c", "#7e522c", "#a87944", "#d4ab6e");   // horn bone
+  const dy = ps.dy, lx = ps.lx;
+  // the body: a long low mass, tail off the right edge
+  const bx = 30 + lx, by = FY - 30 + dy;
+  g.rows(bx, by, Array.from({ length: 26 }, (_, j) => {
+    const rr = Math.min(j, 25 - j);
+    const ins = rr === 0 ? 5 : rr === 1 ? 2 : rr === 2 ? 1 : 0;
+    return [ins, 48 - ins * 2];
+  }), P);
+  g.r(bx + 6, by + 2, 24, 3, P.l);
+  g.r(bx + 4, by + 20, 40, 3, P.d);
+  g.taper(bx + 46, by + 6, 1, 0, 14, 5, P);                    // the tail
+  g.taper(bx + 58, by + 4, 1, -1, 5, 2, B);                    // tail spade
+  // legs
+  g.r(bx + 6, FY - 8, 8, 8, P.o); g.r(bx + 7, FY - 8, 6, 7, P.m);
+  g.r(bx + 34, FY - 8, 8, 8, P.o); g.r(bx + 35, FY - 8, 6, 7, P.m);
+  g.taper(bx + 4, FY - 1, -1, 0, 4, 2, B);                     // fore claws
+  // the WING: one great sail over the back, half-folded, beating slow
+  const wy2 = by - 22 - (f & 1) * 2 + (ps.fall ? 16 : 0);
+  g.seg(bx + 14, by + 2, bx + 34, wy2, 3, P.o);
+  g.seg(bx + 34, wy2, bx + 52, by - 6, 3, P.o);
+  g.rows(bx + 16, wy2 + 2, Array.from({ length: by - wy2 - 4 }, (_, j) => {
+    const u = j / Math.max(1, by - wy2 - 5);
+    return [Math.round(u * 6), Math.round(34 - u * 12)];
+  }), mr(P.o, "#2e0e14", "#531a20", "#7a2a28", "#a04a38"));
+  g.seg(bx + 24, wy2 + 2, bx + 20, by, 1, P.o);                // wing fingers
+  g.seg(bx + 34, wy2 + 1, bx + 32, by - 2, 1, P.o);
+  // the neck and horned head, low and level like a gun
+  const hx = bx - 22 - (ps.hit ? 6 : 0), hy = by - 10 + (ps.hit ? 6 : ps.wind ? -6 : 0);
+  g.seg(bx + 4, by + 6, hx + 14, hy + 6, 6, P.o);
+  g.seg(bx + 4, by + 6, hx + 14, hy + 6, 4, P.m);
+  g.rows(hx, hy, Array.from({ length: 12 }, (_, j) => {
+    const rr = Math.min(j, 11 - j);
+    return [rr === 0 ? 3 : rr === 1 ? 1 : 0, 20 - (rr === 0 ? 6 : rr === 1 ? 2 : 0)];
+  }), P);
+  g.taper(hx + 16, hy - 2, 1, -1, 7, 3, B);                    // swept horns
+  g.taper(hx + 12, hy - 3, 1, -1, 5, 2, B);
+  g.orb(hx + 5, hy + 3, 3, 2, heat ? HEAT[heat] : "#ffd23a", P.o, f);
+  const open = ps.jaw * 2;
+  g.r(hx - 3, hy + 8 + (open >> 1), 14, 2, P.o);               // the long jaw
+  g.r(hx - 2, hy + 7, 12, 1 + open, "#1c0a10");
+  for (let k = 0; k < 4; k++) g.r(hx - 1 + k * 3, hy + 7, 1, 1, "#e8dcc0");
+  if (ps.hit) {                                                 // FIRE. the whole reason it is last.
+    for (let i = 0; i < 16; i += 2) {
+      const t = [3, 5, 2, 6, 4, 7, 3, 5][(i >> 1) % 8];
+      g.r(hx - 6 - i, hy + 6 - (t >> 1), 2, t, i < 6 ? "#ffd75a" : "#ff7a1a");
+      g.r(hx - 6 - i, hy + 6, 1, 1, "#fff3b0");
+    }
+    g.d(hx - 24, hy + 2, 6, 8, "#ff7a1a", f);
+  }
+  for (let i = 0; i < 5; i++) g.taper(bx + 8 + i * 8, by - 1, 0, -1, 3, 2, B);   // back ridge
+}
+
+function bossHerald(g, ps, f, heat) {
+  const P = mr("#0a0812", "#1f1a30", "#37304e", "#544c72", "#7f78a4");   // the robe that ends realms
+  const dy = ps.dy + [0, -2, 0, 1][f & 3], lx = ps.lx;                     // it floats
+  const cx2 = 50 + lx;
+  // the robe: tall, hem never touching the road
+  const by = FY - 66 + dy;
+  g.rows(cx2 - 16, by, Array.from({ length: 56 }, (_, j) => {
+    const u = j / 55;
+    const w = Math.round(14 + 20 * u * u);
+    const frag = j > 44 ? ((j + f) % 4 === 0 ? -3 : 0) : 0;                 // the hem is TORN
+    return [Math.round((34 - w) / 2), w + frag];
+  }), P);
+  g.r(cx2 - 6, by + 4, 3, 40, P.l);
+  g.r(cx2 + 6, by + 8, 4, 36, P.d);
+  for (let i = 0; i < 5; i++) g.r(cx2 - 12 + i * 6, FY - 3 - ((i + f) & 3), 2, 3, P.d);  // drifting shreds
+  // the hood and the skull inside it
+  const hy = by - 12;
+  g.rows(cx2 - 11, hy, Array.from({ length: 16 }, (_, j) => {
+    const rr = Math.min(j, 15 - j);
+    return [rr === 0 ? 3 : rr === 1 ? 1 : 0, 20 - (rr === 0 ? 6 : rr === 1 ? 2 : 0)];
+  }), P);
+  g.r(cx2 - 8, hy + 4, 14, 9, "#050409");                       // the hood's void
+  g.rows(cx2 - 7, hy + 5, [[1, 10], [0, 12], [0, 12], [1, 10], [2, 8]], NT_BONE);
+  g.r(cx2 - 5, hy + 7, 3, 3, "#050409");
+  g.r(cx2 + 1, hy + 7, 3, 3, "#050409");
+  g.r(cx2 - 4, hy + 8, 1, 1, heat ? HEAT[heat] : "#8ae9f6");
+  g.r(cx2 + 2, hy + 8, 1, 1, heat ? HEAT[heat] : "#8ae9f6");
+  // THE SCYTHE: idle planted · wind-up drawn back over the shoulder · strike a full cross-body reap
+  const sx = ps.hit ? cx2 - 40 : ps.wind ? cx2 + 26 : cx2 - 22;
+  const sy = ps.hit ? by + 30 : ps.wind ? by - 18 : by - 14;
+  const ex2 = ps.hit ? cx2 + 16 : ps.wind ? cx2 + 2 : cx2 - 16;
+  const ey = ps.hit ? by - 2 : ps.wind ? by + 10 : FY - 2;
+  g.seg(ex2 - 1, ey - 1, sx - 1, sy - 1, 3, NT_BONE.o);
+  g.seg(ex2, ey, sx, sy, 1, NT_BONE.m);
+  // the blade hangs off the top end, cutting DOWN-LEFT
+  const bdx = ps.hit ? -1 : -1;
+  for (let i = 0; i < 14; i++) {
+    const w = Math.max(1, 4 - (i >> 2));
+    g.r(sx + bdx * i - w, sy + (i >> 1) - (ps.hit ? 4 : 0), w + 2, 2, NT_KNT.o);
+    g.r(sx + bdx * i - w + 1, sy + (i >> 1) - (ps.hit ? 4 : 0), w, 1, "#c8d8e8");
+  }
+  if (ps.hit) g.d(cx2 - 34, by + 8, 26, 3, "#8ae9f6", f);       // the reap line hangs in the air
+  g.tube(cx2 - 8, by + 10, ex2 + 2, ey - 6, 3, P);
+  // the lantern it carries for the souls
+  const ch = f & 3;
+  g.seg(cx2 + 10, by + 12, cx2 + 14 - ch, by + 22, 1, NT_BONE.d);
+  g.r(cx2 + 12 - ch, by + 22, 5, 6, NT_KNT.o);
+  g.r(cx2 + 13 - ch, by + 23, 3, 4, "#8ae9f6");
+  g.r(cx2 + 14 - ch, by + 24, 1, 1, "#ffffff");
+}
+
+const BOSSES = [
+  { name: "elder treant", paint: bossTreant, shadow: 60 },
+  { name: "fen hydra", paint: bossHydra, shadow: 62 },
+  { name: "cyclops of the pass", paint: bossCyclops, shadow: 58 },
+  { name: "ash dragon", paint: bossDragon, shadow: 66 },
+  { name: "the death herald", paint: bossHerald, shadow: 44 },
+];
+
+// ── the mimic ────────────────────────────────────────────────────────────────────────────
+// The one creature that follows the TREASURE, not the realm — its strapping picks up the realm's trim
+// colour so it still belongs to the road it ambushed you on.
+const MIMIC_WOOD = mr("#221306", "#4e2f12", "#75491e", "#9c672f", "#c89250");
+const MIMIC_TRIMS = [GW_MOSS, FN_MIRE, CR_GOL, AS_REV, NT_KNT];
+
+function paintMimic(g, ps, f, heat, biome) {
+  const W2 = MIMIC_WOOD, T = MIMIC_TRIMS[biome] || CR_GOL;
+  const dy = ps.dy, lx = ps.lx;
+  const bx = 32 + lx, by = FY - 22 + dy;
+  const open = ps.hit ? 14 : ps.wind ? 10 : ps.jaw * 2 + (f === 1 ? 1 : 0);
+  // the box
+  g.rows(bx, by, Array.from({ length: 20 }, (_, j) => [j === 0 || j === 19 ? 1 : 0, j === 0 || j === 19 ? 30 : 32]), W2);
+  for (let i = 0; i < 3; i++) g.r(bx + 4 + i * 11, by, 3, 20, T.d);         // the strapping
+  g.r(bx + 4, by, 3, 2, T.l);
+  g.r(bx + 15, by, 3, 2, T.l);
+  g.r(bx + 2, by + 3, 28, 1, W2.l);
+  // the lid, hinged at the right, yawning open to the LEFT
+  const la = Math.min(open, 14);
+  g.rows(bx - (la >> 1), by - 8 - la, Array.from({ length: 8 }, (_, j) => [j === 0 || j === 7 ? 1 : 0, (j === 0 || j === 7 ? 30 : 32) + (la >> 2)]), W2);
+  g.r(bx - (la >> 1) + 4, by - 8 - la, 3, 8, T.d);
+  g.r(bx - (la >> 1) + 15, by - 8 - la, 3, 8, T.d);
+  g.r(bx - (la >> 1) + 2, by - 6 - la, 26, 1, W2.l);
+  // the mouth between lid and box
+  if (open > 2) {
+    g.r(bx - 2, by - open + 2, 32, open - 2, "#1c0a10");
+    for (let k = 0; k < 6; k++) {                                          // TEETH, both rows
+      g.taper(bx + 1 + k * 5, by - open + 2, 0, 1, 4, 3, ramp("#5a4a2a", "#c8b890", "#e8dcc0", "#f8f0d8", "#ffffff"));
+      g.taper(bx + 3 + k * 5, by - 1, 0, -1, 4, 3, ramp("#5a4a2a", "#c8b890", "#e8dcc0", "#f8f0d8", "#ffffff"));
+    }
+    g.seg(bx + 8, by - 2, bx - 6 - (ps.hit ? 6 : 0), by + 6, 3, ramp("#4a0a14", "#8e1020", "#c02034", "#e05a5a", "#ff9a8e").m);  // the tongue
+    g.r(bx - 8 - (ps.hit ? 6 : 0), by + 5, 4, 4, "#c02034");
+  }
+  g.orb(bx + 8, by - open - 4 < by - 8 ? by - 8 - la + 3 : by - 4, 3, 2, heat ? HEAT[heat] : "#ffd23a", W2.o, f);
+  // the bait: coins spilling out of the seam
+  g.r(bx + 24, by + 16, 3, 2, MATERIALS[5].l);
+  g.r(bx + 20, by + 18, 2, 2, MATERIALS[5].m);
+  g.r(bx + 27, by + 18, 2, 2, MATERIALS[5].s);
+  if (!ps.hit && !ps.wind) g.r(bx + 25, by + 17, 1, 1, "#ffffff");
+}
+
+const MIMIC_NAME = "mimic";
 
 // ── death ────────────────────────────────────────────────────────────────────────────────
-// A monster corpse is authored, not the standing pose knocked over: the point of frame 4 is that the road
-// behind you is LITTERED, so it has to read as a heap in one glance. Sized by rank like everything else.
-const CORPSE_D = [ // [family][rank] = [body w, body h] — NATIVE px; the head is laid end-to-end with it
-  [[24, 12], [30, 14], [40, 20]],
-  [[36, 16], [42, 18], [52, 24]],
-  [[28, 12], [34, 14], [44, 20]],
-];
-function drawCorpse(p, fam, R, C, level, frame) {
-  const [w, h] = CORPSE_D[fam][R];                     // native heap size
-  const FY = MON_FOOT_Y * HR + 1;
-  const hw = Math.max(12, (w >> 2) + 8);               // the head, big enough to read on its own
-  const left = MON_CX * HR - ((hw + w) >> 1) - 2;      // head + body laid end to end, centred
-  const x = left + hw + 2, y = FY - h;                 // x = where the body starts
-  // the heap: a slumped mass, high at the shoulders, pressed wide and flat at the ground
-  blob(p, x, y, Array.from({ length: h }, (_, j) => {
-    const t = j / (h - 1);
-    const wj = Math.round(w * (0.5 + 0.5 * t));
-    return [Math.round((w - wj) * 0.3), wj];
-  }), C.hide);
-  p.fine(x + 3, y + 1, (w >> 1), 2, C.hide.light);     // rim light along the top of the heap
-  p.fine(x + (w >> 2), y + h - 3, (w >> 1), 2, C.hide.shade); // dead weight pressed into the road
-  for (let i = 0; i < ((w / 12) | 0); i++)             // slump creases: the mass SETTLED and folded —
-    p.fine(x + 6 + i * 10, y + 2, 2, h - 5, C.hide.shade); // it did not just tip over rigid
-  limbF(p, x + 4, y + 3, left - 2, FY - 3, 4, dk(C.hide));      // the arm it died reaching with…
-  p.fine(left - 4, FY - 5, 5, 4, C.hide.shade);                 // …and the open hand on the end of it
-  limbF(p, x + w - 6, y + 4, x + w + 5, FY - 8, 4, dk(C.hide)); // a leg folded out the back
-  // the head, tipped over CLEAR of the mass with its own outline — touching, it is just more body
-  const hy = FY - hw + 2;
-  blob(p, left, hy, Array.from({ length: hw - 2 }, (_, j) => {
-    const r = Math.min(j, hw - 3 - j);
-    const ins = r === 0 ? 3 : r === 1 ? 2 : r === 2 ? 1 : 0;
-    return [ins, hw - ins * 2];
-  }), C.hide);
-  p.fine(left + 2, hy + 1, hw - 6, 2, C.hide.light);
-  const ex = left + (hw >> 1) - 3, ey = hy + (hw >> 1) - 4;     // a true ✕ over the near eye, native-sized
-  for (let i = 0; i < 5; i++) {
-    p.fine(ex + i, ey + i, 2, 2, C.hide.line);
-    p.fine(ex + 4 - i, ey + i, 2, 2, C.hide.line);
+// A corpse is AUTHORED per chassis, not the standing pose tipped over: the road behind the wayfarer is
+// supposed to read as littered at a glance. Every heap keeps one species signature (the wolf's ears, the
+// croc's jaw, the robe's dropped staff) through the spec's own palette; the chill map does the rest.
+
+function heap(g, S, w, h, cx2 = MCX) {
+  const P = S.P;
+  const x = cx2 - (w >> 1), y = FY - h + 1;
+  g.rows(x, y, Array.from({ length: h }, (_, j) => {
+    const u = j / Math.max(1, h - 1);
+    const ww = Math.round(w * (0.55 + 0.45 * u));
+    return [Math.round((w - ww) * 0.35), ww];
+  }), P);
+  g.r(x + 4, y + 1, (w >> 1) - 2, 2, P.l);
+  g.r(x + (w >> 2), y + h - 3, (w >> 1), 2, P.d);
+  for (let i = 0; i < (w / 14 | 0); i++) g.r(x + 8 + i * 12, y + 2, 2, h - 5, P.d);   // settle creases
+  return { x, y, w, h };
+}
+
+function corpseOf(g, spec, plan, f) {
+  const S = spec, P = S.P;
+  switch (plan) {
+    case "quad": {
+      const a = heap(g, S, S.d.bl + 6, S.d.bh - 2);
+      g.tube(a.x + 4, a.y + 3, a.x - 6, FY - 1, 3, dim(P));                 // a foreleg reaching
+      g.taper(a.x + a.w - 2, a.y + 2, 1, 0, S.d.tail - 2, S.d.tw, P);       // the tail, flat and still
+      // the head, cheek to the road
+      g.rows(a.x - S.d.hw + 2, FY - (S.d.hh - 2), Array.from({ length: S.d.hh - 2 }, (_, j) =>
+        [Math.min(j, S.d.hh - 3 - j) === 0 ? 2 : 0, S.d.hw - (Math.min(j, S.d.hh - 3 - j) === 0 ? 4 : 0)]), P);
+      g.r(a.x - S.d.hw + 6, FY - (S.d.hh >> 1) - 1, 3, 1, P.o);             // the shut eye — one line
+      break;
+    }
+    case "grot": {
+      const a = heap(g, S, S.d.bw + 8, S.d.bh - 3);
+      g.rows(a.x - S.d.hw + 4, FY - S.d.hh + 3, Array.from({ length: S.d.hh - 3 }, (_, j) =>
+        [Math.min(j, S.d.hh - 4 - j) === 0 ? 2 : 0, S.d.hw - (Math.min(j, S.d.hh - 4 - j) === 0 ? 4 : 0)]), P);
+      g.r(a.x - S.d.hw + 8, FY - (S.d.hh >> 1), 4, 1, P.o);
+      g.tube(a.x + 3, a.y + 2, a.x - 4, FY - 1, 2, dim(P));                 // the little arm, palm up
+      g.r(a.x - 6, FY - 2, 3, 2, P.d);
+      break;
+    }
+    case "hulk": {
+      const a = heap(g, S, S.d.sw + 4, 16);
+      g.tube(a.x + 6, a.y + 4, a.x - 8, FY - 2, S.d.aw - 2, dim(P));        // the weapon arm, spent
+      g.rows(a.x - S.d.hw, FY - S.d.hh + 4, Array.from({ length: S.d.hh - 4 }, (_, j) =>
+        [0, S.d.hw - (j === 0 ? 3 : 0)]), P);
+      break;
+    }
+    case "fly": {                                                            // grounded at last
+      const a = heap(g, S, S.d.bw + 10, Math.max(8, S.d.bh - 2));
+      g.rows(a.x + a.w - 6, a.y - 4, [[0, 9], [2, 8], [4, 6]], dim(P));      // one wing, tented over it
+      g.d(a.x - 3, a.y - 3, a.w + 6, 3, P.l, f);                             // the light guttering out
+      g.r(a.x + 3, a.y + 2, 2, 1, P.o);                                      // the eye, a shut line
+      break;
+    }
+    case "robe": {                                                           // an EMPTY robe
+      const a = heap(g, S, S.d.hem + 8, 9);
+      g.seg(a.x - 10, FY - 3, a.x + 10, FY - 5, 1, S.T.m);                   // the dropped staff…
+      g.r(a.x - 12, FY - 6, 3, 3, S.T.o);
+      g.d(a.x - 11, FY - 5, 2, 2, S.glow, f);                                // …its orb going dark
+      break;
+    }
+    case "crawl": {                                                          // on its back, knees curled
+      const a = heap(g, S, S.d.bw, S.d.bh - 2);
+      for (let k = 0; k < 3; k++) {
+        g.seg(a.x + 5 + k * 7, a.y, a.x + 8 + k * 7, a.y - 5, 1, P.m);
+        g.seg(a.x + 8 + k * 7, a.y - 5, a.x + 6 + k * 7, a.y - 8, 1, P.m);   // curled tips
+      }
+      break;
+    }
+    case "slug": {
+      heap(g, S, S.d.bl + 4, Math.max(5, S.d.bh - 4));                        // deflated
+      break;
+    }
   }
-  p.fine(left + 2, FY - 6, hw - 6, 2, "#f2e6c8");               // teeth, lolling open…
-  for (let k = 0; k < hw - 8; k += 3) p.fine(left + 3 + k, FY - 5, 1, 1, C.hide.shade); // …one by one
-  p.fine(left + 3, FY - 4, 4, 2, GORE.base);                    // the tongue is out over the jaw
-  if (fam === 0) { hornF(p, left + 2, hy + 2, -1, -1, 9, C.hide, 4); hornF(p, left + hw - 4, hy, 1, -1, 7, C.hide, 4); } // ears
-  if (fam === 1) { hornF(p, left + 1, hy + 3, 0, -1, 8, C.trim, 4); hornF(p, left + hw - 3, hy + 3, 0, -1, 8, C.trim, 4); } // tusks
-  if (fam === 2) { // the cannon's staff, fallen across the heap, the orb guttering out
-    p.fine(x - 4, FY - 10, w + 6, 2, C.trim.base);
-    p.fine(x - 4, FY - 10, w + 6, 1, C.trim.light);
-    p.fine(x - 8, FY - 12, 5, 5, "#0b0a12");
-    p.fine(x - 7, FY - 11, 3, 3, C.glow);
+  if (S.dead) S.dead(g, f);
+}
+
+function corpseBoss(g, biome, f, heat) {
+  // a boss dies BIG: the same heap language, realm-sized, with the one prop that names it
+  const B = BOSSES[biome];
+  switch (biome) {
+    case 0: {                                                                // the fallen trunk
+      const a = heap(g, { P: GW_BARK }, 62, 16);
+      g.d(a.x + 6, a.y - 6, 30, 6, GW_LEAF.d, f);                            // dead crown
+      g.r(a.x + 10, a.y + 3, 5, 4, "#120c06");                               // the face, gone dark
+      g.r(a.x + 20, a.y + 3, 5, 4, "#120c06");
+      break;
+    }
+    case 1: {
+      const a = heap(g, { P: FN_SNAP }, 58, 12);
+      for (let k = 0; k < 3; k++) {                                          // three heads, flat
+        g.rows(a.x - 10 + k * 4, FY - 7 - k * 5, [[0, 12], [1, 10]], FN_SNAP);
+        g.r(a.x - 7 + k * 4, FY - 6 - k * 5, 3, 1, FN_SNAP.o);
+      }
+      g.d(a.x + 4, FY - 2, 50, 3, FN_WISP.d, f);
+      break;
+    }
+    case 2: {
+      const a = heap(g, { P: CR_OGRE }, 56, 18);
+      g.orb(a.x + 14, a.y + 4, 8, 6, "#f4ead6", CR_OGRE.o, 0);
+      g.r(a.x + 17, a.y + 6, 3, 3, "#2a2a34");                               // the eye, emptied
+      g.seg(a.x + 40, a.y - 4, a.x + 52, FY - 2, 6, CR_GOL.o);               // the club across it
+      g.seg(a.x + 41, a.y - 3, a.x + 51, FY - 3, 4, CR_GOL.m);
+      break;
+    }
+    case 3: {
+      const a = heap(g, { P: ramp("#1a0c10", "#48141c", "#75222a", "#a03a34", "#d06a4a") }, 64, 14);
+      // the wing, a fallen tent over the body
+      g.rows(a.x + 10, a.y - 12, Array.from({ length: 12 }, (_, j) => [j, Math.max(4, 40 - j * 2)]),
+             ramp("#1a0c10", "#2e0e14", "#531a20", "#7a2a28", "#a04a38"));
+      g.taper(a.x - 8, FY - 4, -1, 0, 8, 3, ramp("#241408", "#54341c", "#7e522c", "#a87944", "#d4ab6e"));  // the jaw line
+      g.d(a.x + 6, a.y + 2, 12, 3, "#ff7a1a", f);                            // embers dying in it
+      break;
+    }
+    case 4: {
+      const a = heap(g, { P: ramp("#0a0812", "#1f1a30", "#37304e", "#544c72", "#7f78a4") }, 44, 8);
+      g.rows(a.x + 8, FY - 9, [[1, 10], [0, 12], [0, 12], [1, 10], [2, 8]], NT_BONE);   // the skull remains
+      g.r(a.x + 11, FY - 7, 2, 2, "#050409");
+      g.r(a.x + 15, FY - 7, 2, 2, "#050409");
+      g.seg(a.x - 8, FY - 12, a.x + 30, FY - 2, 1, NT_BONE.m);               // the scythe across the road
+      for (let i = 0; i < 10; i++) g.r(a.x - 10 - (i >> 1), FY - 12 + (i >> 1), 3, 2, NT_KNT.o);
+      break;
+    }
   }
-  drawBloodInto(p, "pool", { frame: 3 + (frame & 1), amount: 3 + R * 4, seed: fam * 7 + R, cy: MON_GROUND_Y });
-  drawBloodInto(p, "splatter", { amount: 2 + R * 3, seed: fam * 13 + R });
+}
+
+function corpseMimic(g, biome, f) {
+  const W2 = MIMIC_WOOD, T = MIMIC_TRIMS[biome] || CR_GOL;
+  const bx = 32, by = FY - 12;
+  g.rows(bx, by, Array.from({ length: 12 }, (_, j) => [0, 32]), W2);          // the box, burst
+  g.r(bx + 4, by, 3, 12, T.d);
+  g.r(bx + 15, by, 3, 12, T.d);
+  g.rows(bx - 14, FY - 6, [[0, 14], [1, 12], [2, 9]], W2);                    // the lid, blown clear
+  for (let k = 0; k < 4; k++) g.r(bx + 2 + k * 7, by - 2, 2, 3, "#e8dcc0");   // teeth in the wreck
+  for (let k = 0; k < 6; k++)                                                 // the hoard, finally honest
+    g.r(bx + 6 + ((k * 7) % 24), by - 4 - (k % 3) * 2, 2, 2, k & 1 ? MATERIALS[5].m : MATERIALS[5].l);
+  g.r(bx + 12, by - 6, 1, 1, "#ffffff");
+}
+
+// ── the public monster draw ──────────────────────────────────────────────────────────────
+export const SPECIES_NAMES = SPECIES.map((b) => b.map((fam2) => fam2.map((s) => s.name)));
+export const BOSS_NAMES = BOSSES.map((b) => b.name);
+/** every creature in the game, flat — 36 names, for tests and bestiaries */
+export const ALL_MONSTERS = [].concat(...SPECIES.map((b) => [].concat(...b.map((fam2) => fam2.map((s) => s.name)))),
+                                      BOSS_NAMES, [MIMIC_NAME]);
+
+/** Which species (family, rank, biome) resolves to — the renderer's one lookup, exported for tests. */
+export function speciesOf(biome, family, rank) {
+  const b = Math.max(0, Math.min(BIOMES - 1, biome | 0));
+  if (rank >= 2) return { boss: true, biome: b, name: BOSSES[b].name };
+  const s = SPECIES[b][Math.max(0, Math.min(2, family | 0))][rank ? 1 : 0];
+  return { boss: false, biome: b, name: s.name };
 }
 
 /**
- * Draw one monster frame with its TOP-LEFT CORNER at (x, y) — NOT its feet, and NOT its centre. Same
- * convention as drawWarrior, and it is called out here because the caller passing ground coordinates
- * straight in is exactly how these sprites once rendered off-canvas. The feet land on row MON_FOOT_Y of an
- * MON_W × MON_H box, so ground → corner is `y - MON_GROUND_Y * scale` (or just `y - MON_H * scale` for the
- * bottom edge, as the world renderer does).
- *
- * opts = {
- *   family: 0 grunt | 1 brute | 2 cannon   — owns the silhouette
- *   rank:   0 normal | 1 elite | 2 boss    — owns the size and the ornament
- *   level:  int, depth-scaled              — owns the palette band and a few spines/runes only
- *   frame:  0,1,2 idle · 3 attack · 4 death (MON_ATTACK_FRAME / MON_DEATH_FRAME)
- *   scale:  int ≥ 1
- *   facing: -1 (default) faces LEFT, into the hero walking in from the left; +1 mirrors it
- *   hurt:   flash the whole sprite toward red
- *   dead:   force the death pose and the corpse colour map, whatever `frame` says
- * }
- * Same inputs → same pixels: no clocks and no randomness anywhere in here.
- * Returns { w, h } in device pixels, like drawWarrior.
+ * Draw one creature frame, TOP-LEFT corner at (x, y), in the shared 96×96 world box: feet on row 89,
+ * shadow on 91. opts = {
+ *   family 0..2 · rank 0|1|2 · level (warms the eyes) · biome 0..4 (the chain rolled it) ·
+ *   mimic: true — the treasure-that-bites overrides the species lookup ·
+ *   frame 0-6 (3 idle · wind-up · strike · crumple · heap) · scale · facing (-1 default, faces the hero) ·
+ *   hurt · dead (forces the heap)
+ * }. Same opts, same pixels.
  */
 export function drawMonster(ctx, x, y, opts = {}) {
-  DETAIL = opts.detail === 2 ? 2 : 1;
-  const fam = Math.max(0, Math.min(2, opts.family | 0));
-  const R = Math.max(0, Math.min(2, opts.rank | 0));
+  const fam2 = Math.max(0, Math.min(2, opts.family | 0));
+  const rank = Math.max(0, Math.min(2, opts.rank | 0));
+  const biome = Math.max(0, Math.min(BIOMES - 1, opts.biome | 0));
   const level = Math.max(0, opts.level | 0);
   const scale = Math.max(1, opts.scale | 0 || 1);
-  const facing = opts.facing === 1 ? 1 : -1;   // −1 is the DEFAULT here (monsters face the oncoming hero)
-  let frame = Math.max(0, Math.min(MON_FRAMES - 1, opts.frame | 0));
-  const dead = !!opts.dead || frame === MON_DEATH_FRAME;
-  const C = MON_PALS[fam][bandOf(level)];
-  const recolor = dead ? (c) => mix(c, "#2b2430", 0.45)
-    : opts.hurt ? (c) => mix(c, "#ff5a5a", 0.55)
-    : null;
+  const facing = opts.facing === 1 ? 1 : -1;
+  let f = Math.max(0, Math.min(MON_FRAMES - 1, opts.frame | 0));
+  const dead = !!opts.dead || f === MON_DEATH_FRAME;
+  const crumple = f === MON_CRUMPLE_FRAME && !dead;
+  const heat = heatOf(level);
+  const map = dead ? CHILL : crumple ? ((c) => tint(c, "#ff5a5a", 0.25)) : opts.hurt ? WOUND : null;
   ctx.imageSmoothingEnabled = false;
-  // facing +1 is the MIRROR (the art is authored left-facing), so the pen is handed the inverse
-  const p = pen(ctx, x, y, scale, facing === 1 ? -1 : 1, false, recolor, MON_W, MON_H);
-
-  // contact shadow, dithered like the warrior's; wider for a boss, wider still for a heap
-  const sw = (dead ? 25 + R * 7 : [15, 19, 28][R] + (fam === 1 ? 8 : 0)) * HR;
-  for (let i = 0; i < sw; i += 2)
-    p.fraw(MON_CX * HR - (sw >> 1) + i, MON_GROUND_Y * HR + ((i & 2) ? 1 : 0), 1, 1, "#1a1420");
-
-  if (dead) drawCorpse(p, fam, R, C, level, opts.frame | 0);
-  else {
-    const ps = MON_POSES[Math.min(frame, MON_POSES.length - 1)];
-    if (fam === 0) drawGrunt(p, R, C, ps, level);
-    else if (fam === 1) drawBrute(p, R, C, ps, level);
-    else drawCannon(p, R, C, ps, level, frame);
+  const g = stylus(ctx, x, y, scale, facing === 1, MW, MH, map, null);
+  const S = opts.mimic ? null : rank === 2 ? null : SPECIES[biome][fam2][rank];
+  const shadowW = opts.mimic ? 38 : rank === 2 ? BOSSES[biome].shadow
+    : S.plan === "fly" ? 16 : S.plan === "hulk" ? 42 : S.plan === "robe" ? 26 : 34;
+  monShadow(g, shadowW, dead);
+  if (dead) {
+    // the road remembers: every corpse lies IN its own blood, splatter thrown past it
+    bloodInto(g, "pool", 5, 91 + fam2 * 3 + biome, 8 + rank * 5, MCX - 2);
+    if (opts.mimic) corpseMimic(g, biome, opts.frame | 0);
+    else if (rank === 2) corpseBoss(g, biome, opts.frame | 0, heat);
+    else corpseOf(g, S, S.plan, opts.frame | 0);
+    bloodInto(g, "splatter", 0, 92 + fam2 + biome, 5 + rank * 3, MCX - 12);
+    return { w: MW * scale, h: MH * scale };
   }
-  return { w: MON_W_N * scale, h: MON_H_N * scale };
+  const ps = M_POSES[Math.min(f, 5)];
+  if (opts.mimic) paintMimic(g, ps, f, heat, biome);
+  else if (rank === 2) BOSSES[biome].paint(g, ps, f, heat);
+  else if (crumple) {
+    // frame 5 is the FALL — an authored collapse per chassis, never the standing pose tinted red
+    const S2 = heat ? { ...S, eye: HEAT[heat] } : S;
+    FALLS[S.plan](g, S2, S.d, f);
+  } else {
+    const S2 = heat ? { ...S, eye: HEAT[heat] } : S;
+    const a = PLANS[S.plan](g, S2, S.d, ps, f);
+    a.P = S.P; a.T = S.T;
+    if (S.dt) S.dt(g, { ...a, ...S.d }, ps, f, heat);
+    if (heat >= 3 && !ps.fall) {                              // the deepest roads: a menace wisp
+      g.r(MCX - 2, (a.hy ?? a.by ?? 40) - 8 - (f & 1), 1, 2, HEAT[3]);
+      g.r(MCX + 2, (a.hy ?? a.by ?? 40) - 10 + (f & 1), 1, 2, HEAT[2]);
+    }
+  }
+  if (crumple) {
+    // the wound announces itself: an arterial burst as it goes down, and the first blood on the road
+    bloodInto(g, "spurt", 3, 78 + fam2 + biome * 3, 7 + rank * 3, MCX - 6, FY - 20);
+    bloodInto(g, "hit", 2, 77 + fam2 * 5 + biome, 8 + rank * 3, MCX - 8, FY - 16);
+    bloodInto(g, "pool", 1, 79 + fam2, 5, MCX - 4);
+  }
+  return { w: MW * scale, h: MH * scale };
 }
 
-/** The whole monster strip in one call — 3 idle, attack, death — for a bestiary widget or an offscreen bake. */
+/** The full seven-frame strip for one creature — bestiary reels, offline bakes, the art test. */
 export function drawMonsterSheet(ctx, x, y, opts = {}) {
   const scale = Math.max(1, opts.scale | 0 || 1);
-  for (let f = 0; f < MON_FRAMES; f++) drawMonster(ctx, x + f * MON_W_N * scale, y, { ...opts, frame: f, scale });
-  return { w: MON_FRAMES * MON_W_N * scale, h: MON_H_N * scale, cells: MON_FRAMES };
+  for (let f = 0; f < MON_FRAMES; f++)
+    drawMonster(ctx, x + f * MW * scale, y, { ...opts, frame: f, scale });
+  return { w: MON_FRAMES * MW * scale, h: MH * scale, cells: MON_FRAMES };
 }
 
 // ══ PROPS ════════════════════════════════════════════════════════════════════════════════
-// The non-combat tiles. Same pixel style, same frame box as the monsters (so the world renderer converts
-// ground → corner once), but authored small and centred: a chest must not compete with a boss.
-const WOOD  = { base: "#8a5a32", shade: "#5a381d", light: "#b5844f", line: "#2a1a0c" };
-const STONE = { base: "#8d8d96", shade: "#5d5d66", light: "#c0c0c8", line: "#2b2b32" };
-const IRON  = MATERIALS[1];
-const GOLD  = MATERIALS[5];
-const GEM   = { base: "#7d5ae0", shade: "#4a2f9a", light: "#c4b0ff", line: "#1d1240" };
-const FIRE  = { base: "#ff7a18", shade: "#c23a06", light: "#ffd24a", line: "#5a1a02" };
-const WATER = { base: "#3f8fd0", shade: "#245e94", light: "#9fdcff", line: "#123049" };
-const GALE  = { base: "#5c6c80", shade: "#3a4452", light: "#8fa5bb", line: "#1a202a" };
+// The seventeen non-combat tiles (and the fork makes eighteen kinds) as standing set-pieces in the same
+// 96-box. Authored deliberately smaller than the creatures — a chest must never compete with a boss —
+// and every one of them MOVES on a four-count: still props read as painted-on, and this road is alive.
 
-function propHazard(p, f) { // a spiked, burning pit — the tile that chips you if you do not dodge
-  const gy = MON_FOOT_Y;
-  p.px(MON_CX - 9, gy, 18, 1, "#20161a");                       // scorched ground
-  p.dither(MON_CX - 11, gy - 1, 22, 2, "#3a2418", f & 1);
-  for (let i = 0; i < 4; i++) {                                  // spikes, alternating heights
-    const sx = MON_CX - 8 + i * 5, sh = 5 + (i & 1) * 3;
-    horn(p, sx, gy - 1, 0, -1, sh, IRON);
-    p.px(sx, gy - 2, 1, 1, IRON.shade);                          // soot climbing the root of each spike
-  }
-  for (let i = 0; i < 18; i++) {                                 // flame tongues off the coal bed
-    const t = FLAME[(i + f * 3) % FLAME.length] + 2;
-    p.px(MON_CX - 9 + i, gy - 1 - t, 1, t, FIRE.shade);
-    p.px(MON_CX - 9 + i, gy - 1 - t, 1, (t >> 1) + 1, FIRE.base);
-    p.px(MON_CX - 9 + i, gy - 1 - t, 1, 1, FIRE.light);
-  }
-  p.px(MON_CX - 8, gy - 1, 16, 1, FIRE.shade);                   // embers under it all
-  for (let i = 0; i < 16; i += 4)                                // hot coals crawling along the ember row —
-    p.px(MON_CX - 8 + i + f, gy - 1, 1, 1, FIRE.light);          // the pit breathes even between flame frames
-  p.px(MON_CX + 9, gy - 2, 3, 2, "#d8cfb4");                     // a half-buried skull at the rim:
-  p.px(MON_CX + 10, gy - 1, 1, 1, "#1a1510");                    // somebody did not dodge
-}
+const P_STONE = ramp("#16181e", "#3c4148", "#5f666e", "#868e98", "#b4bec8");
+const P_WOOD  = ramp("#1c1006", "#43280f", "#66401a", "#8c5c28", "#b8863e");
+const P_EMBER = ["#ff7a1a", "#ffd75a", "#ff9e2e", "#c85a10"];
+const P_WATER = ramp("#0a1c2a", "#144058", "#20648a", "#3e94c0", "#7fd0ee");
+const P_GOLDp = MATERIALS[5];
 
-function propCache(p, f) { // a chest, lid ajar, with a pulse of gold coming out of the gap
-  const gy = MON_FOOT_Y, w = 16, h = 9, x = MON_CX - (w >> 1), y = gy - h;
-  const lift = 1 + (f % 3 === 2 ? 1 : 0);                         // the lid breathes: it is not empty
-  p.px(x - 1, y - 1, w + 2, h + 2, WOOD.line);
-  p.px(x, y, w, h, WOOD.base);
-  p.px(x, y, w, 1, WOOD.light);
-  p.px(x + 5, y, 1, h, WOOD.shade);                               // two plank seams, not five: at 16 px a
-  p.px(x + 11, y, 1, h, WOOD.shade);                              // striped box stops being a chest
-  p.px(x + 2, y, 2, h, IRON.base);                                // iron bands
-  p.px(x + 2, y, 2, 1, IRON.light);
-  p.px(x + w - 4, y, 2, h, IRON.base);
-  p.px(x + w - 4, y, 2, 1, IRON.light);
-  p.px(x + 4, y + 3, 1, 2, WOOD.shade);                           // short grain ticks between the seams,
-  p.px(x + 10, y + 5, 1, 2, WOOD.shade);                          // staggered — so the planks read as wood
-  p.px(x + 14, y + 2, 1, 2, WOOD.shade);                          // and not as a striped box
-  p.px(x + 2, y + h - 2, 2, 1, IRON.shade);                       // the bands sit proud of the wood: they
-  p.px(x + w - 4, y + h - 2, 2, 1, IRON.shade);                   // darken where they wrap under the belly
-  p.px(x + ((w >> 1) - 1), y + 2, 3, 4, GOLD.base);               // lock plate, front and centre
-  p.px(x + ((w >> 1) - 1), y + 2, 3, 1, GOLD.light);
-  p.px(x + (w >> 1), y + 3, 1, 2, GOLD.line);                     // keyhole
-  if (f === 2) p.px(x + (w >> 1) - 1, y + 2, 1, 1, "#ffffff");    // the lock glints exactly when the lid
-                                                                  // breathes: one beat, two tells
-  p.dither(x + 1, y - 1 - lift, w - 2, 1 + lift, GOLD.light, f & 1); // the glow escaping the seam
-  p.px(x - 1, y - 4 - lift, w + 2, 4, WOOD.line);                 // the lid, tipped back off the seam
-  p.px(x, y - 3 - lift, w, 3, WOOD.base);
-  p.px(x, y - 3 - lift, w, 1, WOOD.light);
-  p.px(x + 2, y - 3 - lift, 2, 3, IRON.base);
-  p.px(x + w - 4, y - 3 - lift, 2, 3, IRON.base);
-  if (d2()) { p.px(x + 6, y - 2 - lift, 1, 1, IRON.light); p.px(x + 10, y - 2 - lift, 1, 1, IRON.light); } // lid nails
-  for (let i = 0; i < 5; i++) p.px(x + 3 + i * 3, y - 6 - lift - ((f + i) % 3), 1, 1, GOLD.light); // motes
-}
-
-function propShrine(p, f) { // a fountain: wide steps, a narrow pillar, a bowl of water on top of it.
-  // Base → pillar → bowl is the whole trick: a stack of same-width slabs reads as a bathtub, which is
-  // what this was before the pillar went in.
-  const gy = MON_FOOT_Y;
-  const step = (wd, yy, hh, C) => {
-    p.px(MON_CX - (wd >> 1) - 1, yy - 1, wd + 2, hh + 1, STONE.line);
-    p.px(MON_CX - (wd >> 1), yy, wd, hh, C.base);
-    p.px(MON_CX - (wd >> 1), yy, wd, 1, C.light);
-    p.px(MON_CX - (wd >> 1), yy, 1, hh, C.light);
-    p.px(MON_CX + (wd >> 1) - 1, yy, 1, hh, C.shade);
-  };
-  step(18, gy - 1, 2, STONE);           // ground step
-  step(13, gy - 4, 3, STONE);           // plinth
-  step(6, gy - 10, 6, STONE);           // pillar
-  p.px(MON_CX - 2, gy - 8, 1, 2, STONE.shade);                    // a crack up the pillar and one on the
-  p.px(MON_CX + 3, gy - 3, 2, 1, STONE.shade);                    // plinth: old stone, not fresh masonry
-  if (d2()) { p.px(MON_CX - 8, gy - 1, 1, 1, "#4f7a3a"); p.px(MON_CX + 5, gy - 2, 1, 1, "#4f7a3a"); } // moss
-  step(14, gy - 15, 5, STONE);          // bowl
-  p.px(MON_CX - 6, gy - 14, 12, 3, WATER.base);
-  p.dither(MON_CX - 6, gy - 14, 12, 2, WATER.light, f & 1);       // surface, catching the sky
-  p.px(MON_CX - 5 + f * 4, gy - 14, 2, 1, "#ffffff");             // one hard specular WALKING the surface:
-                                                                  // the read that the water is moving
-  for (const sx of [MON_CX - 7, MON_CX + 5]) {                    // water running over the lip
-    p.px(sx, gy - 12, 2, 3 + ((f + 1) % 3), WATER.base);
-    p.px(sx, gy - 12, 1, 2, WATER.light);
-    p.px(sx, gy - 4, 2, 1, WATER.shade);                          // and the plinth stained dark where it lands
-  }
-  p.px(MON_CX - 1, gy - 18 - (f % 3), 2, 2, WATER.light);         // the droplet, rising
-  p.px(MON_CX, gy - 21 - (f % 3), 1, 1, WATER.light);
-  for (let i = 0; i < 5; i++) {                                   // a blessing hanging over it: loose motes,
-    const t = (i + f) % 5;                                        // because a dashed rectangle up there
-    p.px(MON_CX - 7 + i * 3, gy - 19 - t, 1, 1, WATER.light);     // reads as a UI box, not as light
-  }
-}
-
-function propForge(p, f) { // an anvil on a stump over a coal bed; sparks hop off the face
-  const gy = MON_FOOT_Y;
-  p.px(MON_CX - 5, gy - 5, 10, 5, WOOD.base);                     // stump
-  p.px(MON_CX - 5, gy - 5, 10, 1, WOOD.light);
-  p.px(MON_CX - 2, gy - 4, 1, 3, WOOD.shade);                     // split grain down the stump: a plain
-  p.px(MON_CX + 1, gy - 3, 1, 2, WOOD.shade);                     // brown block reads as a crate, not a log
-  p.px(MON_CX - 5, gy - 1, 10, 1, WOOD.line);
-  p.px(MON_CX - 8, gy - 12, 15, 3, IRON.base);                    // anvil face + horn
-  p.px(MON_CX - 8, gy - 12, 15, 1, IRON.light);
-  p.px(MON_CX - 8, gy - 10, 15, 1, IRON.shade);                   // the face's underside rolls into shadow
-  p.px(MON_CX - 10, gy - 11, 2, 1, IRON.base);
-  p.px(MON_CX - 10, gy - 11, 1, 1, IRON.light);                   // a glint off the horn's tip
-  p.px(MON_CX - 3, gy - 9, 5, 3, IRON.shade);                     // waist
-  p.px(MON_CX - 6, gy - 6, 11, 2, IRON.base);                     // base
-  p.px(MON_CX - 6, gy - 6, 11, 1, IRON.light);
-  p.px(MON_CX - 2, gy - 13, 5, 1, f === 1 ? FIRE.light : FIRE.base); // the WORKPIECE on the face, pulsing
-  p.px(MON_CX - 2, gy - 13, 1, 1, FIRE.shade);                    // as it cools — this is a forge mid-job,
-  if (f === 0) p.px(MON_CX + 1, gy - 14, 1, 1, "#ffffff");        // and the hammer lands white-hot on f0
-  if (d2()) { p.px(MON_CX - 7, gy - 3, 1, 3, IRON.shade); p.px(MON_CX - 8, gy - 1, 1, 1, IRON.base); } // a
-                                                                  // poker leaning on the stump, fine scales
-  p.px(MON_CX + 6, gy - 3, 10, 3, FIRE.shade);                    // coal bed beside it
-  p.dither(MON_CX + 6, gy - 4, 10, 3, FIRE.base, f & 1);
-  for (let i = 0; i < 6; i++) {                                    // sparks off the face, on a fixed arc
-    const t = (i + f * 2) % 6;
-    p.px(MON_CX - 6 + t * 2, gy - 13 - FLAME[(i + f) % FLAME.length], 1, 1, t & 1 ? FIRE.light : FIRE.base);
-  }
-  p.px(MON_CX + 2, gy - 16 - (f % 3), 2, 4, IRON.base);            // the hammer, mid-fall
-  p.px(MON_CX + 2, gy - 16 - (f % 3), 2, 1, IRON.light);
-  p.px(MON_CX + 3, gy - 13 - (f % 3), 1, 4, WOOD.base);
-}
-
-function propRelic(p, f) { // a gem floating over nothing at all, throwing spokes of light
-  const gy = MON_FOOT_Y, cy = gy - 14 - (f % 3);
-  for (let i = 0; i < 9; i += 2) p.raw(MON_CX - 4 + i, gy, 1, 1, "#1a1420"); // it still casts a shadow
-  const spoke = 5 + (f % 3);
-  for (let i = 2; i < spoke; i++) {                                // four spokes, breathing with the frame
-    p.px(MON_CX, cy - 2 - i, 1, 1, GEM.light);
-    p.px(MON_CX, cy + 4 + i, 1, 1, GEM.light);
-    p.px(MON_CX - 3 - i, cy + 1, 1, 1, GEM.light);
-    p.px(MON_CX + 3 + i, cy + 1, 1, 1, GEM.light);
-  }
-  const rows = [3, 5, 7, 7, 5, 3];                                  // a cut stone: a stepped diamond,
-                                                                    // big enough to read inside its halo
-  rows.forEach((w, j) => {
-    p.px(MON_CX - (w >> 1) - 1, cy - 1 + j, w + 2, 1, GEM.line);
-    p.px(MON_CX - (w >> 1), cy - 1 + j, w, 1, j < 2 ? GEM.light : GEM.base);
-    p.px(MON_CX - (w >> 1), cy - 1 + j, 1, 1, GEM.light);
-  });
-  p.px(MON_CX - 1, cy + 3, 3, 1, GEM.shade);                        // the cut below the girdle: one dark
-                                                                    // facet is what says CARVED, not blown
-  p.px(MON_CX - 1, cy + 1, 2, 1, "#ffffff");                        // core
-  const sp = [[3, -1], [-4, 2], [2, 3]][f];                         // a single sparkle walking the facets
-  p.px(MON_CX + sp[0], cy + sp[1], 1, 1, "#ffffff");                // frame to frame — the idle glitter
-  if (d2()) p.px(MON_CX - 2, cy, 1, 1, "#ffffff");                  // an inner reflection at fine scales
-  ring(p, MON_CX - 6, cy - 3, 13, 11, GEM.base, f & 1);             // halo: a ring, so the cut stone
-                                                                    // inside it is still a stone
-  for (let i = 0; i < 3; i++) p.px(MON_CX - 3 + i * 3, cy + 7 - ((f + i) % 4) * 2, 1, 1, GEM.light); // motes
-}
-
-function propFork(p, f) { // a signpost where the road splits: left board is the safe road, right is greed
-  const gy = MON_FOOT_Y, px0 = MON_CX + 1;
-  for (let i = 0; i < 10; i++) {                                    // the split itself, drawn in the dirt
-    p.raw(MON_CX - 12 + i, gy, 1, 1, "#2b2018");
-    p.raw(MON_CX - 12 + i, gy - 1 - (i >> 1), 1, 1, "#2b2018");
-  }
-  p.px(px0, gy - 20, 2, 21, WOOD.base);                             // post
-  p.px(px0, gy - 20, 1, 21, WOOD.light);
-  p.px(px0 + 1, gy - 14, 1, 1, WOOD.shade);                         // grain nicks down the post, in the gaps
-  p.px(px0, gy - 6, 1, 2, WOOD.shade);                              // between the boards
-  p.px(px0 - 1, gy - 1, 4, 1, WOOD.line);
-  const board = (by, dir, C) => {                                   // an arrow board: rect + a pointed end
-    const w = 10, bx = dir < 0 ? px0 - w - 1 : px0 + 2;
-    p.px(bx - 1, by - 1, w + 2, 6, WOOD.line);
-    p.px(bx, by, w, 4, C.base);
-    p.px(bx, by, w, 1, C.light);
-    p.px(bx, by + 3, w, 1, C.shade);                                // underside in shadow: the board is a
-                                                                    // plank with thickness, not a sticker
-    const tip = dir < 0 ? bx - 1 : bx + w;
-    p.px(tip, by + 1, 1, 2, C.base);
-    p.px(tip + (dir < 0 ? -1 : 1), by + 2, 1, 1, C.base);
-    for (let i = 2; i < w - 1; i += 3) p.px(bx + i, by + 2, 2, 1, C.line); // "writing"
-  };
-  board(gy - 19, -1, WOOD);
-  board(gy - 12, 1, { base: "#a05a2a", shade: WOOD.shade, light: "#d08a4a", line: WOOD.line });
-  p.px(px0 - 1, gy - 21, 4, 1, WOOD.shade);                          // cap
-  if (f & 1) p.px(px0 + 3, gy - 22, 1, 1, GOLD.light);               // a glint off the nail: it is not dead
-  if (f === 2) p.px(px0 + 3, gy - 11, 1, 1, GOLD.light);             // …and the greed board's nail answers
-                                                                     // on the off-beat
-  if (d2()) { p.px(MON_CX - 10, gy - 1, 1, 1, "#4f7a3a"); p.px(MON_CX - 5, gy - 2, 1, 1, "#4f7a3a"); } // grass
-                                                                     // tufts where the road splits
-}
-
-function propGale(p, f) { // a windstorm parked over the road — a storm you WALK INTO, deliberately not a creature
-  const gy = MON_FOOT_Y, cx = MON_CX;
-  for (let i = 0; i < 11; i++)                                      // the road scoured in streaks beneath it,
-    p.raw(cx - 11 + i * 2, gy, 2, 1, (i + f) % 3 ? "#2b2018" : "#3a3026"); // grit crawling with the wind
-  for (const [ty, ln, ph] of [[4, 4, 0], [7, 5, 1], [10, 4, 2]]) {  // trails streaming out ahead of the roll,
-    const t = (f + ph) % 3;                                          // each tearing off on its own beat
-    p.px(cx - 13 - t * 2, gy - ty, ln, 1, GALE.shade);
-    p.px(cx - 13 - t * 2, gy - ty, 1, 1, GALE.base);                 // the torn head is a step lighter: dust
-  }                                                                  // thinning out, not a floating stick
-  for (const [ty, ph] of [[5, 0], [9, 1]]) {                         // …and short inflow dashes behind it —
-    const t = (f + ph) % 3;                                          // the storm eats road as it goes
-    p.px(cx + 12 + t, gy - ty, 3, 1, GALE.shade);
-  }
-  p.dither(cx - 8, gy - 1, 16, 1, "#3a3026", f);                     // the dust skirt where it meets the road
-  const ROWS = [ // the roll itself, bottom to top: [rise, half-width, lean] — fat at the shoulder, and the
-                 // whole crest streamed FORWARD (the monsters' left) so the thing is going somewhere
-    [2, 5, 0], [3, 8, 0], [4, 10, 0], [5, 11, 0], [6, 12, 0], [7, 12, 0], [8, 12, -1],
-    [9, 12, -1], [10, 11, -2], [11, 10, -2], [12, 8, -3], [13, 6, -5], [14, 4, -7],
-  ];
-  const LS = [-2, 4, -6, 2, -8, 5, -3, 1, -6, 3, -1, 2, 0];          // where each row's lit rim sits
-  const THROAT = [-1, 0, 1, 2, 2, 1, 0, -1, -2, -2, -1, 0, 1];       // the eye of it, a slow S down the middle
-  ROWS.forEach(([ry, hw, xo], j) => {
-    const beat = (j + f) % 3;                                        // striations travel UP the roll frame to
-    const tat = (j + f) & 1;                                         // frame: the read that the whole thing
-    const y = gy - ry;                                               // spins — and the silhouette TATTERS, each
-    const x0 = cx + xo - hw + tat, xR = cx + xo + hw - tat;          // edge pulling in a pixel on its own beat
-    const gp = cx + xo + THROAT[(j + f * 2) % THROAT.length];        // a TORN GAP spirals through the roll —
-    const body = j < 10 ? GALE.shade : GALE.base;                    // the road shows through a storm, which is
-    p.px(x0, y, gp - x0, 1, body);                                   // what keeps it weather and not a boulder
-    p.px(gp + 2, y, xR - gp - 2, 1, body);                           // (and the crest rows thin to paler dust)
-    p.px(gp + 2, y, 1, 1, GALE.line);                                // the tear's inner edge falls into shadow
-    if (beat !== 1 && j < 10) {                                      // two bands in three carry the paler dust…
-      const ins = beat === 0 ? 2 : 4;
-      p.px(x0 + ins, y, gp - x0 - ins, 1, GALE.base);
-      p.px(gp + 3, y, xR - gp - 3, 1, GALE.base);
+const PROPS = {
+  hazard(g, f) { // a vent split open in the road, breathing fire — walk wide or eat it
+    g.rows(24, FY - 5, [[2, 44], [0, 48], [1, 46], [4, 40]], P_STONE);
+    g.r(30, FY - 4, 36, 3, "#1c0a08");                          // the crack's dark
+    for (let i = 0; i < 36; i += 3) {                           // fire teeth out of the crack
+      const t = [4, 8, 2, 10, 6, 3, 9, 5, 7, 2, 8, 4][((i / 3) | 0 + f) % 12];
+      const c = P_EMBER[(i + f) & 3];
+      g.r(31 + i, FY - 4 - t, 2, t, c);
+      g.r(31 + i, FY - 4 - t, 1, 2, "#fff3b0");
     }
-    if (beat === 0) p.px(cx + xo + LS[j], y, 3, 1, GALE.light);      // …one hard lit rim walks the band,
-    if (beat === 2 && j < 10) p.px(xR - 3, y, 2, 1, GALE.light);     // …and the trailing rim answers it
-    if (beat === 1) p.px(x0 - 2, y, 1, 1, GALE.shade);               // dust flying off the leading edge
-  });
-  p.px(cx - 12 - f, gy - 15, 2, 1, GALE.base);                       // spray ripped off the crest tip
-  for (let i = 0; i < 4; i++)                                        // wisps torn off the crown: LOOSE motes
-    p.px(cx - 10 + i * 3, gy - 15 - ((f + i * 2) % 3), 1, 1, GALE.base); // on their own beats — a dithered
-  for (let i = 0; i < 3; i++)                                        // band up here reads as battlements, and
-    p.px(cx - 9 + i * 5, gy - 17 - ((f + i) % 3), 1, 1, GALE.shade); // a dashed box reads as UI
-  const LEAF = [[-11, 4], [-8, 13], [-1, 15], [8, 12], [12, 6], [4, 2]]; // perimeter stations for the debris
-  for (let i = 0; i < 3; i++) {
-    const [lx, ly] = LEAF[(i * 2 + f) % LEAF.length];                // each leaf hops one station per frame:
-    p.px(cx + lx, gy - ly, 1, 1, i === 1 ? "#6d8a3a" : WOOD.light);  // orbiting, not twinkling
-  }
-  const [tx, ty2] = LEAF[(3 + f) % LEAF.length];                     // a snapped twig rides the same orbit,
-  p.px(cx + tx, gy - ty2 + 1, 2, 1, WOOD.shade);                     // half a beat behind the leaves
-  if (d2()) { p.px(cx - 9, gy - 3, 1, 1, GALE.light); p.px(cx + 7, gy - 11, 1, 1, GALE.light); } // fine spray
-                                                                     // glints on the flanks at fine scales
-}
-
-function propIdol(p, f) { // a squat carved watcher on a plinth: the stone is ancient, the eyes are not
-  const gy = MON_FOOT_Y, cx = MON_CX;
-  const slab = (wd, yy, hh) => {                                     // the shrine's masonry, restated — the
-    p.px(cx - (wd >> 1) - 1, yy - 1, wd + 2, hh + 1, STONE.line);    // two monuments must read as one quarry
-    p.px(cx - (wd >> 1), yy, wd, hh, STONE.base);
-    p.px(cx - (wd >> 1), yy, wd, 1, STONE.light);
-    p.px(cx - (wd >> 1), yy, 1, hh, STONE.light);
-    p.px(cx + (wd >> 1) - 1, yy, 1, hh, STONE.shade);
-  };
-  slab(16, gy - 1, 2);                                               // ground step
-  slab(13, gy - 4, 3);                                               // plinth
-  slab(12, gy - 11, 7);                                              // the folded body…
-  slab(10, gy - 17, 2);                                              // …under a head it never grew a neck for:
-  slab(12, gy - 15, 4);                                              // crown narrow, cheeks wide — a stepped
-                                                                     // dome, whose border row IS the heavy brow
-  p.px(cx - 9, gy - 15, 2, 3, STONE.line);                           // carved side flanges — ears on a thing
-  p.px(cx - 9, gy - 15, 2, 2, STONE.base);                           // that only ever listens
-  p.px(cx - 9, gy - 15, 1, 1, STONE.light);
-  p.px(cx + 7, gy - 15, 2, 3, STONE.line);
-  p.px(cx + 7, gy - 15, 2, 2, STONE.base);
-  p.px(cx + 8, gy - 15, 1, 2, STONE.shade);
-  p.px(cx - 2, gy - 19, 4, 2, STONE.line);                           // a squat stone topknot
-  p.px(cx - 1, gy - 19, 2, 1, STONE.base);
-  p.px(cx - 1, gy - 19, 1, 1, STONE.light);
-  for (let i = 0; i < 2; i++) p.px(cx - 3 + i * 6, gy - 17, 1, 1, STONE.shade); // the crown's light row
-                                                                     // notched twice: weathered, not cut
-  const ecol = [FIRE.base, FIRE.light, FIRE.shade][f];               // the pulse: waking, blazing, banked
-  for (const ex of [cx - 4, cx + 2]) {
-    p.px(ex - 1, gy - 15, 4, 2, STONE.line);                         // socket, carved up under the brow
-    p.px(ex, gy - 14, 2, 1, ecol);                                   // the amber gem is a lit SLIT, not a lamp
-    if (f === 1) {                                                   // at the peak of the pulse the glow leaks
-      p.px(ex - 1, gy - 14, 1, 1, FIRE.shade);                       // past both corners of the socket…
-      p.px(ex + 2, gy - 14, 1, 1, FIRE.shade);
-      p.px(ex, gy - 13, 2, 1, FIRE.shade);                           // …and spills down onto the cheek
+    g.taper(26, FY - 5, -1, -1, 5, 3, P_STONE);                 // heat-shattered slabs
+    g.taper(70, FY - 5, 1, -1, 6, 3, P_STONE);
+    g.d(34, FY - 22 - (f & 1) * 2, 28, 4, "#3c3128", f);        // the smoke lid
+  },
+  snare(g, f) { // the reeve's iron jaws, staked and waiting
+    g.rows(30, FY - 3, [[1, 34], [0, 36]], P_STONE);            // trodden base plate
+    for (let k = 0; k < 5; k++) {                               // two rows of teeth, sprung open
+      g.taper(33 + k * 7, FY - 4, 0, -1, 7, 3, AS_REV);
+      g.taper(36 + k * 7, FY - 4, 0, -1, 5, 2, dim(AS_REV));
     }
-  }
-  p.px(cx - 1, gy - 15, 2, 3, STONE.base);                           // the nose ridge between the sockets,
-  p.px(cx - 1, gy - 15, 1, 3, STONE.light);                          // catching what light gets under the brow
-  p.px(cx - 1, gy - 12, 2, 1, STONE.shade);                          // and throwing its little shadow
-  p.px(cx - 3, gy - 12, 2, 1, STONE.line);                           // the mouth: a grimace of carved teeth,
-  p.px(cx + 1, gy - 12, 3, 1, STONE.line);                           // split by the nose shadow
-  for (let i = 0; i < 3; i++) p.px(cx - 3 + i * 3, gy - 11, 1, 1, STONE.line); // teeth hanging off the slot —
-                                                                     // it has not liked anything for centuries
-  p.px(cx - 5, gy - 9, 10, 1, STONE.shade);                          // arms folded across the belly, one groove
-  p.px(cx - 1, gy - 8, 2, 1, STONE.shade);                           // hands stacked beneath them
-  if (f === 1) p.px(cx, gy - 7, 1, 1, FIRE.shade);                   // a belly rune that only shows when the
-                                                                     // eyes blaze: the glow is INSIDE the stone
-  p.px(cx - 4, gy - 6, 1, 2, STONE.shade);                           // crossed legs carved into the base,
-  p.px(cx + 3, gy - 6, 1, 2, STONE.shade);                           // two short grooves
-  p.px(cx + 4, gy - 10, 1, 2, STONE.shade);                          // a crack down the shoulder…
-  p.px(cx - 3, gy - 3, 2, 1, STONE.shade);                           // …and one on the plinth: old masonry
-  p.px(cx - 5, gy - 12, 1, 1, "#4f7a3a");                            // moss in the neck seam
-  p.px(cx + 4, gy - 2, 1, 1, "#4f7a3a");                             // moss on the plinth
-  if (d2()) { p.px(cx + 6, gy - 13, 1, 1, "#4f7a3a"); p.px(cx - 7, gy - 1, 1, 1, "#4f7a3a"); } // more moss
-                                                                     // creeping in at fine scales
-  const bx = cx - 13;                                                // the offering bowl at its feet, set
-  p.px(bx - 1, gy - 2, 7, 3, STONE.line);                            // toward the road it watches
-  p.px(bx, gy - 2, 5, 1, STONE.base);
-  p.px(bx, gy - 2, 1, 1, STONE.light);
-  p.px(bx + 1, gy - 1, 3, 1, FIRE.shade);                            // an ember bed — someone still feeds it
-  if (f === 2) p.px(bx + 2, gy - 1, 1, 1, FIRE.base);                // …and it answers the eyes on the off-beat
-  p.px(bx + 2 + (f & 1), gy - 4 - f, 1, 1, "#4a4550");               // one thread of smoke, climbing
-  if (d2()) p.px(bx + 6, gy, 1, 1, GOLD.base);                       // a dropped coin at fine scales
-}
+    const gl = (f & 3) * 8;                                     // one glint runs the tooth line
+    g.r(34 + gl, FY - 10, 1, 2, "#f2fbff");
+    g.seg(64, FY - 3, 76, FY - 12, 1, AS_REV.d);                // the chain to the stake
+    g.r(75, FY - 16, 4, 6, P_WOOD.o);
+    g.r(76, FY - 15, 2, 4, P_WOOD.m);
+  },
+  quag(g, f) { // the bog that eats boots
+    g.rows(20, FY - 6, [[4, 44], [1, 51], [0, 54], [2, 50], [6, 42]], ramp("#100e08", "#2b2414", "#453a1e", "#5f5128", "#847142"));
+    g.r(28, FY - 4, 36, 2, "#1c1808");
+    const bub = [[30, 0], [48, 1], [60, 2], [40, 3]];           // bubbles rise and POP on their beat
+    for (const [bx, ph] of bub) {
+      const k = (f + ph) & 3;
+      if (k < 2) g.r(bx, FY - 5 - k, 2 + k, 2, "#5f5128");
+      else if (k === 2) { g.r(bx - 1, FY - 7, 4, 3, "#847142"); g.r(bx, FY - 6, 2, 1, "#1c1808"); }
+    }
+    for (const rx of [22, 70, 76]) {                            // reeds lean with the frames
+      g.seg(rx, FY - 2, rx + [0, 1, 1, 0][f & 3], FY - 16, 1, GW_MOSS.d);
+      g.taper(rx + [0, 1, 1, 0][f & 3], FY - 18, 0, -1, 3, 2, GW_MOSS);
+    }
+  },
+  gale(g, f) { // a dust-devil parked on the road, leaves riding it
+    const c = ramp("#20242e", "#3c4454", "#5a6478", "#7e88a0", "#aab4cc");
+    for (let j = 0; j < 9; j++) {                               // stacked swirl bands, phase-shifted
+      const w = 10 + j * 4, y = FY - 6 - j * 8;
+      const off = [0, 4, -3, 2][(f + j) & 3];
+      g.d(MCX - (w >> 1) + off, y, w, 3, j & 1 ? c.m : c.l, f + j);
+      g.r(MCX - (w >> 1) + off + ((f * 3 + j * 5) % Math.max(1, w - 2)), y + 1, 2, 1, c.s);
+    }
+    const leaves = [[0, 0], [1, 5], [2, 3], [3, 7]];            // leaves orbit at four heights
+    for (const [ph, r2] of leaves) {
+      const k = (f + ph) & 3;
+      const lx = MCX + [-14 - r2, 0, 12 + r2, 0][k];
+      const ly = FY - 20 - ph * 14 + [0, -4, 0, 4][k];
+      g.r(lx, ly, 3, 2, GW_LEAF.m);
+      g.r(lx + 1, ly, 1, 1, GW_LEAF.l);
+    }
+  },
+  tollgate(g, f) { // the chain across the road, and the lantern that watches you pay
+    g.r(20, FY - 34, 6, 34, P_WOOD.o);                          // near post
+    g.r(21, FY - 33, 4, 32, P_WOOD.m);
+    g.r(21, FY - 33, 1, 32, P_WOOD.l);
+    g.r(70, FY - 30, 6, 30, P_WOOD.o);                          // far post
+    g.r(71, FY - 29, 4, 28, P_WOOD.m);
+    for (let i = 0; i < 46; i += 4) {                           // the chain, sagging mid-span
+      const sag = Math.round(6 * Math.sin((i / 46) * 3.14159));
+      g.r(25 + i, FY - 26 + sag, 3, 2, AS_REV.d);
+      g.r(25 + i, FY - 26 + sag, 1, 1, AS_REV.l);
+    }
+    const sw2 = [0, 1, 0, -1][f & 3];                           // the lantern swings
+    g.seg(48, FY - 23, 48 + sw2, FY - 17, 1, AS_REV.d);
+    g.r(46 + sw2, FY - 16, 6, 7, AS_REV.o);
+    g.r(47 + sw2, FY - 15, 4, 5, P_EMBER[f & 3]);
+    g.r(48 + sw2, FY - 14, 1, 1, "#fff3b0");
+    g.r(16, FY - 40, 14, 6, P_WOOD.o);                          // the toll board
+    g.r(17, FY - 39, 12, 4, P_WOOD.m);
+    g.r(19, FY - 38, 8, 1, P_GOLDp.m);                          // the price, in gilt
+  },
+  cache(g, f) { // an honest chest — upright, latched, and leaking a little light
+    g.rows(32, FY - 18, Array.from({ length: 18 }, (_, j) => [j === 0 || j === 17 ? 1 : 0, j === 0 || j === 17 ? 30 : 32]), P_WOOD);
+    g.rows(30, FY - 26, [[1, 34], [0, 36], [0, 36], [1, 34]], P_WOOD);       // the lid
+    g.r(33, FY - 25, 8, 2, P_WOOD.l);
+    for (const sx of [37, 53]) { g.r(sx, FY - 26, 3, 26, AS_REV.d); g.r(sx, FY - 26, 1, 3, AS_REV.l); }
+    const k = f & 3;                                            // the seam breathes gold
+    g.r(33, FY - 19, 30, 1, k === 1 ? P_GOLDp.s : k === 2 ? P_GOLDp.l : P_GOLDp.d);
+    g.r(45, FY - 16, 6, 8, AS_REV.o);                           // the lock
+    g.r(46, FY - 15, 4, 5, AS_REV.m);
+    g.r(47, FY - 13, 2, 2, AS_REV.o);
+    if (k === 1) g.r(34, FY - 20, 2, 1, "#ffffff");             // one escaping glint
+  },
+  barrow(g, f) { // the mound that pays and curses — a dolmen door set INTO an earthen dome.
+    // The old version hung its stone slab eight rows clear of the mound: a UFO over a hill.
+    // Every stone here now touches either the dirt or another stone.
+    const E5 = ramp("#0e1408", "#243418", "#3a5226", "#547238", "#7c9c56");
+    g.rows(20, FY - 22, Array.from({ length: 22 }, (_, j) => {
+      const u = j / 21;
+      const w = Math.round(18 + 38 * u);
+      return [Math.round((56 - w) / 2), w];
+    }), E5);
+    g.d(30, FY - 18, 38, 4, GW_MOSS.d, f);                      // old growth on the dirt
+    g.d(36, FY - 21, 20, 2, E5.l, f + 1);                       // moon on the crown
+    g.r(29, FY - 12, 4, 12, P_STONE.o);                         // near upright, planted
+    g.r(30, FY - 11, 2, 11, P_STONE.m);
+    g.r(40, FY - 12, 4, 12, P_STONE.o);                         // far upright, planted
+    g.r(41, FY - 11, 2, 11, P_STONE.d);
+    g.r(27, FY - 15, 19, 4, P_STONE.o);                         // the lintel RESTS on both
+    g.r(28, FY - 14, 17, 2, P_STONE.m);
+    g.r(28, FY - 14, 5, 1, P_STONE.l);
+    g.r(33, FY - 11, 7, 11, "#05070c");                         // the dark it keeps inside
+    const k = f & 3;                                            // grave-light seeps on the third beat
+    if (k === 2) { g.r(35, FY - 7, 2, 4, "#8ae9f6"); g.r(36, FY - 6, 1, 1, "#d8fbff"); }
+    g.rows(56, FY - 13, [[4, 8], [3, 9], [3, 9], [2, 10], [2, 10], [1, 10], [1, 10], [0, 10],
+                         [0, 10], [0, 11], [0, 11], [0, 12], [0, 12]], P_STONE);   // headstone, half-toppled
+    g.r(61, FY - 11, 3, 1, P_STONE.l);
+    g.r(60, FY - 8, 5, 1, P_STONE.o);                           // grave-scored lines
+    g.r(60, FY - 5, 4, 1, P_STONE.o);
+    g.r(74, FY - 4, 4, 2, P_GOLDp.m);                           // the glint half out of the dirt
+    g.r(75, FY - 4, 1, 1, k === 1 ? "#ffffff" : P_GOLDp.s);
+  },
+  armory(g, f) { // a dead soldier's rack, still standing its watch
+    g.r(26, FY - 34, 5, 34, P_WOOD.o);
+    g.r(27, FY - 33, 3, 32, P_WOOD.m);
+    g.r(62, FY - 34, 5, 34, P_WOOD.o);
+    g.r(63, FY - 33, 3, 32, P_WOOD.m);
+    g.r(24, FY - 36, 46, 4, P_WOOD.o);
+    g.r(25, FY - 35, 44, 2, P_WOOD.m);
+    g.seg(36, FY - 32, 36, FY - 6, 2, AS_REV.m);                // the sword, hung
+    g.r(34, FY - 30, 6, 2, AS_REV.o);
+    g.r(36, FY - 8, 1, 2, AS_REV.s);
+    g.seg(46, FY - 33, 46, FY - 2, 1, P_WOOD.m);                // the spear, leaned
+    g.taper(46, FY - 38, 0, -1, 5, 2, AS_REV);
+    g.rows(52, FY - 26, Array.from({ length: 14 }, (_, j) => [Math.min(j, 13 - j) === 0 ? 1 : 0, 10 - (Math.min(j, 13 - j) === 0 ? 2 : 0)]), AS_REV);  // the shield
+    g.r(54, FY - 22, 4, 4, SCARF.m);
+    const k = f & 3;                                            // a banner tatter waves off the frame
+    g.rows(66, FY - 33, [[0, 6 + k], [1, 5 + k], [0, 4 + (k >> 1)], [1, 3]], SCARF);
+    const gl = [36, 46, 56, 46][k];                             // one glint walks the rack
+    g.r(gl, FY - 24, 1, 1, "#f2fbff");
+  },
+  vein(g, f) { // the lode: a boulder with a lit seam
+    g.rows(28, FY - 24, Array.from({ length: 24 }, (_, j) => {
+      const rr = Math.min(j, 23 - j);
+      const ins = rr === 0 ? 6 : rr === 1 ? 3 : rr === 2 ? 1 : 0;
+      return [ins, 40 - ins * 2];
+    }), P_STONE);
+    g.r(34, FY - 22, 12, 3, P_STONE.l);
+    g.r(36, FY - 6, 24, 2, P_STONE.d);
+    g.seg(34, FY - 16, 44, FY - 10, 2, P_GOLDp.d);              // the seam, jagged
+    g.seg(44, FY - 10, 56, FY - 14, 2, P_GOLDp.d);
+    g.seg(35, FY - 16, 44, FY - 11, 1, P_GOLDp.m);
+    g.seg(44, FY - 11, 55, FY - 14, 1, P_GOLDp.m);
+    const gx = [36, 44, 50, 44][f & 3];                         // the sparkle walks the seam
+    g.r(gx, FY - 14, 2, 2, P_GOLDp.s);
+    g.r(gx, FY - 14, 1, 1, "#ffffff");
+    g.r(24, FY - 4, 6, 3, P_STONE.m);                           // spill stones
+    g.r(68, FY - 5, 5, 3, P_STONE.m);
+  },
+  grove(g, f) { // the spirit ring: young trees around a light that is not the sun
+    for (const [tx, th, ph] of [[26, 22, 0], [70, 20, 1], [36, 16, 2], [60, 15, 3]]) {
+      const swy = [0, 1, 0, -1][(f + ph) & 3];
+      g.seg(tx, FY - 1, tx + swy, FY - th, 2, GW_BARK.o);
+      g.seg(tx, FY - 1, tx + swy, FY - th, 1, GW_BARK.m);
+      g.rows(tx + swy - 5, FY - th - 8, [[2, 7], [0, 11], [0, 11], [1, 9], [3, 5]], GW_LEAF);
+      g.r(tx + swy - 3, FY - th - 7, 4, 2, GW_LEAF.l);
+    }
+    const k = f & 3;                                            // motes rise in the middle
+    g.r(46, FY - 8 - k * 4, 2, 2, "#b6ff6a");
+    g.r(52, FY - 14 - ((k + 2) & 3) * 4, 1, 2, "#eaffb0");
+    g.r(43, FY - 20 - ((k + 1) & 3) * 3, 1, 1, "#ffffff");
+    g.d(38, FY - 3, 22, 3, GW_LEAF.d, f);                       // the ring floor
+  },
+  shrine(g, f) { // a wayside saint: hooded stone, head bowed over three votive candles
+    g.rows(30, FY - 6, [[1, 34], [0, 36], [2, 32]], P_STONE);          // the worn plinth
+    g.rows(40, FY - 36, [                                              // the figure, hood to hem
+      [4, 8], [2, 12], [1, 14], [1, 14], [2, 12], [2, 12], [2, 12], [2, 13],
+      [1, 14], [1, 14], [1, 15], [1, 15], [1, 16], [1, 16], [1, 16], [1, 16],
+      [0, 17], [0, 17], [0, 18], [0, 18], [0, 18], [0, 18], [1, 17], [1, 17],
+      [1, 16], [2, 15], [2, 15], [2, 14], [2, 14], [3, 13],
+    ], P_STONE);
+    g.r(45, FY - 32, 6, 4, "#0a0d12");                                 // the hood's void, bowed
+    g.r(42, FY - 34, 2, 5, P_STONE.l);                                 // moonlight on the hood's edge
+    g.r(44, FY - 24, 2, 14, P_STONE.d);                                // robe folds
+    g.r(52, FY - 20, 2, 11, P_STONE.d);
+    g.r(48, FY - 20, 3, 4, P_STONE.l);                                 // the praying hands
+    g.r(48, FY - 16, 3, 1, P_STONE.o);
+    for (const [cx4, hgt, ph] of [[28, 6, 0], [34, 9, 1], [63, 7, 2]]) {   // the votives
+      g.r(cx4 - 1, FY - 6 - hgt, 4, hgt, "#8f8470");
+      g.r(cx4 - 1, FY - 6 - hgt, 1, hgt, "#d8cfb8");
+      const k = (f + ph) & 3;
+      g.r(cx4, FY - 8 - hgt - (k === 1 ? 2 : 1), 2, k === 3 ? 2 : 3, P_EMBER[k]);
+      g.r(cx4, FY - 7 - hgt, 1, 1, "#fff3b0");
+    }
+    g.r(49, FY - 42 - (f & 3) * 2, 1, 1, "#d8cfb8");                   // one slow mote of grace
+  },
+
+  well(g, f) { // the waystone spring: rope, winch, and a light down in the water
+    g.rows(32, FY - 14, Array.from({ length: 14 }, (_, j) => [j === 0 || j === 13 ? 1 : 0, j === 0 || j === 13 ? 30 : 32]), P_STONE);
+    g.r(34, FY - 13, 6, 2, P_STONE.l);
+    g.r(36, FY - 12, 24, 3, "#0a1c2a");                         // the dark mouth
+    g.r(38 + (f & 3) * 5, FY - 11, 3, 1, P_WATER.m);            // water winking far down
+    g.r(34, FY - 34, 4, 20, P_WOOD.o);                          // the frame
+    g.r(58, FY - 34, 4, 20, P_WOOD.o);
+    g.r(32, FY - 37, 32, 4, P_WOOD.o);
+    g.r(33, FY - 36, 30, 2, P_WOOD.m);
+    const k = f & 3;                                            // the winch turns, the bucket rides
+    g.r(46, FY - 34, 4, 3, P_WOOD.m);
+    g.seg(48, FY - 31, 48, FY - 26 - k * 2, 1, NT_BONE.d);
+    g.r(45, FY - 26 - k * 2, 7, 5, P_WOOD.o);
+    g.r(46, FY - 25 - k * 2, 5, 3, P_WOOD.m);
+    g.r(47, FY - 25 - k * 2, 2, 1, P_WATER.l);
+  },
+  camp(g, f) { // the cold firepit that will take you in
+    for (let i = 0; i < 8; i++) {                               // the stone ring
+      const a = i / 8 * 6.28318;
+      g.r(48 + Math.round(14 * Math.cos(a)) - 2, FY - 3 + Math.round(3 * Math.sin(a)), 4, 3, P_STONE.m);
+    }
+    g.seg(42, FY - 5, 54, FY - 7, 2, P_WOOD.d);                 // charred logs
+    g.seg(44, FY - 8, 52, FY - 4, 2, P_WOOD.o);
+    const k = f & 3;                                            // one shy ember — the fire WANTS lighting
+    g.r(47, FY - 8 - (k === 1 ? 1 : 0), 2, 2, k === 3 ? "#c85a10" : P_EMBER[k]);
+    g.r(48, FY - 9, 1, 1, k === 1 ? "#fff3b0" : "#ff9e2e");
+    g.seg(20, FY - 2, 34, FY - 6, 3, P_WOOD.m);                 // the sitting log
+    g.r(20, FY - 6, 3, 2, P_WOOD.l);
+    g.rows(60, FY - 6, [[0, 18], [1, 16], [2, 14]], WOOL);      // a bedroll someone left
+    g.r(62, FY - 5, 6, 1, WOOL.l);
+    g.d(46, FY - 16 - k, 6, 3, "#3c3128", f);                   // a thread of smoke
+  },
+  idol(g, f) { // the old god: a leaning black monolith wearing a grin
+    g.rows(38, FY - 40, Array.from({ length: 40 }, (_, j) => [Math.round(j * -0.12), 18 + (j > 34 ? 2 : 0)]),
+           ramp("#08060c", "#1c1626", "#332a44", "#4e4266", "#726292"));
+    g.r(40, FY - 38, 3, 30, ramp("#08060c", "#1c1626", "#332a44", "#4e4266", "#726292").l);
+    const k = f & 3;                                            // the eyes light in SEQUENCE — it counts you
+    g.r(41, FY - 32, 4, 4, k >= 1 ? "#ff2222" : "#3a0810");
+    g.r(48, FY - 33, 4, 4, k >= 2 ? "#ff2222" : "#3a0810");
+    if (k >= 1) g.r(42, FY - 31, 1, 1, "#ffb0b0");
+    for (let i = 0; i < 5; i++) g.r(40 + i * 3, FY - 24, 2, 2 + (i & 1), "#08060c");   // the grin
+    g.rows(30, FY - 6, [[1, 32], [0, 34], [2, 30]], P_STONE);   // the plinth
+    g.r(34, FY - 3, 4, 2, P_GOLDp.m);                           // old offerings
+    g.r(58, FY - 3, 3, 2, P_GOLDp.d);
+    if (k === 3) g.d(36, FY - 44, 22, 3, "#4e4266", f);         // a breath of something above it
+  },
+  pyre(g, f) { // the unlit beacon: bone and heartwood, begging for a spark
+    for (const [x0, y0, x1, y1] of [[30, FY - 2, 52, FY - 22], [64, FY - 2, 44, FY - 22], [36, FY - 2, 60, FY - 18], [58, FY - 2, 36, FY - 16]])
+      g.seg(x0, y0, x1, y1, 2, P_WOOD.m);
+    g.seg(31, FY - 2, 52, FY - 21, 1, P_WOOD.l);
+    g.taper(40, FY - 20, 0, -1, 6, 2, NT_BONE);                 // the ribs woven through it
+    g.taper(54, FY - 22, 0, -1, 7, 2, NT_BONE);
+    g.rows(28, FY - 3, [[1, 40], [0, 42]], P_STONE);            // the fire-table
+    const k = f & 3;                                            // the heart-ember waits
+    g.r(46, FY - 12, 3, 3, k === 2 ? "#ff9e2e" : "#c85a10");
+    g.r(47, FY - 11, 1, 1, k === 2 ? "#fff3b0" : "#ff7a1a");
+    if (k === 2) g.r(47, FY - 16, 1, 2, "#ff9e2e");             // one hopeful spark
+  },
+  forge(g, f) { // the wayside forge: anvil, quench barrel, coals that remember
+    g.rows(30, FY - 8, [[1, 16], [0, 18], [0, 18], [1, 16]], ramp("#0c0a08", "#2a1c12", "#46301c", "#664a2a", "#8c6c40"));  // coal bed
+    for (let i = 0; i < 5; i++) g.r(32 + i * 3, FY - 7 + (i & 1), 2, 2, P_EMBER[(i + f) & 3]);
+    g.r(40, FY - 22, 16, 5, AS_REV.o);                          // the anvil
+    g.r(41, FY - 21, 14, 3, AS_REV.m);
+    g.r(41, FY - 21, 14, 1, AS_REV.l);
+    g.taper(40, FY - 20, -1, 0, 6, 3, AS_REV);                  // the horn
+    g.r(44, FY - 17, 8, 9, AS_REV.d);                           // the waist
+    g.r(42, FY - 9, 12, 4, AS_REV.o);
+    const k = f & 3;                                            // sparks HOP off the face
+    if (k === 1) { g.r(50, FY - 26, 1, 2, "#ffd75a"); g.r(53, FY - 24, 1, 1, "#fff3b0"); }
+    if (k === 2) { g.r(46, FY - 27, 1, 2, "#ff9e2e"); }
+    g.rows(62, FY - 16, Array.from({ length: 16 }, (_, j) => [j === 0 ? 1 : 0, j === 0 ? 12 : 14]), P_WOOD);  // quench barrel
+    g.r(64, FY - 15, 10, 2, P_WATER.m);
+    g.r(65 + k * 2, FY - 15, 2, 1, P_WATER.s);
+    g.seg(24, FY - 2, 24, FY - 28, 2, P_WOOD.m);                // the tool post
+    g.r(20, FY - 26, 4, 8, AS_REV.m);                           // hung hammer
+    g.r(19, FY - 27, 6, 3, AS_REV.o);
+  },
+  fork(g, f) { // the parting of the ways: a leaning post, two boards, and a raven that already knows
+    g.tube(47, FY - 2, 44, FY - 40, 3, P_WOOD);                        // the post, tired of standing
+    g.r(44, FY - 40, 2, 3, P_WOOD.l);
+    // the LEFT board: weathered, pointing back the safe way
+    g.rows(24, FY - 32, [[2, 20], [0, 23], [0, 23], [2, 20]], P_WOOD);
+    g.taper(23, FY - 31, -1, 0, 4, 3, P_WOOD);                         // its point
+    g.r(27, FY - 30, 14, 1, P_WOOD.d);                                 // the carved groove
+    // the RIGHT board: lower, gilt-edged — greed marks its own road
+    g.rows(50, FY - 24, [[2, 18], [0, 21], [0, 21], [2, 18]], P_WOOD);
+    g.taper(71, FY - 23, 1, 0, 4, 3, P_WOOD);
+    g.r(53, FY - 22, 13, 1, P_GOLDp.d);
+    g.r(53, FY - 22, 4, 1, P_GOLDp.m);
+    // THE RAVEN — big enough to be a bird, hunched like a verdict
+    const RV = mr("#050508", "#16161e", "#26262f", "#3a3a48", "#5c5c70");
+    const k = f & 3;
+    g.rows(41 + (k === 1 ? 1 : 0), FY - 52, [[3, 6], [1, 9], [0, 11], [0, 11], [1, 10], [2, 8], [4, 5]], RV);
+    g.rows(38, FY - 55, [[2, 5], [0, 7], [0, 7], [1, 5]], RV);         // the head, low between shoulders
+    g.r(35, FY - 53, 3, 2, "#8a6a1c");                                 // the beak
+    g.r(40, FY - 54, 1, 1, "#d8fbff");                                 // the eye. it is watching you.
+    g.taper(51, FY - 49, 1, 1, 6, 3, RV);                              // the tail, off the post
+    g.seg(44, FY - 45, 44, FY - 41, 1, RV.o);                          // a leg gripping the post top
+    if (k === 2) {                                                     // one slow half-lift of the wings
+      g.rows(34, FY - 58, [[2, 7], [0, 10]], RV);
+      g.rows(48, FY - 58, [[0, 10], [2, 7]], RV);
+    }
+    // the skull at the base — someone chose wrong
+    g.rows(56, FY - 6, [[1, 6], [0, 8], [0, 8], [1, 6]], mr("#181410", "#4a4238", "#7a7060", "#a89a86", "#d8ccb4"));
+    g.r(58, FY - 5, 2, 2, "#0c0a16");
+    g.r(61, FY - 5, 2, 2, "#0c0a16");
+    g.r(57, FY - 2, 6, 1, P_STONE.d);
+  },
+
+  relic(g, f) { // a blade in the stone — the road's one promise it always keeps
+    g.rows(30, FY - 12, Array.from({ length: 12 }, (_, j) => {
+      const rr = Math.min(j, 11 - j);
+      const ins = rr === 0 ? 4 : rr === 1 ? 2 : 0;
+      return [ins, 36 - ins * 2];
+    }), P_STONE);
+    g.r(34, FY - 10, 10, 2, P_STONE.l);
+    g.seg(47, FY - 34, 47, FY - 10, 2, MATERIALS[3].m);         // the blade, point buried
+    g.seg(48, FY - 33, 48, FY - 11, 1, MATERIALS[3].s);
+    g.r(43, FY - 35, 11, 3, MATERIALS[6].o);                    // the guard
+    g.r(44, FY - 34, 9, 1, MATERIALS[6].m);
+    g.r(46, FY - 40, 4, 5, MATERIALS[6].d);                     // the grip
+    g.r(46, FY - 43, 4, 3, MATERIALS[6].o);
+    g.r(47, FY - 42, 2, 1, MATERIALS[6].s);                     // the pommel star
+    const k = f & 3;                                            // light spokes wheel around it
+    const spokes = [[[-8, -24], [10, -18]], [[-11, -18], [9, -26]], [[-9, -12], [12, -22]], [[-12, -22], [8, -12]]][k];
+    for (const [sdx, sdy] of spokes) {
+      g.r(47 + sdx, FY + sdy, sdx < 0 ? 6 : 5, 1, "#dcc2ff");
+      g.r(47 + sdx + (sdx < 0 ? 6 : -1), FY + sdy, 1, 1, "#ffffff");
+    }
+    g.r(44 + (k & 1) * 6, FY - 14, 1, 1, "#ffffff");            // dust motes in the light
+  },
+};
 
 /**
- * Draw one prop with its TOP-LEFT CORNER at (x, y) — same convention and the same PROP_W × PROP_H
- * (= MON_W × MON_H) box as drawMonster, so the world renderer converts ground coordinates once and uses it
- * for every tile.
- * opts = { kind: "hazard"|"cache"|"shrine"|"forge"|"relic"|"fork"|"gale"|"idol" (or its index in PROP_KINDS),
- *          frame: int — flame flicker / lid breath / gem pulse, cycle length 3 (frame % 3 is enough),
- *          scale: int ≥ 1, facing: 1|-1 (only the fork really cares) }
- * Deterministic: nothing here reads a clock.
+ * Draw a prop, TOP-LEFT corner at (x, y), same 96-box and ground rows as the creatures.
+ * opts = { kind (see PROP_KINDS), frame (loops on PROP_FRAMES), scale }. Deterministic, as everything.
  */
 export function drawProp(ctx, x, y, opts = {}) {
-  DETAIL = opts.detail === 2 ? 2 : 1;
-  const kind = typeof opts.kind === "number" ? PROP_KINDS[opts.kind] : opts.kind;
+  const kind = PROPS[opts.kind] ? opts.kind : "hazard";
   const scale = Math.max(1, opts.scale | 0 || 1);
-  const f = Math.max(0, opts.frame | 0) % 3;
+  const f = Math.max(0, opts.frame | 0) % PROP_FRAMES;
   ctx.imageSmoothingEnabled = false;
-  const p = pen(ctx, x, y, scale, opts.facing === -1 ? -1 : 1, false, null, PROP_W, PROP_H);
-  switch (kind) {
-    case "hazard": propHazard(p, f); break;
-    case "cache":  propCache(p, f);  break;
-    case "shrine": propShrine(p, f); break;
-    case "forge":  propForge(p, f);  break;
-    case "relic":  propRelic(p, f);  break;
-    case "fork":   propFork(p, f);   break;
-    case "gale":   propGale(p, f);   break;
-    case "idol":   propIdol(p, f);   break;
-    default: return { w: MON_W_N * scale, h: MON_H_N * scale }; // unknown kind draws NOTHING rather than a
-                                                                // wrong thing — the caller keeps its fallback
-  }
-  return { w: MON_W_N * scale, h: MON_H_N * scale };
+  const g = stylus(ctx, x, y, scale, false, MW, MH, null, null);
+  for (let i = 0; i < 40; i += 2) g.r(MCX - 20 + i, MGROUND + ((i & 2) ? 1 : 0), 1, 1, "#151020");
+  PROPS[kind](g, f);
+  return { w: MW * scale, h: MH * scale };
 }
 
-// ══ BLOOD ════════════════════════════════════════════════════════════════════════════════
-// Every fight leaves a mark. This is a separate layer rather than something baked into the monster art
-// because the renderer needs to put blood on BOTH sides of a swing, keep a pool under a corpse for the rest
-// of the chapter, and lay dried splatter on road the player has already walked.
-//
-// Determinism is not optional here: the whole game replays from two block hashes, so a splatter has to be a
-// pure function of (seed, kind, frame, amount). `seed` is the caller's — a step index, a run id, anything —
-// and is run through an integer hash so consecutive seeds do not produce near-identical sprays.
-const BLOOD_W = MON_W;
-const BLOOD_H = MON_H;
-export { MON_W_N as BLOOD_W, MON_H_N as BLOOD_H };
+// ══ GORE ═════════════════════════════════════════════════════════════════════════════════
+// Blood is animation, not decoration: a fight whose cost is invisible does not read as a fight. All of it
+// is seed-folded through ihash so a given wound always bleeds the same way on every screen.
+
 export const BLOOD_KINDS = ["hit", "spurt", "pool", "splatter", "gib", "mist"];
-// frames per kind; a caller that runs past the end just gets the last frame (spray gone, pool full grown)
 export const BLOOD_FRAMES = { hit: 5, spurt: 7, pool: 6, splatter: 1, gib: 8, mist: 6 };
+const GORE = ramp("#2a040a", "#5e0a14", "#a01020", "#d63838", "#ff7a6a");
+const GORE_DRY = ramp("#180507", "#3a1012", "#5a1a1c", "#7a2a26", "#96453a");
 
-// One ramp, shaped like a MATERIAL, so blood shades with the same four stops as everything else. Arterial
-// red is deliberately dark at the base and hot only on the lit edge — a flat bright red on a pixel grid
-// reads as a UI element, not as fluid.
-const BLOOD_RED = { base: "#a01020", shade: "#5e0a14", light: "#e0303c", line: "#2a040a" };
-const BLOOD_DRY = { base: "#5a1a1c", shade: "#3a1012", light: "#7a2a26", line: "#1a0708" };
-const GORE      = { base: "#8c2b3a", shade: "#54121d", light: "#c05464", line: "#250509" }; // meat/entrails
-
-/** integer hash — the deterministic stand-in for Math.random, which must never appear in this file */
-function hash32(n) {
-  let a = (n | 0) ^ 0x9e3779b9;
-  a = (a ^ (a >>> 16)) | 0;
-  a = Math.imul(a, 0x21f0aaad);
-  a = (a ^ (a >>> 15)) | 0;
-  a = Math.imul(a, 0x735a2d97);
-  return ((a ^ (a >>> 15)) >>> 0);
-}
-
-/** the layer itself, against an already-configured pen — so the corpse and fatality code can bleed into
- *  their own frame without a second canvas. o = { frame, amount, seed, cx, cy } in frame-local pixels. */
-function drawBloodInto(p, kind, o = {}) {
-  // clamped, not wrapped: a caller that keeps counting past the end gets the settled state (spray landed,
-  // pool full) instead of droplets sailing off the top of the frame forever
-  const f = Math.max(0, Math.min((BLOOD_FRAMES[kind] || 1) - 1, o.frame | 0));
-  const amount = Math.max(1, o.amount | 0 || 1);
-  const seed = o.seed | 0;
-  const cx = o.cx == null ? MON_CX : o.cx | 0;
-  const gy = MON_GROUND_Y;
-
-  if (kind === "pool") { // grows for BLOOD_FRAMES.pool frames, then holds: a corpse keeps bleeding a while
-    const g = Math.min(BLOOD_FRAMES.pool - 1, f);
-    const w = Math.min(34, 5 + amount + g * 3);
-    const h = Math.max(2, 2 + (g >> 1) + (amount > 8 ? 1 : 0));
-    const x = cx - (w >> 1), y = gy - h + 1;
-    for (const [rx, ry, rw] of rowsOf(x, y, w, h, 1)) {
-      p.raw(rx - 1, ry, rw + 2, 1, BLOOD_RED.line);
-      p.raw(rx, ry, rw, 1, ry === y ? BLOOD_RED.base : BLOOD_RED.shade);
-    }
-    p.raw(x + 2, y, Math.max(1, w >> 2), 1, BLOOD_RED.light);       // the one specular streak
-    p.dither(x - 2, y - 1, w + 4, h + 1, BLOOD_RED.shade, g & 1);   // ragged edge, dither instead of alpha
-    return;
-  }
-
-  if (kind === "splatter") { // dried, static, laid down once — this is road you have already fought over
-    const n = Math.min(40, 6 + amount * 3);
-    for (let i = 0; i < n; i++) {
-      const r = hash32(seed * 2654435761 + i);
-      const dx = ((r % 31) | 0) - 15;
-      const dy = ((r >> 6) % 3) | 0;
-      const big = ((r >> 11) & 7) === 0;
-      p.raw(cx + dx, gy - dy, big ? 2 : 1, 1, big ? BLOOD_DRY.base : BLOOD_DRY.shade);
-      if (big) p.raw(cx + dx, gy - dy, 1, 1, BLOOD_DRY.light);
-    }
-    return;
-  }
-
-  if (kind === "mist") { // a fine arterial cloud that BLOOMS out of the wound and thins as it drifts up —
-    // the after-image of a killing blow. Density falls with the frame so it fades without any alpha channel.
-    const cy = o.cy == null ? MON_FOOT_Y - 13 : o.cy | 0;
-    const spread = 4 + f * 4;                         // widens every frame
-    const rise = f * 2;                               // and lifts
-    const density = Math.max(1, 4 - (f >> 1));        // 1 in `density` pixels lit — thins as it disperses
-    const n = Math.min(90, 20 + amount * 4);
-    for (let i = 0; i < n; i++) {
-      const r = hash32(seed * 0x9e3779b1 + i * 131 + 51);
-      if ((r % density) !== 0) continue;
-      const ang = (r >> 4) % 360;
-      const rad = (r >> 9) % spread;
-      const dx = (((r & 1) ? 1 : -1) * ((ang * rad) % (spread + 1))) % (spread + 3);
-      const dy = -((rad >> 1)) - rise + (((r >> 12) & 1));
-      const px0 = cx + dx, py = cy + dy;
-      if (py < 0 || py >= MON_FOOT_Y) continue;
-      const hot = (r >> 3) & 3;
-      p.px(px0, py, 1, 1, hot === 0 ? BLOOD_RED.light : hot === 1 ? GORE.base : BLOOD_RED.base);
-    }
-    return;
-  }
-
-  if (kind === "gib") { // CHUNKS. Meat and bone torn loose on a heavy kill: fat 2×2/3×2 gobbets that arc
-    // out, TUMBLE (they flip colour every frame so they read as spinning), fall under the same integer
-    // gravity as a droplet, and SLAP down into a lasting smear. This is the "absolutely brutal" layer.
-    const cy = o.cy == null ? MON_FOOT_Y - 12 : o.cy | 0;
-    const n = Math.min(18, 4 + amount);
-    for (let i = 0; i < n; i++) {
-      const r = hash32(seed * 2246822519 + i * 61 + 13);
-      const back = ((r >> 2) & 3) === 0;
-      const vx = (2 + (r % 4)) * (back ? -1 : 1);
-      const vy = -2 - ((r >> 5) % 3);
-      const t = f - (((r >> 8) % 2) | 0);
-      if (t < 0) continue;
-      const dx = vx * t, dy = vy * t + ((t * (t + 1)) >> 1);
-      const gx0 = cx + dx, gyp = cy + dy;
-      const big = (r >> 11) & 1;                       // some bone-white, most meat
-      const bw = big ? 3 : 2, bh = 2;
-      if (gyp >= MON_FOOT_Y) {                         // landed: a torn smear that stays on the road
-        p.raw(gx0 - 1, gy, bw + 1, 1, GORE.shade);
-        p.raw(gx0, gy, bw, 1, GORE.base);
-        if (big) p.px(gx0, gy, 1, 1, BLOOD_RED.light);
-        continue;
+function bloodInto(g, kind, f, seed, amount, cx2 = MCX, cy2 = 52) {
+  const n = Math.max(3, Math.min(32, (amount | 0) * 3 + 6));
+  const s0 = ihash(seed | 0);
+  switch (kind) {
+    case "hit": {          // a burst: FAT droplets thrown out hard, streaks where they tore loose
+      for (let k = 0; k < n; k++) {
+        const h = ihash(s0 + k * 71);
+        const vx = ((h & 15) - 7), vy = -(((h >> 4) & 7) + 2);
+        const px = cx2 + Math.round(vx * (f + 1) * 0.8);
+        const py = Math.min(FY, cy2 + vy * (f + 1) + f * f);
+        const sz = 1 + ((h >> 8) & 1) + ((h >> 10) & 1);       // 1..3px — blood has WEIGHT now
+        g.r(px, py, sz, sz, (h & 2) ? GORE.m : GORE.d);
+        if (sz > 1) g.r(px, py, 1, 1, GORE.l);
       }
-      const tumble = (t & 1);                          // flip lit/shade each frame → it spins
-      p.raw(gx0 - 1, gyp, bw + 2, bh, GORE.line);      // dark outline so a chunk reads against a monster
-      p.raw(gx0, gyp, bw, bh, tumble ? GORE.base : GORE.shade);
-      p.px(gx0 + (tumble ? 0 : bw - 1), gyp, 1, 1, big ? "#d8c4b0" : GORE.light); // bone glint / wet highlight
-      // a thin blood tail off the trailing edge — a chunk with a streak reads as flung, not floating
-      p.px(gx0 - Math.sign(vx), gyp + 1, 1, 1, BLOOD_RED.shade);
-    }
-    if (f >= 2) drawBloodInto(p, "mist", { frame: f - 2, amount: (amount >> 1) + 1, seed: seed ^ 0x5bd1, cx, cy });
-    return;
-  }
-
-  // "hit" and "spurt" are the same ballistics with different volume: droplets launched from one point and
-  // pulled down by an integer gravity, so frame N is a POSITION, not a random re-roll. A droplet that
-  // reaches the ground stops being a droplet and becomes a mark, which is what makes the road accumulate.
-  const heavy = kind === "spurt";
-  const cy = o.cy == null ? MON_FOOT_Y - 12 : o.cy | 0;
-  const n = Math.min(heavy ? 52 : 34, (heavy ? 14 : 8) + amount * (heavy ? 3 : 2));
-  const life = heavy ? BLOOD_FRAMES.spurt : BLOOD_FRAMES.hit;
-  if (f === 0) { // the impact itself: a hard star, one frame only. Without it the spray has no cause.
-    p.px(cx - 3, cy, 7, 1, BLOOD_RED.light);
-    p.px(cx, cy - 3, 1, 7, BLOOD_RED.light);
-    p.px(cx - 1, cy - 1, 3, 3, BLOOD_RED.base);
-  }
-  for (let i = 0; i < n; i++) {
-    const r = hash32(seed * 40503 + i * 97 + (heavy ? 7919 : 0));
-    const back = ((r >> 3) & 3) === 0;              // a quarter of it sprays back past the swing
-    const vx = (1 + (r % (heavy ? 4 : 3))) * (back ? -1 : 1);
-    const vy = -1 - ((r >> 5) % 3);                 // kept low on purpose: a wide slow scatter reads as
-                                                    // confetti, a tight fast one reads as blood
-    const t = f - (((r >> 9) % 2) | 0);             // stagger the launch by a frame so it is not one wall
-    if (t < 0) continue;
-    const dx = vx * t, dy = vy * t + ((t * (t + 1)) >> 1); // integer parabola: v*t + t(t+1)/2
-    const px0 = cx + dx, py = cy + dy;
-    if (py >= MON_FOOT_Y) { p.raw(px0, gy, 1 + (i & 1), 1, BLOOD_RED.shade); continue; } // landed: a mark
-    const big = heavy && (i & 3) === 0;
-    // a droplet plus the pixel it was at last frame: a bead with a tail reads as flying, a loose bead
-    // reads as confetti
-    p.px(px0 - Math.sign(vx), py - vy - t + 1, 1, 1, BLOOD_RED.shade);
-    p.px(px0, py, big ? 2 : 1, big ? 2 : 1, t > 2 ? BLOOD_RED.base : BLOOD_RED.light);
-  }
-  if (heavy) { // the jet: three arcs of beads out of the wound, lengthening while the heart still works
-    for (let j = 0; j < 3; j++) {
-      const len = Math.min(10, 3 + f * 2 - j);
-      for (let i = 0; i < len; i++) { // out of the wound, UP first and then falling: the arc is the read
-        const bx = cx - i * 2 - j, by = cy - i - j + (((i + j) * (i + j)) / 3 | 0);
-        if (by >= MON_FOOT_Y) { p.raw(bx, MON_GROUND_Y, 2, 1, BLOOD_RED.shade); continue; }
-        p.px(bx, by, 2, 1, i < 3 ? BLOOD_RED.light : BLOOD_RED.base);
+      for (let k = 0; k < 3; k++) {                            // tear streaks off the wound itself
+        const h = ihash(s0 + 411 + k * 59);
+        g.seg(cx2, cy2, cx2 + ((h & 15) - 7) * (1 + (f >> 1)), cy2 - 4 - (h >> 4 & 7) + f * 2, 1,
+              k ? GORE.d : GORE.m);
       }
+      if (f >= 2) for (let k = 0; k < n; k++) {                // the rain reaching the road
+        const h = ihash(s0 + 977 + k * 37);
+        g.r(cx2 - 16 + (h & 31), FY - ((h >> 5) & 1), 2 + (h >> 9 & 1), 1, GORE.d);
+      }
+      break;
     }
-    if (f >= 3) drawBloodInto(p, "pool", { frame: f - 3, amount, seed, cx });
-  } else if (f >= life - 2) {
-    p.dither(cx - 6, gy - 2, 13, 3, BLOOD_RED.shade, f & 1);        // the last of it hitting the dirt
+    case "spurt": {        // ARTERIAL: a thick rope of it, beads breaking off, raining down-left
+      for (let t2 = 0; t2 <= f * 2 + 2; t2++) {                // the rope itself, 2px thick
+        const px = cx2 - Math.round(t2 * 2.2);
+        const py = Math.round(cy2 - t2 * 1.6 + t2 * t2 * 0.16);
+        if (py > FY) break;
+        g.r(px, py, 2, 2, GORE.m);
+        if (!(t2 & 3)) g.r(px, py, 1, 1, GORE.l);
+      }
+      for (let k = 0; k < n; k++) {                            // beads flung off the rope
+        const h = ihash(s0 + k * 53);
+        const t2 = (f + (k & 3)) * 1.1;
+        const px = cx2 - Math.round((3 + (h & 7)) * t2 * 0.8);
+        const py = Math.round(cy2 - (6 + ((h >> 3) & 7)) * t2 * 0.5 + t2 * t2);
+        if (py > FY) continue;
+        g.r(px, py, 1 + ((h >> 7) & 1), 1 + ((h >> 6) & 1), (h & 2) ? GORE.m : GORE.l);
+      }
+      g.r(cx2 - 3, cy2 - 2, 5, 4, GORE.d);                     // the wound, an open dark mouth
+      g.r(cx2 - 2, cy2 - 1, 3, 2, GORE.m);
+      break;
+    }
+    case "pool": {         // the ground REMEMBERS: wide, wet, rimmed, and it dries from the edges
+      const w = Math.min(58, 14 + f * 8 + (amount | 0) * 3);
+      for (let j = 0; j < 5; j++) {                            // five rows of it, irregular-edged
+        const notch = ((s0 >> (j * 3)) & 3) + ((j === 0 || j === 4) ? 6 : 0);
+        const ww = w - notch - j * 3;
+        if (ww <= 0) continue;
+        const ox = ((s0 >> (j * 5)) & 3) - 1;
+        g.r(cx2 - (ww >> 1) + ox, FY - 2 + j, ww, 1, j <= 1 ? GORE.d : j === 2 ? GORE.m : GORE.d);
+      }
+      g.r(cx2 - (w >> 2), FY, Math.max(3, w >> 2), 1, GORE.m); // the wet heart of it
+      g.r(cx2 - (w >> 3), FY, Math.max(2, w >> 3), 1, GORE.l); // gloss — still fresh enough to shine
+      for (let k = 0; k < 4; k++) {                            // fingers running along the ruts
+        const h = ihash(s0 + 555 + k * 43);
+        g.r(cx2 - (w >> 1) - 3 - (h & 3), FY - 1 + (k & 1) * 2, 3 + (h >> 4 & 3), 1, GORE.d);
+      }
+      if (f >= 4) { g.r(cx2 - (w >> 1) - 2, FY + 2, 3, 1, GORE_DRY.m); g.r(cx2 + (w >> 1) - 2, FY - 2, 3, 1, GORE_DRY.m); }
+      break;
+    }
+    case "splatter": {     // what a passer-by finds later: flecks, smears, a drag mark
+      for (let k = 0; k < n + 8; k++) {
+        const h = ihash(s0 + k * 29);
+        const px = cx2 - 24 + (h & 47), py = FY - ((h >> 6) & 3);
+        g.r(px, py, 1 + ((h >> 8) & 3), 1 + ((h >> 10) & 1), (h & 4) ? GORE_DRY.m : GORE_DRY.l);
+      }
+      g.seg(cx2 - 12, FY - 2, cx2 + 8, FY, 2, GORE_DRY.d);     // the drag
+      g.seg(cx2 - 2, FY - 1, cx2 + 14, FY - 3, 1, GORE_DRY.m);
+      break;
+    }
+    case "gib": {          // the PIECES — meat with bone in it, and they land somewhere
+      for (let k = 0; k < Math.min(8, 3 + (amount >> 1)); k++) {
+        const h = ihash(s0 + k * 101);
+        const vx = ((h & 15) - 7), vy = -(((h >> 4) & 3) + 4);
+        const px = cx2 + Math.round(vx * (f + 1) * 0.7);
+        const py = Math.min(FY - 1, cy2 + vy * (f + 1) * 0.6 + ((f * f) >> 1));
+        const sz = 3 + ((h >> 9) & 3);                          // 3..6px chunks
+        g.r(px - 1, py - 1, sz + 2, sz + 2, GORE.o);
+        g.r(px, py, sz, sz, GORE.m);
+        g.r(px, py, 2, 1, GORE.l);
+        if ((h >> 11) & 1) g.r(px + 1, py + 1, 2, 1, "#cfc4a8"); // the bone in it
+        if (f > 1) g.seg(px + (vx > 0 ? -3 : 3), py - 3, px, py, 1, GORE.d);   // its trail
+        if (py >= FY - 2) g.r(px - 2, FY, sz + 4, 1, GORE.d);    // the smear where it landed
+      }
+      if (f >= 3) bloodInto(g, "pool", f - 2, seed + 5, amount, cx2);
+      break;
+    }
+    case "mist": {         // the red breath that hangs after a heavy blow — three layers deep now
+      const rise = f * 3;
+      g.d(cx2 - 12 - f, cy2 - 6 - rise, 24 + f * 2, 9, GORE.d, f);
+      g.d(cx2 - 8 - f, cy2 - 10 - rise, 18 + f * 2, 7, GORE.m, f + 1);
+      g.d(cx2 - 4, cy2 - 13 - rise, 10 + f, 4, GORE.l, f);
+      break;
+    }
   }
 }
 
-/**
- * Blood, with its TOP-LEFT CORNER at (x, y) in a BLOOD_W × BLOOD_H box that matches the monster/prop box —
- * the ground line is row MON_GROUND_Y, the same one the sprites stand on, so a caller that already places
- * monsters places blood with the identical maths.
- *
- * opts = {
- *   kind:   "hit"     — a blow lands: burst star + a spray that ARCS AND FALLS   (frames 0..4)
- *           "spurt"   — arterial, for a kill: heavier spray + jet + a pool forms (frames 0..6)
- *           "pool"    — a puddle that GROWS under a corpse and then holds        (frames 0..5)
- *           "splatter"— dried marks left on ground already fought over           (static, frame ignored)
- *   frame:  int, clamped to the kind's length (see BLOOD_FRAMES)
- *   amount: int ≥ 1 — volume. A 16-foe pull should pass ~16 and visibly bleed more than a lone grunt.
- *   seed:   int — same seed ⇒ same splatter, forever. Derive it from the step/run so a replay matches.
- *   scale:  int ≥ 1, facing: 1|-1 (mirrors the spray direction)
- *   cx, cy: optional wound position in frame pixels (defaults: centre, chest height)
- * }
- * Returns { w, h } in device pixels.
- */
+/** Blood in the shared 96-box. opts = { kind, frame, scale, facing, seed, amount }. */
 export function drawBlood(ctx, x, y, opts = {}) {
-  const kind = typeof opts.kind === "number" ? BLOOD_KINDS[opts.kind] : (opts.kind || "hit");
-  if (!BLOOD_KINDS.includes(kind)) return { w: 0, h: 0 };
+  const kind = BLOOD_KINDS.includes(opts.kind) ? opts.kind : "hit";
   const scale = Math.max(1, opts.scale | 0 || 1);
+  const f = Math.max(0, Math.min((BLOOD_FRAMES[kind] || 5) - 1, opts.frame | 0));
   ctx.imageSmoothingEnabled = false;
-  const p = pen(ctx, x, y, scale, opts.facing === -1 ? -1 : 1, false, null, BLOOD_W, BLOOD_H);
-  // public cx/cy are NATIVE frame pixels (the exported box); the painter itself works on the authored grid
-  drawBloodInto(p, kind, {
-    ...opts,
-    cx: opts.cx == null ? null : Math.round(opts.cx / HR),
-    cy: opts.cy == null ? null : Math.round(opts.cy / HR),
-  });
-  return { w: MON_W_N * scale, h: MON_H_N * scale };
+  const g = stylus(ctx, x, y, scale, opts.facing === -1, MW, MH, null, null);
+  bloodInto(g, kind, f, opts.seed | 0, opts.amount == null ? 5 : opts.amount | 0);
+  return { w: MW * scale, h: MH * scale };
 }
 
 // ══ FATALITIES ═══════════════════════════════════════════════════════════════════════════
-// When the hero dies the chapter is over, so the death gets the budget: six Mortal-Kombat-style finishers,
-// picked deterministically by the caller (`which`) from the run, so a given death always replays identically.
-//
-// These are NOT effects pasted over a corpse. Each one re-uses the SAME gear-composed warrior painter as
-// drawWarrior, through a pen that is offset and CLIPPED to a body part — so a decapitated head is still
-// wearing your tier-7 helm, the severed arm is still holding your sword, and the ash pile still has your
-// gold cuirass in it. Throwing the build away at the moment of death would throw away the whole point of
-// composing the sprite from the build.
-//
-// Frame convention: frames run 0 → frames-1 for the fatality you selected; the LAST frame is the resting
-// corpse and is safe to hold indefinitely. Frames past the end clamp to it.
-const FAT_W = MON_W;
-const FAT_H = MON_H;
-export { MON_W_N as FAT_W, MON_H_N as FAT_H };
-const FAT_DX = 9, FAT_DY = 15; // where the 32×32 warrior cell sits inside the 48×48 gore frame: this maps
-                               // his FOOT_Y/GROUND_Y onto MON_FOOT_Y/MON_GROUND_Y and his CX onto MON_CX,
-                               // so warrior art, monster art and blood all share one ground line.
+// The march ends ONE way per seed, staged in the same 96-box the killer stands in. Each finisher paints
+// the wayfarer's OWN composed gear through a row band of the figure — the head that comes off is wearing
+// your helm — so no death ever costs a pixel of new warrior art.
+
 export const FATALITIES = [
-  { name: "decapitation", frames: 8 }, // 0 head off, fountain, body folds
-  { name: "bisection",    frames: 8 }, // 1 cut at the waist, top half slides off
-  { name: "impalement",   frames: 9 }, // 2 spike erupts, body rides it down
-  { name: "immolation",   frames: 9 }, // 3 burns to a skeleton, then to ash
-  { name: "dismember",    frames: 8 }, // 4 torn apart, limbs thrown
-  { name: "crushed",      frames: 8 }, // 5 flattened from above
+  { name: "sundered", frames: 8 },   // the head taken clean
+  { name: "riven",    frames: 8 },   // split at the waist
+  { name: "spitted",  frames: 8 },   // lifted on a spear
+  { name: "ashen",    frames: 9 },   // burnt standing
+  { name: "rent",     frames: 8 },   // pulled apart
+  { name: "buried",   frames: 8 },   // the rock wins
 ];
 
-// body-part row bands in the warrior's authored coordinates (head 5-11, torso 12-20, legs 21-31)
-const CLIP_HEAD = { y0: 0, y1: 11 };
-const CLIP_TOP = { y0: 0, y1: 20 };
-const CLIP_TORSO = { y0: 12, y1: 20 };
-const CLIP_LEGS = { y0: 21, y1: 31 };
-const CHAR = (c) => mix(c, "#1b1216", 0.72);   // burnt
-const COLD = (c) => mix(c, "#2b2430", 0.45);   // dead (the same map drawWarrior uses)
-const HELM_ONLY = (gear) => [0, gear[1] | 0, 0, 0, 0, 0]; // paint just the head+helm through the clip
-const WEAP_ONLY = (gear) => [gear[0] | 0, 0, 0, 0, 0, 0];
+const FAT_DX = 16, FAT_DY = 29;      // the 64-cell in the 96-box: warrior ground row 60 lands on FY 89
 
-/** one warrior part: the shared painter, offset by (dx,dy) and clipped to a body band. `dx` is mirrored with
- *  facing so a head thrown "forward" goes forward whichever way the hero faces. */
-// A part drawn ROTATED lands on its side: the pen's 90° remap puts it in sub-frame rows ~19..32, so it has
-// to be lifted, or the bottom of the gore frame eats it and the fallen half ends up half-buried in the road.
-const FAT_ROT_LIFT = -3;
-
-function fatPart(ctx, x, y, scale, facing, gear, ps, frame, dx, dy, clip, recolor, rot) {
-  const ox = FAT_DX + (facing < 0 ? -dx : dx), oy = FAT_DY + dy + (rot ? FAT_ROT_LIFT : 0);
-  const bound = {
-    x0: Math.max(0, -ox), y0: Math.max(0, -oy),
-    x1: Math.min(FRAME_W, FAT_W - ox), y1: Math.min(FRAME_H, FAT_H - oy),
-  };
-  // ox/oy are authored offsets inside the gore frame → HR native px each → HR*scale device px
-  const p = pen(ctx, x + ox * HR * scale, y + oy * HR * scale, scale, facing, !!rot, recolor || null,
-                FRAME_W, FRAME_H, clip || null, bound);
-  paintWarrior(p, gear, ps, frame, facing);
+/** one body part: the composed warrior, band-clipped, shifted, optionally recoloured — and CAGED in the
+ *  96-box, so a part thrown clear still lands inside the frame it was thrown in */
+function fatPart(ctx, x, y, scale, gear, ps, f, dx, dy, band, map) {
+  const ox = FAT_DX + dx, oy = FAT_DY + dy;
+  // caged sideways by the box, and DOWNWARD by the road itself: a thrown part stops on the ground line,
+  // never in the shadow band under it
+  const g = stylus(ctx, x + ox * scale, y + oy * scale, scale, false,
+                   Math.min(FRAME_W, MW - ox), Math.min(FRAME_H, MGROUND + 1 - oy), map, band,
+                   Math.max(0, -ox), Math.max(0, -oy));
+  g.fx = false;                       // no affix glitter on the dying
+  paintWayfarer(g, gear, ps, f & 3);
 }
 
-const STAND = POSES.walk[0];
-const SLUMP = POSES.walk[1];
-const LUNGE = POSES.attack[2];
+const FAT_FNS = [
+  function sundered(ctx, x, y, s, gear, f, g) {
+    const body = W_POSES.hit;
+    const lean = Math.min(10, f * 2);                        // the body leans into its fall…
+    const sink = f < 4 ? 0 : (f - 3) * 7;                    // …then goes down
+    fatPart(ctx, x, y, s, gear, body, f, lean >> 1, sink, { y0: 18, y1: 63 }, f >= 6 ? CHILL : null);
+    // the head, arcing away behind him, helm still on — up, over, and DOWN to the dirt
+    const hdx = -4 - f * 4;
+    const hdy = f < 3 ? -10 - f * 5 + f * f : Math.min(44, -16 + (f - 2) * 12);
+    fatPart(ctx, x, y, s, gear, body, f, hdx, hdy, HEAD_BAND, f >= 5 ? CHILL : null);
+    bloodInto(g, "spurt", Math.min(6, f), 11, 8, MCX + 2 + (lean >> 1), FY - 42 + sink);
+    if (f >= 3) bloodInto(g, "pool", Math.min(5, f - 3), 12, 7, MCX - 6);
+  },
+  function riven(ctx, x, y, s, gear, f, g) {
+    const legsSink = f < 3 ? 0 : Math.min(14, (f - 2) * 5);  // the legs learn the news slowly
+    fatPart(ctx, x, y, s, gear, W_POSES.walk[0], f, 0, legsSink, LEGS_BAND, f >= 5 ? CHILL : null);
+    const tdx = -2 - f * 3, tdy = f < 4 ? f * 5 : 20 + (f - 4) * 2;   // the top half goes first
+    fatPart(ctx, x, y, s, gear, W_POSES.hit, f, tdx, Math.min(26, tdy), { y0: 0, y1: 37 },
+            f >= 5 ? CHILL : null);
+    bloodInto(g, "gib", Math.min(7, f), 21, 6, MCX - 2, FY - 22);
+    if (f >= 2) bloodInto(g, "pool", Math.min(5, f - 2), 22, 9, MCX - 4);
+  },
+  function spitted(ctx, x, y, s, gear, f, g) {
+    const lift = f < 3 ? f * 7 : Math.max(0, 21 - (f - 3) * 7);      // up the shaft, then sliding down
+    // the spear itself, angled in from the right, planted
+    g.seg(MCX + 34, FY - 2, MCX - 10, FY - 44, 2, P_WOOD.o);
+    g.seg(MCX + 33, FY - 2, MCX - 10, FY - 43, 1, P_WOOD.m);
+    g.taper(MCX - 12, FY - 48, -1, -1, 6, 3, AS_REV);
+    fatPart(ctx, x, y, s, gear, W_POSES.hit, f, -2, -lift + (f >= 6 ? (f - 5) * 6 : 0), null,
+            f >= 6 ? CHILL : null);
+    bloodInto(g, "hit", Math.min(4, f), 31, 6, MCX - 2, FY - 30 + (f >= 6 ? 8 : -lift));
+    if (f >= 3) bloodInto(g, "pool", Math.min(5, f - 3), 32, 8, MCX + 2);
+  },
+  function ashen(ctx, x, y, s, gear, f, g) {
+    if (f < 6) {
+      const burn = (c) => tint(c, "#120c0a", Math.min(0.85, f * 0.16));
+      fatPart(ctx, x, y, s, gear, W_POSES.hit, f, 0, 0, null, burn);
+      for (let i = 0; i < 30; i += 3) {                       // the fire climbing him
+        const t = [3, 7, 4, 9, 5, 8, 3, 6, 4, 7][((i / 3) | 0 + f) % 10];
+        g.r(MCX - 14 + i, FY - 4 - t - f, 2, t, P_EMBER[(i + f) & 3]);
+        g.r(MCX - 14 + i, FY - 4 - t - f, 1, 1, "#fff3b0");
+      }
+      g.d(MCX - 10, FY - 52 - f * 2, 20, 5, "#3c3128", f);
+    } else {                                                   // what a fire leaves
+      g.rows(MCX - 16, FY - 5, [[3, 26], [0, 32], [1, 30], [4, 24]], ramp("#0c0a08", "#231d16", "#3a3128", "#544a3c", "#746856"));
+      for (let k = 0; k < 5; k++) {
+        const h = ihash(41 + k * 17);
+        g.r(MCX - 12 + (h & 23), FY - 4 - ((h >> 5) & 1), 1, 1, P_EMBER[(k + f) & 3]);
+      }
+      g.d(MCX - 8, FY - 20 - (f - 6) * 4, 14, 4, "#3c3128", f);
+      const wM = unpackItem(gear[0] | 0);                      // the blade survives the man
+      if (wM) { g.seg(MCX + 8, FY - 3, MCX + 20, FY - 6, 1, MATERIALS[wM.mat].m); g.r(MCX + 19, FY - 6, 1, 1, MATERIALS[wM.mat].s); }
+    }
+  },
+  function rent(ctx, x, y, s, gear, f, g) {
+    const sep = Math.min(20, 3 + f * 3);                       // the two halves part company
+    fatPart(ctx, x, y, s, gear, W_POSES.hit, f, -sep, f < 4 ? f * 3 : 12 + (f - 4) * 4, { y0: 0, y1: 37 },
+            f >= 5 ? CHILL : null);
+    fatPart(ctx, x, y, s, gear, W_POSES.walk[2], f, sep, f < 3 ? f * 2 : 6 + (f - 3) * 5, LEGS_BAND,
+            f >= 5 ? CHILL : null);
+    bloodInto(g, "gib", Math.min(7, f), 51, 8, MCX, FY - 26);
+    bloodInto(g, "mist", Math.min(5, f), 52, 5, MCX, FY - 20);
+    if (f >= 2) bloodInto(g, "pool", Math.min(5, f - 2), 53, 10, MCX);
+  },
+  function buried(ctx, x, y, s, gear, f, g) {
+    if (f === 0) fatPart(ctx, x, y, s, gear, W_POSES.hit, f, 0, 0, null, null);
+    if (f === 1) {                                             // the shadow arrives first
+      fatPart(ctx, x, y, s, gear, W_POSES.hit, f, 0, 0, null, null);
+      for (let i = 0; i < 28; i += 2) g.r(MCX - 14 + i, FY - 1, 1, 1, "#0a0810");
+      g.rows(MCX - 14, 2, [[3, 22], [1, 26], [0, 28], [1, 26]], P_STONE);
+    }
+    if (f >= 2) {                                              // the rock, arrived
+      const drop = Math.min(0, -40 + f * 20);
+      const ry = FY - 34 + (f === 2 ? -6 : 0) + (drop < 0 ? drop : 0);
+      g.rows(MCX - 17, ry, Array.from({ length: 34 }, (_, j) => {
+        const rr = Math.min(j, 33 - j);
+        const ins = rr === 0 ? 8 : rr === 1 ? 4 : rr === 2 ? 2 : rr === 3 ? 1 : 0;
+        return [ins, 34 - ins * 2];
+      }), P_STONE);
+      g.r(MCX - 10, ry + 3, 12, 4, P_STONE.l);
+      g.r(MCX - 2, ry + 20, 12, 8, P_STONE.d);
+      // what remains visible of the wayfarer
+      const bM = unpackItem(gear[2] | 0);
+      g.tube(MCX - 20, FY - 4, MCX - 26, FY - 1, 3, bM ? MATERIALS[bM.mat] : WOOL);
+      g.r(MCX - 29, FY - 3, 4, 3, SKIN.m);                     // the reaching hand
+      g.r(MCX + 16, FY - 3, 6, 3, bM ? MATERIALS[bM.mat].d : WOOL.d);   // one boot
+      if (f === 2) for (let k = 0; k < 6; k++) {               // the impact ring
+        const h = ihash(61 + k * 13);
+        g.r(MCX - 24 + (h & 47), FY - 5 - ((h >> 6) & 3), 2, 2, P_STONE.m);
+      }
+      bloodInto(g, f === 2 ? "hit" : "pool", Math.min(5, f - 2), 62, 8, MCX - 12, FY - 6);
+      if (f >= 3) g.d(MCX - 20, FY - 44 + (f - 3) * 3, 40, 4, "#544a3c", f);   // settling dust
+    }
+  },
+];
 
-/** a bone pile / skeleton, authored: at 24 px a "skeleton" is a skull, a ribcage and two sticks */
-function skeleton(p, x, y, ribs = 4) {
-  const B = { base: "#e8e2cc", shade: "#a89f84", light: "#ffffff", line: "#3a3423" };
-  mass(p, x, y, 7, 7, B, 1);                       // skull
-  p.px(x + 1, y + 2, 2, 2, "#1a1510");             // sockets
-  p.px(x + 4, y + 2, 2, 2, "#1a1510");
-  p.px(x + 2, y + 5, 3, 1, "#1a1510");             // jaw
-  p.px(x + 3, y + 7, 2, 2, B.shade);               // neck
-  for (let i = 0; i < ribs; i++) {                 // ribcage, widening down the chest
-    const w = 7 + (i < 2 ? i : ribs - 1 - i);
-    p.px(x - ((w - 7) >> 1), y + 9 + i * 2, w, 1, B.base);
-    p.px(x - ((w - 7) >> 1), y + 9 + i * 2, 1, 1, B.light);
-  }
-  p.px(x + 3, y + 9, 1, ribs * 2, B.light);        // spine
-  if (ribs > 2) {                                  // arm bones hanging off the shoulders
-    p.limb(x, y + 9, x - 2, y + 9 + ribs * 2, 1, B.shade);
-    p.limb(x + 6, y + 9, x + 8, y + 9 + ribs * 2, 1, B.shade);
-  }
-}
-
-function fatDecap(ctx, x, y, s, fc, gear, f, gp) {
-  // head arc: hand-picked positions, and the head TUMBLES by flipping its own facing every other frame —
-  // free rotation for a sprite that has no rotation.
-  const HX = [0, 1, 3, 6, 9, 12, 14, 15], HY = [0, -2, -6, -7, -2, 6, 15, 19];
-  const body = f < 2 ? STAND : SLUMP;
-  const down = f >= 5;                             // from here the body is on the floor
-  if (f >= 4) drawBloodInto(gp, "pool", { frame: f - 4, amount: 10, seed: 11, cx: MON_CX });
-  // the body is ALWAYS clipped below the neck, standing or fallen: dropping the clip once he is down puts
-  // a second (rotated) head on the corpse while the first one is still rolling away
-  fatPart(ctx, x, y, s, fc, gear, down ? POSES.dead : body, 0, down ? 2 : 0, down ? 0 : Math.min(3, f - 2),
-          { y0: 12, y1: 31 }, down ? COLD : null, down);
-  if (!down) { // the stump, and what is coming out of it
-    gp.px(MON_CX - 2, FAT_DY + 11, 5, 2, GORE.base);
-    gp.px(MON_CX - 2, FAT_DY + 11, 5, 1, GORE.light);
-    drawBloodInto(gp, "spurt", { frame: f, amount: 9, seed: 3, cx: MON_CX, cy: FAT_DY + 10 });
-  }
-  fatPart(ctx, x, y, s, f & 1 ? -fc : fc, gear, STAND, 0, HX[f], HY[f], CLIP_HEAD, f >= 6 ? COLD : null);
-  if (f >= 2 && f <= 5) drawBloodInto(gp, "hit", { frame: Math.min(4, f - 2), amount: 4, seed: 5, cx: MON_CX + 4, cy: FAT_DY + 9 });
-}
-
-function fatBisect(ctx, x, y, s, fc, gear, f, gp) {
-  // The top half has to LAND. Slid sideways and left upright it reads as a man stepping out of his own
-  // trousers, so from f4 it goes over onto its side through the pen's rotation — the same 90° remap the
-  // warrior's own death pose uses.
-  const TX = [0, 0, 2, 4, 5, 6, 6, 6], TY = [0, 0, -1, 1, 2, 3, 3, 3];
-  const legDy = [0, 0, 0, 1, 2, 3, 3, 3][f]; // the knees buckle a little; sinking them furtherjust pushes
-  const legDown = f >= 5;                    // them through the frame's bottom edge, so from f5 they TOPPLE
-  const tDown = f >= 4;
-  if (f >= 3) drawBloodInto(gp, "pool", { frame: f - 3, amount: 12, seed: 21, cx: MON_CX + 1 });
-  // legs first: they stand a beat on their own, then fold
-  fatPart(ctx, x, y, s, fc, gear, legDown ? POSES.dead : f < 3 ? STAND : SLUMP, 0, legDown ? -4 : 0,
-          legDown ? 0 : legDy, CLIP_LEGS, f >= 4 ? COLD : null, legDown);
-  if (f >= 1) { // the cut: a bright line first, then meat
-    gp.px(MON_CX - 4, FAT_DY + 20 + legDy, 9, 1, f === 1 ? "#ffe9a8" : GORE.light);
-    gp.px(MON_CX - 4, FAT_DY + 21 + legDy, 9, 1, GORE.shade);
-  }
-  if (f >= 2) { // entrails spilling out of the standing half — this is the fatality's whole read
-    for (let i = 0; i < 6 + f; i++) {
-      const r = hash32(31 * i + f);
-      gp.px(MON_CX - 4 + (r % 9), FAT_DY + 21 + ((r >> 5) % (2 + f)) + legDy, 2, 1, i & 1 ? GORE.base : GORE.shade);
-    }
-    drawBloodInto(gp, "spurt", { frame: Math.min(6, f), amount: 12, seed: 9, cx: MON_CX, cy: FAT_DY + 20 });
-  }
-  fatPart(ctx, x, y, s, fc, gear, f < 3 ? STAND : LUNGE, 0, TX[f], tDown ? 0 : TY[f], CLIP_TOP,
-          f >= 5 ? COLD : null, tDown);
-  if (tDown) { // the sawn edge of the half now lying on the ground
-    gp.px(MON_CX + 2, MON_FOOT_Y - 3, 6, 3, GORE.shade);
-    gp.px(MON_CX + 2, MON_FOOT_Y - 3, 6, 1, GORE.light);
-  }
-}
-
-function fatImpale(ctx, x, y, s, fc, gear, f, gp) {
-  const grow = [0, 4, 12, 20, 26, 26, 26, 26, 26][f]; // tall enough to come out ABOVE the shoulders
-  const bodyDy = [0, 0, -3, -5, -4, -2, 0, 1, 1][f];
-  if (f >= 1) { // the shaft: a tapered stone spike, drawn behind the body so the body sits ON it
-    const top = MON_FOOT_Y - grow;
-    for (let i = 0; i < grow; i++) {
-      const w = 1 + ((i / 5) | 0);
-      gp.px(MON_CX - 1 - (w >> 1), top + i, w + 2, 1, STONE.line);
-      gp.px(MON_CX - (w >> 1), top + i, w, 1, STONE.base);
-      gp.px(MON_CX - (w >> 1), top + i, 1, 1, STONE.light);
-    }
-    horn(gp, MON_CX, top, 0, -1, 3, STONE);
-    for (let i = 2; i < grow - 2; i += 2) gp.px(MON_CX, top + i + (f & 1), 1, 2, BLOOD_RED.base); // runs down
-  }
-  fatPart(ctx, x, y, s, fc, gear, f < 2 ? STAND : SLUMP, 0, 0, bodyDy, null, f >= 5 ? COLD : null);
-  if (f >= 2) { // re-draw the length of shaft that is IN FRONT of him: a spike hidden entirely behind the
-    const top = MON_FOOT_Y - grow;                 // body is just a man crouching in a puddle
-    for (let i = 0; i < 9; i++) {
-      gp.px(MON_CX - 2, top + i, 4, 1, STONE.line);
-      gp.px(MON_CX - 1, top + i, 2, 1, STONE.base);
-      gp.px(MON_CX - 1, top + i, 1, 1, STONE.light);
-      if (i > 2) gp.px(MON_CX - 1, top + i + (f & 1), 1, 2, BLOOD_RED.base);
-    }
-    horn(gp, MON_CX, top, 0, -1, 4, STONE);
-  }
-  if (f >= 2) {
-    gp.px(MON_CX - 2, FAT_DY + 14 + bodyDy, 4, 3, GORE.base);   // where it came through
-    gp.px(MON_CX - 2, FAT_DY + 14 + bodyDy, 4, 1, GORE.light);
-    drawBloodInto(gp, "spurt", { frame: Math.min(6, f - 1), amount: 10, seed: 41, cx: MON_CX, cy: FAT_DY + 15 + bodyDy });
-  }
-  if (f >= 5) drawBloodInto(gp, "pool", { frame: f - 5, amount: 11, seed: 41, cx: MON_CX });
-}
-
-function fatBurn(ctx, x, y, s, fc, gear, f, gp) {
-  // Flames are TONGUES with a hot core, licking up the body's own outline. A dithered orange rectangle laid
-  // over him reads as a checkerboard curtain hung in front of the sprite — the exact failure this file's
-  // no-alpha rule exists to avoid.
-  const lick = (x0, w, base, height, seed) => {
-    for (let i = 0; i < w; i++) {
-      const t = FLAME[(i + f * 3 + seed) % FLAME.length] + height;
-      if (t <= 0) continue;
-      gp.px(x0 + i, base - t, 1, t, FIRE.shade);
-      gp.px(x0 + i, base - t, 1, (t >> 1) + 1, FIRE.base);
-      gp.px(x0 + i, base - t, 1, 1, FIRE.light);
-    }
-  };
-  if (f <= 4) { // burning: he chars through the recolour while the fire climbs him. The pyre is drawn
-    // BEHIND him and only every third column licks over the front, or the fire becomes an orange wall with
-    // a man somewhere behind it — which is not a death, it is a rectangle.
-    lick(MON_CX - 8, 17, MON_FOOT_Y, 1 + f * 2, 0);
-    fatPart(ctx, x, y, s, fc, gear, f < 2 ? STAND : SLUMP, 0, 0, f < 2 ? 0 : 1, null, f < 2 ? null : CHAR);
-    for (let i = 0; i < 6; i++) {                               // tongues in front, spaced out
-      const cxx = MON_CX - 7 + i * 3, t = 2 + FLAME[(i + f * 2) % FLAME.length] + f;
-      gp.px(cxx, MON_FOOT_Y - 6 - t, 1, t, FIRE.base);
-      gp.px(cxx, MON_FOOT_Y - 6 - t, 1, 1, FIRE.light);
-    }
-    if (f >= 3) lick(MON_CX - 6, 13, MON_FOOT_Y - 24, 1, 7);    // and finally over his head
-  } else if (f <= 6) { // the flesh is gone: a skeleton in your helmet, still standing for one beat
-    skeleton(gp, MON_CX - 4, FAT_DY + 8, 5);
-    fatPart(ctx, x, y, s, fc, HELM_ONLY(gear), STAND, 0, 0, 3, CLIP_HEAD, CHAR);
-    lick(MON_CX - 7, 15, MON_FOOT_Y, 6 - (f - 5) * 2, 3);
-  } else { // ash: a mound with the gear still in it, and embers that will not quite go out
-    const w = 19, h = 5;
-    for (const [rx, ry, rw] of rowsOf(MON_CX - (w >> 1), MON_FOOT_Y - h + 1, w, h, 2)) {
-      gp.px(rx - 1, ry, rw + 2, 1, "#221c22");
-      gp.px(rx, ry, rw, 1, "#3a3038");
-      gp.px(rx, ry, 1, 1, "#524650");
-    }
-    skeleton(gp, MON_CX - 4, MON_FOOT_Y - 9, 1);                // a skull and one rib out of the ash
-    fatPart(ctx, x, y, s, fc, HELM_ONLY(gear), STAND, 0, 5, 19, CLIP_HEAD, CHAR); // helm, fallen off it
-    fatPart(ctx, x, y, s, fc, WEAP_ONLY(gear), POSES.dead, 0, -5, 0, null, CHAR, true); // sword, dropped
-    for (let i = 0; i < 7; i++) {
-      const r = hash32(i * 7 + f);
-      gp.px(MON_CX - 8 + (r % 16), MON_FOOT_Y - 1 - ((r >> 4) % 3), 1, 1, (i + f) & 1 ? FIRE.base : FIRE.light);
-      gp.px(MON_CX - 6 + ((r >> 8) % 12), MON_FOOT_Y - 7 - ((r >> 12) % 5) - (f & 1), 1, 1, FIRE.shade);
-    }
-  }
-}
-
-function fatTear(ctx, x, y, s, fc, gear, f, gp) {
-  // Everything leaves at once, in different directions: that spread is the read, so the offsets are picked
-  // to keep the four pieces from ever overlapping.
-  const TX = [0, 0, 2, 4, 6, 7, 8, 8], TY = [0, -1, -4, -6, -3, 2, 0, 0];
-  const HX = [0, -1, -4, -7, -9, -11, -12, -13], HY = [0, -1, -4, -5, -2, 4, 14, 19];
-  const LX = [0, 0, -1, -2, -3, -4, -4, -4], LY = [0, 0, 1, 2, 4, 6, 7, 7];
-  if (f >= 3) {
-    drawBloodInto(gp, "pool", { frame: f - 3, amount: 14, seed: 61, cx: MON_CX });
-    drawBloodInto(gp, "splatter", { amount: 8, seed: 61 });
-  }
-  fatPart(ctx, x, y, s, fc, gear, f < 2 ? STAND : SLUMP, 0, LX[f], LY[f], CLIP_LEGS, f >= 4 ? COLD : null);
-  fatPart(ctx, x, y, s, fc, gear, f < 2 ? STAND : LUNGE, 0, TX[f], TY[f], CLIP_TORSO,
-          f >= 5 ? COLD : null, f >= 6);
-  fatPart(ctx, x, y, s, f & 1 ? -fc : fc, gear, STAND, 0, HX[f], HY[f], CLIP_HEAD, f >= 6 ? COLD : null);
-  if (f >= 1) { // the two arms, authored: they are the only pieces the warrior sprite has no clip band for
-    for (let k = 0; k < 2; k++) { // ARMS, not blocks: a 3×2 rect flying through the air reads as a crate,
-      const ax = MON_CX + (k ? -6 - f * 2 : 5 + f), ay = FAT_DY + 13 - (k ? f : f * 2) + ((f * f) >> 2);
-      const tx = ax + (k ? -4 : 4), ty = ay + (k ? 3 : -2);   // each spins off on its own line
-      gp.limb(ax - 1, ay - 1, tx - 1, ty - 1, 4, SKIN.line);
-      gp.limb(ax, ay, tx, ty, 2, SKIN.base);
-      gp.limb(ax, ay, tx, ty, 1, SKIN.light);
-      gp.px(tx - 1, ty - 1, 3, 3, SKIN.line);                 // the fist on the end of it
-      gp.px(tx, ty, 2, 2, SKIN.base);
-      gp.px(ax, ay, 2, 2, GORE.base);                         // and the torn shoulder end
-    }
-    drawBloodInto(gp, "spurt", { frame: Math.min(6, f), amount: 11, seed: 61, cx: MON_CX, cy: FAT_DY + 14 });
-    drawBloodInto(gp, "hit", { frame: Math.min(4, f), amount: 5, seed: 62, cx: MON_CX + 3, cy: FAT_DY + 10 });
-  }
-}
-
-function fatCrush(ctx, x, y, s, fc, gear, f, gp) {
-  const BLOCK_Y = [-22, -16, -8, 2, 2, 0, -6, -18][f]; // descend, land, sit, lift away
-  const bw = 26, bx = MON_CX - (bw >> 1), by = MON_FOOT_Y - 15 + BLOCK_Y;
-  if (f <= 2) { // he is still alive under a shadow that is getting bigger — the beat before the joke lands
-    fatPart(ctx, x, y, s, fc, gear, f === 0 ? STAND : SLUMP, 0, 0, 0, null, null);
-    // the shadow of the thing above him, spreading. Two rows of checkerboard read as shade; four read as a
-    // texture swatch lying on the road.
-    gp.dither(MON_CX - 8 - f * 2, MON_GROUND_Y - 1, 17 + f * 4, 2, "#0d0a12", f & 1);
-  }
-  if (f === 3) { // impact: blood leaves sideways, because there is nowhere else for it to go
-    drawBloodInto(gp, "hit", { frame: 1, amount: 18, seed: 71, cx: MON_CX - 10, cy: MON_FOOT_Y - 2 });
-    drawBloodInto(gp, "hit", { frame: 1, amount: 18, seed: 72, cx: MON_CX + 10, cy: MON_FOOT_Y - 2 });
-  }
-  if (f >= 3) { // the splat, and the gear that survived the man
-    drawBloodInto(gp, "pool", { frame: f - 3, amount: 20, seed: 71, cx: MON_CX });
-    drawBloodInto(gp, "splatter", { amount: 12, seed: 73 });
-    for (const [rx, ry, rw] of rowsOf(MON_CX - 9, MON_FOOT_Y - 2, 19, 3, 1)) {
-      gp.px(rx, ry, rw, 1, GORE.shade);
-      gp.px(rx, ry, 1, 1, GORE.base);
-    }
-    if (f >= 5) {
-      fatPart(ctx, x, y, s, fc, HELM_ONLY(gear), STAND, 0, -5, 19, CLIP_HEAD, COLD);
-      fatPart(ctx, x, y, s, fc, WEAP_ONLY(gear), POSES.dead, 0, 3, 0, null, COLD, true);
-    }
-  }
-  if (BLOCK_Y > -22) { // the slab itself: studded stone, drawn last so it covers whatever it landed on
-    for (let j = 0; j < 15; j++) {                 // a squared block with a chipped underside — rounded
-      const nick = j > 12 ? ((j * 5 + 3) % 3) : 0; // corners read as a pillow falling on him, not a rock
-      gp.px(bx - 1 + nick, by + j, bw + 2 - nick * 2, 1, STONE.line);
-      gp.px(bx + nick, by + j, bw - nick * 2, 1, j < 2 ? STONE.light : STONE.base);
-      gp.px(bx + nick, by + j, 1, 1, STONE.light);
-      gp.px(bx + bw - 1 - nick, by + j, 1, 1, STONE.shade);
-      if (j % 4 === 2) gp.px(bx + 3 + j, by + j, 2, 1, STONE.shade); // cracks
-    }
-    for (let i = 0; i < 4; i++) { // iron studs on its face
-      gp.px(bx + 4 + i * 6, by + 4, 2, 2, IRON.base);
-      gp.px(bx + 4 + i * 6, by + 4, 2, 1, IRON.light);
-      gp.px(bx + 4 + i * 6, by + 10, 2, 2, IRON.shade);
-    }
-    if (f === 3) for (let i = 0; i < 12; i += 2) gp.raw(MON_CX - 12 + i, MON_GROUND_Y, 2, 1, "#1a1420"); // dust
-  }
-}
-
-const FAT_FN = [fatDecap, fatBisect, fatImpale, fatBurn, fatTear, fatCrush];
-
-/**
- * Draw one frame of a fatality with its TOP-LEFT CORNER at (x, y) in a FAT_W × FAT_H box — the same box and
- * the same ground row (MON_GROUND_Y) as drawMonster/drawProp/drawBlood, so the world renderer converts
- * ground coordinates exactly once for everything it draws.
- *
- * opts = {
- *   which:  index into FATALITIES (wraps). The CALLER derives it deterministically from the run — e.g.
- *           `hash % FATALITIES.length` off the killing block hash — so a death always replays identically.
- *   frame:  0 … FATALITIES[which].frames-1. The last frame is the resting corpse and may be held forever;
- *           anything past the end clamps to it, so a renderer can just keep counting.
- *   scale:  int ≥ 1
- *   facing: 1 (default, hero faces right, the way he marches) | -1 mirrors
- *   gear:   the same [6 ints] you pass drawWarrior. The head keeps its helm, the fist keeps its sword, the
- *           ash keeps the cuirass — the build is visible right through the death.
- * }
- * Deterministic: every scatter here comes from hash32(seed), never a clock.
- * Returns { w, h } in device pixels.
- */
+/** One fatality frame in the 96-box. opts = { which, frame, scale, facing, gear }. */
 export function drawFatality(ctx, x, y, opts = {}) {
-  DETAIL = opts.detail === 2 ? 2 : 1;
-  const which = ((opts.which | 0) % FATALITIES.length + FATALITIES.length) % FATALITIES.length;
-  const n = FATALITIES[which].frames;
-  const f = Math.max(0, Math.min(n - 1, opts.frame | 0));
+  const which = Math.max(0, Math.min(FATALITIES.length - 1, opts.which | 0));
   const scale = Math.max(1, opts.scale | 0 || 1);
-  const facing = opts.facing === -1 ? -1 : 1;
-  const gear = opts.gear || EMPTY_GEAR;
+  const f = Math.max(0, Math.min(FATALITIES[which].frames - 1, opts.frame | 0));
+  const gear = opts.gear || NO_GEAR;
   ctx.imageSmoothingEnabled = false;
-  const gp = pen(ctx, x, y, scale, facing, false, null, FAT_W, FAT_H); // the gore/props pen: full frame
-  // contact shadow first, on the ground, never rotated with the body
-  for (let i = 0; i < 15; i++) if ((i & 1) === 0) gp.raw(MON_CX - 7 + i, MON_GROUND_Y, 1, 1, "#1a1420");
-  FAT_FN[which](ctx, x, y, scale, facing, gear, f, gp);
-  return { w: MON_W_N * scale, h: MON_H_N * scale };
+  const g = stylus(ctx, x, y, scale, opts.facing === -1, MW, MH, null, null);
+  monShadow(g, 40, true);
+  FAT_FNS[which](ctx, x, y, scale, gear, f, g);
+  return { w: MW * scale, h: MH * scale };
 }
 
-/** Every frame of one fatality, laid out in a strip — for tuning the timing and for the visual test. */
+/** Every frame of one finisher, side by side. */
 export function drawFatalitySheet(ctx, x, y, opts = {}) {
-  const which = ((opts.which | 0) % FATALITIES.length + FATALITIES.length) % FATALITIES.length;
-  const n = FATALITIES[which].frames;
+  const which = Math.max(0, Math.min(FATALITIES.length - 1, opts.which | 0));
   const scale = Math.max(1, opts.scale | 0 || 1);
-  for (let f = 0; f < n; f++) drawFatality(ctx, x + f * MON_W_N * scale, y, { ...opts, which, frame: f, scale });
-  return { w: n * MON_W_N * scale, h: MON_H_N * scale, cells: n };
+  const n = FATALITIES[which].frames;
+  for (let f = 0; f < n; f++) drawFatality(ctx, x + f * MW * scale, y, { ...opts, frame: f, scale });
+  return { w: n * MW * scale, h: MH * scale, cells: n };
 }

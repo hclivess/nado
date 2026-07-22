@@ -3,7 +3,7 @@
 // ref_gene / ref_tier / ref_si / ref_stat / ref_train_* / ref_battle_turns) — this module decides what
 // animal a player sees, its stats, training odds and battle outcomes, so it is differentially verified
 // against that reference. Field-native: every roll is roll32(x) = LO32(alghash(x)). No DOM, no fetch.
-import { algHashn, ALG_P } from "./nadodapp.js";
+import { algHashn, ALG_P } from "./nadodapp.js?v=4984604e";
 
 // ---- constants (mirror tests/test_pets_contract.py) ------------------------------------------------
 export const MINT_FEE    = 10n ** 10n;        // 1 NADO adopts an egg

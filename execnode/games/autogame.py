@@ -28,6 +28,7 @@ subtraction of a player- or roll-controlled quantity goes through `csub` (select
 `-`. This is the class of bug that produced the banked-table drain; check it first in any diff.
 """
 from execnode import zkpy
+from execnode.games import _lib
 from execnode.zkpy import hash as zhash, lo32, select
 
 # ── clock ────────────────────────────────────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ LEG = 16                 # steps per leg == blocks per leg (1 step per block, by
 # height in advance, so a per-tile answer had to beat a 96-second window from ten minutes away — impossible.
 # Now the terrain is pinned and visible, and the roll is scheduled ONLY when you commit your answer to it.
 # There is no window to lose: the dice are drawn after your choice by construction, however long you take.
-# With RAUTO set, settling schedules the next roll immediately and the doctrine answers for you.
+# After each settled leg the march parks (RNH back to 0) and waits for your next sixteen answers.
 MAX_LEGS_PER_CALL = 1    # bounded catch-up: ONE leg (16 steps) per call.
                          #
                          # Sized for the WORST case, not the typical one. Per-step cost is state-dependent:
@@ -65,7 +66,7 @@ BOSS_EVERY = 128         # every 128th tile is a boss — and a CHECKPOINT that 
 TIER_EVERY = 32          # danger tier = depth // 32; the road must outrun your growth
 NIGHT_EVERY = 64
 LEVEL_CAP = 8            # crafted weapon/armour levels; uncapped, absorption outgrows the road
-LIFESTEAL_DIV = 4        # weapon focus heals wp/4 per engagement — sustain that does NOT break the streak
+LIFESTEAL_DIV = 4        # weapon focus heals wp*foes/4 — blood per BODY, sustain that does NOT break the streak
 HORDE_DIV = 4            # renown is superlinear in the pull: foes * xp_each * (4+foes)/4
 STREAK_DIV = 4           # streak multiplier = (4 + streak)/4
 DEATH_KEEP = 25          # % of UNBANKED renown that survives death
@@ -79,19 +80,64 @@ SHRINE_BASE = 10         # shrine heal = 10 + 4*tier
 RALLY_BASE = 4           # rally heal = 4 + tier
 NSLOT = 6
 
-# tile classes. THE ORDER IS LOad-BEARING: the contract derives the class as a sum of threshold
-# comparisons (see TILE_CUTS), which yields exactly this ordering, so renumbering breaks the world.
-ROAD, MONSTER, ELITE, HAZARD, CACHE, SHRINE, FORGE, FORK, RELIC, BOSS = range(10)
-TILE_CUTS = (30, 58, 66, 74, 82, 87, 92, 99)     # tile = sum(a >= cut) over these
+# tile classes. THE ORDER IS LOAD-BEARING: the contract derives the class as a sum of threshold
+# comparisons (see TILE_CUTS), which yields exactly this ordering — renumbering is a WORLD CHANGE, done
+# deliberately twice now (both 2026-07-21, alphanet: no compatibility): once for HORDE/AMBUSH/GALE/IDOL,
+# and again for the ELEVEN classes that take the road to 25 tile types. The newcomers, by what they ask:
+#
+#   MIMIC    — a fight that is always carrying loot: one body, elite-level, bites twice as hard as its
+#              family says, pays 4x renown and ALWAYS drops (boss-grade roll). The treasure chest that
+#              eats people. Dodge slips it — it cannot chase what it cannot walk after.
+#   SNARE    — a stamina trap: walk in and it eats 3 stamina. Guard SPRINGS it on your shield instead:
+#              no loss, +1 scrap for the broken iron.
+#   QUAG     — deep mud. Chip hp (1+tier, armour useless, halved for Evasive) AND 2 stamina. Dodge hops
+#              the stones.
+#   TOLLGATE — the reeve's chain across the road. Walk through and pay 3+3*tier renown. STRIKE robs it:
+#              the tile re-rolls as an ELITE fight. Dodge/Sprint dash past but take the lash — an
+#              armour-free 2+2*tier sting.
+#   BARROW   — a burial mound. Dig (walk in) for a +1-tier item roll, and eat the grave-curse: 2+2*tier
+#              straight through armour. Guard braces it to half; warding voids it; Dodge leaves the dead
+#              alone.
+#   ARMORY   — a fallen soldier's rack: an item roll FORCED to the weapon slot.
+#   VEIN     — an ore lode. Strike swings the pick: +2+tier+roll scrap. Otherwise scenery.
+#   GROVE    — a spirit ring. Rally COMMUNES: +1+tier/2+roll essence, on top of Rally's own heal.
+#   WELL     — a waystone spring. Rest drinks deep: stamina refills to FULL plus a small heal (a rest is
+#              still a rest: the streak breaks, renown is still spent). Potion BOTTLES it instead: +1
+#              flask, streak kept, nothing drunk.
+#   CAMP     — a cold firepit. Rest here heals DOUBLE and costs no renown — the one free rest there is.
+#   PYRE     — an unlit beacon of bones. Strike lights it: the next 3 steps pay +25% renown — the gale's
+#              generous twin (no extra damage in), and it stacks with one.
+#
+# The earlier four, for the record: HORDE double pull two levels down; AMBUSH strikes first unless
+# Guard/Dodge, +25% renown; GALE 3 steps of +25% both ways, Dodge shelters; IDOL Strike smashes for
+# bloodlust-scaled renown, Potion offers for triple.
+(ROAD, MONSTER, HORDE, ELITE, AMBUSH, MIMIC, HAZARD, SNARE, QUAG, GALE, TOLLGATE, CACHE, BARROW,
+ ARMORY, VEIN, GROVE, SHRINE, WELL, CAMP, IDOL, PYRE, FORGE, FORK, RELIC, BOSS) = range(25)
+# tile = sum(a >= cut) over these — 23 cuts, 24 rolled classes, BOSS forced by depth. The bands (in %):
+# road 18, monster 18, horde 7, elite 7, ambush 5, mimic 2, hazard 5, snare 2, quag 1, gale 3, tollgate 2,
+# cache 4, barrow 3, armory 2, vein 2, grove 2, shrine 3, well 2, camp 2, idol 2, pyre 2, forge 3, fork 2,
+# relic 1. Combat sits at 39% + bosses + robbed tollgates — a touch under the 14-class world's 46%, paid
+# back by mimics, barrows and the pyre's amplifier.
+TILE_CUTS = (18, 36, 43, 50, 55, 57, 62, 64, 65, 68, 70, 74, 77, 79, 81, 83, 86, 88, 90, 92, 94, 97, 99)
 
 # actions (3 bits each, 16 per leg => 48 bits, safely under Goldilocks P)
 A_DEFAULT, A_STRIKE, A_GUARD, A_DODGE, A_POTION, A_SPRINT, A_REST, A_RIGHT = range(8)
 A_RALLY = A_RIGHT        # action 7 does double duty: right lane at a FORK, Rally anywhere else
-COST = (0, 2, 1, 2, 0, 3, 0, 3)
+# Guard at 1 stamina was FREE: +1/step regen made "guard every fight, forever" sustainable, and the
+# simulator's all-guard brush beat every reading pilot (79/80 survival, 2x p90). At 2 it has to be
+# rationed — consecutive fights outrun the regen, and choosing WHICH swing to take on the shield is
+# exactly the read the game is about.
+COST = (0, 2, 2, 2, 0, 3, 0, 3)
 
 # stance -> (incoming damage /4, renown /4, streak gain per fight, streak cap)
 ST_BALANCED, ST_AGGRESSIVE, ST_GUARDED, ST_EVASIVE = range(4)
-STANCES = ((4, 4, 1, 12), (5, 6, 2, 20), (3, 4, 0, 0), (4, 3, 1, 8))
+# evasive keeps FULL renown per fight now: its price is the fights it skips and the short streak cap,
+# its edge the footwork discount. At 3/4 renown it paid for defense twice and the sim's skirmisher was
+# weakly dominated by the balanced duelist on every axis.
+# evasive = hit-and-run mastery: full renown, the HIGHEST streak cap of the non-aggressive stances
+# (its skips are what keep a streak alive through tiles that would force a heal), footwork discount on
+# Dodge/Sprint, halved hazards. Its price: you skip income, and you have no damage discount at all.
+STANCES = ((4, 4, 1, 12), (5, 6, 2, 20), (3, 4, 0, 0), (4, 4, 1, 16))
 
 # monster families — MAMEC's grunt / brute / glass cannon; atk_each = c0 + c1*ml, xp_each = c0 + c1*ml
 FAM_ATK = ((1, 1), (3, 3), (2, 2))
@@ -108,6 +154,14 @@ REINFORCE_COST = (1, 2, 0)    # -> armour +1
 # unearned and ends with something earned.
 AF_NONE, AF_KEEN, AF_HEAVY, AF_WARD, AF_SWIFT, AF_VAMP, AF_BLAZE, AF_HALLOW = range(8)
 AFFIX_NAMES = ("none", "keen", "heavy", "warding", "swift", "vampiric", "blazing", "hallowed")
+# WEAPON CLASS — a real item property packed above tier/mat/affix (1 + kind*512 + tier*64 + mat*8 + affix),
+# meaningful ONLY in the weapon slot; every other slot rolls kind 0. Each class rewrites the engagement math
+# against a different axis of the road (see _fight): sword neutral, axe the aggressor (+renown/+damage-in),
+# maul the crusher (renown up vs the big ones, down vs a crowd), spear the skirmisher (damage-in down vs a
+# crowd, renown down in a duel). On alphanet this is a clean packing widen — no legacy item to preserve.
+W_SWORD, W_AXE, W_MAUL, W_SPEAR = range(4)
+NWKIND = 4
+WKIND_NAMES = ("sword", "axe", "maul", "spear")
 KEEN_BONUS = 6           # +6 streak cap: your compounding runs further than anyone's
 SWIFT_BONUS = 2          # +2 stamina per step: react to twice as many tiles
 JACKPOT_EVERY = 32       # 1-in-32 drops ignore depth entirely and roll TIER 7 — the windfall can land on
@@ -116,15 +170,21 @@ JACKPOT_EVERY = 32       # 1-in-32 drops ignore depth entirely and roll TIER 7 �
 G_WEAPON, G_HELM, G_BODY, G_SHIELD, G_BOOTS, G_CLOAK = range(NSLOT)
 DEF_DIV = (1, 4, 2, 3, 4, 4)  # slot 0 is the weapon and is skipped; 1 keeps the divisor legal
 
-RANKS = ((60, "commoner"), (180, "apprentice"), (450, "journeyman"), (1100, "knight"),
-         (2600, "banneret"), (6000, "lord"), (14000, "baron"), (32000, "duke"),
-         (75000, "king"), (170000, "emperor"), (400000, "demigod"), (1 << 40, "creator"))
+# Twenty ranks on a curve calibrated against tests/autogame_balance.py's simulated score distribution:
+# the median full run lands mid-table (veteran/knight), the best fixed archetype ceiling (~500k) barely
+# clears emperor, and demigod is reserved for the once-a-season perfect storm. It was "very easy to place
+# high" before because king sat at 75k — a number an average finished run walked past without noticing.
+RANKS = ((60, "peasant"), (300, "commoner"), (1000, "porter"), (3000, "apprentice"),
+         (8000, "journeyman"), (20000, "sellsword"), (45000, "freerider"), (80000, "veteran"),
+         (130000, "knight"), (190000, "banneret"), (260000, "champion"), (330000, "warlord"),
+         (400000, "baron"), (480000, "margrave"), (560000, "duke"), (650000, "prince"),
+         (780000, "king"), (900000, "emperor"), (1050000, "demigod"), (1 << 40, "creator"))
 
 # ── storage map ──────────────────────────────────────────────────────────────────────────────────
 # run scalars, keyed by run id
 (RA, RLH, RNH, RHP, RMX, RST, RPO, RXP, RBK, RDP, RKI, RSN, RHL, RFO, RWL, RAL,
- RM0, RM1, RM2, RAV, RDN, RRT, RLG, RSK) = range(1, 25)
-NTILE = 10                    # tile classes ROAD..BOSS — one doctrine cell each
+ RM0, RM1, RM2, RAV, RDN, RRT, RLG, RSK, RCW, RCL, RGL, RPY) = range(1, 29)
+NTILE = len(TILE_CUTS) + 2    # tile classes ROAD..BOSS, always derived from the cut table
 GEAR0 = 30                    # gear slots occupy GEAR0 .. GEAR0+5, keyed by run id
 AFFX = 36                     # AFFX+1 .. AFFX+7: "is this affix equipped anywhere", keyed by run id.
                               # Cached rather than rescanned: the step function reads them constantly and
@@ -137,43 +197,53 @@ SC = 90                       # per-call scratch, keyed by the S_* indices below
 # become auditable in storage rather than buried in emitted asm
 TCOST, TSDMG, TSXP, TSGAIN, TSCAP, TFA0, TFA1, TFX0, TFX1, TDEFD = range(60, 70)
 
-# THE DOCTRINE. A reaction per TILE CLASS, one cell each, addressed at runtime as
-# (POL0 + tile)*2^32 + run — plain arithmetic, so the step can index it by the tile it just rolled.
+# MANUAL ONLY. There is exactly one way a leg resolves: you look at the sixteen tiles in front of you,
+# choose an action for EACH ONE, and commit(). Committing is what schedules the dice, so a leg's answers
+# always predate its roll — per-tile play works at any exec lag and cannot be gamed. Between commits the
+# march simply PARKS (RNH = 0): absence never kills you, because nothing happens without your answers.
 #
-# This replaced a per-leg plan word, and the reason is worth recording. The old design had you commit 16
-# positional reactions inside the 96-second window between a leg's terrain hash and its rolling hash. That
-# is unreachable the moment the execution layer trails L1 by more than a leg — measured at 102 blocks
-# (~10 min) — because a plan submitted now EXECUTES ten minutes later, long after the dice it was meant to
-# precede. Every run on the contract had a permanently closed window; the central mechanic was unusable.
-#
-# A doctrine has no such race: it governs legs whose dice do not exist YET, so it can be set at any time and
-# still be committed-before-the-roll. Fairness is preserved by POLH (the height it was set at): a leg only
-# obeys the doctrine if POLH < that leg's rolling height, so changing it after seeing a roll cannot rewrite
-# the leg that roll belongs to.
-POL0 = 110                    # POL0 .. POL0+9, keyed by run id: the reaction for each tile class
-POLH = 109                    # the cursor at which the doctrine was last set — the fairness fence
-POLA = 108                    # aggression, part of the same standing order
-# THE PREVIOUS GENERATION of orders, kept so a backlog can be walked HONESTLY.
-#
-# You are not tied to the chain tip. Blocks stay readable ~20k back, so a run can walk forward through
-# history at your own pace — days later if you like. What must not happen is that catching up re-judges
-# those legs under orders you wrote after seeing their dice. Superseded orders are therefore retained, and
-# each leg obeys whichever generation was in force when ITS block was mined. Without this, re-tuning while
-# behind either silently discarded the backlog or (worse) let you neuter your own doctrine after reading a
-# bad roll.
-# NOTE THE SPACING: POL0 occupies 110..119 and POLP0 occupies 120..129, so the scalars that go with them
-# must sit clear of BOTH ranges. POLPH was briefly 119 — the doctrine cell for tile 9 — and silently
-# overwrote it, which the backlog test caught as a previous generation that read back as zero.
-RAUTO = 135                   # 1 = schedule each leg's dice automatically; 0 = wait for my orders on it
-OVR_TAG = 141                 # hash(OVR_TAG, run, leg) -> this leg's PER-TILE overrides, 16 x 3 bits
-POLP0 = 120                   # POLP0 .. POLP0+9: the superseded doctrine
-POLPH = 130                   # the height IT was set at
-POLPA = 131                   # and its aggression
-# Stance, focus and the auto-drink threshold are ORDERS TOO, and were the hole in the fence: they used to
-# be written immediately, so re-tuning while behind still re-judged legs that had already rolled — which is
-# precisely the "neuter your doctrine after reading a bad roll" exploit the fence exists to prevent. They
-# are now versioned with everything else.
+# There used to be a second mode — an auto-march driven by a per-tile-CLASS "doctrine", with a retained
+# superseded generation so a backlog resolved under the orders in force when its dice rolled. It is gone,
+# and deliberately so: two modes meant two ways to read every screen, and the doctrine table (actions per
+# tile TYPE) kept being mistaken for the game itself while the real per-tile answering sat unreachable
+# behind it. One mode, one action surface. (The dropped cells: POL0..119 / POLP0..129 doctrine ranges and
+# RAUTO at 135. Live runs may still carry those slots; nothing reads them any more.)
+OVR_TAG = 141                 # hash(OVR_TAG, run, leg) -> this leg's committed answers, 16 x 3 bits
+# THE DIALS — aggression, stance, focus, auto-drink threshold — are the one piece of standing state that
+# still shapes a leg after it is committed, so they are FENCED: POLH records the cursor when they were last
+# set, and a leg obeys them only if POLH predates that leg's rolling height. Re-tuning after seeing a roll
+# therefore cannot rewrite the leg that roll belongs to; the superseded generation is retained so a leg
+# caught between the two resolves under the orders in force when ITS dice rolled.
+POLH = 109                    # the cursor at which the dials were last set — the fairness fence
+POLA = 108                    # aggression (current generation)
+POLP0 = 120                   # (retired doctrine range — dead, see above; kept out of reuse)
+POLPH = 130                   # the height the superseded dials were set at
+POLPA = 131                   # the superseded aggression
 RPS, RPF, RPL = 132, 133, 134  # the superseded stance / focus / heal threshold
+
+# ── THE DAILY GAUNTLET: the free, provable, faucet-rewarded board ────────────────────────────────
+# The march above is the staked game and it is paced by the chain — one leg per LEG blocks, for as long as
+# you care to walk. That pacing is the whole point of it, and it is also why it can never be a daily
+# leaderboard: a board wants everyone playing the SAME road under the SAME conditions inside one day.
+#
+# So the Gauntlet is the same rules with the pacing removed: a fixed-length road derived from the day's
+# on-chain anchor and YOUR address (static/autogame-daily.js), played at your own speed in the browser,
+# free. You post the score AND the moves; every verifier replays them through the same engine and drops any
+# claim whose replay does not reproduce the score (doc/provable-practice.md). The faucet pays the top of
+# yesterday's verified board. The contract stores claims and gates the day — it never scores anything.
+#
+# Autogame qualifies for a provable board on provable.js's own soundness rule (SEARCH-HARD games only):
+# the road is known at play time, but choosing 124 reactions to maximise a compounding renown/gear/streak
+# economy is a planning problem with branching factor 8, not an RNG stream you can read off.
+DCNT_SLOT, ECNT_SLOT = 1, 2               # bare index-count slots (slot 0 is the run count)
+E_DAY, E_ADDR, E_SCORE, E_N = 200, 201, 202, 203
+ELIST, EW_BASE = 210, 220                 # entry-id index; the packed claim lives at EW_BASE..+7
+A_H, A_V, DLIST = 240, 241, 242           # day anchor: pinned height / resolved hash / day index
+DAILY_ACT_BITS = 3                        # an action is 0..7, so 16 symbols fit one field word
+DAILY_WORDS = 8                           # 8 words x 16 symbols = 128 symbols per claim
+DAILY_HEAD = 4                            # the first four are the LOADOUT (stance/agg/focus/heal tiers)
+DAILY_STEPS = 128 - DAILY_HEAD            # ...leaving 124 steps of road
+DAILY_MAX_SCORE = 4_000_000               # a sane bound; the real check is the verifiers' replay
 
 # scratch indices
 (S_A, S_B, S_C, S_X, S_Y, S_Z, S_TILE, S_ML, S_ACT, S_AGG, S_TIER, S_ATK, S_DMG, S_GAIN, S_WP, S_ABS,
@@ -238,17 +308,26 @@ def _live(m):
 def _power_of(m, cell, tmp):
     """An item's power score (tier*4 + material) computed INTO scratch[tmp]; returns a cheap reference.
 
-    An empty cell needs no special case: cells store 1 + tier*64 + mat*8 + affix, so 0 means empty, and
-    csub(0, 1) is 0, which scores 0. Computed through scratch rather than as one expression because five
-    of these nested inside an accumulator is far past the six-register budget."""
+    An empty cell needs no special case: cells store 1 + kind*512 + tier*64 + mat*8 + affix, so 0 means
+    empty, and csub(0, 1) is 0, which scores 0. Computed through scratch rather than as one expression
+    because five of these nested inside an accumulator is far past the six-register budget. tier reads
+    through a %8 window now that WEAPON CLASS occupies the bits directly above it — without it a spear/maul
+    would score as if it were tiers higher and auto-equip over a strictly better sword."""
     _s(m, tmp).set(csub(cell.get(), 1))
-    _s(m, tmp).set((_s(m, tmp).get() // 64) * 4 + (_s(m, tmp).get() // 8) % 8)
+    _s(m, tmp).set(((_s(m, tmp).get() // 64) % 8) * 4 + (_s(m, tmp).get() // 8) % 8)
     return _s(m, tmp).get()
 
 
 def _weapon_power(m, into):
     _s(m, into).set(2 * _r(m, RWL).get())
     _s(m, into).set(_s(m, into).get() + _power_of(m, m.slot(GEAR0 + G_WEAPON, m.arg(0)), S_T6))
+    return _s(m, into).get()
+
+
+def _weapon_kind(m, into):
+    """The equipped weapon's CLASS (0..3) into scratch[into]. An empty slot is 0 -> csub(0,1)=0 ->
+    //512 % 4 = 0 = W_SWORD, so a bare-handed run fights as the neutral baseline with no special case."""
+    _s(m, into).set(csub(m.slot(GEAR0 + G_WEAPON, m.arg(0)).get(), 1) // 512 % 4)
     return _s(m, into).get()
 
 
@@ -306,7 +385,8 @@ def _take_item_if_any(m):
 
 def _take_item(m):
     """Auto-equip the drop in scratch[S_ITEM] if it beats what occupies scratch[S_SLOT], else melt it for
-    scrap. An absent player still improves, which is the whole point of the standing-order design.
+    scrap. An absent player still improves, which is the whole point of the standing-order design — and
+    the player ADAPTS TO THE GEAR THE ROAD GIVES, never the other way round: no inventory, no take-backs.
 
     S_ITEM == 0 means "no drop this tile" and must be a complete no-op — an earlier version still credited
     a scrap for the melt, quietly paying the player for nothing on every empty tile.
@@ -370,7 +450,10 @@ def _roll_item(m, mixed, bonus):
     _s(m, S_R1).set((mixed // 8) % 8)                            # material
     _s(m, S_R2).set(_s(m, S_Z).get() % 4 == 0)
     _s(m, S_R3).set((1 + (_s(m, S_Z).get() // 4) % 7) * _s(m, S_R2).get())   # affix, mostly none
-    _s(m, S_ITEM).set(1 + _s(m, S_R0).get() * 64 + _s(m, S_R1).get() * 8 + _s(m, S_R3).get())
+    # WEAPON CLASS: (mixed + z) % 4 — rolled onto EVERY item (only used if it lands in slot 0). S_R2 is free
+    # here (its jackpot/affix uses are both spent), so it carries the kind into the pack.
+    _s(m, S_R2).set((mixed + _s(m, S_Z).get()) % 4)
+    _s(m, S_ITEM).set(1 + _s(m, S_R2).get() * 512 + _s(m, S_R0).get() * 64 + _s(m, S_R1).get() * 8 + _s(m, S_R3).get())
     _s(m, S_SLOT).set(_s(m, S_Z).get() % NSLOT)
 
 
@@ -406,9 +489,18 @@ def _classify(m):
     _s(m, S_TILE).set(select(isboss, BOSS, klass))
 
     t = _s(m, S_TILE).get()
-    ml = 1 + _s(m, S_TIER).get() + select(t == ELITE, 2, 0) + select(t == BOSS, 4, 0)
-    _s(m, S_ML).set(ml + (_r(m, RDP).get() // NIGHT_EVERY) % 2)
-    _s(m, S_COMBAT).set(select(t == MONSTER, 1, select(t == ELITE, 1, t == BOSS)))
+    # parked in stages: the full level expression plus the horde adjustment overflows the six-register
+    # budget as one tree, and a parked intermediate is the documented answer to that
+    _s(m, S_T3).set(1 + _s(m, S_TIER).get() + select(t == ELITE, 2, 0))
+    _s(m, S_T3).set(_s(m, S_T3).get() + select(t == MIMIC, 2, 0))      # a mimic fights at elite level
+    _s(m, S_T3).set(_s(m, S_T3).get() + select(t == BOSS, 4, 0))
+    _s(m, S_T3).set(_s(m, S_T3).get() + (_r(m, RDP).get() // NIGHT_EVERY) % 2)
+    # a HORDE is many and weak: two levels down, floored at 1 — volume is its threat, not weight
+    _s(m, S_T4).set(vmax(1, csub(_s(m, S_T3).get(), 2)))
+    _s(m, S_ML).set(select(t == HORDE, _s(m, S_T4).get(), _s(m, S_T3).get()))
+    _s(m, S_T3).set(select(t == MONSTER, 1, select(t == HORDE, 1, t == ELITE)))
+    _s(m, S_T3).set(select(_s(m, S_T3).get(), 1, select(t == AMBUSH, 1, t == MIMIC)))
+    _s(m, S_COMBAT).set(select(_s(m, S_T3).get(), 1, t == BOSS))
 
 
 def _stamina(m):
@@ -417,6 +509,13 @@ def _stamina(m):
     _s(m, S_T0).set(_r(m, RST).get() + 1 + SWIFT_BONUS * _aff(m, AF_SWIFT))
     _r(m, RST).set(vmin(STAM_MAX, _s(m, S_T0).get()))
     cost = park(m, S_T0, m.slot(TCOST, _s(m, S_ACT).get()).get())
+    # evasive footwork: Dodge and Sprint each cost 1 less. Without this the stance was strictly dominated
+    # by balanced in every fight (same damage in, less renown, lower streak cap) and existed only for its
+    # halved hazards; its real identity is the SKIP — which is exactly what the new tiles ask for
+    # (sprint past hordes, shelter from gales, slip ambushes).
+    _s(m, S_T2).set(select(_s(m, S_ACT).get() == A_DODGE, 1, _s(m, S_ACT).get() == A_SPRINT))
+    _s(m, S_T2).set(select(_s(m, S_SN).get() == ST_EVASIVE, _s(m, S_T2).get(), 0))
+    _s(m, S_T0).set(csub(_s(m, S_T0).get(), _s(m, S_T2).get()))
     aff = park(m, S_T1, cost <= _r(m, RST).get())
     _s(m, S_ACT).set(select(aff, _s(m, S_ACT).get(), A_DEFAULT))
     _r(m, RST).set(csub(_r(m, RST).get(), cost * aff))
@@ -434,7 +533,15 @@ def _fight(m):
 
     tile = _s(m, S_TILE).get()
     _s(m, S_FAM).set(_s(m, S_B).get() % 3)
-    _s(m, S_FOES).set(select(tile == BOSS, 1, _s(m, S_AGG).get()))
+    # HORDE: double bodies (capped at the same AGG_MAX the dial is), and DODGE cannot slip a horde — too
+    # many of them — it only halves the pull back to normal. Sprint is the clean escape (see _step), which
+    # is the niche that finally un-dominates it.
+    _s(m, S_T0).set(vmin(AGG_MAX, _s(m, S_AGG).get() * 2))
+    _s(m, S_T0).set(select(_s(m, S_ACT).get() == A_DODGE, _s(m, S_AGG).get(), _s(m, S_T0).get()))
+    # a MIMIC is ONE body whatever the dial says — the chest does not come in packs
+    _s(m, S_T0).set(select(tile == HORDE, _s(m, S_T0).get(), _s(m, S_AGG).get()))
+    _s(m, S_T0).set(select(tile == MIMIC, 1, _s(m, S_T0).get()))
+    _s(m, S_FOES).set(select(tile == BOSS, 1, _s(m, S_T0).get()))
     isboss = park(m, S_T1, _s(m, S_TILE).get() == BOSS)
 
     fam = _s(m, S_FAM).get()
@@ -442,9 +549,11 @@ def _fight(m):
     _s(m, S_ATK).set(m.slot(TFA0, fam).get() + m.slot(TFA1, fam).get() * ml)
     _s(m, S_ATK).set(_s(m, S_ATK).get() + (_s(m, S_B).get() // 3) % 4)
     _s(m, S_T0).set(select(isboss, 4, 1))
+    _s(m, S_T0).set(select(tile == MIMIC, 2, _s(m, S_T0).get()))      # it bites twice its family's weight
     _s(m, S_ATK).set(_s(m, S_ATK).get() * _s(m, S_T0).get())
     _s(m, S_XPE).set(m.slot(TFX0, fam).get() + m.slot(TFX1, fam).get() * ml)
     _s(m, S_T0).set(select(isboss, 12, 1))
+    _s(m, S_T0).set(select(tile == MIMIC, 4, _s(m, S_T0).get()))      # …and pays four times the renown
     _s(m, S_XPE).set(_s(m, S_XPE).get() * _s(m, S_T0).get())
 
     # ---- damage in: stance, reaction, +/-10% variance, then PER-ENGAGEMENT absorption ----------------
@@ -452,14 +561,20 @@ def _fight(m):
     _s(m, S_ATK).set(_s(m, S_ATK).get() * _s(m, S_DN).get() // 4)
     _s(m, S_T0).set(select(act == A_STRIKE, 5, 4))
     _s(m, S_ATK).set(_s(m, S_ATK).get() * _s(m, S_T0).get() // 4)
-    _s(m, S_T0).set(select(act == A_GUARD, 2, 4))
-    _s(m, S_ATK).set(_s(m, S_ATK).get() * _s(m, S_T0).get() // 4)
     _s(m, S_ATK).set(_s(m, S_ATK).get() * (90 + _s(m, S_X).get() % 21) // 100)
 
     _armor_pts(m, S_ABS)
     _s(m, S_T0).set(select(_aff(m, AF_HEAVY), _s(m, S_FOES).get(), 1))   # heavy: absorb every swing
     _s(m, S_ABS).set(_s(m, S_ABS).get() * _s(m, S_T0).get())
     _s(m, S_T0).set(_s(m, S_FOES).get() * _s(m, S_ATK).get())
+    # Guard is a SHIELD, not a fortress: it takes HALF of up to TWO foes' swings and the rest of the pull
+    # hits you full. A duel or a boss is truly halved; a greedy eight-pull is barely dented. The flat -50%
+    # this replaces made "aggressive pull + always guard" strictly dominant in the balance sim (all-guard:
+    # 79/80 survival, 2x every reading pilot's p90) — and no renown tax fixed it, because the win was
+    # survival itself, compounding through banked renown and the completion double.
+    _s(m, S_T3).set(select(_s(m, S_FOES).get() == 1, 1, 2))
+    _s(m, S_T3).set(select(act == A_GUARD, _s(m, S_T3).get(), 0))
+    _s(m, S_T0).set(csub(_s(m, S_T0).get(), _s(m, S_T3).get() * (_s(m, S_ATK).get() // 2)))
     raw = park(m, S_T1, csub(_s(m, S_T0).get(), _s(m, S_ABS).get()))
     # a horde ALWAYS draws blood: at least 1 hp per foe, however armoured you are. Without this floor,
     # enough armour nullifies any pull and greed becomes free.
@@ -484,10 +599,46 @@ def _fight(m):
     _s(m, S_T0).set(_r(m, RMX).get() + 4 * _s(m, S_T0).get())
     _s(m, S_GAIN).set(_s(m, S_BASE).get() * _s(m, S_T0).get() // _r(m, RMX).get())
 
+    # AMBUSH danger pay: a quarter more renown for fighting on its terms (the sting itself landed in
+    # _step, before the exchange). GALE: the storm amplifies EVERYTHING — your renown out and their
+    # damage in both rise a quarter while it blows.
+    _s(m, S_T0).set(select(_s(m, S_TILE).get() == AMBUSH, 5, 4))
+    _s(m, S_GAIN).set(_s(m, S_GAIN).get() * _s(m, S_T0).get() // 4)
+    _s(m, S_T0).set(select(_r(m, RGL).get() > 0, 5, 4))
+    _s(m, S_GAIN).set(_s(m, S_GAIN).get() * _s(m, S_T0).get() // 4)
+    _s(m, S_DMG).set(_s(m, S_DMG).get() * _s(m, S_T0).get() // 4)
+    # PYRE: the lit beacon pays +25% renown while it burns — the gale's generous twin, no damage rider
+    _s(m, S_T0).set(select(_r(m, RPY).get() > 0, 5, 4))
+    _s(m, S_GAIN).set(_s(m, S_GAIN).get() * _s(m, S_T0).get() // 4)
+
+    # WEAPON CLASS — the equipped weapon rewrites this engagement against a different axis. Every multiplier
+    # is expressed over /4 so ALL five outcomes share one denominator: neutral 4, axe 5, maul-vs-big 6,
+    # maul-in-crowd 3, spear-in-duel 3 for renown; neutral 4, axe 5, spear-in-crowd 3 for damage. Applied
+    # after every environmental rider, before the streak, so it stacks exactly as they do.
+    _weapon_kind(m, S_T0)                                                        # wk
+    _s(m, S_T1).set(select(_s(m, S_TILE).get() == BOSS, 1,
+                    select(_s(m, S_TILE).get() == ELITE, 1, _s(m, S_TILE).get() == MIMIC)))   # big
+    _s(m, S_T2).set(_s(m, S_FOES).get() > 1)                                     # crowd
+    _s(m, S_T3).set(4)                                                           # renown multiplier /4
+    _s(m, S_T3).set(select(_s(m, S_T0).get() == W_AXE, 5, _s(m, S_T3).get()))
+    _s(m, S_T3).set(select((_s(m, S_T0).get() == W_MAUL) * _s(m, S_T1).get(), 6, _s(m, S_T3).get()))
+    _s(m, S_T3).set(select((_s(m, S_T0).get() == W_MAUL) * csub(1, _s(m, S_T1).get()) * _s(m, S_T2).get(),
+                           3, _s(m, S_T3).get()))
+    _s(m, S_T3).set(select((_s(m, S_T0).get() == W_SPEAR) * csub(1, _s(m, S_T2).get()), 3, _s(m, S_T3).get()))
+    _s(m, S_GAIN).set(_s(m, S_GAIN).get() * _s(m, S_T3).get() // 4)
+    _s(m, S_T3).set(4)                                                           # damage multiplier /4
+    _s(m, S_T3).set(select(_s(m, S_T0).get() == W_AXE, 5, _s(m, S_T3).get()))
+    _s(m, S_T3).set(select((_s(m, S_T0).get() == W_SPEAR) * _s(m, S_T2).get(), 3, _s(m, S_T3).get()))
+    _s(m, S_DMG).set(_s(m, S_DMG).get() * _s(m, S_T3).get() // 4)
+
     # greed streak: every fight since your last heal compounds the payout
     _s(m, S_STK).set(vmin(_s(m, S_SCAP).get(), _r(m, RSK).get()))
     _s(m, S_GAIN).set(_s(m, S_GAIN).get() * (STREAK_DIV + _s(m, S_STK).get()) // STREAK_DIV)
-    _r(m, RSK).set(_r(m, RSK).get() + _s(m, S_SG).get())
+    # no momentum behind a shield: a guarded fight PAUSES the streak (it does not reset it). Without this,
+    # the sim's all-guard brush kept the full compounding multiplier on top of its safety and dominated
+    # every reading pilot regardless of how the damage side was priced.
+    _s(m, S_T3).set(select(act == A_GUARD, 0, _s(m, S_SG).get()))
+    _r(m, RSK).set(_r(m, RSK).get() + _s(m, S_T3).get())
 
     # drinking forfeits your offence: you eat the exchange and earn nothing from it
     _s(m, S_GAIN).set(_s(m, S_GAIN).get() * csub(1, act == A_POTION))
@@ -502,7 +653,7 @@ def _fight(m):
 
     # ---- hp: regen + lifesteal - damage, then the easy-win clamp -------------------------------------
     _s(m, S_T0).set(vmin(_r(m, RMX).get() // REGEN_CAP_DIV, _r(m, RXP).get() // REGEN_DIV))
-    _s(m, S_T1).set(_s(m, S_WP).get() // LIFESTEAL_DIV * (1 + _aff(m, AF_VAMP)))
+    _s(m, S_T1).set(_s(m, S_WP).get() * _s(m, S_FOES).get() // LIFESTEAL_DIV * (1 + _aff(m, AF_VAMP)))
     _s(m, S_T0).set(_s(m, S_T0).get() + _s(m, S_T1).get())   # lifesteal — sustain that keeps the streak
     _s(m, S_T0).set(_s(m, S_HPB).get() + _s(m, S_T0).get())
     _s(m, S_ATK).set(csub(_s(m, S_T0).get(), _s(m, S_DMG).get()))    # S_ATK is now the hp accumulator
@@ -517,8 +668,10 @@ def _fight(m):
     # ---- drop -----------------------------------------------------------------------------------------
     t = _s(m, S_TILE).get()
     _s(m, S_T0).set(select(t == BOSS, 1, select(t == ELITE, 1, _s(m, S_Z).get() % 4 == 0)))
+    _s(m, S_T0).set(select(t == MIMIC, 1, _s(m, S_T0).get()))            # a mimic IS treasure: always drops
     _s(m, S_T0).set(vmax(_s(m, S_T0).get(), _aff(m, AF_BLAZE)))          # blazing: every kill drops
     _s(m, S_T1).set(select(t == BOSS, 2, select(t == ELITE, 1, 0)))
+    _s(m, S_T1).set(select(t == MIMIC, 2, _s(m, S_T1).get()))            # …and a boss-grade roll at that
     _s(m, S_T2).set((_s(m, S_B).get() + _s(m, S_Z).get()) % 64)
     _roll_item(m, _s(m, S_T2).get(), _s(m, S_T1).get())
     _s(m, S_ITEM).set(_s(m, S_ITEM).get() * _s(m, S_T0).get())   # 0 = no drop
@@ -548,12 +701,92 @@ def _noncombat(m):
     _s(m, S_T4).set(_s(m, S_T4).get() * csub(1, _aff(m, AF_WARD)))       # warding: hazards do nothing
     _r(m, RHP).set(csub(_r(m, RHP).get(), _s(m, S_T4).get()))
 
-    # cache / relic — a drop, with the relic guaranteed high tier
+    # cache / relic / barrow / armory — ONE merged loot block, because they differ only in the roll's
+    # bonus, the slot, and whether the dead mind being robbed. relic +3, barrow +1, armory forced to the
+    # weapon rack. The barrow's curse is priced after the item: you always dig first.
     _s(m, S_T4).set(select(t == CACHE, 1, t == RELIC))
-    _s(m, S_T5).set(select(t == RELIC, 3, 0))
+    _s(m, S_T4).set(select(_s(m, S_T4).get(), 1, select(t == BARROW, 1, t == ARMORY)))
+    _s(m, S_T5).set(select(t == RELIC, 3, t == BARROW))       # bonus: relic 3, barrow 1, else 0
     _roll_item(m, _s(m, S_C).get(), _s(m, S_T5).get())
+    _s(m, S_SLOT).set(select(t == ARMORY, G_WEAPON, _s(m, S_SLOT).get()))
     _s(m, S_ITEM).set(_s(m, S_ITEM).get() * _s(m, S_T4).get())
     _take_item_if_any(m)
+    # the grave-curse: 2+2*tier straight through armour; Guard braces it to half, warding voids it
+    _s(m, S_T5).set(2 + 2 * tier)
+    _s(m, S_T5).set(select(_s(m, S_ACT).get() == A_GUARD, _s(m, S_T5).get() // 2, _s(m, S_T5).get()))
+    _s(m, S_T5).set(_s(m, S_T5).get() * (_s(m, S_TILE).get() == BARROW))
+    _s(m, S_T5).set(_s(m, S_T5).get() * csub(1, _aff(m, AF_WARD)))
+    _r(m, RHP).set(csub(_r(m, RHP).get(), _s(m, S_T5).get()))
+
+    # snare — a stamina trap: 3 stamina gone, unless Guard SPRINGS it (no loss, +2 scrap of broken iron)
+    _s(m, S_T4).set(_s(m, S_TILE).get() == SNARE)
+    sprung = park(m, S_T5, _s(m, S_T4).get() * (_s(m, S_ACT).get() == A_GUARD))
+    _r(m, RM0).set(_r(m, RM0).get() + 2 * sprung)
+    _s(m, S_T4).set(3 * _s(m, S_T4).get() * csub(1, sprung))
+    _r(m, RST).set(csub(_r(m, RST).get(), _s(m, S_T4).get()))
+
+    # quag — deep mud: 1+tier hp (armour is useless in a bog; Evasive wades it halved) and 2 stamina
+    quag = park(m, S_T6, _s(m, S_TILE).get() == QUAG)
+    _s(m, S_T4).set(1 + tier)
+    _s(m, S_T4).set(select(_s(m, S_SN).get() == ST_EVASIVE, _s(m, S_T4).get() // 2, _s(m, S_T4).get()))
+    _s(m, S_T4).set(_s(m, S_T4).get() * quag)
+    _r(m, RHP).set(csub(_r(m, RHP).get(), _s(m, S_T4).get()))
+    _r(m, RST).set(csub(_r(m, RST).get(), 2 * quag))
+
+    # tollgate — walked through (a Strike never reaches here: it re-rolled into the MIMIC fight back in
+    # _step): the reeve takes ~3% of EVERYTHING YOU CARRY off the top, banked floor intact. A flat toll
+    # was priced by the balance probe at "too cheap to ever counter" — a tax that scales with the pile is
+    # what makes the rob-it / pay-it / dash-it triangle real at every depth.
+    toll = park(m, S_T6, _s(m, S_TILE).get() == TOLLGATE)
+    _s(m, S_T4).set((4 + _r(m, RXP).get() // 32) * toll)
+    _r(m, RXP).set(csub(_r(m, RXP).get(), _s(m, S_T4).get()))
+    _r(m, RBK).set(vmin(_r(m, RBK).get(), _r(m, RXP).get()))
+
+    # vein — Strike swings the pick: scrap out of the rock, and the deep lodes pay double-digit. Priced
+    # by the probe: at the old 2+tier the vein was noise next to what any fight drops.
+    vein = park(m, S_T6, _s(m, S_TILE).get() == VEIN)
+    _s(m, S_T4).set((4 + 2 * tier + _s(m, S_Z).get() % 3) * vein)
+    _s(m, S_T4).set(_s(m, S_T4).get() * (_s(m, S_ACT).get() == A_STRIKE))
+    _r(m, RM0).set(_r(m, RM0).get() + _s(m, S_T4).get())
+
+    # grove — Rally communes with the ring: essence, on top of Rally's own heal (paid back in _step) —
+    # and the spirits KEEP YOUR MOMENTUM: +1 streak. The one tile that grows the multiplier without a
+    # fight, which is exactly the kind of synergy hook a greed streak wants.
+    grove = park(m, S_T6, _s(m, S_TILE).get() == GROVE)
+    _s(m, S_T5).set(grove * (_s(m, S_ACT).get() == A_RALLY))
+    _s(m, S_T4).set((2 + tier // 2 + _s(m, S_Z).get() % 2) * _s(m, S_T5).get())
+    _r(m, RM2).set(_r(m, RM2).get() + _s(m, S_T4).get())
+    _r(m, RSK).set(_r(m, RSK).get() + _s(m, S_T5).get())
+
+    # well — Rest drinks deep (stamina to FULL + a small heal; the rest itself already broke the streak
+    # and spent renown in _step), or Potion BOTTLES the spring: +1 flask, nothing drunk, streak kept
+    well = park(m, S_T6, _s(m, S_TILE).get() == WELL)
+    wrest = park(m, S_T5, well * (_s(m, S_ACT).get() == A_REST))
+    _r(m, RST).set(select(wrest, STAM_MAX, _r(m, RST).get()))
+    _s(m, S_T4).set(_r(m, RHP).get() + (SHRINE_BASE // 2 + 2 * tier) * wrest)
+    _r(m, RHP).set(vmin(_r(m, RMX).get(), _s(m, S_T4).get()))
+    wbot = park(m, S_T5, well * (_s(m, S_ACT).get() == A_POTION))
+    _s(m, S_T4).set(_r(m, RPO).get() + wbot)
+    _r(m, RPO).set(vmin(POTION_CAP, _s(m, S_T4).get()))
+
+    # pyre — Strike lights the beacon: 4 arms 3 amplified steps after this one's own end-of-step decay
+    _s(m, S_T4).set((_s(m, S_TILE).get() == PYRE) * (_s(m, S_ACT).get() == A_STRIKE))
+    _r(m, RPY).set(select(_s(m, S_T4).get(), 4, _r(m, RPY).get()))
+
+    # idol — the cursed shrine. Smash (Strike) pays renown scaled by BLOODLUST, so it is worth the most
+    # exactly when you can least afford the next fight; offering a potion (Potion) pays triple and eats
+    # the flask. Walking past is always safe. The renown is UNBANKED like all renown — the idol hands you
+    # a bigger pile to lose.
+    idol = park(m, S_T6, _s(m, S_TILE).get() == IDOL)
+    _s(m, S_T4).set((20 + 20 * tier) * idol)
+    _s(m, S_T5).set(csub(_r(m, RMX).get(), _r(m, RHP).get()))
+    _s(m, S_T5).set(_r(m, RMX).get() + 4 * _s(m, S_T5).get())          # the bloodlust factor, x1..x5
+    _s(m, S_T4).set(_s(m, S_T4).get() * _s(m, S_T5).get() // _r(m, RMX).get())
+    _s(m, S_T0).set(_s(m, S_ACT).get() == A_STRIKE)
+    _s(m, S_T1).set((_s(m, S_ACT).get() == A_POTION) * (_r(m, RPO).get() > 0))
+    _s(m, S_T2).set(_s(m, S_T0).get() + 3 * _s(m, S_T1).get())         # smash x1, offer x3
+    _r(m, RXP).set(_r(m, RXP).get() + _s(m, S_T4).get() * _s(m, S_T2).get())
+    _r(m, RPO).set(csub(_r(m, RPO).get(), _s(m, S_T1).get()))
 
     # shrine — heal, sometimes a potion, and it costs the streak like every other heal
     shrine = park(m, S_T4, _s(m, S_TILE).get() == SHRINE)
@@ -599,22 +832,14 @@ def _step(m):
     _derive(m)
 
     _classify(m)
-    # the reaction is whatever your doctrine says about the tile you just walked onto. S_PW is 1 when this
-    # leg is governed by the doctrine (set before its dice existed) and 0 when it is not.
-    # S_PW / S_LEGGEN were set per leg: which generation of orders governs it (see advance).
-    _s(m, S_T0).set(m.const(POL0 << 32) + _s(m, S_TILE).get() * (1 << 32) + m.arg(0))
-    _s(m, S_T1).set(m.at(_s(m, S_T0).get()).get() * _s(m, S_PW).get())
-    _s(m, S_T0).set(m.const(POLP0 << 32) + _s(m, S_TILE).get() * (1 << 32) + m.arg(0))
-    _s(m, S_T2).set(m.at(_s(m, S_T0).get()).get() * _s(m, S_LEGGEN).get())
-    _s(m, S_ACT).set(_s(m, S_T1).get() + _s(m, S_T2).get())
-    # A PER-TILE ANSWER OVERRIDES THE DOCTRINE. Zero means "no opinion, use my standing orders"; anything
-    # else is what you chose for this exact tile, having looked at it.
-    _s(m, S_T3).set(_s(m, S_OVR).get() % 8)
+    # THE ACTION IS YOUR ANSWER TO THIS EXACT TILE — the next 3-bit symbol of the word committed for this
+    # leg, nothing else. There is no doctrine to fall back to: 0 IS an action (A_DEFAULT, walk in and fight
+    # plainly), so a blank tile costs you nothing but finesse. The word was stored by commit() BEFORE the
+    # dice were scheduled, which is the entire fairness story in one line.
+    _s(m, S_ACT).set(_s(m, S_OVR).get() % 8)
     _s(m, S_OVR).set(_s(m, S_OVR).get() // 8)
-    _s(m, S_T2).set(_s(m, S_T3).get() != 0)
-    _s(m, S_ACT).set(select(_s(m, S_T2).get(), _s(m, S_T3).get(), _s(m, S_ACT).get()))
     # A fork is a CHOICE, not an event: the right lane re-rolls as an elite, the left as a monster. This
-    # happens AFTER the doctrine is read, because the doctrine is what picks the lane.
+    # happens AFTER the answer is read, because the answer is what picks the lane.
     # `isfork` MUST be snapshotted before S_TILE is rewritten — a zkpy Val is a lazy re-read of the cell,
     # not a captured value, so testing it after the write compares the NEW tile against FORK and is always
     # false (which once let a Sprint pay its stamina and skip a fight the model fought).
@@ -622,14 +847,27 @@ def _step(m):
     _s(m, S_T1).set(select(_s(m, S_ACT).get() == A_RIGHT, ELITE, MONSTER))
     _s(m, S_TILE).set(select(isfork, _s(m, S_T1).get(), _s(m, S_TILE).get()))
     _s(m, S_ACT).set(select(isfork, A_DEFAULT, _s(m, S_ACT).get()))
+    # TOLLGATE robbery is the same shape: Strike cracks the reeve's strongbox and the STRONGBOX BITES —
+    # the tile re-rolls as a MIMIC (one body, elite level, double teeth, 4x renown, always drops). The
+    # Strike STAYS the answer, because robbery is opened with a swing. (Same pre-pricing spot as the
+    # fork: the decision is made before stamina can degrade the action.) The balance probe priced the
+    # earlier elite re-roll as a straight loss against just paying the toll; the mimic makes robbery the
+    # jackpot line it was designed to be.
+    _s(m, S_T1).set((_s(m, S_TILE).get() == TOLLGATE) * (_s(m, S_ACT).get() == A_STRIKE))
+    _s(m, S_TILE).set(select(_s(m, S_T1).get(), MIMIC, _s(m, S_TILE).get()))
     # the monster level was derived from the pre-fork tile; redo it now the lane is known
     _s(m, S_T2).set(_s(m, S_TILE).get())
-    _s(m, S_ML).set(1 + _s(m, S_TIER).get()
-                    + select(_s(m, S_T2).get() == ELITE, 2, 0)
-                    + select(_s(m, S_T2).get() == BOSS, 4, 0)
-                    + (_r(m, RDP).get() // NIGHT_EVERY) % 2)
-    _s(m, S_COMBAT).set(select(_s(m, S_T2).get() == MONSTER, 1,
-                        select(_s(m, S_T2).get() == ELITE, 1, _s(m, S_T2).get() == BOSS)))
+    _s(m, S_T3).set(1 + _s(m, S_TIER).get() + select(_s(m, S_T2).get() == ELITE, 2, 0))
+    _s(m, S_T3).set(_s(m, S_T3).get() + select(_s(m, S_T2).get() == MIMIC, 2, 0))
+    _s(m, S_T3).set(_s(m, S_T3).get() + select(_s(m, S_T2).get() == BOSS, 4, 0))
+    _s(m, S_T3).set(_s(m, S_T3).get() + (_r(m, RDP).get() // NIGHT_EVERY) % 2)
+    _s(m, S_T4).set(vmax(1, csub(_s(m, S_T3).get(), 2)))
+    _s(m, S_ML).set(select(_s(m, S_T2).get() == HORDE, _s(m, S_T4).get(), _s(m, S_T3).get()))
+    _s(m, S_T3).set(select(_s(m, S_T2).get() == MONSTER, 1,
+                    select(_s(m, S_T2).get() == HORDE, 1, _s(m, S_T2).get() == ELITE)))
+    _s(m, S_T3).set(select(_s(m, S_T3).get(), 1,
+                    select(_s(m, S_T2).get() == AMBUSH, 1, _s(m, S_T2).get() == MIMIC)))
+    _s(m, S_COMBAT).set(select(_s(m, S_T3).get(), 1, _s(m, S_T2).get() == BOSS))
 
     _stamina(m)
 
@@ -637,31 +875,63 @@ def _step(m):
     _s(m, S_AGG).set(vmin(AGG_MAX, _s(m, S_AGG).get()))
     _s(m, S_AGG).set(vmax(1, _s(m, S_AGG).get()))
 
-    # rally — the only heal that KEEPS the streak, and the highest-skill line in the game
+    # rally — the only heal that KEEPS the streak, and the highest-skill line in the game. It PAYS its
+    # full 3 stamina: the old +2 refund made "rally every tile" self-sustaining against the +1/step
+    # regen, and the balance probe crowned that brush the easiest route through the chapter. A heal that
+    # preserves the greed multiplier has to be rationed by the same currency every other reaction is.
     rally = park(m, S_T0, act == A_RALLY)
     _s(m, S_T1).set(_r(m, RHP).get() + (RALLY_BASE + _s(m, S_TIER).get()) * rally)
     _r(m, RHP).set(vmin(_r(m, RMX).get(), _s(m, S_T1).get()))
-    _s(m, S_T1).set(_r(m, RST).get() + 2 * rally)
-    _r(m, RST).set(vmin(STAM_MAX, _s(m, S_T1).get()))
 
-    # rest — MAMEC's: buy hp with score, and break the streak
+    # rest — MAMEC's: buy hp with score, and break the streak. At a CAMP the fire is already laid: the
+    # heal doubles and the renown price is waived — the one free rest on the road.
     rest = park(m, S_T0, act == A_REST)
-    _s(m, S_T1).set(_r(m, RHP).get() + (8 + _r(m, RXP).get() // 32) * rest)
+    camp = park(m, S_T2, _s(m, S_TILE).get() == CAMP)
+    _s(m, S_T1).set((8 + _r(m, RXP).get() // 32) * (1 + camp))
+    _s(m, S_T1).set(_r(m, RHP).get() + _s(m, S_T1).get() * rest)
     _r(m, RHP).set(vmin(_r(m, RMX).get(), _s(m, S_T1).get()))
     _s(m, S_T1).set((4 + _r(m, RXP).get() // 20) * rest)
+    _s(m, S_T1).set(_s(m, S_T1).get() * csub(1, camp))
     _r(m, RXP).set(csub(_r(m, RXP).get(), _s(m, S_T1).get()))
     _r(m, RBK).set(vmin(_r(m, RBK).get(), _r(m, RXP).get()))     # cannot rest away more than you hold
     _r(m, RSK).set(_r(m, RSK).get() * csub(1, rest))
 
-    # potion — the explicit drink; the standing order below is the same act on a different trigger
-    _s(m, S_DN).set(act == A_POTION)
+    # potion — the explicit drink; the standing order below is the same act on a different trigger.
+    # NOT at an IDOL (the flask is an OFFERING there) and NOT at a WELL (it is BOTTLED there) — both
+    # handled in _noncombat. One action, three meanings, disambiguated by what you stand in front of.
+    _s(m, S_DN).set((act == A_POTION) * csub(1, _s(m, S_TILE).get() == IDOL))
+    _s(m, S_DN).set(_s(m, S_DN).get() * csub(1, _s(m, S_TILE).get() == WELL))
     m.jnz(csub(1, _s(m, S_DN).get()), "nopot")
     _drink(m)
     m.label("nopot")
 
-    # The tile itself, unless the reaction forfeited it. Computed HERE rather than earlier because _drink
+    # AMBUSH strikes FIRST: an armour-free sting of 2 per level unless you answered the two reactions
+    # that exist for exactly this — Guard braces it away, Dodge slips it. It lands even on a Sprint-past:
+    # running through an ambush is running through an ambush.
+    _s(m, S_T0).set(select(act == A_GUARD, 1, act == A_DODGE))
+    _s(m, S_T1).set((_s(m, S_TILE).get() == AMBUSH) * csub(1, _s(m, S_T0).get()))
+    _s(m, S_T2).set(2 * _s(m, S_ML).get() * _s(m, S_T1).get())
+    _r(m, RHP).set(csub(_r(m, RHP).get(), _s(m, S_T2).get()))
+
+    # the TOLLGATE'S LASH: dashing past the chain (Dodge or Sprint) skips the toll but not the whip —
+    # an armour-free 2+2*tier, landed HERE because the skip path never reaches _noncombat at all
+    _s(m, S_T0).set(select(act == A_DODGE, 1, act == A_SPRINT))
+    _s(m, S_T1).set((_s(m, S_TILE).get() == TOLLGATE) * _s(m, S_T0).get())
+    _s(m, S_T2).set((2 + 2 * _s(m, S_TIER).get()) * _s(m, S_T1).get())
+    _r(m, RHP).set(csub(_r(m, RHP).get(), _s(m, S_T2).get()))
+
+    # GALE: entering the storm arms it for the next 3 steps — unless you answered Dodge and sheltered.
+    # It decays by one at the END of every step, so the amplifier window is a plannable, visible thing.
+    _s(m, S_T0).set((_s(m, S_TILE).get() == GALE) * csub(1, act == A_DODGE))
+    # 4, not 3: the end-of-step decay below fires on the gale tile itself, so arming at 4 leaves the
+    # promised THREE amplified steps after it
+    _r(m, RGL).set(select(_s(m, S_T0).get(), 4, _r(m, RGL).get()))
+
+    # The tile itself, unless the reaction forfeited it. Sprint always slips; Dodge slips EXCEPT a horde
+    # (too many bodies — _fight halves the pull instead). Computed HERE rather than earlier because _drink
     # above reuses the shared S_T* scratch, and a flag parked before it would be clobbered by it.
-    _s(m, S_XN).set(select(act == A_SPRINT, 1, act == A_DODGE))
+    _s(m, S_T3).set((act == A_DODGE) * csub(1, _s(m, S_TILE).get() == HORDE))
+    _s(m, S_XN).set(select(act == A_SPRINT, 1, _s(m, S_T3).get()))
     _s(m, S_XN).set(csub(1, _s(m, S_XN).get()))
     m.jnz(csub(1, _s(m, S_XN).get()), "skiptile")
     m.jnz(csub(1, _s(m, S_COMBAT).get()), "nofight")
@@ -670,6 +940,10 @@ def _step(m):
     m.label("nofight")
     _noncombat(m)
     m.label("skiptile")
+
+    # the storm blows itself out one step at a time — and the beacon burns down the same way
+    _r(m, RGL).set(csub(_r(m, RGL).get(), 1))
+    _r(m, RPY).set(csub(_r(m, RPY).get(), 1))
 
     # standing order: auto-drink under the threshold. This is what keeps an absent player alive through a
     # bad leg — and under bloodlust, picking the threshold is the sharpest decision in the game.
@@ -711,17 +985,20 @@ def build():
         m.ret(m.const(1))
 
     with c.method("begin") as m:
-        # begin(runId): claim a fresh id and set out. The first tile height is pinned START_GAP blocks in
-        # the FUTURE, so the terrain you will walk cannot be steered by when you call this.
+        # begin(runId): claim a fresh id, set out, AND ARM. The first terrain height is pinned START_GAP
+        # blocks in the FUTURE (so the road you will walk cannot be steered by when you call this), and the
+        # dice stay UNSCHEDULED — nothing can resolve until you answer the tiles and commit.
+        #
+        # Arming used to be a separate step: begin() left RLH at 0 and a later plan() call was what pinned
+        # the window. That two-step was undiscoverable in practice — three real players set out, saw
+        # "waiting for the terrain block…" forever, and never found the second button, so the per-tile game
+        # was unreachable for every one of them. The historical reason for the split (don't start the clock
+        # before the player has configured anything) is void in manual-only play: an armed run with RNH = 0
+        # has no clock. Terrain visible, dice waiting on you — that IS the configured state.
         m.require(m.arg(0) > 0)
         m.require(_r(m, RA).get() == 0)
         _r(m, RA).set(m.caller())
-        # UNARMED. The clock does NOT start here — RLH stays 0 until you commit your orders.
-        #
-        # Starting the march at begin() meant the first legs resolved before the player had configured
-        # anything, and on a chain whose execution layer trails ten minutes they resolved before the player
-        # could even SEE the run. You would never watch your own choices take effect. Now: set out, take as
-        # long as you like over your doctrine, and committing it is what sets you walking.
+        _r(m, RLH).set(m.cursor() + START_GAP)
         _r(m, RHP).set(m.const(HP0))
         _r(m, RMX).set(m.const(HP0))
         _r(m, RST).set(m.const(STAM_MAX))
@@ -729,6 +1006,9 @@ def build():
         _r(m, RSN).set(m.const(ST_BALANCED))
         _r(m, RHL).set(m.const(35))
         _r(m, RFO).set(m.const(50))
+        # A playable default for every dial, because plan() is now OPTIONAL: a player who never opens the
+        # dials card must still fight at a sane pull. POLH stays 0, so this generation predates any roll.
+        m.slot(POLA, m.arg(0)).set(m.const(1))
         _r(m, RWL).set(m.const(1))
         _r(m, RAL).set(m.const(1))
         _r(m, RAV).set(m.const(1))
@@ -746,67 +1026,57 @@ def build():
         m.ret(m.arg(0))
 
     with c.method("plan") as m:
-        # plan(runId, doctrine, agg, stance, focus, healPct): ALL of your standing orders, in ONE call.
-        #
-        # These used to be four separate methods, so changing your stance, your focus, your auto-drink
-        # threshold and your doctrine cost four transactions — four wallet round-trips, and on a chain whose
-        # execution layer trails by ten minutes that is the better part of an hour to retune a build. They
-        # are one decision; they are now one call.
-        #
-        # There is deliberately NO window check here. A doctrine governs legs whose dice do not exist yet,
-        # so setting it is always a commitment made before the roll; the fence is POLH, recorded below and
-        # tested in advance(). The previous per-leg plan DID need a window, and that window was unreachable
-        # whenever the exec layer trailed L1 by more than one leg — which it does, by about a hundred
-        # blocks — leaving the mechanic permanently dead.
+        # plan(runId, agg, stance, focus, healPct): re-tune the DIALS, nothing else. Optional — begin()
+        # ships playable defaults — and there is deliberately no window check: the dials govern legs whose
+        # dice do not exist yet, and the POLH fence (tested in advance()) keeps them off any leg whose roll
+        # they postdate. This used to also carry a per-tile-CLASS doctrine word and an auto-march flag;
+        # both died with auto mode. Actions live in commit(), per actual tile, and nowhere else.
         _own_or_die(m)
         _live(m)
-        m.require(m.arg(1) < (1 << (3 * NTILE)))
-        m.require(m.arg(2) >= 1)
-        m.require(m.arg(2) <= AGG_MAX)
-        m.require(m.arg(3) < 4)                      # stance
-        m.require(m.arg(4) <= 100)                   # focus
-        m.require(m.arg(5) <= 100)                   # auto-drink threshold
-        m.require(m.arg(6) < 2)                      # auto: schedule rolls without waiting for me
-        # unpack the doctrine into one cell per tile class so the step can index it by tile
-        # retire the current orders into the previous slot BEFORE overwriting, so any leg already rolled
-        # under them still resolves under them
-        for k in range(NTILE):
-            m.slot(POLP0 + k, m.arg(0)).set(m.slot(POL0 + k, m.arg(0)).get())
-        m.slot(POLPA, m.arg(0)).set(m.slot(POLA, m.arg(0)).get())
-        m.slot(POLPH, m.arg(0)).set(m.slot(POLH, m.arg(0)).get())
-        m.slot(RPS, m.arg(0)).set(_r(m, RSN).get())
-        m.slot(RPF, m.arg(0)).set(_r(m, RFO).get())
-        m.slot(RPL, m.arg(0)).set(_r(m, RHL).get())
-        # ONLY NOW may the live values move. Writing them above the copy meant the "previous" generation
-        # was the new one — the retired orders were overwritten by the very orders retiring them.
-        _r(m, RSN).set(m.arg(3))
-        _r(m, RFO).set(m.arg(4))
-        _r(m, RHL).set(m.arg(5))
-
-        _s(m, S_T0).set(m.arg(1))
-        for k in range(NTILE):
-            m.slot(POL0 + k, m.arg(0)).set(_s(m, S_T0).get() % 8)
-            _s(m, S_T0).set(_s(m, S_T0).get() // 8)
-        m.slot(POLA, m.arg(0)).set(m.arg(2))
+        m.require(m.arg(1) >= 1)
+        m.require(m.arg(1) <= AGG_MAX)
+        m.require(m.arg(2) < 4)                      # stance
+        m.require(m.arg(3) <= 100)                   # focus
+        m.require(m.arg(4) <= 100)                   # auto-drink threshold
+        # retire the current generation BEFORE overwriting, so a leg already rolled under it still
+        # resolves under it (writing first made the "previous" generation the new one) — but ONLY if the
+        # live generation could still govern the pending roll (no roll scheduled, or it predates the
+        # roll). A generation that already postdates the pending roll is replaced IN PLACE: rotating it
+        # into the queue would ERASE the generation the fence protects, so two post-roll plans let the
+        # second-to-last one — chosen with the dice public — govern the in-flight leg. Found LIVE by the
+        # e2e when the lossy pool double-landed a late plan (leg resolved under the late dials, kills
+        # 22 vs the old-dials 36); the single-late-plan differential test never sees it.
+        _s(m, S_T0).set(select(_r(m, RNH).get() == 0, 1,
+                               m.slot(POLH, m.arg(0)).get() < _r(m, RNH).get()))
+        _s(m, S_T1).set(select(_s(m, S_T0).get(), m.slot(POLA, m.arg(0)).get(),
+                               m.slot(POLPA, m.arg(0)).get()))
+        m.slot(POLPA, m.arg(0)).set(_s(m, S_T1).get())
+        _s(m, S_T1).set(select(_s(m, S_T0).get(), m.slot(POLH, m.arg(0)).get(),
+                               m.slot(POLPH, m.arg(0)).get()))
+        m.slot(POLPH, m.arg(0)).set(_s(m, S_T1).get())
+        _s(m, S_T1).set(select(_s(m, S_T0).get(), _r(m, RSN).get(), m.slot(RPS, m.arg(0)).get()))
+        m.slot(RPS, m.arg(0)).set(_s(m, S_T1).get())
+        _s(m, S_T1).set(select(_s(m, S_T0).get(), _r(m, RFO).get(), m.slot(RPF, m.arg(0)).get()))
+        m.slot(RPF, m.arg(0)).set(_s(m, S_T1).get())
+        _s(m, S_T1).set(select(_s(m, S_T0).get(), _r(m, RHL).get(), m.slot(RPL, m.arg(0)).get()))
+        m.slot(RPL, m.arg(0)).set(_s(m, S_T1).get())
+        _r(m, RSN).set(m.arg(2))
+        _r(m, RFO).set(m.arg(3))
+        _r(m, RHL).set(m.arg(4))
+        m.slot(POLA, m.arg(0)).set(m.arg(1))
         m.slot(POLH, m.arg(0)).set(m.cursor())       # the fairness fence
-        # ARM. Only an unarmed run pins a window here — committing orders is what sets you walking. A run
-        # already under way keeps its window: its backlog is WALKED, never discarded, and each pending leg
-        # is judged by whichever generation of orders predates its own roll.
+        # Legacy repair: runs begun under the old contract exist with RLH = 0 (begin did not arm then).
+        # Arming here rescues them; a run begun now is already armed and keeps its window untouched.
         _s(m, S_T1).set(_r(m, RLH).get() == 0)
         _r(m, RLH).set(select(_s(m, S_T1).get(), m.cursor() + START_GAP, _r(m, RLH).get()))
-        # In AUTO the first roll is scheduled straight away; otherwise it waits for commit() — the terrain
-        # will be visible and you answer it tile by tile.
-        _s(m, S_T2).set(_s(m, S_T1).get() * m.arg(6))
-        _r(m, RNH).set(select(_s(m, S_T2).get(), m.cursor() + START_GAP + LEG, _r(m, RNH).get()))
-        _r(m, RAUTO).set(m.arg(6))
         for i in range(NSCRATCH):
             _s(m, i).set(m.const(0))
         m.ret(m.arg(1))
 
     with c.method("commit") as m:
         # commit(runId, word): your answer to the SPECIFIC sixteen tiles now in front of you — 3 bits each,
-        # step 0 in the low bits. A zero entry means "whatever my doctrine says about that tile"; anything
-        # else overrides it for this leg only.
+        # step 0 in the low bits. Zero is itself an action (A_DEFAULT: walk in and fight plainly), so an
+        # unanswered tile is never a trap, just an unspent choice.
         #
         # Committing is what SCHEDULES THE DICE. That is the whole trick: the roll height is set here, from
         # here, so it cannot already exist. Per-tile play therefore works at any lag, and cannot be gamed —
@@ -818,10 +1088,20 @@ def build():
         m.require(m.cursor() >= _r(m, RLH).get())    # ... and its terrain is actually visible
         m.require(m.arg(1) < (1 << (3 * LEG)))
         m.at(zhash(m.const(OVR_TAG), m.arg(0), _r(m, RLG).get())).set(m.arg(1))
-        # A FULL LEG ahead, not a couple of blocks: the march is paced one step per block, so the sixteen
-        # steps you just answered play out over the next sixteen blocks. Scheduling them two blocks out
-        # would resolve the whole leg almost instantly and throw the pacing away.
-        _r(m, RNH).set(m.cursor() + LEG)
+        # The word AGAIN, in two plain readable cells (the answer word + which leg it answers). The hash
+        # cell above is what advance() consumes, but decode_view cannot enumerate hash-keyed cells — and
+        # the animator needs the word to REPLAY a settled leg. Without this mirror every manual leg replays
+        # blind, diverges from the chain, and snaps instead of animating: the game would never once show
+        # you your own choices playing out. Manual-only has at most one leg in flight, so the latest word
+        # is always the one the animator is missing.
+        _r(m, RCW).set(m.arg(1))
+        _r(m, RCL).set(_r(m, RLG).get())
+        # TWO blocks out, not sixteen. Fairness needs exactly one thing: the dice height must postdate the
+        # commit's landing, so its hash is unknowable while you answer — and +START_GAP delivers that as
+        # absolutely as +LEG did. The old full-leg gap was the auto-march's "one step per block" pacing,
+        # and in manual-only it was nothing but a 96-second wait glued onto every answer ("the game must
+        # be snappy and uncheatable" — it was only the latter). Answer, ~12 seconds, watch, answer again.
+        _r(m, RNH).set(m.cursor() + START_GAP)
         m.ret(_r(m, RNH).get())
 
     with c.method("retire") as m:
@@ -850,12 +1130,12 @@ def build():
 
         _s(m, S_T).set(m.bhash(_r(m, RLH).get()))               # tiles: pinned, already visible
         _s(m, S_R).set(m.bhash(_r(m, RNH).get()))               # rolls: unknowable when the doctrine was set
-        # THE FAIRNESS FENCE: this leg obeys the doctrine only if the doctrine predates the leg's rolling
-        # height. Setting new orders after a roll is public therefore cannot rewrite the leg that roll
-        # belongs to — it takes effect from the next unresolved leg onward.
-        # WHICH ORDERS GOVERN THIS LEG: the newest generation that predates its rolling height. Current if
-        # it is old enough, else the superseded one, else none at all (a leg older than any orders you ever
-        # gave resolves with no reaction and a pull of one).
+        # THE FAIRNESS FENCE: this leg obeys a generation of DIALS (aggression/stance/focus/heal) only if
+        # that generation predates the leg's rolling height. Re-tuning after a roll is public therefore
+        # cannot rewrite the leg that roll belongs to — it takes effect from the next leg onward. The
+        # newest qualifying generation governs; begin()'s defaults have POLH = 0 and qualify always.
+        # (The per-tile ACTIONS need no fence at all: commit() stores them and only then schedules the
+        # dice, so they are committed-before-the-roll by construction.)
         _s(m, S_PW).set(m.slot(POLH, m.arg(0)).get() < _r(m, RNH).get())
         _s(m, S_T3).set(m.slot(POLPH, m.arg(0)).get() < _r(m, RNH).get())
         _s(m, S_T3).set(_s(m, S_T3).get() * csub(1, _s(m, S_PW).get()))     # only if current does not apply
@@ -893,12 +1173,13 @@ def build():
         m.jmp("step")
 
         m.label("legdone")
-        # Slide the window: this leg's ROLL hash becomes the next leg's TERRAIN, so the road that just
-        # resolved reveals the road ahead. The next roll is scheduled only in AUTO; otherwise it stays 0 and
-        # the march waits for you to answer the tiles now visible.
+        # Slide the window and PARK. This leg's ROLL hash becomes the next leg's TERRAIN — the road that
+        # just resolved reveals the road ahead — and the next roll is simply not scheduled: RNH = 0 until
+        # you answer the sixteen tiles now visible and commit() them. Manual-only means this is the ONLY
+        # way a roll ever gets scheduled, so "who settles, and when" can never influence anything: every
+        # dice height on the run was pinned by one of the owner's own commits.
         _r(m, RLH).set(_r(m, RNH).get())
-        _s(m, S_T0).set(_r(m, RAUTO).get())
-        _r(m, RNH).set(_s(m, S_T0).get() * (m.cursor() + LEG))
+        _r(m, RNH).set(m.const(0))
         _r(m, RLG).set(_r(m, RLG).get() + 1)
         _s(m, S_LEGS).set(_s(m, S_LEGS).get() + 1)
         m.jnz(_r(m, RAV).get() == 0, "done")
@@ -906,9 +1187,22 @@ def build():
         m.jmp("leg")
 
         m.label("done")
+        # ADVANCE RESOLVES A LEG OR IT REVERTS. Every exit above lands here — dice never scheduled, dice not
+        # mined yet, per-call leg budget spent — and two of those three mean nothing happened. Returning ok
+        # for them charged the caller a fee for a no-op and, worse, told the client "that worked" when the
+        # march had not moved a step, which is indistinguishable from a settled leg that changed nothing.
+        # One rule covers all three cases honestly: if no leg resolved, this call had no business existing.
+        m.require(_s(m, S_LEGS).get() != 0)
         for i in range(NSCRATCH):                               # clear scratch: no residue in the state root
             _s(m, i).set(m.const(0))
         m.ret(_r(m, RDP).get())
+
+    # The Daily Gauntlet's two methods are the SHARED, audited ones from execnode/games/_lib.py, mounted
+    # verbatim. Every provable board on the chain uses this same pair; writing autogame's own copy in zkpy
+    # would produce a second implementation of a consensus rule, which is exactly the thing that drifts.
+    c.asm("post", _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, DAILY_WORDS,
+                                  max_n=DAILY_HEAD + DAILY_STEPS, max_score=DAILY_MAX_SCORE))
+    c.asm("anchor", _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST))
 
     return c.build()
 
@@ -933,13 +1227,16 @@ def rules_js():
         "REGEN_CAP_DIV", "BOSS_EVERY", "TIER_EVERY", "NIGHT_EVERY", "LEVEL_CAP", "LIFESTEAL_DIV",
         "HORDE_DIV", "STREAK_DIV", "DEATH_KEEP", "COMPLETE_BONUS", "POTIONS0", "POTION_CAP",
         "POTION_PRICE", "HEAL_BASE", "SHRINE_BASE", "RALLY_BASE", "NSLOT", "TILE_CUTS", "NTILE",
-        "ROAD", "MONSTER", "ELITE", "HAZARD", "CACHE", "SHRINE", "FORGE", "FORK", "RELIC", "BOSS",
+        "ROAD", "MONSTER", "HORDE", "ELITE", "AMBUSH", "MIMIC", "HAZARD", "SNARE", "QUAG", "GALE",
+        "TOLLGATE", "CACHE", "BARROW", "ARMORY", "VEIN", "GROVE", "SHRINE", "WELL", "CAMP", "IDOL",
+        "PYRE", "FORGE", "FORK", "RELIC", "BOSS",
         "A_DEFAULT", "A_STRIKE", "A_GUARD", "A_DODGE", "A_POTION", "A_SPRINT", "A_REST", "A_RIGHT",
         "A_RALLY", "COST", "ST_BALANCED", "ST_AGGRESSIVE", "ST_GUARDED", "ST_EVASIVE", "STANCES",
         "FAM_ATK", "FAM_XP", "SHARPEN_COST", "REINFORCE_COST", "DEF_DIV",
         "G_WEAPON", "G_HELM", "G_BODY", "G_SHIELD", "G_BOOTS", "G_CLOAK",
         "AF_NONE", "AF_KEEN", "AF_HEAVY", "AF_WARD", "AF_SWIFT", "AF_VAMP", "AF_BLAZE", "AF_HALLOW",
         "AFFIX_NAMES", "KEEN_BONUS", "SWIFT_BONUS", "JACKPOT_EVERY",
+        "W_SWORD", "W_AXE", "W_MAUL", "W_SPEAR", "NWKIND", "WKIND_NAMES",
     ]
     g = globals()
     out = [
@@ -956,8 +1253,9 @@ def rules_js():
         out.append(f"export const {n} = {lit(g[n])};")
     out.append("")
     out.append("// tile class -> display name, in the order the class ordinal is derived (see TILE_CUTS)")
-    out.append('export const TILE_NAMES = ["road", "monster", "elite", "hazard", "cache", "shrine", '
-               '"forge", "fork", "relic", "boss"];')
+    out.append('export const TILE_NAMES = ["road", "monster", "horde", "elite", "ambush", "mimic", '
+               '"hazard", "snare", "quag", "gale", "tollgate", "cache", "barrow", "armory", "vein", '
+               '"grove", "shrine", "well", "camp", "idol", "pyre", "forge", "fork", "relic", "boss"];')
     out.append("export const RANKS = [" + ", ".join(f'[{t}, "{n}"]' for t, n in RANKS) + "];")
     out.append("")
     return "\n".join(out)
@@ -966,25 +1264,35 @@ def rules_js():
 ABI = {
     "constructor": {"args": []},
     "begin": {"args": ["runId"]},
-    "plan": {"args": ["runId", "doctrine", "agg", "stance", "focus", "healPct", "auto"]},
+    "plan": {"args": ["runId", "agg", "stance", "focus", "healPct"]},
     "commit": {"args": ["runId", "word"]},
     "retire": {"args": ["runId"]},
     "advance": {"args": ["runId"]},
+    "post": {"args": _lib.daily_post_abi(DAILY_WORDS)},
+    "anchor": {"args": ["day"]},
     "_view": {
         "index": {"cnt": 0, "list": RLIST, "name": "runs"},
         "maps": {
             "ra": RA, "lh": RLH, "nh": RNH, "hp": RHP, "mx": RMX, "st": RST, "po": RPO, "xp": RXP,
             "bk": RBK, "dp": RDP, "ki": RKI, "sn": RSN, "hl": RHL, "fo": RFO, "wl": RWL, "al": RAL,
-            "m0": RM0, "m1": RM1, "m2": RM2, "av": RAV, "dn": RDN, "rt": RRT, "lg": RLG, "sk": RSK,
+            "m0": RM0, "m1": RM1, "m2": RM2, "lv": RAV, "dn": RDN, "rt": RRT, "lg": RLG, "sk": RSK,
+            "cw": RCW, "cl": RCL, "gl": RGL, "py": RPY,
+
             "g0": GEAR0, "g1": GEAR0 + 1, "g2": GEAR0 + 2, "g3": GEAR0 + 3, "g4": GEAR0 + 4,
             "g5": GEAR0 + 5,
             "af1": AFFX + 1, "af2": AFFX + 2, "af3": AFFX + 3, "af4": AFFX + 4, "af5": AFFX + 5,
             "af6": AFFX + 6, "af7": AFFX + 7,
             "pa": POLA, "ph": POLH, "qa": POLPA, "qh": POLPH, "qs": RPS, "qf": RPF, "ql": RPL,
-            **{f"p{k}": POL0 + k for k in range(NTILE)},
-            **{f"q{k}": POLP0 + k for k in range(NTILE)},
+            # the Daily Gauntlet board: per-claim fields + the day anchor. `ah`/`av` are the names
+            # static/provable.js reads by hand, which is why the run-alive flag above is `lv` and not `av`.
+            "eday": {"field": E_DAY, "index": "entries"}, "eaddr": {"field": E_ADDR, "index": "entries"},
+            "escore": {"field": E_SCORE, "index": "entries"}, "en": {"field": E_N, "index": "entries"},
+            **{f"ew{k}": {"field": EW_BASE + k, "index": "entries"} for k in range(DAILY_WORDS)},
+            "ah": {"field": A_H, "index": "days"}, "av": {"field": A_V, "index": "days"},
         },
-        "addr": ["ra"],
+        "indexes": {"entries": {"cnt": ECNT_SLOT, "list": ELIST},
+                    "days": {"cnt": DCNT_SLOT, "list": DLIST}},
+        "addr": ["ra", "eaddr"],
     },
 }
 
