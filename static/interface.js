@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare } from "./nadodapp.js?v=4984604e";   // THE one share implementation (SDK)
+import { share as sdkShare } from "./nadodapp.js?v=77a0d4df";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -4444,7 +4444,10 @@ function barChart(id, values, labels, opts) {
 // the sampler never observed (null) draws NOTHING — "not measured" must look different from a
 // measured 0. Each day gets an invisible full-height hover strip carrying a native <title> tooltip,
 // so the hit target is the column, not the (often 0px) bar. series: [{values, color, name?}];
-// names double as an in-chart legend when there are 2 series.
+// names double as an in-chart legend when there are 2 series. opts.marks = {values, color, name}
+// overlays a per-day horizontal tick at each value (e.g. the deepest single reorg atop the day's
+// total blocks — same "blocks" axis, and a subset so it never overshoots the column); a null value
+// draws no mark ("not measured"), distinct from a measured 0.
 function dailyTrendChart(id, dates, series, opts) {
   opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
   const W = 320, H = 120, padL = 34, padB = 16, padT = 8, padR = 6;
@@ -4452,9 +4455,12 @@ function dailyTrendChart(id, dates, series, opts) {
   if (!n) { svg.appendChild(_mk("text", { x: W / 2, y: H / 2, fill: _CMUT, "font-size": 11, "text-anchor": "middle" }, i18("stats.nodata", "no data yet"))); return; }
   const tot = dates.map((_, i) => series.some((s) => s.values[i] != null)
     ? series.reduce((a, s) => a + (s.values[i] || 0), 0) : null);
+  const marks = opts.marks;
   // opts.max pins the domain (percent gauges live on a fixed 0-100 — rescaling to the data would
-  // turn a steady 97% into fake drama); otherwise the domain follows the data
-  const max = opts.max || Math.max(1e-9, ...tot.filter((v) => v != null), 1);
+  // turn a steady 97% into fake drama); otherwise the domain follows the data (and any marks, which
+  // share the axis but can in principle exceed the stacked total)
+  const max = opts.max || Math.max(1e-9, ...tot.filter((v) => v != null),
+    ...(marks ? marks.values.filter((v) => v != null) : []), 1);
   const bw = (W - padL - padR) / n;
   const Y = (v) => H - padB - (v / max) * (H - padB - padT);
   const fmt = opts.fmt || ((v) => String(Math.round(v)));
@@ -4476,17 +4482,30 @@ function dailyTrendChart(id, dates, series, opts) {
         }
       }
     }
+    if (marks && marks.values[i] != null && marks.values[i] > 0) {   // deepest-reorg tick atop the column
+      const my = Y(marks.values[i]);
+      svg.appendChild(_mk("line", { x1: x + bw * 0.12, y1: my, x2: x + bw * 0.88, y2: my,
+        stroke: marks.color, "stroke-width": 2, "stroke-linecap": "round" }));
+    }
+    const markTip = marks && marks.values[i] != null ? ` · ${marks.name || ""} ${fmt(marks.values[i])}` : "";
     const hit = _mk("rect", { x, y: padT, width: bw, height: H - padB - padT, fill: "transparent" });
     hit.appendChild(_mk("title", {}, tot[i] == null ? `${d}: —`
-      : series.length > 1 ? `${d}: ` + series.map((s) => `${s.name || ""} ${fmt(s.values[i] || 0)}`).join(" · ")
-      : `${d}: ${fmt(tot[i])}`));
+      : (series.length > 1 ? `${d}: ` + series.map((s) => `${s.name || ""} ${fmt(s.values[i] || 0)}`).join(" · ")
+      : `${d}: ${fmt(tot[i])}`) + markTip));
     svg.appendChild(hit);
     if (i % step === 0 || i === n - 1)
       svg.appendChild(_mk("text", { x: x + bw / 2, y: H - 5, fill: _CMUT, "font-size": 7, "text-anchor": "middle" }, String(d).slice(5)));
   });
-  if (series.length > 1) series.forEach((s, si) => {          // legend — mandatory once identity isn't the title's alone
+  // legend — mandatory once identity isn't the title's alone: every named series, then the mark
+  // overlay (drawn as a short line swatch so its tick shape reads distinct from the column blocks).
+  const legend = series.filter((s) => s.name).map((s) => ({ color: s.color, name: s.name, tick: false }))
+    .concat(marks && marks.name ? [{ color: marks.color, name: marks.name, tick: true }] : []);
+  if (legend.length > 1) legend.forEach((s, si) => {
     const lx = padL + 6 + si * 78;
-    svg.appendChild(_mk("rect", { x: lx, y: padT + 1, width: 8, height: 8, fill: s.color, rx: 2 }));
+    if (s.tick)
+      svg.appendChild(_mk("line", { x1: lx, y1: padT + 5, x2: lx + 8, y2: padT + 5, stroke: s.color, "stroke-width": 2, "stroke-linecap": "round" }));
+    else
+      svg.appendChild(_mk("rect", { x: lx, y: padT + 1, width: 8, height: 8, fill: s.color, rx: 2 }));
     svg.appendChild(_mk("text", { x: lx + 11, y: padT + 8, fill: _CMUT, "font-size": 8 }, s.name || ""));
   });
   if (opts.trend !== false) {
@@ -4818,18 +4837,24 @@ async function renderExecStats(tip, tipTs) {
   if (rootEl && ex.state_root) rootEl.textContent = i18("stats.execRootLabel", "Exec state root") + ": " + ex.state_root;
 }
 
-// ROLLBACKS/DAY panel: the relay's own reorg telemetry (/rollback_stats is node-local — each relay
-// answers its own history). Chart + a one-line summary with the week-over-week trend verdict.
+// REORGS/DAY panel: the relay's own reorg telemetry (/rollback_stats is node-local — each relay
+// answers its own history). Columns = blocks reverted that day; a purple tick per day = the deepest
+// single reorg (max consecutive blocks one burst unwound). Chart + a one-line week-over-week summary.
 async function renderRollbacks() {
   const rb = await (await fetch(relayBase() + "/rollback_stats?days=30", { cache: "no-store" })).json();
   const days = (rb && rb.days) || [];
-  dailyTrendChart("chartRollbacks", days.map((d) => d.date), [{ values: days.map((d) => d.count), color: _CACC }]);
+  dailyTrendChart("chartRollbacks", days.map((d) => d.date),
+    [{ values: days.map((d) => d.count), color: _CACC, name: i18("stats.rbBlocks", "blocks reverted") }],
+    { marks: { values: days.map((d) => d.depth), color: _CPUR, name: i18("stats.rbDepth", "deepest reorg") } });
   const sub = $("rollbacksSub"); if (!sub || !days.length) return;
   const vals = days.map((d) => d.count), sum = (a) => a.reduce((x, y) => x + y, 0);
   const last7 = sum(vals.slice(-7)), prev7 = sum(vals.slice(-14, -7));
   const t = last7 > prev7 ? i18("stats.trendRising", "rising") : last7 < prev7 ? i18("stats.trendFalling", "falling") : i18("stats.trendFlat", "flat");
   sub.textContent = i18("stats.rbSub", "{n} in 30 days · {a} this week vs {b} the week before — trend: {t} · gold line = 7-day average",
     { n: sum(vals), a: last7, b: prev7, t });
+  // deepest single reorg over the whole window — the depth marks' headline, null days ("not measured") skipped.
+  const depths = days.map((d) => d.depth).filter((v) => v != null && v > 0);
+  if (depths.length) sub.textContent += i18("stats.rbDepthNote", " · deepest reorg this month: {d} blocks", { d: Math.max(...depths) });
 }
 
 // Shared trend-verdict sub-line for the daily panels: last 7 observed days vs the 7 before.

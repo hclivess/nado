@@ -704,7 +704,7 @@
       <svg id="chartReward" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
     <div class="mt"><div class="label" data-i18n="stats.txPerBlock">Transactions per block (recent)</div>
       <svg id="chartTxCount" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
-    <div class="mt"><div class="label" data-i18n="stats.rollbacks">Rollbacks per day — blocks this relay reverted in reorgs (last 30 days, UTC)</div>
+    <div class="mt"><div class="label" data-i18n="stats.rollbacks">Reorgs per day — blocks this relay reverted, and the deepest single reorg (last 30 days, UTC)</div>
       <svg id="chartRollbacks" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg>
       <div class="small faint" id="rollbacksSub">—</div></div>
     <div class="mt"><div class="label" data-i18n="stats.txsDay">Transactions per day (last 30 days, UTC)</div>
@@ -1122,7 +1122,7 @@
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=2bf3e377"></script>
-<script type="module" src="/static/interface.js?v=5b9cf5f1"></script>
+<script defer src="/static/i18n.js?v=1764cf37"></script>
+<script type="module" src="/static/interface.js?v=b36c22a6"></script>
 </body>
 </html>

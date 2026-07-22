@@ -1584,10 +1584,12 @@ async def invariants_report(request):
 
 
 async def rollback_stats_report(request):
-    """GET /rollback_stats?days=: per-UTC-day count of blocks THIS node reverted in reorgs
-    (ops/rollback_stats.py — node-local telemetry, not consensus: each peer answers its own history).
-    Dense oldest-first series ending today, zero-filled so calm days chart as real zeros. Feeds the
-    wallet Stats tab's rollbacks-per-day trend chart. `days` clamps to [1, 365], default 30."""
+    """GET /rollback_stats?days=: per-UTC-day count of blocks THIS node reverted in reorgs, plus that
+    day's max reorg depth (deepest single reorg run) (ops/rollback_stats.py — node-local telemetry,
+    not consensus: each peer answers its own history). Dense oldest-first [{date, count, depth}] series
+    ending today, zero-filled so calm days chart as real zeros (depth null on days that predate depth
+    tracking). Feeds the wallet Stats tab's reorgs-per-day trend chart. `days` clamps to [1, 365],
+    default 30."""
     try:
         days = max(1, min(365, int(request.query.get("days", "30"))))
     except ValueError:

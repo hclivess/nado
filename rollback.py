@@ -21,8 +21,10 @@ class FinalityViolation(Exception):
     rollback: no amount of attacker chain weight can reorg below the finalized floor."""
 
 
-def rollback_one_block(logger, block) -> dict:
-    """Revert the tip block and return the new tip (its parent).
+def rollback_one_block(logger, block, depth: int = 1) -> dict:
+    """Revert the tip block and return the new tip (its parent). `depth` is this block's position
+    in the current reorg burst (1 for the tip, 2 for its parent, …) — passed straight to the reorg
+    telemetry so the Stats tab can chart the deepest single reorg per day, not just the block total.
 
     All reversals run in ONE LMDB write transaction, so the rollback is all-or-nothing
     (mirrors the atomic incorporate path): a crash mid-rollback leaves the block fully applied,
@@ -79,11 +81,12 @@ def rollback_one_block(logger, block) -> dict:
 
     logger.info(f"Rolled back {block['block_hash']} successfully")
 
-    # per-day rollback telemetry (ops/rollback_stats.py, /rollback_stats, the Stats-tab chart). Best
-    # effort: a failed count must never fail the rollback that already committed above.
+    # per-day reorg telemetry (ops/rollback_stats.py, /rollback_stats, the Stats-tab chart): count
+    # this block and advance the day's max reorg depth to `depth`. Best effort: a failed count must
+    # never fail the rollback that already committed above.
     try:
         from ops import rollback_stats
-        rollback_stats.record()
+        rollback_stats.record(depth)
     except Exception:
         pass
     return previous_block

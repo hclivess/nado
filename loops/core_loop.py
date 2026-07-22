@@ -1127,8 +1127,11 @@ class CoreClient(threading.Thread):
         # capture the tip's txs BEFORE reverting so a reorg re-mines them instead of dropping them.
         reverted_txs = self.memserver.latest_block.get("block_transactions", []) or []
         try:
+            # depth = this block's 1-based position in the current burst (rollbacks done so far + 1),
+            # so the reorg telemetry records the deepest single reorg run of the day, not just totals.
             self.memserver.latest_block = rollback_one_block(logger=self.logger,
-                                                             block=self.memserver.latest_block)
+                                                             block=self.memserver.latest_block,
+                                                             depth=self.memserver.rollbacks + 1)
         except MissingParentError as e:
             # we have run out of local history to roll back through (e.g. a snapshot-bootstrapped
             # node). Abort the cascade and let the next emergency cycle resync (snapshot/full)
