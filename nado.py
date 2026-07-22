@@ -1952,6 +1952,7 @@ def _daily_stats_loop():
     from ops.block_ops import get_block_number as _load_block
     from ops.account_ops import get_open_registry
     from ops.mining_ops import epoch_of
+    started = time.monotonic()
     time.sleep(30)                                       # let boot/sync settle before the first walk
     while True:
         try:
@@ -1966,9 +1967,11 @@ def _daily_stats_loop():
                 except Exception:
                     pass                                 # gauge unavailable this pass -> stays a null, never a fake 0
                 floors = {}
-                # consensus agreement gauges only once a quorum has FORMED — the attributes boot as 0,
-                # and recording that would poison the daily floor with a startup artifact
-                if consensus.majority_block_hash is not None:
+                # consensus agreement gauges only once a quorum has FORMED (the attributes boot as 0)
+                # AND the node has WARMED UP: right after a restart the mempool is still reconciling,
+                # so volatility legitimately spikes — recording that peak would stamp every routine
+                # update-wave restart into the chart as a fake turbulence day
+                if consensus.majority_block_hash is not None and time.monotonic() - started > 300:
                     gauges["volatility"] = max(0, min(100, round(100 - consensus.transaction_hash_pool_percentage)))
                     floors = {"up_agree": max(0, min(100, round(consensus.upcoming_block_hash_pool_percentage))),
                               "tip_agree": max(0, min(100, round(consensus.block_hash_pool_percentage)))}
