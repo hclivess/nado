@@ -12,7 +12,6 @@ from ops.block_ops import (
     knows_block,
     get_blocks_after,
     SYNC_BATCH_MAX,
-    get_from_single_target,
     get_block_candidate,
     save_block,
     set_latest_block_info,
@@ -134,19 +133,6 @@ def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips, min
                for s in statuses)
 
 
-def minority_consensus(majority_hash, sample_hash):
-    """True when a pool majority exists and OUR sample hash differs from it — i.e. we are in the
-    minority for that pool and should converge toward the majority. No majority yet (quorum not
-    formed, e.g. a lone/bootstrap node) counts as NOT minority, so a solo node never replaces its
-    own pool. Used for the tx-pool reconcile only — chain fork-choice is weight-based, not this."""
-    if not majority_hash:
-        return False
-    elif sample_hash != majority_hash:
-        return True
-    else:
-        return False
-
-
 def old_block(block):
     """True when the block's committed timestamp is more than a day in the past. Reporting only
     (flags a sync-replayed historical block in produce_block's log) — NOT a validity rule; the
@@ -195,8 +181,6 @@ class CoreClient(threading.Thread):
         # cooldown for the seed-anchored RE-ANCHOR (wedge recovery): re-importing a seed's snapshot is
         # expensive, so a wedged node attempts it at most once per this interval rather than every ~1s pass.
         self._last_reanchor_ts = 0
-        # throttle the once-per-block-interval consensus mempool reconcile (normal_mode).
-        self._last_reconcile = 0
         # once-per-new-block throttle for the periodic duties in normal_mode (FFG/RANDAO/auto-*).
         self._last_duty_height = -1
         # DONOR CACHE for get_peer_to_sync_from: (peer, required_hash) of the last selected sync donor.
@@ -253,19 +237,11 @@ class CoreClient(threading.Thread):
                         buffer=self.memserver.transaction_pool,
                         limit=self.memserver.transaction_pool_max_bytes)
 
-            # CONSENSUS MEMPOOL RECONCILE — at most once per block interval: converge toward the peer
-            # majority. Keyed on the UPCOMING-BLOCK hash (the mature next-block tx set), NOT the whole-pool
-            # hash, so we only reconcile when the NEXT BLOCK would actually differ — immature/future txs
-            # that won't be in it no longer trigger pointless unions. Convergence still UNIONS the peer's
-            # full pool (replace_transaction_pool), which fixes the missing mature tx. Time-gated.
-            now = get_timestamp_seconds()
-            if now - self._last_reconcile >= self.memserver.block_time:
-                self._last_reconcile = now
-                if minority_consensus(majority_hash=self.consensus.majority_upcoming_block_hash,
-                                      sample_hash=self.memserver.upcoming_block_hash):
-                    self.replace_transaction_pool()
-                    self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
-                    self.memserver.upcoming_block_hash = self.memserver.get_upcoming_block_hash()
+            # MEMPOOL CONVERGENCE is handled entirely off this loop now: PUSH gossip delivers a new tx
+            # to peers the instant it is accepted (ops/gossip.py, nado._gossip_worker), and the
+            # txid-diff pull reconcile (peer_loop -> memserver.merge_remote_transactions) is the ~1s
+            # backstop for anything a push missed. The old once-per-block full-pool UNION here
+            # (replace_transaction_pool) re-downloaded a divergent peer's whole pool and is retired.
 
             # PERIODIC DUTIES, throttled to once per NEW BLOCK (audit): they depend only on chain
             # state (epoch windows, registries, balances), which changes exactly when the tip
@@ -542,48 +518,6 @@ class CoreClient(threading.Thread):
             return False
         """a strictly-better tip (heavier, or equal-weight + lower hash) exists -> sync toward it"""
         return True
-
-    def replace_transaction_pool(self):
-        """Reconcile toward a sync-qualified peer's transaction pool when ours hashed into the MINORITY
-        (normal_mode's once-per-interval convergence). MERGE, not wholesale replace: UNION the peer's txs
-        into ours (dedup by txid, cull to the byte limit), the same way the 3-level buffer pipeline
-        (user_tx_buffer -> tx_buffer -> transaction_pool) and the peer-gossip merge already union incoming
-        txs. Wholesale replace was the crutch's flaw: a node that had just accepted a user's tx (so its pool
-        went minority) would ADOPT a peer pool WITHOUT that tx and silently DROP it before it could gossip
-        out. A union can never lose a local tx, and both sides still converge to the same set after a
-        reconcile round. Mempool convergence only — NOT chain fork-choice (a block is validated from its OWN
-        tx set via rebuild_block, so pool agreement is a latency optimisation, never a correctness gate).
-        Best-effort: no qualifying peer, an empty peer pool, or a failed fetch simply keeps our pool intact."""
-        sync_from = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
-        if not sync_from:
-            return
-        peer_pool = self.replace_pool(peer=sync_from, key="transaction_pool")
-        if not peer_pool:                     # empty peer pool or a fetch failure -> nothing to merge
-            return
-        # peer_pool is an UNTRUSTED /transaction_pool body: get_from_single_target guarantees it is a
-        # list but NOT that its elements are dicts. A donor returning e.g. [1,2,3] would make
-        # tx.get("txid") raise AttributeError and abort the whole normal_mode pass (mint + drain +
-        # duties) each reconcile. Keep only dict entries; merge_transaction re-validates each anyway.
-        peer_pool = [tx for tx in peer_pool if isinstance(tx, dict)]
-        with self.memserver.mempool_lock:
-            local = self.memserver.transaction_pool
-            seen = {tx.get("txid") for tx in local}
-            merged = local + [tx for tx in peer_pool if tx.get("txid") not in seen]
-            self.memserver.transaction_pool = cull_buffer(merged, self.memserver.transaction_pool_max_bytes)
-
-    def replace_pool(self, peer, key):
-        """replace pool (block, tx) when out of sync to prevent forking"""
-        self.logger.info(f"Replacing {key} from {peer}")
-
-        suggested_pool = asyncio.run(get_from_single_target(
-            key=key,
-            target_peer=peer,
-            logger=self.logger))
-
-        if suggested_pool:
-            return suggested_pool
-        else:
-            self.logger.info(f"Could not replace {key} from {peer}")
 
     def snapshot_bootstrap(self, force_reanchor: bool = False, allow_below_floor: bool = False) -> bool:
         """For a fresh node (still at genesis), bulk-download verified account state from peers instead of

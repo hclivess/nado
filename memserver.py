@@ -1,4 +1,5 @@
 import asyncio
+import queue
 import threading
 
 from config import get_protocol, get_timestamp_seconds, get_config
@@ -91,6 +92,12 @@ class MemServer:
 
         self.unreachable = {}
         self.peers = []
+
+        # PUSH-GOSSIP outbound queue (ops/gossip.py): a newly-accepted tx is enqueued here and the
+        # gossip worker (nado._gossip_worker) fans it out to peers immediately, so mempools converge
+        # in one hop instead of waiting for the txid-diff pull reconcile. Bounded + best-effort: if it
+        # backs up (a flood), we drop the overflow — the pull reconcile is the correctness backstop.
+        self.gossip_queue = queue.Queue(maxsize=10000)
 
         self.transaction_pool_hash = None
         self.upcoming_block_hash = None   # hash of the NEXT block's tx set (mature subset) — the determinism signal
@@ -522,6 +529,17 @@ class MemServer:
         rest of the batch. Per-tx results are deliberately discarded (gossip is best-effort)."""
         for transaction in transactions:
             self.merge_transaction(transaction, user_origin)
+
+    def enqueue_gossip(self, transaction, exclude_ip=None) -> None:
+        """Queue a NEWLY-accepted tx for push-fan-out to peers (nado._gossip_worker), skipping the
+        peer it came from (exclude_ip) so it never echoes straight back. Best-effort: a full queue
+        (sustained flood) drops the overflow — the txid-diff pull reconcile still converges it. Only
+        the caller's should_gossip(result) gate decides WHAT reaches here, so this never re-floods a
+        dup (see ops/gossip.py)."""
+        try:
+            self.gossip_queue.put_nowait((transaction, exclude_ip))
+        except queue.Full:
+            pass
 
     def purge_txs_of_sender(self, sender) -> None:
         """remove all transactions of sender to prevent possible double spending attempt"""

@@ -1,6 +1,5 @@
 import asyncio
 import json
-from urllib.parse import quote
 
 import aiohttp
 from ops.data_ops import sort_list_dict
@@ -117,21 +116,21 @@ async def post_txs_by_id(peer, port, txids, logger, fail_storage, semaphore):
 
 
 async def send_transaction(peer, port, logger, fail_storage, transaction, semaphore):
-    """method compounded by compound_send_transaction"""
-
-    url_construct = f"http://{hostport(peer, port)}/submit_transaction?data={quote(json.dumps(transaction))}"
-
+    """PUSH one transaction to a peer's POST /submit_transaction, body = codec.pack(tx) — the exact
+    wire net_ops.unpack_tx decodes. (The old GET `?data=<json>` form never matched the POST-body
+    endpoint and silently failed.) Returns (peer, message) on success, None on failure. Shared by
+    push-gossip (nado._gossip_worker) and the wallet CLI (compound_send_transaction)."""
+    from ops import codec
+    url_construct = f"http://{hostport(peer, port)}/submit_transaction"
     try:
         async with semaphore:
-            
-            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
-                async with session.get(url_construct) as response:
-                    fetched = json.loads(await response.text())["message"]
-                    return peer, fetched
-
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+                async with session.post(url_construct, data=codec.pack(transaction)) as response:
+                    body = await response.json(content_type=None)
+                    return peer, (body.get("message") if isinstance(body, dict) else body)
     except Exception as e:
         if peer not in fail_storage:
-            logger.error(f"Compounder: Failed to send transaction to {url_construct} {e}")
+            logger.error(f"Compounder: Failed to send transaction to {url_construct}: {e}")
             fail_storage.append(peer)
 
 async def compound_send_transaction(ips, port, logger, fail_storage, transaction, semaphore):

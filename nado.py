@@ -2,12 +2,14 @@ import asyncio
 import functools
 import hashlib
 import os
+import queue
 import re
 import signal
 import socket
 import sys
 
 from ops import codec
+from ops.gossip import should_gossip, gossip_targets
 import zstandard as _zstd
 from aiohttp import web
 
@@ -392,25 +394,33 @@ async def transactions_by_id(request):
 
 async def submit_transaction(request):
     """POST /submit_transaction: decode a JSON-codec tx from the body (size-bounded by unpack_tx so an
-    oversized/malformed payload can't balloon memory) and merge it into the pool as user-origin. `register`
-    txs additionally pass the per-source-IP anti-Sybil registration budget. 200 on accept, 403 on reject,
-    429 over the 30/min IP rate limit."""
-    if _rate_limited(request, 30):
+    oversized/malformed payload can't balloon memory) and merge it into the pool. Serves BOTH user
+    submissions and peer PUSH-GOSSIP (a peer relaying a tx it just accepted). On a first-sight accept
+    the tx is re-pushed to our other peers, so one submit floods the mesh in ~one hop per edge; a dup
+    returns "Already present" and never re-floods, which terminates the epidemic. `register` txs also
+    pass the per-source-IP anti-Sybil budget. 200 on accept, 403 on reject, 429 over the rate limit."""
+    ip = _ip(request)
+    # A LINKED PEER relaying gossip bypasses the 30/min per-IP user limit — otherwise a busy relay
+    # would 429 the very floods that keep mempools converged. It stays bounded: a dup is a cheap
+    # "Already present" that is not re-gossiped, and an abusive peer is benched/purged by peer_loop.
+    if ip not in memserver.peers and _rate_limited(request, 30):
         return _RL
 
     def _work(body, ip):
-        """Decode, anti-Sybil check, and pool-merge the tx (worker thread)."""
+        """Decode, anti-Sybil check, pool-merge, and (on a first-sight accept) queue push-gossip."""
         try:
             transaction = unpack_tx(body)   # size-bounded JSON-codec decode (ops/net_ops.py)
             rej = _ip_registration_rejection(ip, transaction)
             if rej:
                 return rej, 429
             output = memserver.merge_transaction(transaction, user_origin=True)
+            if should_gossip(output):       # newly accepted -> fan out to peers, minus the sender
+                memserver.enqueue_gossip(transaction, exclude_ip=ip)
             return output, (200 if output.get("result") else 403)
         except Exception as e:
             return f"Error: {e}", 403
     body = await request.read()
-    out, code = await asyncio.to_thread(_work, body, _ip(request))
+    out, code = await asyncio.to_thread(_work, body, ip)
     return _resp(out, status=code)
 
 
@@ -1984,5 +1994,44 @@ def _daily_stats_loop():
 
 
 _threading.Thread(target=_daily_stats_loop, daemon=True, name="daily_stats").start()
+
+
+def _gossip_worker():
+    """PUSH-GOSSIP fan-out (ops/gossip.py): drain memserver.gossip_queue and post each newly-accepted
+    tx to its peers (minus the sender) so mempools converge in one hop instead of waiting for the
+    txid-diff pull reconcile. Off the hot path and best-effort — a failed push just means that peer
+    picks the tx up on its next pull (peer_loop.merge_remote_transactions), so this is a pure latency
+    optimisation, never a correctness gate. A drain coalesces a burst and de-dupes by txid so a submit
+    spike of the same tx fans out once."""
+    from compounder import send_transaction
+
+    async def _flush(items):
+        sem = asyncio.Semaphore(50)
+        peers = list(memserver.peers)                 # snapshot once per flush
+        tasks = [send_transaction(p, memserver.port, logger, [], tx, sem)
+                 for tx, exclude_ip in items for p in gossip_targets(peers, exclude_ip)]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    q = memserver.gossip_queue
+    while not memserver.terminate:
+        try:
+            batch = [q.get()]                         # block until there is something to send
+            for _ in range(511):                      # coalesce a burst into one fan-out round
+                try:
+                    batch.append(q.get_nowait())
+                except queue.Empty:
+                    break
+            picked = {}                               # de-dup by txid; keep the first sender to exclude
+            for tx, exclude_ip in batch:
+                key = tx.get("txid") if isinstance(tx, dict) else None
+                picked.setdefault(key if key is not None else id(tx), (tx, exclude_ip))
+            asyncio.run(_flush(list(picked.values())))
+        except Exception as e:
+            logger.error(f"Gossip worker error: {e}")
+            time.sleep(1)
+
+
+_threading.Thread(target=_gossip_worker, daemon=True, name="gossip").start()
 
 asyncio.run(make_app(get_config()["port"]))
