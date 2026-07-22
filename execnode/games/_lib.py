@@ -144,10 +144,16 @@ def view_table_maps(index="tables"):
 # contract's storage layout).
 # =====================================================================================================
 
-def daily_post(ecnt_slot, e_day, e_addr, e_score, e_n, elist, ew_base, words, max_n, max_score=4096):
+def daily_post(ecnt_slot, e_day, e_addr, e_score, e_n, elist, ew_base, words, max_n, max_score=4096,
+               e_ts=None):
     """post(day, score, n, w0..w{words-1}): r0..r2 preload day/score/n; the claim words ride the ARG
     bus (indices 3..words+2). Entry fields keyed by the append-log entry id; word k at ew_base+k
-    (serve them client-side as a _view board: base=ew_base, cells=words, index=entries)."""
+    (serve them client-side as a _view board: base=ew_base, cells=words, index=entries).
+
+    e_ts (optional): a slot that records the L1 block time (ctx time, UTC seconds) the claim was posted
+    at, so a board can show WHEN each score was set. Nothing on-chain depends on it — it is a display
+    stamp only, minted by the chain (unforgeable) rather than trusted from the client. Older entries
+    posted before a contract carried this field read back 0, which the client renders as day-only."""
     body = f"""
     movi r5 0
     lt r5 r0
@@ -191,6 +197,11 @@ def daily_post(ecnt_slot, e_day, e_addr, e_score, e_n, elist, ew_base, words, ma
     sstore r4 r1
     slot r4 {e_n} r3
     sstore r4 r2
+"""
+    if e_ts is not None:
+        body += f"""    ctx r5 time
+    slot r4 {e_ts} r3
+    sstore r4 r5           ; entry post-time (UTC seconds) — display stamp only
 """
     for k in range(words):
         body += f"""    movi r5 {3 + k}

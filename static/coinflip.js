@@ -6,8 +6,8 @@
 // is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=4984604e";
-import { Practice } from "./practice.js?v=77683a2a";      // free in-browser practice (play chips, no chain)
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=77a0d4df";
+import { Practice } from "./practice.js?v=1e947bde";      // free in-browser practice (play chips, no chain)
 
 const CID = "7dd1e147f769ced73123a1aefd5aac8c";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" fill="none" aria-hidden="true">     <ellipse cx="18" cy="27" rx="10.5" ry="12.5" fill="#c8901a" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="28" cy="24" r="13" fill="#e3b341" stroke="#b5810f" stroke-width="2.4"/>     <circle cx="28" cy="24" r="8.6" stroke="#a9760a" stroke-width="1.3" fill="none"/>     <text x="28" y="29" text-anchor="middle" font-size="13" font-weight="800" fill="#7a5606" font-family="system-ui">N</text></svg>';

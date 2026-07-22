@@ -20,6 +20,7 @@ NN, ST, PT, P1, P2, SD, WR, MC, DL, LIST = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
 # chain only ever stores a claim — never the rules.
 DCNT_SLOT, ECNT_SLOT = 1000, 1001
 E_DAY, E_ADDR, E_SCORE, E_N = 1010, 1011, 1012, 1013
+E_TS = 1014                               # UTC-seconds post-time (board shows day + time)
 ELIST, EW_BASE = 1020, 1030
 A_H, A_V, DLIST = 1050, 1051, 1052
 DAILY_WORDS = 3                                    # ceil(42 moves / 16 per word) at 3 bits/move
@@ -169,7 +170,7 @@ done:
 """
 
 POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, DAILY_WORDS,
-                       max_n=DAILY_MAX_N, max_score=2000)
+                       max_n=DAILY_MAX_N, max_score=2000, e_ts=E_TS)
 ANCHOR = _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST)
 
 SRC = {
@@ -189,6 +190,7 @@ ABI = {
         "maps": {"nn": NN, "st": ST, "pt": PT, "p1": P1, "p2": P2, "sd": SD, "wr": WR, "mc": MC, "dl": DL,
                  "eday": {"field": E_DAY, "index": "entries"}, "eaddr": {"field": E_ADDR, "index": "entries"},
                  "escore": {"field": E_SCORE, "index": "entries"}, "en": {"field": E_N, "index": "entries"},
+                 "ets": {"field": E_TS, "index": "entries"},
                  **{f"ew{k}": {"field": EW_BASE + k, "index": "entries"} for k in range(DAILY_WORDS)},
                  "ah": {"field": A_H, "index": "days"}, "av": {"field": A_V, "index": "days"},},
         "index": {"cnt": 0, "list": LIST},

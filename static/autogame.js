@@ -16,13 +16,13 @@ import {
   NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime, modeBar,
   confirmingLabel,
-} from "./nadodapp.js?v=4984604e";
+} from "./nadodapp.js?v=77a0d4df";
 import * as E from "./autogame-engine.js?v=eb6129b3";
 import { ACTS_FOR } from "./autogame-rules.js?v=e7abffe6";
 import * as ART from "./autogame-art.js?v=f4f6ab41";
 import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=f4f6ab41";
-import { createDaily } from "./autogame-dailyui.js?v=4b37106c";
-import * as D from "./autogame-daily.js?v=950a49cd";
+import { createDaily } from "./autogame-dailyui.js?v=b4fb5c74";
+import * as D from "./autogame-daily.js?v=e7c3c3fb";
 import { createAudio } from "./autogame-audio.js?v=afd7538c";
 
 const CID = "ba8bebc9693f5aaec0e338a13d5812c4";          // execnode/games/autogame.py (zkVM) — set by the deploy script
@@ -142,6 +142,11 @@ let sto = null;                 // last contract storage view
 let myId = null;                // my run id
 let chain = null;               // the run exactly as the contract has it
 let view = null;                // the run the ANIMATOR is showing; catches up to `chain`, snaps on mismatch
+// REPLAY: watching a leaderboard entry play back on the same stage. `{ run, world, addr, score, walk }`.
+// While set it OWNS the animator — the live poll's syncView/syncDailyView/demoStep all stand down so the
+// playback is never yanked back to the player's own run. A Gauntlet claim replays step-for-step (walk:true,
+// its events queued from depth 0); a staked-march row can only be SHOWN at rest (no move list on chain).
+let replay = null;
 let road = [];                  // peekLeg() of the pending leg — the visible, committed terrain
 let roadBase = 0;               // the depth road[0] stands at (a leg boundary marching; the step you are
                                 // on in the Gauntlet). drawWorld used chain.depth for this, which is only
@@ -364,9 +369,12 @@ async function refreshAll() {
     const before = previewed;
     previewLeg();
     if (previewed !== before) rebuildRoad();   // the pipeline road opens the same instant the dice land
+    // phase:"advance" scopes the SDK's settle-block to advance pends only — so settling THIS leg is never
+    // starved by the NEXT leg's queued commit/plan (the "queued 5 minutes" stall). It fires as soon as the
+    // dice block is provisional; finality just makes it permanent. See doc/game-finality.md.
     dapp.autoCollect([{ g: myId + ":" + chain.leg }], () =>
       dapp.call("advance", [myId], 0n, t("labelAdvance", "Settle the leg"),
-        { phase: "advance", leg: chain.leg }), { key: (x) => x.g });
+        { phase: "advance", leg: chain.leg }), { key: (x) => x.g, phase: "advance" });
   }
 
   dapp.settleInflight((f) => {
@@ -403,6 +411,7 @@ async function refreshAll() {
  * chain wins and the view snaps — a pretty animation that disagrees with settlement is a lie.
  */
 function syncView() {
+  if (replay) return;            // a replay owns the animator — never yank it back to the chain run
   // An optimistic preview runs one leg AHEAD of the chain on purpose (previewLeg): the dice exist, the
   // outcome is already determined, only the settle tx is in flight. Both the "view is ahead -> reset" and
   // the tail mismatch-snap must stand down for exactly that window, or every poll rewinds the animation
@@ -449,6 +458,7 @@ function syncView() {
  * localStorage). A spectator without the word simply waits for the real settlement and snaps.
  */
 function previewLeg() {
+  if (replay) return;            // a replay owns the queue/view — never mix the live march's leg into it
   const tag = myId + ":" + chain.leg;
   if (previewed === tag || !view || view.leg !== chain.leg) return;
   const tileH = hashField(chain.lh), rollH = hashField(chain.nh);
@@ -486,6 +496,7 @@ function restingDeath() {
 }
 
 function rebuildRoad() {
+  if (replay) return;            // the replay sets its own road; the live march must not repaint it
   if (pipel()) {
     // the previewed leg's roll hash is the NEXT leg's terrain — final, readable, answerable now
     const tileH = hashField(chain.nh);
@@ -1072,6 +1083,7 @@ function popPointOf(ev) {
 let demoOn = false, demoLeg = 0;
 const DEMO_SEED = 20260721, DEMO_RID = 777;
 function demoStep(now) {
+  if (replay) { demoOn = false; return; }   // a replay is on the stage — the idle demo stays out of its way
   const active = !isDaily() && !(chain && (chain.lh || chain.depth));
   if (!active) {
     if (demoOn) { demoOn = false; view = null; queue = []; scene = []; gore = []; fatality = null; camera = 0; }
@@ -1175,6 +1187,13 @@ function idleMessage() {
   const el = $("stagemsg");
   if (!el) return;
   if (stageMsgAt && performance.now() - stageMsgAt < 2600) return;   // the event's line, still fresh
+  if (replay) {                                                      // a replay narrates its own walk
+    el.innerHTML = replay.walk && (queue.length || (view && camera < view.depth - 0.01))
+      ? `<span class="dim">${esc(t("idleReplayWalk", "Replay · step {d}/{n} · walking it out",
+          { d: Math.min(Math.floor(camera), D.STEPS), n: D.STEPS }))}</span>`
+      : `<span class="dim">${esc(t("idleReplayRest", "Replay · the run ends here. ✕ Close to return."))}</span>`;
+    return;
+  }
   // animating a backlog: narrate the walk itself, live, at the camera's own depth
   const target2 = view ? (view.alive ? view.depth : Math.max(0, view.depth - 1)) : 0;
   if (queue.length || (view && camera < target2 - 0.01)) {
@@ -1264,7 +1283,13 @@ function idleMessage() {
     return;
   }
   if (!chain.nh || queuedWord) {                 // answers in flight (or queued behind the leg's close)
-    el.innerHTML = `<span class="dim">${esc(t("idleCommitting", "Sending your answers — the dice get scheduled the moment they land."))}</span>`;
+    // if a settleable leg is the thing holding the queue, say so and point at the manual escape — a silent
+    // "sending…" that sits for minutes is exactly what makes people leave
+    const stuck = settleable() && !dapp.busy("advance")
+      && (!!queuedWord || (settleableSince && performance.now() - settleableSince > 6000));
+    el.innerHTML = stuck
+      ? `<span class="dim">${esc(t("idleSettleStuck", "Settling the last leg — tap “Settle now” if it’s slow."))}</span>`
+      : `<span class="dim">${esc(t("idleCommitting", "Sending your answers — the dice get scheduled the moment they land."))}</span>`;
     return;
   }
   const left = dapp.cursor != null ? chain.nh - dapp.cursor : null;
@@ -1515,7 +1540,19 @@ function renderHud(r) {
 
 function render() {
   renderWallet(dapp);
+  renderReplayBanner();
   const r = view || arun();
+
+  // A replay owns the stage: HUD tracks the played-back run (animHud while it walks, the final stats at
+  // rest), and the mode-specific button/card wiring below is skipped — the only control is the banner's
+  // Close. The boards themselves stay in the DOM behind the banner so another entry is one click away.
+  if (replay) {
+    gate({ hud: !!r });
+    const anim = !!animHud && (queue.length > 0 || (view && camera < (view.alive ? view.depth : view.depth - 1) - 0.01));
+    if (r) renderHud(anim ? Object.assign({}, r, animHud) : r);
+    renderRoad(); renderGear(r || E.newRun());
+    return;
+  }
 
   // HUD — only once a run exists in THIS mode. Before that the hp/stam bars over the stage read as a run
   // already in progress ("i'm seeing the field with health and stamina even before the game starts").
@@ -1678,9 +1715,11 @@ function render() {
 const MARCH_CARDS = ["runcard", "roadcard", "dialscard", "gearcard", "marchBoardWrap"];
 const DAILY_CARDS = ["dailyWrap", "runcard", "roadcard", "dialscard", "gearcard", "dailyBoardWrap"];
 const isDaily = () => mode === "daily";
-/** The run the page is ABOUT in the current mode — the Gauntlet's local run or the chain's. */
-const arun = () => (isDaily() ? (daily && daily.st.run) || null : chain);
-const dailyAnswering = () => isDaily() && !!(daily && daily.st.started && daily.st.world && !daily.over());
+const isReplay = () => !!replay;
+/** The run the page is ABOUT in the current mode — a replay while one is on the stage, else the Gauntlet's
+ *  local run or the chain's. */
+const arun = () => (replay ? replay.run : isDaily() ? (daily && daily.st.run) || null : chain);
+const dailyAnswering = () => !replay && isDaily() && !!(daily && daily.st.started && daily.st.world && !daily.over());
 
 function renderMode() {
   const g = {};
@@ -1719,6 +1758,7 @@ function buildModeBar() {
 /** Point the animator at the Gauntlet run. `snap` adopts the current depth outright, which is what a run
  *  resumed from localStorage needs — otherwise the camera would re-walk sixty steps it has no events for. */
 function syncDailyView(snap) {
+  if (replay) return;            // a replay owns the animator — the live Gauntlet run waits behind it
   const r = daily && daily.st.run;
   if (!r) {
     view = null;
@@ -1736,9 +1776,55 @@ function syncDailyView(snap) {
   if (snap) { camera = r.alive ? r.depth : Math.max(0, r.depth - 1); queue = []; }
 }
 
+// ── replay: play a leaderboard entry back on the stage ──────────────────────────────────────────
+/** Start a replay. `o` = { run, world?, events?, addr, score, walk }.
+ *  walk:true (a Gauntlet claim) queues every step's event from depth 0, so the whole run re-walks through
+ *  the same animator the live game uses — fights, loot, the death scene, all of it. walk:false (a staked
+ *  march row, whose moves are not on chain) just SHOWS the run standing at its final depth. */
+function startReplay(o) {
+  if (!o || !o.run) return;
+  replay = { run: o.run, world: o.world || null, addr: o.addr, score: o.score, walk: !!o.walk };
+  view = { ...o.run, gear: [...o.run.gear], mats: [...o.run.mats] };
+  queue = []; scene = []; gore = []; fatality = null; animHud = null; actFx = null; hitFlash = null;
+  roadBase = 0;
+  road = o.world ? D.roadAhead(o.world, E.newRun({}), 0, E.LEG) : [];
+  if (o.walk && o.events && o.events.length) {
+    camera = 0; stepFrom = 0; stepAt = 0; holdUntil = 0;
+    queue = o.events.slice(); sceneAddEvents(o.events);
+  } else {
+    camera = o.run.alive ? o.run.depth : Math.max(0, o.run.depth - 1);
+  }
+  try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch (e) {}
+  render();
+}
+/** Close the replay and hand the stage back to whatever mode the player was in. */
+function endReplay() {
+  if (!replay) return;
+  replay = null; view = null; queue = []; scene = []; gore = []; fatality = null; animHud = null;
+  camera = 0; road = []; roadBase = 0;
+  if (mode === "daily") syncDailyView(true);
+  else if (chain) { syncView(); rebuildRoad(); }
+  render();
+}
+/** The floating "▶ replaying …" chip with a close button, over the stage. */
+function renderReplayBanner() {
+  const el = $("replayBanner"); if (!el) return;
+  if (!replay) { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  const who = disp(replay.addr) + (replay.addr === dapp.me ? " (you)" : "");
+  const line = replay.walk
+    ? t("replayWalking", "▶ Replaying {who}'s Gauntlet — {s} renown", { who, s: (replay.score | 0).toLocaleString() })
+    : t("replayViewing", "▶ {who}'s march — {s} renown at depth {d} (staked runs can't be re-walked — the moves aren't on-chain)",
+        { who, s: (replay.score | 0).toLocaleString(), d: replay.run.depth | 0 });
+  el.innerHTML = '<span class="rb-t">' + esc(line) + '</span>'
+    + '<button class="rb-x" type="button">' + esc(t("replayClose", "✕ Close")) + "</button>";
+  const x = el.querySelector(".rb-x"); if (x) x.onclick = endReplay;
+}
+
 /** One Gauntlet step happened (or the panel changed). A new event is handed to the SAME animation queue the
  *  settled march uses, so a free run looks exactly like a staked one — including the death scene. */
 function onDailyChange(ev) {
+  if (replay) return;            // a replay owns the stage — the live Gauntlet's steps wait behind it
   if (ev) { const evs = Array.isArray(ev) ? ev : [ev]; queue.push(...evs); sceneAddEvents(evs); }
   syncDailyView(!ev && !view);
   render();
@@ -1891,10 +1977,20 @@ function chipOff(w, h) {
   return chipOffCache[k];
 }
 
+let settleableSince = 0;   // when the previous leg first became settleable-but-unsettled (for the stuck timer)
 /** The answer bar: a brush picker plus the commit that SCHEDULES THE DICE. */
 function renderAnswerBar() {
   const answering = isDaily() ? (road.length > 0 && dailyAnswering()) : canCommitNow();
-  gate({ answerBar: answering || (mode === "march" && !!queuedWord) });
+  // A leg whose dice landed but hasn't settled is what a queued commit waits on. Auto-collect fires it, but
+  // if that is slow/starved/off the queue can sit for minutes — so once it has been stuck a few seconds, or
+  // a commit is actively queued behind it, offer the manual "Settle now" escape.
+  if (settleable()) { if (!settleableSince) settleableSince = performance.now(); }
+  else settleableSince = 0;
+  const settleStuck = settleable() && !dapp.busy("advance")
+    && (!!queuedWord || (settleableSince && performance.now() - settleableSince > 6000));
+  const kb = $("kickBtn");
+  if (kb) { kb.classList.toggle("hidden", !settleStuck); kb.disabled = dapp.busy("advance"); }
+  gate({ answerBar: answering || (mode === "march" && (!!queuedWord || settleStuck)) });
   // The heading follows the state too — "your move" when it is, so the road strip reads as a thing to act
   // on rather than a diagram to look at (the whole point the player kept missing).
   const h = $("roadH");
@@ -2103,24 +2199,34 @@ function renderBoard() {
   }).filter((x) => x.r.depth > 0).sort((a, b) => b.sc - a.sc).slice(0, 15);
   // the SDK's shared high-score table: it resolves aliases, highlights you, and looks identical to every
   // other game's board. `tag` carries what is specific to a march.
+  // Clicking a row SHOWS that march on the stage. A staked run's moves are not on chain, so it can only be
+  // shown at rest (the hero standing at his final depth with his gear/renown) — not re-walked. The banner
+  // says as much; the Gauntlet board, whose claims DO carry the moves, is the one that replays step by step.
   renderTopScores(el, rows.map((x) => ({
     addr: x.who,
     score: x.sc.toLocaleString(),
     tag: `${x.r.done ? "🏁" : x.r.alive ? "🚶" : x.r.retired ? "🚪" : "💀"} ${t("depthLabel", "Depth")} ${x.r.depth} · ${E.rankOf(x.sc)}`,
+    run: x.r, sc: x.sc,
   })), dapp.me, t("boardEmpty", "No marches yet. Be the first out of the gate."),
-     t("renownLabel", "Renown"));
+     t("renownLabel", "Renown"), null,
+     (row) => startReplay({ run: row.run, score: row.sc, addr: row.addr, walk: false }));
 }
 
 // ── actions ─────────────────────────────────────────────────────────────────────────────────────
 /** Every action goes through the SDK's guarded-action wrapper (sign-in check, then the click-time pending
  *  guard), then re-renders so the guard is visible immediately. */
 function act(phase, what, fn, keyName, keyVal) {
+  // A replay leaves the run-card buttons on screen (render short-circuits while it owns the stage), so a
+  // stray click must not fire a real action underneath it. Close the replay first — the buttons mean what
+  // they say again the moment the stage is the player's own run.
+  if (replay) return false;
   const fired = guardedAction(dapp, phase, what, fn, keyName, keyVal);
   if (fired) { poke(); render(); }
   return fired;
 }
 
 function begin() {
+  if (replay) return;            // "Set out" under a replay would start a run the player can't even see
   if (isDaily()) {
     if (!daily) return;
     // Signed out, the click RAISES THE SIGN-IN BAR, exactly like the march's Set out. The daily world
@@ -2212,6 +2318,22 @@ function retire() {
   act("retire", t("whatRetire", "Retiring"), () =>
     dapp.call("retire", [myId], 0n, t("labelRetire", "Retire on your feet"), { phase: "retire" }));
 }
+
+/** Is there a leg whose dice have landed but whose settlement (advance) hasn't happened yet? This is the
+ *  thing a queued commit waits on, and the thing auto-collect normally fires — exposed here so a manual
+ *  button can force it when auto-collect is off, starved by another pending action, or its tx got dropped. */
+const settleable = () => !!(mode === "march" && chain && chain.alive && !chain.done && !chain.retired
+  && chain.nh && dapp.cursor != null && dapp.cursor >= chain.nh);
+/** Fire the previous leg's settlement RIGHT NOW through the SDK's manual settle — it bypasses the auto-collect
+ *  opt-out and retry timer but keeps the same collision guard, so it can never double-submit an advance
+ *  already in flight. advance is permissionless and its dice block is already fixed on-chain, so this just
+ *  does immediately what the background settler would eventually do, and the queued commit stops waiting. */
+function forceSettle() {
+  if (!settleable()) return;
+  if (dapp.settleNow([{ g: myId + ":" + chain.leg }], () =>
+    dapp.call("advance", [myId], 0n, t("labelAdvance", "Settle the leg"),
+      { phase: "advance", leg: chain.leg }), { key: (x) => x.g, phase: "advance" })) render();
+}
 function setStance(s) {
   if (isDaily()) { if (daily) daily.setTier(0, s); renderDials(); return; }
   dialsTouched = true;
@@ -2292,6 +2414,7 @@ async function boot() {
   wireDials();
   $("beginBtn").onclick = begin;
   $("commitBtn").onclick = commitLeg;
+  if ($("kickBtn")) $("kickBtn").onclick = forceSettle;
   $("planBtn").onclick = commitPlan;
   $("retireBtn").onclick = retire;
   if ($("stopBankBtn")) $("stopBankBtn").onclick = retire;   // daily: Stop & bank routes through retire()
@@ -2308,7 +2431,7 @@ async function boot() {
   window.addEventListener("pointerdown", firstGesture, { once: true });
 
   daily = createDaily({
-    dapp, t, onChange: onDailyChange,
+    dapp, t, onChange: onDailyChange, onReplay: startReplay,
     actLabel: (a, tile) => ACT_ICON[a] + " " + actName(a, tile),
     tileIcon: (cls) => TILE_ICON[cls],
   });

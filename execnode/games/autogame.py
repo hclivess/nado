@@ -237,6 +237,7 @@ RPS, RPF, RPL = 132, 133, 134  # the superseded stance / focus / heal threshold
 # economy is a planning problem with branching factor 8, not an RNG stream you can read off.
 DCNT_SLOT, ECNT_SLOT = 1, 2               # bare index-count slots (slot 0 is the run count)
 E_DAY, E_ADDR, E_SCORE, E_N = 200, 201, 202, 203
+E_TS = 204                                # UTC-seconds post-time, chain-minted (board shows day + time)
 ELIST, EW_BASE = 210, 220                 # entry-id index; the packed claim lives at EW_BASE..+7
 A_H, A_V, DLIST = 240, 241, 242           # day anchor: pinned height / resolved hash / day index
 DAILY_ACT_BITS = 3                        # an action is 0..7, so 16 symbols fit one field word
@@ -1201,7 +1202,7 @@ def build():
     # verbatim. Every provable board on the chain uses this same pair; writing autogame's own copy in zkpy
     # would produce a second implementation of a consensus rule, which is exactly the thing that drifts.
     c.asm("post", _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, DAILY_WORDS,
-                                  max_n=DAILY_HEAD + DAILY_STEPS, max_score=DAILY_MAX_SCORE))
+                                  max_n=DAILY_HEAD + DAILY_STEPS, max_score=DAILY_MAX_SCORE, e_ts=E_TS))
     c.asm("anchor", _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST))
 
     return c.build()
@@ -1287,6 +1288,7 @@ ABI = {
             # static/provable.js reads by hand, which is why the run-alive flag above is `lv` and not `av`.
             "eday": {"field": E_DAY, "index": "entries"}, "eaddr": {"field": E_ADDR, "index": "entries"},
             "escore": {"field": E_SCORE, "index": "entries"}, "en": {"field": E_N, "index": "entries"},
+            "ets": {"field": E_TS, "index": "entries"},
             **{f"ew{k}": {"field": EW_BASE + k, "index": "entries"} for k in range(DAILY_WORDS)},
             "ah": {"field": A_H, "index": "days"}, "av": {"field": A_V, "index": "days"},
         },

@@ -44,6 +44,7 @@ assert MOVE != _s.MOVE
 ECNT_SLOT = 4
 E_DAY, E_ADDR, E_SCORE, E_N, E_A = 50, 51, 52, 53, 54     # E_A..E_A+4 = packed words a0..a4
 E_A2 = 62                                                 # E_A2..E_A2+2 = packed words a5..a7
+E_TS = 65                                                 # UTC-seconds post-time (board shows day + time)
 ELIST = 60
 MAX_ATT = 80                                              # 8 words x 10 five-bit attempts
 
@@ -92,6 +93,9 @@ POST = f"""
     sstore r4 r1
     slot r4 {E_N} r3
     sstore r4 r2
+    ctx r5 time
+    slot r4 {E_TS} r3
+    sstore r4 r5           ; entry post-time (UTC seconds) — display stamp only
     movi r5 3
     arg r6 r5
     slot r4 {E_A} r3
@@ -157,7 +161,7 @@ ABI = {
     "_view": {
         "maps": {"nn": _G(NN), "st": _G(ST), "pt": _G(PT), "p1": _G(P1), "p2": _G(P2), "sd": _G(SD),
                  "wr": _G(WR), "mc": _G(MC), "dl": _G(DL), "a1": _G(A1), "a2": _G(A2), "kh": _G(KH),
-                 "eday": _E(E_DAY), "eaddr": _E(E_ADDR), "escore": _E(E_SCORE), "en": _E(E_N),
+                 "eday": _E(E_DAY), "eaddr": _E(E_ADDR), "escore": _E(E_SCORE), "en": _E(E_N), "ets": _E(E_TS),
                  "ea0": _E(E_A), "ea1": _E(E_A + 1), "ea2": _E(E_A + 2), "ea3": _E(E_A + 3), "ea4": _E(E_A + 4),
                  "ea5": _E(E_A2), "ea6": _E(E_A2 + 1), "ea7": _E(E_A2 + 2),
                  "ah": {"field": A_H, "index": "days"}, "av": {"field": A_V, "index": "days"}},

@@ -142,20 +142,25 @@ export async function verifyEntries(entries, replay) {
       _claimCache.set(en.e, v);
     }
     if (_claimCache.get(en.e) !== en.score) continue;             // bogus/unverifiable — never renders
-    if (!best[en.addr] || best[en.addr].score < en.score) best[en.addr] = { addr: en.addr, score: en.score };
+    // Keep the whole verified entry, not just {addr, score}: the board needs `ts`/`day` to stamp WHEN a
+    // score was set, and `n`/`words`/`day` to REPLAY the claim on click. Best-per-address still wins.
+    if (!best[en.addr] || best[en.addr].score < en.score) best[en.addr] = en;
   }
   return Object.values(best).sort((a, b) => b.score - a.score);
 }
 
 // ---- entry reader for the scrapline-style contract layout ----------------------------------------------
-// Reads today's claim entries out of a contract view: maps eday/eaddr/escore/en + word maps (ea0..).
+// Reads today's claim entries out of a contract view: maps eday/eaddr/escore/en/ets + word maps (ea0..).
+// `ts` is the chain-minted UTC-seconds post-time (0 for entries posted before the contract carried it).
 export function entriesFrom(sto, _m, day, wordMapNames) {
   const eday = _m(sto, "eday"), eaddr = _m(sto, "eaddr"), escore = _m(sto, "escore"), en = _m(sto, "en");
+  const ets = _m(sto, "ets");
   const wm = wordMapNames.map((nm) => _m(sto, nm));
   const out = [];
   for (const e of Object.keys(eday)) {
     if (eday[e] !== day) continue;
-    out.push({ e, day, addr: eaddr[e], score: escore[e] || 0, n: en[e] || 0, words: wm.map((m) => m[e] || 0) });
+    out.push({ e, day, addr: eaddr[e], score: escore[e] || 0, n: en[e] || 0,
+               ts: Number(ets[e] || 0), words: wm.map((m) => m[e] || 0) });
   }
   return out;
 }

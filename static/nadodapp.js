@@ -148,6 +148,20 @@ export function algHashn(elements) {
 export const ALG_P = () => alghash.P;
 // blocksToTime(blocks): render a block count as m:ss at the given block time (default 6s) — shared countdown fmt.
 export const blocksToTime = (blocks, secs = 6) => { const b = Math.max(0, blocks) * secs, m = Math.floor(b / 60), s = b % 60; return m + ":" + String(s).padStart(2, "0"); };
+// fmtWhen(ts, day): the shared "when was this scored" stamp for a leaderboard entry. `ts` is chain-minted
+// UTC seconds (0 = the entry predates the timestamp field); `day` is the UTC day index (floor(unix/86400)).
+// A real ts renders day + HH:MM UTC ("Jul 22 · 14:30"); with only a day we can show the date but not the
+// clock ("Jul 22"). Everything is UTC on purpose — the day anchor a claim binds is UTC, so the stamp must
+// agree with the day it is filed under, not the viewer's local midnight.
+const _MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export function fmtWhen(ts, day) {
+  const t = Number(ts) || 0, d = Number(day) || 0;
+  if (t > 0) { const x = new Date(t * 1000);
+    return _MON[x.getUTCMonth()] + " " + x.getUTCDate() + " · "
+      + String(x.getUTCHours()).padStart(2, "0") + ":" + String(x.getUTCMinutes()).padStart(2, "0"); }
+  if (d > 0) { const x = new Date(d * 86400000); return _MON[x.getUTCMonth()] + " " + x.getUTCDate(); }
+  return "";
+}
 
 // ---- can't-miss feedback (a quiet status line reads as "nothing happened" — a real bug to users) ---
 // alertBar(msg, actionLabel?, actionFn?): a fixed toast at the bottom of the viewport, visible no matter
@@ -674,18 +688,34 @@ export async function renderScore(el, board, me, empty, prize) {
     + top.map((r, i) => { const net = (r.net < 0 ? "-" : "+") + rawToNado(Math.abs(r.net)) + " NADO", you = r.addr === me;
         return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") + '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td>" + (prize ? _prizeCell(i) : "") + "</tr>"; }).join("") + "</tbody></table>" + _prizeNote(prize);
 }
-// renderTopScores(el, rows, me, empty, scoreHead): the shared HIGH-SCORE table template — rank/player/score
-// (renderScore is the win-loss/net-NADO sibling). rows: [{addr, score, tag?}] already sorted best-first.
-export async function renderTopScores(el, rows, me, empty, scoreHead, prize) {
+// renderTopScores(el, rows, me, empty, scoreHead, prize, onPick): the shared HIGH-SCORE table template —
+// rank/player/score, plus an optional WHEN column and click-to-REPLAY (renderScore is the win-loss/net-NADO
+// sibling). rows: [{addr, score, tag?, ts?, day?, replay?}] already sorted best-first.
+//   - a WHEN column appears when any row carries a ts or day (fmtWhen); boards without either look unchanged.
+//   - onPick(row, i): if given, every row whose `replay` is not false becomes a clickable "▶ replay this run"
+//     button. `replay` may be any handle the caller wants back (the entry, an id, …) — the SDK just returns
+//     the row. Boards that can't reconstruct a given run set replay:false on that row and it stays inert.
+export async function renderTopScores(el, rows, me, empty, scoreHead, prize, onPick) {
   if (!el) return;
   if (!rows.length) { el.innerHTML = '<span class="dim">' + (empty || _t("noScores", "No scores yet — be the first on the board.")) + "</span>"; return; }
   const top = rows.slice(0, 10); await resolveAliases(top.map((r) => r.addr));
+  const showWhen = top.some((r) => (Number(r.ts) || 0) > 0 || (Number(r.day) || 0) > 0);
+  const canPick = (r) => !!onPick && r.replay !== false;
   el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>' + _t("player", "Player") + "</th><th>"
-    + (scoreHead || _t("score", "Score")) + "</th>" + _prizeHead(prize) + "</tr></thead><tbody>"
-    + top.map((r, i) => { const you = r.addr === me;
-        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + "</td><td>" + disp(r.addr) + (you ? " (you)" : "")
-          + (r.tag ? ' <span class="dim">' + r.tag + "</span>" : "") + '</td><td class="pos">' + r.score + "</td>" + (prize ? _prizeCell(i) : "") + "</tr>"; }).join("")
+    + (scoreHead || _t("score", "Score")) + "</th>" + (showWhen ? "<th>" + _t("when", "When") + "</th>" : "")
+    + _prizeHead(prize) + "</tr></thead><tbody>"
+    + top.map((r, i) => { const you = r.addr === me, pick = canPick(r);
+        const cls = [you ? "me" : "", pick ? "pick" : ""].filter(Boolean).join(" ");
+        return "<tr" + (cls ? ' class="' + cls + '"' : "")
+          + (pick ? ' data-pick="' + i + '" title="' + esc(_t("replayThis", "Replay this run")) + '"' : "")
+          + '><td>' + (i + 1) + "</td><td>" + disp(r.addr) + (you ? " (you)" : "")
+          + (pick ? ' <span class="dim">▶</span>' : "")
+          + (r.tag ? ' <span class="dim">' + r.tag + "</span>" : "") + '</td><td class="pos">' + r.score + "</td>"
+          + (showWhen ? '<td class="dim mono">' + esc(fmtWhen(r.ts, r.day)) + "</td>" : "")
+          + (prize ? _prizeCell(i) : "") + "</tr>"; }).join("")
     + "</tbody></table>" + _prizeNote(prize);
+  if (onPick) el.querySelectorAll("tr[data-pick]").forEach((tr) => { tr.style.cursor = "pointer";
+    tr.onclick = () => { try { onPick(top[parseInt(tr.dataset.pick, 10)], parseInt(tr.dataset.pick, 10)); } catch (e) {} }; });
 }
 // scoreBump(stats, addr, net): accumulate one settled result into a leaderboard stats map.
 export function scoreBump(stats, addr, net) {
@@ -1076,6 +1106,15 @@ export class NadoDapp {
     if (f && Date.now() - f.ts > 180000) this.inflight = null;   // expire FIRST, whatever the phase asked about
     return !!this.pending(phase, keyName, keyVal);
   }
+  // accepted(phase,…): the MEMPOOL rung (doc/game-finality.md) — the action's sign returned ok and the tx
+  // was submitted to the pool. This is the EARLIEST a game may optimistically progress ("sent"), one rung
+  // below provisional (which is the game's own settleInflight/state check). Distinct from busy(), which is
+  // armed from the click BEFORE the tx is submitted. inflight is only set on an accepted submit.
+  accepted(phase, keyName, keyVal) {
+    const f = this.inflight;
+    return !!(f && Date.now() - f.ts <= 180000 && f.phase === phase
+      && (keyName == null || String(f[keyName]) === String(keyVal)));
+  }
   clearInflight() { if (this.inflight) this._pendSettle(this.inflight); this.inflight = null; }
 
   // ── OPTIMISTIC STATUS LIFECYCLE (shared, so games don't each reimplement it) ──────────────────────
@@ -1152,10 +1191,21 @@ export class NadoDapp {
   // nado_<slug>_autocollect. `autoTried` (per session) stops a rejected settle from looping. opts.blocked lets
   // a game pass its own "already waiting on a tx" flag (e.g. a confirmation `watch`). opts.key ids an item
   // (default it.g). Returns true if it fired a settle.
+  // _settleBlocked(opts): is a settle blocked by work that could actually collide with IT? A settle is
+  // permissionless and its input is already fixed on-chain, so the ONLY things that should hold it are an
+  // inflight redirect (the tab is mid-handoff) or a click-pending action of the SAME phase (don't fire a
+  // second settle of a settle already in flight). The old rule blocked a settle whenever ANY action was
+  // pending — so a settle that provisional state says is READY got starved by an unrelated in-flight tx
+  // (autogame: settling the previous leg waited behind the NEXT leg's queued commit, the "queued 5 minutes"
+  // stall). Scope to opts.phase when the caller opts in; without it, keep the conservative all-pends block
+  // so callers that haven't been audited are unchanged. See doc/game-finality.md.
+  _settleBlocked(opts = {}) {
+    if (!this.me || this.inflight || opts.blocked) return true;
+    const pends = this._pendLoad();
+    return opts.phase ? pends.some((e) => e.p.phase === opts.phase) : pends.length > 0;
+  }
   autoCollect(candidates, settle, opts = {}) {
-    // any click-pending action blocks the tick too: the old inflight-only check had a gap between a manual
-    // click and its sign-return during which an auto-settle could fire concurrently.
-    if (!this.me || this.inflight || opts.blocked || this._pendLoad().length) return false;
+    if (this._settleBlocked(opts)) return false;
     try { if (localStorage.getItem(this.LS_AUTOCOLLECT) === "0") return false; } catch (e) {}
     const keyOf = opts.key || ((x) => x.g);
     // One attempt per key per RETRY WINDOW, not per page load. The caller keeps offering a candidate
@@ -1171,6 +1221,20 @@ export class NadoDapp {
     });
     if (!t) return false;
     this._autoTried.set(keyOf(t), now);
+    settle(t);
+    return true;
+  }
+  // settleNow(candidates, settle, opts): the USER-TRIGGERED counterpart to autoCollect — the manual escape
+  // for when auto-collect is opted out, or its tx dropped, or the player just wants to push it. Same
+  // collision guard (never double-submits an in-flight settle of the same phase), but it IGNORES the retry
+  // timer AND the auto-collect opt-out: the player asked for it, now. Because a settle's input is already
+  // fixed on-chain (permissionless, provisional-ready), this is always safe. Returns true if it fired.
+  settleNow(candidates, settle, opts = {}) {
+    if (this._settleBlocked(opts)) return false;
+    const keyOf = opts.key || ((x) => x.g);
+    const t = (candidates || [])[0];
+    if (!t) return false;
+    this._autoTried.set(keyOf(t), Date.now());
     settle(t);
     return true;
   }

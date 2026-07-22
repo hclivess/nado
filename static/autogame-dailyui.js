@@ -6,10 +6,10 @@
 // board is renderTopScores over provable.js's verifyEntries, the anchor upkeep is seedDaily, the click
 // guards are guardedAction. Keeping it out of autogame.js makes it obvious at a glance that nothing here
 // re-implements something the SDK already does — and if a line ever does, it will stick out.
-import { dailyFrame, renderTopScores, guardedAction, confirmingLabel, notify, esc, relocalize } from "./nadodapp.js?v=4984604e";
-import { todayIdx, anchorOf, seedDaily, pendingDaily, entriesFrom, verifyEntries, provableSeed } from "./provable.js?v=a13bb487";
+import { dailyFrame, renderTopScores, guardedAction, confirmingLabel, notify, esc, relocalize } from "./nadodapp.js?v=77a0d4df";
+import { todayIdx, anchorOf, seedDaily, pendingDaily, entriesFrom, verifyEntries, provableSeed, unpackMoves } from "./provable.js?v=a13bb487";
 import * as E from "./autogame-engine.js?v=eb6129b3";
-import * as D from "./autogame-daily.js?v=950a49cd";
+import * as D from "./autogame-daily.js?v=e7c3c3fb";
 
 const LS = "nado_autogame_gauntlet";      // {day, tiers, actions} — a Gauntlet survives a reload
 
@@ -21,7 +21,7 @@ const LS = "nado_autogame_gauntlet";      // {day, tiers, actions} — a Gauntle
  * be a second thing to keep in step with the rules.
  */
 export function createDaily(o) {
-  const { dapp, t, actLabel, tileIcon, onChange } = o;
+  const { dapp, t, actLabel, tileIcon, onChange, onReplay } = o;
   const st = {
     day: null, anchor: null, seed: null, world: null,
     tiers: [0, 1, 3, 2], actions: [], run: null, started: false, seeding: false, lastEvent: null,
@@ -227,9 +227,29 @@ export function createDaily(o) {
     const words = Array.from({ length: D.WORDS }, (_, k) => "ew" + k);
     const rows = await verifyEntries(entriesFrom(sto, m, day, words),
       (en) => D.verifyClaim(day, en.n, en.words, anchor, en.addr));
-    await renderTopScores(el, rows.map((r) => ({ addr: r.addr, score: r.score.toLocaleString() })), dapp.me,
+    // Every row carries WHEN it was posted (ts, chain-minted; day as the fallback stamp) and the whole
+    // verified entry, so a click can rebuild the exact run from (seed, loadout, moves) and replay it.
+    await renderTopScores(el, rows.map((r) => ({
+        addr: r.addr, score: r.score.toLocaleString(), ts: r.ts, day: r.day, en: r,
+      })), dapp.me,
       t("gauntletBoardEmpty", "Nobody has finished today's Gauntlet yet. Be the first name on it."),
-      t("renownLabel", "Renown"));
+      t("renownLabel", "Renown"), null,
+      onReplay ? (row) => replayEntry(row.en, anchor) : null);
+  }
+
+  /** Rebuild a posted claim into a live run+events and hand it to the stage animator. The claim is a pure
+   *  function of (seed, loadout, moves): the seed comes from the day's anchor and the POSTER's address, the
+   *  loadout+moves are unpacked from the entry words — exactly what D.verifyClaim replays to score it, but
+   *  kept as the run and its per-step events so the run can be watched, not just scored. */
+  function replayEntry(en, anchor) {
+    if (!en || !onReplay) return;
+    try {
+      const seed = provableSeed(D.SLUG, en.day, anchor, en.addr);
+      const syms = unpackMoves(en.words, D.ACT_BITS, en.n);
+      const res = D.play(seed, syms.slice(0, D.HEAD), syms.slice(D.HEAD));   // { run, events, score }
+      onReplay({ run: res.run, events: res.events, world: D.dailyWorld(seed),
+                 addr: en.addr, score: res.score, walk: true });
+    } catch (e) {}
   }
 
   /** My best VERIFIED score today, so the card can show "posted" instead of offering to post again. */

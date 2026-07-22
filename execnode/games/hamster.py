@@ -58,6 +58,7 @@ ODDS_CAP = 100_000                      # 1000x — a sane bound so odds*stake s
 # --- free Daily Derby board (provable practice, faucet-rewarded — doc/provable-practice.md) ---
 DCNT_SLOT, ECNT_SLOT = 2, 3                         # bare index-count slots (slot 0 = races count)
 E_DAY, E_ADDR, E_SCORE, E_N = 50, 51, 52, 53       # per-entry fields
+E_TS = 54                                          # UTC-seconds post-time (board shows day + time)
 ELIST, EW_BASE = 60, 64                            # entry-id index; packed picks live at EW_BASE (1 word)
 A_H, A_V, DLIST = 70, 71, 72                       # day anchor: pinned height / resolved hash / day index
 DAILY_WORDS = 1
@@ -260,7 +261,7 @@ CLAIMED_OF = "\n".join(_hash_slot("r3", TG_CL, "r0", "r1") + ["sload r3 r3", "re
 # post(day, score, n, w0): records the packed picks; every verifier REPLAYS the run and drops any claim whose
 # replay doesn't reproduce the score (the trust is reproducibility, not a signature). anchor(day) pins the
 # day's grind-proof seed on-chain. Both value-free; the faucet distributor pays yesterday's top placers.
-POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, DAILY_WORDS, max_n=8, max_score=200000)
+POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, DAILY_WORDS, max_n=8, max_score=200000, e_ts=E_TS)
 ANCHOR = _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST)
 
 # ---- FIXED-ODDS BOOK ------------------------------------------------------------------------------
@@ -412,6 +413,7 @@ ABI = {
                  # Daily Derby board: per-entry fields + the day anchor
                  "eday": {"field": E_DAY, "index": "entries"}, "eaddr": {"field": E_ADDR, "index": "entries"},
                  "escore": {"field": E_SCORE, "index": "entries"}, "en": {"field": E_N, "index": "entries"},
+                 "ets": {"field": E_TS, "index": "entries"},
                  "ew0": {"field": EW_BASE, "index": "entries"},
                  "ah": {"field": A_H, "index": "days"}, "av": {"field": A_V, "index": "days"}},
         "indexes": {"races": {"cnt": 0, "list": RLIST}, "entries": {"cnt": ECNT_SLOT, "list": ELIST},

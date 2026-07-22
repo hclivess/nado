@@ -47,6 +47,7 @@ _2_32 = 1 << 32
 # entry fields 1010+, packed shots 1030.., day anchor 1050+.
 DCNT_SLOT, ECNT_SLOT = 1000, 1001
 E_DAY, E_ADDR, E_SCORE, E_N = 1010, 1011, 1012, 1013
+E_TS = 1014                               # UTC-seconds post-time (board shows day + time)
 ELIST, EW_BASE = 1020, 1030
 A_H, A_V, DLIST = 1050, 1051, 1052
 DAILY_WORDS = 6                                        # ceil(40 shots / 7 per word)
@@ -374,7 +375,7 @@ CANCEL = "\n".join(
     + _sl(PT) + ["movi r5 0", "sstore r4 r5", "ret r0"])
 
 # ---- free Daily Salvo: provable off-chain solo run + faucet rewards (static/battleship-daily.js) ----
-POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, DAILY_WORDS, max_n=40, max_score=2000)
+POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, DAILY_WORDS, max_n=40, max_score=2000, e_ts=E_TS)
 ANCHOR = _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST)
 
 SRC = {"open": OPEN, "join": JOIN, "fire": FIRE, "resign": RESIGN, "timeout": TIMEOUT,
@@ -406,6 +407,7 @@ ABI = {
                  # Daily Salvo board: per-entry fields + packed shots + the day anchor
                  "eday": {"field": E_DAY, "index": "entries"}, "eaddr": {"field": E_ADDR, "index": "entries"},
                  "escore": {"field": E_SCORE, "index": "entries"}, "en": {"field": E_N, "index": "entries"},
+                 "ets": {"field": E_TS, "index": "entries"},
                  **{f"ew{k}": {"field": EW_BASE + k, "index": "entries"} for k in range(DAILY_WORDS)},
                  "ah": {"field": A_H, "index": "days"}, "av": {"field": A_V, "index": "days"}},
         "indexes": {"games": {"cnt": 0, "list": GLIST}, "entries": {"cnt": ECNT_SLOT, "list": ELIST},

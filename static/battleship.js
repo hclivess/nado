@@ -5,8 +5,8 @@
 // ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
 // oracle beyond the math — field-native alghash, byte-identical to the zkVM contract's in-VM HASH
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame } from "./nadodapp.js?v=4984604e";
-import { Practice } from "./practice.js?v=77683a2a";   // free in-browser practice vs the computer
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame } from "./nadodapp.js?v=77a0d4df";
+import { Practice } from "./practice.js?v=1e947bde";   // free in-browser practice vs the computer
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=a13bb487";
 import * as SALVO from "./battleship-daily.js?v=150e89c8";
 
@@ -495,7 +495,7 @@ async function renderDailyBoard(sto) {
   if (!anchor) { el.innerHTML = '<span class="dim">' + window.t("bs.seeding", "Seeding today's fleet from the chain — a moment…") + "</span>"; return; }
   const entries = entriesFrom(sto, _m, day, Array.from({ length: SALVO.WORDS }, (_x, k) => "ew" + k));
   const rows = await verifyEntries(entries, (en) => SALVO.verifyClaim(day, en.n, en.words, anchor, en.addr));
-  await renderTopScores(el, rows.map((r) => ({ addr: r.addr, score: r.score })), dapp.me,
+  await renderTopScores(el, rows.map((r) => ({ addr: r.addr, score: r.score, ts: r.ts, day: r.day })), dapp.me,
     window.t("bs.boardEmpty", "No salvos yet today — sink the fleet and post the first score."), window.t("bs.points", "Points"), true);
 }
 

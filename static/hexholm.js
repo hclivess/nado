@@ -7,13 +7,13 @@
 // browser until the game is decided).
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, notify, confirmingLabel, disp, share,
          renderWallet, renderScore, renderTopScores, scoreBump, scoreSort, resolveAliases, blocksToTime,
-         randSecret, algHashn, ALG_P , installModes } from "./nadodapp.js?v=4984604e";
-import { DuelGame } from "./duelgame.js?v=59341a86";
+         randSecret, algHashn, ALG_P , installModes } from "./nadodapp.js?v=77a0d4df";
+import { DuelGame } from "./duelgame.js?v=13636099";
 import * as E from "./hexholm-engine.js?v=bfd3d976";
 import { pickMove, prng, soloReplay, soloScore, botMustAct, seedOfDay, packRun, verifyClaim,
          MAX_MY, SOLO_TURNS } from "./hexholm-bot.js?v=d0674f08";
 import { anchorOf, ensureAnchor, todayIdx, verifyEntries, seedDaily, pendingDaily } from "./provable.js?v=a13bb487";
-import { randomSeed } from "./practice.js?v=77683a2a";
+import { randomSeed } from "./practice.js?v=1e947bde";
 
 const CID = "b746da32189cea218aad9c8acdae5b7b";
 const dapp = new NadoDapp({ cid: CID, app: "Hexholm" });
@@ -323,13 +323,14 @@ class TableDuel extends DuelGame {
         el.innerHTML = "<span class='dim small'>" + T("dailyNoAnchor", "Today's island isn't seeded yet — press “Daily island” above to seed it and play the first run.") + "</span>";
         return;
       }
-      const eday = _m(sto, "eday"), eaddr = _m(sto, "eaddr"), escore = _m(sto, "escore"), en = _m(sto, "en"), ew = _m(sto, "ew");
+      const eday = _m(sto, "eday"), eaddr = _m(sto, "eaddr"), escore = _m(sto, "escore"), en = _m(sto, "en"),
+            ets = _m(sto, "ets"), ew = _m(sto, "ew");
       const entries = [];
       for (const e of Object.keys(eday)) {
         if (eday[e] !== day) continue;
         const words = [];
         for (let i = 0; i < 150; i++) words.push(ew[String(Number(e) * 10000 + i)] || 0);
-        entries.push({ e, day, addr: eaddr[e], score: escore[e] || 0, n: en[e] || 0, words });
+        entries.push({ e, day, addr: eaddr[e], score: escore[e] || 0, n: en[e] || 0, ts: Number(ets[e] || 0), words });
       }
       const rows = await verifyEntries(entries, (en2) => verifyClaim(day, en2.n, en2.words, anch, en2.addr));
       renderTopScores(el, rows, this.dapp.me,

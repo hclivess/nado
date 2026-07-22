@@ -557,8 +557,9 @@ ABORT = f"""{_FULL}{_UNSETTLED}    slot r4 {DL} r0
 from execnode.games import _lib
 ECNT_SLOT = 4
 E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE = 50, 51, 52, 53, 60, 100
+E_TS = 54                                                  # UTC-seconds post-time (board shows day + time)
 CLAIM_WORDS, MAX_MY = 150, 100                              # MUST match static/hexholm-bot.js
-POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, CLAIM_WORDS, MAX_MY)
+POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, CLAIM_WORDS, MAX_MY, e_ts=E_TS)
 # the day's seed anchor lives ON-CHAIN (see _lib.daily_anchor): ah[day] = pinned height,
 # av[day] = the pinned block's hash value — what provableSeed() consumes; no L1 history needed, ever.
 DCNT_SLOT, A_H, A_V, DLIST = 5, 54, 55, 70
@@ -589,7 +590,7 @@ ABI = {
                  "a2": _G(19), "a3": _G(20), "a4": _G(21), "rc": _G(RC), "rs1": _G(23), "rs2": _G(24),
                  "rs3": _G(25), "rs4": _G(26), "r1h": _G(27), "r1l": _G(28), "r2h": _G(29), "r2l": _G(30),
                  "r3h": _G(31), "r3l": _G(32), "r4h": _G(33), "r4l": _G(34),
-                 "eday": _E(E_DAY), "eaddr": _E(E_ADDR), "escore": _E(E_SCORE), "en": _E(E_N),
+                 "eday": _E(E_DAY), "eaddr": _E(E_ADDR), "escore": _E(E_SCORE), "en": _E(E_N), "ets": _E(E_TS),
                  "ah": {"field": A_H, "index": "days"}, "av": {"field": A_V, "index": "days"}},
         "indexes": {"games": {"cnt": 0, "list": LIST}, "entries": {"cnt": ECNT_SLOT, "list": ELIST},
                     "days": {"cnt": DCNT_SLOT, "list": DLIST}},

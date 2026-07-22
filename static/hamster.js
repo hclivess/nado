@@ -7,8 +7,8 @@
 // every bettor) — so you read form + the live tote, exactly like a racetrack. The client mirrors the
 // contract's alghash math (algHashn) to show genes and animate the run; the contract is the authority.
 // Contract: execnode/games/hamster.py.
-import { Book } from "./bookgame.js?v=55ac31ea";
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js?v=4984604e";
+import { Book } from "./bookgame.js?v=f93267b0";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js?v=77a0d4df";
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=a13bb487";
 import * as DERBY from "./hamster-daily.js?v=76ac35f9";
 
@@ -307,7 +307,7 @@ async function renderBoard(sto) {
   if (!anchor) { el.innerHTML = '<span class="dim">' + window.t("hamster.seeding", "Seeding today's derby from the chain — a moment…") + "</span>"; return; }
   const entries = entriesFrom(sto, _m, day, ["ew0"]);
   const rows = await verifyEntries(entries, (en) => DERBY.verifyClaim(day, en.n, en.words, anchor, en.addr));
-  await renderTopScores(el, rows.map((r) => ({ addr: r.addr, score: r.score })), dapp.me,
+  await renderTopScores(el, rows.map((r) => ({ addr: r.addr, score: r.score, ts: r.ts, day: r.day })), dapp.me,
     window.t("hamster.boardEmpty", "No runs yet today — play the Daily Derby and post the first score."),
     window.t("hamster.points", "Points"), true);
 }
