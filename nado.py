@@ -1606,7 +1606,15 @@ async def daily_stats_report(request):
     except ValueError:
         days = 30
     from ops import daily_stats
-    return _resp({"tz": "UTC", "days": await asyncio.to_thread(daily_stats.daily_counts, days)})
+    # LIVE consensus gauges ride along for the Stats headline chips: the tx-pool "volatility index"
+    # (100 - mempool-hash agreement, the figure message_loop logs), upcoming-block-tx-set agreement,
+    # and tip-hash agreement — null until the quorum forms (never a boot-artifact 0).
+    formed = consensus.majority_block_hash is not None
+    now = {"volatility": max(0, min(100, round(100 - consensus.transaction_hash_pool_percentage))) if formed else None,
+           "up_agree": max(0, min(100, round(consensus.upcoming_block_hash_pool_percentage))) if formed else None,
+           "tip_agree": max(0, min(100, round(consensus.block_hash_pool_percentage))) if formed else None}
+    return _resp({"tz": "UTC", "now": now,
+                  "days": await asyncio.to_thread(daily_stats.daily_counts, days)})
 
 
 def _updates_disabled():
@@ -1957,7 +1965,14 @@ def _daily_stats_loop():
                     gauges["bonded"] = len(get_bonded_registry())
                 except Exception:
                     pass                                 # gauge unavailable this pass -> stays a null, never a fake 0
-                daily_stats.sample(tip, _load_block, gauges)
+                floors = {}
+                # consensus agreement gauges only once a quorum has FORMED — the attributes boot as 0,
+                # and recording that would poison the daily floor with a startup artifact
+                if consensus.majority_block_hash is not None:
+                    gauges["volatility"] = max(0, min(100, round(100 - consensus.transaction_hash_pool_percentage)))
+                    floors = {"up_agree": max(0, min(100, round(consensus.upcoming_block_hash_pool_percentage))),
+                              "tip_agree": max(0, min(100, round(consensus.block_hash_pool_percentage)))}
+                daily_stats.sample(tip, _load_block, gauges, floors)
         except Exception as e:
             logger.info(f"daily-stats sample failed (retrying next pass): {e}")
         time.sleep(daily_stats.SAMPLE_INTERVAL)

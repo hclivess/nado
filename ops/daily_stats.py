@@ -12,8 +12,11 @@ Per UTC day the file records:
                   was briefly down backfills the right day when it catches up)
   fees_last     — cumulative_fees of the newest walked block that day (raw units); the chart's
                   fees-per-day is the delta between consecutive OBSERVED days, derived at read time
-  peers, open, bonded, mempool — gauge MAXIMA for the day (daily peak, not average: "how big did
-                  the network get today" is the operator question, and a max is restart-proof)
+  peers, open, bonded, mempool, volatility — gauge MAXIMA for the day (daily peak, not average:
+                  "how big did the network get / how bad did mempool dissent spike today" is the
+                  operator question, and a max is restart-proof)
+  up_agree, tip_agree — consensus-agreement FLOOR gauges (daily MINIMUM): the worst upcoming-block
+                  and tip agreement seen at sample times — for agreement the LOW is the alarm
 
 Days the sampler never saw are served as null, NOT zero — the chart must show "not measured yet"
 (no bar) rather than lie that the network was empty before this feature shipped.
@@ -26,10 +29,12 @@ import time
 from ops.data_ops import get_home
 
 _RETENTION_DAYS = 400
-SAMPLE_INTERVAL = 300                 # s between sample() calls (nado.py's thread)
+SAMPLE_INTERVAL = 60                  # s between sample() calls (nado.py's thread) — a minute keeps the
+                                      # per-second consensus gauges' daily min/max honest; the walk is ~10 blocks
 _MAX_WALK = 3000                      # blocks one sample may catch up (~5 h) — a node returning from a
                                       # long outage resumes near the tip instead of replaying days
-_GAUGES = ("peers", "open", "bonded", "mempool")
+_GAUGES = ("peers", "open", "bonded", "mempool", "volatility")   # daily-peak gauges (max)
+_FLOORS = ("up_agree", "tip_agree")                              # daily-low gauges (min)
 
 
 def _stats_path():
@@ -59,11 +64,12 @@ def _fresh() -> dict:
     return {"txs": 0, "blocks": 0}
 
 
-def sample(tip_height, load_block, gauges: dict) -> dict:
+def sample(tip_height, load_block, gauges: dict, floors: dict = None) -> dict:
     """One sampling pass: walk blocks (last_height, tip] crediting txs/fees to each block's own UTC
-    day, then fold today's gauge maxima in. `load_block` is height -> block dict or falsy (injected:
-    ops.block_ops.get_block_number in production, a stub in tests). The very first pass starts AT the
-    tip — the walk exists to stay current, not to replay history. Returns {walked, tip} for the log."""
+    day, then fold today's gauge maxima (`gauges`) and consensus-floor minima (`floors`) in.
+    `load_block` is height -> block dict or falsy (injected: ops.block_ops.get_block_number in
+    production, a stub in tests). The very first pass starts AT the tip — the walk exists to stay
+    current, not to replay history. Returns {walked, tip} for the log."""
     with _lock:
         data = _load()
         days = data["days"]
@@ -84,6 +90,10 @@ def sample(tip_height, load_block, gauges: dict) -> dict:
         for k in _GAUGES:
             if gauges.get(k) is not None:
                 today[k] = max(int(today.get(k) or 0), int(gauges[k]))
+        for k in _FLOORS:
+            if (floors or {}).get(k) is not None:
+                prev = today.get(k)
+                today[k] = int(floors[k]) if prev is None else min(int(prev), int(floors[k]))
         for k in sorted(days)[:-_RETENTION_DAYS]:
             del days[k]
         path = _stats_path()
@@ -115,12 +125,12 @@ def daily_counts(days: int = 30) -> list:
         rec = recorded.get(d)
         if rec is None:
             out.append({"date": d, "txs": None, "blocks": None, "fees": None,
-                        "peers": None, "open": None, "bonded": None, "mempool": None})
+                        **{k: None for k in _GAUGES + _FLOORS}})
             continue
         fl = rec.get("fees_last")
         fees = str(fl - prev_fees) if fl is not None and prev_fees is not None else None
         if fl is not None:
             prev_fees = fl
         out.append({"date": d, "txs": rec.get("txs"), "blocks": rec.get("blocks"), "fees": fees,
-                    **{k: rec.get(k) for k in _GAUGES}})
+                    **{k: rec.get(k) for k in _GAUGES + _FLOORS}})
     return out

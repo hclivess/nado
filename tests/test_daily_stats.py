@@ -87,6 +87,23 @@ def t_gauges_keep_daily_max():
     assert "mempool" not in today, "unreported gauge must stay ABSENT, not zero"
 
 
+def t_floors_keep_daily_min():
+    """Consensus floors are daily MINIMA (the low is the alarm side of an agreement gauge); a pass
+    without floors (quorum unformed) leaves them untouched — never a boot-artifact 0."""
+    reset()
+    load = mkchain(3)
+    DS.sample(3, load, {}, {"up_agree": 96, "tip_agree": 100})
+    DS.sample(3, load, {}, {"up_agree": 99, "tip_agree": 88})
+    DS.sample(3, load, {}, {})                       # quorum unformed pass: no floor values at all
+    today = DS._load()["days"][DAY(0)]
+    assert today["up_agree"] == 96 and today["tip_agree"] == 88, today
+    row = DS.daily_counts(days=1)[-1]
+    assert row["up_agree"] == 96 and row["tip_agree"] == 88, row
+    reset()
+    DS.sample(3, load, {})                           # floors never reported -> served null
+    assert DS.daily_counts(days=1)[-1]["up_agree"] is None
+
+
 def t_series_nulls_vs_fees_delta():
     """Unobserved days are null throughout; fees is the delta between OBSERVED days, as a string;
     the first observed day (no baseline) has null fees."""
@@ -130,6 +147,7 @@ for name, fn in [
     ("walk resumes and credits blocks to their own day", t_walk_resumes_and_credits_block_days),
     ("catch-up walk is bounded", t_walk_is_bounded),
     ("gauges keep the daily max; absent stays absent", t_gauges_keep_daily_max),
+    ("consensus floors keep the daily min", t_floors_keep_daily_min),
     ("nulls for unobserved days; fees delta as string", t_series_nulls_vs_fees_delta),
     ("corrupt file tolerated; retention prunes oldest", t_corrupt_file_and_retention),
 ]:

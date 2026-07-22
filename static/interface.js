@@ -12,11 +12,11 @@
 /* ----------------------------------------------------------------------------------------------
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
-import { poswProveAsync, challengeBytes } from "./posw.js";
-import { share as sdkShare } from "./nadodapp.js";   // THE one share implementation (SDK)
-import * as shielded from "./shielded.js";
-import { flagSvg, ccBadge } from "./flags.js";   // drawn country flags (emoji flags do not render on Windows)
-import * as alghash from "./alghash.js";
+import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
+import { share as sdkShare } from "./nadodapp.js?v=4984604e";   // THE one share implementation (SDK)
+import * as shielded from "./shielded.js?v=4e224dbe";
+import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
+import * as alghash from "./alghash.js?v=849f345a";
 import * as sfield from "./stark/field.js";
 import { initHashing as initStarkHashing } from "./stark/hashing.js";
 import { initBlake2bWasm, initMerkleWasm } from "./vendor/blake2b-wasm.js";
@@ -26,7 +26,7 @@ import { setMerkleWasm } from "./stark/merkle.js";
 import * as sjoinsplit2 from "./stark/joinsplit2.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
-import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
+import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=527c8fc6";
 /* The chain this wallet signs for. ADOPTED DYNAMICALLY from the relay's /status at boot (initNetTag) so the
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
@@ -4452,7 +4452,9 @@ function dailyTrendChart(id, dates, series, opts) {
   if (!n) { svg.appendChild(_mk("text", { x: W / 2, y: H / 2, fill: _CMUT, "font-size": 11, "text-anchor": "middle" }, i18("stats.nodata", "no data yet"))); return; }
   const tot = dates.map((_, i) => series.some((s) => s.values[i] != null)
     ? series.reduce((a, s) => a + (s.values[i] || 0), 0) : null);
-  const max = Math.max(1e-9, ...tot.filter((v) => v != null), 1);
+  // opts.max pins the domain (percent gauges live on a fixed 0-100 — rescaling to the data would
+  // turn a steady 97% into fake drama); otherwise the domain follows the data
+  const max = opts.max || Math.max(1e-9, ...tot.filter((v) => v != null), 1);
   const bw = (W - padL - padR) / n;
   const Y = (v) => H - padB - (v / max) * (H - padB - padT);
   const fmt = opts.fmt || ((v) => String(Math.round(v)));
@@ -4830,20 +4832,23 @@ async function renderRollbacks() {
     { n: sum(vals), a: last7, b: prev7, t });
 }
 
-// Shared trend-verdict sub-line for the daily panels: last 7 observed days vs the 7 before, as a
-// total (sumMode — event counts) or an average (gauges), worded with the rollback panel's keys.
-function _trendSub(elId, values, sumMode, fmt) {
+// Shared trend-verdict sub-line for the daily panels: last 7 observed days vs the 7 before.
+// mode: "sum" (event counts — weekly totals), "peak" (daily-max gauges — weekly averages),
+// "low" (daily-min gauges — weekly averages, worded as the floor it is).
+function _trendSub(elId, values, mode, fmt) {
   const el = $(elId); if (!el) return;
   const obs = values.filter((v) => v != null);
   if (!obs.length) { el.textContent = i18("stats.nodata", "no data yet"); return; }
   const n = values.length, wk = (lo, hi) => values.slice(Math.max(0, lo), hi).filter((v) => v != null);
-  const red = (w) => (w.length ? w.reduce((x, y) => x + y, 0) / (sumMode ? 1 : w.length) : 0);
+  const red = (w) => (w.length ? w.reduce((x, y) => x + y, 0) / (mode === "sum" ? 1 : w.length) : 0);
   const A = red(wk(n - 7, n)), B = red(wk(n - 14, n - 7));
   const t = A > B ? i18("stats.trendRising", "rising") : A < B ? i18("stats.trendFalling", "falling") : i18("stats.trendFlat", "flat");
   const F = fmt || ((v) => String(Math.round(v * 10) / 10));
-  el.textContent = sumMode
+  el.textContent = mode === "sum"
     ? i18("stats.sumSub", "{n} in 30 days · {a} this week vs {b} the week before — trend: {t} · gold line = 7-day average",
         { n: F(red(obs)), a: F(A), b: F(B), t })
+    : mode === "low"
+    ? i18("stats.lowSub", "daily low · avg {a} this week vs {b} the week before — trend: {t}", { a: F(A), b: F(B), t })
     : i18("stats.gaugeSub", "daily peak · avg {a} this week vs {b} the week before — trend: {t}", { a: F(A), b: F(B), t });
 }
 
@@ -4857,19 +4862,27 @@ async function renderDailyStats() {
   const dates = rows.map((r) => r.date);
   const txs = rows.map((r) => r.txs);
   dailyTrendChart("chartTxDay", dates, [{ values: txs, color: _CACC }]);
-  _trendSub("txDaySub", txs, true, (v) => String(Math.round(v)));
+  _trendSub("txDaySub", txs, "sum", (v) => String(Math.round(v)));
   const fees = rows.map((r) => (r.fees == null ? null : _nadoNum(r.fees)));
   // fee volume spans decades (dust-fee days vs busy days) — adapt precision so 0.0023 never prints "0.00"
   const ffmt = (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v >= 10 ? v.toFixed(0) : v >= 0.01 ? v.toFixed(2) : v > 0 ? v.toPrecision(2) : "0");
   dailyTrendChart("chartFeesDay", dates, [{ values: fees, color: _CGRN }], { fmt: ffmt });
-  _trendSub("feesDaySub", fees, true, (v) => ffmt(v) + " NADO");
+  _trendSub("feesDaySub", fees, "sum", (v) => ffmt(v) + " NADO");
   dailyTrendChart("chartMinersDay", dates,
     [{ values: rows.map((r) => r.open), color: _CACC, name: i18("lane.open", "Open") },
      { values: rows.map((r) => r.bonded), color: _CGOLD, name: i18("lane.bonded", "Savings") }],
     { trend: false });                                       // no gold trend over gold savings columns
-  _trendSub("minersDaySub", rows.map((r) => (r.open == null && r.bonded == null) ? null : (r.open || 0) + (r.bonded || 0)), false);
+  _trendSub("minersDaySub", rows.map((r) => (r.open == null && r.bonded == null) ? null : (r.open || 0) + (r.bonded || 0)), "peak");
   dailyTrendChart("chartPeersDay", dates, [{ values: rows.map((r) => r.peers), color: _CPUR }]);
-  _trendSub("peersDaySub", rows.map((r) => r.peers), false);
+  _trendSub("peersDaySub", rows.map((r) => r.peers), "peak");
+  // consensus-quality dailies, both on a PINNED 0-100% domain: tx volatility (mempool dissent, daily
+  // peak — the inverse of the tx-pool agreement message_loop logs) and upcoming-block agreement
+  // (daily low — the floor is the alarm side of an agreement gauge)
+  const pfmt = (v) => Math.round(v) + "%";
+  dailyTrendChart("chartVolDay", dates, [{ values: rows.map((r) => r.volatility), color: _CPUR }], { max: 100, fmt: pfmt });
+  _trendSub("volDaySub", rows.map((r) => r.volatility), "peak", pfmt);
+  dailyTrendChart("chartAgreeDay", dates, [{ values: rows.map((r) => r.up_agree), color: _CACC }], { max: 100, fmt: pfmt });
+  _trendSub("agreeDaySub", rows.map((r) => r.up_agree), "low", pfmt);
 }
 
 async function renderStats() {
@@ -4941,10 +4954,21 @@ async function renderStats() {
       { label: i18("stats.supShield", "Shielded"), value: shd, color: _CPUR },
     ], { fmt: fmtN });
   } catch {}
-  const addStat = (label, val) => { if (!head) return; const d = document.createElement("div"); d.className = "stat"; d.innerHTML = `<div class="label"></div><div class="value sm"></div>`; d.children[0].textContent = label; d.children[1].textContent = val; head.appendChild(d); };
+  const addStat = (label, val, tipText) => { if (!head) return; const d = document.createElement("div"); d.className = "stat"; d.innerHTML = `<div class="label"></div><div class="value sm"></div>`; d.children[0].textContent = label; d.children[1].textContent = val; if (tipText) d.title = tipText; head.appendChild(d); };
   addStat(i18("stats.tip", "Height"), tip != null ? tip : "—");
   if (ms) { addStat(i18("stats.present", "Present miners"), ms.open_registry_size ?? "—"); addStat(i18("stats.bondedMiners", "Savings miners"), ms.bonded_registry_size ?? "—"); }
   try { const pool = await (await fetch(relayBase() + "/get_account?address=dividend", { cache: "no-store" })).json(); addStat(i18("stats.pool", "Dividend pool"), rawToNado(BigInt(pool.balance || 0)) + " NADO"); } catch {}
+  // LIVE consensus gauges (/daily_stats .now — relay-local): null until the quorum forms
+  try {
+    const now = (await (await fetch(relayBase() + "/daily_stats?days=1", { cache: "no-store" })).json()).now || {};
+    const pct = (v) => (v == null ? "—" : v + "%");
+    addStat(i18("stats.tipAgree", "Tip agreement"), pct(now.tip_agree),
+            i18("stats.tipAgreeTip", "share of peers agreeing with the majority latest-block hash right now"));
+    addStat(i18("stats.nextAgree", "Next-block consensus"), pct(now.up_agree),
+            i18("stats.nextAgreeTip", "share of peers agreeing on the upcoming block's transaction set — what the fast-forward depends on"));
+    addStat(i18("stats.txVol", "Tx volatility"), pct(now.volatility),
+            i18("stats.txVolTip", "share of peers whose mempool disagrees with the majority right now (100% − tx-pool agreement)"));
+  } catch {}
 }
 
 /* ============================ SWAP TAB — HTLC cross-chain atomic swaps ============================ */
