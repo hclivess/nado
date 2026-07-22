@@ -223,6 +223,14 @@ const pipel = () => mode === "march" && chain && !!chain.nh && previewed === myI
 const liveRun = () => !!(chain && chain.alive && !chain.done && !chain.retired && (!view || view.alive));
 const canAnswer = () => (liveRun() && !!chain.lh && !chain.nh && !dapp.busy("commit"))
   || (pipel() && !queuedWord);
+/** THE single source of truth for "the player may submit a commit for this leg RIGHT NOW". canAnswer() is
+ *  the run-state gate; this adds the two things the COMMIT BUTTON also required but the "your move" prompt
+ *  did not — so the two used to disagree ("Your move…" printed over a greyed button):
+ *    • road.length — the terrain has actually rendered tiles to answer (chain.lh can be set a poll before
+ *      its hash is fetched and the road built);
+ *    • !queuedWord / !busy("commit") — nothing is already queued or in flight for this leg.
+ *  The button, the prompt, the clickable-tiles state and the answer bar all derive from this now. */
+const canCommitNow = () => road.length > 0 && !queuedWord && !dapp.busy("commit") && canAnswer();
 // Gore is part of the animation, not decoration: a fight you cannot see the cost of does not read as a
 // fight. Each entry is anchored to a WORLD DEPTH so it scrolls with the road and stays where it happened.
 let gore = [];
@@ -1245,8 +1253,14 @@ function idleMessage() {
   // case: the last leg already previewed, its nh still sits on the chain state, and the next sixteen
   // wait on the player. Keying on !chain.nh alone made the strip claim "the dice are down — playing
   // it out" at the exact moment nothing was owed but the player's own answers.
-  if (canAnswer()) {
+  if (canCommitNow()) {
     el.innerHTML = `<b style="color:var(--accent2)">${esc(t("idleYourMove", "Your move — answer the sixteen tiles below and commit them."))}</b>`;
+    return;
+  }
+  // it IS your move, but the terrain block's hash hasn't rendered the tiles yet — never say "your move"
+  // (the button is greyed until there are tiles) or "sending your answers" (nothing was sent) here
+  if (canAnswer() && !road.length) {
+    el.innerHTML = `<span class="dim">${esc(t("roadEmptyWaiting", "Waiting for the terrain block… a few seconds."))}</span>`;
     return;
   }
   if (!chain.nh || queuedWord) {                 // answers in flight (or queued behind the leg's close)
@@ -1743,7 +1757,7 @@ function renderRoad() {
       : esc(t("roadEmptyWaiting", "Waiting for the terrain block… a few seconds."))}</div>`;
     return;
   }
-  const answering = isDaily() ? dailyAnswering() : canAnswer();
+  const answering = isDaily() ? dailyAnswering() : canCommitNow();
   el.classList.toggle("answering", answering);
   el.innerHTML = road.map((t, i) => {
     const cls = [[E.HAZARD, E.HORDE, E.ELITE, E.AMBUSH, E.MIMIC, E.SNARE, E.QUAG, E.TOLLGATE,
@@ -1879,7 +1893,7 @@ function chipOff(w, h) {
 
 /** The answer bar: a brush picker plus the commit that SCHEDULES THE DICE. */
 function renderAnswerBar() {
-  const answering = road.length > 0 && (isDaily() ? dailyAnswering() : canAnswer());
+  const answering = isDaily() ? (road.length > 0 && dailyAnswering()) : canCommitNow();
   gate({ answerBar: answering || (mode === "march" && !!queuedWord) });
   // The heading follows the state too — "your move" when it is, so the road strip reads as a thing to act
   // on rather than a diagram to look at (the whole point the player kept missing).
@@ -1978,7 +1992,7 @@ function renderAnswerBar() {
     cb.textContent = isDaily() ? t("walkLeg", "Walk these sixteen")
       : queuedWord ? t("queuedBtn", "Queued — sends itself")
       : t("commitLeg", "Commit these sixteen");
-    cb.disabled = !answering || (!isDaily() && (dapp.busy("commit") || !!queuedWord));
+    cb.disabled = !answering;   // `answering` (march = canCommitNow) already excludes busy/queued
   }
 }
 
@@ -2013,7 +2027,7 @@ function renderDials() {
   // committed (in flight or queued) or the dice are rolling, and the next stretch has not opened. An
   // editable dial there implied the roll could still be steered — it can't; edits only ever ride with
   // the NEXT commit. The card re-opens the moment the next answering window does (including pipelining).
-  const answeringNow = canAnswer();
+  const answeringNow = canCommitNow();
   const mLock = !isDaily() && !!chain && chain.alive && !chain.done && !chain.retired && !!chain.lh
     && !answeringNow;
   for (const id of ["agg", "focus", "heal"]) if ($(id)) $(id).disabled = (isDaily() && lock) || mLock;
