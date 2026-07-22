@@ -46,6 +46,9 @@
   .youmark { color:var(--accent,#3aa0ff); font-weight:600; }
   a.ex-link { color:var(--accent,#3aa0ff); cursor:pointer; text-decoration:none; word-break:break-all; }
   a.ex-link:hover { text-decoration:underline; }
+  a.prop-link { color:var(--accent,#3aa0ff); cursor:pointer; text-decoration:none; }
+  a.prop-link:hover { text-decoration:underline; }
+  .prop-hl { outline:2px solid var(--accent,#3aa0ff); outline-offset:1px; }
   .ex-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
   @media (max-width:640px){ .ex-grid2 { grid-template-columns:1fr; } }
   /* the stat "bubbles" (Treasury, Supply, …): a padded, rounded row with breathing room */
@@ -701,6 +704,9 @@
       <svg id="chartReward" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
     <div class="mt"><div class="label" data-i18n="stats.txPerBlock">Transactions per block (recent)</div>
       <svg id="chartTxCount" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
+    <div class="mt"><div class="label" data-i18n="stats.rollbacks">Rollbacks per day — blocks this relay reverted in reorgs (last 30 days, UTC)</div>
+      <svg id="chartRollbacks" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg>
+      <div class="small faint" id="rollbacksSub">—</div></div>
     <div class="mt"><div class="label" data-i18n="stats.wealth">Top balances (NADO)</div>
       <svg id="chartWealth" viewBox="0 0 320 150" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
     <div class="mt"><div class="label" data-i18n="stats.holders">Wallet distribution — wallets by holdings (NADO)</div>
@@ -1098,7 +1104,7 @@
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=8d51363d"></script>
-<script type="module" src="/static/interface.js?v=f8cfc3e7"></script>
+<script defer src="/static/i18n.js?v=66b0227e"></script>
+<script type="module" src="/static/interface.js?v=823449d0"></script>
 </body>
 </html>

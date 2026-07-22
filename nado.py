@@ -1583,6 +1583,19 @@ async def invariants_report(request):
     return _resp(memserver.invariant_report or {"ok": None, "note": "no reconciliation yet"})
 
 
+async def rollback_stats_report(request):
+    """GET /rollback_stats?days=: per-UTC-day count of blocks THIS node reverted in reorgs
+    (ops/rollback_stats.py — node-local telemetry, not consensus: each peer answers its own history).
+    Dense oldest-first series ending today, zero-filled so calm days chart as real zeros. Feeds the
+    wallet Stats tab's rollbacks-per-day trend chart. `days` clamps to [1, 365], default 30."""
+    try:
+        days = max(1, min(365, int(request.query.get("days", "30"))))
+    except ValueError:
+        days = 30
+    from ops import rollback_stats
+    return _resp({"tz": "UTC", "days": await asyncio.to_thread(rollback_stats.daily_counts, days)})
+
+
 def _updates_disabled():
     """True when the operator opted out with "auto_update": false — the whole /update surface then goes
     dark (403 before any git subprocess runs): the node neither self-updates on remote request nor lets
@@ -1673,6 +1686,7 @@ async def make_app(port):
         web.get("/get_account_mempool", account_mempool),
         web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool)),
         web.get("/invariants", invariants_report),
+        web.get("/rollback_stats", rollback_stats_report),
         web.get("/update", update_node),
         web.get("/update_peer", update_peer),
         # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +

@@ -2524,7 +2524,7 @@ function showWalletUI() {
   show("tabbar", true);
   hdSync();                                          // anchor the HD layer to the loaded wallet (Main on a fresh load)
   renderAccountBar();
-  $("walAddr").textContent = state.wallet.address;   // the ACTIVE account's address (receive/send from here)
+  $("walAddr").innerHTML = exLink("a", state.wallet.address, state.wallet.address);   // the ACTIVE account's address — click-through to its Explore view
   // The "Reveal / export private key" section is the BACKUP surface — always the MASTER seed + phrase, which
   // recovers EVERY derived account (a per-account child key would only restore that one address).
   const masterSeed = masterSeedOf() || state.wallet.privateKey;
@@ -4437,6 +4437,36 @@ function barChart(id, values, labels, opts) {
       svg.appendChild(_mk("text", { x: x + bw * 0.38, y: H - 5, fill: _CMUT, "font-size": 7, "text-anchor": "middle" }, labels[i]));
   });
 }
+// ROLLBACKS/DAY: columns for the daily counts — discrete rare events, so a bare line would fake
+// continuity across the (typical) zero days — with the 7-day trailing average as a 2px gold trend
+// line on the SAME axis. Each day gets an invisible full-height hover strip carrying a native
+// <title> tooltip ("YYYY-MM-DD: n"), so the hit target is the column, not the (often 0px) bar.
+function rollbackChart(id, days) {
+  const svg = _svgClear(id); if (!svg) return;
+  const W = 320, H = 120, padL = 32, padB = 16, padT = 8, padR = 6;
+  const n = days.length;
+  if (!n) { svg.appendChild(_mk("text", { x: W / 2, y: H / 2, fill: _CMUT, "font-size": 11, "text-anchor": "middle" }, i18("stats.nodata", "no data yet"))); return; }
+  const values = days.map((d) => d.count);
+  const max = Math.max(1, ...values), bw = (W - padL - padR) / n;
+  const Y = (v) => H - padB - (v / max) * (H - padB - padT);
+  for (const frac of [0, 1]) {
+    svg.appendChild(_mk("line", { x1: padL, y1: Y(frac * max), x2: W - padR, y2: Y(frac * max), stroke: _CGRID, "stroke-width": 1 }));
+    svg.appendChild(_mk("text", { x: padL - 3, y: Y(frac * max) + 3, fill: _CMUT, "font-size": 8, "text-anchor": "end" }, String(Math.round(frac * max))));
+  }
+  const step = Math.ceil(n / 6);
+  values.forEach((v, i) => {
+    const x = padL + i * bw;
+    if (v > 0) svg.appendChild(_mk("rect", { x: x + bw * 0.12, y: Y(v), width: bw * 0.76, height: (H - padB) - Y(v), fill: _CACC, rx: 2 }));
+    const hit = _mk("rect", { x, y: padT, width: bw, height: H - padB - padT, fill: "transparent" });
+    hit.appendChild(_mk("title", {}, `${days[i].date}: ${v}`));
+    svg.appendChild(hit);
+    if (i % step === 0 || i === n - 1)
+      svg.appendChild(_mk("text", { x: x + bw / 2, y: H - 5, fill: _CMUT, "font-size": 7, "text-anchor": "middle" }, String(days[i].date).slice(5)));
+  });
+  const avg = values.map((_, i) => { const s = values.slice(Math.max(0, i - 6), i + 1); return s.reduce((a, b) => a + b, 0) / s.length; });
+  svg.appendChild(_mk("polyline", { points: avg.map((a, i) => `${(padL + i * bw + bw / 2).toFixed(1)},${Y(a).toFixed(1)}`).join(" "),
+    fill: "none", stroke: _CGOLD, "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+}
 function hbarChart(id, rows, opts) {
   opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
   // Three fixed columns so nothing is ragged or overlaps: [label] [bar] [value(right-aligned)]. The label is
@@ -4755,11 +4785,26 @@ async function renderExecStats(tip, tipTs) {
   if (rootEl && ex.state_root) rootEl.textContent = i18("stats.execRootLabel", "Exec state root") + ": " + ex.state_root;
 }
 
+// ROLLBACKS/DAY panel: the relay's own reorg telemetry (/rollback_stats is node-local — each relay
+// answers its own history). Chart + a one-line summary with the week-over-week trend verdict.
+async function renderRollbacks() {
+  const rb = await (await fetch(relayBase() + "/rollback_stats?days=30", { cache: "no-store" })).json();
+  const days = (rb && rb.days) || [];
+  rollbackChart("chartRollbacks", days);
+  const sub = $("rollbacksSub"); if (!sub || !days.length) return;
+  const vals = days.map((d) => d.count), sum = (a) => a.reduce((x, y) => x + y, 0);
+  const last7 = sum(vals.slice(-7)), prev7 = sum(vals.slice(-14, -7));
+  const t = last7 > prev7 ? i18("stats.trendRising", "rising") : last7 < prev7 ? i18("stats.trendFalling", "falling") : i18("stats.trendFlat", "flat");
+  sub.textContent = i18("stats.rbSub", "{n} in 30 days · {a} this week vs {b} the week before — trend: {t} · gold line = 7-day average",
+    { n: sum(vals), a: last7, b: prev7, t });
+}
+
 async function renderStats() {
   if (!state.wallet) return;
   const head = $("statsHeadline"); if (head) head.innerHTML = "";
   renderGeoMap().catch(() => {});   // independent of the block charts — paint it in parallel
   renderNodes().catch(() => {});    // the network-nodes table (status_pool)
+  renderRollbacks().catch(() => {});  // relay-local reorg telemetry — also independent
   let tip = state.latest, tipTs = null;
   try { const lb = await getLatestBlock(); if (lb && typeof lb.block_number === "number") { tip = lb.block_number; tipTs = lb.block_timestamp; } } catch {}
   renderExecStats(tip, tipTs).catch(() => {});  // zkVM L2 vitals — independent of the block charts
@@ -4903,8 +4948,8 @@ async function renderSwaps() {
     const left = document.createElement("div");
     // {who} via vars, not a computed fallback: the tables used to hold static "you → " strings that
     // silently DROPPED the counterparty address in every non-English language (T49 fixed the entries).
-    const role = iAmSender ? i18("swap.roleSender", "you → {who}", { who: exShort(h.claimant, 8) })
-                           : i18("swap.roleClaimant", "{who} → you", { who: exShort(h.sender, 8) });
+    const role = iAmSender ? i18("swap.roleSender", "you → {who}", { who: exLink("a", h.claimant, exShort(h.claimant, 8)) })
+                           : i18("swap.roleClaimant", "{who} → you", { who: exLink("a", h.sender, exShort(h.sender, 8)) });
     // H-5: /htlcs is relay JSON — coerce the amount (bnum guards BigInt from throwing on a hostile value),
     // escape the free-form status fallback, and coerce the expiry before they reach this innerHTML sink.
     left.innerHTML = `<div class="mono small">${exShort(id, 14)}</div><div class="faint small">${rawToNado(bnum(h.amount))} NADO · ${role} · ${i18("swap.status." + h.status, exEsc(h.status))} · exp #${num(h.expiry)}</div>`;
@@ -5841,6 +5886,10 @@ async function renderQuorum() {
   }
   const props = d.proposals || [];
   if (!props.length) { box.innerHTML = `<p class="small faint">${i18("quorum.none", "No proposals yet.")}</p>`; return; }
+  // Deep link: /quorum#prop=<pid prefix> highlights + scrolls to that proposal (the #<pid> anchor on
+  // each card copies its own such link). The pid comes from relay JSON, so it is hex-sanitized before
+  // it reaches an id/href (H-5 pattern — never trust relay strings in an innerHTML sink).
+  const hl = ((location.hash.match(/^#prop=([0-9a-f]{8,64})$/i) || [])[1] || "").toLowerCase();
   box.innerHTML = props.map((p, i) => {
     const appr = num(p.approving_shares) || 0;
     const pct = total > 0 ? Math.min(100, Math.round(appr * 100 / total)) : 0;
@@ -5848,17 +5897,23 @@ async function renderQuorum() {
     const stEn = p.status === "executed" ? "paid ✓" : (p.status === "passed" ? "passed — ready" : "open");
     const canVote = canPropose && p.status === "open";
     const canExec = canPropose && p.status === "passed" && p.within_cap;
-    return `<div class="stat mt" style="text-align:left">
+    const pid16 = String(p.pid || "").toLowerCase().replace(/[^0-9a-f]/g, "").slice(0, 16);
+    const isHl = !!hl && !!pid16 && pid16.startsWith(hl);
+    return `<div class="stat mt${isHl ? " prop-hl" : ""}"${pid16 ? ` id="prop-${pid16}"` : ""} style="text-align:left">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
         <b>${rawToNado(BigInt(p.amount || 0))} NADO</b>
-        <span class="badge ${p.status === "open" ? "idle" : "ok"}">${i18(stKey, stEn)}</span></div>
-      <div class="small faint">→ ${escapeHtml((p.recipient || "").slice(0, 18))}${(p.recipient || "").length > 18 ? "…" : ""}${p.memo ? " · " + escapeHtml(p.memo) : ""}</div>
+        <span style="display:flex;gap:8px;align-items:center">${pid16 ? `<a class="prop-link mono small" href="/quorum#prop=${pid16}" title="${escapeHtml(i18("quorum.linkTip", "Copy a shareable link to this proposal"))}">#${pid16.slice(0, 8)}</a>` : ""}<span class="badge ${p.status === "open" ? "idle" : "ok"}">${i18(stKey, stEn)}</span></span></div>
+      <div class="small faint">→ ${exReservedOrAddr(p.recipient || "")}${p.memo ? " · " + escapeHtml(p.memo) : ""}</div>
       <div class="progress mt"><span style="display:block;height:100%;width:${pct}%;background:var(--accent)"></span></div>
       <div class="small faint">${i18("quorum.tally", "{pct}% of stake · needs 2/3 · {v} voter(s)", { pct, v: p.voters || 0 })}${p.within_cap ? "" : " · " + i18("quorum.overCap", "over cap")}</div>
       ${canVote ? `<button class="accent mt small qvote" data-i="${i}" style="width:100%">${i18("quorum.voteYes", "Vote yes")}</button>` : ""}
       ${canVote ? `<button class="ghost mt small qoppose" data-i="${i}" style="width:100%">${i18("quorum.oppose", "Oppose / withdraw vote")}</button>` : ""}
       ${canExec ? `<button class="primary mt small qexec" data-i="${i}" style="width:100%">${i18("quorum.execute", "Execute payout")}</button>` : ""}</div>`;
   }).join("");
+  if (hl && !renderQuorum._scrolled) {   // scroll once per page load, not on every refresh re-render
+    const el = box.querySelector(".prop-hl");
+    if (el) { renderQuorum._scrolled = true; el.scrollIntoView({ block: "center", behavior: "smooth" }); }
+  }
   box.querySelectorAll(".qvote").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i], "yes", b));
   box.querySelectorAll(".qoppose").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i], "no", b));
   box.querySelectorAll(".qexec").forEach(b => b.onclick = () => _qAct("treasury_execute", props[+b.dataset.i], undefined, b));
@@ -6229,6 +6284,17 @@ function wireEvents() {
       e.preventDefault();
       if (state.activeTab !== "explore") showTab("explore");   // navigate to the Explore tab so the result is visible
       exOpen(a.dataset.exk, a.dataset.exv);
+    }
+    const pl = e.target.closest && e.target.closest("a.prop-link[href]");
+    if (pl) {                                           // share a proposal: copy its /quorum#prop=<pid> deep link
+      e.preventDefault();
+      const href = pl.getAttribute("href"), url = location.origin + href;
+      try { history.replaceState(null, "", href); } catch (err) {}   // the URL bar now IS the shareable link
+      renderQuorum().catch(() => {});                   // re-render so the highlight follows the new hash
+      const manual = () => uiPrompt({ title: i18("quorum.linkTip", "Copy a shareable link to this proposal"), value: url });
+      if (navigator.clipboard && navigator.clipboard.writeText)
+        navigator.clipboard.writeText(url).then(() => toast(i18("quorum.linkCopied", "Proposal link copied ✓"), "info", 5000), manual);
+      else manual();
     }
     const p = e.target.closest && e.target.closest("a.addrpick[data-to]");
     if (p) { e.preventDefault(); showTab("send"); $("sendTo").value = p.dataset.to; validateSendTo(); }

@@ -78,4 +78,12 @@ def rollback_one_block(logger, block) -> dict:
         logger.error(f"checkpoint cleanup on rollback failed (non-fatal): {e}")
 
     logger.info(f"Rolled back {block['block_hash']} successfully")
+
+    # per-day rollback telemetry (ops/rollback_stats.py, /rollback_stats, the Stats-tab chart). Best
+    # effort: a failed count must never fail the rollback that already committed above.
+    try:
+        from ops import rollback_stats
+        rollback_stats.record()
+    except Exception:
+        pass
     return previous_block
