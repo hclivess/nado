@@ -208,6 +208,24 @@ def t_ensure_updatable_never_raises():
     assert isinstance(r, dict), "must return a report, never propagate"
 
 
+def t_auto_heal_false_in_config_skips_the_installer():
+    """The operator opt-out: "auto_heal": false must stop the boot-time installer run on a broken node,
+    while the DIAGNOSIS still happens (the defect must stay visible in the journal and /status)."""
+    import config as CFG
+    healed = []
+    real_get = CFG.get_config
+    CFG.get_config = lambda *a, **k: {"auto_heal": False}
+    try:
+        with patched(_git=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no git")),
+                     heal=lambda **k: healed.append(1) or {"status": "healing"}):
+            r = SU.ensure_updatable(logger=None)
+    finally:
+        CFG.get_config = real_get
+    assert not r["capable"], f"the broken diagnosis must still run and report: {r}"
+    assert not healed, "auto_heal=false in config must prevent the installer from running"
+    assert r.get("heal", {}).get("status") == "disabled", f"and say why in the report: {r.get('heal')}"
+
+
 for name, fn in [
     ("healthy node reports capable", t_healthy_node_is_capable),
     ("git-less node IS detected (the 21-peer case)", t_gitless_node_is_detected),
@@ -222,6 +240,7 @@ for name, fn in [
     ("heal is attempted at most once", t_heal_is_attempted_once),
     ("heal without root reports the exact command", t_heal_without_root_reports_the_command),
     ("ensure_updatable never raises at boot", t_ensure_updatable_never_raises),
+    ("auto_heal=false in config skips the installer", t_auto_heal_false_in_config_skips_the_installer),
 ]:
     check(name, fn)
 

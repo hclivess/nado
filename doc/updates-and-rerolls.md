@@ -16,7 +16,12 @@ remote or branch refuses):
   its services detached.
 - **Daily self-check** — 10 minutes after boot, then every 24 h.
 - **`nado_cli.py update`** — triggers a wave from the terminal.
-- Opt out with `"auto_update": false` in `private/config.json`.
+- Opt out with `"auto_update": false` in `private/config.json`. This also **disables the `/update` and
+  `/update_peer` endpoints** (they answer 403), so an opted-out node can neither be update-triggered
+  remotely nor used as a proxy to trigger other peers. Read per-request — no restart needed to flip it.
+- `"auto_heal": false` additionally disables the boot-time **installer self-repair**: a node diagnosed
+  as un-updatable (`ops/self_update.ensure_updatable` — no git checkout, no systemd unit, …) then only
+  logs the defect and advertises it in `/status`, instead of running the local `scripts/install.sh`.
 - `/status` advertises `running_commit`, `latest_main` and `update_available`, so a lagging node is
   visible at a glance.
 

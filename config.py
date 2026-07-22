@@ -129,8 +129,13 @@ def create_config(ip: str, config_path: str = None):
         # INTEGRATED AUTO-UPDATE (non-consensus, ops/self_update.py): keep the node on origin/main of the
         # official repo — a daily fast-forward check plus the remote /update trigger (harmless for anyone
         # to call: it only decides WHEN, the code always comes from the repo you already run). Set False
-        # to update manually.
+        # to update manually — that also DISABLES the /update and /update_peer endpoints (403), so an
+        # opted-out node can neither be update-triggered remotely nor used as a proxy to trigger others.
         "auto_update": True,
+        # BOOT-TIME SELF-HEAL (non-consensus, ops/self_update.ensure_updatable): a node diagnosed as
+        # un-updatable (no git checkout, no systemd unit, ...) repairs itself by running the LOCAL
+        # scripts/install.sh once per boot. Set False to only diagnose and log — never run the installer.
+        "auto_heal": True,
         # ROLLING MODE (non-consensus, doc/rolling-mode-and-da.md): archive=True keeps ALL block bodies
         # forever (default — no data loss, current behaviour). Set False for a "rolling"/pruned node that
         # drops block BODIES older than history_retention_blocks (state + number<->hash indexes are always

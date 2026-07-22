@@ -13,7 +13,7 @@ surface — the node validates a CLI tx exactly like a browser one (signature, P
 Commands: info · send · register · bond · unbond · alias · propose · vote · execute · collect · bridge-deposit
           msig-address · msig-propose · msig-sign · msig-submit   (M-of-N multisig co-signing)
 """
-import argparse, json, os, sys, urllib.request
+import argparse, json, os, sys, urllib.error, urllib.request
 from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -39,9 +39,14 @@ def raw(nado):            # "12.5" NADO -> raw int
 
 
 def _get(node, path):
-    """GET `path` from the node and return the parsed JSON body."""
-    with urllib.request.urlopen(node + path, timeout=20) as r:
-        return json.load(r)
+    """GET `path` from the node and return the parsed JSON body. An error status carrying a JSON body
+    (e.g. /update answering 403 "disabled" on an opted-out node) is returned as that body — the node's
+    verdict IS the answer, not a transport failure worth a traceback."""
+    try:
+        with urllib.request.urlopen(node + path, timeout=20) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        return json.load(e)
 
 
 def _submit(node, tx):

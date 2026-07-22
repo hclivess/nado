@@ -19,7 +19,10 @@ SAFE BY DESIGN (this runs unattended on a live money node whose repo dir IS the 
 Triggers: GET /update (remote, cascades to peers), the 15-min in-node timer (nado.py), a PEER HINT —
 any peer's status advertising a commit this node does not recognize kicks an immediate check, so one
 updated node ripples the whole mesh current within seconds (see peer_hint below) — or the CLI
-(`nado_cli.py update`). Opt out with "auto_update": false in private/config.json.
+(`nado_cli.py update`). Opt out with "auto_update": false in private/config.json — that also disables the
+/update and /update_peer endpoints entirely (nado.py answers 403 without touching this module), so an
+opted-out node cannot be triggered remotely or used as a proxy to trigger others. "auto_heal": false
+additionally stops the boot-time installer self-repair (ensure_updatable diagnoses and logs, never heals).
 
 GENESIS REROLLS are fully covered by one /update wave: a reroll commit bumps protocol.CHAIN_GENERATION, and
 the post-update boot sees the bump, wipes all chain-derived data (never private/) and regenesis/resyncs
@@ -286,6 +289,9 @@ def heal(logger=None, force=False) -> dict:
 
 def ensure_updatable(logger=None, auto_heal=True) -> dict:
     """Startup gate: diagnose, shout, and (optionally) repair. Returns the report so /status can serve it.
+    The repair is skippable two ways: the auto_heal param (tests / callers that only want the diagnosis)
+    and "auto_heal": false in private/config.json (the operator opt-out) — either alone disables it; the
+    diagnosis itself always runs, so an opted-out broken node still shouts in the journal and /status.
 
     NOTE ON WHAT THIS CAN AND CANNOT FIX: a node already in the broken state cannot receive this code — it
     is un-updatable, that is the defect. So this does NOT rescue the existing stranded peers; a human runs
@@ -309,6 +315,13 @@ def ensure_updatable(logger=None, auto_heal=True) -> dict:
         logger.error("  FIX: curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/"
                      "install.sh | sudo bash -s -- --service")
         logger.error("=" * 78)
+    try:
+        from config import get_config
+        if get_config().get("auto_heal", True) is False:
+            auto_heal = False
+            report["heal"] = {"status": "disabled", "reason": "auto_heal=false in config"}
+    except Exception:
+        pass                                            # no config -> still heal (the default posture)
     if auto_heal:
         report["heal"] = heal(logger=logger)
         if logger:

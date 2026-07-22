@@ -1583,13 +1583,28 @@ async def invariants_report(request):
     return _resp(memserver.invariant_report or {"ok": None, "note": "no reconciliation yet"})
 
 
+def _updates_disabled():
+    """True when the operator opted out with "auto_update": false — the whole /update surface then goes
+    dark (403 before any git subprocess runs): the node neither self-updates on remote request nor lets
+    itself be used as a proxy to trigger anyone else. Config is read per-request, so flipping the flag
+    takes effect without a restart. An unreadable config counts as NOT opted out (default posture)."""
+    try:
+        return get_config().get("auto_update", True) is False
+    except Exception:
+        return False
+
+
 async def update_node(request):
     """GET /update: ask this node to SELF-UPDATE — fast-forward onto origin/main of the official repo and
     restart its services when new code actually landed (ops/self_update.py has the full safety story).
-    Callable by ANYONE: the caller controls only the WHEN, never the WHAT, and an already-current node
+    Callable by ANYONE — unless the operator set "auto_update": false, which disables this endpoint —
+    because the caller controls only the WHEN, never the WHAT, and an already-current node
     answers up_to_date and does nothing. After a real update the node forwards the ping to its linked
     peers (the update WAVE) before its own restart, so one call updates the whole reachable fleet;
     current nodes do not re-forward, so the wave dies out on its own. ?wave=0 disables forwarding."""
+    if _updates_disabled():
+        return _resp({"status": "disabled", "reason": "auto_update=false in config — /update is disabled"},
+                     status=403)
     result = await asyncio.to_thread(self_update.check_and_update, "remote")
     if result.get("status") == "updated" and request.query.get("wave", "1") != "0":
         peer_list = list(memserver.peers)
@@ -1615,7 +1630,11 @@ async def update_peer(request):
     """GET /update_peer?target=<ip>: ask ONE KNOWN peer to self-update, proxied server-side (the browser
     can't reach a peer's plain-http /update from an https wallet page). Permissionless like /update — the
     caller controls only the WHEN. The target MUST be a currently-known peer (no arbitrary-host SSRF), and
-    we do NOT cascade (?wave=0) so this button hits exactly the one node the user clicked."""
+    we do NOT cascade (?wave=0) so this button hits exactly the one node the user clicked. Disabled along
+    with /update by "auto_update": false — an opted-out node is not an update-trigger proxy for anyone."""
+    if _updates_disabled():
+        return _resp({"status": "disabled", "reason": "auto_update=false in config — /update_peer is disabled"},
+                     status=403)
     target = request.query.get("target", "")
     if target not in set(memserver.peers):
         return _resp({"status": "unknown_peer"}, status=400)
