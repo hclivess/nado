@@ -1596,6 +1596,19 @@ async def rollback_stats_report(request):
     return _resp({"tz": "UTC", "days": await asyncio.to_thread(rollback_stats.daily_counts, days)})
 
 
+async def daily_stats_report(request):
+    """GET /daily_stats?days=: per-UTC-day network telemetry sampled by this node (ops/daily_stats.py):
+    transactions + fees per day from the block walk, daily-peak peers/miners/mempool gauges. Node-local
+    like /rollback_stats; days the sampler never observed are null, not zero (the chart shows "not
+    measured", never "the network was empty"). `days` clamps to [1, 365], default 30."""
+    try:
+        days = max(1, min(365, int(request.query.get("days", "30"))))
+    except ValueError:
+        days = 30
+    from ops import daily_stats
+    return _resp({"tz": "UTC", "days": await asyncio.to_thread(daily_stats.daily_counts, days)})
+
+
 def _updates_disabled():
     """True when the operator opted out with "auto_update": false — the whole /update surface then goes
     dark (403 before any git subprocess runs): the node neither self-updates on remote request nor lets
@@ -1687,6 +1700,7 @@ async def make_app(port):
         web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool)),
         web.get("/invariants", invariants_report),
         web.get("/rollback_stats", rollback_stats_report),
+        web.get("/daily_stats", daily_stats_report),
         web.get("/update", update_node),
         web.get("/update_peer", update_peer),
         # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +
@@ -1920,5 +1934,35 @@ def _periodic_update_loop():
 
 _threading.Thread(target=_periodic_update_loop, daemon=True, name="self_update").start()
 logger.info("Integrated auto-updater armed: 15-min origin/main check + peer-hint cascade + remote /update trigger (wave-forwarding)")
+
+
+def _daily_stats_loop():
+    """Daily network telemetry sampler (ops/daily_stats.py, served by /daily_stats): every few minutes,
+    walk the blocks incorporated since the last pass (txs + fees per UTC day) and fold in daily-peak
+    gauges. Pull-only — nothing here touches the consensus path; a failed pass just retries."""
+    from ops import daily_stats
+    from ops.block_ops import get_block_number as _load_block
+    from ops.account_ops import get_open_registry
+    from ops.mining_ops import epoch_of
+    time.sleep(30)                                       # let boot/sync settle before the first walk
+    while True:
+        try:
+            tip = int((memserver.latest_block or {}).get("block_number") or 0)
+            if tip:
+                gauges = {"peers": len(memserver.peers), "mempool": len(memserver.transaction_pool)}
+                try:
+                    # registry reads full-scan the account set (same cost the throttled /mining_status
+                    # endpoint pays per wallet poll) — cheap at one pass per SAMPLE_INTERVAL
+                    gauges["open"] = len(get_open_registry(epoch_of(tip + 1)))
+                    gauges["bonded"] = len(get_bonded_registry())
+                except Exception:
+                    pass                                 # gauge unavailable this pass -> stays a null, never a fake 0
+                daily_stats.sample(tip, _load_block, gauges)
+        except Exception as e:
+            logger.info(f"daily-stats sample failed (retrying next pass): {e}")
+        time.sleep(daily_stats.SAMPLE_INTERVAL)
+
+
+_threading.Thread(target=_daily_stats_loop, daemon=True, name="daily_stats").start()
 
 asyncio.run(make_app(get_config()["port"]))

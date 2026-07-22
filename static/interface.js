@@ -4437,35 +4437,66 @@ function barChart(id, values, labels, opts) {
       svg.appendChild(_mk("text", { x: x + bw * 0.38, y: H - 5, fill: _CMUT, "font-size": 7, "text-anchor": "middle" }, labels[i]));
   });
 }
-// ROLLBACKS/DAY: columns for the daily counts — discrete rare events, so a bare line would fake
-// continuity across the (typical) zero days — with the 7-day trailing average as a 2px gold trend
-// line on the SAME axis. Each day gets an invisible full-height hover strip carrying a native
-// <title> tooltip ("YYYY-MM-DD: n"), so the hit target is the column, not the (often 0px) bar.
-function rollbackChart(id, days) {
-  const svg = _svgClear(id); if (!svg) return;
-  const W = 320, H = 120, padL = 32, padB = 16, padT = 8, padR = 6;
-  const n = days.length;
+// DAILY-TREND chart shared by the per-day telemetry panels (rollbacks, txs, fees, miners, peers):
+// columns per UTC day — one series plain, two stacked — with the 7-day trailing average of the daily
+// total as a 2px gold line (opts.trend:false skips it, e.g. where a gold series would collide).
+// Discrete daily events want columns, not a bare line faking continuity across the zero days. A day
+// the sampler never observed (null) draws NOTHING — "not measured" must look different from a
+// measured 0. Each day gets an invisible full-height hover strip carrying a native <title> tooltip,
+// so the hit target is the column, not the (often 0px) bar. series: [{values, color, name?}];
+// names double as an in-chart legend when there are 2 series.
+function dailyTrendChart(id, dates, series, opts) {
+  opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
+  const W = 320, H = 120, padL = 34, padB = 16, padT = 8, padR = 6;
+  const n = dates.length;
   if (!n) { svg.appendChild(_mk("text", { x: W / 2, y: H / 2, fill: _CMUT, "font-size": 11, "text-anchor": "middle" }, i18("stats.nodata", "no data yet"))); return; }
-  const values = days.map((d) => d.count);
-  const max = Math.max(1, ...values), bw = (W - padL - padR) / n;
+  const tot = dates.map((_, i) => series.some((s) => s.values[i] != null)
+    ? series.reduce((a, s) => a + (s.values[i] || 0), 0) : null);
+  const max = Math.max(1e-9, ...tot.filter((v) => v != null), 1);
+  const bw = (W - padL - padR) / n;
   const Y = (v) => H - padB - (v / max) * (H - padB - padT);
+  const fmt = opts.fmt || ((v) => String(Math.round(v)));
   for (const frac of [0, 1]) {
     svg.appendChild(_mk("line", { x1: padL, y1: Y(frac * max), x2: W - padR, y2: Y(frac * max), stroke: _CGRID, "stroke-width": 1 }));
-    svg.appendChild(_mk("text", { x: padL - 3, y: Y(frac * max) + 3, fill: _CMUT, "font-size": 8, "text-anchor": "end" }, String(Math.round(frac * max))));
+    svg.appendChild(_mk("text", { x: padL - 3, y: Y(frac * max) + 3, fill: _CMUT, "font-size": 8, "text-anchor": "end" }, fmt(frac * max)));
   }
   const step = Math.ceil(n / 6);
-  values.forEach((v, i) => {
+  dates.forEach((d, i) => {
     const x = padL + i * bw;
-    if (v > 0) svg.appendChild(_mk("rect", { x: x + bw * 0.12, y: Y(v), width: bw * 0.76, height: (H - padB) - Y(v), fill: _CACC, rx: 2 }));
+    if (tot[i] != null) {
+      let y0 = H - padB;
+      for (const s of series) {
+        const v = s.values[i] || 0;
+        if (v > 0) {
+          const y1 = y0 - (v / max) * (H - padB - padT);
+          svg.appendChild(_mk("rect", { x: x + bw * 0.12, y: y1, width: bw * 0.76, height: y0 - y1, fill: s.color, rx: 2 }));
+          y0 = y1;
+        }
+      }
+    }
     const hit = _mk("rect", { x, y: padT, width: bw, height: H - padB - padT, fill: "transparent" });
-    hit.appendChild(_mk("title", {}, `${days[i].date}: ${v}`));
+    hit.appendChild(_mk("title", {}, tot[i] == null ? `${d}: —`
+      : series.length > 1 ? `${d}: ` + series.map((s) => `${s.name || ""} ${fmt(s.values[i] || 0)}`).join(" · ")
+      : `${d}: ${fmt(tot[i])}`));
     svg.appendChild(hit);
     if (i % step === 0 || i === n - 1)
-      svg.appendChild(_mk("text", { x: x + bw / 2, y: H - 5, fill: _CMUT, "font-size": 7, "text-anchor": "middle" }, String(days[i].date).slice(5)));
+      svg.appendChild(_mk("text", { x: x + bw / 2, y: H - 5, fill: _CMUT, "font-size": 7, "text-anchor": "middle" }, String(d).slice(5)));
   });
-  const avg = values.map((_, i) => { const s = values.slice(Math.max(0, i - 6), i + 1); return s.reduce((a, b) => a + b, 0) / s.length; });
-  svg.appendChild(_mk("polyline", { points: avg.map((a, i) => `${(padL + i * bw + bw / 2).toFixed(1)},${Y(a).toFixed(1)}`).join(" "),
-    fill: "none", stroke: _CGOLD, "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+  if (series.length > 1) series.forEach((s, si) => {          // legend — mandatory once identity isn't the title's alone
+    const lx = padL + 6 + si * 78;
+    svg.appendChild(_mk("rect", { x: lx, y: padT + 1, width: 8, height: 8, fill: s.color, rx: 2 }));
+    svg.appendChild(_mk("text", { x: lx + 11, y: padT + 8, fill: _CMUT, "font-size": 8 }, s.name || ""));
+  });
+  if (opts.trend !== false) {
+    const pts = [];                                           // 7-day trailing average over OBSERVED days only
+    tot.forEach((v, i) => {
+      if (v == null) return;
+      const w = tot.slice(Math.max(0, i - 6), i + 1).filter((x) => x != null);
+      pts.push(`${(padL + i * bw + bw / 2).toFixed(1)},${Y(w.reduce((a, b) => a + b, 0) / w.length).toFixed(1)}`);
+    });
+    if (pts.length > 1) svg.appendChild(_mk("polyline", { points: pts.join(" "),
+      fill: "none", stroke: _CGOLD, "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+  }
 }
 function hbarChart(id, rows, opts) {
   opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
@@ -4790,7 +4821,7 @@ async function renderExecStats(tip, tipTs) {
 async function renderRollbacks() {
   const rb = await (await fetch(relayBase() + "/rollback_stats?days=30", { cache: "no-store" })).json();
   const days = (rb && rb.days) || [];
-  rollbackChart("chartRollbacks", days);
+  dailyTrendChart("chartRollbacks", days.map((d) => d.date), [{ values: days.map((d) => d.count), color: _CACC }]);
   const sub = $("rollbacksSub"); if (!sub || !days.length) return;
   const vals = days.map((d) => d.count), sum = (a) => a.reduce((x, y) => x + y, 0);
   const last7 = sum(vals.slice(-7)), prev7 = sum(vals.slice(-14, -7));
@@ -4799,12 +4830,55 @@ async function renderRollbacks() {
     { n: sum(vals), a: last7, b: prev7, t });
 }
 
+// Shared trend-verdict sub-line for the daily panels: last 7 observed days vs the 7 before, as a
+// total (sumMode — event counts) or an average (gauges), worded with the rollback panel's keys.
+function _trendSub(elId, values, sumMode, fmt) {
+  const el = $(elId); if (!el) return;
+  const obs = values.filter((v) => v != null);
+  if (!obs.length) { el.textContent = i18("stats.nodata", "no data yet"); return; }
+  const n = values.length, wk = (lo, hi) => values.slice(Math.max(0, lo), hi).filter((v) => v != null);
+  const red = (w) => (w.length ? w.reduce((x, y) => x + y, 0) / (sumMode ? 1 : w.length) : 0);
+  const A = red(wk(n - 7, n)), B = red(wk(n - 14, n - 7));
+  const t = A > B ? i18("stats.trendRising", "rising") : A < B ? i18("stats.trendFalling", "falling") : i18("stats.trendFlat", "flat");
+  const F = fmt || ((v) => String(Math.round(v * 10) / 10));
+  el.textContent = sumMode
+    ? i18("stats.sumSub", "{n} in 30 days · {a} this week vs {b} the week before — trend: {t} · gold line = 7-day average",
+        { n: F(red(obs)), a: F(A), b: F(B), t })
+    : i18("stats.gaugeSub", "daily peak · avg {a} this week vs {b} the week before — trend: {t}", { a: F(A), b: F(B), t });
+}
+
+// DAILY NETWORK TELEMETRY panels (relay-local /daily_stats): txs + fees per day from the sampler's
+// block walk, daily-peak present miners (open vs savings, laneBar's colors) and known peers. Days
+// before the sampler existed arrive as null and draw empty — "not measured", never a fake zero.
+async function renderDailyStats() {
+  const d = await (await fetch(relayBase() + "/daily_stats?days=30", { cache: "no-store" })).json();
+  const rows = (d && d.days) || [];
+  if (!rows.length) return;
+  const dates = rows.map((r) => r.date);
+  const txs = rows.map((r) => r.txs);
+  dailyTrendChart("chartTxDay", dates, [{ values: txs, color: _CACC }]);
+  _trendSub("txDaySub", txs, true, (v) => String(Math.round(v)));
+  const fees = rows.map((r) => (r.fees == null ? null : _nadoNum(r.fees)));
+  // fee volume spans decades (dust-fee days vs busy days) — adapt precision so 0.0023 never prints "0.00"
+  const ffmt = (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v >= 10 ? v.toFixed(0) : v >= 0.01 ? v.toFixed(2) : v > 0 ? v.toPrecision(2) : "0");
+  dailyTrendChart("chartFeesDay", dates, [{ values: fees, color: _CGRN }], { fmt: ffmt });
+  _trendSub("feesDaySub", fees, true, (v) => ffmt(v) + " NADO");
+  dailyTrendChart("chartMinersDay", dates,
+    [{ values: rows.map((r) => r.open), color: _CACC, name: i18("lane.open", "Open") },
+     { values: rows.map((r) => r.bonded), color: _CGOLD, name: i18("lane.bonded", "Savings") }],
+    { trend: false });                                       // no gold trend over gold savings columns
+  _trendSub("minersDaySub", rows.map((r) => (r.open == null && r.bonded == null) ? null : (r.open || 0) + (r.bonded || 0)), false);
+  dailyTrendChart("chartPeersDay", dates, [{ values: rows.map((r) => r.peers), color: _CPUR }]);
+  _trendSub("peersDaySub", rows.map((r) => r.peers), false);
+}
+
 async function renderStats() {
   if (!state.wallet) return;
   const head = $("statsHeadline"); if (head) head.innerHTML = "";
   renderGeoMap().catch(() => {});   // independent of the block charts — paint it in parallel
   renderNodes().catch(() => {});    // the network-nodes table (status_pool)
   renderRollbacks().catch(() => {});  // relay-local reorg telemetry — also independent
+  renderDailyStats().catch(() => {}); // relay-local daily sampler (txs/fees/miners/peers per day)
   let tip = state.latest, tipTs = null;
   try { const lb = await getLatestBlock(); if (lb && typeof lb.block_number === "number") { tip = lb.block_number; tipTs = lb.block_timestamp; } } catch {}
   renderExecStats(tip, tipTs).catch(() => {});  // zkVM L2 vitals — independent of the block charts
