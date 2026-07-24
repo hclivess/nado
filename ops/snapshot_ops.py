@@ -74,8 +74,18 @@ def read_state(home=None):
     kv_ops.init_env(home)
     triples = []
     for name in kv_ops.SNAPSHOT_DBS:
-        for k, v in kv_ops.iter_db_pairs(name):
-            triples.append((name, k, v))
+        if name == "accounts":
+            # CANONICALIZE empty accounts: skip any all-default (absent-equivalent) account row. A zero
+            # doc reads identically to a missing one (get_account defaults every field to 0), so dropping
+            # it is state-preserving — and it makes the state_root INVARIANT to whether a node still
+            # carries historical read-created-account residue (an alphanet-7 h76000 seed-split cause).
+            for k, v in kv_ops.iter_db_pairs(name):
+                if kv_ops.account_value_is_default(v):
+                    continue
+                triples.append((name, k, v))
+        else:
+            for k, v in kv_ops.iter_db_pairs(name):
+                triples.append((name, k, v))
     triples.sort(key=lambda t: (t[0], t[1], t[2]))
     return triples
 

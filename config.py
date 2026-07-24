@@ -36,8 +36,14 @@ def get_protocol():
     3 (2026-07-18): the bit-width-audit + reg-difficulty-v2 consensus changes, strict.
     4 (2026-07-18): reg-difficulty v3 — state-index counts (see reg_difficulty.py).
     5 (2026-07-18): the DEBRAND CUTOVER — alphanet-7 genesis reroll: mldsa44/msig address
-    prefixes, every domain-separation tag renamed brand-free (doc/debrand.md). STRICT."""
-    return 5
+    prefixes, every domain-separation tag renamed brand-free (doc/debrand.md). STRICT.
+    6 (2026-07-24): SNAPSHOT-ROOT DETERMINISM — the h76000 seed-split fix. Rollback now reverts a
+    block's txs in reverse-application order (path-dependent bond_since restore); the reorg-path-dependent
+    revert journals (bond_since_revert/hb_revert/msgkey_revert) left SNAPSHOT_DBS so they no longer feed
+    the state_root; all-default account rows are canonicalized out of the root. These change how the
+    state_root/snapshot_hash are computed, so old nodes MUST be shed (they would advertise a different
+    root at the same height and never form the sync quorum). STRICT."""
+    return 6
 
 
 def get_port():

@@ -1567,8 +1567,19 @@ def unindex_transactions(block, logger, block_height):
     """Revert a block's txs: undo the balance/state changes AND delete the exact primary + DUPSORT
     secondary index entries written on apply (the block||txid dup encoding makes each delete
     unambiguous). Runs inside the rollback write txn (kv_ops uses the active txn), so it is atomic
-    with the rest of the rollback — no per-statement retry loop is needed or possible under LMDB."""
-    for transaction in block["block_transactions"]:
+    with the rest of the rollback — no per-statement retry loop is needed or possible under LMDB.
+
+    REVERSE-APPLICATION ORDER (consensus-critical): index_transactions APPLIES `sorted_transactions`
+    (sort_transaction_pool == sort by txid), so a correct undo must reverse EXACTLY that order. Balances
+    commute (addition), but the overwrite-then-restore-prior journals do NOT: apply_bond_since (and the
+    hb/msgkey reverts) stash the prior value keyed by txid and restore it on revert, so for two
+    non-commutative ops on one address in one block — e.g. two `bond`s from the same sender — reverting in
+    any order but reverse-application restores the WRONG intermediate prior value (the earlier tx's revert
+    runs last and wins, leaving bond_since at the middle value instead of the original). That is
+    path-dependent state, which forks the snapshot root. We re-derive the applied order here (the stored
+    body is already txid-sorted, so this is a no-op reorder in practice, but re-sorting makes the symmetry
+    exact and robust to any body that was persisted unsorted) and walk it backwards."""
+    for transaction in reversed(sort_transaction_pool(block["block_transactions"])):
         reflect_transaction(transaction=transaction,
                             revert=True,
                             logger=logger,

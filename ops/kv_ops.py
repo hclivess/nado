@@ -73,7 +73,18 @@ _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 #   block_loc — segment-store locators + per-segment live counters (another node's segments differ)
 #   gc_revert — idle-GC rollback records keyed by height (ops/gc_ops.py): purely local rollback
 #               support, pruned lazily below the finalized height with no determinism requirement
-_LOCAL_DBS = frozenset(("block_loc", "gc_revert"))
+#   bond_since_revert / hb_revert / msgkey_revert — ROLLBACK BOOKKEEPING, not canonical state. Each stashes
+#               the value a tx OVERWROTE so a rollback can restore it (keyed by txid or epoch|address). They
+#               are REORG-PATH-DEPENDENT (two nodes reaching the same canonical tip via different reorg paths
+#               legitimately retain different journal residue) and, unlike gc_revert, were never pruned — so
+#               they grow unbounded with chain length. Carrying them in the state_root GUARANTEED divergent
+#               snapshot hashes (the alphanet-7 h76000 seed split: ~1730 bond_since_revert + hb/msgkey rows
+#               differed). A snapshot's state is at a FINALIZED checkpoint C, and rollback can never cross the
+#               finalized floor (>= C), so no journal entry for a block <= C is ever needed; the only journals
+#               rollback ever reads are for the (finalized, tip] reorg window, all ABOVE C, which the normal
+#               C+1..tip tail replay rebuilds byte-for-byte as it re-incorporates each block. wipe_non_carried_dbs
+#               (all-DBs - SNAPSHOT_DBS) clears any stale residue on re-anchor. So they belong here, not in the root.
+_LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_revert", "msgkey_revert"))
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS))
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -311,6 +322,24 @@ def get_account(address: str):
         if k not in acc:
             acc[k] = v
     return acc
+
+
+def account_value_is_default(value: bytes) -> bool:
+    """True iff a raw `accounts` value is the ABSENT-EQUIVALENT doc: every ACCOUNT_FIELDS entry is
+    0/falsy AND there are no schemaless extras (public_key, kem_pub, alias binding, …). get_account
+    returns the IDENTICAL zero doc whether such a row is present or missing (missing fields default to
+    0), so an all-default row is semantically indistinguishable from no row — yet its physical presence
+    changes the snapshot state_root. get_account no longer persists on read, but historical
+    read-created-account residue can still sit in one node's DB and not another's (the alphanet-7 h76000
+    seed split had one such ghost row). read_state skips these so the root is invariant to the residue.
+    Deliberately STRICTER than gc_ops._trivially_empty: `registered`/`fidelity`/`last_hb_epoch` must also
+    be 0 here, because a nonzero one of those is real open-lane/heartbeat state, NOT absent-equivalent."""
+    doc = _unpack(value)
+    if not isinstance(doc, dict):
+        return False
+    if any(doc.get(f) for f in ACCOUNT_FIELDS):
+        return False
+    return all(k in ACCOUNT_FIELDS or k == "address" for k in doc)
 
 
 def put_account(address: str, fields: dict):
