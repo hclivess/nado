@@ -92,22 +92,53 @@ _extra_ns = [s.strip() for s in os.environ.get("NADO_EXEC_NAMESPACES", "").split
              if s.strip() and s.strip() != "default" and _valid_ns(s.strip())]
 NAMESPACES = ["default"] + _extra_ns
 
-# CHAIN GENERATION (genesis-reroll flag): when protocol.CHAIN_GENERATION moved past the node's stamped data generation,
-# a reroll shipped — drop OUR exec state/DA before loading it, so a stale exec layer can never replay a
-# fresh chain (the L1 node purges the rest and restamps the marker; deletes are tolerant of racing it).
+# CHAIN GENERATION (genesis-reroll flag) — SELF-OWNED marker so this is RACE-FREE. The old code read the
+# SHARED data-generation marker (ops.data_ops.stored_chain_generation), but the L1 node restamps that to the
+# new generation immediately after its own purge — BEFORE nado-exec even imports — so this self-purge was
+# effectively dead and a reroll could leave a stale exec layer that replays the FRESH chain onto OLD state
+# and silently forks L2. We now track OUR OWN generation in a file beside the exec state and wipe using the
+# exec node's OWN path resolution (STATE_PATH / DA_DIR), which is authoritative for THIS process regardless
+# of where install.sh put the data or which service restarted first. Belt to purge_chain_data's Gap-A wipe.
 from protocol import CHAIN_GENERATION as _CHAIN_GENERATION
-from ops.data_ops import stored_chain_generation as _stored_chain_generation
-if _stored_chain_generation() is not None and _stored_chain_generation() != _CHAIN_GENERATION:
+_EXEC_GEN_MARK = STATE_PATH + ".gen"
+
+
+def _exec_stored_gen():
+    """The CHAIN_GENERATION this exec layer's on-disk state was built under, or None (fresh / pre-marker)."""
+    try:
+        with open(_EXEC_GEN_MARK) as _f:
+            return int(_f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+if _exec_stored_gen() not in (None, _CHAIN_GENERATION):
     import glob as _glob
     import shutil as _shutil
     print("[execnode] CHAIN_GENERATION bumped — reroll: dropping exec state + DA for a fresh replay", flush=True)
-    for _p in _glob.glob(STATE_PATH + "*"):
+    for _p in _glob.glob(STATE_PATH + "*"):          # default + namespaced state files AND the stale .gen mark
         try: os.remove(_p)
         except OSError: pass
     _shutil.rmtree(DA_DIR, ignore_errors=True)
 
 states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
 state = states["default"]   # the full-featured default layer; shielded/bridge/dividend endpoints use it
+
+# JOINT-GENESIS CANARY: a freshly-loaded EMPTY default layer (cursor == -1) MUST hash to EXEC_GENESIS_ROOT.
+# If it doesn't, the exec-root scheme drifted from the hardcoded genesis constant — starting would settle a
+# root no other node agrees on and fork L2. Fail LOUD instead. (A non-empty state is mid-chain and exempt.)
+from protocol import EXEC_GENESIS_ROOT as _EXEC_GENESIS_ROOT
+if state.cursor == -1 and state.state_root() != _EXEC_GENESIS_ROOT:
+    raise SystemExit(f"[execnode] FATAL: empty exec state root {state.state_root()[:16]} != EXEC_GENESIS_ROOT "
+                     f"{_EXEC_GENESIS_ROOT[:16]} — scheme drift; refusing to start (would fork L2)")
+
+# Stamp OUR generation now that we have loaded a clean state, so a later reroll is detected exactly once.
+try:
+    with open(_EXEC_GEN_MARK, "w") as _f:
+        _f.write(str(_CHAIN_GENERATION))
+except OSError:
+    pass
+
 _last_settled_cursor = -1
 
 

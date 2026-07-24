@@ -65,6 +65,33 @@ def purge_chain_data(logger=None):
             except OSError:
                 pass
 
+    # EXEC LAYER, authoritative wipe (reroll Gap A): the exec node (nado-exec) resolves its state + DA from
+    # NADO_EXEC_STATE / NADO_EXEC_DA, which on a --home / split repo-data install point OUTSIDE get_home() —
+    # so the home-relative wipes above MISS them. If a reroll leaves stale exec state, the exec node replays
+    # the FRESH chain onto OLD state (cursor != -1, root != EXEC_GENESIS_ROOT) and silently forks L2. Its own
+    # self-purge is unreliable (nado restamps the generation marker before nado-exec even imports), so
+    # purge_chain_data must be authoritative. Resolve the SAME env vars the exec node uses; for a relative
+    # value cover both the home and the repo root (the exec service's WorkingDirectory) so every layout hits.
+    _repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def _exec_candidates(env, default):
+        raw = os.environ.get(env, default)
+        if os.path.isabs(raw):
+            return [raw]
+        return [os.path.join(home, raw), os.path.join(_repo, raw), os.path.abspath(raw)]
+
+    for base in _exec_candidates("NADO_EXEC_STATE", "exec_state.json"):
+        for p in glob.glob(base + "*"):
+            try:
+                os.remove(p)
+                say(f"PURGE: removed exec state {p}")
+            except OSError:
+                pass
+    for da in _exec_candidates("NADO_EXEC_DA", "exec_da"):
+        if os.path.isdir(da):
+            shutil.rmtree(da, ignore_errors=True)
+            say(f"PURGE: removed exec DA {da}/")
+
 
 
 def is_hex_hash(value, length=64):

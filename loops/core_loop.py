@@ -1226,7 +1226,16 @@ class CoreClient(threading.Thread):
             block_weight=block_fork_weight(bonded_registry, block_number),
             # preserve the REMOTE block's own chain_id label (informational, not hashed) so the rebuilt
             # block stays byte-identical to what the peer sent; the hash is chain_id-invariant either way.
-            chain_id=block.get("chain_id", CHAIN_ID))
+            chain_id=block.get("chain_id", CHAIN_ID),
+            # PASS THE COMMITTED STATE + EXEC ROOTS THROUGH (do NOT recompute them here). The deterministic
+            # rebuild re-derives winner/reward/weight to catch forgery, but state_root / exec_root /
+            # exec_cursor are the producer's committed claims and must survive the rebuild UNCHANGED so an
+            # honest block's reconstructed hash still equals its claimed hash. Whether those claims match OUR
+            # state is a SEPARATE question, enforced explicitly in verify_block — conflating it with the hash
+            # check would mislabel a state divergence as a "forged/corrupt block".
+            state_root=block.get("state_root"),
+            exec_root=block.get("exec_root"),
+            exec_cursor=block.get("exec_cursor"))
 
     def incorporate_block(self, block: dict, sorted_transactions: list):
         """successful execution mandatory, must not raise a failure"""
@@ -1845,6 +1854,35 @@ class CoreClient(threading.Thread):
                 raise ValueError(
                     f"Block cumulative_weight {block.get('cumulative_weight')} != deterministic "
                     f"{expected_weight} (parent {parent_weight} + as-of-parent bonded shares)")
+
+            # STATE-ROOT BINDING (L1): re-derive OUR as-of-parent L1 state root (tip == parent here, the same
+            # committed state the producer hashed over) and ENFORCE equality with the block's committed root.
+            # This is what binds L1 STATE to consensus: a node whose account/producer state diverged from the
+            # producer's — a non-deterministic apply, a rollback-path bug, silent corruption — rejects the
+            # block HERE instead of extending it and carrying a different state that only surfaces, with no
+            # tiebreak, at snapshot sync (the alphanet-7 h76000 split). A rejected block just forks off and
+            # loses fork-choice; it can never become a silent state fork.
+            from ops.snapshot_ops import read_state, merkle_root
+            our_state_root = merkle_root(read_state())
+            if block.get("state_root") != our_state_root:
+                raise ValueError(
+                    f"Block {block['block_number']} state_root {str(block.get('state_root'))[:16]} != our "
+                    f"as-of-parent L1 state {our_state_root[:16]} — our state diverged from the producer; "
+                    f"refusing to extend (would fork state while agreeing on the block body)")
+
+            # STATE-ROOT BINDING (L2): enforce the committed L1-JUSTIFIED settled exec (cursor, root) equals
+            # ours as-of-parent. Pure read of on-chain settlement attestations (⊂ state_root), so it agrees
+            # whenever state_root does — it makes the L2 settled root a FIRST-CLASS, reorg-consistent header
+            # value (a relay cannot ship a block claiming a settled root that isn't justified as-of-parent),
+            # and gives L2 divergence its own named error rather than only surfacing at an exit claim.
+            from ops.settlement_ops import settled_header_commitment
+            our_exec_cursor, our_exec_root = settled_header_commitment()
+            if block.get("exec_root") != our_exec_root or block.get("exec_cursor") != our_exec_cursor:
+                raise ValueError(
+                    f"Block {block['block_number']} L2 settled (cursor={block.get('exec_cursor')}, "
+                    f"root={str(block.get('exec_root'))[:16]}) != our as-of-parent "
+                    f"(cursor={our_exec_cursor}, root={our_exec_root[:16]}) — L2 settlement view diverged; "
+                    f"refusing to extend")
 
             # AUDIT FIX: reject a block containing duplicate reserved txs (in-block uniqueness) —
             # closes the K-withdraw bond drain / slash-escape / chain-halt, duplicate-slash over-burn,

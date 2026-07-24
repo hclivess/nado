@@ -87,6 +87,28 @@ def latest_settled(ns: str = DEFAULT_NS):
     return (-1, None)
 
 
+def settled_header_commitment(ns: str = DEFAULT_NS):
+    """The (exec_cursor, exec_root) the L1 block header commits to BIND L2 into the L1 hash chain: the
+    highest L1-JUSTIFIED settled (cursor, root) for `ns` as of committed state, or the empty sentinel
+    (-1, EXEC_GENESIS_ROOT) before any settlement is justified (so the field is always a valid 64-hex).
+
+    This is a PURE read of on-chain settlement attestations + the bonded registry — BOTH of which already
+    live in SNAPSHOT_DBS and are therefore already folded into the L1 state_root. So every node at the same
+    parent state derives the IDENTICAL pair, which is exactly what makes it safe to fold into the block
+    hash. The live per-block exec root can NOT be committed (the exec node applies only FINALIZED blocks —
+    a ~FINALITY_DEPTH lag — in a separate process, and the root is expensive + prunable), so the strongest
+    per-block-available L2 anchor is this justified SETTLED root. It binds the settled root into the
+    immutable L1 hash (reorg-consistent, unforgeable-by-a-relay, first-class for exits/light-clients); it
+    does NOT by itself re-derive the exec computation — that trust stays on the bonded settle quorum until
+    the trustless proof path is enabled. Default ns only is committed EXPLICITLY; every other ns stays bound
+    transitively through the settlement attestations already inside state_root."""
+    from protocol import EXEC_GENESIS_ROOT
+    cursor, root = latest_settled(ns)
+    if root is None:
+        return -1, EXEC_GENESIS_ROOT
+    return int(cursor), root
+
+
 def _vote_activated(info: dict, current_epoch: int) -> bool:
     """A validator's bonded stake counts toward a treasury vote only once it has AGED
     TREASURY_VOTE_ACTIVATION_EPOCHS (anti flash/exchange capture). bond_since == 0 is genesis/fully-aged."""

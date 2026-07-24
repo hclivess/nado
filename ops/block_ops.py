@@ -690,6 +690,13 @@ def block_content_hash(block: dict) -> str:
         "block_creator": block["block_creator"], "block_timestamp": None, "block_transactions": txs,
         "child_hash": None, "block_reward": block["block_reward"],
         "cumulative_fees": block["cumulative_fees"], "cumulative_weight": block["cumulative_weight"],
+        # STATE-ROOT BINDING (see construct_block): the committed L1 state root AND the L2 settled exec
+        # (cursor, root) are part of the hash, so re-deriving a block's hash reproduces the producer's
+        # committed roots exactly — a body whose committed root was altered no longer hashes to its own
+        # block_hash and is refused by save_block.
+        "state_root": block["state_root"],
+        "exec_root": block["exec_root"],
+        "exec_cursor": block["exec_cursor"],
         "chain_id": None,   # NON-HASHED (see construct_block): genesis-hash + parent linkage identify the
                             # chain, so a CHAIN_ID change never alters a block hash or breaks genesis sync.
     }
@@ -717,7 +724,7 @@ def save_block(block: dict, logger):
     # and get chained onto, forking every honest node that later re-derives the true hash (the "stuck /
     # rolls back and forth" wedge). Genesis (block 0) is hashed differently (over timestamp+[] only), skip it.
     _hashed = ("block_number", "parent_hash", "block_creator", "block_transactions", "block_reward",
-               "cumulative_fees", "cumulative_weight")   # chain_id is NON-hashed (informational)
+               "cumulative_fees", "cumulative_weight", "state_root", "exec_root", "exec_cursor")   # chain_id NON-hashed
     if block.get("block_number", 0) != 0 and all(k in block for k in _hashed):
         expected = block_content_hash(block)
         if expected != block["block_hash"]:
@@ -874,6 +881,9 @@ def construct_block(
         parent_cumulative_weight: int = 0,
         block_weight: int = 0,
         chain_id: str = None,
+        state_root: str = None,
+        exec_root: str = None,
+        exec_cursor: int = None,
 ):
     """timestamp is approximate so hash matches across the network.
 
@@ -887,6 +897,34 @@ def construct_block(
     (Transaction replay across chains is prevented separately by the per-tx chain_id.)"""
     if chain_id is None:
         chain_id = CHAIN_ID
+
+    # STATE-ROOT BINDING (L1): commit the AS-OF-PARENT L1 state root (merkle_root over the canonical
+    # SNAPSHOT_DBS — the exact snapshot root) INTO the hashed preimage, so account/producer STATE is bound
+    # to L1 consensus. On the PRODUCE path state_root is None and we derive it from committed parent state
+    # (this block is not yet applied — tip == parent); on the REBUILD path the caller passes the incoming
+    # block's own committed root through UNCHANGED (so the deterministic hash reconstruction stays
+    # byte-identical to the producer's), and verify_block separately re-derives + enforces it. Result: a
+    # node whose state diverged from the producer — for ANY reason — rejects the block at validation
+    # instead of silently carrying a different state that only surfaces, unbreakably, at snapshot sync.
+    if state_root is None:
+        from ops.snapshot_ops import read_state, merkle_root
+        state_root = merkle_root(read_state())
+
+    # STATE-ROOT BINDING (L2): commit the L1-JUSTIFIED SETTLED exec (cursor, root) as-of-parent — a pure read
+    # of on-chain settlement attestations (already inside state_root), NOT the local exec VM's live root
+    # (which lags by ~FINALITY_DEPTH and lives in a separate process, so it has no defined value at block
+    # time). On PRODUCE these are None and we derive them; on REBUILD the caller passes the incoming block's
+    # own committed pair through UNCHANGED, and verify_block re-derives + enforces it. This folds the L2
+    # settled root into the immutable L1 hash so it is reorg-consistent and a relay cannot present a block
+    # carrying a settled root that isn't actually justified as-of-parent. Both are bound so (cursor, root)
+    # is pinned together (the root alone does not commit the cursor).
+    if exec_root is None or exec_cursor is None:
+        from ops.settlement_ops import settled_header_commitment
+        _c, _r = settled_header_commitment()
+        if exec_cursor is None:
+            exec_cursor = _c
+        if exec_root is None:
+            exec_root = _r
 
     # CO-8: canonical in-block transaction order. Sort by txid so any two honest nodes that select
     # the SAME tx set produce the IDENTICAL block hash — they can no longer fork on ordering alone
@@ -915,6 +953,14 @@ def construct_block(
         # rebuild_block and verified as-of-parent in verify_block, so a relay cannot forge it. Carried
         # + verified here; the fork-choice switch to argmax(cumulative_weight) lands in step 3.
         "cumulative_weight": parent_cumulative_weight + block_weight,
+        # STATE-ROOT BINDING (L1 + L2): the as-of-parent L1 state root AND the L1-justified settled L2 exec
+        # (cursor, root) are committed HERE, inside the hash preimage, so NEITHER layer's committed state can
+        # change without producing a different block hash (and being rejected). See the notes above +
+        # verify_block. exec_root is the SETTLED root (quorum-justified, ~FINALITY_DEPTH lag), not a live
+        # per-block root — the live root has no defined value at block time (separate lagged process).
+        "state_root": state_root,
+        "exec_root": exec_root,
+        "exec_cursor": exec_cursor,
         "chain_id": None,          # EXCLUDED from the hash (see docstring); stamped as the real value below
     }
     block_hash = blake2b_hash_link(link_from=parent_hash, link_to=block_message)

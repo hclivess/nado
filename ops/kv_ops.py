@@ -600,8 +600,10 @@ def settlement_del(ns: str, cursor: int, validator: str, state_root: str):
 # span is bounded by the settled tip, folding is cheap, and there is no running-chain state to keep in sync
 # or to GC incorrectly. `inert` is calls_commit.block_records_inert (the records-frozen precondition).
 #
-# NOT part of any block hash preimage (construct_block commits no state root), so writing these cannot fork
-# block validity on its own — only READING them in the settle branch can, which is why the settle branch
+# The block header DOES commit an L1 state_root (over SNAPSHOT_DBS) and an L2 exec_root, but exec summaries
+# live in `meta` which is snapshot-carried, so an exec-root committed at L2 finality lag is bound to
+# consensus without these per-block rows themselves being in a hash preimage — writing them cannot fork
+# block validity on its own; only READING them in the settle branch can, which is why the settle branch
 # must refuse any span it lacks a summary for rather than treating absence as "no calls".
 
 def _exec_summary_key(height: int) -> str:

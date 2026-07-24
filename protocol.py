@@ -243,7 +243,12 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 # wipes all chain-derived data (blocks/index/peers/snapshots/exec state+DA — never private/) and the node
 # regenesis/resyncs fresh. This makes one /update wave a COMPLETE reroll deployment. No compatibility:
 # old generations are not carried, they are purged.
-CHAIN_GENERATION = 2
+# 3 (2026-07-25): the STATE-ROOT-BINDING reroll. Blocks now commit an L1 state_root + the L2 settled
+#   (exec_cursor, exec_root) INTO the hash, state application was made deterministic (reverse-order rollback,
+#   revert journals out of the root, empty-account canonicalization), and the exec-layer wipe was made
+#   authoritative. Ships as a fresh genesis lineage so L1 and L2 restart jointly at (block 0, EXEC_GENESIS_ROOT)
+#   with no pre-reroll state to reconcile — one /update wave converges the fleet on a clean, self-consistent chain.
+CHAIN_GENERATION = 3
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
