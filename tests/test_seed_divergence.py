@@ -250,11 +250,59 @@ def test_block_stores_excluded_from_root():
     check("NEW consensus root is INVARIANT to block-storage difference", new_matches)
 
 
+def test_node_local_meta_excluded_from_root():
+    """7. NODE-LOCAL META ROWS (finalized_height, pruned_below) must NOT feed the L1 state root. Both live in
+    the `meta` sub-DB but are NOT block-tx-derived: finalized_height advances by PEER CORROBORATION (a
+    producer at tip H persists H-FINALITY_DEPTH; a catching-up node keeps 0) and pruned_below by LOCAL
+    retention/pruning. Including them made a producer and a fresh synchronizer at the same tip commit
+    different as-of-parent roots the instant finality first advanced — the gate refused block 47 (=
+    FINALITY_DEPTH+2). The consensus root must be invariant to both; every OTHER meta row IS block-derived
+    and stays in the root."""
+    _fresh_home("nado_metaroot_")
+    from ops import account_ops
+    from ops.snapshot_ops import (merkle_root, read_state, _root_triples, l1_state_root,
+                                  ROOT_EXCLUDED_META_KEYS)
+    from ops import codec
+
+    account_ops.create_account("a", balance=100)
+    base = read_state()
+    root_a = l1_state_root()
+
+    check("finalized_height / pruned_below are excluded from the root",
+          ROOT_EXCLUDED_META_KEYS == frozenset((b"finalized_height", b"pruned_below")))
+
+    # meta rows are key.encode() -> _pack(int) (see kv_ops.meta_set_int). Two nodes at the same tip, IDENTICAL
+    # in every block-derived row, differing ONLY in the two node-local finality/prune values — plus one
+    # block-derived meta row (a replay guard) that MUST still count. The OLD full-meta root diverges on the
+    # node-local difference; the NEW consensus root is invariant to it yet still reflects the derived row.
+    derived = ("meta", b"chain_generation", codec.pack(6))              # block-derived meta: stays in root
+    producer = list(base) + [derived,
+                             ("meta", b"finalized_height", codec.pack(1)),
+                             ("meta", b"pruned_below", codec.pack(2))]
+    syncing = list(base) + [derived,
+                            ("meta", b"finalized_height", codec.pack(0)),
+                            ("meta", b"pruned_below", codec.pack(0))]
+    old_diverges = merkle_root(producer) != merkle_root(syncing)
+    new_matches = merkle_root(_root_triples(producer)) == merkle_root(_root_triples(syncing))
+    check("OLD formula (all meta in root) DIVERGES on node-local finality/prune difference", old_diverges)
+    check("NEW consensus root is INVARIANT to finalized_height / pruned_below", new_matches)
+
+    # ...but a genuinely block-derived meta row still moves the root (the exclusion is surgical, not a
+    # blanket meta drop): a state with ONLY an excluded row collapses back to the base root, while adding the
+    # derived row changes it — so the derived row is provably still committed.
+    excluded_only = list(base) + [("meta", b"finalized_height", codec.pack(1))]
+    check("adding ONLY an excluded meta row leaves the consensus root unchanged",
+          merkle_root(_root_triples(excluded_only)) == root_a)
+    check("block-derived meta rows STILL feed the root",
+          merkle_root(_root_triples(producer)) != merkle_root(_root_triples(excluded_only)))
+
+
 if __name__ == "__main__":
     for t in (test_rollback_order,
               test_revert_journals_excluded_from_root,
               test_empty_account_canonicalized,
               test_block_stores_excluded_from_root,
+              test_node_local_meta_excluded_from_root,
               test_exec_summary_determinism_and_proof_disabled,
               test_withdraw_matches_pending):
         print(f"\n--- {t.__name__} ---")

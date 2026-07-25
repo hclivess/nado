@@ -90,22 +90,43 @@ def read_state(home=None):
     return triples
 
 
-# DBs carried in the snapshot for TRANSFER (a joiner's deep hash-lookbacks) but DELIBERATELY EXCLUDED from
-# the consensus STATE ROOT. block_by_num/block_by_hash are written on block ARRIVAL (save_block), so their
-# contents depend on a node's height, history-retention/pruning, and orphan/fork bodies accumulated across
-# reorgs — they are NOT a pure function of the canonical block sequence. Every OTHER SNAPSHOT_DB is written
-# only from block-included transactions (account_ops apply path), so the consensus subset IS identical on
-# every node that applied the same blocks. Including the block stores made the root diverge between nodes
-# that agree on every block — the alphanet-8 fresh-sync wedge (a catching-up node computed a different
-# as-of-parent root than the producer, tripping the state-root gate at ~h62). Blocks are already secured by
-# their own hash chain; they do not belong in the state commitment.
+# State carried in the snapshot for TRANSFER (a joiner's deep hash-lookbacks, block-body recovery, and
+# operational metadata) but DELIBERATELY EXCLUDED from the consensus STATE ROOT, because it is NODE-LOCAL /
+# PATH-DEPENDENT rather than a pure function of the canonical block sequence. The state root is committed
+# into every block hash, so ANY input that two honest nodes applying the same blocks can legitimately differ
+# on will fork the root and trip the fatal state-root gate. Two distinct sources of such divergence:
+#
+#   (1) ROOT_EXCLUDED_DBS — whole sub-DBs. block_by_num/block_by_hash are written on block ARRIVAL
+#       (save_block), so their contents depend on a node's height, history-retention/pruning, and
+#       orphan/fork bodies accumulated across reorgs. Including them made the root diverge between nodes
+#       that agree on every block — the alphanet-8 fresh-sync wedge (a catching-up node computed a different
+#       as-of-parent root than the producer, tripping the gate at ~h62).
+#
+#   (2) ROOT_EXCLUDED_META_KEYS — individual rows in the `meta` sub-DB that are NOT block-tx-derived:
+#         finalized_height — the FFG finality floor, advanced by PEER CORROBORATION (a producer at tip
+#           H>=FINALITY_DEPTH persists H-FINALITY_DEPTH; a catching-up node that does not yet consider its
+#           tip corroborated leaves it at 0). Two nodes at the same tip can hold different values.
+#         pruned_below     — the block-body prune watermark, advanced by LOCAL retention/pruning progress.
+#       These pollute the root the moment finality first advances: at tip FINALITY_DEPTH the producer
+#       commits finalized_height=1 while a fresh synchronizer still has 0, so the next block's as-of-parent
+#       root differs and the gate correctly refuses it (observed exactly at block FINALITY_DEPTH+2 = 47).
+#       They remain in the snapshot (a joiner needs the finality floor and prune watermark) — just not in
+#       the committed root. Every meta row NOT listed here (replay guards, chain markers) IS block-derived
+#       and stays in the root.
+#
+# Blocks are already secured by their own hash chain, and finality/pruning by their own monotonic rules;
+# none of this belongs in the state commitment.
 ROOT_EXCLUDED_DBS = frozenset(("block_by_num", "block_by_hash"))
+ROOT_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below"))
 
 
 def _root_triples(triples):
     """the consensus subset of a full read_state() list — everything the state root commits (block storage
-    excluded; see ROOT_EXCLUDED_DBS). Order-preserving, so a pre-sorted input stays sorted."""
-    return [t for t in triples if t[0] not in ROOT_EXCLUDED_DBS]
+    and node-local meta rows excluded; see ROOT_EXCLUDED_DBS / ROOT_EXCLUDED_META_KEYS). Order-preserving,
+    so a pre-sorted input stays sorted."""
+    return [t for t in triples
+            if t[0] not in ROOT_EXCLUDED_DBS
+            and not (t[0] == "meta" and t[1] in ROOT_EXCLUDED_META_KEYS)]
 
 
 def l1_state_root(home=None):

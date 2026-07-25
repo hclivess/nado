@@ -258,7 +258,16 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   (the alphanet-8 fresh-sync wedge). The root is now the consensus subset only (all tx-derived), invariant
 #   to block storage; blocks stay secured by their own hash chain. State-root formula change ⇒ old gen-4
 #   blocks are incompatible ⇒ full re-purge. See tests/test_seed_divergence.py::test_block_stores_excluded.
-CHAIN_GENERATION = 5
+# 6 (2026-07-25): DETERMINISM FIX (continued) — the gen-5 block-storage exclusion was INCOMPLETE. Two more
+#   node-local rows in the `meta` sub-DB also polluted the root: finalized_height (the FFG floor, advanced by
+#   PEER CORROBORATION — a producer at tip>=FINALITY_DEPTH persists tip-FINALITY_DEPTH while a catching-up
+#   node keeps 0) and pruned_below (the block-body prune watermark, advanced by LOCAL retention). The instant
+#   finality first advanced, a producer and a fresh synchronizer at the same tip committed different
+#   as-of-parent roots, so the FATAL gate refused block 47 (= FINALITY_DEPTH+2). Both are now excluded from
+#   the root (ROOT_EXCLUDED_META_KEYS) while still carried in snapshots; every OTHER meta row stays in the
+#   root (block-derived). Formula change ⇒ gen-5 block 47 is incompatible ⇒ full re-purge. See
+#   tests/test_seed_divergence.py::test_node_local_meta_excluded_from_root.
+CHAIN_GENERATION = 6
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

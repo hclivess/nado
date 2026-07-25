@@ -62,7 +62,7 @@ the checksum; the keyless reserved recipients `bond`/`unbond` are also accepted.
 checksum now uses canonical hashing, the genesis/treasury address is the legacy public-key body
 re-checksummed (`…b803280`, see [economics.md](economics.md)).
 
-## State-root determinism — what the root may commit (CHAIN_GENERATION 5)
+## State-root determinism — what the root may commit (CHAIN_GENERATION 6)
 
 Every block hash commits an L1 `state_root` (see [l2-settlement.md](l2-settlement.md) for the parallel
 L2 `exec_root`): `construct_block` computes it, `block_content_hash`/`save_block` hash it, and
@@ -78,8 +78,9 @@ snapshot + tail replay), its height, or its pruning/retention. So the invariant 
 > **Only data written *from block-included transactions* may enter the state root.**
 
 The root is `snapshot_ops.l1_state_root()` = a blake2b Merkle root over the **consensus subset** of
-`kv_ops.SNAPSHOT_DBS`, i.e. `SNAPSHOT_DBS − ROOT_EXCLUDED_DBS`. Two classes of data have been pulled OUT
-of the root because they are *node-local*, not a function of the block sequence — each was a real fork:
+`kv_ops.SNAPSHOT_DBS` — full DBs in `ROOT_EXCLUDED_DBS` are dropped, and the rows named in
+`ROOT_EXCLUDED_META_KEYS` are dropped from the `meta` DB. Three classes of data have been pulled OUT of the
+root because they are *node-local*, not a function of the block sequence — each was a real fork:
 
 1. **Reorg revert journals** (`bond_since_revert`, `hb_revert`, `msgkey_revert`, `gc_revert`,
    `block_loc`) → moved to `kv_ops._LOCAL_DBS` (excluded from `SNAPSHOT_DBS` entirely). These are
@@ -92,16 +93,29 @@ of the root because they are *node-local*, not a function of the block sequence 
    *chain* (parent linkage + tx content), so putting the block bytes in the state root was a **redundant,
    non-deterministic second commitment**. They are still *carried in the snapshot transfer* (a joiner's deep
    hash-lookbacks need them) — only the root **commitment** excludes them. Fixed in `CHAIN_GENERATION` 5.
+3. **Node-local `meta` rows** (`finalized_height`, `pruned_below`) → `ROOT_EXCLUDED_META_KEYS`. The gen-5
+   fix above was *incomplete*: not the whole `meta` DB is block-derived. `finalized_height` is the FFG
+   finality floor, advanced by **peer corroboration** — a producer at tip ≥ `FINALITY_DEPTH` persists
+   `tip − FINALITY_DEPTH`, while a catching-up node that does not yet consider its tip corroborated keeps
+   `0`; `pruned_below` is the block-body prune watermark, advanced by **local retention/pruning progress**.
+   The instant finality first advanced, a producer and a fresh synchronizer at the *same tip* committed
+   different as-of-parent roots, so the fatal gate refused **block 47** (= `FINALITY_DEPTH`+2, with
+   `FINALITY_DEPTH`=45). Both rows are still *carried in the snapshot* (a joiner needs the finality floor and
+   prune watermark) — only the root **commitment** excludes them, and the exclusion is **surgical**: every
+   *other* `meta` row (attestation-uniqueness replay guards, chain markers) stays in the root because it *is*
+   block-derived. Fixed in `CHAIN_GENERATION` 6.
 
-Everything that remains in the root — accounts (balances/stake), `totals`, `meta` (attestation
-uniqueness + finalized floor), `attestations`, `commits`/`reveals`, `settlements`, `recerts`, `bond_since`,
-`unbonds`, `aliases`, `htlcs`, `treasury_*` — is written **only** from block-included transactions
-(`ops/account_ops.py` apply path), so it is identical on every node that applied the same blocks.
+Everything that remains in the root — accounts (balances/stake), `totals`, the block-derived `meta` rows
+(attestation uniqueness + replay guards), `attestations`, `commits`/`reveals`, `settlements`, `recerts`,
+`bond_since`, `unbonds`, `aliases`, `htlcs`, `treasury_*` — is written **only** from block-included
+transactions (`ops/account_ops.py` apply path), so it is identical on every node that applied the same blocks.
 
 Regression coverage: `tests/test_seed_divergence.py` (`test_revert_journals_excluded_from_root`,
-`test_block_stores_excluded_from_root`, `test_empty_account_canonicalized`). The rule for anyone adding a
-new `SNAPSHOT_DB`: **if its value is not a deterministic function of the applied block sequence, it must be
-excluded from the root** (`_LOCAL_DBS` if node-only, `ROOT_EXCLUDED_DBS` if carried-but-not-committed).
+`test_block_stores_excluded_from_root`, `test_node_local_meta_excluded_from_root`,
+`test_empty_account_canonicalized`). The rule for anyone adding a new `SNAPSHOT_DB` **or a new `meta` row**:
+**if its value is not a deterministic function of the applied block sequence, it must be excluded from the
+root** — `_LOCAL_DBS` if node-only, `ROOT_EXCLUDED_DBS` for a whole carried-but-not-committed DB, or
+`ROOT_EXCLUDED_META_KEYS` for an individual node-local `meta` row.
 
 ## In-block transaction ordering — RESOLVED (CO-8)
 
