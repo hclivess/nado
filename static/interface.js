@@ -4886,7 +4886,15 @@ async function renderDailyStats() {
   if (!rows.length) return;
   const dates = rows.map((r) => r.date);
   const txs = rows.map((r) => r.txs);
-  dailyTrendChart("chartTxDay", dates, [{ values: txs, color: _CACC }]);
+  // Split each day by transaction type (stacked). A day carries `types` {category:count}; days sampled
+  // before the split shipped have types==null and draw empty (unmeasured, not a fake zero).
+  const txCat = (k) => rows.map((r) => (r.types ? (r.types[k] || 0) : null));
+  dailyTrendChart("chartTxDay", dates, [
+    { values: txCat("transfer"), color: _CACC, name: i18("stats.txTransfer", "Transfer") },
+    { values: txCat("stake"), color: _CGOLD, name: i18("stats.txStake", "Stake") },
+    { values: txCat("consensus"), color: _CGRN, name: i18("stats.txConsensus", "Consensus") },
+    { values: txCat("other"), color: _CPUR, name: i18("stats.txOther", "Other") },
+  ]);
   _trendSub("txDaySub", txs, "sum", (v) => String(Math.round(v)));
   const fees = rows.map((r) => (r.fees == null ? null : _nadoNum(r.fees)));
   // fee volume spans decades (dust-fee days vs busy days) — adapt precision so 0.0023 never prints "0.00"

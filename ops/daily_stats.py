@@ -36,6 +36,28 @@ _MAX_WALK = 3000                      # blocks one sample may catch up (~5 h) �
 _GAUGES = ("peers", "open", "bonded", "mempool", "volatility")   # daily-peak gauges (max)
 _FLOORS = ("up_agree", "tip_agree")                              # daily-low gauges (min)
 
+# Per-day TRANSACTION-TYPE split (the Stats tab's stacked "Transactions per day by type" chart). A tx's
+# type is its `recipient`: a plain keyed address = "transfer" (value payment); a reserved protocol name is
+# grouped into a few readable buckets so the stacked chart stays legible. Any reserved name not called out
+# (exec blob/settle, bridge, shield, dividend, governance, alias, htlc, msg, faucet, slash, …) falls into
+# "other". Days sampled before this shipped have no `types` and are served null — split "not measured",
+# never a fake zero (same contract as the rest of this file).
+_TX_CATEGORIES = ("transfer", "stake", "consensus", "other")
+_STAKE_RECIPIENTS = frozenset(("bond", "unbond", "withdraw"))
+_CONSENSUS_RECIPIENTS = frozenset(("attest", "commit", "reveal", "duty", "register"))
+
+
+def _tx_category(tx) -> str:
+    from protocol import RESERVED_RECIPIENTS
+    r = tx.get("recipient")
+    if r not in RESERVED_RECIPIENTS:
+        return "transfer"                    # plain value transfer between keyed addresses
+    if r in _STAKE_RECIPIENTS:
+        return "stake"                       # bond / unbond / withdraw
+    if r in _CONSENSUS_RECIPIENTS:
+        return "consensus"                   # FFG attest + RANDAO commit/reveal + merged duty + open-lane register
+    return "other"                           # exec/L2, bridge, shield, dividend, governance, alias, htlc, msg, …
+
 
 def _stats_path():
     return f"{get_home()}/daily_stats.json"
@@ -81,8 +103,13 @@ def sample(tip_height, load_block, gauges: dict, floors: dict = None) -> dict:
             if not b:
                 break                                    # pruned/unindexed — retry from here next pass
             rec = days.setdefault(_day(b.get("block_timestamp")), _fresh())
-            rec["txs"] = rec.get("txs", 0) + len(b.get("block_transactions") or [])
+            block_txs = b.get("block_transactions") or []
+            rec["txs"] = rec.get("txs", 0) + len(block_txs)
             rec["blocks"] = rec.get("blocks", 0) + 1
+            types = rec.setdefault("types", {})              # per-type split (absent on pre-feature days)
+            for t in block_txs:
+                c = _tx_category(t)
+                types[c] = types.get(c, 0) + 1
             rec["fees_last"] = int(b.get("cumulative_fees") or 0)
             data["last_height"] = h
             walked += 1
@@ -124,13 +151,17 @@ def daily_counts(days: int = 30) -> list:
         d = _day(now - i * 86400)
         rec = recorded.get(d)
         if rec is None:
-            out.append({"date": d, "txs": None, "blocks": None, "fees": None,
+            out.append({"date": d, "txs": None, "blocks": None, "fees": None, "types": None,
                         **{k: None for k in _GAUGES + _FLOORS}})
             continue
         fl = rec.get("fees_last")
         fees = str(fl - prev_fees) if fl is not None and prev_fees is not None else None
         if fl is not None:
             prev_fees = fl
+        # `types` is a dense {category: count} for every bucket (0-filled) on days that carry the split, or
+        # null on days sampled before the split shipped (drawn empty, like any unmeasured series).
+        rt = rec.get("types")
+        types = {c: int(rt.get(c, 0)) for c in _TX_CATEGORIES} if rt is not None else None
         out.append({"date": d, "txs": rec.get("txs"), "blocks": rec.get("blocks"), "fees": fees,
-                    **{k: rec.get(k) for k in _GAUGES + _FLOORS}})
+                    "types": types, **{k: rec.get(k) for k in _GAUGES + _FLOORS}})
     return out

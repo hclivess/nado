@@ -142,6 +142,30 @@ def t_corrupt_file_and_retention():
     assert len(kept) == 3 and DAY(0) in kept and "2001-01-01" not in kept, sorted(kept)
 
 
+def t_tx_type_split():
+    """Each day's txs are split by type: recipient decides the bucket (plain address=transfer, bond/unbond/
+    withdraw=stake, attest/commit/reveal/duty/register=consensus, every other reserved name=other). The split
+    rides daily_counts() as a dense {category:count} dict; the sum equals the day's total txs. Days with no
+    `types` recorded (pre-feature) serve null."""
+    reset()
+    recips = ["ndoAliceAddress", "bond", "unbond", "attest", "duty", "settle", "bridge", "ndoBobAddress"]
+
+    def load(h):
+        if not (1 <= h <= 1):
+            return False
+        return {"block_number": h, "block_timestamp": NOW,
+                "block_transactions": [{"recipient": r} for r in recips], "cumulative_fees": h}
+
+    DS.sample(1, load, {})
+    day = DS.daily_counts(1)[-1]
+    assert day["txs"] == len(recips), day
+    ty = day["types"]
+    assert ty == {"transfer": 2, "stake": 2, "consensus": 2, "other": 2}, ty
+    assert sum(ty.values()) == day["txs"], (ty, day["txs"])
+    # unobserved days carry a null split, not zeros
+    assert DS.daily_counts(2)[0]["types"] is None
+
+
 for name, fn in [
     ("first pass starts AT the tip (no history replay)", t_first_pass_starts_at_tip),
     ("walk resumes and credits blocks to their own day", t_walk_resumes_and_credits_block_days),
@@ -150,6 +174,7 @@ for name, fn in [
     ("consensus floors keep the daily min", t_floors_keep_daily_min),
     ("nulls for unobserved days; fees delta as string", t_series_nulls_vs_fees_delta),
     ("corrupt file tolerated; retention prunes oldest", t_corrupt_file_and_retention),
+    ("transactions split by type per day; null before the feature", t_tx_type_split),
 ]:
     check(name, fn)
 
