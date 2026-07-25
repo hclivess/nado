@@ -166,6 +166,22 @@ def t_tx_type_split():
     assert DS.daily_counts(2)[0]["types"] is None
 
 
+def t_reroll_resets_watermark():
+    """This file survives a reroll purge, so its last_height can outlive the abandoned chain. When the fresh
+    chain's tip sits far below that watermark, the sampler must RESET (restart at the new tip) instead of
+    walking an empty range forever. A small dip (ordinary reorg) must NOT reset (would double-count)."""
+    reset()
+    DS.sample(84776, mkchain(84776, day_offset_of=lambda h: 1), {})   # old chain, high watermark, yesterday
+    assert DS._load()["last_height"] == 84776
+    # fresh chain after a reroll: tip is far below the watermark -> reset + record from the new tip
+    r = DS.sample(50, mkchain(50, txs_per_block=3), {})
+    assert r["walked"] == 1 and DS._load()["last_height"] == 50, (r, DS._load()["last_height"])
+    assert DS.daily_counts(1)[-1]["types"] == {"transfer": 3, "stake": 0, "consensus": 0, "other": 0}
+    # a small dip (bounded reorg, within the walk window) does NOT reset: last stays, no re-walk
+    DS.sample(48, mkchain(50), {})
+    assert DS._load()["last_height"] == 50
+
+
 for name, fn in [
     ("first pass starts AT the tip (no history replay)", t_first_pass_starts_at_tip),
     ("walk resumes and credits blocks to their own day", t_walk_resumes_and_credits_block_days),
@@ -175,6 +191,7 @@ for name, fn in [
     ("nulls for unobserved days; fees delta as string", t_series_nulls_vs_fees_delta),
     ("corrupt file tolerated; retention prunes oldest", t_corrupt_file_and_retention),
     ("transactions split by type per day; null before the feature", t_tx_type_split),
+    ("reroll resets the watermark; bounded reorg does not", t_reroll_resets_watermark),
 ]:
     check(name, fn)
 

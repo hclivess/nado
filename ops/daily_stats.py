@@ -96,6 +96,15 @@ def sample(tip_height, load_block, gauges: dict, floors: dict = None) -> dict:
         data = _load()
         days = data["days"]
         last = int(data.get("last_height") or 0)
+        # REROLL / deep re-anchor reset: this file survives a genesis-reroll purge (by design — it is the
+        # long-run trend history), so after a reroll its `last_height` belongs to the ABANDONED chain and can
+        # sit far ABOVE the fresh chain's tip — which would leave the walk permanently empty (nothing recorded
+        # until the new chain re-climbs past the old height, days later). If the tip is more than a full walk
+        # window BELOW our watermark, the chain reset: restart the walk AT the new tip (like a first pass).
+        # The margin keeps ordinary bounded reorgs (a handful of blocks) from ever tripping this and double
+        # counting already-walked blocks.
+        if last and tip_height < last - _MAX_WALK:
+            last = 0
         start = max(last + 1, tip_height - _MAX_WALK + 1) if last else tip_height
         walked = 0
         for h in range(start, tip_height + 1):
