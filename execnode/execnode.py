@@ -44,6 +44,10 @@ BIND = os.environ.get("NADO_EXEC_BIND", "127.0.0.1")
 MAX_INFLIGHT = max(1, int(os.environ.get("NADO_EXEC_MAX_INFLIGHT", "2")))
 MAX_BODY_BYTES = int(os.environ.get("NADO_EXEC_MAX_BODY", str(16 * 1024 * 1024)))   # cap POST size (proofs are ~1-4MB)
 POLL = float(os.environ.get("NADO_EXEC_POLL", "5"))
+# STALE-EXEC corroboration window: how many consecutive polls must show our cursor OUTRUNNING L1's finalized
+# tip before we treat the on-disk state as reroll-stranded and reset to genesis (see tail_loop). ~30s so a
+# slow L1 restart reporting a transient finalized=0 can never trigger it; a genuinely purged L1 stays >window.
+STALE_RESET_POLLS = max(3, int(30 / POLL))
 
 # --- DA layer: erasure-coded availability for the shielded-transfer STARK proofs (too big for an L1 blob,
 # so only the transfer STATEMENT + the proof's `commitment` ride on-chain). This node keeps a local DaStore;
@@ -140,6 +144,44 @@ except OSError:
     pass
 
 _last_settled_cursor = -1
+
+
+def _reset_states_to_genesis(reason=""):
+    """Nuke the exec layer back to genesis IN-PROCESS and rebuild the state map — no restart needed.
+
+    This is the RUNTIME belt to the boot-time generation-marker wipe above. That wipe only fires when a .gen
+    marker EXISTS and disagrees with the code's generation; a reroll can strand exec two other ways it can't
+    catch: (a) a PRE-marker on-disk state (marker == None → boot treats it as 'don't wipe'), or (b) exec winning
+    a load-before-purge race with the L1 node (loads OLD state a beat before purge_chain_data removes the file).
+    Both leave exec running on OLD-chain state whose cursor OUTRUNS the fresh L1 chain. Stale exec and fresh L1
+    share no overlapping heights, so there's nothing to hash-compare — the tail loop detects the height inversion
+    (cursor > finalized, impossible on a consistent chain) and calls this to self-heal."""
+    global states, state, DA, _last_settled_cursor, prov_states, _prov_key, _prov_last, _prov_since_full
+    import glob as _g
+    import shutil as _s
+    print(f"[execnode] RESET to genesis{(' — ' + reason) if reason else ''}: wiping exec state + DA", flush=True)
+    for _p in _g.glob(STATE_PATH + "*"):          # default + namespaced state files AND the stale .gen mark
+        try:
+            os.remove(_p)
+        except OSError:
+            pass
+    _s.rmtree(DA_DIR, ignore_errors=True)
+    DA = DaStore(DA_DIR)
+    states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
+    state = states["default"]
+    if state.cursor == -1 and state.state_root() != _EXEC_GENESIS_ROOT:
+        raise SystemExit(f"[execnode] FATAL after reset: empty root {state.state_root()[:16]} != "
+                         f"EXEC_GENESIS_ROOT {_EXEC_GENESIS_ROOT[:16]} — scheme drift; refusing to run")
+    _last_settled_cursor = -1
+    prov_states = None
+    _prov_key = None
+    _prov_last = None
+    _prov_since_full = 0
+    try:
+        with open(_EXEC_GEN_MARK, "w") as _f:      # re-stamp so a subsequent reroll is still detected once
+            _f.write(str(_CHAIN_GENERATION))
+    except OSError:
+        pass
 
 
 def _state_for(request):
@@ -484,10 +526,27 @@ async def tail_loop():
     print(f"[execnode] tailing {L1} · state={STATE_PATH} · cursor={state.cursor}", flush=True)
     async with aiohttp.ClientSession() as session:
         await _maybe_bootstrap(session)
+        stale_polls = 0     # consecutive polls seeing cursor > finalized (reroll-stranded state); see below
         while True:
             try:
                 status = await _get_json(session, "/status")
                 finalized = int(status.get("finalized_height", 0))
+                # STALE-EXEC GUARD (reroll self-heal): we apply ONLY finalized blocks, so on a consistent chain
+                # the cursor can never exceed L1's finalized tip. If it DOES, our on-disk state belongs to an OLD
+                # chain that a reroll purged on L1 but left here (pre-.gen-marker state, or a load-before-purge
+                # race) — exec is replaying the fresh chain onto stale state and would silently fork L2. There's
+                # nothing to hash-compare (no shared heights), so the height inversion itself is the signal.
+                # Corroborate over STALE_RESET_POLLS (~30s) so a slow L1 restart briefly reporting finalized=0
+                # can't false-trigger, then reset to genesis and cold-replay the fresh chain — no manual restart.
+                if state.cursor > finalized:
+                    stale_polls += 1
+                    print(f"[execnode] cursor {state.cursor} > L1 finalized {finalized} "
+                          f"({stale_polls}/{STALE_RESET_POLLS}) — possible stale state from a reroll", flush=True)
+                    if stale_polls >= STALE_RESET_POLLS:
+                        _reset_states_to_genesis(reason=f"cursor {state.cursor} outran finalized {finalized}")
+                    await asyncio.sleep(POLL)
+                    continue
+                stale_polls = 0
                 applied = 0
                 while state.cursor < finalized:
                     h = state.cursor + 1

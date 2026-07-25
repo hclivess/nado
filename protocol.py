@@ -13,7 +13,7 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-7"
+CHAIN_ID = "alphanet-8"   # STATE-ROOT-BINDING reroll (2026-07-25): fresh genesis lineage, see CHAIN_GENERATION
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -39,7 +39,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1784397817  # alphanet-7 — the debrand cutover reroll
+GENESIS_TIMESTAMP = 1784932061  # alphanet-8 — the state-root-binding reroll (fresh genesis hash)
                                 # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
                                 # production starts immediately. The root scheme is final: depth 256 saturates
                                 # the hash's collision resistance and every future proof extension rides the
@@ -248,7 +248,10 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   revert journals out of the root, empty-account canonicalization), and the exec-layer wipe was made
 #   authoritative. Ships as a fresh genesis lineage so L1 and L2 restart jointly at (block 0, EXEC_GENESIS_ROOT)
 #   with no pre-reroll state to reconcile — one /update wave converges the fleet on a clean, self-consistent chain.
-CHAIN_GENERATION = 3
+# 4 (2026-07-25): alphanet-8 — same reroll re-cut with a NEW CHAIN_ID + GENESIS_TIMESTAMP (distinct genesis
+#   hash) AND the exec-layer stale-state race fixed (execnode resets to genesis when its cursor outruns L1's
+#   finalized tip). Bumped past 3 because gen-3 was briefly deployed to the seed box; gen-4 re-purges every node.
+CHAIN_GENERATION = 4
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

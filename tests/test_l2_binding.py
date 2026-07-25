@@ -95,8 +95,38 @@ def test_reroll_wipes_exec_paths_outside_home():
         os.environ.pop("NADO_EXEC_DA", None)
 
 
+def test_exec_resets_when_cursor_outruns_finalized():
+    """Reroll SELF-HEAL: if the exec layer comes up on OLD state (a pre-.gen-marker file, or a load-before-purge
+    race with the L1 node) its cursor OUTRUNS the fresh chain's finalized tip. Stale exec and fresh L1 share no
+    heights to hash-compare, so tail_loop treats `cursor > finalized` (impossible on a consistent chain) as the
+    tell and calls _reset_states_to_genesis to cold-replay — no manual restart. Here we drive the helper directly."""
+    ext = tempfile.mkdtemp(prefix="nado_exec_reset_")
+    os.environ["NADO_EXEC_STATE"] = os.path.join(ext, "exec_state.json")
+    os.environ["NADO_EXEC_DA"] = os.path.join(ext, "exec_da")
+    try:
+        import execnode.execnode as ex   # first import binds STATE_PATH/DA_DIR to our temp paths
+        # Simulate a reroll-stranded exec: cursor far ahead of any fresh-chain finalized height.
+        ex.state.cursor = 84735
+        ex.state.save()
+        check("stale exec state persists with cursor beyond any fresh finalized height",
+              ex.state.cursor == 84735 and os.path.exists(ex.STATE_PATH))
+        # STALE_RESET_POLLS is a real corroboration window (~30s at the default 5s poll), never 0.
+        check("stale-reset corroboration window is a sane multi-poll count", ex.STALE_RESET_POLLS >= 3)
+        # tail_loop's `cursor > finalized` branch fires this once corroborated.
+        ex._reset_states_to_genesis(reason="test: cursor outran finalized")
+        check("reset drops the cursor back to genesis (-1)", ex.state.cursor == -1)
+        check("reset state hashes to EXEC_GENESIS_ROOT (canary-clean)",
+              ex.state.state_root() == ex._EXEC_GENESIS_ROOT)
+        check("reset re-stamps the generation marker (next reroll still detected once)",
+              os.path.exists(ex._EXEC_GEN_MARK))
+    finally:
+        os.environ.pop("NADO_EXEC_STATE", None)
+        os.environ.pop("NADO_EXEC_DA", None)
+
+
 if __name__ == "__main__":
-    for t in (test_exec_root_in_block_hash, test_reroll_wipes_exec_paths_outside_home):
+    for t in (test_exec_root_in_block_hash, test_reroll_wipes_exec_paths_outside_home,
+              test_exec_resets_when_cursor_outruns_finalized):
         print(f"\n--- {t.__name__} ---")
         t()
     print(f"\n{'ALL L2-BINDING CHECKS PASSED' if not fails else str(fails) + ' FAILED'}")
