@@ -222,10 +222,39 @@ def test_withdraw_matches_pending():
           "('withdraw data does not match the pending unbond')", rejected)
 
 
+def test_block_stores_excluded_from_root():
+    """6. BLOCK STORAGE (block_by_num/block_by_hash) must NOT feed the L1 state root. Their contents depend
+    on a node's height, history-retention/pruning and orphan bodies accumulated across reorgs — NOT on the
+    canonical block sequence — so including them made two nodes that agree on every block compute DIFFERENT
+    roots (the alphanet-8 fresh-sync wedge: a catching-up node tripped the state-root gate at ~h62). The
+    consensus root must be invariant to block storage; blocks are secured by their own hash chain."""
+    _fresh_home("nado_blkroot_")
+    from ops import account_ops, kv_ops
+    from ops.snapshot_ops import merkle_root, read_state, _root_triples, l1_state_root, ROOT_EXCLUDED_DBS
+
+    account_ops.create_account("a", balance=100)
+    base = read_state()
+    root_a = l1_state_root()
+
+    check("block_by_num / block_by_hash are excluded from the root",
+          ROOT_EXCLUDED_DBS == frozenset(("block_by_num", "block_by_hash")))
+
+    # Two nodes, IDENTICAL consensus state, DIFFERENT block storage: an orphan fork body on one, a pruned
+    # block row on the other. The OLD full-root formula diverges; the NEW consensus root is identical.
+    node_orphan = list(base) + [("block_by_hash", b"\x01" * 32, b"orphan-fork-body")]
+    node_pruned = [t for t in base if t[0] != "block_by_num"]
+    old_diverges = merkle_root(node_orphan) != merkle_root(node_pruned)
+    new_matches = (merkle_root(_root_triples(node_orphan))
+                   == merkle_root(_root_triples(node_pruned)) == root_a)
+    check("OLD formula (block stores in root) DIVERGES on block-storage difference", old_diverges)
+    check("NEW consensus root is INVARIANT to block-storage difference", new_matches)
+
+
 if __name__ == "__main__":
     for t in (test_rollback_order,
               test_revert_journals_excluded_from_root,
               test_empty_account_canonicalized,
+              test_block_stores_excluded_from_root,
               test_exec_summary_determinism_and_proof_disabled,
               test_withdraw_matches_pending):
         print(f"\n--- {t.__name__} ---")

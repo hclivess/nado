@@ -251,7 +251,14 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 # 4 (2026-07-25): alphanet-8 — same reroll re-cut with a NEW CHAIN_ID + GENESIS_TIMESTAMP (distinct genesis
 #   hash) AND the exec-layer stale-state race fixed (execnode resets to genesis when its cursor outruns L1's
 #   finalized tip). Bumped past 3 because gen-3 was briefly deployed to the seed box; gen-4 re-purges every node.
-CHAIN_GENERATION = 4
+# 5 (2026-07-25): DETERMINISM FIX — block storage (block_by_num/block_by_hash) is REMOVED from the L1 state
+#   root. Those DBs are written on block ARRIVAL and depend on a node's height, history-retention/pruning and
+#   orphan bodies from reorgs — NOT on the canonical block sequence — so a catching-up node computed a
+#   different as-of-parent root than the producer and tripped the (correctly FATAL) state-root gate at ~h62
+#   (the alphanet-8 fresh-sync wedge). The root is now the consensus subset only (all tx-derived), invariant
+#   to block storage; blocks stay secured by their own hash chain. State-root formula change ⇒ old gen-4
+#   blocks are incompatible ⇒ full re-purge. See tests/test_seed_divergence.py::test_block_stores_excluded.
+CHAIN_GENERATION = 5
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

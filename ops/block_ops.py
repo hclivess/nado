@@ -907,8 +907,8 @@ def construct_block(
     # node whose state diverged from the producer — for ANY reason — rejects the block at validation
     # instead of silently carrying a different state that only surfaces, unbreakably, at snapshot sync.
     if state_root is None:
-        from ops.snapshot_ops import read_state, merkle_root
-        state_root = merkle_root(read_state())
+        from ops.snapshot_ops import l1_state_root
+        state_root = l1_state_root()   # consensus subset only — block storage is NOT in the root (determinism)
 
     # STATE-ROOT BINDING (L2): commit the L1-JUSTIFIED SETTLED exec (cursor, root) as-of-parent — a pure read
     # of on-chain settlement attestations (already inside state_root), NOT the local exec VM's live root

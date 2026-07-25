@@ -90,6 +90,31 @@ def read_state(home=None):
     return triples
 
 
+# DBs carried in the snapshot for TRANSFER (a joiner's deep hash-lookbacks) but DELIBERATELY EXCLUDED from
+# the consensus STATE ROOT. block_by_num/block_by_hash are written on block ARRIVAL (save_block), so their
+# contents depend on a node's height, history-retention/pruning, and orphan/fork bodies accumulated across
+# reorgs — they are NOT a pure function of the canonical block sequence. Every OTHER SNAPSHOT_DB is written
+# only from block-included transactions (account_ops apply path), so the consensus subset IS identical on
+# every node that applied the same blocks. Including the block stores made the root diverge between nodes
+# that agree on every block — the alphanet-8 fresh-sync wedge (a catching-up node computed a different
+# as-of-parent root than the producer, tripping the state-root gate at ~h62). Blocks are already secured by
+# their own hash chain; they do not belong in the state commitment.
+ROOT_EXCLUDED_DBS = frozenset(("block_by_num", "block_by_hash"))
+
+
+def _root_triples(triples):
+    """the consensus subset of a full read_state() list — everything the state root commits (block storage
+    excluded; see ROOT_EXCLUDED_DBS). Order-preserving, so a pre-sorted input stays sorted."""
+    return [t for t in triples if t[0] not in ROOT_EXCLUDED_DBS]
+
+
+def l1_state_root(home=None):
+    """The canonical L1 consensus state root: merkle over read_state() MINUS the block-storage DBs. This is
+    the value committed into every block hash (construct_block/verify_block) and into a snapshot manifest, so
+    it MUST be a pure function of the applied block sequence — hence the block-store exclusion."""
+    return merkle_root(_root_triples(read_state(home)))
+
+
 def _pack_chunks(triples):
     """split sorted state triples into deterministic msgpack chunks; returns (chunk_bytes_list, chunk_meta_list)"""
     chunk_bytes, chunk_meta = [], []
@@ -111,7 +136,9 @@ def build_snapshot(snapshot_height, block_hash, protocol, version, home=None):
     Returns (manifest_dict, list_of_chunk_bytes). Pure function of the state DB."""
     home = home or get_home()
     triples = read_state(home)
-    state_root = merkle_root(triples)
+    # ROOT excludes block storage (deterministic consensus subset); CHUNKS still carry everything so a
+    # joiner's deep hash-lookbacks resolve. The two roles are intentionally different — see ROOT_EXCLUDED_DBS.
+    state_root = merkle_root(_root_triples(triples))
     chunk_bytes, chunk_meta = _pack_chunks(triples)
 
     manifest = {
@@ -190,7 +217,7 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
     if len(triples) != manifest["entry_count"]:
         _log(logger, "error", "snapshot entry_count mismatch")
         return False
-    if merkle_root(triples) != manifest["state_root"]:
+    if merkle_root(_root_triples(triples)) != manifest["state_root"]:
         _log(logger, "error", "snapshot state_root mismatch after reassembly")
         return False
 
