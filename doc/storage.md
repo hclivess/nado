@@ -103,6 +103,13 @@ old SQLite row-replace. The verified `state_root` (a blake2b Merkle root over th
 the `bonded` column, so a snapshot commits mining stake too. `reindex_fast.py` rebuilds the KV
 index byte-identically from the block files and is the migration / repair path.
 
+The state root is `snapshot_ops.l1_state_root()` — a Merkle root over the **consensus subset** of
+`SNAPSHOT_DBS` only (`SNAPSHOT_DBS − ROOT_EXCLUDED_DBS`). Block storage (`block_by_num`,
+`block_by_hash`) is deliberately **carried in the snapshot chunks but excluded from the root**: its
+contents depend on a node's height/retention/reorg history, not on the block sequence, so committing it
+made catching-up nodes diverge (the alphanet-8 fresh-sync wedge — see
+[determinism-and-chain-id.md](determinism-and-chain-id.md)). Blocks stay secured by their own hash chain.
+
 ## Migration
 
 On a reindex, `reindex_fast.rebuild_from_blocks` wipes the index and rebuilds the KV
