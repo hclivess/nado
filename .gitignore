@@ -124,8 +124,11 @@ ENV/
 env.bak/
 venv.bak/
 
-# execution / shielded-pool node state snapshot (scripts/install.sh default location without --home)
-exec_state.json
+# execution / shielded-pool node state snapshot (scripts/install.sh default location without --home).
+# Glob covers the siblings the exec node writes next to it: the .gen CHAIN_GENERATION marker and the
+# per-namespace state files (exec_state.json.<ns>) — all runtime artifacts, never source.
+exec_state.json*
+exec_da/
 
 # Spyder project settings
 .spyderproject
