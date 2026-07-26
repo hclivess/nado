@@ -208,7 +208,17 @@ def _pack_chunks(triples):
 # These rows are node-local or retention/rollback-path dependent, so they must be ABSENT from the payload
 # identity entirely; the importer reconstructs what it needs deterministically (see import_snapshot).
 SNAPSHOT_PAYLOAD_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below"))
-SNAPSHOT_PAYLOAD_EXCLUDED_META_PREFIXES = (b"execsum:", b"tvprevE:", b"tvprevW:")
+# execsum: is deliberately NOT excluded. Block VALIDITY depends on it — validate_transaction resolves
+# every summary in a settle-with-proof span and fails closed on a miss — so a joiner that lacked the
+# pre-checkpoint window would REJECT a settle-with-proof block its peers ACCEPT: a validity fork between
+# honest nodes, which the state-root gate cannot catch because they never agree the block is legal.
+# Anything block validity depends on must be either committed in the root or GUARANTEED PRESENT on every
+# node. It cannot be in the root (a joiner can never reconstruct pre-checkpoint summaries — it never had
+# those bodies — so root inclusion would wedge every snapshot-synced node permanently), therefore it must
+# travel in the payload. That is only safe because execsum is now a pure function of the applied blocks:
+# incorporate journals the retention-pruned row and rollback restores it, so two nodes at the same height
+# hold the identical window. Before that fix it diverged, which is why it was briefly excluded here.
+SNAPSHOT_PAYLOAD_EXCLUDED_META_PREFIXES = (b"tvprevE:", b"tvprevW:")
 
 
 def _payload_triples(triples):
@@ -367,12 +377,12 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
         _log(logger, "error", "snapshot state_digest mismatch after reassembly (payload tampered)")
         return False
 
-    # The node-local rows are NOT transferred at all (see _payload_triples). Reconstruct the one the
-    # joiner actually needs, deterministically: a checkpoint is only ever advertised once FINALIZED, so
+    # The NODE-LOCAL rows are not transferred (see _payload_triples). Reconstruct the one the joiner
+    # actually needs, deterministically: a checkpoint is only ever advertised once FINALIZED, so
     # finalized_height == snapshot_height is correct by construction and identical on every importer — no
     # donor input, so no forged-floor wedge is possible. pruned_below stays absent (local pruning advances
-    # it) and pre-checkpoint execsum: rows stay absent (tail replay rebuilds them; a proof needing an
-    # older summary fails closed, which validate_transaction already does).
+    # it). The execsum WINDOW *is* transferred, because settle-with-proof block validity depends on it and
+    # a joiner cannot rebuild pre-checkpoint summaries from bodies it never had.
     _h = int(manifest.get("snapshot_height") or 0)
     triples.append(("meta", b"finalized_height", codec.pack(_h)))
     triples.sort(key=lambda t: (t[0], t[1], t[2]))

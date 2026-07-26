@@ -327,7 +327,8 @@ def test_snapshot_payload_authenticated():
     import hashlib
     _fresh_home("nado_div_snapauth_")
     from ops import account_ops, kv_ops, codec
-    from ops.snapshot_ops import build_snapshot, import_snapshot, manifest_hash, state_digest
+    from ops.snapshot_ops import (build_snapshot, import_snapshot, manifest_hash, state_digest,
+                                  _payload_triples, read_state)
 
     account_ops.create_account("a", balance=100)
     kv_ops.meta_set_int("finalized_height", 5)          # the ROOT-EXCLUDED attack target
@@ -362,25 +363,32 @@ def test_snapshot_payload_authenticated():
         m, _c = build_snapshot(1000, "bh" * 32, 10, "v1")
         return (m["snapshot_hash"], m["entry_count"], m["chunks"][0]["sha256"])
 
+    kv_ops.exec_summary_put(84, True, {})                    # a summary every node at this height holds
     kv_ops.meta_set_int("finalized_height", 955)
-    kv_ops.exec_summary_put(84, True, {})
     id_a = _identity()
     kv_ops.meta_del("finalized_height")                      # absent on this peer
-    kv_ops.exec_summary_del(84)
-    kv_ops.exec_summary_put(993, False, {"default": [7]})    # a DIFFERENT execsum set
     id_b = _identity()
     kv_ops.meta_set_int("pruned_below", 500)                 # and a local prune watermark
     id_c = _identity()
-    check("differing execsum:* rows produce an IDENTICAL snapshot identity", id_a == id_b)
+    kv_ops.meta_set_int("tvprevE:zz", 1)                     # and reorg-path revert-journal residue
+    id_d = _identity()
     check("present-vs-absent finalized_height produces an IDENTICAL snapshot identity", id_a == id_b)
     check("present-vs-absent pruned_below produces an IDENTICAL snapshot identity", id_a == id_c)
+    check("tvprev revert-journal residue produces an IDENTICAL snapshot identity", id_a == id_d)
+    # execsum DOES travel: block validity (settle-with-proof) depends on it, so it must be guaranteed
+    # present on every node. Safe to carry because it is now deterministic (rollback restores the pruned
+    # row), so two nodes at the same height hold the identical window and still agree on the identity.
+    check("execsum rows are CARRIED in the payload (validity depends on them)",
+          any(n == "meta" and k.startswith(b"execsum:")
+              for n, k, _v in _payload_triples(read_state())))
 
     m2, c2 = build_snapshot(1000, "bh" * 32, 10, "v1")
     check("import reconstructs finalized_height == snapshot_height",
           import_snapshot(m2, c2) is True
           and kv_ops.meta_get_int("finalized_height", None) == 1000)
-    check("import carries NO pre-checkpoint execsum:* (tail replay rebuilds them)",
-          kv_ops.exec_summary_get(993) is None)
+    check("import DELIVERS the pre-checkpoint execsum window (closes the settle-with-proof validity fork: "
+          "without it a joiner rejects a block its peers accept)",
+          kv_ops.exec_summary_get(84) is not None)
     check("tail replay can still add new exec summaries after import",
           (kv_ops.exec_summary_put(1001, True, {}) or kv_ops.exec_summary_get(1001) is not None))
 
