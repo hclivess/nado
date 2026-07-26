@@ -653,17 +653,17 @@ def migrate_checkpoint_hashes(logger=None, home=None):
             m = load_checkpoint_manifest(h, home)
             if not isinstance(m, dict):
                 continue
-            correct = manifest_hash(m)          # reads only the core keys — independent of m's stored hash/version
-            if m.get("snapshot_hash") == correct:
-                continue
-            # A manifest predating `state_digest`, or built before the payload was canonicalized, cannot be
-            # re-stamped: the digest covers the PAYLOAD, which
-            # the manifest alone does not carry, so re-hashing would publish a checkpoint whose authenticator
-            # is absent — import_snapshot would reject it only AFTER a joiner downloaded everything. DROP it;
-            # the next CHECKPOINT_INTERVAL rebuilds a complete one from live state.
+            # FORMAT CHECK FIRST. A pre-canonical manifest can still be SELF-CONSISTENT (its stored hash
+            # matches manifest_hash, which does not cover the payload format), so checking the hash first
+            # and `continue`-ing would leave it in place forever — observed live: a peer kept advertising a
+            # pre-canonical checkpoint after the upgrade, which is exactly the identity no other node
+            # reproduces. Drop on format, THEN consider re-stamping.
             if not m.get("state_digest") or m.get("payload") != "canonical-v1":
                 shutil.rmtree(_ckpt_path(h, home), ignore_errors=True)
                 dropped += 1
+                continue
+            correct = manifest_hash(m)          # reads only the core keys — independent of m's stored hash/version
+            if m.get("snapshot_hash") == correct:
                 continue
             m["snapshot_hash"] = correct
             path = f"{_ckpt_path(h, home)}/manifest.json"
