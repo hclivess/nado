@@ -447,6 +447,17 @@ def agree_snapshot(statuses, min_peers=SNAPSHOT_MIN_PEERS, threshold=0.8, seed_i
         votes = {k: v for k, v in votes.items() if k in seed_votes}   # only seed-corroborated candidates
         if not votes:
             return None
+        # Recompute the DENOMINATOR over the surviving candidates. Dividing a filtered numerator by the
+        # full responder count made the threshold near-unsatisfiable: a seed that has merely crossed a
+        # CHECKPOINT_INTERVAL boundary advertises (H+1000, Y) while four healthy peers advertise (H, X),
+        # so 4/5 = 0.8 (pass) became 1/5 = 0.2 (fail) and snapshot bootstrap died fleet-wide until the
+        # seed resynced. Seed anchoring must narrow WHICH candidates are eligible, not silently raise the bar.
+        # BE HONEST ABOUT THE SEMANTIC: once filtered, the threshold below is effectively vacuous — if a seed
+        # advertises a snapshot we take it. That IS the weak-subjectivity rule (the operator-chosen seed is
+        # the trust anchor, not an anonymous majority), and it is safe: a seed that is merely out of step
+        # offers a valid checkpoint on the same chain, costing only a longer tail replay. The headcount
+        # remains the rule only when NO seed responded.
+        responders = sum(votes.values())
     (best_height, best_hash), count = max(votes.items(), key=lambda kv: kv[1])
     if count / responders >= threshold:
         return {"snapshot_height": best_height, "snapshot_hash": best_hash,

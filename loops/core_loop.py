@@ -6,7 +6,7 @@ import threading
 import time
 import traceback
 
-from config import get_timestamp_seconds
+from config import get_timestamp_seconds, get_config
 from ops.account_ops import get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_finalized_height, get_account
 from ops.block_ops import (
     knows_block,
@@ -220,6 +220,7 @@ class CoreClient(threading.Thread):
         # While the donor still advertises the current heaviest hash, it is re-verified with one
         # knows_block dial instead of a full pool re-scan every ~1s emergency pass.
         self._sync_donor = (None, None)
+        self._last_sync_donor_ip = None   # donor dialled for THIS attempt; cleared when none qualifies
         # LOG-ONCE guard for _candidate_pool: txids already surfaced as "Candidate excludes…" so the
         # same lingering pool tx (chiefly stale/duplicate RANDAO commit-reveal + attest txs that sit in
         # the mempool until they age out of their epoch window) is not re-logged every candidate pass.
@@ -456,6 +457,13 @@ class CoreClient(threading.Thread):
                                  peer_hash=source_pool.get(peer),
                                  required_hash=required_hash)["result"]
 
+    def _clear_sync_donor(self):
+        """Forget the donor we dialled. MUST run whenever selection yields none, or _last_sync_donor_ip
+        keeps a STALE ip from an earlier cycle: reject_tip would then filter holders to a peer that does
+        not hold the current tip, holders becomes empty, and NOBODY is struck — silently reintroducing the
+        wedge where a lone stale forker owns the donor pool and never accumulates strikes."""
+        self._last_sync_donor_ip = None
+
     def get_peer_to_sync_from(self, source_pool):
         """peer to synchronize pool when out of sync, critical part
         candidate tips are ordered by OBJECTIVE cumulative_weight (heaviest first); we return the first
@@ -619,7 +627,20 @@ class CoreClient(threading.Thread):
                                      f"above {'0 (ESCALATED)' if allow_below_floor else 'our finality floor'};"
                                      " staying put")
                     return False
-                _, target_height, target_hash, source = max(cand)
+                # RANK BY CORROBORATION, NOT BY THE UNVERIFIED NUMBER. latest_block_weight is peer-asserted
+                # and unverifiable here, so max() let an attacker echo a seed's real (height, hash) with a
+                # fabricated 10**30 weight and thereby choose BOTH when we re-anchor and whom we fetch from.
+                # Prefer a seed as the source, then the most-corroborated (height, hash), then weight.
+                try:
+                    from ops.peer_ops import seed_peers as _sp
+                    _seeds = set(_sp() or ())
+                except Exception:
+                    _seeds = set()
+                _support = {}
+                for _w, _h, _sh, _ip in cand:
+                    _support.setdefault((_h, _sh), set()).add(_ip)
+                _, target_height, target_hash, source = max(
+                    cand, key=lambda c: (c[3] in _seeds, len(_support[(c[1], c[2])]), c[0]))
                 if allow_below_floor and target_height <= self.memserver.finalized_height:
                     self.logger.warning(f"ESCALATED re-anchor: crossing the local finality floor "
                                         f"{self.memserver.finalized_height} down to snapshot height "
@@ -811,7 +832,13 @@ class CoreClient(threading.Thread):
             # gates the re-anchor path — so if attacker-held slots crowd the operator seeds out of the [:8]
             # window they dictate the verdict. memserver.peers came first, so on a node with >=8 peers the
             # seeds were sliced off entirely. _maybe_escape_dead_fork already orders seeds first; match it.
-            peers = list(dict.fromkeys(list(seed_peers()) + list(self.memserver.peers)))[:8]
+            # NEVER PROBE OURSELVES. This node's config ip can BE a seed (it is: 38.242.201.206 is
+            # DEFAULT_SEED_PEERS[0]), so seeds-first would otherwise guarantee our own IP in slot 0 — we
+            # would answer our own fork-state question with our own hash and count it in the tally.
+            # ops/peer_ops.py:285 already applies exactly this carve-out to the dial set; mirror it here.
+            _me = {get_config().get("ip")} - {None}
+            peers = [p for p in dict.fromkeys(list(seed_peers()) + list(self.memserver.peers))
+                     if p not in _me][:8]
             if not peers:
                 return fork_resolution.UNKNOWN
             tip = self.memserver.latest_block["block_number"]
@@ -1170,7 +1197,7 @@ class CoreClient(threading.Thread):
         if hh and hh != self.memserver.latest_block["block_hash"]:
             # Pass the donor we actually dialled (when known) so the strike lands on the peer that failed
             # to serve, not on every honest peer advertising the same tip — see consensus_loop.reject_tip.
-            n = self.consensus.reject_tip(hh, donor_ip=getattr(self, "_last_sync_donor_ip", None))
+            n = self.consensus.reject_tip(hh, donor_ip=self._last_sync_donor_ip)
             self.logger.warning(f"Excluding unreachable heavier-advertised tip {hh[:12]} "
                                 f"(weight-DoS guard, failure #{n})")
         # the donor that fed us this tip just failed — drop it from the donor cache so the next

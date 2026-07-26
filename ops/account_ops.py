@@ -377,7 +377,20 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         amt, rcpt = int(spend["amount"]), spend["recipient"]
         change_balance(address=sender, amount=-fee, logger=logger, revert=revert)   # burn the executor's fee
         change_balance(address=TREASURY_ADDRESS, amount=-amt, logger=logger, revert=revert)
-        change_balance(address=rcpt, amount=amt, logger=logger, revert=revert)
+        # A treasury payout to the FAUCET is the same deposit as a user donation: the exec layer
+        # mirrors it with credit_deposit("faucet", …) into the BRIDGE ledger, and a prize winner
+        # exits it via bridge_withdraw against BRIDGE_ESCROW. Crediting the bare "faucet" account
+        # would recreate exactly the hole the donation branch just closed — a spendable exec-side
+        # claim funded by bridge depositors, while the coin sits somewhere with no release path.
+        if rcpt == FAUCET_ESCROW:
+            from protocol import DEFAULT_NS as _DNS
+            change_balance(address=BRIDGE_ESCROW, amount=amt, logger=logger, revert=revert)
+            if revert:
+                kv_ops.bridge_escrow_ns_sub(_DNS, amt)
+            else:
+                kv_ops.bridge_escrow_ns_add(_DNS, amt)
+        else:
+            change_balance(address=rcpt, amount=amt, logger=logger, revert=revert)
         if revert:
             kv_ops.treasury_executed_del(pid)
         else:

@@ -161,9 +161,16 @@ class ConsensusClient(threading.Thread):
         # choice, after which heaviest_block_hash becomes OUR OWN tip — so _depth_floor_corroborated()
         # passes trivially and we advance the ENFORCED finality floor on a minority fork, which rollback
         # then refuses to cross: a permanent wedge escapable only by purge+resync.
+        # The minority test must be evaluated on the FULL holder set. Filtering to the donor first would
+        # leave exactly one holder, making `len(holders) == 1` trivially true and destroying the documented
+        # invariant that a MAJORITY-held tip never peer-strikes — we would bench honest peers one at a time
+        # for failures that are actually local (disk, verify, a refused rollback).
+        minority = bool(holders) and (len(holders) == 1 or len(holders) * 2 < max(pool_n, 2))
         if donor_ip is not None:
             holders = [p for p in holders if p == donor_ip]
-        if holders and (len(holders) == 1 or len(holders) * 2 < max(pool_n, 2)):
+        else:
+            holders = []          # no donor was dialled -> nobody is at fault; the TIP bench still applies
+        if holders and minority:
             for p in holders:
                 self._peer_strikes[p] = pn = self._peer_strikes.get(p, 0) + 1
                 if pn >= PEER_BENCH_AFTER:
