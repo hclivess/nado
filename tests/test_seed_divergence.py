@@ -413,9 +413,16 @@ def test_rollback_stats_reject_emergency_schema():
     check("legacy count/depth are preserved", rec["count"] == 5 and rec["depth"] == 3)
     rs.record_reject()
     check("rejects increment from the normalised 0", rs.daily_counts(1)[-1]["rejects"] == 1)
-    # a day with NO stored record is a real calm zero, not a null
+    # A day BEFORE this node started observing is NOT evidence of a calm day — it must serve null, or a
+    # fresh node's empty history reads as "30 clean days" and the Stats panel asserts consensus health for
+    # days it never ran. (Days at/after first-observation with no record ARE real zeros.)
     older = rs.daily_counts(3)[0]
-    check("an unrecorded past day zero-fills (dense series)", older["count"] == 0)
+    check("a day before first-observation serves null, NOT a fake zero", older["rejects"] is None)
+    check("today (observing) still serves real numbers", rs.daily_counts(1)[-1]["rejects"] is not None)
+    # and the marker must survive a counter write, else absence becomes ambiguous again on the next record
+    rs.record(1)
+    check("the first-observation marker survives a record write", rs._read_since() is not None)
+    check("past days stay null after a later write", rs.daily_counts(3)[0]["rejects"] is None)
 
 
 def test_exec_window_canonical_gate():

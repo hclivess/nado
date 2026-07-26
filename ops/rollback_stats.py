@@ -27,7 +27,13 @@ import time
 
 from ops.data_ops import get_home
 
-_RETENTION_DAYS = 400                 # keep over a year of history; the chart reads a window of it
+_RETENTION_DAYS = 400                    # keep over a year of history; the chart reads a window of it
+# First UTC day this node was observing. Days BEFORE it are genuinely "not measured" (the node did not
+# exist / was not running) and must serve null, not a zero — otherwise a fresh node's empty history reads
+# as "30 clean days" and the Stats panel asserts consensus health for days it never saw. Days at/after it
+# with no record ARE real zeros (the node was up and nothing happened). Non-date key so the day-map
+# iteration can skip it.
+_SINCE_KEY = "__since__"
 
 
 def _stats_path():
@@ -49,6 +55,8 @@ def _load() -> dict:
             return {}
         out = {}
         for k, v in data.items():
+            if k == _SINCE_KEY:
+                continue                       # observation marker, not a day record
             if isinstance(v, dict):
                 d = v.get("d")
                 # r (state-root REJECTS) and e (EMERGENCY-mode entries) shipped after c/d; a record that
@@ -65,6 +73,49 @@ def _load() -> dict:
 
 def _day(ts=None) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(ts))
+
+
+def _read_since() -> str:
+    """The first UTC day this node observed, or the earliest day it has a record for (best available
+    evidence on a file written before the marker existed), or None if we simply cannot tell."""
+    try:
+        with open(_stats_path()) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None
+        s = data.get(_SINCE_KEY)
+        if isinstance(s, str) and s:
+            return s
+        days = [k for k in data if k != _SINCE_KEY]
+        return min(days) if days else None
+    except Exception:
+        return None
+
+
+def note_observing():
+    """Stamp the first-observation day if absent. Called once at node startup so a node that runs
+    perfectly CLEANLY (never triggering a reorg/reject/emergency write) still establishes when its
+    zero-days become meaningful — without this, absence of records is ambiguous forever."""
+    try:
+        with _lock:
+            try:
+                with open(_stats_path()) as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    data = {}
+            except Exception:
+                data = {}
+            if data.get(_SINCE_KEY):
+                return
+            data[_SINCE_KEY] = _day()
+            path = _stats_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = f"{path}.tmp"
+            with open(tmp, "w") as f:
+                json.dump(data, f)
+            os.replace(tmp, path)
+    except Exception:
+        pass
 
 
 def _persist(mutate):
@@ -84,6 +135,12 @@ def _persist(mutate):
         data[today] = rec
         for k in sorted(data)[:-_RETENTION_DAYS]:
             del data[k]
+        # PRESERVE the observation marker: _load() strips it, so writing that dict back would erase it on
+        # the very first record — and then absence of a record would be ambiguous again. Re-attach after
+        # pruning (it is not a day, so it must never be pruned as one).
+        since = _read_since() or _day()
+        data = dict(data)
+        data[_SINCE_KEY] = since
         path = _stats_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = f"{path}.tmp"
@@ -124,14 +181,24 @@ def daily_counts(days: int = 30) -> list:
     would make every chart consumer re-derive the calendar."""
     days = max(1, int(days))
     data = _load()
+    since = _read_since()
     now = int(time.time())
     out = []
     for i in range(days - 1, -1, -1):
         day = _day(now - i * 86400)
         rec = data.get(day)
-        # absent day → a real calm 0 for every counter; present record → its stored values (depth/rejects/
-        # emergencies may be null for records that predate those fields — "not measured", not a fake 0)
-        out.append({"date": day, "count": 0, "depth": 0, "rejects": 0, "emergencies": 0} if rec is None
-                   else {"date": day, "count": rec["c"], "depth": rec["d"],
-                         "rejects": rec.get("r"), "emergencies": rec.get("e")})
+        if rec is not None:
+            # a stored record: its own values (depth/rejects/emergencies may be null on records that
+            # predate those fields — "not measured", not a fake 0)
+            out.append({"date": day, "count": rec["c"], "depth": rec["d"],
+                        "rejects": rec.get("r"), "emergencies": rec.get("e")})
+        elif since is not None and day < since:
+            # BEFORE this node was observing: null everything. Zero-filling here is what made a fresh
+            # node's empty history read as "30 clean days" and let the Stats panel assert consensus
+            # health for days it never saw. Absence of evidence is not evidence of a calm day.
+            out.append({"date": day, "count": None, "depth": None,
+                        "rejects": None, "emergencies": None})
+        else:
+            # the node WAS observing and recorded nothing — a real, chartable calm zero
+            out.append({"date": day, "count": 0, "depth": 0, "rejects": 0, "emergencies": 0})
     return out

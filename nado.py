@@ -1929,6 +1929,15 @@ except Exception as e:
 # rebuild. Idempotent + cheap (no chunk rebuild). Checkpoints predating the payload digest are dropped
 # rather than blessed. Its OWN try: a failure above must not silently skip it (that is exactly the boot
 # where checkpoint state is already suspect).
+# Establish WHEN this node started observing, so a day with no telemetry record can be told apart from a
+# day the node did not exist (see ops/rollback_stats.daily_counts). A perfectly clean node never writes a
+# record, so without this stamp its zero-days would be indistinguishable from never having run.
+try:
+    rollback_stats_mod = __import__("ops.rollback_stats", fromlist=["note_observing"])
+    rollback_stats_mod.note_observing()
+except Exception as e:
+    logger.error(f"Recording the telemetry observation marker failed (non-fatal): {e}")
+
 try:
     snapshot_ops.migrate_checkpoint_hashes(logger)
 except Exception as e:
