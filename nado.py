@@ -1917,6 +1917,12 @@ logger.info(f"Your IP: {memserver.ip}")
 # actually hold on this chain — which strands fresh joiners on the snapshot-bootstrap path.
 try:
     snapshot_ops.drop_checkpoints_above(memserver.latest_block["block_number"])
+    # MANIFEST-HASH MIGRATION: if the snapshot-identity formula changed (e.g. `version` dropped from
+    # manifest_hash), correct the stored snapshot_hash of any existing checkpoint IN PLACE so this node
+    # keeps serving them and agrees with updated peers, instead of rejecting its own checkpoints until the
+    # next rebuild. Idempotent + cheap (no chunk rebuild). This is what lets the version-exclusion fix
+    # self-heal the fleet on the update-restart with no manual snapshot regeneration.
+    snapshot_ops.migrate_checkpoint_hashes(logger)
 except Exception as e:
     logger.error(f"Snapshot reconciliation at startup failed (non-fatal): {e}")
 

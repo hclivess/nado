@@ -204,10 +204,20 @@ def build_snapshot(snapshot_height, block_hash, protocol, version, home=None):
 
 
 def manifest_hash(manifest) -> str:
-    """blake2b over the canonical manifest content (excluding the hash field itself)"""
+    """blake2b over the CONSENSUS-RELEVANT manifest identity (excludes the snapshot_hash field itself).
+
+    `version` is DELIBERATELY NOT hashed: it is a git-describe BUILD string (…-gSHA, plus `-dirty` on any
+    uncommitted tree), not a property of the snapshot PAYLOAD. Two nodes with byte-identical state — same
+    state_root, entry_count, and per-chunk sha256 — but a different build (most commonly one clean and one
+    `-dirty`) were producing DIFFERENT snapshot_hashes, which split agree_snapshot's vote so a fresh node
+    could never reach a bootstrap quorum despite the snapshots being equal. The payload fields (state_root +
+    chunk sha256s) already pin the bytes exactly; `protocol` STAYS as the real compatibility gate (snapshots
+    from different protocol eras are genuinely incompatible). Regenerate on-disk manifests after changing this
+    (their stored snapshot_hash must match the new formula) — no chain purge / CHAIN_GENERATION bump: the L1
+    state root is untouched, this is snapshot-TRANSFER identity only."""
     core = {k: manifest[k] for k in (
         "snapshot_height", "block_hash", "state_root", "entry_count",
-        "chunk_count", "chunks", "protocol", "version") if k in manifest}
+        "chunk_count", "chunks", "protocol") if k in manifest}
     # sort_keys for deterministic serialization across peers/python versions
     packed = codec.pack(_canonical(core))
     return _blake2b(packed)
@@ -525,6 +535,41 @@ def load_checkpoint_manifest(height, home=None):
         return None
     with open(p, "rb") as f:
         return codec.unpack(f.read())
+
+
+def migrate_checkpoint_hashes(logger=None, home=None):
+    """One-time, idempotent boot migration: rewrite each on-disk checkpoint manifest whose stored
+    `snapshot_hash` no longer equals manifest_hash() under the CURRENT formula (e.g. after `version` was
+    dropped from the hashed identity). CHEAP — the payload + chunks are unchanged, only the stored hash
+    field is corrected — so a node that just updated to a new manifest_hash keeps SERVING its existing
+    checkpoints (and reaching agree_snapshot quorum with peers) instead of having them rejected by the
+    self-hash gate (import_snapshot / snapshot_manifest) until the next CHECKPOINT_INTERVAL rebuild. Never
+    fatal: a bad manifest is skipped; a stale checkpoint costs a donor slot, never a block."""
+    fixed = 0
+    try:
+        heights = list_checkpoint_heights(home)
+    except Exception:
+        return 0
+    for h in heights:
+        try:
+            m = load_checkpoint_manifest(h, home)
+            if not isinstance(m, dict):
+                continue
+            correct = manifest_hash(m)          # reads only the core keys — independent of m's stored hash/version
+            if m.get("snapshot_hash") == correct:
+                continue
+            m["snapshot_hash"] = correct
+            path = f"{_ckpt_path(h, home)}/manifest.json"
+            tmp = path + ".tmp"
+            with open(tmp, "wb") as f:
+                f.write(codec.pack(m))
+            os.replace(tmp, path)               # atomic: a partial rewrite never becomes visible
+            fixed += 1
+        except Exception:
+            continue
+    if fixed and logger:
+        logger.warning(f"Migrated {fixed} checkpoint manifest hash(es) to the current snapshot-identity formula")
+    return fixed
 
 
 def load_checkpoint_chunk(height, cid, home=None):

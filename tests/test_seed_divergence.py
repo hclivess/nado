@@ -242,6 +242,30 @@ def test_dividend_inflow_revert_roundtrips():
 
 
 # ---------------------------------------------------------------------------------------------------
+# 4c) SNAPSHOT IDENTITY: manifest_hash must be invariant to the BUILD `version` string. Two nodes with
+#     byte-identical snapshot payloads but a different build (most commonly one clean, one `-dirty`) were
+#     hashing to different snapshot_hashes, splitting agree_snapshot's vote so a fresh node could never
+#     reach a bootstrap quorum despite the snapshots being equal.
+# ---------------------------------------------------------------------------------------------------
+def test_manifest_hash_ignores_version():
+    from ops.snapshot_ops import manifest_hash
+    base = {"snapshot_height": 6000, "block_hash": "ab" * 32, "state_root": "cd" * 32,
+            "entry_count": 16414, "chunk_count": 1,
+            "chunks": [{"id": 0, "sha256": "ef" * 32, "bytes": 2049074, "rows": 16414}], "protocol": 7}
+    clean = dict(base, version="v1.0.0-alpha.11-245-g6ce04fe")
+    dirty = dict(base, version="v1.0.0-alpha.11-245-g6ce04fe-dirty")
+    check("manifest_hash is INVARIANT to the build version string (clean vs -dirty)",
+          manifest_hash(clean) == manifest_hash(dirty))
+    check("a DIFFERENT state_root still changes the snapshot identity (payload IS hashed)",
+          manifest_hash(clean) != manifest_hash(dict(clean, state_root="00" * 32)))
+    check("a DIFFERENT protocol still changes the snapshot identity (compat gate stays)",
+          manifest_hash(clean) != manifest_hash(dict(clean, protocol=6)))
+    check("a DIFFERENT chunk sha256 still changes the identity (payload bytes are pinned)",
+          manifest_hash(clean) != manifest_hash(dict(clean,
+              chunks=[{"id": 0, "sha256": "11" * 32, "bytes": 2049074, "rows": 16414}])))
+
+
+# ---------------------------------------------------------------------------------------------------
 # 5) WITHDRAW: characterize the "does not match the pending unbond" error as a divergence SYMPTOM.
 # ---------------------------------------------------------------------------------------------------
 def test_withdraw_matches_pending():
@@ -360,6 +384,7 @@ if __name__ == "__main__":
               test_exec_summary_determinism_and_proof_disabled,
               test_execsum_excluded_from_root,
               test_dividend_inflow_revert_roundtrips,
+              test_manifest_hash_ignores_version,
               test_withdraw_matches_pending):
         print(f"\n--- {t.__name__} ---")
         t()
