@@ -201,9 +201,14 @@ print("\n3. read the committed road and ANSWER it, tile by tile", flush=True)
 wait(lambda: cursor() >= lh, f"terrain height {lh} mined", 900)
 s = sto()
 tiles = peek_tiles(s, RID, lh)
-names = [["road", "monster", "horde", "elite", "ambush", "hazard", "gale", "cache", "shrine", "idol",
-          "forge", "fork", "relic", "boss"][t]
-         for t in tiles]
+# tile class -> display name, in the ordinal order the contract derives from TILE_CUTS (see the
+# TILE_NAMES the contract emits into static/autogame-rules.js). Kept in sync with NTILE so the 25-tile
+# world can't silently outgrow a stale 14-name list again; unknown ordinals degrade to "tile<n>".
+TILE_NAMES = ["road", "monster", "horde", "elite", "ambush", "mimic", "hazard", "snare", "quag", "gale",
+              "tollgate", "cache", "barrow", "armory", "vein", "grove", "shrine", "well", "camp", "idol",
+              "pyre", "forge", "fork", "relic", "boss"]
+assert len(TILE_NAMES) == A.NTILE, f"tile-name list ({len(TILE_NAMES)}) drifted from NTILE ({A.NTILE})"
+names = [TILE_NAMES[t] if t < len(TILE_NAMES) else f"tile{t}" for t in tiles]
 print("   road ahead:", " ".join(names), flush=True)
 answers = [CLASSMAP.get(t, A.A_DEFAULT) for t in tiles]
 WORD = word_of(answers)
