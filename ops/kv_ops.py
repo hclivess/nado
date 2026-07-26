@@ -872,16 +872,27 @@ def bridge_escrow_ns(ns: str) -> int:
     return meta_get_int(f"bridgeescrow:{ns}", 0)
 
 
+def _escrow_set(k: str, v: int):
+    """CANONICAL-ZERO write: a present `meta` int of 0 merkleizes differently from an ABSENT key, but 0
+    escrow == no escrow == absent. Reverting the FIRST deposit to a namespace (add creates the key, revert
+    subtracts back to 0) MUST delete it, or rollback leaves a phantom `bridgeescrow:<ns>=0` that forks the
+    root vs a forward-only node — the same rollback-asymmetry class as divinflow. So collapse 0 to absent."""
+    if v == 0:
+        meta_del(k)
+    else:
+        meta_set_int(k, v)
+
+
 def bridge_escrow_ns_add(ns: str, amount: int):
     """Credit a namespace's escrow on a bridge deposit (revert subtracts)."""
     k = f"bridgeescrow:{ns}"
-    meta_set_int(k, meta_get_int(k, 0) + int(amount))
+    _escrow_set(k, meta_get_int(k, 0) + int(amount))
 
 
 def bridge_escrow_ns_sub(ns: str, amount: int):
     """Debit a namespace's escrow on a bridge exit (revert adds back)."""
     k = f"bridgeescrow:{ns}"
-    meta_set_int(k, meta_get_int(k, 0) - int(amount))
+    _escrow_set(k, meta_get_int(k, 0) - int(amount))
 
 
 # --- Cross-rollup message (xmsg) nullifiers: each (from_ns, seq) message may be delivered on L1 at most once ---

@@ -214,10 +214,17 @@ def manifest_hash(manifest) -> str:
     chunk sha256s) already pin the bytes exactly; `protocol` STAYS as the real compatibility gate (snapshots
     from different protocol eras are genuinely incompatible). Regenerate on-disk manifests after changing this
     (their stored snapshot_hash must match the new formula) — no chain purge / CHAIN_GENERATION bump: the L1
-    state root is untouched, this is snapshot-TRANSFER identity only."""
+    state root is untouched, this is snapshot-TRANSFER identity only.
+
+    `chunk_count` and `chunks` (the per-chunk sha256 list) are ALSO excluded, for the same reason: chunking
+    is a TRANSPORT detail keyed by `CHUNK_ROWS` (an `os.environ` value, NADO_SNAPSHOT_CHUNK_ROWS), so two
+    nodes with byte-identical state but a different chunk size would split the payload into different
+    boundaries → different chunk_count / sha256s → different snapshot_hash → the same agree_snapshot quorum
+    split as `version`. `state_root` + `entry_count` already pin the payload bytes exactly (import_snapshot
+    reassembles all chunks and re-derives state_root against the manifest), and each chunk's sha256 still
+    guards DOWNLOAD integrity via verify_chunk — it just no longer participates in the consensus identity."""
     core = {k: manifest[k] for k in (
-        "snapshot_height", "block_hash", "state_root", "entry_count",
-        "chunk_count", "chunks", "protocol") if k in manifest}
+        "snapshot_height", "block_hash", "state_root", "entry_count", "protocol") if k in manifest}
     # sort_keys for deterministic serialization across peers/python versions
     packed = codec.pack(_canonical(core))
     return _blake2b(packed)

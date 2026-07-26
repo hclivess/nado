@@ -241,6 +241,29 @@ def test_dividend_inflow_revert_roundtrips():
           kv_ops.dividend_inflow_get(71) == 100)
 
 
+def test_bridge_escrow_revert_roundtrips():
+    """bridge_escrow is an accumulator meta row (bridgeescrow:<ns>) in the L1 root — the SAME class as
+    divinflow. Reverting the first deposit to a namespace (add creates the key, revert subtracts to 0) must
+    DELETE it, not leave a phantom `=0` that forks the root vs a forward-only node."""
+    _fresh_home("nado_div_bridge_")
+    from ops import kv_ops
+    from ops.snapshot_ops import l1_state_root
+    root_before = l1_state_root()
+    kv_ops.bridge_escrow_ns_add("rollupA", 100)              # bridge deposit to a fresh namespace
+    check("a deposit to a fresh namespace moves the root (escrow IS in the root)",
+          l1_state_root() != root_before)
+    kv_ops.bridge_escrow_ns_sub("rollupA", 100)              # revert the deposit (rollback)
+    check("no phantom bridgeescrow:rollupA=0 row remains after the revert",
+          kv_ops.meta_get_int("bridgeescrow:rollupA", None) is None)
+    check("reverting the first deposit round-trips the root BYTE-IDENTICALLY",
+          l1_state_root() == root_before)
+    # a partial exit keeps the key at the remaining positive escrow
+    kv_ops.bridge_escrow_ns_add("rollupB", 100)
+    kv_ops.bridge_escrow_ns_sub("rollupB", 40)
+    check("a partial exit KEEPS the escrow key at the remaining balance (not deleted)",
+          kv_ops.bridge_escrow_ns("rollupB") == 60)
+
+
 # ---------------------------------------------------------------------------------------------------
 # 4c) SNAPSHOT IDENTITY: manifest_hash must be invariant to the BUILD `version` string. Two nodes with
 #     byte-identical snapshot payloads but a different build (most commonly one clean, one `-dirty`) were
@@ -260,9 +283,15 @@ def test_manifest_hash_ignores_version():
           manifest_hash(clean) != manifest_hash(dict(clean, state_root="00" * 32)))
     check("a DIFFERENT protocol still changes the snapshot identity (compat gate stays)",
           manifest_hash(clean) != manifest_hash(dict(clean, protocol=6)))
-    check("a DIFFERENT chunk sha256 still changes the identity (payload bytes are pinned)",
-          manifest_hash(clean) != manifest_hash(dict(clean,
-              chunks=[{"id": 0, "sha256": "11" * 32, "bytes": 2049074, "rows": 16414}])))
+    # chunking is a TRANSPORT detail (keyed by the NADO_SNAPSHOT_CHUNK_ROWS env) — it must NOT be in the
+    # identity, or two nodes with identical state but a different chunk size split agree_snapshot's quorum.
+    rechunked = dict(clean, chunk_count=2,
+                     chunks=[{"id": 0, "sha256": "22" * 32, "bytes": 1e6, "rows": 10000},
+                             {"id": 1, "sha256": "33" * 32, "bytes": 1e6, "rows": 6414}])
+    check("manifest_hash is INVARIANT to chunking (chunk_count / per-chunk sha256)",
+          manifest_hash(clean) == manifest_hash(rechunked))
+    check("state_root + entry_count still pin the payload (a state_root change is caught above)",
+          manifest_hash(clean) != manifest_hash(dict(clean, entry_count=99)))
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -384,6 +413,7 @@ if __name__ == "__main__":
               test_exec_summary_determinism_and_proof_disabled,
               test_execsum_excluded_from_root,
               test_dividend_inflow_revert_roundtrips,
+              test_bridge_escrow_revert_roundtrips,
               test_manifest_hash_ignores_version,
               test_withdraw_matches_pending):
         print(f"\n--- {t.__name__} ---")
