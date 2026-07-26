@@ -241,21 +241,6 @@ def test_dividend_inflow_revert_roundtrips():
           kv_ops.dividend_inflow_get(71) == 100)
 
 
-def test_codec_pack_canonical():
-    """codec.pack produces the state-row VALUE bytes hashed into the L1 root, so it must be canonical:
-    key-order-invariant (sort_keys) and NaN/Infinity-free (a stored doc merged from caller-ordered `data`
-    must not carry the sender's key order into the root; NaN's JSON token is non-standard)."""
-    from ops import codec
-    check("codec.pack is INVARIANT to dict key order (sort_keys)",
-          codec.pack({"b": 1, "a": 2, "m": {"z": 1, "y": 2}}) == codec.pack({"a": 2, "m": {"y": 2, "z": 1}, "b": 1}))
-    check("codec.pack round-trips (incl. bytes as base64)",
-          codec.unpack(codec.pack({"x": [1, {"k": b"\x00\xff"}]})) == {"x": [1, {"k": b"\x00\xff"}]})
-    for bad in (float("nan"), float("inf"), float("-inf")):
-        try:
-            codec.pack({"v": bad}); check(f"codec.pack REJECTS {bad}", False)
-        except ValueError:
-            check(f"codec.pack REJECTS non-finite float {bad}", True)
-
 
 def test_reserved_dedup_is_canonical():
     """dedupe_reserved must resolve two-txids-one-uniqueness-key collisions by LOWEST txid, not mempool
@@ -463,7 +448,6 @@ if __name__ == "__main__":
               test_exec_summary_determinism_and_proof_disabled,
               test_execsum_excluded_from_root,
               test_dividend_inflow_revert_roundtrips,
-              test_codec_pack_canonical,
               test_reserved_dedup_is_canonical,
               test_tx_data_rejects_floats,
               test_bridge_escrow_revert_roundtrips,

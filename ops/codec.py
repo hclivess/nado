@@ -25,11 +25,17 @@ def _object_hook(d):
 
 
 def pack(obj) -> bytes:
-    """Serialize any JSON-shaped object (dicts/lists/str/int[any width]/bool/None/bytes) to CANONICAL bytes:
-    sorted keys + no NaN/Infinity, so two nodes serialize an equal value to identical bytes (it feeds the
-    state root)."""
-    return json.dumps(obj, default=_default, separators=(",", ":"), ensure_ascii=False,
-                      sort_keys=True, allow_nan=False).encode("utf-8")
+    """Serialize any JSON-shaped object (dicts/lists/str/int[any width]/bool/None/bytes) to bytes.
+
+    NOTE: this deliberately does NOT sort_keys. The state-row VALUE bytes it produces feed the L1 state
+    root, so it must be byte-stable — but stability here comes from every writer fixing dict order at the
+    source (kv_ops._normalize canonicalizes account docs; other stored docs are fixed-order literals), NOT
+    from sort_keys. sort_keys was tried (gen-8) and REVERTED: it re-serialized existing account docs to a
+    different byte string, changing the genesis state root and forking the fleet away from the un-updatable
+    stranded nodes (which pack unsorted). Floats/NaN are kept out at the tx-admission gate
+    (transaction_ops validate_transaction _has_float), which is the real defense; do not re-add sort_keys /
+    allow_nan here without retiring the old-codec nodes first."""
+    return json.dumps(obj, default=_default, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
 def unpack(raw):

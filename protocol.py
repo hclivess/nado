@@ -284,9 +284,10 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   remaining determinism vars:
 #     - treasury_proposals -> ROOT_EXCLUDED_DBS: a write-only display index (no consensus reader), first-
 #       writer-wins with no _del, so a reverted first-vote left a GHOST root row — a latent FATAL fork.
-#     - codec.pack canonical (sort_keys + allow_nan=False): the state-row value bytes ARE hashed into the
-#       root, so serialization must be key-order-invariant and NaN-free (this re-serializes account docs ->
-#       the reason gen-8 must reroll rather than rolling-restart).
+#     - codec.pack canonical (sort_keys): ATTEMPTED then REVERTED — it re-serialized existing account docs
+#       to different bytes, changing the GENESIS state root and forking the gen-8 fleet away from the
+#       un-updatable stranded (old-codec) nodes, which outweigh it -> wedge at block 1. Float/NaN defense
+#       kept at the tx-admission gate instead. Do not re-add sort_keys until the old-codec nodes are retired.
 #     - tvprev* (treasury re-vote revert journal) -> ROOT_EXCLUDED_META_PREFIXES: rollback bookkeeping does
 #       not belong in the root (unbounded 2-rows/vote bloat; every other journal is _LOCAL_DBS).
 #     - dedupe_reserved canonical (lowest txid, not arrival order) — two nodes built different blocks at one
