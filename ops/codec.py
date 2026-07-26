@@ -3,8 +3,11 @@ cannot pack integers wider than 64 bits: a 256-bit value inside an opaque execut
 overflowed msgpack (`OverflowError: Integer value out of range`) and wedged block storage AND the peer
 wire. JSON encodes arbitrary-precision integers natively, so any blob payload round-trips.
 
-Non-consensus: consensus hashing uses canonical_bytes (JSON) elsewhere; this is only the storage/wire
-container. Bytes ride as base64."""
+CANONICAL: the packed bytes of a value stored in a SNAPSHOT_DB ARE hashed into the L1 state root
+(snapshot_ops._leaf → merkle), so pack() MUST be deterministic — `sort_keys=True` normalizes dict key
+order (a stored doc built by merging caller-ordered `data` must not inherit the sender's key order into the
+root) and `allow_nan=False` rejects NaN/Infinity (their JSON tokens are non-standard and not browser-
+reproducible). Bytes ride as base64."""
 import json
 import base64
 
@@ -22,8 +25,11 @@ def _object_hook(d):
 
 
 def pack(obj) -> bytes:
-    """Serialize any JSON-shaped object (dicts/lists/str/int[any width]/float/bool/None/bytes) to bytes."""
-    return json.dumps(obj, default=_default, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    """Serialize any JSON-shaped object (dicts/lists/str/int[any width]/bool/None/bytes) to CANONICAL bytes:
+    sorted keys + no NaN/Infinity, so two nodes serialize an equal value to identical bytes (it feeds the
+    state root)."""
+    return json.dumps(obj, default=_default, separators=(",", ":"), ensure_ascii=False,
+                      sort_keys=True, allow_nan=False).encode("utf-8")
 
 
 def unpack(raw):

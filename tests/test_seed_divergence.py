@@ -241,6 +241,43 @@ def test_dividend_inflow_revert_roundtrips():
           kv_ops.dividend_inflow_get(71) == 100)
 
 
+def test_codec_pack_canonical():
+    """codec.pack produces the state-row VALUE bytes hashed into the L1 root, so it must be canonical:
+    key-order-invariant (sort_keys) and NaN/Infinity-free (a stored doc merged from caller-ordered `data`
+    must not carry the sender's key order into the root; NaN's JSON token is non-standard)."""
+    from ops import codec
+    check("codec.pack is INVARIANT to dict key order (sort_keys)",
+          codec.pack({"b": 1, "a": 2, "m": {"z": 1, "y": 2}}) == codec.pack({"a": 2, "m": {"y": 2, "z": 1}, "b": 1}))
+    check("codec.pack round-trips (incl. bytes as base64)",
+          codec.unpack(codec.pack({"x": [1, {"k": b"\x00\xff"}]})) == {"x": [1, {"k": b"\x00\xff"}]})
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        try:
+            codec.pack({"v": bad}); check(f"codec.pack REJECTS {bad}", False)
+        except ValueError:
+            check(f"codec.pack REJECTS non-finite float {bad}", True)
+
+
+def test_reserved_dedup_is_canonical():
+    """dedupe_reserved must resolve two-txids-one-uniqueness-key collisions by LOWEST txid, not mempool
+    arrival order — else two nodes build different blocks at one height (a validator restart re-mints a
+    duty/register tx: new txid, same (sender,epoch) key). Arrival-order-independent survivor required."""
+    from ops.transaction_ops import dedupe_reserved
+    a = {"txid": "ffff", "sender": "S", "recipient": "duty", "data": {"attest": {"target_epoch": 5}}}
+    b = {"txid": "0001", "sender": "S", "recipient": "duty", "data": {"attest": {"target_epoch": 5}}}
+    o1, o2 = dedupe_reserved([a, b]), dedupe_reserved([b, a])
+    check("dedupe_reserved survivor is arrival-order-independent", o1 == o2)
+    check("dedupe_reserved keeps the LOWEST txid on a collision", o1 and o1[0]["txid"] == "0001")
+
+
+def test_tx_data_rejects_floats():
+    """tx `data` rides into the txid + block-hash preimage; a float breaks browser-reproducibility (JS
+    JSON.stringify(1.0)=='1' vs Python '1.0') and the integer-only invariant. Reject floats anywhere in data."""
+    from ops.transaction_ops import _has_float
+    check("plain int/str data has no float", _has_float({"op": "call", "n": 5, "s": "x", "l": [1, 2]}) is False)
+    check("a nested float is detected", _has_float({"a": {"b": [1, 2.5]}}) is True)
+    check("bool is not treated as a float", _has_float({"flag": True, "n": 0}) is False)
+
+
 def test_bridge_escrow_revert_roundtrips():
     """bridge_escrow is an accumulator meta row (bridgeescrow:<ns>) in the L1 root — the SAME class as
     divinflow. Reverting the first deposit to a namespace (add creates the key, revert subtracts to 0) must
@@ -344,7 +381,20 @@ def test_block_stores_excluded_from_root():
     root_a = l1_state_root()
 
     check("block_by_num / block_by_hash are excluded from the root",
-          ROOT_EXCLUDED_DBS == frozenset(("block_by_num", "block_by_hash")))
+          {"block_by_num", "block_by_hash"} <= ROOT_EXCLUDED_DBS)
+    # treasury_proposals is a WRITE-ONLY display index (no consensus reader) written first-writer-wins with
+    # no _del — a reverted first-vote leaves a ghost proposal row. Excluded from the root (still snapshot-
+    # carried) so the ghost is harmless; see snapshot_ops.ROOT_EXCLUDED_DBS.
+    check("treasury_proposals (display index, rollback-asymmetric) is excluded from the root",
+          "treasury_proposals" in ROOT_EXCLUDED_DBS)
+    tp_ghost = list(base) + [("treasury_proposals", b"pid123", b"{\"amount\":5}")]
+    check("state_root is INVARIANT to a ghost treasury_proposals row (reorg residue)",
+          merkle_root(_root_triples(tp_ghost)) == root_a)
+    # tvprev* is the treasury re-vote REVERT JOURNAL (kv_ops.treasury_vote_prev_*) — rollback bookkeeping
+    # that must not sit in the consensus commitment (every other journal is in _LOCAL_DBS).
+    tvprev = list(base) + [("meta", b"tvprevE:txabc", b"\x01"), ("meta", b"tvprevW:txabc", b"500")]
+    check("state_root is INVARIANT to the tvprev re-vote revert journal (excluded prefix)",
+          merkle_root(_root_triples(tvprev)) == root_a)
 
     # Two nodes, IDENTICAL consensus state, DIFFERENT block storage: an orphan fork body on one, a pruned
     # block row on the other. The OLD full-root formula diverges; the NEW consensus root is identical.
@@ -413,6 +463,9 @@ if __name__ == "__main__":
               test_exec_summary_determinism_and_proof_disabled,
               test_execsum_excluded_from_root,
               test_dividend_inflow_revert_roundtrips,
+              test_codec_pack_canonical,
+              test_reserved_dedup_is_canonical,
+              test_tx_data_rejects_floats,
               test_bridge_escrow_revert_roundtrips,
               test_manifest_hash_ignores_version,
               test_withdraw_matches_pending):

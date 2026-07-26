@@ -279,7 +279,26 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   emergency rollback storm dropped execsum:3301..3305 on the catching-up nodes. Root-formula change (execsum
 #   out) ⇒ gen-6 blocks incompatible ⇒ full re-purge. See tests/test_seed_divergence.py::
 #   test_execsum_excluded_from_root and ::test_rollback_root_roundtrip.
-CHAIN_GENERATION = 7
+# 8 (2026-07-26): DEEP-AUDIT SWEEP. A multi-wave audit (rollback symmetry across live blocks; non-block root
+#   writers; consensus-identity hash inputs; encoding/float; concurrency; replay guards; exec/L2) closed the
+#   remaining determinism vars:
+#     - treasury_proposals -> ROOT_EXCLUDED_DBS: a write-only display index (no consensus reader), first-
+#       writer-wins with no _del, so a reverted first-vote left a GHOST root row — a latent FATAL fork.
+#     - codec.pack canonical (sort_keys + allow_nan=False): the state-row value bytes ARE hashed into the
+#       root, so serialization must be key-order-invariant and NaN-free (this re-serializes account docs ->
+#       the reason gen-8 must reroll rather than rolling-restart).
+#     - tvprev* (treasury re-vote revert journal) -> ROOT_EXCLUDED_META_PREFIXES: rollback bookkeeping does
+#       not belong in the root (unbounded 2-rows/vote bloat; every other journal is _LOCAL_DBS).
+#     - dedupe_reserved canonical (lowest txid, not arrival order) — two nodes built different blocks at one
+#       height on a validator restart re-mint (recoverable, but needless reorg + upcoming_block_hash desync).
+#     - tx `data` rejects floats (browser-reproducibility + integer-only invariant).
+#     - read_state single MVCC snapshot (a torn per-sub-DB read made /state_health false-alarm).
+#     - exec: settle gated on ExecState.window_canonical() — a settler on a pruned L1 / failed bootstrap has
+#       a raised beacon/blockhash floor and would attest a divergent exec_root.
+#     - asserted the settle-with-proof retention invariant (EXEC_SUMMARY_RETENTION > SPAN + FINALITY_DEPTH).
+#   Root-formula + serialization change ⇒ gen-7 incompatible ⇒ full re-purge. Regression: test_seed_divergence
+#   (treasury/tvprev exclusion, codec canonical, dedup, float, bridge/divinflow round-trips).
+CHAIN_GENERATION = 8
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
@@ -470,6 +489,8 @@ SETTLE_PROOF_MAX_SPAN = 4 * EPOCH_LENGTH
 # catches up (a liveness fallback, never a soundness question). Far below FINALITY_DEPTH's reorg reach, so
 # a GC'd height can never be rolled back and rollback never needs to restore one.
 EXEC_SUMMARY_RETENTION = 4 * SETTLE_PROOF_MAX_SPAN
+# (a LOAD-BEARING invariant tying this to SETTLE_PROOF_MAX_SPAN + FINALITY_DEPTH is asserted below, once
+#  FINALITY_DEPTH is defined — see the assert after FINALITY_DEPTH.)
 
 # How often the node reconciles its conservation invariants (ops/invariants.py). Every block would rescan
 # the whole account table; once an epoch is frequent enough that a mint is caught within minutes while
@@ -521,6 +542,17 @@ RANDAO_ENFORCED = False
 # 45 gives a 4.5-minute window — long enough to ride out an ordinary network hiccup, still comfortably
 # inside one epoch (60) so the epoch-beacon anchor stays un-reorgable and long-range reorgs stay capped.
 FINALITY_DEPTH = 45
+
+# LOAD-BEARING CONSENSUS INVARIANT (asserted): settle-with-proof validation (transaction_ops.validate_
+# transaction) reads exec_summary_get(h) for every height in a proof's span, but `execsum:` rows are EXCLUDED
+# from the state root (retention/rollback-path dependent). A node lacking a needed summary would REJECT a
+# settle-with-proof block its peers accept — a FATAL validity fork. Safe ONLY while the retention window
+# strictly covers the widest span a reorg can still expose: a proof span is capped at SETTLE_PROOF_MAX_SPAN
+# and no reorg reaches deeper than FINALITY_DEPTH, so a summary a valid proof could need is never GC'd iff:
+assert EXEC_SUMMARY_RETENTION > SETTLE_PROOF_MAX_SPAN + FINALITY_DEPTH, (
+    f"exec-summary retention {EXEC_SUMMARY_RETENTION} must exceed settle-proof span {SETTLE_PROOF_MAX_SPAN} "
+    f"+ finality depth {FINALITY_DEPTH} — else settle-with-proof validation reads a GC'd (root-excluded) "
+    f"summary and forks block validity")
 
 # Bonded lane: locked refundable stake, split-neutral, per-identity capped.
 B_MIN = 100_000_000_000            # 10 NADO: capital per bonded selection share (staking-lane entry).

@@ -212,6 +212,17 @@ async def maybe_settle(session):
         target = int(latest["block_number"]) + 2
         ok_any = False
         for ns, st in states.items():
+            # PROVENANCE GATE: never attest an exec_root computed from a NON-canonical randomness window. A
+            # node that cold-started mid-flight on a pruned L1 (or fell back to plain replay after a failed
+            # bootstrap) is missing beacons/blockhashes a from-genesis node still serves, so a BEACON/BHASH
+            # read reverts here but returns a value there → our root diverges. Attesting it could push a wrong
+            # root toward the settle quorum. Skip until the window is canonical (bootstrap-from-settled fixes
+            # it immediately, or it self-heals once the gap ages past retention). See ExecState.window_canonical.
+            if not st.window_canonical():
+                print(f"[execnode] settle ns={ns} SKIPPED — randomness window not canonical (cursor {st.cursor}, "
+                      f"beacon_floor {st.beacon_floor}, blockhash_floor {st.blockhash_floor}); would risk a "
+                      f"divergent exec_root. Set NADO_EXEC_BOOTSTRAP to adopt the settled checkpoint.", flush=True)
+                continue
             tx = construct_settle_tx(keys, st.cursor, st.state_root(), target, ns=ns)
             async with session.post(L1 + "/submit_transaction", json=tx,
                                     timeout=aiohttp.ClientTimeout(total=15)) as r:

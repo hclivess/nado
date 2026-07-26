@@ -611,11 +611,31 @@ def reserved_uniqueness_keys(tx) -> list:
     return keys
 
 
+def _has_float(o):
+    """True if a float appears anywhere in `o` (recursively). bool is an int subclass, not a float, so
+    True/False pass. Used to keep floats out of tx `data` — see the validate_transaction data gate."""
+    if isinstance(o, float):
+        return True
+    if isinstance(o, dict):
+        return any(_has_float(v) for v in o.values())
+    if isinstance(o, (list, tuple)):
+        return any(_has_float(v) for v in o)
+    return False
+
+
 def dedupe_reserved(transactions):
-    """Drop duplicate reserved txs (any shared uniqueness key), keeping the first. Used by block
-    assembly so an honest producer never builds a block verify_block would reject for duplicates."""
+    """Drop duplicate reserved txs (any shared uniqueness key), keeping the CANONICAL survivor — the
+    lowest txid — NOT the first by mempool arrival. Two DISTINCT txids can share one reserved uniqueness
+    key: a validator restart re-mints a duty/register tx with a fresh timestamp+nonce (new txid, same
+    (sender, epoch) key), so both circulate. Resolving the collision by arrival order made two honest nodes
+    build DIFFERENT blocks at the same height — recoverable (lowest-hash fork-choice converges, and the
+    tx-index is out of the state root so H+1 roots still match) but a needless reorg that also desynced the
+    upcoming_block_hash agreement signal. Iterating in txid order makes the survivor arrival-independent;
+    the block's final order is re-sorted by txid downstream (cap_block_blobs + construct_block CO-8), so
+    this ONLY pins WHICH of a colliding pair is kept. Used by block assembly so an honest producer never
+    builds a block verify_block would reject for duplicates."""
     seen, out = set(), []
-    for t in transactions:
+    for t in sorted(transactions, key=lambda x: x.get("txid") or ""):
         keys = reserved_uniqueness_keys(t)
         if keys:
             if any(k in seen for k in keys):
@@ -673,9 +693,15 @@ def validate_transaction(transaction, logger, block_height):
     if "data" in transaction:
         from ops import codec as _codec
         try:
-            _codec.pack(transaction["data"])
+            _codec.pack(transaction["data"])          # also rejects NaN/Infinity (codec allow_nan=False)
         except Exception:
             raise AssertionError("transaction data is not storage-encodable")
+        # BROWSER-REPRODUCIBILITY + determinism: reject any float anywhere in `data`. `data` rides into the
+        # txid AND the block-hash preimage (canonical_bytes), and arbitrary-key `data` is stored verbatim by
+        # some handlers. Python json renders 1.0 as "1.0" but JS JSON.stringify renders it "1", so a float
+        # makes a browser light-miner's txid disagree with the node's — and it breaks the integer-only
+        # consensus invariant. amount/fee/min_block are int-gated separately; this closes the free-form hole.
+        assert not _has_float(transaction["data"]), "transaction data must be integer/string-shaped (no floats)"
     if transaction.get("multisig") is not None:
         # OPT-IN MULTISIG (ops/multisig_ops.py). Cheap consensus gates BEFORE the M signature
         # verifications in validate_origin:

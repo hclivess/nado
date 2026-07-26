@@ -73,19 +73,14 @@ def read_state(home=None):
     the C+1..tip tail. Block + tx HISTORY indexes are excluded (the tail replay rebuilds them)."""
     kv_ops.init_env(home)
     triples = []
-    for name in kv_ops.SNAPSHOT_DBS:
-        if name == "accounts":
-            # CANONICALIZE empty accounts: skip any all-default (absent-equivalent) account row. A zero
-            # doc reads identically to a missing one (get_account defaults every field to 0), so dropping
-            # it is state-preserving — and it makes the state_root INVARIANT to whether a node still
-            # carries historical read-created-account residue (an alphanet-7 h76000 seed-split cause).
-            for k, v in kv_ops.iter_db_pairs(name):
-                if kv_ops.account_value_is_default(v):
-                    continue
-                triples.append((name, k, v))
-        else:
-            for k, v in kv_ops.iter_db_pairs(name):
-                triples.append((name, k, v))
+    # ONE MVCC snapshot across ALL sub-DBs (all_db_pairs) — a per-sub-DB txn could tear the state if a block
+    # commits mid-walk, yielding a root for no committed height. CANONICALIZE empty accounts: skip any
+    # all-default (absent-equivalent) account row — a zero doc reads identically to a missing one, so dropping
+    # it makes the state_root INVARIANT to read-created-account residue (an alphanet-7 h76000 seed-split cause).
+    for name, k, v in kv_ops.all_db_pairs(kv_ops.SNAPSHOT_DBS):
+        if name == "accounts" and kv_ops.account_value_is_default(v):
+            continue
+        triples.append((name, k, v))
     triples.sort(key=lambda t: (t[0], t[1], t[2]))
     return triples
 
@@ -101,6 +96,14 @@ def read_state(home=None):
 #       orphan/fork bodies accumulated across reorgs. Including them made the root diverge between nodes
 #       that agree on every block — the alphanet-8 fresh-sync wedge (a catching-up node computed a different
 #       as-of-parent root than the producer, tripping the gate at ~h62).
+#         treasury_proposals — a WRITE-ONLY display index (the /treasury tab), NOT read by any consensus
+#           path (treasury_execute takes its spend from the tx's own `data`, and quorum from treasury_votes).
+#           treasury_proposal_put is first-writer-wins with NO _del, and the treasury_vote revert removes
+#           only the vote — so a reorg that orphans a proposal's first vote leaves a GHOST proposal row on
+#           the node that applied-then-reverted, which a forward-only/fresh-sync node lacks. That is the
+#           exact execsum/divinflow rollback-asymmetry fork class; excluding it from the root (still carried
+#           in the snapshot for display) makes the ghost harmless. If it is ever promoted to a consensus
+#           read, it MUST first be made revert-symmetric (proposal_del + refcount) before re-inclusion.
 #
 #   (2) ROOT_EXCLUDED_META_KEYS — individual rows in the `meta` sub-DB that are NOT block-tx-derived:
 #         finalized_height — the FFG finality floor, advanced by PEER CORROBORATION (a producer at tip
@@ -116,7 +119,7 @@ def read_state(home=None):
 #
 # Blocks are already secured by their own hash chain, and finality/pruning by their own monotonic rules;
 # none of this belongs in the state commitment.
-ROOT_EXCLUDED_DBS = frozenset(("block_by_num", "block_by_hash"))
+ROOT_EXCLUDED_DBS = frozenset(("block_by_num", "block_by_hash", "treasury_proposals"))
 ROOT_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below"))
 
 #   (3) ROOT_EXCLUDED_META_PREFIXES — families of `meta` rows whose PRESENCE is retention / rollback-path
@@ -131,7 +134,13 @@ ROOT_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below"))
 #           from the canonical forward-only chain and the FATAL gate correctly refused them, forever). The
 #           summaries stay CARRIED in the snapshot (settle-with-proof binding needs the window) — only the
 #           root COMMITMENT drops them, so their retention/rollback path can never fork consensus.
-ROOT_EXCLUDED_META_PREFIXES = (b"execsum:",)
+#         tvprevE:<txid> / tvprevW:<txid> — the treasury re-vote REVERT JOURNAL (kv_ops.treasury_vote_prev_*):
+#           the prior (existed?, weight) a re-vote overwrote, stashed to make the overwrite revertible. Like
+#           every other revert journal (bond_since_revert/hb_revert/msgkey_revert/gc_revert live in _LOCAL_DBS),
+#           it is rollback bookkeeping — written on apply, deleted only on revert — so a non-reverted vote
+#           leaves it forever. It is deterministic (all nodes agree), so it is not a FORK, but it does not
+#           belong in the consensus commitment and grows the root unbounded (2 rows/vote). Excluded here.
+ROOT_EXCLUDED_META_PREFIXES = (b"execsum:", b"tvprevE:", b"tvprevW:")
 
 
 def _root_triples(triples):

@@ -18,6 +18,14 @@ from hashing import blake2b_hash, canonical_bytes
 from execnode.zkvm import ZkVMError
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
 from execnode.shielded import ShieldedPool, apply_transfer
+
+# RANDOMNESS-WINDOW RETENTION — the horizons below which advance_beacons/record_block_hash prune. They also
+# define window_canonical(): a node holds a CANONICAL window iff its floors reach at least this far back, i.e.
+# it is missing nothing a from-genesis node still serves. Kept as named constants so the prune and the
+# canonical check can never drift apart (a divergence the exec settle path depends on).
+_BEACON_RETENTION_EPOCHS = 4000     # advance_beacons keeps beacons for [cur_epoch - this, cur_epoch]
+_BLOCKHASH_RING = 20000             # record_block_hash keeps the most recent this-many finalized L1 heights
+_GENESIS_BEACON_FLOOR = 2           # the beacon_floor a from-genesis node sets (epoch 0 first advance -> 0+2)
 import base64
 import zstandard as _zstd
 
@@ -288,6 +296,9 @@ class ExecState:
         self.randao_reveals = {}   # epoch(int) -> set(secret hex) accumulated from `reveal` txs
         self.beacons = {}          # epoch(int) -> beacon(int), cached
         self.beacon_floor = None   # first epoch we witness in full (set on first advance) — below it, unavailable
+        self.blockhash_floor = None  # first L1 height we recorded (set on first record_block_hash) — provenance:
+        # together with beacon_floor this is how far back our randomness windows reach. A node that cold-started
+        # mid-flight (pruned L1 / failed bootstrap) has RAISED floors and must not settle (see window_canonical).
         # BLOCKHASH randomness (#randao): finalized L1 block hashes, height(int) -> hash(int). Like the beacon this
         # is an L1-DERIVED input (identical on every node once finalized), persisted for restart but NOT committed
         # to state_root. The BLOCKHASH opcode reads it so a game can pin its result to a FUTURE height whose hash
@@ -368,6 +379,7 @@ class ExecState:
         self.randao_reveals = {int(e): set(v) for e, v in d.get("randao_reveals", {}).items()}
         self.beacons = {int(e): int(v) for e, v in d.get("beacons", {}).items()}
         self.beacon_floor = d.get("beacon_floor")
+        self.blockhash_floor = d.get("blockhash_floor")
         self.block_hashes = {int(h): int(v) for h, v in d.get("block_hashes", {}).items()}
         self.zk_addrs = d.get("zk_addrs", {})
         self._touch()          # also (re)creates the cache fields on a bare clone() instance
@@ -388,6 +400,7 @@ class ExecState:
                     "pool_value": self.pool_value, "pool_fees": self.pool_fees,
                     "randao_reveals": {str(e): sorted(v) for e, v in self.randao_reveals.items()},
                     "beacons": {str(e): str(v) for e, v in self.beacons.items()}, "beacon_floor": self.beacon_floor,
+                    "blockhash_floor": self.blockhash_floor,
                     "block_hashes": {str(h): str(v) for h, v in self.block_hashes.items()},
                     "zk_addrs": self.zk_addrs}
 
@@ -654,10 +667,30 @@ class ExecState:
         start = max(self.beacon_floor, (max(self.beacons) + 1) if self.beacons else 0)
         for e in range(start, cur_epoch + 1):
             self.beacons[e] = self.exec_beacon_int(e, self.randao_reveals.get(e, set()))
-        keep = cur_epoch - 4000
+        keep = cur_epoch - _BEACON_RETENTION_EPOCHS
         if keep > 0:
             for e in [e for e in self.beacons if e < keep]:
                 self.beacons.pop(e, None); self.randao_reveals.pop(e, None)
+
+    def window_canonical(self):
+        """True iff this node's beacon + blockhash windows are COMPLETE for everything still servable at the
+        current cursor — i.e. identical to what a from-genesis (or verified-bootstrap) node holds here. A node
+        that cold-started mid-flight on a PRUNED L1 (tail_loop SKIPS body-less finalized blocks) or fell back
+        to plain replay after a failed bootstrap carries RAISED floors: it is missing beacons/hashes in the
+        still-servable range, so a BEACON/BHASH read REVERTS where a from-genesis node returns a value →
+        divergent exec_root. Such a node MUST NOT emit a settle attestation of that root (maybe_settle gate).
+        Purely a function of (floors, cursor) — deterministic, and self-heals once the missing span ages past
+        the retention horizon (bootstrap-from-settled restores canonical floors immediately)."""
+        if self.cursor is None or self.cursor < 0:
+            return False
+        from protocol import EPOCH_LENGTH
+        cur_epoch = self.cursor // EPOCH_LENGTH
+        beacon_ok = (self.beacon_floor is not None
+                     and self.beacon_floor <= max(_GENESIS_BEACON_FLOOR, cur_epoch - _BEACON_RETENTION_EPOCHS))
+        # blockhash_floor None = we have recorded no hashes yet (nothing to be non-canonical about)
+        bh_ok = (self.blockhash_floor is None
+                 or self.blockhash_floor <= max(1, self.cursor - _BLOCKHASH_RING))
+        return beacon_ok and bh_ok
 
     def record_block_hash(self, height, block_hash):
         """Record one finalized L1 block hash for the BLOCKHASH opcode. `block_hash` is the block's hex hash;
@@ -668,9 +701,11 @@ class ExecState:
             h = int(height)
             if h < 0 or not isinstance(block_hash, str) or not block_hash:
                 return
+            if self.blockhash_floor is None:
+                self.blockhash_floor = h        # provenance: the earliest L1 height this node ever recorded
             self.block_hashes[h] = int(block_hash, 16)
-            if len(self.block_hashes) > 20000:
-                for k in sorted(self.block_hashes)[:len(self.block_hashes) - 20000]:
+            if len(self.block_hashes) > _BLOCKHASH_RING:
+                for k in sorted(self.block_hashes)[:len(self.block_hashes) - _BLOCKHASH_RING]:
                     self.block_hashes.pop(k, None)
         except Exception:
             pass

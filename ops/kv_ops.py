@@ -1573,6 +1573,21 @@ def iter_db_pairs(name):
                 yield bytes(k), bytes(v)
 
 
+def all_db_pairs(names):
+    """Yield (db_name, key_bytes, value_bytes) across every sub-DB in `names` within ONE read txn — a single
+    MVCC snapshot. read_state() must use this rather than a per-sub-DB iter_db_pairs: a fresh txn per sub-DB
+    lets a block commit land BETWEEN two sub-DBs, tearing the state (e.g. accounts@N + totals@N+1) so the
+    merkle root corresponds to no committed height — which surfaced as spurious /state_health root mismatches
+    when l1_state_root() runs on an HTTP worker thread while the core loop commits. LMDB read txns are
+    snapshot-isolated, so one begin() sees a consistent view for the whole walk."""
+    env = get_env()
+    with env.begin() as txn:
+        for name in names:
+            with txn.cursor(db=_dbs()[name]) as cur:
+                for k, v in cur:
+                    yield name, bytes(k), bytes(v)
+
+
 def restore_snapshot_state(triples, txn=None):
     """Wipe every SNAPSHOT_DBS sub-DB and repopulate from (db_name, key_bytes, value_bytes) triples — the
     snapshot-import primitive. DUPSORT dbs get dupdata puts. Runs inside the caller's write txn (atomic)."""
