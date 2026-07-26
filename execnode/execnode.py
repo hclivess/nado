@@ -30,6 +30,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import aiohttp
+from protocol import chain_clock as _chain_clock
 from aiohttp import web
 
 from execnode.state import ExecState
@@ -389,7 +390,12 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
             print(f"[execnode] block {h}: skipped tx {(tx.get('txid') or '')[:12]}… ({type(e).__name__}: {e})", flush=True)
     for _st in states_map.values():
         _st.cursor = h
-        _st.block_ts = int(block.get("block_timestamp") or _st.block_ts)   # TIME opcode: wall-clock of this block
+        # TIME opcode: the DETERMINISTIC chain clock, NOT block_timestamp. block_timestamp sits outside the
+        # block-hash preimage (so honest clock skew cannot fork the chain) and therefore differs between
+        # honest nodes for the SAME block — measured live at 1 s apart. Feeding it to the VM made any
+        # contract that reads TIME able to diverge exec state, and with it exec_root and the settle quorum.
+        # chain_clock(h) is a pure function of block height, so every node runs the contract identically.
+        _st.block_ts = _chain_clock(h)
         _st.advance_beacons(h)      # cache every epoch beacon now finalized at this height
         _st.record_block_hash(h, block.get("block_hash"))   # BLOCKHASH randomness for this finalized height
     return True

@@ -108,13 +108,24 @@ def reanchor_candidates(peers, statuses, our_weight, floor, min_protocol=None):
     if min_protocol is None:
         from config import get_protocol
         min_protocol = get_protocol()
-    return [(st["latest_block_weight"], st["snapshot_height"], st["snapshot_hash"], ip)
-            for ip, st in zip(peers, statuses)
-            if st and st.get("latest_block_weight") is not None
-            and st.get("snapshot_hash") and st.get("snapshot_height") is not None
-            and _same_network(st, min_protocol)
-            and st["latest_block_weight"] > our_weight
-            and st["snapshot_height"] > floor]
+    cands = [(st["latest_block_weight"], st["snapshot_height"], st["snapshot_hash"], ip)
+             for ip, st in zip(peers, statuses)
+             if st and st.get("latest_block_weight") is not None
+             and st.get("snapshot_hash") and st.get("snapshot_height") is not None
+             and _same_network(st, min_protocol)
+             and st["latest_block_weight"] > our_weight
+             and st["snapshot_height"] > floor]
+    # QUORUM, NOT THE BIGGEST INTEGER. latest_block_weight is peer-ASSERTED and unverifiable at this point,
+    # so taking max() let ONE responder dictate the checkpoint we adopt wholesale — and the tail we then
+    # "re-verify" is verified against the state we just imported from that peer, so balances, the bonded
+    # registry and the finality floor all become attacker-defined. Require the same agreement the
+    # fresh-joiner path requires: at least SNAPSHOT_MIN_PEERS distinct peers advertising the IDENTICAL
+    # (height, hash). Weight only ranks candidates that already have corroboration.
+    from ops.snapshot_ops import SNAPSHOT_MIN_PEERS
+    agree = {}
+    for w, h, sh, ip in cands:
+        agree.setdefault((h, sh), set()).add(ip)
+    return [c for c in cands if len(agree[(c[1], c[2])]) >= SNAPSHOT_MIN_PEERS]
 
 
 def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips, min_protocol=None,
@@ -488,6 +499,7 @@ class CoreClient(threading.Thread):
                         if peer != cached_peer:
                             self.logger.info(f"Selected sync donor {peer} for tip {heaviest_hash[:12]}")
                         self._sync_donor = (peer, heaviest_hash)
+                        self._last_sync_donor_ip = peer   # attribute a later fetch failure to THIS peer
                         return peer
                     self.logger.debug(f"{peer} not qualified for sync: our root hash is unknown to them")
                 except Exception as e:
@@ -612,7 +624,8 @@ class CoreClient(threading.Thread):
                     self.logger.info("Single snapshot donor is not an operator seed; using full sync")
                     return False
                 agreed = snapshot_ops.agree_snapshot(
-                    statuses, min_peers=(1 if lone_donor else snapshot_ops.SNAPSHOT_MIN_PEERS), threshold=0.8)
+                    statuses, min_peers=(1 if lone_donor else snapshot_ops.SNAPSHOT_MIN_PEERS), threshold=0.8,
+                    seed_ips=peers)   # aligned with `statuses`; lets the quorum require seed corroboration
                 if not agreed:
                     self.logger.info("No snapshot quorum among peers; using full sync")
                     return False
@@ -780,7 +793,11 @@ class CoreClient(threading.Thread):
             from ops.peer_ops import seed_peers, probe_block_hash
             from ops.block_ops import get_block_hash_by_number
             from ops.account_ops import get_finalized_height
-            peers = list(dict.fromkeys(list(self.memserver.peers) + list(seed_peers())))[:8]
+            # SEEDS FIRST. The verdict here is a per-IP headcount (fork_resolution.majority_hash), and it
+            # gates the re-anchor path — so if attacker-held slots crowd the operator seeds out of the [:8]
+            # window they dictate the verdict. memserver.peers came first, so on a node with >=8 peers the
+            # seeds were sliced off entirely. _maybe_escape_dead_fork already orders seeds first; match it.
+            peers = list(dict.fromkeys(list(seed_peers()) + list(self.memserver.peers)))[:8]
             if not peers:
                 return fork_resolution.UNKNOWN
             tip = self.memserver.latest_block["block_number"]
@@ -1137,7 +1154,9 @@ class CoreClient(threading.Thread):
         transiently-unreachable REAL heavier tip is retried later."""
         hh = self.consensus.heaviest_block_hash
         if hh and hh != self.memserver.latest_block["block_hash"]:
-            n = self.consensus.reject_tip(hh)      # exponential backoff: see consensus_loop.reject_tip
+            # Pass the donor we actually dialled (when known) so the strike lands on the peer that failed
+            # to serve, not on every honest peer advertising the same tip — see consensus_loop.reject_tip.
+            n = self.consensus.reject_tip(hh, donor_ip=getattr(self, "_last_sync_donor_ip", None))
             self.logger.warning(f"Excluding unreachable heavier-advertised tip {hh[:12]} "
                                 f"(weight-DoS guard, failure #{n})")
         # the donor that fed us this tip just failed — drop it from the donor cache so the next

@@ -13,7 +13,7 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-9"   # CLEAN-BREAK reroll (2026-07-26): distinct genesis lineage, see CHAIN_GENERATION 10
+CHAIN_ID = "alphanet-10"  # SECURITY+DETERMINISM reroll (2026-07-27): see CHAIN_GENERATION 11
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -39,7 +39,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1785076800  # alphanet-9 — the clean-break reroll (DISTINCT genesis hash; gen 7-9 reused
+GENESIS_TIMESTAMP = 1785103200  # alphanet-9 — the clean-break reroll (DISTINCT genesis hash; gen 7-9 reused
                                 # alphanet-8's genesis, so stranded old-code nodes on the same genesis kept
                                 # winning our fork choice — see CHAIN_GENERATION 10)
                                 # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
@@ -55,6 +55,24 @@ GENESIS_TIMESTAMP = 1785076800  # alphanet-9 — the clean-break reroll (DISTINC
 # sight. Bounded abuse: timestamps aren't hashed, but validation caps them at now+DRIFT, so a lying
 # relay can push chain time at most this far ahead of real time (it can't compound block over block).
 BLOCK_TIMESTAMP_DRIFT = 30
+
+# CANONICAL BLOCK TIME (consensus). The per-node `block_time` in private/config.json is an operator PACING
+# knob and is NOT consensus — two nodes may legitimately hold different values (this fleet ran 6 while the
+# code default was 10). Anything consensus-visible that needs a notion of elapsed time must use THIS
+# constant, never the config one, or it is node-local by construction. Used to derive the deterministic
+# exec-layer clock (see CHAIN_CLOCK / execnode state.block_ts): block_timestamp itself is deliberately
+# outside the block-hash preimage so honest clock skew cannot fork the chain, which makes it unusable as a
+# consensus input — it varies between honest nodes for the SAME block.
+BLOCK_TIME = 6
+
+
+def chain_clock(block_number: int) -> int:
+    """The DETERMINISTIC chain clock the execution layer exposes as TIME: a pure function of block height,
+    so every node computes the identical value for a block and a contract reading TIME cannot fork exec
+    state. Monotonic and approximately wall-clock (it tracks real time exactly while blocks land on
+    schedule, and lags if they do not). Deliberately NOT block_timestamp, which is uncommitted and skews
+    by up to BLOCK_TIMESTAMP_DRIFT between honest nodes."""
+    return GENESIS_TIMESTAMP + int(block_number) * BLOCK_TIME
 
 # INCLUSION DELAY (blocks): a flexibly-landing tx sets min_block = submit_tip + this, so no producer may
 # include it until it has had this many blocks (~this * block_time seconds) to gossip to EVERY producer.
@@ -313,7 +331,14 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   ~22 rollbacks/3min, "Consensus OUTSIDE majority (20% / 5 peers)", finality dragging, with ZERO state
 #   divergence (they never actually adopted the foreign blocks). A distinct genesis removes them from the
 #   linkage AND the chain_id-gated peer/status pool, which is exactly why gen-4 re-cut both constants.
-CHAIN_GENERATION = 10
+# 11 (2026-07-27): SECURITY + DETERMINISM reroll (protocol 7, new CHAIN_ID + GENESIS_TIMESTAMP). Ships the
+#   full audit remediation: the exec DA binding and the VM TIME opcode stop reading the uncommitted
+#   block_timestamp (chain_clock instead); settle bounds exec_cursor to the block height (closing a
+#   10-NADO permanent settlement-oracle capture that drained every escrow); faucet donations escrow where
+#   they are redeemed; apply_slash books its burn; the snapshot payload is canonicalized and re-anchor +
+#   fresh-bootstrap require a quorum with seed anchoring; strike attribution no longer benches honest
+#   peers. Exec state semantics change (TIME), so exec state is rebuilt from the new genesis too.
+CHAIN_GENERATION = 11
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

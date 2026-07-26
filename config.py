@@ -42,8 +42,19 @@ def get_protocol():
     revert journals (bond_since_revert/hb_revert/msgkey_revert) left SNAPSHOT_DBS so they no longer feed
     the state_root; all-default account rows are canonicalized out of the root. These change how the
     state_root/snapshot_hash are computed, so old nodes MUST be shed (they would advertise a different
-    root at the same height and never form the sync quorum). STRICT."""
-    return 6
+    root at the same height and never form the sync quorum). STRICT.
+    7 (2026-07-27): the alphanet-10 SECURITY + DETERMINISM reroll. Breaking on every axis, so old nodes
+    must be shed: (a) the exec DA binding no longer hashes block_timestamp and the exec VM's TIME opcode
+    now reads protocol.chain_clock(height) instead — block_timestamp is outside the block-hash preimage
+    and legitimately differs between honest nodes, so both were non-deterministic (measured live: the same
+    block produced different call leaves on two nodes); (b) settle now bounds exec_cursor to the carrying
+    block height, closing a 10-NADO permanent capture of the settlement oracle that could drain every
+    escrow; (c) faucet donations escrow to BRIDGE_ESCROW (where they are actually redeemed) instead of a
+    FAUCET_ESCROW with no release path; (d) apply_slash books its burn into the supply counter; (e) the
+    snapshot transfer payload is canonicalized (treasury_proposals + node-local meta rows excluded) and
+    re-anchor/bootstrap now require a real quorum with seed anchoring. State transitions, the exec state
+    root and the snapshot identity all change, so a gen-9/protocol-6 node can never agree with us. STRICT."""
+    return 7
 
 
 def get_port():

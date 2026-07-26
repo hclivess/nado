@@ -108,7 +108,7 @@ class ConsensusClient(threading.Thread):
         self.upcoming_block_hash_pool_percentage = 0
         self.block_hash_pool_percentage = 0
 
-    def reject_tip(self, tip_hash):
+    def reject_tip(self, tip_hash, donor_ip=None):
         """Bench an advertised-heavier tip we just failed to obtain, with exponential backoff. Repeated
         failures mean nothing can serve that chain, so the node must stop spending every window on it and
         get on with syncing the heaviest chain it can actually reach.
@@ -154,6 +154,15 @@ class ConsensusClient(threading.Thread):
         # (peer_loop); fork choice must not be able to go blind to them either.
         seeds = seed_peers()
         holders = [p for p in holders if p not in seeds]
+        # ATTRIBUTE THE FAILURE TO THE DONOR WE ACTUALLY DIALLED, not to everyone advertising the hash.
+        # Striking all holders is a censorship primitive: an attacker echoes the HONEST heaviest tip in
+        # /status (true values, so it qualifies as a donor), serves nothing when selected, and the strike
+        # lands on every honest peer holding that tip. Three strikes removes their whole chain from fork
+        # choice, after which heaviest_block_hash becomes OUR OWN tip — so _depth_floor_corroborated()
+        # passes trivially and we advance the ENFORCED finality floor on a minority fork, which rollback
+        # then refuses to cross: a permanent wedge escapable only by purge+resync.
+        if donor_ip is not None:
+            holders = [p for p in holders if p == donor_ip]
         if holders and (len(holders) == 1 or len(holders) * 2 < max(pool_n, 2)):
             for p in holders:
                 self._peer_strikes[p] = pn = self._peer_strikes.get(p, 0) + 1

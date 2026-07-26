@@ -405,7 +405,7 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
     return True
 
 
-def agree_snapshot(statuses, min_peers=SNAPSHOT_MIN_PEERS, threshold=0.8):
+def agree_snapshot(statuses, min_peers=SNAPSHOT_MIN_PEERS, threshold=0.8, seed_ips=None):
     """Decide whether a super-majority of peers agree on one snapshot.
 
     statuses: list of peer /status dicts (None for unreachable peers).
@@ -425,6 +425,28 @@ def agree_snapshot(statuses, min_peers=SNAPSHOT_MIN_PEERS, threshold=0.8):
             votes[(height, h)] = votes.get((height, h), 0) + 1
     if responders < min_peers or not votes:
         return None
+    # SEED ANCHORING. The vote above is a per-IP headcount, so a bootstrapping node with a thin peer set is
+    # decided by whoever shows up: two Sybils advertising the same forged (height, hash) satisfy both
+    # responders >= 2 and 0.8, and state_digest does not help because the attacker's payload is authentic to
+    # its OWN forged state. Require an operator seed among the agreeing voters when any seed responded at
+    # all — that binds the checkpoint to an identity the operator chose, without making seeds mandatory for
+    # a fleet that has none reachable (in which case we fall back to the headcount, as before).
+    try:
+        from ops.peer_ops import seed_peers
+        seeds = set(seed_peers() or ())
+    except Exception:
+        seeds = set()
+    seed_votes = {}
+    if seeds and seed_ips:
+        for ip, st in zip(seed_ips, statuses):
+            if st and ip in seeds:
+                k = (st.get("snapshot_height"), st.get("snapshot_hash"))
+                if k[0] is not None and k[1]:
+                    seed_votes[k] = seed_votes.get(k, 0) + 1
+    if seed_votes:
+        votes = {k: v for k, v in votes.items() if k in seed_votes}   # only seed-corroborated candidates
+        if not votes:
+            return None
     (best_height, best_hash), count = max(votes.items(), key=lambda kv: kv[1])
     if count / responders >= threshold:
         return {"snapshot_height": best_height, "snapshot_hash": best_hash,
