@@ -144,6 +144,11 @@ except OSError:
     pass
 
 _last_settled_cursor = -1
+# Per-namespace throttle for the "settle SKIPPED (window not canonical)" notice: while gated, maybe_settle
+# re-enters every poll and the randomness window can take a full retention span to heal, so an unthrottled
+# print would flood the log for days.
+_SETTLE_SKIP_LOG_EVERY = 300
+_settle_skip_logged = {}
 
 
 def _reset_states_to_genesis(reason=""):
@@ -219,9 +224,16 @@ async def maybe_settle(session):
             # root toward the settle quorum. Skip until the window is canonical (bootstrap-from-settled fixes
             # it immediately, or it self-heals once the gap ages past retention). See ExecState.window_canonical.
             if not st.window_canonical():
-                print(f"[execnode] settle ns={ns} SKIPPED — randomness window not canonical (cursor {st.cursor}, "
-                      f"beacon_floor {st.beacon_floor}, blockhash_floor {st.blockhash_floor}); would risk a "
-                      f"divergent exec_root. Set NADO_EXEC_BOOTSTRAP to adopt the settled checkpoint.", flush=True)
+                # THROTTLED: while gated, ok_any stays False so maybe_settle re-enters every poll and the
+                # window can take a full retention span to heal — an unthrottled print would flood the log
+                # for days. One line per _SETTLE_SKIP_LOG_EVERY seconds per namespace.
+                _now = time.time()
+                if (_now - _settle_skip_logged.get(ns, 0.0)) >= _SETTLE_SKIP_LOG_EVERY:
+                    _settle_skip_logged[ns] = _now
+                    print(f"[execnode] settle ns={ns} SKIPPED — randomness window not canonical (cursor "
+                          f"{st.cursor}, beacon_floor {st.beacon_floor}, blockhash_floor {st.blockhash_floor}); "
+                          f"would risk a divergent exec_root. Set NADO_EXEC_BOOTSTRAP to adopt the settled "
+                          f"checkpoint.", flush=True)
                 continue
             tx = construct_settle_tx(keys, st.cursor, st.state_root(), target, ns=ns)
             async with session.post(L1 + "/submit_transaction", json=tx,

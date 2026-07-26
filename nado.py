@@ -1615,18 +1615,21 @@ async def state_health(request):
     external watcher polls this on several peers and, when two disagree at the same height, sees WHICH sub-DB
     diverged in one shot instead of inferring a fork from block hashes (the alphanet-8 wedge took a replay
     harness to localize to the meta DB — this endpoint is that harness, live). Rate-limited like other reads."""
-    if _rate_limited(request, 30):
+    if _rate_limited(request, 6):        # two full-state walks are expensive; this is a diagnostic, not a poll target
         return _RL
     def _snap():
-        from ops.snapshot_ops import l1_state_root, per_db_roots
+        from ops.snapshot_ops import state_fingerprint
         from ops.settlement_ops import settled_header_commitment
-        cur, root = settled_header_commitment()
         lb = memserver.latest_block or {}
+        # ONE state walk for BOTH the root and its per-DB breakdown (state_fingerprint), so the two can never
+        # describe different heights — a torn pair would false-alarm the very divergence watch this serves.
+        root, per_db = state_fingerprint()
+        cur, exec_root = settled_header_commitment()
         return {"tip": lb.get("block_number"), "tip_hash": lb.get("block_hash"),
                 "finalized_height": memserver.finalized_height,
-                "l1_state_root": l1_state_root(),
-                "per_db": {n: [r, c] for n, (r, c) in per_db_roots().items()},
-                "exec_cursor": cur, "exec_root": root}
+                "l1_state_root": root,
+                "per_db": {n: [r, c] for n, (r, c) in per_db.items()},
+                "exec_cursor": cur, "exec_root": exec_root}
     return _resp(await asyncio.to_thread(_snap))
 
 
@@ -1917,14 +1920,19 @@ logger.info(f"Your IP: {memserver.ip}")
 # actually hold on this chain — which strands fresh joiners on the snapshot-bootstrap path.
 try:
     snapshot_ops.drop_checkpoints_above(memserver.latest_block["block_number"])
-    # MANIFEST-HASH MIGRATION: if the snapshot-identity formula changed (e.g. `version` dropped from
-    # manifest_hash), correct the stored snapshot_hash of any existing checkpoint IN PLACE so this node
-    # keeps serving them and agrees with updated peers, instead of rejecting its own checkpoints until the
-    # next rebuild. Idempotent + cheap (no chunk rebuild). This is what lets the version-exclusion fix
-    # self-heal the fleet on the update-restart with no manual snapshot regeneration.
-    snapshot_ops.migrate_checkpoint_hashes(logger)
 except Exception as e:
     logger.error(f"Snapshot reconciliation at startup failed (non-fatal): {e}")
+
+# MANIFEST-HASH MIGRATION: if the snapshot-identity formula changed (e.g. `version` dropped from
+# manifest_hash), correct the stored snapshot_hash of any existing checkpoint IN PLACE so this node keeps
+# serving them and agrees with updated peers, instead of rejecting its own checkpoints until the next
+# rebuild. Idempotent + cheap (no chunk rebuild). Checkpoints predating the payload digest are dropped
+# rather than blessed. Its OWN try: a failure above must not silently skip it (that is exactly the boot
+# where checkpoint state is already suspect).
+try:
+    snapshot_ops.migrate_checkpoint_hashes(logger)
+except Exception as e:
+    logger.error(f"Checkpoint manifest migration at startup failed (non-fatal): {e}")
 
 # S4.3: surface the bonded producer registry loudly at startup. total_shares == 0 means NO eligible
 # producer (every bond < B_MIN, or none seeded) -> fail-closed selection silently produces no blocks.

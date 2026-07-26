@@ -63,6 +63,10 @@ NO_SYNCABLE_LOG_INTERVAL = 30
 # ~1/s while behind; without this throttle "Entering/Looping emergency mode" spammed the journal and a
 # single continuous episode inflated the emergency counter by hundreds. A periodic heartbeat is enough.
 _EMERGENCY_LOG_EVERY = 20
+# How often (seconds) to emit the per-sub-DB STATE DIVERGENCE fingerprint + count a reject. The fingerprint
+# is a FULL extra state walk and the counter rewrites a JSON file; a diverged node retries ~1/s against every
+# peer, so unthrottled this amplifies the wedge it is meant to diagnose.
+_DIVERGENCE_LOG_EVERY = 20
 
 # Minimum seconds between seed-anchored RE-ANCHOR attempts. A wedged node (stuck on a minority fork below
 # its snapshot/finality floor) re-imports a seed's snapshot to recover; bound the retry so a persistently
@@ -916,9 +920,12 @@ class CoreClient(threading.Thread):
         # and made a genuine event impossible to spot. Emit (and count) at most once per _EMERGENCY_LOG_EVERY
         # seconds — a continuous episode leaves a periodic heartbeat, distinct episodes each get their own.
         now = time.time()
-        _throttled = (now - getattr(self, "_last_emergency_log", 0.0)) < _EMERGENCY_LOG_EVERY
-        if not _throttled:
-            self._last_emergency_log = now
+        # An EPISODE is a run of entries not separated by more than _EMERGENCY_LOG_EVERY of calm. Count and
+        # log once per episode: counting every re-entry would score one continuous hour as ~3600 "entries",
+        # while counting only throttled heartbeats would score three distinct 5s-apart episodes as one.
+        _prev = getattr(self, "_last_emergency_log", 0.0)
+        self._last_emergency_log = now
+        if (now - _prev) >= _EMERGENCY_LOG_EVERY:
             self.logger.warning("Entering emergency mode (behind consensus; rolling back / resyncing)")
             try:
                 from ops import rollback_stats
@@ -1823,6 +1830,28 @@ class CoreClient(threading.Thread):
             raise ValueError(
                 f"Block creator {block.get('block_creator')} is not the selected winner {winner}")
 
+    def _record_reject(self, block, ours, theirs, layer="L1"):
+        """Log a state-root divergence with OUR per-sub-DB fingerprint and count it in the daily telemetry.
+        Purely diagnostic and fully best-effort — it must NEVER affect the refusal that follows. Throttled
+        (see _DIVERGENCE_LOG_EVERY): the fingerprint is a full extra state walk and record_reject rewrites
+        the stats file, while a diverged node retries ~1/s against every peer."""
+        now = time.time()
+        if (now - getattr(self, "_last_divergence_log", 0.0)) < _DIVERGENCE_LOG_EVERY:
+            return
+        self._last_divergence_log = now
+        try:
+            from ops.snapshot_ops import per_db_roots
+            fp = " ".join(f"{n}={r[:8]}({c})" for n, (r, c) in sorted(per_db_roots().items()))
+            self.logger.error(f"STATE DIVERGENCE ({layer}) @block {block['block_number']} "
+                              f"(ours {str(ours)[:16]} vs producer {str(theirs)[:16]}) — our per-DB roots: {fp}")
+        except Exception:
+            pass
+        try:
+            from ops import rollback_stats
+            rollback_stats.record_reject()
+        except Exception:
+            pass
+
     def verify_block(self, block, remote, remote_peer=None):
         """this function has critical checks and must raise a failure/halt if there is one"""
         # todo move exceptions lower (as in rollback) and avoid rising here directly
@@ -1882,19 +1911,10 @@ class CoreClient(threading.Thread):
                 # DIAGNOSTIC (no consensus effect): dump OUR per-sub-DB root fingerprint + count the reject.
                 # Comparing this one line against another node's at the same height localizes the divergence
                 # to the exact sub-DB immediately (the alphanet-8 wedge needed a replay harness for this).
-                try:
-                    from ops.snapshot_ops import per_db_roots
-                    fp = " ".join(f"{n}={r[:8]}({c})" for n, (r, c) in sorted(per_db_roots().items()))
-                    self.logger.error(f"STATE DIVERGENCE @block {block['block_number']} "
-                                      f"(ours {our_state_root[:16]} vs producer "
-                                      f"{str(block.get('state_root'))[:16]}) — our per-DB roots: {fp}")
-                except Exception:
-                    pass
-                try:
-                    from ops import rollback_stats
-                    rollback_stats.record_reject()
-                except Exception:
-                    pass
+                # THROTTLED: a diverged node re-enters emergency ~1/s and retries every peer, and the
+                # fingerprint costs a FULL extra state walk + a stats file rewrite — unthrottled it amplifies
+                # the very wedge it reports. One report per _DIVERGENCE_LOG_EVERY seconds is plenty to diagnose.
+                self._record_reject(block, our_state_root, str(block.get("state_root")))
                 raise ValueError(
                     f"Block {block['block_number']} state_root {str(block.get('state_root'))[:16]} != our "
                     f"as-of-parent L1 state {our_state_root[:16]} — our state diverged from the producer; "
@@ -1908,6 +1928,9 @@ class CoreClient(threading.Thread):
             from ops.settlement_ops import settled_header_commitment
             our_exec_cursor, our_exec_root = settled_header_commitment()
             if block.get("exec_root") != our_exec_root or block.get("exec_cursor") != our_exec_cursor:
+                # count/report L2 divergence too — the rejects series documents "L1/L2 root" mismatches
+                self._record_reject(block, f"{our_exec_cursor}/{our_exec_root}",
+                                    f"{block.get('exec_cursor')}/{block.get('exec_root')}", layer="L2")
                 raise ValueError(
                     f"Block {block['block_number']} L2 settled (cursor={block.get('exec_cursor')}, "
                     f"root={str(block.get('exec_root'))[:16]}) != our as-of-parent "

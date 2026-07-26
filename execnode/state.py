@@ -379,8 +379,14 @@ class ExecState:
         self.randao_reveals = {int(e): set(v) for e, v in d.get("randao_reveals", {}).items()}
         self.beacons = {int(e): int(v) for e, v in d.get("beacons", {}).items()}
         self.beacon_floor = d.get("beacon_floor")
-        self.blockhash_floor = d.get("blockhash_floor")
         self.block_hashes = {int(h): int(v) for h, v in d.get("block_hashes", {}).items()}
+        # blockhash_floor: prefer the stored value; a payload from PRE-floor code lacks the key, but the ring
+        # itself tells us how far back this node's window reaches — derive min(recorded). Stamping the floor
+        # lazily at the NEXT record instead would mislabel a complete-from-genesis window as freshly-started
+        # and block settlement for a full ring (~20000 blocks) after every upgrade/bootstrap from an old donor.
+        self.blockhash_floor = d.get("blockhash_floor")
+        if self.blockhash_floor is None and self.block_hashes:
+            self.blockhash_floor = min(self.block_hashes)
         self.zk_addrs = d.get("zk_addrs", {})
         self._touch()          # also (re)creates the cache fields on a bare clone() instance
 
@@ -687,9 +693,13 @@ class ExecState:
         cur_epoch = self.cursor // EPOCH_LENGTH
         beacon_ok = (self.beacon_floor is not None
                      and self.beacon_floor <= max(_GENESIS_BEACON_FLOOR, cur_epoch - _BEACON_RETENTION_EPOCHS))
-        # blockhash_floor None = we have recorded no hashes yet (nothing to be non-canonical about)
-        bh_ok = (self.blockhash_floor is None
-                 or self.blockhash_floor <= max(1, self.cursor - _BLOCKHASH_RING))
+        # FAIL CLOSED on an unknown blockhash window: floor None with blocks already applied (cursor >= 0)
+        # means we cannot prove how far back the ring reaches (an empty ring after applies is itself the
+        # anomaly — record_block_hash runs on every applied body). _restore derives the floor from the ring
+        # for pre-floor payloads, so the None-with-data case never reaches here. A from-genesis node's first
+        # record stamps floor<=1 during its first apply, well before any settle poll consults this.
+        bh_ok = (self.blockhash_floor is not None
+                 and self.blockhash_floor <= max(1, self.cursor - _BLOCKHASH_RING))
         return beacon_ok and bh_ok
 
     def record_block_hash(self, height, block_hash):
@@ -701,9 +711,10 @@ class ExecState:
             h = int(height)
             if h < 0 or not isinstance(block_hash, str) or not block_hash:
                 return
+            v = int(block_hash, 16)             # parse FIRST — a malformed hash must not pin the floor
             if self.blockhash_floor is None:
                 self.blockhash_floor = h        # provenance: the earliest L1 height this node ever recorded
-            self.block_hashes[h] = int(block_hash, 16)
+            self.block_hashes[h] = v
             if len(self.block_hashes) > _BLOCKHASH_RING:
                 for k in sorted(self.block_hashes)[:len(self.block_hashes) - _BLOCKHASH_RING]:
                     self.block_hashes.pop(k, None)

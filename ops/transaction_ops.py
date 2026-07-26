@@ -693,7 +693,7 @@ def validate_transaction(transaction, logger, block_height):
     if "data" in transaction:
         from ops import codec as _codec
         try:
-            _codec.pack(transaction["data"])          # also rejects NaN/Infinity (codec allow_nan=False)
+            _codec.pack(transaction["data"])
         except Exception:
             raise AssertionError("transaction data is not storage-encodable")
         # BROWSER-REPRODUCIBILITY + determinism: reject any float anywhere in `data`. `data` rides into the

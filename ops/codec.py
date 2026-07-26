@@ -3,11 +3,12 @@ cannot pack integers wider than 64 bits: a 256-bit value inside an opaque execut
 overflowed msgpack (`OverflowError: Integer value out of range`) and wedged block storage AND the peer
 wire. JSON encodes arbitrary-precision integers natively, so any blob payload round-trips.
 
-CANONICAL: the packed bytes of a value stored in a SNAPSHOT_DB ARE hashed into the L1 state root
-(snapshot_ops._leaf → merkle), so pack() MUST be deterministic — `sort_keys=True` normalizes dict key
-order (a stored doc built by merging caller-ordered `data` must not inherit the sender's key order into the
-root) and `allow_nan=False` rejects NaN/Infinity (their JSON tokens are non-standard and not browser-
-reproducible). Bytes ride as base64."""
+CONSENSUS-SENSITIVE: the packed bytes of a value stored in a SNAPSHOT_DB ARE hashed into the L1 state root
+(snapshot_ops._leaf → merkle), so pack() must be byte-stable. Stability comes from every WRITER fixing dict
+order at the source (kv_ops._normalize canonicalizes account docs; other stored docs are fixed-order
+literals) — deliberately NOT from sort_keys here; see pack()'s docstring for why adding it forks the chain.
+NaN/Infinity are kept out at the tx-admission gate (transaction_ops._has_float), not here. Bytes ride as
+base64."""
 import json
 import base64
 

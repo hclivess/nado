@@ -160,16 +160,23 @@ def l1_state_root(home=None):
     return merkle_root(_root_triples(read_state(home)))
 
 
-def per_db_roots(home=None):
-    """{sub_db_name: (merkle_root, row_count)} over the CONSENSUS subset — the SAME _root_triples that
-    l1_state_root() commits, grouped per sub-DB. Pure DIAGNOSTIC (no consensus path): comparing this map
-    between two nodes at the same tip localizes a state divergence to the exact sub-DB in ONE shot, instead
-    of the replay harness the alphanet-8 h4260 wedge needed to find the meta-DB drift. Order-preserving so
-    the output is deterministic. Served by /state_health and logged on a state-root gate refusal."""
+def state_fingerprint(home=None):
+    """(l1_state_root, {sub_db: (merkle_root, row_count)}) derived from ONE read_state() walk — a single
+    MVCC snapshot, so the overall root and its per-DB breakdown are guaranteed consistent with EACH OTHER.
+    Pure DIAGNOSTIC (no consensus path): comparing the map between two nodes at the same tip localizes a
+    state divergence to the exact sub-DB in one shot (the alphanet-8 h4260 wedge needed a replay harness for
+    this). Computing root and breakdown from separate walks would let a block commit between them and produce
+    a root that doesn't correspond to its own breakdown — a self-inconsistent diagnostic."""
+    triples = _root_triples(read_state(home))
     by = {}
-    for name, key, value in _root_triples(read_state(home)):
+    for name, key, value in triples:
         by.setdefault(name, []).append((name, key, value))
-    return {name: (merkle_root(rows), len(rows)) for name, rows in by.items()}
+    return merkle_root(triples), {name: (merkle_root(rows), len(rows)) for name, rows in by.items()}
+
+
+def per_db_roots(home=None):
+    """{sub_db: (merkle_root, row_count)} — the breakdown half of state_fingerprint (one walk)."""
+    return state_fingerprint(home)[1]
 
 
 def _pack_chunks(triples):
@@ -188,6 +195,18 @@ def _pack_chunks(triples):
     return chunk_bytes, chunk_meta
 
 
+def state_digest(triples):
+    """blake2b over the FULL canonical (db, key, value) triple list — every row a snapshot carries, INCLUDING
+    the ones _root_triples excludes from the consensus root. This is the payload authenticator: it rides in
+    manifest_hash, so the quorum-agreed snapshot_hash commits to every transferred byte, while staying
+    INVARIANT to how the payload is split into chunks (unlike the chunk sha256 list it replaces, which was
+    keyed by the NADO_SNAPSHOT_CHUNK_ROWS env). Order is the caller's canonical sort."""
+    h = hashlib.blake2b(digest_size=32)
+    for t in triples:
+        h.update(hashlib.blake2b(_leaf(t), digest_size=32).digest())
+    return h.hexdigest()
+
+
 def build_snapshot(snapshot_height, block_hash, protocol, version, home=None):
     """build a manifest + chunk payloads committing the FULL consensus state at the given checkpoint height.
     Returns (manifest_dict, list_of_chunk_bytes). Pure function of the state DB."""
@@ -202,6 +221,14 @@ def build_snapshot(snapshot_height, block_hash, protocol, version, home=None):
         "snapshot_height": snapshot_height,
         "block_hash": block_hash,
         "state_root": state_root,
+        # PAYLOAD DIGEST over the FULL triple list — including every row the state_root EXCLUDES
+        # (block storage, finalized_height/pruned_below, execsum:, tvprev*). Chunking-invariant (it
+        # hashes the canonical rows, not the transport split), so it authenticates the whole payload
+        # without re-introducing the CHUNK_ROWS-sensitivity that chunk_count/sha256 had. See
+        # manifest_hash + import_snapshot: without this, a donor matching an honest snapshot_hash could
+        # substitute arbitrary EXCLUDED rows (a forged finalized_height permanently wedges rollback; a
+        # forged block_by_num row forges the epoch-beacon anchor) — entry_count alone is only a count.
+        "state_digest": state_digest(triples),
         "entry_count": len(triples),
         "chunk_count": len(chunk_meta),
         "chunks": chunk_meta,
@@ -233,8 +260,10 @@ def manifest_hash(manifest) -> str:
     reassembles all chunks and re-derives state_root against the manifest), and each chunk's sha256 still
     guards DOWNLOAD integrity via verify_chunk — it just no longer participates in the consensus identity."""
     core = {k: manifest[k] for k in (
-        "snapshot_height", "block_hash", "state_root", "entry_count", "protocol") if k in manifest}
-    # sort_keys for deterministic serialization across peers/python versions
+        "snapshot_height", "block_hash", "state_root", "state_digest", "entry_count", "protocol")
+        if k in manifest}
+    # _canonical (above) sorts keys recursively -> deterministic serialization across peers/python
+    # versions; codec.pack itself does NOT sort (see ops/codec.py), so the _canonical call is load-bearing.
     packed = codec.pack(_canonical(core))
     return _blake2b(packed)
 
@@ -259,8 +288,10 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
     manifest, then atomically replace the ENTIRE consensus state (kv_ops.SNAPSHOT_DBS). Block + tx history
     indexes are left untouched — the caller replays the C+1..tip tail, which rebuilds them.
 
-    Returns True on success. A donor cannot feed corrupted state without failing either a per-chunk sha256
-    or the recomputed state_root, and it can only write into the allowed SNAPSHOT_DBS sub-DBs."""
+    Returns True on success. A donor cannot feed corrupted state without failing the recomputed state_root
+    (consensus rows) or the recomputed state_digest (EVERY row, including the root-excluded ones — block
+    storage, finalized_height/pruned_below, execsum:, tvprev*), and it can only write into the allowed
+    SNAPSHOT_DBS sub-DBs. Both are bound into snapshot_hash, which the peer quorum agreed on."""
     home = home or get_home()
 
     # 1) manifest self-consistency
@@ -293,6 +324,13 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
         return False
     if merkle_root(_root_triples(triples)) != manifest["state_root"]:
         _log(logger, "error", "snapshot state_root mismatch after reassembly")
+        return False
+    # PAYLOAD AUTHENTICATION: state_root covers only the CONSENSUS subset, so without this a donor matching
+    # the quorum-agreed snapshot_hash could substitute any EXCLUDED row (a forged finalized_height wedges
+    # rollback permanently; a forged block_by_num forges the epoch-beacon anchor). entry_count is a count,
+    # not a digest, so an in-place value edit keeps it exact. state_digest covers every transferred row.
+    if manifest.get("state_digest") != state_digest(triples):
+        _log(logger, "error", "snapshot state_digest mismatch after reassembly (payload tampered)")
         return False
 
     # 4) atomically replace the WHOLE consensus state (all SNAPSHOT_DBS) in ONE write txn
@@ -561,7 +599,7 @@ def migrate_checkpoint_hashes(logger=None, home=None):
     checkpoints (and reaching agree_snapshot quorum with peers) instead of having them rejected by the
     self-hash gate (import_snapshot / snapshot_manifest) until the next CHECKPOINT_INTERVAL rebuild. Never
     fatal: a bad manifest is skipped; a stale checkpoint costs a donor slot, never a block."""
-    fixed = 0
+    fixed = dropped = 0
     try:
         heights = list_checkpoint_heights(home)
     except Exception:
@@ -574,6 +612,14 @@ def migrate_checkpoint_hashes(logger=None, home=None):
             correct = manifest_hash(m)          # reads only the core keys — independent of m's stored hash/version
             if m.get("snapshot_hash") == correct:
                 continue
+            # A manifest predating `state_digest` cannot be re-stamped: the digest covers the PAYLOAD, which
+            # the manifest alone does not carry, so re-hashing would publish a checkpoint whose authenticator
+            # is absent — import_snapshot would reject it only AFTER a joiner downloaded everything. DROP it;
+            # the next CHECKPOINT_INTERVAL rebuilds a complete one from live state.
+            if not m.get("state_digest"):
+                shutil.rmtree(_ckpt_path(h, home), ignore_errors=True)
+                dropped += 1
+                continue
             m["snapshot_hash"] = correct
             path = f"{_ckpt_path(h, home)}/manifest.json"
             tmp = path + ".tmp"
@@ -583,8 +629,9 @@ def migrate_checkpoint_hashes(logger=None, home=None):
             fixed += 1
         except Exception:
             continue
-    if fixed and logger:
-        logger.warning(f"Migrated {fixed} checkpoint manifest hash(es) to the current snapshot-identity formula")
+    if (fixed or dropped) and logger:
+        logger.warning(f"Checkpoint manifest migration: {fixed} re-stamped to the current snapshot-identity "
+                       f"formula, {dropped} dropped (predate the payload digest; will rebuild)")
     return fixed
 
 

@@ -314,6 +314,43 @@ def test_manifest_hash_ignores_version():
           manifest_hash(clean) == manifest_hash(rechunked))
     check("state_root + entry_count still pin the payload (a state_root change is caught above)",
           manifest_hash(clean) != manifest_hash(dict(clean, entry_count=99)))
+    check("the payload digest IS part of the snapshot identity (authenticates root-EXCLUDED rows)",
+          manifest_hash(dict(clean, state_digest="aa" * 32)) != manifest_hash(dict(clean, state_digest="bb" * 32)))
+
+
+def test_snapshot_payload_authenticated():
+    """A donor that copies an honest manifest's core fields can match the quorum-agreed snapshot_hash, so the
+    PAYLOAD must be authenticated separately: state_root covers only the CONSENSUS subset, leaving the
+    root-EXCLUDED rows (block storage, finalized_height/pruned_below, execsum:, tvprev*) unbound. A forged
+    finalized_height would wedge the victim's rollback FOREVER (FinalityViolation floor). state_digest covers
+    every transferred row; entry_count alone is a count, so an in-place value edit keeps it exact."""
+    import hashlib
+    _fresh_home("nado_div_snapauth_")
+    from ops import account_ops, kv_ops, codec
+    from ops.snapshot_ops import build_snapshot, import_snapshot, manifest_hash
+
+    account_ops.create_account("a", balance=100)
+    kv_ops.meta_set_int("finalized_height", 5)          # the ROOT-EXCLUDED attack target
+    man, chunks = build_snapshot(100, "bh" * 32, 9, "v1")
+    check("a built manifest carries a payload digest", bool(man.get("state_digest")))
+    check("the honest payload imports", import_snapshot(man, chunks) is True)
+
+    triples = []
+    for cb in chunks:
+        for row in codec.unpack(cb):
+            triples.append((row[0], bytes(row[1]), bytes(row[2])))
+    poisoned = [(n, k, codec.pack(10 ** 12) if (n == "meta" and k == b"finalized_height") else v)
+                for n, k, v in triples]
+    pchunk = codec.pack([[n, k, v] for n, k, v in poisoned])
+    evil = dict(man)                                     # honest core fields, attacker's payload
+    evil["chunks"] = [{"id": 0, "sha256": hashlib.sha256(pchunk).hexdigest(),
+                       "bytes": len(pchunk), "rows": len(poisoned)}]
+    evil["chunk_count"] = 1
+    evil["snapshot_hash"] = manifest_hash(evil)
+    check("the attacker CAN still match the agreed snapshot_hash (core fields are copyable)",
+          evil["snapshot_hash"] == man["snapshot_hash"])
+    check("but a payload with a tampered ROOT-EXCLUDED row is REJECTED at import",
+          import_snapshot(evil, [pchunk]) is False)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -452,6 +489,7 @@ if __name__ == "__main__":
               test_tx_data_rejects_floats,
               test_bridge_escrow_revert_roundtrips,
               test_manifest_hash_ignores_version,
+              test_snapshot_payload_authenticated,
               test_withdraw_matches_pending):
         print(f"\n--- {t.__name__} ---")
         t()
