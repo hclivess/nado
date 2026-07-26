@@ -13,7 +13,7 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-8"   # STATE-ROOT-BINDING reroll (2026-07-25): fresh genesis lineage, see CHAIN_GENERATION
+CHAIN_ID = "alphanet-9"   # CLEAN-BREAK reroll (2026-07-26): distinct genesis lineage, see CHAIN_GENERATION 10
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -39,7 +39,9 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1784932061  # alphanet-8 — the state-root-binding reroll (fresh genesis hash)
+GENESIS_TIMESTAMP = 1785076800  # alphanet-9 — the clean-break reroll (DISTINCT genesis hash; gen 7-9 reused
+                                # alphanet-8's genesis, so stranded old-code nodes on the same genesis kept
+                                # winning our fork choice — see CHAIN_GENERATION 10)
                                 # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
                                 # production starts immediately. The root scheme is final: depth 256 saturates
                                 # the hash's collision resistance and every future proof extension rides the
@@ -303,7 +305,15 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   the briefly-live codec.pack sort_keys (reverted in c6a3c86). Those blocks committed a sorted-codec genesis
 #   root (dba6a24a) that the reverted codec no longer computes, so the gen-8 marker (no re-purge on restart)
 #   left the fleet wedged at block 2. Gen-9 = identical code to gen-8-minus-sort_keys, fresh genesis.
-CHAIN_GENERATION = 9
+# 10 (2026-07-26): CLEAN-BREAK reroll — NEW CHAIN_ID + GENESIS_TIMESTAMP, so the genesis hash is finally
+#   DISTINCT. Diagnosis: gen 7/8/9 all reused alphanet-8's genesis (only CHAIN_GENERATION moved), so two
+#   stranded, un-updatable old-code nodes (103.236.77.189/.178, protocol 6) that share genesis 92302805 but
+#   hold a COMPLETELY different 12600-block chain kept out-weighing our fresh chain in fork choice. Our nodes
+#   selected them as sync donors, chased an unadoptable heavier tip, rolled back, failed, and repeated —
+#   ~22 rollbacks/3min, "Consensus OUTSIDE majority (20% / 5 peers)", finality dragging, with ZERO state
+#   divergence (they never actually adopted the foreign blocks). A distinct genesis removes them from the
+#   linkage AND the chain_id-gated peer/status pool, which is exactly why gen-4 re-cut both constants.
+CHAIN_GENERATION = 10
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
