@@ -51,7 +51,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "block_loc", "gc_revert", "execsum_revert")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
 
 # CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block-body + tx HISTORY (explorer-only,
@@ -85,7 +85,7 @@ _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 #               C+1..tip tail replay rebuilds byte-for-byte as it re-incorporates each block. wipe_non_carried_dbs
 #               (all-DBs - SNAPSHOT_DBS) clears any stale residue on re-anchor. So they belong here, not in the root.
 _LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_revert", "msgkey_revert",
-                        "execsum_revert"))
+                        "execsum_revert", "attest_memo"))
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS))
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -630,6 +630,45 @@ def exec_summary_get(height: int):
         raw = txn.get(_exec_summary_key(height).encode(), db=_dbs()["meta"])
         return _unpack(raw) if raw is not None else None
     return _read(_do)
+
+
+def attest_memo_get(epoch: int):
+    """The checkpoint hash this node has ALREADY signed an attestation for at `epoch`, or None.
+
+    EQUIVOCATION SELF-PROTECTION. An attestation signs {target_epoch, target_hash}. The duty loop re-reads
+    target_hash from the local tip every pass while its attestation has not landed, so a reorg that
+    rewrites the epoch's checkpoint block makes an HONEST node sign a SECOND attestation: same epoch,
+    different hash. Both are gossiped, and together they are a valid, unforgeable equivocation proof —
+    anyone who scraped both can slash this validator's bond for a reorg it did not cause. The mempool
+    dedup guard does not help: the first tx leaves the pool ~5 blocks later when max_block passes, and it
+    is not persisted, so a restart forgets entirely. NODE-LOCAL (attest_memo is in _LOCAL_DBS): this is a
+    safety interlock about THIS node's signing history, never consensus state."""
+    def _do(txn):
+        raw = txn.get(f"{int(epoch)}".encode(), db=_dbs()["attest_memo"])
+        return raw.decode() if raw is not None else None
+    return _read(_do)
+
+
+def attest_memo_put(epoch: int, target_hash: str):
+    """Record (epoch -> target_hash) BEFORE signing. Write-then-sign is the crash-safe order: a crash
+    after the write costs at most a skipped attestation, whereas a crash after signing but before the
+    write would let the node re-sign a DIFFERENT hash for the same epoch — the exact slashable event."""
+    def _do(txn):
+        txn.put(f"{int(epoch)}".encode(), str(target_hash).encode(), db=_dbs()["attest_memo"])
+    _write(_do)
+
+
+def attest_memo_prune(below_epoch: int):
+    """Drop memos for epochs far behind — an epoch that can no longer be attested cannot be equivocated."""
+    def _do(txn):
+        with txn.cursor(db=_dbs()["attest_memo"]) as cur:
+            for k, _v in list(cur):
+                try:
+                    if int(k.decode()) < int(below_epoch):
+                        txn.delete(k, db=_dbs()["attest_memo"])
+                except Exception:
+                    continue
+    _write(_do)
 
 
 def execsum_revert_put(block_height: int, pruned_height: int, doc):

@@ -1400,6 +1400,7 @@ class CoreClient(threading.Thread):
             prune_local_revert_records(self.memserver.finalized_height)
             try:
                 kv_ops.execsum_revert_prune(self.memserver.finalized_height)
+                kv_ops.attest_memo_prune(self.memserver.finalized_height // EPOCH_LENGTH - 2)
             except Exception:
                 pass
 
@@ -1486,7 +1487,29 @@ class CoreClient(threading.Thread):
             if X >= 1 and not kv_ops.attestation_exists(X, me):
                 checkpoint_hash = get_block_hash_by_number(X * EPOCH_LENGTH)
                 if checkpoint_hash:
-                    attest = {"target_epoch": X, "target_hash": checkpoint_hash}
+                    # EQUIVOCATION SELF-PROTECTION. target_hash is re-read from the local tip on every
+                    # pass while our attestation has not landed, so a reorg that rewrites this epoch's
+                    # checkpoint would make us sign a SECOND attestation for the SAME epoch with a
+                    # DIFFERENT hash. Both are gossiped; together they are a valid, unforgeable
+                    # equivocation proof and anyone can slash our bond for a reorg we did not cause. The
+                    # mempool guard below cannot prevent it (the first tx leaves the pool when max_block
+                    # passes, and a restart forgets it entirely), so consult a PERSISTED memo instead.
+                    _prev = kv_ops.attest_memo_get(X)
+                    if _prev is not None and _prev != checkpoint_hash:
+                        # Already signed a different hash for this epoch: attesting again is slashable.
+                        # Skip the attest section — the commit/reveal sections below are unaffected, and
+                        # we simply sit out this epoch's vote rather than sign a self-slashing pair.
+                        self.logger.warning(
+                            f"Epoch {X}: NOT re-attesting — already signed checkpoint {_prev[:12]}… and the "
+                            f"local checkpoint is now {checkpoint_hash[:12]}… (a reorg rewrote it). Signing "
+                            f"both would be a slashable equivocation against ourselves.")
+                    else:
+                        if _prev is None:
+                            # WRITE BEFORE SIGN: a crash after this costs at most a skipped attestation;
+                            # a crash after signing but before the write would let us re-sign a different
+                            # hash — the exact slashable event this guards.
+                            kv_ops.attest_memo_put(X, checkpoint_hash)
+                        attest = {"target_epoch": X, "target_hash": checkpoint_hash}
             e_commit = X + 2
             if kv_ops.commit_get(me, e_commit) is None:
                 secret = self.memserver.randao_secrets.get(e_commit) or _secrets.token_hex(32)

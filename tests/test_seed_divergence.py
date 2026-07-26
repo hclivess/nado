@@ -405,6 +405,47 @@ def test_snapshot_payload_authenticated():
           kv_ops.meta_get_int("finalized_height", None) == 1000)
 
 
+def test_no_self_equivocation_across_reorg():
+    """An attestation signs {target_epoch, target_hash}. The duty loop re-reads target_hash from the local
+    tip on every pass while its attestation has not landed, so a reorg that rewrites the epoch's checkpoint
+    made an HONEST node sign a SECOND attestation: same epoch, different hash. Both are gossiped, and
+    together they are a valid, unforgeable equivocation proof — anyone who scraped both could slash this
+    validator's bond for a reorg it did not cause, repeatable per epoch until the stake was gone. The
+    mempool dedup guard could not prevent it (the first tx leaves the pool when max_block passes, and a
+    restart forgot it entirely). A PERSISTED node-local memo now makes a second, differing signature
+    impossible."""
+    _fresh_home("nado_div_equiv_")
+    from ops import kv_ops
+
+    X = 7
+
+    def would_sign(local_hash):            # mirrors maybe_epoch_duty's decision
+        prev = kv_ops.attest_memo_get(X)
+        if prev is not None and prev != local_hash:
+            return None
+        if prev is None:
+            kv_ops.attest_memo_put(X, local_hash)
+        return {"target_epoch": X, "target_hash": local_hash}
+
+    first = would_sign("aaaa1111")
+    again = would_sign("aaaa1111")         # not landed yet, same tip -> identical, harmless
+    after_reorg = would_sign("bbbb2222")   # a reorg rewrote the epoch checkpoint
+
+    check("the first attestation is signed normally", first is not None)
+    check("re-signing the SAME checkpoint is still allowed (idempotent, not equivocation)",
+          again == first)
+    check("after a reorg the node REFUSES to attest a different hash for the same epoch",
+          after_reorg is None)
+    signed = {x["target_hash"] for x in (first, again, after_reorg) if x}
+    check("no slashable pair is ever produced (one hash per epoch)", len(signed) == 1)
+
+    kv_ops.close_all()                     # the old guard was mempool-only and forgot across a restart
+    check("the memo is PERSISTED, so a restart still refuses", kv_ops.attest_memo_get(X) == "aaaa1111")
+    check("...and a post-restart re-attest with the new hash is refused", would_sign("bbbb2222") is None)
+    check("the memo is NODE-LOCAL (never in the root or a snapshot)",
+          "attest_memo" in kv_ops._LOCAL_DBS and "attest_memo" not in kv_ops.SNAPSHOT_DBS)
+
+
 def test_execsum_window_survives_rollback():
     """execsum:<h> is block_summary(block) — a PURE function of the block body — written for every block
     and pruned by a deterministic height rule, so two honest nodes at the same tip MUST hold the identical
@@ -706,6 +747,7 @@ if __name__ == "__main__":
               test_bridge_escrow_revert_roundtrips,
               test_manifest_hash_ignores_version,
               test_snapshot_payload_authenticated,
+              test_no_self_equivocation_across_reorg,
               test_execsum_window_survives_rollback,
               test_state_fingerprint_is_single_walk_and_consistent,
               test_all_db_pairs_single_txn_snapshot,
