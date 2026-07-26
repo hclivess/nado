@@ -194,6 +194,19 @@ def verify_attestation_equivocation_proof(proof):
         def _open(tx):
             if not isinstance(tx, dict) or tx.get("recipient") not in ("attest", "duty"):
                 return None
+            # CHAIN BINDING (critical): the attested content is {target_epoch, target_hash} — both
+            # chain-INDEPENDENT (epoch numbering restarts at 0 at every genesis). Without this check an
+            # attacker could pair a validator's attestation from a PREVIOUS chain generation with its
+            # attestation for the same epoch number on THIS chain: both signatures verify, both bind to the
+            # sender, the epochs match, and the target_hashes differ (different lineage) — a valid-looking
+            # equivocation proof that burns an honest validator's bond, repeatable once per overlapping
+            # epoch until the stake is gone. Old-generation bodies survive rerolls on disk and in backups,
+            # so this is reachable in practice (it went live the moment alphanet-8 was rerolled to
+            # alphanet-9). The block-authorship proof is implicitly chain-bound via parent_hash; this one
+            # is not, so bind it explicitly. chain_id is inside the signed txid preimage, so it cannot be
+            # forged onto a foreign-chain attestation.
+            if tx.get("chain_id") != CHAIN_ID:
+                return None
             pk, sig, txid, sender = tx.get("public_key"), tx.get("signature"), tx.get("txid"), tx.get("sender")
             if not (pk and sig and txid and sender) or not isinstance(sig, str):
                 return None

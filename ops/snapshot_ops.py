@@ -208,6 +208,15 @@ def state_digest(triples):
     keyed by the NADO_SNAPSHOT_CHUNK_ROWS env). Order is the caller's canonical sort."""
     h = hashlib.blake2b(digest_size=32)
     for t in triples:
+        # Skip the NODE-LOCAL meta rows. They are carried for a joiner's convenience but two honest peers
+        # legitimately hold DIFFERENT values at the same checkpoint (finalized_height advances by peer
+        # corroboration, pruned_below by local retention). Hashing them would make each peer advertise a
+        # different snapshot_hash for identical state and split agree_snapshot's 0.8 vote — the exact
+        # quorum-split class already fixed for `version` and the chunk list. Their AUTHENTICITY is instead
+        # enforced by import_snapshot clamping them to the snapshot height, so a forged value cannot wedge
+        # a joiner's rollback (an unclamped forged finalized_height is a permanent FinalityViolation floor).
+        if t[0] == "meta" and t[1] in ROOT_EXCLUDED_META_KEYS:
+            continue
         h.update(hashlib.blake2b(_leaf(t), digest_size=32).digest())
     return h.hexdigest()
 
@@ -337,6 +346,23 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
     if manifest.get("state_digest") != state_digest(triples):
         _log(logger, "error", "snapshot state_digest mismatch after reassembly (payload tampered)")
         return False
+
+    # 3b) CLAMP the node-local rows the digest deliberately does not authenticate. finalized_height is an
+    # un-crossable rollback floor (rollback_one_block raises FinalityViolation), so a donor-supplied value
+    # above this snapshot's own height would permanently prevent the joiner from ever reorging — an
+    # unrecoverable wedge from one unauthenticated peer. Neither row can legitimately exceed the checkpoint
+    # height, so clamp rather than trust; both re-advance on their own from applied blocks.
+    _cap = int(manifest.get("snapshot_height") or 0)
+    _clamped = []
+    for _n, _k, _v in triples:
+        if _n == "meta" and _k in ROOT_EXCLUDED_META_KEYS:
+            try:
+                if int(codec.unpack(_v)) > _cap:
+                    _v = codec.pack(_cap)
+            except Exception:
+                _v = codec.pack(0)
+        _clamped.append((_n, _k, _v))
+    triples = _clamped
 
     # 4) atomically replace the WHOLE consensus state (all SNAPSHOT_DBS) in ONE write txn
     kv_ops.init_env(home)

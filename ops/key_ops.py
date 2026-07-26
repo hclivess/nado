@@ -27,6 +27,16 @@ def load_keys(file=f"{get_home()}/private/keys.dat"):
     /mining_status and the producer registries, contract deploys, operator scripts — would then act as
     an address that owns nothing. make_address is deterministic, so this is a no-op for a current keyfile.
     """
+    # SELF-HEAL PERMISSIONS: save_keys writes 0600, but it only runs when no keyfile exists. A keyfile
+    # created before that (or copied/restored by a backup, or left by an editor) stays world-readable
+    # FOREVER — and this file holds the plaintext ML-DSA seed, i.e. the node's full signing identity
+    # (spends, block authorship, attestations). Found at 0644 on the live public node. Tighten on every
+    # load so the loose state cannot persist; never fail the load over it.
+    try:
+        if os.path.exists(file) and (os.stat(file).st_mode & 0o077):
+            os.chmod(file, 0o600)
+    except Exception:
+        pass
     with open(file, "r") as keyfile:
         keydict = json.load(keyfile)
     try:

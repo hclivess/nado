@@ -327,7 +327,7 @@ def test_snapshot_payload_authenticated():
     import hashlib
     _fresh_home("nado_div_snapauth_")
     from ops import account_ops, kv_ops, codec
-    from ops.snapshot_ops import build_snapshot, import_snapshot, manifest_hash
+    from ops.snapshot_ops import build_snapshot, import_snapshot, manifest_hash, state_digest
 
     account_ops.create_account("a", balance=100)
     kv_ops.meta_set_int("finalized_height", 5)          # the ROOT-EXCLUDED attack target
@@ -339,8 +339,12 @@ def test_snapshot_payload_authenticated():
     for cb in chunks:
         for row in codec.unpack(cb):
             triples.append((row[0], bytes(row[1]), bytes(row[2])))
-    poisoned = [(n, k, codec.pack(10 ** 12) if (n == "meta" and k == b"finalized_height") else v)
-                for n, k, v in triples]
+    # Tamper a root-excluded row that is NOT node-local: block storage. (finalized_height/pruned_below are
+    # deliberately outside the digest — honest peers legitimately differ there — and are defended by the
+    # import-time CLAMP instead; that is asserted separately below.)
+    poisoned = [(n, k, b"forged-orphan-body" if n == "block_by_hash" else v) for n, k, v in triples]
+    if not any(n == "block_by_hash" for n, _, _ in triples):
+        poisoned = poisoned + [("block_by_hash", b"\x01" * 32, b"forged-orphan-body")]
     pchunk = codec.pack([[n, k, v] for n, k, v in poisoned])
     evil = dict(man)                                     # honest core fields, attacker's payload
     evil["chunks"] = [{"id": 0, "sha256": hashlib.sha256(pchunk).hexdigest(),
@@ -351,6 +355,28 @@ def test_snapshot_payload_authenticated():
           evil["snapshot_hash"] == man["snapshot_hash"])
     check("but a payload with a tampered ROOT-EXCLUDED row is REJECTED at import",
           import_snapshot(evil, [pchunk]) is False)
+
+    # NODE-LOCAL rows (finalized_height/pruned_below) cannot be in the digest — two honest peers hold
+    # different values at the same checkpoint, and hashing them would split agree_snapshot's quorum for
+    # identical state. They are defended by CLAMPING to the snapshot height on import instead: an
+    # unclamped forged finalized_height is an un-crossable rollback floor, i.e. a permanent wedge.
+    d_a = state_digest(triples)
+    d_b = state_digest([(n, k, codec.pack(999) if (n == "meta" and k == b"finalized_height") else v)
+                        for n, k, v in triples])
+    check("state_digest is INVARIANT to node-local finalized_height (no quorum split)", d_a == d_b)
+
+    forged = [(n, k, codec.pack(10 ** 12) if (n == "meta" and k == b"finalized_height") else v)
+              for n, k, v in triples]
+    fchunk = codec.pack([[n, k, v] for n, k, v in forged])
+    fm = dict(man)
+    fm["chunks"] = [{"id": 0, "sha256": hashlib.sha256(fchunk).hexdigest(),
+                     "bytes": len(fchunk), "rows": len(forged)}]
+    fm["chunk_count"] = 1
+    fm["snapshot_hash"] = manifest_hash(fm)
+    check("a forged finalized_height still IMPORTS (it is not digest-covered)",
+          import_snapshot(fm, [fchunk]) is True)
+    check("...but is CLAMPED to the snapshot height, so it cannot wedge rollback",
+          kv_ops.meta_get_int("finalized_height", None) <= man["snapshot_height"])
 
 
 # ---------------------------------------------------------------------------------------------------

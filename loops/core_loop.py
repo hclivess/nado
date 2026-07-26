@@ -1353,9 +1353,17 @@ class CoreClient(threading.Thread):
         # accountable, slashable). Folding FFG in makes a stake-finalized checkpoint UN-REORGABLE
         # (rollback_one_block refuses to cross finalized_height), so remote sync can never adopt a heavier
         # chain that conflicts with it — the safety FFG was built for, now enforced instead of merely
-        # observed. FFG normally trails the depth floor, so on a healthy synced node this is the depth
-        # floor; it binds when FFG is ahead (e.g. a shallow finality_depth, or a node catching up whose
-        # depth floor hasn't advanced yet).
+        # MEASURED REALITY (do not trust the paragraph above on this point): the FFG term can NEVER win
+        # this max() in any legal configuration. ffg_finalized_checkpoint requires the CHILD checkpoint
+        # block (e+1)*EPOCH_LENGTH to exist, so ffg_final <= tip - EPOCH_LENGTH = tip - 60; memserver
+        # asserts max_rollbacks < finality_depth < EPOCH_LENGTH and lifts finality_depth to at least
+        # FINALITY_DEPTH, so finality_depth in [45, 59] and depth_final = tip - finality_depth >= tip - 59.
+        # Hence ffg_final < depth_final ALWAYS. FFG is therefore OBSERVATIONAL today (still recorded,
+        # attested and slashable, and reported in /status) — the enforced floor is the corroborated depth
+        # floor. The ffg term and its gate below are kept as defence-in-depth so the formula stays correct
+        # if those bounds ever change; they are not load-bearing now. Anyone re-enabling real FFG
+        # enforcement must gate it on an FFG-specific liveness signal, NOT on heaviest_block_hash (which an
+        # attacker can withhold at zero cost).
         depth_final = block["block_number"] - self.memserver.finality_depth
         ffg_final = int(getattr(self.memserver, "ffg_finalized", 0) or 0)
         if not self._depth_floor_corroborated():
@@ -1370,7 +1378,8 @@ class CoreClient(threading.Thread):
             # purge-and-resync dead-fork path. FFG stays fully OBJECTIVE and accountable (the attestations
             # are still recorded and slashable, and ffg_finalized is still reported in /status); we only
             # decline to ENFORCE an un-reorgable floor from a chain view the visible network does not
-            # corroborate. Once corroboration returns, the same FFG checkpoint binds immediately.
+            # corroborate. (Given ffg_final < depth_final always, zeroing ffg here changes nothing today —
+            # it keeps the two floors consistent rather than leaving one ungated.)
             depth_final = 0
             ffg_final = 0
         new_final = max(self.memserver.finalized_height, depth_final, ffg_final)

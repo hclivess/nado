@@ -38,11 +38,19 @@ class MessageClient(threading.Thread):
         try:
             from loops.core_loop import majority_on_our_canonical
             from ops.block_ops import get_block, get_block_hash_by_number
-            if majority_on_our_canonical(majority_hash, get_block, get_block_hash_by_number):
-                return True                      # their tip is an ancestor of ours -> we are simply ahead
-            # We don't have their block at all: that is "behind / still fetching", not a proven fork. A real
-            # fork shows up as a block we DO have at that height with a different hash.
-            return get_block(majority_hash) is None
+            if not majority_on_our_canonical(majority_hash, get_block, get_block_hash_by_number):
+                # NOT a lag. Deliberately no "we don't hold their block -> assume we're just behind"
+                # fallback: not holding their block is the FORK signature, not the lag signature — it is
+                # the same predicate _depth_floor_corroborated uses to refuse advancing finality. Treating
+                # it as lag would report "in majority" straight through a real partition.
+                return False
+            # Their tip is an ancestor of ours: we are ahead. Only call that LAG while it is genuinely
+            # small — majority_on_our_canonical accepts ANY ancestor, so a node extending a minority fork
+            # far past a stalled peer set would otherwise render as a healthy "±1 block lag" forever.
+            blk = get_block(majority_hash)
+            if not blk:
+                return False
+            return (self.memserver.latest_block["block_number"] - blk["block_number"]) <= 2
         except Exception:
             return False                          # never let a health cosmetic raise
 
@@ -100,7 +108,7 @@ class MessageClient(threading.Thread):
             # small pool fires almost continuously and logs at WARN/ERROR — burying real events. Only an
             # actual FORK (same height, different hash, or an unrelated tip) is worth a warning.
             cons_level = "ok"
-            cons_detail = f"in majority ({agree_pct}% / {members} peers, ±1 block lag)"
+            cons_detail = f"in majority ({agree_pct}% / {members} peers, ≤2 block lag)"
         else:
             cons_level = "warn"
             cons_detail = f"OUTSIDE majority ({agree_pct}% / {members} peers)"
@@ -115,11 +123,20 @@ class MessageClient(threading.Thread):
             from ops.snapshot_ops import SNAPSHOT_MIN_PEERS
             distinct = len({st.get("address") for st in self.consensus.status_pool.values()
                             if isinstance(st, dict) and st.get("address")} - {self.memserver.address})
-            if distinct + 1 < SNAPSHOT_MIN_PEERS + 1:
-                components["Quorum"] = ("warn", f"{distinct + 1} distinct node(s) — below the "
-                                                f"{SNAPSHOT_MIN_PEERS + 1} needed for snapshot bootstrap")
+            fleet = distinct + 1
+            # What a JOINER actually needs: agree_snapshot counts RESPONDING PEERS (self excluded), so a
+            # fresh node arriving at a fleet of `fleet` nodes sees `fleet` peers and needs
+            # fleet >= SNAPSHOT_MIN_PEERS. At exactly that floor it works but with NO redundancy — one
+            # outage and no new node can snapshot-bootstrap (a configured seed can still serve a lone
+            # donor). Report that distinction honestly rather than inventing a bigger requirement.
+            if fleet < SNAPSHOT_MIN_PEERS:
+                components["Quorum"] = ("warn", f"{fleet} distinct node(s) — a joiner cannot snapshot-"
+                                                f"bootstrap (needs {SNAPSHOT_MIN_PEERS} donors)")
+            elif fleet == SNAPSHOT_MIN_PEERS:
+                components["Quorum"] = ("warn", f"{fleet} distinct nodes — meets the snapshot-bootstrap "
+                                                f"floor with NO redundancy (one outage blocks onboarding)")
             else:
-                components["Quorum"] = ("ok", f"{distinct + 1} distinct nodes")
+                components["Quorum"] = ("ok", f"{fleet} distinct nodes")
         except Exception:
             pass
 
