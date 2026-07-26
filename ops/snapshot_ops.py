@@ -207,6 +207,13 @@ def _pack_chunks(triples):
 # finalized_height, two did not, and their execsum: sets differed. agree_snapshot then cannot converge.
 # These rows are node-local or retention/rollback-path dependent, so they must be ABSENT from the payload
 # identity entirely; the importer reconstructs what it needs deterministically (see import_snapshot).
+# treasury_proposals is written first-writer-wins with NO _del, and the treasury_vote revert removes only
+# the vote — so a node that applied-then-reverted a proposal's first vote keeps a GHOST row a forward-only
+# node never had. It is already root-excluded for that reason, but it still rode in the payload, shifting
+# entry_count and state_digest and splitting snapshot identity between honest nodes. Unlike the execsum
+# case that split NEVER heals: nothing ever deletes the ghost. block_by_num/block_by_hash stay CARRIED —
+# a joiner needs them for deep hash-lookbacks, and their index writes are exact inverses that no path prunes.
+SNAPSHOT_PAYLOAD_EXCLUDED_DBS = frozenset(("treasury_proposals",))
 SNAPSHOT_PAYLOAD_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below"))
 # execsum: is deliberately NOT excluded. Block VALIDITY depends on it — validate_transaction resolves
 # every summary in a settle-with-proof span and fails closed on a miss — so a joiner that lacked the
@@ -226,9 +233,10 @@ def _payload_triples(triples):
     on. Order-preserving. Everything dropped here is already outside the state root, so state_root is
     unchanged whether it is computed over the full list or this one."""
     return [t for t in triples
-            if not (t[0] == "meta"
-                    and (t[1] in SNAPSHOT_PAYLOAD_EXCLUDED_META_KEYS
-                         or t[1].startswith(SNAPSHOT_PAYLOAD_EXCLUDED_META_PREFIXES)))]
+            if t[0] not in SNAPSHOT_PAYLOAD_EXCLUDED_DBS
+            and not (t[0] == "meta"
+                     and (t[1] in SNAPSHOT_PAYLOAD_EXCLUDED_META_KEYS
+                          or t[1].startswith(SNAPSHOT_PAYLOAD_EXCLUDED_META_PREFIXES)))]
 
 
 def state_digest(triples):

@@ -107,7 +107,11 @@ def note_observing():
                 data = {}
             if data.get(_SINCE_KEY):
                 return
-            data[_SINCE_KEY] = _day()
+            if not data and os.path.exists(_stats_path()):
+                return                        # file exists but did not parse — do NOT overwrite real history
+            # Prefer the earliest day we actually have a record for: stamping today on a node with months of
+            # telemetry would null every previously-observed CALM day, over-correcting into the opposite error.
+            data[_SINCE_KEY] = (min(k for k in data) if data else _day())
             path = _stats_path()
             os.makedirs(os.path.dirname(path), exist_ok=True)
             tmp = f"{path}.tmp"

@@ -1691,7 +1691,14 @@ def wipe_non_carried_dbs(txn=None):
     replay gate, block locators pointing at retired segments, GC revert records for heights that no
     longer exist. COMPUTED as all-DBs-minus-SNAPSHOT_DBS, so any sub-DB added in the future is wiped by
     default on identity change unless it is explicitly promoted into the snapshot carry-set."""
-    names = sorted(set(_PLAIN_DBS + _DUP_DBS) - set(SNAPSHOT_DBS))
+    # CHAIN-INDEPENDENT SAFETY STATE SURVIVES. attest_memo records which checkpoint hash THIS node has
+    # already signed per epoch — it is a slashing interlock about our own signing history, not a record of
+    # the abandoned chain, and the attestations it guards were GOSSIPED and are still out there. Wiping it
+    # on a re-anchor is precisely the guard's motivating scenario: we attested epoch X with H1 on the old
+    # fork, re-anchor, find attestation_exists(X) False and no memo, and sign a SECOND attestation for X
+    # with H2 — a valid same-generation equivocation proof against ourselves (the CHAIN_ID bind only stops
+    # CROSS-generation pairs). So it is excluded from the wipe.
+    names = sorted(set(_PLAIN_DBS + _DUP_DBS) - set(SNAPSHOT_DBS) - {"attest_memo"})
     def _do(t):
         for name in names:
             t.drop(_dbs()[name], delete=False)     # empty, keep the handle

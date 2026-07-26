@@ -949,6 +949,22 @@ def validate_transaction(transaction, logger, block_height):
         # NOTE: exec_cursor is an EXEC-LAYER position, NOT the L1 block height (it is not bounded by
         # block_height — see the settlement tests). The upper bound below is purely the be8-pack safety bound.
         assert isinstance(cursor, int) and not isinstance(cursor, bool) and 0 <= cursor < (1 << 64) - 1, "Settle exec_cursor must be an int in [0, 2**64-1)"
+        # SETTLEMENT-ORACLE CAPTURE (critical). active_settler_shares anchors the quorum DENOMINATOR on
+        # settlement_max_cursor(ns) and leaks out anyone who has not attested within SETTLE_ACTIVITY_CURSORS
+        # of it. With the cursor unbounded, ONE fee-exempt settle at cursor ~2**64 pushes that activity floor
+        # above every honest settler's real cursor, so they all leak from the denominator and the poster
+        # becomes the SOLE quorum member — permanently, since no honest exec node will ever reach that
+        # cursor to re-enter. latest_settled() then returns the attacker's fabricated root, and
+        # bridge_withdraw / unshield / dividend_withdraw prove against it to drain BRIDGE_ESCROW,
+        # SHIELD_ESCROW and DIVIDEND_POOL. Total cost: B_MIN bonded (10 NADO) and no fee. The per-namespace
+        # escrow cap does not help — all bridge deposits and every unshield/dividend exit use DEFAULT_NS.
+        # The exec cursor IS an L1 block height in practice (execnode sets state.cursor = h while applying
+        # FINALIZED blocks), so it can never legitimately exceed the height of the block carrying the settle.
+        # Bounding it here is deterministic (block_height is consensus input) and cannot reject an honest
+        # settle, which is always well behind the tip.
+        assert block_height is None or cursor <= int(block_height), (
+            f"Settle exec_cursor {cursor} exceeds the current block height {block_height} — the exec layer "
+            f"applies FINALIZED blocks and can never be ahead of L1 (settlement-oracle capture guard)")
         assert isinstance(root, str) and len(root) == 64 and all(c in "0123456789abcdef" for c in root), "Settle state_root must be 64-hex"
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
