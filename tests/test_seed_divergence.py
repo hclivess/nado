@@ -405,6 +405,31 @@ def test_snapshot_payload_authenticated():
           kv_ops.meta_get_int("finalized_height", None) == 1000)
 
 
+def test_da_binding_is_clock_independent():
+    """block_timestamp is DELIBERATELY outside the block-hash preimage so honest clock skew cannot fork the
+    chain — so the same block legitimately carries different timestamps on different nodes (within
+    BLOCK_TIMESTAMP_DRIFT). Feeding it into call_leaf made the DA binding non-deterministic: measured live,
+    one block produced completely different call leaves on two nodes, desynchronising every execsum row and
+    splitting snapshot identity fleet-wide. The binding must commit only COMMITTED data."""
+    from execnode.stark.calls_commit import block_summary
+
+    blk = {"block_number": 3135, "block_timestamp": 1785096230, "block_transactions": [
+        {"recipient": "blob", "sender": "s1",
+         "data": {"op": "call", "contract": "c1", "method": "m", "args": [1], "value": 0}}]}
+    skewed = dict(blk, block_timestamp=1785096231)          # the 1s skew observed between two live nodes
+    check("call leaves are IDENTICAL across an honest clock skew", block_summary(blk) == block_summary(skewed))
+    far = dict(blk, block_timestamp=1785096230 + 30)        # the full BLOCK_TIMESTAMP_DRIFT window
+    check("...and across the whole permitted drift window", block_summary(blk) == block_summary(far))
+    # the binding must still distinguish genuinely different calldata
+    other = dict(blk, block_transactions=[
+        {"recipient": "blob", "sender": "s1",
+         "data": {"op": "call", "contract": "c1", "method": "m", "args": [2], "value": 0}}])
+    check("but DIFFERENT calldata still yields a different leaf (binding preserved)",
+          block_summary(blk) != block_summary(other))
+    check("and the block number still binds the call to its block",
+          block_summary(blk) != block_summary(dict(blk, block_number=3136)))
+
+
 def test_no_self_equivocation_across_reorg():
     """An attestation signs {target_epoch, target_hash}. The duty loop re-reads target_hash from the local
     tip on every pass while its attestation has not landed, so a reorg that rewrites the epoch's checkpoint
@@ -747,6 +772,7 @@ if __name__ == "__main__":
               test_bridge_escrow_revert_roundtrips,
               test_manifest_hash_ignores_version,
               test_snapshot_payload_authenticated,
+              test_da_binding_is_clock_independent,
               test_no_self_equivocation_across_reorg,
               test_execsum_window_survives_rollback,
               test_state_fingerprint_is_single_walk_and_consistent,

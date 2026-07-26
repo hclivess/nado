@@ -70,7 +70,18 @@ def block_calls(block, ns="default"):
     state transition treats a skip/revert as a no-op (matching live apply). Deploys/other ops are excluded
     (they don't move the kv half a bound-epoch proof settles)."""
     h = int(block.get("block_number", 0))
-    ts = int(block.get("block_timestamp", 0))
+    # DETERMINISM (consensus): block_timestamp is DELIBERATELY excluded from the block-hash preimage
+    # (ops/block_ops.construct_block hashes it as None) so honest clock skew cannot fork the chain — a block
+    # may legitimately carry a different timestamp on different nodes, within BLOCK_TIMESTAMP_DRIFT. Feeding
+    # it into call_leaf therefore made the DA binding NON-DETERMINISTIC: measured live, the same block
+    # 665ed0ae60ae51 carried ts differing by 1 s across two nodes and produced completely different call
+    # leaves, which desynchronised every execsum row and split snapshot identity fleet-wide. The binding must
+    # commit only COMMITTED data. `cursor` (the block number) already pins exactly which block a call came
+    # from, so the timestamp contributed no binding strength — it was purely an uncommitted input. Pin it to
+    # 0. The leaf FORMULA is unchanged (same eight fields), so any reimplementation only has to adopt the
+    # same rule. NOTE: the exec VM's TIME opcode still reads block_timestamp (execnode sets state.block_ts
+    # from it), which is a separate latent divergence — see doc; fixing it needs a protocol-level block time.
+    ts = 0
     calls = []
     for tx in block.get("block_transactions", []):
         if tx.get("recipient") != "blob":

@@ -210,8 +210,21 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # --- FAUCET DONATION (doc/faucet.md): lock `amount` in the faucet escrow, burn the fee. The exec
     # layer reads this from the ordered stream and credits the faucet CONTRACT's balance. ---
     if recipient == "faucet":
+        # ESCROW MUST MATCH THE REDEMPTION PATH. The exec layer credits a faucet donation into the BRIDGE
+        # ledger (execnode._apply_block -> default_state.credit_deposit("faucet", …) -> state.bridge), and a
+        # prize winner exits it with bridge_withdraw, which debits BRIDGE_ESCROW + bridgeescrow:DEFAULT_NS.
+        # Locking the donation in FAUCET_ESCROW therefore created a spendable claim against BRIDGE_ESCROW
+        # while the donated coin sat in an account with NO release path anywhere in the tree — every faucet
+        # payout was silently funded by the bridge depositors. Lock it where it is redeemed instead, and
+        # mirror the per-namespace escrow accounting the bridge branch above does, or the exit's
+        # bridge_escrow_ns cap would under-count and reject legitimate faucet-funded prizes.
+        from protocol import DEFAULT_NS   # local like the bridge branch above (which makes it function-local)
         change_balance(address=sender, amount=-(amount + fee), logger=logger, revert=revert)
-        change_balance(address=FAUCET_ESCROW, amount=amount, logger=logger, revert=revert)
+        change_balance(address=BRIDGE_ESCROW, amount=amount, logger=logger, revert=revert)
+        if revert:
+            kv_ops.bridge_escrow_ns_sub(DEFAULT_NS, amount)
+        else:
+            kv_ops.bridge_escrow_ns_add(DEFAULT_NS, amount)
         return
 
     # --- BRIDGE EXIT (Phase 2): release `amount` from escrow to the proven addr and burn the nullifier.
@@ -664,6 +677,14 @@ def apply_slash(address, height, logger, revert=False):
     bonded BEFORE applying, so the dock never floors; rollback restores the bond (change_bonded with
     revert) and clears the slash record. The bonded coins are DESTROYED (the deterrent is the loss)."""
     change_bonded(address=address, amount=-SLASH_BOND_PENALTY, logger=logger, revert=revert)
+    # BOOK THE DESTRUCTION into the burned-supply counter, exactly as apply_treasury_burn does for the
+    # anti-hoard burn — slashing was the only remaining path that destroyed coin without recording it.
+    # Unbooked, total_supply (TREASURY_GENESIS + produced - fees) over-reports by SLASH_BOND_PENALTY per
+    # slash forever, which (a) feeds bond_elastic_mult_bps a too-large supply, so the bonded RATIO reads
+    # low and the emission multiplier is lifted — a small permanent over-emission, deterministic on every
+    # node so no state-root gate trips — and (b) pins invariants.check_l1_supply to ok=False from the first
+    # slash onward, turning the leak detector into a permanently-red check nobody reads.
+    index_totals(produced=0, fees=-SLASH_BOND_PENALTY if revert else SLASH_BOND_PENALTY)
     if revert:
         kv_ops.slash_clear(address, height)
     else:
