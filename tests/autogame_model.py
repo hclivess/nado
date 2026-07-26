@@ -124,13 +124,15 @@ class Run:
         self.alive = 1
         self.done = 0                  # reached step CHAPTER on your feet — the only state that doubles
         self.retired = 0               # walked away voluntarily: you keep everything, but no completion bonus
+        self.mists = 0                 # concluded by the horizon rule: terrain aged past HORIZON so the leg
+                                       # could never resolve. Standing (keep the unbanked risk) but no bonus.
 
     def score(self):
         """What actually goes on the board. Everything banked, plus what you can still carry out — all of it
-        if you finished or retired on your feet, DEATH_KEEP% if you didn't — and doubled if you walked the
-        whole road."""
+        if you finished, retired, or were taken by the mists on your feet, DEATH_KEEP% if you didn't — and
+        doubled if you walked the whole road."""
         risk = c_sub(self.xp, self.banked)
-        standing = self.alive or self.done or self.retired
+        standing = self.alive or self.done or self.retired or self.mists
         total = self.banked + (risk if standing else risk * DEATH_KEEP // 100)
         # The road bonus is PRO-RATA on how far you walked, and it is paid only if you are standing. That
         # makes it a live cash-out meter: every step forward raises what retiring is worth, and dying
@@ -145,7 +147,7 @@ class Run:
     def snapshot(self):
         return dict(hp=self.hp, maxhp=self.maxhp, stam=self.stam, potions=self.potions, xp=self.xp,
                     banked=self.banked, streak=self.streak, score=self.score(),
-                    depth=self.depth, kills=self.kills, alive=self.alive, done=self.done,
+                    depth=self.depth, kills=self.kills, alive=self.alive, done=self.done, mists=self.mists,
                     wlevel=self.wlevel, alevel=self.alevel, mats=list(self.mats), gear=list(self.gear),
                     pyre=self.pyre)
 

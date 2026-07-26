@@ -10,6 +10,7 @@ export const LEG = 16;
 export const MAX_LEGS_PER_CALL = 1;
 export const CHAPTER = 512;
 export const START_GAP = 2;
+export const HORIZON = 18000;
 export const HP0 = 100;
 export const STAM_MAX = 12;
 export const AGG_MAX = 16;

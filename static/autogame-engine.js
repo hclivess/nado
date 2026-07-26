@@ -55,7 +55,7 @@ export function newRun(opts = {}) {
     agg: 1,          // the aggression dial — the one standing order besides stance/focus/healpct
     gale: 0,         // storm steps left: renown out and damage in both x5/4
     pyre: 0,         // lit-beacon steps left: renown out x5/4, no damage rider
-    alive: 1, done: 0, retired: 0,
+    alive: 1, done: 0, retired: 0, mists: 0,
   };
 }
 
@@ -67,7 +67,7 @@ export function runFromStorage(sto, id) {
     streak: m("sk"), depth: m("dp"), kills: m("ki"), stance: m("sn"), healpct: m("hl"), focus: m("fo"),
     wlevel: m("wl"), alevel: m("al"), mats: [m("m0"), m("m1"), m("m2")],
     gear: [m("g0"), m("g1"), m("g2"), m("g3"), m("g4"), m("g5")],
-    alive: m("lv"), done: m("dn"), retired: m("rt"), gale: m("gl"), pyre: m("py"),
+    alive: m("lv"), done: m("dn"), retired: m("rt"), mists: m("mi"), gale: m("gl"), pyre: m("py"),
     agg: Math.max(1, m("pa")), polh: m("ph"),
     prevAgg: Math.max(1, m("qa")), polph: m("qh"),
     prevStance: m("qs"), prevFocus: m("qf"), prevHealpct: m("ql"),
@@ -89,7 +89,7 @@ export const armorPts = (run, focus) => idiv(armorPower(run) * (100 - (focus == 
 /** What the board shows. Banked + what you carry out, and the road bonus only if you are standing. */
 export function score(run) {
   const risk = csub(run.xp, run.banked);
-  const standing = run.alive || run.done || run.retired;
+  const standing = run.alive || run.done || run.retired || run.mists;
   const total = run.banked + (standing ? risk : idiv(risk * R.DEATH_KEEP, 100));
   if (run.done) return total + R.COMPLETE_BONUS;
   if (run.retired) return total + idiv(R.COMPLETE_BONUS * run.depth, R.CHAPTER);
@@ -299,7 +299,7 @@ function fight(run, tile, b, x, y, z, agg, act, ev, stance, focus) {
  * the leg's aggression dial. Mutates `run` and returns an event describing what to animate.
  */
 export function step(run, tw, rw, agg, stance, focus, healpct, action) {
-  if (!run.alive || run.done || run.retired) return { tile: R.ROAD, skip: true };
+  if (!run.alive || run.done || run.retired || run.mists) return { tile: R.ROAD, skip: true };
   // the GOVERNING generation of DIALS — passing them explicitly is how a caller models a leg fenced to an
   // older generation (the contract's POLH rule); the ACTION needs no such care, it was committed before
   // the leg's dice were scheduled by construction
@@ -488,7 +488,7 @@ export function playLeg(algHashn, run, runId, tileHash, rollHash, dials, answerW
   const acts = unpackLeg(answerWord);
   const evs = [];
   for (let i = 0; i < R.LEG; i++) {
-    if (!run.alive || run.done || run.retired) break;
+    if (!run.alive || run.done || run.retired || run.mists) break;
     const tw = words(algHashn, tileHash, runId, i);
     const rw = words(algHashn, rollHash, runId, i);
     // the biome rides on the EVENT, not in step(): it is presentation derived from the same hash, and

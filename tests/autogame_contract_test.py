@@ -307,14 +307,70 @@ def t_advance_is_permissionless_and_late_safe():
         ok, _r, st_b, _ = _call("commit", [RID, word], st_b, caller=1234, cursor=lh + 1)
         assert ok
         nh = st_a[A.RNH * (1 << 32) + RID]
-        # ...then settled promptly by the owner in one timeline, hours later by a stranger in the other
+        # ...then settled promptly by the owner in one timeline, hours later by a stranger in the other.
+        # "Late" means as late as the horizon allows: lh + HORIZON - 1 is the last height at which this
+        # leg's terrain hash is still readable, so it is the strongest late-safety claim we can make —
+        # one block further and the mists rule concludes the run instead (see t_mists_concludes_a_stranded_run).
         ok, _r, st_a, _ = _call("advance", [RID], st_a, caller=1234, cursor=nh + 1)
         assert ok, "owner advance reverted"
-        ok, _r, st_b, _ = _call("advance", [RID], st_b, caller=999999, cursor=19000)
+        ok, _r, st_b, _ = _call("advance", [RID], st_b, caller=999999, cursor=lh + A.HORIZON - 1)
         assert ok, "advance must be permissionless"
         a, b = _contract_state(st_a, RID), _contract_state(st_b, RID)
         assert a == b, (f"leg {leg}: settling late, by a stranger, changed the outcome: "
                         f"{[(k, a[k], b[k]) for k in a if a[k] != b[k]]}")
+
+
+def t_mists_concludes_a_stranded_run():
+    """THE MISTS. A leg's terrain is BHASH(lh); record_block_hash keeps only ~20000 heights back, so a run
+    left parked past HORIZON has a terrain hash no node can read — the leg can never resolve, on any node,
+    forever. The rule turns that dead-end into a deterministic conclusion: advance() past the horizon marks
+    the run `mists` (terminal, standing) and it scores exactly its last-resolved depth — no completion bonus,
+    no retire bonus. Permissionless like every advance, and a public height condition so every node agrees.
+    """
+    RID = 62
+    mi = lambda s: s.get(A.RMI * (1 << 32) + RID, 0)
+    st = {}
+    _ok, _r, st, _ = _call("constructor", [], st)
+    _ok, _r, st, _ = _call("begin", [RID], st, cursor=100)
+    cm = {A.MONSTER: A.A_STRIKE, A.ELITE: A.A_GUARD}
+
+    # resolve one leg the honest way, so there is a real last-resolved depth to bank
+    lh = st[A.RLH * (1 << 32) + RID]
+    word = _leg_word(_answers(_peek_tiles(RID, st, lh), cm))
+    ok, _r, st, _ = _call("commit", [RID, word], st, cursor=lh + 1)
+    assert ok
+    nh = st[A.RNH * (1 << 32) + RID]
+    ok, _r, st, _ = _call("advance", [RID], st, cursor=nh + 1)
+    assert ok
+    resolved = _contract_state(st, RID)
+    assert resolved["depth"] == A.LEG, "one resolved leg should stand at depth 16"
+    assert mi(st) == 0, "a run mid-march is not in the mists"
+
+    # commit the NEXT leg, then abandon it past the horizon
+    lh2 = st[A.RLH * (1 << 32) + RID]
+    word2 = _leg_word(_answers(_peek_tiles(RID, st, lh2), cm))
+    ok, _r, st, _ = _call("commit", [RID, word2], st, cursor=lh2 + 1)
+    assert ok
+
+    # one block short of the horizon the leg still resolves; the boundary itself concludes it
+    ok, _r, st_near, _ = _call("advance", [RID], dict(st), caller=555, cursor=lh2 + A.HORIZON - 1)
+    assert ok and mi(st_near) == 0, "within the horizon the leg must still resolve, not vanish into the mists"
+
+    ok, _r, st, _ = _call("advance", [RID], st, caller=555, cursor=lh2 + A.HORIZON)
+    assert ok, "advance past the horizon must succeed (permissionless conclusion, not a revert)"
+    assert mi(st) == 1, "past the horizon the run must be flagged mists"
+    concluded = _contract_state(st, RID)
+    banked = {k: concluded[k] for k in ("depth", "kills", "xp", "hp", "streak")}
+    kept = {k: resolved[k] for k in banked}
+    assert banked == kept, f"the mists must bank the last-resolved state, no bonus: {banked} vs {kept}"
+    assert concluded["alive"] == 1 and not concluded["done"], "the mists is standing, not a death or a finish"
+
+    # terminal everywhere: no second conclusion, and the owner can no longer act on it
+    ok, _r, _s2, _ = _call("advance", [RID], dict(st), cursor=lh2 + A.HORIZON + 10)
+    assert not ok, "a concluded run cannot advance again"
+    for meth, args in (("commit", [RID, 0]), ("plan", [RID, 4, 0, 50, 35]), ("retire", [RID])):
+        ok, _r, _s2, _ = _call(meth, args, dict(st), cursor=lh2 + A.HORIZON + 10)
+        assert not ok, f"{meth} on a run lost to the mists must revert"
 
 
 def t_only_owner_controls():
@@ -578,6 +634,7 @@ if __name__ == "__main__":
     check("dials cannot rewrite a leg whose dice already rolled", t_dials_cannot_rewrite_a_rolled_leg)
     check("plan validates its arguments", t_plan_validates_its_arguments)
     check("advance is permissionless and late-safe", t_advance_is_permissionless_and_late_safe)
+    check("the mists conclude a run stranded past the block-hash horizon", t_mists_concludes_a_stranded_run)
     check("only the owner controls a run", t_only_owner_controls)
     check("scratch leaves no residue in the state root", t_scratch_leaves_no_residue)
     check("worst-case advance has trace headroom (a lucky run must not brick)", t_worst_case_advance_has_headroom)

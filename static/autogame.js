@@ -225,7 +225,13 @@ const pipel = () => mode === "march" && chain && !!chain.nh && previewed === myI
  *  stale previous-leg tiles that came back after a refresh. The animator's live-view death (view.alive) is
  *  covered too: previewLeg shows you dead a settlement before the chain agrees, and you must not commit in
  *  that window either. pipel() already carries its own view.alive guard. */
-const liveRun = () => !!(chain && chain.alive && !chain.done && !chain.retired && (!view || view.alive));
+const liveRun = () => !!(chain && chain.alive && !chain.done && !chain.retired && !chain.mists && (!view || view.alive));
+/** THE MISTS: this run's terrain height has aged past the block-hash horizon, so its leg can never resolve —
+ *  the run is stranded. `chain.mists` is the settled conclusion (advance() ran the rule); `mistsStranded()`
+ *  is the pre-conclusion condition the client detects to FIRE that advance() and to stop lying with "a few
+ *  seconds". csub-style guard: lh can be START_GAP in the future right after begin (cursor < lh), never mist. */
+const mistsStranded = () => !!(chain && chain.alive && !chain.done && !chain.retired && !chain.mists
+  && chain.lh && dapp.cursor != null && dapp.cursor - chain.lh >= E.HORIZON);
 const canAnswer = () => (liveRun() && !!chain.lh && !chain.nh && !dapp.busy("commit"))
   || (pipel() && !queuedWord);
 /** THE single source of truth for "the player may submit a commit for this leg RIGHT NOW". canAnswer() is
@@ -302,7 +308,10 @@ function findMyRun(s) {
   const ids = Object.keys(s.ra || {}).map(Number).filter((n) => n > 0);
   const mine = ids.filter((id) => String((s.ra || {})[id] || "").toLowerCase() === String(dapp.me || "").toLowerCase());
   if (!mine.length) return null;
-  const live = mine.find((id) => Number((s.lv || {})[id]) === 1 && !Number((s.dn || {})[id]) && !Number((s.rt || {})[id]));
+  // A mists-concluded run still carries lv==1 (it did not die), so it must be excluded here explicitly or it
+  // would be picked as the "live" run and the page would keep trying to march a run the chain has ended.
+  const live = mine.find((id) => Number((s.lv || {})[id]) === 1 && !Number((s.dn || {})[id])
+    && !Number((s.rt || {})[id]) && !Number((s.mi || {})[id]));
   return live != null ? live : mine[mine.length - 1];
 }
 
@@ -364,7 +373,7 @@ async function refreshAll() {
   // advance() through dapp.autoCollect (background-signed, opt-out shared with every game). The preview is
   // deterministic-equal to settlement, so when the real advance lands, syncView sees identical state and
   // nothing re-animates.
-  if (mode === "march" && chain && chain.alive && !chain.done && !chain.retired && chain.nh
+  if (mode === "march" && chain && chain.alive && !chain.done && !chain.retired && !mistsStranded() && chain.nh
       && dapp.cursor != null && dapp.cursor >= chain.nh) {
     const before = previewed;
     previewLeg();
@@ -377,13 +386,23 @@ async function refreshAll() {
         { phase: "advance", leg: chain.leg }), { key: (x) => x.g, phase: "advance" });
   }
 
+  // THE MISTS: a run whose terrain aged past the horizon can never resolve its leg. advance() now carries the
+  // deterministic conclude-into-mists rule (execnode/games/autogame.py), and it is permissionless, so fire it
+  // the same background-signed way a leg settles — one call ends the strand and scores what the run had,
+  // instead of the page hanging on "waiting for the terrain block…" forever. Keyed by run so it fires once.
+  if (mode === "march" && mistsStranded()) {
+    dapp.autoCollect([{ g: myId + ":mists" }], () =>
+      dapp.call("advance", [myId], 0n, t("labelMists", "Conclude a stranded run"),
+        { phase: "advance", leg: chain.leg }), { key: (x) => x.g, phase: "advance" });
+  }
+
   dapp.settleInflight((f) => {
     if (!chain) return false;
     switch (f.phase) {
       // Landed = THE run this click created is on-chain (its id rides in the pend). The fallback (a pend
       // from before the rid was stamped) demands a run that is actually alive — never the corpse.
       case "begin": return f.rid != null ? Number(myId) === Number(f.rid)
-        : myId != null && chain.alive && !chain.done && !chain.retired;
+        : myId != null && chain.alive && !chain.done && !chain.retired && !chain.mists;
       case "plan": return Number(chain.agg) === Number(f.agg) && Number(chain.stance) === Number(f.stance)
         && Number(chain.focus) === Number(f.focus) && Number(chain.healpct) === Number(f.heal);
       case "advance": return Number(chain.leg) > Number(f.leg);
@@ -1268,6 +1287,21 @@ function idleMessage() {
   }
   if (chain.done) { el.innerHTML = `<b style="color:var(--win)">${esc(t("idleDone", "The road is walked. Chapter complete."))}</b>`; return; }
   if (chain.retired) { el.innerHTML = `<span class="dim">${esc(t("idleRetired", "Retired, on your feet."))}</span>`; return; }
+  // THE MISTS — a distinct ending, told honestly. `chain.mists` is the settled conclusion; `mistsStranded()`
+  // is the moment the terrain has aged out but the concluding advance() has not landed yet (fired in
+  // refreshAll). Both must pre-empt the "waiting for the terrain block… a few seconds" line below, which
+  // would otherwise sit here forever promising seconds for a leg that can never resolve.
+  if (chain.mists) {
+    el.innerHTML = `<b style="color:var(--muted,#9aa)">${esc(t("idleMists",
+      "The mists closed over the march at depth {d}. Its terrain aged out of the chain's memory — set out anew.",
+      { d: chain.depth | 0 }))}</b>`;
+    return;
+  }
+  if (mistsStranded()) {
+    el.innerHTML = `<span class="dim">${esc(t("idleMistsClosing",
+      "This leg's terrain block has aged out of the node's history — the run can't be resumed. Concluding it now…"))}</span>`;
+    return;
+  }
   // "your move" — the SAME condition the road strip uses to open the tiles, INCLUDING the pipelined
   // case: the last leg already previewed, its nh still sits on the chain state, and the next sixteen
   // wait on the player. Keying on !chain.nh alone made the strip claim "the dice are down — playing
@@ -1613,7 +1647,9 @@ function render() {
     renderMode();
     return;
   }
-  const live = !!(chain && chain.alive && !chain.done && !chain.retired);
+  // A mists-concluded run is NOT live (chain.alive stays 1, so name it out here or "Set out" would be greyed
+  // for a run the chain has already ended, trapping the player with no way to start a new march).
+  const live = !!(chain && chain.alive && !chain.done && !chain.retired && !chain.mists);
   // begin() arms on-chain now, so `armed` is only ever false for a run begun under the OLD contract —
   // three real players are stuck in exactly that state, and for them the plan call is the rescue that arms.
   const armed = !!(chain && chain.lh);
@@ -1840,6 +1876,8 @@ function renderRoad() {
                           + "\"Set out\" — today's sixteen tiles appear right here."))
       : !chain ? esc(t("roadEmptyNoRun", "Set out to see the road."))
       : !chain.lh ? esc(t("roadEmptyLegacy", "No road yet — press \"Begin the march\" below to wake this run."))
+      : chain.mists ? esc(t("roadEmptyMists", "The mists took this march — its terrain aged out of the chain's memory. Set out anew."))
+      : mistsStranded() ? esc(t("roadEmptyMistsClosing", "This leg's terrain has aged out of the node's history — concluding the run…"))
       : esc(t("roadEmptyWaiting", "Waiting for the terrain block… a few seconds."))}</div>`;
     return;
   }
@@ -2124,7 +2162,7 @@ function renderDials() {
   // editable dial there implied the roll could still be steered — it can't; edits only ever ride with
   // the NEXT commit. The card re-opens the moment the next answering window does (including pipelining).
   const answeringNow = canCommitNow();
-  const mLock = !isDaily() && !!chain && chain.alive && !chain.done && !chain.retired && !!chain.lh
+  const mLock = !isDaily() && !!chain && chain.alive && !chain.done && !chain.retired && !chain.mists && !!chain.lh
     && !answeringNow;
   for (const id of ["agg", "focus", "heal"]) if ($(id)) $(id).disabled = (isDaily() && lock) || mLock;
   if (ss) ss.querySelectorAll("button").forEach((b) => {
@@ -2323,7 +2361,7 @@ function retire() {
  *  thing a queued commit waits on, and the thing auto-collect normally fires — exposed here so a manual
  *  button can force it when auto-collect is off, starved by another pending action, or its tx got dropped. */
 const settleable = () => !!(mode === "march" && chain && chain.alive && !chain.done && !chain.retired
-  && chain.nh && dapp.cursor != null && dapp.cursor >= chain.nh);
+  && !chain.mists && !mistsStranded() && chain.nh && dapp.cursor != null && dapp.cursor >= chain.nh);
 /** Fire the previous leg's settlement RIGHT NOW through the SDK's manual settle — it bypasses the auto-collect
  *  opt-out and retry timer but keeps the same collision guard, so it can never double-submit an advance
  *  already in flight. advance is permissionless and its dice block is already fixed on-chain, so this just

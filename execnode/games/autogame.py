@@ -55,6 +55,15 @@ MAX_LEGS_PER_CALL = 1    # bounded catch-up: ONE leg (16 steps) per call.
 CHAPTER = 512            # steps per chapter (32 legs, ~51 min). A FIXED budget: the game is how much you
                          # extract from it, never how long you can hide.
 START_GAP = 2            # begin() pins the first tile height in the FUTURE so it cannot be steered
+HORIZON = 18000          # THE MISTS. A leg's terrain is BHASH(lh), and record_block_hash keeps only the most
+                         # recent ~20000 heights (state.py), so a run parked past that horizon has a terrain
+                         # hash no node can still read — the leg can never resolve and the run would hang on
+                         # "waiting for the terrain block…" forever (the exact brick 18 live runs hit). The
+                         # docstring always specified the cure: a run whose terrain has aged out CONCLUDES into
+                         # the mists, deterministically, scoring what it had. 18000 sits safely UNDER the 20000
+                         # retention ring, so the rule fires (cursor - lh >= HORIZON) while every hash a
+                         # resolvable leg needs is still present — no node ever has to read a pruned hash to
+                         # agree on the outcome. Permissionless: anyone's advance() call concludes a stale run.
 
 # ── tuning ───────────────────────────────────────────────────────────────────────────────────────
 HP0 = 100
@@ -183,7 +192,10 @@ RANKS = ((60, "peasant"), (300, "commoner"), (1000, "porter"), (3000, "apprentic
 # ── storage map ──────────────────────────────────────────────────────────────────────────────────
 # run scalars, keyed by run id
 (RA, RLH, RNH, RHP, RMX, RST, RPO, RXP, RBK, RDP, RKI, RSN, RHL, RFO, RWL, RAL,
- RM0, RM1, RM2, RAV, RDN, RRT, RLG, RSK, RCW, RCL, RGL, RPY) = range(1, 29)
+ RM0, RM1, RM2, RAV, RDN, RRT, RLG, RSK, RCW, RCL, RGL, RPY, RMI) = range(1, 30)
+# RMI — the mists flag: 1 once a run has been concluded by the horizon rule (terrain aged past HORIZON, see
+# above). A fourth terminal state alongside dead (RAV=0) / done (RDN) / retired (RRT): the run keeps what it
+# had (standing, so the unbanked risk is NOT docked like a death) but earns no completion or retire bonus.
 NTILE = len(TILE_CUTS) + 2    # tile classes ROAD..BOSS, always derived from the cut table
 GEAR0 = 30                    # gear slots occupy GEAR0 .. GEAR0+5, keyed by run id
 AFFX = 36                     # AFFX+1 .. AFFX+7: "is this affix equipped anywhere", keyed by run id.
@@ -252,8 +264,8 @@ DAILY_MAX_SCORE = 4_000_000               # a sane bound; the real check is the 
  S_ITEM, S_SLOT, S_COMBAT, S_SCEN, S_DROPS,
  S_T0, S_T1, S_T2, S_T3, S_T4, S_T5, S_T6,
  S_R0, S_R1, S_R2, S_R3,
- S_AF0, S_AF1, S_AF2, S_AF3, S_AF4, S_AF5, S_EQ, S_LEGGEN, S_SN, S_FO, S_HL, S_OVR) = range(59)
-NSCRATCH = 59
+ S_AF0, S_AF1, S_AF2, S_AF3, S_AF4, S_AF5, S_EQ, S_LEGGEN, S_SN, S_FO, S_HL, S_OVR, S_ENDED) = range(60)
+NSCRATCH = 60
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────────────────────────
@@ -304,6 +316,7 @@ def _live(m):
     m.require(_r(m, RAV).get() == 1)
     m.require(_r(m, RDN).get() == 0)
     m.require(_r(m, RRT).get() == 0)
+    m.require(_r(m, RMI).get() == 0)             # concluded into the mists — no more commits/plans/retires
 
 
 def _power_of(m, cell, tmp):
@@ -1122,9 +1135,19 @@ def build():
         m.require(_r(m, RAV).get() == 1)
         m.require(_r(m, RDN).get() == 0)
         m.require(_r(m, RRT).get() == 0)
+        m.require(_r(m, RMI).get() == 0)             # already concluded into the mists — nothing left to do
         _s(m, S_LEGS).set(m.const(0))
+        _s(m, S_ENDED).set(m.const(0))               # set by the mists rule below; frees the no-op guard
 
         m.label("leg")
+        # THE MISTS (see HORIZON): if this leg's terrain height has aged past the block-hash horizon its
+        # BHASH is gone for good, so the leg can NEVER resolve — on any node, forever. Rather than hang on
+        # "waiting for the terrain block…", conclude the run deterministically. csub, because a freshly begun
+        # run's lh is START_GAP in the FUTURE (cursor < lh -> csub == 0, never mists). Checked BEFORE the
+        # parked/roll gates so it catches a run stranded whether it was waiting on your answer (RNH == 0) or
+        # on dice that will now never be readable (RNH set, terrain already pruned).
+        _s(m, S_T0).set(csub(m.cursor(), _r(m, RLH).get()))
+        m.jnz(_s(m, S_T0).get() >= HORIZON, "mists")
         m.jnz(_r(m, RNH).get() == 0, "done")                    # waiting on your answer to this leg
         m.jnz(m.cursor() < _r(m, RNH).get(), "done")            # the rolls do not exist yet
         m.jnz(_s(m, S_LEGS).get() >= MAX_LEGS_PER_CALL, "done")
@@ -1187,13 +1210,22 @@ def build():
         m.jnz(_r(m, RDN).get(), "done")
         m.jmp("leg")
 
+        m.label("mists")
+        # The fog closes over the march. It concludes STANDING (score() keeps the unbanked risk — this is not
+        # a death, nothing killed you) but earns no completion or retire bonus: you score exactly what you had
+        # at the last resolved step. RDP already holds that depth. A distinct flag, so the client can say the
+        # truth ("the mists took the march") instead of "you fell here", and so a concluded run is terminal
+        # everywhere _live() gates. Falls through into `done`; S_ENDED lets the no-op guard pass.
+        _r(m, RMI).set(m.const(1))
+        _s(m, S_ENDED).set(m.const(1))
+
         m.label("done")
-        # ADVANCE RESOLVES A LEG OR IT REVERTS. Every exit above lands here — dice never scheduled, dice not
-        # mined yet, per-call leg budget spent — and two of those three mean nothing happened. Returning ok
-        # for them charged the caller a fee for a no-op and, worse, told the client "that worked" when the
-        # march had not moved a step, which is indistinguishable from a settled leg that changed nothing.
-        # One rule covers all three cases honestly: if no leg resolved, this call had no business existing.
-        m.require(_s(m, S_LEGS).get() != 0)
+        # ADVANCE RESOLVES A LEG, CONCLUDES A STRANDED RUN, OR IT REVERTS. Every exit above lands here — dice
+        # never scheduled, dice not mined yet, per-call leg budget spent, or the mists rule fired. Returning ok
+        # for a genuine no-op charged the caller a fee and told the client "that worked" when the march had not
+        # moved — indistinguishable from a settled leg that changed nothing. One rule keeps it honest: a call
+        # is legitimate iff it resolved at least one leg OR concluded the run into the mists.
+        m.require(_s(m, S_LEGS).get() + _s(m, S_ENDED).get() != 0)
         for i in range(NSCRATCH):                               # clear scratch: no residue in the state root
             _s(m, i).set(m.const(0))
         m.ret(_r(m, RDP).get())
@@ -1224,7 +1256,7 @@ def rules_js():
         return str(v)
 
     names = [
-        "LEG", "MAX_LEGS_PER_CALL", "CHAPTER", "START_GAP", "HP0", "STAM_MAX", "AGG_MAX", "REGEN_DIV",
+        "LEG", "MAX_LEGS_PER_CALL", "CHAPTER", "START_GAP", "HORIZON", "HP0", "STAM_MAX", "AGG_MAX", "REGEN_DIV",
         "REGEN_CAP_DIV", "BOSS_EVERY", "TIER_EVERY", "NIGHT_EVERY", "LEVEL_CAP", "LIFESTEAL_DIV",
         "HORDE_DIV", "STREAK_DIV", "DEATH_KEEP", "COMPLETE_BONUS", "POTIONS0", "POTION_CAP",
         "POTION_PRICE", "HEAL_BASE", "SHRINE_BASE", "RALLY_BASE", "NSLOT", "TILE_CUTS", "NTILE",
@@ -1277,7 +1309,7 @@ ABI = {
             "ra": RA, "lh": RLH, "nh": RNH, "hp": RHP, "mx": RMX, "st": RST, "po": RPO, "xp": RXP,
             "bk": RBK, "dp": RDP, "ki": RKI, "sn": RSN, "hl": RHL, "fo": RFO, "wl": RWL, "al": RAL,
             "m0": RM0, "m1": RM1, "m2": RM2, "lv": RAV, "dn": RDN, "rt": RRT, "lg": RLG, "sk": RSK,
-            "cw": RCW, "cl": RCL, "gl": RGL, "py": RPY,
+            "cw": RCW, "cl": RCL, "gl": RGL, "py": RPY, "mi": RMI,
 
             "g0": GEAR0, "g1": GEAR0 + 1, "g2": GEAR0 + 2, "g3": GEAR0 + 3, "g4": GEAR0 + 4,
             "g5": GEAR0 + 5,
