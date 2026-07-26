@@ -1038,6 +1038,80 @@ def t_holdem_open_proves():
     assert ok, f"open proof: {why}"
 
 
+# ---- horizon reclaim: a bet/hand/game whose block-hash height ages past ~20000 can never settle (bhash
+# reverts), so each game gets a bhash-free refund gated on pinned_height + 18000 < cursor. Without it the
+# stake is locked forever and tc>0 pins the table open (the "mists" fund-lock class, mirroring slots.claim /
+# mines.reap). Each test: stake, prove reclaim reverts inside the window, age past the horizon, reclaim,
+# assert refund + accounting cleared + close unblocked. ------------------------------------------------
+def _banked_reclaim(mod, betargs, reserve, refund_field="reclaim"):
+    st, code, cid, rd = _fresh(mod, deployer=A)
+    st.credit_deposit(A, 100_000_000); st.credit_deposit(B, 2_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [3], "value": 50_000_000}, A, "1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "bet", "args": betargs, "value": 100_000}, B, "2")
+    assert rd(mod.TC, 3) == reserve
+    b0 = st.bridge.get(B, 0)
+    r = st.apply_blob({"op": "call", "contract": cid, "method": refund_field, "args": [betargs[0]]}, B, "e")
+    assert "revert" in str(r).lower(), "reclaim inside the settle window must revert"
+    st.cursor = 102 + 18001                                         # gh was cursor(100)+2; age past horizon
+    st.apply_blob({"op": "call", "contract": cid, "method": refund_field, "args": [betargs[0]]}, B, "r")
+    assert rd(mod.GD, betargs[0]) == 1 and rd(mod.TC, 3) == 0 and rd(mod.TP, 3) == 50_000_000
+    assert st.bridge.get(B, 0) == b0 + 100_000, "stake not refunded"
+    st.apply_blob({"op": "call", "contract": cid, "method": "close", "args": [3]}, A, "c")   # tc==0 now unblocks
+
+def t_dice_reclaim():
+    _banked_reclaim(dice, [88, 3, 50], 100_000 * 99 // 50)
+def t_roulette_reclaim():
+    _banked_reclaim(roulette, [88, 3, (1 << 7) | (1 << 17)], 100_000 * 36 // 2)
+
+def t_blackjack_reap():
+    st, code, cid, rd = _fresh(bj, deployer=A)
+    st.credit_deposit(A, 100_000_000); st.credit_deposit(B, 2_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [3], "value": 50_000_000}, A, "1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [88, 3], "value": 100_000}, B, "2")
+    assert rd(bj.TC, 3) == 100_000 * 3 // 2 and rd(bj.GE, 88) == 100      # ge = deal cursor (stable anchor)
+    b0 = st.bridge.get(B, 0)
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "reap", "args": [88]}, B, "e")
+    assert "revert" in str(r).lower(), "reap inside the window must revert"
+    st.cursor = 100 + 18001                                          # age ge past the horizon
+    st.apply_blob({"op": "call", "contract": cid, "method": "reap", "args": [88]}, B, "r")
+    assert rd(bj.GD, 88) == 1 and rd(bj.TC, 3) == 0 and rd(bj.TP, 3) == 50_000_000
+    assert st.bridge.get(B, 0) == b0 + 100_000, "stake not refunded"
+    st.apply_blob({"op": "call", "contract": cid, "method": "close", "args": [3]}, A, "c")
+
+def t_coinflip_reclaim():
+    st, code, cid, rd = _fresh(coinflip)
+    st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
+    G = 12345
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G], "value": 500}, A, "1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G], "value": 500}, B, "2")
+    a0, b0 = st.bridge.get(A, 0), st.bridge.get(B, 0)
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [G]}, A, "e")
+    assert "revert" in str(r).lower(), "reclaim inside the window must revert"
+    st.cursor = 102 + 18001                                          # sh was join-cursor(100)+2
+    st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [G]}, B, "r")   # permissionless
+    assert rd(coinflip.SD, G) == 1 and rd(coinflip.PT, G) == 0 and st.bridge.get(cid, 0) == 0
+    assert st.bridge.get(A, 0) == a0 + 500 and st.bridge.get(B, 0) == b0 + 500, "both stakes must refund"
+    assert "revert" in str(st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [G]}, A, "d")).lower()
+
+def t_farkle_reclaim():
+    st, code, cid, rd = _fresh(fk)
+    st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
+    T, g1, g2, ANTE = 7, 101, 102, 5000
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [T, g1], "value": ANTE}, A, "1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [T, g2], "value": ANTE}, B, "2")
+    assert rd(fk.TP, T) == 2 * ANTE and rd(fk.TB, T) == 0
+    st.apply_blob({"op": "call", "contract": cid, "method": "roll", "args": [g1]}, A, "3")     # rolled, then abandoned
+    a0, b0 = st.bridge.get(A, 0), st.bridge.get(B, 0)
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [g1]}, A, "e")
+    assert "revert" in str(r).lower(), "reclaim before the table is abandoned must revert"
+    st.cursor = 100 + 18001                                          # t0 = open cursor (100)
+    st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [g1]}, B, "r1")  # permissionless per seat
+    st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [g2]}, B, "r2")
+    assert st.bridge.get(A, 0) == a0 + ANTE and st.bridge.get(B, 0) == b0 + ANTE, "each seat's ante must refund"
+    assert rd(fk.TP, T) == 0 and st.bridge.get(cid, 0) == 0, "pot + escrow drained"
+    assert "revert" in str(st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [g1]}, A, "d")).lower()
+
+
 if __name__ == "__main__":
     check("coinflip: open/join/settle/cancel + escrow + view", t_coinflip)
     check("coinflip: settle proves", t_coinflip_prove)
@@ -1075,5 +1149,10 @@ if __name__ == "__main__":
     check("holdem: layered side pots, ties, uncalled bets, fold refunds", t_holdem_sidepots)
     check("holdem: full table-stakes hand, showdown differential, settle", t_holdem_full)
     check("holdem: open proves (representative call)", t_holdem_open_proves)
+    check("dice: horizon reclaim voids a stale bet, refunds, unblocks close", t_dice_reclaim)
+    check("roulette: horizon reclaim voids a stale bet, refunds, unblocks close", t_roulette_reclaim)
+    check("blackjack: horizon reap voids a stale hand, refunds, releases cover", t_blackjack_reap)
+    check("coinflip: horizon reclaim refunds both stakes on a stranded flip", t_coinflip_reclaim)
+    check("farkle: horizon reclaim refunds each seat's ante on an abandoned table", t_farkle_reclaim)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

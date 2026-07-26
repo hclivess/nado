@@ -163,6 +163,52 @@ SRC = {
         sstore r4 r5
         ret r0
     """,
+    # reclaim(g): a bet whose settle height has aged past the block-hash horizon can NEVER settle — bhash(gh)
+    # reverts once the height leaves state's ~20000 ring (execnode/state.py). Rather than lock the player's
+    # stake and pin tc>0 forever (which also blocks close_table), void the bet: refund the stake, reverse the
+    # pot credit and the at-risk reservation, mark it settled. Permissionless and bhash-free, mirroring
+    # slots.claim / mines.reap. Gated on gh + 18000 < cursor so a live bet inside the settle window is untouched.
+    "reclaim": """
+        slot r4 7 r0
+        sload r1 r4
+        require r1
+        slot r4 14 r0
+        sload r5 r4
+        nez r5
+        notb r5
+        require r5
+        slot r4 11 r0
+        sload r5 r4
+        movi r6 18000
+        add r5 r6
+        ctx r6 cursor
+        lt r5 r6
+        require r5
+        slot r4 9 r0
+        sload r3 r4
+        slot r4 10 r0
+        sload r6 r4
+        pay r6 r3
+        slot r4 3 r1
+        sload r5 r4
+        sub r5 r3
+        sstore r4 r5
+        slot r4 9 r0
+        sload r3 r4
+        movi r6 99
+        mul r3 r6
+        slot r4 8 r0
+        sload r5 r4
+        divmod r3 r5
+        slot r4 4 r1
+        sload r6 r4
+        sub r6 r3
+        sstore r4 r6
+        slot r4 14 r0
+        movi r5 1
+        sstore r4 r5
+        ret r0
+    """,
     "close": _lib.close_table(),
     "fund": _lib.fund_table(),
 }
@@ -171,6 +217,7 @@ ABI = {
     "open": {"args": ["tableId"], "value": True},
     "bet": {"args": ["gameId", "tableId", "target"], "value": True},
     "settle": {"args": ["gameId"]},
+    "reclaim": {"args": ["gameId"]},
     "close": {"args": ["tableId"]},
     "fund": {"args": ["tableId"], "value": True},
     "_view": {

@@ -8,7 +8,7 @@ deleted stackvm contract with IDENTICAL semantics, over the composite-integer sl
 Fields:   1 nn(state 0/1/2)  2 st(stake)  3 pt(pot)  4 p1  5 p2  6 sd(settled)  7 sh(settle height)  8 ws(winner)
 Index:    slot 0 = cnt (open-game count);  slot(9, i) = the i-th gameId   (so the frontend can enumerate)
 
-Methods: open(g)[stake] · join(g)[stake] · settle(g) · cancel(g). gameId is a frontend int < 2^32.
+Methods: open(g)[stake] · join(g)[stake] · settle(g) · reclaim(g) · cancel(g). gameId is a frontend int < 2^32.
 """
 from execnode import zkvmasm
 
@@ -147,6 +147,44 @@ SRC = {
         sstore r4 r5
         ret r0
     """,
+    # reclaim(g): a joined game (nn==2) settles from bhash(sh); once sh ages past the ~20000-height ring
+    # (execnode/state.py) bhash reverts and settle can NEVER succeed — both stakes are locked forever, and
+    # cancel only works pre-join (nn==1). Void it fairly: refund each player their own stake, mark settled,
+    # zero the pot. Permissionless + bhash-free, gated on sh + 18000 < cursor so an in-window game is untouched.
+    "reclaim": """
+        slot r4 1 r0
+        sload r5 r4
+        movi r2 2
+        eq r5 r2
+        require r5
+        slot r4 6 r0
+        sload r5 r4
+        nez r5
+        notb r5
+        require r5
+        slot r4 7 r0
+        sload r5 r4
+        movi r6 18000
+        add r5 r6
+        ctx r6 cursor
+        lt r5 r6
+        require r5
+        slot r4 2 r0
+        sload r1 r4
+        slot r4 4 r0
+        sload r6 r4
+        pay r6 r1
+        slot r4 5 r0
+        sload r6 r4
+        pay r6 r1
+        slot r4 6 r0
+        movi r5 1
+        sstore r4 r5
+        slot r4 3 r0
+        movi r5 0
+        sstore r4 r5
+        ret r0
+    """,
     # cancel(g): only the opener, only while still waiting for a joiner — refund the stake
     "cancel": """
         ctx r1 caller
@@ -181,6 +219,7 @@ ABI = {
     "open": {"args": ["gameId"], "value": True},
     "join": {"args": ["gameId"], "value": True},
     "settle": {"args": ["gameId"]},
+    "reclaim": {"args": ["gameId"]},
     "cancel": {"args": ["gameId"]},
     # _view: the exec node reconstructs these named maps from the flat slots, so coinflip.js reads them
     # exactly as it did under stackvm (only the cid changes). p1/p2 resolve digest -> L1 address.

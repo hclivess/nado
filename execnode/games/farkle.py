@@ -10,7 +10,8 @@ The 6 rolled dice re-derive in-VM as die_p = alghash([bh(rh)+bh(rh+1)+seat*1000+
 
 Table: 1 ta 2 t0 3 ts 4 tp 5 tn 6 tx 7 tz 8 tb 9 tw 10 tfr 11 ti.  Seat: 12 gg 13 ga 14 gdl 15 grh 16 grn
 17 gfin 18 gsc 19 gts 20 ggs.  Scratch field 30.  Index: slot0/field21 tables, slot1/22 seats.
-Methods: open(t,g)[ante] · join(t,g)[ante] · roll(g) · hold(g,k1..k6,cont) · settle(t) · timeout(g) · reclaim(t) · cancel(t).
+Methods: open(t,g)[ante] · join(t,g)[ante] · roll(g) · hold(g,k1..k6,cont) · settle(t) · reclaim(g) · cancel(t).
+reclaim(g) refunds one seat's ante from a table abandoned past the block-hash horizon (t0+18000<cursor, tb==0).
 """
 from execnode import zkvmasm
 from execnode.stark import alghash, field as F
@@ -421,6 +422,50 @@ SRC = {
         sstore r4 r5
         ret r0
     """,
+    # reclaim(g): rescue a seat's ante from an ABANDONED table. Two ways a multi-seat table strands its pot
+    # forever: (1) the active seat rolled and can never hold — bhash(grh) reverts once grh leaves state's
+    # ~20000-height ring; (2) players simply stop before anyone banks to 4000. Either way tb stays 0, so
+    # settle(t) reverts (it requires tb!=0) AND cancel(t) reverts (it requires the solo state tn==1) — the
+    # docstring promised timeout/reclaim but neither existed. This refunds THIS seat's ante (ts) and voids the
+    # seat (gg=0, so it can't reclaim twice), bhash-free and permissionless. Gated on t0 (the open cursor, a
+    # stable table anchor) + 18000 < cursor so a live table is untouched, and on tb==0 so it can never race a
+    # genuine winner: once a seat finishes, tb!=0 blocks reclaim and settle pays the remaining pot — funds are
+    # conserved because tp is decremented on every payout.
+    "reclaim": """
+        slot r4 12 r0
+        sload r1 r4
+        require r1
+        slot r4 7 r1
+        sload r5 r4
+        nez r5
+        notb r5
+        require r5
+        slot r4 8 r1
+        sload r5 r4
+        nez r5
+        notb r5
+        require r5
+        slot r4 2 r1
+        sload r5 r4
+        movi r6 18000
+        add r5 r6
+        ctx r6 cursor
+        lt r5 r6
+        require r5
+        slot r4 3 r1
+        sload r3 r4
+        slot r4 13 r0
+        sload r6 r4
+        pay r6 r3
+        slot r4 4 r1
+        sload r5 r4
+        sub r5 r3
+        sstore r4 r5
+        slot r4 12 r0
+        movi r5 0
+        sstore r4 r5
+        ret r0
+    """,
     "cancel": """
         ctx r1 caller
         slot r4 1 r0
@@ -456,6 +501,7 @@ ABI = {
     "roll": {"args": ["seatId"]},
     "hold": {"args": ["seatId", "packedKeep", "cont"]},   # packedKeep = k1 | k2<<3 | … | k6<<15
     "settle": {"args": ["tableId"]},
+    "reclaim": {"args": ["seatId"]},
     "cancel": {"args": ["tableId"]},
     "_view": {
         "maps": {"ta": {"field": TA, "index": "tables"}, "ts": {"field": TS, "index": "tables"},

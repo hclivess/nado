@@ -12,7 +12,7 @@ identical rules; the card model matches static/cards.js:
 Seat: 7 gg 9 gs 10 ga 11 gh 12 gf(phase 1 dealt·2 acting·3 hit·4 settle) 13 gn 14 gd 15 gw 16 gr(dealer best)
   17 du(up+1) 18 php(player hard) 19 pac(player aces) 20 ge.  Table: 1 ta 2 tk 3 tp 4 tc 6 tz.
 Board: PC_BASE(40)+k player cards, DK_BASE(60)+j dealer cards, keyed by g.  Scratch 30.  Index 0/21,1/22.
-Methods: open(t)[bank] · deal(g,t)[stake] · reveal(g) · hit(g) · draw(g) · stand(g) · settle(g) · fund/close.
+Methods: open(t)[bank] · deal(g,t)[stake] · reveal(g) · hit(g) · draw(g) · stand(g) · settle(g) · reap(g) · fund/close.
 """
 from execnode import zkvmasm
 from execnode.games import _lib
@@ -353,6 +353,52 @@ SRC = {
         ret r0
     """,
     "settle": SETTLE,
+    # reap(g): a hand whose block-hash height has aged past the horizon can never reveal/settle (bhash reverts
+    # once the height leaves state's ~20000 ring), which locks the player's stake and pins tc>0 forever (also
+    # blocking close_table). Void it: refund the stake, release the bank's cover (stake*3/2, the natural-payout
+    # reservation) and undo the pot credit, mark it settled. Gated on GE (the deal-cursor, slot 20 — a stable
+    # anchor set once at deal; GH is re-pinned per action and is 0 while parked) + 18000 < cursor, so a live hand
+    # is untouched. Permissionless + bhash-free, mirroring mines.reap / dice.reclaim.
+    "reap": """
+        slot r4 7 r0
+        sload r1 r4
+        require r1
+        slot r4 14 r0
+        sload r5 r4
+        nez r5
+        notb r5
+        require r5
+        slot r4 20 r0
+        sload r5 r4
+        movi r6 18000
+        add r5 r6
+        ctx r6 cursor
+        lt r5 r6
+        require r5
+        slot r4 9 r0
+        sload r3 r4
+        slot r4 10 r0
+        sload r6 r4
+        pay r6 r3
+        slot r4 3 r1
+        sload r5 r4
+        sub r5 r3
+        sstore r4 r5
+        slot r4 9 r0
+        sload r3 r4
+        movi r6 3
+        mul r3 r6
+        movi r6 2
+        divmod r3 r6
+        slot r4 4 r1
+        sload r6 r4
+        sub r6 r3
+        sstore r4 r6
+        slot r4 14 r0
+        movi r5 1
+        sstore r4 r5
+        ret r0
+    """,
     "fund": _lib.fund_table(),
     "close": _lib.close_table(),
 }
@@ -399,6 +445,7 @@ ABI = {
     "draw": {"args": ["gameId"]},
     "stand": {"args": ["gameId"]},
     "settle": {"args": ["gameId"]},
+    "reap": {"args": ["gameId"]},
     "fund": {"args": ["tableId"], "value": True},
     "close": {"args": ["tableId"]},
     "_view": {
