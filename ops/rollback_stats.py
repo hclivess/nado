@@ -76,7 +76,10 @@ def _persist(mutate):
         today = _day()
         rec = data.get(today) or {"c": 0, "d": 0, "r": 0, "e": 0}
         for f in ("c", "d", "r", "e"):
-            rec.setdefault(f, 0)               # backfill fields a legacy today-record may lack
+            if rec.get(f) is None:             # a field a legacy today-record lacks — _load stamps it None
+                rec[f] = 0                     # ("not measured"). But we ARE measuring today now, so it is a
+                                               # true 0, not null (setdefault would leave an existing None).
+                                               # Only today's record is touched; past days keep their nulls.
         mutate(rec)
         data[today] = rec
         for k in sorted(data)[:-_RETENTION_DAYS]:
