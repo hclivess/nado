@@ -79,8 +79,9 @@ def block_calls(block, ns="default"):
     # commit only COMMITTED data. `cursor` (the block number) already pins exactly which block a call came
     # from, so the timestamp contributed no binding strength — it was purely an uncommitted input. Pin it to
     # 0. The leaf FORMULA is unchanged (same eight fields), so any reimplementation only has to adopt the
-    # same rule. NOTE: the exec VM's TIME opcode still reads block_timestamp (execnode sets state.block_ts
-    # from it), which is a separate latent divergence — see doc; fixing it needs a protocol-level block time.
+    # same rule. The exec VM's TIME opcode was the SECOND leak of the same uncommitted input; it now reads
+    # protocol.chain_clock(height) instead (execnode sets state.block_ts from it), so neither the DA binding
+    # nor contract execution can see a wall clock.
     ts = 0
     calls = []
     for tx in block.get("block_transactions", []):

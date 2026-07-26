@@ -869,7 +869,10 @@ function renderSettle(duel, gm, eng, me) {
   $("btnResign").classList.toggle("hidden", !(live && iAmIn && !gm.resigned[me] && !over));
   $("btnRematch").classList.toggle("hidden", !(gm.exists && gm.settled && iAmIn));
   $("btnLeave").classList.toggle("hidden", !(gm.exists && !gm.settled && gm.nn < gm.cap && iAmIn && me === gm.nn - 1 && me > 0));
-  $("btnCancel").classList.toggle("hidden", !(gm.exists && !gm.settled && gm.nn < gm.cap && me === 0));
+  // cancel: the creator any time, ANYONE once the lobby deadline lapses — leave() only pops the last
+  // joiner, so without the permissionless half a vanished creator strands every middle seat's stake.
+  const lobbyExpired = !!gm.dl && duel.dapp.cursor != null && duel.dapp.cursor > gm.dl;
+  $("btnCancel").classList.toggle("hidden", !(gm.exists && !gm.settled && gm.nn < gm.cap && (me === 0 || lobbyExpired)));
   const pastDeadline = live && duel.dapp.cursor != null && duel.dapp.cursor > gm.dl;
   $("btnAbort").classList.toggle("hidden", !(live && iAmIn && pastDeadline));
   $("btnJoinGame").classList.toggle("hidden", !(gm.exists && gm.nn < gm.cap && !iAmIn && !gm.settled));

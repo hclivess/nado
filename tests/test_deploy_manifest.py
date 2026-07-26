@@ -19,7 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 GAMES_DIR = os.path.join(ROOT, "execnode", "games")
-NOT_A_GAME = {"deploy"}          # tooling that lives alongside the contracts
+NOT_A_GAME = {"deploy", "redeploy"}   # tooling that lives alongside the contracts, not deployable itself
 
 
 def modules_on_disk():

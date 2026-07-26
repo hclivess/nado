@@ -233,10 +233,13 @@ class ExecState:
         self.path = path
         self.contracts = {}        # cid -> {"code": {...}, "storage": {mapname: {key: int}}, "deployer": addr}
         self.cursor = -1           # highest L1 block height fully applied
-        self.block_ts = 0          # wall-clock timestamp of that block (the TIME opcode). Transient: derived
-                                   # from each applied block, NOT committed to state_root — every node sets it
-                                   # from the same finalized block, so TIME stays deterministic without it being
-                                   # a root leaf. Defaults to 0 for a cold view before the first block is applied.
+        self.block_ts = 0          # the TIME opcode's clock: protocol.chain_clock(height), a PURE FUNCTION of
+                                   # block height — NOT the block's wall-clock timestamp, which sits outside the
+                                   # block-hash preimage and so differs between honest nodes for the same block
+                                   # (measured 1 s apart live). Transient: derived from each applied block, NOT
+                                   # committed to state_root — every node derives the identical value from the
+                                   # same finalized height, so TIME is deterministic without being a root leaf.
+                                   # Defaults to 0 for a cold view before the first block is applied.
         self.bridge = {}           # addr -> exec-side bridged balance (credited by L1 `bridge` deposits)
         # ASSET LEDGER (doc/assets.md) — the second value type this layer knows about. Both halves are
         # committed in state_root (exec_root.records_projection), so an asset balance is as provable as a

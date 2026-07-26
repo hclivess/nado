@@ -1345,6 +1345,10 @@ function idleMessage() {
  *  the sprite standing over the body are talking about the same creature. */
 /** "each hit ≈ N hp" — module-level ON PURPOSE: renderRoad's map callback names its tile `t`, which
  *  shadows the translator; calling t("tileSwing") in there was a live "t is not a function". */
+/** The focus readout. The dial is ONE number (weaponPts scale by focus, armorPts by 100-focus), so a bare
+ *  "50 / 50" left the player guessing which half was which — and the slider gave no clue which end was
+ *  weapon. Icons rather than words: unambiguous, and identical in all 16 languages. */
+const focusLabel = (f) => `🗡 ${Number(f)}% · 🛡 ${100 - Number(f)}%`;
 const swingLabel = (s) => " · " + t("tileSwing", "each hit ≈ {s} hp before armour", { s });
 const tileName = (i) => t("tile_" + i, (TILE_INFO[i] || ["?"])[0]);
 
@@ -1733,7 +1737,7 @@ function render() {
     planAgg = chain.agg || 1;
     $("aggVal").textContent = planAgg;
     pendStance = chain.stance; pendFocus = chain.focus; pendHeal = chain.healpct;
-    $("focus").value = String(pendFocus); $("focusVal").textContent = `${pendFocus} / ${100 - pendFocus}`;
+    $("focus").value = String(pendFocus); $("focusVal").textContent = focusLabel(pendFocus);
     $("heal").value = String(pendHeal); $("healVal").textContent = pendHeal + "%";
   }
   renderRoad();
@@ -2160,7 +2164,7 @@ function renderDials() {
     $("agg").value = String(D.AGG_OF(dTiers[1]));
     $("aggVal").textContent = D.AGG_OF(dTiers[1]);
     $("focus").value = String(D.PCT_OF(dTiers[2]));
-    $("focusVal").textContent = `${D.PCT_OF(dTiers[2])} / ${100 - D.PCT_OF(dTiers[2])}`;
+    $("focusVal").textContent = focusLabel(D.PCT_OF(dTiers[2]));
     $("heal").value = String(D.PCT_OF(dTiers[3]));
     $("healVal").textContent = D.PCT_OF(dTiers[3]) + "%";
   }
@@ -2418,7 +2422,7 @@ function wireDials() {
   focus.oninput = () => {
     if (isDaily()) { if (daily && daily.setTier(2, pctTier(focus.value))) renderDials(); return; }
     dialsTouched = true;
-    $("focusVal").textContent = `${focus.value} / ${100 - focus.value}`;
+    $("focusVal").textContent = focusLabel(focus.value);
     pendFocus = Number(focus.value);
   };
   focus.onchange = () => { if (!isDaily()) pendFocus = Number(focus.value); };
@@ -2431,9 +2435,15 @@ function updateAggHint() {
   const absorb = E.armorPts(chain);
   const cost = Math.max(planAgg, planAgg * worst - absorb);
   const pct = chain.hp ? Math.round((cost * 100) / chain.hp) : 0;
+  // COLOUR THE VERDICT, not the sentence. The two numbers a player decides on are the hp this pull costs
+  // and what share of the bar that is; one threshold ladder drives both so they can never disagree.
+  // >=100% means this stretch kills you at this pull, >=60% one bad roll from it, >=30% a real bite.
+  const tone = pct >= 100 ? "var(--danger)" : pct >= 60 ? "var(--blood)" : pct >= 30 ? "var(--gold)" : "var(--win)";
+  const hot = (v) => `<b style="color:${tone}">${v}</b>`;
   $("aggHint").innerHTML = worst
-    ? `The hardest hitter on this stretch strikes for <b>${worst}</b> hp a blow. Pulling <b>${planAgg}</b> costs about <b>${cost}</b> hp there — <b>${pct}%</b> of what you have.`
-    : "No fights on this stretch — pull what you like.";
+    ? t("aggHintCost", "The hardest hitter on this stretch strikes for {w} hp a blow. Pulling {a} costs about {c} hp there — {p} of what you have.",
+        { w: `<b>${worst}</b>`, a: `<b>${planAgg}</b>`, c: hot(cost), p: hot(pct + "%") })
+    : t("aggHintSafe", "No fights on this stretch — pull what you like.");
 }
 
 async function boot() {

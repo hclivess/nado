@@ -44,11 +44,21 @@ BLK2 = _block(101, 1706, [_blob(A, "cid_dice", "bet", [1, 20])])
 def t_extract():
     cs = CC.block_calls(BLK1, "default")
     return (len(cs) == 2
+            # timestamp is PINNED to 0, never the block's: block_timestamp is not in the block-hash
+            # preimage, so honest clock skew made the leaf differ node-to-node. cursor pins the block.
             and cs[0] == {"cid": "cid_dice", "method": "bet", "caller": A, "args": [3, 50], "value": 0,
-                          "cursor": 100, "timestamp": 1700}
+                          "cursor": 100, "timestamp": 0}
             and cs[1]["method"] == "settle" and cs[1]["caller"] == B
             and CC.block_calls(BLK1, "rollup2")[0]["cid"] == "cid_other")
-check("block_calls: only default-ns op=='call' blobs, ordered, with block context", t_extract)
+check("block_calls: only default-ns op=='call' blobs, ordered, with committed-only context", t_extract)
+
+# 1b) the same block under a skewed clock must produce the IDENTICAL calls — the uncommitted-input rule
+def t_clock_independent():
+    import copy
+    skewed = copy.deepcopy(BLK1); skewed["block_timestamp"] = BLK1["block_timestamp"] + 1
+    return (CC.block_calls(skewed, "default") == CC.block_calls(BLK1, "default")
+            and CC.da_calls_commitment([skewed, BLK2]) == CC.da_calls_commitment([BLK1, BLK2]))
+check("block_calls ignores block_timestamp (clock skew cannot fork the DA binding)", t_clock_independent)
 
 # 2) determinism
 check("da_calls_commitment is deterministic", lambda:
@@ -80,7 +90,7 @@ check("tamper: drop a call -> differs", lambda: tamper(
     lambda b1, b2: b1["block_transactions"].pop(0)))
 check("tamper: reorder calls -> differs", lambda: tamper(
     lambda b1, b2: b1["block_transactions"].insert(0, b1["block_transactions"].pop(2))))
-check("tamper: change the block's cursor/timestamp context -> differs", lambda: tamper(
+check("tamper: change the block's cursor context -> differs", lambda: tamper(
     lambda b1, b2: b1.__setitem__("block_number", 999)))
 
 # 5) verify_calls_bound_to_da — the L1 gate: accept a proof whose segment commitment matches the on-chain

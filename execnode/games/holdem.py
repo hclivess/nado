@@ -742,8 +742,19 @@ def _settle():
 
 
 def _reclaim():
-    # reclaim(t): NOBODY revealed — stacks back, the dead pot to the host
-    L = ["ctx r5 caller"] + _sl(TA) + ["sload r6 r4", "eq r6 r5", "require r6"]
+    # reclaim(t): the showdown window lapsed and NOBODY revealed — the hand is VOID, so every seat is made
+    # whole: stack back plus its own contribution C_i = ante + Σ street bets. Σ C_i is exactly tp (tp is
+    # built from the same antes and bets), so the pot drains to the cent with no division and no remainder,
+    # and nobody wins or loses a hand that was never shown. The old rule handed the whole dead pot to the
+    # host, which both robbed the bettors and gave the host a reason to stall the showdown.
+    #
+    # PERMISSIONLESS BY DESIGN. This is the only exit from this state — settle() requires tb != 0 and
+    # reclaim requires tb == 0, so the two paths are disjoint and no other method can unwind the table.
+    # Gating it on the host meant one absent address locked every seat's stack AND the pot forever
+    # (tests/fund_lock_test.py). The height gate (cursor >= c4+R), the tb == 0 gate and the tz gate all
+    # still apply, so opening the caller does not open the window early, twice, or over a live hand;
+    # and the payout depends only on table state, never on who called, so there is nothing to race for.
+    L = _sl(TA) + ["sload r5 r4", "require r5"]
     L += _sl(TZ) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]
     L += _sl(TD) + ["sload r5 r4", "require r5"]
     L += _closes("r0")
@@ -755,12 +766,15 @@ def _reclaim():
         L += [f"movi r5 {i}", "lt r5 r2", "jnz r5 @ra{I}".replace("{I}", str(i)),
               "jmp @rs{I}".replace("{I}", str(i)), f"ra{i}:",
               f"slot r4 {TI_BASE + i} r0", "sload r1 r4",
-              f"slot r4 {GK} r1", "sload r5 r4", f"jnz r5 @rp{i}", f"jmp @rz{i}", f"rp{i}:",
+              f"slot r4 {GK} r1", "sload r5 r4"]                                 # r5 = unspent stack
+        L += _sl(TS) + ["sload r6 r4", "add r5 r6"]                              # + ante
+        for k in range(1, 5):                                                    # + this seat's street bets
+            L += [f"slot r4 {CS_BASE + k} r1", "sload r6 r4", "add r5 r6"]
+        L += [f"jnz r5 @rp{i}", f"jmp @rz{i}", f"rp{i}:",
               f"slot r4 {GA} r1", "sload r6 r4", "pay r6 r5",
               f"rz{i}:",
               f"slot r4 {GK} r1", "movi r5 0", "sstore r4 r5",
               f"rs{i}:"]
-    L += _sl(TA) + ["sload r5 r4"] + _sl(TP) + ["sload r6 r4", "pay r5 r6"]
     L += _sl(TZ) + ["movi r5 1", "sstore r4 r5"] + _sl(TP) + ["movi r5 0", "sstore r4 r5"]
     L += _scrub([TL_B0, TL_C1, TL_C1 + 1, TL_C1 + 2, TL_C1 + 3]) + ["ret r0"]
     return L

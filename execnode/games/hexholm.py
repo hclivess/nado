@@ -126,6 +126,11 @@ OPEN = f"""    ctx r3 value
     slot r4 {NN} r0
     movi r5 1
     sstore r4 r5
+    slot r4 {DL} r0
+    ctx r5 cursor
+    movi r6 {MOVE_CLOCK}
+    add r5 r6
+    sstore r4 r5
     movi r4 0
     sload r5 r4
     slot r6 {LIST} r5
@@ -189,6 +194,13 @@ JOIN = f"""    slot r4 {NN} r0
     add r5 r3
     slot r4 {NN} r0
     sstore r4 r5
+    slot r4 {DL} r0
+    ctx r5 cursor
+    movi r6 {MOVE_CLOCK}
+    add r5 r6
+    sstore r4 r5
+    slot r4 {NN} r0
+    sload r5 r4
     slot r4 {CAP} r0
     sload r6 r4
     eq r6 r5
@@ -197,11 +209,6 @@ JOIN = f"""    slot r4 {NN} r0
     slot r4 {KH} r0
     ctx r5 cursor
     movi r6 {GAP}
-    add r5 r6
-    sstore r4 r5
-    slot r4 {DL} r0
-    ctx r5 cursor
-    movi r6 {MOVE_CLOCK}
     add r5 r6
     sstore r4 r5
 jdone:
@@ -468,7 +475,11 @@ LEAVE = f"""    slot r4 {NN} r0
     ret r0
 """
 
-# cancel(g): the CREATOR dissolves a not-yet-full table; every seated stake refunds.
+# cancel(g): the CREATOR — or ANYONE once the lobby deadline lapses — dissolves a not-yet-full table;
+# every seated stake refunds. The permissionless half is what stops a dead lobby from eating stakes:
+# leave(g) only pops the LAST joiner and abort(g) is FULL-gated, so with the creator and the last joiner
+# both gone the middle seats had no exit at all (tests/fund_lock_test.py). Refunds are per seat and
+# caller-independent, so opening the gate hands the caller nothing but the gas bill.
 _CANCEL_REFUNDS = ""
 for i in (1, 2, 3, 4):
     _CANCEL_REFUNDS += f"""    slot r4 {NN} r0
@@ -500,6 +511,15 @@ CANCEL = f"""    slot r4 {NN} r0
     slot r4 {P_BASE + 1} r0
     sload r5 r4
     eq r5 r6
+    slot r4 {DL} r0
+    sload r6 r4
+    mov r3 r6
+    nez r3
+    ctx r2 cursor
+    lt r6 r2
+    mul r6 r3
+    add r5 r6
+    nez r5
     require r5
 {_CANCEL_REFUNDS}    slot r4 {SD} r0
     movi r5 1

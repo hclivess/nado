@@ -236,7 +236,7 @@ function maybeAutoSettle() {
   if (!s || s.g !== tb.leader) return;   // only the winner auto-collects the pot
   dapp.autoCollect([{ g: activeTable }], () => settleTable(), { blocked: watch });
 }
-const reclaimTable = () => { if (dapp.busy("reclaim", "table", activeTable)) return notify(confirmingLabel()); dapp.call("reclaim", [activeTable], null, window.t("poker.reclaimDesc", "reclaim the dead pot · table #{t}", { t: activeTable }), { table: activeTable, phase: "reclaim" }); };
+const reclaimTable = () => { if (dapp.busy("reclaim", "table", activeTable)) return notify(confirmingLabel()); dapp.call("reclaim", [activeTable], null, window.t("poker.reclaimDesc", "void the hand — refund every seat · table #{t}", { t: activeTable }), { table: activeTable, phase: "reclaim" }); };
 const cancelTable = () => { if (dapp.busy("cancel", "table", activeTable)) return notify(confirmingLabel()); dapp.call("cancel", [activeTable], null, window.t("poker.cancelDesc", "cancel table #{t}", { t: activeTable }), { table: activeTable, phase: "cancel" }); };
 // the HOST deals: binds the hand to two blocks that don't exist yet — nobody can know the cards
 const startTable = () => { if (dapp.busy("start", "table", activeTable)) return notify(confirmingLabel()); dapp.call("start", [activeTable], null, window.t("poker.startDesc", "🃏 deal now · table #{t}", { t: activeTable }), { table: activeTable, phase: "start" }); };
@@ -602,7 +602,10 @@ function renderActive() {
     }
     if (tb.phase === "over" && tb.leader) btn(window.t("poker.payPotBtn", "🏆 Pay the pot to the best hand ({pot})", { pot: rawToNado(tb.pot) }), settleTable, true);
   }
-  $("btnReclaim").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.phase === "over" && !tb.leader && iAmHost));
+  // reclaim is PERMISSIONLESS in the contract — the showdown window lapsed with nobody revealed, so the
+  // host may well be the one who walked. Anyone looking at the table can unwind it; the payout is fixed
+  // by table state (stacks back, dead pot split evenly), so the caller gains nothing but the gas bill.
+  $("btnReclaim").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.phase === "over" && !tb.leader));
   $("btnCancel").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.seatCount === 1 && iAmHost));
   const stalledOpen = !tb.exists && T.ts && Date.now() - T.ts > 120000;
   if ($("btnReopen")) $("btnReopen").classList.toggle("hidden", !stalledOpen);

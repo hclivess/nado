@@ -46,7 +46,8 @@ from ops.peer_ops import save_peer, get_remote_status, check_ip, me_to, known_pe
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
 from ops import mining_history
-from protocol import GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP, CHAIN_ID, ADDRESS_PREFIX
+from protocol import (GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP, CHAIN_ID,
+                      ADDRESS_PREFIX, FINALITY_DEPTH, EPOCH_LENGTH)
 
 import gc  # replaces pympler/muppy — the full-heap walk fatally trips CPython GC under asyncio load
 
@@ -209,6 +210,13 @@ async def status(request):
             "finalized_height": memserver.finalized_height,
             "ffg_finalized": memserver.ffg_finalized,
             "protocol": memserver.protocol,
+            # CONSENSUS CONSTANTS THE BROWSER MUST MATCH. static/interface.js hardcodes these and its own
+            # comments say "MUST match protocol.py" — they drifted anyway (FINALITY_DEPTH sat at 12 vs 45,
+            # making the browser's RANDAO reveal window 33 blocks too late, so a browser-signed reveal was
+            # rejected). Serve them so the client can adopt them the way it already adopts chain_id, and the
+            # pair cannot silently diverge again.
+            "finality_depth": FINALITY_DEPTH,
+            "epoch_length": EPOCH_LENGTH,
             "version": memserver.version,
             # UPDATE VISIBILITY: the commit this process RUNS, the newest origin/main commit this node
             # has SEEN (cached by the last /update or daily check — never fetched inline here), and

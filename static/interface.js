@@ -31,9 +31,9 @@ import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
  * adds no trust: the relay already supplies balances, fees and block targets. */
-let CHAIN_ID = "alphanet-7";   // default MUST track protocol.CHAIN_ID; initNetTag() re-adopts the relay's live chain at boot / before signing
+let CHAIN_ID = "alphanet-10";   // default MUST track protocol.CHAIN_ID; initNetTag() re-adopts the relay's live chain at boot / before signing
 const EPOCH_LENGTH = 60;
-const FINALITY_DEPTH = 12;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
+let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
 // registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (≈1 day at ~8 min/epoch).
@@ -74,7 +74,10 @@ const TX_INCLUSION_DELAY = 2;
 // Mirror of protocol.TX_TARGET_MARGIN. (Exact-landing txs — bond/unbond/register/governance — do NOT use it.)
 const TX_TARGET_MARGIN = 300;
 const BOND_UNLOCK_DELAY = 14400; // protocol.py: blocks a bond stays locked after an unbond request (= 1 day at 6s)
-const BOND_CAP = 100_000_000_000_000n;  // protocol.py: 10,000 NADO — bonding past this buys no weight
+const BOND_CAP = 10_000_000_000_000n;   // protocol.py BOND_CAP: 1,000 NADO — bonding past this buys no weight.
+// Was 10x this (and the comment said 10,000 NADO) — stale since B_MIN dropped 1000 -> 10 NADO. autoBond()
+// below compounds up to BOND_CAP, so the wrong value silently bonded ~9,000 NADO of a user's coins into
+// weight-less stake. MUST track protocol.py: MAX_SHARES = BOND_CAP // B_MIN must stay 100.
 const ALIAS_REGISTRATION_FEE = 10_000_000; // protocol.py: 0.001 NADO anti-squat fee for `alias` register
 const AUTO_BOND_MIN_RAW = 10_000_000n;  // protocol.py: dust floor for an auto-bond (0.001 NADO)
 
@@ -6772,6 +6775,11 @@ async function initNetTag() {
       CHAIN_ID = st.chain_id;                       // adopt the relay's chain — self-resolving upgrades
       if (el) el.textContent = CHAIN_ID;
     }
+    // ADOPT THE CONSENSUS CONSTANTS TOO. These are hardcoded above with a "MUST match protocol.py"
+    // comment and drifted anyway (FINALITY_DEPTH sat at 12 against the node's 45, putting the RANDAO
+    // reveal window 33 blocks late so a browser-signed reveal was rejected). Taking them from the relay
+    // makes the pair self-healing instead of relying on someone remembering to edit two files.
+    if (st && Number.isInteger(st.finality_depth) && st.finality_depth > 0) FINALITY_DEPTH = st.finality_depth;
   } catch (e) {}
 }
 
