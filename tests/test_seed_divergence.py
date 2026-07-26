@@ -356,34 +356,47 @@ def test_snapshot_payload_authenticated():
     check("but a payload with a tampered ROOT-EXCLUDED row is REJECTED at import",
           import_snapshot(evil, [pchunk]) is False)
 
-    # NODE-LOCAL rows (finalized_height/pruned_below) cannot be in the digest — two honest peers hold
-    # different values at the same checkpoint, and hashing them would split agree_snapshot's quorum for
-    # identical state. They are defended by CLAMPING to the snapshot height on import instead: an
-    # unclamped forged finalized_height is an un-crossable rollback floor, i.e. a permanent wedge.
-    d_a = state_digest(triples)
-    d_b = state_digest([(n, k, codec.pack(999) if (n == "meta" and k == b"finalized_height") else v)
-                        for n, k, v in triples])
-    check("state_digest is INVARIANT to node-local finalized_height (no quorum split)", d_a == d_b)
+    # ---- TRANSFER-PAYLOAD CANONICALIZATION (four honest nodes advertised four different snapshot_hashes
+    # for identical state_root: two had finalized_height, two did not, and their execsum: sets differed) ----
+    def _identity():
+        m, _c = build_snapshot(1000, "bh" * 32, 10, "v1")
+        return (m["snapshot_hash"], m["entry_count"], m["chunks"][0]["sha256"])
 
-    forged = [(n, k, codec.pack(10 ** 12) if (n == "meta" and k == b"finalized_height") else v)
-              for n, k, v in triples]
-    fchunk = codec.pack([[n, k, v] for n, k, v in forged])
-    fm = dict(man)
-    fm["chunks"] = [{"id": 0, "sha256": hashlib.sha256(fchunk).hexdigest(),
-                     "bytes": len(fchunk), "rows": len(forged)}]
-    fm["chunk_count"] = 1
-    fm["snapshot_hash"] = manifest_hash(fm)
-    check("a forged finalized_height still IMPORTS (it is not digest-covered)",
-          import_snapshot(fm, [fchunk]) is True)
-    check("...but is CLAMPED to the snapshot height, so it cannot wedge rollback",
-          kv_ops.meta_get_int("finalized_height", None) <= man["snapshot_height"])
+    kv_ops.meta_set_int("finalized_height", 955)
+    kv_ops.exec_summary_put(84, True, {})
+    id_a = _identity()
+    kv_ops.meta_del("finalized_height")                      # absent on this peer
+    kv_ops.exec_summary_del(84)
+    kv_ops.exec_summary_put(993, False, {"default": [7]})    # a DIFFERENT execsum set
+    id_b = _identity()
+    kv_ops.meta_set_int("pruned_below", 500)                 # and a local prune watermark
+    id_c = _identity()
+    check("differing execsum:* rows produce an IDENTICAL snapshot identity", id_a == id_b)
+    check("present-vs-absent finalized_height produces an IDENTICAL snapshot identity", id_a == id_b)
+    check("present-vs-absent pruned_below produces an IDENTICAL snapshot identity", id_a == id_c)
+
+    m2, c2 = build_snapshot(1000, "bh" * 32, 10, "v1")
+    check("import reconstructs finalized_height == snapshot_height",
+          import_snapshot(m2, c2) is True
+          and kv_ops.meta_get_int("finalized_height", None) == 1000)
+    check("import carries NO pre-checkpoint execsum:* (tail replay rebuilds them)",
+          kv_ops.exec_summary_get(993) is None)
+    check("tail replay can still add new exec summaries after import",
+          (kv_ops.exec_summary_put(1001, True, {}) or kv_ops.exec_summary_get(1001) is not None))
+
+    # a donor INJECTING an excluded row must not shift the identity nor reach our DB
+    inj = [(n, k, v) for n, k, v in triples] + [("meta", b"finalized_height", codec.pack(10 ** 12))]
+    ichunk = codec.pack([[n, k, v] for n, k, v in inj])
+    im = dict(m2)
+    im["chunks"] = [{"id": 0, "sha256": hashlib.sha256(ichunk).hexdigest(),
+                     "bytes": len(ichunk), "rows": len(inj)}]
+    im["chunk_count"] = 1
+    im["snapshot_hash"] = manifest_hash(im)
+    import_snapshot(im, [ichunk])
+    check("an injected finalized_height cannot wedge the importer (dropped, then reconstructed)",
+          kv_ops.meta_get_int("finalized_height", None) == 1000)
 
 
-# ---------------------------------------------------------------------------------------------------
-# 4d) OBSERVABILITY PRIMITIVES: the diagnostics added alongside the determinism work are themselves
-#     consensus-adjacent (a torn read false-alarms a fork; a mis-gated settler attests a divergent root),
-#     so they get the same regression treatment as the fixes they support.
-# ---------------------------------------------------------------------------------------------------
 def test_state_fingerprint_is_single_walk_and_consistent():
     """state_fingerprint must derive the overall root AND the per-DB breakdown from ONE read_state() walk:
     two walks can straddle a commit and return a root that does not correspond to its own breakdown — a

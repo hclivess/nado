@@ -200,6 +200,27 @@ def _pack_chunks(triples):
     return chunk_bytes, chunk_meta
 
 
+# TRANSFER-PAYLOAD CANONICALIZATION. Excluding a row from the state ROOT is NOT enough to make the
+# SNAPSHOT identity agree: the payload still carries it, so it feeds entry_count (hashed into
+# manifest_hash), the chunk bytes/sha256, and state_digest. Four honest nodes at the same checkpoint
+# advertised four different snapshot_hashes for identical state_root because of exactly this — two had
+# finalized_height, two did not, and their execsum: sets differed. agree_snapshot then cannot converge.
+# These rows are node-local or retention/rollback-path dependent, so they must be ABSENT from the payload
+# identity entirely; the importer reconstructs what it needs deterministically (see import_snapshot).
+SNAPSHOT_PAYLOAD_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below"))
+SNAPSHOT_PAYLOAD_EXCLUDED_META_PREFIXES = (b"execsum:", b"tvprevE:", b"tvprevW:")
+
+
+def _payload_triples(triples):
+    """The canonical TRANSFER payload: read_state() minus the rows two honest nodes can legitimately differ
+    on. Order-preserving. Everything dropped here is already outside the state root, so state_root is
+    unchanged whether it is computed over the full list or this one."""
+    return [t for t in triples
+            if not (t[0] == "meta"
+                    and (t[1] in SNAPSHOT_PAYLOAD_EXCLUDED_META_KEYS
+                         or t[1].startswith(SNAPSHOT_PAYLOAD_EXCLUDED_META_PREFIXES)))]
+
+
 def state_digest(triples):
     """blake2b over the FULL canonical (db, key, value) triple list — every row a snapshot carries, INCLUDING
     the ones _root_triples excludes from the consensus root. This is the payload authenticator: it rides in
@@ -207,16 +228,7 @@ def state_digest(triples):
     INVARIANT to how the payload is split into chunks (unlike the chunk sha256 list it replaces, which was
     keyed by the NADO_SNAPSHOT_CHUNK_ROWS env). Order is the caller's canonical sort."""
     h = hashlib.blake2b(digest_size=32)
-    for t in triples:
-        # Skip the NODE-LOCAL meta rows. They are carried for a joiner's convenience but two honest peers
-        # legitimately hold DIFFERENT values at the same checkpoint (finalized_height advances by peer
-        # corroboration, pruned_below by local retention). Hashing them would make each peer advertise a
-        # different snapshot_hash for identical state and split agree_snapshot's 0.8 vote — the exact
-        # quorum-split class already fixed for `version` and the chunk list. Their AUTHENTICITY is instead
-        # enforced by import_snapshot clamping them to the snapshot height, so a forged value cannot wedge
-        # a joiner's rollback (an unclamped forged finalized_height is a permanent FinalityViolation floor).
-        if t[0] == "meta" and t[1] in ROOT_EXCLUDED_META_KEYS:
-            continue
+    for t in _payload_triples(triples):
         h.update(hashlib.blake2b(_leaf(t), digest_size=32).digest())
     return h.hexdigest()
 
@@ -228,8 +240,12 @@ def build_snapshot(snapshot_height, block_hash, protocol, version, home=None):
     triples = read_state(home)
     # ROOT excludes block storage (deterministic consensus subset); CHUNKS still carry everything so a
     # joiner's deep hash-lookbacks resolve. The two roles are intentionally different — see ROOT_EXCLUDED_DBS.
+    # state_root over the consensus subset of the FULL state; everything else (what we TRANSFER and what
+    # identifies it) over the canonical payload, so two honest nodes at the same checkpoint emit the
+    # identical entry_count / chunks / state_digest / snapshot_hash.
     state_root = merkle_root(_root_triples(triples))
-    chunk_bytes, chunk_meta = _pack_chunks(triples)
+    payload = _payload_triples(triples)
+    chunk_bytes, chunk_meta = _pack_chunks(payload)
 
     manifest = {
         "snapshot_height": snapshot_height,
@@ -242,10 +258,11 @@ def build_snapshot(snapshot_height, block_hash, protocol, version, home=None):
         # manifest_hash + import_snapshot: without this, a donor matching an honest snapshot_hash could
         # substitute arbitrary EXCLUDED rows (a forged finalized_height permanently wedges rollback; a
         # forged block_by_num row forges the epoch-beacon anchor) — entry_count alone is only a count.
-        "state_digest": state_digest(triples),
-        "entry_count": len(triples),
+        "state_digest": state_digest(payload),
+        "entry_count": len(payload),
         "chunk_count": len(chunk_meta),
         "chunks": chunk_meta,
+        "payload": "canonical-v1",   # transfer-payload format (see _payload_triples)
         "protocol": protocol,
         "version": version,
     }
@@ -331,7 +348,10 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
                 return False
             triples.append((row[0], bytes(row[1]), bytes(row[2])))
 
-    # 3) recompute the state root over the canonical order and compare
+    # 3) CANONICALIZE the received payload, then verify. Dropping the excluded rows here (rather than
+    # trusting the donor to have omitted them) means an injected finalized_height / execsum row can never
+    # reach our DB NOR shift entry_count/state_digest — it is simply not part of the identity.
+    triples = _payload_triples(triples)
     triples.sort(key=lambda t: (t[0], t[1], t[2]))
     if len(triples) != manifest["entry_count"]:
         _log(logger, "error", "snapshot entry_count mismatch")
@@ -347,22 +367,15 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
         _log(logger, "error", "snapshot state_digest mismatch after reassembly (payload tampered)")
         return False
 
-    # 3b) CLAMP the node-local rows the digest deliberately does not authenticate. finalized_height is an
-    # un-crossable rollback floor (rollback_one_block raises FinalityViolation), so a donor-supplied value
-    # above this snapshot's own height would permanently prevent the joiner from ever reorging — an
-    # unrecoverable wedge from one unauthenticated peer. Neither row can legitimately exceed the checkpoint
-    # height, so clamp rather than trust; both re-advance on their own from applied blocks.
-    _cap = int(manifest.get("snapshot_height") or 0)
-    _clamped = []
-    for _n, _k, _v in triples:
-        if _n == "meta" and _k in ROOT_EXCLUDED_META_KEYS:
-            try:
-                if int(codec.unpack(_v)) > _cap:
-                    _v = codec.pack(_cap)
-            except Exception:
-                _v = codec.pack(0)
-        _clamped.append((_n, _k, _v))
-    triples = _clamped
+    # The node-local rows are NOT transferred at all (see _payload_triples). Reconstruct the one the
+    # joiner actually needs, deterministically: a checkpoint is only ever advertised once FINALIZED, so
+    # finalized_height == snapshot_height is correct by construction and identical on every importer — no
+    # donor input, so no forged-floor wedge is possible. pruned_below stays absent (local pruning advances
+    # it) and pre-checkpoint execsum: rows stay absent (tail replay rebuilds them; a proof needing an
+    # older summary fails closed, which validate_transaction already does).
+    _h = int(manifest.get("snapshot_height") or 0)
+    triples.append(("meta", b"finalized_height", codec.pack(_h)))
+    triples.sort(key=lambda t: (t[0], t[1], t[2]))
 
     # 4) atomically replace the WHOLE consensus state (all SNAPSHOT_DBS) in ONE write txn
     kv_ops.init_env(home)
@@ -643,11 +656,12 @@ def migrate_checkpoint_hashes(logger=None, home=None):
             correct = manifest_hash(m)          # reads only the core keys — independent of m's stored hash/version
             if m.get("snapshot_hash") == correct:
                 continue
-            # A manifest predating `state_digest` cannot be re-stamped: the digest covers the PAYLOAD, which
+            # A manifest predating `state_digest`, or built before the payload was canonicalized, cannot be
+            # re-stamped: the digest covers the PAYLOAD, which
             # the manifest alone does not carry, so re-hashing would publish a checkpoint whose authenticator
             # is absent — import_snapshot would reject it only AFTER a joiner downloaded everything. DROP it;
             # the next CHECKPOINT_INTERVAL rebuilds a complete one from live state.
-            if not m.get("state_digest"):
+            if not m.get("state_digest") or m.get("payload") != "canonical-v1":
                 shutil.rmtree(_ckpt_path(h, home), ignore_errors=True)
                 dropped += 1
                 continue
