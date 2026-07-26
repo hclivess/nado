@@ -4857,6 +4857,28 @@ async function renderRollbacks() {
   if (depths.length) sub.textContent += i18("stats.rbDepthNote", " · deepest reorg this month: {d} blocks", { d: Math.max(...depths) });
 }
 
+// CONSENSUS-HEALTH panel: state-root REJECTS (blocks refused because our as-of-parent L1 root diverged
+// from the producer — the fatal-divergence signal) + EMERGENCY-mode ENTRIES (falling out of consensus into
+// a rollback/resync burst), per day. Both ride /rollback_stats (node-local). A healthy fleet trends flat at
+// zero; a sustained rejects spike is the fingerprint of a state fork (the alphanet-8 wedge). Days predating
+// this telemetry arrive null ("not measured"), drawn empty — never a fake zero.
+async function renderDivergence() {
+  const rb = await (await fetch(relayBase() + "/rollback_stats?days=30", { cache: "no-store" })).json();
+  const days = (rb && rb.days) || [];
+  dailyTrendChart("chartDivergence", days.map((d) => d.date),
+    [{ values: days.map((d) => d.rejects), color: _CPUR, name: i18("stats.dvReject", "state-root rejects") },
+     { values: days.map((d) => d.emergencies), color: _CACC, name: i18("stats.dvEmerg", "emergency entries") }]);
+  const sub = $("divergenceSub"); if (!sub || !days.length) return;
+  const rej = days.map((d) => d.rejects), emg = days.map((d) => d.emergencies);
+  const sum = (a) => a.filter((v) => v != null).reduce((x, y) => x + y, 0);
+  const obs = rej.some((v) => v != null) || emg.some((v) => v != null);
+  sub.textContent = !obs
+    ? i18("stats.nodata", "no data yet")
+    : sum(rej) === 0
+      ? i18("stats.dvHealthy", "no state-root rejects in 30 days — consensus healthy · {e} emergency entries", { e: sum(emg) })
+      : i18("stats.dvSpike", "⚠ {r} state-root rejects in 30 days · {e} emergency entries — investigate /state_health across peers", { r: sum(rej), e: sum(emg) });
+}
+
 // Shared trend-verdict sub-line for the daily panels: last 7 observed days vs the 7 before.
 // mode: "sum" (event counts — weekly totals), "peak" (daily-max gauges — weekly averages),
 // "low" (daily-min gauges — weekly averages, worded as the floor it is).
@@ -4924,6 +4946,7 @@ async function renderStats() {
   renderGeoMap().catch(() => {});   // independent of the block charts — paint it in parallel
   renderNodes().catch(() => {});    // the network-nodes table (status_pool)
   renderRollbacks().catch(() => {});  // relay-local reorg telemetry — also independent
+  renderDivergence().catch(() => {}); // relay-local consensus-health telemetry (state-root rejects / emergencies)
   renderDailyStats().catch(() => {}); // relay-local daily sampler (txs/fees/miners/peers per day)
   let tip = state.latest, tipTs = null;
   try { const lb = await getLatestBlock(); if (lb && typeof lb.block_number === "number") { tip = lb.block_number; tipTs = lb.block_timestamp; } } catch {}

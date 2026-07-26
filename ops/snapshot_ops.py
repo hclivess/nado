@@ -151,6 +151,18 @@ def l1_state_root(home=None):
     return merkle_root(_root_triples(read_state(home)))
 
 
+def per_db_roots(home=None):
+    """{sub_db_name: (merkle_root, row_count)} over the CONSENSUS subset — the SAME _root_triples that
+    l1_state_root() commits, grouped per sub-DB. Pure DIAGNOSTIC (no consensus path): comparing this map
+    between two nodes at the same tip localizes a state divergence to the exact sub-DB in ONE shot, instead
+    of the replay harness the alphanet-8 h4260 wedge needed to find the meta-DB drift. Order-preserving so
+    the output is deterministic. Served by /state_health and logged on a state-root gate refusal."""
+    by = {}
+    for name, key, value in _root_triples(read_state(home)):
+        by.setdefault(name, []).append((name, key, value))
+    return {name: (merkle_root(rows), len(rows)) for name, rows in by.items()}
+
+
 def _pack_chunks(triples):
     """split sorted state triples into deterministic msgpack chunks; returns (chunk_bytes_list, chunk_meta_list)"""
     chunk_bytes, chunk_meta = [], []

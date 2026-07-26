@@ -59,6 +59,10 @@ from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
 # How often (seconds) emergency mode logs "Could not find a syncable peer". The loop still retries every
 # ~1s, but a lone/bootstrap node with no reachable donor would otherwise flood the log once/sec.
 NO_SYNCABLE_LOG_INTERVAL = 30
+# How often (seconds) to log + telemetry-count an emergency-mode entry. emergency_mode() is re-entered
+# ~1/s while behind; without this throttle "Entering/Looping emergency mode" spammed the journal and a
+# single continuous episode inflated the emergency counter by hundreds. A periodic heartbeat is enough.
+_EMERGENCY_LOG_EVERY = 20
 
 # Minimum seconds between seed-anchored RE-ANCHOR attempts. A wedged node (stuck on a minority fork below
 # its snapshot/finality floor) re-imports a seed's snapshot to recover; bound the retry so a persistently
@@ -907,15 +911,24 @@ class CoreClient(threading.Thread):
         must not re-enter us indefinitely). Rollback depth is rate-limited per burst (max_rollbacks)
         and hard-capped by the finality floor (FinalityViolation -> refuse, resync forward only).
         A still-at-genesis node that no donor can full-serve retries snapshot bootstrap from here."""
-        self.logger.warning("Entering emergency mode")
-        # fresh burst: rollbacks is the PER-BURST rate limit (docstring above), but it was only ever
-        # reset on the abort paths — a successful 4-deep reorg left it at 4 forever, so a later
-        # legitimate deep reorg exhausted the cap early. Each emergency entry starts a new burst.
-        self.memserver.rollbacks = 0
+        # THROTTLE the entry/loop logs + the telemetry: emergency_mode() is RE-ENTERED every ~1s while
+        # behind, so logging "Entering/Looping emergency mode" per entry spammed the journal once/second
+        # and made a genuine event impossible to spot. Emit (and count) at most once per _EMERGENCY_LOG_EVERY
+        # seconds — a continuous episode leaves a periodic heartbeat, distinct episodes each get their own.
+        now = time.time()
+        _throttled = (now - getattr(self, "_last_emergency_log", 0.0)) < _EMERGENCY_LOG_EVERY
+        if not _throttled:
+            self._last_emergency_log = now
+            self.logger.warning("Entering emergency mode (behind consensus; rolling back / resyncing)")
+            try:
+                from ops import rollback_stats
+                rollback_stats.record_emergency()
+            except Exception:
+                pass
+        self.memserver.rollbacks = 0            # fresh burst: per-burst rollback rate limit (see docstring)
         if self.snapshot_bootstrap():
             self.logger.warning("State bootstrapped from snapshot; continuing with tail sync")
         try:
-            self.logger.warning("Looping emergency mode")
             while self.memserver.emergency_mode and not self.memserver.terminate:
                 # RE-EVALUATE being-behind every pass (the consensus thread refreshes tips concurrently;
                 # check_mode only runs BETWEEN emergency entries). Without this, a heavier-advertised tip
@@ -1866,6 +1879,22 @@ class CoreClient(threading.Thread):
             from ops.snapshot_ops import l1_state_root
             our_state_root = l1_state_root()   # consensus subset only — block storage excluded (determinism)
             if block.get("state_root") != our_state_root:
+                # DIAGNOSTIC (no consensus effect): dump OUR per-sub-DB root fingerprint + count the reject.
+                # Comparing this one line against another node's at the same height localizes the divergence
+                # to the exact sub-DB immediately (the alphanet-8 wedge needed a replay harness for this).
+                try:
+                    from ops.snapshot_ops import per_db_roots
+                    fp = " ".join(f"{n}={r[:8]}({c})" for n, (r, c) in sorted(per_db_roots().items()))
+                    self.logger.error(f"STATE DIVERGENCE @block {block['block_number']} "
+                                      f"(ours {our_state_root[:16]} vs producer "
+                                      f"{str(block.get('state_root'))[:16]}) — our per-DB roots: {fp}")
+                except Exception:
+                    pass
+                try:
+                    from ops import rollback_stats
+                    rollback_stats.record_reject()
+                except Exception:
+                    pass
                 raise ValueError(
                     f"Block {block['block_number']} state_root {str(block.get('state_root'))[:16]} != our "
                     f"as-of-parent L1 state {our_state_root[:16]} — our state diverged from the producer; "

@@ -51,9 +51,13 @@ def _load() -> dict:
         for k, v in data.items():
             if isinstance(v, dict):
                 d = v.get("d")
-                out[str(k)] = {"c": int(v.get("c", 0)), "d": None if d is None else int(d)}
-            else:                              # legacy bare-count int: depth was never recorded
-                out[str(k)] = {"c": int(v), "d": None}
+                # r (state-root REJECTS) and e (EMERGENCY-mode entries) shipped after c/d; a record that
+                # predates them carries the field absent -> null ("not measured"), same null≠zero rule as d.
+                r = v.get("r"); e = v.get("e")
+                out[str(k)] = {"c": int(v.get("c", 0)), "d": None if d is None else int(d),
+                               "r": None if r is None else int(r), "e": None if e is None else int(e)}
+            else:                              # legacy bare-count int: depth/rejects/emergencies never recorded
+                out[str(k)] = {"c": int(v), "d": None, "r": None, "e": None}
         return out
     except Exception:
         return {}
@@ -63,18 +67,17 @@ def _day(ts=None) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(ts))
 
 
-def record(depth: int = 1):
-    """Count ONE reverted block against today (UTC) and raise today's max reorg depth to `depth` —
-    the running length of the reorg burst this block belongs to (1 for the tip, 2 for its parent,
-    …), so the day's stored depth ends up equal to the deepest single reorg seen that day. Prune
-    beyond retention, persist atomically."""
+def _persist(mutate):
+    """Load today's record, apply `mutate(rec)` in place, prune beyond retention, write atomically.
+    Shared by record()/record_reject()/record_emergency() so all three counters follow ONE contract
+    (a telemetry write must NEVER be able to wedge the node — every caller wraps this and drops errors)."""
     with _lock:
         data = _load()
         today = _day()
-        rec = data.get(today) or {"c": 0, "d": 0}
-        rec["c"] += 1
-        d = int(depth)
-        rec["d"] = d if rec["d"] is None else max(rec["d"], d)
+        rec = data.get(today) or {"c": 0, "d": 0, "r": 0, "e": 0}
+        for f in ("c", "d", "r", "e"):
+            rec.setdefault(f, 0)               # backfill fields a legacy today-record may lack
+        mutate(rec)
         data[today] = rec
         for k in sorted(data)[:-_RETENTION_DAYS]:
             del data[k]
@@ -84,6 +87,30 @@ def record(depth: int = 1):
         with open(tmp, "w") as f:
             json.dump(data, f)
         os.replace(tmp, path)
+
+
+def record(depth: int = 1):
+    """Count ONE reverted block against today (UTC) and raise today's max reorg depth to `depth` —
+    the running length of the reorg burst this block belongs to (1 for the tip, 2 for its parent,
+    …), so the day's stored depth ends up equal to the deepest single reorg seen that day."""
+    d = int(depth)
+    def m(rec):
+        rec["c"] += 1
+        rec["d"] = d if rec["d"] in (None, 0) else max(rec["d"], d)
+    _persist(m)
+
+
+def record_reject():
+    """Count ONE state-root gate REFUSAL against today — a block whose committed L1/L2 root did not
+    match this node's as-of-parent state (the fatal-divergence signal). A sustained daily spike is the
+    fingerprint of a state fork (the alphanet-8 wedge); a healthy fleet trends flat/zero."""
+    _persist(lambda rec: rec.__setitem__("r", (rec.get("r") or 0) + 1))
+
+
+def record_emergency():
+    """Count ONE emergency-mode ENTRY against today — the node fell out of consensus and began a
+    rollback/resync burst. Pairs with reorg count/depth to separate 'one deep reorg' from 'flapping'."""
+    _persist(lambda rec: rec.__setitem__("e", (rec.get("e") or 0) + 1))
 
 
 def daily_counts(days: int = 30) -> list:
@@ -99,6 +126,9 @@ def daily_counts(days: int = 30) -> list:
     for i in range(days - 1, -1, -1):
         day = _day(now - i * 86400)
         rec = data.get(day)
-        out.append({"date": day, "count": 0, "depth": 0} if rec is None
-                   else {"date": day, "count": rec["c"], "depth": rec["d"]})
+        # absent day → a real calm 0 for every counter; present record → its stored values (depth/rejects/
+        # emergencies may be null for records that predate those fields — "not measured", not a fake 0)
+        out.append({"date": day, "count": 0, "depth": 0, "rejects": 0, "emergencies": 0} if rec is None
+                   else {"date": day, "count": rec["c"], "depth": rec["d"],
+                         "rejects": rec.get("r"), "emergencies": rec.get("e")})
     return out

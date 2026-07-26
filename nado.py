@@ -1608,6 +1608,28 @@ async def rollback_stats_report(request):
     return _resp({"tz": "UTC", "days": await asyncio.to_thread(rollback_stats.daily_counts, days)})
 
 
+async def state_health(request):
+    """GET /state_health: this node's L1 consensus state fingerprint — the committed l1_state_root plus a
+    PER-SUB-DB root breakdown {db: [root, rows]} (snapshot_ops.per_db_roots) at the current tip, with the L2
+    settled (exec_cursor, exec_root) and tip/finalized heights. Pure DIAGNOSTIC, no consensus effect: an
+    external watcher polls this on several peers and, when two disagree at the same height, sees WHICH sub-DB
+    diverged in one shot instead of inferring a fork from block hashes (the alphanet-8 wedge took a replay
+    harness to localize to the meta DB — this endpoint is that harness, live). Rate-limited like other reads."""
+    if _rate_limited(request, 30):
+        return _RL
+    def _snap():
+        from ops.snapshot_ops import l1_state_root, per_db_roots
+        from ops.settlement_ops import settled_header_commitment
+        cur, root = settled_header_commitment()
+        lb = memserver.latest_block or {}
+        return {"tip": lb.get("block_number"), "tip_hash": lb.get("block_hash"),
+                "finalized_height": memserver.finalized_height,
+                "l1_state_root": l1_state_root(),
+                "per_db": {n: [r, c] for n, (r, c) in per_db_roots().items()},
+                "exec_cursor": cur, "exec_root": root}
+    return _resp(await asyncio.to_thread(_snap))
+
+
 async def daily_stats_report(request):
     """GET /daily_stats?days=: per-UTC-day network telemetry sampled by this node (ops/daily_stats.py):
     transactions + fees per day from the block walk, daily-peak peers/miners/mempool gauges. Node-local
@@ -1721,6 +1743,7 @@ async def make_app(port):
         web.get("/invariants", invariants_report),
         web.get("/rollback_stats", rollback_stats_report),
         web.get("/daily_stats", daily_stats_report),
+        web.get("/state_health", state_health),
         web.get("/update", update_node),
         web.get("/update_peer", update_peer),
         # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +
