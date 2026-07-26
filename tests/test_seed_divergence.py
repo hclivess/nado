@@ -354,6 +354,122 @@ def test_snapshot_payload_authenticated():
 
 
 # ---------------------------------------------------------------------------------------------------
+# 4d) OBSERVABILITY PRIMITIVES: the diagnostics added alongside the determinism work are themselves
+#     consensus-adjacent (a torn read false-alarms a fork; a mis-gated settler attests a divergent root),
+#     so they get the same regression treatment as the fixes they support.
+# ---------------------------------------------------------------------------------------------------
+def test_state_fingerprint_is_single_walk_and_consistent():
+    """state_fingerprint must derive the overall root AND the per-DB breakdown from ONE read_state() walk:
+    two walks can straddle a commit and return a root that does not correspond to its own breakdown — a
+    self-inconsistent diagnostic that false-alarms the divergence watch it feeds."""
+    _fresh_home("nado_div_fingerprint_")
+    from ops import account_ops, kv_ops
+    from ops.snapshot_ops import state_fingerprint, l1_state_root, merkle_root, _root_triples, read_state
+
+    account_ops.create_account("a", balance=100)
+    account_ops.create_account("b", balance=7)
+    kv_ops.meta_set_int("finalized_height", 3)          # a root-EXCLUDED row: must not appear in per_db
+    root, per_db = state_fingerprint()
+    check("state_fingerprint root == l1_state_root", root == l1_state_root())
+    check("per-DB breakdown covers the accounts DB", "accounts" in per_db and per_db["accounts"][1] == 2)
+    check("root-EXCLUDED rows contribute no per-DB entry",
+          all(n != "meta" or c > 0 for n, (r, c) in per_db.items()))
+    # the breakdown must be a partition of the SAME triples the root committed
+    total_rows = sum(c for _, (_, c) in per_db.items())
+    check("per-DB row counts sum to the consensus triple count",
+          total_rows == len(_root_triples(read_state())))
+
+
+def test_all_db_pairs_single_txn_snapshot():
+    """kv_ops.all_db_pairs must span every sub-DB in ONE read txn (a per-sub-DB txn lets a commit land
+    mid-walk and tear the state). Verified structurally: it yields (db, key, value) across the requested
+    names and read_state consumes it fully."""
+    _fresh_home("nado_div_alldb_")
+    from ops import kv_ops, account_ops
+    account_ops.create_account("x", balance=1)
+    kv_ops.meta_set_int("finalized_height", 1)
+    names = ("accounts", "meta", "totals")
+    rows = list(kv_ops.all_db_pairs(names))
+    check("all_db_pairs yields (db, key, value) triples across the named sub-DBs",
+          bool(rows) and all(len(r) == 3 and r[0] in names for r in rows))
+    check("all_db_pairs covers more than one sub-DB in a single pass",
+          len({r[0] for r in rows}) >= 2)
+
+
+def test_rollback_stats_reject_emergency_schema():
+    """The r/e counters must survive legacy files (bare-int days, dict days without the fields) and must
+    normalise to a real 0 for the day we are ACTIVELY measuring — null means "not measured", and claiming
+    null on a day we counted an emergency would understate a fork."""
+    import json, time
+    _fresh_home("nado_div_rbstats_")
+    from ops import rollback_stats as rs
+
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    json.dump({today: {"c": 5, "d": 3}}, open(rs._stats_path(), "w"))   # legacy: no r/e keys
+    rs.record_emergency()
+    rec = rs.daily_counts(1)[-1]
+    check("a legacy today-record normalises rejects null -> 0 once we are measuring", rec["rejects"] == 0)
+    check("emergency entries are counted", rec["emergencies"] == 1)
+    check("legacy count/depth are preserved", rec["count"] == 5 and rec["depth"] == 3)
+    rs.record_reject()
+    check("rejects increment from the normalised 0", rs.daily_counts(1)[-1]["rejects"] == 1)
+    # a day with NO stored record is a real calm zero, not a null
+    older = rs.daily_counts(3)[0]
+    check("an unrecorded past day zero-fills (dense series)", older["count"] == 0)
+
+
+def test_exec_window_canonical_gate():
+    """ExecState.window_canonical decides whether this node may ATTEST an exec_root. It must pass a
+    from-genesis node, FAIL a mid-flight cold start (raised floors -> BEACON/BHASH revert where a
+    from-genesis node returns a value -> divergent root), and self-heal once the gap ages past retention."""
+    import threading
+    from execnode.state import ExecState, _BEACON_RETENTION_EPOCHS, _GENESIS_BEACON_FLOOR
+    from protocol import EPOCH_LENGTH
+
+    st = ExecState.__new__(ExecState)
+    st._mutate_lock = threading.RLock()
+
+    st.cursor, st.beacon_floor, st.blockhash_floor = 7000, _GENESIS_BEACON_FLOOR, 1
+    check("a from-genesis node holds a canonical window", st.window_canonical() is True)
+
+    st.cursor, st.beacon_floor, st.blockhash_floor = 110 * EPOCH_LENGTH, 102, 100 * EPOCH_LENGTH
+    check("a mid-flight cold start is NOT canonical (must not settle)", st.window_canonical() is False)
+
+    st.cursor = (102 + _BEACON_RETENTION_EPOCHS + 10) * EPOCH_LENGTH
+    check("the gate self-heals once the missing span ages past retention", st.window_canonical() is True)
+
+    st.cursor, st.beacon_floor, st.blockhash_floor = -1, _GENESIS_BEACON_FLOOR, 1
+    check("a fresh (cursor -1) state is NOT canonical", st.window_canonical() is False)
+
+    # fail CLOSED on an unknown blockhash window rather than assuming completeness
+    st.cursor, st.beacon_floor, st.blockhash_floor = 7000, _GENESIS_BEACON_FLOOR, None
+    check("an unknown blockhash floor FAILS CLOSED", st.window_canonical() is False)
+
+
+def test_exec_blockhash_floor_derived_on_restore():
+    """A payload written before blockhash_floor existed still carries the hash ring, so the floor must be
+    DERIVED from min(ring) on restore. Stamping it lazily at the next recorded height would mislabel a
+    complete-from-genesis window as freshly-started and block settlement for a full ring."""
+    import threading
+    from execnode.state import ExecState
+
+    st = ExecState.__new__(ExecState)
+    st._mutate_lock = threading.RLock()
+    # persisted form is {height_str: DECIMAL str(int)} — see ExecState._snapshot
+    st._restore({"cursor": 5000, "block_hashes": {"3": "171", "4": "205", "5000": "239"}})
+    check("blockhash_floor is derived from the ring when the payload predates the field",
+          st.blockhash_floor == 3)
+    # a malformed hash must not pin the floor (parse before stamping)
+    st2 = ExecState.__new__(ExecState)
+    st2._mutate_lock = threading.RLock()
+    st2._restore({"cursor": 10})
+    st2.record_block_hash(42, "not-hex")
+    check("a malformed block hash does NOT poison the floor", st2.blockhash_floor is None)
+    st2.record_block_hash(43, "ff")
+    check("a valid hash sets the floor", st2.blockhash_floor == 43)
+
+
+# ---------------------------------------------------------------------------------------------------
 # 5) WITHDRAW: characterize the "does not match the pending unbond" error as a divergence SYMPTOM.
 # ---------------------------------------------------------------------------------------------------
 def test_withdraw_matches_pending():
@@ -490,6 +606,11 @@ if __name__ == "__main__":
               test_bridge_escrow_revert_roundtrips,
               test_manifest_hash_ignores_version,
               test_snapshot_payload_authenticated,
+              test_state_fingerprint_is_single_walk_and_consistent,
+              test_all_db_pairs_single_txn_snapshot,
+              test_rollback_stats_reject_emergency_schema,
+              test_exec_window_canonical_gate,
+              test_exec_blockhash_floor_derived_on_restore,
               test_withdraw_matches_pending):
         print(f"\n--- {t.__name__} ---")
         t()

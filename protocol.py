@@ -564,10 +564,13 @@ FINALITY_DEPTH = 45
 # settle-with-proof block its peers accept — a FATAL validity fork. Safe ONLY while the retention window
 # strictly covers the widest span a reorg can still expose: a proof span is capped at SETTLE_PROOF_MAX_SPAN
 # and no reorg reaches deeper than FINALITY_DEPTH, so a summary a valid proof could need is never GC'd iff:
-assert EXEC_SUMMARY_RETENTION > SETTLE_PROOF_MAX_SPAN + FINALITY_DEPTH, (
-    f"exec-summary retention {EXEC_SUMMARY_RETENTION} must exceed settle-proof span {SETTLE_PROOF_MAX_SPAN} "
-    f"+ finality depth {FINALITY_DEPTH} — else settle-with-proof validation reads a GC'd (root-excluded) "
-    f"summary and forks block validity")
+# NOTE: a bare `assert` is stripped by `python -O`, and this guard protects a FATAL validity fork — so it
+# raises explicitly instead.
+if not EXEC_SUMMARY_RETENTION > SETTLE_PROOF_MAX_SPAN + FINALITY_DEPTH:
+    raise RuntimeError(
+        f"exec-summary retention {EXEC_SUMMARY_RETENTION} must exceed settle-proof span "
+        f"{SETTLE_PROOF_MAX_SPAN} + finality depth {FINALITY_DEPTH} — else settle-with-proof validation "
+        f"reads a GC'd (root-excluded) summary and forks block validity")
 
 # Bonded lane: locked refundable stake, split-neutral, per-identity capped.
 B_MIN = 100_000_000_000            # 10 NADO: capital per bonded selection share (staking-lane entry).

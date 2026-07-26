@@ -33,6 +33,11 @@ def canonical_bytes(data) -> bytes:
     These rules are intentionally trivial to reproduce in a browser light-miner with a
     BigInt-aware serializer, so a phone can compute identical txids/hashes/signatures
     (Python's json emits ints exactly; JS must use BigInt to match for amounts > 2**53).
+
+    Which values actually cross 2**53 (so this is a live requirement, not a theoretical one):
+    cumulative_fees and cumulative_weight are UNBOUNDED running sums carried inside the
+    block-hash preimage, and raw balances pass 2**53 at ~900k NADO. A float64 `Number`
+    rounds them silently and yields a different hash — i.e. a fork, not an error.
     """
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
 

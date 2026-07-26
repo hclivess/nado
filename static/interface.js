@@ -4840,9 +4840,12 @@ async function renderExecStats(tip, tipTs) {
 // REORGS/DAY panel: the relay's own reorg telemetry (/rollback_stats is node-local — each relay
 // answers its own history). Columns = blocks reverted that day; a purple tick per day = the deepest
 // single reorg (max consecutive blocks one burst unwound). Chart + a one-line week-over-week summary.
+let _lastRollbackStats = null;   // /rollback_stats payload shared by the reorg + consensus-health panels
+
 async function renderRollbacks() {
   const rb = await (await fetch(relayBase() + "/rollback_stats?days=30", { cache: "no-store" })).json();
   const days = (rb && rb.days) || [];
+  _lastRollbackStats = rb;                 // shared with renderDivergence (same endpoint, one request)
   dailyTrendChart("chartRollbacks", days.map((d) => d.date),
     [{ values: days.map((d) => d.count), color: _CACC, name: i18("stats.rbBlocks", "blocks reverted") }],
     { marks: { values: days.map((d) => d.depth), color: _CPUR, name: i18("stats.rbDepth", "deepest reorg") } });
@@ -4862,8 +4865,10 @@ async function renderRollbacks() {
 // a rollback/resync burst), per day. Both ride /rollback_stats (node-local). A healthy fleet trends flat at
 // zero; a sustained rejects spike is the fingerprint of a state fork (the alphanet-8 wedge). Days predating
 // this telemetry arrive null ("not measured"), drawn empty — never a fake zero.
-async function renderDivergence() {
-  const rb = await (await fetch(relayBase() + "/rollback_stats?days=30", { cache: "no-store" })).json();
+async function renderDivergence(rb) {
+  // `rb` is renderRollbacks' already-fetched /rollback_stats payload — both panels read the SAME endpoint,
+  // so re-fetching it here was two identical uncached requests per Stats render.
+  if (!rb) rb = await (await fetch(relayBase() + "/rollback_stats?days=30", { cache: "no-store" })).json();
   const days = (rb && rb.days) || [];
   dailyTrendChart("chartDivergence", days.map((d) => d.date),
     [{ values: days.map((d) => d.rejects), color: _CPUR, name: i18("stats.dvReject", "state-root rejects") },
@@ -4871,12 +4876,16 @@ async function renderDivergence() {
   const sub = $("divergenceSub"); if (!sub || !days.length) return;
   const rej = days.map((d) => d.rejects), emg = days.map((d) => d.emergencies);
   const sum = (a) => a.filter((v) => v != null).reduce((x, y) => x + y, 0);
-  const obs = rej.some((v) => v != null) || emg.some((v) => v != null);
-  sub.textContent = !obs
+  // MEASURED days only. daily_counts zero-fills days with no stored record, so a brand-new node (or one
+  // whose telemetry file predates these counters) would otherwise read as "no rejects in 30 days —
+  // consensus healthy": an affirmative claim of health for days it was not even running. Count how many
+  // days actually carry a record, and scope the verdict to those.
+  const measured = days.filter((d) => d.rejects != null || d.emergencies != null).length;
+  sub.textContent = measured === 0
     ? i18("stats.nodata", "no data yet")
     : sum(rej) === 0
-      ? i18("stats.dvHealthy", "no state-root rejects in 30 days — consensus healthy · {e} emergency entries", { e: sum(emg) })
-      : i18("stats.dvSpike", "⚠ {r} state-root rejects in 30 days · {e} emergency entries — investigate /state_health across peers", { r: sum(rej), e: sum(emg) });
+      ? i18("stats.dvHealthy", "no state-root rejects in {n} measured day(s) · {e} emergency entries", { n: measured, e: sum(emg) })
+      : i18("stats.dvSpike", "⚠ {r} state-root rejects in {n} measured day(s) · {e} emergency entries — investigate /state_health across peers", { r: sum(rej), n: measured, e: sum(emg) });
 }
 
 // Shared trend-verdict sub-line for the daily panels: last 7 observed days vs the 7 before.
@@ -4945,8 +4954,8 @@ async function renderStats() {
   const head = $("statsHeadline"); if (head) head.innerHTML = "";
   renderGeoMap().catch(() => {});   // independent of the block charts — paint it in parallel
   renderNodes().catch(() => {});    // the network-nodes table (status_pool)
-  renderRollbacks().catch(() => {});  // relay-local reorg telemetry — also independent
-  renderDivergence().catch(() => {}); // relay-local consensus-health telemetry (state-root rejects / emergencies)
+  // one /rollback_stats fetch feeds BOTH panels (reorgs + consensus health)
+  renderRollbacks().then(() => renderDivergence(_lastRollbackStats)).catch(() => {});
   renderDailyStats().catch(() => {}); // relay-local daily sampler (txs/fees/miners/peers per day)
   let tip = state.latest, tipTs = null;
   try { const lb = await getLatestBlock(); if (lb && typeof lb.block_number === "number") { tip = lb.block_number; tipTs = lb.block_timestamp; } } catch {}

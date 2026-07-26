@@ -30,7 +30,12 @@ def validate_address(address: str, checksum_size: int = 2, allow_reserved: bool 
 
 def make_checksum(public_key: str, checksum_size: int = 2) -> str:
     """2-byte (4-hex) blake2b checksum appended to addresses so a typo/truncation fails validation
-    instead of silently burning coins"""
+    instead of silently burning coins.
+
+    REIMPLEMENTERS: this is blake2b with an OUTPUT LENGTH of 2 bytes — NOT the first 2 bytes of a 32-byte
+    digest. blake2b keys its output length into the IV, so those are different values and slicing a 32-byte
+    hash yields a wrong checksum that rejects every valid address. The in-tree JS does this correctly
+    (static/interface.js: blake2bHash(body, 2) -> noble blake2b {dkLen: 2}); match that, not a slice."""
     checksum = blake2b_hash(data=public_key, size=checksum_size)
     return checksum
 

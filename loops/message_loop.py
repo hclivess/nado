@@ -29,6 +29,23 @@ class MessageClient(threading.Thread):
     #   "down" — this subsystem is not doing its job
     # The message loop renders one line per component plus a rolled-up verdict,
     # so a problem points at the actual failing part instead of a single flag.
+    def _tip_is_lag_not_fork(self, majority_hash) -> bool:
+        """True when our tip differs from the peer-majority tip only because one of us is a block or two
+        ahead — i.e. the majority tip lies ON OUR CANONICAL CHAIN (or ours lies on theirs, which we can see
+        as: we simply don't have their block yet while our own chain is intact). Used to keep the health
+        line from screaming OUTSIDE majority during ordinary propagation lag, which on a small peer pool is
+        almost continuous and drowns real fork signals. Read-only; two KV reads, no network."""
+        try:
+            from loops.core_loop import majority_on_our_canonical
+            from ops.block_ops import get_block, get_block_hash_by_number
+            if majority_on_our_canonical(majority_hash, get_block, get_block_hash_by_number):
+                return True                      # their tip is an ancestor of ours -> we are simply ahead
+            # We don't have their block at all: that is "behind / still fetching", not a proven fork. A real
+            # fork shows up as a block we DO have at that height with a different hash.
+            return get_block(majority_hash) is None
+        except Exception:
+            return False                          # never let a health cosmetic raise
+
     def health_report(self):
         """Per-component health snapshot {name: (level, detail)}, level in ok/warn/down (see the key
         above): peers, block freshness (thresholds scale with block_time), majority agreement,
@@ -77,10 +94,34 @@ class MessageClient(threading.Thread):
         elif self.memserver.latest_block["block_hash"] == majority:
             cons_level = "ok"
             cons_detail = f"in majority ({agree_pct}% / {members} peers)"
+        elif self._tip_is_lag_not_fork(majority):
+            # NOT a disagreement: the majority tip is an ancestor/descendant of ours, i.e. one side is simply
+            # a block or two ahead. Comparing raw TIP HASHES makes that read as "OUTSIDE majority", which on a
+            # small pool fires almost continuously and logs at WARN/ERROR — burying real events. Only an
+            # actual FORK (same height, different hash, or an unrelated tip) is worth a warning.
+            cons_level = "ok"
+            cons_detail = f"in majority ({agree_pct}% / {members} peers, ±1 block lag)"
         else:
             cons_level = "warn"
             cons_detail = f"OUTSIDE majority ({agree_pct}% / {members} peers)"
         components["Consensus"] = (cons_level, cons_detail)
+
+        # --- Quorum depth -------------------------------------------------
+        # DISTINCT peers, not endpoints: a node reached by several addresses (loopback + its own public IP)
+        # must not be counted twice, or a 2-node fleet reads as 3 and the operator never learns the quorum is
+        # thin. snapshot bootstrap needs >= SNAPSHOT_MIN_PEERS agreeing donors and FFG needs >2/3 bonded
+        # stake, so below that the network is one outage from being unable to onboard a fresh node.
+        try:
+            from ops.snapshot_ops import SNAPSHOT_MIN_PEERS
+            distinct = len({st.get("address") for st in self.consensus.status_pool.values()
+                            if isinstance(st, dict) and st.get("address")} - {self.memserver.address})
+            if distinct + 1 < SNAPSHOT_MIN_PEERS + 1:
+                components["Quorum"] = ("warn", f"{distinct + 1} distinct node(s) — below the "
+                                                f"{SNAPSHOT_MIN_PEERS + 1} needed for snapshot bootstrap")
+            else:
+                components["Quorum"] = ("ok", f"{distinct + 1} distinct nodes")
+        except Exception:
+            pass
 
         # --- Reachability / mining ports ----------------------------------
         if self.memserver.can_mine:

@@ -35,6 +35,11 @@ CHUNK_ROWS = int(os.environ.get("NADO_SNAPSHOT_CHUNK_ROWS", "25000"))
 # finalized, so it is always reorg-safe — no separate finality margin needed). Smaller = joiners see a
 # fresher checkpoint sooner (shorter tail replay) at the cost of more frequent captures.
 CHECKPOINT_INTERVAL = int(os.environ.get("NADO_SNAPSHOT_INTERVAL", "1000"))
+# Minimum RESPONDING peers before a snapshot vote can be trusted (agree_snapshot's default, and the number
+# the health line warns below). Two independent donors is the floor at which a super-majority means anything
+# — with one, "agreement" is just that donor's word. Single source of truth so the gate and the operator
+# warning can never drift apart.
+SNAPSHOT_MIN_PEERS = 2
 
 
 def _blake2b(data: bytes) -> str:
@@ -343,7 +348,7 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
     return True
 
 
-def agree_snapshot(statuses, min_peers=2, threshold=0.8):
+def agree_snapshot(statuses, min_peers=SNAPSHOT_MIN_PEERS, threshold=0.8):
     """Decide whether a super-majority of peers agree on one snapshot.
 
     statuses: list of peer /status dicts (None for unreachable peers).

@@ -611,7 +611,8 @@ class CoreClient(threading.Thread):
                 if lone_donor and not any(ip in _seeds for ip in responders):
                     self.logger.info("Single snapshot donor is not an operator seed; using full sync")
                     return False
-                agreed = snapshot_ops.agree_snapshot(statuses, min_peers=(1 if lone_donor else 2), threshold=0.8)
+                agreed = snapshot_ops.agree_snapshot(
+                    statuses, min_peers=(1 if lone_donor else snapshot_ops.SNAPSHOT_MIN_PEERS), threshold=0.8)
                 if not agreed:
                     self.logger.info("No snapshot quorum among peers; using full sync")
                     return False
@@ -1356,10 +1357,23 @@ class CoreClient(threading.Thread):
         # floor; it binds when FFG is ahead (e.g. a shallow finality_depth, or a node catching up whose
         # depth floor hasn't advanced yet).
         depth_final = block["block_number"] - self.memserver.finality_depth
+        ffg_final = int(getattr(self.memserver, "ffg_finalized", 0) or 0)
         if not self._depth_floor_corroborated():
-            depth_final = 0                     # uncorroborated (minority/solo-fork) tip: FFG alone may bind
-        new_final = max(self.memserver.finalized_height, depth_final,
-                        int(getattr(self.memserver, "ffg_finalized", 0) or 0))
+            # UNCORROBORATED TIP (minority side of a partition, or solo on a fork): neither floor may
+            # advance. The depth floor was already gated this way; FFG was NOT, and that was a hole. FFG's
+            # justification denominator applies an INACTIVITY LEAK (INACTIVITY_WINDOW = 3 epochs), so on the
+            # minority side of a partition lasting >3 epochs the absent majority validators leak OUT of the
+            # denominator, the minority's own committee becomes >2/3 of the "active" stake, and it
+            # FFG-finalizes its OWN fork. finalized_height is an enforced, un-crossable floor
+            # (rollback_one_block raises FinalityViolation), so on heal that node cannot roll back to rejoin
+            # the canonical chain — a self-inflicted permanent wedge escapable only by the drastic
+            # purge-and-resync dead-fork path. FFG stays fully OBJECTIVE and accountable (the attestations
+            # are still recorded and slashable, and ffg_finalized is still reported in /status); we only
+            # decline to ENFORCE an un-reorgable floor from a chain view the visible network does not
+            # corroborate. Once corroboration returns, the same FFG checkpoint binds immediately.
+            depth_final = 0
+            ffg_final = 0
+        new_final = max(self.memserver.finalized_height, depth_final, ffg_final)
         if new_final > self.memserver.finalized_height:
             set_finalized_height(new_final)
             self.memserver.finalized_height = new_final
