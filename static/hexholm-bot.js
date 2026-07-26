@@ -4,7 +4,7 @@
 // it), and the E2E move oracle. The bot is not clever, but it FINISHES games. Pure functions of
 // (state, seat, rnd) / (seed, moves) — no DOM, no chain.
 import * as E from "./hexholm-engine.js?v=bfd3d976";
-import { packMoves, unpackMoves, provableSeed } from "./provable.js?v=a13bb487";
+import { packMoves, unpackMoves, provableSeed } from "./provable.js?v=2dd16efd";
 
 export function prng(seedStr) {                             // mulberry32 over a string hash
   let h = 1779033703 ^ seedStr.length;

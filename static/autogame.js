@@ -16,13 +16,13 @@ import {
   NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime, modeBar,
   confirmingLabel,
-} from "./nadodapp.js?v=77a0d4df";
-import * as E from "./autogame-engine.js?v=eb6129b3";
-import { ACTS_FOR } from "./autogame-rules.js?v=e7abffe6";
-import * as ART from "./autogame-art.js?v=f4f6ab41";
-import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=f4f6ab41";
-import { createDaily } from "./autogame-dailyui.js?v=b4fb5c74";
-import * as D from "./autogame-daily.js?v=e7c3c3fb";
+} from "./nadodapp.js?v=68319609";
+import * as E from "./autogame-engine.js?v=8a997c33";
+import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
+import * as ART from "./autogame-art.js?v=4aad5b61";
+import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=4aad5b61";
+import { createDaily } from "./autogame-dailyui.js?v=c62db697";
+import * as D from "./autogame-daily.js?v=7816b747";
 import { createAudio } from "./autogame-audio.js?v=afd7538c";
 
 const CID = "bb9c34180162a11260b3b2e436a709b8";          // execnode/games/autogame.py (zkVM) — set by the deploy script

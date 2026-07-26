@@ -6,10 +6,10 @@
 // board is renderTopScores over provable.js's verifyEntries, the anchor upkeep is seedDaily, the click
 // guards are guardedAction. Keeping it out of autogame.js makes it obvious at a glance that nothing here
 // re-implements something the SDK already does — and if a line ever does, it will stick out.
-import { dailyFrame, renderTopScores, guardedAction, confirmingLabel, notify, esc, relocalize } from "./nadodapp.js?v=77a0d4df";
-import { todayIdx, anchorOf, seedDaily, pendingDaily, entriesFrom, verifyEntries, provableSeed, unpackMoves } from "./provable.js?v=a13bb487";
-import * as E from "./autogame-engine.js?v=eb6129b3";
-import * as D from "./autogame-daily.js?v=e7c3c3fb";
+import { dailyFrame, renderTopScores, guardedAction, confirmingLabel, notify, esc, relocalize } from "./nadodapp.js?v=68319609";
+import { todayIdx, anchorOf, seedDaily, pendingDaily, entriesFrom, verifyEntries, provableSeed, unpackMoves } from "./provable.js?v=2dd16efd";
+import * as E from "./autogame-engine.js?v=8a997c33";
+import * as D from "./autogame-daily.js?v=7816b747";
 
 const LS = "nado_autogame_gauntlet";      // {day, tiers, actions} — a Gauntlet survives a reload
 

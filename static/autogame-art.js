@@ -20,7 +20,7 @@
 //   * SILHOUETTE FIRST — every mass is an outlined shape before it is a shaded one; rank changes the
 //     DRAWING, never a scale factor.
 
-import { unpackItem as unpackRaw } from "./autogame-engine.js?v=eb6129b3";
+import { unpackItem as unpackRaw } from "./autogame-engine.js?v=8a997c33";
 
 // ── cells ────────────────────────────────────────────────────────────────────────────────
 export const FRAME_W = 64;

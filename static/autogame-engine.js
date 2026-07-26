@@ -14,8 +14,8 @@
 // division on a non-negative value (`(a / b) | 0` is only safe below 2^31, so `Math.floor` is used) and
 // every subtraction goes through `csub`, which clamps at zero. A bare `a - b` that can go negative is the
 // bug that makes a browser preview disagree with the chain.
-import * as R from "./autogame-rules.js?v=e7abffe6";
-export * from "./autogame-rules.js?v=e7abffe6";
+import * as R from "./autogame-rules.js?v=a3d6848d";
+export * from "./autogame-rules.js?v=a3d6848d";
 
 // ── integer helpers, matching the VM exactly ────────────────────────────────────────────────────
 export const csub = (a, b) => (a > b ? a - b : 0);            // clamped: the field wraps, so this is law
