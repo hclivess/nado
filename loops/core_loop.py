@@ -1303,7 +1303,13 @@ class CoreClient(threading.Thread):
                 # further back than SETTLE_PROOF_MAX_SPAN is refused by the cap anyway. The dropped height
                 # is far below the reorg window, so rollback never needs to restore it.
                 if _h > EXEC_SUMMARY_RETENTION:
-                    kv_ops.exec_summary_del(_h - EXEC_SUMMARY_RETENTION)
+                    # JOURNAL then prune, so rollback_one_block can restore it. Without this the pair
+                    # put(h)+del(h-RETENTION) here vs a lone del(h) on rollback punched a PERMANENT hole in
+                    # the summary window on every reorg — which makes settle-with-proof validation reject a
+                    # block this node's peers accept, and makes two honest nodes hold different execsum sets.
+                    _old_h = _h - EXEC_SUMMARY_RETENTION
+                    kv_ops.execsum_revert_put(_h, _old_h, kv_ops.exec_summary_get(_old_h))
+                    kv_ops.exec_summary_del(_old_h)
             except Exception as e:
                 # Never let summary derivation break block application. HONEST CAVEAT: this is only safe
                 # because block_summary is a PURE function of the body, so a genuine failure is
@@ -1392,6 +1398,10 @@ class CoreClient(threading.Thread):
         if block["block_number"] % EPOCH_LENGTH == 0:
             from ops.gc_ops import prune_local_revert_records
             prune_local_revert_records(self.memserver.finalized_height)
+            try:
+                kv_ops.execsum_revert_prune(self.memserver.finalized_height)
+            except Exception:
+                pass
 
         # ROLLING-NODE SYNC: at each checkpoint interval, persist a verified snapshot of state@N.
         # The write txn above has committed and no later block is applied yet, so accounts.db == state@N

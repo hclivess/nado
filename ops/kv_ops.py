@@ -51,7 +51,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "block_loc", "gc_revert")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "block_loc", "gc_revert", "execsum_revert")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
 
 # CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block-body + tx HISTORY (explorer-only,
@@ -84,7 +84,8 @@ _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 #               rollback ever reads are for the (finalized, tip] reorg window, all ABOVE C, which the normal
 #               C+1..tip tail replay rebuilds byte-for-byte as it re-incorporates each block. wipe_non_carried_dbs
 #               (all-DBs - SNAPSHOT_DBS) clears any stale residue on re-anchor. So they belong here, not in the root.
-_LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_revert", "msgkey_revert"))
+_LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_revert", "msgkey_revert",
+                        "execsum_revert"))
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS))
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -629,6 +630,48 @@ def exec_summary_get(height: int):
         raw = txn.get(_exec_summary_key(height).encode(), db=_dbs()["meta"])
         return _unpack(raw) if raw is not None else None
     return _read(_do)
+
+
+def execsum_revert_put(block_height: int, pruned_height: int, doc):
+    """Journal the exec summary that incorporate_block is about to RETENTION-prune while applying
+    `block_height`, so rollback_one_block can put it back. incorporate does put(h) AND del(h-RETENTION);
+    rollback only del(h) — so without this every reorg punched a PERMANENT hole in the summary window.
+    That is not cosmetic: settle-with-proof validation reads exec_summary_get(h) across a proof span, so a
+    node with a hole REJECTS a block its peers accept (a validity fork), and it made two honest nodes hold
+    different execsum sets, which is what split their snapshot identity. NODE-LOCAL (execsum_revert is in
+    _LOCAL_DBS): rollback bookkeeping never belongs in the root or a snapshot."""
+    if doc is None:
+        return
+    def _do(txn):
+        txn.put(f"{int(block_height)}".encode(), _pack([int(pruned_height), doc]),
+                db=_dbs()["execsum_revert"])
+    _write(_do)
+
+
+def execsum_revert_pop(block_height: int):
+    """Take back the summary pruned while applying `block_height` — (pruned_height, doc) or None."""
+    key = f"{int(block_height)}".encode()
+    def _do(txn):
+        raw = txn.get(key, db=_dbs()["execsum_revert"])
+        if raw is None:
+            return None
+        txn.delete(key, db=_dbs()["execsum_revert"])
+        v = _unpack(raw)
+        return (int(v[0]), v[1])
+    return _write(_do)
+
+
+def execsum_revert_prune(below_height: int):
+    """Drop journal entries below the finality floor — rollback can never reach them."""
+    def _do(txn):
+        with txn.cursor(db=_dbs()["execsum_revert"]) as cur:
+            for k, _v in list(cur):
+                try:
+                    if int(k.decode()) < int(below_height):
+                        txn.delete(k, db=_dbs()["execsum_revert"])
+                except Exception:
+                    continue
+    _write(_do)
 
 
 def exec_summary_del(height: int):

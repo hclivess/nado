@@ -66,6 +66,14 @@ def rollback_one_block(logger, block, depth: int = 1) -> dict:
         # here means the replacement block's own incorporate rewrites it (and a span over an un-summarised
         # height is refused rather than mis-bound).
         kv_ops.exec_summary_del(block["block_number"])
+        # RESTORE the summary this block's application retention-pruned. incorporate_block does
+        # put(h) AND del(h-RETENTION); reverting only the put leaves a permanent hole in the window,
+        # which forks settle-with-proof block VALIDITY (validate_transaction reads every summary in a
+        # proof span) and desynchronises the execsum set between honest nodes.
+        _rev = kv_ops.execsum_revert_pop(block["block_number"])
+        if _rev:
+            _ph, _doc = _rev
+            kv_ops.exec_summary_put(_ph, bool(_doc.get("inert")), _doc.get("calls") or {})
         unindex_block(block, logger=logger)
 
     set_latest_block_info(latest_block=previous_block, logger=logger)

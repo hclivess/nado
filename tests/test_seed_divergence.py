@@ -397,6 +397,52 @@ def test_snapshot_payload_authenticated():
           kv_ops.meta_get_int("finalized_height", None) == 1000)
 
 
+def test_execsum_window_survives_rollback():
+    """execsum:<h> is block_summary(block) — a PURE function of the block body — written for every block
+    and pruned by a deterministic height rule, so two honest nodes at the same tip MUST hold the identical
+    set. It did not: incorporate_block does put(h) AND del(h-RETENTION) while rollback_one_block did only
+    del(h), so every net rollback left the window SHORT AT THE BOTTOM (observed live: a node holding
+    execsum[3306..4260] where tip 4260 requires [3301..4260]). That is not cosmetic — settle-with-proof
+    validation reads exec_summary_get(h) for every height in a proof span, so a short window makes this node
+    REJECT a block its peers accept (a validity fork), and it desynchronises the execsum set between honest
+    nodes. Fixed by journalling the pruned row (node-local execsum_revert) and restoring it on rollback."""
+    _fresh_home("nado_div_execsumwin_")
+    from ops import kv_ops
+    from protocol import EXEC_SUMMARY_RETENTION as RET
+
+    def window():
+        hs = sorted(int(k.decode().split(":")[1]) for k, _ in kv_ops.iter_db_pairs("meta")
+                    if k.decode().startswith("execsum:"))
+        return (hs[0], hs[-1], len(hs)) if hs else (0, 0, 0)
+
+    def incorporate(h):                      # mirrors loops/core_loop.incorporate_block
+        kv_ops.exec_summary_put(h, True, {})
+        if h > RET:
+            oh = h - RET
+            kv_ops.execsum_revert_put(h, oh, kv_ops.exec_summary_get(oh))
+            kv_ops.exec_summary_del(oh)
+
+    def rollback(h):                         # mirrors rollback.rollback_one_block
+        kv_ops.exec_summary_del(h)
+        rev = kv_ops.execsum_revert_pop(h)
+        if rev:
+            ph, doc = rev
+            kv_ops.exec_summary_put(ph, bool(doc.get("inert")), doc.get("calls") or {})
+
+    for h in range(1, RET + 6):
+        incorporate(h)
+    lo, hi, n = window()
+    check("a forward-only node holds exactly RETENTION summaries", n == RET and lo == hi - RET + 1)
+
+    rollback(RET + 5)                        # reorg: tip drops, the chain continues on another branch
+    lo, hi, n = window()
+    check("after a rollback the window is STILL full-length (no bottom-edge loss)", n == RET)
+    check("...and its bottom edge is exactly tip-RETENTION+1", lo == hi - RET + 1)
+
+    check("the revert journal is NODE-LOCAL (never in the root or a snapshot)",
+          "execsum_revert" in kv_ops._LOCAL_DBS and "execsum_revert" not in kv_ops.SNAPSHOT_DBS)
+
+
 def test_state_fingerprint_is_single_walk_and_consistent():
     """state_fingerprint must derive the overall root AND the per-DB breakdown from ONE read_state() walk:
     two walks can straddle a commit and return a root that does not correspond to its own breakdown — a
@@ -652,6 +698,7 @@ if __name__ == "__main__":
               test_bridge_escrow_revert_roundtrips,
               test_manifest_hash_ignores_version,
               test_snapshot_payload_authenticated,
+              test_execsum_window_survives_rollback,
               test_state_fingerprint_is_single_walk_and_consistent,
               test_all_db_pairs_single_txn_snapshot,
               test_rollback_stats_reject_emergency_schema,
