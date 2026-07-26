@@ -175,16 +175,70 @@ def test_exec_summary_determinism_and_proof_disabled():
     N = RET + 20
     linear = _present_summaries(N, rolled_back_reapplied=0)
     reorged = _present_summaries(N, rolled_back_reapplied=5)
-    check("exec-summary retention set is PATH-INDEPENDENT (reorg vs linear reach the same set)",
+    check("exec-summary retention set is path-independent for REAPPLY-same-height reorgs",
           linear == reorged and len(linear) > 0)
-    # so the reported execsum divergence is NOT the GC — it is the swallowed non-deterministic failure
-    # (core_loop.py block_summary except: continue). While that swallow exists, proofs must stay off.
+    # CORRECTION (gen-7): the set above is stable ONLY because this models a reorg as del(tip)+reapply(tip).
+    # A real rollback that does NOT reapply the same tip leaves execsum:<h-RET> permanently dropped (rollback
+    # only del's the block's own height) — which DID fork the root at alphanet-8 h4260 (an emergency rollback
+    # storm dropped execsum:3301..3305 on the catching-up nodes). The fix is NOT a symmetric GC — it is
+    # EXCLUDING execsum from the root entirely (test_execsum_excluded_from_root). Proofs still stay off while
+    # the block_summary swallow (core_loop except: continue) can make the CARRIED set inconsistent.
     from ops import settlement_ops
     src = inspect.getsource(settlement_ops.settlement_justified)
     active_proof_call = any(("settlement_proven" in ln and not ln.lstrip().startswith("#"))
                             for ln in src.splitlines())
     check("settle-with-proof fast-path stays DISABLED (no active settlement_proven call) — "
           "do not activate proofs while summaries can be inconsistently missing", not active_proof_call)
+
+
+# ---------------------------------------------------------------------------------------------------
+# 4b) ROLLBACK ASYMMETRY (gen-7, alphanet-8 h4260): rollback_one_block was not the exact inverse of
+#     incorporate_block for two `meta` rows, so a node that rolled back (emergency re-sync) drifted its
+#     root away from a forward-only node and the FATAL gate then permanently refused it. Block APPLICATION
+#     was fully deterministic (a canonical forward replay reproduced the network root) — the corruption
+#     was in the rollback path. Each test FAILS on the pre-fix code.
+# ---------------------------------------------------------------------------------------------------
+def test_execsum_excluded_from_root():
+    """execsum:<h> presence is retention/rollback-path dependent — incorporate_block prunes execsum:<h-RET>
+    but rollback_one_block never restores it, so a rolled-back node holds a different execsum set than a
+    forward-only node. It MUST NOT feed the state_root; now excluded via ROOT_EXCLUDED_META_PREFIXES."""
+    _fresh_home("nado_div_execsumroot_")
+    from ops import kv_ops
+    from ops.snapshot_ops import read_state, _root_triples, l1_state_root
+    root_before = l1_state_root()
+    kv_ops.exec_summary_put(1234, inert=True, calls_by_ns={})
+    kv_ops.exec_summary_put(1235, inert=False, calls_by_ns={"default": [7, 8]})
+    check("state_root is INVARIANT to execsum rows (retention/rollback-path dependent)",
+          l1_state_root() == root_before)
+    meta_keys = {k for (db, k, v) in _root_triples(read_state()) if db == "meta"}
+    check("no execsum:* row appears in the consensus root",
+          not any(k.startswith(b"execsum:") for k in meta_keys))
+    check("the execsum rows DO physically exist (still carried for settle-with-proof)",
+          kv_ops.exec_summary_get(1234) is not None and kv_ops.exec_summary_get(1235) is not None)
+
+
+def test_dividend_inflow_revert_roundtrips():
+    """Reverting an epoch's FIRST dividend inflow back to 0 must DELETE the divinflow:<e> key, not leave a
+    phantom `=0` row — a present-0 meta int merkleizes differently from an absent key, so the phantom forked
+    the root vs the absent-key true parent when incorporate_block's reward credit was rolled back."""
+    _fresh_home("nado_div_divinflow_")
+    from ops import kv_ops
+    from ops.snapshot_ops import l1_state_root
+    root_before = l1_state_root()
+    kv_ops.dividend_inflow_add(71, 83300000)
+    check("adding an epoch's inflow moves the root (divinflow IS block-derived, in the root)",
+          l1_state_root() != root_before)
+    kv_ops.dividend_inflow_add(71, 83300000, revert=True)
+    check("no phantom divinflow:71=0 row remains after the revert (0 == absent)",
+          kv_ops.meta_get_int("divinflow:71", None) is None)
+    check("reverting the first inflow round-trips the root BYTE-IDENTICALLY",
+          l1_state_root() == root_before)
+    # a partial revert (epoch had inflow from >1 block) keeps the key with the remaining positive total
+    kv_ops.dividend_inflow_add(71, 100)
+    kv_ops.dividend_inflow_add(71, 30)
+    kv_ops.dividend_inflow_add(71, 30, revert=True)
+    check("a partial revert KEEPS the key at the remaining positive total (not deleted)",
+          kv_ops.dividend_inflow_get(71) == 100)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -304,6 +358,8 @@ if __name__ == "__main__":
               test_block_stores_excluded_from_root,
               test_node_local_meta_excluded_from_root,
               test_exec_summary_determinism_and_proof_disabled,
+              test_execsum_excluded_from_root,
+              test_dividend_inflow_revert_roundtrips,
               test_withdraw_matches_pending):
         print(f"\n--- {t.__name__} ---")
         t()

@@ -62,7 +62,7 @@ the checksum; the keyless reserved recipients `bond`/`unbond` are also accepted.
 checksum now uses canonical hashing, the genesis/treasury address is the legacy public-key body
 re-checksummed (`…b803280`, see [economics.md](economics.md)).
 
-## State-root determinism — what the root may commit (CHAIN_GENERATION 6)
+## State-root determinism — what the root may commit (CHAIN_GENERATION 7)
 
 Every block hash commits an L1 `state_root` (see [l2-settlement.md](l2-settlement.md) for the parallel
 L2 `exec_root`): `construct_block` computes it, `block_content_hash`/`save_block` hash it, and
@@ -79,8 +79,10 @@ snapshot + tail replay), its height, or its pruning/retention. So the invariant 
 
 The root is `snapshot_ops.l1_state_root()` = a blake2b Merkle root over the **consensus subset** of
 `kv_ops.SNAPSHOT_DBS` — full DBs in `ROOT_EXCLUDED_DBS` are dropped, and the rows named in
-`ROOT_EXCLUDED_META_KEYS` are dropped from the `meta` DB. Three classes of data have been pulled OUT of the
-root because they are *node-local*, not a function of the block sequence — each was a real fork:
+`ROOT_EXCLUDED_META_KEYS` are dropped from the `meta` DB. The invariant has a sharper form than "written
+from a block tx": the root must be **invariant to the reorg/retention PATH**, not just to the block set — a
+value can be block-derived and still fork the root if it is written/pruned differently on a node that has
+rolled back. Four classes of data have been pulled OUT of the root — each was a real fork:
 
 1. **Reorg revert journals** (`bond_since_revert`, `hb_revert`, `msgkey_revert`, `gc_revert`,
    `block_loc`) → moved to `kv_ops._LOCAL_DBS` (excluded from `SNAPSHOT_DBS` entirely). These are
@@ -104,18 +106,36 @@ root because they are *node-local*, not a function of the block sequence — eac
    prune watermark) — only the root **commitment** excludes them, and the exclusion is **surgical**: every
    *other* `meta` row (attestation-uniqueness replay guards, chain markers) stays in the root because it *is*
    block-derived. Fixed in `CHAIN_GENERATION` 6.
+4. **Retention / rollback-path-dependent `meta` rows** (`execsum:<h>`) → `ROOT_EXCLUDED_META_PREFIXES` (a
+   key-**prefix** exclusion in the `meta` DB). This one was *not* a block-application bug at all: a canonical
+   forward replay of the diverged span reproduced the network root byte-for-byte. The fault was that
+   **`rollback_one_block` is not the exact inverse of `incorporate_block`**. `incorporate_block` writes
+   `execsum:<h>` *and* prunes the one leaving the retention window (`exec_summary_del(h − EXEC_SUMMARY_RETENTION)`),
+   but `rollback_one_block` only deletes the block's *own* height and never restores the pruned row — so a node
+   that has rolled back holds a **different `execsum` set** than a forward-only node at the same tip. An
+   emergency-mode rollback storm dropped `execsum:3301..3305` on the catching-up alphanet-8 nodes; their
+   `l1_state_root` diverged from the canonical forward-only chain and the fatal gate refused them **forever**
+   (a node wedged below its own finalized floor cannot self-heal). The summaries are still *carried in the
+   snapshot* (settle-with-proof binding needs the retention window) — only the root **commitment** drops them.
+   A sibling of the same bug: reverting an epoch's first dividend inflow left a phantom `divinflow:<e>=0` row
+   (a present-`0` `meta` int merkleizes differently from an absent key); `dividend_inflow_add` now `meta_del`s
+   on zero so apply/rollback round-trips exactly. Fixed in `CHAIN_GENERATION` 7.
 
 Everything that remains in the root — accounts (balances/stake), `totals`, the block-derived `meta` rows
-(attestation uniqueness + replay guards), `attestations`, `commits`/`reveals`, `settlements`, `recerts`,
-`bond_since`, `unbonds`, `aliases`, `htlcs`, `treasury_*` — is written **only** from block-included
-transactions (`ops/account_ops.py` apply path), so it is identical on every node that applied the same blocks.
+(attestation uniqueness + replay guards, `divinflow`, chain markers), `attestations`, `commits`/`reveals`,
+`settlements`, `recerts`, `bond_since`, `unbonds`, `aliases`, `htlcs`, `treasury_*` — is written **only**
+from block-included transactions (`ops/account_ops.py` apply path) **and reverts exactly on rollback**, so it
+is identical on every node that applied the same blocks by any path.
 
 Regression coverage: `tests/test_seed_divergence.py` (`test_revert_journals_excluded_from_root`,
 `test_block_stores_excluded_from_root`, `test_node_local_meta_excluded_from_root`,
-`test_empty_account_canonicalized`). The rule for anyone adding a new `SNAPSHOT_DB` **or a new `meta` row**:
-**if its value is not a deterministic function of the applied block sequence, it must be excluded from the
-root** — `_LOCAL_DBS` if node-only, `ROOT_EXCLUDED_DBS` for a whole carried-but-not-committed DB, or
-`ROOT_EXCLUDED_META_KEYS` for an individual node-local `meta` row.
+`test_empty_account_canonicalized`, `test_execsum_excluded_from_root`, `test_dividend_inflow_revert_roundtrips`).
+The rule for anyone adding a new `SNAPSHOT_DB` **or a new `meta` row**: **if its value — or its mere
+presence — is not a deterministic function of the applied block sequence that also reverts exactly on
+rollback, it must be excluded from the root** — `_LOCAL_DBS` if node-only, `ROOT_EXCLUDED_DBS` for a whole
+carried-but-not-committed DB, `ROOT_EXCLUDED_META_KEYS` for an individual `meta` row, or
+`ROOT_EXCLUDED_META_PREFIXES` for a `meta` key family. And any new `meta` row that can return to `0` from
+absent must `meta_del` at `0`, or rollback will leave a phantom that forks the root.
 
 ## In-block transaction ordering — RESOLVED (CO-8)
 

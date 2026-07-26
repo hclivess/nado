@@ -119,14 +119,29 @@ def read_state(home=None):
 ROOT_EXCLUDED_DBS = frozenset(("block_by_num", "block_by_hash"))
 ROOT_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below"))
 
+#   (3) ROOT_EXCLUDED_META_PREFIXES — families of `meta` rows whose PRESENCE is retention / rollback-path
+#       dependent rather than a pure function of the applied block sequence — the same exclusion class as
+#       block storage, just living in the meta sub-DB.
+#         execsum:<h> — the per-block exec-call summary. incorporate_block writes execsum:<h> AND prunes the
+#           one falling out of the retention window (exec_summary_del(h - EXEC_SUMMARY_RETENTION)); but
+#           rollback_one_block only deletes the block's OWN height and never restores the retention-dropped
+#           row. So a node that has rolled back holds a DIFFERENT execsum set than a forward-only node at the
+#           same tip — which forked the root and wedged the fleet (alphanet-8 h4260: an emergency-mode
+#           rollback storm dropped execsum:3301..3305 on the catching-up nodes; their l1_state_root diverged
+#           from the canonical forward-only chain and the FATAL gate correctly refused them, forever). The
+#           summaries stay CARRIED in the snapshot (settle-with-proof binding needs the window) — only the
+#           root COMMITMENT drops them, so their retention/rollback path can never fork consensus.
+ROOT_EXCLUDED_META_PREFIXES = (b"execsum:",)
+
 
 def _root_triples(triples):
     """the consensus subset of a full read_state() list — everything the state root commits (block storage
-    and node-local meta rows excluded; see ROOT_EXCLUDED_DBS / ROOT_EXCLUDED_META_KEYS). Order-preserving,
-    so a pre-sorted input stays sorted."""
+    and node-local / retention-dependent meta rows excluded; see ROOT_EXCLUDED_DBS / ROOT_EXCLUDED_META_KEYS
+    / ROOT_EXCLUDED_META_PREFIXES). Order-preserving, so a pre-sorted input stays sorted."""
     return [t for t in triples
             if t[0] not in ROOT_EXCLUDED_DBS
-            and not (t[0] == "meta" and t[1] in ROOT_EXCLUDED_META_KEYS)]
+            and not (t[0] == "meta" and t[1] in ROOT_EXCLUDED_META_KEYS)
+            and not (t[0] == "meta" and t[1].startswith(ROOT_EXCLUDED_META_PREFIXES))]
 
 
 def l1_state_root(home=None):

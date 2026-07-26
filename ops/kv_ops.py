@@ -907,9 +907,21 @@ def xmsg_nullifier_del(from_ns: str, seq: int):
 # finalized block stream. ---
 
 def dividend_inflow_add(epoch: int, amount: int, revert: bool = False):
-    """Accumulate (revert=False) or reverse (revert=True) the DIVIDEND_POOL inflow credited during `epoch`."""
+    """Accumulate (revert=False) or reverse (revert=True) the DIVIDEND_POOL inflow credited during `epoch`.
+
+    CANONICAL-ZERO (rollback determinism): a `meta` int row present with value 0 is NOT the same in the
+    state_root as an ABSENT key — read_state emits the row either way, so it merkleizes differently — even
+    though meta_get_int reads both as 0. Forward only ever ADDS positive inflow (credit_block_reward calls
+    this under `if dividend:`), so a key is present iff its running total is > 0. Reverting the FIRST inflow
+    of an epoch back to 0 must therefore DELETE the key, not store a 0 — otherwise rollback leaves a phantom
+    `divinflow:<e>=0` row that forks the root vs a forward-only node (an alphanet-8 rollback-asymmetry wedge
+    cause; see snapshot_ops.ROOT_EXCLUDED_META_PREFIXES for its sibling)."""
     k = f"divinflow:{int(epoch)}"
-    meta_set_int(k, meta_get_int(k, 0) + (-int(amount) if revert else int(amount)))
+    new = meta_get_int(k, 0) + (-int(amount) if revert else int(amount))
+    if new == 0:
+        meta_del(k)                 # canonicalize 0 == absent so apply/rollback round-trips exactly
+    else:
+        meta_set_int(k, new)
 
 
 def dividend_inflow_get(epoch: int) -> int:

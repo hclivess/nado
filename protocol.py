@@ -267,7 +267,19 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   the root (ROOT_EXCLUDED_META_KEYS) while still carried in snapshots; every OTHER meta row stays in the
 #   root (block-derived). Formula change ⇒ gen-5 block 47 is incompatible ⇒ full re-purge. See
 #   tests/test_seed_divergence.py::test_node_local_meta_excluded_from_root.
-CHAIN_GENERATION = 6
+# 7 (2026-07-26): ROLLBACK-ASYMMETRY FIX. The determinism bug was NOT in block application (a canonical
+#   forward replay 4001→4260 from the 4000 snapshot reproduced the network root byte-for-byte) — it was that
+#   rollback_one_block is not the exact inverse of incorporate_block for two `meta` rows, so any node that
+#   ROLLS BACK (emergency-mode re-sync) drifts its root away from a forward-only node and the FATAL gate then
+#   permanently refuses it. (a) execsum:<h>: incorporate writes it AND retention-prunes execsum:<h-960>, but
+#   rollback never restores the pruned row → a rolled-back node holds a different execsum set. Now EXCLUDED
+#   from the root (retention/rollback-path dependent, same class as block storage — ROOT_EXCLUDED_META_PREFIXES).
+#   (b) divinflow:<epoch>: reverting the first inflow of an epoch left a phantom `=0` row (present != absent in
+#   the root); dividend_inflow_add now meta_del's on zero. The alphanet-8 fleet wedged at h4260 when an
+#   emergency rollback storm dropped execsum:3301..3305 on the catching-up nodes. Root-formula change (execsum
+#   out) ⇒ gen-6 blocks incompatible ⇒ full re-purge. See tests/test_seed_divergence.py::
+#   test_execsum_excluded_from_root and ::test_rollback_root_roundtrip.
+CHAIN_GENERATION = 7
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
