@@ -10,7 +10,7 @@ import { Practice } from "./practice.js?v=7296ee6f";   // free in-browser practi
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=2dd16efd";
 import * as SALVO from "./battleship-daily.js?v=ecdf1fbb";
 
-const CID = "a6c3c02696e9cce9a380ceaa86d0127b";   // execnode/games/battleship.py (zkVM; alphanet-7 redeploy with the Daily Salvo)
+const CID = "eaf6878ade7725c112089992e8f62df8";   // execnode/games/battleship.py (zkVM; alphanet-7 redeploy with the Daily Salvo)
 const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
 const N = 10, CELLS = 100, SHIPS = 17, WINDOW = 600, BLOCK_SECS = 6;
 const FLEET = [5, 4, 3, 3, 2];                 // ship lengths (17 cells)

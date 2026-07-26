@@ -9,7 +9,7 @@ import { BoardDaily, gameModes } from "./board-daily-ui.js?v=e3b67e50";   // sha
 import * as RULES from "./tictactoe-rules.js?v=8da040c4";
 import { Practice } from "./practice.js?v=7296ee6f";   // free in-browser practice vs the computer
 
-const CID = "bd279df315335d99fdc6b91e623895f4";
+const CID = "abbcc4340b05a77482f0cb07a5d915c5";
 const dapp = new NadoDapp({ cid: CID, app: "TicTacToe" });
 const LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
 

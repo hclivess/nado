@@ -12,7 +12,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orde
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=2dd16efd";
 import * as DERBY from "./hamster-daily.js?v=1c3c237a";
 
-const CID = "1e40bed8f325ecd3e6d8a59db0406b19";   // execnode/games/hamster.py (zkVM)
+const CID = "71ea1f3c09837a8265ebd05759ddf957";   // execnode/games/hamster.py (zkVM)
 const dapp = new NadoDapp({ cid: CID, app: "Hamster" });
 
 // keep these in lockstep with execnode/games/hamster.py

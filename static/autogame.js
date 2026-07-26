@@ -25,7 +25,7 @@ import { createDaily } from "./autogame-dailyui.js?v=c62db697";
 import * as D from "./autogame-daily.js?v=7816b747";
 import { createAudio } from "./autogame-audio.js?v=afd7538c";
 
-const CID = "bb9c34180162a11260b3b2e436a709b8";          // execnode/games/autogame.py (zkVM) — set by the deploy script
+const CID = "ffc1619be0f76ee31946106c8281ae73";          // execnode/games/autogame.py (zkVM) — set by the deploy script
 const dapp = new NadoDapp({ cid: CID, app: "Autogame" });
 const P = ALG_P();
 const BLOCK_SECS = 6;

@@ -13,7 +13,7 @@ import { ART } from "./scrapline-art.js?v=5dc6e120";
 import { prand, Practice } from "./practice.js?v=7296ee6f";   // practice-vs-computer + solo persistence
 import { anchorOf as anchorVal, ensureAnchor, verifyEntries, entriesFrom, seedDaily, pendingDaily, markDaily } from "./provable.js?v=2dd16efd";   // provable daily claims (see doc/provable-practice.md)
 
-const CID = "d5bf18395b195410129d396d54d5eab7";
+const CID = "629dd7da4c8b84222abe334afe40f32c";
 const dapp = new NadoDapp({ cid: CID, app: "Scrapline" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("scrap." + k, d, v) : d;
 
