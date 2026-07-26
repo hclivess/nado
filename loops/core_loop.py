@@ -122,10 +122,24 @@ def reanchor_candidates(peers, statuses, our_weight, floor, min_protocol=None):
     # fresh-joiner path requires: at least SNAPSHOT_MIN_PEERS distinct peers advertising the IDENTICAL
     # (height, hash). Weight only ranks candidates that already have corroboration.
     from ops.snapshot_ops import SNAPSHOT_MIN_PEERS
+    try:
+        from ops.peer_ops import seed_peers
+        seeds = set(seed_peers() or ())
+    except Exception:
+        seeds = set()
     agree = {}
     for w, h, sh, ip in cands:
         agree.setdefault((h, sh), set()).add(ip)
-    return [c for c in cands if len(agree[(c[1], c[2])]) >= SNAPSHOT_MIN_PEERS]
+    # A LONE corroborator is accepted only when it is an operator SEED — the same weak-subjectivity
+    # exception snapshot_bootstrap already makes for a lone donor. Without it this deadlocks recovery on a
+    # SMALL fleet: with N nodes each node has N-1 peers, so on a 2-node network no (height, hash) can ever
+    # reach two distinct advertisers and re-anchor could never fire again — removing the wedge-recovery path
+    # entirely and leaving only the drastic purge+resync escape. Requiring 2 ANONYMOUS peers is also weak on
+    # its own (an attacker just runs two), so the seed anchor is what actually carries the security here.
+    def _ok(key):
+        ips = agree[key]
+        return len(ips) >= SNAPSHOT_MIN_PEERS or bool(ips & seeds)
+    return [c for c in cands if _ok((c[1], c[2]))]
 
 
 def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips, min_protocol=None,
