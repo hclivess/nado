@@ -299,7 +299,11 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #     - asserted the settle-with-proof retention invariant (EXEC_SUMMARY_RETENTION > SPAN + FINALITY_DEPTH).
 #   Root-formula + serialization change ⇒ gen-7 incompatible ⇒ full re-purge. Regression: test_seed_divergence
 #   (treasury/tvprev exclusion, codec canonical, dedup, float, bridge/divinflow round-trips).
-CHAIN_GENERATION = 8
+# 9 (2026-07-26): re-reroll ONLY to force a clean purge of the stale gen-8 blocks that were produced under
+#   the briefly-live codec.pack sort_keys (reverted in c6a3c86). Those blocks committed a sorted-codec genesis
+#   root (dba6a24a) that the reverted codec no longer computes, so the gen-8 marker (no re-purge on restart)
+#   left the fleet wedged at block 2. Gen-9 = identical code to gen-8-minus-sort_keys, fresh genesis.
+CHAIN_GENERATION = 9
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
