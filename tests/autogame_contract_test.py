@@ -359,6 +359,9 @@ def t_mists_concludes_a_stranded_run():
     ok, _r, st, _ = _call("advance", [RID], st, caller=555, cursor=lh2 + A.HORIZON)
     assert ok, "advance past the horizon must succeed (permissionless conclusion, not a revert)"
     assert mi(st) == 1, "past the horizon the run must be flagged mists"
+    # terminal ⇒ nh == 0, like every other ending: a concluded run stranded mid-commit must not keep a
+    # live-looking scheduled-dice height (the client's auto-settle gate read exactly that as a leg to settle)
+    assert st.get(A.RNH * (1 << 32) + RID, 0) == 0, "the mists must park the dice (RNH = 0)"
     concluded = _contract_state(st, RID)
     banked = {k: concluded[k] for k in ("depth", "kills", "xp", "hp", "streak")}
     kept = {k: resolved[k] for k in banked}

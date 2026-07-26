@@ -1216,7 +1216,12 @@ def build():
         # at the last resolved step. RDP already holds that depth. A distinct flag, so the client can say the
         # truth ("the mists took the march") instead of "you fell here", and so a concluded run is terminal
         # everywhere _live() gates. Falls through into `done`; S_ENDED lets the no-op guard pass.
+        # RNH = 0, because every OTHER terminal state (death, chapter done, retire) parks the dice on the way
+        # out — a run stranded mid-commit would otherwise be the one terminal state with a live-looking nh,
+        # and the client's "dice are down → auto-fire advance" gate read exactly that as a leg to settle,
+        # firing a fee-paying advance() that reverted on the RMI guard, forever. Terminal ⇒ nh == 0, always.
         _r(m, RMI).set(m.const(1))
+        _r(m, RNH).set(m.const(0))
         _s(m, S_ENDED).set(m.const(1))
 
         m.label("done")

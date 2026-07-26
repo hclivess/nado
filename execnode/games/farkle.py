@@ -9,15 +9,20 @@ The 6 rolled dice re-derive in-VM as die_p = alghash([bh(rh)+bh(rh+1)+seat*1000+
 (p<diceLeft) — matching farkle.js rollDice — so no keep can claim a die that wasn't rolled.
 
 Table: 1 ta 2 t0 3 ts 4 tp 5 tn 6 tx 7 tz 8 tb 9 tw 10 tfr 11 ti.  Seat: 12 gg 13 ga 14 gdl 15 grh 16 grn
-17 gfin 18 gsc 19 gts 20 ggs.  Scratch field 30.  Index: slot0/field21 tables, slot1/22 seats.
+17 gfin 18 gsc 19 gts 20 ggs 23 gla.  Scratch field 30.  Index: slot0/field21 tables, slot1/22 seats.
 Methods: open(t,g)[ante] · join(t,g)[ante] · roll(g) · hold(g,k1..k6,cont) · settle(t) · reclaim(g) · cancel(t).
-reclaim(g) refunds one seat's ante from a table abandoned past the block-hash horizon (t0+18000<cursor, tb==0).
+reclaim(g) refunds ONE seat's ante once that seat has been idle 18000 blocks (gla+18000<cursor) and no seat
+has won yet (tb==0); it consumes the seat id rather than freeing it, so a score can never be carried into a
+new table. join() refuses a decided table (tb!=0) — that ante had no way home.
 """
 from execnode import zkvmasm
 from execnode.stark import alghash, field as F
 
 TA, T0, TS, TP, TN, TX, TZ, TB, TW, TFR, TI = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 GG, GA, GDL, GRH, GRN, GFIN, GSC, GTS, GGS = 12, 13, 14, 15, 16, 17, 18, 19, 20
+GLA = 23                 # last-action cursor for THIS seat (open/join/roll/hold stamp it). reclaim() gates on
+                         # seat IDLENESS, not table age: a table's t0 never moves, so a t0 gate let every seat
+                         # at a long-running table walk out mid-game with its ante.
 SC = 30
 TLIST, GLIST = 21, 22
 BASE = {1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
@@ -205,7 +210,8 @@ def _hold():
           f"movi r4 {_sc(24)}", "sload r5 r4", "mul r5 r6", "sub r3 r5",                        # nd
           "mov r5 r3", "nez r5", "notb r5", "movi r6 6", "mul r5 r6", "add r3 r5",              # + (nd==0)*6
           f"movi r4 {_sc(27)}", "sstore r4 r3"]
-    L += ["slot r4 15 r0", "movi r5 0", "sstore r4 r5"]                                        # grh = 0
+    L += ["slot r4 15 r0", "movi r5 0", "sstore r4 r5",                                        # grh = 0
+          "slot r4 23 r0", "ctx r5 cursor", "sstore r4 r5"]     # gla: this seat just acted (reclaim gates on idleness)
     # dep = te*(!isF)*gtsN
     L += [f"movi r4 {_sc(25)}", "sload r3 r4",
           f"movi r4 {_sc(22)}", "sload r5 r4", "movi r6 1", "sub r6 r5", "mul r3 r6",           # te*(!isF)
@@ -291,6 +297,9 @@ SRC = {
         slot r4 14 r1
         movi r5 6
         sstore r4 r5
+        slot r4 23 r1
+        ctx r5 cursor
+        sstore r4 r5
         movi r4 0
         sload r5 r4
         slot r6 21 r5
@@ -329,6 +338,11 @@ SRC = {
         nez r5
         notb r5
         require r5
+        slot r4 8 r0
+        sload r5 r4
+        nez r5
+        notb r5
+        require r5
         slot r4 3 r0
         sload r5 r4
         eq r5 r2
@@ -349,6 +363,9 @@ SRC = {
         sstore r4 r6
         slot r4 14 r1
         movi r5 6
+        sstore r4 r5
+        slot r4 23 r1
+        ctx r5 cursor
         sstore r4 r5
         movi r4 1
         sload r5 r4
@@ -392,10 +409,19 @@ SRC = {
         movi r6 1
         add r5 r6
         sstore r4 r5
+        slot r4 23 r0
+        ctx r5 cursor
+        sstore r4 r5
         ret r0
     """,
     "hold": None,
-    # settle(t): once the table's round is over, pay the best seat (tb) the pot
+    # settle(t): once the table's round is over, pay the best seat (tb) the pot.
+    #
+    # `mov r3 r5` BEFORE the nez, and index the seat off r3. NEZ writes its 0/1 result into its own operand
+    # (execnode/zkvm.py), so `sload r5 <- tb; nez r5` left r5 == 1 and `slot r4 13 r5` then read GA[1] — every
+    # table's pot was paid to whoever owned global seat id 1, not to the winner. (Reproduced: a 2,000,000 pot
+    # went entirely to a stranger holding seat 1.) No test covered settle, so it shipped. GG[tb] == t is
+    # required too: without it a seat that won at ANOTHER table could be named tb here and drain this pot.
     "settle": """
         slot r4 1 r0
         sload r5 r4
@@ -407,9 +433,14 @@ SRC = {
         require r5
         slot r4 8 r0
         sload r5 r4
+        mov r3 r5
         nez r5
         require r5
-        slot r4 13 r5
+        slot r4 12 r3
+        sload r6 r4
+        eq r6 r0
+        require r6
+        slot r4 13 r3
         sload r6 r4
         slot r4 4 r0
         sload r3 r4
@@ -422,19 +453,33 @@ SRC = {
         sstore r4 r5
         ret r0
     """,
-    # reclaim(g): rescue a seat's ante from an ABANDONED table. Two ways a multi-seat table strands its pot
-    # forever: (1) the active seat rolled and can never hold — bhash(grh) reverts once grh leaves state's
-    # ~20000-height ring; (2) players simply stop before anyone banks to 4000. Either way tb stays 0, so
-    # settle(t) reverts (it requires tb!=0) AND cancel(t) reverts (it requires the solo state tn==1) — the
-    # docstring promised timeout/reclaim but neither existed. This refunds THIS seat's ante (ts) and voids the
-    # seat (gg=0, so it can't reclaim twice), bhash-free and permissionless. Gated on t0 (the open cursor, a
-    # stable table anchor) + 18000 < cursor so a live table is untouched, and on tb==0 so it can never race a
-    # genuine winner: once a seat finishes, tb!=0 blocks reclaim and settle pays the remaining pot — funds are
-    # conserved because tp is decremented on every payout.
+    # reclaim(g): rescue ONE SEAT's ante from an abandoned table. Two ways a table strands its pot forever:
+    # (1) the active seat rolled and can never hold — bhash(grh) reverts once grh leaves state's ~20000-height
+    # ring; (2) players simply stop before anyone banks to 4000. Either way tb stays 0, so settle(t) reverts
+    # (it requires tb!=0) AND cancel(t) reverts (it requires the solo state tn==1) — the docstring promised
+    # timeout/reclaim but neither existed. Refunds this seat's ante (ts), bhash-free and permissionless.
+    #
+    # GATED ON THE SEAT'S OWN IDLENESS (gla, refreshed by open/join/roll/hold), NOT the table's age. Gating on
+    # t0 meant every seat at a table older than 18000 blocks could walk out mid-game with its ante — on a long
+    # async table the wager simply stopped being at risk, and a third party could dissolve a game someone was
+    # about to win. Idleness is the honest condition: only a seat that has not acted for 18000 blocks is
+    # abandoned. tb==0 keeps it from ever racing a genuine winner (settle then pays the remaining pot; funds
+    # are conserved because tp is decremented on every payout).
+    #
+    # THE SEAT ID IS NOT RECYCLED. An earlier cut cleared gg, which returned the id to the free pool with its
+    # SCORE INTACT (open/join only write gg/ga/gdl) — so you could prime a seat to 3900 on a throwaway
+    # 1-raw table, reclaim it, then rejoin a real table and bank the pot on your first turn. Every other game
+    # here consumes its id permanently (gd/sd stay set); this now does the same, marking gfin and zeroing the
+    # score fields, so a voided seat can neither be re-joined nor reclaimed twice.
     "reclaim": """
         slot r4 12 r0
         sload r1 r4
         require r1
+        slot r4 17 r0
+        sload r5 r4
+        nez r5
+        notb r5
+        require r5
         slot r4 7 r1
         sload r5 r4
         nez r5
@@ -445,7 +490,7 @@ SRC = {
         nez r5
         notb r5
         require r5
-        slot r4 2 r1
+        slot r4 23 r0
         sload r5 r4
         movi r6 18000
         add r5 r6
@@ -461,7 +506,16 @@ SRC = {
         sload r5 r4
         sub r5 r3
         sstore r4 r5
-        slot r4 12 r0
+        slot r4 17 r0
+        movi r5 1
+        sstore r4 r5
+        slot r4 20 r0
+        movi r5 0
+        sstore r4 r5
+        slot r4 19 r0
+        movi r5 0
+        sstore r4 r5
+        slot r4 18 r0
         movi r5 0
         sstore r4 r5
         ret r0
@@ -511,7 +565,8 @@ ABI = {
                  "gg": {"field": GG, "index": "seats"}, "ga": {"field": GA, "index": "seats"},
                  "gdl": {"field": GDL, "index": "seats"}, "grh": {"field": GRH, "index": "seats"},
                  "gfin": {"field": GFIN, "index": "seats"}, "gsc": {"field": GSC, "index": "seats"},
-                 "gts": {"field": GTS, "index": "seats"}, "ggs": {"field": GGS, "index": "seats"}},
+                 "gts": {"field": GTS, "index": "seats"}, "ggs": {"field": GGS, "index": "seats"},
+                 "gla": {"field": GLA, "index": "seats"}},
         "indexes": {"tables": {"cnt": 0, "list": TLIST}, "seats": {"cnt": 1, "list": GLIST}},
         "addr": ["ta", "ga"],
     },

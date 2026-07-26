@@ -84,7 +84,7 @@ function seatsOfTable(sto, t) {
     const s = { g: Number(g), idx: i, addr: _m(sto, "ga")[g], turnScore: _m(sto, "gts")[g] || 0,
       grand: _m(sto, "ggs")[g] || 0,
       diceLeft: _m(sto, "gdl")[g] || 0, rollHeight: _m(sto, "grh")[g] || 0, rollNonce: _m(sto, "grn")[g] || 0,
-      finished: !!_m(sto, "gfin")[g], final: _m(sto, "gsc")[g] || 0 };
+      finished: !!_m(sto, "gfin")[g], final: _m(sto, "gsc")[g] || 0, lastAct: _m(sto, "gla")[g] || 0 };
     out.push(s);
   }
   return out.sort((a, b) => a.idx - b.idx);
@@ -156,9 +156,16 @@ function doHold(g, cont) {
     window.t(cont ? "farkle.callHoldRoll" : "farkle.callHoldBank", cont ? "set aside + roll again" : "bank the turn") + " · Farkle #" + activeTable, { table: activeTable, seat: g, phase: "hold", ts0: s0 ? s0.turnScore : null });
 }
 const settleTable = () => { if (dapp.busy("settle", "table", activeTable)) return notify(confirmingLabel()); dapp.call("settle", [activeTable], null, window.t("farkle.callSettle", "pay the winner · table #{t}", { t: activeTable }), { table: activeTable, phase: "settle" }); };
-const reclaimTable = () => { if (dapp.busy("reclaim", "table", activeTable)) return notify(confirmingLabel()); dapp.call("reclaim", [activeTable], null, window.t("farkle.callReclaim", "reclaim the pot · table #{t}", { t: activeTable }), { table: activeTable, phase: "reclaim" }); };
+// reclaim takes a SEAT id, not a table id: it refunds one seat's ante once that seat has gone idle past the
+// horizon and no one has won yet. (This used to pass activeTable, which just reverted — and on an id
+// collision would have refunded an unrelated seat at another table.)
+const RECLAIM_IDLE = 18000;   // == farkle.py's gate; the contract re-checks, this only decides when to offer
+const reclaimSeat = (g) => { if (dapp.busy("reclaim", "seat", g)) return notify(confirmingLabel()); dapp.call("reclaim", [g], null, window.t("farkle.callReclaim", "reclaim seat #{g}'s ante", { g }), { table: activeTable, seat: g, phase: "reclaim" }); };
+/** A seat whose ante can be pulled back right now: idle past the horizon, not already out, nobody crowned. */
+const seatReclaimable = (s, tb) => !!(s && !s.finished && tb && tb.exists && !tb.closed && !tb.leader
+  && s.lastAct && dapp.cursor != null && dapp.cursor - s.lastAct >= RECLAIM_IDLE);
 const cancelTable = () => { if (dapp.busy("cancel", "table", activeTable)) return notify(confirmingLabel()); dapp.call("cancel", [activeTable], null, window.t("farkle.callCancel", "cancel table #{t}", { t: activeTable }), { table: activeTable, phase: "cancel" }); };
-const timeoutSeat = (g) => { if (dapp.busy("timeout", "seat", g)) return; dapp.call("timeout", [g], null, window.t("farkle.callTimeout", "time out seat #{g}", { g }), { table: activeTable, phase: "timeout" }); };
+// (there is no timeout() method — the button that called one always reverted; reclaim is the real recovery.)
 
 async function refreshActive() {
   await dapp.refresh();
@@ -359,10 +366,14 @@ function renderActive() {
   }).join("") : '<span class="dim">' + window.t("farkle.noPlayers", "No players yet.") + '</span>';
 
   const allDone = tb.exists && tb.seatCount > 0 && tb.finishedCount >= tb.seatCount && !tb.closed;
-  if (tb.phase === "over" && !tb.closed) for (const s of lastSeats) if (!s.finished) { btn(window.t("farkle.finalizeSeat", "⏱ Finalize seat #{g}", { g: s.g }), () => timeoutSeat(s.g), false); break; }
+  // an abandoned seat (idle past the horizon, no winner) can have its ante pulled back — by anyone, but the
+  // refund always goes to the seat's own owner, so offer it for MY seat first and otherwise for any stranded one.
+  const stuck = (me && seatReclaimable(me, tb)) ? me : lastSeats.find((s) => seatReclaimable(s, tb));
+  if (stuck) btn(window.t("farkle.reclaimSeat", "↩ Reclaim seat #{g}'s ante", { g: stuck.g }), () => reclaimSeat(stuck.g), false);
   $("btnSettle").classList.toggle("hidden", !(allDone && tb.leader));
   $("btnSettle").textContent = window.t("farkle.paySettleBtn", "🏆 Pay the winner — pot {pot}", { pot: rawToNado(tb.pot || 0) });
-  $("btnReclaim").classList.toggle("hidden", !(allDone && !tb.leader && iAmHost));
+  $("btnReclaim").classList.toggle("hidden", !(stuck && iAmHost));
+  if (stuck) $("btnReclaim").onclick = () => reclaimSeat(stuck.g);
   $("btnCancel").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.seatCount === 1 && iAmHost));
   // once the pot is paid, offer a one-tap rematch — everyone who was here derives the same fresh table id
   if ($("btnRematch")) $("btnRematch").classList.toggle("hidden", !(tb.exists && tb.closed && dapp.me && (me || iAmHost)));

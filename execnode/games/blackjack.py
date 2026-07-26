@@ -144,8 +144,8 @@ REVEAL = f"""
        "mov r5 r2", "movi r6 3", "mul r5 r6", "movi r6 2", "divmod r5 r6",  # cover=stake*3/2
        "slot r4 4 r1", "sload r6 r4", "sub r6 r5", "sstore r4 r6",          # tc -= cover
        "mov r5 r3", "sub r5 r2",                                            # net = pay - stake
-       "slot r4 3 r1", "sload r6 r4", "sub r6 r5", "sstore r4 r6",          # tp -= net
        "slot r4 2 r1", "sload r6 r4", "sub r6 r5", "sstore r4 r6",          # tk -= net
+       "slot r4 3 r1", "sload r6 r4", "sub r6 r3", "sstore r4 r6",          # tp -= pay (deal already added stake)
        "slot r4 14 r0", "movi r5 1", "sstore r4 r5",                        # gd=1
        "slot r4 15 r0", "movi r5 3", "sstore r4 r5", "ret r0"])             # gw=3
 """FILLED"""
@@ -220,8 +220,12 @@ SETTLE = f"""
        "mov r5 r3", "movi r6 3", "mul r5 r6", "movi r6 2", "divmod r5 r6",  # cover
        "slot r4 4 r1", "sload r6 r4", "sub r6 r5", "sstore r4 r6",          # tc -= cover
        f"movi r4 {_s(8)}", "sload r2 r4", "mov r5 r3", "sub r5 r2",         # stake - payout
-       "slot r4 3 r1", "sload r6 r4", "add r6 r5", "sstore r4 r6",          # tp += (stake-payout)
        "slot r4 2 r1", "sload r6 r4", "add r6 r5", "sstore r4 r6",          # tk += (stake-payout)
+       # tp -= payout, NOT += (stake-payout): deal already credited the stake to the pot (tp += stake), so
+       # crediting it again here inflated tp by one stake per resolved hand. tp is what close() pays out and
+       # the escrow is per-CONTRACT, so the drift let a banker withdraw other bankers' escrow (measured: 1M in,
+       # 14.2M out, a co-resident banker 12M short) and bricked close() on any table that had ever resolved.
+       "slot r4 3 r1", "sload r6 r4", "sub r6 r2", "sstore r4 r6",          # tp -= payout
        "slot r4 14 r0", "movi r5 1", "sstore r4 r5",                        # gd=1
        "slot r4 15 r0", f"movi r5 1", "sstore r4 r5", "ret r0"])            # gw=1 (resolved)
 """FILLED"""
@@ -353,12 +357,19 @@ SRC = {
         ret r0
     """,
     "settle": SETTLE,
-    # reap(g): a hand whose block-hash height has aged past the horizon can never reveal/settle (bhash reverts
-    # once the height leaves state's ~20000 ring), which locks the player's stake and pins tc>0 forever (also
-    # blocking close_table). Void it: refund the stake, release the bank's cover (stake*3/2, the natural-payout
-    # reservation) and undo the pot credit, mark it settled. Gated on GE (the deal-cursor, slot 20 — a stable
-    # anchor set once at deal; GH is re-pinned per action and is 0 while parked) + 18000 < cursor, so a live hand
-    # is untouched. Permissionless + bhash-free, mirroring mines.reap / dice.reclaim.
+    # reap(g): a hand that can never resolve locks the player's stake and pins tc>0 forever (which also blocks
+    # close_table). Release the bank's cover (stake*3/2, the natural-payout reservation) and mark it settled.
+    # Gated on GE (slot 20, re-stamped by deal/hit/stand — the last time the hand actually moved) + 18000 <
+    # cursor. Permissionless + bhash-free, mirroring mines.reap / dice.reclaim.
+    #
+    # WHO GETS THE STAKE DEPENDS ON WHO STALLED — the reason this is not a plain refund. At gf==2 the hand is
+    # waiting on the PLAYER to hit or stand, and the bank has NO resolution path at all (settle needs gf==4,
+    # draw needs gf==3, hit/stand are caller-gated to the player). A blanket refund there would hand the player
+    # a free option: deal, reveal, see both your cards AND the dealer up-card, then walk away from every
+    # unfavourable hand and reap the stake back 18000 blocks later — strictly +EV, so the bank loses on every
+    # table. So a gf==2 hand FORFEITS (bank keeps the stake, exactly like a bust), and every other phase — where
+    # the hand is waiting on a block hash that the prune took away, nobody's fault — refunds. Branchless:
+    # keep = stake*(gf==2), refund = stake - keep.
     "reap": """
         slot r4 7 r0
         sload r1 r4
@@ -377,23 +388,33 @@ SRC = {
         require r5
         slot r4 9 r0
         sload r3 r4
-        slot r4 10 r0
-        sload r6 r4
-        pay r6 r3
-        slot r4 3 r1
-        sload r5 r4
-        sub r5 r3
-        sstore r4 r5
-        slot r4 9 r0
-        sload r3 r4
+        mov r5 r3
         movi r6 3
-        mul r3 r6
+        mul r5 r6
         movi r6 2
-        divmod r3 r6
+        divmod r5 r6
         slot r4 4 r1
+        sload r6 r4
+        sub r6 r5
+        sstore r4 r6
+        slot r4 12 r0
+        sload r5 r4
+        movi r6 2
+        eq r5 r6
+        mov r2 r3
+        mul r2 r5
+        slot r4 2 r1
+        sload r6 r4
+        add r6 r2
+        sstore r4 r6
+        sub r3 r2
+        slot r4 3 r1
         sload r6 r4
         sub r6 r3
         sstore r4 r6
+        slot r4 10 r0
+        sload r6 r4
+        pay r6 r3
         slot r4 14 r0
         movi r5 1
         sstore r4 r5
@@ -430,7 +451,7 @@ def _draw():
           "slot r4 7 r0", "sload r1 r4", "slot r4 9 r0", "sload r3 r4",
           "mov r5 r3", "movi r6 3", "mul r5 r6", "movi r6 2", "divmod r5 r6",   # cover
           "slot r4 4 r1", "sload r6 r4", "sub r6 r5", "sstore r4 r6",           # tc -= cover
-          "slot r4 3 r1", "sload r6 r4", "add r6 r3", "sstore r4 r6",           # tp += stake
+          # no tp change: deal already put the stake in the pot, and a bust pays the player nothing.
           "slot r4 2 r1", "sload r6 r4", "add r6 r3", "sstore r4 r6",           # tk += stake
           "slot r4 14 r0", "movi r5 1", "sstore r4 r5",                         # gd=1
           "slot r4 15 r0", "movi r5 2", "sstore r4 r5", "ret r0"]              # gw=2 (dealer/bust)

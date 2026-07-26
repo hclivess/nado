@@ -373,8 +373,11 @@ async function refreshAll() {
   // advance() through dapp.autoCollect (background-signed, opt-out shared with every game). The preview is
   // deterministic-equal to settlement, so when the real advance lands, syncView sees identical state and
   // nothing re-animates.
-  if (mode === "march" && chain && chain.alive && !chain.done && !chain.retired && !mistsStranded() && chain.nh
-      && dapp.cursor != null && dapp.cursor >= chain.nh) {
+  // !chain.mists as well as !mistsStranded(): a run CONCLUDED while its dice were scheduled used to keep a
+  // live-looking nh, and this gate then auto-fired advance() against the RMI guard — a fee-paying revert
+  // every retry, forever. The contract now parks nh in the mists label too, but the gate must not depend on it.
+  if (mode === "march" && chain && chain.alive && !chain.done && !chain.retired && !chain.mists
+      && !mistsStranded() && chain.nh && dapp.cursor != null && dapp.cursor >= chain.nh) {
     const before = previewed;
     previewLeg();
     if (previewed !== before) rebuildRoad();   // the pipeline road opens the same instant the dice land
@@ -1713,9 +1716,13 @@ function render() {
           { n: left, time: blocksToTime(left, BLOCK_SECS) })
       : t("clockAuto", "The dice are down — playing it out now; the settlement files itself.");
   } else if (chain && !live) {
+    // mists before the dead fallback: a concluded run still has alive=1, and calling it a death ("you fell")
+    // is exactly the lie the distinct RMI flag exists to avoid.
     $("clockHint").innerHTML = chain.done
       ? t("clockDone", "Chapter complete. The road bonus is yours in full.")
       : chain.retired ? t("clockRetired", "Retired on your feet — you kept everything you were carrying.")
+      : chain.mists ? t("clockMists", "The mists closed over the march — its terrain aged out of the chain's "
+                                      + "memory. You keep everything you carried; set out anew.")
       : t("clockDead", "You fell. Only a quarter of the unbanked renown made it home.");
   } else {
     $("clockHint").textContent = "";
@@ -2243,7 +2250,7 @@ function renderBoard() {
   renderTopScores(el, rows.map((x) => ({
     addr: x.who,
     score: x.sc.toLocaleString(),
-    tag: `${x.r.done ? "🏁" : x.r.alive ? "🚶" : x.r.retired ? "🚪" : "💀"} ${t("depthLabel", "Depth")} ${x.r.depth} · ${E.rankOf(x.sc)}`,
+    tag: `${x.r.done ? "🏁" : x.r.mists ? "🌫" : x.r.alive ? "🚶" : x.r.retired ? "🚪" : "💀"} ${t("depthLabel", "Depth")} ${x.r.depth} · ${E.rankOf(x.sc)}`,
     run: x.r, sc: x.sc,
   })), dapp.me, t("boardEmpty", "No marches yet. Be the first out of the gate."),
      t("renownLabel", "Renown"), null,
@@ -2501,7 +2508,7 @@ async function boot() {
     render();
     // the tip just CROSSED the dice height → pull full state right now instead of waiting out the heavy
     // poll's slot: the preview (and with it the animation) starts the same second the dice exist
-    if (mode === "march" && chain && chain.alive && !chain.done && !chain.retired && chain.nh
+    if (mode === "march" && chain && chain.alive && !chain.done && !chain.retired && !chain.mists && chain.nh
         && dapp.cursor != null && dapp.cursor >= chain.nh && previewed !== myId + ":" + chain.leg
         && !refreshing) {
       refreshing = true; try { await refreshAll(); } catch (e) {} refreshing = false;

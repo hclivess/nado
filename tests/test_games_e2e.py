@@ -1093,6 +1093,140 @@ def t_coinflip_reclaim():
     assert st.bridge.get(A, 0) == a0 + 500 and st.bridge.get(B, 0) == b0 + 500, "both stakes must refund"
     assert "revert" in str(st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [G]}, A, "d")).lower()
 
+def _fk_slots(st, cid):
+    return st.contracts[cid]["storage"].setdefault("slots", {})
+
+def t_farkle_settle_pays_the_winner():
+    """settle() paid GA[1] — every table's pot went to whoever owned global seat id 1.
+
+    `sload r5 <- tb; nez r5` clobbers r5 with the 0/1 result (NEZ writes its own operand), so the seat index
+    used to load the payee was always 1. No test covered settle, so it shipped. Also pins the cross-table
+    guard: a seat that won at ANOTHER table must not be able to name itself tb here and drain this pot.
+    """
+    st, code, cid, rd = _fresh(fk)
+    for w in (A, B): st.credit_deposit(w, 10_000_000)
+    C = "ndoCCCC" + "C" * 41; st.credit_deposit(C, 10_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [999, 1], "value": 1}, C, "sq")  # squat seat 1
+    T = 5
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [T, 60], "value": 1_000_000}, A, "1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [T, 61], "value": 1_000_000}, B, "2")
+    S = lambda f, k: str(f * (1 << 32) + k)
+    sl = _fk_slots(st, cid)
+    sl[S(fk.TB, T)] = 61; sl[S(fk.TW, T)] = 4000; sl[S(fk.GFIN, 61)] = 1; sl[S(fk.GSC, 61)] = 4000
+    b0, c0 = st.bridge.get(B, 0), st.bridge.get(C, 0)
+    st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [T]}, B, "s")
+    assert st.bridge.get(B, 0) - b0 == 2_000_000, "the pot must go to the winning seat's owner"
+    assert st.bridge.get(C, 0) - c0 == 0, "seat #1's owner must get nothing"
+    # a winner from another table cannot be named tb to drain this one
+    st2, _c, cid2, rd2 = _fresh(fk)
+    for w in (A, B): st2.credit_deposit(w, 10_000_000)
+    st2.apply_blob({"op": "call", "contract": cid2, "method": "open", "args": [10, 70], "value": 1_000_000}, A, "x")
+    st2.apply_blob({"op": "call", "contract": cid2, "method": "open", "args": [11, 71], "value": 1}, B, "y")
+    s2 = _fk_slots(st2, cid2); s2[S(fk.TB, 10)] = 71; s2[S(fk.GFIN, 71)] = 1
+    r = st2.apply_blob({"op": "call", "contract": cid2, "method": "settle", "args": [10]}, B, "z")
+    assert "revert" in str(r).lower(), "a seat belonging to another table must not be payable here"
+
+def t_farkle_reclaim_consumes_the_seat():
+    """A reclaimed seat id must not return to the pool carrying its score.
+
+    Clearing gg freed the id while open/join only ever write gg/ga/gdl — so you could prime a seat to 3900
+    on a throwaway 1-raw table, reclaim it, rejoin a real table and bank the pot on the first turn.
+    """
+    st, code, cid, rd = _fresh(fk)
+    for w in (A, B): st.credit_deposit(w, 10_000_000)
+    S = lambda f, k: str(f * (1 << 32) + k)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [900, 1001], "value": 1}, A, "p")
+    _fk_slots(st, cid)[S(fk.GGS, 1001)] = 3900        # played up to just under the 4000 win, so tb stays 0
+    st.cursor = 100 + 18001
+    st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [1001]}, A, "r")
+    assert rd(fk.GGS, 1001) == 0, "the voided seat must not keep its score"
+    st.cursor = 200_000
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [901, 2001], "value": 1_000_000}, B, "o")
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [901, 1001], "value": 1_000_000}, A, "j")
+    assert "revert" in str(r).lower(), "a reclaimed seat id must be consumed, not recycled"
+
+def t_farkle_reclaim_spares_an_active_seat():
+    """reclaim gates on the SEAT's idleness, not the table's age.
+
+    Anchored on t0 (written once at open), every seat at a table older than 18000 blocks could walk out
+    mid-game with its ante — a stranger could dissolve a game someone was about to win, and a table could be
+    pre-aged before anyone joined. Also pins that a decided table refuses new antes.
+    """
+    st, code, cid, rd = _fresh(fk)
+    C = "ndoCCCC" + "C" * 41
+    for w in (A, B, C): st.credit_deposit(w, 10_000_000)
+    T = 7
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [T, 101], "value": 100_000}, A, "o")
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [T, 102], "value": 100_000}, B, "j")
+    st.cursor = 100 + 18500                                    # the TABLE is old...
+    st.apply_blob({"op": "call", "contract": cid, "method": "roll", "args": [101]}, A, "rl")   # ...seat 101 just acted
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [101]}, C, "g")
+    assert "revert" in str(r).lower(), "an active seat must not be reclaimable by a stranger"
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [102]}, C, "g2")
+    assert "revert" not in str(r).lower(), "a genuinely idle seat must still be reclaimable"
+    # a decided table takes no further antes (that ante had no way home: reclaim needs tb==0, cancel needs tn==1)
+    S = lambda f, k: str(f * (1 << 32) + k)
+    _fk_slots(st, cid)[S(fk.TB, T)] = 101
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [T, 103], "value": 100_000}, C, "j2")
+    assert "revert" in str(r).lower(), "join must refuse a table that already has a winner"
+
+def t_blackjack_pot_tracks_escrow():
+    """tp is what close() pays out, and escrow is per-CONTRACT — so tp must never exceed it.
+
+    deal credits tp += stake, but settle/draw/reveal each credited the stake AGAIN, inflating tp by one stake
+    per resolved hand. That both bricked close() on any table that had resolved a hand and let a banker
+    withdraw a co-resident banker's escrow (1M in, 14.2M out, victim 12M short).
+    """
+    st, code, cid, rd = _fresh(bj, deployer=A)
+    st.credit_deposit(A, 500_000_000); st.credit_deposit(B, 50_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 100_000_000}, A, "o")
+    for g in range(700, 730):
+        st.cursor += 3
+        r = st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [g, 5], "value": 200_000}, B, f"d{g}")
+        if "revert" in str(r).lower(): continue
+        for h in (st.cursor + 2, st.cursor + 3): st.block_hashes[h] = 0xABCD * (g + 1) + h
+        st.cursor += 4
+        st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [g]}, B, f"rv{g}")
+        if rd(bj.GF, g) == 2:
+            st.apply_blob({"op": "call", "contract": cid, "method": "stand", "args": [g]}, B, f"sd{g}")
+            for h in (st.cursor + 2, st.cursor + 3): st.block_hashes[h] = 0x1111 * (g + 2) + h
+            st.cursor += 4
+            st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [g]}, B, f"st{g}")
+    assert rd(bj.TP, 5) == st.bridge.get(cid, 0), \
+        f"pot {rd(bj.TP, 5)} drifted from escrow {st.bridge.get(cid, 0)}"
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "close", "args": [5]}, A, "c")
+    assert "revert" not in str(r).lower(), "close must not be bricked by resolved hands"
+    assert st.bridge.get(cid, 0) == 0, "closing the only table must drain the escrow exactly"
+
+def t_blackjack_reap_forfeits_a_player_stall():
+    """Who gets the stake depends on who stalled.
+
+    At gf==2 the hand waits on the PLAYER and the bank has no resolution path at all, so a blanket refund
+    would be a free option: deal, reveal, see both your cards and the up-card, then abandon every bad hand
+    and reap the stake back. That phase forfeits; a hand waiting on a pruned block hash still refunds.
+    """
+    st, code, cid, rd = _fresh(bj, deployer=A)
+    st.credit_deposit(A, 500_000_000); st.credit_deposit(B, 50_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 100_000_000}, A, "o")
+    st.cursor += 3
+    st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [900, 5], "value": 1_000_000}, B, "d")
+    for h in (st.cursor + 2, st.cursor + 3): st.block_hashes[h] = 0x777 * h
+    st.cursor += 4
+    st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [900]}, B, "rv")
+    assert rd(bj.GF, 900) == 2, "expected the hand to be waiting on the player"
+    b0 = st.bridge.get(B, 0)
+    st.cursor = rd(bj.GE, 900) + 18001
+    st.apply_blob({"op": "call", "contract": cid, "method": "reap", "args": [900]}, B, "rp")
+    assert st.bridge.get(B, 0) == b0, "a player who abandoned their own turn must forfeit, not be refunded"
+    assert rd(bj.TC, 5) == 0 and rd(bj.GD, 900) == 1, "the cover must still be released and the hand closed"
+    # but a hand stranded on a pruned hash (still awaiting reveal) is nobody's fault — refund
+    st.cursor += 3
+    st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [901, 5], "value": 1_000_000}, B, "d2")
+    b1 = st.bridge.get(B, 0)
+    st.cursor = rd(bj.GE, 901) + 18001
+    st.apply_blob({"op": "call", "contract": cid, "method": "reap", "args": [901]}, B, "rp2")
+    assert st.bridge.get(B, 0) == b1 + 1_000_000, "a hash-stranded hand must refund the stake"
+
 def t_farkle_reclaim():
     st, code, cid, rd = _fresh(fk)
     st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
@@ -1154,5 +1288,10 @@ if __name__ == "__main__":
     check("blackjack: horizon reap voids a stale hand, refunds, releases cover", t_blackjack_reap)
     check("coinflip: horizon reclaim refunds both stakes on a stranded flip", t_coinflip_reclaim)
     check("farkle: horizon reclaim refunds each seat's ante on an abandoned table", t_farkle_reclaim)
+    check("farkle: settle pays the WINNER, not seat #1's owner (nez clobber)", t_farkle_settle_pays_the_winner)
+    check("farkle: a reclaimed seat id is consumed, never recycled with its score", t_farkle_reclaim_consumes_the_seat)
+    check("farkle: reclaim spares an active seat; a decided table takes no antes", t_farkle_reclaim_spares_an_active_seat)
+    check("blackjack: the pot never drifts above escrow (close stays solvent)", t_blackjack_pot_tracks_escrow)
+    check("blackjack: reap forfeits a player's own stall, refunds a hash strand", t_blackjack_reap_forfeits_a_player_stall)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
