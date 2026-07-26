@@ -33,10 +33,15 @@ from ops.address_ops import make_address
 from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx
 from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
 from execnode.games.redeploy import target_cids
+from execnode.games import pets as _pets
 
 L1 = "http://127.0.0.1:9173"
 EX = "http://127.0.0.1:9273"
 S = 1_000_000                      # small but non-zero: several games reject a zero-value open
+# Prices that the CONTRACT fixes are imported, never guessed: pets.mint requires exactly MINT_FEE (10 NADO),
+# and paying less reverts — which reads identically to "the game is broken" from the outside. Anything you
+# hardcode here you will eventually misdiagnose as a dead game.
+MINT_FEE = _pets.MINT_FEE
 
 K = load_keys(); K["address"] = make_address(K["public_key"])
 
@@ -60,7 +65,7 @@ CALLS = {
     "stormhold":  lambda i: ("open", [i, 0, 12345678], S),
     "hexholm":    lambda i: ("open", [i, 4, 12345678], S),
     "hamster":    lambda i: ("open", [i], 0),        # opening a race is free; the value rides on the bets
-    "pets":       lambda i: ("mint", [i], S),
+    "pets":       lambda i: ("mint", [i], MINT_FEE),
     "autogame":   lambda i: ("begin", [i], 0),
     # bet needs a resolver panel + deadlines, reserve an asset/notice schedule, sovereign an encoded action:
     # multi-arg policy calls rather than a one-line open. Reported as SKIP rather than faked.
@@ -95,17 +100,22 @@ def send(tx):
 
 
 def fund(amount):
-    """Bridge NADO from L1 into the exec layer — the ledger contract call value is escrowed from."""
+    """Bridge NADO from L1 into the exec layer — the ledger contract call value is escrowed from.
+
+    Waits for the balance to actually GROW, not merely to be non-zero: with leftover funds from an earlier
+    run the naive check returns instantly and the caller proceeds underfunded, which then shows up as games
+    'failing' for want of stake."""
     t = tip()
     if t is None:
         sys.exit("L1 unreachable")
-    print(f"bridging {amount} into the exec layer…", flush=True)
+    start = bridge_balance() or 0
+    print(f"bridging {amount} into the exec layer (balance now {start})…", flush=True)
     send(construct_bridge_deposit_tx(K, int(amount), t + 40, MIN_TX_FEE))
     for _ in range(45):
         time.sleep(10)
         b = bridge_balance()
-        if b:
-            print(f"  bridge credited: {b}", flush=True)
+        if b is not None and b > start:
+            print(f"  bridge credited: {start} -> {b}", flush=True)
             return True
     print("  NOT credited within the timeout")
     return False
@@ -154,7 +164,7 @@ def main():
     if bal is None:
         sys.exit("exec node unreachable — cannot tell working games from unreachable ones")
     print(f"exec bridge balance: {bal}")
-    if bal < S * 25:
+    if bal < MINT_FEE + S * 25:      # the banked opens plus one pets mint, which alone costs MINT_FEE
         print("\n  bridge balance is too low to open the banked tables. Contract call value is escrowed\n"
               "  from the EXEC BRIDGE, not your L1 account, so value-carrying games would report false\n"
               "  failures. Re-run with:  --fund 5000000000\n")
