@@ -46,6 +46,17 @@ def cursor():
     return int(j(EX + "/exec/root?ns=default&provisional=1").get("cursor", 0))
 
 
+def finalized():
+    """Highest FINALIZED L1 height. The gen-7 head reorgs within a ~45-block finality gap, so a tile/roll hash
+    read from an unfinalized height can change under us while the contract settles against its own canonical
+    view — turning a transient reorg into a spurious model-vs-chain divergence. Gating every terrain/roll read
+    and every settle on finality makes the comparison reproducible regardless of head churn."""
+    try:
+        return int(j(L1 + "/state_health").get("finalized_height", 0))
+    except Exception:
+        return 0
+
+
 def blockhash(h):
     """BHASH(h) as the contract sees it — the L1 block hash reduced into the field.
 
@@ -198,7 +209,7 @@ ck("all four dials landed in ONE call",
    f"agg={field(s, 'pa', RID)} stance={field(s, 'sn', RID)} focus={field(s, 'fo', RID)} heal={field(s, 'hl', RID)}")
 
 print("\n3. read the committed road and ANSWER it, tile by tile", flush=True)
-wait(lambda: cursor() >= lh, f"terrain height {lh} mined", 900)
+wait(lambda: finalized() >= lh, f"terrain height {lh} finalized", 900)
 s = sto()
 tiles = peek_tiles(s, RID, lh)
 # tile class -> display name, in the ordinal order the contract derives from TILE_CUTS (see the
@@ -226,7 +237,7 @@ ck("the answer word is mirrored readably for the animator (cw/cl)",
    f"cw={field(s, 'cw', RID)} want={WORD}")
 
 print(f"\n4. wait for the rolling height {nh} and settle", flush=True)
-wait(lambda: cursor() >= nh, f"rolling height {nh} mined", timeout=900)
+wait(lambda: finalized() >= nh, f"rolling height {nh} finalized", timeout=900)
 rh = blockhash(nh)
 before = sto()                      # the run as it stood going INTO this leg
 depth_before = field(before, "dp", RID)
@@ -280,7 +291,7 @@ ck("no new dice were scheduled — that is YOUR move, nobody else's", field(s, "
 if field(s, "lv", RID) == 1 and not field(s, "dn", RID):
     print("\n7. dials re-tuned late cannot rewrite the NEXT leg either — and a second leg walks", flush=True)
     lh2 = field(s, "lh", RID)
-    wait(lambda: cursor() >= lh2, f"terrain {lh2} visible", 900)
+    wait(lambda: finalized() >= lh2, f"terrain {lh2} finalized", 900)
     s = sto()
     tiles2 = peek_tiles(s, RID, lh2)
     answers2 = [CLASSMAP.get(t, A.A_DEFAULT) for t in tiles2]
@@ -293,7 +304,7 @@ if field(s, "lv", RID) == 1 and not field(s, "dn", RID):
     # comparison below would be testing nothing (the first live run of this script failed exactly there,
     # blaming a fence that had behaved perfectly). Waiting for nh2 first makes the claim the sharp one:
     # dials set after the roll is PUBLIC cannot rewrite the leg that roll belongs to.
-    wait(lambda: cursor() >= nh2, f"rolling height {nh2} mined (dice now public)", 900)
+    wait(lambda: finalized() >= nh2, f"rolling height {nh2} finalized (dice now public)", 900)
     call("plan", [RID, 1, 2, 10, 90], applied=lambda: field(sto(), "pa", RID) == 1)
     wait(lambda: field(sto(), "pa", RID) == 1, "late dials landed", 900)
     ck("the superseded generation was retired intact",
