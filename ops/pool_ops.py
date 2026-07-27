@@ -15,6 +15,31 @@ FEE_EXEMPT_RECIPIENTS = frozenset({
 })
 
 
+_SIZE_CACHE = {}          # txid -> get_byte_size(tx). SOUND because txid commits the tx content, so a
+_SIZE_CACHE_MAX = 20000   # given txid always has the same size; a different body is a different txid.
+
+
+def _tx_size(tx):
+    """Byte size of one tx, memoised on its txid.
+
+    The under-limit fast path used to be `get_byte_size(buffer)`, which repr()s the ENTIRE mempool just
+    to answer "am I under the cap" — 13 ms and ~6 MB of garbage per call at a full 4 MiB pool, on the
+    ~1 Hz core pass, every pass, forever. Sizing per tx and summing is the same measure the eviction
+    loop below already uses (so the gate and the loop can no longer disagree) and it caches: after the
+    first sight of a tx, the check is a dict lookup.
+
+    Non-consensus by construction — get_byte_size is explicitly non-deterministic across builds."""
+    txid = tx.get("txid")
+    if txid is None:
+        return get_byte_size(tx)
+    size = _SIZE_CACHE.get(txid)
+    if size is None:
+        if len(_SIZE_CACHE) >= _SIZE_CACHE_MAX:
+            _SIZE_CACHE.clear()          # cheap bound; the pool re-populates it in one pass
+        size = _SIZE_CACHE[txid] = get_byte_size(tx)
+    return size
+
+
 def cull_buffer(buffer, limit) -> list:
     """Keep a buffer under `limit` bytes (LOCAL anti-DoS policy, non-consensus). Evict only ORDINARY,
     fee-bearing txs — lowest fee first — and NEVER a fee-exempt reserved tx (see FEE_EXEMPT_RECIPIENTS): those
@@ -23,10 +48,10 @@ def cull_buffer(buffer, limit) -> list:
     PERF: per-tx sizes are computed ONCE and a running total decremented per drop — the old loop re-repr'd
     the ENTIRE remaining buffer once per dropped tx (O(drops × n × bytes)), so the flood that pushes the
     buffer over the limit was exactly the input that stalled the 1s core pass for minutes."""
-    if get_byte_size(buffer) <= limit:
-        return buffer
-    sizes = {id(tx): get_byte_size(tx) for tx in buffer}
+    sizes = {id(tx): _tx_size(tx) for tx in buffer}
     total = sum(sizes.values())
+    if total <= limit:
+        return buffer
     drop = set()
     for tx in sorted((t for t in buffer if t.get("recipient") not in FEE_EXEMPT_RECIPIENTS),
                      key=lambda t: t.get("fee", 0)):            # cheapest ordinary txs first

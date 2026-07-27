@@ -44,7 +44,7 @@ from ops.transaction_ops import remove_outdated_transactions
 from ops.transaction_ops import (
     to_readable_amount,
     validate_transaction,
-    validate_all_spending, index_transactions, assert_unique_reserved, assert_block_blob_cap
+    validate_all_spending, index_transactions, assert_unique_reserved, assert_block_blob_cap, SpendingLedger
 )
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
@@ -59,6 +59,10 @@ from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
 # How often (seconds) emergency mode logs "Could not find a syncable peer". The loop still retries every
 # ~1s, but a lone/bootstrap node with no reachable donor would otherwise flood the log once/sec.
 NO_SYNCABLE_LOG_INTERVAL = 30
+# Seconds a strictly-better-but-unheld tip must PERSIST before we call it a fork and enter emergency
+# mode. Below this it is ordinary propagation lag (see minority_block_consensus). ~half a block.
+MINORITY_GRACE_S = 5
+
 # How often (seconds) to log + telemetry-count an emergency-mode entry. emergency_mode() is re-entered
 # ~1/s while behind; without this throttle "Entering/Looping emergency mode" spammed the journal and a
 # single continuous episode inflated the emergency counter by hundreds. A periodic heartbeat is enough.
@@ -221,6 +225,7 @@ class CoreClient(threading.Thread):
         # knows_block dial instead of a full pool re-scan every ~1s emergency pass.
         self._sync_donor = (None, None)
         self._last_sync_donor_ip = None   # donor dialled for THIS attempt; cleared when none qualifies
+        self._minority_since = None       # first pass we saw a better-but-unheld tip (grace window)
         # LOG-ONCE guard for _candidate_pool: txids already surfaced as "Candidate excludes…" so the
         # same lingering pool tx (chiefly stale/duplicate RANDAO commit-reveal + attest txs that sit in
         # the mempool until they age out of their epoch window) is not re-logged every candidate pass.
@@ -262,14 +267,17 @@ class CoreClient(threading.Thread):
             # it can never be re-included, so keeping it only bloats the pool and empties block candidates
             # (the zombie cleanup for a tx that mined but reverted at the exec layer, or that a lagging peer
             # re-gossiped); (2) keep the pool within its byte budget for the peer-transferable fetch.
+            # ASSIGN ONLY ON CHANGE. The property setter bumps pool_gen, which is the cache key for
+            # get_transaction_pool_hash() and get_upcoming_block_hash(). Reassigning unconditionally
+            # (twice) on every pass invalidated both caches ~2x/second even when nothing had changed,
+            # so neither cache ever hit under load — the exact opposite of their purpose.
             with self.memserver.mempool_lock:
-                if self.memserver.transaction_pool:
-                    self.memserver.transaction_pool = [
-                        t for t in self.memserver.transaction_pool
-                        if kv_ops.tx_get(t.get("txid")) is None]
-                    self.memserver.transaction_pool = cull_buffer(
-                        buffer=self.memserver.transaction_pool,
-                        limit=self.memserver.transaction_pool_max_bytes)
+                pool = self.memserver.transaction_pool
+                if pool:
+                    kept = [t for t in pool if kv_ops.tx_get(t.get("txid")) is None]
+                    culled = cull_buffer(buffer=kept, limit=self.memserver.transaction_pool_max_bytes)
+                    if len(culled) != len(pool):
+                        self.memserver.transaction_pool = culled
 
             # MEMPOOL CONVERGENCE is handled entirely off this loop now: PUSH gossip delivers a new tx
             # to peers the instant it is accepted (ops/gossip.py, nado._gossip_worker), and the
@@ -554,11 +562,31 @@ class CoreClient(threading.Thread):
         # tie-break every node computes identically, so they all converge on the lowest-hash tip).
         if hh == self.memserver.latest_block["block_hash"]:
             """our tip IS the canonical (heaviest weight, lowest-hash tie-break) -> do not switch"""
+            self._minority_since = None
             return False
         if get_block(hh):
             """we already hold the canonical tip locally; normal incorporation adopts it"""
+            self._minority_since = None
             return False
-        """a strictly-better tip (heavier, or equal-weight + lower hash) exists -> sync toward it"""
+        # GRACE WINDOW — the fork-choice above is right, but "a better tip exists that we do not hold yet"
+        # is ALSO what every normal block looks like for the second between a peer advertising it and the
+        # gossip delivering it. Without hysteresis that transient reads as a fork: measured 51 emergency
+        # entries an hour on a healthy 2-node fleet, each one "We are out of consensus" -> "Entering
+        # emergency mode" -> "No heavier valid tip remains" ~1s later, with ZERO actual rollbacks and the
+        # chain advancing at block time the whole time. Pure noise that buried real events and, per the
+        # h4260 post-mortem, rollback storms are the one thing that has actually corrupted state here.
+        #
+        # A genuine fork persists, so a few seconds of patience costs nothing; propagation lag resolves
+        # itself. Safe to defer because returning False does NOT make us mint: normal_mode's caught-up
+        # gate independently refuses to produce while any peer advertises an unrejected heavier tip, so
+        # during the grace we simply wait for the block instead of tearing down into sync/reorg.
+        now = get_timestamp_seconds()
+        if self._minority_since is None:
+            self._minority_since = now
+            return False
+        if (now - self._minority_since) < MINORITY_GRACE_S:
+            return False
+        """a strictly-better tip (heavier, or equal-weight + lower hash) has PERSISTED -> sync toward it"""
         return True
 
     def snapshot_bootstrap(self, force_reanchor: bool = False, allow_below_floor: bool = False) -> bool:
@@ -985,7 +1013,14 @@ class CoreClient(threading.Thread):
         _prev = getattr(self, "_last_emergency_log", 0.0)
         self._last_emergency_log = now
         if (now - _prev) >= _EMERGENCY_LOG_EVERY:
-            self.logger.warning("Entering emergency mode (behind consensus; rolling back / resyncing)")
+            # NOT a warning, and NOT "rolling back": entering this loop only means a better tip was
+            # advertised that we do not hold. The overwhelmingly common outcome is that the block arrives
+            # a pass later and we leave without touching a thing — measured today: 75 entries, 0
+            # rollbacks, 0 state-root rejects. Claiming "rolling back / resyncing" on every entry made a
+            # healthy node look like it was in a rollback storm and buried the days when it really was
+            # (2026-07-26: 3113 rollbacks, 29 root rejects). Actual rollbacks log at WARNING where they
+            # happen; this is the evaluation, so it is INFO and says only what it knows.
+            self.logger.info("Behind an advertised tip we do not hold — evaluating sync/reorg")
             try:
                 from ops import rollback_stats
                 rollback_stats.record_emergency()
@@ -1218,6 +1253,11 @@ class CoreClient(threading.Thread):
         next_height = self.memserver.latest_block["block_number"] + 1
         pool = self.memserver.transaction_pool.copy()
         selected = []
+        # ONE ledger for the whole pass. This used to be validate_all_spending(selected + [tx]) per tx,
+        # which re-derived the entire accepted prefix every time and made the loop O(P^3) — 20.6 s at
+        # P=800, once a second, on this thread. ledger.add() only commits a tx that passes, so a
+        # rejected one leaves the running totals exactly as re-deriving from `selected` did.
+        ledger = SpendingLedger()
         for tx in pool:
             try:
                 # AT-MOST-ONCE (halt fix 2026-07-11): an ALREADY-MINED txid must never enter our own
@@ -1229,7 +1269,7 @@ class CoreClient(threading.Thread):
                 if kv_ops.tx_get(tx.get("txid")) is not None:
                     continue
                 validate_transaction(transaction=tx, logger=self.logger, block_height=next_height)
-                validate_all_spending(transaction_pool=selected + [tx])
+                ledger.add(tx)
             except Exception as e:
                 # LOG-ONCE per txid: these exclusions recur on every ~1s candidate pass (a lingering
                 # duplicate/stale tx is re-validated and re-excluded each time), so logging one line per
@@ -1872,11 +1912,12 @@ class CoreClient(threading.Thread):
                 raise ValueError("Block contains an already-mined transaction")
             # OWN candidate: drop the already-mined stragglers (they linger in the pool until evicted
             # below) and keep building; produce_block rebuilds + re-hashes the reduced set.
-            for t in already_mined:
-                if t in transactions:
-                    transactions.remove(t)
-                if t in block["block_transactions"]:
-                    block["block_transactions"].remove(t)
+            # by txid, not by deep dict comparison: the txid IS the content hash, so it identifies the
+            # tx exactly, and `list.remove(dict)` was an O(n) full-body compare per straggler.
+            _mined_ids = {t.get("txid") for t in already_mined}
+            transactions[:] = [t for t in transactions if t.get("txid") not in _mined_ids]
+            block["block_transactions"] = [t for t in block["block_transactions"]
+                                           if t.get("txid") not in _mined_ids]
 
         # DATA-AVAILABILITY cap (doc/execution-layer.md §3.3): reject a block carrying more blob bytes
         # than phones can be expected to download/relay. Fail-closed like the other block-set checks.
@@ -1893,12 +1934,24 @@ class CoreClient(threading.Thread):
             raise
 
         else:
+            # Evict every included tx from the pool in ONE pass so a just-included tx is never
+            # re-selected next round. This was `if transaction in pool: pool.remove(transaction)` per
+            # tx — O(B x P) FULL-DICT comparisons on the block thread (at B=150, P=600 that is 90,000
+            # deep dict __eq__ calls per block), and worse, an IN-PLACE mutation that never bumped
+            # pool_gen. memserver documents that every in-place mutation site must bump it by hand;
+            # this one didn't, so _txid_set_cache and _pool_hash_cache went stale and
+            # get_transaction_pool_hash() kept advertising a pool hash that still contained the txs we
+            # had just mined — polluting transaction_hash_pool_percentage, a consensus VOLATILITY
+            # signal, for up to a second after every block. Rebuilding and reassigning goes through the
+            # property setter, which bumps pool_gen, so both caches invalidate correctly.
+            included_txids = {t.get("txid") for t in transactions}
+            with self.memserver.mempool_lock:
+                pool = self.memserver.transaction_pool
+                kept = [t for t in pool if t.get("txid") not in included_txids]
+                if len(kept) != len(pool):
+                    self.memserver.transaction_pool = kept
+
             for transaction in transactions:
-
-                # Evict from the single pool so a just-included tx is never re-selected next round.
-                if transaction in self.memserver.transaction_pool:
-                    self.memserver.transaction_pool.remove(transaction)
-
                 try:
                     # block_height = the block being validated (N) so a register tx's epoch check
                     # epoch_of(N) matches how apply_register records it (index_transactions applies
@@ -1918,8 +1971,9 @@ class CoreClient(threading.Thread):
                     # (observed ~70-135s freezes). Removed from the pools above; drop it from the block set
                     # too. Safe in the account model: removing a tx only REDUCES spending, never invalidates
                     # the remaining txs.
-                    if transaction in block["block_transactions"]:
-                        block["block_transactions"].remove(transaction)
+                    _bad = transaction.get("txid")
+                    block["block_transactions"] = [t for t in block["block_transactions"]
+                                                   if t.get("txid") != _bad]
 
     def validate_block_producer(self, block):
         """S4.3 FAIL-CLOSED authorship: recompute the deterministic BONDED winner for this height

@@ -167,6 +167,19 @@ def _select_backend():
 _BACKEND = _select_backend()
 
 
+def backend_name():
+    """Which ML-DSA backend this process actually verifies with — 'native:<module>' or 'pure-python'.
+
+    Surfaced in /status so a DEGRADED node is visible from OUTSIDE, the same way update_capable is.
+    The gap is 84x measured on this box (0.154 ms/verify native vs 12.98 ms pure-Python), and every
+    verify is serialised behind a single global lock because the backends share NTT buffers. A node
+    that lost its native lib (no toolchain on a fresh install, a rebuild that silently failed after an
+    /update) still starts, still syncs, and just quietly stops being able to keep up — the warning goes
+    to stderr at import and is then invisible forever. Making it queryable turns that into something an
+    operator or a peer can actually notice."""
+    return getattr(_BACKEND, "name", "pure-python")
+
+
 def _keypair_from_seed(seed: bytes):
     """Deterministic ML-DSA keygen from a 32-byte seed (FIPS 204 KeyGen_internal). Returns
     (public_key_bytes, secret_key_bytes). Locked too: keygen shares the same module-level NTT buffers as

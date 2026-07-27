@@ -33,7 +33,10 @@ def t_record_accumulates_and_persists():
     series = RS.daily_counts(days=1)
     assert series[-1]["count"] == 3, series
     assert series[-1]["depth"] == 3, "depth must be the DEEPEST single reorg, not a sum"
-    assert RS._load() == {series[-1]["date"]: {"c": 3, "d": 3}}, "must persist, not just cache"
+    # r/e are 0, not null: a day this process CREATED has measured all four counters. null is
+    # reserved for a day loaded from an older format that genuinely never tracked them.
+    assert RS._load() == {series[-1]["date"]: {"c": 3, "d": 3, "r": 0, "e": 0}}, \
+        "must persist, not just cache"
 
 
 def t_depth_is_max_not_last():
@@ -50,7 +53,7 @@ def t_legacy_bare_count_loads_with_null_depth():
     with open(RS._stats_path(), "w") as f:
         json.dump({day: 4}, f)
     loaded = RS._load()
-    assert loaded == {day: {"c": 4, "d": None}}, loaded
+    assert loaded == {day: {"c": 4, "d": None, "r": None, "e": None}}, loaded
 
 
 def t_series_is_dense_zero_filled_and_ordered():

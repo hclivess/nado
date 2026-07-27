@@ -646,9 +646,17 @@ def dedupe_reserved(transactions):
     upcoming_block_hash agreement signal. Iterating in txid order makes the survivor arrival-independent;
     the block's final order is re-sorted by txid downstream (cap_block_blobs + construct_block CO-8), so
     this ONLY pins WHICH of a colliding pair is kept. Used by block assembly so an honest producer never
-    builds a block verify_block would reject for duplicates."""
+    builds a block verify_block would reject for duplicates.
+
+    WIDEST FORM FIRST, then lowest txid. Ordering by txid ALONE is deterministic but semantically wrong
+    when the colliding pair are different FORMS of the same duty: a merged `duty` tx occupies its own key
+    plus one per carried section, while a historical bare `attest` occupies exactly one. Whichever is
+    processed first claims its keys and evicts the other, so a bare attest that happened to sort lower
+    would evict the duty tx — silently dropping that validator's commit AND reveal for the epoch, not
+    just the redundant attest. Sorting by descending key count keeps the form that carries strictly more
+    duty, and txid still breaks every remaining tie, so the result stays arrival-independent."""
     seen, out = set(), []
-    for t in sorted(transactions, key=lambda x: x.get("txid") or ""):
+    for t in sorted(transactions, key=lambda x: (-len(reserved_uniqueness_keys(x)), x.get("txid") or "")):
         keys = reserved_uniqueness_keys(t)
         if keys:
             if any(k in seen for k in keys):
@@ -1376,12 +1384,9 @@ def check_balance(account, amount, fee):
 
 
 def get_senders(transaction_pool: list) -> list:
-    """unique senders in a transaction pool, first-seen order preserved (deterministic iteration)"""
-    sender_pool = []
-    for transaction in transaction_pool:
-        if transaction["sender"] not in sender_pool:
-            sender_pool.append(transaction["sender"])
-    return sender_pool
+    """unique senders in a transaction pool, first-seen order preserved (deterministic iteration).
+    dict.fromkeys gives insertion-ordered dedup in O(n); the old `if x not in list` form was O(n^2)."""
+    return list(dict.fromkeys(t["sender"] for t in transaction_pool))
 
 
 def _spend_costs(tx):
@@ -1433,37 +1438,91 @@ def _escrow_release(tx):
     return None
 
 
+class SpendingLedger:
+    """Running per-sender and per-escrow spend totals for ONE candidate set or block.
+
+    WHY THIS EXISTS. `validate_all_spending(prefix + [tx])` was called once per pool tx from
+    _candidate_pool, and each call re-walked the whole prefix once per unique sender on top of an
+    O(n^2) get_senders — so building a candidate was O(P^3). Measured on this box: 45 ms at P=100,
+    660 ms at P=200, 20.6 s at P=800, plus ~P^2/2 get_account reads. That loop runs about once a
+    second on the block thread holding the GIL, with no rate limit, and the 4 MiB pool cap puts a
+    full mempool of ordinary ML-DSA txs (~7 KB each) right in the worst range — an unauthenticated
+    party could stop this node producing blocks just by filling the mempool with distinct senders.
+    It cost ~0 ms in practice only because the pool is usually empty.
+
+    The accumulation is prefix-monotone, so the prefix never has to be re-examined: keep the running
+    totals and add each tx once. add() checks BEFORE it commits, so a rejected tx contributes
+    nothing — exactly as re-deriving from `prefix + [tx]` did.
+
+    IDENTICAL ACCEPT/REJECT. Same costs, same per-sender and per-escrow prefix sums, compared against
+    the same balances, in the same pool order — only the number of times each sum is recomputed
+    changes. What does differ is WHICH assertion fires first when several would: the old form ran all
+    sender checks and then all escrow checks, this interleaves them per tx. That is not observable at
+    either call site. _candidate_pool feeds an already-valid prefix, so any new violation is caused by
+    the tx being added and that tx is the one excluded either way; validate_transactions_in_block
+    rejects the whole block on any raise. Nothing parses the message.
+
+    Balances are read once per account and cached for the ledger's life. Both callers run outside a
+    write txn against committed state that no one mutates mid-loop, which is the same assumption the
+    per-call get_account already relied on."""
+
+    __slots__ = ("_acct", "_spent", "_esc_drawn", "_esc_bal", "_ns_drawn")
+
+    def __init__(self):
+        self._acct = {}        # sender -> (balance, bonded)
+        self._spent = {}       # sender -> [balance_spent, bonded_spent]
+        self._esc_drawn = {}   # escrow account -> total drawn so far
+        self._esc_bal = {}     # escrow account -> its balance (None if the account does not exist)
+        self._ns_drawn = {}    # bridge namespace -> total drawn so far
+
+    def add(self, transaction):
+        """Fold one tx in. Raises (AssertionError) and mutates NOTHING if it would overspend."""
+        sender = transaction["sender"]
+        spent = self._spent.get(sender)
+        if spent is None:
+            acc = get_account(sender)
+            self._acct[sender] = (acc["balance"], acc["bonded"])
+            spent = self._spent[sender] = [0, 0]
+        balance, bonded = self._acct[sender]
+        b_cost, bond_cost = _spend_costs(transaction)
+        new_balance_spent = spent[0] + b_cost
+        new_bonded_spent = spent[1] + bond_cost
+        assert new_balance_spent <= balance, "Overspending balance"
+        assert new_bonded_spent <= bonded, "Overspending bonded stake"
+
+        # CUMULATIVE ESCROW RELEASES: cap the total drawn from each shared escrow (bridge/shield/htlc/
+        # dividend) this block at its parent balance, and per-namespace for the bridge — so multiple
+        # distinct valid exits can't collectively over-draw one pool (mint or halt at apply).
+        rel = _escrow_release(transaction)
+        new_esc = new_ns = None
+        if rel is not None:
+            acct, amt, bns = rel
+            if acct not in self._esc_bal:
+                eacc = get_account(acct, create_on_error=False)
+                self._esc_bal[acct] = eacc.get("balance", 0) if eacc else None
+            esc_bal = self._esc_bal[acct]
+            new_esc = (acct, self._esc_drawn.get(acct, 0) + amt)
+            assert esc_bal is not None and new_esc[1] <= esc_bal, f"escrow {acct} over-drawn in one block"
+            if bns is not None:
+                new_ns = (bns, self._ns_drawn.get(bns, 0) + amt)
+                assert new_ns[1] <= kv_ops.bridge_escrow_ns(bns), "namespace bridge escrow over-drawn in one block"
+
+        # every check passed — commit
+        spent[0], spent[1] = new_balance_spent, new_bonded_spent
+        if new_esc is not None:
+            self._esc_drawn[new_esc[0]] = new_esc[1]
+        if new_ns is not None:
+            self._ns_drawn[new_ns[0]] = new_ns[1]
+        return True
+
+
 def validate_all_spending(transaction_pool: list):
     """validate spending of all spenders in a transaction pool against their balance AND
-    their bonded stake (unbond draws from bonded, not from spendable balance)."""
-    for sender in get_senders(transaction_pool):
-        acc = get_account(sender)
-        balance, bonded = acc["balance"], acc["bonded"]
-
-        balance_spent = 0
-        bonded_spent = 0
-        for pool_tx in transaction_pool:
-            if pool_tx["sender"] == sender:
-                b_cost, bond_cost = _spend_costs(pool_tx)
-                balance_spent += b_cost
-                bonded_spent += bond_cost
-                assert balance_spent <= balance, "Overspending balance"
-                assert bonded_spent <= bonded, "Overspending bonded stake"
-    # CUMULATIVE ESCROW RELEASES: cap the total drawn from each shared escrow (bridge/shield/htlc/dividend)
-    # this block at its parent balance, and per-namespace for the bridge — so multiple distinct valid exits
-    # can't collectively over-draw one pool (mint or halt at apply). See _escrow_release.
-    esc_spent, ns_spent = {}, {}
+    their bonded stake (unbond draws from bonded, not from spendable balance), plus the cumulative
+    draw on each shared escrow. O(pool) — see SpendingLedger for why that matters."""
+    ledger = SpendingLedger()
     for pool_tx in transaction_pool:
-        rel = _escrow_release(pool_tx)
-        if rel is None:
-            continue
-        acct, amt, bns = rel
-        esc_spent[acct] = esc_spent.get(acct, 0) + amt
-        eacc = get_account(acct, create_on_error=False)
-        assert eacc and esc_spent[acct] <= eacc.get("balance", 0), f"escrow {acct} over-drawn in one block"
-        if bns is not None:
-            ns_spent[bns] = ns_spent.get(bns, 0) + amt
-            assert ns_spent[bns] <= kv_ops.bridge_escrow_ns(bns), "namespace bridge escrow over-drawn in one block"
+        ledger.add(pool_tx)
     return True
 
 

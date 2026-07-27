@@ -67,10 +67,39 @@ def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry:
     return attesting * SETTLE_DEN > total * SETTLE_NUM
 
 
+# latest_settled cache: one ((env_path, write_generation, ns), result) tuple, same single-reference,
+# GIL-atomic pattern as account_ops._bonded_reg_cache and snapshot_ops._root_cache.
+_latest_settled_cache = [None]
+
+
 def latest_settled(ns: str = DEFAULT_NS):
     """The (exec_cursor, state_root) with the HIGHEST cursor currently justified in namespace `ns`, or
     (-1, None) if none. DERIVED (not a stored watermark) so it is revert-safe — rolling back a settle tx
-    removes its attestation and this recomputes. Uses the current committed bonded registry."""
+    removes its attestation and this recomputes. Uses the current committed bonded registry.
+
+    MEMOISED on the write generation: a pure function of committed settlement attestations plus the
+    committed bonded registry, so an unchanged generation gives an identical answer. It is called twice
+    per block from the block path (construct_block and verify_block, via settled_header_commitment) and
+    again per dividend/bridge/unshield/xmsg claim during tx validation. The happy path returns on the
+    first iteration, but if the top cursors are NOT justified — a drifted validator set, an inactivity
+    leak, a settling node going dark — it degrades to a walk over every cursor ever attested, each
+    calling settlement_justified (which itself range-scans the activity window). That is a cliff which
+    appears exactly when the network is already unhealthy, and it ran twice per block regardless.
+
+    Bypassed inside a write txn, like the other derived-read caches: in-txn reads see the block's own
+    uncommitted attestations."""
+    if kv_ops.in_write_txn():
+        return _latest_settled_uncached(ns)
+    key = (kv_ops.env_path(), kv_ops.write_generation(), ns)
+    entry = _latest_settled_cache[0]
+    if entry is not None and entry[0] == key:
+        return entry[1]
+    result = _latest_settled_uncached(ns)
+    _latest_settled_cache[0] = (key, result)
+    return result
+
+
+def _latest_settled_uncached(ns: str = DEFAULT_NS):
     reg = get_bonded_registry()
     if total_bonded_shares(reg) == 0:
         return (-1, None)

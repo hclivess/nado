@@ -577,7 +577,14 @@ ABORT = f"""{_FULL}{_UNSETTLED}    slot r4 {DL} r0
 from execnode.games import _lib
 ECNT_SLOT = 4
 E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE = 50, 51, 52, 53, 60, 100
-E_TS = 54                                                  # UTC-seconds post-time (board shows day + time)
+E_TS = 49                  # UTC-seconds post-time (board shows day + time). MUST NOT be 54: that is A_H
+                           # below, and the two are keyed differently — E_TS by daily-board ENTRY id
+                           # (0,1,2,… from ECNT_SLOT) and A_H by UTC DAY index (~20,662 and counting).
+                           # Sharing a field number means sharing the slot address field*2^32+key, so the
+                           # 20,662nd board entry would have silently overwritten today's anchor height
+                           # and vice versa. Every sibling game already keeps them apart (hamster 54/70,
+                           # autogame 204/240, scrapline 65/66, battleship 1014/1050); hexholm was the
+                           # only one that let them land on the same number.
 CLAIM_WORDS, MAX_MY = 150, 100                              # MUST match static/hexholm-bot.js
 POST = _lib.daily_post(ECNT_SLOT, E_DAY, E_ADDR, E_SCORE, E_N, ELIST, EW_BASE, CLAIM_WORDS, MAX_MY, e_ts=E_TS)
 # the day's seed anchor lives ON-CHAIN (see _lib.daily_anchor): ah[day] = pinned height,

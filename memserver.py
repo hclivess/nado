@@ -490,7 +490,13 @@ class MemServer:
         # The deterministic MIN_TX_FEE floor is enforced in validate_transaction below.
 
         else:
-            if transaction in self.transaction_pool:
+            # Re-check by TXID, not by deep dict comparison. validate_txid above guarantees
+            # txid == hash(content), so identical content means an identical txid — the O(1) set check
+            # is exactly as strong as the old `transaction in self.transaction_pool`, which walked the
+            # whole pool doing full-dict __eq__ on every genuinely NEW tx (the one case the fast path
+            # at the top of this method cannot short-circuit). Kept rather than deleted because another
+            # thread can have added this txid since that fast path ran.
+            if transaction.get("txid") in self._pool_txid_set():
                 # Idempotent: already pooled (e.g. a re-gossiped heartbeat) — a benign success, not an
                 # error (matches the "already present" handling clients now expect).
                 return {"message": "Already present", "result": True}

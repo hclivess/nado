@@ -60,15 +60,15 @@ def t1_quorum_predicate():
 def t2_latest_settled_and_reflect():
     """Prove reflecting a settle tx from a supermajority validator makes latest_settled report that (cursor, root)."""
     tx = construct_settle_tx(V1, exec_cursor=200, state_root=ROOT_A, max_block=1)
-    validate_transaction(tx, logger, 1)
-    reflect_transaction(tx, logger, 1)                          # V1 alone = 4/5 shares > 2/3 -> settled
+    validate_transaction(tx, logger, 200)                       # height >= cursor (capture guard)
+    reflect_transaction(tx, logger, 200)                        # V1 alone = 4/5 shares > 2/3 -> settled
     cur, root = latest_settled()
     assert (cur, root) == (200, ROOT_A), f"expected (200,ROOT_A), got {(cur, root)}"
 
 def t3_one_settle_per_validator_per_cursor():
     """Prove a second settle tx from the same validator for the same cursor is rejected."""
     tx2 = construct_settle_tx(V1, exec_cursor=200, state_root=ROOT_A, max_block=1)
-    assert raises(lambda: validate_transaction(tx2, logger, 1)), "second settle from same validator/cursor must reject"
+    assert raises(lambda: validate_transaction(tx2, logger, 200)), "second settle from same validator/cursor must reject"
 
 def t4_below_quorum_not_settled():
     """Prove a cursor attested by only 1/5 of bonded shares does not settle."""
@@ -97,13 +97,13 @@ def t7_namespace_isolation():
     or the default layer, and the SAME validator may settle the SAME cursor in two different namespaces
     (uniqueness is per (ns, validator, cursor))."""
     a = construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_A, max_block=1, ns="rollupa")
-    validate_transaction(a, logger, 1); reflect_transaction(a, logger, 1)     # V1 = 4/5 > 2/3 -> settled in rollupa
+    validate_transaction(a, logger, 700); reflect_transaction(a, logger, 700)  # V1 = 4/5 > 2/3 -> settled in rollupa
     assert latest_settled("rollupa") == (700, ROOT_A), "rollupa settled"
     assert latest_settled("rollupb") == (-1, None), "a different namespace is unaffected"
     assert latest_settled()[0] != 700, "the default namespace is unaffected by a rollupa settle"
     # same validator, same cursor, DIFFERENT namespace -> allowed and independent
     b = construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_B, max_block=1, ns="rollupb")
-    validate_transaction(b, logger, 1); reflect_transaction(b, logger, 1)
+    validate_transaction(b, logger, 700); reflect_transaction(b, logger, 700)
     assert latest_settled("rollupb") == (700, ROOT_B), "rollupb settles independently at the same cursor"
 
 def _resign(tx, kd):
@@ -138,7 +138,7 @@ def t9_inactivity_leak_dark_majority_cannot_block():
     reg = get_bonded_registry()
     assert active_settler_shares(DEFAULT_NS, reg) == 5, "dark stake must not enter the denominator"
     tx = construct_settle_tx(V1, exec_cursor=1000, state_root=ROOT_A, max_block=1)
-    validate_transaction(tx, logger, 1); reflect_transaction(tx, logger, 1)
+    validate_transaction(tx, logger, 1000); reflect_transaction(tx, logger, 1000)
     assert latest_settled() == (1000, ROOT_A), "active supermajority settles despite a dark bonded majority"
     # and the dark validator RE-ENTERS the moment it attests (the leak is participation, not punishment):
     # with 45 of 50 active shares it now justifies its own attestations, and V1's old 4/5 dominance

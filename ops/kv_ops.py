@@ -114,6 +114,25 @@ _local = threading.local()
 # committing back-to-back can never merge into one bump (a lost bump would leave a cache stale).
 _write_gen = 0
 _write_gen_lock = threading.Lock()
+_map_size_lock = threading.Lock()
+_current_map_size = [MAP_SIZE]
+
+
+def _grow_map():
+    """Double the LMDB map ceiling after a MapFullError. Idempotent-ish under concurrency: the lock plus
+    the doubled-since-we-looked check means N racing writers grow it once, not N times. set_mapsize only
+    changes the ceiling — it never moves, rewrites or risks the data (writemap=False, so a full map
+    raises cleanly and never corrupts)."""
+    with _map_size_lock:
+        want = _current_map_size[0] * 2
+        try:
+            get_env().set_mapsize(want)
+        except Exception as e:                       # a failure here leaves the old ceiling; caller raises
+            print(f"[kv] MAP FULL and set_mapsize({want}) failed: {e}", flush=True)
+            return
+        _current_map_size[0] = want
+        print(f"[kv] LMDB map was FULL — grew to {want // (1024 ** 3)} GiB. The state DB is growing "
+              f"past its provisioned ceiling; check disk headroom.", flush=True)
 
 
 def _bump_write_gen():
@@ -238,22 +257,45 @@ class _WriteTxn:
     incorporate_block / rollback_one_block all-or-nothing."""
 
     def __enter__(self):
-        """Open the env write txn only at depth 0; nested entries just bump the depth and reuse it."""
+        """Open the env write txn only at depth 0; nested entries just bump the depth and reuse it.
+
+        GROWS the map instead of dying on it. map_size is a FIXED 16 GiB and nothing anywhere called
+        set_mapsize, so the day the file fills, EVERY write fails and the only recovery is an operator
+        editing a constant and restarting — an unrecoverable outage from a foreseeable condition. Doubling
+        on MapFullError is the documented lmdb remedy and is safe here: it only raises the ceiling, never
+        moves or rewrites data. Logged loudly because a node that has started doubling is a node whose
+        disk needs attention."""
         depth = getattr(_local, "wdepth", 0)
         if depth == 0:
-            _local.wtxn = get_env().begin(write=True)
+            try:
+                _local.wtxn = get_env().begin(write=True)
+            except lmdb.MapFullError:
+                _grow_map()
+                _local.wtxn = get_env().begin(write=True)
         _local.wdepth = depth + 1
         return _local.wtxn
 
     def __exit__(self, exc_type, exc, tb):
         """Outermost exit commits on success / aborts on any exception; inner exits only decrement.
-        Never suppresses the exception — the caller must see the failure that voided the block."""
+        Never suppresses the exception — the caller must see the failure that voided the block.
+
+        A commit that fails MapFull grows the map and is retried ONCE. The txn is dead either way, so the
+        retry cannot double-apply: if the grow+retry does not succeed the exception propagates and the
+        block is voided exactly as before, just with a bigger ceiling for the next attempt."""
         _local.wdepth -= 1
         if _local.wdepth == 0:
             txn = _local.wtxn
             _local.wtxn = None
             if exc_type is None:
-                txn.commit()
+                try:
+                    txn.commit()
+                except lmdb.MapFullError:
+                    try:
+                        txn.abort()
+                    except Exception:
+                        pass
+                    _grow_map()
+                    raise
                 _bump_write_gen()
             else:
                 txn.abort()
@@ -803,14 +845,22 @@ def settlement_validators_since(ns: str, floor_cursor: int) -> set:
 
 
 def settlement_cursors(ns: str):
-    """All exec_cursors in namespace `ns` that have at least one settlement attestation, ascending."""
+    """All exec_cursors in namespace `ns` that have at least one settlement attestation, ascending.
+
+    SEEKS to the namespace prefix and STOPS when it leaves it — the old form started at cur.first() and
+    iterated every nodup key in the whole settlements DB (all namespaces, all history) filtering in
+    Python. Same shape settlement_validators_since already used correctly. `settlements` is in
+    SNAPSHOT_DBS and grows monotonically, and latest_settled walks this twice per block, so the full
+    scan was an O(history) cost on the block path that only ever got worse."""
     prefix = ns.encode() + b"\x00"
     def _do(txn):
         out = []
         with txn.cursor(db=_dbs()["settlements"]) as cur:
-            if cur.first():
+            if cur.set_range(prefix):
                 for k in cur.iternext_nodup(keys=True, values=False):
-                    if k.startswith(prefix) and len(k) == len(prefix) + 8:
+                    if not k.startswith(prefix):
+                        break                       # keys are sorted: past the namespace, nothing follows
+                    if len(k) == len(prefix) + 8:
                         out.append(int.from_bytes(k[len(prefix):], "big"))
         return out
     return _read(_do)

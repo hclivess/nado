@@ -36,7 +36,8 @@ from loops.peer_loop import PeerClient
 from memserver import MemServer
 from ops.account_ops import get_account, fetch_totals, get_bonded_registry
 from ops.address_ops import proof_sender
-from signatures import verify as _mldsa_verify, unhex as _mldsa_unhex
+from signatures import (verify as _mldsa_verify, unhex as _mldsa_unhex,
+                        backend_name as _pq_backend_name)
 from ops.mining_ops import total_shares
 from ops.block_ops import get_block, recommended_fee, get_block_number, SYNC_BATCH_MAX, SYNC_BATCH_BYTES
 from ops.data_ops import get_home, allow_async, get_byte_size
@@ -217,6 +218,11 @@ async def status(request):
             # pair cannot silently diverge again.
             "finality_depth": FINALITY_DEPTH,
             "epoch_length": EPOCH_LENGTH,
+            # DEGRADATION VISIBILITY, same purpose as update_capable: without the native ML-DSA lib
+            # every verify is ~84x slower (0.154 ms -> 12.98 ms measured) and serialised behind one
+            # global lock, so the node silently stops keeping up. The fallback warns once to stderr at
+            # import and is invisible from then on; this makes it queryable.
+            "pq_backend": _pq_backend_name(),
             "version": memserver.version,
             # UPDATE VISIBILITY: the commit this process RUNS, the newest origin/main commit this node
             # has SEEN (cached by the last /update or daily check — never fetched inline here), and
@@ -870,11 +876,20 @@ async def snapshot_chunk(request):
 
 
 _richest_cache = {"height": -1, "value": 0, "address": None}
+# STAMPEDE LOCKS. All three caches below are keyed on the block height, which moves every ~6 s, so at
+# every block boundary every concurrent request missed at once and each ran its OWN full iter_accounts()
+# scan. The to_thread pool is min(32, cpu+4) wide, so 32 simultaneous /wealth_stats at a boundary meant
+# 32 full scans of GIL-held Python (~90 ms each at 11k accounts = ~2.9 s, half a block slot) from one
+# unauthenticated client. Holding the lock across the scan means exactly one runs and the rest return
+# its result. Paired with a rate limit on each endpoint below — these are page-load reads, not polls.
+_scan_locks = {k: _threading.Lock() for k in ("richest", "wealth", "rich_list")}
 
 
 async def get_richest(request):
     """GET /get_richest: the single largest account by balance+bonded (wallet "coin pile" visual).
     O(accounts) scan, but cached per block height so it costs at most one scan per block."""
+    if _rate_limited(request, 30):
+        return _RL
     # The largest account by total holdings (balance + bonded) — powers the wallet's relative "coin
     # pile" visual. O(accounts) scan, cached per block height so it runs at most once per block.
     def _work():
@@ -886,6 +901,14 @@ async def get_richest(request):
             h = 0
         if _richest_cache["height"] == h and _richest_cache["address"] is not None:
             return {"richest": _richest_cache["value"], "address": _richest_cache["address"], "block_number": h}
+        with _scan_locks["richest"]:                       # one scan per height, not one per requester
+            if _richest_cache["height"] == h and _richest_cache["address"] is not None:
+                return {"richest": _richest_cache["value"], "address": _richest_cache["address"],
+                        "block_number": h}
+            return _richest_scan(h)
+
+    def _richest_scan(h):
+        from ops import kv_ops
         best_v, best_a = 0, None
         for addr, acc in kv_ops.iter_accounts():
             tot = int(acc.get("balance", 0)) + int(acc.get("bonded", 0))
@@ -903,6 +926,8 @@ async def get_wealth_stats(request):
     """GET /wealth_stats: log-normal fit of the wealth distribution — {count, richest, log_mean,
     log_std, block_number} over non-zero accounts (balance+bonded). The client converts its own
     ln(total) to a z-score/percentile for a whale-proof "richer than X%" rank. Cached per height."""
+    if _rate_limited(request, 30):
+        return _RL
     # Distribution of account wealth (balance + bonded) for the wallet's rank / "coin pile". Wealth is
     # heavily right-skewed, so a single O(accounts) pass fits a LOG-NORMAL: it returns count + the richest
     # + the mean/std of ln(total) over non-zero accounts. The client turns its own ln(total) into a z-score
@@ -923,6 +948,12 @@ async def get_wealth_stats(request):
             h = 0
         if _wealth_cache["height"] == h and _wealth_cache["data"] is not None:
             return _wealth_cache["data"]
+        with _scan_locks["wealth"]:                        # one scan per height, not one per requester
+            if _wealth_cache["height"] == h and _wealth_cache["data"] is not None:
+                return _wealth_cache["data"]
+            return _wealth_scan(h, heapq, math, kv_ops, DENOMINATION)
+
+    def _wealth_scan(h, heapq, math, kv_ops, DENOMINATION):
         n, s, s2, richest = 0, 0.0, 0.0, 0
         buckets = [0] * 10
         top, gsum = [], 0
@@ -1165,6 +1196,8 @@ _rich_list_cache = {"height": -1, "list": None}
 async def get_rich_list(request):
     """GET /get_rich_list?n=: top-n accounts by balance+bonded (n clamped to 1..100, default 25) — the
     wallet leaderboard. O(accounts) scan cached per block height (top 100 kept, sliced to n)."""
+    if _rate_limited(request, 30):
+        return _RL
     # Top-N accounts by total holdings (balance + bonded) — powers the wallet's rich list / leaderboard.
     # O(accounts) scan, cached per block height (top 100 kept, sliced to n) so it runs at most once/block.
     def _work():
@@ -1180,6 +1213,13 @@ async def get_rich_list(request):
             n = 25
         if _rich_list_cache["height"] == h and _rich_list_cache["list"] is not None:
             return {"block_number": h, "rich_list": _rich_list_cache["list"][:n]}
+        with _scan_locks["rich_list"]:                     # one scan per height, not one per requester
+            if _rich_list_cache["height"] == h and _rich_list_cache["list"] is not None:
+                return {"block_number": h, "rich_list": _rich_list_cache["list"][:n]}
+            return _rich_list_scan(h, n)
+
+    def _rich_list_scan(h, n):
+        from ops import kv_ops
         top = []
         for addr, acc in kv_ops.iter_accounts():
             bal, bond = int(acc.get("balance", 0)), int(acc.get("bonded", 0))
@@ -1357,12 +1397,27 @@ _STATIC_REF_RE = re.compile(rb'((?:src|href)=")(/static/[A-Za-z0-9_./-]+)(")')
 _JS_IMPORT_RE = re.compile(rb'(\bfrom\s*["\']|import\s*\(\s*["\']|import\s*["\'])(\.{1,2}/[A-Za-z0-9_./-]+\.js)(["\'])')
 
 
+_JS_EPOCH_TTL = 2.0        # seconds; a deploy is picked up within this, a request storm walks static/ once
+_js_epoch_cache = [0.0, 0]  # [computed_at_monotonic, value]
+_static_body_cache = {}     # abs path -> (mtime_ns, size, js_epoch, body_bytes, etag_or_None)
+_STATIC_CACHE_MAX_BYTES = 48 * 1024 * 1024
+_static_cache_bytes = [0]
+_static_cache_lock = _threading.Lock()
+
+
 def _js_epoch():
     """A single version number = the NEWEST mtime across ALL static .js files. Every .js reference (HTML
     <script> AND in-file ES imports) is stamped with THIS, so editing ANY module bumps the version of the
     WHOLE graph at once. That guarantees coherency: a browser/CDN can never load a fresh game.js against a
     stale cached nadodapp.js (the bug that made 'sign in do nothing' after an SDK export was added) — the
-    stamped URLs all change together, so a cache miss on one is a cache miss on all its dependencies."""
+    stamped URLs all change together, so a cache miss on one is a cache miss on all its dependencies.
+
+    CACHED for _JS_EPOCH_TTL. This is a full os.walk + os.stat over ~130 .js files (2.5 ms measured) and
+    it ran on EVERY html and EVERY .js request, on the event loop. The value only moves when someone
+    deploys, so a couple of seconds of staleness costs nothing and a page load stops paying it ~15x."""
+    now = time.monotonic()
+    if now - _js_epoch_cache[0] < _JS_EPOCH_TTL:
+        return _js_epoch_cache[1]
     newest = 0
     try:
         for root, _dirs, names in os.walk(_STATIC_DIR):
@@ -1371,7 +1426,40 @@ def _js_epoch():
                     newest = max(newest, int(os.stat(os.path.join(root, name)).st_mtime))
     except OSError:
         pass
+    _js_epoch_cache[0], _js_epoch_cache[1] = now, newest
     return newest
+
+
+def _static_cached(full, build):
+    """Memoise a stamped static body on (path, mtime_ns, size, js_epoch), calling build(raw_bytes) on miss.
+
+    Stamping is a pure function of the file bytes and the JS epoch, but it was redone on every request
+    ON THE EVENT LOOP: a cold GET /static/i18n.js measured 220 ms (8 ms read + 162 ms of regex
+    substitution), during which this process served nothing else AND the block loop could not run,
+    because re.sub does not release the GIL. A page load pulls i18n.js + interface.js + a dozen modules
+    — ~300 ms of blocked loop per fresh visitor, and ten at once is a dropped block. Keyed on mtime, so
+    a redeploy invalidates immediately rather than serving stale JS off a timer."""
+    try:
+        st = os.stat(full)
+    except OSError:
+        return None
+    key = (st.st_mtime_ns, st.st_size, _js_epoch())
+    hit = _static_body_cache.get(full)
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    with open(full, "rb") as f:
+        raw = f.read()
+    built = build(raw)
+    with _static_cache_lock:
+        prev = _static_body_cache.get(full)
+        if prev is not None:
+            _static_cache_bytes[0] -= len(prev[1][0])
+        if _static_cache_bytes[0] > _STATIC_CACHE_MAX_BYTES:
+            _static_body_cache.clear()       # whole static/ is ~16 MB, so this should never fire
+            _static_cache_bytes[0] = 0
+        _static_body_cache[full] = (key, built)
+        _static_cache_bytes[0] += len(built[0])
+    return built
 
 
 def _stamp_static_refs(html):
@@ -1397,12 +1485,15 @@ def _stamp_js_imports(js_bytes):
     return _JS_IMPORT_RE.sub(lambda m: m.group(1) + m.group(2) + v + m.group(3), js_bytes)
 
 
-def _html_response(request, full):
+async def _html_response(request, full):
     """Serve an HTML file with stamped asset references, a strong ETag over the stamped body, and
-    revalidation caching (no-cache = store + ask; a 304 answers the ask in one small round trip)."""
-    with open(full, "rb") as f:
-        body = _stamp_static_refs(f.read())
-    etag = '"' + hashlib.blake2b(body, digest_size=16).hexdigest() + '"'
+    revalidation caching (no-cache = store + ask; a 304 answers the ask in one small round trip).
+    The stamp+hash runs in a worker thread on a cache miss so a cold page never blocks the event loop."""
+    cached = await asyncio.to_thread(_static_cached, full, lambda raw: (
+        (lambda b: (b, '"' + hashlib.blake2b(b, digest_size=16).hexdigest() + '"'))(_stamp_static_refs(raw))))
+    if cached is None:
+        return web.Response(status=404, text="Not found")
+    body, etag = cached
     # X-Frame-Options/frame-ancestors: the wallet must NEVER be framed — the exec_sign / forum-login confirm is
     # the only human gate, and a header-delivered frame denial defeats clickjacking of it (a <meta> CSP cannot).
     headers = {"Cache-Control": "no-cache", "ETag": etag, "Access-Control-Allow-Origin": "*",
@@ -1425,7 +1516,7 @@ async def static_handler(request):
     if not (full == _STATIC_DIR or full.startswith(_STATIC_DIR + os.sep)) or not os.path.isfile(full):
         return web.Response(status=404, text="Not found")
     if full.endswith(".html"):
-        return _html_response(request, full)
+        return await _html_response(request, full)
     immutable = request.query.get("v", "").isdigit()
     headers = {"Cache-Control": "public, max-age=31536000, immutable" if immutable else "no-cache",
                "Access-Control-Allow-Origin": "*"}
@@ -1433,9 +1524,11 @@ async def static_handler(request):
     # pair a fresh importer with a stale imported module (missing-export -> dead page). Read + rewrite in
     # process (JS files are small); everything else streams via FileResponse.
     if full.endswith(".js"):
-        with open(full, "rb") as f:
-            body = _stamp_js_imports(f.read())
-        return web.Response(body=body, content_type="application/javascript", charset="utf-8", headers=headers)
+        cached = await asyncio.to_thread(_static_cached, full, lambda raw: (_stamp_js_imports(raw), None))
+        if cached is None:
+            return web.Response(status=404, text="Not found")
+        return web.Response(body=cached[0], content_type="application/javascript", charset="utf-8",
+                            headers=headers)
     return web.FileResponse(full, headers=headers)
 
 
@@ -1586,7 +1679,7 @@ _TAB_PATHS = ("wallet", "send", "receive", "aliases", "stake", "quorum", "multis
 
 async def interface_page(request):
     """Serve the single-page interface for the deep-linkable tab paths (/wallet, /send, /aliases, ...)."""
-    return _html_response(request, os.path.join(_HERE, "static", "interface.html"))
+    return await _html_response(request, os.path.join(_HERE, "static", "interface.html"))
 
 
 async def invariants_report(request):

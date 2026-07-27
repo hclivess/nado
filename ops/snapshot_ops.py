@@ -158,11 +158,36 @@ def _root_triples(triples):
             and not (t[0] == "meta" and t[1].startswith(ROOT_EXCLUDED_META_PREFIXES))]
 
 
+# state-root cache: a SINGLE ((env_path, home, write_generation), root) tuple, held as one reference so a
+# reader can never pair a stale key with a newer root under concurrent replacement (GIL-atomic load/store).
+# Same pattern, and the same justification, as account_ops._bonded_reg_cache.
+_root_cache = [None]
+
+
 def l1_state_root(home=None):
     """The canonical L1 consensus state root: merkle over read_state() MINUS the block-storage DBs. This is
     the value committed into every block hash (construct_block/verify_block) and into a snapshot manifest, so
-    it MUST be a pure function of the applied block sequence — hence the block-store exclusion."""
-    return merkle_root(_root_triples(read_state(home)))
+    it MUST be a pure function of the applied block sequence — hence the block-store exclusion.
+
+    MEMOISED on the write generation. Being a pure function of COMMITTED state is exactly what makes this
+    safe: an unchanged write generation cannot have changed the root, so the cached value is bit-identical,
+    not an approximation. The walk plus merkle is ~17 us/row and every leaf hash is pure-Python blake2b
+    under the GIL — 4 ms at today's 1.5k rows, but ~165 ms at 11k and ~2 s at 100k, and the block we
+    PRODUCE pays it twice (construct_block, then verify_block). The cache removes the second call and makes
+    /state_health and _record_reject's per_db_roots free between blocks. It cannot skip the once-per-block
+    computation, because incorporate_block bumps the generation.
+
+    Bypassed inside a write txn: mid-transaction reads see uncommitted rows, so caching one would poison
+    every later reader (get_bonded_registry takes the same escape hatch)."""
+    if kv_ops.in_write_txn():
+        return merkle_root(_root_triples(read_state(home)))
+    key = (kv_ops.env_path(home), home, kv_ops.write_generation())
+    entry = _root_cache[0]
+    if entry is not None and entry[0] == key:
+        return entry[1]
+    root = merkle_root(_root_triples(read_state(home)))
+    _root_cache[0] = (key, root)
+    return root
 
 
 def state_fingerprint(home=None):

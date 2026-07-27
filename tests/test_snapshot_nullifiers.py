@@ -68,8 +68,14 @@ def main():
     check("dividend guard restored", kv_ops.dividend_nullifier_exists("ndocarol", "9"))
     check("treasury payout guard restored", kv_ops.treasury_executed_exists("pid-abc"))
     check("slash guard restored", kv_ops.slash_exists("ndodave", 42))
-    check("consensus meta carried + restored (finalized_height)",
-          kv_ops.meta_get_int("finalized_height", 0) == 100)
+    # finalized_height is deliberately NOT carried by the payload any more: it is a node-local view of
+    # FFG corroboration, so donors legitimately disagree on it at the same height, and shipping it made
+    # two importers of the same snapshot end up with different state (which then desynced their
+    # execsum: sets and split snapshot identity fleet-wide). The importer now STAMPS it to the snapshot
+    # height instead — correct by construction and identical on every importer, so the donor cannot
+    # forge a value that wedges rollback. Donor had 100; the joiner must take the snapshot height (0).
+    check("finalized_height is stamped to the snapshot height, not carried from the donor",
+          kv_ops.meta_get_int("finalized_height", -1) == 0)
     check("account state restored", kv_ops.get_account("shield").get("balance") == 1000)
 
 
