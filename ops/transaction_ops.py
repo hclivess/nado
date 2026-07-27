@@ -1399,21 +1399,30 @@ def _spend_costs(tx):
 
 
 def validate_single_spending(transaction_pool: list, transaction):
-    """validate spending of a single spender against his transactions in a transaction pool"""
-    pool = transaction_pool + [transaction]  # future state (no mutation of the caller's list)
+    """Validate that `sender`'s TOTAL spend across their pooled txs plus this incoming one stays within
+    balance/bonded. Called per admission from merge_transaction.
+
+    Sums the sender's existing pooled txs then adds the incoming tx, instead of copying the whole pool
+    (`transaction_pool + [transaction]`) every call — that copy was pure allocation churn on the submit
+    hot path (a single-sender flood re-copied a growing list on every submit; measured as GC noise
+    under load). Same accept/reject: costs are non-negative, so checking the final totals is equivalent
+    to the old incremental asserts — an overspend in any prefix implies an overspend in the total."""
     sender = transaction["sender"]
     acc = get_account(sender)
     balance, bonded = acc["balance"], acc["bonded"]
 
     balance_spent = 0
     bonded_spent = 0
-    for pool_tx in pool:
+    for pool_tx in transaction_pool:
         if pool_tx["sender"] == sender:
             b_cost, bond_cost = _spend_costs(pool_tx)
             balance_spent += b_cost
             bonded_spent += bond_cost
-            assert balance_spent <= balance, "Overspending balance"
-            assert bonded_spent <= bonded, "Overspending bonded stake"
+    b_cost, bond_cost = _spend_costs(transaction)     # the incoming tx (was the appended last element)
+    balance_spent += b_cost
+    bonded_spent += bond_cost
+    assert balance_spent <= balance, "Overspending balance"
+    assert bonded_spent <= bonded, "Overspending bonded stake"
     return True
 
 
