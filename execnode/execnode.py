@@ -473,15 +473,31 @@ async def _refresh_provisional(session, finalized, tip, tip_hash=None):
     # live data at a 1/PROV_FULL_EVERY amortised cost and shout if it is ever wrong. The rebuild always
     # wins, so a drift self-corrects within one audit window instead of settling something false.
     if keep and _prov_since_full + 1 >= PROV_FULL_EVERY and h > tip:
+        # WHERE THE TIME GOES. This audit is the single slowest thing the exec node does — measured at
+        # 119-199s against a 0.73s median poll, with the cursor frozen throughout, which is what players
+        # experience as the game hanging for minutes. The obvious suspect (re-fetching the window over
+        # HTTP) is NOT it: 46 blocks fetch in 0.5s when measured directly. So split the clock three ways
+        # — clone, fetch, apply — and let the next occurrence say which one owns the minutes, instead of
+        # guessing at a fix for the wrong bottleneck.
+        _t_clone = time.time()
         fresh = {ns: st.clone() for ns, st in states.items()}
+        _t_clone = time.time() - _t_clone
+        _t_fetch = _t_apply = 0.0
         fdef, fh = fresh.get("default"), finalized + 1
         while fh <= tip:
+            _m = time.time()
             b = await _get_json(session, f"/get_block_number?number={fh}")
+            _t_fetch += time.time() - _m
             if not isinstance(b, dict) or "block_transactions" not in b:
                 break
-            if not await _apply_block(session, fresh, fdef, b, verbose=False):
+            _m = time.time()
+            _ok_apply = await _apply_block(session, fresh, fdef, b, verbose=False)
+            _t_apply += time.time() - _m
+            if not _ok_apply:
                 break
             fh += 1
+        print(f"[execnode] prov AUDIT rebuild {finalized}..{tip}: clone {_t_clone:.1f}s · "
+              f"fetch {_t_fetch:.1f}s · apply {_t_apply:.1f}s · {fh - (finalized + 1)} block(s)", flush=True)
         if fh > tip:
             bad = [ns for ns in fresh if ns in clones and fresh[ns].state_root() != clones[ns].state_root()]
             if bad:
