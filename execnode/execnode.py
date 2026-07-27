@@ -485,8 +485,35 @@ async def _refresh_provisional(session, finalized, tip, tip_hash=None):
         if fh > tip:
             bad = [ns for ns in fresh if ns in clones and fresh[ns].state_root() != clones[ns].state_root()]
             if bad:
+                # NAME THE ROWS. "The two disagreed" tells you the audit works and nothing about WHY, and
+                # this fires perhaps three times an hour on a live node — far too rare to catch under a
+                # debugger and far too costly to leave alone (the rebuild it forces freezes every game read
+                # for the length of the finality window). So the message carries the diff: which snapshot
+                # component drifted and a sample of the differing keys. Read-only, bounded, and only ever
+                # on this already-exceptional path.
+                detail = []
+                for ns in bad:
+                    try:
+                        inc, reb = clones[ns]._snapshot(), fresh[ns]._snapshot()
+                        for k in sorted(set(inc) | set(reb)):
+                            a, b = inc.get(k), reb.get(k)
+                            if a == b:
+                                continue
+                            if isinstance(a, dict) and isinstance(b, dict):
+                                keys = [x for x in sorted(set(a) | set(b)) if a.get(x) != b.get(x)]
+                                extra = [x for x in keys if x not in reb.get(k, {})]
+                                missing = [x for x in keys if x not in inc.get(k, {})]
+                                detail.append(f"{ns}.{k}: {len(keys)} key(s) differ "
+                                              f"(incremental-only {len(extra)}, rebuild-only {len(missing)}) "
+                                              f"e.g. {keys[:4]}")
+                            else:
+                                detail.append(f"{ns}.{k}: incremental={repr(a)[:60]} rebuild={repr(b)[:60]}")
+                    except Exception as e:                    # diagnostics must never break the audit
+                        detail.append(f"{ns}: <diff failed: {type(e).__name__}: {e}>")
                 print(f"[execnode] PROVISIONAL DRIFT at {finalized}..{tip} in {bad} — "
-                      f"incremental tail disagreed with the rebuild; using the rebuild", flush=True)
+                      f"incremental tail disagreed with the rebuild; using the rebuild"
+                      + ("  ||  " + "; ".join(detail[:8]) if detail else "  ||  roots differ, no component diff"),
+                      flush=True)
             clones = fresh
             _prov_since_full = -1                # this WAS the full build; start the next window from it
 
