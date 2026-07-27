@@ -564,9 +564,13 @@ Environment=HOME=$DATA_HOME")
 $([ -n "$AUTO_BOND" ] && echo "# Auto-compound this % of mined rewards into bonded stake (0 = off). See README \"Auto-bond\".
 # Written only because --auto-bond was passed; the env var overrides the node's config default (80).
 Environment=NADO_AUTO_BOND_PERCENT=$AUTO_BOND")
-$([ "$PQ_BUILT" = "1" ] && echo "# Native Rust ML-DSA verify backend (55x faster; built + interop-verified by install.sh).
-# signatures.py re-runs the interop self-test at boot and falls back to pure-Python on any mismatch.
-Environment=NADO_PQ_NATIVE_MODULE=nado_pq_native")
+$([ "$PQ_BUILT" = "1" ] && echo "# Native Rust ML-DSA verify backend (the reputable RustCrypto ml-dsa crate;
+# 55x faster; built + interop-verified by install.sh). signatures.py re-runs the interop self-test at boot.
+Environment=NADO_PQ_NATIVE_MODULE=nado_pq_native
+# This node BUILT the native backend, so REQUIRE it: hard-fail at boot rather than silently sign/verify with
+# the educational-origin pure-Python fallback (not constant-time; a side-channel risk for a signing node) if a
+# later self-update rebuild ever breaks it. A node with NO build toolchain gets neither line + the loud fallback.
+Environment=NADO_PQ_REQUIRE_NATIVE=1")
 ExecStart=$VENV_PY $REPO_DIR/nado.py
 Restart=always
 RestartSec=5
