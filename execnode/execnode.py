@@ -74,6 +74,14 @@ def _sem():
 # (needs its keys.dat via HOME). NADO_EXEC_SETTLE=1 to enable; settles at most every SETTLE_EVERY blocks.
 SETTLE = os.environ.get("NADO_EXEC_SETTLE", "").strip().lower() in ("1", "true", "yes", "on")
 SETTLE_EVERY = int(os.environ.get("NADO_EXEC_SETTLE_EVERY", "5"))
+# NADO_EXEC_SETTLE_PROVE=1: OPT-IN — attach a settle-with-proof (STARK validity proof) to the settlement
+# instead of a bare bonded attestation, so the root can settle TRUSTLESSLY once the chain enables it
+# (protocol.SETTLE_PROOF_TRUSTLESS, a reroll). OFF by default because proving is expensive (deep sparse
+# tree at protocol params; the native prover is the throughput prerequisite). It is SELF-CHECKING and
+# best-effort: a proof is attached ONLY when it verifiably reproduces this node's real root and extends
+# L1's justified settled tip, so a wrong proof is never posted; anything non-conforming falls back to the
+# bare quorum attestation, which is unchanged. See doc/zk-settlement-completion.md.
+SETTLE_PROVE = os.environ.get("NADO_EXEC_SETTLE_PROVE", "").strip().lower() in ("1", "true", "yes", "on")
 # SETTLED-CHECKPOINT BOOTSTRAP (idle-GC companion, see protocol.py GC note): a COLD exec node can no
 # longer replay dividend accrual from genesis once L1 prunes ancient recert rows — instead it adopts a
 # donor's snapshot VERIFIED against the L1-settled root (trust-minimized: the quorum vouches for the
@@ -204,9 +212,72 @@ def _state_for(request):
     return states.get(ns)
 
 
+async def _build_settlement_proof(session, ns, st, cur, root):
+    """Best-effort SELF-CHECKING settle-with-proof for (ns, cur, root), or None to fall back to quorum.
+
+    Builds a sparse validity proof over the span (L1-justified settled tip, cur] from the DA calldata
+    (calls_commit.block_calls — per-block cursor, ts=0, which matches L1's da_calls_commitment), then
+    posts it ONLY if it verifiably (a) extends the L1-justified settled root and (b) reproduces THIS
+    node's real root. Any mismatch — a TIME-reading call, a records-moving call, an epoch-boundary
+    dividend accrual, a stale pre-state — makes a self-check fail and returns None, so a wrong proof is
+    never posted and the quorum path (unchanged) settles instead. Proving runs in a worker thread under
+    the proving semaphore. Validated end-to-end in tests/test_settle_prover_sim.py."""
+    if not SETTLE_PROVE:
+        return None
+    from execnode.stark import settlement_sparse as SS, calls_commit as CC, storage_tree as SST
+    from execnode import exec_root as ER
+    from execnode.stark import field as _F
+    from protocol import EXEC_TREE_DEPTH, SETTLE_PROOF_MAX_SPAN, EPOCH_LENGTH
+    # 1. L1's JUSTIFIED settled tip for this namespace (the proof must extend exactly this).
+    settled = await _get_json(session, f"/get_settled?ns={ns}")
+    sc, sr = int((settled or {}).get("exec_cursor", -1)), (settled or {}).get("state_root")
+    if sc < 0 or not sr:
+        return None                                        # first settlement in a namespace must be quorum
+    # 2. our stashed exec state AT that justified cursor (pre-state). Only proceed if we hold exactly it.
+    raw = _settled_snapshots.get(ns)
+    if not raw:
+        return None
+    snap = json.loads(raw)
+    if int(snap.get("cursor", -2)) != sc:
+        return None                                        # we don't hold the justified-tip state; wait
+    pre_contracts = (snap.get("state") or {}).get("contracts") or {}
+    pre_bridge = (snap.get("state") or {}).get("bridge")
+    # 3. conformance the validator enforces: advances, within the span cap, no epoch boundary (dividend).
+    if cur <= sc or (cur - sc) > SETTLE_PROOF_MAX_SPAN or (sc // EPOCH_LENGTH) != (cur // EPOCH_LENGTH):
+        return None
+    # 4. the span's DA calls, per block (block_calls stamps cursor=h, ts=0 — the DA-binding form).
+    calls = []
+    for h in range(sc + 1, cur + 1):
+        blk = await _get_json(session, f"/get_block_number?number={h}")
+        if not blk or not blk.get("block_hash"):
+            return None
+        calls += CC.block_calls(blk, ns)
+    # 5. records half (frozen) + finalized chain randomness the proof reads.
+    rec_root = SST.SparseStore(EXEC_TREE_DEPTH, ER.records_projection(st)).root()
+    rec_hex = SST.digest_hex(rec_root)
+    beacons = {e: v % _F.P for e, v in st.beacons.items()}
+    bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
+
+    def _prove():
+        return SS.prove_settlement_sparse(pre_contracts, calls, cursor=cur, rec_hex=rec_hex,
+                                          beacons=beacons, block_hashes=bhashes, pre_bridge=pre_bridge,
+                                          depth=EXEC_TREE_DEPTH)
+    async with _sem():                                     # bound concurrent proving (H-7)
+        proof = await asyncio.to_thread(_prove)
+    # 6. THE SELF-CHECKS — never post a proof that doesn't extend the justified tip AND reproduce our root.
+    pre_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_pre"]), rec_root)
+    post_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_post"]), rec_root)
+    if pre_full != sr or post_full != root:
+        print(f"[execnode] settle-with-proof ns={ns} self-check failed (span {sc}->{cur} not conforming) "
+              f"— falling back to quorum", flush=True)
+        return None
+    return proof
+
+
 async def maybe_settle(session):
-    """If enabled, post a `settle` attestation of the current (cursor, state_root) to L1 — but only once
-    the cursor has advanced SETTLE_EVERY blocks since the last one. Best-effort; never fatal."""
+    """If enabled, post a `settle` of the current (cursor, state_root) to L1 — a bare bonded attestation,
+    or (when NADO_EXEC_SETTLE_PROVE is on and the span conforms) a self-checking settle-with-proof. Only
+    once the cursor has advanced SETTLE_EVERY blocks since the last one. Best-effort; never fatal."""
     global _last_settled_cursor
     if _last_settled_cursor >= 0 and state.cursor - _last_settled_cursor < SETTLE_EVERY:
         return
@@ -236,19 +307,28 @@ async def maybe_settle(session):
                           f"would risk a divergent exec_root. Set NADO_EXEC_BOOTSTRAP to adopt the settled "
                           f"checkpoint.", flush=True)
                 continue
-            tx = construct_settle_tx(keys, st.cursor, st.state_root(), target, ns=ns)
+            # Capture (cursor, root) ONCE — the tail loop is single-task, so st does not advance during the
+            # (possibly minutes-long) proving await below, and the proof + tx + stash all agree on this pair.
+            cur, root = st.cursor, st.state_root()
+            proof = None
+            try:
+                proof = await _build_settlement_proof(session, ns, st, cur, root)
+            except Exception as e:
+                proof = None                                   # proving is best-effort; a bare attestation always works
+            tx = construct_settle_tx(keys, cur, root, target, ns=ns, proof=proof)
             async with session.post(L1 + "/submit_transaction", json=tx,
                                     timeout=aiohttp.ClientTimeout(total=15)) as r:
                 out = await r.json(content_type=None)
             if isinstance(out, dict) and out.get("result"):
                 ok_any = True
                 # stash the snapshot AT this settle so /exec/state_snapshot can serve a joiner a
-                # payload that is verifiable against exactly this (cursor, root) once justified.
-                # Serialized NOW — the live dicts keep mutating, a reference stash would drift.
-                _settled_snapshots[ns] = json.dumps({"ns": ns, "cursor": st.cursor,
-                                                     "state_root": st.state_root(),
+                # payload that is verifiable against exactly this (cursor, root) once justified — AND it is
+                # the pre-state the NEXT settle-with-proof extends. Serialized NOW — the live dicts keep
+                # mutating, a reference stash would drift.
+                _settled_snapshots[ns] = json.dumps({"ns": ns, "cursor": cur, "state_root": root,
                                                      "state": st._snapshot()}, sort_keys=True)
-                print(f"[execnode] SETTLE ns={ns} cursor {st.cursor} root {st.state_root()[:16]}… → L1", flush=True)
+                print(f"[execnode] SETTLE{'-WITH-PROOF' if proof else ''} ns={ns} cursor {cur} "
+                      f"root {root[:16]}… → L1", flush=True)
             else:
                 print(f"[execnode] settle ns={ns} not accepted: {out}", flush=True)
         if ok_any:

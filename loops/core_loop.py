@@ -1416,17 +1416,19 @@ class CoreClient(threading.Thread):
                 # fails-closed identically — no fork. A NON-deterministic failure (OOM) would leave one node
                 # refusing a settle-with-proof its peers accept -> fork.
                 #
-                # So the swallow is gated on the trustless flag: while SETTLE_PROOF_TRUSTLESS is off the
-                # summary is inert (no proof is honoured) and forgiveness is correct — never break block
-                # application over a derived side-record. Once trustless settlement is ON, the summary is
-                # consensus-load-bearing, so a failure here is FAIL-STOP: we re-raise, aborting this block's
-                # incorporation. The node then simply doesn't advance (and re-syncs), exactly like any node
-                # that cannot process a block — which is safe — instead of silently holding a summary set
-                # that diverges from its peers. This is the mechanism referenced by settlement_justified's
-                # docstring and doc/zk-settlement-completion.md.
+                # Precise gate: only a NON-DETERMINISTIC (resource) failure can fork, and only once trustless
+                # settlement is ON. A DETERMINISTIC failure (a pure-function bug in block_summary) hits every
+                # node identically -> all lack the summary -> a proof over that span fails-CLOSED on every
+                # node -> the settle-with-proof is uniformly rejected and the bonded quorum settles that span
+                # -> safe. Swallowing it is correct (never halt the chain on a uniform bug). A MemoryError is
+                # the one failure that differs between nodes (one OOMs, a peer does not), which would leave
+                # the OOM node lacking a summary its peers hold -> it rejects a proof they accept -> fork. So
+                # ONLY that case, and ONLY under the flag, is FAIL-STOP: re-raise, abort the block, and let
+                # the node re-sync (getting the summary on replay) instead of silently diverging. See
+                # settlement_justified's docstring + doc/zk-settlement-completion.md.
                 from protocol import SETTLE_PROOF_TRUSTLESS
                 self.logger.error(f"exec summary for block {block.get('block_number')} failed: {e}")
-                if SETTLE_PROOF_TRUSTLESS:
+                if SETTLE_PROOF_TRUSTLESS and isinstance(e, MemoryError):
                     raise
 
             # LANE-AWARE reward (doc/presence-dividend.md): bonded block = 90/10 winner-take-all; open block =
