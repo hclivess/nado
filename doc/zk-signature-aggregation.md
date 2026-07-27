@@ -183,14 +183,28 @@ piece: `dilithium_py.ml_dsa.ML_DSA_44` (the node's pure-Python PQ backend) and `
   overflows).
 - ⬜ **Sub-circuit 3b — the full 256-point NTT routing**: compose 8 stages × 128 butterflies with the in-place
   data flow + the periodic zeta schedule; the engine that takes A·z and c·t1 to/from the NTT domain.
-- ⬜ **Sub-circuit 2b — hint weight + UseHint/Decompose**: ‖h‖ ≤ ω and w1 = UseHint(h, Az−ct1·2^d) over the
-  γ2 rounding. Same range-check pattern; golden ref `polynomials.use_hint`/`decompose`.
-- ⬜ **Sub-circuit 4 — signature/pubkey DECODE**: bit-unpack z, h, t1, c_tilde from bytes into field
-  coefficients, binding the packed bytes to the txid commitment.
-- ⬜ **Sub-circuit 5 (THE mountain) — Keccak-f[1600] / SHAKE AIR**: for ExpandA (SHAKE128, dominates — k·l=16
-  rejection-sampled polys), tr, μ, SampleInBall, and the final c̃ == SHAKE256(μ‖w1) comparison. NONE exists in
-  the tree today; the algebraic sponge (alghash2) legally cannot substitute (it would change the hashed bytes
-  and break cross-verify with every on-chain signature + the browser). Likely a lookup/LogUp-based Keccak.
+- ✅ **Sub-circuit 4 — decompose + UseHint + hint weight** (`mldsa_hint_air.py`, `tests/test_mldsa_hint_air.py`):
+  w1 = UseHint(h, Az−ct1·2^d) over the γ2 rounding (a = 2γ2, m = (Q−1)/a = 44) and ‖h‖₁ ≤ ω. Proves the split
+  r = r1·a + r0 (r0 centred, carried shifted), r1 ∈ [0,m], boolean wrap/sign flags, and the mod-m ±1 step by
+  reduce-by-hint. Matches `utils.decompose`/`use_hint` over 300+ values **including the Q−1 wrap edge** (whose
+  detection must mirror the reference's PRE-decrement test — a real trap this surfaced).
+- ✅ **Sub-circuit 5 — signature/pubkey DECODE** (`mldsa_decode_air.py`, `tests/test_mldsa_decode_air.py`):
+  bit-unpacks t1 (10-bit), z (18-bit, γ1−x), w1 (6-bit) and the ω+k hint encoding. Canonical by construction
+  (the verifier re-derives the bit windows from the public bytes) and rejects non-monotonic cuts /
+  non-increasing positions / non-zero padding — the malleability checks. Verified against a REAL keypair +
+  internal-mode signature.
+- ✅ **Sub-circuit 6 (THE mountain) — Keccak-f[1600] / SHAKE arithmetisation**
+  (`mldsa_keccak_air.py`, `tests/test_mldsa_keccak_air.py`): for ExpandA (SHAKE128, dominates — k·l=16
+  rejection-sampled polys), tr, μ, SampleInBall, and the final c̃ == SHAKE256(μ‖w1). The algebraic sponge
+  (alghash2) legally cannot substitute (it would change the hashed bytes and break cross-verify with every
+  on-chain signature + the browser), so Keccak is proven as-is: the 5×5×64 GF(2) state is carried as 1600
+  BOOLEAN columns with XOR = a+b−2ab, NOT = 1−a, AND = a·b; θ/ρ/π collapse into one degree-1 expression over
+  the input bits, χ's degree-3 step is split via auxiliary AND-product columns, ι XORs the public round
+  constant — every constraint degree ≤ 2. The reference sponge matches **hashlib/OpenSSL** (SHAKE128+256,
+  multi-block absorb, long squeeze) and **all 8000 round constraints are satisfied by a real Keccak round**.
+  ⚠️ **Open**: one round is 3·1600 = **4800 columns**, far past `MAX_COLUMNS`. Composing the 24-round
+  permutation (and then the sponge) needs a raised column cap or a lane/bit-sliced decomposition — this is the
+  next step, and it is what determines whether the proof size lands in the 100–200 KiB target band.
 - ⬜ **Composition + block-format swap**: fold the per-signature proofs (via the existing `recursive_verify`)
   into one block validity proof; strip signatures from the gossiped/stored block; swap
   `validate_transactions_in_block`'s per-tx `validate_origin` for one `verify(validity_proof)`.
