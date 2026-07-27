@@ -363,6 +363,29 @@ fi
 echo "==> dependencies installed."
 
 # ---- Rust toolchain helper (shared by the native ML-DSA verify backend + the Goldilocks prover) ---
+# Ensures a C LINKER (`cc`) is present. cargo needs it to link ANY binary, and pure-Rust build scripts
+# (getrandom, libc) compile C stubs — so a minimal box with rustup but no gcc fails with
+# "error: linker `cc` not found". rustup's minimal profile does NOT provide one. Returns 0 if cc is
+# available afterward, 1 otherwise. Never fails the install — native code is optional.
+ensure_cc() {
+  if command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1; then return 0; fi
+  echo "==> installing a C toolchain (needed to link the native backend)..."
+  if command -v apt-get >/dev/null 2>&1; then
+    local APT="apt-get"; [ "$(id -u)" -ne 0 ] && APT="sudo apt-get"
+    DEBIAN_FRONTEND=noninteractive $APT update -qq 2>/dev/null || true
+    DEBIAN_FRONTEND=noninteractive $APT install -y -qq build-essential >/dev/null 2>&1 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    { [ "$(id -u)" -eq 0 ] && dnf install -y -q gcc || sudo dnf install -y -q gcc; } >/dev/null 2>&1 || true
+  elif command -v yum >/dev/null 2>&1; then
+    { [ "$(id -u)" -eq 0 ] && yum install -y -q gcc || sudo yum install -y -q gcc; } >/dev/null 2>&1 || true
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache build-base >/dev/null 2>&1 || true
+  elif command -v pacman >/dev/null 2>&1; then
+    pacman -S --noconfirm --needed gcc >/dev/null 2>&1 || true
+  fi
+  command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1
+}
+
 # Ensures `cargo` is on PATH; offers to install it via rustup (official, per-user, no root) when missing.
 # Returns 0 if cargo is available afterward, 1 otherwise. Never fails the install — native code is optional.
 ensure_rust() {
@@ -404,6 +427,7 @@ if [ -z "$_pq_want" ]; then
   fi
 fi
 if [ "$_pq_want" = "1" ]; then
+  ensure_cc || echo "    (no C linker (cc) and could not auto-install one — the native build will likely fail; install build-essential/gcc)"
   if ensure_rust "yes"; then
     echo "==> building the native ML-DSA-44 verify backend (native/mldsa44)..."
     # Capture the build output to a log instead of discarding it: when this fails (e.g. the LTO link
@@ -425,9 +449,12 @@ if [ "$_pq_want" = "1" ]; then
       echo "    (build FAILED — staying pure-Python; still correct, just slower.) Last lines:"
       tail -n 15 "$_pq_log" | sed 's/^/      | /'
       echo "    full log: $_pq_log"
-      echo "    common cause on a small box: the LTO link runs out of RAM. Retry with more swap, or"
-      echo "    build without LTO:  ( cd $REPO_DIR/native/mldsa44 && CARGO_PROFILE_RELEASE_LTO=false cargo build --release )"
-      echo "    then re-run this installer so the env var gets baked in."
+      if grep -q "linker \`cc\` not found\|linker .cc. not found" "$_pq_log" 2>/dev/null; then
+        echo "    cause: no C linker. Install a toolchain and re-run:  apt install build-essential   (or: dnf install gcc)"
+      else
+        echo "    if it ran out of RAM (LTO link on a small box), build with less memory then re-run this installer:"
+        echo "      ( cd $REPO_DIR/native/mldsa44 && CARGO_PROFILE_RELEASE_LTO=false cargo build --release )"
+      fi
     fi
   else
     echo "==> Rust not available — skipping the native ML-DSA backend (staying pure-Python)."

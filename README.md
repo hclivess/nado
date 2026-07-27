@@ -308,12 +308,14 @@ and restarts on failure.
 `--pq-native` builds the native Rust ML-DSA verify backend (it installs Rust via rustup automatically if
 missing). **Strongly recommended:** signature verification is the node's main CPU cost, and a node left on
 the pure-Python fallback is ~84× slower per verify — under transaction load it cannot verify full blocks
-within the block interval and **falls off the tip**. If the build fails the installer now prints the reason and
-the full log path, and the node still runs (pure-Python). The most common failure on a small box is the
-LTO link running out of RAM — finish it by hand with:
+within the block interval and **falls off the tip**. The installer auto-installs both a Rust toolchain and a C
+linker (`build-essential`/`gcc`) — cargo needs `cc` to link, so a truly minimal box would otherwise fail
+with ``linker `cc` not found``. If the build still fails it prints the reason and the full log path and the
+node runs pure-Python meanwhile. Finish it by hand after fixing the cause:
 
 ```bash
-cd <checkout>/native/mldsa44 && CARGO_PROFILE_RELEASE_LTO=false cargo build --release
+sudo apt install build-essential          # (or: sudo dnf install gcc) — only if `cc` was missing
+cd <checkout>/native/mldsa44 && cargo build --release
 sudo scripts/install.sh --service --user nado --pq-native   # re-run: bakes the env var into the unit
 ```
 
