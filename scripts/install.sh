@@ -662,6 +662,10 @@ Environment=NADO_EXEC_PORT=9273
 # unauthenticated but bounded (STARK size cap + in-flight limit); drop this line to keep it loopback-only.
 Environment=NADO_EXEC_BIND=0.0.0.0
 $([ $EXEC_SETTLE -eq 1 ] && echo "Environment=NADO_EXEC_SETTLE=1")
+$([ "$PQ_BUILT" = "1" ] && echo "# The exec node SIGNS settlement attestations, so it needs the native RustCrypto
+# ml-dsa backend too — and REQUIREs it (hard-fail rather than sign with the not-constant-time pure-Python fallback).
+Environment=NADO_PQ_NATIVE_MODULE=nado_pq_native
+Environment=NADO_PQ_REQUIRE_NATIVE=1")
 ExecStart=$VENV_PY $REPO_DIR/execnode/execnode.py
 Restart=always
 RestartSec=5
