@@ -73,12 +73,16 @@ ck("undefined is not a staked call", stakesOf(undefined) === false);
 ck("a real stake IS a staked call", stakesOf(5n) === true && stakesOf(10n ** 10n) === true);
 ck("a string amount does not throw and is treated as staking", stakesOf("100") === true);
 
-// ── tip-based expiry for value-free actions ──────────────────────────────────────────────────────
+// ── tip-based expiry is OPT-IN, never a fleet default ────────────────────────────────────────────
+// Releasing a click guard early is only safe where a duplicate submission is harmless: the caller has an
+// auto-pump that re-sends and the on-chain op is idempotent-by-guard. Defaulting it ON turned a fix for
+// one game into a duplicate-submission hazard for twenty (the daily board's post() appends
+// unconditionally; pets' sweeps re-sign every eligible item; a board move is a real move).
 {
   const d = fresh(100);
-  d._pendAdd({ phase: "commit", leg: 5 }, false);
+  d._pendAdd({ phase: "commit", leg: 5 }, false, true);        // value-free AND opted in
   const rec = JSON.parse(localStorage.getItem(d.LS_CLICK))[0];
-  ck("a value-free pend is marked tip-expirable and stamps its submit cursor",
+  ck("an opted-in value-free pend is tip-expirable and stamps its submit cursor",
      rec.nv === 1 && rec.cur0 === 100, JSON.stringify(rec));
   ck("the guard arms at CLICK time, before any signing", d.busy("commit") === true);
   d.cursor = 102;                       // TX_INCLUSION_DELAY is 2: the tx cannot even be mined before now
@@ -86,11 +90,18 @@ ck("a string amount does not throw and is treated as staking", stakesOf("100") =
   d.cursor = 104;
   ck("releases once the tx is a likely pool casualty, so the pump re-sends", d.busy("commit") === false);
 }
-
-// ── staked actions keep the conservative wall clock ──────────────────────────────────────────────
 {
   const d = fresh(100);
-  d._pendAdd({ phase: "bet", table: 1 }, true);
+  d._pendAdd({ phase: "post", day: 1 }, false, false);         // value-free but NOT opted in
+  d.cursor = 130;
+  ck("a value-free pend that did NOT opt in keeps the wall clock (no early re-submit)",
+     d.busy("post") === true);
+}
+
+// ── staked actions keep the conservative wall clock even if they ask for tip expiry ───────────────
+{
+  const d = fresh(100);
+  d._pendAdd({ phase: "bet", table: 1 }, true, true);
   d.cursor = 200;
   ck("a STAKED action never expires by tip age (an early retry re-escrows)", d.busy("bet") === true);
 }

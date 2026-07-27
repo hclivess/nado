@@ -16,13 +16,13 @@ import {
   NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime, modeBar,
   confirmingLabel,
-} from "./nadodapp.js?v=acba3d6b";
+} from "./nadodapp.js?v=db1a59d7";
 import * as E from "./autogame-engine.js?v=8a997c33";
 import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
 import * as ART from "./autogame-art.js?v=4aad5b61";
 import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=4aad5b61";
-import { createDaily } from "./autogame-dailyui.js?v=8b446688";
-import * as D from "./autogame-daily.js?v=10d8bdb9";
+import { createDaily } from "./autogame-dailyui.js?v=712ecee5";
+import * as D from "./autogame-daily.js?v=6e54bf2b";
 import { createAudio } from "./autogame-audio.js?v=afd7538c";
 
 const CID = "ffc1619be0f76ee31946106c8281ae73";          // execnode/games/autogame.py (zkVM) — set by the deploy script
@@ -403,7 +403,7 @@ async function refreshAll() {
       : answerable && performance.now() - diceSeenAt < ADV_GRACE_MS;
     if (!hold) dapp.autoCollect([{ g: myId + ":" + chain.leg }], () =>
       dapp.call("advance", [myId], 0n, t("labelAdvance", "Settle the leg"),
-        { phase: "advance", leg: chain.leg }), { key: (x) => x.g, phase: "advance", retryMs: 15000 });
+        { phase: "advance", leg: chain.leg }, { tipExpire: true }), { key: (x) => x.g, phase: "advance", retryMs: 15000 });
   }
 
   // THE MISTS: a run whose terrain aged past the horizon can never resolve its leg. advance() now carries the
@@ -413,7 +413,7 @@ async function refreshAll() {
   if (mode === "march" && mistsStranded()) {
     dapp.autoCollect([{ g: myId + ":mists" }], () =>
       dapp.call("advance", [myId], 0n, t("labelMists", "Conclude a stranded run"),
-        { phase: "advance", leg: chain.leg }), { key: (x) => x.g, phase: "advance" });
+        { phase: "advance", leg: chain.leg }, { tipExpire: true }), { key: (x) => x.g, phase: "advance" });
   }
 
   dapp.settleInflight((f) => {
@@ -2358,7 +2358,7 @@ function sendQueuedWord() {
   if (!parked && !fused) return false;
   return act("commit", t("whatCommit", "Answering this stretch of road"), () =>
     dapp.call("march", [myId, w.word, w.leg], 0n, t("labelCommit", "Commit your answers"),
-      { phase: "commit", leg: w.leg }), "leg", w.leg);
+      { phase: "commit", leg: w.leg }, { tipExpire: true }), "leg", w.leg);
 }
 /** Commit your answers to the sixteen visible tiles — and thereby schedule their dice. */
 function commitLeg() {
@@ -2472,7 +2472,7 @@ function forceSettle() {
   if (!settleable()) return;
   if (dapp.settleNow([{ g: myId + ":" + chain.leg }], () =>
     dapp.call("advance", [myId], 0n, t("labelAdvance", "Settle the leg"),
-      { phase: "advance", leg: chain.leg }), { key: (x) => x.g, phase: "advance" })) render();
+      { phase: "advance", leg: chain.leg }, { tipExpire: true }), { key: (x) => x.g, phase: "advance" })) render();
 }
 function setStance(s) {
   if (isDaily()) { if (daily) daily.setTier(0, s); renderDials(); return; }

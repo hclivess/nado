@@ -999,7 +999,8 @@ export class NadoDapp {
   deposit(raw) { this._goRedirect({ deposit: { amount: raw.toString() }, label: "buy in " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
   withdraw(raw, pend) { this.signBlob({ op: "bridge_withdraw", amount: raw }, "cash out " + rawToNado(raw) + " NADO", pend || { phase: "withdraw" }); }
   signBlob(blob, label, pend, opts) {
-    this._pendAdd(pend, !!(opts && opts.stakes));   // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing
+    // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing
+    this._pendAdd(pend, !!(opts && opts.stakes), !!(opts && opts.tipExpire));
     this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend, !!(opts && opts.bg), !!(opts && opts.isValue));
   }
   // generic contract call; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance into the contract.
@@ -1087,12 +1088,19 @@ export class NadoDapp {
     return fresh;
   }
   _pendSave(a) { try { localStorage.setItem(this.LS_CLICK, JSON.stringify(a)); } catch (e) {} }
-  _pendAdd(pend, isValue) {
+  _pendAdd(pend, stakes, tipExpire) {
     if (!pend || !pend.phase || ["connect", "deposit", "withdraw"].includes(pend.phase)) return;
     const j = JSON.stringify(pend);
     const a = this._pendLoad().filter((e) => JSON.stringify(e.p) !== j);   // a re-submit refreshes its entry, never duplicates
     // cur0/nv ride on the ENTRY, not the pend — pend identity (the JSON above) must not change per submit
-    a.push({ ts: Date.now(), cur0: this.cursor, nv: isValue ? 0 : 1, p: pend });
+    // nv ("expire by tip age") is OPT-IN per call, never a fleet default. Releasing a click guard early is
+    // only safe where a duplicate submission is harmless — the caller has an auto-pump that re-sends, and
+    // the on-chain op is idempotent-by-guard so the loser reverts. That is true of autogame's march, and
+    // NOT true of several others: the daily board's post() appends unconditionally (a retry double-posts a
+    // score), pets' hatch/collect sweeps re-sign every eligible item, and a board move re-submitted while
+    // the first is still in the pool is a second real move. Shipping this fleet-wide turned a fix for one
+    // game into a duplicate-submission hazard for twenty; a caller that wants it now asks for it.
+    a.push({ ts: Date.now(), cur0: this.cursor, nv: (!stakes && tipExpire) ? 1 : 0, p: pend });
     this._pendSave(a);
   }
   _pendDrop(fn) { const a = this._pendLoad(), keep = a.filter((e) => !fn(e.p)); if (keep.length !== a.length) this._pendSave(keep); }

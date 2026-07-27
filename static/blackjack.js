@@ -4,10 +4,10 @@
 // to rig. Your cards bind to future blocks at deal/hit time; every card is stored on-chain (pc/dk maps)
 // so the exact hand reconstructs from chain state alone. Win pays 2×, push refunds, natural blackjack
 // 5:2; European no-hole-card timing. See tests/test_blackjack_contract.py.
-import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=acba3d6b";
-import { BankedGame } from "./bankedgame.js?v=c318c3bc";
+import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=db1a59d7";
+import { BankedGame } from "./bankedgame.js?v=d962f302";
 import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js?v=52c0d463";
-import { Practice } from "./practice.js?v=d44e512f";      // free in-browser practice (play chips, no chain)
+import { Practice } from "./practice.js?v=69d3a659";      // free in-browser practice (play chips, no chain)
 
 const CID = "8975204a5017538e8387a7c2af33ebc6";
 const REAP = 1200;
