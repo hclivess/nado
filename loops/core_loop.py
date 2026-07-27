@@ -1411,13 +1411,23 @@ class CoreClient(threading.Thread):
                     kv_ops.execsum_revert_put(_h, _old_h, kv_ops.exec_summary_get(_old_h))
                     kv_ops.exec_summary_del(_old_h)
             except Exception as e:
-                # Never let summary derivation break block application. HONEST CAVEAT: this is only safe
-                # because block_summary is a PURE function of the body, so a genuine failure is
-                # deterministic and every node lacks the summary identically. A NON-deterministic failure
-                # here (OOM) would leave one node refusing a settle-with-proof its peers accept -> fork. It
-                # is inert while settlement_justified's proof branch stays disabled, and it is the reason
-                # that branch must not be enabled on the strength of this mechanism alone.
+                # HONEST CAVEAT: swallowing is only safe because block_summary is a PURE function of the
+                # body, so a genuine (deterministic) failure hits every node identically and the DA binding
+                # fails-closed identically — no fork. A NON-deterministic failure (OOM) would leave one node
+                # refusing a settle-with-proof its peers accept -> fork.
+                #
+                # So the swallow is gated on the trustless flag: while SETTLE_PROOF_TRUSTLESS is off the
+                # summary is inert (no proof is honoured) and forgiveness is correct — never break block
+                # application over a derived side-record. Once trustless settlement is ON, the summary is
+                # consensus-load-bearing, so a failure here is FAIL-STOP: we re-raise, aborting this block's
+                # incorporation. The node then simply doesn't advance (and re-syncs), exactly like any node
+                # that cannot process a block — which is safe — instead of silently holding a summary set
+                # that diverges from its peers. This is the mechanism referenced by settlement_justified's
+                # docstring and doc/zk-settlement-completion.md.
+                from protocol import SETTLE_PROOF_TRUSTLESS
                 self.logger.error(f"exec summary for block {block.get('block_number')} failed: {e}")
+                if SETTLE_PROOF_TRUSTLESS:
+                    raise
 
             # LANE-AWARE reward (doc/presence-dividend.md): bonded block = 90/10 winner-take-all; open block =
             # producer tip + DIVIDEND_POOL (redistributed off-L1) + treasury. Single source (ops.reward_ops)

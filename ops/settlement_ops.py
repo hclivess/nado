@@ -43,20 +43,22 @@ def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry:
     claim, as soon as non-settling validators bonded past 1/3). Both branches read only committed on-chain
     state, so the result is identical on every node. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM).
 
-    TRUSTLESS PROOF: DISABLED (quorum-only). The calls_commit DA-binding closes the "fabricated call sequence"
-    hole for a single-block, revert-free, record-move-free epoch, but the trustless path is NOT yet safe to
-    trust: (1) the on-chain binding check reads every block in the settled span via get_block_number, which
-    returns falsy on a PRUNED node and the body on an archive node -> the same settle-with-proof validates
-    differently across the fleet -> consensus fork (the first proof-settle spans block 0, guaranteed pruned).
-    (2) the RECORDS half is unbound: a bound call with value>0 / PAY moves records, but the proof pins rec_hex
-    to the tip's records -> a records-frozen root omitting real payouts is provable. (3) block_calls binds ALL
-    op=='call' blobs (incl. skip/revert) but the prover can't build a bundle over a reverting call, and a
-    multi-block segment folds one epoch-wide cursor/ts vs L1's per-block -> valid proofs are rejected. Until the
-    prover emits per-call cursor/ts + in-proof skip/revert + a records-half binding, and the span is fenced to
-    the retention window, settlement stays on the bonded quorum (which re-executes the REAL DA blobs and is
-    sound). No live prover posts proofs today, so nothing regresses."""
-    # if kv_ops.settlement_proven(ns, cursor, state_root):
-    #     return True   # DISABLED — see above: DA-binding needs prover-side work + a prune-safe span before trust
+    TRUSTLESS PROOF: gated on protocol.SETTLE_PROOF_TRUSTLESS (FALSE on alphanet-10 -> quorum-only, so this
+    is byte-identical to the pre-flag behaviour; a proof still verifies and records its marker but the marker
+    is not honoured). The VALIDATION side (ops/transaction_ops settle branch) is complete and hardened: it
+    binds the proof to the committed per-block EXEC SUMMARIES (pruning-immune, not block bodies), requires the
+    first settlement in a namespace to be by quorum (so a span is always recent + summary-obtainable, never
+    "from block 0"), rejects epoch-boundary spans (presence-dividend accrual is a RECORDS write) and any
+    in-proof PAY (bridge payouts are RECORDS), and cross-checks every BHASH/BEACON read against the finalized
+    chain. The remaining pieces before the flag can flip are (a) a live prover that EMITS conforming proofs
+    (none runs today, which is why nothing regresses), and (b) the exec-summary CARRIED-set consistency
+    guarantee, which the flag ITSELF now provides: with SETTLE_PROOF_TRUSTLESS on, a summary-derivation
+    failure is FAIL-STOP in core_loop (aborts the block) rather than fail-swallow, so a non-deterministic
+    (OOM) failure can never leave one node honouring a proof its peers reject. See
+    doc/zk-settlement-completion.md."""
+    from protocol import SETTLE_PROOF_TRUSTLESS
+    if SETTLE_PROOF_TRUSTLESS and kv_ops.settlement_proven(ns, cursor, state_root):
+        return True   # the proof was verified deterministically at block-validation; no quorum needed
     total = active_settler_shares(ns, bonded_registry)
     if total == 0:
         return False

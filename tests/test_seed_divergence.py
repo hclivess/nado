@@ -183,12 +183,21 @@ def test_exec_summary_determinism_and_proof_disabled():
     # storm dropped execsum:3301..3305 on the catching-up nodes). The fix is NOT a symmetric GC — it is
     # EXCLUDING execsum from the root entirely (test_execsum_excluded_from_root). Proofs still stay off while
     # the block_summary swallow (core_loop except: continue) can make the CARRIED set inconsistent.
-    from ops import settlement_ops
-    src = inspect.getsource(settlement_ops.settlement_justified)
-    active_proof_call = any(("settlement_proven" in ln and not ln.lstrip().startswith("#"))
-                            for ln in src.splitlines())
-    check("settle-with-proof fast-path stays DISABLED (no active settlement_proven call) — "
-          "do not activate proofs while summaries can be inconsistently missing", not active_proof_call)
+    # The settle-with-proof fast-path is now a REAL branch GATED on protocol.SETTLE_PROOF_TRUSTLESS, which is
+    # False on this generation -> quorum-only, byte-identical to when the branch was commented out. The guard
+    # therefore checks the SAFE INVARIANT: the flag defaults off, so no proof is honoured on the live chain
+    # (and the summary-consistency mechanism is only load-bearing once the flag flips at a reroll).
+    import protocol
+    from protocol import DEFAULT_NS
+    from ops import kv_ops, settlement_ops
+    from ops.account_ops import get_bonded_registry as _gbr
+    check("settle-with-proof trustless flag defaults OFF (quorum-only on this generation)",
+          protocol.SETTLE_PROOF_TRUSTLESS is False)
+    # With the flag off, a recorded proof marker must NOT justify a root that has no quorum attestation.
+    with kv_ops.write_txn():
+        kv_ops.settlement_proof_put(DEFAULT_NS, 999999, "ff" * 32)
+    check("with the flag OFF, a proof marker does not justify without quorum",
+          settlement_ops.settlement_justified(DEFAULT_NS, 999999, "ff" * 32, _gbr()) is False)
 
 
 # ---------------------------------------------------------------------------------------------------

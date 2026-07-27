@@ -7,11 +7,27 @@ bonded quorum — the settlement authority.
 
 ## TL;DR
 
-The **verifier / acceptance side is essentially done and hardened.** The **prover side does not run in
-production**, and the acceptance branch is **commented out** behind a stale rationale. Turning trustless
-settlement on is a bounded prover-loop + a two-line flip + a reroll — *not* new cryptography. The O(1)
-recursion fold is a separate, optional performance layer (built, not wired); native per-segment verify is
-already trustless, just not succinct.
+The **verifier / acceptance side is done and hardened**, and as of commit `<this change>` the acceptance
+branch + its one remaining safety dependency are **implemented and gated behind
+`protocol.SETTLE_PROOF_TRUSTLESS` (default False)** — so live behaviour is byte-identical to the
+quorum-only chain, the flag flips on at a reroll, and the trustless path is proven by test with the flag
+forced True. The one thing that still does **not** exist is a **live prover** that emits conforming proofs.
+Turning trustless settlement on is now: build the prover loop → flip the flag at a reroll — *no new
+cryptography*. The O(1) recursion fold is a separate, optional performance layer (built, not wired); native
+per-segment verify is already trustless, just not succinct.
+
+### Status of the acceptance side (implemented in this change)
+
+- `protocol.SETTLE_PROOF_TRUSTLESS` (default **False**) is the master switch. False ⇒ a proof still verifies
+  and records its marker, but `settlement_justified` ignores it (quorum-only, no behaviour change).
+- `settlement_ops.settlement_justified` now honours the proof marker **when the flag is on** — proven by
+  `tests/test_settle_trustless_flag.py` (flag off ⇒ not justified; flag on ⇒ justified with zero quorum;
+  rollback-symmetric).
+- The exec-summary CARRIED-set consistency risk (`core_loop.py` swallow) — previously *"the reason that
+  branch must not be enabled on the strength of this mechanism alone"* — is now closed **under the flag**:
+  when trustless is on, a summary-derivation failure is **fail-stop** (aborts the block, the node re-syncs)
+  instead of fail-swallow, so a non-deterministic (OOM) failure can never leave one node honouring a proof
+  its peers reject. Off, the forgiving swallow is retained (the summary is inert).
 
 ## What is DONE and WIRED (verified)
 

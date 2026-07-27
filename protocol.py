@@ -520,6 +520,17 @@ EPOCH_LENGTH = 60                  # slots per epoch (also the beacon/RANDAO epo
 # generous headroom for a lagging settler; a genuinely larger gap rides the bonded quorum instead.
 SETTLE_PROOF_MAX_SPAN = 4 * EPOCH_LENGTH
 
+# TRUSTLESS SETTLEMENT MASTER SWITCH (doc/zk-settlement-completion.md). When True, a settle-with-proof whose
+# STARK proof verified at block-validation JUSTIFIES the exec root with NO bonded-quorum attestation
+# (settlement_ops.settlement_justified), and the exec-summary derivation becomes FAIL-STOP instead of
+# fail-swallow (core_loop) so a non-deterministic summary failure can never leave one node accepting a proof
+# its peers reject. FALSE keeps the chain byte-identical to the quorum-only path — a proof still verifies and
+# records its marker, but the marker is not honoured, so nothing regresses and no live behaviour changes.
+# This is a CONSENSUS RULE: flipping it changes which settlements are valid, so it ships only at a
+# CHAIN_GENERATION reroll (the settled-root scheme is genesis-level), never as a hot toggle. Kept False on
+# alphanet-10; the gated code paths are exercised by tests with the flag forced True.
+SETTLE_PROOF_TRUSTLESS = False
+
 # How many recent heights keep an exec summary (kv_ops.exec_summary_*). These live in the `meta` sub-DB,
 # which IS carried in SNAPSHOT_DBS, so without a bound they would grow with chain length AND bloat every
 # snapshot. A settle-with-proof span is capped at SETTLE_PROOF_MAX_SPAN, so any span reaching further back

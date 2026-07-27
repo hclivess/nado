@@ -229,13 +229,19 @@ def t10_real_proof_end_to_end():
         pre = {cid: {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}}
         calls = [{"cid": cid, "method": "bump", "caller": caller, "args": []}]
         proof = SS.prove_settlement_sparse(pre, calls, cursor=0, rec_hex=rec_hex8, num_queries=2, depth=D8)
-        root = ER.full_root_hex(SST.digest_from_hex(proof["kv_post"]), rec_g8)
-        assert ER.full_root_hex(SST.digest_from_hex(proof["kv_pre"]), rec_g8) == protocol.EXEC_GENESIS_ROOT
-        U = generate_keys(); create_account(U["address"], balance=B_MIN, bonded=4 * B_MIN)
-        tx = _settle(0, root, proof, sender=U, ns="proofns")
-        assert validate_transaction(tx, logger, BH), "real sparse proof-settle must validate"
-        reflect_transaction(tx, logger, block_height=BH)
-        assert settlement_justified("proofns", 0, root, get_bonded_registry())
+        # REAL prove -> verify roundtrip at the protocol tree depth (the crypto this test exists for). The
+        # verifier re-derives the kv halves; they must match the proof, and composing each with the records
+        # half must reproduce the genesis pre-root and the attested post-root. (The full validate_transaction
+        # path — quorum-extend the tip + per-span exec summaries — is Track 3.1 in doc/zk-settlement-completion
+        # .md; a genesis-spanning proof is REJECTED by design, which t1 already covers, so t10 verifies the
+        # crypto directly rather than re-asserting that gate.)
+        ok, why, kv_pre_v, kv_post_v = SS.verify_settlement_sparse(proof, depth=D8)
+        assert ok, f"real bound-epoch proof must verify: {why}"
+        assert kv_pre_v == proof["kv_pre"] and kv_post_v == proof["kv_post"], "verified kv halves must match"
+        assert ER.full_root_hex(SST.digest_from_hex(kv_pre_v), rec_g8) == protocol.EXEC_GENESIS_ROOT, \
+            "kv_pre composed with records must equal the (patched) exec genesis root"
+        root = ER.full_root_hex(SST.digest_from_hex(kv_post_v), rec_g8)
+        assert root != protocol.EXEC_GENESIS_ROOT, "the bump call must have advanced the kv root"
     finally:
         fri.NUM_QUERIES = saved_q
         _stark.NUM_QUERIES = saved_sq
