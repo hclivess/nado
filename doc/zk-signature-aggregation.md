@@ -93,9 +93,38 @@ A block already carries `block_transactions`. The change:
   "the state transition is correct" — which is the Mina-style "block is one proof" endpoint, reached the
   post-quantum way.
 
+## Implementation status (build order) — STARTED 2026-07-27
+
+The verify equation decomposes into these sub-circuits, in rough build order. Golden references for every
+piece: `dilithium_py.ml_dsa.ML_DSA_44` (the node's pure-Python PQ backend) and `static/vendor/nado-crypto.js`
+(@noble, the browser verifier) — the AIR must reproduce the SAME verification byte-for-byte.
+
+- ✅ **Params** — `execnode/stark/mldsa_params.py`: the ML-DSA-44 constant table (Q=8380417, N=256, k=l=4,
+  γ1, γ2, η, τ, β, ω, D, byte lengths), asserted against `dilithium_py` in tests.
+- ✅ **Sub-circuit 1 — the ‖z‖∞ norm bound** (`mldsa_norm_air.py`, `tests/test_mldsa_norm_air.py`): proves
+  every decoded z coefficient's centered representative satisfies |v| < γ1−β, EXACTLY (sign hint + two-sided
+  bit-range check so it is not a power-of-two over-approximation), coefficients pinned to the public z via
+  boundaries (verifier-authoritative). Establishes the mod-Q-over-Goldilocks + exact-range pattern the rest
+  reuse. Proven against a real signature's z from `dilithium_py`.
+- ⬜ **Sub-circuit 2 — hint weight + UseHint/Decompose**: ‖h‖ ≤ ω and w1 = UseHint(h, Az−ct1·2^d) over the
+  γ2 rounding. Same range-check pattern; golden ref `polynomials.use_hint`/`decompose`.
+- ⬜ **Sub-circuit 3 — mod-Q multiply-reduce gadget + the 256-point negacyclic NTT**: the arithmetic engine for
+  A·z and c·t1. Reduce-by-hint (quotient/remainder + range check); coefficient products < 2^46 fit Goldilocks.
+- ⬜ **Sub-circuit 4 — signature/pubkey DECODE**: bit-unpack z, h, t1, c_tilde from bytes into field
+  coefficients, binding the packed bytes to the txid commitment.
+- ⬜ **Sub-circuit 5 (THE mountain) — Keccak-f[1600] / SHAKE AIR**: for ExpandA (SHAKE128, dominates — k·l=16
+  rejection-sampled polys), tr, μ, SampleInBall, and the final c̃ == SHAKE256(μ‖w1) comparison. NONE exists in
+  the tree today; the algebraic sponge (alghash2) legally cannot substitute (it would change the hashed bytes
+  and break cross-verify with every on-chain signature + the browser). Likely a lookup/LogUp-based Keccak.
+- ⬜ **Composition + block-format swap**: fold the per-signature proofs (via the existing `recursive_verify`)
+  into one block validity proof; strip signatures from the gossiped/stored block; swap
+  `validate_transactions_in_block`'s per-tx `validate_origin` for one `verify(validity_proof)`.
+
 ## Status and where it slots in
 
-- **Not built.** There is no ML-DSA verification circuit today; this is the gating artifact.
+- **Started (2026-07-27): params + sub-circuit 1 built and tested.** The gating artifact (a full ML-DSA
+  verification circuit) is under construction; the Keccak/SHAKE AIR (sub-circuit 5) is the dominant remaining
+  cost.
 - **Reachable, not free.** The proof system (PQ-sound STARK), recursion, in-circuit hashing, and native
   prover are all in place; the remaining work is (a) the Dilithium-44 verify AIR, (b) composing it with the
   block commitments via the existing recursion, (c) the sig-stripped block format + the block-validation
