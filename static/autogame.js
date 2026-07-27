@@ -148,6 +148,7 @@ let view = null;                // the run the ANIMATOR is showing; catches up t
 // its events queued from depth 0); a staked-march row can only be SHOWN at rest (no move list on chain).
 let replay = null;
 let road = [];                  // peekLeg() of the pending leg — the visible, committed terrain
+let roadKey = "";               // "runId:leg:terrainHeight" the CURRENT `road` was built from (roadIsCurrent)
 let roadBase = 0;               // the depth road[0] stands at (a leg boundary marching; the step you are
                                 // on in the Gauntlet). drawWorld used chain.depth for this, which is only
                                 // the same number in one of the two modes.
@@ -250,7 +251,23 @@ const canAnswer = () => (liveRun() && !!chain.lh && !chain.nh && !dapp.busy("com
  *      its hash is fetched and the road built);
  *    • !queuedWord / !busy("commit") — nothing is already queued or in flight for this leg.
  *  The button, the prompt, the clickable-tiles state and the answer bar all derive from this now. */
-const canCommitNow = () => road.length > 0 && !queuedWord && !dapp.busy("commit") && canAnswer();
+const canCommitNow = () => road.length > 0 && roadIsCurrent() && !queuedWord
+  && !dapp.busy("commit") && canAnswer();
+/** WHICH (run, leg, terrain) the strip on screen was built from, and which one it OUGHT to be built from
+ *  right now. `road` is rebuilt only inside refreshAll — once per poll — but render() runs far more often:
+ *  every animation tick, and synchronously on every click. So between a state change and the next poll the
+ *  strip on screen can belong to a different leg, or a different RUN, than `chain` does. road.length > 0
+ *  was the only freshness test the commit gate had, and a stale strip is not empty, so you could answer
+ *  sixteen tiles that were not the sixteen you were about to walk: the terrain for the new leg had not been
+ *  mined yet, the previous leg's tiles were still on screen (greyed, because `answering` had gone false),
+ *  and Commit was live over them. Nothing unsafe reaches the chain — commit() just stores the word — but
+ *  the answers land on tiles the player never saw, which is worse than a refusal, and it reads as the page
+ *  being broken. Stamping the strip with its provenance makes "is this answerable" a question about
+ *  identity rather than about emptiness. */
+const roadWantKey = () => (!chain || myId == null) ? ""
+  : pipel() ? myId + ":" + (chain.leg + 1) + ":" + chain.nh
+  : myId + ":" + chain.leg + ":" + chain.lh;
+const roadIsCurrent = () => !!roadKey && roadKey === roadWantKey();
 // Gore is part of the animation, not decoration: a fight you cannot see the cost of does not read as a
 // fight. Each entry is anchored to a WORLD DEPTH so it scrolls with the road and stays where it happened.
 let gore = [];
@@ -540,16 +557,20 @@ function restingDeath() {
 
 function rebuildRoad() {
   if (replay) return;            // the replay sets its own road; the live march must not repaint it
+  // Stamp the strip with the (run, leg, terrain) it came from, and clear the stamp whenever the terrain
+  // hash is not readable yet — an unstamped strip is never answerable, however many tiles it still shows.
   if (pipel()) {
     // the previewed leg's roll hash is the NEXT leg's terrain — final, readable, answerable now
     const tileH = hashField(chain.nh);
     road = tileH == null ? [] : E.peekLeg(algHashn, view, myId, tileH);
+    roadKey = tileH == null ? "" : roadWantKey();
     roadBase = view.depth;
     if (chain.leg + 1 !== lastLegSeen) { answers = new Array(E.LEG).fill(0); lastLegSeen = chain.leg + 1; selTile = -1; }
     return;
   }
   const tileH = hashField(chain.lh);
   road = tileH == null ? [] : E.peekLeg(algHashn, chain, myId, tileH);
+  roadKey = tileH == null ? "" : roadWantKey();
   roadBase = chain.depth;
   if (chain.leg !== lastLegSeen) { answers = new Array(E.LEG).fill(0); lastLegSeen = chain.leg; selTile = -1; }
 }
@@ -1816,7 +1837,7 @@ function setMode(m) {
   try { localStorage.setItem("nado_autogame_mode", m); } catch (e) {}
   // Each mode animates a different run on the same canvas, so the animator is reset rather than left to
   // interpolate between two unrelated depths — which reads as the hero teleporting.
-  view = null; queue = []; camera = 0; road = []; roadBase = 0; gore = []; fatality = null; scene = []; actFx = null; hitFlash = null;
+  view = null; queue = []; camera = 0; road = []; roadKey = ""; roadBase = 0; gore = []; fatality = null; scene = []; actFx = null; hitFlash = null;
   buildModeBar();
   if (mode === "daily") syncDailyView(true);
   else if (chain) { syncView(); rebuildRoad(); }
@@ -1843,12 +1864,14 @@ function syncDailyView(snap) {
     // read as a broken page; now the hero stands at the trailhead with today's actual first
     // sixteen tiles waiting on the ground ahead of him.
     road = daily && daily.st.world ? D.roadAhead(daily.st.world, E.newRun({}), 0, E.LEG) : [];
+    roadKey = "";                 // the Gauntlet builds its own strip; only rebuildRoad stamps provenance
     roadBase = 0;
     if (snap) { camera = 0; queue = []; }
     return;
   }
   view = { ...r, gear: [...r.gear], mats: [...r.mats] };
   road = daily.st.world ? D.roadAhead(daily.st.world, r, r.depth, E.LEG) : [];
+  roadKey = "";
   roadBase = r.depth;
   if (snap) { camera = r.alive ? r.depth : Math.max(0, r.depth - 1); queue = []; }
 }
@@ -1865,6 +1888,7 @@ function startReplay(o) {
   queue = []; scene = []; gore = []; fatality = null; animHud = null; actFx = null; hitFlash = null;
   roadBase = 0;
   road = o.world ? D.roadAhead(o.world, E.newRun({}), 0, E.LEG) : [];
+  roadKey = "";
   if (o.walk && o.events && o.events.length) {
     camera = 0; stepFrom = 0; stepAt = 0; holdUntil = 0;
     queue = o.events.slice(); sceneAddEvents(o.events);
@@ -1878,7 +1902,7 @@ function startReplay(o) {
 function endReplay() {
   if (!replay) return;
   replay = null; view = null; queue = []; scene = []; gore = []; fatality = null; animHud = null;
-  camera = 0; road = []; roadBase = 0;
+  camera = 0; road = []; roadKey = ""; roadBase = 0;
   if (mode === "daily") syncDailyView(true);
   else if (chain) { syncView(); rebuildRoad(); }
   render();
@@ -1911,6 +1935,10 @@ function renderRoad() {
   const el = $("road");
   if (!el) return;
   const r = arun();
+  // A strip whose provenance no longer matches the chain is LAST leg's road, not this one's — drawing it
+  // is the lie the commit gate used to act on. Fall through to the waiting state instead, so the tiles and
+  // the button tell the same story. (Replays own the strip and set it themselves; they carry no key.)
+  if (!replay && !isDaily() && chain && road.length && !roadIsCurrent()) road = [];
   if (!r || !road.length) {
     el.innerHTML = `<div class="faint" style="grid-column:1/-1;padding:14px 0">${
       isDaily() ? esc(t("roadEmptyDaily2", "Set your build in the Battle orders card, then press "
