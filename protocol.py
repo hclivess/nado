@@ -533,6 +533,17 @@ SETTLE_PROOF_MAX_SPAN = 4 * EPOCH_LENGTH
 # reroll turns the capability ON without forcing the (heavy) proving on anyone.
 SETTLE_PROOF_TRUSTLESS = True
 
+# RECURSIVE (K→1) settle-with-proof acceptance. When ON, verify_settlement_sparse verifies ONE recursion bundle
+# (recursive_verify) in place of the K per-segment exec stark.verify calls when a proof carries a `recursive`
+# field. This is a CONSENSUS RULE and MUST ride a CHAIN_GENERATION reroll, NOT a hot toggle: a node honouring
+# `recursive` SKIPS the classic per-segment exec check, so if it were live while unupgraded peers still ignore
+# the field, an attacker could staple a bogus `recursive` blob onto an otherwise-valid settle tx and split the
+# fleet (a new node REJECTS it via recursive_verify, an old node ACCEPTS it via the K-path — deep-audit finding
+# 2026-07-27). FALSE ⇒ the `recursive` field is IGNORED and every node verifies segments the classic K-way, so
+# a folded proof is accepted identically by folded- and unfolded-code nodes (no version-skew fork). Flip to True
+# only at a reroll, once the whole fleet runs the recursion-aware verifier from genesis.
+SETTLE_PROOF_RECURSIVE = False
+
 # How many recent heights keep an exec summary (kv_ops.exec_summary_*). These live in the `meta` sub-DB,
 # which IS carried in SNAPSHOT_DBS, so without a bound they would grow with chain length AND bloat every
 # snapshot. A settle-with-proof span is capped at SETTLE_PROOF_MAX_SPAN, so any span reaching further back

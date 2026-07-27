@@ -235,7 +235,7 @@ async def _build_settlement_proof(session, ns, st, cur, root):
     from execnode.stark import settlement_sparse as SS, calls_commit as CC, storage_tree as SST
     from execnode import exec_root as ER
     from execnode.stark import field as _F
-    from protocol import EXEC_TREE_DEPTH, SETTLE_PROOF_MAX_SPAN, EPOCH_LENGTH
+    from protocol import EXEC_TREE_DEPTH, SETTLE_PROOF_MAX_SPAN, EPOCH_LENGTH, SETTLE_PROOF_RECURSIVE
     # 1. L1's JUSTIFIED settled tip for this namespace (the proof must extend exactly this).
     settled = await _get_json(session, f"/get_settled?ns={ns}")
     sc, sr = int((settled or {}).get("exec_cursor", -1)), (settled or {}).get("state_root")
@@ -266,10 +266,13 @@ async def _build_settlement_proof(session, ns, st, cur, root):
     beacons = {e: v % _F.P for e, v in st.beacons.items()}
     bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
 
+    # only fold when BOTH the operator opted in (SETTLE_FOLD) AND the chain honours folds (SETTLE_PROOF_RECURSIVE);
+    # otherwise the `recursive` bundle is ignored by verifiers and the proving effort is wasted.
+    _fold = SETTLE_FOLD and SETTLE_PROOF_RECURSIVE
     def _prove():
         return SS.prove_settlement_sparse(pre_contracts, calls, cursor=cur, rec_hex=rec_hex,
                                           beacons=beacons, block_hashes=bhashes, pre_bridge=pre_bridge,
-                                          depth=EXEC_TREE_DEPTH, recursive=SETTLE_FOLD, fold=SETTLE_FOLD)
+                                          depth=EXEC_TREE_DEPTH, recursive=_fold, fold=_fold)
     async with _sem():                                     # bound concurrent proving (H-7)
         proof = await asyncio.to_thread(_prove)
     # 6. THE SELF-CHECKS — never post a proof that doesn't extend the justified tip AND reproduce our root.

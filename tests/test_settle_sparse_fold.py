@@ -30,6 +30,8 @@ create_indexers()
 
 from execnode import zkvmasm
 from execnode.stark import settlement_sparse as SS, storage_tree as ST
+import protocol
+protocol.SETTLE_PROOF_RECURSIVE = True     # this test exercises the fold ACCEPTANCE path (flipped on at a reroll)
 
 HEAVY = os.environ.get("NADO_HEAVY") == "1"
 

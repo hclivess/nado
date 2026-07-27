@@ -140,8 +140,16 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
         if tuple(int(x) % F.P for x in sparse_root(bundle["pre_contracts"], depth)) != want_pre:
             return False, "pre_contracts do not match sparse_pre_root (unbound storage reads)", None
         pre_get = lambda cid, slot: ((bundle["pre_contracts"].get(cid) or {}).get("storage") or {}).get("slots", {}).get(str(int(slot)), 0)
+        # BIND cid_io TO THE EXEC PROOF (critical soundness): net_updates/bind_and_verify below drive the settled
+        # post-root ENTIRELY from cid_io, but the exec proof (or, in the fold path, RV.verify) authenticates only
+        # bundle["io"] + bundle["calls"] — NOT bundle["cid_io"]. Re-derive cid_io from that authenticated io+calls
+        # and NEVER trust the prover's bundle["cid_io"] field: otherwise a bonded settler could append a
+        # fabricated (cid, IO_SSTORE, slot, value) absent from io, prove a transition over it, and settle an
+        # ARBITRARY forged root (overwrite any contract's storage, drain escrow). _cid_io is a pure function of
+        # the authenticated (io, calls), so this is transparent for honest bundles and closes the forgery.
+        cid_io = _cid_io(bundle)
         okb, whyb = ESB.bind_and_verify(bundle["transition"], bundle["sparse_pre_root"], bundle["sparse_post_root"],
-                                        pre_get, bundle["cid_io"], depth, num_queries=nq)
+                                        pre_get, cid_io, depth, num_queries=nq)
         if not okb:
             return False, f"state transition binding failed: {whyb}", None
         return True, "ok (sparse-root bound, no replay)", bundle["sparse_post_root"]
@@ -191,12 +199,15 @@ def verify_bound_epoch_replay(bundle, num_queries=None):
         cursor, ts = int(bundle["cursor"]), int(bundle.get("timestamp", 0))
         if bundle["calls_commitment"] != CC.calls_commitment(bundle["calls"], cursor, ts):
             return False, "calls_commitment mismatch", None
-        if bundle["io_commitment"] != CC.io_commitment(bundle["cid_io"]):
+        # cid_io must be the exec-proof-authenticated io+calls, NOT the prover's field (see verify_bound_epoch):
+        # otherwise io_commitment/storage_io below bind the replay to a forged log, not the proven execution.
+        cid_io = _cid_io(bundle)
+        if bundle["io_commitment"] != CC.io_commitment(cid_io):
             return False, "io_commitment mismatch", None
         # bind the replay to the exec's io: each replay storage step must match the storage io entry's KIND,
         # POSITION (slot_key) and VALUE, in order — so the replay is exactly this epoch's (slot, value) writes.
         depth = bundle["depth"]
-        storage_io = [(c, k, s, v) for (c, k, s, v) in bundle["cid_io"] if k in (zkvm.IO_SLOAD, zkvm.IO_SSTORE)]
+        storage_io = [(c, k, s, v) for (c, k, s, v) in cid_io if k in (zkvm.IO_SLOAD, zkvm.IO_SSTORE)]
         steps = bundle["replay"]["steps"]
         if len(steps) != len(storage_io):
             return False, "replay step count != storage io count", None
@@ -302,7 +313,12 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=
         segs = proof.get("segments")
         if not isinstance(segs, list) or not segs:
             return False, "no segments", None, None
-        rb = proof.get("recursive") if allow_recursive else None
+        # ACTIVATION GATE (consensus): honour a `recursive` bundle ONLY when the protocol flag is on — which
+        # flips at a reroll, so the whole fleet agrees. While OFF, the field is IGNORED and every node verifies
+        # segments the classic K-way, so folded- and unfolded-code nodes accept IDENTICALLY (a node must never
+        # drop the per-segment exec check that an unupgraded peer still enforces — deep-audit finding 2026-07-27).
+        from protocol import SETTLE_PROOF_RECURSIVE
+        rb = proof.get("recursive") if (allow_recursive and SETTLE_PROOF_RECURSIVE) else None
         fold_exec = rb is not None
         expect, kv_pre_hex = None, None
         for j, seg in enumerate(segs):
