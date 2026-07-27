@@ -1285,9 +1285,16 @@ function idleMessage() {
     el.innerHTML = `<span class="dim">${esc(t("idleOffline", "Can't reach the chain right now — reconnecting. Your march and funds are safe on-chain."))}</span>`;
     return;
   }
+  // chainStalled() measures OUR OWN exec cursor, so it cannot distinguish "L1 halted" from "this node
+  // stopped keeping up with it" — and in practice it is the latter: the exec node freezes its cursor while
+  // it rebuilds a drifted provisional tail (observed at 186s against an L1 that was producing normally the
+  // whole time). Claiming the chain had stopped was therefore usually false, and a player checking a block
+  // explorer catches it instantly, which costs the page every bit of credibility the rest of these lines
+  // depend on. Say the part we actually measure: our view is behind. The SDK's shared whereIs() already
+  // words it this way; this line was the one place that didn't.
   const stalled = dapp.chainStalled();
   if (stalled) {
-    el.innerHTML = `<span class="dim">${esc(t("idleStalled", "The chain isn't making blocks right now ({m} min and counting) — the march resumes the moment they flow again.",
+    el.innerHTML = `<span class="dim">${esc(t("idleBehind", "This node has fallen behind the chain ({m} min and counting) — it's catching up. Your march is safe and resumes the moment it does.",
       { m: Math.max(1, Math.round(stalled / 60000)) }))}</span>`;
     return;
   }
