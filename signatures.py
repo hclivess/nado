@@ -150,20 +150,36 @@ def _interop_ok(candidate) -> bool:
 _BACKEND_REASON = [None]
 
 
+def _fallback(reason):
+    """Return the pure-Python backend after recording WHY — UNLESS NADO_PQ_REQUIRE_NATIVE is set, in which case
+    HARD-FAIL at import. The pure-Python backend (dilithium_py) is educational-origin: it is functionally
+    byte-equivalent to the native RustCrypto `ml-dsa` crate (the interop self-test enforces that, so consensus
+    is correct either way), but it is NOT constant-time (a side-channel risk when SIGNING with a real key) and
+    ~84x slower. A production / signing node should refuse to run on it: set NADO_PQ_REQUIRE_NATIVE=1 and the
+    node crashes loudly at boot instead of silently degrading. Default stays a loud fallback so a resilient
+    verify-only / light node with no build toolchain still starts."""
+    _BACKEND_REASON[0] = reason
+    if os.environ.get("NADO_PQ_REQUIRE_NATIVE", "").strip().lower() in ("1", "true", "yes", "on"):
+        raise RuntimeError(
+            f"NADO_PQ_REQUIRE_NATIVE is set but the native ML-DSA (RustCrypto ml-dsa) backend is unavailable: "
+            f"{reason}. Refusing to run on the pure-Python fallback (educational-origin, not constant-time — a "
+            f"side-channel risk for a signing node). Build it with scripts/build_pq_native.sh, or unset "
+            f"NADO_PQ_REQUIRE_NATIVE to allow the (correct but slow) fallback.")
+    return _PurePyBackend()
+
+
 def _select_backend():
-    """Pick the signing backend at import time. Default = pure-Python. If NADO_PQ_NATIVE_MODULE names
-    an importable module that PASSES the interop self-test, use it; otherwise fall back loudly to
-    pure-Python (never silently trust an unverified native lib)."""
-    mod_name = os.environ.get("NADO_PQ_NATIVE_MODULE", "").strip()
-    if not mod_name:
-        _BACKEND_REASON[0] = "NADO_PQ_NATIVE_MODULE is not set in the node environment"
-        return _PurePyBackend()
+    """Pick the signing backend at import time. If NADO_PQ_NATIVE_MODULE names an importable module that PASSES
+    the interop self-test, use it (the reputable, production RustCrypto ml-dsa crate). Otherwise fall back
+    loudly to pure-Python — or HARD-FAIL when NADO_PQ_REQUIRE_NATIVE demands production crypto (see _fallback).
+    A bare NADO_PQ_NATIVE_MODULE also defaults to `nado_pq_native` so an installed node uses native without the
+    operator having to name it."""
+    mod_name = os.environ.get("NADO_PQ_NATIVE_MODULE", "").strip() or "nado_pq_native"
     try:
         candidate = _NativeBackend(importlib.import_module(mod_name))
-    except Exception as e:  # operator-supplied module: import must never crash the node
+    except Exception as e:  # operator-supplied module: import must never crash the node (unless REQUIRE_NATIVE)
         sys.stderr.write(f"[PQ] native backend '{mod_name}' import failed ({e}); using pure-Python\n")
-        _BACKEND_REASON[0] = f"module '{mod_name}' did not import ({e}) — run scripts/build_pq_native.sh"
-        return _PurePyBackend()
+        return _fallback(f"module '{mod_name}' did not import ({e}) — run scripts/build_pq_native.sh")
     if _interop_ok(candidate):
         sys.stderr.write(f"[PQ] native ML-DSA backend '{mod_name}' passed interop self-test; enabled\n")
         _BACKEND_REASON[0] = None
@@ -171,9 +187,8 @@ def _select_backend():
     sys.stderr.write(
         f"[PQ] native backend '{mod_name}' FAILED interop self-test (likely ctx-wrapping mismatch); "
         f"refusing it and using pure-Python — see signatures.py INTEROP TRAP\n")
-    _BACKEND_REASON[0] = (f"module '{mod_name}' failed the interop self-test (likely ctx-wrapping "
-                          f"mismatch) — see signatures.py INTEROP TRAP")
-    return _PurePyBackend()
+    return _fallback(f"module '{mod_name}' failed the interop self-test (likely ctx-wrapping mismatch) "
+                     f"— see signatures.py INTEROP TRAP")
 
 
 _BACKEND = _select_backend()

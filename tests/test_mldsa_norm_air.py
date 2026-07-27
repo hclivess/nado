@@ -57,8 +57,10 @@ def t_params_match_reference():
 
 _M = _golden()
 _PK, _SK = _M.keygen()
-_SIG = _M.sign(_SK, b"nado-norm-air")
-assert _M.verify(_PK, b"nado-norm-air", _SIG), "reference signature must verify"
+# INTERNAL mode (FIPS 204 _sign_internal) — nado's actual mode, byte-equivalent to the native RustCrypto
+# ml-dsa backend (see tests/test_mldsa_conformance.py). NEVER the top-level external-mode sign().
+_SIG = _M._sign_internal(_SK, b"nado-norm-air", b"\x00" * 32)
+assert _M._verify_internal(_PK, b"nado-norm-air", _SIG), "reference signature must verify"
 _Z = _z_coeffs(_M, _PK, _SIG)
 _PROOF = NA.prove(_Z, num_queries=NQ)
 
