@@ -411,6 +411,9 @@ _prov_key = None
 # poll and makes the fast path unable to go quietly wrong for long.
 _prov_last = None
 _prov_since_full = 0
+# The finalized state's dividend generation at the moment the current tail was forked. The tail may only be
+# EXTENDED while this still matches — see the accrual note in _refresh_provisional.
+_prov_div_epoch = None
 PROV_FULL_EVERY = 50
 PROV_DEBUG = os.environ.get("NADO_EXEC_PROV_DEBUG") == "1"
 
@@ -431,7 +434,7 @@ async def _refresh_provisional(session, finalized, tip, tip_hash=None):
     be assumed is that the chain under us is the same one, so the anchor block is re-checked by hash every
     poll (one request) and ANY mismatch — reorg, re-anchor, shorter chain — falls back to the full rebuild.
     A periodic forced rebuild bounds any drift the incremental path could ever accumulate."""
-    global prov_states, _prov_key, _prov_last, _prov_since_full
+    global prov_states, _prov_key, _prov_last, _prov_since_full, _prov_div_epoch
     tip = min(tip, finalized + PROV_MAX_TAIL)
     if tip <= finalized:
         prov_states = None
@@ -444,8 +447,24 @@ async def _refresh_provisional(session, finalized, tip, tip_hash=None):
 
     t0, start_h = time.time(), finalized + 1
     clones, h, keep = None, finalized + 1, False
+    # THE ACCRUAL FENCE. Extending assumes the finalized state moved ONLY by applying blocks — that is the
+    # whole algebra in the docstring above. The presence-dividend accrual breaks it: it runs in the poll
+    # loop AFTER a batch of blocks, writes state.dividend (a state_root leaf, exec_root T_DIV_BAL), and the
+    # tail — forked from an older finalized state and fed nothing but _apply_block — never receives it. The
+    # tail's root then disagrees with a rebuild for every epoch that pays out, which is exactly what the
+    # audit kept catching (8 of 8 drifts on this node were preceded by accruals, none without).
+    #
+    # Replaying the accrual onto the tail instead is NOT equivalent, so don't be tempted: collect_dividend
+    # burns the sender's WHOLE accrued balance (state.py), so a collect sitting in the unfinalized tail
+    # would burn a pre-accrual balance and then have the replayed share added back on top — a different
+    # dividend map AND a different withdrawal amount than the rebuild produces. Order matters, and the only
+    # order that is right is the one the rebuild has.
+    #
+    # So: a tail may be extended only across pure block application. Any accrual retires it.
+    _div_epoch_now = getattr(states.get("default"), "last_div_epoch", None)
     if (prov_states is not None and _prov_last and _prov_since_full < PROV_FULL_EVERY
-            and finalized <= _prov_last[0] < tip):
+            and finalized <= _prov_last[0] < tip
+            and _prov_div_epoch == _div_epoch_now):
         anchor = await _get_json(session, f"/get_block_number?number={_prov_last[0]}")
         if isinstance(anchor, dict) and anchor.get("block_hash") == _prov_last[1]:
             # same chain: keep the tail we already executed and add only what's new. Clone it rather than
@@ -456,6 +475,7 @@ async def _refresh_provisional(session, finalized, tip, tip_hash=None):
     if clones is None:
         clones, h, keep = {ns: st.clone() for ns, st in states.items()}, finalized + 1, False
         _prov_since_full = 0
+        _prov_div_epoch = _div_epoch_now      # this tail is forked from THIS dividend generation
     start_h = h
     default_clone = clones.get("default")
     last = _prov_last if keep else None
@@ -532,6 +552,7 @@ async def _refresh_provisional(session, finalized, tip, tip_hash=None):
                       flush=True)
             clones = fresh
             _prov_since_full = -1                # this WAS the full build; start the next window from it
+            _prov_div_epoch = _div_epoch_now     # ...and it is forked from the current dividend generation
 
     if PROV_DEBUG:
         print(f"[execnode] prov {'extend' if keep else 'FULL'} {finalized}..{tip} "
