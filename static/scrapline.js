@@ -7,11 +7,11 @@
 // resolves as a pure deterministic simulation and the wager settles concede / agree / refund-timeout.
 // This module owns ONLY the Scrapline half: offers, gear slots, and the combat report.
 import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base , installModes } from "./nadodapp.js?v=db1a59d7";
-import { DuelGame } from "./duelgame.js?v=a5f9292d";
-import * as E from "./scrapline-engine.js?v=c9428a07";
+import { DuelGame } from "./duelgame.js?v=e1ea366f";
+import * as E from "./scrapline-engine.js?v=b768a1c0";
 import { ART } from "./scrapline-art.js?v=5dc6e120";
 import { prand, Practice } from "./practice.js?v=69d3a659";   // practice-vs-computer + solo persistence
-import { anchorOf as anchorVal, ensureAnchor, verifyEntries, entriesFrom, seedDaily, pendingDaily, markDaily } from "./provable.js?v=2dd16efd";   // provable daily claims (see doc/provable-practice.md)
+import { anchorOf as anchorVal, ensureAnchor, verifyEntries, entriesFrom, seedDaily, pendingDaily, markDaily } from "./provable.js?v=24f139ac";   // provable daily claims (see doc/provable-practice.md)
 
 const CID = "629dd7da4c8b84222abe334afe40f32c";
 const dapp = new NadoDapp({ cid: CID, app: "Scrapline" });
@@ -242,6 +242,11 @@ function anchorFromSto(sto, day) {
 // The intent is therefore persisted: the button shows a real progress state, the seed resumes by itself
 // after the round-trip, and the run auto-starts the moment the anchor resolves.
 let dailyWaiting = false;
+// The duel scaffold's shared settle has no "post" arm, so it treats the post as landed on the very next 3s
+// poll — while the tx is still in the pool — and POST appends unconditionally on-chain (no per-(day,addr)
+// dedupe), so a re-tap buys a second permanent entry and a second fee. Hold my own guard for the SDK's
+// click-pend lifetime; past that a genuinely lost post must stay retryable.
+let postSent = null;   // {day, score, ts} of the run already submitted
 
 async function startDaily() {
   if (dailyWaiting) return;
@@ -347,10 +352,11 @@ function renderSolo() {
       post.disabled = !mine;
       post.onclick = () => {
         if (!mine) return;
-        if (dapp.busy("post")) return notify(confirmingLabel());
+        if (dapp.busy("post") || (postSent && postSent.day === day && postSent.score === run.score && Date.now() - postSent.ts < 120000)) return notify(confirmingLabel());
         const words = E.packChoices(run.choices);
         dapp.call("post", [day, run.score, run.choices.length].concat(words), null,
           "post daily gauntlet score " + run.score, { phase: "post" });
+        postSent = { day, score: run.score, ts: Date.now() };
         notify(T("postSent", "Score submitted — it appears on the board once verified on-chain."));
       };
       ob.appendChild(post);

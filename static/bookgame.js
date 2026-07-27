@@ -101,12 +101,14 @@ export class Book {
   // ---- actions -------------------------------------------------------------------------------------
   // Each one gates on busy() FIRST (click-time, so a double tap cannot sign twice) and carries a pend the
   // game's settleInflight can retire — the same lifecycle every other action in these games uses.
-  post(id, raw, label) {
+  // `b` (this book as it reads NOW) is what makes the did-it-land test honest: post() is also the TOP-UP,
+  // so "a bank exists" is already true before the tx is signed. Pass it and the pend carries the roll to beat.
+  post(id, raw, label, b) {
     if (this.dapp.busy("book", this.idKey, id)) return notify(confirmingLabel());
     if (!canPay(this.dapp, raw, _t("thisBankroll", "This bankroll"))) return;
     this.dapp.call("book", [Number(id)], raw,
       label || _t("callBook", "put up {amt} NADO as the bank", { amt: rawToNado(raw) }),
-      this._pend(id, "book"));
+      this._pend(id, "book", b ? { br0: b.bankroll.toString() } : null));
   }
 
   quote(id, i, pct, label) {
@@ -118,7 +120,10 @@ export class Book {
       this._pend(id, "quote", { outcome: i, od0: pct }));
   }
 
-  back(b, i, stake, label) {
+  // Baselines ride on the pend so settled() can tell MY stake landing from someone else's: st0 (my stake on
+  // this outcome, when the game reads a per-user book) is exact; tk0 (the book's total taken) is all a game
+  // without that view can honestly compare against.
+  back(b, i, stake, label, myBook) {
     const id = b.id;
     if (this.dapp.busy("back", this.idKey, id)) return notify(confirmingLabel());
     const why = this.refuseReason(b, i, stake);
@@ -127,7 +132,8 @@ export class Book {
     this.dapp.call("back", [Number(id), i], stake,
       label || _t("callBack", "back outcome {i} at {p}x for {amt}",
         { i: i + 1, p: (b.odds[i] / 100).toFixed(2), amt: rawToNado(stake) }),
-      this._pend(id, "back", { outcome: i }));
+      this._pend(id, "back", Object.assign({ outcome: i, tk0: b.taken.toString() },
+        myBook ? { st0: Number((myBook.stakes || [])[i] || 0) } : null)));
   }
 
   claim(id, label) {
@@ -150,9 +156,15 @@ export class Book {
    */
   settled(f, b, myBook) {
     if (!f || String(f[this.idKey]) !== String(b && b.id)) return false;
-    if (f.phase === "book") return !!b.bank;
-    if (f.phase === "quote") return (b.odds[f.outcome] || 0) >= Number(f.od0 || 1);
-    if (f.phase === "back") return myBook ? Number((myBook.stakes || [])[f.outcome] || 0) > 0 : b.taken > 0n;
+    // `book` and `back` escrow money and neither contract dedupes them, so a false "it landed" here re-arms a
+    // button into a SECOND escrow that cannot be undone. Every test is therefore against the state as it was
+    // when this caller submitted — a bank that already existed, a price already higher than the one being
+    // published, or another punter's stake is not evidence of my transaction.
+    if (f.phase === "book") return f.br0 != null ? b.bankroll > BigInt(f.br0) : !!b.bank;
+    if (f.phase === "quote") return Number(b.odds[f.outcome] || 0) === Number(f.od0);
+    if (f.phase === "back") return (myBook && f.st0 != null)
+      ? Number((myBook.stakes || [])[f.outcome] || 0) > Number(f.st0)
+      : (f.tk0 != null ? b.taken > BigInt(f.tk0) : b.taken > 0n);
     if (f.phase === "bclaim") return !!(myBook && myBook.claimed);
     if (f.phase === "bsweep") return !!b.swept;
     return false;

@@ -7,7 +7,7 @@
 // This module owns ONLY the Stormhold-specific half: engine replay, the supply/hand/decision UI, and the
 // move encodings; everything else (escrow actions, lobby, invites, settle chrome) lives in duelgame.js.
 import { NadoDapp, $, notify, confirmingLabel, disp, randSecret, algHashn, ALG_P, installModes } from "./nadodapp.js?v=db1a59d7";
-import { DuelGame } from "./duelgame.js?v=a5f9292d";
+import { DuelGame } from "./duelgame.js?v=e1ea366f";
 import * as E from "./stormhold-engine.js?v=9d8be3f7";
 import { ART } from "./stormhold-art.js?v=bb298f4c";
 import { prng, randomMove } from "./stormhold-bot.js?v=3c4fb297";   // powers the free practice-vs-computer mode

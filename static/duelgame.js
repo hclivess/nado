@@ -271,6 +271,12 @@ export class DuelGame {
           : f.phase === "move" ? g.mc > (f.ply || 0)
           : (g.settled || !g.exists);
       });
+      // The mc test above only releases a move that LANDED; a move dropped from the pool never advances mc, so
+      // on its own pendingMove keeps canAct() false — every tap dead — for the rest of the page's life. Hand its
+      // lifetime to the SDK's click registry, the one clock that already expires a pool casualty. Its WALL-CLOCK
+      // TTL is the right one: re-arming on tip age alone would let a second real move go out at the same ply
+      // while the first is still in the mempool.
+      if (this.pendingMove != null && !dapp.busy("move", "game", this.active)) this.pendingMove = null;
       this.renderLobby(sto);
       renderScore($("scoreList"), this.boardFrom(sto), dapp.me,
         this.T("noFinished", "No settled duels yet — win the first one."), this.cfg.prize);

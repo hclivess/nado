@@ -320,7 +320,7 @@ export function soloPick(run, choice, slot) {
 // POSTER'S ADDRESS (claims are non-transferable — copying the day's best move list verifies only for its
 // owner). The contract stores claims blindly; every browser verifies by REPLAYING the run and silently
 // drops claims that don't reproduce (posting costs a tx fee, which caps spam).
-import { packMoves, unpackMoves, provableSeed } from "./provable.js?v=2dd16efd";
+import { packMoves, unpackMoves, provableSeed } from "./provable.js?v=24f139ac";
 export const ATT_PER_WORD = 10, MAX_WORDS = 8, MAX_ATT = ATT_PER_WORD * MAX_WORDS;
 export const packChoices = (choices) => {
   const padded = choices.slice();

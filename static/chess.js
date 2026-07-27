@@ -13,7 +13,7 @@ const dapp = new NadoDapp({ cid: CID, app: "Chess" });
 const LS_G = "nado_chess_games";
 const load = () => lsLoad(LS_G);
 const save = (v) => lsSave(LS_G, v);
-let activeGame = null, lastGame = null, engine = new Chess(), selected = null, pendingEnc = null, flipBoard = false, haveState = false, replayPly = null, lastDrawOffer = null;
+let activeGame = null, lastGame = null, engine = new Chess(), selected = null, pendingEnc = null, pendingPly = 0, flipBoard = false, haveState = false, replayPly = null, lastDrawOffer = null;
 const LS_POS = "nado_chess_fen_";
 let knownGames = new Set();   // game ids that exist on-chain (for "Your games")
 function pruneAndTrack(sto) {
@@ -133,7 +133,7 @@ function submitMove(m) {
   // PLY BINDING: the tx names the exact ply it plays at (the contract requires it), so a stale
   // wallet retry of THIS move can never land turns later against a changed position.
   const ply = lastGame ? lastGame.mc : 0;
-  pendingEnc = enc; selected = null; render();
+  pendingEnc = enc; pendingPly = ply; selected = null; render();
   dapp.call("move", [activeGame, enc, ply], null, "move " + m.from + m.to + (m.promotion ? "=" + m.promotion.toUpperCase() : "") + " · game #" + activeGame, { game: activeGame, phase: "move", ply });
 }
 const resignGame = () => { if (dapp.busy("resign", "game", activeGame)) return notify(confirmingLabel()); dapp.call("resign", [activeGame], null, "resign game #" + activeGame, { game: activeGame, phase: "resign" }); };
@@ -155,7 +155,12 @@ async function refreshActive() {
       const prog = (ng.settled ? 1e9 : 0) + (ng.nn || 0) * 100000 + (ng.mc || 0);
       if (dapp.accept("chess:" + activeGame, prog)) {
         lastGame = ng;
-        if (pendingEnc != null && lastGame.moves.length >= lastGame.mc && lastGame.moves.some((m) => encMove(m) === pendingEnc)) pendingEnc = null;
+        // retire the overlay by the PLY it was signed at, never by "this encoding appears somewhere in the
+        // log": a from→to that was already played earlier (a rook shuffle, a knight returning) would clear it
+        // while the tx is still in the pool — unlocking the board for a second move bound to the same ply.
+        // Only the side to move can occupy a ply (the contract checks caller == that player), so mc passing
+        // pendingPly means MY move landed.
+        if (pendingEnc != null && lastGame.moves.length >= lastGame.mc && lastGame.mc > pendingPly) pendingEnc = null;
         if (!replaying) engine = rebuildEngine(lastGame);
         haveState = true;
         try { if (!engine._corrupt) localStorage.setItem(LS_POS + activeGame, engine.fen()); } catch (e) {}

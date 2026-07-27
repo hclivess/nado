@@ -5,7 +5,7 @@
 // so the exact hand reconstructs from chain state alone. Win pays 2×, push refunds, natural blackjack
 // 5:2; European no-hole-card timing. See tests/test_blackjack_contract.py.
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=db1a59d7";
-import { BankedGame } from "./bankedgame.js?v=d962f302";
+import { BankedGame } from "./bankedgame.js?v=8fefa154";
 import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js?v=52c0d463";
 import { Practice } from "./practice.js?v=69d3a659";      // free in-browser practice (play chips, no chain)
 
@@ -81,11 +81,17 @@ async function deal() {
   dapp.call("deal", [g, bg.active], stake, window.t("bj.callDeal", "🃏 deal blackjack · {amt} NADO · table #{t}", { amt: rawToNado(stake), t: bg.active }), { table: bg.active, seat: g, phase: "deal" });
   render();
 }
-const hit = () => { const s = myHandObj(); if (s && !dapp.busy("hit", "seat", s.g)) dapp.call("hit", [s.g], null, window.t("bj.callHit", "hit — one more card · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "hit" }); };
+// gn/gf ride on the PEND as the pre-submit baseline (the same trick bg.fund uses with tk0): "the hand has
+// more cards than 2" and "gf is not 0" are already TRUE at click time on any hand past its first hit, so a
+// predicate that guesses the baseline reads "landed" on the first poll and re-arms Hit while the tx is
+// still in the pool — and a second hit on a made hand is not a duplicate, it is a bust.
+const hit = () => { const s = myHandObj(); if (s && !dapp.busy("hit", "seat", s.g)) dapp.call("hit", [s.g], null, window.t("bj.callHit", "hit — one more card · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "hit", gn: s.gn }); };
 const stand = () => { const s = myHandObj(); if (s && !dapp.busy("stand", "seat", s.g)) dapp.call("stand", [s.g], null, window.t("bj.callStand", "stand on {n} · hand #{g}", { n: s.total.total, g: s.g }), { table: bg.active, seat: s.g, phase: "stand" }); };
 const RESOLVE_METHOD = { 1: "reveal", 3: "draw", 4: "settle" };
-const resolveHand = (s) => { if (dapp.busy("resolve", "seat", s.g)) return; dapp.call(RESOLVE_METHOD[s.gf], [s.g], null, window.t("bj.callResolve", "land the cards · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "resolve" }); };
-const reapHand = (g) => { if (dapp.busy("resolve", "seat", g)) return; dapp.call("reap", [g], null, window.t("bj.callReap", "release abandoned hand #{g}", { g }), { table: bg.active, seat: g, phase: "resolve" }); };
+const resolveHand = (s) => { if (dapp.busy("resolve", "seat", s.g)) return; dapp.call(RESOLVE_METHOD[s.gf], [s.g], null, window.t("bj.callResolve", "land the cards · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "resolve", gf: s.gf }); };
+// reap leaves gf alone (it only sets gd), so its baseline is the phase it found — the gd test below is what
+// actually releases it.
+const reapHand = (g) => { if (dapp.busy("resolve", "seat", g)) return; dapp.call("reap", [g], null, window.t("bj.callReap", "release abandoned hand #{g}", { g }), { table: bg.active, seat: g, phase: "resolve", gf: _m(lastSto, "gf")[String(g)] || 0 }); };
 function fundTable() {
   const raw = nadoToRaw($("fundAmt").value);
   if (!raw) return alertBar(window.t("bj.enterFund", "Enter an amount to add to this table's bankroll."));
@@ -111,9 +117,9 @@ async function refreshAll() {
     dapp.settleInflight((f) => {
       const g = String(f.seat), t = String(f.table), gf = _m(sto, "gf")[g] || 0;
       if (f.phase === "deal") return !!_m(sto, "gg")[g];
-      if (f.phase === "hit") return gf === 3 || (gf === 2 && (_m(sto, "gn")[g] || 0) > (f.gn || 2)) || !!_m(sto, "gd")[g];
+      if (f.phase === "hit") return gf === 3 || (gf === 2 && f.gn != null && (_m(sto, "gn")[g] || 0) > f.gn) || !!_m(sto, "gd")[g];
       if (f.phase === "stand") return gf === 4 || !!_m(sto, "gd")[g];
-      if (f.phase === "resolve") return gf !== (f.gf || 0) || !!_m(sto, "gd")[g];
+      if (f.phase === "resolve") return (f.gf != null && gf !== f.gf) || !!_m(sto, "gd")[g];
       return bg.landed(f, sto);   // open / fund / close
     });
     if (bg.active != null) await bg.prefetchHashes(sto, (g) => (!_m(sto, "gd")[g] && _m(sto, "gf")[g]) ? _m(sto, "gh")[g] || 0 : 0);
@@ -122,9 +128,9 @@ async function refreshAll() {
       const done =
         watch.phase === "open" ? !!_m(sto, "ta")[t] :
         watch.phase === "deal" ? !!_m(sto, "gg")[g] :
-        watch.phase === "hit" ? gf === 3 || gf === 2 && (_m(sto, "gn")[g] || 0) > (watch.gn || 2) || !!_m(sto, "gd")[g] :
+        watch.phase === "hit" ? gf === 3 || gf === 2 && watch.gn != null && (_m(sto, "gn")[g] || 0) > watch.gn || !!_m(sto, "gd")[g] :
         watch.phase === "stand" ? gf === 4 || !!_m(sto, "gd")[g] :
-        watch.phase === "resolve" ? gf !== (watch.gf || 0) || !!_m(sto, "gd")[g] :
+        watch.phase === "resolve" ? (watch.gf != null && gf !== watch.gf) || !!_m(sto, "gd")[g] :
         watch.phase === "close" ? !!_m(sto, "tz")[t] : true;
       if (done) {
         dapp.clearInflight();

@@ -78,7 +78,10 @@ export class BankedGame {
     this.dapp.call("open", [t], bankRaw, label, { table: t, phase: "open" });
     return t;
   }
-  fund(raw, label) { if (this.dapp.busy("fund", "table", this.active)) return notify(confirmingLabel()); const tk0 = this._sto ? (_m(this._sto, "tk")[String(this.active)] || 0) : null; this.dapp.call("fund", [this.active], raw, label, { table: this.active, phase: "fund", tk0 }); }
+  // amt rides along as a STRING (a BigInt in a pend would throw in the registry's JSON.stringify): tk is a
+  // shared counter — blackjack/mines/slots credit a punter's lost stake straight into it — so "tk moved" is
+  // any hand settling, not this top-up. Only tk0+amt is proof the fund itself landed.
+  fund(raw, label) { if (this.dapp.busy("fund", "table", this.active)) return notify(confirmingLabel()); const tk0 = this._sto ? (_m(this._sto, "tk")[String(this.active)] || 0) : null; this.dapp.call("fund", [this.active], raw, label, { table: this.active, phase: "fund", tk0, amt: String(raw) }); }
   close(label, opts) { if (this.dapp.busy("close", "table", this.active)) return notify(confirmingLabel()); this.dapp.call("close", [this.active], null, label, { table: this.active, phase: "close" }, opts); }
   // reopen(t, bankRaw, label): re-bank a CLOSED table id you already own (same id keeps the history/link).
   reopen(t, bankRaw, label) {
@@ -91,7 +94,7 @@ export class BankedGame {
   // landed(f, sto): the shared "did this action's effect appear on-chain?" test for the bank-level phases,
   // so a game's settleInflight predicate can defer to it (release the click guard the instant it lands,
   // not on the 2-min TTL). Games compose it: dapp.settleInflight((f) => bg.landed(f, sto) || myOwn(f)).
-  //   open  → the table's banker record (ta) exists   fund → bankroll (tk) rose past the pre-submit value
+  //   open  → the table's banker record (ta) exists   fund → bankroll (tk) reached tk0 + the funded amount
   //   close → the table is flagged closed (tz)        seat-creating bet/spin/deal → the seat (gg) exists
   // A seat-creating phase must pass its new seat id as pend.seat (every banked game already does).
   landed(f, sto) {
@@ -99,7 +102,7 @@ export class BankedGame {
     const t = String(f.table);
     if (f.phase === "open") return !!_m(sto, "ta")[t];
     if (f.phase === "close") return !!_m(sto, "tz")[t];
-    if (f.phase === "fund") return f.tk0 != null && BigInt(_m(sto, "tk")[t] || 0) > BigInt(f.tk0);
+    if (f.phase === "fund") return f.tk0 != null && BigInt(_m(sto, "tk")[t] || 0) >= BigInt(f.tk0) + BigInt(f.amt || 1);
     if (f.seat != null) return !!_m(sto, "gg")[String(f.seat)];   // bet/spin/deal created the seat
     return false;
   }

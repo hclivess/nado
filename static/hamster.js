@@ -7,10 +7,10 @@
 // every bettor) — so you read form + the live tote, exactly like a racetrack. The client mirrors the
 // contract's alghash math (algHashn) to show genes and animate the run; the contract is the authority.
 // Contract: execnode/games/hamster.py.
-import { Book } from "./bookgame.js?v=03a5942d";
+import { Book } from "./bookgame.js?v=650810e4";
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js?v=db1a59d7";
-import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=2dd16efd";
-import * as DERBY from "./hamster-daily.js?v=1c3c237a";
+import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=24f139ac";
+import * as DERBY from "./hamster-daily.js?v=ccbd0747";
 
 const CID = "71ea1f3c09837a8265ebd05759ddf957";   // execnode/games/hamster.py (zkVM)
 const dapp = new NadoDapp({ cid: CID, app: "Hamster" });
@@ -210,18 +210,32 @@ function placeBet(lane) {
   if (stake % UNIT !== 0n) return alertBar(window.t("hamster.unitStake", "Stakes are in whole units of {u} NADO — round to the nearest {u}.", { u: rawToNado(UNIT) }));
   if (!canPay(dapp, stake, window.t("hamster.whatBet", "This bet"))) return;
   const g = geneOf(r.id, lane);
-  dapp.call("bet", [r.id, lane], stake, window.t("hamster.callBet", "back {name} (lane {l}) · {amt} NADO · race #{r}", { name: g ? g.name : ("#" + (lane + 1)), l: lane + 1, amt: rawToNado(stake), r: r.id }), { race: r.id, lane, phase: "bet" });
+  // prev = my position on this race at click time. It is what tells settleInflight "MY bet landed" apart
+  // from "the race exists" — the race obviously exists the moment you bet on it.
+  dapp.call("bet", [r.id, lane], stake, window.t("hamster.callBet", "back {name} (lane {l}) · {amt} NADO · race #{r}", { name: g ? g.name : ("#" + (lane + 1)), l: lane + 1, amt: rawToNado(stake), r: r.id }), { race: r.id, lane, phase: "bet", prev: String((myCache[r.id] && myCache[r.id].total) || 0n) });
 }
 const settleRace = (id) => { if (dapp.busy("settle", "race", id)) return; dapp.call("settle", [id], null, window.t("hamster.callSettle", "photo-finish race #{r}", { r: id }), { race: id, phase: "settle" }); };
 const claimRace = (id) => { if (dapp.busy("claim", "race", id)) return; dapp.call("claim", [id], null, window.t("hamster.callClaim", "collect race #{r} winnings", { r: id }), { race: id, phase: "claim" }); };
+// The player's own way to settle. settle() is permissionless and its result is already fixed by block
+// hashes, but NOTHING pays out until it lands — claimable_of returns 0 while a race is unsettled — and the
+// auto tick below can be switched off (the auto-collect slider) or starved by an unrelated dropped tx. A
+// pot with only an automatic path out of escrow is a pot that can be stranded. settleNow keeps the same
+// collision guard (never a second settle over one in flight) but ignores the retry timer and the opt-out.
+const settleNowRace = (id) => {
+  if (!dapp.me) return dapp.signIn();
+  if (!dapp.settleNow([{ g: id }], () => settleRace(id), { key: () => "settle:" + id, phase: "settle" })) notify(confirmingLabel());
+};
 
 // AUTO-SETTLE a finished race, then AUTO-COLLECT my winnings (shared SDK tick — value-free, background-signs).
+// Both are PHASE-SCOPED: a settle's input is already fixed on-chain, so the only thing that can collide with
+// it is another settle. Without the phase the SDK falls back to blocking on ANY pend, and one bet stuck in
+// the mempool (a value pend holds its full TTL) starves the payout for two minutes at a time.
 function maybeAuto() {
   if (!lastRace || !lastRace.exists) return;
-  if (lastRace.phase === "settling") { dapp.autoCollect([{ g: lastRace.id }], () => settleRace(lastRace.id), { key: () => "settle:" + lastRace.id }); return; }
+  if (lastRace.phase === "settling") { dapp.autoCollect([{ g: lastRace.id }], () => settleRace(lastRace.id), { key: () => "settle:" + lastRace.id, phase: "settle" }); return; }
   if (lastRace.sd || lastRace.vd) {
     const c = myCache[lastRace.id] || {};
-    if ((c.claimable || 0n) > 0n && !c.claimed) dapp.autoCollect([{ g: lastRace.id }], () => claimRace(lastRace.id), { key: () => "claim:" + lastRace.id });
+    if ((c.claimable || 0n) > 0n && !c.claimed) dapp.autoCollect([{ g: lastRace.id }], () => claimRace(lastRace.id), { key: () => "claim:" + lastRace.id, phase: "claim" });
   }
 }
 
@@ -253,7 +267,11 @@ async function refreshAll() {
     dapp.settleInflight((f) => {
       const r = readRace(sto, f.race);
       return f.phase === "open" ? r.exists
-        : f.phase === "bet" ? (dapp.cursor != null && r.exists)   // a bet lands within a block; tip-advance covers it
+        // The race exists from the moment it is opened, so "r.exists" released the click guard on the FIRST
+        // poll after signing — while the tx was still in the mempool. BET is strictly additive on-chain with
+        // no once-only flag, so the re-click that opens up escrows a SECOND stake instead of reverting. Only
+        // my own position growing past what it was at click time proves this bet landed.
+        : f.phase === "bet" ? BigInt((myCache[f.race] && myCache[f.race].total) || 0n) > BigInt(f.prev || 0)
         : f.phase === "settle" ? r.sd
         : f.phase === "claim" ? !!(myCache[f.race] && myCache[f.race].claimed)
         : f.phase === "post" ? (myBestToday(todayIdx()) != null)
@@ -521,11 +539,16 @@ function render() {
         else h += '<div class="dim" style="margin-top:8px">' + window.t("hamster.noWin", "No winnings on this race.") + "</div>";
       } else h += '<div class="dim" style="margin-top:8px">' + window.t("hamster.raceOn", "Race in progress — results settle automatically.") + "</div>";
     } else h = '<div class="dim">' + (r.phase === "racing" ? window.t("hamster.watchRun", "Betting closed — watch them run!") : window.t("hamster.settlingHint", "Settling the finish on-chain…")) + "</div>";
+    // the visible escape hatch for the finish: anyone may settle, and until someone does every stake and the
+    // whole book stay escrowed. A voided race is already past settle() (it refuses on vd), so no button there.
+    if (r.phase === "settling" && !r.vd) h += '<button class="primary mt" id="btnSettle" style="width:100%">'
+      + (dapp.busy("settle", "race", r.id) ? confirmingLabel() : window.t("hamster.settleNow", "📸 Settle the finish now")) + "</button>";
     // book winnings collect separately from the tote — a punter can have both on one race
     if (r.sd || r.vd) h += '<button class="ghost mt" id="btnBclaim" style="width:100%">'
       + (dapp.busy("bclaim", "race", r.id) ? confirmingLabel() : window.t("hamster.bclaim", "🏦 Collect book winnings")) + "</button>";
     bp.innerHTML = h;
     if ($("btnClaim")) $("btnClaim").onclick = () => claimRace(r.id);
+    if ($("btnSettle")) $("btnSettle").onclick = () => settleNowRace(r.id);
     if ($("btnBclaim")) $("btnBclaim").onclick = () => bclaimRace(r.id);
   }
 

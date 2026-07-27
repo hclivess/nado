@@ -20,7 +20,7 @@
 // — is a planning problem with branching factor 8 and a horizon of 124. Knowing the road is the premise of
 // the puzzle, not the answer to it.
 import { algHashn } from "./nadodapp.js?v=db1a59d7";
-import { H, provableSeed, unpackMoves, packMoves } from "./provable.js?v=2dd16efd";
+import { H, provableSeed, unpackMoves, packMoves } from "./provable.js?v=24f139ac";
 import * as R from "./autogame-rules.js?v=a3d6848d";
 import * as E from "./autogame-engine.js?v=8a997c33";
 

@@ -8,7 +8,7 @@
 // anyone. A win pays the true 36/count; losing stakes fold into the bankroll. Ordinary upgradable stackvm
 // contract, no game-specific API.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=db1a59d7";
-import { BankedGame } from "./bankedgame.js?v=d962f302";   // the ONE banked-table reader/lobby (shared by every house game)
+import { BankedGame } from "./bankedgame.js?v=8fefa154";   // the ONE banked-table reader/lobby (shared by every house game)
 import { Practice } from "./practice.js?v=69d3a659";      // free in-browser practice (play chips, no chain)
 
 const CID = "cb7d5cedb1360cb2239ab77bf89a92e1";
@@ -96,7 +96,9 @@ const settleSeat = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.cal
 // AUTO-COLLECT a resolved WINNING seat (shared SDK tick — opt-out slider, one-per-refresh, autoTried dedup)
 function maybeAutoSettle() {
   if (!lastTable || !lastTable.exists) return;
-  dapp.autoCollect(lastSeats.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.win), (s) => settleSeat(s.g));
+  // phase-scoped — see dice.js: an unrelated pending action must not starve a payout whose input is final.
+  dapp.autoCollect(lastSeats.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.win),
+    (s) => settleSeat(s.g), { phase: "settle" });
 }
 const closeTable = () => bg.close("close table #" + bg.active);
 

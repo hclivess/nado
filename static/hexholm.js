@@ -8,11 +8,11 @@
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, notify, confirmingLabel, disp, share,
          renderWallet, renderScore, renderTopScores, scoreBump, scoreSort, resolveAliases, blocksToTime,
          randSecret, algHashn, ALG_P , installModes } from "./nadodapp.js?v=db1a59d7";
-import { DuelGame } from "./duelgame.js?v=a5f9292d";
+import { DuelGame } from "./duelgame.js?v=e1ea366f";
 import * as E from "./hexholm-engine.js?v=bfd3d976";
 import { pickMove, prng, soloReplay, soloScore, botMustAct, seedOfDay, packRun, verifyClaim,
-         MAX_MY, SOLO_TURNS } from "./hexholm-bot.js?v=2b7fc605";
-import { anchorOf, ensureAnchor, todayIdx, verifyEntries, seedDaily, pendingDaily } from "./provable.js?v=2dd16efd";
+         MAX_MY, SOLO_TURNS } from "./hexholm-bot.js?v=eb0b5c6f";
+import { anchorOf, ensureAnchor, todayIdx, verifyEntries, seedDaily, pendingDaily } from "./provable.js?v=24f139ac";
 import { randomSeed } from "./practice.js?v=69d3a659";
 
 const CID = "cb551157945fb81aa873ab3e571254cd";
@@ -154,7 +154,10 @@ class TableDuel extends DuelGame {
   }
   leave() { if (this.dapp.busy("leave", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("leave", [this.active], null, "leave table #" + this.active, { game: this.active, phase: "leave" }); }
   agreeSeat(w) { if (this.dapp.busy("agree", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("agree", [this.active, w], null, "confirm the result · table #" + this.active, { game: this.active, phase: "agree" }); }
-  reveal() { if (this.dapp.busy("agree", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("reveal", [this.active, mySecret(this.active)], null, "reveal scrolls · table #" + this.active, { game: this.active, phase: "agree" }); }
+  // reveal is its OWN phase: sharing phase "agree" made the two a single registry entry, so an in-flight reveal
+  // swallowed the confirm vote it is meant to precede — and a reveal never settles the table, so the entry only
+  // died by TTL while every seat's pot sat there waiting on that vote.
+  reveal() { if (this.dapp.busy("reveal", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("reveal", [this.active, mySecret(this.active)], null, "reveal scrolls · table #" + this.active, { game: this.active, phase: "reveal" }); }
 
   async refreshActive() {
     const dapp = this.dapp;
@@ -186,6 +189,7 @@ class TableDuel extends DuelGame {
           : f.phase === "join" ? (g.exists && g.seats && g.seats.includes(dapp.me))
           : f.phase === "leave" ? (!g.exists || !g.seats || !g.seats.includes(dapp.me))
           : f.phase === "move" ? g.mc > (f.ply || 0)
+          : f.phase === "reveal" ? !!(g.reveals || [])[this.myIdx(g)]
           : (g.settled || !g.exists);
       });
       this.renderLobby(sto);
@@ -307,9 +311,11 @@ class TableDuel extends DuelGame {
     const my = p.recs.filter((r) => r.side === 1).map((r) => r.enc);
     if (!(my.length > 0 && my.length <= MAX_MY)) return notify(T("postTooLong", "This run is too long to post — dailies cap at {n} of your moves.", { n: MAX_MY }));
     const score = soloScore(eng, my.length);
-    if (this.dapp.busy("agree")) return notify(confirmingLabel());
+    // the free daily board is keyless, so it must not share a phase with the tables: on "agree" any table's
+    // in-flight reveal/confirm silently no-opped this button.
+    if (this.dapp.busy("post")) return notify(confirmingLabel());
     this.dapp.call("post", [p.daily, score, my.length].concat(packRun(my)), null,
-      "post daily island score " + score, { phase: "agree" });
+      "post daily island score " + score, { phase: "post" });
     notify(T("postSent", "Score submitted — it appears on the board once verified."));
   }
   async renderDailyBoard(sto) {
@@ -885,8 +891,11 @@ function renderSettle(duel, gm, eng, me) {
   let hint = "";
   if (live && over && winner) {
     const needReveal = iAmIn && gm.commits[me] && !gm.reveals[me];
+    // a signed reveal/confirm is invisible until it lands, so the button that sent it must say ⏳ rather than
+    // re-offer the tap and answer it with a toast that reads the same either way.
+    const revealing = duel.dapp.busy("reveal", "game", duel.active);
     rb.innerHTML = needReveal
-      ? `<button class="primary pulse" id="bReveal">🔓 ${T("revealBtn", "Reveal your scrolls — lets everyone verify the game")}</button>` : "";
+      ? `<button class="primary${revealing ? "" : " pulse"}" id="bReveal"${revealing ? " disabled" : ""}>${revealing ? confirmingLabel() : "🔓 " + T("revealBtn", "Reveal your scrolls — lets everyone verify the game")}</button>` : "";
     if ($("bReveal")) $("bReveal").onclick = () => duel.reveal();
     const committed = gm.commits.slice(0, gm.cap).map((c, i) => c && !gm.resigned[i]);
     const revealedAll = committed.every((c, i) => !c || gm.reveals[i]);
@@ -896,6 +905,9 @@ function renderSettle(duel, gm, eng, me) {
     const myVote = iAmIn && !gm.resigned[me] && gm.agrees[me] === winner;
     $("btnSettle").classList.toggle("hidden", !(iAmIn && !gm.resigned[me] && !myVote));
     $("btnSettle").textContent = "✔ " + T("confirmResult", "Confirm the result — {who} takes the pot", { who: disp(gm.seats[winner - 1] || "?") });
+    const voting = duel.dapp.busy("agree", "game", duel.active);
+    $("btnSettle").disabled = voting;
+    if (voting) $("btnSettle").textContent = confirmingLabel();
     if (revealedAll && !verified) {
       $("btnSettle").classList.add("hidden");
       hint = T("verifyFail", "⚠ VERIFICATION FAILED — a revealed secret contradicts a play. Do not confirm; the timeout refund protects the honest.");

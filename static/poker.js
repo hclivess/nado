@@ -9,7 +9,7 @@
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
 import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, inviteGate, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=db1a59d7";
-import { BankedGame } from "./bankedgame.js?v=d962f302";   // the ONE banked-table reader — hold'em overlays its street phases
+import { BankedGame } from "./bankedgame.js?v=8fefa154";   // the ONE banked-table reader — hold'em overlays its street phases
 import { Practice } from "./practice.js?v=69d3a659";       // free in-browser practice (play chips, no chain)
 
 const CID = "baf1f33c2e136c094c63fa245c1df8f6";   // execnode/games/holdem.py (zkVM, nonce "a5")

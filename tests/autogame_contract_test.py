@@ -78,6 +78,16 @@ def _leg_word(acts):
     return w
 
 
+def _answer_cells(st, rid, leg):
+    """The three cells a commit writes: the hash-keyed word advance() consumes, plus the two readable
+    mirrors the animator replays a settled leg from. A commit half that STANDS DOWN has to leave all three
+    exactly as it found them — "no dice were scheduled" cannot see a stale word landing in the answer slot
+    of a leg it was never written for, which is the whole thing the select-gating protects."""
+    return (st.get(alghash.hashn([A.OVR_TAG, rid, leg]), 0),
+            st.get(A.RCW * (1 << 32) + rid, 0),
+            st.get(A.RCL * (1 << 32) + rid, 0))
+
+
 def _peek_tiles(rid, st, lh):
     """The 16 tile CLASSES the next leg will walk, derived exactly as the client's road strip derives them
     from the already-final terrain hash. This is what a player looks at before answering — so tests that
@@ -371,7 +381,10 @@ def t_mists_concludes_a_stranded_run():
     # terminal everywhere: no second conclusion, and the owner can no longer act on it
     ok, _r, _s2, _ = _call("advance", [RID], dict(st), cursor=lh2 + A.HORIZON + 10)
     assert not ok, "a concluded run cannot advance again"
-    for meth, args in (("commit", [RID, 0]), ("plan", [RID, 4, 0, 50, 35]), ("retire", [RID])):
+    # march too: it re-states these guards by hand rather than calling _live(), so a run already lost to
+    # the mists would otherwise re-conclude itself on every call — ok, a fee, and nothing to show for it
+    for meth, args in (("commit", [RID, 0]), ("plan", [RID, 4, 0, 50, 35]), ("retire", [RID]),
+                       ("march", [RID, 0, 0])):
         ok, _r, _s2, _ = _call(meth, args, dict(st), cursor=lh2 + A.HORIZON + 10)
         assert not ok, f"{meth} on a run lost to the mists must revert"
 
@@ -381,7 +394,8 @@ def t_only_owner_controls():
     _ok, _r, st, _ = _call("constructor", [], st)
     _ok, _r, st, _ = _call("begin", [71], st, caller=1234, cursor=100)
     lh = st[A.RLH * (1 << 32) + 71]
-    for meth, args in (("plan", [71, 7, 3, 50, 35]), ("commit", [71, 5]), ("retire", [71])):
+    for meth, args in (("plan", [71, 7, 3, 50, 35]), ("commit", [71, 5]), ("retire", [71]),
+                       ("march", [71, 5, 0])):
         ok, _r, _s, _ = _call(meth, args, dict(st), caller=555, cursor=lh + 1)
         assert not ok, f"{meth} must reject a non-owner"
 
@@ -463,59 +477,77 @@ def t_march_equals_advance_plus_commit():
     the whole claim is checkable as byte equality: drive one run with separate advance+commit calls and a
     twin with march, at IDENTICAL cursors, and require the two storage dicts to be IDENTICAL after every
     leg. Any drift — a register the fused op forgets, an extra write, a different pin — fails as a diff,
-    not a hunch. The model runs alongside as the third witness."""
-    rid = 71
-    cm = {A.MONSTER: A.A_STRIKE, A.ELITE: A.A_GUARD, A.HAZARD: A.A_DODGE, A.BOSS: A.A_STRIKE}
-    sa, sb = {}, {}
-    for st in (sa, sb):
-        _ok, _r, st2, _ = _call("constructor", [], st)
-        st.update(st2)
-        ok, _r, st2, _ = _call("begin", [rid], st, cursor=100)
+    not a hunch. The model runs alongside as the third witness.
+
+    Driven TWICE: once on a run that survives every leg, and once on a build that dies inside a fused leg.
+    The second is not decoration — the stand-down is the one path where the two halves are supposed to
+    DISAGREE about what to write (advance writes nothing further, march must also write nothing), and a
+    fused op that stored a zero-valued answer cell where the pair stores no cell at all only ever shows up
+    as a dict-KEY diff, which the surviving twin never reaches."""
+    def twin(rid, cm, dials=None):
+        """Returns True if the comparison actually covered a leg whose commit half stood down."""
+        # assignment, never dict.update: a zero write DELETES a slot, so merging each call's output over
+        # the previous state resurrects it — plan(heal=0) leaves begin's default 35 standing and the model
+        # is then driven with dials the contract never had
+        _ok, _r, base, _ = _call("constructor", [], {})
+        ok, _r, base, _ = _call("begin", [rid], base, cursor=100)
         assert ok, "begin reverted"
-        st.update(st2)
-    run = M.Run()
+        run = M.Run()
+        if dials:
+            ok, _r, base, _ = _call("plan", [rid] + list(dials), base, cursor=100)
+            assert ok, "plan (dials) reverted"
+            run.agg, run.stance, run.focus, run.healpct = dials
+        sa, sb = dict(base), dict(base)
 
-    ended = False
-    for leg in range(8):
-        # twin A runs the two-transaction cadence; both twins use the SAME cursor for everything, so any
-        # difference in the resulting storage is the fused op's fault, never the clock's.
-        if leg == 0:
-            cur = sa[A.RLH * (1 << 32) + rid] + 1   # the first moment the terrain is visible
-        else:
-            cur = sa[A.RNH * (1 << 32) + rid] + 1   # the first moment the previous dice are visible
-            ok, _r, sa, _ = _call("advance", [rid], sa, caller=999, cursor=cur)
-            assert ok, f"advance(leg={leg}) reverted"
-        ended = (sa.get(A.RAV * (1 << 32) + rid, 0) != 1 or sa.get(A.RDN * (1 << 32) + rid, 0) != 0)
-        word = 0
-        if not ended:
-            lh = sa[A.RLH * (1 << 32) + rid]
-            acts = _answers(_peek_tiles(rid, sa, lh), cm)
-            word = _leg_word(acts)
-            ok, _r, sa, _ = _call("commit", [rid, word], sa, cursor=cur)
-            assert ok, f"commit(leg={leg}) reverted"
-        # twin B mirrors the WHOLE iteration with one march (on an ended run its commit half stands down)
-        ok, ret, sb, _ = _call("march", [rid, word, leg], sb, cursor=cur)
-        assert ok, f"march(leg={leg}) reverted"
-        assert sa == sb, f"leg {leg}: storage diverged"
-        if ended:
-            break
-        nh = sa[A.RNH * (1 << 32) + rid]
-        assert ret == nh == cur + A.START_GAP, "march must pin and return dice past its own cursor"
-        for i in range(A.LEG):
-            if not run.alive or run.done:
+        ended = False
+        for leg in range(8):
+            # twin A runs the two-transaction cadence; both twins use the SAME cursor for everything, so any
+            # difference in the resulting storage is the fused op's fault, never the clock's.
+            if leg == 0:
+                cur = sa[A.RLH * (1 << 32) + rid] + 1   # the first moment the terrain is visible
+            else:
+                cur = sa[A.RNH * (1 << 32) + rid] + 1   # the first moment the previous dice are visible
+                ok, _r, sa, _ = _call("advance", [rid], sa, caller=999, cursor=cur)
+                assert ok, f"advance(leg={leg}) reverted"
+            ended = (sa.get(A.RAV * (1 << 32) + rid, 0) != 1 or sa.get(A.RDN * (1 << 32) + rid, 0) != 0)
+            word = 0
+            if not ended:
+                lh = sa[A.RLH * (1 << 32) + rid]
+                acts = _answers(_peek_tiles(rid, sa, lh), cm)
+                word = _leg_word(acts)
+                ok, _r, sa, _ = _call("commit", [rid, word], sa, cursor=cur)
+                assert ok, f"commit(leg={leg}) reverted"
+            # twin B mirrors the WHOLE iteration with one march (on an ended run its commit half stands
+            # down — the guards passed before the resolve killed it, so the call still succeeds)
+            ok, ret, sb, _ = _call("march", [rid, word, leg], sb, cursor=cur)
+            assert ok, f"march(leg={leg}) reverted"
+            assert sa == sb, f"leg {leg}: storage diverged"
+            if ended:
                 break
-            M.step(run, _words(BH[lh], rid, i), _words(BH[nh], rid, i), action=acts[i])
+            nh = sa[A.RNH * (1 << 32) + rid]
+            assert ret == nh == cur + A.START_GAP, "march must pin and return dice past its own cursor"
+            for i in range(A.LEG):
+                if not run.alive or run.done:
+                    break
+                M.step(run, _words(BH[lh], rid, i), _words(BH[nh], rid, i), action=acts[i])
 
-    # the loop left ONE committed leg unresolved in both twins: close the books identically.
-    nh = sa.get(A.RNH * (1 << 32) + rid, 0)
-    if nh:
-        ok, _r, sa, _ = _call("advance", [rid], sa, caller=999, cursor=nh + 1)
-        assert ok, "closing advance (twin A) reverted"
-        ok, _r, sb, _ = _call("advance", [rid], sb, caller=999, cursor=nh + 1)
-        assert ok, "closing advance (twin B) reverted"
-        assert sa == sb, "storage diverged after the closing settle"
-    cs, ms = _contract_state(sa, rid), _model_state(run)
-    assert cs == ms, {k: (cs[k], ms[k]) for k in cs if cs[k] != ms[k]}
+        # the loop left ONE committed leg unresolved in both twins: close the books identically.
+        nh = sa.get(A.RNH * (1 << 32) + rid, 0)
+        if nh:
+            ok, _r, sa, _ = _call("advance", [rid], sa, caller=999, cursor=nh + 1)
+            assert ok, "closing advance (twin A) reverted"
+            ok, _r, sb, _ = _call("advance", [rid], sb, caller=999, cursor=nh + 1)
+            assert ok, "closing advance (twin B) reverted"
+            assert sa == sb, "storage diverged after the closing settle"
+        cs, ms = _contract_state(sa, rid), _model_state(run)
+        assert cs == ms, {k: (cs[k], ms[k]) for k in cs if cs[k] != ms[k]}
+        return ended
+
+    twin(71, {A.MONSTER: A.A_STRIKE, A.ELITE: A.A_GUARD, A.HAZARD: A.A_DODGE, A.BOSS: A.A_STRIKE})
+    assert twin(75, {A.MONSTER: A.A_STRIKE, A.ELITE: A.A_STRIKE, A.HORDE: A.A_STRIKE,
+                     A.AMBUSH: A.A_STRIKE, A.BOSS: A.A_STRIKE},
+                dials=[A.AGG_MAX, M.ST_AGGRESSIVE, 100, 0]), \
+        "the lethal twin never reached a stood-down leg — the half of the claim it exists for is untested"
 
 
 def t_march_pipelined_cadence():
@@ -524,6 +556,10 @@ def t_march_pipelined_cadence():
     leg's tiles are read from the previous ROLL hash (nh becomes the new lh) at the depth the run will
     have — exactly how the pipelined road strip derives them."""
     rid = 72
+    # A REAL classmap, not blanks. A_DEFAULT is 0, so an all-default word IS the all-zero word: driven that
+    # way this test could not tell march storing arg(1) from march storing a hard-coded zero, which is the
+    # one thing the client's whole word-carrying pipeline depends on.
+    cm = {A.MONSTER: A.A_STRIKE, A.ELITE: A.A_GUARD, A.HAZARD: A.A_DODGE, A.BOSS: A.A_STRIKE}
     st = {}
     _ok, _r, st, _ = _call("constructor", [], st)
     ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
@@ -531,9 +567,12 @@ def t_march_pipelined_cadence():
     run = M.Run()
 
     lh = st[A.RLH * (1 << 32) + rid]
-    acts = _answers(_peek_tiles(rid, st, lh), {})
-    ok, _r, st, _ = _call("march", [rid, _leg_word(acts), 0], st, cursor=lh + 1)   # first answers: pure commit
+    acts = _answers(_peek_tiles(rid, st, lh), cm)
+    word = _leg_word(acts)
+    assert word, "the answer word must be non-trivial, or storing it and dropping it look the same"
+    ok, _r, st, _ = _call("march", [rid, word, 0], st, cursor=lh + 1)   # first answers: pure commit
     assert ok, "first march (pure commit) reverted"
+    assert st[A.RCW * (1 << 32) + rid] == word, "march must store the word it was handed"
 
     for leg in range(6):
         nh = st[A.RNH * (1 << 32) + rid]
@@ -546,12 +585,20 @@ def t_march_pipelined_cadence():
             ok, _r, st, _ = _call("advance", [rid], st, caller=999, cursor=nh + 1)
             assert ok, "closing advance reverted"
             break
-        # answer the NEXT sixteen (all-default: the word's content is not what this test is about)
-        acts = [A.A_DEFAULT] * A.LEG
-        ok, ret, st, _ = _call("march", [rid, _leg_word(acts), leg + 1], st, cursor=nh + 1)
+        # answer the NEXT sixteen off the roll hash that is about to become the terrain hash, at the depth
+        # the run will stand at once this march resolves — the road strip the client draws while the
+        # previous leg is still unsettled, which is the only place these answers can come from
+        peek = dict(st)
+        peek[A.RDP * (1 << 32) + rid] = run.depth
+        acts = _answers(_peek_tiles(rid, peek, nh), cm)
+        word = _leg_word(acts)
+        ok, ret, st, _ = _call("march", [rid, word, leg + 1], st, cursor=nh + 1)
         assert ok, f"fused march(leg={leg + 1}) reverted"
         assert st[A.RLG * (1 << 32) + rid] == leg + 1, "march must have resolved the previous leg"
         assert ret == nh + 1 + A.START_GAP, "…and pinned the next dice past its own cursor"
+        # .get: a zero cell is a deleted cell, and an all-default leg answers with the all-zero word
+        assert st.get(A.RCW * (1 << 32) + rid, 0) == word, "…storing the word it was handed, not a placeholder"
+        assert st.get(A.RCL * (1 << 32) + rid, 0) == leg + 1, "…against the leg it answers"
         cs, ms = _contract_state(st, rid), _model_state(run)
         assert cs == ms, f"leg {leg}: " + str({k: (cs[k], ms[k]) for k in cs if cs[k] != ms[k]})
         lh = nh
@@ -562,42 +609,79 @@ def t_march_pipelined_cadence():
 
 def t_march_edges():
     """The conditional commit half: every way it must STAND DOWN without wrecking the settlement, and the
-    ways the whole call must revert untouched."""
+    ways the whole call must revert.
+
+    "Reverted AND left the state untouched" is worth nothing as an assertion here: zkvm.run hands the
+    caller's own storage dict straight back on any revert, so comparing it to a copy of that same dict is
+    an identity that cannot fail, and it would still hold on a VM that did not roll back. What actually
+    pins a guard down is the PAIR — the reverting call and the minimally different one that succeeds — so
+    the revert is attributable to the gate under test rather than to some other require further up.
+    """
     rid = 73
     st = {}
     _ok, _r, st, _ = _call("constructor", [], st)
     _ok, _r, st, _ = _call("begin", [rid], st, cursor=100)
     lh = st[A.RLH * (1 << 32) + rid]
     word = _leg_word([A.A_STRIKE] * A.LEG)
+    stale = _leg_word([A.A_GUARD] * A.LEG)   # never committed by this run, so a stray write to the answer
+                                             # cells reads as a diff instead of hiding behind an equal value
 
-    # not the owner: the commit half answers for the run, so march is owner-only (advance stays open)
-    before = dict(st)
-    ok, _r, st2, _ = _call("march", [rid, word, 0], dict(st), caller=999, cursor=lh + 1)
-    assert not ok and st2 == before, "march by a non-owner must revert untouched"
+    # not the owner: the commit half answers for the run, so march is owner-only (advance stays open).
+    # Its control is the eligible owner call below, at the identical cursor.
+    ok, _r, _s2, _ = _call("march", [rid, word, 0], dict(st), caller=999, cursor=lh + 1)
+    assert not ok, "march by a non-owner must revert"
+
+    # not before the terrain is visible either. The leg's tiles come from BHASH(lh) and its dice from
+    # BHASH(cursor + START_GAP), so at cursor lh - START_GAP the two are the SAME block hash: terrain and
+    # rolls perfectly correlated, which is the one thing the whole design is built to keep apart. march
+    # folds commit()'s cursor gate into its eligibility flag, so both entry points must refuse it.
+    ok, _r, _s2, _ = _call("march", [rid, word, 0], dict(st), cursor=lh - A.START_GAP)
+    assert not ok, "march before this leg's terrain exists must revert"
+    ok, _r, _s2, _ = _call("commit", [rid, word], dict(st), cursor=lh - A.START_GAP)
+    assert not ok, "…and standalone commit refuses that same cursor — march inherits its gate"
 
     # nothing to do: dice already scheduled but not yet mined -> no resolve, no park, must revert (the
-    # no-op honesty rule) and leave the state exactly as it was
+    # no-op honesty rule). Its control is the happy fused call at the bottom: same args, one block later.
     ok, _r, st, _ = _call("march", [rid, word, 0], st, cursor=lh + 1)
     assert ok, "eligible march reverted"
     nh = st[A.RNH * (1 << 32) + rid]
-    before = dict(st)
-    ok, _r, st2, _ = _call("march", [rid, word, 1], dict(st), cursor=nh - 1)
-    assert not ok and st2 == before, "march with dice pending and nothing resolvable must revert untouched"
+    ok, _r, _s2, _ = _call("march", [rid, word, 1], dict(st), cursor=nh - 1)
+    assert not ok, "march with dice pending and nothing resolvable must revert"
+
+    # RETIRED: march re-states _live()'s requires by hand instead of calling it, so each one needs its own
+    # case. A run that has already cashed out must not resolve one more leg or pin fresh dice.
+    ok, _r, st_rt, _ = _call("retire", [rid], dict(st), cursor=nh - 1)
+    assert ok, "retire reverted"
+    ok, _r, _s2, _ = _call("march", [rid, word, 1], st_rt, cursor=nh + 1)
+    assert not ok, "march on a retired run must revert"
 
     # WRONG LEG: the resolve half lands, the stale word must NOT answer tiles it wasn't written for —
-    # the run parks (RNH == 0) instead of committing
-    ok, _r, st_wrong, _ = _call("march", [rid, word, 5], dict(st), cursor=nh + 1)
+    # the run parks (RNH == 0) instead of committing, and no answer cell moves
+    cells = _answer_cells(st, rid, 1)
+    ok, _r, st_wrong, _ = _call("march", [rid, stale, 5], dict(st), cursor=nh + 1)
     assert ok, "march with a stale leg must still settle"
     assert st_wrong[A.RLG * (1 << 32) + rid] == 1, "the leg must have resolved"
     assert st_wrong.get(A.RNH * (1 << 32) + rid, 0) == 0, "…but the stale word must not schedule dice"
+    assert _answer_cells(st_wrong, rid, 1) == cells, "…nor answer the leg it was not written for"
 
     # OVERSIZED WORD: same stand-down — settle yes, commit no
     ok, _r, st_big, _ = _call("march", [rid, 1 << (3 * A.LEG), 1], dict(st), cursor=nh + 1)
     assert ok and st_big.get(A.RNH * (1 << 32) + rid, 0) == 0, \
         "an out-of-range word must settle the leg and drop the answers"
+    assert _answer_cells(st_big, rid, 1) == cells, "…and never reach the answer cells"
     # …and with nothing to settle either, an oversized word is a full no-op -> revert
     ok, _r, _s2, _ = _call("march", [rid, 1 << (3 * A.LEG), 1], dict(st_big), cursor=nh + 2)
     assert not ok, "no resolve + no commit must revert"
+
+    # THE MISTS, reached through the fused op. march is the client's primary call now, so the horizon
+    # conclusion has to count as "something happened" here exactly as it does in advance() — otherwise the
+    # one run that can never resolve is the one whose every retry reverts and burns a fee.
+    ok, _r, st_mist, _ = _call("march", [rid, word, 1], dict(st), cursor=lh + A.HORIZON)
+    assert ok, "march past the horizon must conclude the run, not revert"
+    assert st_mist[A.RMI * (1 << 32) + rid] == 1, "…flagged mists"
+    assert st_mist.get(A.RNH * (1 << 32) + rid, 0) == 0, "…with the dice parked, like every other ending"
+    assert _contract_state(st_mist, rid) == _contract_state(st, rid), \
+        "the mists must bank the last-resolved state exactly — no leg, no bonus"
 
     # the happy fused path from the same state, as the control
     ok, _r, st_ok, _ = _call("march", [rid, word, 1], dict(st), cursor=nh + 1)
@@ -616,19 +700,33 @@ def t_march_stands_down_on_death():
     lh = st[A.RLH * (1 << 32) + rid]
     ok, _r, st, _ = _call("march", [rid, word, 0], st, cursor=lh + 1)
     assert ok, "first march (pure commit) reverted"
+    doomed, doomed_cur, doomed_leg = None, 0, 0
     for leg in range(30):
         nh = st.get(A.RNH * (1 << 32) + rid, 0)
         if not nh:
             break                                   # the commit half stood down: the resolve ended the run
         # ONE fused call resolves the rolled leg and (if the run survives it) commits the next answers
+        doomed, doomed_cur, doomed_leg = dict(st), nh + 1, leg + 1
         ok, _r, st, _ = _call("march", [rid, word, leg + 1], st, cursor=nh + 1)
         assert ok, f"fused march(leg={leg + 1}) reverted"
     assert st.get(A.RAV * (1 << 32) + rid, 0) != 1, \
         "agg 16 aggressive all-strike did not die in 30 legs — the test stressed nothing"
     assert st.get(A.RNH * (1 << 32) + rid, 0) == 0, "a dead run must never carry scheduled dice"
-    before = dict(st)
-    ok, _r, st2, _ = _call("march", [rid, 0, 99], dict(st), cursor=99999)
-    assert not ok and st2 == before, "march on a dead run must revert untouched"
+
+    # the fatal leg again, carrying a word this run has NEVER committed. Every leg above answered with the
+    # same word, so a commit half that wrote the readable mirror regardless of the flag would have stored a
+    # value identical to the one already sitting there and left no trace at all.
+    other = _leg_word([A.A_GUARD] * A.LEG)
+    cells = _answer_cells(doomed, rid, doomed_leg)
+    ok, _r, st_f, _ = _call("march", [rid, other, doomed_leg], dict(doomed), cursor=doomed_cur)
+    assert ok, "the fatal march must still settle the leg that killed the run"
+    assert st_f.get(A.RAV * (1 << 32) + rid, 0) != 1, "…and keep the death"
+    assert st_f.get(A.RNH * (1 << 32) + rid, 0) == 0, "…schedule no dice"
+    assert _answer_cells(st_f, rid, doomed_leg) == cells, "…and write no answers onto a run that just died"
+
+    # terminal: the very call that just succeeded against the live state must now revert
+    ok, _r, _s2, _ = _call("march", [rid, other, doomed_leg], dict(st), cursor=99999)
+    assert not ok, "march on a dead run must revert"
 
 
 def t_js_engine_matches_the_model():

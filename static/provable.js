@@ -32,8 +32,13 @@ export function anchorOf(sto, _m, day) {
 // ensureAnchor: permissionless upkeep of today's anchor — pin if the day has no pin, resolve once the
 // pinned block exists (checked against /exec/blockhash so a premature call never burns a fee on a
 // revert). Fire-and-forget value-free dapp calls (background signing); at most one call per (day, pin)
-// per session so polls don't spam. Returns the anchor when ready, else null.
+// per retry window so polls don't spam. Returns the anchor when ready, else null.
 const _anchDrive = {};
+// An attempt whose transaction went nowhere (pool wipe, node hiccup) earns another one: until the pin
+// lands `ah` stays 0, so the key never changes and a fire-once-per-session drive would wedge the whole
+// day's board — for every provable game — until an F5. Wide enough that a healthy pin (cursor + 2) has
+// long since mined, so a retry only ever chases a tx that is genuinely gone.
+const ANCH_RETRY_MS = 30000;
 export async function ensureAnchor(dapp, base, sto, _m, day) {
   const ready = anchorOf(sto, _m, day);
   if (ready) return ready;
@@ -46,9 +51,18 @@ export async function ensureAnchor(dapp, base, sto, _m, day) {
     } catch { return null; }
   }
   const k = day + ":" + ah;
-  if (_anchDrive[k]) return null;
-  _anchDrive[k] = 1;
-  dapp.call("anchor", [day], null, "seed the day-" + day + " provable board", { phase: "agree" });
+  // The retry timer alone is not a guard: this runs from every game's refresh tick while the day is
+  // unanchored, so without the in-flight check a signed-in player re-submits the anchor every retry
+  // window forever — each duplicate reverting on the contract's own guard, each burning a fee, and each
+  // popping a rejection bar. The timer says "long enough since we last TRIED"; busy() says "there isn't
+  // already one in the air", and both have to hold.
+  if (dapp.busy("anchor")) return null;
+  if (_anchDrive[k] && Date.now() - _anchDrive[k] < ANCH_RETRY_MS) return null;
+  _anchDrive[k] = Date.now();
+  // Its OWN phase: a phase is a global namespace per dapp session, so a shared module that squats a
+  // game's ("agree") both blocks that game's buttons through busy() and gets declared landed by its
+  // settleInflight — whose predicates key off a game id this pend doesn't carry.
+  dapp.call("anchor", [day], null, "seed the day-" + day + " provable board", { phase: "anchor" });
   return null;
 }
 
@@ -129,19 +143,23 @@ export function unpackMoves(words, bits, n) {
 
 // ---- claim verification pipeline ------------------------------------------------------------------------
 // verifyEntries(entries, replayFn): entries = [{e, day, addr, score, n, words}]; replayFn(seedArgs, moves)
-// must return the TRUE score (or -1). Results cached per entry id — a claim's verdict never changes.
+// must return the TRUE score (or -1). Results cached per claim — a claim's verdict never changes.
 // Returns the verified best-per-address rows, sorted, ready for renderTopScores.
 const _claimCache = new Map();
 export async function verifyEntries(entries, replay) {
   const best = {};
   for (const en of entries) {
     if (!en.addr || !(en.score > 0)) continue;
-    if (!_claimCache.has(en.e)) {
+    // Keyed by the claim's CONTENT, not its slot: the entry id is a provisional append-log counter, and
+    // a rollback re-issues the same id to a different claim — an id-keyed verdict would then bury an
+    // honest score, or (same score, different moves) admit one whose move list was never replayed.
+    const ck = en.e + ":" + en.addr + ":" + en.score + ":" + en.n + ":" + (en.words || []).join(",");
+    if (!_claimCache.has(ck)) {
       let v = -1;
       try { v = await replay(en); } catch {}
-      _claimCache.set(en.e, v);
+      _claimCache.set(ck, v);
     }
-    if (_claimCache.get(en.e) !== en.score) continue;             // bogus/unverifiable — never renders
+    if (_claimCache.get(ck) !== en.score) continue;               // bogus/unverifiable — never renders
     // Keep the whole verified entry, not just {addr, score}: the board needs `ts`/`day` to stamp WHEN a
     // score was set, and `n`/`words`/`day` to REPLAY the claim on click. Best-per-address still wins.
     if (!best[en.addr] || best[en.addr].score < en.score) best[en.addr] = en;

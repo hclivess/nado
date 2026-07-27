@@ -14,7 +14,7 @@
 // -> every stake refunds 1:1; an unbacked winner auto-voids. Payouts are pull-based (each bettor calls
 // claim). Outcomes are integers 0..nout-1 everywhere. Per-user positions are read through the contract's
 // /exec/view methods (claimable_of etc.) — see the myCache notes below.
-import { Book } from "./bookgame.js?v=03a5942d";
+import { Book } from "./bookgame.js?v=650810e4";
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, disp, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js?v=db1a59d7";
 
 const CID = "233a89ff483f1792941201b3b28025c6";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
@@ -176,7 +176,7 @@ async function refreshMy(mk) {
   }
   // book position: only worth a view call once this market HAS a bank (bs > 0 means stakes were taken).
   // Read per outcome, because a punter may have backed more than one at different prices.
-  if (mk.bookTaken > 0) {
+  if (mk.book.taken > 0n) {
     const [bst, bpy, bcl] = await Promise.all([
       Promise.all(mk.labels.map((_l, i) => dapp.view("bstake_of", [id, i, dapp.me]))),
       Promise.all(mk.labels.map((_l, i) => dapp.view("bpay_of", [id, i, dapp.me]))),
@@ -320,7 +320,7 @@ function createMarket() {
   const now = dapp.chainNow();
   const lock = Math.round(now + closeMin * 60);               // betting closes closeMin minutes from now (epoch secs)
   const deadline = Math.round(lock + Math.max(voidHrs, 0.5) * 3600);   // anyone may void this long after close
-  const id = randId();
+  const id = marketIdFor([title, labels.join("\n"), source, ev, closeMin, voidHrs, resolvers.join(","), thr].join("|"));
   const desc = [title].concat(labels).join("\n");
   const r = resolvers.concat([0, 0, 0]);                    // 0 = empty resolver slot (zkVM: ints, not "")
   // "Open a banked match" is one form, but two txs: the contract can only take a bankroll for a market that
@@ -335,6 +335,20 @@ function createMarket() {
             window.t("bet.callCreate", "list “{title}”", { title }), { market: id, phase: "create" });
 }
 const LS_BANK = "nado_bet_pending_bank";
+const LS_MKID = "nado_bet_pending_mktid";
+// A market id is minted here, not by the chain, so a re-click while the first create is still in the pool
+// must reuse it: a fresh randId() lists a SECOND market for a fixture that exists once (split liquidity, and
+// only the newer id is the one LS_BANK will bank), whereas the same id simply reverts as a duplicate. Keyed
+// by the form itself so a genuinely different listing still gets its own id, and dropped after 15 minutes —
+// far longer than a transaction stays unresolved, short enough to never surprise a later listing.
+function marketIdFor(sig) {
+  let p = null;
+  try { p = JSON.parse(localStorage.getItem(LS_MKID) || "null"); } catch (e) {}
+  if (p && p.sig === sig && Date.now() - (p.ts || 0) < 900000) return p.id;
+  const id = randId();
+  try { localStorage.setItem(LS_MKID, JSON.stringify({ sig, id, ts: Date.now() })); } catch (e) {}
+  return id;
+}
 // post the queued bankroll once its market is visible on-chain (see createMarket)
 function followUpBank(mkts) {
   let p = null;
@@ -344,7 +358,10 @@ function followUpBank(mkts) {
   const mk = mkts.find((x) => x.id === Number(p.m));
   if (!mk) return;                                   // market not on-chain yet — wait for the next tick
   try { localStorage.removeItem(LS_BANK); } catch (e) {}
-  if (!mk.bank) postBankroll(mk.id, p.raw);
+  // dropped BEFORE the post, never after: the roll only becomes visible once the tx lands, so a record kept
+  // across the next 4s tick would bank the market twice.
+  if (!mk.book.bank) book.post(mk.id, BigInt(p.raw), window.t("bet.callBook", "put up {amt} NADO as the bank · match #{id}",
+    { amt: rawToNado(p.raw), id: mk.id }), mk.book);
 }
 
 // ---- refresh + render ----------------------------------------------------------------------------
@@ -370,7 +387,11 @@ async function refreshAll() {
   // AUTO-COLLECT (shared SDK tick, opt-out): claim any settled market that owes me, one per refresh
   if (lastSto) {
     const owed = allMarkets(lastSto).filter((m) => claimable(m) > 0);
-    dapp.autoCollect(owed, (m) => claimMarket(m.id), { key: (x) => x.id });
+    // phase-scoped: a claim's input is fixed on-chain (the market is already resolved or void), so only
+    // another claim can collide with it. Without this an unrelated bet — a VALUE pend, held for the full
+    // wall-clock TTL when its tx is dropped — starves auto-collect for two minutes at a time, and a bettor
+    // who keeps betting never opens the window at all.
+    dapp.autoCollect(owed, (m) => claimMarket(m.id), { phase: "claim", key: (x) => x.id });
   }
 }
 function selectMarket(id) {
@@ -597,12 +618,12 @@ function renderBook(mk) {
       const raw = BigInt(Math.floor(Number(nadoToRaw(v)) / UNIT) * UNIT);
       if (!raw) return alertBar(window.t("bet.enterBankroll", "Enter a bankroll (NADO)."));
       book.post(mk.id, raw, window.t("bet.callBook", "put up {amt} NADO as the bank · match #{id}",
-        { amt: rawToNado(raw), id: mk.id }));
+        { amt: rawToNado(raw), id: mk.id }), mk.book);
     },
     onBack: (i, v) => {
       const raw = BigInt(Math.floor(Number(nadoToRaw(v)) / UNIT) * UNIT);
       book.back(mk.book, i, raw, window.t("bet.callBack", "back {lab} at {p} for {amt} · match #{id}",
-        { lab: mk.labels[i], p: (mk.book.odds[i] / 100).toFixed(2) + "×", amt: rawToNado(raw), id: mk.id }));
+        { lab: mk.labels[i], p: (mk.book.odds[i] / 100).toFixed(2) + "×", amt: rawToNado(raw), id: mk.id }), mk.myBook);
     },
     quoteLabel: (i, pct) => window.t("bet.callQuote", "price {lab} at {p} · match #{id}",
       { lab: mk.labels[i], p: (pct / 100).toFixed(2) + "×", id: mk.id }),

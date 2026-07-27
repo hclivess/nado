@@ -46,14 +46,24 @@ async function refresh() {
   const sto = await dapp.storage({ append: MAPS });
   if (!sto) return;
   const log = logFromSto(sto);   // updates `mc` (the next action index) from the global log
-  // release the act click-guard the instant the log has grown past the ply I submitted at (my act landed).
-  dapp.settleInflight((f) => f.phase === "act" ? mc > (f.mc0 == null ? -1 : f.mc0) : true);
+  // release the act click-guard only when MY entry is the one holding the ply I signed at. The log is
+  // GLOBAL: a rival's append grows it while my act(ply==mc0) reverts on-chain (the contract requires
+  // ply == mc exactly), so a bare length check would drop the guard and toast "✓ Recorded on-chain" for
+  // an order that never happened.
+  dapp.settleInflight((f) => f.phase === "act"
+    ? !!(f.mc0 != null && log[f.mc0] && log[f.mc0].actor === dapp.me && log[f.mc0].enc === f.enc0)
+    : true);
   // fetch the seed blocks every past raid needs (fast/provisional — public randomness)
   const need = [];
   for (const e of log) if (e.target) { const rh = e.rh; if (rh && dapp.cursor != null && dapp.cursor >= rh && dapp.bh(rh) === undefined) need.push(rh); }
   if (need.length) await dapp.blockHashes(need.slice(0, 60), { fast: true });
   const now = dapp.cursor != null ? dapp.cursor : (log.length ? log[log.length - 1].rh : 0);
   nowCur = now; lastWall = performance.now();
+  // the log is read PROVISIONALLY, so a poll can return FEWER entries than the last one (a rollback, or a
+  // read that raced the append and broke on the gap above). Replaying that regresses the whole world — the
+  // player's land/money snap back to a state they no longer have — so keep the higher one until the drop
+  // persists past the SDK's grace window (a genuine reorg).
+  if (!dapp.accept("sovereign", log.length)) { render(); return; }
   myLastCur = dapp.me ? log.reduce((m, e) => e.actor === dapp.me && e.cursor > m ? e.cursor : m, 0) : 0;
   const rr = E.replayWorld(log, now, seedOf);
   world = rr.world;
@@ -63,7 +73,7 @@ async function refresh() {
 }
 
 // ---- action feedback (beginner-friendly): a clear toast for every raid/strike/spy outcome ---------------
-let feedSeen = -1;            // -1 = not yet initialised; on first load we seed the marker and skip history
+let feedSeen = -1, feedWho = null;   // -1 = not yet initialised; on first load we seed the marker and skip history
 const troops = (m) => Object.values(m || {}).reduce((s, v) => s + (v || 0), 0);
 function lootStr(loot) {
   const p = [];
@@ -76,8 +86,10 @@ function lootStr(loot) {
 function showFeed(feed) {
   const meId = practice ? "you" : dapp.me;
   if (!feed || !meId) { feedSeen = feed ? feed.length : 0; return; }
-  if (feedSeen < 0) { feedSeen = feed.length; return; }      // first render: don't replay historical toasts
-  const fresh = feed.slice(feedSeen); feedSeen = feed.length;
+  // first render — and every switch of WHOSE feed this is (sign-in, entering/leaving practice): re-seed the
+  // marker, so history isn't replayed and the other world's high-water mark can't mute the new one's toasts.
+  if (feedSeen < 0 || feedWho !== meId) { feedWho = meId; feedSeen = feed.length; return; }
+  const fresh = feed.slice(feedSeen); feedSeen = Math.max(feedSeen, feed.length);   // never walks back: a shorter replay would re-toast raids already reported
   for (let i = fresh.length - 1; i >= 0; i--) {              // newest outcome involving me wins the toast
     const f = fresh[i];
     if (f.actor === meId) return toastMine(f);
@@ -108,10 +120,10 @@ function act(enc, tgt, label) {
   if (practice) return pracAct(enc, tgt);
   if (!dapp.me) return dapp.signIn();
   // CLICK-GATED: an act is ply-bound to the current log length (mc); a second act while the first is
-  // confirming would carry the SAME mc and REVERT on-chain. busy("act") holds from the tap until the log
-  // grows past mc0 (see refresh's settleInflight), self-expiring so a lost tx can be retried.
+  // confirming would carry the SAME mc and REVERT on-chain. busy("act") holds from the tap until MY entry
+  // is seen at mc0 (see refresh's settleInflight), self-expiring so a lost tx can be retried.
   if (dapp.busy("act")) return notify(confirmingLabel());
-  dapp.call("act", [enc, tgt || 0, mc], null, label, { phase: "act", mc0: mc });
+  dapp.call("act", [enc, tgt || 0, mc], null, label, { phase: "act", mc0: mc, enc0: enc });
 }
 const found = () => act(E.encAction(E.OP.found), 0, T("cfFound", "found your nation"));
 

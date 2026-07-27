@@ -6,7 +6,7 @@
 // full-enumeration-proven — see tests/test_slots_contract.py). The machine's bank commits a 150x cover
 // for every open spin, so it can never welsh. Settle is permissionless; a pruned spin refunds via claim.
 import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=db1a59d7";
-import { BankedGame } from "./bankedgame.js?v=d962f302";
+import { BankedGame } from "./bankedgame.js?v=8fefa154";
 import { Practice } from "./practice.js?v=69d3a659";      // free in-browser practice (play chips, no chain)
 
 const CID = "0bc996d9b087cedff92d60c6fac7b3b0";
@@ -91,7 +91,7 @@ function maybeAutoSettle() {
   if (!lastTable || !lastTable.exists) return;
   const iAmBank = lastTable.bank === dapp.me;
   dapp.autoCollect(mySpins.filter((s) => !s.settled && s.ready && (iAmBank || s.addr === dapp.me)),
-    (s) => settleSpin(s.g, s.m2, s.stake), { blocked: watch });
+    (s) => settleSpin(s.g, s.m2, s.stake), { blocked: watch, phase: "settle" });
 }
 function readyWins() { return mySpins.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.m2 > 0); }
 function collectWins() {

@@ -3,9 +3,9 @@
 // board refunds both stakes. Built on the shared PvP board-game scaffold (pvpgame.js) — this file is
 // ONLY the connect-four board: its decode, its render, its move.
 import { NadoDapp, rawToNado, _m, $, disp, gate, hoist } from "./nadodapp.js?v=db1a59d7";
-import { PvpGame } from "./pvpgame.js?v=4ec70bd0";
-import { BoardDaily, gameModes } from "./board-daily-ui.js?v=1da7e81b";   // shared free Daily Challenge + mode picker
-import * as RULES from "./connect4-rules.js?v=0d9c67c6";
+import { PvpGame } from "./pvpgame.js?v=05a0dca3";
+import { BoardDaily, gameModes } from "./board-daily-ui.js?v=aafea378";   // shared free Daily Challenge + mode picker
+import * as RULES from "./connect4-rules.js?v=7e137bff";
 import { Practice } from "./practice.js?v=69d3a659";   // free in-browser practice vs the computer
 
 const CID = "aaee53d5afc487aa3af78b6913fbea80";

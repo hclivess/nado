@@ -4,7 +4,7 @@
 // predict, so the dice are objective and unriggable. Highest banked score when the table's play window ends
 // takes the whole pot. Built on the shared SDK (nadodapp.js) — matches tests/test_farkle_contract.py exactly.
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp , installModes , playModes} from "./nadodapp.js?v=db1a59d7";
-import { BankedGame } from "./bankedgame.js?v=d962f302";
+import { BankedGame } from "./bankedgame.js?v=8fefa154";
 import { Practice } from "./practice.js?v=69d3a659";      // free in-browser practice (solo score-attack, no chain)
 
 const CID = "f082c9405c23022ca9e67fb73465757b";

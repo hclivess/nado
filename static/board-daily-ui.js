@@ -11,8 +11,8 @@
 // bot and fails to reproduce its score. Only your moves go on-chain; the rules never do.
 import { $, _m, dailyFrame, modeBar, renderTopScores, confirmingLabel, notify, base } from "./nadodapp.js?v=db1a59d7";
 import { todayIdx, anchorOf, seedDaily, pendingDaily, provableSeed, packMoves,
-         entriesFrom, verifyEntries } from "./provable.js?v=2dd16efd";
-import { play, score, verifyClaim } from "./board-daily.js?v=84796925";
+         entriesFrom, verifyEntries } from "./provable.js?v=24f139ac";
+import { play, score, verifyClaim } from "./board-daily.js?v=ebdde942";
 
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;
 
@@ -44,6 +44,15 @@ export class BoardDaily {
   }
   _save() { try { localStorage.setItem(this.LS, JSON.stringify({ day: this.day, moves: this.moves })); } catch (e) {} }
   reset() { this.moves = []; this._save(); }
+  // A daily tab is left open across UTC midnight, and the contract ACCEPTS a post dated yesterday — so a
+  // day index frozen at construction files the new day's run onto yesterday's already-paid board, seeded
+  // by yesterday's anchor. Every entry point re-reads the clock instead.
+  _roll() {
+    const d = todayIdx();
+    if (d === this.day) return;
+    this.day = d; this.anchor = null; this.seed = null; this._posted = null;
+    this.moves = this._load();
+  }
 
   /** replay the run so far — the single source of truth for the board, the score and doneness */
   run() {
@@ -54,6 +63,7 @@ export class BoardDaily {
 
   // ---- seeding today's board (shared driver: survives the wallet redirect) ----
   async ensure(sto) {
+    this._roll();
     if (this.anchor) return this.anchor;
     const a = sto ? anchorOf(sto, _m, this.day) : null;
     if (a) { this.anchor = a; this.seed = provableSeed(this.rules.SLUG, this.day, a, this.dapp.me || "anon"); }
@@ -62,13 +72,16 @@ export class BoardDaily {
   /** drive the anchor to resolution (button path). Resumes by itself after a wallet round-trip. */
   async seedNow(getStorage, onRender) {
     if (this.seeding) return null;
+    const day = this.day;                        // the drive runs for a minute; midnight can land inside it
     this.seeding = true; onRender && onRender();
     let a = null;
     try {
-      a = await seedDaily(this.dapp, { slug: this.rules.SLUG, day: this.day, base: base(), _m,
+      a = await seedDaily(this.dapp, { slug: this.rules.SLUG, day, base: base(), _m,
                                        getStorage, onProgress: () => onRender && onRender() });
     } finally { this.seeding = false; }
-    if (a) { this.anchor = a; this.seed = provableSeed(this.rules.SLUG, this.day, a, this.dapp.me || "anon"); }
+    // Adopting a rolled-over day's anchor would pair it with today's seed string, and a run played on a
+    // seed no verifier can rederive replays to a different score and never ranks.
+    if (a && day === this.day) { this.anchor = a; this.seed = provableSeed(this.rules.SLUG, this.day, a, this.dapp.me || "anon"); }
     onRender && onRender();
     return a;
   }
@@ -102,6 +115,7 @@ export class BoardDaily {
   // ---- render: the SDK frame + ONE grid painter for every board game ----
   render(onRender) {
     const el = $(this.cfg.mount); if (!el) return;
+    this._roll();
     const rules = this.rules, r = this.run();
     const marks = this.cfg.marks || ["", "●", "○"];
     let body = "";
@@ -146,6 +160,7 @@ export class BoardDaily {
   /** the verified leaderboard: every posted claim is REPLAYED here before it may rank */
   async renderBoard(sto) {
     const el = $(this.cfg.listEl); if (!el || this._boardBusy) return;
+    this._roll();
     this._boardBusy = true;
     try {
       const anchor = sto ? anchorOf(sto, _m, this.day) : null;

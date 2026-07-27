@@ -27,7 +27,7 @@ export class PvpGame {
     const slug = dapp.app.replace(/\W+/g, "").toLowerCase();
     this.LS_G = "nado_" + slug + "_games";
     this.active = null; this.last = null; this.lastSto = null; this.watch = null;
-    this.pendingMove = null;   // the game's optimistic marker (set by game code; cleared when mc advances)
+    this.pendingMove = null;   // the game's optimistic marker (set by game code; cleared when mc advances — or when the SDK's move guard lets go, see refresh())
     this.lobbyN = 24;
   }
 
@@ -124,6 +124,12 @@ export class PvpGame {
           this.last = ng;
           if (this.pendingMove != null && ng.exists && ng.mc > (this.pendingMove.ply || 0)) this.pendingMove = null;
         }
+        // That test only releases a move that LANDED. A move accepted into the pool and then dropped never
+        // advances mc, so on its own the marker refuses every tap for the rest of the page's life. Give it the
+        // same lifetime as the SDK's click registry — the one clock that already expires a pool casualty — and
+        // that means the registry's WALL-CLOCK TTL: re-arming the board on tip age alone would offer a second
+        // real move at the same ply while the first is still in the mempool.
+        if (this.pendingMove != null && !this.dapp.busy("move", "game", this.active)) this.pendingMove = null;
       }
       if (this.watch) {
         const g = String(this.watch.game);

@@ -110,7 +110,8 @@ function maybeAutoSettle() {
   if (!lg || !lg.exists || lg.settled || lg.ncom !== 2 || !lg.ready) return;
   const mine = (lg.players || {})[dapp.me];
   if (!mine || lg.winner_slot !== mine.slot) return;   // only auto-collect MY winnings
-  dapp.autoCollect([{ g: active }], () => settle());
+  // phase-scoped — see dice.js: only another settle may hold this one.
+  dapp.autoCollect([{ g: active }], () => settle(), { phase: "settle" });
 }
 const cancelGame = () => { if (dapp.busy("cancel", "gameId", active)) return; dapp.call("cancel", [active], null, window.t("coinflip.cancelDesc", "cancel game #{id}", { id: active }), { gameId: active, phase: "cancel" }); };
 async function rematch() {

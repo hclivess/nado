@@ -7,8 +7,8 @@
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame } from "./nadodapp.js?v=db1a59d7";
 import { Practice } from "./practice.js?v=69d3a659";   // free in-browser practice vs the computer
-import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=2dd16efd";
-import * as SALVO from "./battleship-daily.js?v=ecdf1fbb";
+import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=24f139ac";
+import * as SALVO from "./battleship-daily.js?v=bec6785f";
 
 const CID = "eaf6878ade7725c112089992e8f62df8";   // execnode/games/battleship.py (zkVM; alphanet-7 redeploy with the Daily Salvo)
 const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
@@ -112,7 +112,9 @@ let lastSto = null, activeGame = null, lastGame = null, target = null;
 // un-renders — the chain only CONFIRMS it (for the hit/miss result + payout). A provisional-tip wobble/rollback
 // can drop a cell from the raw storage for a poll; we UNION chain state into these and never shrink, so nothing
 // blips back and forth. myFired = my shots at the enemy · myRes = their proven results · oppFired = enemy shots at me.
-let myFired = {}, myRes = {}, oppFired = {};
+// myOpt tracks the cells only THIS client believes it fired — the one class of entry the chain can contradict,
+// so it is the one class that may shrink (see ingestShots).
+let myFired = {}, myRes = {}, oppFired = {}, myOpt = {};
 const setOf = (m, g) => m[g] || (m[g] = new Set());
 function ingestShots(sto, g) {   // fold the chain's confirmed shots into the local views (union, monotonic)
   if (!sto || g == null) return;
@@ -122,6 +124,15 @@ function ingestShots(sto, g) {   // fold the chain's confirmed shots into the lo
     if (firedAt(sto, gm.mineSlot, g, c)) mF.add(c);
     if (firedAt(sto, opp, g, c)) oF.add(c);
     const r = resultAt(sto, gm.mineSlot, g, c); if (r) mR[c] = r;
+  }
+  // A shot that never reached the chain — dropped from the pool, or it lost the pex race and reverted — must
+  // hand its cell back: fire() and the grid renderer both refuse a cell already in myFired, so a phantom bars
+  // that square for the rest of the session and can put the 17-hit sweep out of reach. The SDK's own guard is
+  // the clock: while busy() holds, the tx is still plausibly alive and the "…" stays.
+  const opt = setOf(myOpt, g), dead = !dapp.busy("fire", "game", g);
+  for (const c of Array.from(opt)) {
+    if (firedAt(sto, gm.mineSlot, g, c)) opt.delete(c);
+    else if (dead) { opt.delete(c); mF.delete(c); }
   }
 }
 let ships = randFleetShips();          // the fleet being placed (starts as a valid random layout)
@@ -164,6 +175,7 @@ function fire() {
   if (setOf(myFired, activeGame).has(target)) return alertBar(window.t("bs.already", "You already fired there — pick another cell."));
   const t = target; target = null;
   setOf(myFired, activeGame).add(t);   // OPTIMISTIC: paint the shot now; it never blips out while the chain confirms
+  setOf(myOpt, activeGame).add(t);     // ...but stays revocable until the chain takes it, so a lost tx frees the cell
   render();
   // no proof — the RESULT comes from the enemy's answer() (auto-submitted by their client), so you see hit/miss fast
   dapp.call("fire", [activeGame, t], null, "fire at " + coord(t) + " · battleship #" + activeGame, { game: activeGame, phase: "fire", shot: t });
@@ -536,7 +548,7 @@ dapp.doneLabels({ open: window.t("bs.dnOpen", "✓ Game is on-chain — send the
   claim: window.t("bs.dnClaim", "✓ Fleet revealed — winnings collected!"), forfeit: window.t("bs.dnForfeit", "✓ Pot claimed — opponent never revealed a valid fleet.") });
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.game != null) activeGame = pend.game;
-  if (!ok && pend && pend.phase === "fire" && pend.shot != null) { setOf(myFired, pend.game).delete(pend.shot); render(); }   // rejected → un-paint the optimistic shot
+  if (!ok && pend && pend.phase === "fire" && pend.shot != null) { setOf(myFired, pend.game).delete(pend.shot); setOf(myOpt, pend.game).delete(pend.shot); render(); }   // rejected → un-paint the optimistic shot
   if (!ok && pend && pend.phase === "answer") delete answerAt[pend.game];   // rejected at signing → let the auto-answer retry now
   dapp.showReturn(pend, ok, err, { open: window.t("bs.cfOpen", "Opening — confirming…"), join: window.t("bs.cfJoin", "Joining — confirming…"),
     fire: window.t("bs.cfFire", "Firing — confirming on-chain…"), resign: window.t("bs.cfResign", "Resigning…"), timeout: window.t("bs.cfTimeout", "Claiming…"), cancel: window.t("bs.cfCancel", "Cancelling…"),

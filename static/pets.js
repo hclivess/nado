@@ -863,7 +863,9 @@ function provision(pid, units) {
 }
 const equipItem = (iid, pid) => { if (dapp.busy("equip", "iid", iid)) return notify(confirmingLabel());
   dapp.call("equip", [Number(iid), Number(pid)], null, window.t("pets.callEquip", "equip item #{id}", { id: iid }), { iid, phase: "equip" }); };
-const unequipItem = (iid) => { if (dapp.busy("equip", "iid", iid)) return notify(confirmingLabel());
+// the guard must ask about the phase the call actually registers: busy("equip") can never see an
+// unequip pend, and an ungated Take-off signs a duplicate on every re-tap (the second one reverts).
+const unequipItem = (iid) => { if (dapp.busy("unequip", "iid", iid)) return notify(confirmingLabel());
   dapp.call("unequip", [Number(iid)], null, window.t("pets.callUnequip", "unequip item #{id}", { id: iid }), { iid, phase: "unequip" }); };
 // FUSE: feed one item to another of the same slot to lift its tier. This is what a bag full of junk is FOR —
 // item supply grows forever while a pet only has four slots, so without a permanent use the flood becomes
@@ -916,7 +918,10 @@ const trainResolve = (pid) => dapp.call("train_resolve", [Number(pid)], null, "r
 // signs silently in the background), so you never have to tap "Reveal the result". One per refresh tick.
 function maybeAutoReveal() {
   const ready = myPets().filter((p) => p.th && dapp.cursor != null && dapp.cursor >= p.th + 1 && dapp.bh(p.th) && dapp.bh(p.th + 1));
-  dapp.autoCollect(ready, (p) => trainResolve(p.id), { key: (p) => "reveal:" + p.id });
+  // phase-scoped: a reveal's input is already fixed on-chain, so only another in-flight reveal may hold it.
+  // Without the phase, ANY pend starves it — and a staked pend (feed/train/build/fuse…) holds the full
+  // 2-minute TTL, which is two minutes of finished trainings sitting unrevealed behind an unrelated tx.
+  dapp.autoCollect(ready, (p) => trainResolve(p.id), { phase: "trainres", key: (p) => "reveal:" + p.id });
 }
 function challenge(theirPid) {
   const myPid = parseInt($("myPetSel").value, 10);
@@ -1624,7 +1629,7 @@ function renderBag() {
     + (worn ? '<div class="small dim mt">' + window.t("pets.wornBy", "worn by {pet}", { pet: esc(worn.label) }) + "</div>" : "")
     + '<div class="rowb">'
     + (it.worn
-        ? '<button class="ghost" id="btnUnequip">' + (dapp.busy("equip", "iid", it.id) ? confirmingLabel() : window.t("pets.unequip", "Take off")) + "</button>"
+        ? '<button class="ghost" id="btnUnequip">' + (dapp.busy("unequip", "iid", it.id) ? confirmingLabel() : window.t("pets.unequip", "Take off")) + "</button>"
         : '<select id="equipTo">' + wearers.map((p) => '<option value="' + p.id + '">' + esc(p.label) + "</option>").join("") + "</select>"
           + '<button class="primary" id="btnEquip"' + (wearers.length ? "" : " disabled") + ">"
           + (dapp.busy("equip", "iid", it.id) ? confirmingLabel() : window.t("pets.equip", "Equip")) + "</button>"

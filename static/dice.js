@@ -6,7 +6,7 @@
 // Once the settle block is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=db1a59d7";
-import { BankedGame } from "./bankedgame.js?v=d962f302";
+import { BankedGame } from "./bankedgame.js?v=8fefa154";
 import { Practice } from "./practice.js?v=69d3a659";      // free in-browser practice (play chips, no chain)
 
 const CID = "f4a8e6155c694430fdd3c2b85b10ac51";
@@ -82,7 +82,11 @@ const settleSeat = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.cal
 // AUTO-COLLECT a resolved WINNING seat (shared SDK tick — opt-out slider, one-per-refresh, autoTried dedup)
 function maybeAutoSettle() {
   if (!lastTable || !lastTable.exists) return;
-  dapp.autoCollect(lastSeats.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.win), (s) => settleSeat(s.g));
+  // phase-scoped: a settle's input is already fixed on-chain, so the ONLY thing that may hold it is another
+  // settle. Without this an unrelated pending action (a bet, a close) starves the payout for the pend's
+  // full TTL — the same starvation that stranded autogame's queue for minutes.
+  dapp.autoCollect(lastSeats.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.win),
+    (s) => settleSeat(s.g), { phase: "settle" });
 }
 const closeTable = () => bg.close(window.t("dice.callClose", "close table #{t}", { t: bg.active }));
 
