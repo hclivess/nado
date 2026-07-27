@@ -5,9 +5,9 @@
 // Symbols come off weighted 64-stop virtual reels; the paytable pays up to 150x (exact RTP 95.796%,
 // full-enumeration-proven — see tests/test_slots_contract.py). The machine's bank commits a 150x cover
 // for every open spin, so it can never welsh. Settle is permissionless; a pruned spin refunds via claim.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=db1a59d7";
-import { BankedGame } from "./bankedgame.js?v=8fefa154";
-import { Practice } from "./practice.js?v=69d3a659";      // free in-browser practice (play chips, no chain)
+import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=dc26a404";
+import { BankedGame } from "./bankedgame.js?v=9f6cd516";
+import { Practice } from "./practice.js?v=99fbf9b8";      // free in-browser practice (play chips, no chain)
 
 const CID = "0bc996d9b087cedff92d60c6fac7b3b0";
 const dapp = new NadoDapp({ cid: CID, app: "Slots" });
@@ -79,6 +79,20 @@ async function doSpin() {
 const settleSpin = (g, m2, stake) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("settle", [g], null,
   (m2 > 0 ? window.t("slots.collectLabel", "💰 collect {n} NADO", { n: rawToNado(BigInt(stake) * BigInt(m2) / 2n) }) : window.t("slots.finishLabel", "finish spin #{g}", { g })), { table: bg.active, seat: g, phase: "settle" }); };
 const claimSpin = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("claim", [g], null, window.t("slots.refundLabel", "refund pruned spin #{g}", { g }), { table: bg.active, seat: g, phase: "settle" }); };
+// WHICH spins are actually unrecoverable is dapp.horizonVerdict()'s call, never this file's — the
+// contract's 18000-block gate opens ~2000 blocks BEFORE the reel hashes prune, and claiming inside that
+// overlap refunds the stake on a spin that would still have paid its multiplier (up to 149x here).
+// See dice.js for the full reasoning. Manual only: a refund is irreversible, a settle is always better
+// while one is possible, so this is never auto-fired the way a win is.
+const HORIZON = 18000;                   // must match the gate in execnode/games/slots.py
+async function markStuck(spins) {
+  for (const s of spins) {
+    s.stuck = false;
+    if (s.settled || s.ready || !s.gh) continue;
+    if (dapp.cursor == null || dapp.cursor - s.gh <= HORIZON) continue;
+    s.stuck = (await dapp.horizonVerdict(s.gh, HORIZON)) === "refund";
+  }
+}
 function fundMachine() {
   const raw = nadoToRaw($("fundAmt").value);
   if (!raw) return alertBar(window.t("slots.enterFund", "Enter how much NADO to add to the bank."));
@@ -119,6 +133,7 @@ async function refreshAll() {
       // FAST provisional hashes: slot results are PUBLIC + re-validated on-chain at settle
       await bg.prefetchHashes(sto);
       mySpins = spinsOf(sto, bg.active);
+      await markStuck(mySpins);
     }
     if (watch) {
       const done =
@@ -222,6 +237,16 @@ var render = function render() {
   // one-tap collect: sum the player's ready winnings
   const wins = mySpins.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.m2 > 0);
   const winTotal = wins.reduce((a, s) => a + BigInt(s.stake) * BigInt(s.m2) / 2n, 0n);
+  const stuck = mySpins.filter((s) => s.addr === dapp.me && !s.settled && s.stuck);
+  const stuckBtn = $("btnRefundStuck");
+  if (stuckBtn) {
+    stuckBtn.classList.toggle("hidden", stuck.length === 0);
+    if (stuck.length) {
+      stuckBtn.textContent = window.t("slots.refundStuck", "↩ Refund stuck spin #{g} ({amt})",
+        { g: stuck[0].g, amt: rawToNado(stuck[0].stake) });
+      stuckBtn.onclick = () => claimSpin(stuck[0].g);
+    }
+  }
   $("btnCollect").classList.toggle("hidden", wins.length === 0);
   if (wins.length) $("btnCollect").textContent = window.t("slots.collectTotal", "💰 Collect {many}{n} NADO", { many: wins.length > 1 ? window.t("slots.winsCount", "{c} wins · ", { c: wins.length }) : "", n: rawToNado(winTotal) });
   // spin history with collect buttons

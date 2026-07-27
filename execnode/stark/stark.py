@@ -29,7 +29,13 @@ OFF = F.GENERATOR                    # LDE coset shift (disjoint from the trace 
 # (N = 2^32 builds a ~34 GB list). Real shielded circuits use T ≈ 1024, so 2^17 is ~128× headroom and caps the
 # LDE at ~2^21 elements — generous for legit proofs, fatal to the OOM.
 MAX_TRACE_ROWS = 1 << 17
-MAX_COLUMNS = 256
+MAX_COLUMNS = 384    # verify-side sanity/DoS cap on trace width (a pure Python bound; the native prover has no
+                     # column limit). Raised from 256: the recursion's ROW-MODE composition of a W-wide inner AIR
+                     # is 18 + 2*W wide (rowcomp_verify _CARRY + 2*W), so folding the exec AIR (W_TOTAL=131) needs
+                     # a 280-column composition proof — 256 rejected it as "bad column count", silently breaking
+                     # the K→1 settlement fold once the exec AIR grew past ~119 columns. 384 fits the composition
+                     # (headroom to an inner W of 183). CONSENSUS-RELEVANT (every node must agree); transparent
+                     # for existing proofs (all < 256), it only ADDS validity for the wide composition proofs.
 
 
 def _next_pow2(x):

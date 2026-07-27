@@ -862,6 +862,49 @@ export class NadoDapp {
   }
   bh(h) { return this._bh[h]; }
   /**
+   * horizonVerdict(pin, horizon) -> "settle" | "refund" | "wait" — for a stake whose outcome is pinned to
+   * block `pin`, in a contract that accepts a permissionless refund once `pin + horizon < cursor`.
+   *
+   * WHY THIS IS SHARED. The outcome resolves from BHASH(pin), and the node keeps only the most recent
+   * ~20000 finalized hashes. Once `pin` falls out of that ring the outcome can never be derived again and
+   * the stake would be locked forever — which is why every banked contract carries a refund op
+   * (reclaim / claim / reap), legal at `pin + horizon`.
+   *
+   * THE TRAP THIS EXISTS TO CLOSE: the contract's horizon (18000) is SMALLER than the node's retention
+   * (~20000). For those ~2000 blocks — about three hours — the refund is already legal while the hash is
+   * still readable and the bet still SETTLES NORMALLY. A client that decides on "the contract would accept
+   * a refund" therefore converts a WINNING bet into a stake refund, and does it automatically wherever
+   * auto-collect is on. Four games hand-rolled this rule and all four got it wrong the same way, so it is
+   * not a per-game decision any more.
+   *
+   * The only safe question is "can this still be settled?" — never "is the refund legal yet?":
+   *   hash readable                              -> "settle", ALWAYS, however far past the horizon
+   *   hash provably gone AND past the horizon    -> "refund"
+   *   anything else, including a failed lookup   -> "wait"
+   *
+   * A lookup that fails, or a node that is merely behind, is NOT evidence of pruning — those return
+   * "wait", so no transient condition can ever produce a refund. Callers must treat "wait" as "leave it
+   * alone", never as a reason to hide the settle path.
+   */
+  async horizonVerdict(pin, horizon) {
+    pin = Number(pin || 0);
+    if (!pin || this.cursor == null || this.cursor < pin) return "wait";   // pin not mined: nothing to say
+    if (this._bh[pin]) return "settle";                                    // cached hash: still derivable
+    let answered = false;
+    try {
+      const url = base() + "/exec/blockhash?ns=" + this.ns + "&heights=" + pin;
+      const j = await (await fetch(url, { cache: "no-store" })).json();
+      const v = j && j.hashes && j.hashes[String(pin)];
+      if (v) { this._bh[pin] = v; return "settle"; }
+      answered = true;                              // the node replied, and it does not hold this height
+    } catch { return "wait"; }                      // network failure proves nothing about the ring
+    // The miss is deliberately NOT cached. A node that is behind, restarting, or rebuilding its provisional
+    // tail answers "no hash" for a height it will serve again a minute later, and remembering that as
+    // "pruned forever" is exactly how a settleable stake gets refunded. Only stakes already past the
+    // horizon reach this line, so re-asking costs one small request on a rare seat.
+    return (answered && this.cursor - pin > horizon) ? "refund" : "wait";
+  }
+  /**
    * Read the persisted session address, migrating it if it predates an address-format change (see
    * healAddress). Runs at construction AND again in init() after loadCrypto(), because the checksum needs
    * blake2b — if the binding wasn't ready at construction the heal is simply retried once crypto is up.

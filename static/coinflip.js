@@ -6,8 +6,8 @@
 // is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=db1a59d7";
-import { Practice } from "./practice.js?v=69d3a659";      // free in-browser practice (play chips, no chain)
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=dc26a404";
+import { Practice } from "./practice.js?v=99fbf9b8";      // free in-browser practice (play chips, no chain)
 
 const CID = "949ac5e2e227ebe61cd22c5883829299";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" fill="none" aria-hidden="true">     <ellipse cx="18" cy="27" rx="10.5" ry="12.5" fill="#c8901a" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="28" cy="24" r="13" fill="#e3b341" stroke="#b5810f" stroke-width="2.4"/>     <circle cx="28" cy="24" r="8.6" stroke="#a9760a" stroke-width="1.3" fill="none"/>     <text x="28" y="29" text-anchor="middle" font-size="13" font-weight="800" fill="#7a5606" font-family="system-ui">N</text></svg>';
@@ -103,6 +103,14 @@ function reopenGame() {   // retry an open that never landed (same id is still f
   bet(active, raw, "open");
 }
 const settle = () => { if (dapp.busy("settle", "gameId", active)) return; dapp.call("settle", [active], null, window.t("coinflip.settleDesc", "settle game #{id}", { id: active }), { gameId: active, phase: "settle" }); };
+// A flip resolves from BHASH(sh)/BHASH(sh+1); once sh leaves the node's hash ring the coin can never be
+// read and BOTH stakes are locked forever. reclaim voids the game and refunds them. WHEN that is the right
+// action is dapp.horizonVerdict()'s call, not this file's: the contract's 18000-block gate opens ~2000
+// blocks before the hash prunes, and reclaiming inside that overlap makes the WINNER hand the loser a
+// free refund. See dice.js. Manual only — never auto-fired, because a settle pays someone and a refund
+// pays no one.
+const HORIZON = 18000;                   // must match the gate in execnode/games/coinflip.py
+const reclaimGame = () => { if (dapp.busy("settle", "gameId", active)) return; dapp.call("reclaim", [active], null, window.t("coinflip.reclaimDesc", "void stuck game #{id} — refund both stakes", { id: active }), { gameId: active, phase: "settle" }); };
 // AUTO-COLLECT the WINNER's pot once the flip is decided (shared SDK tick — opt-out slider, autoTried dedup)
 function maybeAutoSettle() {
   if (active == null) return;
@@ -122,6 +130,7 @@ async function rematch() {
   bet(rgid, stake, (rg && rg.exists && rg.ncom >= 1 && !rg.settled) ? "join" : "open");
 }
 
+let stuckGame = false;   // the active flip is past the horizon AND its hash is gone (dapp.horizonVerdict)
 async function refreshActive() {
   await dapp.refresh();
   const sto = await dapp.storage();
@@ -144,6 +153,13 @@ async function refreshActive() {
       // block (~6-18s) instead of waiting ~90s for finality (same rule Farkle's dice use).
       if (nn === 2 && !_m(sto, "sd")[String(active)] && cur != null && cur >= sh + 1) await dapp.blockHashes([sh, sh + 1], { fast: true });
       lastGame = gameFrom(sto, active);
+      // Only ask about a flip that is BOTH unresolvable here and past the contract's gate — the SDK makes
+      // the final call and refuses to say "refund" on a transient miss.
+      stuckGame = false;
+      if (lastGame && lastGame.exists && !lastGame.settled && lastGame.ncom === 2 && !lastGame.ready
+          && lastGame.sh && dapp.cursor != null && dapp.cursor - lastGame.sh > HORIZON) {
+        stuckGame = (await dapp.horizonVerdict(lastGame.sh, HORIZON)) === "refund";
+      }
     }
     const gg = gamesLoad(); let pruned = false;
     for (const id of Object.keys(gg)) if (!stageCache[id] && Date.now() - (gg[id].ts || 0) > 600000) { delete gg[id]; pruned = true; }
@@ -241,6 +257,16 @@ function renderActive() {
   // actions
   const resolved = lg.result === 0 || lg.result === 1;
   $("btnSettle").classList.toggle("hidden", !(lg.exists && !lg.settled && lg.ncom === 2 && lg.ready));
+  // The stuck-flip escape appears ONLY once the coin is provably unreadable (see reclaimGame): while
+  // lg.ready holds, the flip still settles and someone still wins, so the refund must stay out of sight.
+  const rb = $("btnRefundStuck");
+  if (rb) {
+    rb.classList.toggle("hidden", !stuckGame);
+    if (stuckGame) {
+      rb.textContent = window.t("coinflip.refundStuck", "↩ Void stuck game #{id} — refund both stakes", { id: lg.id });
+      rb.onclick = reclaimGame;
+    }
+  }
   if (lg.ready) $("btnSettle").textContent = (mine && lg.winner_slot === mine.slot) ? window.t("coinflip.collectPot", "💰 Collect the pot") : window.t("coinflip.payWinner", "Pay out the winner");
   $("btnCancel").classList.toggle("hidden", !(dapp.me && lg.exists && !lg.settled && lg.ncom === 1 && mine && mine.slot === 1));
   if (mine) dapp.clearInflight();                              // our seat is on-chain now — stop "confirming…"

@@ -7,9 +7,9 @@
 // Once the settle block is final, ANYONE can settle a seat (it pays the bettor) — a stalling bank can't rob
 // anyone. A win pays the true 36/count; losing stakes fold into the bankroll. Ordinary upgradable stackvm
 // contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=db1a59d7";
-import { BankedGame } from "./bankedgame.js?v=8fefa154";   // the ONE banked-table reader/lobby (shared by every house game)
-import { Practice } from "./practice.js?v=69d3a659";      // free in-browser practice (play chips, no chain)
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=dc26a404";
+import { BankedGame } from "./bankedgame.js?v=9f6cd516";   // the ONE banked-table reader/lobby (shared by every house game)
+import { Practice } from "./practice.js?v=99fbf9b8";      // free in-browser practice (play chips, no chain)
 
 const CID = "cb7d5cedb1360cb2239ab77bf89a92e1";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <circle cx="24" cy="24" r="16" fill="#0b0f14" stroke="#b5810f" stroke-width="2"/>     <g stroke="#0b0f14" stroke-width=".6">       <path d="M24 24 L24 8 A16 16 0 0 1 35.3 12.7 Z" fill="#d0362b"/>       <path d="M24 24 L35.3 12.7 A16 16 0 0 1 40 24 Z" fill="#20272f"/>       <path d="M24 24 L40 24 A16 16 0 0 1 35.3 35.3 Z" fill="#1f8f4e"/>       <path d="M24 24 L35.3 35.3 A16 16 0 0 1 24 40 Z" fill="#d0362b"/>       <path d="M24 24 L24 40 A16 16 0 0 1 12.7 35.3 Z" fill="#20272f"/>       <path d="M24 24 L12.7 35.3 A16 16 0 0 1 8 24 Z" fill="#d0362b"/>       <path d="M24 24 L8 24 A16 16 0 0 1 12.7 12.7 Z" fill="#20272f"/>       <path d="M24 24 L12.7 12.7 A16 16 0 0 1 24 8 Z" fill="#20272f"/></g>     <circle cx="24" cy="24" r="6" fill="#e3b341" stroke="#b5810f" stroke-width="1.4"/>     <circle cx="24" cy="24" r="2.2" fill="#0b0f14"/>     <circle cx="24" cy="10.5" r="2" fill="#fff"/></svg>';
@@ -93,6 +93,22 @@ function fundTable() {
   bg.fund(raw, "top up table #" + bg.active + " bankroll · " + rawToNado(raw) + " NADO");
 }
 const settleSeat = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("settle", [g], null, "collect seat #" + g, { table: bg.active, seat: g, phase: "settle" }); };
+// THE STUCK-SEAT REFUND — see dice.js for the full reasoning. A seat resolves from BHASH(gh)/BHASH(gh+1);
+// once gh leaves the node's hash ring the spin can never be derived and the stake plus the bank's at-risk
+// reservation are locked forever. WHICH seats qualify is dapp.horizonVerdict()'s decision, never this
+// file's: the contract's gate opens ~2000 blocks before the hash actually prunes, and refunding inside
+// that overlap hands back the stake on a bet that would still have paid.
+const HORIZON = 18000;                   // must match the gate in execnode/games/roulette.py
+const reclaimSeat = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("reclaim", [g], null, window.t("roul.callReclaim", "refund stuck seat #{g}", { g }), { table: bg.active, seat: g, phase: "settle" }); };
+/** Manual-only, like dice: a refund is irreversible and a settle is always better when one is possible. */
+async function markStuck(seats) {
+  for (const s of seats) {
+    s.stuck = false;
+    if (s.settled || s.ready || !s.gh) continue;
+    if (dapp.cursor == null || dapp.cursor - s.gh <= HORIZON) continue;
+    s.stuck = (await dapp.horizonVerdict(s.gh, HORIZON)) === "refund";
+  }
+}
 // AUTO-COLLECT a resolved WINNING seat (shared SDK tick — opt-out slider, one-per-refresh, autoTried dedup)
 function maybeAutoSettle() {
   if (!lastTable || !lastTable.exists) return;
@@ -121,6 +137,7 @@ async function refreshActive() {
       }
       if (need.length) await dapp.blockHashes(need, { fast: true });   // roulette spins: PUBLIC + on-chain-validated -> provisional (fast) is safe; results show ~one block after the roll instead of waiting out finality
       lastSeats = seatsOfTable(sto, bg.active);
+      await markStuck(lastSeats);
     }
     renderLobby(sto); renderScoreboard(boardFrom(sto));
   }
@@ -287,8 +304,15 @@ function renderActive() {
   // my collect actions
   const wrap = $("myActions"); wrap.innerHTML = "";
   for (const s of mySeats) {
-    if (s.settled || !s.ready) continue;
-    const b = document.createElement("button"); b.className = "primary"; b.style.flex = "1 1 auto";
+    if (s.settled) continue;
+    const b = document.createElement("button"); b.style.flex = "1 1 auto";
+    if (s.stuck) {   // unrecoverable spin: the refund is the only honest action left on this seat
+      b.className = "ghost";
+      b.textContent = window.t("roul.refundSeat", "↩ Refund stuck seat #{g} ({amt})", { g: s.g, amt: rawToNado(s.stake) });
+      b.onclick = () => reclaimSeat(s.g); wrap.appendChild(b); continue;
+    }
+    if (!s.ready) continue;
+    b.className = "primary";
     b.textContent = s.win ? window.t("roul.collectSeat", "💰 Collect {v} (seat #{g})", { v: rawToNado(BigInt(s.stake) * BigInt(s.mult)), g: s.g }) : window.t("roul.closeOutSeat", "Close out seat #{g}", { g: s.g });
     b.onclick = () => settleSeat(s.g); if (s.win || iAmBank) wrap.appendChild(b);
   }

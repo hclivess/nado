@@ -159,5 +159,54 @@ ck("a string amount does not throw and is treated as staking", stakesOf("100") =
   ck("no wallet -> every settle is blocked", (() => { d.me = null; return d._settleBlocked({ phase: "advance" }); })() === true);
 }
 
+// ── horizonVerdict: settle beats refund, always ──────────────────────────────────────────────────
+// The rule that decides whether a stuck stake is refunded or settled. Getting it backwards converts a
+// WINNING bet into a stake refund, automatically, wherever auto-collect is on — so every branch is pinned
+// here rather than trusted to four hand-written copies. HORIZON is the contract's gate (18000); the node
+// keeps ~20000 hashes, and that gap is the whole hazard.
+{
+  const HZ = 18000;
+  const withFetch = (impl, fn) => async () => {
+    const prev = globalThis.fetch;
+    globalThis.fetch = impl;
+    try { return await fn(); } finally { globalThis.fetch = prev; }
+  };
+  const hashPresent = async () => ({ ok: true, json: async () => ({ hashes: { "100": "deadbeef" } }) });
+  const hashGone = async () => ({ ok: true, json: async () => ({ hashes: {} }) });
+  const netDown = async () => { throw new Error("offline"); };
+
+  const cases = [
+    // [label, fetch impl, cursor, expected, why]
+    ["a readable hash SETTLES even far past the horizon (the money-losing case)",
+     hashPresent, 100 + HZ + 5000, "settle"],
+    ["a readable hash settles inside the window too", hashPresent, 100 + 10, "settle"],
+    ["provably gone AND past the horizon is the only refund", hashGone, 100 + HZ + 1, "refund"],
+    ["gone but NOT yet past the horizon waits — the contract would revert it",
+     hashGone, 100 + HZ - 1, "wait"],
+    ["a failed lookup NEVER refunds — a down node is not a pruned ring", netDown, 100 + HZ + 5000, "wait"],
+    ["an unmined pin waits", hashPresent, 50, "wait"],
+  ];
+  for (const [label, impl, cursor, want] of cases) {
+    const d = fresh(cursor);
+    const got = await withFetch(impl, () => d.horizonVerdict(100, HZ))();
+    ck(label, got === want, `got "${got}", want "${want}"`);
+  }
+  // a cached hash short-circuits without a lookup at all — and still refuses to refund
+  {
+    const d = fresh(100 + HZ + 9999);
+    d._bh[100] = "cafebabe";
+    const got = await withFetch(netDown, () => d.horizonVerdict(100, HZ))();
+    ck("a cached hash settles without any lookup", got === "settle", got);
+  }
+  // a transient miss must not be remembered: the same pin asked twice, gone then present, settles
+  {
+    const d = fresh(100 + HZ + 10);
+    const first = await withFetch(hashGone, () => d.horizonVerdict(100, HZ))();
+    const second = await withFetch(hashPresent, () => d.horizonVerdict(100, HZ))();
+    ck("a transient miss is not cached — a node that catches up settles again",
+       first === "refund" && second === "settle", `${first} then ${second}`);
+  }
+}
+
 console.log(fail ? `\n${fail} FAILURES` : `\nALL PASS (${pass} checks)`);
 process.exit(fail ? 1 : 0);
