@@ -21,6 +21,12 @@ export const RAW = 10n ** 10n;                 // 1 NADO = 1e10 raw units
 const WALLET = "https://get.nadochain.com";
 const STICKY_GRACE_MS = 20000;   // how long a provisional state REGRESSION is treated as flicker (ignored) before it's accepted as a real reorg — see dapp.accept()
 const PEND_TTL_MS = 120000;      // how long a CLICKED action stays "pending" with no on-chain confirmation before its gate self-expires (a lost tx must re-enable retry — never brick a button); matches the proven pets hatch stamp
+// A VALUE-FREE pend also expires by TIP AGE: on this chain a submitted tx lands within a block or two, so
+// one that hasn't landed after this many tips is a pool casualty — waiting out the 2-minute wall clock was
+// most of the "queued forever" stall in autogame. Tip age is the honest clock for "did it land": wall time
+// says nothing while blocks fly or crawl. STAKED calls keep the wall-clock TTL only — a premature retry
+// there re-signs an escrowing action, which is exactly what the guard exists to prevent.
+const PEND_TIP_TTL = 4;
 const STALL_MS = 45000;          // exec cursor frozen this long = the chain isn't advancing (node catching up / partition), not "your tx is slow" — see chainStalled()
 // ---- address format (ONE constant — see the rebrand-proofing rule) --------------------------------
 // An address is ADDR_PREFIX + 42 hex of the pubkey + a 4-hex blake2b checksum over prefix+body.
@@ -993,7 +999,7 @@ export class NadoDapp {
   deposit(raw) { this._goRedirect({ deposit: { amount: raw.toString() }, label: "buy in " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
   withdraw(raw, pend) { this.signBlob({ op: "bridge_withdraw", amount: raw }, "cash out " + rawToNado(raw) + " NADO", pend || { phase: "withdraw" }); }
   signBlob(blob, label, pend, opts) {
-    this._pendAdd(pend);   // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing
+    this._pendAdd(pend, !!(opts && opts.isValue));   // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing
     this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend, !!(opts && opts.bg), !!(opts && opts.isValue));
   }
   // generic contract call; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance into the contract.
@@ -1068,16 +1074,18 @@ export class NadoDapp {
   _pendLoad() {
     let a = []; try { a = JSON.parse(localStorage.getItem(this.LS_CLICK) || "[]"); } catch (e) {}
     if (!Array.isArray(a)) a = [];
-    const now = Date.now(), fresh = a.filter((e) => e && e.p && e.p.phase && now - (e.ts || 0) < PEND_TTL_MS);
+    const now = Date.now(), fresh = a.filter((e) => e && e.p && e.p.phase && now - (e.ts || 0) < PEND_TTL_MS
+      && !(e.nv && e.cur0 != null && this.cursor != null && this.cursor - e.cur0 >= PEND_TIP_TTL));
     if (fresh.length !== a.length) this._pendSave(fresh);
     return fresh;
   }
   _pendSave(a) { try { localStorage.setItem(this.LS_CLICK, JSON.stringify(a)); } catch (e) {} }
-  _pendAdd(pend) {
+  _pendAdd(pend, isValue) {
     if (!pend || !pend.phase || ["connect", "deposit", "withdraw"].includes(pend.phase)) return;
     const j = JSON.stringify(pend);
     const a = this._pendLoad().filter((e) => JSON.stringify(e.p) !== j);   // a re-submit refreshes its entry, never duplicates
-    a.push({ ts: Date.now(), p: pend });
+    // cur0/nv ride on the ENTRY, not the pend — pend identity (the JSON above) must not change per submit
+    a.push({ ts: Date.now(), cur0: this.cursor, nv: isValue ? 0 : 1, p: pend });
     this._pendSave(a);
   }
   _pendDrop(fn) { const a = this._pendLoad(), keep = a.filter((e) => !fn(e.p)); if (keep.length !== a.length) this._pendSave(keep); }
@@ -1200,9 +1208,17 @@ export class NadoDapp {
   // stall). Scope to opts.phase when the caller opts in; without it, keep the conservative all-pends block
   // so callers that haven't been audited are unchanged. See doc/game-finality.md.
   _settleBlocked(opts = {}) {
-    if (!this.me || this.inflight || opts.blocked) return true;
+    if (!this.me || opts.blocked) return true;
     const pends = this._pendLoad();
-    return opts.phase ? pends.some((e) => e.p.phase === opts.phase) : pends.length > 0;
+    if (opts.phase) {
+      // Phase-scoped, INCLUDING `inflight`: the old code phase-scoped the click registry but still let ANY
+      // accepted-but-unconfirmed action (a plan, a daily post, the very commit the settle would unblock)
+      // hold every settle for up to two tips — the residual half of the "queued 5 minutes" starvation.
+      // A settle's input is fixed on-chain; the only thing that can collide with it is a settle of the
+      // same phase, so that is the only thing that holds it.
+      return (this.inflight && this.inflight.phase === opts.phase) || pends.some((e) => e.p.phase === opts.phase);
+    }
+    return !!this.inflight || pends.length > 0;
   }
   autoCollect(candidates, settle, opts = {}) {
     if (this._settleBlocked(opts)) return false;

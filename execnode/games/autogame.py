@@ -975,6 +975,104 @@ def _step(m):
     _r(m, RDN).set(_r(m, RDP).get() >= CHAPTER)
 
 
+def _resolve_legs(m):
+    """The settlement loop shared VERBATIM by advance() and march(): resolve every leg whose rolling hash
+    now exists (bounded by MAX_LEGS_PER_CALL), or conclude a horizon-stranded run into the mists. One
+    implementation of a consensus rule — a second copy is how the two entry points would drift. Leaves
+    S_LEGS (legs resolved) and S_ENDED (mists fired) set for the caller's own no-op guard; every other
+    scratch cell is fair game afterwards. Callers must have checked the run guards (owner/alive/armed)
+    BEFORE calling — this loop assumes a live, armed run."""
+    _s(m, S_LEGS).set(m.const(0))
+    _s(m, S_ENDED).set(m.const(0))               # set by the mists rule below; frees the no-op guard
+
+    m.label("leg")
+    # THE MISTS (see HORIZON): if this leg's terrain height has aged past the block-hash horizon its
+    # BHASH is gone for good, so the leg can NEVER resolve — on any node, forever. Rather than hang on
+    # "waiting for the terrain block…", conclude the run deterministically. csub, because a freshly begun
+    # run's lh is START_GAP in the FUTURE (cursor < lh -> csub == 0, never mists). Checked BEFORE the
+    # parked/roll gates so it catches a run stranded whether it was waiting on your answer (RNH == 0) or
+    # on dice that will now never be readable (RNH set, terrain already pruned).
+    _s(m, S_T0).set(csub(m.cursor(), _r(m, RLH).get()))
+    m.jnz(_s(m, S_T0).get() >= HORIZON, "mists")
+    m.jnz(_r(m, RNH).get() == 0, "done")                    # waiting on your answer to this leg
+    m.jnz(m.cursor() < _r(m, RNH).get(), "done")            # the rolls do not exist yet
+    m.jnz(_s(m, S_LEGS).get() >= MAX_LEGS_PER_CALL, "done")
+
+    _s(m, S_T).set(m.bhash(_r(m, RLH).get()))               # tiles: pinned, already visible
+    _s(m, S_R).set(m.bhash(_r(m, RNH).get()))               # rolls: unknowable when the doctrine was set
+    # THE FAIRNESS FENCE: this leg obeys a generation of DIALS (aggression/stance/focus/heal) only if
+    # that generation predates the leg's rolling height. Re-tuning after a roll is public therefore
+    # cannot rewrite the leg that roll belongs to — it takes effect from the next leg onward. The
+    # newest qualifying generation governs; begin()'s defaults have POLH = 0 and qualify always.
+    # (The per-tile ACTIONS need no fence at all: commit() stores them and only then schedules the
+    # dice, so they are committed-before-the-roll by construction.)
+    _s(m, S_PW).set(m.slot(POLH, m.arg(0)).get() < _r(m, RNH).get())
+    _s(m, S_T3).set(m.slot(POLPH, m.arg(0)).get() < _r(m, RNH).get())
+    _s(m, S_T3).set(_s(m, S_T3).get() * csub(1, _s(m, S_PW).get()))     # only if current does not apply
+    _s(m, S_LEGGEN).set(_s(m, S_T3).get())       # held for the whole leg: "use the superseded orders"
+    # the governing generation's stance / focus / heal threshold, held for the whole leg
+    _s(m, S_SN).set(_r(m, RSN).get() * _s(m, S_PW).get())
+    _s(m, S_T3).set(m.slot(RPS, m.arg(0)).get() * _s(m, S_LEGGEN).get())
+    _s(m, S_SN).set(_s(m, S_SN).get() + _s(m, S_T3).get())
+    _s(m, S_T2).set(_s(m, S_PW).get() + _s(m, S_LEGGEN).get())      # is ANY generation in force?
+    _s(m, S_T2).set(csub(1, _s(m, S_T2).get()))                      # neither -> use neutral defaults
+    # split one term per statement: the six-register budget cannot hold a three-way blend in one go
+    _s(m, S_FO).set(_r(m, RFO).get() * _s(m, S_PW).get())
+    _s(m, S_T3).set(m.slot(RPF, m.arg(0)).get() * _s(m, S_LEGGEN).get())
+    _s(m, S_FO).set(_s(m, S_FO).get() + _s(m, S_T3).get())
+    _s(m, S_FO).set(_s(m, S_FO).get() + 50 * _s(m, S_T2).get())
+    _s(m, S_HL).set(_r(m, RHL).get() * _s(m, S_PW).get())
+    _s(m, S_T3).set(m.slot(RPL, m.arg(0)).get() * _s(m, S_LEGGEN).get())
+    _s(m, S_HL).set(_s(m, S_HL).get() + _s(m, S_T3).get())
+    _s(m, S_HL).set(_s(m, S_HL).get() + 35 * _s(m, S_T2).get())
+    # S_LEGGEN, not S_T3: the block above reuses S_T3 as a scratch temp, so reading it here picked up
+    # a heal threshold instead of a 0/1 flag and multiplied the aggression by it. Third time this file
+    # has been bitten by a shared scratch cell read after something else wrote it — hold flags that
+    # outlive a statement in their OWN cell.
+    _s(m, S_AGG).set(vmax(1, m.slot(POLA, m.arg(0)).get() * _s(m, S_PW).get()
+                             + m.slot(POLPA, m.arg(0)).get() * _s(m, S_LEGGEN).get()))
+    _s(m, S_OVR).set(m.at(zhash(m.const(OVR_TAG), m.arg(0), _r(m, RLG).get())).get())
+    _s(m, S_I).set(m.const(0))
+
+    m.label("step")
+    m.jnz(_s(m, S_I).get() >= LEG, "legdone")
+    _step(m)
+    _s(m, S_I).set(_s(m, S_I).get() + 1)
+    m.jnz(_r(m, RAV).get() == 0, "legdone")                 # died mid-leg: stop where you fell
+    m.jnz(_r(m, RDN).get(), "legdone")
+    m.jmp("step")
+
+    m.label("legdone")
+    # Slide the window and PARK. This leg's ROLL hash becomes the next leg's TERRAIN — the road that
+    # just resolved reveals the road ahead — and the next roll is simply not scheduled: RNH = 0 until
+    # you answer the sixteen tiles now visible and commit() them. Manual-only means this is the ONLY
+    # way a roll ever gets scheduled, so "who settles, and when" can never influence anything: every
+    # dice height on the run was pinned by one of the owner's own commits.
+    _r(m, RLH).set(_r(m, RNH).get())
+    _r(m, RNH).set(m.const(0))
+    _r(m, RLG).set(_r(m, RLG).get() + 1)
+    _s(m, S_LEGS).set(_s(m, S_LEGS).get() + 1)
+    m.jnz(_r(m, RAV).get() == 0, "done")
+    m.jnz(_r(m, RDN).get(), "done")
+    m.jmp("leg")
+
+    m.label("mists")
+    # The fog closes over the march. It concludes STANDING (score() keeps the unbanked risk — this is not
+    # a death, nothing killed you) but earns no completion or retire bonus: you score exactly what you had
+    # at the last resolved step. RDP already holds that depth. A distinct flag, so the client can say the
+    # truth ("the mists took the march") instead of "you fell here", and so a concluded run is terminal
+    # everywhere _live() gates. Falls through into `done`; S_ENDED lets the no-op guard pass.
+    # RNH = 0, because every OTHER terminal state (death, chapter done, retire) parks the dice on the way
+    # out — a run stranded mid-commit would otherwise be the one terminal state with a live-looking nh,
+    # and the client's "dice are down → auto-fire advance" gate read exactly that as a leg to settle,
+    # firing a fee-paying advance() that reverted on the RMI guard, forever. Terminal ⇒ nh == 0, always.
+    _r(m, RMI).set(m.const(1))
+    _r(m, RNH).set(m.const(0))
+    _s(m, S_ENDED).set(m.const(1))
+
+    m.label("done")
+
+
 # ── methods ──────────────────────────────────────────────────────────────────────────────────────
 def build():
     _LBL[0] = 0                                   # deterministic label numbering across rebuilds
@@ -1136,95 +1234,7 @@ def build():
         m.require(_r(m, RDN).get() == 0)
         m.require(_r(m, RRT).get() == 0)
         m.require(_r(m, RMI).get() == 0)             # already concluded into the mists — nothing left to do
-        _s(m, S_LEGS).set(m.const(0))
-        _s(m, S_ENDED).set(m.const(0))               # set by the mists rule below; frees the no-op guard
-
-        m.label("leg")
-        # THE MISTS (see HORIZON): if this leg's terrain height has aged past the block-hash horizon its
-        # BHASH is gone for good, so the leg can NEVER resolve — on any node, forever. Rather than hang on
-        # "waiting for the terrain block…", conclude the run deterministically. csub, because a freshly begun
-        # run's lh is START_GAP in the FUTURE (cursor < lh -> csub == 0, never mists). Checked BEFORE the
-        # parked/roll gates so it catches a run stranded whether it was waiting on your answer (RNH == 0) or
-        # on dice that will now never be readable (RNH set, terrain already pruned).
-        _s(m, S_T0).set(csub(m.cursor(), _r(m, RLH).get()))
-        m.jnz(_s(m, S_T0).get() >= HORIZON, "mists")
-        m.jnz(_r(m, RNH).get() == 0, "done")                    # waiting on your answer to this leg
-        m.jnz(m.cursor() < _r(m, RNH).get(), "done")            # the rolls do not exist yet
-        m.jnz(_s(m, S_LEGS).get() >= MAX_LEGS_PER_CALL, "done")
-
-        _s(m, S_T).set(m.bhash(_r(m, RLH).get()))               # tiles: pinned, already visible
-        _s(m, S_R).set(m.bhash(_r(m, RNH).get()))               # rolls: unknowable when the doctrine was set
-        # THE FAIRNESS FENCE: this leg obeys a generation of DIALS (aggression/stance/focus/heal) only if
-        # that generation predates the leg's rolling height. Re-tuning after a roll is public therefore
-        # cannot rewrite the leg that roll belongs to — it takes effect from the next leg onward. The
-        # newest qualifying generation governs; begin()'s defaults have POLH = 0 and qualify always.
-        # (The per-tile ACTIONS need no fence at all: commit() stores them and only then schedules the
-        # dice, so they are committed-before-the-roll by construction.)
-        _s(m, S_PW).set(m.slot(POLH, m.arg(0)).get() < _r(m, RNH).get())
-        _s(m, S_T3).set(m.slot(POLPH, m.arg(0)).get() < _r(m, RNH).get())
-        _s(m, S_T3).set(_s(m, S_T3).get() * csub(1, _s(m, S_PW).get()))     # only if current does not apply
-        _s(m, S_LEGGEN).set(_s(m, S_T3).get())       # held for the whole leg: "use the superseded orders"
-        # the governing generation's stance / focus / heal threshold, held for the whole leg
-        _s(m, S_SN).set(_r(m, RSN).get() * _s(m, S_PW).get())
-        _s(m, S_T3).set(m.slot(RPS, m.arg(0)).get() * _s(m, S_LEGGEN).get())
-        _s(m, S_SN).set(_s(m, S_SN).get() + _s(m, S_T3).get())
-        _s(m, S_T2).set(_s(m, S_PW).get() + _s(m, S_LEGGEN).get())      # is ANY generation in force?
-        _s(m, S_T2).set(csub(1, _s(m, S_T2).get()))                      # neither -> use neutral defaults
-        # split one term per statement: the six-register budget cannot hold a three-way blend in one go
-        _s(m, S_FO).set(_r(m, RFO).get() * _s(m, S_PW).get())
-        _s(m, S_T3).set(m.slot(RPF, m.arg(0)).get() * _s(m, S_LEGGEN).get())
-        _s(m, S_FO).set(_s(m, S_FO).get() + _s(m, S_T3).get())
-        _s(m, S_FO).set(_s(m, S_FO).get() + 50 * _s(m, S_T2).get())
-        _s(m, S_HL).set(_r(m, RHL).get() * _s(m, S_PW).get())
-        _s(m, S_T3).set(m.slot(RPL, m.arg(0)).get() * _s(m, S_LEGGEN).get())
-        _s(m, S_HL).set(_s(m, S_HL).get() + _s(m, S_T3).get())
-        _s(m, S_HL).set(_s(m, S_HL).get() + 35 * _s(m, S_T2).get())
-        # S_LEGGEN, not S_T3: the block above reuses S_T3 as a scratch temp, so reading it here picked up
-        # a heal threshold instead of a 0/1 flag and multiplied the aggression by it. Third time this file
-        # has been bitten by a shared scratch cell read after something else wrote it — hold flags that
-        # outlive a statement in their OWN cell.
-        _s(m, S_AGG).set(vmax(1, m.slot(POLA, m.arg(0)).get() * _s(m, S_PW).get()
-                                 + m.slot(POLPA, m.arg(0)).get() * _s(m, S_LEGGEN).get()))
-        _s(m, S_OVR).set(m.at(zhash(m.const(OVR_TAG), m.arg(0), _r(m, RLG).get())).get())
-        _s(m, S_I).set(m.const(0))
-
-        m.label("step")
-        m.jnz(_s(m, S_I).get() >= LEG, "legdone")
-        _step(m)
-        _s(m, S_I).set(_s(m, S_I).get() + 1)
-        m.jnz(_r(m, RAV).get() == 0, "legdone")                 # died mid-leg: stop where you fell
-        m.jnz(_r(m, RDN).get(), "legdone")
-        m.jmp("step")
-
-        m.label("legdone")
-        # Slide the window and PARK. This leg's ROLL hash becomes the next leg's TERRAIN — the road that
-        # just resolved reveals the road ahead — and the next roll is simply not scheduled: RNH = 0 until
-        # you answer the sixteen tiles now visible and commit() them. Manual-only means this is the ONLY
-        # way a roll ever gets scheduled, so "who settles, and when" can never influence anything: every
-        # dice height on the run was pinned by one of the owner's own commits.
-        _r(m, RLH).set(_r(m, RNH).get())
-        _r(m, RNH).set(m.const(0))
-        _r(m, RLG).set(_r(m, RLG).get() + 1)
-        _s(m, S_LEGS).set(_s(m, S_LEGS).get() + 1)
-        m.jnz(_r(m, RAV).get() == 0, "done")
-        m.jnz(_r(m, RDN).get(), "done")
-        m.jmp("leg")
-
-        m.label("mists")
-        # The fog closes over the march. It concludes STANDING (score() keeps the unbanked risk — this is not
-        # a death, nothing killed you) but earns no completion or retire bonus: you score exactly what you had
-        # at the last resolved step. RDP already holds that depth. A distinct flag, so the client can say the
-        # truth ("the mists took the march") instead of "you fell here", and so a concluded run is terminal
-        # everywhere _live() gates. Falls through into `done`; S_ENDED lets the no-op guard pass.
-        # RNH = 0, because every OTHER terminal state (death, chapter done, retire) parks the dice on the way
-        # out — a run stranded mid-commit would otherwise be the one terminal state with a live-looking nh,
-        # and the client's "dice are down → auto-fire advance" gate read exactly that as a leg to settle,
-        # firing a fee-paying advance() that reverted on the RMI guard, forever. Terminal ⇒ nh == 0, always.
-        _r(m, RMI).set(m.const(1))
-        _r(m, RNH).set(m.const(0))
-        _s(m, S_ENDED).set(m.const(1))
-
-        m.label("done")
+        _resolve_legs(m)
         # ADVANCE RESOLVES A LEG, CONCLUDES A STRANDED RUN, OR IT REVERTS. Every exit above lands here — dice
         # never scheduled, dice not mined yet, per-call leg budget spent, or the mists rule fired. Returning ok
         # for a genuine no-op charged the caller a fee and told the client "that worked" when the march had not
@@ -1234,6 +1244,64 @@ def build():
         for i in range(NSCRATCH):                               # clear scratch: no residue in the state root
             _s(m, i).set(m.const(0))
         m.ret(_r(m, RDP).get())
+
+    with c.method("march") as m:
+        # march(runId, word, leg): settle-then-answer in ONE transaction — the latency op. The old cadence
+        # was two round trips per leg: advance() lands, the client SEES the park, only then can commit()
+        # go out ("Queued — sends itself", every leg, forever). This fuses them: resolve whatever legs the
+        # chain can already resolve (the same shared loop advance() runs), then, if the run is now parked
+        # at exactly the leg the answers were made for, commit them and pin the dice — one inclusion
+        # instead of two plus a poll in between.
+        #
+        # FAIRNESS IS UNCHANGED: the word is stored and only then is RNH pinned to cursor + START_GAP —
+        # the roll hash still postdates the committed answers by construction, exactly as the standalone
+        # commit() pins it. The resolve half is the byte-identical shared loop, so which entry point
+        # settles a leg can never change its outcome.
+        #
+        # The commit half is CONDITIONAL, not required: if the resolve ends the run (death, chapter done,
+        # mists) or the run parks at a different leg than the answers were made for (arg 2 mismatch — a
+        # stale word must never answer tiles it was not written for), the settlement still stands and the
+        # answers are simply dropped. The no-op guard then demands that SOMETHING happened: a leg
+        # resolved, the mists fired, or the word committed — a call that did none of the three reverts,
+        # the same honesty rule advance() has.
+        _own_or_die(m)                               # the commit half answers for the run — owner only
+        m.require(_r(m, RLH).get() != 0)             # an unarmed run has not begun marching
+        m.require(_r(m, RAV).get() == 1)
+        m.require(_r(m, RDN).get() == 0)
+        m.require(_r(m, RRT).get() == 0)
+        m.require(_r(m, RMI).get() == 0)
+        _resolve_legs(m)
+        # Commit eligibility — every gate commit() requires, folded into one 0/1 flag in S_T0 (multiplied
+        # term by term: the six-register budget). RRT and RLH cannot change inside the resolve; the rest can.
+        _s(m, S_T0).set(_r(m, RAV).get() == 1)
+        _s(m, S_T1).set(_r(m, RDN).get() == 0)
+        _s(m, S_T0).set(_s(m, S_T0).get() * _s(m, S_T1).get())
+        _s(m, S_T1).set(_r(m, RMI).get() == 0)
+        _s(m, S_T0).set(_s(m, S_T0).get() * _s(m, S_T1).get())
+        _s(m, S_T1).set(_r(m, RNH).get() == 0)       # parked: the dice for this leg not scheduled yet
+        _s(m, S_T0).set(_s(m, S_T0).get() * _s(m, S_T1).get())
+        _s(m, S_T1).set(m.cursor() >= _r(m, RLH).get())          # ... and its terrain actually visible
+        _s(m, S_T0).set(_s(m, S_T0).get() * _s(m, S_T1).get())
+        _s(m, S_T1).set(_r(m, RLG).get() == m.arg(2))            # the answers bind to THIS leg's tiles
+        _s(m, S_T0).set(_s(m, S_T0).get() * _s(m, S_T1).get())
+        _s(m, S_T1).set(m.arg(1) < (1 << (3 * LEG)))
+        _s(m, S_T0).set(_s(m, S_T0).get() * _s(m, S_T1).get())
+        # the commit itself, gated cell by cell on the flag (an ineligible call rewrites current values)
+        _s(m, S_T2).set(m.at(zhash(m.const(OVR_TAG), m.arg(0), _r(m, RLG).get())).get())
+        _s(m, S_T2).set(select(_s(m, S_T0).get(), m.arg(1), _s(m, S_T2).get()))
+        m.at(zhash(m.const(OVR_TAG), m.arg(0), _r(m, RLG).get())).set(_s(m, S_T2).get())
+        # the readable mirror commit() keeps for the animator — same condition, same cells
+        _r(m, RCW).set(select(_s(m, S_T0).get(), m.arg(1), _r(m, RCW).get()))
+        _r(m, RCL).set(select(_s(m, S_T0).get(), _r(m, RLG).get(), _r(m, RCL).get()))
+        # THE PIN, last: the word is already stored when the dice height comes into existence
+        _s(m, S_T1).set(m.cursor() + START_GAP)
+        _r(m, RNH).set(select(_s(m, S_T0).get(), _s(m, S_T1).get(), _r(m, RNH).get()))
+        # legitimate iff a leg resolved, the mists concluded the run, or the answers committed
+        _s(m, S_T1).set(_s(m, S_LEGS).get() + _s(m, S_ENDED).get())
+        m.require(_s(m, S_T1).get() + _s(m, S_T0).get() != 0)
+        for i in range(NSCRATCH):                               # clear scratch: no residue in the state root
+            _s(m, i).set(m.const(0))
+        m.ret(_r(m, RNH).get())
 
     # The Daily Gauntlet's two methods are the SHARED, audited ones from execnode/games/_lib.py, mounted
     # verbatim. Every provable board on the chain uses this same pair; writing autogame's own copy in zkpy
@@ -1306,6 +1374,7 @@ ABI = {
     "commit": {"args": ["runId", "word"]},
     "retire": {"args": ["runId"]},
     "advance": {"args": ["runId"]},
+    "march": {"args": ["runId", "word", "leg"]},
     "post": {"args": _lib.daily_post_abi(DAILY_WORDS)},
     "anchor": {"args": ["day"]},
     "_view": {

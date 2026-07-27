@@ -16,13 +16,13 @@ import {
   NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime, modeBar,
   confirmingLabel,
-} from "./nadodapp.js?v=68319609";
+} from "./nadodapp.js?v=7cbf5838";
 import * as E from "./autogame-engine.js?v=8a997c33";
 import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
 import * as ART from "./autogame-art.js?v=4aad5b61";
 import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=4aad5b61";
-import { createDaily } from "./autogame-dailyui.js?v=c62db697";
-import * as D from "./autogame-daily.js?v=7816b747";
+import { createDaily } from "./autogame-dailyui.js?v=1fa8cc84";
+import * as D from "./autogame-daily.js?v=061c3648";
 import { createAudio } from "./autogame-audio.js?v=afd7538c";
 
 const CID = "ffc1619be0f76ee31946106c8281ae73";          // execnode/games/autogame.py (zkVM) — set by the deploy script
@@ -204,8 +204,17 @@ let camera = 0;                 // fractional depth the camera is at
 let lastLegSeen = -1;
 let previewed = "";             // "runId:leg" already played optimistically — see previewLeg()
 // Answers for the NEXT leg, taken while the previous leg's close is still in flight. Held (not cleared on
-// send) until the chain shows the dice scheduled, so a pool-wiped auto-commit simply re-sends.
+// send) until the chain shows the dice scheduled, so a pool-wiped auto-commit simply re-sends. Since the
+// fused march() op, "send" means ONE transaction that closes the previous leg AND commits these answers —
+// the queue no longer waits for the close to land first (the "Queued — sends itself" stall, every leg).
 let queuedWord = null;          // {leg, word}
+let queuedAt = 0;               // when the word was queued — lets the advance rescue join in if march stalls
+// The settle GRACE: while the pipeline window is open and the player might still answer, hold the
+// background advance() back this long — an active player's march() then carries the settle for free, and
+// two transactions never race (whichever lost would revert, a fee for nothing). An idle player's leg still
+// settles, just this much later, which nothing and nobody is waiting on.
+const ADV_GRACE_MS = 20000;
+let diceSeenAt = 0;             // when the current leg's dice were first previewed (grace clock)
 // ── ADAPTIVE POLL CADENCE ── every wait in this game is block-physics (inclusion + the anti-steering
 // cursor+2 pin) EXCEPT the client's own polling, which used to add up to a flat 3s on top of every
 // transition. While something of ours is in flight the storage poll runs HOT (1s); poke() opens/extends
@@ -351,19 +360,16 @@ async function refreshAll() {
     if (!dialsDirty()) queuedPlan = false;                 // landed (or the player dialed back)
     else if (!dapp.busy("plan")) commitPlan();             // act() itself refuses while anything is inflight
   }
-  // QUEUED ANSWERS: taken during the pipeline window, sent the moment the leg closes (chain parked at
-  // the queued leg). Held until the chain SHOWS the dice scheduled, so a pool-wiped send just retries.
+  // QUEUED ANSWERS: taken during the pipeline window and sent as ONE fused march() the moment the
+  // previous leg's dice are visible — the contract settles that leg and commits these answers in the
+  // same transaction, so nothing waits for a close to land and be polled first. Held until the chain
+  // SHOWS the dice scheduled, so a pool-wiped send just retries (the pend now expires by tip age).
   // They also WAIT for queued orders above — answers never overtake the orders they were made under.
   if (mode === "march" && chain && queuedWord && !queuedPlan) {
     if (!chain.alive || chain.done || chain.retired || queuedWord.leg < chain.leg
         || (chain.nh && chain.leg === queuedWord.leg)) {
       queuedWord = null;                                   // landed, or the run moved on without it
-    } else if (!chain.nh && chain.leg === queuedWord.leg && !dapp.busy("commit")) {
-      const w = queuedWord;
-      act("commit", t("whatCommit", "Answering this stretch of road"), () =>
-        dapp.call("commit", [myId, w.word], 0n, t("labelCommit", "Commit your answers"),
-          { phase: "commit", leg: w.leg }), "leg", w.leg);
-    }
+    } else sendQueuedWord();
   }
 
   // INSTANT SETTLEMENT VIEW + AUTO-SETTLE (march only). "This leg resolves in 14 blocks... [click]" was
@@ -380,13 +386,24 @@ async function refreshAll() {
       && !mistsStranded() && chain.nh && dapp.cursor != null && dapp.cursor >= chain.nh) {
     const before = previewed;
     previewLeg();
-    if (previewed !== before) rebuildRoad();   // the pipeline road opens the same instant the dice land
+    if (previewed !== before) {                // the pipeline road opens the same instant the dice land
+      rebuildRoad();
+      diceSeenAt = performance.now();          // starts the settle-grace clock for this leg
+    }
     // phase:"advance" scopes the SDK's settle-block to advance pends only — so settling THIS leg is never
     // starved by the NEXT leg's queued commit/plan (the "queued 5 minutes" stall). It fires as soon as the
     // dice block is provisional; finality just makes it permanent. See doc/game-finality.md.
-    dapp.autoCollect([{ g: myId + ":" + chain.leg }], () =>
+    // TWO holds since the fused march(): while the player could still answer this window, wait out the
+    // grace — an answer inside it makes the march carry the settle in the same transaction, and firing
+    // an advance under it just makes one of the two revert for a fee. And while a word IS queued, the
+    // march owns the settle outright — the advance only rejoins as a rescue if the queue visibly stalls.
+    const answerable = view && view.alive && !view.done;
+    const hold = queuedWord
+      ? performance.now() - queuedAt < 30000
+      : answerable && performance.now() - diceSeenAt < ADV_GRACE_MS;
+    if (!hold) dapp.autoCollect([{ g: myId + ":" + chain.leg }], () =>
       dapp.call("advance", [myId], 0n, t("labelAdvance", "Settle the leg"),
-        { phase: "advance", leg: chain.leg }), { key: (x) => x.g, phase: "advance" });
+        { phase: "advance", leg: chain.leg }), { key: (x) => x.g, phase: "advance", retryMs: 15000 });
   }
 
   // THE MISTS: a run whose terrain aged past the horizon can never resolve its leg. advance() now carries the
@@ -409,7 +426,11 @@ async function refreshAll() {
       case "plan": return Number(chain.agg) === Number(f.agg) && Number(chain.stance) === Number(f.stance)
         && Number(chain.focus) === Number(f.focus) && Number(chain.healpct) === Number(f.heal);
       case "advance": return Number(chain.leg) > Number(f.leg);
-      case "commit": return !!chain.nh || Number(chain.leg) > Number(f.leg);
+      // a fused march is sent while the chain still shows the PREVIOUS leg and ITS nh — so a bare
+      // `!!chain.nh` read the stale dice height as "landed" the instant the tx left. Landed means the
+      // chain reached the committed leg with dice scheduled, or moved past it.
+      case "commit": return Number(chain.leg) > Number(f.leg)
+        || (Number(chain.leg) === Number(f.leg) && !!chain.nh);
       case "retire": return !!chain.retired;
       default: return true;
     }
@@ -1322,8 +1343,7 @@ function idleMessage() {
   if (!chain.nh || queuedWord) {                 // answers in flight (or queued behind the leg's close)
     // if a settleable leg is the thing holding the queue, say so and point at the manual escape — a silent
     // "sending…" that sits for minutes is exactly what makes people leave
-    const stuck = settleable() && !dapp.busy("advance")
-      && (!!queuedWord || (settleableSince && performance.now() - settleableSince > 6000));
+    const stuck = settleStuckNow();
     el.innerHTML = stuck
       ? `<span class="dim">${esc(t("idleSettleStuck", "Settling the last leg — tap “Settle now” if it’s slow."))}</span>`
       : `<span class="dim">${esc(t("idleCommitting", "Sending your answers — the dice get scheduled the moment they land."))}</span>`;
@@ -2030,13 +2050,12 @@ let settleableSince = 0;   // when the previous leg first became settleable-but-
 /** The answer bar: a brush picker plus the commit that SCHEDULES THE DICE. */
 function renderAnswerBar() {
   const answering = isDaily() ? (road.length > 0 && dailyAnswering()) : canCommitNow();
-  // A leg whose dice landed but hasn't settled is what a queued commit waits on. Auto-collect fires it, but
-  // if that is slow/starved/off the queue can sit for minutes — so once it has been stuck a few seconds, or
-  // a commit is actively queued behind it, offer the manual "Settle now" escape.
+  // A leg whose dice landed but hasn't settled: normally the fused march (queued answers) or the graced
+  // background advance carries it. If neither is visibly moving — queue that can't send, or a graced leg
+  // whose settle never fired — offer the manual "Settle now" escape (see settleStuckNow).
   if (settleable()) { if (!settleableSince) settleableSince = performance.now(); }
   else settleableSince = 0;
-  const settleStuck = settleable() && !dapp.busy("advance")
-    && (!!queuedWord || (settleableSince && performance.now() - settleableSince > 6000));
+  const settleStuck = settleStuckNow();
   const kb = $("kickBtn");
   if (kb) { kb.classList.toggle("hidden", !settleStuck); kb.disabled = dapp.busy("advance"); }
   gate({ answerBar: answering || (mode === "march" && (!!queuedWord || settleStuck)) });
@@ -2311,6 +2330,24 @@ function dialsDirty() {
     || Number(chain.healpct) !== Number(pendHeal));
 }
 let queuedPlan = false;   // orders owed to the chain — sent (and resent) by the pump until they land
+/** The queued answers' ONE sender, fired from commitLeg the instant the player answers and re-fired by
+ *  every refresh until the chain shows the dice scheduled. It sends march(runId, word, leg): the fused op
+ *  settles the previous leg (if the chain can already settle it) AND commits the word in one transaction,
+ *  so the queue never waits for a close to land and be seen first. Holds only for: a plan in flight
+ *  (answers never overtake the orders they were made under — checked by the caller), a commit already in
+ *  flight (this same send, confirming), or an advance in flight (the fused op would make it revert for a
+ *  fee; let it land, then this send is a plain commit). Returns true if it fired. */
+function sendQueuedWord() {
+  if (!chain || !queuedWord || dapp.busy("commit") || dapp.busy("advance")) return false;
+  const w = queuedWord;
+  const parked = !chain.nh && chain.leg === w.leg;                       // close landed: plain commit
+  const fused = !!chain.nh && chain.leg === w.leg - 1
+    && dapp.cursor != null && dapp.cursor >= chain.nh;                   // dice visible: settle + commit
+  if (!parked && !fused) return false;
+  return act("commit", t("whatCommit", "Answering this stretch of road"), () =>
+    dapp.call("march", [myId, w.word, w.leg], 0n, t("labelCommit", "Commit your answers"),
+      { phase: "commit", leg: w.leg }), "leg", w.leg);
+}
 /** Commit your answers to the sixteen visible tiles — and thereby schedule their dice. */
 function commitLeg() {
   const clean = answers.map((a, i) => {
@@ -2339,24 +2376,30 @@ function commitLeg() {
   const dirty = dialsDirty();
   if (dirty) { queuedPlan = true; commitPlan(); }
   if (pipel()) {
-    // the previous leg's close is still in flight, so this commit would revert (nh != 0). Queue it: it
-    // sends itself the moment the chain parks. The player's flow never blocks on bookkeeping.
+    // the previous leg's close is outstanding — but the fused march() carries it: queue the word and
+    // send IMMEDIATELY (one transaction settles the old leg and commits this one). Only an in-flight
+    // plan/advance makes the queue actually wait now, and then only until that lands.
     if (queuedWord) return;
     queuedWord = { leg: chain.leg + 1, word };
+    queuedAt = performance.now();
     wordSave(myId, chain.leg + 1, word);
-    okBar(t("queuedCommit", "Answers queued — they send the moment the leg closes."));
+    if (!dirty && sendQueuedWord()) okBar(t("sentFused", "Answers sent — closing the last leg with them."));
+    else okBar(t("queuedCommit", "Answers queued — they send the moment the leg closes."));
     render();
     return;
   }
   wordSave(myId, chain.leg, word);        // the animator replays this leg from it once it settles
   if (dirty) {
     queuedWord = { leg: chain.leg, word };
+    queuedAt = performance.now();
     okBar(t("queuedAfterOrders", "Orders sent — your answers follow the moment they land."));
     render();
     return;
   }
+  // the direct path rides the same fused op: with the run parked it is exactly commit(), and if a
+  // just-settleable leg slipped in between the render and the click it settles that too instead of reverting
   act("commit", t("whatCommit", "Answering this stretch of road"), () =>
-    dapp.call("commit", [myId, word], 0n, t("labelCommit", "Commit your answers"),
+    dapp.call("march", [myId, word, chain.leg], 0n, t("labelCommit", "Commit your answers"),
       { phase: "commit", leg: chain.leg }), "leg", chain.leg);
 }
 
@@ -2373,6 +2416,13 @@ function retire() {
  *  button can force it when auto-collect is off, starved by another pending action, or its tx got dropped. */
 const settleable = () => !!(mode === "march" && chain && chain.alive && !chain.done && !chain.retired
   && !chain.mists && !mistsStranded() && chain.nh && dapp.cursor != null && dapp.cursor >= chain.nh);
+/** Is the settle visibly STUCK — offer the manual "Settle now" escape? Not while the march/advance is in
+ *  flight, not while the settle grace is deliberately holding the advance back for an answer, and not in
+ *  the first seconds of a queued word (its fused send is normally already confirming). What remains is a
+ *  queue that could not send, or a leg past its grace with no settle moving — both worth a button. */
+const settleStuckNow = () => settleable() && !dapp.busy("advance")
+  && ((!!queuedWord && !dapp.busy("commit") && performance.now() - queuedAt > 6000)
+      || (!queuedWord && settleableSince && performance.now() - settleableSince > ADV_GRACE_MS + 6000));
 /** Fire the previous leg's settlement RIGHT NOW through the SDK's manual settle — it bypasses the auto-collect
  *  opt-out and retry timer but keeps the same collision guard, so it can never double-submit an advance
  *  already in flight. advance is permissionless and its dice block is already fixed on-chain, so this just

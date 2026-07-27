@@ -315,9 +315,9 @@ if field(s, "lv", RID) == 1 and not field(s, "dn", RID):
        f"polh={polh} nh2={nh2}")
     before2 = sto()
     LEG2 = field(before2, "lg", RID)
-    call("advance", [RID], applied=lambda: field(sto(), "lg", RID) > LEG2)
-    wait(lambda: field(sto(), "lg", RID) > LEG2, "second leg settled", 900)
-    s = sto()
+    # Replay the leg through the model FIRST — both hashes are final, so the outcome (and the depth the
+    # run will park at) is already knowable. That is exactly what the browser's pipelined preview does,
+    # and it is what lets the next answers ride in the SAME transaction as the settle below.
     run2 = M.Run(stance=STANCE, focus=FOCUS, healpct=HEAL)          # the OLD dials — the fence's choice
     run2.agg = AGG
     for fk, mk in (("hp", "hp"), ("mx", "maxhp"), ("st", "stam"), ("po", "potions"), ("xp", "xp"),
@@ -333,6 +333,47 @@ if field(s, "lv", RID) == 1 and not field(s, "dn", RID):
         tw = alghash.hashn([th2, RID, i]) & 0xFFFFFFFF
         rw = alghash.hashn([rh2, RID, i]) & 0xFFFFFFFF
         M.step(run2, tw, rw, action=answers2[i])
+    if run2.alive and not run2.done:
+        # THE FUSED OP, live: march() settles this leg AND commits the next answers in ONE transaction —
+        # the latency path the client now runs. Answers for leg 3 are read from the pipelined preview:
+        # terrain = this leg's roll hash, depth = where the model says the run parks.
+        tiles3 = [M.tile_of(M.slice_tile(alghash.hashn([rh2, RID, i]) & 0xFFFFFFFF)[0], run2.depth + i)
+                  for i in range(A.LEG)]
+        word3 = word_of([CLASSMAP.get(t, A.A_DEFAULT) for t in tiles3])
+        call("march", [RID, word3, LEG2 + 1], applied=lambda: field(sto(), "lg", RID) > LEG2)
+        wait(lambda: field(sto(), "lg", RID) > LEG2, "march settled the leg", 900)
+        s = sto()
+        ck("…and the SAME transaction scheduled the next dice (no park, no second round trip)",
+           field(s, "nh", RID) != 0 and field(s, "cw", RID) == word3 and field(s, "cl", RID) == LEG2 + 1,
+           f"nh={field(s, 'nh', RID)} cw={field(s, 'cw', RID)} want={word3}")
+    else:
+        call("advance", [RID], applied=lambda: field(sto(), "lg", RID) > LEG2)
+        wait(lambda: field(sto(), "lg", RID) > LEG2, "second leg settled", 900)
+        s = sto()
+    # THE AUTHORITATIVE dice height is the one the leg actually RESOLVED with — the parked lh — not the
+    # nh2 captured before the settle. Under rollback churn a resubmitted commit can re-land at a different
+    # height, moving the pending nh AFTER this script read it; replaying the leg with the stale hash then
+    # blames the fence for a divergence the pool caused (first live run of the fused-march e2e hit exactly
+    # that: nh read 1735, leg resolved with 1715, xp off by 22 with every other field agreeing).
+    nh2_actual = field(s, "lh", RID)
+    if nh2_actual != nh2:
+        print(f"   (churn moved the dice height {nh2} -> {nh2_actual}; replaying with the real one)", flush=True)
+        wait(lambda: finalized() >= nh2_actual, f"actual rolling height {nh2_actual} finalized", 900)
+        run2 = M.Run(stance=STANCE, focus=FOCUS, healpct=HEAL)
+        run2.agg = AGG
+        for fk, mk in (("hp", "hp"), ("mx", "maxhp"), ("st", "stam"), ("po", "potions"), ("xp", "xp"),
+                       ("bk", "banked"), ("sk", "streak"), ("dp", "depth"), ("ki", "kills"),
+                       ("wl", "wlevel"), ("al", "alevel")):
+            setattr(run2, mk, field(before2, fk, RID) or (1 if mk in ("wlevel", "alevel") else 0))
+        run2.mats = [field(before2, "m0", RID), field(before2, "m1", RID), field(before2, "m2", RID)]
+        run2.gear = [field(before2, f"g{i}", RID) for i in range(A.NSLOT)]
+        rh2b = blockhash(nh2_actual)
+        for i in range(A.LEG):
+            if not run2.alive or run2.done:
+                break
+            tw = alghash.hashn([th2, RID, i]) & 0xFFFFFFFF
+            rw = alghash.hashn([rh2b, RID, i]) & 0xFFFFFFFF
+            M.step(run2, tw, rw, action=answers2[i])
     diffs2 = [(fk, field(s, fk, RID), getattr(run2, mk)) for fk, mk in pairs
               if field(s, fk, RID) != getattr(run2, mk)]
     ck("the in-flight leg resolved under the OLD dials (the fence held)", not diffs2, str(diffs2))
