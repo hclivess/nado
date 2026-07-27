@@ -631,7 +631,15 @@ class CoreClient(threading.Thread):
                 return await asyncio.gather(*[get_remote_status(ip, logger=self.logger) for ip in ips],
                                             return_exceptions=True)
             raw = asyncio.run(_statuses(peers))
-            statuses = [s if isinstance(s, dict) else None for s in raw]
+            # CHAIN-ID GATE: a peer on a DIFFERENT chain must NEVER be a snapshot / re-anchor donor. A node
+            # stranded on a prior generation (after a reroll) advertises a valid-looking, much-heavier
+            # snapshot from its OLD chain; without this a fresh node adopts that cross-chain snapshot
+            # (mislabelled as ours) and ends up with a broken store — tip set, zero block bodies. chain_id is
+            # informational for block LINKAGE, but it IS the network's identity, so a donor whose chain_id
+            # isn't ours is dropped BEFORE any quorum / weight selection — the same gate the sync-donor path
+            # already applies ("Chain of X is not <ours>"). Observed live during the alphanet-11 reroll: a
+            # stranded seed on alphanet-10 poisoned a fresh node's bootstrap to a phantom 6000-block tip.
+            statuses = [s if (isinstance(s, dict) and s.get("chain_id") == CHAIN_ID) else None for s in raw]
             responders = [ip for ip, s in zip(peers, statuses) if s]
 
             from ops.peer_ops import seed_peers
