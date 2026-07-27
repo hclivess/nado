@@ -423,6 +423,15 @@ class ExecState:
         c.path = self.path + "#prov"       # sentinel: a clone is display-only and must never be save()d
         c._mutate_lock = threading.RLock()
         c._restore(snap)
+        # block_ts is deliberately NOT in _snapshot() — it is derived per applied block and must stay out
+        # of the persisted payload and the root. But __init__ (which seeds it to 0) is skipped here, so
+        # without this line a clone has no such ATTRIBUTE at all until a block is applied to it. A tail
+        # that applies zero blocks — the first fetch fails, or the block has no body — therefore 500s
+        # /exec/root?provisional=1 with AttributeError, and that endpoint is what every game client polls
+        # for its cursor: the page then reports the chain unreachable or stalled. Carry it explicitly;
+        # the clone inherits the clock of the state it forked from, which is exactly right for a view
+        # that has not yet advanced past it.
+        c.block_ts = getattr(self, "block_ts", 0)
         return c
 
     def load(self):

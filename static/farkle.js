@@ -263,7 +263,12 @@ function wireUI() {
   if ($("btnRematch")) $("btnRematch").onclick = rematch;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else alertBar(window.t("farkle.enterTableId", "Enter a table ID, or pick one from the lobby.")); };
   $("btnSettle").onclick = settleTable;
-  $("btnReclaim").onclick = reclaimTable;
+  // NO btnReclaim wiring here. farkle's reclaim takes a SEAT id, and which seat is reclaimable is only
+  // known per render — so render() binds this button to the stuck seat itself (see the reclaimSeat call
+  // in the active-table block). The line that used to sit here assigned `reclaimTable`, poker's
+  // per-table handler, which does not exist in this module: wireUI() is called from boot with no
+  // try/catch, so it threw ReferenceError on every load and took the whole page down with it — no
+  // lobby, no polling, no render, for a game holding real antes.
   $("btnCancel").onclick = cancelTable;
 }
 var render = function render() {
