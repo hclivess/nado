@@ -138,8 +138,14 @@ def _rate_limited(request, limit, window=60):
     return not allow(f"{_ip(request)}|{request.path}", limit, window)
 
 
-_RL = web.json_response({"result": False, "message": "Rate limited — slow down"}, status=429,
-                        headers={"Access-Control-Allow-Origin": "*"})
+# A FRESH response per call — NOT a shared instance. An aiohttp Response can be prepared/sent exactly
+# once, so returning one module-level object from concurrently-served handlers makes the second sender
+# fail mid-send and drop the TCP connection ("Remote end closed connection without response") instead
+# of returning a clean 429. Found by load-testing /submit_transaction: a burst that tripped the per-IP
+# limit produced thousands of dropped connections, not 429s. Every `return _RL()` now builds its own.
+def _RL():
+    return web.json_response({"result": False, "message": "Rate limited — slow down"}, status=429,
+                             headers={"Access-Control-Allow-Origin": "*"})
 
 
 def _q(request, key, default=None):
@@ -274,7 +280,7 @@ async def mining_status(request):
     at the current height. `address` defaults to this node's own. Full account-set scan under the
     hood, so rate-limited to 120/min per IP."""
     if _rate_limited(request, 120):  # /mining_status full-scans the account set; throttle it
-        return _RL
+        return _RL()
     from ops.block_ops import mining_status as compute_mining_status
     address = _q(request, "address", memserver.address)
     compress = _q(request, "compress", "none")
@@ -318,7 +324,7 @@ async def mining_history_handler(request):
     built the answer is a correct but partial view and `building` is true — the client says so rather than
     showing a truthful-looking chart of an incomplete window."""
     if _rate_limited(request, 60):
-        return _RL
+        return _RL()
     global _MH_TASK
     if _MH_TASK is None or _MH_TASK.done():
         _MH_TASK = asyncio.create_task(_mining_history_maintainer())
@@ -389,7 +395,7 @@ async def transactions_by_id(request):
     transactions from OUR pool — the expensive half of mempool set reconciliation, proportional to
     what the caller is actually missing instead of the whole pool. Rate-limited 120/min per IP."""
     if _rate_limited(request, 120):
-        return _RL
+        return _RL()
     body = await request.read()
 
     def _work(raw):
@@ -422,7 +428,7 @@ async def submit_transaction(request):
     # would 429 the very floods that keep mempools converged. It stays bounded: a dup is a cheap
     # "Already present" that is not re-gossiped, and an abusive peer is benched/purged by peer_loop.
     if ip not in memserver.peers and _rate_limited(request, 30):
-        return _RL
+        return _RL()
 
     def _work(body, ip):
         """Decode, anti-Sybil check, pool-merge, and (on a first-sight accept) queue push-gossip."""
@@ -556,7 +562,7 @@ async def account_transactions(request):
     `min_block` upward (address defaults to this node's own). Costs a DUPSORT index scan plus up to
     ~1000 block reads, so rate-limited to 60/min per IP. 404 when none found."""
     if _rate_limited(request, 60):  # DUPSORT scan + up to ~1000 block reads; throttle
-        return _RL
+        return _RL()
 
     def _work():
         """Blocking DUPSORT index scan + block reads (worker thread)."""
@@ -639,7 +645,7 @@ async def blocks_before(request):
     SYNC_BATCH_MAX + byte-budgeted, see _collect_block_chain), returned oldest-first. Rate-limited
     60/min per IP since each block is a disk read. ?compress=zstd is the block-sync wire format peers use."""
     if _rate_limited(request, 60):  # up to SYNC_BATCH_MAX block-file reads per call; throttle
-        return _RL
+        return _RL()
 
     def _work():
         collected, code = _collect_block_chain(_q(request, "hash"), _qint(request, "count", 1),
@@ -655,7 +661,7 @@ async def blocks_after(request):
     at SYNC_BATCH_MAX + byte-budgeted, see _collect_block_chain), ascending — the primary block-sync
     pull peers use with ?compress=zstd. Rate-limited 60/min per IP since each block is a disk read."""
     if _rate_limited(request, 60):  # up to SYNC_BATCH_MAX block-file reads per call; throttle
-        return _RL
+        return _RL()
 
     def _work():
         collected, code = _collect_block_chain(_q(request, "hash"), _qint(request, "count", 1),
@@ -724,7 +730,7 @@ async def account_mempool(request):
     plus light per-tx summaries (no pubkeys/signatures/proofs — a pool dump is megabytes of PQ material,
     this is a few hundred bytes). Pure in-memory pool scan + at most a few alias lookups per call."""
     if _rate_limited(request, 60):   # full O(mempool) scan + per-tx alias LMDB reads; throttle like the other scans
-        return _RL
+        return _RL()
     def _work():
         """Blocking pool scan (worker thread — alias resolution reads LMDB)."""
         try:
@@ -893,7 +899,7 @@ async def get_richest(request):
     """GET /get_richest: the single largest account by balance+bonded (wallet "coin pile" visual).
     O(accounts) scan, but cached per block height so it costs at most one scan per block."""
     if _rate_limited(request, 30):
-        return _RL
+        return _RL()
     # The largest account by total holdings (balance + bonded) — powers the wallet's relative "coin
     # pile" visual. O(accounts) scan, cached per block height so it runs at most once per block.
     def _work():
@@ -931,7 +937,7 @@ async def get_wealth_stats(request):
     log_std, block_number} over non-zero accounts (balance+bonded). The client converts its own
     ln(total) to a z-score/percentile for a whale-proof "richer than X%" rank. Cached per height."""
     if _rate_limited(request, 30):
-        return _RL
+        return _RL()
     # Distribution of account wealth (balance + bonded) for the wallet's rank / "coin pile". Wealth is
     # heavily right-skewed, so a single O(accounts) pass fits a LOG-NORMAL: it returns count + the richest
     # + the mean/std of ln(total) over non-zero accounts. The client turns its own ln(total) into a z-score
@@ -1121,7 +1127,7 @@ async def get_treasury_status(request):
     # Treasury governance snapshot for the Quorum tab (doc/treasury.md §3.3): the treasury balance, the burn
     # schedule, and every proposal with its LIVE tally (approving activated-stake vs the 2/3 quorum bar) + status.
     if _rate_limited(request, 60):
-        return _RL
+        return _RL()
     def _work():
         """Tally every live proposal against the activated bonded registry (worker thread)."""
         from ops import kv_ops
@@ -1201,7 +1207,7 @@ async def get_rich_list(request):
     """GET /get_rich_list?n=: top-n accounts by balance+bonded (n clamped to 1..100, default 25) — the
     wallet leaderboard. O(accounts) scan cached per block height (top 100 kept, sliced to n)."""
     if _rate_limited(request, 30):
-        return _RL
+        return _RL()
     # Top-N accounts by total holdings (balance + bonded) — powers the wallet's rich list / leaderboard.
     # O(accounts) scan, cached per block height (top 100 kept, sliced to n) so it runs at most once/block.
     def _work():
@@ -1243,7 +1249,7 @@ async def get_open_weights(request):
     — what the execution node accrues the presence dividend against, per completed epoch. Without it, the
     CURRENT epoch's live weights (legacy). Rate-limited 60/min per IP."""
     if _rate_limited(request, 60):
-        return _RL
+        return _RL()
     q_epoch = request.query.get("epoch")
     def _work():
         """Read the open-lane weights (worker thread)."""
@@ -1281,7 +1287,7 @@ async def duty_committee(request):
     so this is the pre-check that stops non-committee validators from broadcasting rejected duties.
     Defaults to the current tip's epoch. Rate-limited 60/min per IP."""
     if _rate_limited(request, 60):
-        return _RL
+        return _RL()
     q_epoch = request.query.get("epoch")
     addr = request.query.get("address")
 
@@ -1309,7 +1315,7 @@ async def get_dividend_inflow(request):
     deterministic, epoch-bound amount the execution node distributes over weights_at_epoch(E). 400 on a bad
     epoch. Rate-limited 60/min per IP."""
     if _rate_limited(request, 60):
-        return _RL
+        return _RL()
     try:
         e = int(request.query.get("epoch", ""))
     except (TypeError, ValueError):
@@ -1383,7 +1389,7 @@ async def htlcs(request):
     claimant (a wallet's own swaps). Full-set read — rate-limited 60/min per IP."""
     # All HTLCs, optionally filtered to those where `address` is the sender OR claimant (the wallet's swaps).
     if _rate_limited(request, 60):
-        return _RL
+        return _RL()
     from ops import kv_ops
     addr = _q(request, "address")
     allh = await asyncio.to_thread(kv_ops.htlc_all)
@@ -1595,7 +1601,7 @@ async def post_message(request):
     ML-DSA signature (size-bounded decode via unpack_tx) — it never decrypts. Returns {result, reason,
     id}; 403 on rejection, 429 over the 30/min IP rate limit."""
     if _rate_limited(request, 30):
-        return _RL
+        return _RL()
     def _work(body):
         """Decode + pool-admit the envelope (worker thread)."""
         try:
@@ -1614,7 +1620,7 @@ async def get_tags(request):
     """GET /tags?since=: message-pool recipient tags newer than pool cursor `since`, plus the current
     cursor — the poll clients use to notice mail without revealing who they are. Rate-limited 120/min."""
     if _rate_limited(request, 120):
-        return _RL
+        return _RL()
     try:
         since = int(_q(request, "since", "0") or 0)
     except Exception:
@@ -1640,7 +1646,7 @@ async def post_msg_key(request):
     fee-exempt `msgkey` tx is preferred). Same registered-sender + signature gating as messages;
     rate-limited 20/min per IP."""
     if _rate_limited(request, 20):
-        return _RL
+        return _RL()
     def _work(body):
         """Decode + pool-admit the prekey bundle (worker thread)."""
         try:
@@ -1721,7 +1727,7 @@ async def state_health(request):
     diverged in one shot instead of inferring a fork from block hashes (the alphanet-8 wedge took a replay
     harness to localize to the meta DB — this endpoint is that harness, live). Rate-limited like other reads."""
     if _rate_limited(request, 6):        # two full-state walks are expensive; this is a diagnostic, not a poll target
-        return _RL
+        return _RL()
     def _snap():
         from ops.snapshot_ops import state_fingerprint
         from ops.settlement_ops import settled_header_commitment
