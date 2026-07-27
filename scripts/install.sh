@@ -406,7 +406,11 @@ fi
 if [ "$_pq_want" = "1" ]; then
   if ensure_rust "yes"; then
     echo "==> building the native ML-DSA-44 verify backend (native/mldsa44)..."
-    if ( cd "$REPO_DIR/native/mldsa44" && cargo build --release >/dev/null 2>&1 ); then
+    # Capture the build output to a log instead of discarding it: when this fails (e.g. the LTO link
+    # OOMs on a small box, or crates.io is unreachable) the operator was left with only "build failed"
+    # and no way to tell why. On failure we now print the tail and keep the full log.
+    _pq_log="${TMPDIR:-/tmp}/nado-pq-build.log"
+    if ( cd "$REPO_DIR/native/mldsa44" && cargo build --release ) >"$_pq_log" 2>&1; then
       cp "$REPO_DIR/native/mldsa44/target/release/libnado_mldsa44.so" \
          "$REPO_DIR/native/mldsa44/libnado_mldsa44.so" 2>/dev/null || true
       # verify it actually passes the interop self-test before we commit to baking the env var in
@@ -418,7 +422,12 @@ if [ "$_pq_want" = "1" ]; then
         echo "    (built but FAILED the interop self-test — not enabling it; staying pure-Python.)"
       fi
     else
-      echo "    (build failed — staying pure-Python; still correct, just slower.)"
+      echo "    (build FAILED — staying pure-Python; still correct, just slower.) Last lines:"
+      tail -n 15 "$_pq_log" | sed 's/^/      | /'
+      echo "    full log: $_pq_log"
+      echo "    common cause on a small box: the LTO link runs out of RAM. Retry with more swap, or"
+      echo "    build without LTO:  ( cd $REPO_DIR/native/mldsa44 && CARGO_PROFILE_RELEASE_LTO=false cargo build --release )"
+      echo "    then re-run this installer so the env var gets baked in."
     fi
   else
     echo "==> Rust not available — skipping the native ML-DSA backend (staying pure-Python)."

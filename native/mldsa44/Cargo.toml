@@ -14,4 +14,7 @@ ml-dsa = "0.1"
 
 [profile.release]
 opt-level = 3
-lto = true
+# THIN, not fat, LTO: the fat-LTO link (lto = true) peaks at enough RAM to OOM-kill the build on a
+# small box — which is exactly the class of node (low-spec, pure-Python-fallback) that most needs the
+# native backend. Thin LTO keeps essentially all the runtime speed at a fraction of the link memory.
+lto = "thin"

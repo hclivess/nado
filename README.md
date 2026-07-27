@@ -298,12 +298,27 @@ NADO runs on Python 3.10+. The entrypoint is `nado.py`; the node serves its API 
 > this command on it: it repairs the install in place.
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service --user nado
+curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service --user nado --pq-native
 ```
 
 No checkout needed — piped standalone, the script installs `git` if missing, clones the repo itself,
 builds the venv, installs the node dependencies, and registers a **systemd service** that boots on start
 and restarts on failure.
+
+`--pq-native` builds the native Rust ML-DSA verify backend (it installs Rust via rustup automatically if
+missing). **Strongly recommended:** signature verification is the node's main CPU cost, and a node left on
+the pure-Python fallback is ~84× slower per verify — under transaction load it cannot verify full blocks
+within the block interval and **falls off the tip**. If the build fails the installer now prints the reason and
+the full log path, and the node still runs (pure-Python). The most common failure on a small box is the
+LTO link running out of RAM — finish it by hand with:
+
+```bash
+cd <checkout>/native/mldsa44 && CARGO_PROFILE_RELEASE_LTO=false cargo build --release
+sudo scripts/install.sh --service --user nado --pq-native   # re-run: bakes the env var into the unit
+```
+
+Confirm it took: `curl -s localhost:9173/status` should show `"pq_backend":"native:nado_pq_native"` and
+`"pq_degraded":null`. Drop the flag only on a box where you cannot install a Rust toolchain.
 
 `--user nado` runs the node as a dedicated **non-root system account** instead of root: the checkout and
 chain data live at `/srv/nado-home/nado`, the units get a hardening block (`NoNewPrivileges`,
