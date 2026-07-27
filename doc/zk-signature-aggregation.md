@@ -93,6 +93,73 @@ A block already carries `block_transactions`. The change:
   "the state transition is correct" — which is the Mina-style "block is one proof" endpoint, reached the
   post-quantum way.
 
+## Architecture — block authorization with a detached proof (adopted 2026-07-27)
+
+The framing below is the authoritative plan (folded in from a peer design note, `zk-signature-aggregation-02.md`).
+It scopes the circuit tightly and, crucially, keeps the **block hash independent of proof completion**.
+
+### Detached evidence — the load-bearing idea
+The block **core** carries the transactions (signatures STRIPPED) plus two commitment fields — `auth_root`
+(a field-native commitment to the ordered authorization entries) and `auth_count` (the exact number `K` of
+signature checks) — and NOTHING else about signatures. The signatures (or the proof) travel in a SEPARATE
+evidence envelope, exactly one of:
+
+```
+{ "type": "raw",   "witnesses": [ ordered signature entries ] }        # every block can always ship this
+{ "type": "stark", "circuit_id": ..., "proof": ... }                    # substituted when a proof is ready
+```
+
+The **block hash is byte-identical whether the evidence is raw or a proof.** This is what makes it safe: a
+relay can build the canonical block for an offline winner from the signed mempool without racing proof
+completion, and an invalid/absent proof never poisons block identity when valid alternate evidence exists.
+(nado already keeps the block-timestamp out of the block-hash preimage for a related determinism reason —
+`calls_commit.py`.)
+
+### Narrow proof scope — prove ONLY signature validity
+The proof attests exactly one thing: *"for every one of the `auth_count` authorization leaves, a valid
+ML-DSA-44 signature exists over its txid under the sender's resolved public key."* Everything else stays in
+the **native** verifier, unchanged: spending, target-height, reserved-recipient, uniqueness, fee, state-root,
+`create_txid`, PUBKEY-ONCE resolution, and the cheap `proof_sender` binding — AND the native verifier
+**independently recomputes `auth_root` and `auth_count`** from the block. This deliberately keeps the L1 state
+machine, canonical JSON, and blake2b address-checksum OUT of the circuit. Only the FIPS-204 signature check
+goes in.
+
+```
+auth_leaf_i = H_field(AUTH_DOMAIN, block_height, tx_index, txid_limbs, sender_limbs,
+                      H_field(resolved_pubkey_bytes), authorization_kind, signature_count)
+auth_root   = field-native Merkle root / sponge over the ordered leaves      # H_field = alghash2, NOT SHAKE
+```
+
+### Chunked incremental proving + recursive fold
+To fit a ~6 s slot: decode each signature ONCE on mempool admission and cache its witness keyed by
+`(circuit_id, ordered auth leaves, chunk length)`; prove fixed-size chunks (16/32/64 sig checks) in PARALLEL
+as the block template evolves; freeze the tx set ~1.5 s before the deadline, prove the tail chunk, and
+**fold the chunk proofs into one root proof** via the existing `recursive_verify` machinery (the same K→1
+fold now live for settlement). Padding rows carry an explicit selector the AIR forces to contribute nothing,
+and it enforces exactly `auth_count` active rows in one contiguous sequence. The final proof's PUBLIC
+statement binds chain/genesis id, height, parent hash, `auth_version`, `circuit_id`, `auth_root`,
+`auth_count`, and the first/last covered tx indices — so a proof cannot be replayed onto another block, cover
+only a favorable subset, or duplicate leaves.
+
+### Sizing gate (why it is throughput-gated)
+Byte crossover ≈ `ceil((P + metadata) / 2420)` for proof size `P` (an ML-DSA-44 sig is 2420 B). nado's current
+~1 MiB proofs only pay off past ~434 tx (not viable) — the dedicated AIR must reach **100–200 KiB** (verify
+≤100 ms) to be practical; pilot target 128 sigs/block. Below ~50 KiB is a research assumption, not a launch
+premise. CPU crossover is separate and worse on pure-Python nodes, so the FIRST win is bandwidth / storage /
+killing the global `_CRYPTO_LOCK` — not native-node CPU.
+
+### Rollout — Optional → Mandatory (never a flag-flip to mandatory)
+A: shadow-prove every real block, compare to native checks, no consensus impact. B: ship the signature-free
+core + detached envelope; raw evidence valid for all blocks, proof substitutable (single-sig txs only). C:
+relay PREFERS proof when `2420*K ≥ 1.25*P`. D: consensus REQUIRES a proof when `K ≥ K_required` (128 only if
+the final proof ≤200 KiB); raw stays valid below threshold + for legacy kinds. E: add multisig, and optionally
+fold signature validity into the L1 state-transition proof (the Mina endpoint). Go/no-go gates before D:
+proof ≤200 KiB at target soundness, verify ≤100 ms p95 on the slowest node, ≥3 independent proving operators
+produce the identical statement, ≥99.9% shadow success over ≥100 k blocks, independent security review of
+circuit/transcript/recursion/parser, and an emergency proof-disable that is a CONSENSUS upgrade, not an
+operator flag. Keep a RAW witness sidecar for the reorg horizon (`finality_depth` + margin) and the FFG
+slashing horizon; the block-winner signature stays detached + unchanged.
+
 ## Implementation status (build order) — STARTED 2026-07-27
 
 The verify equation decomposes into these sub-circuits, in rough build order. Golden references for every
