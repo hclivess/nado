@@ -1229,6 +1229,9 @@ let stageMsgAt = 0;             // when an event last wrote the strip
 function idleMessage() {
   const el = $("stagemsg");
   if (!el) return;
+  // Keep the manual escape in step with the line below on EVERY frame, not just on the next render pass —
+  // this loop is what tells the player to tap it. Cheap: two class writes and a predicate.
+  syncKick(settleStuckNow());
   if (stageMsgAt && performance.now() - stageMsgAt < 2600) return;   // the event's line, still fresh
   if (replay) {                                                      // a replay narrates its own walk
     el.innerHTML = replay.walk && (queue.length || (view && camera < view.depth - 0.01))
@@ -2053,11 +2056,8 @@ function renderAnswerBar() {
   // A leg whose dice landed but hasn't settled: normally the fused march (queued answers) or the graced
   // background advance carries it. If neither is visibly moving — queue that can't send, or a graced leg
   // whose settle never fired — offer the manual "Settle now" escape (see settleStuckNow).
-  if (settleable()) { if (!settleableSince) settleableSince = performance.now(); }
-  else settleableSince = 0;
   const settleStuck = settleStuckNow();
-  const kb = $("kickBtn");
-  if (kb) { kb.classList.toggle("hidden", !settleStuck); kb.disabled = dapp.busy("advance"); }
+  syncKick(settleStuck);
   gate({ answerBar: answering || (mode === "march" && (!!queuedWord || settleStuck)) });
   // The heading follows the state too — "your move" when it is, so the road strip reads as a thing to act
   // on rather than a diagram to look at (the whole point the player kept missing).
@@ -2429,10 +2429,34 @@ const settleable = () => !!(mode === "march" && chain && chain.alive && !chain.d
 /** Is the settle visibly STUCK — offer the manual "Settle now" escape? Not while the march/advance is in
  *  flight, not while the settle grace is deliberately holding the advance back for an answer, and not in
  *  the first seconds of a queued word (its fused send is normally already confirming). What remains is a
- *  queue that could not send, or a leg past its grace with no settle moving — both worth a button. */
-const settleStuckNow = () => settleable() && !dapp.busy("advance")
-  && ((!!queuedWord && !dapp.busy("commit") && performance.now() - queuedAt > 6000)
-      || (!queuedWord && settleableSince && performance.now() - settleableSince > ADV_GRACE_MS + 6000));
+ *  queue that could not send, or a leg past its grace with no settle moving — both worth a button.
+ *
+ *  The stuck CLOCK is kept here rather than in the render pass, because two independent loops read this
+ *  predicate: render(), and the animation tick that prints the "tap Settle now" line every frame. Parking
+ *  the bookkeeping inside one of them left the other reading a stale zero, so the two could disagree about
+ *  whether the same leg was stuck. */
+function settleStuckNow() {
+  if (settleable()) { if (!settleableSince) settleableSince = performance.now(); }
+  else settleableSince = 0;
+  return settleable() && !dapp.busy("advance")
+    && ((!!queuedWord && !dapp.busy("commit") && performance.now() - queuedAt > 6000)
+        || (!queuedWord && settleableSince && performance.now() - settleableSince > ADV_GRACE_MS + 6000));
+}
+/** Show or hide the manual escape — from BOTH loops, for the same reason.
+ *
+ *  The bug this fixes: the tick prints "Settling the last leg — tap 'Settle now' if it's slow", but only
+ *  renderAnswerBar could reveal the button it names. render() runs on refreshes and events rather than
+ *  every frame, and it returns early during a replay without touching the answer bar at all — so the
+ *  sentence sat on screen pointing at a control that was not there. Advice naming a button the player
+ *  cannot see is worse than no advice: it reads as the page being broken. */
+function syncKick(stuck) {
+  const kb = $("kickBtn");
+  if (!kb) return;
+  const show = !!stuck && !replay;   // a replay owns the stage, and act() would refuse the click anyway
+  kb.classList.toggle("hidden", !show);
+  kb.disabled = dapp.busy("advance");
+  if (show) gate({ answerBar: true });   // the button lives INSIDE the answer bar — reveal both or neither
+}
 /** Fire the previous leg's settlement RIGHT NOW through the SDK's manual settle — it bypasses the auto-collect
  *  opt-out and retry timer but keeps the same collision guard, so it can never double-submit an advance
  *  already in flight. advance is permissionless and its dice block is already fixed on-chain, so this just
