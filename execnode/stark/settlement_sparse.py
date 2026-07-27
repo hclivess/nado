@@ -243,12 +243,14 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
     the (unchanged) records half `rec_hex` — {cursor, kv_pre, kv_post, rec, segments}. Multi-epoch spans
     chain more segments (each bound epoch's post == the next's pre).
 
-    `recursive=True` is the K→1 money path: segment the span into K bound epochs proven ROW-COMMITTED with the
-    RECURSION backend (reusing settlement_proofs.prove_settlement's proven segmentation for the exec halves),
-    then fold their K exec proofs into ONE recursion bundle attached as `recursive`. verify_settlement_sparse
-    then verifies that single bundle in place of K per-segment stark.verify calls. The sparse state-transition
-    binding stays per segment (the lighter, separately-foldable half). Folding is a VERIFICATION-STRATEGY change
-    only: kv_pre/kv_post — the settled root — are byte-identical to the non-recursive proof of the same span."""
+    `recursive=True` is the K→1 money path: segment the span into ONE bound epoch PER BLOCK (block-aligned, as
+    L1's DA binding requires — each segment.cursor is its block height and covers contiguous whole blocks),
+    proven ROW-COMMITTED with the RECURSION backend, then (if `fold`) fold their K exec proofs into ONE recursion
+    bundle attached as `recursive`. verify_settlement_sparse verifies that single bundle in place of K
+    per-segment stark.verify calls. The sparse state-transition binding stays per segment (the lighter,
+    separately-foldable half). Folding is a VERIFICATION-STRATEGY change only: kv_pre/kv_post — the settled root
+    — are byte-identical to the non-recursive proof of the same span. (A block whose calls exceed one trace is
+    unsupported — the DA binding folds per block — and raises, so the exec node falls back to quorum.)"""
     if not recursive:
         bundle = prove_bound_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
                                    block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
@@ -257,26 +259,37 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
                 "kv_pre": ST.digest_hex(tuple(int(x) % F.P for x in bundle["sparse_pre_root"])),
                 "kv_post": ST.digest_hex(tuple(int(x) % F.P for x in bundle["sparse_post_root"])),
                 "segments": [bundle]}
-    # --- recursive: segment the exec halves (proven segmentation), add the sparse binding, fold the K proofs ---
+    # --- recursive: ONE bound-epoch segment PER BLOCK, then fold the K exec proofs into one recursion bundle ---
+    # Block-aligned by construction: L1's verify_calls_bound_to_summaries folds per-block summary leaves and
+    # requires each segment.cursor to be its last block height, covering contiguous whole blocks. block_calls
+    # stamps cursor=height per call, so we group the span's calls by block and prove one bound epoch per block
+    # (prove_bound_epoch already sparse-binds it). The last segment's cursor extends to the span end so trailing
+    # empty blocks (which fold to an unchanged commitment) are still covered.
+    import copy
     from execnode.stark import backend as _bk, recursive_verify as RV
+    from execnode.settlement_proofs import _run_call
     oq = int(outer_queries) if outer_queries is not None else int(num_queries)
-    base = SP.prove_settlement(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
-                               block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
-                               max_rows=max_rows, backend=_bk.RECURSION, row_commit=True)
+    present, grouped = [], {}
+    for c in calls:
+        h = int(c.get("cursor", cursor))
+        if not present or present[-1] != h:
+            present.append(h)
+        grouped.setdefault(h, []).append(c)
+    if not present:
+        raise ValueError("recursive settlement over an empty call span")
+    contracts = copy.deepcopy(pre_contracts)
+    bridge = dict(pre_bridge or {})
     segments, exec_proofs, bnds, pers = [], [], [], []
-    for seg in base["segments"]:
-        cid_io = _cid_io(seg)
-        pre_store = ST.SparseStore(depth, sparse_projection(seg["pre_contracts"], depth))
-        sparse_pre = pre_store.root()
-        pre_get = lambda cid, slot, _pc=seg["pre_contracts"]: \
-            ((_pc.get(cid) or {}).get("storage") or {}).get("slots", {}).get(str(int(slot)), 0)
-        net = ESB.net_updates(pre_get, cid_io, depth)
-        tr = SX.prove_transition(pre_store, [(k, n) for (k, _o, n) in net], num_queries=num_queries)
-        seg.update(sparse_pre_root=sparse_pre, sparse_post_root=pre_store.root(), transition=tr,
-                   cid_io=cid_io, depth=depth,
-                   calls_commitment=CC.calls_commitment(seg["calls"], int(seg.get("cursor", cursor)),
-                                                        int(seg.get("timestamp", timestamp))))
+    for idx, h in enumerate(present):
+        blk_calls = grouped[h]
+        seg_cursor = int(cursor) if idx == len(present) - 1 else h     # last segment covers trailing empty blocks
+        seg = prove_bound_epoch(contracts, blk_calls, cursor=seg_cursor, timestamp=timestamp, beacons=beacons,
+                                block_hashes=block_hashes, pre_bridge=bridge, num_queries=num_queries,
+                                depth=depth, backend=_bk.RECURSION, row_commit=True)
         segments.append(seg)
+        reg = {}                                          # advance contracts (+bridge) to this block's post-state
+        for j, call in enumerate(blk_calls):              # (records-frozen span ⇒ empty asset shadow is inert)
+            _run_call(contracts, bridge, {}, {}, reg, call, j, h, timestamp, beacons, block_hashes, False)
         pub_calls, epoch_io = SP._epoch_pub_statement(seg)
         ok, why, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io)
         if not ok:

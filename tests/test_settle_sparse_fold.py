@@ -45,7 +45,6 @@ def check(name, fn):
 
 D8 = 8                                       # toy sparse depth (protocol is 256; verify pins depth per segment)
 NQ = 2                                        # reduced inner/outer query strength (protocol NUM_QUERIES stays high)
-MAXROWS = 300                                 # small trace budget -> forces >=2 segments over 6 calls (as in o1)
 CID = "c" * 32
 ALICE = "ndoAAAA" + "A" * 41
 COUNTER = {"bump": zkvmasm.assemble("""
@@ -63,16 +62,19 @@ def _pre():
     return {CID: {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}}
 
 
-CALLS = [{"cid": CID, "method": "bump", "caller": ALICE, "args": []} for _ in range(6)]
+# a span across 3 blocks (2 calls each) — per-call cursor = block height, so recursive segmentation yields
+# ONE block-aligned segment per block (>=2 segments to exercise the fold).
+CALLS = [{"cid": CID, "method": "bump", "caller": ALICE, "args": [], "cursor": h} for h in (1, 2, 3) for _ in range(2)]
+SPAN_CURSOR = 3
 
 
 # reference roots: the NON-recursive single-epoch proof of the same span (the settled root the fold must match)
-_REF = SS.prove_settlement_sparse(_pre(), CALLS, cursor=200, rec_hex=REC, num_queries=NQ, depth=D8)
+_REF = SS.prove_settlement_sparse(_pre(), CALLS, cursor=SPAN_CURSOR, rec_hex=REC, num_queries=NQ, depth=D8)
 KV_PRE, KV_POST = _REF["kv_pre"], _REF["kv_post"]
 
-# the SEGMENTED + sparse-bound proof (fold not attached) — the fast base; >=2 row-committed RECURSION segments
-_SEG = SS.prove_settlement_sparse(_pre(), CALLS, cursor=200, rec_hex=REC, num_queries=NQ, depth=D8,
-                                  recursive=True, fold=False, max_rows=MAXROWS)
+# the SEGMENTED + sparse-bound proof (fold not attached) — the fast base; one row-committed RECURSION segment/block
+_SEG = SS.prove_settlement_sparse(_pre(), CALLS, cursor=SPAN_CURSOR, rec_hex=REC, num_queries=NQ, depth=D8,
+                                  recursive=True, fold=False)
 
 
 def t_reference_single_epoch():
@@ -114,9 +116,8 @@ def t_tampered_transition_rejected():
 # ---- HEAVY: the real K->1 recursion bundle over the W=106 exec AIR --------------------------------------------
 _FOLD = None
 if HEAVY:
-    _FOLD = SS.prove_settlement_sparse(_pre(), CALLS, cursor=200, rec_hex=REC, num_queries=NQ, depth=D8,
-                                       recursive=True, fold=True, max_rows=MAXROWS,
-                                       outer_queries=NQ, comp_points_per_proof=1)
+    _FOLD = SS.prove_settlement_sparse(_pre(), CALLS, cursor=SPAN_CURSOR, rec_hex=REC, num_queries=NQ, depth=D8,
+                                       recursive=True, fold=True, outer_queries=NQ, comp_points_per_proof=1)
 
 
 def t_fold_settles():

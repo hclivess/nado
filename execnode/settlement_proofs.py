@@ -73,6 +73,14 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
     caller = call.get("caller", "epoch")
     value = int(call.get("value", 0))
     in_asset = int(call.get("asset", 0))                  # 0 == native NADO
+    # PER-CALL execution context (the block the call actually executed in). block_calls stamps cursor=height,
+    # ts=0 per call, so a MULTI-BLOCK span executes each call with ITS block's cursor — matching the live
+    # per-block apply (TIME/BHASH read the right height) AND making calls_commitment's per-call leaf equal
+    # L1's per-block summary leaf. The passed cursor/timestamp are the epoch-wide FALLBACK (single-block spans
+    # / callers that pass no per-call context). (deep-audit finding: without this, any multi-block span both
+    # proved the wrong root and failed the DA binding.)
+    c_cursor = int(call.get("cursor", cursor))
+    c_ts = int(call.get("timestamp", timestamp))
     cf, fargs = runtimes.zkvm_statement(caller, call.get("args", []), registry)
     slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
     if value > 0:
@@ -88,7 +96,7 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
     # the VM sees ONLY this contract's asset balances, {int(aid) -> bal} — the shadow of holder_assets(cid)
     abal_view = {int(aid): int(row.get(cid, 0)) for aid, row in abal.items() if row.get(cid)}
     selfd = runtimes.zkvm_addr_digest(cid)
-    res = zkvm.run(c["code"], method, cf, fargs, slots, value=value, cursor=cursor, timestamp=timestamp,
+    res = zkvm.run(c["code"], method, cf, fargs, slots, value=value, cursor=c_cursor, timestamp=c_ts,
                    beacons=beacons, block_hashes=block_hashes, selfd=selfd, asset=in_asset, abal=abal_view,
                    witness=want_rows)
     ok, _ret, new_slots, io = res[:4]
@@ -110,11 +118,11 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
         commit_asset_effects_pure(abal, assets, deltas, sup, meta_ops)
     c["storage"] = {"slots": {str(k): v for k, v in sorted(new_slots.items())}}
     epoch_call = {"code": c["code"], "method": method, "caller_f": cf, "args_f": fargs,
-                  "caller": caller, "args": call.get("args", []), "value": value, "cursor": cursor,
-                  "timestamp": timestamp, "beacons": beacons, "block_hashes": block_hashes, "slots": slots,
+                  "caller": caller, "args": call.get("args", []), "value": value, "cursor": c_cursor,
+                  "timestamp": c_ts, "beacons": beacons, "block_hashes": block_hashes, "slots": slots,
                   "selfd": selfd, "asset": in_asset, "abal": abal_view}
     public_call = {"cid": cid, "method": method, "caller": caller, "args": call.get("args", []),
-                   "value": value, "asset": in_asset}
+                   "value": value, "asset": in_asset, "cursor": c_cursor, "timestamp": c_ts}
     return epoch_call, public_call, rows
 
 
@@ -427,10 +435,13 @@ def _epoch_pub_statement(bundle):
             raise ValueError("unknown contract")
         # `selfd` is DERIVED from the cid, never carried in the bundle: the verifier recomputes the callee's
         # own digest from public data, so a prover cannot choose what ACTX_SELF reads.
+        # PER-CALL context (the block the call executed in), falling back to the epoch-wide cursor/ts — must
+        # match _run_call's prove-time context, else verify_epoch_calls rebuilds a different statement than was
+        # proven. A multi-block span carries a distinct cursor per call (block_calls stamps height).
         pub_calls.append({"code": c["code"], "method": call["method"], "caller": call.get("caller", "epoch"),
                           "args": call.get("args", []), "value": int(call.get("value", 0)),
-                          "cursor": cursor, "timestamp": ts, "asset": int(call.get("asset", 0)),
-                          "selfd": runtimes.zkvm_addr_digest(call["cid"])})
+                          "cursor": int(call.get("cursor", cursor)), "timestamp": int(call.get("timestamp", ts)),
+                          "asset": int(call.get("asset", 0)), "selfd": runtimes.zkvm_addr_digest(call["cid"])})
     return pub_calls, epoch_io
 
 
