@@ -2,11 +2,11 @@
 // gravity ON-CHAIN, drops the disc, detects four-in-a-row itself and pays the pot instantly; a full
 // board refunds both stakes. Built on the shared PvP board-game scaffold (pvpgame.js) — this file is
 // ONLY the connect-four board: its decode, its render, its move.
-import { NadoDapp, rawToNado, _m, $, disp, gate, hoist } from "./nadodapp.js?v=7cbf5838";
-import { PvpGame } from "./pvpgame.js?v=185a7f44";
-import { BoardDaily, gameModes } from "./board-daily-ui.js?v=638dca89";   // shared free Daily Challenge + mode picker
+import { NadoDapp, rawToNado, _m, $, disp, gate, hoist } from "./nadodapp.js?v=acba3d6b";
+import { PvpGame } from "./pvpgame.js?v=2af7503f";
+import { BoardDaily, gameModes } from "./board-daily-ui.js?v=8aa26b15";   // shared free Daily Challenge + mode picker
 import * as RULES from "./connect4-rules.js?v=0d9c67c6";
-import { Practice } from "./practice.js?v=2d937d94";   // free in-browser practice vs the computer
+import { Practice } from "./practice.js?v=d44e512f";   // free in-browser practice vs the computer
 
 const CID = "aaee53d5afc487aa3af78b6913fbea80";
 const COLS = 7, ROWS = 6;

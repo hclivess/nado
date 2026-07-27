@@ -16,13 +16,13 @@ import {
   NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime, modeBar,
   confirmingLabel,
-} from "./nadodapp.js?v=7cbf5838";
+} from "./nadodapp.js?v=acba3d6b";
 import * as E from "./autogame-engine.js?v=8a997c33";
 import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
 import * as ART from "./autogame-art.js?v=4aad5b61";
 import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=4aad5b61";
-import { createDaily } from "./autogame-dailyui.js?v=1fa8cc84";
-import * as D from "./autogame-daily.js?v=061c3648";
+import { createDaily } from "./autogame-dailyui.js?v=8b446688";
+import * as D from "./autogame-daily.js?v=10d8bdb9";
 import { createAudio } from "./autogame-audio.js?v=afd7538c";
 
 const CID = "ffc1619be0f76ee31946106c8281ae73";          // execnode/games/autogame.py (zkVM) — set by the deploy script
@@ -2338,7 +2338,12 @@ let queuedPlan = false;   // orders owed to the chain — sent (and resent) by t
  *  flight (this same send, confirming), or an advance in flight (the fused op would make it revert for a
  *  fee; let it land, then this send is a plain commit). Returns true if it fired. */
 function sendQueuedWord() {
-  if (!chain || !queuedWord || dapp.busy("commit") || dapp.busy("advance")) return false;
+  // NOT blocked by an in-flight advance. The fused op is safe against one either way: if the advance lands
+  // first the march's resolve half no-ops and its commit half still commits; if the march lands first the
+  // advance finds nothing to settle and reverts, costing one MIN_TX_FEE. Waiting for it instead re-created
+  // the exact two-round-trip stall this whole change exists to remove, for any player who answered after
+  // the settle grace had already let the advance go.
+  if (!chain || !queuedWord || dapp.busy("commit")) return false;
   const w = queuedWord;
   const parked = !chain.nh && chain.leg === w.leg;                       // close landed: plain commit
   const fused = !!chain.nh && chain.leg === w.leg - 1
@@ -2389,18 +2394,23 @@ function commitLeg() {
     return;
   }
   wordSave(myId, chain.leg, word);        // the animator replays this leg from it once it settles
+  // EVERY path queues, including this one. The direct send used to be fire-and-forget: one act("commit"),
+  // no queuedWord, therefore nothing in refreshAll's pump to re-fire it. On this chain a pool-dropped tx is
+  // routine, so a dropped commit left the player parked on "Sending your answers…" until the click guard
+  // aged out — minutes — and then only a manual re-click sent it again. Queueing it hands the same send to
+  // the pump that already backstops the pipelined path: it re-sends until the chain shows the dice
+  // scheduled, and clears itself the moment they are.
+  queuedWord = { leg: chain.leg, word };
+  queuedAt = performance.now();
   if (dirty) {
-    queuedWord = { leg: chain.leg, word };
-    queuedAt = performance.now();
     okBar(t("queuedAfterOrders", "Orders sent — your answers follow the moment they land."));
     render();
     return;
   }
   // the direct path rides the same fused op: with the run parked it is exactly commit(), and if a
   // just-settleable leg slipped in between the render and the click it settles that too instead of reverting
-  act("commit", t("whatCommit", "Answering this stretch of road"), () =>
-    dapp.call("march", [myId, word, chain.leg], 0n, t("labelCommit", "Commit your answers"),
-      { phase: "commit", leg: chain.leg }), "leg", chain.leg);
+  sendQueuedWord();
+  render();
 }
 
 function retire() {

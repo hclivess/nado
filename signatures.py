@@ -143,24 +143,36 @@ def _interop_ok(candidate) -> bool:
         return False
 
 
+# WHY we are on the fallback, for /status. Knowing a node is degraded is only half of it: the two causes
+# need OPPOSITE fixes — an unset env var is a systemd-unit edit, a failed import is a missing build
+# (scripts/build_pq_native.sh, which needs cargo). Without this an operator cannot tell them apart from
+# outside the box, and the stderr warning that does say which is emitted once at import and then gone.
+_BACKEND_REASON = [None]
+
+
 def _select_backend():
     """Pick the signing backend at import time. Default = pure-Python. If NADO_PQ_NATIVE_MODULE names
     an importable module that PASSES the interop self-test, use it; otherwise fall back loudly to
     pure-Python (never silently trust an unverified native lib)."""
     mod_name = os.environ.get("NADO_PQ_NATIVE_MODULE", "").strip()
     if not mod_name:
+        _BACKEND_REASON[0] = "NADO_PQ_NATIVE_MODULE is not set in the node environment"
         return _PurePyBackend()
     try:
         candidate = _NativeBackend(importlib.import_module(mod_name))
     except Exception as e:  # operator-supplied module: import must never crash the node
         sys.stderr.write(f"[PQ] native backend '{mod_name}' import failed ({e}); using pure-Python\n")
+        _BACKEND_REASON[0] = f"module '{mod_name}' did not import ({e}) — run scripts/build_pq_native.sh"
         return _PurePyBackend()
     if _interop_ok(candidate):
         sys.stderr.write(f"[PQ] native ML-DSA backend '{mod_name}' passed interop self-test; enabled\n")
+        _BACKEND_REASON[0] = None
         return candidate
     sys.stderr.write(
         f"[PQ] native backend '{mod_name}' FAILED interop self-test (likely ctx-wrapping mismatch); "
         f"refusing it and using pure-Python — see signatures.py INTEROP TRAP\n")
+    _BACKEND_REASON[0] = (f"module '{mod_name}' failed the interop self-test (likely ctx-wrapping "
+                          f"mismatch) — see signatures.py INTEROP TRAP")
     return _PurePyBackend()
 
 
@@ -178,6 +190,11 @@ def backend_name():
     to stderr at import and is then invisible forever. Making it queryable turns that into something an
     operator or a peer can actually notice."""
     return getattr(_BACKEND, "name", "pure-python")
+
+
+def backend_degraded_reason():
+    """None when the native backend is live; otherwise WHY we fell back, in operator terms."""
+    return _BACKEND_REASON[0]
 
 
 def _keypair_from_seed(seed: bytes):

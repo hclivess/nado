@@ -37,7 +37,8 @@ from memserver import MemServer
 from ops.account_ops import get_account, fetch_totals, get_bonded_registry
 from ops.address_ops import proof_sender
 from signatures import (verify as _mldsa_verify, unhex as _mldsa_unhex,
-                        backend_name as _pq_backend_name)
+                        backend_name as _pq_backend_name,
+                        backend_degraded_reason as _pq_backend_reason)
 from ops.mining_ops import total_shares
 from ops.block_ops import get_block, recommended_fee, get_block_number, SYNC_BATCH_MAX, SYNC_BATCH_BYTES
 from ops.data_ops import get_home, allow_async, get_byte_size
@@ -223,6 +224,9 @@ async def status(request):
             # global lock, so the node silently stops keeping up. The fallback warns once to stderr at
             # import and is invisible from then on; this makes it queryable.
             "pq_backend": _pq_backend_name(),
+            # ...and WHY, when degraded: an unset env var needs a unit edit, a failed import needs a
+            # build. Without the reason an operator cannot tell those apart without shell on the box.
+            "pq_degraded": _pq_backend_reason(),
             "version": memserver.version,
             # UPDATE VISIBILITY: the commit this process RUNS, the newest origin/main commit this node
             # has SEEN (cached by the last /update or daily check — never fetched inline here), and

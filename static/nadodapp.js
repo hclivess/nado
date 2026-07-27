@@ -999,7 +999,7 @@ export class NadoDapp {
   deposit(raw) { this._goRedirect({ deposit: { amount: raw.toString() }, label: "buy in " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
   withdraw(raw, pend) { this.signBlob({ op: "bridge_withdraw", amount: raw }, "cash out " + rawToNado(raw) + " NADO", pend || { phase: "withdraw" }); }
   signBlob(blob, label, pend, opts) {
-    this._pendAdd(pend, !!(opts && opts.isValue));   // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing
+    this._pendAdd(pend, !!(opts && opts.stakes));   // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing
     this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend, !!(opts && opts.bg), !!(opts && opts.isValue));
   }
   // generic contract call; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance into the contract.
@@ -1015,9 +1015,16 @@ export class NadoDapp {
     const p = { op: "call", contract: (opts && opts.cid) || this.cid, method, args };
     const isValue = valueRaw != null;
     if (isValue) p.value = valueRaw;
+    // "carries a value field" is NOT "moves value". Games pass 0n for their FREE calls, and 0n != null is
+    // true in JS — so isValue is true for them, and any policy keyed on it silently treats a free call as a
+    // staked one. That is exactly how the tip-based pend expiry below ended up excluding autogame (its nine
+    // call sites all pass 0n) — the one game it was written for. isValue still drives wallet routing (the
+    // value field and the _bgValueUI confirm path) unchanged; `stakes` is the honest "this escrows money".
+    let stakes = false;
+    try { stakes = isValue && BigInt(valueRaw) > 0n; } catch (e) { stakes = isValue; }
     let bg = !(opts && opts.confirm) && !this._bgOff;
     if (bg && isValue && this._bgValueUI) bg = false;   // this wallet confirms staked calls → redirect it directly
-    this.signBlob(p, label, pend, Object.assign({}, opts, { bg, isValue }));
+    this.signBlob(p, label, pend, Object.assign({}, opts, { bg, isValue, stakes }));
   }
   // apply a signing RESULT (from either transport) — set the address / inflight / balance-watch and fire onReturn
   _applyReturn(pend, ok, addr, err) {
