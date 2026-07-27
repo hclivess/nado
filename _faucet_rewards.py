@@ -33,12 +33,12 @@ GAMES = [
     (5, "eaf6878ade7725c112089992e8f62df8", "battleship-daily"),  # battleship Daily Salvo (free hunt-&-sink, replay-verified)
     (6, "0bc996d9b087cedff92d60c6fac7b3b0", "banked"),     # slots
     (7, "7eb0aea6093def505d2f83957b2333cc", "banked"),     # mines
-    (8, "2123b9361f11e6ea7beaee1fa0c65795", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
+    (8, "cb551157945fb81aa873ab3e571254cd", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
     (9, "71ea1f3c09837a8265ebd05759ddf957", "hamster-daily"),  # hamster Daily Derby (free handicapping, replay-verified)
     (10, "aaee53d5afc487aa3af78b6913fbea80", "connect4-daily"),   # connect four Daily Drop (free solo-vs-bot, replay-verified)
     (11, "1a3c9d3ddebb2233af31cef9cb345202", "reversi-daily"),    # reversi Daily Flip (free solo-vs-bot, replay-verified)
     (12, "abbcc4340b05a77482f0cb07a5d915c5", "tictactoe-daily"),  # tic-tac-toe Daily Three (free solo-vs-bot, replay-verified)
-    (13, "ffc1619be0f76ee31946106c8281ae73", "autogame-daily"),   # autogame Daily Gauntlet (free 124-step march, replay-verified)
+    (13, "66cbdaae8c6c868805c8834945bacf4e", "autogame-daily"),   # autogame Daily Gauntlet (free 124-step march, replay-verified)
 ]
 # Provable free-play boards: kind -> the node replay oracle that ranks yesterday's verified claims.
 # The value is an ARGV PREFIX (cid + day are appended), so one oracle can serve several games — the three
