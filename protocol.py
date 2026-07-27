@@ -13,7 +13,7 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-10"  # SECURITY+DETERMINISM reroll (2026-07-27): see CHAIN_GENERATION 11
+CHAIN_ID = "alphanet-11"  # TRUSTLESS-SETTLEMENT reroll (2026-07-27): activates SETTLE_PROOF_TRUSTLESS, gen 12
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -39,9 +39,9 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1785103200  # alphanet-9 — the clean-break reroll (DISTINCT genesis hash; gen 7-9 reused
-                                # alphanet-8's genesis, so stranded old-code nodes on the same genesis kept
-                                # winning our fork choice — see CHAIN_GENERATION 10)
+GENESIS_TIMESTAMP = 1785145680  # alphanet-11 — trustless-settlement reroll (DISTINCT genesis hash so the
+                                # new chain cannot share fork choice with any prior-generation node; gen 7-9
+                                # reused alphanet-8's genesis, which stranded old-code nodes kept winning)
                                 # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
                                 # production starts immediately. The root scheme is final: depth 256 saturates
                                 # the hash's collision resistance and every future proof extension rides the
@@ -338,7 +338,7 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   they are redeemed; apply_slash books its burn; the snapshot payload is canonicalized and re-anchor +
 #   fresh-bootstrap require a quorum with seed anchoring; strike attribution no longer benches honest
 #   peers. Exec state semantics change (TIME), so exec state is rebuilt from the new genesis too.
-CHAIN_GENERATION = 11
+CHAIN_GENERATION = 12
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
@@ -527,9 +527,11 @@ SETTLE_PROOF_MAX_SPAN = 4 * EPOCH_LENGTH
 # its peers reject. FALSE keeps the chain byte-identical to the quorum-only path — a proof still verifies and
 # records its marker, but the marker is not honoured, so nothing regresses and no live behaviour changes.
 # This is a CONSENSUS RULE: flipping it changes which settlements are valid, so it ships only at a
-# CHAIN_GENERATION reroll (the settled-root scheme is genesis-level), never as a hot toggle. Kept False on
-# alphanet-10; the gated code paths are exercised by tests with the flag forced True.
-SETTLE_PROOF_TRUSTLESS = False
+# CHAIN_GENERATION reroll (the settled-root scheme is genesis-level), never as a hot toggle. ENABLED on
+# alphanet-11 (CHAIN_GENERATION 12). The prover stays OPT-IN per exec node (NADO_EXEC_SETTLE_PROVE); until a
+# node opts in, no proof is posted and settlement continues via the bonded quorum exactly as before — so the
+# reroll turns the capability ON without forcing the (heavy) proving on anyone.
+SETTLE_PROOF_TRUSTLESS = True
 
 # How many recent heights keep an exec summary (kv_ops.exec_summary_*). These live in the `meta` sub-DB,
 # which IS carried in SNAPSHOT_DBS, so without a bound they would grow with chain length AND bloat every
