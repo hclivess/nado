@@ -6,11 +6,11 @@
 // unpredictable when you signed, replayable by every browser); once both have drafted 9 rounds the fight
 // resolves as a pure deterministic simulation and the wager settles concede / agree / refund-timeout.
 // This module owns ONLY the Scrapline half: offers, gear slots, and the combat report.
-import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base , installModes } from "./nadodapp.js?v=dc26a404";
-import { DuelGame } from "./duelgame.js?v=0da639ab";
+import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base , installModes } from "./nadodapp.js?v=5ff32141";
+import { DuelGame } from "./duelgame.js?v=31d8b8dc";
 import * as E from "./scrapline-engine.js?v=b768a1c0";
 import { ART } from "./scrapline-art.js?v=5dc6e120";
-import { prand, Practice } from "./practice.js?v=99fbf9b8";   // practice-vs-computer + solo persistence
+import { prand, Practice } from "./practice.js?v=1b0a48d4";   // practice-vs-computer + solo persistence
 import { anchorOf as anchorVal, ensureAnchor, verifyEntries, entriesFrom, seedDaily, pendingDaily, markDaily } from "./provable.js?v=24f139ac";   // provable daily claims (see doc/provable-practice.md)
 
 const CID = "629dd7da4c8b84222abe334afe40f32c";

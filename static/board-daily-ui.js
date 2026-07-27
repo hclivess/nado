@@ -9,7 +9,7 @@
 // The run is solo vs a DETERMINISTIC bot seeded by the day's on-chain anchor AND your own address, so the
 // board is personal and non-transferable: a claim copied from someone else replays against a different
 // bot and fails to reproduce its score. Only your moves go on-chain; the rules never do.
-import { $, _m, dailyFrame, modeBar, renderTopScores, confirmingLabel, notify, base } from "./nadodapp.js?v=dc26a404";
+import { $, _m, dailyFrame, modeBar, renderTopScores, confirmingLabel, notify, base } from "./nadodapp.js?v=5ff32141";
 import { todayIdx, anchorOf, seedDaily, pendingDaily, provableSeed, packMoves,
          entriesFrom, verifyEntries } from "./provable.js?v=24f139ac";
 import { play, score, verifyClaim } from "./board-daily.js?v=ebdde942";
@@ -105,6 +105,15 @@ export class BoardDaily {
     const sc = score(this.rules, r);
     if (sc < 0) return;
     if (this.dapp.busy("post")) return notify(confirmingLabel());
+    // The board APPENDS: daily_post carries no per-(addr, day) uniqueness, so a second tap files a SECOND
+    // paid entry for the same run. The click guard cannot be the only thing standing between the player
+    // and that — it expires by design so a lost tx can be retried, and on a slow chain it expires well
+    // before the first post lands. What is already on-chain for me today is the honest gate: a re-post is
+    // only ever worth paying for if it beats it.
+    if (this._posted != null && sc <= this._posted) {
+      return notify(T("postedAlready", "Today's score is already on the board ({s}) — beat it to post again.",
+                      { s: this._posted }));
+    }
     const words = packMoves(this.moves, this.rules.MOVE_BITS);
     while (words.length < this.words) words.push(0);
     this.dapp.call("post", [this.day, sc, this.moves.length, ...words.slice(0, this.words)], null,

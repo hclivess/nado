@@ -1215,7 +1215,17 @@ export class NadoDapp {
     if (seen || expired) this._pendSettle(f);
     const phase = f.phase;
     this.inflight = null;   // NOT clearInflight(): a tipMoved-only retire keeps the click registry gating
-    if (this._stActive === phase) { const d = this._stDone && this._stDone[phase]; if (d) okBar(d); this._stActive = null; }
+    // The "✓ done" toast is a CLAIM ABOUT THE CHAIN, so only the game's own on-chain check may raise it.
+    // It used to fire on this line unconditionally — including on the tipMoved fallback, which is two
+    // blocks of elapsed time and no evidence at all. Any action that took longer than two tips, or was
+    // dropped from the pool outright, still announced "✓ Recorded on-chain" to a player whose order had
+    // not happened; under the churn this chain has seen, that was the common case rather than the edge.
+    // A tipMoved/expired retire now just closes the optimistic line silently: the status goes away, and
+    // the game's own render keeps telling the truth about what is actually on-chain.
+    if (this._stActive === phase) {
+      if (seen) { const d = this._stDone && this._stDone[phase]; if (d) okBar(d); }
+      this._stActive = null;
+    }
   }
   // ── ANTI-ROLLBACK (good-faith real-time state) ────────────────────────────────────────────────────
   // The client reads PROVISIONAL (pre-finality) state, which the exec node rebuilds every poll — so a poll

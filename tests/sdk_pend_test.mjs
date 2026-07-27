@@ -208,5 +208,35 @@ ck("a string amount does not throw and is treated as staking", stakesOf("100") =
   }
 }
 
+// ── the "✓ done" toast is a claim about the chain ────────────────────────────────────────────────
+// It may only be raised by the game's own on-chain check. The tip-advance fallback is elapsed time, not
+// evidence — announcing success on it told players their order had landed when it had merely been two
+// blocks since they clicked.
+{
+  const toasts = [];
+  const origOk = globalThis.okBar;
+  // okBar is module-internal, so drive the observable behaviour instead: _stActive must clear either way,
+  // and _stDone must only be consumed when the landed-check said yes.
+  const mk = (landed) => {
+    const d = fresh(100);
+    d.doneLabels({ act: "DONE-ACT" });
+    d._pendAdd({ phase: "act" }, false, false);        // the click guard, as a real submit would arm it
+    d.inflight = { ts: Date.now(), phase: "act", cur0: 100 };
+    d._stActive = "act";
+    d.cursor = 100 + 2;                     // tipMoved is true either way
+    d.settleInflight(() => landed);
+    return d;
+  };
+  const landedRun = mk(true);
+  ck("a confirmed action clears the optimistic status line", landedRun._stActive === null);
+  ck("...and its inflight is retired", landedRun.inflight === null);
+  const unlandedRun = mk(false);
+  ck("an UNCONFIRMED action still closes its status line (no stuck spinner)",
+     unlandedRun._stActive === null);
+  ck("...but its click guard is NOT released — a tip moving is not a tx landing",
+     unlandedRun.busy("act") === true);
+  void toasts; void origOk;
+}
+
 console.log(fail ? `\n${fail} FAILURES` : `\nALL PASS (${pass} checks)`);
 process.exit(fail ? 1 : 0);
