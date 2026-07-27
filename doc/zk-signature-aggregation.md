@@ -173,10 +173,14 @@ piece: `dilithium_py.ml_dsa.ML_DSA_44` (the node's pure-Python PQ backend) and `
   bit-range check so it is not a power-of-two over-approximation), coefficients pinned to the public z via
   boundaries (verifier-authoritative). Establishes the mod-Q-over-Goldilocks + exact-range pattern the rest
   reuse. Proven against a real signature's z from `dilithium_py`.
-- ⬜ **Sub-circuit 2 — hint weight + UseHint/Decompose**: ‖h‖ ≤ ω and w1 = UseHint(h, Az−ct1·2^d) over the
+- ✅ **Sub-circuit 2 — the mod-Q multiply-reduce gadget** (`mldsa_modq_air.py`, `tests/test_mldsa_modq_air.py`):
+  c = a·b mod Q via reduce-by-hint (a·b = k·Q + c over Goldilocks — a·b < Q² < 2^46 < P, no wrap — with c, k
+  range-checked into [0, Q)). The arithmetic atom for the NTT and A·z − c·t1. Proven incl. the (Q-1)² worst case.
+- ⬜ **Sub-circuit 3 — the 256-point negacyclic NTT AIR**: built from the mod-Q gadget, with periodic
+  twiddle-factor (zeta) columns; the engine that takes A·z and c·t1 to/from the NTT domain. Golden ref
+  `dilithium_py.polynomials` NTT + its `ntt_zetas` table.
+- ⬜ **Sub-circuit 2b — hint weight + UseHint/Decompose**: ‖h‖ ≤ ω and w1 = UseHint(h, Az−ct1·2^d) over the
   γ2 rounding. Same range-check pattern; golden ref `polynomials.use_hint`/`decompose`.
-- ⬜ **Sub-circuit 3 — mod-Q multiply-reduce gadget + the 256-point negacyclic NTT**: the arithmetic engine for
-  A·z and c·t1. Reduce-by-hint (quotient/remainder + range check); coefficient products < 2^46 fit Goldilocks.
 - ⬜ **Sub-circuit 4 — signature/pubkey DECODE**: bit-unpack z, h, t1, c_tilde from bytes into field
   coefficients, binding the packed bytes to the txid commitment.
 - ⬜ **Sub-circuit 5 (THE mountain) — Keccak-f[1600] / SHAKE AIR**: for ExpandA (SHAKE128, dominates — k·l=16
