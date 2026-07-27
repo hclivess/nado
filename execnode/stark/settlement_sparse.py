@@ -104,18 +104,24 @@ def public_statement(bundle):
     return (bundle["calls_commitment"], bundle["sparse_pre_root"], bundle["sparse_post_root"])
 
 
-def verify_bound_epoch(bundle, num_queries=None):
+def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
     """Verify a bound epoch WITHOUT replaying the io or re-merkleizing the whole state: (1) the exec proof —
     the io is a valid execution of the public calls; (2) bind_and_verify — the transition's updates are exactly
-    the epoch's net writes AND advance sparse_pre_root → sparse_post_root. Returns (ok, reason, sparse_post_root)."""
+    the epoch's net writes AND advance sparse_pre_root → sparse_post_root. Returns (ok, reason, sparse_post_root).
+
+    `check_exec_proof=False` skips ONLY step (1) — the recursive settlement path (verify_settlement_sparse with a
+    `recursive` bundle) re-verifies every segment's exec proof inside ONE recursion bundle instead of K
+    per-segment stark.verify calls, exactly as settlement_proofs.verify_settlement_o1 does. Everything else
+    (calls_commitment, the pre-state pin, the state-transition binding) still runs per segment."""
     try:
         nq = int(num_queries) if num_queries is not None else vm_circuit.stark.NUM_QUERIES
         pub_calls, epoch_io = SP._epoch_pub_statement(bundle)
-        row_commit = "row_roots" in bundle["proof"]
-        ok, why = vm_circuit.verify_epoch_calls(bundle["proof"], pub_calls, epoch_io, num_queries=nq,
-                                                row_commit=row_commit)
-        if not ok:
-            return False, f"epoch proof invalid: {why}", None
+        if check_exec_proof:
+            row_commit = "row_roots" in bundle["proof"]
+            ok, why = vm_circuit.verify_epoch_calls(bundle["proof"], pub_calls, epoch_io, num_queries=nq,
+                                                    row_commit=row_commit)
+            if not ok:
+                return False, f"epoch proof invalid: {why}", None
         # the O(1)-shaped public input: the epoch's calls collapse to one commitment (checked against the
         # calldata's running commitment on-chain). Here we confirm the bundle's commitment matches its calls.
         if "calls_commitment" in bundle:
@@ -219,35 +225,90 @@ def public_statement_o1(bundle):
 
 def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, beacons=None,
                             block_hashes=None, pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES,
-                            depth=DEFAULT_DEPTH, backend=None, row_commit=False):
-    """Assemble the settle-with-proof payload the L1 branch verifies: ONE bound epoch over the KV half plus
+                            depth=DEFAULT_DEPTH, backend=None, row_commit=False,
+                            recursive=False, fold=True, max_rows=None, outer_queries=None,
+                            comp_points_per_proof=None):
+    """Assemble the settle-with-proof payload the L1 branch verifies: bound epoch(s) over the KV half plus
     the (unchanged) records half `rec_hex` — {cursor, kv_pre, kv_post, rec, segments}. Multi-epoch spans
-    chain more segments (each bound epoch's post == the next's pre)."""
-    bundle = prove_bound_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
+    chain more segments (each bound epoch's post == the next's pre).
+
+    `recursive=True` is the K→1 money path: segment the span into K bound epochs proven ROW-COMMITTED with the
+    RECURSION backend (reusing settlement_proofs.prove_settlement's proven segmentation for the exec halves),
+    then fold their K exec proofs into ONE recursion bundle attached as `recursive`. verify_settlement_sparse
+    then verifies that single bundle in place of K per-segment stark.verify calls. The sparse state-transition
+    binding stays per segment (the lighter, separately-foldable half). Folding is a VERIFICATION-STRATEGY change
+    only: kv_pre/kv_post — the settled root — are byte-identical to the non-recursive proof of the same span."""
+    if not recursive:
+        bundle = prove_bound_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
+                                   block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
+                                   depth=depth, backend=backend, row_commit=row_commit)
+        return {"cursor": int(cursor), "rec": rec_hex,
+                "kv_pre": ST.digest_hex(tuple(int(x) % F.P for x in bundle["sparse_pre_root"])),
+                "kv_post": ST.digest_hex(tuple(int(x) % F.P for x in bundle["sparse_post_root"])),
+                "segments": [bundle]}
+    # --- recursive: segment the exec halves (proven segmentation), add the sparse binding, fold the K proofs ---
+    from execnode.stark import backend as _bk, recursive_verify as RV
+    oq = int(outer_queries) if outer_queries is not None else int(num_queries)
+    base = SP.prove_settlement(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
                                block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
-                               depth=depth, backend=backend, row_commit=row_commit)
-    return {"cursor": int(cursor), "rec": rec_hex,
-            "kv_pre": ST.digest_hex(tuple(int(x) % F.P for x in bundle["sparse_pre_root"])),
-            "kv_post": ST.digest_hex(tuple(int(x) % F.P for x in bundle["sparse_post_root"])),
-            "segments": [bundle]}
+                               max_rows=max_rows, backend=_bk.RECURSION, row_commit=True)
+    segments, exec_proofs, bnds, pers = [], [], [], []
+    for seg in base["segments"]:
+        cid_io = _cid_io(seg)
+        pre_store = ST.SparseStore(depth, sparse_projection(seg["pre_contracts"], depth))
+        sparse_pre = pre_store.root()
+        pre_get = lambda cid, slot, _pc=seg["pre_contracts"]: \
+            ((_pc.get(cid) or {}).get("storage") or {}).get("slots", {}).get(str(int(slot)), 0)
+        net = ESB.net_updates(pre_get, cid_io, depth)
+        tr = SX.prove_transition(pre_store, [(k, n) for (k, _o, n) in net], num_queries=num_queries)
+        seg.update(sparse_pre_root=sparse_pre, sparse_post_root=pre_store.root(), transition=tr,
+                   cid_io=cid_io, depth=depth,
+                   calls_commitment=CC.calls_commitment(seg["calls"], int(seg.get("cursor", cursor)),
+                                                        int(seg.get("timestamp", timestamp))))
+        segments.append(seg)
+        pub_calls, epoch_io = SP._epoch_pub_statement(seg)
+        ok, why, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io)
+        if not ok:
+            raise ValueError(f"segment statement: {why}")
+        exec_proofs.append(seg["proof"]); bnds.append(bl); pers.append(periodic)
+    out = {"cursor": int(cursor), "rec": rec_hex,
+           "kv_pre": ST.digest_hex(tuple(int(x) % F.P for x in segments[0]["sparse_pre_root"])),
+           "kv_post": ST.digest_hex(tuple(int(x) % F.P for x in segments[-1]["sparse_post_root"])),
+           "segments": segments}
+    if fold:                                             # attach the K→1 recursion bundle (the heavy step)
+        out["recursive"] = RV.prove(exec_proofs, vm_circuit.transitions(), bnds, num_queries_outer=oq,
+                                    periodic_list=pers, num_challenges=2, num_aux=vm_circuit.NUM_AUX,
+                                    comp_points_per_proof=comp_points_per_proof)
+        out["comp_points_per_proof"] = comp_points_per_proof
+    return out
 
 
-def verify_settlement_sparse(proof, num_queries=None, depth=None):
+def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=None, allow_recursive=True):
     """Verify a chained SPARSE settlement over the KV half of the settled root: `proof["segments"]` is an
     ordered list of bound epochs (verify_bound_epoch — exec proof + bound state transition, no replay), each
     advancing the KV sparse root, with segment j's post == segment j+1's pre. `depth` is the CALLER's protocol
     constant (protocol.EXEC_TREE_DEPTH on L1) and is pinned against every segment — a proof built at a toy
     depth is rejected outright. Returns (ok, reason, kv_pre_hex, kv_post_hex); composing those halves with the
-    records half against the committed settled tip is the L1 settle branch's job (ops/transaction_ops)."""
+    records half against the committed settled tip is the L1 settle branch's job (ops/transaction_ops).
+
+    K→1: when `proof["recursive"]` is present (and allow_recursive), the K per-segment exec-proof verifications
+    are REPLACED by ONE recursion bundle (recursive_verify.verify — fold + row-mode composition) that
+    authoritatively re-verifies every segment's exec proof at once; the sparse transition binding + calls
+    commitment + pre-state pin + kv chain still run per segment. The inner AND outer query strength is pinned to
+    the protocol constant (num_queries/outer_queries None ⇒ protocol) — never read from the bundle — so a
+    reduced-strength recursion bundle can never justify a settlement. This is the sound O(1) money path; a proof
+    WITHOUT a `recursive` bundle still verifies the classic K-segment way, so the two forms are interchangeable."""
     try:
         segs = proof.get("segments")
         if not isinstance(segs, list) or not segs:
             return False, "no segments", None, None
+        rb = proof.get("recursive") if allow_recursive else None
+        fold_exec = rb is not None
         expect, kv_pre_hex = None, None
         for j, seg in enumerate(segs):
             if depth is not None and int(seg.get("depth", -1)) != int(depth):
                 return False, f"segment {j} depth != protocol tree depth", None, None
-            ok, why, post = verify_bound_epoch(seg, num_queries=num_queries)
+            ok, why, post = verify_bound_epoch(seg, num_queries=num_queries, check_exec_proof=not fold_exec)
             if not ok:
                 return False, f"segment {j}: {why}", None, None
             pre = tuple(int(x) % F.P for x in seg["sparse_pre_root"])
@@ -257,6 +318,25 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None):
             elif pre != expect:
                 return False, f"segment {j} breaks the kv chain", None, None
             expect = post
+        if fold_exec:
+            from execnode.stark import recursive_verify as RV
+            nqi = int(num_queries) if num_queries is not None else vm_circuit.stark.NUM_QUERIES
+            nqo = int(outer_queries) if outer_queries is not None else vm_circuit.stark.NUM_QUERIES
+            pubs, bnds, pers = [], [], []
+            for seg in segs:
+                pub_calls, epoch_io = SP._epoch_pub_statement(seg)
+                ok2, why2, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io)
+                if not ok2:
+                    return False, f"segment statement: {why2}", None, None
+                pubs.append(RV.public_part(seg["proof"])); bnds.append(bl); pers.append(periodic)
+            cpp = proof.get("comp_points_per_proof")
+            if cpp is not None and (not isinstance(cpp, int) or cpp < 1):
+                return False, "bad comp chunk size", None, None
+            okr, whyr = RV.verify(pubs, vm_circuit.transitions(), bnds, rb, num_queries_outer=nqo,
+                                  periodic_list=pers, num_challenges=2, num_aux=vm_circuit.NUM_AUX,
+                                  comp_points_per_proof=cpp, num_queries_inner=nqi)
+            if not okr:
+                return False, f"recursive verification failed: {whyr}", None, None
         return True, "ok", kv_pre_hex, ST.digest_hex(expect)
     except Exception as e:
         return False, f"malformed sparse settlement: {e}", None, None

@@ -82,6 +82,14 @@ SETTLE_EVERY = int(os.environ.get("NADO_EXEC_SETTLE_EVERY", "5"))
 # L1's justified settled tip, so a wrong proof is never posted; anything non-conforming falls back to the
 # bare quorum attestation, which is unchanged. See doc/zk-settlement-completion.md.
 SETTLE_PROVE = os.environ.get("NADO_EXEC_SETTLE_PROVE", "").strip().lower() in ("1", "true", "yes", "on")
+# NADO_EXEC_SETTLE_FOLD=1: OPT-IN (requires SETTLE_PROVE) — emit the RECURSIVE (K→1) settle-with-proof:
+# the span's K exec proofs are folded into ONE recursion bundle so L1 verifies a single bundle instead of K
+# per-segment stark.verify calls (execnode.stark.settlement_sparse recursive path). The settled root is
+# byte-identical to the non-folded proof — folding is a verification-strategy change — so it composes with the
+# SAME self-checks. OFF by default: building the fold over the W=106 exec AIR at protocol strength is the
+# heaviest proving step and wants the native prover + generous RAM. A folded proof is additionally self-VERIFIED
+# (verify_settlement_sparse at protocol strength) before posting, so an unverifiable bundle is never broadcast.
+SETTLE_FOLD = os.environ.get("NADO_EXEC_SETTLE_FOLD", "").strip().lower() in ("1", "true", "yes", "on")
 # SETTLED-CHECKPOINT BOOTSTRAP (idle-GC companion, see protocol.py GC note): a COLD exec node can no
 # longer replay dividend accrual from genesis once L1 prunes ancient recert rows — instead it adopts a
 # donor's snapshot VERIFIED against the L1-settled root (trust-minimized: the quorum vouches for the
@@ -261,7 +269,7 @@ async def _build_settlement_proof(session, ns, st, cur, root):
     def _prove():
         return SS.prove_settlement_sparse(pre_contracts, calls, cursor=cur, rec_hex=rec_hex,
                                           beacons=beacons, block_hashes=bhashes, pre_bridge=pre_bridge,
-                                          depth=EXEC_TREE_DEPTH)
+                                          depth=EXEC_TREE_DEPTH, recursive=SETTLE_FOLD, fold=SETTLE_FOLD)
     async with _sem():                                     # bound concurrent proving (H-7)
         proof = await asyncio.to_thread(_prove)
     # 6. THE SELF-CHECKS — never post a proof that doesn't extend the justified tip AND reproduce our root.
@@ -271,6 +279,15 @@ async def _build_settlement_proof(session, ns, st, cur, root):
         print(f"[execnode] settle-with-proof ns={ns} self-check failed (span {sc}->{cur} not conforming) "
               f"— falling back to quorum", flush=True)
         return None
+    # 6b. FOLDED proofs: self-VERIFY the recursion bundle at PROTOCOL strength (exactly what L1 runs) before
+    # posting — a malformed fold is never broadcast; fall back to quorum. Runs in the worker thread.
+    if proof.get("recursive") is not None:
+        ok_v, why_v = await asyncio.to_thread(
+            lambda: SS.verify_settlement_sparse(proof, depth=EXEC_TREE_DEPTH)[:2])
+        if not ok_v:
+            print(f"[execnode] recursive settle-with-proof ns={ns} self-verify failed ({why_v}) "
+                  f"— falling back to quorum", flush=True)
+            return None
     return proof
 
 
