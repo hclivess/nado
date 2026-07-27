@@ -31,7 +31,7 @@ import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
  * adds no trust: the relay already supplies balances, fees and block targets. */
-let CHAIN_ID = "alphanet-10";   // default MUST track protocol.CHAIN_ID; initNetTag() re-adopts the relay's live chain at boot / before signing
+let CHAIN_ID = "alphanet-10";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
 const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
@@ -3638,6 +3638,7 @@ async function maybeAutoBond(acc, ms) {
   if (toBond < AUTO_BOND_MIN_RAW || balance < toBond + BigInt(fee)) return;          // accrue (no rebaseline)
 
   try {
+    await refreshNetIdentity();   // bind this background bond to the relay's CURRENT chain, not boot-time
     const targetBlock = await nextTargetBlock();
     const tx = buildTransferTx(state.wallet, "bond", toBond, fee, targetBlock, "", nowSeconds(), !pubkeyEstablished(acc));
     const res = await submitTransaction(tx);
@@ -3703,6 +3704,11 @@ async function maybeRandao() {
       inCommittee = !!(await r.json()).in_committee;
     } catch (e) { return; }                                    // relay hiccup — try next poll
     if (!inCommittee) return;                                   // not our epoch to post; wait for a seat
+
+    // Bind the duty tx to the relay's CURRENT chain_id AND finality_depth before computing the reveal
+    // window / signing — a reroll or a finality-depth change mid-session would otherwise sign against
+    // stale identity and forfeit the epoch.
+    await refreshNetIdentity();
 
     // reveal window bounds the whole tx's landing block (the tightest of the three sections).
     const revealHi = (X + 1) * EPOCH_LENGTH - FINALITY_DEPTH - 1;
@@ -6763,17 +6769,21 @@ function installBgSignListener() {
  * "alphanet-N ≠ alphanet-M" limbo after a reroll). The fallback literal only covers the pre-fetch window;
  * a failed fetch keeps the fallback and the next signed tx surfaces any real problem via the node's own
  * "Wrong or missing chain id" rejection. */
-async function initNetTag() {
-  const el = $("netTag");
-  if (el) {
-    el.textContent = CHAIN_ID;
-    el.title = i18("net.tagTip", "The network this wallet signs for.");
-  }
+// Re-adopt the relay's AUTHORITATIVE network identity (chain_id + finality window) from /status.
+// The wallet adopts these once at boot, but a chain reroll while a tab stays open (a phone mining for
+// hours) would leave a LONG-LIVED / BACKGROUND signer — auto-bond, epoch duty — signing with the stale
+// boot-time chain_id, which the node then rejects ("Wrong or missing chain id"), silently forfeiting the
+// bonded lane. Automated signers call this immediately before building so the tx binds to the chain the
+// relay is actually on right now (and the duty reveal window uses the live finality_depth). Best-effort:
+// a fetch blip keeps the current values, and the next signed tx surfaces any real mismatch via the node's
+// own rejection. Returns the (possibly updated) CHAIN_ID. Non-consensus: it only re-reads identity, never
+// touches the canonical/crypto encoders the self-test vectors pin.
+async function refreshNetIdentity() {
   try {
     const st = (await rpcJSON("/status")).data;
     if (st && st.chain_id && st.chain_id !== CHAIN_ID) {
       CHAIN_ID = st.chain_id;                       // adopt the relay's chain — self-resolving upgrades
-      if (el) el.textContent = CHAIN_ID;
+      const el = $("netTag"); if (el) el.textContent = CHAIN_ID;
     }
     // ADOPT THE CONSENSUS CONSTANTS TOO. These are hardcoded above with a "MUST match protocol.py"
     // comment and drifted anyway (FINALITY_DEPTH sat at 12 against the node's 45, putting the RANDAO
@@ -6781,6 +6791,16 @@ async function initNetTag() {
     // makes the pair self-healing instead of relying on someone remembering to edit two files.
     if (st && Number.isInteger(st.finality_depth) && st.finality_depth > 0) FINALITY_DEPTH = st.finality_depth;
   } catch (e) {}
+  return CHAIN_ID;
+}
+
+async function initNetTag() {
+  const el = $("netTag");
+  if (el) {
+    el.textContent = CHAIN_ID;
+    el.title = i18("net.tagTip", "The network this wallet signs for.");
+  }
+  await refreshNetIdentity();
 }
 
 boot();
