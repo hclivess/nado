@@ -30,11 +30,14 @@ def combine(vals, gamma):
     takes the argument's Schwartz-Zippel error from ~2^-44 at 2^17 rows to the ~112-bit range everything else
     in the proof already sits at (see execnode/stark/soundness.py)."""
     if isinstance(gamma, tuple):
+        # *_f forms: expressed through field.* so air_ir can trace a constraint that calls combine() with an
+        # extension gamma into its SSA program. The raw ext2.mul computes with % directly and raises on a
+        # symbolic cell — which is exactly where every base-field consumer of the exec AIR's IR broke.
         acc = ext2.ZERO
         g = ext2.ONE
         for v in vals:
-            acc = ext2.add(acc, ext2.scalar_mul(g, v % F.P))
-            g = ext2.mul(g, gamma)
+            acc = ext2.add_f(acc, ext2.scalar_mul_f(g, v % F.P))
+            g = ext2.mul_f(g, gamma)
         return acc
     acc = 0
     g = 1

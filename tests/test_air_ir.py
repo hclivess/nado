@@ -56,10 +56,16 @@ def _capture_composition():
     """Prove a dice bet, intercepting stark._composition to grab its exact inputs + output."""
     cap = {}
     real = stark._composition
-    def spy(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas, challenges=None):
-        out = real(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas, challenges)
+    def spy(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas,
+            challenges=None, ext_alphas=False):
+        # ext_alphas is forwarded, not dropped: with GF(p^2) alphas the composition is extension-valued and
+        # this test compares it against the IR interpreter, so silently proving under the base-field path
+        # would compare two different quantities and pass for the wrong reason.
+        out = real(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas,
+                   challenges, ext_alphas=ext_alphas)
         cap.update(T=T, W=W, N=N, blowup=blowup, gT=gT, col_lde=col_lde, per_lde=per_lde, x_lde=x_lde,
-                   transitions=transitions, boundaries=boundaries, alphas=alphas, challenges=challenges, out=out)
+                   transitions=transitions, boundaries=boundaries, alphas=alphas, challenges=challenges,
+                   ext_alphas=ext_alphas, out=out)
         return out
     stark._composition = spy
     try:

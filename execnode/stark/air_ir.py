@@ -127,7 +127,7 @@ class _tracing:
         return False
 
 
-def build_program(transitions, W, num_periodic, num_chal):
+def build_program(transitions, W, num_periodic, num_chal, ext_chal=False):
     """Trace every transition constraint into ONE shared SSA program. Returns a dict:
       ops      : list of (op, a, b)         — the SSA (topological; a/b are earlier indices for binops)
       consts   : list of field values       — CONST leaves reference these by index
@@ -138,14 +138,37 @@ def build_program(transitions, W, num_periodic, num_chal):
     cur = [_Sym(b, b.leaf(CUR, i)) for i in range(W)]
     nxt = [_Sym(b, b.leaf(NXT, i)) for i in range(W)]
     per = [_Sym(b, b.leaf(PER, i)) for i in range(num_periodic)]
-    chal = [_Sym(b, b.leaf(CHAL, i)) for i in range(num_chal)]
-    outputs = []
+    # Under GF(p^2) each LOGICAL challenge is a limb PAIR, so it occupies two CHAL leaves (2i, 2i+1) and the
+    # constraint receives it as a tuple — exactly the shape ext2's *_f helpers expect. num_chal stays the
+    # count of logical challenges; the flattened width is 2*num_chal.
+    if ext_chal:
+        chal = [(_Sym(b, b.leaf(CHAL, 2 * i)), _Sym(b, b.leaf(CHAL, 2 * i + 1))) for i in range(num_chal)]
+    else:
+        chal = [_Sym(b, b.leaf(CHAL, i)) for i in range(num_chal)]
+    outputs, ext_pairs = [], []
     with _tracing(b):
         for con in transitions:
             r = con(cur, nxt, per, chal) if num_chal else con(cur, nxt, per)
-            outputs.append(_coerce(b, r))          # a constraint with no row dependence folds to a CONST leaf
-    return {"ops": b.ops, "consts": b.consts, "outputs": outputs,
-            "W": W, "P": num_periodic, "C": num_chal}
+            if isinstance(r, tuple):
+                # EXTENSION-VALUED constraint. Under GF(p^2) challenges the LogUp constraints evaluate to a
+                # GF(p^2) element, which a base-field SSA cannot hold — so its two COMPONENTS become two
+                # outputs, and ext_pairs records where each pair starts. Consumers that combine outputs with
+                # an extension alpha (rowcomp_verify's in-circuit composition) read the pair; everything
+                # downstream stays base-valued arithmetic, so the IR needs no extension opcode.
+                #
+                # This only traces at all because such constraints are written with ext2's *_f forms, which
+                # go through field.* and are therefore visible to _tracing — ext2.mul and friends compute
+                # with % directly and would raise on a _Sym.
+                if len(r) != 2:
+                    raise ValueError("an extension-valued constraint must return exactly two components")
+                ext_pairs.append(len(outputs))
+                outputs.append(_coerce(b, r[0]))
+                outputs.append(_coerce(b, r[1]))
+            else:
+                outputs.append(_coerce(b, r))      # a constraint with no row dependence folds to a CONST leaf
+    return {"ops": b.ops, "consts": b.consts, "outputs": outputs, "ext_pairs": ext_pairs,
+            "W": W, "P": num_periodic, "C": (2 * num_chal if ext_chal else num_chal),
+            "ext_chal": bool(ext_chal)}
 
 
 import ctypes as _ct

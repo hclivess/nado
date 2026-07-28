@@ -46,8 +46,8 @@ def _rlc3(x0, x1, x2, beta):
     """β-folded random linear combination of a 3-tuple. β is base OR ext; the tuple entries are always base
     trace cells, so the ext form is scalar_mul (ext·base), never a full ext multiply."""
     if isinstance(beta, tuple):
-        b2 = ext2.square(beta)
-        return ext2.add(ext2.add(ext2.lift(x0), ext2.scalar_mul(beta, x1)), ext2.scalar_mul(b2, x2))
+        b2 = ext2.mul_f(beta, beta)
+        return ext2.add_f(ext2.add_f((x0, 0), ext2.scalar_mul_f(beta, x1)), ext2.scalar_mul_f(b2, x2))
     return F.add(F.add(x0, F.mul(x1, beta)), F.mul(x2, F.mul(beta, beta)))
 
 
@@ -71,15 +71,17 @@ def _transitions_ext():
     Degree is UNCHANGED at 2: an aux limb is one column, (γ − rlc) is degree 1 in the main columns, and their
     ext product is still a degree-2 form — so max_degree=2 and the blowup stay exactly as they were. Only the
     arithmetic widens, which is the whole point: the argument's error now scales with |GF(p^2)|."""
+    # The *_f forms go through field.* so air_ir can TRACE these constraints into its SSA program (the raw
+    # ext2.mul computes with % directly and raises on a symbolic cell). Same arithmetic either way.
     def c_inva(c, n, p, ch):
         rlc = _rlc3(c[A0], c[A1], c[A2], ch[0])
-        return ext2.sub(ext2.mul((c[INVA0], c[INVA1]), ext2.sub(ch[1], rlc)), ext2.ONE)
+        return ext2.sub_f(ext2.mul_f((c[INVA0], c[INVA1]), ext2.sub_f(ch[1], rlc)), ext2.ONE)
     def c_invb(c, n, p, ch):
         rlc = _rlc3(c[B0], c[B1], c[B2], ch[0])
-        return ext2.sub(ext2.mul((c[INVB0], c[INVB1]), ext2.sub(ch[1], rlc)), ext2.ONE)
+        return ext2.sub_f(ext2.mul_f((c[INVB0], c[INVB1]), ext2.sub_f(ch[1], rlc)), ext2.ONE)
     def c_acc(c, n, p, ch):
-        d = ext2.sub((n[ACC0], n[ACC1]), (c[ACC0], c[ACC1]))
-        return ext2.sub(d, ext2.sub((c[INVA0], c[INVA1]), (c[INVB0], c[INVB1])))
+        d = ext2.sub_f((n[ACC0], n[ACC1]), (c[ACC0], c[ACC1]))
+        return ext2.sub_f(d, ext2.sub_f((c[INVA0], c[INVA1]), (c[INVB0], c[INVB1])))
     return [c_inva, c_invb, c_acc]
 
 

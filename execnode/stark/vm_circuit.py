@@ -91,12 +91,15 @@ def _promote(v):
     return v if isinstance(v, tuple) else ext2.lift(v)
 
 
+# The *_f forms below go through field.* rather than computing with % directly, so air_ir can TRACE these
+# constraints into its SSA program — the raw ext2.mul raises on a symbolic cell, which made every base-field
+# consumer of the exec AIR's IR fail. Same arithmetic; see ext2's "TRACEABLE forms" note.
 def _eadd(a, b):
-    return ext2.add(_promote(a), _promote(b))
+    return ext2.add_f(_promote(a), _promote(b))
 
 
 def _esub(a, b):
-    return ext2.sub(_promote(a), _promote(b))
+    return ext2.sub_f(_promote(a), _promote(b))
 
 
 def _emul(a, b):
@@ -104,10 +107,10 @@ def _emul(a, b):
     (selectors, multiplicities), so promoting both sides to ext and doing a full ext multiply would treble
     the work for no reason — dispatch to scalar_mul when one side is base."""
     if isinstance(a, tuple):
-        return ext2.mul(a, b) if isinstance(b, tuple) else ext2.scalar_mul(a, b)
+        return ext2.mul_f(a, b) if isinstance(b, tuple) else ext2.scalar_mul_f(a, b)
     if isinstance(b, tuple):
-        return ext2.scalar_mul(b, a)
-    return ext2.lift(F.mul(a, b))
+        return ext2.scalar_mul_f(b, a)
+    return (F.mul(a, b), 0)
 
 
 def _algebra(ext):

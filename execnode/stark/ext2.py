@@ -147,6 +147,38 @@ def poly_eval(coeffs, z):
 
 # ---------------------------------------------------------------- encoding
 
+# ---- TRACEABLE forms, for use inside AIR CONSTRAINTS ------------------------------------------------
+# The functions above do raw modular arithmetic on ints, which is right for witness generation and wrong
+# inside a constraint: air_ir traces an AIR by monkeypatching the `field` MODULE and evaluating the
+# constraints on symbolic cells, so anything that computes with `%` directly sees a _Sym and raises. These
+# forms express the SAME arithmetic through field.add/sub/mul, so a tracer follows them and the constraint
+# lowers into the SSA program that rowcomp_verify's in-circuit composition check needs.
+#
+# They are also correct on plain ints (F.mul IS modular multiplication), so an AIR can use them everywhere
+# and stay traceable — there is no second implementation to keep in step.
+
+def add_f(u, v):
+    return F.add(u[0], v[0]), F.add(u[1], v[1])
+
+
+def sub_f(u, v):
+    return F.sub(u[0], v[0]), F.sub(u[1], v[1])
+
+
+def mul_f(u, v):
+    """(a0 + a1·X)(b0 + b1·X) mod (X² − NONRESIDUE), through field ops only."""
+    a0, a1 = u
+    b0, b1 = v
+    lo = F.add(F.mul(a0, b0), F.mul(NONRESIDUE, F.mul(a1, b1)))
+    hi = F.add(F.mul(a0, b1), F.mul(a1, b0))
+    return lo, hi
+
+
+def scalar_mul_f(u, s):
+    """Extension element times a BASE scalar — one multiply per limb, no cross terms."""
+    return F.mul(u[0], s), F.mul(u[1], s)
+
+
 def flatten(vals):
     """[(a0,b0), (a1,b1), ...] -> [a0, b0, a1, b1, ...] for hashing/absorbing."""
     out = []
