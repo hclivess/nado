@@ -254,7 +254,7 @@ def fri_prove(cp_col, offset, blowup, num_queries, transcript, hash_mode=0):
             a = lo
         queries.append({"idx": idx, "steps": steps})
     return {"N": N, "offset": offset, "blowup": blowup, "roots": roots, "final": final,
-            "pow": pow_nonce, "queries": queries}
+            "pow": pow_nonce, "queries": queries, "ext": False, "ext0": False}
 
 
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=None, aux=None,
@@ -265,7 +265,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     Rust u64 buffers; only the transcript (a handful of hashes) and the two-phase aux BUILDER — an AIR-specific
     Python callback over small T-length columns — run in Python. Byte-identical proof dict to stark.prove;
     tests/test_starkprove.py gates it field-for-field end-to-end + verifies under stark.verify."""
-    from execnode.stark import stark, air_ir, backend as _B
+    from execnode.stark import stark, air_ir, backend as _B, fri
     from execnode.stark.transcript import Transcript, DOMAIN_STARK
     periodic = periodic or []
     if num_queries is None:
@@ -315,7 +315,22 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     cp_col, _ = compose(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
 
     fri_blowup = N // deg_bound
-    fri_proof = fri_prove(cp_col, OFF, fri_blowup, num_queries, t, hmode)
+    # HYBRID FRI. The arena's sp_fold multiplies by a BASE-field alpha, so it cannot carry a GF(p^2) folding
+    # challenge (fri.EXT_CHALLENGES). Rather than abandon the native prover wholesale — which is what made
+    # every proof pure-Python and turned a 3-circuit fold into ~50 minutes — keep ALL the heavy native work
+    # (per-column LDE, Merkle commits, and the composition polynomial, which are the O(N log N) stages) and
+    # run only the FRI folding in Python by reading the composition column out of the arena. FRI's folds are
+    # O(N) with tiny constants next to the NTTs and W-column Merkle trees above, so this recovers essentially
+    # all of the speed while keeping the stronger commit-phase bound.
+    # A RECURSION-backend proof is destined to be FOLDED by the base-field in-circuit AIRs, so it stays
+    # base-field (stark.prove applies the same rule) and can use the fully native FRI. Only a non-recursion
+    # proof carries the GF(p^2) challenge, and only that case reads the column out for the Python fold.
+    _for_recursion = getattr(b, "name", "") == "recursion"
+    if bool(getattr(fri, "EXT_CHALLENGES", False)) and not _for_recursion:
+        cp_vals = [read(cp_col, i) for i in range(col_len(cp_col))]
+        fri_proof = fri.prove(cp_vals, OFF, fri_blowup, num_queries, transcript=t, backend=b)
+    else:
+        fri_proof = fri_prove(cp_col, OFF, fri_blowup, num_queries, t, hmode)
 
     openings, plen = [], N.bit_length() - 1
     for q in fri_proof["queries"]:

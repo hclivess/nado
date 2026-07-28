@@ -229,9 +229,10 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # unverifiable, and accepting one would mean checking it under the ~47-bit commit bound instead of ~112.
     # So while ext is on we take the (correct, slower) Python path. This is the real, stated cost of the
     # soundness fix and it lifts the moment sp_fold is ported to extension arithmetic.
-    _ext_on = bool(getattr(fri, "EXT_CHALLENGES", False))
+    # The native path is HYBRID under ext challenges (stark_native.prove keeps the native LDE/commit/compose
+    # and runs only the FRI fold in Python), so it is no longer gated off — disabling it wholesale is what
+    # made every proof pure-Python and unusably slow.
     if (getattr(_b, "name", "") in ("recursion", "alghash2") and not os.environ.get("NADO_NO_HOLISTIC")
-            and not _ext_on
             and not commit_periodic):                     # committed-periodic runs the Python path (native TODO)
         try:
             from execnode.stark import stark_native
