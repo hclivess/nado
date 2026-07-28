@@ -253,7 +253,7 @@ def _our_hash_at(height):
         return None
 
 
-def stranded_below_finality(our_hash, height, peers, quorum=2, port=9173):
+def stranded_below_finality(our_hash, height, peers, quorum=2, port=9173, seeds=()):
     """Is this node provably on a MINORITY FORK at or below its own finality floor?
 
     THE WEDGE THIS DETECTS (live, 2026-07-20). The node finalized height H on a branch the network
@@ -302,7 +302,16 @@ def stranded_below_finality(our_hash, height, peers, quorum=2, port=9173):
             disagree.append(peer)
     # ANY peer agreeing means our prefix is not provably abandoned — refuse to act. Wiping a node that is
     # merely poorly connected would be far worse than leaving it wedged for a human to look at.
-    stranded = not agree and len(disagree) >= int(quorum)
+    #
+    # LONE-SEED EXCEPTION (weak subjectivity). A node that can only REACH one peer can never satisfy a
+    # 2-peer quorum, so an isolated forker stays forked forever no matter how conclusive the evidence —
+    # measured on .141, which held every other node in `unreachable` and probed exactly one peer, an
+    # operator SEED, which disagreed while nobody agreed. Seeds are already this codebase's trust anchor for
+    # exactly this shape of decision: snapshot_bootstrap accepts "a LONE donor ... only when it is an
+    # operator seed (weak subjectivity)". Mirror that precedent rather than lowering the quorum for
+    # arbitrary peers — a random peer still cannot trigger a purge, only the operator's own anchor can.
+    _seed_disagrees = bool(seeds) and any(p in set(seeds) for p in disagree)
+    stranded = not agree and (len(disagree) >= int(quorum) or _seed_disagrees)
     return stranded, {"height": height, "ours": our_hash, "agree": agree,
                       "disagree": disagree, "unknown": unknown, "stranded": stranded}
 
