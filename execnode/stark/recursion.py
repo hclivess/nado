@@ -316,8 +316,17 @@ def _fold_transitions():
 
 def _blocks_for(leaf_val, index, path):
     """The permutation-snapshot blocks for one Merkle path (rleaf(leaf_val) up `path`). Returns
-    (blocks, sibs, dirs, final_digest)."""
-    s0 = [a2.DOM_LEAF, int(leaf_val) % F.P, 0, 0, 0, 0, 0, 0] + list(a2.IV)
+    (blocks, sibs, dirs, final_digest).
+
+    `leaf_val` is a base field element, or a (lo, hi) pair for a GF(p^2) leaf. The extension frame differs
+    only by its domain tag and by occupying lane 2 — rleaf already left lanes 2..3 unused — so an ext leaf
+    costs exactly ONE permutation block here, the same as a base one. That is what makes the in-circuit
+    membership gadget affordable; see fri._ext_leaf for why the obvious node(leaf(a0), leaf(a1)) encoding was
+    not."""
+    if isinstance(leaf_val, tuple):
+        s0 = [a2.DOM_LEAF_EXT, int(leaf_val[0]) % F.P, int(leaf_val[1]) % F.P, 0, 0, 0, 0, 0] + list(a2.IV)
+    else:
+        s0 = [a2.DOM_LEAF, int(leaf_val) % F.P, 0, 0, 0, 0, 0, 0] + list(a2.IV)
     blocks = [_permute_snapshots(s0)]
     cur = tuple(blocks[0][_R][:_CAP]); idx = index; sibs, dirs = [], []
     for sib in path:

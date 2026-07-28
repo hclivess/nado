@@ -91,10 +91,20 @@ def _fold_ext(evals, dom, alpha):
 
 
 def _ext_leaf(b, v):
-    """Leaf digest for a GF(p^2) value: node(leaf(a), leaf(b)). Uses only existing backend
-    primitives, so BLAKE2b / alghash2 / recursion need no new hash opcode."""
+    """Leaf digest for a GF(p^2) value — ONE hash of the frame (tag, lo, hi).
+
+    Was node(leaf(a0), leaf(a1)), which needed no new backend opcode but cost THREE hashes. Affordable
+    natively, ruinous IN-CIRCUIT: the recursion membership AIR spends one permutation block per hash, so an
+    ext leaf tripled the leaf stage — and the compression's second input is the previous block's DIGEST, a
+    value the path machinery supplies as a free witness sibling and would now have to constrain equal to a
+    computed digest. That linkage does not exist in the AIR, and it is what kept the recursion path pinned to
+    base-field arithmetic (hence ~47 bits) after FRI, DEEP and the alphas had all been lifted.
+
+    b.leaf_ext packs both limbs into the single existing frame — alghash2's rleaf already leaves lanes 2..3
+    unused — so the in-circuit gadget differs from the base one only by pinning one more lane. It carries its
+    OWN domain tag, so an ext leaf and a base leaf stay distinct frames even when the hi limb is zero."""
     a0, a1 = ext2.lift(v)
-    return b.node(b.leaf(a0), b.leaf(a1))
+    return b.leaf_ext(a0, a1)
 
 
 def _commit_ext(values, b):

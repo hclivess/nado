@@ -48,6 +48,7 @@ _MDS = [[F.inv((i - (WIDTH + j)) % F.P) for j in range(WIDTH)] for i in range(WI
 
 # domain tags (disjoint hashing spaces), mirroring alghash's DOM_* but in the wide sponge
 DOM_LEAF, DOM_NODE, DOM_ABSORB, DOM_CHAL, DOM_INDEX, DOM_GRIND = 1, 2, 3, 4, 5, 6
+DOM_LEAF_EXT = 7                 # GF(p^2) Merkle leaf — see rleaf_ext / leaf_ext
 
 
 def sbox(x):
@@ -171,6 +172,29 @@ def rleaf(x):
     Domain-separated from an inner node by absorbing DOM_LEAF in lane 0."""
     a = (DOM_LEAF, int(x) % F.P, 0, 0)
     return tuple(permute([*a, 0, 0, 0, 0, *IV])[:CAPACITY])
+
+
+def rleaf_ext(x0, x1):
+    """RECURSION-tree leaf for a GF(p^2) value (x0 + x1·X) — ONE permutation, exactly like rleaf.
+
+    rleaf frames a base value as (DOM_LEAF, x, 0, 0) and leaves lanes 2..3 unused, so the second limb simply
+    goes in lane 2 under its OWN domain tag. That matters for the recursion AIR: the obvious encoding for an
+    extension leaf, node(leaf(x0), leaf(x1)), costs THREE permutations in-circuit (two leaves plus a
+    compression) and needs the second leaf's digest carried as a constrained witness into the third block —
+    tripling the leaf stage and adding a linkage the path machinery does not have. This costs one block, the
+    same as a base leaf, so the in-circuit membership gadget changes only by pinning two lane values instead
+    of one.
+
+    DOM_LEAF_EXT (not DOM_LEAF) so an ext leaf and a base leaf are distinct frames even when x1 = 0 — a
+    lifted base value and a genuine base value must not share a digest, or a prover could present one tree's
+    opening against the other's commitment."""
+    a = (DOM_LEAF_EXT, int(x0) % F.P, int(x1) % F.P, 0)
+    return tuple(permute([*a, 0, 0, 0, 0, *IV])[:CAPACITY])
+
+
+def leaf_ext(x0, x1):
+    """Sponge-backend GF(p^2) leaf — the hashn analogue of rleaf_ext."""
+    return hashn([DOM_LEAF_EXT, int(x0) % F.P, int(x1) % F.P])
 
 
 def rrow(values):
