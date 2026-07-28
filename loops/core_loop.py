@@ -947,7 +947,6 @@ class CoreClient(threading.Thread):
             # height, and nobody agreeing with us), which is just as true of a node that is producing.
             # DEAD_FORK_COOLDOWN_S already bounds this to one probe per 30 min, so dropping the stall
             # precondition costs a healthy node one cheap probe round per cooldown and nothing else.
-            self._last_dead_fork_check = now
             _stalled = self.memserver.since_last_block >= DEAD_FORK_STALL_S
 
             from ops.peer_ops import seed_peers, stranded_below_finality
@@ -961,6 +960,14 @@ class CoreClient(threading.Thread):
             peers = list(dict.fromkeys(list(seed_peers()) + list(self.memserver.peers)))[:12]
             stranded, detail = stranded_below_finality(ours, height, peers, quorum=DEAD_FORK_QUORUM,
                                                        port=self.memserver.port)
+            # ONLY a probe that actually HEARD from peers consumes the full cooldown. An inconclusive round
+            # — nobody answered, which is the normal state for the first pass after boot, before the peer
+            # table is warm — must not lock this out for 30 minutes. That is exactly what happened to .141:
+            # it finally received the fix, ran one check at startup with no peers yet, and would have stayed
+            # forked for another half hour on a cooldown it never really used. Retry inconclusive rounds in
+            # a minute; a round that got real answers keeps the full rate limit.
+            _answered = bool(detail.get("agree") or detail.get("disagree"))
+            self._last_dead_fork_check = now if _answered else (now - DEAD_FORK_COOLDOWN_S + 60)
             if not stranded:
                 return False
             # SECOND, INDEPENDENT CONFIRMATION before destroying chain data: the measured fork state must
