@@ -337,10 +337,16 @@ class CoreClient(threading.Thread):
                 # peer can be trusted on. It acts only when a QUORUM disagrees and NOBODY agrees with us, and
                 # it is rate-limited to one probe per DEAD_FORK_COOLDOWN_S, so a healthy node pays one cheap
                 # probe round per 30 min and exits immediately.
-                try:
-                    self._maybe_escape_dead_fork()
-                except Exception as _e:                    # never let a self-check break block production
-                    self.logger.info(f"dead-fork self-check skipped: {_e}")
+                # DISABLED 2026-07-28 — this caused a PURGE STORM. Firing the escape from normal_mode makes
+                # every node evaluate it continuously, and DEAD_FORK_QUORUM=2 is only half of a 4-node fleet's
+                # 3 non-self peers: in a 2-2 split BOTH pairs see "2 disagree, none agree", so BOTH purge,
+                # resync from whichever peer answers first — often each other — and build PARALLEL chains.
+                # Observed live: the fleet went from one chain to two that share only genesis (diverge at h=1),
+                # after every node had purged and restarted. The escape is safe as a RARE last resort (its
+                # original stalled+emergency-only trigger); it is not safe as a continuous self-check until the
+                # quorum is a real majority of REACHABLE peers and a purged node is forbidden from resyncing
+                # from another node that also just purged.
+                # if self._maybe_escape_dead_fork(): ...
                 _our_w = self.memserver.latest_block.get("cumulative_weight", 0)
                 # .copy(): the peer loop admits/pops status_pool entries concurrently — iterating the
                 # live dict raises "dictionary changed size during iteration" and costs the whole
