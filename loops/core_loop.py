@@ -1090,7 +1090,17 @@ class CoreClient(threading.Thread):
             from ops.data_ops import purge_chain_data, stamp_chain_generation
             purge_chain_data(logger=self.logger)
             stamp_chain_generation()
-            self.memserver.terminate = True       # clean shutdown; systemd restarts us onto a fresh sync
+            self.memserver.terminate = True       # ask every loop to drain
+            # ...and then ACTUALLY GO. The flag alone is not enough: the aiohttp server keeps serving on the
+            # main thread, so the process stayed alive with its chain PURGED FROM DISK but still resident in
+            # memory, cheerfully answering /status with a tip it could no longer serve a single block of
+            # (observed live 2026-07-28 — it even ran its periodic update check eight seconds after logging
+            # "bye"). That zombie is worse than either running or stopped: peers fork-choose against a chain
+            # nobody can hand them, and the purge that was supposed to heal the node instead poisoned them.
+            # /terminate already hard-exits for precisely this reason; match it. The delay lets these log
+            # lines flush before the process disappears.
+            self.logger.error("Purge complete — exiting so systemd restarts us into a clean resync.")
+            threading.Timer(1.0, lambda: os._exit(0)).start()
             return True
         except Exception as e:
             self.logger.warning(f"dead-fork escape check failed: {e}")
