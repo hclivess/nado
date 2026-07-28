@@ -89,16 +89,28 @@ def _ivz_bnd(c):
 
 
 def t_python_ir_composition():
+    """The IR composition must reproduce stark._composition EXACTLY — including under GF(p^2) alphas, where
+    both are extension-valued and an extension constraint contributes a limb PAIR of outputs."""
     c = _capture_composition()
     invZ, bnd = _ivz_bnd(c)
-    prog = air_ir.build_program(c["transitions"], c["W"], V.NUM_PERIODIC, 2)
-    got = air_ir.compose_python(prog, c["N"], c["blowup"], c["col_lde"], c["per_lde"], c["challenges"],
+    ext = bool(c.get("ext_alphas"))
+    prog = air_ir.build_program(c["transitions"], c["W"], V.NUM_PERIODIC, 2, ext_chal=ext)
+    chals = list(c["challenges"])
+    if ext:                                  # the IR takes challenges as FLAT limbs, one CHAL leaf each
+        chals = [limb for ch in c["challenges"] for limb in (ch if isinstance(ch, tuple) else (ch, 0))]
+    got = air_ir.compose_python(prog, c["N"], c["blowup"], c["col_lde"], c["per_lde"], chals,
                                 c["alphas"], invZ, c["boundaries"], bnd)
     assert got == c["out"], "python-IR composition != stark._composition"
 
 
 def t_native_composition():
+    """The Rust arena multiplies by a BASE-field alpha, so it cannot carry GF(p^2) alphas — stark._composition
+    deliberately takes the Python path when they are in use. Comparing against it under ext would be comparing
+    a path that never runs, so this check applies to the base-field composition only."""
     c = _capture_composition()
+    if c.get("ext_alphas"):
+        print("      (GF(p^2) alphas in use — the native arena is base-field by design; check N/A)")
+        return
     invZ, bnd = _ivz_bnd(c)
     prog = air_ir.build_program(c["transitions"], c["W"], V.NUM_PERIODIC, 2)
     got = air_ir.compose_native(prog, c["N"], c["blowup"], c["col_lde"], c["per_lde"], list(c["challenges"]),

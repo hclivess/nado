@@ -251,6 +251,34 @@ def compose_python(prog, N, blowup, col_lde, per_lde, chals, alphas, invZ, bound
     P = F.P
     W, nper = prog["W"], prog["P"]
     nt = len(prog["outputs"])
+    # EXTENSION MODE. With GF(p^2) alphas the composition is extension-valued, and an extension-valued
+    # constraint contributes its two components as two consecutive outputs (prog["ext_pairs"] holds each
+    # pair's first index). So the accumulation runs in GF(p^2): a base constraint is lifted, a pair is read
+    # as one element, and each is multiplied by its OWN alpha — one alpha per LOGICAL constraint, matching
+    # what stark.prove drew, not one per output.
+    from execnode.stark import ext2
+    _ext = bool(alphas) and isinstance(alphas[0], tuple)
+    if _ext:
+        pair_at = set(prog.get("ext_pairs") or ())
+        cp = [ext2.ZERO] * N
+        for j in range(N):
+            cur = [col_lde[c][j] for c in range(W)]
+            nxt = [col_lde[c][(j + blowup) % N] for c in range(W)]
+            per = [per_lde[c][j] for c in range(nper)]
+            outs = eval_program_point(prog, cur, nxt, per, chals)
+            acc, t, ai = ext2.ZERO, 0, 0
+            while t < nt:
+                if t in pair_at:
+                    val = (outs[t] % P, outs[t + 1] % P); t += 2
+                else:
+                    val = (outs[t] % P, 0); t += 1
+                acc = ext2.add(acc, ext2.mul(alphas[ai], val)); ai += 1
+            v = ext2.scalar_mul(acc, invZ[j])
+            for bi, (_row, col, val_b) in enumerate(boundaries):
+                a = alphas[ai + bi]
+                v = ext2.add(v, ext2.scalar_mul(a, (col_lde[col][j] - val_b) % P * bnd_inv_dens[bi][j] % P))
+            cp[j] = v
+        return cp
     cp = [0] * N
     for j in range(N):
         cur = [col_lde[c][j] for c in range(W)]

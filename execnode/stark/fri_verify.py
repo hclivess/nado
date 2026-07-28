@@ -24,7 +24,9 @@ NO O(T) periodic interpolation: its cost is O(queries · layers), independent of
 """
 from execnode.stark import alghash2 as a2, field as F, stark, backend
 from execnode.stark.transcript import Transcript
-from execnode.stark.fri import _expected_layers, _coset_interpolate, GRIND_BITS, NUM_QUERIES
+from execnode.stark.fri import (_expected_layers, _coset_interpolate, _coset_interpolate_ext,
+                               GRIND_BITS, NUM_QUERIES)
+from execnode.stark import ext2
 from execnode.stark.recursion import _permute_snapshots, _blocks_for, _next_pow2  # snapshot + path-block helpers
 
 _W, _R, _RATE, _CAP = a2.WIDTH, a2.ROUNDS, a2.RATE, a2.DIGEST
@@ -38,6 +40,17 @@ _SIBW = _W                      # 12..15
 _DIRW, _IACC = _W + _CAP, _W + _CAP + 1
 _CLO, _CHI, _FOLD = _W + _CAP + 2, _W + _CAP + 3, _W + _CAP + 4
 _WTOT = _W + _CAP + 5          # 21
+# GF(p^2) LAYOUT. The opened values, and therefore the fold carries, are extension elements when the inner
+# proof is one. The HI limbs are APPENDED, so every index above keeps its meaning and simply denotes the LO
+# limb — every carry/hold/select constraint is F_p-LINEAR and just duplicates per limb, and only the fold
+# identity itself needs real extension arithmetic (alpha is the only ext-valued coefficient). Base is a strict
+# prefix of ext, which keeps the diff, and the risk, confined to what genuinely differs.
+_CLO1, _CHI1, _FOLD1 = _W + _CAP + 5, _W + _CAP + 6, _W + _CAP + 7
+_WTOT_EXT = _W + _CAP + 8      # 24
+
+
+def _wtot(ext):
+    return _WTOT_EXT if ext else _WTOT
 
 
 def _canonical_public(pub, num_queries, mk_transcript=None):
@@ -52,10 +65,13 @@ def _canonical_public(pub, num_queries, mk_transcript=None):
     that is a fresh Transcript('fri') (the default). For a FRI embedded in a STARK, fri.prove was handed the
     STARK's transcript (already absorbed the trace-column roots + drew the constraint challenges), so the caller
     must reconstruct THAT — verifier-authoritatively, from the STARK proof's public roots + AIR — and pass it."""
-    # ITEM 14 GATE: base-field arithmetic only (see recursion.extract_fri). Refuse a GF(p^2) proof rather
-    # than replay base-field challenges against it and check it under the weaker ~47-bit commit bound.
-    if isinstance(pub, dict) and pub.get("ext"):
-        return None
+    # GF(p^2) proofs are accepted now that the AIR carries extension arithmetic. The replay below MUST mirror
+    # fri.verify exactly — same challenge field, same "final" absorption of the FLATTENED limbs, same
+    # extension interpolation of the final layer — or the challenges diverge and every honest proof fails.
+    # `ext0` says whether LAYER 0 is already extension-valued (a DEEP quotient) or still base; every later
+    # layer is extension once folding starts, exactly as in fri.prove.
+    _ext = bool(pub.get("ext")) if isinstance(pub, dict) else False
+    _ext0 = bool(pub.get("ext0")) if isinstance(pub, dict) else False
     b = backend.RECURSION
     try:
         N, off, blowup = pub["N"], pub["offset"], pub["blowup"]
@@ -70,14 +86,16 @@ def _canonical_public(pub, num_queries, mk_transcript=None):
         t = mk_transcript() if mk_transcript is not None else Transcript("fri", backend=b)
         alphas, offs, sizes, o, n = [], [], [], off, N     # offsets+sizes only: points computed on demand as
         for r in roots:                                    # off·ω^pos, so NO O(N) domain is ever allocated
-            t.absorb(r); alphas.append(t.challenge()); offs.append(o); sizes.append(n)
+            t.absorb(r); alphas.append(t.challenge_ext() if _ext else t.challenge())
+            offs.append(o); sizes.append(n)
             o = F.mul(o, o); n //= 2
-        t.absorb("final", *final)
+        t.absorb("final", *(ext2.flatten(final) if _ext else final))
         if not t.check_grind(pub.get("pow"), GRIND_BITS):
             return None
-        coeffs = _coset_interpolate(final, o)
+        coeffs = _coset_interpolate_ext(final, o) if _ext else _coset_interpolate(final, o)
         deg_bound = max(1, len(final) // blowup)
-        if any(c != 0 for c in coeffs[deg_bound:]):
+        _zero = ext2.ZERO if _ext else 0
+        if any(c != _zero for c in coeffs[deg_bound:]):
             return None
         Lr = len(roots)
         out_queries, finals = [], []
@@ -92,7 +110,7 @@ def _canonical_public(pub, num_queries, mk_transcript=None):
                 steps.append((lo, plen, lo + half, plen, roots[L], x, alphas[L], c2lo))
                 last_lo = lo; a = lo
             out_queries.append(steps); finals.append(final[last_lo])
-        return {"queries": out_queries, "finals": finals}
+        return {"queries": out_queries, "finals": finals, "ext": _ext, "ext0": _ext0}
     except Exception:
         return None
 
@@ -104,11 +122,15 @@ def _witness_of(fri_proof, num_queries, mk_transcript=None):
     b = backend.RECURSION
     N, off, blowup = fri_proof["N"], fri_proof["offset"], fri_proof["blowup"]
     roots, final, queries = fri_proof["roots"], fri_proof["final"], fri_proof["queries"]
+    # The transcript must be replayed in the proof's OWN challenge field, exactly as _canonical_public and
+    # fri.verify do — a base-field replay of an ext proof draws different challenges, so the FS query index
+    # would not match the proof's and every honest witness extraction returned None.
+    _ext = bool(fri_proof.get("ext", False))
     t = mk_transcript() if mk_transcript is not None else Transcript("fri", backend=b)
     o = off
     for r in roots:
-        t.absorb(r); t.challenge(); o = F.mul(o, o)
-    t.absorb("final", *final)
+        t.absorb(r); (t.challenge_ext() if _ext else t.challenge()); o = F.mul(o, o)
+    t.absorb("final", *(ext2.flatten(final) if _ext else final))
     t.check_grind(fri_proof.get("pow"), GRIND_BITS)
     Lr = len(roots)
     out = []
@@ -149,9 +171,16 @@ _RCL = 0; _ACTR = _W; _ACTA = _W + 1; _SHOLDL = _W + 2; _IHOLD = _W + 3
 _SELLO = _W + 4; _SELHI = _W + 5; _HOLD = _W + 6; _FOLDAT = _W + 7
 _PX = _W + 8; _PAL = _W + 9; _CHLO = _W + 10; _CHHI = _W + 11; _FINAT = _W + 12; _PFIN = _W + 13
 _NPER = _W + 14
+# ext: alpha and the pinned final-layer value gain a HI limb, appended for the same prefix reason as above.
+_PAL1 = _W + 14; _PFIN1 = _W + 15
+_NPER_EXT = _W + 16
 
 
-def _schedule_periodic_boundaries(schedule, seam_lo0=None):
+def _nper(ext):
+    return _NPER_EXT if ext else _NPER
+
+
+def _schedule_periodic_boundaries(schedule, seam_lo0=None, ext=False, ext0=False):
     """Build the recursion-AIR periodic + boundaries PURELY from the canonical schedule (no witness). Prover and
     verifier both call this and MUST get identical output — that is what makes the verifier authoritative.
 
@@ -181,20 +210,41 @@ def _schedule_periodic_boundaries(schedule, seam_lo0=None):
     for ln in qlens:
         query_first += [True] + [False] * (ln - 1)
     flat_qi = [q for q, ln in enumerate(qlens) for _ in range(ln)]
+    # WHICH LAYERS ARE EXTENSION-COMMITTED. fri.prove commits layer 0 with BASE leaves unless the values were
+    # already ext (ext0 — a DEEP quotient); folding makes every LATER layer ext. So the leaf FRAME differs per
+    # layer, and using the ext frame everywhere makes the in-circuit path digest disagree with the committed
+    # root on layer 0 — which shows up as the "final digest == layer root" boundaries failing, not as a
+    # constraint violation.
+    flat_layer = [j for ln in qlens for j in range(ln)]
+    def _leaf_ext(si):
+        return bool(ext) and (flat_layer[si] > 0 or bool(ext0))
 
     sup_link, sello, selhi, hold_rel = [], [], [], []
     foldat, px, pal, chlo, chhi, finat, pfin = [], [], [], [], [], [], []
+    pal1, pfin1 = [], []                                     # ext: the HI limbs of alpha / the final value
     bnds = []
     for si, (lo_start, hi_start, fold_row, n_lo, n_hi) in enumerate(segs):
         st = flat[si]
         if seam_lo0 is not None and query_first[si]:
-            bnds.append((lo_start, _CLO, int(seam_lo0[flat_qi[si]]) % F.P))
+            _seam = seam_lo0[flat_qi[si]]
+            if ext:
+                # BOTH limbs, or the seam pins only half of the value the composition half is handed and a
+                # prover is free to choose the other half.
+                _s0, _s1 = ext2.lift(_seam)
+                bnds.append((lo_start, _CLO, int(_s0) % F.P))
+                bnds.append((lo_start, _CLO1, int(_s1) % F.P))
+            else:
+                bnds.append((lo_start, _CLO, int(_seam) % F.P))
         lo_pos, hi_pos, root, x, alpha, c2lo = st[0], st[2], st[4], st[5], st[6], st[7]
         for start, nblk, pos in ((lo_start, n_lo, lo_pos), (hi_start, n_hi, hi_pos)):
             sup_link.append((start + nblk * _B - 1, 0))          # release the final block's row-15 link
             frow = start + (nblk - 1) * _B + _R                  # the path's digest row
-            bnds.append((start, 0, a2.DOM_LEAF))                 # rleaf frame of block 0
-            for lane in range(2, _RATE):
+            # leaf frame of block 0. An EXT leaf is (DOM_LEAF_EXT, lo, hi, 0, 0...): lane 1 carries the lo
+            # limb and lane 2 the hi limb (both tied to the carries by SELLO/SELHI), so only lanes 3.. are
+            # pinned to zero. Its own domain tag keeps it distinct from a base leaf with hi = 0.
+            _lx = _leaf_ext(si)
+            bnds.append((start, 0, a2.DOM_LEAF_EXT if _lx else a2.DOM_LEAF))
+            for lane in range(3 if _lx else 2, _RATE):
                 bnds.append((start, lane, 0))
             for lane in range(_CAP):
                 bnds.append((start, _RATE + lane, a2.IV[lane]))
@@ -204,9 +254,19 @@ def _schedule_periodic_boundaries(schedule, seam_lo0=None):
         sello.append((lo_start, 1)); selhi.append((hi_start, 1))
         hold_rel.append((fold_row, 0))
         foldat.append((fold_row, 1))
-        px.append((fold_row, int(x) % F.P)); pal.append((fold_row, int(alpha) % F.P))
+        px.append((fold_row, int(x) % F.P))
+        if ext:
+            _a0, _a1 = ext2.lift(alpha)
+            pal.append((fold_row, int(_a0) % F.P)); pal1.append((fold_row, int(_a1) % F.P))
+        else:
+            pal.append((fold_row, int(alpha) % F.P))
         if query_end[si]:
-            finat.append((fold_row, 1)); pfin.append((fold_row, int(flat_final[si]) % F.P))
+            finat.append((fold_row, 1))
+            if ext:
+                _f0, _f1 = ext2.lift(flat_final[si])
+                pfin.append((fold_row, int(_f0) % F.P)); pfin1.append((fold_row, int(_f1) % F.P))
+            else:
+                pfin.append((fold_row, int(flat_final[si]) % F.P))
         else:
             (chlo if c2lo else chhi).append((fold_row, 1))
 
@@ -220,6 +280,8 @@ def _schedule_periodic_boundaries(schedule, seam_lo0=None):
     per += [P16(actr_base), P16(acta_base), P16(sholdl_base, sup_link), P16(ihold_base, sup_link),
             SP(sello), SP(selhi), {"period": 1, "base": [1], "sparse": hold_rel}, SP(foldat),
             SP(px), SP(pal), SP(chlo), SP(chhi), SP(finat), SP(pfin)]
+    if ext:
+        per += [SP(pal1), SP(pfin1)]
     return per, bnds, T, segs, query_end
 
 
@@ -264,16 +326,44 @@ def _fill_path(rows, base, leaf_val, index, path):
             _fill_block(rows, base + bblk * _B, lb[bblk], _junk_absorb(lb[bblk][_R]), (0,) * _CAP, 0, acc, acc)
 
 
-def _fill_trace(pub_flat, wit_flat, T, segs):
+def _fill_trace(pub_flat, wit_flat, T, segs, ext=False, ext0=False, query_end=None):
     """PROVER side: fill the witness trace (sponge snapshots + witness siblings/directions + index accumulators
     + carries). `pub_flat[si]` = (lo_pos, lo_len, hi_pos, hi_len, root, x, α, c2lo); `wit_flat[si]` =
     (lo_val, lo_path, hi_val, hi_path). Padding rows continue as inert dummy hash blocks (the 16-periodic round
     and absorb gates stay active through the padding, so it must be REAL permutation arithmetic)."""
-    rows = [[0] * _WTOT for _ in range(T)]
+    rows = [[0] * _wtot(ext) for _ in range(T)]
     INV2 = F.inv(2)
+    # Which LAYER each segment belongs to, so the leaf FRAME matches how that layer was committed: layer 0 is
+    # base-committed unless ext0, every later layer is ext (fri.prove's is_ext_layer). The CARRIES are ext
+    # throughout — lifting a base opening just gives hi = 0 — but the frame tag and the lane-2 pin have to
+    # follow the commitment, or the in-circuit path digest will not equal the layer root.
+    # query_end[si] marks each query's LAST layer, so the counter resets exactly there.
+    _seg_layer, _lay = [], 0
+    for si in range(len(segs)):
+        _seg_layer.append(_lay)
+        _lay = 0 if (query_end and si < len(query_end) and query_end[si]) else _lay + 1
     for si, (lo_start, hi_start, fold_row, n_lo, n_hi) in enumerate(segs):
         lo_pos, _ll, hi_pos, _hl, root, x, alpha, _c2 = pub_flat[si]
         lo_val, lo_path, hi_val, hi_path = wit_flat[si]
+        if ext:
+            # Same fold, in GF(p^2). lo/hi may be base ints on an ext0=False layer 0, so lift before use;
+            # x and INV2 stay base scalars, so only the single alpha multiply is a full extension product.
+            _lx = bool(ext) and (_seg_layer[si] > 0 or bool(ext0))
+            lo_e, hi_e = ext2.lift(lo_val), ext2.lift(hi_val)
+            fe = ext2.scalar_mul(ext2.add(lo_e, hi_e), INV2)
+            fo = ext2.scalar_mul(ext2.sub(lo_e, hi_e), F.mul(INV2, F.inv(x)))
+            fv = ext2.add(fe, ext2.mul(ext2.lift(alpha), fo))
+            # ext leaf frame only where that layer was ext-committed; otherwise the base frame with the
+            # base value (its hi limb is zero anyway).
+            _lf_lo = lo_e if _lx else lo_e[0]
+            _lf_hi = hi_e if _lx else hi_e[0]
+            _fill_path(rows, lo_start, _lf_lo, lo_pos, lo_path)
+            _fill_path(rows, hi_start, _lf_hi, hi_pos, hi_path)
+            for i in range(lo_start, fold_row + 1):
+                rows[i][_CLO], rows[i][_CLO1] = lo_e[0] % F.P, lo_e[1] % F.P
+                rows[i][_CHI], rows[i][_CHI1] = hi_e[0] % F.P, hi_e[1] % F.P
+                rows[i][_FOLD], rows[i][_FOLD1] = fv[0] % F.P, fv[1] % F.P
+            continue
         fv = F.add(F.mul(F.add(lo_val, hi_val), INV2),
                    F.mul(alpha, F.mul(F.sub(lo_val, hi_val), F.mul(INV2, F.inv(x)))))
         _fill_path(rows, lo_start, lo_val, lo_pos, lo_path)
@@ -293,11 +383,15 @@ def _fill_trace(pub_flat, wit_flat, T, segs):
                 rows[pb + rib][_CLO] = rows[n_used - 1][_CLO]
                 rows[pb + rib][_CHI] = rows[n_used - 1][_CHI]
                 rows[pb + rib][_FOLD] = rows[n_used - 1][_FOLD]
+                if ext:
+                    rows[pb + rib][_CLO1] = rows[n_used - 1][_CLO1]
+                    rows[pb + rib][_CHI1] = rows[n_used - 1][_CHI1]
+                    rows[pb + rib][_FOLD1] = rows[n_used - 1][_FOLD1]
         state = nxt
     return rows
 
 
-def _transitions():
+def _transitions(ext=False):
     cons = []
 
     def round_c(i):
@@ -354,14 +448,56 @@ def _transitions():
     cons.append(lambda c, n, p: F.mul(p[_SELLO], F.sub(c[_CLO], c[1])))
     cons.append(lambda c, n, p: F.mul(p[_SELHI], F.sub(c[_CHI], c[1])))
 
-    def fold_c(c, n, p):
+    if not ext:
+        def fold_c(c, n, p):
+            lhs = F.mul(F.mul(2, p[_PX]), c[_FOLD])
+            rhs = F.add(F.mul(p[_PX], F.add(c[_CLO], c[_CHI])), F.mul(p[_PAL], F.sub(c[_CLO], c[_CHI])))
+            return F.mul(p[_FOLDAT], F.sub(lhs, rhs))
+        cons.append(fold_c)
+        cons.append(lambda c, n, p: F.mul(p[_CHLO], F.sub(n[_CLO], c[_FOLD])))
+        cons.append(lambda c, n, p: F.mul(p[_CHHI], F.sub(n[_CHI], c[_FOLD])))
+        cons.append(lambda c, n, p: F.mul(p[_FINAT], F.sub(c[_FOLD], p[_PFIN])))
+        return cons
+
+    # ---- GF(p^2) ----------------------------------------------------------------------------------
+    # Every constraint above is F_p-LINEAR in the carries, so the HI limbs are exact duplicates against the
+    # appended columns. The leaf select is the one that also changes shape: an extension leaf frames its lo
+    # limb in lane 1 and its hi limb in lane 2 (see recursion._blocks_for), so SELLO/SELHI tie BOTH.
+    cons.append(lambda c, n, p: F.mul(p[_HOLD], F.sub(n[_CLO1], c[_CLO1])))
+    cons.append(lambda c, n, p: F.mul(p[_HOLD], F.sub(n[_CHI1], c[_CHI1])))
+    cons.append(lambda c, n, p: F.mul(p[_HOLD], F.sub(n[_FOLD1], c[_FOLD1])))
+    cons.append(lambda c, n, p: F.mul(p[_SELLO], F.sub(c[_CLO1], c[2])))
+    cons.append(lambda c, n, p: F.mul(p[_SELHI], F.sub(c[_CHI1], c[2])))
+
+    # The fold identity 2x*FOLD = x*(CLO+CHI) + alpha*(CLO-CHI) over GF(p^2), split into its two components.
+    # x is a BASE domain point and stays a scalar; alpha is the only extension coefficient, so expanding
+    # (a0 + a1*X)(d0 + d1*X) = (a0*d0 + NONRESIDUE*a1*d1) + (a0*d1 + a1*d0)*X gives two constraints of the
+    # SAME degree as the base one — the carries are plain columns and alpha/x are public periodic values.
+    NR = ext2.NONRESIDUE
+
+    def fold_c0(c, n, p):
+        d0 = F.sub(c[_CLO], c[_CHI]); d1 = F.sub(c[_CLO1], c[_CHI1])
         lhs = F.mul(F.mul(2, p[_PX]), c[_FOLD])
-        rhs = F.add(F.mul(p[_PX], F.add(c[_CLO], c[_CHI])), F.mul(p[_PAL], F.sub(c[_CLO], c[_CHI])))
+        rhs = F.add(F.mul(p[_PX], F.add(c[_CLO], c[_CHI])),
+                    F.add(F.mul(p[_PAL], d0), F.mul(NR, F.mul(p[_PAL1], d1))))
         return F.mul(p[_FOLDAT], F.sub(lhs, rhs))
-    cons.append(fold_c)
+
+    def fold_c1(c, n, p):
+        d0 = F.sub(c[_CLO], c[_CHI]); d1 = F.sub(c[_CLO1], c[_CHI1])
+        lhs = F.mul(F.mul(2, p[_PX]), c[_FOLD1])
+        rhs = F.add(F.mul(p[_PX], F.add(c[_CLO1], c[_CHI1])),
+                    F.add(F.mul(p[_PAL], d1), F.mul(p[_PAL1], d0)))
+        return F.mul(p[_FOLDAT], F.sub(lhs, rhs))
+    cons.append(fold_c0); cons.append(fold_c1)
+
+    # the folded value becomes the next layer's lo/hi opening, and the last layer is pinned to the public
+    # final value — both limbs, or a prover could hide a discrepancy in the hi one.
     cons.append(lambda c, n, p: F.mul(p[_CHLO], F.sub(n[_CLO], c[_FOLD])))
     cons.append(lambda c, n, p: F.mul(p[_CHHI], F.sub(n[_CHI], c[_FOLD])))
+    cons.append(lambda c, n, p: F.mul(p[_CHLO], F.sub(n[_CLO1], c[_FOLD1])))
+    cons.append(lambda c, n, p: F.mul(p[_CHHI], F.sub(n[_CHI1], c[_FOLD1])))
     cons.append(lambda c, n, p: F.mul(p[_FINAT], F.sub(c[_FOLD], p[_PFIN])))
+    cons.append(lambda c, n, p: F.mul(p[_FINAT], F.sub(c[_FOLD1], p[_PFIN1])))
     return cons
 
 
@@ -375,8 +511,14 @@ def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64, mk_tran
     to make the fold proof itself rleaf/rnode-committed — i.e. DEPTH-READY: its own FRI is then exactly the
     shape prove_fold folds, so this proof can be an inner proof of ANOTHER fold (recursion_depth.fold_tree).
     Returns (recursion_proof, publics)."""
+    # `ext`/`ext0` are part of the PUBLIC statement: they say which field the transcript replay draws in and
+    # which column layout the AIR has. Omitting them made every ext proof replay as base-field, so the
+    # Fiat-Shamir challenges diverged and the inner proof "failed native verification". They are safe to carry
+    # from the proof because the verifier re-derives every challenge under them and a lie simply produces a
+    # schedule the openings cannot satisfy.
     publics = [{"roots": p["roots"], "N": p["N"], "offset": p["offset"], "blowup": p["blowup"],
-                "final": p["final"], "pow": p.get("pow")} for p in fri_proofs]
+                "final": p["final"], "pow": p.get("pow"),
+                "ext": bool(p.get("ext", False)), "ext0": bool(p.get("ext0", False))} for p in fri_proofs]
     if num_queries_inner is None:
         num_queries_inner = len(fri_proofs[0]["queries"])
     merged = {"queries": [], "finals": []}
@@ -388,13 +530,21 @@ def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64, mk_tran
         if c is None or w is None:
             raise ValueError("an inner FRI proof failed native verification — refusing to fold it")
         merged["queries"] += c["queries"]; merged["finals"] += c["finals"]
+        # One AIR proves the whole batch, so every inner proof must live in the SAME challenge field —
+        # mixing them would need two column layouts in one trace.
+        if merged.get("ext") is None:
+            merged["ext"] = c["ext"]; merged["ext0"] = c["ext0"]
+        elif merged["ext"] != c["ext"] or merged.get("ext0") != c["ext0"]:
+            raise ValueError("cannot fold FRI proofs with different challenge-field layouts in one batch")
         for steps in w:
             wit_flat += steps
-            seam_lo0.append(int(steps[0][0]) % F.P)        # each query's layer-0 lo opening (the seam value)
-    per, bnds, T, segs, _qe = _schedule_periodic_boundaries(merged, seam_lo0)
+            seam_lo0.append(steps[0][0] if merged["ext"] else int(steps[0][0]) % F.P)
+    _ext = bool(merged.get("ext"))
+    _ext0 = bool(merged.get("ext0"))
+    per, bnds, T, segs, _qe = _schedule_periodic_boundaries(merged, seam_lo0, ext=_ext, ext0=_ext0)
     pub_flat = [st for steps in merged["queries"] for st in steps]
-    rows = _fill_trace(pub_flat, wit_flat, T, segs)
-    proof = stark.prove(rows, _transitions(), bnds, periodic=per, max_degree=8,
+    rows = _fill_trace(pub_flat, wit_flat, T, segs, ext=_ext, ext0=_ext0, query_end=_qe)
+    proof = stark.prove(rows, _transitions(_ext), bnds, periodic=per, max_degree=8,
                         num_queries=num_queries_outer, backend=out_backend or backend.ALGHASH2)
     return proof, {"publics": publics, "num_queries_inner": num_queries_inner,
                    "num_queries_outer": num_queries_outer, "seam_lo0": seam_lo0}
@@ -414,11 +564,17 @@ def fold_air(public, mk_transcripts=None, expect_inner=None):
         if c is None:
             raise ValueError("an inner FRI public statement failed native verification")
         merged["queries"] += c["queries"]; merged["finals"] += c["finals"]
+        if merged.get("ext") is None:
+            merged["ext"] = c["ext"]; merged["ext0"] = c["ext0"]
+        elif merged["ext"] != c["ext"] or merged.get("ext0") != c["ext0"]:
+            raise ValueError("mixed challenge fields across the folded proofs")
     seam = public.get("seam_lo0")
     if seam is not None and len(seam) != len(merged["queries"]):
         raise ValueError("seam value count != query count")
-    per, bnds, _T, _segs, _qe = _schedule_periodic_boundaries(merged, seam)
-    return _transitions(), bnds, per
+    _ext = bool(merged.get("ext"))
+    per, bnds, _T, _segs, _qe = _schedule_periodic_boundaries(
+        merged, seam, ext=_ext, ext0=bool(merged.get("ext0")))
+    return _transitions(_ext), bnds, per
 
 
 def verify_fold(recursion_proof, public, mk_transcripts=None, expect_inner=None, expect_outer=None,
@@ -452,11 +608,19 @@ def verify_fold(recursion_proof, public, mk_transcripts=None, expect_inner=None,
             if c is None:
                 return False, "an inner proof's public statement failed native FRI verification"
             merged["queries"] += c["queries"]; merged["finals"] += c["finals"]
+            if merged.get("ext") is None:
+                merged["ext"] = c["ext"]; merged["ext0"] = c["ext0"]
+            elif merged["ext"] != c["ext"] or merged.get("ext0") != c["ext0"]:
+                return False, "mixed challenge fields across the folded proofs"
         seam = public.get("seam_lo0")                   # layer-0 seam values: in-circuit membership validates
         if seam is not None and len(seam) != len(merged["queries"]):        # them, so a lie cannot verify
             return False, "seam value count != query count"
-        per, bnds, _T, _segs, _qe = _schedule_periodic_boundaries(merged, seam)  # VERIFIER builds the schedule
-        return stark.verify(recursion_proof, _transitions(), bnds, periodic=per, max_degree=8,
+        # The layout is derived from the INNER proofs' public parts, never from the fold prover — so a prover
+        # cannot present an ext batch and have it checked under the cheaper base-field AIR.
+        _ext = bool(merged.get("ext"))
+        per, bnds, _T, _segs, _qe = _schedule_periodic_boundaries(
+            merged, seam, ext=_ext, ext0=bool(merged.get("ext0")))
+        return stark.verify(recursion_proof, _transitions(_ext), bnds, periodic=per, max_degree=8,
                             num_queries=nqo, backend=out_backend or backend.ALGHASH2)
     except Exception as e:
         return False, f"malformed recursion bundle: {e}"
