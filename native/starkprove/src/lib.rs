@@ -490,6 +490,55 @@ pub extern "C" fn sp_fold_ext(col_lo: usize, col_hi: usize, offset: u64,
     (arena.cols.len() - 2) as i64
 }
 
+/// Everything sp_compose and sp_compose_ext derive from GEOMETRY alone — the coset points, the transition
+/// vanishing inverse, and the per-boundary denominators (deduped by row, since recursion AIRs pin many lanes
+/// at the same row). Extracted so the two composers share one implementation of it: they differ ONLY in how
+/// constraint values are combined with the alphas, and duplicating the setup is how the base and extension
+/// paths would silently drift into computing different quotients.
+struct ComposeSetup {
+    inv_z: Vec<u64>,
+    den_vecs: Vec<Vec<u64>>,
+    bnd_den_idx: Vec<usize>,
+}
+
+fn compose_setup(n: usize, t: usize, offset: u64, n_bnd: usize, bnd_row: &[u64]) -> ComposeSetup {
+    let omega = rou(n);
+    let g_t = rou(t);
+    let last = powf(g_t, (t - 1) as u64);
+    let mut xs = vec![0u64; n];
+    {
+        let mut x = offset % PU64;
+        for j in 0..n {
+            xs[j] = x;
+            x = mulf(x, omega);
+        }
+    }
+    let xtm1: Vec<u64> = xs.iter().map(|&x| subf(powf(x, t as u64), 1)).collect();
+    let inv_xtm1 = batch_inverse(&xtm1);
+    let inv_z: Vec<u64> = (0..n).map(|j| mulf(subf(xs[j], last), inv_xtm1[j])).collect();
+
+    let mut uniq: Vec<u64> = Vec::new();
+    let mut row_to_idx: HashMap<u64, usize> = HashMap::new();
+    let mut bnd_den_idx = vec![0usize; n_bnd];
+    for bi in 0..n_bnd {
+        let r = bnd_row[bi];
+        let idx = *row_to_idx.entry(r).or_insert_with(|| {
+            uniq.push(r);
+            uniq.len() - 1
+        });
+        bnd_den_idx[bi] = idx;
+    }
+    let den_vecs: Vec<Vec<u64>> = uniq
+        .iter()
+        .map(|&r| {
+            let grow_r = powf(g_t, r);
+            let diffs: Vec<u64> = xs.iter().map(|&x| subf(x, grow_r)).collect();
+            batch_inverse(&diffs)
+        })
+        .collect();
+    ComposeSetup { inv_z, den_vecs, bnd_den_idx }
+}
+
 /// One FRI fold of a retained column (step 4): evals of f on the coset {offset·ω^i} (size m) → evals of g on
 /// the squared coset (size m/2), g(x²) = (f(x)+f(-x))/2 + α·(f(x)-f(-x))/(2x), the pair (x,−x) at (i, i+m/2).
 /// Retains the folded column, returns its id. Byte-identical to fri._fold(evals, F.domain(m, offset), alpha).
@@ -939,43 +988,7 @@ pub unsafe extern "C" fn sp_compose(
         }
     }
 
-    let omega = rou(n);
-    let g_t = rou(t);
-    let last = powf(g_t, (t - 1) as u64);
-    // coset domain xs[j] = offset·ω^j
-    let mut xs = vec![0u64; n];
-    {
-        let mut x = offset % PU64;
-        for j in 0..n {
-            xs[j] = x;
-            x = mulf(x, omega);
-        }
-    }
-    // invZ[j] = (xs[j] - last)/(xs[j]^T - 1) — one BATCH inverse over j (byte-identical to field.batch_inverse)
-    let xtm1: Vec<u64> = xs.iter().map(|&x| subf(powf(x, t as u64), 1)).collect();
-    let inv_xtm1 = batch_inverse(&xtm1);
-    let inv_z: Vec<u64> = (0..n).map(|j| mulf(subf(xs[j], last), inv_xtm1[j])).collect();
-    // boundary denominators, DEDUPED by row (recursion AIRs pin many lanes at the same row) — one batch inverse
-    // per UNIQUE row, plus a per-boundary index into them. Same values the Python _den_by_row cache produces.
-    let mut uniq: Vec<u64> = Vec::new();
-    let mut row_to_idx: HashMap<u64, usize> = HashMap::new();
-    let mut bnd_den_idx = vec![0usize; n_bnd];
-    for bi in 0..n_bnd {
-        let r = bnd_row[bi];
-        let idx = *row_to_idx.entry(r).or_insert_with(|| {
-            uniq.push(r);
-            uniq.len() - 1
-        });
-        bnd_den_idx[bi] = idx;
-    }
-    let den_vecs: Vec<Vec<u64>> = uniq
-        .iter()
-        .map(|&r| {
-            let grow_r = powf(g_t, r);
-            let diffs: Vec<u64> = xs.iter().map(|&x| subf(x, grow_r)).collect();
-            batch_inverse(&diffs)
-        })
-        .collect();
+    let ComposeSetup { inv_z, den_vecs, bnd_den_idx } = compose_setup(n, t, offset, n_bnd, bnd_row);
 
     let mut cp = vec![0u64; n];
     let mut temp = vec![0u64; n_ops];
@@ -1023,4 +1036,155 @@ pub unsafe extern "C" fn sp_compose(
 pub extern "C" fn sp_free() {
     let mut g = ARENA.lock().unwrap();
     *g = None;
+}
+
+/// EXTENSION composition (step 4, GF(p^2)). Same statement as sp_compose, with the alphas — and therefore
+/// the composition polynomial — extension-valued.
+///
+/// The SSA interpretation stays BASE. That is the point of the limb-pair representation: an
+/// extension-valued constraint contributes its two COMPONENTS as two consecutive outputs (`ext_pairs` holds
+/// each pair's first index, mirroring air_ir's), so the constraint program itself needs no extension opcode
+/// and only the alpha combination widens. One alpha per LOGICAL constraint — NOT one per output, which is
+/// the off-by-one that would silently misalign every constraint past the first extension one.
+///
+/// `alphas` is 2*(n_logical + n_bnd) limbs, lo/hi interleaved. Writes cp_lo/cp_hi and retains both as arena
+/// columns, returning the LO id (HI is always lo+1, as in sp_fold_ext).
+#[no_mangle]
+pub unsafe extern "C" fn sp_compose_ext(
+    n_ops: usize, ops: *const u32,
+    n_consts: usize, consts: *const u64,
+    n_out: usize, outputs: *const u32,
+    n_pairs: usize, ext_pairs: *const u32,
+    w: usize, nper: usize, nchal: usize,
+    chals: *const u64,
+    alphas: *const u64,          // 2 * (n_logical + n_bnd)
+    n_bnd: usize,
+    bnd_col: *const u32,
+    bnd_val: *const u64,
+    bnd_row: *const u64,
+    t: usize, blowup: usize, offset: u64,
+    out_lo: *mut u64, out_hi: *mut u64,
+) -> i64 {
+    let mut g = ARENA.lock().unwrap();
+    let arena = match g.as_mut() {
+        Some(a) => a,
+        None => return -1,
+    };
+    let n = arena.n;
+    if n == 0 || t == 0 || w + nper > arena.cols.len() {
+        return -1;
+    }
+    let ops = std::slice::from_raw_parts(ops, n_ops * 3);
+    let consts = std::slice::from_raw_parts(consts, n_consts.max(1));
+    let outputs = std::slice::from_raw_parts(outputs, n_out.max(1));
+    let pairs = std::slice::from_raw_parts(ext_pairs, n_pairs.max(1));
+    let chals = std::slice::from_raw_parts(chals, nchal.max(1));
+    let bnd_col = std::slice::from_raw_parts(bnd_col, n_bnd.max(1));
+    let bnd_val = std::slice::from_raw_parts(bnd_val, n_bnd.max(1));
+    let bnd_row = std::slice::from_raw_parts(bnd_row, n_bnd.max(1));
+
+    // a pair consumes TWO outputs but ONE alpha, so the logical count is outputs minus pairs
+    let n_logical = match n_out.checked_sub(n_pairs) {
+        Some(v) => v,
+        None => return 5,
+    };
+    let alphas = std::slice::from_raw_parts(alphas, 2 * (n_logical + n_bnd));
+
+    for i in 0..n_ops {
+        let (op, a, b) = (ops[i * 3], ops[i * 3 + 1] as usize, ops[i * 3 + 2] as usize);
+        let bad = match op {
+            OP_CUR | OP_NXT => a >= w,
+            OP_PER => a >= nper,
+            OP_CHAL => a >= nchal,
+            OP_CONST => a >= n_consts,
+            OP_ADD | OP_SUB | OP_MUL => a >= i || b >= i,
+            OP_POW => a >= i,
+            _ => true,
+        };
+        if bad {
+            return 2;
+        }
+    }
+    for &o in outputs.iter().take(n_out) {
+        if (o as usize) >= n_ops {
+            return 3;
+        }
+    }
+    for bi in 0..n_bnd {
+        if (bnd_col[bi] as usize) >= w {
+            return 4;
+        }
+    }
+    for k in 0..n_pairs {
+        // each pair must name a real output AND leave room for its partner
+        if (pairs[k] as usize) + 1 >= n_out {
+            return 6;
+        }
+    }
+
+    let ComposeSetup { inv_z, den_vecs, bnd_den_idx } = compose_setup(n, t, offset, n_bnd, bnd_row);
+
+    // is_pair_start[k] — O(1) lookup instead of scanning ext_pairs per output per point
+    let mut is_pair_start = vec![false; n_out];
+    for k in 0..n_pairs {
+        is_pair_start[pairs[k] as usize] = true;
+    }
+
+    let mut cp_lo = vec![0u64; n];
+    let mut cp_hi = vec![0u64; n];
+    let mut temp = vec![0u64; n_ops];
+    for j in 0..n {
+        let jn = (j + blowup) % n;
+        for i in 0..n_ops {
+            let (op, a, b) = (ops[i * 3], ops[i * 3 + 1] as usize, ops[i * 3 + 2] as usize);
+            temp[i] = match op {
+                OP_CUR => arena.cols[a][j],
+                OP_NXT => arena.cols[a][jn],
+                OP_PER => arena.cols[w + a][j],
+                OP_CHAL => chals[a],
+                OP_CONST => consts[a],
+                OP_ADD => addf(temp[a], temp[b]),
+                OP_SUB => subf(temp[a], temp[b]),
+                OP_MUL => mulf(temp[a], temp[b]),
+                OP_POW => powf(temp[a], b as u64),
+                _ => 0,
+            };
+        }
+        let mut acc = (0u64, 0u64);
+        let mut k = 0usize;
+        let mut ai = 0usize;
+        while k < n_out {
+            let val = if is_pair_start[k] {
+                let v = (temp[outputs[k] as usize], temp[outputs[k + 1] as usize]);
+                k += 2;
+                v
+            } else {
+                let v = (temp[outputs[k] as usize], 0u64);
+                k += 1;
+                v
+            };
+            let a = (alphas[2 * ai], alphas[2 * ai + 1]);
+            acc = e_add(acc, e_mul(a, val));
+            ai += 1;
+        }
+        let mut v = e_scalar(acc, inv_z[j]);
+        for bi in 0..n_bnd {
+            let col = bnd_col[bi] as usize;
+            let diff = subf(arena.cols[col][j], bnd_val[bi]);
+            let invden = den_vecs[bnd_den_idx[bi]][j];
+            let a = (alphas[2 * (n_logical + bi)], alphas[2 * (n_logical + bi) + 1]);
+            v = e_add(v, e_scalar(a, mulf(diff, invden)));
+        }
+        cp_lo[j] = v.0;
+        cp_hi[j] = v.1;
+    }
+    if !out_lo.is_null() {
+        std::ptr::copy_nonoverlapping(cp_lo.as_ptr(), out_lo, n);
+    }
+    if !out_hi.is_null() {
+        std::ptr::copy_nonoverlapping(cp_hi.as_ptr(), out_hi, n);
+    }
+    arena.cols.push(cp_lo);
+    arena.cols.push(cp_hi);
+    (arena.cols.len() - 2) as i64
 }
