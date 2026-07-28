@@ -205,9 +205,34 @@ piece: `dilithium_py.ml_dsa.ML_DSA_44` (the node's pure-Python PQ backend) and `
   ⚠️ **Open**: one round is 3·1600 = **4800 columns**, far past `MAX_COLUMNS`. Composing the 24-round
   permutation (and then the sponge) needs a raised column cap or a lane/bit-sliced decomposition — this is the
   next step, and it is what determines whether the proof size lands in the 100–200 KiB target band.
-- ⬜ **Composition + block-format swap**: fold the per-signature proofs (via the existing `recursive_verify`)
-  into one block validity proof; strip signatures from the gossiped/stored block; swap
-  `validate_transactions_in_block`'s per-tx `validate_origin` for one `verify(validity_proof)`.
+- ✅ **Sub-circuit 7 — the SHAKE SPONGE** (`mldsa_sponge_air.py`): pad10*1 + 0x1F, one proven Keccak-f per
+  absorb block and per extra squeeze chunk. The sponge STRUCTURE (padding, block split, XOR-in, chaining,
+  output) is verifier-derived from the public message, so the proofs attest only the permutations and a proof
+  for one message fails for any other. A real SHAKE256 proves + verifies end-to-end.
+- ✅ **Sub-circuit 8 — ExpandA + SampleInBall** (`mldsa_sample_air.py`): the XOF-driven rejection samplers,
+  matching all 16 matrix entries and SampleInBall across seeds. The rejection decisions need no trusted
+  witness — they are a public function of the XOF stream — so they are proven by the sponge proof plus a
+  two-sided range statement (accepted ⇒ < bound, rejected ⇒ ≥ bound), and a flipped decision is detected.
+- ✅ **The assembled verification** (`mldsa_verify.py`): the true FIPS 204 Alg 8 equation over the same code
+  paths the AIRs prove — and it **agrees with the native RustCrypto ml-dsa backend** on real signatures,
+  rejecting tampered message / c̃ / z / pubkey, a different signer, short inputs and non-canonical hints.
+  **Measured per-signature workload: 103 Keccak permutations, 13 312 NTT butterflies, 5 120 mod-Q products,
+  2 048 range rows** — the real budget the 100–200 KiB target must be met against.
+- ✅ **The assembled PROOF** (`mldsa_sig_proof.py`): the sub-circuits have genuinely different AIRs, so they are
+  bound with **heterogeneous** recursion (`recursive_verify_hetero.prove_hetero` — one FRI fold plus one
+  composition per distinct AIR). Each sub-proof is pinned to its own public statement, which the verifier
+  rebuilds from the public (pk, msg, sig); `prove_signature(parts=…)` folds a chosen subset because a full
+  signature is 103 permutations (a proving-farm job, not a unit test) — the subset path is the same code, only
+  the time scales.
+- ✅ **Block-format wiring** (`mldsa_block_auth.py`): signature-free core + `auth_root`/`auth_count` +
+  the detached raw|stark evidence envelope, with the **block hash identical either way**. The verifier
+  RECOMPUTES both commitments and refuses lied ones; reordering transactions changes the root. Size trade
+  reproduces the design threshold (crossover K=85 for a 200 KiB proof). Consensus-DORMANT — wiring it into
+  block validation rides a reroll, per the phased rollout above.
+- ⬜ **Remaining**: swap `validate_transactions_in_block`'s per-tx `validate_origin` for one
+  `verify(validity_proof)` behind the phased flag, and get proving throughput to where a full 103-permutation
+  signature bundle fits the slot budget (the fold alone is currently tens of minutes — the native prover work
+  is the gating engineering, exactly as the size/CPU analysis predicted).
 
 ## Status and where it slots in
 
