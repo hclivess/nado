@@ -30,6 +30,15 @@ class Transcript:
         self.state, v = self.b.t_challenge(self.state)
         return v
 
+    def challenge_ext(self):
+        """A uniform element of GF(p²), as the pair (c0, c1) meaning c0 + c1·X.
+
+        Two independent base-field challenges. FRI's commit-phase soundness error is
+        ~ n/|challenge space|, so folding with a base-field alpha caps PROVABLE
+        soundness at 64 − log2(n) ≈ 46 bits however many queries are drawn. Sampling
+        alpha here lifts that ceiling to ≈ 112. See ext2.py and soundness.py."""
+        return (self.challenge(), self.challenge())
+
     def challenge_index(self, bound):
         """A uniform index in [0, bound)."""
         self.state, v = self.b.t_index(self.state, bound)
