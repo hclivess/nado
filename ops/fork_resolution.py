@@ -33,6 +33,11 @@ BEHIND, REORG, DEAD_FORK, SYNCED, UNKNOWN = "behind", "reorg", "dead_fork", "syn
 # Peers that do not answer are not evidence either way — an outage must never be read as a fork.
 _AGREE = 0.5
 
+# Uniform-sweep resolution used only when the doubling stride fails to land inside the peers' answerable
+# window (see _find_answerable). Bounds the worst-case probe count while resolving any window wider than
+# range/_SWEEP — ~200 blocks on a 13k chain, well under any real pruning retention.
+_SWEEP = 64
+
 
 def majority_hash(height, peers, probe, min_answers=2):
     """The hash a strict majority of ANSWERING peers report at `height`, or None if there is no majority or
@@ -47,6 +52,59 @@ def majority_hash(height, peers, probe, min_answers=2):
         return None
     top, n = max(answers.items(), key=lambda kv: kv[1])
     return top if n > total * _AGREE else None
+
+
+def _find_answerable(floor, tip, agrees):
+    """Any height in [floor, tip] the peer majority can actually answer, or None.
+
+    The answerable range is a CONTIGUOUS WINDOW, not the whole chain: peers prune old history (rolling
+    mode) so everything below their retention is gone, and a node that raced ahead sits above everything
+    they hold. So a probe can come back empty from either end, and neither end can be assumed good.
+
+    Walks back from the tip with a doubling stride because the window is always at the TOP of the range —
+    recent heights are the ones peers are most likely to hold. O(log depth) probes, and each uses a low
+    retry count: here an empty answer is the expected outcome we are searching for, not a flaky peer worth
+    retrying eight times."""
+    step, h = 1, tip
+    while h > floor:
+        if agrees(h, 2) is not None:
+            return h
+        step *= 2
+        h = tip - step
+    if agrees(floor, 2) is not None:
+        return floor
+    # The doubling stride can JUMP OVER a narrow window (its gaps grow to half the range), so fall back to
+    # a uniform sweep of bounded cost. This finds any window wider than (range / _SWEEP) — far below any
+    # real retention setting. A window narrower than that is simply not found and the verdict stays
+    # UNKNOWN, which is the safe direction: UNKNOWN only ever means "change nothing", and no amount of
+    # probing can make a purge safe on evidence this thin.
+    span = tip - floor
+    for i in range(1, _SWEEP):
+        probe_h = tip - (span * i) // _SWEEP
+        if probe_h <= floor:
+            break
+        if agrees(probe_h, 2) is not None:
+            return probe_h
+    return None
+
+
+def _lowest_answerable(floor, anchor, agrees):
+    """The LOWEST height in [floor, anchor] the majority can answer, given `anchor` IS answerable.
+
+    Mirror of _highest_answerable for the other end of the window. Without it the search floor stays at 0,
+    where a pruned fleet can never answer — which collapsed every verdict to UNKNOWN and, on 2026-07-28,
+    left two nodes that had ALREADY detected they were stranded unable to confirm it, so the self-heal
+    could not fire. (`ancestor=None, probes=9`: eight retries at the tip, then one at the floor.)"""
+    if agrees(floor, 2) is not None:
+        return floor
+    lo, hi = floor, anchor                        # invariant: unanswerable at lo, answerable at hi
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if agrees(mid, 2) is None:
+            lo = mid
+        else:
+            hi = mid
+    return hi
 
 
 def _highest_answerable(tip, floor, agrees):
@@ -94,6 +152,20 @@ def find_common_ancestor(our_hash_at, tip, peers, probe, floor=0, min_answers=2)
                 return our_hash_at(h) == theirs
         return None
 
+    # DISCOVER THE FLOOR. `floor` is a REQUEST, not a fact. Peers prune history, so on a pruned fleet
+    # NOBODY can serve block 0 and every probe there is empty — which the old code read as "no majority
+    # could be established" and turned into UNKNOWN, permanently. Measured live on 2026-07-28: no peer
+    # could answer at h0, h1, h5000 or h11000, the lowest commonly-held height was ~h12000, and two nodes
+    # that had already PROVEN they were stranded could never confirm it, so the purge never fired.
+    # Anchor inside the answerable window first, then find its lower edge and search from there. Agreement
+    # at the lowest height they can serve is just as conclusive: any height they hold is one we must also
+    # match to be on their chain.
+    _requested_floor = floor
+    _anchor = _find_answerable(floor, tip, agrees)
+    if _anchor is None:
+        return None, probes                      # they can answer nowhere in range -> genuinely unknown
+    floor = _lowest_answerable(floor, _anchor, agrees)
+
     top = agrees(tip)
     if top is None:
         # PEERS CANNOT ANSWER AT OUR TIP — the signature of a node that is AHEAD of everyone, which is exactly
@@ -116,6 +188,16 @@ def find_common_ancestor(our_hash_at, tip, peers, probe, floor=0, min_answers=2)
     if bottom is None:
         return None, probes
     if not bottom:
+        # We disagree at the lowest height in range. If that IS the floor the caller asked about, the
+        # divergence really is below everything and the dead-fork reading is sound.
+        #
+        # But when PRUNING raised the floor, "below the floor" only means "below what anyone can still
+        # see" — the true fork point may sit either side of our finality horizon and nothing in range can
+        # tell us which. Returning floor-1 there would hand classify() an ancestor we never established:
+        # with a floor above our finalized height it reads as REORG and the node attempts a rollback that
+        # cannot reach the real divergence. UNKNOWN is the honest answer, and the safe one.
+        if floor > _requested_floor:
+            return None, probes
         return floor - 1, probes                # divergence is at or below the floor -> dead fork
 
     lo, hi = floor, tip                          # invariant: agree at lo, disagree at hi
