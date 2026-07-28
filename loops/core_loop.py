@@ -322,6 +322,25 @@ class CoreClient(threading.Thread):
                 # from status_pool (each peer's advertised latest_block_weight) rather than the lagging
                 # emergency_mode/heaviest_block_hash, which are None until the weight pool fills — the window
                 # that let a behind node mint 100+ divergent blocks.
+                # PRODUCTIVE-FORK SELF-CHECK. Everything below reasons about being BEHIND; nothing here ever
+                # asked "is the chain I am happily EXTENDING the one everyone else is on?". A node that forks
+                # and keeps MINING is invisible to all three recovery routes at once: it is the heaviest tip
+                # so minority_block_consensus never reports out-of-consensus, it therefore never enters the
+                # emergency loop where _maybe_escape_dead_fork lives, and its tip is never frozen so the
+                # escape's stall gate would refuse anyway. Observed live 2026-07-28: 208.87.242.141 forked at
+                # h5627 and mined 600+ blocks alone, FFG frozen, for hours — no local route could heal it and
+                # an operator had to purge the box by hand. Needing a human IS the defect.
+                #
+                # The check itself is the existing AUTHORITATIVE one (stranded_below_finality via
+                # _maybe_escape_dead_fork): it asks peers DIRECTLY over HTTP for their hash at OUR finalized
+                # height — no status pool, no advertised weights, no ffg, none of which a forked or hostile
+                # peer can be trusted on. It acts only when a QUORUM disagrees and NOBODY agrees with us, and
+                # it is rate-limited to one probe per DEAD_FORK_COOLDOWN_S, so a healthy node pays one cheap
+                # probe round per 30 min and exits immediately.
+                try:
+                    self._maybe_escape_dead_fork()
+                except Exception as _e:                    # never let a self-check break block production
+                    self.logger.info(f"dead-fork self-check skipped: {_e}")
                 _our_w = self.memserver.latest_block.get("cumulative_weight", 0)
                 # .copy(): the peer loop admits/pops status_pool entries concurrently — iterating the
                 # live dict raises "dictionary changed size during iteration" and costs the whole
@@ -902,8 +921,11 @@ class CoreClient(threading.Thread):
         node sat wedged 40+ minutes through a restart AND a force_sync, and only scripts/purge_resync.sh
         moved it. A human had to notice. That is the gap this closes.
 
+        ALSO CALLED FROM normal_mode (the productive-fork case): a node that forks and keeps MINING never
+        stalls, is always the heaviest tip, and so never reaches the emergency loop where this used to be the
+        only caller. It was invisible to every recovery route at once (.141, 2026-07-28).
+
         DELIBERATELY PARANOID, because the remedy destroys chain-derived data:
-          * only after the tip has been frozen for DEAD_FORK_STALL_S (a healthy node never qualifies),
           * only if peers we ask DIRECTLY (seed set + known peers — not the status pool, not weights, not
             benching) report a different hash at OUR finalized height,
           * only if NOBODY agrees with us: one agreeing peer means we are merely poorly connected, and
@@ -917,9 +939,16 @@ class CoreClient(threading.Thread):
             now = get_timestamp_seconds()
             if now - getattr(self, "_last_dead_fork_check", 0) < DEAD_FORK_COOLDOWN_S:
                 return False
-            if self.memserver.since_last_block < DEAD_FORK_STALL_S:
-                return False                      # still moving (or only briefly stalled) -> nothing to do
+            # NOT gated on a frozen tip any more. "Still moving" was taken to mean "healthy", but a node
+            # alone on a fork MOVES FASTEST of all — it mines every slot unopposed. That reading is exactly
+            # what let .141 mine 600+ blocks on a dead branch while this check declined to even ask
+            # (2026-07-28). A stalled tip is one symptom of a dead fork, never its definition; the honest
+            # definition is the probe below (a quorum of peers serving a different block at OUR finalized
+            # height, and nobody agreeing with us), which is just as true of a node that is producing.
+            # DEAD_FORK_COOLDOWN_S already bounds this to one probe per 30 min, so dropping the stall
+            # precondition costs a healthy node one cheap probe round per cooldown and nothing else.
             self._last_dead_fork_check = now
+            _stalled = self.memserver.since_last_block >= DEAD_FORK_STALL_S
 
             from ops.peer_ops import seed_peers, stranded_below_finality
             from ops.account_ops import get_finalized_height
@@ -941,7 +970,8 @@ class CoreClient(threading.Thread):
                 self.logger.warning("dead-fork suspected but the measured fork state disagrees — not purging")
                 return False
             self.logger.error("=" * 78)
-            self.logger.error(f"DEAD FORK: our FINALIZED block {height} is {str(ours)[:16]}… but "
+            self.logger.error(f"DEAD FORK ({'tip frozen' if _stalled else 'STILL MINING — productive fork'}): "
+                              f"our FINALIZED block {height} is {str(ours)[:16]}… but "
                               f"{len(detail['disagree'])} peers have a different block there and NONE agree.")
             self.logger.error("Finality refuses to roll back across it, so no local recovery can work. "
                               "Purging chain-derived data and resyncing. private/ (keys) is untouched.")
