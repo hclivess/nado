@@ -106,8 +106,32 @@ def commit_jbr(R, nu, E, m, folding=2):
 
 
 def deep_bits(E, log_degree):
-    """DEEP / Schwartz-Zippel at one point: degree/|F|."""
+    """DEEP / Schwartz-Zippel at one point: degree/|F|.
+
+    NOTE: stark.prove does NOT run a DEEP/out-of-domain step. deep_eval.py is a
+    separate subsystem (io_bind, bound_epoch_o1, state_io_tie,
+    settlement_aggregate). For the MAIN STARK the analogous algebraic term is
+    the constraint-combination alphas -- see alphas_bits below."""
     return E - log_degree
+
+
+def alphas_bits():
+    """Soundness of the constraint-combination step, stark.py:298 and :421.
+
+        alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
+
+    A random linear combination over a field of size q maps a nonzero constraint
+    vector to zero with probability 1/q, so this term is log2(q) bits.
+
+    CRITICAL: t.challenge() draws from the BASE field, not GF(p^2). The GF(p^2)
+    migration reached fri.py only -- fri.challenge_ext() is the sole call site in
+    the whole package. So this term stays at 64 bits however large the FRI
+    challenge field becomes, and it CAPS the main STARK.
+
+    Moving these to Transcript.challenge_ext() would lift it to 128 and let the
+    FRI commit term (112) bind instead."""
+    from execnode.stark import field as F
+    return float(F.P.bit_length() - 1)          # log2 of the BASE field
 
 
 def conjectured_bits(R, s, g, E):
@@ -139,8 +163,9 @@ def achieved(R, nu, E, s, g, log_degree):
     u = min(s * yield_udr(R) + g, commit_udr(R, nu, E))
     j, m = best_jbr(R, nu, E, s, g)
     d = deep_bits(E, log_degree)
-    total = min(max(u, j), d)
-    return dict(udr=u, jbr=j, m=m, deep=d, total=total,
+    a = alphas_bits()
+    total = min(max(u, j), d, a)
+    return dict(udr=u, jbr=j, m=m, deep=d, alphas=a, total=total,
                 regime="UDR" if u >= j else "JBR")
 
 
@@ -170,7 +195,8 @@ def report():
     print(f"  {'query phase (UDR)':<26} {s * yield_udr(R) + g:>9.1f}")
     print(f"  {'commit phase (UDR)':<26} {commit_udr(R, nu, E):>9.1f}")
     print(f"  {'best Johnson (m=%.0f)' % a['m']:<26} {a['jbr']:>9.1f}")
-    print(f"  {'DEEP / Schwartz-Zippel':<26} {a['deep']:>9.1f}")
+    print(f"  {'DEEP / Schwartz-Zippel':<26} {a['deep']:>9.1f}   (not on the main path)")
+    print(f"  {'constraint alphas (BASE fld)':<26} {a['alphas']:>9.1f}   <-- caps the main STARK")
     print("  " + "-" * 36)
     print(f"  {'PROVABLE (best regime: %s)' % a['regime']:<26} {a['total']:>9.1f}")
     print(f"  {'conjectured (repriced)':<26} "
