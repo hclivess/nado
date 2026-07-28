@@ -410,6 +410,86 @@ pub extern "C" fn sp_col_len(col: usize) -> i64 {
     }
 }
 
+// ---- GF(p^2) = F_p[X]/(X^2 - NONRESIDUE) ---------------------------------------------------------
+// The arena stores columns as Vec<u64>, so an EXTENSION-valued column is carried as TWO arena columns
+// (lo, hi) meaning lo + hi*X — the same limb-pair representation the Python side uses, which is what lets a
+// proof move between them unchanged.
+//
+// This exists because the extension migration otherwise costs the arena entirely: stark_native refuses an
+// ext request (it would emit a proof stark.verify could never accept), so every ext proof composed and
+// folded in PYTHON. That is 2.8x slower and, far worse, materializes every LDE column as a Python list —
+// the K->1 settlement fold OOM-killed at 20.8 GB resident against a ~15 GB budget. Keeping the columns in
+// Rust is what makes folding feasible at all, not merely faster.
+const NONRESIDUE: u64 = 7;
+
+#[inline]
+fn e_add(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
+    (addf(a.0, b.0), addf(a.1, b.1))
+}
+
+#[inline]
+fn e_sub(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
+    (subf(a.0, b.0), subf(a.1, b.1))
+}
+
+#[inline]
+fn e_mul(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
+    // (a0 + a1 X)(b0 + b1 X) = (a0 b0 + NONRESIDUE a1 b1) + (a0 b1 + a1 b0) X
+    (
+        addf(mulf(a.0, b.0), mulf(NONRESIDUE, mulf(a.1, b.1))),
+        addf(mulf(a.0, b.1), mulf(a.1, b.0)),
+    )
+}
+
+#[inline]
+fn e_scalar(a: (u64, u64), s: u64) -> (u64, u64) {
+    (mulf(a.0, s), mulf(a.1, s))
+}
+
+/// One FRI fold of an EXTENSION-valued column: (col_lo, col_hi) -> the folded pair, retained as two new
+/// arena columns. Returns the LO column id; the HI column is always the next id (lo + 1), so one return
+/// value suffices and the caller does not need an out-param.
+///
+/// Identical statement to sp_fold, over GF(p^2): g(x^2) = (f(x)+f(-x))/2 + alpha*(f(x)-f(-x))/(2x), with x
+/// a BASE domain point (so the /2x scaling stays a scalar multiply) and alpha the only extension factor.
+/// Byte-identical to fri._fold_ext.
+#[no_mangle]
+pub extern "C" fn sp_fold_ext(col_lo: usize, col_hi: usize, offset: u64,
+                              alpha_lo: u64, alpha_hi: u64) -> i64 {
+    let mut g = ARENA.lock().unwrap();
+    let arena = match g.as_mut() {
+        Some(a) => a,
+        None => return -1,
+    };
+    if col_lo >= arena.cols.len() || col_hi >= arena.cols.len() {
+        return -1;
+    }
+    let m = arena.cols[col_lo].len();
+    if m < 2 || (m & (m - 1)) != 0 || arena.cols[col_hi].len() != m {
+        return -1;
+    }
+    let half = m / 2;
+    let inv2 = inv(2);
+    let omega = rou(m);
+    let alpha = (alpha_lo % PU64, alpha_hi % PU64);
+    let mut x = offset % PU64;
+    let mut out_lo = vec![0u64; half];
+    let mut out_hi = vec![0u64; half];
+    for i in 0..half {
+        let fx = (arena.cols[col_lo][i], arena.cols[col_hi][i]);
+        let fmx = (arena.cols[col_lo][i + half], arena.cols[col_hi][i + half]);
+        let fe = e_scalar(e_add(fx, fmx), inv2);
+        let fo = e_scalar(e_sub(fx, fmx), mulf(inv2, inv(x)));
+        let v = e_add(fe, e_mul(alpha, fo));
+        out_lo[i] = v.0;
+        out_hi[i] = v.1;
+        x = mulf(x, omega);
+    }
+    arena.cols.push(out_lo);
+    arena.cols.push(out_hi);
+    (arena.cols.len() - 2) as i64
+}
+
 /// One FRI fold of a retained column (step 4): evals of f on the coset {offset·ω^i} (size m) → evals of g on
 /// the squared coset (size m/2), g(x²) = (f(x)+f(-x))/2 + α·(f(x)-f(-x))/(2x), the pair (x,−x) at (i, i+m/2).
 /// Retains the folded column, returns its id. Byte-identical to fri._fold(evals, F.domain(m, offset), alpha).
