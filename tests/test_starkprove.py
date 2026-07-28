@@ -216,7 +216,23 @@ def t_prove_end_to_end():
 def t_prove_alghash2():
     """HOLISTIC prove == stark.prove for the DEFAULT ALGHASH2 backend (column mode; arena Merkle = hashn
     leaf/node). This is the backend the recursion BUNDLE's outer fold/comp proofs and the shielded pool use —
-    covering it keeps their wide LDEs in Rust too."""
+    covering it keeps their wide LDEs in Rust too.
+
+    BASE-FIELD MODE. The arena composes with BASE-field constraint alphas and folds with a base-field FRI
+    challenge, so this equivalence is only meaningful where stark.prove does the same. With
+    stark.EXT_ALPHAS / fri.EXT_CHALLENGES on, stark.prove deliberately takes the Python path for this backend
+    (the arena cannot carry GF(p^2) alphas) and the two are EXPECTED to differ — that is the documented cost
+    of lifting the alphas term off 63 bits, not a regression. Pin both flags off for the comparison."""
+    from execnode.stark import stark as _st, fri as _fri
+    _saved = (_st.EXT_ALPHAS, _fri.EXT_CHALLENGES)
+    _st.EXT_ALPHAS, _fri.EXT_CHALLENGES = False, False
+    try:
+        _t_prove_alghash2_body()
+    finally:
+        _st.EXT_ALPHAS, _fri.EXT_CHALLENGES = _saved
+
+
+def _t_prove_alghash2_body():
     PER0 = {"period": 4, "base": [3, 1, 4, 1]}
     TRANS = [lambda c, n, p: F.sub(n[0], F.add(F.mul(c[0], c[0]), p[0])),
              lambda c, n, p: F.sub(c[1], F.mul(c[0], c[0]))]

@@ -115,7 +115,16 @@ def deep_bits(E, log_degree):
     return E - log_degree
 
 
-def alphas_bits(num_constraints=1, list_size=1.0):
+def _ext_alphas():
+    """Whether stark.py draws the constraint alphas from GF(p^2) — READ, never assumed."""
+    try:
+        from execnode.stark import stark as _st
+        return bool(getattr(_st, "EXT_ALPHAS", False))
+    except Exception:
+        return False
+
+
+def alphas_bits(num_constraints=1, list_size=1.0, ext=None):
     """Soundness of the constraint-combination step, stark.py:298 and :421.
 
         alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
@@ -137,15 +146,15 @@ def alphas_bits(num_constraints=1, list_size=1.0):
     An earlier version of this function returned log2(q) flat, i.e. assumed
     nc = 1, and therefore OVERSTATED by log2(nc).
 
-    CRITICAL: t.challenge() draws from the BASE field, not GF(p^2). The GF(p^2)
-    migration reached fri.py only -- fri.challenge_ext() is the sole call site in
-    the whole package. So this term stays at 64 bits however large the FRI
-    challenge field becomes, and it CAPS the main STARK.
-
-    Moving these to Transcript.challenge_ext() would lift it to 128 and let the
-    FRI commit term (112) bind instead."""
+    The field these are drawn from is READ from stark.EXT_ALPHAS, never assumed:
+    with base-field alphas this term caps the main STARK at ~63 bits however
+    large the FRI challenge field becomes; with GF(p^2) alphas it lifts to ~127
+    and the FRI commit term (112) binds instead."""
     from execnode.stark import field as F
-    base = float(F.P.bit_length() - 1)          # log2 of the BASE field
+    if ext is None:
+        from execnode.stark import stark as _st
+        ext = bool(getattr(_st, "EXT_ALPHAS", False))
+    base = float(2 * (F.P.bit_length() - 1) if ext else (F.P.bit_length() - 1))
     return base - math.log2(max(list_size * num_constraints, 1.0))
 
 
@@ -211,7 +220,7 @@ def report():
     print(f"  {'commit phase (UDR)':<26} {commit_udr(R, nu, E):>9.1f}")
     print(f"  {'best Johnson (m=%.0f)' % a['m']:<26} {a['jbr']:>9.1f}")
     print(f"  {'DEEP / Schwartz-Zippel':<26} {a['deep']:>9.1f}   (not on the main path)")
-    print(f"  {'constraint alphas (BASE fld)':<26} {a['alphas']:>9.1f}   <-- caps the main STARK")
+    print(f"  {('constraint alphas (GF(p^2))' if _ext_alphas() else 'constraint alphas (BASE fld)'):<26} {a['alphas']:>9.1f}   <-- caps the main STARK")
     print(f"      (that is nc = 1; the term is log2(q) - log2(nc), so a circuit")
     print(f"       with 100 constraints sits at {alphas_bits(100):.1f} and one with")
     print(f"       3412 at {alphas_bits(3412):.1f}. Pass num_constraints to achieved().)")

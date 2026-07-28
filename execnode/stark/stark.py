@@ -18,7 +18,7 @@ Cheating requires a non-low-degree quotient (FRI rejects) or a trace/composition
 Soundness assumption: BLAKE2b collision-resistance.
 """
 import os
-from execnode.stark import field as F, merkle, fri, backend as _backend
+from execnode.stark import field as F, merkle, fri, backend as _backend, ext2
 from execnode.stark.transcript import Transcript, DOMAIN_STARK
 from execnode.stark.fri import NUM_QUERIES
 
@@ -29,6 +29,13 @@ OFF = F.GENERATOR                    # LDE coset shift (disjoint from the trace 
 # (N = 2^32 builds a ~34 GB list). Real shielded circuits use T ≈ 1024, so 2^17 is ~128× headroom and caps the
 # LDE at ~2^21 elements — generous for legit proofs, fatal to the OOM.
 MAX_TRACE_ROWS = 1 << 17
+# EXT_ALPHAS: the constraint-combination alphas are drawn from GF(p^2) (Transcript.challenge_ext) rather than
+# the base field. This term — not FRI — was the binding one: a base-field alpha caps the STARK at
+# log2(q) - log2(nc) ~ 63 bits (and lower the more constraints an AIR has) however strong FRI's commit phase
+# is. RECURSION-backend proofs keep base-field alphas because the in-circuit AIRs cannot verify ext.
+# Read by execnode/stark/soundness.py, which must never assume this rather than measure it.
+EXT_ALPHAS = True
+
 MAX_COLUMNS = 8192   # verify-side sanity/DoS cap on trace width (a pure Python bound; the native prover has no
                      # column limit — it keeps LDE columns in a Rust arena). Raised in two steps:
                      #   256 -> 384: the recursion's ROW-MODE composition of a W-wide inner AIR is 18 + 2*W wide
@@ -129,7 +136,7 @@ def _per_evaluator(pc, T, gT):
 
 
 def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas,
-                 challenges=None):
+                 challenges=None, ext_alphas=False):
     """Evaluate the composition polynomial on the LDE coset: the α-random linear combination of every
     transition constraint divided by its vanishing polynomial (x^T - 1)/(x - last) — zero on every step but
     the wrap-around — plus every boundary column minus its pinned value divided by (x - point). Each quotient
@@ -158,31 +165,40 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
     # execution AIR. Falls back to Python if the lib is unbuilt or rejects the program (returns None).
     from execnode.stark import air_ir
     prog = air_ir.build_program(transitions, W, len(per_lde), 0 if challenges is None else len(challenges))
-    cp = air_ir.compose_native(prog, N, blowup, col_lde, per_lde, list(challenges or []), alphas, invZ,
-                               boundaries, bnd_inv_dens)
-    if cp is not None:
-        return cp
+    # The Rust arena multiplies by a BASE-field alpha, so it cannot carry GF(p^2) constraint alphas. When
+    # they are in use the composition MUST run in Python (below); this is the cost of lifting the alphas term,
+    # which was capping the whole STARK at 63 bits however strong FRI got.
+    if not ext_alphas:
+        cp = air_ir.compose_native(prog, N, blowup, col_lde, per_lde, list(challenges or []), alphas, invZ,
+                                   boundaries, bnd_inv_dens)
+        if cp is not None:
+            return cp
 
     # PYTHON FALLBACK (reference): the same arithmetic, per point.
     cur_rows = [[col_lde[c][j] for c in range(W)] for j in range(N)]
     nxt_rows = [[col_lde[c][(j + blowup) % N] for c in range(W)] for j in range(N)]
     per_rows = [[pc[j] for pc in per_lde] for j in range(N)]
-    cp = [0] * N
+    # With ext alphas the constraint VALUES stay base-field (they come from the base trace); only the alpha
+    # multiply lifts, so each term is scalar_mul(ext_alpha, base_value) and cp becomes GF(p^2)-valued. FRI
+    # carries that from layer 0 via its data-driven ext0.
+    _add = ext2.add if ext_alphas else F.add
+    _scale = (lambda a, v: ext2.scalar_mul(a, v)) if ext_alphas else (lambda a, v: F.mul(a, v))
+    cp = [(ext2.ZERO if ext_alphas else 0)] * N
     ai = 0
     for con in transitions:
         a = alphas[ai]; ai += 1
         if challenges is None:
             for j in range(N):
-                cp[j] = F.add(cp[j], F.mul(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j]), invZ[j])))
+                cp[j] = _add(cp[j], _scale(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j]), invZ[j])))
         else:
             for j in range(N):
-                cp[j] = F.add(cp[j], F.mul(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j], challenges),
+                cp[j] = _add(cp[j], _scale(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j], challenges),
                                                     invZ[j])))
     for bi, (row, col, val) in enumerate(boundaries):
         a = alphas[ai]; ai += 1
         inv_den = bnd_inv_dens[bi]
         for j in range(N):
-            cp[j] = F.add(cp[j], F.mul(a, F.mul(F.sub(col_lde[col][j], val), inv_den[j])))
+            cp[j] = _add(cp[j], _scale(a, F.mul(F.sub(col_lde[col][j], val), inv_den[j])))
     return cp
 
 
@@ -232,7 +248,11 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # The native path is HYBRID under ext challenges (stark_native.prove keeps the native LDE/commit/compose
     # and runs only the FRI fold in Python), so it is no longer gated off — disabling it wholesale is what
     # made every proof pure-Python and unusably slow.
+    # stark_native computes its OWN base-field alphas and composes in the arena, which cannot carry GF(p^2)
+    # alphas — so the holistic path is used only where the alphas stay base-field (the recursion backend).
+    _native_ok = (getattr(_b, "name", "") == "recursion" or not bool(getattr(fri, "EXT_CHALLENGES", False)))
     if (getattr(_b, "name", "") in ("recursion", "alghash2") and not os.environ.get("NADO_NO_HOLISTIC")
+            and _native_ok
             and not commit_periodic):                     # committed-periodic runs the Python path (native TODO)
         try:
             from execnode.stark import stark_native
@@ -296,9 +316,14 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
                 root, ml = merkle.commit(lde, b)
                 col_roots.append(root); col_mlayers.append(ml); t.absorb(root)
         W += aux_spec["num_aux"]
-    alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
+    # CONSTRAINT ALPHAS IN GF(p^2). These were the binding term: a base-field alpha caps the STARK at
+    # log2(q) - log2(nc) ~ 63 bits (worse with more constraints) no matter how strong FRI's commit phase is.
+    # RECURSION-backend proofs stay base-field (the in-circuit AIRs cannot verify ext), same rule as the fold.
+    _ext_a = bool(getattr(fri, "EXT_CHALLENGES", False)) and getattr(b, "name", "") != "recursion"
+    alphas = [(t.challenge_ext() if _ext_a else t.challenge())
+              for _ in range(len(transitions) + len(boundaries))]
     cp = _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas,
-                      challenges)
+                      challenges, ext_alphas=_ext_a)
 
     fri_blowup = N // deg_bound
     # RECURSION-DESTINED PROOFS STAY BASE-FIELD (item 14 of the ext-challenge port). The in-circuit FRI
@@ -419,7 +444,9 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         else:
             for r in (row_roots if row_commit else col_roots):
                 t.absorb(r)
-        alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
+        _ext_a = bool(getattr(fri, "EXT_CHALLENGES", False)) and getattr(b, "name", "") != "recursion"
+        alphas = [(t.challenge_ext() if _ext_a else t.challenge())
+                  for _ in range(len(transitions) + len(boundaries))]
 
         # fri_blowup is ALWAYS 2 for a STARK proof (N = 2·next_pow2(max_degree)·T, deg_bound = N/2), so pin it —
         # that forces the full FRI geometry and, with the fixed query count, closes the C-1 empty-proof bypass.
@@ -476,17 +503,21 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                     opened[idx] = int(po["val"]) % F.P
             # periodic row at x: opened committed cell where committed, else the verifier's O(T) dense eval
             per = [opened[i] if i in committed_set else per_evals[i](x, xT) for i in range(len(periodic))]
-            cp = 0; ai = 0
+            # mirror the prover: constraint values stay base-field, only the alpha multiply is GF(p^2)
+            _add = ext2.add if _ext_a else F.add
+            _scale = (lambda a, v: ext2.scalar_mul(a, v)) if _ext_a else (lambda a, v: F.mul(a, v))
+            cp = (ext2.ZERO if _ext_a else 0); ai = 0
             for con in transitions:
                 a = alphas[ai]; ai += 1
                 z = F.mul(F.sub(xT, 1), F.inv(F.sub(x, last)))
                 cval = con(cur_row, nxt_row, per) if challenges is None else con(cur_row, nxt_row, per, challenges)
-                cp = F.add(cp, F.mul(a, F.mul(cval, F.inv(z))))
+                cp = _add(cp, _scale(a, F.mul(cval, F.inv(z))))
             for (row, col, val) in boundaries:
                 a = alphas[ai]; ai += 1
                 pt = F.pw(gT, row)
-                cp = F.add(cp, F.mul(a, F.mul(F.sub(cur_row[col], val), F.inv(F.sub(x, pt)))))
-            if cp != q["steps"][0]["lo"]:
+                cp = _add(cp, _scale(a, F.mul(F.sub(cur_row[col], val), F.inv(F.sub(x, pt)))))
+            _claim = q["steps"][0]["lo"]
+            if cp != (ext2.lift(_claim) if _ext_a else _claim):
                 return False, "trace/composition mismatch (a constraint is violated)"
         return True, "ok"
     except Exception as e:
