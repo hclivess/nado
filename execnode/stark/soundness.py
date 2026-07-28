@@ -13,21 +13,33 @@ The sizing comment in fri.py reads:
 The query-phase arithmetic there is correct. But FRI soundness is a MINIMUM over
 the query phase and the COMMIT phase, and that calculation has no commit-phase
 term. The commit-phase error is ~n/|F| where |F| is the space the FOLDING
-CHALLENGE is drawn from. fri.py folds with `alpha = t.challenge()`, a BASE-field
-element, so |F| = 2^64 and the ceiling is
+CHALLENGE is drawn from. fri.py originally folded with `alpha = t.challenge()`,
+a BASE-field element, so |F| = 2^64 and the ceiling was
 
     64 - log2(n) = 64 - 18 = ~46-48 bits
 
 irrespective of NUM_QUERIES and GRIND_BITS. Neither buys commit-phase bits:
 grinding is a query-phase proof-of-work, and queries are what the commit phase
-is independent of. Soundness saturates near 48 bits at roughly 54 queries; the
-remaining ~266 queries are proof size with no security attached.
+is independent of. The conjectured branch was capped by the same term, so 338
+was equally unreachable.
 
-The conjectured branch is capped by the same term, so 338 is equally unreachable.
+THAT IS FIXED. fri.py now draws the folding challenge and the DEEP point from
+GF(p^2) (EXT_CHALLENGES), and stark.py draws the constraint alphas from it too
+(EXT_ALPHAS) — the alphas being the term that actually bound once FRI was lifted,
+at log2(q) - log2(nc). The commit phase now binds at ~112, which is what Plonky2
+and Miden get over this same base field. This file READS both flags rather than
+assuming them (see _ext_alphas), so it reports what the code does, not what the
+code was supposed to do.
 
-Fix: draw the folding challenge (and the DEEP point z) from GF(p²) — see ext2.py
-and Transcript.challenge_ext(). That lifts the ceiling to ~112, which is what
-Plonky2 and Miden do over this same base field.
+STILL OPEN — the aux (LogUp) challenges. stark.py draws them with t.challenge(),
+base field, for both prover and verifier. A LogUp argument's error is
+(lookups + rows)/|challenge field|, so at 2^17 rows that term sits near 44 bits:
+BELOW everything above, i.e. it is now the binding term for any circuit using
+aux_spec (vm_circuit, logup_bind, and the settlement path). Lifting it is not a
+one-line change — see alphas_bits/aux notes: the challenge can only be an
+extension element if the aux COLUMNS and their transition constraints are
+extension-valued too, which means representing each aux column as a pair of base
+columns and mirroring the change in stark_native.py.
 
 MODEL PROVENANCE
 ----------------
@@ -188,7 +200,15 @@ def achieved(R, nu, E, s, g, log_degree, num_constraints=1):
     j, m = best_jbr(R, nu, E, s, g)
     d = deep_bits(E, log_degree)
     a = alphas_bits(num_constraints)
-    total = min(max(u, j), d, a)
+    # `d` is REPORTED but must not BIND. deep_bits' own docstring says stark.prove runs no DEEP /
+    # out-of-domain step — deep_eval.py is a separate subsystem (io_bind, bound_epoch_o1, state_io_tie,
+    # settlement_aggregate) — and for the main STARK the analogous algebraic term is the constraint alphas,
+    # which are accounted separately in `a`. Including it in the minimum meant the headline PROVABLE figure
+    # was set by a term the file explicitly documents as inapplicable: it evaluated to 111.0 against a real
+    # commit-phase bound of 112.0, so the report understated the main path by a bit and pointed at the wrong
+    # term while doing it. Kept in the returned dict so the number stays visible for the paths that DO run a
+    # DEEP step; simply no longer folded into the bound for the one that does not.
+    total = min(max(u, j), a)
     return dict(udr=u, jbr=j, m=m, deep=d, alphas=a, total=total,
                 regime="UDR" if u >= j else "JBR")
 
@@ -227,7 +247,7 @@ def report():
     print("  " + "-" * 36)
     print(f"  {'PROVABLE (best regime: %s)' % a['regime']:<26} {a['total']:>9.1f}")
     print(f"  {'conjectured (repriced)':<26} "
-          f"{min(conjectured_bits(R, s, g, E), a['deep'], commit_udr(R, nu, E)):>9.1f}")
+          f"{min(conjectured_bits(R, s, g, E), a['alphas'], commit_udr(R, nu, E)):>9.1f}")
 
     sat = saturation_queries(R, nu, E, g)
     print(f"\n  soundness saturates at ~{sat} queries; {max(0, s - sat)} of the "
