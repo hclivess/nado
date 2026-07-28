@@ -148,7 +148,10 @@ def t_fri_bit_identical():
         coeffs = [random.randrange(F.P) for _ in range(N // blowup)] + [0] * (N - N // blowup)
         off = F.GENERATOR
         evals = [F.poly_eval(coeffs, x) for x in F.domain(N, off)]
-        proof_py = fri.prove(evals, off, blowup=blowup, num_queries=NQ,
+        # ext=False: the arena's sp_fold is BASE-field (fri.EXT_CHALLENGES / item 14), so the native FRI is
+        # compared against the base-field Python FRI. Comparing it to an ext proof would differ in the
+        # transcript itself (different absorbs -> different grind), which is a contract mismatch, not a bug.
+        proof_py = fri.prove(evals, off, blowup=blowup, num_queries=NQ, ext=False,
                              transcript=Transcript("fri", backend=B.RECURSION), backend=B.RECURSION)
         SN.reset(1, N, off)
         cid = SN.load_col(evals)
@@ -167,7 +170,8 @@ def t_fri_bit_identical():
                 assert [tuple(d) for d in sn["hi_path"]] == [tuple(d) for d in sp["hi_path"]], "FRI hi_path mismatch"
         # and the native proof VERIFIES under the real verifier (defense in depth)
         ok, why = fri.verify(proof_nat, transcript=Transcript("fri", backend=B.RECURSION),
-                             num_queries=NQ, expected_blowup=blowup, backend=B.RECURSION)
+                             num_queries=NQ, expected_blowup=blowup, backend=B.RECURSION,
+                             expected_ext=False)      # the arena FRI is base-field by design
         assert ok, f"native FRI proof must verify: {why}"
         SN.free()
 
