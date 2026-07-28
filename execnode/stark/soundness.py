@@ -115,13 +115,27 @@ def deep_bits(E, log_degree):
     return E - log_degree
 
 
-def alphas_bits():
+def alphas_bits(num_constraints=1, list_size=1.0):
     """Soundness of the constraint-combination step, stark.py:298 and :421.
 
         alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
 
-    A random linear combination over a field of size q maps a nonzero constraint
-    vector to zero with probability 1/q, so this term is log2(q) bits.
+    The naive Schwartz-Zippel reading is that a random linear combination over a
+    field of size q kills a nonzero constraint vector with probability 1/q, i.e.
+    log2(q) bits. That IGNORES the union bound over constraints that the standard
+    ALI analysis applies. Ethereum's soundcalc (circuits/deep_ali.py, Theorem 8
+    of eprint 2022/1216) uses
+
+        e_ALI = L_plus * num_constraints / |F|
+
+    so the term is log2(q) - log2(L_plus * num_constraints). With L_plus = 1
+    (unique decoding) and nc constraints that is log2(q) - log2(nc):
+
+        nc =    1 -> 64.0      nc =  100 -> 57.4
+        nc =   10 -> 60.7      nc = 3412 -> 52.3
+
+    An earlier version of this function returned log2(q) flat, i.e. assumed
+    nc = 1, and therefore OVERSTATED by log2(nc).
 
     CRITICAL: t.challenge() draws from the BASE field, not GF(p^2). The GF(p^2)
     migration reached fri.py only -- fri.challenge_ext() is the sole call site in
@@ -131,7 +145,8 @@ def alphas_bits():
     Moving these to Transcript.challenge_ext() would lift it to 128 and let the
     FRI commit term (112) bind instead."""
     from execnode.stark import field as F
-    return float(F.P.bit_length() - 1)          # log2 of the BASE field
+    base = float(F.P.bit_length() - 1)          # log2 of the BASE field
+    return base - math.log2(max(list_size * num_constraints, 1.0))
 
 
 def conjectured_bits(R, s, g, E):
@@ -158,12 +173,12 @@ def best_jbr(R, nu, E, s, g, m_lo=1.0, m_hi=1000.0, steps=3000):
     return best
 
 
-def achieved(R, nu, E, s, g, log_degree):
+def achieved(R, nu, E, s, g, log_degree, num_constraints=1):
     """Provable soundness = min over binding terms, best regime."""
     u = min(s * yield_udr(R) + g, commit_udr(R, nu, E))
     j, m = best_jbr(R, nu, E, s, g)
     d = deep_bits(E, log_degree)
-    a = alphas_bits()
+    a = alphas_bits(num_constraints)
     total = min(max(u, j), d, a)
     return dict(udr=u, jbr=j, m=m, deep=d, alphas=a, total=total,
                 regime="UDR" if u >= j else "JBR")
@@ -197,6 +212,9 @@ def report():
     print(f"  {'best Johnson (m=%.0f)' % a['m']:<26} {a['jbr']:>9.1f}")
     print(f"  {'DEEP / Schwartz-Zippel':<26} {a['deep']:>9.1f}   (not on the main path)")
     print(f"  {'constraint alphas (BASE fld)':<26} {a['alphas']:>9.1f}   <-- caps the main STARK")
+    print(f"      (that is nc = 1; the term is log2(q) - log2(nc), so a circuit")
+    print(f"       with 100 constraints sits at {alphas_bits(100):.1f} and one with")
+    print(f"       3412 at {alphas_bits(3412):.1f}. Pass num_constraints to achieved().)")
     print("  " + "-" * 36)
     print(f"  {'PROVABLE (best regime: %s)' % a['regime']:<26} {a['total']:>9.1f}")
     print(f"  {'conjectured (repriced)':<26} "
