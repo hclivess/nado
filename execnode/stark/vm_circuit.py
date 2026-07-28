@@ -120,7 +120,15 @@ def _algebra(ext):
 
     if ext:
         return _eadd, _esub, _emul, _read_ext
-    return F.add, F.sub, F.mul, (lambda row, idx: row[idx])
+    # LATE BINDING, deliberately. Returning the bound objects F.add/F.sub/F.mul captures them once, when
+    # transitions() builds its list — which always happens OUTSIDE air_ir._tracing. That tracer works by
+    # monkeypatching the `field` MODULE attributes, so captured references bypass it and the constraints call
+    # the real field.add with symbolic _Sym operands: TypeError, and every base-field (RECURSION-backend) exec
+    # proof fails to build. The default ext path hid it, because _composition skips build_program under ext
+    # alphas. The pre-migration code did attribute lookup at call time and was intercepted correctly; these
+    # wrappers restore that.
+    return ((lambda a, b: F.add(a, b)), (lambda a, b: F.sub(a, b)), (lambda a, b: F.mul(a, b)),
+            (lambda row, idx: row[idx]))
 
 # ---- periodic (public) column layout ---------------------------------------------------------------
 # The verifier rebuilds ALL of these from the public EPOCH statement (the ordered call list + each call's
@@ -1026,12 +1034,26 @@ def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, ba
     `io_fingerprint` (and c_fio + FIO[0]=0 force that to be the real ordered RLC under `gamma_fp`), so the
     fingerprint the settlement matches against is itself proven."""
     try:
+        _explicit_backend = backend            # what the CALLER asked for, before any proof-supplied value
         # Resolve the backend FIRST: it decides the challenge field, the challenge field decides whether Z is
         # one column or a limb pair, and that decides the trace WIDTH epoch_statement must expect. Checking
         # the geometry before knowing the layout would reject every honest ext proof outright.
         if backend is None and proof.get("backend"):     # honour the hash the proof was produced with
             from execnode.stark import backend as _bk
             backend = _bk.get(proof["backend"])
+        # THE PROVER DOES NOT PICK ITS OWN SECURITY LEVEL. The backend string decides the challenge FIELD:
+        # ext_challenges_active is False for "recursion", so a settler could stamp backend="recursion",
+        # build the whole proof base-field, and have it verified at ~45-bit LogUp / ~47-bit FRI / ~56-bit
+        # alphas instead of 109/112/126 — self-consistently, with nothing to detect. Every consensus caller
+        # passes backend=None (settlement_sparse.verify_bound_epoch{,_replay}, verify_call), and that is the
+        # path block apply reaches through verify_settlement_sparse, so the settler would choose the security
+        # of the proof that drives the settled state root.
+        #
+        # A caller that legitimately wants the base-field layout — the FOLD, whose in-circuit verifier cannot
+        # do extension arithmetic — passes backend=RECURSION EXPLICITLY. So: only an explicit argument may
+        # select it; a proof-supplied one may not.
+        if _explicit_backend is None and not stark.ext_challenges_active(backend):
+            return False, "proof declares a base-field backend; the challenge field is not the prover's to choose"
         _ext = stark.ext_challenges_active(backend)
         ok, why, periodic, bnds = epoch_statement(proof, calls, epoch_io, bind_io=bind_io, ext=_ext)
         if not ok:
@@ -1077,12 +1099,17 @@ def verify_epoch_o1(proof, per_roots, num_queries=stark.NUM_QUERIES, backend=Non
     is self-contained but O(epoch).) Returns (ok, reason)."""
     try:
         T, W = proof["T"], proof["W"]
+        _explicit_backend = backend                      # what the CALLER asked for
         if backend is None and proof.get("backend"):     # resolve BEFORE the width check — see below
             from execnode.stark import backend as _bk
             backend = _bk.get(proof["backend"])
         # The expected width depends on the challenge field: extension-valued aux columns are carried as limb
         # pairs, so the aux block doubles. Resolve the backend first or an honest ext proof fails here.
         _ext = stark.ext_challenges_active(backend)
+        # Same policy as verify_epoch_calls: a PROOF-supplied backend may not select the base-field layout and
+        # with it a ~45-bit LogUp bound. Only an explicit caller argument (the fold) may.
+        if _explicit_backend is None and not _ext:
+            return False, "proof declares a base-field backend; the challenge field is not the prover's to choose"
         if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != (W_TOTAL_EXT if _ext else W_TOTAL):
             return False, "bad trace geometry"
         if len(per_roots) != len(COMMIT_PERIODIC):
