@@ -223,7 +223,15 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # below (tests/test_starkprove.py gates the whole proof dict + verify, all modes); falls back to Python on
     # ANY error, and NADO_NO_HOLISTIC=1 forces the Python path (used to cross-check byte-identity).
     _b = backend or _backend.DEFAULT
+    # EXT-CHALLENGE GATE: the arena's sp_fold takes a BASE-field alpha, so the native pipeline can only emit
+    # base-field FRI. With fri.EXT_CHALLENGES on, the protocol challenge field is GF(p^2) and fri.verify
+    # rightly REFUSES a base-field proof ("unexpected FRI challenge field") — a native proof would be
+    # unverifiable, and accepting one would mean checking it under the ~47-bit commit bound instead of ~112.
+    # So while ext is on we take the (correct, slower) Python path. This is the real, stated cost of the
+    # soundness fix and it lifts the moment sp_fold is ported to extension arithmetic.
+    _ext_on = bool(getattr(fri, "EXT_CHALLENGES", False))
     if (getattr(_b, "name", "") in ("recursion", "alghash2") and not os.environ.get("NADO_NO_HOLISTIC")
+            and not _ext_on
             and not commit_periodic):                     # committed-periodic runs the Python path (native TODO)
         try:
             from execnode.stark import stark_native
@@ -292,7 +300,17 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
                       challenges)
 
     fri_blowup = N // deg_bound
-    fri_proof = fri.prove(cp, OFF, fri_blowup, num_queries, transcript=t, backend=b)
+    # RECURSION-DESTINED PROOFS STAY BASE-FIELD (item 14 of the ext-challenge port). The in-circuit FRI
+    # verifier AIRs (fri_verify.py) and the arena's sp_fold both do BASE-field arithmetic, so a GF(p^2) proof
+    # is not foldable by them — they would have to check it under the base-field bound, which is precisely the
+    # ~47-bit weakness this change exists to remove. So a proof built with the RECURSION backend (the marker
+    # for "this will be folded") is EXPLICITLY produced base-field and its verifier is told to expect that,
+    # rather than silently mixing the two. The recursion path therefore still carries the OLD ~47-bit commit
+    # bound until fri_verify/sp_fold are ported to extension arithmetic; the ordinary (non-folded) path gets
+    # the full ~111 bits. Making that split explicit is the point — an implicit one is how this was missed.
+    _for_recursion = getattr(b, "name", "") == "recursion"
+    fri_proof = fri.prove(cp, OFF, fri_blowup, num_queries, transcript=t, backend=b,
+                          ext=(False if _for_recursion else None))
 
     openings = []
     for q in fri_proof["queries"]:
@@ -404,7 +422,9 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
 
         # fri_blowup is ALWAYS 2 for a STARK proof (N = 2·next_pow2(max_degree)·T, deg_bound = N/2), so pin it —
         # that forces the full FRI geometry and, with the fixed query count, closes the C-1 empty-proof bypass.
-        ok, why = fri.verify(proof["fri"], transcript=t, num_queries=num_queries, expected_blowup=2, backend=b)
+        _for_recursion = getattr(b, "name", "") == "recursion"
+        ok, why = fri.verify(proof["fri"], transcript=t, num_queries=num_queries, expected_blowup=2, backend=b,
+                             expected_ext=(False if _for_recursion else None))
         if not ok:
             return False, f"composition is not low-degree: {why}"
 

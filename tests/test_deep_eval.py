@@ -3,7 +3,7 @@ DEEP out-of-domain evaluation (execnode/stark/deep_eval.py) — the primitive th
 Prove P(z)=v for a committed column P at an out-of-domain z, in O(polylog): commit q=(P−v)/(x−z), FRI-prove it
 low-degree, and check q·(x−z)=P−v at the query points. A low-degree q obeying that relation forces P(z)=v.
 
-Checks: an honest eval verifies and v equals the native poly_eval; a tampered v, a wrong z, and a wrong pinned
+Checks: an honest eval verifies and v equals the native poly_eval (lifted to GF(p^2)); a tampered v, a wrong z, and a wrong pinned
 P_root are rejected; commit_column reproduces P_root (the tie a caller uses); and — the binding property — two
 columns evaluate to the SAME v at a shared z iff they're equal (different data ⇒ different v, whp).
 
@@ -11,7 +11,7 @@ Run: python3 tests/test_deep_eval.py
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.stark import deep_eval as DE, field as F, backend as B
+from execnode.stark import deep_eval as DE, field as F, backend as B, ext2
 
 fails = 0
 def check(name, fn):
@@ -31,12 +31,15 @@ def t_eval_verifies_and_correct():
     ok, why = DE.verify_eval(p, Z, num_queries=NQ, backend=b)
     assert ok, f"honest eval must verify: {why}"
     coeffs = F.interpolate([v % F.P for v in VALUES])
-    assert p["v"] == F.poly_eval(coeffs, Z), "proven v must equal the native P(z)"
+    # v is a GF(p^2) pair now (the DEEP point moved to the extension for soundness — see
+    # fri.EXT_CHALLENGES / soundness.py). For a BASE-field Z the answer must be exactly the native one in
+    # component 0 with a zero imaginary part, which also pins ext2.poly_eval against F.poly_eval.
+    assert p["v"] == (F.poly_eval(coeffs, Z), 0), "proven v must equal the native P(z), lifted"
 
 
 def t_tampered_v_rejected():
     p = DE.prove_eval(VALUES, Z, N, num_queries=NQ, backend=b)
-    bad = dict(p); bad["v"] = (int(p["v"]) + 1) % F.P
+    bad = dict(p); bad["v"] = ((p["v"][0] + 1) % F.P, p["v"][1])
     ok, _ = DE.verify_eval(bad, Z, num_queries=NQ, backend=b)
     assert not ok, "a wrong claimed v must be rejected"
 

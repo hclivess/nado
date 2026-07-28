@@ -52,6 +52,10 @@ def _canonical_public(pub, num_queries, mk_transcript=None):
     that is a fresh Transcript('fri') (the default). For a FRI embedded in a STARK, fri.prove was handed the
     STARK's transcript (already absorbed the trace-column roots + drew the constraint challenges), so the caller
     must reconstruct THAT — verifier-authoritatively, from the STARK proof's public roots + AIR — and pass it."""
+    # ITEM 14 GATE: base-field arithmetic only (see recursion.extract_fri). Refuse a GF(p^2) proof rather
+    # than replay base-field challenges against it and check it under the weaker ~47-bit commit bound.
+    if isinstance(pub, dict) and pub.get("ext"):
+        return None
     b = backend.RECURSION
     try:
         N, off, blowup = pub["N"], pub["offset"], pub["blowup"]

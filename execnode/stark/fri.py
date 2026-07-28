@@ -11,7 +11,7 @@ each layer really is the fold of the previous one (with Merkle openings) and tha
 
 Soundness rests only on BLAKE2b collision-resistance (via the Merkle commitments + the transcript).
 """
-from execnode.stark import field as F, merkle
+from execnode.stark import field as F, merkle, ext2
 from execnode.stark.transcript import Transcript
 from execnode.stark import backend as _backend
 
@@ -41,6 +41,18 @@ NUM_QUERIES = 320
 FRI_BLOWUP = 2
 GRIND_BITS = 18
 
+# EXT_CHALLENGES: draw the FRI folding challenge from GF(p^2) instead of the base field.
+# Commit-phase error is ~n/|challenge space|, so a base-field alpha pins PROVABLE
+# soundness at 64 - log2(n) ~ 47 bits however the query budget is set. GF(p^2) lifts the
+# ceiling to ~112 -- what Plonky2 and Miden do over this same base field.
+#   python3 -m execnode.stark.soundness
+# Layer 0 stays base-field; every layer after the first fold is GF(p^2)-valued. This
+# CHANGES THE PROOF FORMAT: ext layers commit a leaf digest over the (a, b) pair, and
+# `final` is a list of pairs.
+# NOT yet ported -- both must pass ext=False until they are: native/starkprove sp_fold,
+# and the in-circuit fri_verify.py recursion AIRs.
+EXT_CHALLENGES = True
+
 
 def _expected_layers(N, blowup):
     """Number of fold layers stark/fri produces for a size-N domain: fold while size > blowup."""
@@ -64,6 +76,39 @@ def _fold(evals, dom, alpha):
     return out
 
 
+def _fold_ext(evals, dom, alpha):
+    """One FRI fold with a GF(p^2) challenge. Same identity as _fold. `evals` may be base
+    ints (layer 0) or ext pairs; `dom` is base-field; `alpha` is an ext pair. fe/fo scale
+    by BASE constants, so only the single alpha*fo is a full extension multiply."""
+    half = len(evals) // 2
+    out = [None] * half
+    for i in range(half):
+        fx, fmx, x = ext2.lift(evals[i]), ext2.lift(evals[i + half]), dom[i]
+        fe = ext2.scalar_mul(ext2.add(fx, fmx), INV2)
+        fo = ext2.scalar_mul(ext2.sub(fx, fmx), F.mul(INV2, F.inv(x)))
+        out[i] = ext2.add(fe, ext2.mul(alpha, fo))
+    return out
+
+
+def _ext_leaf(b, v):
+    """Leaf digest for a GF(p^2) value: node(leaf(a), leaf(b)). Uses only existing backend
+    primitives, so BLAKE2b / alghash2 / recursion need no new hash opcode."""
+    a0, a1 = ext2.lift(v)
+    return b.node(b.leaf(a0), b.leaf(a1))
+
+
+def _commit_ext(values, b):
+    return merkle.commit_digests([_ext_leaf(b, v) for v in values], b)
+
+
+def _coset_interpolate_ext(evals, offset):
+    """Interpolation is F_p-LINEAR and GF(p^2) is a rank-2 F_p-module, so the components
+    interpolate separately and re-pair exactly. No extension NTT needed."""
+    a = _coset_interpolate([ext2.lift(v)[0] for v in evals], offset)
+    c = _coset_interpolate([ext2.lift(v)[1] for v in evals], offset)
+    return [(a[i], c[i]) for i in range(len(a))]
+
+
 def _coset_interpolate(evals, offset):
     """Coefficients of f, given its evaluations on the coset {offset·ω^i}. Interpolate g(y)=f(offset·y) on the
     subgroup via iNTT, then rescale: f_j = g_j · offset^-j."""
@@ -77,26 +122,38 @@ def _coset_interpolate(evals, offset):
     return coeffs
 
 
-def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None, backend=None):
+def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None, backend=None,
+          ext=None):
     """Prove deg(f) < len(evals)/blowup, where `evals` are f on the coset of size N=len(evals) with shift
     `offset`. Returns a proof dict. `blowup` (the Reed–Solomon rate denominator) sets both the claimed degree
     bound and the soundness per query."""
     b = backend or _backend.DEFAULT
     t = transcript or Transcript("fri", backend=b)
+    use_ext = EXT_CHALLENGES if ext is None else bool(ext)
     N = len(evals)
     layers, roots = [], []
     cur, off = list(evals), offset
     dom = F.domain(N, off)
+    # LAYER-0 EXT-NESS IS DATA-DRIVEN, not positional. For stark's composition the layer-0 evaluations are
+    # base-field, but a DEEP quotient (P-v)/(x-z) with an EXT point z is ext-valued from layer 0 onward, and
+    # committing those as base ints would corrupt the leaves. Decide from the values themselves and record it,
+    # so the verifier hashes the same leaves; a prover that lies here simply fails its own Merkle openings.
+    ext0 = bool(use_ext and cur and not isinstance(cur[0], int))
+    depth = 0
     while len(cur) > blowup:
-        root, mlayers = merkle.commit(cur, b)
+        is_ext_layer = use_ext and (depth > 0 or ext0)
+        root, mlayers = (_commit_ext(cur, b) if is_ext_layer else merkle.commit(cur, b))
         roots.append(root); t.absorb(root)
-        alpha = t.challenge()
         layers.append({"evals": cur, "mlayers": mlayers, "dom": dom, "off": off})
-        cur = _fold(cur, dom, alpha)
+        if use_ext:
+            cur = _fold_ext(cur, dom, t.challenge_ext())
+        else:
+            cur = _fold(cur, dom, t.challenge())
         off = F.mul(off, off)
         dom = F.domain(len(cur), off)
+        depth += 1
     final = cur                                  # small -> sent in the clear
-    t.absorb("final", *final)
+    t.absorb("final", *(ext2.flatten(final) if use_ext else final))
     pow_nonce = t.grind(GRIND_BITS)              # C-1: proof-of-work before query derivation (unconditional bits)
 
     queries = []
@@ -116,10 +173,11 @@ def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None, bac
         queries.append({"idx": idx, "steps": steps})
 
     return {"N": N, "offset": offset, "blowup": blowup, "roots": roots, "final": final,
-            "pow": pow_nonce, "queries": queries}
+            "pow": pow_nonce, "queries": queries, "ext": use_ext, "ext0": ext0}
 
 
-def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backend=None):
+def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backend=None,
+           expected_ext=None):
     """Verify a FRI proof. Returns (ok, reason).
 
     C-1: `num_queries` and `expected_blowup`, when given, are the caller's PROTOCOL values — the verifier
@@ -153,15 +211,26 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
         # replay the transcript to recover the same folding challenges + query positions. Only layer OFFSETS and
         # SIZES are kept — domain points are computed on demand as off·ω^pos, so verification never allocates an
         # O(N) domain (a per-query pw instead; the succinct-verifier requirement).
+        # C-1: the challenge field is a PROTOCOL constant, not a prover choice. A proof
+        # declaring base-field when the protocol says GF(p^2) would be checked under the
+        # weaker commit bound (~47 bits instead of ~112), so the declaration is pinned
+        # whenever the caller supplies its protocol values.
+        use_ext = bool(proof.get("ext", False))
+        ext0 = bool(proof.get("ext0", False))     # layer-0 values are ext (a DEEP quotient), see prove
+        if expected_ext is None and (num_queries is not None or expected_blowup is not None):
+            expected_ext = EXT_CHALLENGES
+        if expected_ext is not None and use_ext != bool(expected_ext):
+            return False, "unexpected FRI challenge field"
+
         alphas, offs, sizes = [], [], []
         off = offset
         n = N
         for r in roots:
             t.absorb(r)
-            alphas.append(t.challenge())
+            alphas.append(t.challenge_ext() if use_ext else t.challenge())
             offs.append(off); sizes.append(n)
             off = F.mul(off, off); n //= 2
-        t.absorb("final", *final)
+        t.absorb("final", *(ext2.flatten(final) if use_ext else final))
         # C-1: the prover's proof-of-work must meet GRIND_BITS before the (transcript-derived) query positions
         # are drawn, so grinding the Fiat-Shamir queries costs 2^GRIND_BITS PER attempt. Same absorb order as
         # prove, so the query indices below match.
@@ -170,10 +239,15 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
 
         # the final layer must be genuinely low-degree: interpolate on its coset, high coeffs must vanish
         final_off = off
-        coeffs = _coset_interpolate(final, final_off)
         deg_bound = max(1, len(final) // blowup)
-        if any(c != 0 for c in coeffs[deg_bound:]):
-            return False, "final layer is not low-degree"
+        if use_ext:
+            coeffs = _coset_interpolate_ext(final, final_off)
+            if any(c != (0, 0) for c in coeffs[deg_bound:]):
+                return False, "final layer is not low-degree"
+        else:
+            coeffs = _coset_interpolate(final, final_off)
+            if any(c != 0 for c in coeffs[deg_bound:]):
+                return False, "final layer is not low-degree"
 
         for q in queries:
             idx = t.challenge_index(N)
@@ -185,25 +259,39 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
                 a %= n
                 lo = a % half
                 # Merkle-check both opened points against this layer's root
-                if not merkle.verify(root, lo, step["lo"], step["lo_path"], b):
+                is_ext_layer = use_ext and (L > 0 or ext0)
+                if is_ext_layer:
+                    if not merkle.verify_digest(root, lo, _ext_leaf(b, step["lo"]),
+                                                step["lo_path"], b):
+                        return False, f"bad Merkle opening (lo) at layer {L}"
+                    if not merkle.verify_digest(root, lo + half, _ext_leaf(b, step["hi"]),
+                                                step["hi_path"], b):
+                        return False, f"bad Merkle opening (hi) at layer {L}"
+                elif not merkle.verify(root, lo, step["lo"], step["lo_path"], b):
                     return False, f"bad Merkle opening (lo) at layer {L}"
-                if not merkle.verify(root, lo + half, step["hi"], step["hi_path"], b):
+                elif not merkle.verify(root, lo + half, step["hi"], step["hi_path"], b):
                     return False, f"bad Merkle opening (hi) at layer {L}"
                 # the fold of this layer's pair must equal the NEXT layer's value at position `lo`
                 x = F.mul(offs[L], F.pw(F.primitive_root_of_unity(n), lo))
-                fe = F.mul(F.add(step["lo"], step["hi"]), INV2)
-                fo = F.mul(F.sub(step["lo"], step["hi"]), F.mul(INV2, F.inv(x)))
-                folded = F.add(fe, F.mul(alpha, fo))
+                if use_ext:
+                    flo, fhi = ext2.lift(step["lo"]), ext2.lift(step["hi"])
+                    fe = ext2.scalar_mul(ext2.add(flo, fhi), INV2)
+                    fo = ext2.scalar_mul(ext2.sub(flo, fhi), F.mul(INV2, F.inv(x)))
+                    folded = ext2.add(fe, ext2.mul(alpha, fo))
+                else:
+                    fe = F.mul(F.add(step["lo"], step["hi"]), INV2)
+                    fo = F.mul(F.sub(step["lo"], step["hi"]), F.mul(INV2, F.inv(x)))
+                    folded = F.add(fe, F.mul(alpha, fo))
                 if L + 1 < len(roots):
                     nxt = q["steps"][L + 1]
                     nhalf = sizes[L + 1] // 2
                     # position `lo` in the next layer (size = half): it is the opened lo if lo<nhalf, else the hi
                     expected = nxt["lo"] if lo < nhalf else nxt["hi"]
-                    if folded != expected:
+                    if (ext2.lift(expected) if use_ext else expected) != folded:
                         return False, f"fold inconsistency at layer {L}"
                 else:
                     # last folded layer -> its fold must match the public final layer at position `lo`
-                    if folded != final[lo]:
+                    if (ext2.lift(final[lo]) if use_ext else final[lo]) != folded:
                         return False, f"fold does not match final layer at layer {L}"
                 a = lo
         return True, "ok"

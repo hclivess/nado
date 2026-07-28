@@ -684,6 +684,13 @@ def extract_fri(fri_proof):
     backend) to recover the fold challenges + domains, then reads each query's per-layer openings + rleaf/rnode
     Merkle paths straight from the proof. Requires the RECURSION backend so the Merkle tree is rleaf/rnode."""
     from execnode.stark.transcript import Transcript
+    # ITEM 14 GATE: this in-circuit bridge does BASE-field arithmetic only. A GF(p^2) proof (fri.EXT_CHALLENGES)
+    # is not foldable by it, and quietly treating one as base-field would replay the wrong challenges and check
+    # it under the ~47-bit commit bound the extension exists to escape. Refuse LOUDLY instead — the recursion
+    # path stays explicitly base-field until the AIRs are ported to extension arithmetic.
+    if fri_proof.get("ext"):
+        raise ValueError("extract_fri: this recursion AIR is base-field only; refusing a GF(p^2) FRI proof "
+                         "(prove it with ext=False until fri_verify/sp_fold are ported)")
     b = backend.RECURSION
     t = Transcript("fri", backend=b)
     alphas, doms, o, n = [], [], fri_proof["offset"], fri_proof["N"]

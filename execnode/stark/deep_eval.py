@@ -13,7 +13,7 @@ The commitment P_root is returned/checked so a caller can TIE the evaluated poly
 column (root equality: same values + same geometry ⇒ same root), which is how the io of an existing proof is
 bound without re-opening it on its own coset.
 """
-from execnode.stark import field as F, fri, merkle, backend as _backend
+from execnode.stark import field as F, fri, merkle, backend as _backend, ext2
 from execnode.stark.transcript import Transcript
 from execnode.stark.stark import _coset_evaluate, OFF as DEFAULT_OFF
 
@@ -44,11 +44,16 @@ def prove_eval(values, z, N, offset=DEFAULT_OFF, num_queries=fri.NUM_QUERIES, tr
     t = transcript or Transcript("deep-eval", backend=b)
     T = len(values)
     coeffs, P_lde, P_root, P_ml = _lde_and_commit(values, N, offset, b)
-    z = int(z) % F.P
-    v = F.poly_eval(coeffs, z)
+    # DEEP POINT IN GF(p^2). Schwartz-Zippel error is degree/|field the point is drawn from|, so a
+    # base-field z pinned this at 64 - log2(deg) ~ 47 bits no matter how strong FRI got. Sampling z from the
+    # extension lifts it to ~112, matching the folding challenge (see fri.EXT_CHALLENGES / soundness.py).
+    # v and the quotient are ext-valued as a consequence; FRI carries them from layer 0 (fri.ext0).
+    z = ext2.lift(z)
+    v = ext2.poly_eval(coeffs, z)
     x_lde = F.domain(N, offset)
-    q_lde = [F.mul(F.sub(P_lde[i], v), F.inv(F.sub(x_lde[i], z))) for i in range(N)]   # (P-v)/(x-z) on the coset
-    t.absorb("deep", v, z, P_root)                                       # bind the claim into the FRI transcript
+    q_lde = [ext2.mul(ext2.sub(ext2.lift(P_lde[i]), v),
+                      ext2.inv(ext2.sub(ext2.lift(x_lde[i]), z))) for i in range(N)]   # (P-v)/(x-z)
+    t.absorb("deep", *ext2.flatten([v, z]), P_root)                      # bind the claim into the FRI transcript
     blowup = N // T                                                      # FRI proves deg(q) < N/blowup = T
     fri_proof = fri.prove(q_lde, offset, blowup, num_queries, transcript=t, backend=b)
     P_open = [{"idx": qr["idx"], "val": P_lde[qr["idx"]], "path": merkle.open_at(P_ml, qr["idx"])}
@@ -68,8 +73,9 @@ def verify_eval(proof, z, num_queries=fri.NUM_QUERIES, transcript=None, backend=
             return False, "bad eval geometry"
         if expect_P_root is not None and P_root != expect_P_root:
             return False, "P_root does not match the pinned committed column"
-        z = int(z) % F.P
-        t.absorb("deep", v, z, P_root)
+        z = ext2.lift(z)
+        v = ext2.lift(v)
+        t.absorb("deep", *ext2.flatten([v, z]), P_root)
         blowup = N // T
         okf, whyf = fri.verify(proof["fri"], transcript=t, num_queries=num_queries, expected_blowup=blowup, backend=b)
         if not okf:
@@ -88,7 +94,7 @@ def verify_eval(proof, z, num_queries=fri.NUM_QUERIES, transcript=None, backend=
             # q at the query point (fri verified steps[0] against its root): lo half → steps[0].lo, hi half → .hi
             q_at = qr["steps"][0]["lo"] if idx < half else qr["steps"][0]["hi"]
             x = F.mul(offset, F.pw(wN, idx))
-            if F.mul(int(q_at) % F.P, F.sub(x, z)) != F.sub(int(po["val"]) % F.P, v):
+            if ext2.mul(ext2.lift(q_at), ext2.sub(ext2.lift(x), z)) != ext2.sub(ext2.lift(po["val"]), v):
                 return False, "DEEP relation q·(x−z)=P−v violated"
         return True, "ok"
     except Exception as e:
