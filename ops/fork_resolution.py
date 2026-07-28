@@ -76,13 +76,23 @@ def find_common_ancestor(our_hash_at, tip, peers, probe, floor=0, min_answers=2)
     dead-fork case."""
     probes = 0
 
-    def agrees(h):
+    def agrees(h, _attempts=8):
+        """None only when the majority genuinely cannot be established — RETRIED first.
+
+        With a small peer set this search is brutally fragile: min_answers=2 against 2 reachable peers means
+        BOTH must answer on EVERY one of the ~26 probes a binary search makes, so one dropped packet anywhere
+        collapses the whole verdict to UNKNOWN. Measured live on .141: stranded_below_finality said stranded
+        with 2 peers disagreeing and none agreeing, yet the fork state stayed 'unknown' pass after pass and
+        blocked the purge. Retrying an inconclusive probe costs nothing when peers are healthy and is what
+        makes the verdict obtainable at all on a 2-peer node. This does NOT weaken the test: a real majority
+        is still required, we just decline to abandon it over one timeout."""
         nonlocal probes
-        probes += 1
-        theirs = majority_hash(h, peers, probe, min_answers=min_answers)
-        if theirs is None:
-            return None
-        return our_hash_at(h) == theirs
+        for _ in range(max(1, int(_attempts))):
+            probes += 1
+            theirs = majority_hash(h, peers, probe, min_answers=min_answers)
+            if theirs is not None:
+                return our_hash_at(h) == theirs
+        return None
 
     top = agrees(tip)
     if top is None:
