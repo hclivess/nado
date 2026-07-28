@@ -1073,13 +1073,42 @@ class CoreClient(threading.Thread):
                 self.memserver.dead_fork_probe["their_weight"] = _their_w
             except Exception:
                 pass
-            if not _we_are_lighter:
+            # UNANIMOUS ISOLATION OVERRIDES WEIGHT. The weight tie-break exists to stop BOTH halves of an
+            # even split purging each other; it is not a claim that the heavier chain is the right one. When
+            # EVERY peer we know disagrees and not one agrees, there is no symmetry left to break — we are
+            # simply alone, and being alone is decisive however much work our branch carries. A lone miner on
+            # a fork is the FASTEST chain there is (it wins every slot unopposed), so "heavier" is exactly
+            # what a stranded node looks like.
+            #
+            # Observed live 2026-07-28 on alphanet-13: 185.100.232.5 rerolled ~4 minutes ahead of the others,
+            # built its own chain from the shared genesis, and sat at tip 273 / weight 88725 against three
+            # agreeing nodes at ~217 / 70525. Its probe correctly said stranded, 3 disagree, 0 agree — and the
+            # weight rule I had just added vetoed the purge because the isolated node was the heavy one. The
+            # three-node side is the one that can reach an attestation quorum and finalize; the lone heavy
+            # branch never can.
+            #
+            # The storm case this still guards is a SILENT partner: 2 of 3 peers disagreeing while our own
+            # partner fails to answer is not unanimity, so weight still decides there and only one side moves.
+            _known_peers = [p for p in peers]
+            _dis = list(detail.get("disagree") or [])
+            _unanimous = bool(_known_peers) and len(_dis) >= len(_known_peers) and not detail.get("agree")
+            try:
+                self.memserver.dead_fork_probe["unanimous"] = _unanimous
+            except Exception:
+                pass
+            if not _we_are_lighter and not _unanimous:
                 self.logger.warning(
                     f"DEAD FORK confirmed at {height}, but our chain is NOT the lighter one "
-                    f"(ours={_ours_w} theirs={_their_w}) — not purging. The lighter side of a split is the "
-                    f"side that yields; if they are genuinely on the better chain they will out-weigh us "
-                    f"and this flips on a later probe.")
+                    f"(ours={_ours_w} theirs={_their_w}) and the disagreement is not unanimous "
+                    f"({len(_dis)}/{len(_known_peers)} peers) — not purging. The lighter side of an even "
+                    f"split is the side that yields.")
                 return False
+            if _unanimous and not _we_are_lighter:
+                self.logger.error(
+                    f"DEAD FORK at {height}: every one of the {len(_known_peers)} peers we know disagrees and "
+                    f"none agree. Our branch is HEAVIER (ours={_ours_w} theirs={_their_w}) — which is what a "
+                    f"lone forker always looks like, since it mines every slot unopposed. Purging anyway: "
+                    f"weight measures work, agreement measures consensus.")
             self.logger.error("=" * 78)
             self.logger.error(f"DEAD FORK ({'tip frozen' if _stalled else 'STILL MINING — productive fork'}): "
                               f"our FINALIZED block {height} is {str(ours)[:16]}… but "

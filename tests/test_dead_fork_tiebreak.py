@@ -71,10 +71,32 @@ check(not agreeing, "a heavy AGREEING peer is ignored (only disagreeing peers ca
 one_more, _ = lighter_than_disagreeing(LIGHT, ["b1"], pool(b1=LIGHT + 1))
 check(one_more, "strictly heavier by 1 does yield (the comparison is strict, not approximate)")
 
+# ---------------------------------------------------------------- unanimous isolation beats weight
+# The weight rule stops BOTH halves of an even split purging each other. It is not a claim that the heavier
+# chain is right — and read that way it blocks the very case the escape exists for. A node alone on a fork
+# mines every slot unopposed, so it is ALWAYS the heavy one; requiring it to be lighter before it may yield
+# means it never yields. Observed live on alphanet-13: the isolated node sat at weight 88725 against three
+# agreeing nodes at 70525, correctly detected itself as stranded, and refused to purge because it was heavier.
+#
+# When every known peer disagrees and none agree there is no symmetry left to break, so weight steps aside.
+# A SILENT partner is not unanimity, so the storm case still falls to the weight rule.
+def _unanimous(dis, known, agree):
+    return bool(known) and len(dis) >= len(known) and not agree
+
+
+check(_unanimous(["a", "b", "c"], ["a", "b", "c"], []),
+      "3-of-3 disagreeing with none agreeing IS unanimous isolation (weight must step aside)")
+check(not _unanimous(["a", "b"], ["a", "b", "c"], []),
+      "2-of-3 with a SILENT third is NOT unanimous — the storm case still falls to weight")
+check(not _unanimous(["a", "b"], ["a", "b", "c"], ["c"]),
+      "an agreeing peer defeats unanimity however many disagree")
+check(not _unanimous([], [], []),
+      "no known peers is never unanimous (a lone bootstrapping node must not purge itself)")
+
 print()
 if fails:
     print(f"{len(fails)} CHECK(S) FAILED:")
     for f in fails:
         print("  - " + f)
     sys.exit(1)
-print("ALL DEAD-FORK TIE-BREAK CHECKS PASSED")
+print("ALL DEAD-FORK TIE-BREAK CHECKS PASSED (incl. unanimous-isolation override)")
