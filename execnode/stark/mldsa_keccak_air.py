@@ -9,20 +9,22 @@ would change the bytes being hashed, so the circuit would no longer verify the s
 on chain or in the browser. Keccak must be proven as-is.
 
 REPRESENTATION. Keccak-f[1600] is bit-oriented (a 5x5x64 state over GF(2)), which is hostile to a large-prime
-field — so the state is carried as 1600 BOOLEAN columns (one per bit) and every step is expressed in GF(2)
-arithmetic lifted to Goldilocks:
-    XOR(a,b)      = a + b - 2ab                     (degree 2)
-    NOT(a)        = 1 - a                           (degree 1)
-    AND(a,b)      = a*b                             (degree 2)
-    chi: A[x] = A[x] XOR ((NOT A[x+1]) AND A[x+2])  (degree 3 in one step -> split via an auxiliary product)
-theta/rho/pi are linear/permutation-only (free: they are re-indexings and XOR chains), iota XORs a public round
-constant (degree 1). One trace ROW per round-step keeps every constraint at degree <= 2 by carrying the chi
-AND-products in auxiliary columns.
+field — so the state is carried as BOOLEAN columns (one per bit) and GF(2) is lifted to Goldilocks:
+    XOR(a,b) = a + b - 2ab      NOT(a) = 1 - a      AND(a,b) = a*b
 
-SCOPE OF THIS MODULE. It provides: the reference permutation + sponge (validated against hashlib.shake_*), the
-bit-level GF(2) gadget helpers, and a PROVEN single-round AIR (the unit the full 24-round permutation and then
-the sponge are composed from — same compose-the-atom strategy that took the butterfly to the full 256-point
-NTT). The multi-round + absorb/squeeze composition builds on this.
+WIDE AND SHORT, AND WHY. The permutation is TIME-STEPPED: one trace ROW per round (row r = the state after r
+rounds), so the 24 rounds cost ROWS, and the 1600-bit state costs COLUMNS — 6080 x 32 rather than anything
+tall. Every intermediate of the round (theta parities + their carries, D, the post-theta state, the chi
+AND-products) gets an explicit WITNESS column. That is what keeps each constraint genuinely degree <= 2:
+chaining the xor() gadget through theta's 11-way XOR instead MULTIPLIES degree per link and measured degree 22
+— value-correct but unprovable at max_degree=2, which is exactly the bug this layout replaced. rho+pi is a pure
+re-indexing of the post-theta columns, so it is free; iota XORs a PUBLIC round-constant bit (degree 0), so it
+does not raise the degree. tests/test_mldsa_keccak_air.py asserts the measured degree with air_ir.program_degree
+rather than trusting the claim.
+
+SCOPE OF THIS MODULE. The reference permutation + sponge (validated against hashlib.shake_*), the GF(2) bit
+gadgets, and the PROVEN full 24-round permutation AIR. The sponge (absorb/squeeze over multiple permutations)
+composes these — each block is one permutation proof chained on the rate lanes.
 
 Golden reference: hashlib.shake_128 / shake_256 (OpenSSL) — the same primitive dilithium_py and the RustCrypto
 ml-dsa crate use.
@@ -137,13 +139,40 @@ def andb(a, b):
     return F.mul(a, b)
 
 
-# ---- single-round AIR (the composable unit) ---------------------------------------------------------
-# Columns: 1600 input bits | 1600 output bits | 1600 chi AND-products (the degree-splitting auxiliaries).
-IN0 = 0
-OUT0 = STATE_BITS
-AUX0 = 2 * STATE_BITS
-W = 3 * STATE_BITS
-MAX_DEGREE = 2
+# ---- the permutation AIR ----------------------------------------------------------------------------
+# TIME-STEPPED: one ROW per round (row r = the state after r rounds), so the 24 rounds cost ROWS, not columns.
+# Every intermediate of the round is an explicit WITNESS column, which is what keeps each constraint genuinely
+# degree <= 2 — chaining the xor() gadget instead (a+b-2ab per XOR) multiplies degree per link and measured
+# degree 22 on the earlier one-row design, i.e. value-correct but unprovable at max_degree=2.
+#
+# Per-row layout (all boolean):
+#   A    1600  the state at this row
+#   C     320  theta column parities: C[x][z] = XOR over y of A[x][y][z]      (5-way -> sum/carry, degree 1)
+#   K0    320  carry bit 0 of that 5-way parity   (k = K0 + K1 in {0,1,2})
+#   K1    320  carry bit 1
+#   D     320  D[x][z] = C[x-1][z] XOR C[x+1][z-1]                            (degree 2)
+#   E    1600  post-theta state: E = A XOR D                                  (degree 2)
+#   Pp   1600  chi products: P[x][y][z] = (NOT B[x+1][y][z]) AND B[x+2][y][z] (degree 2 in E)
+# and the NEXT row's A is constrained to B XOR P (XOR the public round constant on lane (0,0)) — degree 2.
+# rho+pi is a pure re-indexing of E (free: no columns, no constraints).
+A0 = 0
+C0 = A0 + STATE_BITS            # 1600
+K0 = C0 + 5 * LANE_BITS         # 1920
+K1 = K0 + 5 * LANE_BITS         # 2240
+D0 = K1 + 5 * LANE_BITS         # 2560
+E0 = D0 + 5 * LANE_BITS         # 2880
+P0 = E0 + STATE_BITS            # 4480
+W = P0 + STATE_BITS             # 6080
+# COMPOSITION degree, which is NOT the same as the pointwise constraint degree air_ir reports: every PERIODIC
+# column is interpolated as a degree-T polynomial, so each periodic FACTOR adds one to the composition degree.
+# Worst case is the iota output constraint: degree 2 in the trace, times the rc bit (periodic), times the
+# ACTIVE selector (periodic) = 4. Using 2 here proved fine but failed verification with "composition is not
+# low-degree" — the trap this constant exists to record.
+MAX_DEGREE = 4
+
+# periodic columns: 64 round-constant bits + an ACTIVE selector (1 on the 24 round rows, 0 on pad)
+PER_RC = 0
+PER_ACT = LANE_BITS             # 64
 
 
 def _bits_of_state(state):
@@ -165,33 +194,91 @@ def _state_of_bits(bits):
     return state
 
 
-def round_trace_row(state_in, rc):
-    """One row: input bits, output bits, and the chi AND-products that keep every constraint degree <= 2."""
-    state_out = keccak_round(state_in, rc)
+def _src_of_B(X, Y):
+    """rho+pi inverse: B[X][Y] is a rotation of A'[x][y]. pi sets B[y][(2x+3y)%5] = rot(A'[x][y], ROT[x][y]),
+    so y = X and (2x + 3X) % 5 = Y  =>  x = 3*(Y - 3X) mod 5 (since 2*3 = 6 = 1 mod 5). Returns (x, y, rot)."""
+    y = X
+    x = (3 * (Y - 3 * X)) % 5
+    return x, y, ROT[x][y]
+
+
+def _E(cur, x, y, i):
+    """Column value of post-theta bit (x, y, i)."""
+    return cur[E0 + (x + 5 * y) * LANE_BITS + i]
+
+
+def _B(cur, X, Y, i):
+    """Post-rho/pi bit (X, Y, i) — a pure re-index of E, so it costs nothing."""
+    x, y, rot = _src_of_B(X, Y)
+    return _E(cur, x, y, (i - rot) % LANE_BITS)
+
+
+def round_row(state_in, rc):
+    """Build ONE row: the state plus every witness of the round applied to it. Returns (row, state_out)."""
     row = [0] * W
-    bin_ = _bits_of_state(state_in)
-    bout = _bits_of_state(state_out)
+    bits = _bits_of_state(state_in)
     for i in range(STATE_BITS):
-        row[IN0 + i] = bin_[i]
-        row[OUT0 + i] = bout[i]
-    # recompute the post-rho/pi B matrix to expose the chi AND terms as witnesses
+        row[A0 + i] = bits[i]
     A = [[state_in[x + 5 * y] for y in range(5)] for x in range(5)]
+    # theta parities + carries
     C = [A[x][0] ^ A[x][1] ^ A[x][2] ^ A[x][3] ^ A[x][4] for x in range(5)]
+    for x in range(5):
+        for i in range(LANE_BITS):
+            s = sum((A[x][y] >> i) & 1 for y in range(5))
+            cbit = (C[x] >> i) & 1
+            k = (s - cbit) // 2                       # k in {0, 1, 2}
+            row[C0 + x * LANE_BITS + i] = cbit
+            row[K0 + x * LANE_BITS + i] = 1 if k >= 1 else 0
+            row[K1 + x * LANE_BITS + i] = 1 if k >= 2 else 0
     D = [C[(x - 1) % 5] ^ _rotl(C[(x + 1) % 5], 1) for x in range(5)]
     for x in range(5):
+        for i in range(LANE_BITS):
+            row[D0 + x * LANE_BITS + i] = (D[x] >> i) & 1
+    # post-theta E
+    Ap = [[A[x][y] ^ D[x] for y in range(5)] for x in range(5)]
+    for x in range(5):
         for y in range(5):
-            A[x][y] ^= D[x]
+            for i in range(LANE_BITS):
+                row[E0 + (x + 5 * y) * LANE_BITS + i] = (Ap[x][y] >> i) & 1
+    # rho + pi -> B, then the chi AND-products
     Bm = [[0] * 5 for _ in range(5)]
     for x in range(5):
         for y in range(5):
-            Bm[y][(2 * x + 3 * y) % 5] = _rotl(A[x][y], ROT[x][y])
+            Bm[y][(2 * x + 3 * y) % 5] = _rotl(Ap[x][y], ROT[x][y])
     for x in range(5):
         for y in range(5):
             prod = (~Bm[(x + 1) % 5][y]) & Bm[(x + 2) % 5][y] & ((1 << LANE_BITS) - 1)
-            base = AUX0 + (x + 5 * y) * LANE_BITS
             for i in range(LANE_BITS):
-                row[base + i] = (prod >> i) & 1
-    return row, state_out
+                row[P0 + (x + 5 * y) * LANE_BITS + i] = (prod >> i) & 1
+    return row, keccak_round(state_in, rc)
+
+
+def build_trace(state_in):
+    """The full 24-round permutation trace: row r = the state after r rounds (+ that round's witnesses).
+    Returns (rows, T, state_out)."""
+    rows, s = [], list(state_in)
+    for r in range(ROUNDS):
+        row, s = round_row(s, RC[r])
+        rows.append(row)
+    final = [0] * W                                   # row 24 carries the FINAL state (its witnesses are unused)
+    for i, b in enumerate(_bits_of_state(s)):
+        final[A0 + i] = b
+    rows.append(final)
+    T = 1
+    while T < len(rows):
+        T <<= 1
+    while len(rows) < T:                              # pad by repeating the final row (inactive: no constraints)
+        rows.append(list(final))
+    return rows, T, s
+
+
+def periodic(T):
+    """64 round-constant bit columns + the ACTIVE selector (1 on rows 0..23, 0 on the final/pad rows)."""
+    per = []
+    for i in range(LANE_BITS):
+        per.append([((RC[r] >> i) & 1) if r < ROUNDS else 0 for r in range(T)])
+    per.append([1 if r < ROUNDS else 0 for r in range(T)])
+    return per
 
 
 # ---- the round CONSTRAINTS ---------------------------------------------------------------------------
@@ -200,87 +287,99 @@ def _bidx(x, y, i):
     return (x + 5 * y) * LANE_BITS + i
 
 
-def _lin_theta_pi(cur, x, y, i):
-    """The value of post-theta/rho/pi bit (x,y,i) as a LINEAR (XOR-only) expression over the INPUT bits.
-    theta: A[x][y] ^= D[x] where D[x] = C[x-1] ^ rot(C[x+1],1) and C[x] = XOR over y of A[x][y];
-    rho+pi: B[y][2x+3y] = rot(A[x][y], ROT[x][y]) — i.e. B lane (X,Y) is a rotation of a single A lane.
-    Returns the field expression for B[x][y] bit i (built from `cur`, all XORs, degree 1)."""
-    # invert pi: B[X][Y] comes from A[x0][y0] with X = y0, Y = (2*x0 + 3*y0) % 5
-    for x0 in range(5):
-        for y0 in range(5):
-            if y0 == x and (2 * x0 + 3 * y0) % 5 == y:
-                src_x, src_y, rot = x0, y0, ROT[x0][y0]
-                break
-        else:
-            continue
-        break
-    j = (i - rot) % LANE_BITS                      # un-rotate: B bit i comes from A bit (i - rot)
-    # A'[src] = A[src] ^ D[src_x] ; D[x] = C[x-1] ^ rot(C[x+1], 1)
-    v = cur[_bidx(src_x, src_y, j)]
-    for yy in range(5):                            # C[src_x - 1] bit j
-        v = xor(v, cur[_bidx((src_x - 1) % 5, yy, j)])
-    for yy in range(5):                            # rot(C[src_x + 1], 1) bit j  == C[src_x+1] bit (j-1)
-        v = xor(v, cur[_bidx((src_x + 1) % 5, yy, (j - 1) % LANE_BITS)])
-    return v
 
 
-def round_transitions(rc):
-    """Per-row constraints proving one Keccak-f round, all degree <= 2:
-       (1) every input/output/aux column is boolean;
-       (2) each aux column is the chi AND-product: aux = (NOT B[x+1]) AND B[x+2]  (degree 2 in the
-           theta/pi-linear expressions, which are themselves degree 1 in the input bits);
-       (3) each output bit = B[x][y] XOR aux, with iota's round-constant bit XORed into lane (0,0).
-    `rc` is this round's public round constant."""
+def transitions():
+    """The permutation constraints — EVERY ONE degree <= 2 (verified by air_ir.program_degree in the test).
+    `per[PER_RC + i]` is round-constant bit i for this row; `per[PER_ACT]` gates the round rows so the final
+    and padding rows are unconstrained.
+
+      booleanity   : every column is 0/1
+      theta parity : sum_y A[x][y][z] == C[x][z] + 2*(K0 + K1)     (degree 1; K0,K1 boolean => k in {0,1,2})
+      theta D      : D[x][z] == C[x-1][z] XOR C[x+1][z-1]          (degree 2)
+      post-theta   : E[x][y][z] == A[x][y][z] XOR D[x][z]          (degree 2)
+      chi products : P[x][y][z] == (1 - B[x+1][y][z]) * B[x+2][y][z]  (degree 2; B is a re-index of E)
+      round output : A_next[x][y][z] == B[x][y][z] XOR P[x][y][z] (XOR rc bit on lane (0,0))  (degree 2)
+    """
     cons = []
     for k in range(W):
         cons.append(lambda c, n, per, _k=k: F.sub(F.mul(c[_k], c[_k]), c[_k]))
 
-    def make_aux(x, y, i):
+    def parity(x, i):
         def con(c, n, per):
-            b1 = _lin_theta_pi(c, (x + 1) % 5, y, i)
-            b2 = _lin_theta_pi(c, (x + 2) % 5, y, i)
-            return F.sub(c[AUX0 + _bidx(x, y, i)], andb(notb(b1), b2))
+            s = 0
+            for y in range(5):
+                s = F.add(s, c[A0 + (x + 5 * y) * LANE_BITS + i])
+            rhs = F.add(c[C0 + x * LANE_BITS + i],
+                        F.mul(2, F.add(c[K0 + x * LANE_BITS + i], c[K1 + x * LANE_BITS + i])))
+            return F.mul(per[PER_ACT], F.sub(s, rhs))
         return con
 
-    def make_out(x, y, i, rc_bit):
+    def dcon(x, i):
         def con(c, n, per):
-            b = _lin_theta_pi(c, x, y, i)
-            v = xor(b, c[AUX0 + _bidx(x, y, i)])
-            if rc_bit:
-                v = xor(v, 1)
-            return F.sub(c[OUT0 + _bidx(x, y, i)], v)
+            c1 = c[C0 + ((x - 1) % 5) * LANE_BITS + i]
+            c2 = c[C0 + ((x + 1) % 5) * LANE_BITS + (i - 1) % LANE_BITS]
+            return F.mul(per[PER_ACT], F.sub(c[D0 + x * LANE_BITS + i], xor(c1, c2)))
+        return con
+
+    def econ(x, y, i):
+        def con(c, n, per):
+            a = c[A0 + (x + 5 * y) * LANE_BITS + i]
+            d = c[D0 + x * LANE_BITS + i]
+            return F.mul(per[PER_ACT], F.sub(_E(c, x, y, i), xor(a, d)))
+        return con
+
+    def pcon(x, y, i):
+        def con(c, n, per):
+            b1 = _B(c, (x + 1) % 5, y, i)
+            b2 = _B(c, (x + 2) % 5, y, i)
+            return F.mul(per[PER_ACT], F.sub(c[P0 + (x + 5 * y) * LANE_BITS + i], andb(notb(b1), b2)))
+        return con
+
+    def outcon(x, y, i):
+        iota = (x == 0 and y == 0)
+        def con(c, n, per):
+            v = xor(_B(c, x, y, i), c[P0 + (x + 5 * y) * LANE_BITS + i])
+            if iota:
+                v = xor(v, per[PER_RC + i])          # public bit: degree 0, so this stays degree 2
+            return F.mul(per[PER_ACT], F.sub(n[A0 + (x + 5 * y) * LANE_BITS + i], v))
         return con
 
     for x in range(5):
+        for i in range(LANE_BITS):
+            cons.append(parity(x, i))
+            cons.append(dcon(x, i))
+    for x in range(5):
         for y in range(5):
             for i in range(LANE_BITS):
-                cons.append(make_aux(x, y, i))
-                rc_bit = ((rc >> i) & 1) if (x == 0 and y == 0) else 0
-                cons.append(make_out(x, y, i, rc_bit))
+                cons.append(econ(x, y, i))
+                cons.append(pcon(x, y, i))
+                cons.append(outcon(x, y, i))
     return cons
 
 
-def prove_round(state_in, rc, num_queries=stark.NUM_QUERIES, backend=None):
-    """Prove ONE Keccak-f round. Returns (proof, state_out)."""
+def _boundaries(state_in, state_out, T):
+    """Pin the PUBLIC input state at row 0 and the claimed output state at row ROUNDS."""
+    bnds = [(0, A0 + i, b) for i, b in enumerate(_bits_of_state(state_in))]
+    bnds += [(ROUNDS, A0 + i, b) for i, b in enumerate(_bits_of_state(state_out))]
+    return bnds
+
+
+def prove_permutation(state_in, num_queries=stark.NUM_QUERIES, backend=None):
+    """Prove the FULL 24-round Keccak-f[1600] permutation. Returns (proof, state_out)."""
     bk = backend or B.RECURSION
-    row, state_out = round_trace_row(state_in, rc)
-    rows = [row, list(row)]                        # T must be a power of 2; the constraints are per-row
-    bnds = [(0, IN0 + i, row[IN0 + i]) for i in range(STATE_BITS)]
-    bnds += [(0, OUT0 + i, row[OUT0 + i]) for i in range(STATE_BITS)]
-    proof = stark.prove(rows, round_transitions(rc), bnds, max_degree=MAX_DEGREE,
-                        num_queries=num_queries, backend=bk)
+    rows, T, state_out = build_trace(state_in)
+    proof = stark.prove(rows, transitions(), _boundaries(state_in, state_out, T),
+                        periodic=periodic(T), max_degree=MAX_DEGREE, num_queries=num_queries, backend=bk)
     return proof, state_out
 
 
-def verify_round(proof, state_in, state_out, rc, num_queries=stark.NUM_QUERIES, backend=None):
-    """Verify a round proof against the PUBLIC input and claimed output states."""
+def verify_permutation(proof, state_in, state_out, num_queries=stark.NUM_QUERIES, backend=None):
+    """Verify a full-permutation proof against the PUBLIC input and claimed output states."""
     try:
         bk = backend or B.RECURSION
-        bin_ = _bits_of_state(state_in)
-        bout = _bits_of_state(state_out)
-        bnds = [(0, IN0 + i, bin_[i]) for i in range(STATE_BITS)]
-        bnds += [(0, OUT0 + i, bout[i]) for i in range(STATE_BITS)]
-        return stark.verify(proof, round_transitions(rc), bnds, max_degree=MAX_DEGREE,
-                            num_queries=num_queries, backend=bk)
+        T = proof["T"]
+        return stark.verify(proof, transitions(), _boundaries(state_in, state_out, T),
+                            periodic=periodic(T), max_degree=MAX_DEGREE, num_queries=num_queries, backend=bk)
     except Exception as e:
-        return False, f"malformed keccak round proof: {e}"
+        return False, f"malformed keccak permutation proof: {e}"
