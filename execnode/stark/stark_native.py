@@ -271,6 +271,14 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     if num_queries is None:
         num_queries = stark.NUM_QUERIES
     b = backend or _B.RECURSION
+    # GUARD — this path draws BASE-field aux challenges (below) and composes with BASE-field alphas inside the
+    # arena, neither of which can carry GF(p^2). If the caller's backend WOULD use extension challenges, a
+    # proof built here is one stark.verify can never accept: it would replay the transcript drawing ext and
+    # get different challenges. Fail loudly so stark.prove's except-clause falls back to the correct Python
+    # path, rather than silently emitting a proof nobody can check. stark.prove already gates this call the
+    # same way; this is the backstop for the day someone loosens that gate.
+    if stark.ext_challenges_active(b):
+        raise RuntimeError("stark_native.prove cannot produce GF(p^2)-challenge proofs — use the Python path")
     hmode = 1 if getattr(b, "name", "") == "alghash2" else 0     # arena Merkle: 0 rleaf/rnode, 1 hashn
     T = len(trace); W = len(trace[0])
     blowup = stark._blowup(max_degree); N = blowup * T

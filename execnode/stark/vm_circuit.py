@@ -22,7 +22,7 @@ Public context (caller/value/cursor/time) is baked into the CONSTRAINTS; the fir
 registers; the program, log, and args table live in periodic columns — nothing statement-shaped is read
 from the proof.
 """
-from execnode.stark import field as F, alghash, stark, logup
+from execnode.stark import field as F, alghash, stark, logup, ext2
 from execnode import zkvm
 
 # ---- column layout -------------------------------------------------------------------------------
@@ -55,6 +55,72 @@ NUM_AUX = W_TOTAL - W_MAIN
 # piece 2). FIO[0]=0; FIO[i+1]=FIO[i]+io_active(row_i)·combine([TAG_IO, ioc, kind, a, b], γ_fp) — the io tuple
 # already carries IOC (the global order counter), so a plain sum is order-binding. FIO[T-1] is the fingerprint.
 FIO = W_TOTAL                              # index when bind_io; effective width is then W_TOTAL+1, aux NUM_AUX+1
+
+# ---- extension-field aux layout --------------------------------------------------------------------
+# β and γ are drawn from GF(p^2) on every backend except RECURSION (stark.ext_challenges_active). A LogUp
+# bus's soundness error is (lookups + rows)/|challenge field|, so base-field β/γ pinned this circuit — the
+# one the exec/settlement path and the ML-DSA aggregation circuit both prove through — at ~44 bits, well
+# under FRI's 112 and the alphas' 126. It was the binding term for the entire system.
+#
+# Once the challenges are extension elements, every helper and accumulator derived from them is too:
+# 1/(β + tuple) lives in GF(p^2) and so does the running sum Z. A trace column holds base elements only, so
+# each LOGICAL aux column is carried as a PAIR of base columns (lo, hi) meaning lo + hi·X. The logical ids
+# above (HF, GF, ... Z) stay the names of the STATEMENT; _aux_pair maps one to the two columns that hold it.
+# Nothing about the main trace changes — it is base-field data either way — and the constraint DEGREE is
+# unchanged at MAX_DEGREE, because a limb is still one column and (β + tuple) is still degree 1.
+#
+# FIO is deliberately NOT in this scheme: its challenge is gamma_fp, a PUBLIC base-field value that a
+# settlement matches against, not a Fiat-Shamir aux challenge. It stays a single base column, appended after
+# the aux block in whichever layout is active.
+NUM_AUX_EXT = 2 * NUM_AUX
+W_TOTAL_EXT = W_MAIN + NUM_AUX_EXT
+FIO_EXT = W_TOTAL_EXT
+
+
+def _aux_pair(idx):
+    """The (lo, hi) base-column indices carrying logical aux column `idx` under the extension layout."""
+    k = idx - W_MAIN
+    return W_MAIN + 2 * k, W_MAIN + 2 * k + 1
+
+
+def _fio_idx(ext):
+    return FIO_EXT if ext else FIO
+
+
+def _promote(v):
+    return v if isinstance(v, tuple) else ext2.lift(v)
+
+
+def _eadd(a, b):
+    return ext2.add(_promote(a), _promote(b))
+
+
+def _esub(a, b):
+    return ext2.sub(_promote(a), _promote(b))
+
+
+def _emul(a, b):
+    """Mixed base/ext product. The constraints multiply extension helpers by BASE trace cells constantly
+    (selectors, multiplicities), so promoting both sides to ext and doing a full ext multiply would treble
+    the work for no reason — dispatch to scalar_mul when one side is base."""
+    if isinstance(a, tuple):
+        return ext2.mul(a, b) if isinstance(b, tuple) else ext2.scalar_mul(a, b)
+    if isinstance(b, tuple):
+        return ext2.scalar_mul(b, a)
+    return ext2.lift(F.mul(a, b))
+
+
+def _algebra(ext):
+    """(add, sub, mul, read_aux) for the active layout, so each LogUp constraint is written ONCE and
+    evaluated over either field. Two hand-maintained copies of these constraints is how a prover and a
+    verifier drift apart silently."""
+    def _read_ext(row, idx):
+        lo, hi = _aux_pair(idx)
+        return row[lo], row[hi]
+
+    if ext:
+        return _eadd, _esub, _emul, _read_ext
+    return F.add, F.sub, F.mul, (lambda row, idx: row[idx])
 
 # ---- periodic (public) column layout ---------------------------------------------------------------
 # The verifier rebuilds ALL of these from the public EPOCH statement (the ordered call list + each call's
@@ -336,7 +402,7 @@ def _wr_expr(row):
 
 
 # ---- the transition constraints -------------------------------------------------------------------
-def transitions(bind_io=False, gamma_fp=0):
+def transitions(bind_io=False, gamma_fp=0, ext=False):
     """The full constraint list. All per-call context is PERIODIC (public), so ONE constraint set proves an
     EPOCH of N concatenated calls (aggregation) as well as a single call. Every constraint is
     c(cur, nxt, per, chal), chal = (β, γ). P_START(cur) pins a call's first row (registers←args, pc←0,
@@ -499,31 +565,32 @@ def transitions(bind_io=False, gamma_fp=0):
                  c_lo32, c_lo32_canon])
 
     # -- the four LogUp buses (one shared accumulator) --
+    _add, _sub, _mul, _rd = _algebra(ext)
     def c_hf(c, n, p, ch):
         active = F.sub(1, c[F0 + _O["NOP"]])
-        return F.sub(F.mul(c[HF], F.add(ch[0], _fetch_tuple(c, p, ch[1]))), active)
+        return _sub(_mul(_rd(c, HF), _add(ch[0], _fetch_tuple(c, p, ch[1]))), active)
     def c_gf(c, n, p, ch):
         t = logup.combine([TAG_FETCH, p[PP_PROG], p[PP_PC], p[PP_OP], p[PP_D], p[PP_S], p[PP_IMM]], ch[1])
-        return F.sub(F.mul(c[GF], F.add(ch[0], t)), c[MF])
+        return _sub(_mul(_rd(c, GF), _add(ch[0], t)), c[MF])
     def c_hio(c, n, p, ch):
-        return F.sub(F.mul(c[HIO], F.add(ch[0], _io_tuple(c, n, ch[1]))), _io_active(c))
+        return _sub(_mul(_rd(c, HIO), _add(ch[0], _io_tuple(c, n, ch[1]))), _io_active(c))
     def c_gio(c, n, p, ch):
         t = logup.combine([TAG_IO, p[PL_CTR], p[PL_KIND], p[PL_A], p[PL_B]], ch[1])
-        return F.sub(F.mul(c[GIO], F.add(ch[0], t)), p[PL_ACT])
+        return _sub(_mul(_rd(c, GIO), _add(ch[0], t)), p[PL_ACT])
     def c_ha(c, n, p, ch):
-        return F.sub(F.mul(c[HA], F.add(ch[0], _arg_tuple(c, n, p, ch[1]))), c[F0 + _O["ARG"]])
+        return _sub(_mul(_rd(c, HA), _add(ch[0], _arg_tuple(c, n, p, ch[1]))), c[F0 + _O["ARG"]])
     def c_ga(c, n, p, ch):
         t = logup.combine([TAG_ARG, p[PT_CALL], p[PT_IDX], p[PT_VAL]], ch[1])
-        return F.sub(F.mul(c[GA], F.add(ch[0], t)), c[MA])
+        return _sub(_mul(_rd(c, GA), _add(ch[0], t)), c[MA])
     cons.extend([c_hf, c_gf, c_hio, c_gio, c_ha, c_ga])
     for j, (ca, cb) in enumerate(_BYTE_PAIRS):
         def c_hb(c, n, p, ch, j=j, ca=ca, cb=cb):
             la, lb = c[ca], (c[cb] if cb is not None else 0)
-            lhs = F.mul(c[HB + j], F.mul(F.add(ch[0], la), F.add(ch[0], lb)))
-            return F.sub(lhs, F.add(F.add(F.mul(2, ch[0]), la), lb))
+            lhs = _mul(_rd(c, HB + j), _mul(_add(ch[0], la), _add(ch[0], lb)))
+            return _sub(lhs, _add(_add(_mul(2, ch[0]), la), lb))
         cons.append(c_hb)
     def c_gb(c, n, p, ch):
-        return F.sub(F.mul(c[GB], F.add(ch[0], p[PB])), c[MB])
+        return _sub(_mul(_rd(c, GB), _add(ch[0], p[PB])), c[MB])
     cons.append(c_gb)
     for j, (ca, cb) in enumerate(_7BIT_PAIRS):
         def c_hs(c, n, p, ch, j=j, ca=ca, cb=cb):
@@ -536,27 +603,31 @@ def transitions(bind_io=False, gamma_fp=0):
             # table (limb in [0,128)); the raw byte bus and this one no longer cross-absorb.
             va = logup.combine([TAG_7BIT, c[ca]], ch[1])
             vb = logup.combine([TAG_7BIT, c[cb]], ch[1])
-            lhs = F.mul(c[HS + j], F.mul(F.add(ch[0], va), F.add(ch[0], vb)))
-            return F.sub(lhs, F.add(F.add(F.mul(2, ch[0]), va), vb))
+            lhs = _mul(_rd(c, HS + j), _mul(_add(ch[0], va), _add(ch[0], vb)))
+            return _sub(lhs, _add(_add(_mul(2, ch[0]), va), vb))
         cons.append(c_hs)
     def c_gs(c, n, p, ch):
-        return F.sub(F.mul(c[GS], F.add(ch[0], logup.combine([TAG_7BIT, p[PS]], ch[1]))), c[MS])
+        return _sub(_mul(_rd(c, GS), _add(ch[0], logup.combine([TAG_7BIT, p[PS]], ch[1]))), c[MS])
     cons.append(c_gs)
     def c_z(c, n, p, ch):
-        term = F.sub(c[HF], c[GF])
-        term = F.add(term, F.sub(c[HIO], c[GIO]))
-        term = F.add(term, F.sub(c[HA], c[GA]))
+        term = _sub(_rd(c, HF), _rd(c, GF))
+        term = _add(term, _sub(_rd(c, HIO), _rd(c, GIO)))
+        term = _add(term, _sub(_rd(c, HA), _rd(c, GA)))
         for j in range(7):
-            term = F.add(term, c[HB + j])
-        term = F.sub(term, c[GB])
-        term = F.add(term, F.add(c[HS + 0], c[HS + 1]))
-        term = F.sub(term, c[GS])
-        return F.sub(n[Z], F.add(c[Z], term))
+            term = _add(term, _rd(c, HB + j))
+        term = _sub(term, _rd(c, GB))
+        term = _add(term, _add(_rd(c, HS + 0), _rd(c, HS + 1)))
+        term = _sub(term, _rd(c, GS))
+        return _sub(_rd(n, Z), _add(_rd(c, Z), term))
     cons.append(c_z)
 
     if bind_io:                                              # opt-in io fingerprint accumulator (piece 2)
+        # FIO stays BASE-field in both layouts: its challenge gamma_fp is a public value a settlement matches
+        # against, not a Fiat-Shamir aux challenge. Only its column INDEX moves, because the aux block ahead
+        # of it doubles in width under ext.
+        _fio = _fio_idx(ext)
         def c_fio(c, n, p, ch):
-            return F.sub(n[FIO], F.add(c[FIO], F.mul(_io_active(c), _io_leaf_expr(c, n, gamma_fp))))
+            return F.sub(n[_fio], F.add(c[_fio], F.mul(_io_active(c), _io_leaf_expr(c, n, gamma_fp))))
         cons.append(c_fio)
     return cons
 
@@ -747,50 +818,71 @@ def make_aux_builder(periodic, bind_io=False, gamma_fp=0):
         # dense-expand every periodic column (structured {period,base,sparse} range/selector columns → their
         # length-T form) so the row reader below can index per_cols[c][i] uniformly.
         per_cols = [stark._per_expand(pc, T) for pc in periodic]
-        cols = [[0] * T for _ in range(NUM_AUX + (1 if bind_io else 0))]
+        # Under ext every logical aux column occupies TWO base columns; FIO (base-valued, public challenge)
+        # is appended after the aux block either way.
+        _ext = isinstance(beta, tuple)
+        _add, _sub, _mul, _ = _algebra(_ext)
+        _inv = ext2.inv if _ext else F.inv
+        _n_aux = (NUM_AUX_EXT if _ext else NUM_AUX)
+        cols = [[0] * T for _ in range(_n_aux + (1 if bind_io else 0))]
         def put(idx, row, val):
-            cols[idx - W_MAIN][row] = val
+            if _ext:
+                k = idx - W_MAIN
+                v = val if isinstance(val, tuple) else (int(val) % F.P, 0)
+                cols[2 * k][row] = v[0]; cols[2 * k + 1][row] = v[1]
+            else:
+                cols[idx - W_MAIN][row] = val
+        def get(idx, row):
+            if _ext:
+                k = idx - W_MAIN
+                return (cols[2 * k][row], cols[2 * k + 1][row])
+            return cols[idx - W_MAIN][row]
         def perrow(i):
             return [per_cols[c][i] for c in range(NUM_PERIODIC)]
         for i in range(T):
             cur = trace[i]
             nxt = trace[i + 1] if i + 1 < T else trace[i]
             p = perrow(i)
-            hf = F.mul(F.sub(1, cur[F0 + _O["NOP"]]), F.inv(F.add(beta, _fetch_tuple(cur, p, gamma))))
+            # _add/_mul/_inv follow the challenge field; under ext every 1/(β + tuple) is a GF(p^2) inverse
+            # and `put` splits it into its (lo, hi) limbs.
+            hf = _mul(F.sub(1, cur[F0 + _O["NOP"]]), _inv(_add(beta, _fetch_tuple(cur, p, gamma))))
             gf_t = logup.combine([TAG_FETCH, p[PP_PROG], p[PP_PC], p[PP_OP], p[PP_D], p[PP_S], p[PP_IMM]], gamma)
-            gf = F.mul(cur[MF], F.inv(F.add(beta, gf_t)))
-            hio = F.mul(_io_active(cur), F.inv(F.add(beta, _io_tuple(cur, nxt, gamma))))
+            gf = _mul(cur[MF], _inv(_add(beta, gf_t)))
+            hio = _mul(_io_active(cur), _inv(_add(beta, _io_tuple(cur, nxt, gamma))))
             gio_t = logup.combine([TAG_IO, p[PL_CTR], p[PL_KIND], p[PL_A], p[PL_B]], gamma)
-            gio = F.mul(p[PL_ACT], F.inv(F.add(beta, gio_t)))
-            ha = F.mul(cur[F0 + _O["ARG"]], F.inv(F.add(beta, _arg_tuple(cur, nxt, p, gamma))))
+            gio = _mul(p[PL_ACT], _inv(_add(beta, gio_t)))
+            ha = _mul(cur[F0 + _O["ARG"]], _inv(_add(beta, _arg_tuple(cur, nxt, p, gamma))))
             ga_t = logup.combine([TAG_ARG, p[PT_CALL], p[PT_IDX], p[PT_VAL]], gamma)
-            ga = F.mul(cur[MA], F.inv(F.add(beta, ga_t)))
+            ga = _mul(cur[MA], _inv(_add(beta, ga_t)))
             put(HF, i, hf); put(GF, i, gf); put(HIO, i, hio); put(GIO, i, gio)
             put(HA, i, ha); put(GA, i, ga)
             for jx, (ca, cb) in enumerate(_BYTE_PAIRS):
                 la, lb = cur[ca], (cur[cb] if cb is not None else 0)
-                put(HB + jx, i, F.add(F.inv(F.add(beta, la)), F.inv(F.add(beta, lb))))
-            put(GB, i, F.mul(cur[MB], F.inv(F.add(beta, p[PB]))))
+                put(HB + jx, i, _add(_inv(_add(beta, la)), _inv(_add(beta, lb))))
+            put(GB, i, _mul(cur[MB], _inv(_add(beta, p[PB]))))
             for jx, (ca, cb) in enumerate(_7BIT_PAIRS):
-                put(HS + jx, i, F.add(F.inv(F.add(beta, logup.combine([TAG_7BIT, cur[ca]], gamma))),
-                                      F.inv(F.add(beta, logup.combine([TAG_7BIT, cur[cb]], gamma)))))
-            put(GS, i, F.mul(cur[MS], F.inv(F.add(beta, logup.combine([TAG_7BIT, p[PS]], gamma)))))
-        z = 0
+                put(HS + jx, i, _add(_inv(_add(beta, logup.combine([TAG_7BIT, cur[ca]], gamma))),
+                                     _inv(_add(beta, logup.combine([TAG_7BIT, cur[cb]], gamma)))))
+            put(GS, i, _mul(cur[MS], _inv(_add(beta, logup.combine([TAG_7BIT, p[PS]], gamma)))))
+        # The running sum telescopes over the whole epoch and is pinned to 0 at both ends; under ext it is a
+        # GF(p^2) accumulator, read back through get() so the limbs stay paired.
+        z = ext2.ZERO if _ext else 0
         for i in range(T):
             put(Z, i, z)
-            term = F.sub(cols[HF - W_MAIN][i], cols[GF - W_MAIN][i])
-            term = F.add(term, F.sub(cols[HIO - W_MAIN][i], cols[GIO - W_MAIN][i]))
-            term = F.add(term, F.sub(cols[HA - W_MAIN][i], cols[GA - W_MAIN][i]))
+            term = _sub(get(HF, i), get(GF, i))
+            term = _add(term, _sub(get(HIO, i), get(GIO, i)))
+            term = _add(term, _sub(get(HA, i), get(GA, i)))
             for jx in range(7):
-                term = F.add(term, cols[HB - W_MAIN + jx][i])
-            term = F.sub(term, cols[GB - W_MAIN][i])
-            term = F.add(term, F.add(cols[HS - W_MAIN][i], cols[HS - W_MAIN + 1][i]))
-            term = F.sub(term, cols[GS - W_MAIN][i])
-            z = F.add(z, term)
+                term = _add(term, get(HB + jx, i))
+            term = _sub(term, get(GB, i))
+            term = _add(term, _add(get(HS, i), get(HS + 1, i)))
+            term = _sub(term, get(GS, i))
+            z = _add(z, term)
         if bind_io:                                          # FIO[0]=0; FIO[i+1]=FIO[i]+active·leaf
-            Fv = 0
+            Fv = 0                                           # base-field: gamma_fp is a PUBLIC challenge
+            _fio_col = _n_aux                                # FIO sits right after the aux block
             for i in range(T):
-                cols[FIO - W_MAIN][i] = Fv
+                cols[_fio_col][i] = Fv
                 cur = trace[i]; nxt = trace[i + 1] if i + 1 < T else trace[i]
                 if _io_active(cur):
                     Fv = F.add(Fv, _io_leaf_expr(cur, nxt, gamma_fp))
@@ -798,19 +890,29 @@ def make_aux_builder(periodic, bind_io=False, gamma_fp=0):
     return build
 
 
-def _boundaries(T, bind_io=False, fp_exec=0):
+def _boundaries(T, bind_io=False, fp_exec=0, ext=False):
     """Only the GLOBAL boundaries — per-call resets are enforced by the P_START pins inside the constraints.
     Row 0 is the first call's start (pc/ioc/sponge zero); Z telescopes to 0 at both ends (the LogUp buses
     balance over the whole epoch). With `bind_io`, pin FIO[0]=0 and FIO[T-1]=fp_exec (the io fingerprint,
     the O(1) public output that a settlement matches against the replay's fingerprint)."""
-    bnds = [(0, PC, 0), (0, IOC, 0), (0, H0, 0), (0, H1, 0), (0, Z, 0), (T - 1, Z, 0)]
+    bnds = [(0, PC, 0), (0, IOC, 0), (0, H0, 0), (0, H1, 0)]
+    if ext:
+        # Z is a GF(p^2) accumulator: BOTH limbs must be pinned at each end. Pinning only the lo limb would
+        # let a prover park an unbalanced bus in the hi limb and still satisfy the boundary — the buses would
+        # no longer have to balance, which is the entire statement this circuit makes.
+        z0, z1 = _aux_pair(Z)
+        bnds += [(0, z0, 0), (0, z1, 0), (T - 1, z0, 0), (T - 1, z1, 0)]
+    else:
+        bnds += [(0, Z, 0), (T - 1, Z, 0)]
     if bind_io:
-        bnds += [(0, FIO, 0), (T - 1, FIO, int(fp_exec) % F.P)]
+        _fio = _fio_idx(ext)
+        bnds += [(0, _fio, 0), (T - 1, _fio, int(fp_exec) % F.P)]
     return bnds
 
 
-def _aux_spec(periodic, bind_io=False, gamma_fp=0):
-    return {"num_challenges": 2, "num_aux": NUM_AUX + (1 if bind_io else 0),
+def _aux_spec(periodic, bind_io=False, gamma_fp=0, ext=False):
+    return {"num_challenges": 2,
+            "num_aux": (NUM_AUX_EXT if ext else NUM_AUX) + (1 if bind_io else 0),
             "build": make_aux_builder(periodic, bind_io, gamma_fp)}
 
 
@@ -845,9 +947,13 @@ def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_co
     trace, T, blocks, progs, epoch_io, per_call = build_epoch_trace(calls)
     periodic = build_periodic(blocks, progs, epoch_io, T)
     fp_exec = _io_fingerprint(trace, gamma_fp) if bind_io else 0
-    proof = stark.prove(trace, transitions(bind_io, gamma_fp), _boundaries(T, bind_io, fp_exec),
+    # The aux layout follows the CHALLENGE FIELD (β, γ in GF(p^2) on every backend but RECURSION), so the
+    # constraints, the boundaries and the declared aux width must all be asked of the same source of truth.
+    _ext = stark.ext_challenges_active(backend)
+    proof = stark.prove(trace, transitions(bind_io, gamma_fp, _ext),
+                        _boundaries(T, bind_io, fp_exec, _ext),
                         periodic=periodic, max_degree=MAX_DEGREE, num_queries=num_queries,
-                        aux_spec=_aux_spec(periodic, bind_io, gamma_fp), backend=backend,
+                        aux_spec=_aux_spec(periodic, bind_io, gamma_fp, _ext), backend=backend,
                         row_commit=row_commit, commit_periodic=commit_periodic)
     proof["progs"] = [[list(ins) for ins in p] for p in progs]
     proof["blocks"] = [{"start": s, "n": n, "pid": pid} for (s, n, pid, _c) in blocks]
@@ -858,14 +964,15 @@ def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_co
     return proof, epoch_io, per_call
 
 
-def epoch_statement(proof, calls, epoch_io, bind_io=False):
+def epoch_statement(proof, calls, epoch_io, bind_io=False, ext=False):
     """Rebuild the epoch AIR's PUBLIC statement — the periodic tables + boundaries — from the public calls +
     io log + the proof's DECLARED block lengths (cross-checked for contiguity/fit; nothing else is trusted).
     Everything verify_epoch_calls checks before the STARK itself, factored out so the RECURSIVE verifier
     (recursive_verify over row-committed segments) can build the same statement without running stark.verify.
     Returns (ok, reason, periodic, boundaries). `bind_io` widens the expected trace by the FIO column."""
     T, W = proof["T"], proof["W"]
-    if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != W_TOTAL + (1 if bind_io else 0):
+    _wt = (W_TOTAL_EXT if ext else W_TOTAL) + (1 if bind_io else 0)
+    if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != _wt:
         return False, "bad trace geometry", None, None
     calls = [_norm_call(c) for c in calls]
     for c in calls:
@@ -905,7 +1012,7 @@ def epoch_statement(proof, calls, epoch_io, bind_io=False):
         return False, "io log does not fit the trace", None, None
     norm_io = [(e[0], e[1] % F.P, e[2] % F.P) for e in epoch_io]
     periodic = build_periodic(blocks, progs, norm_io, T)
-    return True, "ok", periodic, _boundaries(T)
+    return True, "ok", periodic, _boundaries(T, ext=ext)
 
 
 def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, backend=None, row_commit=False,
@@ -919,17 +1026,23 @@ def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, ba
     `io_fingerprint` (and c_fio + FIO[0]=0 force that to be the real ordered RLC under `gamma_fp`), so the
     fingerprint the settlement matches against is itself proven."""
     try:
-        ok, why, periodic, bnds = epoch_statement(proof, calls, epoch_io, bind_io=bind_io)
-        if not ok:
-            return False, why
-        if bind_io:                                       # rebuild the boundaries with the proven fingerprint
-            fp = int(proof.get("io_fingerprint", 0)) % F.P
-            bnds = _boundaries(proof["T"], bind_io=True, fp_exec=fp)
+        # Resolve the backend FIRST: it decides the challenge field, the challenge field decides whether Z is
+        # one column or a limb pair, and that decides the trace WIDTH epoch_statement must expect. Checking
+        # the geometry before knowing the layout would reject every honest ext proof outright.
         if backend is None and proof.get("backend"):     # honour the hash the proof was produced with
             from execnode.stark import backend as _bk
             backend = _bk.get(proof["backend"])
-        return stark.verify(proof, transitions(bind_io, gamma_fp), bnds, periodic=periodic, max_degree=MAX_DEGREE,
-                            num_queries=num_queries, aux_spec=_aux_spec(periodic, bind_io, gamma_fp),
+        _ext = stark.ext_challenges_active(backend)
+        ok, why, periodic, bnds = epoch_statement(proof, calls, epoch_io, bind_io=bind_io, ext=_ext)
+        if not ok:
+            return False, why
+        # One boundary construction site instead of two that have to agree (the old code rebuilt them
+        # separately for bind_io).
+        _fp = int(proof.get("io_fingerprint", 0)) % F.P if bind_io else 0
+        bnds = _boundaries(proof["T"], bind_io=bind_io, fp_exec=_fp, ext=_ext)
+        return stark.verify(proof, transitions(bind_io, gamma_fp, _ext), bnds,
+                            periodic=periodic, max_degree=MAX_DEGREE,
+                            num_queries=num_queries, aux_spec=_aux_spec(periodic, bind_io, gamma_fp, _ext),
                             backend=backend, row_commit=row_commit, commit_periodic=commit_periodic,
                             periodic_roots=periodic_roots)
     except Exception as e:
@@ -964,7 +1077,13 @@ def verify_epoch_o1(proof, per_roots, num_queries=stark.NUM_QUERIES, backend=Non
     is self-contained but O(epoch).) Returns (ok, reason)."""
     try:
         T, W = proof["T"], proof["W"]
-        if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != W_TOTAL:
+        if backend is None and proof.get("backend"):     # resolve BEFORE the width check — see below
+            from execnode.stark import backend as _bk
+            backend = _bk.get(proof["backend"])
+        # The expected width depends on the challenge field: extension-valued aux columns are carried as limb
+        # pairs, so the aux block doubles. Resolve the backend first or an honest ext proof fails here.
+        _ext = stark.ext_challenges_active(backend)
+        if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != (W_TOTAL_EXT if _ext else W_TOTAL):
             return False, "bad trace geometry"
         if len(per_roots) != len(COMMIT_PERIODIC):
             return False, "wrong committed-root count"
@@ -981,11 +1100,9 @@ def verify_epoch_o1(proof, per_roots, num_queries=stark.NUM_QUERIES, backend=Non
         if pos > T - 2:
             return False, "epoch does not fit the trace"
         periodic = _o1_periodic(decl, T)
-        if backend is None and proof.get("backend"):
-            from execnode.stark import backend as _bk
-            backend = _bk.get(proof["backend"])
-        return stark.verify(proof, transitions(), _boundaries(T), periodic=periodic, max_degree=MAX_DEGREE,
-                            num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend,
+        return stark.verify(proof, transitions(ext=_ext), _boundaries(T, ext=_ext),
+                            periodic=periodic, max_degree=MAX_DEGREE,
+                            num_queries=num_queries, aux_spec=_aux_spec(periodic, ext=_ext), backend=backend,
                             commit_periodic=COMMIT_PERIODIC, periodic_roots=list(per_roots))
     except Exception as e:
         return False, f"malformed statement/proof: {e}"

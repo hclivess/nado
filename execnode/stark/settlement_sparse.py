@@ -16,7 +16,7 @@ Wiring this in as THE consensus settled root (settle tx state_root, ops/transact
 projection) is the deploy step that rides the reroll (a new state-root scheme = a genesis change; forking cleared).
 """
 from execnode.stark import (field as F, storage_tree as ST, state_transition as SX, exec_state_bind as ESB,
-                            vm_circuit, calls_commit as CC)
+                            vm_circuit, calls_commit as CC, stark)
 from execnode import settlement_proofs as SP, zkvm
 
 DEFAULT_DEPTH = 256                      # sparse-tree depth = full 128-bit-secure slot space (2^256 positions):
@@ -300,8 +300,12 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
            "kv_post": ST.digest_hex(tuple(int(x) % F.P for x in segments[-1]["sparse_post_root"])),
            "segments": segments}
     if fold:                                             # attach the K→1 recursion bundle (the heavy step)
-        out["recursive"] = RV.prove(exec_proofs, vm_circuit.transitions(), bnds, num_queries_outer=oq,
-                                    periodic_list=pers, num_challenges=2, num_aux=vm_circuit.NUM_AUX,
+        # Folded proofs are RECURSION-backend (base-field aux layout); asked, not assumed — see
+        # stark.ext_challenges_active.
+        _fx = stark.ext_challenges_active(_bk.RECURSION)
+        out["recursive"] = RV.prove(exec_proofs, vm_circuit.transitions(ext=_fx), bnds, num_queries_outer=oq,
+                                    periodic_list=pers, num_challenges=2,
+                                    num_aux=(vm_circuit.NUM_AUX_EXT if _fx else vm_circuit.NUM_AUX),
                                     comp_points_per_proof=comp_points_per_proof)
         out["comp_points_per_proof"] = comp_points_per_proof
     return out

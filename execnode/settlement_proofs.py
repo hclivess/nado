@@ -17,7 +17,7 @@ very large epochs split across a few proofs until recursion lands.
 """
 from hashing import canonical_bytes, merkle_root
 from execnode import runtimes, zkvm
-from execnode.stark import vm_circuit, field as F
+from execnode.stark import vm_circuit, field as F, stark
 
 
 def zkvm_leaves(contracts):
@@ -264,17 +264,24 @@ def _stark_fri_transcript_factory(stark_proof):
     col_roots = stark_proof["col_roots"]
     Tlen = stark_proof["T"]
     w_main = vm_circuit.W_MAIN
-    n_alpha = len(vm_circuit.transitions()) + len(vm_circuit._boundaries(Tlen))
+    # This replay must draw EXACTLY what stark.prove drew, in the same field. The RECURSION backend keeps
+    # base-field challenges today (its in-circuit verifier cannot do extension arithmetic), but asking the one
+    # authority instead of hardcoding that means this transcript follows automatically the day the recursion
+    # path is lifted — a silent mismatch here would reject every settlement proof, and it is exactly the kind
+    # of duplicated assumption that rots.
+    _ext = stark.ext_challenges_active(_bk.RECURSION)
+    n_alpha = len(vm_circuit.transitions(ext=_ext)) + len(vm_circuit._boundaries(Tlen, ext=_ext))
 
     def make():
         t = Transcript(DOMAIN_STARK, backend=_bk.RECURSION)
         for r in col_roots[:w_main]:
             t.absorb(r)
-        t.challenge(); t.challenge()                     # β, γ (aux_spec num_challenges = 2)
+        for _ in range(2):                               # β, γ (aux_spec num_challenges = 2)
+            t.challenge_ext() if _ext else t.challenge()
         for r in col_roots[w_main:]:
             t.absorb(r)
         for _ in range(n_alpha):
-            t.challenge()                                # the constraint-combination α's
+            t.challenge_ext() if _ext else t.challenge()  # the constraint-combination α's
         return t
     return make
 
@@ -340,12 +347,17 @@ def prove_settlement_o1(pre_contracts, calls, cursor, timestamp=0, beacons=None,
     proofs, bnds, pers = [], [], []
     for seg in bundle["segments"]:
         pub_calls, epoch_io = _epoch_pub_statement(seg)
-        ok, why, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io)
+        # The FOLD operates on RECURSION-backend proofs, whose aux layout is base-field. Ask the authority
+        # rather than rely on the default, so this follows automatically if the recursion path is ever lifted.
+        _fx = stark.ext_challenges_active(_bk.RECURSION)
+        ok, why, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io, ext=_fx)
         if not ok:
             raise ValueError(f"segment statement: {why}")
         proofs.append(seg["proof"]); bnds.append(bl); pers.append(periodic)
-    bundle["recursive"] = RV.prove(proofs, vm_circuit.transitions(), bnds, num_queries_outer=outer_queries,
-                                   periodic_list=pers, num_challenges=2, num_aux=vm_circuit.NUM_AUX,
+    bundle["recursive"] = RV.prove(proofs, vm_circuit.transitions(ext=_fx), bnds,
+                                   num_queries_outer=outer_queries,
+                                   periodic_list=pers, num_challenges=2,
+                                   num_aux=(vm_circuit.NUM_AUX_EXT if _fx else vm_circuit.NUM_AUX),
                                    comp_points_per_proof=comp_points_per_proof)
     bundle["comp_points_per_proof"] = comp_points_per_proof
     return bundle
@@ -382,8 +394,10 @@ def verify_settlement_o1(bundle, num_queries=None, outer_queries=None):
         cpp = bundle.get("comp_points_per_proof")
         if cpp is not None and (not isinstance(cpp, int) or cpp < 1):
             return False, "bad comp chunk size", None
-        okr, whyr = RV.verify(pubs, vm_circuit.transitions(), bnds, rb, num_queries_outer=nqo,
-                              periodic_list=pers, num_challenges=2, num_aux=vm_circuit.NUM_AUX,
+        _fx = stark.ext_challenges_active(_bk.RECURSION)
+        okr, whyr = RV.verify(pubs, vm_circuit.transitions(ext=_fx), bnds, rb, num_queries_outer=nqo,
+                              periodic_list=pers, num_challenges=2,
+                              num_aux=(vm_circuit.NUM_AUX_EXT if _fx else vm_circuit.NUM_AUX),
                               comp_points_per_proof=cpp, num_queries_inner=nqi)
         if not okr:
             return False, f"recursive verification failed: {whyr}", None

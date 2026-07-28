@@ -17,12 +17,25 @@ In-circuit shape (all divisions removed):
 The prover-side builders here compute h, g, z with ONE batch inversion; the constraints themselves live in
 each circuit (they are two lines each).
 """
-from execnode.stark import field as F
+from execnode.stark import field as F, ext2
 
 
 def combine(vals, gamma):
     """Fold a tuple into one field element: Σ γ^k · v_k. Injective at a random γ (Schwartz–Zippel) — the
-    standard way to look up multi-column rows through a single-value argument."""
+    standard way to look up multi-column rows through a single-value argument.
+
+    γ may be a BASE element or a GF(p^2) pair, and the result follows it. The values folded are always base
+    (they are trace/periodic cells), so the extension path is scalar_mul — ext·base — and never a full ext
+    multiply per term; only the γ power itself is squared up in the extension. Drawing γ from GF(p^2) is what
+    takes the argument's Schwartz-Zippel error from ~2^-44 at 2^17 rows to the ~112-bit range everything else
+    in the proof already sits at (see execnode/stark/soundness.py)."""
+    if isinstance(gamma, tuple):
+        acc = ext2.ZERO
+        g = ext2.ONE
+        for v in vals:
+            acc = ext2.add(acc, ext2.scalar_mul(g, v % F.P))
+            g = ext2.mul(g, gamma)
+        return acc
     acc = 0
     g = 1
     for v in vals:

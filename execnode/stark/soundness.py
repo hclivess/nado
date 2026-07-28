@@ -31,15 +31,22 @@ and Miden get over this same base field. This file READS both flags rather than
 assuming them (see _ext_alphas), so it reports what the code does, not what the
 code was supposed to do.
 
-STILL OPEN — the aux (LogUp) challenges. stark.py draws them with t.challenge(),
-base field, for both prover and verifier. A LogUp argument's error is
-(lookups + rows)/|challenge field|, so at 2^17 rows that term sits near 44 bits:
-BELOW everything above, i.e. it is now the binding term for any circuit using
-aux_spec (vm_circuit, logup_bind, and the settlement path). Lifting it is not a
-one-line change — see alphas_bits/aux notes: the challenge can only be an
-extension element if the aux COLUMNS and their transition constraints are
-extension-valued too, which means representing each aux column as a pair of base
-columns and mirroring the change in stark_native.py.
+THE AUX (LogUp) CHALLENGES ARE LIFTED TOO. They were the last base-field draw and
+therefore the real binding term: a LogUp argument's error is
+(lookups + rows)/|challenge field|, so at 2^17 rows base-field beta/gamma sat near
+44 bits — under FRI's 112 and the alphas' 126 — for every aux_spec circuit
+(vm_circuit, logup_bind, and the settlement path through them). They now come from
+GF(p^2) as well, which is what aux_bits reports.
+
+That was not a one-line change, because an extension challenge is only sound if
+everything derived from it is extension-valued too: 1/(gamma - rlc) and the running
+sum live in GF(p^2), and a trace column holds base elements only. So each LOGICAL
+aux column is carried as a PAIR of base columns (lo + hi*X), the constraints read
+the pair back as one ext value, and BOTH limbs of the accumulator are pinned at the
+boundaries — pinning only the lo limb would let a prover park an unbalanced bus in
+the hi limb. Constraint degree is unchanged. The RECURSION backend keeps the
+base-field layout (its in-circuit verifier cannot do ext), so both layouts are live
+and stark.ext_challenges_active is the single authority on which one applies.
 
 MODEL PROVENANCE
 ----------------
@@ -127,6 +134,30 @@ def deep_bits(E, log_degree):
     return E - log_degree
 
 
+def aux_bits(log_rows, ext=None, num_buses=4):
+    """LogUp / permutation-argument soundness: log2(|challenge field|) − log2(buses · rows).
+
+    A LogUp bus is sound because γ − rlc(tuple) is non-zero for all but a negligible fraction of γ, and the
+    fraction is (#lookups + #rows)/|F|. Drawn from the base field at NADO's 2^17 rows that is ~44 bits — it
+    was the BINDING term for every aux_spec circuit (vm_circuit, logup_bind, and the settlement path through
+    them), well under FRI's commit phase and the constraint alphas. β and γ now come from GF(p^2) on every
+    backend except RECURSION, which lifts it out of the way.
+
+    READ from the code, never assumed: if the challenge draw is ever reverted this number follows it down."""
+    e = _ext_challenges() if ext is None else bool(ext)
+    base = E_EXT2 if e else E_BASE
+    return base - math.log2(max(num_buses * (2.0 ** log_rows), 1.0))
+
+
+def _ext_challenges():
+    """Whether stark.py draws the AUX (LogUp) challenges from GF(p^2) — READ, never assumed."""
+    try:
+        from execnode.stark import stark as _st
+        return bool(_st.ext_challenges_active())
+    except Exception:
+        return False
+
+
 def _ext_alphas():
     """Whether stark.py draws the constraint alphas from GF(p^2) — READ, never assumed."""
     try:
@@ -200,6 +231,7 @@ def achieved(R, nu, E, s, g, log_degree, num_constraints=1):
     j, m = best_jbr(R, nu, E, s, g)
     d = deep_bits(E, log_degree)
     a = alphas_bits(num_constraints)
+    x = aux_bits(log_degree)          # LogUp buses — binds every aux_spec circuit
     # `d` is REPORTED but must not BIND. deep_bits' own docstring says stark.prove runs no DEEP /
     # out-of-domain step — deep_eval.py is a separate subsystem (io_bind, bound_epoch_o1, state_io_tie,
     # settlement_aggregate) — and for the main STARK the analogous algebraic term is the constraint alphas,
@@ -208,8 +240,8 @@ def achieved(R, nu, E, s, g, log_degree, num_constraints=1):
     # commit-phase bound of 112.0, so the report understated the main path by a bit and pointed at the wrong
     # term while doing it. Kept in the returned dict so the number stays visible for the paths that DO run a
     # DEEP step; simply no longer folded into the bound for the one that does not.
-    total = min(max(u, j), a)
-    return dict(udr=u, jbr=j, m=m, deep=d, alphas=a, total=total,
+    total = min(max(u, j), a, x)
+    return dict(udr=u, jbr=j, m=m, deep=d, alphas=a, aux=x, total=total,
                 regime="UDR" if u >= j else "JBR")
 
 
@@ -240,7 +272,8 @@ def report():
     print(f"  {'commit phase (UDR)':<26} {commit_udr(R, nu, E):>9.1f}")
     print(f"  {'best Johnson (m=%.0f)' % a['m']:<26} {a['jbr']:>9.1f}")
     print(f"  {'DEEP / Schwartz-Zippel':<26} {a['deep']:>9.1f}   (not on the main path)")
-    print(f"  {('constraint alphas (GF(p^2))' if _ext_alphas() else 'constraint alphas (BASE fld)'):<26} {a['alphas']:>9.1f}   <-- caps the main STARK")
+    print(f"  {('constraint alphas (GF(p^2))' if _ext_alphas() else 'constraint alphas (BASE fld)'):<26} {a['alphas']:>9.1f}")
+    print(f"  {('LogUp aux bus (GF(p^2))' if _ext_challenges() else 'LogUp aux bus (BASE fld)'):<26} {a['aux']:>9.1f}   (aux_spec circuits only)")
     print(f"      (that is nc = 1; the term is log2(q) - log2(nc), so a circuit")
     print(f"       with 100 constraints sits at {alphas_bits(100):.1f} and one with")
     print(f"       3412 at {alphas_bits(3412):.1f}. Pass num_constraints to achieved().)")

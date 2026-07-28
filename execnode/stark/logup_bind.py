@@ -11,13 +11,28 @@ tuples are committed (the two-phase protocol), so a prover cannot rig them.
 Self-contained + validated here; wiring it between the exec AIR (emit its storage writes on this bus) and the
 transition AIR (emit its updates) — with the shared β/γ from folding both — is the succinctness integration.
 """
-from execnode.stark import field as F, stark
+from execnode.stark import field as F, stark, ext2
 
 # main columns: A tuple (3) | B tuple (3) ; aux (phase 2): inva, invb, accdiff
-A0, A1, A2, B0, B1, B2, INVA, INVB, ACC = range(9)
+#
+# EXTENSION-VALUED AUX. β and γ are drawn from GF(p^2) (see stark.ext_challenges_active): a LogUp argument's
+# soundness error is (lookups + rows)/|challenge field|, so base-field challenges capped this circuit at ~44
+# bits — below FRI's 112 and the alphas' 126, i.e. it was the binding term for the whole system. Once the
+# challenges are extension elements every value derived from them is too: 1/(γ − rlc) lives in GF(p^2), and
+# so does the running sum. A column can only hold base elements, so each LOGICAL aux column is carried as a
+# PAIR of base columns (c0, c1) meaning c0 + c1·X, and the constraints read the pair back as one ext value.
+# Under the RECURSION backend the challenges stay base-field (the in-circuit verifier cannot do ext), and the
+# original 3 scalar aux columns are used unchanged — both layouts are live, chosen by the backend.
+A0, A1, A2, B0, B1, B2 = range(6)
 W_MAIN = 6
-NUM_AUX = 3
 NUM_CHAL = 2                                    # ch[0]=β (rlc), ch[1]=γ (logup)
+
+# BASE layout (recursion backend): three scalar aux columns.
+INVA, INVB, ACC = 6, 7, 8
+NUM_AUX_BASE = 3
+# EXT layout: the same three, each split into (lo, hi) limbs of a GF(p^2) element.
+INVA0, INVA1, INVB0, INVB1, ACC0, ACC1 = range(6, 12)
+NUM_AUX_EXT = 6
 
 
 def _next_pow2(x):
@@ -28,10 +43,15 @@ def _next_pow2(x):
 
 
 def _rlc3(x0, x1, x2, beta):
+    """β-folded random linear combination of a 3-tuple. β is base OR ext; the tuple entries are always base
+    trace cells, so the ext form is scalar_mul (ext·base), never a full ext multiply."""
+    if isinstance(beta, tuple):
+        b2 = ext2.square(beta)
+        return ext2.add(ext2.add(ext2.lift(x0), ext2.scalar_mul(beta, x1)), ext2.scalar_mul(b2, x2))
     return F.add(F.add(x0, F.mul(x1, beta)), F.mul(x2, F.mul(beta, beta)))
 
 
-def _transitions():
+def _transitions_base():
     """(1) inv columns are the true inverses of (γ − rlc); (2) accdiff is the running prefix sum of (inva−invb),
     starting 0 and — with a guaranteed trailing dummy row — ending at the full multiset difference (pinned 0)."""
     def c_inva(c, n, p, ch):
@@ -45,7 +65,29 @@ def _transitions():
     return [c_inva, c_invb, c_acc]
 
 
-def _build_aux(trace, chals):
+def _transitions_ext():
+    """The same three statements over GF(p^2), reading each aux column back from its (lo, hi) limb pair.
+
+    Degree is UNCHANGED at 2: an aux limb is one column, (γ − rlc) is degree 1 in the main columns, and their
+    ext product is still a degree-2 form — so max_degree=2 and the blowup stay exactly as they were. Only the
+    arithmetic widens, which is the whole point: the argument's error now scales with |GF(p^2)|."""
+    def c_inva(c, n, p, ch):
+        rlc = _rlc3(c[A0], c[A1], c[A2], ch[0])
+        return ext2.sub(ext2.mul((c[INVA0], c[INVA1]), ext2.sub(ch[1], rlc)), ext2.ONE)
+    def c_invb(c, n, p, ch):
+        rlc = _rlc3(c[B0], c[B1], c[B2], ch[0])
+        return ext2.sub(ext2.mul((c[INVB0], c[INVB1]), ext2.sub(ch[1], rlc)), ext2.ONE)
+    def c_acc(c, n, p, ch):
+        d = ext2.sub((n[ACC0], n[ACC1]), (c[ACC0], c[ACC1]))
+        return ext2.sub(d, ext2.sub((c[INVA0], c[INVA1]), (c[INVB0], c[INVB1])))
+    return [c_inva, c_invb, c_acc]
+
+
+def _transitions(ext=False):
+    return _transitions_ext() if ext else _transitions_base()
+
+
+def _build_aux_base(trace, chals):
     beta, gamma = chals[0], chals[1]
     inva, invb, acc = [], [], []
     running = 0
@@ -58,7 +100,38 @@ def _build_aux(trace, chals):
     return [inva, invb, acc]
 
 
-AUX_SPEC = {"num_challenges": NUM_CHAL, "num_aux": NUM_AUX, "build": _build_aux}
+def _build_aux_ext(trace, chals):
+    """Same computation in GF(p^2), emitted as limb pairs in the column order INVA0,INVA1,INVB0,INVB1,ACC0,ACC1.
+
+    γ − rlc is invertible for all but a negligible fraction of γ (it vanishes only if γ happens to equal one of
+    the ≤2T committed rlc values, and γ is drawn AFTER those are committed) — over GF(p^2) that probability is
+    the ~112-bit term this migration buys. A hit would be an honest-prover liveness event, not a soundness one;
+    ext2.inv raises rather than silently emitting a wrong column."""
+    beta, gamma = chals[0], chals[1]
+    ia0, ia1, ib0, ib1, ac0, ac1 = [], [], [], [], [], []
+    running = ext2.ZERO
+    for row in trace:
+        ac0.append(running[0]); ac1.append(running[1])        # EXCLUSIVE prefix sum (accdiff[0] = 0)
+        ia = ext2.inv(ext2.sub(gamma, _rlc3(row[A0], row[A1], row[A2], beta)))
+        ib = ext2.inv(ext2.sub(gamma, _rlc3(row[B0], row[B1], row[B2], beta)))
+        ia0.append(ia[0]); ia1.append(ia[1])
+        ib0.append(ib[0]); ib1.append(ib[1])
+        running = ext2.add(running, ext2.sub(ia, ib))
+    return [ia0, ia1, ib0, ib1, ac0, ac1]
+
+
+def _aux_spec(ext=False):
+    return {"num_challenges": NUM_CHAL,
+            "num_aux": NUM_AUX_EXT if ext else NUM_AUX_BASE,
+            "build": _build_aux_ext if ext else _build_aux_base}
+
+
+def _boundaries(T, ext=False):
+    """accdiff starts 0 and ends 0 ⟺ the multisets are equal. Under ext that is a GF(p^2) zero, so BOTH limbs
+    are pinned — dropping the hi limb would let a prover hide a non-zero difference in it."""
+    if ext:
+        return [(0, ACC0, 0), (0, ACC1, 0), (T - 1, ACC0, 0), (T - 1, ACC1, 0)]
+    return [(0, ACC, 0), (T - 1, ACC, 0)]
 _DUMMY = (0, 0, 0)                                # padding tuple: identical on A and B ⇒ contributes 0 to accdiff
 
 
@@ -80,9 +153,11 @@ def prove_multiset_eq(A, B, num_queries=stark.NUM_QUERIES, backend=None):
     """Prove multiset(A) == multiset(B), A/B lists of 3-field tuples. Two-phase LogUp; foldable under RECURSION.
     Returns the proof (proof['n'] = the common length, public)."""
     rows, T = _trace(A, B)
-    bnd = [(0, ACC, 0), (T - 1, ACC, 0)]         # accdiff starts 0 and ends 0 ⇔ the multisets are equal
-    proof = stark.prove(rows, _transitions(), bnd, max_degree=2, num_queries=num_queries, aux_spec=AUX_SPEC,
-                        backend=backend)
+    # The layout follows the CHALLENGE FIELD, so prover and verifier must ask the same question of the same
+    # backend — stark.ext_challenges_active is the one definition of that (see its docstring).
+    _ext = stark.ext_challenges_active(backend)
+    proof = stark.prove(rows, _transitions(_ext), _boundaries(T, _ext), max_degree=2,
+                        num_queries=num_queries, aux_spec=_aux_spec(_ext), backend=backend)
     proof["n"] = len(A)
     return proof
 
@@ -99,8 +174,8 @@ def verify_multiset_eq(proof, expect_n=None, num_queries=stark.NUM_QUERIES, back
         T = _next_pow2(n + 1)
         if proof.get("T") != T:
             return False, "bad trace geometry"
-        bnd = [(0, ACC, 0), (T - 1, ACC, 0)]
-        return stark.verify(proof, _transitions(), bnd, max_degree=2, num_queries=num_queries, aux_spec=AUX_SPEC,
-                            backend=backend)
+        _ext = stark.ext_challenges_active(backend)
+        return stark.verify(proof, _transitions(_ext), _boundaries(T, _ext), max_degree=2,
+                            num_queries=num_queries, aux_spec=_aux_spec(_ext), backend=backend)
     except Exception as e:
         return False, f"malformed multiset-eq proof: {e}"

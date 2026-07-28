@@ -36,6 +36,24 @@ MAX_TRACE_ROWS = 1 << 17
 # Read by execnode/stark/soundness.py, which must never assume this rather than measure it.
 EXT_ALPHAS = True
 
+
+def ext_challenges_active(backend=None):
+    """Whether a proof on `backend` draws its alphas AND its aux (LogUp) challenges from GF(p^2).
+
+    ONE definition, called by prove, verify and every aux_spec AIR. It used to be an inline expression
+    repeated at each site, which is precisely how a prover and a verifier drift into drawing different
+    challenges from the same transcript and rejecting honest proofs. AIRs need it too, because the aux
+    geometry itself depends on it: an extension-valued aux column is carried as a PAIR of base columns, so
+    num_aux doubles under ext and the AIR must declare the width the prover will actually build.
+
+    RECURSION-backend proofs stay base-field — the in-circuit AIRs (fri_verify, rowcomp_verify) and the
+    arena's sp_fold do base-field arithmetic, so a proof destined to be FOLDED must be produced base-field.
+    That is the same rule the fold gate uses, and it is why lifting the recursion path is what unblocks
+    SETTLE_PROOF_RECURSIVE."""
+    from execnode.stark import fri
+    b = backend or _backend.DEFAULT
+    return bool(getattr(fri, "EXT_CHALLENGES", False)) and getattr(b, "name", "") != "recursion"
+
 MAX_COLUMNS = 8192   # verify-side sanity/DoS cap on trace width (a pure Python bound; the native prover has no
                      # column limit — it keeps LDE columns in a Rust arena). Raised in two steps:
                      #   256 -> 384: the recursion's ROW-MODE composition of a W-wide inner AIR is 18 + 2*W wide
@@ -163,12 +181,17 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
     # NATIVE-FIELD PATH: trace the constraints into the shared IR (air_ir) and evaluate the whole composition in
     # Rust — bit-identical to the Python loop below (verified in tests), an order of magnitude faster on the
     # execution AIR. Falls back to Python if the lib is unbuilt or rejects the program (returns None).
-    from execnode.stark import air_ir
-    prog = air_ir.build_program(transitions, W, len(per_lde), 0 if challenges is None else len(challenges))
     # The Rust arena multiplies by a BASE-field alpha, so it cannot carry GF(p^2) constraint alphas. When
     # they are in use the composition MUST run in Python (below); this is the cost of lifting the alphas term,
     # which was capping the whole STARK at 63 bits however strong FRI got.
+    #
+    # build_program is INSIDE this branch, not above it: it traces every constraint with symbolic _Sym cells
+    # to lower it into the IR, and an extension-valued constraint (LogUp under GF(p^2) challenges) cannot be
+    # traced that way — ext2 arithmetic on a _Sym raises TypeError. Tracing a program that is then discarded
+    # was always waste; under ext it is also a crash.
     if not ext_alphas:
+        from execnode.stark import air_ir
+        prog = air_ir.build_program(transitions, W, len(per_lde), 0 if challenges is None else len(challenges))
         cp = air_ir.compose_native(prog, N, blowup, col_lde, per_lde, list(challenges or []), alphas, invZ,
                                    boundaries, bnd_inv_dens)
         if cp is not None:
@@ -181,24 +204,33 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
     # With ext alphas the constraint VALUES stay base-field (they come from the base trace); only the alpha
     # multiply lifts, so each term is scalar_mul(ext_alpha, base_value) and cp becomes GF(p^2)-valued. FRI
     # carries that from layer 0 via its data-driven ext0.
+    # A constraint returns a BASE value normally, but under GF(p^2) aux challenges the LogUp constraints are
+    # EXTENSION-valued (the aux columns they read are ext, carried as base-column pairs). Accept both: lift a
+    # base value, then quotient by the base invZ and scale by the ext alpha. For a base v this is exactly the
+    # old scalar_mul(a, v*invZ), so nothing changes for AIRs that stay base-field.
     _add = ext2.add if ext_alphas else F.add
-    _scale = (lambda a, v: ext2.scalar_mul(a, v)) if ext_alphas else (lambda a, v: F.mul(a, v))
+    if ext_alphas:
+        def _combine(a, v, iz):
+            return ext2.mul(a, ext2.scalar_mul(v if isinstance(v, tuple) else ext2.lift(v), iz))
+    else:
+        def _combine(a, v, iz):
+            return F.mul(a, F.mul(v, iz))
     cp = [(ext2.ZERO if ext_alphas else 0)] * N
     ai = 0
     for con in transitions:
         a = alphas[ai]; ai += 1
         if challenges is None:
             for j in range(N):
-                cp[j] = _add(cp[j], _scale(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j]), invZ[j])))
+                cp[j] = _add(cp[j], _combine(a, con(cur_rows[j], nxt_rows[j], per_rows[j]), invZ[j]))
         else:
             for j in range(N):
-                cp[j] = _add(cp[j], _scale(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j], challenges),
-                                                    invZ[j])))
+                cp[j] = _add(cp[j], _combine(a, con(cur_rows[j], nxt_rows[j], per_rows[j], challenges),
+                                             invZ[j]))
     for bi, (row, col, val) in enumerate(boundaries):
         a = alphas[ai]; ai += 1
         inv_den = bnd_inv_dens[bi]
         for j in range(N):
-            cp[j] = _add(cp[j], _scale(a, F.mul(F.sub(col_lde[col][j], val), inv_den[j])))
+            cp[j] = _add(cp[j], _combine(a, F.sub(col_lde[col][j], val), inv_den[j]))
     return cp
 
 
@@ -300,9 +332,20 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         for c in range(W):
             root, ml = merkle.commit(col_lde[c], b)
             col_roots.append(root); col_mlayers.append(ml); t.absorb(root)
+    # EXTENSION-FIELD FLAG, hoisted above the aux draw because the AUX challenges need it too (see below).
+    # RECURSION-backend proofs stay base-field (the in-circuit AIRs cannot verify ext), same rule as the fold.
+    _ext_a = ext_challenges_active(b)
     challenges = None
     if aux_spec is not None:                 # phase 2: challenges AFTER the main commitment, then aux columns
-        challenges = [t.challenge() for _ in range(aux_spec["num_challenges"])]
+        # AUX (LogUp) CHALLENGES IN GF(p^2). A LogUp/permutation argument's soundness error is
+        # (lookups + rows)/|challenge field|, so drawing beta/gamma from the BASE field capped every
+        # aux_spec circuit — vm_circuit, logup_bind, the settlement path — at ~44 bits: below FRI's 112 and
+        # the alphas' 126, i.e. the binding term for the whole system. Lifting them means the aux COLUMNS and
+        # their constraints are extension-valued too; an AIR expresses that by returning each logical aux
+        # column as a PAIR of base columns (c0, c1) meaning c0 + c1*X, and returning ext-valued constraints
+        # (_composition accepts either). num_aux therefore counts the BASE columns, so it doubles.
+        challenges = [(t.challenge_ext() if _ext_a else t.challenge())
+                      for _ in range(aux_spec["num_challenges"])]
         aux_cols = aux_spec["build"](trace, challenges)
         if len(aux_cols) != aux_spec["num_aux"] or any(len(c) != T for c in aux_cols):
             raise ValueError("aux builder returned wrong geometry")
@@ -318,8 +361,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         W += aux_spec["num_aux"]
     # CONSTRAINT ALPHAS IN GF(p^2). These were the binding term: a base-field alpha caps the STARK at
     # log2(q) - log2(nc) ~ 63 bits (worse with more constraints) no matter how strong FRI's commit phase is.
-    # RECURSION-backend proofs stay base-field (the in-circuit AIRs cannot verify ext), same rule as the fold.
-    _ext_a = bool(getattr(fri, "EXT_CHALLENGES", False)) and getattr(b, "name", "") != "recursion"
+    # (_ext_a is computed above, before the aux draw, because the aux challenges use the same rule.)
     alphas = [(t.challenge_ext() if _ext_a else t.challenge())
               for _ in range(len(transitions) + len(boundaries))]
     cp = _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas,
@@ -432,19 +474,22 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         for r in per_roots:                  # committed-periodic roots: same public-parameter position as prove
             t.absorb(r)
         challenges = None
+        # Hoisted above the aux draw: the AUX challenges are drawn from GF(p^2) under the same rule as the
+        # alphas, and prove() draws them in this order, so the flag has to exist before the replay.
+        _ext_a = ext_challenges_active(b)
         if aux_spec is not None:
             # Two-phase replay: the aux geometry comes from the CALLER's protocol (aux_spec), never the proof.
             # Main roots are absorbed first, the k challenges drawn, THEN the aux roots — same order as prove,
             # so a prover that built aux columns before its main commitment gets different challenges and fails.
             for r in (row_roots[:1] if row_commit else col_roots[:w_main]):
                 t.absorb(r)
-            challenges = [t.challenge() for _ in range(aux_spec["num_challenges"])]
+            challenges = [(t.challenge_ext() if _ext_a else t.challenge())
+                          for _ in range(aux_spec["num_challenges"])]
             for r in (row_roots[1:] if row_commit else col_roots[w_main:]):
                 t.absorb(r)
         else:
             for r in (row_roots if row_commit else col_roots):
                 t.absorb(r)
-        _ext_a = bool(getattr(fri, "EXT_CHALLENGES", False)) and getattr(b, "name", "") != "recursion"
         alphas = [(t.challenge_ext() if _ext_a else t.challenge())
                   for _ in range(len(transitions) + len(boundaries))]
 
@@ -503,19 +548,26 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                     opened[idx] = int(po["val"]) % F.P
             # periodic row at x: opened committed cell where committed, else the verifier's O(T) dense eval
             per = [opened[i] if i in committed_set else per_evals[i](x, xT) for i in range(len(periodic))]
-            # mirror the prover: constraint values stay base-field, only the alpha multiply is GF(p^2)
+            # Mirror the prover EXACTLY, including the base-or-ext constraint value: under GF(p^2) aux
+            # challenges the LogUp constraints return extension elements (their aux columns are ext, carried
+            # as base-column pairs), so lift a base value and combine in ext. See _composition._combine.
             _add = ext2.add if _ext_a else F.add
-            _scale = (lambda a, v: ext2.scalar_mul(a, v)) if _ext_a else (lambda a, v: F.mul(a, v))
+            if _ext_a:
+                def _combine(a, v, iz):
+                    return ext2.mul(a, ext2.scalar_mul(v if isinstance(v, tuple) else ext2.lift(v), iz))
+            else:
+                def _combine(a, v, iz):
+                    return F.mul(a, F.mul(v, iz))
             cp = (ext2.ZERO if _ext_a else 0); ai = 0
             for con in transitions:
                 a = alphas[ai]; ai += 1
                 z = F.mul(F.sub(xT, 1), F.inv(F.sub(x, last)))
                 cval = con(cur_row, nxt_row, per) if challenges is None else con(cur_row, nxt_row, per, challenges)
-                cp = _add(cp, _scale(a, F.mul(cval, F.inv(z))))
+                cp = _add(cp, _combine(a, cval, F.inv(z)))
             for (row, col, val) in boundaries:
                 a = alphas[ai]; ai += 1
                 pt = F.pw(gT, row)
-                cp = _add(cp, _scale(a, F.mul(F.sub(cur_row[col], val), F.inv(F.sub(x, pt)))))
+                cp = _add(cp, _combine(a, F.sub(cur_row[col], val), F.inv(F.sub(x, pt))))
             _claim = q["steps"][0]["lo"]
             if cp != (ext2.lift(_claim) if _ext_a else _claim):
                 return False, "trace/composition mismatch (a constraint is violated)"
