@@ -63,6 +63,22 @@ def available():
                 lib.sp_col_len.restype = ctypes.c_int64
                 lib.sp_fold.argtypes = [ctypes.c_size_t, ctypes.c_uint64, ctypes.c_uint64]
                 lib.sp_fold.restype = ctypes.c_int64
+                # GF(p^2): an extension column is TWO arena columns (lo, hi); both entry points return the
+                # LO id and always retain HI at lo+1. Bound with getattr so an older .so (built before the
+                # extension port) simply reports unavailable instead of raising at load.
+                if hasattr(lib, "sp_fold_ext"):
+                    lib.sp_fold_ext.argtypes = [ctypes.c_size_t, ctypes.c_size_t, ctypes.c_uint64,
+                                                ctypes.c_uint64, ctypes.c_uint64]
+                    lib.sp_fold_ext.restype = ctypes.c_int64
+                if hasattr(lib, "sp_compose_ext"):
+                    lib.sp_compose_ext.argtypes = [
+                        ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p,
+                        ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p,
+                        ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_void_p,
+                        ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p,
+                        ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_uint64,
+                        ctypes.c_void_p, ctypes.c_void_p]
+                    lib.sp_compose_ext.restype = ctypes.c_int64
                 lib.sp_load_col.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
                 lib.sp_load_col.restype = ctypes.c_int64
                 lib.sp_commit_rows.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
@@ -186,6 +202,66 @@ def compose(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
     if cid < 0:
         raise RuntimeError(f"sp_compose failed (code {cid})")
     return cid, (list(outbuf) if want_out else None)
+
+
+def ext_capable():
+    """True when the loaded .so carries the GF(p^2) entry points. A node running an older build must fall
+    back to the Python path rather than silently produce a base-field proof under extension challenges."""
+    return available() and hasattr(_LIB, "sp_fold_ext") and hasattr(_LIB, "sp_compose_ext")
+
+
+def compose_ext(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
+    """GF(p^2) composition from the arena. `alphas` is one EXTENSION element per LOGICAL constraint then one
+    per boundary — an extension-valued constraint occupies two SSA outputs but takes a single alpha, so the
+    count is len(outputs) - len(ext_pairs) + len(boundaries), NOT len(outputs) + len(boundaries).
+    Returns (cp_lo_col_id, (lo_list, hi_list) or None); the HI column is cp_lo_col_id + 1.
+    Bit-identical to air_ir.compose_python under extension alphas."""
+    u32, u64 = ctypes.c_uint32, ctypes.c_uint64
+    ops = prog["ops"]; consts = prog["consts"]; outputs = prog["outputs"]
+    pairs = list(prog.get("ext_pairs") or ())
+    W, nper, nchal = prog["W"], prog["P"], len(chals)
+    n_ops, n_out, n_bnd, n_pairs = len(ops), len(outputs), len(boundaries), len(pairs)
+    n_logical = n_out - n_pairs
+    if len(alphas) != n_logical + n_bnd:
+        raise ValueError(f"compose_ext: expected {n_logical + n_bnd} alphas "
+                         f"(one per LOGICAL constraint + one per boundary), got {len(alphas)}")
+    ops_flat = (u32 * (n_ops * 3))()
+    for i, (op, a, b) in enumerate(ops):
+        ops_flat[i * 3] = op; ops_flat[i * 3 + 1] = a % (1 << 32); ops_flat[i * 3 + 2] = b % (1 << 32)
+    def _u64(size, vals):
+        m = max(1, size); a = (u64 * m)(); v = [int(x) % _P for x in vals]; a[:len(v)] = v[:m]; return a
+    consts_a = _u64(len(consts), consts)
+    out_idx = (u32 * max(1, n_out))(); out_idx[:n_out] = list(outputs)
+    pair_idx = (u32 * max(1, n_pairs))(); pair_idx[:n_pairs] = list(pairs)
+    chals_a = _u64(nchal, chals)
+    from execnode.stark import ext2
+    flat_alphas = [limb for a in alphas for limb in ext2.lift(a)]
+    alphas_a = _u64(len(flat_alphas), flat_alphas)
+    bcol = (u32 * max(1, n_bnd))(); bcol[:n_bnd] = [c for (_r, c, _v) in boundaries]
+    bval = _u64(n_bnd, [v for (_r, _c, v) in boundaries])
+    brow = _u64(n_bnd, [r for (r, _c, _v) in boundaries])
+    lo_buf = (u64 * N)() if want_out else None
+    hi_buf = (u64 * N)() if want_out else None
+    P = lambda x: ctypes.cast(x, ctypes.c_void_p)
+    cid = _LIB.sp_compose_ext(n_ops, P(ops_flat), len(consts), P(consts_a), n_out, P(out_idx),
+                              n_pairs, P(pair_idx), W, nper, nchal, P(chals_a), P(alphas_a),
+                              n_bnd, P(bcol), P(bval), P(brow),
+                              int(T), int(blowup), int(stark_OFF()),
+                              P(lo_buf) if want_out else None, P(hi_buf) if want_out else None)
+    if cid < 0:
+        raise RuntimeError(f"sp_compose_ext failed (code {cid})")
+    return cid, ((list(lo_buf), list(hi_buf)) if want_out else None)
+
+
+def fold_ext(col_lo, col_hi, offset, alpha):
+    """One GF(p^2) FRI fold of an extension column pair → a new half-length pair; returns the LO id (HI is
+    lo+1). Bit-identical to fri._fold_ext."""
+    from execnode.stark import ext2
+    a0, a1 = ext2.lift(alpha)
+    cid = _LIB.sp_fold_ext(int(col_lo), int(col_hi), int(offset) % _P, int(a0) % _P, int(a1) % _P)
+    if cid < 0:
+        raise RuntimeError("sp_fold_ext failed")
+    return cid
 
 
 def stark_OFF():
