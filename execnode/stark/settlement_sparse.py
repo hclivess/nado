@@ -16,7 +16,7 @@ Wiring this in as THE consensus settled root (settle tx state_root, ops/transact
 projection) is the deploy step that rides the reroll (a new state-root scheme = a genesis change; forking cleared).
 """
 from execnode.stark import (field as F, storage_tree as ST, state_transition as SX, exec_state_bind as ESB,
-                            vm_circuit, calls_commit as CC, stark)
+                            vm_circuit, calls_commit as CC, stark, backend as _bk)
 from execnode import settlement_proofs as SP, zkvm
 
 DEFAULT_DEPTH = 256                      # sparse-tree depth = full 128-bit-secure slot space (2^256 positions):
@@ -118,6 +118,13 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
         pub_calls, epoch_io = SP._epoch_pub_statement(bundle)
         if check_exec_proof:
             row_commit = "row_roots" in bundle["proof"]
+            # The backend is resolved from the PROOF here, deliberately. prove_bound_epoch takes it as a
+            # parameter (default blake2b; only prove_settlement_sparse asks for RECURSION), so a bundle can
+            # legitimately carry any of them — pinning one would force the wrong HASH and desync the
+            # transcript. That is safe because the challenge FIELD is no longer backend-dependent: every
+            # backend is GF(p^2), so verify_epoch_calls' guard has nothing weaker to be steered into. If a
+            # base-field backend is ever reintroduced, that guard refuses a proof-declared one and this call
+            # must start passing the backend it actually expects.
             ok, why = vm_circuit.verify_epoch_calls(bundle["proof"], pub_calls, epoch_io, num_queries=nq,
                                                     row_commit=row_commit)
             if not ok:
@@ -192,6 +199,7 @@ def verify_bound_epoch_replay(bundle, num_queries=None):
         nq = int(num_queries) if num_queries is not None else vm_circuit.stark.NUM_QUERIES
         pub_calls, epoch_io = SP._epoch_pub_statement(bundle)
         row_commit = "row_roots" in bundle["proof"]
+        # Resolved from the proof, same reasoning as verify_bound_epoch above.
         ok, why = vm_circuit.verify_epoch_calls(bundle["proof"], pub_calls, epoch_io, num_queries=nq,
                                                 row_commit=row_commit)
         if not ok:

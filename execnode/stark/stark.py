@@ -32,7 +32,8 @@ MAX_TRACE_ROWS = 1 << 17
 # EXT_ALPHAS: the constraint-combination alphas are drawn from GF(p^2) (Transcript.challenge_ext) rather than
 # the base field. This term — not FRI — was the binding one: a base-field alpha caps the STARK at
 # log2(q) - log2(nc) ~ 63 bits (and lower the more constraints an AIR has) however strong FRI's commit phase
-# is. RECURSION-backend proofs keep base-field alphas because the in-circuit AIRs cannot verify ext.
+# is. This now applies to EVERY backend including RECURSION — the in-circuit AIRs verify extension proofs as
+# of the recursion port, so a folded proof is no longer the weak link it was at ~47 bits.
 # Read by execnode/stark/soundness.py, which must never assume this rather than measure it.
 EXT_ALPHAS = True
 
@@ -46,13 +47,21 @@ def ext_challenges_active(backend=None):
     geometry itself depends on it: an extension-valued aux column is carried as a PAIR of base columns, so
     num_aux doubles under ext and the AIR must declare the width the prover will actually build.
 
-    RECURSION-backend proofs stay base-field — the in-circuit AIRs (fri_verify, rowcomp_verify) and the
-    arena's sp_fold do base-field arithmetic, so a proof destined to be FOLDED must be produced base-field.
-    That is the same rule the fold gate uses, and it is why lifting the recursion path is what unblocks
-    SETTLE_PROOF_RECURSIVE."""
+    The RECURSION backend used to be excluded: its in-circuit verifiers did base-field arithmetic, so a proof
+    destined to be FOLDED had to be produced base-field and carried the OLD ~47-bit commit bound while the
+    ordinary path reached 109-112. That exclusion is GONE — fri_verify, rowcomp_verify and recursive_verify
+    all carry extension arithmetic now (test_recursion_ext), so a folded proof is as strong as any other.
+
+    The cost is speed, not soundness: the Rust arena multiplies by a base-field u64 alpha, so an ext proof
+    composes in Python. Measured 2.8x on a real exec AIR (17.4s vs 6.2s). Porting native/starkprove's
+    sp_fold to extension arithmetic recovers it and changes nothing about what is proven.
+
+    `backend` is now unread — every backend answers the same. It stays in the signature ON PURPOSE: every
+    caller asks this question ABOUT a backend, and the day a base-field one is reintroduced the answer
+    becomes backend-dependent again without a single call site changing. tests/test_challenge_field_policy
+    pins both halves of that (no weaker field exists today; the guard still refuses one if it returns)."""
     from execnode.stark import fri
-    b = backend or _backend.DEFAULT
-    return bool(getattr(fri, "EXT_CHALLENGES", False)) and getattr(b, "name", "") != "recursion"
+    return bool(getattr(fri, "EXT_CHALLENGES", False))
 
 MAX_COLUMNS = 8192   # verify-side sanity/DoS cap on trace width (a pure Python bound; the native prover has no
                      # column limit — it keeps LDE columns in a Rust arena). Raised in two steps:
@@ -281,8 +290,10 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # and runs only the FRI fold in Python), so it is no longer gated off — disabling it wholesale is what
     # made every proof pure-Python and unusably slow.
     # stark_native computes its OWN base-field alphas and composes in the arena, which cannot carry GF(p^2)
-    # alphas — so the holistic path is used only where the alphas stay base-field (the recursion backend).
-    _native_ok = (getattr(_b, "name", "") == "recursion" or not bool(getattr(fri, "EXT_CHALLENGES", False)))
+    # alphas — so the holistic path is available only when THIS proof's challenges are base-field. Keyed on
+    # the one authority rather than on a backend name: five copies of "recursion means base" is exactly the
+    # kind of duplicated assumption that let a prover pick its own security level once already.
+    _native_ok = not ext_challenges_active(_b)
     if (getattr(_b, "name", "") in ("recursion", "alghash2") and not os.environ.get("NADO_NO_HOLISTIC")
             and _native_ok
             and not commit_periodic):                     # committed-periodic runs the Python path (native TODO)
@@ -376,9 +387,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # rather than silently mixing the two. The recursion path therefore still carries the OLD ~47-bit commit
     # bound until fri_verify/sp_fold are ported to extension arithmetic; the ordinary (non-folded) path gets
     # the full ~111 bits. Making that split explicit is the point — an implicit one is how this was missed.
-    _for_recursion = getattr(b, "name", "") == "recursion"
     fri_proof = fri.prove(cp, OFF, fri_blowup, num_queries, transcript=t, backend=b,
-                          ext=(False if _for_recursion else None))
+                          ext=ext_challenges_active(b))
 
     openings = []
     for q in fri_proof["queries"]:
@@ -495,9 +505,9 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
 
         # fri_blowup is ALWAYS 2 for a STARK proof (N = 2·next_pow2(max_degree)·T, deg_bound = N/2), so pin it —
         # that forces the full FRI geometry and, with the fixed query count, closes the C-1 empty-proof bypass.
-        _for_recursion = getattr(b, "name", "") == "recursion"
+        # expected_ext is PINNED, not read from the proof: the verifier decides the challenge field.
         ok, why = fri.verify(proof["fri"], transcript=t, num_queries=num_queries, expected_blowup=2, backend=b,
-                             expected_ext=(False if _for_recursion else None))
+                             expected_ext=ext_challenges_active(b))
         if not ok:
             return False, f"composition is not low-degree: {why}"
 

@@ -333,8 +333,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # A RECURSION-backend proof is destined to be FOLDED by the base-field in-circuit AIRs, so it stays
     # base-field (stark.prove applies the same rule) and can use the fully native FRI. Only a non-recursion
     # proof carries the GF(p^2) challenge, and only that case reads the column out for the Python fold.
-    _for_recursion = getattr(b, "name", "") == "recursion"
-    if bool(getattr(fri, "EXT_CHALLENGES", False)) and not _for_recursion:
+    if stark.ext_challenges_active(b):
         cp_vals = [read(cp_col, i) for i in range(col_len(cp_col))]
         fri_proof = fri.prove(cp_vals, OFF, fri_blowup, num_queries, transcript=t, backend=b)
     else:

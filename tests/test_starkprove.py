@@ -193,7 +193,13 @@ def _proofs_equal(a, b, path="proof"):
 def t_prove_end_to_end():
     """HOLISTIC prove == stark.prove, single-phase column mode, RECURSION backend — the WHOLE proof dict
     field-for-field (col_roots, fri roots/final/pow/queries, and every opening path), and the native proof
-    verifies under the real stark.verify."""
+    verifies under the real stark.verify. Base-field, for the reason in `base_field` — the RECURSION backend
+    used to be the one place the arena still ran under ext, and the recursion port removed that exemption."""
+    with base_field():
+        _t_prove_end_to_end_body()
+
+
+def _t_prove_end_to_end_body():
     PER0 = {"period": 4, "base": [3, 1, 4, 1]}
     TRANS = [lambda c, n, p: F.sub(n[0], F.add(F.mul(c[0], c[0]), p[0])),
              lambda c, n, p: F.sub(c[1], F.mul(c[0], c[0]))]
@@ -213,6 +219,40 @@ def t_prove_end_to_end():
         assert ok, f"holistic-proved proof must verify under stark.verify: {why}"
 
 
+class base_field:
+    """Force BASE-field challenges/alphas for the duration.
+
+    The arena composes with a base-field alpha and folds with a base-field FRI challenge, so a holistic
+    proof is only comparable to stark.prove where stark.prove does the same. Since the recursion port,
+    ext_challenges_active is True for EVERY backend, so stark_native.prove refuses outright (it would emit a
+    proof stark.verify could never accept) and the arena is bypassed everywhere. That is the documented cost
+    of the extension migration, not a regression — but the arena is still live code the moment anyone builds
+    a base-field proof, so its bit-identity has to keep being tested rather than quietly dropped."""
+    def __enter__(self):
+        from execnode.stark import stark as _st, fri as _fri
+        self._m = (_st, _fri, _st.EXT_ALPHAS, _fri.EXT_CHALLENGES)
+        _st.EXT_ALPHAS, _fri.EXT_CHALLENGES = False, False
+        return self
+
+    def __exit__(self, *a):
+        _st, _fri, ea, ec = self._m
+        _st.EXT_ALPHAS, _fri.EXT_CHALLENGES = ea, ec
+        return False
+
+
+def t_native_refuses_ext():
+    """The guard itself: under GF(p^2) challenges the holistic prover must REFUSE, not emit a proof nobody
+    can verify. This is what makes the bypass safe."""
+    from execnode.stark import stark_native, backend as _bk, stark as _st
+    assert _st.ext_challenges_active(_bk.ALGHASH2), "precondition: ext is on"
+    try:
+        stark_native.prove([[1, 1]], [lambda c, n, p: F.sub(c[0], c[0])], [], backend=_bk.ALGHASH2)
+    except RuntimeError as e:
+        assert "GF(p^2)" in str(e), f"refused for the wrong reason: {e}"
+        return
+    raise AssertionError("stark_native.prove accepted an ext-challenge request instead of refusing")
+
+
 def t_prove_alghash2():
     """HOLISTIC prove == stark.prove for the DEFAULT ALGHASH2 backend (column mode; arena Merkle = hashn
     leaf/node). This is the backend the recursion BUNDLE's outer fold/comp proofs and the shielded pool use —
@@ -223,13 +263,8 @@ def t_prove_alghash2():
     stark.EXT_ALPHAS / fri.EXT_CHALLENGES on, stark.prove deliberately takes the Python path for this backend
     (the arena cannot carry GF(p^2) alphas) and the two are EXPECTED to differ — that is the documented cost
     of lifting the alphas term off 63 bits, not a regression. Pin both flags off for the comparison."""
-    from execnode.stark import stark as _st, fri as _fri
-    _saved = (_st.EXT_ALPHAS, _fri.EXT_CHALLENGES)
-    _st.EXT_ALPHAS, _fri.EXT_CHALLENGES = False, False
-    try:
+    with base_field():
         _t_prove_alghash2_body()
-    finally:
-        _st.EXT_ALPHAS, _fri.EXT_CHALLENGES = _saved
 
 
 def _t_prove_alghash2_body():
@@ -253,7 +288,12 @@ def _t_prove_alghash2_body():
 
 def t_prove_row_commit():
     """HOLISTIC prove == stark.prove in ROW-COMMIT mode (ONE row tree; openings authenticate a whole row with
-    one path), byte-identical + verifies."""
+    one path), byte-identical + verifies. Base-field, for the reason in `base_field`."""
+    with base_field():
+        _t_prove_row_commit_body()
+
+
+def _t_prove_row_commit_body():
     PER0 = {"period": 4, "base": [3, 1, 4, 1]}
     TRANS = [lambda c, n, p: F.sub(n[0], F.add(F.mul(c[0], c[0]), p[0])),
              lambda c, n, p: F.sub(c[1], F.mul(c[0], c[0]))]
@@ -277,7 +317,13 @@ def t_prove_row_commit():
 def t_prove_two_phase():
     """HOLISTIC prove == stark.prove for a TWO-PHASE (LogUp-style) AIR: main commit → challenge γ → aux
     running-sum column → composition with γ. The aux BUILDER stays in Python (small T-length columns); the
-    LDEs/commit/compose/FRI stay in the arena. Byte-identical + verifies. This is the execution/segment shape."""
+    LDEs/commit/compose/FRI stay in the arena. Byte-identical + verifies. This is the execution/segment shape.
+    Base-field, for the reason in `base_field`."""
+    with base_field():
+        _t_prove_two_phase_body()
+
+
+def _t_prove_two_phase_body():
     PER0 = {"period": 4, "base": [3, 1, 4, 1]}
     TRANS = [lambda c, n, p, ch: F.sub(n[0], F.add(F.mul(c[0], c[0]), p[0])),
              lambda c, n, p, ch: F.sub(c[1], F.mul(c[0], c[0])),
@@ -324,5 +370,7 @@ if __name__ == "__main__":
     check("HOLISTIC prove == stark.prove (ALGHASH2 default backend, verifies)", t_prove_alghash2)
     check("HOLISTIC prove == stark.prove (row-commit, verifies)", t_prove_row_commit)
     check("HOLISTIC prove == stark.prove (two-phase LogUp, verifies)", t_prove_two_phase)
+    check("holistic prover REFUSES a GF(p^2) request instead of emitting an unverifiable proof",
+          t_native_refuses_ext)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

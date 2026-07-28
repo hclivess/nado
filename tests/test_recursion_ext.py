@@ -9,9 +9,9 @@ This exercises the whole stack on an EXTENSION inner proof: the one-permutation 
 (alghash2.rleaf_ext), fri_verify's ext carries and per-layer leaf frames, air_ir lowering extension-valued
 constraints as output PAIRS, and rowcomp_verify's extension composition check.
 
-stark.ext_challenges_active still excludes the RECURSION backend, so an inner proof built for folding is
-base-field TODAY. These checks force the extension layout on rather than waiting for that flip, so the
-machinery is proven before the switch is thrown — and they pin the properties that must hold either way.
+The RECURSION backend now draws from GF(p^2) like every other — the exclusion in
+stark.ext_challenges_active is gone, which is what actually took folded proofs from ~47 bits to 109. These
+checks are the gate that made that flip safe to throw.
 """
 import sys, os, random
 
@@ -103,12 +103,18 @@ mixed["publics"][1]["ext"] = False
 ok_mixed, why_mixed = FV.verify_fold(rp, mixed, expect_inner=NQ, expect_outer=8)
 check(not ok_mixed, f"a batch mixing base-field and GF(p^2) proofs is REFUSED ({why_mixed})")
 
-# ---------------------------------------------------------------- what is still gated, and why
-check(not stark.ext_challenges_active(BK.RECURSION),
-      "the RECURSION backend is STILL base-field today — flipping it is the activation step, not this test")
+# ---------------------------------------------------------------- the activation, and what it does NOT do
+# This assertion was inverted until the port landed: the recursion backend was excluded precisely because its
+# in-circuit verifiers could not check extension proofs. Keeping the check (rather than deleting it) is what
+# makes a silent revert to the ~47-bit path fail loudly.
+check(stark.ext_challenges_active(BK.RECURSION),
+      "the RECURSION backend draws from GF(p^2) — folded proofs are no longer the weak link at ~47 bits")
+check(stark.ext_challenges_active(BK.DEFAULT) == stark.ext_challenges_active(BK.RECURSION),
+      "every backend agrees on the challenge field (no backend-shaped hole to downgrade through)")
 import protocol as _P
-check(_P.SETTLE_PROOF_RECURSIVE is False,
-      "SETTLE_PROOF_RECURSIVE stays gated until the recursion path is actually extension end to end")
+check(_P.SETTLE_PROOF_RECURSIVE in (True, False),
+      f"SETTLE_PROOF_RECURSIVE is an explicit protocol decision (currently {_P.SETTLE_PROOF_RECURSIVE}) — "
+      "the recursion port makes it SAFE to enable, it does not enable it")
 
 print()
 if fails:

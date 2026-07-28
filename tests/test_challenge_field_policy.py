@@ -32,11 +32,12 @@ def check(cond, label):
         fails.append(label)
 
 
-# The coupling that makes this exploitable is real and intended — pin it so the test explains itself.
-check(not stark.ext_challenges_active(BK.RECURSION),
-      "the recursion backend really does select the base field (that is why it is exploitable)")
-check(stark.ext_challenges_active(BK.DEFAULT),
-      "the default backend selects GF(p^2)")
+# THE HOLE IS NOW CLOSED AT THE ROOT. The attack needed a backend that selects a WEAKER challenge field;
+# the recursion port removed the last one, so every backend is GF(p^2) and there is nothing to downgrade to.
+# That is a stronger statement than the guard, and it is the one to assert first.
+for _bk_ in (BK.DEFAULT, BK.ALGHASH2, BK.RECURSION):
+    check(stark.ext_challenges_active(_bk_),
+          f"backend {_bk_.name!r} selects GF(p^2) — no weaker field exists to downgrade into")
 
 gap = soundness.aux_bits(17, ext=True) - soundness.aux_bits(17, ext=False)
 check(gap > 50, f"the downgrade is worth {gap:.0f} bits of LogUp soundness — not a rounding difference")
@@ -52,14 +53,21 @@ def _verify(decl_backend, caller_backend=None):
     return VC.verify_epoch_calls(p, [], [], num_queries=4, backend=caller_backend)
 
 
-ok, why = _verify("recursion")
-check(not ok, "a proof DECLARING the recursion backend is refused by verify_epoch_calls")
-check("not the prover" in (why or "").lower() or "base-field backend" in (why or "").lower(),
-      f"...and the refusal names the reason ({why!r})")
-
-ok_o1, why_o1 = VC.verify_epoch_o1(_Stub({"T": 1024, "W": VC.W_TOTAL, "backend": "recursion"}),
-                                   [], num_queries=4)
-check(not ok_o1, "verify_epoch_o1 refuses it too (it had the same hole)")
+# THE GUARD REMAINS, as defence in depth: if a base-field backend is ever reintroduced, a PROOF must still
+# not be able to select it. There is no such backend to test against today, so drive the policy directly by
+# making ext_challenges_active report False the way a base-field backend would.
+_real = stark.ext_challenges_active
+try:
+    stark.ext_challenges_active = lambda b=None: False
+    ok, why = _verify("recursion")
+    check(not ok, "with a base-field backend present, a proof DECLARING it is still refused")
+    check("not the prover" in (why or "").lower() or "base-field backend" in (why or "").lower(),
+          f"...and the refusal names the reason ({why!r})")
+    ok_o1, why_o1 = VC.verify_epoch_o1(_Stub({"T": 1024, "W": VC.W_TOTAL, "backend": "recursion"}),
+                                       [], num_queries=4)
+    check(not ok_o1, "verify_epoch_o1 refuses it too (it had the same hole)")
+finally:
+    stark.ext_challenges_active = _real
 
 # The legitimate user of the base-field layout is the FOLD, which passes the backend EXPLICITLY. That must
 # still be allowed, or SETTLE_PROOF_RECURSIVE can never be turned on.
@@ -75,6 +83,28 @@ for decl in (None, "blake2b", "alghash2"):
     _ok, _why = VC.verify_epoch_calls(p, [], [], num_queries=4)
     check("not the prover" not in (_why or "").lower(),
           f"a proof declaring {decl!r} is not blocked by the challenge-field policy")
+
+# ---------------------------------------------------------------- the policy's LEGITIMATE callers comply
+# The guard refuses a PROOF-supplied backend, so every internal caller that knows which backend it asked for
+# must say so explicitly. sparse settlement PROVES its segments with RECURSION (row-committed, foldable) and
+# used to verify them with no backend at all — i.e. resolving the very field-selecting string the guard
+# rejects. That combination made honest settlement proofs fail with a message about prover choice, and no
+# test caught it: the suite never exercised the recursion-backed verify path with the guard active.
+import inspect
+from execnode.stark import settlement_sparse as SS
+
+# prove_bound_epoch takes the backend as a PARAMETER (default blake2b; only prove_settlement_sparse asks for
+# RECURSION), so a bundle legitimately carries any of them and the verify side must resolve it from the proof
+# — pinning one forces the wrong HASH and desyncs the transcript ("insufficient proof-of-work"). That is only
+# safe while no backend selects a weaker field, which is what the first block above asserts. These two facts
+# are load-bearing together: if a base-field backend returns, the guard starts refusing proof-declared
+# backends and these call sites have to pass the one they expect.
+for fn_name in ("verify_bound_epoch", "verify_bound_epoch_replay"):
+    src = inspect.getsource(getattr(SS, fn_name))
+    if "verify_epoch_calls(" in src:
+        check("backend=" not in src.split("verify_epoch_calls(")[1].split(")")[0],
+              f"settlement_sparse.{fn_name} resolves the backend from the proof (bundles are not all "
+              f"RECURSION-proven, so pinning one would desync the transcript)")
 
 print()
 if fails:
