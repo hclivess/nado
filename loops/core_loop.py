@@ -976,13 +976,28 @@ class CoreClient(threading.Thread):
             # a minute; a round that got real answers keeps the full rate limit.
             _answered = bool(detail.get("agree") or detail.get("disagree"))
             self._last_dead_fork_check = now if _answered else (now - DEAD_FORK_COOLDOWN_S + 60)
+            # PUBLISH THE VERDICT. A node that declines to heal itself must be able to SAY WHY from the
+            # outside — /log is authenticated and journalctl needs a shell, so a remote operator was left
+            # guessing which of the six preconditions vetoed (that guessing is what stretched the .141
+            # incident). This is diagnostics only; nothing reads it back.
+            self.memserver.dead_fork_probe = {
+                "at": now, "height": height, "ours": str(ours)[:16], "stranded": bool(stranded),
+                "agree": list(detail.get("agree") or []), "disagree": list(detail.get("disagree") or []),
+                "unknown": list(detail.get("unknown") or []), "answered": _answered,
+                "peers_asked": len(peers), "stalled": bool(_stalled),
+            }
             if not stranded:
                 return False
             # SECOND, INDEPENDENT CONFIRMATION before destroying chain data: the measured fork state must
             # ALSO say DEAD_FORK. Two different probes have to agree that the divergence is below the
             # finality floor, so a single bad answer can never trigger a purge.
-            if self._fork_state() != fork_resolution.DEAD_FORK:
-                self.logger.warning("dead-fork suspected but the measured fork state disagrees — not purging")
+            _fs = self._fork_state()
+            try:
+                self.memserver.dead_fork_probe["fork_state"] = str(_fs)
+            except Exception:
+                pass
+            if _fs != fork_resolution.DEAD_FORK:
+                self.logger.warning(f"dead-fork suspected but the measured fork state says {_fs} — not purging")
                 return False
             self.logger.error("=" * 78)
             self.logger.error(f"DEAD FORK ({'tip frozen' if _stalled else 'STILL MINING — productive fork'}): "

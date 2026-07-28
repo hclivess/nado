@@ -255,6 +255,13 @@ async def status(request):
             # Advertised so the condition is visible from the OUTSIDE (network panel, a sweep of peers),
             # not only to whoever happens to call /update. False here is a node that WILL diverge.
             "update_capable": (memserver.updatability or {}).get("capable"),
+            # WHY it cannot update, and WHY a forked node is not healing itself — both visible from OUTSIDE.
+            # `capable` is a bare boolean covering only LOCAL defects, and /log is authenticated, so a remote
+            # operator had no way to tell which precondition was vetoing. That guessing is what stretched the
+            # .141 incident; these are diagnostics only, nothing reads them back.
+            "update_blocking": (memserver.updatability or {}).get("blocking") or [],
+            "update_remote_reachable": ((memserver.updatability or {}).get("checks") or {}).get("remote_reachable"),
+            "dead_fork_probe": getattr(memserver, "dead_fork_probe", None),
             # NETWORK PARTITION KEY: peers gate admission on this (peer_loop) so nodes on a different
             # chain (e.g. a pre-relaunch alphanet) never enter the status/consensus pools — a foreign
             # chain's advertised weight would otherwise stall production via the caught-up gate.
