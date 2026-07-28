@@ -966,11 +966,8 @@ class CoreClient(threading.Thread):
             _me = {self.memserver.ip, get_config().get("ip")} - {None}
             peers = [p for p in dict.fromkeys(list(seed_peers()) + list(self.memserver.peers))
                      if p not in _me][:12]
-            # `seeds` enables the lone-seed weak-subjectivity exception (see stranded_below_finality): an
-            # isolated node that can only reach ONE peer can never meet the quorum, and .141 was exactly that.
             stranded, detail = stranded_below_finality(ours, height, peers, quorum=DEAD_FORK_QUORUM,
-                                                       port=self.memserver.port,
-                                                       seeds=[p for p in seed_peers() if p not in _me])
+                                                       port=self.memserver.port)
             # ONLY a probe that actually HEARD from peers consumes the full cooldown. An inconclusive round
             # — nobody answered, which is the normal state for the first pass after boot, before the peer
             # table is warm — must not lock this out for 30 minutes. That is exactly what happened to .141:

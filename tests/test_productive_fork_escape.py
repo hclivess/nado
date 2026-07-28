@@ -185,29 +185,6 @@ def t_never_probes_itself():
         PO.probe_block_hash = orig
 
 
-# REGRESSION 6: an ISOLATED node must still be able to heal. .141 held every other node in `unreachable` and
-# could probe exactly ONE peer — an operator SEED — which disagreed at its finalized height while nobody
-# agreed. A 2-peer quorum is unreachable there, so the evidence was conclusive and the purge still never
-# fired. The lone-SEED exception mirrors snapshot_bootstrap's existing weak-subjectivity precedent ("a LONE
-# donor is accepted only when it is an operator seed"); a random single peer still cannot trigger anything.
-def t_lone_seed_exception():
-    import ops.peer_ops as PO
-    OUR = "h" * 64
-    orig = PO.probe_block_hash
-    PO.probe_block_hash = lambda peer, height, port=9173, timeout=6: "z" * 64   # the one peer disagrees
-    try:
-        no_seed, _ = PO.stranded_below_finality(OUR, 100, ["p1"], quorum=2)
-        check("a LONE non-seed peer cannot trigger a purge", no_seed is False)
-        with_seed, _ = PO.stranded_below_finality(OUR, 100, ["seed1"], quorum=2, seeds=["seed1"])
-        check("a LONE operator SEED disagreeing DOES (weak subjectivity)", with_seed is True)
-        # and agreement still vetoes, seed or not
-        PO.probe_block_hash = lambda peer, height, port=9173, timeout=6: OUR
-        agreeing, _ = PO.stranded_below_finality(OUR, 100, ["seed1"], quorum=2, seeds=["seed1"])
-        check("an AGREEING seed still vetoes the purge", agreeing is False)
-    finally:
-        PO.probe_block_hash = orig
-
-
 if __name__ == "__main__":
     try:
         t_normal_mode_runs_the_self_check()
@@ -218,7 +195,6 @@ if __name__ == "__main__":
         t_probe_handles_a_node_that_raced_ahead()
         t_ancestor_search_when_we_raced_ahead()
         t_never_probes_itself()
-        t_lone_seed_exception()
     except Exception as e:
         fails += 1; print(f"FAIL  exception: {e}"); traceback.print_exc()
     print("\nALL PASS — a mining fork self-heals, including one that raced ahead"
