@@ -161,6 +161,30 @@ def t_ancestor_search_when_we_raced_ahead():
     check("a node on the SAME chain is not called forked", v2["state"] in (FR.BEHIND, FR.SYNCED))
 
 
+# REGRESSION 5: NEVER PROBE OURSELVES. This node's own IP can BE a seed (208.87.242.141 is in
+# DEFAULT_SEED_PEERS), so a seeds-first probe set contains us; we answer our own fork question with our own
+# hash, it lands in `agree`, and "ANY peer agreeing" vetoes the purge forever. That is why .141 — the one node
+# whose peer list contained itself — still could not self-heal after every other blind spot was fixed.
+def t_never_probes_itself():
+    src = inspect.getsource(CL.CoreClient._maybe_escape_dead_fork)
+    check("the escape excludes our own IP from the probe set", "_me" in src and "p not in _me" in src)
+    check("  it uses both memserver.ip and the config ip", "self.memserver.ip" in src and "get_config()" in src)
+    # a self-agreeing probe must not be able to veto: simulate a peer set that (wrongly) includes us
+    import ops.peer_ops as PO
+    OUR = "h" * 64
+    def fake_probe(peer, height, port=9173, timeout=6):
+        return OUR if peer == "self" else "z" * 64      # only WE agree with us
+    orig = PO.probe_block_hash
+    PO.probe_block_hash = fake_probe
+    try:
+        with_self, _ = PO.stranded_below_finality(OUR, 100, ["self", "p1", "p2"], quorum=2)
+        without_self, _ = PO.stranded_below_finality(OUR, 100, ["p1", "p2"], quorum=2)
+        check("including ourselves WOULD have vetoed the purge (the bug)", with_self is False)
+        check("excluding ourselves correctly detects the dead fork (the fix)", without_self is True)
+    finally:
+        PO.probe_block_hash = orig
+
+
 if __name__ == "__main__":
     try:
         t_normal_mode_runs_the_self_check()
@@ -170,6 +194,7 @@ if __name__ == "__main__":
         t_healthy_node_costs_one_probe()
         t_probe_handles_a_node_that_raced_ahead()
         t_ancestor_search_when_we_raced_ahead()
+        t_never_probes_itself()
     except Exception as e:
         fails += 1; print(f"FAIL  exception: {e}"); traceback.print_exc()
     print("\nALL PASS — a mining fork self-heals, including one that raced ahead"

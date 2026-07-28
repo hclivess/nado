@@ -957,7 +957,15 @@ class CoreClient(threading.Thread):
             if not ours:
                 return False
             # Ask the operator seed set FIRST (the weak-subjectivity anchor) plus whatever peers we know.
-            peers = list(dict.fromkeys(list(seed_peers()) + list(self.memserver.peers)))[:12]
+            # NEVER PROBE OURSELVES — _fork_state() already carves this out and it is even more critical here.
+            # This node's own IP can BE a seed (208.87.242.141 is in DEFAULT_SEED_PEERS), so seeds-first puts
+            # us in the probe set, we answer our own question with our own hash, that lands in `agree`, and
+            # "ANY peer agreeing means our prefix is not provably abandoned" vetoes the purge FOREVER. That is
+            # precisely why .141 — a seed — could not self-heal even once every other blind spot was fixed
+            # (2026-07-28): it was the one node whose peer list contained itself.
+            _me = {self.memserver.ip, get_config().get("ip")} - {None}
+            peers = [p for p in dict.fromkeys(list(seed_peers()) + list(self.memserver.peers))
+                     if p not in _me][:12]
             stranded, detail = stranded_below_finality(ours, height, peers, quorum=DEAD_FORK_QUORUM,
                                                        port=self.memserver.port)
             # ONLY a probe that actually HEARD from peers consumes the full cooldown. An inconclusive round

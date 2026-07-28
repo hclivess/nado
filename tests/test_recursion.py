@@ -96,7 +96,9 @@ def t_fri_fold_air():
     coeffs = [random.randrange(F.P) for _ in range(deg)] + [0] * (N - deg)
     off = F.GENERATOR
     evals = [F.poly_eval(coeffs, x) for x in F.domain(N, off)]
-    proof = fri.prove(evals, off, blowup=N // deg, num_queries=4, backend=backend.ALGHASH2)
+    # ext=False: the in-circuit FRI AIRs are base-field only (fri.EXT_CHALLENGES / item 14) and refuse a
+    # GF(p^2) proof loudly rather than check it under the weaker commit bound.
+    proof = fri.prove(evals, off, blowup=N // deg, num_queries=4, backend=backend.ALGHASH2, ext=False)
     t = Transcript("fri", backend=backend.ALGHASH2)
     alphas, doms, o, n = [], [], off, N
     for r in proof["roots"]:
@@ -216,8 +218,9 @@ def t_real_fri_in_circuit():
     coeffs = [random.randrange(F.P) for _ in range(deg)] + [0] * (N - deg)
     off = F.GENERATOR
     evals = [F.poly_eval(coeffs, x) for x in F.domain(N, off)]
-    proof = fri.prove(evals, off, blowup=N // deg, num_queries=3, backend=backend.RECURSION)
-    ok, why = fri.verify(proof, num_queries=3, expected_blowup=N // deg, backend=backend.RECURSION)
+    proof = fri.prove(evals, off, blowup=N // deg, num_queries=3, backend=backend.RECURSION, ext=False)
+    ok, why = fri.verify(proof, num_queries=3, expected_blowup=N // deg, backend=backend.RECURSION,
+                         expected_ext=False)   # base-field by design on the recursion path
     assert ok, f"native FRI check: {why}"
     rp = recursion.prove_recursive([proof], num_queries=4)               # verify it INSIDE a proof
     okr, whyr = recursion.verify_recursive(rp, num_queries=4)
