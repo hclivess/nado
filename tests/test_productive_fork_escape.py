@@ -92,6 +92,46 @@ def t_healthy_node_costs_one_probe():
           idx_probe != -1 and idx_purge != -1 and idx_probe < idx_purge and "if not stranded" in src)
 
 
+# ---------------------------------------------------------------------------------------------------
+# REGRESSION 3: the probe must work when the forked node has RACED AHEAD of everyone.
+# A lone forker mines every slot unopposed, so it outruns the honest majority. probe_block_hash then
+# returns None for every peer (nobody HAS its finalized height), those land in `unknown` rather than
+# `disagree`, and stranded_below_finality answered "not stranded" for the one node most in need of
+# rescue. Verified live 2026-07-28: .141 finalized 6278 while the majority was at 6038.
+def t_probe_handles_a_node_that_raced_ahead():
+    import ops.peer_ops as PO
+    OUR_H, OUR_HASH = 6278, "a" * 64          # we are 240 blocks past the majority, on our own branch
+    COMMON_H = 6038                           # the highest height the majority has finalized
+
+    def fake_peer_finalized(peer, port=9173, timeout=6):
+        return COMMON_H                       # every peer is BEHIND us
+
+    def fake_probe(peer, height, port=9173, timeout=6):
+        if height > COMMON_H:
+            return None                       # they simply do not have our height
+        return "b" * 64                       # ...and at the common height they hold a DIFFERENT block
+
+    def fake_our_hash(height):
+        return OUR_HASH if height == OUR_H else "c" * 64   # ours differs from theirs at the common height
+
+    orig = (PO.probe_block_hash, PO._peer_finalized_height, PO._our_hash_at)
+    PO.probe_block_hash, PO._peer_finalized_height, PO._our_hash_at = fake_probe, fake_peer_finalized, fake_our_hash
+    try:
+        stranded, detail = PO.stranded_below_finality(OUR_HASH, OUR_H, ["p1", "p2", "p3"], quorum=2)
+        check("a node that RACED AHEAD is still detected as stranded (probe falls back to a common height)",
+              stranded is True)
+        check("  the disagreement is recorded against real peers, not 'unknown'",
+              len(detail["disagree"]) >= 2 and not detail["agree"])
+
+        # and the SAFETY direction: if we AGREE at the common height we are merely ahead, NOT stranded
+        PO._our_hash_at = lambda height: "b" * 64          # same block as the peers at the common height
+        stranded2, detail2 = PO.stranded_below_finality(OUR_HASH, OUR_H, ["p1", "p2", "p3"], quorum=2)
+        check("a node merely AHEAD on the SAME chain is NOT stranded (no false purge)", stranded2 is False)
+        check("  agreement at the common height vetoes", len(detail2["agree"]) >= 1)
+    finally:
+        PO.probe_block_hash, PO._peer_finalized_height, PO._our_hash_at = orig
+
+
 if __name__ == "__main__":
     try:
         t_normal_mode_runs_the_self_check()
@@ -99,8 +139,11 @@ if __name__ == "__main__":
         t_decision_is_still_authoritative()
         t_probe_semantics()
         t_healthy_node_costs_one_probe()
+        t_probe_handles_a_node_that_raced_ahead()
     except Exception as e:
         fails += 1; print(f"FAIL  exception: {e}"); traceback.print_exc()
-    print("\nALL PASS — a node that forks while MINING now checks and heals itself"
+    print("\nALL PASS — a mining fork self-heals, including one that raced ahead"
           if fails == 0 else f"\n{fails} FAILURES")
     sys.exit(1 if fails else 0)
+
+

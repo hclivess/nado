@@ -219,6 +219,40 @@ def probe_block_hash(peer, height, port=9173, timeout=6):
         return None
 
 
+def _peer_finalized_height(peer, port=9173, timeout=6):
+    """A peer's own finalized height from its /status, or None. Used only to pick a comparison height a
+    BEHIND peer can actually answer — never as a fork-choice input."""
+    import json as _json, urllib.request as _rq
+    try:
+        with _rq.urlopen(f"http://{peer}:{port}/status", timeout=timeout) as r:
+            d = _json.loads(r.read(1_000_000))
+        h = d.get("finalized_height") if isinstance(d, dict) else None
+        return int(h) if isinstance(h, int) and h >= 0 else None
+    except Exception:
+        return None
+
+
+def _common_probe_height(peer, our_height, port=9173):
+    """(height, their_hash) at the highest height AT OR BELOW `our_height` that this peer can answer — its own
+    finalized height. Returns (height, None) when it still cannot answer."""
+    ph = _peer_finalized_height(peer, port=port)
+    if ph is None:
+        return our_height, None
+    h = min(int(ph), int(our_height))
+    if h <= 0:
+        return h, None
+    return h, probe_block_hash(peer, h, port=port)
+
+
+def _our_hash_at(height):
+    """Our own block hash at `height` (local read), or None."""
+    try:
+        from ops.block_ops import get_block_hash_by_number
+        return get_block_hash_by_number(int(height))
+    except Exception:
+        return None
+
+
 def stranded_below_finality(our_hash, height, peers, quorum=2, port=9173):
     """Is this node provably on a MINORITY FORK at or below its own finality floor?
 
@@ -243,8 +277,26 @@ def stranded_below_finality(our_hash, height, peers, quorum=2, port=9173):
     for peer in peers:
         theirs = probe_block_hash(peer, height, port=port)
         if theirs is None:
-            unknown.append(peer)
-        elif theirs == our_hash:
+            # THE PEER IS BEHIND US — which is exactly what a node RACING AHEAD ON ITS OWN FORK looks like.
+            # A lone forker mines every slot unopposed, so it outruns the honest majority and nobody has a
+            # block at ITS finalized height; every probe then answered None, `disagree` stayed empty, and
+            # this returned "not stranded" for the one node most in need of rescue (208.87.242.141 was 200
+            # blocks past the majority, 2026-07-28). Retry at a height the peer DOES have: disagreement at
+            # any height that is final on BOTH sides is equally conclusive — one of us is on a dead branch —
+            # and comparing at OUR height only was an accident of framing, not a soundness requirement.
+            probe_h, theirs_lower = _common_probe_height(peer, height, port=port)
+            if theirs_lower is None:
+                unknown.append(peer)
+                continue
+            ours_lower = _our_hash_at(probe_h)
+            if ours_lower is None:
+                unknown.append(peer)
+            elif theirs_lower == ours_lower:
+                agree.append(peer)                    # same chain where we can both see it -> NOT stranded
+            else:
+                disagree.append(peer)
+            continue
+        if theirs == our_hash:
             agree.append(peer)
         else:
             disagree.append(peer)
