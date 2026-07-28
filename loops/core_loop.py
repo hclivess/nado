@@ -170,6 +170,38 @@ def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips, min
                for s in statuses)
 
 
+FINALITY_ORPHAN_MIN_PEERS = 2     # a LONE peer must never be able to talk us off our chain (anti-Sybil)
+
+
+def finality_orphaned(statuses, our_ffg, min_protocol=None, min_peers=FINALITY_ORPHAN_MIN_PEERS):
+    """FINALITY-AWARE FORK CHOICE (extracted for direct testing).
+
+    True when at least `min_peers` distinct SAME-PROTOCOL peers advertise an FFG-finalized checkpoint
+    STRICTLY HIGHER than ours — meaning the network has finalized past us on a chain we are not on, so our
+    branch is an orphan NO MATTER HOW HEAVY IT IS.
+
+    WHY THIS EXISTS. Fork choice was purely (cumulative_weight DESC, block_hash ASC). A node that forks onto
+    a branch the rest of the network rejects keeps MINING that branch, so its weight keeps growing and it
+    computes ITSELF as the canonical tip forever — `minority_block_consensus` returns False on every pass and
+    it never syncs back. Observed live (2026-07-28): 208.87.242.141 forked at h5627, ran 70+ blocks ahead at
+    HIGHER weight, its FFG frozen at 5520 while the 3-node majority finalized past 5700, and it could not
+    recover without an operator hand-running purge_resync + force_sync on that box. Weight measures work
+    done, not agreement; FINALITY measures agreement. Casper-style: a chain that abandoned the network's
+    finalized checkpoint is not eligible, whatever its weight.
+
+    SAFETY. Advertised ffg_finalized is peer-asserted and unverifiable here, so this only ever makes us
+    SYNC (fetch + verify blocks, which verify_block re-derives and rejects on a lie) — it never accepts
+    state. A quorum of >= min_peers same-protocol peers is required so one Sybil cannot trigger it, and the
+    caller applies the same persistence grace window that guards ordinary fork switches."""
+    if min_protocol is None:
+        from config import get_protocol
+        min_protocol = get_protocol()
+    ahead = sum(1 for s in statuses
+                if isinstance(s, dict) and _same_network(s, min_protocol)
+                and int(s.get("ffg_finalized", 0) or 0) > int(our_ffg or 0))
+    return ahead >= int(min_peers)
+
+
 def old_block(block):
     """True when the block's committed timestamp is more than a day in the past. Reporting only
     (flags a sync-replayed historical block in produce_block's log) — NOT a validity rule; the
@@ -560,14 +592,33 @@ class CoreClient(threading.Thread):
         # content-independent weight, different hash) wedged forever. Switch whenever the canonical tip
         # is not ours — i.e. it is heavier, OR equal-weight with a lower hash (the deterministic
         # tie-break every node computes identically, so they all converge on the lowest-hash tip).
-        if hh == self.memserver.latest_block["block_hash"]:
-            """our tip IS the canonical (heaviest weight, lowest-hash tie-break) -> do not switch"""
-            self._minority_since = None
-            return False
-        if get_block(hh):
-            """we already hold the canonical tip locally; normal incorporation adopts it"""
-            self._minority_since = None
-            return False
+        # FINALITY OVERRIDES WEIGHT. Before trusting "we are the heaviest", ask whether the network has
+        # FINALIZED past us. A node that forked onto a branch everyone else rejects keeps mining it, so its
+        # weight keeps growing and this early return fires forever — that is exactly how .141 wedged itself
+        # (h5627, 70 blocks ahead, FFG frozen, unrecoverable without an operator). Weight measures work;
+        # finality measures agreement. If a quorum of same-protocol peers is finalized above us, our branch
+        # is an orphan regardless of its weight, so fall through to the sync path (which still fetches and
+        # VERIFIES every block — a lied ffg_finalized costs us a failed sync, never bad state).
+        _our_ffg = int(getattr(self.memserver, "ffg_finalized", 0) or 0)
+        _orphaned = finality_orphaned(
+            [v for v in self.consensus.status_pool.copy().values() if isinstance(v, dict)], _our_ffg)
+        if not _orphaned:
+            if hh == self.memserver.latest_block["block_hash"]:
+                """our tip IS the canonical (heaviest weight, lowest-hash tie-break) -> do not switch"""
+                self._minority_since = None
+                return False
+            if get_block(hh):
+                """we already hold the canonical tip locally; normal incorporation adopts it"""
+                self._minority_since = None
+                return False
+        else:
+            # BOTH weight-based early returns must be bypassed here: on an orphan branch the heaviest tip IS
+            # ours and we obviously hold it, so either check would return False and re-trap us. The grace
+            # window below still applies (a transient ffg lag must not tear the node down), and after it we
+            # report out-of-consensus so the emergency path picks a donor and re-syncs.
+            self.logger.warning(
+                f"FINALITY ORPHAN: peers finalized past us (our ffg={_our_ffg}) — our branch is an orphan "
+                f"regardless of its weight; syncing back to the finalized chain")
         # GRACE WINDOW — the fork-choice above is right, but "a better tip exists that we do not hold yet"
         # is ALSO what every normal block looks like for the second between a peer advertising it and the
         # gossip delivering it. Without hysteresis that transient reads as a fork: measured 51 emergency
