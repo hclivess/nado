@@ -387,7 +387,9 @@ def verify_settlement_o1(bundle, num_queries=None, outer_queries=None):
         pubs, bnds, pers = [], [], []
         for seg in bundle["segments"]:
             pub_calls, epoch_io = _epoch_pub_statement(seg)
-            ok2, why2, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io)
+            # Extension layout, same reason as the prove side above — these are RECURSION-backend segments.
+            ok2, why2, periodic, bl = vm_circuit.epoch_statement(
+                seg["proof"], pub_calls, epoch_io, ext=stark.ext_challenges_active(_bk.RECURSION))
             if not ok2:
                 return False, f"segment statement: {why2}", None
             pubs.append(RV.public_part(seg["proof"])); bnds.append(bl); pers.append(periodic)

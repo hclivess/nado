@@ -299,7 +299,12 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
         for j, call in enumerate(blk_calls):              # (records-frozen span ⇒ empty asset shadow is inert)
             _run_call(contracts, bridge, {}, {}, reg, call, j, h, timestamp, beacons, block_hashes, False)
         pub_calls, epoch_io = SP._epoch_pub_statement(seg)
-        ok, why, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io)
+        # These segments are proven with RECURSION, which now draws from GF(p^2) — so the statement must be
+        # rebuilt under the EXTENSION layout (each logical aux column is a base-column PAIR, W 131 -> 149).
+        # Defaulting to base here read the geometry as base-width and rejected an honest proof as "bad trace
+        # geometry"; ask the one authority rather than assume.
+        ok, why, periodic, bl = vm_circuit.epoch_statement(
+            seg["proof"], pub_calls, epoch_io, ext=stark.ext_challenges_active(_bk.RECURSION))
         if not ok:
             raise ValueError(f"segment statement: {why}")
         exec_proofs.append(seg["proof"]); bnds.append(bl); pers.append(periodic)
@@ -366,7 +371,9 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=
             pubs, bnds, pers = [], [], []
             for seg in segs:
                 pub_calls, epoch_io = SP._epoch_pub_statement(seg)
-                ok2, why2, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io)
+                # Extension layout, same reason as the prove side above.
+                ok2, why2, periodic, bl = vm_circuit.epoch_statement(
+                    seg["proof"], pub_calls, epoch_io, ext=stark.ext_challenges_active(_bk.RECURSION))
                 if not ok2:
                     return False, f"segment statement: {why2}", None, None
                 pubs.append(RV.public_part(seg["proof"])); bnds.append(bl); pers.append(periodic)

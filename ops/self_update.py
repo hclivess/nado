@@ -106,10 +106,28 @@ def code_is_stale():
     return bool(run and repo and run != repo)
 
 
+class GitError(RuntimeError):
+    """A git command failed, carrying git's ACTUAL stderr rather than a guess about why."""
+
+
 def _git(*args, timeout=15):
-    """Run a git command in the repo root; returns stripped stdout, raises on non-zero exit."""
-    return subprocess.check_output(["git", *args], cwd=_REPO_DIR, stderr=subprocess.DEVNULL,
-                                   text=True, timeout=timeout).strip()
+    """Run a git command in the repo root; returns stripped stdout, raises GitError on failure.
+
+    stderr is CAPTURED, not discarded. It used to go to DEVNULL, so every failure reached the caller as a
+    bare exception with nothing in it, and the caller had to GUESS — /update answered "could not reach
+    origin (offline?)" for a node whose network was fine, which sends an operator chasing connectivity for
+    something else entirely. This module exists so a node can SAY why it cannot update; throwing away the
+    one sentence that says so defeated it. (Same lesson as the dead-fork probe: instrument first.)"""
+    try:
+        p = subprocess.run(["git", *args], cwd=_REPO_DIR, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise GitError(f"git {args[0]}: timed out after {timeout}s")
+    except Exception as e:
+        raise GitError(f"git {args[0]}: {type(e).__name__}: {e}")
+    if p.returncode != 0:
+        tail = [ln for ln in (p.stderr or "").strip().splitlines() if ln.strip()]
+        raise GitError(f"git {args[0]}: exit {p.returncode}" + (f" — {tail[-1][:200]}" if tail else ""))
+    return (p.stdout or "").strip()
 
 
 # --- NEAR-REAL-TIME UPDATE CASCADE (peer hints) ----------------------------------------------------
@@ -247,9 +265,9 @@ def updatability(probe_remote=True) -> dict:
         try:
             _git("ls-remote", "--exit-code", "origin", _BRANCH, timeout=30)
             checks["remote_reachable"] = True
-        except Exception:
+        except Exception as e:
             checks["remote_reachable"] = False
-            warnings.append("origin unreachable right now (offline?) — transient, will retry")
+            warnings.append(f"origin unreachable right now: {e}")
 
     return {"capable": not blocking, "blocking": blocking, "warnings": warnings, "checks": checks}
 
@@ -362,8 +380,11 @@ def check_and_update(trigger: str) -> dict:
 
         try:
             _git("fetch", "--quiet", "origin", _BRANCH, timeout=60)
-        except Exception:
-            return {"status": "fetch_failed", "reason": "could not reach origin (offline?) — will retry later"}
+        except Exception as e:
+            # git's OWN words. "offline?" was a guess, and it was usually wrong — the failures this actually
+            # reports are auth prompts, DNS hiccups, a stale index.lock, and genuine timeouts, which need
+            # completely different fixes from each other.
+            return {"status": "fetch_failed", "reason": f"git fetch failed: {e}"}
 
         local, remote = _git("rev-parse", "HEAD"), _git("rev-parse", f"origin/{_BRANCH}")
         _latest_remote[0] = remote[:12]
