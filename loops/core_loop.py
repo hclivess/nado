@@ -35,7 +35,7 @@ from ops.mining_ops import select_producer_two_lane, epoch_of, block_fork_weight
 from ops import kv_ops
 from ops import fork_resolution
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
-    TX_INCLUSION_DELAY, TX_TARGET_MARGIN
+    TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, DUTY_TX_MARGIN
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size, get_home
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
@@ -1665,7 +1665,21 @@ class CoreClient(threading.Thread):
             # the merged tx lands exactly at max_block; every section's window must admit it.
             reveal_hi = (X + 1) * EPOCH_LENGTH - FINALITY_DEPTH - 1
             epoch_hi = (X + 1) * EPOCH_LENGTH - 1
-            max_block = min(latest["block_number"] + 5, epoch_hi)
+            # PROPAGATION HEADROOM (see RESERVED_TX_MARGIN): tip+5 gave the duty tx ~30s to reach every
+            # producer, and a producer that has it builds a different block than one that does not — this
+            # forked alphanet-12 at h12605. Aim further ahead, but never past a deadline a due section
+            # needs: the epoch always, and the RANDAO reveal window when a reveal is actually pending.
+            # The reveal clamp applies ONLY while that deadline is still ahead of us — otherwise a
+            # long-passed reveal_hi would drag max_block below the tip and suppress the whole duty tx
+            # (attest and commit included), which tip+5 never did.
+            _e_reveal = X + 1
+            _secret_due = self.memserver.randao_secrets.get(_e_reveal)
+            _reveal_due = bool(_secret_due and kv_ops.commit_get(me, _e_reveal) is not None
+                               and _secret_due not in kv_ops.reveals_for_epoch(_e_reveal))
+            _hi = epoch_hi
+            if _reveal_due and reveal_hi > latest["block_number"]:
+                _hi = min(epoch_hi, reveal_hi)
+            max_block = min(latest["block_number"] + DUTY_TX_MARGIN, _hi)
             if max_block <= latest["block_number"]:
                 return  # epoch tail — duties resume next epoch
 
@@ -1780,7 +1794,10 @@ class CoreClient(threading.Thread):
             to_bond = min(to_bond, BOND_CAP - bonded)
             if to_bond < AUTO_BOND_MIN_RAW or balance < to_bond + MIN_TX_FEE:
                 return                                  # accrue (don't rebaseline) until it's worth a tx
-            max_block = self.memserver.latest_block["block_number"] + 2
+            # tip+2 gave this tx ~12s to reach every producer before its landing block was built. Blocks are
+            # deterministic, so producers that had not seen it yet assembled a DIFFERENT block — an auto-bond
+            # minted right after a node restart forked alphanet-12 at h12506. See RESERVED_TX_MARGIN.
+            max_block = self.memserver.latest_block["block_number"] + RESERVED_TX_MARGIN
             tx = construct_bond_tx(self.memserver.keydict, to_bond, MIN_TX_FEE, max_block)
             self.memserver.merge_transaction(tx, user_origin=True)
             self.last_auto_bond_epoch = epoch

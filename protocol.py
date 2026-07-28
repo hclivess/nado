@@ -93,6 +93,25 @@ TX_INCLUSION_DELAY = 2
 TX_LANDING_WINDOW = 360
 TX_TARGET_MARGIN = 300
 
+# RESERVED-TX LANDING MARGIN — how far ahead the node aims max_block for the EXACT-LANDING txs it mints
+# itself (bond, register, duty). These get no min_block inclusion delay (_lands_flexibly is False for them,
+# by design: their timing invariants are tied to the landing height), so max_block IS their only
+# propagation window: the tx must reach EVERY producer before the block it lands in is built. Blocks are
+# deterministic, so a producer holding the tx assembles a different block than one that does not — and the
+# chain forks on the spot.
+#
+# The old values were tip+2 (bond), tip+4 (register) and tip+5 (duty): ~12-30s at 6s/block. That forked
+# alphanet-12 three times on 2026-07-28 — h12506 on an auto-bond emitted after a node restart, h12605 on a
+# duty tx — splitting a 4-node fleet into three chains and collapsing FFG to 0. Every restart mints a bond
+# and every epoch mints a duty, so this fires as a matter of course, not as an edge case.
+#
+# SUBMITTER-SIDE ONLY: max_block is chosen by the sender and consensus only checks max_block ==
+# block_number, so raising these needs no reroll and old and new nodes interoperate (they just pick
+# different landing heights for their own txs). Kept well under TX_LANDING_WINDOW so a tx admitted against
+# a slightly-behind peer still fits.
+RESERVED_TX_MARGIN = 30      # bond/register: ~3 min at 6s/block
+DUTY_TX_MARGIN = 12          # duty: additionally clamped by the epoch and RANDAO-reveal deadlines
+
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).
 # (The "burn" mechanic was removed entirely: no burn address, no burned counter, no
