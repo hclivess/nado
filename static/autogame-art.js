@@ -130,7 +130,13 @@ function tint(a, b, t) {
   return "#" + c(16) + c(8) + c(0);
 }
 const CHILL = (c) => tint(c, "#232030", 0.5);    // dead things cool toward slate
-const WOUND = (c) => tint(c, "#ff4646", 0.5);    // the hurt wash
+const WOUND = (c) => tint(c, "#ff4646", 0.5);    // the hurt wash — a blow landing THIS INSTANT
+// Being nearly dead is not the same event as being struck, and it must not look like one. `hurt` freezes
+// the sprite into its hit pose, which is right for the ~260ms of a flinch and very wrong for the rest of a
+// run: a hero under a quarter health was drawn permanently scarlet and permanently mid-recoil, so he
+// stopped walking, stopped swinging, and read as an animation that had jammed. This is the standing-wound
+// look instead — bloodied, still moving.
+const BLOODIED = (c) => tint(c, "#ff4646", 0.22);
 const CHAR  = (c) => tint(c, "#120c0a", 0.7);    // burnt to the bone
 
 // ── the stylus ───────────────────────────────────────────────────────────────────────────
@@ -817,7 +823,10 @@ function paintFallen(g, gear) {
 
 /**
  * Draw one warrior frame with its TOP-LEFT corner at (x, y) — a 64×64 cell, feet on row 59, contact
- * shadow on row 60. opts = { gear[6 packed], frame, scale, facing (+1 right), hurt, dead, attacking }.
+ * shadow on row 60. opts = { gear[6 packed], frame, scale, facing (+1 right), hurt, wounded, dead,
+ * attacking }. `hurt` is the INSTANT of a blow — it recolours AND holds the recoil pose, so it must only
+ * ever be passed for the length of a flinch. `wounded` is the standing state of a hero near death: the
+ * same colour, none of the freeze.
  * Same opts, same pixels — always.
  */
 export function drawWarrior(ctx, x, y, opts = {}) {
@@ -826,7 +835,8 @@ export function drawWarrior(ctx, x, y, opts = {}) {
   const scale = Math.max(1, opts.scale | 0 || 1);
   const facing = opts.facing === -1 ? -1 : 1;
   const dead = !!opts.dead;
-  const map = dead ? CHILL : opts.hurt && !opts.attacking ? WOUND : null;
+  // hurt = struck right now (wash + recoil pose); wounded = low on health (wash only, keeps moving)
+  const map = dead ? CHILL : (opts.hurt && !opts.attacking) ? WOUND : opts.wounded ? BLOODIED : null;
   ctx.imageSmoothingEnabled = false;
   const g = stylus(ctx, x, y, scale, facing === -1, FRAME_W, FRAME_H, map, null);
   g.fx = !dead;                                   // corpses stop glowing

@@ -19,8 +19,8 @@ import {
 } from "./nadodapp.js?v=5ff32141";
 import * as E from "./autogame-engine.js?v=8a997c33";
 import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
-import * as ART from "./autogame-art.js?v=4aad5b61";
-import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=4aad5b61";
+import * as ART from "./autogame-art.js?v=a6a3eead";
+import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=a6a3eead";
 import { createDaily } from "./autogame-dailyui.js?v=54ae7747";
 import * as D from "./autogame-daily.js?v=bac63ff6";
 import { createAudio } from "./autogame-audio.js?v=afd7538c";
@@ -1050,7 +1050,7 @@ function drawWorld() {
     drawWarrior(ctx, footX(hx2, 3), footY(GY + 2 + bob, 3), {
       gear: view ? view.gear : new Array(6).fill(0),
       frame: attacking ? atkFrame : frame, scale: 3, facing: 1,
-      hurt: hurt || !!flinch, dead: false,
+      hurt: !!flinch, wounded: hurt, dead: false,   // a flinch recoils; low health only bloodies
       attacking,                              // his final blow lands before he falls
     });
     if (flinch) {                              // a red wash over the flinching hero
