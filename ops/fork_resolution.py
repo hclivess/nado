@@ -49,6 +49,24 @@ def majority_hash(height, peers, probe, min_answers=2):
     return top if n > total * _AGREE else None
 
 
+def _highest_answerable(tip, floor, agrees):
+    """The highest height in [floor, tip] the peer majority can actually answer, or None.
+
+    Used only when we are AHEAD of every peer (they hold no block at our tip). Binary-searches the
+    answerability boundary — `agrees(h)` returns None exactly when the majority could not be established at h
+    — so it costs O(log tip) probes and never changes the verdict at a height that IS answerable."""
+    if agrees(floor) is None:
+        return None                              # they cannot even answer at the floor -> genuinely no majority
+    lo, hi = floor, tip                           # invariant: answerable at lo, unanswerable at hi
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if agrees(mid) is None:
+            hi = mid
+        else:
+            lo = mid
+    return lo
+
+
 def find_common_ancestor(our_hash_at, tip, peers, probe, floor=0, min_answers=2):
     """Highest height in [floor, tip] where our hash equals the majority's, by binary search.
 
@@ -68,7 +86,20 @@ def find_common_ancestor(our_hash_at, tip, peers, probe, floor=0, min_answers=2)
 
     top = agrees(tip)
     if top is None:
-        return None, probes
+        # PEERS CANNOT ANSWER AT OUR TIP — the signature of a node that is AHEAD of everyone, which is exactly
+        # what a lone forker looks like: it mines every slot unopposed and outruns the honest majority. Giving
+        # up here meant such a node could never obtain ANY verdict (always UNKNOWN), so the dead-fork escape's
+        # second confirmation could never be satisfied and it stayed forked forever — .141 sat 350+ blocks past
+        # the majority for hours (2026-07-28). Retry from the highest height the peers CAN answer; comparing
+        # there is just as conclusive, since any height they hold is one we must also agree on to be on their
+        # chain. Costs O(log tip) extra probes and only on this path.
+        ceiling = _highest_answerable(tip, floor, agrees)
+        if ceiling is None:
+            return None, probes
+        tip = ceiling
+        top = agrees(tip)
+        if top is None:
+            return None, probes
     if top:
         return tip, probes                      # we match at our own tip: not forked at all, just short
     bottom = agrees(floor)

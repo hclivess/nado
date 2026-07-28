@@ -132,6 +132,35 @@ def t_probe_handles_a_node_that_raced_ahead():
         PO.probe_block_hash, PO._peer_finalized_height, PO._our_hash_at = orig
 
 
+# REGRESSION 4 (the decisive one): find_common_ancestor probed at OUR tip first and ABORTED with None when the
+# peers could not answer there. A lone forker mines unopposed and outruns everyone, so that is precisely its
+# state — it could never obtain any verdict but UNKNOWN, the dead-fork escape's second confirmation could
+# never be met, and it stayed forked forever. .141 sat 350+ blocks past the majority for hours.
+def t_ancestor_search_when_we_raced_ahead():
+    from ops import fork_resolution as FR
+    FORK, MAJ_TIP, OUR_TIP, OUR_FINAL = 5627, 6450, 6813, 6768
+
+    def our_hash_at(h):
+        return f"ours{h}" if h >= FORK else f"same{h}"
+
+    def probe(peer, h):
+        if h > MAJ_TIP:
+            return None                      # peers simply do not have our heights
+        return f"maj{h}" if h >= FORK else f"same{h}"
+
+    anc, _probes = FR.find_common_ancestor(our_hash_at, OUR_TIP, ["p1", "p2", "p3"], probe,
+                                           floor=0, min_answers=2)
+    check("ancestor is found even though peers cannot answer at our tip", anc == FORK - 1)
+    v = FR.resolve(our_hash_at, OUR_TIP, OUR_FINAL, ["p1", "p2", "p3"], probe)
+    check("verdict is DEAD_FORK (fork point is below our finalized height)", v["state"] == FR.DEAD_FORK)
+
+    # SAFETY: a node merely BEHIND must still read as BEHIND, never as a fork
+    def same_chain(h):
+        return f"same{h}"
+    v2 = FR.resolve(same_chain, 100, 50, ["p1", "p2"], lambda peer, h: f"same{h}" if h <= 200 else None)
+    check("a node on the SAME chain is not called forked", v2["state"] in (FR.BEHIND, FR.SYNCED))
+
+
 if __name__ == "__main__":
     try:
         t_normal_mode_runs_the_self_check()
@@ -140,6 +169,7 @@ if __name__ == "__main__":
         t_probe_semantics()
         t_healthy_node_costs_one_probe()
         t_probe_handles_a_node_that_raced_ahead()
+        t_ancestor_search_when_we_raced_ahead()
     except Exception as e:
         fails += 1; print(f"FAIL  exception: {e}"); traceback.print_exc()
     print("\nALL PASS — a mining fork self-heals, including one that raced ahead"
