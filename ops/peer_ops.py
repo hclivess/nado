@@ -232,6 +232,24 @@ def _peer_finalized_height(peer, port=9173, timeout=6):
         return None
 
 
+def peer_tip_weight(peer, port=9173, timeout=6):
+    """A peer's advertised cumulative tip weight from its /status, or None.
+
+    Asked DIRECTLY, like probe_block_hash and for the same reason: the dead-fork escape's whole claim to
+    safety is that it never routes a destructive decision through the status pool, which benching, a
+    collapsed peer set or a stale entry can silently blind (2026-07-20). The escape uses this only as a
+    SYMMETRY BREAKER — never to decide that a fork exists, only which side of an already-proven one yields
+    — and None (unreachable, malformed) must therefore read as "not heavier", i.e. nobody purges."""
+    import json as _json, urllib.request as _rq
+    try:
+        with _rq.urlopen(f"http://{peer}:{port}/status", timeout=timeout) as r:
+            d = _json.loads(r.read(1_000_000))
+        w = d.get("latest_block_weight") if isinstance(d, dict) else None
+        return int(w) if isinstance(w, int) and w >= 0 else None
+    except Exception:
+        return None
+
+
 def _common_probe_height(peer, our_height, port=9173):
     """(height, their_hash) at the highest height AT OR BELOW `our_height` that this peer can answer — its own
     finalized height. Returns (height, None) when it still cannot answer."""

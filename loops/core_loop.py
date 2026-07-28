@@ -180,6 +180,34 @@ def old_block(block):
         return False
 
 
+def lighter_than_disagreeing(our_weight, disagree_peers, status_pool):
+    """(we_are_strictly_lighter, heaviest_disagreeing_weight) — the dead-fork escape's SYMMETRY BREAKER.
+
+    A purge is only safe if at most ONE side of a split can ever perform it. Quorum cannot decide that: on
+    both sides of a 2-2 split a node truthfully sees a majority of its non-self peers disagreeing, so a
+    quorum rule tuned to fire on one side fires on both, both wipe, and the fleet ends up on parallel chains
+    (observed live 2026-07-28). Weight decides it, exactly as fork choice does everywhere else — the lighter
+    side yields and the heavier side stays put.
+
+    STRICTLY lighter, and an unknown peer weight counts as 0 (i.e. not heavier): ties and missing data must
+    resolve to "nobody purges". Staying wedged is recoverable on the next probe; a mutual purge is not.
+    Pure, so the symmetric case is testable without a node — see tests/test_dead_fork_tiebreak.py."""
+    heaviest = 0
+    for peer in (disagree_peers or []):
+        status = (status_pool or {}).get(peer)
+        if not isinstance(status, dict):
+            continue
+        try:
+            heaviest = max(heaviest, int(status.get("latest_block_weight", 0) or 0))
+        except (TypeError, ValueError):
+            continue                                  # a peer advertising garbage weight is simply unknown
+    try:
+        ours = int(our_weight or 0)
+    except (TypeError, ValueError):
+        ours = 0
+    return heaviest > ours, heaviest
+
+
 FORCE_SYNC_MAX_S = 900   # a pinned sync donor is a RECOVERY tool, never a permanent mode
 CHECKPOINT_CATCHUP_EVERY = 25   # while advertising NO checkpoint, capture this often (not 1000)
 
@@ -337,16 +365,25 @@ class CoreClient(threading.Thread):
                 # peer can be trusted on. It acts only when a QUORUM disagrees and NOBODY agrees with us, and
                 # it is rate-limited to one probe per DEAD_FORK_COOLDOWN_S, so a healthy node pays one cheap
                 # probe round per 30 min and exits immediately.
-                # DISABLED 2026-07-28 — this caused a PURGE STORM. Firing the escape from normal_mode makes
-                # every node evaluate it continuously, and DEAD_FORK_QUORUM=2 is only half of a 4-node fleet's
-                # 3 non-self peers: in a 2-2 split BOTH pairs see "2 disagree, none agree", so BOTH purge,
-                # resync from whichever peer answers first — often each other — and build PARALLEL chains.
-                # Observed live: the fleet went from one chain to two that share only genesis (diverge at h=1),
-                # after every node had purged and restarted. The escape is safe as a RARE last resort (its
-                # original stalled+emergency-only trigger); it is not safe as a continuous self-check until the
-                # quorum is a real majority of REACHABLE peers and a purged node is forbidden from resyncing
-                # from another node that also just purged.
-                # if self._maybe_escape_dead_fork(): ...
+                # DISABLED 2026-07-28, RE-ENABLED the same day once the symmetry was broken. Firing the
+                # escape from normal_mode makes every node evaluate it continuously, and DEAD_FORK_QUORUM=2
+                # is only half of a 4-node fleet's 3 non-self peers: in a 2-2 split BOTH pairs saw "2
+                # disagree, none agree", so BOTH purged, resynced from whichever peer answered first — often
+                # each other — and built PARALLEL chains. Observed live: the fleet went from one chain to two
+                # sharing only genesis.
+                #
+                # The escape now requires a THIRD confirmation that the disagreeing majority is strictly
+                # HEAVIER than us (see _maybe_escape_dead_fork), so exactly one side of a split can ever
+                # purge and a mutual wipe is impossible. That is the precondition this comment used to ask
+                # for, and it is a stronger one than a quorum tweak: no quorum value can distinguish the two
+                # sides of a symmetric split, because both sides genuinely hold a majority against the other.
+                #
+                # Without this caller a productive fork is invisible to every recovery route at once — which
+                # is exactly what happened next: local and .141 sat on two dead branches for hours on
+                # 2026-07-28 with a perfectly correct probe (stranded, 2 disagree, 0 agree) that nothing was
+                # allowed to act on. Needing a human IS the defect.
+                if self._maybe_escape_dead_fork():
+                    return
                 _our_w = self.memserver.latest_block.get("cumulative_weight", 0)
                 # .copy(): the peer loop admits/pops status_pool entries concurrently — iterating the
                 # live dict raises "dictionary changed size during iteration" and costs the whole
@@ -932,10 +969,15 @@ class CoreClient(threading.Thread):
         only caller. It was invisible to every recovery route at once (.141, 2026-07-28).
 
         DELIBERATELY PARANOID, because the remedy destroys chain-derived data:
-          * only if peers we ask DIRECTLY (seed set + known peers — not the status pool, not weights, not
-            benching) report a different hash at OUR finalized height,
+          * only if peers we ask DIRECTLY (seed set + known peers — not the status pool, not benching)
+            report a different hash at OUR finalized height,
           * only if NOBODY agrees with us: one agreeing peer means we are merely poorly connected, and
             wiping then would be far worse than staying wedged,
+          * only if those disagreeing peers are strictly HEAVIER than us. Weight is NOT used to decide that
+            a fork exists — the direct probe above does that, and weight is exactly the signal that misled
+            every earlier recovery ladder. It is used only to decide WHICH SIDE of an already-proven fork
+            yields, because without a tie-break both sides of a symmetric split purge each other into
+            parallel chains. Asked directly too (peer_tip_weight), never via the status pool.
           * only every DEAD_FORK_COOLDOWN_S, and never when the operator has opted out.
         private/ (keys, config) is never touched — purge_chain_data drops chain-derived data only."""
         from protocol import DEAD_FORK_STALL_S, DEAD_FORK_COOLDOWN_S, DEAD_FORK_QUORUM
@@ -955,7 +997,7 @@ class CoreClient(threading.Thread):
             # precondition costs a healthy node one cheap probe round per cooldown and nothing else.
             _stalled = self.memserver.since_last_block >= DEAD_FORK_STALL_S
 
-            from ops.peer_ops import seed_peers, stranded_below_finality
+            from ops.peer_ops import seed_peers, stranded_below_finality, peer_tip_weight
             from ops.account_ops import get_finalized_height
             from ops.block_ops import get_block_hash_by_number
             height = get_finalized_height()
@@ -1004,6 +1046,39 @@ class CoreClient(threading.Thread):
                 pass
             if _fs != fork_resolution.DEAD_FORK:
                 self.logger.warning(f"dead-fork suspected but the measured fork state says {_fs} — not purging")
+                return False
+            # THIRD CONFIRMATION — ONLY THE LIGHTER SIDE YIELDS. This is what made the check unsafe to run
+            # continuously: in a SYMMETRIC split both sides see "a quorum disagrees and nobody agrees", so
+            # BOTH purge, both resync from whoever answers first (often each other), and the fleet ends up on
+            # parallel chains sharing only genesis. That is the purge storm that forced the normal_mode
+            # caller to be disabled on 2026-07-28, and no amount of quorum tuning fixes it — 2 of 3 non-self
+            # peers IS a majority on both sides of a 2-2 split.
+            #
+            # Weight breaks the symmetry the way fork choice already does everywhere else: the lighter side
+            # yields, the heavier side stays put, so EXACTLY ONE side of any split purges. Equal weight, or a
+            # peer whose weight we do not know, means nobody moves — the safe direction, because staying
+            # wedged is recoverable by the next probe while a mutual purge is not.
+            #
+            # Not a trust hole: a peer that lies about its weight only induces a purge if a QUORUM of peers
+            # tells the same lie AND serves a different block at our finalized height, and the resync that
+            # follows validates every block it accepts — a liar with no real heavier chain cannot be synced
+            # from. This reads the same advertised cumulative_weight fork choice already acts on.
+            _ours_w = int((self.memserver.latest_block or {}).get("cumulative_weight", 0) or 0)
+            _we_are_lighter, _their_w = lighter_than_disagreeing(
+                _ours_w, detail.get("disagree"),
+                {p: {"latest_block_weight": peer_tip_weight(p, port=self.memserver.port)}
+                 for p in (detail.get("disagree") or [])})
+            try:
+                self.memserver.dead_fork_probe["our_weight"] = _ours_w
+                self.memserver.dead_fork_probe["their_weight"] = _their_w
+            except Exception:
+                pass
+            if not _we_are_lighter:
+                self.logger.warning(
+                    f"DEAD FORK confirmed at {height}, but our chain is NOT the lighter one "
+                    f"(ours={_ours_w} theirs={_their_w}) — not purging. The lighter side of a split is the "
+                    f"side that yields; if they are genuinely on the better chain they will out-weigh us "
+                    f"and this flips on a later probe.")
                 return False
             self.logger.error("=" * 78)
             self.logger.error(f"DEAD FORK ({'tip frozen' if _stalled else 'STILL MINING — productive fork'}): "
