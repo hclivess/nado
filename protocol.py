@@ -542,7 +542,16 @@ SETTLE_PROOF_TRUSTLESS = True
 # 2026-07-27). FALSE ⇒ the `recursive` field is IGNORED and every node verifies segments the classic K-way, so
 # a folded proof is accepted identically by folded- and unfolded-code nodes (no version-skew fork). Flip to True
 # only at a reroll, once the whole fleet runs the recursion-aware verifier from genesis.
-SETTLE_PROOF_RECURSIVE = True    # ACTIVATED on alphanet-12 (CHAIN_GENERATION 13): the whole fleet regenesis
+SETTLE_PROOF_RECURSIVE = False   # RE-GATED 2026-07-28: the recursion path is still BASE-FIELD.
+                                 # stark/fri now draw the folding challenge, the DEEP point and the constraint
+                                 # alphas from GF(p^2) (~111 bits provable), but the in-circuit AIRs
+                                 # (fri_verify, rowcomp_verify) and the arena's sp_fold do base-field
+                                 # arithmetic, so proofs destined to be FOLDED are deliberately produced
+                                 # base-field and carry the OLD ~47-bit commit bound. Accepting a folded
+                                 # settlement proof while the rest of the system claims 111 would make the
+                                 # fold the weakest link in consensus. Re-enable at a reroll once the
+                                 # recursion AIRs are ported to extension arithmetic.
+                                 # (Was True on the alphanet-12 reroll, CHAIN_GENERATION 13.)
 
 # How many recent heights keep an exec summary (kv_ops.exec_summary_*). These live in the `meta` sub-DB,
 # which IS carried in SNAPSHOT_DBS, so without a bound they would grow with chain length AND bloat every
