@@ -13,7 +13,7 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-12"  # RECURSIVE-FOLD reroll (2026-07-27): activates SETTLE_PROOF_RECURSIVE, gen 13
+CHAIN_ID = "alphanet-13"  # AUX-EXT reroll (2026-07-28): LogUp challenges in GF(p^2), gen 14
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -39,7 +39,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1785168982  # alphanet-12 — recursive-fold reroll (DISTINCT genesis hash so the
+GENESIS_TIMESTAMP = 1785264105  # alphanet-13 — aux-ext reroll (DISTINCT genesis hash so the
                                 # new chain cannot share fork choice with any prior-generation node; gen 7-9
                                 # reused alphanet-8's genesis, which stranded old-code nodes kept winning)
                                 # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
@@ -357,7 +357,20 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   they are redeemed; apply_slash books its burn; the snapshot payload is canonicalized and re-anchor +
 #   fresh-bootstrap require a quorum with seed anchoring; strike attribution no longer benches honest
 #   peers. Exec state semantics change (TIME), so exec state is rebuilt from the new genesis too.
-CHAIN_GENERATION = 13
+# 12 (2026-07-27): RECURSIVE-FOLD reroll — activated the K->1 settlement fold. Since RE-GATED
+#   (SETTLE_PROOF_RECURSIVE=False): the recursion path is still base-field (~47 bits) while the main path
+#   reached 112, so accepting folds would have made the fold the weakest link in consensus.
+# 13 (2026-07-28): AUX-EXT reroll — the aux (LogUp) Fiat-Shamir challenges beta/gamma move from the BASE
+#   field to GF(p^2), taking that term from ~44 bits to 109. It was the LAST base-field draw and therefore
+#   the one that actually bound the system: every aux_spec circuit (vm_circuit — the exec/settlement path —
+#   and logup_bind) inherited it, so an attacker would have targeted 44 bits, not 112.
+#   WHY A REROLL: settle proofs are re-verified on block APPLY (ops/transaction_ops.verify_settlement_sparse),
+#   not only when first accepted. Every settlement already on chain was proven under base-field challenges,
+#   so after this change a fresh sync would reject those blocks and no new node could ever bootstrap. The
+#   proof format is not backward compatible and cannot be made so — the challenge field is what changed.
+#   The extension-valued aux columns also widen the exec trace (each logical aux column becomes a base-column
+#   PAIR), so the AIR geometry differs too.
+CHAIN_GENERATION = 14
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
