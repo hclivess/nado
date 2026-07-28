@@ -65,7 +65,11 @@ def t_tampers_rejected():
     for mut, label in [
         (lambda x: x["publics"][0].__setitem__("roots", [("11" * 8,)] + x["publics"][0]["roots"][1:]), "tampered root"),
         (lambda x: x["publics"][0].__setitem__("pow", 0), "stripped grinding PoW"),
-        (lambda x: x["publics"][0].__setitem__("final", [(v + 1) % F.P for v in x["publics"][0]["final"]]), "corrupted final layer"),
+        # GF(p^2) finals are limb PAIRS — corrupt the lo limb. (Adding 1 to the tuple itself is a TypeError,
+        # not a corrupted proof, so the old form silently stopped testing anything once FRI went extension.)
+        (lambda x: x["publics"][0].__setitem__(
+            "final", [(((v[0] + 1) % F.P), v[1]) if isinstance(v, tuple) else (v + 1) % F.P
+                      for v in x["publics"][0]["final"]]), "corrupted final layer"),
         (lambda x: x.__setitem__("num_queries_inner", 0), "zero inner query count (no spot-checks)"),
         (lambda x: x.__setitem__("num_queries_inner", NQ + 1), "inner query count != protocol"),
     ]:

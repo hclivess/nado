@@ -19,7 +19,7 @@ public statement (indices FS-derived upstream, roots, alphas/challenges/invZ/bou
 all periodic columns are STRUCTURED (16-row block pattern + O(1) sparse rows per path); the proof carries only
 witness. Supports per-point roots (K→1 across proofs) and two-phase groups (main + aux trees).
 """
-from execnode.stark import alghash2 as a2, field as F, stark, backend, air_ir
+from execnode.stark import alghash2 as a2, field as F, stark, backend, air_ir, ext2
 from execnode.stark.recursion import _permute_snapshots
 from execnode.stark.fri_verify import _fill_block, _junk_absorb, _B
 from execnode.stark.air_ir import CUR, NXT, PER, CHAL, CONST, ADD, SUB, MUL, POW
@@ -74,7 +74,7 @@ def _layout(W, n_aux, points):
     return segs, chk_rows, T, n_used
 
 
-def _per_layout(W, n_aux, nt, nb, nper, nchal):
+def _per_layout(W, n_aux, nt, nb, nper, nchal, ext=False, n_alpha=None):
     """Periodic column indices. LSEL[p] = first-block carry-tie gate per path shape p; LABS[p][c] = leaf-chunk-c
     absorb gate per path shape p (c = 1..nc-1) — flattened as LABS base + offsets."""
     shapes = _path_shapes(W, n_aux, [1] * len(_groups_of(W, n_aux)))   # plen irrelevant for the gate schema
@@ -84,17 +84,24 @@ def _per_layout(W, n_aux, nt, nb, nper, nchal):
     labs_off, k = [], LSEL + n_shapes
     for (_k, _g, _cb, _Wg, nc, _pl) in shapes:
         labs_off.append(k); k += max(0, nc - 1)
+    # GF(p^2): the composition target and every alpha are EXTENSION values, so they take two periodic columns
+    # each (lo then hi). The SSA outputs stay base — an extension-valued constraint contributes its two
+    # components as two outputs — so PPER/PCHAL/PBVAL are unchanged in kind; only the widths that carry
+    # extension quantities double. `n_alpha` is the count of LOGICAL constraints (one alpha each), which is
+    # NOT len(outputs) once extension constraints occupy two outputs apiece.
+    _e = 2 if ext else 1
+    na = (nt if n_alpha is None else n_alpha) + nb
     PINVZ = k
     PL0 = PINVZ + 1
-    PALPHA = PL0 + 1
-    PPER = PALPHA + nt + nb
+    PALPHA = PL0 + _e
+    PPER = PALPHA + _e * na
     PCHAL = PPER + nper
     PBVAL = PCHAL + nchal
     PBID = PBVAL + nb
     NPER = PBID + nb
     return dict(RCL=RCL, ACTR=ACTR, ACTA=ACTA, SHOLDL=SHOLDL, IHOLD=IHOLD, CHK=CHK, HOLD=HOLD, LSEL=LSEL,
                 LABS=labs_off, PINVZ=PINVZ, PL0=PL0, PALPHA=PALPHA, PPER=PPER, PCHAL=PCHAL, PBVAL=PBVAL,
-                PBID=PBID, NPER=NPER)
+                PBID=PBID, NPER=NPER, EXT=bool(ext), NALPHA=na)
 
 
 def _schedule(prog, W, n_aux, boundaries, points):
@@ -102,7 +109,14 @@ def _schedule(prog, W, n_aux, boundaries, points):
     MUST agree. Every column is structured: 16-row base pattern + sparse rows."""
     nt, nb = len(prog["outputs"]), len(boundaries)
     nper, nchal = prog["P"], prog["C"]
-    L = _per_layout(W, n_aux, nt, nb, nper, nchal)
+    # EXT is a property of the PROGRAM, not of the caller: a program with extension-valued outputs was traced
+    # from an AIR whose challenges and alphas are GF(p^2). Deriving it here keeps prover and verifier in step
+    # without another flag to pass (and mis-pass) at every call site.
+    _pairs = list(prog.get("ext_pairs") or ())
+    ext = bool(_pairs) or bool(prog.get("ext_chal"))
+    n_logical = nt - len(_pairs)          # an extension constraint occupies TWO outputs but takes ONE alpha
+    L = _per_layout(W, n_aux, nt, nb, nper, nchal, ext=ext, n_alpha=n_logical)
+    _e = 2 if ext else 1
     segs, chk_rows, T, n_used = _layout(W, n_aux, points)
 
     rcl_base = [[a2.RC[r][lane] for r in range(_R)] + [0] * (_B - _R) for lane in range(_W)]
@@ -115,8 +129,9 @@ def _schedule(prog, W, n_aux, boundaries, points):
     sup_link, acta_del, ihold_add = [], [], []
     lsel = [[] for _ in range(n_shapes)]
     labs = [[] for _ in range(n_shapes)]                 # labs[p] = list of per-chunk entry lists
-    chk_e, hold_rel, pinvz, pl0 = [], [], [], []
-    palpha = [[] for _ in range(nt + nb)]
+    chk_e, hold_rel, pinvz = [], [], []
+    pl0 = [[] for _ in range(_e)]             # extension target: one list per limb
+    palpha = [[] for _ in range(_e * L["NALPHA"])]
     pper = [[] for _ in range(nper)]
     pchal = [[] for _ in range(nchal)]
     pbval = [[] for _ in range(nb)]
@@ -153,9 +168,14 @@ def _schedule(prog, W, n_aux, boundaries, points):
         hold_rel.append((chk, 0))
         chk_e.append((chk, 1))
         pinvz.append((chk, int(point["invZ"]) % F.P))
-        pl0.append((chk, int(point["layer0"]) % F.P))
+        _l0 = point["layer0"]
+        _l0 = _l0 if isinstance(_l0, tuple) else (_l0, 0)
+        for li in range(_e):
+            pl0[li].append((chk, int(_l0[li]) % F.P))
         for j, a in enumerate(point["alphas"]):
-            palpha[j].append((chk, int(a) % F.P))
+            _a = a if isinstance(a, tuple) else (a, 0)
+            for li in range(_e):
+                palpha[_e * j + li].append((chk, int(_a[li]) % F.P))
         for j, v in enumerate(point["per"]):
             pper[j].append((chk, int(v) % F.P))
         for j, v in enumerate(point["chal"]):
@@ -186,8 +206,10 @@ def _schedule(prog, W, n_aux, boundaries, points):
         for c in range(1, nc):
             ent = labs[p][c - 1] if c - 1 < len(labs[p]) else []
             per[L["LABS"][p] + (c - 1)] = SP(ent)
-    per[L["PINVZ"]] = SP(pinvz); per[L["PL0"]] = SP(pl0)
-    for j in range(nt + nb):
+    per[L["PINVZ"]] = SP(pinvz)
+    for li in range(_e):
+        per[L["PL0"] + li] = SP(pl0[li])
+    for j in range(_e * L["NALPHA"]):
         per[L["PALPHA"] + j] = SP(palpha[j])
     for j in range(nper):
         per[L["PPER"] + j] = SP(pper[j])
@@ -394,15 +416,40 @@ def _transitions(prog, W, n_aux, boundaries, L):
                 t[i] = F.mul(t[a], t[bb])
             else:
                 t[i] = F.pw(t[a], bb)
-        acc = 0
-        for tt in range(nt):
-            acc = F.add(acc, F.mul(per[L["PALPHA"] + tt], t[outputs[tt]]))
-        cp = F.mul(acc, per[L["PINVZ"]])
+        if not L["EXT"]:
+            acc = 0
+            for tt in range(nt):
+                acc = F.add(acc, F.mul(per[L["PALPHA"] + tt], t[outputs[tt]]))
+            cp = F.mul(acc, per[L["PINVZ"]])
+            for bi, (_row, col, _val) in enumerate(boundaries):
+                term = F.mul(F.mul(per[L["PALPHA"] + nt + bi], F.sub(cvals[col], per[L["PBVAL"] + bi])),
+                             per[L["PBID"] + bi])
+                cp = F.add(cp, term)
+            return F.mul(per[L["CHK"]], F.sub(cp, per[L["PL0"]]))
+
+        # GF(p^2). The SSA interpretation above stays BASE-valued — that is the point of giving an
+        # extension-valued constraint two outputs — so only the ALPHA combination widens. Each logical
+        # constraint takes one extension alpha; an extension constraint's two outputs are read back as one
+        # element. ext2's *_f forms keep this traceable, since this constraint is itself an AIR constraint
+        # that the OUTER proof's own IR has to lower.
+        pair_at = set(prog.get("ext_pairs") or ())
+        A = lambda j: (per[L["PALPHA"] + 2 * j], per[L["PALPHA"] + 2 * j + 1])
+        acc, tt, ai = (0, 0), 0, 0
+        while tt < nt:
+            if tt in pair_at:
+                val = (t[outputs[tt]], t[outputs[tt + 1]]); tt += 2
+            else:
+                val = (t[outputs[tt]], 0); tt += 1
+            acc = ext2.add_f(acc, ext2.mul_f(A(ai), val)); ai += 1
+        cp = ext2.scalar_mul_f(acc, per[L["PINVZ"]])
         for bi, (_row, col, _val) in enumerate(boundaries):
-            term = F.mul(F.mul(per[L["PALPHA"] + nt + bi], F.sub(cvals[col], per[L["PBVAL"] + bi])),
-                         per[L["PBID"] + bi])
-            cp = F.add(cp, term)
-        return F.mul(per[L["CHK"]], F.sub(cp, per[L["PL0"]]))
+            base_term = F.mul(F.sub(cvals[col], per[L["PBVAL"] + bi]), per[L["PBID"] + bi])
+            cp = ext2.add_f(cp, ext2.scalar_mul_f(A(ai + bi), base_term))
+        tgt = (per[L["PL0"]], per[L["PL0"] + 1])
+        d = ext2.sub_f(cp, tgt)
+        # BOTH limbs must match the public target: checking only the lo limb would let a prover satisfy the
+        # composition on half of the extension element and put anything it liked in the other half.
+        return (F.mul(per[L["CHK"]], d[0]), F.mul(per[L["CHK"]], d[1]))
     cons.append(check_c)
     return cons
 

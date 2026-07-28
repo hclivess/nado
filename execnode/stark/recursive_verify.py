@@ -42,7 +42,11 @@ def public_part(stark_proof):
            "blowup": stark_proof["blowup"],
            "fri_public": {"roots": fp["roots"], "N": fp["N"], "offset": fp["offset"],
                           "blowup": fp["blowup"], "final": fp["final"], "pow": fp.get("pow")},
-           "layer0": [int(q["steps"][0]["lo"]) % F.P for q in fp["queries"]]}
+           # layer0 is a GF(p^2) pair when the inner FRI is extension — keep it as-is rather than coercing,
+           # or the seam the composition half is handed loses its hi limb.
+           "layer0": [(q["steps"][0]["lo"] if isinstance(q["steps"][0]["lo"], tuple)
+                       else int(q["steps"][0]["lo"]) % F.P) for q in fp["queries"]],
+           "ext": bool(fp.get("ext", False)), "ext0": bool(fp.get("ext0", False))}
     if "row_roots" in stark_proof:
         out["row_roots"] = stark_proof["row_roots"]
     else:
@@ -50,7 +54,7 @@ def public_part(stark_proof):
     return out
 
 
-def _fs(pub, n_chal, n_alphas, b):
+def _fs(pub, n_chal, n_alphas, b, ext=False):
     """Rebuild the inner STARK's transcript at the FRI start and return (factory, challenges, alphas).
     Single-phase column mode: absorb the W column roots, draw the α's. Row mode: absorb the main row root
     (+ two-phase: draw the LogUp challenges, absorb the aux row root), draw the α's. The factory is what
@@ -64,10 +68,13 @@ def _fs(pub, n_chal, n_alphas, b):
     def replay(t):
         for r in roots_main:
             t.absorb(r)
-        chals = [t.challenge() for _ in range(n_chal)]
+        # Draw in the inner proof's OWN field. stark.prove draws the aux challenges and then the alphas from
+        # GF(p^2) whenever ext_challenges_active holds, so a base-field replay here yields different values
+        # and every honest inner proof fails its composition check.
+        chals = [(t.challenge_ext() if ext else t.challenge()) for _ in range(n_chal)]
         for r in roots_aux:
             t.absorb(r)
-        alphas = [t.challenge() for _ in range(n_alphas)]
+        alphas = [(t.challenge_ext() if ext else t.challenge()) for _ in range(n_alphas)]
         return chals, alphas
 
     def mk():
@@ -95,9 +102,14 @@ def _point_values(pub, boundaries, alphas, chals, per_evals, lo, layer0):
     z = F.mul(F.sub(xT, 1), F.inv(F.sub(x, last)))
     bnd = [(int(val) % F.P, F.inv(F.sub(x, F.pw(gT, row)))) for (row, _c, val) in boundaries]
     return {"cur_index": lo, "nxt_index": (lo + blowup) % N,
-            "per": [pe(x, xT) for pe in per_evals], "chal": [int(c) % F.P for c in chals],
-            "alphas": [int(a) % F.P for a in alphas], "invZ": F.inv(z), "bnd": bnd,
-            "layer0": int(layer0) % F.P, "path_len": N.bit_length() - 1}
+            # chal/alphas/layer0 stay in whatever field they were drawn in — rowcomp_verify splits an
+            # extension value into its limbs itself, and coercing here would silently drop the hi limb.
+            "per": [pe(x, xT) for pe in per_evals],
+            "chal": [(c if isinstance(c, tuple) else int(c) % F.P) for c in chals],
+            "alphas": [(a if isinstance(a, tuple) else int(a) % F.P) for a in alphas],
+            "invZ": F.inv(z), "bnd": bnd,
+            "layer0": (layer0 if isinstance(layer0, tuple) else int(layer0) % F.P),
+            "path_len": N.bit_length() - 1}
 
 
 def _canon_positions(pub, nqi, mk):
@@ -151,11 +163,16 @@ def prove(stark_proofs, transitions, boundaries, num_queries_outer=stark.NUM_QUE
     if num_aux and not row_mode:
         raise ValueError("two-phase recursion requires row-committed inner proofs")
     nper0 = len(_per_of(periodic, periodic_list, 0))
-    prog = air_ir.build_program(transitions, W, nper0, num_challenges)
+    # The inner proofs' own FRI says which field their challenges live in; the IR and the transcript replay
+    # must both follow it, or the composition half checks a different statement than the one proven.
+    _ext = bool(public_part(proofs[0]).get("ext")) if proofs else False
+    if any(bool(public_part(p).get("ext")) != _ext for p in proofs):
+        raise ValueError("cannot recurse over a mix of base-field and GF(p^2) proofs")
+    prog = air_ir.build_program(transitions, W, nper0, num_challenges, ext_chal=_ext)
     fri_proofs, mks, points = [], [], []
     for pi_, (p, bl) in enumerate(zip(proofs, bnds_list)):
         pub = public_part(p)
-        mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b)
+        mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b, ext=_ext)
         fri_proofs.append(p["fri"]); mks.append(mk)
         N, blowup, T, wN, gT, last = _geometry(pub)
         gTp = F.primitive_root_of_unity(T)
@@ -225,7 +242,11 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
         if num_aux and not row_mode:
             return False, "two-phase recursion requires row-committed inner proofs"
         nper0 = len(_per_of(periodic, periodic_list, 0))
-        prog = air_ir.build_program(transitions, W, nper0, num_challenges)
+        # The field comes from the inner proofs' public parts, so it is known before the IR is built.
+        _ext = bool(pubs[0].get("ext")) if pubs else False
+        if any(bool(pu.get("ext")) != _ext for pu in pubs):
+            return False, "cannot recurse over a mix of base-field and GF(p^2) proofs"
+        prog = air_ir.build_program(transitions, W, nper0, num_challenges, ext_chal=_ext)
         nqi = len(pubs[0]["layer0"])
         # the inner query count IS each proof's soundness — a caller with a protocol policy pins it here,
         # so a prover cannot present weaker (fewer-query) inner proofs than the protocol demands.
@@ -237,7 +258,7 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
                 return False, "inner proofs must share the AIR shape"
             if len(pub["layer0"]) != nqi:
                 return False, "inner proofs must share the query count"
-            mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b)
+            mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b, ext=_ext)
             mks.append(mk)
             # AUTHORITATIVE POSITIONS + native FRI checks: query positions are FS-derived from the public part,
             # never read from the proof — comp binds the trace at the SAME positions the fold authenticates.
