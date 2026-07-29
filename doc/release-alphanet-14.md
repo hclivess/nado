@@ -95,7 +95,23 @@ This is a **consensus rule** and rides the reroll rather than a hot toggle. A no
 skips the classic per-segment check, so enabling it while unupgraded peers ignore the field would let an
 attacker staple a bogus blob onto a valid settle tx and split the fleet.
 
-⟨TBD: heavy fold timing, peak RSS, proof size⟩
+⟨TBD: final timing / proof size — the gate is still running at time of writing⟩
+
+**Measured mid-run, and it is the number that decides whether this is usable in practice.** The heavy K→1
+fold over a multi-segment sparse settlement is on track for roughly **five hours** end to end at D=3, with a
+peak of **9.4 GB** resident (comfortably inside the 20 GiB cgroup it runs under). The FRI half completes in
+about an hour; the rest is the composition half, whose comp proof is **W=352 columns over T=8192 rows,
+LDE'd to N=262144** — and its column commits proceed at about **4.7 columns per minute**.
+
+The width is the story: 352 columns is what D=3 costs, because `rowcomp_verify` allocates D periodic columns
+per alpha plus one per limb of the layer-0 target, and every one is interpolated to the trace length.
+
+**This does not block the release** — `SETTLE_PROOF_RECURSIVE` changes how L1 VERIFIES (one bundle instead of
+K segment checks), and verification stays fast. But a prover that needs hours per settlement is a
+proving-farm job, not something a node does inline, and that should be stated rather than discovered. The
+obvious lever, not taken here, is batch inversion in the aux build (Montgomery's trick: one inversion plus 3n
+multiplies for n elements) — see the extf.inv note; it needs the aux build restructured to collect
+denominators first.
 
 ---
 
