@@ -240,17 +240,30 @@ class base_field:
         return False
 
 
-def t_native_refuses_ext():
-    """The guard itself: under GF(p^2) challenges the holistic prover must REFUSE, not emit a proof nobody
-    can verify. This is what makes the bypass safe."""
+def t_native_ext_capability():
+    """The arena carries GF(p^2) now (sp_compose_ext / sp_fold_ext), so it must PRODUCE ext proofs rather
+    than refuse them — refusing is what sent every proof down the Python path and made the K->1 fold
+    OOM-kill at 20.8 GB, since that path materializes all W LDE columns as Python lists.
+
+    The refusal survives for exactly one case: a library built BEFORE the port. There the old answer is still
+    the right one, because a base-field proof under ext challenges is one stark.verify can never accept."""
     from execnode.stark import stark_native, backend as _bk, stark as _st
     assert _st.ext_challenges_active(_bk.ALGHASH2), "precondition: ext is on"
-    try:
-        stark_native.prove([[1, 1]], [lambda c, n, p: F.sub(c[0], c[0])], [], backend=_bk.ALGHASH2)
-    except RuntimeError as e:
-        assert "GF(p^2)" in str(e), f"refused for the wrong reason: {e}"
-        return
-    raise AssertionError("stark_native.prove accepted an ext-challenge request instead of refusing")
+    if not stark_native.ext_capable():
+        try:
+            stark_native.prove([[1, 1]], [lambda c, n, p: F.sub(c[0], c[0])], [], backend=_bk.ALGHASH2)
+        except RuntimeError as e:
+            assert "predates" in str(e), f"refused for the wrong reason: {e}"
+            return
+        raise AssertionError("a pre-port arena accepted an ext request instead of refusing")
+    # ext-capable: it must prove AND the proof must verify — speed without acceptance is worthless
+    T = 8
+    trace = [[i % F.P, (i * i) % F.P] for i in range(T)]
+    TRANS = [lambda c, n, p: F.sub(c[1], F.mul(c[0], c[0]))]
+    pr = stark_native.prove(trace, TRANS, [(0, 0, 0)], max_degree=2, num_queries=3, backend=_bk.ALGHASH2)
+    assert pr["fri"].get("ext"), "the native prover produced a BASE-field proof under ext challenges"
+    ok, why = stark.verify(pr, TRANS, [(0, 0, 0)], max_degree=2, num_queries=3, backend=_bk.ALGHASH2)
+    assert ok, f"native ext proof does not verify: {why}"
 
 
 def t_prove_alghash2():
@@ -370,7 +383,7 @@ if __name__ == "__main__":
     check("HOLISTIC prove == stark.prove (ALGHASH2 default backend, verifies)", t_prove_alghash2)
     check("HOLISTIC prove == stark.prove (row-commit, verifies)", t_prove_row_commit)
     check("HOLISTIC prove == stark.prove (two-phase LogUp, verifies)", t_prove_two_phase)
-    check("holistic prover REFUSES a GF(p^2) request instead of emitting an unverifiable proof",
-          t_native_refuses_ext)
+    check("holistic prover PRODUCES a verifying GF(p^2) proof (and refuses only on a pre-port library)",
+          t_native_ext_capability)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
