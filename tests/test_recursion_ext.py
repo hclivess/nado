@@ -17,7 +17,7 @@ import sys, os, random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from execnode.stark import (fri, field as F, backend as BK, stark, ext2, air_ir,
+from execnode.stark import (fri, field as F, backend as BK, stark, extf as ext2, air_ir,
                             fri_verify as FV, logup_bind as LB, alghash2 as a2)
 
 fails = []

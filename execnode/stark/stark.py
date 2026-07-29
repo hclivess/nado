@@ -18,7 +18,8 @@ Cheating requires a non-low-degree quotient (FRI rejects) or a trace/composition
 Soundness assumption: BLAKE2b collision-resistance.
 """
 import os
-from execnode.stark import field as F, merkle, fri, backend as _backend, ext2
+import sys
+from execnode.stark import field as F, merkle, fri, backend as _backend, extf as ext2
 from execnode.stark.transcript import Transcript, DOMAIN_STARK
 from execnode.stark.fri import NUM_QUERIES
 
@@ -252,6 +253,20 @@ def _row_tree(col_lde_group, N):
     return merkle.commit_digests(leaves, _backend.RECURSION)
 
 
+_NATIVE_FALLBACKS = set()
+
+
+def _native_fallback(exc):
+    """Record + surface a fall-back from the native prover. Raises under NADO_STRICT_NATIVE so a CI run
+    cannot pass by quietly computing the right answer the slow way."""
+    msg = f"{type(exc).__name__}: {exc}"
+    if os.environ.get("NADO_STRICT_NATIVE"):
+        raise RuntimeError(f"native prover unavailable and NADO_STRICT_NATIVE is set — {msg}") from exc
+    if msg not in _NATIVE_FALLBACKS:
+        _NATIVE_FALLBACKS.add(msg)
+        sys.stderr.write(f"[stark] native prover fell back to Python: {msg}\n")
+
+
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
           aux_spec=None, backend=None, row_commit=False, commit_periodic=None):
     """Prove `trace` satisfies the AIR (transitions + boundaries [+ public periodic columns]). Interpolates
@@ -308,8 +323,13 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
                 return stark_native.prove(trace, transitions, boundaries, periodic=periodic,
                                           max_degree=max_degree, num_queries=num_queries, aux=aux,
                                           aux_spec=aux_spec, row_commit=row_commit, backend=_b)
-        except Exception:
-            pass                                          # correctness-preserving fallback to pure Python
+        except Exception as _e:
+            # CORRECTNESS-PRESERVING fallback to pure Python — but never a SILENT one. This handler hid a
+            # real wiring bug for days: compose_ext flattened the alphas and not the challenges, int()
+            # raised on a tuple, the native path simply never ran, and two "native" timings were the Python
+            # path mislabelled. A fallback nobody can observe is indistinguishable from one that never
+            # fires. NADO_STRICT_NATIVE=1 turns it into an error, which is what the test suite runs under.
+            _native_fallback(_e)
     periodic = periodic or []
     commit_periodic = sorted(set(commit_periodic or []))  # periodic-column indices to COMMIT instead of publish
     if commit_periodic and (commit_periodic[0] < 0 or commit_periodic[-1] >= len(periodic)):

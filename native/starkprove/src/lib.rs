@@ -410,17 +410,28 @@ pub extern "C" fn sp_col_len(col: usize) -> i64 {
     }
 }
 
-// ---- GF(p^2) = F_p[X]/(X^2 - NONRESIDUE) ---------------------------------------------------------
-// The arena stores columns as Vec<u64>, so an EXTENSION-valued column is carried as TWO arena columns
-// (lo, hi) meaning lo + hi*X — the same limb-pair representation the Python side uses, which is what lets a
-// proof move between them unchanged.
+// ---- GF(p^D) = F_p[X]/(X^D - NONRESIDUE) ---------------------------------------------------------
+// The arena stores columns as Vec<u64>, so an EXTENSION-valued column is carried as D arena columns
+// (limb 0 .. limb D-1) meaning c0 + c1*X + ... — the same limb-tuple representation the Python side uses,
+// which is what lets a proof move between them unchanged.
 //
 // This exists because the extension migration otherwise costs the arena entirely: stark_native refuses an
 // ext request (it would emit a proof stark.verify could never accept), so every ext proof composed and
 // folded in PYTHON. That is 2.8x slower and, far worse, materializes every LDE column as a Python list —
 // the K->1 settlement fold OOM-killed at 20.8 GB resident against a ~15 GB budget. Keeping the columns in
 // Rust is what makes folding feasible at all, not merely faster.
-const NONRESIDUE: u64 = 7;
+//
+// WRITTEN FOR ARBITRARY D, NOT HAND-EXPANDED. The degree-2 version expanded the product by hand and
+// destructured every value as a 2-tuple, so raising the degree meant editing every line that touched an
+// extension element — in Python that same shape hid 118 assumptions across 16 files, five of which were
+// SILENT (wrong answer, no error). Here the degree is one const and the arithmetic is a generic
+// convolution, so a future degree change is a one-line edit that either compiles or does not.
+const EXT_DEGREE: usize = 3;
+const NONRESIDUE: u64 = 3;      // X^3 - 3 is irreducible over Goldilocks (checked in extf.py at import)
+
+type Ext = [u64; EXT_DEGREE];
+
+const EXT_ZERO: Ext = [0u64; EXT_DEGREE];
 
 /// The extension DEGREE this library was compiled for. The Python side must refuse to use the arena when
 /// this disagrees with extf.DEGREE: the symbols existing says nothing about which field they implement, and
@@ -429,75 +440,148 @@ const NONRESIDUE: u64 = 7;
 /// a degree-3 Python side reported "trace/composition mismatch" with nothing pointing at the field.)
 #[no_mangle]
 pub extern "C" fn sp_ext_degree() -> i64 {
-    2
+    EXT_DEGREE as i64
+}
+
+/// The NONRESIDUE, exported for the same reason as the degree: two libraries can agree on D and still be
+/// different fields. Python checks both before it will touch the arena.
+#[no_mangle]
+pub extern "C" fn sp_ext_nonresidue() -> u64 {
+    NONRESIDUE
 }
 
 #[inline]
-fn e_add(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
-    (addf(a.0, b.0), addf(a.1, b.1))
+fn e_add(a: Ext, b: Ext) -> Ext {
+    let mut o = EXT_ZERO;
+    for i in 0..EXT_DEGREE {
+        o[i] = addf(a[i], b[i]);
+    }
+    o
 }
 
 #[inline]
-fn e_sub(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
-    (subf(a.0, b.0), subf(a.1, b.1))
+fn e_sub(a: Ext, b: Ext) -> Ext {
+    let mut o = EXT_ZERO;
+    for i in 0..EXT_DEGREE {
+        o[i] = subf(a[i], b[i]);
+    }
+    o
 }
 
 #[inline]
-fn e_mul(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
-    // (a0 + a1 X)(b0 + b1 X) = (a0 b0 + NONRESIDUE a1 b1) + (a0 b1 + a1 b0) X
-    (
-        addf(mulf(a.0, b.0), mulf(NONRESIDUE, mulf(a.1, b.1))),
-        addf(mulf(a.0, b.1), mulf(a.1, b.0)),
-    )
+fn e_mul(a: Ext, b: Ext) -> Ext {
+    // Polynomial product reduced mod X^D - NONRESIDUE: terms of degree >= D wrap with a NONRESIDUE factor,
+    // since X^(D+k) = NONRESIDUE * X^k. Same convolution extf.mul computes, limb for limb.
+    let mut acc = [0u64; 2 * EXT_DEGREE - 1];
+    for i in 0..EXT_DEGREE {
+        if a[i] != 0 {
+            for j in 0..EXT_DEGREE {
+                acc[i + j] = addf(acc[i + j], mulf(a[i], b[j]));
+            }
+        }
+    }
+    let mut o = EXT_ZERO;
+    o.copy_from_slice(&acc[..EXT_DEGREE]);
+    for k in EXT_DEGREE..(2 * EXT_DEGREE - 1) {
+        if acc[k] != 0 {
+            o[k - EXT_DEGREE] = addf(o[k - EXT_DEGREE], mulf(NONRESIDUE, acc[k]));
+        }
+    }
+    o
 }
 
 #[inline]
-fn e_scalar(a: (u64, u64), s: u64) -> (u64, u64) {
-    (mulf(a.0, s), mulf(a.1, s))
+fn e_scalar(a: Ext, s: u64) -> Ext {
+    // Extension times a BASE scalar — one multiply per limb, no cross terms. This is the per-row hot path
+    // (every constraint value scaled by invZ, every fold by 1/2x), so it stays linear in D.
+    let mut o = EXT_ZERO;
+    for i in 0..EXT_DEGREE {
+        o[i] = mulf(a[i], s);
+    }
+    o
 }
 
-/// One FRI fold of an EXTENSION-valued column: (col_lo, col_hi) -> the folded pair, retained as two new
-/// arena columns. Returns the LO column id; the HI column is always the next id (lo + 1), so one return
-/// value suffices and the caller does not need an out-param.
+/// Read D limbs out of a caller-supplied buffer, reducing each. Returns None if the caller passed a limb
+/// count that is not the compiled degree — which means it believes in a different field, and quietly using
+/// the first D of them (or zero-padding) would compose over that wrong field without any error.
+#[inline]
+unsafe fn ext_from_raw(p: *const u64, n: usize) -> Option<Ext> {
+    if p.is_null() || n != EXT_DEGREE {
+        return None;
+    }
+    let s = std::slice::from_raw_parts(p, n);
+    let mut o = EXT_ZERO;
+    for i in 0..EXT_DEGREE {
+        o[i] = s[i] % PU64;
+    }
+    Some(o)
+}
+
+/// One FRI fold of an EXTENSION-valued column: the D columns named by `cols` -> the folded D columns,
+/// retained in the arena. Returns the LIMB-0 column id; limb k is always at that id + k, so one return
+/// value suffices and the caller needs no out-param.
 ///
-/// Identical statement to sp_fold, over GF(p^2): g(x^2) = (f(x)+f(-x))/2 + alpha*(f(x)-f(-x))/(2x), with x
+/// Identical statement to sp_fold, over GF(p^D): g(x^2) = (f(x)+f(-x))/2 + alpha*(f(x)-f(-x))/(2x), with x
 /// a BASE domain point (so the /2x scaling stays a scalar multiply) and alpha the only extension factor.
 /// Byte-identical to fri._fold_ext.
+///
+/// `n_cols` and `n_alpha` are passed and CHECKED rather than assumed: they are how a Python side built for
+/// a different degree gets rejected at the call instead of silently folding over the wrong field.
 #[no_mangle]
-pub extern "C" fn sp_fold_ext(col_lo: usize, col_hi: usize, offset: u64,
-                              alpha_lo: u64, alpha_hi: u64) -> i64 {
+pub unsafe extern "C" fn sp_fold_ext(cols: *const usize, n_cols: usize, offset: u64,
+                                     alpha: *const u64, n_alpha: usize) -> i64 {
+    if cols.is_null() || n_cols != EXT_DEGREE {
+        return -1;
+    }
+    let alpha = match ext_from_raw(alpha, n_alpha) {
+        Some(a) => a,
+        None => return -1,
+    };
+    let ids = std::slice::from_raw_parts(cols, n_cols);
     let mut g = ARENA.lock().unwrap();
     let arena = match g.as_mut() {
         Some(a) => a,
         None => return -1,
     };
-    if col_lo >= arena.cols.len() || col_hi >= arena.cols.len() {
+    for &c in ids {
+        if c >= arena.cols.len() {
+            return -1;
+        }
+    }
+    let m = arena.cols[ids[0]].len();
+    if m < 2 || (m & (m - 1)) != 0 {
         return -1;
     }
-    let m = arena.cols[col_lo].len();
-    if m < 2 || (m & (m - 1)) != 0 || arena.cols[col_hi].len() != m {
-        return -1;
+    for &c in ids {
+        if arena.cols[c].len() != m {
+            return -1;
+        }
     }
     let half = m / 2;
     let inv2 = inv(2);
     let omega = rou(m);
-    let alpha = (alpha_lo % PU64, alpha_hi % PU64);
     let mut x = offset % PU64;
-    let mut out_lo = vec![0u64; half];
-    let mut out_hi = vec![0u64; half];
+    let mut out: Vec<Vec<u64>> = (0..EXT_DEGREE).map(|_| vec![0u64; half]).collect();
     for i in 0..half {
-        let fx = (arena.cols[col_lo][i], arena.cols[col_hi][i]);
-        let fmx = (arena.cols[col_lo][i + half], arena.cols[col_hi][i + half]);
+        let mut fx = EXT_ZERO;
+        let mut fmx = EXT_ZERO;
+        for d in 0..EXT_DEGREE {
+            fx[d] = arena.cols[ids[d]][i];
+            fmx[d] = arena.cols[ids[d]][i + half];
+        }
         let fe = e_scalar(e_add(fx, fmx), inv2);
         let fo = e_scalar(e_sub(fx, fmx), mulf(inv2, inv(x)));
         let v = e_add(fe, e_mul(alpha, fo));
-        out_lo[i] = v.0;
-        out_hi[i] = v.1;
+        for d in 0..EXT_DEGREE {
+            out[d][i] = v[d];
+        }
         x = mulf(x, omega);
     }
-    arena.cols.push(out_lo);
-    arena.cols.push(out_hi);
-    (arena.cols.len() - 2) as i64
+    let first = arena.cols.len();
+    for c in out {
+        arena.cols.push(c);
+    }
+    first as i64
 }
 
 /// Everything sp_compose and sp_compose_ext derive from GEOMETRY alone — the coset points, the transition
@@ -1052,13 +1136,15 @@ pub extern "C" fn sp_free() {
 /// the composition polynomial — extension-valued.
 ///
 /// The SSA interpretation stays BASE. That is the point of the limb-pair representation: an
-/// extension-valued constraint contributes its two COMPONENTS as two consecutive outputs (`ext_pairs` holds
-/// each pair's first index, mirroring air_ir's), so the constraint program itself needs no extension opcode
+/// extension-valued constraint contributes its D COMPONENTS as D consecutive outputs (`ext_pairs` holds
+/// each group's first index, mirroring air_ir's), so the constraint program itself needs no extension opcode
 /// and only the alpha combination widens. One alpha per LOGICAL constraint — NOT one per output, which is
-/// the off-by-one that would silently misalign every constraint past the first extension one.
+/// the off-by-one that would silently misalign every constraint past the first extension one. ("pair" is
+/// the degree-2 name kept for the wire field; a group is D wide.)
 ///
-/// `alphas` is 2*(n_logical + n_bnd) limbs, lo/hi interleaved. Writes cp_lo/cp_hi and retains both as arena
-/// columns, returning the LO id (HI is always lo+1, as in sp_fold_ext).
+/// `alphas` is D*(n_logical + n_bnd) limbs, limb-interleaved per element. `out`, if non-null, receives
+/// D*n values LIMB-MAJOR (all of limb 0, then all of limb 1, ...). All D limb columns are retained in the
+/// arena and the LIMB-0 id is returned; limb k sits at that id + k, as in sp_fold_ext.
 #[no_mangle]
 pub unsafe extern "C" fn sp_compose_ext(
     n_ops: usize, ops: *const u32,
@@ -1067,14 +1153,18 @@ pub unsafe extern "C" fn sp_compose_ext(
     n_pairs: usize, ext_pairs: *const u32,
     w: usize, nper: usize, nchal: usize,
     chals: *const u64,
-    alphas: *const u64,          // 2 * (n_logical + n_bnd)
+    alphas: *const u64,          // EXT_DEGREE * (n_logical + n_bnd)
     n_bnd: usize,
     bnd_col: *const u32,
     bnd_val: *const u64,
     bnd_row: *const u64,
     t: usize, blowup: usize, offset: u64,
-    out_lo: *mut u64, out_hi: *mut u64,
+    degree: usize,               // caller's extf.DEGREE — checked, never assumed
+    out: *mut u64,               // EXT_DEGREE * n, limb-major; may be null
 ) -> i64 {
+    if degree != EXT_DEGREE {
+        return 7;
+    }
     let mut g = ARENA.lock().unwrap();
     let arena = match g.as_mut() {
         Some(a) => a,
@@ -1093,12 +1183,14 @@ pub unsafe extern "C" fn sp_compose_ext(
     let bnd_val = std::slice::from_raw_parts(bnd_val, n_bnd.max(1));
     let bnd_row = std::slice::from_raw_parts(bnd_row, n_bnd.max(1));
 
-    // a pair consumes TWO outputs but ONE alpha, so the logical count is outputs minus pairs
-    let n_logical = match n_out.checked_sub(n_pairs) {
+    // an extension group consumes D outputs but ONE alpha, so each group adds D-1 EXTRA outputs and the
+    // logical count is n_out - n_pairs*(D-1). (n_out - n_pairs was right only at D=2 and would silently
+    // over-count alphas at any other degree — the same off-by-one the Python side carried.)
+    let n_logical = match n_out.checked_sub(n_pairs * (EXT_DEGREE - 1)) {
         Some(v) => v,
         None => return 5,
     };
-    let alphas = std::slice::from_raw_parts(alphas, 2 * (n_logical + n_bnd));
+    let alphas = std::slice::from_raw_parts(alphas, EXT_DEGREE * (n_logical + n_bnd));
 
     for i in 0..n_ops {
         let (op, a, b) = (ops[i * 3], ops[i * 3 + 1] as usize, ops[i * 3 + 2] as usize);
@@ -1126,8 +1218,8 @@ pub unsafe extern "C" fn sp_compose_ext(
         }
     }
     for k in 0..n_pairs {
-        // each pair must name a real output AND leave room for its partner
-        if (pairs[k] as usize) + 1 >= n_out {
+        // each group must name a real output AND leave room for all D-1 of its partners
+        if (pairs[k] as usize) + (EXT_DEGREE - 1) >= n_out {
             return 6;
         }
     }
@@ -1140,8 +1232,7 @@ pub unsafe extern "C" fn sp_compose_ext(
         is_pair_start[pairs[k] as usize] = true;
     }
 
-    let mut cp_lo = vec![0u64; n];
-    let mut cp_hi = vec![0u64; n];
+    let mut cp: Vec<Vec<u64>> = (0..EXT_DEGREE).map(|_| vec![0u64; n]).collect();
     let mut temp = vec![0u64; n_ops];
     for j in 0..n {
         let jn = (j + blowup) % n;
@@ -1160,20 +1251,24 @@ pub unsafe extern "C" fn sp_compose_ext(
                 _ => 0,
             };
         }
-        let mut acc = (0u64, 0u64);
+        let mut acc = EXT_ZERO;
         let mut k = 0usize;
         let mut ai = 0usize;
         while k < n_out {
-            let val = if is_pair_start[k] {
-                let v = (temp[outputs[k] as usize], temp[outputs[k + 1] as usize]);
-                k += 2;
-                v
+            let mut val = EXT_ZERO;
+            if is_pair_start[k] {
+                for d in 0..EXT_DEGREE {
+                    val[d] = temp[outputs[k + d] as usize];
+                }
+                k += EXT_DEGREE;
             } else {
-                let v = (temp[outputs[k] as usize], 0u64);
+                val[0] = temp[outputs[k] as usize];     // base-valued constraint; higher limbs stay zero
                 k += 1;
-                v
-            };
-            let a = (alphas[2 * ai], alphas[2 * ai + 1]);
+            }
+            let mut a = EXT_ZERO;
+            for d in 0..EXT_DEGREE {
+                a[d] = alphas[EXT_DEGREE * ai + d];
+            }
             acc = e_add(acc, e_mul(a, val));
             ai += 1;
         }
@@ -1182,19 +1277,24 @@ pub unsafe extern "C" fn sp_compose_ext(
             let col = bnd_col[bi] as usize;
             let diff = subf(arena.cols[col][j], bnd_val[bi]);
             let invden = den_vecs[bnd_den_idx[bi]][j];
-            let a = (alphas[2 * (n_logical + bi)], alphas[2 * (n_logical + bi) + 1]);
+            let mut a = EXT_ZERO;
+            for d in 0..EXT_DEGREE {
+                a[d] = alphas[EXT_DEGREE * (n_logical + bi) + d];
+            }
             v = e_add(v, e_scalar(a, mulf(diff, invden)));
         }
-        cp_lo[j] = v.0;
-        cp_hi[j] = v.1;
+        for d in 0..EXT_DEGREE {
+            cp[d][j] = v[d];
+        }
     }
-    if !out_lo.is_null() {
-        std::ptr::copy_nonoverlapping(cp_lo.as_ptr(), out_lo, n);
+    if !out.is_null() {
+        for d in 0..EXT_DEGREE {
+            std::ptr::copy_nonoverlapping(cp[d].as_ptr(), out.add(d * n), n);
+        }
     }
-    if !out_hi.is_null() {
-        std::ptr::copy_nonoverlapping(cp_hi.as_ptr(), out_hi, n);
+    let first = arena.cols.len();
+    for c in cp {
+        arena.cols.push(c);
     }
-    arena.cols.push(cp_lo);
-    arena.cols.push(cp_hi);
-    (arena.cols.len() - 2) as i64
+    first as i64
 }

@@ -89,6 +89,20 @@ export class DuelGame {
     try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
   }
   exitPractice() { this.practice = null; this.prac.clearRun(); this.eng = null; this.render(); }
+  // ---- free (unstaked) games -------------------------------------------------------------------------
+  // A duel game opts in with cfg.freeOk; its CONTRACT must also drop the `value > 0` require from open()
+  // (see execnode/games/pool.py). There is NO extra control for it: a stake of ZERO — typed, or the SDK
+  // stake slider dragged to 0% — IS the free game. Everything downstream (escrow, move log, settle,
+  // refund) is identical with a pot of 0, so this stays SDK-level: no game needs its own code path, and
+  // the shared chrome says "free" instead of "0 NADO".
+  freeMode() {
+    if (!this.cfg.freeOk) return false;
+    const v = String(($("stakeAmt") || {}).value || "").trim().replace(",", ".");
+    return /^\d+(\.\d+)?$/.test(v) && parseFloat(v) === 0;
+  }
+  amt(raw) {
+    return (raw == null || BigInt(raw) === 0n) ? TS("freeStake", "free — no stake") : rawToNado(raw) + " NADO";
+  }
   lsLoad() { try { return JSON.parse(localStorage.getItem(this.LS_G) || "{}"); } catch { return {}; } }
   lsSave(v) { try { localStorage.setItem(this.LS_G, JSON.stringify(v)); } catch {} }
 
@@ -151,14 +165,15 @@ export class DuelGame {
   newGame() {
     const T = this.T, dapp = this.dapp;
     if (dapp.busy("open")) return notify(confirmingLabel());   // one open confirming at a time (each mints a fresh id)
-    const raw = nadoToRaw($("stakeAmt").value);
-    if (!raw) return alertBar(T("enterStake", "Enter a stake (NADO)."));
+    const free = this.freeMode();
+    const raw = free ? 0n : nadoToRaw($("stakeAmt").value);
+    if (raw == null) return alertBar(T("enterStake", "Enter a stake (NADO)."));
     if (!canPay(dapp, raw, T("whatOpen", "Opening this game"))) return;
     const g = randId(), G = this.lsLoad(); G[g] = { role: "p1", stake: raw.toString(), ts: Date.now() }; this.lsSave(G);
     this.active = g; this.resetLocal(); this.render();
     // openExtra(gm, id): a game may append extra open() args (e.g. stormhold's kingdom cfg + commit)
     const extra = this.cfg.openExtra ? this.cfg.openExtra(null, g) : [];
-    dapp.call("open", [g].concat(extra), raw, "open " + dapp.app.toLowerCase() + " game #" + g + " · " + rawToNado(raw) + " NADO stake", { game: g, phase: "open" });
+    dapp.call("open", [g].concat(extra), raw, "open " + dapp.app.toLowerCase() + " game #" + g + " · " + this.amt(raw), { game: g, phase: "open" });
   }
   async joinGame() {
     const T = this.T, dapp = this.dapp;
@@ -180,7 +195,7 @@ export class DuelGame {
     this.active = g; this.resetLocal(); this.render();
     // joinExtra(gm, id): extra join() args (e.g. stormhold's hidden-hands commit)
     const jextra = this.cfg.joinExtra ? this.cfg.joinExtra(gm, g) : [];
-    dapp.call("join", [g].concat(jextra), stake, "join " + dapp.app.toLowerCase() + " game #" + g + " · " + rawToNado(stake) + " NADO stake", { game: g, phase: "join" });
+    dapp.call("join", [g].concat(jextra), stake, "join " + dapp.app.toLowerCase() + " game #" + g + " · " + this.amt(stake), { game: g, phase: "join" });
   }
   async rematch() {
     const T = this.T, dapp = this.dapp;
@@ -200,7 +215,7 @@ export class DuelGame {
       G[rid] = { role: "p1", stake: stake.toString(), ts: Date.now() }; this.lsSave(G);
       // a rematch keeps the original game's config (openExtra(gm, id) — e.g. the same picked kingdom)
       const extra = this.cfg.openExtra ? this.cfg.openExtra(this.last, rid) : [];
-      dapp.call("open", [rid].concat(extra), stake, "rematch #" + rid + " · stake " + rawToNado(stake) + " NADO", { game: rid, phase: "open" });
+      dapp.call("open", [rid].concat(extra), stake, "rematch #" + rid + " · " + this.amt(stake), { game: rid, phase: "open" });
     }
     this.render();
   }
@@ -292,7 +307,7 @@ export class DuelGame {
       if (!_m(sto, "sd")[g]) continue;
       const wr = _m(sto, "wr")[g] || 0, st = _m(sto, "st")[g] || 0;
       const p1 = _m(sto, "p1")[g], p2 = _m(sto, "p2")[g];
-      if (!p2 || !wr || wr === 3) continue;              // cancelled / draw / void games don't rank
+      if (!p2 || !wr || wr === 3 || !st) continue;       // cancelled / draw / void / FREE games don't rank
       scoreBump(stats, wr === 1 ? p1 : p2, st);
       scoreBump(stats, wr === 1 ? p2 : p1, -st);
     }
@@ -305,7 +320,7 @@ export class DuelGame {
     const shown = games.slice(0, 24);
     el.innerHTML = shown.length ? shown.map((g) => {
       const verb = g.nn < 2 ? T("joinSuffix", " · join") : T("watchSuffix", " · watch");
-      return '<button class="chip ' + (g.nn < 2 ? "open" : "live") + '" data-g="' + g.id + '">' + (g.nn < 2 ? this.cfg.icon : "▶") + " #" + g.id + " · " + rawToNado(g.stake) + " NADO" + verb + "</button>";
+      return '<button class="chip ' + (g.nn < 2 ? "open" : "live") + '" data-g="' + g.id + '">' + (g.nn < 2 ? this.cfg.icon : "▶") + " #" + g.id + " · " + this.amt(g.stake) + verb + "</button>";
     }).join(" ") : '<span class="dim">' + T("noGamesLobby", "No games yet — open one above.") + "</span>";
     el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { this.active = parseInt(b.dataset.g, 10); this.resetLocal(); $("joinId").value = b.dataset.g;
       notify(T("gameSelected", "Game #{id} selected.", { id: this.active })); this.refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
@@ -377,13 +392,17 @@ export class DuelGame {
     const gm = this.last || {}, local = this.lsLoad()[this.active] || {}, me = this.myIdx(gm), eng = this.eng;
     $("gameId").textContent = "#" + this.active;
     $("shareLink").value = base() + "/?game=" + this.active;
-    $("gPot").textContent = gm.exists ? rawToNado(gm.pot) + " NADO" : (local.stake ? rawToNado(BigInt(local.stake) * 2n) + " NADO" : "—");
+    // A SETTLED game has already paid out and its stored pot is 0 — showing that verbatim would read as
+    // "free" on a game that was played for real money, so fall back to what the pot WAS (2 stakes).
+    const potRaw = gm.exists ? (gm.settled ? BigInt(gm.stake) * 2n : BigInt(gm.pot))
+                             : (local.stake ? BigInt(local.stake) * 2n : null);
+    $("gPot").textContent = potRaw == null ? "—" : this.amt(potRaw);
     const n1 = gm.p1 ? disp(gm.p1) + (gm.p1 === dapp.me ? T("youSuffix", " (you)") : "") : "—";
     const n2 = gm.p2 ? disp(gm.p2) + (gm.p2 === dapp.me ? T("youSuffix", " (you)") : "") : T("waitingDots", "waiting…");
     $("players").innerHTML = '<span class="chip">' + cfg.marks[0] + " " + n1 + '</span> <span class="chip">' + cfg.marks[1] + " " + n2 + "</span>";
     if (this.nudgeJoin && gm.exists && gm.nn === 1 && me == null) {
       this.nudgeJoin = false;
-      alertBar(T("notJoined", "Signed in — but you have NOT joined yet. Tap “Join this game” to take the seat and stake {amt} NADO.", { amt: rawToNado(gm.stake) }));
+      alertBar(T("notJoined", "Signed in — but you have NOT joined yet. Tap “Join this game” to take the seat — {amt}.", { amt: this.amt(gm.stake) }));
     }
     // status line
     let st = dapp.whereIs(T("gameWord", "game"), this.active, local.ts);
@@ -397,7 +416,7 @@ export class DuelGame {
         : T("settled", "✓ settled");
     }
     else if (gm.exists && eng && eng.corrupt) st = T("illegal", "⚠ an illegal move reached the chain — this game refunds after the timeout.");
-    else if (gm.exists && gm.nn < 2) st = me != null ? T("waitingShare", "waiting for an opponent — share the link below") : T("openSeat", "open seat — join to play for {amt} NADO", { amt: rawToNado(gm.stake) });
+    else if (gm.exists && gm.nn < 2) st = me != null ? T("waitingShare", "waiting for an opponent — share the link below") : T("openSeat", "open seat — join to play for {amt}", { amt: this.amt(gm.stake) });
     else if (eng && (eng.setup || eng.blocked)) st = T("shuffling", "🌀 waiting for the randomness block…");
     else if (eng && eng.mi < gm.mc) st = T("catchingUp", "replaying the on-chain log…");
     else if (over) st = rc === 3 ? T("overDraw", "Game over — it's a draw") :
@@ -438,7 +457,7 @@ export class DuelGame {
     $("btnAbort").classList.toggle("hidden", !(iAmIn && pastDeadline));
     $("btnCancel").classList.toggle("hidden", !(gm.exists && gm.nn === 1 && me === 0 && !gm.settled));
     $("btnJoinGame").classList.toggle("hidden", !(gm.exists && gm.nn === 1 && !iAmIn && !gm.settled));
-    if (gm.exists && gm.nn === 1 && !iAmIn) $("btnJoinGame").textContent = dapp.me ? T("joinStake", "⚔ Join this game — stake {amt} NADO", { amt: rawToNado(gm.stake) }) : T("signJoinStake", "⚔ Sign in to join — stake {amt} NADO", { amt: rawToNado(gm.stake) });
+    if (gm.exists && gm.nn === 1 && !iAmIn) $("btnJoinGame").textContent = dapp.me ? T("joinStake", "⚔ Join this game — {amt}", { amt: this.amt(gm.stake) }) : T("signJoinStake", "⚔ Sign in to join — {amt}", { amt: this.amt(gm.stake) });
     // CLICK-TIME feedback: a lifecycle button whose action is confirming on-chain shows disabled + ⏳ so a
     // re-tap can't fire a duplicate (guarded in the methods too). Keyed to the same game id the action uses.
     // Stash the pre-busy label ONCE (on the busy transition) and restore it after, so a static-label button

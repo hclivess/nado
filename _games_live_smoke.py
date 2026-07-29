@@ -59,6 +59,7 @@ CALLS = {
     "tictactoe":  lambda i: ("open", [i], S),
     "chess":      lambda i: ("open", [i], S),
     "scrapline":  lambda i: ("open", [i], S),
+    "pool":       lambda i: ("open", [i, 0], S),
     "farkle":     lambda i: ("open", [i, i + 1], S),
     "battleship": lambda i: ("open", [i, 12345678], S),
     "holdem":     lambda i: ("open", [i, i + 1, 12345678, S], S),

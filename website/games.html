@@ -233,6 +233,16 @@ const SVG = {
     <circle cx="23" cy="24" r="3.4" fill="#00c9a7"/><circle cx="32" cy="24" r="3.4" fill="#1a232e" stroke="#243140"/>
     <circle cx="14" cy="15" r="3.4" fill="#00c9a7"/><circle cx="23" cy="15" r="3.4" fill="#1a232e" stroke="#243140"/>
     <circle cx="32" cy="15" r="3.4" fill="#1a232e" stroke="#243140"/></svg>`,
+  pool:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <rect x="3" y="12" width="42" height="24" rx="5" fill="#4b3323" stroke="#2a1c13" stroke-width="1.4"/>
+    <rect x="7" y="16" width="34" height="16" rx="2" fill="#0f5f48"/>
+    <circle cx="8" cy="17" r="2.6" fill="#080b0e"/><circle cx="24" cy="16.4" r="2.4" fill="#080b0e"/>
+    <circle cx="40" cy="17" r="2.6" fill="#080b0e"/><circle cx="8" cy="31" r="2.6" fill="#080b0e"/>
+    <circle cx="24" cy="31.6" r="2.4" fill="#080b0e"/><circle cx="40" cy="31" r="2.6" fill="#080b0e"/>
+    <circle cx="15" cy="24" r="3.6" fill="#f6f8fa" stroke="#c3ccd5"/>
+    <circle cx="30" cy="24" r="3.6" fill="#14181d"/>
+    <text x="30" y="26.6" font-size="5" font-weight="900" fill="#f6f8fa" font-family="system-ui" text-anchor="middle">8</text>
+    <circle cx="36.5" cy="20.5" r="3.2" fill="#e3b341"/><circle cx="36.5" cy="27.5" r="3.2" fill="#2f6fd0"/></svg>`,
   reversi:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
     <rect x="6" y="6" width="36" height="36" rx="5" fill="#0f3c33" stroke="#243140" stroke-width="1.6"/>
     <path d="M18 6v36M30 6v36M6 18h36M6 30h36" stroke="rgba(230,237,243,.25)" stroke-width="1.2"/>
@@ -260,6 +270,9 @@ const GAMES = [
   { svg:SVG.dice, name:"Dice", tag:"Live", live:true, slug:"dice", faucet:true, url:"https://dice.nadochain.com",
     blurb:"Adjustable-odds dice that rolls itself every ~2 minutes from a future block hash. Slide your win chance and the payout auto-scales (99 ÷ target, a flat 1% edge). The house here is another player — anyone can bank a table and earn that edge, or roll against someone else's.",
     meta:["Bank or roll","Win-chance slider","Self-rolling","1% edge"] },
+  { svg:SVG.pool, name:"Pool", tag:"Live", live:true, slug:"pool", url:"https://pool.nadochain.com",
+    blurb:"Real 8-ball, one against one — and you don't have to bet a thing. Aim, pick your power and your English, and the balls run a fixed-point integer simulation with no floating point anywhere in it, so both browsers compute the same table to the same unit. The rack is shuffled by a block that hasn't been mined when you join, every shot is one line of an on-chain log, and the pot settles by concede / agree / refund-timeout.",
+    meta:["2 players","Free or for stakes","Integer-exact physics","Block-seeded rack"] },
   { svg:SVG.chess, name:"Chess", tag:"Live", live:true, slug:"chess", url:"https://chess.nadochain.com",
     blurb:"Play a real game of chess for stakes — a perft-verified engine referees the board in your browser, every move is logged on-chain, and the pot settles by resign / agree / refund-timeout, so a stall can never rob you.",
     meta:["2 players","Wager escrow","Moves on-chain","Skill, not chance"] },

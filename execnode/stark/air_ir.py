@@ -138,11 +138,14 @@ def build_program(transitions, W, num_periodic, num_chal, ext_chal=False):
     cur = [_Sym(b, b.leaf(CUR, i)) for i in range(W)]
     nxt = [_Sym(b, b.leaf(NXT, i)) for i in range(W)]
     per = [_Sym(b, b.leaf(PER, i)) for i in range(num_periodic)]
-    # Under GF(p^2) each LOGICAL challenge is a limb PAIR, so it occupies two CHAL leaves (2i, 2i+1) and the
-    # constraint receives it as a tuple — exactly the shape ext2's *_f helpers expect. num_chal stays the
-    # count of logical challenges; the flattened width is 2*num_chal.
+    # Under an extension field each LOGICAL challenge occupies D CHAL leaves (D*i .. D*i+D-1) and the
+    # constraint receives it as a D-tuple — the shape extf's *_f helpers expect. num_chal stays the count of
+    # LOGICAL challenges; the flattened width is D*num_chal. The stride is read from extf.DEGREE, never
+    # written here: a stride that disagrees with the challenge arity makes logical challenge k read limbs
+    # belonging to challenge k-1, and the traced SSA then computes a different polynomial with no error.
+    from execnode.stark.extf import DEGREE as _D
     if ext_chal:
-        chal = [(_Sym(b, b.leaf(CHAL, 2 * i)), _Sym(b, b.leaf(CHAL, 2 * i + 1))) for i in range(num_chal)]
+        chal = [tuple(_Sym(b, b.leaf(CHAL, _D * i + k)) for k in range(_D)) for i in range(num_chal)]
     else:
         chal = [_Sym(b, b.leaf(CHAL, i)) for i in range(num_chal)]
     outputs, ext_pairs = [], []
@@ -150,24 +153,27 @@ def build_program(transitions, W, num_periodic, num_chal, ext_chal=False):
         for con in transitions:
             r = con(cur, nxt, per, chal) if num_chal else con(cur, nxt, per)
             if isinstance(r, tuple):
-                # EXTENSION-VALUED constraint. Under GF(p^2) challenges the LogUp constraints evaluate to a
-                # GF(p^2) element, which a base-field SSA cannot hold — so its two COMPONENTS become two
-                # outputs, and ext_pairs records where each pair starts. Consumers that combine outputs with
-                # an extension alpha (rowcomp_verify's in-circuit composition) read the pair; everything
-                # downstream stays base-valued arithmetic, so the IR needs no extension opcode.
+                # EXTENSION-VALUED constraint. Its value is a GF(p^D) element, which a base-field SSA cannot
+                # hold — so its D COMPONENTS become D consecutive outputs, and ext_pairs records where each
+                # GROUP starts (the name is historical: the group is D wide, not 2). Consumers that combine
+                # outputs with an extension alpha — rowcomp_verify's in-circuit composition, compose_python,
+                # the Rust interpreter — read D of them; everything downstream stays base-valued, so the IR
+                # needs no extension opcode and the native instruction set is untouched.
                 #
-                # This only traces at all because such constraints are written with ext2's *_f forms, which
-                # go through field.* and are therefore visible to _tracing — ext2.mul and friends compute
+                # This only traces at all because such constraints are written with extf's *_f forms, which
+                # go through field.* and are therefore visible to _tracing — extf.mul and friends compute
                 # with % directly and would raise on a _Sym.
-                if len(r) != 2:
-                    raise ValueError("an extension-valued constraint must return exactly two components")
+                if len(r) != _D:
+                    raise ValueError(f"an extension-valued constraint must return exactly {_D} components, "
+                                     f"got {len(r)} — the AIR and extf.DEGREE disagree")
                 ext_pairs.append(len(outputs))
-                outputs.append(_coerce(b, r[0]))
-                outputs.append(_coerce(b, r[1]))
+                for k in range(_D):
+                    outputs.append(_coerce(b, r[k]))
             else:
                 outputs.append(_coerce(b, r))      # a constraint with no row dependence folds to a CONST leaf
     return {"ops": b.ops, "consts": b.consts, "outputs": outputs, "ext_pairs": ext_pairs,
-            "W": W, "P": num_periodic, "C": (2 * num_chal if ext_chal else num_chal),
+            "W": W, "P": num_periodic, "C": (_D * num_chal if ext_chal else num_chal),
+            "ext_degree": (_D if ext_chal else 1),
             "ext_chal": bool(ext_chal)}
 
 
@@ -251,15 +257,17 @@ def compose_python(prog, N, blowup, col_lde, per_lde, chals, alphas, invZ, bound
     P = F.P
     W, nper = prog["W"], prog["P"]
     nt = len(prog["outputs"])
-    # EXTENSION MODE. With GF(p^2) alphas the composition is extension-valued, and an extension-valued
-    # constraint contributes its two components as two consecutive outputs (prog["ext_pairs"] holds each
-    # pair's first index). So the accumulation runs in GF(p^2): a base constraint is lifted, a pair is read
-    # as one element, and each is multiplied by its OWN alpha — one alpha per LOGICAL constraint, matching
-    # what stark.prove drew, not one per output.
-    from execnode.stark import ext2
+    # EXTENSION MODE. With GF(p^D) alphas the composition is extension-valued, and an extension-valued
+    # constraint contributes its D components as D consecutive outputs (prog["ext_pairs"] holds each group's
+    # FIRST index). So the accumulation runs in GF(p^D): a base constraint is lifted, a group is read back as
+    # one element, and each is multiplied by its OWN alpha — one alpha per LOGICAL constraint, matching what
+    # stark.prove drew, NOT one per output. Indexing alphas by output instead would misalign every constraint
+    # after the first extension one and compose a perfectly well-formed polynomial of the wrong statement.
+    from execnode.stark import extf as ext2
     _ext = bool(alphas) and isinstance(alphas[0], tuple)
     if _ext:
         pair_at = set(prog.get("ext_pairs") or ())
+        _D = ext2.DEGREE
         cp = [ext2.ZERO] * N
         for j in range(N):
             cur = [col_lde[c][j] for c in range(W)]
@@ -269,9 +277,9 @@ def compose_python(prog, N, blowup, col_lde, per_lde, chals, alphas, invZ, bound
             acc, t, ai = ext2.ZERO, 0, 0
             while t < nt:
                 if t in pair_at:
-                    val = (outs[t] % P, outs[t + 1] % P); t += 2
+                    val = tuple(outs[t + k] % P for k in range(_D)); t += _D
                 else:
-                    val = (outs[t] % P, 0); t += 1
+                    val = ext2.lift(outs[t] % P); t += 1
                 acc = ext2.add(acc, ext2.mul(alphas[ai], val)); ai += 1
             v = ext2.scalar_mul(acc, invZ[j])
             for bi, (_row, col, val_b) in enumerate(boundaries):

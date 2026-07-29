@@ -41,7 +41,10 @@ refunded to players, supply conserved exactly). Games return only as zkVM ports 
   metadata stored as digests, per-user positions via read-only view methods); **battleship** (alghash
   merkle-sum board, per-shot proofs on the `ARG` bus); **pets** (tamagotchi NFTs — gene/stat/train +
   12-turn battle, differentially verified); **holdem** (multiplayer table stakes, layered side pots, an
-  on-chain 7-card hand evaluator differentially verified EXACT on 1500+ random hands). Each is verified
+  on-chain 7-card hand evaluator differentially verified EXACT on 1500+ random hands); **pool** (8-ball
+  — the duel escrow with the `value > 0` require dropped from `open`, so a frame can be played for NO
+  stake at all; the rules are a fixed-point INTEGER physics simulation in the browser, no floating point
+  anywhere, so two clients replaying the shot log agree ball for ball). Each is verified
   sound (escrow + payouts) and STARK-provable, with a full-game E2E in `tests/test_games_e2e.py`.
 - **Shared lean primitives (so re-ports stay cheap):** the banked-table skeleton (`open`/`fund`/`close` +
   index-append + table view-maps) lives once in `execnode/games/_lib.py` — five banked games that used to

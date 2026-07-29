@@ -433,29 +433,30 @@ def _transitions(prog, W, n_aux, boundaries, L):
                 cp = F.add(cp, term)
             return F.mul(per[L["CHK"]], F.sub(cp, per[L["PL0"]]))
 
-        # GF(p^2). The SSA interpretation above stays BASE-valued — that is the point of giving an
-        # extension-valued constraint two outputs — so only the ALPHA combination widens. Each logical
-        # constraint takes one extension alpha; an extension constraint's two outputs are read back as one
-        # element. ext2's *_f forms keep this traceable, since this constraint is itself an AIR constraint
-        # that the OUTER proof's own IR has to lower.
+        # GF(p^D). The SSA interpretation above stays BASE-valued — that is the point of giving an
+        # extension-valued constraint D outputs — so only the ALPHA combination widens. Each logical
+        # constraint takes ONE extension alpha and its D outputs are read back as one element. extf's *_f
+        # forms keep this traceable, since this constraint is itself an AIR constraint that the OUTER proof's
+        # own IR has to lower.
+        D = ext2.DEGREE
         pair_at = set(prog.get("ext_pairs") or ())
-        A = lambda j: (per[L["PALPHA"] + 2 * j], per[L["PALPHA"] + 2 * j + 1])
-        acc, tt, ai = (0, 0), 0, 0
+        A = lambda j: tuple(per[L["PALPHA"] + D * j + k] for k in range(D))
+        acc, tt, ai = ext2.ZERO, 0, 0
         while tt < nt:
             if tt in pair_at:
-                val = (t[outputs[tt]], t[outputs[tt + 1]]); tt += 2
+                val = tuple(t[outputs[tt + k]] for k in range(D)); tt += D
             else:
-                val = (t[outputs[tt]], 0); tt += 1
+                val = t[outputs[tt]]; tt += 1        # base value; *_f widens it
             acc = ext2.add_f(acc, ext2.mul_f(A(ai), val)); ai += 1
         cp = ext2.scalar_mul_f(acc, per[L["PINVZ"]])
         for bi, (_row, col, _val) in enumerate(boundaries):
             base_term = F.mul(F.sub(cvals[col], per[L["PBVAL"] + bi]), per[L["PBID"] + bi])
             cp = ext2.add_f(cp, ext2.scalar_mul_f(A(ai + bi), base_term))
-        tgt = (per[L["PL0"]], per[L["PL0"] + 1])
+        tgt = tuple(per[L["PL0"] + k] for k in range(D))
         d = ext2.sub_f(cp, tgt)
-        # BOTH limbs must match the public target: checking only the lo limb would let a prover satisfy the
-        # composition on half of the extension element and put anything it liked in the other half.
-        return (F.mul(per[L["CHK"]], d[0]), F.mul(per[L["CHK"]], d[1]))
+        # EVERY limb must match the public target: checking a subset would let a prover satisfy the
+        # composition on part of the extension element and put anything it liked in the rest.
+        return tuple(F.mul(per[L["CHK"]], d[k]) for k in range(D))
     cons.append(check_c)
     return cons
 

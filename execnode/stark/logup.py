@@ -17,7 +17,7 @@ In-circuit shape (all divisions removed):
 The prover-side builders here compute h, g, z with ONE batch inversion; the constraints themselves live in
 each circuit (they are two lines each).
 """
-from execnode.stark import field as F, ext2
+from execnode.stark import field as F, extf as ext2
 
 
 def combine(vals, gamma):

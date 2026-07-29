@@ -7,7 +7,7 @@
 // resolves as a pure deterministic simulation and the wager settles concede / agree / refund-timeout.
 // This module owns ONLY the Scrapline half: offers, gear slots, and the combat report.
 import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base , installModes } from "./nadodapp.js?v=5ff32141";
-import { DuelGame } from "./duelgame.js?v=31d8b8dc";
+import { DuelGame } from "./duelgame.js?v=4b2437aa";
 import * as E from "./scrapline-engine.js?v=b768a1c0";
 import { ART } from "./scrapline-art.js?v=5dc6e120";
 import { prand, Practice } from "./practice.js?v=1b0a48d4";   // practice-vs-computer + solo persistence

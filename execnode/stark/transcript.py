@@ -31,13 +31,19 @@ class Transcript:
         return v
 
     def challenge_ext(self):
-        """A uniform element of GF(p²), as the pair (c0, c1) meaning c0 + c1·X.
+        """A uniform element of GF(p^D), as the D-tuple (c0, ..., c_{D-1}) meaning c0 + c1·X + ...
 
-        Two independent base-field challenges. FRI's commit-phase soundness error is
-        ~ n/|challenge space|, so folding with a base-field alpha caps PROVABLE
-        soundness at 64 − log2(n) ≈ 46 bits however many queries are drawn. Sampling
-        alpha here lifts that ceiling to ≈ 112. See ext2.py and soundness.py."""
-        return (self.challenge(), self.challenge())
+        D INDEPENDENT base-field draws, with D read from extf.DEGREE rather than written here. This is the
+        SINGLE ORIGIN of every extension challenge — the FRI folding alpha, the DEEP point, the constraint
+        alphas and the LogUp bus challenges all come through it — so a hardcoded arity here is uniquely
+        dangerous: prover and verifier would still agree with EACH OTHER while sampling a smaller space than
+        the soundness analysis claims, and nothing would fail. It would simply be weaker.
+
+        Every algebraic soundness term is bounded by log2 of this space. At D=2 the LogUp bus binds NADO at
+        ~109 bits and decays a bit per trace doubling; at D=3 that term is ~173 and the query phase (150.8)
+        binds instead, which does not move with trace size until ~2^39 rows. See extf.py and soundness.py."""
+        from execnode.stark.extf import DEGREE
+        return tuple(self.challenge() for _ in range(DEGREE))
 
     def challenge_index(self, bound):
         """A uniform index in [0, bound)."""
