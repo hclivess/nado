@@ -99,6 +99,10 @@ def _try_native():
                                           ctypes.POINTER(ctypes.c_uint64)]
             lib.rmerkle_commit.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
                                            ctypes.POINTER(ctypes.c_uint64)]
+            for _nm in ("merkle_commit_ext", "rmerkle_commit_ext"):
+                getattr(lib, _nm).argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
+                                              ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)]
+                getattr(lib, _nm).restype = ctypes.c_int64
         except Exception:
             pass
         u64 = ctypes.c_uint64
@@ -284,6 +288,56 @@ def rmerkle_commit(values):
             break
         ln //= 2
     return layers[-1][0], layers
+
+
+
+def _commit_ext_native(limb_tuples, symbol):
+    """Native whole-tree Merkle build over EXTENSION leaves → (root, layers), bit-identical to
+    merkle.commit_digests over [leaf_ext(*v)] / [rleaf_ext(*v)].
+
+    This is the extension counterpart of merkle_commit / rmerkle_commit, and it exists because it was
+    MISSING: FRI commits an extension leaf per element on every layer once folding starts, and without a
+    native build every one of those n + (n-1) permutations ran in a Python loop. That is the dominant cost of
+    an extension proof and it lands on the settlement fold — the very thing the extension migration exists to
+    make sound. Returns None (caller falls back to Python) when the lib, the export, the degree or the length
+    is unusable; never a partial answer."""
+    nat = _try_native()
+    if not nat:
+        return None
+    lib, u64 = nat
+    if not hasattr(lib, symbol):
+        return None
+    n = len(limb_tuples)
+    if n < 1 or (n & (n - 1)):
+        return None
+    d = len(limb_tuples[0]) if n else 0
+    if d < 1 or any(len(t) != d for t in limb_tuples):
+        return None
+    flat = (u64 * (n * d))()
+    flat[:] = [int(x) % F.P for t in limb_tuples for x in t]
+    out = (u64 * ((2 * n - 1) * CAPACITY))()
+    if int(getattr(lib, symbol)(flat, n, d, out)) != 0:
+        return None                      # the lib REFUSED this degree — do not guess, fall back
+    buf = out[:]
+    digs = [tuple(buf[i * CAPACITY:(i + 1) * CAPACITY]) for i in range(2 * n - 1)]
+    layers, start, ln = [], 0, n
+    while True:
+        layers.append(digs[start:start + ln])
+        start += ln
+        if ln == 1:
+            break
+        ln //= 2
+    return layers[-1][0], layers
+
+
+def merkle_commit_ext(limb_tuples):
+    """Sponge-backend (ALGHASH2) extension-leaf tree."""
+    return _commit_ext_native(limb_tuples, "merkle_commit_ext")
+
+
+def rmerkle_commit_ext(limb_tuples):
+    """RECURSION-backend (rleaf_ext/rnode) extension-leaf tree."""
+    return _commit_ext_native(limb_tuples, "rmerkle_commit_ext")
 
 
 def to_int(digest):

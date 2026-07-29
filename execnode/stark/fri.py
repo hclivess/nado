@@ -11,7 +11,7 @@ each layer really is the fold of the previous one (with Merkle openings) and tha
 
 Soundness rests only on BLAKE2b collision-resistance (via the Merkle commitments + the transcript).
 """
-from execnode.stark import field as F, merkle, extf as ext2
+from execnode.stark import field as F, merkle, extf as ext2, alghash2 as a2
 from execnode.stark.transcript import Transcript
 from execnode.stark import backend as _backend
 
@@ -109,6 +109,25 @@ def _ext_leaf(b, v):
 
 
 def _commit_ext(values, b):
+    """Merkle-commit a layer of EXTENSION values.
+
+    Tries the native whole-tree build first. Without it this loop ran n leaf permutations plus n-1 node
+    permutations in PYTHON on every folded layer — the dominant cost of an extension proof, and it lands on
+    the settlement fold, which is what the extension migration exists to make sound.
+
+    The native build is selected by BACKEND, not guessed: the recursion backend commits with one permutation
+    per node (rleaf_ext/rnode) and the sponge backend with hashn frames, and using the wrong one produces a
+    well-formed tree with the wrong root. Anything unexpected — no lib, unknown backend, a degree the frame
+    cannot hold — falls back to the identical Python path rather than to an approximation."""
+    limbs = [ext2.lift(v) for v in values]
+    name = getattr(b, "name", "")
+    _nat = None
+    if name == "recursion":
+        _nat = a2.rmerkle_commit_ext(limbs)
+    elif name == "alghash2":
+        _nat = a2.merkle_commit_ext(limbs)
+    if _nat is not None:
+        return _nat
     return merkle.commit_digests([_ext_leaf(b, v) for v in values], b)
 
 
