@@ -113,7 +113,10 @@ def _schedule(prog, W, n_aux, boundaries, points):
     # from an AIR whose challenges and alphas are GF(p^2). Deriving it here keeps prover and verifier in step
     # without another flag to pass (and mis-pass) at every call site.
     _pairs = list(prog.get("ext_pairs") or ())
-    ext = bool(_pairs) or bool(prog.get("ext_chal"))
+    # The RECORDED flag is authoritative; ext_pairs is only a fallback for a program built before the flag
+    # existed. `bool(_pairs)` alone is wrong in the direction that matters: a base-valued AIR under an
+    # extension challenge field has NO ext pairs and extension alphas.
+    ext = bool(prog.get("ext_chal")) or bool(_pairs)
     # an extension constraint occupies D outputs but takes ONE alpha, so it contributes D-1 EXTRA outputs
     n_logical = nt - len(_pairs) * (ext2.DEGREE - 1)
     L = _per_layout(W, n_aux, nt, nb, nper, nchal, ext=ext, n_alpha=n_logical)
@@ -169,12 +172,15 @@ def _schedule(prog, W, n_aux, boundaries, points):
         hold_rel.append((chk, 0))
         chk_e.append((chk, 1))
         pinvz.append((chk, int(point["invZ"]) % F.P))
-        _l0 = point["layer0"]
-        _l0 = _l0 if isinstance(_l0, tuple) else (_l0, 0)
+        # WIDEN THROUGH extf.lift, never through a literal (v, 0). The three sites below carried that
+        # literal, which is a degree-2 element: at D=3 `_l0[2]` is an IndexError on a base value and a
+        # silently DROPPED limb on a short tuple. lift() widens a base int or a short tuple to exactly
+        # DEGREE limbs and REFUSES a long one, which is the whole reason it exists.
+        _l0 = ext2.lift(point["layer0"]) if ext else (point["layer0"],)
         for li in range(_e):
             pl0[li].append((chk, int(_l0[li]) % F.P))
         for j, a in enumerate(point["alphas"]):
-            _a = a if isinstance(a, tuple) else (a, 0)
+            _a = ext2.lift(a) if ext else (a,)
             for li in range(_e):
                 palpha[_e * j + li].append((chk, int(_a[li]) % F.P))
         for j, v in enumerate(point["per"]):
@@ -184,7 +190,7 @@ def _schedule(prog, W, n_aux, boundaries, points):
         # same mistake compose_ext made with them: the alphas got flattened and the challenges did not.
         _cj = 0
         for v in point["chal"]:
-            for limb in ((v if isinstance(v, tuple) else (v, 0)) if ext else (v,)):
+            for limb in (ext2.lift(v) if ext else (v,)):
                 pchal[_cj].append((chk, int(limb) % F.P)); _cj += 1
         for j, (val, invd) in enumerate(point["bnd"]):
             pbval[j].append((chk, int(val) % F.P))

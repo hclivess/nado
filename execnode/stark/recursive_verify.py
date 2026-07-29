@@ -54,12 +54,23 @@ def public_part(stark_proof):
     return out
 
 
-def _fs(pub, n_chal, n_alphas, b, ext=False):
+def _fs(pub, n_chal, n_alphas, b, ext=None):
     """Rebuild the inner STARK's transcript at the FRI start and return (factory, challenges, alphas).
     Single-phase column mode: absorb the W column roots, draw the α's. Row mode: absorb the main row root
     (+ two-phase: draw the LogUp challenges, absorb the aux row root), draw the α's. The factory is what
     fri_verify needs to re-derive the embedded FRI's challenges; challenges/alphas are what comp needs. All
-    from the SAME replay, so they are mutually consistent and pinned to the roots."""
+    from the SAME replay, so they are mutually consistent and pinned to the roots.
+
+    `ext` DEFAULTS TO THE LIVE AUTHORITY, not to False. It used to default False, and that default was a
+    latent break waiting for the day the RECURSION backend stopped being base-field: the replay then drew
+    base challenges where the prover had drawn extension ones, Fiat-Shamir diverged, and every honest inner
+    proof was reported as "failed native verification" — a message that points at the proof rather than at
+    the replay. Four call sites in recursive_verify_hetero and recursion_authdepth relied on the default and
+    all four broke at once. A parameter whose wrong value is silent must not have a hardcoded default; it
+    reads stark.ext_challenges_active(b), the single authority, and an explicit value is for tests only."""
+    if ext is None:
+        from execnode.stark import stark as _st
+        ext = _st.ext_challenges_active(b)
     if "row_roots" in pub:
         roots_main, roots_aux = pub["row_roots"][:1], pub["row_roots"][1:]
     else:

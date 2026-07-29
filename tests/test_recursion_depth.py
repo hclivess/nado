@@ -55,9 +55,14 @@ def t_fold_proof_is_foldable():
     natively re-derives its schedule (out_backend=RECURSION => rleaf/rnode) and extracts its witness, which is
     exactly the first thing the next tree level does. This is 'a fold can be folded' without paying the full
     ~19-min level-1 proof."""
+    # ext/ext0 are PART of the public statement — they say which field the transcript replay draws in.
+    # Omitting them (as this did) makes an extension proof replay as base-field, so Fiat-Shamir diverges and
+    # an honest proof is reported as unfoldable. The real prove_fold carries them; so must this.
+    _f = _FOLD["fri"]
     canon = fri_verify._canonical_public(
-        {"roots": _FOLD["fri"]["roots"], "N": _FOLD["fri"]["N"], "offset": _FOLD["fri"]["offset"],
-         "blowup": _FOLD["fri"]["blowup"], "final": _FOLD["fri"]["final"], "pow": _FOLD["fri"].get("pow")},
+        {"roots": _f["roots"], "N": _f["N"], "offset": _f["offset"], "blowup": _f["blowup"],
+         "final": _f["final"], "pow": _f.get("pow"),
+         "ext": bool(_f.get("ext", False)), "ext0": bool(_f.get("ext0", False))},
         NQO, _MK)
     assert canon is not None, "the fold proof's FRI must pass native verification (be foldable)"
     wit = fri_verify._witness_of(_FOLD["fri"], NQO, _MK)

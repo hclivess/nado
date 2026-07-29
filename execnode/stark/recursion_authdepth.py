@@ -45,7 +45,11 @@ def _prep(bundle, stark_publics, transitions, boundaries, W, num_queries_inner,
     fold_item = (bundle["fold"], (ft, fb, fp))
 
     nper0 = len(RV._per_of(periodic, periodic_list, 0))
-    prog = air_ir.build_program(transitions, W, nper0, num_challenges)
+    # ext_chal follows the CHALLENGE FIELD the inner proofs used, not the AIR's own shape — see
+    # recursive_verify_hetero._ext_now. Omitting it built a base-field program for extension alphas.
+    from execnode.stark import stark as _st
+    prog = air_ir.build_program(transitions, W, nper0, num_challenges,
+                                ext_chal=_st.ext_challenges_active(B.RECURSION))
     comps = bundle["comp"] if isinstance(bundle["comp"], list) else [bundle["comp"]]
     comp_pubs = bundle["comp_public"] if isinstance(bundle["comp_public"], list) else [bundle["comp_public"]]
     comp_items = []

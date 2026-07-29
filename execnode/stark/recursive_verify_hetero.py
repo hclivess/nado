@@ -65,10 +65,19 @@ def _points_of(item):
     return pts
 
 
+def _ext_now():
+    """Which field this bundle's inner proofs drew their challenges and alphas from — the single authority,
+    asked once. Not derived from the AIR: an AIR with no extension-valued constraint still gets extension
+    ALPHAS when the proof was produced under an extension challenge field, and treating that program as
+    base-valued makes the composition schedule read a tuple as an int."""
+    from execnode.stark import stark as _st
+    return _st.ext_challenges_active(B.RECURSION)
+
+
 def _prog_of(item):
     W = RV.public_part(item["proof"])["W"]
     return air_ir.build_program(item["transitions"], W, len(item.get("periodic") or []),
-                                item.get("num_challenges", 0))
+                                item.get("num_challenges", 0), ext_chal=_ext_now())
 
 
 def prove_hetero(items, num_queries_outer=fri_verify.NUM_QUERIES, out_backend=None):
@@ -161,7 +170,7 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
             row_mode = _is_row(pubs[g["idxs"][0]])
             W = pubs[g["idxs"][0]]["W"]
             prog = air_ir.build_program(air["transitions"], W, len(air.get("periodic") or []),
-                                        air.get("num_challenges", 0))
+                                        air.get("num_challenges", 0), ext_chal=_ext_now())
             pts_public = []
             for idx in g["idxs"]:
                 pub = pubs[idx]

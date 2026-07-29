@@ -2329,6 +2329,34 @@ class CoreClient(threading.Thread):
             # and heartbeat/reveal DUPSORT desync forks.
             assert_unique_reserved(block["block_transactions"])
 
+            # AUTHORIZATION COMMITMENT (signature aggregation). Recompute (auth_root, auth_count) from the
+            # block's OWN transactions and enforce equality with what it committed inside its hash preimage.
+            # This is the statement an aggregate validity proof attests, so the verifier must derive it
+            # rather than accept it: a prover that could choose the root would choose one covering fewer
+            # checks than the block demands, and a proof of "these zero authorizations are valid" is a
+            # proof of nothing. Pure function of committed block data — it can never disagree between two
+            # honest nodes holding the same block, so unlike state_root a mismatch here means the block
+            # itself is malformed or forged, not that our state drifted.
+            from execnode.stark import mldsa_block_auth as _auth
+            _r, _c = _auth.auth_commitments(block)
+            if int(block.get("auth_count", -1)) != _c or int(block.get("auth_root", -1)) != int(_r):
+                raise ValueError(
+                    f"Block {block['block_number']} authorization commitment "
+                    f"(root={str(block.get('auth_root'))[:16]}, count={block.get('auth_count')}) != "
+                    f"recomputed (root={str(_r)[:16]}, count={_c}) — the block's committed signature "
+                    f"workload does not match its own transactions")
+
+            # DETACHED EVIDENCE, when the producer shipped an envelope. Absent -> the per-tx signatures
+            # below ARE the evidence (what every block ships today). Present -> it is checked against the
+            # commitment we just recomputed, with the key coming from OUR PUBKEY-ONCE resolution and never
+            # from the envelope. A present-but-invalid envelope is a forgery signal and rejects the block;
+            # it can never CHANGE block identity, because it lives outside the hash preimage.
+            if block.get("block_auth_evidence") is not None:
+                from ops.block_ops import check_block_auth_evidence
+                _ok, _why = check_block_auth_evidence(block)
+                if not _ok:
+                    raise ValueError(f"Block {block['block_number']} authorization evidence rejected: {_why}")
+
             # ALWAYS validate signatures + spending (never skipped for synced/old blocks) — else a
             # malicious sync peer could feed forged, unsigned transfers that reflect would still apply.
             # Fast bootstrap = snapshot sync instead.

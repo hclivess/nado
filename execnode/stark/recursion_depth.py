@@ -34,17 +34,26 @@ def _fold_proof_fs(fold_proof, b=B.RECURSION):
     A fold proof is an ordinary single-phase STARK, so: absorb its committed column roots, then draw
     (#fold-AIR transitions + #its boundaries) constraint challenges. Both counts are read from the proof
     itself — the fixed fold-AIR transition count and the proof's stored boundary list — so the factory is
-    generic over any fold proof, at any tree level."""
-    nt = len(fri_verify._transitions())
+    generic over any fold proof, at any tree level.
+
+    TWO INDEPENDENT FIELD QUESTIONS, and both used to be answered "base" by hardcode:
+      * which fold AIR this proof used — that depends on whether the proofs it folded were extension-valued,
+        and it is READ OFF the proof's own committed trace width, which differs between the two layouts;
+      * which field THIS proof's own constraint challenges were drawn from — the live authority.
+    Getting either wrong desynchronises the replay and reports an honest proof as corrupt."""
+    _ext_inner = (int(fold_proof.get("W", 0)) == fri_verify._wtot(True))
+    nt = len(fri_verify._transitions(_ext_inner))
     nb = len(fold_proof["boundaries"])
     col_roots = fold_proof["col_roots"]
+    from execnode.stark import stark as _st
+    _ext_outer = _st.ext_challenges_active(b)
 
     def mk():
         t = Transcript(DOMAIN_STARK, backend=b)
         for r in col_roots:
             t.absorb(r)
         for _ in range(nt + nb):
-            t.challenge()
+            t.challenge_ext() if _ext_outer else t.challenge()
         return t
     return mk
 

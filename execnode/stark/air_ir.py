@@ -173,6 +173,11 @@ def build_program(transitions, W, num_periodic, num_chal, ext_chal=False):
                 outputs.append(_coerce(b, r))      # a constraint with no row dependence folds to a CONST leaf
     return {"ops": b.ops, "consts": b.consts, "outputs": outputs, "ext_pairs": ext_pairs,
             "W": W, "P": num_periodic, "C": (_D * num_chal if ext_chal else num_chal),
+            # RECORDED, not re-derived. Whether the ALPHAS are extension is a property of the CHALLENGE
+            # FIELD, not of the constraints: a purely base-valued AIR proven under an extension field still
+            # gets extension alphas, so `bool(ext_pairs)` is not a substitute and consumers that used it
+            # crashed on the first base-valued AIR in an extension bundle.
+            "ext_chal": bool(ext_chal),
             "ext_degree": (_D if ext_chal else 1),
             "ext_chal": bool(ext_chal)}
 

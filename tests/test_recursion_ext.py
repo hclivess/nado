@@ -44,12 +44,18 @@ check(a2.rleaf_ext(7, 0) != a2.rleaf(7),
       "an ext leaf with a zero hi limb is still a DISTINCT frame from a base leaf")
 
 # ---------------------------------------------------------------- the IR lowers extension constraints
-prog_ext = air_ir.build_program(LB._transitions(True), 12, 0, 2, ext_chal=True)
-prog_base = air_ir.build_program(LB._transitions(False), 9, 0, 2)
+# Widths DERIVED, not written down. These were the literals 12 and 9 — correct at degree 2 and silently
+# out of range at degree 3, where the aux block is D*NUM_AUX_BASE wide. A test that hardcodes the field is
+# asserting the OLD field the moment the field moves, which is exactly when it should be catching things.
+D = ext2.DEGREE
+W_EXT = LB.W_MAIN + LB.NUM_AUX_EXT
+W_BASE = LB.W_MAIN + LB.NUM_AUX_BASE
+prog_ext = air_ir.build_program(LB._transitions(True), W_EXT, 0, 2, ext_chal=True)
+prog_base = air_ir.build_program(LB._transitions(False), W_BASE, 0, 2)
 check(len(prog_ext["ext_pairs"]) == 3,
-      "each extension-valued constraint lowers to a PAIR of SSA outputs")
-check(prog_ext["C"] == 4 and prog_base["C"] == 2,
-      "each logical challenge occupies two CHAL leaves under ext")
+      f"each extension-valued constraint lowers to a GROUP of {D} SSA outputs")
+check(prog_ext["C"] == 2 * D and prog_base["C"] == 2,
+      f"each logical challenge occupies {D} CHAL leaves under ext")
 check(air_ir.program_degree(prog_ext) == air_ir.program_degree(prog_base),
       "lowering to limbs does NOT raise the program degree (max_degree and blowup are unaffected)")
 
@@ -58,9 +64,9 @@ check(air_ir.program_degree(prog_ext) == air_ir.program_degree(prog_base),
 random.seed(3)
 A = [(i, i * 2, i * 3) for i in range(8)]
 rows, T = LB._trace(A, list(reversed(A)))
-chals = [(random.randrange(F.P), random.randrange(F.P)) for _ in range(2)]
+chals = [tuple(random.randrange(F.P) for _ in range(D)) for _ in range(2)]
 aux = LB._build_aux_ext(rows, chals)
-full = [list(rows[i]) + [aux[k][i] for k in range(6)] for i in range(T)]
+full = [list(rows[i]) + [aux[k][i] for k in range(LB.NUM_AUX_EXT)] for i in range(T)]
 flat_ch = [limb for ch in chals for limb in ch]
 cons = LB._transitions(True)
 agree = True
@@ -68,7 +74,10 @@ for i in range(T - 1):
     direct = []
     for con in cons:
         v = con(full[i], full[i + 1], [], chals)
-        direct += [v[0] % F.P, v[1] % F.P]
+        # Every limb, not just two. This read v[0], v[1] — correct at degree 2 and a SILENT truncation at
+        # any higher degree: the comparison would then pass while the third limb of every constraint went
+        # unchecked, which is precisely the failure this check exists to catch.
+        direct += [x % F.P for x in v]
     if [x % F.P for x in air_ir.eval_program_point(prog_ext, full[i], full[i + 1], [], flat_ch)] != direct:
         agree = False
         break

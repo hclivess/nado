@@ -585,6 +585,24 @@ SETTLE_PROOF_RECURSIVE = False   # RE-GATED 2026-07-28: the recursion path is st
                                  # recursion AIRs are ported to extension arithmetic.
                                  # (Was True on the alphanet-12 reroll, CHAIN_GENERATION 13.)
 
+# ---- SIGNATURE AGGREGATION (doc/zk-signature-aggregation.md) ----------------------------------------
+# The AUTHORIZATION COMMITMENT is unconditional from alphanet-14: every block commits (auth_root,
+# auth_count) inside its hash preimage and every verifier recomputes both from the block's own
+# transactions. That is a pure function of committed block data, so it costs nothing and can never
+# disagree between honest nodes — it exists so an aggregate proof has a statement it cannot choose.
+#
+# SIG_AGG_STARK gates only whether an aggregate STARK envelope is ACCEPTED IN PLACE OF the raw
+# signatures. It is a CONSENSUS RULE and must ride a reroll for exactly the reason SETTLE_PROOF_RECURSIVE
+# does: a node honouring the envelope skips per-signature verification, so if it were live while
+# unupgraded peers still ignored the field, a bogus envelope would split the fleet.
+#
+# It is FALSE today for a reason that is physics, not wiring: one ML-DSA-44 verification is 103 Keccak-f
+# permutations, and the proving cost of a whole block's worth does not fit a block interval on commodity
+# hardware. The path is live and verified end to end (tests/test_mldsa_block_auth.py,
+# tests/test_block_auth_wiring.py) — what it waits on is a prover fast enough, not code that does not exist.
+SIG_AGG_STARK = False
+
+
 # How many recent heights keep an exec summary (kv_ops.exec_summary_*). These live in the `meta` sub-DB,
 # which IS carried in SNAPSHOT_DBS, so without a bound they would grow with chain length AND bloat every
 # snapshot. A settle-with-proof span is capped at SETTLE_PROOF_MAX_SPAN, so any span reaching further back

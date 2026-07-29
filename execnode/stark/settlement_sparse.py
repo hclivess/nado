@@ -313,8 +313,9 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
            "kv_post": ST.digest_hex(tuple(int(x) % F.P for x in segments[-1]["sparse_post_root"])),
            "segments": segments}
     if fold:                                             # attach the K→1 recursion bundle (the heavy step)
-        # Folded proofs are RECURSION-backend (base-field aux layout); asked, not assumed — see
-        # stark.ext_challenges_active.
+        # Which field the fold's inner proofs live in — asked, never assumed. The RECURSION backend is no
+        # longer pinned to the base field (a backend that picks its own field picks its own security level),
+        # so this is the single authority and BOTH halves of the fold must read it.
         _fx = stark.ext_challenges_active(_bk.RECURSION)
         out["recursive"] = RV.prove(exec_proofs, vm_circuit.transitions(ext=_fx), bnds, num_queries_outer=oq,
                                     periodic_list=pers, num_challenges=2,
@@ -380,8 +381,16 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=
             cpp = proof.get("comp_points_per_proof")
             if cpp is not None and (not isinstance(cpp, int) or cpp < 1):
                 return False, "bad comp chunk size", None, None
-            okr, whyr = RV.verify(pubs, vm_circuit.transitions(), bnds, rb, num_queries_outer=nqo,
-                                  periodic_list=pers, num_challenges=2, num_aux=vm_circuit.NUM_AUX,
+            # THE SAME AIR THE PROVER USED. This read `transitions()` and `NUM_AUX` — the BASE layout —
+            # while the prove side above builds `transitions(ext=_fx)` with NUM_AUX_EXT. Under an extension
+            # challenge field that is a different circuit and a different trace width, so every honest folded
+            # proof was rejected, and the enclosing `except Exception` reported it as "malformed sparse
+            # settlement": a wiring bug wearing a corruption error's clothes. Ask the authority, once, and use
+            # the answer for both halves.
+            _fx = stark.ext_challenges_active(_bk.RECURSION)
+            okr, whyr = RV.verify(pubs, vm_circuit.transitions(ext=_fx), bnds, rb, num_queries_outer=nqo,
+                                  periodic_list=pers, num_challenges=2,
+                                  num_aux=(vm_circuit.NUM_AUX_EXT if _fx else vm_circuit.NUM_AUX),
                                   comp_points_per_proof=cpp, num_queries_inner=nqi)
             if not okr:
                 return False, f"recursive verification failed: {whyr}", None, None
