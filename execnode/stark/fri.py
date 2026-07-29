@@ -43,14 +43,16 @@ GRIND_BITS = 18
 
 # EXT_CHALLENGES: draw the FRI folding challenge from GF(p^2) instead of the base field.
 # Commit-phase error is ~n/|challenge space|, so a base-field alpha pins PROVABLE
-# soundness at 64 - log2(n) ~ 47 bits however the query budget is set. GF(p^2) lifts the
-# ceiling to ~112 -- what Plonky2 and Miden do over this same base field.
+# soundness at 64 - log2(n) ~ 47 bits however the query budget is set. GF(p^D) lifts the
+# ceiling to ~D*64 - log2(n); at D=3 the commit phase stops being the binding term at all
+# and the bound passes to the query phase, which does not decay with trace size.
 #   python3 -m execnode.stark.soundness
-# Layer 0 stays base-field; every layer after the first fold is GF(p^2)-valued. This
-# CHANGES THE PROOF FORMAT: ext layers commit a leaf digest over the (a, b) pair, and
-# `final` is a list of pairs.
-# NOT yet ported -- both must pass ext=False until they are: native/starkprove sp_fold,
-# and the in-circuit fri_verify.py recursion AIRs.
+# Layer 0 stays base-field UNLESS the input is already extension-valued (a DEEP quotient --
+# `ext0`); every layer after the first fold is extension-valued either way. This CHANGES THE
+# PROOF FORMAT: ext layers commit a leaf digest over the whole limb tuple (alghash2.leaf_ext,
+# ONE permutation, not one per limb), and `final` is a list of tuples.
+# EVERYTHING IS PORTED: the arena (native/starkprove, degree-generic, handshake-checked against
+# extf.DEGREE) and the in-circuit recursion AIRs (fri_verify, comp_verify, rowcomp_verify).
 EXT_CHALLENGES = True
 
 

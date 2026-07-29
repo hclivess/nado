@@ -80,7 +80,23 @@ def chain_clock(block_number: int) -> int:
 # deterministic fast-forward (loops/core_loop) always hits and block time tracks block_time instead of
 # lagging on transient mempool divergence. Enforced in block_ops (producer + verifier); absent min_block
 # defaults to 0 (immediate), so historical blocks stay valid.
-TX_INCLUSION_DELAY = 2
+#
+# RAISED 2->8 after the alphanet-13 h5924 split (2026-07-29). Three nodes built the winner's block with blob
+# tx f2f8f14066 (min_block=5924, i.e. eligible at exactly that height); .131 built the same winner's block,
+# same parent, same creator, same state_root, same weight, 4 seconds earlier and WITHOUT the tx. One block
+# apart in eligibility is a coin flip on whether every producer holds the tx yet, and the two honest blocks
+# then differ in nothing but their tx set. That is the same too-tight-window failure RESERVED_TX_MARGIN and
+# DUTY_TX_MARGIN were raised for; this was the one remaining instance, on the ordinary flexibly-landing path.
+#
+# SUBMITTER-SIDE, so no reroll: the verifier enforces `block_number >= tx["min_block"]` against the tx's OWN
+# committed field, and this constant only decides what a newly constructed tx stamps there. Old and new nodes
+# interoperate; they just pick different earliest-landing heights for the txs they create.
+#
+# 8 blocks is ~48s at 6s/block — enough for several gossip rounds without pushing blob latency past a minute.
+# HONEST RESIDUAL: a margin helps only if the tx eventually arrives. If .131 never received it at all, this
+# buys more retry opportunities but is not a cure; the mempool-propagation path is the thing to instrument if
+# a split recurs at a wider margin.
+TX_INCLUSION_DELAY = 8
 
 # TX LANDING (max_block is an EXPIRY DEADLINE, not a target). A flexibly-landing tx (value transfer, blob,
 # bridge in/out, dividend_withdraw — see block_ops._lands_flexibly) may be mined in ANY block in

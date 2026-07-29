@@ -700,13 +700,21 @@ def extract_fri(fri_proof):
     backend) to recover the fold challenges + domains, then reads each query's per-layer openings + rleaf/rnode
     Merkle paths straight from the proof. Requires the RECURSION backend so the Merkle tree is rleaf/rnode."""
     from execnode.stark.transcript import Transcript
-    # ITEM 14 GATE: this in-circuit bridge does BASE-field arithmetic only. A GF(p^2) proof (fri.EXT_CHALLENGES)
-    # is not foldable by it, and quietly treating one as base-field would replay the wrong challenges and check
-    # it under the ~47-bit commit bound the extension exists to escape. Refuse LOUDLY instead — the recursion
-    # path stays explicitly base-field until the AIRs are ported to extension arithmetic.
+    # SUPERSEDED PATH. This bridge (and prove_recursive/verify_recursive above it) is the ORIGINAL
+    # demonstration fold: it reads each query's openings straight out of the proof without authenticating
+    # them against the layer roots. fri_verify.prove_fold replaced it with in-circuit Merkle membership,
+    # which is what the settlement fold actually uses, and everything below this line in the file —
+    # _permute_snapshots, _blocks_for, rmerkle_commit, _round_transitions — is live and shared.
+    #
+    # It does BASE-field arithmetic only, and since the whole system now draws extension challenges it
+    # accepts nothing the prover produces. Refuse LOUDLY rather than replay the wrong challenges and check
+    # the proof under the ~47-bit commit bound the extension exists to escape. Porting it would mean
+    # maintaining a second, weaker fold; the intent is to delete it once tests/test_recursion.py's coverage
+    # of the FRI-step and composition spot-check AIRs is folded into the fri_verify/comp_verify tests.
     if fri_proof.get("ext"):
-        raise ValueError("extract_fri: this recursion AIR is base-field only; refusing a GF(p^2) FRI proof "
-                         "(prove it with ext=False until fri_verify/sp_fold are ported)")
+        raise ValueError("extract_fri: the ORIGINAL demonstration fold is base-field only and is superseded "
+                         "by fri_verify.prove_fold (which authenticates openings against the layer roots). "
+                         "It cannot accept an extension FRI proof, and the system produces nothing else.")
     b = backend.RECURSION
     t = Transcript("fri", backend=b)
     alphas, doms, o, n = [], [], fri_proof["offset"], fri_proof["N"]

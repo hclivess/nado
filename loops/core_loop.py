@@ -909,7 +909,33 @@ class CoreClient(threading.Thread):
         heaviest = self.consensus.heaviest_block_hash
         if not heaviest:
             return True
-        return majority_on_our_canonical(heaviest, get_block, get_block_hash_by_number)
+        if not majority_on_our_canonical(heaviest, get_block, get_block_hash_by_number):
+            return False
+        # SOMEONE ELSE HAS TO SAY IT. The check above asks "is the heaviest tip on our chain", and for a node
+        # ALONE ON A FORK the answer is trivially yes — it mines every slot unopposed, so its own tip IS the
+        # heaviest and it corroborates itself. That is precisely the wedge this predicate exists to prevent,
+        # and it failed open in exactly that case.
+        #
+        # Observed live, alphanet-13 h5924 (2026-07-29): .131 built a block for the same winner, same parent,
+        # same state_root, 4s earlier and without a blob tx whose min_block was that very height. It then
+        # mined alone, stayed heaviest, corroborated its own depth floor up to 5974 — 50 blocks PAST the fork
+        # — and became unable to roll back and rejoin. The other three had the same fork point below their
+        # floor too, so nothing could reorg and the only exit left was the data-destroying dead-fork purge.
+        # Had the floor stayed below 5924 on the isolated side, that node could simply have rolled back and
+        # resynced the 3-node chain: a plain reorg, no purge, no lost chain data.
+        #
+        # So corroboration now means what the word means — an INDEPENDENT peer advertising a tip on our
+        # canonical chain. Our own tip is not evidence about our own tip.
+        #
+        # Failing this only FREEZES the floor, which is the safe direction (it widens the honest-reorg
+        # window and nothing else), and a Sybil could already achieve that by withholding corroboration.
+        _me = {self.memserver.ip, get_config().get("ip")} - {None}
+        for _peer, _hash in self.consensus.block_hash_pool.copy().items():
+            if _peer in _me or not _hash:
+                continue
+            if majority_on_our_canonical(_hash, get_block, get_block_hash_by_number):
+                return True
+        return False
 
     def _fork_state(self):
         """Measured fork state (ops/fork_resolution.resolve), cached for FORK_STATE_TTL_S.
@@ -2331,12 +2357,17 @@ class CoreClient(threading.Thread):
 
             # AUTHORIZATION COMMITMENT (signature aggregation). Recompute (auth_root, auth_count) from the
             # block's OWN transactions and enforce equality with what it committed inside its hash preimage.
-            # This is the statement an aggregate validity proof attests, so the verifier must derive it
-            # rather than accept it: a prover that could choose the root would choose one covering fewer
-            # checks than the block demands, and a proof of "these zero authorizations are valid" is a
-            # proof of nothing. Pure function of committed block data — it can never disagree between two
-            # honest nodes holding the same block, so unlike state_root a mismatch here means the block
-            # itself is malformed or forged, not that our state drifted.
+            # This is the statement an aggregate validity proof attests, so it must be DERIVED and never
+            # accepted: a prover free to choose the root would choose one covering fewer checks than the
+            # block demands, and "these zero authorizations are valid" is a proof of nothing.
+            #
+            # BE HONEST ABOUT WHAT THIS ADDS. Because the commitment lives inside the hash preimage and
+            # rebuild_block recomputes it from the block's own tx list, a block claiming the wrong root
+            # already fails the rebuilt-hash check — so on the ordinary path this is redundant. It is kept
+            # for two reasons: it gives the failure its own name instead of an opaque hash mismatch, and it
+            # holds on any path that reaches verify_block without a full rebuild. It is a pure function of
+            # committed block data, so unlike state_root a mismatch here means the BLOCK is malformed or
+            # forged — never that our state drifted.
             from execnode.stark import mldsa_block_auth as _auth
             _r, _c = _auth.auth_commitments(block)
             if int(block.get("auth_count", -1)) != _c or int(block.get("auth_root", -1)) != int(_r):
