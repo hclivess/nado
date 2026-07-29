@@ -109,9 +109,18 @@ def t_wrong_air_rejected():
     assert not ok, "a different AIR must be rejected by the composition half"
 
 
+def _bump(v):
+    """Perturb a seam value by one, whatever field it lives in. `+ 1` was written for a scalar and raises on
+    a tuple — and a tamper test that raises still 'passes' a naive assert-not-ok, so this had to move with
+    the field or it would have stopped testing anything the moment the seam became extension-valued."""
+    if isinstance(v, tuple):
+        return ((v[0] + 1) % F.P,) + tuple(v[1:])
+    return (v + 1) % F.P
+
+
 def t_tampered_seam_rejected():
     bad = copy.deepcopy(_PUBLICS)
-    bad[0]["layer0"][0] = (bad[0]["layer0"][0] + 1) % F.P
+    bad[0]["layer0"][0] = _bump(bad[0]["layer0"][0])
     ok, _ = RV.verify(bad, TRANS, _BNDS, _BUNDLE, num_queries_outer=NQO, periodic=[PER0],
                       num_challenges=1, num_aux=NAUX)
     assert not ok, "a declared layer-0 != the committed one must be rejected (seam integrity)"

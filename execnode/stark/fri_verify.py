@@ -634,7 +634,7 @@ def fold_air(public, mk_transcripts=None, expect_inner=None):
         mk = mk_transcripts[i] if mk_transcripts else None
         c = _canonical_public(pub, nqi, mk)
         if c is None:
-            raise ValueError("an inner FRI public statement failed native verification")
+            raise ValueError(f"inner FRI public statement {i} failed native verification: {LAST_REJECT}")
         merged["queries"] += c["queries"]; merged["finals"] += c["finals"]
         if merged.get("ext") is None:
             merged["ext"] = c["ext"]; merged["ext0"] = c["ext0"]

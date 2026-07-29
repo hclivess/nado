@@ -140,7 +140,8 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
                                  len(air["transitions"]) + len(air["boundaries"]), b)
             pos = RV._canon_positions(pub, nqi, _mk)
             if pos is None:
-                return False, "an inner FRI public statement failed native verification"
+                return False, (f"an inner FRI public statement failed native verification: "
+                               f"{fri_verify.LAST_REJECT}")
             mks.append(_mk)
             # layer0 values follow the CHALLENGE FIELD and may be extension elements; int(v) % P raises on
             # a tuple. The seam is pinned limb-by-limb downstream, so it must arrive unflattened.

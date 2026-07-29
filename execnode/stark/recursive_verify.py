@@ -40,8 +40,18 @@ def public_part(stark_proof):
     fp = stark_proof["fri"]
     out = {"T": stark_proof["T"], "W": stark_proof["W"], "N": stark_proof["N"],
            "blowup": stark_proof["blowup"],
+           # ext/ext0 belong to the FRI PUBLIC STATEMENT, not beside it. They say which field the
+           # transcript replay draws in and which column layout the fold AIR has, and fri_verify.prove_fold
+           # carries them in exactly this dict when it builds its own publics. Omitting them here meant the
+           # PROVER replayed as extension and the VERIFIER — which is handed `fri_public` — replayed as
+           # base, so Fiat-Shamir diverged and every honest bundle was reported as "an inner FRI public
+           # statement failed native verification". The same dict feeds recursive_verify.verify,
+           # recursive_verify_hetero and recursion_authdepth, so all three broke identically.
+           # They are safe to carry from the proof: the verifier re-derives every challenge under them and
+           # a lie simply produces a schedule the openings cannot satisfy.
            "fri_public": {"roots": fp["roots"], "N": fp["N"], "offset": fp["offset"],
-                          "blowup": fp["blowup"], "final": fp["final"], "pow": fp.get("pow")},
+                          "blowup": fp["blowup"], "final": fp["final"], "pow": fp.get("pow"),
+                          "ext": bool(fp.get("ext", False)), "ext0": bool(fp.get("ext0", False))},
            # layer0 is a GF(p^2) pair when the inner FRI is extension — keep it as-is rather than coercing,
            # or the seam the composition half is handed loses its hi limb.
            "layer0": [(q["steps"][0]["lo"] if isinstance(q["steps"][0]["lo"], tuple)
@@ -280,7 +290,8 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
             # never read from the proof — comp binds the trace at the SAME positions the fold authenticates.
             pos = _canon_positions(pub, nqi, mk)
             if pos is None:
-                return False, "an inner FRI public statement failed native verification"
+                return False, (f"an inner FRI public statement failed native verification: "
+                               f"{fri_verify.LAST_REJECT}")
             T = pub["T"]
             gTp = F.primitive_root_of_unity(T)
             per_evals = [stark._per_evaluator(pc, T, gTp) for pc in _per_of(periodic, periodic_list, pi_)]

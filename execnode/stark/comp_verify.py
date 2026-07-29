@@ -120,6 +120,17 @@ def _schedule(prog, W, boundaries, points, col_roots):
     L = _per_layout(W, nt, nb, nper, nchal, ext=ext, n_alpha=n_logical)
     _e = (ext2.DEGREE if ext else 1)
     segs, chk_rows, T, n_used = _layout(W, points)
+    # THE PROGRAM AND THE POINTS MUST AGREE ON THE FIELD. `prog` arrives from the caller, and a caller that
+    # builds it without ext_chal hands a BASE-field program alongside EXTENSION-valued alphas and layer0 —
+    # whereupon the schedule below does int() on a tuple and dies several frames from the cause. Say what is
+    # actually wrong instead. (Observed: tests/test_recursion_authdepth built its program with
+    # air_ir.build_program(TRANS, 1, 0, 0) and got "int() argument must be ... not 'tuple'".)
+    _pt_ext = any(isinstance(pt.get("layer0"), tuple)
+                  or any(isinstance(a, tuple) for a in (pt.get("alphas") or ()))
+                  for pt in points)
+    if _pt_ext and not ext:
+        raise ValueError("the composition points are EXTENSION-valued but the program was built base-field "
+                         "— pass ext_chal=stark.ext_challenges_active(backend) to air_ir.build_program")
 
     rcl_base = [[a2.RC[r][lane] for r in range(_R)] + [0] * (_B - _R) for lane in range(_W)]
     actr_base = [1] * _R + [0] * (_B - _R)
