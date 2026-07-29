@@ -274,6 +274,50 @@ class CoreClient(threading.Thread):
             return "init"
         return "produce" if self.memserver.since_last_block >= bt else "building"
 
+    def _genesis_cold_start_blocked(self, peers) -> bool:
+        """Refuse to mint THE FIRST BLOCK of a chain while we are merely early rather than actually alone.
+
+        This closes the race that split alphanet-13 (see protocol.GENESIS_QUIET_S). At a reroll every node
+        purges and restarts, but not simultaneously; the first one back finds an empty peer table and, if the
+        operator set min_peers = 0, happily mines a solo chain from the shared genesis. Four minutes of head
+        start was enough to carry it past the finality depth, after which the split was permanent.
+
+        Every other production gate is blind here BY CONSTRUCTION, which is why this needs its own check:
+        peer_claims_heavier_tip cannot find a heavier tip when the whole fleet is at height 0, and the
+        min_peers gate is exactly the one an operator turns off to allow solo production.
+
+        The distinction that matters is between "no peers configured" (genuinely standalone — produce) and
+        "peers configured, none reached yet" (early — wait). Only height 0 is gated: once a single block
+        exists, fork choice and the caught-up gate govern normally and this returns False forever after.
+
+        Bounded by GENESIS_QUIET_S so a truly isolated node is never bricked, only delayed once."""
+        try:
+            if int((self.memserver.latest_block or {}).get("block_number", 0) or 0) != 0:
+                return False                      # the chain has started; this gate is over for good
+            from protocol import GENESIS_QUIET_S, GENESIS_QUIET_MIN_PEERS
+            from ops.peer_ops import seed_peers
+            if len(peers) >= GENESIS_QUIET_MIN_PEERS:
+                return False                      # the mesh is up — start together, which is the whole point
+            _me = {self.memserver.ip, get_config().get("ip")} - {None}
+            if not [p for p in seed_peers() if p not in _me]:
+                return False                      # no seeds configured: a standalone node, not an early one
+            waited = get_timestamp_seconds() - self.memserver.start_time
+            if waited >= GENESIS_QUIET_S:
+                self.logger.warning(
+                    f"GENESIS QUIET PERIOD expired after {int(waited)}s with {len(peers)} peer(s) — producing "
+                    f"the first block anyway. If other nodes are merely slow to restart, this is how a reroll "
+                    f"splits; if we really are alone, this is correct.")
+                return False                      # never brick a node that is genuinely by itself
+            self.logger.info(
+                f"genesis quiet period: {len(peers)}/{GENESIS_QUIET_MIN_PEERS} peers after {int(waited)}s of "
+                f"{GENESIS_QUIET_S}s — not minting block 1 yet (a reroll restarts nodes minutes apart; the "
+                f"node that starts alone builds the fork).")
+            return True
+        except Exception as e:
+            # A gate that throws must not stop block production on a healthy chain.
+            self.logger.warning(f"genesis cold-start check failed, allowing production: {e}")
+            return False
+
     def normal_mode(self):
         """The caught-up per-second pass. Keeps the single mempool within its byte budget (submitted
         txs already enter transaction_pool directly in merge_transaction — no staged buffer cascade),
@@ -407,6 +451,7 @@ class CoreClient(threading.Thread):
                 # min_peers == 0 enables SOLO production (a single node mints without a peer mesh) —
                 # used for a stable single-node relay/demo where multi-node fork-choice churn is undesirable.
                 if (len(peers) >= self.memserver.min_peers
+                        and not self._genesis_cold_start_blocked(peers)
                         and not self.memserver.force_sync_ip):
                     block_candidate = get_block_candidate(logger=self.logger,
                                                           transaction_pool=self._candidate_pool(),
