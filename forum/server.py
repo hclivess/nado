@@ -26,7 +26,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from signatures import verify as mldsa_verify, unhex
-from ops.address_ops import proof_sender, validate_address, make_address
+from ops.address_ops import proof_sender, validate_address, make_address, is_address
 from protocol import ADDRESS_PREFIX, ADDRESS_BODY
 from hashing import blake2b_hash
 

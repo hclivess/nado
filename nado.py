@@ -35,7 +35,7 @@ from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
 from ops.account_ops import get_account, fetch_totals, get_bonded_registry
-from ops.address_ops import proof_sender
+from ops.address_ops import proof_sender, is_address
 from signatures import (verify as _mldsa_verify, unhex as _mldsa_unhex,
                         backend_name as _pq_backend_name,
                         backend_degraded_reason as _pq_backend_reason)

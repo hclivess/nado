@@ -372,7 +372,10 @@ def verify_settlement_o1(bundle, num_queries=None, outer_queries=None):
     derives itself — i.e. it re-establishes exactly what stark.verify establishes, per segment, in one check.
     `num_queries`/`outer_queries` are the VERIFIER'S policy (None = the protocol constant — never read from
     the bundle). Returns (ok, reason, post_root)."""
-    from execnode.stark import recursive_verify as RV
+    # `backend as _bk` is NOT optional: the two ext_challenges_active(_bk.RECURSION) calls below decide the
+    # challenge field, and without this import they raise NameError — on the exact path
+    # SETTLE_PROOF_RECURSIVE switches on. Every other function in this module imports it the same way.
+    from execnode.stark import recursive_verify as RV, backend as _bk
     try:
         rb = bundle.get("recursive")
         if rb is None:
