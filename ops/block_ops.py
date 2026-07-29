@@ -697,6 +697,13 @@ def block_content_hash(block: dict) -> str:
         "state_root": block["state_root"],
         "exec_root": block["exec_root"],
         "exec_cursor": block["exec_cursor"],
+        # AUTHORIZATION COMMITMENT — MUST mirror construct_block exactly. This function is the RE-DERIVATION
+        # half of the hash, and save_block refuses (raises) any block whose content does not hash to its own
+        # block_hash. So a field added to construct_block's preimage and NOT added here does not cause a
+        # subtle mismatch somewhere: it makes EVERY block unpersistable and halts the chain outright. These
+        # two dicts are one definition written twice, and that is exactly why they drift.
+        "auth_root": block["auth_root"],
+        "auth_count": block["auth_count"],
         "chain_id": None,   # NON-HASHED (see construct_block): genesis-hash + parent linkage identify the
                             # chain, so a CHAIN_ID change never alters a block hash or breaks genesis sync.
     }
@@ -724,7 +731,8 @@ def save_block(block: dict, logger):
     # and get chained onto, forking every honest node that later re-derives the true hash (the "stuck /
     # rolls back and forth" wedge). Genesis (block 0) is hashed differently (over timestamp+[] only), skip it.
     _hashed = ("block_number", "parent_hash", "block_creator", "block_transactions", "block_reward",
-               "cumulative_fees", "cumulative_weight", "state_root", "exec_root", "exec_cursor")   # chain_id NON-hashed
+               "cumulative_fees", "cumulative_weight", "state_root", "exec_root", "exec_cursor",
+               "auth_root", "auth_count")   # chain_id NON-hashed
     if block.get("block_number", 0) != 0 and all(k in block for k in _hashed):
         expected = block_content_hash(block)
         if expected != block["block_hash"]:

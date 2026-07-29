@@ -688,8 +688,16 @@ def verify_fold(recursion_proof, public, mk_transcripts=None, expect_inner=None,
         if seam is not None and len(seam) != len(merged["queries"]):        # them, so a lie cannot verify
             return False, "seam value count != query count"
         # The layout is derived from the INNER proofs' public parts, never from the fold prover — so a prover
-        # cannot present an ext batch and have it checked under the cheaper base-field AIR.
+        # cannot present an ext batch and have it checked under the cheaper base-field AIR. That much was
+        # already true, and it is only HALF the property: it stops an extension batch being checked cheaply,
+        # and does nothing to stop a BASE-FIELD batch being presented in the first place. Pin the field to
+        # the protocol, exactly as stark.verify does with expected_ext, or a prover simply produces its inner
+        # proofs base-field and has the fold attest them at ~47 bits instead of ~156.
         _ext = bool(merged.get("ext"))
+        _want_ext = stark.ext_challenges_active(backend.RECURSION)
+        if _ext != _want_ext:
+            return False, (f"inner FRI proofs declare ext={_ext} but this chain pins ext={_want_ext} — "
+                           f"the challenge field is not the prover's to choose")
         per, bnds, _T, _segs, _qe = _schedule_periodic_boundaries(
             merged, seam, ext=_ext, ext0=bool(merged.get("ext0")))
         return stark.verify(recursion_proof, _transitions(_ext), bnds, periodic=per, max_degree=8,

@@ -56,6 +56,17 @@ blk2 = block_ops.construct_block(block_timestamp=1, block_number=7, parent_hash=
 check(blk2["auth_root"] != blk["auth_root"], "a changed txid changes the committed root")
 check(blk2["block_hash"] != blk["block_hash"], "and therefore changes block identity")
 
+# THE TWO PREIMAGE DEFINITIONS MUST AGREE. construct_block WRITES the hash preimage; block_content_hash
+# RE-DERIVES it; save_block RAISES on any block whose content does not hash to its own block_hash. So a
+# field added to one and not the other is not a subtle mismatch somewhere — it makes EVERY block
+# unpersistable and halts the chain outright. That is precisely what adding auth_root/auth_count to
+# construct_block alone did, and nothing in this suite noticed until an adversarial audit went looking for
+# it. One definition written twice is the defect; this is the guard rail.
+check(block_ops.block_content_hash(blk) == blk["block_hash"],
+      "block_content_hash RE-DERIVES construct_block's hash exactly (save_block would reject otherwise)")
+check(block_ops.block_content_hash(blk2) == blk2["block_hash"],
+      "...and does so for a different transaction set too")
+
 # a LIED commitment is caught by recomputation — this is the check verify_block performs
 lied = dict(blk, auth_count=1)
 _r, _c = AUTH.auth_commitments(lied)

@@ -268,10 +268,34 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
         if num_aux and not row_mode:
             return False, "two-phase recursion requires row-committed inner proofs"
         nper0 = len(_per_of(periodic, periodic_list, 0))
-        # The field comes from the inner proofs' public parts, so it is known before the IR is built.
+        # THE CHALLENGE FIELD IS NOT THE PROVER'S TO CHOOSE.
+        #
+        # This read the field out of the inner proofs' public parts and used it, unpinned, to drive both the
+        # transcript replay and the composition program. stark.verify does NOT do that — it passes
+        # expected_ext=ext_challenges_active(b) and fri.verify rejects a mismatch with "unexpected FRI
+        # challenge field" — and vm_circuit refuses a proof-declared backend for the same stated reason. The
+        # FOLD path dropped that pin, which is the same recorded-here/read-there asymmetry as every other
+        # defect in this migration, except in the SOUNDNESS-losing direction rather than the liveness one.
+        #
+        # The attack: hand-roll inner proofs with base-field alphas and fri.prove(..., ext=False). public_part
+        # copies ext=False through, the replay below follows it, and the whole bundle is self-consistent and
+        # verifies — at the base-field commit bound (~47 bits) instead of GF(p^3)'s ~156. The IDENTICAL proof
+        # handed to stark.verify is rejected. Reachable on the live block-apply path: verify_settlement_sparse
+        # -> verify_bound_epoch -> exec_state_bind.bind_and_verify -> state_transition.verify_transition,
+        # which branches on `if "bundle" in tr` — an attacker-controlled key — and swaps the pinned
+        # per-proof merkle_update.verify_update for this function. SETTLE_PROOF_RECURSIVE does not gate it.
+        #
+        # recursive_verify_hetero already got this right (_ext_now() returns the protocol authority); two
+        # sibling verifiers doing the same job had opposite answers, which is precisely the drift extf.py's
+        # docstring warns about: "five copies of 'the recursion backend is base-field' let a prover choose
+        # its own security level".
         _ext = bool(pubs[0].get("ext")) if pubs else False
         if any(bool(pu.get("ext")) != _ext for pu in pubs):
-            return False, "cannot recurse over a mix of base-field and GF(p^2) proofs"
+            return False, "cannot recurse over a mix of base-field and extension-field proofs"
+        _want_ext = stark.ext_challenges_active(B.RECURSION)
+        if pubs and _ext != _want_ext:
+            return False, (f"inner proofs declare challenge field ext={_ext} but this chain pins "
+                           f"ext={_want_ext} — the challenge field is not the prover's to choose")
         prog = air_ir.build_program(transitions, W, nper0, num_challenges, ext_chal=_ext)
         nqi = len(pubs[0]["layer0"])
         # the inner query count IS each proof's soundness — a caller with a protocol policy pins it here,
