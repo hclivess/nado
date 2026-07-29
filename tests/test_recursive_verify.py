@@ -77,11 +77,20 @@ def t_bundle_declared_public_has_no_authority():
     assert ok, f"the prover's declared statement must carry no authority: {why}"
 
 
+def _bump(v):
+    """Perturb a seam value by one, whatever field it lives in. `+ 1` was written for a scalar and RAISES on
+    a tuple — and a tamper test that raises still satisfies a naive assert-not-ok, so this would have quietly
+    stopped testing anything the moment the seam became extension-valued."""
+    if isinstance(v, tuple):
+        return ((v[0] + 1) % P,) + tuple(v[1:])
+    return (v + 1) % P
+
+
 def t_tampered_seam_rejected():
     """The layer-0 seam value is DECLARED by the prover but pinned as a fold boundary whose SELLO constraint
     ties it to the Merkle-authenticated leaf — lying about it must break the in-circuit membership."""
     bad = copy.deepcopy(_PUBLICS)
-    bad[1]["layer0"][0] = (bad[1]["layer0"][0] + 1) % P
+    bad[1]["layer0"][0] = _bump(bad[1]["layer0"][0])
     ok, _ = RV.verify(bad, TRANS_X2, _BNDS, _BUNDLE, num_queries_outer=NQO)
     assert not ok, "a declared layer-0 value != the committed one must be rejected (seam integrity)"
 

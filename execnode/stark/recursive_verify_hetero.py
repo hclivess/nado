@@ -209,4 +209,16 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
                 return False, f"group comp failed: {whyc}"
         return True, "heterogeneous set re-verified (one fold + per-AIR comps, row & column)"
     except Exception as e:
+        _trace_if_asked()
         return False, f"malformed hetero bundle: {e}"
+
+
+def _trace_if_asked():
+    """A verifier must never raise, so these modules wrap everything in `except Exception` and return a
+    reason string. That is correct for consensus and hostile to debugging: the reason names the exception
+    but throws away the frame that produced it, and a wiring bug then looks exactly like a corrupt proof.
+    NADO_TRACE_RECURSION=1 prints the traceback WITHOUT changing the verdict."""
+    import os as _os
+    if _os.environ.get("NADO_TRACE_RECURSION"):
+        import traceback as _tb
+        _tb.print_exc()

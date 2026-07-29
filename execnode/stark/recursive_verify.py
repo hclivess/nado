@@ -303,7 +303,12 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
                 else:
                     vals["roots"] = [[int(v) % F.P for v in r] for r in pub["col_roots"]]
                 points_public.append(vals)
-                seam.append(int(l0) % F.P)
+                # The seam FOLLOWS THE CHALLENGE FIELD, so int() raises on it the moment layer 0 is
+                # extension-valued. recursive_verify_hetero already went through extf.canon here; this copy
+                # did not — the same rule in two places, one of them updated. That asymmetry is the single
+                # recurring defect of this migration, so it goes through canon like everywhere else, and the
+                # seam reaches verify_fold unflattened so it can be pinned limb by limb.
+                seam.append(ext2.canon(l0))
 
         # (1) FRI low-degree half — the verifier rebuilds the schedule (challenges, positions, finals) and pins
         # the declared layer-0 seam values as CLO boundaries: in-circuit membership validates them.
@@ -337,4 +342,16 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
                 return False, f"composition half failed: {whyc}"
         return True, "authoritatively verified (K proofs: FRI low-degree + composition binding, verifier-built)"
     except Exception as e:
+        _trace_if_asked()
         return False, f"malformed recursion bundle: {e}"
+
+
+def _trace_if_asked():
+    """A verifier must never raise, so these modules wrap everything in `except Exception` and return a
+    reason string. That is correct for consensus and hostile to debugging: the reason names the exception
+    but throws away the frame that produced it, and a wiring bug then looks exactly like a corrupt proof.
+    NADO_TRACE_RECURSION=1 prints the traceback WITHOUT changing the verdict."""
+    import os as _os
+    if _os.environ.get("NADO_TRACE_RECURSION"):
+        import traceback as _tb
+        _tb.print_exc()

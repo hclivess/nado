@@ -533,4 +533,16 @@ def verify_comp(proof, prog, W, n_aux, boundaries, public, out_backend=None):
         return stark.verify(proof, _transitions(prog, W, n_aux, boundaries, L), bnds, periodic=per,
                             max_degree=md, num_queries=public["num_queries"], backend=out_backend or backend.ALGHASH2)
     except Exception as e:
+        _trace_if_asked()
         return False, f"malformed row-composition bundle: {e}"
+
+
+def _trace_if_asked():
+    """A verifier must never raise, so these modules wrap everything in `except Exception` and return a
+    reason string. That is correct for consensus and hostile to debugging: the reason names the exception
+    but throws away the frame that produced it, and a wiring bug then looks exactly like a corrupt proof.
+    NADO_TRACE_RECURSION=1 prints the traceback WITHOUT changing the verdict."""
+    import os as _os
+    if _os.environ.get("NADO_TRACE_RECURSION"):
+        import traceback as _tb
+        _tb.print_exc()
