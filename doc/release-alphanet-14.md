@@ -102,16 +102,41 @@ the two natively on every transaction.
 Genesis carries the fields too, for uniformity. It costs nothing — block 0's hash is
 `blake2b_hash_link(timestamp, [])` and does not cover that dict.
 
+### Keccak batching
+
+The obstacle to proving a whole signature was never trace size — it was **boundaries**. One permutation pins
+1600 input bits and 1600 output bits, composition costs O(N) per boundary, so R *independent* permutations in
+one trace cost 3200·R and get quadratically worse.
+
+In a SHAKE squeeze chain the permutations are not independent: `state_out` of j **is** `state_in` of j+1. So
+they are chained in-circuit and only the **first input and last output** need pinning — **3200 boundaries at
+any R**. The chain rides machinery the AIR already had: a block's padding rows already repeat the final
+state, so holding `A` across the tail costs nothing on an honest trace and makes the next block's row 0
+adjacent to a row carrying this block's output.
+
+The subtlety: transition constraints **wrap**, so the hold selector must exclude the final row — otherwise it
+forces the last output to equal the first input, which no honest trace can satisfy.
+
+Measured at R = 1, 2, 4: exact reproduction of R applications of `keccak_f`, 3200 boundaries at every R
+(against 12800 for four separate proofs), zero constraint violations. Constraints grow 11520 → 13120 (+14%)
+against a 103× reduction in proof count.
+
 ### What is NOT enabled
 
-`SIG_AGG_STARK = False`, and the reason is physics rather than wiring. One ML-DSA-44 verification is **103
-Keccak-f permutations**, and the sub-circuits currently take the signature as a **public** input — so an
-aggregate envelope replaces the *verification arithmetic* of K signatures, not their *bytes*. Moving the
-signature into the witness (so a block can actually drop it) is an AIR change, not a configuration flag.
+`SIG_AGG_STARK = False`, and the reason is **throughput, not wiring**. The sub-circuits currently take the
+signature as a **public** input, so an aggregate envelope replaces the *verification arithmetic* of K
+signatures, not their *bytes*. Moving the signature into the witness — so a block can actually drop it — is
+an AIR change, not a configuration flag.
+
+The cost is concrete and worth recording: proving a **two-part subset** of one signature and folding it into
+a heterogeneous bundle **exceeded an hour** at GF(p³) on a loaded box. At this degree the composition AIR
+carries D periodic columns per alpha and every one is interpolated to the trace length. A full 103-permutation
+bundle is a proving-farm job, and no flag changes that.
 
 The path is live and verified end to end, not dormant: `verify_block_authorizations` checks a real folded
-bundle against a statement the **verifier** builds, and `tests/test_block_auth_wiring.py` exercises it with
-a real ML-DSA keypair.
+bundle against a statement the **verifier** builds. That end-to-end proof is gated behind `NADO_HEAVY` in
+`tests/test_block_auth_wiring.py` — the consensus-guarding checks in the same file run in about a second and
+must not be hidden behind an hour-long proof, or a timeout reports them all as failed and tells you nothing.
 
 ---
 
@@ -152,6 +177,37 @@ challenges came from, because the field was recorded in one place and read from 
 already put it, and every consumer reads it from there. `extf.canon` is the single spelling of "this value
 follows the challenge field". Where a mismatch is still possible, it is now **refused with a message naming
 the missing argument** instead of raising `int() argument must be … not 'tuple'` several frames away.
+
+### The two the test suite could never have caught
+
+An adversarial audit (six independent lenses, findings then handed to skeptics whose job was to *refute*
+them) found two defects that a green suite had been hiding. Both are worth stating plainly, because the
+reason each survived is more instructive than the fix.
+
+**1. CRITICAL — the chain would not have started.** `construct_block` hashes the block preimage;
+`block_content_hash` re-derives it; `save_block` **raises** on mismatch. `auth_root`/`auth_count` went into
+the first and not the second, so this was never a subtle mismatch somewhere — **every block was
+unpersistable** and alphanet-14 would have halted on block 1. There *was* a test asserting the commitment is
+inside the hash, and it passed: it compared two `construct_block` outputs to each other and never against the
+re-derivation, so it was structurally incapable of seeing it. Two dicts holding one definition is the defect;
+the missing field was only its symptom.
+
+**2. HIGH — a prover could pick its own security level.** `recursive_verify.verify` and
+`fri_verify.verify_fold` read the challenge field *out of the proof* and used it unpinned, where
+`stark.verify` pins `expected_ext` and rejects a mismatch. A prover shipping base-field inner proofs would
+have had the settled state root attested at **~47 bits instead of ~156** — and the identical proof handed to
+`stark.verify` is rejected, which is what makes it a *policy* hole rather than an arithmetic one. Reachable
+on the **live block-apply path**, not merely behind `SETTLE_PROOF_RECURSIVE`:
+`verify_settlement_sparse → verify_bound_epoch → bind_and_verify → verify_transition`, which branches on
+`if "bundle" in tr` — an **attacker-controlled key**.
+
+This one left the suite green *because* it is a downgrade: honest proofs still verify, nothing fails, the
+system merely checks a weaker statement. That is the failure mode tests cannot see, and the reason "green" is
+not "sound". `recursive_verify_hetero` had already got it right — two sibling verifiers, same job, opposite
+answers, which is exactly the drift `extf.py`'s docstring warns about.
+
+Both fixes were verified with the auditor's own proof-of-concept (`True → False` on both exploit paths) and
+against honest folds, not merely by re-running the suite.
 
 Diagnostics that came out of this, because the failures were all silent:
 
