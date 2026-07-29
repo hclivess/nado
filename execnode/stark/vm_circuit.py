@@ -22,7 +22,7 @@ Public context (caller/value/cursor/time) is baked into the CONSTRAINTS; the fir
 registers; the program, log, and args table live in periodic columns — nothing statement-shaped is read
 from the proof.
 """
-from execnode.stark import field as F, alghash, stark, logup, ext2
+from execnode.stark import field as F, alghash, stark, logup, extf as ext2
 from execnode import zkvm
 
 # ---- column layout -------------------------------------------------------------------------------
@@ -65,22 +65,38 @@ FIO = W_TOTAL                              # index when bind_io; effective width
 # Once the challenges are extension elements, every helper and accumulator derived from them is too:
 # 1/(β + tuple) lives in GF(p^2) and so does the running sum Z. A trace column holds base elements only, so
 # each LOGICAL aux column is carried as a PAIR of base columns (lo, hi) meaning lo + hi·X. The logical ids
-# above (HF, GF, ... Z) stay the names of the STATEMENT; _aux_pair maps one to the two columns that hold it.
+# above (HF, GF, ... Z) stay the names of the STATEMENT; _aux_limbs maps one to the D columns that hold it.
 # Nothing about the main trace changes — it is base-field data either way — and the constraint DEGREE is
 # unchanged at MAX_DEGREE, because a limb is still one column and (β + tuple) is still degree 1.
 #
 # FIO is deliberately NOT in this scheme: its challenge is gamma_fp, a PUBLIC base-field value that a
 # settlement matches against, not a Fiat-Shamir aux challenge. It stays a single base column, appended after
 # the aux block in whichever layout is active.
-NUM_AUX_EXT = 2 * NUM_AUX
-W_TOTAL_EXT = W_MAIN + NUM_AUX_EXT
-FIO_EXT = W_TOTAL_EXT
+NUM_AUX_EXT = None          # set below from extf.DEGREE
+W_TOTAL_EXT = None
+FIO_EXT = None
 
 
-def _aux_pair(idx):
-    """The (lo, hi) base-column indices carrying logical aux column `idx` under the extension layout."""
+def _aux_limbs(idx):
+    """The base-column indices carrying logical aux column `idx` under the extension layout — DEGREE of them,
+    contiguous. Derived rather than written out: a hand-listed limb block encodes the degree in its own
+    length, which is exactly how NUM_AUX_EXT and the constraint reads drifted apart when the degree moved."""
+    D = ext2.DEGREE
     k = idx - W_MAIN
-    return W_MAIN + 2 * k, W_MAIN + 2 * k + 1
+    return tuple(W_MAIN + D * k + i for i in range(D))
+
+
+def _refresh_ext_layout():
+    """Recompute the extension-layout widths from extf.DEGREE. Called at import; exposed so a test that
+    changes the degree can re-derive rather than hold stale constants."""
+    global NUM_AUX_EXT, W_TOTAL_EXT, FIO_EXT
+    NUM_AUX_EXT = ext2.DEGREE * NUM_AUX
+    W_TOTAL_EXT = W_MAIN + NUM_AUX_EXT
+    FIO_EXT = W_TOTAL_EXT
+    return NUM_AUX_EXT
+
+
+_refresh_ext_layout()
 
 
 def _fio_idx(ext):
@@ -110,7 +126,7 @@ def _emul(a, b):
         return ext2.mul_f(a, b) if isinstance(b, tuple) else ext2.scalar_mul_f(a, b)
     if isinstance(b, tuple):
         return ext2.scalar_mul_f(b, a)
-    return (F.mul(a, b), 0)
+    return ext2.lift(F.mul(a, b))
 
 
 def _algebra(ext):
@@ -118,8 +134,7 @@ def _algebra(ext):
     evaluated over either field. Two hand-maintained copies of these constraints is how a prover and a
     verifier drift apart silently."""
     def _read_ext(row, idx):
-        lo, hi = _aux_pair(idx)
-        return row[lo], row[hi]
+        return tuple(row[c] for c in _aux_limbs(idx))
 
     if ext:
         return _eadd, _esub, _emul, _read_ext
@@ -839,14 +854,15 @@ def make_aux_builder(periodic, bind_io=False, gamma_fp=0):
         def put(idx, row, val):
             if _ext:
                 k = idx - W_MAIN
-                v = val if isinstance(val, tuple) else (int(val) % F.P, 0)
-                cols[2 * k][row] = v[0]; cols[2 * k + 1][row] = v[1]
+                v = ext2.lift(val)
+                for i in range(ext2.DEGREE):
+                    cols[ext2.DEGREE * k + i][row] = v[i]
             else:
                 cols[idx - W_MAIN][row] = val
         def get(idx, row):
             if _ext:
                 k = idx - W_MAIN
-                return (cols[2 * k][row], cols[2 * k + 1][row])
+                return tuple(cols[ext2.DEGREE * k + i][row] for i in range(ext2.DEGREE))
             return cols[idx - W_MAIN][row]
         def perrow(i):
             return [per_cols[c][i] for c in range(NUM_PERIODIC)]
@@ -908,11 +924,10 @@ def _boundaries(T, bind_io=False, fp_exec=0, ext=False):
     the O(1) public output that a settlement matches against the replay's fingerprint)."""
     bnds = [(0, PC, 0), (0, IOC, 0), (0, H0, 0), (0, H1, 0)]
     if ext:
-        # Z is a GF(p^2) accumulator: BOTH limbs must be pinned at each end. Pinning only the lo limb would
-        # let a prover park an unbalanced bus in the hi limb and still satisfy the boundary — the buses would
-        # no longer have to balance, which is the entire statement this circuit makes.
-        z0, z1 = _aux_pair(Z)
-        bnds += [(0, z0, 0), (0, z1, 0), (T - 1, z0, 0), (T - 1, z1, 0)]
+        # Z is an extension accumulator: EVERY limb must be pinned at each end. Pinning a subset would let a
+        # prover park an unbalanced bus in the unpinned limbs and still satisfy the boundary — the buses
+        # would no longer have to balance, which is the entire statement this circuit makes.
+        bnds += [(row, c, 0) for row in (0, T - 1) for c in _aux_limbs(Z)]
     else:
         bnds += [(0, Z, 0), (T - 1, Z, 0)]
     if bind_io:

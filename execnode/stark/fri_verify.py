@@ -26,7 +26,7 @@ from execnode.stark import alghash2 as a2, field as F, stark, backend
 from execnode.stark.transcript import Transcript
 from execnode.stark.fri import (_expected_layers, _coset_interpolate, _coset_interpolate_ext,
                                GRIND_BITS, NUM_QUERIES)
-from execnode.stark import ext2
+from execnode.stark import extf as ext2
 from execnode.stark.recursion import _permute_snapshots, _blocks_for, _next_pow2  # snapshot + path-block helpers
 
 _W, _R, _RATE, _CAP = a2.WIDTH, a2.ROUNDS, a2.RATE, a2.DIGEST
@@ -45,12 +45,28 @@ _WTOT = _W + _CAP + 5          # 21
 # limb — every carry/hold/select constraint is F_p-LINEAR and just duplicates per limb, and only the fold
 # identity itself needs real extension arithmetic (alpha is the only ext-valued coefficient). Base is a strict
 # prefix of ext, which keeps the diff, and the risk, confined to what genuinely differs.
-_CLO1, _CHI1, _FOLD1 = _W + _CAP + 5, _W + _CAP + 6, _W + _CAP + 7
-_WTOT_EXT = _W + _CAP + 8      # 24
+_EXTRA0 = _W + _CAP + 5        # first appended limb column
+
+
+def _carry(base, i):
+    """Column holding limb `i` of carry `base` (_CLO / _CHI / _FOLD).
+
+    Limb 0 IS the original base column, so the base-field layout is a strict prefix of the extension one and
+    every pre-existing constraint keeps its meaning. Limbs 1.. are appended, grouped per carry. Derived from
+    extf.DEGREE rather than named individually — a hand-written _CLO1/_CHI1/_FOLD1 block encodes the degree
+    in its own length and silently stops covering the value when the degree moves."""
+    if i == 0:
+        return base
+    which = (_CLO, _CHI, _FOLD).index(base)
+    return _EXTRA0 + which * (ext2.DEGREE - 1) + (i - 1)
+
+
+def _carry_all(base):
+    return tuple(_carry(base, i) for i in range(ext2.DEGREE))
 
 
 def _wtot(ext):
-    return _WTOT_EXT if ext else _WTOT
+    return (_EXTRA0 + 3 * (ext2.DEGREE - 1)) if ext else _WTOT
 
 
 def _canonical_public(pub, num_queries, mk_transcript=None):
@@ -172,12 +188,18 @@ _SELLO = _W + 4; _SELHI = _W + 5; _HOLD = _W + 6; _FOLDAT = _W + 7
 _PX = _W + 8; _PAL = _W + 9; _CHLO = _W + 10; _CHHI = _W + 11; _FINAT = _W + 12; _PFIN = _W + 13
 _NPER = _W + 14
 # ext: alpha and the pinned final-layer value gain a HI limb, appended for the same prefix reason as above.
-_PAL1 = _W + 14; _PFIN1 = _W + 15
-_NPER_EXT = _W + 16
+# ext: alpha and the pinned final-layer value each gain DEGREE-1 extra limb columns, appended.
+_PAL_X0 = _W + 14                       # alpha limbs 1..D-1
+def _pal(i):
+    return _PAL if i == 0 else _PAL_X0 + (i - 1)
+
+
+def _pfin(i):
+    return _PFIN if i == 0 else _PAL_X0 + (ext2.DEGREE - 1) + (i - 1)
 
 
 def _nper(ext):
-    return _NPER_EXT if ext else _NPER
+    return (_W + 14 + 2 * (ext2.DEGREE - 1)) if ext else _NPER
 
 
 def _schedule_periodic_boundaries(schedule, seam_lo0=None, ext=False, ext0=False):
@@ -221,18 +243,19 @@ def _schedule_periodic_boundaries(schedule, seam_lo0=None, ext=False, ext0=False
 
     sup_link, sello, selhi, hold_rel = [], [], [], []
     foldat, px, pal, chlo, chhi, finat, pfin = [], [], [], [], [], [], []
-    pal1, pfin1 = [], []                                     # ext: the HI limbs of alpha / the final value
+    pal_x = [[] for _ in range(ext2.DEGREE - 1)]             # ext: alpha limbs 1..D-1
+    pfin_x = [[] for _ in range(ext2.DEGREE - 1)]            # ext: final-value limbs 1..D-1
     bnds = []
     for si, (lo_start, hi_start, fold_row, n_lo, n_hi) in enumerate(segs):
         st = flat[si]
         if seam_lo0 is not None and query_first[si]:
             _seam = seam_lo0[flat_qi[si]]
             if ext:
-                # BOTH limbs, or the seam pins only half of the value the composition half is handed and a
-                # prover is free to choose the other half.
-                _s0, _s1 = ext2.lift(_seam)
-                bnds.append((lo_start, _CLO, int(_s0) % F.P))
-                bnds.append((lo_start, _CLO1, int(_s1) % F.P))
+                # EVERY limb — the seam otherwise pins only part of the value the composition half is handed
+                # and a prover is free to choose the rest.
+                _sl = ext2.lift(_seam)
+                for _i in range(ext2.DEGREE):
+                    bnds.append((lo_start, _carry(_CLO, _i), int(_sl[_i]) % F.P))
             else:
                 bnds.append((lo_start, _CLO, int(_seam) % F.P))
         lo_pos, hi_pos, root, x, alpha, c2lo = st[0], st[2], st[4], st[5], st[6], st[7]
@@ -243,8 +266,12 @@ def _schedule_periodic_boundaries(schedule, seam_lo0=None, ext=False, ext0=False
             # limb and lane 2 the hi limb (both tied to the carries by SELLO/SELHI), so only lanes 3.. are
             # pinned to zero. Its own domain tag keeps it distinct from a base leaf with hi = 0.
             _lx = _leaf_ext(si)
+            # Lane 0 is the domain tag; an extension leaf then occupies lanes 1..D, a base leaf only lane 1.
+            # Everything above that is pinned to zero. The cut point is derived, not written: pinning lane D
+            # to zero while the frame stores a limb there is a boundary violation on an HONEST trace, which
+            # is how this surfaced (6 failures at lane 3 the moment the degree moved).
             bnds.append((start, 0, a2.DOM_LEAF_EXT if _lx else a2.DOM_LEAF))
-            for lane in range(3 if _lx else 2, _RATE):
+            for lane in range((1 + ext2.DEGREE) if _lx else 2, _RATE):
                 bnds.append((start, lane, 0))
             for lane in range(_CAP):
                 bnds.append((start, _RATE + lane, a2.IV[lane]))
@@ -256,15 +283,19 @@ def _schedule_periodic_boundaries(schedule, seam_lo0=None, ext=False, ext0=False
         foldat.append((fold_row, 1))
         px.append((fold_row, int(x) % F.P))
         if ext:
-            _a0, _a1 = ext2.lift(alpha)
-            pal.append((fold_row, int(_a0) % F.P)); pal1.append((fold_row, int(_a1) % F.P))
+            _al = ext2.lift(alpha)
+            pal.append((fold_row, int(_al[0]) % F.P))
+            for _i in range(1, ext2.DEGREE):
+                pal_x[_i - 1].append((fold_row, int(_al[_i]) % F.P))
         else:
             pal.append((fold_row, int(alpha) % F.P))
         if query_end[si]:
             finat.append((fold_row, 1))
             if ext:
-                _f0, _f1 = ext2.lift(flat_final[si])
-                pfin.append((fold_row, int(_f0) % F.P)); pfin1.append((fold_row, int(_f1) % F.P))
+                _fl = ext2.lift(flat_final[si])
+                pfin.append((fold_row, int(_fl[0]) % F.P))
+                for _i in range(1, ext2.DEGREE):
+                    pfin_x[_i - 1].append((fold_row, int(_fl[_i]) % F.P))
             else:
                 pfin.append((fold_row, int(flat_final[si]) % F.P))
         else:
@@ -281,7 +312,7 @@ def _schedule_periodic_boundaries(schedule, seam_lo0=None, ext=False, ext0=False
             SP(sello), SP(selhi), {"period": 1, "base": [1], "sparse": hold_rel}, SP(foldat),
             SP(px), SP(pal), SP(chlo), SP(chhi), SP(finat), SP(pfin)]
     if ext:
-        per += [SP(pal1), SP(pfin1)]
+        per += [SP(c) for c in pal_x] + [SP(c) for c in pfin_x]
     return per, bnds, T, segs, query_end
 
 
@@ -360,9 +391,10 @@ def _fill_trace(pub_flat, wit_flat, T, segs, ext=False, ext0=False, query_end=No
             _fill_path(rows, lo_start, _lf_lo, lo_pos, lo_path)
             _fill_path(rows, hi_start, _lf_hi, hi_pos, hi_path)
             for i in range(lo_start, fold_row + 1):
-                rows[i][_CLO], rows[i][_CLO1] = lo_e[0] % F.P, lo_e[1] % F.P
-                rows[i][_CHI], rows[i][_CHI1] = hi_e[0] % F.P, hi_e[1] % F.P
-                rows[i][_FOLD], rows[i][_FOLD1] = fv[0] % F.P, fv[1] % F.P
+                for _k in range(ext2.DEGREE):
+                    rows[i][_carry(_CLO, _k)] = lo_e[_k] % F.P
+                    rows[i][_carry(_CHI, _k)] = hi_e[_k] % F.P
+                    rows[i][_carry(_FOLD, _k)] = fv[_k] % F.P
             continue
         fv = F.add(F.mul(F.add(lo_val, hi_val), INV2),
                    F.mul(alpha, F.mul(F.sub(lo_val, hi_val), F.mul(INV2, F.inv(x)))))
@@ -384,9 +416,9 @@ def _fill_trace(pub_flat, wit_flat, T, segs, ext=False, ext0=False, query_end=No
                 rows[pb + rib][_CHI] = rows[n_used - 1][_CHI]
                 rows[pb + rib][_FOLD] = rows[n_used - 1][_FOLD]
                 if ext:
-                    rows[pb + rib][_CLO1] = rows[n_used - 1][_CLO1]
-                    rows[pb + rib][_CHI1] = rows[n_used - 1][_CHI1]
-                    rows[pb + rib][_FOLD1] = rows[n_used - 1][_FOLD1]
+                    for _k in range(1, ext2.DEGREE):
+                        for _b in (_CLO, _CHI, _FOLD):
+                            rows[pb + rib][_carry(_b, _k)] = rows[n_used - 1][_carry(_b, _k)]
         state = nxt
     return rows
 
@@ -463,41 +495,55 @@ def _transitions(ext=False):
     # Every constraint above is F_p-LINEAR in the carries, so the HI limbs are exact duplicates against the
     # appended columns. The leaf select is the one that also changes shape: an extension leaf frames its lo
     # limb in lane 1 and its hi limb in lane 2 (see recursion._blocks_for), so SELLO/SELHI tie BOTH.
-    cons.append(lambda c, n, p: F.mul(p[_HOLD], F.sub(n[_CLO1], c[_CLO1])))
-    cons.append(lambda c, n, p: F.mul(p[_HOLD], F.sub(n[_CHI1], c[_CHI1])))
-    cons.append(lambda c, n, p: F.mul(p[_HOLD], F.sub(n[_FOLD1], c[_FOLD1])))
-    cons.append(lambda c, n, p: F.mul(p[_SELLO], F.sub(c[_CLO1], c[2])))
-    cons.append(lambda c, n, p: F.mul(p[_SELHI], F.sub(c[_CHI1], c[2])))
+    # Every carry/hold/select/chain constraint is F_p-LINEAR, so limbs 1..D-1 are exact duplicates against
+    # the appended columns. An extension leaf frames its limbs in lanes 1..D (see recursion._blocks_for), so
+    # SELLO/SELHI tie limb k to lane k+1.
+    D = ext2.DEGREE
+    for _k in range(1, D):
+        for _b in (_CLO, _CHI, _FOLD):
+            cons.append((lambda bb, kk: lambda c, n, p:
+                         F.mul(p[_HOLD], F.sub(n[_carry(bb, kk)], c[_carry(bb, kk)])))(_b, _k))
+    for _k in range(1, D):
+        cons.append((lambda kk: lambda c, n, p:
+                     F.mul(p[_SELLO], F.sub(c[_carry(_CLO, kk)], c[kk + 1])))(_k))
+        cons.append((lambda kk: lambda c, n, p:
+                     F.mul(p[_SELHI], F.sub(c[_carry(_CHI, kk)], c[kk + 1])))(_k))
 
-    # The fold identity 2x*FOLD = x*(CLO+CHI) + alpha*(CLO-CHI) over GF(p^2), split into its two components.
-    # x is a BASE domain point and stays a scalar; alpha is the only extension coefficient, so expanding
-    # (a0 + a1*X)(d0 + d1*X) = (a0*d0 + NONRESIDUE*a1*d1) + (a0*d1 + a1*d0)*X gives two constraints of the
-    # SAME degree as the base one — the carries are plain columns and alpha/x are public periodic values.
+    # The fold identity 2x*FOLD = x*(CLO+CHI) + alpha*(CLO-CHI) over GF(p^D), one constraint per component.
+    # x is a BASE domain point and stays a scalar; alpha is the only extension coefficient. Its product with
+    # d = CLO-CHI reduces mod X^D - N as
+    #     (alpha*d)_m = sum_{i+j=m} a_i d_j  +  N * sum_{i+j=m+D} a_i d_j
+    # which is verified against extf.mul, and the whole identity against fri._fold_ext, before being wired.
+    # A misplaced wrap term does NOT fail loudly here: the AIR stays low-degree and satisfiable, it just
+    # proves a different fold.
     NR = ext2.NONRESIDUE
 
-    def fold_c0(c, n, p):
-        d0 = F.sub(c[_CLO], c[_CHI]); d1 = F.sub(c[_CLO1], c[_CHI1])
-        lhs = F.mul(F.mul(2, p[_PX]), c[_FOLD])
-        rhs = F.add(F.mul(p[_PX], F.add(c[_CLO], c[_CHI])),
-                    F.add(F.mul(p[_PAL], d0), F.mul(NR, F.mul(p[_PAL1], d1))))
-        return F.mul(p[_FOLDAT], F.sub(lhs, rhs))
+    def _fold_c(m):
+        def c(cur, nxt, per):
+            d = [F.sub(cur[_carry(_CLO, i)], cur[_carry(_CHI, i)]) for i in range(D)]
+            acc = 0
+            for i in range(D):
+                for j in range(D):
+                    if i + j == m:
+                        acc = F.add(acc, F.mul(per[_pal(i)], d[j]))
+                    elif i + j == m + D:
+                        acc = F.add(acc, F.mul(NR, F.mul(per[_pal(i)], d[j])))
+            lhs = F.mul(F.mul(2, per[_PX]), cur[_carry(_FOLD, m)])
+            rhs = F.add(F.mul(per[_PX], F.add(cur[_carry(_CLO, m)], cur[_carry(_CHI, m)])), acc)
+            return F.mul(per[_FOLDAT], F.sub(lhs, rhs))
+        return c
+    for _m in range(D):
+        cons.append(_fold_c(_m))
 
-    def fold_c1(c, n, p):
-        d0 = F.sub(c[_CLO], c[_CHI]); d1 = F.sub(c[_CLO1], c[_CHI1])
-        lhs = F.mul(F.mul(2, p[_PX]), c[_FOLD1])
-        rhs = F.add(F.mul(p[_PX], F.add(c[_CLO1], c[_CHI1])),
-                    F.add(F.mul(p[_PAL], d1), F.mul(p[_PAL1], d0)))
-        return F.mul(p[_FOLDAT], F.sub(lhs, rhs))
-    cons.append(fold_c0); cons.append(fold_c1)
-
-    # the folded value becomes the next layer's lo/hi opening, and the last layer is pinned to the public
-    # final value — both limbs, or a prover could hide a discrepancy in the hi one.
-    cons.append(lambda c, n, p: F.mul(p[_CHLO], F.sub(n[_CLO], c[_FOLD])))
-    cons.append(lambda c, n, p: F.mul(p[_CHHI], F.sub(n[_CHI], c[_FOLD])))
-    cons.append(lambda c, n, p: F.mul(p[_CHLO], F.sub(n[_CLO1], c[_FOLD1])))
-    cons.append(lambda c, n, p: F.mul(p[_CHHI], F.sub(n[_CHI1], c[_FOLD1])))
-    cons.append(lambda c, n, p: F.mul(p[_FINAT], F.sub(c[_FOLD], p[_PFIN])))
-    cons.append(lambda c, n, p: F.mul(p[_FINAT], F.sub(c[_FOLD1], p[_PFIN1])))
+    # the folded value becomes the next layer's opening, and the last layer is pinned to the public final
+    # value — EVERY limb, or a prover can hide a discrepancy in the ones left unchecked.
+    for _k in range(D):
+        cons.append((lambda kk: lambda c, n, p:
+                     F.mul(p[_CHLO], F.sub(n[_carry(_CLO, kk)], c[_carry(_FOLD, kk)])))(_k))
+        cons.append((lambda kk: lambda c, n, p:
+                     F.mul(p[_CHHI], F.sub(n[_carry(_CHI, kk)], c[_carry(_FOLD, kk)])))(_k))
+        cons.append((lambda kk: lambda c, n, p:
+                     F.mul(p[_FINAT], F.sub(c[_carry(_FOLD, kk)], p[_pfin(kk)])))(_k))
     return cons
 
 

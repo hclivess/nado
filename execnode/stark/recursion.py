@@ -324,7 +324,14 @@ def _blocks_for(leaf_val, index, path):
     membership gadget affordable; see fri._ext_leaf for why the obvious node(leaf(a0), leaf(a1)) encoding was
     not."""
     if isinstance(leaf_val, tuple):
-        s0 = [a2.DOM_LEAF_EXT, int(leaf_val[0]) % F.P, int(leaf_val[1]) % F.P, 0, 0, 0, 0, 0] + list(a2.IV)
+        # Extension leaf: (DOM_LEAF_EXT, limb0, limb1, ...) in the FOUR-lane rleaf head, so degree <= 3 still
+        # costs ONE permutation. The limb count comes from the value, not a constant, so this matches
+        # alghash2.rleaf_ext for whatever degree is in play.
+        head = [a2.DOM_LEAF_EXT] + [int(x) % F.P for x in leaf_val]
+        if len(head) > 4:
+            raise ValueError(f"an extension leaf of {len(leaf_val)} limbs does not fit the 4-lane frame")
+        head += [0] * (4 - len(head))
+        s0 = head + [0, 0, 0, 0] + list(a2.IV)
     else:
         s0 = [a2.DOM_LEAF, int(leaf_val) % F.P, 0, 0, 0, 0, 0, 0] + list(a2.IV)
     blocks = [_permute_snapshots(s0)]

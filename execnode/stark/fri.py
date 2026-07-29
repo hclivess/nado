@@ -111,11 +111,12 @@ def _commit_ext(values, b):
 
 
 def _coset_interpolate_ext(evals, offset):
-    """Interpolation is F_p-LINEAR and GF(p^2) is a rank-2 F_p-module, so the components
-    interpolate separately and re-pair exactly. No extension NTT needed."""
-    a = _coset_interpolate([ext2.lift(v)[0] for v in evals], offset)
-    c = _coset_interpolate([ext2.lift(v)[1] for v in evals], offset)
-    return [(a[i], c[i]) for i in range(len(a))]
+    """Interpolation is F_p-LINEAR and GF(p^D) is a rank-D F_p-module, so the LIMBS interpolate separately
+    and recombine exactly. No extension NTT needed — which is why the degree can move without touching the
+    NTT at all."""
+    lim = [ext2.lift(v) for v in evals]
+    per_limb = [_coset_interpolate([e[k] for e in lim], offset) for k in range(ext2.DEGREE)]
+    return [tuple(per_limb[k][i] for k in range(ext2.DEGREE)) for i in range(len(per_limb[0]))]
 
 
 def _coset_interpolate(evals, offset):
@@ -251,7 +252,7 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
         deg_bound = max(1, len(final) // blowup)
         if use_ext:
             coeffs = _coset_interpolate_ext(final, final_off)
-            if any(c != (0, 0) for c in coeffs[deg_bound:]):
+            if any(c != ext2.ZERO for c in coeffs[deg_bound:]):
                 return False, "final layer is not low-degree"
         else:
             coeffs = _coset_interpolate(final, final_off)
