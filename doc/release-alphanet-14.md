@@ -68,7 +68,17 @@ were native and the extension ones simply did not exist. That was the dominant c
 and it landed on the fold. `merkle_commit_ext` / `rmerkle_commit_ext` fixed it: **5.5×** on the sponge path,
 and one in-circuit fold test went from **45+ minutes to 127 seconds**.
 
-Prove/verify on a fixed statement at D=3: **0.208 s / 0.023 s**. The field change did not cost throughput.
+Prove/verify on a fixed statement at D=3: **0.208 s / 0.023 s**. The field change did not cost throughput on
+the ordinary path.
+
+**Heterogeneous folds are the expensive case**, and it is worth naming the mechanism rather than filing it as
+"slow". `comp_verify`/`rowcomp_verify` allocate D periodic columns per alpha and one per limb of the layer-0
+target, and every periodic column is interpolated to the trace length — so the composition half of a fold
+grows with the degree in a way the trace itself does not. Observed on this branch: a two-part ML-DSA bundle
+exceeded 3600 s, and `test_settlement_aggregate` ran ~1 h at ~8 GB resident.
+
+Stated as an observation, not a regression: no like-for-like GF(p²) baseline was measured for those two
+tests in this cycle, so the honest claim is "this is where the time goes", not "this got N× worse".
 
 ---
 
