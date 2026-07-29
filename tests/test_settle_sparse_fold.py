@@ -145,10 +145,21 @@ def t_fold_tampered_io_rejected():
     assert not ok, "a tampered io log must be rejected by the recursion bundle"
 
 
+def _bump(v):
+    """Perturb a seam value by one in whatever field it lives in. `int(v) + 1` was written for a scalar and
+    RAISES on a tuple once layer 0 is extension-valued — and a tamper test that RAISES has not tested the
+    rejection at all, it has only crashed before reaching the assert. Fifth instance of this exact defect in
+    this suite; the others are in test_recursive_verify, test_recursive_row, test_recursive_verify_hetero and
+    test_rowcomp_verify. It cost a 6.5-hour gate run to surface here."""
+    if isinstance(v, tuple):
+        return ((int(v[0]) + 1) % (2 ** 61),) + tuple(v[1:])
+    return (int(v) + 1) % (2 ** 61)
+
+
 def t_fold_tampered_layer0_rejected():
     bad = copy.deepcopy(_FOLD)
     q = bad["segments"][0]["proof"]["fri"]["queries"][0]
-    q["steps"][0]["lo"] = (int(q["steps"][0]["lo"]) + 1) % (2**61)
+    q["steps"][0]["lo"] = _bump(q["steps"][0]["lo"])
     ok, _, _, _ = SS.verify_settlement_sparse(bad, num_queries=NQ, depth=D8, outer_queries=NQ)
     assert not ok, "a tampered layer-0 seam value must be rejected by in-circuit membership"
 
