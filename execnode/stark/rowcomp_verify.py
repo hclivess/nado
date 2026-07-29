@@ -19,7 +19,7 @@ public statement (indices FS-derived upstream, roots, alphas/challenges/invZ/bou
 all periodic columns are STRUCTURED (16-row block pattern + O(1) sparse rows per path); the proof carries only
 witness. Supports per-point roots (K→1 across proofs) and two-phase groups (main + aux trees).
 """
-from execnode.stark import alghash2 as a2, field as F, stark, backend, air_ir, ext2
+from execnode.stark import alghash2 as a2, field as F, stark, backend, air_ir, extf as ext2
 from execnode.stark.recursion import _permute_snapshots
 from execnode.stark.fri_verify import _fill_block, _junk_absorb, _B
 from execnode.stark.air_ir import CUR, NXT, PER, CHAL, CONST, ADD, SUB, MUL, POW
@@ -89,7 +89,7 @@ def _per_layout(W, n_aux, nt, nb, nper, nchal, ext=False, n_alpha=None):
     # components as two outputs — so PPER/PCHAL/PBVAL are unchanged in kind; only the widths that carry
     # extension quantities double. `n_alpha` is the count of LOGICAL constraints (one alpha each), which is
     # NOT len(outputs) once extension constraints occupy two outputs apiece.
-    _e = 2 if ext else 1
+    _e = (ext2.DEGREE if ext else 1)
     na = (nt if n_alpha is None else n_alpha) + nb
     PINVZ = k
     PL0 = PINVZ + 1
@@ -114,9 +114,10 @@ def _schedule(prog, W, n_aux, boundaries, points):
     # without another flag to pass (and mis-pass) at every call site.
     _pairs = list(prog.get("ext_pairs") or ())
     ext = bool(_pairs) or bool(prog.get("ext_chal"))
-    n_logical = nt - len(_pairs)          # an extension constraint occupies TWO outputs but takes ONE alpha
+    # an extension constraint occupies D outputs but takes ONE alpha, so it contributes D-1 EXTRA outputs
+    n_logical = nt - len(_pairs) * (ext2.DEGREE - 1)
     L = _per_layout(W, n_aux, nt, nb, nper, nchal, ext=ext, n_alpha=n_logical)
-    _e = 2 if ext else 1
+    _e = (ext2.DEGREE if ext else 1)
     segs, chk_rows, T, n_used = _layout(W, n_aux, points)
 
     rcl_base = [[a2.RC[r][lane] for r in range(_R)] + [0] * (_B - _R) for lane in range(_W)]
@@ -178,8 +179,13 @@ def _schedule(prog, W, n_aux, boundaries, points):
                 palpha[_e * j + li].append((chk, int(_a[li]) % F.P))
         for j, v in enumerate(point["per"]):
             pper[j].append((chk, int(v) % F.P))
-        for j, v in enumerate(point["chal"]):
-            pchal[j].append((chk, int(v) % F.P))
+        # The CHALLENGES are extension pairs under ext, and prog["C"] (which sized pchal) already counts the
+        # FLATTENED limbs — so each logical challenge fills two columns. Treating them as scalars here is the
+        # same mistake compose_ext made with them: the alphas got flattened and the challenges did not.
+        _cj = 0
+        for v in point["chal"]:
+            for limb in ((v if isinstance(v, tuple) else (v, 0)) if ext else (v,)):
+                pchal[_cj].append((chk, int(limb) % F.P)); _cj += 1
         for j, (val, invd) in enumerate(point["bnd"]):
             pbval[j].append((chk, int(val) % F.P))
             pbid[j].append((chk, int(invd) % F.P))
@@ -473,10 +479,14 @@ def _point_public(point):
     return {"cur_index": point["cur_index"], "nxt_index": point["nxt_index"],
             "roots": [[int(v) % F.P for v in r] for r in point["roots"]],
             "path_lens": list(point["path_lens"]),
-            "per": [int(v) % F.P for v in point["per"]], "chal": [int(v) % F.P for v in point["chal"]],
-            "alphas": [int(v) % F.P for v in point["alphas"]], "invZ": int(point["invZ"]) % F.P,
+            # per/invZ/bnd are always BASE (periodic cells, the vanishing inverse, boundary values). chal,
+            # alphas and layer0 follow the CHALLENGE FIELD and may be extension elements, so they go through
+            # canon() — int(v) % P raises on a tuple, which is how this broke.
+            "per": [int(v) % F.P for v in point["per"]],
+            "chal": [ext2.canon(v) for v in point["chal"]],
+            "alphas": [ext2.canon(v) for v in point["alphas"]], "invZ": int(point["invZ"]) % F.P,
             "bnd": [(int(v) % F.P, int(d) % F.P) for (v, d) in point["bnd"]],
-            "layer0": int(point["layer0"]) % F.P}
+            "layer0": ext2.canon(point["layer0"])}
 
 
 def _pts_from_public(public):

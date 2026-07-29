@@ -16,6 +16,7 @@ own {transitions, boundaries, periodic, num_challenges, num_aux}; items sharing 
 form one group and must share the mode. Verifier-authoritative + succinct exactly as recursive_verify: nothing
 constraint-shaped is read from a proof.
 """
+from execnode.stark import extf
 from execnode.stark import (field as F, fri_verify, comp_verify, rowcomp_verify, air_ir,
                             recursive_verify as RV, backend as B)
 
@@ -132,7 +133,9 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
             if pos is None:
                 return False, "an inner FRI public statement failed native verification"
             mks.append(_mk)
-            seam.extend(int(v) % F.P for v in pub["layer0"])
+            # layer0 values follow the CHALLENGE FIELD and may be extension elements; int(v) % P raises on
+            # a tuple. The seam is pinned limb-by-limb downstream, so it must arrive unflattened.
+            seam.extend(extf.canon(v) for v in pub["layer0"])
         fold_public = {"publics": [p["fri_public"] for p in pubs], "num_queries_inner": nqi,
                        "num_queries_outer": num_queries_outer, "seam_lo0": seam}
         okf, whyf = fri_verify.verify_fold(bundle["fold"], fold_public, mk_transcripts=mks,
