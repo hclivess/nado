@@ -29,7 +29,7 @@ TWO-PHASE (LogUp) AIRs: pass `num_challenges`/`num_aux`/`periodic` — the trans
 commitment, draws the challenges, absorbs the aux commitment, then draws the constraint α's, mirroring
 stark.prove(aux_spec=...). Two-phase requires row commitment (per-column trees would need 2·W paths per point).
 """
-from execnode.stark import field as F, stark, backend as B, fri_verify, comp_verify, rowcomp_verify, air_ir
+from execnode.stark import field as F, stark, backend as B, fri_verify, comp_verify, rowcomp_verify, air_ir, extf as ext2
 from execnode.stark.transcript import Transcript, DOMAIN_STARK
 
 
@@ -116,10 +116,15 @@ def _point_values(pub, boundaries, alphas, chals, per_evals, lo, layer0):
             # chal/alphas/layer0 stay in whatever field they were drawn in — rowcomp_verify splits an
             # extension value into its limbs itself, and coercing here would silently drop the hi limb.
             "per": [pe(x, xT) for pe in per_evals],
-            "chal": [(c if isinstance(c, tuple) else int(c) % F.P) for c in chals],
-            "alphas": [(a if isinstance(a, tuple) else int(a) % F.P) for a in alphas],
+            # ONE idiom for "this value follows the challenge field". These three were hand-written
+            # isinstance guards — correct, but a third spelling of the same rule, and this codebase's own
+            # repeated lesson is that a rule expressed in several places drifts (the same divergence appeared
+            # twice, days apart, when alphas were flattened and the challenges beside them were not).
+            # extf.canon IS that rule: reduce an int, lift a tuple, refuse anything too wide.
+            "chal": [ext2.canon(c) for c in chals],
+            "alphas": [ext2.canon(a) for a in alphas],
             "invZ": F.inv(z), "bnd": bnd,
-            "layer0": (layer0 if isinstance(layer0, tuple) else int(layer0) % F.P),
+            "layer0": ext2.canon(layer0),
             "path_len": N.bit_length() - 1}
 
 
