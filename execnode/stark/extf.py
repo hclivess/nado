@@ -145,14 +145,49 @@ def square(u):
 
 
 def inv(u):
-    """Multiplicative inverse via the extended Euclidean algorithm on F_p[X], against the modulus X^D - N.
+    """Multiplicative inverse.
 
-    Generic in D, which is the point: a closed form would have to be rewritten (and re-verified) for every
-    degree, and a wrong closed form does not fail loudly — it returns a plausible element that simply is not
-    the inverse."""
+    FAST PATH FOR D = 3, generic extended Euclid otherwise. The generic path is still the definition and
+    still runs for any other degree; the cubic closed form is checked against it at import (see
+    _check_inv_agreement), so "a wrong closed form returns a plausible non-inverse" cannot happen silently —
+    which is the exact objection this docstring used to raise against having one at all.
+
+    WHY IT EARNED THE EXCEPTION. vm_circuit's LogUp aux build calls this 20-40 times PER ROW (one per bus
+    denominator: gio, ha, ga, every byte pair, every 7-bit pair, GB, GS). At 2^17 rows that is millions of
+    inversions on the settlement proving path, and extended Euclid does several base-field inversions plus
+    Python list surgery for each one. This is where GF(p^3) proving time actually goes."""
     a = lift(u)
     if all(x == 0 for x in a):
         raise ZeroDivisionError("inverse of zero in GF(p^%d)" % DEGREE)
+    if DEGREE == 3:
+        return _inv3(a)
+    return _inv_euclid(a)
+
+
+def _inv3(a):
+    """Closed-form inverse in GF(p^3) = F_p[X]/(X^3 - N), by cofactors of the norm.
+
+    With a = a0 + a1*X + a2*X^2 and X^3 = N:
+        t0 = a0^2 - N*a1*a2      t1 = N*a2^2 - a0*a1      t2 = a1^2 - a0*a2
+        d  = a0*t0 + N*(a2*t1 + a1*t2)      (= the norm, an element of F_p)
+        a^-1 = (t0 + t1*X + t2*X^2) / d
+    Nine base multiplies and ONE base inversion, against extended Euclid's several inversions and list
+    rebuilds per call."""
+    a0, a1, a2 = a
+    n = NONRESIDUE
+    t0 = (a0 * a0 - n * a1 * a2) % P
+    t1 = (n * a2 * a2 - a0 * a1) % P
+    t2 = (a1 * a1 - a0 * a2) % P
+    d = (a0 * t0 + n * (a2 * t1 + a1 * t2)) % P
+    if d == 0:                       # only possible if a == 0, which the caller already excluded
+        raise ZeroDivisionError("norm is zero in GF(p^3) — element not invertible")
+    di = F.inv(d)
+    return ((t0 * di) % P, (t1 * di) % P, (t2 * di) % P)
+
+
+def _inv_euclid(a):
+    """Multiplicative inverse via the extended Euclidean algorithm on F_p[X], against the modulus X^D - N.
+    Generic in D — the definition every fast path is checked against."""
     # r0 = modulus X^D - N, r1 = a ; track only the cofactor of a
     r0 = [(-NONRESIDUE) % P] + [0] * (DEGREE - 1) + [1]
     r1 = list(a)
@@ -188,6 +223,28 @@ def inv(u):
     c = F.inv(r1[0])
     res = [(x * c) % P for x in t1] + [0] * DEGREE
     return tuple(res[:DEGREE])
+
+
+def _check_inv_agreement():
+    """The cubic fast path must agree with extended Euclid, and both must actually invert.
+
+    Checked AT IMPORT on fixed vectors, because a wrong closed form is the quiet kind of wrong: it returns a
+    well-formed field element that simply is not the inverse, every proof built on it is internally
+    consistent, and the failure shows up as an unverifiable proof with nothing pointing at the field. The
+    generic path is the definition; this pins the optimisation to it."""
+    if DEGREE != 3:
+        return
+    for v in ((1, 0, 0), (0, 1, 0), (0, 0, 1), (2, 3, 5), (P - 1, 7, 11),
+              (123456789, 987654321, 555555555), (0, 0, NONRESIDUE), (NONRESIDUE, 0, 0)):
+        fast, ref = _inv3(lift(v)), _inv_euclid(lift(v))
+        if fast != ref:
+            raise ValueError(f"GF(p^3) closed-form inverse disagrees with extended Euclid on {v}: "
+                             f"{fast} != {ref}")
+        if mul(v, fast) != ONE:
+            raise ValueError(f"GF(p^3) inverse of {v} does not multiply to one")
+
+
+_check_inv_agreement()
 
 
 def div(u, v):
