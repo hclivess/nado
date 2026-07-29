@@ -289,11 +289,16 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # The native path is HYBRID under ext challenges (stark_native.prove keeps the native LDE/commit/compose
     # and runs only the FRI fold in Python), so it is no longer gated off — disabling it wholesale is what
     # made every proof pure-Python and unusably slow.
-    # stark_native computes its OWN base-field alphas and composes in the arena, which cannot carry GF(p^2)
-    # alphas — so the holistic path is available only when THIS proof's challenges are base-field. Keyed on
-    # the one authority rather than on a backend name: five copies of "recursion means base" is exactly the
-    # kind of duplicated assumption that let a prover pick its own security level once already.
-    _native_ok = not ext_challenges_active(_b)
+    # The arena carries GF(p^2) as of the extension port (sp_compose_ext / sp_fold_ext), so the holistic path
+    # is available under ext too — but only against a library that actually has those entry points. A .so
+    # built before the port must fall back to Python rather than emit a base-field proof under extension
+    # challenges, which verify would reject.
+    #
+    # This is not a speed preference. With the native path unavailable, EVERY one of the W LDE columns
+    # materializes as a Python list, and the K->1 settlement fold OOM-killed at 20.8 GB resident against a
+    # ~15 GB budget. Keeping the trace in the arena is what makes folding possible at all.
+    from execnode.stark import stark_native as _sn
+    _native_ok = (not ext_challenges_active(_b)) or _sn.ext_capable()
     if (getattr(_b, "name", "") in ("recursion", "alghash2") and not os.environ.get("NADO_NO_HOLISTIC")
             and _native_ok
             and not commit_periodic):                     # committed-periodic runs the Python path (native TODO)

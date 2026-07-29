@@ -233,8 +233,15 @@ def compose_ext(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
     consts_a = _u64(len(consts), consts)
     out_idx = (u32 * max(1, n_out))(); out_idx[:n_out] = list(outputs)
     pair_idx = (u32 * max(1, n_pairs))(); pair_idx[:n_pairs] = list(pairs)
-    chals_a = _u64(nchal, chals)
     from execnode.stark import ext2
+    # The CHALLENGES are extension pairs too, not just the alphas — the arena wants both flattened to limbs,
+    # and prog["C"] already counts the flattened width (2 per logical challenge under ext_chal). Flattening
+    # only the alphas left the challenges as tuples and int() rejected them, which stark.prove then swallowed
+    # in its correctness-preserving fallback: the native path silently never ran and the whole point of the
+    # port — keeping the W trace columns out of Python — was quietly lost.
+    flat_chals = [limb for c in chals for limb in ext2.lift(c)]
+    chals_a = _u64(len(flat_chals), flat_chals)
+    nchal = len(flat_chals)
     flat_alphas = [limb for a in alphas for limb in ext2.lift(a)]
     alphas_a = _u64(len(flat_alphas), flat_alphas)
     bcol = (u32 * max(1, n_bnd))(); bcol[:n_bnd] = [c for (_r, c, _v) in boundaries]
@@ -347,14 +354,15 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     if num_queries is None:
         num_queries = stark.NUM_QUERIES
     b = backend or _B.RECURSION
-    # GUARD — this path draws BASE-field aux challenges (below) and composes with BASE-field alphas inside the
-    # arena, neither of which can carry GF(p^2). If the caller's backend WOULD use extension challenges, a
-    # proof built here is one stark.verify can never accept: it would replay the transcript drawing ext and
-    # get different challenges. Fail loudly so stark.prove's except-clause falls back to the correct Python
-    # path, rather than silently emitting a proof nobody can check. stark.prove already gates this call the
-    # same way; this is the backstop for the day someone loosens that gate.
-    if stark.ext_challenges_active(b):
-        raise RuntimeError("stark_native.prove cannot produce GF(p^2)-challenge proofs — use the Python path")
+    _ext = stark.ext_challenges_active(b)
+    # The arena carries GF(p^2) now (sp_compose_ext / sp_fold_ext). It could not before, and refusing was
+    # correct then — a proof built base-field under ext challenges is one stark.verify can never accept.
+    # But refusing sent stark.prove down the FULL Python path, which materializes every one of the W LDE
+    # columns as a Python list: the K->1 settlement fold OOM-killed at 20.8 GB resident on a ~15 GB budget.
+    # The composition is two columns; the TRACE is the memory. So the refusal now applies only to a library
+    # built before the extension port, where it remains the right answer.
+    if _ext and not ext_capable():
+        raise RuntimeError("this build of the arena predates the GF(p^2) port — use the Python path")
     hmode = 1 if getattr(b, "name", "") == "alghash2" else 0     # arena Merkle: 0 rleaf/rnode, 1 hashn
     T = len(trace); W = len(trace[0])
     blowup = stark._blowup(max_degree); N = blowup * T
@@ -379,7 +387,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     challenges = None
     Wtot = W
     if aux_spec is not None:                             # phase 2: challenges AFTER the main commit, then aux
-        challenges = [t.challenge() for _ in range(aux_spec["num_challenges"])]
+        challenges = [(t.challenge_ext() if _ext else t.challenge())
+                      for _ in range(aux_spec["num_challenges"])]
         aux_cols = aux_spec["build"](trace, challenges)
         if len(aux_cols) != aux_spec["num_aux"] or any(len(c) != T for c in aux_cols):
             raise ValueError("aux builder returned wrong geometry")
@@ -394,9 +403,17 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     for pc in periodic:                                  # periodic columns → arena ids Wtot..Wtot+nper
         lde_column(stark._per_expand(pc, T), N, want_out=False)
 
-    alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
-    prog = air_ir.build_program(transitions, Wtot, len(periodic), 0 if challenges is None else len(challenges))
-    cp_col, _ = compose(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
+    prog = air_ir.build_program(transitions, Wtot, len(periodic),
+                                0 if challenges is None else len(challenges), ext_chal=_ext)
+    if _ext:
+        # ONE alpha per LOGICAL constraint: an extension-valued constraint occupies two SSA outputs but takes
+        # a single alpha, so this count is NOT len(outputs) + len(boundaries).
+        _n_logical = len(prog["outputs"]) - len(prog.get("ext_pairs") or ())
+        alphas = [t.challenge_ext() for _ in range(_n_logical + len(boundaries))]
+        cp_col, _ = compose_ext(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
+    else:
+        alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
+        cp_col, _ = compose(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
 
     fri_blowup = N // deg_bound
     # HYBRID FRI. The arena's sp_fold multiplies by a BASE-field alpha, so it cannot carry a GF(p^2) folding
@@ -409,8 +426,12 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # A RECURSION-backend proof is destined to be FOLDED by the base-field in-circuit AIRs, so it stays
     # base-field (stark.prove applies the same rule) and can use the fully native FRI. Only a non-recursion
     # proof carries the GF(p^2) challenge, and only that case reads the column out for the Python fold.
-    if stark.ext_challenges_active(b):
-        cp_vals = [read(cp_col, i) for i in range(col_len(cp_col))]
+    if _ext:
+        # cp is EXTENSION-valued, so it occupies the column pair (cp_col, cp_col+1) — read it back as limb
+        # pairs. Only these two columns cross into Python; the W trace columns stay in the arena, which is
+        # the whole point (see the guard above).
+        _m = col_len(cp_col)
+        cp_vals = [(read(cp_col, i), read(cp_col + 1, i)) for i in range(_m)]
         fri_proof = fri.prove(cp_vals, OFF, fri_blowup, num_queries, transcript=t, backend=b)
     else:
         fri_proof = fri_prove(cp_col, OFF, fri_blowup, num_queries, t, hmode)
