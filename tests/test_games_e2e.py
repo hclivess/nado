@@ -14,7 +14,8 @@ from execnode import runtimes
 from execnode.stark import vm_circuit as V
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
                             slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj, bet as bt,
-                            battleship as bs, pets as ptz, holdem as hd, stormhold as sh, scrapline as sc)
+                            battleship as bs, pets as ptz, holdem as hd, stormhold as sh, scrapline as sc,
+                            pool as pl)
 
 fails = 0
 def check(name, fn):
@@ -395,6 +396,42 @@ def t_scrapline():
                                       "args": [20650, 7, 99, 1, 0, 0, 0, 0, 0, 0, 0]}, A, "px2")   # n > cap
     assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "post",
                                       "args": [20650, 7, 0, 1, 0, 0, 0, 0, 0, 0, 0]}, A, "px3")    # n = 0
+
+
+def t_pool():
+    # the duel contract with the ONE deliberate difference: open() has no `value > 0` require, so a frame
+    # can be played for nothing. Assert the free path escrows/settles exactly like the staked one.
+    st, code, cid, rd = _fresh(pl, deployer=A)
+    st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
+    G = 5150
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G, 0]}, A, "o")   # NO value
+    assert rd(pl.NN, G) == 1 and rd(pl.ST, G) == 0 and rd(pl.PT, G) == 0
+    assert st.bridge.get(cid, 0) == 0 and st.bridge[A] == 1_000_000
+    st.cursor = 300
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G]}, B, "j")
+    assert rd(pl.NN, G) == 2 and rd(pl.KH, G) == 300 + pl.GAP
+    # a shot is a 48-bit payload: it must round-trip through storage untouched (JSON-safe, < 2**53)
+    enc = 1 + ((1 << 48) - 1) * 16
+    st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, enc, 0]}, A, "m0")
+    v = st.decode_view(st.contracts[cid])
+    assert v["mv"][str(G * 10000 + 0)] == enc and v["mh"][str(G * 10000 + 0)] % 4 == 1
+    # log cap
+    st.contracts[cid]["storage"]["slots"][str(pl.MC * (1 << 32) + G)] = pl.MAXMOVES
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "move",
+                                      "args": [G, 5, pl.MAXMOVES]}, A, "mx")
+    st.contracts[cid]["storage"]["slots"][str(pl.MC * (1 << 32) + G)] = 1
+    # a zero pot still settles cleanly through the shared agree path
+    st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 2]}, A, "a1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 2]}, B, "a2")
+    assert rd(pl.SD, G) == 1 and rd(pl.WR, G) == 2
+    assert st.bridge[A] == 1_000_000 and st.bridge[B] == 1_000_000, "a free frame must move no money"
+    # and the staked path on the same contract still pays the pot
+    G2 = 5151
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G2, 0], "value": 40_000}, A, "o2")
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G2], "value": 40_000}, B, "j2")
+    ab = st.bridge.get(A, 0)
+    st.apply_blob({"op": "call", "contract": cid, "method": "resign", "args": [G2]}, B, "r2")
+    assert rd(pl.WR, G2) == 1 and st.bridge.get(A, 0) == ab + 80_000
 
 
 def t_stormhold_move_proves():
@@ -1264,6 +1301,7 @@ if __name__ == "__main__":
     check("stormhold: free-actor move log + seed heights + agree/resign", t_stormhold)
     check("stormhold: move proves (seed-height record)", t_stormhold_move_proves)
     check("scrapline: duel contract reuse + move-log cap", t_scrapline)
+    check("pool: stake-optional open + free-frame settle", t_pool)
     check("sovereign: persistent nation world — global log, ply binding, address resolution", t_sovereign)
     check("sovereign: act proves", t_sovereign_act_proves)
     check("faucet: fixed-name deploy, PoW claims, budgets, pause, solvency", t_faucet)
