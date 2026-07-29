@@ -8,7 +8,7 @@ markers are still present, the release was not cut.
 
 ## What this release is
 
-Three things that had to land together, plus the fleet fixes found while landing them.
+Four things that had to land together, plus the fleet fixes found while landing them.
 
 1. **The challenge field moves to GF(p³).** Every algebraic challenge in the system — the FRI folding
    challenge, the DEEP point, the constraint alphas, the LogUp bus challenges β/γ — is now drawn from a
@@ -17,10 +17,12 @@ Three things that had to land together, plus the fleet fixes found while landing
    per settlement instead of K segment proofs.
 3. **Blocks commit their signature workload** (`auth_root`, `auth_count`) inside the hash preimage, which
    is the statement an aggregate signature proof has to attest and cannot choose.
+4. **The `mldsa44` address prefix is removed**, with no backwards compatibility. An address is 42 hex chars
+   of the pubkey plus a 4-hex checksum — 46 characters.
 
 This is a **clean-break reroll**: new `CHAIN_ID`, new `GENESIS_TIMESTAMP`, `CHAIN_GENERATION 15`. Nothing
-from alphanet-13 carries over, and that is deliberate — items 1 and 3 both change bytes that are inside a
-hash.
+from alphanet-13 carries over, and that is deliberate — items 1, 3 and 4 all change bytes that are inside a
+hash, and item 4 orphans every existing address string outright.
 
 ---
 
