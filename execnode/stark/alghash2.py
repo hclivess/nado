@@ -125,8 +125,27 @@ def _try_native():
         if [buf[i] for i in range(WIDTH)] != ref:
             raise ValueError("native alghash2 disagrees with Python (stale/incompatible .so) — rejected")
         _NATIVE = (lib, u64)
-    except Exception:
-        _NATIVE = False
+    except Exception as e:
+        # RUST-ONLY (see native_guard). The interop self-test above STAYS — it is the strongest guard in the
+        # tree, and a .so that disagrees with Python on a fixed vector must never be adopted. What changed is
+        # the consequence: adoption failing no longer silently hands the whole hash/Merkle layer to Python at
+        # ~5.5x the cost, because that degradation is invisible (bit-identical output, no error, just slower).
+        # A rejected or missing .so is now a startup failure that names itself.
+        import os as _os
+        from execnode.stark import native_guard
+        if native_guard.allow_absent():
+            _NATIVE = False
+            return _NATIVE
+        _crate = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
+            "native", "alghash2")
+        native_guard.require("alghash2", _os.path.join(_crate, "target", "release", "libnado_alghash2.so"),
+                             _crate, reason="the sponge hash + whole-tree Merkle accelerator")
+        raise native_guard.NativeMissing(
+            f"native 'alghash2' is REQUIRED but could not be adopted: {e}. If that message says the library "
+            f"DISAGREES WITH PYTHON on the fixed probe vector, do not work around it — the .so and this source "
+            f"implement different permutations (usually a different ROUNDS), and trusting either one silently "
+            f"would diverge from consensus. Rebuild with `cargo build --release` in native/alghash2.")
     return _NATIVE
 
 
