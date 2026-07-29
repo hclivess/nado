@@ -70,6 +70,21 @@ check(AUTH.auth_commitments({"block_number": 7, "block_transactions": nokey}) ==
       AUTH.auth_commitments({"block_number": 7, "block_transactions": withkey}),
       "the commitment does NOT depend on whether a tx carries its public key")
 
+# ---------------------------------------------------------------- key resolution matches validate_origin
+# A sender's FIRST transaction carries its public key and has nothing on chain yet; every later one omits it
+# (PUBKEY-ONCE). Evidence checking must follow the same rule the native verifier does, or it rejects exactly
+# the transactions that introduce an address.
+first = {"block_number": 7, "block_transactions": [dict(txs[0], public_key="ab" * 64)]}
+e_first = AUTH.auth_entries(first)[0]
+check(AUTH.entry_pubkey(e_first, lambda _s: None) == "ab" * 64,
+      "a FIRST tx resolves to the key it carries, with nothing on chain")
+later = {"block_number": 7, "block_transactions": [{k: v for k, v in txs[0].items() if k != "public_key"}]}
+e_later = AUTH.auth_entries(later)[0]
+check(AUTH.entry_pubkey(e_later, lambda _s: "cd" * 64) == "cd" * 64,
+      "a LATER tx with no key falls back to the sender's on-chain key")
+check(AUTH.entry_pubkey(e_later, None) is None,
+      "and with neither source it resolves to nothing rather than guessing")
+
 # ---------------------------------------------------------------- multisig counts its real checks
 ms = [dict(txs[0], multisig={"m": 2}, signature=["00" * 8, "11" * 8, "22" * 8])]
 ents = AUTH.auth_entries({"block_number": 7, "block_transactions": ms})

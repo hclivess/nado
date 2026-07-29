@@ -158,22 +158,21 @@ def aux_bits(log_rows, ext=None, num_buses=4):
     return base - math.log2(max(num_buses * (2.0 ** log_rows), 1.0))
 
 
+# These two READ the live configuration, and they must not have a fallback. An `except: return False` here
+# does not degrade gracefully — it makes the calculator confidently print BASE-FIELD numbers for a system
+# running an extension field, which is the single most misleading thing this file could do. Its entire
+# contract is "measures what the code actually does". If it cannot read the code, it must say so.
+
 def _ext_challenges():
-    """Whether stark.py draws the AUX (LogUp) challenges from GF(p^2) — READ, never assumed."""
-    try:
-        from execnode.stark import stark as _st
-        return bool(_st.ext_challenges_active())
-    except Exception:
-        return False
+    """Whether stark.py draws the AUX (LogUp) challenges from GF(p^D) — READ, never assumed."""
+    from execnode.stark import stark as _st
+    return bool(_st.ext_challenges_active())
 
 
 def _ext_alphas():
-    """Whether stark.py draws the constraint alphas from GF(p^2) — READ, never assumed."""
-    try:
-        from execnode.stark import stark as _st
-        return bool(getattr(_st, "EXT_ALPHAS", False))
-    except Exception:
-        return False
+    """Whether stark.py draws the constraint alphas from GF(p^D) — READ, never assumed."""
+    from execnode.stark import stark as _st
+    return bool(getattr(_st, "EXT_ALPHAS", False))
 
 
 def alphas_bits(num_constraints=1, list_size=1.0, ext=None):

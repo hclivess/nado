@@ -69,6 +69,25 @@ def _wtot(ext):
     return (_EXTRA0 + 3 * (ext2.DEGREE - 1)) if ext else _WTOT
 
 
+# WHY a rejection is recorded rather than merely returned.
+# _canonical_public answers "is this a valid foldable FRI proof" with a bare None, and that None conflates
+# two completely different situations: the proof really is invalid (correct, expected), or OUR replay is
+# broken (a bug in this file, a wrong challenge field, a mk_transcript that does not match how the proof was
+# made). The caller cannot tell them apart, so prove_fold raised "an inner FRI proof failed native
+# verification — refusing to fold it" — a message that points at the proof and is, when it is a replay bug,
+# exactly backwards. That message cost hours: the actual cause was recursive_verify._fs defaulting to a
+# base-field replay for extension proofs.
+# The verdict is unchanged (None is still a refusal, and nothing decides anything on the reason string).
+# Only the diagnosis is added.
+LAST_REJECT = None
+
+
+def _reject(reason):
+    global LAST_REJECT
+    LAST_REJECT = reason
+    return None
+
+
 def _canonical_public(pub, num_queries, mk_transcript=None):
     """VERIFIER SIDE. From a FRI proof's PUBLIC part only — {roots, N, offset, blowup, final, pow} — recompute
     the whole statement native fri.verify derives: geometry, the Fiat-Shamir fold challenges α, the query
@@ -93,12 +112,13 @@ def _canonical_public(pub, num_queries, mk_transcript=None):
         N, off, blowup = pub["N"], pub["offset"], pub["blowup"]
         roots, final = pub["roots"], pub["final"]
         if not isinstance(N, int) or N < 2 or (N & (N - 1)):
-            return None
+            return _reject(f"domain size N={N!r} is not a power of two >= 2")
         if not isinstance(blowup, int) or blowup < 2 or (blowup & (blowup - 1)):
-            return None
+            return _reject(f"blowup={blowup!r} is not a power of two >= 2")
         exp_layers = _expected_layers(N, blowup)
         if len(roots) != exp_layers or len(final) != (N >> exp_layers):
-            return None
+            return _reject(f"layer geometry: {len(roots)} roots (expected {exp_layers}) and "
+                           f"{len(final)} final values (expected {N >> exp_layers})")
         t = mk_transcript() if mk_transcript is not None else Transcript("fri", backend=b)
         alphas, offs, sizes, o, n = [], [], [], off, N     # offsets+sizes only: points computed on demand as
         for r in roots:                                    # off·ω^pos, so NO O(N) domain is ever allocated
@@ -107,12 +127,14 @@ def _canonical_public(pub, num_queries, mk_transcript=None):
             o = F.mul(o, o); n //= 2
         t.absorb("final", *(ext2.flatten(final) if _ext else final))
         if not t.check_grind(pub.get("pow"), GRIND_BITS):
-            return None
+            return _reject(f"grinding PoW failed at {GRIND_BITS} bits — usually means the transcript "
+                           f"replay diverged before here (wrong challenge field, or a mk_transcript that "
+                           f"does not match how the proof was produced), not that the nonce is wrong")
         coeffs = _coset_interpolate_ext(final, o) if _ext else _coset_interpolate(final, o)
         deg_bound = max(1, len(final) // blowup)
         _zero = ext2.ZERO if _ext else 0
         if any(c != _zero for c in coeffs[deg_bound:]):
-            return None
+            return _reject(f"final layer is not low-degree (bound {deg_bound} of {len(coeffs)})")
         Lr = len(roots)
         out_queries, finals = [], []
         for _q in range(num_queries):
@@ -127,8 +149,8 @@ def _canonical_public(pub, num_queries, mk_transcript=None):
                 last_lo = lo; a = lo
             out_queries.append(steps); finals.append(final[last_lo])
         return {"queries": out_queries, "finals": finals, "ext": _ext, "ext0": _ext0}
-    except Exception:
-        return None
+    except Exception as e:
+        return _reject(f"{type(e).__name__}: {e}")
 
 
 def _witness_of(fri_proof, num_queries, mk_transcript=None):
@@ -150,10 +172,13 @@ def _witness_of(fri_proof, num_queries, mk_transcript=None):
     t.check_grind(fri_proof.get("pow"), GRIND_BITS)
     Lr = len(roots)
     out = []
-    for q in queries:
+    for _qi, q in enumerate(queries):
         idx = t.challenge_index(N)
         if idx != q.get("idx"):
-            return None
+            # Same reasoning as _reject above: the caller only sees None, and "the openings are for the
+            # wrong rows" and "our transcript replay drifted" are indistinguishable from there.
+            return _reject(f"query {_qi} opens index {q.get('idx')!r} but Fiat-Shamir derives {idx} — "
+                           f"the witness does not align to the schedule")
         steps = []
         for L in range(Lr):
             s = q["steps"][L]
@@ -574,7 +599,8 @@ def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64, mk_tran
         c = _canonical_public(pub, num_queries_inner, mk)  # public schedule (same as the verifier's)
         w = _witness_of(p, num_queries_inner, mk)          # openings + paths, aligned to FS indices
         if c is None or w is None:
-            raise ValueError("an inner FRI proof failed native verification — refusing to fold it")
+            _why = LAST_REJECT if c is None else "witness openings do not align to the Fiat-Shamir indices"
+            raise ValueError(f"inner FRI proof {i} failed native verification — refusing to fold it: {_why}")
         merged["queries"] += c["queries"]; merged["finals"] += c["finals"]
         # One AIR proves the whole batch, so every inner proof must live in the SAME challenge field —
         # mixing them would need two column layouts in one trace.

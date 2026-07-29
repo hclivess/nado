@@ -85,9 +85,26 @@ def auth_entries(block):
             kind, n = KIND_MULTISIG_MLDSA44, (len(sigs) if isinstance(sigs, list) else 0)
         else:
             kind, n = KIND_SINGLE_MLDSA44, 1
+        # tx_pubkey is the key the TRANSACTION carries, if any. It is NOT in the leaf — the leaf must stay a
+        # pure function of block data that every node hashes identically, and under PUBKEY-ONCE this field is
+        # present on a sender's first tx and absent afterwards. It rides alongside because evidence checking
+        # has to resolve keys exactly the way validate_origin does: the tx's own key when present, the
+        # on-chain key otherwise. Using only the on-chain key would fail every FIRST transaction from an
+        # address, which is precisely the case where there is nothing on chain yet.
         out.append({"height": h, "index": idx, "txid": tx.get("txid", ""), "sender": sender,
-                    "kind": kind, "sig_count": n})
+                    "kind": kind, "sig_count": n, "tx_pubkey": tx.get("public_key") or None})
     return out
+
+
+def entry_pubkey(entry, resolve_pubkey=None):
+    """The key an entry's signature must verify under — the tx's own if it carries one, else the sender's
+    on-chain key. Exactly ops.transaction_ops.validate_origin's rule, and it must STAY exactly that: a
+    divergence here would accept evidence for a key the native verifier would have rejected.
+
+    Both sources are trustworthy in the same way and for different reasons: the tx's key is inside the block
+    hash preimage AND proof_sender() ties it to the sender address natively; the on-chain key is committed
+    state. Neither comes from the evidence envelope, which is the property that matters."""
+    return entry.get("tx_pubkey") or (resolve_pubkey(entry["sender"]) if resolve_pubkey else None)
 
 
 def auth_root(entries):
@@ -162,7 +179,7 @@ def evidence_ok(evidence, block, resolve_pubkey=None, verify_sig=None, verify_pr
         for e, sig in zip(entries, wits):
             # The KEY comes from the verifier's own PUBKEY-ONCE resolution, never from the leaf and never
             # from the envelope — an envelope that could name its own key would verify against itself.
-            pk = resolve_pubkey(e["sender"]) if resolve_pubkey else None
+            pk = entry_pubkey(e, resolve_pubkey)
             if not verify_sig(sig, pk, e["txid"]):
                 return False, f"signature {e['index']} invalid"
         return True, f"raw evidence ok ({len(wits)} signatures)"
@@ -180,7 +197,7 @@ def evidence_ok(evidence, block, resolve_pubkey=None, verify_sig=None, verify_pr
                  "height": int(block.get("block_number", 0)),
                  "parent": block.get("parent_hash") or block.get("previous_hash"),
                  "entries": entries,
-                 "pubkeys": [resolve_pubkey(e["sender"]) if resolve_pubkey else None for e in entries],
+                 "pubkeys": [entry_pubkey(e, resolve_pubkey) for e in entries],
                  "witnesses": [txs[e["index"]].get("signature") for e in entries]}
     ok = verify_proof(evidence.get("circuit_id"), evidence.get("proof"), statement)
     return (True, f"stark evidence ok ({count} authorizations)") if ok else (False, "validity proof rejected")
