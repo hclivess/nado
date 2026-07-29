@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="pool.pageTitle">NADO Pool — 8-ball duels, with or without stakes, post-quantum</title>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-CVV3P9KZFC"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-CVV3P9KZFC');
+</script>
+<meta name="description" content="NADO Pool — real 8-ball, one against one, on the NADO blockchain. Deterministic integer physics both browsers compute identically, a block-seeded rack, every shot logged on-chain. Play for stakes or for nothing.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://pool.nadochain.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NADO">
+<meta property="og:url" content="https://pool.nadochain.com/">
+<meta property="og:title" content="NADO Pool — 8-ball duels, with or without stakes, post-quantum">
+<meta property="og:description" content="NADO Pool — real 8-ball, one against one, on the NADO blockchain. Deterministic integer physics both browsers compute identically, a block-seeded rack, every shot logged on-chain. Play for stakes or for nothing.">
+<meta property="og:image" content="https://nadochain.com/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@nadochain">
+<meta name="twitter:title" content="NADO Pool — 8-ball duels, with or without stakes, post-quantum">
+<meta name="twitter:image" content="https://nadochain.com/og-image.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Pool", "url": "https://pool.nadochain.com/", "description": "Real 8-ball, one against one, on the NADO blockchain: deterministic integer physics, a block-seeded rack and every shot logged on-chain. Play for stakes or for free.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%2220%22%20fill%3D%22%2314181d%22/%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%229%22%20fill%3D%22%23f6f8fa%22/%3E%3Ctext%20x%3D%2224%22%20y%3D%2230%22%20font-size%3D%2214%22%20font-family%3D%22system-ui%22%20font-weight%3D%22700%22%20text-anchor%3D%22middle%22%20fill%3D%22%2314181d%22%3E8%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js?v=5fac27e5"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--gold:#e3b341;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:760px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  input[type=range]:disabled{opacity:.55;cursor:default}
+  input:focus{outline:none;border-color:var(--accent2)}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  @keyframes btnpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:btnpulse 1.25s ease-in-out infinite}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.open{border-color:var(--accent2);color:var(--accent2)}.chip.live{border-color:var(--gold);color:var(--gold)}
+  .chip.pending{opacity:.6;border-style:dashed}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}#status:empty{display:none;min-height:0;margin:0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  table.score{width:100%;border-collapse:collapse;font-size:13px}
+  table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
+  table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.score tr.me td{background:rgba(0,201,167,.08)}
+  table.score .pos{color:var(--accent2)}table.score .neg{color:var(--danger)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+  /* ---- game ---- */
+  .hud{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0;font-size:12.5px}
+  .hud .stat{border:1px solid var(--border);background:var(--elev2);border-radius:999px;padding:4px 11px;font-weight:700}
+  .turnbadge{font-size:11px;font-weight:800;border-radius:999px;padding:2px 9px;border:1px solid var(--accent2);color:var(--accent2)}
+  .zone{border:1px solid var(--border);border-radius:12px;padding:10px;margin:8px 0;background:rgba(0,0,0,.14)}
+  .zone .zh{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);font-weight:700;margin-bottom:6px}
+  #table{width:100%;height:auto;display:block;border-radius:12px;touch-action:none;cursor:crosshair}
+  #shotBar{margin-top:10px}
+  .aimrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .aimrow button{padding:8px 11px;font-family:var(--mono)}
+  .spinbox{display:flex;gap:10px;align-items:center}
+  #spinPad{width:86px;height:86px;flex:0 0 auto;border-radius:50%;touch-action:none;cursor:pointer}
+  #shotLog{font-size:12px;color:var(--dim);max-height:130px;overflow-y:auto;font-family:var(--mono);line-height:1.6}
+  .pillrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .freeline{margin-top:10px;font-size:12.5px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
+    <circle cx="24" cy="24" r="20" fill="#14181d"/><circle cx="24" cy="24" r="9" fill="#f6f8fa"/>
+    <text x="24" y="30" font-size="14" font-family="system-ui" font-weight="700" text-anchor="middle" fill="#14181d">8</text></svg></span>
+    <h1>NADO <span class="a">Pool</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="pool.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="pool.sub">Real <b>8-ball, one against one</b> on the NADO execution layer — <b>with or without a stake</b>. Aim, pick your power and your English, and the balls run a <b>fixed-point integer simulation</b> that every browser computes to the same unit: no floats, no server, nothing to trust. The rack is dealt by a <b>future block hash</b> so nobody can grind a favourable break, and every shot is one line in an on-chain log, so the whole frame is replayable by anyone. Winner takes the pot — or nothing at all, if that is how you want to play. Post-quantum wallet, no install.</p>
+
+  <div id="status"></div>
+
+  <div class="card" id="walletcard">
+    <h2 data-i18n="pool.wallet">Wallet</h2>
+    <p class="small dim" data-i18n-html="pool.walletHelp">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each shot there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="pool.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="pool.walletL1">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="pool.tokensStakeable">🪙 Tokens (stakeable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="pool.signIn">Sign in with NADO wallet</button></div>
+  </div>
+
+  <!-- PLAY -->
+  <div class="card hidden" id="play">
+    <h2 data-i18n="pool.playHead">🎱 Rack one up</h2>
+    <div class="row">
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="pool.stakePh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNew" style="flex:0 0 auto" data-i18n="pool.newGameBtn">New frame</button>
+    </div>
+    <div class="freeline" data-i18n-html="pool.freeGameLabel">Set the stake to <b>0</b> — by typing it or dragging the slider all the way down — to play for nothing at all.</div>
+    <label class="mt" data-i18n="pool.joinByIdLabel">Join a frame by ID</label>
+    <div class="row">
+      <input id="joinId" placeholder="game ID" data-i18n-ph="pool.gameIdPh" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnJoin" style="flex:0 0 auto" data-i18n="pool.join">Join</button>
+    </div>
+    <div class="small dim mt" data-i18n="pool.yourGames">Your frames</div>
+    <div class="small dim" id="recent"></div>
+  </div>
+
+  <!-- BANKROLL -->
+  <div class="card hidden" id="bankroll">
+    <h2 data-i18n="pool.bankHead">🪙 Tokens — buy in / cash out</h2>
+    <div class="row">
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="pool.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="pool.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="pool.withdraw">Withdraw</button>
+    </div>
+    <div class="small dim mt" data-i18n="pool.bankHelp">Deposit moves L1 → exec (stakeable); Withdraw moves exec → L1. A free frame needs neither.</div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2 data-i18n="pool.lobbyHead">🎱 Open frames</h2>
+    <p class="small dim" data-i18n="pool.lobbyHelp">Challenge anyone — join an open frame or watch one in progress.</p>
+    <div class="small mt" id="lobbyList"><span class="dim" data-i18n="pool.loading">Loading…</span></div>
+  </div>
+
+  <!-- PRACTICE (free, vs the computer) -->
+  <div class="card hidden" id="practice">
+    <h2 data-i18n="sdk.modePracticeHead">🎯 Practice vs computer</h2>
+    <p class="small dim" data-i18n="sdk.modePracticeCard">One free match against the computer, right now, in your browser. Nothing is staked, nothing is recorded on-chain, and no wallet is needed — it is here to learn the rules.</p>
+    <div class="row"><button class="primary" id="btnPractice" style="width:100%" data-i18n="sdk.prStart">🎯 Start a practice match</button></div>
+  </div>
+
+  <!-- ACTIVE GAME -->
+  <div class="card hidden" id="activeGame">
+    <h2 data-i18n="pool.gameLabel">Frame <span id="gameId" class="mono"></span></h2>
+    <div id="players" class="mt"></div>
+    <div class="kv"><span class="k" data-i18n="pool.pot">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div class="kv"><span class="k" data-i18n="pool.statusLabel">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div id="hud" class="hud"></div>
+
+    <div class="zone hidden" id="tableZone">
+      <canvas id="table" width="1400" height="740"></canvas>
+
+      <div id="shotBar" class="hidden">
+        <div class="pillrow" id="potBtns"></div>
+
+        <div class="mt" id="callRow">
+          <div class="zh" data-i18n="pool.callHead">Call the pocket for the 8</div>
+          <div class="pillrow" id="callBtns"></div>
+        </div>
+
+        <label class="mt" data-i18n="pool.aimLabel">Aim — drag on the table, then trim</label>
+        <div class="aimrow">
+          <button class="ghost" id="btnAimL10" style="flex:0 0 auto">⟵⟵</button>
+          <button class="ghost" id="btnAimL1" style="flex:0 0 auto">⟵</button>
+          <span class="mono" id="angleVal" style="flex:1 1 auto;text-align:center">0.0°</span>
+          <button class="ghost" id="btnAimR1" style="flex:0 0 auto">⟶</button>
+          <button class="ghost" id="btnAimR10" style="flex:0 0 auto">⟶⟶</button>
+        </div>
+
+        <label class="mt"><span data-i18n="pool.powerLabel">Power</span> — <span class="mono" id="powerVal">48%</span></label>
+        <input type="range" id="powerRange" min="0" max="63" value="30">
+
+        <label class="mt"><span data-i18n="pool.assistLabel">Aim assist</span> — <span class="mono" id="assistVal">full</span></label>
+        <input type="range" id="assistRange" min="0" max="2" step="1" value="2">
+
+        <label class="mt" data-i18n="pool.spinLabel">English — tap the cue ball where you'll strike it</label>
+        <div class="spinbox">
+          <canvas id="spinPad" width="86" height="86"></canvas>
+          <div class="small dim" style="flex:1 1 auto">
+            <span data-i18n="pool.spinHelp">Above centre follows through, below centre screws back, left and right bend the path and change the angle off a cushion.</span>
+            <div class="mt"><button class="ghost" id="btnSpinClear" data-i18n="pool.spinClear">Centre ball</button></div>
+          </div>
+        </div>
+
+        <div class="row mt"><button class="primary" id="btnShoot" style="width:100%" data-i18n="pool.takeShot">🎱 Take the shot</button></div>
+      </div>
+
+      <div class="zone" style="margin-bottom:0">
+        <div class="zh" data-i18n="pool.shotLogHead">Shots</div>
+        <div id="shotLog"></div>
+      </div>
+    </div>
+
+    <div id="settleHint" class="small dim"></div>
+    <div class="row mt">
+      <button class="primary hidden pulse" id="btnRematch" data-i18n="pool.playAgain">↻ Rack again</button>
+      <button class="primary hidden" id="btnResign" data-i18n="pool.resign">Concede</button>
+      <button class="ghost hidden" id="btnDraw" data-i18n="pool.offerDrawStatic">Offer a draw</button>
+      <button class="primary hidden" id="btnSettle" data-i18n="pool.settleStatic">Agree a draw</button>
+      <button class="ghost hidden" id="btnAbort" data-i18n="pool.abort">Claim refund (opponent stalled)</button>
+      <button class="ghost hidden" id="btnCancel" data-i18n="pool.cancel">Cancel — reclaim stake</button>
+      <button class="primary hidden pulse" id="btnJoinGame" style="flex:1 1 auto" data-i18n="pool.joinThisGame">Join this frame</button>
+    </div>
+    <label class="mt" data-i18n="pool.inviteLabel">Invite your opponent</label>
+    <input id="shareLink" class="mono" readonly onclick="this.select()">
+    <div class="row mt"><button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="pool.share">Share</button></div>
+  </div>
+
+  <!-- SCOREBOARD -->
+  <div class="card" id="scoreboard">
+    <h2 data-i18n="pool.scoreboardHead">🏆 Staked-frame scoreboard</h2>
+    <div id="scoreList"><span class="dim" data-i18n="pool.loading2">Loading…</span></div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="pool.rulesHead">House rules</h2>
+    <p class="small dim" style="line-height:1.6">
+      <span data-i18n-html="pool.rules1"><b>Break</b> from behind the head string. A break that pots nothing and drives fewer than four balls to a cushion is a foul.</span>
+      <br>• <span data-i18n-html="pool.rules2"><b>Open table</b> until someone legally pots a ball after the break — whichever group that ball belongs to becomes theirs.</span>
+      <br>• <span data-i18n-html="pool.rules3"><b>Fouls</b> — hitting the wrong group first, hitting nothing, potting the cue ball, or failing to reach a cushion after contact. Any foul gives your opponent the cue ball <b>in hand</b>, anywhere on the table.</span>
+      <br>• <span data-i18n-html="pool.rules4"><b>Pot one of yours and you shoot again.</b> Clear your group, then <b>call a pocket</b> and sink the 8 there to win. The 8 down early, in the wrong pocket, or with a scratch loses the frame.</span>
+    </p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="pool.safeHead">How the frame is safe & fair</h2>
+    <p class="small dim" style="line-height:1.6">
+      <span data-i18n-html="pool.safe1">The contract is a pure <b>escrow + shot log</b> — the rules run in your browser, and every shot lands on-chain in order.</span>
+      <br>• <span data-i18n-html="pool.safe2"><b>The physics has no floats in it.</b> Positions, speeds, angles and square roots are exact integers, so two browsers replaying the same log always agree ball for ball — there is no rounding for either side to exploit.</span>
+      <br>• <span data-i18n-html="pool.safe3"><b>The rack is drawn by the chain.</b> Joining pins a block height that hasn't been mined yet, and its hash shuffles the triangle — neither player nor the node can fish for a break.</span>
+      <br>• <span data-i18n-html="pool.safe4"><b>Stall or dispute:</b> after the shot clock either player claims a <b>refund</b>. Concede / agree / refund are the only outcomes — <b>no one can ever be robbed</b>. The contract is upgradable.</span>
+    </p>
+  </div>
+
+  <footer data-i18n-html="pool.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · shots ride L1 as ordered blobs.</footer>
+</div>
+<script type="module" src="/static/pool.js?v=b322e4d8"></script>
+</body>
+</html>

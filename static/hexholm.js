@@ -8,7 +8,7 @@
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, notify, confirmingLabel, disp, share,
          renderWallet, renderScore, renderTopScores, scoreBump, scoreSort, resolveAliases, blocksToTime,
          randSecret, algHashn, ALG_P , installModes } from "./nadodapp.js?v=5ff32141";
-import { DuelGame } from "./duelgame.js?v=31d8b8dc";
+import { DuelGame } from "./duelgame.js?v=4b2437aa";
 import * as E from "./hexholm-engine.js?v=bfd3d976";
 import { pickMove, prng, soloReplay, soloScore, botMustAct, seedOfDay, packRun, verifyClaim,
          MAX_MY, SOLO_TURNS } from "./hexholm-bot.js?v=eb0b5c6f";

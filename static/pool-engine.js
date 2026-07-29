@@ -22,7 +22,7 @@
 //
 // The RACK is seeded by the join-time future block height kh (stormhold's scheme): HASH(bh(kh)+bh(kh+1)
 // + salt + i) drives a Fisher-Yates shuffle, so neither player can grind a favourable break.
-import { blake2bHash } from "./nadotx.js";
+import { blake2bHash } from "./nadotx.js?v=6d199166";
 
 const H = (v) => BigInt("0x" + blake2bHash(v));
 
