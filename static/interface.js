@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare } from "./nadodapp.js?v=5ff32141";   // THE one share implementation (SDK)
+import { share as sdkShare } from "./nadodapp.js?v=811ac9bd";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -326,7 +326,7 @@ async function validateSendTo() {
     setMsg("sendToMsg", i18("sto.resolving", "resolving alias…"), null);
     const owner = await resolveAlias(v);
     if (($("sendTo").value || "").trim().toLowerCase() !== v) return;   // input changed while resolving — ignore stale
-    setMsg("sendToMsg", owner ? `${i18("sto.aliasPre","✓ alias →")} ${owner.slice(0, 14)}…` : `${i18("sto.aliasNoPre","✗ alias")} “${v}” ${i18("sto.aliasNoSuf","is not registered")}`, owner ? "ok" : "err");
+    setMsg("sendToMsg", owner ? `${i18("sto.aliasPre","✓ alias →")} ${_abShort(owner)}` : `${i18("sto.aliasNoPre","✗ alias")} “${v}” ${i18("sto.aliasNoSuf","is not registered")}`, owner ? "ok" : "err");
     return;
   }
   setMsg("sendToMsg", i18("sto.invalid", "✗ invalid — a 49-char mldsa44… address or a registered alias name"), "err");
@@ -366,7 +366,13 @@ async function abResolveAliases(addrs) {
     catch { _abAlias[a] = ""; }
   }));
 }
-const _abShort = (a) => ADDR_RE.test(a) ? a.slice(0, 10) + "…" + a.slice(-4) : a;
+// Same rule as the SDK's shortAddr (static/nadodapp.js): drop the constant ADDRESS_PREFIX before truncating,
+// or the head-slice is spent on the 7 characters every address shares. `slice(0, 10)` showed three
+// distinguishing characters; this shows ten. Written out rather than imported because interface.js is a
+// classic script, not an ES module — so the RULE is duplicated and must stay in step with the SDK.
+const _abShort = (a) => ADDR_RE.test(a)
+  ? a.slice(ADDR_PREFIX.length, ADDR_PREFIX.length + 6) + "…" + a.slice(-5)
+  : a;
 function _abRow(x) {
   const alias = _abAlias[x.addr] ? "@" + _abAlias[x.addr] : "", short = _abShort(x.addr);
   const name = x.label || alias || short;
@@ -2241,7 +2247,7 @@ async function resumePendingForumLogin() {
   const okc = await uiConfirm({
     title: i18("forum.title", "Sign in to NADO Forum"),
     body: i18("forum.body", "Prove you own this wallet to sign in to {f} as {a}. This cannot move funds.",
-      { f: req.forum.replace(/^https?:\/\//, ""), a: state.wallet.address.slice(0, 14) + "…" }),
+      { f: req.forum.replace(/^https?:\/\//, ""), a: _abShort(state.wallet.address) }),
     confirmText: i18("forum.signin", "Sign in"),
   });
   if (!okc) return;
@@ -2356,7 +2362,7 @@ async function resumePendingExecSign() {
     const c = await uiConfirm({
       title: i18("dapp.connectTitle", "Sign in"),
       body: i18("dapp.connectBody", "{app} wants your wallet address ({a}) to sign you in. No transaction — nothing moves.",
-        { app: req.app, a: state.wallet.address.slice(0, 14) + "…" }),
+        { app: req.app, a: _abShort(state.wallet.address) }),
       confirmText: i18("dapp.connect", "Sign in"),
     });
     back(c ? "ok=1&addr=" + state.wallet.address : "ok=0");
@@ -2447,9 +2453,9 @@ async function resumePendingExecSign() {
     title: i18("dapp.title", "Sign a contract call"),
     body: escrow > 0n
       ? i18("dapp.bodyValue", "{app} wants to sign & submit this from your wallet ({a}). It ESCROWS {v} NADO from your exec balance into the contract (no L1 funds move beyond the network fee).",
-          { app: req.app, a: state.wallet.address.slice(0, 14) + "…", v: rawToNado(escrow) })
+          { app: req.app, a: _abShort(state.wallet.address), v: rawToNado(escrow) })
       : i18("dapp.body2", "{app} wants to sign & submit this from your wallet ({a}). It moves no L1 funds beyond the network fee.",
-          { app: req.app, a: state.wallet.address.slice(0, 14) + "…" }),
+          { app: req.app, a: _abShort(state.wallet.address) }),
     rows,
     // One opt-in on every trusted-game dialog: auto-sign ALL exec-layer calls from now on. These only ever
     // escrow from your playable (exec/VM) balance — never your L1 wallet — so ticking it lets bets/spins and

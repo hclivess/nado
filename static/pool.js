@@ -7,10 +7,10 @@
 // A shot is ONE log entry, so a whole frame of pool is ~30 transactions and both browsers re-derive the
 // identical table from them: the physics is integer-exact (see pool-engine.js) and the rack is seeded by
 // the join block, so there is nothing for either side to disagree about.
-import { NadoDapp, $, notify, disp, installModes, lsLoad, lsSave } from "./nadodapp.js?v=5ff32141";
-import { DuelGame } from "./duelgame.js?v=4b2437aa";
+import { NadoDapp, $, notify, disp, installModes, lsLoad, lsSave } from "./nadodapp.js?v=811ac9bd";
+import { DuelGame } from "./duelgame.js?v=29be0404";
 import * as E from "./pool-engine.js?v=543c9ede";
-import { prand } from "./practice.js?v=1b0a48d4";
+import { prand } from "./practice.js?v=ad93c772";
 
 const CID = "685a84e20bfd86c5bfc767ecc1ccaf0f";
 const dapp = new NadoDapp({ cid: CID, app: "Pool" });
@@ -388,8 +388,8 @@ function renderGame(gm, eng) {
   const grpName = (g) => g === 0 ? T("solids", "solids") : g === 1 ? T("stripes", "stripes") : T("open", "open table");
   const myGroup = me == null ? -1 : eng.grp[me];
   const tgt = me == null ? -1 : E.targetGroup(eng, me);
-  // gm.practice seats a literal "cpu" as p2, and disp() is an ADDRESS shortener — it renders that as
-  // "cpu…cpu". Name the practice opponent from the shared SDK bundle instead.
+  // gm.practice seats a literal "cpu" as p2. disp() now returns non-address values verbatim (see
+  // shortAddr in nadodapp.js), but the practice opponent still gets a proper localised name.
   const oppName = gm.practice ? (window.t ? window.t("sdk.prCpu", "Computer") : "Computer")
                               : disp(anim && anim.side === 0 ? gm.p1 : gm.p2);
   // Whose shot is on screen. Without this, your break and the opponent's reply play one after the other

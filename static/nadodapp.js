@@ -412,7 +412,34 @@ export async function resolveAliases(addrs) {
 }
 // esc(s): minimal HTML-escaper for user-influenced strings interpolated into innerHTML
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-export const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasCache[addr] : addr.slice(0, 8) + "…" + addr.slice(-4));
+// shortAddr(addr): a truncation that actually distinguishes addresses.
+//
+// EVERY address begins with the same 7-character key-type discriminator (protocol.ADDRESS_PREFIX =
+// "mldsa44"), so a head-slice spends almost all of its budget on characters that are identical for every
+// account on the chain. The old `addr.slice(0, 8)` showed "mldsa44e" — SEVEN constant characters and ONE
+// distinguishing one — and in any list of players, seats or leaderboard rows the entries looked the same.
+// A user reported exactly that, and they were right.
+//
+// Dropping the prefix costs no information (it is constant, therefore it carries none) and buys back the
+// whole budget: "ebd276…afd34" distinguishes on 10 characters instead of 5. The ellipsis still marks the
+// value as truncated, and aliases are unaffected — they render as "@name" and never reach this path.
+// NO BACKWARDS COMPATIBILITY on the prefix. Every address on this chain carries it, there is no legacy
+// format, and there will not be one — so the prefix is stripped unconditionally and no "maybe it's an older
+// address" branch exists to rot.
+//
+// The one check below is NOT that branch: game UIs pass non-address sentinels through disp() — hexholm
+// renders `disp(seats[n] || "?")` and pool seats a literal "cpu" for practice — and those are returned
+// verbatim. That also removes a workaround: pool.js carried a comment explaining that disp() mangles "cpu"
+// into "cpu…cpu", which no longer happens.
+const _ADDR_PREFIX = "mldsa44";
+export const shortAddr = (addr, head = 6, tail = 5) => {
+  if (!addr) return "—";
+  const s = String(addr);
+  if (!s.startsWith(_ADDR_PREFIX)) return s;      // not an address; never a compatibility path
+  const body = s.slice(_ADDR_PREFIX.length);
+  return body.slice(0, head) + "…" + body.slice(-tail);
+};
+export const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasCache[addr] : shortAddr(addr));
 
 // ---- shared UI blocks (every game has these exact elements — keep them in ONE place) --------------
 // wireWallet(dapp): the sign-in / deposit / withdraw buttons ("bankAmt" input) — identical in every game.
