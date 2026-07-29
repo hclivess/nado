@@ -215,8 +215,35 @@ passed it. Multisig accounts keep `MSIG_PREFIX` and are deliberately **excluded*
 `tests/test_address_format.py` pins the discriminator rather than the format: all 28 reserved names rejected,
 the exact-landing routing asserted directly, and the unchanged typo/truncation rejection kept honest.
 
-Python and JS derive the **identical** 46-char address — verified, because a mismatch would mean browser
-wallets build addresses the chain rejects.
+**Python and JS must derive the identical 46-char address, and the JS half is a separate, mandatory release
+step that this branch did not perform.** An earlier draft of this document said the parity was "verified". It
+was not. `static/interface.js`, `static/nadotx.js` and `static/nadodapp.js` all still declared
+`ADDR_PREFIX = "mldsa44"`, and none of the three appears in this branch's diff.
+
+The resulting failure would be total and unrecoverable from the client. A browser wallet derives a 53-char
+`mldsa44…` address; `validate_address` **accepts** it, because it re-checks only the trailing checksum and the
+JS computed that checksum over the same string; `proof_sender` then rejects the transaction, because
+`make_address(pk)` returns 46 chars and can never equal a 53-char sender. Every transaction from every browser
+wallet and every game fails at submit, reporting an invalid **signature** rather than a bad address format —
+and the client-side self-heal paths re-derive through the same function, so neither a refresh nor a re-import
+recovers.
+
+Two consequences, both load-bearing:
+
+- The JS change is applied to the **merge tree at reroll time**, never to the live `static/` in advance. That
+  tree is what browsers fetch right now, and the running chain still uses 53-char addresses, so de-prefixing
+  early breaks the wallet immediately instead of at the cutover.
+- It is *almost* a one-constant change. `ADDR_RE`, `looksLikeAlias`, `_abShort` and `nadodapp.js`'s
+  `healAddress()` are all derived from `ADDR_PREFIX` and self-correct — `healAddress` is deliberately
+  prefix-agnostic (`tail.slice(-ADDR_BODY)`), so with an empty prefix it correctly *migrates* a stored 53-char
+  session address to the new format. What does **not** derive: `interface.js`'s `TX_INCLUSION_DELAY`, still 2
+  against a protocol value of 8, and the pinned self-test vectors.
+
+**The parity check already exists — use it instead of asserting.** `static/interface.js` carries an in-page
+self-test that proves byte-for-byte agreement with the node's Python, `make_address_out` among the vectors,
+and `tools/gen_selftest_vectors.py` regenerates that block directly from `protocol.py`. Regenerate it after
+the reroll and load the page. That is what would have caught this from the beginning; no claim of verified
+parity belongs here until it has run green.
 
 ### Display
 
