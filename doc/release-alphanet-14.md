@@ -106,6 +106,14 @@ LDE'd to N=262144** — and its column commits proceed at about **4.7 columns pe
 The width is the story: 352 columns is what D=3 costs, because `rowcomp_verify` allocates D periodic columns
 per alpha plus one per limb of the layer-0 target, and every one is interpolated to the trace length.
 
+**What the gate actually proves, and what it does not.** `tests/test_settle_sparse_fold.py` runs the fold
+with `comp_points_per_proof=1` — one composition proof per spot-check point, which is the MAXIMUM chunk
+count and repeats the fixed 352-column schedule once per point (3 segments x 2 queries = 6 comp proofs).
+Production defaults to `comp_points_per_proof=None`: a single composition over all points. So the gate is
+deliberately the harder configuration, and the unchunked path production uses is covered separately and
+green by `test_settlement_o1`, `test_recursive_row` and `test_recursive_verify`. The five-hour figure above
+is therefore an upper bound on a stress variant, not the production cost.
+
 **This does not block the release** — `SETTLE_PROOF_RECURSIVE` changes how L1 VERIFIES (one bundle instead of
 K segment checks), and verification stays fast. But a prover that needs hours per settlement is a
 proving-farm job, not something a node does inline, and that should be stated rather than discovered. The
