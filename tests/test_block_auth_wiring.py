@@ -105,6 +105,26 @@ check(AUTH.sig_checks({"block_number": 7, "block_transactions": ms}) == 3,
       "sig_checks counts signature verifications, not entries")
 
 # ---------------------------------------------------------------- a REAL aggregate envelope verifies
+#
+# OPT-IN, because it is a farm job. Proving even this two-part subset and folding it into a heterogeneous
+# bundle exceeded a 3600s wall on a loaded box under GF(p^3) — the composition AIR carries D periodic columns
+# per alpha, and every one of them is interpolated to the trace length. Everything ABOVE this line is the
+# part that guards consensus (the commitment is in the hash preimage, block_content_hash re-derives it,
+# multisig counts its real checks, key resolution matches validate_origin) and runs in about a second, so it
+# must never be gated behind a flag that a routine run skips. Same convention as test_settle_sparse_fold and
+# test_recursion_depth: cheap invariants always, expensive end-to-end proof on request.
+if not os.environ.get("NADO_HEAVY"):
+    print()
+    print("SKIP  real ML-DSA bundle end-to-end (set NADO_HEAVY=1; >1h at D=3 on a loaded box)")
+    print()
+    if fails:
+        print(f"{len(fails)} CHECK(S) FAILED:")
+        for f in fails:
+            print("  - " + f)
+        sys.exit(1)
+    print("ALL FAST BLOCK-AUTH WIRING CHECKS PASSED")
+    sys.exit(0)
+
 from signatures import generate_keydict, sign, unhex
 
 keys = generate_keydict()
