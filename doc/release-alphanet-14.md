@@ -240,6 +240,35 @@ Clean break. Purge and resync; there is no migration path from alphanet-13 and n
   library from *before* the handshake existed only checks that the symbols are present, and would call the
   new ABI. Rebuild both.
 
+## Two things deliberately NOT in this release
+
+**The finality-floor corroboration fix is not cherry-picked to `main` ahead of the release.** It ships *in*
+the release. It fixes a real wedge (a node alone on a fork corroborates its own depth floor, advances an
+un-crossable barrier past its own fork point, and can then only escape by a data-destroying purge), and it bit
+twice in one day. But it arrives within hours either way, and landing it separately means restarting every
+production node **twice** instead of once, on a `main` that carries someone else's active work. The observed
+cost of waiting is bounded: every fork on 2026-07-29 — four of them — healed unassisted, and the remedy the
+machinery reaches for (purge + resync) destroys chain-derived data but never funds or keys. Two restarts to
+save a few hours of a self-healing failure is the worse trade.
+
+**Reserved-tx landing stays an exact block, not a range.** This is the single root cause of every fork
+observed on 2026-07-29 — h5924 (`blob`, `min_block`), h6424 (`register`), h7692 (`duty`). Timing-critical
+reserved transactions must land at *exactly* `max_block`, so `RESERVED_TX_MARGIN` (30) and `DUTY_TX_MARGIN`
+(12) buy propagation **time** but not landing **tolerance**: any producer that has not received the tx by
+precisely that height builds without it, the two honest blocks differ in nothing but their tx set, and the
+chain forks. alphanet-14 inherits this unchanged.
+
+It is not fixed here on purpose. Changing where a transaction may land is a **consensus rule change on the
+validation path**, entirely unrelated to the proof system this release is about — and bolting it onto a
+release whose headline feature (K→1 folding) is still unproven at the time of writing compounds risk on the
+wrong surface. The evidence says it is a **liveness** defect, not a safety one: no fork produced a state
+divergence, an invalid block, or a loss, and all four self-healed. So it earns its own focused change and its
+own reroll, where it can be tested for what it is instead of riding along with a field migration.
+
+The fix, when it is made, is to give timing-critical txs a landing *window* `[max_block - W, max_block]`
+rather than a point, so a producer that receives the tx late still includes it at the same height everyone
+else does.
+
 ## Known dead code
 
 `recursion.py`'s original demonstration fold (`prove_recursive` / `verify_recursive` / `extract_fri` /
