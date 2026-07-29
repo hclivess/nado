@@ -34,11 +34,10 @@ class _Blake2b:
     def node(self, a, b):
         return _b2b32(b"\x01", bytes.fromhex(a), bytes.fromhex(b))
 
-    def leaf_ext(self, x0, x1):
-        """GF(p^2) leaf. Its own frame tag (\x02), so it can never collide with a base leaf (\x00) even when
-        the hi limb is zero — see alghash2.rleaf_ext for why that distinctness matters."""
-        return _b2b32(b"\x02", (int(x0) % F.P).to_bytes(8, "little"),
-                      (int(x1) % F.P).to_bytes(8, "little"))
+    def leaf_ext(self, *limbs):
+        """Extension leaf. Its own frame tag (\x02), so it can never collide with a base leaf (\x00) even
+        when the trailing limbs are zero — see alghash2.rleaf_ext for why that distinctness matters."""
+        return _b2b32(b"\x02", *[(int(x) % F.P).to_bytes(8, "little") for x in limbs])
 
     # transcript: state is a 32-byte hex string. Items are field ints, digest hex strings, or short labels;
     # each is encoded unambiguously (tag + bytes) so the absorb is injective — no json (hashlib is C-fast; the
@@ -86,8 +85,8 @@ class _Alghash2:
     def node(self, a, b):
         return alghash2.node(tuple(a), tuple(b))
 
-    def leaf_ext(self, x0, x1):
-        return alghash2.leaf_ext(x0, x1)
+    def leaf_ext(self, *limbs):
+        return alghash2.leaf_ext(*limbs)
 
     # transcript: state is a CAPACITY-tuple of field elements
     def t_init(self, label):
@@ -152,10 +151,10 @@ class _Recursion(_Alghash2):
     def node(self, a, b):
         return alghash2.rnode(tuple(a), tuple(b))
 
-    def leaf_ext(self, x0, x1):
+    def leaf_ext(self, *limbs):
         """ONE permutation, same as leaf — which is what makes the in-circuit ext membership gadget cost the
-        same as the base one (execnode/stark/fri_verify.py)."""
-        return alghash2.rleaf_ext(x0, x1)
+        same as the base one (execnode/stark/fri_verify.py). Holds for degree <= 3."""
+        return alghash2.rleaf_ext(*limbs)
 
 
 BLAKE2B = _Blake2b()

@@ -174,7 +174,7 @@ def rleaf(x):
     return tuple(permute([*a, 0, 0, 0, 0, *IV])[:CAPACITY])
 
 
-def rleaf_ext(x0, x1):
+def rleaf_ext(*limbs):
     """RECURSION-tree leaf for a GF(p^2) value (x0 + x1·X) — ONE permutation, exactly like rleaf.
 
     rleaf frames a base value as (DOM_LEAF, x, 0, 0) and leaves lanes 2..3 unused, so the second limb simply
@@ -188,13 +188,19 @@ def rleaf_ext(x0, x1):
     DOM_LEAF_EXT (not DOM_LEAF) so an ext leaf and a base leaf are distinct frames even when x1 = 0 — a
     lifted base value and a genuine base value must not share a digest, or a prover could present one tree's
     opening against the other's commitment."""
-    a = (DOM_LEAF_EXT, int(x0) % F.P, int(x1) % F.P, 0)
+    # The frame is (DOM_LEAF_EXT, limb0, limb1, ...) inside the FOUR-lane rleaf head, so degrees up to 3 fit
+    # in exactly one permutation — the property that makes the in-circuit extension leaf cost the same as a
+    # base one. A degree that no longer fits must fail loudly rather than silently truncate a limb.
+    if len(limbs) > RATE // 2 - 1:
+        raise ValueError(f"an extension leaf of {len(limbs)} limbs does not fit the {RATE // 2}-lane frame")
+    a = [DOM_LEAF_EXT] + [int(x) % F.P for x in limbs]
+    a += [0] * (RATE // 2 - len(a))
     return tuple(permute([*a, 0, 0, 0, 0, *IV])[:CAPACITY])
 
 
-def leaf_ext(x0, x1):
-    """Sponge-backend GF(p^2) leaf — the hashn analogue of rleaf_ext."""
-    return hashn([DOM_LEAF_EXT, int(x0) % F.P, int(x1) % F.P])
+def leaf_ext(*limbs):
+    """Sponge-backend extension leaf — the hashn analogue of rleaf_ext (no lane limit here)."""
+    return hashn([DOM_LEAF_EXT] + [int(x) % F.P for x in limbs])
 
 
 def rrow(values):

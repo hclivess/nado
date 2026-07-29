@@ -422,6 +422,16 @@ pub extern "C" fn sp_col_len(col: usize) -> i64 {
 // Rust is what makes folding feasible at all, not merely faster.
 const NONRESIDUE: u64 = 7;
 
+/// The extension DEGREE this library was compiled for. The Python side must refuse to use the arena when
+/// this disagrees with extf.DEGREE: the symbols existing says nothing about which field they implement, and
+/// a degree-mismatched arena does not fail — it composes a perfectly well-formed polynomial over the WRONG
+/// field, which then fails verification far from the cause. (Observed exactly this: a degree-2 arena against
+/// a degree-3 Python side reported "trace/composition mismatch" with nothing pointing at the field.)
+#[no_mangle]
+pub extern "C" fn sp_ext_degree() -> i64 {
+    2
+}
+
 #[inline]
 fn e_add(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
     (addf(a.0, b.0), addf(a.1, b.1))

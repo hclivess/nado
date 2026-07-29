@@ -11,7 +11,7 @@ each layer really is the fold of the previous one (with Merkle openings) and tha
 
 Soundness rests only on BLAKE2b collision-resistance (via the Merkle commitments + the transcript).
 """
-from execnode.stark import field as F, merkle, ext2
+from execnode.stark import field as F, merkle, extf as ext2
 from execnode.stark.transcript import Transcript
 from execnode.stark import backend as _backend
 
@@ -103,8 +103,7 @@ def _ext_leaf(b, v):
     b.leaf_ext packs both limbs into the single existing frame — alghash2's rleaf already leaves lanes 2..3
     unused — so the in-circuit gadget differs from the base one only by pinning one more lane. It carries its
     OWN domain tag, so an ext leaf and a base leaf stay distinct frames even when the hi limb is zero."""
-    a0, a1 = ext2.lift(v)
-    return b.leaf_ext(a0, a1)
+    return b.leaf_ext(*ext2.lift(v))
 
 
 def _commit_ext(values, b):

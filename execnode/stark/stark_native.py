@@ -205,23 +205,37 @@ def compose(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
 
 
 def ext_capable():
-    """True when the loaded .so carries the GF(p^2) entry points. A node running an older build must fall
-    back to the Python path rather than silently produce a base-field proof under extension challenges."""
-    return available() and hasattr(_LIB, "sp_fold_ext") and hasattr(_LIB, "sp_compose_ext")
+    """True when the loaded .so carries the extension entry points AND was compiled for the SAME degree the
+    Python side is using.
+
+    The symbols existing says nothing about which field they implement. A degree-mismatched arena does not
+    fail — it composes a well-formed polynomial over the wrong field, and the only symptom is a
+    "trace/composition mismatch" at verification with nothing pointing at the field. So the degree is part of
+    the handshake, and a library that cannot answer is treated as pre-port."""
+    if not (available() and hasattr(_LIB, "sp_fold_ext") and hasattr(_LIB, "sp_compose_ext")):
+        return False
+    if not hasattr(_LIB, "sp_ext_degree"):
+        return False
+    from execnode.stark import extf
+    _LIB.sp_ext_degree.restype = ctypes.c_int64
+    return int(_LIB.sp_ext_degree()) == extf.DEGREE
 
 
 def compose_ext(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
-    """GF(p^2) composition from the arena. `alphas` is one EXTENSION element per LOGICAL constraint then one
-    per boundary — an extension-valued constraint occupies two SSA outputs but takes a single alpha, so the
-    count is len(outputs) - len(ext_pairs) + len(boundaries), NOT len(outputs) + len(boundaries).
-    Returns (cp_lo_col_id, (lo_list, hi_list) or None); the HI column is cp_lo_col_id + 1.
+    """GF(p^D) composition from the arena. `alphas` is one EXTENSION element per LOGICAL constraint then one
+    per boundary — an extension-valued constraint occupies D SSA outputs but takes a SINGLE alpha, so the
+    count is len(outputs) - len(ext_pairs)*(D-1) + len(boundaries), NOT len(outputs) + len(boundaries).
+    Returns (cp_col_id, (limb_lists...) or None); the further limb columns follow at cp_col_id + 1 ...
     Bit-identical to air_ir.compose_python under extension alphas."""
+    from execnode.stark import extf as ext2
     u32, u64 = ctypes.c_uint32, ctypes.c_uint64
     ops = prog["ops"]; consts = prog["consts"]; outputs = prog["outputs"]
     pairs = list(prog.get("ext_pairs") or ())
     W, nper, nchal = prog["W"], prog["P"], len(chals)
     n_ops, n_out, n_bnd, n_pairs = len(ops), len(outputs), len(boundaries), len(pairs)
-    n_logical = n_out - n_pairs
+    # an extension constraint occupies D outputs but takes ONE alpha, so each group adds D-1 EXTRA outputs.
+    # (n_out - n_pairs was right only at D=2 and would silently over-count alphas at any other degree.)
+    n_logical = n_out - n_pairs * (ext2.DEGREE - 1)
     if len(alphas) != n_logical + n_bnd:
         raise ValueError(f"compose_ext: expected {n_logical + n_bnd} alphas "
                          f"(one per LOGICAL constraint + one per boundary), got {len(alphas)}")
@@ -233,7 +247,6 @@ def compose_ext(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
     consts_a = _u64(len(consts), consts)
     out_idx = (u32 * max(1, n_out))(); out_idx[:n_out] = list(outputs)
     pair_idx = (u32 * max(1, n_pairs))(); pair_idx[:n_pairs] = list(pairs)
-    from execnode.stark import ext2
     # The CHALLENGES are extension pairs too, not just the alphas — the arena wants both flattened to limbs,
     # and prog["C"] already counts the flattened width (2 per logical challenge under ext_chal). Flattening
     # only the alphas left the challenges as tuples and int() rejected them, which stark.prove then swallowed
@@ -263,7 +276,7 @@ def compose_ext(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
 def fold_ext(col_lo, col_hi, offset, alpha):
     """One GF(p^2) FRI fold of an extension column pair → a new half-length pair; returns the LO id (HI is
     lo+1). Bit-identical to fri._fold_ext."""
-    from execnode.stark import ext2
+    from execnode.stark import extf as ext2
     a0, a1 = ext2.lift(alpha)
     cid = _LIB.sp_fold_ext(int(col_lo), int(col_hi), int(offset) % _P, int(a0) % _P, int(a1) % _P)
     if cid < 0:
@@ -362,7 +375,10 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # The composition is two columns; the TRACE is the memory. So the refusal now applies only to a library
     # built before the extension port, where it remains the right answer.
     if _ext and not ext_capable():
-        raise RuntimeError("this build of the arena predates the GF(p^2) port — use the Python path")
+        from execnode.stark import extf as _ef
+        _d = int(_LIB.sp_ext_degree()) if (available() and hasattr(_LIB, "sp_ext_degree")) else None
+        raise RuntimeError(f"the arena implements extension degree {_d} but this build needs "
+                           f"{_ef.DEGREE} — use the Python path")
     hmode = 1 if getattr(b, "name", "") == "alghash2" else 0     # arena Merkle: 0 rleaf/rnode, 1 hashn
     T = len(trace); W = len(trace[0])
     blowup = stark._blowup(max_degree); N = blowup * T
@@ -408,7 +424,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     if _ext:
         # ONE alpha per LOGICAL constraint: an extension-valued constraint occupies two SSA outputs but takes
         # a single alpha, so this count is NOT len(outputs) + len(boundaries).
-        _n_logical = len(prog["outputs"]) - len(prog.get("ext_pairs") or ())
+        from execnode.stark import extf as _ef
+        _n_logical = len(prog["outputs"]) - len(prog.get("ext_pairs") or ()) * (_ef.DEGREE - 1)
         alphas = [t.challenge_ext() for _ in range(_n_logical + len(boundaries))]
         cp_col, _ = compose_ext(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
     else:
