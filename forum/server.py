@@ -56,7 +56,7 @@ def _heal_addr(a):
     try:
         if not validate_address(a):
             return a                                  # not an address of ANY generation — leave it alone
-        if a.startswith(ADDRESS_PREFIX):
+        if is_address(a):
             return a                                  # already current (validate_address checks only the
                                                       # checksum, never the prefix, so test that separately)
         body = a[:-4][-ADDRESS_BODY:]                 # 4 HEX chars of checksum (ADDRESS_CHECKSUM is bytes)

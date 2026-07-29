@@ -28,6 +28,30 @@ def validate_address(address: str, checksum_size: int = 2, allow_reserved: bool 
     return False
 
 
+def is_address(value) -> bool:
+    """True iff `value` is a well-formed KEYED address: exact length, lowercase hex, valid checksum.
+
+    THIS REPLACES `x.startswith(ADDRESS_PREFIX)`. That idiom appeared in a dozen places meaning "is this
+    recipient an address rather than a reserved protocol name or an alias", and it was always a sniff rather
+    than a test — "mldsa44" followed by garbage passed it. With the prefix removed it becomes actively
+    dangerous, because `"".startswith("")` is True for EVERY string: _lands_flexibly would classify bond,
+    register, attest and settle as flexibly-landing and silently discard the exact-landing timing invariant
+    those transactions depend on, and alias_ops would reject every alias name. Neither would raise.
+
+    So the discriminator is now the real thing: an address is what validates as one. Multisig accounts keep
+    their own MSIG_PREFIX and are deliberately NOT accepted here — a caller that means "any account" has to
+    say so, which is exactly the distinction the prefix sniff blurred."""
+    from protocol import ADDRESS_LENGTH, MSIG_PREFIX
+    if not isinstance(value, str) or len(value) != ADDRESS_LENGTH:
+        return False
+    if MSIG_PREFIX and value.startswith(MSIG_PREFIX):
+        return False
+    body = value[:-4]
+    if not body or any(c not in "0123456789abcdef" for c in body):
+        return False
+    return value[-4:] == make_checksum(body)
+
+
 def make_checksum(public_key: str, checksum_size: int = 2) -> str:
     """2-byte (4-hex) blake2b checksum appended to addresses so a typo/truncation fails validation
     instead of silently burning coins.

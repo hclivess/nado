@@ -4,7 +4,7 @@ import json
 
 from signatures import sign, verify, unhex
 from ops.account_ops import get_account, reflect_transaction
-from ops.address_ops import proof_sender, make_address
+from ops.address_ops import proof_sender, make_address, is_address
 from ops.address_ops import validate_address
 from ops.block_ops import get_block_number
 from compounder import compound_send_transaction
@@ -1176,7 +1176,7 @@ def validate_transaction(transaction, logger, block_height):
         # recipient: a normal address — or the reserved FAUCET escrow, the one treasury->reserved payout that
         # makes sense (governance tops up the prize bank; the exec layer mirrors it like a donation).
         from protocol import FAUCET_ESCROW
-        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (sr.startswith(ADDRESS_PREFIX) and len(sr) == ADDRESS_LENGTH
+        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (is_address(sr)
             and sr not in RESERVED_RECIPIENTS)), "treasury spend recipient must be a normal address or 'faucet'"
         assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "treasury spend amount must be a positive int"
         assert isinstance(snonce, str) and 0 < len(snonce) <= 64, "treasury spend nonce must be 1..64 chars"
@@ -1212,7 +1212,7 @@ def validate_transaction(transaction, logger, block_height):
         sr, sa, memo, snonce, sexpiry = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce"), spend.get("expiry")
         # same recipient rule as treasury_vote: normal address, or the FAUCET escrow (prize-bank top-up).
         from protocol import FAUCET_ESCROW
-        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (sr.startswith(ADDRESS_PREFIX) and len(sr) == ADDRESS_LENGTH
+        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (is_address(sr)
             and sr not in RESERVED_RECIPIENTS)), "treasury spend recipient must be a normal address or 'faucet'"
         assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "bad treasury spend amount"
         assert isinstance(snonce, str) and 0 < len(snonce) <= 64 and isinstance(memo, str) and len(memo) <= 256, "bad treasury spend nonce/memo"
@@ -1236,7 +1236,7 @@ def validate_transaction(transaction, logger, block_height):
         assert transaction["amount"] > 0, "HTLC lock amount must be positive"
         assert transaction["fee"] >= MIN_TX_FEE, f"HTLC lock fee below minimum {MIN_TX_FEE}"
         claimant, hashlock, expiry = data.get("claimant"), data.get("hashlock"), data.get("expiry")
-        assert isinstance(claimant, str) and claimant.startswith(ADDRESS_PREFIX) and len(claimant) == ADDRESS_LENGTH, "bad HTLC claimant address"
+        assert isinstance(claimant, str) and is_address(claimant), "bad HTLC claimant address"
         assert claimant != transaction["sender"], "HTLC claimant must differ from the sender"
         assert isinstance(hashlock, str) and len(hashlock) == 64 and _is_hex(hashlock), "HTLC hashlock must be 32-byte SHA-256 hex"
         assert isinstance(expiry, int) and not isinstance(expiry, bool), "HTLC expiry must be an int block height"

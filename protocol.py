@@ -19,12 +19,20 @@ CHAIN_ID = "alphanet-13"  # AUX-EXT reroll (2026-07-28): LogUp challenges in GF(
 DENOMINATION = 10_000_000_000  # 1e10
 
 # ---- ADDRESS FORMAT (single source of truth — doc/address-format.md) -------------------------------
-# address = ADDRESS_PREFIX + first ADDRESS_BODY hex chars of the pubkey + 4-hex blake2b checksum.
-# The prefix is deliberately a ONE-CONSTANT rebrand point: no other Python spells it (the JS mirrors
-# are static/nadotx.js ADDR_PREFIX and static/interface.js ADDR_PREFIX — three lines total).
+# address = first ADDRESS_BODY hex chars of the pubkey + 4-hex blake2b checksum. NO PREFIX.
 # Changing ANY of these orphans every existing address string, so a change ships only with a
 # CHAIN_GENERATION reroll whose genesis alloc is re-keyed by scripts/rekey_alloc.py.
-ADDRESS_PREFIX = "mldsa44"      # key-type discriminator: the FIPS-204 scheme whose pubkey the body hashes
+#
+# THE PREFIX IS GONE (alphanet-14), with no backwards compatibility. It never verified anything:
+# validate_address() has always checked ONLY the 4-hex blake2b checksum over the rest, and never referenced
+# the prefix at all. So "does this string belong to NADO" is still answered exactly as before — right length,
+# valid checksum — and a random 46-hex string still passes with probability 2^-16, unchanged.
+# What it DID do was serve as a cheap discriminator in a dozen `startswith(ADDRESS_PREFIX)` sniffs meaning
+# "an address rather than a reserved name or an alias". Those are now address_ops.is_address(), a real check,
+# because an empty prefix makes startswith() true for EVERY string — which would have silently reclassified
+# every timing-critical reserved tx as flexibly-landing.
+# MSIG_PREFIX survives and is what still distinguishes policy accounts from keyed ones.
+ADDRESS_PREFIX = ""             # removed at alphanet-14; kept as a constant so the derivation stays one place
 MSIG_PREFIX = "msig"           # policy accounts (M-of-N multisig) — the 1-vs-3 split; see doc/address-format.md
 ADDRESS_BODY = 42              # hex chars of the pubkey carried in the address
 ADDRESS_CHECKSUM = 2           # checksum bytes (4 hex chars), blake2b over prefix+body

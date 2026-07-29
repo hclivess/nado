@@ -789,7 +789,7 @@ async def account_mempool(request):
                 else:
                     # incoming: direct address match, or a send addressed to one of the address's aliases
                     to = recipient
-                    if to and not to.startswith(ADDRESS_PREFIX):
+                    if to and not is_address(to):
                         to = alias_ops.resolve_alias(recipient) or recipient
                     if to == addr:
                         fi += amount
