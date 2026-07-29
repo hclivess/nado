@@ -150,6 +150,54 @@ must not be hidden behind an hour-long proof, or a timeout reports them all as f
 
 ---
 
+## 4. The address prefix is gone
+
+An address is now **42 hex chars of the pubkey + a 4-hex blake2b checksum — 46 characters, no prefix.**
+`mldsa44` is removed with **no backwards compatibility**; every pre-existing address string is orphaned,
+which is why this could only ship with a `CHAIN_GENERATION` reroll.
+
+### Can you still tell an address belongs to NADO?
+
+Yes — and by exactly the same means as before, because **the prefix never verified anything.**
+`validate_address()` has always checked only the trailing 4-hex blake2b checksum over the rest, and never
+referenced `ADDRESS_PREFIX` at all. So the test is what it always was: correct length, valid checksum. A
+random 46-hex string passes with probability 2⁻¹⁶ ≈ 1/65536 — *unchanged*, since the prefix was never part
+of the check.
+
+What is genuinely lost is the **eyeball and tooling marker** — the thing that said "this hex is NADO's and
+not some other chain's". Nothing cryptographic ever rested on it; an address is a hash of a public key, and
+membership in NADO is established by the address existing in NADO's state, not by its spelling.
+
+### What the prefix was actually load-bearing for
+
+This is the part that made the change dangerous, and it has nothing to do with verification. A dozen sites
+asked `x.startswith(ADDRESS_PREFIX)` to mean *"is this recipient an address, rather than a reserved protocol
+name or an alias?"*. With an empty prefix, `startswith("")` is **True for every string** — and not one of
+these would have raised:
+
+- **`block_ops._lands_flexibly`** would classify `bond`, `register`, `attest` and `settle` as
+  flexibly-landing, silently discarding the exact-landing timing invariant those transactions depend on.
+  A consensus change with no error and no traceback.
+- **`alias_ops.valid_alias_name`** would reject the entire alias namespace.
+- The **HTLC / faucet / wallet** recipient checks, and `pets.js`'s, would go vacuous — accepting anything.
+
+All of them now call `ops.address_ops.is_address()`: exact length, lowercase hex, matching checksum. That is
+strictly better than what it replaced, because the sniff was never a test — `"mldsa44"` followed by garbage
+passed it. Multisig accounts keep `MSIG_PREFIX` and are deliberately **excluded**, so a caller that means
+"any account" now has to say so; the prefix sniff blurred that distinction.
+
+`tests/test_address_format.py` pins the discriminator rather than the format: all 28 reserved names rejected,
+the exact-landing routing asserted directly, and the unchanged typo/truncation rejection kept honest.
+
+Python and JS derive the **identical** 46-char address — verified, because a mismatch would mean browser
+wallets build addresses the chain rejects.
+
+### Display
+
+Shortened addresses were `mldsa44e…af34`: seven constant characters and one distinguishing one. A user
+reported that every address looked the same, and they were right. With the prefix gone the whole budget goes
+to entropy, and `shortAddr()` in the SDK renders truncations like `96381e…d9e7e` that differ from the first character.
+
 ## Fleet fixes found along the way
 
 **A lone forker could corroborate its own finality floor.** `_depth_floor_corroborated` asked "is the
