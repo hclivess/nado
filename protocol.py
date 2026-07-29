@@ -427,8 +427,12 @@ ALIAS_REGISTRATION_FEE = 10_000_000     # 0.001 NADO (10,000x MIN_TX_FEE): deter
 # here. It is a normal KEY-CONTROLLED address (the founder holds its key), derived here under the
 # canonical (new) checksum from the genesis public-key body so it validates. It starts EMPTY —
 # there is NO genesis allocation (TREASURY_GENESIS = 0 below); it only fills from the per-block cut.
-_GENESIS_BODY = "mldsa4427f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # genesis producer address (ML-DSA addr minus 4-hex checksum)
-# ^ ADDRESS LITERAL: re-derived at any address-format switch (doc/address-format.md cutover step 4)
+_GENESIS_BODY = "27f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # genesis producer address (ML-DSA addr minus 4-hex checksum)
+# ^ ADDRESS LITERAL: re-derived at any address-format switch (doc/address-format.md cutover step 4).
+# DE-PREFIXED at alphanet-14. The pubkey BODY is unchanged, so the same key still owns this account — only
+# the string changed (49+4 -> 42+4). Leaving the "mldsa44" on here would have been silent and total: the
+# founder's key derives make_address(pk) = 42 hex + checksum, which can never equal a 53-char literal, so
+# the treasury's own genesis address would have belonged to nobody.
 GENESIS_ADDRESS = _GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)
 # The TREASURY is a RESERVED, KEYLESS account (like "dividend"/"bridge") — NOT the founder's genesis address.
 # No private key exists for it, so the ONLY way coins leave it is a quorum-approved treasury_execute
@@ -654,6 +658,28 @@ INVARIANT_CHECK_BLOCKS = EPOCH_LENGTH
 DEAD_FORK_STALL_S = 900          # 15 min of a completely frozen tip before the question is even asked
 DEAD_FORK_COOLDOWN_S = 1800      # at most one purge attempt per 30 min
 DEAD_FORK_QUORUM = 2             # distinct peers that must disagree at our finalized height
+# GENESIS COLD-START QUIET PERIOD — the reroll race.
+#
+# THIS IS THE DEFECT THAT SPLIT alphanet-13. Every node purges and restarts at a reroll, but they do not
+# restart together: on 2026-07-28 185.100.232.5 came back ~4 minutes before the rest, found an empty peer
+# table, and started mining block 1 from the shared genesis on its own. By the time the others were up it
+# sat at tip 273 / weight 88725 against their 217 / 70525 — already PAST the 45-block finality depth, so no
+# rollback could reconcile the two branches and the fleet stayed split until it was rerolled again.
+#
+# Nothing in the ordinary gates catches this, because at a reroll every gate is trivially satisfied: the
+# caught-up gate (peer_claims_heavier_tip) can see no heavier tip when every node is at height 0, and the
+# peer-count gate passes vacuously wherever an operator has set min_peers = 0 for solo production — which is
+# the live setting on more than one fleet node.
+#
+# So gate the one moment that matters: producing THE FIRST BLOCK of a chain. A node at height 0 that knows
+# of seed peers but has reached none of them has no evidence it is alone — only evidence that it is early.
+# Wait for the mesh, then start together.
+#
+# BOUNDED, so this can never brick a node: once GENESIS_QUIET_S has elapsed the node produces regardless.
+# A genuinely standalone deployment (no seeds configured, or none reachable) pays this delay exactly once,
+# at genesis, and never again — the gate is dead the instant the chain has a single block.
+GENESIS_QUIET_S = 600            # 10 min > the ~4 min restart stagger that actually caused the split
+GENESIS_QUIET_MIN_PEERS = 2      # contacted peers that release the gate early (the normal path: seconds)
 # How long a measured fork state stays cached. The probe costs ~log2(depth) direct peer round-trips, so it
 # must not run every ~1s pass; but it gates reorg/re-anchor decisions, so it must not go badly stale either.
 FORK_STATE_TTL_S = 60
