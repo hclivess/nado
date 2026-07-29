@@ -31,14 +31,19 @@ def _candidates():
 
 
 def available():
-    """True if the native arena lib loaded (cached)."""
+    """True if the native arena lib loaded (cached).
+
+    RUST-ONLY: if no usable library is found this RAISES (native_guard.require) rather than reporting False,
+    so the caller cannot proceed into a Python path that no longer exists as a production option. The name is
+    kept because ~40 call sites read it as a predicate; what changed is that False is no longer reachable in a
+    node — only under NADO_ALLOW_PYTHON_KERNELS, which exists for builds and conformance tests."""
     global _LIB, _state
     if _state is not None:
         return _state
-    from execnode.stark.native_guard import is_stale
+    from execnode.stark import native_guard
     for path in _candidates():
         if path and os.path.exists(path):
-            if is_stale(path, os.path.dirname(os.path.dirname(os.path.dirname(path)))):
+            if native_guard.is_stale(path, os.path.dirname(os.path.dirname(os.path.dirname(path)))):
                 continue                                   # .so older than its sources (pulled without rebuild)
             try:
                 lib = ctypes.CDLL(path)
@@ -90,6 +95,25 @@ def available():
                 return True
             except Exception:
                 continue
+    # Nothing usable. Under the Rust-only policy that is fatal, not a downgrade.
+    #
+    # require() first, because it produces the precise message for the two common causes (absent .so, or one
+    # older than its own sources). But it is NOT sufficient on its own: it inspects the canonical crate path,
+    # so if NADO_STARKPROVE_LIB points somewhere broken — or the library is present and fresh yet fails to
+    # load for an ABI/symbol reason — require() sees a healthy file and returns. My first version stopped
+    # there and silently returned False, i.e. exactly the downgrade this change exists to abolish. So the
+    # loader raises on its own behalf too: reaching this line at all means no candidate loaded.
+    here = os.path.dirname(os.path.abspath(__file__))
+    crate = os.path.join(os.path.dirname(os.path.dirname(here)), "native", "starkprove")
+    native_guard.require("starkprove", os.path.join(crate, "target", "release", "libnado_starkprove.so"),
+                         crate, reason="the persistent LDE/composition arena")
+    if not native_guard.allow_absent():
+        raise native_guard.NativeMissing(
+            "native crate 'starkprove' is REQUIRED and no candidate library could be loaded (tried: "
+            + ", ".join(p for p in _candidates() if p) +
+            "). The file may exist but fail to load — a wrong architecture, a missing symbol from an older "
+            "build, or NADO_STARKPROVE_LIB pointing at the wrong file. Rebuild with `cargo build --release` "
+            "in native/starkprove. There is no Python fallback in production.")
     _state = False
     return False
 
