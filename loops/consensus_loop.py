@@ -274,6 +274,29 @@ class ConsensusClient(threading.Thread):
                 weight_pool[peer] = status["latest_block_weight"]
         self.weight_pool = weight_pool
 
+        # FLEET-BLIND RELEASE VALVE (2026-07-30, .210 post-reroll). Peer-benching is PER-PEER anti-DoS:
+        # one forker mustn't own the donor pool. But during the reroll restart storm a node struck out
+        # EVERY peer it knew (each fetch failed while everyone rebooted), and PEER_BENCH_MAX_S=7200 then
+        # left it blind to the whole honest fleet for up to two hours — minting a phantom solo chain at
+        # floor 0 the entire time, invisible to the dead-fork escape (a genesis-floor probe always finds
+        # agreement on a shared-genesis network). Benching ALL known peers while at least one of them
+        # claims a strictly heavier chain is self-evidently our own failure, not theirs ("our failure to
+        # fetch says more about us than about them" — reject_tip's own reasoning): drop the peer benches
+        # and let fork choice see the fleet again. Tip benches (per-hash, short) are kept, so a genuinely
+        # bogus advertised weight still cannot spin us — its tip re-benches on the next failed fetch.
+        if self._peer_until and weight_pool:
+            _now_m = time.monotonic()
+            _active = [p for p in weight_pool if p in self.status_pool]
+            _our_w = int(self.memserver.latest_block.get("cumulative_weight", 0) or 0)
+            if (_active and all(self._peer_until.get(p, 0) > _now_m for p in _active)
+                    and any(int(weight_pool[p] or 0) > _our_w for p in _active)):
+                self.logger.warning(
+                    f"Every one of our {len(_active)} status-answering peers is peer-benched while at "
+                    f"least one advertises a heavier chain — fleet-wide blindness is our own failure; "
+                    f"releasing the peer benches (tip benches kept)")
+                self._peer_until.clear()
+                self._peer_strikes.clear()
+
         # tip_weights: best advertised weight per distinct tip hash, INCLUDING our own tip so we never
         # switch away from an equal-or-heavier local chain (first-seen on ties). Excludes rejected tips.
         tip_weights = {}
