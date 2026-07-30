@@ -262,6 +262,10 @@ async def status(request):
             "update_blocking": (memserver.updatability or {}).get("blocking") or [],
             "update_remote_reachable": ((memserver.updatability or {}).get("checks") or {}).get("remote_reachable"),
             "dead_fork_probe": getattr(memserver, "dead_fork_probe", None),
+            # STATE-WEDGE streak (loops/core_loop._note_state_reject): remote fully-valid blocks refused
+            # for L1 state-root mismatch at one height — the corrupt-local-state geometry every block-level
+            # probe misses. Same diagnostics-only contract as dead_fork_probe.
+            "state_wedge": getattr(memserver, "state_wedge", None),
             # NETWORK PARTITION KEY: peers gate admission on this (peer_loop) so nodes on a different
             # chain (e.g. a pre-relaunch alphanet) never enter the status/consensus pools — a foreign
             # chain's advertised weight would otherwise stall production via the caught-up gate.

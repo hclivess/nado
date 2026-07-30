@@ -612,6 +612,24 @@ INVARIANT_CHECK_BLOCKS = EPOCH_LENGTH
 DEAD_FORK_STALL_S = 900          # 15 min of a completely frozen tip before the question is even asked
 DEAD_FORK_COOLDOWN_S = 1800      # at most one purge attempt per 30 min
 DEAD_FORK_QUORUM = 2             # distinct peers that must disagree at our finalized height
+# STATE-WEDGE ESCAPE (loops/core_loop, 2026-07-30 alphanet-13 h15076 incident). A node whose LOCAL STATE
+# diverged while the BLOCK BODIES still agree is invisible to every block-level recovery route at once:
+# the fork state reads BEHIND (hash equality holds), the dead-fork probe reads agreement (peers serve our
+# hash at the finalized height), and verify_block's state-root binding — correctly — refuses every remote
+# block at tip+1 forever. Observed live: two nodes re-minted the same dead block every ~20s for 18 hours,
+# and the corrupt state SPREAD, because each refused tip got benched and the mint gate then re-opened.
+# The escape: after enough distinct-peer state-root rejects at one height over a real time span, our state
+# is the outlier — stop minting and re-anchor onto the heaviest chain's snapshot (state replaced wholesale,
+# every tail block still fully re-verified). Sybil-resistant: rejects only count from blocks that passed
+# producer-selection + weight + reward validation, ≥2 distinct peers must have served them, and the
+# re-anchor itself demands a super-majority snapshot quorum. A false trigger costs one cooldown-limited
+# snapshot import onto the SAME chain — harmless; a missed trigger is a permanent outage.
+STATE_WEDGE_REJECTS = 8          # remote state-root rejects at one height before escalation
+STATE_WEDGE_SPAN_S = 90          # the rejects must span at least this long (not one burst)
+STATE_WEDGE_MIN_PEERS = 2        # distinct peers whose (fully validated) blocks we refused
+STATE_WEDGE_MINT_HOLD = 3        # stop minting our own block at the disputed height this early
+STATE_WEDGE_COOLDOWN_S = 300     # at most one state-wedge re-anchor attempt per 5 min
+STATE_WEDGE_STALE_S = 600        # a streak with no new reject for this long is forgotten
 # How long a measured fork state stays cached. The probe costs ~log2(depth) direct peer round-trips, so it
 # must not run every ~1s pass; but it gates reorg/re-anchor decisions, so it must not go badly stale either.
 FORK_STATE_TTL_S = 60
