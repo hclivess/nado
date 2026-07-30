@@ -696,8 +696,21 @@ class CoreClient(threading.Thread):
         (under partition even FFG is subjective — the inactivity leak lets each side quorum its own branch).
         Every tail block after the import is still fully re-verified, so a fabricated weight hint cannot be
         extended into an accepted chain."""
-        if self.memserver.latest_block["block_number"] != 0 and not force_reanchor:
-            return False   # genesis-only for normal bootstrap; force_reanchor re-anchors an established node
+        _tip_n = self.memserver.latest_block["block_number"]
+        if _tip_n != 0 and not force_reanchor:
+            # NOT-YET-ESTABLISHED EXTENSION (2026-07-30 aftermath): "genesis-only" assumed a fresh node
+            # cannot have moved off genesis before finding the network — but a freshly-purged node whose
+            # reachable peers were briefly only its fellow purgees (the operator seeds ARE each other)
+            # minted a ~30-block private chain within seconds (min_peers=0 permits solo production), and
+            # that alone disqualified it from bootstrap FOREVER: no donor can serve its root (the majority
+            # prunes far above genesis), the ancestor search has zero overlap so the fork state stays
+            # UNKNOWN, and every recovery route declines. A node with NOTHING FINALIZED and a tip still
+            # inside the finality window has nothing a snapshot import can destroy — its unfinalized
+            # self-minted blocks are exactly what fork choice discards anyway — so it keeps bootstrap
+            # eligibility until it first finalizes. The donor quorum/weight gates below are unchanged.
+            from ops.account_ops import get_finalized_height
+            if not (get_finalized_height() == 0 and _tip_n < self.memserver.finality_depth):
+                return False   # established (or past the window): only force_reanchor may re-anchor
         try:
             peers = list(self.memserver.peers)
             if len(peers) < 1:
@@ -1348,10 +1361,14 @@ class CoreClient(threading.Thread):
                     if now - self._last_no_syncable_log >= NO_SYNCABLE_LOG_INTERVAL:
                         self._last_no_syncable_log = now
                         self.logger.info("Could not find a syncable peer")
-                    # A fresh node whose root (genesis) no peer can serve — because every donor is a
-                    # rolling/pruned node — can never full-sync forward. Retry snapshot bootstrap until a
-                    # donor advertises a finalized checkpoint, then tail-sync from there.
-                    if self.memserver.latest_block["block_number"] == 0 and self.snapshot_bootstrap():
+                    # A fresh node whose root no peer can serve — because every donor is a rolling/pruned
+                    # node — can never full-sync forward. Retry snapshot bootstrap until a donor advertises
+                    # a finalized checkpoint, then tail-sync from there. No `== 0` pre-gate here: the
+                    # eligibility check lives INSIDE snapshot_bootstrap and now also admits a
+                    # nothing-finalized node that minted a few solo blocks before finding the network
+                    # (the 2026-07-30 purge-rebootstrap gap) — pre-gating on genesis re-created exactly
+                    # the wedge the inner gate was widened to fix.
+                    if self.snapshot_bootstrap():
                         self.logger.warning("State bootstrapped from snapshot; continuing with tail sync")
                     # ESTABLISHED node, no donor can serve our root: we are on a minority fork whose root no
                     # honest canonical peer holds. If a strictly-heavier chain exists, re-anchor onto it (the
