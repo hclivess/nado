@@ -13,7 +13,7 @@
 //   dapp.call("bet", [g, t, ...args], stakeRaw, "human label", { table: t, phase: "bet" });
 //   await dapp.refresh();                    // dapp.me, dapp.exec, dapp.l1, dapp.cursor
 //   const sto = await dapp.storage();        // the contract's storage maps
-import { loadCrypto, blake2bHash } from "./nadotx.js?v=6d199166";
+import { loadCrypto, blake2bHash } from "./nadotx.js?v=b05eb43e";
 import * as alghash from "./alghash.js?v=849f345a";
 export { loadCrypto, blake2bHash };
 
@@ -29,14 +29,14 @@ const PEND_TTL_MS = 120000;      // how long a CLICKED action stays "pending" wi
 const PEND_TIP_TTL = 4;
 const STALL_MS = 45000;          // exec cursor frozen this long = the chain isn't advancing (node catching up / partition), not "your tx is slow" — see chainStalled()
 // ---- address format (ONE constant — see the rebrand-proofing rule) --------------------------------
-// An address is ADDR_PREFIX + 42 hex of the pubkey + a 4-hex blake2b checksum over prefix+body.
-export const ADDR_PREFIX = "mldsa44";
+// An address is 42 hex of the pubkey + a 4-hex blake2b checksum over it. No prefix (alphanet-14).
+export const ADDR_PREFIX = ""    // removed at alphanet-14; NO backwards compatibility;
 const ADDR_BODY = 42;
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");
 
 /**
  * SELF-HEAL a signed-in session address across an address-format change (the alphanet-7 debrand:
- * ndo… → mldsa44…). Games persist only the ADDRESS from the wallet handshake, so a session established
+ * ndo… → mldsa44… → prefixless). Games persist only the ADDRESS from the wallet handshake, so a session established
  * before the change keeps the OLD string in localStorage forever — the game then reads balances/state for
  * an address that owns nothing and shows the player an empty account ("0 NADO", "Playing as ndo…") while
  * their funds sit under the new-format address for the very same key. A hard refresh can't fix it.
@@ -415,8 +415,8 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&a
 // shortAddr(addr): a truncation that actually distinguishes addresses.
 //
 // EVERY address begins with the same 7-character key-type discriminator (protocol.ADDRESS_PREFIX =
-// "mldsa44"), so a head-slice spends almost all of its budget on characters that are identical for every
-// account on the chain. The old `addr.slice(0, 8)` showed "mldsa44e" — SEVEN constant characters and ONE
+// ""), so a head-slice spends almost all of its budget on characters that are identical for every
+// account on the chain. The old `addr.slice(0, 8)` showed "e" — SEVEN constant characters and ONE
 // distinguishing one — and in any list of players, seats or leaderboard rows the entries looked the same.
 // A user reported exactly that, and they were right.
 //
@@ -431,13 +431,13 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&a
 // renders `disp(seats[n] || "?")` and pool seats a literal "cpu" for practice — and those are returned
 // verbatim. That also removes a workaround: pool.js carried a comment explaining that disp() mangles "cpu"
 // into "cpu…cpu", which no longer happens.
-const _ADDR_PREFIX = "mldsa44";
 export const shortAddr = (addr, head = 6, tail = 5) => {
   if (!addr) return "—";
   const s = String(addr);
-  if (!s.startsWith(_ADDR_PREFIX)) return s;      // not an address; never a compatibility path
-  const body = s.slice(_ADDR_PREFIX.length);
-  return body.slice(0, head) + "…" + body.slice(-tail);
+  // Length is the discriminator now that there is no prefix. Game UIs render sentinels through disp()
+  // (hexholm passes "?", pool passes "cpu"), and those must come back verbatim rather than truncated.
+  if (s.length !== ADDR_BODY + 4) return s;
+  return s.slice(0, head) + "…" + s.slice(-tail);
 };
 export const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasCache[addr] : shortAddr(addr));
 

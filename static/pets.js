@@ -4,10 +4,10 @@
 // alive, trains with a rarity-scaled limit-function success chance, battles other pets for stakes (loser
 // has a 20% chance to die), and transfers between wallets like any NFT. All money moves happen in the
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shortAddr, shareInvite, confirmingLabel, esc } from "./nadodapp.js?v=811ac9bd";
-import * as G from "./pets-genes.js?v=68025c91";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shortAddr, shareInvite, confirmingLabel, esc } from "./nadodapp.js?v=d4ad4b44";
+import * as G from "./pets-genes.js?v=f3269718";
 import { HAND_ART } from "./pets-art-hand.js?v=666a1afd";   // bespoke per-animal art (grows toward the full roster)
-import { loadCrypto, ADDR_PREFIX } from "./nadotx.js?v=6d199166";
+import { loadCrypto, ADDR_PREFIX } from "./nadotx.js?v=b05eb43e";
 
 const CID = "f49e01a823d2bbf380587dce47bc1b9d";   // execnode/games/pets.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Pets" });
@@ -980,7 +980,7 @@ async function transfer(pid) {
     catch { to = ""; }
     if (!to) return alertBar(window.t("pets.aliasNoResolve", "That @alias doesn't resolve to an address."));
   }
-  if (!to || !to.startsWith(ADDR_PREFIX)) return alertBar(window.t("pets.enterRecipient", "Enter the receiving NADO address or a registered @alias."));
+  if (!to || to.length !== ADDR_LEN) return alertBar(window.t("pets.enterRecipient", "Enter the receiving NADO address or a registered @alias."));
   if (to === dapp.me) return alertBar(window.t("pets.thatsYou", "That's you — pick another wallet."));
   dapp.call("transfer", [Number(pid), to], null, "transfer " + PETS[pid].label + " to " + shortAddr(to), { pid, phase: "xfer" }, { confirm: 1 });
 }

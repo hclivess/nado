@@ -7,10 +7,10 @@
 // A shot is ONE log entry, so a whole frame of pool is ~30 transactions and both browsers re-derive the
 // identical table from them: the physics is integer-exact (see pool-engine.js) and the rack is seeded by
 // the join block, so there is nothing for either side to disagree about.
-import { NadoDapp, $, notify, disp, installModes, lsLoad, lsSave } from "./nadodapp.js?v=811ac9bd";
-import { DuelGame } from "./duelgame.js?v=29be0404";
-import * as E from "./pool-engine.js?v=543c9ede";
-import { prand } from "./practice.js?v=ad93c772";
+import { NadoDapp, $, notify, disp, installModes, lsLoad, lsSave } from "./nadodapp.js?v=d4ad4b44";
+import { DuelGame } from "./duelgame.js?v=e07bc392";
+import * as E from "./pool-engine.js?v=43be9c16";
+import { prand } from "./practice.js?v=ba4931fc";
 
 const CID = "685a84e20bfd86c5bfc767ecc1ccaf0f";
 const dapp = new NadoDapp({ cid: CID, app: "Pool" });

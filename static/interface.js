@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare } from "./nadodapp.js?v=811ac9bd";   // THE one share implementation (SDK)
+import { share as sdkShare } from "./nadodapp.js?v=d4ad4b44";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -46,9 +46,9 @@ const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, 
 const POSW_TARGET_MARGIN = POSW_ANCHOR_OFFSET;
 const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
-const ADDR_PREFIX = "mldsa44";
+const ADDR_PREFIX = ""    // removed at alphanet-14; NO backwards compatibility;
 const MSIG_PREFIX = "msig";                 // policy accounts (multisig) — own discriminator
-const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;                     // 49 today
+const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;                     // 46 today
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");    // strict (lowercase)
 const ADDR_RE_I = new RegExp(ADDR_RE.source, "i");
 const ADDR_RE_LOOSE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{40,}$", "i");
@@ -67,7 +67,11 @@ const MIN_TX_FEE = 1000;
 // Blocks to delay a flexibly-landing tx's earliest inclusion (min_block = tip + this) so it gossips to
 // every producer before any may include it -> identical mempools -> byte-identical blocks -> the node
 // fast-forward always hits (steady block_time). Mirror of protocol.TX_INCLUSION_DELAY.
-const TX_INCLUSION_DELAY = 2;
+// HAND-MAINTAINED MIRROR — the one constant on this page not derived from the node, so the one that can
+// silently drift. It sat at 2 while protocol.py moved to 8: the browser stamped min_block = tip + 2,
+// producers that had not yet seen the tx rejected it as too early, and a send looked like an intermittent
+// network fault rather than a constant mismatch. Keep in lockstep with protocol.TX_INCLUSION_DELAY.
+const TX_INCLUSION_DELAY = 8;
 // GENEROUS landing headroom for a FLEXIBLY-landing tx (value send, blob/collect, bridge, dividend_withdraw):
 // max_block = tip + this, so the tx may be mined anywhere in [min_block, max_block] and does not expire (and
 // re-gossip-flood "Target block too low") before a producer includes it. Kept below the tip+360 mempool cap.
@@ -302,7 +306,7 @@ function validateAddress(addr) {
 }
 
 // ALIAS: a short human-readable name that resolves to an owner address on-chain. Client mirror of
-// ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter, not "mldsa44…").
+// ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter).
 // case-insensitive on purpose: on-chain alias names are all-lowercase, and callers normalize with
 // .toLowerCase() before resolving/sending — typing "Alice" must behave exactly like "alice".
 function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/i.test(s || "") && !ADDR_PRE_RE_I.test(s || ""); }
@@ -316,10 +320,10 @@ async function resolveAlias(name) {
     return d && d.owner ? d.owner : null;
   } catch { return null; }
 }
-// Live validation of the Send "to" field: a valid mldsa44… address, OR a registered alias (resolved
+// Live validation of the Send "to" field: a valid address, OR a registered alias (resolved
 // against the node, so the ✗ clears once the alias exists). Guards against stale async results.
 async function validateSendTo() {
-  const v = ($("sendTo").value || "").trim().toLowerCase();
+ const v = ($("sendTo").value || "").trim().toLowerCase();
   if (!v) { setMsg("sendToMsg", "", null); return; }
   if (validateAddress(v)) { setMsg("sendToMsg", i18("sto.valid", "✓ valid address"), "ok"); return; }
   if (looksLikeAlias(v)) {
@@ -329,7 +333,7 @@ async function validateSendTo() {
     setMsg("sendToMsg", owner ? `${i18("sto.aliasPre","✓ alias →")} ${_abShort(owner)}` : `${i18("sto.aliasNoPre","✗ alias")} “${v}” ${i18("sto.aliasNoSuf","is not registered")}`, owner ? "ok" : "err");
     return;
   }
-  setMsg("sendToMsg", i18("sto.invalid", "✗ invalid — a 49-char mldsa44… address or a registered alias name"), "err");
+  setMsg("sendToMsg", i18("sto.invalid", "✗ invalid — a 46-char address or a registered alias name"), "err");
 }
 
 // ADDRESS BOOK: every recipient you send to (alias or address) is remembered in localStorage, offered
@@ -390,7 +394,7 @@ async function saveCurrentContact() {
     if (!owner) { setMsg("sendMsg", `Alias "${to}" is not registered.`, "err"); return; }
     alias = to; to = owner;
   }
-  if (!validateAddress(to)) { setMsg("sendMsg", "Enter a valid mldsa44… address or a registered alias to save.", "err"); return; }
+  if (!validateAddress(to)) { setMsg("sendMsg", "Enter a valid address or a registered alias to save.", "err"); return; }
   const label = await uiPrompt({ title: i18("ab.nameIt", "Name this contact (optional):"), placeholder: alias || "e.g. Alice" });
   if (label === null) return;
   addrBookAdd(to, (label || "").trim() || alias);
@@ -994,14 +998,14 @@ const LS_PENDING_CLAIM = "nado_pending_claim"; // sessionStorage: a banknote cla
 
 function persistWallet(w) { localStorage.setItem(LS_WALLET, JSON.stringify(w)); }
 function loadWallet() {
-  let w;
-  try { w = JSON.parse(localStorage.getItem(LS_WALLET)); } catch { return null; }
-  if (!w) return null;
-  // SELF-HEAL across an address-format change (e.g. the ndo -> mldsa44 debrand reroll): the persisted
-  // wallet keeps a plaintext `address`, but the address is a pure function of the pubkey — so re-derive it
-  // and, if the stored one is stale (old prefix/checksum), correct + re-persist it. Without this a wallet
-  // saved under the old format keeps signing/mining/registering with an address the new chain rejects
-  // ("Invalid sender"), and a hard refresh can't fix it because the stale address lives in localStorage.
+ let w;
+ try { w = JSON.parse(localStorage.getItem(LS_WALLET)); } catch { return null; }
+ if (!w) return null;
+ // SELF-HEAL across an address-format change (e.g. the ndo -> debrand reroll): the persisted
+ // wallet keeps a plaintext `address`, but the address is a pure function of the pubkey — so re-derive it
+ // and, if the stored one is stale (old prefix/checksum), correct + re-persist it. Without this a wallet
+ // saved under the old format keeps signing/mining/registering with an address the new chain rejects
+ // ("Invalid sender"), and a hard refresh can't fix it because the stale address lives in localStorage.
   try {
     if (w.publicKey) {
       const fresh = makeAddress(w.publicKey);
@@ -2593,29 +2597,29 @@ function adoptWallet(w, { needsSavePrompt }) {
  * Vectors generated from the live repo (hashing.py / ops/*.py / signatures.py).
  * -------------------------------------------------------------------------------------------- */
 const VEC = {
-  hash_register_list: "105d0518c85e8bf5a99702f1f26cb1a2ca98fdec706aab5d4e59e0dcc98fab1a",
-  checksum_string_size2: "ae09",
+  hash_register_list: "9d34a3f6039828c1a02847f121cb7b57f26fc0573f38a4b164b1039711cd26cb",
+  checksum_string_size2: "f962",
   checksum_body: "18c3afa286439e7ebcb284710dbd4ae42bdaf21b80",
   make_address_pub: "96381e3725f85cfe0ab8de17623957b4565ca9b04d37b903075f2723600c21e3",
-  make_address_out: "mldsa4496381e3725f85cfe0ab8de17623957b4565ca9b04dbb32",
+  make_address_out: "96381e3725f85cfe0ab8de17623957b4565ca9b04d9e7e",
   hash_link_a_b: "d803f13f94cb4546f8f9d50368dfbb44ea46aa3db56fecfa2570a3ebf90f3a13",
   torture_canonical: "{\"a\":\"h\\u00e9llo \\\"x\\\"\\n\\t/end\",\"m\":[3,2,{\"big\":12345678901234567890,\"k\":true}],\"n\":null,\"unicode_key_\\u00fc\":\"\\u2603 snowman\",\"z\":1}",
   torture_hash: "69029840259d7c85d5c3e61f09abc352d0554c9b4320ef7d59bb6942647b840c",
   bigobj_canonical: "{\"amount\":99999999999999999999,\"x\":9007199254740993}",
   bigobj_hash: "8a09e2d0782c39dd1522f8a83c5338d2960d1b9710ec5c18e66d6cc20354de20",
-  pow_address: "mldsa4496381e3725f85cfe0ab8de17623957b4565ca9b04dbb32",
-  pow_nonce: 60876,
+  pow_address: "96381e3725f85cfe0ab8de17623957b4565ca9b04d9e7e",
+  pow_nonce: 7498,
   pow_target_str: "1766847064778384329583297500742918515827483896875618958121606201292619776",
-  pow_hash_int_str: "479210438811666333841655298381181555121843668852037799455165937879820557",
+  pow_hash_int_str: "967317524127122590372847889687325346550786553544156505698899221471391632",
   fixed_priv: "4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a", // 32-byte ML-DSA-44 seed
   // Tx vectors carry NO signature (ML-DSA is hedged); only txid/canonical are comparable.
   // REGENERATE via tools/gen_selftest_vectors.py after ANY field/format/tag/chain_id change.
-  register_tx: {"sender": "mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-7", "fee": 0, "recipient": "register", "pow_nonce": 2108331, "txid": "aeebd09bf694e154b24e7cdc7b813640cf57ae12c62da6c83882b4f8daad0730"},
-  register_canonical: "{\"amount\":0,\"chain_id\":\"alphanet-7\",\"data\":\"\",\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"pow_nonce\":2108331,\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6\",\"timestamp\":1700000000}",
-  heartbeat_tx: {"sender": "mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-7", "fee": 0, "recipient": "heartbeat", "epoch": 205, "txid": "d57992ea881d5d5748578e709b34bd2fda355b44b55e05f209528d7e9c6f2cc8"},
-  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"alphanet-7\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6\",\"timestamp\":1700000000}",
-  transfer_tx: {"sender": "mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6", "amount": 123456, "timestamp": 1700000000, "data": "hello world", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-7", "fee": 1000, "recipient": "mldsa446a7a7a6d26040d8d53ce66343a47347c9b79e814c6f301", "txid": "9c68398f51d18f51ed7b4e52fede0de19bd4b492c234d6a8be2e3cadc659fc05"},
-  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"alphanet-7\",\"data\":\"hello world\",\"fee\":1000,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"mldsa446a7a7a6d26040d8d53ce66343a47347c9b79e814c6f301\",\"sender\":\"mldsa441e9f9f319a9ee0f98b3147a67dca40e7296d5e847b69d6\",\"timestamp\":1700000000}",
+  register_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-14", "fee": 0, "recipient": "register", "pow_nonce": 2108331, "txid": "745f159949043a25de3c82043e33d006b29334c2fe9a7b3d3fd9d15141ee6146"},
+  register_canonical: "{\"amount\":0,\"chain_id\":\"alphanet-14\",\"data\":\"\",\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"pow_nonce\":2108331,\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
+  heartbeat_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-14", "fee": 0, "recipient": "heartbeat", "epoch": 205, "txid": "3f56b10c827bbfabf01d1e9618692d4d938c46612270304f979a52d4a345a11d"},
+  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"alphanet-14\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
+  transfer_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 123456, "timestamp": 1700000000, "data": "hello world", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-14", "fee": 1000, "recipient": "6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498", "txid": "c9691636da2b8e53b5d7d468e27c5313ba5ff968f7acb16f079074b910687049"},
+  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"alphanet-14\",\"data\":\"hello world\",\"fee\":1000,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
 };
 
 function bodyOf(tx) {
@@ -2889,7 +2893,7 @@ async function sendAllToAmount() {
 
 async function doSend() {
   // lowercase: alias names are all-lowercase on-chain (and THIS string becomes the signed tx
-  // recipient), while a valid mldsa44… address is lowercase hex anyway — so "Alice" sends to "alice".
+  // recipient), while a valid address is lowercase hex anyway — so "Alice" sends to "alice".
   const recipient = $("sendTo").value.trim().toLowerCase();
   let resolvedOwner = null;
   if (!validateAddress(recipient)) {
@@ -2898,7 +2902,7 @@ async function doSend() {
       resolvedOwner = await resolveAlias(recipient);
       if (!resolvedOwner) { setMsg("sendMsg", `Alias "${recipient}" is not registered.`, "err"); return; }
     } else {
-      setMsg("sendMsg", i18("msg.badRecipient", "Invalid recipient — a 49-char mldsa44… address or a registered alias name."), "err"); return;
+      setMsg("sendMsg", i18("msg.badRecipient", "Invalid recipient — a 46-char address or a registered alias name."), "err"); return;
     }
   }
   let rawAmount;
@@ -2955,7 +2959,7 @@ async function doAliasOp(op) {
       if (!owner) { setMsg("aliasMsg", i18("alias.xferAliasMissing", "That target alias isn't registered."), "err"); return; }
       to = owner;
     }
-    if (!validateAddress(to)) { setMsg("aliasMsg", i18("alias.xferTarget", "Transfer target must be a valid mldsa44… address or a registered alias."), "err"); return; }
+    if (!validateAddress(to)) { setMsg("aliasMsg", i18("alias.xferTarget", "Transfer target must be a valid address or a registered alias."), "err"); return; }
   }
   const fee = op === "register" ? ALIAS_REGISTRATION_FEE : await currentFeeRaw();
   const acc = await getAccount(state.wallet.address);
@@ -3960,7 +3964,8 @@ function parsePayHash() {
   return { to: (params.get("to") || "").trim(), amount: (params.get("amount") || "").trim() };
 }
 
-// A #pay link's recipient can be transparent (mldsa44…) or shielded (zaddr…) — same link format, routed by prefix.
+// A #pay link's recipient can be transparent (46-hex) or shielded (zaddr…) — routed by shape, since only
+// the shielded form carries a prefix now.
 function _isZAddr(a) { try { parseShieldAddr(a); return true; } catch (e) { return false; } }
 
 // A #pay link with a zaddr… recipient prefills the SHIELDED send (same review-first rule as a normal Send).
@@ -4363,7 +4368,7 @@ async function exSearch() {
     if (owner) return exOpen("a", owner);
     $("exSearchErr").textContent = `Alias "${q}" is not registered.`; $("exSearchErr").classList.remove("hidden"); return;
   }
-  $("exSearchErr").textContent = i18("ex.searchErr", "Unrecognized — an mldsa44… address, an alias, a block number, or a 64-hex hash/txid.");
+  $("exSearchErr").textContent = i18("ex.searchErr", "Unrecognized — an address, an alias, a block number, or a 64-hex hash/txid.");
   $("exSearchErr").classList.remove("hidden");
 }
 
@@ -5062,7 +5067,7 @@ async function swapLock() {
   const amtRaw = nadoToRaw($("swapAmount").value || "0");
   const blocks = Math.max(10, parseInt($("swapTimelock").value || "120", 10) || 120);
   let hashlock = $("swapHashlock").value.trim().toLowerCase(), preimageHex = null;
-  if (!ADDR_RE_I.test(claimant)) { log("err", i18("swap.badClaimant", "Enter a valid mldsa44… claimant address.")); return; }
+  if (!ADDR_RE_I.test(claimant)) { log("err", i18("swap.badClaimant", "Enter a valid claimant address.")); return; }
   if (amtRaw <= 0n) { log("err", i18("swap.badAmount", "Enter an amount to lock.")); return; }
   try {
     if (!hashlock) { const pre = crypto.getRandomValues(new Uint8Array(32)); preimageHex = _hex(pre); hashlock = await _sha256hex(pre); }
@@ -5567,7 +5572,7 @@ function msigReadDescriptor() {
   if (members.length < 2 || members.length > MSIG_MAX_MEMBERS)
     throw new Error(i18("msig.badCount", "Enter 2–16 distinct member addresses."));
   for (const m of members)
-    if (!validateAddress(m)) throw new Error(i18("msig.badMember", "Not a valid mldsa44… address: {a}", { a: m }));
+    if (!validateAddress(m)) throw new Error(i18("msig.badMember", "Not a valid address: {a}", { a: m }));
   const threshold = parseInt(($("msigThreshold").value || "").trim(), 10);
   if (!(threshold >= 1 && threshold <= members.length))
     throw new Error(i18("msig.badThreshold", "Signatures required must be between 1 and the number of members."));
@@ -5642,7 +5647,7 @@ async function msigPropose() {
         const owner = await resolveAlias(recipient);
         if (!owner) { setMsg("msigProposeMsg", i18("msig.aliasMissing", "That alias isn't registered."), "err"); return; }
       } else {
-        setMsg("msigProposeMsg", i18("msg.badRecipient", "Invalid recipient — a 49-char mldsa44… address or a registered alias name."), "err"); return;
+        setMsg("msigProposeMsg", i18("msg.badRecipient", "Invalid recipient — a 46-char address or a registered alias name."), "err"); return;
       }
     }
     let rawAmount;
@@ -6009,7 +6014,7 @@ async function proposeSpend() {
       if (!owner) throw new Error(i18("quorum.aliasErr", "Alias not found."));
       to = owner;
     }
-    if (to !== "faucet" && !(to.startsWith(ADDR_PREFIX) && to.length === ADDR_LEN)) throw new Error(i18("quorum.badAddr", "Enter a valid mldsa44… address, a registered alias, or 'faucet'."));
+    if (to !== "faucet" && (to.length !== ADDR_LEN || !ADDR_RE.test(to))) throw new Error(i18("quorum.badAddr", "Enter a valid NADO address, a registered alias, or 'faucet'."));
     const amtRaw = nadoToRaw($("qPropAmount").value || "");
     if (!(amtRaw > 0n)) throw new Error(i18("quorum.badAmount", "Enter a positive amount."));
     const memo = ($("qPropMemo").value || "").slice(0, 256);
@@ -6191,7 +6196,7 @@ async function doUnshield() {
   const rawAmount = nadoToRaw($("unshieldAmount").value || "0");
   const to = $("unshieldTo").value.trim() || state.wallet.address;
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to unshield.")); return; }
-  if (!ADDR_RE_I.test(to)) { log("err", i18("shield.badAddr", "Enter a valid mldsa44… address.")); return; }
+  if (!ADDR_RE_I.test(to)) { log("err", i18("shield.badAddr", "Enter a valid address.")); return; }
   const notes = loadNotes();
   const note = notes.find((n) => !n.spent && BigInt(n.value) >= rawAmount);
   if (!note) { log("err", i18("shield.noNote", "No single banknote covers that amount yet (splitting across banknotes isn't supported here).")); return; }

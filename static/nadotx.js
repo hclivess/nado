@@ -67,9 +67,9 @@ export function blake2bHash(data, size = 32) { return bytesToHex(blake2b(canonic
 
 // ---- keys / address ------------------------------------------------------------------------------
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
-export const ADDR_PREFIX = "mldsa44";
+export const ADDR_PREFIX = ""    // removed at alphanet-14; NO backwards compatibility;
 export const ADDR_BODY = 42;                                   // hex chars of pubkey in the address
-export const ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;    // + 4-hex blake2b checksum (49 today)
+export const ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;    // + 4-hex blake2b checksum (46 today)
 export const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");
 export const isAddress = (a) => typeof a === "string" && ADDR_RE.test(a);
 export function makeAddress(pubHex) { const body = ADDR_PREFIX + pubHex.slice(0, ADDR_BODY); return body + blake2bHash(body, 2); }

@@ -7,10 +7,10 @@
 // every bettor) — so you read form + the live tote, exactly like a racetrack. The client mirrors the
 // contract's alghash math (algHashn) to show genes and animate the run; the contract is the authority.
 // Contract: execnode/games/hamster.py.
-import { Book } from "./bookgame.js?v=7a6fb20f";
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js?v=811ac9bd";
-import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=24f139ac";
-import * as DERBY from "./hamster-daily.js?v=ccbd0747";
+import { Book } from "./bookgame.js?v=88da53fd";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js?v=d4ad4b44";
+import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=935742c6";
+import * as DERBY from "./hamster-daily.js?v=4338d288";
 
 const CID = "71ea1f3c09837a8265ebd05759ddf957";   // execnode/games/hamster.py (zkVM)
 const dapp = new NadoDapp({ cid: CID, app: "Hamster" });
