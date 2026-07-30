@@ -151,21 +151,36 @@ _BACKEND_REASON = [None]
 
 
 def _fallback(reason):
-    """Return the pure-Python backend after recording WHY — UNLESS NADO_PQ_REQUIRE_NATIVE is set, in which case
-    HARD-FAIL at import. The pure-Python backend (dilithium_py) is educational-origin: it is functionally
-    byte-equivalent to the native RustCrypto `ml-dsa` crate (the interop self-test enforces that, so consensus
-    is correct either way), but it is NOT constant-time (a side-channel risk when SIGNING with a real key) and
-    ~84x slower. A production / signing node should refuse to run on it: set NADO_PQ_REQUIRE_NATIVE=1 and the
-    node crashes loudly at boot instead of silently degrading. Default stays a loud fallback so a resilient
-    verify-only / light node with no build toolchain still starts."""
+    """HARD-FAIL. Since alphanet-14 the native ML-DSA backend is the only production implementation.
+
+    THE DEFAULT IS NOW INVERTED. This used to return the pure-Python backend and hard-fail only when
+    NADO_PQ_REQUIRE_NATIVE was set. The argument for that default was that the fallback is byte-equivalent
+    (the interop self-test enforces it) so consensus is correct either way, and a light node without a build
+    toolchain should still start. Both halves are true, and together they are how a node ends up degraded with
+    nobody noticing — because nothing ever fails, it just gets ~84x slower.
+
+    That is not hypothetical. On 2026-07-29 this very repository's dev tree was running pure-Python ML-DSA
+    against a production node on the native backend. Consequences, none of which looked like a crypto problem:
+    every signature test ran orders of magnitude slower, four of them hit their timeout and were indistinguishable
+    from failures, and the heavy-proof numbers about to be written into the release notes had been measured under
+    the handicap. Right answers, wrong conclusions.
+
+    There is also a security reason the fallback should never be a default: dilithium_py is educational-origin
+    and NOT constant-time, which is a side-channel risk whenever a real key signs.
+
+    NADO_ALLOW_PYTHON_KERNELS still permits it, for building and for the conformance tests that exist precisely
+    to compare this implementation against the Rust one. Nothing in the node sets it."""
     _BACKEND_REASON[0] = reason
-    if os.environ.get("NADO_PQ_REQUIRE_NATIVE", "").strip().lower() in ("1", "true", "yes", "on"):
-        raise RuntimeError(
-            f"NADO_PQ_REQUIRE_NATIVE is set but the native ML-DSA (RustCrypto ml-dsa) backend is unavailable: "
-            f"{reason}. Refusing to run on the pure-Python fallback (educational-origin, not constant-time — a "
-            f"side-channel risk for a signing node). Build it with scripts/build_pq_native.sh, or unset "
-            f"NADO_PQ_REQUIRE_NATIVE to allow the (correct but slow) fallback.")
-    return _PurePyBackend()
+    from execnode.stark.native_guard import allow_absent
+    if allow_absent():
+        return _PurePyBackend()
+    raise RuntimeError(
+        f"the native ML-DSA (RustCrypto ml-dsa) backend is unavailable: {reason}. REFUSING TO START. Since "
+        f"alphanet-14 there is no Python fallback in production: it is byte-equivalent but ~84x slower and not "
+        f"constant-time, so running on it degrades a node silently rather than visibly — which has already "
+        f"cost this project a set of misleading benchmark numbers. Build it with scripts/build_pq_native.sh "
+        f"(needs cargo). For a build or for the Python-vs-Rust conformance tests, set "
+        f"NADO_ALLOW_PYTHON_KERNELS=1 — never on a validator.")
 
 
 def _select_backend():

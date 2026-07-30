@@ -61,7 +61,33 @@ def _round_transitions():
 
 
 def _permute_snapshots(state):
-    """[state, after_round_0, ..., after_round_{R-1}] — R+1 rows, mirroring a2.permute exactly."""
+    """[state, after_round_0, ..., after_round_{R-1}] — R+1 rows, mirroring a2.permute exactly.
+
+    THE HOTTEST FUNCTION IN THE FOLD. The in-circuit hash AIR constrains one permutation ROUND per trace row,
+    so witness generation needs every intermediate state, not just the digest permute() returns. Each call is
+    54 rounds of a full 12x12 MDS matmul — 7776 field multiplies — and comp_verify/_fill_path calls it once
+    per Merkle block, with 2W openings per point and path_len+1 blocks each. At W=352 that is on the order of
+    10^8 field multiplications per comp proof, and a K->1 fold builds six of them. In Python it measured
+    4.1 ms per call; in Rust, 28 us — 146x, verified byte-identical over 40 random states.
+
+    The permutation was always native. What was missing was the ability to SEE INSIDE it, so this kept
+    re-deriving in Python exactly what Rust already computes."""
+    from execnode.stark import stark_native as _sn
+    import ctypes as _ct
+    if _sn.available():
+        _lib = _sn._LIB
+        _n = (_R + 1) * _W
+        _in = (_ct.c_uint64 * _W)(*[int(x) % F.P for x in state])
+        _out = (_ct.c_uint64 * _n)()
+        if int(_lib.sp_permute_snapshots(_ct.cast(_in, _ct.c_void_p),
+                                         _ct.cast(_out, _ct.c_void_p))) == _n:
+            return [[_out[r * _W + i] for i in range(_W)] for r in range(_R + 1)]
+        # No silent Python fallback: this is the fold's inner loop, and degrading here is a 146x slowdown
+        # that reports nothing. It is the exact failure the Rust-only policy exists to make impossible.
+        from execnode.stark import native_guard as _ng
+        raise _ng.NativeMissing(
+            "sp_permute_snapshots refused the call — rebuild native/starkprove. There is no Python fallback "
+            "for the fold's inner loop.")
     s = list(state); rows = [list(s)]
     for r in range(_R):
         s = [a2.sbox(F.add(s[i], a2.RC[r][i])) for i in range(_W)]
@@ -324,9 +350,43 @@ def _blocks_for(leaf_val, index, path):
     membership gadget affordable; see fri._ext_leaf for why the obvious node(leaf(a0), leaf(a1)) encoding was
     not."""
     if isinstance(leaf_val, tuple):
-        s0 = [a2.DOM_LEAF_EXT, int(leaf_val[0]) % F.P, int(leaf_val[1]) % F.P, 0, 0, 0, 0, 0] + list(a2.IV)
+        # Extension leaf: (DOM_LEAF_EXT, limb0, limb1, ...) in the FOUR-lane rleaf head, so degree <= 3 still
+        # costs ONE permutation. The limb count comes from the value, not a constant, so this matches
+        # alghash2.rleaf_ext for whatever degree is in play.
+        head = [a2.DOM_LEAF_EXT] + [int(x) % F.P for x in leaf_val]
+        if len(head) > 4:
+            raise ValueError(f"an extension leaf of {len(leaf_val)} limbs does not fit the 4-lane frame")
+        head += [0] * (4 - len(head))
+        s0 = head + [0, 0, 0, 0] + list(a2.IV)
     else:
         s0 = [a2.DOM_LEAF, int(leaf_val) % F.P, 0, 0, 0, 0, 0, 0] + list(a2.IV)
+    # WHOLE PATH IN ONE RUST CALL. Even with snapshots native this crossed the FFI boundary once per block,
+    # and there are 2W openings per point with path_len+1 blocks each — ~12.7k crossings per point at W=352.
+    # Same lesson the FRI loop taught: the kernel was never the cost, the shape was.
+    from execnode.stark import stark_native as _sn
+    import ctypes as _ct
+    if _sn.available() and hasattr(_sn._LIB, "sp_blocks_for"):
+        _lib = _sn._LIB
+        _limbs = [int(x) % F.P for x in leaf_val] if isinstance(leaf_val, tuple) else [int(leaf_val) % F.P]
+        _plen = len(path)
+        _stride = (_R + 1) * _W
+        _li = (_ct.c_uint64 * len(_limbs))(*_limbs)
+        _pf = (_ct.c_uint64 * max(_plen * _CAP, 1))(*[int(v) % F.P for d in path for v in d])
+        _out = (_ct.c_uint64 * ((_plen + 1) * _stride))()
+        _dirs = (_ct.c_uint64 * max(_plen, 1))()
+        _fin = (_ct.c_uint64 * _CAP)()
+        _rc = int(_lib.sp_blocks_for(_ct.cast(_li, _ct.c_void_p), len(_limbs), int(index),
+                                     _ct.cast(_pf, _ct.c_void_p), _plen,
+                                     _ct.cast(_out, _ct.c_void_p), _ct.cast(_dirs, _ct.c_void_p),
+                                     _ct.cast(_fin, _ct.c_void_p)))
+        if _rc == (_plen + 1) * _stride:
+            blocks = [[[_out[b * _stride + r * _W + i] for i in range(_W)] for r in range(_R + 1)]
+                      for b in range(_plen + 1)]
+            sibs = [tuple(int(v) % F.P for v in sib) for sib in path]
+            dirs = [_dirs[i] for i in range(_plen)]
+            return blocks, sibs, dirs, tuple(_fin[k] for k in range(_CAP))
+        from execnode.stark import native_guard as _ng
+        raise _ng.NativeMissing("sp_blocks_for refused the call — rebuild native/starkprove.")
     blocks = [_permute_snapshots(s0)]
     cur = tuple(blocks[0][_R][:_CAP]); idx = index; sibs, dirs = [], []
     for sib in path:
@@ -693,13 +753,21 @@ def extract_fri(fri_proof):
     backend) to recover the fold challenges + domains, then reads each query's per-layer openings + rleaf/rnode
     Merkle paths straight from the proof. Requires the RECURSION backend so the Merkle tree is rleaf/rnode."""
     from execnode.stark.transcript import Transcript
-    # ITEM 14 GATE: this in-circuit bridge does BASE-field arithmetic only. A GF(p^2) proof (fri.EXT_CHALLENGES)
-    # is not foldable by it, and quietly treating one as base-field would replay the wrong challenges and check
-    # it under the ~47-bit commit bound the extension exists to escape. Refuse LOUDLY instead — the recursion
-    # path stays explicitly base-field until the AIRs are ported to extension arithmetic.
+    # SUPERSEDED PATH. This bridge (and prove_recursive/verify_recursive above it) is the ORIGINAL
+    # demonstration fold: it reads each query's openings straight out of the proof without authenticating
+    # them against the layer roots. fri_verify.prove_fold replaced it with in-circuit Merkle membership,
+    # which is what the settlement fold actually uses, and everything below this line in the file —
+    # _permute_snapshots, _blocks_for, rmerkle_commit, _round_transitions — is live and shared.
+    #
+    # It does BASE-field arithmetic only, and since the whole system now draws extension challenges it
+    # accepts nothing the prover produces. Refuse LOUDLY rather than replay the wrong challenges and check
+    # the proof under the ~47-bit commit bound the extension exists to escape. Porting it would mean
+    # maintaining a second, weaker fold; the intent is to delete it once tests/test_recursion.py's coverage
+    # of the FRI-step and composition spot-check AIRs is folded into the fri_verify/comp_verify tests.
     if fri_proof.get("ext"):
-        raise ValueError("extract_fri: this recursion AIR is base-field only; refusing a GF(p^2) FRI proof "
-                         "(prove it with ext=False until fri_verify/sp_fold are ported)")
+        raise ValueError("extract_fri: the ORIGINAL demonstration fold is base-field only and is superseded "
+                         "by fri_verify.prove_fold (which authenticates openings against the layer roots). "
+                         "It cannot accept an extension FRI proof, and the system produces nothing else.")
     b = backend.RECURSION
     t = Transcript("fri", backend=b)
     alphas, doms, o, n = [], [], fri_proof["offset"], fri_proof["N"]

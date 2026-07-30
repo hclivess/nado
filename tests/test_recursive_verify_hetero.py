@@ -11,7 +11,7 @@ Run: python3 tests/test_recursive_verify_hetero.py
 import os, sys, copy, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import (stark, field as F, backend as B, recursive_verify as RV,
-                            recursive_verify_hetero as RVH)
+                            recursive_verify_hetero as RVH, extf as ext2)
 
 fails = 0
 def check(name, fn):
@@ -56,7 +56,7 @@ def t_wrong_air_rejected():
 
 def t_tampered_seam_rejected():
     bad = copy.deepcopy(PUBS)
-    bad[0]["layer0"][0] = (int(bad[0]["layer0"][0]) + 1) % F.P
+    bad[0]["layer0"][0] = _bump(bad[0]["layer0"][0])
     ok, _ = RVH.verify_hetero(bad, AIRS, BUNDLE, num_queries_outer=NQO, num_queries_inner=NQ)
     assert not ok, "a tampered layer-0 seam must be rejected"
 
@@ -64,17 +64,51 @@ def t_tampered_seam_rejected():
 # --- a tiny TWO-PHASE ROW-committed AIR (z = running sum of β·a) folded WITH a column proof --------------
 # This is the shape that matters for the fold-layer binding: the exec proof is row-committed two-phase, the
 # replay/binding proofs are column — they must fold into ONE shared-transcript bundle.
-TRANS_AZ = [lambda c, n, p, ch: F.sub(n[1], F.add(c[1], F.mul(ch[0], c[0])))]   # z' = z + β·a
-BND_AZ = [(0, 1, 0)]                                                            # z[0] = 0
+# β IS AN EXTENSION ELEMENT whenever the live challenge field is one, so the accumulator it drives is too and
+# is carried as DEGREE base columns. The base-only version did F.mul(chal[0], ...) with chal[0] a tuple,
+# which Python turns into tuple-repetition and then a TypeError several frames away. Derived from the live
+# authority and extf.DEGREE so it tracks the field instead of pinning one.
+_EXT = stark.ext_challenges_active(B.RECURSION)
+D_AZ = ext2.DEGREE if _EXT else 1
+Z0 = 1                                                                          # aux limbs at columns 1..D
+
+
+def _c_az(c, n, p, ch):
+    if not _EXT:
+        return F.sub(n[Z0], F.add(c[Z0], F.mul(ch[0], c[0])))
+    cur = tuple(c[Z0 + i] for i in range(D_AZ))
+    nxt = tuple(n[Z0 + i] for i in range(D_AZ))
+    return ext2.sub_f(nxt, ext2.add_f(cur, ext2.mul_f(ch[0], c[0])))
+
+
+TRANS_AZ = [_c_az]                                                              # z' = z + β·a
+BND_AZ = [(0, Z0 + i, 0) for i in range(D_AZ)]                                  # EVERY limb of z pinned at 0
 
 
 def _aux_az():
     def build(trace, chal):
-        z = [0]
+        g = chal[0]
+        if not _EXT:
+            z = [0]
+            for i in range(len(trace) - 1):
+                z.append(F.add(z[-1], F.mul(g, trace[i][0])))
+            return [z]
+        acc, outs = ext2.ZERO, [[0] for _ in range(D_AZ)]
         for i in range(len(trace) - 1):
-            z.append(F.add(z[-1], F.mul(chal[0], trace[i][0])))
-        return [z]                                                             # one aux column, length T
-    return {"num_challenges": 1, "num_aux": 1, "build": build}
+            acc = ext2.add(acc, ext2.mul(g, trace[i][0]))
+            for k in range(D_AZ):
+                outs[k].append(acc[k])
+        return outs                                                             # D aux columns, length T
+    return {"num_challenges": 1, "num_aux": D_AZ, "build": build}
+
+
+def _bump(v):
+    """Perturb a seam value by one in whatever field it lives in. `int(v) + 1` was written for a scalar and
+    RAISES on a tuple — and a tamper test that raises still satisfies a naive assert-not-ok, so it would have
+    quietly stopped testing anything the moment the seam became extension-valued."""
+    if isinstance(v, tuple):
+        return ((v[0] + 1) % F.P,) + tuple(v[1:])
+    return (int(v) + 1) % F.P
 
 
 def _row_two_phase_proof():
@@ -97,17 +131,17 @@ def t_row_twophase_plus_column_fold():
     the mixed-mode fold the exec(row/2-phase)+replay(col) binding rides on."""
     pr = _row_two_phase_proof()
     pc, bc = _col_x2_md()
-    items = [{"proof": pr, "transitions": TRANS_AZ, "boundaries": BND_AZ, "num_challenges": 1, "num_aux": 1},
+    items = [{"proof": pr, "transitions": TRANS_AZ, "boundaries": BND_AZ, "num_challenges": 1, "num_aux": D_AZ},
              {"proof": pc, "transitions": TRANS_X2, "boundaries": bc}]
     bundle = RVH.prove_hetero(items, num_queries_outer=NQO)
     pubs = [RV.public_part(pr), RV.public_part(pc)]
-    airs = [{"transitions": TRANS_AZ, "boundaries": BND_AZ, "num_challenges": 1, "num_aux": 1},
+    airs = [{"transitions": TRANS_AZ, "boundaries": BND_AZ, "num_challenges": 1, "num_aux": D_AZ},
             {"transitions": TRANS_X2, "boundaries": bc}]
     ok, why = RVH.verify_hetero(pubs, airs, bundle, num_queries_outer=NQO, num_queries_inner=NQ)
     assert ok, f"mixed row-two-phase + column bundle must verify: {why}"
     # soundness: a tampered seam on the row proof is caught
     bad = copy.deepcopy(pubs)
-    bad[0]["layer0"][0] = (int(bad[0]["layer0"][0]) + 1) % F.P
+    bad[0]["layer0"][0] = _bump(bad[0]["layer0"][0])
     ok2, _ = RVH.verify_hetero(bad, airs, bundle, num_queries_outer=NQO, num_queries_inner=NQ)
     assert not ok2, "a tampered row-proof seam must be rejected"
 

@@ -17,7 +17,7 @@ from .mining_ops import (select_producer_two_lane, lane_of, epoch_of, compute_be
 from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
 
                       B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS, BLOCK_TIMESTAMP_DRIFT)
-from protocol import ADDRESS_PREFIX
+from protocol import ADDRESS_PREFIX, SIG_AGG_STARK
 import zstandard as zstd
 
 # Block bodies are stored as zstd(codec(block)) (#14) — ops/codec.py is a compact portable JSON
@@ -143,9 +143,13 @@ def _lands_flexibly(transaction):
     (commit/reveal/attest), release-timed bond/unbond, PoW-anchored register/msgkey, settle, governance —
     keeps EXACT landing so its timing invariants hold. max_block still bounds the tx's life (mempool gate:
     tip < max_block < tip + TX_LANDING_WINDOW), so an unincluded tx still expires and can't be replayed."""
+    # is_address(), NOT startswith(ADDRESS_PREFIX). The prefix is gone at alphanet-14, and an empty prefix
+    # makes startswith() true for EVERY string — bond, register, attest and settle would all be classified
+    # flexibly-landing and quietly lose the exact-landing timing invariant they depend on. It would not
+    # raise; it would just change consensus. The sniff was never a test anyway: "mldsa44" + garbage passed.
+    from ops.address_ops import is_address
     r = transaction.get("recipient")
-    return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw")
-            or (isinstance(r, str) and r.startswith(ADDRESS_PREFIX)))
+    return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw") or is_address(r))
 
 
 def check_target_match(transaction_list, block_number, logger):
@@ -697,6 +701,13 @@ def block_content_hash(block: dict) -> str:
         "state_root": block["state_root"],
         "exec_root": block["exec_root"],
         "exec_cursor": block["exec_cursor"],
+        # AUTHORIZATION COMMITMENT — MUST mirror construct_block exactly. This function is the RE-DERIVATION
+        # half of the hash, and save_block refuses (raises) any block whose content does not hash to its own
+        # block_hash. So a field added to construct_block's preimage and NOT added here does not cause a
+        # subtle mismatch somewhere: it makes EVERY block unpersistable and halts the chain outright. These
+        # two dicts are one definition written twice, and that is exactly why they drift.
+        "auth_root": block["auth_root"],
+        "auth_count": block["auth_count"],
         "chain_id": None,   # NON-HASHED (see construct_block): genesis-hash + parent linkage identify the
                             # chain, so a CHAIN_ID change never alters a block hash or breaks genesis sync.
     }
@@ -724,7 +735,8 @@ def save_block(block: dict, logger):
     # and get chained onto, forking every honest node that later re-derives the true hash (the "stuck /
     # rolls back and forth" wedge). Genesis (block 0) is hashed differently (over timestamp+[] only), skip it.
     _hashed = ("block_number", "parent_hash", "block_creator", "block_transactions", "block_reward",
-               "cumulative_fees", "cumulative_weight", "state_root", "exec_root", "exec_cursor")   # chain_id NON-hashed
+               "cumulative_fees", "cumulative_weight", "state_root", "exec_root", "exec_cursor",
+               "auth_root", "auth_count")   # chain_id NON-hashed
     if block.get("block_number", 0) != 0 and all(k in block for k in _hashed):
         expected = block_content_hash(block)
         if expected != block["block_hash"]:
@@ -933,6 +945,20 @@ def construct_block(
 
     block_fees = sum(transaction["fee"] for transaction in transaction_pool)
 
+    # AUTHORIZATION COMMITMENT (signature aggregation, doc/zk-signature-aggregation.md). Commit, inside the
+    # hash preimage, a field-native root over the ordered authorization entries and the exact number of them.
+    # This is what gives an aggregate validity proof a statement it CANNOT choose: the entries are derived
+    # from the block's own transactions (verify_block recomputes both and rejects on mismatch), so a prover
+    # can only attest the checks the block actually demands.
+    #
+    # A PURE function of committed block data — no state read, no pubkey resolution (see
+    # mldsa_block_auth's docstring). That is deliberate: state_root is the one state-dependent header field
+    # and a mismatch there is fatal by design; a second one would add a divergence surface for no binding,
+    # since `sender` is the address derived from the key and proof_sender() ties them natively per tx.
+    from execnode.stark import mldsa_block_auth as _auth
+    _auth_root, _auth_count = _auth.auth_commitments(
+        {"block_number": block_number, "block_transactions": transaction_pool})
+
     block_message = {
         "block_number": block_number,
         "block_hash": None,
@@ -961,6 +987,10 @@ def construct_block(
         "state_root": state_root,
         "exec_root": exec_root,
         "exec_cursor": exec_cursor,
+        # AUTHORIZATION COMMITMENT (see above): the ordered-entry root and the exact entry count. Hashed, so
+        # neither can change without changing block identity; recomputed and enforced in verify_block.
+        "auth_root": _auth_root,
+        "auth_count": _auth_count,
         "chain_id": None,          # EXCLUDED from the hash (see docstring); stamped as the real value below
     }
     block_hash = blake2b_hash_link(link_from=parent_hash, link_to=block_message)
@@ -1045,6 +1075,57 @@ def verify_block_signature(block) -> bool:
     if not proof_sender(public_key=pubkey, sender=block["block_creator"]):
         return False  # signer is not the selected winner for this slot
     return _verify_message(signed=signature, public_key=pubkey, message=block_signature_message(block))
+
+
+# --- authorization evidence: the node-side halves the pure commitment module cannot have -------------
+# mldsa_block_auth is deliberately state-free (it must be importable by a prover, a browser miner, and the
+# test suite without a database). Resolution and proof verification are the two things that genuinely need
+# the node, so they live here and are passed IN.
+
+def resolve_sender_pubkey(sender):
+    """The sender's on-chain public key under PUBKEY-ONCE — the verifier's OWN resolution, which is what
+    makes detached evidence unforgeable: an envelope that could name its own key would verify against
+    itself. None when the address has not yet published a key (its first tx must carry one, and that tx's
+    signature is checked natively from the tx body)."""
+    try:
+        from ops.account_ops import get_account
+        acc = get_account(sender, create_on_error=False)
+        return (acc or {}).get("public_key") or None
+    except Exception:
+        return None
+
+
+def verify_auth_proof(circuit_id, proof, statement):
+    """Verify an AGGREGATE authorization proof against the verifier-derived statement.
+
+    `statement` is built by mldsa_block_auth from OUR recomputed (auth_root, auth_count, height, parent) —
+    never from the envelope. Returns False on anything unexpected: an envelope that cannot be verified is
+    not evidence, and a block that ships one is making a claim it cannot back."""
+    if not SIG_AGG_STARK:
+        return False              # the aggregate path is not accepted on this chain yet
+    try:
+        from execnode.stark import mldsa_sig_proof as _sp
+        return bool(_sp.verify_block_authorizations(circuit_id, proof, statement))
+    except Exception:
+        return False
+
+
+def check_block_auth_evidence(block):
+    """(ok, reason) for a block's DETACHED authorization envelope, or (True, ...) when it ships none.
+
+    The one node-side entry point: it recomputes the commitment, resolves keys itself, and verifies either
+    raw signatures or an aggregate proof. Absent envelope -> the per-tx signatures validated natively ARE
+    the evidence, which is what every block ships today."""
+    from execnode.stark import mldsa_block_auth as _auth
+    ev = block.get("block_auth_evidence")
+    if ev is None:
+        return True, "no detached envelope (per-tx signatures are the evidence)"
+    return _auth.evidence_ok(
+        ev, block,
+        resolve_pubkey=resolve_sender_pubkey,
+        verify_sig=lambda sig, pk, txid: bool(pk) and bool(
+            _verify_message(signed=sig, public_key=pk, message=_unhex(txid))),
+        verify_proof=verify_auth_proof)
 
 
 async def knows_block(target_peer, port, hash, number, logger):

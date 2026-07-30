@@ -13,18 +13,26 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-13"  # AUX-EXT reroll (2026-07-28): LogUp challenges in GF(p^2), gen 14
+CHAIN_ID = "alphanet-14"  # GF(p^3) + K->1 fold activation + block auth commitment, gen 15
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
 
 # ---- ADDRESS FORMAT (single source of truth — doc/address-format.md) -------------------------------
-# address = ADDRESS_PREFIX + first ADDRESS_BODY hex chars of the pubkey + 4-hex blake2b checksum.
-# The prefix is deliberately a ONE-CONSTANT rebrand point: no other Python spells it (the JS mirrors
-# are static/nadotx.js ADDR_PREFIX and static/interface.js ADDR_PREFIX — three lines total).
+# address = first ADDRESS_BODY hex chars of the pubkey + 4-hex blake2b checksum. NO PREFIX.
 # Changing ANY of these orphans every existing address string, so a change ships only with a
 # CHAIN_GENERATION reroll whose genesis alloc is re-keyed by scripts/rekey_alloc.py.
-ADDRESS_PREFIX = "mldsa44"      # key-type discriminator: the FIPS-204 scheme whose pubkey the body hashes
+#
+# THE PREFIX IS GONE (alphanet-14), with no backwards compatibility. It never verified anything:
+# validate_address() has always checked ONLY the 4-hex blake2b checksum over the rest, and never referenced
+# the prefix at all. So "does this string belong to NADO" is still answered exactly as before — right length,
+# valid checksum — and a random 46-hex string still passes with probability 2^-16, unchanged.
+# What it DID do was serve as a cheap discriminator in a dozen `startswith(ADDRESS_PREFIX)` sniffs meaning
+# "an address rather than a reserved name or an alias". Those are now address_ops.is_address(), a real check,
+# because an empty prefix makes startswith() true for EVERY string — which would have silently reclassified
+# every timing-critical reserved tx as flexibly-landing.
+# MSIG_PREFIX survives and is what still distinguishes policy accounts from keyed ones.
+ADDRESS_PREFIX = ""             # removed at alphanet-14; kept as a constant so the derivation stays one place
 MSIG_PREFIX = "msig"           # policy accounts (M-of-N multisig) — the 1-vs-3 split; see doc/address-format.md
 ADDRESS_BODY = 42              # hex chars of the pubkey carried in the address
 ADDRESS_CHECKSUM = 2           # checksum bytes (4 hex chars), blake2b over prefix+body
@@ -39,13 +47,16 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1785264105  # alphanet-13 — aux-ext reroll (DISTINCT genesis hash so the
-                                # new chain cannot share fork choice with any prior-generation node; gen 7-9
-                                # reused alphanet-8's genesis, which stranded old-code nodes kept winning)
-                                # balances/stake carried forward). Set ~1 min in the PAST at cutover so block
-                                # production starts immediately. The root scheme is final: depth 256 saturates
-                                # the hash's collision resistance and every future proof extension rides the
-                                # SAME tree — no further genesis reroll or hard fork is needed for vision.md.
+GENESIS_TIMESTAMP = 1785440953  # alphanet-14: GF(p^3) + fold activation + block auth commitment.
+                                # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
+                                # timestamp is what actually makes this a different chain — no
+                                # prior-generation block can link in, and old-code nodes cannot keep
+                                # winning fork choice against it (gens 7-9 reused alphanet-8's genesis
+                                # and stranded exactly that way). Stamped ~1 min in the PAST so block
+                                # production starts immediately at cutover.
+                                # The root scheme is unchanged: depth 256 saturates the hash's collision
+                                # resistance and every future proof extension rides the SAME tree, so no
+                                # further genesis reroll is needed for doc/vision.md.
 
 # Clock-skew allowance for block timestamps: a block may be stamped up to this many seconds in the
 # FUTURE of the local clock and still validate. Zero tolerance rejected honest blocks whenever the
@@ -80,7 +91,23 @@ def chain_clock(block_number: int) -> int:
 # deterministic fast-forward (loops/core_loop) always hits and block time tracks block_time instead of
 # lagging on transient mempool divergence. Enforced in block_ops (producer + verifier); absent min_block
 # defaults to 0 (immediate), so historical blocks stay valid.
-TX_INCLUSION_DELAY = 2
+#
+# RAISED 2->8 after the alphanet-13 h5924 split (2026-07-29). Three nodes built the winner's block with blob
+# tx f2f8f14066 (min_block=5924, i.e. eligible at exactly that height); .131 built the same winner's block,
+# same parent, same creator, same state_root, same weight, 4 seconds earlier and WITHOUT the tx. One block
+# apart in eligibility is a coin flip on whether every producer holds the tx yet, and the two honest blocks
+# then differ in nothing but their tx set. That is the same too-tight-window failure RESERVED_TX_MARGIN and
+# DUTY_TX_MARGIN were raised for; this was the one remaining instance, on the ordinary flexibly-landing path.
+#
+# SUBMITTER-SIDE, so no reroll: the verifier enforces `block_number >= tx["min_block"]` against the tx's OWN
+# committed field, and this constant only decides what a newly constructed tx stamps there. Old and new nodes
+# interoperate; they just pick different earliest-landing heights for the txs they create.
+#
+# 8 blocks is ~48s at 6s/block — enough for several gossip rounds without pushing blob latency past a minute.
+# HONEST RESIDUAL: a margin helps only if the tx eventually arrives. If .131 never received it at all, this
+# buys more retry opportunities but is not a cure; the mempool-propagation path is the thing to instrument if
+# a split recurs at a wider margin.
+TX_INCLUSION_DELAY = 8
 
 # TX LANDING (max_block is an EXPIRY DEADLINE, not a target). A flexibly-landing tx (value transfer, blob,
 # bridge in/out, dividend_withdraw — see block_ops._lands_flexibly) may be mined in ANY block in
@@ -370,7 +397,7 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   proof format is not backward compatible and cannot be made so — the challenge field is what changed.
 #   The extension-valued aux columns also widen the exec trace (each logical aux column becomes a base-column
 #   PAIR), so the AIR geometry differs too.
-CHAIN_GENERATION = 14
+CHAIN_GENERATION = 15
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
@@ -403,8 +430,12 @@ ALIAS_REGISTRATION_FEE = 10_000_000     # 0.001 NADO (10,000x MIN_TX_FEE): deter
 # here. It is a normal KEY-CONTROLLED address (the founder holds its key), derived here under the
 # canonical (new) checksum from the genesis public-key body so it validates. It starts EMPTY —
 # there is NO genesis allocation (TREASURY_GENESIS = 0 below); it only fills from the per-block cut.
-_GENESIS_BODY = "mldsa4427f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # genesis producer address (ML-DSA addr minus 4-hex checksum)
-# ^ ADDRESS LITERAL: re-derived at any address-format switch (doc/address-format.md cutover step 4)
+_GENESIS_BODY = "27f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # genesis producer address (ML-DSA addr minus 4-hex checksum)
+# ^ ADDRESS LITERAL: re-derived at any address-format switch (doc/address-format.md cutover step 4).
+# DE-PREFIXED at alphanet-14. The pubkey BODY is unchanged, so the same key still owns this account — only
+# the string changed (49+4 -> 42+4). Leaving the "mldsa44" on here would have been silent and total: the
+# founder's key derives make_address(pk) = 42 hex + checksum, which can never equal a 53-char literal, so
+# the treasury's own genesis address would have belonged to nobody.
 GENESIS_ADDRESS = _GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)
 # The TREASURY is a RESERVED, KEYLESS account (like "dividend"/"bridge") — NOT the founder's genesis address.
 # No private key exists for it, so the ONLY way coins leave it is a quorum-approved treasury_execute
@@ -574,16 +605,33 @@ SETTLE_PROOF_TRUSTLESS = True
 # 2026-07-27). FALSE ⇒ the `recursive` field is IGNORED and every node verifies segments the classic K-way, so
 # a folded proof is accepted identically by folded- and unfolded-code nodes (no version-skew fork). Flip to True
 # only at a reroll, once the whole fleet runs the recursion-aware verifier from genesis.
-SETTLE_PROOF_RECURSIVE = False   # RE-GATED 2026-07-28: the recursion path is still BASE-FIELD.
-                                 # stark/fri now draw the folding challenge, the DEEP point and the constraint
-                                 # alphas from GF(p^2) (~111 bits provable), but the in-circuit AIRs
-                                 # (fri_verify, rowcomp_verify) and the arena's sp_fold do base-field
-                                 # arithmetic, so proofs destined to be FOLDED are deliberately produced
-                                 # base-field and carry the OLD ~47-bit commit bound. Accepting a folded
-                                 # settlement proof while the rest of the system claims 111 would make the
-                                 # fold the weakest link in consensus. Re-enable at a reroll once the
-                                 # recursion AIRs are ported to extension arithmetic.
-                                 # (Was True on the alphanet-12 reroll, CHAIN_GENERATION 13.)
+SETTLE_PROOF_RECURSIVE = True    # ENABLED at the alphanet-14 reroll: the in-circuit recursion AIRs
+                                 # (fri_verify, comp_verify, rowcomp_verify) now carry GF(p^3)
+                                 # arithmetic, so a folded proof no longer carries the old ~47-bit
+                                 # commit bound while the rest of the system claims far more. This is
+                                 # a CONSENSUS RULE and rides the reroll rather than a hot toggle: a
+                                 # node honouring `recursive` skips the classic per-segment check, so
+                                 # flipping it while unupgraded peers ignore the field would let an
+                                 # attacker staple a bogus blob onto a valid settle tx and split the
+                                 # fleet.
+
+# ---- SIGNATURE AGGREGATION (doc/zk-signature-aggregation.md) ----------------------------------------
+# The AUTHORIZATION COMMITMENT is unconditional from alphanet-14: every block commits (auth_root,
+# auth_count) inside its hash preimage and every verifier recomputes both from the block's own
+# transactions. That is a pure function of committed block data, so it costs nothing and can never
+# disagree between honest nodes — it exists so an aggregate proof has a statement it cannot choose.
+#
+# SIG_AGG_STARK gates only whether an aggregate STARK envelope is ACCEPTED IN PLACE OF the raw
+# signatures. It is a CONSENSUS RULE and must ride a reroll for exactly the reason SETTLE_PROOF_RECURSIVE
+# does: a node honouring the envelope skips per-signature verification, so if it were live while
+# unupgraded peers still ignored the field, a bogus envelope would split the fleet.
+#
+# It is FALSE today for a reason that is physics, not wiring: one ML-DSA-44 verification is 103 Keccak-f
+# permutations, and the proving cost of a whole block's worth does not fit a block interval on commodity
+# hardware. The path is live and verified end to end (tests/test_mldsa_block_auth.py,
+# tests/test_block_auth_wiring.py) — what it waits on is a prover fast enough, not code that does not exist.
+SIG_AGG_STARK = False
+
 
 # How many recent heights keep an exec summary (kv_ops.exec_summary_*). These live in the `meta` sub-DB,
 # which IS carried in SNAPSHOT_DBS, so without a bound they would grow with chain length AND bloat every
@@ -612,24 +660,28 @@ INVARIANT_CHECK_BLOCKS = EPOCH_LENGTH
 DEAD_FORK_STALL_S = 900          # 15 min of a completely frozen tip before the question is even asked
 DEAD_FORK_COOLDOWN_S = 1800      # at most one purge attempt per 30 min
 DEAD_FORK_QUORUM = 2             # distinct peers that must disagree at our finalized height
-# STATE-WEDGE ESCAPE (loops/core_loop, 2026-07-30 alphanet-13 h15076 incident). A node whose LOCAL STATE
-# diverged while the BLOCK BODIES still agree is invisible to every block-level recovery route at once:
-# the fork state reads BEHIND (hash equality holds), the dead-fork probe reads agreement (peers serve our
-# hash at the finalized height), and verify_block's state-root binding — correctly — refuses every remote
-# block at tip+1 forever. Observed live: two nodes re-minted the same dead block every ~20s for 18 hours,
-# and the corrupt state SPREAD, because each refused tip got benched and the mint gate then re-opened.
-# The escape: after enough distinct-peer state-root rejects at one height over a real time span, our state
-# is the outlier — stop minting and re-anchor onto the heaviest chain's snapshot (state replaced wholesale,
-# every tail block still fully re-verified). Sybil-resistant: rejects only count from blocks that passed
-# producer-selection + weight + reward validation, ≥2 distinct peers must have served them, and the
-# re-anchor itself demands a super-majority snapshot quorum. A false trigger costs one cooldown-limited
-# snapshot import onto the SAME chain — harmless; a missed trigger is a permanent outage.
-STATE_WEDGE_REJECTS = 8          # remote state-root rejects at one height before escalation
-STATE_WEDGE_SPAN_S = 90          # the rejects must span at least this long (not one burst)
-STATE_WEDGE_MIN_PEERS = 2        # distinct peers whose (fully validated) blocks we refused
-STATE_WEDGE_MINT_HOLD = 3        # stop minting our own block at the disputed height this early
-STATE_WEDGE_COOLDOWN_S = 300     # at most one state-wedge re-anchor attempt per 5 min
-STATE_WEDGE_STALE_S = 600        # a streak with no new reject for this long is forgotten
+# GENESIS COLD-START QUIET PERIOD — the reroll race.
+#
+# THIS IS THE DEFECT THAT SPLIT alphanet-13. Every node purges and restarts at a reroll, but they do not
+# restart together: on 2026-07-28 185.100.232.5 came back ~4 minutes before the rest, found an empty peer
+# table, and started mining block 1 from the shared genesis on its own. By the time the others were up it
+# sat at tip 273 / weight 88725 against their 217 / 70525 — already PAST the 45-block finality depth, so no
+# rollback could reconcile the two branches and the fleet stayed split until it was rerolled again.
+#
+# Nothing in the ordinary gates catches this, because at a reroll every gate is trivially satisfied: the
+# caught-up gate (peer_claims_heavier_tip) can see no heavier tip when every node is at height 0, and the
+# peer-count gate passes vacuously wherever an operator has set min_peers = 0 for solo production — which is
+# the live setting on more than one fleet node.
+#
+# So gate the one moment that matters: producing THE FIRST BLOCK of a chain. A node at height 0 that knows
+# of seed peers but has reached none of them has no evidence it is alone — only evidence that it is early.
+# Wait for the mesh, then start together.
+#
+# BOUNDED, so this can never brick a node: once GENESIS_QUIET_S has elapsed the node produces regardless.
+# A genuinely standalone deployment (no seeds configured, or none reachable) pays this delay exactly once,
+# at genesis, and never again — the gate is dead the instant the chain has a single block.
+GENESIS_QUIET_S = 600            # 10 min > the ~4 min restart stagger that actually caused the split
+GENESIS_QUIET_MIN_PEERS = 2      # contacted peers that release the gate early (the normal path: seconds)
 # How long a measured fork state stays cached. The probe costs ~log2(depth) direct peer round-trips, so it
 # must not run every ~1s pass; but it gates reorg/re-anchor decisions, so it must not go badly stale either.
 FORK_STATE_TTL_S = 60

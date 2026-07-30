@@ -13,7 +13,7 @@ The commitment P_root is returned/checked so a caller can TIE the evaluated poly
 column (root equality: same values + same geometry ⇒ same root), which is how the io of an existing proof is
 bound without re-opening it on its own coset.
 """
-from execnode.stark import field as F, fri, merkle, backend as _backend, ext2
+from execnode.stark import field as F, fri, merkle, backend as _backend, extf as ext2
 from execnode.stark.transcript import Transcript
 from execnode.stark.stark import _coset_evaluate, OFF as DEFAULT_OFF
 

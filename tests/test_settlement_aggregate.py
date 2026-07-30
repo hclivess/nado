@@ -40,9 +40,22 @@ def t_aggregate_verifies():
     assert ok, f"the single settlement bundle must verify: {why}"
 
 
+def _bump(v):
+    """Perturb a layer-0 seam value by one, whichever field it lives in.
+
+    A layer-0 value is a BASE element in the prime field but an extension TUPLE once the challenge field is
+    GF(p^D) with D>1 — so the obvious `int(v) + 1` raises TypeError before the assert below is ever reached,
+    and the test then reports a failure that has nothing to do with the property it claims to check. This is
+    the sixth occurrence of that shape in this suite; a negative test that cannot reach its assert is not a
+    negative test, so bump the first limb and leave the rest alone."""
+    if isinstance(v, tuple):
+        return ((int(v[0]) + 1) % F.P,) + tuple(v[1:])
+    return (int(v) + 1) % F.P
+
+
 def t_tampered_seam_rejected():
     bad = copy.deepcopy(PUBS)
-    bad[0]["layer0"][0] = (int(bad[0]["layer0"][0]) + 1) % F.P
+    bad[0]["layer0"][0] = _bump(bad[0]["layer0"][0])
     ok, _ = AGG.verify_settlement_bundle(BUNDLE, bad, AIRS, num_queries_inner=NQ, num_queries_outer=NQO)
     assert not ok, "a tampered layer-0 seam must be rejected"
 

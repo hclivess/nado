@@ -131,6 +131,92 @@ pub unsafe extern "C" fn merkle_commit(leaves: *const u64, n: usize, out: *mut u
     }
 }
 
+// merkle_commit_ext / rmerkle_commit_ext: the same two whole-tree builds, over EXTENSION leaves.
+//
+// WHY THESE EXIST. FRI's per-layer commitments hash extension leaves once folding starts, and only the
+// BASE-field builds above were native — so every extension FRI layer did n leaf permutations plus n-1 node
+// permutations in a Python loop. That is the dominant cost of an extension proof and it lands squarely on
+// the settlement fold, which is the thing the extension migration exists to make sound. Measured on a
+// loaded box, one in-circuit fold test sat 45 minutes inside alghash2.permute via _commit_ext.
+//
+// The leaf frame is (DOM_LEAF_EXT, limb0 … limb_{D-1}) — DOM_LEAF_EXT, not DOM_LEAF, so a lifted base value
+// and a genuine base value never share a digest; a prover could otherwise present one tree's opening against
+// the other's commitment. `d` is the extension degree and `leaves` holds n*d limbs, leaf-major.
+const DOM_LEAF_EXT: u64 = 7;
+
+// Shared inner-layer build: both variants differ ONLY in how a leaf is hashed, so the tree half is written
+// once. Writing it twice is how the base pair above drifts.
+unsafe fn build_inner(n: usize, out: *mut u64, recursion: bool) {
+    let mut layer_start = 0usize;
+    let mut layer_len = n;
+    let mut off = n;
+    while layer_len > 1 {
+        let half = layer_len / 2;
+        for i in 0..half {
+            let a = layer_start + 2 * i;
+            let b = a + 1;
+            let mut d = [0u64; CAP];
+            if recursion {
+                let mut s = [0u64; W];
+                for k in 0..CAP {
+                    s[k] = *out.add(a * CAP + k);
+                    s[CAP + k] = *out.add(b * CAP + k);
+                    s[RATE + k] = IV[k];
+                }
+                permute(&mut s);
+                for k in 0..CAP { d[k] = s[k]; }
+            } else {
+                let mut els = [9u64, 2u64, 0, 0, 0, 0, 0, 0, 0, 0]; // [len=9, DOM_NODE, a0..3, b0..3]
+                for k in 0..CAP {
+                    els[2 + k] = *out.add(a * CAP + k);
+                    els[6 + k] = *out.add(b * CAP + k);
+                }
+                hashn(els.as_ptr(), 10, d.as_mut_ptr());
+            }
+            for k in 0..CAP { *out.add((off + i) * CAP + k) = d[k]; }
+        }
+        layer_start = off;
+        off += half;
+        layer_len = half;
+    }
+}
+
+// Sponge (ALGHASH2) backend: leaf = hashn([DOM_LEAF_EXT, limb0 … ]), inner = hashn([DOM_NODE, a.., b..]).
+#[no_mangle]
+pub unsafe extern "C" fn merkle_commit_ext(leaves: *const u64, n: usize, d: usize, out: *mut u64) -> i64 {
+    if d < 1 || d > 8 { return -1; }
+    for i in 0..n {
+        // hashn takes [len, elements…]; len counts the DOM tag plus the limbs.
+        let mut els = [0u64; 10];
+        els[0] = (1 + d) as u64;
+        els[1] = DOM_LEAF_EXT;
+        for k in 0..d { els[2 + k] = *leaves.add(i * d + k); }
+        let mut dg = [0u64; CAP];
+        hashn(els.as_ptr(), 2 + d, dg.as_mut_ptr());
+        for k in 0..CAP { *out.add(i * CAP + k) = dg[k]; }
+    }
+    build_inner(n, out, false);
+    0
+}
+
+// RECURSION backend: leaf = permute([DOM_LEAF_EXT, limb0 … , 0…, IV])[:CAP] — ONE permutation, the property
+// that makes the in-circuit extension leaf cost the same as a base one. The frame occupies the four-lane
+// rleaf head, so a degree that no longer fits must be REFUSED rather than silently truncated.
+#[no_mangle]
+pub unsafe extern "C" fn rmerkle_commit_ext(leaves: *const u64, n: usize, d: usize, out: *mut u64) -> i64 {
+    if d < 1 || d > (RATE / 2 - 1) { return -1; }
+    for i in 0..n {
+        let mut s = [0u64; W];
+        s[0] = DOM_LEAF_EXT;
+        for k in 0..d { s[1 + k] = *leaves.add(i * d + k); }
+        for k in 0..CAP { s[RATE + k] = IV[k]; }
+        permute(&mut s);
+        for k in 0..CAP { *out.add(i * CAP + k) = s[k]; }
+    }
+    build_inner(n, out, true);
+    0
+}
+
 // rmerkle_commit(leaves[n], n, out): the RECURSION-backend (rleaf/rnode) whole tree in native code. The
 // recursion backend commits with ONE permutation per node (no hashn length prefix), and building it was a
 // Python loop calling native permute per node — ~2N FFI crossings, the dominant cost of recursion-backend

@@ -16,6 +16,7 @@ own {transitions, boundaries, periodic, num_challenges, num_aux}; items sharing 
 form one group and must share the mode. Verifier-authoritative + succinct exactly as recursive_verify: nothing
 constraint-shaped is read from a proof.
 """
+from execnode.stark import extf
 from execnode.stark import (field as F, fri_verify, comp_verify, rowcomp_verify, air_ir,
                             recursive_verify as RV, backend as B)
 
@@ -64,10 +65,19 @@ def _points_of(item):
     return pts
 
 
+def _ext_now():
+    """Which field this bundle's inner proofs drew their challenges and alphas from — the single authority,
+    asked once. Not derived from the AIR: an AIR with no extension-valued constraint still gets extension
+    ALPHAS when the proof was produced under an extension challenge field, and treating that program as
+    base-valued makes the composition schedule read a tuple as an int."""
+    from execnode.stark import stark as _st
+    return _st.ext_challenges_active(B.RECURSION)
+
+
 def _prog_of(item):
     W = RV.public_part(item["proof"])["W"]
     return air_ir.build_program(item["transitions"], W, len(item.get("periodic") or []),
-                                item.get("num_challenges", 0))
+                                item.get("num_challenges", 0), ext_chal=_ext_now())
 
 
 def prove_hetero(items, num_queries_outer=fri_verify.NUM_QUERIES, out_backend=None):
@@ -130,9 +140,12 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
                                  len(air["transitions"]) + len(air["boundaries"]), b)
             pos = RV._canon_positions(pub, nqi, _mk)
             if pos is None:
-                return False, "an inner FRI public statement failed native verification"
+                return False, (f"an inner FRI public statement failed native verification: "
+                               f"{fri_verify.LAST_REJECT}")
             mks.append(_mk)
-            seam.extend(int(v) % F.P for v in pub["layer0"])
+            # layer0 values follow the CHALLENGE FIELD and may be extension elements; int(v) % P raises on
+            # a tuple. The seam is pinned limb-by-limb downstream, so it must arrive unflattened.
+            seam.extend(extf.canon(v) for v in pub["layer0"])
         fold_public = {"publics": [p["fri_public"] for p in pubs], "num_queries_inner": nqi,
                        "num_queries_outer": num_queries_outer, "seam_lo0": seam}
         okf, whyf = fri_verify.verify_fold(bundle["fold"], fold_public, mk_transcripts=mks,
@@ -158,7 +171,7 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
             row_mode = _is_row(pubs[g["idxs"][0]])
             W = pubs[g["idxs"][0]]["W"]
             prog = air_ir.build_program(air["transitions"], W, len(air.get("periodic") or []),
-                                        air.get("num_challenges", 0))
+                                        air.get("num_challenges", 0), ext_chal=_ext_now())
             pts_public = []
             for idx in g["idxs"]:
                 pub = pubs[idx]
@@ -196,4 +209,16 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
                 return False, f"group comp failed: {whyc}"
         return True, "heterogeneous set re-verified (one fold + per-AIR comps, row & column)"
     except Exception as e:
+        _trace_if_asked()
         return False, f"malformed hetero bundle: {e}"
+
+
+def _trace_if_asked():
+    """A verifier must never raise, so these modules wrap everything in `except Exception` and return a
+    reason string. That is correct for consensus and hostile to debugging: the reason names the exception
+    but throws away the frame that produced it, and a wiring bug then looks exactly like a corrupt proof.
+    NADO_TRACE_RECURSION=1 prints the traceback WITHOUT changing the verdict."""
+    import os as _os
+    if _os.environ.get("NADO_TRACE_RECURSION"):
+        import traceback as _tb
+        _tb.print_exc()

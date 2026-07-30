@@ -254,13 +254,6 @@ class CoreClient(threading.Thread):
         self._sync_donor = (None, None)
         self._last_sync_donor_ip = None   # donor dialled for THIS attempt; cleared when none qualifies
         self._minority_since = None       # first pass we saw a better-but-unheld tip (grace window)
-        # STATE-WEDGE streak (protocol.STATE_WEDGE_*): consecutive L1 state-root rejects of REMOTE,
-        # otherwise-fully-valid blocks at one height. {"height", "first_ts", "last_ts", "count",
-        # "peers": set}. Bodies agreeing while state diverges is invisible to every block-level
-        # recovery route (fork state = BEHIND, dead-fork probe = agreement), so this streak is the
-        # ONE signal that our state is corrupt — it gates minting and escalates to a re-anchor.
-        self._state_wedge = None
-        self._last_state_wedge_reanchor = 0.0
         # LOG-ONCE guard for _candidate_pool: txids already surfaced as "Candidate excludes…" so the
         # same lingering pool tx (chiefly stale/duplicate RANDAO commit-reveal + attest txs that sit in
         # the mempool until they age out of their epoch window) is not re-logged every candidate pass.
@@ -280,6 +273,50 @@ class CoreClient(threading.Thread):
         if self.memserver.reported_uptime < bt:
             return "init"
         return "produce" if self.memserver.since_last_block >= bt else "building"
+
+    def _genesis_cold_start_blocked(self, peers) -> bool:
+        """Refuse to mint THE FIRST BLOCK of a chain while we are merely early rather than actually alone.
+
+        This closes the race that split alphanet-13 (see protocol.GENESIS_QUIET_S). At a reroll every node
+        purges and restarts, but not simultaneously; the first one back finds an empty peer table and, if the
+        operator set min_peers = 0, happily mines a solo chain from the shared genesis. Four minutes of head
+        start was enough to carry it past the finality depth, after which the split was permanent.
+
+        Every other production gate is blind here BY CONSTRUCTION, which is why this needs its own check:
+        peer_claims_heavier_tip cannot find a heavier tip when the whole fleet is at height 0, and the
+        min_peers gate is exactly the one an operator turns off to allow solo production.
+
+        The distinction that matters is between "no peers configured" (genuinely standalone — produce) and
+        "peers configured, none reached yet" (early — wait). Only height 0 is gated: once a single block
+        exists, fork choice and the caught-up gate govern normally and this returns False forever after.
+
+        Bounded by GENESIS_QUIET_S so a truly isolated node is never bricked, only delayed once."""
+        try:
+            if int((self.memserver.latest_block or {}).get("block_number", 0) or 0) != 0:
+                return False                      # the chain has started; this gate is over for good
+            from protocol import GENESIS_QUIET_S, GENESIS_QUIET_MIN_PEERS
+            from ops.peer_ops import seed_peers
+            if len(peers) >= GENESIS_QUIET_MIN_PEERS:
+                return False                      # the mesh is up — start together, which is the whole point
+            _me = {self.memserver.ip, get_config().get("ip")} - {None}
+            if not [p for p in seed_peers() if p not in _me]:
+                return False                      # no seeds configured: a standalone node, not an early one
+            waited = get_timestamp_seconds() - self.memserver.start_time
+            if waited >= GENESIS_QUIET_S:
+                self.logger.warning(
+                    f"GENESIS QUIET PERIOD expired after {int(waited)}s with {len(peers)} peer(s) — producing "
+                    f"the first block anyway. If other nodes are merely slow to restart, this is how a reroll "
+                    f"splits; if we really are alone, this is correct.")
+                return False                      # never brick a node that is genuinely by itself
+            self.logger.info(
+                f"genesis quiet period: {len(peers)}/{GENESIS_QUIET_MIN_PEERS} peers after {int(waited)}s of "
+                f"{GENESIS_QUIET_S}s — not minting block 1 yet (a reroll restarts nodes minutes apart; the "
+                f"node that starts alone builds the fork).")
+            return True
+        except Exception as e:
+            # A gate that throws must not stop block production on a healthy chain.
+            self.logger.warning(f"genesis cold-start check failed, allowing production: {e}")
+            return False
 
     def normal_mode(self):
         """The caught-up per-second pass. Keeps the single mempool within its byte budget (submitted
@@ -413,17 +450,8 @@ class CoreClient(threading.Thread):
 
                 # min_peers == 0 enables SOLO production (a single node mints without a peer mesh) —
                 # used for a stable single-node relay/demo where multi-node fork-choice churn is undesirable.
-                # STATE-WEDGE MINT HOLD: once we are refusing peers' fully-valid blocks at this very
-                # height for state-root mismatch, our own candidate there is guaranteed-rejected fork
-                # spam that spreads the corrupt state (two nodes wedged on our block, 2026-07-30).
-                # The rejected_tips carve-out in peer_claims_heavier_tip is what re-opens this gate
-                # in that geometry, so the hold must be checked on its own.
-                if self._state_wedge_holds_mint():
-                    self.logger.warning(
-                        f"Withholding own block at height {self.memserver.latest_block['block_number'] + 1}: "
-                        f"peers' blocks there are being refused for state-root mismatch — our state is "
-                        f"suspect and minting would spread it (state-wedge hold)")
-                elif (len(peers) >= self.memserver.min_peers
+                if (len(peers) >= self.memserver.min_peers
+                        and not self._genesis_cold_start_blocked(peers)
                         and not self.memserver.force_sync_ip):
                     block_candidate = get_block_candidate(logger=self.logger,
                                                           transaction_pool=self._candidate_pool(),
@@ -510,24 +538,7 @@ class CoreClient(threading.Thread):
                     hash=block["block_hash"], number=block["block_number"], logger=self.logger))
             except (KeyError, TypeError):
                 return False
-        if _knows(self.memserver.latest_block) or _knows(self.memserver.earliest_block):
-            return True
-        # FINALIZED-BLOCK FALLBACK (2026-07-30, .210 shallow-fork wedge). A node on a shallow fork has a
-        # tip no honest donor carries, and after a snapshot bootstrap its earliest pointer can be a body
-        # nobody serves (observed: 404 from every node INCLUDING ITSELF) — so both probes failed, no donor
-        # ever qualified, the unobtainable-but-valid heavier tip got benched, the bench fed
-        # _depth_floor_corroborated, and the node SELF-FINALIZED its 13-block fork into a dead one. Our
-        # finalized block is the strongest thing a donor can be asked for: on a shallow fork it sits on
-        # the COMMON prefix (the floor trails the divergence until the wedge cements), every honest peer
-        # holds it canonically, and a donor that knows it can serve the reorg leg — knows_block still
-        # checks canonicality, so a fork-side floor (wedge already cemented) correctly fails and the
-        # dead-fork escape stays the owner of that case.
-        _fh = get_finalized_height()
-        _fhash = None
-        if _fh > 0:
-            from ops.block_ops import get_block_hash_by_number
-            _fhash = get_block_hash_by_number(_fh)
-        return bool(_fhash) and _knows({"block_number": _fh, "block_hash": _fhash})
+        return _knows(self.memserver.latest_block) or _knows(self.memserver.earliest_block)
 
     def _fetch_sync_batch(self, peer, from_hash):
         """pull one forward-sync batch (up to SYNC_BATCH_MAX blocks after from_hash) from the donor.
@@ -713,21 +724,8 @@ class CoreClient(threading.Thread):
         (under partition even FFG is subjective — the inactivity leak lets each side quorum its own branch).
         Every tail block after the import is still fully re-verified, so a fabricated weight hint cannot be
         extended into an accepted chain."""
-        _tip_n = self.memserver.latest_block["block_number"]
-        if _tip_n != 0 and not force_reanchor:
-            # NOT-YET-ESTABLISHED EXTENSION (2026-07-30 aftermath): "genesis-only" assumed a fresh node
-            # cannot have moved off genesis before finding the network — but a freshly-purged node whose
-            # reachable peers were briefly only its fellow purgees (the operator seeds ARE each other)
-            # minted a ~30-block private chain within seconds (min_peers=0 permits solo production), and
-            # that alone disqualified it from bootstrap FOREVER: no donor can serve its root (the majority
-            # prunes far above genesis), the ancestor search has zero overlap so the fork state stays
-            # UNKNOWN, and every recovery route declines. A node with NOTHING FINALIZED and a tip still
-            # inside the finality window has nothing a snapshot import can destroy — its unfinalized
-            # self-minted blocks are exactly what fork choice discards anyway — so it keeps bootstrap
-            # eligibility until it first finalizes. The donor quorum/weight gates below are unchanged.
-            from ops.account_ops import get_finalized_height
-            if not (get_finalized_height() == 0 and _tip_n < self.memserver.finality_depth):
-                return False   # established (or past the window): only force_reanchor may re-anchor
+        if self.memserver.latest_block["block_number"] != 0 and not force_reanchor:
+            return False   # genesis-only for normal bootstrap; force_reanchor re-anchors an established node
         try:
             peers = list(self.memserver.peers)
             if len(peers) < 1:
@@ -958,23 +956,31 @@ class CoreClient(threading.Thread):
             return True
         if not majority_on_our_canonical(heaviest, get_block, get_block_hash_by_number):
             return False
-        # BENCH-BLIND SECOND LOOK (2026-07-30, .210 self-finalized fork). heaviest_block_hash excludes
-        # BENCHED tips — right for fork choice (anti weight-DoS), catastrophic as the sole input to an
-        # IRREVERSIBLE floor advance: when donor selection failed against a perfectly valid heavier chain,
-        # the repeated fetch failures benched it, our own tip became "heaviest", corroboration passed, and
-        # the node finalized its own 13-block fork into a dead one needing a full purge. For the floor, a
-        # heavier foreign tip we merely FAILED TO OBTAIN must freeze the advance, not vanish from the
-        # question. Raw advertised weights, no benching: any peer claiming strictly more cumulative weight
-        # on a tip that is not on our canonical chain withholds corroboration. A liar can only DELAY our
-        # floor (the safe direction, per the guard's own contract); it still cannot force one onto a fork.
-        _our_w = int((self.memserver.latest_block or {}).get("cumulative_weight", 0) or 0)
-        for _peer, _w in (self.consensus.weight_pool or {}).copy().items():
-            if not isinstance(_w, int) or _w <= _our_w:
+        # SOMEONE ELSE HAS TO SAY IT. The check above asks "is the heaviest tip on our chain", and for a node
+        # ALONE ON A FORK the answer is trivially yes — it mines every slot unopposed, so its own tip IS the
+        # heaviest and it corroborates itself. That is precisely the wedge this predicate exists to prevent,
+        # and it failed open in exactly that case.
+        #
+        # Observed live, alphanet-13 h5924 (2026-07-29): .131 built a block for the same winner, same parent,
+        # same state_root, 4s earlier and without a blob tx whose min_block was that very height. It then
+        # mined alone, stayed heaviest, corroborated its own depth floor up to 5974 — 50 blocks PAST the fork
+        # — and became unable to roll back and rejoin. The other three had the same fork point below their
+        # floor too, so nothing could reorg and the only exit left was the data-destroying dead-fork purge.
+        # Had the floor stayed below 5924 on the isolated side, that node could simply have rolled back and
+        # resynced the 3-node chain: a plain reorg, no purge, no lost chain data.
+        #
+        # So corroboration now means what the word means — an INDEPENDENT peer advertising a tip on our
+        # canonical chain. Our own tip is not evidence about our own tip.
+        #
+        # Failing this only FREEZES the floor, which is the safe direction (it widens the honest-reorg
+        # window and nothing else), and a Sybil could already achieve that by withholding corroboration.
+        _me = {self.memserver.ip, get_config().get("ip")} - {None}
+        for _peer, _hash in self.consensus.block_hash_pool.copy().items():
+            if _peer in _me or not _hash:
                 continue
-            _t = self.consensus.block_hash_pool.get(_peer)
-            if _t and not majority_on_our_canonical(_t, get_block, get_block_hash_by_number):
-                return False
-        return True
+            if majority_on_our_canonical(_hash, get_block, get_block_hash_by_number):
+                return True
+        return False
 
     def _fork_state(self):
         """Measured fork state (ops/fork_resolution.resolve), cached for FORK_STATE_TTL_S.
@@ -1243,97 +1249,6 @@ class CoreClient(threading.Thread):
             return True
         return False
 
-    def _note_state_reject(self, block, remote_peer):
-        """Count one L1 state-root reject of a peer-served, otherwise-fully-valid block into the
-        state-wedge streak (see protocol.STATE_WEDGE_*). Height-anchored: a reject at a different
-        height starts a fresh streak, so a resolved dispute can never inherit an old count."""
-        from protocol import STATE_WEDGE_STALE_S
-        now = get_timestamp_seconds()
-        w = self._state_wedge
-        if (not w or w["height"] != block["block_number"]
-                or now - w["last_ts"] > STATE_WEDGE_STALE_S):
-            w = {"height": block["block_number"], "first_ts": now, "last_ts": now,
-                 "count": 0, "peers": set()}
-            self._state_wedge = w
-        w["count"] += 1
-        w["last_ts"] = now
-        if remote_peer:
-            w["peers"].add(remote_peer)
-        # PUBLISH (diagnostics only, mirrors dead_fork_probe): a node refusing every peer's block must
-        # be able to SAY SO from the outside — /status is how the 2026-07-30 wedge was diagnosed remotely.
-        try:
-            self.memserver.state_wedge = {"height": w["height"], "count": w["count"],
-                                          "peers": sorted(w["peers"]), "first_ts": w["first_ts"],
-                                          "last_ts": w["last_ts"]}
-        except Exception:
-            pass
-
-    def _state_wedge_current(self):
-        """The streak dict iff it is fresh AND anchored at the height we are actually disputing
-        (our tip, or the next block while we sit rolled back on its parent) — else None. A streak
-        the chain has moved past, or one gone quiet, is inert."""
-        from protocol import STATE_WEDGE_STALE_S
-        w = self._state_wedge
-        if not w:
-            return None
-        tip = self.memserver.latest_block["block_number"]
-        if w["height"] not in (tip, tip + 1):
-            return None
-        if get_timestamp_seconds() - w["last_ts"] > STATE_WEDGE_STALE_S:
-            self._state_wedge = None
-            return None
-        return w
-
-    def _state_wedge_holds_mint(self) -> bool:
-        """True while our own candidate at the disputed height must NOT be minted. Once peers'
-        fully-valid blocks are being refused for state-root mismatch, every block WE mint there is
-        guaranteed-rejected fork spam — worse, it is how the 2026-07-30 corruption SPREAD: two other
-        nodes adopted the wedged node's self-consistent-but-corrupt block and wedged on it."""
-        from protocol import STATE_WEDGE_MINT_HOLD
-        w = self._state_wedge_current()
-        return bool(w and w["count"] >= STATE_WEDGE_MINT_HOLD)
-
-    def _maybe_escape_state_wedge(self) -> bool:
-        """WEDGE RECOVERY for a corrupt LOCAL STATE under agreeing block bodies — the geometry every
-        block-level route misses: fork state reads BEHIND (hash equality holds to our tip), the
-        dead-fork probe reads agreement (peers serve OUR hash at the finalized height), rollback
-        cannot help (the bodies are not the problem), and the state-root binding — correctly —
-        refuses every remote block at tip+1 forever. Observed live 2026-07-30 (alphanet-13 h15076):
-        two nodes looped rollback -> refuse -> re-mint for 18 hours.
-
-        Once the streak shows STATE_WEDGE_REJECTS fully-validated blocks from STATE_WEDGE_MIN_PEERS
-        distinct peers refused over STATE_WEDGE_SPAN_S, our state is the proven outlier: re-anchor
-        onto the heaviest chain's snapshot (state replaced wholesale; every tail block re-verified).
-        Cooldown-limited; a false trigger costs one snapshot import onto the same chain."""
-        from protocol import (STATE_WEDGE_REJECTS, STATE_WEDGE_SPAN_S, STATE_WEDGE_MIN_PEERS,
-                              STATE_WEDGE_COOLDOWN_S)
-        w = self._state_wedge_current()
-        if not w:
-            return False
-        now = get_timestamp_seconds()
-        if (w["count"] < STATE_WEDGE_REJECTS
-                or (w["last_ts"] - w["first_ts"]) < STATE_WEDGE_SPAN_S
-                or len(w["peers"]) < STATE_WEDGE_MIN_PEERS):
-            return False
-        if now - self._last_state_wedge_reanchor < STATE_WEDGE_COOLDOWN_S:
-            return False
-        self._last_state_wedge_reanchor = now
-        self.logger.error("=" * 78)
-        self.logger.error(
-            f"STATE WEDGE at height {w['height']}: {w['count']} fully-validated peer blocks from "
-            f"{len(w['peers'])} distinct peers refused for L1 state-root mismatch over "
-            f"{int(w['last_ts'] - w['first_ts'])}s while the block bodies agree. Our LOCAL STATE is "
-            f"the outlier (rollback-path corruption class) — re-anchoring onto the heaviest chain's "
-            f"snapshot. Keys/config untouched.")
-        self.logger.error("=" * 78)
-        if self.snapshot_bootstrap(force_reanchor=True, allow_below_floor=False):
-            self._state_wedge = None
-            self.memserver.state_wedge = None
-            self.memserver.rollbacks = 0
-            self._fork_state_cache = None
-            return True
-        return False
-
     def emergency_mode(self):
         """BEHIND-mode loop (entered when fork-choice says a strictly-better tip exists, or under
         operator force_sync_ip): pick a donor advertising the heaviest tip, then either FAST-FORWARD
@@ -1384,26 +1299,16 @@ class CoreClient(threading.Thread):
                 if not self.minority_block_consensus() and not self.memserver.force_sync_ip:
                     self.logger.info("No heavier valid tip remains; leaving emergency mode")
                     break
-                # STATE-WEDGE escape first: when the streak proves our STATE (not our blocks) is the
-                # outlier, donor selection below is pointless — every donor's chain will be refused at
-                # the same state-root check that built the streak. Jump straight to the re-anchor.
-                if self._maybe_escape_state_wedge():
-                    self.logger.warning("Re-anchored out of a state wedge; continuing with tail sync")
-                    continue
                 peer = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
                 if not peer:
                     now = get_timestamp_seconds()
                     if now - self._last_no_syncable_log >= NO_SYNCABLE_LOG_INTERVAL:
                         self._last_no_syncable_log = now
                         self.logger.info("Could not find a syncable peer")
-                    # A fresh node whose root no peer can serve — because every donor is a rolling/pruned
-                    # node — can never full-sync forward. Retry snapshot bootstrap until a donor advertises
-                    # a finalized checkpoint, then tail-sync from there. No `== 0` pre-gate here: the
-                    # eligibility check lives INSIDE snapshot_bootstrap and now also admits a
-                    # nothing-finalized node that minted a few solo blocks before finding the network
-                    # (the 2026-07-30 purge-rebootstrap gap) — pre-gating on genesis re-created exactly
-                    # the wedge the inner gate was widened to fix.
-                    if self.snapshot_bootstrap():
+                    # A fresh node whose root (genesis) no peer can serve — because every donor is a
+                    # rolling/pruned node — can never full-sync forward. Retry snapshot bootstrap until a
+                    # donor advertises a finalized checkpoint, then tail-sync from there.
+                    if self.memserver.latest_block["block_number"] == 0 and self.snapshot_bootstrap():
                         self.logger.warning("State bootstrapped from snapshot; continuing with tail sync")
                     # ESTABLISHED node, no donor can serve our root: we are on a minority fork whose root no
                     # honest canonical peer holds. If a strictly-heavier chain exists, re-anchor onto it (the
@@ -1713,33 +1618,14 @@ class CoreClient(threading.Thread):
             exec_cursor=block.get("exec_cursor"))
 
     def incorporate_block(self, block: dict, sorted_transactions: list):
-        """Apply one verified block atomically. Returns True when the block's state is in effect
-        (applied now, or this exact block was already applied — idempotent), False ONLY on the
-        height-occupancy refusal below (a different block still applied at this height); it must
-        not raise. produce_block treats False as a failed block and leaves the in-memory tip alone."""
+        """successful execution mandatory, must not raise a failure"""
         # M4 idempotency: if this exact block was already incorporated (its hash is in
         # block_index), don't re-apply its balances/reward. Protects against the same
         # block being re-fetched during sync or replayed after a restart that had
         # already advanced the tip (which would otherwise double-credit the reward).
         if block_already_indexed(block["block_hash"]):
             self.logger.warning(f"Block {block['block_hash']} already incorporated; skipping (idempotent)")
-            return True
-
-        # HEIGHT-OCCUPANCY GUARD (2026-07-30 h15076 wedge): a DIFFERENT block already applied at this
-        # height means the reorg protocol was not followed — applying this one would credit a second
-        # reward at the same height (the wedged node carried exactly one surplus 406M split) and
-        # tangle the number<->hash index (block_index_put is insert-or-ignore, so the OLD hash would
-        # keep the number slot while this block's state landed anyway). Every legitimate path rolls
-        # the occupant back first; refuse instead of corrupting, and let the caller treat it as a
-        # failed block.
-        from ops.block_ops import get_block_hash_by_number
-        _occupant = get_block_hash_by_number(block["block_number"])
-        if _occupant and _occupant != block["block_hash"]:
-            self.logger.error(
-                f"REFUSING to incorporate {block['block_hash'][:16]}… at height {block['block_number']}: "
-                f"a different block {str(_occupant)[:16]}… is still applied there (missed rollback). "
-                f"Applying both would double-credit the height's reward and fork our state.")
-            return False
+            return
 
         self.logger.warning(f"Producing block")
 
@@ -1894,7 +1780,6 @@ class CoreClient(threading.Thread):
         # here — the checkpoint is correct by construction (no historical-state derivation). /status
         # advertises it only once finalized (reorg-safe); rollback_one_block drops checkpoints above tip.
         self.maybe_checkpoint_state(block)
-        return True
 
     def maybe_checkpoint_state(self, block):
         """At each CHECKPOINT_INTERVAL boundary, persist a verified snapshot of state@N for
@@ -2488,13 +2373,6 @@ class CoreClient(threading.Thread):
                 # fingerprint costs a FULL extra state walk + a stats file rewrite — unthrottled it amplifies
                 # the very wedge it reports. One report per _DIVERGENCE_LOG_EVERY seconds is plenty to diagnose.
                 self._record_reject(block, our_state_root, str(block.get("state_root")))
-                # STATE-WEDGE streak: this reject is only meaningful coming from a peer-served block
-                # that already passed producer/weight/reward validation above — count it. Persistent
-                # distinct-peer rejects at one height mean OUR state is the outlier (the 2026-07-30
-                # wedge: bodies agreed to 15075, three nodes each sat on a privately-corrupt state
-                # re-minting the same dead block for 18h). See _note_state_reject/_maybe_escape_state_wedge.
-                if remote:
-                    self._note_state_reject(block, remote_peer)
                 raise ValueError(
                     f"Block {block['block_number']} state_root {str(block.get('state_root'))[:16]} != our "
                     f"as-of-parent L1 state {our_state_root[:16]} — our state diverged from the producer; "
@@ -2521,6 +2399,39 @@ class CoreClient(threading.Thread):
             # closes the K-withdraw bond drain / slash-escape / chain-halt, duplicate-slash over-burn,
             # and heartbeat/reveal DUPSORT desync forks.
             assert_unique_reserved(block["block_transactions"])
+
+            # AUTHORIZATION COMMITMENT (signature aggregation). Recompute (auth_root, auth_count) from the
+            # block's OWN transactions and enforce equality with what it committed inside its hash preimage.
+            # This is the statement an aggregate validity proof attests, so it must be DERIVED and never
+            # accepted: a prover free to choose the root would choose one covering fewer checks than the
+            # block demands, and "these zero authorizations are valid" is a proof of nothing.
+            #
+            # BE HONEST ABOUT WHAT THIS ADDS. Because the commitment lives inside the hash preimage and
+            # rebuild_block recomputes it from the block's own tx list, a block claiming the wrong root
+            # already fails the rebuilt-hash check — so on the ordinary path this is redundant. It is kept
+            # for two reasons: it gives the failure its own name instead of an opaque hash mismatch, and it
+            # holds on any path that reaches verify_block without a full rebuild. It is a pure function of
+            # committed block data, so unlike state_root a mismatch here means the BLOCK is malformed or
+            # forged — never that our state drifted.
+            from execnode.stark import mldsa_block_auth as _auth
+            _r, _c = _auth.auth_commitments(block)
+            if int(block.get("auth_count", -1)) != _c or int(block.get("auth_root", -1)) != int(_r):
+                raise ValueError(
+                    f"Block {block['block_number']} authorization commitment "
+                    f"(root={str(block.get('auth_root'))[:16]}, count={block.get('auth_count')}) != "
+                    f"recomputed (root={str(_r)[:16]}, count={_c}) — the block's committed signature "
+                    f"workload does not match its own transactions")
+
+            # DETACHED EVIDENCE, when the producer shipped an envelope. Absent -> the per-tx signatures
+            # below ARE the evidence (what every block ships today). Present -> it is checked against the
+            # commitment we just recomputed, with the key coming from OUR PUBKEY-ONCE resolution and never
+            # from the envelope. A present-but-invalid envelope is a forgery signal and rejects the block;
+            # it can never CHANGE block identity, because it lives outside the hash preimage.
+            if block.get("block_auth_evidence") is not None:
+                from ops.block_ops import check_block_auth_evidence
+                _ok, _why = check_block_auth_evidence(block)
+                if not _ok:
+                    raise ValueError(f"Block {block['block_number']} authorization evidence rejected: {_why}")
 
             # ALWAYS validate signatures + spending (never skipped for synced/old blocks) — else a
             # malicious sync peer could feed forged, unsigned transfers that reflect would still apply.
@@ -2586,20 +2497,8 @@ class CoreClient(threading.Thread):
                     sign_block(block, self.memserver.private_key, self.memserver.public_key)
                 verified_block = sort_list_dict(block["block_transactions"])
 
-            if self.incorporate_block(block=block, sorted_transactions=verified_block) is False:
-                # height-occupancy refusal: the DB tip disagrees with what we were about to extend.
-                # Do NOT advance the in-memory tip — memory/disk tip divergence is exactly how the
-                # double-apply happened. The except below logs + returns False to the sync loop.
-                raise ValueError(
-                    f"Block {block['block_number']} refused: a different block is applied at that height")
+            self.incorporate_block(block=block, sorted_transactions=verified_block)
             self.memserver.latest_block = block
-
-            # A PEER-served block extending us at/above the disputed height means our state agreed
-            # with its producer after all — the wedge streak is refuted, drop it. Own blocks never
-            # clear it (a corrupt node agrees with itself; that self-agreement was the poison loop).
-            if remote and self._state_wedge and block["block_number"] >= self._state_wedge["height"]:
-                self._state_wedge = None
-                self.memserver.state_wedge = None
 
             gen_elapsed = get_timestamp_seconds() - gen_start
 

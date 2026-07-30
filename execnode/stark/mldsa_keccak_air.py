@@ -272,6 +272,102 @@ def build_trace(state_in):
     return rows, T, s
 
 
+# ---- BATCHED (CHAINED) PERMUTATIONS -----------------------------------------------------------------
+# ONE ML-DSA-44 verification is 103 Keccak-f permutations, and proving each as its OWN stark is 103 proofs to
+# fold. The dominant obstacle to batching them is NOT trace size — it is BOUNDARIES. A single permutation
+# pins 1600 input bits and 1600 output bits, and the composition cost of a boundary is O(N) per boundary, so
+# R independent permutations in one trace would cost 3200*R boundaries and get quadratically worse.
+#
+# In a SHAKE squeeze chain the permutations are not independent: state_out of j IS state_in of j+1. So chain
+# them in-circuit and only the FIRST input and the LAST output need pinning — 3200 boundaries total, whatever
+# R is. The chaining costs one selector and 1600 degree-2 hold constraints, which is ~14% more constraints
+# against a 103x reduction in proof count.
+#
+# HOW THE CHAIN IS EXPRESSED. A block is _BLK rows: 24 round rows, then the final state, then padding. The
+# padding rows already repeat the final state, so constraining A to HOLD across rows 24.._BLK-1 costs nothing
+# on an honest trace and makes row _BLK*(j+1) — the next block's row 0 — ADJACENT to a row carrying block j's
+# output. A single transition then links them, and no boundary is needed in between.
+#
+# THE LAST ROW IS EXCLUDED FROM HOLD. Transition constraints wrap (row T-1's "next" is row 0), so holding
+# there would force the final output to equal the first input — a constraint an honest trace cannot satisfy.
+_BLK = 32                        # rows per permutation: ROUNDS(24) + final + padding, rounded to a power of 2
+
+
+def build_trace_chain(state_in, nperm):
+    """Trace for `nperm` CHAINED Keccak-f permutations: out of one is in of the next.
+    Returns (rows, T, state_out) where state_out is the final permutation's output."""
+    if nperm < 1 or (nperm & (nperm - 1)):
+        raise ValueError("nperm must be a power of two so T = _BLK*nperm stays a power of two")
+    rows, s = [], list(state_in)
+    for _ in range(nperm):
+        for r in range(ROUNDS):
+            row, s = round_row(s, RC[r])
+            rows.append(row)
+        final = [0] * W
+        for i, b in enumerate(_bits_of_state(s)):
+            final[A0 + i] = b
+        rows.append(final)
+        while len(rows) % _BLK:                       # pad to the block, repeating the final state
+            rows.append(list(final))
+    return rows, _BLK * nperm, s
+
+
+def periodic_chain(T):
+    """Round constants + ACTIVE + HOLD, tiled per block. ACTIVE gates the 24 round rows; HOLD gates the
+    tail rows where A must carry forward, EXCLUDING the very last row of the trace (see above)."""
+    per = []
+    for i in range(LANE_BITS):
+        per.append([((RC[r % _BLK] >> i) & 1) if (r % _BLK) < ROUNDS else 0 for r in range(T)])
+    per.append([1 if (r % _BLK) < ROUNDS else 0 for r in range(T)])                       # PER_ACT
+    per.append([1 if ((r % _BLK) >= ROUNDS and r != T - 1) else 0 for r in range(T)])     # PER_HOLD
+    return per
+
+
+PER_HOLD = LANE_BITS + 1          # sits just after PER_ACT in the chained layout
+
+
+def transitions_chain():
+    """The permutation constraints plus the 1600 HOLD constraints that carry A across a block boundary."""
+    cons = list(transitions())
+    for i in range(STATE_BITS):
+        cons.append((lambda ii: lambda c, n, p:
+                     F.mul(p[PER_HOLD], F.sub(n[A0 + ii], c[A0 + ii])))(i))
+    return cons
+
+
+def _boundaries_chain(state_in, state_out, nperm, T):
+    """Pin ONLY the first input and the last output. Everything between is bound by the chain constraints —
+    which is the entire point: this count does not grow with nperm."""
+    bnds = [(0, A0 + i, b) for i, b in enumerate(_bits_of_state(state_in))]
+    last_out_row = (nperm - 1) * _BLK + ROUNDS
+    bnds += [(last_out_row, A0 + i, b) for i, b in enumerate(_bits_of_state(state_out))]
+    return bnds
+
+
+def prove_permutation_chain(state_in, nperm, num_queries=stark.NUM_QUERIES, backend=None):
+    """Prove `nperm` chained Keccak-f[1600] permutations in ONE proof. Returns (proof, state_out)."""
+    bk = backend or B.RECURSION
+    rows, T, state_out = build_trace_chain(state_in, nperm)
+    proof = stark.prove(rows, transitions_chain(), _boundaries_chain(state_in, state_out, nperm, T),
+                        periodic=periodic_chain(T), max_degree=MAX_DEGREE, num_queries=num_queries,
+                        backend=bk)
+    return proof, state_out
+
+
+def verify_permutation_chain(proof, state_in, state_out, nperm, num_queries=stark.NUM_QUERIES, backend=None):
+    """Verify a chained-permutation proof against the PUBLIC first input and last output."""
+    try:
+        bk = backend or B.RECURSION
+        T = proof["T"]
+        if T != _BLK * nperm:
+            return False, f"trace length {T} != {_BLK}*{nperm}"
+        return stark.verify(proof, transitions_chain(), _boundaries_chain(state_in, state_out, nperm, T),
+                            periodic=periodic_chain(T), max_degree=MAX_DEGREE, num_queries=num_queries,
+                            backend=bk)
+    except Exception as e:
+        return False, f"malformed chained keccak proof: {e}"
+
+
 def periodic(T):
     """64 round-constant bit columns + the ACTIVE selector (1 on rows 0..23, 0 on the final/pad rows)."""
     per = []

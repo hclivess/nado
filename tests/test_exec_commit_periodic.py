@@ -44,7 +44,13 @@ def t_committed_roots_bind_to_tables():
     """Each committed per-root equals an honest commit of that periodic column's LDE, so a caller CAN bind them
     to the epoch's commitments (the O(1) binding is a chain proof; the recompute here is the correctness check)."""
     proof, io, _ = VC.prove_epoch_calls(CALLS, num_queries=NQ, commit_periodic=VC.COMMIT_PERIODIC)
-    ok, why, periodic, _bnds = VC.epoch_statement(proof, CALLS, io)
+    # ext MUST be derived, not defaulted. The proof is built under the challenge field in force (GF(p^3)
+    # here), so its aux columns are base-column PAIRS and W is the EXTENSION width; asking for the base
+    # layout reads the geometry as too narrow and rejects an honest proof as "bad trace geometry". The
+    # production callers already do this (settlement_sparse.py 306/376, verify_epoch_calls) — this test was
+    # the one caller left defaulting, a leftover from the GF(p^3) migration rather than a defect in the path.
+    ok, why, periodic, _bnds = VC.epoch_statement(proof, CALLS, io,
+                                                  ext=stark.ext_challenges_active(None))
     assert ok, why
     b = B.DEFAULT
     N, OFF, T = proof["N"], stark.OFF, proof["T"]

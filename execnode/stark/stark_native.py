@@ -31,14 +31,19 @@ def _candidates():
 
 
 def available():
-    """True if the native arena lib loaded (cached)."""
+    """True if the native arena lib loaded (cached).
+
+    RUST-ONLY: if no usable library is found this RAISES (native_guard.require) rather than reporting False,
+    so the caller cannot proceed into a Python path that no longer exists as a production option. The name is
+    kept because ~40 call sites read it as a predicate; what changed is that False is no longer reachable in a
+    node — only under NADO_ALLOW_PYTHON_KERNELS, which exists for builds and conformance tests."""
     global _LIB, _state
     if _state is not None:
         return _state
-    from execnode.stark.native_guard import is_stale
+    from execnode.stark import native_guard
     for path in _candidates():
         if path and os.path.exists(path):
-            if is_stale(path, os.path.dirname(os.path.dirname(os.path.dirname(path)))):
+            if native_guard.is_stale(path, os.path.dirname(os.path.dirname(os.path.dirname(path)))):
                 continue                                   # .so older than its sources (pulled without rebuild)
             try:
                 lib = ctypes.CDLL(path)
@@ -63,12 +68,14 @@ def available():
                 lib.sp_col_len.restype = ctypes.c_int64
                 lib.sp_fold.argtypes = [ctypes.c_size_t, ctypes.c_uint64, ctypes.c_uint64]
                 lib.sp_fold.restype = ctypes.c_int64
-                # GF(p^2): an extension column is TWO arena columns (lo, hi); both entry points return the
-                # LO id and always retain HI at lo+1. Bound with getattr so an older .so (built before the
-                # extension port) simply reports unavailable instead of raising at load.
+                # GF(p^D): an extension column is D arena columns (limb 0..D-1); both entry points return
+                # the LIMB-0 id and retain limb k at that id + k. Bound with getattr so an older .so (built
+                # before the extension port) simply reports unavailable instead of raising at load.
+                # Both take the caller's degree explicitly so a mismatched library is REJECTED at the call
+                # rather than composing over the wrong field.
                 if hasattr(lib, "sp_fold_ext"):
-                    lib.sp_fold_ext.argtypes = [ctypes.c_size_t, ctypes.c_size_t, ctypes.c_uint64,
-                                                ctypes.c_uint64, ctypes.c_uint64]
+                    lib.sp_fold_ext.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64,
+                                                ctypes.c_void_p, ctypes.c_size_t]
                     lib.sp_fold_ext.restype = ctypes.c_int64
                 if hasattr(lib, "sp_compose_ext"):
                     lib.sp_compose_ext.argtypes = [
@@ -77,17 +84,66 @@ def available():
                         ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_void_p,
                         ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p,
                         ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_uint64,
-                        ctypes.c_void_p, ctypes.c_void_p]
+                        ctypes.c_size_t, ctypes.c_void_p]
                     lib.sp_compose_ext.restype = ctypes.c_int64
                 lib.sp_load_col.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
                 lib.sp_load_col.restype = ctypes.c_int64
                 lib.sp_commit_rows.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
                 lib.sp_commit_rows.restype = ctypes.c_int64
+                # Transcript + full-FRI entry points (the Rust prove loop). getattr-guarded like the ext
+                # kernels above so an older .so reports unavailable instead of raising at load.
+                for _nm, _at, _rt in (
+                        ("sp_tr_init", [ctypes.c_uint64, ctypes.c_void_p], None),
+                        ("sp_tr_absorb", [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t], None),
+                        ("sp_tr_challenge", [ctypes.c_void_p], ctypes.c_uint64),
+                        ("sp_tr_index", [ctypes.c_void_p, ctypes.c_uint64], ctypes.c_uint64),
+                        ("sp_tr_challenge_ext", [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p], None),
+                        ("sp_commit_col_ext", [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p,
+                                               ctypes.c_uint32], ctypes.c_int64),
+                        ("sp_fri_prove", [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64, ctypes.c_size_t,
+                                          ctypes.c_size_t, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32,
+                                          ctypes.c_size_t, ctypes.c_uint32], ctypes.c_int64),
+                        ("sp_permute_snapshots", [ctypes.c_void_p, ctypes.c_void_p], ctypes.c_int64),
+                        ("sp_permute_snapshots_batch", [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p],
+                         ctypes.c_int64),
+                        ("sp_blocks_for", [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64,
+                                           ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p,
+                                           ctypes.c_void_p, ctypes.c_void_p], ctypes.c_int64),
+                        ("sp_fill_path", [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t,
+                                          ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64,
+                                          ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t,
+                                          ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t],
+                         ctypes.c_int64),
+                        ("sp_fri_size", [], ctypes.c_int64),
+                        ("sp_fri_serialize", [ctypes.c_void_p], ctypes.c_int64)):
+                    if hasattr(lib, _nm):
+                        getattr(lib, _nm).argtypes = _at
+                        if _rt is not None:
+                            getattr(lib, _nm).restype = _rt
                 _init_hash(lib)
                 _LIB, _state = lib, True
                 return True
             except Exception:
                 continue
+    # Nothing usable. Under the Rust-only policy that is fatal, not a downgrade.
+    #
+    # require() first, because it produces the precise message for the two common causes (absent .so, or one
+    # older than its own sources). But it is NOT sufficient on its own: it inspects the canonical crate path,
+    # so if NADO_STARKPROVE_LIB points somewhere broken — or the library is present and fresh yet fails to
+    # load for an ABI/symbol reason — require() sees a healthy file and returns. My first version stopped
+    # there and silently returned False, i.e. exactly the downgrade this change exists to abolish. So the
+    # loader raises on its own behalf too: reaching this line at all means no candidate loaded.
+    here = os.path.dirname(os.path.abspath(__file__))
+    crate = os.path.join(os.path.dirname(os.path.dirname(here)), "native", "starkprove")
+    native_guard.require("starkprove", os.path.join(crate, "target", "release", "libnado_starkprove.so"),
+                         crate, reason="the persistent LDE/composition arena")
+    if not native_guard.allow_absent():
+        raise native_guard.NativeMissing(
+            "native crate 'starkprove' is REQUIRED and no candidate library could be loaded (tried: "
+            + ", ".join(p for p in _candidates() if p) +
+            "). The file may exist but fail to load — a wrong architecture, a missing symbol from an older "
+            "build, or NADO_STARKPROVE_LIB pointing at the wrong file. Rebuild with `cargo build --release` "
+            "in native/starkprove. There is no Python fallback in production.")
     _state = False
     return False
 
@@ -205,23 +261,41 @@ def compose(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
 
 
 def ext_capable():
-    """True when the loaded .so carries the GF(p^2) entry points. A node running an older build must fall
-    back to the Python path rather than silently produce a base-field proof under extension challenges."""
-    return available() and hasattr(_LIB, "sp_fold_ext") and hasattr(_LIB, "sp_compose_ext")
+    """True when the loaded .so carries the extension entry points AND was compiled for the SAME degree the
+    Python side is using.
+
+    The symbols existing says nothing about which field they implement. A degree-mismatched arena does not
+    fail — it composes a well-formed polynomial over the wrong field, and the only symptom is a
+    "trace/composition mismatch" at verification with nothing pointing at the field. So the degree is part of
+    the handshake, and a library that cannot answer is treated as pre-port."""
+    if not (available() and hasattr(_LIB, "sp_fold_ext") and hasattr(_LIB, "sp_compose_ext")):
+        return False
+    if not (hasattr(_LIB, "sp_ext_degree") and hasattr(_LIB, "sp_ext_nonresidue")):
+        return False
+    from execnode.stark import extf
+    _LIB.sp_ext_degree.restype = ctypes.c_int64
+    _LIB.sp_ext_nonresidue.restype = ctypes.c_uint64
+    # BOTH halves of the field identity. Two libraries can agree on the degree and still be different
+    # fields: X^3-3 and X^3-5 are both degree 3, both irreducible, and produce silently different products.
+    return (int(_LIB.sp_ext_degree()) == extf.DEGREE
+            and int(_LIB.sp_ext_nonresidue()) == extf.NONRESIDUE % _P)
 
 
 def compose_ext(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
-    """GF(p^2) composition from the arena. `alphas` is one EXTENSION element per LOGICAL constraint then one
-    per boundary — an extension-valued constraint occupies two SSA outputs but takes a single alpha, so the
-    count is len(outputs) - len(ext_pairs) + len(boundaries), NOT len(outputs) + len(boundaries).
-    Returns (cp_lo_col_id, (lo_list, hi_list) or None); the HI column is cp_lo_col_id + 1.
+    """GF(p^D) composition from the arena. `alphas` is one EXTENSION element per LOGICAL constraint then one
+    per boundary — an extension-valued constraint occupies D SSA outputs but takes a SINGLE alpha, so the
+    count is len(outputs) - len(ext_pairs)*(D-1) + len(boundaries), NOT len(outputs) + len(boundaries).
+    Returns (cp_col_id, (limb_lists...) or None); the further limb columns follow at cp_col_id + 1 ...
     Bit-identical to air_ir.compose_python under extension alphas."""
+    from execnode.stark import extf as ext2
     u32, u64 = ctypes.c_uint32, ctypes.c_uint64
     ops = prog["ops"]; consts = prog["consts"]; outputs = prog["outputs"]
     pairs = list(prog.get("ext_pairs") or ())
     W, nper, nchal = prog["W"], prog["P"], len(chals)
     n_ops, n_out, n_bnd, n_pairs = len(ops), len(outputs), len(boundaries), len(pairs)
-    n_logical = n_out - n_pairs
+    # an extension constraint occupies D outputs but takes ONE alpha, so each group adds D-1 EXTRA outputs.
+    # (n_out - n_pairs was right only at D=2 and would silently over-count alphas at any other degree.)
+    n_logical = n_out - n_pairs * (ext2.DEGREE - 1)
     if len(alphas) != n_logical + n_bnd:
         raise ValueError(f"compose_ext: expected {n_logical + n_bnd} alphas "
                          f"(one per LOGICAL constraint + one per boundary), got {len(alphas)}")
@@ -233,7 +307,6 @@ def compose_ext(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
     consts_a = _u64(len(consts), consts)
     out_idx = (u32 * max(1, n_out))(); out_idx[:n_out] = list(outputs)
     pair_idx = (u32 * max(1, n_pairs))(); pair_idx[:n_pairs] = list(pairs)
-    from execnode.stark import ext2
     # The CHALLENGES are extension pairs too, not just the alphas — the arena wants both flattened to limbs,
     # and prog["C"] already counts the flattened width (2 per logical challenge under ext_chal). Flattening
     # only the alphas left the challenges as tuples and int() rejected them, which stark.prove then swallowed
@@ -247,25 +320,37 @@ def compose_ext(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
     bcol = (u32 * max(1, n_bnd))(); bcol[:n_bnd] = [c for (_r, c, _v) in boundaries]
     bval = _u64(n_bnd, [v for (_r, _c, v) in boundaries])
     brow = _u64(n_bnd, [r for (r, _c, _v) in boundaries])
-    lo_buf = (u64 * N)() if want_out else None
-    hi_buf = (u64 * N)() if want_out else None
+    D = ext2.DEGREE
+    out_buf = (u64 * (D * N))() if want_out else None      # limb-major: all of limb 0, then limb 1, ...
     P = lambda x: ctypes.cast(x, ctypes.c_void_p)
     cid = _LIB.sp_compose_ext(n_ops, P(ops_flat), len(consts), P(consts_a), n_out, P(out_idx),
                               n_pairs, P(pair_idx), W, nper, nchal, P(chals_a), P(alphas_a),
                               n_bnd, P(bcol), P(bval), P(brow),
                               int(T), int(blowup), int(stark_OFF()),
-                              P(lo_buf) if want_out else None, P(hi_buf) if want_out else None)
+                              D, P(out_buf) if want_out else None)
     if cid < 0:
         raise RuntimeError(f"sp_compose_ext failed (code {cid})")
-    return cid, ((list(lo_buf), list(hi_buf)) if want_out else None)
+    limbs = tuple(list(out_buf[d * N:(d + 1) * N]) for d in range(D)) if want_out else None
+    return cid, limbs
 
 
-def fold_ext(col_lo, col_hi, offset, alpha):
-    """One GF(p^2) FRI fold of an extension column pair → a new half-length pair; returns the LO id (HI is
-    lo+1). Bit-identical to fri._fold_ext."""
-    from execnode.stark import ext2
-    a0, a1 = ext2.lift(alpha)
-    cid = _LIB.sp_fold_ext(int(col_lo), int(col_hi), int(offset) % _P, int(a0) % _P, int(a1) % _P)
+def fold_ext(cols, offset, alpha):
+    """One GF(p^D) FRI fold of an extension column tuple → a new half-length tuple; returns the LIMB-0 id
+    (limb k is at that id + k). Bit-identical to fri._fold_ext.
+
+    `cols` is the D arena column ids in limb order. It used to be two positional args (col_lo, col_hi); a
+    tuple is what makes the call degree-agnostic, and passing the length lets the arena reject a caller that
+    disagrees with it instead of reading past the end."""
+    from execnode.stark import extf as ext2
+    D = ext2.DEGREE
+    ids = list(cols)
+    if len(ids) != D:
+        raise ValueError(f"fold_ext: got {len(ids)} column ids, field is degree {D}")
+    limbs = ext2.lift(alpha)
+    ids_a = (ctypes.c_size_t * D)(*[int(c) for c in ids])
+    a_a = (ctypes.c_uint64 * D)(*[int(x) % _P for x in limbs])
+    P = lambda x: ctypes.cast(x, ctypes.c_void_p)
+    cid = _LIB.sp_fold_ext(P(ids_a), D, int(offset) % _P, P(a_a), D)
     if cid < 0:
         raise RuntimeError("sp_fold_ext failed")
     return cid
@@ -303,41 +388,77 @@ def fold(col, offset, alpha):
     return cid
 
 
-def fri_prove(cp_col, offset, blowup, num_queries, transcript, hash_mode=0):
-    """FRI over a retained composition column (step 4): the heavy per-layer work — Merkle commit, fold, and
-    query openings — runs in the arena; the TRANSCRIPT (a handful of absorbs/challenges/grind) stays in Python,
-    identical to fri.prove. `hash_mode` selects the arena Merkle (0 RECURSION, 1 ALGHASH2) to match the
-    transcript's backend. Produces the same proof dict, bit-identical to fri.prove(cp, offset, blowup, nq, t, b)."""
-    from execnode.stark import fri
-    t = transcript
-    N = col_len(cp_col)
-    roots, layers_meta = [], []          # layers_meta: (col_id, tree_id, size)
-    cur, off = cp_col, int(offset) % _P
-    while col_len(cur) > blowup:
-        tree_id, root = commit_col(cur, hash_mode)
-        roots.append(root); t.absorb(root)
-        alpha = t.challenge()
-        layers_meta.append((cur, tree_id, col_len(cur)))
-        cur = fold(cur, off, alpha)
-        off = (off * off) % _P
-    final = [read(cur, i) for i in range(col_len(cur))]
-    t.absorb("final", *final)
-    pow_nonce = t.grind(fri.GRIND_BITS)
+def fri_prove_native(col_ids, offset, blowup, num_queries, transcript, hash_mode, degree, use_ext):
+    """FRI ENTIRELY IN RUST (sp_fri_prove) — including the transcript, which is what previously forced the loop
+    back into Python between every commit and every fold.
+
+    This replaces the hybrid that the comment in prove() describes: under extension challenges the arena did
+    the LDE/Merkle/composition and then handed FRI to Python, "which is what made every proof pure-Python and
+    turned a 3-circuit fold into ~50 minutes". The folds themselves were never the cost; the per-layer and
+    per-query FFI round-trips were.
+
+    `col_ids` is ONE column id for a base-valued layer 0, or `degree` consecutive ids for an extension-valued
+    one (the composition column is extension-valued, so it is the latter). fri.prove decides that from the
+    data and records it as `ext0`; here the caller states it by how many ids it passes, so the prover never has
+    to guess.
+
+    The transcript state crosses ONCE in each direction: Python hands its CAP lanes in, Rust advances them
+    through every absorb/challenge/grind, and they are written back so the caller's transcript continues
+    correctly for the openings that follow.
+    """
+    import ctypes
+    from execnode.stark import fri as _fri
+    if not available():
+        return None
+    lib = _LIB
+    ids = (ctypes.c_size_t * len(col_ids))(*[int(c) for c in col_ids])
+    st = (ctypes.c_uint64 * 4)(*[int(x) % _P for x in transcript.state])
+    nl = lib.sp_fri_prove(ctypes.cast(ids, ctypes.c_void_p), len(col_ids), int(offset) % _P,
+                          int(blowup), int(num_queries), int(_fri.GRIND_BITS),
+                          ctypes.cast(st, ctypes.c_void_p), int(hash_mode), int(degree),
+                          1 if use_ext else 0)
+    if nl is None or int(nl) <= 0:
+        return None
+    transcript.state = tuple(int(st[i]) for i in range(4))      # continue from the advanced state
+    size = int(lib.sp_fri_size())
+    if size <= 0:
+        return None
+    buf = (ctypes.c_uint64 * size)()
+    if int(lib.sp_fri_serialize(ctypes.cast(buf, ctypes.c_void_p))) != size:
+        return None
+    n_layers = int(buf[0]); n0 = int(buf[1]); deg = int(buf[3]); ext0 = bool(buf[4])
+    pow_nonce = int(buf[5]); nq = int(buf[6]); final_limbs = int(buf[7])
+    o = 8
+    sizes = [int(buf[o + i]) for i in range(n_layers)]; o += n_layers
+    limbs = [int(buf[o + i]) for i in range(n_layers)]; o += n_layers
+    roots = [tuple(int(buf[o + l * 4 + k]) for k in range(4)) for l in range(n_layers)]
+    o += n_layers * 4
+    # n0 halves once per committed layer, so the final layer is exactly n0 >> n_layers. Deriving it from
+    # the buffer size instead would make a serialisation change look like a proof change.
+    n_final = n0 >> n_layers
+    final = []
+    for i in range(n_final):
+        v = tuple(int(buf[o + i * final_limbs + k]) for k in range(final_limbs))
+        final.append(v if final_limbs > 1 else v[0])
+    o += n_final * final_limbs
+    qidx = [int(buf[o + i]) for i in range(nq)]; o += nq
     queries = []
-    for _ in range(num_queries):
-        idx = t.challenge_index(N)
-        steps, a = [], idx
-        for (col_id, tree_id, size) in layers_meta:
-            half = size // 2
-            a %= size
-            lo = a % half
-            plen = size.bit_length() - 1
-            steps.append({"lo": read(col_id, lo), "lo_path": open_at(tree_id, lo, plen),
-                          "hi": read(col_id, lo + half), "hi_path": open_at(tree_id, lo + half, plen)})
-            a = lo
-        queries.append({"idx": idx, "steps": steps})
-    return {"N": N, "offset": offset, "blowup": blowup, "roots": roots, "final": final,
-            "pow": pow_nonce, "queries": queries, "ext": False, "ext0": False}
+    for q in range(nq):
+        steps = []
+        for l in range(n_layers):
+            plen = sizes[l].bit_length() - 1
+            step = {}
+            for which in ("lo", "hi"):
+                v = tuple(int(buf[o + k]) for k in range(limbs[l])); o += limbs[l]
+                step[which] = v if limbs[l] > 1 else v[0]
+                step[which + "_path"] = [tuple(int(buf[o + j * 4 + k]) for k in range(4))
+                                         for j in range(plen)]
+                o += plen * 4
+            steps.append(step)
+        queries.append({"idx": qidx[q], "steps": steps})
+    return {"N": n0, "offset": int(offset) % _P, "blowup": int(blowup), "roots": roots,
+            "final": final, "pow": pow_nonce, "queries": queries,
+            "ext": bool(use_ext), "ext0": ext0}
 
 
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=None, aux=None,
@@ -362,7 +483,10 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # The composition is two columns; the TRACE is the memory. So the refusal now applies only to a library
     # built before the extension port, where it remains the right answer.
     if _ext and not ext_capable():
-        raise RuntimeError("this build of the arena predates the GF(p^2) port — use the Python path")
+        from execnode.stark import extf as _ef
+        _d = int(_LIB.sp_ext_degree()) if (available() and hasattr(_LIB, "sp_ext_degree")) else None
+        raise RuntimeError(f"the arena implements extension degree {_d} but this build needs "
+                           f"{_ef.DEGREE} — use the Python path")
     hmode = 1 if getattr(b, "name", "") == "alghash2" else 0     # arena Merkle: 0 rleaf/rnode, 1 hashn
     T = len(trace); W = len(trace[0])
     blowup = stark._blowup(max_degree); N = blowup * T
@@ -408,7 +532,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     if _ext:
         # ONE alpha per LOGICAL constraint: an extension-valued constraint occupies two SSA outputs but takes
         # a single alpha, so this count is NOT len(outputs) + len(boundaries).
-        _n_logical = len(prog["outputs"]) - len(prog.get("ext_pairs") or ())
+        from execnode.stark import extf as _ef
+        _n_logical = len(prog["outputs"]) - len(prog.get("ext_pairs") or ()) * (_ef.DEGREE - 1)
         alphas = [t.challenge_ext() for _ in range(_n_logical + len(boundaries))]
         cp_col, _ = compose_ext(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
     else:
@@ -416,25 +541,45 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         cp_col, _ = compose(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
 
     fri_blowup = N // deg_bound
-    # HYBRID FRI. The arena's sp_fold multiplies by a BASE-field alpha, so it cannot carry a GF(p^2) folding
-    # challenge (fri.EXT_CHALLENGES). Rather than abandon the native prover wholesale — which is what made
-    # every proof pure-Python and turned a 3-circuit fold into ~50 minutes — keep ALL the heavy native work
-    # (per-column LDE, Merkle commits, and the composition polynomial, which are the O(N log N) stages) and
-    # run only the FRI folding in Python by reading the composition column out of the arena. FRI's folds are
-    # O(N) with tiny constants next to the NTTs and W-column Merkle trees above, so this recovers essentially
-    # all of the speed while keeping the stronger commit-phase bound.
-    # A RECURSION-backend proof is destined to be FOLDED by the base-field in-circuit AIRs, so it stays
-    # base-field (stark.prove applies the same rule) and can use the fully native FRI. Only a non-recursion
-    # proof carries the GF(p^2) challenge, and only that case reads the column out for the Python fold.
+    # HYBRID FRI. FRI's per-layer Merkle commitments hash EXTENSION leaves (alghash2.leaf_ext, a distinct
+    # domain tag), which the arena's committer does not implement — it hashes base-field columns. Rather
+    # than abandon the native prover wholesale — which is what made every proof pure-Python and turned a
+    # 3-circuit fold into ~50 minutes — keep ALL the heavy native work (per-column LDE, Merkle commits, and
+    # the composition polynomial, which are the O(N log N) stages) and run only the FRI folding in Python by
+    # reading the composition column out of the arena. FRI's folds are O(N) with tiny constants next to the
+    # NTTs and W-column Merkle trees above, so this recovers essentially all of the speed while keeping the
+    # stronger commit-phase bound.
+    # A RECURSION-backend proof is destined to be FOLDED by the in-circuit AIRs and follows the same field
+    # as everything else; whether it takes this branch is decided by fri.EXT_CHALLENGES alone, read through
+    # stark.ext_challenges_active(), which is the ONE authority on the question.
     if _ext:
-        # cp is EXTENSION-valued, so it occupies the column pair (cp_col, cp_col+1) — read it back as limb
-        # pairs. Only these two columns cross into Python; the W trace columns stay in the arena, which is
+        # cp is EXTENSION-valued, so it occupies D consecutive columns from cp_col — read it back as limb
+        # tuples. Only those D columns cross into Python; the W trace columns stay in the arena, which is
         # the whole point (see the guard above).
-        _m = col_len(cp_col)
-        cp_vals = [(read(cp_col, i), read(cp_col + 1, i)) for i in range(_m)]
-        fri_proof = fri.prove(cp_vals, OFF, fri_blowup, num_queries, transcript=t, backend=b)
+        # FRI NOW RUNS IN RUST TOO (sp_fri_prove). This branch used to read the D composition limb columns
+        # back into Python and call fri.prove — the hybrid the comment above describes, and the reason a
+        # 3-circuit fold took ~50 minutes. Nothing crosses into Python now: the extension composition column
+        # is already D consecutive arena columns, which is exactly the layer-0 form sp_fri_prove wants.
+        from execnode.stark import extf as _ef2
+        _D = _ef2.DEGREE
+        fri_proof = fri_prove_native([cp_col + d for d in range(_D)], OFF, fri_blowup, num_queries,
+                                     t, hmode, _D, True)
+        if fri_proof is None:
+            # Do NOT silently fall back to the Python loop — that is the degradation the Rust-only policy
+            # exists to abolish, and it would reintroduce the 50-minute fold invisibly.
+            from execnode.stark import native_guard as _ng
+            raise _ng.NativeMissing(
+                "sp_fri_prove failed on the extension composition column. The arena is present but the "
+                "full-FRI entry point is missing or refused the call — rebuild native/starkprove.")
     else:
-        fri_proof = fri_prove(cp_col, OFF, fri_blowup, num_queries, t, hmode)
+        # NO HYBRID SEAM: the base-field branch runs the same Rust loop, with a single layer-0 column and
+        # use_ext=False. It used to call the Python driver below, which kept a transcript round-trip per
+        # layer and per query even though every kernel it invoked was already native.
+        fri_proof = fri_prove_native([cp_col], OFF, fri_blowup, num_queries, t, hmode, 1, False)
+        if fri_proof is None:
+            from execnode.stark import native_guard as _ng
+            raise _ng.NativeMissing(
+                "sp_fri_prove failed on the base composition column — rebuild native/starkprove.")
 
     openings, plen = [], N.bit_length() - 1
     for q in fri_proof["queries"]:

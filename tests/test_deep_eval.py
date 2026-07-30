@@ -11,7 +11,7 @@ Run: python3 tests/test_deep_eval.py
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.stark import deep_eval as DE, field as F, backend as B, ext2
+from execnode.stark import deep_eval as DE, field as F, backend as B, extf as ext2
 
 fails = 0
 def check(name, fn):

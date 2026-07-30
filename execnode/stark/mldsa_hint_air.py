@@ -147,11 +147,24 @@ def transitions():
     cons.append(lambda c, n, per: F.sub(_bits(c, R1Q_B, NB_R1, POW_R1), F.sub(M, c[R1])))
     # split identity: r == r1*a + (r0s - a/2) + wrap*(Q-1 - (r1*a + r0))  ... expressed directly as
     #   non-wrap: r == r1*a + r0            (r0 = r0s - AH)
-    #   wrap:     r == Q-1  and r1 == 0     (dilithium's special case; r0 was decremented)
+    #   wrap:     r - r0 == Q  and r1 == 0  (dilithium's special case; r0 was ALREADY
+    #             decremented, so the pre-decrement r - r0 == Q-1 becomes Q here)
     # Both are captured by: (1-wrap)*(r - r1*a - r0) == 0  and  wrap*(r - (Q-1)) == 0, plus wrap*r1 == 0.
     cons.append(lambda c, n, per: F.mul(F.sub(1, c[WRAP]),
                                         F.sub(c[R], F.add(F.mul(c[R1], A), F.sub(c[R0S], AH)))))
-    cons.append(lambda c, n, per: F.mul(c[WRAP], F.sub(c[R], Q - 1)))
+    # WRAP case: r - r0 == Q, NOT r == Q-1.
+    #
+    # This asserted `r == Q-1` and was WRONG for every witness whose wrap case did not happen to sit at that
+    # single point — about half of all signatures, which is why usehint proofs failed FRI's low-degree check
+    # roughly 50% of the time (a trace that violates its AIR makes C/Z a rational function, not a polynomial).
+    # The flag's own definition at WRAP's declaration says "the r - r0 == Q-1 wrap flag"; the comment above
+    # then mis-stated it as "r == Q-1", and the constraint implemented the mis-statement.
+    #
+    # Dilithium's Decompose does: if r - r0 == q-1 then r1 = 0 and r0 -= 1. So the invariant that holds on the
+    # POST-decrement r0 stored in the trace is r - r0 == q. With r0 = R0S - AH that is
+    # (R - R0S + AH) - Q == 0, verified numerically against violating rows (R=8286832, R0S=1647 ->
+    # 8286832 - 1647 + 95232 = 8380417 = Q exactly).
+    cons.append(lambda c, n, per: F.mul(c[WRAP], F.sub(F.add(F.sub(c[R], c[R0S]), AH), Q)))
     cons.append(lambda c, n, per: F.mul(c[WRAP], c[R1]))
     # UseHint: raw = r1 + h*(pos ? +1 : -1);  out = raw - kq*M
     cons.append(lambda c, n, per: F.sub(

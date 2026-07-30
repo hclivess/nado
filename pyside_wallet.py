@@ -87,7 +87,7 @@ _install_repo_import_shim()
 import protocol
 from config import get_timestamp_seconds
 from signatures import from_private_key
-from ops.address_ops import make_address, validate_address
+from ops.address_ops import make_address, validate_address, is_address
 from ops.key_ops import load_keys, generate_keys, save_keys
 from ops.mining_ops import (
     solve_registration_pow,
@@ -856,7 +856,7 @@ class SendTab(QWidget):
         if not validate_address(recipient):
             # not an address — accept a registered alias (the chain credits its current owner)
             if (protocol.ALIAS_MIN_LEN <= len(recipient) <= protocol.ALIAS_MAX_LEN
-                    and not recipient.startswith(ADDRESS_PREFIX)):
+                    and not is_address(recipient)):
                 try:
                     resolved = self.app.client.resolve_alias(recipient)
                 except NodeError:

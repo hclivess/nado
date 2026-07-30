@@ -19,7 +19,7 @@ public statement (indices FS-derived upstream, roots, alphas/challenges/invZ/bou
 all periodic columns are STRUCTURED (16-row block pattern + O(1) sparse rows per path); the proof carries only
 witness. Supports per-point roots (K→1 across proofs) and two-phase groups (main + aux trees).
 """
-from execnode.stark import alghash2 as a2, field as F, stark, backend, air_ir, ext2
+from execnode.stark import alghash2 as a2, field as F, stark, backend, air_ir, extf as ext2
 from execnode.stark.recursion import _permute_snapshots
 from execnode.stark.fri_verify import _fill_block, _junk_absorb, _B
 from execnode.stark.air_ir import CUR, NXT, PER, CHAL, CONST, ADD, SUB, MUL, POW
@@ -89,7 +89,7 @@ def _per_layout(W, n_aux, nt, nb, nper, nchal, ext=False, n_alpha=None):
     # components as two outputs — so PPER/PCHAL/PBVAL are unchanged in kind; only the widths that carry
     # extension quantities double. `n_alpha` is the count of LOGICAL constraints (one alpha each), which is
     # NOT len(outputs) once extension constraints occupy two outputs apiece.
-    _e = 2 if ext else 1
+    _e = (ext2.DEGREE if ext else 1)
     na = (nt if n_alpha is None else n_alpha) + nb
     PINVZ = k
     PL0 = PINVZ + 1
@@ -113,11 +113,26 @@ def _schedule(prog, W, n_aux, boundaries, points):
     # from an AIR whose challenges and alphas are GF(p^2). Deriving it here keeps prover and verifier in step
     # without another flag to pass (and mis-pass) at every call site.
     _pairs = list(prog.get("ext_pairs") or ())
-    ext = bool(_pairs) or bool(prog.get("ext_chal"))
-    n_logical = nt - len(_pairs)          # an extension constraint occupies TWO outputs but takes ONE alpha
+    # The RECORDED flag is authoritative; ext_pairs is only a fallback for a program built before the flag
+    # existed. `bool(_pairs)` alone is wrong in the direction that matters: a base-valued AIR under an
+    # extension challenge field has NO ext pairs and extension alphas.
+    ext = bool(prog.get("ext_chal")) or bool(_pairs)
+    # an extension constraint occupies D outputs but takes ONE alpha, so it contributes D-1 EXTRA outputs
+    n_logical = nt - len(_pairs) * (ext2.DEGREE - 1)
     L = _per_layout(W, n_aux, nt, nb, nper, nchal, ext=ext, n_alpha=n_logical)
-    _e = 2 if ext else 1
+    _e = (ext2.DEGREE if ext else 1)
     segs, chk_rows, T, n_used = _layout(W, n_aux, points)
+    # THE PROGRAM AND THE POINTS MUST AGREE ON THE FIELD. `prog` arrives from the caller, and a caller that
+    # builds it without ext_chal hands a BASE-field program alongside EXTENSION-valued alphas and layer0 —
+    # whereupon the schedule below does int() on a tuple and dies several frames from the cause. Say what is
+    # actually wrong instead. (Observed: tests/test_recursion_authdepth built its program with
+    # air_ir.build_program(TRANS, 1, 0, 0) and got "int() argument must be ... not 'tuple'".)
+    _pt_ext = any(isinstance(pt.get("layer0"), tuple)
+                  or any(isinstance(a, tuple) for a in (pt.get("alphas") or ()))
+                  for pt in points)
+    if _pt_ext and not ext:
+        raise ValueError("the composition points are EXTENSION-valued but the program was built base-field "
+                         "— pass ext_chal=stark.ext_challenges_active(backend) to air_ir.build_program")
 
     rcl_base = [[a2.RC[r][lane] for r in range(_R)] + [0] * (_B - _R) for lane in range(_W)]
     actr_base = [1] * _R + [0] * (_B - _R)
@@ -168,18 +183,26 @@ def _schedule(prog, W, n_aux, boundaries, points):
         hold_rel.append((chk, 0))
         chk_e.append((chk, 1))
         pinvz.append((chk, int(point["invZ"]) % F.P))
-        _l0 = point["layer0"]
-        _l0 = _l0 if isinstance(_l0, tuple) else (_l0, 0)
+        # WIDEN THROUGH extf.lift, never through a literal (v, 0). The three sites below carried that
+        # literal, which is a degree-2 element: at D=3 `_l0[2]` is an IndexError on a base value and a
+        # silently DROPPED limb on a short tuple. lift() widens a base int or a short tuple to exactly
+        # DEGREE limbs and REFUSES a long one, which is the whole reason it exists.
+        _l0 = ext2.lift(point["layer0"]) if ext else (point["layer0"],)
         for li in range(_e):
             pl0[li].append((chk, int(_l0[li]) % F.P))
         for j, a in enumerate(point["alphas"]):
-            _a = a if isinstance(a, tuple) else (a, 0)
+            _a = ext2.lift(a) if ext else (a,)
             for li in range(_e):
                 palpha[_e * j + li].append((chk, int(_a[li]) % F.P))
         for j, v in enumerate(point["per"]):
             pper[j].append((chk, int(v) % F.P))
-        for j, v in enumerate(point["chal"]):
-            pchal[j].append((chk, int(v) % F.P))
+        # The CHALLENGES are extension pairs under ext, and prog["C"] (which sized pchal) already counts the
+        # FLATTENED limbs — so each logical challenge fills two columns. Treating them as scalars here is the
+        # same mistake compose_ext made with them: the alphas got flattened and the challenges did not.
+        _cj = 0
+        for v in point["chal"]:
+            for limb in (ext2.lift(v) if ext else (v,)):
+                pchal[_cj].append((chk, int(limb) % F.P)); _cj += 1
         for j, (val, invd) in enumerate(point["bnd"]):
             pbval[j].append((chk, int(val) % F.P))
             pbid[j].append((chk, int(invd) % F.P))
@@ -298,9 +321,12 @@ def _fill_trace(W, n_aux, points, T, segs, chk_rows):
             idx = point["cur_index"] if kind == 0 else point["nxt_index"]
             path = (point["cur_paths"] if kind == 0 else point["nxt_paths"])[gi]
             _fill_row_path(rows, start, rowvals, Wg, idx, path)
+        # Slice assignment, not a per-cell loop: one C-level copy per row instead of 2W Python iterations.
+        # MEASURED at T=8192, W=352: 0.808 s -> 0.016 s (49x). The full fix is the flat trace (sp_fill_carries
+        # is written and verified for it), which also removes the 0.520 s T x WTOT allocation and the
+        # per-column transpose in stark_native.prove; that lands when comp's trace stops being a list of lists.
         for i in range(starts[0][0], chk_rows[pi] + 1):
-            for k in range(2 * W):
-                rows[i][_CARRY + k] = vals[k]
+            rows[i][_CARRY:_CARRY + 2 * W] = vals
     n_used = chk_rows[-1] + 1 if chk_rows else 0
     state = [0] * _W
     for pb in range(n_used, T, _B):
@@ -308,9 +334,9 @@ def _fill_trace(W, n_aux, points, T, segs, chk_rows):
         nxt = _junk_absorb(snaps[_R])
         _fill_block(rows, pb, snaps, nxt, (0,) * _CAP, 0, 0, 0)
         if n_used:
+            _hold = rows[n_used - 1][_CARRY:_CARRY + 2 * W]
             for rib in range(_B):
-                for k in range(2 * W):
-                    rows[pb + rib][_CARRY + k] = rows[n_used - 1][_CARRY + k]
+                rows[pb + rib][_CARRY:_CARRY + 2 * W] = _hold
         state = nxt
     return rows
 
@@ -427,29 +453,30 @@ def _transitions(prog, W, n_aux, boundaries, L):
                 cp = F.add(cp, term)
             return F.mul(per[L["CHK"]], F.sub(cp, per[L["PL0"]]))
 
-        # GF(p^2). The SSA interpretation above stays BASE-valued — that is the point of giving an
-        # extension-valued constraint two outputs — so only the ALPHA combination widens. Each logical
-        # constraint takes one extension alpha; an extension constraint's two outputs are read back as one
-        # element. ext2's *_f forms keep this traceable, since this constraint is itself an AIR constraint
-        # that the OUTER proof's own IR has to lower.
+        # GF(p^D). The SSA interpretation above stays BASE-valued — that is the point of giving an
+        # extension-valued constraint D outputs — so only the ALPHA combination widens. Each logical
+        # constraint takes ONE extension alpha and its D outputs are read back as one element. extf's *_f
+        # forms keep this traceable, since this constraint is itself an AIR constraint that the OUTER proof's
+        # own IR has to lower.
+        D = ext2.DEGREE
         pair_at = set(prog.get("ext_pairs") or ())
-        A = lambda j: (per[L["PALPHA"] + 2 * j], per[L["PALPHA"] + 2 * j + 1])
-        acc, tt, ai = (0, 0), 0, 0
+        A = lambda j: tuple(per[L["PALPHA"] + D * j + k] for k in range(D))
+        acc, tt, ai = ext2.ZERO, 0, 0
         while tt < nt:
             if tt in pair_at:
-                val = (t[outputs[tt]], t[outputs[tt + 1]]); tt += 2
+                val = tuple(t[outputs[tt + k]] for k in range(D)); tt += D
             else:
-                val = (t[outputs[tt]], 0); tt += 1
+                val = t[outputs[tt]]; tt += 1        # base value; *_f widens it
             acc = ext2.add_f(acc, ext2.mul_f(A(ai), val)); ai += 1
         cp = ext2.scalar_mul_f(acc, per[L["PINVZ"]])
         for bi, (_row, col, _val) in enumerate(boundaries):
             base_term = F.mul(F.sub(cvals[col], per[L["PBVAL"] + bi]), per[L["PBID"] + bi])
             cp = ext2.add_f(cp, ext2.scalar_mul_f(A(ai + bi), base_term))
-        tgt = (per[L["PL0"]], per[L["PL0"] + 1])
+        tgt = tuple(per[L["PL0"] + k] for k in range(D))
         d = ext2.sub_f(cp, tgt)
-        # BOTH limbs must match the public target: checking only the lo limb would let a prover satisfy the
-        # composition on half of the extension element and put anything it liked in the other half.
-        return (F.mul(per[L["CHK"]], d[0]), F.mul(per[L["CHK"]], d[1]))
+        # EVERY limb must match the public target: checking a subset would let a prover satisfy the
+        # composition on part of the extension element and put anything it liked in the rest.
+        return tuple(F.mul(per[L["CHK"]], d[k]) for k in range(D))
     cons.append(check_c)
     return cons
 
@@ -473,10 +500,14 @@ def _point_public(point):
     return {"cur_index": point["cur_index"], "nxt_index": point["nxt_index"],
             "roots": [[int(v) % F.P for v in r] for r in point["roots"]],
             "path_lens": list(point["path_lens"]),
-            "per": [int(v) % F.P for v in point["per"]], "chal": [int(v) % F.P for v in point["chal"]],
-            "alphas": [int(v) % F.P for v in point["alphas"]], "invZ": int(point["invZ"]) % F.P,
+            # per/invZ/bnd are always BASE (periodic cells, the vanishing inverse, boundary values). chal,
+            # alphas and layer0 follow the CHALLENGE FIELD and may be extension elements, so they go through
+            # canon() — int(v) % P raises on a tuple, which is how this broke.
+            "per": [int(v) % F.P for v in point["per"]],
+            "chal": [ext2.canon(v) for v in point["chal"]],
+            "alphas": [ext2.canon(v) for v in point["alphas"]], "invZ": int(point["invZ"]) % F.P,
             "bnd": [(int(v) % F.P, int(d) % F.P) for (v, d) in point["bnd"]],
-            "layer0": int(point["layer0"]) % F.P}
+            "layer0": ext2.canon(point["layer0"])}
 
 
 def _pts_from_public(public):
@@ -505,4 +536,16 @@ def verify_comp(proof, prog, W, n_aux, boundaries, public, out_backend=None):
         return stark.verify(proof, _transitions(prog, W, n_aux, boundaries, L), bnds, periodic=per,
                             max_degree=md, num_queries=public["num_queries"], backend=out_backend or backend.ALGHASH2)
     except Exception as e:
+        _trace_if_asked()
         return False, f"malformed row-composition bundle: {e}"
+
+
+def _trace_if_asked():
+    """A verifier must never raise, so these modules wrap everything in `except Exception` and return a
+    reason string. That is correct for consensus and hostile to debugging: the reason names the exception
+    but throws away the frame that produced it, and a wiring bug then looks exactly like a corrupt proof.
+    NADO_TRACE_RECURSION=1 prints the traceback WITHOUT changing the verdict."""
+    import os as _os
+    if _os.environ.get("NADO_TRACE_RECURSION"):
+        import traceback as _tb
+        _tb.print_exc()

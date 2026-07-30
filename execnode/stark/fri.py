@@ -11,7 +11,7 @@ each layer really is the fold of the previous one (with Merkle openings) and tha
 
 Soundness rests only on BLAKE2b collision-resistance (via the Merkle commitments + the transcript).
 """
-from execnode.stark import field as F, merkle, ext2
+from execnode.stark import field as F, merkle, extf as ext2, alghash2 as a2
 from execnode.stark.transcript import Transcript
 from execnode.stark import backend as _backend
 
@@ -43,14 +43,16 @@ GRIND_BITS = 18
 
 # EXT_CHALLENGES: draw the FRI folding challenge from GF(p^2) instead of the base field.
 # Commit-phase error is ~n/|challenge space|, so a base-field alpha pins PROVABLE
-# soundness at 64 - log2(n) ~ 47 bits however the query budget is set. GF(p^2) lifts the
-# ceiling to ~112 -- what Plonky2 and Miden do over this same base field.
+# soundness at 64 - log2(n) ~ 47 bits however the query budget is set. GF(p^D) lifts the
+# ceiling to ~D*64 - log2(n); at D=3 the commit phase stops being the binding term at all
+# and the bound passes to the query phase, which does not decay with trace size.
 #   python3 -m execnode.stark.soundness
-# Layer 0 stays base-field; every layer after the first fold is GF(p^2)-valued. This
-# CHANGES THE PROOF FORMAT: ext layers commit a leaf digest over the (a, b) pair, and
-# `final` is a list of pairs.
-# NOT yet ported -- both must pass ext=False until they are: native/starkprove sp_fold,
-# and the in-circuit fri_verify.py recursion AIRs.
+# Layer 0 stays base-field UNLESS the input is already extension-valued (a DEEP quotient --
+# `ext0`); every layer after the first fold is extension-valued either way. This CHANGES THE
+# PROOF FORMAT: ext layers commit a leaf digest over the whole limb tuple (alghash2.leaf_ext,
+# ONE permutation, not one per limb), and `final` is a list of tuples.
+# EVERYTHING IS PORTED: the arena (native/starkprove, degree-generic, handshake-checked against
+# extf.DEGREE) and the in-circuit recursion AIRs (fri_verify, comp_verify, rowcomp_verify).
 EXT_CHALLENGES = True
 
 
@@ -103,20 +105,39 @@ def _ext_leaf(b, v):
     b.leaf_ext packs both limbs into the single existing frame — alghash2's rleaf already leaves lanes 2..3
     unused — so the in-circuit gadget differs from the base one only by pinning one more lane. It carries its
     OWN domain tag, so an ext leaf and a base leaf stay distinct frames even when the hi limb is zero."""
-    a0, a1 = ext2.lift(v)
-    return b.leaf_ext(a0, a1)
+    return b.leaf_ext(*ext2.lift(v))
 
 
 def _commit_ext(values, b):
+    """Merkle-commit a layer of EXTENSION values.
+
+    Tries the native whole-tree build first. Without it this loop ran n leaf permutations plus n-1 node
+    permutations in PYTHON on every folded layer — the dominant cost of an extension proof, and it lands on
+    the settlement fold, which is what the extension migration exists to make sound.
+
+    The native build is selected by BACKEND, not guessed: the recursion backend commits with one permutation
+    per node (rleaf_ext/rnode) and the sponge backend with hashn frames, and using the wrong one produces a
+    well-formed tree with the wrong root. Anything unexpected — no lib, unknown backend, a degree the frame
+    cannot hold — falls back to the identical Python path rather than to an approximation."""
+    limbs = [ext2.lift(v) for v in values]
+    name = getattr(b, "name", "")
+    _nat = None
+    if name == "recursion":
+        _nat = a2.rmerkle_commit_ext(limbs)
+    elif name == "alghash2":
+        _nat = a2.merkle_commit_ext(limbs)
+    if _nat is not None:
+        return _nat
     return merkle.commit_digests([_ext_leaf(b, v) for v in values], b)
 
 
 def _coset_interpolate_ext(evals, offset):
-    """Interpolation is F_p-LINEAR and GF(p^2) is a rank-2 F_p-module, so the components
-    interpolate separately and re-pair exactly. No extension NTT needed."""
-    a = _coset_interpolate([ext2.lift(v)[0] for v in evals], offset)
-    c = _coset_interpolate([ext2.lift(v)[1] for v in evals], offset)
-    return [(a[i], c[i]) for i in range(len(a))]
+    """Interpolation is F_p-LINEAR and GF(p^D) is a rank-D F_p-module, so the LIMBS interpolate separately
+    and recombine exactly. No extension NTT needed — which is why the degree can move without touching the
+    NTT at all."""
+    lim = [ext2.lift(v) for v in evals]
+    per_limb = [_coset_interpolate([e[k] for e in lim], offset) for k in range(ext2.DEGREE)]
+    return [tuple(per_limb[k][i] for k in range(ext2.DEGREE)) for i in range(len(per_limb[0]))]
 
 
 def _coset_interpolate(evals, offset):
@@ -252,7 +273,7 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
         deg_bound = max(1, len(final) // blowup)
         if use_ext:
             coeffs = _coset_interpolate_ext(final, final_off)
-            if any(c != (0, 0) for c in coeffs[deg_bound:]):
+            if any(c != ext2.ZERO for c in coeffs[deg_bound:]):
                 return False, "final layer is not low-degree"
         else:
             coeffs = _coset_interpolate(final, final_off)

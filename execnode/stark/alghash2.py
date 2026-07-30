@@ -99,6 +99,10 @@ def _try_native():
                                           ctypes.POINTER(ctypes.c_uint64)]
             lib.rmerkle_commit.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
                                            ctypes.POINTER(ctypes.c_uint64)]
+            for _nm in ("merkle_commit_ext", "rmerkle_commit_ext"):
+                getattr(lib, _nm).argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
+                                              ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)]
+                getattr(lib, _nm).restype = ctypes.c_int64
         except Exception:
             pass
         u64 = ctypes.c_uint64
@@ -121,8 +125,27 @@ def _try_native():
         if [buf[i] for i in range(WIDTH)] != ref:
             raise ValueError("native alghash2 disagrees with Python (stale/incompatible .so) — rejected")
         _NATIVE = (lib, u64)
-    except Exception:
-        _NATIVE = False
+    except Exception as e:
+        # RUST-ONLY (see native_guard). The interop self-test above STAYS — it is the strongest guard in the
+        # tree, and a .so that disagrees with Python on a fixed vector must never be adopted. What changed is
+        # the consequence: adoption failing no longer silently hands the whole hash/Merkle layer to Python at
+        # ~5.5x the cost, because that degradation is invisible (bit-identical output, no error, just slower).
+        # A rejected or missing .so is now a startup failure that names itself.
+        import os as _os
+        from execnode.stark import native_guard
+        if native_guard.allow_absent():
+            _NATIVE = False
+            return _NATIVE
+        _crate = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
+            "native", "alghash2")
+        native_guard.require("alghash2", _os.path.join(_crate, "target", "release", "libnado_alghash2.so"),
+                             _crate, reason="the sponge hash + whole-tree Merkle accelerator")
+        raise native_guard.NativeMissing(
+            f"native 'alghash2' is REQUIRED but could not be adopted: {e}. If that message says the library "
+            f"DISAGREES WITH PYTHON on the fixed probe vector, do not work around it — the .so and this source "
+            f"implement different permutations (usually a different ROUNDS), and trusting either one silently "
+            f"would diverge from consensus. Rebuild with `cargo build --release` in native/alghash2.")
     return _NATIVE
 
 
@@ -174,7 +197,7 @@ def rleaf(x):
     return tuple(permute([*a, 0, 0, 0, 0, *IV])[:CAPACITY])
 
 
-def rleaf_ext(x0, x1):
+def rleaf_ext(*limbs):
     """RECURSION-tree leaf for a GF(p^2) value (x0 + x1·X) — ONE permutation, exactly like rleaf.
 
     rleaf frames a base value as (DOM_LEAF, x, 0, 0) and leaves lanes 2..3 unused, so the second limb simply
@@ -188,13 +211,19 @@ def rleaf_ext(x0, x1):
     DOM_LEAF_EXT (not DOM_LEAF) so an ext leaf and a base leaf are distinct frames even when x1 = 0 — a
     lifted base value and a genuine base value must not share a digest, or a prover could present one tree's
     opening against the other's commitment."""
-    a = (DOM_LEAF_EXT, int(x0) % F.P, int(x1) % F.P, 0)
+    # The frame is (DOM_LEAF_EXT, limb0, limb1, ...) inside the FOUR-lane rleaf head, so degrees up to 3 fit
+    # in exactly one permutation — the property that makes the in-circuit extension leaf cost the same as a
+    # base one. A degree that no longer fits must fail loudly rather than silently truncate a limb.
+    if len(limbs) > RATE // 2 - 1:
+        raise ValueError(f"an extension leaf of {len(limbs)} limbs does not fit the {RATE // 2}-lane frame")
+    a = [DOM_LEAF_EXT] + [int(x) % F.P for x in limbs]
+    a += [0] * (RATE // 2 - len(a))
     return tuple(permute([*a, 0, 0, 0, 0, *IV])[:CAPACITY])
 
 
-def leaf_ext(x0, x1):
-    """Sponge-backend GF(p^2) leaf — the hashn analogue of rleaf_ext."""
-    return hashn([DOM_LEAF_EXT, int(x0) % F.P, int(x1) % F.P])
+def leaf_ext(*limbs):
+    """Sponge-backend extension leaf — the hashn analogue of rleaf_ext (no lane limit here)."""
+    return hashn([DOM_LEAF_EXT] + [int(x) % F.P for x in limbs])
 
 
 def rrow(values):
@@ -278,6 +307,56 @@ def rmerkle_commit(values):
             break
         ln //= 2
     return layers[-1][0], layers
+
+
+
+def _commit_ext_native(limb_tuples, symbol):
+    """Native whole-tree Merkle build over EXTENSION leaves → (root, layers), bit-identical to
+    merkle.commit_digests over [leaf_ext(*v)] / [rleaf_ext(*v)].
+
+    This is the extension counterpart of merkle_commit / rmerkle_commit, and it exists because it was
+    MISSING: FRI commits an extension leaf per element on every layer once folding starts, and without a
+    native build every one of those n + (n-1) permutations ran in a Python loop. That is the dominant cost of
+    an extension proof and it lands on the settlement fold — the very thing the extension migration exists to
+    make sound. Returns None (caller falls back to Python) when the lib, the export, the degree or the length
+    is unusable; never a partial answer."""
+    nat = _try_native()
+    if not nat:
+        return None
+    lib, u64 = nat
+    if not hasattr(lib, symbol):
+        return None
+    n = len(limb_tuples)
+    if n < 1 or (n & (n - 1)):
+        return None
+    d = len(limb_tuples[0]) if n else 0
+    if d < 1 or any(len(t) != d for t in limb_tuples):
+        return None
+    flat = (u64 * (n * d))()
+    flat[:] = [int(x) % F.P for t in limb_tuples for x in t]
+    out = (u64 * ((2 * n - 1) * CAPACITY))()
+    if int(getattr(lib, symbol)(flat, n, d, out)) != 0:
+        return None                      # the lib REFUSED this degree — do not guess, fall back
+    buf = out[:]
+    digs = [tuple(buf[i * CAPACITY:(i + 1) * CAPACITY]) for i in range(2 * n - 1)]
+    layers, start, ln = [], 0, n
+    while True:
+        layers.append(digs[start:start + ln])
+        start += ln
+        if ln == 1:
+            break
+        ln //= 2
+    return layers[-1][0], layers
+
+
+def merkle_commit_ext(limb_tuples):
+    """Sponge-backend (ALGHASH2) extension-leaf tree."""
+    return _commit_ext_native(limb_tuples, "merkle_commit_ext")
+
+
+def rmerkle_commit_ext(limb_tuples):
+    """RECURSION-backend (rleaf_ext/rnode) extension-leaf tree."""
+    return _commit_ext_native(limb_tuples, "rmerkle_commit_ext")
 
 
 def to_int(digest):

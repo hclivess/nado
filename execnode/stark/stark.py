@@ -18,7 +18,8 @@ Cheating requires a non-low-degree quotient (FRI rejects) or a trace/composition
 Soundness assumption: BLAKE2b collision-resistance.
 """
 import os
-from execnode.stark import field as F, merkle, fri, backend as _backend, ext2
+import sys
+from execnode.stark import field as F, merkle, fri, backend as _backend, extf as ext2
 from execnode.stark.transcript import Transcript, DOMAIN_STARK
 from execnode.stark.fri import NUM_QUERIES
 
@@ -252,6 +253,36 @@ def _row_tree(col_lde_group, N):
     return merkle.commit_digests(leaves, _backend.RECURSION)
 
 
+_NATIVE_FALLBACKS = set()
+
+
+def _native_fallback(exc):
+    """RAISE. The native prover failing is a fault, not a reason to compute the right answer slowly.
+
+    THE DEFAULT IS INVERTED as of the Rust-only policy (doc/rust-only-proving.md). This used to warn once and
+    fall through to the Python body, with NADO_STRICT_NATIVE as an opt-in to make it fatal. The comment at the
+    call site records what that cost: it hid a real wiring bug for days — compose_ext flattened the alphas and
+    not the challenges, int() raised on a tuple, the native path simply never ran, and two "native" timings
+    were the Python path mislabelled. A fallback nobody can observe is indistinguishable from one that never
+    fires, and it is how a fold quietly becomes a six-hour job.
+
+    NADO_ALLOW_PYTHON_KERNELS is the one escape, and it is for BUILDS and for the differential tests that
+    prove the native prover correct — not for running. Nothing in a node sets it."""
+    msg = f"{type(exc).__name__}: {exc}"
+    from execnode.stark.native_guard import allow_absent
+    if not allow_absent():
+        raise RuntimeError(
+            f"the native prover failed and there is no Python fallback in production: {msg}. Since the "
+            f"Rust-only policy the Python prove body is reachable only for the conformance tests "
+            f"(NADO_ALLOW_PYTHON_KERNELS=1) and for the two geometries the arena does not implement (the BLAKE2B backend and commit_periodic), which are selected by the CALL, not by an env var. "
+            f"Fix the native path or rebuild native/starkprove.") from exc
+    if os.environ.get("NADO_STRICT_NATIVE"):
+        raise RuntimeError(f"native prover unavailable and NADO_STRICT_NATIVE is set — {msg}") from exc
+    if msg not in _NATIVE_FALLBACKS:
+        _NATIVE_FALLBACKS.add(msg)
+        sys.stderr.write(f"[stark] native prover fell back to Python: {msg}\n")
+
+
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
           aux_spec=None, backend=None, row_commit=False, commit_periodic=None):
     """Prove `trace` satisfies the AIR (transitions + boundaries [+ public periodic columns]). Interpolates
@@ -274,42 +305,43 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     each FRI query opens whole rows with ONE path per tree — 2 (or 4, two-phase) paths per query instead of
     2W, which is what makes recursing a wide (W=106) trace feasible. A DIFFERENT proof format ("row_roots" /
     row openings), verified by the matching verify(row_commit=True); column-mode proofs are untouched."""
-    # HOLISTIC NATIVE PROVER (native/starkprove): for the RECURSION backend, run the whole pipeline
-    # (LDE → Merkle → composition → FRI → openings) in a PERSISTENT Rust arena instead of materializing every
-    # LDE column as a Python int list — the recursion/settlement memory wall. Byte-identical to the Python path
-    # below (tests/test_starkprove.py gates the whole proof dict + verify, all modes); falls back to Python on
-    # ANY error, and NADO_NO_HOLISTIC=1 forces the Python path (used to cross-check byte-identity).
-    _b = backend or _backend.DEFAULT
-    # EXT-CHALLENGE GATE: the arena's sp_fold takes a BASE-field alpha, so the native pipeline can only emit
-    # base-field FRI. With fri.EXT_CHALLENGES on, the protocol challenge field is GF(p^2) and fri.verify
-    # rightly REFUSES a base-field proof ("unexpected FRI challenge field") — a native proof would be
-    # unverifiable, and accepting one would mean checking it under the ~47-bit commit bound instead of ~112.
-    # So while ext is on we take the (correct, slower) Python path. This is the real, stated cost of the
-    # soundness fix and it lifts the moment sp_fold is ported to extension arithmetic.
-    # The native path is HYBRID under ext challenges (stark_native.prove keeps the native LDE/commit/compose
-    # and runs only the FRI fold in Python), so it is no longer gated off — disabling it wholesale is what
-    # made every proof pure-Python and unusably slow.
-    # The arena carries GF(p^2) as of the extension port (sp_compose_ext / sp_fold_ext), so the holistic path
-    # is available under ext too — but only against a library that actually has those entry points. A .so
-    # built before the port must fall back to Python rather than emit a base-field proof under extension
-    # challenges, which verify would reject.
+    # HOLISTIC NATIVE PROVER (native/starkprove): the whole pipeline (LDE -> Merkle -> composition -> FRI ->
+    # openings) runs in a PERSISTENT Rust arena instead of materializing every LDE column as a Python int list,
+    # which is the recursion/settlement memory wall. Per doc/rust-only-proving.md this is not a preference:
+    # where the arena covers the geometry it is the ONLY production path, and a native failure RAISES.
     #
-    # This is not a speed preference. With the native path unavailable, EVERY one of the W LDE columns
-    # materializes as a Python list, and the K->1 settlement fold OOM-killed at 20.8 GB resident against a
-    # ~15 GB budget. Keeping the trace in the arena is what makes folding possible at all.
+    # THE PYTHON BODY BELOW IS NOT A FALLBACK. It is the sole implementation for two geometries the arena does
+    # not implement, and both are real:
+    #   * BLAKE2B backend (= _backend.DEFAULT) — the arena's Merkle speaks only the alghash2 family (hmode 0
+    #     rleaf/rnode, 1 hashn). The LIVE shielded pool proves here: joinsplit2.prove_transfer calls
+    #     stark.prove with no backend, and execnode/shielded_field.py ships that proof in the bundle.
+    #   * commit_periodic — committed periodic columns absorb their roots BEFORE the trace commitment, while
+    #     the arena assigns periodic column ids AFTER the aux phase, so the transcript order and the arena's
+    #     id layout disagree. Used by bound_epoch_o1 (succinct verify); no live caller today.
+    # Porting either is a real piece of work, NOT a deletion. Until then they are reached deliberately, never
+    # by silent degradation: every path the arena DOES cover raises instead of falling through.
+    _b = backend or _backend.DEFAULT
     from execnode.stark import stark_native as _sn
-    _native_ok = (not ext_challenges_active(_b)) or _sn.ext_capable()
-    if (getattr(_b, "name", "") in ("recursion", "alghash2") and not os.environ.get("NADO_NO_HOLISTIC")
-            and _native_ok
-            and not commit_periodic):                     # committed-periodic runs the Python path (native TODO)
+    _arena_covers = getattr(_b, "name", "") in ("recursion", "alghash2") and not commit_periodic
+    if _arena_covers:
+        if ext_challenges_active(_b) and not _sn.ext_capable():
+            # A .so built before the extension port would emit a BASE-field proof under ext challenges, which
+            # verify rightly refuses ("unexpected FRI challenge field"). Silently taking the Python path here
+            # is precisely the invisible degradation the Rust-only policy abolishes: correct answers, 84x
+            # slower, nothing raised. Rebuild the crate.
+            from execnode.stark.native_guard import NativeMissing
+            raise NativeMissing(
+                "native/starkprove predates the GF(p^n) port (no sp_compose_ext/sp_fold_ext) but the "
+                "challenge field is an extension — rebuild the crate. There is no Python fallback for this "
+                "geometry; see doc/rust-only-proving.md.")
         try:
             from execnode.stark import stark_native
             if stark_native.available():
                 return stark_native.prove(trace, transitions, boundaries, periodic=periodic,
                                           max_degree=max_degree, num_queries=num_queries, aux=aux,
                                           aux_spec=aux_spec, row_commit=row_commit, backend=_b)
-        except Exception:
-            pass                                          # correctness-preserving fallback to pure Python
+        except Exception as _e:
+            _native_fallback(_e)                        # RAISES unless NADO_ALLOW_PYTHON_KERNELS
     periodic = periodic or []
     commit_periodic = sorted(set(commit_periodic or []))  # periodic-column indices to COMMIT instead of publish
     if commit_periodic and (commit_periodic[0] < 0 or commit_periodic[-1] >= len(periodic)):

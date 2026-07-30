@@ -17,3 +17,4 @@ psutil~=5.9.2
 aiohttp
 # Optional, wallet-only (pyside_wallet.py desktop GUI). The node itself does NOT need this.
 PySide6~=6.6
+pyflakes>=3.0            # tests/test_no_undefined_names.py — static NameError check over heavy-gated paths

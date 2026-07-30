@@ -73,7 +73,11 @@ def t_fold_air_reconstructs():
 
 def t_comp_air_reconstructs():
     """comp_verify.comp_air rebuilds comp_0's AIR from its PUBLIC part so stark.verify accepts comp_0."""
-    prog = air_ir.build_program(TRANS_X2, 1, 0, 0)
+    # ext_chal follows the CHALLENGE FIELD the inner proofs used — the same authority recursion_authdepth
+    # itself asks. Omitting it builds a base-field program for extension alphas, which used to surface as an
+    # int()-on-a-tuple TypeError deep inside the schedule; comp_verify now says so directly.
+    prog = air_ir.build_program(TRANS_X2, 1, 0, 0,
+                                ext_chal=stark.ext_challenges_active(B.RECURSION))
     ct, cb, cp, cmd = comp_verify.comp_air(prog, 1, _BNDS[0], _BUNDLE["comp_public"])
     ok = stark.verify(_BUNDLE["comp"], ct, cb, periodic=cp, max_degree=cmd, num_queries=NQO, backend=B.RECURSION)[0]
     assert ok, "reconstructed comp_air must verify comp_0"

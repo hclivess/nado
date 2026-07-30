@@ -35,7 +35,7 @@ from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
 from ops.account_ops import get_account, fetch_totals, get_bonded_registry
-from ops.address_ops import proof_sender
+from ops.address_ops import proof_sender, is_address
 from signatures import (verify as _mldsa_verify, unhex as _mldsa_unhex,
                         backend_name as _pq_backend_name,
                         backend_degraded_reason as _pq_backend_reason)
@@ -262,10 +262,6 @@ async def status(request):
             "update_blocking": (memserver.updatability or {}).get("blocking") or [],
             "update_remote_reachable": ((memserver.updatability or {}).get("checks") or {}).get("remote_reachable"),
             "dead_fork_probe": getattr(memserver, "dead_fork_probe", None),
-            # STATE-WEDGE streak (loops/core_loop._note_state_reject): remote fully-valid blocks refused
-            # for L1 state-root mismatch at one height — the corrupt-local-state geometry every block-level
-            # probe misses. Same diagnostics-only contract as dead_fork_probe.
-            "state_wedge": getattr(memserver, "state_wedge", None),
             # NETWORK PARTITION KEY: peers gate admission on this (peer_loop) so nodes on a different
             # chain (e.g. a pre-relaunch alphanet) never enter the status/consensus pools — a foreign
             # chain's advertised weight would otherwise stall production via the caught-up gate.
@@ -793,7 +789,7 @@ async def account_mempool(request):
                 else:
                     # incoming: direct address match, or a send addressed to one of the address's aliases
                     to = recipient
-                    if to and not to.startswith(ADDRESS_PREFIX):
+                    if to and not is_address(to):
                         to = alias_ops.resolve_alias(recipient) or recipient
                     if to == addr:
                         fi += amount

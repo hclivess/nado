@@ -77,6 +77,15 @@ E_EXT2 = 128                # log2 |GF(p^2)|
 E_EXT3 = 192                # log2 |GF(p^3)|, for reference
 
 
+def E_FIELD():
+    """log2 of the size of the field the CHALLENGES are actually drawn from = DEGREE * E_BASE, read from
+    extf. The two constants above stay only as fixed labels for the projection table in report(); anything
+    describing the LIVE system must call this, because a hardcoded E_EXT2 silently reports GF(p^2) numbers
+    for whatever degree the code is really running."""
+    from execnode.stark.extf import DEGREE
+    return DEGREE * E_BASE
+
+
 def _params():
     """Read the live constants so this file cannot drift from fri.py/stark.py."""
     from execnode.stark import fri, stark
@@ -85,7 +94,7 @@ def _params():
     ext = bool(getattr(fri, "EXT_CHALLENGES", False))
     return dict(R=R, s=fri.NUM_QUERIES, g=fri.GRIND_BITS,
                 log_trace=log_trace, nu=log_trace + R,
-                E=(E_EXT2 if ext else E_BASE), ext=ext)
+                E=(E_FIELD() if ext else E_BASE), ext=ext)
 
 
 # ---------------------------------------------------------------- regime terms
@@ -145,26 +154,25 @@ def aux_bits(log_rows, ext=None, num_buses=4):
 
     READ from the code, never assumed: if the challenge draw is ever reverted this number follows it down."""
     e = _ext_challenges() if ext is None else bool(ext)
-    base = E_EXT2 if e else E_BASE
+    base = E_FIELD() if e else E_BASE
     return base - math.log2(max(num_buses * (2.0 ** log_rows), 1.0))
 
 
+# These two READ the live configuration, and they must not have a fallback. An `except: return False` here
+# does not degrade gracefully — it makes the calculator confidently print BASE-FIELD numbers for a system
+# running an extension field, which is the single most misleading thing this file could do. Its entire
+# contract is "measures what the code actually does". If it cannot read the code, it must say so.
+
 def _ext_challenges():
-    """Whether stark.py draws the AUX (LogUp) challenges from GF(p^2) — READ, never assumed."""
-    try:
-        from execnode.stark import stark as _st
-        return bool(_st.ext_challenges_active())
-    except Exception:
-        return False
+    """Whether stark.py draws the AUX (LogUp) challenges from GF(p^D) — READ, never assumed."""
+    from execnode.stark import stark as _st
+    return bool(_st.ext_challenges_active())
 
 
 def _ext_alphas():
-    """Whether stark.py draws the constraint alphas from GF(p^2) — READ, never assumed."""
-    try:
-        from execnode.stark import stark as _st
-        return bool(getattr(_st, "EXT_ALPHAS", False))
-    except Exception:
-        return False
+    """Whether stark.py draws the constraint alphas from GF(p^D) — READ, never assumed."""
+    from execnode.stark import stark as _st
+    return bool(getattr(_st, "EXT_ALPHAS", False))
 
 
 def alphas_bits(num_constraints=1, list_size=1.0, ext=None):
@@ -197,7 +205,12 @@ def alphas_bits(num_constraints=1, list_size=1.0, ext=None):
     if ext is None:
         from execnode.stark import stark as _st
         ext = bool(getattr(_st, "EXT_ALPHAS", False))
-    base = float(2 * (F.P.bit_length() - 1) if ext else (F.P.bit_length() - 1))
+    # The extension DEGREE, read from extf — not the literal 2 this used to carry. That hardcode meant the
+    # calculator could only describe base or GF(p^2), so a GF(p^3) migration would have been reported with
+    # GF(p^2) numbers and understated the alphas term by 24 bits. This file's stated contract is that it
+    # measures what the code does; a constant that cannot follow the code breaks that contract silently.
+    from execnode.stark.extf import DEGREE as _D
+    base = float(_D * (F.P.bit_length() - 1) if ext else (F.P.bit_length() - 1))
     return base - math.log2(max(list_size * num_constraints, 1.0))
 
 

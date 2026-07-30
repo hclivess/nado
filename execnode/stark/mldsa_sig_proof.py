@@ -82,6 +82,53 @@ def _hint_rows(pk, msg, sig):
     return [(w[i][n], h[i][n]) for i in range(K) for n in range(N)]
 
 
+def _air_specs(plan_, parts, sizes):
+    """The AIR DESCRIPTOR of each requested sub-circuit — transitions, boundaries and periodic columns — with
+    NO proving. `sizes[i]` is that sub-proof's trace length T, which the verifier reads out of the bundle's
+    published geometry.
+
+    Split out of _items deliberately. The verifier needs exactly this and nothing else; calling _items would
+    have re-PROVEN every sub-circuit to recover its boundaries, which is both absurdly expensive and a
+    verifier doing the prover's job — the kind of mistake that looks like it works, because the answer comes
+    out right.
+
+    Every value here is derived from the PLAN, which is itself a pure function of the public (pk, msg, sig).
+    So the statement a bundle is checked against is the verifier's own, and a bundle proved for a different
+    signature cannot be replayed onto this one."""
+    airs, i = [], 0
+
+    def take():
+        nonlocal i
+        t = int(sizes[i]); i += 1
+        return t
+
+    if "decode_z" in parts:
+        chunk = plan_["z_chunks"][0]
+        coeffs = [(P.GAMMA_1 - w) for w in DEC.bit_unpack(chunk, DEC.BITS_Z)]
+        airs.append({"transitions": DEC.transitions(DEC.BITS_Z, P.GAMMA_1),
+                     "boundaries": DEC._boundaries(coeffs, take())})
+    if "decode_t1" in parts:
+        chunk = plan_["t1_chunks"][0]
+        coeffs = list(DEC.bit_unpack(chunk, DEC.BITS_T1))
+        airs.append({"transitions": DEC.transitions(DEC.BITS_T1, None),
+                     "boundaries": DEC._boundaries(coeffs, take())})
+    if "norm_z" in parts:
+        zc = plan_["z_coeffs"][:64]
+        airs.append({"transitions": NORM.transitions(), "boundaries": NORM._boundaries(zc, take())})
+    if "usehint" in parts:
+        rows = plan_["hint_rows"][:64]
+        airs.append({"transitions": HINT.transitions(), "boundaries": HINT._boundaries(rows, take())})
+    if "keccak" in parts:
+        st = [0] * KEC.LANES
+        out = KEC.keccak_f(list(st))
+        T = take()
+        airs.append({"transitions": KEC.transitions(), "boundaries": KEC._boundaries(st, out, T),
+                     "periodic": KEC.periodic(T)})
+    if i != len(sizes):
+        raise ValueError(f"bundle declares {len(sizes)} sub-proofs but `parts` names {i}")
+    return airs
+
+
 def _items(plan_, parts, num_queries):
     """Prove each requested sub-circuit and return the hetero recursion items + their AIR descriptors."""
     bk = B.RECURSION
@@ -97,7 +144,6 @@ def _items(plan_, parts, num_queries):
     if "decode_z" in parts:                                  # one z polynomial's bit-unpack
         chunk = plan_["z_chunks"][0]
         pr, coeffs = DEC.prove_field(chunk, "z", num_queries=num_queries, backend=bk)
-        vals = [c % stark.F.P for c in coeffs] if hasattr(stark, "F") else coeffs
         add(pr, DEC.transitions(DEC.BITS_Z, P.GAMMA_1), DEC._boundaries(coeffs, pr["T"]))
     if "decode_t1" in parts:
         chunk = plan_["t1_chunks"][0]
@@ -140,3 +186,72 @@ def verify_signature(bundle, publics, airs, num_queries=2, num_queries_outer=2):
     against a different signature. Returns (ok, reason)."""
     return RVH.verify_hetero(publics, airs, bundle, num_queries_outer=num_queries_outer,
                              num_queries_inner=num_queries)
+
+
+# ---- BLOCK-LEVEL AGGREGATION --------------------------------------------------------------------------
+# What ops/block_ops.verify_auth_proof calls when a block ships a stark authorization envelope. The
+# statement is built by mldsa_block_auth from the VERIFIER's own recomputation — the envelope contributes
+# only the proof itself, so a prover cannot choose what it is proving.
+#
+# WHAT THIS BUYS TODAY, PRECISELY: the sub-circuit statements are rebuilt from the public (pk, msg, sig),
+# so the signature is a PUBLIC input and the block still carries it. The envelope therefore replaces the
+# VERIFICATION ARITHMETIC of K signatures with one bundle check, not their bytes. Moving the signature into
+# the witness (so the block can drop it) is an AIR change — every sub-circuit that currently pins a
+# sig-derived value as a boundary must instead bind it in-circuit — and it is the next phase, not a
+# configuration flag. Saying so here rather than in a design doc, because the gap is invisible from the
+# call site: an envelope that "verifies" looks like aggregation whether or not it saves anything.
+
+BLOCK_AUTH_CIRCUIT_V1 = "mldsa44-block-auth-v1"
+
+
+def verify_block_authorizations(circuit_id, proof, statement):
+    """Verify one aggregate authorization envelope against a verifier-derived statement.
+
+    `proof` = {"bundles": [ {"publics": ..., "airs": ...}, ... ]} — one entry per authorization, in the
+    statement's own entry order. Returns True only if EVERY entry is covered and every bundle verifies
+    against the statement this verifier built. False on anything unexpected: an envelope that cannot be
+    checked is not evidence."""
+    if circuit_id != BLOCK_AUTH_CIRCUIT_V1:
+        return False
+    if not isinstance(proof, dict) or not isinstance(statement, dict):
+        return False
+    entries = statement.get("entries") or []
+    pubkeys = statement.get("pubkeys") or []
+    wits = statement.get("witnesses") or []
+    if not (len(entries) == len(pubkeys) == len(wits) == int(statement.get("auth_count", -1))):
+        return False
+    bundles = proof.get("bundles")
+    if not isinstance(bundles, list) or len(bundles) != len(entries):
+        return False            # one bundle per authorization — a short list would leave checks unproven
+    for e, pk, sig, b in zip(entries, pubkeys, wits, bundles):
+        if not pk or not sig:
+            return False        # unresolved key or missing signature: nothing to have proven
+        if not isinstance(b, dict):
+            return False
+        # The AIR descriptors ARE the statement: they are rebuilt here from (pk, txid, sig) so a bundle
+        # proved against a different signature cannot be replayed onto this entry.
+        try:
+            msg = bytes.fromhex(e["txid"]) if isinstance(e["txid"], str) else bytes(e["txid"])
+            pkb = bytes.fromhex(pk) if isinstance(pk, str) else bytes(pk)
+            sgb = bytes.fromhex(sig) if isinstance(sig, str) else bytes(sig)
+        except Exception:
+            return False
+        pl = plan(pkb, msg, sgb)
+        if pl is None:
+            return False
+        parts = tuple(b.get("parts") or ())
+        if not parts:
+            return False        # a bundle covering nothing proves nothing
+        pubs = b.get("publics")
+        if not isinstance(pubs, list) or not pubs:
+            return False
+        try:
+            airs = _air_specs(pl, parts, [int(x["T"]) for x in pubs])
+        except Exception:
+            return False
+        ok, _why = verify_signature(b.get("bundle"), pubs, airs,
+                                    num_queries=int(b.get("num_queries", 2)),
+                                    num_queries_outer=int(b.get("num_queries_outer", 2)))
+        if not ok:
+            return False
+    return True

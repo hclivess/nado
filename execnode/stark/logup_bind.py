@@ -11,7 +11,7 @@ tuples are committed (the two-phase protocol), so a prover cannot rig them.
 Self-contained + validated here; wiring it between the exec AIR (emit its storage writes on this bus) and the
 transition AIR (emit its updates) — with the shared β/γ from folding both — is the succinctness integration.
 """
-from execnode.stark import field as F, stark, ext2
+from execnode.stark import field as F, stark, extf as ext2
 
 # main columns: A tuple (3) | B tuple (3) ; aux (phase 2): inva, invb, accdiff
 #
@@ -30,9 +30,23 @@ NUM_CHAL = 2                                    # ch[0]=β (rlc), ch[1]=γ (logu
 # BASE layout (recursion backend): three scalar aux columns.
 INVA, INVB, ACC = 6, 7, 8
 NUM_AUX_BASE = 3
-# EXT layout: the same three, each split into (lo, hi) limbs of a GF(p^2) element.
-INVA0, INVA1, INVB0, INVB1, ACC0, ACC1 = range(6, 12)
-NUM_AUX_EXT = 6
+# EXT layout: the same three logical columns, each split into extf.DEGREE limbs. The limb ids are DERIVED,
+# not written out — an explicit INVA0/INVA1/... block silently encodes the degree in its own length, which is
+# how NUM_AUX_EXT and the constraint reads drifted apart when the degree moved.
+_LOG_INVA, _LOG_INVB, _LOG_ACC = 0, 1, 2          # logical aux column indices
+
+
+def _aux(k, i=0):
+    """Column id of limb `i` of logical aux column `k` under the extension layout."""
+    return W_MAIN + k * ext2.DEGREE + i
+
+
+def _rd(row, k):
+    """Read logical aux column `k` back as one extension element."""
+    return tuple(row[_aux(k, i)] for i in range(ext2.DEGREE))
+
+
+NUM_AUX_EXT = NUM_AUX_BASE * ext2.DEGREE
 
 
 def _next_pow2(x):
@@ -46,8 +60,10 @@ def _rlc3(x0, x1, x2, beta):
     """β-folded random linear combination of a 3-tuple. β is base OR ext; the tuple entries are always base
     trace cells, so the ext form is scalar_mul (ext·base), never a full ext multiply."""
     if isinstance(beta, tuple):
+        # x0 is a BASE trace cell; add_f widens it to the full limb count itself, so writing the embedding
+        # out as a literal tuple here would hardcode the degree in the one place it must not be.
         b2 = ext2.mul_f(beta, beta)
-        return ext2.add_f(ext2.add_f((x0, 0), ext2.scalar_mul_f(beta, x1)), ext2.scalar_mul_f(b2, x2))
+        return ext2.add_f(ext2.add_f(x0, ext2.scalar_mul_f(beta, x1)), ext2.scalar_mul_f(b2, x2))
     return F.add(F.add(x0, F.mul(x1, beta)), F.mul(x2, F.mul(beta, beta)))
 
 
@@ -75,13 +91,13 @@ def _transitions_ext():
     # ext2.mul computes with % directly and raises on a symbolic cell). Same arithmetic either way.
     def c_inva(c, n, p, ch):
         rlc = _rlc3(c[A0], c[A1], c[A2], ch[0])
-        return ext2.sub_f(ext2.mul_f((c[INVA0], c[INVA1]), ext2.sub_f(ch[1], rlc)), ext2.ONE)
+        return ext2.sub_f(ext2.mul_f(_rd(c, _LOG_INVA), ext2.sub_f(ch[1], rlc)), ext2.ONE)
     def c_invb(c, n, p, ch):
         rlc = _rlc3(c[B0], c[B1], c[B2], ch[0])
-        return ext2.sub_f(ext2.mul_f((c[INVB0], c[INVB1]), ext2.sub_f(ch[1], rlc)), ext2.ONE)
+        return ext2.sub_f(ext2.mul_f(_rd(c, _LOG_INVB), ext2.sub_f(ch[1], rlc)), ext2.ONE)
     def c_acc(c, n, p, ch):
-        d = ext2.sub_f((n[ACC0], n[ACC1]), (c[ACC0], c[ACC1]))
-        return ext2.sub_f(d, ext2.sub_f((c[INVA0], c[INVA1]), (c[INVB0], c[INVB1])))
+        d = ext2.sub_f(_rd(n, _LOG_ACC), _rd(c, _LOG_ACC))
+        return ext2.sub_f(d, ext2.sub_f(_rd(c, _LOG_INVA), _rd(c, _LOG_INVB)))
     return [c_inva, c_invb, c_acc]
 
 
@@ -110,16 +126,19 @@ def _build_aux_ext(trace, chals):
     the ~112-bit term this migration buys. A hit would be an honest-prover liveness event, not a soundness one;
     ext2.inv raises rather than silently emitting a wrong column."""
     beta, gamma = chals[0], chals[1]
-    ia0, ia1, ib0, ib1, ac0, ac1 = [], [], [], [], [], []
+    D = ext2.DEGREE
+    cols = [[] for _ in range(NUM_AUX_EXT)]      # limb-major: [INVA_0..D-1, INVB_0..D-1, ACC_0..D-1]
     running = ext2.ZERO
     for row in trace:
-        ac0.append(running[0]); ac1.append(running[1])        # EXCLUSIVE prefix sum (accdiff[0] = 0)
+        for i in range(D):                                    # EXCLUSIVE prefix sum (accdiff[0] = 0)
+            cols[_LOG_ACC * D + i].append(running[i])
         ia = ext2.inv(ext2.sub(gamma, _rlc3(row[A0], row[A1], row[A2], beta)))
         ib = ext2.inv(ext2.sub(gamma, _rlc3(row[B0], row[B1], row[B2], beta)))
-        ia0.append(ia[0]); ia1.append(ia[1])
-        ib0.append(ib[0]); ib1.append(ib[1])
+        for i in range(D):
+            cols[_LOG_INVA * D + i].append(ia[i])
+            cols[_LOG_INVB * D + i].append(ib[i])
         running = ext2.add(running, ext2.sub(ia, ib))
-    return [ia0, ia1, ib0, ib1, ac0, ac1]
+    return cols
 
 
 def _aux_spec(ext=False):
@@ -132,7 +151,10 @@ def _boundaries(T, ext=False):
     """accdiff starts 0 and ends 0 ⟺ the multisets are equal. Under ext that is a GF(p^2) zero, so BOTH limbs
     are pinned — dropping the hi limb would let a prover hide a non-zero difference in it."""
     if ext:
-        return [(0, ACC0, 0), (0, ACC1, 0), (T - 1, ACC0, 0), (T - 1, ACC1, 0)]
+        # EVERY limb of the accumulator, at both ends. Pinning a subset lets a prover park an unbalanced bus
+        # in the unpinned limbs and satisfy the boundary while the buses do not balance — the argument would
+        # verify and prove nothing.
+        return [(row, _aux(_LOG_ACC, i), 0) for row in (0, T - 1) for i in range(ext2.DEGREE)]
     return [(0, ACC, 0), (T - 1, ACC, 0)]
 _DUMMY = (0, 0, 0)                                # padding tuple: identical on A and B ⇒ contributes 0 to accdiff
 

@@ -1,4 +1,4 @@
-"""AUX (LogUp) CHALLENGES OVER GF(p^2).
+"""AUX (LogUp) CHALLENGES OVER GF(p^D).
 
 β and γ were the last base-field draw in the proof system, and therefore the term that actually bound it. A
 LogUp/permutation argument is sound because γ − rlc(tuple) is non-zero for all but a (lookups + rows)/|F|
@@ -8,14 +8,19 @@ settlement path that proves through them.
 
 Lifting the challenge alone is not enough and is worse than useless: everything derived from it is then
 extension-valued, so the aux COLUMNS and their constraints have to move too. Each logical aux column is
-carried as a PAIR of base columns (lo + hi·X). These checks pin the parts of that which are silently
+carried as a TUPLE of extf.DEGREE base columns. These checks pin the parts of that which are silently
 breakable — a wrong layout mostly still produces a proof, it just proves less than it claims.
+
+Every number here is derived from extf.DEGREE rather than written down, because a test that hardcodes the
+degree stops testing the moment the field moves and instead asserts the OLD field — which is exactly when
+you need it most. (At the GF(p^2) -> GF(p^3) migration this file's literal 2s would have failed against
+correct code and passed against a half-migrated layout.)
 """
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from execnode.stark import (stark, ext2, logup, logup_bind as LB, vm_circuit as VC,
+from execnode.stark import (stark, extf as ext2, logup, logup_bind as LB, vm_circuit as VC,
                             soundness, backend as BK, field as F)
 
 fails = []
@@ -28,10 +33,14 @@ def check(cond, label):
 
 
 # ---------------------------------------------------------------- which layout is active
+D = ext2.DEGREE
 check(stark.ext_challenges_active(BK.DEFAULT),
-      "the default backend draws aux/alpha challenges from GF(p^2)")
-check(not stark.ext_challenges_active(BK.RECURSION),
-      "the RECURSION backend stays base-field (its in-circuit verifier cannot do ext)")
+      f"the default backend draws aux/alpha challenges from GF(p^{D})")
+# The RECURSION backend used to be pinned to the base field because the in-circuit verifier could not do
+# extension arithmetic. It can now, and the pin was itself the bug: a prover that chose backend="recursion"
+# chose a 64-bit security level. There is ONE authority on the question and every backend follows it.
+check(stark.ext_challenges_active(BK.RECURSION) == stark.ext_challenges_active(BK.DEFAULT),
+      "the RECURSION backend draws from the SAME field — a backend cannot pick its own security level")
 check(stark.ext_challenges_active(None) == stark.ext_challenges_active(BK.DEFAULT),
       "None resolves to the default backend, so prover and verifier agree when it is omitted")
 
@@ -44,12 +53,12 @@ check(isinstance(logup.combine([1, 2, 3], (5, 7)), tuple),
       "combine with a true ext gamma returns an ext element")
 
 # ---------------------------------------------------------------- geometry doubles, degree does not
-check(LB._aux_spec(ext=True)["num_aux"] == 2 * LB._aux_spec(ext=False)["num_aux"],
-      "logup_bind: each logical aux column becomes a base-column PAIR under ext")
-check(VC._aux_spec([], ext=True)["num_aux"] == 2 * VC._aux_spec([], ext=False)["num_aux"],
-      "vm_circuit: same doubling")
-check(VC.W_TOTAL_EXT == VC.W_MAIN + 2 * VC.NUM_AUX,
-      "vm_circuit: the ext trace width is main + 2*aux")
+check(LB._aux_spec(ext=True)["num_aux"] == D * LB._aux_spec(ext=False)["num_aux"],
+      f"logup_bind: each logical aux column becomes {D} base columns under ext")
+check(VC._aux_spec([], ext=True)["num_aux"] == D * VC._aux_spec([], ext=False)["num_aux"],
+      "vm_circuit: same widening")
+check(VC.W_TOTAL_EXT == VC.W_MAIN + D * VC.NUM_AUX,
+      f"vm_circuit: the ext trace width is main + {D}*aux")
 check(len(VC.transitions(ext=True)) == len(VC.transitions(ext=False)),
       "the constraint COUNT is unchanged — this is a field change, not a circuit redesign")
 
@@ -58,16 +67,15 @@ check(len(VC.transitions(ext=True)) == len(VC.transitions(ext=False)),
 # value: pinning only the lo limb would let a prover park an unbalanced bus in the hi limb and still satisfy
 # the boundary. That is a total loss of the argument, and it produces perfectly valid-looking proofs.
 lb_bnd = LB._boundaries(64, ext=True)
-lo, hi = LB.ACC0, LB.ACC1
+acc_limbs = [LB._aux(LB._LOG_ACC, i) for i in range(D)]
 for row in (0, 63):
-    check(any(b == (row, lo, 0) for b in lb_bnd) and any(b == (row, hi, 0) for b in lb_bnd),
-          f"logup_bind: BOTH limbs of the accumulator are pinned at row {row}")
+    check(all(any(b == (row, c, 0) for b in lb_bnd) for c in acc_limbs),
+          f"logup_bind: ALL {D} limbs of the accumulator are pinned at row {row}")
 
 vc_bnd = VC._boundaries(64, ext=True)
-z0, z1 = VC._aux_pair(VC.Z)
 for row in (0, 63):
-    check(any(b == (row, z0, 0) for b in vc_bnd) and any(b == (row, z1, 0) for b in vc_bnd),
-          f"vm_circuit: BOTH limbs of Z are pinned at row {row}")
+    check(all(any(b == (row, c, 0) for b in vc_bnd) for c in VC._aux_limbs(VC.Z)),
+          f"vm_circuit: ALL {D} limbs of Z are pinned at row {row}")
 
 # The base layout must be untouched — the recursion backend still relies on it.
 lb_base = LB._boundaries(64, ext=False)
@@ -92,6 +100,14 @@ check(soundness.aux_bits(17, ext=False) < 50,
       f"aux_bits: the OLD base-field bound really was ~44 bits ({soundness.aux_bits(17, ext=False):.1f})")
 check(soundness.aux_bits(17, ext=True) > 100,
       f"aux_bits: the lifted bound clears 100 ({soundness.aux_bits(17, ext=True):.1f})")
+# Bus-count-independent: lifting to GF(p^D) buys exactly (D-1)*E_BASE bits over the base field, whatever
+# the row count and bus count subtract from both sides.
+check(abs((soundness.aux_bits(17, ext=True) - soundness.aux_bits(17, ext=False))
+          - (D - 1) * soundness.E_BASE) < 1e-9,
+      f"aux_bits FOLLOWS the degree: the ext lift is worth exactly (D-1)*E_BASE = "
+      f"{(D - 1) * soundness.E_BASE} bits")
+check(soundness.E_FIELD() == D * soundness.E_BASE,
+      "the calculator's field size is read from extf, not hardcoded to GF(p^2)")
 check(soundness.aux_bits(17) == soundness.aux_bits(17, ext=stark.ext_challenges_active()),
       "aux_bits READS the live flag rather than assuming it")
 

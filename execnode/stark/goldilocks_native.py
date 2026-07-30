@@ -68,6 +68,20 @@ def available():
                 return True
             except Exception:
                 continue
+    # RUST-ONLY (see native_guard): the base-field NTT/coset accelerator is mandatory in production. This tree
+    # was found on 2026-07-29 running the PYTHON fallback because the .so had simply never been built here —
+    # nothing reported it, because the fallback is bit-identical (verified: coset_evaluate matches
+    # stark._coset_evaluate exactly across four geometries). Bit-identical and unnoticed is the whole problem.
+    from execnode.stark import native_guard
+    here = os.path.dirname(os.path.abspath(__file__))
+    crate = os.path.join(os.path.dirname(os.path.dirname(here)), "wasm", "goldilocks")
+    native_guard.require("goldilocks", os.path.join(crate, "target", "release", "libgoldilocks.so"),
+                         crate, reason="the base-field NTT / coset-evaluate accelerator")
+    if not native_guard.allow_absent():
+        raise native_guard.NativeMissing(
+            "native 'goldilocks' is REQUIRED and no candidate library could be loaded (tried: "
+            + ", ".join(p for p in _candidates() if p) +
+            "). Build it with `cargo build --release` in wasm/goldilocks/, or scripts/install.sh --exec.")
     _state = False
     return False
 

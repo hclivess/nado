@@ -29,7 +29,7 @@ TWO-PHASE (LogUp) AIRs: pass `num_challenges`/`num_aux`/`periodic` — the trans
 commitment, draws the challenges, absorbs the aux commitment, then draws the constraint α's, mirroring
 stark.prove(aux_spec=...). Two-phase requires row commitment (per-column trees would need 2·W paths per point).
 """
-from execnode.stark import field as F, stark, backend as B, fri_verify, comp_verify, rowcomp_verify, air_ir
+from execnode.stark import field as F, stark, backend as B, fri_verify, comp_verify, rowcomp_verify, air_ir, extf as ext2
 from execnode.stark.transcript import Transcript, DOMAIN_STARK
 
 
@@ -40,8 +40,18 @@ def public_part(stark_proof):
     fp = stark_proof["fri"]
     out = {"T": stark_proof["T"], "W": stark_proof["W"], "N": stark_proof["N"],
            "blowup": stark_proof["blowup"],
+           # ext/ext0 belong to the FRI PUBLIC STATEMENT, not beside it. They say which field the
+           # transcript replay draws in and which column layout the fold AIR has, and fri_verify.prove_fold
+           # carries them in exactly this dict when it builds its own publics. Omitting them here meant the
+           # PROVER replayed as extension and the VERIFIER — which is handed `fri_public` — replayed as
+           # base, so Fiat-Shamir diverged and every honest bundle was reported as "an inner FRI public
+           # statement failed native verification". The same dict feeds recursive_verify.verify,
+           # recursive_verify_hetero and recursion_authdepth, so all three broke identically.
+           # They are safe to carry from the proof: the verifier re-derives every challenge under them and
+           # a lie simply produces a schedule the openings cannot satisfy.
            "fri_public": {"roots": fp["roots"], "N": fp["N"], "offset": fp["offset"],
-                          "blowup": fp["blowup"], "final": fp["final"], "pow": fp.get("pow")},
+                          "blowup": fp["blowup"], "final": fp["final"], "pow": fp.get("pow"),
+                          "ext": bool(fp.get("ext", False)), "ext0": bool(fp.get("ext0", False))},
            # layer0 is a GF(p^2) pair when the inner FRI is extension — keep it as-is rather than coercing,
            # or the seam the composition half is handed loses its hi limb.
            "layer0": [(q["steps"][0]["lo"] if isinstance(q["steps"][0]["lo"], tuple)
@@ -54,12 +64,23 @@ def public_part(stark_proof):
     return out
 
 
-def _fs(pub, n_chal, n_alphas, b, ext=False):
+def _fs(pub, n_chal, n_alphas, b, ext=None):
     """Rebuild the inner STARK's transcript at the FRI start and return (factory, challenges, alphas).
     Single-phase column mode: absorb the W column roots, draw the α's. Row mode: absorb the main row root
     (+ two-phase: draw the LogUp challenges, absorb the aux row root), draw the α's. The factory is what
     fri_verify needs to re-derive the embedded FRI's challenges; challenges/alphas are what comp needs. All
-    from the SAME replay, so they are mutually consistent and pinned to the roots."""
+    from the SAME replay, so they are mutually consistent and pinned to the roots.
+
+    `ext` DEFAULTS TO THE LIVE AUTHORITY, not to False. It used to default False, and that default was a
+    latent break waiting for the day the RECURSION backend stopped being base-field: the replay then drew
+    base challenges where the prover had drawn extension ones, Fiat-Shamir diverged, and every honest inner
+    proof was reported as "failed native verification" — a message that points at the proof rather than at
+    the replay. Four call sites in recursive_verify_hetero and recursion_authdepth relied on the default and
+    all four broke at once. A parameter whose wrong value is silent must not have a hardcoded default; it
+    reads stark.ext_challenges_active(b), the single authority, and an explicit value is for tests only."""
+    if ext is None:
+        from execnode.stark import stark as _st
+        ext = _st.ext_challenges_active(b)
     if "row_roots" in pub:
         roots_main, roots_aux = pub["row_roots"][:1], pub["row_roots"][1:]
     else:
@@ -105,10 +126,15 @@ def _point_values(pub, boundaries, alphas, chals, per_evals, lo, layer0):
             # chal/alphas/layer0 stay in whatever field they were drawn in — rowcomp_verify splits an
             # extension value into its limbs itself, and coercing here would silently drop the hi limb.
             "per": [pe(x, xT) for pe in per_evals],
-            "chal": [(c if isinstance(c, tuple) else int(c) % F.P) for c in chals],
-            "alphas": [(a if isinstance(a, tuple) else int(a) % F.P) for a in alphas],
+            # ONE idiom for "this value follows the challenge field". These three were hand-written
+            # isinstance guards — correct, but a third spelling of the same rule, and this codebase's own
+            # repeated lesson is that a rule expressed in several places drifts (the same divergence appeared
+            # twice, days apart, when alphas were flattened and the challenges beside them were not).
+            # extf.canon IS that rule: reduce an int, lift a tuple, refuse anything too wide.
+            "chal": [ext2.canon(c) for c in chals],
+            "alphas": [ext2.canon(a) for a in alphas],
             "invZ": F.inv(z), "bnd": bnd,
-            "layer0": (layer0 if isinstance(layer0, tuple) else int(layer0) % F.P),
+            "layer0": ext2.canon(layer0),
             "path_len": N.bit_length() - 1}
 
 
@@ -242,10 +268,34 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
         if num_aux and not row_mode:
             return False, "two-phase recursion requires row-committed inner proofs"
         nper0 = len(_per_of(periodic, periodic_list, 0))
-        # The field comes from the inner proofs' public parts, so it is known before the IR is built.
+        # THE CHALLENGE FIELD IS NOT THE PROVER'S TO CHOOSE.
+        #
+        # This read the field out of the inner proofs' public parts and used it, unpinned, to drive both the
+        # transcript replay and the composition program. stark.verify does NOT do that — it passes
+        # expected_ext=ext_challenges_active(b) and fri.verify rejects a mismatch with "unexpected FRI
+        # challenge field" — and vm_circuit refuses a proof-declared backend for the same stated reason. The
+        # FOLD path dropped that pin, which is the same recorded-here/read-there asymmetry as every other
+        # defect in this migration, except in the SOUNDNESS-losing direction rather than the liveness one.
+        #
+        # The attack: hand-roll inner proofs with base-field alphas and fri.prove(..., ext=False). public_part
+        # copies ext=False through, the replay below follows it, and the whole bundle is self-consistent and
+        # verifies — at the base-field commit bound (~47 bits) instead of GF(p^3)'s ~156. The IDENTICAL proof
+        # handed to stark.verify is rejected. Reachable on the live block-apply path: verify_settlement_sparse
+        # -> verify_bound_epoch -> exec_state_bind.bind_and_verify -> state_transition.verify_transition,
+        # which branches on `if "bundle" in tr` — an attacker-controlled key — and swaps the pinned
+        # per-proof merkle_update.verify_update for this function. SETTLE_PROOF_RECURSIVE does not gate it.
+        #
+        # recursive_verify_hetero already got this right (_ext_now() returns the protocol authority); two
+        # sibling verifiers doing the same job had opposite answers, which is precisely the drift extf.py's
+        # docstring warns about: "five copies of 'the recursion backend is base-field' let a prover choose
+        # its own security level".
         _ext = bool(pubs[0].get("ext")) if pubs else False
         if any(bool(pu.get("ext")) != _ext for pu in pubs):
-            return False, "cannot recurse over a mix of base-field and GF(p^2) proofs"
+            return False, "cannot recurse over a mix of base-field and extension-field proofs"
+        _want_ext = stark.ext_challenges_active(B.RECURSION)
+        if pubs and _ext != _want_ext:
+            return False, (f"inner proofs declare challenge field ext={_ext} but this chain pins "
+                           f"ext={_want_ext} — the challenge field is not the prover's to choose")
         prog = air_ir.build_program(transitions, W, nper0, num_challenges, ext_chal=_ext)
         nqi = len(pubs[0]["layer0"])
         # the inner query count IS each proof's soundness — a caller with a protocol policy pins it here,
@@ -264,7 +314,8 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
             # never read from the proof — comp binds the trace at the SAME positions the fold authenticates.
             pos = _canon_positions(pub, nqi, mk)
             if pos is None:
-                return False, "an inner FRI public statement failed native verification"
+                return False, (f"an inner FRI public statement failed native verification: "
+                               f"{fri_verify.LAST_REJECT}")
             T = pub["T"]
             gTp = F.primitive_root_of_unity(T)
             per_evals = [stark._per_evaluator(pc, T, gTp) for pc in _per_of(periodic, periodic_list, pi_)]
@@ -276,7 +327,12 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
                 else:
                     vals["roots"] = [[int(v) % F.P for v in r] for r in pub["col_roots"]]
                 points_public.append(vals)
-                seam.append(int(l0) % F.P)
+                # The seam FOLLOWS THE CHALLENGE FIELD, so int() raises on it the moment layer 0 is
+                # extension-valued. recursive_verify_hetero already went through extf.canon here; this copy
+                # did not — the same rule in two places, one of them updated. That asymmetry is the single
+                # recurring defect of this migration, so it goes through canon like everywhere else, and the
+                # seam reaches verify_fold unflattened so it can be pinned limb by limb.
+                seam.append(ext2.canon(l0))
 
         # (1) FRI low-degree half — the verifier rebuilds the schedule (challenges, positions, finals) and pins
         # the declared layer-0 seam values as CLO boundaries: in-circuit membership validates them.
@@ -310,4 +366,16 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
                 return False, f"composition half failed: {whyc}"
         return True, "authoritatively verified (K proofs: FRI low-degree + composition binding, verifier-built)"
     except Exception as e:
+        _trace_if_asked()
         return False, f"malformed recursion bundle: {e}"
+
+
+def _trace_if_asked():
+    """A verifier must never raise, so these modules wrap everything in `except Exception` and return a
+    reason string. That is correct for consensus and hostile to debugging: the reason names the exception
+    but throws away the frame that produced it, and a wiring bug then looks exactly like a corrupt proof.
+    NADO_TRACE_RECURSION=1 prints the traceback WITHOUT changing the verdict."""
+    import os as _os
+    if _os.environ.get("NADO_TRACE_RECURSION"):
+        import traceback as _tb
+        _tb.print_exc()

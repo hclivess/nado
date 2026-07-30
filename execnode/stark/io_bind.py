@@ -14,7 +14,7 @@ each root by EQUALITY to an already-committed column (`exec_roots` = the exec AI
 `replay_roots` = the replay's io roots). This binding proof is itself RECURSION-committable, so it folds into the
 settlement bundle via recursive_verify_hetero.
 """
-from execnode.stark import field as F, deep_eval as DE, fri, backend as _backend
+from execnode.stark import field as F, deep_eval as DE, fri, backend as _backend, extf as _ext
 from execnode.stark.transcript import Transcript
 from execnode.stark.stark import OFF as DEFAULT_OFF
 
@@ -66,7 +66,13 @@ def verify_io_bind(bundle, exec_roots, replay_roots, num_queries=fri.NUM_QUERIES
             okb, whyb = DE.verify_eval(eb, z, num_queries=num_queries, backend=b, expect_P_root=replay_roots[j])
             if not okb:
                 return False, f"replay io column {j} eval failed: {whyb}"
-            if int(ea["v"]) % F.P != int(eb["v"]) % F.P:
+            # deep_eval proves P(z) at an OOD point drawn from the EXTENSION, so "v" is a D-limb tuple rather
+            # than a base scalar. `int(v) % F.P` therefore raised TypeError — and because this whole block
+            # sits inside a try/except that reports "malformed io-bind bundle", it never crashed: it made the
+            # exec-io == replay-io binding fail for EVERY well-formed bundle. Fail-CLOSED, so nothing unsound
+            # was ever accepted, but the check was dead weight. extf.eq compares both values through the same
+            # lift() the rest of the field code uses, and still does the right thing for a base value.
+            if not _ext.eq(ea["v"], eb["v"]):
                 return False, f"io column {j} differs (exec io != replay io)"
         return True, "ok — exec io == replay io (bound at a random OOD point post both commitments)"
     except Exception as e:

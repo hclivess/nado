@@ -138,7 +138,7 @@ def t_compose_with_challenge():
 
 
 def t_fri_bit_identical():
-    """stark_native.fri_prove (fold + Merkle + openings from the arena; transcript in Python) produces the
+    """stark_native.fri_prove_native — the WHOLE FRI loop in Rust, transcript included — produces the
     IDENTICAL FRI proof to fri.prove over the RECURSION backend — roots, final, pow nonce, and every query
     step (values + paths) field-for-field — over a real low-degree evals vector."""
     for T, DEG, blowup, NQ in [(64, 8, 4, 3), (256, 16, 2, 5), (512, 64, 4, 8)]:
@@ -155,7 +155,8 @@ def t_fri_bit_identical():
                              transcript=Transcript("fri", backend=B.RECURSION), backend=B.RECURSION)
         SN.reset(1, N, off)
         cid = SN.load_col(evals)
-        proof_nat = SN.fri_prove(cid, off, blowup, NQ, Transcript("fri", backend=B.RECURSION))
+        proof_nat = SN.fri_prove_native([cid], off, blowup, NQ, Transcript("fri", backend=B.RECURSION),
+                                        0, 1, False)
         for k in ("N", "offset", "blowup", "pow"):
             assert proof_nat[k] == proof_py[k], f"FRI {k} mismatch: {proof_nat[k]} != {proof_py[k]}"
         assert [tuple(r) for r in proof_nat["roots"]] == [tuple(r) for r in proof_py["roots"]], "FRI roots mismatch"

@@ -31,7 +31,14 @@ def _points(proof, transitions, boundaries):
     t = Transcript(DOMAIN_STARK, backend=B.RECURSION)
     for r in proof["row_roots"]:
         t.absorb(r)
-    alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
+    # DRAW IN THE PROOF'S OWN FIELD. stark.prove draws the constraint alphas from GF(p^D) whenever
+    # ext_challenges_active holds, so a base-field replay here produces different alphas, the recomputed
+    # composition does not match the proof's committed layer-0, and the failure surfaces as the thoroughly
+    # unhelpful "composition is not low-degree". This is the same prover/verifier field asymmetry that bit
+    # recursive_verify._fs, settlement_sparse and public_part — here in a test's hand-rolled replay.
+    _ext = stark.ext_challenges_active(B.RECURSION)
+    alphas = [(t.challenge_ext() if _ext else t.challenge())
+              for _ in range(len(transitions) + len(boundaries))]
     pts = []
     for q, op in zip(proof["fri"]["queries"], proof["openings"]):
         lo = q["idx"] % (N // 2)
@@ -60,12 +67,18 @@ TRANS10 = [lambda c, n, p: F.sub(n[0], F.mul(c[0], c[0]))] + \
 
 _P1 = stark.prove([[v] for v in _col()], TRANS1, BND, max_degree=2, num_queries=2,
                   backend=B.RECURSION, row_commit=True)
-_PROG1 = air_ir.build_program(TRANS1, 1, 0, 0)
+# ext_chal follows the CHALLENGE FIELD the inner proofs used — NOT the AIR's own shape. These AIRs have no
+# extension-valued constraint and no challenges of their own, but the ALPHAS that combine them are drawn
+# from the live field, so the composition points are extension-valued and the program must say so. Omitting
+# it used to surface as int()-on-a-tuple deep inside the schedule; rowcomp_verify now refuses and names this
+# argument.
+_EXTC = stark.ext_challenges_active(B.RECURSION)
+_PROG1 = air_ir.build_program(TRANS1, 1, 0, 0, ext_chal=_EXTC)
 _CP1, _PUB1 = RC.prove_comp(_PROG1, 1, 0, BND, _points(_P1, TRANS1, BND), num_queries=4)
 
 _P10 = stark.prove([[v] + [F.add(v, i) for i in range(1, W10)] for v in _col()], TRANS10, BND,
                    max_degree=2, num_queries=2, backend=B.RECURSION, row_commit=True)
-_PROG10 = air_ir.build_program(TRANS10, W10, 0, 0)
+_PROG10 = air_ir.build_program(TRANS10, W10, 0, 0, ext_chal=_EXTC)
 _CP10, _PUB10 = RC.prove_comp(_PROG10, W10, 0, BND, _points(_P10, TRANS10, BND), num_queries=4)
 
 
@@ -74,9 +87,18 @@ def t_w1_binds():
     assert ok, why
 
 
+def _bump(v):
+    """Perturb a value by one in whatever field it lives in. `+ 1` was written for a scalar and RAISES on a
+    tuple — and a negative test that raises still satisfies a naive assert-not-ok, so it would keep reporting
+    PASS while testing nothing. Third instance of this exact defect in this suite."""
+    if isinstance(v, tuple):
+        return ((v[0] + 1) % F.P,) + tuple(v[1:])
+    return (v + 1) % F.P
+
+
 def t_false_layer0_rejected():
     bad = copy.deepcopy(_PUB1)
-    bad["points_public"][0]["layer0"] = (bad["points_public"][0]["layer0"] + 1) % F.P
+    bad["points_public"][0]["layer0"] = _bump(bad["points_public"][0]["layer0"])
     assert not RC.verify_comp(_CP1, _PROG1, 1, 0, BND, bad)[0]
 
 

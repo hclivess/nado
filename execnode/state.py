@@ -98,10 +98,18 @@ def _normalize_bundle(bundle):
 # Fixed-name SYSTEM contracts (doc/faucet.md §4): literal cid -> the ONLY address allowed to deploy it.
 # The operator key that deployed the game-contract fleet; a constant, so the rule is identical on every
 # exec node replaying the same blob stream.
-# alphanet-7 debrand: the SAME operator key, re-derived under the current ADDRESS_PREFIX (mldsa44…). The
-# old ndo… string was a leftover of the pre-cutover prefix and blocked (re)deploying these system contracts.
-FIXED_CIDS = {"faucet": "mldsa44ebd27698662f14ee2389e509781d5ff57487f4289afd34",
-              "sovereign": "mldsa44ebd27698662f14ee2389e509781d5ff57487f4289afd34"}
+# RE-DERIVED AT EVERY ADDRESS-FORMAT CHANGE — the SAME operator key throughout, only the string moves.
+# alphanet-7 debrand: ndo… -> mldsa44…. alphanet-14 prefix removal: mldsa44… -> the bare 42-hex body plus a
+# checksum. That body (ebd27698662f14ee2389e509781d5ff57487f4289a) is identical across all three; the
+# checksum is RECOMPUTED, because it covers the whole preceding string — a stale prefix cannot just be
+# trimmed off or the result fails validation.
+#
+# Leaving the old literal would not have raised anything. It is a plain string compared against the deployer
+# of a fixed-name contract, so the operator's key would silently stop matching and `faucet` and `sovereign`
+# could never be (re)deployed on the new chain — precisely the failure the alphanet-7 note above describes,
+# repeating itself one format change later.
+FIXED_CIDS = {"faucet": "ebd27698662f14ee2389e509781d5ff57487f4289a4d67",
+              "sovereign": "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"}
 
 # ---- ASSETS (doc/assets.md) ------------------------------------------------------------------------
 # A fungible asset other than native NADO. There is exactly ONE ledger for them, at the exec layer, so an

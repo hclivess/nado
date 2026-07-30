@@ -26,7 +26,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from signatures import verify as mldsa_verify, unhex
-from ops.address_ops import proof_sender, validate_address, make_address
+from ops.address_ops import proof_sender, validate_address, make_address, is_address
 from protocol import ADDRESS_PREFIX, ADDRESS_BODY
 from hashing import blake2b_hash
 
@@ -56,7 +56,7 @@ def _heal_addr(a):
     try:
         if not validate_address(a):
             return a                                  # not an address of ANY generation — leave it alone
-        if a.startswith(ADDRESS_PREFIX):
+        if is_address(a):
             return a                                  # already current (validate_address checks only the
                                                       # checksum, never the prefix, so test that separately)
         body = a[:-4][-ADDRESS_BODY:]                 # 4 HEX chars of checksum (ADDRESS_CHECKSUM is bytes)

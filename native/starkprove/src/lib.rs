@@ -410,84 +410,178 @@ pub extern "C" fn sp_col_len(col: usize) -> i64 {
     }
 }
 
-// ---- GF(p^2) = F_p[X]/(X^2 - NONRESIDUE) ---------------------------------------------------------
-// The arena stores columns as Vec<u64>, so an EXTENSION-valued column is carried as TWO arena columns
-// (lo, hi) meaning lo + hi*X — the same limb-pair representation the Python side uses, which is what lets a
-// proof move between them unchanged.
+// ---- GF(p^D) = F_p[X]/(X^D - NONRESIDUE) ---------------------------------------------------------
+// The arena stores columns as Vec<u64>, so an EXTENSION-valued column is carried as D arena columns
+// (limb 0 .. limb D-1) meaning c0 + c1*X + ... — the same limb-tuple representation the Python side uses,
+// which is what lets a proof move between them unchanged.
 //
 // This exists because the extension migration otherwise costs the arena entirely: stark_native refuses an
 // ext request (it would emit a proof stark.verify could never accept), so every ext proof composed and
 // folded in PYTHON. That is 2.8x slower and, far worse, materializes every LDE column as a Python list —
 // the K->1 settlement fold OOM-killed at 20.8 GB resident against a ~15 GB budget. Keeping the columns in
 // Rust is what makes folding feasible at all, not merely faster.
-const NONRESIDUE: u64 = 7;
+//
+// WRITTEN FOR ARBITRARY D, NOT HAND-EXPANDED. The degree-2 version expanded the product by hand and
+// destructured every value as a 2-tuple, so raising the degree meant editing every line that touched an
+// extension element — in Python that same shape hid 118 assumptions across 16 files, five of which were
+// SILENT (wrong answer, no error). Here the degree is one const and the arithmetic is a generic
+// convolution, so a future degree change is a one-line edit that either compiles or does not.
+const EXT_DEGREE: usize = 3;
+const NONRESIDUE: u64 = 3;      // X^3 - 3 is irreducible over Goldilocks (checked in extf.py at import)
 
-#[inline]
-fn e_add(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
-    (addf(a.0, b.0), addf(a.1, b.1))
+type Ext = [u64; EXT_DEGREE];
+
+const EXT_ZERO: Ext = [0u64; EXT_DEGREE];
+
+/// The extension DEGREE this library was compiled for. The Python side must refuse to use the arena when
+/// this disagrees with extf.DEGREE: the symbols existing says nothing about which field they implement, and
+/// a degree-mismatched arena does not fail — it composes a perfectly well-formed polynomial over the WRONG
+/// field, which then fails verification far from the cause. (Observed exactly this: a degree-2 arena against
+/// a degree-3 Python side reported "trace/composition mismatch" with nothing pointing at the field.)
+#[no_mangle]
+pub extern "C" fn sp_ext_degree() -> i64 {
+    EXT_DEGREE as i64
+}
+
+/// The NONRESIDUE, exported for the same reason as the degree: two libraries can agree on D and still be
+/// different fields. Python checks both before it will touch the arena.
+#[no_mangle]
+pub extern "C" fn sp_ext_nonresidue() -> u64 {
+    NONRESIDUE
 }
 
 #[inline]
-fn e_sub(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
-    (subf(a.0, b.0), subf(a.1, b.1))
+fn e_add(a: Ext, b: Ext) -> Ext {
+    let mut o = EXT_ZERO;
+    for i in 0..EXT_DEGREE {
+        o[i] = addf(a[i], b[i]);
+    }
+    o
 }
 
 #[inline]
-fn e_mul(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
-    // (a0 + a1 X)(b0 + b1 X) = (a0 b0 + NONRESIDUE a1 b1) + (a0 b1 + a1 b0) X
-    (
-        addf(mulf(a.0, b.0), mulf(NONRESIDUE, mulf(a.1, b.1))),
-        addf(mulf(a.0, b.1), mulf(a.1, b.0)),
-    )
+fn e_sub(a: Ext, b: Ext) -> Ext {
+    let mut o = EXT_ZERO;
+    for i in 0..EXT_DEGREE {
+        o[i] = subf(a[i], b[i]);
+    }
+    o
 }
 
 #[inline]
-fn e_scalar(a: (u64, u64), s: u64) -> (u64, u64) {
-    (mulf(a.0, s), mulf(a.1, s))
+fn e_mul(a: Ext, b: Ext) -> Ext {
+    // Polynomial product reduced mod X^D - NONRESIDUE: terms of degree >= D wrap with a NONRESIDUE factor,
+    // since X^(D+k) = NONRESIDUE * X^k. Same convolution extf.mul computes, limb for limb.
+    let mut acc = [0u64; 2 * EXT_DEGREE - 1];
+    for i in 0..EXT_DEGREE {
+        if a[i] != 0 {
+            for j in 0..EXT_DEGREE {
+                acc[i + j] = addf(acc[i + j], mulf(a[i], b[j]));
+            }
+        }
+    }
+    let mut o = EXT_ZERO;
+    o.copy_from_slice(&acc[..EXT_DEGREE]);
+    for k in EXT_DEGREE..(2 * EXT_DEGREE - 1) {
+        if acc[k] != 0 {
+            o[k - EXT_DEGREE] = addf(o[k - EXT_DEGREE], mulf(NONRESIDUE, acc[k]));
+        }
+    }
+    o
 }
 
-/// One FRI fold of an EXTENSION-valued column: (col_lo, col_hi) -> the folded pair, retained as two new
-/// arena columns. Returns the LO column id; the HI column is always the next id (lo + 1), so one return
-/// value suffices and the caller does not need an out-param.
+#[inline]
+fn e_scalar(a: Ext, s: u64) -> Ext {
+    // Extension times a BASE scalar — one multiply per limb, no cross terms. This is the per-row hot path
+    // (every constraint value scaled by invZ, every fold by 1/2x), so it stays linear in D.
+    let mut o = EXT_ZERO;
+    for i in 0..EXT_DEGREE {
+        o[i] = mulf(a[i], s);
+    }
+    o
+}
+
+/// Read D limbs out of a caller-supplied buffer, reducing each. Returns None if the caller passed a limb
+/// count that is not the compiled degree — which means it believes in a different field, and quietly using
+/// the first D of them (or zero-padding) would compose over that wrong field without any error.
+#[inline]
+unsafe fn ext_from_raw(p: *const u64, n: usize) -> Option<Ext> {
+    if p.is_null() || n != EXT_DEGREE {
+        return None;
+    }
+    let s = std::slice::from_raw_parts(p, n);
+    let mut o = EXT_ZERO;
+    for i in 0..EXT_DEGREE {
+        o[i] = s[i] % PU64;
+    }
+    Some(o)
+}
+
+/// One FRI fold of an EXTENSION-valued column: the D columns named by `cols` -> the folded D columns,
+/// retained in the arena. Returns the LIMB-0 column id; limb k is always at that id + k, so one return
+/// value suffices and the caller needs no out-param.
 ///
-/// Identical statement to sp_fold, over GF(p^2): g(x^2) = (f(x)+f(-x))/2 + alpha*(f(x)-f(-x))/(2x), with x
+/// Identical statement to sp_fold, over GF(p^D): g(x^2) = (f(x)+f(-x))/2 + alpha*(f(x)-f(-x))/(2x), with x
 /// a BASE domain point (so the /2x scaling stays a scalar multiply) and alpha the only extension factor.
 /// Byte-identical to fri._fold_ext.
+///
+/// `n_cols` and `n_alpha` are passed and CHECKED rather than assumed: they are how a Python side built for
+/// a different degree gets rejected at the call instead of silently folding over the wrong field.
 #[no_mangle]
-pub extern "C" fn sp_fold_ext(col_lo: usize, col_hi: usize, offset: u64,
-                              alpha_lo: u64, alpha_hi: u64) -> i64 {
+pub unsafe extern "C" fn sp_fold_ext(cols: *const usize, n_cols: usize, offset: u64,
+                                     alpha: *const u64, n_alpha: usize) -> i64 {
+    if cols.is_null() || n_cols != EXT_DEGREE {
+        return -1;
+    }
+    let alpha = match ext_from_raw(alpha, n_alpha) {
+        Some(a) => a,
+        None => return -1,
+    };
+    let ids = std::slice::from_raw_parts(cols, n_cols);
     let mut g = ARENA.lock().unwrap();
     let arena = match g.as_mut() {
         Some(a) => a,
         None => return -1,
     };
-    if col_lo >= arena.cols.len() || col_hi >= arena.cols.len() {
+    for &c in ids {
+        if c >= arena.cols.len() {
+            return -1;
+        }
+    }
+    let m = arena.cols[ids[0]].len();
+    if m < 2 || (m & (m - 1)) != 0 {
         return -1;
     }
-    let m = arena.cols[col_lo].len();
-    if m < 2 || (m & (m - 1)) != 0 || arena.cols[col_hi].len() != m {
-        return -1;
+    for &c in ids {
+        if arena.cols[c].len() != m {
+            return -1;
+        }
     }
     let half = m / 2;
     let inv2 = inv(2);
     let omega = rou(m);
-    let alpha = (alpha_lo % PU64, alpha_hi % PU64);
     let mut x = offset % PU64;
-    let mut out_lo = vec![0u64; half];
-    let mut out_hi = vec![0u64; half];
+    let mut out: Vec<Vec<u64>> = (0..EXT_DEGREE).map(|_| vec![0u64; half]).collect();
     for i in 0..half {
-        let fx = (arena.cols[col_lo][i], arena.cols[col_hi][i]);
-        let fmx = (arena.cols[col_lo][i + half], arena.cols[col_hi][i + half]);
+        let mut fx = EXT_ZERO;
+        let mut fmx = EXT_ZERO;
+        for d in 0..EXT_DEGREE {
+            fx[d] = arena.cols[ids[d]][i];
+            fmx[d] = arena.cols[ids[d]][i + half];
+        }
         let fe = e_scalar(e_add(fx, fmx), inv2);
         let fo = e_scalar(e_sub(fx, fmx), mulf(inv2, inv(x)));
         let v = e_add(fe, e_mul(alpha, fo));
-        out_lo[i] = v.0;
-        out_hi[i] = v.1;
+        for d in 0..EXT_DEGREE {
+            out[d][i] = v[d];
+        }
         x = mulf(x, omega);
     }
-    arena.cols.push(out_lo);
-    arena.cols.push(out_hi);
-    (arena.cols.len() - 2) as i64
+    let first = arena.cols.len();
+    for c in out {
+        arena.cols.push(c);
+    }
+    first as i64
 }
 
 /// Everything sp_compose and sp_compose_ext derive from GEOMETRY alone — the coset points, the transition
@@ -1042,13 +1136,15 @@ pub extern "C" fn sp_free() {
 /// the composition polynomial — extension-valued.
 ///
 /// The SSA interpretation stays BASE. That is the point of the limb-pair representation: an
-/// extension-valued constraint contributes its two COMPONENTS as two consecutive outputs (`ext_pairs` holds
-/// each pair's first index, mirroring air_ir's), so the constraint program itself needs no extension opcode
+/// extension-valued constraint contributes its D COMPONENTS as D consecutive outputs (`ext_pairs` holds
+/// each group's first index, mirroring air_ir's), so the constraint program itself needs no extension opcode
 /// and only the alpha combination widens. One alpha per LOGICAL constraint — NOT one per output, which is
-/// the off-by-one that would silently misalign every constraint past the first extension one.
+/// the off-by-one that would silently misalign every constraint past the first extension one. ("pair" is
+/// the degree-2 name kept for the wire field; a group is D wide.)
 ///
-/// `alphas` is 2*(n_logical + n_bnd) limbs, lo/hi interleaved. Writes cp_lo/cp_hi and retains both as arena
-/// columns, returning the LO id (HI is always lo+1, as in sp_fold_ext).
+/// `alphas` is D*(n_logical + n_bnd) limbs, limb-interleaved per element. `out`, if non-null, receives
+/// D*n values LIMB-MAJOR (all of limb 0, then all of limb 1, ...). All D limb columns are retained in the
+/// arena and the LIMB-0 id is returned; limb k sits at that id + k, as in sp_fold_ext.
 #[no_mangle]
 pub unsafe extern "C" fn sp_compose_ext(
     n_ops: usize, ops: *const u32,
@@ -1057,14 +1153,18 @@ pub unsafe extern "C" fn sp_compose_ext(
     n_pairs: usize, ext_pairs: *const u32,
     w: usize, nper: usize, nchal: usize,
     chals: *const u64,
-    alphas: *const u64,          // 2 * (n_logical + n_bnd)
+    alphas: *const u64,          // EXT_DEGREE * (n_logical + n_bnd)
     n_bnd: usize,
     bnd_col: *const u32,
     bnd_val: *const u64,
     bnd_row: *const u64,
     t: usize, blowup: usize, offset: u64,
-    out_lo: *mut u64, out_hi: *mut u64,
+    degree: usize,               // caller's extf.DEGREE — checked, never assumed
+    out: *mut u64,               // EXT_DEGREE * n, limb-major; may be null
 ) -> i64 {
+    if degree != EXT_DEGREE {
+        return 7;
+    }
     let mut g = ARENA.lock().unwrap();
     let arena = match g.as_mut() {
         Some(a) => a,
@@ -1083,12 +1183,14 @@ pub unsafe extern "C" fn sp_compose_ext(
     let bnd_val = std::slice::from_raw_parts(bnd_val, n_bnd.max(1));
     let bnd_row = std::slice::from_raw_parts(bnd_row, n_bnd.max(1));
 
-    // a pair consumes TWO outputs but ONE alpha, so the logical count is outputs minus pairs
-    let n_logical = match n_out.checked_sub(n_pairs) {
+    // an extension group consumes D outputs but ONE alpha, so each group adds D-1 EXTRA outputs and the
+    // logical count is n_out - n_pairs*(D-1). (n_out - n_pairs was right only at D=2 and would silently
+    // over-count alphas at any other degree — the same off-by-one the Python side carried.)
+    let n_logical = match n_out.checked_sub(n_pairs * (EXT_DEGREE - 1)) {
         Some(v) => v,
         None => return 5,
     };
-    let alphas = std::slice::from_raw_parts(alphas, 2 * (n_logical + n_bnd));
+    let alphas = std::slice::from_raw_parts(alphas, EXT_DEGREE * (n_logical + n_bnd));
 
     for i in 0..n_ops {
         let (op, a, b) = (ops[i * 3], ops[i * 3 + 1] as usize, ops[i * 3 + 2] as usize);
@@ -1116,8 +1218,8 @@ pub unsafe extern "C" fn sp_compose_ext(
         }
     }
     for k in 0..n_pairs {
-        // each pair must name a real output AND leave room for its partner
-        if (pairs[k] as usize) + 1 >= n_out {
+        // each group must name a real output AND leave room for all D-1 of its partners
+        if (pairs[k] as usize) + (EXT_DEGREE - 1) >= n_out {
             return 6;
         }
     }
@@ -1130,8 +1232,7 @@ pub unsafe extern "C" fn sp_compose_ext(
         is_pair_start[pairs[k] as usize] = true;
     }
 
-    let mut cp_lo = vec![0u64; n];
-    let mut cp_hi = vec![0u64; n];
+    let mut cp: Vec<Vec<u64>> = (0..EXT_DEGREE).map(|_| vec![0u64; n]).collect();
     let mut temp = vec![0u64; n_ops];
     for j in 0..n {
         let jn = (j + blowup) % n;
@@ -1150,20 +1251,24 @@ pub unsafe extern "C" fn sp_compose_ext(
                 _ => 0,
             };
         }
-        let mut acc = (0u64, 0u64);
+        let mut acc = EXT_ZERO;
         let mut k = 0usize;
         let mut ai = 0usize;
         while k < n_out {
-            let val = if is_pair_start[k] {
-                let v = (temp[outputs[k] as usize], temp[outputs[k + 1] as usize]);
-                k += 2;
-                v
+            let mut val = EXT_ZERO;
+            if is_pair_start[k] {
+                for d in 0..EXT_DEGREE {
+                    val[d] = temp[outputs[k + d] as usize];
+                }
+                k += EXT_DEGREE;
             } else {
-                let v = (temp[outputs[k] as usize], 0u64);
+                val[0] = temp[outputs[k] as usize];     // base-valued constraint; higher limbs stay zero
                 k += 1;
-                v
-            };
-            let a = (alphas[2 * ai], alphas[2 * ai + 1]);
+            }
+            let mut a = EXT_ZERO;
+            for d in 0..EXT_DEGREE {
+                a[d] = alphas[EXT_DEGREE * ai + d];
+            }
             acc = e_add(acc, e_mul(a, val));
             ai += 1;
         }
@@ -1172,19 +1277,794 @@ pub unsafe extern "C" fn sp_compose_ext(
             let col = bnd_col[bi] as usize;
             let diff = subf(arena.cols[col][j], bnd_val[bi]);
             let invden = den_vecs[bnd_den_idx[bi]][j];
-            let a = (alphas[2 * (n_logical + bi)], alphas[2 * (n_logical + bi) + 1]);
+            let mut a = EXT_ZERO;
+            for d in 0..EXT_DEGREE {
+                a[d] = alphas[EXT_DEGREE * (n_logical + bi) + d];
+            }
             v = e_add(v, e_scalar(a, mulf(diff, invden)));
         }
-        cp_lo[j] = v.0;
-        cp_hi[j] = v.1;
+        for d in 0..EXT_DEGREE {
+            cp[d][j] = v[d];
+        }
     }
-    if !out_lo.is_null() {
-        std::ptr::copy_nonoverlapping(cp_lo.as_ptr(), out_lo, n);
+    if !out.is_null() {
+        for d in 0..EXT_DEGREE {
+            std::ptr::copy_nonoverlapping(cp[d].as_ptr(), out.add(d * n), n);
+        }
     }
-    if !out_hi.is_null() {
-        std::ptr::copy_nonoverlapping(cp_hi.as_ptr(), out_hi, n);
+    let first = arena.cols.len();
+    for c in cp {
+        arena.cols.push(c);
     }
-    arena.cols.push(cp_lo);
-    arena.cols.push(cp_hi);
-    (arena.cols.len() - 2) as i64
+    first as i64
+}
+
+// ── FIAT–SHAMIR TRANSCRIPT, IN RUST ─────────────────────────────────────────────────────────────────
+// The FRI prove loop was orchestration in Python calling these kernels one at a time: absorb a root,
+// cross the FFI boundary, take a challenge, cross back, fold, cross back. Every layer and every query paid
+// that toll, which is why a fold ran for hours. The kernels were never the problem; the glue was.
+//
+// This is the keystone of moving the loop itself into Rust: challenges must be derived BYTE-IDENTICALLY to
+// backend.RecursionBackend, or a Rust-proved proof is simply rejected by every verifier. So it mirrors that
+// implementation exactly rather than being written afresh:
+//     t_init(label)          = hashn([DOM_ABSORB, sum(label_bytes) % P])
+//     t_absorb(state, lanes) = hashn([DOM_ABSORB, *state, *lanes])
+//     t_challenge(state)     = s = hashn([DOM_CHAL,  *state]); (s, s[0] % PU64)
+//     t_index(state, bound)  = s = hashn([DOM_INDEX, *state]); (s, s[0] % bound)
+// Note hashn() here takes els WITHOUT a length prefix (its caller adds one for leaves); the Python
+// transcript likewise passes the bare domain-tagged list, so the two agree.
+//
+// The Python encoder flattens tuples element-wise and reduces strings to sum(bytes) % P. That collapsing of
+// a string to one lane is weak hashing, but it is CONSENSUS — the verifier does the same — so it is mirrored
+// verbatim. Callers pass pre-encoded lanes; string folding stays on the Python side where the labels live.
+const DOM_ABSORB: u64 = 3;
+const DOM_CHAL: u64 = 4;
+const DOM_INDEX: u64 = 5;
+
+/// Initialise a transcript from a pre-folded label lane. Writes CAP lanes to `out`.
+///
+/// # Safety
+/// `out` must point to CAP writable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_tr_init(label_lane: u64, out: *mut u64) {
+    let s = hashn(&[2, DOM_ABSORB, label_lane % PU64]);   // 2 = len([DOM, lane])
+    core::ptr::copy_nonoverlapping(s.as_ptr(), out, CAP);
+}
+
+/// Absorb `n` lanes into the CAP-lane state at `state` (updated in place).
+///
+/// # Safety
+/// `state` must point to CAP writable u64; `lanes` to `n` readable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_tr_absorb(state: *mut u64, lanes: *const u64, n: usize) {
+    let mut els = Vec::with_capacity(2 + CAP + n);
+    els.push((1 + CAP + n) as u64);              // length prefix, as alghash2.py's hashn prepends
+    els.push(DOM_ABSORB);
+    for k in 0..CAP {
+        els.push(*state.add(k));
+    }
+    for k in 0..n {
+        els.push(*lanes.add(k) % PU64);
+    }
+    let s = hashn(&els);
+    core::ptr::copy_nonoverlapping(s.as_ptr(), state, CAP);
+}
+
+/// Squeeze one base-field challenge, advancing the state. Returns the challenge.
+///
+/// # Safety
+/// `state` must point to CAP writable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_tr_challenge(state: *mut u64) -> u64 {
+    let mut els = Vec::with_capacity(2 + CAP);
+    els.push((1 + CAP) as u64);                  // length prefix
+    els.push(DOM_CHAL);
+    for k in 0..CAP {
+        els.push(*state.add(k));
+    }
+    let s = hashn(&els);
+    core::ptr::copy_nonoverlapping(s.as_ptr(), state, CAP);
+    s[0] % PU64
+}
+
+/// Squeeze a uniform index in [0, bound), advancing the state.
+///
+/// # Safety
+/// `state` must point to CAP writable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_tr_index(state: *mut u64, bound: u64) -> u64 {
+    let mut els = Vec::with_capacity(2 + CAP);
+    els.push((1 + CAP) as u64);                  // length prefix
+    els.push(DOM_INDEX);
+    for k in 0..CAP {
+        els.push(*state.add(k));
+    }
+    let s = hashn(&els);
+    core::ptr::copy_nonoverlapping(s.as_ptr(), state, CAP);
+    if bound == 0 { 0 } else { s[0] % bound }
+}
+
+/// Squeeze DEGREE independent base draws = one GF(p^D) challenge. Writes `degree` lanes to `out`.
+/// Mirrors Transcript.challenge_ext, whose arity comes from extf.DEGREE — passed in rather than hardcoded,
+/// because a smaller arity here would still let prover and verifier agree with each other while sampling a
+/// weaker space than the soundness analysis claims, and nothing would fail.
+///
+/// # Safety
+/// `state` must point to CAP writable u64; `out` to `degree` writable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_tr_challenge_ext(state: *mut u64, degree: usize, out: *mut u64) {
+    for i in 0..degree {
+        *out.add(i) = sp_tr_challenge(state);
+    }
+}
+
+// ── RETAINED EXT-LEAF MERKLE COMMIT ─────────────────────────────────────────────────────────────────
+// The gap that kept the FRI layer loop in Python. sp_commit_col commits a BASE column, and the extension
+// commit lived in the separate alghash2 crate — which returns only a ROOT, with no retained tree, so there
+// was nothing to open a query against. Every folded layer above layer 0 is extension-valued, so the loop had
+// to come back to Python to commit each one and hold the tree there.
+//
+// Leaf frames are the SAME as alghash2's, deliberately duplicated rather than shared because the two crates
+// are separate .so files: RECURSION uses one permutation over (DOM_LEAF_EXT, limb0..limb_{d-1}, 0.., IV) —
+// which is what makes an extension leaf cost the same in-circuit as a base one — and ALGHASH2 uses
+// hashn([len, DOM_LEAF_EXT, limb0..]). DOM_LEAF_EXT (7), not DOM_LEAF (1), so a lifted base value and a
+// genuine base value can never share a digest; otherwise a prover could present one tree's opening against
+// the other's commitment.
+const DOM_LEAF_EXT_SP: u64 = 7;
+
+fn rleaf_ext_sp(limbs: &[u64]) -> [u64; CAP] {
+    let mut s = [0u64; HW];
+    s[0] = DOM_LEAF_EXT_SP;
+    for (k, v) in limbs.iter().enumerate() {
+        s[1 + k] = *v % PU64;
+    }
+    unsafe {
+        for k in 0..CAP {
+            s[RATE + k] = IVH[k];
+        }
+    }
+    permute(&mut s);
+    [s[0], s[1], s[2], s[3]]
+}
+
+fn a2_leaf_ext_sp(limbs: &[u64]) -> [u64; CAP] {
+    let mut els = Vec::with_capacity(2 + limbs.len());
+    els.push((1 + limbs.len()) as u64);
+    els.push(DOM_LEAF_EXT_SP);
+    for v in limbs {
+        els.push(*v % PU64);
+    }
+    hashn(&els)
+}
+
+/// Merkle-commit `d` retained columns AS ONE EXTENSION COLUMN (leaf i = the d limbs at row i). Retains the
+/// tree so sp_open can serve query paths, writes the CAP-lane root, returns the tree id (or -1).
+/// `hash_mode` 0 = RECURSION, 1 = ALGHASH2 — chosen by BACKEND, never guessed: using the wrong one builds a
+/// well-formed tree with the wrong root, which fails far from the cause.
+///
+/// # Safety
+/// `col_ids` must point to `d` usize, each indexing a retained column; all must share one length that is a
+/// power of two. `root_ptr`, if non-null, must point to CAP writable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_commit_col_ext(col_ids: *const usize, d: usize, root_ptr: *mut u64,
+                                           hash_mode: u32) -> i64 {
+    let mut g = ARENA.lock().unwrap();
+    let arena = match g.as_mut() {
+        Some(a) => a,
+        None => return -1,
+    };
+    // The RECURSION frame is the four-lane rleaf head, so a degree that no longer fits is REFUSED rather
+    // than silently truncated — a truncated limb would commit to a value nobody can reproduce.
+    if !HASH_READY || d == 0 || col_ids.is_null() || (hash_mode == 0 && d > RATE - 1) {
+        return -1;
+    }
+    let ids = std::slice::from_raw_parts(col_ids, d);
+    for &c in ids {
+        if c >= arena.cols.len() {
+            return -1;
+        }
+    }
+    let n = arena.cols[ids[0]].len();
+    if n < 1 || (n & (n - 1)) != 0 || ids.iter().any(|&c| arena.cols[c].len() != n) {
+        return -1;
+    }
+    let a2 = hash_mode == 1;
+    let digs = {
+        let cols: Vec<&[u64]> = ids.iter().map(|&c| arena.cols[c].as_slice()).collect();
+        build_tree(n, a2, |i| {
+            let mut limbs = [0u64; 8];
+            for k in 0..d {
+                limbs[k] = cols[k][i];
+            }
+            if a2 {
+                a2_leaf_ext_sp(&limbs[..d])
+            } else {
+                rleaf_ext_sp(&limbs[..d])
+            }
+        })
+    };
+    let root = digs[2 * n - 2];
+    if !root_ptr.is_null() {
+        for k in 0..CAP {
+            *root_ptr.add(k) = root[k];
+        }
+    }
+    arena.trees.push(Tree { n, digs });
+    (arena.trees.len() - 1) as i64
+}
+
+// ── THE FRI PROVE LOOP, IN RUST ─────────────────────────────────────────────────────────────────────
+// This is the function the whole port exists for. fri.prove was ~45 lines of Python orchestration, and every
+// one of the primitives it called was already native: commit, absorb, challenge, fold, grind, open. What cost
+// hours was the SHAPE — absorb a root, cross the FFI boundary, take a challenge, cross back, fold, cross back
+// to open — once per layer and once per query, with 320 queries and the layer count logarithmic in N.
+//
+// So nothing here is new mathematics. It is the same sequence, run without leaving Rust.
+//
+// RESULT MARSHALLING. Query paths are variable-length (log2 of each layer), so rather than one FFI call per
+// opening — which would reintroduce exactly the per-query round-trip being removed — the whole proof is
+// serialised once into a self-describing flat u64 buffer. Caller asks for the size, allocates, asks for the
+// bytes. Two calls total for a complete proof.
+struct FriResult {
+    layer_sizes: Vec<usize>,
+    roots: Vec<[u64; CAP]>,
+    trees: Vec<usize>,
+    limbs_per_layer: Vec<usize>,   // 1 for a base layer, degree for an extension layer
+    layer_cols: Vec<Vec<usize>>,   // the arena column ids backing each committed layer
+    final_vals: Vec<u64>,          // flattened, limbs_per_value = last limbs_per_layer (or 1)
+    final_limbs: usize,
+    pow: u64,
+    qidx: Vec<u64>,
+    ext0: bool,
+    degree: usize,
+}
+
+static FRI: Mutex<Option<FriResult>> = Mutex::new(None);
+
+// Python absorbs the literal label "final" alongside the last layer, and backend._enc collapses a string to
+// sum(bytes) % P. Precomputed here so the transcript sequence matches without carrying string handling into
+// Rust: f+i+n+a+l = 102+105+110+97+108.
+const LANE_FINAL: u64 = 522;
+
+/// Prove deg(f) < N/blowup entirely in Rust. `col_ids` names the layer-0 column(s) already loaded into the
+/// arena — ONE column for a base-valued layer 0, or `degree` columns (limb-major) for an extension-valued one,
+/// which is how fri.prove's data-driven `ext0` is expressed here rather than guessed. `tr_state` is the live
+/// CAP-lane transcript state and is ADVANCED in place, so the caller's transcript continues correctly
+/// afterwards. Returns the layer count, or -1.
+///
+/// # Safety
+/// `col_ids` must point to `n_col_ids` usize naming retained columns of equal power-of-two length;
+/// `tr_state` to CAP writable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_fri_prove(col_ids: *const usize, n_col_ids: usize, offset: u64,
+                                      blowup: usize, num_queries: usize, grind_bits: u32,
+                                      tr_state: *mut u64, hash_mode: u32, degree: usize,
+                                      use_ext: u32) -> i64 {
+    if col_ids.is_null() || tr_state.is_null() || degree == 0 || blowup == 0 || num_queries == 0 {
+        return -1;
+    }
+    let use_ext = use_ext != 0;
+    let ext0 = n_col_ids == degree && use_ext;
+    if !(n_col_ids == 1 || ext0) {
+        return -1;                       // layer 0 is either one base column or exactly `degree` limbs
+    }
+    let mut cur: Vec<usize> = std::slice::from_raw_parts(col_ids, n_col_ids).to_vec();
+    let n0 = {
+        let g = ARENA.lock().unwrap();
+        match g.as_ref() {
+            Some(a) if cur.iter().all(|&c| c < a.cols.len()) => a.cols[cur[0]].len(),
+            _ => return -1,
+        }
+    };
+    if n0 < 2 || (n0 & (n0 - 1)) != 0 {
+        return -1;
+    }
+
+    let mut res = FriResult {
+        layer_sizes: Vec::new(), roots: Vec::new(), trees: Vec::new(), limbs_per_layer: Vec::new(),
+        layer_cols: Vec::new(),
+        final_vals: Vec::new(), final_limbs: 1, pow: 0, qidx: Vec::new(), ext0, degree,
+    };
+    let mut off = offset % PU64;
+    let mut n = n0;
+    let mut depth = 0usize;
+
+    // ── layer loop: commit -> absorb root -> challenge -> fold ──────────────────────────────────────
+    while n > blowup {
+        let is_ext_layer = use_ext && (depth > 0 || ext0);
+        let mut root = [0u64; CAP];
+        let tree = if is_ext_layer {
+            sp_commit_col_ext(cur.as_ptr(), cur.len(), root.as_mut_ptr(), hash_mode)
+        } else {
+            sp_commit_col(cur[0], root.as_mut_ptr(), hash_mode)
+        };
+        if tree < 0 {
+            return -1;
+        }
+        res.layer_sizes.push(n);
+        res.limbs_per_layer.push(cur.len());
+        res.layer_cols.push(cur.clone());
+        res.roots.push(root);
+        res.trees.push(tree as usize);
+        sp_tr_absorb(tr_state, root.as_ptr(), CAP);
+
+        let first = if use_ext {
+            let mut alpha = vec![0u64; degree];
+            sp_tr_challenge_ext(tr_state, degree, alpha.as_mut_ptr());
+            // After the first fold every layer is extension-valued, so a base layer 0 must be LIFTED into
+            // `degree` limbs before folding: limb 0 is the value, the rest are zero. Skipping this is how a
+            // base layer 0 would fold as if it were already an extension and commit garbage.
+            let ids: Vec<usize> = if cur.len() == degree {
+                cur.clone()
+            } else {
+                let mut g = ARENA.lock().unwrap();
+                let arena = match g.as_mut() { Some(a) => a, None => return -1 };
+                let base = arena.cols[cur[0]].clone();
+                let first_id = arena.cols.len();
+                arena.cols.push(base);
+                for _ in 1..degree {
+                    arena.cols.push(vec![0u64; n]);
+                }
+                (first_id..first_id + degree).collect()
+            };
+            sp_fold_ext(ids.as_ptr(), ids.len(), off, {
+                let p = alpha.as_ptr(); p
+            }, degree)
+        } else {
+            let mut a = [0u64; 1];
+            a[0] = sp_tr_challenge(tr_state);
+            sp_fold(cur[0], off, a[0])
+        };
+        if first < 0 {
+            return -1;
+        }
+        let first = first as usize;
+        cur = if use_ext { (first..first + degree).collect() } else { vec![first] };
+        off = mulf(off, off);
+        n /= 2;
+        depth += 1;
+    }
+
+    // ── final layer in the clear, then the unconditional PoW ────────────────────────────────────────
+    {
+        let g = ARENA.lock().unwrap();
+        let arena = match g.as_ref() { Some(a) => a, None => return -1 };
+        res.final_limbs = cur.len();
+        for i in 0..n {
+            for &c in cur.iter() {
+                res.final_vals.push(arena.cols[c][i]);
+            }
+        }
+    }
+    // Python: t.absorb("final", *flatten(final)) — the label lane first, then every limb in order.
+    {
+        let mut lanes = Vec::with_capacity(1 + res.final_vals.len());
+        lanes.push(LANE_FINAL);
+        lanes.extend_from_slice(&res.final_vals);
+        sp_tr_absorb(tr_state, lanes.as_ptr(), lanes.len());
+    }
+    res.pow = {
+        let mut st = [0u64; CAP];
+        for k in 0..CAP { st[k] = *tr_state.add(k); }
+        let n = sp_grind(st.as_ptr(), 6 /* DOM_GRIND */, grind_bits);
+        if n == u64::MAX { return -1; }
+        n
+    };
+    // grind() folds the nonce back in as absorb("grind", nonce); "grind" = 103+114+105+110+100 = 532.
+    {
+        let lanes = [532u64, res.pow % PU64];
+        sp_tr_absorb(tr_state, lanes.as_ptr(), 2);
+    }
+
+    // ── queries ─────────────────────────────────────────────────────────────────────────────────────
+    for _ in 0..num_queries {
+        res.qidx.push(sp_tr_index(tr_state, n0 as u64));
+    }
+
+    *FRI.lock().unwrap() = Some(res);
+    let g = FRI.lock().unwrap();
+    g.as_ref().map(|r| r.layer_sizes.len() as i64).unwrap_or(-1)
+}
+
+/// Size in u64 of the serialised proof from the last sp_fri_prove, or -1 if there is none.
+#[no_mangle]
+pub extern "C" fn sp_fri_size() -> i64 {
+    let g = FRI.lock().unwrap();
+    let r = match g.as_ref() { Some(r) => r, None => return -1 };
+    let nl = r.layer_sizes.len();
+    let mut n = 8                                  // header
+        + nl * 2                                   // layer_sizes, limbs_per_layer — EXACTLY what serialize
+                                                   // writes. This said nl*3 (a "padding slot" the serializer
+                                                   // never emitted), so size and written-length disagreed by
+                                                   // n_layers and the caller's strict equality check refused
+                                                   // every proof. Keep the two in lockstep.
+        + nl * CAP                                 // roots
+        + r.final_vals.len()
+        + r.qidx.len();
+    for q in 0..r.qidx.len() {
+        let mut a = r.qidx[q] as usize;
+        for l in 0..nl {
+            let sz = r.layer_sizes[l];
+            let half = sz / 2;
+            a %= sz;
+            let _lo = a % half;
+            // trailing_zeros, NOT (sz as f64).log2(): layer sizes are powers of two, and a float log2 is
+            // exactly the kind of rounding that produces an off-by-one path length at one size in a
+            // thousand and then an unopenable proof far from the cause.
+            let path = sz.trailing_zeros() as usize;
+            n += 2 * (r.limbs_per_layer[l] + path * CAP);
+            a = _lo;
+        }
+    }
+    n as i64
+}
+
+/// Serialise the last sp_fri_prove into a self-describing flat u64 buffer of exactly sp_fri_size() lanes.
+/// ONE call for the whole proof — a getter per opening would reinstate the per-query FFI round-trip this
+/// port removes. Returns lanes written, or -1.
+///
+/// Layout: [n_layers, n0, blowup_unused, degree, ext0, pow, n_queries, final_limbs]
+///         layer_sizes[n_layers], limbs_per_layer[n_layers], roots[n_layers*CAP],
+///         final_vals[..], qidx[n_queries],
+///         then per query, per layer: lo_limbs[limbs], lo_path[path*CAP], hi_limbs[limbs], hi_path[path*CAP]
+///
+/// # Safety
+/// `out` must point to at least sp_fri_size() writable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_fri_serialize(out: *mut u64) -> i64 {
+    let fg = FRI.lock().unwrap();
+    let r = match fg.as_ref() { Some(r) => r, None => return -1 };
+    let g = ARENA.lock().unwrap();
+    let arena = match g.as_ref() { Some(a) => a, None => return -1 };
+    let nl = r.layer_sizes.len();
+    let mut w = 0usize;
+    let mut put = |v: u64| { *out.add(w) = v; w += 1; };
+    put(nl as u64);
+    put(*r.layer_sizes.first().unwrap_or(&0) as u64);
+    put(0);
+    put(r.degree as u64);
+    put(r.ext0 as u64);
+    put(r.pow);
+    put(r.qidx.len() as u64);
+    put(r.final_limbs as u64);
+    for l in 0..nl { put(r.layer_sizes[l] as u64); }
+    for l in 0..nl { put(r.limbs_per_layer[l] as u64); }
+    for l in 0..nl { for k in 0..CAP { put(r.roots[l][k]); } }
+    for v in &r.final_vals { put(*v); }
+    for q in &r.qidx { put(*q); }
+    // Openings, in the SAME (query, layer, lo-then-hi) order fri.prove emits them, because the verifier walks
+    // them positionally: a permuted order verifies against nothing and looks like a bad proof.
+    for q in 0..r.qidx.len() {
+        let mut a = r.qidx[q] as usize;
+        for l in 0..nl {
+            let sz = r.layer_sizes[l];
+            let half = sz / 2;
+            a %= sz;
+            let lo = a % half;
+            let limbs = r.limbs_per_layer[l];
+            let tree = r.trees[l];
+            let path = sz.trailing_zeros() as usize;
+            // The layer's columns are the `limbs` consecutive ids ending at the fold input; recover them from
+            // the tree's own leaf count rather than re-deriving, so a mismatch cannot go unnoticed.
+            for (pos, _) in [(lo, 0usize), (lo + half, 1usize)] {
+                // value limbs
+                for k in 0..limbs {
+                    put(arena.cols[r.layer_cols[l][k]][pos]);
+                }
+                // authentication path
+                let mut idx = pos;
+                let mut start = 0usize;
+                let mut len = sz;
+                for _ in 0..path {
+                    let sib = idx ^ 1;
+                    for k in 0..CAP { put(arena.trees[tree].digs[start + sib][k]); }
+                    idx /= 2;
+                    start += len;
+                    len /= 2;
+                }
+            }
+        }
+    }
+    w as i64
+}
+
+// ── PER-ROUND PERMUTATION SNAPSHOTS — the real cost of witness generation ───────────────────────────
+// This is the hottest thing in the whole fold, and it was pure Python.
+//
+// recursion._permute_snapshots returns [state, after_round_0, …, after_round_{R-1}] because the in-circuit
+// hash AIR constrains one permutation ROUND per trace row, so the witness needs every intermediate state —
+// not just the final digest that permute() returns. Each snapshot set is R=54 rounds of a full 12x12 MDS
+// matmul: 7776 field multiplies. comp_verify/_fill_path calls it once per Merkle block, with 2W openings per
+// point and path_len+1 blocks each; at W=352 that is on the order of 10^8 Python field multiplications per
+// comp proof, and a K->1 fold builds six of them.
+//
+// The permutation itself has been native for a long time. What was missing was only the ability to SEE
+// inside it, so witness generation kept re-deriving in Python what Rust already computes.
+/// Write (HR+1)*HW lanes: the input state followed by the state after each of the HR rounds.
+/// Byte-identical to recursion._permute_snapshots, which mirrors alghash2.permute round for round.
+///
+/// # Safety
+/// `state` must point to HW readable u64; `out` to (HR+1)*HW writable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_permute_snapshots(state: *const u64, out: *mut u64) -> i64 {
+    if !HASH_READY || state.is_null() || out.is_null() {
+        return -1;
+    }
+    let mut s = [0u64; HW];
+    for i in 0..HW {
+        s[i] = *state.add(i) % PU64;
+        *out.add(i) = s[i];
+    }
+    for r in 0..HR {
+        let mut t = [0u64; HW];
+        for i in 0..HW {
+            t[i] = pow7(addf(s[i], RC[r][i]));
+        }
+        for i in 0..HW {
+            let mut acc: u128 = 0;
+            for j in 0..HW {
+                acc += mulf(MDS[i][j], t[j]) as u128;
+            }
+            s[i] = (acc % P) as u64;
+        }
+        for i in 0..HW {
+            *out.add((r + 1) * HW + i) = s[i];
+        }
+    }
+    ((HR + 1) * HW) as i64
+}
+
+/// Batch form: `n` states in, `n*(HR+1)*HW` lanes out. One FFI crossing for a whole Merkle path's blocks
+/// instead of one per block — the same round-trip lesson as the FRI loop.
+///
+/// # Safety
+/// `states` must point to `n*HW` readable u64; `out` to `n*(HR+1)*HW` writable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_permute_snapshots_batch(states: *const u64, n: usize, out: *mut u64) -> i64 {
+    if !HASH_READY || states.is_null() || out.is_null() {
+        return -1;
+    }
+    let stride = (HR + 1) * HW;
+    for k in 0..n {
+        if sp_permute_snapshots(states.add(k * HW), out.add(k * stride)) < 0 {
+            return -1;
+        }
+    }
+    (n * stride) as i64
+}
+
+// ── WHOLE MERKLE-PATH BLOCK GENERATION ──────────────────────────────────────────────────────────────
+// recursion._blocks_for builds the permutation-snapshot blocks for ONE Merkle path: the leaf frame, then one
+// node frame per path digest. With snapshots native it already went 146x faster, but it still crossed the FFI
+// boundary once PER BLOCK — 2W openings per point, path_len+1 blocks each, so ~12.7k crossings per point at
+// W=352. Same round-trip lesson as the FRI loop: do the whole path in one call.
+//
+// The leaf frame follows the value's own shape, exactly as _blocks_for does: a base leaf is
+// (DOM_LEAF, x, 0…, IV); an extension leaf is (DOM_LEAF_EXT, limb0…limb_{d-1}, 0…, IV) in the FOUR-lane
+// rleaf head — which is why an ext leaf still costs ONE permutation and the in-circuit membership gadget
+// stays affordable. A degree that does not fit the head is REFUSED, never truncated.
+/// Emit (path_len+1) snapshot blocks for one Merkle path.
+/// `out` receives (path_len+1)*(HR+1)*HW lanes; `dirs_out` receives path_len direction bits;
+/// `final_out` receives the CAP-lane root digest. Returns lanes written to `out`, or -1.
+///
+/// # Safety
+/// `leaf` -> `n_limbs` u64 (n_limbs==1 means a base leaf); `path` -> `path_len*CAP` u64;
+/// `out` -> (path_len+1)*(HR+1)*HW writable; `dirs_out` -> path_len writable; `final_out` -> CAP writable.
+#[no_mangle]
+pub unsafe extern "C" fn sp_blocks_for(leaf: *const u64, n_limbs: usize, index: u64,
+                                       path: *const u64, path_len: usize,
+                                       out: *mut u64, dirs_out: *mut u64, final_out: *mut u64) -> i64 {
+    if !HASH_READY || leaf.is_null() || out.is_null() {
+        return -1;
+    }
+    // The head is lanes 0..3: tag + up to 3 limbs. Anything wider cannot be expressed in one permutation.
+    if n_limbs == 0 || n_limbs > 3 {
+        return -1;
+    }
+    let stride = (HR + 1) * HW;
+    let mut s0 = [0u64; HW];
+    if n_limbs == 1 {
+        s0[0] = 1;                                   // DOM_LEAF
+        s0[1] = *leaf % PU64;
+    } else {
+        s0[0] = DOM_LEAF_EXT_SP;
+        for k in 0..n_limbs {
+            s0[1 + k] = *leaf.add(k) % PU64;
+        }
+    }
+    for k in 0..CAP {
+        s0[RATE + k] = IVH[k];
+    }
+    if sp_permute_snapshots(s0.as_ptr(), out) < 0 {
+        return -1;
+    }
+    // cur = the digest lanes of the block's LAST snapshot row (row HR), matching _blocks_for's blocks[0][_R].
+    let mut cur = [0u64; CAP];
+    for k in 0..CAP {
+        cur[k] = *out.add(HR * HW + k);
+    }
+    let mut idx = index;
+    for b in 0..path_len {
+        let d = (idx & 1) as u64;
+        let mut init = [0u64; HW];
+        let sib = std::slice::from_raw_parts(path.add(b * CAP), CAP);
+        // direction decides which side the sibling occupies — get this backwards and the digest is wrong at
+        // every level above, which surfaces only as a root mismatch far from here.
+        let (left, right): (&[u64], &[u64]) = if d == 1 { (sib, &cur[..]) } else { (&cur[..], sib) };
+        for k in 0..CAP {
+            init[k] = left[k] % PU64;
+            init[CAP + k] = right[k] % PU64;
+        }
+        for k in 0..CAP {
+            init[RATE + k] = IVH[k];
+        }
+        let off = (b + 1) * stride;
+        if sp_permute_snapshots(init.as_ptr(), out.add(off)) < 0 {
+            return -1;
+        }
+        for k in 0..CAP {
+            cur[k] = *out.add(off + HR * HW + k);
+        }
+        if !dirs_out.is_null() {
+            *dirs_out.add(b) = d;
+        }
+        idx >>= 1;
+    }
+    if !final_out.is_null() {
+        for k in 0..CAP {
+            *final_out.add(k) = cur[k];
+        }
+    }
+    ((path_len + 1) * stride) as i64
+}
+
+// ── WITNESS ROW FILL FOR ONE MERKLE PATH ────────────────────────────────────────────────────────────
+// The last per-row Python in comp/rowcomp witness generation. fri_verify._fill_path writes, for each of the
+// path_len+1 blocks, B rows of: W permutation-snapshot lanes, the witness sibling + direction at the absorb
+// row, and the index accumulator. That is (path_len+1) * B * (W+2) Python list writes PER OPENING, with 2W
+// openings per point — millions of cells before a single constraint is evaluated.
+//
+// sp_blocks_for already computes the snapshots natively; this writes them straight into the caller's flat
+// row buffer, so the blocks never become Python nested lists at all. That marshalling is what still dominated
+// sp_blocks_for's remaining 1.9 ms.
+//
+// Layout mirrors _fill_block exactly:
+//   rows[base+rib][0..W)      = snapshot rib            for rib in 0..=R
+//   rows[base+rib][iacc]      = acc_in                  for rib in 0..=R
+//   rows[base+R][sibw..+CAP)  = sibling digest
+//   rows[base+R][dirw]        = direction bit
+//   rows[base+rib][0..W)      = next_state              for rib in R+1..B
+//   rows[base+rib][iacc]      = acc_out                 for rib in R+1..B
+// and the FINAL block absorbs a zero sibling with direction 0 and holds acc (fri_verify._junk_absorb):
+// [digest lanes, zeros, IV].
+/// Fill `(path_len+1)*b_rows` rows of a flat `wtot`-wide row buffer for one Merkle path opening.
+/// Returns rows written, or -1.
+///
+/// # Safety
+/// `rows` must point to at least (base + (path_len+1)*b_rows) * wtot writable u64; `leaf` to `n_limbs` u64;
+/// `path` to `path_len*CAP` u64. Lane indices must satisfy w+CAP <= wtot, dirw < wtot, iacc < wtot.
+#[no_mangle]
+pub unsafe extern "C" fn sp_fill_path(rows: *mut u64, wtot: usize, base: usize,
+                                      leaf: *const u64, n_limbs: usize, index: u64,
+                                      path: *const u64, path_len: usize,
+                                      b_rows: usize, sibw: usize, dirw: usize, iacc: usize) -> i64 {
+    if !HASH_READY || rows.is_null() || b_rows < HR + 2 {
+        return -1;
+    }
+    if HW + CAP > wtot || dirw >= wtot || iacc >= wtot || sibw + CAP > wtot {
+        return -1;                                  // refuse a layout that would write out of bounds
+    }
+    let nblk = path_len + 1;
+    let stride = (HR + 1) * HW;
+    let mut snaps = vec![0u64; nblk * stride];
+    let mut dirs = vec![0u64; if path_len > 0 { path_len } else { 1 }];
+    let mut fin = [0u64; CAP];
+    if sp_blocks_for(leaf, n_limbs, index, path, path_len,
+                     snaps.as_mut_ptr(), dirs.as_mut_ptr(), fin.as_mut_ptr()) < 0 {
+        return -1;
+    }
+    let mut acc = index;
+    for b in 0..nblk {
+        let blk = &snaps[b * stride..(b + 1) * stride];
+        let last = b + 1 == nblk;
+        // The next block's INPUT state is what rows R+1..B hold. For the final block that is _junk_absorb of
+        // this block's row-R digest: [digest, zeros, IV] — dead lanes whose row-15 link is released there.
+        let mut nxt = [0u64; HW];
+        if last {
+            for k in 0..CAP {
+                nxt[k] = blk[HR * HW + k];
+            }
+            for k in 0..CAP {
+                nxt[RATE + k] = IVH[k];
+            }
+        } else {
+            let nb = &snaps[(b + 1) * stride..(b + 2) * stride];
+            nxt[..HW].copy_from_slice(&nb[..HW]);
+        }
+        let d = if last { 0 } else { dirs[b] };
+        let acc_out = if last { acc } else { (acc - d) >> 1 };
+        for rib in 0..b_rows {
+            let row = rows.add((base + b * b_rows + rib) * wtot);
+            if rib <= HR {
+                for lane in 0..HW {
+                    *row.add(lane) = blk[rib * HW + lane] % PU64;
+                }
+                *row.add(iacc) = acc;
+            } else {
+                for lane in 0..HW {
+                    *row.add(lane) = nxt[lane] % PU64;
+                }
+                *row.add(iacc) = acc_out;
+            }
+        }
+        let r8 = rows.add((base + b * b_rows + HR) * wtot);
+        for lane in 0..CAP {
+            *r8.add(sibw + lane) = if last { 0 } else { *path.add(b * CAP + lane) % PU64 };
+        }
+        *r8.add(dirw) = d;
+        acc = acc_out;
+    }
+    (nblk * b_rows) as i64
+}
+
+// ── FLAT-TRACE CARRY FILL AND BULK LDE ──────────────────────────────────────────────────────────────
+// The last per-row Python in comp/rowcomp witness generation, and it costs TWICE.
+//
+// (1) The carry fill: comp_verify/_fill_trace holds each point's 2W opened values constant across its whole
+//     span — `for i in span: for k in 2W: rows[i][CARRY+k] = vals[k]`. At T=8192, W=352 that is ~5.8M Python
+//     list writes per comp proof.
+// (2) The transpose: stark_native.prove then rebuilds each column as
+//     `[trace[i][c] for i in range(T)]` — another T*W Python index operations to undo the row-major layout
+//     the fill just produced.
+//
+// Both disappear if the trace is ONE flat row-major buffer that Rust fills and Rust reads. sp_fill_carries
+// does the span fill; sp_lde_trace_flat takes the whole buffer and retains all W LDE columns in the arena,
+// doing the transpose natively.
+/// Hold `n` values constant across rows [r0, r1] at column offset `carry_off` of a flat `wtot`-wide buffer.
+///
+/// # Safety
+/// `rows` must point to at least (r1+1)*wtot writable u64; `vals` to `n` readable u64;
+/// carry_off + n <= wtot.
+#[no_mangle]
+pub unsafe extern "C" fn sp_fill_carries(rows: *mut u64, wtot: usize, r0: usize, r1: usize,
+                                         carry_off: usize, vals: *const u64, n: usize) -> i64 {
+    if rows.is_null() || vals.is_null() || carry_off + n > wtot || r1 < r0 {
+        return -1;
+    }
+    let src = std::slice::from_raw_parts(vals, n);
+    for i in r0..=r1 {
+        let dst = rows.add(i * wtot + carry_off);
+        for k in 0..n {
+            *dst.add(k) = src[k] % PU64;
+        }
+    }
+    (((r1 - r0) + 1) * n) as i64
+}
+
+/// LDE and retain ALL `w` columns of a row-major T x w trace buffer, in arena order 0..w.
+/// Returns the first column id (0), or -1. Equivalent to calling lde_column once per column with
+/// `[trace[i][c] for i in range(T)]`, without ever materialising those lists in Python.
+///
+/// # Safety
+/// `trace` must point to `t_rows * w` readable u64; the arena must already be reset to (T, N, offset).
+#[no_mangle]
+pub unsafe extern "C" fn sp_lde_trace_flat(trace: *const u64, t_rows: usize, w: usize) -> i64 {
+    if trace.is_null() || t_rows == 0 || w == 0 {
+        return -1;
+    }
+    let mut col = vec![0u64; t_rows];
+    let mut first: i64 = -1;
+    for c in 0..w {
+        for i in 0..t_rows {
+            col[i] = *trace.add(i * w + c) % PU64;
+        }
+        let id = sp_lde_column(col.as_ptr(), core::ptr::null_mut());
+        if id < 0 {
+            return -1;
+        }
+        if first < 0 {
+            first = id;
+        }
+    }
+    first
 }

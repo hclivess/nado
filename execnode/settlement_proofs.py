@@ -264,11 +264,11 @@ def _stark_fri_transcript_factory(stark_proof):
     col_roots = stark_proof["col_roots"]
     Tlen = stark_proof["T"]
     w_main = vm_circuit.W_MAIN
-    # This replay must draw EXACTLY what stark.prove drew, in the same field. The RECURSION backend keeps
-    # base-field challenges today (its in-circuit verifier cannot do extension arithmetic), but asking the one
-    # authority instead of hardcoding that means this transcript follows automatically the day the recursion
-    # path is lifted — a silent mismatch here would reject every settlement proof, and it is exactly the kind
-    # of duplicated assumption that rots.
+    # This replay must draw EXACTLY what stark.prove drew, in the same field. The RECURSION backend is no
+    # longer pinned to the base field — the in-circuit AIRs carry extension arithmetic now, and pinning it
+    # was itself the bug: a prover that chose backend="recursion" chose a 64-bit security level. Asking the
+    # one authority is what let this file follow that change without an edit; a silent mismatch here rejects
+    # every settlement proof, and a duplicated assumption is exactly the kind that rots.
     _ext = stark.ext_challenges_active(_bk.RECURSION)
     n_alpha = len(vm_circuit.transitions(ext=_ext)) + len(vm_circuit._boundaries(Tlen, ext=_ext))
 
@@ -347,8 +347,8 @@ def prove_settlement_o1(pre_contracts, calls, cursor, timestamp=0, beacons=None,
     proofs, bnds, pers = [], [], []
     for seg in bundle["segments"]:
         pub_calls, epoch_io = _epoch_pub_statement(seg)
-        # The FOLD operates on RECURSION-backend proofs, whose aux layout is base-field. Ask the authority
-        # rather than rely on the default, so this follows automatically if the recursion path is ever lifted.
+        # Which field the fold's inner proofs live in — asked, never assumed, and NOT assumed base just
+        # because they are RECURSION-backend. Both halves of the fold must read the same authority.
         _fx = stark.ext_challenges_active(_bk.RECURSION)
         ok, why, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io, ext=_fx)
         if not ok:
@@ -372,7 +372,10 @@ def verify_settlement_o1(bundle, num_queries=None, outer_queries=None):
     derives itself — i.e. it re-establishes exactly what stark.verify establishes, per segment, in one check.
     `num_queries`/`outer_queries` are the VERIFIER'S policy (None = the protocol constant — never read from
     the bundle). Returns (ok, reason, post_root)."""
-    from execnode.stark import recursive_verify as RV
+    # `backend as _bk` is NOT optional: the two ext_challenges_active(_bk.RECURSION) calls below decide the
+    # challenge field, and without this import they raise NameError — on the exact path
+    # SETTLE_PROOF_RECURSIVE switches on. Every other function in this module imports it the same way.
+    from execnode.stark import recursive_verify as RV, backend as _bk
     try:
         rb = bundle.get("recursive")
         if rb is None:

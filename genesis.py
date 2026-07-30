@@ -67,6 +67,7 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
 
     block_transactions = []
     block_hash = blake2b_hash_link(link_from=timestamp, link_to=block_transactions)
+    from execnode.stark import mldsa_block_auth as _auth
 
     genesis_block_message = {
         "block_number": 0,
@@ -78,6 +79,14 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
         "block_reward": 0,
         "cumulative_fees": 0,        # running total of fees burned up to and incl. this block
         "cumulative_weight": 0,      # #17 step 2: fork-choice chain-weight base (genesis = 0)
+        # AUTHORIZATION COMMITMENT, for UNIFORMITY. Genesis carries no transactions, so this is the empty
+        # fold and a count of zero — but every other block has these fields, and a genesis without them is a
+        # special case every reader of the chain has to know about. It costs nothing here: the genesis hash
+        # is blake2b_hash_link(timestamp, []) and does not cover this dict at all, so adding the fields
+        # cannot change block 0's identity. Computed rather than written as a literal, so it follows
+        # AUTH_DOMAIN / AUTH_VERSION if those ever move.
+        "auth_root": _auth.auth_root([]),
+        "auth_count": 0,
         "chain_id": CHAIN_ID,
     }
 
