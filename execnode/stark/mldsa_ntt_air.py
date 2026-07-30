@@ -93,7 +93,14 @@ def apply_inverse(coeffs):
         z = (-ZETAS[k]) % Q
         s, d = (a + b) % Q, (a - b) % Q
         c[j], c[jl] = s, z * d % Q
-        bfs.append((d, 1, z))                  # prove the multiply zeta·(a−b) as a butterfly with b=1
+        # BIND THE MULTIPLY, NOT A SUM. The butterfly AIR constrains t = zeta*b, out0 = a + t, out1 = a - t.
+        # This used to emit (d, 1, z), i.e. a=d, b=1 — which makes t = z and out0 = d + z, so the proof
+        # attested a SUM while apply_inverse actually stored z*d. Measured: 0 of 1024 rows had the AIR's
+        # out0 equal to the value used. Harmless only because verify_inverse recomputes the whole inverse
+        # NTT in Python and compares, so the proof is redundant today — but the instant the NTT becomes a
+        # WITNESS component (wiring "ntt" as a bundle part, so w' stops being a public input) the multiply
+        # would be entirely unconstrained. (0, d, z) gives t = z*d and out0 = 0 + z*d: 1024 of 1024.
+        bfs.append((0, d, z))
     c = [x * NTT_F % Q for x in c]
     return c, bfs
 
