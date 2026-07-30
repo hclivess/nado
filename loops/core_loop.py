@@ -510,7 +510,24 @@ class CoreClient(threading.Thread):
                     hash=block["block_hash"], number=block["block_number"], logger=self.logger))
             except (KeyError, TypeError):
                 return False
-        return _knows(self.memserver.latest_block) or _knows(self.memserver.earliest_block)
+        if _knows(self.memserver.latest_block) or _knows(self.memserver.earliest_block):
+            return True
+        # FINALIZED-BLOCK FALLBACK (2026-07-30, .210 shallow-fork wedge). A node on a shallow fork has a
+        # tip no honest donor carries, and after a snapshot bootstrap its earliest pointer can be a body
+        # nobody serves (observed: 404 from every node INCLUDING ITSELF) — so both probes failed, no donor
+        # ever qualified, the unobtainable-but-valid heavier tip got benched, the bench fed
+        # _depth_floor_corroborated, and the node SELF-FINALIZED its 13-block fork into a dead one. Our
+        # finalized block is the strongest thing a donor can be asked for: on a shallow fork it sits on
+        # the COMMON prefix (the floor trails the divergence until the wedge cements), every honest peer
+        # holds it canonically, and a donor that knows it can serve the reorg leg — knows_block still
+        # checks canonicality, so a fork-side floor (wedge already cemented) correctly fails and the
+        # dead-fork escape stays the owner of that case.
+        _fh = get_finalized_height()
+        _fhash = None
+        if _fh > 0:
+            from ops.block_ops import get_block_hash_by_number
+            _fhash = get_block_hash_by_number(_fh)
+        return bool(_fhash) and _knows({"block_number": _fh, "block_hash": _fhash})
 
     def _fetch_sync_batch(self, peer, from_hash):
         """pull one forward-sync batch (up to SYNC_BATCH_MAX blocks after from_hash) from the donor.
@@ -939,7 +956,25 @@ class CoreClient(threading.Thread):
         heaviest = self.consensus.heaviest_block_hash
         if not heaviest:
             return True
-        return majority_on_our_canonical(heaviest, get_block, get_block_hash_by_number)
+        if not majority_on_our_canonical(heaviest, get_block, get_block_hash_by_number):
+            return False
+        # BENCH-BLIND SECOND LOOK (2026-07-30, .210 self-finalized fork). heaviest_block_hash excludes
+        # BENCHED tips — right for fork choice (anti weight-DoS), catastrophic as the sole input to an
+        # IRREVERSIBLE floor advance: when donor selection failed against a perfectly valid heavier chain,
+        # the repeated fetch failures benched it, our own tip became "heaviest", corroboration passed, and
+        # the node finalized its own 13-block fork into a dead one needing a full purge. For the floor, a
+        # heavier foreign tip we merely FAILED TO OBTAIN must freeze the advance, not vanish from the
+        # question. Raw advertised weights, no benching: any peer claiming strictly more cumulative weight
+        # on a tip that is not on our canonical chain withholds corroboration. A liar can only DELAY our
+        # floor (the safe direction, per the guard's own contract); it still cannot force one onto a fork.
+        _our_w = int((self.memserver.latest_block or {}).get("cumulative_weight", 0) or 0)
+        for _peer, _w in (self.consensus.weight_pool or {}).copy().items():
+            if not isinstance(_w, int) or _w <= _our_w:
+                continue
+            _t = self.consensus.block_hash_pool.get(_peer)
+            if _t and not majority_on_our_canonical(_t, get_block, get_block_hash_by_number):
+                return False
+        return True
 
     def _fork_state(self):
         """Measured fork state (ops/fork_resolution.resolve), cached for FORK_STATE_TTL_S.
