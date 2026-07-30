@@ -626,10 +626,31 @@ SETTLE_PROOF_RECURSIVE = True    # ENABLED at the alphanet-14 reroll: the in-cir
 # does: a node honouring the envelope skips per-signature verification, so if it were live while
 # unupgraded peers still ignored the field, a bogus envelope would split the fleet.
 #
-# It is FALSE today for a reason that is physics, not wiring: one ML-DSA-44 verification is 103 Keccak-f
-# permutations, and the proving cost of a whole block's worth does not fit a block interval on commodity
-# hardware. The path is live and verified end to end (tests/test_mldsa_block_auth.py,
-# tests/test_block_auth_wiring.py) — what it waits on is a prover fast enough, not code that does not exist.
+# It is FALSE today, and the two reasons are worth stating accurately because an earlier version of this
+# comment misdirected the work.
+#
+# 1. THE BUNDLE DOES NOT YET ATTEST THE ALGEBRAIC CORE. mldsa_sig_proof._w_prime computes
+#    w' = NTT^-1(A.NTT(z) - NTT(c)*NTT(t1*2^d)) in PYTHON and hands it to the usehint AIR as a PUBLIC input.
+#    So the default parts ("decode_z", "norm_z", "usehint") prove bit-unpacking, the ||z||inf bound and hint
+#    application — the cheap parts — while every verifier still redoes the NTT matrix-vector product itself
+#    and still needs the signature bytes to build the statement. Accepting an envelope in place of raw
+#    signatures would therefore advertise a guarantee the circuit does not make. mldsa_ntt_air already
+#    implements the missing arithmetic (one 256-point NTT = 8 stages x 128 = 1024 uniform butterfly rows) but
+#    "ntt" is not a part _items can emit, so it is dormant.
+#
+# 2. THE COST IS RECURSION, NOT PERMUTATION COUNT. This comment used to blame "physics ... 103 Keccak-f
+#    permutations". Measured instead: all three sub-STARKs for one signature prove in 16.7s TOTAL
+#    (decode_z 6.7s at T=512 W=19, norm_z 4.2s at T=128 W=38, usehint 2.4s at T=128 W=60). What costs an
+#    hour is FOLDING them: the heterogeneous fold builds a W=352 composition over T=8192 -> N=262144, which
+#    is ~1000x the size of the proofs it compresses, and commit_col (~82% of prove time) scales as
+#    W * N log N. Optimising Keccak would not have helped; the recursion wrapper is the target.
+#
+# There is also no claim here that the path is verified end to end. It is not: the NADO_HEAVY proof in
+# tests/test_block_auth_wiring.py has never once completed (two OOM-kills and a timeout), which is precisely
+# how a real defect in mldsa_hint_air survived — constraint #60 compared r against q-1 where dilithium's wrap
+# case is r - r0 == q-1, so ~half of all signatures produced a trace violating its own AIR. Fixed; 12 of 24
+# signatures failed before, 0 of 24 after. The fast consensus-guarding checks in that file DO run and pass,
+# which is a different and much weaker statement.
 SIG_AGG_STARK = False
 
 
