@@ -233,5 +233,25 @@ def resolve(our_hash_at, tip, finalized, peers, probe, min_answers=2):
     DEAD_FORK -> purge chain data + resync; UNKNOWN -> do nothing this pass."""
     ancestor, probes = find_common_ancestor(our_hash_at, tip, peers, probe, floor=0,
                                             min_answers=min_answers)
+    if ancestor is None and finalized and finalized > 0:
+        # RE-ANCHORED-ONTO-A-FORK RESCUE (2026-07-30, the h15076 aftermath). A node that snapshot-anchored
+        # onto a minority fork holds NO block at any height it shares with the canonical chain's history —
+        # find_common_ancestor's raised-floor caution then honestly answers UNKNOWN ("the true fork point
+        # may sit either side of our finality horizon"), and UNKNOWN blocks the dead-fork escape forever.
+        # Three such nodes sat mining a private branch with the verdict permanently unknowable.
+        #
+        # But one comparison IS still available and conclusive: our own FINALIZED height. We always hold
+        # that block (earliest <= finalized by construction), and if the peer majority serves a DIFFERENT
+        # block there, the divergence is proven to lie at/below our floor — the exact DEAD_FORK
+        # definition, and the same "disagreement at a height that is final on our side" principle
+        # stranded_below_finality already stands on. Report ancestor as finalized-1 ("at or below the
+        # floor"); the purge itself stays behind the escape's quorum/weight/unanimity gates.
+        ours_f = our_hash_at(finalized)
+        theirs_f = majority_hash(finalized, peers, probe, min_answers=min_answers)
+        probes += 1
+        if ours_f is not None and theirs_f is not None and ours_f != theirs_f:
+            return {"state": DEAD_FORK, "ancestor": finalized - 1,
+                    "tip": tip, "finalized": finalized, "probes": probes,
+                    "via": "finalized-height disagreement (ancestor unlocatable)"}
     return {"state": classify(ancestor, tip, finalized), "ancestor": ancestor,
             "tip": tip, "finalized": finalized, "probes": probes}

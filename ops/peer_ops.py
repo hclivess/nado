@@ -318,10 +318,33 @@ def stranded_below_finality(our_hash, height, peers, quorum=2, port=9173):
             agree.append(peer)
         else:
             disagree.append(peer)
-    # ANY peer agreeing means our prefix is not provably abandoned — refuse to act. Wiping a node that is
-    # merely poorly connected would be far worse than leaving it wedged for a human to look at.
-    stranded = not agree and len(disagree) >= int(quorum)
-    return stranded, {"height": height, "ours": our_hash, "agree": agree,
+    # A peer agreeing normally means our prefix is not provably abandoned — refuse to act. Wiping a node
+    # that is merely poorly connected would be far worse than leaving it wedged for a human to look at.
+    #
+    # WEIGHT-QUALIFIED AGREEMENT (2026-07-30, the h15076 aftermath). "ANY agreement vetoes" assumed a
+    # stranded node is ALONE — but three nodes re-anchored onto the same minority fork and each then held
+    # a buddy that "agreed" at its finalized height, so all three vetoed each other's escape forever
+    # while the strictly-heavier majority finalized without them. A buddy on the same losing branch is
+    # not evidence of good standing: an agreeing peer only vetoes when its own DIRECTLY-ASKED chain
+    # weight is at least the best disagreeing peer's — i.e. the friend is at least as credible as the
+    # quorum contradicting us. Unknown weights keep the veto (never purge on missing data), a symmetric
+    # equal-weight split keeps the veto on both sides (nobody moves), and a poorly-connected node's
+    # canonical-chain friend always outweighs a lighter fork quorum — every prior safety story survives.
+    # The purge itself additionally stays behind the escape's fork-state + lighter-side/unanimity gates.
+    effective_agree = list(agree)
+    agree_discounted = []
+    if agree and len(disagree) >= int(quorum):
+        dis_weights = [w for w in (peer_tip_weight(p, port=port) for p in disagree) if w is not None]
+        best_dis = max(dis_weights) if dis_weights else None
+        if best_dis is not None:
+            for p in agree:
+                w = peer_tip_weight(p, port=port)
+                if w is not None and w < best_dis:
+                    agree_discounted.append(p)
+            effective_agree = [p for p in agree if p not in agree_discounted]
+    stranded = not effective_agree and len(disagree) >= int(quorum)
+    return stranded, {"height": height, "ours": our_hash, "agree": effective_agree,
+                      "agree_discounted": agree_discounted,
                       "disagree": disagree, "unknown": unknown, "stranded": stranded}
 
 
