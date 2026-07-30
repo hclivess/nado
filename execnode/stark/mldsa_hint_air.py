@@ -47,7 +47,19 @@ R0_B = 8                       # r0s bits
 R0Q_B = R0_B + NB_R0           # (a - r0s) bits  -> r0s <= a
 R1_B = R0Q_B + NB_R0           # r1 bits
 R1Q_B = R1_B + NB_R1           # (m - r1) bits   -> r1 <= m
-W = R1Q_B + NB_R1
+# KQ was a FREE witness with no range check, and M=44 is invertible mod P. A prover could therefore solve
+# kq = (r1 + h*(2*pos-1) - out) * M^-1 and satisfy the UseHint constraint for ANY claimed `out` -- verified
+# by forging out in {0, 1, 43, 12345}, all four accepted. Inert only while OUT is pinned as PUBLIC by
+# _boundaries; a keyless universal forgery the moment OUT becomes witness, which is exactly what wiring the
+# NTT in (so w' stops being public) does. kq is legitimately in {-1, 0, 1} -- the row builder's own comment
+# said so -- but {-1,0,1} needs degree 3 (kq(kq-1)(kq+1)) and this AIR is MAX_DEGREE=2, so carry it as the
+# difference of two BOOLEANS instead: kq = kqp - kqn, each boolean at degree 2.
+KQP = R1Q_B + NB_R1            # boolean: kq == +1
+KQN = KQP + 1                  # boolean: kq == -1
+# ...and OUT must be pinned to [0, m) too, or kq in {-1,0,1} still leaves out ambiguous by +/- M.
+OUT_B = KQN + 1                # out bits
+OUTQ_B = OUT_B + NB_R1         # (m-1 - out) bits -> out <= m-1
+W = OUTQ_B + NB_R1
 MAX_DEGREE = 2
 
 
@@ -91,6 +103,10 @@ def _row(r, h):
     row[R], row[H], row[OUT] = r, h, out
     row[R1], row[R0S], row[WRAP], row[POS] = r1, r0 + AH, wrap, pos
     row[KQ] = kq % F.P
+    row[KQP], row[KQN] = (1 if kq == 1 else 0), (1 if kq == -1 else 0)
+    for i in range(NB_R1):
+        row[OUT_B + i] = (out >> i) & 1
+        row[OUTQ_B + i] = ((M - 1 - out) >> i) & 1
     r0s = r0 + AH
     for i in range(NB_R0):
         row[R0_B + i] = (r0s >> i) & 1
@@ -135,16 +151,23 @@ def _bits(cur, base, nb, pw):
 
 
 def transitions():
-    cons = [_boolean(H), _boolean(WRAP), _boolean(POS)]
+    cons = [_boolean(H), _boolean(WRAP), _boolean(POS), _boolean(KQP), _boolean(KQN)]
     cons += [_boolean(R0_B + i) for i in range(NB_R0)]
     cons += [_boolean(R0Q_B + i) for i in range(NB_R0)]
     cons += [_boolean(R1_B + i) for i in range(NB_R1)]
     cons += [_boolean(R1Q_B + i) for i in range(NB_R1)]
+    cons += [_boolean(OUT_B + i) for i in range(NB_R1)]
+    cons += [_boolean(OUTQ_B + i) for i in range(NB_R1)]
     # range: r0s in [0, a] and r1 in [0, m]
     cons.append(lambda c, n, per: F.sub(_bits(c, R0_B, NB_R0, POW_R0), c[R0S]))
     cons.append(lambda c, n, per: F.sub(_bits(c, R0Q_B, NB_R0, POW_R0), F.sub(A, c[R0S])))
     cons.append(lambda c, n, per: F.sub(_bits(c, R1_B, NB_R1, POW_R1), c[R1]))
     cons.append(lambda c, n, per: F.sub(_bits(c, R1Q_B, NB_R1, POW_R1), F.sub(M, c[R1])))
+    # BIND KQ. Without these three the UseHint identity below determines nothing: kq absorbs any out.
+    cons.append(lambda c, n, per: F.sub(c[KQ], F.sub(c[KQP], c[KQN])))
+    # ...and pin out to [0, m), or kq in {-1,0,1} still admits out, out+M and out-M.
+    cons.append(lambda c, n, per: F.sub(_bits(c, OUT_B, NB_R1, POW_R1), c[OUT]))
+    cons.append(lambda c, n, per: F.sub(_bits(c, OUTQ_B, NB_R1, POW_R1), F.sub(M - 1, c[OUT])))
     # split identity: r == r1*a + (r0s - a/2) + wrap*(Q-1 - (r1*a + r0))  ... expressed directly as
     #   non-wrap: r == r1*a + r0            (r0 = r0s - AH)
     #   wrap:     r - r0 == Q  and r1 == 0  (dilithium's special case; r0 was ALREADY
