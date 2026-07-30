@@ -1713,15 +1713,16 @@ def unindex_transactions(block, logger, block_height):
                             block_number=block_height,
                             sender=transaction["sender"],
                             recipient=_recip)
-        # PUBKEY-ONCE revert: clear the established pubkey ONLY when reverting a tx that actually CARRIED it
-        # (so could have established it) AND the sender has no earlier indexed tx. The `public_key` guard is
-        # REQUIRED and is the fix for a rolling/pruned node: there tx_of_account reads the PRUNED history and
-        # returns empty even for a long-established sender, so a reorg reverting a LATER pubkey-less tx (e.g. a
-        # `bond`) would otherwise WRONGLY cull the sender's pubkey — permanently bricking its validation with
-        # "first tx must carry it". A pubkey-less tx never established the key, so it must never delete it.
-        # (Full/archive nodes are unaffected: there tx_of_account already returned the establishing tx for a
-        # non-carrying revert, so it never deleted — this only stops the false deletion on pruned nodes.)
-        if transaction.get("public_key") and not kv_ops.tx_of_account(transaction["sender"], min_block=0, limit=1):
+        # PUBKEY-ONCE revert: clear the established pubkey ONLY when the apply-side journal proves THIS
+        # tx is the one that set it (pubkey_revert, keyed by txid). The old inference — "carried a key
+        # and tx_of_account shows no earlier tx" — is NOT a pure function of consensus state: on a
+        # snapshot-bootstrapped or pruned node tx_of_account reads pruned history and returns empty for
+        # a long-established sender, so reverting ANY later key-carrying tx deleted a pubkey that a
+        # full-history node kept — divergent accounts roots from identical block sequences (observed
+        # 2026-07-30: two accounts culled, node wedged on the resulting state-root mismatch). A missing
+        # journal row (legacy apply, or a tx that carried the key redundantly) now correctly deletes
+        # nothing, because such an apply set nothing.
+        if transaction.get("public_key") and kv_ops.pubkey_revert_pop(transaction["txid"]):
             kv_ops.account_del_field(transaction["sender"], "public_key")
 
 
@@ -1751,12 +1752,18 @@ def index_transactions(block, sorted_transactions, logger):
                             recipient=_recip)
         # PUBKEY-ONCE (#19): record the sender's pubkey on its FIRST indexed tx (the one carrying it),
         # so later txs from this sender (e.g. every-epoch heartbeats) may omit the 1312-byte key.
-        # Idempotent (skip if already stored); revert is handled symmetrically in unindex_transactions.
+        # Idempotent (skip if already stored). JOURNALED (pubkey_revert, node-local): the record marks
+        # that THIS tx is what established the key, so the revert in unindex_transactions deletes it
+        # exactly when this apply set it — never by inference from the tx index, which is what the
+        # old heuristic did and which reads PRUNED history on a snapshot-bootstrapped node (it culled
+        # two long-established pubkeys during the 2026-07-30 h15076 reorg churn — an accounts-root
+        # state divergence that wedged the node).
         pk = transaction.get("public_key")
         if pk:
             sender_acc = get_account(transaction["sender"], create_on_error=False)
             if sender_acc is not None and not sender_acc.get("public_key"):
                 kv_ops.account_set_field(transaction["sender"], "public_key", pk)
+                kv_ops.pubkey_revert_put(transaction["txid"])
 
 
 if __name__ == "__main__":

@@ -51,7 +51,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "pubkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
 
 # CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block-body + tx HISTORY (explorer-only,
@@ -85,7 +85,7 @@ _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 #               C+1..tip tail replay rebuilds byte-for-byte as it re-incorporates each block. wipe_non_carried_dbs
 #               (all-DBs - SNAPSHOT_DBS) clears any stale residue on re-anchor. So they belong here, not in the root.
 _LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_revert", "msgkey_revert",
-                        "execsum_revert", "attest_memo"))
+                        "pubkey_revert", "execsum_revert", "attest_memo"))
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS))
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -1679,6 +1679,32 @@ def msgkey_revert_pop(txid: str):
         txn.delete(key, db=_dbs()["msgkey_revert"])
         (prev,) = _unpack(raw)
         return (True, prev)
+    return _write(_do)
+
+
+def pubkey_revert_put(txid: str):
+    """PUBKEY-ONCE (revert record): mark that applying tx `txid` is what ESTABLISHED its sender's
+    stored public_key. Written ONLY when index_transactions actually set the field (idempotent
+    apply skips senders whose key is already stored, and then no record is written). Rollback
+    deletes the sender's public_key ONLY when this record exists — the old heuristic asked
+    tx_of_account for an earlier tx, which on a snapshot-bootstrapped or pruned node reads pruned
+    history, returns empty for a long-established sender, and CULLED the key (two accounts lost
+    their pubkey in the 2026-07-30 h15076 wedge — an accounts-root state divergence)."""
+    def _do(txn):
+        txn.put(txid.encode(), b"1", db=_dbs()["pubkey_revert"])
+    _write(_do)
+
+
+def pubkey_revert_pop(txid: str) -> bool:
+    """Read + DELETE the pubkey-establishment record for txid; True iff this tx set the sender's
+    public_key on apply (so its revert must delete it). Runs in the active txn."""
+    def _do(txn):
+        key = txid.encode()
+        raw = txn.get(key, db=_dbs()["pubkey_revert"])
+        if raw is None:
+            return False
+        txn.delete(key, db=_dbs()["pubkey_revert"])
+        return True
     return _write(_do)
 
 
