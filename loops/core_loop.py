@@ -974,6 +974,23 @@ class CoreClient(threading.Thread):
         #
         # Failing this only FREEZES the floor, which is the safe direction (it widens the honest-reorg
         # window and nothing else), and a Sybil could already achieve that by withholding corroboration.
+        # HEAVIER-FOREIGN-CLAIM VETO (2026-07-30, restored + hardened; complements the independence rule
+        # below, it does not replace it). Independent corroboration stops a LONE forker self-finalizing,
+        # but a minority CLIQUE corroborates itself: two nodes on the same lighter branch each advertise
+        # an on-chain tip for the other, so both floors advance — observed live on alphanet-14 while the
+        # strictly-heavier solo chain sat plainly advertised in their status pools (~92k vs ~65k weight),
+        # cementing 60+ blocks of a branch fork choice says must lose. Any peer claiming strictly MORE
+        # cumulative weight on a tip that is not on our canonical chain — or whose tip we cannot even
+        # locate this pass (the pools refresh on different cadences; an unanswerable heavier claim is the
+        # LEAST corroborated case, not a pass) — freezes the floor. Freezing is the safe direction; a
+        # liar merely delays our finality and its tip re-benches on the next failed fetch.
+        _our_w = int((self.memserver.latest_block or {}).get("cumulative_weight", 0) or 0)
+        for _peer, _w in (self.consensus.weight_pool or {}).copy().items():
+            if not isinstance(_w, int) or _w <= _our_w:
+                continue
+            _t = self.consensus.block_hash_pool.get(_peer)
+            if _t is None or not majority_on_our_canonical(_t, get_block, get_block_hash_by_number):
+                return False
         _me = {self.memserver.ip, get_config().get("ip")} - {None}
         for _peer, _hash in self.consensus.block_hash_pool.copy().items():
             if _peer in _me or not _hash:
