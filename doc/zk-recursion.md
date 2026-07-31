@@ -187,7 +187,7 @@ choice is performance, not soundness.
    `air_ir.gadget_max_degree`, which gives the gadget exactly the `max_degree` headroom the inner AIR needs
    (prover + verifier derive it identically). The wrapper is still committed as CAPABILITY, NOT wired as the
    authoritative settlement verifier UNTIL step 8; the proof it checks is producible + verifiable at real scale.
-8. **On-chain settle-with-proof — BUILT but DISABLED (quorum-only today) (`ops/transaction_ops.py` `settle` branch, `ops/settlement_ops.py`,
+8. **On-chain settle-with-proof — LIVE since alphanet-14 (`SETTLE_PROOF_RECURSIVE`) (`ops/transaction_ops.py` `settle` branch, `ops/settlement_ops.py`,
    `ops/kv_ops.py`, `tests/test_settle_with_proof.py`).** A `settle` tx MAY carry the recursion bundle; EVERY
    node verifies it deterministically at block-validation — at the PROTOCOL query strength (never the bundle's
    own count), binding the proof's `post_root` to the tx's attested `state_root`, its `cursor` to `exec_cursor`,

@@ -10,9 +10,10 @@ execnode/state.py commits, so the post root is exactly the state_root L1 settles
 `verify_epoch` checks the single proof and replays the epoch's authenticated I/O log to recompute the post
 root — NO re-execution.
 
-Remaining (documented, not correctness gaps): PROOF-OF-PROOF recursion (verifying a STARK inside a STARK) to
-make the proof O(1) in SIZE too, and full-state settlement composing this zkVM projection with the other blob
-families' own proofs (bridge/dividend/shielded). One trace already caps an epoch at vm_circuit.MAX_T rows, so
+PROOF-OF-PROOF recursion SHIPPED at alphanet-14 (SETTLE_PROOF_RECURSIVE): K chained segment proofs collapse
+into ONE recursion bundle whose verification is O(1). Remaining: full-state settlement composing this zkVM
+projection with the other blob families' own proofs (bridge/dividend/shielded) -- until that lands there is
+no single proof of a whole state transition, which is also the ceiling on state merging (doc/state-merge.md). One trace already caps an epoch at vm_circuit.MAX_T rows, so
 very large epochs split across a few proofs until recursion lands.
 """
 from hashing import canonical_bytes, merkle_root
