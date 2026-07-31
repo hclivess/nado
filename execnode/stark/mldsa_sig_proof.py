@@ -25,7 +25,7 @@ Golden reference for every statement: mldsa_verify (which agrees with the native
 """
 from execnode.stark import (mldsa_params as P, mldsa_verify as MV, mldsa_norm_air as NORM,
                             mldsa_decode_air as DEC, mldsa_hint_air as HINT, mldsa_keccak_air as KEC,
-                            mldsa_sponge_air as SP, mldsa_sample_air as SA, stark,
+                            mldsa_sponge_air as SP, mldsa_sample_air as SA, mldsa_butterfly_air as BF, stark,
                             recursive_verify as RV, recursive_verify_hetero as RVH, backend as B)
 
 Q, N, K, L = P.Q, P.N, P.K, P.L
@@ -51,35 +51,61 @@ def plan(pk, msg, sig):
         "t1_chunks": [t1_bytes[i * MV.T1_BYTES:(i + 1) * MV.T1_BYTES] for i in range(K)],
         "z_coeffs": [c % Q for poly in z for c in poly],
         "hint_rows": _hint_rows(pk, msg, sig),
+        "ntt_rows": ntt_rows(pk, msg, sig),
         "workload": MV.statement(pk, msg, sig),
     }
 
 
-def _w_prime(pk, msg, sig):
-    """Recompute w' = NTT^-1(A.NTT(z) - NTT(c)*NTT(t1*2^d)) — the input to UseHint (public)."""
+def _w_prime(pk, msg, sig, collect=False):
+    """Recompute w' = NTT^-1(A.NTT(z) - NTT(c)*NTT(t1*2^d)) — the input to UseHint.
+
+    `collect=True` also returns every butterfly this computation performs, in order. Those rows ARE the
+    arithmetic that has never been in any circuit: today w' is handed to the usehint AIR as a PUBLIC input,
+    so a verifier redoes this whole NTT matrix-vector product itself. Emitting them is what lets the "ntt"
+    part attest it instead. The list is large by construction -- 9 forward NTTs and 4 inverse at 1024
+    butterflies each, plus 5120 pointwise products, ~18432 rows per signature -- which is exactly why the
+    row budget, not the field arithmetic, is what decides whether this is affordable.
+    """
     from execnode.stark import mldsa_ntt_air as NTT
     rho, t1 = MV.unpack_pk(pk)
     c_tilde, z, h = MV.unpack_sig(sig)
     A = SA.expand_a(rho)
     c, _ = SA.sample_in_ball(c_tilde)
-    c_hat, _ = NTT.apply_forward([x % Q for x in c])
-    z_hat = [NTT.apply_forward([x % Q for x in poly])[0] for poly in z]
-    t1_hat = [NTT.apply_forward([(x << P.D) % Q for x in poly])[0] for poly in t1]
+    bfs = [] if collect else None
+
+    def _keep(pair):
+        val, rows = pair
+        if collect and rows:
+            bfs.extend(rows)
+        return val
+
+    c_hat = _keep(NTT.apply_forward([x % Q for x in c]))
+    z_hat = [_keep(NTT.apply_forward([x % Q for x in poly])) for poly in z]
+    t1_hat = [_keep(NTT.apply_forward([(x << P.D) % Q for x in poly])) for poly in t1]
     out = []
     for i in range(K):
         acc = [0] * N
         for j in range(L):
-            prod, _ = NTT.pointwise(A[i][j], z_hat[j])
+            prod = _keep(NTT.pointwise(A[i][j], z_hat[j]))
             acc = [(a + b) % Q for a, b in zip(acc, prod)]
-        ct, _ = NTT.pointwise(c_hat, t1_hat[i])
-        out.append(NTT.apply_inverse([(a - b) % Q for a, b in zip(acc, ct)])[0])
-    return out, h
+        ct = _keep(NTT.pointwise(c_hat, t1_hat[i]))
+        out.append(_keep(NTT.apply_inverse([(a - b) % Q for a, b in zip(acc, ct)])))
+    return (out, h, bfs) if collect else (out, h)
 
 
 def _hint_rows(pk, msg, sig):
     """The (r, h) UseHint rows for the whole signature."""
     w, h = _w_prime(pk, msg, sig)
     return [(w[i][n], h[i][n]) for i in range(K) for n in range(N)]
+
+
+NTT_ROWS = 64          # rows of the w' butterfly schedule this part attests (see prove_signature's docstring)
+
+
+def ntt_rows(pk, msg, sig, limit=NTT_ROWS):
+    """The first `limit` butterflies of the w' computation — the arithmetic the bundle has never covered."""
+    _w, _h, bfs = _w_prime(pk, msg, sig, collect=True)
+    return bfs[:limit]
 
 
 def _air_specs(plan_, parts, sizes):
@@ -118,6 +144,9 @@ def _air_specs(plan_, parts, sizes):
     if "usehint" in parts:
         rows = plan_["hint_rows"][:64]
         airs.append({"transitions": HINT.transitions(), "boundaries": HINT._boundaries(rows, take())})
+    if "ntt" in parts:
+        bfs = plan_["ntt_rows"]
+        airs.append({"transitions": BF.transitions(), "boundaries": BF._boundaries(bfs, take())})
     if "keccak" in parts:
         st = [0] * KEC.LANES
         out = KEC.keccak_f(list(st))
@@ -157,6 +186,10 @@ def _items(plan_, parts, num_queries):
         rows = plan_["hint_rows"][:64]
         pr = HINT.prove(rows, num_queries=num_queries, backend=bk)
         add(pr, HINT.transitions(), HINT._boundaries(rows, pr["T"]))
+    if "ntt" in parts:                                       # butterflies of the w' NTT matrix-vector product
+        bfs = plan_["ntt_rows"]
+        pr = BF.prove(bfs, num_queries=num_queries, backend=bk)
+        add(pr, BF.transitions(), BF._boundaries(bfs, pr["T"]))
     if "keccak" in parts:                                    # one proven Keccak-f permutation
         st = [0] * KEC.LANES
         pr, out = KEC.prove_permutation(st, num_queries=num_queries, backend=bk)
