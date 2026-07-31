@@ -696,12 +696,64 @@ fn nthreads() -> usize {
         .max(1)
 }
 
+// BLAKE2B digest <-> CAP lanes. A blake2b digest is 32 raw bytes; the arena carries CAP=4 u64 per digest,
+// so lane k holds bytes[8k..8k+8] BIG-ENDIAN. That is a pure bijection, chosen so reconstructing the bytes
+// for the next level is exact -- the hash input at every inner node must be the RAW child digests, exactly
+// as backend._Blake2b.node does with bytes.fromhex(a).
+#[inline(always)]
+fn b2b_lanes(d: &[u8; 32]) -> [u64; CAP] {
+    let mut o = [0u64; CAP];
+    for k in 0..CAP {
+        let mut w = [0u8; 8];
+        w.copy_from_slice(&d[k * 8..k * 8 + 8]);
+        o[k] = u64::from_be_bytes(w);
+    }
+    o
+}
+#[inline(always)]
+fn b2b_bytes(l: &[u64; CAP]) -> [u8; 32] {
+    let mut d = [0u8; 32];
+    for k in 0..CAP { d[k * 8..k * 8 + 8].copy_from_slice(&l[k].to_be_bytes()); }
+    d
+}
+// leaf(x) = blake2b32(0x00 || x_le64); node(a,b) = blake2b32(0x01 || a || b). Domain tags match
+// execnode/stark/backend.py _Blake2b exactly -- leaf and node spaces must stay disjoint.
 #[inline]
-fn node_hash(a: &[u64; CAP], b: &[u64; CAP], a2: bool) -> [u64; CAP] {
-    if a2 {
-        a2_node(a, b)
-    } else {
-        rnode(a, b)
+fn b2b_leaf(x: u64) -> [u64; CAP] {
+    let mut buf = [0u8; 9];
+    buf[0] = 0x00;
+    buf[1..9].copy_from_slice(&(x % PU64).to_le_bytes());
+    b2b_lanes(&blake2b32(&buf))
+}
+// EXTENSION leaf: its own frame tag (0x02), so a lifted base value and a genuine base value can never share
+// a digest -- otherwise one tree's opening could be presented against the other's commitment.
+#[inline]
+fn b2b_leaf_ext(limbs: &[u64]) -> [u64; CAP] {
+    let mut buf = [0u8; 1 + 8 * 8];
+    buf[0] = 0x02;
+    for (k, v) in limbs.iter().enumerate() {
+        buf[1 + k * 8..9 + k * 8].copy_from_slice(&(v % PU64).to_le_bytes());
+    }
+    b2b_lanes(&blake2b32(&buf[..1 + 8 * limbs.len()]))
+}
+
+#[inline]
+fn b2b_node(a: &[u64; CAP], b: &[u64; CAP]) -> [u64; CAP] {
+    let mut buf = [0u8; 65];
+    buf[0] = 0x01;
+    buf[1..33].copy_from_slice(&b2b_bytes(a));
+    buf[33..65].copy_from_slice(&b2b_bytes(b));
+    b2b_lanes(&blake2b32(&buf))
+}
+
+// MODE: 0 = RECURSION (rleaf/rnode), 1 = ALGHASH2 (hashn), 2 = BLAKE2B. It was a bool while only the two
+// alghash2 flavours existed; the shielded pool proves under BLAKE2B and had no native path at all.
+#[inline]
+fn node_hash(a: &[u64; CAP], b: &[u64; CAP], mode: u32) -> [u64; CAP] {
+    match mode {
+        1 => a2_node(a, b),
+        2 => b2b_node(a, b),
+        _ => rnode(a, b),
     }
 }
 
@@ -713,7 +765,7 @@ fn node_hash(a: &[u64; CAP], b: &[u64; CAP], a2: bool) -> [u64; CAP] {
 /// of the total hashing each, no synchronization), then each local layer is memcpy'd into its slot of the
 /// global flat layout and the top s−1 nodes finish serially. Near-linear scaling, and every hashed VALUE is
 /// identical to the serial build (only the schedule changes).
-fn build_tree<F>(n: usize, a2: bool, leaf: F) -> Vec<[u64; CAP]>
+fn build_tree<F>(n: usize, a2: u32, leaf: F) -> Vec<[u64; CAP]>
 where
     F: Fn(usize) -> [u64; CAP] + Sync,
 {
@@ -891,15 +943,15 @@ pub unsafe extern "C" fn sp_commit_col(col: usize, root_ptr: *mut u64, hash_mode
     if n < 1 || (n & (n - 1)) != 0 {
         return -1;
     }
-    let a2 = hash_mode == 1;
+    let a2 = hash_mode;
     let digs = {
         let vals: &[u64] = &arena.cols[col];
         build_tree(n, a2, |i| {
             let x = vals[i];
-            if a2 {
-                a2_leaf(x)
-            } else {
-                rleaf(x)
+            match a2 {
+                1 => a2_leaf(x),
+                2 => b2b_leaf(x),
+                _ => rleaf(x),
             }
         })
     };
@@ -946,7 +998,7 @@ pub unsafe extern "C" fn sp_commit_rows(col_ids: *const usize, w: usize, root_pt
     let digs = {
         let cols_ref: Vec<&[u64]> = ids.iter().map(|&c| arena.cols[c].as_slice()).collect();
         let w64 = w as u64;
-        build_tree(n, false, |j| {
+        build_tree(n, 0, |j| {
             let mut els = vec![0u64; w + 2];
             els[0] = w64 + 1; // len([DOM_LEAF, *row]) = 1 + w
             els[1] = 1; // DOM_LEAF
@@ -1468,7 +1520,7 @@ pub unsafe extern "C" fn sp_commit_col_ext(col_ids: *const usize, d: usize, root
     if n < 1 || (n & (n - 1)) != 0 || ids.iter().any(|&c| arena.cols[c].len() != n) {
         return -1;
     }
-    let a2 = hash_mode == 1;
+    let a2 = hash_mode;
     let digs = {
         let cols: Vec<&[u64]> = ids.iter().map(|&c| arena.cols[c].as_slice()).collect();
         build_tree(n, a2, |i| {
@@ -1476,10 +1528,10 @@ pub unsafe extern "C" fn sp_commit_col_ext(col_ids: *const usize, d: usize, root
             for k in 0..d {
                 limbs[k] = cols[k][i];
             }
-            if a2 {
-                a2_leaf_ext_sp(&limbs[..d])
-            } else {
-                rleaf_ext_sp(&limbs[..d])
+            match a2 {
+                1 => a2_leaf_ext_sp(&limbs[..d]),
+                2 => b2b_leaf_ext(&limbs[..d]),
+                _ => rleaf_ext_sp(&limbs[..d]),
             }
         })
     };
@@ -2067,4 +2119,104 @@ pub unsafe extern "C" fn sp_lde_trace_flat(trace: *const u64, t_rows: usize, w: 
         }
     }
     first
+}
+
+// ---- BLAKE2b-256 -------------------------------------------------------------------------------------
+// The shielded pool (joinsplit2) proves under backend.BLAKE2B, which the arena could not commit for -- its
+// Merkle spoke only the alghash2 family -- so every shielded proof took the pure-Python prove body (35.1 s
+// measured on a real join-split). This is the last Python proving path on a live money path.
+//
+// Implemented here rather than pulled in as a dependency: the crate has no external deps and this is a
+// short, fully specified function (RFC 7693). Bit-identical to hashlib.blake2b(data, digest_size=32),
+// asserted by a differential test before anything is wired to it.
+const B2B_IV: [u64; 8] = [
+    0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,
+    0x510e527fade682d1, 0x9b05688c2b3e6c1f, 0x1f83d9abfb41bd6b, 0x5be0cd19137e2179,
+];
+const B2B_SIGMA: [[usize; 16]; 12] = [
+    [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
+    [14,10,4,8,9,15,13,6,1,12,0,2,11,7,5,3],
+    [11,8,12,0,5,2,15,13,10,14,3,6,7,1,9,4],
+    [7,9,3,1,13,12,11,14,2,6,5,10,4,0,15,8],
+    [9,0,5,7,2,4,10,15,14,1,11,12,6,8,3,13],
+    [2,12,6,10,0,11,8,3,4,13,7,5,15,14,1,9],
+    [12,5,1,15,14,13,4,10,0,7,6,3,9,2,8,11],
+    [13,11,7,14,12,1,3,9,5,0,15,4,8,6,2,10],
+    [6,15,14,9,11,3,0,8,12,2,13,7,1,4,10,5],
+    [10,2,8,4,7,6,1,5,15,11,9,14,3,12,13,0],
+    [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
+    [14,10,4,8,9,15,13,6,1,12,0,2,11,7,5,3],
+];
+
+#[inline(always)]
+fn b2b_g(v: &mut [u64; 16], a: usize, b: usize, c: usize, d: usize, x: u64, y: u64) {
+    v[a] = v[a].wrapping_add(v[b]).wrapping_add(x);
+    v[d] = (v[d] ^ v[a]).rotate_right(32);
+    v[c] = v[c].wrapping_add(v[d]);
+    v[b] = (v[b] ^ v[c]).rotate_right(24);
+    v[a] = v[a].wrapping_add(v[b]).wrapping_add(y);
+    v[d] = (v[d] ^ v[a]).rotate_right(16);
+    v[c] = v[c].wrapping_add(v[d]);
+    v[b] = (v[b] ^ v[c]).rotate_right(63);
+}
+
+fn b2b_compress(h: &mut [u64; 8], block: &[u8; 128], t: u128, last: bool) {
+    let mut m = [0u64; 16];
+    for i in 0..16 {
+        let mut w = [0u8; 8];
+        w.copy_from_slice(&block[i * 8..i * 8 + 8]);
+        m[i] = u64::from_le_bytes(w);
+    }
+    let mut v = [0u64; 16];
+    v[..8].copy_from_slice(h);
+    v[8..].copy_from_slice(&B2B_IV);
+    v[12] ^= t as u64;
+    v[13] ^= (t >> 64) as u64;
+    if last { v[14] = !v[14]; }
+    for r in 0..12 {
+        let s = &B2B_SIGMA[r];
+        b2b_g(&mut v, 0, 4,  8, 12, m[s[0]],  m[s[1]]);
+        b2b_g(&mut v, 1, 5,  9, 13, m[s[2]],  m[s[3]]);
+        b2b_g(&mut v, 2, 6, 10, 14, m[s[4]],  m[s[5]]);
+        b2b_g(&mut v, 3, 7, 11, 15, m[s[6]],  m[s[7]]);
+        b2b_g(&mut v, 0, 5, 10, 15, m[s[8]],  m[s[9]]);
+        b2b_g(&mut v, 1, 6, 11, 12, m[s[10]], m[s[11]]);
+        b2b_g(&mut v, 2, 7,  8, 13, m[s[12]], m[s[13]]);
+        b2b_g(&mut v, 3, 4,  9, 14, m[s[14]], m[s[15]]);
+    }
+    for i in 0..8 { h[i] ^= v[i] ^ v[i + 8]; }
+}
+
+/// blake2b with a 32-byte digest, no key. Equivalent to hashlib.blake2b(data, digest_size=32).digest().
+fn blake2b32(data: &[u8]) -> [u8; 32] {
+    let mut h = B2B_IV;
+    h[0] ^= 0x0101_0000 ^ 32u64;             // depth=1, fanout=1, keylen=0, digest_len=32
+    let mut t: u128 = 0;
+    let full = data.len() / 128;
+    let rem = data.len() % 128;
+    // all but the final block (a message that is an exact multiple keeps its last block for the final call)
+    let last_full = if rem == 0 && full > 0 { full - 1 } else { full };
+    for i in 0..last_full {
+        let mut blk = [0u8; 128];
+        blk.copy_from_slice(&data[i * 128..i * 128 + 128]);
+        t += 128;
+        b2b_compress(&mut h, &blk, t, false);
+    }
+    let mut blk = [0u8; 128];
+    let tail = &data[last_full * 128..];
+    blk[..tail.len()].copy_from_slice(tail);
+    t += tail.len() as u128;
+    b2b_compress(&mut h, &blk, t, true);
+    let mut out = [0u8; 32];
+    for i in 0..4 { out[i * 8..i * 8 + 8].copy_from_slice(&h[i].to_le_bytes()); }
+    out
+}
+
+/// Differential hook: hash `n` bytes and write the 32-byte digest. Exists so the Python test can assert
+/// bit-identity against hashlib before this is wired to anything that commits consensus data.
+#[no_mangle]
+pub unsafe extern "C" fn sp_blake2b32(data: *const u8, n: usize, out: *mut u8) {
+    let s = core::slice::from_raw_parts(data, n);
+    let d = blake2b32(s);
+    for i in 0..32 { *out.add(i) = d[i]; }
 }
