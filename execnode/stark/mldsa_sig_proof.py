@@ -25,7 +25,7 @@ Golden reference for every statement: mldsa_verify (which agrees with the native
 """
 from execnode.stark import (mldsa_params as P, mldsa_verify as MV, mldsa_norm_air as NORM,
                             mldsa_decode_air as DEC, mldsa_hint_air as HINT, mldsa_keccak_air as KEC,
-                            mldsa_sponge_air as SP, mldsa_sample_air as SA, mldsa_butterfly_air as BF, stark,
+                            mldsa_sponge_air as SP, mldsa_sample_air as SA, mldsa_butterfly_air as BF, mldsa_modq_air as MQ, stark,
                             recursive_verify as RV, recursive_verify_hetero as RVH, backend as B)
 
 Q, N, K, L = P.Q, P.N, P.K, P.L
@@ -52,6 +52,7 @@ def plan(pk, msg, sig):
         "z_coeffs": [c % Q for poly in z for c in poly],
         "hint_rows": _hint_rows(pk, msg, sig),
         "ntt_rows": ntt_rows(pk, msg, sig),
+        "ntt_mul_rows": ntt_mul_rows(pk, msg, sig),
         "workload": MV.statement(pk, msg, sig),
     }
 
@@ -71,26 +72,32 @@ def _w_prime(pk, msg, sig, collect=False):
     c_tilde, z, h = MV.unpack_sig(sig)
     A = SA.expand_a(rho)
     c, _ = SA.sample_in_ball(c_tilde)
-    bfs = [] if collect else None
+    # TWO ROW TYPES, NOT ONE. The NTT stages emit BUTTERFLIES (a, b, zeta) proven by mldsa_butterfly_air
+    # (W=193), while the pointwise products emit (a, b) PAIRS proven by the mod-Q gadget mldsa_modq_air
+    # (W=96). Collecting them into one list is wrong and only looked right because every slice up to 1024
+    # rows lands inside the first forward NTT, before any pointwise pair appears -- the full 18432-row run
+    # is what exposed it ("not enough values to unpack (expected 3, got 2)"). Per signature:
+    # 13312 butterflies (9 forward + 4 inverse NTTs x 1024) and 5120 products (16 A.z + 4 c.t1, x 256).
+    rows = {"bfs": [], "muls": []} if collect else None
 
-    def _keep(pair):
-        val, rows = pair
-        if collect and rows:
-            bfs.extend(rows)
+    def _keep(pair, kind):
+        val, emitted = pair
+        if collect and emitted:
+            rows[kind].extend(emitted)
         return val
 
-    c_hat = _keep(NTT.apply_forward([x % Q for x in c]))
-    z_hat = [_keep(NTT.apply_forward([x % Q for x in poly])) for poly in z]
-    t1_hat = [_keep(NTT.apply_forward([(x << P.D) % Q for x in poly])) for poly in t1]
+    c_hat = _keep(NTT.apply_forward([x % Q for x in c]), "bfs")
+    z_hat = [_keep(NTT.apply_forward([x % Q for x in poly]), "bfs") for poly in z]
+    t1_hat = [_keep(NTT.apply_forward([(x << P.D) % Q for x in poly]), "bfs") for poly in t1]
     out = []
     for i in range(K):
         acc = [0] * N
         for j in range(L):
-            prod = _keep(NTT.pointwise(A[i][j], z_hat[j]))
+            prod = _keep(NTT.pointwise(A[i][j], z_hat[j]), "muls")
             acc = [(a + b) % Q for a, b in zip(acc, prod)]
-        ct = _keep(NTT.pointwise(c_hat, t1_hat[i]))
-        out.append(_keep(NTT.apply_inverse([(a - b) % Q for a, b in zip(acc, ct)])))
-    return (out, h, bfs) if collect else (out, h)
+        ct = _keep(NTT.pointwise(c_hat, t1_hat[i]), "muls")
+        out.append(_keep(NTT.apply_inverse([(a - b) % Q for a, b in zip(acc, ct)]), "bfs"))
+    return (out, h, rows) if collect else (out, h)
 
 
 def _hint_rows(pk, msg, sig):
@@ -103,9 +110,15 @@ NTT_ROWS = 64          # rows of the w' butterfly schedule this part attests (se
 
 
 def ntt_rows(pk, msg, sig, limit=NTT_ROWS):
-    """The first `limit` butterflies of the w' computation — the arithmetic the bundle has never covered."""
-    _w, _h, bfs = _w_prime(pk, msg, sig, collect=True)
-    return bfs[:limit]
+    """The first `limit` BUTTERFLIES of the w' computation (mldsa_butterfly_air rows)."""
+    _w, _h, r = _w_prime(pk, msg, sig, collect=True)
+    return r["bfs"][:limit]
+
+
+def ntt_mul_rows(pk, msg, sig, limit=NTT_ROWS):
+    """The first `limit` pointwise PRODUCTS of the w' computation (mldsa_modq_air rows)."""
+    _w, _h, r = _w_prime(pk, msg, sig, collect=True)
+    return r["muls"][:limit]
 
 
 def _air_specs(plan_, parts, sizes):
@@ -147,6 +160,9 @@ def _air_specs(plan_, parts, sizes):
     if "ntt" in parts:
         bfs = plan_["ntt_rows"]
         airs.append({"transitions": BF.transitions(), "boundaries": BF._boundaries(bfs, take())})
+    if "ntt_mul" in parts:
+        pairs = plan_["ntt_mul_rows"]
+        airs.append({"transitions": MQ.transitions(), "boundaries": MQ._boundaries(pairs, take())})
     if "keccak" in parts:
         st = [0] * KEC.LANES
         out = KEC.keccak_f(list(st))
@@ -190,6 +206,10 @@ def _items(plan_, parts, num_queries):
         bfs = plan_["ntt_rows"]
         pr = BF.prove(bfs, num_queries=num_queries, backend=bk)
         add(pr, BF.transitions(), BF._boundaries(bfs, pr["T"]))
+    if "ntt_mul" in parts:                                   # pointwise products of the w' matrix-vector
+        pairs = plan_["ntt_mul_rows"]
+        pr = MQ.prove(pairs, num_queries=num_queries, backend=bk)
+        add(pr, MQ.transitions(), MQ._boundaries(pairs, pr["T"]))
     if "keccak" in parts:                                    # one proven Keccak-f permutation
         st = [0] * KEC.LANES
         pr, out = KEC.prove_permutation(st, num_queries=num_queries, backend=bk)
