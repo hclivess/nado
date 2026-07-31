@@ -70,7 +70,7 @@ MAX_COLUMNS = 8192   # verify-side sanity/DoS cap on trace width (a pure Python 
                      #     (rowcomp_verify _CARRY + 2*W), so folding the exec AIR (W_TOTAL=131) needs a
                      #     280-column composition proof — 256 rejected it as "bad column count", silently
                      #     breaking the K→1 settlement fold once the exec AIR grew past ~119 columns.
-                     #   384 -> 8192: the Keccak-f[1600] AIR (mldsa_keccak_air, the ML-DSA/SHAKE gating
+                     #   384 -> 8192: a Keccak-f[1600] AIR (the shape the removed ML-DSA/SHAKE work needed) was the gating
                      #     primitive) is inherently WIDE and SHORT — 6080 boolean columns x 32 rows, because a
                      #     1600-bit GF(2) state plus its degree-splitting witnesses only fits across columns
                      #     while the 24 rounds run down the rows. Width is cheap here: the LDE is W x (blowup*T)

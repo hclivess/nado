@@ -17,7 +17,7 @@ from .mining_ops import (select_producer_two_lane, lane_of, epoch_of, compute_be
 from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
 
                       B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS, BLOCK_TIMESTAMP_DRIFT)
-from protocol import ADDRESS_PREFIX, SIG_AGG_STARK
+from protocol import ADDRESS_PREFIX
 import zstandard as zstd
 
 # Block bodies are stored as zstd(codec(block)) (#14) — ops/codec.py is a compact portable JSON
@@ -1101,13 +1101,21 @@ def verify_auth_proof(circuit_id, proof, statement):
     `statement` is built by mldsa_block_auth from OUR recomputed (auth_root, auth_count, height, parent) —
     never from the envelope. Returns False on anything unexpected: an envelope that cannot be verified is
     not evidence, and a block that ships one is making a claim it cannot back."""
-    if not SIG_AGG_STARK:
-        return False              # the aggregate path is not accepted on this chain yet
-    try:
-        from execnode.stark import mldsa_sig_proof as _sp
-        return bool(_sp.verify_block_authorizations(circuit_id, proof, statement))
-    except Exception:
-        return False
+    # THE AGGREGATE PATH IS GONE. An aggregate STARK envelope is never accepted; a block that ships one is
+    # making a claim nothing here can check, so this is False unconditionally.
+    #
+    # It was removed because the economics never worked, and the measurements are worth keeping: ONE
+    # ML-DSA-44 signature verifies natively in 120 us and occupies 2420 bytes. Proving even the BUTTERFLY
+    # half of one signature's w' cost 7.11 min, produced a 1.87 MB proof, and took 6.98 s to verify -- ~770x
+    # the size and ~58,000x the verify time of the thing it replaces. Aggregation can only win by
+    # amortising over a batch, and break-even needed ~116 signatures for size and ~12 for verify while the
+    # trace-row budget capped a batch near 7. ZK pays where CHECKING is much cheaper than DOING; verifying a
+    # signature is already cheap, so there was nothing to save.
+    #
+    # The state proof is the right shape and already exists: settlement_proofs proves a whole epoch as ONE
+    # zkVM trace and L1 verifies it in ~0.3 s INDEPENDENT of the call count, replacing re-execution, which
+    # genuinely is expensive. See SETTLE_PROOF_RECURSIVE.
+    return False
 
 
 def check_block_auth_evidence(block):

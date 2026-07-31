@@ -163,46 +163,34 @@ Measured at R = 1, 2, 4: exact reproduction of R applications of `keccak_f`, 320
 (against 12800 for four separate proofs), zero constraint violations. Constraints grow 11520 → 13120 (+14%)
 against a 103× reduction in proof count.
 
-### What is NOT enabled
+### Signature aggregation was removed
 
-`SIG_AGG_STARK = False`. Two reasons, and the first was found during this release cycle.
+`SIG_AGG_STARK` is gone, along with the whole ML-DSA proving stack (`mldsa_sig_proof`, `mldsa_verify`, and
+the `butterfly`/`decode`/`hint`/`keccak`/`modq`/`norm`/`ntt`/`sample`/`sponge` AIRs). It never shipped
+enabled, and it was removed because the economics do not work — measured, not argued:
 
-**A defect in the `usehint` AIR, now fixed.** Constraint #60 asserted `r == q-1`. Dilithium's `Decompose` wrap
-case is `r - r0 == q-1` — a *different quantity* that coincides only at a single point. For roughly half of
-all signatures the trace therefore violated its own AIR: the composition did not vanish on the trace domain,
-`C/Z` was a rational function rather than a polynomial, FRI's final layer failed the low-degree test, and
-`prove_fold` refused to fold the inner proof. Every layer behaved correctly; the input was invalid.
+| | measured |
+|---|---|
+| native ML-DSA-44 verify | **120.4 µs** |
+| signature on the wire | **2420 B** |
+| prove the butterfly half of ONE signature's w' | **7.11 min**, T=16384 W=193 |
+| that proof | **1.87 MB** |
+| verify that proof | **6.98 s** |
 
-Measured before and after: **12 of 24 fresh signatures failed, then 0 of 24.** At trace level, 5 of 6 traces
-violated constraint #60 at scattered rows; after the fix, 6 of 6 are clean. `norm_z` — same prover, same
-geometry, same `MAX_DEGREE=2` — never failed, which is what localised it to the circuit rather than the
-prover. Soundness is intact: `tests/test_mldsa_hint_air.py` still rejects tampered coefficients, flipped hint
-bits, and over-weight hints.
+≈770× the size and ≈58,000× the verify time, for half of one signature. Aggregation only pays by amortising:
+size break-even ≈116 signatures, verify break-even ≈12, against a trace-row budget capping a batch near 7.
+It loses on both axes at every reachable batch size. Neither escape survived testing — 97.6% of prove
+wall-clock was already in Rust, and batching every Merkle path into one native call bought 1.07%.
 
-**Why it survived for so long, which is the part worth keeping.** `test_mldsa_hint_air.py` passed throughout,
-because the AIR is *semantically* correct — decompose, UseHint and hint-weight all match Dilithium. It was
-the **proof** that was invalid, and no semantic test can see that. The test that would have caught it,
-`test_block_auth_wiring` under `NADO_HEAVY`, **had never once completed** — two OOM-kills and a timeout, every
-attempt dying before the assertion was reached. The Rust port did not merely make proving faster; it made
-that test *reachable*, which is how the defect finally surfaced. A proof that takes 72 hours does not just
-delay a release — it hides defects, because the check that would expose them never finishes.
+**ZK pays where CHECKING is far cheaper than DOING. Verifying a signature is already cheap.** The right
+target was always execution, and it is what this release enables: `settlement_proofs` proves an entire epoch
+as ONE zkVM trace and L1 verifies it in ~0.3 s *independent of the call count*, replacing re-execution. See
+`doc/zk-signature-aggregation.md` for the full post-mortem, including two forgery-class bugs the work
+uncovered and the prover speed-ups that outlived it.
 
-A previous draft of this section claimed the path was *"live and verified end to end"*. **That claim was not
-supported and has been removed.** The end-to-end run had never completed, so nothing had been verified end to
-end; the file's fast checks passing is not the same thing. The full run is in progress for the first time.
-
-**The remaining reason is throughput, and no flag changes it.** The sub-circuits take the signature as a
-**public** input, so an aggregate envelope replaces the *verification arithmetic* of K signatures, not their
-*bytes*. Moving the signature into the witness — so a block can actually drop it — is an AIR change. Proving
-a two-part subset of one signature and folding it into a heterogeneous bundle **exceeded an hour** at GF(p³)
-on a loaded box, because at this degree the composition AIR carries D periodic columns per alpha and every
-one is interpolated to the trace length. A full 103-permutation bundle is a proving-farm job.
-
-So `SIG_AGG_STARK` ships **False**: the known circuit defect is fixed and reproduced clean 24/24, but the
-flag does not flip on a reproduction — it flips when the end-to-end path is observed passing, and that has
-not happened yet. `tests/test_mldsa_usehint_lowdegree.py` is committed as the permanent regression (~5 min).
-The consensus-guarding checks in `test_block_auth_wiring.py` run in about a second and are deliberately not
-hidden behind the hour-long proof, or a timeout would report them all as failed and tell you nothing.
+**Kept:** `mldsa_block_auth`, the block-level authorization *commitment*. Every block still binds
+`(auth_root, auth_count)` into its hash preimage and every verifier recomputes both from the block's own
+transactions — a pure function of committed block data that never depended on an aggregate proof.
 
 ---
 

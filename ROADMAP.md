@@ -146,6 +146,22 @@ incompatible token contracts. Full rationale and the resulting design: [`doc/ass
 - **Settlement by proof for asset calls** — give `settlement_proofs._run_call` a shadow asset ledger and
   let `verify_epoch` replay with `with_assets=True`. The AIR needs nothing more; it already proves the io
   log that carries every asset effect.
+
+**State proofs are the ZK line; signature aggregation is not.** Settlement-by-proof went live at the
+alphanet-14 reroll (`SETTLE_PROOF_RECURSIVE`): an epoch is proven as ONE zkVM trace and L1 verifies it in
+**~0.3 s independent of the call count**, replacing re-execution. That is the asymmetry ZK exists for —
+re-running ten thousand contract calls is expensive, checking a proof that they ran is not.
+
+Signature aggregation was built far enough to measure and then **removed** (2026-07-31). Proving the
+butterfly half of ONE ML-DSA signature cost 7.11 min, produced a 1.87 MB proof and took 6.98 s to verify,
+against a 2420-byte signature that verifies natively in 120.4 µs — ~770x the size, ~58,000x the verify.
+Break-even needed ~116 signatures for size against a batch cap near 7. Full post-mortem, including two
+forgery-class bugs it uncovered and the prover speed-ups that outlived it, in
+[`doc/zk-signature-aggregation.md`](doc/zk-signature-aggregation.md).
+
+The rule to carry forward: **prove what is expensive to REDO, not what is cheap to CHECK.** The remaining
+ZK work therefore sits on the state-proof line — proving execution, and (separately) the shielded pool,
+where inputs are hidden by construction so there is no cheaper alternative to compete with.
 - A real "build your first dApp" guide (we still don't have one — see Track D).
 
 **Exit criteria:** a user creates an asset in the wallet in under 60 seconds, sends it to a friend,
