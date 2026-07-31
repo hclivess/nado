@@ -553,6 +553,38 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         if len(proof["openings"]) != num_queries or len(proof["fri"]["queries"]) != num_queries:
             return False, "wrong opening/query count"
 
+        # ONE CROSSING FOR EVERY AUTHENTICATION PATH IN THE PROOF.
+        #
+        # Column mode opens 2*W paths per query, so this loop used to call merkle.verify 2*W*num_queries
+        # times, each of which walked the path in Python calling a NATIVE permute per level: measured ~3248
+        # permutations per proof, every one its own ctypes crossing, and 82% of a 145.7 ms verify. The kernel
+        # was never the problem (pure-Python permute 3167 us vs 54 us through ctypes). This is the same
+        # Python-loop-around-a-native-kernel shape the prover port already removed from _permute_snapshots
+        # (146x) and fri.prove, and doc/rust-only-proving.md says to move the LOOP, not the function.
+        #
+        # So: collect every (root, index, value, path) up front, verify them in a single native call, and let
+        # the loop below read the answers. Order is preserved exactly, so the FIRST failure reported is the
+        # same one the per-item loop would have reported. `None` (no native lib, a ragged batch, or a backend
+        # the crate does not implement, e.g. blake2b) falls back to the per-item path.
+        _batch_ok = None
+        if not row_commit and getattr(b, "name", "") in ("recursion", "alghash2"):
+            _pending = []
+            for _q, _op in zip(proof["fri"]["queries"], proof["openings"]):
+                _lo = _q["idx"] % (N // 2)
+                _nxt = (_lo + blowup) % N
+                _cols = _op.get("cols") or []
+                if len(_cols) != W:
+                    _pending = None
+                    break
+                for _c in range(W):
+                    _col = _cols[_c]
+                    _pending.append((col_roots[_c], _lo, _col["cur"], _col["cur_path"]))
+                    _pending.append((col_roots[_c], _nxt, _col["nxt"], _col["nxt_path"]))
+            if _pending:
+                from execnode.stark import alghash2 as _a2b
+                _batch_ok = _a2b.merkle_verify_paths(_pending, getattr(b, "name", ""))
+
+        _bi = 0
         for q, op in zip(proof["fri"]["queries"], proof["openings"]):
             lo = q["idx"] % (N // 2)
             if lo != op["lo"]:
@@ -576,10 +608,17 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
             else:
                 for c in range(W):
                     col = op["cols"][c]
-                    if not merkle.verify(col_roots[c], lo, col["cur"], col["cur_path"], b):
-                        return False, f"bad trace opening (cur) col {c}"
-                    if not merkle.verify(col_roots[c], nxt, col["nxt"], col["nxt_path"], b):
-                        return False, f"bad trace opening (nxt) col {c}"
+                    if _batch_ok is not None:
+                        if not _batch_ok[_bi]:
+                            return False, f"bad trace opening (cur) col {c}"
+                        if not _batch_ok[_bi + 1]:
+                            return False, f"bad trace opening (nxt) col {c}"
+                        _bi += 2
+                    else:
+                        if not merkle.verify(col_roots[c], lo, col["cur"], col["cur_path"], b):
+                            return False, f"bad trace opening (cur) col {c}"
+                        if not merkle.verify(col_roots[c], nxt, col["nxt"], col["nxt_path"], b):
+                            return False, f"bad trace opening (nxt) col {c}"
                     cur_row.append(col["cur"]); nxt_row.append(col["nxt"])
             x = F.mul(OFF, F.pw(wN, lo))
             xT = F.pw(x, T)

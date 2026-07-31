@@ -40,7 +40,17 @@ fn reduce128(x: u128) -> u64 {
 }
 
 #[inline(always)] fn mulf(a: u64, b: u64) -> u64 { reduce128((a as u128) * (b as u128)) }
-#[inline(always)] fn addf(a: u64, b: u64) -> u64 { (((a as u128) + (b as u128)) % P) as u64 }
+// NO DIVISION. This was `((a as u128) + (b as u128)) % P` -- a 128-bit modulo, i.e. a hardware division --
+// sitting directly under a comment observing that "the generic u128 % (a division) was the dominant cost".
+// It runs W*R = 648 times per permutation (round-constant add) plus once per MDS accumulation. Inputs are
+// already reduced (< p), so a + b < 2^65: fold the carry with 2^64 = EPSILON (mod p), then one conditional
+// subtract.
+#[inline(always)] fn addf(a: u64, b: u64) -> u64 {
+    let (r, carry) = a.overflowing_add(b);
+    let mut r = if carry { r.wrapping_add(EPSILON) } else { r };
+    if r >= PU64 { r -= PU64; }
+    r
+}
 
 #[inline(always)] fn pow7(x: u64) -> u64 {         // x^7 = x·(x^2)·(x^4)
     let x2 = mulf(x, x);
@@ -62,9 +72,12 @@ unsafe fn permute(s: &mut [u64; W]) {
         let mut t = [0u64; W];
         for i in 0..W { t[i] = pow7(addf(s[i], RC[r][i])); }
         for i in 0..W {
+            // Accumulate the W reduced products in u128 and reduce ONCE. Each term is < p < 2^64 and W = 12,
+            // so the sum is < 2^68 and cannot overflow; reduce128 handles any u128. This replaces a second
+            // per-lane `% P` division (another 648 per permutation).
             let mut acc: u128 = 0;
-            for j in 0..W { acc += (mulf(MDS[i][j], t[j])) as u128; }
-            s[i] = (acc % P) as u64;
+            for j in 0..W { acc += mulf(MDS[i][j], t[j]) as u128; }
+            s[i] = reduce128(acc);
         }
     }
 }
@@ -281,4 +294,95 @@ pub unsafe extern "C" fn grind(state: *const u64, dom: u64, bits: u32) -> u64 {
         if nonce == u64::MAX { return u64::MAX; }
         nonce += 1;
     }
+}
+
+// merkle_verify_paths: verify M authentication paths in ONE crossing.
+//
+// WHY. The prover was ported to Rust; the VERIFIER never was, and nobody profiled it. Measured on a single
+// usehint sub-proof: stark.verify spent 82% of its 145.7 ms inside alghash2.permute/hashn — 16240 permute
+// calls for 5 verifies, i.e. ~3248 per proof, each one its own ctypes crossing. The kernel was already
+// native (pure-Python permute 3167 us vs 54 us through ctypes, 58x), so this was never an arithmetic
+// problem: it is the same Python-loop-around-a-native-kernel shape that made _permute_snapshots 146x and
+// fri.prove the fold's bottleneck. Batching the permute alone only reaches ~23 us/call, so the fix is to
+// move the LOOP, exactly as doc/rust-only-proving.md says.
+//
+// Bit-identical to execnode/stark/merkle.verify:
+//     h = leaf(value); for sib in path: h = node(h, sib) if idx%2==0 else node(sib, h); idx //= 2
+//     ok = (h == root)
+// `mode`: 0 = RECURSION backend (rleaf/rnode, one permutation per node, no length prefix)
+//         1 = ALGHASH2 backend (hashn with the length prefix)
+// `ext` : 0 = base leaf (one field element), 1 = extension leaf (d limbs, DOM_LEAF_EXT frame)
+// `d`   : limbs per leaf (1 when ext == 0)
+// Layout: roots[m*CAP], indices[m], leaves[m*d], paths[m*plen*CAP]. Writes out[m] as 1/0.
+// Returns 0, or -1 on a rejected shape — a bad degree is REFUSED rather than silently truncated, because a
+// truncated ext frame would alias a base leaf and let one tree's opening verify against the other's root.
+#[no_mangle]
+pub unsafe extern "C" fn merkle_verify_paths(roots: *const u64, indices: *const u64, leaves: *const u64,
+                                             paths: *const u64, m: usize, plen: usize, d: usize,
+                                             mode: u32, ext: u32, out: *mut u8) -> i64 {
+    if d < 1 || d > 8 { return -1; }
+    if ext == 1 && mode == 0 && d > (RATE / 2 - 1) { return -1; }   // must fit the 4-lane rleaf head
+    if mode > 1 || ext > 1 { return -1; }
+
+    for i in 0..m {
+        // ---- leaf digest -------------------------------------------------------------------------
+        let mut h = [0u64; CAP];
+        if mode == 0 {
+            let mut s = [0u64; W];
+            if ext == 1 {
+                s[0] = DOM_LEAF_EXT;
+                for k in 0..d { s[1 + k] = *leaves.add(i * d + k); }
+            } else {
+                s[0] = 1;                                  // DOM_LEAF
+                s[1] = *leaves.add(i * d);
+            }
+            for k in 0..CAP { s[RATE + k] = IV[k]; }
+            permute(&mut s);
+            for k in 0..CAP { h[k] = s[k]; }
+        } else {
+            let mut els = [0u64; 10];
+            let n = if ext == 1 {
+                els[0] = (1 + d) as u64; els[1] = DOM_LEAF_EXT;
+                for k in 0..d { els[2 + k] = *leaves.add(i * d + k); }
+                2 + d
+            } else {
+                els[0] = 2; els[1] = 1;                    // [len=2, DOM_LEAF, x]
+                els[2] = *leaves.add(i * d);
+                3
+            };
+            hashn(els.as_ptr(), n, h.as_mut_ptr());
+        }
+
+        // ---- climb ------------------------------------------------------------------------------
+        let mut idx = *indices.add(i);
+        for lvl in 0..plen {
+            let sib = paths.add((i * plen + lvl) * CAP);
+            // left child is `h` when idx is even, else the sibling is the left child
+            let (lo, hi): ([u64; CAP], [u64; CAP]) = if idx % 2 == 0 {
+                let mut b = [0u64; CAP];
+                for k in 0..CAP { b[k] = *sib.add(k); }
+                (h, b)
+            } else {
+                let mut a = [0u64; CAP];
+                for k in 0..CAP { a[k] = *sib.add(k); }
+                (a, h)
+            };
+            if mode == 0 {
+                let mut s = [0u64; W];
+                for k in 0..CAP { s[k] = lo[k]; s[CAP + k] = hi[k]; s[RATE + k] = IV[k]; }
+                permute(&mut s);
+                for k in 0..CAP { h[k] = s[k]; }
+            } else {
+                let mut els = [9u64, 2u64, 0, 0, 0, 0, 0, 0, 0, 0];   // [len=9, DOM_NODE, a0..3, b0..3]
+                for k in 0..CAP { els[2 + k] = lo[k]; els[6 + k] = hi[k]; }
+                hashn(els.as_ptr(), 10, h.as_mut_ptr());
+            }
+            idx /= 2;
+        }
+
+        let mut ok = 1u8;
+        for k in 0..CAP { if h[k] != *roots.add(i * CAP + k) { ok = 0; } }
+        *out.add(i) = ok;
+    }
+    0
 }
