@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="lend.title">NADO Lend — peer-to-peer collateralised loans, no oracle</title>
+<meta name="description" content="Peer-to-peer collateralised lending on the NADO blockchain. Fixed terms, fixed interest, no price oracle and no liquidation bots — post an offer or borrow against collateral, settled on-chain. Post-quantum secure, no install.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://lend.nadochain.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NADO">
+<meta property="og:url" content="https://lend.nadochain.com/">
+<meta property="og:title" content="NADO Lend — peer-to-peer collateralised loans, no oracle">
+<meta property="og:description" content="Peer-to-peer collateralised lending on the NADO blockchain. Fixed terms, fixed interest, no price oracle and no liquidation bots.">
+<meta property="og:image" content="https://nadochain.com/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@nadochain">
+<meta name="twitter:title" content="NADO Lend — peer-to-peer collateralised loans, no oracle">
+<meta name="twitter:image" content="https://nadochain.com/og-image.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%3E%3Cpath%20d%3D%22M24%206%2042%2016H6z%22%20fill%3D%22%2300c9a7%22/%3E%3Crect%20x%3D%2210%22%20y%3D%2218%22%20width%3D%224.5%22%20height%3D%2216%22%20fill%3D%22%23e6edf3%22/%3E%3Crect%20x%3D%2221.75%22%20y%3D%2218%22%20width%3D%224.5%22%20height%3D%2216%22%20fill%3D%22%23e6edf3%22/%3E%3Crect%20x%3D%2233.5%22%20y%3D%2218%22%20width%3D%224.5%22%20height%3D%2216%22%20fill%3D%22%23e6edf3%22/%3E%3Crect%20x%3D%226%22%20y%3D%2236%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222%22%20fill%3D%22%2300ad93%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js?v=91256219"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--warn:#e3b341;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input:focus{outline:none;border-color:var(--accent2)}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .warn{color:var(--danger);font-weight:600;line-height:1.45}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}#status:empty{display:none;min-height:0;margin:0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  a{color:var(--accent2)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  /* loan rows — distinct from .row (the input flex container) so a loan never inherits equal-width columns */
+  .loan{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--border)}
+  .loan:last-child{border-bottom:0}
+  .loanmain{flex:1 1 auto;min-width:0}
+  .loantop{font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .loanterms{font-family:var(--mono);font-size:12.5px;margin-top:3px}
+  .loanwho{font-size:11.5px;margin-top:2px;word-break:break-all}
+  .loanacts{flex:0 0 auto;display:flex;flex-direction:column;gap:6px}
+  .loanacts button{padding:8px 12px;font-size:12.5px;white-space:nowrap}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid var(--border);background:var(--elev2);color:var(--dim)}
+  .pill.warn{border-color:var(--warn);color:var(--warn);background:rgba(227,179,65,.12)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
+      <path d="M24 6 42 16H6z" fill="#00c9a7"/>
+      <rect x="10" y="18" width="4.5" height="16" fill="#e6edf3"/>
+      <rect x="21.75" y="18" width="4.5" height="16" fill="#e6edf3"/>
+      <rect x="33.5" y="18" width="4.5" height="16" fill="#e6edf3"/>
+      <rect x="6" y="36" width="36" height="5" rx="2" fill="#00ad93"/></svg></span>
+    <h1>NADO <span class="a" data-i18n="lend.brand">Lend</span></h1>
+    <a class="hub" href="https://nadochain.com/games" data-i18n="lend.allGames">🎮 All games</a>
+  </header>
+  <p class="sub" data-i18n-html="lend.sub">Peer-to-peer <b>collateralised loans</b> on the NADO execution layer. A lender posts terms — how much, what interest, what collateral, how long — and escrows the money up front. A borrower posts the collateral and walks away with the principal. Repay before the deadline and the collateral comes back; miss it and the lender takes it. <b>No price oracle, no variable rate, no liquidation bots</b> — interest is a fixed amount and the only trigger is a deadline the chain can see by itself.</p>
+
+  <div id="status"></div>
+
+  <!-- WALLET -->
+  <div class="card" id="walletcard">
+    <h2 data-i18n="lend.walletH">Wallet</h2>
+    <p class="small dim" data-i18n-html="lend.walletIntro">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each action there, then bounce back; your key never touches this site. Loans settle in the execution layer: deposit NADO to lend or to post collateral, withdraw any time.</p>
+    <div class="kv mt"><span class="k" data-i18n="lend.actingAs">Acting as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="lend.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="lend.usable">🏦 Usable balance</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="lend.signIn">Sign in with NADO wallet</button></div>
+    <div class="row mt">
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="lend.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="lend.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="lend.withdraw">Withdraw</button>
+    </div>
+    <div class="small dim mt" data-i18n="lend.bankNote">Deposit moves L1 → exec (usable here); Withdraw moves exec → L1.</div>
+  </div>
+
+  <!-- POST AN OFFER (lender side — shown once signed in) -->
+  <div class="card hidden" id="offerCard">
+    <h2 data-i18n="lend.offerH">Lend — post an offer</h2>
+    <p class="small dim" data-i18n-html="lend.offerIntro">Your principal is <b>escrowed the moment you post</b>, so a borrower is never taking an IOU. Nobody has to accept it — withdraw the offer any time until somebody does.</p>
+    <div class="row mt">
+      <div><label data-i18n="lend.fPrincipal">You lend (NADO)</label><input id="oPrincipal" value="100" inputmode="decimal" autocomplete="off"></div>
+      <div><label data-i18n="lend.fInterest">Interest (NADO)</label><input id="oInterest" value="20" inputmode="decimal" autocomplete="off"></div>
+    </div>
+    <div class="row mt">
+      <div><label data-i18n="lend.fCollateral">Collateral required (NADO)</label><input id="oCollateral" value="150" inputmode="decimal" autocomplete="off"></div>
+      <div><label data-i18n="lend.fDays">Loan length (days)</label><input id="oDays" value="7" inputmode="numeric" autocomplete="off"></div>
+    </div>
+    <div class="small dim mt" data-i18n="lend.collRule">Collateral must be more than the principal — that is what makes repaying the borrower's cheaper option, and it is enforced on-chain.</div>
+    <div class="row mt"><button class="primary" id="btnOffer" data-i18n="lend.btnPost">Post offer</button></div>
+  </div>
+
+  <!-- YOUR LOANS (both sides — shown once signed in) -->
+  <div class="card hidden" id="mineCard">
+    <h2 data-i18n="lend.mineH">Your loans</h2>
+    <p class="small dim" data-i18n="lend.mineIntro">Everything you are owed or owe, on either side. Collect buttons appear as soon as a loan settles.</p>
+    <div class="small mt" id="mine"></div>
+  </div>
+
+  <!-- OPEN OFFERS (public — anyone can browse and borrow) -->
+  <div class="card" id="marketCard">
+    <h2 data-i18n="lend.marketH">🏦 Open offers</h2>
+    <p class="small dim" data-i18n="lend.marketIntro">Every offer lives in public state — browse the terms and borrow from anyone. Your own offers are listed under “Your loans”.</p>
+    <div class="small mt" id="market"><span class="dim" data-i18n="lend.loading">Loading loans…</span></div>
+  </div>
+
+  <footer>
+    <span data-i18n-html="lend.footer">Contracts are public and verifiable on the NADO execution layer. Nothing here is investment advice — a defaulted loan means the collateral changes hands, by design.</span>
+  </footer>
+</div>
+<script type="module" src="/static/lend.js?v=00000000"></script>
+</body>
+</html>
