@@ -70,6 +70,16 @@ def check(name, ok):
         fails += 1
 
 
+def raises(fn):
+    """True if fn() rejects. validate_transaction signals rejection by RAISING (bare asserts), never by
+    returning False, so a negative case must catch rather than negate."""
+    try:
+        fn()
+        return False
+    except Exception:
+        return True
+
+
 NS = DEFAULT_NS
 BH = 5 * EPOCH_LENGTH
 D8 = 8
@@ -148,7 +158,29 @@ try:
           "(DA-binding + records-frozen + no-PAY + epoch + verify)",
           validate_transaction(txp, logger, BH))
 
-    # --- 5) and it becomes CANON with no bonded quorum ---
+    # --- 5) NEGATIVE, and it must run BEFORE the honest settle is applied ---
+    # A batch built over the same blocks minus the final call. It is internally valid — it proves the work
+    # it actually ran — but it reaches a DIFFERENT root, so it must not be passable off as this span's
+    # result. Two things this ordering gets right, both learned by getting them wrong:
+    #   * a DIFFERENT validator signs it. `settlement_exists(ns, cursor, sender)` is one-settle-per
+    #     (ns, validator, cursor), so reusing V2 is rejected by that rule BEFORE the proof is ever looked
+    #     at — the test would pass while proving nothing about the proof.
+    #   * it runs while the tip is still genesis. After the honest settle the tip has moved, and the short
+    #     proof would be rejected for not extending the tip — a real rule, but not the one under test.
+    print(f"[{_time.time()-_t0:6.0f}s] .. building the NEGATIVE (dropped-tx) batch", flush=True)
+    short = SS.prove_settlement_sparse(pre, all_calls[:-1], cursor=span_end, rec_hex=rec_hex8,
+                                       num_queries=2, depth=D8, recursive=True, fold=False)
+    short_root = ER.full_root_hex(SST.digest_from_hex(short["kv_post"]), rec_g8)
+    check("a batch missing one off-chain tx reaches a DIFFERENT root", short_root != real_root)
+    V3 = generate_keys()
+    create_account(V3["address"], balance=B_MIN, bonded=B_MIN)
+    txbad = construct_settle_tx(V3, span_end, real_root, BH, ns=NS, proof=short)
+    # validate_transaction signals rejection by RAISING (bare asserts), so `not validate(...)` would
+    # propagate instead of evaluating False.
+    check("...and claiming the honest root with it is REJECTED by every node's validation",
+          raises(lambda: validate_transaction(txbad, logger, BH)))
+
+    # --- 6) the honest batch becomes CANON with no bonded quorum ---
     reflect_transaction(txp, logger, block_height=BH)
     check("apply recorded the proof marker", kv_ops.settlement_proven(NS, span_end, real_root))
     protocol.SETTLE_PROOF_TRUSTLESS = True
@@ -156,18 +188,6 @@ try:
           settlement_justified(NS, span_end, real_root, get_bonded_registry()))
     check("the settled tip advanced to the end of the span",
           latest_settled(NS) == (span_end, real_root))
-
-    # --- 6) NEGATIVE: a batch that drops one off-chain tx cannot claim the honest root ---
-    # Built over the same blocks minus the final call. It is internally valid — it proves the work it
-    # actually ran — but it settles a DIFFERENT root, so it cannot be passed off as this span's result.
-    print(f"[{_time.time()-_t0:6.0f}s] .. building the NEGATIVE (dropped-tx) batch", flush=True)
-    short = SS.prove_settlement_sparse(pre, all_calls[:-1], cursor=span_end, rec_hex=rec_hex8,
-                                       num_queries=2, depth=D8, recursive=True, fold=False)
-    short_root = ER.full_root_hex(SST.digest_from_hex(short["kv_post"]), rec_g8)
-    check("a batch missing one off-chain tx reaches a DIFFERENT root", short_root != real_root)
-    txbad = construct_settle_tx(V2, span_end, real_root, BH, ns=NS, proof=short)
-    check("...and claiming the honest root with it is REJECTED by every node's validation",
-          not validate_transaction(txbad, logger, BH))
 finally:
     (_fri.NUM_QUERIES, _stark.NUM_QUERIES, protocol.EXEC_TREE_DEPTH, protocol.EXEC_GENESIS_ROOT,
      protocol.SETTLE_PROOF_TRUSTLESS) = _saved
