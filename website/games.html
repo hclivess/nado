@@ -207,6 +207,12 @@ const SVG = {
     <circle cx="11.8" cy="24" r="4.2" fill="#00c9a7"/>
     <circle cx="36.2" cy="24" r="4.2" fill="#e3b341"/>
     <text x="24" y="26.8" text-anchor="middle" font-size="8" font-weight="900" fill="#e6edf3" font-family="system-ui,-apple-system,Arial,sans-serif">VS</text></svg>`,
+  lend:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <path d="M24 7 43 17H5z" fill="#00c9a7"/>
+    <rect x="10" y="19" width="4.6" height="15" fill="#e6edf3"/>
+    <rect x="21.7" y="19" width="4.6" height="15" fill="#e6edf3"/>
+    <rect x="33.4" y="19" width="4.6" height="15" fill="#e6edf3"/>
+    <rect x="6" y="36" width="36" height="5" rx="2" fill="#00ad93"/></svg>`,
   mines:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
     <rect x="6" y="6" width="11" height="11" rx="2.5" fill="#1a232e" stroke="#243140" stroke-width="1.4"/>
     <rect x="19" y="6" width="11" height="11" rx="2.5" fill="#0f3c33" stroke="#00ad93" stroke-width="1.4"/>
@@ -255,6 +261,9 @@ const GAMES = [
   { svg:SVG.bet, name:"Bet", tag:"Live", live:true, slug:"bet", url:"https://bet.nadochain.com",
     blurb:"Bet on any event, two ways. Pool your stake with everyone else and the winning side splits the whole pot pro-rata (a racetrack tote), so the odds are set by the crowd and there is no bookmaker at all — or take a fixed price from a peer bank: any player can put up a bankroll, publish a price per outcome, and keep every losing stake. Results are posted on-chain by a configurable oracle reading free public feeds you can browse yourself; a postponed or unresolved event refunds every stake 1:1.",
     meta:["Pool or fixed odds","Bank it yourself","Oracle-resolved","Postponed → refund"] },
+  { svg:SVG.lend, name:"Lend", tag:"Live", live:true, slug:"lend", url:"https://lend.nadochain.com",
+    blurb:"Lend to a stranger and get paid for it, or borrow without selling what you hold. A lender posts terms — how much, what interest, what collateral, how long — and the money is escrowed the moment they post, so a borrower is never taking an IOU. Post the collateral and the principal is yours; repay before the deadline and the collateral comes back. There is no price oracle and no variable rate: interest is a fixed amount agreed up front and the only trigger is a deadline the chain can see by itself, so there is no feed to manipulate and no liquidation bot to outrun. Collateral must exceed the principal, which is what makes repaying the cheaper option.",
+    meta:["Fixed terms, fixed interest","No oracle, no liquidations","Collateral > principal","Anyone can close an overdue loan"] },
   { svg:SVG.hamster, name:"Hamster Racing", tag:"Live", live:true, slug:"hamster", faucet:true, url:"https://hamster.nadochain.com",
     blurb:"Bet on six hamsters, two ways. Each race pins its speed genes to a future block hash and shows them — that's the form you handicap — then the next few block hashes run the race. Pool with the other punters and the winner's backers split the whole pot, or take a fixed price from a peer bank so you never wait for a crowd; any player can be that bank. Or play the free Daily Derby: a fresh eight-race slate unique to your wallet, pick the winners, and the faucet pays the top scorers every day — every score replay-verified on-chain.",
     meta:["Pool or fixed odds","Bank it yourself","Free daily + faucet prizes","Provably fair"] },
