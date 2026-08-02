@@ -170,6 +170,19 @@ projection only**. The bridge, dividend and shielded families still settle by th
 single proof of a whole state transition. Until that exists, "one proof settles the block" is only true of
 part of the block, and there is no complete object to merge or fold.
 
+*Progress:* the records half — the other half of `rnode(kv_root, rec_root)` — is now both **provable**
+(`execnode/stark/records_transition.py`) and **bound** (`execnode/stark/records_bind.py`, the records
+analogue of `exec_state_bind`: derive the update set from committed data, require the transition to prove
+exactly that set). Derivation covers the bridge deposit, the faucet/treasury mirror and the presence-dividend
+accrual — the last one mattering out of proportion because it accrues with *no transaction at all*, which is
+why the settle branch can currently only refuse any span crossing an epoch boundary. Shielded/field
+transfers, asset movements, allowances, xmsg and the withdrawal records are still `Unbindable`.
+
+The binding compares derived against proven updates for **exact equality**, so a missing derivation refuses
+the span and falls back to quorum — it can cost coverage, never soundness. That is what makes the remaining
+effect families landable one at a time instead of as one flag day. `block_records_inert` stays exactly as
+strict as it is until they do, and relaxing it is a consensus change that rides a reroll.
+
 **2. State merging** ([`doc/state-merge.md`](doc/state-merge.md)) — how proofs compose once they exist.
 *Sequential* merge is live (the K→1 fold: chain segments, `A.roots[-1] == B.roots[0]`, keys may overlap).
 *Parallel* merge is implemented (`execnode/stark/state_merge.py`, `tests/test_state_merge.py`): two

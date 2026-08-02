@@ -22,12 +22,21 @@ state_transition.prove_transition proves its advance with no new AIR: the same p
 the same recursion-committed proofs, the same K->1 foldability. Nothing here invents cryptography; it applies
 the machinery already proven for the KV half to the half that was frozen.
 
-WHAT IS STILL OPEN, stated plainly rather than implied: this proves that the records half ADVANCED from one
-root to another over a stated update set. It does NOT yet prove that the update set is exactly what the
-block's transactions imply -- the records analogue of exec_state_bind, which ties the KV updates to the
-epoch's actual SSTOREs. Without that binding a prover can advance records to any state it likes, so this is
-NOT yet sufficient to relax block_records_inert. Landing the binding is the next step, and until it does the
-allowlist must stay exactly as strict as it is today.
+WHAT THIS MODULE DOES NOT DO, stated plainly rather than implied: it proves the records half ADVANCED from
+one root to another over a STATED update set. It does not prove that set is what the block's transactions
+imply -- the records analogue of exec_state_bind, which ties the KV updates to the epoch's actual SSTOREs.
+Without that, a prover can advance records to any state it likes.
+
+That binding now exists next door in records_bind.py: it DERIVES the expected update set from committed
+data and requires this transition to prove exactly that set. Use bind_and_verify_records, not
+verify_records_transition, anywhere the update set is not already trusted -- a bare verify here answers
+"did the tree advance", never "did it advance the way the block says".
+
+block_records_inert MUST STILL STAY EXACTLY AS STRICT AS IT IS TODAY. records_bind derives only the bridge
+deposit, the faucet/treasury mirror and the presence-dividend accrual; shielded and field transfers, asset
+movements, allowances, xmsg and the withdrawal records are still `Unbindable`. Relaxing the allowlist is a
+CONSENSUS change and may only follow the derivations landing, one effect family at a time -- and it rides a
+reroll, like every other consensus flag on this path.
 """
 from execnode.stark import state_transition as SX, storage_tree as ST, field as F
 from execnode import exec_root as ER
