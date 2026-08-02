@@ -5,7 +5,7 @@
 // scores its ODDS in points, so backing a winning longshot pays off. The whole slate is a pure function of the
 // seed, so every browser AND the faucet oracle replay a posted claim identically. Shared by hamster.js (play +
 // board) and tests/hamster_daily_verify.mjs (the faucet distributor's replay oracle).
-import { H, provableSeed, unpackMoves } from "./provable.js?v=935742c6";
+import { H, provableSeed, unpackMoves } from "./provable.js?v=d8579331";
 
 export const SLUG = "hamster";
 export const RACES = 8;         // races in a day's slate

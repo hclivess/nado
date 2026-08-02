@@ -14,10 +14,10 @@
 // -> every stake refunds 1:1; an unbacked winner auto-voids. Payouts are pull-based (each bettor calls
 // claim). Outcomes are integers 0..nout-1 everywhere. Per-user positions are read through the contract's
 // /exec/view methods (claimable_of etc.) — see the myCache notes below.
-import { Book } from "./bookgame.js?v=88da53fd";
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, disp, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js?v=d4ad4b44";
+import { Book } from "./bookgame.js?v=3131c886";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, disp, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js?v=eff4a9e1";
 
-const CID = "233a89ff483f1792941201b3b28025c6";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
+const CID = "386cc6bd021cbb183d33bdf56c23f49f";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });
 // the fixed-odds BOOK (bank vs punters) — model, solvency maths, actions and settle predicates all
 // live in the shared scaffold, so this game and hamster cannot drift on the part that moves money

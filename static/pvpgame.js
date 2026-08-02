@@ -17,7 +17,7 @@
 //     shareText(gm) { return "…"; }, inviteTitle: "…", inviteBody(gm) { return "…"; },
 //   });
 //   pvp.boot(["activeGame", "lobby", …]);
-import { _m, $, gate, canPay, orderCards, alertBar, notify, okBar, blocksToTime, inviteGate, lsLoad, lsSave, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, recentChips, randId, rematchId, rawToNado, nadoToRaw, loadQR, resolveAliases, disp, shareInvite, confirmingLabel } from "./nadodapp.js?v=d4ad4b44";
+import { _m, $, gate, canPay, orderCards, alertBar, notify, okBar, blocksToTime, inviteGate, lsLoad, lsSave, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, recentChips, randId, rematchId, rawToNado, nadoToRaw, loadQR, resolveAliases, disp, shareInvite, confirmingLabel } from "./nadodapp.js?v=eff4a9e1";
 
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("pvp." + k, d, v) : d;
 

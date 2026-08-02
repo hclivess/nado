@@ -7,7 +7,7 @@
 //   chain draw (multi-deck / draws independent, the only sound dealer-less scheme — see hold'em):
 //           card_i = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + salt + i ) % 52
 //   which is exactly the VM's HASH over ints (blake2bHash of a BigInt canonicalizes to bare digits).
-import { blake2bHash } from "./nadotx.js?v=b05eb43e";
+import { blake2bHash } from "./nadotx.js?v=a686fd33";
 
 export const RANK_NAMES = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
 export const SUITS = ["♠", "♥", "♦", "♣"];

@@ -5,11 +5,11 @@
 // Symbols come off weighted 64-stop virtual reels; the paytable pays up to 150x (exact RTP 95.796%,
 // full-enumeration-proven — see tests/test_slots_contract.py). The machine's bank commits a 150x cover
 // for every open spin, so it can never welsh. Settle is permissionless; a pruned spin refunds via claim.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=d4ad4b44";
-import { BankedGame } from "./bankedgame.js?v=e8391792";
-import { Practice } from "./practice.js?v=ba4931fc";      // free in-browser practice (play chips, no chain)
+import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=eff4a9e1";
+import { BankedGame } from "./bankedgame.js?v=88bc2959";
+import { Practice } from "./practice.js?v=f261d882";      // free in-browser practice (play chips, no chain)
 
-const CID = "0bc996d9b087cedff92d60c6fac7b3b0";
+const CID = "996f9eb523d6700f371f1b302f79f359";
 const dapp = new NadoDapp({ cid: CID, app: "Slots" });
 const bg = new BankedGame(dapp, { icon: "🎰", bankIcon: "🎰" });   // shared banked-table SDK (reader/actions/tracking/chips); slots shows 🎰 for banked machines too
 const SPIN_D = 2, MAXM2 = 300, COVER = (MAXM2 - 2) / 2;   // cover per spin = stake * 149

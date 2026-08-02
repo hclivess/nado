@@ -5,12 +5,12 @@
 // ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
 // oracle beyond the math — field-native alghash, byte-identical to the zkVM contract's in-VM HASH
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame } from "./nadodapp.js?v=d4ad4b44";
-import { Practice } from "./practice.js?v=ba4931fc";   // free in-browser practice vs the computer
-import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=935742c6";
-import * as SALVO from "./battleship-daily.js?v=84a4732a";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame } from "./nadodapp.js?v=eff4a9e1";
+import { Practice } from "./practice.js?v=f261d882";   // free in-browser practice vs the computer
+import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=d8579331";
+import * as SALVO from "./battleship-daily.js?v=f25e39c9";
 
-const CID = "eaf6878ade7725c112089992e8f62df8";   // execnode/games/battleship.py (zkVM; alphanet-7 redeploy with the Daily Salvo)
+const CID = "8f9f15244a0a9ca94cc40841e39e5679";   // execnode/games/battleship.py (zkVM; alphanet-7 redeploy with the Daily Salvo)
 const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
 const N = 10, CELLS = 100, SHIPS = 17, WINDOW = 600, BLOCK_SECS = 6;
 const FLEET = [5, 4, 3, 3, 2];                 // ship lengths (17 cells)

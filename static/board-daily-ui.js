@@ -9,10 +9,10 @@
 // The run is solo vs a DETERMINISTIC bot seeded by the day's on-chain anchor AND your own address, so the
 // board is personal and non-transferable: a claim copied from someone else replays against a different
 // bot and fails to reproduce its score. Only your moves go on-chain; the rules never do.
-import { $, _m, dailyFrame, modeBar, renderTopScores, confirmingLabel, notify, base } from "./nadodapp.js?v=d4ad4b44";
+import { $, _m, dailyFrame, modeBar, renderTopScores, confirmingLabel, notify, base } from "./nadodapp.js?v=eff4a9e1";
 import { todayIdx, anchorOf, seedDaily, pendingDaily, provableSeed, packMoves,
-         entriesFrom, verifyEntries } from "./provable.js?v=935742c6";
-import { play, score, verifyClaim } from "./board-daily.js?v=6406607f";
+         entriesFrom, verifyEntries } from "./provable.js?v=d8579331";
+import { play, score, verifyClaim } from "./board-daily.js?v=41fa81f1";
 
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;
 
