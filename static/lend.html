@@ -43,6 +43,10 @@
   label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
   input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
   input:focus{outline:none;border-color:var(--accent2)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:10px 0 4px;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  .slabel{display:flex;justify-content:space-between;gap:8px}
   button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
   button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
   button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
@@ -102,14 +106,29 @@
   <div class="card hidden" id="offerCard">
     <h2 data-i18n="lend.offerH">Lend — post an offer</h2>
     <p class="small dim" data-i18n-html="lend.offerIntro">Your principal is <b>escrowed the moment you post</b>, so a borrower is never taking an IOU. Nobody has to accept it — withdraw the offer any time until somebody does.</p>
-    <div class="row mt">
-      <div><label data-i18n="lend.fPrincipal">You lend (NADO)</label><input id="oPrincipal" value="100" inputmode="decimal" autocomplete="off"></div>
-      <div><label data-i18n="lend.fInterest">Interest (NADO)</label><input id="oInterest" value="20" inputmode="decimal" autocomplete="off"></div>
+    <!-- Each amount is the SDK percent-slider primitive bound to a LIVE max, so 100% is always exactly
+         what you can actually commit right now and the three fields stay consistent with each other:
+         principal is a share of your playable balance, interest a share of the principal, collateral a
+         multiple of it. Typing a figure moves the thumb; dragging the thumb fills the figure. -->
+    <div class="mt">
+      <label data-i18n="lend.fPrincipal">You lend (NADO)</label>
+      <input id="oPrincipal" value="100" inputmode="decimal" autocomplete="off">
+      <input type="range" id="oPrincipalSlider" class="mt" min="0" max="100" step="1" value="0" aria-label="principal">
+      <div class="small dim slabel"><span id="oPrincipalSlider_p"></span><span id="oPrincipalSlider_m" class="mono"></span></div>
     </div>
-    <div class="row mt">
-      <div><label data-i18n="lend.fCollateral">Collateral required (NADO)</label><input id="oCollateral" value="150" inputmode="decimal" autocomplete="off"></div>
-      <div><label data-i18n="lend.fDays">Loan length (days)</label><input id="oDays" value="7" inputmode="numeric" autocomplete="off"></div>
+    <div class="mt">
+      <label data-i18n="lend.fInterest">Interest you charge (NADO)</label>
+      <input id="oInterest" value="20" inputmode="decimal" autocomplete="off">
+      <input type="range" id="oInterestSlider" class="mt" min="0" max="100" step="1" value="0" aria-label="interest">
+      <div class="small dim slabel"><span id="oInterestSlider_p"></span><span id="oInterestSlider_m" class="mono"></span></div>
     </div>
+    <div class="mt">
+      <label data-i18n="lend.fCollateral">Collateral you require (NADO)</label>
+      <input id="oCollateral" value="150" inputmode="decimal" autocomplete="off">
+      <input type="range" id="oCollateralSlider" class="mt" min="0" max="100" step="1" value="0" aria-label="collateral">
+      <div class="small dim slabel"><span id="oCollateralSlider_p"></span><span id="oCollateralSlider_m" class="mono"></span></div>
+    </div>
+    <div class="mt"><label data-i18n="lend.fDays">Loan length (days)</label><input id="oDays" value="7" inputmode="numeric" autocomplete="off"></div>
     <div class="small dim mt" data-i18n="lend.collRule">Collateral must be more than the principal — that is what makes repaying the borrower's cheaper option, and it is enforced on-chain.</div>
     <div class="row mt"><button class="primary" id="btnOffer" data-i18n="lend.btnPost">Post offer</button></div>
   </div>
@@ -132,6 +151,6 @@
     <span data-i18n-html="lend.footer">Contracts are public and verifiable on the NADO execution layer. Nothing here is investment advice — a defaulted loan means the collateral changes hands, by design.</span>
   </footer>
 </div>
-<script type="module" src="/static/lend.js?v=5477942e"></script>
+<script type="module" src="/static/lend.js?v=45ff59cd"></script>
 </body>
 </html>

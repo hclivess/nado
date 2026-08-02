@@ -77,6 +77,26 @@ function fmtLeft(secs) {
   return window.t("lend.leftMins", "{n} min left", { n: Math.max(1, Math.floor(secs / 60)) });
 }
 
+// ---- offer-form sliders (the SDK percent primitive, one per amount) ---------------------------------
+// Each slider resolves to a % of a LIVE max rather than a fixed ceiling, which is what keeps the three
+// amounts coherent: you cannot lend more than you hold, and interest and collateral are expressed against
+// the principal you actually chose. Chaining them this way also means moving the principal re-scales the
+// other two instead of leaving stale absolute figures behind.
+const SL_PRINCIPAL = { slider: "oPrincipalSlider", input: "oPrincipal" };
+const SL_INTEREST = { slider: "oInterestSlider", input: "oInterest" };
+const SL_COLLATERAL = { slider: "oCollateralSlider", input: "oCollateral" };
+
+const principalRaw = () => { try { return nadoToRaw($("oPrincipal").value || "0"); } catch (e) { return 0n; } };
+// Collateral must EXCEED the principal, so a 0..3x range puts the only valid region in the upper two
+// thirds of the travel and makes an invalid offer visibly hard to build rather than merely rejected.
+const collateralMax = () => principalRaw() * 3n;
+
+function syncSliders() {
+  dapp.syncPctSlider("lendPrincipal", SL_PRINCIPAL, dapp.exec || 0n);
+  dapp.syncPctSlider("lendInterest", SL_INTEREST, principalRaw());
+  dapp.syncPctSlider("lendCollateral", SL_COLLATERAL, collateralMax());
+}
+
 // ---- actions ----------------------------------------------------------------------------------------
 async function postOffer() {
   const principal = rawToUnits(nadoToRaw($("oPrincipal").value || "0"));
@@ -213,6 +233,7 @@ function render() {
     : `<div class="dim">${window.t("lend.noneYours", "You have no loans yet.")}</div>`;
 
   renderWallet(dapp);
+  syncSliders();          // after renderWallet, so the principal slider sees the refreshed playable balance
 }
 
 async function refresh() {
@@ -228,6 +249,14 @@ function wireUI() {
   wireWallet(dapp, render);
   stickyInputs(["oPrincipal", "oInterest", "oCollateral", "oDays"], "nado_lend_form");
   $("btnOffer").onclick = postOffer;
+
+  // Bind each amount slider once. Moving the PRINCIPAL re-syncs the other two, because their maxes are
+  // derived from it — without that the interest thumb would keep pointing at a percentage of a number
+  // that is no longer on screen.
+  dapp.wirePctSlider("lendPrincipal", SL_PRINCIPAL, () => dapp.exec || 0n, syncSliders);
+  dapp.wirePctSlider("lendInterest", SL_INTEREST, principalRaw, syncSliders);
+  dapp.wirePctSlider("lendCollateral", SL_COLLATERAL, collateralMax, syncSliders);
+  syncSliders();
 
   // ONE delegated handler for every row button: rows are re-rendered on each poll, so per-button
   // listeners would be re-attached (and leak) three times a second.
