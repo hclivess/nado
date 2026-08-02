@@ -445,12 +445,26 @@ def _rebuild_native_if_changed(old, new):
     """Rebuild the Rust accelerator crates whose sources changed in this update, BEFORE the restart, so the
     node never runs the new Python against a STALE binary.
 
-    Correctness hinges on one fact: a STALE .so is NOT the same as an ABSENT one. The STARK loaders
-    (alghash2/starkprove/starkcompose/goldilocks) fall back to pure Python only when the .so is ABSENT — a
-    stale one is loaded and TRUSTED, so e.g. an old 8-round alghash2 .so against new 54-round Python silently
-    diverges. Therefore a crate whose source changed but that we CANNOT rebuild (no cargo, or the build fails)
-    has its stale .so DELETED, forcing the pure-Python fallback (slower, but bit-identical and consensus-safe).
-    A crate with no prior .so and no cargo simply stays pure-Python — nothing to purge, safe to proceed.
+    Correctness hinges on one fact: a STALE .so is NOT the same as an ABSENT one. A stale one is loaded and
+    TRUSTED, so e.g. an old 8-round alghash2 .so against new 54-round Python silently diverges. Therefore a
+    crate whose source changed but that we CANNOT rebuild (no cargo, or the build fails) has its stale .so
+    DELETED — purging is still the right call, because a wrong answer is worse than no answer.
+
+    WHAT PURGING NO LONGER BUYS YOU, and this paragraph is the correction: it used to force "the pure-Python
+    fallback (slower, but bit-identical and consensus-safe)". Since ALPHANET-14 there is no Python fallback.
+    execnode/stark/native_guard.require() raises NativeMissing for an ABSENT library exactly as loudly as for
+    a stale one ("There is no Python fallback: since alphanet-14 the Rust kernel is the only production
+    implementation"), unless NADO_ALLOW_ABSENT_NATIVE is set. So on a box without cargo, a crate whose sources
+    changed ends with a purged .so and an exec node that REFUSES TO START — not a slow one.
+
+    That failure is silent from the outside: L1 keeps producing blocks and /status stays 200 while
+    nado-exec restart-loops, and the only user-visible symptom is the wallet reporting "exec node
+    unreachable". It cost this fleet two days once already. An update wave that reports
+    "no-cargo-stale-purged" for any crate means that box needs cargo and a rebuild before its exec layer
+    comes back; treat it as an outage, not a degradation.
+
+    A crate with no prior .so and no cargo is reported "pure-python" for historical reasons — that name is
+    now only accurate for crates nothing mandatory loads.
     (mldsa44 additionally self-guards via a startup interop self-test, and every STARK loader now runs the same
     known-answer self-test at load, so a stale binary is rejected even outside this path — belt and suspenders.)
 
