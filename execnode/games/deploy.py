@@ -25,7 +25,7 @@ from execnode.state import ExecState
 
 GAMES = ["coinflip", "dice", "roulette", "mines", "slots", "reversi", "connect4", "tictactoe",
          "farkle", "chess", "blackjack", "bet", "battleship", "pets", "holdem", "stormhold", "scrapline",
-         "pool",
+         "pool", "lend",
          "faucet", "sovereign", "hexholm", "hamster", "autogame", "reserve"]
 
 
