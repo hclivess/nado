@@ -16,7 +16,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, gate, canPay, notify, co
          wireWallet, renderWallet, stickyInputs, alertBar, loadQR, orderCards, installModes, playModes,
          fmtWhen, uiConfirm, disp } from "./nadodapp.js?v=eff4a9e1";
 
-const CID = "0000000000000000000000000000d10a";
+const CID = "1594ee26854cce0279bd31458955e7df";
 const dapp = new NadoDapp({ cid: CID, app: "Lend" });
 
 // The contract stores every amount in UNITs of 10^4 raw NADO (see execnode/games/lend.py). The UI speaks
