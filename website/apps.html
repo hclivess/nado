@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NADO Games — provably-fair on-chain games</title>
+<title>NADO Apps — on-chain games, betting and lending</title>
 <script src="/static/i18n.js?v=2"></script>
-<meta name="description" content="Provably-fair games on the NADO execution layer — post-quantum wallet, no install. Coin Flip and Roulette, with more on the way.">
+<meta name="description" content="Apps on the NADO execution layer — provably-fair games settled by future block hashes, parimutuel betting, and peer-to-peer collateralised lending. Post-quantum wallet, no install.">
 <link rel="icon" href="/favicon.ico">
 <style>
   :root{
@@ -73,24 +73,25 @@
   </header>
 
   <section class="hero">
-    <h1>NADO <span class="g" data-i18n="games.title">Games</span></h1>
-    <p class="lead" data-i18n="games.lead">Provably-fair games on the NADO execution layer. Sign in with your post-quantum wallet, stake real NADO, and win — every outcome is decided by future block hashes and enforced on-chain, so nobody can cheat. Some games are player-versus-player with no house at all; the rest have a house that is another PLAYER, never us — anyone can put up the bankroll and take the other side. No install, no operator account.</p>
+    <h1>NADO <span class="g" data-i18n="apps.title">Apps</span></h1>
+    <p class="lead" data-i18n="apps.lead">Everything running on the NADO execution layer. Sign in with your post-quantum wallet and use any of it directly — no install, no operator account, no house account belonging to us. Most of these are provably-fair games settled by future block hashes; others, like Lend, are plain financial contracts with no chance involved at all. All of them are ordinary on-chain contracts you can read.</p>
   </section>
 
   <div class="grid" id="games"></div>
 
   <div class="fair">
-    <h2 data-i18n="games.fairH">Provably fair — by construction</h2>
-    <span data-i18n-html="games.fairBody">Every game is an ordinary <b>on-chain contract</b> on NADO's execution layer (no special server, and no house account belonging to us —
-    where a game has a bank, it is funded by a player who chose to take that side, and you can be that player). Outcomes come from <b>future L1 block hashes</b> that don't exist yet while betting is open —
-    no player, no host, no block producer can know or steer a result (Hold'em adds commit-reveal so your hole
-    cards stay yours alone). Payouts are escrowed and settled by the contract itself — nothing is minted or lost. Your key never leaves your <a href="https://get.nadochain.com/">NADO wallet</a>; each game
+    <h2 data-i18n="apps.fairH">Provably fair — by construction</h2>
+    <span data-i18n-html="apps.fairBody">Every app here is an ordinary <b>on-chain contract</b> on NADO's execution layer — no special server, and no house account belonging to us.
+    <b>Where an app is a game</b>, its outcomes come from <b>future L1 block hashes</b> that don't exist yet while betting is open, so no player, no host and no block producer can know or steer a result
+    (Hold'em adds commit-reveal so your hole cards stay yours alone); where a game has a bank, it is funded by a player who chose to take that side, and you can be that player.
+    <b>Where an app is not a game</b> — Lend, for instance — there is no randomness at all: the terms are fixed when the contract is signed and the only thing the chain decides is whether a deadline has passed.
+    Either way, funds are escrowed and settled by the contract itself, nothing is minted or lost, and your key never leaves your <a href="https://get.nadochain.com/">NADO wallet</a>; each app
     only bounces you there to sign. <a href="https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md">See how the contracts work →</a></span>
   </div>
 
   <footer>
     <a href="/">Home</a><a href="https://get.nadochain.com/">Wallet</a><a href="https://github.com/hclivess/nado">GitHub</a>
-    <div style="margin-top:12px" data-i18n="games.responsible">Play responsibly — these are real-value games of chance.</div>
+    <div style="margin-top:12px" data-i18n="apps.responsible">Play responsibly — the games here are real-value games of chance. Lending is not a game: a missed deadline means the collateral changes hands.</div>
   </footer>
 </div>
 
@@ -262,6 +263,7 @@ const GAMES = [
     blurb:"Bet on any event, two ways. Pool your stake with everyone else and the winning side splits the whole pot pro-rata (a racetrack tote), so the odds are set by the crowd and there is no bookmaker at all — or take a fixed price from a peer bank: any player can put up a bankroll, publish a price per outcome, and keep every losing stake. Results are posted on-chain by a configurable oracle reading free public feeds you can browse yourself; a postponed or unresolved event refunds every stake 1:1.",
     meta:["Pool or fixed odds","Bank it yourself","Oracle-resolved","Postponed → refund"] },
   { svg:SVG.lend, name:"Lend", tag:"Live", live:true, slug:"lend", url:"https://lend.nadochain.com",
+    kind:"finance", kindLabel:"not a game — real credit",
     blurb:"Lend to a stranger and get paid for it, or borrow without selling what you hold. A lender posts terms — how much, what interest, what collateral, how long — and the money is escrowed the moment they post, so a borrower is never taking an IOU. Post the collateral and the principal is yours; repay before the deadline and the collateral comes back. There is no price oracle and no variable rate: interest is a fixed amount agreed up front and the only trigger is a deadline the chain can see by itself, so there is no feed to manipulate and no liquidation bot to outrun. Collateral must exceed the principal, which is what makes repaying the cheaper option.",
     meta:["Fixed terms, fixed interest","No oracle, no liquidations","Collateral > principal","Anyone can close an overdue loan"] },
   { svg:SVG.hamster, name:"Hamster Racing", tag:"Live", live:true, slug:"hamster", faucet:true, url:"https://hamster.nadochain.com",
@@ -337,10 +339,18 @@ function renderGames() {
     const name = T("games." + g.slug + ".name", g.name);
     const blurb = T("games." + g.slug + ".blurb", g.blurb);
     const tag = g.live ? T("games.tagLive", "Live") : T("games.tagSoon", "Soon");
-    const meta = g.meta.map((m, i) => `<span class="pill">${T("games." + g.slug + ".m" + i, m)}</span>`).join("")
+    // `kind` defaults to "game" so every existing entry is untouched. An app that is NOT a game must not
+    // be described in game words: "Play Lend" reads as a casino, which is exactly the wrong expectation to
+    // set for a contract that takes real collateral and keeps it on a missed deadline.
+    const isGame = (g.kind || "game") === "game";
+    const meta = (isGame ? "" : `<span class="pill" style="border-color:#e3b341;color:#e3b341">${
+        T("apps.kind." + (g.kind || "game"), g.kindLabel || "not a game")}</span>`)
+      + g.meta.map((m, i) => `<span class="pill">${T("games." + g.slug + ".m" + i, m)}</span>`).join("")
       + (g.faucet ? `<span class="pill" style="border-color:#3fb950;color:#3fb950">${T("games.faucetPill", "🪂 airdrop play")}</span>` : "");
-    const cta = g.live ? `<a class="btn" href="${g.url}">${T("games.play", "Play {name} →", { name })}</a>`
-                       : `<span class="btn disabled">${T("games.soon", "Coming soon")}</span>`;
+    const cta = g.live
+      ? `<a class="btn" href="${g.url}">${isGame ? T("games.play", "Play {name} →", { name })
+                                                 : T("apps.open", "Open {name} →", { name })}</a>`
+      : `<span class="btn disabled">${T("games.soon", "Coming soon")}</span>`;
     return `
   <div class="game${g.live ? " live" : ""}">
     <div class="ico">${g.svg}</div>
