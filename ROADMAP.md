@@ -162,6 +162,29 @@ forgery-class bugs it uncovered and the prover speed-ups that outlived it, in
 The rule to carry forward: **prove what is expensive to REDO, not what is cheap to CHECK.** The remaining
 ZK work therefore sits on the state-proof line — proving execution, and (separately) the shielded pool,
 where inputs are hidden by construction so there is no cheaper alternative to compete with.
+
+### The state-proof line: what is left
+
+**1. Full-state composition — the ceiling on everything below it.** `settlement_proofs` proves the **zkVM
+projection only**. The bridge, dividend and shielded families still settle by their own paths, so there is no
+single proof of a whole state transition. Until that exists, "one proof settles the block" is only true of
+part of the block, and there is no complete object to merge or fold.
+
+**2. State merging** ([`doc/state-merge.md`](doc/state-merge.md)) — how proofs compose once they exist.
+*Sequential* merge is live (the K→1 fold: chain segments, `A.roots[-1] == B.roots[0]`, keys may overlap).
+*Parallel* merge is implemented (`execnode/stark/state_merge.py`, `tests/test_state_merge.py`): two
+transitions proven from the SAME pre-root over disjoint keys, composed into one. Parallel is what lets
+proving spread across machines, which is the enabler for off-chain bulking with on-chain reuptake.
+
+**3. One hash for everything provable.** A proof can only be FOLDED if its hash is the algebraic one — the
+in-circuit verifier speaks `alghash2` and nothing else. So any proof committed under `blake2b` is
+structurally excluded from composition, no matter how fast it is. That makes the backend choice an
+*architectural* question rather than a performance one: the shielded pool proving under `blake2b` cannot ever
+join a full-state proof.
+
+**Why this ordering.** (3) decides whether (1) is even reachable, and (1) decides whether (2) has anything to
+operate on. Measured basis for the whole line: `prove_epoch_calls` verify is **flat at ~0.11 s** and proof
+size **constant at 1263 KB** while calls go 1 → 8.
 - A real "build your first dApp" guide (we still don't have one — see Track D).
 
 **Exit criteria:** a user creates an asset in the wallet in under 60 seconds, sends it to a friend,
