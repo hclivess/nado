@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare } from "./nadodapp.js?v=d4ad4b44";   // THE one share implementation (SDK)
+import { share as sdkShare } from "./nadodapp.js?v=eff4a9e1";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -663,8 +663,11 @@ function buildWithdrawUnbondTx(wallet, amount, releaseBlock, targetBlock, timest
   // data is SELF-DESCRIBING and must match the pending record exactly; max_block must be >= release_block
   // because max_block IS the landing block the maturity check is made against. Fee-exempt like unbond, so
   // a fully-bonded wallet with nothing spendable can always get out.
+  // amount is a BigInt, NOT a String: validation compares data["amount"] to the pending record's int with
+  // ==, and in Python "20000000000" != 20000000000, so a stringified amount rejects EVERY withdraw. The
+  // canonical encoder emits a BigInt as a bare JSON integer, so it round-trips to the int the node expects.
   const draft = { sender: wallet.address, recipient: "withdraw", amount: 0, timestamp,
-    data: { amount: String(amount), release_block: Number(releaseBlock) },
+    data: { amount: BigInt(amount), release_block: Number(releaseBlock) },
     nonce: randNonce(), max_block: targetBlock, chain_id: CHAIN_ID };
   if (includePubkey) draft.public_key = wallet.publicKey;
   return finalizeTransaction(draft, wallet.privateKey, 0);
