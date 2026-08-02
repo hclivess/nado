@@ -167,6 +167,14 @@ the PROOF that was invalid, which no semantic test can see.
 A proof that takes 72 hours does not merely delay a release. It hides defects, because the check that would
 expose them never runs to completion.
 
+**Epilogue: the feature was removed anyway, and the speed-up is why we could tell.** Signature aggregation
+was deleted on 2026-07-31 once it could be measured end to end: 7.11 min to prove and 1.87 MB for the
+butterfly half of ONE signature, against a 2420-byte signature that verifies natively in 120.4 µs. Making
+proving fast did not save the feature — it made the feature *falsifiable*, which is worth as much. It also
+surfaced two forgery-class bugs on the way (`doc/zk-signature-aggregation.md`), and the kernel work it
+motivated stayed: the alghash2 permute went 54.11 µs → 28.71 µs by deleting two u128 divisions, on the hot
+path of every proof the chain makes.
+
 ## Related
 
 - `execnode/stark/native_guard.py` — the policy, and the reasoning, in code.

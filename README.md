@@ -833,15 +833,19 @@ shape is unchanged (49 chars).
 - **Execution-layer instructions** — [`doc/exec-instructions.md`](doc/exec-instructions.md): every blob op
   (deploy/call/upgrade/lock with `value` escrow, bridge/dividend, emit, privacy) with params + how to submit
   and read. Contracts run on a **STARK-provable zkVM** (the only runtime), authored in **zkasm**
-  (`execnode/zkvmasm.py`); every call is provable (`doc/zk-execution-proofs.md`). **Settlement is currently a
-  bonded-stake quorum** (`settlement_justified`, the same >2/3 shape as finality); a **validity-proof path
-  exists as capability** but is **not yet the authoritative settlement rule** (see the recursion note below).
+  (`execnode/zkvmasm.py`); every call is provable (`doc/zk-execution-proofs.md`). **Settlement accepts a
+  validity proof as of alphanet-14** (`SETTLE_PROOF_RECURSIVE`): a settle transaction may carry a K→1
+  recursion bundle and L1 verifies ONE proof for the epoch — **~0.3 s, independent of the call count** —
+  replaying the authenticated I/O log to recompute the post-state root with **no re-execution**. The
+  bonded-stake quorum (`settlement_justified`, the same >2/3 shape as finality) remains the path for epochs
+  that ship no proof.
   **15 games ship as live zkVM contracts** — coin flip, dice, roulette,
   slots, mines, blackjack, tic-tac-toe, Connect Four, reversi, chess, farkle, parimutuel sports betting,
   battleship, tamagotchi-NFT pets, and multiplayer Texas hold'em with an on-chain 7-card hand evaluator —
   each an ordinary upgradable contract (opt-in immutability via `lock`) with no game-specific API.
 - **STARK recursion — succinct, K→1, O(1) verify** — [`doc/zk-recursion.md`](doc/zk-recursion.md): the path to
-  verifying an epoch of execution in constant time. **Built + tested (off the L1 consensus path):** a
+  verifying an epoch of execution in constant time. **Live on the L1 consensus path since alphanet-14** (`SETTLE_PROOF_RECURSIVE`), gated behind a reroll
+  because a node honouring the `recursive` field skips the classic per-segment check: a
   verifier-authoritative in-circuit STARK verifier over an algebraic hash (**alghash2**); **T-independent
   ("succinct") verification** (structured periodic columns — no per-proof O(T) work); a **K→1 collapse** (one
   recursion bundle re-verifies K chained segment proofs from their public parts alone); an **in-circuit

@@ -146,6 +146,45 @@ incompatible token contracts. Full rationale and the resulting design: [`doc/ass
 - **Settlement by proof for asset calls** — give `settlement_proofs._run_call` a shadow asset ledger and
   let `verify_epoch` replay with `with_assets=True`. The AIR needs nothing more; it already proves the io
   log that carries every asset effect.
+
+**State proofs are the ZK line; signature aggregation is not.** Settlement-by-proof went live at the
+alphanet-14 reroll (`SETTLE_PROOF_RECURSIVE`): an epoch is proven as ONE zkVM trace and L1 verifies it in
+**~0.3 s independent of the call count**, replacing re-execution. That is the asymmetry ZK exists for —
+re-running ten thousand contract calls is expensive, checking a proof that they ran is not.
+
+Signature aggregation was built far enough to measure and then **removed** (2026-07-31). Proving the
+butterfly half of ONE ML-DSA signature cost 7.11 min, produced a 1.87 MB proof and took 6.98 s to verify,
+against a 2420-byte signature that verifies natively in 120.4 µs — ~770x the size, ~58,000x the verify.
+Break-even needed ~116 signatures for size against a batch cap near 7. Full post-mortem, including two
+forgery-class bugs it uncovered and the prover speed-ups that outlived it, in
+[`doc/zk-signature-aggregation.md`](doc/zk-signature-aggregation.md).
+
+The rule to carry forward: **prove what is expensive to REDO, not what is cheap to CHECK.** The remaining
+ZK work therefore sits on the state-proof line — proving execution, and (separately) the shielded pool,
+where inputs are hidden by construction so there is no cheaper alternative to compete with.
+
+### The state-proof line: what is left
+
+**1. Full-state composition — the ceiling on everything below it.** `settlement_proofs` proves the **zkVM
+projection only**. The bridge, dividend and shielded families still settle by their own paths, so there is no
+single proof of a whole state transition. Until that exists, "one proof settles the block" is only true of
+part of the block, and there is no complete object to merge or fold.
+
+**2. State merging** ([`doc/state-merge.md`](doc/state-merge.md)) — how proofs compose once they exist.
+*Sequential* merge is live (the K→1 fold: chain segments, `A.roots[-1] == B.roots[0]`, keys may overlap).
+*Parallel* merge is implemented (`execnode/stark/state_merge.py`, `tests/test_state_merge.py`): two
+transitions proven from the SAME pre-root over disjoint keys, composed into one. Parallel is what lets
+proving spread across machines, which is the enabler for off-chain bulking with on-chain reuptake.
+
+**3. One hash for everything provable.** A proof can only be FOLDED if its hash is the algebraic one — the
+in-circuit verifier speaks `alghash2` and nothing else. So any proof committed under `blake2b` is
+structurally excluded from composition, no matter how fast it is. That makes the backend choice an
+*architectural* question rather than a performance one: the shielded pool proving under `blake2b` cannot ever
+join a full-state proof.
+
+**Why this ordering.** (3) decides whether (1) is even reachable, and (1) decides whether (2) has anything to
+operate on. Measured basis for the whole line: `prove_epoch_calls` verify is **flat at ~0.11 s** and proof
+size **constant at 1263 KB** while calls go 1 → 8.
 - A real "build your first dApp" guide (we still don't have one — see Track D).
 
 **Exit criteria:** a user creates an asset in the wallet in under 60 seconds, sends it to a friend,

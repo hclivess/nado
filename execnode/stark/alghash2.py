@@ -99,6 +99,10 @@ def _try_native():
                                           ctypes.POINTER(ctypes.c_uint64)]
             lib.rmerkle_commit.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
                                            ctypes.POINTER(ctypes.c_uint64)]
+            lib.merkle_verify_paths.argtypes = [ctypes.POINTER(ctypes.c_uint64)] * 4 + \
+                                               [ctypes.c_size_t] * 3 + [ctypes.c_uint32] * 2 + \
+                                               [ctypes.POINTER(ctypes.c_uint8)]
+            lib.merkle_verify_paths.restype = ctypes.c_int64
             for _nm in ("merkle_commit_ext", "rmerkle_commit_ext"):
                 getattr(lib, _nm).argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
                                               ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)]
@@ -369,3 +373,54 @@ def to_int(digest):
 
 def eq(a, b):
     return tuple(int(x) % F.P for x in a) == tuple(int(x) % F.P for x in b)
+
+def merkle_verify_paths(items, mode, ext=False, degree=1):
+    """Verify MANY authentication paths in ONE native call. Bit-identical to merkle.verify per item.
+
+    THE VERIFIER WAS NEVER PORTED. The prover port took 97.6% of prove wall-clock into Rust; nobody profiled
+    verify. Measured on one usehint sub-proof: 82% of stark.verify's 145.7 ms sat in permute/hashn -- ~3248
+    permutations per proof, each its OWN ctypes crossing. The kernel was already native (pure-Python permute
+    3167 us vs 54 us through ctypes, 58x), so this was never arithmetic; it is the identical
+    Python-loop-around-a-native-kernel shape that made _permute_snapshots 146x and fri.prove the fold's
+    bottleneck. Batching the permute alone tops out near 23 us/call, so per doc/rust-only-proving.md the fix
+    is to move the LOOP.
+
+    `items` is a sequence of (root, index, value, path). `value` is an int for base leaves, or a limb tuple
+    when ext. `mode` is "recursion" (rleaf/rnode) or "alghash2" (hashn). Returns a list of bools, or None if
+    the native lib or the export is unavailable (caller falls back to the Python loop).
+    """
+    nat = _try_native()
+    if not nat:
+        return None
+    lib, u64 = nat
+    if not hasattr(lib, "merkle_verify_paths"):
+        return None
+    m = len(items)
+    if m == 0:
+        return []
+    plen = len(items[0][3])
+    if any(len(it[3]) != plen for it in items):
+        return None                       # ragged batch: let the caller do it one at a time
+    d = int(degree) if ext else 1
+    import ctypes
+    roots = (u64 * (m * CAPACITY))()
+    idxs = (u64 * m)()
+    leaves = (u64 * (m * d))()
+    paths = (u64 * (m * plen * CAPACITY))()
+    for i, (root, index, value, path) in enumerate(items):
+        roots[i * CAPACITY:(i + 1) * CAPACITY] = [int(x) % F.P for x in root]
+        idxs[i] = int(index)
+        if ext:
+            limbs = list(value) + [0] * (d - len(value))
+            leaves[i * d:(i + 1) * d] = [int(x) % F.P for x in limbs[:d]]
+        else:
+            leaves[i] = int(value) % F.P
+        for j, sib in enumerate(path):
+            off = (i * plen + j) * CAPACITY
+            paths[off:off + CAPACITY] = [int(x) % F.P for x in sib]
+    out = (ctypes.c_uint8 * m)()
+    rc = lib.merkle_verify_paths(roots, idxs, leaves, paths, m, plen, d,
+                                 1 if mode == "alghash2" else 0, 1 if ext else 0, out)
+    if rc != 0:
+        return None
+    return [bool(x) for x in out[:]]

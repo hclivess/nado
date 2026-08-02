@@ -621,16 +621,21 @@ SETTLE_PROOF_RECURSIVE = True    # ENABLED at the alphanet-14 reroll: the in-cir
 # transactions. That is a pure function of committed block data, so it costs nothing and can never
 # disagree between honest nodes — it exists so an aggregate proof has a statement it cannot choose.
 #
-# SIG_AGG_STARK gates only whether an aggregate STARK envelope is ACCEPTED IN PLACE OF the raw
-# signatures. It is a CONSENSUS RULE and must ride a reroll for exactly the reason SETTLE_PROOF_RECURSIVE
-# does: a node honouring the envelope skips per-signature verification, so if it were live while
-# unupgraded peers still ignored the field, a bogus envelope would split the fleet.
+# SIGNATURE AGGREGATION WAS REMOVED (it never shipped; SIG_AGG_STARK was always False).
+# The block-level auth COMMITMENT stays and is unaffected: every block still binds (auth_root, auth_count)
+# into its hash preimage and every verifier recomputes both from the block's own transactions. That is a
+# pure function of committed block data, costs nothing, and is what mldsa_block_auth provides.
 #
-# It is FALSE today for a reason that is physics, not wiring: one ML-DSA-44 verification is 103 Keccak-f
-# permutations, and the proving cost of a whole block's worth does not fit a block interval on commodity
-# hardware. The path is live and verified end to end (tests/test_mldsa_block_auth.py,
-# tests/test_block_auth_wiring.py) — what it waits on is a prover fast enough, not code that does not exist.
-SIG_AGG_STARK = False
+# What went, and why, measured rather than argued: ONE ML-DSA-44 signature verifies natively in 120 us and
+# occupies 2420 bytes. Proving the butterfly half of a single signature's w' took 7.11 min, produced a
+# 1.87 MB proof and 6.98 s to verify -- ~770x the size and ~58,000x the verify time of what it replaced.
+# Aggregation only pays by amortising, and break-even was ~116 signatures for size / ~12 for verify against
+# a trace-row budget that capped a batch near 7. ZK earns its keep when CHECKING is far cheaper than DOING;
+# signature verification is already cheap, so there was no asymmetry to exploit.
+#
+# The right shape was already built: settlement_proofs proves an entire epoch as ONE zkVM trace and L1
+# verifies it in ~0.3 s INDEPENDENT of the call count, replacing RE-EXECUTION -- which is genuinely
+# expensive. That is SETTLE_PROOF_RECURSIVE, enabled at the alphanet-14 reroll.
 
 
 # How many recent heights keep an exec summary (kv_ops.exec_summary_*). These live in the `meta` sub-DB,
