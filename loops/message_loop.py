@@ -9,6 +9,28 @@ from config import get_timestamp_seconds
 from ops import self_update
 
 
+def key_collision(status_pool, our_address, our_height, our_hash):
+    """Which reporting endpoints claim OUR validator address, and which of them PROVE a duplicated key.
+
+    Returns (twins, proven): both lists of endpoint keys, proven ⊆ twins.
+
+    A twin is any endpoint reporting our address. That alone is not evidence — the status pool is keyed by
+    ENDPOINT, so this node reached via its own public IP is a twin of itself. Proof requires EQUIVOCATION:
+    the same address holding a different block hash at the SAME height, which one process cannot do.
+
+    Pure so the distinction can be tested without a fleet — see tests/test_key_collision.py.
+    """
+    twins, proven = [], []
+    for endpoint, st in (status_pool or {}).items():
+        if not isinstance(st, dict) or st.get("address") != our_address:
+            continue
+        twins.append(endpoint)
+        their_hash = st.get("latest_block_hash")
+        if st.get("latest_block_height") == our_height and their_hash and their_hash != our_hash:
+            proven.append(endpoint)
+    return sorted(twins), sorted(proven)
+
+
 class MessageClient(threading.Thread):
     """thread which displays output messages and logs them"""
 
@@ -113,6 +135,37 @@ class MessageClient(threading.Thread):
             cons_level = "warn"
             cons_detail = f"OUTSIDE majority ({agree_pct}% / {members} peers)"
         components["Consensus"] = (cons_level, cons_detail)
+
+        # --- Identity: is another node running OUR key? ---------------------
+        # A duplicated validator key is invisible to every consensus rule, because nothing either copy does
+        # is individually illegal: both are entitled to the same slots, so each builds its OWN block for that
+        # slot and signs it validly. The fleet then sees one creator emitting two different blocks at the
+        # same height, and the halves that accept different copies diverge on state while agreeing on the
+        # block body — which reads exactly like a non-block-derived write and sends you hunting for a stray
+        # writer that does not exist. Measured live on alphanet-15 (2026-08-03): 38.242.201.206 was a
+        # byte-for-byte clone of this node, wallet included, and the two produced rival copies of block 3262.
+        #
+        # A peer reporting our address is NOT by itself proof. The status pool is keyed by ENDPOINT, so this
+        # node reached via its own public IP legitimately reports our address. The distinguishing evidence is
+        # EQUIVOCATION — the same address holding a DIFFERENT block hash at the SAME height, which a single
+        # process cannot do. Short of that, this reports a suspicion rather than a verdict.
+        try:
+            our_h = self.memserver.latest_block["block_number"]
+            twins, proven = key_collision(self.consensus.status_pool, self.memserver.address, our_h,
+                                          self.memserver.latest_block["block_hash"])
+            if proven:
+                components["Identity"] = (
+                    "down", f"ANOTHER NODE IS RUNNING OUR KEY ({', '.join(sorted(proven))}) — proven by a "
+                            f"rival block at height {our_h}. Both copies mine the same slots, so the fleet "
+                            f"will keep forking until one of them is given a fresh key.")
+            elif twins:
+                components["Identity"] = (
+                    "warn", f"{len(twins)} endpoint(s) report our address ({', '.join(sorted(twins))}) — "
+                            f"harmless if that is this node's own public IP, a duplicated key if it is not")
+            else:
+                components["Identity"] = ("ok", "key is unique among reporting peers")
+        except Exception:
+            pass
 
         # --- Quorum depth -------------------------------------------------
         # DISTINCT peers, not endpoints: a node reached by several addresses (loopback + its own public IP)
