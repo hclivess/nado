@@ -398,6 +398,18 @@ async def maybe_settle(session):
                         _settle_skip_logged[_k] = _k[1]
                         print(f"[execnode] settle-with-proof UNAVAILABLE ns={ns} cursor {cur} — falling "
                               f"back to a bare quorum attestation: {type(e).__name__}: {e}", flush=True)
+            # REFRESH THE DEADLINE AFTER PROVING. `target` was computed before this loop, and building a
+            # proof takes MINUTES — long enough for max_block to fall into the past, which L1 rejects as
+            # expired. Observed live 2026-08-03: the 97.45 MiB proof was refused for size (expected) and
+            # the bare retry was then ALSO refused, because it inherited the same stale deadline; a settle
+            # that should have landed was lost. Re-read the tip and re-derive the deadline so both the
+            # proof-carrying tx and any bare retry are submitted against the CURRENT height.
+            if proof is not None:
+                try:
+                    _fresh = await _get_json(session, "/get_latest_block")
+                    target = int(_fresh["block_number"]) + 2
+                except Exception:
+                    pass                                   # keep the old deadline rather than skip the settle
             tx = construct_settle_tx(keys, cur, root, target, ns=ns, proof=proof)
             if proof is not None:
                 # SIZE IS THE BINDING CONSTRAINT, so measure it rather than infer it. A settle carries one
@@ -449,6 +461,13 @@ async def maybe_settle(session):
             # to enable before DA transport lands.
             if proof is not None and not (isinstance(out, dict) and out.get("result")):
                 _why = (out or {}).get("message") if isinstance(out, dict) else out
+                # Re-derive the deadline again: the refused submit itself cost a round trip, and on a
+                # 97 MiB body that is not instant.
+                try:
+                    _fresh = await _get_json(session, "/get_latest_block")
+                    target = int(_fresh["block_number"]) + 2
+                except Exception:
+                    pass
                 tx = construct_settle_tx(keys, cur, root, target, ns=ns)
                 out = await _submit(tx)
                 print(f"[execnode] settle-with-proof REFUSED ns={ns} cursor {cur} — retried bare: "

@@ -136,7 +136,24 @@ out, fell_back = settle_once(l1e, SMALL_PROOF)
 check("a non-size refusal also triggers the bare retry", fell_back and len(l1e.submissions) == 2)
 check("and a genuinely refused settle is reported as refused, not faked", out.get("result") is not True)
 
+
+# ---- the deadline must be REFRESHED after proving, or the bare retry is dead on arrival --------------
+# Observed live 2026-08-03: the 97.45 MiB proof was refused for size (expected) and the bare retry was
+# ALSO refused — it inherited a max_block computed BEFORE a proving run that took minutes, so L1 saw an
+# expired transaction. A fallback that cannot land is not a fallback.
+def deadline_after(tip_at_build, proving_blocks, refresh):
+    """max_block carried by the bare retry: refreshed against the current tip, or the stale one."""
+    return (tip_at_build + proving_blocks + 2) if refresh else (tip_at_build + 2)
+
+
+TIP, PROVING_BLOCKS = 9119, 30          # ~30 blocks (~3 min at 6s) elapse while proving
+now = TIP + PROVING_BLOCKS
+check("STALE deadline is already in the past when the retry is submitted — the bug",
+      deadline_after(TIP, PROVING_BLOCKS, refresh=False) < now)
+check("REFRESHED deadline is still in the future, so the bare retry can land",
+      deadline_after(TIP, PROVING_BLOCKS, refresh=True) > now)
+
 print()
-print("ALL PASS — a refused proof degrades to a bare attestation; settlement never stops"
+print("ALL PASS — refused proof degrades to a bare attestation that is still submittable"
       if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)
