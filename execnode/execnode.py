@@ -782,9 +782,34 @@ async def tail_loop():
                 # Corroborate over STALE_RESET_POLLS (~30s) so a slow L1 restart briefly reporting finalized=0
                 # can't false-trigger, then reset to genesis and cold-replay the fresh chain — no manual restart.
                 if state.cursor > finalized:
+                    # HASH-COMPARE BEFORE DESTROYING ANYTHING. The height inversion alone is NOT evidence of a
+                    # reroll: an L1 RESTART reports a low finalized height for as long as it takes to reload,
+                    # and if that exceeds the corroboration window this branch wipes the entire exec layer.
+                    # That is not hypothetical — on 2026-08-03 a slow L1 restart destroyed the live state and
+                    # all 25 deployed contracts, which then had to be redeployed.
+                    #
+                    # The old comment claimed "there's nothing to hash-compare (no shared heights)". There is:
+                    # state.block_hashes retains ~20000 finalized heights. If L1's block at a height we have
+                    # ALSO applied hashes the same, we are on the SAME chain and merely ahead of a restarting
+                    # node — never reset. Only a genuine MISMATCH means our state belongs to a purged chain.
+                    _shared = None
+                    if state.block_hashes:
+                        _h = min(max(state.block_hashes), max(0, finalized))
+                        if _h in state.block_hashes and _h > 0:
+                            _shared = _h
+                    if _shared is not None:
+                        _blk = await _get_json(session, f"/get_block_number?number={_shared}")
+                        _bh = (_blk or {}).get("block") or _blk or {}
+                        _l1h = _bh.get("block_hash")
+                        if _l1h and int(_l1h, 16) == int(state.block_hashes[_shared]):
+                            # Same chain. L1 is restarting or catching up; our state is fine.
+                            stale_polls = 0
+                            await asyncio.sleep(POLL)
+                            continue
                     stale_polls += 1
                     print(f"[execnode] cursor {state.cursor} > L1 finalized {finalized} "
-                          f"({stale_polls}/{STALE_RESET_POLLS}) — possible stale state from a reroll", flush=True)
+                          f"({stale_polls}/{STALE_RESET_POLLS}) — possible stale state from a reroll"
+                          f"{'' if _shared is None else f'; block {_shared} hash MISMATCHES L1'}", flush=True)
                     if stale_polls >= STALE_RESET_POLLS:
                         _reset_states_to_genesis(reason=f"cursor {state.cursor} outran finalized {finalized}")
                     await asyncio.sleep(POLL)
