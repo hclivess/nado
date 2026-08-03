@@ -56,6 +56,26 @@ forged settlement.
 NAMESPACE SCOPE. The tail credits `default_state` for all three recipient effects here, so these belong to
 the DEFAULT namespace only. A caller binding another namespace's records half must not apply them.
 
+WHY THIS IS NOT WIRED INTO CONSENSUS YET — read before trying. The derivation below is correct and
+currently UNREACHABLE from the settle path, for a reason that has nothing to do with this file:
+
+  a settle-with-proof is re-checked by EVERY node at block-validation time, so every input to that check
+  must come from COMMITTED state. The settle branch therefore reads per-block exec summaries
+  (kv_ops.exec_summary_get), NEVER block bodies — reading bodies made one transaction validate differently
+  on a pruned node than on an archive node and forked the fleet, and a snapshot re-anchor wipes bodies
+  wholesale so no depth fence repairs it.
+
+  But calls_commit.block_summary extracts ONLY `blob` transactions with op == "call" — the KV half. A
+  bridge deposit, a faucet donation, a treasury mirror, a shield, an xmsg appear NOWHERE in the summary.
+  `inert` records only THAT records moved, never which effect or how much, and a boolean cannot be derived
+  against. So `span_effects(txs)` has no txs to walk at the moment a verifier needs them.
+
+Unblocking it means block_summary must also commit the block's records-moving effects at incorporate time.
+exec summaries live in the `meta` sub-DB, which FEEDS THE L1 STATE ROOT — adding a field changes the root
+on every node and is a consensus change that must ride a reroll, exactly as SETTLE_PROOF_RECURSIVE did. It
+cannot be landed incrementally on a live chain. tests/test_records_settle_blocker.py pins this and is
+expected to FAIL the day the summary is extended, which is the signal that the wiring is now possible.
+
 ORDERING. The update list is sorted by KEY, matching records_transition.records_updates, because the two
 must agree byte-for-byte or the binding rejects an honest span. Both derive NET effects: a key touched
 twice in a span is ONE update carrying its pre-state old value and its final new value.
