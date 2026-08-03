@@ -13,7 +13,7 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-14"  # GF(p^3) + K->1 fold activation + block auth commitment, gen 15
+CHAIN_ID = "alphanet-15"  # records-bound settlement: the RECORDS half is provable, gen 16
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -47,7 +47,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1785440953  # alphanet-14: GF(p^3) + fold activation + block auth commitment.
+GENESIS_TIMESTAMP = 1785723600  # alphanet-15: records-bound settlement (SETTLE_PROOF_RECORDS).
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
                                 # prior-generation block can link in, and old-code nodes cannot keep
@@ -397,7 +397,23 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   proof format is not backward compatible and cannot be made so — the challenge field is what changed.
 #   The extension-valued aux columns also widen the exec trace (each logical aux column becomes a base-column
 #   PAIR), so the AIR geometry differs too.
-CHAIN_GENERATION = 15
+# 16 (2026-08-03): RECORDS-BOUND SETTLEMENT reroll — new CHAIN_ID + GENESIS_TIMESTAMP, SETTLE_PROOF_RECORDS
+#   on. Until now settle-with-proof covered only the KV half: the L1 composition pinned the SAME records
+#   half into the pre and post root, so ANY span carrying a bridge deposit, faucet donation or treasury
+#   payout fell back to the bonded quorum however good its proof was.
+#   WHY A REROLL, and why this one is not a hot toggle even by the usual standard: it changes what is
+#   WRITTEN, not merely what is checked. incorporate_block now commits each block's records EFFECTS into
+#   its exec summary — the only prune-safe source the settle branch may read, since reading block BODIES
+#   made one tx validate differently on a pruned node than an archive node and forked the fleet. Those
+#   summaries live in the `meta` sub-DB, which FEEDS THE L1 STATE ROOT, so an upgraded node with the flag
+#   on computes a different root than an unupgraded peer applying the identical block. Flipping it live
+#   would not risk a fork, it would guarantee one.
+#   DISTINCT GENESIS on purpose (the generation-10 lesson): bumping CHAIN_GENERATION alone leaves the
+#   genesis hash shared, and stranded old-code nodes then keep out-weighing the fresh chain in fork choice.
+#   Coverage fails closed: bridge deposit, faucet donation, treasury->faucet mirror. A value>0 call escrows
+#   sender->cid BEFORE the VM runs and is refunded on revert, so its net effect is not a function of the
+#   calldata; such a block is marked non-derivable and keeps riding the quorum.
+CHAIN_GENERATION = 16
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
@@ -637,7 +653,7 @@ SETTLE_PROOF_RECURSIVE = True    # ENABLED at the alphanet-14 reroll: the in-cir
 # alone (bridge deposit, faucet donation, treasury->faucet mirror). A value>0 call escrows sender->cid
 # BEFORE the VM runs and is refunded on revert, so its net effect is not a function of the calldata; that
 # block is marked non-derivable and keeps riding the quorum, exactly as an unknown blob op does.
-SETTLE_PROOF_RECORDS = False
+SETTLE_PROOF_RECORDS = True     # ENABLED at the alphanet-15 reroll — see generation 16 in the log below.
 
 # ---- SIGNATURE AGGREGATION (doc/zk-signature-aggregation.md) ----------------------------------------
 # The AUTHORIZATION COMMITMENT is unconditional from alphanet-14: every block commits (auth_root,
