@@ -725,6 +725,20 @@ INVARIANT_CHECK_BLOCKS = EPOCH_LENGTH
 DEAD_FORK_STALL_S = 900          # 15 min of a completely frozen tip before the question is even asked
 DEAD_FORK_COOLDOWN_S = 1800      # at most one purge attempt per 30 min
 DEAD_FORK_QUORUM = 2             # distinct peers that must disagree at our finalized height
+# How long a node must be CONTINUOUSLY isolated — stranded, measured DEAD_FORK, and not one peer agreeing —
+# before that overrides the "heavier side does not yield" veto.
+#
+# Without this a lone forker can never heal. Measured live on alphanet-15 (2026-08-03), node .131:
+# stranded=True, fork_state=dead_fork, agree=[], disagree=2 ... but peers_asked=3, so `unanimous` was False
+# because ONE peer never answered, and being the heavy side (a lone miner always is — it wins every slot
+# unopposed) the weight rule vetoed the purge. Both escape hatches were shut by a single silent peer, and
+# the node forked indefinitely with its lead WIDENING.
+#
+# The symmetric-split storm this protects against cannot reach here: in a real split each side still has
+# partners that AGREE with it, and the trigger requires agree == [] — genuinely alone among everyone who
+# answered. A transient partition also clears well inside the window, whereas a true strand never does.
+# And a wrong purge costs time, not safety: the resync validates every block it accepts.
+DEAD_FORK_ALONE_S = 3600         # 1h continuously alone -> purge even if our branch is heavier
 # GENESIS COLD-START QUIET PERIOD — the reroll race.
 #
 # THIS IS THE DEFECT THAT SPLIT alphanet-13. Every node purges and restarts at a reroll, but they do not

@@ -180,6 +180,22 @@ def old_block(block):
         return False
 
 
+def isolation_holds(agree, disagree, quorum):
+    """True when this node is ALONE among everyone who answered: a real quorum disagrees and NOT ONE peer
+    agrees. Deliberately counts only answers — a peer that stayed silent is not evidence of agreement, and
+    treating it as such is what let one unreachable peer veto a lone forker's recovery indefinitely."""
+    return (not agree) and len(disagree or ()) >= int(quorum)
+
+
+def isolation_since(prev_since, alone_now, now):
+    """Start/keep/clear the continuous-isolation clock. Any single probe that finds an agreeing peer RESETS
+    it — the override is meant to fire only on isolation that has held unbroken, so a transient partition
+    (which clears within a probe or two) can never accumulate toward it."""
+    if not alone_now:
+        return None
+    return prev_since if prev_since is not None else now
+
+
 def lighter_than_disagreeing(our_weight, disagree_peers, status_pool):
     """(we_are_strictly_lighter, heaviest_disagreeing_weight) — the dead-fork escape's SYMMETRY BREAKER.
 
@@ -1081,7 +1097,8 @@ class CoreClient(threading.Thread):
             parallel chains. Asked directly too (peer_tip_weight), never via the status pool.
           * only every DEAD_FORK_COOLDOWN_S, and never when the operator has opted out.
         private/ (keys, config) is never touched — purge_chain_data drops chain-derived data only."""
-        from protocol import DEAD_FORK_STALL_S, DEAD_FORK_COOLDOWN_S, DEAD_FORK_QUORUM
+        from protocol import (DEAD_FORK_STALL_S, DEAD_FORK_COOLDOWN_S, DEAD_FORK_QUORUM,
+                              DEAD_FORK_ALONE_S)
         try:
             if self.memserver.config.get("auto_escape_dead_fork", True) is False:
                 return False
@@ -1197,13 +1214,43 @@ class CoreClient(threading.Thread):
                 self.memserver.dead_fork_probe["unanimous"] = _unanimous
             except Exception:
                 pass
-            if not _we_are_lighter and not _unanimous:
+            # SUSTAINED ISOLATION IS DECISIVE, even when we are heavier and one peer stayed silent.
+            #
+            # `_unanimous` demands that EVERY peer we asked disagrees, so a single peer that fails to answer
+            # makes it permanently False — and a lone forker is always the heavy side, because it wins every
+            # slot unopposed. Both escape hatches then shut at once and the node forks forever. Measured live
+            # on alphanet-15 (2026-08-03): node .131 sat at stranded=True, fork_state=dead_fork, agree=[],
+            # disagree=2, peers_asked=3 -> unanimous False -> vetoed on weight, for hours, lead widening.
+            #
+            # Time breaks that deadlock without weakening the storm guard. In a symmetric split each side
+            # still has partners that AGREE with it, so `agree == []` is never true there; a transient
+            # partition clears within a probe or two; only a genuine strand persists. Requiring the SAME
+            # isolated verdict continuously for DEAD_FORK_ALONE_S turns "I might be alone" into "I have been
+            # alone for an hour", which is decisive however much work our branch carries.
+            _alone_now = isolation_holds(detail.get("agree"), _dis, DEAD_FORK_QUORUM)
+            self._dead_fork_alone_since = isolation_since(
+                getattr(self, "_dead_fork_alone_since", None), _alone_now, now)
+            _alone_for = (now - self._dead_fork_alone_since) if self._dead_fork_alone_since else 0
+            try:
+                self.memserver.dead_fork_probe["alone_for_s"] = int(_alone_for)
+            except Exception:
+                pass
+            _sustained = bool(self._dead_fork_alone_since) and _alone_for >= DEAD_FORK_ALONE_S
+
+            if not _we_are_lighter and not _unanimous and not _sustained:
                 self.logger.warning(
                     f"DEAD FORK confirmed at {height}, but our chain is NOT the lighter one "
                     f"(ours={_ours_w} theirs={_their_w}) and the disagreement is not unanimous "
                     f"({len(_dis)}/{len(_known_peers)} peers) — not purging. The lighter side of an even "
-                    f"split is the side that yields.")
+                    f"split is the side that yields. Alone for {int(_alone_for)}s of "
+                    f"{DEAD_FORK_ALONE_S}s needed to override on isolation alone.")
                 return False
+            if _sustained and not _we_are_lighter and not _unanimous:
+                self.logger.error(
+                    f"DEAD FORK at {height}: continuously ISOLATED for {int(_alone_for)}s — "
+                    f"{len(_dis)} peer(s) disagree, NONE agree, across every probe in that window. Our branch "
+                    f"is heavier (ours={_ours_w} theirs={_their_w}), which is exactly what a lone forker "
+                    f"looks like. A peer that never answers must not veto recovery forever. Purging.")
             if _unanimous and not _we_are_lighter:
                 self.logger.error(
                     f"DEAD FORK at {height}: every one of the {len(_known_peers)} peers we know disagrees and "
