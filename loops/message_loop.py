@@ -142,13 +142,17 @@ class MessageClient(threading.Thread):
         # slot and signs it validly. The fleet then sees one creator emitting two different blocks at the
         # same height, and the halves that accept different copies diverge on state while agreeing on the
         # block body — which reads exactly like a non-block-derived write and sends you hunting for a stray
-        # writer that does not exist. Measured live on alphanet-15 (2026-08-03): 38.242.201.206 was a
-        # byte-for-byte clone of this node, wallet included, and the two produced rival copies of block 3262.
+        # writer that does not exist.
         #
-        # A peer reporting our address is NOT by itself proof. The status pool is keyed by ENDPOINT, so this
-        # node reached via its own public IP legitimately reports our address. The distinguishing evidence is
-        # EQUIVOCATION — the same address holding a DIFFERENT block hash at the SAME height, which a single
-        # process cannot do. Short of that, this reports a suspicion rather than a verdict.
+        # A peer reporting our address is NOT by itself proof, and this distinction is the whole point of the
+        # component. The status pool is keyed by ENDPOINT, so this node reached via its own public IP reports
+        # our address and is a twin of ITSELF. On 2026-08-03 an investigation concluded from an address match
+        # alone that 38.242.201.206 was a cloned node; it was simply this box's own public IP, routing over
+        # `lo`, with identical uptime and identical tip. The address match carried no information at all.
+        #
+        # So the only admissible evidence is EQUIVOCATION — the same address holding a DIFFERENT block hash
+        # at the SAME height, which a single process cannot do. Short of that this reports a suspicion, and
+        # the suspicion is expected on any correctly configured node with a public IP.
         try:
             our_h = self.memserver.latest_block["block_number"]
             twins, proven = key_collision(self.consensus.status_pool, self.memserver.address, our_h,

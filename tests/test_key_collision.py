@@ -8,20 +8,22 @@ height. The halves that accept different copies diverge on STATE while agreeing 
 is indistinguishable, from the logs, from a non-block-derived write, and sends the operator hunting for a
 stray writer that does not exist.
 
-Measured live on alphanet-15 (2026-08-03). Node 38.242.201.206 was a byte-for-byte clone of this node,
-wallet included — identical 46-char address AND identical build string:
+THE TRAP THIS PINS, learned the expensive way. "A peer reports our address" is NOT proof of a clone: the
+status pool is keyed by ENDPOINT, so this node reached via its own public IP reports our address and is a
+twin of ITSELF. On 2026-08-03 an investigation on alphanet-15 concluded from an address match alone that
+38.242.201.206 was a byte-for-byte clone of this node, wallet included:
 
     local  address=ebd27698662f14ee2389e509781d5ff57487f4289a4d67  version=alphanet-14-36-g661b0900
     .206   address=ebd27698662f14ee2389e509781d5ff57487f4289a4d67  version=alphanet-14-36-g661b0900
 
-All five nodes agreed through block 3261; at 3262 two rival blocks existed with the SAME creator, the same
-empty body and the same exec_root, differing only in state_root. Four earlier wedges carried that same
-signature and were each written off as a mystery non-block write.
+38.242.201.206 is this box's own public IP. It routes over `lo`, and both endpoints reported the same
+uptime, the same tip and the same transaction-pool hash — one process, reached two ways. The identical
+address and identical build string carried NO information, and the two endpoints never once disagreed at
+any sampled height, which is exactly the evidence that was missing.
 
-THE TRAP THIS PINS. "A peer reports our address" is NOT proof of a clone: the status pool is keyed by
-ENDPOINT, so this node reached via its own public IP reports our address too. Escalating on that alone
-would fire on every correctly configured node with a public IP. Proof requires EQUIVOCATION — the same
-address holding a different block hash at the SAME height, which a single process cannot do.
+So the only admissible proof is EQUIVOCATION — the same address holding a different block hash at the
+SAME height, which a single process cannot do. Escalating on an address match alone would fire on every
+correctly configured node with a public IP.
 
 Run: python3 tests/test_key_collision.py
 """
@@ -59,17 +61,18 @@ def peer(addr, height=H, bhash=OURS):
 twins, proven = key_collision({"a": peer(OTHER), "b": peer(OTHER + "x")}, US, H, OURS)
 check("a fleet of distinct keys reports no twin and no proof", (twins, proven) == ([], []))
 
-# ---- our own public IP is a twin, but NOT proof ------------------------------------------------------
-# The same process reached by two endpoints agrees with itself, so there is nothing to escalate on.
-twins, proven = key_collision({"1.2.3.4": peer(US), "peer": peer(OTHER)}, US, H, OURS)
-check("this node reached via its own public IP is seen as a twin", twins == ["1.2.3.4"])
+# ---- THE CASE THAT ACTUALLY OCCURRED: our own public IP is a twin, but NOT proof ---------------------
+# The same process reached by two endpoints agrees with itself at every height, so there is nothing to
+# escalate on. This is the exact configuration that was misread as a clone.
+twins, proven = key_collision({"38.242.201.206": peer(US), "peer": peer(OTHER)}, US, H, OURS)
+check("this node reached via its own public IP is seen as a twin", twins == ["38.242.201.206"])
 check("...but agreeing with ourselves is NOT proof of a clone", proven == [])
 
-# ---- THE LIVE CASE: a rival block at the same height IS proof -----------------------------------------
+# ---- a rival block at the same height IS proof (a real clone would look like this) -------------------
 twins, proven = key_collision(
-    {"38.242.201.206": peer(US, H, RIVAL), "185.100.232.131": peer(OTHER)}, US, H, OURS)
-check("a clone holding a RIVAL block at our height is proven", proven == ["38.242.201.206"])
-check("and a proven clone is also counted as a twin", twins == ["38.242.201.206"])
+    {"10.0.0.9": peer(US, H, RIVAL), "185.100.232.131": peer(OTHER)}, US, H, OURS)
+check("a clone holding a RIVAL block at our height is proven", proven == ["10.0.0.9"])
+check("and a proven clone is also counted as a twin", twins == ["10.0.0.9"])
 
 # ---- a clone that merely LAGS is not yet provable -----------------------------------------------------
 # Different heights are ordinary lag; only equal height with a different hash is equivocation.
