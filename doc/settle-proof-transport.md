@@ -89,7 +89,8 @@ Restated with §3 folded in, the three candidates are:
    on the critical path of every block containing a settle — including all of them during a fresh sync.
    Nothing in L1 works this way today, by design.
 
-1. **Depth-gate the re-verification.** Verify a settle proof only while its block is within
+1. **Depth-gate the re-verification.** — **CHOSEN (operator decision, 2026-08-03); implemented as
+   `protocol.SETTLE_PROOF_DEPTH_GATED`, tested in `tests/test_settle_depth_gate.py`.** Verify a settle proof only while its block is within
    `FINALITY_DEPTH` (45) of the tip; below that, accept it on accumulated weight, exactly as the chain
    already treats deep history for snapshot bootstrap ("classic weak-subjectivity checkpoint").
    *Objection:* a full-syncing node then no longer independently verifies historical settlements — it
@@ -137,8 +138,20 @@ Sequence, cheapest first:
 2. ~~Raise the FRI blowup~~ — **rejected on measurement**, see §4b: 3× smaller for 7× slower, and DA is
    needed regardless.
 3. **Publish to DA, commitment on chain.** Machinery exists. This is now the next step.
-4. **Then** decide §4 deliberately — it is a security-model choice about what a from-genesis sync proves,
-   and it is the only part that should not be decided by whoever is implementing.
+4. **DECIDED** — §4 option 1, depth-gated verification. The cryptographic check runs while a block is
+   within `FINALITY_DEPTH` of the known tip; deeper blocks are accepted on accumulated weight. A
+   from-genesis sync therefore INHERITS historical settlements rather than proving them, which is the same
+   weak subjectivity already accepted for snapshot bootstrap. Structure (cursor match, tip extension, root
+   composition, DA binding, records binding) is **never** gated, so a fabricated settle is still refused at
+   any depth.
+
+   Depth comes from the sync layer, not from local state: every measure derived from what a node has
+   applied is ~0 during a sequential sync, because its own tip IS the block it is applying. A fetched sync
+   batch proves chain exists above its tail, so the batch tail height is the lower bound used
+   (`_fetch_sync_batch` records it; `validate_transactions_in_block` compares against it).
+
+   Still open before the prover can be switched on: the DA transport itself (step 3), now unblocked by this
+   decision.
 
 Until (1)–(3) land, `NADO_EXEC_SETTLE_PROVE` should stay off: it costs minutes of proving per tick to build
 a transaction that is rejected on size.

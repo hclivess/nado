@@ -655,6 +655,26 @@ SETTLE_PROOF_RECURSIVE = True    # ENABLED at the alphanet-14 reroll: the in-cir
 # block is marked non-derivable and keeps riding the quorum, exactly as an unknown blob op does.
 SETTLE_PROOF_RECORDS = True     # ENABLED at the alphanet-15 reroll — see generation 16 in the log below.
 
+# ---- DEPTH-GATED PROOF VERIFICATION (doc/settle-proof-transport.md §4, option 1) --------------------
+# A settle proof is ~97 MiB against a ~256 KiB block, so it cannot ride in the block and must be fetched.
+# Re-fetching and re-verifying one per settle across all of history would make joining the network cost
+# hundreds of GiB, so verification is gated to blocks still within FINALITY_DEPTH of the known tip; deeper
+# blocks are accepted on accumulated weight.
+#
+# THE COST, stated rather than buried: a from-genesis sync no longer independently verifies historical
+# settlements, it INHERITS them from whoever was online when the block was at the tip. That is the same
+# weak-subjectivity the chain already accepts for snapshot bootstrap ("classic weak-subjectivity
+# checkpoint"), now extended to settlement. It was chosen deliberately over three alternatives — a DA fetch
+# inside consensus validation, leaning on the quorum path, and waiting for recursion — each of which is
+# written up with its objection in the doc.
+#
+# IT CANNOT FORK THE FLEET: the gate only ever RELAXES, so two nodes disagreeing about depth disagree as
+# "strict rejects / relaxed accepts" and diverge only on an INVALID proof — which cannot reach a deep block,
+# because the nodes that saw it at the tip were strict and rejected it there.
+#
+# Setting this False restores unconditional verification (correct, and unusable at 97 MiB/settle).
+SETTLE_PROOF_DEPTH_GATED = True
+
 # ---- SIGNATURE AGGREGATION (doc/zk-signature-aggregation.md) ----------------------------------------
 # The AUTHORIZATION COMMITMENT is unconditional from alphanet-14: every block commits (auth_root,
 # auth_count) inside its hash preimage and every verifier recomputes both from the block's own

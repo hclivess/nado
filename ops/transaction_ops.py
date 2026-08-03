@@ -692,7 +692,7 @@ def create_txid(transaction):
     return blake2b_hash(body)
 
 
-def validate_transaction(transaction, logger, block_height):
+def validate_transaction(transaction, logger, block_height, deep=False):
     """CONSENSUS admission gate for one tx — raises AssertionError on the first violation. Checks:
     chain_id (no cross-chain replay), signature over the txid (validate_origin, PUBKEY-ONCE aware),
     sender is a real KEYED address (a keyless reserved name can never originate a tx), recipient is a
@@ -1014,8 +1014,32 @@ def validate_transaction(transaction, logger, block_height):
             expected_pre = tip_root
             # Verify every bound epoch at the PROTOCOL query strength (None ⇒ the protocol constant — never
             # the bundle's own word) and at the PROTOCOL tree depth, deterministically on every node.
-            ok, why, kv_pre, kv_post = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
-            assert ok, f"Settle proof invalid: {why}"
+            # DEPTH-GATED VERIFICATION. Cryptographic verification of the proof runs while the block is
+            # near the tip; a block already buried under FINALITY_DEPTH is accepted on accumulated weight
+            # instead, exactly as the chain already treats deep history for snapshot bootstrap.
+            #
+            # WHY: the proof cannot live in the block (~97 MiB vs a ~256 KiB block, see
+            # doc/settle-proof-transport.md), so it has to be fetched. Re-fetching and re-verifying one per
+            # settle for the whole of history would make joining the network cost hundreds of GiB.
+            #
+            # WHAT IT COSTS, stated plainly: a from-genesis sync no longer independently verifies
+            # historical settlements — it INHERITS them from the nodes that were online when the block was
+            # at the tip. That is a real reduction in what a full sync proves, and it is a deliberate
+            # choice (option 1 of doc/settle-proof-transport.md §4), not a side effect.
+            #
+            # WHY IT CANNOT FORK THE FLEET: the gate only ever RELAXES. Two nodes disagreeing about depth
+            # disagree as "strict rejects / relaxed accepts", so they diverge only on a proof that is
+            # actually INVALID — and an invalid proof cannot reach a deep block in the first place, because
+            # the nodes that saw it at the tip were in the strict regime and rejected it there.
+            #
+            # Everything else in this branch still runs at any depth: cursor match, tip extension, root
+            # composition, chain-read binding, the epoch/PAY guards and the DA binding. Only the expensive
+            # cryptographic check is skipped, so a fabricated settle is still refused on structure.
+            if deep and _protocol.SETTLE_PROOF_DEPTH_GATED:
+                kv_pre, kv_post = kv_pre_claim, kv_post_claim
+            else:
+                ok, why, kv_pre, kv_post = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
+                assert ok, f"Settle proof invalid: {why}"
             assert kv_pre == kv_pre_claim and kv_post == kv_post_claim, "Settle proof kv halves mismatch"
             # RECORDS HALF. Frozen by default: the SAME rec_hex composes both roots, so a proven span must
             # not have moved records (enforced per block in verify_calls_bound_to_summaries).

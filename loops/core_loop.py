@@ -545,11 +545,24 @@ class CoreClient(threading.Thread):
         Falsy on ANY failure — never raises, so it is safe to run in the emergency loop's prefetch
         thread (asyncio.run spins a private event loop per call, thread-safe)."""
         try:
-            return asyncio.run(get_blocks_after(
+            batch = asyncio.run(get_blocks_after(
                 target_peer=peer,
                 from_hash=from_hash,
                 count=SYNC_BATCH_MAX,
                 logger=self.logger))
+            # RECORD HOW FAR THE CHAIN IS KNOWN TO REACH. This is the only honest source of "is the block
+            # I am about to apply DEEP?": every measure derived from local state is ~0 during a sequential
+            # sync, because the node's own tip IS the block it is applying. A fetched batch proves chain
+            # exists above its own tail, so its tail height is a lower bound on the real tip — which is
+            # exactly what the depth gate on settle-proof verification needs (protocol.SETTLE_PROOF_DEPTH_GATED).
+            try:
+                if batch:
+                    top = max(int(b["block_number"]) for b in batch)
+                    if top > getattr(self, "_known_tip_height", 0):
+                        self._known_tip_height = top
+            except Exception:
+                pass                                   # a malformed batch is the caller's problem, not ours
+            return batch
         except Exception as e:
             self.logger.error(f"Failed to fetch sync batch after {from_hash} from {peer}: {e}")
             return None
@@ -2271,9 +2284,17 @@ class CoreClient(threading.Thread):
                     # epoch_of(N) matches how apply_register records it (index_transactions applies
                     # with block["block_number"]); account STATE for spending/producer checks is
                     # still parent state (this block is not yet incorporated).
+                    # DEEP = this block is already buried under FINALITY_DEPTH of chain we KNOW exists
+                    # (learned from a sync batch's tail — see _fetch_sync_batch). Only the expensive
+                    # settle-proof verification consults it; every structural check runs regardless.
+                    # Our OWN candidate block is never deep: `remote` is False there and we are at the tip.
+                    _deep = bool(remote) and (
+                        int(getattr(self, "_known_tip_height", 0)) - int(block["block_number"])
+                        > FINALITY_DEPTH)
                     validate_transaction(transaction=transaction,
                                          logger=logger,
-                                         block_height=block["block_number"])
+                                         block_height=block["block_number"],
+                                         deep=_deep)
                 except Exception as e:
                     self.logger.error(f"Failed to validate transaction during block preparation: {e}")
                     if remote:
