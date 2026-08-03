@@ -25,6 +25,18 @@ So the only admissible proof is EQUIVOCATION — the same address holding a diff
 SAME height, which a single process cannot do. Escalating on an address match alone would fire on every
 correctly configured node with a public IP.
 
+THE SECOND TRAP, learned the same day and one layer down. Knowing the match was not proof, the first cut
+still reported it as a *suspicion* — and the running node then logged, every 10 seconds, forever:
+
+    [ WARN ] Identity   1 endpoint(s) report our address (38.242.201.206) — harmless if that is this
+                        node's own public IP, a duplicated key if it is not
+
+The condition it warns on is the NORMAL configuration, so the line can never clear, and a health line that
+is permanently red is one the operator is trained to skip. A check that cannot distinguish the healthy
+case from the broken one is not a weak check, it is a broken one. `local_addresses` (from
+`message_loop.own_addresses()`: configured IP + loopback + bound interfaces) now removes what we can prove
+is ourselves BEFORE anything is reported, so the healthy fleet reports "ok" and a warn means something.
+
 Run: python3 tests/test_key_collision.py
 """
 import os
@@ -35,7 +47,7 @@ os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_keycoll_")
 os.environ["NADO_TESTNET"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from loops.message_loop import key_collision
+from loops.message_loop import key_collision, own_addresses
 
 fails = 0
 
@@ -67,6 +79,34 @@ check("a fleet of distinct keys reports no twin and no proof", (twins, proven) =
 twins, proven = key_collision({"38.242.201.206": peer(US), "peer": peer(OTHER)}, US, H, OURS)
 check("this node reached via its own public IP is seen as a twin", twins == ["38.242.201.206"])
 check("...but agreeing with ourselves is NOT proof of a clone", proven == [])
+
+# ...and once we can PROVE the endpoint is this box, it is not even a suspicion. This is the regression
+# for the permanent [ WARN ] Identity line the live node logged every 10s on a perfectly healthy fleet.
+twins, proven = key_collision({"38.242.201.206": peer(US), "peer": peer(OTHER)}, US, H, OURS,
+                              local_addresses={"38.242.201.206"})
+check("a twin that is provably THIS box is not reported at all", (twins, proven) == ([], []))
+check("...so a healthy node with a public IP reports Identity ok, not a standing warn", not twins)
+
+# loopback is always ours, and an endpoint carrying a :port suffix must still be recognised
+twins, _ = key_collision({"127.0.0.1:9173": peer(US)}, US, H, OURS, local_addresses=own_addresses())
+check("loopback with a port suffix is recognised as ourselves", twins == [])
+
+# the filter must NEVER swallow proof: two processes on this box sharing a key still equivocate
+twins, proven = key_collision({"127.0.0.1": peer(US, H, RIVAL)}, US, H, OURS,
+                              local_addresses=own_addresses())
+check("an own address that EQUIVOCATES is still proven (a second local process)", proven == ["127.0.0.1"])
+
+# a real remote clone is not masked by the filter
+twins, proven = key_collision({"38.242.201.206": peer(US), "10.0.0.9": peer(US, H, RIVAL)}, US, H, OURS,
+                              local_addresses={"38.242.201.206"})
+check("filtering ourselves does not hide a real remote clone", proven == ["10.0.0.9"])
+check("and the remote clone is the only twin reported", twins == ["10.0.0.9"])
+
+# own_addresses() must actually find this machine's own addresses, or the filter is decorative
+check("own_addresses() includes loopback", "127.0.0.1" in own_addresses())
+check("own_addresses() folds in the configured public IP", "1.2.3.4" in own_addresses("1.2.3.4"))
+check("own_addresses() does not leak the configured IP into the cache",
+      "1.2.3.4" not in own_addresses())
 
 # ---- a rival block at the same height IS proof (a real clone would look like this) -------------------
 twins, proven = key_collision(

@@ -9,26 +9,59 @@ from config import get_timestamp_seconds
 from ops import self_update
 
 
-def key_collision(status_pool, our_address, our_height, our_hash):
+def key_collision(status_pool, our_address, our_height, our_hash, local_addresses=()):
     """Which reporting endpoints claim OUR validator address, and which of them PROVE a duplicated key.
 
-    Returns (twins, proven): both lists of endpoint keys, proven ⊆ twins.
+    Returns (twins, proven): both lists of endpoint keys, proven ⊆ twins ∪ local_addresses.
 
-    A twin is any endpoint reporting our address. That alone is not evidence — the status pool is keyed by
-    ENDPOINT, so this node reached via its own public IP is a twin of itself. Proof requires EQUIVOCATION:
-    the same address holding a different block hash at the SAME height, which one process cannot do.
+    A twin is an endpoint reporting our address that we cannot already explain. That alone is still not
+    evidence — the status pool is keyed by ENDPOINT, so this node reached via its own public IP reports our
+    address and is a twin of ITSELF. `local_addresses` is the set of addresses that are known to be this
+    box (configured public IP, loopback, bound interface addresses); those are dropped from `twins`
+    entirely, because reporting them is the expected behaviour of a correctly configured node and a health
+    check that fires on every correct configuration teaches the operator to ignore it.
+
+    Proof is unaffected by that filtering, and requires EQUIVOCATION: the same address holding a different
+    block hash at the SAME height. One process cannot do that, so it stands even for an own address (there
+    it would mean a second process on this box, which is worth screaming about too).
 
     Pure so the distinction can be tested without a fleet — see tests/test_key_collision.py.
     """
+    mine = {str(a) for a in (local_addresses or ())}
     twins, proven = [], []
     for endpoint, st in (status_pool or {}).items():
         if not isinstance(st, dict) or st.get("address") != our_address:
             continue
-        twins.append(endpoint)
+        # endpoints may carry a :port suffix; compare on the host part as well as the raw key
+        host = str(endpoint).rsplit(":", 1)[0] if str(endpoint).count(":") == 1 else str(endpoint)
+        is_self = str(endpoint) in mine or host in mine
+        if not is_self:
+            twins.append(endpoint)
         their_hash = st.get("latest_block_hash")
         if st.get("latest_block_height") == our_height and their_hash and their_hash != our_hash:
             proven.append(endpoint)
     return sorted(twins), sorted(proven)
+
+
+_own_addresses_cache = {"v": None}
+
+
+def own_addresses(configured_ip=None):
+    """Every address by which this box can legitimately be reached, so an endpoint that is really US is
+    never reported as a suspected key clone. Cached: this is a syscall on a 10s health-report path, and
+    bound interfaces do not change on a running node."""
+    if _own_addresses_cache["v"] is None:
+        found = {"127.0.0.1", "localhost", "::1"}
+        try:
+            import socket
+            for _iface, entries in psutil.net_if_addrs().items():
+                for entry in entries:
+                    if entry.family in (socket.AF_INET, socket.AF_INET6) and entry.address:
+                        found.add(entry.address.split("%")[0])
+        except Exception:
+            pass
+        _own_addresses_cache["v"] = found
+    return _own_addresses_cache["v"] | ({str(configured_ip)} if configured_ip else set())
 
 
 class MessageClient(threading.Thread):
@@ -151,12 +184,18 @@ class MessageClient(threading.Thread):
         # `lo`, with identical uptime and identical tip. The address match carried no information at all.
         #
         # So the only admissible evidence is EQUIVOCATION — the same address holding a DIFFERENT block hash
-        # at the SAME height, which a single process cannot do. Short of that this reports a suspicion, and
-        # the suspicion is expected on any correctly configured node with a public IP.
+        # at the SAME height, which a single process cannot do.
+        #
+        # And an endpoint that is demonstrably THIS box is not even a suspicion: own_addresses() supplies
+        # the configured public IP, loopback and every bound interface address, and those are filtered out
+        # before anything is reported. The first cut of this component warned on the bare address match,
+        # which meant a permanent WARN on every correctly configured node with a public IP — a health line
+        # that is always red is a health line the operator learns to skip.
         try:
             our_h = self.memserver.latest_block["block_number"]
             twins, proven = key_collision(self.consensus.status_pool, self.memserver.address, our_h,
-                                          self.memserver.latest_block["block_hash"])
+                                          self.memserver.latest_block["block_hash"],
+                                          local_addresses=own_addresses(getattr(self.memserver, "ip", None)))
             if proven:
                 components["Identity"] = (
                     "down", f"ANOTHER NODE IS RUNNING OUR KEY ({', '.join(sorted(proven))}) — proven by a "
@@ -164,8 +203,8 @@ class MessageClient(threading.Thread):
                             f"will keep forking until one of them is given a fresh key.")
             elif twins:
                 components["Identity"] = (
-                    "warn", f"{len(twins)} endpoint(s) report our address ({', '.join(sorted(twins))}) — "
-                            f"harmless if that is this node's own public IP, a duplicated key if it is not")
+                    "warn", f"{len(twins)} endpoint(s) report our address ({', '.join(sorted(twins))}) and "
+                            f"are not this box — a duplicated key if they ever hold a rival block")
             else:
                 components["Identity"] = ("ok", "key is unique among reporting peers")
         except Exception:
