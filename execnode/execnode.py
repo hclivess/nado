@@ -334,11 +334,49 @@ async def maybe_settle(session):
             try:
                 proof = await _build_settlement_proof(session, ns, st, cur, root)
             except Exception as e:
-                proof = None                                   # proving is best-effort; a bare attestation always works
+                # BEST-EFFORT, BUT NOT SILENT. A bare attestation always works, so swallowing here is
+                # correct for liveness — but swallowing it QUIETLY meant an operator who switched the
+                # prover on saw "SETTLE" instead of "SETTLE-WITH-PROOF" forever with no reason anywhere,
+                # and no way to tell a disabled prover from a broken one. Rate-limited per (ns, reason) so
+                # a persistent fault says so once rather than once per settle.
+                proof = None
+                if SETTLE_PROVE:
+                    _k = (ns, f"{type(e).__name__}: {e}")
+                    if _settle_skip_logged.get(_k) != _k[1]:
+                        _settle_skip_logged[_k] = _k[1]
+                        print(f"[execnode] settle-with-proof UNAVAILABLE ns={ns} cursor {cur} — falling "
+                              f"back to a bare quorum attestation: {type(e).__name__}: {e}", flush=True)
             tx = construct_settle_tx(keys, cur, root, target, ns=ns, proof=proof)
+            if proof is not None:
+                # SIZE IS THE BINDING CONSTRAINT, so measure it rather than infer it. A settle carries one
+                # proof PER SEGMENT and segments are block-aligned, so the payload grows with the span —
+                # the widely-quoted "1263 KB, constant in call count" is per EPOCH, not per settle, and
+                # conflating the two hides the fact that a 20-block span is tens of MB. Logged next to the
+                # span that produced it so the achievable span is a measurement, not a guess.
+                try:
+                    _sz = len(json.dumps(tx, separators=(",", ":")))
+                    _segs = len((proof or {}).get("segments") or [])
+                    print(f"[execnode] settle-with-proof ns={ns} span→{cur}: {_segs} segment(s), "
+                          f"tx {_sz / 1048576:.2f} MiB", flush=True)
+                except Exception:
+                    pass
             async with session.post(L1 + "/submit_transaction", json=tx,
                                     timeout=aiohttp.ClientTimeout(total=15)) as r:
-                out = await r.json(content_type=None)
+                # NEVER let an unparseable reply abort the settle loop. L1 sometimes answers with an EMPTY
+                # body (a rate-limit or proxy path that returns no content), and r.json() then raises
+                # JSONDecodeError — which used to propagate to the outer handler and skip the whole
+                # namespace's settle for that tick, once a minute, reported only as
+                # "Expecting value: line 1 column 1 (char 0)" with no endpoint and no line. A submit whose
+                # RESULT is unknown is simply a submit that did not visibly succeed: treat it as not
+                # accepted, keep the reason, and let the next tick retry.
+                _body = await r.text()
+                try:
+                    out = json.loads(_body) if _body.strip() else None
+                except ValueError:
+                    out = None
+                if out is None:
+                    out = {"result": False,
+                           "message": f"HTTP {r.status}, unparseable body: {(_body or '')[:120]!r}"}
             if isinstance(out, dict) and out.get("result"):
                 ok_any = True
                 # stash the snapshot AT this settle so /exec/state_snapshot can serve a joiner a
@@ -354,7 +392,19 @@ async def maybe_settle(session):
         if ok_any:
             _last_settled_cursor = state.cursor
     except Exception as e:
-        print(f"[execnode] settle error: {e}", flush=True)
+        # WHERE, not just WHAT. This printed a bare message, and "Expecting value: line 1 column 1
+        # (char 0)" — json.loads("") — is the least informative string in Python: it names neither the
+        # endpoint that returned empty nor the line that parsed it. One frame of location turns a recurring
+        # mystery into a fix.
+        import traceback as _tb
+        _fr = _tb.extract_tb(e.__traceback__)
+        # The DEEPEST frame is useless here — for a JSONDecodeError it is always json/decoder.py, which
+        # names neither the endpoint nor the call. Report the deepest frame in OUR OWN file, which is the
+        # line that actually made the request.
+        _ours = [f for f in _fr if f.filename.endswith("execnode.py")]
+        _pick = (_ours or _fr)[-1] if _fr else None
+        _where = f"{_pick.filename.rsplit('/', 1)[-1]}:{_pick.lineno} in {_pick.name}" if _pick else "?"
+        print(f"[execnode] settle error at {_where}: {type(e).__name__}: {e}", flush=True)
 
 
 async def _get_json(session, path):

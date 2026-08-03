@@ -1841,7 +1841,18 @@ async def make_app(port):
     0.0.0.0 plus a best-effort SEPARATE IPV6_V6ONLY socket (so v4 clients keep plain v4 addresses for
     rate-limit keys); NADO_TESTNET binds only the node's own configured IP so several nodes can share
     the port on distinct 127.0.0.x addresses. Never returns."""
-    app = web.Application()
+    # BODY CAP. aiohttp defaults client_max_size to 1 MiB, and a SETTLE-WITH-PROOF transaction is bigger
+    # than that: the epoch proof is ~1263 KB (measured, and constant in the call count — see ROADMAP).
+    # So every proof-carrying settle was answered "HTTP 413 Maximum request body size 1048576 exceeded"
+    # and the validity-proof path could not be used AT ALL, on any generation, no matter which consensus
+    # flags were on. It presented as an unparseable submit reply in the exec node, never as a size error,
+    # which is why enabling the prover produced bare quorum attestations and no explanation.
+    #
+    # 8 MiB matches the peer-body budget memserver already assumes (transaction_pool_max_bytes is 4 MiB
+    # "<< 8 MiB peer body"), leaves headroom for a fold bundle, and is still far below anything that would
+    # make a submit a memory-exhaustion lever — the pool cap, per-tx validation and the rate limiter all
+    # still apply behind it.
+    app = web.Application(client_max_size=8 * 1024 * 1024)
     app.add_routes([
         web.get("/", home),
         *[web.get("/" + _t, interface_page) for _t in _TAB_PATHS],
