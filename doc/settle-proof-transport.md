@@ -50,12 +50,29 @@ Settling at the protocol maximum span instead of every poll is therefore a pure 
 
 1.4 GiB/day is an ordinary DA workload. That is the difference between "infeasible" and "engineering".
 
-## 3. The transport
+## 3. The transport — and why it is not merely a transport question
 
-The proof cannot go in a block, so it goes to DA and the settle tx carries only its commitment. This is not
-new machinery: `/da/publish`, `proof_da` and `da_fetch` already exist, and the shielded path already
-submits exactly this way ("the caller publishes it to /da/publish and submits an L1 blob carrying only the
-commitment", `execnode/execnode.py`).
+The proof cannot go in a block, so the obvious move is DA: publish it via `/da/publish` and carry only the
+commitment. The machinery exists and the shielded `field_transfer` path already submits exactly this way.
+
+**But that precedent does not transfer, and the reason is the crux of this whole document.**
+
+* **L1 never fetches DA.** The only `proof_da` reference anywhere in L1 code (`ops/transaction_ops.py`)
+  validates the *string shape* of the field — "must be a safe commitment string" — and nothing more. The
+  EXEC layer resolves and verifies it later, stalling the block if it is unavailable
+  (`_apply_block`: "Returns False (applying NOTHING) if a field_transfer proof is unavailable via DA").
+* That is sound for `field_transfer` because the shielded pool is an **exec-layer** object: L1 does not
+  need it to be valid in order to validate a block.
+* The **settled root is not** an exec-layer object. `settled_header_commitment` puts the justified
+  `(exec_cursor, exec_root)` into the **L1 BLOCK HEADER**, and `block_content_hash` includes `exec_root`
+  and `exec_cursor` in the hash preimage. Every L1 block commits to it.
+
+So if the proof lives in DA and L1 does not fetch it, **L1 commits a settled root in its own header
+without ever verifying the proof that justifies it** — the root then rests entirely on the bonded quorum,
+and "trustless settlement" is trustless only to whoever independently re-verified out of band.
+
+**Therefore §3 and §4 are the same decision, not sequential steps.** Choosing DA transport IS choosing what
+L1 verifies.
 
 ## 4. The actual open problem: WHEN the proof is verified
 
@@ -64,7 +81,13 @@ block a node incorporates — including historical blocks during a fresh sync.**
 means a joining node must fetch and verify one ~97 MiB proof per settle across the whole chain. That is the
 real obstacle, and it is about verification timing, not size.
 
-Three candidate resolutions, with the honest objection to each:
+Restated with §3 folded in, the three candidates are:
+
+0. **L1 fetches from DA during block validation.** Keeps the proof authoritative at L1.
+   *Objection:* this puts a NETWORK FETCH inside consensus validation. A node could no longer validate a
+   block from local data, a DA outage stalls the chain rather than degrading it, and the ~97 MiB fetch sits
+   on the critical path of every block containing a settle — including all of them during a fresh sync.
+   Nothing in L1 works this way today, by design.
 
 1. **Depth-gate the re-verification.** Verify a settle proof only while its block is within
    `FINALITY_DEPTH` (45) of the tip; below that, accept it on accumulated weight, exactly as the chain
