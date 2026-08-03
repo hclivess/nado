@@ -102,40 +102,13 @@ def _same_network(st, min_protocol):
     return st.get("protocol", 0) >= min_protocol
 
 
-def snapshot_on_our_chain(height, snap_hash, our_block_hash_at):
-    """Is this advertised snapshot a block WE ALSO HOLD, at the same height and the same hash?
-
-    This is what makes an otherwise-forbidden re-anchor provably safe. The floor test asks "is the target
-    above the height we finalised?", but a fork wedge is precisely the case where our own floor was
-    established ON THE FORK — so the floor defends history the network never agreed with, and every peer's
-    snapshot sits below it. Measured live on alphanet-15 (2026-08-03): this node forked at 3261 and
-    finalised 3218, while EVERY peer advertised snapshot_height=3000. reanchor_candidates(floor=3218) was
-    therefore empty forever, and all three recovery paths were shut at once.
-
-    Height 3000 was a block all five nodes agreed on. Re-anchoring to it discards only our own forked
-    tail — it does not cross any history the network disputes. So identity, not altitude, is the honest
-    safety test: if the snapshot IS our block, importing it is a rewind through SHARED history, and the
-    tail is then re-fetched and re-verified block by block exactly as any other sync.
-
-    Returns False whenever it cannot prove the match (no accessor, missing fields, lookup error) — the
-    caller then falls back to the strict floor test, so this can only ever ADD candidates, never remove.
-    """
-    if our_block_hash_at is None or height is None or not snap_hash:
-        return False
-    try:
-        return our_block_hash_at(height) == snap_hash
-    except Exception:
-        return False
-
-
-def reanchor_candidates(peers, statuses, our_weight, floor, min_protocol=None, our_block_hash_at=None):
+def reanchor_candidates(peers, statuses, our_weight, floor, min_protocol=None):
     """Weight-selected RE-ANCHOR candidates, extracted for direct testing: (weight, snapshot_height,
     snapshot_hash, ip) for every SAME-PROTOCOL peer advertising a chain STRICTLY heavier than ours whose
-    snapshot sits above `floor` — OR, per snapshot_on_our_chain, whose snapshot is a block we ourselves
-    hold at that height, which is safe regardless of altitude. Normal wedge recovery passes the local
-    finality floor; ESCALATED recovery (an escalated wedge recovery) passes 0 — any snapshot on the
-    heavier chain qualifies, because a floor that keeps pinning us to a lighter chain is itself the fault
-    being recovered from."""
+    snapshot sits above `floor`. Normal wedge recovery passes the local finality floor; ESCALATED recovery
+    (an escalated wedge recovery) passes 0 — any snapshot on the heavier chain
+    qualifies, because a floor that keeps pinning us to a lighter chain is itself the fault being
+    recovered from."""
     if min_protocol is None:
         from config import get_protocol
         min_protocol = get_protocol()
@@ -145,8 +118,7 @@ def reanchor_candidates(peers, statuses, our_weight, floor, min_protocol=None, o
              and st.get("snapshot_hash") and st.get("snapshot_height") is not None
              and _same_network(st, min_protocol)
              and st["latest_block_weight"] > our_weight
-             and (st["snapshot_height"] > floor
-                  or snapshot_on_our_chain(st["snapshot_height"], st["snapshot_hash"], our_block_hash_at))]
+             and st["snapshot_height"] > floor]
     # QUORUM, NOT THE BIGGEST INTEGER. latest_block_weight is peer-ASSERTED and unverifiable at this point,
     # so taking max() let ONE responder dictate the checkpoint we adopt wholesale — and the tail we then
     # "re-verify" is verified against the state we just imported from that peer, so balances, the bonded
@@ -821,12 +793,7 @@ class CoreClient(threading.Thread):
                 # cannot be extended and the real heaviest chain re-triggers.
                 our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
                 floor = 0 if allow_below_floor else self.memserver.finalized_height
-                # Pass our own height->hash lookup so a snapshot BELOW the floor still qualifies when it is
-                # a block we ourselves hold (snapshot_on_our_chain). Without this the fork wedge is terminal:
-                # our floor is on the fork, every peer snapshot is below it, and no candidate ever exists.
-                from ops.block_ops import get_block_hash_by_number as _our_hash_at
-                cand = reanchor_candidates(peers, statuses, our_weight, floor,
-                                           our_block_hash_at=_our_hash_at)
+                cand = reanchor_candidates(peers, statuses, our_weight, floor)
                 if not cand:
                     self.logger.info("Re-anchor: no peer advertises a strictly-heavier chain with a snapshot "
                                      f"above {'0 (ESCALATED)' if allow_below_floor else 'our finality floor'};"
