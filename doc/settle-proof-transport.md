@@ -83,14 +83,37 @@ Three candidate resolutions, with the honest objection to each:
    8.2 GB without completing**. It needs to reduce size by ~1000×, not 4×, and it currently cannot produce
    at all.
 
+## 4b. The FRI blowup lever, measured — and rejected
+
+`fri_blowup` is not a tunable. `stark.py` sets `blowup = 2·next_pow2(max_degree)`, `N = blowup·T` and
+`deg_bound = next_pow2(max_degree)·T`, so `fri_blowup = N/deg_bound = 2` is a **structural identity**
+(`stark_native.py` pins it for exactly that reason). Raising it to 16 means an **8× larger LDE domain**,
+paid in NTT and Merkle work on every column.
+
+Measured at equal provable security (blowup 2 needs 4× the queries of blowup 16 for the same bits):
+
+| config | proving time | proof size |
+|---|---|---|
+| blowup 2, NQ 8 | 53.3 s | 3.166 MiB |
+| blowup 16, NQ 2 | **374.4 s** | **1.070 MiB** |
+
+**3.0× smaller for 7.0× slower.** At protocol strength that turns ~97 MiB into ~32 MiB while multiplying a
+proving cost that is already the binding constraint (the K→1 fold cannot complete at all).
+
+And it does not change the conclusion it was meant to serve: 32 MiB is still ~128× a block, so DA is
+required either way — and at the max-span cadence the difference is 5.7 vs 1.9 GiB/day, which no operator
+would notice. **Paying 7× proving time to move between two numbers that both need DA is a bad trade, so
+this lever is dropped.**
+
 ## 5. Recommendation
 
 Sequence, cheapest first:
 
-1. **Settle at the max span** rather than every poll. Pure win, no consensus change, 48× less proof data.
-2. **Raise the FRI blowup** to cut queries at equal security (~4× smaller). Consensus change, rides a
-   reroll.
-3. **Publish to DA, commitment on chain.** Machinery exists.
+1. **DONE** — settle at the max span rather than every poll. Pure win, no consensus change, 48× less proof
+   data.
+2. ~~Raise the FRI blowup~~ — **rejected on measurement**, see §4b: 3× smaller for 7× slower, and DA is
+   needed regardless.
+3. **Publish to DA, commitment on chain.** Machinery exists. This is now the next step.
 4. **Then** decide §4 deliberately — it is a security-model choice about what a from-genesis sync proves,
    and it is the only part that should not be decided by whoever is implementing.
 
