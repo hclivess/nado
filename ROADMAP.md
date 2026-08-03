@@ -441,3 +441,36 @@ honestly is rarer than it should be.
 5. **No hidden fees, no admin keys, no authority.** If a design needs a privileged address to work,
    it is the wrong design — that is the one thing that makes NADO worth choosing over the chain this
    roadmap is learning from.
+
+### Why settle-with-proof is not submittable (measured 2026-08-03)
+
+A settle-with-proof carrying **one** segment serialises to **97.30 MiB**, against an 8 MiB submit cap.
+That is the whole reason the validity-proof path has never run in production, on any generation,
+whatever the consensus flags said.
+
+Where the bytes are, measured rather than assumed (`prove_settlement_sparse`, one call, toy depth):
+
+| field | NUM_QUERIES=2 | NUM_QUERIES=8 |
+|---|---|---|
+| `segment.proof.openings` | 0.574 MiB | 2.295 MiB |
+| `segment.transition` | 0.278 MiB | 0.750 MiB |
+| `segment.pre_contracts` | ~0 | ~0 (1.6 MiB with 25 real contracts) |
+| **total** | **0.892 MiB** | **3.166 MiB** |
+
+FRI openings scale **linearly with the query count** (4× queries → 4.0× openings), and protocol strength
+is `NUM_QUERIES = 320` (`execnode/stark/fri.py`). That extrapolates to the ~97 MiB observed live.
+
+So the payload is **O(queries), not O(state)** — and `pre_contracts`, the obvious suspect, is ~1.6 MiB of
+97. The succinct `verify_bound_epoch_replay` path (in-circuit membership instead of shipping state) is
+therefore *not* the fix; it would save under 2%.
+
+The two real levers:
+
+1. **Fewer queries for the same security** — raise the FRI blowup factor and lean on grinding. 320 queries
+   implies a low blowup; standard parameterisations reach comparable security at 40–80. This is a
+   consensus change and rides a reroll.
+2. **Publish the proof to DA and carry only its commitment on chain** — what a rollup normally does, and
+   the plumbing already exists (`/da/publish`, `exec_da`, and the shielded path already submits this way).
+
+Note the K→1 fold does not help here: with a single segment there is nothing to collapse, and the fold's
+own cost is separately prohibitive (5h07m at 492% CPU without completing, 2026-08-02).
