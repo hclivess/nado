@@ -73,7 +73,26 @@ def _sem():
 # Phase 2: if this node is a BONDED validator, post settlement attestations of its computed state root
 # (needs its keys.dat via HOME). NADO_EXEC_SETTLE=1 to enable; settles at most every SETTLE_EVERY blocks.
 SETTLE = os.environ.get("NADO_EXEC_SETTLE", "").strip().lower() in ("1", "true", "yes", "on")
-SETTLE_EVERY = int(os.environ.get("NADO_EXEC_SETTLE_EVERY", "5"))
+# CADENCE DEPENDS ON WHETHER WE ARE PROVING, and the difference is 48x in bytes.
+#
+# A bare quorum attestation is a few hundred bytes, so settling often is free and gives bridge exits a
+# fresher settled tip — 5 blocks (~30 s) is right for that.
+#
+# A settle-with-PROOF is ~97 MiB and its size is independent of the span: with the fold off,
+# prove_settlement_sparse emits ONE bound epoch for the whole span, and the payload is dominated by FRI
+# query openings rather than by call count. So proving every 5 blocks pays the same ~97 MiB for 5 blocks of
+# work that proving every 240 blocks pays for 240 — 280 GiB/day versus 5.8 GiB/day, purely from cadence.
+# Defaulting the proving cadence to the protocol's own max span is therefore a pure win with no consensus
+# change; it is also the largest single lever available before the fold works. Overridable either way via
+# NADO_EXEC_SETTLE_EVERY. See doc/settle-proof-transport.md for the measurements.
+_SETTLE_EVERY_DEFAULT = 5
+if os.environ.get("NADO_EXEC_SETTLE_PROVE", "").strip().lower() in ("1", "true", "yes", "on"):
+    try:
+        from protocol import SETTLE_PROOF_MAX_SPAN as _SPAN
+        _SETTLE_EVERY_DEFAULT = int(_SPAN)
+    except Exception:
+        _SETTLE_EVERY_DEFAULT = 240
+SETTLE_EVERY = int(os.environ.get("NADO_EXEC_SETTLE_EVERY", str(_SETTLE_EVERY_DEFAULT)))
 # NADO_EXEC_SETTLE_PROVE=1: OPT-IN — attach a settle-with-proof (STARK validity proof) to the settlement
 # instead of a bare bonded attestation, so the root can settle TRUSTLESSLY once the chain enables it
 # (protocol.SETTLE_PROOF_TRUSTLESS, a reroll). OFF by default because proving is expensive (deep sparse
