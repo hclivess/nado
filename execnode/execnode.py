@@ -87,11 +87,23 @@ SETTLE = os.environ.get("NADO_EXEC_SETTLE", "").strip().lower() in ("1", "true",
 # NADO_EXEC_SETTLE_EVERY. See doc/settle-proof-transport.md for the measurements.
 _SETTLE_EVERY_DEFAULT = 5
 if os.environ.get("NADO_EXEC_SETTLE_PROVE", "").strip().lower() in ("1", "true", "yes", "on"):
+    # THE EPOCH RULE, NOT THE SPAN CAP, IS THE BINDING CONSTRAINT — and defaulting to the span cap made the
+    # prover silently impossible. _build_settlement_proof refuses any span that crosses a dividend epoch
+    # boundary (`sc // EPOCH_LENGTH != cur // EPOCH_LENGTH`), because a dividend moves the RECORDS half and
+    # the proof pins records UNCHANGED across the span. SETTLE_PROOF_MAX_SPAN is 4 * EPOCH_LENGTH, so
+    # settling at the cap guarantees every span straddles ~4 boundaries: condition 3 returns None every
+    # time and a proof is NEVER built. Observed live 2026-08-03 — the prover was switched on and the very
+    # next settle was a bare attestation, with nothing in the log to say why.
+    #
+    # So the proving cadence must be a FRACTION of an epoch. At EPOCH_LENGTH/2 a span conforms whenever
+    # both ends land in the same epoch (roughly every other settle); the ones that straddle re-anchor the
+    # justified tip at the boundary so the following span conforms. The span cap is kept as the upper
+    # bound it always was — it simply can never bind while the epoch rule is 4x tighter.
     try:
-        from protocol import SETTLE_PROOF_MAX_SPAN as _SPAN
-        _SETTLE_EVERY_DEFAULT = int(_SPAN)
+        from protocol import SETTLE_PROOF_MAX_SPAN as _SPAN, EPOCH_LENGTH as _EPOCH
+        _SETTLE_EVERY_DEFAULT = max(1, min(int(_SPAN), int(_EPOCH) // 2))
     except Exception:
-        _SETTLE_EVERY_DEFAULT = 240
+        _SETTLE_EVERY_DEFAULT = 30
 SETTLE_EVERY = int(os.environ.get("NADO_EXEC_SETTLE_EVERY", str(_SETTLE_EVERY_DEFAULT)))
 # NADO_EXEC_SETTLE_PROVE=1: OPT-IN — attach a settle-with-proof (STARK validity proof) to the settlement
 # instead of a bare bonded attestation, so the root can settle TRUSTLESSLY once the chain enables it
@@ -258,20 +270,41 @@ async def _build_settlement_proof(session, ns, st, cur, root):
     # 1. L1's JUSTIFIED settled tip for this namespace (the proof must extend exactly this).
     settled = await _get_json(session, f"/get_settled?ns={ns}")
     sc, sr = int((settled or {}).get("exec_cursor", -1)), (settled or {}).get("state_root")
+    # A SKIPPED PROOF MUST SAY WHY. Every gate below used to `return None` silently, so an operator who
+    # switched the prover on saw ordinary bare settles forever with nothing anywhere to distinguish
+    # "disabled", "waiting for a conforming span" and "broken" — the exact failure this codebase already
+    # names elsewhere: a fallback nobody can observe is indistinguishable from one that never fires.
+    # Rate-limited per (ns, reason) so a standing condition says so once, not once per settle.
+    def _skip(reason):
+        _k = (ns, "skip")
+        if _settle_skip_logged.get(_k) != reason:
+            _settle_skip_logged[_k] = reason
+            print(f"[execnode] settle-with-proof SKIPPED ns={ns} cursor {cur} — {reason}", flush=True)
+        return None
+
     if sc < 0 or not sr:
-        return None                                        # first settlement in a namespace must be quorum
+        return _skip("no L1-justified settled tip yet; the first settlement in a namespace rides the quorum")
     # 2. our stashed exec state AT that justified cursor (pre-state). Only proceed if we hold exactly it.
     raw = _settled_snapshots.get(ns)
     if not raw:
-        return None
+        return _skip("no stashed pre-state (the stash is in-memory and empties on restart; it refills on "
+                     "the next accepted settle)")
     snap = json.loads(raw)
     if int(snap.get("cursor", -2)) != sc:
-        return None                                        # we don't hold the justified-tip state; wait
+        return _skip(f"stashed pre-state is at cursor {snap.get('cursor')}, not the justified tip {sc}")
     pre_contracts = (snap.get("state") or {}).get("contracts") or {}
     pre_bridge = (snap.get("state") or {}).get("bridge")
     # 3. conformance the validator enforces: advances, within the span cap, no epoch boundary (dividend).
-    if cur <= sc or (cur - sc) > SETTLE_PROOF_MAX_SPAN or (sc // EPOCH_LENGTH) != (cur // EPOCH_LENGTH):
-        return None
+    if cur <= sc:
+        return _skip(f"span does not advance ({sc} -> {cur})")
+    if (cur - sc) > SETTLE_PROOF_MAX_SPAN:
+        return _skip(f"span {cur - sc} exceeds SETTLE_PROOF_MAX_SPAN {SETTLE_PROOF_MAX_SPAN}")
+    if (sc // EPOCH_LENGTH) != (cur // EPOCH_LENGTH):
+        # The tightest gate by far, and the one that made a 240-block cadence produce zero proofs: a
+        # dividend at the boundary moves the RECORDS half, which the proof pins unchanged.
+        return _skip(f"span {sc} -> {cur} crosses a dividend epoch boundary "
+                     f"(epoch {sc // EPOCH_LENGTH} -> {cur // EPOCH_LENGTH}); records must be unchanged "
+                     f"across a proven span, so settle cadence must stay inside one {EPOCH_LENGTH}-block epoch")
     # 4. the span's DA calls, per block (block_calls stamps cursor=h, ts=0 — the DA-binding form).
     calls = []
     for h in range(sc + 1, cur + 1):
