@@ -379,23 +379,49 @@ async def maybe_settle(session):
                           f"tx {_sz / 1048576:.2f} MiB", flush=True)
                 except Exception:
                     pass
-            async with session.post(L1 + "/submit_transaction", json=tx,
-                                    timeout=aiohttp.ClientTimeout(total=15)) as r:
-                # NEVER let an unparseable reply abort the settle loop. L1 sometimes answers with an EMPTY
-                # body (a rate-limit or proxy path that returns no content), and r.json() then raises
-                # JSONDecodeError — which used to propagate to the outer handler and skip the whole
-                # namespace's settle for that tick, once a minute, reported only as
-                # "Expecting value: line 1 column 1 (char 0)" with no endpoint and no line. A submit whose
-                # RESULT is unknown is simply a submit that did not visibly succeed: treat it as not
-                # accepted, keep the reason, and let the next tick retry.
-                _body = await r.text()
-                try:
-                    out = json.loads(_body) if _body.strip() else None
-                except ValueError:
-                    out = None
-                if out is None:
-                    out = {"result": False,
-                           "message": f"HTTP {r.status}, unparseable body: {(_body or '')[:120]!r}"}
+            async def _submit(_tx):
+                """POST one settle and return L1's verdict dict, never raising.
+
+                NEVER let an unparseable reply abort the settle loop. L1 sometimes answers with an EMPTY
+                body (a rate-limit or proxy path that returns no content), and r.json() then raises
+                JSONDecodeError — which used to propagate to the outer handler and skip the whole
+                namespace's settle for that tick, once a minute, reported only as
+                "Expecting value: line 1 column 1 (char 0)" with no endpoint and no line. A submit whose
+                RESULT is unknown is simply a submit that did not visibly succeed: treat it as not
+                accepted, keep the reason, and let the next tick retry."""
+                async with session.post(L1 + "/submit_transaction", json=_tx,
+                                        timeout=aiohttp.ClientTimeout(total=15)) as r:
+                    _body = await r.text()
+                    try:
+                        _out = json.loads(_body) if _body.strip() else None
+                    except ValueError:
+                        _out = None
+                    if _out is None:
+                        _out = {"result": False,
+                                "message": f"HTTP {r.status}, unparseable body: {(_body or '')[:120]!r}"}
+                    return _out
+
+            out = await _submit(tx)
+            # PROOF REJECTED ⇒ STILL SETTLE. The proof is an OPTIONAL upgrade to a settlement that must
+            # happen either way: latest_settled() is what bridge_withdraw, unshield and dividend_withdraw
+            # prove against, so a namespace that stops settling is an outage, not a degraded mode.
+            #
+            # Until this existed, the fallback covered only a proof that failed to BUILD — a proof that
+            # built fine and was then REFUSED by L1 left the tx rejected, ok_any False and the cursor
+            # retried forever. That is not hypothetical: a settle-with-proof measures 97.30 MiB against
+            # L1's 8 MiB submit cap (doc/settle-proof-transport.md §1), so turning the prover on would have
+            # answered every settle with HTTP 413 and stopped settlement dead, once per poll, while burning
+            # minutes of proving CPU each time. Retrying the SAME (cursor, root) bare keeps the chain
+            # settling while the prover runs in production, which is what makes NADO_EXEC_SETTLE_PROVE safe
+            # to enable before DA transport lands.
+            if proof is not None and not (isinstance(out, dict) and out.get("result")):
+                _why = (out or {}).get("message") if isinstance(out, dict) else out
+                tx = construct_settle_tx(keys, cur, root, target, ns=ns)
+                out = await _submit(tx)
+                print(f"[execnode] settle-with-proof REFUSED ns={ns} cursor {cur} — retried bare: "
+                      f"{'accepted' if isinstance(out, dict) and out.get('result') else 'also refused'}. "
+                      f"L1 said: {str(_why)[:160]}", flush=True)
+                proof = None
             if isinstance(out, dict) and out.get("result"):
                 ok_any = True
                 # stash the snapshot AT this settle so /exec/state_snapshot can serve a joiner a
