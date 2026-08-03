@@ -474,3 +474,38 @@ The two real levers:
 
 Note the K→1 fold does not help here: with a single segment there is nothing to collapse, and the fold's
 own cost is separately prohibitive (5h07m at 492% CPU without completing, 2026-08-02).
+
+#### Can the query lever alone fix it? No — measured, and it is not close.
+
+FRI parameters today: `FRI_BLOWUP = 2` (fixed — `stark.prove` always passes 2), `NUM_QUERIES = 320`,
+`GRIND_BITS = 18`, giving the documented `320 × 0.4 + 18 ≈ 146 bits provable (Johnson)`. Blowup 2 buys only
+**0.4 provable bits per query**, which is exactly why 320 are needed.
+
+Raising the blowup buys bits per query, so fewer queries reach the same 146 bits. Best realistic case is
+blowup 16 at ~64–80 queries. Measured payload, one call, toy depth:
+
+| NUM_QUERIES | openings | total tx |
+|---|---|---|
+| 2 | 0.574 MiB | 0.892 MiB |
+| 8 | 2.295 MiB | 3.166 MiB |
+| 64 | 18.364 MiB | **24.385 MiB** |
+| 320 (protocol) | — | ~97 MiB (observed live) |
+
+Perfectly linear at **0.381 MiB per query**.
+
+**The binding constraint is not the 8 MiB HTTP cap — it is the BLOCK.** A full block is ~256 KiB
+(`transaction_pool_max_bytes` comment: "4 MiB (>> 256 KiB block …)"; a produced block logged 71,163 bytes),
+and `MAX_BLOB_BYTES_PER_BLOCK` is 1 MiB. So:
+
+* today's proof is **~380× an entire block**;
+* the best query/blowup reparameterisation still gives 24 MiB, **~95× a block**.
+
+A 4–6× reduction cannot close a 380× gap. **The proof can never ride inside a block**, at any FRI
+parameters, so publishing it to DA and carrying only a commitment is not an optimisation — it is the only
+available architecture. The codebase already does exactly this for shielded proofs
+(`/da/publish` + `proof_da` + `da_fetch`, `execnode.py`: "the caller publishes it to /da/publish and
+submits an L1 blob carrying only the commitment").
+
+The open question is therefore not *whether* to use DA but **when the proof is fetched**: a settle proof is
+re-verified by every node on block APPLY (and on fresh sync), so a naive DA reference makes block
+validation block on a ~100 MiB retrieval. That is the design problem to solve next — not proof size.
