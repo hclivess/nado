@@ -102,6 +102,34 @@ def _same_network(st, min_protocol):
     return st.get("protocol", 0) >= min_protocol
 
 
+def root_probe_candidates(latest_block, finalized_block, earliest_block):
+    """The blocks _root_known_to offers a candidate donor, in dial order. PURE, so the ORDER and the
+    MEMBERSHIP can be tested without a fleet — see tests/test_root_probe_candidates.py.
+
+    tip       -> the fast-forward precondition (donor can extend us from our latest hash)
+    finalized -> the REORG precondition (donor shares our immutable prefix). Without this a forked node
+                 can never select a donor at all: its tip is unknown to the majority BY DEFINITION of
+                 being forked, so the reorg leg it needs is unreachable.
+    earliest  -> full-sync-from-root, kept last because it is unsatisfiable on a snapshot-bootstrapped
+                 network (every peer's history starts above it).
+
+    Falsy entries are dropped, and duplicates are collapsed so a node whose tip IS its finalized block
+    costs one dial, not two."""
+    out, seen = [], set()
+    for block in (latest_block, finalized_block, earliest_block):
+        if not block:
+            continue
+        try:
+            key = (block["block_hash"], block["block_number"])
+        except (KeyError, TypeError):
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(block)
+    return out
+
+
 def reanchor_candidates(peers, statuses, our_weight, floor, min_protocol=None):
     """Weight-selected RE-ANCHOR candidates, extracted for direct testing: (weight, snapshot_height,
     snapshot_hash, ip) for every SAME-PROTOCOL peer advertising a chain STRICTLY heavier than ours whose
@@ -527,12 +555,26 @@ class CoreClient(threading.Thread):
             self.logger.info(f"Error: {e}")
             raise
 
+    def _finalized_block_ref(self):
+        """{block_hash, block_number} at our finality floor, or None. Our immutable prefix — the one part
+        of our chain that ANY peer we could legitimately reorg toward must also carry."""
+        try:
+            from ops.block_ops import get_block_hash_by_number
+            h = int(self.memserver.finalized_height)
+            if h <= 0:
+                return None
+            bh = get_block_hash_by_number(h)
+            return {"block_hash": bh, "block_number": h} if bh else None
+        except Exception:
+            return None
+
     def _root_known_to(self, peer) -> bool:
         """the ONE network check of donor selection: can this peer actually serve us blocks?
 
-        It asks about the block the sync leg will ask FROM — our TIP — because that is the precondition
-        _fast_forward_from documents ("the donor knows our tip, so pull the gap from it"): get_blocks_after
-        is keyed off our latest hash, so a donor carrying our tip on ITS canonical chain can extend us.
+        It asks first about the block the sync leg will ask FROM — our TIP — because that is the
+        precondition _fast_forward_from documents ("the donor knows our tip, so pull the gap from it"):
+        get_blocks_after is keyed off our latest hash, so a donor carrying our tip on ITS canonical chain
+        can extend us.
 
         It used to probe our EARLIEST block instead, which is unsatisfiable on a snapshot-bootstrapped
         network and wedged this node in a re-anchor loop: after a re-anchor our earliest is whatever the
@@ -541,10 +583,23 @@ class CoreClient(threading.Thread):
         "ran out of options" -> "wedged behind a heavier chain" -> re-anchor to the same snapshot ->
         repeat, parked at one height while the chain moved on.
 
-        The earliest probe is kept as a FALLBACK, so a donor able to full-sync us from root still counts:
-        the gate now accepts strictly more donors than before, never fewer. knows_block itself checks
-        CANONICALITY (height -> hash on the peer's own chain), so a fork leftover still answers False and
-        the "donor knows a tip it cannot extend" bait this gate exists to stop remains closed."""
+        OUR FINALIZED BLOCK IS THE MIDDLE FALLBACK, and it is what makes a REORG donor selectable at all.
+        The tip probe is a FAST-FORWARD precondition, but the reorg leg is DEFINED by the donor not knowing
+        our tip (_rollback_one_for_reorg: "the donor does NOT know our tip, so our chain has diverged").
+        So on a genuine fork the tip probe must fail, and if earliest is also unsatisfiable the gate
+        excludes precisely the donors the reorg needs — donor selection returns None, and the node never
+        rolls back even one block. Measured on alphanet-15 2026-08-03: 185.100.232.131 forked at h=7143 and
+        sat 431 blocks behind for over an hour with its height rising monotonically and never once dropping.
+        Its tip was unknown to the majority (it was forked) and its earliest block (2735) was below the
+        majority's snapshot-bootstrapped history, so every donor failed and no rollback was ever attempted.
+
+        Accepting a donor that holds our FINALIZED block is the right criterion for that leg: the finality
+        floor is immutable on our side, so any chain we may legitimately reorg onto contains it, and
+        knows_block checks CANONICALITY (height -> hash on the peer's own chain) — a donor whose chain does
+        NOT contain our immutable prefix still answers False. So this accepts strictly more donors than
+        before, never fewer, and the "donor knows a tip it cannot extend" bait the gate exists to stop
+        remains closed. Ordering is cost discipline: a healthy node matches on the tip and never dials
+        the rest."""
         def _knows(block):
             if not block:
                 return False
@@ -554,7 +609,12 @@ class CoreClient(threading.Thread):
                     hash=block["block_hash"], number=block["block_number"], logger=self.logger))
             except (KeyError, TypeError):
                 return False
-        return _knows(self.memserver.latest_block) or _knows(self.memserver.earliest_block)
+        for block in root_probe_candidates(self.memserver.latest_block,
+                                           self._finalized_block_ref(),
+                                           self.memserver.earliest_block):
+            if _knows(block):
+                return True
+        return False
 
     def _fetch_sync_batch(self, peer, from_hash):
         """pull one forward-sync batch (up to SYNC_BATCH_MAX blocks after from_hash) from the donor.
