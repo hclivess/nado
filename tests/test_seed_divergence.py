@@ -191,13 +191,23 @@ def test_exec_summary_determinism_and_proof_disabled():
     from protocol import DEFAULT_NS
     from ops import kv_ops, settlement_ops
     from ops.account_ops import get_bonded_registry as _gbr
-    check("settle-with-proof trustless flag defaults OFF (quorum-only on this generation)",
-          protocol.SETTLE_PROOF_TRUSTLESS is False)
-    # With the flag off, a recorded proof marker must NOT justify a root that has no quorum attestation.
-    with kv_ops.write_txn():
-        kv_ops.settlement_proof_put(DEFAULT_NS, 999999, "ff" * 32)
-    check("with the flag OFF, a proof marker does not justify without quorum",
-          settlement_ops.settlement_justified(DEFAULT_NS, 999999, "ff" * 32, _gbr()) is False)
+    # TEST THE MECHANISM, NOT THE CONSTANT. This used to assert `SETTLE_PROOF_TRUSTLESS is False`, which
+    # was true when it was written and stopped being true at alphanet-11 when the flag was enabled — so it
+    # failed for years-equivalent of nobody looking, reporting a rotted expectation as a defect. A flag's
+    # SHIPPING VALUE is not an invariant; how the code responds to it is. Both directions are forced here,
+    # so this survives the next reroll whichever way the flag goes.
+    _saved_trustless = protocol.SETTLE_PROOF_TRUSTLESS
+    try:
+        with kv_ops.write_txn():
+            kv_ops.settlement_proof_put(DEFAULT_NS, 999999, "ff" * 32)
+        protocol.SETTLE_PROOF_TRUSTLESS = False
+        check("with the flag OFF, a proof marker does not justify without quorum",
+              settlement_ops.settlement_justified(DEFAULT_NS, 999999, "ff" * 32, _gbr()) is False)
+        protocol.SETTLE_PROOF_TRUSTLESS = True
+        check("with the flag ON, the same proof marker DOES justify (trustless settlement)",
+              settlement_ops.settlement_justified(DEFAULT_NS, 999999, "ff" * 32, _gbr()) is True)
+    finally:
+        protocol.SETTLE_PROOF_TRUSTLESS = _saved_trustless
 
 
 # ---------------------------------------------------------------------------------------------------
