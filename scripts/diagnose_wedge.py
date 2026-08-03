@@ -94,15 +94,24 @@ def main():
     # dragged the probe to a height everyone still agreed on, so a real fork 400 blocks higher was invisible
     # and the tool fell through to the tallest-peer behaviour it was meant to replace. Only peers that
     # actually hold the probe height take part.
-    probe_h = max(0, ours - 8)                    # a few blocks back so propagation lag is not read as a fork
-    voters = [p for p, h in live.items() if h >= probe_h]
-    if not voters:
-        voters = list(live)
+    # FIND THE MAJORITY AMONG PEERS NEAR THE FLEET TIP — not near OUR tip. A fork manifests at the fleet
+    # tip, so probing near a node that is far behind samples a height everyone still agrees on, sees one
+    # group, and falls through to the tallest-peer behaviour this logic exists to replace. Measured: run
+    # against a node 1188 blocks behind, it probed at ITS tip and duly nominated the forked peer as the
+    # "majority chain". Our own membership is decided separately below, because a node that is behind does
+    # not hold the probe height at all and cannot vote.
+    # Probe at the MEDIAN peer height, not the max and not ours. The max is held by exactly one node when
+    # that node is the forked one — it then votes alone and its fork reads as unanimous, which is how this
+    # nominated the forked peer as the "majority chain" twice. The median is held by at least half the
+    # fleet by construction, and sits above any recent fork point, so the split is visible.
+    _hs = sorted(live.values(), reverse=True)
+    probe_h = max(0, _hs[len(_hs) // 2] - 8)
+    voters = [p for p, h in live.items() if h >= probe_h] or list(live)
     groups = {}
     with ThreadPoolExecutor(8) as ex:
-        hs = dict(zip(["__local__"] + voters,
-                      ex.map(lambda hp: block_hash(hp, probe_h, a.port),
-                             [a.host] + voters)))
+        hs = dict(zip(voters, ex.map(lambda hp: block_hash(hp, probe_h, a.port), voters)))
+    if ours >= probe_h:
+        hs["__local__"] = block_hash(a.host, probe_h, a.port)
     for who, h in hs.items():
         if h:
             groups.setdefault(h, []).append(who)
@@ -124,7 +133,11 @@ def main():
     if not ref_peers:
         print("\nno peer shares our chain — cannot localise against a reference.")
         return 2
-    best_peer = max(ref_peers, key=lambda p: live[p])
+    # Prefer a majority peer that actually RETAINS our tip height. The tallest peer is not necessarily
+    # usable: a pruning node 1188 blocks ahead answers 404 for our tip, and the comparison dies with
+    # "cannot compare" having learned nothing. Fall back to the tallest only if none retains it.
+    _serving = [p for p in ref_peers if block_hash(p, min(ours, live[p]), a.port) is not None]
+    best_peer = max(_serving or ref_peers, key=lambda p: live[p])
     best_h = live[best_peer]
     print(f"\nreference (majority chain): {best_peer} at height {best_h}")
     if best_h <= ours:
