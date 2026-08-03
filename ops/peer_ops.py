@@ -250,15 +250,70 @@ def peer_tip_weight(peer, port=9173, timeout=6):
         return None
 
 
+def _peer_heights(peer, port=9173, timeout=6):
+    """A peer's (finalized_height, tip_height) from a single /status read; either element may be None.
+    Used only to pick a comparison height — never as a fork-choice input."""
+    import json as _json, urllib.request as _rq
+    try:
+        with _rq.urlopen(f"http://{peer}:{port}/status", timeout=timeout) as r:
+            d = _json.loads(r.read(1_000_000))
+        if not isinstance(d, dict):
+            return None, None
+        def _h(k):
+            v = d.get(k)
+            return int(v) if isinstance(v, int) and v >= 0 else None
+        return _h("finalized_height"), _h("latest_block_height")
+    except Exception:
+        return None, None
+
+
+def probe_height_for(peer_finalized, peer_tip, our_height, margin):
+    """PURE: the highest height at or below `our_height` that the peer can answer AND where a disagreement
+    could still show up. Returns None when no usable height exists. See tests/test_probe_height.py.
+
+    WHY NOT SIMPLY THE PEER'S FINALIZED HEIGHT (the bug this replaces, measured on alphanet-15 2026-08-03).
+    A node that has forked correctly REFUSES to self-finalize while the peer-majority tip is off its chain,
+    so its finalized height freezes at the last height it agreed on — which is BELOW the fork point, by
+    construction. Comparing there is therefore vacuous: both chains share all history below the fork, so the
+    probe could only ever return "agree", and that agreement vetoed the dead-fork escape on BOTH sides. The
+    live 2-2 split at h=7143 was invisible to every node for hours while the gap grew past 290 blocks:
+
+        .131 finalized 7107 (frozen), tip 7430, fork at 7143
+        probe at 7107  -> ours 7674b0e9af9bdd00 == theirs   (AGREE - vetoes the escape)
+        probe at 7264  -> ours e698a5192d4c56fd != ba68e6bc (DISAGREE - the fork is plainly visible)
+
+    Agreement at height h only rules out a fork at or below h; it says nothing about a fork above h.
+    DISagreement is conclusive, agreement is not — the old code treated them as symmetric.
+
+    So prefer `tip - margin`: deep enough on the peer's own chain to be settled (margin is FINALITY_DEPTH,
+    and routine reorg churn is bounded by max_rollbacks < FINALITY_DEPTH, so ordinary churn cannot
+    manufacture a false disagreement), but ABOVE a frozen finality floor. For a HEALTHY peer
+    finalized == tip - FINALITY_DEPTH, so this returns exactly what it always did — the behaviour changes
+    only for a peer whose finality has fallen further than `margin` behind its own tip, which is precisely
+    the frozen-finality fork this is meant to see. A fork SHALLOWER than the margin stays invisible here on
+    purpose: that one is the ordinary reorg path's job, not the destructive purge's.
+    """
+    cands = []
+    if peer_finalized is not None:
+        cands.append(int(peer_finalized))
+    if peer_tip is not None:
+        cands.append(int(peer_tip) - int(margin))
+    cands = [c for c in cands if c > 0]
+    if not cands:
+        return None
+    h = min(max(cands), int(our_height))
+    return h if h > 0 else None
+
+
 def _common_probe_height(peer, our_height, port=9173):
-    """(height, their_hash) at the highest height AT OR BELOW `our_height` that this peer can answer — its own
-    finalized height. Returns (height, None) when it still cannot answer."""
-    ph = _peer_finalized_height(peer, port=port)
-    if ph is None:
+    """(height, their_hash) at the highest height AT OR BELOW `our_height` that this peer can answer and
+    where a disagreement could still be visible — see probe_height_for for why that is NOT its finalized
+    height. Returns (height, None) when it still cannot answer."""
+    from protocol import FINALITY_DEPTH
+    pf, pt = _peer_heights(peer, port=port)
+    h = probe_height_for(pf, pt, our_height, FINALITY_DEPTH)
+    if h is None:
         return our_height, None
-    h = min(int(ph), int(our_height))
-    if h <= 0:
-        return h, None
     return h, probe_block_hash(peer, h, port=port)
 
 

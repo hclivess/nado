@@ -103,8 +103,14 @@ def t_probe_handles_a_node_that_raced_ahead():
     OUR_H, OUR_HASH = 6278, "a" * 64          # we are 240 blocks past the majority, on our own branch
     COMMON_H = 6038                           # the highest height the majority has finalized
 
-    def fake_peer_finalized(peer, port=9173, timeout=6):
-        return COMMON_H                       # every peer is BEHIND us
+    # Model BOTH heights the way a real /status reports them. These peers are healthy — they are merely
+    # behind us — so their finality trails their own tip by exactly FINALITY_DEPTH. That relationship is
+    # what makes probe_height_for pick COMMON_H here, identical to the pre-2026-08-03 behaviour; a fake
+    # that omitted the tip would silently exercise a different path than production.
+    from protocol import FINALITY_DEPTH as _FD
+
+    def fake_peer_heights(peer, port=9173, timeout=6):
+        return COMMON_H, COMMON_H + _FD       # every peer is BEHIND us, finality healthy
 
     def fake_probe(peer, height, port=9173, timeout=6):
         if height > COMMON_H:
@@ -114,8 +120,8 @@ def t_probe_handles_a_node_that_raced_ahead():
     def fake_our_hash(height):
         return OUR_HASH if height == OUR_H else "c" * 64   # ours differs from theirs at the common height
 
-    orig = (PO.probe_block_hash, PO._peer_finalized_height, PO._our_hash_at)
-    PO.probe_block_hash, PO._peer_finalized_height, PO._our_hash_at = fake_probe, fake_peer_finalized, fake_our_hash
+    orig = (PO.probe_block_hash, PO._peer_heights, PO._our_hash_at)
+    PO.probe_block_hash, PO._peer_heights, PO._our_hash_at = fake_probe, fake_peer_heights, fake_our_hash
     try:
         stranded, detail = PO.stranded_below_finality(OUR_HASH, OUR_H, ["p1", "p2", "p3"], quorum=2)
         check("a node that RACED AHEAD is still detected as stranded (probe falls back to a common height)",
@@ -129,7 +135,7 @@ def t_probe_handles_a_node_that_raced_ahead():
         check("a node merely AHEAD on the SAME chain is NOT stranded (no false purge)", stranded2 is False)
         check("  agreement at the common height vetoes", len(detail2["agree"]) >= 1)
     finally:
-        PO.probe_block_hash, PO._peer_finalized_height, PO._our_hash_at = orig
+        PO.probe_block_hash, PO._peer_heights, PO._our_hash_at = orig
 
 
 # REGRESSION 4 (the decisive one): find_common_ancestor probed at OUR tip first and ABORTED with None when the
