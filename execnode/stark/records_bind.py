@@ -164,6 +164,61 @@ def dividend_accrual_effects(inflow, weights, div_carry):
     return out, pot - distributed
 
 
+def block_records_effects(block):
+    """(effects, derivable) for ONE block, from committed block data alone.
+
+    `derivable` is False when the block moves records in a way this module cannot yet re-derive — a
+    bridge_withdraw, a shield, an xmsg, or a value>0 call (whose escrow is conditional on the VM not
+    reverting, so its NET effect is not a function of the calldata alone). A non-derivable block must keep
+    riding the bonded quorum: returning partial effects would let a prover settle a root that silently
+    omits the rest, which is the precise failure block_records_inert exists to prevent.
+
+    This is the piece that makes the derivation reachable at all. The L1 settle branch may only read
+    COMMITTED state (per-block exec summaries), never block bodies — bodies made one transaction validate
+    differently on a pruned node than an archive node and forked the fleet. So the effects must be derived
+    at incorporate time, from the block, and committed alongside the calls; calls_commit.block_summary does
+    that and kv_ops.exec_summary_put persists it.
+    """
+    effects = []
+    for tx in block.get("block_transactions", []) or ():
+        r = tx.get("recipient")
+        fn = _RECIPIENT_EFFECTS.get(r)
+        if fn is not None:
+            try:
+                effects.extend(fn(tx))
+            except Unbindable:
+                return None, False
+            continue
+        if r in _KNOWN_UNDERIVED:
+            return None, False
+        if r != "blob":
+            continue                                   # transfer / bond / register / duty: no exec records
+        d = tx.get("data")
+        if not isinstance(d, dict):
+            return None, False                         # undecodable blob — cannot establish safety
+        op = d.get("op")
+        if op not in _RECORDS_SAFE_BLOB_OPS:
+            return None, False                         # emit / bridge_withdraw / collect_dividend / …
+        if op == "call":
+            try:
+                v = int(d.get("value") or 0)
+            except (TypeError, ValueError):
+                return None, False
+            if v != 0:
+                # The escrow (sender -> cid, two T_BRIDGE_BAL positions) happens BEFORE the VM runs and is
+                # REFUNDED when the call reverts, so the net records effect depends on the execution
+                # outcome, not on the calldata. Deriving it needs the exec proof's own verdict, which is a
+                # later step; until then such a block is not derivable.
+                return None, False
+    return effects, True
+
+
+# Mirrors calls_commit._RECORDS_SAFE_BLOB_OPS. Duplicated rather than imported because calls_commit imports
+# THIS module (block_summary calls block_records_effects), and the reverse import would be a cycle. The
+# pairing is asserted in tests/test_records_bind.py so the two cannot drift apart silently.
+_RECORDS_SAFE_BLOB_OPS = frozenset({"deploy", "lock", "upgrade", "transfer_contract", "call"})
+
+
 def span_effects(txs, accruals=(), div_carry=0):
     """Derive every records effect of a span, as [(tag, parts, delta), ...] in application order.
 
@@ -221,6 +276,29 @@ def net_records_updates(pre_get, effects, depth=ER.DEPTH):
         if cur[key] != pre[key]:
             out.append((int(key), pre[key], cur[key]))
     return out
+
+
+def pinned_pre_get(projection, expected_pre_root, depth=ER.DEPTH):
+    """Verify a prover-supplied records PROJECTION hashes to `expected_pre_root`, then return a
+    pre_get(tag, parts) over it. Raises Unbindable on mismatch.
+
+    THE PIN IS THE POINT, and it is the same one verify_bound_epoch makes for the KV half. The binding
+    needs each touched record's PRE value to compute the net update, and those values come from the
+    prover. Taking them on trust would let a forged pre-value drive the arithmetic while the roots still
+    chained — the settled root would then be a number the prover chose. Requiring the whole projection to
+    hash to the tip's committed records root makes every read authenticated, read-only positions included.
+    """
+    from execnode.stark import storage_tree as ST
+    mask = (1 << depth) - 1
+    proj = {int(k) & mask: int(v) % F.P for k, v in (projection or {}).items()}
+    got = tuple(int(x) % F.P for x in ST.SparseStore(depth, proj).root())
+    want = tuple(int(x) % F.P for x in expected_pre_root)
+    if got != want:
+        raise Unbindable("supplied records pre-state does not hash to the committed records root")
+
+    def _get(tag, parts):
+        return proj.get(ER.record_key(tag, *parts) & mask, 0)
+    return _get
 
 
 def bind_and_verify_records(tr, pre_root, post_root, pre_get, effects, depth=ER.DEPTH,

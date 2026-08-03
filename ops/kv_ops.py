@@ -654,11 +654,31 @@ def _exec_summary_key(height: int) -> str:
     return f"execsum:{int(height)}"
 
 
-def exec_summary_put(height: int, inert: bool, calls_by_ns: dict):
+def exec_summary_put(height: int, inert: bool, calls_by_ns: dict, records=None, derivable=None):
     """Persist block `height`'s exec summary. Called inside incorporate_block's atomic write txn, so it
-    commits with the block or not at all. `calls_by_ns` maps namespace -> ordered list of call leaves."""
+    commits with the block or not at all. `calls_by_ns` maps namespace -> ordered list of call leaves.
+
+    `records` / `derivable` (records_bind.block_records_effects) carry the block's RECORDS-half effects, so
+    the settle branch can bind a records transition without reading a prunable body — the reason
+    records_bind was unreachable before. They are written ONLY when SETTLE_PROOF_RECORDS is on, because
+    these summaries live in the `meta` sub-DB which FEEDS THE L1 STATE ROOT: writing the field on a live
+    chain would change the root on upgraded nodes only and fork the fleet. The flag flips at a reroll, where
+    every node re-derives from a fresh genesis and therefore agrees.
+
+    `derivable=False` is recorded EXPLICITLY rather than omitted. A missing key is ambiguous between "this
+    block moves nothing we cannot derive" and "written by a node that had the feature off", and the settle
+    branch must be able to tell those apart — the first is settleable, the second must refuse.
+    """
     doc = {"inert": 1 if inert else 0,
            "calls": {str(ns): [int(x) for x in leaves] for ns, leaves in (calls_by_ns or {}).items() if leaves}}
+    from protocol import SETTLE_PROOF_RECORDS
+    if SETTLE_PROOF_RECORDS and derivable is not None:
+        doc["rd"] = 1 if derivable else 0
+        if derivable:
+            # [tag, [parts…], delta] — a list, not a dict, because ORDER is part of the derivation and the
+            # codec must not be free to reorder it.
+            doc["rec"] = [[int(tag), [str(p) for p in parts], int(delta)]
+                          for (tag, parts, delta) in (records or ())]
     def _do(txn):
         txn.put(_exec_summary_key(height).encode(), _pack(doc), db=_dbs()["meta"])
     _write(_do)

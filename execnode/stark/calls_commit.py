@@ -231,7 +231,8 @@ def verify_calls_bound_to_da(proof, ns, prev_cursor, cursor, get_block):
     return True, "calls bound to DA"
 
 
-def verify_calls_bound_to_summaries(proof, ns, prev_cursor, cursor, get_summary, max_span):
+def verify_calls_bound_to_summaries(proof, ns, prev_cursor, cursor, get_summary, max_span,
+                                    records_out=None):
     """PRUNE-SAFE DA-BINDING GATE — the replacement for verify_calls_bound_to_da on the consensus path.
 
     Identical statement (every segment's calls_commitment must equal L1's OWN fold over the real on-chain
@@ -267,7 +268,22 @@ def verify_calls_bound_to_summaries(proof, ns, prev_cursor, cursor, get_summary,
             if summary is None:
                 return False, f"no exec summary for block {h} — cannot bind calls to DA"
             if not int(summary.get("inert", 0)):
-                return False, f"block {h} moved exec RECORDS; a records-frozen proof cannot settle it"
+                # RECORDS-BOUND SETTLEMENT (SETTLE_PROOF_RECORDS). `records_out` is not None exactly when
+                # the caller intends to PROVE the records half rather than freeze it, so a non-inert block
+                # is admissible — but only if this node committed effects it can actually derive.
+                #
+                # `rd` must be present AND 1. Its absence is NOT treated as permission: a summary written
+                # before the feature (or by a node with the flag off) simply lacks the field, and reading
+                # that as "nothing to bind" would let a span settle while silently omitting every payout in
+                # it. Explicit 0 means the block moved records this node cannot re-derive (a shield, an
+                # xmsg, a value>0 call whose escrow depends on the VM's verdict); both cases fall back to
+                # the bonded quorum, which is always correct, just slower.
+                if records_out is None:
+                    return False, f"block {h} moved exec RECORDS; a records-frozen proof cannot settle it"
+                if int(summary.get("rd", 0)) != 1:
+                    return False, (f"block {h} moved exec RECORDS this node cannot derive "
+                                   f"(no committed effects) — quorum only")
+                records_out.extend(summary.get("rec") or [])
             node = fold_leaves(node, (summary.get("calls") or {}).get(ns, []))
         if int(cc) % F.P != node % F.P:
             return False, f"segment {j} calls_commitment does not match the on-chain DA calldata (fabricated calls)"

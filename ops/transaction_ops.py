@@ -1017,8 +1017,18 @@ def validate_transaction(transaction, logger, block_height):
             ok, why, kv_pre, kv_post = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
             assert ok, f"Settle proof invalid: {why}"
             assert kv_pre == kv_pre_claim and kv_post == kv_post_claim, "Settle proof kv halves mismatch"
+            # RECORDS HALF. Frozen by default: the SAME rec_hex composes both roots, so a proven span must
+            # not have moved records (enforced per block in verify_calls_bound_to_summaries).
+            # With SETTLE_PROOF_RECORDS the proof may instead carry `rec_post` and a `records` transition,
+            # and the records half is allowed to MOVE — provided that transition proves EXACTLY the effects
+            # this node committed for the span's blocks. `_records_bound` is the switch the DA gate reads.
+            rec_post_hex = rec_hex
+            _records_bound = False
+            if _protocol.SETTLE_PROOF_RECORDS and proof.get("records") is not None:
+                rec_post_hex = proof.get("rec_post") or rec_hex
+                _records_bound = True
             pre_full = ER.full_root_hex(SST.digest_from_hex(kv_pre), SST.digest_from_hex(rec_hex))
-            post_full = ER.full_root_hex(SST.digest_from_hex(kv_post), SST.digest_from_hex(rec_hex))
+            post_full = ER.full_root_hex(SST.digest_from_hex(kv_post), SST.digest_from_hex(rec_post_hex))
             assert pre_full == expected_pre, "Settle proof pre_root must extend the settled tip"
             assert post_full == root, "Settle proof post_root must equal state_root"
             # CHAIN-RANDOMNESS SOUNDNESS: the STARK only proves the computation is CONSISTENT with the
@@ -1074,9 +1084,39 @@ def validate_transaction(transaction, logger, block_height):
                     assert int(_e[0]) != _zkvm.IO_PAY, \
                         "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
             from execnode.stark import calls_commit as _CC
+            # `records_out` is passed ONLY for a records-bound proof. Passing None keeps the old, stricter
+            # rule (any non-inert block refuses the span), so a frozen-records proof is validated exactly as
+            # before and the two forms cannot be confused for one another.
+            _rec_effects = [] if _records_bound else None
             _ok, _why = _CC.verify_calls_bound_to_summaries(
-                proof, ns, _tip_cursor, cursor, kv_ops.exec_summary_get, _protocol.SETTLE_PROOF_MAX_SPAN)
+                proof, ns, _tip_cursor, cursor, kv_ops.exec_summary_get, _protocol.SETTLE_PROOF_MAX_SPAN,
+                records_out=_rec_effects)
             assert _ok, f"Settle proof not bound to the on-chain calldata: {_why}"
+
+            if _records_bound:
+                # THE RECORDS BINDING. The effects come from THIS node's committed summaries — never from
+                # the proof — so a prover cannot choose what it is proving. The transition must advance the
+                # records half from the tip's rec_hex to the claimed rec_post over exactly that set.
+                from execnode.stark import records_bind as _RB, records_transition as _RT
+                _pre_rec = SST.digest_from_hex(rec_hex)
+                _post_rec = SST.digest_from_hex(rec_post_hex)
+                _eff = [(int(t), tuple(str(p) for p in parts), int(dv)) for (t, parts, dv) in _rec_effects]
+                # An empty effect set must not be able to MOVE the half: with nothing to prove, rec_post is
+                # required to equal rec_hex, which collapses to the frozen case rather than trusting the
+                # prover's word for a root nothing authorises.
+                if not _eff:
+                    assert rec_post_hex == rec_hex, \
+                        "Settle proof moves the records half but the span committed no records effects"
+                else:
+                    # PIN THE PRE-STATE the binding reads, exactly as the KV half pins pre_contracts
+                    # against sparse_pre_root: the projection must hash to the TIP's committed records
+                    # root, so every value the arithmetic touches is authenticated rather than asserted.
+                    _pre_get = _RB.pinned_pre_get(proof.get("records_pre") or {}, _pre_rec,
+                                                  depth=_protocol.EXEC_TREE_DEPTH)
+                    _rok, _rwhy = _RB.bind_and_verify_records(
+                        proof["records"], _pre_rec, _post_rec, _pre_get, _eff,
+                        depth=_protocol.EXEC_TREE_DEPTH)
+                    assert _rok, f"Settle proof records half invalid: {_rwhy}"
     elif recipient == "bridge":
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
         assert transaction["amount"] > 0, "Bridge deposit amount must be positive"

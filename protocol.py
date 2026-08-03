@@ -615,6 +615,30 @@ SETTLE_PROOF_RECURSIVE = True    # ENABLED at the alphanet-14 reroll: the in-cir
                                  # attacker staple a bogus blob onto a valid settle tx and split the
                                  # fleet.
 
+# ---- RECORDS-BOUND SETTLEMENT (execnode/stark/records_bind.py) --------------------------------------
+# A settle-with-proof has always covered only the KV half of the exec root; the L1 composition pins the
+# SAME records half into the pre and post root, so a proven span REQUIRES records to be unchanged
+# (calls_commit.block_records_inert enforces it). That is why any span carrying a bridge deposit, a
+# faucet donation or a treasury payout falls back to the bonded quorum however good its proof is.
+#
+# TRUE ⇒ (a) incorporate_block commits each block's RECORDS-HALF EFFECTS into its exec summary, so a
+# verifier can derive them WITHOUT reading a prunable body (the whole reason records_bind was unreachable
+# — bodies made one tx validate differently on a pruned node than an archive node and forked the fleet);
+# and (b) the settle branch accepts a proof whose records half MOVED, provided it carries a records
+# transition proving exactly those committed effects (records_bind.bind_and_verify_records).
+#
+# THIS RIDES A REROLL, and unlike SETTLE_PROOF_RECURSIVE it is not merely a rule change — it changes what
+# is WRITTEN. exec summaries live in the `meta` sub-DB, which FEEDS THE L1 STATE ROOT, so an upgraded node
+# with the flag on computes a different root than an unupgraded peer applying the identical block. Flipping
+# it on a live chain does not risk a fork, it GUARANTEES one. Every node must start from a fresh genesis
+# with the same setting, which is what a CHAIN_GENERATION bump provides.
+#
+# Coverage is deliberately partial and FAILS CLOSED: only effects derivable from committed block data
+# alone (bridge deposit, faucet donation, treasury->faucet mirror). A value>0 call escrows sender->cid
+# BEFORE the VM runs and is refunded on revert, so its net effect is not a function of the calldata; that
+# block is marked non-derivable and keeps riding the quorum, exactly as an unknown blob op does.
+SETTLE_PROOF_RECORDS = False
+
 # ---- SIGNATURE AGGREGATION (doc/zk-signature-aggregation.md) ----------------------------------------
 # The AUTHORIZATION COMMITMENT is unconditional from alphanet-14: every block commits (auth_root,
 # auth_count) inside its hash preimage and every verifier recomputes both from the block's own

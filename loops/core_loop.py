@@ -1669,10 +1669,19 @@ class CoreClient(threading.Thread):
             # block; reverted in rollback_one_block. Not in any block hash preimage.
             try:
                 from execnode.stark.calls_commit import block_summary
-                from protocol import EXEC_SUMMARY_RETENTION
+                from protocol import EXEC_SUMMARY_RETENTION, SETTLE_PROOF_RECORDS
                 _inert, _calls = block_summary(block)
                 _h = block["block_number"]
-                kv_ops.exec_summary_put(_h, _inert, _calls)
+                # RECORDS-HALF EFFECTS (SETTLE_PROOF_RECORDS): derived HERE, for the same reason the call
+                # leaves are — this is the one place the body is present by definition. Without it the
+                # settle branch has no prune-safe way to know WHICH records a span moved, only the `inert`
+                # boolean saying THAT some did, and a boolean cannot be bound against. Gated because it
+                # changes what is written into `meta`, which feeds the L1 state root; see protocol.py.
+                _rec, _derivable = (None, None)
+                if SETTLE_PROOF_RECORDS:
+                    from execnode.stark.records_bind import block_records_effects
+                    _rec, _derivable = block_records_effects(block)
+                kv_ops.exec_summary_put(_h, _inert, _calls, records=_rec, derivable=_derivable)
                 # O(1) rolling GC: drop the one height falling out of the retention window. These live in
                 # the `meta` sub-DB, which IS snapshot-carried, so an unbounded set would grow with chain
                 # length and bloat every snapshot. Nothing a proof could use is lost — a span reaching
