@@ -81,11 +81,52 @@ def main():
     if not live:
         print("no peer answered — this is a connectivity problem, not a state divergence")
         return 2
-    best_peer, best_h = max(live.items(), key=lambda kv: kv[1])
-
+    # PICK THE MAJORITY CHAIN, NOT THE TALLEST PEER. Choosing max(height) as the reference is the very
+    # mistake this script exists to catch: height is a claim about PROGRESS, not about identity, and a peer
+    # stranded on its own fork mines unopposed and therefore climbs FASTER than the real chain. Measured
+    # live on 2026-08-03: one peer sat 64 blocks ahead of four agreeing nodes on a fork of its own, and
+    # selecting it made this tool report US as diverged.
+    #
+    # So group the peers (and ourselves) by the block hash they hold at a recent SHARED height, and use the
+    # largest group as the reference. A tie is reported rather than silently broken.
+    # Probe just below OUR OWN tip, not at the fleet minimum. Taking min() across all peers picks a height
+    # BELOW any recent fork whenever one peer is still catching up — measured live: a peer 800 blocks behind
+    # dragged the probe to a height everyone still agreed on, so a real fork 400 blocks higher was invisible
+    # and the tool fell through to the tallest-peer behaviour it was meant to replace. Only peers that
+    # actually hold the probe height take part.
+    probe_h = max(0, ours - 8)                    # a few blocks back so propagation lag is not read as a fork
+    voters = [p for p, h in live.items() if h >= probe_h]
+    if not voters:
+        voters = list(live)
+    groups = {}
+    with ThreadPoolExecutor(8) as ex:
+        hs = dict(zip(["__local__"] + voters,
+                      ex.map(lambda hp: block_hash(hp, probe_h, a.port),
+                             [a.host] + voters)))
+    for who, h in hs.items():
+        if h:
+            groups.setdefault(h, []).append(who)
     print(f"local  height {ours}")
     for p, h in sorted(live.items(), key=lambda kv: -kv[1]):
-        print(f"  peer {p:<18} height {h}{'   <- heaviest' if p == best_peer else ''}")
+        print(f"  peer {p:<18} height {h}")
+    if len(groups) > 1:
+        print(f"\n!! THE FLEET DISAGREES at height {probe_h} — {len(groups)} distinct chains:")
+        for h, who in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+            tag = " (us)" if "__local__" in who else ""
+            print(f"     {h}  {len(who)} node(s){tag}: {', '.join(w for w in who if w != '__local__') or 'local only'}")
+    majority = max(groups.values(), key=len) if groups else []
+    on_majority = "__local__" in majority
+    ref_peers = [w for w in majority if w != "__local__"]
+    if len(groups) > 1 and on_majority:
+        print("\nWe are on the MAJORITY chain. The minority node(s) above are the ones to investigate,")
+        print("not this one — run this script THERE.")
+        return 0
+    if not ref_peers:
+        print("\nno peer shares our chain — cannot localise against a reference.")
+        return 2
+    best_peer = max(ref_peers, key=lambda p: live[p])
+    best_h = live[best_peer]
+    print(f"\nreference (majority chain): {best_peer} at height {best_h}")
     if best_h <= ours:
         print("\nno peer is ahead — this node is not behind; nothing to localise.")
         return 0
