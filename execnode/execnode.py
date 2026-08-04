@@ -71,8 +71,8 @@ def _sem():
         _inflight = asyncio.Semaphore(MAX_INFLIGHT)
     return _inflight
 # Phase 2: if this node is a BONDED validator, post settlement attestations of its computed state root
-# (needs its keys.dat via HOME). NADO_EXEC_SETTLE=1 to enable; settles at most every SETTLE_EVERY blocks.
-SETTLE = os.environ.get("NADO_EXEC_SETTLE", "").strip().lower() in ("1", "true", "yes", "on")
+# (needs its keys.dat via HOME). Always on; settles at most every SETTLE_EVERY blocks.
+SETTLE = True                    # settling is what an exec node IS for; not a flag
 # CADENCE DEPENDS ON WHETHER WE ARE PROVING, and the difference is 48x in bytes.
 #
 # A bare quorum attestation is a few hundred bytes, so settling often is free and gives bridge exits a
@@ -84,9 +84,10 @@ SETTLE = os.environ.get("NADO_EXEC_SETTLE", "").strip().lower() in ("1", "true",
 # work that proving every 240 blocks pays for 240 — 280 GiB/day versus 5.8 GiB/day, purely from cadence.
 # Defaulting the proving cadence to the protocol's own max span is therefore a pure win with no consensus
 # change; it is also the largest single lever available before the fold works. Overridable either way via
-# NADO_EXEC_SETTLE_EVERY. See doc/settle-proof-transport.md for the measurements.
-_SETTLE_EVERY_DEFAULT = 5
-if os.environ.get("NADO_EXEC_SETTLE_PROVE", "").strip().lower() in ("1", "true", "yes", "on"):
+# See doc/settle-proof-transport.md for the measurements.
+# Proving is unconditional, so the proving cadence is THE cadence — there is no bare-attestation-only mode
+# to keep a 5-block cadence for.
+if True:
     # THE EPOCH RULE, NOT THE SPAN CAP, IS THE BINDING CONSTRAINT — and defaulting to the span cap made the
     # prover silently impossible. _build_settlement_proof refuses any span that crosses a dividend epoch
     # boundary (`sc // EPOCH_LENGTH != cur // EPOCH_LENGTH`), because a dividend moves the RECORDS half and
@@ -104,7 +105,7 @@ if os.environ.get("NADO_EXEC_SETTLE_PROVE", "").strip().lower() in ("1", "true",
         _SETTLE_EVERY_DEFAULT = max(1, min(int(_SPAN), int(_EPOCH) // 2))
     except Exception:
         _SETTLE_EVERY_DEFAULT = 30
-SETTLE_EVERY = int(os.environ.get("NADO_EXEC_SETTLE_EVERY", str(_SETTLE_EVERY_DEFAULT)))
+SETTLE_EVERY = _SETTLE_EVERY_DEFAULT      # derived from EPOCH_LENGTH; not an operator knob
 # VALIDITY PROVING IS UNCONDITIONAL. No flag, no opt-in, no way to run a node that quietly settles on a
 # bonded attestation because someone forgot an env var. A settle carries a STARK validity proof; the bare
 # attestation exists ONLY as the degradation path when a proof cannot be produced or is refused, and every
@@ -123,16 +124,17 @@ SETTLE_PROVE = True
 # strength before posting, so an unverifiable bundle is never broadcast. It could not complete in Python;
 # on the arena it is the only route to a proof small enough to settle on chain.
 SETTLE_FOLD = True
-# NADO_EXEC_SETTLE_PROVE_TIMEOUT: seconds a single settle-prove may run before we give up on it and post a
+# SETTLE_PROVE_TIMEOUT: seconds a single settle-prove may run before we give up on it and post a
 # BARE attestation instead. Default 1200s (20 min) — comfortably above a measured unfolded prove (~1-3 min
 # at protocol strength on live data) and far below the 5h07m a non-completing fold burned. Without a bound
 # the settle loop simply never returns and the chain stops settling entirely.
-SETTLE_PROVE_TIMEOUT = int(os.environ.get("NADO_EXEC_SETTLE_PROVE_TIMEOUT", "1200"))
+SETTLE_PROVE_TIMEOUT = 1200      # safety bound, not a feature switch: a prove that outruns this is
+                                 # abandoned and the settle goes bare rather than halting the chain.
 # Largest settle tx we will try to submit INLINE. L1's /submit_transaction caps bodies at 8 MiB, so this
 # sits just under it; anything bigger is published to DA and the tx carries only the commitment. An inline
 # proof is strictly better when it fits (it settles the root trustlessly with no quorum), so this is a
 # ceiling, not a preference.
-SETTLE_INLINE_MAX = int(os.environ.get("NADO_EXEC_SETTLE_INLINE_MAX", str(7 * 1024 * 1024)))
+SETTLE_INLINE_MAX = 7 * 1024 * 1024       # just under L1's 8 MiB submit cap; a protocol fact, not a knob
 # True while a settle-prove worker thread is outstanding. asyncio cannot kill that thread, so this is what
 # stops a timed-out prove from stacking a new one every cadence until the box dies.
 _settle_proving = False
@@ -351,7 +353,7 @@ async def _build_settlement_proof(session, ns, st, cur, root):
     # empty call span") when the span carries no exec calls, while the UNFOLDED path proves an empty span
     # perfectly well. So on an idle chain, switching the fold on strictly REDUCED what we produce: spans
     # that had been yielding a (refused, 97.45 MiB) proof started yielding no proof at all. Observed live
-    # within minutes of enabling NADO_EXEC_SETTLE_FOLD on 2026-08-04.
+    # within minutes of enabling the fold on 2026-08-04.
     #
     # Fold only when there is real traffic; otherwise fall through to the unfolded prove, which is what the
     # 61 proofs before this were. The fold is an upgrade to a proof we want either way, never a precondition
@@ -406,7 +408,7 @@ async def _build_settlement_proof(session, ns, st, cur, root):
         async with _sem():                                 # bound concurrent proving (H-7)
             proof = await asyncio.wait_for(asyncio.shield(_task), timeout=SETTLE_PROVE_TIMEOUT)
     except asyncio.TimeoutError:
-        return _skip(f"prove exceeded NADO_EXEC_SETTLE_PROVE_TIMEOUT={SETTLE_PROVE_TIMEOUT}s "
+        return _skip(f"prove exceeded SETTLE_PROVE_TIMEOUT={SETTLE_PROVE_TIMEOUT}s "
                      f"(fold={_fold}); the worker thread is abandoned and settles stay BARE until it ends")
     # 6. THE SELF-CHECKS — never post a proof that doesn't extend the justified tip AND reproduce our root.
     pre_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_pre"]), rec_root)
@@ -429,7 +431,7 @@ async def _build_settlement_proof(session, ns, st, cur, root):
 
 async def maybe_settle(session):
     """If enabled, post a `settle` of the current (cursor, state_root) to L1 — a bare bonded attestation,
-    or (when NADO_EXEC_SETTLE_PROVE is on and the span conforms) a self-checking settle-with-proof. Only
+    or (when the span conforms) a self-checking settle-with-proof. Only
     once the cursor has advanced SETTLE_EVERY blocks since the last one. Best-effort; never fatal."""
     global _last_settled_cursor
     if _last_settled_cursor >= 0 and state.cursor - _last_settled_cursor < SETTLE_EVERY:
@@ -564,7 +566,7 @@ async def maybe_settle(session):
             # L1's 8 MiB submit cap (doc/settle-proof-transport.md §1), so turning the prover on would have
             # answered every settle with HTTP 413 and stopped settlement dead, once per poll, while burning
             # minutes of proving CPU each time. Retrying the SAME (cursor, root) bare keeps the chain
-            # settling while the prover runs in production, which is what makes NADO_EXEC_SETTLE_PROVE safe
+            # settling while the prover runs in production, which is what makes unconditional proving safe
             # to enable before DA transport lands.
             if proof is not None and not (isinstance(out, dict) and out.get("result")):
                 _why = (out or {}).get("message") if isinstance(out, dict) else out
@@ -1287,7 +1289,7 @@ async def h_root(request):
 
 async def h_settlement(request):
     """Settlement status for namespace ?ns= (default): its current (cursor, state_root), whether this node
-    posts `settle` attestations (NADO_EXEC_SETTLE), the cadence, the last cursor it settled, and every
+    posts `settle` attestations, the cadence, the last cursor it settled, and every
     namespace this node runs. The interface combines this with L1's /get_settled?ns= to show tip vs settled."""
     st = _state_for(request)
     if st is None:
