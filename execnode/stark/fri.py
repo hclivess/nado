@@ -282,7 +282,54 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
             if any(c != 0 for c in coeffs[deg_bound:]):
                 return False, "final layer is not low-degree"
 
-        for q in queries:
+        # ONE NATIVE CROSSING PER LAYER, INSTEAD OF A PYTHON CLIMB PER OPENING.
+        #
+        # Each query opens two paths per layer and merkle.verify/verify_digest walked them in PYTHON,
+        # calling a native permute per LEVEL — one ctypes crossing each. Measured on the live 118.57 MiB
+        # settle proof this was the largest Python cost left in verification: 57,600 alghash2.node calls,
+        # 4.35 s, all of it arriving through merkle.verify_digest from this loop while the trace openings
+        # next door were already batched. Same Python-loop-around-a-native-kernel shape the prover port
+        # removed; doc/rust-only-proving.md says move the LOOP.
+        #
+        # BATCHED PER LAYER because one native batch must share a single path length, and the tree halves
+        # every layer. Within a layer the shape is uniform: same root, same plen, and ext-ness is fixed by
+        # `use_ext and (L > 0 or ext0)`, so a layer is exactly one call.
+        #
+        # The pre-pass uses the CLAIMED q["idx"]; the loop below still checks it against the transcript and
+        # returns before reading any of these answers if it disagrees.
+        _lb = None
+        if getattr(b, "name", "") in ("recursion", "alghash2") and queries:
+            from execnode.stark import alghash2 as _a2f
+            if all(len(_q.get("steps") or ()) >= len(roots) for _q in queries):
+                _lb = {}
+                for _L in range(len(roots)):
+                    _n = sizes[_L]; _half = _n // 2
+                    _is_ext = use_ext and (_L > 0 or ext0)
+                    _items = []
+                    for _q in queries:
+                        _st = _q["steps"][_L]
+                        _lo = (int(_q["idx"]) % _n) % _half
+                        _llo = _ext_leaf(b, _st["lo"]) if _is_ext else _st["lo"]
+                        _lhi = _ext_leaf(b, _st["hi"]) if _is_ext else _st["hi"]
+                        _items.append((roots[_L], _lo, _llo, _st["lo_path"]))
+                        _items.append((roots[_L], _lo + _half, _lhi, _st["hi_path"]))
+                    # A ragged/!CAPACITY batch is a MALFORMED PROOF, not a missing library — reject it here
+                    # rather than letting merkle_verify_paths return None and be read as "no native lib".
+                    if len({len(_it[3]) for _it in _items}) != 1:
+                        return False, f"bad Merkle opening at layer {_L}"
+                    if _is_ext and any(len(_it[2]) != _a2f.CAPACITY for _it in _items):
+                        return False, f"bad Merkle opening at layer {_L}"
+                    _r = _a2f.merkle_verify_paths(_items, getattr(b, "name", ""), digest=_is_ext)
+                    if _r is None:
+                        # NO SILENT PYTHON WALK — falling back is what hid this cost for the feature's
+                        # whole life. A missing export means a stale crate, which gets rebuilt, not routed
+                        # around.
+                        raise RuntimeError(
+                            "alghash2 native merkle_verify_paths unavailable — the native crate is stale. "
+                            "Rebuild with `cargo build --release` in native/alghash2.")
+                    _lb[_L] = _r
+
+        for _qi, q in enumerate(queries):
             idx = t.challenge_index(N)
             if idx != q["idx"]:
                 return False, "query index does not match transcript"
@@ -293,7 +340,14 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
                 lo = a % half
                 # Merkle-check both opened points against this layer's root
                 is_ext_layer = use_ext and (L > 0 or ext0)
-                if is_ext_layer:
+                if _lb is not None:
+                    # answers from this layer's single native crossing, in the order they were queued
+                    if not _lb[L][2 * _qi]:
+                        return False, f"bad Merkle opening (lo) at layer {L}"
+                    if not _lb[L][2 * _qi + 1]:
+                        return False, f"bad Merkle opening (hi) at layer {L}"
+                elif is_ext_layer:
+                    # only reached for a backend the native crate does not implement (blake2b, tests)
                     if not merkle.verify_digest(root, lo, _ext_leaf(b, step["lo"]),
                                                 step["lo_path"], b):
                         return False, f"bad Merkle opening (lo) at layer {L}"

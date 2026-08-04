@@ -311,8 +311,13 @@ pub unsafe extern "C" fn grind(state: *const u64, dom: u64, bits: u32) -> u64 {
 //     ok = (h == root)
 // `mode`: 0 = RECURSION backend (rleaf/rnode, one permutation per node, no length prefix)
 //         1 = ALGHASH2 backend (hashn with the length prefix)
-// `ext` : 0 = base leaf (one field element), 1 = extension leaf (d limbs, DOM_LEAF_EXT frame)
-// `d`   : limbs per leaf (1 when ext == 0)
+// `ext` : 0 = base leaf (one field element), 1 = extension leaf (d limbs, DOM_LEAF_EXT frame),
+//         2 = the leaf DIGEST is supplied directly (d == CAP lanes), for row-commitment openings where the
+//             caller already hashed a whole trace row (rrow) — this is merkle.verify_digest's entry point.
+//             Without it those openings had to climb in PYTHON, one ctypes crossing per level: measured on
+//             the live 118.57 MiB settle proof, 57,600 alghash2.node calls / 4.35 s came back through
+//             merkle.verify_digest while the batched path next door did the rest natively.
+// `d`   : limbs per leaf (1 when ext == 0, CAP when ext == 2)
 // Layout: roots[m*CAP], indices[m], leaves[m*d], paths[m*plen*CAP]. Writes out[m] as 1/0.
 // Returns 0, or -1 on a rejected shape — a bad degree is REFUSED rather than silently truncated, because a
 // truncated ext frame would alias a base leaf and let one tree's opening verify against the other's root.
@@ -322,12 +327,18 @@ pub unsafe extern "C" fn merkle_verify_paths(roots: *const u64, indices: *const 
                                              mode: u32, ext: u32, out: *mut u8) -> i64 {
     if d < 1 || d > 8 { return -1; }
     if ext == 1 && mode == 0 && d > (RATE / 2 - 1) { return -1; }   // must fit the 4-lane rleaf head
-    if mode > 1 || ext > 1 { return -1; }
+    if mode > 1 || ext > 2 { return -1; }
+    // A supplied digest must be exactly CAP lanes. Refuse anything else rather than pad or truncate: a
+    // short frame would alias a DIFFERENT leaf and let one tree's opening verify against another's root.
+    if ext == 2 && d != CAP { return -1; }
 
     for i in 0..m {
         // ---- leaf digest -------------------------------------------------------------------------
         let mut h = [0u64; CAP];
-        if mode == 0 {
+        if ext == 2 {
+            // Already a digest (the caller hashed the row): no leaf framing, climb straight from it.
+            for k in 0..CAP { h[k] = *leaves.add(i * d + k); }
+        } else if mode == 0 {
             let mut s = [0u64; W];
             if ext == 1 {
                 s[0] = DOM_LEAF_EXT;

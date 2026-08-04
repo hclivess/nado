@@ -374,7 +374,7 @@ def to_int(digest):
 def eq(a, b):
     return tuple(int(x) % F.P for x in a) == tuple(int(x) % F.P for x in b)
 
-def merkle_verify_paths(items, mode, ext=False, degree=1):
+def merkle_verify_paths(items, mode, ext=False, degree=1, digest=False):
     """Verify MANY authentication paths in ONE native call. Bit-identical to merkle.verify per item.
 
     THE VERIFIER WAS NEVER PORTED. The prover port took 97.6% of prove wall-clock into Rust; nobody profiled
@@ -385,9 +385,11 @@ def merkle_verify_paths(items, mode, ext=False, degree=1):
     bottleneck. Batching the permute alone tops out near 23 us/call, so per doc/rust-only-proving.md the fix
     is to move the LOOP.
 
-    `items` is a sequence of (root, index, value, path). `value` is an int for base leaves, or a limb tuple
-    when ext. `mode` is "recursion" (rleaf/rnode) or "alghash2" (hashn). Returns a list of bools, or None if
-    the native lib or the export is unavailable (caller falls back to the Python loop).
+    `items` is a sequence of (root, index, value, path). `value` is an int for base leaves, a limb tuple
+    when ext, or a CAPACITY-lane DIGEST when `digest` (row-commitment openings, where the caller already
+    hashed the whole trace row with rrow — merkle.verify_digest's case). `mode` is "recursion"
+    (rleaf/rnode) or "alghash2" (hashn). Returns a list of bools, or None if the native lib or the export
+    is unavailable.
     """
     nat = _try_native()
     if not nat:
@@ -418,11 +420,11 @@ def merkle_verify_paths(items, mode, ext=False, degree=1):
         _step = (m + _n - 1) // _n
         _chunks = [items[i:i + _step] for i in range(0, m, _step)]
         with _cf.ThreadPoolExecutor(max_workers=len(_chunks)) as _ex:
-            _parts = list(_ex.map(lambda c: _mvp_one(lib, u64, c, mode, ext, degree), _chunks))
+            _parts = list(_ex.map(lambda c: _mvp_one(lib, u64, c, mode, ext, degree, digest), _chunks))
         if any(p is None for p in _parts):
             return None
         return [b for part in _parts for b in part]        # order preserved: chunks are contiguous
-    return _mvp_one(lib, u64, items, mode, ext, degree)
+    return _mvp_one(lib, u64, items, mode, ext, degree, digest)
 
 
 # Split point and worker count for the batched path verify above. The threshold keeps small batches on the
@@ -434,14 +436,14 @@ except Exception:
     _MVP_WORKERS = 1
 
 
-def _mvp_one(lib, u64, items, mode, ext=False, degree=1):
+def _mvp_one(lib, u64, items, mode, ext=False, degree=1, digest=False):
     """Marshal ONE contiguous batch and run the native verify over it. Bit-identical to the unsplit call."""
     import ctypes
     m = len(items)
     if m == 0:
         return []
     plen = len(items[0][3])
-    d = int(degree) if ext else 1
+    d = CAPACITY if digest else (int(degree) if ext else 1)
     roots = (u64 * (m * CAPACITY))()
     idxs = (u64 * m)()
     leaves = (u64 * (m * d))()
@@ -449,7 +451,13 @@ def _mvp_one(lib, u64, items, mode, ext=False, degree=1):
     for i, (root, index, value, path) in enumerate(items):
         roots[i * CAPACITY:(i + 1) * CAPACITY] = [int(x) % F.P for x in root]
         idxs[i] = int(index)
-        if ext:
+        if digest:
+            # value IS the leaf digest (CAPACITY lanes) — no leaf framing native-side, climb starts here
+            _dg = list(value)
+            if len(_dg) != CAPACITY:
+                return None
+            leaves[i * d:(i + 1) * d] = [int(x) % F.P for x in _dg]
+        elif ext:
             limbs = list(value) + [0] * (d - len(value))
             leaves[i * d:(i + 1) * d] = [int(x) % F.P for x in limbs[:d]]
         else:
@@ -459,7 +467,8 @@ def _mvp_one(lib, u64, items, mode, ext=False, degree=1):
             paths[off:off + CAPACITY] = [int(x) % F.P for x in sib]
     out = (ctypes.c_uint8 * m)()
     rc = lib.merkle_verify_paths(roots, idxs, leaves, paths, m, plen, d,
-                                 1 if mode == "alghash2" else 0, 1 if ext else 0, out)
+                                 1 if mode == "alghash2" else 0,
+                                 2 if digest else (1 if ext else 0), out)
     if rc != 0:
         return None
     return [bool(x) for x in out[:]]

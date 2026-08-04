@@ -600,6 +600,36 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                 from execnode.stark import alghash2 as _a2b
                 _batch_ok = _a2b.merkle_verify_paths(_pending, getattr(b, "name", ""))
 
+        # ROW-COMMITMENT OPENINGS TAKE THE SAME ONE CROSSING. row_commit mode opens 2 paths per query per
+        # trace tree starting from a PRECOMPUTED row digest (rrow), and merkle.verify_digest climbed those
+        # in PYTHON — one ctypes crossing per level, exactly the shape the column batch above already
+        # removed. Measured on the live 118.57 MiB settle proof this was the largest Python cost left in
+        # verify: 57,600 alghash2.node calls, 4.35 s. The native routine now accepts the digest directly.
+        _row_ok, _ri = None, 0
+        if row_commit and getattr(b, "name", "") in ("recursion", "alghash2"):
+            from execnode.stark import alghash2 as _a2r
+            _rp = []
+            for _q, _op in zip(proof["fri"]["queries"], proof["openings"]):
+                _lo = _q["idx"] % (N // 2)
+                _nxt = (_lo + blowup) % N
+                _cur = [int(v) % F.P for v in _op["cur"]]
+                _nxr = [int(v) % F.P for v in _op["nxt"]]
+                if len(_cur) != W or len(_nxr) != W:
+                    _rp = None
+                    break                                  # the loop below reports the width error
+                _groups = [(0, w_main, 0)] + ([(w_main, W, 1)] if aux_spec is not None else [])
+                for (_s, _e, _ti) in _groups:
+                    _rp.append((row_roots[_ti], _lo, _a2r.rrow(_cur[_s:_e]), _op["cur_paths"][_ti]))
+                    _rp.append((row_roots[_ti], _nxt, _a2r.rrow(_nxr[_s:_e]), _op["nxt_paths"][_ti]))
+            if _rp:
+                _row_ok = _a2r.merkle_verify_paths(_rp, getattr(b, "name", ""), digest=True)
+                if _row_ok is None:
+                    # NO SILENT PYTHON WALK. Falling back here is what hid this cost in the first place; a
+                    # missing export means the crate is stale, which must be fixed, not worked around.
+                    raise RuntimeError(
+                        "alghash2 native merkle_verify_paths(digest) unavailable — the native crate is "
+                        "stale. Rebuild with `cargo build --release` in native/alghash2.")
+
         _bi = 0
         for q, op in zip(proof["fri"]["queries"], proof["openings"]):
             lo = q["idx"] % (N // 2)
@@ -615,12 +645,21 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                     return False, "bad row opening width"
                 groups = [(0, w_main, 0)] + ([(w_main, W, 1)] if aux_spec is not None else [])
                 for (s, e, ti) in groups:
-                    if not merkle.verify_digest(row_roots[ti], lo, _a2.rrow(cur_row[s:e]),
-                                                op["cur_paths"][ti], b):
-                        return False, f"bad row opening (cur) tree {ti}"
-                    if not merkle.verify_digest(row_roots[ti], nxt, _a2.rrow(nxt_row[s:e]),
-                                                op["nxt_paths"][ti], b):
-                        return False, f"bad row opening (nxt) tree {ti}"
+                    if _row_ok is not None:
+                        # answers from the single native crossing, in the order they were queued
+                        if not _row_ok[_ri]:
+                            return False, f"bad row opening (cur) tree {ti}"
+                        if not _row_ok[_ri + 1]:
+                            return False, f"bad row opening (nxt) tree {ti}"
+                        _ri += 2
+                    else:
+                        # only reached for a backend the native crate does not implement (blake2b, tests)
+                        if not merkle.verify_digest(row_roots[ti], lo, _a2.rrow(cur_row[s:e]),
+                                                    op["cur_paths"][ti], b):
+                            return False, f"bad row opening (cur) tree {ti}"
+                        if not merkle.verify_digest(row_roots[ti], nxt, _a2.rrow(nxt_row[s:e]),
+                                                    op["nxt_paths"][ti], b):
+                            return False, f"bad row opening (nxt) tree {ti}"
             else:
                 for c in range(W):
                     col = op["cols"][c]
