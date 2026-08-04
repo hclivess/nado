@@ -699,6 +699,43 @@ async def maybe_settle(session):
             # A proof small enough to inline still goes inline: that path already settles the root
             # TRUSTLESSLY with no quorum, and is strictly better than a commitment.
             proof_da = None
+            # PROOF-CARRYING SETTLES ARE SUSPENDED — they take this node OUT OF CONSENSUS.
+            #
+            # A settle carrying proof_da sits in our own mempool, and every block-candidate build
+            # re-validates it. Validation resolves the proof from DA and verifies it, measured at 94.2 s,
+            # so the core loop goes from ~1 s to 91 s and the node stops producing. Observed live
+            # 2026-08-04 after two such submits:
+            #     [DOWN] Blocks #22728 · 221s old
+            #     Consensus OUTSIDE majority (66% / 3 peers)
+            #     Loop durations: Core: 91
+            # 219 NODE UNHEALTHY episodes, blocks frozen for ~9 minutes at a stretch while peers advanced.
+            #
+            # THREADING CANNOT FIX THIS. /submit_transaction already runs validation via
+            # asyncio.to_thread, and the verifier is pure Python: it holds the GIL for the whole 94 s and
+            # starves the loop regardless. Same reason to_thread did not save the DA encode.
+            #
+            # AND IT CANNOT LAND ANYWAY. There is exactly one DA node (all three peers have no listener on
+            # :9273), _fetch_da_proof asks only 127.0.0.1, and nothing ever pushes shards — /da/accept has
+            # no caller. Every other validator resolves nothing and DEFERS, so the tx is unincludable by
+            # anyone. Three separate proof-carrying settles were accepted and none reached a block.
+            #
+            # So the cost is a node outage and the benefit is zero. Suspended until BOTH hold:
+            #   1. the verifier is NATIVE (Rust), so validation cannot starve the loop; and
+            #   2. shards are distributed (push k-of-n on publish + _fetch_da_proof tries peers via the
+            #      _da_sources() discovery the exec node already has), so a peer can actually verify.
+            # Everything upstream is proven and unchanged: the prover still builds and self-checks a proof
+            # each cadence, which is what demonstrated the pipeline in the first place.
+            _SUSPEND_DA_SETTLE = True
+            if proof is not None and _SUSPEND_DA_SETTLE:
+                _k = (ns, "da-settle-suspended")
+                if _settle_skip_logged.get(_k) != _k[1]:
+                    _settle_skip_logged[_k] = _k[1]
+                    print(f"[execnode] proof-carrying settle SUSPENDED ns={ns} span→{cur}: a DA-carried "
+                          f"settle stalls the core loop to 91 s (94 s Python verification, GIL-bound) and "
+                          f"takes this node out of consensus, and cannot be included while this is the "
+                          f"only DA node. Settling bare. Re-enable when the verifier is native AND shards "
+                          f"are distributed.", flush=True)
+                proof = None
             if proof is not None:
                 try:
                     # SERIALIZE THE PROOF ONCE, AND OFF THE EVENT LOOP.
