@@ -207,6 +207,24 @@ check("_skip dedupes on a stable condition class", "def _skip(reason, cls=None):
 for _cls in ("epoch-boundary", "stale-stash", "no-advance", "span-cap"):
     check(f"...and the value-carrying skip '{_cls}' names one", f'cls="{_cls}"' in src)
 
+# ---- A HOLD THAT CANNOT SUCCEED MUST NOT COST LIVENESS -----------------------------------------------
+# MEASURED 2026-08-04: "GIVING UP after 44 attempt(s) over 1217s". 44 misses at our measured 19.3% block
+# share is P ~ 1e-4 — not luck. A settle carrying proof_da is never ADMITTED by peers: _fetch_da_proof is
+# bounded at 8s while a peer needs ~118 MiB from the single DA node plus ~4.4s decode and ~21.7s verify
+# (~36s). After 15 minutes of gossip our pool held it and ALL THREE PEERS HELD ZERO. And since every node
+# deterministically builds the WINNER's block, when we win, a peer's candidate — built from a pool without
+# our tx — is what gets adopted ("Remote block: True", 0 txs).
+# So the 1200s hold bought nothing and delayed settlement 20 minutes per cycle. Detect the real condition.
+check("the hold gives up early if the tx never reached the peers",
+      "has NOT " in src and "PROPAGATED to any of" in src)
+check("...after a grace period, checked once", "SETTLE_PROPAGATION_GRACE_S" in src
+      and 'prop_checked' in src)
+check("...only for a DA-carried proof (an inline one propagates normally)",
+      '_pend.get("proof_da") and not _pend.get("prop_checked")' in src)
+check("...and a failed probe never stalls settlement", "must never stall settlement" in src)
+check("the peer probe uses aiohttp, not a blocking fetch on the event loop",
+      "aiohttp, NOT urllib" in src)
+
 print()
 print("ALL PASS — a node no longer races its own proof by moving the tip out from under it"
       if not fails else f"{fails} FAILURES")

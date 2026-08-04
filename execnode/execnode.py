@@ -227,6 +227,21 @@ _settle_pending = {}
 # in the tail it saves a whole 118 MiB proof from being thrown away and reproved. 1200 s ≈ 26 shots,
 # P(miss) ≈ 0.4%.
 SETTLE_RESUBMIT_MAX_S = 1200
+# Give up the hold early if the tx has not REACHED THE PEERS, because then it cannot land no matter how
+# many landing blocks we try. MEASURED 2026-08-04, the whole reason this exists:
+#     GIVING UP after 44 attempt(s) over 1217s
+# 44 misses at our measured 19.3% block share is P ~ 1e-4 — not luck. A settle carrying proof_da is not
+# ADMITTED by peers at all: validate_transaction resolves it via _fetch_da_proof under an 8s bound, while a
+# peer needs ~118 MiB from the single DA node plus ~4.4s decode and ~21.7s verify (~36s), so it times out
+# into ProofUnavailable. After 15 minutes of gossip our pool held it and all three peers held ZERO. And
+# since every node deterministically builds the WINNER's block, when we win, a peer's candidate — built
+# from a pool without our tx — is what gets adopted ("Remote block: True", 0 txs).
+#
+# So holding the justified tip for 20 minutes per cycle buys nothing and costs real liveness: bridge exits
+# keep looking at a stale settlement. Detect the actual condition instead of guessing a budget — ask the
+# peers whether they have it. This is self-correcting: once a proof becomes cheap enough for peers to admit
+# (the K->1 fold), propagation succeeds and the hold runs its full course again with no change here.
+SETTLE_PROPAGATION_GRACE_S = 90
 # Backstop only, so a pathological loop (blocks arriving far faster than expected) cannot spin unbounded.
 SETTLE_RESUBMIT_MAX = 200
 # STRONG REFERENCES to the detached settle tasks. asyncio keeps only a WEAK reference to a running task, so
@@ -738,6 +753,38 @@ async def maybe_settle(session):
                 except Exception:
                     _sc_now = -1
                 _h_now = target - 2                       # target was latest+2
+                # DID IT EVEN REACH THE PEERS? If not, no landing block can help — see
+                # SETTLE_PROPAGATION_GRACE_S. Checked once, after a grace period long enough for ordinary
+                # pull-gossip, and only for a DA-carried proof (an inline one propagates normally).
+                if (_pend.get("proof_da") and not _pend.get("prop_checked")
+                        and (time.time() - float(_pend.get("first_submitted") or 0)) > SETTLE_PROPAGATION_GRACE_S):
+                    _pend["prop_checked"] = True
+                    try:
+                        from ops import peer_ops as _po2
+                        _peers = [p for p in (_po2.known_peer_ips() or [])][:3]
+                        _seen_by = 0
+                        for _pip in _peers:
+                            # aiohttp, NOT urllib: this runs on the event loop, and a blocking fetch here
+                            # would stall the exec node for seconds per peer.
+                            async with session.get(f"http://{_pip}:9173/transaction_pool",
+                                                   timeout=aiohttp.ClientTimeout(total=4)) as _r2:
+                                if _r2.status != 200:
+                                    continue
+                                _pp = json.loads(await _r2.text())
+                            _ptx = _pp.get("transaction_pool") if isinstance(_pp, dict) else (_pp or [])
+                            if any((t.get("data") or {}).get("proof_da") == _pend["proof_da"]
+                                   for t in (_ptx or [])):
+                                _seen_by += 1
+                        if _peers and _seen_by == 0:
+                            _settle_pending.pop(ns, None)
+                            print(f"[execnode] settle-with-proof ns={ns} cursor {_pend['cursor']} has NOT "
+                                  f"PROPAGATED to any of {len(_peers)} peers after "
+                                  f"{SETTLE_PROPAGATION_GRACE_S}s — a peer cannot admit a proof-carrying "
+                                  f"settle within its validation budget, so no landing block can help. "
+                                  f"Releasing the tip instead of holding settlement for nothing.", flush=True)
+                            continue
+                    except Exception as _pe:
+                        pass                              # a failed probe must never stall settlement
                 if _sc_now >= int(_pend["cursor"]):
                     _settle_pending.pop(ns, None)         # it landed; the tip is already past it
                 elif _h_now > int(_pend["max_block"]):
