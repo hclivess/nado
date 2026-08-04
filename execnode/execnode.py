@@ -422,10 +422,17 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # "disabled", "waiting for a conforming span" and "broken" — the exact failure this codebase already
     # names elsewhere: a fallback nobody can observe is indistinguishable from one that never fires.
     # Rate-limited per (ns, reason) so a standing condition says so once, not once per settle.
-    def _skip(reason):
+    def _skip(reason, cls=None):
+        # THE THROTTLE MUST DEDUPE ON THE CONDITION, NOT ON THE SENTENCE. It compared the whole formatted
+        # reason, and several reasons embed the moving cursor ("span 25399 -> 25496 crosses …"), so the
+        # string differed on every poll and the standing condition logged once per poll instead of once:
+        # 25 identical epoch-boundary lines in one cycle, which is precisely what "rate-limited so a
+        # standing condition says so once" was written to prevent. `cls` names the condition; it falls back
+        # to the full reason for one-off skips that carry no moving value.
         _k = (ns, "skip")
-        if _settle_skip_logged.get(_k) != reason:
-            _settle_skip_logged[_k] = reason
+        _key = cls or reason
+        if _settle_skip_logged.get(_k) != _key:
+            _settle_skip_logged[_k] = _key
             print(f"[execnode] settle-with-proof SKIPPED ns={ns} cursor {cur} — {reason}", flush=True)
         return None
 
@@ -443,20 +450,21 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     snap = json.loads(raw)
     if int(snap.get("cursor", -2)) != sc:
         return _skip(f"stashed pre-state is at cursor {snap.get('cursor')}, not the justified tip {sc} "
-                     f"(history holds {sorted((_settled_history.get(ns) or {}).keys())})")
+                     f"(history holds {sorted((_settled_history.get(ns) or {}).keys())})", cls="stale-stash")
     pre_contracts = (snap.get("state") or {}).get("contracts") or {}
     pre_bridge = (snap.get("state") or {}).get("bridge")
     # 3. conformance the validator enforces: advances, within the span cap, no epoch boundary (dividend).
     if cur <= sc:
-        return _skip(f"span does not advance ({sc} -> {cur})")
+        return _skip(f"span does not advance ({sc} -> {cur})", cls="no-advance")
     if (cur - sc) > SETTLE_PROOF_MAX_SPAN:
-        return _skip(f"span {cur - sc} exceeds SETTLE_PROOF_MAX_SPAN {SETTLE_PROOF_MAX_SPAN}")
+        return _skip(f"span {cur - sc} exceeds SETTLE_PROOF_MAX_SPAN {SETTLE_PROOF_MAX_SPAN}", cls="span-cap")
     if (sc // EPOCH_LENGTH) != (cur // EPOCH_LENGTH):
         # The tightest gate by far, and the one that made a 240-block cadence produce zero proofs: a
         # dividend at the boundary moves the RECORDS half, which the proof pins unchanged.
         return _skip(f"span {sc} -> {cur} crosses a dividend epoch boundary "
                      f"(epoch {sc // EPOCH_LENGTH} -> {cur // EPOCH_LENGTH}); records must be unchanged "
-                     f"across a proven span, so settle cadence must stay inside one {EPOCH_LENGTH}-block epoch")
+                     f"across a proven span, so settle cadence must stay inside one {EPOCH_LENGTH}-block epoch",
+                     cls="epoch-boundary")
     # 4. the span's DA calls, per block (block_calls stamps cursor=h, ts=0 — the DA-binding form).
     calls = []
     for h in range(sc + 1, cur + 1):

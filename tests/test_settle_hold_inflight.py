@@ -197,6 +197,16 @@ check("the hold start is recorded so the budget is measurable", '"first_submitte
 check("the pending record carries what a rebuild needs",
       '"root": root' in src and '"pre_cursor"' in src and '"attempts": 1' in src)
 
+# ---- A THROTTLE MUST DEDUPE ON THE CONDITION, NOT ON THE SENTENCE -------------------------------------
+# _skip is documented as "rate-limited per (ns, reason) so a standing condition says so once, not once per
+# settle". It compared the whole FORMATTED reason, and several reasons embed the moving cursor
+# ("span 25399 -> 25496 crosses a dividend epoch boundary"), so the string differed on every poll and the
+# standing condition logged every poll. Measured live: 25 identical epoch-boundary lines in one cycle.
+check("_skip dedupes on a stable condition class", "def _skip(reason, cls=None):" in src
+      and "_key = cls or reason" in src)
+for _cls in ("epoch-boundary", "stale-stash", "no-advance", "span-cap"):
+    check(f"...and the value-carrying skip '{_cls}' names one", f'cls="{_cls}"' in src)
+
 print()
 print("ALL PASS — a node no longer races its own proof by moving the tip out from under it"
       if not fails else f"{fails} FAILURES")
