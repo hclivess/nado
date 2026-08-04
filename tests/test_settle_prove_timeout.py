@@ -117,8 +117,23 @@ async def scenario():
     p3 = Prover(timeout=0.02)
     await p3.build(prove_seconds=0.15)                      # times out, thread keeps going
     check("guard is still held while the abandoned thread runs", p3.proving is True)
-    await asyncio.sleep(0.25)                               # thread finishes
+    # WAIT ON THE CONDITION, NOT ON THE CLOCK. This used to be a flat sleep(0.25) chosen to outlast a
+    # 0.15s worker, which is only true on an unloaded box: thread scheduling and the GIL can stretch that
+    # worker well past 0.25s, the guard is then still held, and the NEXT build correctly reports
+    # "in-flight" — failing a test that was asserting nothing about the code, only about the machine.
+    # Measured flaky at roughly 1 run in 6 on this host. Poll instead, with a cap far above any real
+    # scheduling delay, so the test is deterministic under load and still fails fast if the guard leaks.
+    for _ in range(400):                                    # up to ~4s
+        if not p3.proving:
+            break
+        await asyncio.sleep(0.01)
     check("guard releases once the abandoned thread finally ends", p3.proving is False)
+    # WHAT THIS ASSERTS IS THE GUARD, NOT THE CLOCK. p3 was built with a deliberately tiny 0.02s bound to
+    # force the timeout above; reusing it here raced a 0.01s prove against that same 0.02s bound — a 2x
+    # margin, so one scheduling hiccup made wait_for fire and returned None. The question at this point is
+    # only "did the released guard let a new prove start", so give it a bound that cannot be the reason
+    # it fails.
+    p3.timeout = 5.0
     check("and proving resumes afterwards", (await p3.build(prove_seconds=0.01)) == {"proof": "ok"})
 
 

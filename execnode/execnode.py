@@ -97,15 +97,25 @@ if True:
     # next settle was a bare attestation, with nothing in the log to say why.
     #
     # So the proving cadence must be a FRACTION of an epoch. At EPOCH_LENGTH/2 a span conforms whenever
-    # both ends land in the same epoch (roughly every other settle); the ones that straddle re-anchor the
-    # justified tip at the boundary so the following span conforms. The span cap is kept as the upper
-    # bound it always was — it simply can never bind while the epoch rule is 4x tighter.
+    # both ends land in the same epoch. The span cap is kept as the upper bound it always was — it simply
+    # can never bind while the epoch rule is 4x tighter.
+    #
+    # THIS COMMENT USED TO CLAIM the straddling spans "re-anchor the justified tip at the boundary so the
+    # following span conforms". They did not: a straddling span skips the proof and settles BARE at
+    # whatever `cur` happens to be, leaving the tip at an arbitrary offset that straddles again just as
+    # easily. A fixed cadence only self-aligns when the cursor advances one block at a time; the real
+    # cursor advances in BATCHES, so each settle fires at last+SETTLE_EVERY+jitter and the offset DRIFTS.
+    # Measured 2026-08-04: 95 logged epoch-boundary skips, the largest skip class by far. maybe_settle now
+    # does the re-anchor deliberately (see SETTLE_EPOCH there), which makes it drift-proof.
     try:
         from protocol import SETTLE_PROOF_MAX_SPAN as _SPAN, EPOCH_LENGTH as _EPOCH
         _SETTLE_EVERY_DEFAULT = max(1, min(int(_SPAN), int(_EPOCH) // 2))
+        _SETTLE_EPOCH_DEFAULT = int(_EPOCH)
     except Exception:
         _SETTLE_EVERY_DEFAULT = 30
+        _SETTLE_EPOCH_DEFAULT = 60
 SETTLE_EVERY = _SETTLE_EVERY_DEFAULT      # derived from EPOCH_LENGTH; not an operator knob
+SETTLE_EPOCH = _SETTLE_EPOCH_DEFAULT      # the dividend epoch a proven span may not cross
 # VALIDITY PROVING IS UNCONDITIONAL. No flag, no opt-in, no way to run a node that quietly settles on a
 # bonded attestation because someone forgot an env var. A settle carries a STARK validity proof; the bare
 # attestation exists ONLY as the degradation path when a proof cannot be produced or is refused, and every
@@ -171,6 +181,13 @@ BOOTSTRAP = os.environ.get("NADO_EXEC_BOOTSTRAP", "").rstrip("/")
 # (aliasing the live state dicts would let later mutations drift the payload away from its root) —
 # what /exec/state_snapshot serves so a joiner can verify it against the L1-settled (cursor, root).
 _settled_snapshots = {}
+# ...and a small per-ns HISTORY of the same payloads keyed by cursor. The prover must hold the pre-state
+# at L1's JUSTIFIED tip, which lags our newest accepted settle by however long justification takes, so a
+# stash that keeps only the newest is regularly at the wrong cursor — "stashed pre-state is at cursor
+# 18632, not the justified tip 18627" was the second-largest skip class measured live 2026-08-04.
+# Bounded: these are full state payloads, and only the last few cursors can ever be the justified tip.
+_settled_history = {}
+_SETTLED_HISTORY_KEEP = 6
 
 # NAMESPACES this node maintains (multi-rollup). The DEFAULT namespace is the full canonical exec layer
 # (contracts + bridge + shielded pool + presence dividend). Any EXTRA namespaces (NADO_EXEC_NAMESPACES,
@@ -326,13 +343,18 @@ async def _build_settlement_proof(session, ns, st, cur, root):
     if sc < 0 or not sr:
         return _skip("no L1-justified settled tip yet; the first settlement in a namespace rides the quorum")
     # 2. our stashed exec state AT that justified cursor (pre-state). Only proceed if we hold exactly it.
-    raw = _settled_snapshots.get(ns)
+    # Look the justified cursor up in the HISTORY, not just the newest stash: L1 justifies a settle some
+    # time after we make it, so by the time we prove, our newest stash is typically one settle AHEAD of
+    # the tip the proof has to extend. Falling back to the newest keeps the pre-e1000cbd behaviour for a
+    # node that has settled exactly once.
+    raw = (_settled_history.get(ns) or {}).get(sc) or _settled_snapshots.get(ns)
     if not raw:
         return _skip("no stashed pre-state (the stash is in-memory and empties on restart; it refills on "
                      "the next accepted settle)")
     snap = json.loads(raw)
     if int(snap.get("cursor", -2)) != sc:
-        return _skip(f"stashed pre-state is at cursor {snap.get('cursor')}, not the justified tip {sc}")
+        return _skip(f"stashed pre-state is at cursor {snap.get('cursor')}, not the justified tip {sc} "
+                     f"(history holds {sorted((_settled_history.get(ns) or {}).keys())})")
     pre_contracts = (snap.get("state") or {}).get("contracts") or {}
     pre_bridge = (snap.get("state") or {}).get("bridge")
     # 3. conformance the validator enforces: advances, within the span cap, no epoch boundary (dividend).
@@ -446,7 +468,26 @@ async def maybe_settle(session):
     or (when the span conforms) a self-checking settle-with-proof. Only
     once the cursor has advanced SETTLE_EVERY blocks since the last one. Best-effort; never fatal."""
     global _last_settled_cursor
-    if _last_settled_cursor >= 0 and state.cursor - _last_settled_cursor < SETTLE_EVERY:
+    # EPOCH-ALIGNED CADENCE. A proven span may not cross a dividend epoch boundary, and a fixed
+    # "every SETTLE_EVERY blocks" cadence leaves the justified tip at an ARBITRARY offset inside an
+    # epoch, so whether the next span straddles a boundary is luck. The comment above SETTLE_EVERY
+    # claimed a straddling span would "re-anchor the justified tip at the boundary so the following
+    # span conforms" — it never did: a straddling span skips the proof and settles bare at whatever
+    # `cur` happens to be, which is just as likely to straddle again. MEASURED live 2026-08-04 over
+    # 128 skips: 95 of them (74%) were epoch-boundary crossings, versus the ~50% the fixed cadence
+    # predicts and against exactly ONE prove timeout. The cadence, not the proving cost, is what was
+    # keeping the conforming-span count near zero.
+    #
+    # So re-anchor DELIBERATELY: settle as soon as the cursor enters a new epoch. That lands the
+    # justified tip a block or two past the boundary, and every settle for the rest of that epoch is
+    # then epoch-internal by construction. One boundary settle per epoch is unavoidable (getting from
+    # epoch k to k+1 must cross once) but it costs a few hundred bytes as a bare attestation, and it
+    # buys a GUARANTEED conforming span every epoch instead of an occasional lucky one.
+    _c = state.cursor
+    _advanced = _last_settled_cursor < 0 or (_c - _last_settled_cursor) >= SETTLE_EVERY
+    _new_epoch = (_last_settled_cursor >= 0
+                  and (_c // SETTLE_EPOCH) != (_last_settled_cursor // SETTLE_EPOCH))
+    if not (_advanced or _new_epoch):
         return
     try:
         from ops.transaction_ops import construct_settle_tx
@@ -611,6 +652,12 @@ async def maybe_settle(session):
                 # mutating, a reference stash would drift.
                 _settled_snapshots[ns] = json.dumps({"ns": ns, "cursor": cur, "state_root": root,
                                                      "state": st._snapshot()}, sort_keys=True)
+                # ...and keep it addressable by cursor so the next prove can find the pre-state at
+                # whatever cursor L1 ends up justifying, not only at our newest one.
+                _h = _settled_history.setdefault(ns, {})
+                _h[cur] = _settled_snapshots[ns]
+                for _old in sorted(_h)[:-_SETTLED_HISTORY_KEEP]:
+                    del _h[_old]
                 print(f"[execnode] SETTLE{'-WITH-PROOF' if proof else ''} ns={ns} cursor {cur} "
                       f"root {root[:16]}… → L1", flush=True)
             else:
