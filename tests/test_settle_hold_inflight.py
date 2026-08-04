@@ -185,8 +185,13 @@ _rsec = int(_re2.search(r"^SETTLE_RESUBMIT_MAX_S = (\d+)", src, _re2.M).group(1)
 _rmax = int(_re2.search(r"^SETTLE_RESUBMIT_MAX = (\d+)", src, _re2.M).group(1))
 check("the retry budget is a TIME bound, not an attempt count", "SETTLE_RESUBMIT_MAX_S" in src
       and "_held_for < SETTLE_RESUBMIT_MAX_S" in src)
-check("...long enough for many ~18s attempts", _rsec >= 300)
-check("...with a count backstop far above what the time bound allows", _rmax > _rsec / 18)
+# SIZED FROM THE MEASURED ATTEMPT RATE. Retries are CADENCE-driven, not miss-driven — one goes out on the
+# next maybe_settle poll — so the real spacing is ~45 s, not the ~18 s first assumed: live, cursor 25230
+# reached attempt 13 at 594s/600s. With a MEASURED 19.3% block share (301 blocks: 58 ours, 56 producers),
+# 600 s bought P(miss) = 0.807^13 ~ 6%, and that cycle lost the flip after ~5 minutes of proving.
+# The ceiling only binds in the tail (expected time to land ~234 s), so a bigger one is nearly free.
+check("the budget allows enough ~45s attempts to make a miss unlikely", _rsec / 45 >= 20)
+check("...with a count backstop far above what the time bound allows", _rmax > _rsec / 45)
 check("the hold start is recorded so the budget is measurable", '"first_submitted": time.time()' in src)
 # 0.81^6 ~ 0.28: still possible to miss, which is why GIVING UP must exist rather than retry forever.
 check("the pending record carries what a rebuild needs",

@@ -210,15 +210,23 @@ _settle_pending = {}
 # (that would mean fetching 118 MiB from DA and verifying it, ~21.7 s, inside a ~6 s slot). One shot is a
 # ~19% coin flip on work that took ~5 minutes of proving.
 #
-# BOUND BY TIME, NOT BY A COUNT. The first cut allowed 6 attempts, and live they were consumed in about two
-# minutes — each retry targets latest+2, so an attempt is only ~3 blocks (~18 s) long:
-#     22:57 missed 25197 -> attempt 2 ... 22:59 missed 25210 -> attempt 6/6
-# A count is the wrong unit because the retry itself is nearly free (the proof and its DA blob are reused,
-# so the tx is ~8 KB); what actually costs anything is holding the justified tip still, which blocks bridge
-# exits from seeing a fresher settlement. So spend a bounded amount of TIME rather than a fixed number of
-# tries: at ~18 s per attempt this is ~30 shots, i.e. a miss becomes ~0.81^30 ≈ 0.2% instead of 27%, for the
-# same tip-hold budget the prove+publish pipeline already spends.
-SETTLE_RESUBMIT_MAX_S = 600
+# BOUND BY TIME, NOT BY A COUNT. The first cut allowed 6 attempts and live they were consumed in about two
+# minutes. A count is the wrong unit because the retry itself is nearly free (the proof and its DA blob are
+# reused, so the tx is ~8 KB); what actually costs anything is holding the justified tip still, which keeps
+# bridge exits looking at a staler settlement.
+#
+# SIZED FROM THE MEASURED RATE, NOT THE ASSUMED ONE. This comment first claimed ~18 s per attempt, from the
+# retry targeting latest+2 (~3 blocks). Live, attempts are CADENCE-driven, not miss-driven — a retry only
+# goes out on the next maybe_settle poll — so the real spacing is ~45 s:
+#     23:19 cursor 25230, attempt 13, 594s/600s held  ->  13 shots in 600 s, not 30
+# and our block share is 19.3% (MEASURED over 301 blocks: 58 ours, 56 distinct producers). So 600 s bought
+# P(miss) = 0.807^13 ≈ 6%, and this cycle lost that coin flip after ~5 minutes of proving.
+#
+# THE CEILING ONLY BINDS IN THE UNLUCKY TAIL. Expected attempts to land is 1/0.193 ≈ 5.2, i.e. ~234 s, so
+# almost every cycle finishes far inside the budget and raising it costs nothing in the common case — while
+# in the tail it saves a whole 118 MiB proof from being thrown away and reproved. 1200 s ≈ 26 shots,
+# P(miss) ≈ 0.4%.
+SETTLE_RESUBMIT_MAX_S = 1200
 # Backstop only, so a pathological loop (blocks arriving far faster than expected) cannot spin unbounded.
 SETTLE_RESUBMIT_MAX = 200
 # STRONG REFERENCES to the detached settle tasks. asyncio keeps only a WEAK reference to a running task, so
