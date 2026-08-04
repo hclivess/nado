@@ -145,6 +145,12 @@ SETTLE_PROVE_TIMEOUT = 1200      # safety bound, not a feature switch: a prove t
 # proof is strictly better when it fits (it settles the root trustlessly with no quorum), so this is a
 # ceiling, not a preference.
 SETTLE_INLINE_MAX = 7 * 1024 * 1024       # just under L1's 8 MiB submit cap; a protocol fact, not a knob
+# Everything a settle tx carries BESIDES the proof: sender address, ML-DSA-44 signature (~2420 B) and
+# public key (1312 B) in hex, txid, recipient, a handful of ints. A few KiB in total; 64 KiB is a ceiling
+# with room to spare. Used to decide inline-vs-DA from the PROOF's serialized size alone, so the ~120 MiB
+# tx never has to be serialized just to be measured (that cost ~160 s on the event loop, per the DA
+# publish path below).
+SETTLE_TX_ENVELOPE_MAX = 64 * 1024
 # True while a settle-prove worker thread is outstanding. asyncio cannot kill that thread, so this is what
 # stops a timed-out prove from stacking a new one every cadence until the box dies.
 _settle_proving = False
@@ -630,15 +636,28 @@ async def maybe_settle(session):
             proof_da = None
             if proof is not None:
                 try:
-                    _inline = len(json.dumps(construct_settle_tx(keys, cur, root, target, ns=ns,
-                                                                 proof=proof), separators=(",", ":")))
+                    # SERIALIZE THE PROOF ONCE, AND OFF THE EVENT LOOP.
+                    #
+                    # This used to json.dumps the WHOLE settle tx purely to measure it, discard those ~120
+                    # MiB, and then serialize the proof AGAIN for the blob — twice the work, both times
+                    # synchronously on the event loop. Measured live 2026-08-04: BUILT 14:22:15 -> PUBLISHED
+                    # 14:25:48 is 213 s, of which the DA encode is only ~51 s at the post-08945e50 rate of
+                    # 0.428 s/MiB. The redundant serialization was the other ~160 s, and it also froze block
+                    # application for as long as it ran.
+                    #
+                    # construct_settle_tx embeds the proof as `d["proof"] = proof`, so the tx is the proof
+                    # plus a small envelope (address, ML-DSA signature, public key, a few ints) — far under
+                    # the allowance below. Measuring the blob and adding that allowance decides the inline
+                    # question exactly as well, and the SAME bytes then go to DA.
+                    _blob = await asyncio.to_thread(
+                        lambda: json.dumps(proof, separators=(",", ":"), sort_keys=True).encode())
+                    _inline = len(_blob) + SETTLE_TX_ENVELOPE_MAX
                     if _inline > SETTLE_INLINE_MAX:
-                        _blob = json.dumps(proof, separators=(",", ":"), sort_keys=True).encode()
                         _meta = await asyncio.to_thread(DA.put, _blob, DA_K, DA_N)
                         proof_da, proof = _meta["commitment"], None
                         print(f"[execnode] proof PUBLISHED to DA ns={ns} span→{cur}: "
                               f"{len(_blob)/1048576:.2f} MiB, k={DA_K}/n={DA_N}, commitment={proof_da} "
-                              f"(too large to inline at {_inline/1048576:.2f} MiB)", flush=True)
+                              f"(too large to inline at ~{_inline/1048576:.2f} MiB)", flush=True)
                 except Exception as e:
                     # Availability is best-effort: a DA failure must not cost us the settlement.
                     print(f"[execnode] DA publish FAILED ns={ns} span→{cur} ({type(e).__name__}: {e}) — "
@@ -739,8 +758,17 @@ async def maybe_settle(session):
                 _h[cur] = _settled_snapshots[ns]
                 for _old in sorted(_h)[:-_SETTLED_HISTORY_KEEP]:
                     del _h[_old]
-                print(f"[execnode] SETTLE{'-WITH-PROOF' if proof else ''} ns={ns} cursor {cur} "
-                      f"root {root[:16]}… → L1", flush=True)
+                # NAME THE THREE OUTCOMES DISTINCTLY. This read `'-WITH-PROOF' if proof else ''`, but the
+                # DA path sets `proof = None` the moment the proof moves to DA — so a settle carrying a DA
+                # commitment logged as a bare "SETTLE", byte-identical to a quorum attestation. The one
+                # event this whole subsystem exists to produce was therefore INVISIBLE in the log, and a
+                # monitor grepping "SETTLE-WITH-PROOF" could never match it. Third instrumentation blind
+                # spot of the day, same shape as the missing BUILT line and the case-sensitive grep.
+                _kind = ("-WITH-PROOF" if proof is not None else
+                         "-WITH-DA-PROOF" if proof_da else "")
+                _via = f" proof_da={proof_da}" if proof_da else ""
+                print(f"[execnode] SETTLE{_kind} ns={ns} cursor {cur} "
+                      f"root {root[:16]}…{_via} → L1", flush=True)
             else:
                 print(f"[execnode] settle ns={ns} not accepted: {out}", flush=True)
         if ok_any:
