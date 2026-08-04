@@ -1533,13 +1533,19 @@ async def da_fetch(session, commitment):
         return None
     try:
         k, n = int(meta["k"]), int(meta["n"])
-        data = reconstruct_from(meta, list(pairs.values()))  # verifies every shard vs the commitment
-        # The shards are bound to the commitment, but k/n/stripes/length came from an UNTRUSTED peer meta and
-        # steer the decode (e.g. a smaller `length` truncates to different bytes that still pass the shard
-        # checks). Round-trip: re-encode the result and require it to reproduce the ON-CHAIN commitment, so a
-        # lied manifest is rejected and every honest node reconstructs identical bytes (determinism).
-        if _da.encode(data, k, n)["commitment"] != commitment:
-            return None
+        # PIN THE COMMITMENT WE ASKED FOR. `meta` came from a peer, so its own "commitment" field is just a
+        # claim; everything below must be checked against the commitment the CALLER wants resolved.
+        meta = dict(meta, commitment=commitment)
+        # reconstruct_from verifies every shard against that commitment — and, since the manifest is bound
+        # into each leaf (ops/da.py _leaf), that same check now authenticates k/n/stripes/length as well.
+        # A lied manifest (e.g. a shorter `length`, which truncates the decode to different bytes that would
+        # still pass a shard-only check) fails there, so every honest node reconstructs identical bytes.
+        #
+        # THIS USED TO RE-ENCODE THE WHOLE BLOB and compare commitments, because the manifest sat OUTSIDE
+        # the commitment and nothing else could bind it. That round-trip cost ~50 s on a 118 MiB settle
+        # proof — inside block validation — which is a large part of why a peer could not resolve a
+        # DA-carried proof inside the block cadence at all.
+        data = reconstruct_from(meta, list(pairs.values()))
         DA.put(data, k, n)                                   # cache -> we can now serve it too
         return data
     except Exception:

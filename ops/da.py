@@ -16,11 +16,22 @@ from hashing import canonical_bytes, merkle_root, merkle_proof, verify_merkle_pr
 P = (1 << 61) - 1          # Mersenne prime; a field element fits in 8 bytes (61 < 64 bits)
 
 
-def _leaf(index, shard: bytes) -> bytes:
-    """Canonical Merkle leaf for shard `index`. Binding the index makes a shard unswappable — a valid
-    proof for index i cannot be replayed at index j (the merkle set is order-independent, so the index
-    MUST live in the leaf content)."""
-    return canonical_bytes(["da", int(index), shard.hex()])
+def _leaf(index, shard: bytes, k, n, stripes, length) -> bytes:
+    """Canonical Merkle leaf for shard `index`, binding BOTH the index and the whole manifest.
+
+    The index makes a shard unswappable — a valid proof for index i cannot be replayed at index j (the
+    merkle set is order-independent, so the index MUST live in the leaf content).
+
+    THE MANIFEST IS BOUND FOR THE SAME REASON. It used to sit outside the commitment, so (k, n, stripes,
+    length) arrived from an untrusted peer while STEERING the decode: a smaller `length` truncates to
+    different bytes that still pass every per-shard check. The only defence available then was to decode
+    and RE-ENCODE the whole blob and compare commitments — ~50 s on a 118 MiB settle proof, inside block
+    validation, which is precisely why a peer could not resolve a DA-carried proof in time. Binding the
+    manifest into every leaf makes a lied manifest change every leaf hash, so the SAME Merkle proof that
+    already authenticates the shard now authenticates the manifest too, and the round-trip disappears.
+
+    This CHANGES THE COMMITMENT for identical bytes; commitments are not comparable across the change."""
+    return canonical_bytes(["da", int(index), shard.hex(), int(k), int(n), int(stripes), int(length)])
 SYMBOL_BYTES = 7           # 7 data bytes per field element (56 bits < 61) — the input packing granule
 _WORD = 8                  # on-wire bytes per field element (big-endian, fixed width)
 
@@ -151,7 +162,8 @@ def encode(data: bytes, k: int, n: int):
         for j in range(n):
             shard_syms[j].append(enc[j])
     shards = [_shard_bytes(ss) for ss in shard_syms]
-    leaves = [_leaf(j, shards[j]) for j in range(n)]   # hash-based (PQ) Merkle commitment, index-bound
+    # hash-based (PQ) Merkle commitment, index- AND manifest-bound (see _leaf)
+    leaves = [_leaf(j, shards[j], k, n, stripes, length) for j in range(n)]
     return {"commitment": merkle_root(leaves), "k": k, "n": n, "stripes": stripes,
             "length": length, "shards": shards}
 
@@ -241,14 +253,30 @@ def reconstruct(manifest_meta, known_shards: dict, verify: bool = True):
     return _unpack(out_syms, length)
 
 
+def _meta_of(m):
+    """(k, n, stripes, length) from a manifest/meta dict — the tuple bound into every leaf."""
+    return int(m["k"]), int(m["n"]), int(m["stripes"]), int(m["length"])
+
+
 def sample_proof(manifest, index: int):
     """Merkle proof that shard `index` belongs to the commitment — what a sampler downloads with the shard."""
-    leaves = [_leaf(j, manifest["shards"][j]) for j in range(manifest["n"])]
+    k, n, stripes, length = _meta_of(manifest)
+    leaves = [_leaf(j, manifest["shards"][j], k, n, stripes, length) for j in range(n)]
     return {"index": index, "shard": manifest["shards"][index],
-            "proof": merkle_proof(leaves, _leaf(index, manifest["shards"][index]))}
+            "proof": merkle_proof(leaves, _leaf(index, manifest["shards"][index], k, n, stripes, length))}
 
 
-def verify_sample(commitment, index: int, shard: bytes, proof) -> bool:
-    """A light client / phone check: does this (index, shard) hash into the committed set? (Availability
-    sampling.) The index is bound into the leaf, so a shard proof cannot be replayed at another index."""
-    return verify_merkle_proof(_leaf(index, shard), proof, commitment)
+def verify_sample(commitment, index: int, shard: bytes, proof, meta) -> bool:
+    """A light client / phone check: does this (index, shard) hash into the committed set, UNDER THIS
+    MANIFEST? (Availability sampling.)
+
+    The index is bound into the leaf, so a shard proof cannot be replayed at another index. `meta` is bound
+    too, so this ALSO authenticates (k, n, stripes, length): a peer that lies about the manifest — e.g. a
+    shorter `length`, which would truncate the decode to different bytes that still pass every per-shard
+    check — produces leaves that do not hash to the commitment, and is rejected here rather than after an
+    expensive re-encode round-trip. `meta` is therefore an INPUT to be checked, never trusted."""
+    try:
+        k, n, stripes, length = _meta_of(meta)
+    except (KeyError, TypeError, ValueError):
+        return False
+    return verify_merkle_proof(_leaf(index, shard, k, n, stripes, length), proof, commitment)

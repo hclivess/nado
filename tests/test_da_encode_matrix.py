@@ -112,7 +112,7 @@ def encode_ref(data, k, n):
             shard_syms[j].append(enc[j])
     shards = [da._shard_bytes(ss) for ss in shard_syms]
     from hashing import merkle_root
-    leaves = [da._leaf(j, shards[j]) for j in range(n)]
+    leaves = [da._leaf(j, shards[j], k, n, stripes, length) for j in range(n)]
     return {"commitment": merkle_root(leaves), "k": k, "n": n, "stripes": stripes,
             "length": length, "shards": shards}
 
@@ -120,7 +120,10 @@ def encode_ref(data, k, n):
 blob = os.urandom(200 * 1024)
 ref = encode_ref(blob, 4, 8)
 new = da.encode(blob, 4, 8)
-check("the COMMITMENT is unchanged (published blobs stay verifiable)",
+      # NOT a claim that commitments are stable across releases — binding the manifest into the leaf
+      # (ops/da.py _leaf) deliberately CHANGED them. Both sides here use the current leaf, so this pins
+      # the matrix encoder against the reference encoder, which is what this test exists for.
+check("the matrix encoder commits identically to the reference encoder",
       ref["commitment"] == new["commitment"])
 check("every shard is byte-identical", ref["shards"] == new["shards"])
 check("stripes/length/k/n unchanged",
@@ -141,7 +144,7 @@ else:
 ok_samples = True
 for i in range(new["n"]):
     sp = da.sample_proof(new, i)
-    if not da.verify_sample(new["commitment"], i, sp["shard"], sp["proof"]):
+    if not da.verify_sample(new["commitment"], i, sp["shard"], sp["proof"], new):
         ok_samples = False
 check("every shard's sample proof verifies against the commitment", ok_samples)
 

@@ -81,7 +81,10 @@ class DaStore:
         commitment. Lets a DA node hold a subset of shards for spread k-of-n availability. A shard that
         doesn't verify is rejected (returns False) and NOT written, so a donor can't poison the store."""
         c = meta["commitment"]
-        if not da.verify_sample(c, index, shard, proof):
+        # The manifest is bound into every leaf, so this one check now also refuses a donor whose
+        # k/n/stripes/length disagree with the commitment — the meta written to meta.json below is
+        # therefore authenticated, not merely asserted.
+        if not da.verify_sample(c, index, shard, proof, meta):
             return False
         d = self._dir(c)
         os.makedirs(d, exist_ok=True)
@@ -163,7 +166,10 @@ def reconstruct_from(meta: dict, pairs) -> bytes:
     c = meta["commitment"]
     known = {}
     for index, shard, proof in pairs:
-        if da.verify_sample(c, index, shard, proof):
+        # `meta` is UNTRUSTED (it came from a peer alongside the shards) and it STEERS the decode, so it is
+        # passed in and checked against the commitment rather than believed: the manifest is bound into
+        # every leaf, so a lied k/n/stripes/length fails here with the shard.
+        if da.verify_sample(c, index, shard, proof, meta):
             known[int(index)] = shard
     if len(known) < meta["k"]:
         raise ValueError(f"need {meta['k']} valid shards, have {len(known)}")
