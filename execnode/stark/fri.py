@@ -158,6 +158,8 @@ def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None, bac
     """Prove deg(f) < len(evals)/blowup, where `evals` are f on the coset of size N=len(evals) with shift
     `offset`. Returns a proof dict. `blowup` (the Reed–Solomon rate denominator) sets both the claimed degree
     bound and the soundness per query."""
+    from execnode.stark.native_guard import require_native_prover
+    require_native_prover("fri.py:prove")
     b = backend or _backend.DEFAULT
     t = transcript or Transcript("fri", backend=b)
     use_ext = EXT_CHALLENGES if ext is None else bool(ext)

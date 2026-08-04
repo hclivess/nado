@@ -110,3 +110,33 @@ def require(crate: str, so_path, crate_dir, reason: str = ""):
             f"refused rather than downgraded because a stale .so does not announce itself: it loads happily "
             f"and answers with an older kernel.")
     return True
+
+
+# ---- PROVING IS RUST-ONLY IN PRODUCTION -------------------------------------------------------------
+# require() above covers the four crates that EXIST. It says nothing about the rest of the prover — fri,
+# stark, air_ir, recursion*, comp_verify, rowcomp_verify, settlement_sparse — which has no Rust
+# counterpart and therefore ran as Python with nothing to stop it.
+#
+# That is not theoretical. On 2026-08-04 the settle prover was switched on in production and a single
+# unfolded prove ran 12+ MINUTES at ~75% of a core with RSS climbing to 1.8 GB, on the same box as L1.
+# Block ages reached 316s and the node logged "Forked above the finality floor — re-anchoring by weight
+# onto the majority chain". Not one .so was mapped into the process during that prove. The prover was
+# starving consensus, and the only symptom until someone looked was "it is slow".
+#
+# So a Python PROVE is now a hard failure on a node, in the same idiom the kernels already use. The escape
+# is the same one: NADO_ALLOW_PYTHON_KERNELS, which builds and conformance tests set and a validator never
+# does. VERIFICATION IS DELIBERATELY NOT GATED — verify_settlement_sparse runs inside
+# validate_transaction on every node, it is cheap and flat (0.09-0.13s), and gating it would break
+# consensus rather than protect it. The asymmetry is the point of the whole scheme: proving is the
+# expensive side, verification is not.
+def require_native_prover(what: str):
+    """Refuse to run a pure-Python PROVE outside builds/tests. Raises NativeMissing naming the gap."""
+    if allow_absent():
+        return False
+    raise NativeMissing(
+        f"{what}: proving in Python is not permitted on a node (RUST-ONLY POLICY). There is no Rust "
+        f"counterpart for this stage yet — only alghash2, mldsa44, starkcompose and starkprove exist, and "
+        f"they cover LDE/composition, hashing/Merkle and ML-DSA, not fri/stark/air_ir/recursion/"
+        f"settlement_sparse. Measured 2026-08-04: a Python settle prove took 12+ minutes at ~75% of a core "
+        f"and starved L1 into a re-anchor. Write the crate, or run with NADO_ALLOW_PYTHON_KERNELS=1 for a "
+        f"build or a conformance test — never on a validator.")

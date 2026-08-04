@@ -305,6 +305,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     each FRI query opens whole rows with ONE path per tree — 2 (or 4, two-phase) paths per query instead of
     2W, which is what makes recursing a wide (W=106) trace feasible. A DIFFERENT proof format ("row_roots" /
     row openings), verified by the matching verify(row_commit=True); column-mode proofs are untouched."""
+    from execnode.stark.native_guard import require_native_prover
+    require_native_prover("stark.py:prove")
     # HOLISTIC NATIVE PROVER (native/starkprove): the whole pipeline (LDE -> Merkle -> composition -> FRI ->
     # openings) runs in a PERSISTENT Rust arena instead of materializing every LDE column as a Python int list,
     # which is the recursion/settlement memory wall. Per doc/rust-only-proving.md this is not a preference:
