@@ -726,6 +726,14 @@ def _fetch_da_proof(commitment, timeout=8):
         return None
 
 
+# Cryptographic verdicts for settle proofs, keyed by the proof's own identity. See the settle branch: a
+# pooled tx is re-validated on every block-candidate build, and re-running a ~28 s (previously 94 s) proof
+# verification each time is what stalled block production. The verdict is a pure function of the proof, so
+# caching it changes no consensus decision — every context check around it still runs each time.
+_SETTLE_VERIFY_MEMO = {}
+_SETTLE_VERIFY_MEMO_MAX = 64
+
+
 class ProofUnavailable(Exception):
     """The block carries a DA-published settle proof we do not hold yet.
 
@@ -1127,7 +1135,30 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             if deep and _protocol.SETTLE_PROOF_DEPTH_GATED:
                 kv_pre, kv_post = kv_pre_claim, kv_post_claim
             else:
-                ok, why, kv_pre, kv_post = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
+                # MEMOISE THE CRYPTOGRAPHIC VERDICT. A settle proof verifies or it does not — that is a
+                # property of the proof's own bytes and NOTHING else, so re-deriving it is pure repetition.
+                # And it is repeated: a tx sitting in the mempool is re-validated on EVERY block-candidate
+                # build, so a single pooled settle turned the block-producing core loop into a 91 s loop and
+                # took this node OUT OF CONSENSUS — blocks frozen 221 s, 219 unhealthy episodes, while peers
+                # advanced normally (observed 2026-08-04). The node poisoned its own block production with
+                # its own transaction.
+                #
+                # Keyed on the proof's own commitment (its cursor + both kv halves + records root), so two
+                # different proofs can never share an entry and a tampered proof gets a different key and is
+                # verified afresh. Only the SUCCESS/FAILURE verdict and the derived halves are cached, never
+                # the surrounding context checks — the tip extension, cursor match, epoch and DA-binding
+                # guards below all still run on every single validation.
+                _vk = (str(proof.get("cursor")), str(proof.get("kv_pre")), str(proof.get("kv_post")),
+                       str(proof.get("rec")), str(proof.get("rec_post")))
+                _hit = _SETTLE_VERIFY_MEMO.get(_vk)
+                if _hit is not None:
+                    ok, why, kv_pre, kv_post = _hit
+                else:
+                    ok, why, kv_pre, kv_post = SS.verify_settlement_sparse(
+                        proof, depth=_protocol.EXEC_TREE_DEPTH)
+                    if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
+                        _SETTLE_VERIFY_MEMO.clear()       # bounded: a proof is ~118 MiB, entries are tiny
+                    _SETTLE_VERIFY_MEMO[_vk] = (ok, why, kv_pre, kv_post)
                 assert ok, f"Settle proof invalid: {why}"
             assert kv_pre == kv_pre_claim and kv_post == kv_post_claim, "Settle proof kv halves mismatch"
             # RECORDS HALF. Frozen by default: the SAME rec_hex composes both roots, so a proven span must

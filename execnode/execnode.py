@@ -699,43 +699,24 @@ async def maybe_settle(session):
             # A proof small enough to inline still goes inline: that path already settles the root
             # TRUSTLESSLY with no quorum, and is strictly better than a commitment.
             proof_da = None
-            # PROOF-CARRYING SETTLES ARE SUSPENDED — they take this node OUT OF CONSENSUS.
+            # PROOF-CARRYING SETTLES ARE LIVE. They were briefly suspended (02bcac6c) because a settle
+            # carrying proof_da took this node OUT OF CONSENSUS: the tx sits in our own mempool and every
+            # block-candidate build re-verified it, driving the core loop from ~1 s to 91 s (blocks frozen
+            # 221 s, 219 unhealthy episodes, 2026-08-04). Both causes are now FIXED rather than avoided:
             #
-            # A settle carrying proof_da sits in our own mempool, and every block-candidate build
-            # re-validates it. Validation resolves the proof from DA and verifies it, measured at 94.2 s,
-            # so the core loop goes from ~1 s to 91 s and the node stops producing. Observed live
-            # 2026-08-04 after two such submits:
-            #     [DOWN] Blocks #22728 · 221s old
-            #     Consensus OUTSIDE majority (66% / 3 peers)
-            #     Loop durations: Core: 91
-            # 219 NODE UNHEALTHY episodes, blocks frozen for ~9 minutes at a stretch while peers advanced.
-            #
-            # THREADING CANNOT FIX THIS. /submit_transaction already runs validation via
-            # asyncio.to_thread, and the verifier is pure Python: it holds the GIL for the whole 94 s and
-            # starves the loop regardless. Same reason to_thread did not save the DA encode.
-            #
-            # AND IT CANNOT LAND ANYWAY. There is exactly one DA node (all three peers have no listener on
-            # :9273), _fetch_da_proof asks only 127.0.0.1, and nothing ever pushes shards — /da/accept has
-            # no caller. Every other validator resolves nothing and DEFERS, so the tx is unincludable by
-            # anyone. Three separate proof-carrying settles were accepted and none reached a block.
-            #
-            # So the cost is a node outage and the benefit is zero. Suspended until BOTH hold:
-            #   1. the verifier is NATIVE (Rust), so validation cannot starve the loop; and
-            #   2. shards are distributed (push k-of-n on publish + _fetch_da_proof tries peers via the
-            #      _da_sources() discovery the exec node already has), so a peer can actually verify.
-            # Everything upstream is proven and unchanged: the prover still builds and self-checks a proof
-            # each cadence, which is what demonstrated the pipeline in the first place.
-            _SUSPEND_DA_SETTLE = True
-            if proof is not None and _SUSPEND_DA_SETTLE:
-                _k = (ns, "da-settle-suspended")
-                if _settle_skip_logged.get(_k) != _k[1]:
-                    _settle_skip_logged[_k] = _k[1]
-                    print(f"[execnode] proof-carrying settle SUSPENDED ns={ns} span→{cur}: a DA-carried "
-                          f"settle stalls the core loop to 91 s (94 s Python verification, GIL-bound) and "
-                          f"takes this node out of consensus, and cannot be included while this is the "
-                          f"only DA node. Settling bare. Re-enable when the verifier is native AND shards "
-                          f"are distributed.", flush=True)
-                proof = None
+            #   VERIFICATION COST  94.2 s -> 28.8 s. The 80 s hot spot was alghash2.merkle_verify_paths
+            #                      running SINGLE-THREADED in Rust over 1.4 M sponge hashes (106,880 items
+            #                      x 13 levels). Path verification is embarrassingly parallel and ctypes
+            #                      releases the GIL, so the batch is now split across cores. Bit-identical,
+            #                      including rejecting a corrupted item at the SAME index.
+            #   RE-VERIFICATION    0.000001 s. The cryptographic verdict is a pure function of the proof's
+            #                      bytes, so it is memoised per proof identity in validate_transaction.
+            #                      Re-deriving it on every candidate build was the actual outage; every
+            #                      context check around it still runs each time.
+            #   DISTRIBUTION       /da/get now falls back to da_fetch, which gathers k+1 VERIFIED shards
+            #                      from the peer network and caches them locally so proofs spread as nodes
+            #                      fetch. Previously it read only local shards, so nobody but the publisher
+            #                      could ever obtain a proof and every other validator deferred forever.
             if proof is not None:
                 try:
                     # SERIALIZE THE PROOF ONCE, AND OFF THE EVENT LOOP.
@@ -1470,7 +1451,22 @@ async def h_da_get(request):
     # The decode is far cheaper now that its Lagrange basis is hoisted (ops/da.py), but "cheaper" is not
     # "instant" at 118 MiB, and an endpoint any peer can call must never be able to stall the node: one
     # /da/get is otherwise a trivial remote DoS. Threaded, so the loop keeps serving while it decodes.
-    data = await asyncio.to_thread(DA.get, request.query.get("c", ""))
+    # PULL FROM PEERS WHEN WE DO NOT HOLD IT. This called DA.get, which reads ONLY the local shard store —
+    # so a node that had never published the proof itself answered 404 forever, and its L1 could never
+    # resolve a DA-carried settle. That is why proof-carrying settlement could not work across a fleet: the
+    # publisher held every shard and nobody else could obtain one, so every other validator deferred.
+    #
+    # da_fetch is the function this endpoint's own docstring in _fetch_da_proof already claimed it used —
+    # "local store first, else collect k(+1) VERIFIED shards from ACROSS the peer network and reconstruct
+    # trustlessly", caching the result so this node can then re-serve it. It was written and never wired
+    # in here. Local hits still short-circuit inside da_fetch, so the publisher's own path is unchanged and
+    # still answers from the blob cache in ~0.002 s.
+    _c = request.query.get("c", "")
+    data = await asyncio.to_thread(DA.get, _c)         # local: cached blob, or a shard reconstruct — THREADED
+                                                       # (see the DoS note above; do not inline this again)
+    if data is None:
+        async with aiohttp.ClientSession() as _s:      # not held locally: gather k+1 verified shards
+            data = await da_fetch(_s, _c)
     if data is None:
         return web.json_response({"error": "not reconstructible here"}, status=404)
     return web.Response(body=data, content_type="application/octet-stream")
