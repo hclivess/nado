@@ -72,12 +72,28 @@ unsafe fn permute(s: &mut [u64; W]) {
         let mut t = [0u64; W];
         for i in 0..W { t[i] = pow7(addf(s[i], RC[r][i])); }
         for i in 0..W {
-            // Accumulate the W reduced products in u128 and reduce ONCE. Each term is < p < 2^64 and W = 12,
-            // so the sum is < 2^68 and cannot overflow; reduce128 handles any u128. This replaces a second
-            // per-lane `% P` division (another 648 per permutation).
-            let mut acc: u128 = 0;
-            for j in 0..W { acc += mulf(MDS[i][j], t[j]) as u128; }
-            s[i] = reduce128(acc);
+            // ACCUMULATE THE RAW 128-BIT PRODUCTS, REDUCE ONCE PER ROW. This used to call mulf per term,
+            // i.e. reduce128 on EVERY product — 144 reductions per round plus 12 more for the rows, where
+            // 12 suffice. Measured baseline: 28.07 us per permutation (CPU time, so load-robust), and the
+            // MDS is 144 of the 192 multiplies per round.
+            //
+            // The wider accumulator is exact, not approximate. Each product is < p^2 < 2^128 and W = 12, so
+            // the true sum needs 132 bits: keep the low 128 in `lo` and COUNT the overflows in `hi`
+            // (hi <= 11). Reducing that is one identity — since 2^64 = 2^32 - 1 (mod p),
+            //     2^128 = (2^64)^2 = (2^32 - 1)^2 = 2^64 - 2^33 + 1 = -2^32   (mod p)
+            // so the carried part contributes exactly -(hi * 2^32). With hi <= 11 that correction is
+            // < 2^36 < p, so it needs no division and no second reduction — just one conditional add.
+            let mut lo: u128 = 0;
+            let mut hi: u64 = 0;
+            for j in 0..W {
+                let prod = (MDS[i][j] as u128) * (t[j] as u128);
+                let (sum, carry) = lo.overflowing_add(prod);
+                lo = sum;
+                if carry { hi += 1; }
+            }
+            let a = reduce128(lo);
+            let corr = hi << 32;                       // hi <= 11 => corr < 2^36 < p
+            s[i] = if a >= corr { a - corr } else { a + PU64 - corr };
         }
     }
 }
