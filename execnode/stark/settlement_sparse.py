@@ -259,6 +259,21 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
     separately-foldable half). Folding is a VERIFICATION-STRATEGY change only: kv_pre/kv_post — the settled root
     — are byte-identical to the non-recursive proof of the same span. (A block whose calls exceed one trace is
     unsupported — the DA binding folds per block — and raises, so the exec node falls back to quorum.)"""
+    # DEFAULT TO AN ARENA-COVERED BACKEND. stark.prove only reaches the native arena when
+    # _b.name in ("recursion", "alghash2"); backend=None resolves to _backend.DEFAULT, which is BLAKE2B,
+    # which the arena does NOT implement — so the whole settle prove silently ran in pure Python. Measured
+    # on the live node 2026-08-04: 12+ MINUTES for one prove, ~75% of a core, RSS to 1.8 GB, no .so mapped,
+    # and L1 starved into "Forked above the finality floor — re-anchoring". The same AIR through the arena:
+    # ALGHASH2 0.47s, RECURSION 1.79s.
+    #
+    # This is a PRODUCER-side choice, not a consensus rule: the proof records the backend it was built with
+    # and verification resolves it from the proof (vm_circuit honours proof["backend"]; see the note in
+    # verify_bound_epoch about pinning one being wrong). So the settled root is unchanged and an
+    # ALGHASH2-built proof verifies on any node. The recursive path already asks for RECURSION explicitly.
+    # NB: `_bk` is imported inside the recursive branch below, which makes it a function-local for the whole
+    # body and shadows the module-level import — so resolve the backend module explicitly here.
+    from execnode.stark import backend as _bk_default
+    backend = backend or _bk_default.ALGHASH2
     if not recursive:
         bundle = prove_bound_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
                                    block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
