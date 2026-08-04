@@ -156,9 +156,20 @@ SETTLE_TX_ENVELOPE_MAX = 64 * 1024
 # budget guarantees a client-side timeout on a proof that is perfectly valid. Generous because the settle
 # task is DETACHED (e1000cbd) — waiting here costs nothing but this task.
 SETTLE_SUBMIT_TIMEOUT_PROOF = 300
+# Hard ceiling on the publish+submit hold. Comfortably covers a measured pipeline (publish ~139 s + L1's
+# inline verification ~94 s) with margin, and guarantees that a hold which is never cleared — a task that
+# dies between set and clear — expires by itself instead of stopping settlement permanently.
+SETTLE_HOLD_MAX_S = SETTLE_SUBMIT_TIMEOUT_PROOF + 120
 # True while a settle-prove worker thread is outstanding. asyncio cannot kill that thread, so this is what
 # stops a timed-out prove from stacking a new one every cadence until the box dies.
 _settle_proving = False
+# True from the moment a proof EXISTS until its settle has been submitted — i.e. across the publish and the
+# submit, which _settle_proving does NOT cover. That flag is cleared by the prove THREAD's done-callback, so
+# it goes False at "BUILT" while ~230 s of publish (139 s) and inline L1 verification (94 s) still lie ahead.
+# Bare settles resumed in that window and walked the justified tip forward, and the finished proof was then
+# refused for aiming at a tip we had moved ourselves. Observed live 2026-08-04: two proofs built from
+# pre-state 21780 while the settled tip reached 21840.
+_settle_publishing = 0.0          # time.time() when a proof-carrying settle entered publish+submit, else 0
 # STRONG REFERENCES to the detached settle tasks. asyncio keeps only a WEAK reference to a running task, so
 # a task whose last strong reference is dropped can be garbage-collected MID-AWAIT — silently, with no
 # result, no exception and no done-callback. The tail loop assigned each task to a local that it reassigned
@@ -631,7 +642,12 @@ async def maybe_settle(session):
             # SETTLE_PROVE_TIMEOUT and released by the same done-callback that clears the in-flight guard.
             # That is the honest price of a validity-settled root at the current proving speed; the way to
             # shrink it is a faster pipeline (the fold, the DA/verifier ports), not more bare settles.
-            if proof is None and _settle_proving:
+            # SELF-EXPIRING. A hold that gets stuck stops settlement FOREVER, which is far worse than the
+            # race it prevents, so the publish/submit hold is a timestamp with a hard ceiling rather than a
+            # bare boolean: even if a task dies between setting and clearing it, settling resumes on its own.
+            _pub_active = (_settle_publishing
+                           and (time.time() - _settle_publishing) < SETTLE_HOLD_MAX_S)
+            if proof is None and (_settle_proving or _pub_active):
                 _k = (ns, "hold-for-inflight-proof")
                 if _settle_skip_logged.get(_k) != _k[1]:
                     _settle_skip_logged[_k] = _k[1]
@@ -659,6 +675,8 @@ async def maybe_settle(session):
                     target = int(_fresh["block_number"]) + 2
                 except Exception:
                     pass                                   # keep the old deadline rather than skip the settle
+            if proof is not None:
+                globals()["_settle_publishing"] = time.time()   # hold the tip across publish AND submit
             # PUBLISH THE PROOF TO DA WHEN IT CANNOT RIDE ON CHAIN. Measured: a settle-with-proof is
             # ~97.45 MiB against an 8 MiB submit cap and a ~256 KiB block, so inlining it is refused and
             # the proof has, until now, existed only on this box — produced and thrown away. Publishing it
@@ -818,6 +836,9 @@ async def maybe_settle(session):
                       f"root {root[:16]}…{_via} → L1", flush=True)
             else:
                 print(f"[execnode] settle ns={ns} not accepted: {out}", flush=True)
+            # THE ATTEMPT IS OVER — release the tip. Accepted or refused, this proof is no longer racing
+            # anything, so holding longer would only stall settlement for no benefit.
+            globals()["_settle_publishing"] = 0.0
         if ok_any:
             _last_settled_cursor = state.cursor
     except Exception as e:

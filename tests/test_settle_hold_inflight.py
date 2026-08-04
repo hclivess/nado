@@ -91,7 +91,17 @@ check("the hold matters precisely because the pipeline outlasts the cadence", PI
 src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "execnode", "execnode.py")).read()
 check("maybe_settle holds when a prove is in flight",
-      "if proof is None and _settle_proving:" in src)
+      "if proof is None and (_settle_proving or _pub_active):" in src)
+# THE HOLD MUST SPAN PUBLISH AND SUBMIT, NOT JUST THE PROVE. _settle_proving is cleared by the prove
+# THREAD's done-callback, so it goes False at "BUILT" while ~230 s of publish (139 s) and inline L1
+# verification (94 s) still lie ahead. Bare settles resumed in that window and walked the tip forward:
+# observed live 2026-08-04, two proofs built from pre-state 21780 while the settled tip reached 21840.
+check("the hold also covers publish+submit, not just the prove",
+      "_settle_publishing" in src and 'globals()["_settle_publishing"] = time.time()' in src)
+check("...and is released when the attempt ends",
+      'globals()["_settle_publishing"] = 0.0' in src)
+check("...and SELF-EXPIRES, so a stuck hold cannot stop settlement forever",
+      "SETTLE_HOLD_MAX_S" in src)
 check("...and says so rather than skipping silently", "settle HELD ns=" in src)
 check("the hold is released by the same guard that tracks the prove thread",
       "_clear_settle_proving" in src and "_settle_proving = False" in src)
