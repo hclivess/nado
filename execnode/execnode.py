@@ -1345,7 +1345,12 @@ async def h_da_accept(request):
 async def h_da_get(request):
     """GET /da/get?c=<commitment> — reconstruct + return the RAW bytes from locally-held shards (>=k), or
     404. Convenience for a client that trusts this node; the trustless path is /da/meta + /da/shard."""
-    data = DA.get(request.query.get("c", ""))
+    # OFF THE EVENT LOOP. Reconstructing a settle proof is ~118 MiB of erasure decoding, and running it in
+    # the handler froze the whole exec node — HTTP dead, block application stopped — for as long as it took.
+    # The decode is far cheaper now that its Lagrange basis is hoisted (ops/da.py), but "cheaper" is not
+    # "instant" at 118 MiB, and an endpoint any peer can call must never be able to stall the node: one
+    # /da/get is otherwise a trivial remote DoS. Threaded, so the loop keeps serving while it decodes.
+    data = await asyncio.to_thread(DA.get, request.query.get("c", ""))
     if data is None:
         return web.json_response({"error": "not reconstructible here"}, status=404)
     return web.Response(body=data, content_type="application/octet-stream")

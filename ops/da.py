@@ -170,15 +170,60 @@ def reconstruct(manifest_meta, known_shards: dict, verify: bool = True):
     sym_by_idx = {idx: _shard_syms(b) for idx, b in known_shards.items()}
     idx_list = list(sym_by_idx)
     use, extra = idx_list[:k], (idx_list[k:] if verify else [])
+
+    # HOIST THE LAGRANGE BASIS OUT OF THE STRIPE LOOP — the same fix 08945e50 made on the encode side,
+    # and for the same reason: the basis depends ONLY on the x-coordinates, and here those are the CHOSEN
+    # SHARD INDICES, identical for every stripe. Only the y-values change. Rebuilding it per stripe meant
+    # _lagrange_eval -> _inv(den) = pow(a, P-2, P), a full modular exponentiation, k*k times per stripe:
+    # for a 118 MiB blob that is ~4.4M stripes x 16 = ~70 MILLION modexps.
+    #
+    # THIS WEDGED THE LIVE NODE, TWICE. h_da_get calls DaStore.get -> reconstruct SYNCHRONOUSLY on the
+    # event loop, so a single /da/get for a 118 MiB proof froze the exec node completely — HTTP dead, no
+    # log output, block application stopped, until it was restarted. py-spy caught it in the act:
+    #     _inv (ops/da.py:30) <- _lagrange_eval <- reconstruct <- get <- h_da_get <- aiohttp
+    # I had blamed the publish path for those wedges; it was the DECODE, triggered by fetching the blob.
+    #
+    # DECODE MATRIX: M[j][i] = L_i(x_j) for the k systematic outputs x_j = 1..k, over the k chosen points.
+    # Same arithmetic, hoisted, so the reconstructed bytes are bit-identical (checked against the previous
+    # implementation as an oracle in tests/test_da_reconstruct_matrix.py).
+    xs = [idx + 1 for idx in use]
+    dec = []
+    for xj in range(1, k + 1):
+        row = []
+        for i, xi in enumerate(xs):
+            num = den = 1
+            for m, xm in enumerate(xs):
+                if m == i:
+                    continue
+                num = num * ((xj - xm) % P) % P
+                den = den * ((xi - xm) % P) % P
+            row.append(num * _inv(den) % P)
+        dec.append(row)
+
+    # The redundancy check re-evaluates the SYSTEMATIC polynomial (x-coords 1..k, also constant) at each
+    # extra shard's position, so its basis is constant per extra index too.
+    ext = {}
+    for idx in extra:
+        xe, row = idx + 1, []
+        for i in range(k):
+            xi = i + 1
+            num = den = 1
+            for m in range(k):
+                if m == i:
+                    continue
+                xm = m + 1
+                num = num * ((xe - xm) % P) % P
+                den = den * ((xi - xm) % P) % P
+            row.append(num * _inv(den) % P)
+        ext[idx] = row
+
     out_syms = []
     for s in range(stripes):
-        pts = [(idx + 1, sym_by_idx[idx][s] % P) for idx in use]
-        data = [_lagrange_eval(pts, x) for x in range(1, k + 1)]
-        if extra:
-            dpts = [(i + 1, data[i]) for i in range(k)]
-            for idx in extra:
-                if _lagrange_eval(dpts, idx + 1) != sym_by_idx[idx][s] % P:
-                    raise ValueError(f"shard {idx} inconsistent with the k-of-n interpolation (corrupt shard)")
+        ys = [sym_by_idx[idx][s] % P for idx in use]
+        data = [sum(dec[j][i] * ys[i] for i in range(k)) % P for j in range(k)]
+        for idx, row in ext.items():
+            if sum(row[i] * data[i] for i in range(k)) % P != sym_by_idx[idx][s] % P:
+                raise ValueError(f"shard {idx} inconsistent with the k-of-n interpolation (corrupt shard)")
         out_syms.extend(data)
     return _unpack(out_syms, length)
 
