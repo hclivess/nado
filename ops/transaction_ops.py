@@ -734,6 +734,21 @@ _SETTLE_VERIFY_MEMO = {}
 _SETTLE_VERIFY_MEMO_MAX = 64
 
 
+def settle_verify_key(proof, pda, from_da):
+    """Cache key for a settle proof's cryptographic verdict — it MUST bind the proof's BYTES.
+
+    This was once keyed on (cursor, kv_pre, kv_post, rec, rec_post): the proof's CLAIMS, not the FRI
+    openings that actually get verified. Two proofs asserting the same thing shared an entry, so verifying
+    an honest settle cached ok=True under a key a CORRUPTED settle also matched, and the tampered proof was
+    accepted without ever being verified (tests/test_settle_depth_gate, tests/test_settle_verify_memo_key).
+
+    DA proofs key on the COMMITMENT — a hash-based Merkle root over the exact shard set, which different
+    bytes cannot present, and which the local DA store checks on the round trip before returning them.
+    Inline proofs are digested directly: one pass over the proof against the ~22 s verification it guards.
+    """
+    return ("da", str(pda)) if from_da else ("inline", blake2b_hash(proof))
+
+
 class ProofUnavailable(Exception):
     """The block carries a DA-published settle proof we do not hold yet.
 
@@ -1047,6 +1062,8 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 and "\\" not in _pda and _pda not in (".", ".."), \
                 "Settle proof_da must be a safe commitment string"
         proof = data.get("proof")
+        _from_da = False          # set once the proof came back from DA, so the verdict memo can key on the
+                                  # commitment (which cryptographically binds those exact bytes)
         if proof is None and _pda is not None and not deep:
             # DA-CARRIED PROOF, RESOLVED AT VALIDATION. A settle proof is ~118 MiB at protocol strength
             # against an 8 MiB submit cap and a ~256 KiB block, so it cannot ride in the tx. It is published
@@ -1072,6 +1089,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                     f"deferring this block rather than judging it")
             try:
                 proof = json.loads(_blob.decode())
+                _from_da = True
             except Exception as e:
                 # Retrievable but not a proof: that IS a judgement we can make, so reject rather than defer.
                 raise AssertionError(f"Settle proof_da resolved to non-proof bytes: {type(e).__name__}")
@@ -1143,13 +1161,17 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 # advanced normally (observed 2026-08-04). The node poisoned its own block production with
                 # its own transaction.
                 #
-                # Keyed on the proof's own commitment (its cursor + both kv halves + records root), so two
-                # different proofs can never share an entry and a tampered proof gets a different key and is
-                # verified afresh. Only the SUCCESS/FAILURE verdict and the derived halves are cached, never
-                # the surrounding context checks — the tip extension, cursor match, epoch and DA-binding
-                # guards below all still run on every single validation.
-                _vk = (str(proof.get("cursor")), str(proof.get("kv_pre")), str(proof.get("kv_post")),
-                       str(proof.get("rec")), str(proof.get("rec_post")))
+                # THE KEY MUST BIND THE PROOF'S BYTES, NOT ITS CLAIMS. This was keyed on
+                # (cursor, kv_pre, kv_post, rec, rec_post) — all of which are what the proof ASSERTS, none of
+                # which is the FRI/openings body that actually gets verified. Two proofs making identical
+                # claims therefore shared an entry, so verifying an HONEST settle cached ok=True under a key
+                # a CORRUPTED one also matched: the tampered proof was then accepted without ever being
+                # verified. Caught by tests/test_settle_depth_gate ("corrupted proof is REJECTED near the
+                # tip"), which truncates seg["proof"]["openings"] while leaving every claim identical.
+                # A cache that answers for input it never saw is not a cache.
+                #
+                # See settle_verify_key for the binding argument.
+                _vk = settle_verify_key(proof, _pda, _from_da)
                 _hit = _SETTLE_VERIFY_MEMO.get(_vk)
                 if _hit is not None:
                     ok, why, kv_pre, kv_post = _hit
