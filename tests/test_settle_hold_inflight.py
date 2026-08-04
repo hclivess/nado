@@ -150,12 +150,36 @@ check("...resolved against L1, not assumed: landed = the tip reached its cursor"
       '_sc_now >= int(_pend["cursor"])' in src)
 check("...expired = the height passed its landing block",
       '_h_now > int(_pend["max_block"])' in src)
-check("an EXPIRED pending settle releases the tip rather than holding forever",
-      "EXPIRED" in src and "releasing the tip" in src)
+check("a pending settle that cannot land eventually releases the tip rather than holding forever",
+      "GIVING" in src and "releasing the tip" in src)
 # THE REFUSED PATH RETRIES BARE, rebuilding tx and clearing `proof` while proof_da stays set — so the
 # marker must key on what was ACTUALLY SUBMITTED or a bare attestation would register a hold.
 check("the pending marker keys on the submitted tx, not the local proof flags",
       '_txd.get("proof") or _txd.get("proof_da")' in src)
+
+# ---- ONE SHOT AT AN EXACT LANDING BLOCK IS A COIN FLIP ------------------------------------------------
+# A settle is EXACT-LANDING (ops/block_ops._lands_flexibly deliberately excludes it), so it can only be
+# included by whoever produces exactly its max_block. This validator wins ~19% of blocks (measured: 5 of 26,
+# against ~14 distinct producers), and no OTHER producer can realistically include a proof-carrying settle —
+# that would mean fetching 118 MiB from DA and verifying it (~21.7 s) inside a ~6 s slot.
+#
+# OBSERVED 2026-08-04: cursor 24870 submitted 22:33:26 for max_block 25014, NEVER excluded (the tip was
+# held, pre_root stayed valid) — block 25014 was simply produced by 5828bf2e…, not us. ~5 minutes of
+# proving lost to a slot lottery.
+check("a missed landing block is RESUBMITTED rather than abandoned", "RESUBMITTED for" in src)
+check("...reusing the proof already published to DA (an ~8 KB tx, not a reprove)",
+      'proof=None, proof_da=_pend["proof_da"]' in src)
+check("...only while the pre-state it proves is still the justified tip",
+      '_sc_now == int(_pend["pre_cursor"])' in src)
+check("...and NEVER for an inline proof, which would rebuild as a BARE settle",
+      '_pend.get("proof_da")' in src)
+check("retries are bounded so a proof that can never land cannot stall settlement",
+      "SETTLE_RESUBMIT_MAX" in src and "GIVING" in src)
+_rmax = int(__import__("re").search(r"^SETTLE_RESUBMIT_MAX = (\d+)", src, __import__("re").M).group(1))
+check("the bound leaves a miss unlikely but finite", 3 <= _rmax <= 12)
+# 0.81^6 ~ 0.28: still possible to miss, which is why GIVING UP must exist rather than retry forever.
+check("the pending record carries what a rebuild needs",
+      '"root": root' in src and '"pre_cursor"' in src and '"attempts": 1' in src)
 
 print()
 print("ALL PASS — a node no longer races its own proof by moving the tip out from under it"

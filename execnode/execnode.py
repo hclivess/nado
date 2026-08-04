@@ -204,6 +204,14 @@ _settle_publishing = 0.0          # time.time() when a proof-carrying settle ent
 # THE GUARD'S LIFETIME MUST MATCH WHAT IT GUARDS — third time today. {ns: {"cursor", "max_block"}}, held
 # until the settled tip reaches that cursor (it landed) or the height passes max_block (it expired).
 _settle_pending = {}
+# How many times a BUILT-AND-PUBLISHED proof may be resubmitted against a fresh landing block. A settle is
+# EXACT-LANDING, so it can only be included by whoever produces exactly its max_block — and this validator
+# wins ~19% of blocks (measured: 5 of 26, against ~14 distinct producers), while no other producer can
+# realistically include it (that would mean fetching 118 MiB from DA and verifying it, ~21.7 s, inside a
+# ~6 s slot). One shot is therefore a ~19% coin flip on work that took ~5 minutes; the retry costs an ~8 KB
+# tx because the proof and its DA blob are reused. Six attempts make a miss unlikely (~0.81^6 ≈ 27%) while
+# still bounding how long settlement can be held for one proof.
+SETTLE_RESUBMIT_MAX = 6
 # STRONG REFERENCES to the detached settle tasks. asyncio keeps only a WEAK reference to a running task, so
 # a task whose last strong reference is dropped can be garbage-collected MID-AWAIT — silently, with no
 # result, no exception and no done-callback. The tail loop assigned each task to a local that it reassigned
@@ -708,10 +716,68 @@ async def maybe_settle(session):
                 if _sc_now >= int(_pend["cursor"]):
                     _settle_pending.pop(ns, None)         # it landed; the tip is already past it
                 elif _h_now > int(_pend["max_block"]):
-                    _settle_pending.pop(ns, None)         # its landing block is gone; it can never land
-                    print(f"[execnode] pending settle-with-proof ns={ns} cursor {_pend['cursor']} EXPIRED "
-                          f"unlanded (max_block {_pend['max_block']} < height {_h_now}); releasing the tip",
-                          flush=True)
+                    # ITS LANDING BLOCK CAME AND WENT. A settle is EXACT-LANDING (ops/block_ops
+                    # _lands_flexibly excludes it), so it can only be included by whoever produces exactly
+                    # that height — and this validator wins about 19% of blocks (measured: 5 of 26, against
+                    # ~14 distinct producers). Worse, no OTHER producer can realistically include it: doing
+                    # so means fetching 118 MiB from DA and verifying it (~21.7 s) inside a ~6 s slot. So a
+                    # proof-carrying settle lands only when WE produce its exact block, and one shot at ~19%
+                    # is why every attempt so far expired unlanded.
+                    #
+                    # OBSERVED 2026-08-04: cursor 24870 submitted 22:33:26 for max_block 25014, NEVER
+                    # excluded (the tip was held, pre_root stayed valid) — block 25014 was simply produced
+                    # by 5828bf2e…, not us, so it was not there to be included.
+                    #
+                    # RESUBMIT RATHER THAN SURRENDER. The proof is already built and already published to
+                    # DA; the tx carrying its commitment is ~8 KB, so another attempt costs a rounding error
+                    # against the ~5 minute pipeline that produced it. Retry while the pre-state it proves
+                    # is still the justified tip — which the hold is keeping true — and only give up after
+                    # SETTLE_RESUBMIT_MAX tries so a proof that can never land cannot stall settlement.
+                    _att = int(_pend.get("attempts", 1))
+                    # DA-CARRIED ONLY. An INLINE proof is not held anywhere we can cheaply rebuild it from,
+                    # and construct_settle_tx with both proof and proof_da None yields a BARE attestation —
+                    # which would advance the justified tip while reporting a successful "resubmit", i.e.
+                    # exactly the race this whole hold exists to prevent, dressed as a retry.
+                    if (_att < SETTLE_RESUBMIT_MAX and _pend.get("proof_da")
+                            and _sc_now == int(_pend["pre_cursor"])):
+                        try:
+                            _rtx = construct_settle_tx(keys, int(_pend["cursor"]), _pend["root"], target,
+                                                       ns=ns, proof=None, proof_da=_pend["proof_da"])
+                            # Posted inline rather than through _submit(), which is defined further down
+                            # this loop body. Same generous budget: L1 verifies a proof-carrying settle
+                            # INLINE before it answers, so a short timeout would drop a good submit.
+                            async with session.post(L1 + "/submit_transaction", json=_rtx,
+                                                    timeout=aiohttp.ClientTimeout(
+                                                        total=SETTLE_SUBMIT_TIMEOUT_PROOF)) as _rr:
+                                _rb = await _rr.text()
+                                try:
+                                    _rout = json.loads(_rb) if _rb.strip() else None
+                                except ValueError:
+                                    _rout = None
+                                if _rout is None:
+                                    _rout = {"result": False, "message": f"HTTP {_rr.status}"}
+                            if isinstance(_rout, dict) and _rout.get("result"):
+                                _pend["max_block"] = int(_rtx.get("max_block") or target)
+                                _pend["attempts"] = _att + 1
+                                print(f"[execnode] settle-with-proof ns={ns} cursor {_pend['cursor']} missed "
+                                      f"block {_h_now} (produced by someone else) — RESUBMITTED for "
+                                      f"max_block {_pend['max_block']} (attempt {_att + 1}/"
+                                      f"{SETTLE_RESUBMIT_MAX}); the proof and its DA blob are reused",
+                                      flush=True)
+                                _pend_active = True
+                            else:
+                                _settle_pending.pop(ns, None)
+                                print(f"[execnode] settle-with-proof ns={ns} cursor {_pend['cursor']} could "
+                                      f"not be resubmitted ({_rout}); releasing the tip", flush=True)
+                        except Exception as _re:
+                            _settle_pending.pop(ns, None)
+                            print(f"[execnode] settle-with-proof ns={ns} resubmit failed "
+                                  f"({type(_re).__name__}: {_re}); releasing the tip", flush=True)
+                    else:
+                        _settle_pending.pop(ns, None)
+                        print(f"[execnode] pending settle-with-proof ns={ns} cursor {_pend['cursor']} GIVING "
+                              f"UP after {_att} attempt(s) (tip moved to {_sc_now}, pre-state was "
+                              f"{_pend['pre_cursor']}); releasing the tip", flush=True)
                 else:
                     _pend_active = True
             if proof is None and (_settle_proving or _pub_active or _pend_active):
@@ -940,7 +1006,18 @@ async def maybe_settle(session):
                     _mb = int((tx or {}).get("max_block") or target)
                 except Exception:
                     _mb = target
-                _settle_pending[ns] = {"cursor": cur, "max_block": _mb}
+                # `pre_cursor` is the justified tip this proof EXTENDS. The retry above is only sound while
+                # that is still the tip — the proof pins pre_root to it — so it is recorded here rather than
+                # inferred later. Everything needed to rebuild the tx is kept: the proof itself stays in DA,
+                # so a resubmission is just this commitment against a fresh landing block.
+                try:
+                    _pre = await _get_json(session, f"/get_settled?ns={ns}")
+                    _pre_cursor = int((_pre or {}).get("exec_cursor", -1))
+                except Exception:
+                    _pre_cursor = -1
+                _settle_pending[ns] = {"cursor": cur, "max_block": _mb, "root": root,
+                                       "proof_da": _txd.get("proof_da"), "pre_cursor": _pre_cursor,
+                                       "attempts": 1}
         if ok_any:
             _last_settled_cursor = state.cursor
     except Exception as e:
