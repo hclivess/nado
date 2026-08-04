@@ -644,6 +644,23 @@ async def maybe_settle(session):
                     print(f"[execnode] DA publish FAILED ns={ns} span→{cur} ({type(e).__name__}: {e}) — "
                           f"settling without a published proof", flush=True)
                     proof_da, proof = None, None
+            # REFRESH THE DEADLINE AGAIN, AFTER THE DA PUBLISH. The refresh above happens BEFORE the
+            # publish, and publishing is itself a long operation: measured live 2026-08-04, serialising a
+            # 120 MiB tx and erasure-coding the blob took 213 s — ~35 blocks at 6 s each. So the very first
+            # DA publish this chain ever completed produced
+            #     proof PUBLISHED to DA ns=default span→20010: 120.27 MiB, k=4/n=8, commitment=9a665eb8…
+            #     settle ns=default not accepted: {'result': False, 'message': 'Target block too low'}
+            # — the settle was refused BECAUSE the publish succeeded. Same class as 3c23e354 (refresh on
+            # every path); the DA publish is simply a second minutes-long stage that invalidates a deadline
+            # derived before it. Re-derive immediately before building the tx we actually submit.
+            # UNCONDITIONAL, for the same reason the first refresh is: the inline path also serialises a
+            # ~120 MiB tx to measure it, which is minutes of CPU on its own. Whatever happened above, this
+            # is the last instant before the tx we actually submit is built.
+            try:
+                _fresh2 = await _get_json(session, "/get_latest_block")
+                target = int(_fresh2["block_number"]) + 2
+            except Exception:
+                pass                                       # keep the old deadline rather than skip the settle
             tx = construct_settle_tx(keys, cur, root, target, ns=ns, proof=proof, proof_da=proof_da)
             if proof is not None:
                 # SIZE IS THE BINDING CONSTRAINT, so measure it rather than infer it. A settle carries one
