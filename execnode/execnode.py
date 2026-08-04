@@ -609,6 +609,36 @@ async def maybe_settle(session):
                         _settle_skip_logged[_k] = _k[1]
                         print(f"[execnode] settle-with-proof UNAVAILABLE ns={ns} cursor {cur} — falling "
                               f"back to a bare quorum attestation: {type(e).__name__}: {e}", flush=True)
+            # DO NOT BARE-SETTLE PAST A PROOF THAT IS STILL IN FLIGHT.
+            #
+            # A proof for span sc->cur is only acceptable while the justified tip is STILL sc: L1 checks
+            # that "Settle proof pre_root must extend the settled tip". Every bare settle advances that
+            # tip, so bare-settling while our own prove is running guarantees the proof it is racing gets
+            # refused the moment it arrives.
+            #
+            # That is exactly what happened, and it is the LAST thing standing between here and a
+            # proof-carrying settle. Observed live 2026-08-04:
+            #     17:10:02  BUILT span 21660->21690        (prove 67.5 s)
+            #     17:12:21  PUBLISHED to DA 118.57 MiB     (+139 s)
+            #     17:14:39  not accepted: "Settle proof pre_root must extend the settled tip"  (+138 s)
+            # The proof VERIFIED — it cleared the fetch, the parse and the full 94 s cryptographic check —
+            # and was then refused because bare settles had carried the tip from 21660 to 21720 during the
+            # ~300 s (≈50 blocks) the pipeline took, against a 30-block cadence. The proof can never win
+            # that race while we ourselves keep moving the target.
+            #
+            # So while a prove is outstanding, SKIP the settle entirely rather than settling bare. The cost
+            # is that the settled tip stops advancing for the length of one pipeline (~5 min), bounded by
+            # SETTLE_PROVE_TIMEOUT and released by the same done-callback that clears the in-flight guard.
+            # That is the honest price of a validity-settled root at the current proving speed; the way to
+            # shrink it is a faster pipeline (the fold, the DA/verifier ports), not more bare settles.
+            if proof is None and _settle_proving:
+                _k = (ns, "hold-for-inflight-proof")
+                if _settle_skip_logged.get(_k) != _k[1]:
+                    _settle_skip_logged[_k] = _k[1]
+                    print(f"[execnode] settle HELD ns={ns} cursor {cur} — a settle-prove is in flight and "
+                          f"a bare settle now would advance the justified tip past the span it proves, "
+                          f"guaranteeing its refusal ('pre_root must extend the settled tip')", flush=True)
+                continue
             # REFRESH THE DEADLINE AFTER PROVING. `target` was computed before this loop, and building a
             # proof takes MINUTES — long enough for max_block to fall into the past, which L1 rejects as
             # expired. Observed live 2026-08-03: the 97.45 MiB proof was refused for size (expected) and
