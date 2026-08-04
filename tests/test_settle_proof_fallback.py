@@ -153,6 +153,25 @@ check("STALE deadline is already in the past when the retry is submitted — the
 check("REFRESHED deadline is still in the future, so the bare retry can land",
       deadline_after(TIP, PROVING_BLOCKS, refresh=True) > now)
 
+
+# ---- THE DEADLINE MUST REFRESH ON EVERY PATH, INCLUDING TIMEOUT --------------------------------------
+# Observed live 2026-08-04: "prove exceeded SETTLE_PROVE_TIMEOUT=1200s" immediately followed by
+# "settle ns=default not accepted: 'Target block too low'". The refresh was gated on `proof is not None`,
+# so the TIMEOUT path — the one that exists precisely to keep us settling — skipped it and submitted a
+# max_block from before a 20-minute prove. The fallback that keeps the chain live was itself dead on
+# arrival. Time passes whether or not a proof came back.
+def deadline(tip_at_start, elapsed_blocks, refresh):
+    return (tip_at_start + elapsed_blocks + 2) if refresh else (tip_at_start + 2)
+
+
+TIP, ELAPSED = 18270, 200            # ~20 min of blocks elapse during a timed-out prove
+now = TIP + ELAPSED
+for path, refresh_old in (("proof built", True), ("prove TIMED OUT", False), ("prove skipped", False)):
+    check(f"OLD: deadline on the '{path}' path {'survives' if refresh_old else 'is EXPIRED'}",
+          (deadline(TIP, ELAPSED, refresh_old) > now) == refresh_old)
+check("NEW: every path refreshes, so the settle is submittable",
+      all(deadline(TIP, ELAPSED, True) > now for _ in range(3)))
+
 print()
 print("ALL PASS — refused proof degrades to a bare attestation that is still submittable"
       if not fails else f"{fails} FAILURES")

@@ -499,7 +499,15 @@ async def maybe_settle(session):
             # the bare retry was then ALSO refused, because it inherited the same stale deadline; a settle
             # that should have landed was lost. Re-read the tip and re-derive the deadline so both the
             # proof-carrying tx and any bare retry are submitted against the CURRENT height.
-            if proof is not None:
+            #
+            # REFRESH UNCONDITIONALLY. Gating this on `proof is not None` missed the case that matters most:
+            # when the prove TIMES OUT, _build_settlement_proof returns None, so the refresh was skipped and
+            # the bare settle went out carrying a max_block from before a 20-MINUTE prove. Observed live
+            # 2026-08-04: "prove exceeded SETTLE_PROVE_TIMEOUT=1200s" immediately followed by
+            # "settle ns=default not accepted: 'Target block too low'". The settle we fell back to in order
+            # to stay live was itself dead on arrival. Time passes whether or not a proof came back, so the
+            # deadline is refreshed on every path.
+            if True:
                 try:
                     _fresh = await _get_json(session, "/get_latest_block")
                     target = int(_fresh["block_number"]) + 2
