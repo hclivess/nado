@@ -148,6 +148,14 @@ SETTLE_INLINE_MAX = 7 * 1024 * 1024       # just under L1's 8 MiB submit cap; a 
 # True while a settle-prove worker thread is outstanding. asyncio cannot kill that thread, so this is what
 # stops a timed-out prove from stacking a new one every cadence until the box dies.
 _settle_proving = False
+# STRONG REFERENCES to the detached settle tasks. asyncio keeps only a WEAK reference to a running task, so
+# a task whose last strong reference is dropped can be garbage-collected MID-AWAIT — silently, with no
+# result, no exception and no done-callback. The tail loop assigned each task to a local that it reassigned
+# on the very next poll, so a maybe_settle sitting on a 240s prove was unreferenced for essentially all of
+# its life. Observed live 2026-08-04: a prove completed ("[settle-prove] ... total 239.9s") and then
+# NOTHING followed it — no DA publish, no self-check failure, no error, no settle. This set is what keeps
+# them alive; entries are discarded when they finish.
+_settle_tasks = set()
 
 
 def _settle_task_done(_task):
@@ -451,6 +459,12 @@ async def _build_settlement_proof(session, ns, st, cur, root):
         print(f"[execnode] settle-with-proof ns={ns} self-check failed (span {sc}->{cur} not conforming) "
               f"— falling back to quorum", flush=True)
         return None
+    # SAY THAT THE PROOF SURVIVED. Between "[settle-prove] ... total 239.9s" and the DA publish there was
+    # NO log line at all, so a prove that completed and then went nowhere was indistinguishable from one
+    # that was still running — which is how a garbage-collected settle task hid for hours. Every outcome
+    # after a completed prove is now named: this line, the self-check line above, the DA publish/FAILED
+    # lines, or the REFUSED retry.
+    print(f"[execnode] settle-with-proof BUILT ns={ns} span {sc}->{cur} — self-checks passed", flush=True)
     # 6b. FOLDED proofs: self-VERIFY the recursion bundle at PROTOCOL strength (exactly what L1 runs) before
     # posting — a malformed fold is never broadcast; fall back to quorum. Runs in the worker thread.
     if proof.get("recursive") is not None:
@@ -1151,9 +1165,18 @@ async def tail_loop():
                         #
                         # Settling is a SIDE EFFECT of following the chain, never a precondition for it. So
                         # it runs detached: the tail keeps applying blocks at full speed while the proof
-                        # builds. The in-flight guard inside _build_settlement_proof already ensures at most
-                        # one prove is outstanding, so detaching cannot pile tasks up.
+                        # builds. The in-flight guard inside _build_settlement_proof bounds concurrent
+                        # PROVES to one — but it does NOT bound concurrent maybe_settle TASKS, which this
+                        # comment used to claim. Every poll spawns one; while a prove is outstanding the
+                        # rest fall straight through the guard to a bare settle, which is the intent.
+                        #
+                        # KEEP A STRONG REFERENCE. `_t` was a local that the next poll overwrote, so the
+                        # task awaiting the prove was referenced by nothing for almost all of its life and
+                        # could be collected mid-await — which is exactly what a completed prove that
+                        # produced no settle and no error looks like.
                         _t = asyncio.ensure_future(maybe_settle(session))
+                        _settle_tasks.add(_t)
+                        _t.add_done_callback(_settle_tasks.discard)
                         _t.add_done_callback(_settle_task_done)
                 # Rebuild the PROVISIONAL view EVERY poll (even with no newly-finalized block — the tip still
                 # advances ~every block_time, so a just-included bet/reveal/deposit shows within ~one block
