@@ -168,8 +168,19 @@ def reconstruct(manifest_meta, known_shards: dict, verify: bool = True):
     if len(known_shards) < k:
         raise ValueError(f"need >= {k} shards, have {len(known_shards)}")
     sym_by_idx = {idx: _shard_syms(b) for idx, b in known_shards.items()}
-    idx_list = list(sym_by_idx)
+    # SORTED, so the k SYSTEMATIC shards (indices 0..k-1) are preferred over parity whenever they are
+    # available, and so the choice no longer depends on dict insertion order (i.e. on the order shards
+    # happened to arrive from the network). Any k shards reconstruct the same bytes, so this changes no
+    # output — it only decides which arithmetic path below can be taken.
+    idx_list = sorted(sym_by_idx)
     use, extra = idx_list[:k], (idx_list[k:] if verify else [])
+    # SYSTEMATIC FAST PATH. _encode_stripe is systematic: shard j < k IS data symbol j. So when the chosen
+    # k are exactly 0..k-1 the decode matrix below is the IDENTITY and the whole per-stripe matrix-vector
+    # product is a no-op computed the expensive way — k*k modmuls per stripe, ~70 MILLION for a 118 MiB
+    # proof, ~55 s of pure Python. That cost is what makes a peer unable to resolve a settle proof inside
+    # block validation, which is why a proof-carrying settle cannot survive on a fleet where only one node
+    # holds the data. Reconstruction from parity still takes the general path unchanged.
+    systematic = (use == list(range(k)))
 
     # HOIST THE LAGRANGE BASIS OUT OF THE STRIPE LOOP — the same fix 08945e50 made on the encode side,
     # and for the same reason: the basis depends ONLY on the x-coordinates, and here those are the CHOSEN
@@ -188,17 +199,18 @@ def reconstruct(manifest_meta, known_shards: dict, verify: bool = True):
     # implementation as an oracle in tests/test_da_reconstruct_matrix.py).
     xs = [idx + 1 for idx in use]
     dec = []
-    for xj in range(1, k + 1):
-        row = []
-        for i, xi in enumerate(xs):
-            num = den = 1
-            for m, xm in enumerate(xs):
-                if m == i:
-                    continue
-                num = num * ((xj - xm) % P) % P
-                den = den * ((xi - xm) % P) % P
-            row.append(num * _inv(den) % P)
-        dec.append(row)
+    if not systematic:
+        for xj in range(1, k + 1):
+            row = []
+            for i, xi in enumerate(xs):
+                num = den = 1
+                for m, xm in enumerate(xs):
+                    if m == i:
+                        continue
+                    num = num * ((xj - xm) % P) % P
+                    den = den * ((xi - xm) % P) % P
+                row.append(num * _inv(den) % P)
+            dec.append(row)
 
     # The redundancy check re-evaluates the SYSTEMATIC polynomial (x-coords 1..k, also constant) at each
     # extra shard's position, so its basis is constant per extra index too.
@@ -220,7 +232,8 @@ def reconstruct(manifest_meta, known_shards: dict, verify: bool = True):
     out_syms = []
     for s in range(stripes):
         ys = [sym_by_idx[idx][s] % P for idx in use]
-        data = [sum(dec[j][i] * ys[i] for i in range(k)) % P for j in range(k)]
+        # identity decode when the systematic shards were chosen — the data symbols ARE the shard symbols
+        data = ys if systematic else [sum(dec[j][i] * ys[i] for i in range(k)) % P for j in range(k)]
         for idx, row in ext.items():
             if sum(row[i] * data[i] for i in range(k)) % P != sym_by_idx[idx][s] % P:
                 raise ValueError(f"shard {idx} inconsistent with the k-of-n interpolation (corrupt shard)")
