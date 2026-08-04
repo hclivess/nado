@@ -126,6 +126,11 @@ SETTLE_FOLD = os.environ.get("NADO_EXEC_SETTLE_FOLD", "").strip().lower() in ("1
 # at protocol strength on live data) and far below the 5h07m a non-completing fold burned. Without a bound
 # the settle loop simply never returns and the chain stops settling entirely.
 SETTLE_PROVE_TIMEOUT = int(os.environ.get("NADO_EXEC_SETTLE_PROVE_TIMEOUT", "1200"))
+# Largest settle tx we will try to submit INLINE. L1's /submit_transaction caps bodies at 8 MiB, so this
+# sits just under it; anything bigger is published to DA and the tx carries only the commitment. An inline
+# proof is strictly better when it fits (it settles the root trustlessly with no quorum), so this is a
+# ceiling, not a preference.
+SETTLE_INLINE_MAX = int(os.environ.get("NADO_EXEC_SETTLE_INLINE_MAX", str(7 * 1024 * 1024)))
 # True while a settle-prove worker thread is outstanding. asyncio cannot kill that thread, so this is what
 # stops a timed-out prove from stacking a new one every cadence until the box dies.
 _settle_proving = False
@@ -484,7 +489,33 @@ async def maybe_settle(session):
                     target = int(_fresh["block_number"]) + 2
                 except Exception:
                     pass                                   # keep the old deadline rather than skip the settle
-            tx = construct_settle_tx(keys, cur, root, target, ns=ns, proof=proof)
+            # PUBLISH THE PROOF TO DA WHEN IT CANNOT RIDE ON CHAIN. Measured: a settle-with-proof is
+            # ~97.45 MiB against an 8 MiB submit cap and a ~256 KiB block, so inlining it is refused and
+            # the proof has, until now, existed only on this box — produced and thrown away. Publishing it
+            # k-of-n and carrying only the commitment means any node can reconstruct and verify it
+            # (da_fetch checks the commitment round-trip), which is the difference between "we assert this
+            # root" and "here is the evidence, go check".
+            #
+            # A proof small enough to inline still goes inline: that path already settles the root
+            # TRUSTLESSLY with no quorum, and is strictly better than a commitment.
+            proof_da = None
+            if proof is not None:
+                try:
+                    _inline = len(json.dumps(construct_settle_tx(keys, cur, root, target, ns=ns,
+                                                                 proof=proof), separators=(",", ":")))
+                    if _inline > SETTLE_INLINE_MAX:
+                        _blob = json.dumps(proof, separators=(",", ":"), sort_keys=True).encode()
+                        _meta = await asyncio.to_thread(DA.put, _blob, DA_K, DA_N)
+                        proof_da, proof = _meta["commitment"], None
+                        print(f"[execnode] proof PUBLISHED to DA ns={ns} span→{cur}: "
+                              f"{len(_blob)/1048576:.2f} MiB, k={DA_K}/n={DA_N}, commitment={proof_da} "
+                              f"(too large to inline at {_inline/1048576:.2f} MiB)", flush=True)
+                except Exception as e:
+                    # Availability is best-effort: a DA failure must not cost us the settlement.
+                    print(f"[execnode] DA publish FAILED ns={ns} span→{cur} ({type(e).__name__}: {e}) — "
+                          f"settling without a published proof", flush=True)
+                    proof_da, proof = None, None
+            tx = construct_settle_tx(keys, cur, root, target, ns=ns, proof=proof, proof_da=proof_da)
             if proof is not None:
                 # SIZE IS THE BINDING CONSTRAINT, so measure it rather than infer it. A settle carries one
                 # proof PER SEGMENT and segments are block-aligned, so the payload grows with the span —

@@ -419,7 +419,8 @@ def construct_dividend_withdraw_tx(keydict, amount, nonce, proof, max_block):
     return tx
 
 
-def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_NS, proof=None):
+def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_NS, proof=None,
+                        proof_da=None):
     """Build a SIGNED execution-layer settlement attestation: recipient 'settle', data
     {exec_cursor, state_root[, ns][, proof]}, fee-exempt (fee 0). Posted by a bonded validator running an
     exec node. `ns` names the rollup namespace; the default namespace is omitted from `data` so default-layer
@@ -436,6 +437,18 @@ def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_
         d["ns"] = ns
     if proof is not None:
         d["proof"] = proof
+    if proof_da is not None:
+        # DA-CARRIED PROOF. The inline `proof` above is ~97 MiB at protocol strength against a ~256 KiB
+        # block and an 8 MiB submit cap, so it can never ride on chain — measured, doc/settle-proof-
+        # transport.md §1. `proof_da` is the DA commitment for exactly those proof bytes, so the proof is
+        # PUBLISHED and reconstructible by any node (da_fetch collects k-of-n verified shards and checks
+        # the commitment round-trip) instead of existing only on the prover's disk.
+        #
+        # It does NOT yet settle the root trustlessly: that needs L1 to fetch and verify during block
+        # validation inside the depth gate, which is a consensus change (§4 option 0/1). Until then the
+        # root still rides the bonded quorum and this field makes the proof AVAILABLE and independently
+        # checkable, which is the difference between a claim and evidence.
+        d["proof_da"] = proof_da
     tx = {"sender": keydict["address"], "recipient": "settle", "amount": 0,
           "timestamp": get_timestamp_seconds(),
           "data": d,
@@ -977,6 +990,17 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
         assert not kv_ops.settlement_exists(ns, cursor, transaction["sender"]), "Validator already settled this (ns, exec_cursor)"
+        # DA-CARRIED PROOF COMMITMENT. Same hardening as the blob branch: the string reaches
+        # DaStore._dir, so path characters must never get through. Validated for SHAPE only — this field
+        # does not (yet) justify the root, so an unfetchable or bogus commitment cannot change what
+        # settles; it degrades to the ordinary bonded-quorum path exactly as a bare attestation does.
+        # Making it justify the root requires L1 to fetch+verify during validation inside the depth gate,
+        # which is the consensus step in doc/settle-proof-transport.md §4 and is NOT done here.
+        _pda = data.get("proof_da")
+        if _pda is not None:
+            assert isinstance(_pda, str) and _pda and len(_pda) <= 128 and "/" not in _pda \
+                and "\\" not in _pda and _pda not in (".", ".."), \
+                "Settle proof_da must be a safe commitment string"
         proof = data.get("proof")
         if proof is not None:
             # PHASE-2b VALIDITY SETTLEMENT — a universal, deterministic consensus rule (NO activation gate, no
