@@ -57,6 +57,18 @@ class DaStore:
         os.makedirs(d, exist_ok=True)
         meta = {kk: m[kk] for kk in _META_KEYS}
         _atomic_write(os.path.join(d, "meta.json"), json.dumps(meta).encode())
+        # KEEP THE ORIGINAL BYTES. get() otherwise reconstructs from shards AND re-encodes the result to
+        # round-trip the commitment — a full decode plus a full encode. Measured on a 118 MiB settle proof:
+        # 118 s for a /da/get of a blob this very process had encoded moments earlier.
+        #
+        # That is not merely wasteful, it BLOCKED SETTLEMENT: validate_transaction resolves a DA-carried
+        # proof with an 8 s budget (_fetch_da_proof), so the publisher timed out fetching its OWN proof and
+        # the settle was deferred as "not available via DA yet" — observed live 2026-08-04 at cursor 21214.
+        #
+        # Sound because the path is keyed by the commitment: _dir(m["commitment"]) is derived from the very
+        # bytes we hashed here, so a blob found there IS the preimage of that commitment. Shards ACCEPTED
+        # from a peer never write this file, so that path still reconstructs and re-verifies as before.
+        _atomic_write(os.path.join(d, "blob.bin"), data)
         for i in range(n):
             sp = da.sample_proof(m, i)
             _atomic_write(os.path.join(d, f"{i}.shard"), sp["shard"])
@@ -105,7 +117,17 @@ class DaStore:
 
     def get(self, commitment):
         """Reconstruct the original bytes from locally-held shards (need >= k). None if too few. Uses
-        da.reconstruct's over-determination check, so a corrupt local shard is caught, not decoded blind."""
+        da.reconstruct's over-determination check, so a corrupt local shard is caught, not decoded blind.
+
+        A blob this node PUBLISHED is returned straight from disk — see put(): the directory is keyed by
+        the commitment we computed from those exact bytes, so no decode or re-encode is needed to know they
+        are the preimage. Shards accepted from a peer have no such file and take the reconstruct path."""
+        _blob = os.path.join(self._dir(commitment), "blob.bin")
+        if os.path.exists(_blob):
+            try:
+                return open(_blob, "rb").read()
+            except OSError:
+                pass                      # unreadable cache: fall through and reconstruct from shards
         meta = self.meta(commitment)
         if not meta:
             return None
