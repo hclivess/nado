@@ -44,8 +44,7 @@ from ops.transaction_ops import remove_outdated_transactions
 from ops.transaction_ops import (
     to_readable_amount,
     validate_transaction,
-    validate_all_spending, index_transactions, assert_unique_reserved, assert_block_blob_cap, SpendingLedger
-)
+    validate_all_spending, index_transactions, assert_unique_reserved, assert_block_blob_cap, SpendingLedger, ProofUnavailable)
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
 from ops.reward_ops import credit_block_reward, apply_treasury_burn
@@ -2402,6 +2401,18 @@ class CoreClient(threading.Thread):
                                          logger=logger,
                                          block_height=block["block_number"],
                                          deep=_deep)
+                except ProofUnavailable:
+                    # THE THIRD OUTCOME: not valid, not invalid — NOT YET. A DA-published settle proof we do
+                    # not hold says nothing about whether this block is good, so we must neither accept it
+                    # nor reject it, and above all must not punish the peer that sent it. Propagate so the
+                    # whole block is deferred and retried on a later pass, by which time the shards will
+                    # normally have spread (da_fetch pulls k+1 from across the network).
+                    #
+                    # Every node applies this identically, so deferral cannot fork the fleet — a DA outage
+                    # costs liveness, never safety. And the wait is bounded: past FINALITY_DEPTH the depth
+                    # gate stops consulting the proof at all, so a proof that never arrives degrades to the
+                    # accumulated-weight path instead of stalling this node forever.
+                    raise
                 except Exception as e:
                     self.logger.error(f"Failed to validate transaction during block preparation: {e}")
                     if remote:

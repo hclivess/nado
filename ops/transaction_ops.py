@@ -705,6 +705,43 @@ def create_txid(transaction):
     return blake2b_hash(body)
 
 
+def _fetch_da_proof(commitment, timeout=8):
+    """Reconstruct a DA-published settle proof by commitment, or None if this node cannot get it yet.
+
+    Asks the LOCAL exec node, which owns the DA store and can pull missing shards from peers (da_fetch
+    collects k+1 VERIFIED shards across the network and checks the commitment round-trip). Returning None
+    means "not yet", never "invalid" — the caller defers the block rather than judging it.
+
+    Deliberately NOT cached and deliberately bounded: a slow or missing exec node must degrade to a defer,
+    not hang block validation. The bound is why this cannot become a liveness weapon — the worst a
+    withholder achieves is that we wait, and the depth gate ends the wait.
+    """
+    import urllib.request as _rq
+    from urllib.parse import quote as _q
+    url = f"http://127.0.0.1:9273/da/get?c={_q(str(commitment), safe='')}"
+    try:
+        with _rq.urlopen(url, timeout=timeout) as r:
+            return r.read() if r.status == 200 else None
+    except Exception:
+        return None
+
+
+class ProofUnavailable(Exception):
+    """The block carries a DA-published settle proof we do not hold yet.
+
+    NOT "invalid" — the third outcome. A node that cannot fetch the proof has learned NOTHING about whether
+    the block is good, so rejecting it would fork the fleet along the axis of who happened to have the data.
+    Deferring cannot: every node applies the same rule, so all converge on the same chain and a DA outage
+    costs LIVENESS, never safety. This is the 4844/Celestia blob rule, and the exec layer already implements
+    it one level down (_apply_block returns False and "the block STALLS in L1 order" when a field_transfer
+    proof is unavailable).
+
+    The stall is BOUNDED by the depth gate: once the block ages past FINALITY_DEPTH below the known tip,
+    deep=True and the proof is no longer required, so a permanently unavailable proof degrades to the
+    accumulated-weight path instead of halting the node forever.
+    """
+
+
 def validate_transaction(transaction, logger, block_height, deep=False):
     """CONSENSUS admission gate for one tx — raises AssertionError on the first violation. Checks:
     chain_id (no cross-chain replay), signature over the txid (validate_origin, PUBKEY-ONCE aware),
@@ -1002,6 +1039,34 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 and "\\" not in _pda and _pda not in (".", ".."), \
                 "Settle proof_da must be a safe commitment string"
         proof = data.get("proof")
+        if proof is None and _pda is not None and not deep:
+            # DA-CARRIED PROOF, RESOLVED AT VALIDATION. A settle proof is ~118 MiB at protocol strength
+            # against an 8 MiB submit cap and a ~256 KiB block, so it cannot ride in the tx. It is published
+            # k-of-n and the tx carries the commitment; here we pull it back and verify it as if it had been
+            # inline, so the root settles TRUSTLESSLY on a validity proof rather than on a bonded quorum.
+            #
+            # THE BYTES ARE BINDING, so fetching does not introduce trust: da reconstruction checks the
+            # commitment round-trip, and a blob that does not hash to `proof_da` is not returned. Whoever
+            # serves it cannot substitute a different proof.
+            #
+            # NOT HOLDING IT IS NOT A REJECTION. Raising ProofUnavailable defers the whole block: every node
+            # applies the same rule, so unavailability costs liveness, never safety. Rejecting instead would
+            # fork the fleet along the axis of who happened to have the data.
+            #
+            # `deep` bounds the stall. Past FINALITY_DEPTH below the known tip the proof is not consulted at
+            # all (SETTLE_PROOF_DEPTH_GATED), so a permanently unavailable proof degrades to the
+            # accumulated-weight path rather than halting the node — the same weak subjectivity already
+            # accepted for snapshot bootstrap.
+            _blob = _fetch_da_proof(_pda)
+            if _blob is None:
+                raise ProofUnavailable(
+                    f"settle proof {_pda[:16]}… for (ns={ns}, cursor={cursor}) is not available via DA yet — "
+                    f"deferring this block rather than judging it")
+            try:
+                proof = json.loads(_blob.decode())
+            except Exception as e:
+                # Retrievable but not a proof: that IS a judgement we can make, so reject rather than defer.
+                raise AssertionError(f"Settle proof_da resolved to non-proof bytes: {type(e).__name__}")
         if proof is not None:
             # PHASE-2b VALIDITY SETTLEMENT — a universal, deterministic consensus rule (NO activation gate, no
             # block-height special-casing): the carried SPARSE settlement proof must PROVE exactly this
