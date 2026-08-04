@@ -579,6 +579,30 @@ class ExecState:
                 root = self._root_cache
         return root
 
+    @staticmethod
+    def records_root_from_snapshot(d):
+        """The RECORDS-half root of a serialized snapshot payload — disk-free, no mutation of any instance.
+
+        A settle-with-proof extends L1's JUSTIFIED root, which was computed as
+        rnode(kv-half, records-half) AT THE JUSTIFIED CURSOR. The proof's own pre-root must therefore be
+        paired with the records half AS OF THAT CURSOR, which lives in the stashed pre-state — not with
+        the records half as of now. Pairing a pre-root with today's records compares two roots that were
+        never simultaneously true, and that is exactly the `PRE MISMATCH` seen live 2026-08-04: the POST
+        side matched exactly while the PRE side did not, on spans carrying ZERO calls, where the kv half
+        provably had not moved at all.
+
+        Built the same way clone() builds a view — __new__ + _restore, so it never reads or writes disk."""
+        import threading as _th
+        v = ExecState.__new__(ExecState)
+        v.path = "<snapshot-view>"          # sentinel: a view is read-only and must never be save()d
+        v._mutate_lock = _th.RLock()
+        v._restore(d)
+        v.block_ts = 0                      # not in _snapshot() and not in the root; see clone()
+        from execnode import exec_root as ER
+        from execnode.stark import storage_tree as SST
+        from protocol import EXEC_TREE_DEPTH
+        return SST.SparseStore(EXEC_TREE_DEPTH, ER.records_projection(v)).root()
+
     def settle_snapshot(self):
         """(cursor, state_root_hex, records_root, mut_gen) captured ATOMICALLY under the mutate lock.
 

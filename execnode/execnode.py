@@ -393,6 +393,26 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # the state's mutate lock (ExecState.settle_snapshot). The fallback keeps standalone callers working.
     rec_root = (rec_root_at_cur if rec_root_at_cur is not None
                 else SST.SparseStore(EXEC_TREE_DEPTH, ER.records_projection(st)).root())
+    # THE RECORDS HALF AT THE JUSTIFIED CURSOR, from the stash. prove_settlement_sparse pins ONE records
+    # root for the whole span ("the (unchanged) records half"), so this is load-bearing twice over:
+    #
+    #  1. THE SELF-CHECK MUST COMPARE LIKE WITH LIKE. `sr` is L1's justified root at `sc`, i.e.
+    #     rnode(kv_pre, records AT sc). Building pre_full from records at CUR compares two roots that were
+    #     never simultaneously true — the exact `PRE MISMATCH` observed live on spans with ZERO calls,
+    #     where the kv half provably had not moved and the POST side matched to the byte.
+    #  2. IF THE RECORDS ACTUALLY MOVED, THE SPAN IS UNPROVABLE. The proof would assert a records half
+    #     that was not constant across the span, so it must not be built at all. That is a clean skip with
+    #     a reason, not a self-check failure discovered minutes later after a full prove.
+    try:
+        rec_pre_root = type(st).records_root_from_snapshot(snap["state"])
+    except Exception as _e:
+        return _skip(f"could not derive the records half at the justified cursor {sc} from the stash "
+                     f"({type(_e).__name__}: {_e})")
+    if rec_pre_root != rec_root:
+        return _skip(f"the RECORDS half moved across the span {sc} -> {cur} "
+                     f"({SST.digest_hex(rec_pre_root)[:16]}… -> {SST.digest_hex(rec_root)[:16]}…); "
+                     f"prove_settlement_sparse pins ONE records root for the whole span, so proving this "
+                     f"span would assert something false. Waiting for a span whose records are constant")
     rec_hex = SST.digest_hex(rec_root)
     beacons = {e: v % _F.P for e, v in st.beacons.items()}
     bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
@@ -461,7 +481,10 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
         return _skip(f"prove exceeded SETTLE_PROVE_TIMEOUT={SETTLE_PROVE_TIMEOUT}s "
                      f"(fold={_fold}); the worker thread is abandoned and settles stay BARE until it ends")
     # 6. THE SELF-CHECKS — never post a proof that doesn't extend the justified tip AND reproduce our root.
-    pre_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_pre"]), rec_root)
+    # PRE pairs with the records half at `sc`, POST with the records half at `cur`. They are equal here —
+    # the gate above refuses the span otherwise — but writing it explicitly is what keeps the comparison
+    # honest if that ever stops being true.
+    pre_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_pre"]), rec_pre_root)
     post_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_post"]), rec_root)
     # SAY WHICH SIDE FAILED. "not conforming" named neither half, so three separate hypotheses (epoch
     # boundary, records-half skew, kv-half mismatch) all produced the identical line and could not be told
