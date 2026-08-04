@@ -102,8 +102,12 @@ def _encode_stripe(data_syms, n):
     k = len(data_syms)
     M = _enc_matrix(k, n)
     ys = [s % P for s in data_syms]
-    out = []
-    for x in range(n):
+    # THE FIRST k ROWS OF A SYSTEMATIC GENERATOR ARE THE IDENTITY — shard j < k IS data symbol j, which is
+    # the whole meaning of "systematic" and is what the decode side already exploits (_systematic_bytes).
+    # Multiplying by them computed a COPY the expensive way: for k=4, n=8 that was half of every stripe's
+    # arithmetic, i.e. half of a ~50 s encode on a 118 MiB proof. Only the n-k PARITY rows carry real work.
+    out = list(ys)
+    for x in range(k, n):
         row = M[x]
         acc = 0
         for i in range(k):
