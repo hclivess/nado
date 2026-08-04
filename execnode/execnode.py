@@ -194,6 +194,16 @@ _settle_proving = False
 # refused for aiming at a tip we had moved ourselves. Observed live 2026-08-04: two proofs built from
 # pre-state 21780 while the settled tip reached 21840.
 _settle_publishing = 0.0          # time.time() when a proof-carrying settle entered publish+submit, else 0
+# A proof-carrying settle that L1 ACCEPTED is still racing: it is an EXACT-LANDING tx, so it sits in the
+# mempool until its own max_block — measured 22:15 -> block 24829, about five minutes — and a bare settle
+# during that wait advances the justified tip and invalidates it. The publish hold released at SUBMIT
+# ("the attempt is over"), which is true of the SUBMISSION and false of the TRANSACTION, so:
+#     22:15:19 SETTLE-WITH-DA-PROOF cursor 24690 (settled tip 24660, pre_root correct, tx in the pool)
+#     22:17:55 SETTLE ns=default            <- bare, carried the tip 24660 -> 24758
+#     22:18:24 Candidate excludes pool tx 3492566cf165ec37: Settle proof pre_root must extend the settled tip
+# THE GUARD'S LIFETIME MUST MATCH WHAT IT GUARDS — third time today. {ns: {"cursor", "max_block"}}, held
+# until the settled tip reaches that cursor (it landed) or the height passes max_block (it expired).
+_settle_pending = {}
 # STRONG REFERENCES to the detached settle tasks. asyncio keeps only a WEAK reference to a running task, so
 # a task whose last strong reference is dropped can be garbage-collected MID-AWAIT — silently, with no
 # result, no exception and no done-callback. The tail loop assigned each task to a local that it reassigned
@@ -684,13 +694,34 @@ async def maybe_settle(session):
             # bare boolean: even if a task dies between setting and clearing it, settling resumes on its own.
             _pub_active = (_settle_publishing
                            and (time.time() - _settle_publishing) < SETTLE_HOLD_MAX_S)
-            if proof is None and (_settle_proving or _pub_active):
+            # AND A PROOF-CARRYING SETTLE THAT IS ALREADY IN THE POOL still owns the tip until it lands or
+            # expires — see _settle_pending. Resolved against L1 rather than assumed: the tip having reached
+            # the pending cursor means it LANDED, and the height passing max_block means it can never land.
+            _pend, _pend_active = _settle_pending.get(ns), False
+            if _pend:
+                try:
+                    _sn = await _get_json(session, f"/get_settled?ns={ns}")
+                    _sc_now = int((_sn or {}).get("exec_cursor", -1))
+                except Exception:
+                    _sc_now = -1
+                _h_now = target - 2                       # target was latest+2
+                if _sc_now >= int(_pend["cursor"]):
+                    _settle_pending.pop(ns, None)         # it landed; the tip is already past it
+                elif _h_now > int(_pend["max_block"]):
+                    _settle_pending.pop(ns, None)         # its landing block is gone; it can never land
+                    print(f"[execnode] pending settle-with-proof ns={ns} cursor {_pend['cursor']} EXPIRED "
+                          f"unlanded (max_block {_pend['max_block']} < height {_h_now}); releasing the tip",
+                          flush=True)
+                else:
+                    _pend_active = True
+            if proof is None and (_settle_proving or _pub_active or _pend_active):
                 _k = (ns, "hold-for-inflight-proof")
                 if _settle_skip_logged.get(_k) != _k[1]:
                     _settle_skip_logged[_k] = _k[1]
-                    print(f"[execnode] settle HELD ns={ns} cursor {cur} — a settle-prove is in flight and "
-                          f"a bare settle now would advance the justified tip past the span it proves, "
-                          f"guaranteeing its refusal ('pre_root must extend the settled tip')", flush=True)
+                    print(f"[execnode] settle HELD ns={ns} cursor {cur} — a settle-prove is in flight or a "
+                          f"proof-carrying settle is waiting for its landing block, and a bare settle now "
+                          f"would advance the justified tip past the span it proves, guaranteeing its "
+                          f"refusal ('pre_root must extend the settled tip')", flush=True)
                 continue
             # REFRESH THE DEADLINE AFTER PROVING. `target` was computed before this loop, and building a
             # proof takes MINUTES — long enough for max_block to fall into the past, which L1 rejects as
@@ -894,9 +925,22 @@ async def maybe_settle(session):
                       f"root {root[:16]}…{_via} → L1", flush=True)
             else:
                 print(f"[execnode] settle ns={ns} not accepted: {out}", flush=True)
-            # THE ATTEMPT IS OVER — release the tip. Accepted or refused, this proof is no longer racing
-            # anything, so holding longer would only stall settlement for no benefit.
+            # THE SUBMISSION is over, so release the publish hold. THE TRANSACTION MAY NOT BE: a settle is
+            # an EXACT-LANDING tx, so an ACCEPTED proof-carrying settle now waits in the mempool until its
+            # own max_block and is still racing every bare settle until then. Record it so the hold above
+            # keeps covering it; a refused one is genuinely finished and records nothing.
             globals()["_settle_publishing"] = 0.0
+            # Keyed on what was ACTUALLY SUBMITTED, not on the local `proof`/`proof_da` variables: when a
+            # proof-carrying settle is refused, the code retries BARE (rebuilding `tx`, clearing `proof`)
+            # while `proof_da` stays set, so testing those would register a hold for a bare attestation
+            # that nothing is waiting on.
+            _txd = (tx or {}).get("data") or {}
+            if isinstance(out, dict) and out.get("result") and (_txd.get("proof") or _txd.get("proof_da")):
+                try:
+                    _mb = int((tx or {}).get("max_block") or target)
+                except Exception:
+                    _mb = target
+                _settle_pending[ns] = {"cursor": cur, "max_block": _mb}
         if ok_any:
             _last_settled_cursor = state.cursor
     except Exception as e:

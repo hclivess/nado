@@ -91,7 +91,7 @@ check("the hold matters precisely because the pipeline outlasts the cadence", PI
 src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "execnode", "execnode.py")).read()
 check("maybe_settle holds when a prove is in flight",
-      "if proof is None and (_settle_proving or _pub_active):" in src)
+      "if proof is None and (_settle_proving or _pub_active or _pend_active):" in src)
 # THE HOLD MUST SPAN PUBLISH AND SUBMIT, NOT JUST THE PROVE. _settle_proving is cleared by the prove
 # THREAD's done-callback, so it goes False at "BUILT" while ~230 s of publish (139 s) and inline L1
 # verification (94 s) still lie ahead. Bare settles resumed in that window and walked the tip forward:
@@ -133,6 +133,29 @@ check("...and that check reads the same publish hold the settle path uses",
       or src.count("(time.time() - _settle_publishing) < SETTLE_HOLD_MAX_S") >= 2)
 check("the in-flight skip no longer claims it settles bare (the hold skips instead)",
       "settling bare until it finishes" not in src)
+
+# ---- AN ACCEPTED PROOF-CARRYING SETTLE IS STILL RACING ------------------------------------------------
+# A settle is an EXACT-LANDING tx: it lands at exactly max_block, so an ACCEPTED proof-carrying settle then
+# WAITS IN THE MEMPOOL for minutes. The publish hold released at SUBMIT ("the attempt is over"), which is
+# true of the submission and false of the transaction. Measured live 2026-08-04:
+#     22:15:19 SETTLE-WITH-DA-PROOF cursor 24690   (settled tip 24660, pre_root correct, tx pooled,
+#                                                   max_block 24829 — about five minutes away)
+#     22:17:55 SETTLE ns=default                   <- a BARE settle carried the tip 24660 -> 24758
+#     22:18:24 Candidate excludes pool tx 3492566cf165ec37: Settle proof pre_root must extend the settled tip
+# The block builder then drops it from every candidate, so it never reaches a block at all.
+check("an accepted proof-carrying settle is recorded as still pending", "_settle_pending[ns] = {" in src)
+check("...and the hold covers it until it lands or expires", "_pend_active" in src
+      and "or _pend_active" in src)
+check("...resolved against L1, not assumed: landed = the tip reached its cursor",
+      '_sc_now >= int(_pend["cursor"])' in src)
+check("...expired = the height passed its landing block",
+      '_h_now > int(_pend["max_block"])' in src)
+check("an EXPIRED pending settle releases the tip rather than holding forever",
+      "EXPIRED" in src and "releasing the tip" in src)
+# THE REFUSED PATH RETRIES BARE, rebuilding tx and clearing `proof` while proof_da stays set — so the
+# marker must key on what was ACTUALLY SUBMITTED or a bare attestation would register a hold.
+check("the pending marker keys on the submitted tx, not the local proof flags",
+      '_txd.get("proof") or _txd.get("proof_da")' in src)
 
 print()
 print("ALL PASS — a node no longer races its own proof by moving the tip out from under it"
