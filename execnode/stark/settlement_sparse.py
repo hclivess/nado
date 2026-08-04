@@ -81,16 +81,35 @@ def prove_bound_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, b
     the epoch's net writes advance sparse_pre_root → sparse_post_root. `pre_abal`/`pre_assets` (doc/assets.md
     §8) are the asset shadow — pass the state's to settle asset-touching calls; they gate the proof but never
     enter the sparse root (which projects contract STORAGE only)."""
+    # PER-STAGE TIMING. A settle prove exceeded its own 1200s bound on production state (25 contracts)
+    # while an empty-state fixture took 110s, and "the prove is slow" is not an actionable statement — it
+    # does not say WHICH stage to port to Rust. prove_epoch reaches the arena for its two stark.prove calls
+    # but does its own Merkle commits; prove_transition chains K in-circuit merkle-updates and is pure
+    # Python. This says which one to attack, in production, without a profiler.
+    import time as _t
+    _stage = {}
+    _t0 = _t.time()
     bundle = SP.prove_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
                             block_hashes=block_hashes, pre_bridge=pre_bridge, pre_abal=pre_abal,
                             pre_assets=pre_assets, num_queries=num_queries,
                             backend=backend, row_commit=row_commit)
+    _stage["prove_epoch"] = _t.time() - _t0
+    _t1 = _t.time()
     cid_io = _cid_io(bundle)
     pre_store = ST.SparseStore(depth, sparse_projection(pre_contracts, depth))
     sparse_pre = pre_store.root()
     pre_get = lambda cid, slot: ((pre_contracts.get(cid) or {}).get("storage") or {}).get("slots", {}).get(str(int(slot)), 0)
     net = ESB.net_updates(pre_get, cid_io, depth)
+    _stage["sparse_projection"] = _t.time() - _t1
+    _t2 = _t.time()
     tr = SX.prove_transition(pre_store, [(k, n) for (k, _o, n) in net], num_queries=num_queries)
+    _stage["prove_transition"] = _t.time() - _t2
+    try:
+        print("[settle-prove] cursor=%s calls=%d net_updates=%d | %s | total %.1fs" % (
+            cursor, len(calls or []), len(net),
+            " ".join("%s=%.1fs" % (k, v) for k, v in _stage.items()), _t.time() - _t0), flush=True)
+    except Exception:
+        pass
     bundle.update(sparse_pre_root=sparse_pre, sparse_post_root=pre_store.root(),
                   transition=tr, cid_io=cid_io, depth=depth,
                   calls_commitment=CC.calls_commitment(bundle["calls"], cursor, timestamp))
