@@ -21,9 +21,15 @@ def key_collision(status_pool, our_address, our_height, our_hash, local_addresse
     entirely, because reporting them is the expected behaviour of a correctly configured node and a health
     check that fires on every correct configuration teaches the operator to ignore it.
 
-    Proof is unaffected by that filtering, and requires EQUIVOCATION: the same address holding a different
-    block hash at the SAME height. One process cannot do that, so it stands even for an own address (there
-    it would mean a second process on this box, which is worth screaming about too).
+    `proven` is unaffected by that filtering and flags EQUIVOCATION: the same address holding a different
+    block hash at the SAME height. It stands even for an own address (there it would mean a second process
+    on this box, which is worth screaming about too).
+
+    IT IS A CANDIDATE, NOT A VERDICT. The comparison is CROSS-TIME — `st` is the snapshot from when that
+    endpoint was last polled, against our tip right now — and a REORG makes one honest process hold two
+    different hashes at the same height at two different moments. The caller therefore requires the
+    appearance to PERSIST across consecutive checks before reporting a duplicated key; see _EQUIV_MIN_TICKS
+    and the 2026-08-04 false positive recorded there.
 
     Pure so the distinction can be tested without a fleet — see tests/test_key_collision.py.
     """
@@ -41,6 +47,30 @@ def key_collision(status_pool, our_address, our_height, our_hash, local_addresse
         if st.get("latest_block_height") == our_height and their_hash and their_hash != our_hash:
             proven.append(endpoint)
     return sorted(twins), sorted(proven)
+
+
+# Consecutive health checks an endpoint must look equivocating on before it counts as PROOF of a duplicated
+# key. The health loop runs every ~10 s, so 3 is ~30 s — far longer than a reorg takes to settle, and far
+# shorter than an operator would take to notice a genuinely cloned validator.
+_EQUIV_MIN_TICKS = 3
+
+def sustained_equivocation(streak: dict, proven, min_ticks=None):
+    """Advance the per-endpoint equivocation streak and return the endpoints that have PERSISTED.
+
+    `streak` is mutated: endpoints absent from this round's `proven` are dropped (the streak must be
+    CONSECUTIVE — a reorg race clears as soon as the snapshots line up again), the rest are incremented.
+
+    Pure apart from that mutation, so the reorg-vs-clone distinction is testable without a fleet — see
+    tests/test_key_collision.py.
+    """
+    if min_ticks is None:
+        min_ticks = _EQUIV_MIN_TICKS
+    for ep in list(streak):
+        if ep not in proven:
+            del streak[ep]
+    for ep in proven:
+        streak[ep] = streak.get(ep, 0) + 1
+    return sorted(e for e in proven if streak.get(e, 0) >= min_ticks)
 
 
 _own_addresses_cache = {"v": None}
@@ -77,6 +107,9 @@ class MessageClient(threading.Thread):
         self.consensus = consensus
         self.core = core
         self.peers = peers
+        # Consecutive health ticks on which each endpoint has looked like it equivocates. A SINGLE
+        # observation is not evidence: see _EQUIV_MIN_TICKS.
+        self._equiv_streak = {}
 
     # Per-component health. Each check returns (level, detail):
     #   "ok"   — healthy
@@ -196,11 +229,35 @@ class MessageClient(threading.Thread):
             twins, proven = key_collision(self.consensus.status_pool, self.memserver.address, our_h,
                                           self.memserver.latest_block["block_hash"],
                                           local_addresses=own_addresses(getattr(self.memserver, "ip", None)))
-            if proven:
+            # ONE OBSERVATION IS NOT EQUIVOCATION. The comparison is CROSS-TIME: `st` is a status snapshot
+            # taken when that endpoint was last polled, while our_hash is our tip right now. A REORG makes a
+            # single honest process hold two different hashes at the same height at two different moments,
+            # so "same height, different hash" across those two instants is exactly what an ordinary reorg
+            # looks like — no second process required.
+            #
+            # OBSERVED 2026-08-04 21:33:34, and it fired on the HEALTHY case: "ANOTHER NODE IS RUNNING OUR
+            # KEY (38.242.201.206) — proven by a rival block at height 24364", while all four nodes in fact
+            # agreed on a single hash below every finality floor AND held byte-identical block 24364 with
+            # the same creator. The fleet was mid-reorg after an update restart. 38.242.201.206 is this
+            # box's own public IP, so the "rival" was this node's own slightly-stale snapshot of itself.
+            # That address had already caused three wrong conclusions on 2026-08-03; the address filter
+            # fixed the bare-match case, but the proof path is cross-time and stayed vulnerable.
+            #
+            # A reorg race clears within a poll or two; a genuinely duplicated key keeps producing rivals.
+            # So require the appearance to PERSIST before calling it proof. Below that it is a warning, and
+            # the streak is reported so the operator can see it climbing rather than a single red flash.
+            sustained = sustained_equivocation(self._equiv_streak, proven)
+            if sustained:
                 components["Identity"] = (
-                    "down", f"ANOTHER NODE IS RUNNING OUR KEY ({', '.join(sorted(proven))}) — proven by a "
-                            f"rival block at height {our_h}. Both copies mine the same slots, so the fleet "
-                            f"will keep forking until one of them is given a fresh key.")
+                    "down", f"ANOTHER NODE IS RUNNING OUR KEY ({', '.join(sustained)}) — a rival block at "
+                            f"height {our_h} has persisted for {_EQUIV_MIN_TICKS} consecutive checks, which "
+                            f"a reorg does not do. Both copies mine the same slots, so the fleet will keep "
+                            f"forking until one of them is given a fresh key.")
+            elif proven:
+                components["Identity"] = (
+                    "warn", f"{', '.join(sorted(proven))} reports a different hash at our height {our_h} "
+                            f"({max(self._equiv_streak.get(e, 0) for e in proven)}/{_EQUIV_MIN_TICKS} "
+                            f"consecutive) — ordinary during a reorg; only a sustained streak is proof")
             elif twins:
                 components["Identity"] = (
                     "warn", f"{len(twins)} endpoint(s) report our address ({', '.join(sorted(twins))}) and "

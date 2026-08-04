@@ -132,6 +132,49 @@ check("a None pool is handled", key_collision(None, US, H, OURS) == ([], []))
 twins, _ = key_collision({"z": peer(US), "a": peer(US), "m": peer(US)}, US, H, OURS)
 check("twins come back sorted (a stable health line, not a churning one)", twins == ["a", "m", "z"])
 
+
+# ---- A REORG IS NOT A CLONE -------------------------------------------------------------------------
+# key_collision's proof test is CROSS-TIME: a peer's status snapshot against our CURRENT tip. A reorg
+# makes one honest process hold two different hashes at the same height at two different moments, so a
+# single observation of "same height, different hash" is exactly what an ordinary reorg looks like.
+#
+# OBSERVED LIVE 2026-08-04 21:33:34 — "ANOTHER NODE IS RUNNING OUR KEY (38.242.201.206) — proven by a
+# rival block at height 24364" — while all four nodes agreed on ONE hash below every finality floor and
+# held byte-identical block 24364 with the same creator. The fleet was mid-reorg after an update restart,
+# and 38.242.201.206 is this box's own public IP, so the "rival" was its own slightly-stale snapshot.
+from loops.message_loop import sustained_equivocation, _EQUIV_MIN_TICKS
+
+st = {}
+check("one observation is NOT proof (that is what a reorg looks like)",
+      sustained_equivocation(st, ["1.2.3.4"], min_ticks=3) == [])
+check("...nor two", sustained_equivocation(st, ["1.2.3.4"], min_ticks=3) == [])
+check("a SUSTAINED streak is proof (a reorg does not persist)",
+      sustained_equivocation(st, ["1.2.3.4"], min_ticks=3) == ["1.2.3.4"])
+
+# the streak must be CONSECUTIVE: a clean round resets it, so a flapping reorg never accumulates
+st2 = {}
+sustained_equivocation(st2, ["1.2.3.4"], min_ticks=3)
+sustained_equivocation(st2, [], min_ticks=3)
+check("a clean round clears the streak", st2 == {})
+check("...so alternating reorg noise never reaches proof",
+      sustained_equivocation(st2, ["1.2.3.4"], min_ticks=3) == [])
+
+# endpoints are tracked independently
+st3 = {}
+for _ in range(3):
+    out = sustained_equivocation(st3, ["a", "b"], min_ticks=3)
+check("independent endpoints both reach proof together", out == ["a", "b"])
+sustained_equivocation(st3, ["a"], min_ticks=3)
+check("...and dropping one clears only that one", "b" not in st3 and "a" in st3)
+
+check("the shipped threshold is more than a single observation", _EQUIV_MIN_TICKS >= 2)
+src_ml = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "loops", "message_loop.py")).read()
+check("the DOWN verdict requires the sustained set, not the raw candidates",
+      "sustained = sustained_equivocation(self._equiv_streak, proven)" in src_ml
+      and 'if sustained:' in src_ml)
+
+
 print()
 print("ALL PASS — a shared key is detected, and only EQUIVOCATION is treated as proof"
       if not fails else f"{fails} FAILURES")
