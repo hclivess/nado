@@ -204,14 +204,23 @@ _settle_publishing = 0.0          # time.time() when a proof-carrying settle ent
 # THE GUARD'S LIFETIME MUST MATCH WHAT IT GUARDS — third time today. {ns: {"cursor", "max_block"}}, held
 # until the settled tip reaches that cursor (it landed) or the height passes max_block (it expired).
 _settle_pending = {}
-# How many times a BUILT-AND-PUBLISHED proof may be resubmitted against a fresh landing block. A settle is
-# EXACT-LANDING, so it can only be included by whoever produces exactly its max_block — and this validator
-# wins ~19% of blocks (measured: 5 of 26, against ~14 distinct producers), while no other producer can
-# realistically include it (that would mean fetching 118 MiB from DA and verifying it, ~21.7 s, inside a
-# ~6 s slot). One shot is therefore a ~19% coin flip on work that took ~5 minutes; the retry costs an ~8 KB
-# tx because the proof and its DA blob are reused. Six attempts make a miss unlikely (~0.81^6 ≈ 27%) while
-# still bounding how long settlement can be held for one proof.
-SETTLE_RESUBMIT_MAX = 6
+# Resubmitting a BUILT-AND-PUBLISHED proof against a fresh landing block. A settle is EXACT-LANDING, so it
+# can only be included by whoever produces exactly its max_block — and this validator wins ~19% of blocks
+# (measured: 5 of 26, against ~14 distinct producers), while no other producer can realistically include it
+# (that would mean fetching 118 MiB from DA and verifying it, ~21.7 s, inside a ~6 s slot). One shot is a
+# ~19% coin flip on work that took ~5 minutes of proving.
+#
+# BOUND BY TIME, NOT BY A COUNT. The first cut allowed 6 attempts, and live they were consumed in about two
+# minutes — each retry targets latest+2, so an attempt is only ~3 blocks (~18 s) long:
+#     22:57 missed 25197 -> attempt 2 ... 22:59 missed 25210 -> attempt 6/6
+# A count is the wrong unit because the retry itself is nearly free (the proof and its DA blob are reused,
+# so the tx is ~8 KB); what actually costs anything is holding the justified tip still, which blocks bridge
+# exits from seeing a fresher settlement. So spend a bounded amount of TIME rather than a fixed number of
+# tries: at ~18 s per attempt this is ~30 shots, i.e. a miss becomes ~0.81^30 ≈ 0.2% instead of 27%, for the
+# same tip-hold budget the prove+publish pipeline already spends.
+SETTLE_RESUBMIT_MAX_S = 600
+# Backstop only, so a pathological loop (blocks arriving far faster than expected) cannot spin unbounded.
+SETTLE_RESUBMIT_MAX = 200
 # STRONG REFERENCES to the detached settle tasks. asyncio keeps only a WEAK reference to a running task, so
 # a task whose last strong reference is dropped can be garbage-collected MID-AWAIT — silently, with no
 # result, no exception and no done-callback. The tail loop assigned each task to a local that it reassigned
@@ -738,8 +747,9 @@ async def maybe_settle(session):
                     # and construct_settle_tx with both proof and proof_da None yields a BARE attestation —
                     # which would advance the justified tip while reporting a successful "resubmit", i.e.
                     # exactly the race this whole hold exists to prevent, dressed as a retry.
-                    if (_att < SETTLE_RESUBMIT_MAX and _pend.get("proof_da")
-                            and _sc_now == int(_pend["pre_cursor"])):
+                    _held_for = time.time() - float(_pend.get("first_submitted") or time.time())
+                    if (_held_for < SETTLE_RESUBMIT_MAX_S and _att < SETTLE_RESUBMIT_MAX
+                            and _pend.get("proof_da") and _sc_now == int(_pend["pre_cursor"])):
                         try:
                             _rtx = construct_settle_tx(keys, int(_pend["cursor"]), _pend["root"], target,
                                                        ns=ns, proof=None, proof_da=_pend["proof_da"])
@@ -761,8 +771,9 @@ async def maybe_settle(session):
                                 _pend["attempts"] = _att + 1
                                 print(f"[execnode] settle-with-proof ns={ns} cursor {_pend['cursor']} missed "
                                       f"block {_h_now} (produced by someone else) — RESUBMITTED for "
-                                      f"max_block {_pend['max_block']} (attempt {_att + 1}/"
-                                      f"{SETTLE_RESUBMIT_MAX}); the proof and its DA blob are reused",
+                                      f"max_block {_pend['max_block']} (attempt {_att + 1}, "
+                                      f"{_held_for:.0f}s/{SETTLE_RESUBMIT_MAX_S}s held); the proof and its "
+                                      f"DA blob are reused",
                                       flush=True)
                                 _pend_active = True
                             else:
@@ -776,8 +787,8 @@ async def maybe_settle(session):
                     else:
                         _settle_pending.pop(ns, None)
                         print(f"[execnode] pending settle-with-proof ns={ns} cursor {_pend['cursor']} GIVING "
-                              f"UP after {_att} attempt(s) (tip moved to {_sc_now}, pre-state was "
-                              f"{_pend['pre_cursor']}); releasing the tip", flush=True)
+                              f"UP after {_att} attempt(s) over {_held_for:.0f}s (tip is {_sc_now}, "
+                              f"pre-state was {_pend['pre_cursor']}); releasing the tip", flush=True)
                 else:
                     _pend_active = True
             if proof is None and (_settle_proving or _pub_active or _pend_active):
@@ -1017,7 +1028,7 @@ async def maybe_settle(session):
                     _pre_cursor = -1
                 _settle_pending[ns] = {"cursor": cur, "max_block": _mb, "root": root,
                                        "proof_da": _txd.get("proof_da"), "pre_cursor": _pre_cursor,
-                                       "attempts": 1}
+                                       "attempts": 1, "first_submitted": time.time()}
         if ok_any:
             _last_settled_cursor = state.cursor
     except Exception as e:

@@ -175,8 +175,19 @@ check("...and NEVER for an inline proof, which would rebuild as a BARE settle",
       '_pend.get("proof_da")' in src)
 check("retries are bounded so a proof that can never land cannot stall settlement",
       "SETTLE_RESUBMIT_MAX" in src and "GIVING" in src)
-_rmax = int(__import__("re").search(r"^SETTLE_RESUBMIT_MAX = (\d+)", src, __import__("re").M).group(1))
-check("the bound leaves a miss unlikely but finite", 3 <= _rmax <= 12)
+# BOUNDED BY TIME, NOT BY A COUNT. The first cut allowed 6 attempts and live they were consumed in about
+# two minutes — each retry targets latest+2, so an attempt is only ~3 blocks (~18 s):
+#     22:57 missed 25197 -> attempt 2 ... 22:59 missed 25210 -> attempt 6/6, then it would give up.
+# The retry is nearly free (proof and DA blob reused, ~8 KB tx); what costs anything is holding the
+# justified tip still. So the budget is time, which at ~18 s/attempt is ~30 shots (~0.2% miss vs 27%).
+import re as _re2
+_rsec = int(_re2.search(r"^SETTLE_RESUBMIT_MAX_S = (\d+)", src, _re2.M).group(1))
+_rmax = int(_re2.search(r"^SETTLE_RESUBMIT_MAX = (\d+)", src, _re2.M).group(1))
+check("the retry budget is a TIME bound, not an attempt count", "SETTLE_RESUBMIT_MAX_S" in src
+      and "_held_for < SETTLE_RESUBMIT_MAX_S" in src)
+check("...long enough for many ~18s attempts", _rsec >= 300)
+check("...with a count backstop far above what the time bound allows", _rmax > _rsec / 18)
+check("the hold start is recorded so the budget is measurable", '"first_submitted": time.time()' in src)
 # 0.81^6 ~ 0.28: still possible to miss, which is why GIVING UP must exist rather than retry forever.
 check("the pending record carries what a rebuild needs",
       '"root": root' in src and '"pre_cursor"' in src and '"attempts": 1' in src)
