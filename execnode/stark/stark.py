@@ -305,8 +305,6 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     each FRI query opens whole rows with ONE path per tree — 2 (or 4, two-phase) paths per query instead of
     2W, which is what makes recursing a wide (W=106) trace feasible. A DIFFERENT proof format ("row_roots" /
     row openings), verified by the matching verify(row_commit=True); column-mode proofs are untouched."""
-    from execnode.stark.native_guard import require_native_prover
-    require_native_prover("stark.py:prove")
     # HOLISTIC NATIVE PROVER (native/starkprove): the whole pipeline (LDE -> Merkle -> composition -> FRI ->
     # openings) runs in a PERSISTENT Rust arena instead of materializing every LDE column as a Python int list,
     # which is the recursion/settlement memory wall. Per doc/rust-only-proving.md this is not a preference:
@@ -344,6 +342,13 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
                                           aux_spec=aux_spec, row_commit=row_commit, backend=_b)
         except Exception as _e:
             _native_fallback(_e)                        # RAISES unless NADO_ALLOW_PYTHON_KERNELS
+    # The arena did not cover this call (BLAKE2B backend or commit_periodic). Everything below is
+    # PURE PYTHON proving, which on 2026-08-04 took 12+ minutes for one settle prove and starved L1
+    # into a re-anchor. _arena_covers being False used to route AROUND _native_fallback and reach
+    # here silently — the exact invisible degradation the Rust-only policy exists to abolish.
+    from execnode.stark.native_guard import require_native_prover
+    require_native_prover("stark.py:prove (backend=%s, commit_periodic=%s)"
+                          % (getattr(_b, "name", "?"), bool(commit_periodic)))
     periodic = periodic or []
     commit_periodic = sorted(set(commit_periodic or []))  # periodic-column indices to COMMIT instead of publish
     if commit_periodic and (commit_periodic[0] < 0 or commit_periodic[-1] >= len(periodic)):

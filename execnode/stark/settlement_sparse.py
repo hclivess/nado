@@ -259,8 +259,6 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
     separately-foldable half). Folding is a VERIFICATION-STRATEGY change only: kv_pre/kv_post — the settled root
     — are byte-identical to the non-recursive proof of the same span. (A block whose calls exceed one trace is
     unsupported — the DA binding folds per block — and raises, so the exec node falls back to quorum.)"""
-    from execnode.stark.native_guard import require_native_prover
-    require_native_prover("settlement_sparse.py:prove_settlement_sparse")
     if not recursive:
         bundle = prove_bound_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
                                    block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
