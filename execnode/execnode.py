@@ -463,9 +463,21 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # 6. THE SELF-CHECKS — never post a proof that doesn't extend the justified tip AND reproduce our root.
     pre_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_pre"]), rec_root)
     post_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_post"]), rec_root)
-    if pre_full != sr or post_full != root:
-        print(f"[execnode] settle-with-proof ns={ns} self-check failed (span {sc}->{cur} not conforming) "
-              f"— falling back to quorum", flush=True)
+    # SAY WHICH SIDE FAILED. "not conforming" named neither half, so three separate hypotheses (epoch
+    # boundary, records-half skew, kv-half mismatch) all produced the identical line and could not be told
+    # apart — the records-half fix (6a903a09) was deployed and this message looked exactly the same
+    # afterwards. PRE failing means our stashed pre-state does not reproduce L1's justified root, i.e. the
+    # stash is wrong for that cursor. POST failing means replaying the span's calls from that pre-state
+    # does not land on the root we captured, i.e. the proof's semantics differ from the node's own apply.
+    # Those are completely different bugs and they now print differently.
+    _pre_ok, _post_ok = (pre_full == sr), (post_full == root)
+    if not (_pre_ok and _post_ok):
+        _rec_hex = SST.digest_hex(rec_root)
+        print(f"[execnode] settle-with-proof ns={ns} self-check FAILED span {sc}->{cur} — "
+              f"PRE {'ok' if _pre_ok else 'MISMATCH'}: proof={pre_full[:16]}… justified={str(sr)[:16]}… | "
+              f"POST {'ok' if _post_ok else 'MISMATCH'}: proof={post_full[:16]}… ours={str(root)[:16]}… | "
+              f"kv_pre={str(proof.get('kv_pre'))[:16]}… kv_post={str(proof.get('kv_post'))[:16]}… "
+              f"rec={_rec_hex[:16]}… calls={len(calls)} — falling back to quorum", flush=True)
         return None
     # SAY THAT THE PROOF SURVIVED. Between "[settle-prove] ... total 239.9s" and the DA publish there was
     # NO log line at all, so a prove that completed and then went nowhere was indistinguishable from one
