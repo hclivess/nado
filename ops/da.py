@@ -45,11 +45,60 @@ def _lagrange_eval(points, x):
     return total
 
 
+_ENC_MATRIX_CACHE = {}
+
+
+def _enc_matrix(k, n):
+    """The k->n systematic Reed-Solomon generator matrix over GF(P), CACHED per (k, n).
+
+    The encode's interpolation points never vary: the data sits at x = 1..k and the shards are read off at
+    x = 1..n. So the Lagrange basis coefficients L_i(x) are CONSTANTS — they do not depend on the data at
+    all — and row x of this matrix is exactly [L_0(x), …, L_{k-1}(x)].
+
+    They were being recomputed for every stripe, and each recomputation ran _inv() = pow(a, P-2, P), a full
+    modular exponentiation, in the innermost loop: n·k = 32 modexps per stripe. A 118 MiB blob is ~17.7M
+    symbols = ~4.4M stripes = ~141 MILLION modexps, and encode measured 15 s/MiB — about 30 minutes for one
+    settlement proof. That is why a proof that passed its self-checks ("settle-with-proof BUILT", 13:35)
+    produced no DA publish for as long as anyone watched.
+
+    Same arithmetic, hoisted out of the loop: the encoded symbols are bit-identical (verified against the
+    previous implementation over random inputs in tests/test_da_encode_matrix.py), so commitments and
+    already-published blobs are unaffected."""
+    key = (int(k), int(n))
+    m = _ENC_MATRIX_CACHE.get(key)
+    if m is None:
+        m = []
+        for x in range(1, n + 1):
+            row = []
+            for i in range(k):
+                xi = i + 1
+                num = den = 1
+                for j in range(k):
+                    if i == j:
+                        continue
+                    xj = j + 1
+                    num = num * ((x - xj) % P) % P
+                    den = den * ((xi - xj) % P) % P
+                row.append(num * _inv(den) % P)
+            m.append(row)
+        _ENC_MATRIX_CACHE[key] = m
+    return m
+
+
 def _encode_stripe(data_syms, n):
     """k data symbols -> n shard symbols (systematic: the first k shards ARE the data). Any k of the n
     recover the degree-(k-1) polynomial, hence all symbols."""
-    pts = [(i + 1, data_syms[i] % P) for i in range(len(data_syms))]   # interpolate through x = 1..k
-    return [_lagrange_eval(pts, x) for x in range(1, n + 1)]           # evaluate at x = 1..n
+    k = len(data_syms)
+    M = _enc_matrix(k, n)
+    ys = [s % P for s in data_syms]
+    out = []
+    for x in range(n):
+        row = M[x]
+        acc = 0
+        for i in range(k):
+            acc += row[i] * ys[i]
+        out.append(acc % P)
+    return out
 
 
 def _pack(data):
