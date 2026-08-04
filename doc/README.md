@@ -34,22 +34,54 @@ It also records the multi-agent **security review** that motivated much of this 
 | [dex-bridge.md](dex-bridge.md) | **Decentralized exchange & bridge — no authority** — HTLC atomic-swap bridge + an ownerless on-chain order book (exec-layer contract), matching, cross-chain preimage settlement, intra-NADO atomic swaps, watchtowers, the free-option problem, MEV/ordering, and a phased build plan. The trustless alternative to a custodial/multisig bridge |
 | [units.md](units.md) | The named sub-unit ladder (`dag`…`eli`) — a display convention over the raw-integer ledger, honoring the people behind NADO |
 
-## Settlement model — exec-node quorum, not a zkVM
+## Zero-knowledge / proof-system documents
 
-NADO settles its execution layer with a **bonded-stake quorum**, and may keep it permanently rather than adopt
-a zkVM. The weight difference, with real numbers:
+**Start with [zk-components.md](zk-components.md)** — the complete map of every ZK component in the tree,
+with a live-vs-capability-vs-research status for each and the measured numbers behind them.
 
-| | Exec-node quorum (shipped) | zkVM validity proof (optional) |
+| Doc | Contents |
+|-----|----------|
+| [zk-components.md](zk-components.md) | **The whole ZK surface at once** — arithmetic core, hashes, STARK proving, the execution zkVM, the shielded pool, state-root binding, recursion, the Rust crates, DA transport, consensus constants; what is load-bearing today and exactly where trustless settlement still stops |
+| [zk-glossary.md](zk-glossary.md) | Plain-language definitions of every term used across `execnode/stark/*` and the `zk-*` docs — **read this first if the vocabulary is new** |
+| [zk-execution-proofs.md](zk-execution-proofs.md) | Proving contract execution: the zkVM AIR that shows "running this public program on this input yields this output" |
+| [zk-recursion.md](zk-recursion.md) | STARK recursion — verifying a proof inside a proof for **O(1) settlement verification**: alghash2, the in-circuit FRI/STARK verifier, in-circuit Fiat-Shamir, the K→1 fold and fold-of-folds |
+| [zk-settlement-completion.md](zk-settlement-completion.md) | Trustless STARK settlement — the completion checklist and what each load-bearing piece still needs |
+| [zk-signature-aggregation.md](zk-signature-aggregation.md) | **Post-mortem** — signature aggregation was built, measured, and removed. Kept deliberately: the idea is attractive and the measurements say no |
+| [privacy.md](privacy.md) | The post-quantum zk-STARK **shielded pool** — join-split circuits, membership AIR, and the one place the full proof→DA→commitment→verify loop already works in production |
+| [rust-only-proving.md](rust-only-proving.md) | **Binding policy** — why a hybrid prover is not a prover: Rust-only, no fallback, fail-stop rather than silent degradation |
+| [settle-proof-transport.md](settle-proof-transport.md) | Getting a settle-with-proof onto the chain — measured payload sizes, why the proof can never ride inside a block, and the DA architecture that follows |
+| [rolling-mode-and-da.md](rolling-mode-and-da.md) | Rolling mode & data-availability sampling (**design only**) |
+| [wasm-prover.md](wasm-prover.md) | On-device STARK proving in the browser (`static/stark/*.js`) |
+| [quantum-resistance-and-vms.md](quantum-resistance-and-vms.md) | Why quantum resistance lives in the **proof system**, not the VM — a category confusion worth clearing up |
+| [provable-practice.md](provable-practice.md) | Provable practice runs — leaderboards nobody can forge |
+| [obfuscation-diamond-io.md](obfuscation-diamond-io.md) | Program obfuscation (**research goal**; nothing implemented, scheduled or promised) |
+
+## Settlement model — a bonded quorum today, a validity proof by design
+
+NADO settles its execution layer with a **bonded-stake quorum**, and that is what actually carries
+settlement in production today. Alongside it, the consensus rule for **trustless settlement** — settling
+the root on a STARK validity proof with *no* quorum — is implemented and switched on unconditionally
+(`SETTLE_PROOF_TRUSTLESS`, no feature flags; they were deleted in `74957663`).
+
+> **Honest status: trustless settlement has never completed end-to-end.** Not once, on any generation.
+> The prover produces correct proofs and they pass their self-checks, but no settle transaction carrying
+> a proof has yet landed on chain and been verified by a peer. [zk-components.md §14](zk-components.md)
+> documents exactly where it stops and the five fixes that got it that far.
+
+The weight difference is the reason the quorum remains the working path:
+
+| | Exec-node quorum (carries settlement today) | Validity proof (rule live, never completed) |
 |---|---|---|
-| Settle a batch | run the zkVM (`execnode/zkvm.py`), attest the root (bonded quorum, live) | prove every executed instruction (STARK, built off-path) |
-| Compute | ~native (µs–ms) | **~10³–10⁶× native** — GPU/cluster, seconds–minutes |
-| L1 verify | **8 lines / one integer compare** | a large consensus-critical STARK verifier |
-| New audit surface | 142-line VM + 97-line predicate | a general zkVM: **~50k–100k+ lines** |
+| Settle a batch | run the zkVM (`execnode/zkvm.py`), attest the root | prove the epoch's state transition (STARK) |
+| Compute | ~native (µs–ms) | **240–270 s measured** on production state |
+| L1 verify | **one integer compare** | one proof, ~0.3 s, independent of call count |
+| Payload | a few hundred bytes | **97–118 MiB** — ~380× a full block, so it must go via DA |
 | Trust | 2/3 honest bonded stake — **= NADO finality** | cryptographic soundness only |
 
-A rollup is **as secure as L1 for ~free**; a zkVM would pay 3–6 orders of magnitude more to remove one
-assumption (that 2/3 of bonded stake is honest — the same assumption already securing every balance). Full
-analysis + the lighter fraud-proof middle option: [l2-settlement.md](l2-settlement.md) §3a.
+A rollup is **as secure as L1 for ~free** under the quorum; the validity proof removes one assumption
+(that 2/3 of bonded stake is honest — the same assumption already securing every balance) at a real cost
+in proving time and transport. Full analysis + the lighter fraud-proof middle option:
+[l2-settlement.md](l2-settlement.md) §3a.
 
 ## Implementation status (at a glance)
 

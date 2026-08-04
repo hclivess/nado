@@ -789,6 +789,42 @@ live.)
 - **Wire** — transactions submit over **HTTP POST + msgpack** (an ML-DSA-44 tx is too large for a GET
   URL); msgpack is wire/transport only and never the hashed preimage.
 
+### Zero-knowledge proof stack
+
+Everything below is **hash-based and post-quantum** — no elliptic curves, no pairings, **no trusted
+setup** anywhere. Full component map with measured numbers and per-piece status:
+[`doc/zk-components.md`](doc/zk-components.md); vocabulary: [`doc/zk-glossary.md`](doc/zk-glossary.md).
+
+- **Arithmetic core** — the Goldilocks field (p = 2⁶⁴ − 2³² + 1) with a GF(p^d) extension for challenge
+  soundness, Merkle commitments, a Fiat–Shamir transcript, and **FRI** underneath every proof. Protocol
+  strength is 320 queries at blowup 2 with 18 grinding bits ≈ **146 provable bits** (Johnson).
+- **alghash2** — the algebraic hash the recursion layer needs, because a STARK that verifies another
+  STARK must hash *inside* a circuit and BLAKE2b is far too expensive there. Wide sponge over Goldilocks
+  (WIDTH 12, RATE 8, CAPACITY 4, α = 7, 54 rounds); 256-bit capacity ⇒ 128-bit collision and 128-bit
+  Grover preimage resistance.
+- **A field-native execution zkVM** — the only contract runtime, with an AIR that proves "running this
+  public program on this input yields this output". ~20 game contracts run on it today.
+- **A shielded pool** — join-split circuits (1-in/1-out and 2-output) plus a Merkle-membership AIR for
+  private transfers. This is the one subsystem where the whole loop — prove → publish to DA → carry only
+  the commitment on chain → verify — **already works in production**.
+- **Recursion, for O(1) verification** — a verifier-authoritative in-circuit STARK/FRI verifier, an
+  in-circuit Fiat–Shamir transcript, a K→1 collapse and fold-of-folds, so an epoch's root verifies in
+  constant time regardless of how much executed. Live on the consensus path since alphanet-14.
+- **Rust proving, no fallback** — `native/starkprove` (2 222 lines), `native/alghash2`,
+  `native/starkcompose`, `native/mldsa44`. The guard **fail-stops** rather than degrading quietly,
+  because a Python path shadowing a Rust one is invisible degradation, not a safety net.
+- **On-device proving** — 650 lines of JS in `static/stark/` let a phone build a shielded-transfer proof
+  in the browser with no install.
+
+> **Honest status.** The proof stack is real and the pieces above are live. **Trustless settlement —
+> settling the exec root on a validity proof instead of a bonded quorum — has never completed end to
+> end.** The consensus rule is switched on unconditionally (there are no ZK feature flags; they were
+> deleted), the prover produces correct proofs, and they now pass their self-checks — but no settle
+> transaction carrying a proof has yet landed on chain and been verified by a peer. Settlement in
+> production is carried by the **bonded-stake quorum**. A settle-with-proof measures **97–118 MiB**
+> against a ~256 KiB block, so it can only ever travel via DA. [`doc/zk-components.md`](doc/zk-components.md)
+> §14 records exactly where it stops.
+
 ## Storage
 
 State lives in a single **schemaless, memory-mapped, ACID key-value store (LMDB)** — `ops/kv_ops.py`,
@@ -851,10 +887,18 @@ shape is unchanged (49 chars).
   recursion bundle re-verifies K chained segment proofs from their public parts alone); an **in-circuit
   Fiat-Shamir transcript**; and **recursion depth** (fold-of-folds) whose root **verifies in ~0.2 s regardless
   of tree size** — the O(1)-verification goal, realized. **Honest status:** the *verify* side is O(1) and the
-  mechanisms are validated at small scale, but *proving* at the full execution-AIR scale is memory/throughput-
-  bound in pure Python (the native Rust prover is the throughput prerequisite), and the pipeline is **capability
-  — not wired as the authoritative settlement verifier** (the bonded quorum still governs). None of this touches
-  L1 block validity.
+  mechanisms are validated at small scale. Proving is now **native** (Rust-only, no fallback); a full
+  settlement prove measures **240–270 s** on production state. The settlement rule **is** wired and
+  unconditional (`SETTLE_PROOF_TRUSTLESS` — the ZK feature flags were deleted), but **no proof-carrying
+  settle has ever completed end to end**, so the bonded quorum still carries settlement in practice. The
+  K→1 fold is built and switched on yet has **never run**: it needs contract calls to fold, and an idle
+  chain has none. None of this touches L1 block validity.
+- **Every ZK component in one place** — [`doc/zk-components.md`](doc/zk-components.md): the arithmetic
+  core, algebraic hashes, STARK proving, the execution zkVM, the shielded pool, state-root binding,
+  recursion, the four Rust crates, DA transport and the consensus constants — each marked **live /
+  capability / research / removed**, with the measured numbers behind them and an explicit §14 on exactly
+  where trustless settlement stops. Start at [`doc/zk-glossary.md`](doc/zk-glossary.md) if the vocabulary
+  is new.
 - **Previous-network snapshot** — [`doc/previous-network-snapshot.md`](doc/previous-network-snapshot.md):
   the prior NADO network's final account balances (2,801 holders), exported from its ledger index — the
   dev-fund premine excluded, in keeping with the no-premine relaunch.

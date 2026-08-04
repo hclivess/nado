@@ -388,6 +388,41 @@ demand of a kind Solana's numbers don't capture. Assets make it better: game-nat
 pets (already a full NFT + marketplace), tournament prize pools denominated in any asset. Every phase
 above should ask "what does this give the games?"
 
+### Track F — Zero-knowledge / proof system
+
+Full map, with measured numbers and per-component status:
+[`doc/zk-components.md`](doc/zk-components.md).
+
+| Item | Status | Note |
+|---|---|---|
+| Goldilocks field, FRI, STARK, AIR IR, LogUp | **BUILT** | `NUM_QUERIES=320`, blowup 2, 18 grind bits → ~146 provable bits (Johnson) |
+| alghash2 (in-circuit hash) | **BUILT** | Wide sponge, WIDTH 12 / RATE 8 / CAPACITY 4, α=7, 54 rounds. Post-quantum: 128-bit collision + Grover preimage |
+| Execution zkVM + its AIR | **BUILT** | The only contract runtime; **25 contracts live on chain** |
+| Shielded pool (join-split, membership) | **BUILT** | The **one** place the full proof→DA→commitment→verify loop already works in production |
+| Recursion (in-circuit STARK/FRI verify, FS, fold-of-folds) | **BUILT** | O(1) verify side; live on the consensus path since alphanet-14 |
+| K→1 fold | **BUILT, never run** | Needs contract calls to fold; an idle chain has none, so the node falls through to the unfolded prove |
+| State-root binding (sparse tree, calls/records commitment) | **BUILT** | Depth-256 sparse Merkle over alghash2 |
+| Rust prover crates | **BUILT** | `starkprove` (2 222 lines), `alghash2`, `starkcompose`, `mldsa44`. **Rust-only, no fallback** — a Python path shadowing a Rust one is invisible degradation |
+| DA transport (k-of-n + commitment + defer) | **BUILT** | Availability ≠ validity: unresolved defers, never rejects |
+| **Trustless settlement, end to end** | **NOT WORKING** | Rule is live and unconditional; **zero proof-carrying settles have ever completed**. Current stop: `PRE MISMATCH` — the stashed pre-state does not reproduce L1's justified root |
+| Signature aggregation | **REMOVED** | Built, measured, deleted 2026-07-31 — post-mortem kept deliberately |
+| Program obfuscation (Diamond iO) | **RESEARCH** | Nothing implemented, scheduled, or promised |
+
+**Open work, in the order the measurements justify:**
+
+1. **Land one proof-carrying settle and have a peer verify it.** Everything else here is capability until
+   that happens once. A blob that only exists on the producing box proves nothing to anyone.
+2. **Prove cadence vs. prove time.** A prove takes ~250 s while the settle cadence is 30 blocks (~180 s),
+   so a new conforming span arrives before the previous prove finishes and hits the in-flight guard. With
+   the epoch re-anchor in place a span may safely run up to 59 blocks — roughly one proof per epoch.
+3. **Rust port of `ops/da.py`** — now 0.428 s/MiB in Python after the algorithmic fix; Rust would take a
+   118 MiB proof from ~50 s to ~1–2 s.
+4. **Proving cost.** `sparse_projection` is the largest stage (137–158 s of a 240–270 s prove), and inside
+   it `SparseStore.root()` is 65.8 s. But it is **kernel-bound, not seam-bound** — native `permute12` is
+   26.9 µs of the 35.4 µs `rnode` call — so porting the tree walk buys only ~24%. A Toeplitz-Karatsuba
+   MDS could cut the permutation ~1.8× without changing the hash, but that is consensus-critical and
+   **time is not the binding constraint**. Do this last.
+
 ---
 
 ## 10. What we measure
@@ -509,3 +544,30 @@ submits an L1 blob carrying only the commitment").
 The open question is therefore not *whether* to use DA but **when the proof is fetched**: a settle proof is
 re-verified by every node on block APPLY (and on fresh sync), so a naive DA reference makes block
 validation block on a ~100 MiB retrieval. That is the design problem to solve next — not proof size.
+
+#### Update 2026-08-04 — DA transport is built; the blocker moved
+
+That "design problem to solve next" is **solved and shipped**. Availability is not validity, so a proof we
+cannot fetch **defers** the block rather than rejecting it — three outcomes, not two (verified → accept,
+resolved-and-bad → reject, unresolved → defer). Rejecting on unavailability would split the chain along
+*who happens to hold shards*, since the justified `(exec_cursor, exec_root)` sits in the L1 header;
+deferral is fork-free because every node applies the same rule, and the wait is bounded by
+`SETTLE_PROOF_DEPTH_GATED` (past `FINALITY_DEPTH` the proof is not consulted at all, so a withholder can
+only make us wait). Tests: `tests/test_settle_proof_da_defer.py`.
+
+Four further blockers were found and fixed by running it, not reading it:
+
+| | |
+|---|---|
+| **Cadence** | The settle cadence left the justified tip at an arbitrary offset, so spans straddled the 60-block dividend epoch boundary — **95 of 128 observed skips**, making a proof structurally impossible. The stale comment claimed straddling spans re-anchored the tip; they never did. Fixed by re-anchoring on epoch entry (`fde96f46`) |
+| **Silence** | A prove completed and *nothing* followed it — no publish, no error, no settle. There was no log line at all between the prove and the publish, so "finished and vanished" was indistinguishable from "still running" (`966f5c31`) |
+| **Root/records skew** | `state_root = rnode(kv, records)`, but the root was captured at cursor C while the records half was recomputed later from a live state the detached tail had advanced — two roots that were never simultaneously true (`6a903a09`) |
+| **DA encode** | `ops.da.encode` ran at ~15 s/MiB, so erasure-coding one 118 MiB proof took **~30 minutes**. Algorithmic, not the language: a full modular exponentiation in the innermost loop, ~141 million per proof, recomputing Lagrange coefficients that are *constants*. Hoisted to a cached generator matrix: **15.08 → 0.428 s/MiB (35×)**, bit-identical (`08945e50`) |
+
+**Current status: still not landed.** As of 2026-08-04 a proof passes its self-checks for the first time,
+but the pre-state side does not reproduce L1's justified root (`PRE MISMATCH`, post side exact). Zero
+proof-carrying settles have ever completed. See [`doc/zk-components.md`](doc/zk-components.md) §14.
+
+Note also that the **query lever is not needed to be the answer** — the K→1 fold would make the payload
+smaller, but it has never run: it needs contract calls to fold and the chain has been idle, so the exec
+node deliberately falls through to the unfolded prove.
