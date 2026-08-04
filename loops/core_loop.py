@@ -75,6 +75,11 @@ _DIVERGENCE_LOG_EVERY = 20
 # its snapshot/finality floor) re-imports a seed's snapshot to recover; bound the retry so a persistently
 # failing import can't hammer the seed every pass.
 REANCHOR_COOLDOWN = 30
+# Consecutive DEAD_FORK verdicts before the floor-crossing re-anchor is allowed. _fork_state() is cached
+# for FORK_STATE_TTL_S and costs direct peer probes, so this is several independent measurements, not a
+# tight spin: a transient misreading cannot reach the escalation, while a genuine wedge (which persists for
+# as long as nobody intervenes) reaches it in well under a minute instead of never.
+DEAD_FORK_ESCALATE_AFTER = 3
 
 
 
@@ -1370,7 +1375,48 @@ class CoreClient(threading.Thread):
         if state in (fork_resolution.BEHIND, fork_resolution.UNKNOWN, fork_resolution.SYNCED):
             return False
         if state == fork_resolution.DEAD_FORK:
+            # ESCALATE TO A FLOOR-CROSSING RE-ANCHOR BEFORE THE DESTRUCTIVE ESCAPE.
+            #
+            # snapshot_bootstrap already implements allow_below_floor for precisely this geometry, and its
+            # docstring reserves it for "operator recovery ... consecutive failed attempts" — but NOTHING
+            # ever passed True, so the escalation was dead code and the only route out of DEAD_FORK was the
+            # purge escape. That escape deliberately requires that NOBODY agrees with us, to stop both
+            # halves of a symmetric split from wiping each other (observed: the fleet went from one chain to
+            # two sharing only genesis). Correct, and it leaves this case wedged forever:
+            #
+            #   observed live 2026-08-04 — a 2-2 split at h20352. Branch A (this node + 185.100.232.131)
+            #   stalled at 20371 with weight 6,791,252; branch B (.141 + .210) advancing at 20447 with
+            #   weight 6,817,624. Rollbacks exhausted 40/40; rollback refused because the fork ancestor
+            #   (20352) sits below our own sticky finality floor (20371, persisted and monotonic, so a
+            #   restart does not lower it); and the purge escape was vetoed because .131 AGREED with us —
+            #   both nodes on the same dead branch, each vetoing the other's recovery indefinitely.
+            #
+            # WEIGHT ALREADY BREAKS THE SYMMETRY, which is what makes this safe without the "nobody agrees"
+            # precondition: snapshot_bootstrap(force_reanchor=True) selects by STRICTLY-heaviest cumulative
+            # weight, so only the lighter side can ever find a donor and act. A mutual wipe is impossible by
+            # construction, and unlike the purge escape this is NON-DESTRUCTIVE: the heavier chain's
+            # snapshot is imported over our forked state, our fork's blocks are simply orphaned in the
+            # store, and every tail block after the import is fully re-verified.
+            #
+            # Gated on CONSECUTIVE dead-fork verdicts (what the docstring asks for) so a transient
+            # misreading can never trigger it, and on the same cooldown as an ordinary re-anchor.
+            self._dead_fork_streak = getattr(self, "_dead_fork_streak", 0) + 1
+            if self._dead_fork_streak >= DEAD_FORK_ESCALATE_AFTER:
+                _now = get_timestamp_seconds()
+                if _now - self._last_reanchor_ts >= REANCHOR_COOLDOWN:
+                    self._last_reanchor_ts = _now
+                    self.logger.warning(
+                        f"DEAD FORK persisted {self._dead_fork_streak} consecutive checks — the finality "
+                        f"floor itself is on a minority fork; re-anchoring onto the strictly-heaviest "
+                        f"chain BELOW the floor (non-destructive: our fork's blocks are orphaned, every "
+                        f"imported tail block is re-verified)")
+                    if self.snapshot_bootstrap(force_reanchor=True, allow_below_floor=True):
+                        self.memserver.rollbacks = 0
+                        self._fork_state_cache = None     # identity changed; the cached verdict is stale
+                        self._dead_fork_streak = 0
+                        return True
             return self._maybe_escape_dead_fork()
+        self._dead_fork_streak = 0                        # not dead-forked: the streak must not persist
         now = get_timestamp_seconds()
         if now - self._last_reanchor_ts < REANCHOR_COOLDOWN:
             return False                                  # a failing import must not hammer peers
