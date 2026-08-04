@@ -105,22 +105,24 @@ if os.environ.get("NADO_EXEC_SETTLE_PROVE", "").strip().lower() in ("1", "true",
     except Exception:
         _SETTLE_EVERY_DEFAULT = 30
 SETTLE_EVERY = int(os.environ.get("NADO_EXEC_SETTLE_EVERY", str(_SETTLE_EVERY_DEFAULT)))
-# NADO_EXEC_SETTLE_PROVE=1: OPT-IN — attach a settle-with-proof (STARK validity proof) to the settlement
-# instead of a bare bonded attestation, so the root can settle TRUSTLESSLY once the chain enables it
-# (protocol.SETTLE_PROOF_TRUSTLESS, a reroll). OFF by default because proving is expensive (deep sparse
-# tree at protocol params; the native prover is the throughput prerequisite). It is SELF-CHECKING and
-# best-effort: a proof is attached ONLY when it verifiably reproduces this node's real root and extends
-# L1's justified settled tip, so a wrong proof is never posted; anything non-conforming falls back to the
-# bare quorum attestation, which is unchanged. See doc/zk-settlement-completion.md.
-SETTLE_PROVE = os.environ.get("NADO_EXEC_SETTLE_PROVE", "").strip().lower() in ("1", "true", "yes", "on")
-# NADO_EXEC_SETTLE_FOLD=1: OPT-IN (requires SETTLE_PROVE) — emit the RECURSIVE (K→1) settle-with-proof:
-# the span's K exec proofs are folded into ONE recursion bundle so L1 verifies a single bundle instead of K
-# per-segment stark.verify calls (execnode.stark.settlement_sparse recursive path). The settled root is
-# byte-identical to the non-folded proof — folding is a verification-strategy change — so it composes with the
-# SAME self-checks. OFF by default: building the fold over the W=106 exec AIR at protocol strength is the
-# heaviest proving step and wants the native prover + generous RAM. A folded proof is additionally self-VERIFIED
-# (verify_settlement_sparse at protocol strength) before posting, so an unverifiable bundle is never broadcast.
-SETTLE_FOLD = os.environ.get("NADO_EXEC_SETTLE_FOLD", "").strip().lower() in ("1", "true", "yes", "on")
+# VALIDITY PROVING IS UNCONDITIONAL. No flag, no opt-in, no way to run a node that quietly settles on a
+# bonded attestation because someone forgot an env var. A settle carries a STARK validity proof; the bare
+# attestation exists ONLY as the degradation path when a proof cannot be produced or is refused, and every
+# such degradation names its reason in the log.
+#
+# This was opt-in while proving was accidentally running in PYTHON — 12+ minutes for one prove, ~75% of a
+# core, RSS to 1.8 GB, which starved L1 into "Forked above the finality floor — re-anchoring" (2026-08-04).
+# That was never a reason to make proving optional; it was a reason to fix the dispatch. stark.prove only
+# reaches the Rust arena for the "recursion"/"alghash2" backends, and the settle path was defaulting to
+# BLAKE2B, which the arena does not implement. With settlement_sparse defaulting to ALGHASH2 (7afb5728) the
+# same proof takes 110s at protocol strength and verifies in 2s.
+SETTLE_PROVE = True
+# THE K->1 FOLD IS UNCONDITIONAL TOO. It collapses the span's K exec proofs into ONE recursion bundle, so L1
+# verifies a single bundle instead of K per-segment stark.verify calls. It is gated at the call site on
+# there being calls to fold (an empty span takes the unfolded path) and is self-VERIFIED at protocol
+# strength before posting, so an unverifiable bundle is never broadcast. It could not complete in Python;
+# on the arena it is the only route to a proof small enough to settle on chain.
+SETTLE_FOLD = True
 # NADO_EXEC_SETTLE_PROVE_TIMEOUT: seconds a single settle-prove may run before we give up on it and post a
 # BARE attestation instead. Default 1200s (20 min) — comfortably above a measured unfolded prove (~1-3 min
 # at protocol strength on live data) and far below the 5h07m a non-completing fold burned. Without a bound
