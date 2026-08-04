@@ -63,10 +63,12 @@ settlement in production today. Alongside it, the consensus rule for **trustless
 the root on a STARK validity proof with *no* quorum — is implemented and switched on unconditionally
 (`SETTLE_PROOF_TRUSTLESS`, no feature flags; they were deleted in `74957663`).
 
-> **Honest status: trustless settlement has never completed end-to-end.** Not once, on any generation.
-> The prover produces correct proofs and they pass their self-checks, but no settle transaction carrying
-> a proof has yet landed on chain and been verified by a peer. [zk-components.md §14](zk-components.md)
-> documents exactly where it stops and the five fixes that got it that far.
+> **Honest status: trustless settlement has never completed end-to-end.** The prover produces correct
+> proofs and they pass their self-checks, but no settle transaction carrying a proof has yet landed on
+> chain and been verified by a peer. Measured over 33 064 journal lines (2026-08-01 → 08-06): **89 proofs
+> built and submitted, 0 accepted, 85 refused** with `HTTP 413, Maximum request body size 8388608
+> exceeded` at 97.30–97.45 MiB. [zk-components.md](zk-components.md) §0 has the counts and §14 the five
+> fixes that got it that far.
 
 The weight difference is the reason the quorum remains the working path:
 

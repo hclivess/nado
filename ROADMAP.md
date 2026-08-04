@@ -564,9 +564,14 @@ Four further blockers were found and fixed by running it, not reading it:
 | **Root/records skew** | `state_root = rnode(kv, records)`, but the root was captured at cursor C while the records half was recomputed later from a live state the detached tail had advanced — two roots that were never simultaneously true (`6a903a09`) |
 | **DA encode** | `ops.da.encode` ran at ~15 s/MiB, so erasure-coding one 118 MiB proof took **~30 minutes**. Algorithmic, not the language: a full modular exponentiation in the innermost loop, ~141 million per proof, recomputing Lagrange coefficients that are *constants*. Hoisted to a cached generator matrix: **15.08 → 0.428 s/MiB (35×)**, bit-identical (`08945e50`) |
 
-**Current status: still not landed.** As of 2026-08-04 a proof passes its self-checks for the first time,
-but the pre-state side does not reproduce L1's justified root (`PRE MISMATCH`, post side exact). Zero
-proof-carrying settles have ever completed. See [`doc/zk-components.md`](doc/zk-components.md) §14.
+**Current status: still not landed.** Measured over 33 064 journal lines (2026-08-01 → 08-06): **89
+proofs built and submitted, 0 accepted, 85 refused** with `HTTP 413, Maximum request body size 8388608
+exceeded` at 97.30–97.45 MiB. Zero proof-carrying settles have ever completed.
+
+Note what that says: **the self-check was never the historical blocker — size was.** 89 proofs passed
+their self-checks and bounced off the 8 MiB cap. The `PRE MISMATCH` self-check failures seen on 08-04
+(pre-state does not reproduce L1's justified root; post side exact) are a *later* condition, not the
+long-standing one. See [`doc/zk-components.md`](doc/zk-components.md) §0 and §14.
 
 Note also that the **query lever is not needed to be the answer** — the K→1 fold would make the payload
 smaller, but it has never run: it needs contract calls to fold and the chain has been idle, so the exec

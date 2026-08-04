@@ -30,10 +30,28 @@ it in production today:
 And one thing does **not** work yet, despite being fully implemented and switched on:
 
 > **Trustless settlement — settling the exec root on a validity proof instead of a bonded quorum — has
-> never completed end-to-end.** Not once, on any generation. The consensus rule is live and unconditional
-> (`SETTLE_PROOF_TRUSTLESS = True`), the prover produces correct proofs, and as of 2026-08-04 a proof
-> passes its self-checks. What has never happened is a settle transaction carrying a proof landing on
-> chain and a peer verifying it. §7 documents exactly where it stops.
+> never completed end-to-end.** The consensus rule is live and unconditional
+> (`SETTLE_PROOF_TRUSTLESS = True`) and the prover produces correct proofs that pass their self-checks.
+> What has never happened is a settle transaction carrying a proof landing on chain and a peer verifying
+> it. §14 documents exactly where it stops.
+
+Measured directly from the exec node's journal (33 064 lines, 2026-08-01 → 08-06):
+
+| | count |
+|---|---|
+| proofs built, self-checks passed, tx constructed | **89** |
+| **accepted on chain** (`SETTLE-WITH-PROOF … → L1`) | **0** |
+| published to DA | 0 |
+| refused by L1 | **85** — `HTTP 413, Maximum request body size 8388608 exceeded` |
+
+Zero proof builds appear before 2026-08-01. Note what this says and does not say: **the self-check was
+never the historical blocker — size was.** 89 proofs passed their self-checks and were submitted, and
+every one bounced off the 8 MiB cap at 97.30–97.45 MiB. The `PRE MISMATCH` self-check failures in §14
+are a *later* condition, not the long-standing one.
+
+> Evidence discipline, since this bit twice: "no such line in the log" is not "it never happened" when
+> the log line was only added recently. The `BUILT` line (§14) is newer than the behaviour it reports, so
+> its first appearance on 2026-08-04 was the first appearance of the *line*, not of a passing self-check.
 
 Everything else in this document is either live, or explicitly labelled capability/research/removed.
 

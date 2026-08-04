@@ -819,8 +819,9 @@ setup** anywhere. Full component map with measured numbers and per-piece status:
 > **Honest status.** The proof stack is real and the pieces above are live. **Trustless settlement —
 > settling the exec root on a validity proof instead of a bonded quorum — has never completed end to
 > end.** The consensus rule is switched on unconditionally (there are no ZK feature flags; they were
-> deleted), the prover produces correct proofs, and they now pass their self-checks — but no settle
-> transaction carrying a proof has yet landed on chain and been verified by a peer. Settlement in
+> deleted) and the prover produces correct proofs that pass their self-checks — but no settle
+> transaction carrying a proof has yet landed on chain and been verified by a peer. Measured over 33 064
+> journal lines: **89 proofs built and submitted, 0 accepted, 85 refused** for size. Settlement in
 > production is carried by the **bonded-stake quorum**. A settle-with-proof measures **97–118 MiB**
 > against a ~256 KiB block, so it can only ever travel via DA. [`doc/zk-components.md`](doc/zk-components.md)
 > §14 records exactly where it stops.
