@@ -106,6 +106,34 @@ check("...and says so rather than skipping silently", "settle HELD ns=" in src)
 check("the hold is released by the same guard that tracks the prove thread",
       "_clear_settle_proving" in src and "_settle_proving = False" in src)
 
+# ---- THE CEILING MUST EXCEED WHAT IT HOLDS FOR --------------------------------------------------------
+# A self-expiring hold that expires DURING the pipeline hands the race straight back to the bare settles it
+# exists to suppress. SETTLE_HOLD_MAX_S was SETTLE_SUBMIT_TIMEOUT_PROOF + 120 = 420 s, against a publish
+# measured at 112-139 s followed by a submit budget of SETTLE_SUBMIT_TIMEOUT_PROOF (300 s) — up to ~439 s of
+# pipeline under a 420 s ceiling. Observed live 2026-08-04, the block builder DROPPING the tx outright:
+#     Candidate excludes pool tx 23e34dd950ea90cb: Settle proof pre_root must extend the settled tip
+import re as _re
+_sub = int(_re.search(r"^SETTLE_SUBMIT_TIMEOUT_PROOF = (\d+)", src, _re.M).group(1))
+_hold = eval(_re.search(r"^SETTLE_HOLD_MAX_S = (.+)$", src, _re.M).group(1),
+             {"SETTLE_SUBMIT_TIMEOUT_PROOF": _sub})
+PUBLISH_MEASURED = 139          # worst DA publish observed for a 118.57 MiB proof
+check("the hold outlasts publish + the whole submit budget", _hold > PUBLISH_MEASURED + _sub)
+check("...with real margin, not by a few seconds", _hold - (PUBLISH_MEASURED + _sub) >= 60)
+
+# ---- ONE PIPELINE AT A TIME ---------------------------------------------------------------------------
+# _settle_proving is cleared by the prove THREAD's done-callback, i.e. at "BUILT", while the publish and
+# submit still lie ahead — so a SECOND prove started inside that window every cadence. Measured live, two
+# BUILTs ~2 min apart on every cycle (21:47:40 / 21:49:57, then PUBLISHED 21:51:49, SETTLE 21:52:43). Both
+# extend the SAME pre-state, so at most one could ever land: the second is a wasted 118 MiB proof and a
+# wasted core, on the node that must also keep up with block production.
+check("a second prove is refused while the previous proof is still publishing/submitting",
+      "if _pub_active:" in src and "not starting a second prove that" in src)
+check("...and that check reads the same publish hold the settle path uses",
+      src.count("_settle_publishing\n                   and (time.time() - _settle_publishing) < SETTLE_HOLD_MAX_S") >= 1
+      or src.count("(time.time() - _settle_publishing) < SETTLE_HOLD_MAX_S") >= 2)
+check("the in-flight skip no longer claims it settles bare (the hold skips instead)",
+      "settling bare until it finishes" not in src)
+
 print()
 print("ALL PASS — a node no longer races its own proof by moving the tip out from under it"
       if not fails else f"{fails} FAILURES")

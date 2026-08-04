@@ -168,10 +168,22 @@ SETTLE_SUBMIT_TIMEOUT_PROOF = 300
 # (~6 min) covers the verification plus propagation and stays far under TX_LANDING_WINDOW (360), so a tx
 # admitted against a slightly-behind peer still fits.
 SETTLE_PROOF_TX_MARGIN = 60
-# Hard ceiling on the publish+submit hold. Comfortably covers a measured pipeline (publish ~139 s + L1's
-# inline verification ~94 s) with margin, and guarantees that a hold which is never cleared — a task that
-# dies between set and clear — expires by itself instead of stopping settlement permanently.
-SETTLE_HOLD_MAX_S = SETTLE_SUBMIT_TIMEOUT_PROOF + 120
+# Hard ceiling on the publish+submit hold, and it must EXCEED what it is holding for, or it expires mid
+# pipeline and hands the race back to the bare settles it exists to suppress.
+#
+# THE OLD VALUE DID NOT. SETTLE_SUBMIT_TIMEOUT_PROOF + 120 = 420 s against a publish measured at ~112-139 s
+# followed by a submit budget of SETTLE_SUBMIT_TIMEOUT_PROOF (300 s) — i.e. up to ~439 s of pipeline under a
+# 420 s ceiling. The hold lapsed, a bare settle advanced the justified tip, and the finished proof was then
+# refused for aiming at a tip we had moved ourselves. Observed repeatedly 2026-08-04:
+#     [ INFO ] Candidate excludes pool tx 23e34dd950ea90cb: Settle proof pre_root must extend the settled tip
+#     settle ns=default not accepted: 'Settle proof pre_root must extend the settled tip'
+# The block builder DROPS the tx from every candidate, so it never reaches a block at all — this is not a
+# validation-cost race, it is self-inflicted.
+#
+# Derived from the two bounds it actually spans, rather than a round number: the submit budget plus a
+# publish allowance with real margin. The prove phase is NOT covered here and does not need to be — it is
+# held by _settle_proving and separately bounded by SETTLE_PROVE_TIMEOUT.
+SETTLE_HOLD_MAX_S = SETTLE_SUBMIT_TIMEOUT_PROOF + 300
 # True while a settle-prove worker thread is outstanding. asyncio cannot kill that thread, so this is what
 # stops a timed-out prove from stacking a new one every cadence until the box dies.
 _settle_proving = False
@@ -499,7 +511,20 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # is ever outstanding; while it runs, settles continue as bare attestations.
     global _settle_proving
     if _settle_proving:
-        return _skip("a previous settle-prove is still running; settling bare until it finishes")
+        return _skip("a previous settle-prove is still running; the settle is HELD until it finishes")
+    # AND NOT WHILE THE PREVIOUS PROOF IS STILL PUBLISHING OR SUBMITTING. _settle_proving is cleared by the
+    # prove THREAD's done-callback, i.e. at "BUILT", while ~112-139 s of DA publish and up to
+    # SETTLE_SUBMIT_TIMEOUT_PROOF of submit still lie ahead — so a second prove started inside that window
+    # every single cadence. Measured live 2026-08-04, two BUILTs about two minutes apart on every cycle:
+    #     21:47:40 BUILT   21:49:57 BUILT   21:51:49 PUBLISHED   21:52:43 SETTLE
+    # Both extend the SAME pre-state, so at most one of them could ever land — the second is a wasted
+    # 118 MiB proof and a wasted core, on the node that also has to keep up with block production. This box
+    # sat at 100% CPU and drifted 1-2 blocks off the tip because of it.
+    _pub_active = (_settle_publishing
+                   and (time.time() - _settle_publishing) < SETTLE_HOLD_MAX_S)
+    if _pub_active:
+        return _skip("the previous proof is still publishing/submitting; not starting a second prove that "
+                     "extends the same pre-state and could never land")
     _settle_proving = True
     # The flag must track the THREAD's lifetime, not this coroutine's. Clearing it in a `finally` would
     # release the guard the moment wait_for gives up — while the thread is still burning a core — and the
