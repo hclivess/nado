@@ -1373,6 +1373,13 @@ class CoreClient(threading.Thread):
         Returns True iff the chain identity changed (caller resumes on the new chain)."""
         state = self._fork_state()
         if state in (fork_resolution.BEHIND, fork_resolution.UNKNOWN, fork_resolution.SYNCED):
+            # UNKNOWN MUST NOT CLEAR THE DEAD-FORK STREAK. _fork_state() returns UNKNOWN on any measurement
+            # FAILURE — "we could not determine it", not "we are healthy". A wedged node flaps between
+            # DEAD_FORK and UNKNOWN as probes succeed or fail, so clearing on UNKNOWN would mean the streak
+            # never reaches the escalation threshold and the remedy never fires. Only a positive healthy
+            # verdict clears it.
+            if state != fork_resolution.UNKNOWN:
+                self._dead_fork_streak = 0
             return False
         if state == fork_resolution.DEAD_FORK:
             # ESCALATE TO A FLOOR-CROSSING RE-ANCHOR BEFORE THE DESTRUCTIVE ESCAPE.
@@ -1635,7 +1642,23 @@ class CoreClient(threading.Thread):
             # the hard 51%/rollback cap (#17).
             self.logger.error(f"Rollback refused (finality): {e}")
             self.memserver.rollbacks = 0
-            self._reject_heaviest_tip()
+            # DO NOT BENCH THE TIP HERE. _reject_heaviest_tip() is the Sybil-stall / weight-DoS guard: it
+            # exists for a peer that ADVERTISES a heavier chain it cannot actually serve. A FinalityViolation
+            # is the opposite situation — the chain is real and genuinely heavier, and the failure is OURS
+            # (we may not legally roll back across our own finalized prefix). Benching it conflates the two
+            # and is actively harmful: rejected_tips feeds fork-choice, so the heavier chain goes INVISIBLE,
+            # _fork_state() degrades from DEAD_FORK to UNKNOWN ("ancestor=None"), and every recovery route
+            # keyed on knowing a heavier chain exists — including the floor-crossing re-anchor above — is
+            # disarmed. The node then blinds itself to the exact chain it needs.
+            #
+            # Observed live 2026-08-04: after the 2-2 split at h20352 the finality refusal repeated until
+            # "Excluding unreachable heavier-advertised tip e43691b2b7a1 (weight-DoS guard, failure #4)",
+            # after which fork state read `unknown (ancestor=None, probes=159)` and the node sat wedged with
+            # every remedy silently unreachable. This is the "a wrong bench makes the true chain invisible"
+            # failure the snapshot_bootstrap docstring warns about, reached from the other direction.
+            #
+            # Leaving it visible costs a re-entry into emergency_mode per pass, which is already rate-limited
+            # and is exactly what lets the DEAD_FORK verdict form and the escalation fire.
             return True
 
         # REINSERT the reverted block's txs into the mempool. Blind reinsertion is safe:

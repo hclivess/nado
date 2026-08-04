@@ -70,6 +70,8 @@ def run(verdicts, heavier_peer_exists, cooldown_ok=True):
                 if heavier_peer_exists:          # snapshot_bootstrap selects by strictly-heaviest weight
                     escalated = True
                     streak = 0
+        elif v == "UNKNOWN":
+            pass                                 # measurement FAILED: no information, streak survives
         else:
             streak = 0
         if escalated:
@@ -99,6 +101,16 @@ check("an interrupted streak resets and does not escalate",
       not run([D, D, "SYNCED", D, D], heavier_peer_exists=True)[0])
 check("...and REORG/BEHIND also reset it",
       not run([D, D, "REORG", D, D], heavier_peer_exists=True)[0])
+
+# ---- UNKNOWN IS A FAILED MEASUREMENT, NOT HEALTH -----------------------------------------------------
+# This is what actually blocked the fix in production: the wedged node's probes started failing, fork state
+# read `unknown (ancestor=None, probes=159)`, and a streak that cleared on UNKNOWN could never reach the
+# threshold. A wedged node flaps between DEAD_FORK and UNKNOWN; only a POSITIVE healthy verdict may clear.
+check("UNKNOWN does not clear the streak (it means 'could not determine', not 'healthy')",
+      run([D, D, "UNKNOWN", D], heavier_peer_exists=True)[0])
+check("...so a node flapping DEAD_FORK/UNKNOWN still escalates",
+      run([D, "UNKNOWN", D, "UNKNOWN", D], heavier_peer_exists=True)[0])
+check("but UNKNOWN alone never escalates", not run(["UNKNOWN"] * 10, heavier_peer_exists=True)[0])
 
 # ---- the cooldown still gates it ---------------------------------------------------------------------
 check("the re-anchor cooldown suppresses escalation",
