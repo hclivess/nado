@@ -705,25 +705,97 @@ def create_txid(transaction):
     return blake2b_hash(body)
 
 
+# Port every DA node serves on. A module constant so tests can point the trustless fetch at a stand-in
+# server instead of the real exec node (which owns 9273 on a live box).
+DA_PORT = 9273
+
 def _fetch_da_proof(commitment, timeout=8):
     """Reconstruct a DA-published settle proof by commitment, or None if this node cannot get it yet.
 
-    Asks the LOCAL exec node, which owns the DA store and can pull missing shards from peers (da_fetch
-    collects k+1 VERIFIED shards across the network and checks the commitment round-trip). Returning None
-    means "not yet", never "invalid" — the caller defers the block rather than judging it.
+    Asks the LOCAL exec node first (it owns the DA store and can pull missing shards from peers itself),
+    then falls back to REMOTE DA nodes over the trustless shard path. The fallback is the point: most of
+    this fleet runs L1 only, with no :9273 listener anywhere except the publisher, so a DA-carried settle
+    was unresolvable by every peer — and a block carrying one therefore lost every reorg.
 
-    Deliberately NOT cached and deliberately bounded: a slow or missing exec node must degrade to a defer,
-    not hang block validation. The bound is why this cannot become a liveness weapon — the worst a
-    withholder achieves is that we wait, and the depth gate ends the wait.
+    Returning None means "not yet", NEVER "invalid" — the caller defers the block rather than judging it.
+    That distinction is the whole design: unavailability must cost liveness, never safety, or nodes fork
+    along the axis of who happened to hold the data.
+
+    Deliberately NOT cached and deliberately bounded by one overall deadline: a slow, missing or hostile
+    source must degrade to a defer, not hang block validation. The bound is why this cannot become a
+    liveness weapon — the worst a withholder achieves is that we wait, and the depth gate ends the wait.
     """
+    import time as _t
     import urllib.request as _rq
     from urllib.parse import quote as _q
-    url = f"http://127.0.0.1:9273/da/get?c={_q(str(commitment), safe='')}"
+    _c = _q(str(commitment), safe="")
+    _deadline = _t.time() + timeout
+    # 1) THE LOCAL EXEC NODE, which owns the DA store and can itself pull missing shards from peers. Cheap
+    #    when it has the blob; on a node that runs no exec layer this fails immediately (connection refused)
+    #    and costs nothing.
     try:
-        with _rq.urlopen(url, timeout=timeout) as r:
-            return r.read() if r.status == 200 else None
+        with _rq.urlopen(f"http://127.0.0.1:{DA_PORT}/da/get?c={_c}", timeout=timeout) as r:
+            if r.status == 200:
+                return r.read()
+    except Exception:
+        pass
+    # 2) REMOTE DA NODES, TRUSTLESSLY. Most of this fleet runs L1 ONLY — no :9273 listener anywhere but the
+    #    publisher — so step 1 can never succeed there and a DA-carried settle was unresolvable by every
+    #    peer, which is why such a block loses every reorg (observed live: block 23471 was built locally
+    #    with a proof settle and reorged out; canonical 23471 carries zero settle txs on all four nodes).
+    #
+    #    NOT via /da/get: those bytes arrive unauthenticated, and bytes that merely fail to PARSE hit the
+    #    reject branch ("retrievable but not a proof: that IS a judgement we can make"), so a hostile DA
+    #    server could make us reject an HONEST block. The shard path is bound: every shard is checked
+    #    against the on-chain commitment, and since the manifest is bound into each leaf that same check
+    #    authenticates k/n/stripes/length, which STEER the decode.
+    #
+    #    ANY failure here means UNRESOLVED, never invalid — the caller defers the block.
+    try:
+        from ops import peer_ops as _po
+        from ops.da_store import reconstruct_from as _rf
+        _srcs, _seen = [], set()
+        for _ip in list(_po.seed_peers()) + list(_po.known_peer_ips()):
+            if _ip and _ip not in _seen:
+                _seen.add(_ip); _srcs.append(_ip)
     except Exception:
         return None
+    for _ip in _srcs:
+        if _t.time() >= _deadline:
+            break
+        _left = max(0.5, _deadline - _t.time())
+        try:
+            with _rq.urlopen(f"http://{_ip}:{DA_PORT}/da/meta?c={_c}", timeout=min(3.0, _left)) as r:
+                if r.status != 200:
+                    continue
+                _meta = json.loads(r.read().decode())
+            _k, _n = int(_meta["k"]), int(_meta["n"])
+            # Bound k/n before iterating so a lied manifest cannot drive an unbounded fetch loop; the
+            # binding check below is what actually decides whether the manifest is honest.
+            if not (1 <= _k <= _n <= 64):
+                continue
+            _meta = dict(_meta, commitment=str(commitment))
+            _pairs = []
+            for _i in range(_n):                     # 0..k-1 first: the SYSTEMATIC shards, whose
+                if len(_pairs) >= _k:                # reconstruction is pure byte movement
+                    break
+                if _t.time() >= _deadline:
+                    break
+                _left = max(0.5, _deadline - _t.time())
+                try:
+                    with _rq.urlopen(f"http://{_ip}:{DA_PORT}/da/shard?c={_c}&i={_i}", timeout=_left) as r:
+                        if r.status != 200:
+                            continue
+                        _j = json.loads(r.read().decode())
+                    _pairs.append((_i, bytes.fromhex(_j["shard"]), _j["proof"]))
+                except Exception:
+                    continue
+            if len(_pairs) < _k:
+                continue
+            return _rf(_meta, _pairs)                # verifies every shard AND the manifest, then decodes
+        except Exception:
+            continue
+    return None
 
 
 # Cryptographic verdicts for settle proofs, keyed by the proof's own identity. See the settle branch: a
