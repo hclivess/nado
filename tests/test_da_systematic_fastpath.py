@@ -80,6 +80,32 @@ except ValueError:
     raised = True
 check("a CORRUPT extra shard is still detected on the fast path (not silently ignored)", raised)
 
+# ---- THE BYTE PATH MUST REFUSE WHAT THE SYMBOL PATH REFUSED ------------------------------------------
+# _systematic_bytes never forms a field element, so it has to make _unpack's validity check itself: a word
+# >= 2**56 is not a data symbol, and silently dropping its high byte would return plausible-looking wrong
+# bytes with no error. The high byte of every 8-byte word must therefore be zero.
+hi = {i: bytearray(shards[i]) for i in range(K)}
+hi[0][0] = 0x01                                    # set the high byte of shard 0's first word
+raised_hi = False
+try:
+    da.reconstruct(meta, {i: bytes(hi[i]) for i in range(K)})
+except ValueError:
+    raised_hi = True
+check("a word out of the 7-byte data range still raises on the byte path", raised_hi)
+
+short = {i: shards[i] for i in range(K)}
+short[0] = shards[0][:-8]                          # one word missing
+raised_short = False
+try:
+    da.reconstruct(meta, short)
+except ValueError:
+    raised_short = True
+check("a shard shorter than the manifest's stripe count raises", raised_short)
+
+# and the byte path is genuinely what ran (identical bytes to the interpolating path, checked above)
+check("the byte path and the interpolating path agree exactly",
+      da.reconstruct(meta, {i: shards[i] for i in range(K)}) == da.reconstruct(meta, dict(par_set)))
+
 # ---- fewer than k is still an error -------------------------------------------------------------------
 short = False
 try:
@@ -110,6 +136,10 @@ check("the systematic path is materially cheaper than interpolation", t_fast < t
 # ---- the shipped code must actually contain it --------------------------------------------------------
 src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ops", "da.py")).read()
 check("reconstruct prefers systematic shards deterministically", "idx_list = sorted(sym_by_idx)" in src)
+check("the systematic set with no extras takes the pure BYTE path (no field elements formed)",
+      "if systematic and not extra:" in src and "_systematic_bytes" in src)
+check("...built from extended slices, not per-symbol conversions",
+      "del ba[0::_WORD]" in src and "out[base + t::step]" in src)
 check("reconstruct takes an identity shortcut when they were chosen",
       "systematic = (use == list(range(k)))" in src and "data = ys if systematic else" in src)
 check("the Lagrange decode matrix is not even built on the fast path", "if not systematic:" in src)

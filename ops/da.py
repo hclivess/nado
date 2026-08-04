@@ -168,6 +168,42 @@ def encode(data: bytes, k: int, n: int):
             "length": length, "shards": shards}
 
 
+def _systematic_bytes(shards, k, stripes, length):
+    """Rebuild the blob straight from the k SYSTEMATIC shards, at C speed, without ever materialising a
+    field element.
+
+    The encoding is systematic and fixed-width: shard j < k holds data symbol j of every stripe as an
+    8-byte big-endian word, and a real data symbol is < 2**56, so each word is one ZERO high byte followed
+    by its 7 payload bytes (SYMBOL_BYTES). Recovering the blob is therefore pure byte movement — strip
+    every 8th byte, then interleave the 7-byte groups across the k shards — and both halves are expressible
+    as EXTENDED SLICES, which CPython executes in C:
+
+        del ba[0::8]                      # drop the high byte of every word
+        out[j*7 + t :: k*7] = pay[t::7]   # scatter shard j's groups into place, one byte-offset at a time
+
+    That is ~8*k slice operations for the whole blob, against ~17.8 MILLION int.to_bytes/int.from_bytes
+    round-trips for a 118 MiB proof. The symbol path stays for reconstruction from PARITY shards, where
+    real interpolation is required.
+
+    The zero-high-byte test is the same validity check _unpack makes: a word >= 2**56 cannot be a data
+    symbol, and silently dropping its high byte would return plausible-looking wrong bytes with no error.
+    """
+    need = stripes * _WORD
+    out = bytearray(stripes * k * SYMBOL_BYTES)
+    for j in range(k):
+        sh = shards[j]
+        if len(sh) < need:
+            raise ValueError("da: shard shorter than the manifest's stripe count")
+        ba = bytearray(sh[:need])
+        if any(ba[0::_WORD]):            # C-level scan for a non-zero high byte
+            raise ValueError("da: reconstructed symbol out of 7-byte data range (corrupt shard set)")
+        del ba[0::_WORD]                 # leaves the 7-byte payloads, concatenated
+        base, step = j * SYMBOL_BYTES, k * SYMBOL_BYTES
+        for t in range(SYMBOL_BYTES):
+            out[base + t::step] = ba[t::SYMBOL_BYTES]
+    return bytes(out[:length])
+
+
 def reconstruct(manifest_meta, known_shards: dict, verify: bool = True):
     """Reconstruct the original bytes from ANY k shards. manifest_meta carries {k, stripes, length};
     known_shards = {index(0-based): shard_bytes}. Raises if fewer than k shards are supplied.
@@ -193,6 +229,10 @@ def reconstruct(manifest_meta, known_shards: dict, verify: bool = True):
     # block validation, which is why a proof-carrying settle cannot survive on a fleet where only one node
     # holds the data. Reconstruction from parity still takes the general path unchanged.
     systematic = (use == list(range(k)))
+    # PURE BYTE PATH when the systematic shards are present and no extra shard needs the interpolation
+    # consistency check: no field elements are formed at all. See _systematic_bytes.
+    if systematic and not extra:
+        return _systematic_bytes([known_shards[i] for i in range(k)], k, stripes, length)
 
     # HOIST THE LAGRANGE BASIS OUT OF THE STRIPE LOOP — the same fix 08945e50 made on the encode side,
     # and for the same reason: the basis depends ONLY on the x-coordinates, and here those are the CHOSEN

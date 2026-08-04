@@ -173,4 +173,9 @@ def reconstruct_from(meta: dict, pairs) -> bytes:
             known[int(index)] = shard
     if len(known) < meta["k"]:
         raise ValueError(f"need {meta['k']} valid shards, have {len(known)}")
-    return da.reconstruct(meta, known)
+    # verify=False is not a weakening HERE: every shard in `known` has just been checked against the
+    # commitment above, which binds both its bytes and the manifest. da.reconstruct's extra-shard
+    # interpolation check is documented as belt-and-suspenders for callers that did NOT do that, and
+    # keeping it would force the field-element path for the sake of a weaker test than the one already
+    # passed — the byte-level systematic path cannot run while an extra shard is pending a consistency check.
+    return da.reconstruct(meta, known, verify=False)
