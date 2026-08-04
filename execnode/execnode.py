@@ -121,6 +121,26 @@ SETTLE_PROVE = os.environ.get("NADO_EXEC_SETTLE_PROVE", "").strip().lower() in (
 # heaviest proving step and wants the native prover + generous RAM. A folded proof is additionally self-VERIFIED
 # (verify_settlement_sparse at protocol strength) before posting, so an unverifiable bundle is never broadcast.
 SETTLE_FOLD = os.environ.get("NADO_EXEC_SETTLE_FOLD", "").strip().lower() in ("1", "true", "yes", "on")
+# NADO_EXEC_SETTLE_PROVE_TIMEOUT: seconds a single settle-prove may run before we give up on it and post a
+# BARE attestation instead. Default 1200s (20 min) — comfortably above a measured unfolded prove (~1-3 min
+# at protocol strength on live data) and far below the 5h07m a non-completing fold burned. Without a bound
+# the settle loop simply never returns and the chain stops settling entirely.
+SETTLE_PROVE_TIMEOUT = int(os.environ.get("NADO_EXEC_SETTLE_PROVE_TIMEOUT", "1200"))
+# True while a settle-prove worker thread is outstanding. asyncio cannot kill that thread, so this is what
+# stops a timed-out prove from stacking a new one every cadence until the box dies.
+_settle_proving = False
+
+
+def _clear_settle_proving(_task):
+    """Release the in-flight guard when the prove THREAD actually finishes (not when we stop waiting)."""
+    global _settle_proving
+    _settle_proving = False
+    try:
+        _task.result()                                     # surface a prover crash instead of swallowing it
+    except asyncio.TimeoutError:
+        pass
+    except Exception as e:
+        print(f"[execnode] settle-prove worker ended with {type(e).__name__}: {e}", flush=True)
 # SETTLED-CHECKPOINT BOOTSTRAP (idle-GC companion, see protocol.py GC note): a COLD exec node can no
 # longer replay dividend accrual from genesis once L1 prunes ancient recert rows — instead it adopts a
 # donor's snapshot VERIFIED against the L1-settled root (trust-minimized: the quorum vouches for the
@@ -325,8 +345,34 @@ async def _build_settlement_proof(session, ns, st, cur, root):
         return SS.prove_settlement_sparse(pre_contracts, calls, cursor=cur, rec_hex=rec_hex,
                                           beacons=beacons, block_hashes=bhashes, pre_bridge=pre_bridge,
                                           depth=EXEC_TREE_DEPTH, recursive=_fold, fold=_fold)
-    async with _sem():                                     # bound concurrent proving (H-7)
-        proof = await asyncio.to_thread(_prove)
+    # TIME-BOUND THE PROVE, and never run two at once. Without this, enabling the K->1 fold is an OUTAGE
+    # rather than a feature: a fold over the W=106 exec AIR measured 5h07m at 492% CPU / 8.2 GB WITHOUT
+    # COMPLETING (2026-08-02), and this call had no timeout — maybe_settle would simply never return, so
+    # no settle of any kind would be posted. The bare-attestation fallback is downstream of here and would
+    # never be reached. latest_settled() backs bridge_withdraw / unshield / dividend_withdraw, so that is
+    # an outage, not a degraded mode.
+    #
+    # asyncio.wait_for CANNOT kill the worker thread, so the abandoned prove keeps burning a core until it
+    # finishes. That makes the IN-FLIGHT GUARD the essential half: without it a timeout every settle would
+    # stack a new fold thread every cadence and the box would grind to a halt. With it, at most ONE prove
+    # is ever outstanding; while it runs, settles continue as bare attestations.
+    global _settle_proving
+    if _settle_proving:
+        return _skip("a previous settle-prove is still running; settling bare until it finishes")
+    _settle_proving = True
+    # The flag must track the THREAD's lifetime, not this coroutine's. Clearing it in a `finally` would
+    # release the guard the moment wait_for gives up — while the thread is still burning a core — and the
+    # next cadence would start another. So clear it from a done-callback on the task, and SHIELD the task
+    # from wait_for's cancellation (cancelling would not stop the thread regardless, but it would detach
+    # the callback and lose the only signal we have that the prove really ended).
+    _task = asyncio.ensure_future(asyncio.to_thread(_prove))
+    _task.add_done_callback(_clear_settle_proving)
+    try:
+        async with _sem():                                 # bound concurrent proving (H-7)
+            proof = await asyncio.wait_for(asyncio.shield(_task), timeout=SETTLE_PROVE_TIMEOUT)
+    except asyncio.TimeoutError:
+        return _skip(f"prove exceeded NADO_EXEC_SETTLE_PROVE_TIMEOUT={SETTLE_PROVE_TIMEOUT}s "
+                     f"(fold={_fold}); the worker thread is abandoned and settles stay BARE until it ends")
     # 6. THE SELF-CHECKS — never post a proof that doesn't extend the justified tip AND reproduce our root.
     pre_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_pre"]), rec_root)
     post_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_post"]), rec_root)
