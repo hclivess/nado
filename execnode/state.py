@@ -579,6 +579,26 @@ class ExecState:
                 root = self._root_cache
         return root
 
+    def settle_snapshot(self):
+        """(cursor, state_root_hex, records_root, mut_gen) captured ATOMICALLY under the mutate lock.
+
+        A settle-with-proof pins one (cursor, root) pair and then spends MINUTES proving it. Settling runs
+        DETACHED from the block-application tail (execnode e1000cbd), so the tail keeps mutating THIS live
+        object throughout — the prove itself, and the ~one-HTTP-round-trip-per-block span walk before it.
+
+        state_root is rnode(kv half, RECORDS half), and the records half is read straight off the live
+        balances. So reading the root at cursor C and then recomputing the records half later yields the
+        records of some LATER cursor, and the proof's self-check compares two roots that were never
+        simultaneously true. Observed live 2026-08-04: "self-check failed (span 19154->19184 not
+        conforming)" on a span entirely inside one dividend epoch, where the epoch gate guarantees no
+        dividend moved the records at all.
+
+        mut_gen lets a caller confirm afterwards that the state did not advance under it."""
+        with self._mutate_lock:                       # RLock: state_root/_sparse_stores re-enter safely
+            root = self.state_root()
+            _kv, rec = self._sparse_stores()
+            return self.cursor, root, rec.root(), getattr(self, "_mut_gen", 0)
+
     def _record_proof(self, tag, *parts):
         """Sparse exit proof {"kv": hex, "path": packed} for the record at record_key(tag, *parts) —
         the wire format L1's exec_root.verify_record checks against the settled root."""

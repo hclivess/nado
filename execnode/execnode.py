@@ -317,7 +317,7 @@ def _state_for(request):
     return states.get(ns)
 
 
-async def _build_settlement_proof(session, ns, st, cur, root):
+async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=None):
     """Best-effort SELF-CHECKING settle-with-proof for (ns, cur, root), or None to fall back to quorum.
 
     Builds a sparse validity proof over the span (L1-justified settled tip, cur] from the DA calldata
@@ -384,7 +384,15 @@ async def _build_settlement_proof(session, ns, st, cur, root):
             return None
         calls += CC.block_calls(blk, ns)
     # 5. records half (frozen) + finalized chain randomness the proof reads.
-    rec_root = SST.SparseStore(EXEC_TREE_DEPTH, ER.records_projection(st)).root()
+    #
+    # USE THE RECORDS ROOT CAPTURED WITH `root`, NOT A FRESH ONE. Recomputing it here reads the LIVE `st`,
+    # which the detached tail has been advancing throughout step 4's per-block fetches and will keep
+    # advancing through the prove. `root` is rnode(kv, records) AT `cur`; pairing it with a records half
+    # from a later cursor makes the self-check compare two roots that were never simultaneously true, and
+    # it failed exactly that way on spans wholly inside one dividend epoch. The caller captures both under
+    # the state's mutate lock (ExecState.settle_snapshot). The fallback keeps standalone callers working.
+    rec_root = (rec_root_at_cur if rec_root_at_cur is not None
+                else SST.SparseStore(EXEC_TREE_DEPTH, ER.records_projection(st)).root())
     rec_hex = SST.digest_hex(rec_root)
     beacons = {e: v % _F.P for e, v in st.beacons.items()}
     bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
@@ -529,12 +537,19 @@ async def maybe_settle(session):
                           f"would risk a divergent exec_root. Set NADO_EXEC_BOOTSTRAP to adopt the settled "
                           f"checkpoint.", flush=True)
                 continue
-            # Capture (cursor, root) ONCE — the tail loop is single-task, so st does not advance during the
-            # (possibly minutes-long) proving await below, and the proof + tx + stash all agree on this pair.
-            cur, root = st.cursor, st.state_root()
+            # CAPTURE THE WHOLE PAIR ATOMICALLY, RECORDS HALF INCLUDED. This used to read (cursor, root)
+            # and say "the tail loop is single-task, so st does not advance during the (possibly
+            # minutes-long) proving await below". That was true when settling was AWAITED from the tail.
+            # e1000cbd detached it — precisely so the tail would keep applying blocks — which made the
+            # comment false and left the proof builder recomputing the RECORDS half from a live `st` that
+            # had moved on. state_root is rnode(kv, records), so comparing a root taken at cursor C against
+            # a records half taken later compares two things that were never simultaneously true.
+            # Observed live: "self-check failed (span 19154->19184 not conforming)" on a span wholly inside
+            # one dividend epoch — i.e. where the epoch gate guarantees the records did NOT move.
+            cur, root, rec_root_at_cur, _gen_at_cur = st.settle_snapshot()
             proof = None
             try:
-                proof = await _build_settlement_proof(session, ns, st, cur, root)
+                proof = await _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur)
             except Exception as e:
                 # BEST-EFFORT, BUT NOT SILENT. A bare attestation always works, so swallowing here is
                 # correct for liveness — but swallowing it QUIETLY meant an operator who switched the
