@@ -340,11 +340,39 @@ async def _build_settlement_proof(session, ns, st, cur, root):
 
     # only fold when BOTH the operator opted in (SETTLE_FOLD) AND the chain honours folds (SETTLE_PROOF_RECURSIVE);
     # otherwise the `recursive` bundle is ignored by verifiers and the proving effort is wasted.
-    _fold = SETTLE_FOLD and SETTLE_PROOF_RECURSIVE
+    # A FOLD NEEDS SOMETHING TO FOLD. settlement_sparse raises ValueError("recursive settlement over an
+    # empty call span") when the span carries no exec calls, while the UNFOLDED path proves an empty span
+    # perfectly well. So on an idle chain, switching the fold on strictly REDUCED what we produce: spans
+    # that had been yielding a (refused, 97.45 MiB) proof started yielding no proof at all. Observed live
+    # within minutes of enabling NADO_EXEC_SETTLE_FOLD on 2026-08-04.
+    #
+    # Fold only when there is real traffic; otherwise fall through to the unfolded prove, which is what the
+    # 61 proofs before this were. The fold is an upgrade to a proof we want either way, never a precondition
+    # for producing one — the same shape as 82a8ab29 (a refused proof must still settle).
+    _fold = SETTLE_FOLD and SETTLE_PROOF_RECURSIVE and bool(calls)
+    if SETTLE_FOLD and SETTLE_PROOF_RECURSIVE and not calls:
+        _k = (ns, "foldskip")
+        if _settle_skip_logged.get(_k) != cur:
+            _settle_skip_logged[_k] = cur
+            print(f"[execnode] fold skipped ns={ns} span {sc}->{cur}: no exec calls to fold — proving "
+                  f"UNFOLDED (the recursive path refuses an empty call span)", flush=True)
     def _prove():
-        return SS.prove_settlement_sparse(pre_contracts, calls, cursor=cur, rec_hex=rec_hex,
-                                          beacons=beacons, block_hashes=bhashes, pre_bridge=pre_bridge,
-                                          depth=EXEC_TREE_DEPTH, recursive=_fold, fold=_fold)
+        def _run(fold):
+            return SS.prove_settlement_sparse(pre_contracts, calls, cursor=cur, rec_hex=rec_hex,
+                                              beacons=beacons, block_hashes=bhashes, pre_bridge=pre_bridge,
+                                              depth=EXEC_TREE_DEPTH, recursive=fold, fold=fold)
+        if not _fold:
+            return _run(False)
+        try:
+            return _run(True)
+        except Exception as e:
+            # A FOLD FAILURE MUST NOT COST US THE PROOF. The fold is a verification-strategy upgrade on top
+            # of a proof we want regardless, so if the recursive path refuses, prove the SAME span unfolded
+            # rather than returning nothing and settling bare. Retried inside the worker thread on purpose:
+            # it keeps this to ONE task and ONE in-flight guard rather than restructuring the guard.
+            print(f"[execnode] fold FAILED ns={ns} span {sc}->{cur} ({type(e).__name__}: {e}) — "
+                  f"re-proving UNFOLDED", flush=True)
+            return _run(False)
     # TIME-BOUND THE PROVE, and never run two at once. Without this, enabling the K->1 fold is an OUTAGE
     # rather than a feature: a fold over the W=106 exec AIR measured 5h07m at 492% CPU / 8.2 GB WITHOUT
     # COMPLETING (2026-08-02), and this call had no timeout — maybe_settle would simply never return, so
