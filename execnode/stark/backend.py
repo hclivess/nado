@@ -93,10 +93,31 @@ class _Alghash2:
         return alghash2.hashn([alghash2.DOM_ABSORB, sum(bytearray(str(label).encode())) % F.P])
 
     def _enc(self, items):
-        """Flatten transcript items (ints, digest-tuples, strings) to field lanes."""
+        """Flatten transcript items (ints, digest tuples/lists, strings) to field lanes.
+
+        A LIST MUST ENCODE EXACTLY LIKE A TUPLE. Digests here are CAPACITY-tuples in memory, but a proof
+        that is transmitted is JSON, and json.loads turns every tuple into a LIST. This checked
+        `isinstance(x, tuple)` only, so a round-tripped digest fell through to the scalar branch and
+        `int(<list>)` raised — meaning the Fiat-Shamir transcript could not even be built for any proof
+        that had crossed the wire.
+
+        The consequence was larger than one failed settle: the prover self-checks against its own
+        IN-MEMORY proof (tuples) and passes, while a verifier on the receiving side works from JSON
+        (lists) — so NO alghash2-backend proof could ever verify after transmission, which is the only
+        thing a proof is for. It stayed invisible because a settle proof is ~118 MiB against an 8 MiB
+        submit cap: every proof was refused for SIZE before a verifier ever ran. The first one to reach
+        verification, once DA transport worked (2026-08-04, cursor 21298), failed here immediately:
+            malformed proof: TypeError: int() argument must be ... not 'list'
+            [backend.py:104 in _enc: out.append(int(x) % F.P)]
+
+        Accepting both keeps the encoding byte-identical for the tuple case, so nothing that verified
+        before changes — and in-memory and round-tripped proofs now hash to the SAME transcript, which is
+        what makes a proof portable at all. The blake2b backend was never affected: its digests are hex
+        strings, which survive JSON unchanged.
+        """
         out = []
         for x in items:
-            if isinstance(x, tuple):
+            if isinstance(x, (tuple, list)):
                 out.extend(int(e) % F.P for e in x)
             elif isinstance(x, (bytes, str)):
                 out.append(sum(bytearray(str(x).encode())) % F.P)

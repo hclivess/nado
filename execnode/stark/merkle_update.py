@@ -178,4 +178,12 @@ def verify_update(proof, old_val, new_val, pre_root, post_root, dirs, num_querie
         return stark.verify(proof, _transitions(), bnd, periodic=_periodic(proof["T"], D),
                             max_degree=MAX_DEGREE, num_queries=num_queries, backend=b)
     except Exception as e:
-        return False, f"malformed proof: {e}"
+        # SAY WHERE. This returned only the exception's text, which for a TypeError deep in the verifier
+        # ("int() argument must be ... not 'list'") names neither the file, the line, nor the value — and a
+        # settle proof is ~118 MiB of nested structure, so "somewhere in there" is not a starting point.
+        # Observed live 2026-08-04: the first settle proof ever to REACH verification (every earlier one was
+        # refused for size before the verifier ran) failed with exactly that text and nothing else.
+        import traceback as _tb
+        _f = _tb.extract_tb(e.__traceback__)[-1]
+        return False, (f"malformed proof: {type(e).__name__}: {e} "
+                       f"[{_f.filename.rsplit('/', 1)[-1]}:{_f.lineno} in {_f.name}: {_f.line}]")

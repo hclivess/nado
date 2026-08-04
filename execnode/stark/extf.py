@@ -79,7 +79,16 @@ def lift(v):
     against an older degree is widened rather than silently mis-read; it rejects a LONG one, because that
     means the caller believes in a bigger field than this module implements and the extra limbs would be
     dropped without trace."""
-    if type(v) is tuple:
+    # A LIST IS A TUPLE THAT HAS BEEN THROUGH JSON. Proofs are transmitted as JSON, and json.loads turns
+    # every tuple into a list, so an extension element arrives here as [a, b] rather than (a, b). This
+    # tested `type(v) is tuple` — strictly — and a round-tripped element therefore fell through to the
+    # base-field branch, where `v % P` on a list raises. Since this is the normalisation funnel, that one
+    # strict check broke every ext-field path in the verifier for any proof that had crossed the wire.
+    # Observed live 2026-08-04 on the first settle proof ever to reach verification:
+    #     composition is not low-degree: TypeError: unsupported operand type(s) for %: 'list' and 'int'
+    #     [extf.py:86 in lift: return tuple([v % P] + [0] * (DEGREE - 1))]
+    # Accepting both leaves the tuple path byte-identical, so nothing that worked before changes.
+    if isinstance(v, (tuple, list)):
         if len(v) > DEGREE:
             raise ValueError(f"element has {len(v)} limbs but the field is degree {DEGREE}")
         return tuple(v[i] % P if i < len(v) else 0 for i in range(DEGREE))

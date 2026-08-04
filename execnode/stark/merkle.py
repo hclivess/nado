@@ -55,7 +55,7 @@ def verify_digest(root, index, leaf_digest, path, backend=None):
     for sib in path:
         h = b.node(h, sib) if idx % 2 == 0 else b.node(sib, h)
         idx //= 2
-    return h == root
+    return same_digest(h, root)   # tuple-vs-list after JSON; see same_digest
 
 
 def open_at(layers, index):
@@ -74,4 +74,20 @@ def verify(root, index, value, path, backend=None):
     for sib in path:
         h = b.node(h, sib) if idx % 2 == 0 else b.node(sib, h)
         idx //= 2
-    return h == root
+    return same_digest(h, root)
+
+
+def same_digest(a, b):
+    """Digest equality that survives a JSON round trip.
+
+    An alghash2 digest is a CAPACITY-TUPLE in memory and a LIST once a proof has been transmitted, and
+    `(1,2,3,4) == [1,2,3,4]` is False in Python. So a verifier recomputing a digest (tuple) and comparing
+    it to the proof's copy (list) rejected EVERY opening — not because the proof was wrong, but because
+    the two containers differ. Observed live 2026-08-04 as "bad Merkle opening (lo) at layer 0" on a proof
+    whose arithmetic was perfectly sound.
+
+    Compared elementwise as ints when both sides are sequences; blake2b digests are hex strings and fall
+    through to plain equality unchanged."""
+    if isinstance(a, (tuple, list)) and isinstance(b, (tuple, list)):
+        return len(a) == len(b) and all(int(x) == int(y) for x, y in zip(a, b))
+    return a == b
