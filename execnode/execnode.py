@@ -151,6 +151,11 @@ SETTLE_INLINE_MAX = 7 * 1024 * 1024       # just under L1's 8 MiB submit cap; a 
 # tx never has to be serialized just to be measured (that cost ~160 s on the event loop, per the DA
 # publish path below).
 SETTLE_TX_ENVELOPE_MAX = 64 * 1024
+# How long to wait for L1's verdict on a PROOF-CARRYING settle. L1 verifies the proof inline before it
+# answers, and that is measured at 94.2 s for a real 118.57 MiB proof, so anything near the bare-settle
+# budget guarantees a client-side timeout on a proof that is perfectly valid. Generous because the settle
+# task is DETACHED (e1000cbd) — waiting here costs nothing but this task.
+SETTLE_SUBMIT_TIMEOUT_PROOF = 300
 # True while a settle-prove worker thread is outstanding. asyncio cannot kill that thread, so this is what
 # stops a timed-out prove from stacking a new one every cadence until the box dies.
 _settle_proving = False
@@ -704,8 +709,20 @@ async def maybe_settle(session):
                 "Expecting value: line 1 column 1 (char 0)" with no endpoint and no line. A submit whose
                 RESULT is unknown is simply a submit that did not visibly succeed: treat it as not
                 accepted, keep the reason, and let the next tick retry."""
+                # A PROOF-CARRYING SETTLE IS VERIFIED INLINE BY L1 BEFORE IT ANSWERS, so the reply cannot
+                # arrive until that finishes. MEASURED 2026-08-04: verify_settlement_sparse on a real
+                # 118.57 MiB proof takes 94.2 s. Against a flat 15 s budget the POST timed out every time —
+                # "settle error at execnode.py:707 in _submit: TimeoutError" — while L1 was still busy
+                # verifying a proof that then VERIFIED FINE. The settle was lost to the clock, not to any
+                # judgement about the proof.
+                #
+                # Only the proof-carrying path needs the longer budget; a bare attestation is a few hundred
+                # bytes and must keep the short one so an unresponsive L1 cannot stall the settle loop.
+                _carries_proof = bool((_tx.get("data") or {}).get("proof")
+                                      or (_tx.get("data") or {}).get("proof_da"))
+                _budget = SETTLE_SUBMIT_TIMEOUT_PROOF if _carries_proof else 15
                 async with session.post(L1 + "/submit_transaction", json=_tx,
-                                        timeout=aiohttp.ClientTimeout(total=15)) as r:
+                                        timeout=aiohttp.ClientTimeout(total=_budget)) as r:
                     _body = await r.text()
                     try:
                         _out = json.loads(_body) if _body.strip() else None
