@@ -156,6 +156,18 @@ SETTLE_TX_ENVELOPE_MAX = 64 * 1024
 # budget guarantees a client-side timeout on a proof that is perfectly valid. Generous because the settle
 # task is DETACHED (e1000cbd) — waiting here costs nothing but this task.
 SETTLE_SUBMIT_TIMEOUT_PROOF = 300
+# HOW FAR AHEAD A PROOF-CARRYING SETTLE AIMS max_block. A settle is an EXACT-LANDING tx (protocol.py: it
+# "lands at exactly max_block"), and L1 spends ~94 s — about 16 blocks — verifying the proof INLINE before
+# the submit even returns. So a deadline computed before the submit is already ~14 blocks in the PAST by
+# the time the tx reaches the pool: it is accepted, then expires unincluded. Observed live 2026-08-04:
+# "SETTLE-WITH-DA-PROOF ... → L1" logged (L1 said result=True) yet no settle tx for that cursor appears in
+# any block and /get_settled never moved.
+#
+# This is the same anti-pattern protocol.py records under RESERVED_TX_MARGIN: tip+2/+4/+5 "forked
+# alphanet-12 three times on 2026-07-28" because an exact-landing tx could not propagate in time. 60 blocks
+# (~6 min) covers the verification plus propagation and stays far under TX_LANDING_WINDOW (360), so a tx
+# admitted against a slightly-behind peer still fits.
+SETTLE_PROOF_TX_MARGIN = 60
 # Hard ceiling on the publish+submit hold. Comfortably covers a measured pipeline (publish ~139 s + L1's
 # inline verification ~94 s) with margin, and guarantees that a hold which is never cleared — a task that
 # dies between set and clear — expires by itself instead of stopping settlement permanently.
@@ -730,7 +742,10 @@ async def maybe_settle(session):
             # is the last instant before the tx we actually submit is built.
             try:
                 _fresh2 = await _get_json(session, "/get_latest_block")
-                target = int(_fresh2["block_number"]) + 2
+                # A proof-carrying settle needs a MUCH longer runway: L1 verifies it inline (~94 s ≈ 16
+                # blocks) before the submit returns, so +2 expires before the tx can ever be included.
+                _margin = SETTLE_PROOF_TX_MARGIN if (proof is not None or proof_da) else 2
+                target = int(_fresh2["block_number"]) + _margin
             except Exception:
                 pass                                       # keep the old deadline rather than skip the settle
             tx = construct_settle_tx(keys, cur, root, target, ns=ns, proof=proof, proof_da=proof_da)
