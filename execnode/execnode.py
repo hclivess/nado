@@ -140,6 +140,18 @@ SETTLE_INLINE_MAX = 7 * 1024 * 1024       # just under L1's 8 MiB submit cap; a 
 _settle_proving = False
 
 
+def _settle_task_done(_task):
+    """Surface a crash in the DETACHED settle task. Fire-and-forget must not mean fire-and-never-know: an
+    un-retrieved exception on a discarded task is swallowed by asyncio and the node would just quietly stop
+    settling."""
+    try:
+        _task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"[execnode] settle task failed: {type(e).__name__}: {e}", flush=True)
+
+
 def _clear_settle_proving(_task):
     """Release the in-flight guard when the prove THREAD actually finishes (not when we stop waiting)."""
     global _settle_proving
@@ -1075,7 +1087,19 @@ async def tail_loop():
                           f"root {state.state_root()[:16]}… · {len(state.contracts)} contract(s)"
                           + (f" · +{len(states)-1} rollup ns" if len(states) > 1 else ""), flush=True)
                     if SETTLE:
-                        await maybe_settle(session)
+                        # NEVER AWAIT SETTLING FROM THE TAIL. maybe_settle can spend MINUTES proving, and
+                        # awaiting it here stops block application for that whole time — the tail is a
+                        # single task. Measured 2026-08-04 with unconditional proving on real state (25
+                        # contracts, not the empty fixture I benchmarked): the exec cursor froze at 17853
+                        # for 30+ minutes while L1 advanced to 18180, lag climbing 316 -> 327 and still
+                        # rising. The chain was fine; this node simply stopped following it.
+                        #
+                        # Settling is a SIDE EFFECT of following the chain, never a precondition for it. So
+                        # it runs detached: the tail keeps applying blocks at full speed while the proof
+                        # builds. The in-flight guard inside _build_settlement_proof already ensures at most
+                        # one prove is outstanding, so detaching cannot pile tasks up.
+                        _t = asyncio.ensure_future(maybe_settle(session))
+                        _t.add_done_callback(_settle_task_done)
                 # Rebuild the PROVISIONAL view EVERY poll (even with no newly-finalized block — the tip still
                 # advances ~every block_time, so a just-included bet/reveal/deposit shows within ~one block
                 # instead of a whole finality window). Best-effort; never breaks the finalized tail.
