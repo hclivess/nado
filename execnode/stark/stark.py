@@ -151,12 +151,21 @@ def _per_evaluator(pc, T, gT):
             over[r] = v % F.P                    # later entries win, matching _per_expand's sequential writes
         ent = [(F.pw(gT, r), F.sub(v, base[r % p] % F.P)) for r, v in over.items()]
 
+        # Only entries with a non-zero delta contribute; select them ONCE rather than re-testing per query.
+        ent_nz = [(gr, dv) for (gr, dv) in ent if dv]
+
         def ev(x, xT):
             out = F.poly_eval(h, F.pw(x, step))
             zT = F.mul(F.sub(xT, 1), invT)
-            for (gr, dv) in ent:
-                if dv:
-                    out = F.add(out, F.mul(dv, F.mul(F.mul(gr, zT), F.inv(F.sub(x, gr)))))
+            # MONTGOMERY BATCH INVERSION: one modular exponentiation for the whole sparse-override row
+            # instead of one per entry. Measured on the live 118.57 MiB settle proof this site alone made
+            # 122,240 of 217,607 F.inv calls (1,280 evaluations x ~95 overrides); batching makes it 1,280.
+            # A zero denominator (x == gr) still raises ZeroDivisionError out of batch_inverse exactly as
+            # F.inv did, so a query landing on an override point fails verification as before.
+            if ent_nz:
+                invs = F.batch_inverse([F.sub(x, gr) for (gr, _) in ent_nz])
+                for (gr, dv), idn in zip(ent_nz, invs):
+                    out = F.add(out, F.mul(dv, F.mul(F.mul(gr, zT), idn)))
             return out
         return ev
     coeffs = F.interpolate(list(pc))
@@ -652,11 +661,28 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                 def _combine(a, v, iz):
                     return F.mul(a, F.mul(v, iz))
             cp = (ext2.ZERO if _ext_a else 0); ai = 0
+            # ONE INVERSION PER QUERY, NOT TWO PER CONSTRAINT. The quotient factor is inv(z) for
+            # z = (x^T - 1)/(x - last); z itself is never used, so computing z and then inverting it spent
+            # two modular exponentiations to obtain what algebra gives directly:
+            #     inv(z) = (x - last) * inv(x^T - 1)
+            # and nothing in it depends on `con`, so it is loop-invariant and hoisted. Measured on the live
+            # 118.57 MiB settle proof: 91,520 of 217,607 F.inv calls came from this one site (320 queries x
+            # 2 x 143 transitions); this makes it 320. Verification is CONSENSUS work that L1 runs inside
+            # block validation, so its cost is what decides whether a proof-carrying settle can be validated
+            # inside the block cadence at all.
+            _xl = F.sub(x, last)
+            if _xl == 0:
+                # x is an LDE COSET point and `last` is a trace-domain point, so they can never coincide —
+                # that separation is why the coset offset exists. Assert it rather than assume it: the old
+                # form raised ZeroDivisionError here, and the rewritten one would instead yield iz = 0 and
+                # silently contribute NOTHING for every transition constraint, i.e. a violated constraint
+                # would verify. A faster verifier must not be a weaker one.
+                return False, "query point coincides with the trace domain (x == last)"
+            iz = F.mul(_xl, F.inv(F.sub(xT, 1)))
             for con in transitions:
                 a = alphas[ai]; ai += 1
-                z = F.mul(F.sub(xT, 1), F.inv(F.sub(x, last)))
                 cval = con(cur_row, nxt_row, per) if challenges is None else con(cur_row, nxt_row, per, challenges)
-                cp = _add(cp, _combine(a, cval, F.inv(z)))
+                cp = _add(cp, _combine(a, cval, iz))
             for (row, col, val) in boundaries:
                 a = alphas[ai]; ai += 1
                 pt = F.pw(gT, row)
