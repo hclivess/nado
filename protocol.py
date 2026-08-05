@@ -631,6 +631,29 @@ SETTLE_PROOF_RECURSIVE = True    # ENABLED at the alphanet-14 reroll: the in-cir
                                  # attacker staple a bogus blob onto a valid settle tx and split the
                                  # fleet.
 
+# ---- SETTLEMENT FOLD FAN-IN (execnode/stark/recursive_verify_hetero.prove_hetero) -------------------
+# How many inner FRI proofs ONE recursion node may fold. 0/None = the old single bundle: one prove_fold
+# over ALL of them.
+#
+# WHY THIS EXISTS. The single bundle's PROVER trace is LINEAR IN K. Measured 2026-08-05 on the settlement
+# aggregation path (depth 4, 4 inner queries): the recursion AIR spends ~65,536 rows per folded proof —
+# 96 segments x 1088 rows at K=2 — because it re-hashes every Merkle path of every FRI query of every
+# inner proof in-circuit:
+#     K=2 -> T=131,072    K=4 -> T=262,144    K=8 -> T=524,288    (only 20.3% of that is 2^n padding)
+# The "O(1) settlement crypto" in doc/zk-recursion.md is the VERIFIER's cost — one bundle instead of K
+# proofs. The PROVER's trace was never O(1), and in production that is fatal: once the game contracts were
+# deployed, 48 exec calls put K in the dozens and T in the millions, and the settle prove blew
+# SETTLE_PROVE_TIMEOUT=1200s at 2.8 GB RSS and still climbing, so NO proof was produced at all.
+#
+# Folding through recursion_depth.fold_tree bounds each node's trace by the FAN-IN instead of by K, keeps
+# memory bounded, and leaves the nodes within a level independent. The root is still ONE proof, so the
+# verifier's cost is unchanged.
+#
+# CONSENSUS RULE, and it rides a REROLL for the same reason SETTLE_PROOF_RECURSIVE did: it changes the
+# SHAPE of the bundle (a "tree" instead of a "fold"), so a node that folds as a tree while its peers
+# expect a single fold produces a settle those peers cannot verify.
+SETTLE_FOLD_FAN_IN = 2
+
 # ---- RECORDS-BOUND SETTLEMENT (execnode/stark/records_bind.py) --------------------------------------
 # A settle-with-proof has always covered only the KV half of the exec root; the L1 composition pins the
 # SAME records half into the pre and post root, so a proven span REQUIRES records to be unchanged

@@ -39,7 +39,11 @@ def prove_settlement_bundle(replay_steps, positions, depth, num_queries_outer=fr
     items = _items(replay_steps, positions, depth)
     if not items:
         return None, [], []
-    bundle = RVH.prove_hetero(items, num_queries_outer=num_queries_outer)
+    # FAN-IN, not one K-wide bundle: the single fold's trace is ~65,536 rows PER folded proof, so a span
+    # with real exec calls put T in the millions and never finished. See protocol.SETTLE_FOLD_FAN_IN.
+    import protocol as _protocol
+    bundle = RVH.prove_hetero(items, num_queries_outer=num_queries_outer,
+                              fan_in=getattr(_protocol, "SETTLE_FOLD_FAN_IN", None))
     pubs = [RV.public_part(it["proof"]) for it in items]
     airs = [{"transitions": it["transitions"], "boundaries": it["boundaries"], "periodic": it["periodic"]}
             for it in items]
