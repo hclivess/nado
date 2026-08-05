@@ -175,7 +175,13 @@ SETTLE_SUBMIT_TIMEOUT_PROOF = 300
 # alphanet-12 three times on 2026-07-28" because an exact-landing tx could not propagate in time. 60 blocks
 # (~6 min) covers the verification plus propagation and stays far under TX_LANDING_WINDOW (360), so a tx
 # admitted against a slightly-behind peer still fits.
-SETTLE_PROOF_TX_MARGIN = 60
+# RAISED for the INLINE proof. 60 blocks (~6 min) covered "verification plus propagation" when the tx was
+# small — a DA-carried settle ships only a commitment. Now the tx IS the ~120 MiB proof, and propagation
+# measured ~8 MINUTES end to end on 2026-08-06: the first run where all three peers actually held it
+# finished AFTER the exact-landing target had already passed, so the tx was correct, propagated, and still
+# unlandable. 180 blocks (~18 min) covers the measured transfer with real margin and stays well under
+# TX_LANDING_WINDOW (360), so a tx admitted against a slightly-behind peer still fits.
+SETTLE_PROOF_TX_MARGIN = 180
 # Hard ceiling on the publish+submit hold, and it must EXCEED what it is holding for, or it expires mid
 # pipeline and hands the race back to the bare settles it exists to suppress.
 #
@@ -191,7 +197,7 @@ SETTLE_PROOF_TX_MARGIN = 60
 # Derived from the two bounds it actually spans, rather than a round number: the submit budget plus a
 # publish allowance with real margin. The prove phase is NOT covered here and does not need to be — it is
 # held by _settle_proving and separately bounded by SETTLE_PROVE_TIMEOUT.
-SETTLE_HOLD_MAX_S = SETTLE_SUBMIT_TIMEOUT_PROOF + 300
+SETTLE_HOLD_MAX_S = SETTLE_SUBMIT_TIMEOUT_PROOF + 900
 # True while a settle-prove worker thread is outstanding. asyncio cannot kill that thread, so this is what
 # stops a timed-out prove from stacking a new one every cadence until the box dies.
 _settle_proving = False
@@ -258,7 +264,7 @@ SETTLE_RESUBMIT_MAX_S = 1200
 #     GIVING UP after 1 attempt(s) over 185s (tip is 40818, pre-state was 40818)
 # The check is still worth having — it is what stops a hold from burning 20 minutes on a tx that can never
 # land — it just has to outlast an honest transfer.
-SETTLE_PROPAGATION_GRACE_S = 420
+SETTLE_PROPAGATION_GRACE_S = 900
 # Backstop only, so a pathological loop (blocks arriving far faster than expected) cannot spin unbounded.
 SETTLE_RESUBMIT_MAX = 200
 # STRONG REFERENCES to the detached settle tasks. asyncio keeps only a WEAK reference to a running task, so
