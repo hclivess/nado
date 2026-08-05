@@ -101,7 +101,11 @@ async def post_txs_by_id(peer, port, txids, logger, fail_storage, semaphore):
     url_construct = f"http://{hostport(peer, port)}/transactions_by_id?compress=zstd"
     try:
         async with semaphore:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+            # 15 s was sized for ~KB txs. Set reconciliation is the FALLBACK that is supposed to deliver a
+            # tx when push-gossip fails, so it must be able to carry the biggest legitimate tx there is: an
+            # inline settle proof at ~120 MiB. With both paths timing out, a proof-carrying settle could
+            # reach a peer by neither route. read_capped already bounds the body at MAX_PEER_BODY.
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as session:
                 async with session.post(url_construct, data=codec.pack(list(txids))) as response:
                     if response.status != 200:
                         return []
@@ -122,10 +126,21 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
     push-gossip (nado._gossip_worker) and the wallet CLI (compound_send_transaction)."""
     from ops import codec
     url_construct = f"http://{hostport(peer, port)}/submit_transaction"
+    _body = codec.pack(transaction)
+    # TIMEOUT MUST SCALE WITH THE BODY. This was a flat total=5 s, which is fine for the ~KB txs that make
+    # up all normal traffic but makes a proof-carrying settle IMPOSSIBLE to gossip: an inline settle proof
+    # is ~120 MiB, so 5 s would demand ~24 MB/s sustained AND a verdict inside the same window — and the
+    # peer VERIFIES the proof before it answers (measured ~22-94 s). Every push therefore timed out, the tx
+    # stayed in our pool alone, and since every node deterministically builds the winner's candidate, a
+    # peer's candidate (without our tx) won every time. That is the same "peers never hold it" symptom that
+    # DA was blamed for; the transport was only ever half the story.
+    # Allow ~2 MB/s plus a fixed verification allowance, floored at the old 5 s so ordinary traffic is
+    # unchanged. Best-effort either way: a failed push just means the peer pulls it later.
+    _timeout = max(5.0, len(_body) / (2 << 20) + 180.0)
     try:
         async with semaphore:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-                async with session.post(url_construct, data=codec.pack(transaction)) as response:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=_timeout)) as session:
+                async with session.post(url_construct, data=_body) as response:
                     body = await response.json(content_type=None)
                     return peer, (body.get("message") if isinstance(body, dict) else body)
     except Exception as e:
