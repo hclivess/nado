@@ -144,13 +144,21 @@ SETTLE_PROVE_TIMEOUT = 1200      # safety bound, not a feature switch: a prove t
 # sits just under it; anything bigger is published to DA and the tx carries only the commitment. An inline
 # proof is strictly better when it fits (it settles the root trustlessly with no quorum), so this is a
 # ceiling, not a preference.
-SETTLE_INLINE_MAX = 7 * 1024 * 1024       # just under L1's 8 MiB submit cap; a protocol fact, not a knob
+# NOT a protocol fact — the previous comment here said so and was wrong. Nothing in consensus bounds
+# transaction size; the binding limit was ops/net_ops.MAX_TX_BODY (1 MiB), which this 7 MiB value already
+# EXCEEDED, so an "inline" proof anywhere near this size could never have been submitted anyway. Both are
+# now keyed to protocol.MAX_INLINE_TX_BYTES so a real ~120 MiB proof rides inside the tx instead of going
+# to DA — which cannot deliver it on this fleet, where only one node runs a DA store.
+_MAX_INLINE_TX_BYTES = __import__("protocol").MAX_INLINE_TX_BYTES
 # Everything a settle tx carries BESIDES the proof: sender address, ML-DSA-44 signature (~2420 B) and
 # public key (1312 B) in hex, txid, recipient, a handful of ints. A few KiB in total; 64 KiB is a ceiling
 # with room to spare. Used to decide inline-vs-DA from the PROOF's serialized size alone, so the ~120 MiB
 # tx never has to be serialized just to be measured (that cost ~160 s on the event loop, per the DA
 # publish path below).
 SETTLE_TX_ENVELOPE_MAX = 64 * 1024
+# Derived here, once the envelope size is known: the proof may be as large as the network's tx ceiling
+# minus everything else the tx carries.
+SETTLE_INLINE_MAX = _MAX_INLINE_TX_BYTES - SETTLE_TX_ENVELOPE_MAX
 # How long to wait for L1's verdict on a PROOF-CARRYING settle. L1 verifies the proof inline before it
 # answers, and that is measured at 94.2 s for a real 118.57 MiB proof, so anything near the bare-settle
 # budget guarantees a client-side timeout on a proof that is perfectly valid. Generous because the settle

@@ -9,7 +9,19 @@ import zstandard
 # object blow-up — each tiny element becomes a ~50-byte Python object — and can't be hit by any legit tx: a
 # blob payload is <= BLOB_MAX_BYTES (16 KiB) and the largest single field (ML-DSA pubkey/sig hex, PoSW proof)
 # is a few KB.
-MAX_TX_BODY = 1 << 20            # 1 MiB, matches aiohttp's default client_max_size
+# RAISED for INLINE SETTLE PROOFS. This was 1 MiB, which is what actually rejected a proof-carrying settle
+# — not the 8 MiB aiohttp cap, and not SETTLE_INLINE_MAX (7 MiB), which was already unreachable through
+# this bound. A settle proof is the one legitimate transaction that is genuinely large, and routing it
+# through DA instead does not work on this fleet: only one node runs a DA store, so a peer cannot fetch
+# ~120 MiB inside _fetch_da_proof's 8 s budget and no proof has ever landed. See
+# protocol.MAX_INLINE_TX_BYTES for the full reasoning and the cost.
+# The codec blow-up concern in the comment above is unchanged in KIND, just larger in degree; the node has
+# 48 GiB and this bound is per-request.
+try:
+    from protocol import MAX_INLINE_TX_BYTES as _MAX_INLINE_TX_BYTES
+except Exception:                    # keep net_ops importable standalone (it is unit-tested without the node)
+    _MAX_INLINE_TX_BYTES = 192 << 20
+MAX_TX_BODY = _MAX_INLINE_TX_BYTES
 def unpack_tx(body):
     """Decode a submitted transaction body (the JSON codec wire — see ops/codec.py) with an explicit
     size bound. Raises (rejected as a 400/403 by the caller) on an empty or oversized body."""
@@ -25,7 +37,9 @@ def unpack_tx(body):
 # malicious donor (esp. a lone one under weak-subjectivity) could stream GiB and OOM us, and the sha256 /
 # state_root checks that would reject bad content only run AFTER the whole body is in memory. So cap the read
 # (and the decompressed size, via bounded_zstd_decompress) on every peer download. ---
-MAX_PEER_BODY = 8 << 20            # /status, /peers, snapshot manifest, a single block — small control msgs
+# RAISED with MAX_TX_BODY: this bounds "a single block" too (snapshot_ops fetches one block under it), and a
+# block that carries an inline settle proof is no longer a small control message.
+MAX_PEER_BODY = max(8 << 20, _MAX_INLINE_TX_BYTES + (8 << 20))
 MAX_SNAPSHOT_TOTAL = 2 << 30      # absolute ceiling on a whole snapshot (sum of all chunk bytes)
 MAX_SNAPSHOT_ACCOUNTS = 50_000_000
 

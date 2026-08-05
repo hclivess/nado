@@ -1852,7 +1852,13 @@ async def make_app(port):
     # "<< 8 MiB peer body"), leaves headroom for a fold bundle, and is still far below anything that would
     # make a submit a memory-exhaustion lever — the pool cap, per-tx validation and the rate limiter all
     # still apply behind it.
-    app = web.Application(client_max_size=8 * 1024 * 1024)
+    # RAISED AGAIN, for the same reason one size up. 8 MiB was sized for a ~1263 KB epoch proof; a real
+    # settle proof at protocol strength measures ~120 MiB, which is why it was pushed to DA — and DA
+    # cannot deliver it on this fleet, because only one node runs a DA store, so a peer cannot pull it
+    # inside _fetch_da_proof's 8 s budget and NO proof has ever landed. Carrying it inline over the gossip
+    # the fleet already runs removes the fetch entirely. See protocol.MAX_INLINE_TX_BYTES.
+    from protocol import MAX_INLINE_TX_BYTES as _MAX_INLINE_TX
+    app = web.Application(client_max_size=_MAX_INLINE_TX)
     app.add_routes([
         web.get("/", home),
         *[web.get("/" + _t, interface_page) for _t in _TAB_PATHS],

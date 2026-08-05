@@ -57,14 +57,16 @@ def _unpack_block(raw: bytes):
 # Bounded decompress for the zstd block-sync WIRE payload (get_blocks_after/before). max_output_size caps a
 # decompression bomb from an untrusted peer (a tiny frame that expands to gigabytes); a full sync batch of
 # real data is a few MB (SYNC_BATCH_BYTES bounds the serve side), so 64 MiB is a generous ceiling.
-_ZSTD_WIRE_MAX = 64 << 20
+_ZSTD_WIRE_MAX = max(64 << 20, (__import__("protocol").MAX_INLINE_TX_BYTES * 2) + (64 << 20))
 
 # Block-sync batch bounds, shared by the serve side (nado.py blocks_after/before: hard count cap + byte
 # budget so a fat-block batch stays far under the client's _ZSTD_WIRE_MAX bomb cap) and the pull side
 # (core_loop emergency sync asks for SYNC_BATCH_MAX; an old peer capped at 100 simply returns fewer —
 # the puller never assumes a full batch). Mostly-empty ML-DSA blocks are ~7 KB, so 500 is ~3.5 MB typical.
 SYNC_BATCH_MAX = 500
-SYNC_BATCH_BYTES = 8 << 20
+# RAISED for inline settle proofs: a single block can now carry a ~120 MiB proof, so a batch byte budget of
+# 8 MiB would refuse to serve the very block that matters. See protocol.MAX_INLINE_TX_BYTES.
+SYNC_BATCH_BYTES = max(8 << 20, __import__("protocol").MAX_INLINE_TX_BYTES + (8 << 20))
 
 # Hard cap on the RAW (still-compressed) bytes we will buffer from a peer's block-sync response before
 # decoding. The serve side bounds a batch to SYNC_BATCH_BYTES compressed; 2x that is generous headroom for

@@ -663,6 +663,31 @@ SETTLE_PROOF_RECURSIVE = True    # ENABLED at the alphanet-14 reroll: the in-cir
 # shape again DOES require a reroll — re-check before touching this.
 SETTLE_FOLD_FAN_IN = 2
 
+# ---- INLINE PROOF CEILING ---------------------------------------------------------------------------
+# The largest transaction the network will accept, and therefore the largest settle proof that can ride
+# INSIDE the tx instead of going through DA.
+#
+# WHY THIS EXISTS. A settle proof went to DA purely because it did not fit in a transaction, and the DA
+# route then could not deliver it: measured 2026-08-05/06, a peer must pull the whole ~120 MiB from the
+# ONLY node in the fleet that runs a DA store (the three peers run just `nado`, not `nado-exec`, so
+# :9273 is dead on all of them) inside _fetch_da_proof's 8 s budget. It never arrived, every peer raised
+# ProofUnavailable, and in the entire life of alphanet-15 not one proof-carrying settle has ever landed.
+# Erasure coding k=4/n=8 cannot help when there is exactly one provider.
+#
+# Inlining removes that entire failure mode: the proof travels with the tx over the gossip the fleet
+# already runs, so there is no fetch, no budget, and no dependency on peers running a DA node.
+#
+# THE OLD CAPS WERE NOT A PROTOCOL FACT, despite the comment on SETTLE_INLINE_MAX saying so. The binding
+# limit was MAX_TX_BODY = 1 MiB in ops/net_ops.py — aiohttp's default, chosen as a DoS bound — and it was
+# already INCONSISTENT with SETTLE_INLINE_MAX = 7 MiB, which could never have been submitted. Nothing in
+# consensus constrains transaction size; block_ops has no size rule at all.
+#
+# COST, stated plainly: blocks carrying a proof get large, so sync and gossip move real bytes. That is a
+# deliberate alphanet trade — a proof that lands beats a smaller one that cannot. The fold (see
+# SETTLE_FOLD_FAN_IN) is what brings the size back down; this ceiling is what stops size from being the
+# thing that blocks settlement in the meantime.
+MAX_INLINE_TX_BYTES = 192 << 20          # 192 MiB — comfortably over the ~120 MiB an UNFOLDED proof measures
+
 # ---- RECORDS-BOUND SETTLEMENT (execnode/stark/records_bind.py) --------------------------------------
 # A settle-with-proof has always covered only the KV half of the exec root; the L1 composition pins the
 # SAME records half into the pre and post root, so a proven span REQUIRES records to be unchanged

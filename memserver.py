@@ -118,8 +118,15 @@ class MemServer:
         #                                always fill) and stay under MAX_PEER_BODY (8 MiB, the /transaction_pool
         #                                fetch cap) so the pool stays transferable between peers. 4 MiB = 16
         #                                full blocks of blobs, well under the 8 MiB wire cap.
+        # RAISED for INLINE SETTLE PROOFS. The stated invariant is "must exceed a full block's blobs, stay
+        # under MAX_PEER_BODY" — both sides moved: a settle proof now rides INSIDE the tx (~120 MiB) rather
+        # than through DA, which cannot deliver it on a fleet where only one node runs a DA store. A 4 MiB
+        # cull budget would evict the one transaction the whole settlement path exists to carry. Keyed to
+        # the same ceiling as the wire caps (protocol.MAX_INLINE_TX_BYTES) and still below MAX_PEER_BODY, so
+        # /transaction_pool stays transferable.
         self.transaction_pool_max_txs = 150000
-        self.transaction_pool_max_bytes = 4 * 1024 * 1024      # 4 MiB (>> 256 KiB block, << 8 MiB peer body)
+        from protocol import MAX_INLINE_TX_BYTES as _MAX_INLINE_TX
+        self.transaction_pool_max_bytes = max(4 * 1024 * 1024, _MAX_INLINE_TX + (4 * 1024 * 1024))
         self.force_sync_ip = None
         self.rollbacks = 0
         self.can_mine = False
