@@ -937,6 +937,22 @@ async def maybe_settle(session):
                         print(f"[execnode] proof PUBLISHED to DA ns={ns} span→{cur}: "
                               f"{len(_blob)/1048576:.2f} MiB, k={DA_K}/n={DA_N}, commitment={proof_da} "
                               f"(too large to inline at ~{_inline/1048576:.2f} MiB)", flush=True)
+                        # ANNOUNCE IMMEDIATELY, BEFORE THE TX EXISTS. This is what makes a proof-carrying
+                        # settle admissible: peers begin pulling the blob NOW and finish while we are
+                        # still refreshing the deadline, building, signing and gossiping the tx — so when
+                        # validate_transaction finally calls _fetch_da_proof, the bytes are already local
+                        # and the 8 s budget is spent on a local read instead of a 118 MiB transfer.
+                        # Announcing returns as soon as peers ACK the string; their fetch runs in their
+                        # background, so this costs us ~one round trip, not a transfer. The deadline is
+                        # re-derived just below regardless, so the few seconds spent here are accounted.
+                        try:
+                            _told = await da_announce(session, proof_da)
+                            print(f"[execnode] DA announce ns={ns} span→{cur}: {_told} peer(s) will "
+                                  f"prefetch {proof_da[:16]}… before the settle tx reaches them", flush=True)
+                        except Exception as e:
+                            # Best-effort by design: peers still fall back to the on-demand fetch.
+                            print(f"[execnode] DA announce failed ns={ns} span→{cur} "
+                                  f"({type(e).__name__}: {e}) — peers will fetch on demand", flush=True)
                 except Exception as e:
                     # Availability is best-effort: a DA failure must not cost us the settlement.
                     print(f"[execnode] DA publish FAILED ns={ns} span→{cur} ({type(e).__name__}: {e}) — "
@@ -1663,6 +1679,60 @@ async def h_da_accept(request):
     return web.json_response({"ok": bool(ok)})
 
 
+async def h_da_announce(request):
+    """POST /da/announce — {commitment}: "this object exists, start pulling it NOW". Returns immediately
+    and does the fetch in the BACKGROUND, so the caller never waits on our bandwidth.
+
+    THIS IS THE FIX FOR PROOF-CARRYING SETTLEMENT. A settle proof is ~118 MiB. Before this, the first
+    time a peer ever heard of a commitment was when the settle tx referencing it arrived — so the whole
+    118 MiB transfer, decode and verify had to happen INSIDE validate_transaction's 8 s
+    `_fetch_da_proof` budget. Measured: ~10 s+ fetch from the single holder + ~4.4 s decode + ~21.7 s
+    verify ~= 36 s, so every peer raised ProofUnavailable, held ZERO in its pool, and the tx could never
+    be admitted anywhere but here (see ops/transaction_ops._fetch_da_proof and the "NOT PROPAGATED"
+    give-up in the settle pipeline). The bytes were always AVAILABLE; they just could not arrive in time.
+
+    Announcing decouples transfer from validation: the publisher tells peers the moment the blob is
+    published, each peer pulls it concurrently while the settle tx is still being built and gossiped,
+    and by the time validation runs `_fetch_da_proof` hits the LOCAL store and returns in ~0.002 s.
+
+    NOT A TRUST PATH. We only learn a commitment string; da_fetch then collects k+1 shards and checks
+    each against the commitment, exactly as an on-demand fetch does. A bogus or hostile announcement
+    costs one failed background fetch and nothing else — it cannot poison the store, because
+    DaStore.accept/da.reconstruct verify the commitment round-trip before anything is kept.
+
+    PUSH WAS NOT AN OPTION: /da/accept carries one shard HEX-ENCODED in a POST body capped at
+    MAX_BODY_BYTES (16 MiB), while a k=4 shard of a 118 MiB proof is ~29.6 MiB raw / ~59 MiB hex. So the
+    existing push endpoint structurally cannot carry a settle-proof shard; pull-on-announce reuses the
+    fetch path that already works and already caches."""
+    try:
+        j = await request.json()
+        c = str(j.get("commitment", ""))
+    except Exception:
+        return web.json_response({"ok": False, "error": "bad body"}, status=400)
+    # Same shape guard the settle validator applies before this string reaches DaStore._dir.
+    if not c or len(c) > 128 or "/" in c or "\\" in c or c in (".", ".."):
+        return web.json_response({"ok": False, "error": "bad commitment"}, status=400)
+    if DA.have(c) or c in _DA_PREFETCHING:
+        # Already held, or a fetch for it is already in flight. Re-announcing is normal (every peer
+        # announces to every peer), so this must be idempotent and must NOT start a second 118 MiB pull.
+        return web.json_response({"ok": True, "already": True})
+    _DA_PREFETCHING.add(c)
+
+    async def _pull():
+        try:
+            async with aiohttp.ClientSession() as s:
+                b = await da_fetch(s, c)                     # verifies + caches locally, or returns None
+            print(f"[execnode] DA prefetch {'OK' if b else 'FAILED'} {c[:16]}…"
+                  + (f" ({len(b)/1048576:.2f} MiB)" if b else ""), flush=True)
+        except Exception as e:
+            print(f"[execnode] DA prefetch ERROR {c[:16]}… ({type(e).__name__}: {e})", flush=True)
+        finally:
+            _DA_PREFETCHING.discard(c)                       # always clear, or a failure blocks retries forever
+
+    asyncio.create_task(_pull())
+    return web.json_response({"ok": True, "already": False})
+
+
 async def h_da_get(request):
     """GET /da/get?c=<commitment> — reconstruct + return the RAW bytes from locally-held shards (>=k), or
     404. Convenience for a client that trusts this node; the trustless path is /da/meta + /da/shard."""
@@ -1690,6 +1760,32 @@ async def h_da_get(request):
     if data is None:
         return web.json_response({"error": "not reconstructible here"}, status=404)
     return web.Response(body=data, content_type="application/octet-stream")
+
+
+_DA_PREFETCHING = set()    # commitments with a background pull in flight (h_da_announce dedupe)
+
+
+async def da_announce(session, commitment, budget_s=20.0):
+    """Tell every peer that `commitment` is published so they start pulling it NOW, in parallel, while we
+    are still building and gossiping the settle tx that references it.
+
+    Bounded and BEST-EFFORT: announcing is an optimisation, never a precondition for settling. Peers that
+    are down, slow, or running older code simply do not prefetch, and fall back to the on-demand fetch
+    that exists today — so this is safe to run against a mixed fleet. Returns the number of peers that
+    accepted the announcement, for the log line."""
+    urls = await _da_sources(session)
+    if not urls:
+        return 0
+
+    async def _tell(u):
+        try:
+            async with session.post(f"{u}/da/announce", json={"commitment": commitment},
+                                    timeout=aiohttp.ClientTimeout(total=budget_s)) as r:
+                return 1 if r.status == 200 else 0
+        except Exception:
+            return 0                                        # unreachable / no such endpoint / timeout
+
+    return sum(await asyncio.gather(*(_tell(u) for u in urls)))
 
 
 async def _da_sources(session):
@@ -2450,7 +2546,8 @@ async def main():
                     web.get("/da/shard", h_da_shard),
                     web.get("/da/get", h_da_get),
                     web.post("/da/publish", h_da_publish),
-                    web.post("/da/accept", h_da_accept)])
+                    web.post("/da/accept", h_da_accept),
+                    web.post("/da/announce", h_da_announce)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, BIND, PORT).start()
