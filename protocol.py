@@ -649,9 +649,18 @@ SETTLE_PROOF_RECURSIVE = True    # ENABLED at the alphanet-14 reroll: the in-cir
 # memory bounded, and leaves the nodes within a level independent. The root is still ONE proof, so the
 # verifier's cost is unchanged.
 #
-# CONSENSUS RULE, and it rides a REROLL for the same reason SETTLE_PROOF_RECURSIVE did: it changes the
-# SHAPE of the bundle (a "tree" instead of a "fold"), so a node that folds as a tree while its peers
-# expect a single fold produces a settle those peers cannot verify.
+# CONSENSUS RULE: it changes the SHAPE of the bundle (a "tree" instead of a "fold"), so a node that folds
+# as a tree while its peers expect a single fold produces a settle those peers cannot verify. The whole
+# fleet must therefore carry this before it is used.
+#
+# BUT IT DOES NOT NEED A REROLL, unlike SETTLE_PROOF_RECURSIVE. That one rode a reroll because settle
+# proofs are re-verified on block APPLY (ops/transaction_ops.verify_settlement_sparse), so a chain already
+# CONTAINING proofs judged under the old rule would fail to resync under the new one. Here there is no such
+# history: as of 2026-08-06 no settle proof has ever landed on alphanet-15 (the DA-carried tx could not be
+# admitted by peers at all), so nothing on chain needs re-verifying under the new shape. A coordinated
+# /update wave is sufficient.
+# THAT ARGUMENT EXPIRES the moment a proof lands. Once the chain holds a bundle of one shape, changing the
+# shape again DOES require a reroll — re-check before touching this.
 SETTLE_FOLD_FAN_IN = 2
 
 # ---- RECORDS-BOUND SETTLEMENT (execnode/stark/records_bind.py) --------------------------------------
