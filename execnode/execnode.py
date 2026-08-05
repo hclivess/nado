@@ -249,7 +249,16 @@ SETTLE_RESUBMIT_MAX_S = 1200
 # keep looking at a stale settlement. Detect the actual condition instead of guessing a budget — ask the
 # peers whether they have it. This is self-correcting: once a proof becomes cheap enough for peers to admit
 # (the K->1 fold), propagation succeeds and the hold runs its full course again with no change here.
-SETTLE_PROPAGATION_GRACE_S = 90
+# RAISED for the INLINE proof. 90 s was measured against a DA-carried settle, whose tx is tiny (it carries
+# only a commitment) — so if peers did not hold it within 90 s they never would. An inline settle is the
+# opposite: the tx IS the ~120 MiB proof, so reaching a peer legitimately takes a push of that body
+# (measured 3.2 s and 18.0 s for 50 MiB to the two peers, i.e. up to ~45 s for 120 MiB) PLUS the peer
+# verifying the proof before it answers (~22-94 s). Those add to more than 90 s, so the give-up fired while
+# propagation was still in progress and healthy:
+#     GIVING UP after 1 attempt(s) over 185s (tip is 40818, pre-state was 40818)
+# The check is still worth having — it is what stops a hold from burning 20 minutes on a tx that can never
+# land — it just has to outlast an honest transfer.
+SETTLE_PROPAGATION_GRACE_S = 420
 # Backstop only, so a pathological loop (blocks arriving far faster than expected) cannot spin unbounded.
 SETTLE_RESUBMIT_MAX = 200
 # STRONG REFERENCES to the detached settle tasks. asyncio keeps only a WEAK reference to a running task, so
