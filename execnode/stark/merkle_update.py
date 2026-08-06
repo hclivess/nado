@@ -40,8 +40,11 @@ def _ordered(cur_digest, sib, d):
     return [int(x) % F.P for x in left] + [int(x) % F.P for x in right] + list(A2.IV)
 
 
-def build_trace(old_val, new_val, siblings, dirs):
-    """Two parallel folds (old_val, new_val) sharing (siblings, dirs). Returns (trace, T, D, pre_root, post_root)."""
+def _segment(old_val, new_val, siblings, dirs):
+    """The UNPADDED rows for ONE update, plus its roots: (rows, D, pre_root, post_root).
+
+    Split out of build_trace so a batch can concatenate K of these before padding once. build_trace pads to
+    next_pow2 immediately, which is exactly what a batch must not do."""
     D = len(siblings)
     o_blocks = [_permute_snapshots(_leaf_init(old_val))]
     n_blocks = [_permute_snapshots(_leaf_init(new_val))]
@@ -54,16 +57,22 @@ def build_trace(old_val, new_val, siblings, dirs):
         sibs.append(sib); ds.append(d)
     pre_root, post_root = oc, nc
     nblk = D + 1
-    n_used = nblk * BR
-    T = _next_pow2(n_used)
-    trace = []
+    rows = []
     for b in range(nblk):
         # sib/dir carried by THIS block are the ones its boundary absorbs (block b < D folds with sibs[b]);
         # the last block (b == D) carries zeros (no further fold).
         sib = list(sibs[b]) if b < D else [0] * CAP
         d = ds[b] if b < D else 0
         for r in range(BR):
-            trace.append(list(o_blocks[b][r]) + list(n_blocks[b][r]) + sib + [d])
+            rows.append(list(o_blocks[b][r]) + list(n_blocks[b][r]) + sib + [d])
+    return rows, D, pre_root, post_root
+
+
+def build_trace(old_val, new_val, siblings, dirs):
+    """Two parallel folds (old_val, new_val) sharing (siblings, dirs). Returns (trace, T, D, pre_root, post_root)."""
+    rows, D, pre_root, post_root = _segment(old_val, new_val, siblings, dirs)
+    T = _next_pow2(len(rows))
+    trace = list(rows)
     while len(trace) < T:
         trace.append(list(trace[-1]))
     return trace, T, D, pre_root, post_root
@@ -84,6 +93,123 @@ def _periodic(T, D):
         if i < n_used and rib == _R and blk + 1 < nblk:
             per[ACT_A][i] = 1
     return per
+
+
+# ---------------------------------------------------------------------------------------------------------
+# BATCHED AIR: K updates in ONE trace.
+#
+# WHY. Proof size is LOGARITHMIC in trace length — measured, one update per depth:
+#     T=512 6.24 MiB | T=2048 7.91 | T=4096 8.83 | T=8192 9.80 | T=16384 10.82
+# i.e. ~1 MiB per doubling, because 88% of a proof is FRI queries and a query costs one Merkle path, which
+# grows with log N. So K updates in ONE trace cost ~(10.82 + log2(K)) MiB instead of K x 10.82: eight updates
+# are ~13.8 MiB instead of 86.6 MiB.
+#
+# THIS IS THE ONLY LEVER LEFT. The records half needs one update PER PRESENT MINER (20 and rising — it tracks
+# fleet size), so K x 10.82 MiB passed the 191.94 MiB tx budget and keeps rising on its own. The K->1
+# recursion bundle would also collapse the bytes, and it is not available: it OOM-killed at 27.5 GB resident
+# for K=2. Dropping NUM_QUERIES would work and costs security bits, which is not a prover-side decision.
+#
+# WHAT CHANGES vs the single-update AIR — ONE constraint gate, nothing else. Transitions are evaluated on
+# every row but the last (vanishing (x^T-1)/(x-last)), so the SEAM row — the last row of segment s, whose
+# `nxt` is the first row of segment s+1 — is evaluated. There:
+#     ACT_R = 0 (the seam is a block's last row, rib == _R)      -> round constraints vanish. Fine.
+#     ACT_A = 0 (blk+1 == nblk within the segment)               -> absorb constraints vanish. Fine.
+#     dir-is-a-bit reads only `cur`                              -> fine.
+#     the sib/dir HOLD constraints are gated on (1 - ACT_A) = 1  -> they would force segment s's path to
+#         carry into segment s+1, which has a DIFFERENT path. THAT is the whole defect, and the fix is to
+#         gate those five on a periodic HOLD column that is 0 on seam rows.
+#
+# Kept as a SEPARATE AIR (_transitions_batch / _periodic_batch) rather than re-gating the existing one, so
+# single-update proofs already in flight keep verifying bit-identically. No flag day.
+HOLD = NPER                                      # periodic index: "sib/dir carry into the next row"
+NPER_B = NPER + 1
+
+
+def _periodic_batch(T, D, K):
+    """Structural selectors for K segments. Rebuilt by the verifier from the PUBLIC (T, D, K) alone — nothing
+    here depends on witness values, which is what keeps the batching sound."""
+    nblk = D + 1
+    seg = nblk * BR                              # rows per update segment
+    n_used = K * seg
+    per = [[0] * T for _ in range(NPER_B)]
+    for i in range(T):
+        if i >= n_used:
+            continue                             # padding: every selector 0, so every constraint vanishes
+        rib = i % BR
+        blk = (i % seg) // BR                    # block index WITHIN this segment, not globally
+        if rib < _R:
+            for lane in range(_W):
+                per[RC_lo + lane][i] = A2.RC[rib][lane]
+            per[ACT_R][i] = 1
+        absorbing = (rib == _R and blk + 1 < nblk)
+        if absorbing:
+            per[ACT_A][i] = 1
+        # HOLD: carry sib/dir to the next row. Never on an absorb row (the next row starts a new level and
+        # takes the NEXT sibling), never on the last row of a segment (the next row belongs to a different
+        # update), and never on the last live row (the next row is padding).
+        if not absorbing and (i + 1) < n_used and (i + 1) % seg != 0:
+            per[HOLD][i] = 1
+    return per
+
+
+def _transitions_batch():
+    """The single-update constraints with the five sib/dir HOLD constraints re-gated on the HOLD column.
+    Everything else is bit-identical to _transitions()."""
+    cons = []
+    for base in (OS, NS):
+        for i in range(_W):
+            cons.append(_round_c(base, i))
+        for i in range(CAP):
+            cons.append(_absorb_c(base, i, "left"))
+            cons.append(_absorb_c(base, i, "right"))
+            cons.append(_absorb_c(base, i, "cap"))
+    cons.append(lambda c, n, p: F.mul(c[DIR], F.sub(1, c[DIR])))                  # dir is a bit
+    for lane in range(CAP):                                                       # sib held within a level
+        cons.append((lambda L: (lambda c, n, p: F.mul(p[HOLD], F.sub(n[SIB + L], c[SIB + L]))))(lane))
+    cons.append(lambda c, n, p: F.mul(p[HOLD], F.sub(n[DIR], c[DIR])))            # dir held within a level
+    return cons
+
+
+def build_trace_batch(items):
+    """items = [(old_val, new_val, siblings, dirs), ...] -> (trace, T, D, K, roots).
+
+    `roots` is the CHAIN [pre_0, post_0 == pre_1, post_1, ...]: every segment's roots are pinned as public
+    boundaries, so the chain is public and a batch proves exactly what K separate proofs proved."""
+    if not items:
+        raise ValueError("empty batch")
+    segs, roots, D = [], None, None
+    for (old_val, new_val, sibs, dirs) in items:
+        rows, d, pre_root, post_root = _segment(old_val, new_val, sibs, dirs)
+        if D is None:
+            D = d
+            roots = [pre_root]
+        elif d != D:
+            raise ValueError("a batch must share one tree depth")
+        elif roots[-1] != pre_root:
+            raise ValueError("internal: batch segment pre_root breaks the chain")
+        roots.append(post_root)
+        segs.append(rows)
+    K = len(items)
+    flat = [r for rows in segs for r in rows]
+    T = _next_pow2(len(flat))
+    if T > stark.MAX_TRACE_ROWS:
+        raise ValueError(f"batch of {K} needs T={T} beyond MAX_TRACE_ROWS={stark.MAX_TRACE_ROWS}")
+    trace = flat
+    while len(trace) < T:
+        trace.append(list(trace[-1]))
+    return trace, T, D, K, roots
+
+
+def _boundaries_batch(items, roots, D):
+    """Per-segment boundaries, each shifted to its segment's start row. Every segment pins BOTH its roots and
+    its full position, so nothing about update k is left to the prover's choice."""
+    seg = (D + 1) * BR
+    bnd = []
+    for s, (old_val, new_val, _sibs, dirs) in enumerate(items):
+        off = s * seg
+        for (row, col, val) in _boundaries(old_val, new_val, roots[s], roots[s + 1], dirs, D):
+            bnd.append((off + row, col, val))
+    return bnd
 
 
 def _round_c(base, i):
@@ -187,6 +313,63 @@ def prove_update(old_val, new_val, siblings, dirs, num_queries=stark.NUM_QUERIES
                         num_queries=num_queries, backend=b, row_commit=row_commit)
     proof["D"] = D
     return proof, pre_root, post_root
+
+
+def max_batch(D):
+    """How many updates share one trace at depth D, from MAX_TRACE_ROWS alone. At D=256 that is 9
+    (9 x 257 x 55 = 127215 rows, padding to 131072; ten would need 262144)."""
+    seg = (D + 1) * BR
+    k = 1
+    while _next_pow2((k + 1) * seg) <= stark.MAX_TRACE_ROWS:
+        k += 1
+    return k
+
+
+def prove_updates(items, num_queries=stark.NUM_QUERIES, backend=None, row_commit=None):
+    """Prove K updates in ONE STARK. items = [(old_val, new_val, siblings, dirs), ...], applied IN ORDER, each
+    starting from the previous one's post_root. Returns (proof, roots) where roots is the public chain
+    [pre_0, ..., post_{K-1}]. proof['D'] and proof['K'] are public geometry."""
+    b = backend or B.RECURSION
+    if row_commit is None:
+        row_commit = stark.row_commit_default(b)
+    trace, T, D, K, roots = build_trace_batch(items)
+    bnd = _boundaries_batch(items, roots, D)
+    proof = stark.prove(trace, _transitions_batch(), bnd, periodic=_periodic_batch(T, D, K),
+                        max_degree=MAX_DEGREE, num_queries=num_queries, backend=b, row_commit=row_commit)
+    proof["D"] = D
+    proof["K"] = K
+    return proof, roots
+
+
+def verify_updates(proof, items_public, roots, num_queries=stark.NUM_QUERIES, backend=None):
+    """Verify a batched proof against the PUBLIC (per-update old/new values and positions, plus the root
+    chain). items_public = [(old_val, new_val, dirs), ...] — NO siblings: the path stays private witness.
+    Returns (ok, reason)."""
+    try:
+        b = backend or B.RECURSION
+        D, K = proof.get("D"), proof.get("K")
+        if not isinstance(D, int) or not isinstance(K, int) or D < 1 or K < 1:
+            return False, "bad batch geometry"
+        if len(items_public) != K or len(roots) != K + 1:
+            return False, f"public statement covers {len(items_public)} updates but the proof declares K={K}"
+        seg = (D + 1) * BR
+        if proof.get("T") != _next_pow2(K * seg):
+            return False, "trace length does not match the declared (D, K)"
+        if any(len(dirs) != D for (_o, _n, dirs) in items_public):
+            return False, "a position length does not match the declared depth"
+        # Rebuild the boundaries from the PUBLIC statement only. _boundaries_batch takes the same tuples the
+        # prover used, minus the siblings it never reads — passing None makes that structural rather than
+        # a convention someone can quietly break.
+        items = [(o, n, None, dirs) for (o, n, dirs) in items_public]
+        bnd = _boundaries_batch(items, roots, D)
+        return stark.verify(proof, _transitions_batch(), bnd, periodic=_periodic_batch(proof["T"], D, K),
+                            max_degree=MAX_DEGREE, num_queries=num_queries, backend=b,
+                            row_commit=("row_roots" in proof))
+    except Exception as e:
+        import traceback as _tb
+        _f = _tb.extract_tb(e.__traceback__)[-1]
+        return False, (f"malformed batch proof: {type(e).__name__}: {e} "
+                       f"[{_f.filename.rsplit('/', 1)[-1]}:{_f.lineno} in {_f.name}: {_f.line}]")
 
 
 def verify_update(proof, old_val, new_val, pre_root, post_root, dirs, num_queries=stark.NUM_QUERIES, backend=None):

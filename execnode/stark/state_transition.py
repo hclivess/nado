@@ -12,8 +12,25 @@ public (pre_root, post_root) AND re-verifies every update — either per-proof (
 bundle. Binding the updates to the epoch's actual SSTOREs is `exec_state_bind` (piece (b)); swapping this in as
 the settled root is the settlement integration (piece (c)).
 """
+import os
+
 from execnode.stark import (merkle_update as MU, field as F, backend as B, recursive_verify as RV,
                             storage_tree as ST)
+
+# HOW MANY UPDATES SHARE ONE STARK — and why this is NOT MU.max_batch(depth).
+#
+# max_batch answers "what fits MAX_TRACE_ROWS", which at EXEC_TREE_DEPTH=256 is 9. MEMORY says otherwise:
+# proving 9 in one trace was OOM-killed at 35.7 GB resident, and it took two of the box's other processes
+# down with it. Trace length is not the binding resource.
+#
+# The composition allocates a size-N inverse-denominator vector PER BOUNDARY, and batching multiplies BOTH
+# — boundaries grow ~K x 288 (256 of those 288 are the per-level position pins) and N grows ~K x 131072 — so
+# memory is QUADRATIC in K while the size win is only logarithmic. That is the trade this constant sits on.
+#
+# So it is set from a MEASURED safe value, not from what the trace can hold. 1 = the pre-batching behaviour
+# exactly (one proof per update), which is the only value verified at live geometry so far. Raise it only
+# against a measured peak RSS on this box, with the exec node's own footprint and the owner's jobs left room.
+DEFAULT_BATCH = int(os.environ.get("NADO_SETTLE_BATCH", "1"))
 
 
 def _dirs(key, depth):
@@ -21,29 +38,49 @@ def _dirs(key, depth):
 
 
 def prove_transition(pre_store, updates, num_queries=MU.stark.NUM_QUERIES, outer_queries=MU.stark.NUM_QUERIES,
-                     fold=False):
+                     fold=False, batch=None):
     """Prove a batch state transition. `pre_store` is a storage_tree.SparseStore at pre-state; `updates` an
-    ordered [(key, new_value), ...]. Produces one RECURSION-committed merkle-update proof per update, chaining
-    the roots. With `fold=True` also produces the recursive_verify K→1 bundle over them (the O(1) enabler; slow
-    to prove — the recursion throughput wall). Returns a transition dict. Mutates `pre_store` to the post-state."""
+    ordered [(key, new_value), ...]. Chains the roots across all of them. Returns a transition dict. Mutates
+    `pre_store` to the post-state.
+
+    SEVERAL UPDATES SHARE ONE STARK. This emitted one proof PER UPDATE, and that made the records half
+    unshippable: proof size is ~10.82 MiB at EXEC_TREE_DEPTH=256 and the records half needs one update PER
+    PRESENT MINER (20 and rising, because it tracks fleet size), so K x 10.82 MiB ran past the 191.94 MiB tx
+    budget and kept rising on its own.
+
+    Proof size is LOGARITHMIC in trace length — measured ~1 MiB per doubling of T, because 88% of a proof is
+    FRI queries and a query costs one Merkle path. So `batch` updates in ONE trace cost ~(10.82 + log2 batch)
+    MiB instead of batch x 10.82. Default is MU.max_batch(depth), the largest that fits MAX_TRACE_ROWS.
+
+    The two alternatives were measured and rejected: the K->1 recursion bundle OOM-killed at 27.5 GB resident
+    for K=2, and dropping NUM_QUERIES buys size with security bits (fri.py sizes 320 to clear 128 bits on the
+    PROVABLE branch), which is not a prover-side decision.
+
+    With `fold=True` also produces the recursive_verify K→1 bundle over the batch proofs."""
     depth = pre_store.depth
+    if batch is None:
+        batch = DEFAULT_BATCH
+    batch = max(1, min(int(batch), MU.max_batch(depth)))
     proofs, bnds, roots, upd = [], [], [pre_store.root()], []
-    for key, new_value in updates:
-        old = pre_store.get(key)
-        sibs = pre_store.path(key)
-        dirs = _dirs(key, depth)
-        proof, pre_root, post_root = MU.prove_update(old, new_value, sibs, dirs, num_queries=num_queries,
-                                                     backend=B.RECURSION)
-        if pre_root != roots[-1]:
-            raise ValueError("internal: update pre_root breaks the chain")
+    for lo in range(0, len(updates), batch):
+        items = []
+        for key, new_value in updates[lo:lo + batch]:
+            old = pre_store.get(key)
+            items.append((old, new_value, pre_store.path(key), _dirs(key, depth)))
+            upd.append((int(key), old % F.P, new_value % F.P))
+            # APPLY AS WE GO, INSIDE the chunk: segment s+1's siblings must be the ones AFTER segment s
+            # landed, exactly as K separate proofs saw them. Collecting all the paths first and then
+            # applying would prove a batch against a pre-state that never existed.
+            pre_store.set(key, new_value)
+        proof, rts = MU.prove_updates(items, num_queries=num_queries, backend=B.RECURSION)
+        if rts[0] != roots[-1]:
+            raise ValueError("internal: batch pre_root breaks the chain")
         proofs.append(proof)
-        bnds.append(MU._boundaries(old, new_value, pre_root, post_root, dirs, depth))
-        roots.append(post_root)
-        upd.append((int(key), old % F.P, new_value % F.P))
-        pre_store.set(key, new_value)
+        bnds.append(MU._boundaries_batch(items, rts, depth))
+        roots.extend(rts[1:])
     out = {"proofs": proofs, "bnds": bnds, "roots": roots, "updates": upd, "depth": depth,
-           "num_queries": num_queries, "outer_queries": outer_queries,
-           "periodic": MU._periodic(proofs[0]["T"], depth) if proofs else None}
+           "num_queries": num_queries, "outer_queries": outer_queries, "batch": batch,
+           "periodic": MU._periodic_batch(proofs[0]["T"], depth, proofs[0]["K"]) if proofs else None}
     if fold and proofs:
         out["bundle"] = RV.prove(proofs, MU._transitions(), bnds, num_queries_outer=outer_queries,
                                  periodic=out["periodic"])
@@ -65,7 +102,18 @@ def verify_transition(tr, pre_root, post_root, num_queries=None, outer_queries=N
             return False, "transition pre_root != public pre_root"
         if not ST._eq(roots[-1], post_root):
             return False, "transition post_root != public post_root"
-        if len(roots) != len(proofs) + 1:
+        # A BATCHED proof covers proof["K"] updates, so the old "one root per proof" arithmetic no longer
+        # holds. Derive the per-proof span from the PROOF'S OWN declared K and require it to account for
+        # every update exactly once — a proof whose K is short would otherwise leave later updates
+        # unverified while the roots chain still lined up.
+        batched = "K" in (proofs[0] or {})
+        spans = [int(p.get("K", 1)) for p in proofs] if batched else [1] * len(proofs)
+        if any(s < 1 for s in spans):
+            return False, "a proof declares a non-positive update count"
+        if sum(spans) != len(tr["updates"]):
+            return False, (f"proofs cover {sum(spans)} updates but the transition lists "
+                           f"{len(tr['updates'])}")
+        if len(roots) != sum(spans) + 1:
             return False, "root/proof count mismatch"
         nqi = num_queries if num_queries is not None else tr["num_queries"]
         nqo = outer_queries if outer_queries is not None else tr["outer_queries"]
@@ -75,13 +123,22 @@ def verify_transition(tr, pre_root, post_root, num_queries=None, outer_queries=N
                                   periodic=tr["periodic"], num_queries_inner=nqi)
             if not okr:
                 return False, f"K->1 bundle failed: {whyr}"
-        else:                                                # native: re-verify each update proof + its roots
+        else:                                                # native: re-verify each proof + its roots
             depth = tr["depth"]
-            for i, (proof, (key, old_v, new_v)) in enumerate(zip(proofs, tr["updates"])):
-                ok, why = MU.verify_update(proof, old_v, new_v, roots[i], roots[i + 1], _dirs(key, depth),
-                                           num_queries=nqi, backend=B.RECURSION)
+            at = 0
+            for pi, (proof, span) in enumerate(zip(proofs, spans)):
+                chunk = tr["updates"][at:at + span]
+                if batched:
+                    pub = [(old_v, new_v, _dirs(key, depth)) for (key, old_v, new_v) in chunk]
+                    ok, why = MU.verify_updates(proof, pub, roots[at:at + span + 1],
+                                                num_queries=nqi, backend=B.RECURSION)
+                else:
+                    (key, old_v, new_v) = chunk[0]
+                    ok, why = MU.verify_update(proof, old_v, new_v, roots[at], roots[at + 1],
+                                               _dirs(key, depth), num_queries=nqi, backend=B.RECURSION)
                 if not ok:
-                    return False, f"update {i} failed: {why}"
+                    return False, f"proof {pi} (updates {at}..{at + span - 1}) failed: {why}"
+                at += span
         return True, "state transition verified (roots chain + every update re-verified)"
     except Exception as e:
         return False, f"malformed transition: {e}"
