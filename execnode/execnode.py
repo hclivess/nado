@@ -209,13 +209,35 @@ SETTLE_SUBMIT_TIMEOUT_PROOF = 300
 # alphanet-12 three times on 2026-07-28" because an exact-landing tx could not propagate in time. 60 blocks
 # (~6 min) covers the verification plus propagation and stays far under TX_LANDING_WINDOW (360), so a tx
 # admitted against a slightly-behind peer still fits.
-# RAISED for the INLINE proof. 60 blocks (~6 min) covered "verification plus propagation" when the tx was
-# small — a DA-carried settle ships only a commitment. Now the tx IS the ~120 MiB proof, and propagation
-# measured ~8 MINUTES end to end on 2026-08-06: the first run where all three peers actually held it
-# finished AFTER the exact-landing target had already passed, so the tx was correct, propagated, and still
-# unlandable. 180 blocks (~18 min) covers the measured transfer with real margin and stays well under
-# TX_LANDING_WINDOW (360), so a tx admitted against a slightly-behind peer still fits.
-SETTLE_PROOF_TX_MARGIN = 180
+# RAISED for the INLINE proof, then LOWERED AGAIN once the proof stopped being huge. 60 blocks (~6 min)
+# covered "verification plus propagation" when the tx was small — a DA-carried settle ships only a
+# commitment. When the tx became the ~120 MiB inline proof, propagation measured ~8 MINUTES end to end
+# (2026-08-06): the first run where all three peers actually held it finished AFTER the exact-landing
+# target had passed, so the tx was correct, propagated, and still unlandable. Hence 180.
+#
+# 1affffac made the proof 8.92 MiB instead of 120.31, and the margin is not free: because a settle is an
+# EXACT-LANDING tx (protocol.py:115 — it "lands at exactly max_block"), the margin IS a settlement STALL.
+# The exec node must hold every bare settle until the proven span lands, or it would advance the justified
+# tip past the span the proof covers. MEASURED on the cursor-46538 proof: submitted 12:35, next settle
+# 12:55 — ~20 minutes of frozen settlement for one proof.
+#
+# RE-MEASURED 2026-08-06 13:12 on a live 8.92 MiB proof (cursor 46892), polling each peer's own
+# /transaction_pool until it held the tx (/tmp/proppropagate.py):
+#     185.100.232.131   +3.4 s
+#     185.184.192.210   +4.2 s
+#     208.87.242.141   +31.7 s
+# measured from 10 s after the submit line, so ~42 s end to end against the ~480 s the 180 was sized for.
+# Block time measured the same minute: 6.0 s/block. So 60 blocks = ~6 min = 8.6x the observed worst case,
+# and it halves-then-some the settlement stall (18 min -> 6 min).
+#
+# WHY NOT LOWER STILL: an exact-landing tx must be held by whoever produces THAT SPECIFIC block, not merely
+# by someone. Block production on this chain is ~18 distinct producers per 66 blocks, and only the 3 peers
+# above can be polled — propagation to the rest is unmeasured, so the 8.6x is doing real work. The failure
+# mode is also asymmetric but bounded: too small and the tx expires unincluded, wasting one prove and
+# falling back to a bare settle (recoverable, and the status quo for weeks); too large and settlement
+# freezes for every proof. Stays far under TX_LANDING_WINDOW (360), so a tx admitted against a
+# slightly-behind peer still fits.
+SETTLE_PROOF_TX_MARGIN = 60
 # Hard ceiling on the publish+submit hold, and it must EXCEED what it is holding for, or it expires mid
 # pipeline and hands the race back to the bare settles it exists to suppress.
 #
