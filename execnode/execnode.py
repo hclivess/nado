@@ -60,7 +60,16 @@ DA_N_MAX = 64          # bound attacker-supplied meta.n so a lied manifest can't
 DA_URL = os.environ.get("NADO_DA_URL", "").rstrip("/")
 DA_K = int(os.environ.get("NADO_DA_K", "4"))
 DA_N = int(os.environ.get("NADO_DA_N", "8"))
-DA = DaStore(DA_DIR)
+# ROLLING WINDOW. Without this the store is append-only: MEASURED 2026-08-06, exec_da held 41 GB in 109
+# objects (1,916 files) — every settle proof published during the 2026-08-04/05 transport work, ~390 MB each
+# (a ~120 MiB proof erasure-coded k=4/n=8). That was 99.8% of the node's footprint against 75 MB of actual
+# blocks: a snapshot node had quietly become an archival one. DaStore.prune() had existed all along for
+# exactly this and was called from nothing but a test.
+# Nothing needs the old objects: SETTLE_PROOF_DEPTH_GATED means a settle proof is verified near the TIP and
+# deep blocks accept without re-fetching it, so an object is only reachable for a short window after it is
+# published. The bound is a COUNT, which caps disk at retain x blob size regardless of settle cadence.
+DA_RETAIN = int(os.environ.get("NADO_DA_RETAIN", "24"))
+DA = DaStore(DA_DIR, retain=DA_RETAIN)
 # H-7: cap concurrent proving/applying so a flood of POSTs can't exhaust CPU/memory (each prove is a full
 # STARK; each apply verifies a ~1MB proof). Created lazily on the running loop.
 _inflight = None
@@ -429,7 +438,7 @@ def _reset_states_to_genesis(reason=""):
         except OSError:
             pass
     _s.rmtree(DA_DIR, ignore_errors=True)
-    DA = DaStore(DA_DIR)
+    DA = DaStore(DA_DIR, retain=DA_RETAIN)
     states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
     state = states["default"]
     if state.cursor == -1 and state.state_root() != _EXEC_GENESIS_ROOT:

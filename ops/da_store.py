@@ -38,9 +38,51 @@ class DaStore:
         {root}/{commitment}/{i}.proof      -> merkle proof for shard i (binds it to the commitment)
     A node may hold ALL n shards (a publisher / archival DA node) or just a subset (spread for k-of-n)."""
 
-    def __init__(self, root):
+    def __init__(self, root, retain=None):
+        # `retain` = the ROLLING WINDOW this class's own docstring promises: keep at most this many objects,
+        # newest first, and drop the rest on every put(). None = unbounded (tests, and any caller that wants
+        # to manage the window itself).
+        #
+        # WHY IT EXISTS. prune() was written for exactly this and, until 2026-08-06, was called from ONE
+        # place in the whole tree: tests/test_da_store.py. Production never pruned, so the store grew
+        # without bound. MEASURED on the alphanet-15 node that day: exec_da held 41 GB in 109 objects
+        # (1,916 files) — every settle proof published during the 2026-08-04/05 transport work, at ~390 MB
+        # each (a ~120 MiB proof erasure-coded k=4/n=8). It was 99.8% of the node's 41 GB footprint; the
+        # blocks themselves were 75 MB. A snapshot node had quietly become an archival one.
+        #
+        # A COUNT is the right bound rather than an age: it caps disk at retain x blob size regardless of
+        # settle cadence, and it degrades safely — the newest objects, the only ones a peer can still be
+        # fetching, are exactly the ones kept. Nothing needs the old ones: SETTLE_PROOF_DEPTH_GATED means a
+        # proof is verified near the tip and deep blocks accept without re-fetching it.
         self.root = root
+        self.retain = int(retain) if retain else None
         os.makedirs(root, exist_ok=True)
+
+    def sweep(self, keep=None):
+        """Drop all but the `keep` most recently written objects. Returns the number removed. Idempotent,
+        and never raises on a concurrent writer — a directory that vanishes underneath us is already gone."""
+        keep = self.retain if keep is None else int(keep)
+        if not keep:
+            return 0
+        try:
+            entries = []
+            for name in os.listdir(self.root):
+                d = os.path.join(self.root, name)
+                if os.path.isdir(d):
+                    try:
+                        entries.append((os.path.getmtime(d), name))
+                    except OSError:
+                        continue
+            if len(entries) <= keep:
+                return 0
+            entries.sort(reverse=True)                 # newest first — those are the fetchable ones
+            dropped = 0
+            for _mt, name in entries[keep:]:
+                shutil.rmtree(os.path.join(self.root, name), ignore_errors=True)
+                dropped += 1
+            return dropped
+        except OSError:
+            return 0
 
     def _dir(self, commitment):
         c = str(commitment)
@@ -73,6 +115,10 @@ class DaStore:
             sp = da.sample_proof(m, i)
             _atomic_write(os.path.join(d, f"{i}.shard"), sp["shard"])
             _atomic_write(os.path.join(d, f"{i}.proof"), json.dumps(sp["proof"]).encode())
+        # ROLLING WINDOW, ENFORCED HERE so no caller can forget it — which is what let the store reach 41 GB.
+        # Swept AFTER the write, so the object just published is always among the newest and never its own
+        # victim.
+        self.sweep()
         return meta
 
     # ---- distribution side ----------------------------------------------------------------------
