@@ -70,6 +70,24 @@ def t_pending_is_always_released():
         "there must be a bounded give-up path so a pending entry cannot wedge the prover"
 
 
+def t_the_pending_marker_is_recorded_before_the_lookup():
+    """THE GATE HAD A HOLE ONE ROUND TRIP WIDE. MEASURED 2026-08-06 16:08:54-16:09:13: two proof-carrying
+    settles 19 s apart for the same root (48582 then 48585, 7.19 MiB each), AFTER the gate shipped.
+
+    _settle_publishing guards the publish/submit window and is cleared once the submit returns; the prove
+    gate keys on _settle_pending, which was recorded only AFTER an awaited /get_settled. Between those two
+    moments nothing held the tip, and a fresh prove started inside the gap. The fetch was for `pre_cursor`,
+    which nothing needs immediately — so the marker goes down first and the value is filled in after.
+
+    An unknown pre_cursor is SAFE: the resubmit path requires `_sc_now == int(_pend["pre_cursor"])`, which
+    -1 can never satisfy, so it declines to resubmit rather than guessing."""
+    i = SRC.index('_settle_pending[ns] = {"cursor": cur')
+    j = SRC.index('/get_settled?ns={ns}"', i - 4000)
+    assert j > i, "the pending marker must be recorded BEFORE the /get_settled lookup, not after"
+    assert '"pre_cursor": -1' in SRC, "the marker must go down with a not-yet-known pre_cursor"
+    assert '_settle_pending[ns]["pre_cursor"] =' in SRC, "pre_cursor must be filled in afterwards"
+
+
 def t_the_measurement_is_recorded():
     i = SRC.index("_pend_hold = _settle_pending.get(ns) is not None")
     ctx = SRC[max(0, i - 1800):i]
@@ -83,6 +101,7 @@ for nm, fn in [("the prove is gated on no pending proof", t_the_prove_is_gated_o
                ("the hold also covers the declined pass", t_the_hold_also_covers_the_declined_pass),
                ("only one _build_settlement_proof call site", t_only_one_build_call_exists),
                ("the pending entry is always released", t_pending_is_always_released),
+               ("the pending marker precedes the lookup", t_the_pending_marker_is_recorded_before_the_lookup),
                ("the measurement is recorded beside the gate", t_the_measurement_is_recorded)]:
     check(nm, fn)
 

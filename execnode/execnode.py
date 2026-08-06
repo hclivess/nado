@@ -1443,18 +1443,27 @@ async def maybe_settle(session):
                     _mb = int((tx or {}).get("max_block") or target)
                 except Exception:
                     _mb = target
-                # `pre_cursor` is the justified tip this proof EXTENDS. The retry above is only sound while
-                # that is still the tip — the proof pins pre_root to it — so it is recorded here rather than
-                # inferred later. Everything needed to rebuild the tx is kept: the proof itself stays in DA,
-                # so a resubmission is just this commitment against a fresh landing block.
+                # Everything needed to rebuild the tx is kept: the proof itself stays in DA, so a
+                # resubmission is just this commitment against a fresh landing block.
+                # RECORD THE MARKER FIRST, THEN LOOK UP pre_cursor — NOT the other way round.
+                # MEASURED 2026-08-06 16:08:54-16:09:13: two proof-carrying settles 19 s apart for the same
+                # root (48582 then 48585, 7.19 MiB each). The prove gate added in bd079982 keys on
+                # _settle_pending, and _settle_publishing (which guards the publish/submit window) is
+                # cleared once the submit returns — so between "submit accepted" and "marker recorded" there
+                # was a hole exactly one /get_settled round trip wide, and a fresh prove started inside it.
+                # The awaited fetch was what opened it, for a value nothing needs immediately.
+                _settle_pending[ns] = {"cursor": cur, "max_block": _mb, "root": root,
+                                       "proof_da": _txd.get("proof_da"), "pre_cursor": -1,
+                                       "attempts": 1, "first_submitted": time.time()}
+                # `pre_cursor` is the justified tip this proof EXTENDS. The resubmit path is only sound
+                # while that is still the tip — the proof pins pre_root to it — so it is recorded rather
+                # than inferred later. -1 above means "not yet known"; the resubmit path already treats an
+                # unknown pre_cursor as a reason to give up rather than to guess.
                 try:
                     _pre = await _get_json(session, f"/get_settled?ns={ns}")
-                    _pre_cursor = int((_pre or {}).get("exec_cursor", -1))
+                    _settle_pending[ns]["pre_cursor"] = int((_pre or {}).get("exec_cursor", -1))
                 except Exception:
-                    _pre_cursor = -1
-                _settle_pending[ns] = {"cursor": cur, "max_block": _mb, "root": root,
-                                       "proof_da": _txd.get("proof_da"), "pre_cursor": _pre_cursor,
-                                       "attempts": 1, "first_submitted": time.time()}
+                    pass
         if ok_any:
             _last_settled_cursor = state.cursor
     except Exception as e:
