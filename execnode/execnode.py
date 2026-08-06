@@ -172,11 +172,38 @@ SETTLE_FOLD = True
 # making the fold cheaper (see SETTLE_FOLD_FAN_IN and the untouched constant factors — blowup=8 from
 # max_degree=8, the ext-field arena penalty, allocator churn), and the bound must not be raised to hide
 # that. It still sits far below the 5h07m a non-completing fold once burned.
-# HOW MANY RECORDS UPDATES ONE PROOF MAY COVER. prove_transition emits ONE STARK PER UPDATE, so cost is
-# LINEAR: 167.6 s measured for 1 update, 712.2 s for 3 — ~170-240 s each. At SETTLE_PROVE_TIMEOUT=2400 s the
-# arithmetic limit is ~10; this sits under it because the same budget must also cover the KV prove, the DA
-# publish and the submit. A span past the cap declines to the bonded quorum, which is always correct.
-SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "6"))
+# HOW MANY RECORDS UPDATES ONE PROOF MAY COVER. prove_transition emits ONE STARK PER UPDATE, so both cost
+# and size are LINEAR in the update count.
+#
+# THE CONSTRAINT CHANGED FROM TIME TO SIZE. This was 6, sized against ~170-240 s per update against
+# SETTLE_PROVE_TIMEOUT=2400 s. That per-update cost was never the AIR's price — it was W=29 separate column
+# Merkle trees, 79.6% of the prove, because merkle_update.prove_update left stark.prove's row_commit at its
+# False default while the KV half had always derived it from the backend (see stark.row_commit_default).
+# Row-committed, one update measures 35-45 s to prove and 10.83 MiB on the wire, so:
+#
+#     TIME:  2400 s / ~45 s          = ~53 updates
+#     SIZE: (191.94 MiB - ~9 MiB KV) / 10.83 MiB = 16 updates      <-- BINDING
+#
+# so the cap is now SIZE-derived, and _RECORDS_CAP_FITS_INLINE below asserts it against the real budget
+# rather than trusting this comment to stay true.
+#
+# WHAT THIS DOES AND DOES NOT UNBLOCK. Live spans that cross a dividend epoch boundary carry 18 updates:
+# net_records_updates NETS per key, so repeated accrual collapses to ONE T_DIV_BAL position PER PRESENT
+# MINER — 13 on this chain — plus whatever else the span touched. 13 fits; 13 + 5 does not. So a SHORT
+# boundary span now proves and a long one still declines, where before EVERY span declined. Shortening the
+# settle cadence is the lever that closes the rest, because the 13 is a floor per boundary but the +5 is
+# proportional to span length.
+#
+# WHAT IS NOT THE LEVER: dropping NUM_QUERIES. 88% of the proof is FRI queries (320 x 30.5 KiB), so cutting
+# them would close the gap immediately — and fri.py sizes 320 to clear 128 bits on the PROVABLE
+# (Johnson-bound) branch, 320*0.4 + 18 grind ~ 146 bits, deliberately not the conjectured branch most
+# deployments accept. Buying tx size with security bits is not a prover-side decision.
+SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "16"))
+# Measured 2026-08-06 at EXEC_TREE_DEPTH=256, row-committed, encoded exactly as the submit path encodes it
+# (json.dumps(separators=(",", ":"), sort_keys=True)): 10.83 MiB for one merkle-update proof.
+SETTLE_RECORDS_PROOF_BYTES = 11 << 20
+# What the KV half of the same settle tx costs alongside it — 8.77 MiB observed on chain, rounded up.
+SETTLE_KV_HALF_BYTES = 9 << 20
 SETTLE_PROVE_TIMEOUT = 2400      # safety bound, not a feature switch: a prove that outruns this is
                                  # abandoned and the settle goes bare rather than halting the chain.
 # Largest settle tx we will try to submit INLINE. L1's /submit_transaction caps bodies at 8 MiB, so this
@@ -198,6 +225,20 @@ SETTLE_TX_ENVELOPE_MAX = 64 * 1024
 # Derived here, once the envelope size is known: the proof may be as large as the network's tx ceiling
 # minus everything else the tx carries.
 SETTLE_INLINE_MAX = _MAX_INLINE_TX_BYTES - SETTLE_TX_ENVELOPE_MAX
+# THE RECORDS CAP MUST ACTUALLY FIT. SETTLE_RECORDS_MAX_UPDATES is derived from this budget, and a comment
+# claiming so is worth nothing once someone raises the cap by env var or edits MAX_INLINE_TX_BYTES. A proof
+# that is built and then refused for size is the worst outcome available: it costs the full prove (~45 s per
+# update), stalls the settle cadence while it runs, and lands nothing. Fail here, at import, instead.
+_RECORDS_CAP_FITS_INLINE = (SETTLE_KV_HALF_BYTES
+                            + SETTLE_RECORDS_MAX_UPDATES * SETTLE_RECORDS_PROOF_BYTES) <= SETTLE_INLINE_MAX
+if not _RECORDS_CAP_FITS_INLINE:
+    _fits = (SETTLE_INLINE_MAX - SETTLE_KV_HALF_BYTES) // SETTLE_RECORDS_PROOF_BYTES
+    raise RuntimeError(
+        f"SETTLE_RECORDS_MAX_UPDATES={SETTLE_RECORDS_MAX_UPDATES} cannot fit inline: "
+        f"{SETTLE_KV_HALF_BYTES >> 20} MiB KV half + {SETTLE_RECORDS_MAX_UPDATES} x "
+        f"{SETTLE_RECORDS_PROOF_BYTES >> 20} MiB exceeds SETTLE_INLINE_MAX={SETTLE_INLINE_MAX >> 20} MiB. "
+        f"At most {_fits} records updates fit — lower the cap, or raise protocol.MAX_INLINE_TX_BYTES knowing "
+        f"peers must PULL the whole tx inside their admit budget.")
 # How long to wait for L1's verdict on a PROOF-CARRYING settle. L1 verifies the proof inline before it
 # answers, and that is measured at 94.2 s for a real 118.57 MiB proof, so anything near the bare-settle
 # budget guarantees a client-side timeout on a proof that is perfectly valid. Generous because the settle
@@ -700,15 +741,17 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
         # reached 1060 — 503 blocks, far past SETTLE_PROOF_MAX_SPAN — which makes every later span
         # unprovable too. One doomed prove poisons the whole cadence.
         #
-        # The cap is deliberately well under the arithmetic limit: the budget also has to cover the KV
-        # prove, the publish and the submit, and a span that declines here still settles by bonded quorum,
-        # which is always correct and merely slower. Raising SETTLE_PROVE_TIMEOUT instead would only make
-        # the stall longer.
+        # SINCE ROW-COMMITTING THE UPDATE PROOFS, THIS CAP IS ABOUT SIZE, NOT TIME. One update is ~45 s and
+        # 10.83 MiB, so 16 of them fit under SETTLE_INLINE_MAX while ~53 would fit in SETTLE_PROVE_TIMEOUT.
+        # A span that declines here still settles by bonded quorum, which is always correct and merely
+        # slower — and declining is still far better than proving something that gets refused for size.
         if len(net) > SETTLE_RECORDS_MAX_UPDATES:
+            _mib = (len(net) * SETTLE_RECORDS_PROOF_BYTES + SETTLE_KV_HALF_BYTES) >> 20
             print(f"[execnode] records half DECLINED for span {sc}->{cur}: {len(net)} updates exceeds "
-                  f"SETTLE_RECORDS_MAX_UPDATES={SETTLE_RECORDS_MAX_UPDATES} — at ~200 s per update that "
-                  f"cannot finish inside SETTLE_PROVE_TIMEOUT={SETTLE_PROVE_TIMEOUT}s, and a doomed prove "
-                  f"holds the tip until its thread ends. Riding the bonded quorum", flush=True)
+                  f"SETTLE_RECORDS_MAX_UPDATES={SETTLE_RECORDS_MAX_UPDATES} — at ~{SETTLE_RECORDS_PROOF_BYTES >> 20}"
+                  f" MiB per update that is ~{_mib} MiB against SETTLE_INLINE_MAX={SETTLE_INLINE_MAX >> 20} MiB, "
+                  f"so the proof would be built (~{45 * len(net)}s) and then refused. Riding the bonded quorum",
+                  flush=True)
             return None
         # prove_transition APPLIES the updates to `store`, so its root afterwards IS the post root — the
         # same way settlement_sparse reads sparse_post_root straight off pre_store after proving.
