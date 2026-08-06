@@ -737,11 +737,13 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
                      cls="epoch-boundary")
     # 4. the span's DA calls, per block (block_calls stamps cursor=h, ts=0 — the DA-binding form).
     calls = []
+    span_txs = []          # every tx in the span, in block order — the RECORDS half derives from these
     for h in range(sc + 1, cur + 1):
         blk = await _get_json(session, f"/get_block_number?number={h}")
         if not blk or not blk.get("block_hash"):
             return None
         calls += CC.block_calls(blk, ns)
+        span_txs += list(blk.get("block_transactions") or ())
     # 4b. DETECT AN UNPROVABLE CALL BEFORE PAYING FOR THE PROVE.
     #
     # A call the live chain SKIPS (sender cannot cover the escrow) or that REVERTS in the VM is a no-op on
@@ -804,12 +806,31 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     except Exception as _e:
         return _skip(f"could not derive the records half at the justified cursor {sc} from the stash "
                      f"({type(_e).__name__}: {_e})")
+    # rec_hex IS THE PRE ROOT. pre_full = rnode(kv_pre, rec_hex) must equal L1's JUSTIFIED root, which was
+    # composed with the records half AT sc. It only happened to be safe to write digest_hex(rec_root) here
+    # while the two were forced equal by the skip below.
+    rec_hex = SST.digest_hex(rec_pre_root)
+    _records_half = None
     if rec_pre_root != rec_root:
-        return _skip(f"the RECORDS half moved across the span {sc} -> {cur} "
-                     f"({SST.digest_hex(rec_pre_root)[:16]}… -> {SST.digest_hex(rec_root)[:16]}…); "
-                     f"prove_settlement_sparse pins ONE records root for the whole span, so proving this "
-                     f"span would assert something false. Waiting for a span whose records are constant")
-    rec_hex = SST.digest_hex(rec_root)
+        # THE RECORDS HALF MOVED — which used to end the span here. It no longer has to: the prover can
+        # now PROVE the half instead of pinning it (_build_records_half), and L1 checks that transition
+        # against the effects IT derived from its own committed summaries. This is the change that lets a
+        # span carrying calls, a bridge deposit or a dividend accrual settle by proof at all.
+        _records_half = await _build_records_half(session, ns, type(st).snapshot_view(snap["state"]),
+                                                  span_txs, sc, cur, rec_hex_expected=rec_hex)
+        if _records_half is None:
+            return _skip(f"the RECORDS half moved across the span {sc} -> {cur} "
+                         f"({rec_hex[:16]}… -> {SST.digest_hex(rec_root)[:16]}…) and could not be PROVEN "
+                         f"(an effect this node cannot derive, or an unavailable accrual input); the proof "
+                         f"would have to pin one records root for the whole span, which would assert "
+                         f"something false. Riding the bonded quorum", cls="records-unprovable")
+        if _records_half[1] != SST.digest_hex(rec_root):
+            # The derived effects must land on the records root we actually captured at `cur`. If they do
+            # not, our derivation disagrees with our own apply — refuse HERE rather than ship a proof that
+            # can only fail to bind on L1 after every peer has paid to verify it.
+            return _skip(f"the derived RECORDS half lands on {_records_half[1][:16]}… but our state at "
+                         f"{cur} has {SST.digest_hex(rec_root)[:16]}… — derivation disagrees with apply",
+                         cls="records-derivation-mismatch")
     beacons = {e: v % _F.P for e, v in st.beacons.items()}
     bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
 
@@ -904,12 +925,12 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # Those are completely different bugs and they now print differently.
     _pre_ok, _post_ok = (pre_full == sr), (post_full == root)
     if not (_pre_ok and _post_ok):
-        _rec_hex = SST.digest_hex(rec_root)
+        _rec_hex = f"{rec_hex[:16]}…->{SST.digest_hex(rec_root)[:16]}…"   # pre->post; they can differ now
         print(f"[execnode] settle-with-proof ns={ns} self-check FAILED span {sc}->{cur} — "
               f"PRE {'ok' if _pre_ok else 'MISMATCH'}: proof={pre_full[:16]}… justified={str(sr)[:16]}… | "
               f"POST {'ok' if _post_ok else 'MISMATCH'}: proof={post_full[:16]}… ours={str(root)[:16]}… | "
               f"kv_pre={str(proof.get('kv_pre'))[:16]}… kv_post={str(proof.get('kv_post'))[:16]}… "
-              f"rec={_rec_hex[:16]}… calls={len(calls)} — falling back to quorum", flush=True)
+              f"rec={_rec_hex} calls={len(calls)} — falling back to quorum", flush=True)
         return None
     # SAY THAT THE PROOF SURVIVED. Between "[settle-prove] ... total 239.9s" and the DA publish there was
     # NO log line at all, so a prove that completed and then went nowhere was indistinguishable from one
@@ -917,6 +938,17 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # after a completed prove is now named: this line, the self-check line above, the DA publish/FAILED
     # lines, or the REFUSED retry.
     print(f"[execnode] settle-with-proof BUILT ns={ns} span {sc}->{cur} — self-checks passed", flush=True)
+    # 6a. ATTACH THE RECORDS HALF, if the span moved it. The three fields are exactly what
+    # ops/transaction_ops.py reads: the transition, the claimed post root, and the PRE projection that
+    # records_bind.pinned_pre_get hashes against the tip's records root so every value the binding
+    # arithmetic touches is authenticated rather than taken on the prover's word.
+    # Attached only when there IS a transition — L1 requires rec_post == rec_hex for a span that committed
+    # no effects, so an absent records half is the frozen case and stays byte-identical to before.
+    if _records_half is not None:
+        _rtr, _rpost, _rproj = _records_half
+        proof["records"], proof["rec_post"], proof["records_pre"] = _rtr, _rpost, _rproj
+        print(f"[execnode] settle-with-proof ns={ns} span {sc}->{cur} carries a RECORDS half: "
+              f"{rec_hex[:16]}… -> {_rpost[:16]}… ({len(_rtr.get('updates') or ())} update(s))", flush=True)
     # 6b. FOLDED proofs: self-VERIFY the recursion bundle at PROTOCOL strength (exactly what L1 runs) before
     # posting — a malformed fold is never broadcast; fall back to quorum. Runs in the worker thread.
     if proof.get("recursive") is not None:

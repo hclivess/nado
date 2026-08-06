@@ -1,0 +1,146 @@
+"""The prover must ATTACH a records half, and must attach nothing when the span did not move one.
+
+THE PRODUCER WAS THE MISSING PIECE. records_transition.py has existed for weeks, ops/transaction_ops.py
+verifies proof["records"], and three test files cover it — but NOTHING under execnode/ ever SET it. The
+production prover only ever PINNED a records root, which is why the exec node skipped every span whose
+records moved before it ever proved anything. Flipping SETTLE_PROOF_RECORDS_VALUE_CALLS without this would
+have changed what L1 derives, spent a genesis, and unblocked nothing.
+
+WHAT THE VERIFIER REQUIRES (ops/transaction_ops.py, the `_records_bound` branch), and therefore what these
+checks pin:
+  * proof["records"]     — the transition, whose updates must EQUAL net_records_updates(pre_get, effects)
+                           where the effects come from L1's OWN committed summaries, never from the proof;
+  * proof["rec_post"]    — the claimed post records root, composed with kv_post into the settle's state_root;
+  * proof["records_pre"] — the PRE projection, which pinned_pre_get hashes against the tip's records root so
+                           every value the binding arithmetic reads is authenticated.
+
+THE EMPTY-EFFECT TRAP is the one that bites: L1 REQUIRES rec_post == rec_hex when the span committed no
+effects, so attaching an empty transition would try to move the half on nobody's authority. The prover must
+attach NOTHING in that case and leave the frozen path byte-identical.
+
+Run: python3 tests/test_prover_records_half.py
+"""
+import ast
+import os
+import sys
+import traceback
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+SRC = open(os.path.join(ROOT, "execnode", "execnode.py")).read()
+TREE = ast.parse(SRC)
+
+fails = 0
+
+
+def check(name, fn):
+    global fails
+    try:
+        fn()
+        print(f"PASS  {name}")
+    except Exception as e:
+        fails += 1
+        print(f"FAIL  {name}: {e}")
+        traceback.print_exc()
+
+
+def _fn(name):
+    for n in ast.walk(TREE):
+        if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef)) and n.name == name:
+            return n
+    raise AssertionError(f"{name} not found")
+
+
+def t_builder_exists_and_is_awaited():
+    f = _fn("_build_records_half")
+    assert isinstance(f, ast.AsyncFunctionDef), "it performs L1 fetches, so it must be async"
+    assert "await _build_records_half(" in SRC, "the settle path must AWAIT it, not schedule it"
+
+
+def t_all_three_verifier_fields_are_attached():
+    assert 'proof["records"], proof["rec_post"], proof["records_pre"]' in SRC, \
+        "all three fields the verifier reads must be set together — two of three binds nothing"
+
+
+def t_attach_is_conditional_the_empty_case_stays_frozen():
+    """L1 requires rec_post == rec_hex for a span with no effects. Attaching an empty transition would move
+    the half on nobody's authority, so the frozen path must stay byte-identical."""
+    assert "if _records_half is not None:" in SRC, "the attach must be conditional"
+    body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
+    assert "if not effects:" in body, "an empty effect set must return None, not an empty transition"
+    assert "if not net:" in body, "effects that net to nothing must also return None"
+
+
+def t_pre_root_is_the_tip_root_not_the_post_root():
+    """pre_full = rnode(kv_pre, rec_hex) must equal L1's JUSTIFIED root, which was composed with the records
+    half AT sc. Writing digest_hex(rec_root) was only safe while the skip forced the two to be equal."""
+    assert "rec_hex = SST.digest_hex(rec_pre_root)" in SRC, \
+        "rec_hex must be the PRE records root once the two can differ"
+    # LINE-ANCHORED, not a substring: `_rec_hex = SST.digest_hex(rec_root)` is a DIFFERENT local used only
+    # in the self-check failure message, and a naive `in SRC` matched inside it. Fourth checker today that
+    # was wrong before the code was.
+    import re as _re
+    bad = [l for l in SRC.splitlines() if _re.match(r"\s*rec_hex\s*=\s*SST\.digest_hex\(rec_root\)", l)]
+    assert not bad, f"the old POST-root assignment would break pre_full the moment records move: {bad}"
+
+
+def t_derivation_is_checked_against_our_own_apply():
+    """If the derived effects do not land on the records root we captured at `cur`, our derivation
+    disagrees with our own apply — refuse locally rather than make every peer pay to verify a proof that
+    can only fail to bind."""
+    assert "records-derivation-mismatch" in SRC, \
+        "a derivation that disagrees with our apply must be caught before posting"
+
+
+def t_accrual_inputs_come_from_l1_not_the_proof():
+    """records_bind's header: the exec node reads these over an UNAUTHENTICATED HTTP hop, so a verifier
+    trusting the proof's copy would be trusting the prover's HTTP client. The prover must read them from L1
+    and fail closed when they are unavailable."""
+    body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
+    assert "/get_dividend_inflow?epoch=" in body and "/get_open_weights?epoch=" in body, \
+        "accrual inputs must be fetched from L1"
+    assert 'ow.get("error")' in body, "a refused weights_at_epoch (pruned recerts) must fail closed"
+
+
+def t_no_post_state_is_materialised():
+    """The KV half never materialises a post-state either — it derives the post from the pre by executing.
+    Using a live post-state here would reintroduce the PRE MISMATCH trap records_root_from_snapshot
+    documents, because `st` keeps mutating throughout the prove."""
+    body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
+    assert "prove_records_transition" not in body, \
+        "the pre/post-state wrapper takes a POST state; build from the store + derived updates instead"
+    assert "SX.prove_transition(store" in body, "prove from the PRE store plus the derived updates"
+
+
+def t_projection_is_computed_once():
+    """Computing records_projection inside pre_get rebuilt the whole ~118k-entry map on EVERY record
+    lookup — quadratic, in the prove's critical path."""
+    body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
+    assert body.count("_ER.records_projection(pre_view)") == 1, \
+        f"records_projection must be computed once, found {body.count('_ER.records_projection(pre_view)')}"
+
+
+def t_epoch_skip_still_stands_until_the_derivation_ships():
+    """Dropping it here would produce proofs L1 REFUSES: without the branch's dividend derivation, L1 marks
+    a boundary block derivable with the accrual MISSING, so the binding mismatches. It rides the cutover."""
+    assert "crosses a dividend epoch boundary" in SRC, \
+        "the epoch skip must remain until the accrual derivation ships with the reroll"
+
+
+for nm, fn in [("the builder exists and is awaited", t_builder_exists_and_is_awaited),
+               ("all three verifier fields are attached together", t_all_three_verifier_fields_are_attached),
+               ("attach is conditional; the empty case stays frozen", t_attach_is_conditional_the_empty_case_stays_frozen),
+               ("rec_hex is the PRE root, not the post root", t_pre_root_is_the_tip_root_not_the_post_root),
+               ("the derivation is checked against our own apply", t_derivation_is_checked_against_our_own_apply),
+               ("accrual inputs come from L1, not the proof", t_accrual_inputs_come_from_l1_not_the_proof),
+               ("no post-state is materialised", t_no_post_state_is_materialised),
+               ("the projection is computed once", t_projection_is_computed_once),
+               ("the epoch skip stands until the derivation ships", t_epoch_skip_still_stands_until_the_derivation_ships)]:
+    check(nm, fn)
+
+print()
+if fails:
+    print(f"{fails} FAILURES")
+    sys.exit(1)
+print("ALL PASS")
