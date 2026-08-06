@@ -308,6 +308,22 @@ makes its span unprovable.** Verified empirically — all 6 successful game call
 and there are zero zero-value calls on this chain. Presence-dividend accrual compounds it by moving
 records every epoch with no transaction at all.
 
+**Why there is no cheaper shortcut — checked, not assumed.** The obvious cheap fix is "the node already
+ran the VM at incorporate time, so just commit the verdict alongside the call leaves". It does not work,
+and the reason is structural:
+
+* `block_summary` / `block_records_effects` are called from `loops/core_loop.incorporate_block` — the **L1**
+  path — and what they return "feeds the L1 state root", so it must be a deterministic function of
+  committed data that every node computes identically.
+* **The L1 never executes contracts.** The exec layer is a separate process that tails L1. At incorporate
+  time the L1 has the block body and nothing else, which is exactly why derivation is restricted to
+  calldata.
+* Letting the exec node supply the verdict would put exec-layer output into the L1 state root, breaking the
+  layering that keeps L1 validation independent of the exec layer.
+
+So `records_bind`'s "deriving it needs the exec proof's own verdict" is not a deferral of convenience — a
+proof is the *only* sound way for L1 to learn what a call did.
+
 **The unlock, in the order the code itself implies:**
 
 1. The exec AIR proves a **reverting** execution, exposing the per-call verdict as part of the proven
@@ -335,6 +351,13 @@ records movement**, which is why measured coverage is 2 proofs against 13 bare s
   and `rec_root` **at the narrowed cursor** (lowering `cur` alone makes the settle claim a post-root from a
   different cursor). `2d4bcccf` adds a pre-flight so such a span is skipped in seconds instead of after
   ~1000 s of proving.
+* **`test_settlement_aggregate` times out (>2400 s), and that says nothing about the tree fold.** The test
+  uses ONE storage entry ⇒ 1 merkle-update + 1 slot_key ⇒ **K=2**, and `prove_hetero` builds a tree only
+  when `len(fri_proofs) > fan_in` (2 > 2 is false). So it takes the monolithic path and its timeout is the
+  pre-existing monolithic cost, unchanged by the tree work. Production differs: K ≈ 2× net_updates (14 for
+  a span with 7), so the tree does apply there — it has simply never been reachable, because spans with
+  calls are exactly the ones the records gate refuses. Tree coverage today comes from
+  `tests/test_settle_fold_tree.py` (K=4, 9 checks, exit 0).
 * **The landed proof was UNFOLDED** (`calls=0`). The folded proof's SIZE has still never been measured
   against the 120.31 MiB unfolded baseline — that is the entire point of the fold.
 * **`prove_transition` now dominates**: measured `calls=1 net_updates=7` → 782–884 s, i.e. ~126 s per state
