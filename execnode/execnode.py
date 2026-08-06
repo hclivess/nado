@@ -825,6 +825,10 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     dividend accrual, a stale pre-state — makes a self-check fail and returns None, so a wrong proof is
     never posted and the quorum path (unchanged) settles instead. Proving runs in a worker thread under
     the proving semaphore. Validated end-to-end in tests/test_settle_prover_sim.py."""
+    # Declared HERE, not at the later assignment: the in-flight guard is now read twice — once before the
+    # records prove and once at the last moment before launching the KV prove — and Python requires the
+    # global statement to precede the first use in the function.
+    global _settle_proving
     if not SETTLE_PROVE:
         return None
     from execnode.stark import settlement_sparse as SS, calls_commit as CC, storage_tree as SST
@@ -966,6 +970,38 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
         # now PROVE the half instead of pinning it (_build_records_half), and L1 checks that transition
         # against the effects IT derived from its own committed summaries. This is the change that lets a
         # span carrying calls, a bridge deposit or a dividend accrual settle by proof at all.
+        # ────────────────────────────────────────────────────────────────────────────────────────────
+        # THE IN-FLIGHT GUARD HAS TO BE HERE TOO, NOT ONLY ~60 LINES BELOW.
+        #
+        # _build_records_half runs prove_transition — a multi-minute, CPU-bound, multi-GB STARK — and the
+        # `if _settle_proving` check sits AFTER it. So every settle cadence (~8 s) started ANOTHER records
+        # prove while the previous one was still running. The per-batch instrumentation caught it in one
+        # run; the batch index never advances:
+        #
+        #     00:45:48  batch 1/13 K=2 T=32768  76.4s (cum  76.4s) rss=1.07GB
+        #     00:47:08  batch 1/13 K=2 T=32768 147.0s (cum 147.0s) rss=1.63GB
+        #     00:48:16  batch 1/13 K=2 T=32768 207.9s (cum 207.9s) rss=1.79GB
+        #     00:49:19  batch 1/13 K=2 T=32768 261.8s (cum 261.8s) rss=1.96GB
+        #
+        # Four SEPARATE prove_transition calls, each restarting at batch 1 (cum == the batch time, so _t0
+        # is fresh each line), all running CONCURRENTLY: identical work taking 76 -> 147 -> 208 -> 262 s as
+        # they contend for cores. That is the whole mystery of tonight — the RSS climb to 14.6 GB, the ~4x
+        # slowdown, and the prove that blew SETTLE_PROVE_TIMEOUT=2400s and was abandoned. None of it was
+        # batching, and none of it was the AIR; it was N concurrent copies of the same proof.
+        #
+        # The comment on the later guard already states the rule — "without it a timeout every settle would
+        # stack a new fold thread every cadence and the box would grind to a halt" — it simply guarded the
+        # KV prove and left the records prove, added later and just as expensive, in front of it.
+        #
+        # The LATER check stays. It is not redundant: it re-reads at the last moment because the caller's
+        # copy goes stale while this function walks the span over HTTP (that was its own bug, three fixes
+        # deep). This one is the cheap early-out that stops the stacking; that one keeps the race honest.
+        if _settle_proving:
+            return _skip("a previous settle-prove is still running; not starting a second RECORDS prove "
+                         "over the same pre-state", cls="records-prove-inflight")
+        if _settle_publishing and (time.time() - _settle_publishing) < SETTLE_HOLD_MAX_S:
+            return _skip("the previous proof is still publishing/submitting; a records prove started now "
+                         "would extend the same pre-state and could never land", cls="records-prove-inflight")
         _records_half = await _build_records_half(session, ns, type(st).snapshot_view(snap["state"]),
                                                   span_blocks, sc, cur, rec_hex_expected=rec_hex)
         if _records_half is None:
@@ -1030,7 +1066,6 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # finishes. That makes the IN-FLIGHT GUARD the essential half: without it a timeout every settle would
     # stack a new fold thread every cadence and the box would grind to a halt. With it, at most ONE prove
     # is ever outstanding; while it runs, settles continue as bare attestations.
-    global _settle_proving
     if _settle_proving:
         return _skip("a previous settle-prove is still running; the settle is HELD until it finishes")
     # AND NOT WHILE THE PREVIOUS PROOF IS STILL PUBLISHING OR SUBMITTING. _settle_proving is cleared by the
