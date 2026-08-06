@@ -1182,6 +1182,11 @@ async def get_treasury_status(request):
             # bonded stake after voting inflated the displayed approval, which treasury_justified deliberately
             # prevents by snapshotting. The Quorum tab is what people read before voting, and it was showing a
             # different election from the one being run.
+            #
+            # VERIFIED ON CHAIN (alphanet-16, proposal c0078b53, 1 NADO -> faucet): with one activated voter
+            # holding 100 shares, casting 'no' moved approving_shares 100 -> 0 while `voters` stayed at 2.
+            # The old expression returns 100 for that same state, because the voter is still in the set and
+            # still activated — it never looked at the choice at all.
             approving = sum(kv_ops.treasury_vote_weight(pid, v) for v in voters if v in reg)
             status = "executed" if executed else ("passed" if treasury_justified(pid, reg, epoch) else "open")
             amt = int(spend.get("amount", 0))
