@@ -131,8 +131,20 @@ SETTLE_PROVE = True
 # THE K->1 FOLD IS UNCONDITIONAL TOO. It collapses the span's K exec proofs into ONE recursion bundle, so L1
 # verifies a single bundle instead of K per-segment stark.verify calls. It is gated at the call site on
 # there being calls to fold (an empty span takes the unfolded path) and is self-VERIFIED at protocol
-# strength before posting, so an unverifiable bundle is never broadcast. It could not complete in Python;
-# on the arena it is the only route to a proof small enough to settle on chain.
+# strength before posting, so an unverifiable bundle is never broadcast. It could not complete in Python.
+#
+# CORRECTION (2026-08-06): this used to end "on the arena it is the only route to a proof small enough to
+# settle on chain". THE FOLD DOES NOT SHRINK THE PROOF — it makes it BIGGER. prove_settlement_sparse keeps
+# `segments` and ADDS `recursive`; nothing strips seg["proof"]. What the bundle replaces is the K
+# per-segment exec-proof VERIFICATIONS, not the bytes (verify_settlement_sparse's docstring says exactly
+# that, and the per-segment transition binding / calls commitment / kv chain still run). Size tracks the
+# FRI query count — 320 queries x 0.381 MiB ~= 122 MiB, matching the 120.31 MiB measured — and the fold's
+# outer proof runs at the SAME protocol strength (settlement_sparse: oq = num_queries), so it adds a second
+# O(queries) object. What actually solved the size problem was carrying the proof INLINE
+# (protocol.MAX_INLINE_TX_BYTES). The fold's real value is L1 verification cost.
+# The size win people expect from "K->1" is still available and unimplemented: if the bundle
+# authoritatively re-verifies each segment's exec proof, the wire may only need each segment's PUBLIC part
+# — see doc/settle-proof-transport.md §7 for the caveat that must be checked first.
 SETTLE_FOLD = True
 # SETTLE_PROVE_TIMEOUT: seconds a single settle-prove may run before we give up on it and post a
 # BARE attestation instead. Without a bound the settle loop never returns and the chain stops settling.

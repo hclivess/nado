@@ -428,6 +428,37 @@ records movement**, which is why measured coverage is 2 proofs against 13 bare s
   a span with 7), so the tree does apply there — it has simply never been reachable, because spans with
   calls are exactly the ones the records gate refuses. Tree coverage today comes from
   `tests/test_settle_fold_tree.py` (K=4, 9 checks, exit 0).
+* **THE FOLD DOES NOT SHRINK THE PROOF — it makes it BIGGER.** Established 2026-08-06 from the code, not
+  from a prove. `prove_settlement_sparse` builds `out = {..., "segments": segments}` and then, when folding,
+  *adds* `out["recursive"] = RV.prove(exec_proofs, ...)`. Nothing strips `seg["proof"]`; line 344 appends it
+  to `exec_proofs` **and** leaves it in the segment. The verifier's own docstring says what is actually
+  replaced:
+
+  > when `proof["recursive"]` is present … the K per-segment **exec-proof verifications** are REPLACED by
+  > ONE recursion bundle … the sparse transition binding + calls commitment + pre-state pin + kv chain still
+  > run per segment.
+
+  So the fold trades **verification cost** (K exec verifications → 1 bundle verification) for **extra
+  bytes**. A folded settle carries the segment exec proofs *plus* the bundle.
+
+  This contradicts `execnode.py`'s own claim on `SETTLE_FOLD` — "on the arena it is the only route to a
+  proof small enough to settle on chain". That is not what the code does, and it is not what solved the
+  size problem: the **inline pivot** did (§6.4). The fold's real value is L1 verification cost.
+
+  It also explains why the size was never observed to drop: there was nothing to observe. The unfolded
+  proof measures 120.31 MiB, and the doc's own linear rule (§1: 0.381 MiB per FRI query) predicts
+  320 × 0.381 ≈ 122 MiB — so size tracks the FRI query count, and the fold's outer proof runs at the SAME
+  protocol strength (`oq = num_queries`, settlement_sparse.py:313). Folding adds a second ~O(queries)
+  object rather than replacing the first.
+
+* **THE UNEXPLOITED SIZE WIN, if someone wants the "K→1" that people expect.** If the bundle
+  *authoritatively re-verifies* every segment's exec proof — which is exactly what its docstring claims —
+  then the wire arguably does not need the full per-segment exec proofs at all, only what the verifier
+  still reads from them: `RV.public_part(seg["proof"])` and whatever `vm_circuit.epoch_statement` requires.
+  Stripping the rest under `recursive` would be a genuine size reduction, and it is NOT implemented.
+  **Unverified caveat:** `epoch_statement(seg["proof"], ...)` is passed the whole proof, so whether a public
+  part suffices needs checking before anyone builds this. That check is the next step, not the change.
+
 * **The landed proof was UNFOLDED** (`calls=0`). The folded proof's SIZE has still never been measured
   against the 120.31 MiB unfolded baseline — that is the entire point of the fold.
 * **`prove_transition` now dominates**: measured `calls=1 net_updates=7` → 782–884 s, i.e. ~126 s per state
