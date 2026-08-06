@@ -451,13 +451,23 @@ records movement**, which is why measured coverage is 2 proofs against 13 bare s
   protocol strength (`oq = num_queries`, settlement_sparse.py:313). Folding adds a second ~O(queries)
   object rather than replacing the first.
 
-* **THE UNEXPLOITED SIZE WIN, if someone wants the "K→1" that people expect.** If the bundle
-  *authoritatively re-verifies* every segment's exec proof — which is exactly what its docstring claims —
-  then the wire arguably does not need the full per-segment exec proofs at all, only what the verifier
-  still reads from them: `RV.public_part(seg["proof"])` and whatever `vm_circuit.epoch_statement` requires.
-  Stripping the rest under `recursive` would be a genuine size reduction, and it is NOT implemented.
-  **Unverified caveat:** `epoch_statement(seg["proof"], ...)` is passed the whole proof, so whether a public
-  part suffices needs checking before anyone builds this. That check is the next step, not the change.
+* **THE "UNEXPLOITED SIZE WIN" — RE-DERIVED AFTER §9, AND NO LONGER WORTH BUILDING.** The idea: if the
+  bundle *authoritatively re-verifies* every segment's exec proof — which its docstring claims — the wire
+  need not carry the full per-segment exec proofs, only what the verifier still reads
+  (`RV.public_part(seg["proof"])`, plus `proof["T"]`, `proof["W"]`, `proof["blocks"]` for
+  `epoch_statement`). The feasibility check passed: `public_part`'s own docstring says it is "the SMALL
+  public part … NO trace openings, NO Merkle paths".
+
+  **But the premise was the old proof format.** Openings were 118.97 of 124.43 MiB — **95.6%** — so
+  stripping them looked like a ~20× win. After `1affffac` moved to row-commit, openings are **2.14 of
+  7.60 MiB (28%)** and **FRI is 5.46 MiB (72%)**. So the ceiling on this optimisation fell from ~20× to
+  ~1.4×, and it applies only when a `recursive` bundle is present — which needs K>1 segments, which needs
+  calls in more than one block, which the records gate refuses today. **It would optimise proofs that
+  cannot currently be produced at all.**
+
+  Verdict: do not build it now. Revisit only after the records gate lifts, and note that by then the term
+  to attack is **FRI**, not the openings. Recorded rather than dropped, because the reasoning is sound and
+  only the arithmetic changed.
 
 * **The landed proof was UNFOLDED** (`calls=0`). The folded proof's SIZE has still never been measured
   against the 120.31 MiB unfolded baseline — that is the entire point of the fold.
@@ -569,5 +579,36 @@ trade, because it removes redundancy rather than security. It also means the tra
 192 MiB `MAX_TX_BODY`, size-scaled gossip timeouts, a 180-block runway) now has ~12× the headroom it was
 sized for, and the DA path is no longer near any limit.
 * **Cost of the inline pivot**: blocks carrying a proof are large, so gossip and sync move real bytes. That
-  is a deliberate alphanet trade — a proof that lands beats a smaller one that cannot. The fold is what
-  brings the size back down.
+  is a deliberate alphanet trade — a proof that lands beats a smaller one that cannot. After §9 a proof is
+  9.73 MiB, so this cost is now small.
+
+## 10. Which gate actually refuses a span — counted, not guessed (2026-08-06)
+
+Size and prove time are solved (§8, §9). What still stops proof-carrying settlement is that most spans are
+*refused before proving*. Counting one full day of `settle-with-proof SKIPPED` lines:
+
+| refusal | count |
+|---|---:|
+| span crosses a dividend epoch boundary | 55 |
+| the RECORDS half moved across the span | 36 |
+| a previous settle-prove is still running (HELD) | 33 |
+| no stashed pre-state | 17 |
+| span exceeds `SETTLE_PROOF_MAX_SPAN` | 5 |
+
+**The top two are ONE gate, not two.** A dividend accrues at every epoch-boundary block and moves records,
+so any span containing a boundary is unprovable for exactly the reason the records gate names. The epoch
+check simply fires first, being cheap. Together they are **91 of 146** refusals.
+
+**This kills the obvious cadence fix.** Aligning settles to epoch boundaries does not help: the boundary
+block itself can never be inside a proven span, and every span that contains a call still trips the records
+gate because every call on this chain carries value (all 25 game contracts; zero zero-value calls). The
+only thing that lifts this is `SETTLE_PROOF_RECORDS_VALUE_CALLS`, which needs a reroll — see §7a.
+
+**"No stashed pre-state" was ours, and is fixed.** All 17 came from restarts: the stash of pre-states the
+prover extends was in-memory only, so every deploy blinded the prover for a full settle cadence. `17c04c61`
+persists it beside the state file (bounded to `_SETTLED_HISTORY_KEEP`, swept by both existing generation
+wipes) and restores it at startup. Confirmed live: *"settle stash: restored 6 pre-state(s) from disk"*.
+This was the largest class removable **without** a reroll.
+
+**HELD (33)** is a consequence of prove time, and §8+§9 took a prove from 309–342 s to a few seconds, so it
+should largely disappear on its own. Worth re-counting rather than assuming.
