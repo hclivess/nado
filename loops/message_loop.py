@@ -342,8 +342,25 @@ class MessageClient(threading.Thread):
         # which is exactly how the finality stall above survived 34 minutes past its own fix landing.
         try:
             if self_update.code_is_stale():
-                components["Code"] = ("warn", f"running {self_update.running_head()}, checkout at "
-                                              f"{self_update.repo_head()} — RESTART to apply")
+                # AND ACT ON IT. Warning that a fix is not running does not make it run: this reported
+                # "RESTART to apply" for 34 minutes while a finality stall its own fix had already repaired
+                # kept going, and again while nado-exec ran an hour behind the row-commit fix. The updater's
+                # restart only ever fired after IT applied a fast-forward, so a locally-committed-and-pushed
+                # fix — how this fleet is developed — restarted nothing. apply_stale_checkout refuses on a
+                # dirty tree, acts at most once per head, and waits out a settle period first.
+                act = self_update.apply_stale_checkout()
+                st = act.get("status")
+                if st == "restarting":
+                    components["Code"] = ("warn", f"running {act['running']}, checkout at {act['repo']} — "
+                                                  f"RESTARTING {', '.join(act.get('services') or ['?'])}")
+                    self.logger.warning(f"code is stale (running {act['running']}, checkout {act['repo']}) "
+                                        f"— restarting {', '.join(act.get('services') or ['?'])} to apply")
+                elif st == "dirty":
+                    components["Code"] = ("warn", f"running {act['running']}, checkout at {act['repo']} — "
+                                                  f"uncommitted changes, RESTART BY HAND to apply")
+                else:
+                    components["Code"] = ("warn", f"running {self_update.running_head()}, checkout at "
+                                                  f"{self_update.repo_head()} — RESTART to apply ({st})")
             else:
                 components["Code"] = ("ok", f"{self_update.running_head() or 'no git metadata'}")
         except Exception as e:                       # observability must never be able to break the loop

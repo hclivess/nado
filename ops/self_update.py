@@ -106,6 +106,76 @@ def code_is_stale():
     return bool(run and repo and run != repo)
 
 
+# --- Stale-checkout restart -------------------------------------------------------------------------------
+# A COMMIT THAT IS NOT RUNNING IS NOT A FIX. The updater only restarts after IT applied a fast-forward, so
+# the case where the checkout is already current never restarts anything: the operator commits locally and
+# pushes (which is how this fleet is developed), local HEAD already equals origin/main, /update answers
+# "up_to_date", and the RUNNING PROCESSES stay on the old code indefinitely. code_is_stale() has detected
+# exactly this the whole time and only ever produced a health WARNING — "RESTART to apply" — which is how a
+# finality stall once survived 34 minutes past its own fix landing, and how nado-exec ran an hour past the
+# row-commit fix that made records proofs 4x cheaper (the exec node is the one that matters here: it is where
+# the prover lives, and it is the service an operator is least likely to restart by hand).
+#
+# THREE GUARDS, each for a failure this could otherwise cause:
+#   • DIRTY WORKING TREE -> never restart. The repo dir is a live dev checkout on at least one box; loading a
+#     half-finished edit into a money node is far worse than running one commit behind. Same rule the
+#     fast-forward path already applies for the same reason.
+#   • ONCE PER HEAD -> a restart that does not change the running commit (unit masked, crash loop, exec
+#     fail-stopped on a stale native crate) must not re-arm forever. Record the head we acted on.
+#   • SETTLE PERIOD -> require the staleness to persist across two observations, so a checkout seen
+#     mid-`git merge` (index written, HEAD not yet moved) cannot trigger a restart.
+_STALE_MIN_AGE = 90                     # s the checkout must stay ahead before a restart is warranted
+_stale_since = [None]                   # (head, first_seen_monotonic) for the head currently observed stale
+_stale_acted = [None]                   # the repo head we have already restarted for
+
+
+def working_tree_dirty():
+    """True when tracked files have uncommitted changes. Any error answers True — 'I could not tell' must
+    behave like 'do not touch it'."""
+    try:
+        _git("diff", "--quiet")
+        _git("diff", "--cached", "--quiet")
+        return False
+    except Exception:
+        return True
+
+
+def apply_stale_checkout(now=None):
+    """Restart the services when the checkout is ahead of the running process, so a pushed fix actually runs.
+
+    Returns a dict describing what happened; the caller logs it. Never raises — this is called from the
+    health loop, and observability must not be able to take the node down."""
+    try:
+        run, repo = running_head(), repo_head()
+        if not (run and repo) or run == repo:
+            _stale_since[0] = None
+            return {"status": "current", "running": run, "repo": repo}
+        try:
+            from config import get_config
+            if get_config().get("auto_update", True) is False:
+                return {"status": "disabled", "reason": "auto_update=false in config"}
+        except Exception:
+            pass                                    # config unreadable: fall through to the safety guards
+        if _stale_acted[0] == repo:
+            return {"status": "already_restarted", "repo": repo}
+        if working_tree_dirty():
+            return {"status": "dirty", "reason": "uncommitted changes — refusing to load a half-finished edit",
+                    "running": run, "repo": repo}
+        t = time.monotonic() if now is None else now
+        seen = _stale_since[0]
+        if not seen or seen[0] != repo:
+            _stale_since[0] = (repo, t)
+            return {"status": "observing", "running": run, "repo": repo}
+        if t - seen[1] < _STALE_MIN_AGE:
+            return {"status": "observing", "running": run, "repo": repo,
+                    "for_s": round(t - seen[1], 1)}
+        _stale_acted[0] = repo
+        services = _restart_services()
+        return {"status": "restarting", "running": run, "repo": repo, "services": services}
+    except Exception as e:
+        return {"status": "error", "reason": f"{type(e).__name__}: {e}"}
+
+
 class GitError(RuntimeError):
     """A git command failed, carrying git's ACTUAL stderr rather than a guess about why."""
 
