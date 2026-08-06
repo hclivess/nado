@@ -90,8 +90,14 @@ check("the hold matters precisely because the pipeline outlasts the cadence", PI
 # ---- the shipped code must actually do it ------------------------------------------------------------
 src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "execnode", "execnode.py")).read()
+# Anchored on the CONDITION'S PARTS, not on the whole line. It used to pin the exact literal
+# "if proof is None and (_settle_proving or _pub_active or _pend_active):", which broke the day the hold was
+# made STRICTLY STRONGER by adding `or _pend_hold` (2026-08-06, so the pass that declines to prove a second
+# span does not fall through to a bare settle). A check that fails when the thing it guards gets better is
+# testing the text, not the behaviour — so require each disjunct to be present instead.
+_hold_line = next((l for l in src.splitlines() if l.strip().startswith("if proof is None and (")), "")
 check("maybe_settle holds when a prove is in flight",
-      "if proof is None and (_settle_proving or _pub_active or _pend_active):" in src)
+      all(part in _hold_line for part in ("_settle_proving", "_pub_active", "_pend_active")))
 # THE HOLD MUST SPAN PUBLISH AND SUBMIT, NOT JUST THE PROVE. _settle_proving is cleared by the prove
 # THREAD's done-callback, so it goes False at "BUILT" while ~230 s of publish (139 s) and inline L1
 # verification (94 s) still lie ahead. Bare settles resumed in that window and walked the tip forward:

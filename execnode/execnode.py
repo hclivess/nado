@@ -918,9 +918,25 @@ async def maybe_settle(session):
             # Observed live: "self-check failed (span 19154->19184 not conforming)" on a span wholly inside
             # one dividend epoch — i.e. where the epoch gate guarantees the records did NOT move.
             cur, root, rec_root_at_cur, _gen_at_cur = st.settle_snapshot()
+            # DO NOT PROVE A SECOND SPAN WHILE THE FIRST PROOF IS STILL WAITING FOR ITS LANDING BLOCK.
+            # The hold below fires only `if proof is None`, so it suppressed a redundant BARE settle but
+            # never a redundant PROOF: this loop proved first and then skipped the hold entirely. That was
+            # invisible while a prove took 300+ s (the _settle_proving flag covered the whole window).
+            # 1affffac took a prove to ~12 s, and the waste became obvious immediately — MEASURED
+            # 2026-08-06 13:12:06-13:13:42, three proves and three 8.92 MiB transactions in 96 seconds:
+            #     cursor=46892 total 11.7s -> tx 8.92 MiB
+            #     cursor=46893 total 13.3s -> tx 8.92 MiB
+            #     cursor=46897 total 11.9s -> tx 8.92 MiB
+            # all for the SAME root 1b00b000dd28252d, and only one of them can ever land — the moment one
+            # is justified the others fail "pre_root must extend the settled tip". That is ~27 MiB of
+            # gossip and 3x the prove CPU for one settlement.
+            # `_settle_pending[ns]` is cleared by the resolution block below when the proof lands, when it
+            # is resubmitted, or when it gives up after SETTLE_RESUBMIT_MAX_S — so this can never wedge.
+            _pend_hold = _settle_pending.get(ns) is not None
             proof = None
             try:
-                proof = await _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur)
+                if not _pend_hold:
+                    proof = await _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur)
             except Exception as e:
                 # BEST-EFFORT, BUT NOT SILENT. A bare attestation always works, so swallowing here is
                 # correct for liveness — but swallowing it QUIETLY meant an operator who switched the
@@ -1073,7 +1089,12 @@ async def maybe_settle(session):
                               f"pre-state was {_pend['pre_cursor']}); releasing the tip", flush=True)
                 else:
                     _pend_active = True
-            if proof is None and (_settle_proving or _pub_active or _pend_active):
+            # `_pend_hold` is included so the pass that DECLINED to prove (above) does not fall through to a
+            # bare settle when the resolution block has just popped the pending entry as landed. Without it,
+            # every landed proof would be followed by one bare settle, quietly halving the proof rate — the
+            # opposite of what suppressing the duplicate prove is for. Holding costs one poll; the next pass
+            # proves the wider span.
+            if proof is None and (_settle_proving or _pub_active or _pend_active or _pend_hold):
                 _k = (ns, "hold-for-inflight-proof")
                 if _settle_skip_logged.get(_k) != _k[1]:
                     _settle_skip_logged[_k] = _k[1]
