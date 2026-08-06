@@ -175,6 +175,24 @@ def dividend_accrual_effects(inflow, weights, div_carry):
     return out, pot - distributed
 
 
+def epoch_accrual_due(height, epoch_length):
+    """The dividend epoch that block `height` ACCRUES, or None if it accrues nothing.
+
+    THE ATTRIBUTION HAS TO MATCH THE TAIL LOOP EXACTLY or every proof over a boundary is refused. The exec
+    node accrues in `while state.last_div_epoch < cur_epoch - 1` with `cur_epoch = cursor // EPOCH_LENGTH`,
+    so epoch E is accrued the moment the cursor first reaches epoch E+1 — i.e. at block (E+1)*EPOCH_LENGTH.
+    Verified against a live accrual: "dividend epoch 760" was logged as the cursor passed 45660 = 761*60.
+
+    A batch that crosses several epochs accrues each of them; each is attributed to its own boundary block
+    here, so a span's effects come out in block order with the carry chaining exactly as span_effects does.
+    """
+    h, L = int(height), int(epoch_length)
+    if h <= 0 or L <= 0 or h % L != 0:
+        return None
+    E = h // L - 1
+    return E if E >= 0 else None
+
+
 def block_records_effects(block):
     """(effects, derivable) for ONE block, from committed block data alone.
 

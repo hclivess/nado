@@ -21,7 +21,9 @@ attach NOTHING in that case and leave the frozen path byte-identical.
 Run: python3 tests/test_prover_records_half.py
 """
 import ast
+import importlib
 import os
+import re
 import sys
 import traceback
 
@@ -121,6 +123,33 @@ def t_projection_is_computed_once():
         f"records_projection must be computed once, found {body.count('_ER.records_projection(pre_view)')}"
 
 
+def t_every_symbol_the_builder_calls_actually_EXISTS():
+    """THE CHECK THAT WAS MISSING, and it cost a live failure.
+
+    _build_records_half calls RB.epoch_accrual_due, which lived only on the reroll BRANCH — main's
+    records_bind.py never had it. Every attempt therefore died on
+    `AttributeError: module 'execnode.stark.records_bind' has no attribute 'epoch_accrual_due'`,
+    caught by the builder's own except and reported as "records half FAILED … — quorum". It failed CLOSED,
+    so nothing was ever at risk, but the feature was DEAD on main while being reported as live.
+
+    Every other check in this file is textual — it reads the source as a string and never imports anything,
+    so a name that does not resolve is invisible to all of them. RESOLVE THE NAMES."""
+    import importlib
+    RB = importlib.import_module("execnode.stark.records_bind")
+    body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
+    called = sorted(set(re.findall(r"\bRB\.([A-Za-z_][A-Za-z0-9_]*)", body)))
+    assert called, "expected the builder to call into records_bind"
+    missing = [n for n in called if not hasattr(RB, n)]
+    assert not missing, f"_build_records_half calls records_bind.{missing} which do not exist"
+    for mod_alias, mod_name in (("SX", "execnode.stark.state_transition"),
+                                ("_SST", "execnode.stark.storage_tree"),
+                                ("_ER", "execnode.exec_root")):
+        m = importlib.import_module(mod_name)
+        names = sorted(set(re.findall(r"\b" + mod_alias + r"\.([A-Za-z_][A-Za-z0-9_]*)", body)))
+        gone = [n for n in names if not hasattr(m, n)]
+        assert not gone, f"_build_records_half calls {mod_name}.{gone} which do not exist"
+
+
 def t_epoch_skip_still_stands_until_the_derivation_ships():
     """Dropping it here would produce proofs L1 REFUSES: without the branch's dividend derivation, L1 marks
     a boundary block derivable with the accrual MISSING, so the binding mismatches. It rides the cutover."""
@@ -136,6 +165,7 @@ for nm, fn in [("the builder exists and is awaited", t_builder_exists_and_is_awa
                ("accrual inputs come from L1, not the proof", t_accrual_inputs_come_from_l1_not_the_proof),
                ("no post-state is materialised", t_no_post_state_is_materialised),
                ("the projection is computed once", t_projection_is_computed_once),
+               ("every symbol the builder calls actually exists", t_every_symbol_the_builder_calls_actually_EXISTS),
                ("the epoch skip stands until the derivation ships", t_epoch_skip_still_stands_until_the_derivation_ships)]:
     check(nm, fn)
 
