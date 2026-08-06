@@ -1057,6 +1057,26 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
             # The derived effects must land on the records root we actually captured at `cur`. If they do
             # not, our derivation disagrees with our own apply — refuse HERE rather than ship a proof that
             # can only fail to bind on L1 after every peer has paid to verify it.
+            # SAY WHICH RECORDS DISAGREE, not just that some do. Two roots differing is unactionable: it
+            # cannot distinguish a wrong dividend carry from a missed bridge deposit from an effect derived
+            # at the wrong block. The pre-state projection and the derived updates are both in hand here,
+            # so apply them and diff against what we actually hold at `cur`. Runs ONLY on this failure
+            # path, and prints a bounded sample.
+            try:
+                _derived = dict(_records_half[2] or {})
+                for (_k, _o, _n) in (_records_half[0].get("updates") or ()):
+                    _derived[str(_k)] = int(_n)
+                _actual = {str(_k): int(_v) for _k, _v in ER.records_projection(st).items()}
+                _keys = set(_derived) | set(_actual)
+                _diff = [(k, _derived.get(k), _actual.get(k)) for k in _keys
+                         if int(_derived.get(k, 0)) != int(_actual.get(k, 0))]
+                _diff.sort(key=lambda r: str(r[0]))
+                print(f"[execnode] records DIFF at {cur}: {len(_diff)} key(s) disagree "
+                      f"(derived {len(_derived)} entries vs actual {len(_actual)}); first few "
+                      f"[key, derived, actual]: "
+                      + "; ".join(f"{k[:18]}… {d} vs {a}" for k, d, a in _diff[:6]), flush=True)
+            except Exception as _e:
+                print(f"[execnode] records DIFF unavailable: {type(_e).__name__}: {_e}", flush=True)
             return _skip(f"the derived RECORDS half lands on {_records_half[1][:16]}… but our state at "
                          f"{cur} has {SST.digest_hex(rec_root)[:16]}… — derivation disagrees with apply",
                          cls="records-derivation-mismatch")
