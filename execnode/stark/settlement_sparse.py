@@ -263,7 +263,7 @@ def public_statement_o1(bundle):
 
 def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, beacons=None,
                             block_hashes=None, pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES,
-                            depth=DEFAULT_DEPTH, backend=None, row_commit=False,
+                            depth=DEFAULT_DEPTH, backend=None, row_commit=None,
                             recursive=False, fold=True, max_rows=None, outer_queries=None,
                             comp_points_per_proof=None):
     """Assemble the settle-with-proof payload the L1 branch verifies: bound epoch(s) over the KV half plus
@@ -282,17 +282,37 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
     # _b.name in ("recursion", "alghash2"); backend=None resolves to _backend.DEFAULT, which is BLAKE2B,
     # which the arena does NOT implement — so the whole settle prove silently ran in pure Python. Measured
     # on the live node 2026-08-04: 12+ MINUTES for one prove, ~75% of a core, RSS to 1.8 GB, no .so mapped,
-    # and L1 starved into "Forked above the finality floor — re-anchoring". The same AIR through the arena:
-    # ALGHASH2 0.47s, RECURSION 1.79s.
+    # and L1 starved into "Forked above the finality floor — re-anchoring".
     #
-    # This is a PRODUCER-side choice, not a consensus rule: the proof records the backend it was built with
-    # and verification resolves it from the proof (vm_circuit honours proof["backend"]; see the note in
-    # verify_bound_epoch about pinning one being wrong). So the settled root is unchanged and an
-    # ALGHASH2-built proof verifies on any node. The recursive path already asks for RECURSION explicitly.
+    # ...AND ROW-COMMIT IT. The default used to be ALGHASH2 in COLUMN mode, and that single choice is where
+    # the settle proof's ~120 MiB came from. In column mode every one of the NUM_QUERIES=320 FRI queries
+    # opens EVERY column with its own authentication path — W=167 columns x 2 (cur+nxt) = 334 paths per
+    # query. row_commit commits ONE recursion-Merkle tree over LDE ROWS per phase, so a query carries 2
+    # paths instead of 334. MEASURED on production state (25 contracts, 9,016 slots), empty span, full
+    # prove_settlement_sparse -> verify_settlement_sparse round trip:
+    #
+    #   ALGHASH2 column (the old default) : prove 140.9s   126.56 MiB   verify 19.6s   -> (True, 'ok')
+    #   RECURSION row    (this default)   : prove   7.3s     9.73 MiB   verify  6.4s   -> (True, 'ok')
+    #
+    # 13x smaller, 19x faster to prove, 3x faster to verify — and kv_pre/kv_post are BYTE-IDENTICAL between
+    # the two forms (63350d91c923b70d… both ways), which is the only thing consensus sees. The openings were
+    # 95.6% of the old proof (118.97 of 124.43 MiB), so this is essentially all of the size.
+    #
+    # WHY IT NEEDS NO VERIFIER CHANGE. Both knobs are recovered FROM THE PROOF, not from the caller:
+    # verify_bound_epoch does `row_commit = "row_roots" in bundle["proof"]` (see the two call sites above),
+    # and vm_circuit honours proof["backend"]. L1 calls verify_settlement_sparse(proof, depth=…) and passes
+    # NEITHER (ops/transaction_ops.py:1251), so an old-format and a new-format proof are interchangeable on
+    # the wire — which is also why this is a PRODUCER-side choice and not a consensus rule.
+    #
+    # row_commit REQUIRES the RECURSION backend (stark.py:377) — they move together, so `row_commit=None`
+    # means "match the backend" rather than a bare False that would silently give up the win.
+    # The recursive path already proved this way (line ~330); only the non-recursive path was left behind.
     # NB: `_bk` is imported inside the recursive branch below, which makes it a function-local for the whole
     # body and shadows the module-level import — so resolve the backend module explicitly here.
     from execnode.stark import backend as _bk_default
-    backend = backend or _bk_default.ALGHASH2
+    backend = backend or _bk_default.RECURSION
+    if row_commit is None:
+        row_commit = getattr(backend, "name", "") == "recursion"
     if not recursive:
         bundle = prove_bound_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
                                    block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,

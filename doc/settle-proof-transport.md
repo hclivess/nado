@@ -522,8 +522,52 @@ returned a wrong digest would silently change the settled state root and fork L2
 The same code runs in the **verifier** (`verify_bound_epoch` rebuilds the store), so a peer validating a
 settle proof gets the same reduction on its second and later verifications.
 
-**What this leaves.** `prove_epoch` at 63–88 s is now the whole prove, and it is measured with **zero
-calls** — an empty epoch still pays a full STARK at `NUM_QUERIES=320`. That is the next target.
+**Confirmed live.** Cursor 45450, 10:34 — `prove_epoch=115.5s sparse_projection=2.0s
+prove_transition=0.0s | total 117.5s`, landed on L1 at 10:37:58 with root `a35c2195c1a9e802`.
+
+**What this left.** `prove_epoch` became the whole prove, measured with **zero calls**. That turned out to
+have the same root cause as the proof's size — see §9.
+
+## 9. The 120 MiB was ONE producer-side default (2026-08-06)
+
+Chasing `prove_epoch` on an empty span led somewhere better than expected. The empty trace is only
+T=512, W=167, blowup 8 ⇒ N=8192 — far too small to justify 63–115 s. The cost was not the polynomial work
+at all; it was the **commit mode**.
+
+`prove_settlement_sparse` defaulted its non-recursive branch to **ALGHASH2 in COLUMN mode**. In column mode
+the prover builds one Merkle tree per column and every one of the `NUM_QUERIES=320` FRI queries opens
+**every** column with its own authentication path — `W=167 × 2 (cur+nxt) = 334 paths per query`.
+`row_commit` instead commits ONE recursion-Merkle tree over LDE **rows** per phase, so a query carries
+**2** paths. The recursive path already proved this way (`backend=_bk.RECURSION, row_commit=True`); only the
+non-recursive branch — the one that has produced every settle proof on this chain — was left behind.
+
+Measured on production state (25 zkVM contracts, 9,016 slots), empty span, full
+`prove_settlement_sparse` → `verify_settlement_sparse` round trip:
+
+| | prove | size | verify | result |
+|---|---:|---:|---:|---|
+| ALGHASH2 column (old default) | 140.9 s | 126.56 MiB | 19.6 s | `(True, 'ok')` |
+| RECURSION row (new default) | **7.3 s** | **9.73 MiB** | **6.4 s** | `(True, 'ok')` |
+
+**13× smaller, 19× faster to prove, 3× faster to verify** — and `kv_pre`/`kv_post` are **byte-identical**
+between the two forms (`63350d91c923b70d…` both ways), which is the only thing consensus sees. A separate
+size-only run isolates where it goes: openings were **118.97 of 124.43 MiB (95.6%)** in column mode against
+2.14 of 7.60 MiB in row mode, and a single opening is **389,845 bytes** against **7,008**.
+
+**Why it needs no verifier change, and is not a consensus change.** Both knobs are recovered *from the
+proof*, not from the caller: `verify_bound_epoch` does `row_commit = "row_roots" in bundle["proof"]`, and
+`vm_circuit` honours `proof["backend"]`. L1 calls `verify_settlement_sparse(proof, depth=…)` and passes
+**neither** (`ops/transaction_ops.py:1251`). So old-format and new-format proofs are interchangeable on the
+wire, and switching is a producer-side choice — the same argument that justified defaulting to ALGHASH2 in
+the first place. `row_commit` does require the RECURSION backend (`stark.py:377`), so the two move together:
+`row_commit=None` now means "match the backend" rather than a bare `False` that silently gave up the win.
+
+**This recontextualises §1 and §6.4.** The doc's rule of thumb — size ≈ 0.381 MiB per FRI query — was
+measuring column mode. Size tracks `queries × columns × path length`, and only the first of those three was
+ever treated as the lever. §4b rejected lowering the FRI blowup on soundness grounds; this needs no such
+trade, because it removes redundancy rather than security. It also means the transport work in §6 (a
+192 MiB `MAX_TX_BODY`, size-scaled gossip timeouts, a 180-block runway) now has ~12× the headroom it was
+sized for, and the DA path is no longer near any limit.
 * **Cost of the inline pivot**: blocks carrying a proof are large, so gossip and sync move real bytes. That
   is a deliberate alphanet trade — a proof that lands beats a smaller one that cannot. The fold is what
   brings the size back down.
