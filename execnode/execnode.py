@@ -654,11 +654,22 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
             # EMPTY-EFFECT TRAP: with nothing to prove L1 REQUIRES rec_post == rec_hex, which collapses to
             # the frozen case. Attaching an empty transition would move the half on nobody's authority.
             return None
-        # ONE projection, reused. Computing it inside pre_get would rebuild the whole records map on every
-        # record lookup — quadratic in a state with ~118k entries, inside the prove's critical path.
-        proj = _ER.records_projection(pre_view)
-        store = _SST.SparseStore(_D, proj)
-        pre_root_hex = _SST.digest_hex(store.root())
+        # EVERYTHING BELOW IS CPU-BOUND AND MUST NOT TOUCH THE EVENT LOOP.
+        #
+        # I SHIPPED IT ON THE LOOP AND IT HUNG THE NODE. prove_transition is a full STARK — measured 167.6 s
+        # for a SINGLE records update — and calling it inline from this coroutine blocked block application,
+        # HTTP and settlement outright: the exec node sat at 208% CPU, silent, stuck at cursor 60 while L1
+        # ran to 221, with no crash and no traceback to show for it. Every other heavy call in this file
+        # already goes through asyncio.to_thread (the KV prove, the pre-flight, DA put); this one did not.
+        # The first accrual on the fresh chain — "dividend epoch 0: +8444800000 raw to 13 miner(s)" — was
+        # what finally gave it something to prove, so the defect could only ever surface post-cutover.
+        def _cpu():
+            # ONE projection, reused. Computing it inside pre_get would rebuild the whole records map on
+            # every record lookup — quadratic in a large state, inside the prove's critical path.
+            proj = _ER.records_projection(pre_view)
+            store = _SST.SparseStore(_D, proj)
+            return proj, store, _SST.digest_hex(store.root())
+        proj, store, pre_root_hex = await asyncio.to_thread(_cpu)
         if rec_hex_expected is not None and pre_root_hex != rec_hex_expected:
             # The stash must be the state at the JUSTIFIED cursor. If its records root is not the one the
             # tip committed, every update below would be derived against the wrong pre-values and the
@@ -672,7 +683,7 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
             return None                           # effects that cancel out move nothing; stay frozen
         # prove_transition APPLIES the updates to `store`, so its root afterwards IS the post root — the
         # same way settlement_sparse reads sparse_post_root straight off pre_store after proving.
-        tr = SX.prove_transition(store, [(k, n) for (k, _o, n) in net])
+        tr = await asyncio.to_thread(SX.prove_transition, store, [(k, n) for (k, _o, n) in net])
         tr["half"] = "records"
         return tr, _SST.digest_hex(store.root()), {str(k): int(v) for k, v in proj.items()}
     except RB.Unbindable as e:

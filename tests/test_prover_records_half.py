@@ -112,7 +112,11 @@ def t_no_post_state_is_materialised():
     body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
     assert "prove_records_transition" not in body, \
         "the pre/post-state wrapper takes a POST state; build from the store + derived updates instead"
-    assert "SX.prove_transition(store" in body, "prove from the PRE store plus the derived updates"
+    # Matched on CALL SYNTAX and broke when the call moved into asyncio.to_thread — the property it cares
+    # about (prove from the PRE store plus derived updates) never changed. Assert the arguments, not the
+    # punctuation.
+    assert "SX.prove_transition" in body and "store, [(k, n) for (k, _o, n) in net]" in body, \
+        "prove from the PRE store plus the derived updates"
 
 
 def t_projection_is_computed_once():
@@ -121,6 +125,37 @@ def t_projection_is_computed_once():
     body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
     assert body.count("_ER.records_projection(pre_view)") == 1, \
         f"records_projection must be computed once, found {body.count('_ER.records_projection(pre_view)')}"
+
+
+def t_the_records_prove_NEVER_RUNS_ON_THE_EVENT_LOOP():
+    """I SHIPPED IT ON THE LOOP AND IT HUNG THE NODE, minutes after the alphanet-16 cutover.
+
+    prove_transition is a full STARK — 167.6 s measured for a SINGLE records update. Called inline from an
+    async coroutine it blocks block application, HTTP and settlement outright: the exec node sat at 208%
+    CPU, silent, stuck at cursor 60 while L1 ran on to 221, with NO crash and NO traceback. `systemctl
+    is-active` said active and NRestarts was 0, so every cheap health signal looked fine.
+
+    It could only surface post-cutover: before the reroll the builder always declined before reaching the
+    prove, so nothing CPU-bound ever ran. The first dividend accrual on the fresh chain — "dividend epoch 0:
+    +8444800000 raw to 13 miner(s)" — was the first time it had anything to prove.
+
+    Every other heavy call in execnode.py already goes through asyncio.to_thread (the KV prove, the
+    unprovable-call pre-flight, the DA put). This one must too."""
+    body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
+    assert "await asyncio.to_thread(SX.prove_transition" in body, \
+        "prove_transition is a full STARK and MUST run in a thread, never on the event loop"
+    # the projection + sparse store build is O(state) and belongs off the loop too
+    assert "await asyncio.to_thread(_cpu)" in body, \
+        "building the records projection and store must also run off the event loop"
+    # Nothing CPU-bound may run OUTSIDE the threaded helper. The first version of this check searched the
+    # whole function body and flagged the calls INSIDE `def _cpu():` — which is precisely where they belong.
+    # Seventh checker today that was wrong before the code was: scope the search, do not pattern-match.
+    import re as _re
+    helper = body[body.index("def _cpu():"):body.index("proj, store, pre_root_hex = await")]
+    outside = body.replace(helper, "")
+    bare = [l.strip() for l in outside.splitlines()
+            if _re.search(r"^\s*(tr|store|proj)\s*=\s*(SX\.prove_transition|_SST\.SparseStore|_ER\.records_projection)\(", l)]
+    assert not bare, f"CPU-bound calls must be inside the threaded helper, found: {bare}"
 
 
 def t_the_prover_derives_THE_SAME_WAY_L1_DOES():
@@ -204,6 +239,7 @@ for nm, fn in [("the builder exists and is awaited", t_builder_exists_and_is_awa
                ("accrual inputs come from L1, not the proof", t_accrual_inputs_come_from_l1_not_the_proof),
                ("no post-state is materialised", t_no_post_state_is_materialised),
                ("the projection is computed once", t_projection_is_computed_once),
+               ("the records prove never runs on the event loop", t_the_records_prove_NEVER_RUNS_ON_THE_EVENT_LOOP),
                ("the prover derives the same way L1 does", t_the_prover_derives_THE_SAME_WAY_L1_DOES),
                ("every symbol the builder calls actually exists", t_every_symbol_the_builder_calls_actually_EXISTS),
                ("the epoch skip is gone now that the derivation ships", t_epoch_skip_is_GONE_now_that_the_derivation_ships)]:
