@@ -493,117 +493,135 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     deg_bound = stark._next_pow2(max_degree) * T
     OFF = stark.OFF
 
-    reset(T, N, OFF)
-    for c in range(W):                                   # main trace columns → arena ids 0..W
-        lde_column([trace[i][c] for i in range(T)], N, want_out=False)
+    # SERIALISE THE ARENA. _LOCK has existed since the arena landed, with the comment "the arena is a
+    # single global in Rust — one prove at a time" — and NOTHING EVER ACQUIRED IT. That was harmless while
+    # exactly one prove could be in flight (the KV settle prove, serialised by the exec node's
+    # _settle_proving flag), so the invariant held by accident rather than by construction.
+    #
+    # IT STOPPED HOLDING THE MOMENT A SECOND PROVER APPEARED. The records half runs its own
+    # prove_transition, and once that moved into a worker thread the two proves drove the SAME global arena
+    # concurrently: whichever called reset() second cleared the other's retained columns, and the first then
+    # asked for a column that no longer existed. That is exactly what sp_commit_col returning -1 means, and
+    # it is what the live log showed on every records-bearing span after the alphanet-16 cutover:
+    #     records half FAILED … RuntimeError: sp_commit_col failed
+    #
+    # try/finally, not `with`, only because the region is large: a raise anywhere inside must still release,
+    # or one failed prove would wedge every later one.
+    _LOCK.acquire()
+    try:
+        reset(T, N, OFF)
+        for c in range(W):                                   # main trace columns → arena ids 0..W
+            lde_column([trace[i][c] for i in range(T)], N, want_out=False)
 
-    t = Transcript(DOMAIN_STARK, backend=b)
-    if aux is not None:
-        t.absorb("aux", str(aux))
-    col_roots, row_roots, trees, row_trees = [], [], [], []
-    if row_commit:
-        tid, root = commit_rows(list(range(W)))
-        row_roots.append(root); row_trees.append(tid); t.absorb(root)
-    else:
-        for c in range(W):
-            tid, root = commit_col(c, hmode); col_roots.append(root); trees.append(tid); t.absorb(root)
-
-    challenges = None
-    Wtot = W
-    if aux_spec is not None:                             # phase 2: challenges AFTER the main commit, then aux
-        challenges = [(t.challenge_ext() if _ext else t.challenge())
-                      for _ in range(aux_spec["num_challenges"])]
-        aux_cols = aux_spec["build"](trace, challenges)
-        if len(aux_cols) != aux_spec["num_aux"] or any(len(c) != T for c in aux_cols):
-            raise ValueError("aux builder returned wrong geometry")
-        aux_ids = [lde_column([v % _P for v in col], N, want_out=False)[0] for col in aux_cols]
+        t = Transcript(DOMAIN_STARK, backend=b)
+        if aux is not None:
+            t.absorb("aux", str(aux))
+        col_roots, row_roots, trees, row_trees = [], [], [], []
         if row_commit:
-            tid, root = commit_rows(aux_ids); row_roots.append(root); row_trees.append(tid); t.absorb(root)
+            tid, root = commit_rows(list(range(W)))
+            row_roots.append(root); row_trees.append(tid); t.absorb(root)
         else:
-            for cid in aux_ids:
-                tid, root = commit_col(cid, hmode); col_roots.append(root); trees.append(tid); t.absorb(root)
-        Wtot += aux_spec["num_aux"]
+            for c in range(W):
+                tid, root = commit_col(c, hmode); col_roots.append(root); trees.append(tid); t.absorb(root)
 
-    for pc in periodic:                                  # periodic columns → arena ids Wtot..Wtot+nper
-        lde_column(stark._per_expand(pc, T), N, want_out=False)
+        challenges = None
+        Wtot = W
+        if aux_spec is not None:                             # phase 2: challenges AFTER the main commit, then aux
+            challenges = [(t.challenge_ext() if _ext else t.challenge())
+                          for _ in range(aux_spec["num_challenges"])]
+            aux_cols = aux_spec["build"](trace, challenges)
+            if len(aux_cols) != aux_spec["num_aux"] or any(len(c) != T for c in aux_cols):
+                raise ValueError("aux builder returned wrong geometry")
+            aux_ids = [lde_column([v % _P for v in col], N, want_out=False)[0] for col in aux_cols]
+            if row_commit:
+                tid, root = commit_rows(aux_ids); row_roots.append(root); row_trees.append(tid); t.absorb(root)
+            else:
+                for cid in aux_ids:
+                    tid, root = commit_col(cid, hmode); col_roots.append(root); trees.append(tid); t.absorb(root)
+            Wtot += aux_spec["num_aux"]
 
-    prog = air_ir.build_program(transitions, Wtot, len(periodic),
-                                0 if challenges is None else len(challenges), ext_chal=_ext)
-    if _ext:
-        # ONE alpha per LOGICAL constraint: an extension-valued constraint occupies two SSA outputs but takes
-        # a single alpha, so this count is NOT len(outputs) + len(boundaries).
-        from execnode.stark import extf as _ef
-        _n_logical = len(prog["outputs"]) - len(prog.get("ext_pairs") or ()) * (_ef.DEGREE - 1)
-        alphas = [t.challenge_ext() for _ in range(_n_logical + len(boundaries))]
-        cp_col, _ = compose_ext(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
-    else:
-        alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
-        cp_col, _ = compose(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
+        for pc in periodic:                                  # periodic columns → arena ids Wtot..Wtot+nper
+            lde_column(stark._per_expand(pc, T), N, want_out=False)
 
-    fri_blowup = N // deg_bound
-    # HYBRID FRI. FRI's per-layer Merkle commitments hash EXTENSION leaves (alghash2.leaf_ext, a distinct
-    # domain tag), which the arena's committer does not implement — it hashes base-field columns. Rather
-    # than abandon the native prover wholesale — which is what made every proof pure-Python and turned a
-    # 3-circuit fold into ~50 minutes — keep ALL the heavy native work (per-column LDE, Merkle commits, and
-    # the composition polynomial, which are the O(N log N) stages) and run only the FRI folding in Python by
-    # reading the composition column out of the arena. FRI's folds are O(N) with tiny constants next to the
-    # NTTs and W-column Merkle trees above, so this recovers essentially all of the speed while keeping the
-    # stronger commit-phase bound.
-    # A RECURSION-backend proof is destined to be FOLDED by the in-circuit AIRs and follows the same field
-    # as everything else; whether it takes this branch is decided by fri.EXT_CHALLENGES alone, read through
-    # stark.ext_challenges_active(), which is the ONE authority on the question.
-    if _ext:
-        # cp is EXTENSION-valued, so it occupies D consecutive columns from cp_col — read it back as limb
-        # tuples. Only those D columns cross into Python; the W trace columns stay in the arena, which is
-        # the whole point (see the guard above).
-        # FRI NOW RUNS IN RUST TOO (sp_fri_prove). This branch used to read the D composition limb columns
-        # back into Python and call fri.prove — the hybrid the comment above describes, and the reason a
-        # 3-circuit fold took ~50 minutes. Nothing crosses into Python now: the extension composition column
-        # is already D consecutive arena columns, which is exactly the layer-0 form sp_fri_prove wants.
-        from execnode.stark import extf as _ef2
-        _D = _ef2.DEGREE
-        fri_proof = fri_prove_native([cp_col + d for d in range(_D)], OFF, fri_blowup, num_queries,
-                                     t, hmode, _D, True)
-        if fri_proof is None:
-            # Do NOT silently fall back to the Python loop — that is the degradation the Rust-only policy
-            # exists to abolish, and it would reintroduce the 50-minute fold invisibly.
-            from execnode.stark import native_guard as _ng
-            raise _ng.NativeMissing(
-                "sp_fri_prove failed on the extension composition column. The arena is present but the "
-                "full-FRI entry point is missing or refused the call — rebuild native/starkprove.")
-    else:
-        # NO HYBRID SEAM: the base-field branch runs the same Rust loop, with a single layer-0 column and
-        # use_ext=False. It used to call the Python driver below, which kept a transcript round-trip per
-        # layer and per query even though every kernel it invoked was already native.
-        fri_proof = fri_prove_native([cp_col], OFF, fri_blowup, num_queries, t, hmode, 1, False)
-        if fri_proof is None:
-            from execnode.stark import native_guard as _ng
-            raise _ng.NativeMissing(
-                "sp_fri_prove failed on the base composition column — rebuild native/starkprove.")
+        prog = air_ir.build_program(transitions, Wtot, len(periodic),
+                                    0 if challenges is None else len(challenges), ext_chal=_ext)
+        if _ext:
+            # ONE alpha per LOGICAL constraint: an extension-valued constraint occupies two SSA outputs but takes
+            # a single alpha, so this count is NOT len(outputs) + len(boundaries).
+            from execnode.stark import extf as _ef
+            _n_logical = len(prog["outputs"]) - len(prog.get("ext_pairs") or ()) * (_ef.DEGREE - 1)
+            alphas = [t.challenge_ext() for _ in range(_n_logical + len(boundaries))]
+            cp_col, _ = compose_ext(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
+        else:
+            alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
+            cp_col, _ = compose(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
 
-    openings, plen = [], N.bit_length() - 1
-    for q in fri_proof["queries"]:
-        lo = q["idx"] % (N // 2)
-        nxt = (lo + blowup) % N
+        fri_blowup = N // deg_bound
+        # HYBRID FRI. FRI's per-layer Merkle commitments hash EXTENSION leaves (alghash2.leaf_ext, a distinct
+        # domain tag), which the arena's committer does not implement — it hashes base-field columns. Rather
+        # than abandon the native prover wholesale — which is what made every proof pure-Python and turned a
+        # 3-circuit fold into ~50 minutes — keep ALL the heavy native work (per-column LDE, Merkle commits, and
+        # the composition polynomial, which are the O(N log N) stages) and run only the FRI folding in Python by
+        # reading the composition column out of the arena. FRI's folds are O(N) with tiny constants next to the
+        # NTTs and W-column Merkle trees above, so this recovers essentially all of the speed while keeping the
+        # stronger commit-phase bound.
+        # A RECURSION-backend proof is destined to be FOLDED by the in-circuit AIRs and follows the same field
+        # as everything else; whether it takes this branch is decided by fri.EXT_CHALLENGES alone, read through
+        # stark.ext_challenges_active(), which is the ONE authority on the question.
+        if _ext:
+            # cp is EXTENSION-valued, so it occupies D consecutive columns from cp_col — read it back as limb
+            # tuples. Only those D columns cross into Python; the W trace columns stay in the arena, which is
+            # the whole point (see the guard above).
+            # FRI NOW RUNS IN RUST TOO (sp_fri_prove). This branch used to read the D composition limb columns
+            # back into Python and call fri.prove — the hybrid the comment above describes, and the reason a
+            # 3-circuit fold took ~50 minutes. Nothing crosses into Python now: the extension composition column
+            # is already D consecutive arena columns, which is exactly the layer-0 form sp_fri_prove wants.
+            from execnode.stark import extf as _ef2
+            _D = _ef2.DEGREE
+            fri_proof = fri_prove_native([cp_col + d for d in range(_D)], OFF, fri_blowup, num_queries,
+                                         t, hmode, _D, True)
+            if fri_proof is None:
+                # Do NOT silently fall back to the Python loop — that is the degradation the Rust-only policy
+                # exists to abolish, and it would reintroduce the 50-minute fold invisibly.
+                from execnode.stark import native_guard as _ng
+                raise _ng.NativeMissing(
+                    "sp_fri_prove failed on the extension composition column. The arena is present but the "
+                    "full-FRI entry point is missing or refused the call — rebuild native/starkprove.")
+        else:
+            # NO HYBRID SEAM: the base-field branch runs the same Rust loop, with a single layer-0 column and
+            # use_ext=False. It used to call the Python driver below, which kept a transcript round-trip per
+            # layer and per query even though every kernel it invoked was already native.
+            fri_proof = fri_prove_native([cp_col], OFF, fri_blowup, num_queries, t, hmode, 1, False)
+            if fri_proof is None:
+                from execnode.stark import native_guard as _ng
+                raise _ng.NativeMissing(
+                    "sp_fri_prove failed on the base composition column — rebuild native/starkprove.")
+
+        openings, plen = [], N.bit_length() - 1
+        for q in fri_proof["queries"]:
+            lo = q["idx"] % (N // 2)
+            nxt = (lo + blowup) % N
+            if row_commit:
+                openings.append({"lo": lo,
+                                 "cur": [read(c, lo) for c in range(Wtot)],
+                                 "nxt": [read(c, nxt) for c in range(Wtot)],
+                                 "cur_paths": [open_at(tid, lo, plen) for tid in row_trees],
+                                 "nxt_paths": [open_at(tid, nxt, plen) for tid in row_trees]})
+            else:
+                cols = [{"cur": read(c, lo), "cur_path": open_at(trees[c], lo, plen),
+                         "nxt": read(c, nxt), "nxt_path": open_at(trees[c], nxt, plen)} for c in range(Wtot)]
+                openings.append({"lo": lo, "cols": cols})
+
+        free()
+        out = {"T": T, "W": Wtot, "N": N, "blowup": blowup, "deg_bound": deg_bound,
+               "boundaries": boundaries, "fri": fri_proof, "openings": openings}
         if row_commit:
-            openings.append({"lo": lo,
-                             "cur": [read(c, lo) for c in range(Wtot)],
-                             "nxt": [read(c, nxt) for c in range(Wtot)],
-                             "cur_paths": [open_at(tid, lo, plen) for tid in row_trees],
-                             "nxt_paths": [open_at(tid, nxt, plen) for tid in row_trees]})
+            out["row_roots"] = row_roots
         else:
-            cols = [{"cur": read(c, lo), "cur_path": open_at(trees[c], lo, plen),
-                     "nxt": read(c, nxt), "nxt_path": open_at(trees[c], nxt, plen)} for c in range(Wtot)]
-            openings.append({"lo": lo, "cols": cols})
-
-    free()
-    out = {"T": T, "W": Wtot, "N": N, "blowup": blowup, "deg_bound": deg_bound,
-           "boundaries": boundaries, "fri": fri_proof, "openings": openings}
-    if row_commit:
-        out["row_roots"] = row_roots
-    else:
-        out["col_roots"] = col_roots
-    return out
+            out["col_roots"] = col_roots
+        return out
+    finally:
+        _LOCK.release()
 
 
 def read(col, pos):
