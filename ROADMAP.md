@@ -163,6 +163,40 @@ The rule to carry forward: **prove what is expensive to REDO, not what is cheap 
 ZK work therefore sits on the state-proof line — proving execution, and (separately) the shielded pool,
 where inputs are hidden by construction so there is no cheaper alternative to compete with.
 
+### 2026-08-06 — a settle proof LANDED, and what that changed
+
+Block **43153** settled `exec_cursor 42876` on a STARK validity proof: a peer verified it in 114.5 s, all
+four nodes agree on the block hash, it is final at depth 71, and `/get_settled` returns the proven root.
+Until this point the honest status was "the prover produces correct proofs and none has ever landed".
+
+**The reason it took so long is worth recording, because it was not one bug.** Six independent failures
+were stacked, each individually fatal, so fixing any one of them changed nothing observable:
+
+1. **All three peers were missing `libgoldilocks.so`** — with no Python fallback since alphanet-14, no peer
+   could verify a settle proof under any circumstances. `self_update` rebuilt only crates whose *sources
+   changed*, and a box that has never built a crate has unchanged sources forever. Invisible from outside:
+   L1 keeps producing blocks and `/status` stays 200.
+2. **The fold's prover trace was linear in K** (~65,536 rows per folded proof). Now folded through
+   `recursion_depth.fold_tree`, bounding it at T=131,072 for any K.
+3. **DA could not deliver it** — only one node in the fleet runs `nado-exec`, so k=4/n=8 erasure coding had
+   exactly one provider.
+4. **The size caps were knobs, not consensus.** `MAX_TX_BODY` (1 MiB, aiohttp's default) was the real
+   limit — and `SETTLE_INLINE_MAX` (7 MiB) already exceeded it. Nothing in consensus bounds tx or block
+   size. The proof now rides **inline**, in a 126.6 MiB block.
+5. **Gossip timeouts of 5 s / 15 s** sized for kilobyte transactions.
+6. **The landing runway** (60 blocks) was shorter than the ~8-minute transfer of an exact-landing tx.
+
+Full evidence and the measurements in [`doc/settle-proof-transport.md`](doc/settle-proof-transport.md) §6.
+
+**Still open, and it gates the next step:** the landed proof was **unfolded** (`calls=0`). A span containing
+a call the chain skips or reverts is currently unprovable *at all* — `vm_circuit.prove_epoch_calls` refuses
+to prove a reverting execution — so on a busy chain proof-carrying settlement still falls back to the bonded
+quorum. `calls_commit.block_calls` already documents the intended semantics ("the proof's state transition
+treats a skip/revert as a no-op"), so the implementation contradicts its own design. Fixing it means either
+the AIR proves reverting executions, or the verifier can re-derive which calls were no-ops — a
+prover-supplied flag would be forgeable. Folded proof SIZE also remains unmeasured, and `prove_transition`
+now dominates at ~126 s per state update.
+
 ### The state-proof line: what is left
 
 **1. Full-state composition — the ceiling on everything below it.** `settlement_proofs` proves the **zkVM

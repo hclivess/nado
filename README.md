@@ -816,15 +816,28 @@ setup** anywhere. Full component map with measured numbers and per-piece status:
 - **On-device proving** — 650 lines of JS in `static/stark/` let a phone build a shielded-transfer proof
   in the browser with no install.
 
-> **Honest status.** The proof stack is real and the pieces above are live. **Trustless settlement —
-> settling the exec root on a validity proof instead of a bonded quorum — has never completed end to
-> end.** The consensus rule is switched on unconditionally (there are no ZK feature flags; they were
-> deleted) and the prover produces correct proofs that pass their self-checks — but no settle
-> transaction carrying a proof has yet landed on chain and been verified by a peer. Measured over 33 064
-> journal lines: **89 proofs built and submitted, 0 accepted, 85 refused** for size. Settlement in
-> production is carried by the **bonded-stake quorum**. A settle-with-proof measures **97–118 MiB**
-> against a ~256 KiB block, so it can only ever travel via DA. [`doc/zk-components.md`](doc/zk-components.md)
-> §14 records exactly where it stops.
+> **Honest status (updated 2026-08-06).** **Trustless settlement now works end to end.** Block **43153**
+> on alphanet-15 carries a settle with `proof=True` for `exec_cursor 42876`: a peer verified the STARK in
+> **114.5 s** and returned `{"result": true}`, all four nodes agree on the block hash, it is final at
+> depth 71, and `/get_settled` returns the proven root. **The exec root advanced on a validity proof
+> rather than a bonded quorum.**
+>
+> This replaces the previous status, which said it "has never completed end to end" and that a proof
+> "can only ever travel via DA" against "a ~256 KiB block". That was wrong in an instructive way: **nothing
+> in consensus bounds transaction or block size.** The ~256 KiB figure was a mempool cull budget quoted
+> from a comment, and the limit that actually rejected large settles was `ops/net_ops.MAX_TX_BODY` — 1 MiB,
+> aiohttp's default. The proof now rides **inline in the transaction** (a 126.6 MiB block); DA is not used
+> for it, which matters because only one node in this fleet runs a DA store.
+>
+> Six independent blockers had to fall, each individually fatal — the deepest being that **all three peers
+> were missing `libgoldilocks.so`**, so with no Python fallback since alphanet-14 no peer could verify a
+> settle proof under any circumstances. [`doc/settle-proof-transport.md`](doc/settle-proof-transport.md)
+> §6 documents all six with evidence.
+>
+> **What is still not done:** the landed proof was **unfolded** (`calls=0`). A span containing a call the
+> chain skips or reverts is currently unprovable at all — folded or not — so proof-carrying settlement
+> still degrades to the bonded quorum on a busy chain (§7 of the same doc). Production settlement is
+> therefore still predominantly quorum-carried.
 
 ## Storage
 

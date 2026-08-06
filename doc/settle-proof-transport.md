@@ -1,8 +1,23 @@
 # Getting a settle-with-proof onto the chain
 
-Everything below is measured on alphanet-15 (2026-08-03), not estimated. The consensus side has accepted
-validity proofs for several generations; no node has ever successfully submitted one. This document says
-why, and what the viable shape is.
+> ## RESOLVED 2026-08-06 — see §6. A proof landed.
+>
+> Block **43153** carries a settle with `proof=True` for `exec_cursor 42876`. The block is **126.6 MiB**,
+> all four nodes agree on its hash, it is final at depth 71, and `/get_settled` returns the proven root.
+> **The exec root advanced on a STARK validity proof rather than a bonded quorum.**
+>
+> §§1–5 below are kept as written because the reasoning is still worth reading, but **§1's central
+> conclusion was wrong** and it is what blocked this for months: "the proof can never ride inside a block
+> at any FRI parameters" rested on "a full block ~256 KiB", which was never a consensus rule — it was
+> `transaction_pool_max_bytes`, a MEMPOOL CULL BUDGET, quoted from a comment. **Nothing in consensus
+> bounds transaction or block size**; `ops/block_ops.py` has no size rule at all. Every limit in the path
+> was an HTTP/DoS knob, and the one that actually rejected a large settle was
+> `ops/net_ops.MAX_TX_BODY = 1 MiB` — aiohttp's default — which was ALSO smaller than the
+> `SETTLE_INLINE_MAX = 7 MiB` that called itself "a protocol fact, not a knob". Both were raised and the
+> proof went inline.
+>
+> The lesson worth keeping: a measured number quoted from a comment is not a measured constraint. §1's
+> table is accurate; the row it reasoned from was not a rule.
 
 ## 1. The measurements
 
@@ -155,3 +170,127 @@ Sequence, cheapest first:
 
 Until (1)–(3) land, `NADO_EXEC_SETTLE_PROVE` should stay off: it costs minutes of proving per tick to build
 a transaction that is rejected on size.
+
+---
+
+## 6. What actually happened (2026-08-06) — six blockers, not one
+
+Every earlier attempt diagnosed **one** cause, fixed it, and still saw nothing land. That was not bad
+diagnosis; there were genuinely six independent failures stacked, each individually fatal. Fixing any one
+of them changed nothing observable, which is exactly why the problem looked intractable.
+
+In the order they had to fall:
+
+### 6.1 Peers could not verify a proof at all — the deepest cause
+
+All three peers were missing `libgoldilocks.so`. Since alphanet-14 there is **no Python fallback**
+(`native_guard.require` raises `NativeMissing`), so no peer could verify a settle proof under **any**
+circumstances — any size, DA or inline, however well it propagated.
+
+Found by pushing a real settle tx at a peer and **reading the 403 body** instead of inferring from the
+status code:
+
+```
+HTTP 403 {"result": false, "message": "Could not merge remote transaction:
+ Settle proof invalid: segment 0: epoch proof invalid: malformed proof:
+ NativeMissing: native crate 'goldilocks' is REQUIRED but its library is missing"}
+```
+
+Cause: `ops/self_update._rebuild_native_if_changed` skipped any crate whose sources had not changed in that
+update, reasoning "its .so is still valid". That holds only if a .so was ever built. **A box that has never
+built a crate has unchanged sources forever**, so it was skipped on every wave, permanently. Worse, the
+rebuild ran only on the *update* path, so a node already on the correct commit answered `up_to_date` and
+never built it either.
+
+The failure is invisible from outside: L1 keeps producing blocks and `/status` stays 200 while the node
+silently cannot do the one job in question. **Being current in git is not the same as being able to run.**
+Fixed in `2a40c96b`, `c7459c16`, `dc8e8747`.
+
+### 6.2 The fold's prover trace was linear in K
+
+`prove_hetero` folded all K inner FRI proofs in ONE recursion proof whose trace grows ~65,536 rows per
+folded proof (96 segments × 1088 rows at K=2 — queries × FRI layers × two paths × path levels × 16-row
+sponge blocks). Measured: K=2 → T=131,072, K=4 → 262,144, K=8 → 524,288, and only 20.3% of that is
+power-of-two padding, so there was nothing to trim.
+
+The "O(1) settlement crypto" in `doc/zk-recursion.md` is the **verifier's** cost — one bundle instead of K
+proofs. The **prover's** trace was never O(1). Folding through `recursion_depth.fold_tree` (`f583027d`)
+bounds each node by the fan-in instead of by K: T=131,072 at every K.
+
+### 6.3 DA cannot work on a one-provider fleet
+
+This box is the **only** node in the fleet running `nado-exec`; the three peers run only `nado`, so
+`:9273` is dead on all of them. Erasure coding k=4/n=8 buys nothing when there is exactly one provider: a
+peer had to pull the whole ~120 MiB from us inside `_fetch_da_proof`'s 8 s budget. It never arrived.
+
+A `/da/announce` prefetch endpoint (`f62678d4`) was added to move the transfer off the validation path,
+and it is sound, but it is moot here for the same reason — peers have no DA store to prefetch *into*. It
+announced to 0 peers on the first real proof.
+
+### 6.4 The size caps were knobs, and the binding one was not the documented one
+
+See the banner above. `MAX_TX_BODY` (1 MiB) was the real limit, not the 8 MiB app cap. All of it is now
+keyed to `protocol.MAX_INLINE_TX_BYTES` (`6f7b6a41`): tx body, `client_max_size`, `MAX_PEER_BODY`,
+`SYNC_BATCH_BYTES`, `_ZSTD_WIRE_MAX`, `transaction_pool_max_bytes`, `SETTLE_INLINE_MAX`.
+
+### 6.5 Gossip timeouts sized for kilobyte transactions
+
+`send_transaction` used a flat `ClientTimeout(total=5)` and `post_txs_by_id` 15 s. A 120 MiB body needs
+~24 MB/s sustained *and* a verdict inside the same window — while the peer verifies the proof before
+answering (~22–114 s). Both transports therefore timed out, so the tx sat in our pool alone; and since
+every node deterministically builds the **winner's** candidate, a peer's candidate (without our tx) won
+every time. Fixed in `25460038`: push scales with body size, pull raised to 300 s.
+
+### 6.6 The landing runway was shorter than the transfer
+
+A settle is an **exact-landing** tx. `SETTLE_PROOF_TX_MARGIN` was 60 blocks (~6 min), sized when the tx
+carried only a DA commitment. Measured propagation of the real 120 MiB tx to all three peers was **~8
+minutes**, so the target block passed while the transfer was healthy and in flight. Raised to 180 blocks
+with grace 900 s and hold 1200 s (`1af768de`).
+
+### 6.7 The evidence
+
+| step | evidence |
+|---|---|
+| proof built | `settle-prove cursor=42876` → `BUILT`, self-checks passed |
+| carried inline | `1 segment(s), tx 120.31 MiB` — no DA involved |
+| a peer verified it | `200 {"message":"Success","result":true}` in **114.5 s** |
+| reached every node | all four pools held `cursor=42876 proof=True` |
+| landed | block 43153, 1 tx, `recipient=settle proof=True`, 126.6 MiB block |
+| fleet agrees | all four nodes: `75bfd859494b1db3527c4e54…` |
+| final | depth 71 > `FINALITY_DEPTH` 45 |
+| state moved | `/get_settled` root == the proven root |
+
+### 6.8 Verifying a landing — the scanner lied once
+
+A block-scanner with a short per-block HTTP timeout **silently misses the landing**. Mine used 6 s and
+swallowed the fetch of the very 126 MiB block it was hunting, reporting "0 settle txs" while the proof was
+on chain. Use a long timeout, print fetch failures instead of hiding them, and confirm three ways: the
+block's own tx list, `/get_settled`, and the same block hash on every peer. `/status` can also return
+non-JSON while a node verifies a large proof — never let a failed parse look like a real value.
+
+## 7. Still open
+
+* **A skip/revert anywhere in a span makes it unprovable — folded or not.** A call the chain SKIPS (sender
+  cannot cover the escrow, `execnode/state.py`) or that REVERTS is a no-op on chain: escrow refunded, no
+  state moves. The prover cannot represent one — `settlement_proofs._run_call` raises, and so does
+  `vm_circuit.prove_epoch_calls` ("a call reverted — nothing to prove"). On a busy chain most spans will
+  contain one, so proof-carrying settlement degrades to bare attestations exactly when it matters.
+  `calls_commit.block_calls` already documents the intended semantics — "ALL `op=='call'` blobs are
+  included, even ones that will skip/revert in the VM … the proof's state transition treats a skip/revert
+  as a no-op (matching live apply)" — so **the implementation contradicts its own design**.
+  Routes: (a) the AIR proves a reverting execution; (b) reverted calls are excluded from the proven set in
+  a way the **verifier can re-derive** — a prover-supplied "this reverted" flag would be forgeable;
+  (c) narrow the span to the clean prefix, which needs `ExecState.settle_snapshot` to re-capture `root`
+  and `rec_root` **at the narrowed cursor** (lowering `cur` alone makes the settle claim a post-root from a
+  different cursor). `2d4bcccf` adds a pre-flight so such a span is skipped in seconds instead of after
+  ~1000 s of proving.
+* **The landed proof was UNFOLDED** (`calls=0`). The folded proof's SIZE has still never been measured
+  against the 120.31 MiB unfolded baseline — that is the entire point of the fold.
+* **`prove_transition` now dominates**: measured `calls=1 net_updates=7` → 782–884 s, i.e. ~126 s per state
+  update, while `prove_epoch` FELL to 8.9 s. Untouched constant factors: `max_degree=8` ⇒ blowup 8 ⇒
+  N=8T; the ext-field arena penalty (~2.8×, the Rust arena is base-field only); allocator churn (~4/8
+  samples in libc, RSS 1.2→2.8 GB); 20.3% power-of-two padding.
+* **Cost of the inline pivot**: blocks carrying a proof are large, so gossip and sync move real bytes. That
+  is a deliberate alphanet trade — a proof that lands beats a smaller one that cannot. The fold is what
+  brings the size back down.

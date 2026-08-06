@@ -4,6 +4,20 @@ These are the goals the zk/settlement work strives toward. Every design decision
 (doc/zk-recursion.md, doc/zk-execution-proofs.md, doc/settlement-layer.md) should be justifiable against
 them; anything that moves away from one of them needs an explicit, written reason.
 
+> **2026-08-06 — the first of these goals is now demonstrated, and the gap to the rest is measurable.**
+> Block 43153 settled the exec root on a validity proof: a peer verified it in 114.5 s, the fleet agrees,
+> and it is final. So the *seam* works end to end — L1 will accept a proven root instead of a bonded quorum.
+>
+> **But measure it against goal 1 honestly: the proof was 120.31 MiB and took ~114 s to verify.** That is
+> the opposite of "a few kilobytes in milliseconds". It landed by making the transport carry it (inline in
+> a 126.6 MiB block) rather than by making the proof succinct. Both are legitimate engineering, but only
+> one of them is this document's goal, and it is not the one that got us here.
+>
+> What that buys is leverage rather than victory: every remaining improvement — the K→1 fold, cheaper
+> `prove_transition`, a smaller LDE domain — is now testable against a working end-to-end path instead of
+> being blocked behind one. Succinctness is still the target; we have simply stopped needing it to be true
+> before anything else can be tried. See doc/settle-proof-transport.md §6–7.
+
 ## 1. Succinctness
 
 **Verifying must not cost what executing cost.** A proof's verification time and size must be independent of
