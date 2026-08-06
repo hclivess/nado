@@ -347,20 +347,52 @@ would ever be presented against that derivation. The derivation is computed and 
 time and only *consulted* when a proof is being validated, so a span that never gets a proof simply rides
 the quorum as it does today.
 
-**The obvious objection, checked: a SKIPPED call is not a reverted one.** The live path skips a call whose
-sender cannot cover the escrow (`execnode/state.py`) — the VM never runs. The prover does NOT model that:
-`_run_call` credits `bridge[cid] += value` without ever debiting the sender or checking affordability. So a
-skipped call *would* be "proven". That does not become unsound, because the proof's `post_root` then
-includes storage the real chain never applied, so it cannot match the committed root and the settle is
-refused. It fails CLOSED — which is also why such spans show up as unprovable today rather than as bad
-settlements.
+**VERIFIED 2026-08-06 — and the proposal as first written had a HOLE. It needs a prerequisite.**
 
-**What to verify before implementing** (this is the part that needs fresh eyes, not a 4am patch):
-1. that `post_root` matching genuinely covers every way a skip could diverge, not just storage;
-2. that the asset-denominated escrow path (`abal`) carries the same argument as the native one;
-3. that nothing else consumes `derivable` in a context where "no proof exists yet" matters.
+*Point 3 holds.* The only consumer of `derivable` is `calls_commit.verify_calls_bound_to_summaries`
+(`rd` must be present and 1), and it runs **only** when a settle proof is being validated — the branch is
+guarded by `records_out is not None`, i.e. "the caller intends to prove the records half". Nothing reads it
+otherwise, so a span that never gets a proof rides the quorum untouched, exactly as the argument requires.
 
-If those hold, the records gate closes with a change to `records_bind` alone — no circuit work, no reroll.
+*Point 1 FAILS as originally argued.* I claimed a skipped call would fail closed because its `post_root`
+"cannot match the committed root". It can. The check in `validate_transaction` is
+
+```python
+assert post_full == root, "Settle proof post_root must equal state_root"
+```
+
+and `root` is the settle **transaction's own claim**. L1 does not independently recompute the exec root —
+verifying the proof is precisely what replaces re-execution. So a prover that proves a call the live chain
+SKIPPED (sender could not cover the escrow; the VM never ran) produces a self-consistent (proof, root) pair
+that L1 accepts, while every honest exec node computed a different root. That is a divergence, not a
+refusal.
+
+**What actually prevents it today is the records gate itself.** By refusing any block with a value>0 call,
+it also blocks the skip-divergence. The two are entangled: removing the gate naively would open the hole it
+was incidentally closing.
+
+**Therefore the prerequisite:** `settlement_proofs._run_call` must mirror the live escrow rule before the
+gate can be relaxed — check `bridge[sender] >= value`, debit the sender, credit the cid, and treat a
+shortfall the way the chain does. Today it only does the credit:
+
+```python
+bridge[cid] = bridge.get(cid, 0) + value      # no sender debit, no affordability check
+```
+
+while `execnode/state.py` does `if self.bridge.get(sender, 0) < value: return "skip: ..."` then debits. The
+prover already receives `pre_bridge`, so it has everything it needs. With that in place a skipped call
+makes the prove FAIL rather than succeed on a state the chain never had, and "provable ⇒ what the chain
+did" is restored — which is the property the whole argument rests on.
+
+*Point 2 (the asset-denominated `abal` escrow) is unexamined* and needs the same treatment: the live path
+checks `asset_balance(in_asset, sender) < value` and debits, while the prover calls
+`asset_credit_dict(abal, in_asset, cid, value)` with no sender-side check.
+
+**Revised order of work:** (i) make `_run_call`'s escrow mirror the live rule, native and asset, with a
+test that a span containing an unaffordable call fails to prove; (ii) only then relax `records_bind` to
+derive value-call effects; (iii) the "proof is the verdict" argument then carries the revert case as well.
+Still no circuit work and no reroll — but (i) is not optional, and shipping (ii) without it would be a
+soundness regression.
 
 **The circuit route, for completeness, in the order the code itself implies:**
 
