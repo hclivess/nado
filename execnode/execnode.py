@@ -896,6 +896,21 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     if _pub_active:
         return _skip("the previous proof is still publishing/submitting; not starting a second prove that "
                      "extends the same pre-state and could never land")
+    # ...AND RE-CHECK THE PENDING MARKER HERE, because the caller's copy is STALE BY THE TIME IT MATTERS.
+    #
+    # NAMED BY THE DIAGNOSTIC, after three fixes had guessed wrong:
+    #   17:47:37 SETTLE-WITH-PROOF cursor 49530            <- marker recorded
+    #   17:47:39 prove-gate span 49500->49534 LAUNCH — pending_cursor=49530 proving=False publishing=CLEAR
+    # The caller computes `_pend_hold` at the TOP of its pass and then this function spends seconds walking
+    # the span over HTTP before it commits to anything. A proof submitted inside that walk sets the marker
+    # after the snapshot was taken, so the gate it was checked against no longer describes reality.
+    # bd079982 added the caller-side gate, 7b612e1e moved the marker earlier, d4c24872 made the publish hold
+    # continuous — none of them could help, because the read itself was stale, not the write.
+    # Re-reading at the LAST moment before _settle_proving is set is what makes the check meaningful; that
+    # is the same reason _pub_active is re-evaluated here rather than trusted from the caller.
+    if _settle_pending.get(ns) is not None:
+        return _skip("a proof-carrying settle is already waiting for its landing block; a second proof over "
+                     "the same pre-state could never also land", cls="pending-landing")
     # WHY WAS THIS PROVE ALLOWED? Three fixes for the duplicate-prove race have shipped and the duplicate
     # survived all three (bd079982, 7b612e1e, d4c24872 — the last VERIFIED loaded: committed 16:21:22, exec
     # started 16:21:40, duplicate at 16:33-16:34). That means the open window is somewhere I have not

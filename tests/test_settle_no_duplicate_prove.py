@@ -118,6 +118,29 @@ def t_the_hold_is_continuous_from_prove_to_submit():
         f"nothing may await between the prove returning and the hold being taken: {code_only!r}"
 
 
+def t_the_pending_marker_is_RE_CHECKED_at_the_launch_point():
+    """THE ACTUAL BUG, named by instrumentation after three fixes guessed wrong.
+
+        17:47:37  SETTLE-WITH-PROOF cursor 49530                      <- marker recorded
+        17:47:39  prove-gate span 49500->49534 LAUNCH — pending_cursor=49530 proving=False publishing=CLEAR
+
+    The marker WAS set and a prove launched anyway, so the caller-side gate was never violated — it was
+    STALE. `_pend_hold` is snapshotted at the top of a maybe_settle pass; _build_settlement_proof then
+    spends seconds walking the span over HTTP before committing to anything, and a proof submitted inside
+    that walk sets the marker after the snapshot was taken.
+
+    bd079982 added the caller gate, 7b612e1e moved the marker earlier, d4c24872 made the publish hold
+    continuous. None could help: the READ was stale, not the write. The check has to happen at the LAST
+    moment before _settle_proving is set — the same reason _pub_active is re-evaluated there rather than
+    trusted from the caller."""
+    i = SRC.index("_pub_active = (_settle_publishing")
+    j = SRC.index("_settle_proving = True", i)
+    seg = SRC[i:j]
+    assert "_settle_pending.get(ns) is not None" in seg, \
+        "the pending marker must be RE-READ between the _pub_active check and _settle_proving = True"
+    assert "pending-landing" in seg, "the re-check must skip with a named reason"
+
+
 def t_the_measurement_is_recorded():
     i = SRC.index("_pend_hold = _settle_pending.get(ns) is not None")
     ctx = SRC[max(0, i - 1800):i]
@@ -133,6 +156,7 @@ for nm, fn in [("the prove is gated on no pending proof", t_the_prove_is_gated_o
                ("the pending entry is always released", t_pending_is_always_released),
                ("the pending marker precedes the lookup", t_the_pending_marker_is_recorded_before_the_lookup),
                ("the hold is continuous from prove to submit", t_the_hold_is_continuous_from_prove_to_submit),
+               ("the pending marker is RE-CHECKED at the launch point", t_the_pending_marker_is_RE_CHECKED_at_the_launch_point),
                ("the measurement is recorded beside the gate", t_the_measurement_is_recorded)]:
     check(nm, fn)
 
