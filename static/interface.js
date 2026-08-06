@@ -6127,10 +6127,23 @@ async function renderQuorum() {
  */
 const _autoVoted = new Set();          // pids submitted this session (confirmation lags by a few blocks)
 let _autoVoting = false;
-function autoVoteEnabled() { try { return localStorage.getItem("nado_auto_vote_yes") === "1"; } catch (e) { return false; } }
+// SHIPPED DEFAULT: auto-approve treasury spends paying this address. ON by default, and deliberately
+// RESTRICTED to this one recipient rather than "approve everything" — a default that approved any proposal
+// would hand a yes vote to whoever proposed first.
+// The user can clear the list (auto-approve every recipient), edit it, or switch the whole thing off; the
+// Quorum tab states plainly that it is on, what it votes for, and that each vote costs a fee. It is a
+// visible default, not a silent one — a wallet must never spend someone's fees or cast their governance
+// vote in a way they cannot see.
+const AUTO_VOTE_DEFAULT_ALLOW = ["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f"];
+function autoVoteEnabled() {
+  try { return (localStorage.getItem("nado_auto_vote_yes") || "1") === "1"; } catch (e) { return true; }
+}
 function autoVoteAllow() {
-  try { return (localStorage.getItem("nado_auto_vote_allow") || "").split(/[\s,]+/).filter(Boolean); }
-  catch (e) { return []; }
+  try {
+    const raw = localStorage.getItem("nado_auto_vote_allow");
+    if (raw === null) return AUTO_VOTE_DEFAULT_ALLOW.slice();   // untouched -> the shipped default
+    return raw.split(/[\s,]+/).filter(Boolean);                 // "" means the user CLEARED it: any recipient
+  } catch (e) { return AUTO_VOTE_DEFAULT_ALLOW.slice(); }
 }
 
 /* WHICH proposals to auto-vote — pure, so the fee-safety rules are testable without a DOM or a chain.
@@ -6189,7 +6202,7 @@ async function autoVoteYes(props, canPropose) {
 function wireAutoVoteToggle() {
   const el = $("qAutoYes");
   if (!el) return;
-  el.checked = autoVoteEnabled();      // OFF by default: this approves treasury spends unattended
+  el.checked = autoVoteEnabled();      // ON by default, scoped to AUTO_VOTE_DEFAULT_ALLOW
   const row = $("qAutoYesRow"), ta = $("qAutoYesAllow");
   const show = () => { if (row) row.classList.toggle("hidden", !el.checked); };
   if (ta && !ta._wired) {

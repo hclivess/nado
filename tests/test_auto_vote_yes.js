@@ -110,12 +110,47 @@ check("the whitelist never overrides the voted flag", () => {
   eq(r.pick.length, 0);
 });
 
-check("it is OFF by default in the markup", () => {
+check("the shipped default is ON but SCOPED to a recipient list", () => {
+  // Shipping this ON means a wallet casts fee-bearing governance votes unattended. That is only defensible
+  // while it is NARROW: a default of "approve every proposal" would hand a yes vote to whoever proposed
+  // first. Pin both halves — enabled by default, AND a non-empty default recipient list.
+  const en = SRC.match(/function autoVoteEnabled\(\)[\s\S]*?\n\}/);
+  if (!en) throw new Error("autoVoteEnabled not found");
+  const enabled = new Function("localStorage", en[0] + "; return autoVoteEnabled();");
+  eq(enabled({ getItem: () => null }), true, "untouched wallet must default ON");
+  eq(enabled({ getItem: () => "0" }), false, "an explicit off must stick");
+
+  const dl = SRC.match(/const AUTO_VOTE_DEFAULT_ALLOW = \[[^\]]*\];/);
+  if (!dl) throw new Error("AUTO_VOTE_DEFAULT_ALLOW not found");
+  const def = new Function(dl[0] + "; return AUTO_VOTE_DEFAULT_ALLOW;")();
+  if (!def.length) throw new Error("an ON-by-default auto-voter MUST be scoped — an empty default list approves everything");
+  for (const a of def) if (!/^[0-9a-f]{40,64}$/.test(a)) throw new Error("default recipient is not an address: " + a);
+});
+
+check("an untouched wallet only approves the default recipients", () => {
+  const al = SRC.match(/function autoVoteAllow\(\)[\s\S]*?\n\}/);
+  const dl = SRC.match(/const AUTO_VOTE_DEFAULT_ALLOW = \[[^\]]*\];/);
+  const mk = (raw) => new Function("localStorage", dl[0] + "\n" + al[0] + "; return autoVoteAllow();")({ getItem: () => raw });
+  const def = mk(null);
+  if (!def.length) throw new Error("an untouched wallet must get the shipped list");
+  // and that list must actually restrict: a proposal to someone else is not auto-approved
+  const r = autoVotePicks([P("a", "open", false, "deadbeef" + "0".repeat(38))], true, new Set(), def);
+  eq(r.pick.length, 0, "the default list must not approve an unrelated recipient");
+  const r2 = autoVotePicks([P("b", "open", false, def[0])], true, new Set(), def);
+  eq(r2.pick.length, 1, "the default list must approve its own recipient");
+  eq(mk("").length, 0, "CLEARING the box means any recipient — an explicit user choice, not the default");
+});
+
+check("the UI discloses that it is on and what it votes for", () => {
+  // A default that spends someone's fees and casts their governance vote must be visible in the UI, not
+  // only in the code. This is the check that stops it from quietly becoming silent.
   const html = fs.readFileSync(path.join(__dirname, "..", "static", "interface.html"), "utf8");
-  const i = html.indexOf('id="qAutoYes"');
-  if (i < 0) throw new Error("the qAutoYes toggle is missing from interface.html");
-  const tag = html.slice(html.lastIndexOf("<", i), html.indexOf(">", i));
-  if (/checked/.test(tag)) throw new Error("auto-vote must not be checked in the markup — it approves treasury spends unattended");
+  const i = html.indexOf("quorum.autoYesSub");
+  if (i < 0) throw new Error("the auto-vote description is missing from interface.html");
+  const txt = html.slice(i, html.indexOf("</span>", i)).toLowerCase();
+  for (const phrase of ["on by default", "fee", "switch this off"]) {
+    if (txt.indexOf(phrase) === -1) throw new Error('the description must say "' + phrase + '"');
+  }
 });
 
 check("it never executes a payout", () => {
