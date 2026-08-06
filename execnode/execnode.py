@@ -187,12 +187,24 @@ SETTLE_FOLD = True
 # so the cap is now SIZE-derived, and _RECORDS_CAP_FITS_INLINE below asserts it against the real budget
 # rather than trusting this comment to stay true.
 #
-# WHAT THIS DOES AND DOES NOT UNBLOCK. Live spans that cross a dividend epoch boundary carry 18 updates:
-# net_records_updates NETS per key, so repeated accrual collapses to ONE T_DIV_BAL position PER PRESENT
-# MINER — 13 on this chain — plus whatever else the span touched. 13 fits; 13 + 5 does not. So a SHORT
-# boundary span now proves and a long one still declines, where before EVERY span declined. Shortening the
-# settle cadence is the lever that closes the rest, because the 13 is a floor per boundary but the +5 is
-# proportional to span length.
+# WHAT THIS DOES AND DOES NOT UNBLOCK, CORRECTED BY MEASUREMENT. I shipped this cap believing a boundary
+# span was "one T_DIV_BAL position per present miner, plus a few others from ordinary activity", which made
+# SHORTENING THE SPAN the lever: the per-miner part is a floor, the rest is proportional to span length.
+# Logging the tag breakdown killed that immediately — the live line reads
+#
+#     19 net updates from 38 effects [DIV_BAL=38]
+#
+# There are no others. EVERY effect is dividend accrual: 38 effects = two epoch boundaries x 19 present
+# miners, netting to 19 distinct positions. So the update count is simply THE NUMBER OF PRESENT MINERS, one
+# boundary is enough to reach it, and shortening the span cannot go below it. The floor is not 13-and-shrink
+# but 19-and-GROWING, because it tracks fleet size.
+#
+# That makes the remaining gap STRUCTURAL, not a tuning problem: 19 x 10.83 MiB + 9 MiB = 215 MiB against a
+# 191.94 MiB budget. Raising MAX_INLINE_TX_BYTES would cover today's 19 and lose again as miners join, on a
+# wire whose peers already strain to PULL a ~120 MiB tx inside their admit budget. The lever that scales is
+# making K updates cost less than K proofs — either the K->1 recursion bundle (already built by
+# prove_transition(fold=True); today it is carried ALONGSIDE the per-update proofs rather than replacing
+# them, so it costs verification time and not bytes), or one STARK over several updates.
 #
 # WHAT IS NOT THE LEVER: dropping NUM_QUERIES. 88% of the proof is FRI queries (320 x 30.5 KiB), so cutting
 # them would close the gap immediately — and fri.py sizes 320 to clear 128 bits on the PROVABLE
