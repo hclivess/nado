@@ -429,6 +429,12 @@ def _shared_libs(crate_path):
     return out
 
 
+def _has_shared_lib(crate_path):
+    """True if this crate already has a compiled shared library. Used to tell "unchanged, already built"
+    (skip) apart from "unchanged, NEVER built" (must build) — see _rebuild_native_if_changed."""
+    return bool(_shared_libs(crate_path))
+
+
 def _purge_shared_libs(crate_path):
     """Delete a crate's compiled shared libs so its loader sees an ABSENT (not STALE) artifact and takes the
     pure-Python path. Returns True if anything was removed."""
@@ -485,8 +491,19 @@ def _rebuild_native_if_changed(old, new):
         if not os.path.isdir(path):
             continue
         touched = changed is None or re.search(rf"^{re.escape(crate)}/.*\.(rs|toml|lock)$", changed, re.M)
-        if not touched:
-            continue                                     # this crate's sources unchanged → its .so is still valid
+        # MISSING IS NOT THE SAME AS UNCHANGED. "sources unchanged → its .so is still valid" only holds if a
+        # .so was ever built here. A box that has NEVER built a crate has unchanged sources forever, so this
+        # loop skipped it on every update and the library never appeared.
+        #
+        # That is not hypothetical. Measured 2026-08-06: all three peers were missing libgoldilocks.so, so
+        # every proof-carrying settle they were offered was rejected outright —
+        #     "Settle proof invalid: segment 0: epoch proof invalid: malformed proof: NativeMissing:
+        #      native crate 'goldilocks' is REQUIRED but its library is missing"
+        # — and since there is no Python fallback since alphanet-14, NO settle proof could EVER have been
+        # verified anywhere on this fleet, at any size, through DA or inline. It is the deepest reason no
+        # proof has ever landed on alphanet-15, underneath every transport problem.
+        if not touched and _has_shared_lib(path):
+            continue                                     # unchanged AND already built → its .so is still valid
         ok = False
         if have_cargo:
             try:
