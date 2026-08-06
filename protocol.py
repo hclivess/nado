@@ -712,6 +712,43 @@ MAX_INLINE_TX_BYTES = 192 << 20          # 192 MiB — comfortably over the ~120
 # block is marked non-derivable and keeps riding the quorum, exactly as an unknown blob op does.
 SETTLE_PROOF_RECORDS = True     # ENABLED at the alphanet-15 reroll — see generation 16 in the log below.
 
+# ---- VALUE-CALL ESCROW DERIVATION (records_bind.block_records_effects) ------------------------------
+# Extends the coverage above to the one family that actually matters in practice: a contract call carrying
+# value>0.
+#
+# WHY IT WAS EXCLUDED, and why that is now solvable. The escrow (sender -> cid, two T_BRIDGE_BAL positions)
+# happens BEFORE the VM runs and is REFUNDED if the call reverts, so its NET effect is not a function of
+# the calldata — you need to know whether the call succeeded. records_bind says exactly this: "deriving it
+# needs the exec proof's own verdict".
+#
+# THE PROOF *IS* THE VERDICT. zkvm.ZkVMRevert states the invariant: "the interpreter reverts exactly where
+# the AIR constraints would have no satisfying witness, so 'provable' and 'executes successfully' are the
+# same set of calls." So a VALID PROOF over a span already establishes that every call in it succeeded —
+# hence every escrow stuck, with no refund, which IS a pure function of the calldata. And `derivable` is
+# only ever CONSULTED while a settle proof is being validated (calls_commit.verify_calls_bound_to_summaries,
+# guarded by `records_out is not None`), so a span that never gets a proof rides the bonded quorum exactly
+# as before.
+#
+# THE PREREQUISITE IS ALREADY IN (1fbf4c35). The argument needs "provable => what the chain actually did",
+# and that did NOT hold: settlement_proofs._run_call credited the contract without debiting the sender or
+# checking affordability, so it would prove a call the chain had SKIPPED. L1 never recomputes the exec root
+# (verifying the proof is what replaces re-execution), so its only check is `post_full == root` against the
+# tx's OWN claim — a proof over the wrong state satisfies that self-consistently. _run_call now mirrors the
+# live escrow rule for both the native and asset paths.
+#
+# WHY IT COSTS A REROLL, not a flag flip: exec summaries live in the `meta` sub-DB, which FEEDS THE L1 STATE
+# ROOT. Emitting effects where we previously wrote `derivable=0` changes the root on upgraded nodes only,
+# which does not risk a fork — it guarantees one. Same reasoning as SETTLE_PROOF_RECORDS above.
+#
+# WHAT IT BUYS, measured 2026-08-06 over a two-hour window: 14 of 18 skipped spans (78%) were refused for
+# "the RECORDS half moved across the span", and every one of the chain's calls carries value (all 25 game
+# contracts call with value; zero zero-value calls exist). So today the fold needs exactly the calls that
+# make a span unprovable. This is what unblocks that.
+#
+# STILL NOT COVERED after this: presence-dividend accrual moves records on an EPOCH boundary with no
+# transaction at all, so the separate refusal of any span crossing one remains.
+SETTLE_PROOF_RECORDS_VALUE_CALLS = False   # OFF: flip at the next reroll, never on a live chain.
+
 # ---- DEPTH-GATED PROOF VERIFICATION (doc/settle-proof-transport.md §4, option 1) --------------------
 # A settle proof is ~97 MiB against a ~256 KiB block, so it cannot ride in the block and must be fetched.
 # Re-fetching and re-verifying one per settle across all of history would make joining the network cost

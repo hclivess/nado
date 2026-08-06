@@ -84,6 +84,17 @@ from execnode.stark import field as F
 from execnode import exec_root as ER
 
 
+def _VALUE_CALL_ESCROW():
+    """Read protocol.SETTLE_PROOF_RECORDS_VALUE_CALLS at CALL time, not import time, so a test can flip it
+    and so a node that predates the flag simply reads False. Never cache it: the value is a consensus rule
+    and a stale copy would make one node derive effects another does not."""
+    try:
+        import protocol
+        return bool(getattr(protocol, "SETTLE_PROOF_RECORDS_VALUE_CALLS", False))
+    except Exception:
+        return False
+
+
 class Unbindable(Exception):
     """A span carries a records effect this module cannot derive from committed data. NOT an error in the
     span — the correct response is to decline the proof path and settle by bonded quorum."""
@@ -207,9 +218,38 @@ def block_records_effects(block):
             if v != 0:
                 # The escrow (sender -> cid, two T_BRIDGE_BAL positions) happens BEFORE the VM runs and is
                 # REFUNDED when the call reverts, so the net records effect depends on the execution
-                # outcome, not on the calldata. Deriving it needs the exec proof's own verdict, which is a
-                # later step; until then such a block is not derivable.
-                return None, False
+                # outcome, not on the calldata. Deriving it needs the exec proof's own verdict.
+                #
+                # THE PROOF IS THAT VERDICT (protocol.SETTLE_PROOF_RECORDS_VALUE_CALLS). zkvm.ZkVMRevert:
+                # "the interpreter reverts exactly where the AIR constraints would have no satisfying
+                # witness, so 'provable' and 'executes successfully' are the same set of calls." A VALID
+                # proof over a span therefore already establishes that every call in it succeeded, so every
+                # escrow stuck and nothing was refunded — which IS a pure function of the calldata. These
+                # effects are only ever CONSULTED while a proof is being validated (calls_commit's
+                # `records_out is not None` branch), so a span that never gets one rides the quorum
+                # untouched and this derivation is never used against it.
+                #
+                # It rests on settlement_proofs._run_call mirroring the live escrow rule (1fbf4c35) — check
+                # affordability, debit the sender, credit the cid. Without that the prover would accept a
+                # call the chain SKIPPED, and "provable" would stop meaning "what the chain did".
+                #
+                # OFF BY DEFAULT AND FLIPPED AT A REROLL: this changes what incorporate_block writes into
+                # `meta`, which feeds the L1 state root, so enabling it live guarantees a fork.
+                if not _VALUE_CALL_ESCROW():
+                    return None, False
+                _sender = tx.get("sender")
+                _cid = d.get("contract")
+                if not _sender or not _cid:
+                    return None, False               # cannot place the two positions -> stay non-derivable
+                _asset = int(d.get("asset") or 0)
+                if _asset:
+                    # An asset-denominated call value moves the ASSET ledger, not T_BRIDGE_BAL. That ledger
+                    # is not part of the records projection this module derives, so it stays out of scope
+                    # rather than being half-derived — the same fail-closed rule the module already applies.
+                    return None, False
+                effects.append((ER.T_BRIDGE_BAL, (_sender,), -v))
+                effects.append((ER.T_BRIDGE_BAL, (str(_cid),), v))
+                continue
     return effects, True
 
 
