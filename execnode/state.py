@@ -580,6 +580,21 @@ class ExecState:
         return root
 
     @staticmethod
+    def snapshot_view(d):
+        """A read-only ExecState VIEW over a serialized snapshot payload — disk-free, no instance mutated.
+
+        Factored out of records_root_from_snapshot so the settle prover can build the records half's PRE
+        store from the same stashed payload it already uses for the pre-root. Built __new__ + _restore, so
+        it never reads or writes disk, and `path` is a sentinel because a view must never be save()d."""
+        import threading as _th
+        v = ExecState.__new__(ExecState)
+        v.path = "<snapshot-view>"
+        v._mutate_lock = _th.RLock()
+        v._restore(d)
+        v.block_ts = 0                      # not in _snapshot() and not in the root; see clone()
+        return v
+
+    @staticmethod
     def records_root_from_snapshot(d):
         """The RECORDS-half root of a serialized snapshot payload — disk-free, no mutation of any instance.
 
@@ -592,12 +607,7 @@ class ExecState:
         provably had not moved at all.
 
         Built the same way clone() builds a view — __new__ + _restore, so it never reads or writes disk."""
-        import threading as _th
-        v = ExecState.__new__(ExecState)
-        v.path = "<snapshot-view>"          # sentinel: a view is read-only and must never be save()d
-        v._mutate_lock = _th.RLock()
-        v._restore(d)
-        v.block_ts = 0                      # not in _snapshot() and not in the root; see clone()
+        v = ExecState.snapshot_view(d)
         from execnode import exec_root as ER
         from execnode.stark import storage_tree as SST
         from protocol import EXEC_TREE_DEPTH

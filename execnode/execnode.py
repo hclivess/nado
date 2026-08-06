@@ -594,6 +594,79 @@ def _state_for(request):
     return states.get(ns)
 
 
+async def _build_records_half(session, ns, pre_view, span_txs, sc, cur, rec_hex_expected=None):
+    """Prove the RECORDS half of a span, or return None to leave it frozen.
+
+    THE PROVER HAS NEVER BUILT ONE. records_transition.py has existed for weeks, ops/transaction_ops.py
+    verifies `proof["records"]`, and three test files cover it — but nothing under execnode/ ever SET it, so
+    every span whose records moved was skipped before proving. That is the whole reason a call-carrying span
+    could not settle by proof: not the derivation flag, the missing producer.
+
+    NO POST-STATE IS NEEDED, and that is the point. The KV half never materialises one either — it derives
+    the post from the pre by executing. Here the updates come from the SAME effect derivation L1 will run
+    against its own committed summaries (records_bind.span_effects), so `st` mutating under us during the
+    prove cannot desynchronise anything. Building it from a live post-state would reintroduce exactly the
+    "two roots that were never simultaneously true" trap records_root_from_snapshot documents.
+
+    THE VERIFIER SOURCES THE EFFECTS ITSELF (ops/transaction_ops.py: "The effects come from THIS node's
+    committed summaries — never from the proof"), so anything we derive differently simply fails to bind and
+    the span rides the quorum. Refusal, never a forged settlement.
+
+    Returns (transition, rec_post_hex, records_pre_projection) or None.
+    """
+    from execnode.stark import records_bind as RB, state_transition as SX, storage_tree as _SST
+    from execnode import exec_root as _ER
+    from protocol import EXEC_TREE_DEPTH as _D, EPOCH_LENGTH as _EL
+    try:
+        # ACCRUALS: one (inflow, weights) per epoch the span accrues, read from L1 consensus state — the
+        # same endpoints the tail loop uses before calling accrue_dividend_epoch. They must come from L1,
+        # not from us: records_bind's header records that a verifier taking them from the proof would be
+        # trusting the prover's HTTP client.
+        accruals = []
+        for h in range(sc + 1, cur + 1):
+            E = RB.epoch_accrual_due(h, _EL)
+            if E is None:
+                continue
+            inf = await _get_json(session, f"/get_dividend_inflow?epoch={E}")
+            ow = await _get_json(session, f"/get_open_weights?epoch={E}")
+            if not isinstance(ow, dict) or ow.get("error"):
+                return None                       # pruned recert history -> quorum, never a guess
+            accruals.append((int((inf or {}).get("inflow", 0)), (ow or {}).get("weights", {}) or {}))
+        effects = RB.span_effects(span_txs, accruals, int(getattr(pre_view, "div_carry", 0)))
+        if not effects:
+            # EMPTY-EFFECT TRAP: with nothing to prove L1 REQUIRES rec_post == rec_hex, which collapses to
+            # the frozen case. Attaching an empty transition would move the half on nobody's authority.
+            return None
+        # ONE projection, reused. Computing it inside pre_get would rebuild the whole records map on every
+        # record lookup — quadratic in a state with ~118k entries, inside the prove's critical path.
+        proj = _ER.records_projection(pre_view)
+        store = _SST.SparseStore(_D, proj)
+        pre_root_hex = _SST.digest_hex(store.root())
+        if rec_hex_expected is not None and pre_root_hex != rec_hex_expected:
+            # The stash must be the state at the JUSTIFIED cursor. If its records root is not the one the
+            # tip committed, every update below would be derived against the wrong pre-values and the
+            # binding would fail on L1 anyway — catch it here, cheaply, with a reason.
+            print(f"[execnode] records half PRE MISMATCH for span {sc}->{cur}: stash {pre_root_hex[:16]}… "
+                  f"!= tip {rec_hex_expected[:16]}… — quorum", flush=True)
+            return None
+        net = RB.net_records_updates(lambda tag, parts: int(proj.get(_ER.record_key(tag, *parts), 0)),
+                                     effects, _D)
+        if not net:
+            return None                           # effects that cancel out move nothing; stay frozen
+        # prove_transition APPLIES the updates to `store`, so its root afterwards IS the post root — the
+        # same way settlement_sparse reads sparse_post_root straight off pre_store after proving.
+        tr = SX.prove_transition(store, [(k, n) for (k, _o, n) in net])
+        tr["half"] = "records"
+        return tr, _SST.digest_hex(store.root()), {str(k): int(v) for k, v in proj.items()}
+    except RB.Unbindable as e:
+        print(f"[execnode] records half not bindable for span {sc}->{cur}: {e} — quorum", flush=True)
+        return None
+    except Exception as e:
+        print(f"[execnode] records half FAILED for span {sc}->{cur} ({type(e).__name__}: {e}) — quorum",
+              flush=True)
+        return None
+
+
 async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=None):
     """Best-effort SELF-CHECKING settle-with-proof for (ns, cur, root), or None to fall back to quorum.
 
