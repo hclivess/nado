@@ -91,6 +91,60 @@ def t_a_guard_precedes_the_records_prove():
         f"a records prove would be launched on every settle cadence while the previous one still runs")
 
 
+def t_the_guard_flag_is_actually_SET_around_the_records_prove():
+    """THE SECOND BUG, which the first fix did not touch.
+
+    3b2644d8 guarded the records prove on `_settle_proving` — a flag set ~60 lines LATER, for the KV prove.
+    It is False for the entire multi-minute records window, so the check read False every time and each
+    cadence walked straight in. The instrumentation showed the stacking UNCHANGED after the fix:
+
+        01:04:35  batch 1/13 K=2 T=32768  55.2s (cum  55.2s) rss=0.91GB
+        01:05:39  batch 1/13 K=2 T=32768 113.2s (cum 113.2s) rss=2.70GB
+
+    A guard is only a guard if something RAISES the flag it reads. So: whatever flag is tested immediately
+    before _build_records_half must also be ASSIGNED True before that call and False after it."""
+    fn = _fn("_build_settlement_proof")
+    call = _records_call_line(fn)
+    # every name tested by an `if` in the window shortly before the call
+    tested = set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.If) and n.lineno < call:
+            for sub in ast.walk(n.test):
+                if isinstance(sub, ast.Name):
+                    tested.add(sub.id)
+    # every name ASSIGNED True before the call and False at/after it
+    set_true, set_false = set(), set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant):
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    if n.value.value is True and n.lineno < call:
+                        set_true.add(t.id)
+                    if n.value.value is False and n.lineno >= call:
+                        set_false.add(t.id)
+    live = tested & set_true & set_false
+    assert live, (
+        f"the records prove at line {call} is guarded on {sorted(tested)}, but none of those is both SET "
+        f"True before it and cleared False after it (True-before: {sorted(set_true)}, "
+        f"False-after: {sorted(set_false)}). A flag nobody raises is not a guard.")
+
+
+def t_the_records_flag_is_cleared_in_a_finally():
+    """If any path leaves it True — a None return, a raise, a cancellation — the records half wedges
+    permanently, which is worse than the stacking it prevents."""
+    fn = _fn("_build_settlement_proof")
+    call = _records_call_line(fn)
+    ok = False
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Try) and n.finalbody and n.lineno <= call:
+            for f in n.finalbody:
+                for sub in ast.walk(f):
+                    if (isinstance(sub, ast.Assign) and isinstance(sub.value, ast.Constant)
+                            and sub.value.value is False):
+                        ok = True
+    assert ok, "the records in-flight flag must be cleared in a finally around the prove call"
+
+
 def t_the_later_guard_is_still_there():
     """The early guard does NOT replace the late one. The late check re-reads at the last moment because the
     caller's copy goes stale while this function walks the span over HTTP — that was its own bug, three
@@ -138,6 +192,8 @@ def t_the_module_actually_imports():
 
 
 for nm, fn in [("a guard precedes the records prove", t_a_guard_precedes_the_records_prove),
+               ("the guard flag is actually SET around the prove", t_the_guard_flag_is_actually_SET_around_the_records_prove),
+               ("the records flag is cleared in a finally", t_the_records_flag_is_cleared_in_a_finally),
                ("the late re-read guard is still there", t_the_later_guard_is_still_there),
                ("the publish window is guarded early too", t_the_publish_window_is_guarded_early_too),
                ("global is declared before first use", t_global_is_declared_before_first_use),

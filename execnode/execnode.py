@@ -339,6 +339,22 @@ SETTLE_HOLD_MAX_S = SETTLE_SUBMIT_TIMEOUT_PROOF + 900
 # True while a settle-prove worker thread is outstanding. asyncio cannot kill that thread, so this is what
 # stops a timed-out prove from stacking a new one every cadence until the box dies.
 _settle_proving = False
+# True while the RECORDS half is being proven. A SEPARATE flag, and the distinction is the whole point.
+#
+# _settle_proving covers the KV prove and is set ~60 lines AFTER _build_records_half is called, so it is
+# False for the entire multi-minute records window. Guarding the records prove on it — which is exactly what
+# I shipped in 3b2644d8 — checks a flag that NOBODY RAISES during the window being protected, so every
+# settle cadence (~8 s) still walked straight in and started another one. The instrumentation showed it
+# unchanged after the "fix":
+#     01:04:35  batch 1/13 K=2 T=32768  55.2s (cum  55.2s) rss=0.91GB
+#     01:05:39  batch 1/13 K=2 T=32768 113.2s (cum 113.2s) rss=2.70GB
+# Two concurrent invocations again, same pid, index still stuck at 1/13.
+#
+# So the records prove gets its own flag, set immediately before the call and cleared in a `finally`. Unlike
+# _settle_proving it CAN be cleared that way: the records prove is awaited (asyncio.to_thread) rather than
+# detached, so when the await returns the work really is over. _settle_proving deliberately uses a
+# done-callback instead, because wait_for gives up while its thread keeps running.
+_records_proving = False
 # True from the moment a proof EXISTS until its settle has been submitted — i.e. across the publish and the
 # submit, which _settle_proving does NOT cover. That flag is cleared by the prove THREAD's done-callback, so
 # it goes False at "BUILT" while ~230 s of publish (139 s) and inline L1 verification (94 s) still lie ahead.
@@ -828,7 +844,7 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # Declared HERE, not at the later assignment: the in-flight guard is now read twice — once before the
     # records prove and once at the last moment before launching the KV prove — and Python requires the
     # global statement to precede the first use in the function.
-    global _settle_proving
+    global _settle_proving, _records_proving
     if not SETTLE_PROVE:
         return None
     from execnode.stark import settlement_sparse as SS, calls_commit as CC, storage_tree as SST
@@ -996,14 +1012,24 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
         # The LATER check stays. It is not redundant: it re-reads at the last moment because the caller's
         # copy goes stale while this function walks the span over HTTP (that was its own bug, three fixes
         # deep). This one is the cheap early-out that stops the stacking; that one keeps the race honest.
+        if _records_proving:
+            return _skip("a RECORDS prove is already in flight; not starting a second one over the same "
+                         "pre-state", cls="records-prove-inflight")
         if _settle_proving:
             return _skip("a previous settle-prove is still running; not starting a second RECORDS prove "
                          "over the same pre-state", cls="records-prove-inflight")
         if _settle_publishing and (time.time() - _settle_publishing) < SETTLE_HOLD_MAX_S:
             return _skip("the previous proof is still publishing/submitting; a records prove started now "
                          "would extend the same pre-state and could never land", cls="records-prove-inflight")
-        _records_half = await _build_records_half(session, ns, type(st).snapshot_view(snap["state"]),
-                                                  span_blocks, sc, cur, rec_hex_expected=rec_hex)
+        _records_proving = True
+        try:
+            _records_half = await _build_records_half(session, ns, type(st).snapshot_view(snap["state"]),
+                                                      span_blocks, sc, cur, rec_hex_expected=rec_hex)
+        finally:
+            # `finally`, not a trailing assignment: _build_records_half can return None, raise, or be
+            # cancelled, and any path that leaves this True would wedge the records half permanently — a
+            # far worse failure than the stacking it prevents.
+            _records_proving = False
         if _records_half is None:
             return _skip(f"the RECORDS half moved across the span {sc} -> {cur} "
                          f"({rec_hex[:16]}… -> {SST.digest_hex(rec_root)[:16]}…) and could not be PROVEN "
