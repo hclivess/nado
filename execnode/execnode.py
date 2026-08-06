@@ -135,10 +135,23 @@ SETTLE_PROVE = True
 # on the arena it is the only route to a proof small enough to settle on chain.
 SETTLE_FOLD = True
 # SETTLE_PROVE_TIMEOUT: seconds a single settle-prove may run before we give up on it and post a
-# BARE attestation instead. Default 1200s (20 min) — comfortably above a measured unfolded prove (~1-3 min
-# at protocol strength on live data) and far below the 5h07m a non-completing fold burned. Without a bound
-# the settle loop simply never returns and the chain stops settling entirely.
-SETTLE_PROVE_TIMEOUT = 1200      # safety bound, not a feature switch: a prove that outruns this is
+# BARE attestation instead. Without a bound the settle loop never returns and the chain stops settling.
+#
+# RAISED 1200 -> 2400 ON A MEASUREMENT, not a guess. 1200s was sized against an UNFOLDED prove (~1-3 min,
+# calls=0). The first FOLDED prove ever run on live data — 2026-08-06, once the games were driven so a
+# span actually contained calls — came in at:
+#     [settle-prove] cursor=42050 calls=1 net_updates=7 |
+#         prove_epoch=8.9s sparse_projection=264.3s prove_transition=883.6s | total 1156.9s
+# i.e. ONE call with 7 state updates costs ~883 s in prove_transition alone (~126 s per update; that is
+# where the recursion fold lives). The prove SUCCEEDED at 1156.9 s of internal work, but the settle loop
+# measures WALL CLOCK from when it started the worker, and that had already crossed 1200 s — so the first
+# successful real fold was abandoned 43 seconds after finishing:
+#     settle-with-proof SKIPPED cursor 42050 — prove exceeded SETTLE_PROVE_TIMEOUT=1200s (fold=True)
+# 2400 s leaves room for a span with several calls. This is a SAFETY BOUND, not a target: the real fix is
+# making the fold cheaper (see SETTLE_FOLD_FAN_IN and the untouched constant factors — blowup=8 from
+# max_degree=8, the ext-field arena penalty, allocator churn), and the bound must not be raised to hide
+# that. It still sits far below the 5h07m a non-completing fold once burned.
+SETTLE_PROVE_TIMEOUT = 2400      # safety bound, not a feature switch: a prove that outruns this is
                                  # abandoned and the settle goes bare rather than halting the chain.
 # Largest settle tx we will try to submit INLINE. L1's /submit_transaction caps bodies at 8 MiB, so this
 # sits just under it; anything bigger is published to DA and the tx carries only the commitment. An inline
