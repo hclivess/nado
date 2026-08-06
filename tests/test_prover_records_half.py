@@ -123,6 +123,33 @@ def t_projection_is_computed_once():
         f"records_projection must be computed once, found {body.count('_ER.records_projection(pre_view)')}"
 
 
+def t_the_prover_derives_THE_SAME_WAY_L1_DOES():
+    """THE MISMATCH THAT WOULD HAVE MADE THE REROLL DELIVER NOTHING, caught by exercising the live path.
+
+    L1 builds `records_out` by concatenating the per-block `rec` lists its exec summaries stored, and those
+    come from records_bind.block_records_effects. The prover was using records_bind.span_effects — and the
+    two DO NOT derive the same thing. Measured on a single value call with the flag on:
+
+        block_records_effects -> [(T_BRIDGE_BAL, sender, -1000), (T_BRIDGE_BAL, cid, +1000)]
+        span_effects          -> []
+
+    span_effects walks RESERVED RECIPIENTS (bridge deposit, faucet, treasury) and accruals; a contract call
+    is a `blob`, which it contributes nothing for. So a prover using it would omit every value-call escrow,
+    and bind_and_verify_records — which requires tr["updates"] to EQUAL the derived set — would refuse the
+    proof every time. The reroll would have shipped and unblocked nothing.
+
+    The prover must walk the span's BLOCKS and call block_records_effects on each, appending the dividend
+    accrual on a boundary block exactly where core_loop appends it."""
+    body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
+    assert "RB.block_records_effects(" in body, \
+        "the prover must derive per block via block_records_effects — the same function L1 uses"
+    assert "RB.span_effects(" not in body, \
+        "span_effects does NOT derive value-call escrows; using it silently omits them"
+    assert "RB.dividend_accrual_effects(" in body, "the boundary accrual must be appended per block"
+    assert "if not _derivable:" in body, \
+        "a non-derivable block must end the span, matching L1's rd!=1 refusal"
+
+
 def t_every_symbol_the_builder_calls_actually_EXISTS():
     """THE CHECK THAT WAS MISSING, and it cost a live failure.
 
@@ -165,6 +192,7 @@ for nm, fn in [("the builder exists and is awaited", t_builder_exists_and_is_awa
                ("accrual inputs come from L1, not the proof", t_accrual_inputs_come_from_l1_not_the_proof),
                ("no post-state is materialised", t_no_post_state_is_materialised),
                ("the projection is computed once", t_projection_is_computed_once),
+               ("the prover derives the same way L1 does", t_the_prover_derives_THE_SAME_WAY_L1_DOES),
                ("every symbol the builder calls actually exists", t_every_symbol_the_builder_calls_actually_EXISTS),
                ("the epoch skip stands until the derivation ships", t_epoch_skip_still_stands_until_the_derivation_ships)]:
     check(nm, fn)

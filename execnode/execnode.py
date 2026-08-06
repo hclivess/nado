@@ -594,7 +594,7 @@ def _state_for(request):
     return states.get(ns)
 
 
-async def _build_records_half(session, ns, pre_view, span_txs, sc, cur, rec_hex_expected=None):
+async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_hex_expected=None):
     """Prove the RECORDS half of a span, or return None to leave it frozen.
 
     THE PROVER HAS NEVER BUILT ONE. records_transition.py has existed for weeks, ops/transaction_ops.py
@@ -618,21 +618,38 @@ async def _build_records_half(session, ns, pre_view, span_txs, sc, cur, rec_hex_
     from execnode import exec_root as _ER
     from protocol import EXEC_TREE_DEPTH as _D, EPOCH_LENGTH as _EL
     try:
-        # ACCRUALS: one (inflow, weights) per epoch the span accrues, read from L1 consensus state — the
-        # same endpoints the tail loop uses before calling accrue_dividend_epoch. They must come from L1,
-        # not from us: records_bind's header records that a verifier taking them from the proof would be
-        # trusting the prover's HTTP client.
-        accruals = []
-        for h in range(sc + 1, cur + 1):
-            E = RB.epoch_accrual_due(h, _EL)
-            if E is None:
+        # DERIVE EXACTLY AS L1 DOES: PER BLOCK, via block_records_effects, in block order — NOT via
+        # span_effects.
+        #
+        # THIS WAS WRONG AND THE LIVE TEST CAUGHT IT. The two functions do not derive the same thing:
+        # measured on one value call with the flag on, block_records_effects returns the escrow's two
+        # T_BRIDGE_BAL positions while span_effects returns []. L1 builds `records_out` by concatenating the
+        # per-block `rec` lists its summaries stored, and those come from block_records_effects. A prover
+        # using span_effects would therefore omit every value-call escrow, and bind_and_verify_records —
+        # which demands tr["updates"] EQUAL the derived set — would refuse the proof every time. The reroll
+        # would have shipped and delivered nothing.
+        #
+        # A NON-DERIVABLE BLOCK ENDS THE SPAN HERE, matching L1: verify_calls_bound_to_summaries refuses any
+        # non-inert block whose summary is not rd==1, so proving past one could never bind.
+        effects, carry = [], int(getattr(pre_view, "div_carry", 0))
+        for _blk in span_blocks:
+            _eff, _derivable = RB.block_records_effects(_blk)
+            if not _derivable:
+                return None                       # L1 will refuse this block too -> quorum
+            effects.extend(_eff or ())
+            # ...AND THE ACCRUAL, on a boundary block, exactly where core_loop appends it. Inputs come from
+            # L1 consensus state, never from us: records_bind's header records that a verifier taking them
+            # from the proof would be trusting the prover's unauthenticated HTTP client.
+            _E = RB.epoch_accrual_due(_blk.get("block_number"), _EL)
+            if _E is None:
                 continue
-            inf = await _get_json(session, f"/get_dividend_inflow?epoch={E}")
-            ow = await _get_json(session, f"/get_open_weights?epoch={E}")
+            inf = await _get_json(session, f"/get_dividend_inflow?epoch={_E}")
+            ow = await _get_json(session, f"/get_open_weights?epoch={_E}")
             if not isinstance(ow, dict) or ow.get("error"):
                 return None                       # pruned recert history -> quorum, never a guess
-            accruals.append((int((inf or {}).get("inflow", 0)), (ow or {}).get("weights", {}) or {}))
-        effects = RB.span_effects(span_txs, accruals, int(getattr(pre_view, "div_carry", 0)))
+            _aeff, carry = RB.dividend_accrual_effects(int((inf or {}).get("inflow", 0)),
+                                                       (ow or {}).get("weights", {}) or {}, carry)
+            effects.extend(_aeff)
         if not effects:
             # EMPTY-EFFECT TRAP: with nothing to prove L1 REQUIRES rec_post == rec_hex, which collapses to
             # the frozen case. Attaching an empty transition would move the half on nobody's authority.
@@ -737,13 +754,13 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
                      cls="epoch-boundary")
     # 4. the span's DA calls, per block (block_calls stamps cursor=h, ts=0 — the DA-binding form).
     calls = []
-    span_txs = []          # every tx in the span, in block order — the RECORDS half derives from these
+    span_blocks = []       # the span's blocks in order — the RECORDS half derives PER BLOCK, like L1
     for h in range(sc + 1, cur + 1):
         blk = await _get_json(session, f"/get_block_number?number={h}")
         if not blk or not blk.get("block_hash"):
             return None
         calls += CC.block_calls(blk, ns)
-        span_txs += list(blk.get("block_transactions") or ())
+        span_blocks.append(blk)          # the RECORDS half derives PER BLOCK, exactly as L1 does
     # 4b. DETECT AN UNPROVABLE CALL BEFORE PAYING FOR THE PROVE.
     #
     # A call the live chain SKIPS (sender cannot cover the escrow) or that REVERTS in the VM is a no-op on
@@ -817,7 +834,7 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
         # against the effects IT derived from its own committed summaries. This is the change that lets a
         # span carrying calls, a bridge deposit or a dividend accrual settle by proof at all.
         _records_half = await _build_records_half(session, ns, type(st).snapshot_view(snap["state"]),
-                                                  span_txs, sc, cur, rec_hex_expected=rec_hex)
+                                                  span_blocks, sc, cur, rec_hex_expected=rec_hex)
         if _records_half is None:
             return _skip(f"the RECORDS half moved across the span {sc} -> {cur} "
                          f"({rec_hex[:16]}… -> {SST.digest_hex(rec_root)[:16]}…) and could not be PROVEN "
