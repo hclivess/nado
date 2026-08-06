@@ -101,3 +101,11 @@ pub extern "C" fn scale(n: usize, offset: u64) {
     let mut j = 0;
     while j < n { a[j] = mulf(a[j], s); s = mulf(s, offset); j += 1; }
 }
+
+// Touched deliberately 2026-08-06 to force a rebuild across the fleet. All three peers were missing
+// libgoldilocks.so entirely, so every proof-carrying settle they were offered was rejected with
+// "NativeMissing: native crate 'goldilocks' is REQUIRED but its library is missing" — and since
+// alphanet-14 there is no Python fallback, so no settle proof could ever be verified anywhere.
+// ops/self_update.py now builds a REQUIRED crate that was never built (not only ones whose sources
+// changed), but that new logic cannot run on a node until it has already restarted into it. Changing a
+// source file here is what makes the CURRENT logic on each peer rebuild the crate on this wave.
