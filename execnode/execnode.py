@@ -172,6 +172,11 @@ SETTLE_FOLD = True
 # making the fold cheaper (see SETTLE_FOLD_FAN_IN and the untouched constant factors — blowup=8 from
 # max_degree=8, the ext-field arena penalty, allocator churn), and the bound must not be raised to hide
 # that. It still sits far below the 5h07m a non-completing fold once burned.
+# HOW MANY RECORDS UPDATES ONE PROOF MAY COVER. prove_transition emits ONE STARK PER UPDATE, so cost is
+# LINEAR: 167.6 s measured for 1 update, 712.2 s for 3 — ~170-240 s each. At SETTLE_PROVE_TIMEOUT=2400 s the
+# arithmetic limit is ~10; this sits under it because the same budget must also cover the KV prove, the DA
+# publish and the submit. A span past the cap declines to the bonded quorum, which is always correct.
+SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "6"))
 SETTLE_PROVE_TIMEOUT = 2400      # safety bound, not a feature switch: a prove that outruns this is
                                  # abandoned and the settle goes bare rather than halting the chain.
 # Largest settle tx we will try to submit INLINE. L1's /submit_transaction caps bodies at 8 MiB, so this
@@ -681,6 +686,30 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
                                      effects, _D)
         if not net:
             return None                           # effects that cancel out move nothing; stay frozen
+        # DECLINE A PROVE THAT CANNOT FINISH, BEFORE STARTING IT.
+        #
+        # prove_transition emits ONE STARK PER UPDATE (records_transition: "one RECURSION-committed
+        # merkle-update proof per update, chaining the roots"), so its cost is LINEAR and predictable:
+        # measured 167.6 s for 1 update and 712.2 s for 3, i.e. ~170-240 s each. SETTLE_PROVE_TIMEOUT is
+        # 2400 s, so anything past ~10 updates cannot finish.
+        #
+        # STARTING ONE ANYWAY IS NOT MERELY WASTEFUL, IT STALLS SETTLEMENT. Observed live 2026-08-06: a
+        # span with a dividend accrual (one T_DIV_BAL position per PRESENT MINER — 13 on this chain) ran
+        # the full 2400 s, timed out, and left its worker thread running; the in-flight flag only clears
+        # when that thread ENDS, so no settle of any kind proceeded. The settled tip sat at 557 while L1
+        # reached 1060 — 503 blocks, far past SETTLE_PROOF_MAX_SPAN — which makes every later span
+        # unprovable too. One doomed prove poisons the whole cadence.
+        #
+        # The cap is deliberately well under the arithmetic limit: the budget also has to cover the KV
+        # prove, the publish and the submit, and a span that declines here still settles by bonded quorum,
+        # which is always correct and merely slower. Raising SETTLE_PROVE_TIMEOUT instead would only make
+        # the stall longer.
+        if len(net) > SETTLE_RECORDS_MAX_UPDATES:
+            print(f"[execnode] records half DECLINED for span {sc}->{cur}: {len(net)} updates exceeds "
+                  f"SETTLE_RECORDS_MAX_UPDATES={SETTLE_RECORDS_MAX_UPDATES} — at ~200 s per update that "
+                  f"cannot finish inside SETTLE_PROVE_TIMEOUT={SETTLE_PROVE_TIMEOUT}s, and a doomed prove "
+                  f"holds the tip until its thread ends. Riding the bonded quorum", flush=True)
+            return None
         # prove_transition APPLIES the updates to `store`, so its root afterwards IS the post root — the
         # same way settlement_sparse reads sparse_post_root straight off pre_store after proving.
         tr = await asyncio.to_thread(SX.prove_transition, store, [(k, n) for (k, _o, n) in net])

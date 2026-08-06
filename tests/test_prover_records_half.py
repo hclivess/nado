@@ -127,6 +127,34 @@ def t_projection_is_computed_once():
         f"records_projection must be computed once, found {body.count('_ER.records_projection(pre_view)')}"
 
 
+def t_a_prove_that_cannot_finish_is_DECLINED_before_it_starts():
+    """ONE DOOMED PROVE POISONS THE WHOLE CADENCE — measured live on alphanet-16.
+
+    prove_transition emits ONE STARK PER UPDATE, so its cost is linear and knowable in advance: 167.6 s for
+    1 update, 712.2 s for 3, i.e. ~170-240 s each. A span carrying a dividend accrual writes one T_DIV_BAL
+    position per PRESENT MINER (13 on that chain), so it cannot finish inside SETTLE_PROVE_TIMEOUT=2400 s.
+
+    Starting it anyway is not merely wasteful. The prove ran the full 2400 s, timed out, and left its worker
+    thread RUNNING — and the in-flight flag only clears when that thread ends, so no settle of any kind
+    proceeded. The settled tip sat at 557 while L1 reached 1060: 503 blocks, far past
+    SETTLE_PROOF_MAX_SPAN=240, which makes every LATER span unprovable too.
+
+    Raising the timeout would only lengthen the stall. The cost is predictable, so decline up front."""
+    body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
+    assert "SETTLE_RECORDS_MAX_UPDATES" in body, \
+        "the builder must cap how many records updates one proof may cover"
+    assert "len(net) > SETTLE_RECORDS_MAX_UPDATES" in body, \
+        "the cap must be checked against the DERIVED update count, before proving"
+    i = body.index("len(net) > SETTLE_RECORDS_MAX_UPDATES")
+    assert "return None" in body[i:i + 900], "over the cap must decline, not prove"
+    assert "SETTLE_RECORDS_MAX_UPDATES = " in SRC, "the constant must be defined and overridable"
+    # it must sit under the arithmetic limit (2400 s / ~200 s per update ~= 12), since the same budget also
+    # covers the KV prove, the publish and the submit
+    import re as _re
+    cap = int(_re.search(r"SETTLE_RECORDS_MAX_UPDATES = int\(os\.environ\.get\([^,]+, \"(\d+)\"\)\)", SRC).group(1))
+    assert 1 <= cap <= 10, f"cap {cap} must leave headroom under the ~12-update arithmetic limit"
+
+
 def t_the_records_prove_NEVER_RUNS_ON_THE_EVENT_LOOP():
     """I SHIPPED IT ON THE LOOP AND IT HUNG THE NODE, minutes after the alphanet-16 cutover.
 
@@ -239,6 +267,7 @@ for nm, fn in [("the builder exists and is awaited", t_builder_exists_and_is_awa
                ("accrual inputs come from L1, not the proof", t_accrual_inputs_come_from_l1_not_the_proof),
                ("no post-state is materialised", t_no_post_state_is_materialised),
                ("the projection is computed once", t_projection_is_computed_once),
+               ("a prove that cannot finish is declined up front", t_a_prove_that_cannot_finish_is_DECLINED_before_it_starts),
                ("the records prove never runs on the event loop", t_the_records_prove_NEVER_RUNS_ON_THE_EVENT_LOOP),
                ("the prover derives the same way L1 does", t_the_prover_derives_THE_SAME_WAY_L1_DOES),
                ("every symbol the builder calls actually exists", t_every_symbol_the_builder_calls_actually_EXISTS),
