@@ -1042,6 +1042,25 @@ async def maybe_settle(session):
             try:
                 if not _pend_hold:
                     proof = await _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur)
+                    # HOLD THE TIP THE INSTANT A PROOF EXISTS — not later, at the publish step.
+                    #
+                    # THIRD ATTEMPT AT THIS BUG, and the first two missed because I pattern-matched instead
+                    # of tracing the flag LIFECYCLE. Three guards cover the pipeline in sequence:
+                    # _settle_proving (the prove), _settle_publishing (publish+submit), _settle_pending (the
+                    # wait for the landing block). _settle_proving is cleared by the prove TASK's
+                    # done-callback, but _settle_publishing was not set until the publish step — and between
+                    # those two points sit the self-checks, the recursive self-verify, and an awaited
+                    # /get_latest_block. A concurrent maybe_settle pass landing in that gap sees all three
+                    # clear and starts a second prove.
+                    # MEASURED 2026-08-06 16:16:43-16:17:12, AFTER both earlier fixes: prove for 48650
+                    # finished 16:16:43, its submit returned 16:17:05, and a prove for 48654 ran inside that
+                    # 22-second window. bd079982 gated the prove on _settle_pending and 7b612e1e removed an
+                    # awaited fetch before the marker — neither could help, because the marker legitimately
+                    # does not exist yet while the proof is still being submitted.
+                    # Setting it here makes the hold CONTINUOUS from prove-start to submit-end; the publish
+                    # step re-stamps it, which is idempotent.
+                    if proof is not None:
+                        globals()["_settle_publishing"] = time.time()
             except Exception as e:
                 # BEST-EFFORT, BUT NOT SILENT. A bare attestation always works, so swallowing here is
                 # correct for liveness — but swallowing it QUIETLY meant an operator who switched the

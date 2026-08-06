@@ -88,6 +88,36 @@ def t_the_pending_marker_is_recorded_before_the_lookup():
     assert '_settle_pending[ns]["pre_cursor"] =' in SRC, "pre_cursor must be filled in afterwards"
 
 
+def t_the_hold_is_continuous_from_prove_to_submit():
+    """THE THIRD AND ACTUAL FIX. Three guards cover the pipeline in sequence — _settle_proving (the prove),
+    _settle_publishing (publish+submit), _settle_pending (the wait for the landing block). _settle_proving is
+    cleared by the prove TASK's done-callback, but _settle_publishing was not set until the publish step, and
+    between those two points sit the self-checks, the recursive self-verify and an awaited /get_latest_block.
+    A concurrent maybe_settle pass landing in that gap sees ALL THREE clear and starts a second prove.
+
+    MEASURED 2026-08-06 16:16:43-16:17:12, after both earlier attempts had shipped: the prove for 48650
+    finished 16:16:43, its submit returned 16:17:05, and a prove for 48654 ran inside that 22-second window.
+    Gating on _settle_pending (bd079982) and removing an awaited fetch before the marker (7b612e1e) could
+    not help — the marker legitimately does not exist yet while the proof is still being submitted.
+
+    Setting the publish hold the instant a proof exists makes the hold CONTINUOUS. Safe against a stall: the
+    only `continue` between the set and the release is guarded by `proof is None`, and _pub_active bounds
+    the flag by SETTLE_HOLD_MAX_S regardless."""
+    i = SRC.index("proof = await _build_settlement_proof(")
+    j = SRC.index('globals()["_settle_publishing"] = time.time()', i)
+    k = SRC.index("if proof is None and (_settle_proving", i)
+    assert j < k, "the publish hold must be taken BEFORE the bare-settle hold is evaluated"
+    seg = SRC[i:j]
+    assert "if proof is not None:" in seg, "the hold must be taken as soon as a proof exists"
+    # STRIP COMMENTS BEFORE LOOKING FOR `await`. The first version of this check searched the raw segment
+    # and matched the word "awaited" inside the explanatory comment right above the hold — the fifth checker
+    # today that was wrong before the code was. Compare CODE, never prose.
+    between = seg.split("if proof is not None:")[0].split("\n", 1)[1]
+    code_only = "\n".join(l for l in between.splitlines() if not l.strip().startswith("#"))
+    assert "await" not in code_only, \
+        f"nothing may await between the prove returning and the hold being taken: {code_only!r}"
+
+
 def t_the_measurement_is_recorded():
     i = SRC.index("_pend_hold = _settle_pending.get(ns) is not None")
     ctx = SRC[max(0, i - 1800):i]
@@ -102,6 +132,7 @@ for nm, fn in [("the prove is gated on no pending proof", t_the_prove_is_gated_o
                ("only one _build_settlement_proof call site", t_only_one_build_call_exists),
                ("the pending entry is always released", t_pending_is_always_released),
                ("the pending marker precedes the lookup", t_the_pending_marker_is_recorded_before_the_lookup),
+               ("the hold is continuous from prove to submit", t_the_hold_is_continuous_from_prove_to_submit),
                ("the measurement is recorded beside the gate", t_the_measurement_is_recorded)]:
     check(nm, fn)
 
