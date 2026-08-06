@@ -389,6 +389,20 @@ def check_and_update(trigger: str) -> dict:
         local, remote = _git("rev-parse", "HEAD"), _git("rev-parse", f"origin/{_BRANCH}")
         _latest_remote[0] = remote[:12]
         if local == remote:
+            # UP TO DATE IN GIT IS NOT THE SAME AS ABLE TO RUN. A node can sit on the right commit and still
+            # be missing a REQUIRED native library, and then it silently cannot do its job: measured
+            # 2026-08-06, peers on the correct HEAD lacked libgoldilocks.so and rejected every settle proof
+            # with "NativeMissing: native crate 'goldilocks' is REQUIRED but its library is missing". Since
+            # alphanet-14 there is no Python fallback, so those nodes could never verify a proof at all.
+            # The rebuild used to run ONLY on the update path, so a node that was already current never
+            # built the missing library no matter how many times /update was called — which is exactly the
+            # state .141 was left in after it happened to be mid-cascade during the wave that built it.
+            # Building here costs nothing when everything is present (_missing_required_libs returns []).
+            miss = _missing_required_libs()
+            if miss:
+                built = _build_crates(miss)
+                return {"status": "up_to_date", "head": local[:12], "trigger": trigger, "native": built,
+                        "note": "rebuilt required native libraries that were missing"}
             return {"status": "up_to_date", "head": local[:12], "trigger": trigger}
         try:                                            # only advance if remote is strictly AHEAD of us
             _git("merge-base", "--is-ancestor", local, remote)
@@ -427,6 +441,38 @@ def _shared_libs(crate_path):
         except Exception:
             pass
     return out
+
+
+def _missing_required_libs():
+    """Crates from _CRATES that exist in the tree but have NO compiled shared library. These are the ones a
+    node cannot run without (there is no Python fallback since alphanet-14), so an /update should build them
+    even when git is already current."""
+    out = []
+    for crate in _CRATES:
+        path = os.path.join(_REPO_DIR, crate)
+        if os.path.isdir(path) and not _shared_libs(path):
+            out.append(crate)
+    return out
+
+
+def _build_crates(crates):
+    """cargo build --release each named crate. Returns {crate: "built"|"build-failed"|"no-cargo"} — the same
+    shape _rebuild_native_if_changed reports, so /update responses stay uniform. Never raises."""
+    cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
+    have_cargo = bool(shutil.which("cargo")) or os.access(cargo, os.X_OK)
+    report = {}
+    for crate in crates:
+        path = os.path.join(_REPO_DIR, crate)
+        if not have_cargo:
+            report[crate] = "no-cargo"
+            continue
+        try:
+            r = subprocess.run([cargo, "build", "--release"], cwd=path, timeout=600,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            report[crate] = "built" if r.returncode == 0 else "build-failed"
+        except Exception:
+            report[crate] = "build-failed"
+    return report
 
 
 def _has_shared_lib(crate_path):
