@@ -127,6 +127,47 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
     return epoch_call, public_call, rows
 
 
+def first_unprovable_call(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
+                          pre_bridge=None, pre_abal=None, pre_assets=None):
+    """DRY-RUN the span's calls and return (index, reason) of the first one that cannot be proven, or
+    (None, None) if every call is provable.
+
+    WHY THIS EXISTS. A call that the live chain SKIPS (sender cannot cover the escrow — execnode/state.py)
+    or that REVERTS in the VM is a no-op on chain: the escrow is refunded and no state moves. The prover
+    cannot represent that. _run_call raises, and vm_circuit.prove_epoch_calls raises too ("a call reverted
+    — nothing to prove"), so a SINGLE such call anywhere in a span means the span yields NO PROOF AT ALL —
+    folded or unfolded. Measured 2026-08-06:
+        fold FAILED span 42261->42291 (ValueError: call 0 reverted — nothing to prove) — re-proving UNFOLDED
+        settle-prove worker ended with ValueError: call 1 reverted — nothing to prove
+    and that discovery cost ~1000 s of proving first. On a chain with real users most spans will contain
+    one, so proof-carrying settlement would degrade to bare attestations exactly when the chain is busy.
+
+    THE REAL FIX IS NOT HERE. calls_commit.block_calls already documents the intended semantics — "ALL
+    op=='call' blobs are included, even ones that will skip/revert in the VM ... the proof's state
+    transition treats a skip/revert as a no-op (matching live apply)" — so the AIR should prove a reverting
+    execution, or the verifier must be able to RE-DERIVE which calls were no-ops (a prover-supplied flag
+    would be forgeable). Both are consensus/circuit changes.
+
+    WHAT THIS BUYS instead: the caller can end the proven span BEFORE the offending call and still settle
+    that prefix by proof, rather than losing the whole span. It is a SCHEDULING decision — it changes only
+    WHICH span we choose to prove, never how a proof is verified — so it is safe to apply unilaterally.
+    Cost is one interpreter pass over the span's calls (no proving), which is small next to the prove it
+    prevents from being wasted."""
+    import copy
+    contracts = copy.deepcopy(pre_contracts)
+    bridge = dict(pre_bridge or {})
+    abal = {a: dict(h) for a, h in (pre_abal or {}).items()}
+    assets = copy.deepcopy(pre_assets or {})
+    registry = {}
+    for i, call in enumerate(calls):
+        try:
+            _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timestamp, beacons,
+                      block_hashes, want_rows=False)
+        except Exception as e:
+            return i, f"{type(e).__name__}: {e}"
+    return None, None
+
+
 def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
                 pre_bridge=None, pre_abal=None, pre_assets=None,
                 num_queries=vm_circuit.stark.NUM_QUERIES, backend=None, row_commit=False):

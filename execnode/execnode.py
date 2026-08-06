@@ -463,6 +463,7 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
         return None
     from execnode.stark import settlement_sparse as SS, calls_commit as CC, storage_tree as SST
     from execnode import exec_root as ER
+    from execnode import settlement_proofs as SP
     from execnode.stark import field as _F
     from protocol import EXEC_TREE_DEPTH, SETTLE_PROOF_MAX_SPAN, EPOCH_LENGTH, SETTLE_PROOF_RECURSIVE
     # 1. L1's JUSTIFIED settled tip for this namespace (the proof must extend exactly this).
@@ -523,6 +524,43 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
         if not blk or not blk.get("block_hash"):
             return None
         calls += CC.block_calls(blk, ns)
+    # 4b. DETECT AN UNPROVABLE CALL BEFORE PAYING FOR THE PROVE.
+    #
+    # A call the live chain SKIPS (sender cannot cover the escrow) or that REVERTS in the VM is a no-op on
+    # chain, but the prover cannot represent one: settlement_proofs._run_call raises, and so does
+    # vm_circuit.prove_epoch_calls. So ONE such call anywhere in the span means the span yields NO PROOF AT
+    # ALL — folded or unfolded — and we only found out after ~1000 s of proving:
+    #     fold FAILED span 42261->42291 (call 0 reverted — nothing to prove) — re-proving UNFOLDED
+    #     settle-prove worker ended with ValueError: call 1 reverted — nothing to prove
+    # One interpreter pass over the span's calls tells us that up front, for a fraction of the cost. The
+    # proper fix (the AIR proving a reverting execution, or the verifier re-deriving which calls were
+    # no-ops) is a consensus/circuit change; see settlement_proofs.first_unprovable_call.
+    if calls:
+        try:
+            # Same chain randomness the real prove passes, computed here because the dry run must execute
+            # the calls EXACTLY as the prove will — a BEACON/BHASH read against None would revert a call
+            # that is actually fine and make us skip a provable span.
+            _pf_beacons = {e: v % _F.P for e, v in st.beacons.items()}
+            _pf_bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
+            _bad_i, _why = await asyncio.to_thread(
+                SP.first_unprovable_call, pre_contracts, calls, cur, 0, _pf_beacons, _pf_bhashes,
+                pre_bridge, (snap.get("state") or {}).get("abal"), (snap.get("state") or {}).get("assets"))
+        except Exception as e:                       # a dry-run failure must never block settling
+            _bad_i, _why = None, f"pre-flight error {type(e).__name__}: {e}"
+        if _bad_i is not None:
+            _bad_h = int(calls[_bad_i].get("cursor", cur))
+            # SKIP EARLY rather than narrow the span. Narrowing looks obvious and is WRONG here: the caller
+            # captured `root` AND `rec_root_at_cur` at `cur` under the state's mutate lock, so moving `cur`
+            # down would make the settle claim a post-root belonging to a different cursor — the "two roots
+            # that were never simultaneously true" failure the records comment below describes. Proving the
+            # clean prefix needs the snapshot RE-CAPTURED at the narrowed cursor, which only the caller
+            # (ExecState.settle_snapshot) can do; until then, skipping costs one cadence instead of ~1000 s
+            # of proving thrown away at the end.
+            return _skip(f"span {sc} -> {cur} contains an unprovable call at block {_bad_h} (call {_bad_i}: "
+                         f"{_why}). A call the chain SKIPS or REVERTS is a no-op on chain but the prover "
+                         f"cannot represent one, so this span can yield no proof at all — folded or not. "
+                         f"Skipping now instead of discovering it after the prove",
+                         cls="unprovable-call")
     # 5. records half (frozen) + finalized chain randomness the proof reads.
     #
     # USE THE RECORDS ROOT CAPTURED WITH `root`, NOT A FRESH ONE. Recomputing it here reads the LIVE `st`,
