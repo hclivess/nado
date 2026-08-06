@@ -896,6 +896,17 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     if _pub_active:
         return _skip("the previous proof is still publishing/submitting; not starting a second prove that "
                      "extends the same pre-state and could never land")
+    # WHY WAS THIS PROVE ALLOWED? Three fixes for the duplicate-prove race have shipped and the duplicate
+    # survived all three (bd079982, 7b612e1e, d4c24872 — the last VERIFIED loaded: committed 16:21:22, exec
+    # started 16:21:40, duplicate at 16:33-16:34). That means the open window is somewhere I have not
+    # traced, not that the same place needs a fourth patch. Print the full guard state at the ONE moment a
+    # prove is actually launched, so the next occurrence names its own cause instead of being
+    # reverse-engineered from timestamps. One line per prove, and proves are minutes apart.
+    _pg_pend = _settle_pending.get(ns)
+    _pg_pub = f"{time.time() - _settle_publishing:.1f}s" if _settle_publishing else "CLEAR"
+    print(f"[execnode] prove-gate ns={ns} span {sc}->{cur} LAUNCH — "
+          f"pending_cursor={_pg_pend.get('cursor') if _pg_pend else None} "
+          f"proving={_settle_proving} publishing={_pg_pub}", flush=True)
     _settle_proving = True
     # The flag must track the THREAD's lifetime, not this coroutine's. Clearing it in a `finally` would
     # release the guard the moment wait_for gives up — while the thread is still burning a core — and the
@@ -1145,7 +1156,11 @@ async def maybe_settle(session):
                     except Exception as _pe:
                         pass                              # a failed probe must never stall settlement
                 if _sc_now >= int(_pend["cursor"]):
+                    # SAY SO. This pop released the tip silently, so a prove starting right afterwards
+                    # looked unexplained. If the duplicate is this firing early, this line is the evidence.
                     _settle_pending.pop(ns, None)         # it landed; the tip is already past it
+                    print(f"[execnode] pending settle-with-proof ns={ns} cursor {_pend['cursor']} RELEASED "
+                          f"— justified tip is {_sc_now}, at or past it", flush=True)
                 elif _h_now > int(_pend["max_block"]):
                     # ITS LANDING BLOCK CAME AND WENT. A settle is EXACT-LANDING (ops/block_ops
                     # _lands_flexibly excludes it), so it can only be included by whoever produces exactly
