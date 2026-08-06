@@ -13,9 +13,20 @@ bundle. Binding the updates to the epoch's actual SSTOREs is `exec_state_bind` (
 the settled root is the settlement integration (piece (c)).
 """
 import os
+import time
 
 from execnode.stark import (merkle_update as MU, field as F, backend as B, recursive_verify as RV,
                             storage_tree as ST)
+
+
+def _rss_gb():
+    """Process RSS in GiB, or 0.0 if unavailable. /proc/self/statm field 2 is resident pages — no psutil
+    dependency, and it must never be able to break a prove, hence the bare except."""
+    try:
+        with open("/proc/self/statm") as fh:
+            return int(fh.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / (1024.0 ** 3)
+    except Exception:
+        return 0.0
 
 # HOW MANY UPDATES SHARE ONE STARK — and why this is NOT MU.max_batch(depth).
 #
@@ -71,7 +82,15 @@ def prove_transition(pre_store, updates, num_queries=MU.stark.NUM_QUERIES, outer
         batch = DEFAULT_BATCH
     batch = max(1, min(int(batch), MU.max_batch(depth)))
     proofs, bnds, roots, upd = [], [], [pre_store.root()], []
-    for lo in range(0, len(updates), batch):
+    # PER-BATCH INSTRUMENTATION. A whole transition logs NOTHING until it finishes, and the settle path only
+    # prints [settle-prove] on COMPLETION — so a prove that runs past SETTLE_PROVE_TIMEOUT and is abandoned
+    # (observed 2026-08-07 00:33, >2400 s against a 640 s model) leaves no evidence of WHERE the time or the
+    # memory went. Both of the numbers I shipped this size on were measured in a fresh idle process and were
+    # wrong live: per-proof RSS 2.4 GB vs a node at 14.6 GB, and 57.7 s per proof vs ~4x that. One line per
+    # batch (~1/minute) is cheap, and it is the difference between measuring the next span and guessing at it.
+    _n_batches = -(-len(updates) // batch)
+    _t0 = time.monotonic()
+    for bi, lo in enumerate(range(0, len(updates), batch)):
         items = []
         for key, new_value in updates[lo:lo + batch]:
             old = pre_store.get(key)
@@ -81,12 +100,16 @@ def prove_transition(pre_store, updates, num_queries=MU.stark.NUM_QUERIES, outer
             # landed, exactly as K separate proofs saw them. Collecting all the paths first and then
             # applying would prove a batch against a pre-state that never existed.
             pre_store.set(key, new_value)
+        _tb = time.monotonic()
         proof, rts = MU.prove_updates(items, num_queries=num_queries, backend=B.RECURSION)
         if rts[0] != roots[-1]:
             raise ValueError("internal: batch pre_root breaks the chain")
         proofs.append(proof)
         bnds.append(MU._boundaries_batch(items, rts, depth))
         roots.extend(rts[1:])
+        _now = time.monotonic()
+        print(f"[prove_transition] batch {bi + 1}/{_n_batches} K={len(items)} T={proof.get('T')} "
+              f"{_now - _tb:.1f}s (cum {_now - _t0:.1f}s) rss={_rss_gb():.2f}GB", flush=True)
     out = {"proofs": proofs, "bnds": bnds, "roots": roots, "updates": upd, "depth": depth,
            "num_queries": num_queries, "outer_queries": outer_queries, "batch": batch,
            "periodic": MU._periodic_batch(proofs[0]["T"], depth, proofs[0]["K"]) if proofs else None}
