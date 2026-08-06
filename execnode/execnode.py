@@ -745,13 +745,15 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
         return _skip(f"span does not advance ({sc} -> {cur})", cls="no-advance")
     if (cur - sc) > SETTLE_PROOF_MAX_SPAN:
         return _skip(f"span {cur - sc} exceeds SETTLE_PROOF_MAX_SPAN {SETTLE_PROOF_MAX_SPAN}", cls="span-cap")
-    if (sc // EPOCH_LENGTH) != (cur // EPOCH_LENGTH):
-        # The tightest gate by far, and the one that made a 240-block cadence produce zero proofs: a
-        # dividend at the boundary moves the RECORDS half, which the proof pins unchanged.
-        return _skip(f"span {sc} -> {cur} crosses a dividend epoch boundary "
-                     f"(epoch {sc // EPOCH_LENGTH} -> {cur // EPOCH_LENGTH}); records must be unchanged "
-                     f"across a proven span, so settle cadence must stay inside one {EPOCH_LENGTH}-block epoch",
-                     cls="epoch-boundary")
+    # THE EPOCH-BOUNDARY SKIP IS GONE, and it was the single largest refusal class — 55 of 146 over one
+    # measured day, larger than "the RECORDS half moved" (36), and the two were always ONE problem: a
+    # dividend accrues at every boundary block and moves records with NO transaction behind it.
+    # It existed only because the accrual was INVISIBLE, not because it was unprovable. It is now derived at
+    # incorporate time (records_bind.epoch_accrual_due + dividend_accrual_effects, committed into the
+    # boundary block's exec summary), the prover reproduces it per block in _build_records_half, and L1's
+    # epoch assert is conditional on the proof binding the records half. A span that crosses a boundary is
+    # now refused only if the accrual genuinely cannot be derived — which _build_records_half reports with a
+    # reason — rather than refused on sight.
     # 4. the span's DA calls, per block (block_calls stamps cursor=h, ts=0 — the DA-binding form).
     calls = []
     span_blocks = []       # the span's blocks in order — the RECORDS half derives PER BLOCK, like L1

@@ -260,6 +260,14 @@ FORCE_SYNC_MAX_S = 900   # a pinned sync donor is a RECOVERY tool, never a perma
 CHECKPOINT_CATCHUP_EVERY = 25   # while advertising NO checkpoint, capture this often (not 1000)
 
 
+def _dividend_epoch_for(height):
+    """The dividend epoch this block accrues, or None. Thin wrapper so the hook reads clearly and the
+    boundary arithmetic lives in ONE place (records_bind.epoch_accrual_due), next to the accrual it mirrors."""
+    from execnode.stark.records_bind import epoch_accrual_due
+    from protocol import EPOCH_LENGTH
+    return epoch_accrual_due(height, EPOCH_LENGTH)
+
+
 class CoreClient(threading.Thread):
     """thread which takes control of basic mode switching, block creation and transaction pools operations"""
 
@@ -321,6 +329,33 @@ class CoreClient(threading.Thread):
         if self.memserver.reported_uptime < bt:
             return "init"
         return "produce" if self.memserver.since_last_block >= bt else "building"
+
+    def _accrual_effects(self, epoch, height, base_effects):
+        """Append epoch `epoch`'s presence-dividend accrual to a block's derived records effects.
+
+        Returns (effects, derivable, carry_out). Any missing or refused input yields (None, False, None) —
+        the block then rides the bonded quorum, which is always correct, just slower. This must never raise
+        into incorporate_block: a settlement optimisation may not be able to stop a block from applying.
+        """
+        try:
+            from execnode.stark.records_bind import dividend_accrual_effects
+            from protocol import EPOCH_LENGTH
+            if int(epoch) == 0:
+                carry_in = 0                      # the first accrual starts from an empty carry
+            else:
+                prev = kv_ops.exec_summary_get(int(height) - int(EPOCH_LENGTH))
+                if not prev or prev.get("dc") is None:
+                    return None, False, None      # no chain to continue -> quorum
+                carry_in = int(prev["dc"])
+            inflow = int(kv_ops.dividend_inflow_get(int(epoch)) or 0)
+            from ops.dividend_ops import weights_at_epoch
+            weights = weights_at_epoch(int(epoch)) or {}
+            eff, carry_out = dividend_accrual_effects(inflow, weights, carry_in)
+            return list(base_effects or []) + list(eff), True, int(carry_out)
+        except Exception as e:
+            self.logger.info(f"dividend accrual not derivable at height {height} (epoch {epoch}): {e} "
+                             f"— this block rides the bonded quorum")
+            return None, False, None
 
     def _genesis_cold_start_blocked(self, peers) -> bool:
         """Refuse to mint THE FIRST BLOCK of a chain while we are merely early rather than actually alone.
@@ -1865,11 +1900,36 @@ class CoreClient(threading.Thread):
                 # settle branch has no prune-safe way to know WHICH records a span moved, only the `inert`
                 # boolean saying THAT some did, and a boolean cannot be bound against. Gated because it
                 # changes what is written into `meta`, which feeds the L1 state root; see protocol.py.
-                _rec, _derivable = (None, None)
+                _rec, _derivable, _dcarry = (None, None, None)
                 if SETTLE_PROOF_RECORDS:
                     from execnode.stark.records_bind import block_records_effects
                     _rec, _derivable = block_records_effects(block)
-                kv_ops.exec_summary_put(_h, _inert, _calls, records=_rec, derivable=_derivable)
+                    # PRESENCE-DIVIDEND ACCRUAL — the LAST records movement that was not derivable, and the
+                    # single largest reason a span was refused: measured over one day on alphanet-15, "span
+                    # crosses a dividend epoch boundary" was 55 of 146 refusals. It moves records on a
+                    # boundary block with NO transaction at all, so the tx scan above can never see it.
+                    #
+                    # It IS derivable, because the accrual is a pure function of COMMITTED L1 state:
+                    # dividend_inflow_get(E) and weights_at_epoch(E), which is exactly what the exec node
+                    # reads over HTTP before calling state.accrue_dividend_epoch. The one input that is not
+                    # on L1 is the exec node's carried sub-unit remainder, so we chain it ourselves: each
+                    # boundary stores its own carry-out in its exec summary and reads the previous
+                    # boundary's as carry-in.
+                    #
+                    # STORED IN THE SUMMARY ITSELF, deliberately — not in a new meta row. exec_summary_put
+                    # already commits inside this atomic write txn and rollback_one_block already reverts
+                    # it, so the carry chain inherits an EXACT rollback inverse. A separate accumulator
+                    # would have needed its own, and "rollback_one_block is not the inverse of
+                    # incorporate_block for a meta row" is precisely what corrupted the L1 root at h4260.
+                    #
+                    # FAILS CLOSED at every edge: a missing previous summary (fresh snapshot anchor, GC),
+                    # a weights_at_epoch that refuses because idle-GC pruned the recert rows it replays, or
+                    # any other error marks the block non-derivable and it rides the bonded quorum.
+                    _E = _dividend_epoch_for(_h)
+                    if _derivable and _E is not None:
+                        _rec, _derivable, _dcarry = self._accrual_effects(_E, _h, _rec)
+                kv_ops.exec_summary_put(_h, _inert, _calls, records=_rec, derivable=_derivable,
+                                        div_carry=_dcarry)
                 # O(1) rolling GC: drop the one height falling out of the retention window. These live in
                 # the `meta` sub-DB, which IS snapshot-carried, so an unbounded set would grow with chain
                 # length and bloat every snapshot. Nothing a proof could use is lost — a span reaching

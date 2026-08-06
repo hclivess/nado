@@ -177,11 +177,23 @@ def t_every_symbol_the_builder_calls_actually_EXISTS():
         assert not gone, f"_build_records_half calls {mod_name}.{gone} which do not exist"
 
 
-def t_epoch_skip_still_stands_until_the_derivation_ships():
-    """Dropping it here would produce proofs L1 REFUSES: without the branch's dividend derivation, L1 marks
-    a boundary block derivable with the accrual MISSING, so the binding mismatches. It rides the cutover."""
-    assert "crosses a dividend epoch boundary" in SRC, \
-        "the epoch skip must remain until the accrual derivation ships with the reroll"
+def t_epoch_skip_is_GONE_now_that_the_derivation_ships():
+    """It was the single largest refusal class — 55 of 146 over one measured day — and it existed only
+    because the presence-dividend accrual was INVISIBLE (no transaction behind it), not because it was
+    unprovable. With the accrual derived at incorporate time, reproduced per block by the prover, and L1's
+    epoch assert made conditional on the records binding, refusing every boundary span on sight would throw
+    away exactly what the reroll bought.
+
+    This check INVERTED at the alphanet-16 cutover. It previously pinned the skip in place, deliberately,
+    so it could not be dropped before the derivation shipped — dropping it early produces proofs L1 refuses,
+    because L1 would mark a boundary block derivable with the accrual MISSING."""
+    assert "crosses a dividend epoch boundary" not in SRC, \
+        "the blanket epoch-boundary skip must be gone now that the accrual is derived"
+    assert "epoch_accrual_due" in open(os.path.join(ROOT, "loops", "core_loop.py")).read(), \
+        "L1 must derive the accrual at incorporate time, or the prover's version cannot bind"
+    tx = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
+    assert "if not _records_bound:" in tx, \
+        "L1's epoch assert must be conditional on the records binding"
 
 
 for nm, fn in [("the builder exists and is awaited", t_builder_exists_and_is_awaited),
@@ -194,7 +206,7 @@ for nm, fn in [("the builder exists and is awaited", t_builder_exists_and_is_awa
                ("the projection is computed once", t_projection_is_computed_once),
                ("the prover derives the same way L1 does", t_the_prover_derives_THE_SAME_WAY_L1_DOES),
                ("every symbol the builder calls actually exists", t_every_symbol_the_builder_calls_actually_EXISTS),
-               ("the epoch skip stands until the derivation ships", t_epoch_skip_still_stands_until_the_derivation_ships)]:
+               ("the epoch skip is gone now that the derivation ships", t_epoch_skip_is_GONE_now_that_the_derivation_ships)]:
     check(nm, fn)
 
 print()

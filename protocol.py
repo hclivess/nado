@@ -13,7 +13,7 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-15"  # records-bound settlement: the RECORDS half is provable, gen 16
+CHAIN_ID = "alphanet-16"  # value-call escrow: a call carrying value is provable too, gen 17
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -47,7 +47,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1785723600  # alphanet-15: records-bound settlement (SETTLE_PROOF_RECORDS).
+GENESIS_TIMESTAMP = 1786035600  # alphanet-16: value-call escrow (SETTLE_PROOF_RECORDS_VALUE_CALLS).
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
                                 # prior-generation block can link in, and old-code nodes cannot keep
@@ -413,7 +413,36 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   Coverage fails closed: bridge deposit, faucet donation, treasury->faucet mirror. A value>0 call escrows
 #   sender->cid BEFORE the VM runs and is refunded on revert, so its net effect is not a function of the
 #   calldata; such a block is marked non-derivable and keeps riding the quorum.
-CHAIN_GENERATION = 16
+# 17 (2026-08-06): VALUE-CALL ESCROW reroll — new CHAIN_ID + GENESIS_TIMESTAMP,
+#   SETTLE_PROOF_RECORDS_VALUE_CALLS on. Generation 16 made the RECORDS half provable but excluded the one
+#   family that matters in practice: a contract call carrying value>0. MEASURED over a full day on
+#   alphanet-15, that exclusion was 91 of 146 settle refusals — "the RECORDS half moved" (36) and "crosses a
+#   dividend epoch boundary" (55), which are ONE gate, because a dividend accrues at every boundary block
+#   and moves records for exactly the reason the records gate names. Every call on that chain carried value
+#   (all 25 game contracts; zero zero-value calls), so proof-carrying settlement could only ever cover
+#   CALL-FREE spans — a couple of windows a day.
+#   WHAT CHANGES: records_bind now derives a native value call's escrow (sender -v, cid +v as two
+#   T_BRIDGE_BAL positions) instead of returning non-derivable. THE PROOF IS THE VERDICT — zkvm.ZkVMRevert
+#   states that the interpreter reverts exactly where the AIR would have no satisfying witness, so a VALID
+#   PROOF over a span already establishes every call in it succeeded, hence every escrow stuck, which IS a
+#   pure function of the calldata.
+#   WHY A REROLL, same reason as 16 and not a hot toggle: the derived effects are committed into each
+#   block's exec summary in the `meta` sub-DB, which FEEDS THE L1 STATE ROOT. An upgraded node emitting
+#   effects where an unupgraded peer wrote derivable=0 computes a different root from the identical block.
+#   Flipping it live would not risk a fork, it would guarantee one.
+#   DISTINCT GENESIS again (the generation-10 lesson): a CHAIN_GENERATION bump alone leaves the genesis hash
+#   shared and stranded old-code nodes keep out-weighing the fresh chain in fork choice.
+#   PREREQUISITE, already in (1fbf4c35): the argument needs "provable => what the chain actually did", and
+#   that did NOT hold — settlement_proofs._run_call credited the contract without debiting the sender or
+#   checking affordability, so it would prove a call the chain had SKIPPED. L1 never recomputes the exec
+#   root, so its only check is post_full == root against the tx's OWN claim, which a proof over the wrong
+#   state satisfies self-consistently. _run_call now mirrors the live escrow on both the native and asset
+#   paths.
+#   STILL NOT COVERED: a call the VM REVERTS or the chain SKIPS gets its escrow derived anyway and is
+#   marked derivable, which is WRONG for that block — sound only because no valid proof can exist over such
+#   a span, so it fails closed (see the flag's own comment). Presence-dividend accrual also moves records on
+#   an epoch boundary with NO transaction at all, so a span crossing one is still refused.
+CHAIN_GENERATION = 17
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
@@ -656,11 +685,12 @@ SETTLE_PROOF_RECURSIVE = True    # ENABLED at the alphanet-14 reroll: the in-cir
 # BUT IT DOES NOT NEED A REROLL, unlike SETTLE_PROOF_RECURSIVE. That one rode a reroll because settle
 # proofs are re-verified on block APPLY (ops/transaction_ops.verify_settlement_sparse), so a chain already
 # CONTAINING proofs judged under the old rule would fail to resync under the new one. Here there is no such
-# history: as of 2026-08-06 no settle proof has ever landed on alphanet-15 (the DA-carried tx could not be
-# admitted by peers at all), so nothing on chain needs re-verifying under the new shape. A coordinated
-# /update wave is sufficient.
-# THAT ARGUMENT EXPIRES the moment a proof lands. Once the chain holds a bundle of one shape, changing the
-# shape again DOES require a reroll — re-check before touching this.
+# history: when this was written no settle proof had ever landed, so nothing on chain needed re-verifying
+# under the new shape and a coordinated /update wave was sufficient.
+# *** THAT ARGUMENT HAS NOW EXPIRED — IT SAID SO ITSELF, AND THE CONDITION IT NAMED HAS HAPPENED. ***
+# alphanet-15 went on to carry proof-carrying settles (blocks 43153, 46766, 47078), so the chain DOES hold
+# bundles of a given shape. From here, changing the fold/proof shape REQUIRES a reroll like any other
+# apply-time verification rule. alphanet-16 starts clean, so the same clock restarts at its genesis.
 SETTLE_FOLD_FAN_IN = 2
 
 # ---- INLINE PROOF CEILING ---------------------------------------------------------------------------
@@ -671,8 +701,12 @@ SETTLE_FOLD_FAN_IN = 2
 # route then could not deliver it: measured 2026-08-05/06, a peer must pull the whole ~120 MiB from the
 # ONLY node in the fleet that runs a DA store (the three peers run just `nado`, not `nado-exec`, so
 # :9273 is dead on all of them) inside _fetch_da_proof's 8 s budget. It never arrived, every peer raised
-# ProofUnavailable, and in the entire life of alphanet-15 not one proof-carrying settle has ever landed.
+# ProofUnavailable, and for the whole life of the DA route not one proof-carrying settle ever landed.
 # Erasure coding k=4/n=8 cannot help when there is exactly one provider.
+# INLINING FIXED IT, and then the proof stopped being large at all: row-committing the trace (1affffac)
+# took it from 120.31 MiB to 8.92 MiB, so blocks 46766 and 47078 carried proofs in ~9.74 MiB blocks. The
+# ceiling below is now enormous headroom rather than a binding limit — keep it, because the thing that made
+# it necessary (a producer-side default) could return, and a cap that is never hit costs nothing.
 #
 # Inlining removes that entire failure mode: the proof travels with the tx over the gossip the fleet
 # already runs, so there is no fetch, no budget, and no dependency on peers running a DA node.
@@ -747,7 +781,19 @@ SETTLE_PROOF_RECORDS = True     # ENABLED at the alphanet-15 reroll — see gene
 #
 # STILL NOT COVERED after this: presence-dividend accrual moves records on an EPOCH boundary with no
 # transaction at all, so the separate refusal of any span crossing one remains.
-SETTLE_PROOF_RECORDS_VALUE_CALLS = False   # OFF: flip at the next reroll, never on a live chain.
+#
+# WHAT THE FLAG DOES NOT FIX, stated here so nobody reads it as more than it is. The derivation emits the
+# escrow for EVERY value call, including one the VM REVERTS or the chain SKIPS — for those the chain
+# refunds, so the derived effects are WRONG and the block is nonetheless marked derivable. That is sound
+# only because of the same invariant the flag rests on: `provable` and `executes successfully` are the SAME
+# set of calls (zkvm.ZkVMRevert), so NO valid proof exists over a span containing such a call —
+# settlement_proofs._run_call raises and vm_circuit.prove_epoch_calls raises. The wrong derivation can
+# therefore only ever cause a REFUSAL, never the acceptance of a false root. It fails closed.
+# The consequence is that a reverting call still costs the whole span, which is NOT fixed here and cannot
+# be fixed by a flag: it needs either an AIR that proves a reverting execution, or a verifier able to
+# RE-DERIVE which calls were no-ops — and the L1 cannot, because it never executes contracts. Narrowing the
+# span to the clean prefix (2d4bcccf's pre-flight) is the mitigation that ships today.
+SETTLE_PROOF_RECORDS_VALUE_CALLS = True    # ENABLED at the alphanet-16 reroll — see generation 17 below.
 
 # ---- DEPTH-GATED PROOF VERIFICATION (doc/settle-proof-transport.md §4, option 1) --------------------
 # A settle proof is ~97 MiB against a ~256 KiB block, so it cannot ride in the block and must be fetched.

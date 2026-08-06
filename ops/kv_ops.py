@@ -654,7 +654,8 @@ def _exec_summary_key(height: int) -> str:
     return f"execsum:{int(height)}"
 
 
-def exec_summary_put(height: int, inert: bool, calls_by_ns: dict, records=None, derivable=None):
+def exec_summary_put(height: int, inert: bool, calls_by_ns: dict, records=None, derivable=None,
+                     div_carry=None):
     """Persist block `height`'s exec summary. Called inside incorporate_block's atomic write txn, so it
     commits with the block or not at all. `calls_by_ns` maps namespace -> ordered list of call leaves.
 
@@ -679,6 +680,15 @@ def exec_summary_put(height: int, inert: bool, calls_by_ns: dict, records=None, 
             # codec must not be free to reorder it.
             doc["rec"] = [[int(tag), [str(p) for p in parts], int(delta)]
                           for (tag, parts, delta) in (records or ())]
+        # PRESENCE-DIVIDEND CARRY. Written only on an epoch-boundary block, where it is that epoch's
+        # leftover sub-unit remainder — the ONE input to the accrual that is not already on L1. The next
+        # boundary reads it as its carry-in, so the chain lives entirely in these summaries and inherits
+        # their atomicity AND their rollback inverse (rollback_one_block already restores the whole doc).
+        # Keeping it here rather than in a separate accumulator row is the point: a new meta row would have
+        # needed its own rollback, and a meta row whose rollback is not the exact inverse of its write is
+        # what corrupted the L1 state root at h4260.
+        if div_carry is not None:
+            doc["dc"] = int(div_carry)
     def _do(txn):
         txn.put(_exec_summary_key(height).encode(), _pack(doc), db=_dbs()["meta"])
     _write(_do)

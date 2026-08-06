@@ -61,10 +61,24 @@ def _with_flag(on, fn):
         protocol.SETTLE_PROOF_RECORDS_VALUE_CALLS = old
 
 
-# ---- default is OFF, behaviour unchanged --------------------------------------------------------------
-def t_flag_defaults_off():
-    assert getattr(protocol, "SETTLE_PROOF_RECORDS_VALUE_CALLS", None) is False, \
-        "the flag must ship OFF — turning it on live guarantees a fork"
+# ---- the flag may only move WITH a distinct genesis ---------------------------------------------------
+def t_flag_only_flips_with_a_reroll():
+    """This check used to read "the flag must ship OFF", which was the right invariant only while the flip
+    was PENDING. Shipping off was never the safety property — riding a reroll is. The effects are committed
+    into each block's exec summary in the `meta` sub-DB, which feeds the L1 STATE ROOT, so an upgraded node
+    emitting effects where an unupgraded peer wrote derivable=0 computes a different root from the identical
+    block: flipping it live does not risk a fork, it guarantees one.
+
+    Enabled at the alphanet-16 reroll (generation 17), which carries a NEW CHAIN_ID and a NEW
+    GENESIS_TIMESTAMP — a CHAIN_GENERATION bump alone leaves the genesis hash shared and lets stranded
+    old-code nodes keep out-weighing the fresh chain in fork choice (the generation-10 lesson)."""
+    on = getattr(protocol, "SETTLE_PROOF_RECORDS_VALUE_CALLS", None)
+    assert on is True, "the flag is expected ON from the alphanet-16 reroll"
+    assert protocol.CHAIN_GENERATION >= 17, \
+        f"the flag is ON at CHAIN_GENERATION {protocol.CHAIN_GENERATION} — it must ride generation 17+"
+    assert protocol.CHAIN_ID != "alphanet-15", \
+        "the flag is ON but CHAIN_ID still names the generation-16 chain — the genesis must be DISTINCT, " \
+        "not merely a CHAIN_GENERATION bump (the generation-10 lesson)"
 
 
 def t_off_keeps_value_call_non_derivable():
@@ -120,7 +134,7 @@ def t_missing_sender_or_contract_fails_closed():
             f"a call with no {mutate} must fail closed, got {derivable}/{eff}"
 
 
-for nm, fn in [("the flag ships OFF (live = guaranteed fork)", t_flag_defaults_off),
+for nm, fn in [("the flag only flips WITH a distinct genesis", t_flag_only_flips_with_a_reroll),
                ("flag OFF keeps a value call non-derivable", t_off_keeps_value_call_non_derivable),
                ("a zero-value call is derivable either way", t_zero_value_call_is_derivable_either_way),
                ("flag ON derives BOTH escrow positions", t_on_derives_both_positions),

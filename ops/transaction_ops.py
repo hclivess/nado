@@ -1312,8 +1312,17 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             # writes st.dividend — a RECORDS position. It is therefore invisible to any per-block body scan.
             # A span that crosses an epoch boundary may carry that accrual, so a records-frozen proof must not
             # settle it. Cursor arithmetic only — no body, no exec state.
-            assert (int(_tip_cursor) // _protocol.EPOCH_LENGTH) == (int(cursor) // _protocol.EPOCH_LENGTH), \
-                "settle-with-proof span crosses an epoch boundary (possible presence-dividend accrual)"
+            # ...UNLESS THE PROOF BINDS THE RECORDS HALF. The accrual is now DERIVED at incorporate time
+            # (records_bind.epoch_accrual_due + dividend_accrual_effects, committed into the boundary
+            # block's exec summary), so a records-bound proof carries it like any other effect and the
+            # binding below checks it against THIS node's own committed derivation. The blanket refusal was
+            # the single largest reason a span was rejected — 55 of 146 over one day — and it existed only
+            # because the accrual was invisible, not because it was unprovable.
+            # A records-FROZEN proof keeps the old rule exactly: it pins one records root across the span,
+            # so an accrual inside it would make the proof assert something false.
+            if not _records_bound:
+                assert (int(_tip_cursor) // _protocol.EPOCH_LENGTH) == (int(cursor) // _protocol.EPOCH_LENGTH), \
+                    "settle-with-proof span crosses an epoch boundary (possible presence-dividend accrual)"
             # NO PAYOUTS IN-PROOF. A PAY opcode moves bridge balances at the runtime boundary (state.py), i.e.
             # RECORDS, while the proof pins records frozen. block_records_inert cannot see this — PAY is
             # emitted by execution, not visible in the calldata — so it is caught here, on the proof's own io.
