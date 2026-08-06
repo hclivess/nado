@@ -834,10 +834,27 @@ setup** anywhere. Full component map with measured numbers and per-piece status:
 > settle proof under any circumstances. [`doc/settle-proof-transport.md`](doc/settle-proof-transport.md)
 > §6 documents all six with evidence.
 >
-> **What is still not done:** the landed proof was **unfolded** (`calls=0`). A span containing a call the
-> chain skips or reverts is currently unprovable at all — folded or not — so proof-carrying settlement
-> still degrades to the bonded quorum on a busy chain (§7 of the same doc). Production settlement is
-> therefore still predominantly quorum-carried.
+> **Since then the proof got 13× smaller and 35× faster, and it was one producer-side default.** The
+> non-recursive prover committed the trace by COLUMN, so each of the 320 FRI queries opened all 167 columns
+> with its own Merkle path — 334 paths per query. Row-committing builds one tree per phase, so a query
+> carries 2. Measured on production state, same span, byte-identical settled root: **140.9 s / 126.56 MiB
+> / 19.6 s verify → 7.3 s / 9.73 MiB / 6.4 s verify.** Openings were 95.6% of the old proof. This needed no
+> verifier change and is not a consensus change — `verify_bound_epoch` recovers the commit mode from the
+> proof (`"row_roots" in proof`) and L1 passes neither knob. A separate fix removed the other 72–81% of
+> prove time: the sparse state root was rebuilt from scratch on every prove *and* every verify (2.3 M
+> alghash2 permutations), and memoizing its singleton folds took it from 65.1 s to 0.46 s.
+>
+> Blocks **46766** and **47078** then carried proofs at **9.74 MiB**, each agreed by all four nodes.
+> Peers verify them: pushing a pending proof to each peer returned `{"result": true, "message": "Already
+> present"}` — gossip had beaten the push and each had already *admitted* it, which runs the full
+> verification. §8–§11 of the transport doc has the measurements.
+>
+> **What is still not done:** the landed proofs were **unfolded** (`calls=0`). A span containing a call is
+> refused because the records half moves, and a span crossing a dividend epoch boundary is refused for the
+> same underlying reason — counted over one day, those two are **91 of 146** refusals and are one gate, not
+> two. Lifting it needs `SETTLE_PROOF_RECORDS_VALUE_CALLS`, which is implemented and inert because
+> activating it requires a genesis reroll. So production settlement is still predominantly quorum-carried,
+> and the fold has still never folded more than one proof.
 
 ## Storage
 

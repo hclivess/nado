@@ -612,3 +612,46 @@ This was the largest class removable **without** a reroll.
 
 **HELD (33)** is a consequence of prove time, and §8+§9 took a prove from 309–342 s to a few seconds, so it
 should largely disappear on its own. Worth re-counting rather than assuming.
+
+## 11. The pipeline after §8–§10, confirmed on chain (2026-08-06)
+
+Two proof-carrying settles landed under the new format, both verified three ways (block tx list,
+`/get_settled`, identical block hash on all four nodes):
+
+| block | cursor | proof | block size | node agreement |
+|---|---:|---|---:|---|
+| 46766 | 46538 | yes | 9.74 MiB | `b3eb1d0620f7c40a393cb267e967c0ae` ×4 |
+| 47078 | 46967 | yes | 9.74 MiB | `d013d2034fbadd40b4f414f3024f3858` ×4 |
+
+against the first-ever proof block at **126.6 MiB**. A prove is now **8.9–15.3 s** end to end
+(`prove_epoch` 8–12 s, `sparse_projection` 0.9–3.3 s, `prove_transition` 0 s) versus **309–342 s**.
+
+**Peers verify it, observed rather than argued.** Pushing the pending tx to each peer returned
+`{"message": "Already present", "result": true}` — gossip had beaten the manual push and each node had
+*admitted* it, which requires `validate_transaction` → `verify_settlement_sparse`. Every peer's own
+`/transaction_pool` held it. Proof header: `backend=recursion row_roots=True T=512 W=167 N=8192`.
+
+### 11.1 Two things the speed-up exposed
+
+**The landing margin was sized for the old proof.** A settle is an EXACT-LANDING tx (`protocol.py:115` —
+it "lands at exactly max_block"), so `SETTLE_PROOF_TX_MARGIN` is not slack: it is how long settlement is
+FROZEN, because the exec node must hold every bare settle until the proven span lands. Measured cost at
+180 blocks: submitted 12:35, next settle 12:55 — **~20 minutes frozen for one proof**. Re-measured
+propagation on a live 8.92 MiB proof by polling each peer's own pool (`/tmp/proppropagate.py`):
+`.131 +3.4 s`, `.210 +4.2 s`, `.141 +31.7 s` — **~42 s end to end**, against the ~480 s the 180 was sized
+for. At 6.0 s/block, **60 blocks = ~6 min = 8.6× the worst case**, and cursor 46967 then landed at
+**exactly** its 47078 target. Not lower: an exact-landing tx must be held by whoever produces *that
+specific block*, and production is ~18 distinct producers per 66 blocks while only 3 peers are pollable.
+
+**The in-flight hold only fired on the cheap path.** It reads `if proof is None and (…)`, so it suppressed
+a redundant *bare* settle but never a redundant *proof* — the loop proved first, then skipped the hold.
+Invisible while a prove took 300+ s (`_settle_proving` covered the window). At ~12 s it was immediate:
+three proves and three 8.92 MiB transactions in **96 seconds** (cursors 46892/46893/46897), all for the
+same root, of which only one can ever land. Fixed by gating the prove on `_settle_pending` **and** adding
+that condition to the bare-settle hold — without the second half, the pass that notices a landing falls
+through to a bare settle and halves the proof rate. Post-fix the ratio is 1:1 (2 built → 2 submitted, 0
+"a previous settle-prove is still running", against 25 → 19 with 33 such lines over the day).
+
+The pre-fix duplicates then drained by themselves: because the margin is applied to the **tip at submit**
+rather than the cursor, the newest tx lands first, and blocks 47119/47122/47127 — the older duplicates'
+targets — carry no settle at all.
