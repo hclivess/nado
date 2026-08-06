@@ -16,7 +16,7 @@ const SRC = fs.readFileSync(path.join(__dirname, "..", "static", "interface.js")
 
 // Lift the pure function out of the wallet bundle rather than re-typing it — a copy in the test would
 // happily keep passing after the real one changed, which is the failure mode this repo keeps hitting.
-const m = SRC.match(/function autoVotePicks\(props, canPropose, submitted\) \{[\s\S]*?\n\}/);
+const m = SRC.match(/function autoVotePicks\(props, canPropose, submitted, allow\) \{[\s\S]*?\n\}/);
 if (!m) { console.error("FAIL  could not find autoVotePicks in static/interface.js"); process.exit(1); }
 const autoVotePicks = new Function(m[0] + "; return autoVotePicks;")();
 
@@ -27,7 +27,8 @@ function check(name, fn) {
 }
 function eq(a, b, m) { if (a !== b) throw new Error((m || "") + " expected " + JSON.stringify(b) + ", got " + JSON.stringify(a)); }
 
-const P = (pid, status, voted) => ({ pid, status, voted, recipient: "x", amount: 1, memo: "", nonce: 1, expiry: 9 });
+const P = (pid, status, voted, recipient) => ({ pid, status, voted, recipient: recipient || "x",
+                                                amount: 1, memo: "", nonce: 1, expiry: 9 });
 
 check("picks open proposals we have not voted on", () => {
   const r = autoVotePicks([P("a", "open", false), P("b", "open", false)], true, new Set());
@@ -77,6 +78,36 @@ check("handles an empty or missing proposal list", () => {
   eq(autoVotePicks([], true, new Set()).pick.length, 0);
   eq(autoVotePicks(null, true, new Set()).pick.length, 0);
   eq(autoVotePicks(undefined, true, new Set()).pick.length, 0);
+});
+
+check("an empty whitelist means any recipient", () => {
+  const r = autoVotePicks([P("a", "open", false, "alice"), P("b", "open", false, "bob")], true, new Set(), []);
+  eq(r.pick.length, 2);
+});
+
+check("a whitelist restricts to its recipients", () => {
+  const props = [P("a", "open", false, "alice"), P("b", "open", false, "bob"), P("c", "open", false, "faucet")];
+  const r = autoVotePicks(props, true, new Set(), ["alice", "faucet"]);
+  eq(r.pick.length, 2);
+  eq(r.pick.map(p => p.pid).join(","), "a,c");
+});
+
+check("whitelist matching is case-insensitive and trims", () => {
+  const r = autoVotePicks([P("a", "open", false, "ABCdef")], true, new Set(), ["  abcDEF  "]);
+  eq(r.pick.length, 1, "addresses differ only in case/whitespace; a mismatch here silently votes on nothing");
+});
+
+check("a whitelist that matches nothing votes on nothing", () => {
+  const r = autoVotePicks([P("a", "open", false, "alice")], true, new Set(), ["mallory"]);
+  eq(r.pick.length, 0);
+  eq(r.reason, "");
+});
+
+check("the whitelist never overrides the voted flag", () => {
+  // A deliberate NO stays in the voter set (weight 0), so `voted` is true — whitelisting the recipient
+  // must not flip that vote back to yes.
+  const r = autoVotePicks([P("a", "open", true, "alice")], true, new Set(), ["alice"]);
+  eq(r.pick.length, 0);
 });
 
 check("it is OFF by default in the markup", () => {

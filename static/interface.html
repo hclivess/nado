@@ -861,6 +861,11 @@
         <span class="small faint" style="display:block" data-i18n="quorum.autoYesSub">Off by default. While this wallet is open, any open proposal you haven't voted on gets a yes vote — including spends you have never seen. Each vote costs a fee and approves real treasury money. It never executes a payout; that stays a manual button.</span>
       </label>
     </div>
+    <div id="qAutoYesRow" class="mt hidden">
+      <b class="small" data-i18n="quorum.autoYesAllow">Only auto-approve these recipients</b>
+      <span class="small faint" style="display:block" data-i18n="quorum.autoYesAllowSub">Optional. One address (or "faucet") per line. Leave empty to auto-approve every open proposal, whoever it pays.</span>
+      <textarea id="qAutoYesAllow" rows="3" class="mt" style="width:100%" spellcheck="false" placeholder="faucet"></textarea>
+    </div>
     <div id="qAutoYesMsg" class="small mt"></div>
     <div id="qProposals" class="mt"></div>
   </div>

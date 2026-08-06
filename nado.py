@@ -1141,6 +1141,10 @@ async def get_treasury_status(request):
     # GROUND TRUTH for that, not local bookkeeping: localStorage is per-browser, so a second device (or a
     # cleared cache) would re-submit a fee-bearing vote on every refresh. Voter sets are on-chain and this
     # endpoint is public, so exposing membership leaks nothing.
+    #
+    # `voted` means "has cast a vote", YES OR NO — a 'no' stores weight 0 but stays in the voter set. That is
+    # deliberately the right question for an auto-voter: it must never flip a vote the user deliberately cast
+    # against a spend. It is NOT "approves".
     _who = (request.query.get("address") or "").strip().lower()
 
     def _work():
@@ -1168,7 +1172,17 @@ async def get_treasury_status(request):
             if not executed and h > expiry:
                 continue                                    # expired + never executed -> dead; skip (scales the list)
             voters = kv_ops.treasury_voters(pid)
-            approving = sum(selection_shares(reg[v]["bonded"]) for v in voters if v in reg and _vote_activated(reg[v], epoch))
+            # TALLY EXACTLY AS CONSENSUS DOES (settlement_ops.treasury_justified): sum the weight SNAPSHOTTED
+            # when each vote was cast, for voters still in the bonded registry.
+            #
+            # This used to recompute selection_shares from LIVE bonded stake, which diverged from consensus in
+            # two ways at once. A 'no'/withdrawn vote stores weight 0 but STAYS in the voter set (see
+            # account_ops: `eff = w if choice == "yes" else 0`), so opposing a proposal still showed up as
+            # approving it — the bar could read "passed" for a spend everyone had voted down. And topping up
+            # bonded stake after voting inflated the displayed approval, which treasury_justified deliberately
+            # prevents by snapshotting. The Quorum tab is what people read before voting, and it was showing a
+            # different election from the one being run.
+            approving = sum(kv_ops.treasury_vote_weight(pid, v) for v in voters if v in reg)
             status = "executed" if executed else ("passed" if treasury_justified(pid, reg, epoch) else "open")
             amt = int(spend.get("amount", 0))
             props.append({"pid": pid, "recipient": spend.get("recipient"), "amount": amt,

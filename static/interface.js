@@ -6128,24 +6128,33 @@ async function renderQuorum() {
 const _autoVoted = new Set();          // pids submitted this session (confirmation lags by a few blocks)
 let _autoVoting = false;
 function autoVoteEnabled() { try { return localStorage.getItem("nado_auto_vote_yes") === "1"; } catch (e) { return false; } }
+function autoVoteAllow() {
+  try { return (localStorage.getItem("nado_auto_vote_allow") || "").split(/[\s,]+/).filter(Boolean); }
+  catch (e) { return []; }
+}
 
 /* WHICH proposals to auto-vote — pure, so the fee-safety rules are testable without a DOM or a chain.
  * Returns {pick:[...], reason} where reason is "" when pick is authoritative. Every rule here exists to
  * stop the wallet spending fees in a loop, which is the only way this feature can quietly hurt someone. */
-function autoVotePicks(props, canPropose, submitted) {
+function autoVotePicks(props, canPropose, submitted, allow) {
   if (!canPropose) return { pick: [], reason: "ineligible" };
   const open = (props || []).filter(p => p && p.status === "open");
   // A node that does not report `voted` cannot tell us what we already did. Voting anyway re-submits a
   // fee-bearing vote on EVERY refresh (a re-vote overwrites, so it is silent), and renderQuorum runs on a
   // timer — so refuse rather than guess.
   if (open.some(p => typeof p.voted !== "boolean")) return { pick: [], reason: "no_voted_flag" };
-  return { pick: open.filter(p => !p.voted && !submitted.has(p.pid)), reason: "" };
+  // WHITELIST: when set, only proposals paying one of these recipients are auto-approved; everything else
+  // waits for a human. Empty means "any recipient", which is the plain form of the feature. `voted` is
+  // "has cast a vote, yes OR no", so a deliberate no is never flipped to yes.
+  const wl = (allow || []).map(a => String(a).trim().toLowerCase()).filter(Boolean);
+  const ok = (p) => !wl.length || wl.indexOf(String(p.recipient || "").toLowerCase()) !== -1;
+  return { pick: open.filter(p => !p.voted && !submitted.has(p.pid) && ok(p)), reason: "" };
 }
 
 async function autoVoteYes(props, canPropose) {
   const note = $("qAutoYesMsg");
   if (!autoVoteEnabled() || _autoVoting || !state.wallet) return;
-  const { pick: todo, reason } = autoVotePicks(props, canPropose, _autoVoted);
+  const { pick: todo, reason } = autoVotePicks(props, canPropose, _autoVoted, autoVoteAllow());
   if (reason === "no_voted_flag") {
     if (note) note.innerHTML = '<span class="warn">' + i18("quorum.autoYesNoFlag",
       "Auto-vote is idle: this node doesn't report whether you've already voted, and voting blindly would resubmit a fee every refresh.") + "</span>";
@@ -6181,8 +6190,20 @@ function wireAutoVoteToggle() {
   const el = $("qAutoYes");
   if (!el) return;
   el.checked = autoVoteEnabled();      // OFF by default: this approves treasury spends unattended
+  const row = $("qAutoYesRow"), ta = $("qAutoYesAllow");
+  const show = () => { if (row) row.classList.toggle("hidden", !el.checked); };
+  if (ta && !ta._wired) {
+    ta._wired = true;
+    ta.value = autoVoteAllow().join("\n");
+    ta.onchange = ta.onblur = () => {
+      try { localStorage.setItem("nado_auto_vote_allow", (ta.value || "").trim()); } catch (e) {}
+      renderQuorum().catch(() => {});
+    };
+  }
+  show();
   el.onchange = () => {
     try { localStorage.setItem("nado_auto_vote_yes", el.checked ? "1" : "0"); } catch (e) {}
+    show();
     if (el.checked) renderQuorum().catch(() => {});
     else { const n = $("qAutoYesMsg"); if (n) n.textContent = ""; }
   };
