@@ -747,7 +747,19 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
         # slower — and declining is still far better than proving something that gets refused for size.
         if len(net) > SETTLE_RECORDS_MAX_UPDATES:
             _mib = (len(net) * SETTLE_RECORDS_PROOF_BYTES + SETTLE_KV_HALF_BYTES) >> 20
-            print(f"[execnode] records half DECLINED for span {sc}->{cur}: {len(net)} updates exceeds "
+            # SAY WHAT THE UPDATES ARE, not just how many. The plan for closing the remaining gap rests on
+            # the claim that a boundary span is "13 dividend positions + a few others" — if that is wrong,
+            # shortening the span buys nothing, and a count alone can never tell us. Counted over `effects`
+            # (pre-netting) by tag, which is the only place the tag still exists: `net` is keyed by the
+            # HASHED record key, from which no tag can be recovered.
+            _by_tag = {}
+            for _e in (effects or ()):
+                _by_tag[_e[0]] = _by_tag.get(_e[0], 0) + 1
+            _names = {1: "BRIDGE_BAL", 2: "DIV_BAL", 3: "BRIDGE_WD", 4: "DIV_WD", 5: "UNSHIELD_WD",
+                      6: "DIGEST", 7: "KVX", 8: "ASSET_BAL", 9: "ASSET_META", 10: "ASSET_ALLOW"}
+            _brk = " ".join(f"{_names.get(t, t)}={n}" for t, n in sorted(_by_tag.items()))
+            print(f"[execnode] records half DECLINED for span {sc}->{cur}: {len(net)} net updates from "
+                  f"{len(effects or ())} effects [{_brk}] exceeds "
                   f"SETTLE_RECORDS_MAX_UPDATES={SETTLE_RECORDS_MAX_UPDATES} — at ~{SETTLE_RECORDS_PROOF_BYTES >> 20}"
                   f" MiB per update that is ~{_mib} MiB against SETTLE_INLINE_MAX={SETTLE_INLINE_MAX >> 20} MiB, "
                   f"so the proof would be built (~{45 * len(net)}s) and then refused. Riding the bonded quorum",
