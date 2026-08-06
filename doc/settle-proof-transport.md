@@ -461,10 +461,69 @@ records movement**, which is why measured coverage is 2 proofs against 13 bare s
 
 * **The landed proof was UNFOLDED** (`calls=0`). The folded proof's SIZE has still never been measured
   against the 120.31 MiB unfolded baseline — that is the entire point of the fold.
-* **`prove_transition` now dominates**: measured `calls=1 net_updates=7` → 782–884 s, i.e. ~126 s per state
-  update, while `prove_epoch` FELL to 8.9 s. Untouched constant factors: `max_degree=8` ⇒ blowup 8 ⇒
-  N=8T; the ext-field arena penalty (~2.8×, the Rust arena is base-field only); allocator churn (~4/8
-  samples in libc, RSS 1.2→2.8 GB); 20.3% power-of-two padding.
+* **`prove_transition` dominates a span WITH calls**: measured `calls=1 net_updates=7` → 782–884 s, i.e.
+  ~126 s per state update, while `prove_epoch` FELL to 8.9 s. Untouched constant factors: `max_degree=8`
+  ⇒ blowup 8 ⇒ N=8T; the ext-field arena penalty (~2.8×, the Rust arena is base-field only); allocator
+  churn (~4/8 samples in libc, RSS 1.2→2.8 GB); 20.3% power-of-two padding. **`ee5020bc` gated the fold
+  off at K=1** — the bundle had only ever wrapped a single proof, so it bought no verification win for a
+  full extra STARK prove. That gate is **not yet verified live**: every span proven since carries
+  `calls=0`, and `execnode.py:621` already sets `_fold = … and bool(calls)`, so the gate has not been
+  reached. It can only be exercised once the records gate lets a span with calls through.
+* **Cost of the inline pivot**: blocks carrying a proof are large, so gossip and sync move real bytes. That
+  is a deliberate alphanet trade — a proof that lands beats a smaller one that cannot.
+
+## 8. The sparse root was the constant term — measured and removed (2026-08-06)
+
+With `prove_transition` at 0 s (every proven span so far has `calls=0` ⇒ `net_updates=0`), four consecutive
+proves gave a stable and unexpected breakdown:
+
+| cursor | prove_epoch | sparse_projection | prove_transition | total |
+|--------|------------:|------------------:|-----------------:|------:|
+| 44431  | 85.4 s | 256.2 s | 0.0 s | 341.7 s |
+| 44619  | 88.0 s | 221.4 s | 0.0 s | 309.4 s |
+| 44929  | 70.9 s | 237.9 s | 0.0 s | 308.7 s |
+| 45173  | 63.0 s | 271.2 s | 0.0 s | 334.3 s |
+
+`sparse_projection` is **72–81% of every prove**, and it does no proving at all — it is
+`settlement_sparse.prove_bound_epoch` building a `SparseStore` over the state and taking its root.
+
+**Where the time goes.** Production state is 25 zkVM contracts / **9,016 slots** at depth 256. Offline on
+this box the root alone measures **65.1–69.7 s**. That is `9,016 × 256 = 2,308,096` alghash2 permutations;
+a permutation benchmarks at **24 µs**, which predicts 68.5 s — the model and the measurement agree, so
+there is nothing else hiding in the stage.
+
+**The permutation was already native, and it is not slow.** The first hypothesis — `rnode()` falling back
+to Python — was wrong: `rnode` calls `permute()`, which does adopt the Rust `permute12` export. A raw
+`ctypes` call into `permute12` with a preallocated buffer still costs 24.25 µs against `rnode`'s 27.50 µs,
+so **marshalling is ~3 µs and the other 24 µs is real arithmetic**: ROUNDS=54 over WIDTH=12 with a dense
+12×12 MDS is ~10,400 Goldilocks multiplications per permutation. There is no constant factor to reclaim
+here without changing the hash — which is a consensus change.
+
+**So the fix had to be doing fewer of them.** With 9,016 keys spread over a 2^256 space, every key is alone
+in its subtree from about level 14 upward, so ~240 of each key's 256 levels are a *singleton fold* against
+the canonical empty roots — **99.6% of the work**, and a pure function of `(depth, key, value, level)`.
+`SparseStore._memo` could not help: `settlement_sparse` builds a **fresh store on every prove and on every
+verify**, so the per-instance memo never survived to the next one.
+
+`storage_tree._FOLD_CACHE` is a module-level memo of that pure function, keyed `(depth, key, value)` and
+holding the chain's **high-water mark** `(level, digest)` so a higher level resumes and a lower one
+recomputes. Measured on the same production state:
+
+| | time |
+|---|---:|
+| cold root (9,016 slots, depth 256) | 65.10 s |
+| warm root, unchanged state | **0.46 s** (141×) |
+| root after 40 changed slots (a realistic span) | **0.58 s** |
+
+Roots are bit-identical cold, warm and after a delta; authentication paths still fold to the root; entries
+do not leak across depths. `tests/test_fold_cache.py` (8 checks) pins all of that, because a memo that
+returned a wrong digest would silently change the settled state root and fork L2.
+
+The same code runs in the **verifier** (`verify_bound_epoch` rebuilds the store), so a peer validating a
+settle proof gets the same reduction on its second and later verifications.
+
+**What this leaves.** `prove_epoch` at 63–88 s is now the whole prove, and it is measured with **zero
+calls** — an empty epoch still pays a full STARK at `NUM_QUERIES=320`. That is the next target.
 * **Cost of the inline pivot**: blocks carrying a proof are large, so gossip and sync move real bytes. That
   is a deliberate alphanet trade — a proof that lands beats a smaller one that cannot. The fold is what
   brings the size back down.

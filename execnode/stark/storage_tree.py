@@ -39,6 +39,37 @@ def _empty_roots(depth):
 
 _E_CACHE = {}
 
+# ---- CROSS-STORE SINGLETON-FOLD CACHE ---------------------------------------------------------------
+# MEASURED 2026-08-06: root() over production state (25 zkVM contracts, 9,016 slots, depth 256) costs
+# 69.7 s — 2,308,096 alghash2 permutations at 24 us each, and the permutation is ALREADY native Rust
+# (54 rounds x a dense 12x12 MDS is genuinely ~10k Goldilocks multiplications, so there is no FFI
+# overhead left to shave). The only way down is to perform FEWER permutations.
+#
+# WHERE THEY ALL GO: with 9,016 keys spread over a 2^256 space, every key is alone in its subtree from
+# about level 14 upward, so ~240 of each key's 256 levels are a singleton fold against the canonical
+# empty roots. That is 99.6% of the work — and it is a PURE FUNCTION of (depth, key, value, level).
+#
+# WHY A MODULE-LEVEL CACHE AND NOT SparseStore._memo: a fresh SparseStore is built from scratch on EVERY
+# settle prove (settlement_sparse.prove_bound_epoch line ~99) and on every VERIFY, so the per-instance
+# memo never survives to the next one. Between two consecutive proves only the slots a span touched
+# change — tens out of 9,016 — so a cache that outlives the store turns a 70 s rebuild into O(changed).
+#
+# THE ENTRY IS A CHAIN PREFIX, not a single level: fold(level L) is a prefix of fold(level L') for
+# L' > L, so one entry per (depth, key, value) stores the highest level reached and extends from there.
+# That also makes a changed SEPARATION LEVEL (a new neighbour key arriving in the subtree) cheap
+# instead of a full recompute.
+#
+# SAFETY: this memoizes a pure function, so roots are bit-identical with the cache cold, warm, or
+# disabled — it can never change a root, only the time to compute one. `depth` is part of the key
+# because the empty roots e[i] differ per depth (tests use small depths against the same process).
+_FOLD_CACHE = {}
+_FOLD_CACHE_MAX = 1 << 17        # ~131k entries; production carries ~9k, so this only bounds a runaway
+
+
+def clear_fold_cache():
+    """Drop the singleton-fold cache (tests that want a cold measurement; never needed for correctness)."""
+    _FOLD_CACHE.clear()
+
 
 def empty_roots(depth):
     """The canonical empty-subtree digests for `depth`, cached (256 permutations once, not per store/proof)."""
@@ -86,13 +117,28 @@ class SparseStore:
 
     def _singleton_fold(self, key, level):
         """Digest of the height-`level` subtree whose ONLY populated leaf sits at absolute `key` — fold the leaf
-        straight up against the canonical empty roots (bits 0..level-1 of key give the order at each step)."""
-        node = _leaf(self.values[key])
-        for i in range(level):
-            if (key >> i) & 1:
-                node = A2.rnode(self.e[i], node)
-            else:
-                node = A2.rnode(node, self.e[i])
+        straight up against the canonical empty roots (bits 0..level-1 of key give the order at each step).
+
+        Cached across stores by (depth, key, value) — see _FOLD_CACHE above. The entry is the HIGH-WATER
+        MARK of the chain, (level, digest): a request at that level is a hit, a request ABOVE it resumes
+        from there, and a request BELOW it recomputes (cheap — that only happens for a path() sibling near
+        the bottom of the tree, and keeping the whole 256-deep chain per key would cost ~500 MB)."""
+        value = self.values[key]
+        ck = (self.depth, key, value)
+        hit = _FOLD_CACHE.get(ck)
+        if hit is not None and hit[0] == level:
+            return hit[1]
+        if hit is not None and hit[0] < level:
+            node, start = hit[1], hit[0]
+        else:
+            node, start = _leaf(value), 0
+        e = self.e
+        for i in range(start, level):
+            node = A2.rnode(e[i], node) if (key >> i) & 1 else A2.rnode(node, e[i])
+        if hit is None or hit[0] < level:
+            if len(_FOLD_CACHE) >= _FOLD_CACHE_MAX:
+                _FOLD_CACHE.clear()
+            _FOLD_CACHE[ck] = (level, node)
         return node
 
     def _node(self, level, index):
