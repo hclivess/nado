@@ -27,10 +27,19 @@ from execnode.stark import (merkle_update as MU, field as F, backend as B, recur
 # — boundaries grow ~K x 288 (256 of those 288 are the per-level position pins) and N grows ~K x 131072 — so
 # memory is QUADRATIC in K while the size win is only logarithmic. That is the trade this constant sits on.
 #
-# So it is set from a MEASURED safe value, not from what the trace can hold. 1 = the pre-batching behaviour
-# exactly (one proof per update), which is the only value verified at live geometry so far. Raise it only
-# against a measured peak RSS on this box, with the exec node's own footprint and the owner's jobs left room.
-DEFAULT_BATCH = int(os.environ.get("NADO_SETTLE_BATCH", "1"))
+# So it is set from a MEASURED safe value, not from what the trace can hold. At EXEC_TREE_DEPTH=256, all
+# verified end to end (prove + verify_updates):
+#
+#     K   T       prove s   MiB     MiB/update   s/update   peak RSS
+#     1   16384     35.0    10.82     10.82        35.0      ~0.8 GB
+#     2   32768     57.7    11.90      5.95        28.9       2.4 GB   <-- shipped
+#     3   65536    215.6    13.03      4.34        71.9       6.7 GB
+#     4   65536    332.6    13.03      3.26        83.2       8.7 GB
+#
+# K=2 is the knee, and it is the only batch size that is better on BOTH axes than not batching: 5.95 MiB per
+# update instead of 10.82, AND 28.9 s per update instead of 35. K=3 and 4 spill into T=65536 and pay ~35%
+# padding, so they buy bytes with time and a memory footprint that would sit next to the exec node's own.
+DEFAULT_BATCH = int(os.environ.get("NADO_SETTLE_BATCH", "2"))
 
 
 def _dirs(key, depth):

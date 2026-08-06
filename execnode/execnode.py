@@ -210,10 +210,24 @@ SETTLE_FOLD = True
 # them would close the gap immediately — and fri.py sizes 320 to clear 128 bits on the PROVABLE
 # (Johnson-bound) branch, 320*0.4 + 18 grind ~ 146 bits, deliberately not the conjectured branch most
 # deployments accept. Buying tx size with security bits is not a prover-side decision.
-SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "16"))
+SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "28"))
 # Measured 2026-08-06 at EXEC_TREE_DEPTH=256, row-committed, encoded exactly as the submit path encodes it
-# (json.dumps(separators=(",", ":"), sort_keys=True)): 10.83 MiB for one merkle-update proof.
-SETTLE_RECORDS_PROOF_BYTES = 11 << 20
+# (json.dumps(separators=(",", ":"), sort_keys=True)). Per PROOF, not per update — several updates now share
+# one STARK (state_transition.DEFAULT_BATCH), and proof size grows with log T, so the marginal update is
+# nearly free while the marginal PROOF is not:
+#
+#     K   T       prove s   MiB     MiB/update   peak RSS
+#     1   16384     35.0    10.82     10.82       ~0.8 GB
+#     2   32768     57.7    11.90      5.95        2.4 GB   <-- shipped
+#     3   65536    215.6    13.03      4.34        6.7 GB
+#     4   65536    332.6    13.03      3.26        8.7 GB
+#
+# K=2 is the knee. It is the last size that is also FASTER per update than not batching at all (28.9 s vs
+# 35 s), because 3 and 4 spill into T=65536 and pay for ~35% padding; and its 2.4 GB peak leaves the exec
+# node and the box's other work alone, where 4's 8.7 GB does not. Bigger K wins on bytes and loses on
+# memory — memory is quadratic in K (a size-N inverse-denominator vector PER BOUNDARY, and boundaries grow
+# with K too) while the byte win is only logarithmic.
+SETTLE_RECORDS_PROOF_BYTES = 12 << 20
 # What the KV half of the same settle tx costs alongside it — 8.77 MiB observed on chain, rounded up.
 SETTLE_KV_HALF_BYTES = 9 << 20
 SETTLE_PROVE_TIMEOUT = 2400      # safety bound, not a feature switch: a prove that outruns this is
@@ -241,16 +255,26 @@ SETTLE_INLINE_MAX = _MAX_INLINE_TX_BYTES - SETTLE_TX_ENVELOPE_MAX
 # claiming so is worth nothing once someone raises the cap by env var or edits MAX_INLINE_TX_BYTES. A proof
 # that is built and then refused for size is the worst outcome available: it costs the full prove (~45 s per
 # update), stalls the settle cadence while it runs, and lands nothing. Fail here, at import, instead.
+def _records_bytes(n_updates):
+    """Wire cost of the records half for `n_updates` — counted in PROOFS, since several updates share one."""
+    from execnode.stark import state_transition as _SX
+    batch = max(1, int(_SX.DEFAULT_BATCH))
+    return -(-int(n_updates) // batch) * SETTLE_RECORDS_PROOF_BYTES     # ceil-div: proofs, not updates
+
+
 _RECORDS_CAP_FITS_INLINE = (SETTLE_KV_HALF_BYTES
-                            + SETTLE_RECORDS_MAX_UPDATES * SETTLE_RECORDS_PROOF_BYTES) <= SETTLE_INLINE_MAX
+                            + _records_bytes(SETTLE_RECORDS_MAX_UPDATES)) <= SETTLE_INLINE_MAX
 if not _RECORDS_CAP_FITS_INLINE:
-    _fits = (SETTLE_INLINE_MAX - SETTLE_KV_HALF_BYTES) // SETTLE_RECORDS_PROOF_BYTES
+    from execnode.stark import state_transition as _SX0
+    _b = max(1, int(_SX0.DEFAULT_BATCH))
+    _fits = ((SETTLE_INLINE_MAX - SETTLE_KV_HALF_BYTES) // SETTLE_RECORDS_PROOF_BYTES) * _b
     raise RuntimeError(
         f"SETTLE_RECORDS_MAX_UPDATES={SETTLE_RECORDS_MAX_UPDATES} cannot fit inline: "
-        f"{SETTLE_KV_HALF_BYTES >> 20} MiB KV half + {SETTLE_RECORDS_MAX_UPDATES} x "
+        f"{SETTLE_KV_HALF_BYTES >> 20} MiB KV half + {-(-SETTLE_RECORDS_MAX_UPDATES // _b)} proof(s) x "
         f"{SETTLE_RECORDS_PROOF_BYTES >> 20} MiB exceeds SETTLE_INLINE_MAX={SETTLE_INLINE_MAX >> 20} MiB. "
-        f"At most {_fits} records updates fit — lower the cap, or raise protocol.MAX_INLINE_TX_BYTES knowing "
-        f"peers must PULL the whole tx inside their admit budget.")
+        f"At most {_fits} records updates fit at batch={_b} — lower the cap, raise the batch (memory is "
+        f"quadratic in it), or raise protocol.MAX_INLINE_TX_BYTES knowing peers must PULL the whole tx "
+        f"inside their admit budget.")
 # How long to wait for L1's verdict on a PROOF-CARRYING settle. L1 verifies the proof inline before it
 # answers, and that is measured at 94.2 s for a real 118.57 MiB proof, so anything near the bare-settle
 # budget guarantees a client-side timeout on a proof that is perfectly valid. Generous because the settle
