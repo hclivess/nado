@@ -87,6 +87,22 @@ def _next_pow2(x):
     return p
 
 
+def row_commit_default(backend):
+    """THE one authority on "should this proof commit rows?". Callers pass row_commit=None meaning
+    "match the backend" and resolve it here.
+
+    This exists because the question was answered TWICE. settlement_sparse derived it from the backend and
+    ran the KV settle half in row mode (~15 s/span); merkle_update never asked, so the RECORDS half took
+    stark.prove's False default and paid W=29 separate Merkle trees per update — 146.5 s of a 184 s prove,
+    79.6%, measured per arena call. Same arena, same backend, same AIR, an order of magnitude apart, and the
+    only visible symptom was `records half DECLINED … exceeds SETTLE_RECORDS_MAX_UPDATES`. Two copies of one
+    default is how that happens; one function is how it stops.
+
+    row_commit REQUIRES the RECURSION backend (see the guard in prove/verify below), so this is exactly the
+    backend test and nothing more."""
+    return getattr(backend, "name", "") == "recursion"
+
+
 def _blowup(max_degree):
     """LDE blowup for constraints of degree ≤ max_degree: 2·next_pow2(max_degree), so the composition
     (degree ≤ max_degree·T) still sits at Reed–Solomon rate 1/2 for FRI."""

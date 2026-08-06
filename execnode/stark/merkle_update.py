@@ -152,15 +152,39 @@ def _boundaries(old_val, new_val, pre_root, post_root, dirs, D):
     return bnd
 
 
-def prove_update(old_val, new_val, siblings, dirs, num_queries=stark.NUM_QUERIES, backend=None):
+def prove_update(old_val, new_val, siblings, dirs, num_queries=stark.NUM_QUERIES, backend=None,
+                 row_commit=None):
     """Prove old_val at PUBLIC position `dirs` (private path `siblings`) folds to pre_root AND new_val folds to
     post_root through the SAME path. Returns (proof, pre_root, post_root) (roots are CAPACITY-tuples);
-    proof['D'] is the public depth."""
+    proof['D'] is the public depth.
+
+    ROW-COMMITTED whenever the backend allows it. This call used to leave stark.prove's row_commit at its
+    False default, and that ONE unset flag is what made records-bearing spans unprovable. Timing every arena
+    entry point across a real update (D=256 → T=16384, W=29, N=131072):
+
+        commit_col   29 calls   146.5 s   79.6% of the prove      lde_column  43 calls    5.3 s
+        compose_ext   1 call     15.6 s    8.5%                   open_at  18560 calls    1.2 s
+        fri_prove     1 call     14.7 s    8.0%                   PYTHON               0.5 s   0.3%
+
+    Column mode builds W=29 SEPARATE Merkle trees over N=131072 leaves — ~2N alghash2 permutations each,
+    7.6M per update. Row mode commits ONE tree whose leaves are whole rows: ~655k. Measured end to end,
+    145.7 s → 35.3 s to prove, 45.7 s → 30.9 s to verify, and the proof shrinks 38.7 MiB → 11.4 MiB, which
+    matters independently because the settle tx carries it.
+
+    The KV settle half was ALREADY row-committed: settlement_sparse.py derives row_commit from the backend
+    and proves a whole span in ~15 s. The records half ran the same arena, the same backend, and the same
+    AIR an order of magnitude slower purely because the default was set in one file and not the other — so
+    every live span logged `records half DECLINED … 18 updates exceeds SETTLE_RECORDS_MAX_UPDATES=6`.
+
+    row_commit REQUIRES the RECURSION backend (stark.py:377), so derive it the same way settlement_sparse
+    does rather than defaulting it True and breaking the ALGHASH2 callers."""
     b = backend or B.RECURSION
+    if row_commit is None:
+        row_commit = stark.row_commit_default(b)
     trace, T, D, pre_root, post_root = build_trace(old_val, new_val, siblings, dirs)
     bnd = _boundaries(old_val, new_val, pre_root, post_root, dirs, D)
     proof = stark.prove(trace, _transitions(), bnd, periodic=_periodic(T, D), max_degree=MAX_DEGREE,
-                        num_queries=num_queries, backend=b)
+                        num_queries=num_queries, backend=b, row_commit=row_commit)
     proof["D"] = D
     return proof, pre_root, post_root
 
@@ -175,8 +199,14 @@ def verify_update(proof, old_val, new_val, pre_root, post_root, dirs, num_querie
         if not isinstance(D, int) or D < 1 or proof.get("T") != _next_pow2((D + 1) * BR) or len(dirs) != D:
             return False, "bad depth / trace geometry / dirs length"
         bnd = _boundaries(old_val, new_val, pre_root, post_root, dirs, D)
+        # READ the commitment mode off the proof — the verifier is never TOLD it. This is the same detection
+        # settlement_sparse.py already does (`row_commit = "row_roots" in bundle["proof"]`), and it is what
+        # lets column-mode proofs (ALGHASH2, and anything already in flight) keep verifying unchanged while
+        # RECURSION proofs move to row mode. It is not a security choice the prover gets to make: both modes
+        # commit the same LDE under the same transcript, and every public input is still checked below.
         return stark.verify(proof, _transitions(), bnd, periodic=_periodic(proof["T"], D),
-                            max_degree=MAX_DEGREE, num_queries=num_queries, backend=b)
+                            max_degree=MAX_DEGREE, num_queries=num_queries, backend=b,
+                            row_commit=("row_roots" in proof))
     except Exception as e:
         # SAY WHERE. This returned only the exception's text, which for a TypeError deep in the verifier
         # ("int() argument must be ... not 'list'") names neither the file, the line, nor the value — and a

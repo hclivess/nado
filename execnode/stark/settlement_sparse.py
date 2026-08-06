@@ -311,8 +311,12 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
     # body and shadows the module-level import — so resolve the backend module explicitly here.
     from execnode.stark import backend as _bk_default
     backend = backend or _bk_default.RECURSION
+    # ONE authority for this default, shared with merkle_update — see stark.row_commit_default. Resolved
+    # explicitly for the same reason `_bk_default` is: a function-local import below shadows module names
+    # across this whole body.
+    from execnode.stark import stark as _stark_default
     if row_commit is None:
-        row_commit = getattr(backend, "name", "") == "recursion"
+        row_commit = _stark_default.row_commit_default(backend)
     if not recursive:
         bundle = prove_bound_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
                                    block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
