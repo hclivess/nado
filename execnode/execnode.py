@@ -350,6 +350,103 @@ _settled_snapshots = {}
 _settled_history = {}
 _SETTLED_HISTORY_KEEP = 6
 
+# ---- THE STASH SURVIVES A RESTART ------------------------------------------------------------------
+# It used to be purely in-memory, so every restart threw it away and the node could not prove ANYTHING
+# until it had settled once more — a full settle cadence (~5 min here) of blind spans after every deploy.
+# MEASURED 2026-08-06: "no stashed pre-state" was 17 of the day's skips, and every one of them was
+# self-inflicted by a restart. That is the largest skip class we can remove without a reroll (the other
+# two — epoch boundary 55, records moved 36 — are the SAME records problem and need one).
+#
+# Files live BESIDE the state file so the two generation wipes already sweep them: both the boot-time
+# marker wipe and _reset_states_to_genesis glob STATE_PATH + "*" and os.remove each hit. The "~" separator
+# cannot appear in a validated namespace, so a stash file can never be mistaken for a namespace's state.
+#
+# TRUSTING A FILE HERE IS SAFE because the prover already treats the stash as untrusted input: it requires
+# the payload's own cursor to equal L1's JUSTIFIED tip, and the finished proof must both extend the
+# L1-justified root and reproduce THIS node's real root. A wrong stash yields no proof, never a bad one.
+# _stash_load additionally refuses any payload that does not describe itself (its ns/cursor must match the
+# name it was found under).
+_STASH_SEP = "~stash~"
+
+
+def _stash_path(ns, cursor):
+    return f"{STATE_PATH}{_STASH_SEP}{ns}~{int(cursor)}.json"
+
+
+def _stash_persist(ns, cursor, payload):
+    """Write one stash entry to disk and keep only the newest _SETTLED_HISTORY_KEEP for this ns.
+
+    BOUNDED ON PURPOSE. These are full state payloads (~4 MB each here), and an unbounded on-disk cache is
+    exactly what turned exec_da into 41 GB — see the DA rolling window. Best-effort throughout: losing a
+    stash costs one settle's worth of proving, never correctness."""
+    try:
+        p = _stash_path(ns, cursor)
+        tmp = p + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(payload)
+        os.replace(tmp, p)
+    except OSError as e:
+        print(f"[execnode] settle stash: could not persist ns={ns} cursor={cursor} ({e}) — "
+              f"the in-memory stash still works, it just will not survive a restart", flush=True)
+        return
+    try:
+        import glob as _g
+        pref = f"{STATE_PATH}{_STASH_SEP}{ns}~"
+        mine = []
+        for q in _g.glob(pref + "*.json"):
+            try:
+                mine.append((int(q[len(pref):-len(".json")]), q))
+            except ValueError:
+                continue
+        for _c, q in sorted(mine)[:-_SETTLED_HISTORY_KEEP]:
+            try:
+                os.remove(q)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def _stash_load():
+    """Repopulate the in-memory stash from disk at startup. Best-effort; a bad file is skipped, not fatal."""
+    import glob as _g
+    pref = f"{STATE_PATH}{_STASH_SEP}"
+    n = 0
+    for p in sorted(_g.glob(pref + "*.json")):
+        tail = p[len(pref):-len(".json")]
+        ns, _sep, cur = tail.rpartition("~")
+        if not _sep or ns not in NAMESPACES:
+            continue
+        try:
+            cur = int(cur)
+            raw = open(p).read()
+            snap = json.loads(raw)
+        except (OSError, ValueError):
+            continue
+        if snap.get("ns") != ns or int(snap.get("cursor", -1)) != cur:
+            continue                      # a payload that does not describe itself is not a pre-state
+        _settled_history.setdefault(ns, {})[cur] = raw
+        n += 1
+    for _ns, _h in _settled_history.items():
+        if _h:
+            _settled_snapshots[_ns] = _h[max(_h)]
+    if n:
+        print(f"[execnode] settle stash: restored {n} pre-state(s) from disk "
+              f"({ {k: sorted(v) for k, v in _settled_history.items()} }) — proving can resume without "
+              f"waiting for the next accepted settle", flush=True)
+
+
+def _stash_clear():
+    """Drop the stash, in memory and on disk — for a generation reset, where every payload is stale-chain."""
+    _settled_snapshots.clear()
+    _settled_history.clear()
+    import glob as _g
+    for p in _g.glob(f"{STATE_PATH}{_STASH_SEP}*"):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
 # NAMESPACES this node maintains (multi-rollup). The DEFAULT namespace is the full canonical exec layer
 # (contracts + bridge + shielded pool + presence dividend). Any EXTRA namespaces (NADO_EXEC_NAMESPACES,
 # comma-separated, validated) are contract-only rollups fed by `blob`s tagged with their ns; each persists to
@@ -410,6 +507,10 @@ try:
 except OSError:
     pass
 
+# Restore the settle stash AFTER the generation wipe above (which globs STATE_PATH + "*" and so removes any
+# stale-chain stash files) and after the genesis canary — so nothing is loaded onto a state we refused.
+_stash_load()
+
 _last_settled_cursor = -1
 # Per-namespace throttle for the "settle SKIPPED (window not canonical)" notice: while gated, maybe_settle
 # re-enters every poll and the randomness window can take a full retention span to heal, so an unthrottled
@@ -438,6 +539,7 @@ def _reset_states_to_genesis(reason=""):
         except OSError:
             pass
     _s.rmtree(DA_DIR, ignore_errors=True)
+    _stash_clear()          # stale-generation pre-states would fail every self-check; drop them outright
     DA = DaStore(DA_DIR, retain=DA_RETAIN)
     states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
     state = states["default"]
@@ -1163,6 +1265,8 @@ async def maybe_settle(session):
                 _h[cur] = _settled_snapshots[ns]
                 for _old in sorted(_h)[:-_SETTLED_HISTORY_KEEP]:
                     del _h[_old]
+                # ...and to DISK, so a restart does not blind the prover for a whole settle cadence.
+                _stash_persist(ns, cur, _settled_snapshots[ns])
                 # NAME THE THREE OUTCOMES DISTINCTLY. This read `'-WITH-PROOF' if proof else ''`, but the
                 # DA path sets `proof = None` the moment the proof moves to DA — so a settle carrying a DA
                 # commitment logged as a bare "SETTLE", byte-identical to a quorum attestation. The one
