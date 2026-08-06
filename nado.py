@@ -1135,6 +1135,14 @@ async def get_treasury_status(request):
     # schedule, and every proposal with its LIVE tally (approving activated-stake vs the 2/3 quorum bar) + status.
     if _rate_limited(request, 60):
         return _RL()
+    # `?address=` adds a per-proposal `voted` flag for that address. The tally already loads each proposal's
+    # voter set to sum its shares, so this costs nothing extra — it was simply never returned, and without it
+    # a client cannot tell "nobody voted" from "I already voted". A wallet that votes on a schedule needs
+    # GROUND TRUTH for that, not local bookkeeping: localStorage is per-browser, so a second device (or a
+    # cleared cache) would re-submit a fee-bearing vote on every refresh. Voter sets are on-chain and this
+    # endpoint is public, so exposing membership leaks nothing.
+    _who = (request.query.get("address") or "").strip().lower()
+
     def _work():
         """Tally every live proposal against the activated bonded registry (worker thread)."""
         from ops import kv_ops
@@ -1166,7 +1174,8 @@ async def get_treasury_status(request):
             props.append({"pid": pid, "recipient": spend.get("recipient"), "amount": amt,
                           "memo": spend.get("memo", ""), "nonce": spend.get("nonce"), "expiry": expiry,
                           "expires_in": max(0, expiry - h), "approving_shares": approving, "voters": len(voters),
-                          "status": status, "within_cap": amt <= max_spend})
+                          "status": status, "within_cap": amt <= max_spend,
+                          **({"voted": any(v.lower() == _who for v in voters)} if _who else {})})
         props.sort(key=lambda p: (p["status"] != "open", -p["approving_shares"]))
         props = props[:50]                                  # cap the returned list (open/active first)
         return {"block_number": h, "epoch": epoch, "treasury": bal,

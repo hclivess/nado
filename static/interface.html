@@ -854,6 +854,14 @@
       <div id="qPropMsg" class="small faint mt"></div>
     </div>
     <div id="qStatus" class="small mt"></div>
+    <div class="row mt" style="align-items:flex-start;gap:10px">
+      <input id="qAutoYes" type="checkbox" class="switch" />
+      <label for="qAutoYes" style="margin:0;flex:1;cursor:pointer">
+        <b data-i18n="quorum.autoYes">Automatically vote yes on new proposals</b>
+        <span class="small faint" style="display:block" data-i18n="quorum.autoYesSub">Off by default. While this wallet is open, any open proposal you haven't voted on gets a yes vote — including spends you have never seen. Each vote costs a fee and approves real treasury money. It never executes a payout; that stays a manual button.</span>
+      </label>
+    </div>
+    <div id="qAutoYesMsg" class="small mt"></div>
     <div id="qProposals" class="mt"></div>
   </div>
 

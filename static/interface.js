@@ -6052,9 +6052,14 @@ async function renderQuorum() {
   const box = $("qProposals");
   if (!box) return;
   if ($("qPropBtn")) $("qPropBtn").onclick = proposeSpend;
+  wireAutoVoteToggle();
   if ($("qPropMine")) $("qPropMine").onclick = () => { if (state.wallet) $("qPropRecipient").value = state.wallet.address; };
   let d;
-  try { d = await (await fetch(relayBase() + "/treasury_status", { cache: "no-store" })).json(); }
+  // Ask for OUR vote state alongside the tally. Without it a client cannot tell "nobody voted" from "I
+  // already voted", which the auto-voter below needs as ground truth — localStorage is per-browser, so a
+  // second device or a cleared cache would re-submit a fee-bearing vote on every refresh.
+  const _me = (state.wallet && state.wallet.address) ? "?address=" + encodeURIComponent(state.wallet.address) : "";
+  try { d = await (await fetch(relayBase() + "/treasury_status" + _me, { cache: "no-store" })).json(); }
   catch (e) { box.textContent = i18("quorum.loadErr", "Could not load treasury status."); return; }
   if ($("qTreasury")) $("qTreasury").textContent = rawToNado(BigInt(d.treasury || 0)) + " NADO";
   if ($("qMaxSpend")) $("qMaxSpend").textContent = rawToNado(BigInt(d.max_spend || 0)) + " NADO";
@@ -6103,6 +6108,84 @@ async function renderQuorum() {
   box.querySelectorAll(".qvote").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i], "yes", b));
   box.querySelectorAll(".qoppose").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i], "no", b));
   box.querySelectorAll(".qexec").forEach(b => b.onclick = () => _qAct("treasury_execute", props[+b.dataset.i], undefined, b));
+  autoVoteYes(props, canPropose).catch(() => {});
+}
+
+/* AUTO-VOTE YES (opt-in, off by default).
+ *
+ * Votes yes on every OPEN proposal this wallet has not already voted on, while the wallet is open. This
+ * approves real treasury money on spends the user has never read, so it is deliberately narrow:
+ *
+ *   • VOTES ONLY. It never executes a payout — that stays a manual button, because executing is what
+ *     actually MOVES the money and is irreversible.
+ *   • NEEDS `voted` FROM THE NODE. If the relay is too old to return the flag, the auto-voter stays off
+ *     rather than guessing: a re-vote overwrites harmlessly but costs a fee every refresh, and
+ *     renderQuorum re-runs on a timer. Silently burning fees in a loop is the worst failure here.
+ *   • ONE AT A TIME, and never re-entrant — renderQuorum is called from several timers.
+ *   • REMEMBERS WHAT IT SUBMITTED this session, because a vote takes a few blocks to confirm and the next
+ *     refresh would otherwise see voted=false and submit again.
+ */
+const _autoVoted = new Set();          // pids submitted this session (confirmation lags by a few blocks)
+let _autoVoting = false;
+function autoVoteEnabled() { try { return localStorage.getItem("nado_auto_vote_yes") === "1"; } catch (e) { return false; } }
+
+/* WHICH proposals to auto-vote — pure, so the fee-safety rules are testable without a DOM or a chain.
+ * Returns {pick:[...], reason} where reason is "" when pick is authoritative. Every rule here exists to
+ * stop the wallet spending fees in a loop, which is the only way this feature can quietly hurt someone. */
+function autoVotePicks(props, canPropose, submitted) {
+  if (!canPropose) return { pick: [], reason: "ineligible" };
+  const open = (props || []).filter(p => p && p.status === "open");
+  // A node that does not report `voted` cannot tell us what we already did. Voting anyway re-submits a
+  // fee-bearing vote on EVERY refresh (a re-vote overwrites, so it is silent), and renderQuorum runs on a
+  // timer — so refuse rather than guess.
+  if (open.some(p => typeof p.voted !== "boolean")) return { pick: [], reason: "no_voted_flag" };
+  return { pick: open.filter(p => !p.voted && !submitted.has(p.pid)), reason: "" };
+}
+
+async function autoVoteYes(props, canPropose) {
+  const note = $("qAutoYesMsg");
+  if (!autoVoteEnabled() || _autoVoting || !state.wallet) return;
+  const { pick: todo, reason } = autoVotePicks(props, canPropose, _autoVoted);
+  if (reason === "no_voted_flag") {
+    if (note) note.innerHTML = '<span class="warn">' + i18("quorum.autoYesNoFlag",
+      "Auto-vote is idle: this node doesn't report whether you've already voted, and voting blindly would resubmit a fee every refresh.") + "</span>";
+    return;
+  }
+  if (reason) return;
+  if (!todo.length) { if (note) note.textContent = ""; return; }
+  _autoVoting = true;
+  try {
+    for (const p of todo) {
+      _autoVoted.add(p.pid);           // mark BEFORE awaiting: a concurrent render must not queue it twice
+      if (note) note.textContent = i18("quorum.autoYesSending", "Auto-voting yes on {n} proposal(s)…", { n: todo.length });
+      try {
+        const res = await submitTreasurySpend("treasury_vote", p.recipient, p.amount, p.memo, p.nonce, p.expiry, "yes");
+        if (!res.ok) {
+          _autoVoted.delete(p.pid);    // a rejection is not a vote — let a later pass retry
+          if (note) note.innerHTML = '<span class="warn">' + escapeHtml((res.data && res.data.message) || i18("quorum.rejected", "Rejected")) + "</span>";
+          break;                       // stop the batch: the next one almost certainly fails the same way
+        }
+      } catch (e) {
+        _autoVoted.delete(p.pid);
+        if (note) note.innerHTML = '<span class="warn">' + escapeHtml(String(e.message || e)) + "</span>";
+        break;
+      }
+    }
+    if (note && !note.querySelector(".warn")) {
+      note.textContent = i18("quorum.autoYesDone", "Auto-voted yes ✓ — votes count in a few blocks.");
+      [6000, 15000, 30000].forEach(t => setTimeout(() => renderQuorum().catch(() => {}), t));
+    }
+  } finally { _autoVoting = false; }
+}
+function wireAutoVoteToggle() {
+  const el = $("qAutoYes");
+  if (!el) return;
+  el.checked = autoVoteEnabled();      // OFF by default: this approves treasury spends unattended
+  el.onchange = () => {
+    try { localStorage.setItem("nado_auto_vote_yes", el.checked ? "1" : "0"); } catch (e) {}
+    if (el.checked) renderQuorum().catch(() => {});
+    else { const n = $("qAutoYesMsg"); if (n) n.textContent = ""; }
+  };
 }
 
 /* ----------------------------------------------------------------------------------------------
