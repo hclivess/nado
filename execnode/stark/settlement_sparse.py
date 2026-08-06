@@ -346,7 +346,21 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
            "kv_pre": ST.digest_hex(tuple(int(x) % F.P for x in segments[0]["sparse_pre_root"])),
            "kv_post": ST.digest_hex(tuple(int(x) % F.P for x in segments[-1]["sparse_post_root"])),
            "segments": segments}
-    if fold:                                             # attach the K→1 recursion bundle (the heavy step)
+    # K->1 NEEDS K > 1. The bundle REPLACES the K per-segment exec-proof verifications with one bundle
+    # verification (verify_settlement_sparse's docstring), so with a SINGLE segment it replaces one
+    # stark.verify with one bundle verify — no win — while costing a full extra STARK prove and its bytes
+    # on the wire. It is not a size optimisation either: `segments` are kept and `recursive` is ADDED.
+    #
+    # This is not hypothetical. Measured 2026-08-06: EVERY settle on this chain emits "1 segment(s)" (14 of
+    # 14 that day), so the fold has only ever folded ONE proof. It is what made a folded prove take
+    # prove_transition=782-884 s against prove_epoch=8.9 s, and what pushed the first successful folded
+    # prove past SETTLE_PROVE_TIMEOUT (it finished at 1156.9 s and was abandoned 43 s later).
+    #
+    # Skipping the fold is always SAFE: a proof without `recursive` simply takes the classic per-segment
+    # verification path, which every verifier still implements (verify_settlement_sparse's `fold_exec`
+    # branch is conditional on the field being present). So this is a PROVER-side choice, not a consensus
+    # rule, and it needs no agreement from peers.
+    if fold and len(exec_proofs) > 1:                    # attach the K→1 recursion bundle (the heavy step)
         # Which field the fold's inner proofs live in — asked, never assumed. The RECURSION backend is no
         # longer pinned to the base field (a backend that picks its own field picks its own security level),
         # so this is the single authority and BOTH halves of the fold must read it.
