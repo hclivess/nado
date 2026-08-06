@@ -88,11 +88,41 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
         # Escrow the call value into the contract, same as the live path. Native lands in the bridge shadow;
         # an asset-denominated value lands in the asset shadow — credited BEFORE the abal-view below, so
         # ABAL and pay-out solvency see the escrowed units.
+        #
+        # THE SENDER IS DEBITED, AND AFFORDABILITY IS CHECKED, exactly as execnode/state.py does. This used
+        # to CREDIT the contract without touching the sender, which made the prover strictly more permissive
+        # than the chain: a call whose sender cannot cover the escrow is SKIPPED live (the VM never runs, no
+        # state moves), but the prover ran it and proved the resulting storage.
+        #
+        # That is not a cosmetic divergence. L1 does not recompute the exec root — verifying the proof is
+        # what replaces re-execution — so its only root check is
+        #     assert post_full == root      # `root` being the settle TX'S OWN CLAIM
+        # which a proof over the wrong state satisfies self-consistently. The settle would then commit a
+        # root every honest exec node disagrees with. Today the records gate hides this by refusing any
+        # block with a value>0 call; that gate is meant to be relaxed (doc/settle-proof-transport.md §7a),
+        # and relaxing it while the prover is more permissive than the chain would open the hole the gate
+        # was incidentally closing. So the invariant the whole settlement argument rests on —
+        # PROVABLE => WHAT THE CHAIN ACTUALLY DID — is restored here, before anything depends on it.
+        #
+        # Failing is the correct outcome: an unaffordable call makes the span unprovable, which is exactly
+        # what the chain did with it (nothing).
         if in_asset:
             if str(in_asset) not in assets:
                 raise ValueError(f"call {i}: no such asset {in_asset}")
+            # abal rows are keyed by str(aid) — asset_credit_dict does `abal.setdefault(str(aid), {})`.
+            # Reading it with an int key silently returns {} and would reject every asset-denominated call.
+            if int((abal.get(str(in_asset)) or {}).get(caller, 0)) < value:
+                raise ValueError(f"call {i}: sender cannot cover the asset {in_asset} call value "
+                                 f"— the chain SKIPPED this call, so the span is unprovable")
+            asset_credit_dict(abal, in_asset, caller, -value)
             asset_credit_dict(abal, in_asset, cid, value)
         else:
+            if int(bridge.get(caller, 0)) < value:
+                raise ValueError(f"call {i}: sender cannot cover the native call value "
+                                 f"— the chain SKIPPED this call, so the span is unprovable")
+            bridge[caller] = bridge.get(caller, 0) - value
+            if bridge[caller] == 0:
+                del bridge[caller]                        # mirror state.py: a zero balance is an ABSENT row
             bridge[cid] = bridge.get(cid, 0) + value
     # the VM sees ONLY this contract's asset balances, {int(aid) -> bal} — the shadow of holder_assets(cid)
     abal_view = {int(aid): int(row.get(cid, 0)) for aid, row in abal.items() if row.get(cid)}
