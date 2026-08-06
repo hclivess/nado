@@ -269,6 +269,56 @@ on chain. Use a long timeout, print fetch failures instead of hiding them, and c
 block's own tx list, `/get_settled`, and the same block hash on every peer. `/status` can also return
 non-JSON while a node verifies a large proof — never let a failed parse look like a real value.
 
+## 7a. The two remaining gates are ONE problem — measured 2026-08-06
+
+Counting why spans were not proven, over a two-hour window (05:00–07:10):
+
+| reason | count |
+|---|---|
+| **the RECORDS half moved across the span** | **14** |
+| a previous settle-prove still running | 3 |
+| no stashed pre-state (after an exec restart) | 1 |
+| proofs actually BUILT | 2 |
+| bare settles | 13 |
+
+So the dominant blocker is the **records gate**, not the revert gap — 78% of skips. `SETTLE_PROOF_RECORDS`
+is already `True`; its coverage is deliberately partial, and `records_bind.block_records_effects` says
+exactly which part is missing:
+
+> `derivable` is False when the block moves records in a way this module cannot yet re-derive — a
+> bridge_withdraw, a shield, an xmsg, or **a value>0 call (whose escrow is conditional on the VM not
+> reverting, so its NET effect is not a function of the calldata alone)**.
+
+and at the call site:
+
+> The escrow (sender → cid, two `T_BRIDGE_BAL` positions) happens BEFORE the VM runs and is REFUNDED when
+> the call reverts, so the net records effect depends on the execution outcome, not on the calldata.
+> **Deriving it needs the exec proof's own verdict, which is a later step.**
+
+**That is the same problem as §7's revert gap, wearing a second hat.** Both reduce to: *the system cannot
+represent the outcome of a call that reverted.*
+
+* The prover refuses to prove a reverting execution (`vm_circuit.prove_epoch_calls` raises), so a span
+  containing one yields no proof.
+* The records derivation refuses a value-carrying call because it cannot know whether the escrow was
+  refunded — which is the same verdict.
+
+And the two are in direct tension on a live chain: **the fold needs calls, but every value-carrying call
+makes its span unprovable.** Verified empirically — all 6 successful game calls carried `value=20000000`,
+and there are zero zero-value calls on this chain. Presence-dividend accrual compounds it by moving
+records every epoch with no transaction at all.
+
+**The unlock, in the order the code itself implies:**
+
+1. The exec AIR proves a **reverting** execution, exposing the per-call verdict as part of the proven
+   public statement (not as a prover-supplied flag — that would be forgeable).
+2. `records_bind` then derives a value-call's effect as *escrow, minus refund iff the verdict says
+   reverted* — the missing "exec proof's own verdict" it already names.
+3. Both gates close together, and spans containing ordinary contract activity become provable.
+
+Until step 1 exists, proof-carrying settlement covers only spans with **no value-carrying calls and no
+records movement**, which is why measured coverage is 2 proofs against 13 bare settles.
+
 ## 7. Still open
 
 * **A skip/revert anywhere in a span makes it unprovable — folded or not.** A call the chain SKIPS (sender
