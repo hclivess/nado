@@ -874,6 +874,23 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
             print(f"[execnode] settle-with-proof SKIPPED ns={ns} cursor {cur} — {reason}", flush=True)
         return None
 
+    # NOTHING MAY BE PROVEN WHILE A RECORDS PROVE IS IN FLIGHT — not even a records-FREE span.
+    #
+    # The in-flight check further down sits inside `if rec_pre_root != rec_root`, so a span whose records
+    # half did not move never reaches it: it proves its KV half, lands, and walks the justified tip forward
+    # while an EARLIER records proof is still being built. That proof then cannot extend the settled tip and
+    # is refused — the whole point of the hold. Observed 01:13:57, with the records prove at batch 5/13:
+    #     [settle-prove] cursor=3630 calls=0 net_updates=0 | … | total 25.5s
+    #     settle-with-proof BUILT span 3600->3630 … SETTLE-WITH-PROOF cursor 3630 → L1
+    # The 25.5 s KV proof for a later span overtook the ~12-minute records proof for an earlier one.
+    #
+    # So the gate belongs HERE, before any span is examined, rather than in the branch that happens to run
+    # the records prove. This also covers the concurrent-invocation case the flag was introduced for, since
+    # a second pass now returns before doing any work at all.
+    if _records_proving:
+        return _skip("a RECORDS prove is in flight; no settle proof may be built until it finishes, or it "
+                     "would advance the justified tip past the span that prove extends",
+                     cls="records-prove-inflight")
     if sc < 0 or not sr:
         return _skip("no L1-justified settled tip yet; the first settlement in a namespace rides the quorum")
     # 2. our stashed exec state AT that justified cursor (pre-state). Only proceed if we hold exactly it.
@@ -1459,7 +1476,20 @@ async def maybe_settle(session):
             # every landed proof would be followed by one bare settle, quietly halving the proof rate — the
             # opposite of what suppressing the duplicate prove is for. Holding costs one poll; the next pass
             # proves the wider span.
-            if proof is None and (_settle_proving or _pub_active or _pend_active or _pend_hold):
+            # _records_proving belongs in this list for exactly the reason the message below states. The
+            # RECORDS half takes minutes, and _settle_proving is False for all of it (it covers the KV prove
+            # and is set later), so a bare settle sailed through this gate on every cadence and walked the
+            # justified tip forward while the records proof was still being built — guaranteeing its refusal
+            # the moment it finished. Observed 01:13:57: SETTLE-WITH-PROOF cursor 3630 landed while batch
+            # 4/13 of a records prove was still running.
+            #
+            # THIRD INSTANCE OF ONE PATTERN, so it is worth naming: the records prove was added after all of
+            # these guards were written for the KV prove, and it is just as expensive. It had to be added to
+            # the in-flight check, given its own flag because _settle_proving is not raised during its
+            # window, and now added here. When a second expensive path is introduced, every gate that names
+            # the first one is a site that needs revisiting.
+            if proof is None and (_settle_proving or _records_proving or _pub_active or _pend_active
+                                  or _pend_hold):
                 _k = (ns, "hold-for-inflight-proof")
                 if _settle_skip_logged.get(_k) != _k[1]:
                     _settle_skip_logged[_k] = _k[1]

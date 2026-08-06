@@ -145,6 +145,47 @@ def t_the_records_flag_is_cleared_in_a_finally():
     assert ok, "the records in-flight flag must be cleared in a finally around the prove call"
 
 
+def t_the_records_gate_is_at_TOP_LEVEL_not_inside_the_records_branch():
+    """THE THIRD INSTANCE OF THE SAME PATTERN.
+
+    The in-flight check first went inside `if rec_pre_root != rec_root:` — the branch that runs the records
+    prove. A span whose records half did NOT move never enters that branch, so it proved its KV half, landed,
+    and walked the justified tip forward while an EARLIER records proof was still being built. That proof
+    can then no longer extend the settled tip and is refused. Observed at 01:13:57 with the records prove at
+    batch 5/13:
+
+        [settle-prove] cursor=3630 calls=0 net_updates=0 | ... | total 25.5s
+        settle-with-proof BUILT span 3600->3630 ... SETTLE-WITH-PROOF cursor 3630 -> L1
+
+    a 25.5 s KV proof for a LATER span overtaking a ~12-minute records proof for an earlier one.
+
+    So the gate must sit at the function's top level — depth 1 in the body — not nested inside any `if`.
+    """
+    fn = _fn("_build_settlement_proof")
+    found = False
+    for stmt in fn.body:                       # TOP LEVEL only: not ast.walk
+        if isinstance(stmt, ast.If):
+            for sub in ast.walk(stmt.test):
+                if isinstance(sub, ast.Name) and sub.id == "_records_proving":
+                    found = True
+    assert found, (
+        "no top-level `if _records_proving:` gate in _build_settlement_proof — a records-FREE span would "
+        "still prove and land, moving the justified tip out from under an in-flight records proof")
+
+
+def t_a_bare_settle_is_held_while_records_proves():
+    """The bare-settle hold in maybe_settle names _settle_proving, which is False for the whole records
+    window. Without _records_proving in that condition, bare settles advance the tip during the prove."""
+    fn = _fn("maybe_settle")
+    ok = False
+    for n in ast.walk(fn):
+        if isinstance(n, ast.If):
+            names = {s.id for s in ast.walk(n.test) if isinstance(s, ast.Name)}
+            if "_records_proving" in names and "_settle_proving" in names:
+                ok = True
+    assert ok, "the bare-settle hold must include _records_proving alongside _settle_proving"
+
+
 def t_the_later_guard_is_still_there():
     """The early guard does NOT replace the late one. The late check re-reads at the last moment because the
     caller's copy goes stale while this function walks the span over HTTP — that was its own bug, three
@@ -194,6 +235,8 @@ def t_the_module_actually_imports():
 for nm, fn in [("a guard precedes the records prove", t_a_guard_precedes_the_records_prove),
                ("the guard flag is actually SET around the prove", t_the_guard_flag_is_actually_SET_around_the_records_prove),
                ("the records flag is cleared in a finally", t_the_records_flag_is_cleared_in_a_finally),
+               ("the records gate is at top level", t_the_records_gate_is_at_TOP_LEVEL_not_inside_the_records_branch),
+               ("a bare settle is held while records proves", t_a_bare_settle_is_held_while_records_proves),
                ("the late re-read guard is still there", t_the_later_guard_is_still_there),
                ("the publish window is guarded early too", t_the_publish_window_is_guarded_early_too),
                ("global is declared before first use", t_global_is_declared_before_first_use),
