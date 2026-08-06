@@ -6135,12 +6135,18 @@ let _autoVoting = false;
 // visible default, not a silent one — a wallet must never spend someone's fees or cast their governance
 // vote in a way they cannot see.
 const AUTO_VOTE_DEFAULT_ALLOW = ["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f"];
+// KEY IS VERSIONED, and that is not cosmetic. The first cut of this box wired `ta.onchange = ta.onblur`,
+// and BLUR FIRES WITHOUT AN EDIT — so merely opening the Quorum tab and clicking away wrote "" to storage.
+// Since "" legitimately means "the user cleared the list, approve any recipient", every wallet that had
+// seen that build was indistinguishable from a deliberate clear, and the shipped default could never apply
+// to it. Bumping the key retires those accidental writes exactly once; a real choice made under _v2 sticks.
+const AUTO_VOTE_ALLOW_KEY = "nado_auto_vote_allow_v2";
 function autoVoteEnabled() {
   try { return (localStorage.getItem("nado_auto_vote_yes") || "1") === "1"; } catch (e) { return true; }
 }
 function autoVoteAllow() {
   try {
-    const raw = localStorage.getItem("nado_auto_vote_allow");
+    const raw = localStorage.getItem(AUTO_VOTE_ALLOW_KEY);
     if (raw === null) return AUTO_VOTE_DEFAULT_ALLOW.slice();   // untouched -> the shipped default
     return raw.split(/[\s,]+/).filter(Boolean);                 // "" means the user CLEARED it: any recipient
   } catch (e) { return AUTO_VOTE_DEFAULT_ALLOW.slice(); }
@@ -6208,8 +6214,11 @@ function wireAutoVoteToggle() {
   if (ta && !ta._wired) {
     ta._wired = true;
     ta.value = autoVoteAllow().join("\n");
-    ta.onchange = ta.onblur = () => {
-      try { localStorage.setItem("nado_auto_vote_allow", (ta.value || "").trim()); } catch (e) {}
+    // `change` ONLY — never `blur`. A textarea's change event fires on blur *if the value was edited*;
+    // blur fires regardless, which is how an untouched box silently persisted "" and looked like a
+    // deliberate "approve any recipient".
+    ta.onchange = () => {
+      try { localStorage.setItem(AUTO_VOTE_ALLOW_KEY, (ta.value || "").trim()); } catch (e) {}
       renderQuorum().catch(() => {});
     };
   }

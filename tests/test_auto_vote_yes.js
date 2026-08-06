@@ -130,7 +130,12 @@ check("the shipped default is ON but SCOPED to a recipient list", () => {
 check("an untouched wallet only approves the default recipients", () => {
   const al = SRC.match(/function autoVoteAllow\(\)[\s\S]*?\n\}/);
   const dl = SRC.match(/const AUTO_VOTE_DEFAULT_ALLOW = \[[^\]]*\];/);
-  const mk = (raw) => new Function("localStorage", dl[0] + "\n" + al[0] + "; return autoVoteAllow();")({ getItem: () => raw });
+  const kl = SRC.match(/const AUTO_VOTE_ALLOW_KEY = "[^"]+";/);
+  if (!kl) throw new Error("AUTO_VOTE_ALLOW_KEY not found");
+  // Lift the KEY too. Without it the snippet throws ReferenceError, autoVoteAllow's catch returns the
+  // default, and the "cleared" case appears to pass for entirely the wrong reason.
+  const mk = (raw) => new Function("localStorage",
+    dl[0] + "\n" + kl[0] + "\n" + al[0] + "; return autoVoteAllow();")({ getItem: () => raw });
   const def = mk(null);
   if (!def.length) throw new Error("an untouched wallet must get the shipped list");
   // and that list must actually restrict: a proposal to someone else is not auto-approved
@@ -139,6 +144,26 @@ check("an untouched wallet only approves the default recipients", () => {
   const r2 = autoVotePicks([P("b", "open", false, def[0])], true, new Set(), def);
   eq(r2.pick.length, 1, "the default list must approve its own recipient");
   eq(mk("").length, 0, "CLEARING the box means any recipient — an explicit user choice, not the default");
+});
+
+check("the recipient box is never persisted on blur alone", () => {
+  // THE BUG THIS CAUGHT: `ta.onchange = ta.onblur = save` wrote "" the moment someone opened the tab and
+  // clicked away, without editing anything. Since "" means "cleared -> approve any recipient", every wallet
+  // that saw that build looked like a deliberate clear and could never receive the shipped default.
+  // A textarea's `change` fires on blur only IF the value was edited; `blur` fires regardless.
+  const body = SRC.slice(SRC.indexOf("function wireAutoVoteToggle"));
+  const end = body.indexOf("\n}");
+  const fn = body.slice(0, end);
+  if (/\bta\.onblur\b/.test(fn)) throw new Error("must not persist the recipient list on blur — use change only");
+  if (!/\bta\.onchange\b/.test(fn)) throw new Error("the recipient list must persist on change");
+});
+
+check("the allow-list key is versioned so accidental writes retire", () => {
+  const k = SRC.match(/const AUTO_VOTE_ALLOW_KEY = "([^"]+)"/);
+  if (!k) throw new Error("AUTO_VOTE_ALLOW_KEY not found");
+  if (!/_v\d+$/.test(k[1])) throw new Error("the key must carry a version suffix: " + k[1]);
+  // and nothing may still read the unversioned key, or the old poisoned value comes straight back
+  if (SRC.indexOf('"nado_auto_vote_allow"') !== -1) throw new Error("the unversioned key is still read somewhere");
 });
 
 check("the UI discloses that it is on and what it votes for", () => {
