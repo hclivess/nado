@@ -284,6 +284,37 @@ def verify_calls_bound_to_summaries(proof, ns, prev_cursor, cursor, get_summary,
                     return False, (f"block {h} moved exec RECORDS this node cannot derive "
                                    f"(no committed effects) — quorum only")
                 records_out.extend(summary.get("rec") or [])
+            elif records_out is not None and (summary.get("rec") or []):
+                # INERT BY THE TX SCAN, YET IT MOVED RECORDS — the presence-dividend accrual.
+                #
+                # `inert` is computed by block_summary() from the block's TRANSACTIONS, before core_loop's
+                # accrual hook runs; the hook then appends the accrual to the summary's `rec` and never
+                # revisits `inert`. So a boundary block with no records-moving transaction is stored as
+                # inert=1 WITH a full set of effects in `rec`, and the branch above — which only reads
+                # `rec` for non-inert blocks — skipped it and derived nothing.
+                #
+                # That is exactly what refused the first records-bearing proof ever built. Span 3600->3664
+                # crosses block 3660, which accrues epoch 60 to 25 miners:
+                #     settle-with-proof carries a RECORDS half: 16d9366b… -> 4b77b159… (25 update(s))
+                #     REFUSED … "Settle proof moves the records half but the span committed no records
+                #     effects"
+                # The prover derived 25 effects and L1 derived 0, so the empty-effect trap in
+                # transaction_ops (rec_post must equal rec_hex when nothing is committed) fired correctly on
+                # a set that was wrong. The header of this module already said the tx scan "does NOT cover
+                # the presence-dividend accrual"; the collector simply never accounted for that.
+                #
+                # FIXED HERE, NOT BY MARKING THE BLOCK NON-INERT. `inert` lives in the `meta` sub-DB which
+                # FEEDS THE L1 STATE ROOT: changing what is written there would move the root on upgraded
+                # nodes only and fork the fleet (exec_summary_put's docstring, and the h4260 corruption).
+                # This is a VERIFIER-side derivation change — no meta write, no root change.
+                #
+                # The records-FROZEN path (records_out is None) is untouched and still refuses such a span:
+                # transaction_ops keeps its epoch-boundary assert for any proof that is not records-bound,
+                # which is precisely the case this block would otherwise slip past.
+                if int(summary.get("rd", 0)) != 1:
+                    return False, (f"block {h} accrued exec RECORDS this node cannot derive "
+                                   f"(no committed effects) — quorum only")
+                records_out.extend(summary.get("rec") or [])
             node = fold_leaves(node, (summary.get("calls") or {}).get(ns, []))
         if int(cc) % F.P != node % F.P:
             return False, f"segment {j} calls_commitment does not match the on-chain DA calldata (fabricated calls)"
