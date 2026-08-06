@@ -324,7 +324,45 @@ and the reason is structural:
 So `records_bind`'s "deriving it needs the exec proof's own verdict" is not a deferral of convenience — a
 proof is the *only* sound way for L1 to learn what a call did.
 
-**The unlock, in the order the code itself implies:**
+**A CHEAPER UNLOCK THAN A CIRCUIT REDESIGN — proposed 2026-08-06, not yet implemented.**
+
+First, why the circuit route is expensive. `zkvm.ZkVMRevert` states the design invariant outright:
+
+> The interpreter reverts exactly where the AIR constraints would have no satisfying witness, so
+> **'provable' and 'executes successfully' are the same set of calls.**
+
+So "make the AIR prove a reverting execution" is not an extension — a revert is *defined* as the absence of
+a satisfying witness. Proving one means encoding failure as a first-class outcome, i.e. redesigning the
+circuit.
+
+But that same invariant hands us the verdict for free:
+
+> **If provable ⇒ successful, then the existence of a valid proof over a span IS the verdict: every call in
+> that span executed successfully.**
+
+A value call that succeeds keeps its escrow (sender → cid, no refund), and *that* is a pure function of the
+calldata. So `records_bind` could derive a value call's effect as "escrow applied, no refund" and mark the
+block derivable, with soundness resting on: if any call had reverted, no proof could exist, so no proof
+would ever be presented against that derivation. The derivation is computed and committed at incorporate
+time and only *consulted* when a proof is being validated, so a span that never gets a proof simply rides
+the quorum as it does today.
+
+**The obvious objection, checked: a SKIPPED call is not a reverted one.** The live path skips a call whose
+sender cannot cover the escrow (`execnode/state.py`) — the VM never runs. The prover does NOT model that:
+`_run_call` credits `bridge[cid] += value` without ever debiting the sender or checking affordability. So a
+skipped call *would* be "proven". That does not become unsound, because the proof's `post_root` then
+includes storage the real chain never applied, so it cannot match the committed root and the settle is
+refused. It fails CLOSED — which is also why such spans show up as unprovable today rather than as bad
+settlements.
+
+**What to verify before implementing** (this is the part that needs fresh eyes, not a 4am patch):
+1. that `post_root` matching genuinely covers every way a skip could diverge, not just storage;
+2. that the asset-denominated escrow path (`abal`) carries the same argument as the native one;
+3. that nothing else consumes `derivable` in a context where "no proof exists yet" matters.
+
+If those hold, the records gate closes with a change to `records_bind` alone — no circuit work, no reroll.
+
+**The circuit route, for completeness, in the order the code itself implies:**
 
 1. The exec AIR proves a **reverting** execution, exposing the per-call verdict as part of the proven
    public statement (not as a prover-supplied flag — that would be forgeable).
