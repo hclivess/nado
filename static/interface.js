@@ -5883,6 +5883,25 @@ async function msgPoll() {
     if (pt.type === "ack") {
       for (const c of Object.values(hist)) for (const msg of c.messages)
         if (msg.dir === "out" && msg.id === pt.ackId && msg.status !== "delivered") { msg.status = "delivered"; changed = true; }
+    } else if (pt.type === "zbill" && typeof pt.code === "string" && pt.code.startsWith("zbill")) {
+      // A shielded banknote delivered over the message channel. Banking it is LOCAL — it moves no funds
+      // out and it only works if the note was committed to OUR shieldOwner — so it may auto-run, on the
+      // same reasoning applyClaimRequest already uses for a #claim deep link. It still lands in the
+      // conversation as a normal message so the transfer is visible rather than silent.
+      const from = pt.from || env.sender;
+      const conv = (hist[from] = hist[from] || { alias: pt.alias || null, messages: [] });
+      if (pt.alias && !conv.alias) conv.alias = pt.alias;
+      if (!conv.messages.some(x => x.id === t.id)) {
+        const viewing = state.activeTab === "messages" && state.msgActivePeer === from;
+        conv.messages.push({ id: t.id, dir: "in", ts: pt.ts || env.ts, status: "received", read: viewing,
+          body: pt.body || (i18("shield.dmBody", "A private NADO banknote — open to claim:") + " " + claimLink(pt.code)) });
+        changed = true;
+        msgSendAck(m, id, from, t.id).catch(() => {});
+        if (state.wallet && !state.locked && $("zrecvCode")) {
+          $("zrecvCode").value = pt.code;
+          doReceiveShielded().catch(() => {});   // already-held / not-yet-settled both report themselves
+        }
+      }
     } else {
       const from = pt.from || env.sender;
       const conv = (hist[from] = hist[from] || { alias: pt.alias || null, messages: [] });
@@ -6477,12 +6496,101 @@ async function doSendShielded() {
     $("zsendCode").textContent = code;
     if ($("zsendLink")) $("zsendLink").textContent = claimLink(code);
     show("zsendCodeBox", true);
+    // Deliver over NADO instead of copy-pasting. A zaddr we have sent to before already knows its contact,
+    // so that case needs no typing at all; a first-time zaddr just gets the field focused, never auto-sent
+    // to a guess. The mapping is sender-local (see LS_ZADDR_CONTACTS) and never leaves this device.
+    state._lastZaddrSent = String($("zsendTo").value || "").trim();
+    const _known = zaddrContactGet(state._lastZaddrSent);
+    if ($("zsendDeliverTo")) $("zsendDeliverTo").value = _known || "";
+    if ($("zsendDeliverHint")) $("zsendDeliverHint").textContent = "";
+    if (_known) doDeliverZbill().catch(() => {});
     _drawQR($("zsendCodeQR"), null, claimLink(code), 260);  // scanning opens the wallet and banks the banknote
     $("shieldStatus").textContent = "";
     log("ok", i18("shield.sent", "Sent {a} NADO privately ✓ — give the recipient the claim link below.", { a: rawToNado(rawAmount) }));
     setTimeout(() => renderShield().catch(() => {}), 1500);
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); $("shieldStatus").textContent = ""; }
   finally { if (_sb) { _sb.disabled = false; _sb.textContent = i18("shield.zsend", "Send shielded"); } }
+}
+
+/* ---- DELIVERING A CLAIM CODE WITHOUT COPY-PASTE ---------------------------------------------------
+ *
+ * "copypasting claims is a bit clunky, could it not be automated?" — it can, over NADO's own encrypted
+ * messaging, which already exists end to end (msgkey binds an ML-KEM pubkey to an account on-chain,
+ * makeEnvelope seals to it, msgPoll trial-decrypts every envelope in the gossiped pool).
+ *
+ * WHY DELIVERY IS ADDRESSED BY ACCOUNT AND NOT BY zaddr. The obvious move is to make `zaddr`
+ * self-addressing so the claim code can be sent to it directly. It is the wrong move: shieldOwner() is
+ * alghash.ownerOf(shieldNsk()) — a ONE-WAY hash, not a KEM public key — so nothing can be sealed to it,
+ * and the two ways to fix that both undo the point of a shielded address. Embedding the transparent
+ * address publishes the link between the two identities to everyone the zaddr is ever given to;
+ * registering shieldOwner -> kem_pub on-chain publishes the same link, permanently, in consensus state.
+ * Embedding the kem_pub itself is merely impractical (ML-KEM-768 is 1184 bytes, ~1830 base36 chars).
+ *
+ * NOR MAY THE CODE GO OUT IN THE CLEAR. It is not bearer — doReceiveShielded rebuilds
+ * commit(value, THEIR shieldOwner, rho), so only the intended recipient can bank it, and the HTML says as
+ * much. But broadcasting (value, rho) tagged by owner would publicly assert "this zaddr received X NADO",
+ * which is exactly what the on-chain commitment hides. Safe from theft is not the same as private.
+ *
+ * So: seal it to the recipient's ACCOUNT, and keep the zaddr -> contact mapping in the SENDER'S OWN
+ * storage, never on-chain and never inside the address. Repeat sends to a known zaddr then deliver with
+ * no typing at all, which is the actual complaint, and nothing about the shielded address changes.
+ */
+const LS_ZADDR_CONTACTS = "nado_zaddr_contacts_v1";   // sender-local only: { "<zaddr>": "<addr-or-@alias>" }
+
+function zaddrContacts() { try { return JSON.parse(localStorage.getItem(LS_ZADDR_CONTACTS) || "{}") || {}; } catch { return {}; } }
+function zaddrContactGet(za) { return zaddrContacts()[String(za || "").trim()] || ""; }
+function zaddrContactSet(za, who) {
+  za = String(za || "").trim(); who = String(who || "").trim();
+  if (!za || !who) return;
+  const m = zaddrContacts(); m[za] = who;
+  try { localStorage.setItem(LS_ZADDR_CONTACTS, JSON.stringify(m)); } catch {}
+}
+
+// Seal a claim code to a recipient's account and drop it in the message pool. Returns a status string.
+async function deliverZbill(code, toRaw, zaddrUsed) {
+  const m = await loadMessaging();
+  if (!m) return i18("shield.deliverNoCrypto", "Messaging bundle unavailable — reload the page.");
+  const id = msgIdentity();
+  if (!id) return i18("shield.deliverNoId", "Unlock your wallet to send encrypted messages.");
+  let addr = String(toRaw || "").trim().toLowerCase();
+  if (!addr) return "";
+  if (!ADDR_RE_LOOSE.test(addr) && !MSIG_RE_I.test(addr)) {
+    const owner = await resolveAlias(addr.replace(/^@/, ""));
+    if (!owner) return i18("msg.noAlias", "No such alias:") + " " + toRaw;
+    addr = owner;
+  }
+  const kemPub = await msgFetchKemPub(addr);
+  if (!kemPub) return i18("msg.noKeyYet", "no messaging key on-chain yet — they need to open NADO once to publish it");
+  const ts = _nowSec();
+  // `body` carries the claim link so a wallet that does NOT understand type "zbill" still shows something
+  // openable, rather than an empty chat bubble. Older wallets fall through to the plain-message branch.
+  const env = m.makeEnvelope(id, state.wallet.address, kemPub,
+    { type: "zbill", from: state.wallet.address, alias: myPrimaryAlias(), code, ts,
+      body: i18("shield.dmBody", "A private NADO banknote — open to claim:") + " " + claimLink(code) }, ts);
+  const res = await (await fetch(relayBase() + "/message", { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(env) })).json();
+  if (!res || !res.result) return (res && res.reason) || i18("msg.sendFail", "send failed");
+  zaddrContactSet(zaddrUsed, toRaw);
+  return "";
+}
+
+async function doDeliverZbill() {
+  const code = ($("zsendCode") && $("zsendCode").textContent || "").trim();
+  const to = ($("zsendDeliverTo") && $("zsendDeliverTo").value || "").trim();
+  const hint = $("zsendDeliverHint");
+  if (!code) return;
+  if (!to) { if (hint) hint.textContent = i18("shield.deliverNeedTo", "Enter the recipient's address or @alias."); return; }
+  const btn = $("btnZdeliver");
+  if (btn) btn.disabled = true;
+  if (hint) hint.textContent = i18("shield.delivering", "Sending…");
+  try {
+    const err = await deliverZbill(code, to, state._lastZaddrSent);
+    if (hint) hint.textContent = err
+      ? (i18("shield.deliverFail", "Not delivered:") + " " + err)
+      : i18("shield.delivered", "Delivered ✓ — their wallet banks it automatically.");
+  } catch (e) {
+    if (hint) hint.textContent = i18("shield.deliverFail", "Not delivered:") + " " + (e && e.message || e);
+  } finally { if (btn) btn.disabled = false; }
 }
 
 async function doReceiveShielded() {
@@ -6641,6 +6749,10 @@ function wireEvents() {
   if ($("btnZaddrShare")) $("btnZaddrShare").onclick = () => shareZpayLink();
   if ($("zrecvAmount")) $("zrecvAmount").oninput = () => renderZaddrQR();   // live-update the shielded QR + payment link
   if ($("btnZcodeShare")) $("btnZcodeShare").onclick = () => shareZcodeLink();
+  if ($("btnZdeliver")) $("btnZdeliver").onclick = () => doDeliverZbill().catch(() => {});
+  if ($("zsendDeliverTo")) $("zsendDeliverTo").onkeydown = (e) => {
+    if (e.key === "Enter") { e.preventDefault(); doDeliverZbill().catch(() => {}); }
+  };
   $("btnDlKeySettings").onclick = downloadKeyFile;
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
   if ($("btnMsigDerive")) $("btnMsigDerive").onclick = () => msigDerive();

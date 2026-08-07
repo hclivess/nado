@@ -967,6 +967,12 @@
       <div class="addr-box"><span class="mono break" id="zsendLink"></span>
         <button class="copy" data-copy="zsendLink" data-i18n="btn.copy">Copy</button>
         <button class="copy" id="btnZcodeShare" data-i18n="btn.share">Share</button></div>
+      <label class="mt" data-i18n="shield.deliverLabel">Deliver it over NADO — encrypted, no copy-paste</label>
+      <div class="addr-box">
+        <input id="zsendDeliverTo" placeholder="address or @alias" autocomplete="off" spellcheck="false"
+               style="flex:1;min-width:0" />
+        <button class="copy" id="btnZdeliver" data-i18n="shield.deliverBtn">Send</button></div>
+      <div class="small faint" id="zsendDeliverHint"></div>
       <label class="mt" data-i18n="shield.codeLabel">Claim code (manual)</label>
       <div class="addr-box"><span class="mono break" id="zsendCode"></span>
         <button class="copy" data-copy="zsendCode" data-i18n="btn.copy">Copy</button></div>
