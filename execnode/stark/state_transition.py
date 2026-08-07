@@ -39,18 +39,25 @@ def _rss_gb():
 # memory is QUADRATIC in K while the size win is only logarithmic. That is the trade this constant sits on.
 #
 # So it is set from a MEASURED safe value, not from what the trace can hold. At EXEC_TREE_DEPTH=256, all
-# verified end to end (prove + verify_updates):
+# verified end to end (prove + verify_updates). The position pins used to dominate the composition's memory
+# (a size-N vector PER BOUNDARY, and 256 of each segment's ~288 boundaries were per-level DIR pins), so
+# moving them into the DIRP periodic column changed every column of this table:
 #
-#     K   T       prove s   MiB     MiB/update   s/update   peak RSS
-#     1   16384     35.0    10.82     10.82        35.0      ~0.8 GB
-#     2   32768     57.7    11.90      5.95        28.9       2.4 GB   <-- shipped
-#     3   65536    215.6    13.03      4.34        71.9       6.7 GB
-#     4   65536    332.6    13.03      3.26        83.2       8.7 GB
+#            BEFORE DIRP                        AFTER DIRP (26028450)
+#     K   prove s   peak RSS            K   T        prove s   MiB     MiB/update   peak RSS
+#     1     35.0     ~0.8 GB            2   32768      39.5    11.90     5.95        0.4 GB
+#     2     57.7      2.4 GB            4   65536      75.9    13.02     3.25        0.9 GB
+#     3    215.6      6.7 GB            9  131072     178.9    14.19     1.58        1.6 GB   <-- shipped
+#     4    332.6      8.7 GB
+#     9      OOM     35.7 GB  <-- killed two of the box's other processes
 #
-# K=2 is the knee, and it is the only batch size that is better on BOTH axes than not batching: 5.95 MiB per
-# update instead of 10.82, AND 28.9 s per update instead of 35. K=3 and 4 spill into T=65536 and pay ~35%
-# padding, so they buy bytes with time and a memory footprint that would sit next to the exec node's own.
-DEFAULT_BATCH = int(os.environ.get("NADO_SETTLE_BATCH", "2"))
+# K=9 IS max_batch(256) — the largest that fits MAX_TRACE_ROWS — and it is now better on EVERY axis at once
+# for a real 25-update span: 3 proofs instead of 13, 42.6 MiB instead of 155, 537 s instead of ~850, at
+# 1.6 GB. Fewer proofs also cuts what L1 pays: its cost is size-linear PLUS ~31 s per merkle-update proof,
+# and 13 of those was ~400 s of the submit that timed out at 1204.2 s.
+#
+# The old "K=3/K=4 buy bytes with time" tradeoff was an artefact of the boundary memory, not of the padding.
+DEFAULT_BATCH = int(os.environ.get("NADO_SETTLE_BATCH", "9"))
 
 
 def _dirs(key, depth):

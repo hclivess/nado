@@ -110,11 +110,24 @@ def t_a_dropped_proof_is_rejected():
 
 
 def t_the_shipped_default_is_what_was_measured():
-    assert SX.DEFAULT_BATCH == 2, (
-        "DEFAULT_BATCH is set from a measured peak RSS (K=2 -> 2.4 GB; K=4 -> 8.7 GB) and a measured "
-        "cost per update (K=2 is 5.95 MiB and 28.9 s, better than not batching on BOTH axes). "
-        "Changing it needs a new measurement, not an edit.")
-    assert SX.DEFAULT_BATCH <= MU.max_batch(D) or True   # prove_transition clamps per-depth anyway
+    """DEFAULT_BATCH is set from a live K-sweep, never from what the trace can hold. Post-DIRP (26028450),
+    measured at D=256:
+
+        K=2  39.5s  11.90 MiB  5.95/upd  0.4 GB
+        K=4  75.9s  13.02 MiB  3.25/upd  0.9 GB
+        K=9 178.9s  14.19 MiB  1.58/upd  1.6 GB   <-- shipped
+
+    K=9 is max_batch(256) and wins on every axis at once for a real 25-update span: 3 proofs instead of 13,
+    42.6 MiB instead of 155, 537s instead of ~850, at 1.6 GB. Before DIRP the same K=9 OOM-killed at
+    35.7 GB, so this value is only defensible TOGETHER with that change — moving it back without a new
+    measurement would reintroduce the OOM."""
+    assert SX.DEFAULT_BATCH == 9, (
+        "DEFAULT_BATCH is set from a measured K-sweep (K=9 -> 178.9s, 14.19 MiB, 1.6 GB peak RSS). "
+        "Changing it needs a new measurement on the live box, not an edit.")
+    import protocol
+    assert SX.DEFAULT_BATCH <= MU.max_batch(protocol.EXEC_TREE_DEPTH), (
+        "the default must fit MAX_TRACE_ROWS at the LIVE depth; prove_transition also clamps, but a default "
+        "that needs clamping is a default nobody measured")
 
 
 for nm, fn in [("batched transition verifies (odd count, partial last batch)", t_batched_transition_verifies),

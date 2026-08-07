@@ -210,7 +210,7 @@ SETTLE_FOLD = True
 # them would close the gap immediately — and fri.py sizes 320 to clear 128 bits on the PROVABLE
 # (Johnson-bound) branch, 320*0.4 + 18 grind ~ 146 bits, deliberately not the conjectured branch most
 # deployments accept. Buying tx size with security bits is not a prover-side decision.
-SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "28"))
+SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "72"))
 # Measured 2026-08-06 at EXEC_TREE_DEPTH=256, row-committed, encoded exactly as the submit path encodes it
 # (json.dumps(separators=(",", ":"), sort_keys=True)). Per PROOF, not per update — several updates now share
 # one STARK (state_transition.DEFAULT_BATCH), and proof size grows with log T, so the marginal update is
@@ -227,7 +227,7 @@ SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES
 # node and the box's other work alone, where 4's 8.7 GB does not. Bigger K wins on bytes and loses on
 # memory — memory is quadratic in K (a size-N inverse-denominator vector PER BOUNDARY, and boundaries grow
 # with K too) while the byte win is only logarithmic.
-SETTLE_RECORDS_PROOF_BYTES = 12 << 20
+SETTLE_RECORDS_PROOF_BYTES = 15 << 20
 # What the KV half of the same settle tx costs alongside it — 8.77 MiB observed on chain, rounded up.
 SETTLE_KV_HALF_BYTES = 9 << 20
 SETTLE_PROVE_TIMEOUT = 2400      # safety bound, not a feature switch: a prove that outruns this is
