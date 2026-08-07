@@ -210,17 +210,20 @@ SETTLE_FOLD = True
 # them would close the gap immediately — and fri.py sizes 320 to clear 128 bits on the PROVABLE
 # (Johnson-bound) branch, 320*0.4 + 18 grind ~ 146 bits, deliberately not the conjectured branch most
 # deployments accept. Buying tx size with security bits is not a prover-side decision.
-# DISABLED (0) PENDING A FIX FOR L1 VERIFICATION COST. A records-bearing settle is CORRECT — both halves
-# verify ok=True on L1 — but its records half takes ~1020-1073 s to verify, and that is long enough to hurt
-# the node that submitted it: after one landed in the mempool this node stalled at block 7364 for 200+ s
-# while the rest of the fleet ran on to 7374, with the expired 51.53 MiB tx still in the mempool and L1
-# burning CPU on it. Producing a proof that wedges the producer is worse than riding the bonded quorum,
-# which is always correct and merely slower.
+# RE-ENABLED. I disabled this believing the landing margin could never cover L1's verification, and that
+# belief rested on a block rate of ~3.74 s measured WHILE THIS NODE WAS STALLED AND CATCHING UP. The steady
+# rate is 6.00 s/block, measured over 60 s with the node healthy — so a 280-block margin is 1680 s against
+# 1017-1073 s of records verification, roughly 600 s of slack rather than the 8 s I reported.
 #
-# 0 makes every records-bearing span decline (len(net) > 0), so spans ride the quorum exactly as they did
-# before the feature. Everything else stays shipped and tested — the AIR, DIRP, K=9, the guards — and this
-# flips back to 72 the moment verification fits inside a landing window.
-SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "0"))
+# What actually lost the proof of 07:09 was ME. It was accepted with max_block ~7360 while the tip was
+# ~7253, i.e. on track to land. The node then stalled at 7364, I restarted it at 07:33:50 to clear the
+# stall, and the restart CLEARED THE MEMPOOL — destroying a pending settle that had already passed both
+# halves of L1's verification. The margin was never the problem.
+#
+# STANDING RULE THAT FOLLOWS: do not restart nado while a proof-carrying settle is waiting for its landing
+# block. It is an exact-landing tx living only in the mempool; a restart throws away ~20 minutes of proving
+# and ~17 minutes of L1 verification.
+SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "72"))
 # Measured 2026-08-06 at EXEC_TREE_DEPTH=256, row-committed, encoded exactly as the submit path encodes it
 # (json.dumps(separators=(",", ":"), sort_keys=True)). Per PROOF, not per update — several updates now share
 # one STARK (state_transition.DEFAULT_BATCH), and proof size grows with log T, so the marginal update is
@@ -347,7 +350,8 @@ SETTLE_SUBMIT_TIMEOUT_PROOF = int(os.environ.get("NADO_SETTLE_SUBMIT_TIMEOUT_PRO
 SETTLE_PROOF_TX_MARGIN = 60
 # THE SAME RUNWAY, SIZED FOR A RECORDS-BEARING PROOF. Its records half verifies on L1 in ~1073 s (measured,
 # 27 effects) = ~179 blocks at 6 s, against the 60 above which was sized for ~42 s of propagation. 280
-# blocks is ~28 min: over 1.5x the measured verification, and still well under TX_LANDING_WINDOW (360).
+# blocks is ~28 min at the MEASURED 6.00 s/block (1680 s): ~600 s of slack over the verification, and
+# still under TX_LANDING_WINDOW (360).
 # Raise it only against a NEW measurement of the RECORDS half — the verification cost tracks the update
 # count, and the update count tracks fleet size, so this is a constant with a moving target underneath it.
 SETTLE_PROOF_RECORDS_TX_MARGIN = int(os.environ.get("NADO_SETTLE_RECORDS_TX_MARGIN", "280"))

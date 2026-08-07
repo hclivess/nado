@@ -119,17 +119,38 @@ def prove_transition(pre_store, updates, num_queries=MU.stark.NUM_QUERIES, outer
               f"{_now - _tb:.1f}s (cum {_now - _t0:.1f}s) rss={_rss_gb():.2f}GB", flush=True)
     out = {"proofs": proofs, "bnds": bnds, "roots": roots, "updates": upd, "depth": depth,
            "num_queries": num_queries, "outer_queries": outer_queries, "batch": batch,
-           # NO SHARED `periodic` FOR A BATCHED TRANSITION. The batch AIR's periodic columns now carry the
-           # POSITIONS, which differ per batch, so one array cannot describe all of them — a single field
-           # here was only ever meaningful when periodic was purely structural. It is consumed solely by the
-           # K->1 fold path (`if "bundle" in tr`), which is unreachable: fold defaults False and
-           # prove_transition(fold=True) OOM-killed at 27.5 GB for K=2. verify_transition's per-proof path
-           # rebuilds the right periodic per proof inside MU.verify_updates, from that proof's own public
-           # positions, which is where the information actually belongs.
+           # NO SHARED `periodic` FOR A BATCHED TRANSITION. The batch AIR's periodic columns carry the
+           # POSITIONS, which differ per batch, so one array cannot describe all of them. The fold takes
+           # `periodic_list` instead — recursive_verify._per_of has supported that all along — and
+           # verify_transition rebuilds the same list from the PUBLIC updates.
            "periodic": None}
     if fold and proofs:
-        out["bundle"] = RV.prove(proofs, MU._transitions(), bnds, num_queries_outer=outer_queries,
-                                 periodic=out["periodic"])
+        # THE K->1 FOLD, WIRED FOR THE BATCH AIR.
+        #
+        # It used to be handed MU._transitions() (the SINGLE-update AIR) and a shared `periodic`, against
+        # proofs built by the BATCH AIR. That is an IndexError the moment a round constraint reads
+        # per[RC_lo + j] out of an array with the wrong width, and it is why the fold looked structurally
+        # incompatible with DIRP. It is not: recursive_verify.prove/verify both accept `periodic_list`, one
+        # entry per proof, which is exactly what per-proof positions need.
+        out["bundle"] = RV.prove(proofs, MU._transitions_batch(), bnds,
+                                 num_queries_outer=outer_queries,
+                                 periodic_list=_periodic_list(proofs, upd, depth, batch))
+    return out
+
+
+def _periodic_list(proofs, updates, depth, batch):
+    """One periodic array per proof, rebuilt from the PUBLIC updates.
+
+    The fold needs the inner AIR's periodic columns for every proof it folds, and with DIRP those columns
+    carry the positions — so they differ per proof. Deriving them from `updates` (which is public and which
+    the verifier also holds) rather than stashing them in the transition keeps the prover from choosing
+    them: verify_transition calls this same function on its own copy."""
+    out, at = [], 0
+    for p in proofs:
+        k = int(p.get("K", 1))
+        dirs_list = [_dirs(key, depth) for (key, _o, _n) in updates[at:at + k]]
+        out.append(MU._periodic_batch(int(p["T"]), depth, k, dirs_list))
+        at += k
     return out
 
 
@@ -165,8 +186,14 @@ def verify_transition(tr, pre_root, post_root, num_queries=None, outer_queries=N
         nqo = outer_queries if outer_queries is not None else tr["outer_queries"]
         if "bundle" in tr:                                   # O(1)-class: ONE recursion bundle re-verifies all K
             pubs = [RV.public_part(p) for p in proofs]
-            okr, whyr = RV.verify(pubs, MU._transitions(), tr["bnds"], tr["bundle"], num_queries_outer=nqo,
-                                  periodic=tr["periodic"], num_queries_inner=nqi)
+            # Same AIR and the same per-proof periodic the prover used — both REBUILT here from the public
+            # updates, never taken from the transition, so the prover cannot choose what it is verified
+            # against. (verdict-cache-must-bind-bytes and settle-verify-authenticate-intermediates were both
+            # this bug class: a verifier trusting prover-supplied intermediates.)
+            okr, whyr = RV.verify(pubs, MU._transitions_batch(), tr["bnds"], tr["bundle"],
+                                  num_queries_outer=nqo, num_queries_inner=nqi,
+                                  periodic_list=_periodic_list(proofs, tr["updates"], tr["depth"],
+                                                               int(tr.get("batch") or 1)))
             if not okr:
                 return False, f"K->1 bundle failed: {whyr}"
         else:                                                # native: re-verify each proof + its roots
