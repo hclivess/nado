@@ -112,7 +112,14 @@ def prove_transition(pre_store, updates, num_queries=MU.stark.NUM_QUERIES, outer
               f"{_now - _tb:.1f}s (cum {_now - _t0:.1f}s) rss={_rss_gb():.2f}GB", flush=True)
     out = {"proofs": proofs, "bnds": bnds, "roots": roots, "updates": upd, "depth": depth,
            "num_queries": num_queries, "outer_queries": outer_queries, "batch": batch,
-           "periodic": MU._periodic_batch(proofs[0]["T"], depth, proofs[0]["K"]) if proofs else None}
+           # NO SHARED `periodic` FOR A BATCHED TRANSITION. The batch AIR's periodic columns now carry the
+           # POSITIONS, which differ per batch, so one array cannot describe all of them — a single field
+           # here was only ever meaningful when periodic was purely structural. It is consumed solely by the
+           # K->1 fold path (`if "bundle" in tr`), which is unreachable: fold defaults False and
+           # prove_transition(fold=True) OOM-killed at 27.5 GB for K=2. verify_transition's per-proof path
+           # rebuilds the right periodic per proof inside MU.verify_updates, from that proof's own public
+           # positions, which is where the information actually belongs.
+           "periodic": None}
     if fold and proofs:
         out["bundle"] = RV.prove(proofs, MU._transitions(), bnds, num_queries_outer=outer_queries,
                                  periodic=out["periodic"])

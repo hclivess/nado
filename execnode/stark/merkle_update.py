@@ -121,20 +121,37 @@ def _periodic(T, D):
 #
 # Kept as a SEPARATE AIR (_transitions_batch / _periodic_batch) rather than re-gating the existing one, so
 # single-update proofs already in flight keep verifying bit-identically. No flag day.
-HOLD = NPER                                      # periodic index: "sib/dir carry into the next row"
-NPER_B = NPER + 1
+HOLD = NPER                                      # periodic index: "sib carries into the next row"
+DIRP = NPER + 1                                  # periodic index: the PUBLIC direction bit for this row
+NPER_B = NPER + 2
 
 
-def _periodic_batch(T, D, K):
-    """Structural selectors for K segments. Rebuilt by the verifier from the PUBLIC (T, D, K) alone — nothing
-    here depends on witness values, which is what keeps the batching sound."""
+def _periodic_batch(T, D, K, dirs_list):
+    """Structural selectors for K segments, plus the PUBLIC position bits.
+
+    Rebuilt by the verifier from PUBLIC data alone — (T, D, K) and the positions, which are part of the
+    statement — so nothing here depends on witness values, which is what keeps the batching sound.
+
+    THE POSITION LIVES HERE NOW, NOT IN 256 BOUNDARIES PER SEGMENT. It used to be pinned by one boundary per
+    level (`(level*BR, DIR, dirs[level])`), which is 256 of each segment's ~288 boundaries. The composition
+    allocates a size-N inverse-denominator vector PER BOUNDARY, so that choice cost ~9x more memory than the
+    rest of the AIR put together and is what made K=9 OOM at 35.7 GB while K=2 fit in ~1 GB.
+
+    `dirs` are PUBLIC, so a periodic column is the natural home: the verifier rebuilds it from the same
+    statement it is checking, exactly as it rebuilds RC/ACT_R/ACT_A. The binding also gets STRONGER — the
+    absorb constraint reads the position on EVERY row it matters on, instead of it being pinned once per
+    level and merely carried by a hold constraint in between.
+    """
     nblk = D + 1
     seg = nblk * BR                              # rows per update segment
     n_used = K * seg
+    if len(dirs_list) != K:
+        raise ValueError(f"periodic needs one position per segment: got {len(dirs_list)}, K={K}")
     per = [[0] * T for _ in range(NPER_B)]
     for i in range(T):
         if i >= n_used:
             continue                             # padding: every selector 0, so every constraint vanishes
+        s = i // seg                             # which update this row belongs to
         rib = i % BR
         blk = (i % seg) // BR                    # block index WITHIN this segment, not globally
         if rib < _R:
@@ -144,29 +161,55 @@ def _periodic_batch(T, D, K):
         absorbing = (rib == _R and blk + 1 < nblk)
         if absorbing:
             per[ACT_A][i] = 1
-        # HOLD: carry sib/dir to the next row. Never on an absorb row (the next row starts a new level and
-        # takes the NEXT sibling), never on the last row of a segment (the next row belongs to a different
-        # update), and never on the last live row (the next row is padding).
+        # The position bit for the level this row is in. The LAST block of a segment (blk == D) folds with
+        # nothing, so it carries 0 — matching _segment(), which writes dir 0 there.
+        if blk < D:
+            per[DIRP][i] = int(dirs_list[s][blk]) & 1
+        # HOLD: carry the sibling to the next row. Never on an absorb row (the next row starts a new level
+        # and takes the NEXT sibling), never on the last row of a segment (the next row belongs to a
+        # different update), and never on the last live row (the next row is padding).
         if not absorbing and (i + 1) < n_used and (i + 1) % seg != 0:
             per[HOLD][i] = 1
     return per
 
 
+def _absorb_c_dirp(base, i, part):
+    """The absorb constraint reading the position from the PUBLIC periodic column instead of the trace.
+
+    Identical to _absorb_c except `d = per[DIRP]` rather than `cur[DIR]`. That single substitution is what
+    lets the 256 per-level position boundaries go away: nothing needs the DIR trace column any more, so
+    nothing needs to pin it."""
+    def c(cur, nxt, per):
+        d = per[DIRP]
+        if part == "left":
+            want = F.add(F.mul(F.sub(1, d), cur[base + i]), F.mul(d, cur[SIB + i]))
+            return F.mul(per[ACT_A], F.sub(nxt[base + i], want))
+        if part == "right":
+            want = F.add(F.mul(F.sub(1, d), cur[SIB + i]), F.mul(d, cur[base + i]))
+            return F.mul(per[ACT_A], F.sub(nxt[base + CAP + i], want))
+        return F.mul(per[ACT_A], F.sub(nxt[base + _RATE + i], A2.IV[i]))     # cap
+    return c
+
+
 def _transitions_batch():
-    """The single-update constraints with the five sib/dir HOLD constraints re-gated on the HOLD column.
-    Everything else is bit-identical to _transitions()."""
+    """The batch AIR: rounds + absorb (reading the PUBLIC position), and the sibling held within a level.
+
+    TWO DIFFERENCES FROM _transitions(), both consequences of moving the position into a periodic column:
+      • absorb reads per[DIRP], not cur[DIR];
+      • the "dir is a bit" and "dir held within a level" constraints are GONE. A periodic column is
+        rebuilt by the verifier from the public statement, so it is a bit by construction and constant
+        across a level by construction — there is nothing left for a constraint to enforce.
+    The sibling stays private witness and keeps its HOLD constraints."""
     cons = []
     for base in (OS, NS):
         for i in range(_W):
             cons.append(_round_c(base, i))
         for i in range(CAP):
-            cons.append(_absorb_c(base, i, "left"))
-            cons.append(_absorb_c(base, i, "right"))
-            cons.append(_absorb_c(base, i, "cap"))
-    cons.append(lambda c, n, p: F.mul(c[DIR], F.sub(1, c[DIR])))                  # dir is a bit
+            cons.append(_absorb_c_dirp(base, i, "left"))
+            cons.append(_absorb_c_dirp(base, i, "right"))
+            cons.append(_absorb_c_dirp(base, i, "cap"))
     for lane in range(CAP):                                                       # sib held within a level
         cons.append((lambda L: (lambda c, n, p: F.mul(p[HOLD], F.sub(n[SIB + L], c[SIB + L]))))(lane))
-    cons.append(lambda c, n, p: F.mul(p[HOLD], F.sub(n[DIR], c[DIR])))            # dir held within a level
     return cons
 
 
@@ -201,13 +244,23 @@ def build_trace_batch(items):
 
 
 def _boundaries_batch(items, roots, D):
-    """Per-segment boundaries, each shifted to its segment's start row. Every segment pins BOTH its roots and
-    its full position, so nothing about update k is left to the prover's choice."""
+    """Per-segment boundaries, each shifted to its segment's start row: the two leaf inits and the two roots.
+
+    THE POSITION IS NOT HERE ANY MORE — it is the DIRP periodic column, which the verifier rebuilds from the
+    same public statement. That drops 256 of each segment's ~288 boundaries, and boundaries are the
+    expensive kind of constraint: the composition allocates a size-N inverse-denominator vector for EACH
+    one, so at K=9 the position pins alone were ~21.5 GB against ~2.4 GB for everything else. It is also a
+    STRONGER binding, checked on every absorb row rather than pinned once per level.
+
+    What remains still leaves nothing about update k to the prover's choice: both values, both roots, and
+    the position (via DIRP) are all public and all enforced."""
     seg = (D + 1) * BR
     bnd = []
     for s, (old_val, new_val, _sibs, dirs) in enumerate(items):
         off = s * seg
         for (row, col, val) in _boundaries(old_val, new_val, roots[s], roots[s + 1], dirs, D):
+            if col == DIR:
+                continue                 # position now lives in the DIRP periodic column
             bnd.append((off + row, col, val))
     return bnd
 
@@ -334,7 +387,8 @@ def prove_updates(items, num_queries=stark.NUM_QUERIES, backend=None, row_commit
         row_commit = stark.row_commit_default(b)
     trace, T, D, K, roots = build_trace_batch(items)
     bnd = _boundaries_batch(items, roots, D)
-    proof = stark.prove(trace, _transitions_batch(), bnd, periodic=_periodic_batch(T, D, K),
+    _dirs_list = [d for (_o, _n, _s, d) in items]
+    proof = stark.prove(trace, _transitions_batch(), bnd, periodic=_periodic_batch(T, D, K, _dirs_list),
                         max_degree=MAX_DEGREE, num_queries=num_queries, backend=b, row_commit=row_commit)
     proof["D"] = D
     proof["K"] = K
@@ -362,7 +416,8 @@ def verify_updates(proof, items_public, roots, num_queries=stark.NUM_QUERIES, ba
         # a convention someone can quietly break.
         items = [(o, n, None, dirs) for (o, n, dirs) in items_public]
         bnd = _boundaries_batch(items, roots, D)
-        return stark.verify(proof, _transitions_batch(), bnd, periodic=_periodic_batch(proof["T"], D, K),
+        return stark.verify(proof, _transitions_batch(), bnd,
+                            periodic=_periodic_batch(proof["T"], D, K, [d for (_o, _n, d) in items_public]),
                             max_degree=MAX_DEGREE, num_queries=num_queries, backend=b,
                             row_commit=("row_roots" in proof))
     except Exception as e:
