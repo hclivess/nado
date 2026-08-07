@@ -1,4 +1,5 @@
 import asyncio
+import time as _time
 import json
 
 
@@ -1248,8 +1249,15 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 if _hit is not None:
                     ok, why, kv_pre, kv_post = _hit
                 else:
+                    # TIME THE KV HALF. Two records-bearing submits died at ~1200s while the measured
+                    # verify cost of their records half is only ~472s, so ~730s is somewhere else and
+                    # nobody knows where. Extrapolating found the wrong culprit twice tonight; these two
+                    # timers split the remaining budget between the two verifications, and whatever is
+                    # left over is parse/transport/merge.
+                    _t_kv = _time.time()
                     ok, why, kv_pre, kv_post = SS.verify_settlement_sparse(
                         proof, depth=_protocol.EXEC_TREE_DEPTH)
+                    print(f"[settle-verify] KV half {_time.time() - _t_kv:.1f}s ok={ok}", flush=True)
                     if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
                         _SETTLE_VERIFY_MEMO.clear()       # bounded: a proof is ~118 MiB, entries are tiny
                     _SETTLE_VERIFY_MEMO[_vk] = (ok, why, kv_pre, kv_post)
@@ -1360,9 +1368,12 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                     # root, so every value the arithmetic touches is authenticated rather than asserted.
                     _pre_get = _RB.pinned_pre_get(proof.get("records_pre") or {}, _pre_rec,
                                                   depth=_protocol.EXEC_TREE_DEPTH)
+                    _t_rec = _time.time()
                     _rok, _rwhy = _RB.bind_and_verify_records(
                         proof["records"], _pre_rec, _post_rec, _pre_get, _eff,
                         depth=_protocol.EXEC_TREE_DEPTH)
+                    print(f"[settle-verify] RECORDS half {_time.time() - _t_rec:.1f}s "
+                          f"({len(_eff)} effects) ok={_rok}", flush=True)
                     assert _rok, f"Settle proof records half invalid: {_rwhy}"
     elif recipient == "bridge":
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
