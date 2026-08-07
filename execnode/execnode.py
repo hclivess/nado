@@ -1739,9 +1739,29 @@ async def maybe_settle(session):
                 # first one built died on the clock at ~305 s against the old 300 s, so all anyone knows is
                 # "more than 300". The elapsed number decides whether the budget was simply too small or
                 # whether the PROOF has to shrink, and those call for opposite fixes.
+                # SERIALIZE OURSELVES, IN A THREAD, AND TIME IT SEPARATELY.
+                #
+                # `json=_tx` makes aiohttp json.dumps the whole transaction INSIDE the coroutine. For a
+                # records-bearing settle that is ~169 MiB of nested Python — seconds to minutes of pure CPU
+                # ON THE EVENT LOOP, which is the same class of mistake as 3e58e485 (prove_transition run
+                # inline hung the node silently). Blocks would stop being applied while it ran.
+                #
+                # It also hid where the time went. A 169.43 MiB submit FAILED after 1204.2s against a 1200s
+                # budget, while a KV-only 8.92 MiB submit took 34.9s — 19x the bytes but far more than 19x
+                # the time, so the cost is SUPER-LINEAR and "the proof is too big" and "we serialize badly"
+                # are both live explanations. They call for completely different fixes, so measure them
+                # apart: `ser` is ours, and the remainder is transfer + L1 parse + L1 verification.
+                _t_ser = time.time()
+                _payload = await asyncio.to_thread(
+                    lambda: json.dumps(_tx, separators=(",", ":")).encode())
+                _ser_s = time.time() - _t_ser
+                if _carries_proof:
+                    print(f"[execnode] settle payload serialised in {_ser_s:.1f}s "
+                          f"({len(_payload) / 1048576:.2f} MiB) — POSTing", flush=True)
                 _t_sub = time.time()
                 try:
-                    async with session.post(L1 + "/submit_transaction", json=_tx,
+                    async with session.post(L1 + "/submit_transaction", data=_payload,
+                                            headers={"Content-Type": "application/json"},
                                             timeout=aiohttp.ClientTimeout(total=_budget)) as r:
                         _body = await r.text()
                         if _carries_proof:
