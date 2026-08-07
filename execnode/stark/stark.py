@@ -18,6 +18,7 @@ Cheating requires a non-low-degree quotient (FRI rejects) or a trace/composition
 Soundness assumption: BLAKE2b collision-resistance.
 """
 import os
+from collections import OrderedDict
 import sys
 from execnode.stark import field as F, merkle, fri, backend as _backend, extf as ext2
 from execnode.stark.transcript import Transcript, DOMAIN_STARK
@@ -144,6 +145,74 @@ def _per_expand(pc, T):
     if len(pc) != T:
         raise ValueError("dense periodic column must have length T")
     return list(pc)
+
+
+# ---- cached periodic coset-LDEs -------------------------------------------------------------------------
+#
+# After 51cc4f43 removed the per-query Horner passes, building each dense periodic column's coset LDE became
+# the dominant term in verification (measured live: lde-prep 15.6-38.3 s of a ~35-60 s query loop). It is
+# also the most repetitive: merkle_update._periodic_batch derives 15 of its 16 columns from (T, D, K) alone
+# — only DIRP depends on the positions — so a 32-update span (K = 9,9,9,5) rebuilds the SAME 15 columns for
+# each of its three K=9 proofs, and rebuilds them again for every subsequent settle.
+#
+# THIS MATTERS MOST WHERE IT IS WORST. A node REPLAYING history hits one proof-carrying block after another;
+# on 2026-08-07 a peer spent ~55 minutes on a single such block while this box took ~8. Every cache hit is a
+# whole coset NTT it does not run.
+#
+# KEYED ON THE COLUMN'S BYTES, NEVER ON POSITION OR GEOMETRY. A cache keyed on (T, D, K), or on the column's
+# index, would hand back the wrong polynomial the moment a caller's layout differed — and the verifier would
+# then check a proof against values nobody derived from the statement. blake2b-128 over the packed column is
+# cheap next to what it saves (5.2 ms vs ~159 ms) and binds the contents exactly, which is the same rule
+# settle_verify_key follows for proof verdicts: bind the BYTES.
+#
+# Stored as array('Q'), not a list: field elements are < P < 2^64, so one LDE at N=524288 costs 4 MB instead
+# of ~23 MB of PyLong objects. That is what makes caching affordable at all — the Horner form existed to
+# avoid an O(N) allocation, and a 23 MB-per-column cache would have handed the memory straight back.
+# EVICTION AND ADMISSION BOTH MATTER, and the first attempt got both wrong. A 32-update span touches ~34
+# DISTINCT columns (15 shared per K=9 proof + a different DIRP each + a wholly separate K=5 set), so a
+# 24-entry FIFO flushed the reusable ones before the next settle could use them — measured: 31 misses on a
+# cold cache and 31 again on a warm one, i.e. the cache bought exactly nothing.
+#
+# Two fixes, together:
+#   LRU, not FIFO      — reuse should protect an entry; insertion order should not.
+#   ADMIT ON SECOND USE — DIRP is different for every proof, so caching it on FIRST sight evicts precisely
+#                         the columns that DO repeat. Columns are only given a slot once they have proved
+#                         they recur; one-shot columns cost 16 bytes of digest instead of 4 MB of LDE.
+_PER_LDE_CACHE = OrderedDict()       # key -> array('Q'); LRU, ~128 MB at N=524288
+_PER_LDE_CACHE_MAX = 32              # the ~30 recurring columns fit; the per-proof DIRPs never take a slot
+_PER_LDE_SEEN = OrderedDict()        # key -> True, admission filter (digests only, no payload)
+_PER_LDE_SEEN_MAX = 256
+
+
+def _per_lde_key(col, N, T):
+    from array import array as _arr
+    import hashlib as _hl
+    return (N, T, _hl.blake2b(_arr("Q", col).tobytes(), digest_size=16).digest())
+
+
+def _per_lde_cached(col, N, T, offset):
+    """The coset LDE of a dense periodic column, computed once per distinct RECURRING column.
+
+    Returns (array('Q'), hit). Values are identical to `_coset_evaluate(...)` either way — this only decides
+    whether the NTT runs again, never what it returns.
+    """
+    from array import array as _arr
+    k = _per_lde_key(col, N, T)
+    hit = _PER_LDE_CACHE.get(k)
+    if hit is not None:
+        _PER_LDE_CACHE.move_to_end(k)                      # LRU: reuse protects the entry
+        return hit, True
+    lde = _arr("Q", _coset_evaluate(F.interpolate(list(col)), N, offset))
+    if k in _PER_LDE_SEEN:                                 # seen before -> it recurs -> earn a slot
+        _PER_LDE_SEEN.pop(k, None)
+        _PER_LDE_CACHE[k] = lde
+        while len(_PER_LDE_CACHE) > _PER_LDE_CACHE_MAX:
+            _PER_LDE_CACHE.popitem(last=False)             # drop the LEAST RECENTLY USED
+    else:
+        _PER_LDE_SEEN[k] = True
+        while len(_PER_LDE_SEEN) > _PER_LDE_SEEN_MAX:
+            _PER_LDE_SEEN.popitem(last=False)
+    return lde, False
 
 
 def _per_evaluator(pc, T, gT):
@@ -676,14 +745,16 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         _t_pre = _time.time()
         _los = [q["idx"] % (N // 2) for q in proof["fri"]["queries"]]
         _per_q = {}
+        _lde_hits = 0
         for _i, _pc in enumerate(periodic):
             # committed cells arrive in the opening; STRUCTURED columns already evaluate in
             # O(period + #sparse) INDEPENDENT of T, so neither needs (or wants) an LDE.
             if _i in committed_set or isinstance(_pc, dict):
                 continue
-            _lde = _coset_evaluate(F.interpolate(_per_expand(_pc, T)), N, OFF)
+            _lde, _hit = _per_lde_cached(_per_expand(_pc, T), N, T, OFF)
+            _lde_hits += 1 if _hit else 0
             _per_q[_i] = [_lde[_l] for _l in _los]
-            del _lde
+            del _lde                      # drop OUR reference; the cache keeps its own
         _t_pre = _time.time() - _t_pre
         _bi = 0
         for _qi, (q, op) in enumerate(zip(proof["fri"]["queries"], proof["openings"])):
@@ -794,7 +865,8 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         _el = _time.time() - _t_all
         if _el > 5.0:                       # only the proofs whose cost is consensus-relevant, never test noise
             print(f"[stark-verify] T={T} W={W} queries={len(proof['openings'])} "
-                  f"periodic={len(periodic)} committed={len(committed_set)} lde={len(_per_q)} | "
+                  f"periodic={len(periodic)} committed={len(committed_set)} "
+                  f"lde={len(_per_q)} (cached {_lde_hits}) | "
                   f"query-loop {_el:.1f}s = lde-prep {_t_pre:.1f}s + periodic {_t_per:.1f}s "
                   f"({_n_per} dense evals) + constraints {_t_con:.1f}s + "
                   f"rest {_el - _t_pre - _t_per - _t_con:.1f}s", flush=True)

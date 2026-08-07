@@ -103,13 +103,98 @@ def t_structured_columns_are_not_routed_through_an_lde():
     assert "committed_set" in seg, "it must also skip committed columns — those come from the opening"
 
 
-def t_the_harvest_frees_each_lde():
-    """One LDE at N = blowup·T is ~20 MB; holding all 16 alive would trade the saved time for ~300 MB, and
-    the Horner form was chosen in the first place to avoid an O(N) allocation."""
+def t_the_lde_cache_is_bounded_and_compact():
+    """The LDEs are now CACHED across proofs (a span rebuilds the same 15 of 16 columns for every K=9
+    proof, and every later settle rebuilds them again), so "freed after harvest" is no longer the
+    invariant — bounded and compact is.
+
+    A list of 524288 PyLongs is ~23 MB; array('Q') is 4 MB, and field elements fit because P < 2^64. Without
+    that the cache would hand back the memory the Horner form existed to avoid.
+    """
     src = open(os.path.join(ROOT, "execnode/stark/stark.py")).read()
-    i = src.index("_per_q = {}")
-    seg = src[i:i + 900]
-    assert "del _lde" in seg, "each column's LDE must be released after its query points are harvested"
+    assert "_PER_LDE_CACHE_MAX" in src, "the cache must be bounded"
+    seg = src[src.index("def _per_lde_cached"):]
+    seg = seg[:seg.index("def _per_evaluator")]
+    assert '_arr("Q"' in seg, "the LDE must be stored as array('Q'), not a list of PyLongs"
+    assert "popitem(last=False)" in seg, "eviction must drop the LEAST RECENTLY USED entry"
+    assert "move_to_end" in seg, "a hit must refresh recency, or reuse cannot protect an entry"
+
+
+def t_the_cache_key_binds_the_column_bytes():
+    """Keying on (T, D, K) or on the column's index would return the wrong polynomial the moment a caller's
+    layout differed — and the verifier would then check a proof against values nobody derived from the
+    statement. Same rule settle_verify_key follows for verdicts: bind the BYTES."""
+    src = open(os.path.join(ROOT, "execnode/stark/stark.py")).read()
+    seg = src[src.index("def _per_lde_key"):src.index("def _per_lde_cached")]
+    assert "blake2b" in seg, "the key must be a digest of the column contents"
+    assert "tobytes()" in seg, "the digest must cover the packed column bytes"
+    assert "N, T" in seg, "the key must also bind the geometry the LDE was built for"
+
+
+def t_a_cached_column_returns_identical_values():
+    """RESOLVE AND CALL. A cache that returns anything but the same field elements is a consensus fault, not
+    a slow path — so compare a cold build against a warm one, elementwise."""
+    import execnode.stark.stark as S2
+    T, blowup = 512, 4
+    N = blowup * T
+    col = [(i * 7919 + 13) % F.P for i in range(T)]
+    S2._PER_LDE_CACHE.clear(); S2._PER_LDE_SEEN.clear()
+    # ADMIT ON SECOND USE: the 1st call is a miss and only records the digest, the 2nd is still a miss but
+    # earns the slot, the 3rd hits. A one-shot column therefore never costs 4 MB — which is the whole point,
+    # since DIRP differs for every proof and would otherwise evict the columns that DO repeat.
+    a, hit_a = S2._per_lde_cached(list(col), N, T, S2.OFF)
+    assert hit_a is False, "first sight must be a miss"
+    b, hit_b = S2._per_lde_cached(list(col), N, T, S2.OFF)
+    assert hit_b is False, "second sight is still computed — it is the one that earns a slot"
+    c, hit_c = S2._per_lde_cached(list(col), N, T, S2.OFF)
+    assert hit_c is True, "third sight must hit the cache"
+    assert list(a) == list(b) == list(c), "every route must return identical values"
+    b = c
+    # and the values must still equal the direct Horner evaluation
+    coeffs = F.interpolate(list(col))
+    wN = F.primitive_root_of_unity(N)
+    for lo in (0, 1, N // 3, N - 1):
+        assert F.poly_eval(coeffs, F.mul(S2.OFF, F.pw(wN, lo))) == b[lo], f"cached value wrong at {lo}"
+
+
+def t_a_different_column_is_not_served_from_cache():
+    """The whole risk of caching: one column's LDE handed back for another."""
+    import execnode.stark.stark as S2
+    T, blowup = 512, 4
+    N = blowup * T
+    c1 = [(i * 7919 + 13) % F.P for i in range(T)]
+    c2 = list(c1); c2[T // 2] = (c2[T // 2] + 1) % F.P        # one element differs
+    S2._PER_LDE_CACHE.clear()
+    a, _ = S2._per_lde_cached(c1, N, T, S2.OFF)
+    b, hit = S2._per_lde_cached(c2, N, T, S2.OFF)
+    assert hit is False, "a column differing by ONE element must not hit"
+    assert list(a) != list(b), "distinct columns must yield distinct LDEs"
+
+
+def t_a_one_shot_column_never_takes_a_slot():
+    """THE POINT OF THE ADMISSION FILTER. DIRP is different for every proof; caching it on first sight
+    evicts precisely the ~30 columns that recur. Measured before the filter existed: 31 misses on a cold
+    cache and 31 again on a warm one — the cache bought exactly nothing."""
+    import execnode.stark.stark as S2
+    T, blowup = 128, 4
+    N = blowup * T
+    S2._PER_LDE_CACHE.clear(); S2._PER_LDE_SEEN.clear()
+    for k in range(40):                       # 40 columns, each seen ONCE
+        S2._per_lde_cached([(i * (k + 3) + k) % F.P for i in range(T)], N, T, S2.OFF)
+    assert len(S2._PER_LDE_CACHE) == 0, (
+        f"one-shot columns must not occupy LDE slots; cache holds {len(S2._PER_LDE_CACHE)}")
+
+
+def t_the_cache_evicts_instead_of_growing():
+    """A verifier that grows without bound is a slower outage than one that recomputes."""
+    import execnode.stark.stark as S2
+    T, blowup = 128, 4
+    N = blowup * T
+    S2._PER_LDE_CACHE.clear()
+    for k in range(S2._PER_LDE_CACHE_MAX + 6):
+        S2._per_lde_cached([(i * (k + 3) + k) % F.P for i in range(T)], N, T, S2.OFF)
+    assert len(S2._PER_LDE_CACHE) <= S2._PER_LDE_CACHE_MAX, (
+        f"cache grew to {len(S2._PER_LDE_CACHE)}, over the {S2._PER_LDE_CACHE_MAX} bound")
 
 
 def t_a_real_batch_proof_still_verifies_and_tampering_still_fails():
@@ -138,7 +223,12 @@ for nm, fn in [("lde equals horner at every domain point", t_lde_equals_horner_a
                ("holds at a larger geometry", t_it_holds_at_a_larger_geometry_too),
                ("covers the whole coset", t_the_lde_covers_the_whole_coset_not_just_the_first_half),
                ("structured columns skipped", t_structured_columns_are_not_routed_through_an_lde),
-               ("each lde is freed", t_the_harvest_frees_each_lde),
+               ("lde cache is bounded and compact", t_the_lde_cache_is_bounded_and_compact),
+               ("cache key binds the column bytes", t_the_cache_key_binds_the_column_bytes),
+               ("cached column returns identical values", t_a_cached_column_returns_identical_values),
+               ("a different column is not served from cache", t_a_different_column_is_not_served_from_cache),
+               ("a one-shot column never takes a slot", t_a_one_shot_column_never_takes_a_slot),
+               ("cache evicts instead of growing", t_the_cache_evicts_instead_of_growing),
                ("real proof verifies, tampering fails",
                 t_a_real_batch_proof_still_verifies_and_tampering_still_fails)]:
     check(nm, fn)
