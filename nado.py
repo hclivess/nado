@@ -1864,6 +1864,50 @@ async def update_peer(request):
         return _resp({"status": "unreachable", "error": str(e)[:120]}, status=502)
 
 
+_DA_PROXY_PATHS = ("meta", "have", "shard", "get")
+_EXEC_PORT = int(os.environ.get("NADO_EXEC_PORT", "9273"))
+
+
+async def da_proxy(request):
+    """GET /da/{meta,have,shard,get} — forward to THIS host's exec node, which owns the DA store.
+
+    WHY L1 SERVES THIS AT ALL. Data availability is fully implemented on the exec node (DaStore, /da/meta,
+    /da/have, /da/shard, /da/get, da_announce, da_fetch), every node that runs nado-exec has a store, and a
+    settle whose proof is too large to inline is supposed to publish the proof to DA and carry only a
+    commitment. It has never worked across this fleet for one reason: execnode._da_sources asks peers on the
+    EXEC port, and that port is not exposed between nodes — measured 2026-08-08, every peer's :9273 refused
+    while :9173 answered. So DA could not deliver a shard and the code fell back to riding ~69 MiB of proof
+    inline inside the transaction, which every node then re-parses on every candidate build.
+
+    Proxying the four READ endpoints through the port peers can already reach fixes that without asking
+    anyone to open a firewall. The target is hardcoded to loopback and the path to a fixed allowlist, so this
+    is not a general proxy and cannot be pointed at another host (no SSRF).
+
+    Streamed, not buffered: a shard is blob/k — tens of MiB — and reading it into L1 only to write it out
+    again would put that allocation on the event loop, which is the exact cost DA exists to remove.
+    """
+    what = request.match_info.get("what", "")
+    if what not in _DA_PROXY_PATHS:
+        return _resp({"error": "unknown da endpoint"}, status=404)
+    url = f"http://127.0.0.1:{_EXEC_PORT}/da/{what}"
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as s:
+            async with s.get(url, params=dict(request.query)) as r:
+                out = web.StreamResponse(status=r.status,
+                                         headers={"Content-Type": r.headers.get("Content-Type",
+                                                                                "application/octet-stream")})
+                await out.prepare(request)
+                async for chunk in r.content.iter_chunked(1 << 16):
+                    await out.write(chunk)
+                await out.write_eof()
+                return out
+    except Exception as e:
+        # An exec node that is down or still starting is a NORMAL state, not an error worth 500-ing over:
+        # da_fetch treats a non-200 as "this source has nothing" and moves to the next peer.
+        return _resp({"error": "exec node unreachable", "detail": str(e)[:120]}, status=503)
+
+
 async def make_app(port):
     """Build the aiohttp application with every route and serve it forever. Mainnet binds IPv4 on
     0.0.0.0 plus a best-effort SEPARATE IPV6_V6ONLY socket (so v4 clients keep plain v4 addresses for
@@ -1912,6 +1956,8 @@ async def make_app(port):
         web.get("/state_health", state_health),
         web.get("/update", update_node),
         web.get("/update_peer", update_peer),
+        # DA reads, forwarded to this host's exec node — see da_proxy for why L1 carries them.
+        web.get("/da/{what}", da_proxy),
         # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +
         # the bounded fetch-by-id — divergent peers no longer re-download each other's whole pools.
         web.get("/transaction_ids", _dump_handler("transaction_ids",

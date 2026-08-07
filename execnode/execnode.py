@@ -2642,9 +2642,22 @@ async def _da_sources(session):
             peers = await r.json() if r.status == 200 else []
     except Exception:
         peers = []
+    # ASK ON THE PORT PEERS ACTUALLY EXPOSE. This used to build `http://{host}:{PORT}` — the peer's EXEC
+    # port — on the reasoning that every node runs the exec/DA node on the same convention port. They do run
+    # it; they just do not expose it. Measured 2026-08-08 across the live fleet: every peer's :9273 refused
+    # the connection while :9173 answered, so _da_sources produced a list of URLs that could never serve a
+    # shard, da_fetch returned None every time, and "publish the proof to DA" silently degraded to riding
+    # ~69 MiB of proof inline in the transaction. THAT is why the inline threshold was pinned wide open.
+    #
+    # L1 now forwards /da/{meta,have,shard,get} to its own exec node (nado.py:da_proxy), so the reachable
+    # port serves DA on every node. Our OWN exec node is still tried directly first — a local hop beats a
+    # proxied one, and it is the one URL we know is up.
+    _l1_port = int(str(L1).rsplit(":", 1)[-1].split("/")[0] or 9173)
+    if f"http://127.0.0.1:{PORT}" not in seen:
+        seen.add(f"http://127.0.0.1:{PORT}"); out.append(f"http://127.0.0.1:{PORT}")
     for p in (peers or []):
         host = str(p).split(":")[0].strip()                 # peer IP, strip any :port
-        url = f"http://{host}:{PORT}" if host else ""       # its exec/DA node (same host, exec port)
+        url = f"http://{host}:{_l1_port}" if host else ""   # its L1, which proxies /da to its exec node
         if url and url not in seen:
             seen.add(url); out.append(url)
     if DA_URL and DA_URL not in seen:
