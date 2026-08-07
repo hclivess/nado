@@ -279,7 +279,22 @@ if not _RECORDS_CAP_FITS_INLINE:
 # answers, and that is measured at 94.2 s for a real 118.57 MiB proof, so anything near the bare-settle
 # budget guarantees a client-side timeout on a proof that is perfectly valid. Generous because the settle
 # task is DETACHED (e1000cbd) — waiting here costs nothing but this task.
-SETTLE_SUBMIT_TIMEOUT_PROOF = 300
+#
+# RAISED 300 -> 1200 FOR THE RECORDS-BEARING CASE, WHICH THE OLD VALUE WAS NEVER SIZED FOR. 300 came from a
+# 118.57 MiB KV-ONLY proof verifying in 94.2 s. A records-bearing proof is 169.44 MiB AND adds 13 batched
+# merkle-update verifications on top of the KV half, and this budget has to cover ALL of: aiohttp
+# serialising ~169 MiB of nested Python to JSON, the upload, L1 re-parsing it, and both halves verifying.
+# The first one ever built died on the clock at exactly ~305 s:
+#     02:46:22  settle-with-proof span→4380: 1 segment(s), tx 169.44 MiB
+#     02:51:27  settle error at execnode.py:1723 in _submit: TimeoutError
+# with L1 producing blocks normally throughout — so the chain was never blocked; only this task gave up.
+#
+# THIS IS NOT HIDING A COST, IT IS MEASURING ONE. Nobody knows what a records-bearing submit actually costs
+# because no attempt has been allowed to finish. The submit now logs its elapsed time on BOTH paths, so the
+# next one reports a real number and this constant can be set from it — or, if the number is bad, the
+# conclusion is that the PROOF must shrink (fewer/cheaper proofs per span), not that the budget must grow
+# again. Waiting longer is free here; the settle task is detached and the loop keeps settling bare.
+SETTLE_SUBMIT_TIMEOUT_PROOF = int(os.environ.get("NADO_SETTLE_SUBMIT_TIMEOUT_PROOF", "1200"))
 # HOW FAR AHEAD A PROOF-CARRYING SETTLE AIMS max_block. A settle is an EXACT-LANDING tx (protocol.py: it
 # "lands at exactly max_block"), and L1 spends ~94 s — about 16 blocks — verifying the proof INLINE before
 # the submit even returns. So a deadline computed before the submit is already ~14 blocks in the PAST by
@@ -1720,17 +1735,31 @@ async def maybe_settle(session):
                 _carries_proof = bool((_tx.get("data") or {}).get("proof")
                                       or (_tx.get("data") or {}).get("proof_da"))
                 _budget = SETTLE_SUBMIT_TIMEOUT_PROOF if _carries_proof else 15
-                async with session.post(L1 + "/submit_transaction", json=_tx,
-                                        timeout=aiohttp.ClientTimeout(total=_budget)) as r:
-                    _body = await r.text()
-                    try:
-                        _out = json.loads(_body) if _body.strip() else None
-                    except ValueError:
-                        _out = None
-                    if _out is None:
-                        _out = {"result": False,
-                                "message": f"HTTP {r.status}, unparseable body: {(_body or '')[:120]!r}"}
-                    return _out
+                # TIME THE SUBMIT. This budget has never been measured for a records-bearing proof — the
+                # first one built died on the clock at ~305 s against the old 300 s, so all anyone knows is
+                # "more than 300". The elapsed number decides whether the budget was simply too small or
+                # whether the PROOF has to shrink, and those call for opposite fixes.
+                _t_sub = time.time()
+                try:
+                    async with session.post(L1 + "/submit_transaction", json=_tx,
+                                            timeout=aiohttp.ClientTimeout(total=_budget)) as r:
+                        _body = await r.text()
+                        if _carries_proof:
+                            print(f"[execnode] settle submit took {time.time() - _t_sub:.1f}s "
+                                  f"(budget {_budget}s) → HTTP {r.status}", flush=True)
+                        try:
+                            _out = json.loads(_body) if _body.strip() else None
+                        except ValueError:
+                            _out = None
+                        if _out is None:
+                            _out = {"result": False,
+                                    "message": f"HTTP {r.status}, unparseable body: {(_body or '')[:120]!r}"}
+                        return _out
+                except Exception:
+                    if _carries_proof:
+                        print(f"[execnode] settle submit FAILED after {time.time() - _t_sub:.1f}s "
+                              f"(budget {_budget}s)", flush=True)
+                    raise
 
             out = await _submit(tx)
             # PROOF REJECTED ⇒ STILL SETTLE. The proof is an OPTIONAL upgrade to a settlement that must
