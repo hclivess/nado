@@ -748,6 +748,15 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
         for _blk in span_blocks:
             _eff, _derivable = RB.block_records_effects(_blk)
             if not _derivable:
+                # SAY WHICH BLOCK AND WHAT IS IN IT. "an effect this node cannot derive" collapses three
+                # different causes into one sentence — a non-derivable block, an unavailable accrual input,
+                # and the empty-effect trap — and they call for different responses. block_records_effects
+                # refuses on a bridge_withdraw, a shield, an xmsg or a value>0 call, so naming the block and
+                # its recipients turns "records unprovable" into a specific, actionable class.
+                _rs = sorted({str((_t or {}).get("recipient", "?"))[:24]
+                              for _t in (_blk.get("block_transactions") or [])})
+                print(f"[execnode] records NOT DERIVABLE at block {_blk.get('block_number')}: "
+                      f"{len(_blk.get('block_transactions') or [])} tx, recipients {_rs[:8]}", flush=True)
                 return None                       # L1 will refuse this block too -> quorum
             effects.extend(_eff or ())
             # ...AND THE ACCRUAL, on a boundary block, exactly where core_loop appends it. Inputs come from
@@ -759,6 +768,9 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
             inf = await _get_json(session, f"/get_dividend_inflow?epoch={_E}")
             ow = await _get_json(session, f"/get_open_weights?epoch={_E}")
             if not isinstance(ow, dict) or ow.get("error"):
+                print(f"[execnode] records NOT DERIVABLE: epoch {_E} weights unavailable at block "
+                      f"{_blk.get('block_number')} ({(ow or {}).get('error', 'no response')}) — pruned "
+                      f"recert history; never guessed", flush=True)
                 return None                       # pruned recert history -> quorum, never a guess
             _aeff, carry = RB.dividend_accrual_effects(int((inf or {}).get("inflow", 0)),
                                                        (ow or {}).get("weights", {}) or {}, carry)
