@@ -1368,12 +1368,39 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                     # root, so every value the arithmetic touches is authenticated rather than asserted.
                     _pre_get = _RB.pinned_pre_get(proof.get("records_pre") or {}, _pre_rec,
                                                   depth=_protocol.EXEC_TREE_DEPTH)
-                    _t_rec = _time.time()
-                    _rok, _rwhy = _RB.bind_and_verify_records(
-                        proof["records"], _pre_rec, _post_rec, _pre_get, _eff,
-                        depth=_protocol.EXEC_TREE_DEPTH)
-                    print(f"[settle-verify] RECORDS half {_time.time() - _t_rec:.1f}s "
-                          f"({len(_eff)} effects) ok={_rok}", flush=True)
+                    # MEMOIZE THE RECORDS VERDICT TOO — this is what wedged the node, twice.
+                    #
+                    # The KV half has been memoized since settle_verify_key existed; the records half was
+                    # not, so EVERY revalidation of a mempool transaction re-ran it. Measured on one live
+                    # settle (span 7800->7866, 29 effects):
+                    #     08:58:55  RECORDS half 1057.2s ok=True    <- the submit
+                    #     09:13:50  RECORDS half  878.9s ok=True    <- again, 15 minutes later
+                    # while the KV half was verified once (15.7 s) and never repeated. ~900-1050 s of CPU
+                    # per revalidation is enough to stop this node keeping up: it stalled at block 7364 and
+                    # again at 8203 while the rest of the fleet ran on, both times with a records settle
+                    # sitting in the mempool. An exact-landing tx waits ~280 blocks for its slot, so it gets
+                    # revalidated repeatedly by construction — the cost was guaranteed to recur.
+                    #
+                    # KEYED ON THE SAME PROOF IDENTITY AS THE KV HALF, which binds the proof's BYTES
+                    # (blake2b over the inline proof, or the DA commitment) — see settle_verify_key, which
+                    # documents why keying on CLAIMS once let a tampered proof through unverified. The
+                    # records inputs are added on top: the pre/post roots being asserted and a digest of the
+                    # effect set THIS node derived. Same bytes + same roots + same effects = same verdict;
+                    # anything else misses and is verified in full.
+                    _rvk = (_vk, rec_hex, rec_post_hex, blake2b_hash(_eff))
+                    _rhit = _SETTLE_VERIFY_MEMO.get(_rvk)
+                    if _rhit is not None:
+                        _rok, _rwhy = _rhit
+                    else:
+                        _t_rec = _time.time()
+                        _rok, _rwhy = _RB.bind_and_verify_records(
+                            proof["records"], _pre_rec, _post_rec, _pre_get, _eff,
+                            depth=_protocol.EXEC_TREE_DEPTH)
+                        print(f"[settle-verify] RECORDS half {_time.time() - _t_rec:.1f}s "
+                              f"({len(_eff)} effects) ok={_rok}", flush=True)
+                        if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
+                            _SETTLE_VERIFY_MEMO.clear()
+                        _SETTLE_VERIFY_MEMO[_rvk] = (_rok, _rwhy)
                     assert _rok, f"Settle proof records half invalid: {_rwhy}"
     elif recipient == "bridge":
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
