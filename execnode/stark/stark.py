@@ -656,8 +656,37 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         # six extrapolations from a single data point were wrong on 2026-08-07 alone.
         import time as _time
         _t_all = _time.time(); _t_per = 0.0; _t_con = 0.0; _n_per = 0
+        # THE 97.6%. Measured live on one of the four proofs a 32-update records span carries:
+        #     [stark-verify] T=131072 W=29 queries=320 periodic=16 committed=0 |
+        #     query-loop 470.9s = periodic 459.7s (5120 dense evals) + constraints 1.1s + rest 10.1s
+        # Every DENSE periodic column was re-evaluated by an O(T) Horner pass ONCE PER QUERY — 320 x 16
+        # passes over 131072 coefficients, in pure Python, on the GIL. That single line was the entire
+        # records verification cost, and the reason the submit budget was blown at 1200s and again at 1800s.
+        #
+        # The query point is a DOMAIN point — x = OFF·wN^lo, computed a few lines below — so the value of a
+        # periodic column's degree<T interpolation at x is EXACTLY its coset-LDE evaluation at index lo.
+        # That is already how the PROVER gets it (per_lde, line 388). One NTT per column replaces 320 Horner
+        # passes and returns the SAME field element, so this is a pure speedup: no constraint is weakened,
+        # nothing the verifier accepts changes, and a proof that verified before verifies identically.
+        #
+        # HARVEST AND DISCARD, one column at a time. Horner was chosen here deliberately — see the comment
+        # at the wN assignment, "query points computed as OFF·ω^lo — no O(N) domain allocation" — so holding
+        # all 16 LDEs of N = blowup·T = 524288 would buy the time back with ~300 MB. Only the ~320 values
+        # actually queried are kept; each LDE is freed as soon as it has been sampled.
+        _t_pre = _time.time()
+        _los = [q["idx"] % (N // 2) for q in proof["fri"]["queries"]]
+        _per_q = {}
+        for _i, _pc in enumerate(periodic):
+            # committed cells arrive in the opening; STRUCTURED columns already evaluate in
+            # O(period + #sparse) INDEPENDENT of T, so neither needs (or wants) an LDE.
+            if _i in committed_set or isinstance(_pc, dict):
+                continue
+            _lde = _coset_evaluate(F.interpolate(_per_expand(_pc, T)), N, OFF)
+            _per_q[_i] = [_lde[_l] for _l in _los]
+            del _lde
+        _t_pre = _time.time() - _t_pre
         _bi = 0
-        for q, op in zip(proof["fri"]["queries"], proof["openings"]):
+        for _qi, (q, op) in enumerate(zip(proof["fri"]["queries"], proof["openings"])):
             lo = q["idx"] % (N // 2)
             if lo != op["lo"]:
                 return False, "opening index mismatch"
@@ -715,9 +744,11 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                     opened[idx] = int(po["val"]) % F.P
             # periodic row at x: opened committed cell where committed, else the verifier's O(T) dense eval
             _tp0 = _time.time()
-            per = [opened[i] if i in committed_set else per_evals[i](x, xT) for i in range(len(periodic))]
+            per = [opened[i] if i in committed_set
+                   else (_per_q[i][_qi] if i in _per_q else per_evals[i](x, xT))
+                   for i in range(len(periodic))]
             _t_per += _time.time() - _tp0
-            _n_per += len(periodic) - len(committed_set)
+            _n_per += len(periodic) - len(committed_set) - len(_per_q)
             # Mirror the prover EXACTLY, including the base-or-ext constraint value: under GF(p^2) aux
             # challenges the LogUp constraints return extension elements (their aux columns are ext, carried
             # as base-column pairs), so lift a base value and combine in ext. See _composition._combine.
@@ -763,9 +794,10 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         _el = _time.time() - _t_all
         if _el > 5.0:                       # only the proofs whose cost is consensus-relevant, never test noise
             print(f"[stark-verify] T={T} W={W} queries={len(proof['openings'])} "
-                  f"periodic={len(periodic)} committed={len(committed_set)} | "
-                  f"query-loop {_el:.1f}s = periodic {_t_per:.1f}s ({_n_per} dense evals) + "
-                  f"constraints {_t_con:.1f}s + rest {_el - _t_per - _t_con:.1f}s", flush=True)
+                  f"periodic={len(periodic)} committed={len(committed_set)} lde={len(_per_q)} | "
+                  f"query-loop {_el:.1f}s = lde-prep {_t_pre:.1f}s + periodic {_t_per:.1f}s "
+                  f"({_n_per} dense evals) + constraints {_t_con:.1f}s + "
+                  f"rest {_el - _t_pre - _t_per - _t_con:.1f}s", flush=True)
         return True, "ok"
     except Exception as e:
         # SAY WHERE. This returned only the exception's text, which for a TypeError deep in the verifier
