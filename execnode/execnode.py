@@ -210,7 +210,17 @@ SETTLE_FOLD = True
 # them would close the gap immediately — and fri.py sizes 320 to clear 128 bits on the PROVABLE
 # (Johnson-bound) branch, 320*0.4 + 18 grind ~ 146 bits, deliberately not the conjectured branch most
 # deployments accept. Buying tx size with security bits is not a prover-side decision.
-SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "72"))
+# DISABLED (0) PENDING A FIX FOR L1 VERIFICATION COST. A records-bearing settle is CORRECT — both halves
+# verify ok=True on L1 — but its records half takes ~1020-1073 s to verify, and that is long enough to hurt
+# the node that submitted it: after one landed in the mempool this node stalled at block 7364 for 200+ s
+# while the rest of the fleet ran on to 7374, with the expired 51.53 MiB tx still in the mempool and L1
+# burning CPU on it. Producing a proof that wedges the producer is worse than riding the bonded quorum,
+# which is always correct and merely slower.
+#
+# 0 makes every records-bearing span decline (len(net) > 0), so spans ride the quorum exactly as they did
+# before the feature. Everything else stays shipped and tested — the AIR, DIRP, K=9, the guards — and this
+# flips back to 72 the moment verification fits inside a landing window.
+SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "0"))
 # Measured 2026-08-06 at EXEC_TREE_DEPTH=256, row-committed, encoded exactly as the submit path encodes it
 # (json.dumps(separators=(",", ":"), sort_keys=True)). Per PROOF, not per update — several updates now share
 # one STARK (state_transition.DEFAULT_BATCH), and proof size grows with log T, so the marginal update is
