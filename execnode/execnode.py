@@ -831,6 +831,31 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
         return None
 
 
+def state_owes_accrual(st, cur, epoch_length):
+    """The epoch this state still owes, or None when it is settle-consistent.
+
+    The exec accrual loop advances the cursor FIRST and applies the dividend AFTER, with two HTTP awaits in
+    between (/get_dividend_inflow, /get_open_weights). So `state.cursor` can already sit on a boundary while
+    that epoch has not landed, and a records root read in that window is true for NO block.
+
+    Measured exactly on span (4064, 4080] by the records DIFF diagnostic: 25 keys disagreed — the present
+    miner count — with the SAME key set and the derived side uniformly higher by one epoch's share. The
+    prover was right about WHICH epoch (both epoch_accrual_due(4080) and the loop's
+    `while last_div_epoch < cursor//L - 1` name epoch 67); the state simply had not applied it yet.
+
+    `last_div_epoch` is the deterministic watermark of the highest epoch already accrued, so this is exact
+    rather than a heuristic: once the cursor has fully passed epoch E, E must be accrued before anything may
+    settle against this state.
+    """
+    try:
+        owed = (int(cur) // int(epoch_length)) - 1
+    except Exception:
+        return None                     # cannot tell -> do not invent a reason to refuse
+    if owed < 0:
+        return None
+    return owed if int(getattr(st, "last_div_epoch", -1)) < owed else None
+
+
 async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=None):
     """Best-effort SELF-CHECKING settle-with-proof for (ns, cur, root), or None to fall back to quorum.
 
@@ -978,6 +1003,32 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # the state's mutate lock (ExecState.settle_snapshot). The fallback keeps standalone callers working.
     rec_root = (rec_root_at_cur if rec_root_at_cur is not None
                 else SST.SparseStore(EXEC_TREE_DEPTH, ER.records_projection(st)).root())
+    # THE STATE OWES AN ACCRUAL -> ITS RECORDS ROOT IS MID-UPDATE. REFUSE.
+    #
+    # The accrual loop advances the cursor FIRST and applies the dividend AFTER, with two HTTP awaits in
+    # between (/get_dividend_inflow and /get_open_weights). So there is a window where state.cursor has
+    # already reached a boundary but that epoch has not landed, and anything reading the records root in
+    # that window sees a root that is real for no block.
+    #
+    # Measured exactly, by the records DIFF diagnostic (4ed7d0b4) on span (4064, 4080]:
+    #     records DIFF at 4080: 25 key(s) disagree (derived 35 entries vs actual 35)
+    #         …512…  89276075280 vs 87914257097   Δ 1361818183
+    #         …331…   6538626417 vs  6266262781   Δ  272363636
+    #         …749…  11197358394 vs 10924994758   Δ  272363636   (and so on)
+    # 25 keys — exactly the present-miner count — SAME key set, values only, and the derived side uniformly
+    # HIGHER by one epoch's share. The prover derived epoch 67 for block 4080 and was right to: both
+    # records_bind.epoch_accrual_due(4080) and the exec loop's `while last_div_epoch < cursor//L - 1` name
+    # epoch 67. Attribution was never the problem; the state had simply not applied it yet.
+    #
+    # `last_div_epoch` is the deterministic watermark of the highest epoch already accrued, so the condition
+    # is exact rather than a heuristic: if the cursor has fully passed epoch E, E must be accrued before
+    # this state can be settled against. A quiet skip and the next cadence proceeds — the alternative is a
+    # ~15-minute prove that the self-check then throws away.
+    _owed = state_owes_accrual(st, cur, EPOCH_LENGTH)
+    if _owed is not None:
+        return _skip(f"the state at {cur} still owes dividend accrual (last_div_epoch="
+                     f"{getattr(st, 'last_div_epoch', None)}, cursor has passed epoch {_owed}) — its "
+                     f"records root is mid-update and true for no block", cls="accrual-pending")
     # THE RECORDS HALF AT THE JUSTIFIED CURSOR, from the stash. prove_settlement_sparse pins ONE records
     # root for the whole span ("the (unchanged) records half"), so this is load-bearing twice over:
     #
