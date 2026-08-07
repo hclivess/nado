@@ -106,11 +106,15 @@ def t_the_budget_leaves_room_to_be_included():
         f"just under budget would still expire unincluded")
 
 
-# THE LAST MEASURED RECORDS VERIFICATION, and a LOWER BOUND: the 2026-08-07 run was cancelled at the budget
-# before it finished, so the true cost is >1179 s. Earlier completed runs: 1017 s and 1073 s at 27-29
-# updates, 878.9 s on a memo-miss re-verify. The trend is upward because the update count IS the fleet's
-# miner count (19 -> 29 in one session), so this number must be re-read from [records-bind], never assumed.
-MEASURED_VERIFY_S = 1179
+# THE LAST MEASURED RECORDS VERIFICATION. Two runs completed ok=True on 2026-08-07 just PAST the 1200 s
+# budget, which is the whole incident — the proofs were valid and the verification finished; only the client
+# had already hung up:
+#     11:11:49  RECORDS half 1220.7s (29 effects) ok=True   <- submit gave up at 1200.0s
+#     12:08:51  RECORDS half 1267.4s (32 effects) ok=True   <- submit gave up at 1200.8s
+# Earlier: 1017 s and 1073 s at 27-29 effects. The trend is upward and roughly linear in the effect count,
+# which IS the fleet's miner count (19 -> 32 in one session), so at ~40 s per added effect the present
+# margin runs out somewhere near 48 effects. Re-read this from [records-bind]; never assume it.
+MEASURED_VERIFY_S = 1267
 
 
 def t_the_budget_clears_the_measured_verification():
