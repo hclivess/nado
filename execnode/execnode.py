@@ -307,7 +307,28 @@ if not _RECORDS_CAP_FITS_INLINE:
 # next one reports a real number and this constant can be set from it — or, if the number is bad, the
 # conclusion is that the PROOF must shrink (fewer/cheaper proofs per span), not that the budget must grow
 # again. Waiting longer is free here; the settle task is detached and the loop keeps settling bare.
-SETTLE_SUBMIT_TIMEOUT_PROOF = int(os.environ.get("NADO_SETTLE_SUBMIT_TIMEOUT_PROOF", "1200"))
+#
+# THE NUMBER ARRIVED, AND IT IS BAD. 2026-08-07, span 8383->8400 with 29 updates:
+#     09:56:45  serialised 0.8s (63.41 MiB) — POSTing
+#     09:57:07  [settle-verify] KV half 10.0s ok=True
+#     10:16:46  settle submit FAILED after 1201.0s (budget 1200s) — TimeoutError
+# The records verification NEVER LOGGED, because its timing print only runs on completion: the client
+# disconnected at the budget and the work was discarded mid-flight. L1 produced blocks at a steady 6.0 s
+# THROUGHOUT (8541 at 09:57 -> 8736 at 10:16) while averaging 86% CPU, i.e. the Rust verify releases the
+# GIL — so "the node looks healthy" is NOT evidence that verification is not running. It ran, for >1179 s,
+# against a 1200 s budget, and lost.
+#
+# THIS RAISE IS DERIVED FROM THE LANDING WINDOW, NOT CHOSEN. A settle is admitted to the pool only AFTER
+# verification returns, and must then be included by max_block = tip_at_build + margin. So verification is
+# bounded, hard, by the margin: V < margin * 6 s. With the margin at its own ceiling (330 blocks, under
+# TX_LANDING_WINDOW = 360) that is 1980 s, and 1800 leaves ~30 blocks for the tx to actually be included.
+# There is no further raise available after this one — the next one has to come out of TX_LANDING_WINDOW,
+# which is CONSENSUS-CRITICAL and would need the whole fleet moved together.
+#
+# So this buys exactly one more measurement, and the real fix is to shrink the verification. [records-bind]
+# now splits it into `derive` (authenticated projection reads) and `stark` (proof verification) precisely to
+# say WHICH, because they call for opposite fixes and only the `stark` half is what the K->1 fold addresses.
+SETTLE_SUBMIT_TIMEOUT_PROOF = int(os.environ.get("NADO_SETTLE_SUBMIT_TIMEOUT_PROOF", "1800"))
 # HOW FAR AHEAD A PROOF-CARRYING SETTLE AIMS max_block. A settle is an EXACT-LANDING tx (protocol.py: it
 # "lands at exactly max_block"), and L1 spends ~94 s — about 16 blocks — verifying the proof INLINE before
 # the submit even returns. So a deadline computed before the submit is already ~14 blocks in the PAST by
@@ -354,7 +375,13 @@ SETTLE_PROOF_TX_MARGIN = 60
 # still under TX_LANDING_WINDOW (360).
 # Raise it only against a NEW measurement of the RECORDS half — the verification cost tracks the update
 # count, and the update count tracks fleet size, so this is a constant with a moving target underneath it.
-SETTLE_PROOF_RECORDS_TX_MARGIN = int(os.environ.get("NADO_SETTLE_RECORDS_TX_MARGIN", "280"))
+#
+# THE NEW MEASUREMENT: >1179 s at 29 updates on 2026-08-07 (up from 1017-1073 s at 27-29), which at 6.0 s
+# per block is >196 blocks and still climbing with fleet size. 280 was sized against ~1057 s and no longer
+# has real headroom, so it goes to its own ceiling: TX_LANDING_WINDOW is 360 and the tx still has to be
+# built, serialised and propagated, so 330 is the largest honest value. This is the LAST raise this
+# constant has available; past it the verification itself has to come down.
+SETTLE_PROOF_RECORDS_TX_MARGIN = int(os.environ.get("NADO_SETTLE_RECORDS_TX_MARGIN", "330"))
 # Hard ceiling on the publish+submit hold, and it must EXCEED what it is holding for, or it expires mid
 # pipeline and hands the race back to the bare settles it exists to suppress.
 #

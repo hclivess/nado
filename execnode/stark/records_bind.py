@@ -369,15 +369,32 @@ def bind_and_verify_records(tr, pre_root, post_root, pre_get, effects, depth=ER.
     not provide, and the reason block_records_inert has to be as strict as it is. Returns (ok, reason).
     """
     from execnode.stark import records_transition as RT
+    # SPLIT THE TWO COSTS. This call is the single most expensive thing L1 does — measured 878-1073 s live,
+    # and on 2026-08-07 it grew past the 1200 s submit budget, so the client disconnected and ~20 minutes of
+    # proving plus ~20 minutes of verification were discarded with NOTHING logged (the timing print only
+    # runs on completion, so a cancelled verify is indistinguishable from one that never started).
+    #
+    # There are exactly two phases and they call for OPPOSITE fixes: `derive` is 29 effects x depth-256
+    # authenticated merkle reads through pinned_pre_get, and `stark` is the batch-proof verification. If
+    # `stark` dominates, the K->1 recursion fold is the fix, because a folded bundle is ONE verification
+    # instead of ceil(updates/K). If `derive` dominates, the fold buys nothing and the projection is the
+    # target. Guessing between them is how I lost this night twice already — so measure them apart.
+    import time as _t
     try:
+        _t0 = _t.time()
         want = [(int(k), int(o) % F.P, int(n) % F.P)
                 for (k, o, n) in net_records_updates(pre_get, effects, depth)]
+        _derive_s = _t.time() - _t0
         got = [(int(k), int(o) % F.P, int(n) % F.P) for (k, o, n) in tr.get("updates", [])]
         if got != want:
             return False, (f"records transition updates do not match the span's derived effects "
                            f"({len(got)} vs {len(want)})")
-        return RT.verify_records_transition(tr, pre_root, post_root, num_queries=num_queries,
+        _t1 = _t.time()
+        _res = RT.verify_records_transition(tr, pre_root, post_root, num_queries=num_queries,
                                             outer_queries=outer_queries)
+        print(f"[records-bind] derive {_derive_s:.1f}s ({len(want)} update(s)) · "
+              f"stark {_t.time() - _t1:.1f}s · total {_t.time() - _t0:.1f}s", flush=True)
+        return _res
     except Unbindable as e:
         return False, f"span carries an underivable records effect: {e}"
     except Exception as e:
