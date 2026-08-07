@@ -335,6 +335,12 @@ SETTLE_SUBMIT_TIMEOUT_PROOF = int(os.environ.get("NADO_SETTLE_SUBMIT_TIMEOUT_PRO
 # freezes for every proof. Stays far under TX_LANDING_WINDOW (360), so a tx admitted against a
 # slightly-behind peer still fits.
 SETTLE_PROOF_TX_MARGIN = 60
+# THE SAME RUNWAY, SIZED FOR A RECORDS-BEARING PROOF. Its records half verifies on L1 in ~1073 s (measured,
+# 27 effects) = ~179 blocks at 6 s, against the 60 above which was sized for ~42 s of propagation. 280
+# blocks is ~28 min: over 1.5x the measured verification, and still well under TX_LANDING_WINDOW (360).
+# Raise it only against a NEW measurement of the RECORDS half — the verification cost tracks the update
+# count, and the update count tracks fleet size, so this is a constant with a moving target underneath it.
+SETTLE_PROOF_RECORDS_TX_MARGIN = int(os.environ.get("NADO_SETTLE_RECORDS_TX_MARGIN", "280"))
 # Hard ceiling on the publish+submit hold, and it must EXCEED what it is holding for, or it expires mid
 # pipeline and hands the race back to the bare settles it exists to suppress.
 #
@@ -1707,7 +1713,26 @@ async def maybe_settle(session):
                 _fresh2 = await _get_json(session, "/get_latest_block")
                 # A proof-carrying settle needs a MUCH longer runway: L1 verifies it inline (~94 s ≈ 16
                 # blocks) before the submit returns, so +2 expires before the tx can ever be included.
-                _margin = SETTLE_PROOF_TX_MARGIN if (proof is not None or proof_da) else 2
+                # A RECORDS-BEARING PROOF NEEDS A FAR LONGER RUNWAY THAN A KV-ONLY ONE, because L1
+                # verifies it inline before the submit returns and the two cost wildly different amounts.
+                # MEASURED on the first records half ever to verify (span 6644->6660, 27 effects):
+                #     [settle-verify] KV half        12.1s
+                #     [settle-verify] RECORDS half 1073.0s      <- 179 blocks at 6 s
+                #     settle submit took 1094.4s -> HTTP 200
+                # The proof was ACCEPTED — both halves ok=True — and then expired unincluded, because
+                # max_block had been stamped only SETTLE_PROOF_TX_MARGIN=60 blocks ahead. That constant was
+                # sized for PROPAGATION (~42 s observed), which is the right size for a KV-only settle and
+                # roughly 3x too small for a records-bearing one. The comment on it already names this
+                # failure — "too small and the tx expires unincluded, wasting one prove" — it simply could
+                # not anticipate L1's own verification as the cause.
+                #
+                # So the margin follows the proof: KV-only keeps 60 (a blanket raise would stall every
+                # ordinary settle by ~28 minutes for a cost it does not pay), and a records half gets a
+                # runway that exceeds its measured verification with room for propagation on top. Both stay
+                # under TX_LANDING_WINDOW (360), so a tx admitted against a slightly-behind peer still fits.
+                _has_records = bool(isinstance(proof, dict) and proof.get("records"))
+                _margin = ((SETTLE_PROOF_RECORDS_TX_MARGIN if _has_records else SETTLE_PROOF_TX_MARGIN)
+                           if (proof is not None or proof_da) else 2)
                 target = int(_fresh2["block_number"]) + _margin
             except Exception:
                 pass                                       # keep the old deadline rather than skip the settle
