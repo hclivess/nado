@@ -646,6 +646,16 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                         "alghash2 native merkle_verify_paths(digest) unavailable — the native crate is "
                         "stale. Rebuild with `cargo build --release` in native/alghash2.")
 
+        # WHERE VERIFICATION ACTUALLY SPENDS ITS TIME. A records-bearing settle verifies in ~1267 s and the
+        # submit budget had to be raised twice to cover it, so this is consensus work whose cost decides
+        # whether a proof-carrying settle is validatable at all — and until now nobody knew which part of it
+        # was expensive. The suspicion is the `per` line below: every UNCOMMITTED periodic column is
+        # re-evaluated with a dense O(T) Horner pass PER QUERY, and at T=131072 one pass measured 17.3 ms,
+        # against NUM_QUERIES=320 and 16 periodic columns in the batch merkle-update AIR — ~88 s per proof,
+        # ~354 s over the four proofs a 32-update span carries. Measure it rather than act on that estimate;
+        # six extrapolations from a single data point were wrong on 2026-08-07 alone.
+        import time as _time
+        _t_all = _time.time(); _t_per = 0.0; _t_con = 0.0; _n_per = 0
         _bi = 0
         for q, op in zip(proof["fri"]["queries"], proof["openings"]):
             lo = q["idx"] % (N // 2)
@@ -704,7 +714,10 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                         return False, f"bad periodic opening col {idx}"
                     opened[idx] = int(po["val"]) % F.P
             # periodic row at x: opened committed cell where committed, else the verifier's O(T) dense eval
+            _tp0 = _time.time()
             per = [opened[i] if i in committed_set else per_evals[i](x, xT) for i in range(len(periodic))]
+            _t_per += _time.time() - _tp0
+            _n_per += len(periodic) - len(committed_set)
             # Mirror the prover EXACTLY, including the base-or-ext constraint value: under GF(p^2) aux
             # challenges the LogUp constraints return extension elements (their aux columns are ext, carried
             # as base-column pairs), so lift a base value and combine in ext. See _composition._combine.
@@ -734,10 +747,12 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                 # would verify. A faster verifier must not be a weaker one.
                 return False, "query point coincides with the trace domain (x == last)"
             iz = F.mul(_xl, F.inv(F.sub(xT, 1)))
+            _tc0 = _time.time()
             for con in transitions:
                 a = alphas[ai]; ai += 1
                 cval = con(cur_row, nxt_row, per) if challenges is None else con(cur_row, nxt_row, per, challenges)
                 cp = _add(cp, _combine(a, cval, iz))
+            _t_con += _time.time() - _tc0
             for (row, col, val) in boundaries:
                 a = alphas[ai]; ai += 1
                 pt = F.pw(gT, row)
@@ -745,6 +760,12 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
             _claim = q["steps"][0]["lo"]
             if cp != (ext2.lift(_claim) if _ext_a else _claim):
                 return False, "trace/composition mismatch (a constraint is violated)"
+        _el = _time.time() - _t_all
+        if _el > 5.0:                       # only the proofs whose cost is consensus-relevant, never test noise
+            print(f"[stark-verify] T={T} W={W} queries={len(proof['openings'])} "
+                  f"periodic={len(periodic)} committed={len(committed_set)} | "
+                  f"query-loop {_el:.1f}s = periodic {_t_per:.1f}s ({_n_per} dense evals) + "
+                  f"constraints {_t_con:.1f}s + rest {_el - _t_per - _t_con:.1f}s", flush=True)
         return True, "ok"
     except Exception as e:
         # SAY WHERE. This returned only the exception's text, which for a TypeError deep in the verifier
