@@ -6338,6 +6338,57 @@ async function doShield() {
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); }
 }
 
+/* ---- AUTOMATIC NOTE MANAGEMENT ---------------------------------------------------------------------
+ *
+ * "No single banknote covers that amount yet (splitting across banknotes isn't supported here)."
+ *
+ * That message described a real limit, not a missing feature: joinsplit2.prove_transfer takes ONE input
+ * note (one value_in/rho_in, one nullifier) and produces TWO outputs. The circuit can SPLIT a note and can
+ * never MERGE two — so there is no "consolidate first" move available, and a wallet that has accumulated
+ * change notes gets permanently stuck below its own balance. Receiving three payments of 4 leaves you
+ * unable to spend 5 despite holding 12.
+ *
+ * The way out with a 1-in circuit is to spend SEVERAL notes in sequence, one proof each. That is what these
+ * helpers pick, and it is why the loops below are written to survive a failure partway: each proof is
+ * independent and already applied, so aborting after two of three leaves the wallet CONSISTENT (spent notes
+ * marked, change banked) and the transfer merely PARTIAL. Silently reporting success for a partial payment
+ * would be the real bug, so both callers report what actually went through.
+ *
+ * LARGEST FIRST. Each proof is ~15 s of on-device work, so the goal is the fewest notes that cover the
+ * amount, not the tidiest change. It also leaves small notes behind rather than shredding a large one into
+ * more dust.
+ */
+function spendableNotes() {
+  return loadNotes().filter((n) => !n.spent && BigInt(n.value) > 0n);
+}
+
+function totalSpendable() {
+  return spendableNotes().reduce((a, n) => a + BigInt(n.value), 0n);
+}
+
+function selectNotesFor(rawAmount) {
+  // Returns the chosen notes (largest first) or null when the WHOLE balance cannot cover it.
+  const av = spendableNotes().sort((a, b) => {
+    const x = BigInt(a.value), y = BigInt(b.value);
+    return y > x ? 1 : y < x ? -1 : 0;
+  });
+  const picks = [];
+  let acc = 0n;
+  for (const n of av) {
+    if (acc >= rawAmount) break;
+    picks.push(n);
+    acc += BigInt(n.value);
+  }
+  return acc >= rawAmount ? picks : null;
+}
+
+function insufficientMsg(rawAmount) {
+  const have = totalSpendable(), n = spendableNotes().length;
+  return i18("shield.insufficient",
+             "Not enough shielded balance: you hold {h} NADO across {n} banknote(s), and this needs {a}.",
+             { h: rawToNado(have), n: String(n), a: rawToNado(rawAmount) });
+}
+
 async function doUnshield() {
   if (!state.wallet) return;
   ensureShielded();
@@ -6345,35 +6396,59 @@ async function doUnshield() {
   const to = $("unshieldTo").value.trim() || state.wallet.address;
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to unshield.")); return; }
   if (!ADDR_RE_I.test(to)) { log("err", i18("shield.badAddr", "Enter a valid address.")); return; }
-  const notes = loadNotes();
-  const note = notes.find((n) => !n.spent && BigInt(n.value) >= rawAmount);
-  if (!note) { log("err", i18("shield.noNote", "No single banknote covers that amount yet (splitting across banknotes isn't supported here).")); return; }
+  const picks = selectNotesFor(rawAmount);
+  if (!picks) { log("err", insufficientMsg(rawAmount)); return; }
   const _ub = $("btnUnshield");
   if (_ub) { _ub.disabled = true; _ub.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
+  let done = 0n;
   try {
-    const change = BigInt(note.value) - rawAmount;
-    const r1 = _randField(), r2 = _randField();
     const owner = shieldOwner();                             // change comes back to this wallet
-    $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + i18("shield.proving", "Generating your zero-knowledge proof… (~15s, one-time per withdrawal)");
-    // withdrawal = a 2-output join-split with a public exit: out1 = change (back to me), out2 = empty note,
-    // public_value = -amount (the coins leaving the pool). Uses the SAME on-device prover as a shielded send.
-    const wit = {
-      cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
-      v1: change.toString(), o1: owner.toString(), r1,
-      v2: "0", o2: owner.toString(), r2,
-      public_value: (-rawAmount).toString(), fee: "0", withdraw_addr: to,
-    };
-    const pr = await proveTransfer2(wit);
-    if (pr.error || !pr.ok) {
-      log("err", i18("shield.proveErr", "Proof failed: {m}", { m: pr.error || pr.applied || "" }));
-      $("shieldStatus").textContent = ""; return;
+    for (let i = 0; i < picks.length; i++) {
+      // Re-read on every pass: each proof mutates storage (spent flag + change note), and holding one
+      // stale array across a multi-minute loop is how a change note gets dropped.
+      const notes = loadNotes();
+      const note = notes.find((n) => n.cm === picks[i].cm && !n.spent);
+      if (!note) continue;                                   // already spent by a concurrent tab
+      const take = BigInt(note.value) < (rawAmount - done) ? BigInt(note.value) : (rawAmount - done);
+      const change = BigInt(note.value) - take;
+      const r1 = _randField(), r2 = _randField();
+      $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + (picks.length > 1
+        ? i18("shield.provingN", "Generating proof {i} of {n}… (~15s each — this amount spans several banknotes)",
+              { i: String(i + 1), n: String(picks.length) })
+        : i18("shield.proving", "Generating your zero-knowledge proof… (~15s, one-time per withdrawal)"));
+      // withdrawal = a 2-output join-split with a public exit: out1 = change (back to me), out2 = empty note,
+      // public_value = -amount (the coins leaving the pool). Uses the SAME on-device prover as a shielded send.
+      const wit = {
+        cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
+        v1: change.toString(), o1: owner.toString(), r1,
+        v2: "0", o2: owner.toString(), r2,
+        public_value: (-take).toString(), fee: "0", withdraw_addr: to,
+      };
+      const pr = await proveTransfer2(wit);
+      if (pr.error || !pr.ok) {
+        // STOP, and say how far we got. Everything proved so far is already applied and irreversible;
+        // continuing would risk compounding the failure, and claiming success would be a lie.
+        log("err", done > 0n
+          ? i18("shield.partial", "Withdrew {d} of {a} NADO, then a proof failed: {m}. The rest is still " +
+                                  "in the pool — retry for the remainder.",
+                { d: rawToNado(done), a: rawToNado(rawAmount), m: pr.error || pr.applied || "" })
+          : i18("shield.proveErr", "Proof failed: {m}", { m: pr.error || pr.applied || "" }));
+        $("shieldStatus").textContent = "";
+        return;
+      }
+      // The proof (on-device or delegated) was applied; the withdrawal settles on L1 via the bonded-quorum root.
+      // Nothing else to submit — just track the change note + auto-claim.
+      note.spent = true;
+      if (change > 0n) notes.push({ value: change.toString(), rho: r1, cm: pr.cm_out1, spent: false, ts: Date.now() });
+      saveNotes(notes);
+      done += take;
+      if (done >= rawAmount) break;
     }
-    // The proof (on-device or delegated) was applied; the withdrawal settles on L1 via the bonded-quorum root.
-    // Nothing else to submit — just track the change note + auto-claim.
-    note.spent = true;
-    if (change > 0n) notes.push({ value: change.toString(), rho: r1, cm: pr.cm_out1, spent: false, ts: Date.now() });
-    saveNotes(notes);
-    log("ok", i18("shield.unshieldSent", "Unshield proved ✓ — {a} NADO will arrive once the exec root settles.", { a: rawToNado(rawAmount) }));
+    log("ok", picks.length > 1
+      ? i18("shield.unshieldSentN", "Unshield proved ✓ — {a} NADO across {n} banknotes will arrive once " +
+                                    "the exec root settles.", { a: rawToNado(done), n: String(picks.length) })
+      : i18("shield.unshieldSent", "Unshield proved ✓ — {a} NADO will arrive once the exec root settles.",
+            { a: rawToNado(done) }));
     $("shieldStatus").textContent = i18("shield.pending", "Pending: {a} NADO → {t} (settling…).", { a: rawToNado(rawAmount), t: to.slice(0, 12) + "…" });
     $("unshieldAmount").value = "";
     setTimeout(() => { renderShield().catch(() => {}); claimUnshields().catch(() => {}); }, 2000);
@@ -6472,29 +6547,61 @@ async function doSendShielded() {
   catch (e) { log("err", i18("shield.badZaddr", "Enter a valid zaddr… shielded address.")); return; }
   const rawAmount = nadoToRaw($("zsendAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to send.")); return; }
-  const notes = loadNotes();
-  const note = notes.find((n) => !n.spent && BigInt(n.value) >= rawAmount);
-  if (!note) { log("err", i18("shield.noNote", "No single shielded banknote covers {a} NADO — shield more first.", { a: rawToNado(rawAmount) })); return; }
+  const picks = selectNotesFor(rawAmount);
+  if (!picks) { log("err", insufficientMsg(rawAmount)); return; }
   const _sb = $("btnZsend"); if (_sb) { _sb.disabled = true; _sb.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
   try {
-    const change = BigInt(note.value) - rawAmount;
-    const r1 = _randField(), r2 = _randField();          // recipient-note rho, change-note rho
-    $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + i18("shield.proving", "Generating your zero-knowledge proof…");
-    const wit = {
-      cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
-      v1: rawAmount.toString(), o1: recipientOwner.toString(), r1,
-      v2: change.toString(), o2: shieldOwner().toString(), r2,
-      public_value: "0", fee: "0",
-    };
-    const pr = await proveTransfer2(wit);
-    if (pr.error || !pr.ok) { log("err", i18("shield.proveErr", "Proof failed: {m}", { m: pr.error || pr.applied || "" })); $("shieldStatus").textContent = ""; return; }
-    note.spent = true;
-    if (change > 0n) notes.push({ value: change.toString(), rho: r2, cm: pr.cm_out2, spent: false, ts: Date.now() });
-    saveNotes(notes);
-    // the recipient reconstructs their note from (amount, r1) + THEIR key -> a claim code to deliver to them
-    const code = "zbill" + _b36enc(rawAmount) + "." + _b36enc(r1);
-    $("zsendCode").textContent = code;
-    if ($("zsendLink")) $("zsendLink").textContent = claimLink(code);
+    // ONE CLAIM CODE PER NOTE SPENT. The circuit is 1-in/2-out, so an amount spanning several banknotes
+    // becomes several transfers, and the recipient banks one code for each. doReceiveShielded is already
+    // idempotent per commitment, so re-claiming a code they already hold is harmless.
+    const codes = [];
+    let done = 0n;
+    for (let i = 0; i < picks.length; i++) {
+      const notes = loadNotes();                          // re-read: each pass mutates stored notes
+      const note = notes.find((n) => n.cm === picks[i].cm && !n.spent);
+      if (!note) continue;
+      const take = BigInt(note.value) < (rawAmount - done) ? BigInt(note.value) : (rawAmount - done);
+      const change = BigInt(note.value) - take;
+      const r1 = _randField(), r2 = _randField();          // recipient-note rho, change-note rho
+      $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + (picks.length > 1
+        ? i18("shield.provingN", "Generating proof {i} of {n}… (~15s each — this amount spans several banknotes)",
+              { i: String(i + 1), n: String(picks.length) })
+        : i18("shield.proving", "Generating your zero-knowledge proof…"));
+      const wit = {
+        cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
+        v1: take.toString(), o1: recipientOwner.toString(), r1,
+        v2: change.toString(), o2: shieldOwner().toString(), r2,
+        public_value: "0", fee: "0",
+      };
+      const pr = await proveTransfer2(wit);
+      if (pr.error || !pr.ok) {
+        // Everything proved so far is applied and irreversible. Hand over the codes already earned rather
+        // than dropping them on the floor, and say plainly that the transfer is short.
+        if (codes.length) {
+          $("zsendCode").textContent = codes.join(" ");
+          show("zsendCodeBox", true);
+        }
+        log("err", codes.length
+          ? i18("shield.partialSend", "Sent {d} of {a} NADO, then a proof failed: {m}. The claim code(s) " +
+                                      "below are valid — deliver them and retry the remainder.",
+                { d: rawToNado(done), a: rawToNado(rawAmount), m: pr.error || pr.applied || "" })
+          : i18("shield.proveErr", "Proof failed: {m}", { m: pr.error || pr.applied || "" }));
+        $("shieldStatus").textContent = "";
+        return;
+      }
+      note.spent = true;
+      if (change > 0n) notes.push({ value: change.toString(), rho: r2, cm: pr.cm_out2, spent: false, ts: Date.now() });
+      saveNotes(notes);
+      // the recipient reconstructs their note from (amount, r1) + THEIR key -> a claim code to deliver to them
+      codes.push("zbill" + _b36enc(take) + "." + _b36enc(r1));
+      done += take;
+      if (done >= rawAmount) break;
+    }
+    const code = codes[0];
+    $("zsendCode").textContent = codes.join(" ");
+    // A QR and a single link can only carry ONE banknote. With several, showing the first would look like
+    // the whole payment and quietly short-change the recipient, so list every link and drop the QR.
+    if ($("zsendLink")) $("zsendLink").textContent = codes.map(claimLink).join("\n");
     show("zsendCodeBox", true);
     // Deliver over NADO instead of copy-pasting. A zaddr we have sent to before already knows its contact,
     // so that case needs no typing at all; a first-time zaddr just gets the field focused, never auto-sent
@@ -6504,9 +6611,14 @@ async function doSendShielded() {
     if ($("zsendDeliverTo")) $("zsendDeliverTo").value = _known || "";
     if ($("zsendDeliverHint")) $("zsendDeliverHint").textContent = "";
     if (_known) doDeliverZbill().catch(() => {});
-    _drawQR($("zsendCodeQR"), null, claimLink(code), 260);  // scanning opens the wallet and banks the banknote
+    if (codes.length === 1) _drawQR($("zsendCodeQR"), null, claimLink(code), 260);  // scanning banks the banknote
+    else if ($("zsendCodeQR")) { const _c = $("zsendCodeQR").getContext("2d"); if (_c) _c.clearRect(0, 0, $("zsendCodeQR").width, $("zsendCodeQR").height); }
     $("shieldStatus").textContent = "";
-    log("ok", i18("shield.sent", "Sent {a} NADO privately ✓ — give the recipient the claim link below.", { a: rawToNado(rawAmount) }));
+    log("ok", codes.length > 1
+      ? i18("shield.sentN", "Sent {a} NADO privately across {n} banknotes ✓ — the recipient needs ALL {n} " +
+                            "claim codes below.", { a: rawToNado(done), n: String(codes.length) })
+      : i18("shield.sent", "Sent {a} NADO privately ✓ — give the recipient the claim link below.",
+            { a: rawToNado(done) }));
     setTimeout(() => renderShield().catch(() => {}), 1500);
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); $("shieldStatus").textContent = ""; }
   finally { if (_sb) { _sb.disabled = false; _sb.textContent = i18("shield.zsend", "Send shielded"); } }
@@ -6575,19 +6687,31 @@ async function deliverZbill(code, toRaw, zaddrUsed) {
 }
 
 async function doDeliverZbill() {
-  const code = ($("zsendCode") && $("zsendCode").textContent || "").trim();
+  // zsendCode may hold SEVERAL codes (an amount spanning several banknotes is several transfers, one code
+  // each). Delivering only the first would hand over part of the payment and look like all of it.
+  const codes = ($("zsendCode") && $("zsendCode").textContent || "").trim().split(/\s+/).filter(Boolean);
   const to = ($("zsendDeliverTo") && $("zsendDeliverTo").value || "").trim();
   const hint = $("zsendDeliverHint");
-  if (!code) return;
+  if (!codes.length) return;
   if (!to) { if (hint) hint.textContent = i18("shield.deliverNeedTo", "Enter the recipient's address or @alias."); return; }
   const btn = $("btnZdeliver");
   if (btn) btn.disabled = true;
   if (hint) hint.textContent = i18("shield.delivering", "Sending…");
   try {
-    const err = await deliverZbill(code, to, state._lastZaddrSent);
+    let err = "";
+    let sent = 0;
+    for (const c of codes) {
+      err = await deliverZbill(c, to, state._lastZaddrSent);
+      if (err) break;
+      sent++;
+    }
     if (hint) hint.textContent = err
-      ? (i18("shield.deliverFail", "Not delivered:") + " " + err)
-      : i18("shield.delivered", "Delivered ✓ — their wallet banks it automatically.");
+      ? (i18("shield.deliverFail", "Not delivered:") + " " + err
+         + (sent ? ` (${sent}/${codes.length} sent)` : ""))
+      : (codes.length > 1
+         ? i18("shield.deliveredN", "Delivered all {n} ✓ — their wallet banks them automatically.",
+               { n: String(codes.length) })
+         : i18("shield.delivered", "Delivered ✓ — their wallet banks it automatically."));
   } catch (e) {
     if (hint) hint.textContent = i18("shield.deliverFail", "Not delivered:") + " " + (e && e.message || e);
   } finally { if (btn) btn.disabled = false; }
