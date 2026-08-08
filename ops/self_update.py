@@ -473,6 +473,50 @@ def check_and_update(trigger: str) -> dict:
                 built = _build_crates(miss)
                 return {"status": "up_to_date", "head": local[:12], "trigger": trigger, "native": built,
                         "note": "rebuilt required native libraries that were missing"}
+            # ...AND A PRESENT LIBRARY IS NOT NECESSARILY A USABLE ONE. A node that fast-forwarded across a
+            # commit touching native/*.rs keeps a .so that is now older than its sources; native_guard
+            # refuses it and BLOCK PRODUCTION STOPS, while this function kept answering "up_to_date" because
+            # in git it was. See _stale_required_libs for the live failure this repairs.
+            stale = _stale_required_libs()
+            if stale:
+                # REFUSE ON LOCAL EDITS. A rebuild here compiles whatever is in the working tree, so on a box
+                # where someone is mid-edit it would build and then RESTART INTO their unfinished work. The
+                # same reason the update path refuses to fast-forward over a dirty tree; the check belongs on
+                # both, because this branch never reaches that one.
+                try:
+                    _git("diff", "--quiet"); _git("diff", "--cached", "--quiet")
+                except Exception:
+                    return {"status": "up_to_date", "head": local[:12], "trigger": trigger,
+                            "native_stale": stale,
+                            "note": "native libraries are STALE but the working tree has uncommitted "
+                                    "changes — refusing to rebuild; commit or stash, then retry"}
+                before = _lib_digests(stale)
+                built = _build_crates(stale)
+                # VERIFY, DO NOT ASSUME. cargo can exit 0 and leave the artifact untouched, so re-ask the
+                # guard: it is the only evidence that the thing which refused to load now loads, and
+                # restarting while it is still stale would just fail-stop again.
+                still = _stale_required_libs()
+                if still:
+                    return {"status": "up_to_date", "head": local[:12], "trigger": trigger, "native": built,
+                            "native_stale": still,
+                            "note": "rebuild did not clear the staleness — this node needs cargo and a "
+                                    "manual `cargo build --release` in the listed crates"}
+                # RESTART ONLY IF THE LIBRARY ACTUALLY CHANGED. Staleness is an MTIME question, so a crate
+                # goes stale when a manifest is merely TOUCHED — on this box native/mldsa44 read stale
+                # because a thin-LTO commit rewrote Cargo.toml, while the node was serving happily on a
+                # library whose BYTES were correct. Bouncing a healthy validator to install an identical
+                # .so is a self-inflicted outage; the rebuild silences the guard either way.
+                after = _lib_digests(stale)
+                changed = [c for c in stale if before.get(c) != after.get(c)]
+                if not changed:
+                    return {"status": "up_to_date", "head": local[:12], "trigger": trigger, "native": built,
+                            "native_rebuilt": stale, "restarting": False,
+                            "note": "rebuilt STALE native libraries; bytes unchanged, so no restart"}
+                restarting = _schedule_restart()
+                return {"status": "up_to_date", "head": local[:12], "trigger": trigger, "native": built,
+                        "restarting": restarting, "native_rebuilt": changed,
+                        "note": "rebuilt STALE native libraries and restarted" if restarting else
+                                "rebuilt STALE native libraries — restart the node manually"}
             return {"status": "up_to_date", "head": local[:12], "trigger": trigger}
         try:                                            # only advance if remote is strictly AHEAD of us
             _git("merge-base", "--is-ancestor", local, remote)
@@ -522,6 +566,64 @@ def _missing_required_libs():
         path = os.path.join(_REPO_DIR, crate)
         if os.path.isdir(path) and not _shared_libs(path):
             out.append(crate)
+    return out
+
+
+def _stale_required_libs():
+    """Crates whose .so EXISTS but was built before the Rust sources it claims to implement.
+
+    PRESENT IS NOT THE SAME AS USABLE, and this is the gap that stopped a node dead. `_missing_required_libs`
+    only notices an ABSENT library, so a node that fast-forwarded across a commit touching native/*.rs kept a
+    perfectly present — and now older — .so. native_guard then refuses it, correctly and loudly, and the node
+    cannot produce blocks at all:
+
+        ERROR Failed to validate transaction during block preparation: native crate 'alghash2' library …
+        is STALE — its Rust sources are newer than the built library … Rebuild it.
+        WARNING Block production skipped due to: …
+
+    Observed on a peer 2026-08-08 after commits 6af13f71 and 5f372758 (both 2026-08-04) changed
+    native/alghash2. The updater reported "up_to_date" the whole time, because in GIT it was.
+
+    Uses native_guard.is_stale so the updater and the loader agree on the definition by construction — a
+    second mtime comparison here would be one more thing to drift.
+
+    ONLY THE ARTIFACT THE LOADER RESOLVES COUNTS. The first version of this walked every .so under the crate
+    and flagged the crate if ANY was stale, which on this very box flagged native/mldsa44 because of
+    `_thin_test.so` and an old copy left in the crate root — neither of which anything loads. The loader
+    always uses target/release/libnado_<name>.so (stark_native.py), so that is the only file worth asking
+    about; a stray build artifact must never be able to trigger a rebuild and a RESTART of a healthy node.
+    """
+    try:
+        from execnode.stark import native_guard as _ng
+    except Exception:
+        return []                                   # no guard ⇒ nothing refuses a stale lib ⇒ nothing to fix
+    out = []
+    for crate in _CRATES:
+        path = os.path.join(_REPO_DIR, crate)
+        if not os.path.isdir(path):
+            continue
+        so = os.path.join(path, "target", "release", f"libnado_{os.path.basename(crate)}.so")
+        if not os.path.exists(so):
+            continue                                # absent is _missing_required_libs' job, not ours
+        try:
+            if _ng.is_stale(so, path):
+                out.append(crate)
+        except Exception:
+            pass
+    return out
+
+
+def _lib_digests(crates):
+    """sha256 of each crate's loader-resolved library, for deciding whether a rebuild CHANGED anything."""
+    import hashlib
+    out = {}
+    for crate in crates:
+        so = os.path.join(_REPO_DIR, crate, "target", "release", f"libnado_{os.path.basename(crate)}.so")
+        try:
+            with open(so, "rb") as fh:
+                out[crate] = hashlib.sha256(fh.read()).hexdigest()
+        except Exception:
+            out[crate] = None
     return out
 
 
