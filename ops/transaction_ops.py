@@ -1334,10 +1334,15 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             # NO PAYOUTS IN-PROOF. A PAY opcode moves bridge balances at the runtime boundary (state.py), i.e.
             # RECORDS, while the proof pins records frozen. block_records_inert cannot see this — PAY is
             # emitted by execution, not visible in the calldata — so it is caught here, on the proof's own io.
-            for _seg in (proof.get("segments") or []):
-                for _e in (_seg.get("io") or []):
-                    assert int(_e[0]) != _zkvm.IO_PAY, \
-                        "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
+            # A RECORDS-FROZEN proof still refuses a PAY, and must: it pins one records root across the
+            # span, so a payout inside it would make the proof assert something false. A records-BOUND
+            # proof is the opposite case — records are allowed to MOVE and every effect is checked — so
+            # there the payout is DERIVED below (records_bind.pay_effects_from_proof) instead of refused.
+            if not _records_bound:
+                for _seg in (proof.get("segments") or []):
+                    for _e in (_seg.get("io") or []):
+                        assert int(_e[0]) != _zkvm.IO_PAY, \
+                            "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
             from execnode.stark import calls_commit as _CC
             # `records_out` is passed ONLY for a records-bound proof. Passing None keeps the old, stricter
             # rule (any non-inert block refuses the span), so a frozen-records proof is validated exactly as
@@ -1347,6 +1352,19 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 proof, ns, _tip_cursor, cursor, kv_ops.exec_summary_get, _protocol.SETTLE_PROOF_MAX_SPAN,
                 records_out=_rec_effects)
             assert _ok, f"Settle proof not bound to the on-chain calldata: {_why}"
+            # PAYOUTS, DERIVED FROM THE PROVEN io LOG. This runs only AFTER the segments have been bound to
+            # this node's committed calls above — that binding is what makes the io log's provenance mean
+            # anything, because the payee registry is rebuilt from those same calls. Appending here (rather
+            # than inside verify_calls_bound_to_summaries) keeps the calldata binding a pure function of
+            # committed state, with the execution-derived half added on top and clearly separable.
+            if _records_bound:
+                from execnode.stark import records_bind as _RBP
+                try:
+                    _pay_fx = _RBP.pay_effects_from_proof(proof)
+                except _RBP.Unbindable as _e:
+                    raise AssertionError(f"settle-with-proof carries an unsettleable payout: {_e}")
+                if _pay_fx:
+                    _rec_effects.extend(_pay_fx)
 
             if _records_bound:
                 # THE RECORDS BINDING. The effects come from THIS node's committed summaries — never from

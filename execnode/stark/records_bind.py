@@ -277,6 +277,98 @@ def block_records_effects(block):
 _RECORDS_SAFE_BLOB_OPS = frozenset({"deploy", "lock", "upgrade", "transfer_contract", "call"})
 
 
+def _PAY_BINDING():
+    """Read protocol.SETTLE_PROOF_RECORDS_PAY at CALL time — same rule as _VALUE_CALL_ESCROW: a consensus
+    switch must never be cached, or one node derives effects another does not."""
+    try:
+        import protocol
+        return bool(getattr(protocol, "SETTLE_PROOF_RECORDS_PAY", False))
+    except Exception:
+        return False
+
+
+def pay_effects_from_segment(seg):
+    """Records effects of every native PAY proven in ONE settle segment, as [(tag, parts, delta), ...].
+
+    WHY THIS CAN BE DERIVED AT ALL, when block_records_effects cannot. A payout is an EXECUTION outcome: it
+    never appears in the calldata, so L1 — which does not execute contracts — is blind to it at incorporate
+    time. That is why a PAY has always made a span unprovable. But the io log IS the proof: the STARK
+    commits to it, and settlement_proofs._run_call "raises on revert/bad payout" using the SAME rules the
+    live path applies (over-pay reverts and refunds, unresolvable payee reverts). So a VALID proof over a
+    span already establishes that each payout was affordable and actually applied — exactly the argument
+    SETTLE_PROOF_RECORDS_VALUE_CALLS makes for the escrow.
+
+    THE PAYEE RESOLVES WITHOUT TRUSTING THE PROVER. `zkvm_statement` registers digest→address for the
+    caller and every string arg of each call, and the prover starts from `registry = {}` and accumulates
+    only within the span (settlement_proofs). Rebuilding that registry here from the segment's own COMMITTED
+    calls therefore resolves exactly what the prover resolved — no more (a digest registered by some older
+    call is unprovable for the prover too, so this can never refuse an honest proof) and no less. Nothing is
+    read from the prover's side of the proof except the io log the STARK vouches for.
+
+    Attribution uses the io log's own structure: replay_io requires exactly one RET, last, per call, so the
+    flat epoch io splits into one RET-terminated chunk per call, in call order. The chunk count must equal
+    the call count — that equality is the check that the split is real and not a coincidence.
+
+    ASSET payouts are OUT OF SCOPE and refuse the span, matching block_records_effects: the asset ledger is
+    not part of the records projection this module derives, and half-deriving it would let a prover settle a
+    root that silently omits the rest.
+    """
+    from execnode import runtimes as _rt
+    from execnode import zkvm as _z
+    calls = seg.get("calls") or []
+    io = []
+    for e in (seg.get("io") or ()):
+        if not (isinstance(e, (list, tuple)) and len(e) == 3):
+            raise Unbindable("malformed io entry in settle proof")
+        io.append(tuple(int(x) for x in e))
+    chunks, cur = [], []
+    for e in io:
+        cur.append(e)
+        if e[0] == _z.IO_RET:
+            chunks.append(cur)
+            cur = []
+    if cur or len(chunks) != len(calls):
+        raise Unbindable(f"proof io does not split into one RET-terminated log per call "
+                         f"({len(chunks)} logs vs {len(calls)} calls)")
+    reg, effects = {}, []
+    for call, chunk in zip(calls, chunks):
+        try:
+            _rt.zkvm_statement(call.get("caller", "epoch"), call.get("args", []) or [], reg)
+        except Exception as e:
+            raise Unbindable(f"call statement not encodable: {e}")
+        split = _rt.split_io(chunk, reg)
+        if split is None:
+            raise Unbindable("proof io is not a settleable log (pairing or payee resolution failed)")
+        payouts, asset_fx = split
+        if asset_fx:
+            raise Unbindable("asset effects are outside the records projection this module derives")
+        cid = call.get("cid")
+        if not cid:
+            raise Unbindable("segment call has no cid to debit")
+        for addr, amt in payouts:
+            amt = int(amt)
+            if amt <= 0:
+                continue                       # split_io already drops non-positive bare payouts
+            # The exact pair execnode/state.py writes: bridge[cid] -= amt, bridge[to] += amt.
+            effects.append((ER.T_BRIDGE_BAL, (str(cid),), -amt))
+            effects.append((ER.T_BRIDGE_BAL, (str(addr),), amt))
+    return effects
+
+
+def pay_effects_from_proof(proof):
+    """Every native PAY effect across a settle proof's segments, or [] when the binding is switched off.
+
+    Raises Unbindable if any segment's io cannot be settled — fail-closed, so a span this cannot fully
+    account for keeps riding the bonded quorum rather than settling a partial root.
+    """
+    if not _PAY_BINDING():
+        return []
+    out = []
+    for seg in (proof.get("segments") or ()):
+        out.extend(pay_effects_from_segment(seg))
+    return out
+
+
 def span_effects(txs, accruals=(), div_carry=0):
     """Derive every records effect of a span, as [(tag, parts, delta), ...] in application order.
 

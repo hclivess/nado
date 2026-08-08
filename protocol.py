@@ -795,6 +795,25 @@ SETTLE_PROOF_RECORDS = True     # ENABLED at the alphanet-15 reroll — see gene
 # span to the clean prefix (2d4bcccf's pre-flight) is the mitigation that ships today.
 SETTLE_PROOF_RECORDS_VALUE_CALLS = True    # ENABLED at the alphanet-16 reroll — see generation 17 below.
 
+# PAYOUTS IN-PROOF. A PAY opcode moves bridge balances, and a payout is an EXECUTION outcome that never
+# appears in the calldata — so block_records_effects, which runs at incorporate time on a node that does not
+# execute contracts, is blind to it. Every span containing one has therefore been refused outright and left
+# to the bonded quorum. With this on, the effects are DERIVED from the proof's own io log instead
+# (records_bind.pay_effects_from_proof): the STARK commits to that log, and settlement_proofs._run_call
+# raises on revert/bad payout under the SAME rules the live path applies, so a valid proof already
+# establishes the payout was affordable and applied. The payee resolves through a registry rebuilt from the
+# segment's committed calls — the prover starts from an empty registry and accumulates only within the span,
+# so this resolves exactly what the prover could and can never refuse an honest proof.
+#
+# OFF BY DEFAULT, AND A CONSENSUS SWITCH. It changes which settle transactions a node ACCEPTS, so a fleet
+# running mixed values would split on the first block carrying a payout settle: accepted by the updated
+# nodes, rejected by the rest. Flip it only once every node has the code — a reroll is the clean way, the
+# same route SETTLE_PROOF_RECORDS_VALUE_CALLS took.
+#
+# Latent today: every settle-prove on alphanet-16 has run with calls=0, so no span has yet contained a
+# payout at all. It becomes the binding constraint the moment the games carry real traffic.
+SETTLE_PROOF_RECORDS_PAY = False
+
 # ---- DEPTH-GATED PROOF VERIFICATION (doc/settle-proof-transport.md §4, option 1) --------------------
 # A settle proof is ~97 MiB against a ~256 KiB block, so it cannot ride in the block and must be fetched.
 # Re-fetching and re-verifying one per settle across all of history would make joining the network cost
