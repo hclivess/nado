@@ -190,6 +190,35 @@ def _per_lde_key(col, N, T):
     return (N, T, _hl.blake2b(_arr("Q", col).tobytes(), digest_size=16).digest())
 
 
+_PER_HINTED = set()                  # digests already reported, so the hint is once per column, not per query
+
+
+def _periodic_period_hint(col):
+    """Smallest POWER-OF-TWO period p < len(col) with col[i] == col[i % p], else None.
+
+    AN AIR-AUTHORING CHECK, not a correctness one. A periodic column whose period is a power of two
+    dividing T can be handed to the verifier in STRUCTURED form ({"period", "base", "sparse"}), which
+    _per_evaluator evaluates in O(period + #sparse) — INDEPENDENT of T. Passed as a dense list instead, the
+    same column costs an O(T) interpolation and a coset LDE, which is what made periodic evaluation 97.6%
+    of this verifier's time before the LDE cache existed.
+
+    This is how StarkWare's verifier avoids the cost entirely rather than caching it. Verified in
+    cairo-lang's periodic_columns.cairo: eval_pedersen_x is a Horner loop over the PERIOD's coefficients,
+    with "A periodic column of N values yields these values on the subgroup of size N. To simulate a
+    periodic column with 2**k repetitions, one should evaluate at point**(2**k) instead." Their AIRs are
+    designed so the period is a power of two; ours are not — merkle_update repeats on BR=55 and
+    seg=257*55=14135, neither a power of two, which is precisely why its 16 columns are dense and needed a
+    cache. That is a design lesson worth catching automatically rather than remembering.
+    """
+    n = len(col)
+    p = 1
+    while p < n:
+        if n % p == 0 and all(col[i] == col[i % p] for i in range(p, n)):
+            return p
+        p <<= 1
+    return None
+
+
 def _per_lde_cached(col, N, T, offset):
     """The coset LDE of a dense periodic column, computed once per distinct RECURRING column.
 
@@ -202,6 +231,16 @@ def _per_lde_cached(col, N, T, offset):
     if hit is not None:
         _PER_LDE_CACHE.move_to_end(k)                      # LRU: reuse protects the entry
         return hit, True
+    if k not in _PER_HINTED:
+        _PER_HINTED.add(k)
+        if len(_PER_HINTED) > 512:
+            _PER_HINTED.clear()                            # bounded; the hint may simply repeat later
+        _p = _periodic_period_hint(col)
+        if _p is not None and _p * 8 <= len(col):          # only worth saying when the win is large
+            print(f"[stark] AIR HINT: a dense periodic column of length {len(col)} is actually "
+                  f"{_p}-periodic (a power of two). Passing it as {{'period': {_p}, 'base': [...]}} lets "
+                  f"the verifier evaluate it in O({_p}) instead of building an O(N={N}) coset LDE.",
+                  flush=True)
     lde = _arr("Q", _coset_evaluate(F.interpolate(list(col)), N, offset))
     if k in _PER_LDE_SEEN:                                 # seen before -> it recurs -> earn a slot
         _PER_LDE_SEEN.pop(k, None)
