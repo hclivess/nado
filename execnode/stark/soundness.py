@@ -48,6 +48,37 @@ the hi limb. Constraint degree is unchanged. The RECURSION backend keeps the
 base-field layout (its in-circuit verifier cannot do ext), so both layouts are live
 and stark.ext_challenges_active is the single authority on which one applies.
 
+BLOWUP IS CHOSEN PER RECURSION LEVEL, NOT ONCE
+----------------------------------------------
+Measured from StarkWare's live stack (2026-08), all three landing on exactly 96 bits:
+
+    stwo base Cairo prover        blowup 2    70 queries   pow 26   <- prover-bound
+    stwo recursion multiverifier  blowup 8    23 queries   pow 27   <- in-circuit-verify-bound
+    Stone -> Ethereum L1          blowup 64   11 queries   pow 30   <- gas/calldata-bound
+    (L1 figures decoded from live verifyProofAndRegister calldata; deployed verifiers carry
+     numSecurityBits_ = 96, minProofOfWorkBits_ = 30.)
+
+The rule is: FIX lambda, then slide the blowup UP as you move outward through the recursion tree,
+because each level has a different thing paying for a query.
+
+WHERE THAT LEAVES NADO. Our base prover sits at blowup 2 / 320 queries, the same low-blowup regime
+as their base prover, and for the same reason: proving is our bottleneck (a span proves in ~613s and
+verifies in ~26.9s after the periodic-LDE cache). Raising the blowup here would be backwards --
+blowup 16 cuts queries to ~77 but makes the LDE 8x larger, costing ~4900s of proving to save ~19s of
+verification. Checked, not assumed.
+
+Their queries are ~2x cheaper than ours almost entirely because they target 96 bits and we reach 156;
+at equal blowup this file prices 96 bits at 157 queries and 128 at 221. Extra GRINDING barely helps:
+18 -> 30 bits only buys back ~30 of our 320 queries, since a query yields ~0.4 bits in the JBR regime
+and grinding is merely additive.
+
+THE OPEN ITEM, for whoever activates the K->1 fold. Today it never runs (`_fold` requires exec calls
+and every span has had calls=0), so the whole tree is at blowup 2. When it does run, the INNER proofs
+are consumed by an in-circuit verifier, which is the multiverifier case above -- that level should
+carry a HIGHER blowup and fewer queries than the base, exactly as stwo does. Their fan-in is 2
+(the multiverifier "outputs the full unreduced Blake2s digest of its two verified inputs"), which
+matches recursion_depth.fold_tree's fan_in parameter.
+
 MODEL PROVENANCE
 ----------------
 The regime formulas below are transcribed from Ethereum's `soundcalc`
