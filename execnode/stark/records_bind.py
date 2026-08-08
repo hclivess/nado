@@ -277,17 +277,7 @@ def block_records_effects(block):
 _RECORDS_SAFE_BLOB_OPS = frozenset({"deploy", "lock", "upgrade", "transfer_contract", "call"})
 
 
-def _PAY_BINDING():
-    """Read protocol.SETTLE_PROOF_RECORDS_PAY at CALL time — same rule as _VALUE_CALL_ESCROW: a consensus
-    switch must never be cached, or one node derives effects another does not."""
-    try:
-        import protocol
-        return bool(getattr(protocol, "SETTLE_PROOF_RECORDS_PAY", False))
-    except Exception:
-        return False
-
-
-def pay_effects_from_segment(seg):
+def pay_effects_from_segment(seg, reg=None):
     """Records effects of every native PAY proven in ONE settle segment, as [(tag, parts, delta), ...].
 
     WHY THIS CAN BE DERIVED AT ALL, when block_records_effects cannot. A payout is an EXECUTION outcome: it
@@ -312,6 +302,12 @@ def pay_effects_from_segment(seg):
     ASSET payouts are OUT OF SCOPE and refuse the span, matching block_records_effects: the asset ledger is
     not part of the records projection this module derives, and half-deriving it would let a prover settle a
     root that silently omits the rest.
+
+    `reg` is the digest→address registry, SHARED across a proof's segments by pay_effects_from_proof. It is
+    accumulated span-wide rather than reset per segment so the prover can derive the same set from one
+    dry-run without reproducing the segmenter's boundaries. That cannot accept a payout the prover rejected:
+    prove_epoch resets its registry per segment, so a payee resolvable only via an EARLIER segment makes
+    split_io return None, _run_call raise, and the whole prove fail — there is no such proof to verify.
     """
     from execnode import runtimes as _rt
     from execnode import zkvm as _z
@@ -330,7 +326,9 @@ def pay_effects_from_segment(seg):
     if cur or len(chunks) != len(calls):
         raise Unbindable(f"proof io does not split into one RET-terminated log per call "
                          f"({len(chunks)} logs vs {len(calls)} calls)")
-    reg, effects = {}, []
+    if reg is None:
+        reg = {}
+    effects = []
     for call, chunk in zip(calls, chunks):
         try:
             _rt.zkvm_statement(call.get("caller", "epoch"), call.get("args", []) or [], reg)
@@ -356,16 +354,19 @@ def pay_effects_from_segment(seg):
 
 
 def pay_effects_from_proof(proof):
-    """Every native PAY effect across a settle proof's segments, or [] when the binding is switched off.
+    """Every native PAY effect across a settle proof's segments, in order.
 
     Raises Unbindable if any segment's io cannot be settled — fail-closed, so a span this cannot fully
     account for keeps riding the bonded quorum rather than settling a partial root.
+
+    ONE registry for the whole proof, so execnode's prover-side derivation (a single dry-run over the span,
+    settlement_proofs.span_payout_effects) produces the identical set without having to reproduce the
+    segmenter's boundaries. See pay_effects_from_segment for why span-wide accumulation cannot admit a
+    payout the prover itself rejected.
     """
-    if not _PAY_BINDING():
-        return []
-    out = []
+    reg, out = {}, []
     for seg in (proof.get("segments") or ()):
-        out.extend(pay_effects_from_segment(seg))
+        out.extend(pay_effects_from_segment(seg, reg))
     return out
 
 

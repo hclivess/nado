@@ -754,7 +754,8 @@ def _state_for(request):
     return states.get(ns)
 
 
-async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_hex_expected=None):
+async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_hex_expected=None,
+                              calls=None, pre_contracts=None, pre_bridge=None, beacons=None, bhashes=None):
     """Prove the RECORDS half of a span, or return None to leave it frozen.
 
     THE PROVER HAS NEVER BUILT ONE. records_transition.py has existed for weeks, ops/transaction_ops.py
@@ -776,6 +777,7 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
     """
     from execnode.stark import records_bind as RB, state_transition as SX, storage_tree as _SST
     from execnode import exec_root as _ER
+    from execnode import settlement_proofs as SP
     from protocol import EXEC_TREE_DEPTH as _D, EPOCH_LENGTH as _EL
     try:
         # DERIVE EXACTLY AS L1 DOES: PER BLOCK, via block_records_effects, in block order — NOT via
@@ -822,6 +824,24 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
             _aeff, carry = RB.dividend_accrual_effects(int((inf or {}).get("inflow", 0)),
                                                        (ow or {}).get("weights", {}) or {}, carry)
             effects.extend(_aeff)
+        # ...AND THE CONTRACT PAYOUTS. A PAY is an EXECUTION outcome: it never appears in the calldata, so
+        # block_records_effects above — which reads calldata only — is structurally blind to it. L1 derives
+        # the same payouts from the proof's own io log (records_bind.pay_effects_from_proof), so a records
+        # half built without them would be missing exactly what the verifier expects and could never bind.
+        #
+        # Derived by DRY-RUNNING the span through the SAME _run_call the prover uses, so the two sides go
+        # through one reader (runtimes.split_io) rather than two implementations that have to agree.
+        if calls:
+            try:
+                effects.extend(SP.span_payout_effects(
+                    pre_contracts or {}, calls, cursor=cur, beacons=beacons, block_hashes=bhashes,
+                    pre_bridge=pre_bridge))
+            except Exception as _pe:
+                # An unprovable call makes the whole span unprovable anyway; declining here just reaches
+                # that answer before paying for the records prove.
+                print(f"[execnode] records NOT DERIVABLE: payout dry-run refused the span "
+                      f"({type(_pe).__name__}: {_pe})", flush=True)
+                return None
         if not effects:
             # EMPTY-EFFECT TRAP: with nothing to prove L1 REQUIRES rec_post == rec_hex, which collapses to
             # the frozen case. Attaching an empty transition would move the half on nobody's authority.
@@ -1165,8 +1185,11 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
                          "would extend the same pre-state and could never land", cls="records-prove-inflight")
         _records_proving = True
         try:
-            _records_half = await _build_records_half(session, ns, type(st).snapshot_view(snap["state"]),
-                                                      span_blocks, sc, cur, rec_hex_expected=rec_hex)
+            _records_half = await _build_records_half(
+                session, ns, type(st).snapshot_view(snap["state"]), span_blocks, sc, cur,
+                rec_hex_expected=rec_hex, calls=calls, pre_contracts=pre_contracts, pre_bridge=pre_bridge,
+                beacons={e: v % _F.P for e, v in st.beacons.items()},
+                bhashes={h: v % _F.P for h, v in st.block_hashes.items()})
         finally:
             # `finally`, not a trailing assignment: _build_records_half can return None, raise, or be
             # cancelled, and any path that leaves this True would wedge the records half permanently — a

@@ -55,7 +55,7 @@ def _apply_payouts(bridge, cid, payouts):
 
 
 def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timestamp, beacons, block_hashes,
-              want_rows):
+              want_rows, payout_sink=None):
     """Execute ONE call against the mutable shadows (contracts, bridge, abal, assets, registry): advance
     storage, resolve native payouts AND asset effects, and return (epoch_call, public_call, rows). `rows`
     (executed step count, only when want_rows) is what the segmenter packs against MAX_T. Raises on
@@ -140,6 +140,13 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
     if split is None:
         raise ValueError(f"call {i}: bad io (unresolved payee / broken asset pairing)")
     payouts, effects = split
+    if payout_sink is not None:
+        # The prover's half of the PAY binding. L1 derives the same (cid, payee, amount) triples from this
+        # call's io in the settle proof (records_bind.pay_effects_from_proof); collecting them HERE, from
+        # the one reader both sides share (runtimes.split_io), is what keeps the two derivations equal by
+        # construction rather than by two implementations agreeing.
+        for _to, _amt in payouts:
+            payout_sink.append((cid, _to, int(_amt)))
     if not _apply_payouts(bridge, cid, payouts):
         raise ValueError(f"call {i}: unaffordable payout")
     if effects:
@@ -196,6 +203,40 @@ def first_unprovable_call(pre_contracts, calls, cursor, timestamp=0, beacons=Non
         except Exception as e:
             return i, f"{type(e).__name__}: {e}"
     return None, None
+
+
+def span_payout_effects(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
+                        pre_bridge=None, pre_abal=None, pre_assets=None):
+    """DRY-RUN a span and return its native payouts as records effects [(tag, parts, delta), ...].
+
+    THE PROVER'S HALF OF THE PAY BINDING. A payout is an execution outcome, so records_bind's per-block
+    derivation (which reads only calldata) cannot see it and the prover would otherwise build a records half
+    that omits exactly what L1 now derives from the proof — the proof would fail to bind every time.
+
+    Deliberately NOT a reimplementation: it drives the same _run_call the prover uses, which resolves payees
+    through the same runtimes.split_io and raises on the same revert/over-pay conditions. One registry across
+    the span, matching records_bind.pay_effects_from_proof.
+
+    Raises on any call the prover could not prove — the caller then declines the proof path, which is the
+    same answer it would have reached one step later anyway.
+    """
+    import copy
+    contracts = copy.deepcopy(pre_contracts)
+    bridge = dict(pre_bridge or {})
+    abal = {a: dict(h) for a, h in (pre_abal or {}).items()}
+    assets = copy.deepcopy(pre_assets or {})
+    registry, sink = {}, []
+    for i, call in enumerate(calls):
+        _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timestamp, beacons,
+                  block_hashes, want_rows=False, payout_sink=sink)
+    from execnode import exec_root as _ER
+    out = []
+    for cid, to, amt in sink:
+        if amt <= 0:
+            continue
+        out.append((_ER.T_BRIDGE_BAL, (str(cid),), -amt))
+        out.append((_ER.T_BRIDGE_BAL, (str(to),), amt))
+    return out
 
 
 def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,

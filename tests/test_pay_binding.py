@@ -49,8 +49,6 @@ OTHER = "3333333333333333333333333333333333333333333333"
 
 def check(name, fn):
     global fails
-    prev = protocol.SETTLE_PROOF_RECORDS_PAY
-    protocol.SETTLE_PROOF_RECORDS_PAY = True          # the flag is a consensus switch; default is OFF
     try:
         fn()
         print(f"PASS  {name}")
@@ -58,8 +56,6 @@ def check(name, fn):
         fails += 1
         print(f"FAIL  {name}: {e}")
         traceback.print_exc()
-    finally:
-        protocol.SETTLE_PROOF_RECORDS_PAY = prev
 
 
 def seg(calls, io):
@@ -160,20 +156,38 @@ def t_a_segment_call_without_a_cid_is_refused():
 
 # ---- the consensus switch -------------------------------------------------------------------------------
 
-def t_the_flag_is_off_by_default():
-    """It changes which settle transactions a node ACCEPTS, so a mixed fleet would split on the first block
-    carrying a payout settle."""
+def t_there_is_no_switch_to_forget():
+    """It ships unconditional. A dormant flag is a second code path nobody exercises, and this one was
+    introduced at the only moment enabling it is free: every settle-prove on alphanet-16 has run with
+    calls=0, so no span on chain contains a payout for a mixed fleet to disagree about."""
     src = open(os.path.join(ROOT, "protocol.py")).read()
-    assert "SETTLE_PROOF_RECORDS_PAY = False" in src, "the switch must ship OFF"
+    assert "SETTLE_PROOF_RECORDS_PAY = False" not in src, "no off-by-default switch"
+    assert "SETTLE_PROOF_RECORDS_PAY = True" not in src, "and no switch at all"
+    rb = open(os.path.join(ROOT, "execnode/stark/records_bind.py")).read()
+    assert "_PAY_BINDING" not in rb, "the flag reader must be gone too"
 
 
-def t_the_flag_is_read_at_call_time():
-    """A cached copy would let one node derive effects another does not."""
-    seg1 = seg([call()], [(Z.IO_PAY, dg(PAYEE), 9), (Z.IO_RET, 0, 0)])
-    protocol.SETTLE_PROOF_RECORDS_PAY = False
-    assert RB.pay_effects_from_proof({"segments": [seg1]}) == [], "off must derive nothing"
-    protocol.SETTLE_PROOF_RECORDS_PAY = True
-    assert RB.pay_effects_from_proof({"segments": [seg1]}), "on must derive the payout"
+def t_the_registry_is_shared_across_a_proofs_segments():
+    """Span-wide accumulation, matching the prover's single dry-run. It cannot admit a payout the prover
+    rejected: prove_epoch resets its registry per segment, so a payee resolvable only via an earlier
+    segment makes split_io return None and the whole prove fail — there is no such proof to verify."""
+    a = seg([call(args=(PAYEE,))], [(Z.IO_RET, 0, 0)])              # registers PAYEE, pays nothing
+    b = seg([call(args=())], [(Z.IO_PAY, dg(PAYEE), 9), (Z.IO_RET, 0, 0)])   # pays it in a LATER segment
+    fx = RB.pay_effects_from_proof({"segments": [a, b]})
+    assert (ER.T_BRIDGE_BAL, (PAYEE,), 9) in fx, f"the shared registry must resolve it: {fx}"
+
+
+def t_the_prover_derives_the_same_shape():
+    """The prover's half must produce the same (tag, parts, delta) triples, or the records half it proves
+    is missing exactly what the verifier derives and can never bind."""
+    from execnode import settlement_proofs as SP
+    assert callable(SP.span_payout_effects), "the prover needs its own derivation"
+    src = open(os.path.join(ROOT, "execnode/settlement_proofs.py")).read()
+    seg_src = src[src.index("def span_payout_effects"):src.index("def prove_epoch")]
+    assert "_run_call" in seg_src, "it must drive the SAME runner, not a reimplementation"
+    assert "T_BRIDGE_BAL" in seg_src, "and emit the same records positions"
+    ex = open(os.path.join(ROOT, "execnode/execnode.py")).read()
+    assert "SP.span_payout_effects(" in ex, "the records half must actually include them"
 
 
 def t_a_frozen_records_proof_still_refuses_a_pay():
@@ -208,8 +222,9 @@ for nm, fn in [("a payout derives the pair state writes", t_a_payout_derives_the
                ("an unterminated log is refused", t_a_trailing_unterminated_log_is_refused),
                ("an asset payout refuses the span", t_an_asset_payout_refuses_the_span),
                ("a call without a cid is refused", t_a_segment_call_without_a_cid_is_refused),
-               ("the flag is off by default", t_the_flag_is_off_by_default),
-               ("the flag is read at call time", t_the_flag_is_read_at_call_time),
+               ("there is no switch to forget", t_there_is_no_switch_to_forget),
+               ("registry shared across a proof's segments", t_the_registry_is_shared_across_a_proofs_segments),
+               ("the prover derives the same shape", t_the_prover_derives_the_same_shape),
                ("a frozen records proof still refuses a PAY", t_a_frozen_records_proof_still_refuses_a_pay),
                ("derivation runs after the calldata binding", t_the_derivation_runs_only_after_the_calldata_binding)]:
     check(nm, fn)
