@@ -275,7 +275,12 @@ def report():
     print("=" * 78)
     print(f"  blowup 2^{R}   queries {s}   grind {g}   trace 2^{p['log_trace']}"
           f"   FRI domain 2^{nu}")
-    print(f"  challenge field: {'GF(p^2)' if p['ext'] else 'BASE Goldilocks'}"
+    # NAME THE FIELD THE CODE IS ACTUALLY IN. This printed a hardcoded "GF(p^2)" beside an E computed as
+    # extf.DEGREE * 64, so on the live GF(p^3) build it reported "GF(p^2) -> E = 192" — a label and a number
+    # that cannot both be true, in the one file people size parameters from. E_FIELD's own docstring warns
+    # about exactly this ("a hardcoded E_EXT2 silently reports GF(p^2) numbers for whatever degree the code
+    # is really running"); the warning just had not been applied to the header.
+    print(f"  challenge field: {('GF(p^%d)' % (E // E_BASE)) if p['ext'] else 'BASE Goldilocks'}"
           f"  ->  E = {E} bits")
 
     a = achieved(R, nu, E, s, g, p["log_trace"])
