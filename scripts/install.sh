@@ -15,12 +15,18 @@
 #
 #   curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service
 #
-# COMPLETE PACKAGE (L1 + shielded pool). --exec also runs the execution / shielded-pool node on :9273, which
-# powers private deposits/withdrawals + shielded transfers and the on-device (in-browser) zk-STARK prover:
+# COMPLETE PACKAGE (L1 + shielded pool), and the exec node is now installed BY DEFAULT. It runs on :9273 and
+# powers private deposits/withdrawals + shielded transfers, the on-device (in-browser) zk-STARK prover, and
+# this node's DA store — which is how a settle publishes a proof too large to inline instead of carrying
+# ~69 MiB inside the transaction for every peer to re-parse. A fleet of L1-only nodes has no DA store
+# anywhere, so that path silently cannot work; that was the live state on 2026-08-08.
 #
-#   scripts/install.sh --exec                    # run the L1 node AND the shielded-pool node
-#   sudo scripts/install.sh --service --exec     # both, unattended, as boot-on-start systemd services
-#   sudo scripts/install.sh --service --exec-settle  # + anchor the shielded state-root to L1 (uses this node's keys)
+# Proving is NOT part of the default: --exec-settle is what anchors the exec state-root to L1, and it stays
+# opt-in. Use --no-exec for a bare L1 node.
+#
+#   sudo scripts/install.sh --service                # L1 + shielded pool + DA store (the default)
+#   sudo scripts/install.sh --service --no-exec      # L1 only — no shielded pool, no contracts, no DA
+#   sudo scripts/install.sh --service --exec-settle  # + anchor the shielded state-root to L1 (this node's keys)
 #
 # Unattended auto-bond: pass a percentage to auto-compound mined rewards into bonded stake. Works with
 # or without --service (it sets NADO_AUTO_BOND_PERCENT for the service, or prints it for manual runs):
@@ -125,7 +131,17 @@ SERVICE_USER="${SUDO_USER:-$(id -un)}"
 # ---- parse args ----------------------------------------------------------------------------------
 WITH_WALLET=0
 WITH_SERVICE=0
-WITH_EXEC=0
+# ON BY DEFAULT. The exec node is what holds the shielded pool, executes contracts, and — the reason this
+# default changed — runs the node's DA store. Data availability is how a settle publishes a proof too large
+# to inline: the transaction then carries a commitment instead of ~69 MiB of proof that every node re-parses
+# on every candidate build. It has never worked on this fleet, and 2026-08-08 finally showed why: peers
+# answered "Cannot connect to host 127.0.0.1:9273" from their OWN L1, i.e. they simply were not running an
+# exec node, so there was no DaStore anywhere to serve a shard.
+#
+# The cost is modest and, importantly, does NOT include proving: --exec-settle is what anchors the exec
+# state-root to L1, and that stays opt-in. Use --no-exec for an L1-only box.
+WITH_EXEC=1
+EXEC_EXPLICIT_OFF=0        # set only by --no-exec, so the adopt-existing-unit logic below can honour it
 EXEC_SETTLE=0
 DATA_HOME=""
 # native ML-DSA (Rust) backend: 55x faster signature verify — the chain's main CPU cost. Empty = ASK
@@ -148,7 +164,8 @@ while [ $# -gt 0 ]; do
     --update-interval) shift; echo "note: auto-update is built into the node now — --update-interval ignored" ;;
     --pq-native)   PQ_NATIVE=1 ;;            # build the native Rust ML-DSA verify backend (55x faster)
     --no-pq-native) PQ_NATIVE=0 ;;           # skip it (stay pure-Python)
-    --exec)        WITH_EXEC=1 ;;            # also run the execution / shielded-pool node (:9273)
+    --exec)        WITH_EXEC=1 ;;            # (default) run the execution / shielded-pool node (:9273)
+    --no-exec)     WITH_EXEC=0; EXEC_EXPLICIT_OFF=1 ;;  # L1 only — no shielded pool, no contracts, NO DA store
     --exec-settle) WITH_EXEC=1; EXEC_SETTLE=1 ;;  # + settle the exec state-root to L1 (uses this node's keys)
     --user)        shift; SERVICE_ACCOUNT="${1:?--user needs an account name}" ;;  # run as a dedicated system account
     --user=*)      SERVICE_ACCOUNT="${1#*=}" ;;
@@ -173,7 +190,11 @@ done
 # --exec-settle would stop L1 settlement, a lost NADO_EXEC_STATE would boot the exec node with EMPTY
 # state, a lost PQ env would quietly cost the 55x native verify. Explicit flags still win.
 if [ -f /etc/systemd/system/nado-exec.service ]; then
-  if [ $WITH_EXEC -ne 1 ]; then
+  # --no-exec is an EXPLICIT flag and must win here, or this block silently re-enables what the operator
+  # just asked to remove. Before the exec node became the default, WITH_EXEC=0 could only mean "not asked
+  # for", so adopting was always right; now it can also mean "asked against", and the two must not be
+  # confused — the comment above already promised explicit flags win.
+  if [ $WITH_EXEC -ne 1 ] && [ $EXEC_EXPLICIT_OFF -eq 0 ]; then
     echo "note: nado-exec.service already installed — keeping the exec node (implies --exec)"
     WITH_EXEC=1
   fi
