@@ -13,7 +13,7 @@ const _perLdeCache = new WeakMap();   // periodic array -> {N, lde}; the periodi
 function nextPow2(x) { let p = 1; while (p < x) p <<= 1; return p; }
 function blowupOf(maxDegree) { return 2 * nextPow2(maxDegree); }
 
-function composition(T, W, N, blowup, gT, colLde, perLde, xLde, transitions, boundaries, alphas) {
+function composition(T, W, N, blowup, gT, colLde, perLde, xLde, transitions, boundaries, alphas, useExt) {
   const { add, sub, mul, pw, batchInverse } = F;
   const last = pw(gT, BigInt(T - 1)), Tb = BigInt(T);
   // Transition vanishing is the SAME for every constraint: invZ[j] = (xLde[j]-last) / (xLde[j]^T - 1).
@@ -30,6 +30,25 @@ function composition(T, W, N, blowup, gT, colLde, perLde, xLde, transitions, bou
     for (let c = 0; c < W; c++) { cur[c] = colLde[c][j]; nxt[c] = colLde[c][jn]; }
     for (let k = 0; k < Pn; k++) per[k] = perLde[k][j];
     curRow[j] = cur; nxtRow[j] = nxt; perRow[j] = per;
+  }
+  // EXTENSION alphas (stark.EXT_ALPHAS): the constraint VALUES stay base-field (this circuit has no ext aux
+  // columns), so each term is extScalarMul(alpha, base_value * invZ) and cp becomes GF(p^DEGREE)-valued —
+  // exactly _composition._combine(a, v, iz) = ext.mul(a, ext.scalar_mul(lift(v), iz)) for a base v. FRI carries
+  // the ext-ness from layer 0 via ext0.
+  if (useExt) {
+    const cp = new Array(N); for (let j = 0; j < N; j++) cp[j] = F.EXT_ZERO;
+    let ai = 0;
+    for (const con of transitions) {
+      const a = alphas[ai++];
+      for (let j = 0; j < N; j++) cp[j] = F.extAdd(cp[j], F.extScalarMul(a, mul(con(curRow[j], nxtRow[j], perRow[j]), invZ[j])));
+    }
+    for (const [row, col, val] of boundaries) {
+      const a = alphas[ai++], pt = pw(gT, BigInt(row)), v = BigInt(val), den = new Array(N);
+      for (let j = 0; j < N; j++) den[j] = sub(xLde[j], pt);
+      const invDen = batchInverse(den);
+      for (let j = 0; j < N; j++) cp[j] = F.extAdd(cp[j], F.extScalarMul(a, mul(sub(colLde[col][j], v), invDen[j])));
+    }
+    return cp;
   }
   const cp = new Array(N).fill(0n);
   let ai = 0;
@@ -78,13 +97,17 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
     colRoots.push(root); colMlayers.push(ml); t.absorb(root);
   }
   _mk("merkle.commit x16 (blake2b)");
+  // CONSTRAINT ALPHAS from GF(p^DEGREE) (stark.EXT_ALPHAS) — a base-field alpha caps the STARK's commit phase
+  // far below what FRI buys, so the Python verifier draws them from the extension field and rejects a
+  // base-field proof. Draw them the same way; the aux (LogUp) challenges do not apply — this circuit has none.
+  const useExt = fri.EXT_CHALLENGES;
   const alphas = [];
-  for (let i = 0; i < transitions.length + boundaries.length; i++) alphas.push(t.challenge());
-  const cp = composition(T, W, N, blowup, gT, colLde, perLde, xLde, transitions, boundaries, alphas);
+  for (let i = 0; i < transitions.length + boundaries.length; i++) alphas.push(useExt ? t.challengeExt() : t.challenge());
+  const cp = composition(T, W, N, blowup, gT, colLde, perLde, xLde, transitions, boundaries, alphas, useExt);
   _mk("composition (17 constraints)");
 
   const friBlowup = N / degBound;
-  const friProof = fri.prove(cp, OFF, friBlowup, numQueries, t);
+  const friProof = fri.prove(cp, OFF, friBlowup, numQueries, t, useExt);
   _mk("fri.prove");
 
   const openings = [];

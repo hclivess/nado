@@ -31,7 +31,7 @@ import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
  * adds no trust: the relay already supplies balances, fees and block targets. */
-let CHAIN_ID = "alphanet-12";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
+let CHAIN_ID = "alphanet-17";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
 const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector

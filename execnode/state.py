@@ -84,13 +84,23 @@ def _normalize_bundle(bundle):
     if "pow" in fr and fr["pow"] is not None:
         fr["pow"] = int(fr["pow"])                 # C-1 grinding nonce (JSON number -> int)
     if "final" in fr:
-        fr["final"] = [int(x) for x in fr["final"]]
+        fr["final"] = [_coerce_fri_value(x) for x in fr["final"]]
     for q in fr.get("queries", []):
         for s in q.get("steps", []):
-            s["lo"] = int(s["lo"]); s["hi"] = int(s["hi"])
+            s["lo"] = _coerce_fri_value(s["lo"]); s["hi"] = _coerce_fri_value(s["hi"])
     for op in p.get("openings", []):
         for c in op.get("cols", []):
-            c["cur"] = int(c["cur"]); c["nxt"] = int(c["nxt"])
+            c["cur"] = _coerce_fri_value(c["cur"]); c["nxt"] = _coerce_fri_value(c["nxt"])
+
+
+def _coerce_fri_value(v):
+    """A FRI leaf / opening value after a JSON round trip. A base-field proof carries scalars (int); an
+    EXTENSION-field proof (the GF(p^2) challenge upgrade) carries limb TUPLES that JSON delivers as lists.
+    Coerce element-wise for the latter — a bare int([lo, hi]) raised TypeError and killed every ext proof on
+    apply, so this must never assume the value is scalar."""
+    if isinstance(v, (list, tuple)):
+        return [int(x) for x in v]
+    return int(v)
 
 
 
@@ -1429,6 +1439,15 @@ class ExecState:
                 pv = int(public.get("public_value", 0))
                 if pv > 0:
                     return "skip shielded_transfer: public_value > 0 (coins enter only via an L1 shield)"
+                # Validate the exit destination BEFORE any mutation. apply_transfer records the nullifier and
+                # appends the output commitments, so a missing withdraw_addr checked AFTERWARDS burned the note
+                # for a malformed unshield with no exit recorded — the exact ordering apply_field_transfer was
+                # already fixed for. Mirror it here on the transparent path.
+                addr = None
+                if pv < 0:
+                    addr = public.get("withdraw_addr")
+                    if not addr:
+                        return "skip: unshield missing withdraw_addr"
                 ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
                 if not ok:
                     return f"skip shielded_transfer: {reason}"
@@ -1436,9 +1455,6 @@ class ExecState:
                 self.pool_value += pv - _fee              # shielded supply (ops/invariants)
                 self.pool_fees += _fee
                 if pv < 0:
-                    addr = public.get("withdraw_addr")
-                    if not addr:
-                        return "skip: unshield missing withdraw_addr"
                     self.uw_nonce += 1
                     nonce = str(self.uw_nonce)
                     self.unshield_withdrawals[nonce] = {"addr": addr, "amount": -pv}

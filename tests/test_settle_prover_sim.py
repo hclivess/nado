@@ -46,13 +46,16 @@ _saved = (_fri.NUM_QUERIES, _stark.NUM_QUERIES, protocol.EXEC_TREE_DEPTH, protoc
           protocol.SETTLE_PROOF_TRUSTLESS)
 try:
     _fri.NUM_QUERIES = 2; _stark.NUM_QUERIES = 2; protocol.EXEC_TREE_DEPTH = D8
-    kv_g8 = SST.SparseStore(D8, {}).root()
+    COUNTER = {"bump": zkvmasm.assemble("movi r1 0\n sload r2 r1\n movi r3 1\n add r2 r3\n sstore r1 r2\n ret r2")}
+    CID = "c" * 32; CALLER = "ndo" + "A" * 46
+    # CID is deployed (empty slots) in the proof's pre-state, so the genesis tip it extends must carry its code
+    # leaf — contract CODE is now committed in the KV half (exec_state_bind.code_key), so a deployed contract
+    # is no longer invisible until its first slot write. Project the genesis contract set into kv_g8.
+    GEN_CONTRACTS = {CID: {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}}
+    kv_g8 = SST.SparseStore(D8, SS.sparse_projection(GEN_CONTRACTS, D8)).root()
     rec_g8 = SST.SparseStore(D8, ER.records_projection(ExecState(tempfile.mktemp(suffix=".json")))).root()
     rec_hex8 = SST.digest_hex(rec_g8)
     protocol.EXEC_GENESIS_ROOT = ER.full_root_hex(kv_g8, rec_g8)
-
-    COUNTER = {"bump": zkvmasm.assemble("movi r1 0\n sload r2 r1\n movi r3 1\n add r2 r3\n sstore r1 r2\n ret r2")}
-    CID = "c" * 32; CALLER = "ndo" + "A" * 46
 
     # --- 1) QUORUM-settle the genesis tip at cursor 0 (the first settlement must be by quorum) ---
     V = generate_keys(); create_account(V["address"], balance=B_MIN, bonded=4 * B_MIN)

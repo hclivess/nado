@@ -25,10 +25,28 @@ def call_leaf(call, cursor=0, timestamp=0):
     blake2b over a canonical list, so Python (L1/exec) and the Rust prover agree."""
     cur = int(call.get("cursor", cursor))
     ts = int(call.get("timestamp", timestamp))
+    # `asset` is the call's ACTX_ASSET context — a PUBLIC input the VM reads and the exec proof runs over, but
+    # it was absent from this leaf, so the DA binding could not detect an asset substitution. A value==0 asset
+    # call is records-inert (proof-settleable), and a contract that branches on ACTX_ASSET would prove a
+    # different storage transition under a swapped asset with the DA commitment still matching. Bind it in the
+    # SAME canonical int form the exec statement uses (_epoch_pub_statement: int(call.asset); 0 == native).
     payload = ["call", str(call.get("cid", "")), str(call.get("method", "")),
                str(call.get("caller", "epoch")), [_arg_field(a) for a in call.get("args", [])],
-               int(call.get("value", 0)), cur, ts]
+               int(call.get("value", 0)), cur, ts, _asset_field(call.get("asset", 0))]
     return int(blake2b_hash(payload), 16) % F.P
+
+
+def _asset_field(a):
+    """A call's `asset` context as the canonical int the exec statement commits (int(call.asset); 0 == native
+    NADO). Asset ids are decimal-string alghash2 digests, so int() is exact; an unparseable value maps to 0 —
+    it could not have named a real asset (the VM reads asset % P and a non-asset call reverts), and this
+    function, like _safe_int, must never be the reason a block has no summary."""
+    if isinstance(a, bool):
+        return 0
+    try:
+        return int(a or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _arg_field(a):
@@ -94,7 +112,7 @@ def block_calls(block, ns="default"):
             continue
         calls.append({"cid": d.get("contract"), "method": d.get("method"), "caller": tx.get("sender"),
                       "args": d.get("args", []), "value": _safe_int(d.get("value")),
-                      "cursor": h, "timestamp": ts})
+                      "asset": _asset_field(d.get("asset")), "cursor": h, "timestamp": ts})
     return calls
 
 

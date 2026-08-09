@@ -33,13 +33,16 @@ fs.writeFileSync("'$TMP'/fri.json",JSON.stringify(ser(proof)));
 '
 $VENV - "$TMP/fri.json" <<'PY'
 import sys,json; sys.path.insert(0,".")
-from execnode.stark import fri
+from execnode.stark import fri, field as F
 p=json.load(open(sys.argv[1]))
-p["offset"]=int(p["offset"]); p["final"]=[int(x) for x in p["final"]]
+_c=lambda v: [int(x) for x in v] if isinstance(v,(list,tuple)) else int(v)   # base scalar or GF(p^D) limbs
+p["offset"]=int(p["offset"]); p["final"]=[_c(x) for x in p["final"]]
 for q in p["queries"]:
-    for s in q["steps"]: s["lo"]=int(s["lo"]); s["hi"]=int(s["hi"])
+    for s in q["steps"]: s["lo"]=_c(s["lo"]); s["hi"]=_c(s["hi"])
 ok,why=fri.verify(p); assert ok, "Python rejected the JS FRI proof: "+why
-p["queries"][0]["steps"][0]["lo"]+=1; assert not fri.verify(p)[0], "tamper not caught"
+_lo=p["queries"][0]["steps"][0]["lo"]
+p["queries"][0]["steps"][0]["lo"]=([(_lo[0]+1)%F.P]+list(_lo[1:])) if isinstance(_lo,list) else _lo+1
+assert not fri.verify(p)[0], "tamper not caught"
 print("Phase 2 FRI (JS proof, Python verify): OK")
 PY
 rm -rf "$TMP"

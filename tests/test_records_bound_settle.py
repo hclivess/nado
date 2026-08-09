@@ -89,13 +89,16 @@ try:
         return ExecState(os.path.join(tempfile.mkdtemp(), "s.json"))
 
     st0 = _fresh_state()
-    kv_g8 = SST.SparseStore(D8, {}).root()
+    COUNTER = {"bump": zkvmasm.assemble(
+        "movi r1 0\n sload r2 r1\n movi r3 1\n add r2 r3\n sstore r1 r2\n ret r2")}
+    # CID is deployed (empty slots) in the proof's pre-state, so the genesis tip it extends must carry its
+    # code leaf — contract CODE is now committed in the KV half (exec_state_bind.code_key), so a deployed
+    # contract is no longer invisible until its first slot write. Project the genesis contract set into kv_g8.
+    GEN_CONTRACTS = {CID: {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}}
+    kv_g8 = SST.SparseStore(D8, SS.sparse_projection(GEN_CONTRACTS, D8)).root()
     rec_g8 = RT.records_store(st0, D8).root()
     rec_hex8 = SST.digest_hex(rec_g8)
     protocol.EXEC_GENESIS_ROOT = ER.full_root_hex(kv_g8, rec_g8)
-
-    COUNTER = {"bump": zkvmasm.assemble(
-        "movi r1 0\n sload r2 r1\n movi r3 1\n add r2 r3\n sstore r1 r2\n ret r2")}
 
     print("\nspan: 1 block carrying a contract call (KV half) AND a bridge deposit (RECORDS half)\n")
 
@@ -194,13 +197,20 @@ try:
           raises(lambda: validate_transaction(
               construct_settle_tx(_fresh_settler(), H, real_root, BH, ns=NS, proof=proof), logger, BH)))
 
-    # (e) and a value>0 call is one of those: its escrow is refunded on revert, so the net effect is not
-    #     a function of the calldata.
+    # (e) and a value>0 call is one of those WHEN value-call escrow is not being derived: its escrow is
+    #     refunded on revert, so absent that flag the net effect is not a function of the calldata. Gen 17
+    #     (SETTLE_PROOF_RECORDS_VALUE_CALLS) flipped the default to derive it ("the proof is the verdict"), so
+    #     this sub-case pins the flag OFF to keep exercising the non-derivable fallback it is about.
     vblock = {"block_number": 2, "block_hash": "02" * 32, "block_transactions": [
         {"recipient": "blob", "sender": CALLER,
          "data": {"op": "call", "contract": CID, "method": "bump", "args": [], "value": 5, "ns": NS}}]}
-    _e2, _d2 = RB.block_records_effects(vblock)
-    check("a value>0 call is correctly marked NON-derivable", _d2 is False and _e2 is None)
+    _saved_vc = protocol.SETTLE_PROOF_RECORDS_VALUE_CALLS
+    try:
+        protocol.SETTLE_PROOF_RECORDS_VALUE_CALLS = False
+        _e2, _d2 = RB.block_records_effects(vblock)
+    finally:
+        protocol.SETTLE_PROOF_RECORDS_VALUE_CALLS = _saved_vc
+    check("a value>0 call is correctly marked NON-derivable (value-call escrow off)", _d2 is False and _e2 is None)
 finally:
     (_fri.NUM_QUERIES, _stark.NUM_QUERIES, protocol.EXEC_TREE_DEPTH, protocol.EXEC_GENESIS_ROOT,
      protocol.SETTLE_PROOF_TRUSTLESS, protocol.SETTLE_PROOF_RECORDS) = _saved

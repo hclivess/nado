@@ -5,7 +5,7 @@
  * browser-generated proof unverifiable). Domain bytes T/A/C/X/G separate init / absorb / challenge / index /
  * grind exactly as the Python backend does. */
 import { b2b32, tag, i8le, u16le, hexToBytes } from "./bhash.js";
-import { P } from "./field.js";
+import { P, EXT_DEGREE } from "./field.js";
 
 const _TE = new TextEncoder();
 
@@ -32,6 +32,9 @@ export class Transcript {
   constructor(label = DOMAIN_STARK) { this.state = b2b32(tag("T"), _TE.encode(String(label))); }
   absorb(...items) { this.state = b2b32(tag("A"), hexToBytes(this.state), ...enc(items)); }
   challenge() { this.state = b2b32(tag("C"), hexToBytes(this.state)); return BigInt("0x" + this.state) % P; }
+  // A uniform GF(p^DEGREE) element as the DEGREE-tuple [c0,...] — DEGREE independent base draws, exactly as
+  // Transcript.challenge_ext (execnode/stark/transcript.py). DEGREE is read from field.js so the two agree.
+  challengeExt() { const out = new Array(EXT_DEGREE); for (let i = 0; i < EXT_DEGREE; i++) out[i] = this.challenge(); return out; }
   challengeIndex(bound) { this.state = b2b32(tag("X"), hexToBytes(this.state)); return Number(BigInt("0x" + this.state) % BigInt(bound)); }
   // C-1 proof-of-work — the PoW hash (domain byte "G") must have `bits` leading zero bits; the winning nonce
   // is then absorbed ("grind", nonce) so the queries derive after it. Mirrors Transcript._grind_ok/grind.

@@ -333,6 +333,14 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
             idx = t.challenge_index(N)
             if idx != q["idx"]:
                 return False, "query index does not match transcript"
+            # EVERY LAYER MUST BE OPENED. The per-query loop below zips `roots` with `q["steps"]`, and a short
+            # (or empty) steps list would make zip() silently iterate nothing — skipping every Merkle-opening
+            # AND the final-layer fold binding — after which this function still returns (True, "ok"). Live
+            # callers happen to reject such a proof via an IndexError on q["steps"][0], but this primitive must
+            # not depend on that: a direct/future caller trusting the verdict would accept a proof that proves
+            # nothing. Pin the opening count to the FS-derived layer count explicitly.
+            if len(q.get("steps") or ()) != len(roots):
+                return False, "query opens the wrong number of FRI layers"
             a = idx
             for L, (root, alpha, step) in enumerate(zip(roots, alphas, q["steps"])):
                 n = sizes[L]; half = n // 2

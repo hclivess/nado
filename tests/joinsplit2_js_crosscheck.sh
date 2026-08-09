@@ -18,17 +18,19 @@ p = d["proof"]
 # normalise the JS-serialised proof (big field ints came over as strings)
 for k in ("T", "W", "N", "blowup", "deg_bound", "D"):
     p[k] = int(p[k])
+def _c(v):                    # base scalar or GF(p^D) limb tuple (arrays after JSON) — coerce element-wise
+    return [int(x) for x in v] if isinstance(v, (list, tuple)) else int(v)
 fr = p["fri"]
 fr["offset"] = int(fr["offset"]); fr["pow"] = int(fr["pow"])
-fr["final"] = [int(x) for x in fr["final"]]
+fr["final"] = [_c(x) for x in fr["final"]]
 for q in fr["queries"]:
     q["idx"] = int(q["idx"])
     for s in q["steps"]:
-        s["lo"] = int(s["lo"]); s["hi"] = int(s["hi"])
+        s["lo"] = _c(s["lo"]); s["hi"] = _c(s["hi"])
 for op in p["openings"]:
     op["lo"] = int(op["lo"])
     for c in op["cols"]:
-        c["cur"] = int(c["cur"]); c["nxt"] = int(c["nxt"])
+        c["cur"] = _c(c["cur"]); c["nxt"] = _c(c["nxt"])
 
 root, nf, cm1, cm2 = int(d["root"]), int(d["nf"]), int(d["cm1"]), int(d["cm2"])
 ok, why = J2.verify_transfer(p, root, nf, cm1, cm2, 0, 0, lambda r: True)

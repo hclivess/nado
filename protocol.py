@@ -13,7 +13,7 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-16"  # value-call escrow: a call carrying value is provable too, gen 17
+CHAIN_ID = "alphanet-17"  # KV code + per-call asset binding: settle proofs authenticate contract code, gen 18
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -47,16 +47,18 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1786035600  # alphanet-16: value-call escrow (SETTLE_PROOF_RECORDS_VALUE_CALLS).
+GENESIS_TIMESTAMP = 1786293000  # alphanet-17: KV code + per-call asset binding (gen 18). New DISTINCT
+                                # timestamp so no prior-generation block links in.
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
                                 # prior-generation block can link in, and old-code nodes cannot keep
                                 # winning fork choice against it (gens 7-9 reused alphanet-8's genesis
                                 # and stranded exactly that way). Stamped ~1 min in the PAST so block
                                 # production starts immediately at cutover.
-                                # The root scheme is unchanged: depth 256 saturates the hash's collision
-                                # resistance and every future proof extension rides the SAME tree, so no
-                                # further genesis reroll is needed for doc/vision.md.
+                                # The tree DEPTH is frozen at 256 (saturates the hash's collision resistance),
+                                # so no future change needs a deeper tree. But ADDING a committed leaf TYPE —
+                                # gen 18 added a per-contract code leaf to the KV half — still changes every
+                                # existing root, so it rides a generation bump like any other root change.
 
 # Clock-skew allowance for block timestamps: a block may be stamped up to this many seconds in the
 # FUTURE of the local clock and still validate. Zero tolerance rejected honest blocks whenever the
@@ -442,7 +444,26 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   marked derivable, which is WRONG for that block — sound only because no valid proof can exist over such
 #   a span, so it fails closed (see the flag's own comment). Presence-dividend accrual also moves records on
 #   an epoch boundary with NO transaction at all, so a span crossing one is still refused.
-CHAIN_GENERATION = 17
+# 18 (2026-08-09): KV CODE + PER-CALL ASSET BINDING reroll — new CHAIN_ID + GENESIS_TIMESTAMP. Closes a
+#   settle-with-proof soundness hole: the KV half bound contract STORAGE but never the contract CODE, though a
+#   cid is H(deployer, code, nonce). A settle-with-proof supplies its own pre_contracts code and the exec proof
+#   runs it, so a bonded settler could prove an ARBITRARY storage transition over COUNTERFEIT code for a real
+#   cid — real cid + real storage (matching sparse_pre_root) + fake code — and settle a KV root every honest
+#   node disagrees with, self-consistently. FIX: exec_root.kv_projection AND settlement_sparse.sparse_projection
+#   now commit a code leaf per contract (exec_state_bind.code_key -> code_commitment), so the pre-state pin
+#   (sparse_root(pre_contracts) == the settled tip's KV half) authenticates the prover-supplied code — fabricated
+#   code changes the KV root and fails to extend the tip. Same class also closed for the per-call `asset`
+#   context: it was a public input the exec proof runs over but was absent from calls_commit.call_leaf, so a
+#   value==0 asset call (records-inert, proof-settleable) could be proven under a SWAPPED asset with the DA
+#   commitment still matching; call_leaf now binds it.
+#   WHY A REROLL: both change the L1 STATE ROOT — kv_projection feeds it directly, and call_leaf feeds the exec
+#   summaries in the `meta` sub-DB which also feeds the root. An upgraded node computes a different root than an
+#   unupgraded peer applying the identical block, so this MUST ride a generation bump, never a hot toggle.
+#   DISTINCT GENESIS (the generation-10 lesson): a CHAIN_GENERATION bump alone leaves the genesis hash shared and
+#   stranded old-code nodes keep out-weighing the fresh chain in fork choice.
+#   OPERATIONAL: a reroll wipes exec state — redeploy the game-contract fleet in the SAME session
+#   (execnode.games.redeploy), or the games silently vanish.
+CHAIN_GENERATION = 18
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

@@ -103,6 +103,63 @@ export function ntt(coeffs, inverse = false) {
 export const interpolate = (evals) => ntt(evals, true);   // evals on the subgroup -> coefficients
 export const evaluate = (coeffs) => ntt(coeffs, false);   // coefficients -> evals on the subgroup
 
+// ---- GF(p^DEGREE) extension field — exact port of execnode/stark/extf.py -----------------------------
+// The Python verifier draws the FRI folding challenge and the constraint alphas from GF(p^3) (fri.EXT_CHALLENGES
+// / stark.EXT_ALPHAS), so a base-field proof is rejected ("unexpected FRI challenge field"). This mirrors the
+// SAME field so an on-device proof stays acceptable. An element is a length-DEGREE array [a0,a1,a2] meaning
+// a0 + a1*X + a2*X^2 in F_p[X]/(X^DEGREE - NONRESIDUE); a base int lifts to [v,0,0]. Only the operations the
+// PROVER needs are here (lift/add/sub/mul/scalarMul/flatten) — inv is verifier-side.
+export const EXT_DEGREE = 3;        // extf.DEGREE — MUST match execnode/stark/extf.py
+export const EXT_NONRESIDUE = 3n;   // extf.NONRESIDUE — X^3 - 3
+export const EXT_ZERO = [0n, 0n, 0n];
+
+export function extLift(v) {
+  // A base int, OR a short/long array (JSON turns tuples into arrays). Normalise to a DEGREE-array.
+  if (Array.isArray(v)) {
+    if (v.length > EXT_DEGREE) throw new Error("element has more limbs than the field degree");
+    const out = new Array(EXT_DEGREE);
+    for (let i = 0; i < EXT_DEGREE; i++) out[i] = i < v.length ? mod(BigInt(v[i])) : 0n;
+    return out;
+  }
+  const out = new Array(EXT_DEGREE).fill(0n);
+  out[0] = mod(BigInt(v));
+  return out;
+}
+
+export function extAdd(u, v) {
+  const a = extLift(u), b = extLift(v), out = new Array(EXT_DEGREE);
+  for (let i = 0; i < EXT_DEGREE; i++) out[i] = add(a[i], b[i]);
+  return out;
+}
+
+export function extSub(u, v) {
+  const a = extLift(u), b = extLift(v), out = new Array(EXT_DEGREE);
+  for (let i = 0; i < EXT_DEGREE; i++) out[i] = sub(a[i], b[i]);
+  return out;
+}
+
+export function extMul(u, v) {
+  // Polynomial product reduced mod X^DEGREE - NONRESIDUE (generic convolution; wraps carry NONRESIDUE).
+  const a = extLift(u), b = extLift(v);
+  const acc = new Array(2 * EXT_DEGREE - 1).fill(0n);
+  for (let i = 0; i < EXT_DEGREE; i++) { const ai = a[i]; if (ai) for (let j = 0; j < EXT_DEGREE; j++) acc[i + j] = add(acc[i + j], mul(ai, b[j])); }
+  const out = acc.slice(0, EXT_DEGREE);
+  for (let k = EXT_DEGREE; k < 2 * EXT_DEGREE - 1; k++) if (acc[k]) out[k - EXT_DEGREE] = add(out[k - EXT_DEGREE], mul(EXT_NONRESIDUE, acc[k]));
+  return out;
+}
+
+export function extScalarMul(u, s) {
+  const a = extLift(u), sc = mod(BigInt(s)), out = new Array(EXT_DEGREE);
+  for (let i = 0; i < EXT_DEGREE; i++) out[i] = mul(a[i], sc);
+  return out;
+}
+
+// [e0, e1, ...] -> [e0_0..e0_{D-1}, e1_0, ...] : the wire/transcript form (extf.flatten).
+export function extFlatten(vals) { const out = []; for (const v of vals) out.push(...extLift(v)); return out; }
+
+// coset interpolation is F_p-linear, so the limbs interpolate separately and recombine (extf._coset_interpolate).
+// NOT needed by the prover (used only in the verifier's low-degree test), so it is intentionally omitted here.
+
 export function polyEval(coeffs, x) {
   let acc = 0n;
   for (let i = coeffs.length - 1; i >= 0; i--) acc = add(mul(acc, x), coeffs[i]);

@@ -17,6 +17,9 @@ from execnode.stark import field as F, alghash2 as A2
 from hashing import blake2b_hash
 
 DOM_KVPOS = 7                                    # alghash2 domain tag for slot positions (disjoint from 1..6)
+DOM_KVCODE = 9                                    # alghash2 domain tag for a contract's CODE-commitment position
+                                                 # (disjoint from DOM_KVPOS=7 and the records tree's DOM_REC=8, so
+                                                 # a code leaf can never share a position with a storage slot)
 
 
 def cid_limbs(cid):
@@ -46,6 +49,34 @@ def slot_key(cid, slot, depth):
     for lane in d:
         acc = (acc << 64) | int(lane)
     return acc & ((1 << depth) - 1)
+
+
+def code_elements(cid):
+    """The alghash2 sponge inputs for a contract's CODE-commitment position — one chunk (6 elements: the
+    domain tag + the 5 cid limbs). Distinct domain tag from `elements`, so a code position and a slot position
+    for the same cid never coincide."""
+    return [DOM_KVCODE, *cid_limbs(cid)]
+
+
+def code_key(cid, depth):
+    """Deterministic sparse-tree position for a contract's CODE commitment, the KV-half analogue of slot_key.
+    Same construction (alghash2 hashn digest truncated to `depth` bits) under a separate domain tag."""
+    d = A2.hashn(code_elements(cid))
+    acc = 0
+    for lane in d:
+        acc = (acc << 64) | int(lane)
+    return acc & ((1 << depth) - 1)
+
+
+def code_commitment(code):
+    """A NONZERO field element committing to a contract's code map {method: bytecode}. The KV half is a sparse
+    tree in which value 0 means ABSENT, so the commitment is forced into [1, P): a code digest that reduced to
+    0 mod P must not make the leaf vanish. Deterministic + canonical (sorted method order via canonical_bytes),
+    so every node commits the SAME element for the same code — which is exactly what lets the settle proof's
+    pre-state pin authenticate the code: fabricated code yields a different leaf and fails the tip extension."""
+    from hashing import canonical_bytes
+    n = int(blake2b_hash(["code", canonical_bytes(code).hex()]), 16)
+    return 1 + (n % (F.P - 1))
 
 
 def net_updates(pre_get, cid_io, depth):

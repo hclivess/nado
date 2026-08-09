@@ -90,7 +90,17 @@ def kv_projection(contracts):
     positions the settlement machinery proves), anything else as a KVX digest record."""
     out = {}
     for cid in sorted(contracts):
-        for m, kv in ((contracts[cid].get("storage") or {})).items():
+        c = contracts[cid]
+        # CODE COMMITMENT. Contract code is part of the cid (cid = H(deployer, code, nonce)) but was committed
+        # NOWHERE in the root — the KV half bound storage only. A settle-with-proof supplies its own
+        # pre_contracts code and the exec proof runs it, so a bonded settler could prove an arbitrary storage
+        # transition over COUNTERFEIT code for a real cid and settle a root every honest node disagrees with.
+        # Binding a code leaf per contract closes it: the pre-state pin (sparse_root(pre_contracts) == the
+        # settled tip's KV half) now covers code, so fabricated code fails to extend the tip. (Reroll: this
+        # changes every KV root — a genesis change.)
+        if c.get("code") is not None:
+            out[ESB.code_key(cid, DEPTH)] = ESB.code_commitment(c["code"])
+        for m, kv in ((c.get("storage") or {})).items():
             for k, v in kv.items():
                 if m == "slots" and isinstance(v, int):
                     try:

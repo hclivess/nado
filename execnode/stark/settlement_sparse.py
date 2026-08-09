@@ -32,6 +32,11 @@ def sparse_projection(contracts, depth=DEFAULT_DEPTH):
         c = contracts[cid]
         if c.get("runtime") != "zkvm":
             continue
+        # CODE COMMITMENT — the SAME leaf exec_root.kv_projection commits, so this sparse root equals the KV
+        # half of the settled root (which is what makes the settle proof's pre-state pin authenticate the
+        # prover-supplied code against the tip). Must stay byte-identical to exec_root; both call ESB.
+        if c.get("code") is not None:
+            out[ESB.code_key(cid, depth)] = ESB.code_commitment(c["code"])
         for k, v in ((c.get("storage") or {}).get("slots") or {}).items():
             out[ESB.slot_key(cid, int(k), depth)] = int(v) % F.P
     return out
@@ -413,6 +418,14 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=
     reduced-strength recursion bundle can never justify a settlement. This is the sound O(1) money path; a proof
     WITHOUT a `recursive` bundle still verifies the classic K-segment way, so the two forms are interchangeable."""
     try:
+        # A settle proof declares its own tree depth per segment, and slot_key TRUNCATES a position to `depth`
+        # bits (exec_state_bind.slot_key) — so a small depth aliases distinct (cid, slot) leaves and forges
+        # victim storage. The pin below is what rejects that, and it must be UNCONDITIONAL: an omitted `depth`
+        # previously skipped it entirely, trusting the prover's declared depth. Every real caller passes the
+        # protocol depth (EXEC_TREE_DEPTH on L1, an explicit small one in tests); default an omitted one to the
+        # production DEFAULT_DEPTH rather than to "trust the prover".
+        if depth is None:
+            depth = DEFAULT_DEPTH
         segs = proof.get("segments")
         if not isinstance(segs, list) or not segs:
             return False, "no segments", None, None
@@ -425,7 +438,7 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=
         fold_exec = rb is not None
         expect, kv_pre_hex = None, None
         for j, seg in enumerate(segs):
-            if depth is not None and int(seg.get("depth", -1)) != int(depth):
+            if int(seg.get("depth", -1)) != int(depth):
                 return False, f"segment {j} depth != protocol tree depth", None, None
             ok, why, post = verify_bound_epoch(seg, num_queries=num_queries, check_exec_proof=not fold_exec)
             if not ok:
