@@ -457,6 +457,66 @@ Full map, with measured numbers and per-component status:
    MDS could cut the permutation ~1.8× without changing the hash, but that is consensus-critical and
    **time is not the binding constraint**. Do this last.
 
+### Track G — Signature-scheme agility (more post-quantum, never less)
+
+Today the chain is single-scheme: ML-DSA-44 everywhere, dispatched through the one chokepoint
+(`signatures.py` — `sign`/`verify`/`from_private_key`/`generate_keydict`; every consumer imports those
+four and nothing else). The goal is user choice among **post-quantum** schemes with ML-DSA-44 as the
+default. Pre-quantum schemes (Ed25519, secp256k1) are explicitly out: the weakest offered scheme is the
+chain's effective security floor, and PQ-throughout is a differentiator we don't sell back for
+convenience.
+
+**Why the architecture makes this cheap:** consensus checks `verify(sig, pk, msg) == True` and never
+compares or hashes signature bytes (only the txid is recomputed, over the body *excluding* the
+signature), so schemes with different signature shapes perturb nothing. Pubkey-once already binds each
+address to one on-chain pubkey; the scheme becomes one more thing that binding fixes.
+
+**Design (settled 2026-08-10):**
+- `signatures.py` becomes a registry (`{alg_id: backend}`); the four public functions grow an `alg`
+  parameter defaulting to `"mldsa44"`. Callers don't change until they offer the choice.
+- **Optional `alg` field on the tx, absent = mldsa44.** Absence-as-default keeps every existing tx
+  byte-identical — txids, block hashes, genesis root untouched, **no reroll**. The field rides in
+  `canonical_bytes`, so the txid commits it and the signature binds it for free.
+- **Scheme bound at pubkey-once:** the first tx from an address establishes `(public_key, alg)` in the
+  account record; `validate_origin` dispatches on the bound alg thereafter and rejects mismatches. No
+  address-format change — `make_address` stays a pubkey truncation (cross-scheme address grinding is
+  2^168, a non-issue), and the network learns an address's scheme exactly when it learns its pubkey.
+  Belt-and-suspenders: pubkey sizes are disjoint across the roster (1312/1952/2592/32 bytes), so
+  ambiguity is structurally impossible even without the tag — but the tag ships; length-sniffing is the
+  `startswith(ADDRESS_PREFIX)` class of discriminator alphanet-14 already removed.
+- **Validators, blocks, attestations, shielded, forum stay ML-DSA-44.** User key choice only; the
+  consensus-critical surfaces remain single-scheme.
+- **Multisig:** optional per-member `alg` in the descriptor, default mldsa44 — new descriptors only.
+- Per-scheme: the interop self-test pattern and the native-required rule (`_fallback`) carry over.
+  Fee-by-byte-size already prices large signatures — no special-casing.
+
+**Phase G1 — ML-DSA-65 / ML-DSA-87 (near-free).** All three stacks already contain them as parameter
+sets of libraries in the tree: `dilithium_py` exports `ML_DSA_65`/`ML_DSA_87` with the same
+`_*_internal` methods; the RustCrypto `ml-dsa` crate behind `nado_pq_native` has all three; the browser's
+`@noble/post-quantum` bundle exports `ml_dsa65`/`ml_dsa87` in the same internal-mode convention already
+cross-validated for 44. Same 32-byte seed model, no new conventions. NIST categories 3 and 5 for the
+cost of plumbing — and it shakes out the multi-scheme dispatch on the easiest case.
+
+**Phase G2 — SLH-DSA-128s (the diversity win).** Bigger lattice parameters don't hedge a structured-
+lattice break; hash-based SLH-DSA (FIPS 205) does — it's the one addition that changes the security
+story rather than the knob settings. Support exists in all three stacks, but it's real new code with a
+real interop trap: keygen wants three seed components, so one deterministic 32-byte-seed → key
+expansion must be defined and pinned identically in Python, Rust, and JS (extend the per-scheme interop
+self-test; this is exactly the bug class it exists for). ~7.8 KB signatures pay their own block space
+via the byte-size fee.
+
+**Skip Falcon/FN-DSA:** FIPS 206 not final, thin library support, and floating-point signing is
+precisely the cross-implementation determinism hazard this codebase keeps paying for.
+
+**Deployment rule:** the whole fleet must carry the dispatch code *before* the first tagged tx is
+submitted — an old node sees a new-scheme tx as "Invalid signature", which is a manufactured mempool
+split. One push, no live experiments in flight.
+
+**Cost split, honestly:** node-side (registry, `alg` field, pubkey-once storage, tests) is small; the
+larger half is the browser wallet/light-miner parity and multisig UI. Note for Track F: each scheme
+added is another verification circuit if in-circuit signature verification is ever revisited — decide
+the roster before that build starts, not after.
+
 ---
 
 ## 10. What we measure
