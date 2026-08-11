@@ -67,7 +67,7 @@ def main():
     # max_block is an EXPIRY DEADLINE, not a target. tip+20 was far too tight — after TX_INCLUSION_DELAY
     # (8) it left ~12 blocks for the tx to gossip to whichever peer is producing (this box is usually not
     # the producer) and be included, so upgrades routinely expired unmined. Use the standard wide window.
-    tx = construct_blob_tx(keys, payload, max_block=tip + TX_LANDING_WINDOW, fee=args.fee,
+    tx = construct_blob_tx(keys, payload, max_block=tip + TX_LANDING_WINDOW - 40, fee=args.fee,
                            min_block=tip + TX_INCLUSION_DELAY)
     print(f"submitting {payload['op']} blob tx {tx['txid'][:16]}… → {args.l1}")
     print(json.dumps(_post(args.l1, "/submit_transaction", tx), indent=2))
