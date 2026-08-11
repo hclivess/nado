@@ -222,7 +222,7 @@
     every <b>6 seconds</b> (a non-consensus pacing target, operator-tunable). There is <b>no fee-weighted term and no
     ceiling</b>: fees are <b>destroyed</b>, so <code>net = minted − fees</code>. Since <code>m ≤ 1</code>,
     <b>0.1 NADO/block is the maximum emission ever</b>, and <code>m</code> never reaches zero — a perpetual
-    tail of ≈0.0166 NADO/block (~52,000 NADO/yr) keeps block production paid forever: <b>no hard cap, no
+    tail of ≈0.0166 NADO/block (~87,039 NADO/yr) keeps block production paid forever: <b>no hard cap, no
     security cliff</b>. Bonding self-limits near ~40% (the open lane siphons 30% of the draw), and every unit
     of fee above the mint is a net burn — <b>usage shrinks the supply</b>. In consensus the curve is a
     hardcoded integer basis-point table (no floats, no forks).
@@ -340,7 +340,7 @@
 <script>
 (function(){
   "use strict";
-  var BASE=0.1, M_MIN=0.15, K=4.0, BLOCK_TIME=6;
+  var BASE=0.1, M_MIN=0.1656, K=4.0, BLOCK_TIME=6;
   var BLOCKS_YR=365*86400/BLOCK_TIME, BLOCKS_DAY=86400/BLOCK_TIME;
   var YEARS=20;
 

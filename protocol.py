@@ -581,9 +581,9 @@ REWARD_WINDOW = 100          # retained as the prune/rollback safety window (blo
 # doc/bond-elastic-emission.md). There is NO fee-weighted upside and NO ceiling: fees are DESTROYED, so
 # raising emission with fees would mint more exactly when more is burned — softening the deflation. Because
 # the multiplier m(r) <= 1, the block reward is BASE_SUBSIDY at most (the MAX emission/block) and
-# m_min*BASE_SUBSIDY (~0.024 NADO) at least — the perpetual tail, so production is never unincentivised (no
+# m_min*BASE_SUBSIDY (~0.0166 NADO) at least — the perpetual tail, so production is never unincentivised (no
 # hard cap, no security cliff). The base also lets a zero-coin OPEN-lane miner earn from block 1 (fair launch).
-BASE_SUBSIDY = 1_000_000_000  # 0.1 NADO/block raw = MAX emission/block (~144 NADO/day at 60s blocks: 1440*0.1)
+BASE_SUBSIDY = 1_000_000_000  # 0.1 NADO/block raw = MAX emission/block (~1,440 NADO/day at 6s blocks)
 
 # --- BOND-ELASTIC EMISSION (super hard money — see doc/bond-elastic-emission.md) ---
 # The block reward is scaled by a multiplier m(r) that shrinks as the bonded ratio r rises: the more the
