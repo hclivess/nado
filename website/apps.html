@@ -208,6 +208,9 @@ const SVG = {
     <circle cx="11.8" cy="24" r="4.2" fill="#00c9a7"/>
     <circle cx="36.2" cy="24" r="4.2" fill="#e3b341"/>
     <text x="24" y="26.8" text-anchor="middle" font-size="8" font-weight="900" fill="#e6edf3" font-family="system-ui,-apple-system,Arial,sans-serif">VS</text></svg>`,
+  dex:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <path d="M8 18h22l-6-6 4-4 13 13-13 13-4-4 6-6H8z" fill="#00c9a7"/>
+    <path d="M40 30H18l6 6-4 4L7 27 20 14l4 4-6 6h22z" fill="#00ad93" opacity=".75"/></svg>`,
   lend:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
     <path d="M24 7 43 17H5z" fill="#00c9a7"/>
     <rect x="10" y="19" width="4.6" height="15" fill="#e6edf3"/>
@@ -262,6 +265,10 @@ const GAMES = [
   { svg:SVG.bet, name:"Bet", tag:"Live", live:true, slug:"bet", url:"https://bet.nadochain.com",
     blurb:"Bet on any event, two ways. Pool your stake with everyone else and the winning side splits the whole pot pro-rata (a racetrack tote), so the odds are set by the crowd and there is no bookmaker at all — or take a fixed price from a peer bank: any player can put up a bankroll, publish a price per outcome, and keep every losing stake. Results are posted on-chain by a configurable oracle reading free public feeds you can browse yourself; a postponed or unresolved event refunds every stake 1:1.",
     meta:["Pool or fixed odds","Bank it yourself","Oracle-resolved","Postponed → refund"] },
+  { svg:SVG.dex, name:"DEX", tag:"Live", live:true, slug:"dex", url:"https://dex.nadochain.com",
+    kind:"finance", kindLabel:"not a game — a real exchange",
+    blurb:"Swap NADO against any token on the execution layer, or put up liquidity and earn the fee. It is a constant-product market maker: the pool itself quotes the price from its own two reserves, so a trade never waits for a counterparty and there is no order book to sit in. Every swap pays 30 bps that stays in the pool, which is how liquidity providers get paid — the contract takes nothing, mints nothing, and no address can freeze a pool or seize what is in it. Anyone can list a pair: opening a pool is permissionless and free, and the first provider sets the opening price. Your minimum received is enforced on-chain, so a price that moves against you reverts the swap instead of filling it badly.",
+    meta:["Constant product (x·y=k)","30 bps, all of it to LPs","Permissionless listing","Slippage enforced on-chain"] },
   { svg:SVG.lend, name:"Lend", tag:"Live", live:true, slug:"lend", url:"https://lend.nadochain.com",
     kind:"finance", kindLabel:"not a game — real credit",
     blurb:"Lend to a stranger and get paid for it, or borrow without selling what you hold. A lender posts terms — how much, what interest, what collateral, how long — and the money is escrowed the moment they post, so a borrower is never taking an IOU. Post the collateral and the principal is yours; repay before the deadline and the collateral comes back. There is no price oracle and no variable rate: interest is a fixed amount agreed up front and the only trigger is a deadline the chain can see by itself, so there is no feed to manipulate and no liquidation bot to outrun. Collateral must exceed the principal, which is what makes repaying the cheaper option.",
