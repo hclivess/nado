@@ -534,8 +534,14 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
             # entry_count = number of (db, key, value) state triples; each chunk's "rows" must sum to it.
             # (The full-consensus-state snapshot supersedes the old accounts-only "account_count" field.)
             cc, ec = manifest.get("chunk_count"), manifest.get("entry_count")
+            # chunk_count / chunks[] are NOT covered by manifest_hash (only state_root+state_digest+
+            # entry_count pin the payload bytes), so a source echoing the honest snapshot_hash can still
+            # serve an arbitrary chunk array. Require every chunk to carry >=1 row: with sum(rows)==ec that
+            # forces cc <= ec <= MAX_SNAPSHOT_ACCOUNTS, so a padded chunk_count (e.g. 4M empty chunks → OOM
+            # on `[None]*cc` + gather) cannot get past this gate before allocation.
             if not (isinstance(chunk_meta, list) and isinstance(cc, int) and cc == len(chunk_meta)
                     and isinstance(ec, int) and 0 <= ec <= MAX_SNAPSHOT_ACCOUNTS
+                    and all(int(m.get("rows", 0)) > 0 for m in chunk_meta)
                     and sum(int(m.get("rows", 0)) for m in chunk_meta) == ec):
                 _log(logger, "warning", f"Snapshot manifest from {target} has inconsistent counts — rejecting")
                 return None, None
@@ -555,7 +561,9 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
                     async with session.get(f"{base}/get_snapshot_chunk?id={cid}&height={height}") as cr:
                         if cr.status != 200:
                             raise IOError(f"chunk {cid} HTTP {cr.status}")
-                        # manifest is hash-verified, so chunk_meta[cid]['bytes'] is a trusted cap for this read
+                        # chunk_meta[cid]['bytes'] is NOT self-hash-covered, but the per-read cap + the total
+                        # bytes ceiling (<= MAX_SNAPSHOT_TOTAL, checked above) still bound what the donor feeds
+                        # us; the imported state is re-derived and root-checked regardless.
                         chunks[cid] = await read_capped(cr, int(chunk_meta[cid].get("bytes", 0)))
 
             await __import__("asyncio").gather(*(_one(i) for i in range(cc)))

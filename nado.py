@@ -166,13 +166,22 @@ def _qint(request, key, default):
 
 
 # --- pool / field dump handlers (the repetitive read-only ones) ----------------------------------
-def _dump_handler(name, getter):
+def _dump_handler(name, getter, rate=None, heavy=False):
     """Factory for the repetitive read-only dump endpoints (/peers, /transaction_pool, ...): a GET
-    handler returning `getter()` serialized under `name`. Runs inline on the event loop — only use
-    for cheap in-memory reads. Honors ?compress=msgpack|zstd."""
+    handler returning `getter()` serialized under `name`. Honors ?compress=zstd.
+
+    `heavy=True` runs the serialize in a worker thread (NOT on the event loop) and `rate` sets a per-IP
+    limit — both REQUIRED for dumps that can be large: the tx pool budget is ~196 MiB (raised for inline
+    settle proofs), so an unauth /transaction_pool would otherwise JSON-encode ~100+ MiB ON the event loop,
+    freezing all I/O/consensus/gossip. Cheap in-memory dumps (/peers) keep the inline path."""
     async def _h(request):
         """Dump getter()'s live value serialized under `name`."""
-        return _resp(serialize(name=name, output=getter(), compress=_q(request, "compress", "none")))
+        if rate is not None and _rate_limited(request, rate):
+            return _RL()
+        comp = _q(request, "compress", "none")
+        if heavy:
+            return _resp(await asyncio.to_thread(lambda: serialize(name=name, output=getter(), compress=comp)))
+        return _resp(serialize(name=name, output=getter(), compress=comp))
     return _h
 
 
@@ -431,10 +440,16 @@ async def submit_transaction(request):
     returns "Already present" and never re-floods, which terminates the epidemic. `register` txs also
     pass the per-source-IP anti-Sybil budget. 200 on accept, 403 on reject, 429 over the rate limit."""
     ip = _ip(request)
-    # A LINKED PEER relaying gossip bypasses the 30/min per-IP user limit — otherwise a busy relay
-    # would 429 the very floods that keep mempools converged. It stays bounded: a dup is a cheap
-    # "Already present" that is not re-gossiped, and an abusive peer is benched/purged by peer_loop.
-    if ip not in memserver.peers and _rate_limited(request, 30):
+    # RATE LIMIT. A large (proof-carrying) submit is expensive to admit, so it is strict-limited for
+    # EVERYONE — a linked peer must NOT be able to amplify the 192 MiB body-cap DoS by relaying oversized
+    # bodies. Otherwise a linked peer relaying gossip gets a higher-but-FINITE bucket (the old code gave
+    # peers an UNCONDITIONAL bypass, and becoming a peer is cheap/permissionless, so that was an
+    # unlimited-flood lever); an ordinary user keeps 30/min. A dup is a cheap non-re-gossiped "Already
+    # present", and an abusive peer is still benched/purged by peer_loop.
+    if (request.content_length or 0) > 2 * 1024 * 1024:
+        if _rate_limited(request, 6):          # big settle-proof submit: 6/min is ample, applies to peers too
+            return _RL()
+    elif _rate_limited(request, 300 if ip in memserver.peers else 30):
         return _RL()
 
     def _work(body, ip):
@@ -1647,6 +1662,8 @@ async def post_message(request):
         except Exception as e:
             return f"Error: {e}", 403
     body = await request.read()
+    if len(body) > 262144:                      # 256 KiB: the pool caps a message at 16 KiB; reject
+        return _resp("message too large", status=413)   # oversized bodies BEFORE the json.loads blow-up
     out, code = await asyncio.to_thread(_work, body)
     return _resp(out, status=code)
 
@@ -1691,6 +1708,8 @@ async def post_msg_key(request):
         except Exception as e:
             return f"Error: {e}", 403
     body = await request.read()
+    if len(body) > 262144:                      # 256 KiB: the pool caps a prekey at 32 KiB; reject
+        return _resp("prekey too large", status=413)     # oversized bodies BEFORE the json.loads blow-up
     out, code = await asyncio.to_thread(_work, body)
     return _resp(out, status=code)
 
@@ -1886,6 +1905,8 @@ async def da_proxy(request):
     Streamed, not buffered: a shard is blob/k — tens of MiB — and reading it into L1 only to write it out
     again would put that allocation on the event loop, which is the exact cost DA exists to remove.
     """
+    if _rate_limited(request, 60):     # was unlimited, unlike every sibling DA endpoint; holds a 120s
+        return _RL()                   # streaming connection + pokes exec da.reconstruct, so cap it
     what = request.match_info.get("what", "")
     if what not in _DA_PROXY_PATHS:
         return _resp({"error": "unknown da endpoint"}, status=404)
@@ -1930,7 +1951,24 @@ async def make_app(port):
     # inside _fetch_da_proof's 8 s budget and NO proof has ever landed. Carrying it inline over the gossip
     # the fleet already runs removes the fetch entirely. See protocol.MAX_INLINE_TX_BYTES.
     from protocol import MAX_INLINE_TX_BYTES as _MAX_INLINE_TX
-    app = web.Application(client_max_size=_MAX_INLINE_TX)
+    # PER-PATH BODY CAP. The 192 MiB client_max_size exists for ONE route — /submit_transaction carrying an
+    # inline settle proof. Applied app-wide it let an unauthenticated request to a KB-sized endpoint
+    # (/message, /msg_key, …) buffer 192 MiB and then expand it via json.loads into a multi-GiB object graph
+    # → RSS/OOM + to_thread-pool starvation. This middleware rejects, by Content-Length, any oversized body
+    # to a non-large route BEFORE the handler reads it; the two message handlers also raw-length-guard the
+    # chunked (no-Content-Length) case before decode.
+    _DEFAULT_MAX_BODY = 2 * 1024 * 1024              # 2 MiB — generous for any normal tx/message/prekey
+    _LARGE_BODY_PATHS = {"/submit_transaction"}      # the only route that carries an inline settle proof
+
+    @web.middleware
+    async def _body_cap_mw(request, handler):
+        limit = _MAX_INLINE_TX if request.path in _LARGE_BODY_PATHS else _DEFAULT_MAX_BODY
+        cl = request.content_length
+        if cl is not None and cl > limit:
+            return _resp(f"body {cl} exceeds {limit} for {request.path}", status=413)
+        return await handler(request)
+
+    app = web.Application(client_max_size=_MAX_INLINE_TX, middlewares=[_body_cap_mw])
     app.add_routes([
         web.get("/", home),
         *[web.get("/" + _t, interface_page) for _t in _TAB_PATHS],
@@ -1949,7 +1987,8 @@ async def make_app(port):
         web.get("/get_block", block_by_hash),
         web.get("/get_account", account),
         web.get("/get_account_mempool", account_mempool),
-        web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool)),
+        web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool,
+                                                    rate=30, heavy=True)),
         web.get("/invariants", invariants_report),
         web.get("/rollback_stats", rollback_stats_report),
         web.get("/daily_stats", daily_stats_report),
@@ -1961,7 +2000,8 @@ async def make_app(port):
         # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +
         # the bounded fetch-by-id — divergent peers no longer re-download each other's whole pools.
         web.get("/transaction_ids", _dump_handler("transaction_ids",
-                                                  lambda: [t.get("txid") for t in memserver.transaction_pool])),
+                                                  lambda: [t.get("txid") for t in memserver.transaction_pool],
+                                                  heavy=True)),
         web.post("/transactions_by_id", transactions_by_id),
         web.get("/transaction_hash_pool", _dump_handler("transactions_hash_pool", lambda: {
             "transactions_hash_pool": consensus.transaction_hash_pool,
