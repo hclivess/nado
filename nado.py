@@ -446,10 +446,15 @@ async def submit_transaction(request):
     # peers an UNCONDITIONAL bypass, and becoming a peer is cheap/permissionless, so that was an
     # unlimited-flood lever); an ordinary user keeps 30/min. A dup is a cheap non-re-gossiped "Already
     # present", and an abusive peer is still benched/purged by peer_loop.
+    # LARGE (proof-carrying) submits are strict-limited for EVERYONE — that is the actual DoS lever, and a
+    # linked peer must not be able to amplify it. SMALL submits from a LINKED PEER stay unlimited: that is
+    # relayed gossip, and throttling it drops transactions the fleet is trying to converge on (an
+    # exact-landing tx like `register` has exactly ONE block it can be included in, so a single throttled
+    # relay loses it outright). Ordinary users keep the 30/min cap.
     if (request.content_length or 0) > 2 * 1024 * 1024:
-        if _rate_limited(request, 6):          # big settle-proof submit: 6/min is ample, applies to peers too
+        if _rate_limited(request, 6):
             return _RL()
-    elif _rate_limited(request, 300 if ip in memserver.peers else 30):
+    elif ip not in memserver.peers and _rate_limited(request, 30):
         return _RL()
 
     def _work(body, ip):
