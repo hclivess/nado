@@ -194,7 +194,15 @@ def save_peer(ip, port, address, overwrite=False):
 DEFAULT_SEED_PEERS = [
     "38.242.201.206",    # get.nadochain.com — the public bootstrap node
     "208.87.242.141",    # second operator anchor (the Tezos-baker box)
+    "185.100.232.131",   # operator anchor 3
+    "185.184.192.210",   # operator anchor 4
 ]
+# WHY ALL FOUR (betanet-2 launch): with only two seeds, the other operator boxes were ordinary peers, so
+# the staggered restarts of an update wave cooled them into the unreachable list and BENCHED them in fork
+# choice. The node that had already built the chain then became invisible to the rest, which sat at height 0
+# unable to sync it — while the gate below waited for a peer count it could no longer reach. Seed status is
+# exactly the exemption that prevents this (no cooldown, no fork-choice bench), so every operator anchor
+# must be a seed, not just the two public ones.
 
 def seed_peers():
     """Operator seed set: baked-in DEFAULT_SEED_PEERS + any NADO_SEED_PEERS the operator configured
