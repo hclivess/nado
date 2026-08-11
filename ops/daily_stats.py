@@ -66,16 +66,36 @@ def _stats_path():
 _lock = threading.Lock()
 
 
+def _chain_stamp() -> str:
+    """Identity of the chain this history belongs to: CHAIN_ID + generation. A reroll changes both."""
+    try:
+        from protocol import CHAIN_ID, CHAIN_GENERATION
+        return f"{CHAIN_ID}/{CHAIN_GENERATION}"
+    except Exception:
+        return "unknown"
+
+
 def _load() -> dict:
-    """The persisted {"last_height": int, "days": {day: rec}}; missing/corrupt = empty history."""
+    """The persisted {"chain": str, "last_height": int, "days": {day: rec}}; missing/corrupt = empty.
+
+    CHAIN-SCOPED: this file deliberately survives the genesis-reroll purge (it is node-local trend
+    history, not chain data), which meant a reroll left the PREVIOUS chain's days in place — the wallet
+    then showed "mining rewards last 7 days" on a chain minutes old, mixing an abandoned chain's numbers
+    into the new one. The history is only meaningful within one genesis lineage, so it is stamped with
+    CHAIN_ID/CHAIN_GENERATION and dropped when that changes. (The last_height reset below still handles
+    a deep re-anchor WITHIN a generation, where the days remain valid.)"""
+    now = _chain_stamp()
     try:
         with open(_stats_path()) as f:
             data = json.load(f)
         if isinstance(data, dict) and isinstance(data.get("days"), dict):
-            return data
+            if data.get("chain") == now:
+                return data
+            # different genesis lineage (or a pre-stamp file): start this chain's history clean
+            return {"chain": now, "last_height": 0, "days": {}}
     except Exception:
         pass
-    return {"last_height": 0, "days": {}}
+    return {"chain": now, "last_height": 0, "days": {}}
 
 
 def _day(ts=None) -> str:
@@ -132,6 +152,7 @@ def sample(tip_height, load_block, gauges: dict, floors: dict = None) -> dict:
                 today[k] = int(floors[k]) if prev is None else min(int(prev), int(floors[k]))
         for k in sorted(days)[:-_RETENTION_DAYS]:
             del days[k]
+        data["chain"] = _chain_stamp()      # stamp so the next reroll drops this lineage's history
         path = _stats_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = f"{path}.tmp"
