@@ -158,7 +158,8 @@ def verify_transition(tr, pre_root, post_root, num_queries=None, outer_queries=N
     """Verify a state-transition proof against the PUBLIC (pre_root, post_root). Checks: (1) the per-update
     roots chain pre_root → post_root; (2) every merkle-update proof re-verifies against its boundaries (which
     pin roots[i] → roots[i+1]) — via the K→1 recursion bundle if present (O(1)-class), else per proof (O(K)).
-    `num_queries`/`outer_queries` are the verifier's policy (None ⇒ the counts the proof was built at, pinned).
+    `num_queries`/`outer_queries` are the verifier's policy (None ⇒ pinned to the protocol NUM_QUERIES —
+    NEVER the prover-supplied counts; see the soundness note below).
     Returns (ok, reason)."""
     try:
         roots = tr["roots"]
@@ -182,8 +183,15 @@ def verify_transition(tr, pre_root, post_root, num_queries=None, outer_queries=N
                            f"{len(tr['updates'])}")
         if len(roots) != sum(spans) + 1:
             return False, "root/proof count mismatch"
-        nqi = num_queries if num_queries is not None else tr["num_queries"]
-        nqo = outer_queries if outer_queries is not None else tr["outer_queries"]
+        # SOUNDNESS: the FRI query count IS the soundness, so it is pinned to the protocol constant and
+        # NEVER read from the prover-supplied `tr`. Defaulting `None` to tr["num_queries"]/tr["outer_queries"]
+        # let a bonded settler attach a K->1 bundle with outer_queries=1 and bind an ARBITRARY settled root
+        # verified at a single spot-check (settled-root forgery — the consensus callers verify_bound_epoch /
+        # bind_and_verify_records pass None). Every sibling verifier (verify_fold, RV.verify, verify_settlement_
+        # sparse) already refuses the prover's declared value; this now matches them. Honest provers build at
+        # MU.stark.NUM_QUERIES (prove_transition default), so no honest proof is rejected.
+        nqi = num_queries if num_queries is not None else MU.stark.NUM_QUERIES
+        nqo = outer_queries if outer_queries is not None else MU.stark.NUM_QUERIES
         if "bundle" in tr:                                   # O(1)-class: ONE recursion bundle re-verifies all K
             pubs = [RV.public_part(p) for p in proofs]
             # Same AIR and the same per-proof periodic the prover used — both REBUILT here from the public

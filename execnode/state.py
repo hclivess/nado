@@ -220,7 +220,7 @@ def stage_asset_effects_pure(abal, assets, actor, effects):
                 return fail(f"{meta['sym']} minting was renounced")
             if to is None:
                 return fail("unresolvable mint recipient")
-            if meta["supply"] + sup.get(aid, 0) + amt > ASSET_SUPPLY_CAP:
+            if meta["supply"] + sup.get(aid, 0) + amt >= ASSET_SUPPLY_CAP:   # strict: keep every balance < 2^62 (RANGE window)
                 return fail(f"{meta['sym']} supply cap exceeded")
             deltas[(aid, to)] = deltas.get((aid, to), 0) + amt
             sup[aid] = sup.get(aid, 0) + amt
@@ -1262,7 +1262,7 @@ class ExecState:
                     return "skip: asset_mint needs a `to` address"
                 if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
                     return "skip: asset_mint amount must be positive"
-                if meta["supply"] + amount > ASSET_SUPPLY_CAP:
+                if meta["supply"] + amount >= ASSET_SUPPLY_CAP:   # strict: keep every balance < 2^62 (RANGE window)
                     return f"skip: {meta['sym']} supply cap exceeded"
                 self._asset_credit(aid, to, amount)
                 meta["supply"] += amount

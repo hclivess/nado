@@ -575,8 +575,10 @@ def reserved_uniqueness_key(tx):
     and heartbeat/reveal DUPSORT desync forks. Returns a hashable tuple."""
     r = tx.get("recipient")
     try:
-        if r in ("withdraw", "unbond", "register"):
+        if r in ("withdraw", "unbond", "register", "msgkey"):
             return (r, tx["sender"])                                  # one per sender per block
+            # `msgkey` is fee-exempt and (unlike register) not epoch-gated, so without a per-block
+            # uniqueness key an account could flood unlimited distinct-txid ~2.4 KB msgkey txs for free.
         if r in ("attest", "commit"):
             return (r, tx["sender"], (tx.get("data") or {}).get("target_epoch"))
         if r == "reveal":
@@ -869,6 +871,16 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # makes a browser light-miner's txid disagree with the node's — and it breaks the integer-only
         # consensus invariant. amount/fee/min_block are int-gated separately; this closes the free-form hole.
         assert not _has_float(transaction["data"]), "transaction data must be integer/string-shaped (no floats)"
+        # SIZE CAP for ORDINARY transfers. A non-reserved recipient is a plain value send and never carries
+        # a proof, so its `data` must not become free unbounded storage: without this an ordinary transfer
+        # could carry ~MAX_INLINE_TX_BYTES (192 MiB) of `data` for a flat MIN_TX_FEE, bypassing the DA-blob
+        # pricing (BLOB_MAX_BYTES + a burned fee) the blob path exists to enforce. Reserved recipients keep
+        # their own per-branch validation (settle/unshield/bridge_withdraw/xmsg legitimately carry large
+        # proofs; blob is capped at BLOB_MAX_BYTES below). Deterministic (canonical-bytes), runs in verify.
+        from protocol import RESERVED_RECIPIENTS as _RESERVED
+        if transaction.get("recipient") not in _RESERVED:
+            assert blob_payload_size(transaction["data"]) <= BLOB_MAX_BYTES, \
+                f"transaction data exceeds {BLOB_MAX_BYTES} bytes (use a DA blob for large payloads)"
     if transaction.get("multisig") is not None:
         # OPT-IN MULTISIG (ops/multisig_ops.py). Cheap consensus gates BEFORE the M signature
         # verifications in validate_origin:
@@ -2056,15 +2068,16 @@ def unindex_transactions(block, logger, block_height):
                             block_number=block_height,
                             sender=transaction["sender"],
                             recipient=_recip)
-        # PUBKEY-ONCE revert: clear the established pubkey ONLY when reverting a tx that actually CARRIED it
-        # (so could have established it) AND the sender has no earlier indexed tx. The `public_key` guard is
-        # REQUIRED and is the fix for a rolling/pruned node: there tx_of_account reads the PRUNED history and
-        # returns empty even for a long-established sender, so a reorg reverting a LATER pubkey-less tx (e.g. a
-        # `bond`) would otherwise WRONGLY cull the sender's pubkey — permanently bricking its validation with
-        # "first tx must carry it". A pubkey-less tx never established the key, so it must never delete it.
-        # (Full/archive nodes are unaffected: there tx_of_account already returned the establishing tx for a
-        # non-carrying revert, so it never deleted — this only stops the false deletion on pruned nodes.)
-        if transaction.get("public_key") and not kv_ops.tx_of_account(transaction["sender"], min_block=0, limit=1):
+        # PUBKEY-ONCE revert: clear the established pubkey ONLY when the apply-side journal proves THIS
+        # tx is the one that set it (pubkey_revert, keyed by txid). The old inference — "carried a key
+        # and tx_of_account shows no earlier tx" — is NOT a pure function of consensus state: on a
+        # snapshot-bootstrapped or pruned node tx_of_account reads pruned history and returns empty for
+        # a long-established sender, so reverting ANY later key-carrying tx deleted a pubkey that a
+        # full-history node kept — divergent accounts roots from identical block sequences (observed
+        # 2026-07-30 h15076: two accounts culled, node wedged 18h on the resulting state-root mismatch).
+        # A missing journal row (legacy apply, or a tx that carried the key redundantly) now correctly
+        # deletes nothing, because such an apply set nothing. (Re-applies reverted-at-reroll 942f41f1.)
+        if transaction.get("public_key") and kv_ops.pubkey_revert_pop(transaction["txid"]):
             kv_ops.account_del_field(transaction["sender"], "public_key")
 
 
@@ -2100,6 +2113,10 @@ def index_transactions(block, sorted_transactions, logger):
             sender_acc = get_account(transaction["sender"], create_on_error=False)
             if sender_acc is not None and not sender_acc.get("public_key"):
                 kv_ops.account_set_field(transaction["sender"], "public_key", pk)
+                # JOURNAL the establishment (node-local, txid-keyed) so the revert deletes the field
+                # exactly when THIS apply set it — never by inference from pruned history. See the
+                # matching pop in unindex_transactions. (Re-applies reverted-at-reroll 942f41f1.)
+                kv_ops.pubkey_revert_put(transaction["txid"])
 
 
 if __name__ == "__main__":
