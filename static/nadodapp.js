@@ -13,7 +13,7 @@
 //   dapp.call("bet", [g, t, ...args], stakeRaw, "human label", { table: t, phase: "bet" });
 //   await dapp.refresh();                    // dapp.me, dapp.exec, dapp.l1, dapp.cursor
 //   const sto = await dapp.storage();        // the contract's storage maps
-import { loadCrypto, blake2bHash } from "./nadotx.js?v=a686fd33";
+import { loadCrypto, blake2bHash } from "./nadotx.js?v=cde4652c";
 import * as alghash from "./alghash.js?v=849f345a";
 export { loadCrypto, blake2bHash };
 

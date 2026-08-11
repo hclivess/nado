@@ -3,8 +3,8 @@
 // function of (seed, my move list); the on-chain claim carries the move list and every verifier replays
 // it), and the E2E move oracle. The bot is not clever, but it FINISHES games. Pure functions of
 // (state, seat, rnd) / (seed, moves) — no DOM, no chain.
-import * as E from "./hexholm-engine.js?v=ddf91b7d";
-import { packMoves, unpackMoves, provableSeed } from "./provable.js?v=d8579331";
+import * as E from "./hexholm-engine.js?v=f89044c7";
+import { packMoves, unpackMoves, provableSeed } from "./provable.js?v=8d15167d";
 
 export function prng(seedStr) {                             // mulberry32 over a string hash
   let h = 1779033703 ^ seedStr.length;

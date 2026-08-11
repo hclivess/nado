@@ -4,7 +4,7 @@
 // posted and every browser + the faucet oracle REPLAYS it against the same fleet to confirm the score. Shared
 // by battleship.js (play + board) and tests/battleship_daily_verify.mjs (the faucet replay oracle).
 // Provable-practice model: doc/provable-practice.md + static/provable.js.
-import { H, provableSeed, unpackMoves } from "./provable.js?v=d8579331";
+import { H, provableSeed, unpackMoves } from "./provable.js?v=8d15167d";
 
 export const SLUG = "battleship";
 export const N = 10, CELLS = 100;

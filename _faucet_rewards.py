@@ -25,14 +25,14 @@ BUDGET = 1_000_000_000                          # 0.1 NADO per game per day (tun
 
 # idx → (cid, kind); mirrors faucet.js FAUCET_GAMES + the live game cids
 GAMES = [
-    (0, "d68113d8d7086bce7aee4afe46971e65", "banked"),   # dice
+    (0, "230860957a7c1db403434ffb4a3969b3", "banked"),   # dice
     (1, "b062a72c3dbf5558f8ad4858b212d6ca", "duel"),      # scrapline
     (2, "093708c95385df4d6123ee56117fcc14", "duel"),      # stormhold
-    (3, "797713a7d1d6e410cdfd78b95d639eb8", "banked"),    # farkle
-    (4, "e75071ecaabb27ee7058ae132d9e4bc9", "banked"),    # blackjack
+    (3, "41dd02ebc5e4c2fbf59d861dcf85d351", "banked"),    # farkle
+    (4, "d0be764f3da9c9cc6bb609280a887929", "banked"),    # blackjack
     (5, "8f9f15244a0a9ca94cc40841e39e5679", "battleship-daily"),  # battleship Daily Salvo (free hunt-&-sink, replay-verified)
-    (6, "996f9eb523d6700f371f1b302f79f359", "banked"),     # slots
-    (7, "01b28b4c90b80e43d9adbcd78549601f", "banked"),     # mines
+    (6, "42509ee496258eea278dd01d66a8eed8", "banked"),     # slots
+    (7, "584783cc92f57b40b4c832b9b1f3242c", "banked"),     # mines
     (8, "a9113e07ff9b990437d1e47543b60696", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
     (9, "15e74e61030d1e23c2cea3e6b5f8bd1c", "hamster-daily"),  # hamster Daily Derby (free handicapping, replay-verified)
     (10, "b7cdf18106cf80c74fe423fd1da9032f", "connect4-daily"),   # connect four Daily Drop (free solo-vs-bot, replay-verified)

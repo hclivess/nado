@@ -3,11 +3,11 @@
 // alternates turns; two passes in a row make the contract count the discs itself and pay the pot to the
 // majority (equal counts refund both). Built on the shared PvP board-game scaffold (pvpgame.js) — this
 // file is ONLY the reversi board: its decode, its render, its move/pass encoding.
-import { NadoDapp, rawToNado, _m, $, disp, gate, hoist } from "./nadodapp.js?v=eff4a9e1";
-import { PvpGame } from "./pvpgame.js?v=9520bd01";
-import { BoardDaily, gameModes } from "./board-daily-ui.js?v=3b7d8390";   // shared free Daily Challenge + mode picker
-import * as RULES from "./reversi-rules.js?v=93651673";
-import { Practice } from "./practice.js?v=f261d882";   // free in-browser practice vs the computer
+import { NadoDapp, rawToNado, _m, $, disp, gate, hoist } from "./nadodapp.js?v=48819c8a";
+import { PvpGame } from "./pvpgame.js?v=2a6a5b5b";
+import { BoardDaily, gameModes } from "./board-daily-ui.js?v=af5b743b";   // shared free Daily Challenge + mode picker
+import * as RULES from "./reversi-rules.js?v=63161fa9";
+import { Practice } from "./practice.js?v=382809ca";   // free in-browser practice vs the computer
 
 const CID = "167d4fb3ae5c282bfdfcb846bba7b5a1";
 const PASS = 64;

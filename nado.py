@@ -451,10 +451,15 @@ async def submit_transaction(request):
     # relayed gossip, and throttling it drops transactions the fleet is trying to converge on (an
     # exact-landing tx like `register` has exactly ONE block it can be included in, so a single throttled
     # relay loses it outright). Ordinary users keep the 30/min cap.
+    # LOCALHOST is the operator's own tooling (contract deploys, scripts) and is already trusted elsewhere
+    # (/terminate, /force_sync). It is not a DoS vector — it is on the box — and throttling it broke a real
+    # deploy: a 25-contract redeploy submits in bursts and five of them came back 429, silently leaving
+    # contracts undeployed. Exempt it from BOTH buckets.
+    _local = ip == "127.0.0.1"
     if (request.content_length or 0) > 2 * 1024 * 1024:
-        if _rate_limited(request, 6):
+        if not _local and _rate_limited(request, 6):
             return _RL()
-    elif ip not in memserver.peers and _rate_limited(request, 30):
+    elif not _local and ip not in memserver.peers and _rate_limited(request, 30):
         return _RL()
 
     def _work(body, ip):
