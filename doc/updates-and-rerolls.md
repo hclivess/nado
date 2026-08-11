@@ -43,7 +43,7 @@ is operational, not code-level:
 epochs. Each generation is one genesis; the counter bumps only when the chain rerolls.
 
 A reroll ships as **one commit**: the new genesis (typically with balances frozen forward from a chosen
-settled state, as in the alphanet-6 reroll) plus the bumped `CHAIN_GENERATION`. Every node stamps the
+settled state, as in the betanet-6 reroll) plus the bumped `CHAIN_GENERATION`. Every node stamps the
 generation its on-disk data was built under (`~/nado/chain_generation`); a post-update boot that sees
 the code's generation ahead of its stamp **wipes all chain-derived data** — blocks, index, peers,
 snapshots, exec state + DA; **never `private/`** (keys, config) — and regenesis/resyncs fresh. The exec

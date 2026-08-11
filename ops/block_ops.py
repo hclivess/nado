@@ -145,7 +145,7 @@ def _lands_flexibly(transaction):
     (commit/reveal/attest), release-timed bond/unbond, PoW-anchored register/msgkey, settle, governance —
     keeps EXACT landing so its timing invariants hold. max_block still bounds the tx's life (mempool gate:
     tip < max_block < tip + TX_LANDING_WINDOW), so an unincluded tx still expires and can't be replayed."""
-    # is_address(), NOT startswith(ADDRESS_PREFIX). The prefix is gone at alphanet-14, and an empty prefix
+    # is_address(), NOT startswith(ADDRESS_PREFIX). The prefix is gone at betanet-14, and an empty prefix
     # makes startswith() true for EVERY string — bond, register, attest and settle would all be classified
     # flexibly-landing and quietly lose the exact-landing timing invariant they depend on. It would not
     # raise; it would just change consensus. The sniff was never a test anyway: "mldsa44" + garbage passed.

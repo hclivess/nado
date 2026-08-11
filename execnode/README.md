@@ -7,7 +7,7 @@ the deterministic **zkVM** and keeps the resulting contract state. A bug in this
 chain. Phones mine L1 and never run any of this. See `doc/execution-layer.md` for the full design and
 `doc/zk-execution-proofs.md` for the provable-execution stack (issue #85).
 
-> **As of alphanet-5 (v1.0.0-alpha.9), the zkVM is the ONLY runtime.** The old string/BLAKE2b stack VM was
+> **As of betanet-5 (v1.0.0-alpha.9), the zkVM is the ONLY runtime.** The old string/BLAKE2b stack VM was
 > deleted — no legacy, no history replay. Contract *execution is provable*: a call is applied by verifying a
 > STARK + replaying its public I/O log instead of re-executing, and a whole epoch of calls settles as one
 > proof (`execnode/settlement_proofs.py`). See `doc/zk-execution-proofs.md`.
@@ -104,7 +104,7 @@ full deposit→withdraw→settle→release round-trip), `tests/test_zkvm_args.py
 roots** (`prove_settlement`/`verify_settlement`), so proof coverage is unbounded-epoch-safe. **Still open:**
 **recursion** — folding the per-segment proofs into one O(1)-verify proof (needs an in-VM STARK verifier over
 a wide-sponge alghash), the DA availability/pruning window, and full-state (non-zkVM op families)
-settlement. **Games: all 15 ported + live on alphanet-5** (coinflip/dice/roulette/slots/mines/blackjack +
+settlement. **Games: all 15 ported + live on betanet-5** (coinflip/dice/roulette/slots/mines/blackjack +
 tictactoe/connect4/reversi/chess + farkle + bet + battleship + pets + holdem, in `execnode/games/`, all
 E2E-tested in `tests/test_games_e2e.py`). See `doc/zk-execution-proofs.md`.
 

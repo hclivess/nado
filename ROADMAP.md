@@ -148,7 +148,7 @@ incompatible token contracts. Full rationale and the resulting design: [`doc/ass
   log that carries every asset effect.
 
 **State proofs are the ZK line; signature aggregation is not.** Settlement-by-proof went live at the
-alphanet-14 reroll (`SETTLE_PROOF_RECURSIVE`): an epoch is proven as ONE zkVM trace and L1 verifies it in
+betanet-14 reroll (`SETTLE_PROOF_RECURSIVE`): an epoch is proven as ONE zkVM trace and L1 verifies it in
 **~0.3 s independent of the call count**, replacing re-execution. That is the asymmetry ZK exists for —
 re-running ten thousand contract calls is expensive, checking a proof that they ran is not.
 
@@ -172,7 +172,7 @@ Until this point the honest status was "the prover produces correct proofs and n
 **The reason it took so long is worth recording, because it was not one bug.** Six independent failures
 were stacked, each individually fatal, so fixing any one of them changed nothing observable:
 
-1. **All three peers were missing `libgoldilocks.so`** — with no Python fallback since alphanet-14, no peer
+1. **All three peers were missing `libgoldilocks.so`** — with no Python fallback since betanet-14, no peer
    could verify a settle proof under any circumstances. `self_update` rebuilt only crates whose *sources
    changed*, and a box that has never built a crate has unchanged sources forever. Invisible from outside:
    L1 keeps producing blocks and `/status` stays 200.
@@ -294,7 +294,7 @@ launchpad that lets a deployer drain:
 - Graduation is permissionless and deterministic (anyone can trigger it once the threshold is met).
 - Full trade history readable on-chain; the explorer shows creator holdings from block one.
 
-**Exit criteria:** a token launched, traded, and graduated end-to-end on alphanet; a written
+**Exit criteria:** a token launched, traded, and graduated end-to-end on betanet; a written
 adversarial review specifically hunting for the drain paths (the banked-solvency and field-wrap class
 of bug we've already been bitten by twice — treat the curve math as money code).
 
@@ -433,7 +433,7 @@ Full map, with measured numbers and per-component status:
 | alghash2 (in-circuit hash) | **BUILT** | Wide sponge, WIDTH 12 / RATE 8 / CAPACITY 4, α=7, 54 rounds. Post-quantum: 128-bit collision + Grover preimage |
 | Execution zkVM + its AIR | **BUILT** | The only contract runtime; **25 contracts live on chain** |
 | Shielded pool (join-split, membership) | **BUILT** | The **one** place the full proof→DA→commitment→verify loop already works in production |
-| Recursion (in-circuit STARK/FRI verify, FS, fold-of-folds) | **BUILT** | O(1) verify side; live on the consensus path since alphanet-14 |
+| Recursion (in-circuit STARK/FRI verify, FS, fold-of-folds) | **BUILT** | O(1) verify side; live on the consensus path since betanet-14 |
 | K→1 fold | **BUILT, never run** | Needs contract calls to fold; an idle chain has none, so the node falls through to the unfolded prove |
 | State-root binding (sparse tree, calls/records commitment) | **BUILT** | Depth-256 sparse Merkle over alghash2 |
 | Rust prover crates | **BUILT** | `starkprove` (2 222 lines), `alghash2`, `starkcompose`, `mldsa44`. **Rust-only, no fallback** — a Python path shadowing a Rust one is invisible degradation |
@@ -483,7 +483,7 @@ address to one on-chain pubkey; the scheme becomes one more thing that binding f
   2^168, a non-issue), and the network learns an address's scheme exactly when it learns its pubkey.
   Belt-and-suspenders: pubkey sizes are disjoint across the roster (1312/1952/2592/32 bytes), so
   ambiguity is structurally impossible even without the tag — but the tag ships; length-sniffing is the
-  `startswith(ADDRESS_PREFIX)` class of discriminator alphanet-14 already removed.
+  `startswith(ADDRESS_PREFIX)` class of discriminator betanet-14 already removed.
 - **Validators, blocks, attestations, shielded, forum stay ML-DSA-44.** User key choice only; the
   consensus-critical surfaces remain single-scheme.
 - **Multisig:** optional per-member `alg` in the descriptor, default mldsa44 — new descriptors only.
@@ -563,8 +563,8 @@ honestly is rarer than it should be.
    classes have already bitten us (banked-table solvency, field-wrap on static payout math); an AMM
    and a bonding curve are the same class of arithmetic with more zeroes attached.
 2. **Bugs are caught by running code, not reading it.** Every phase ships with a live E2E script in
-   the `_*_e2e.py` pattern and is proven on alphanet before it's called done.
-3. **Upgrade in place, no legacy paths.** Alphanet has no activation gates; consensus changes go live.
+   the `_*_e2e.py` pattern and is proven on betanet before it's called done.
+3. **Upgrade in place, no legacy paths.** Betanet has no activation gates; consensus changes go live.
 4. **Close the whole usability loop** — ids, results, feedback, history, search, i18n, routes. A
    half-wired swap is worse than no swap.
 5. **No hidden fees, no admin keys, no authority.** If a design needs a privileged address to work,

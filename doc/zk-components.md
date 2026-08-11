@@ -1,6 +1,6 @@
 # NADO zk components — the complete map
 
-**Status: reference. Current as of 2026-08-04, chain `alphanet-15`.**
+**Status: reference. Current as of 2026-08-04, chain `betanet-15`.**
 
 Every zero-knowledge / proof-system component in the tree, what it does, where it lives, and — the part
 that matters most — **whether it is actually load-bearing in production right now**. Sizes are `wc -l` of
@@ -150,7 +150,7 @@ Proving *that the exec state root moved correctly* — the machinery a validity-
 | Calls commitment | `execnode/stark/calls_commit.py` | 344 | **LIVE** | Binds the epoch's calls |
 | Sparse-root settlement | `execnode/stark/settlement_sparse.py` | 460 | **LIVE** | `prove_bound_epoch` / `verify_bound_epoch` — the top-level settlement prover |
 | Exec-state binding | `execnode/stark/exec_state_bind.py` | 93 | **LIVE** | |
-| Records binding | `execnode/stark/records_bind.py` | 326 | **LIVE** | `SETTLE_PROOF_RECORDS`, live since the alphanet-15 reroll |
+| Records binding | `execnode/stark/records_bind.py` | 326 | **LIVE** | `SETTLE_PROOF_RECORDS`, live since the betanet-15 reroll |
 | Records transition | `execnode/stark/records_transition.py` | 134 | **LIVE** | |
 | Single-bundle aggregation | `execnode/stark/settlement_aggregate.py` | 55 | capability | |
 | O(1)-shaped bound epoch | `execnode/stark/bound_epoch_o1.py` | 84 | capability | |
@@ -300,7 +300,7 @@ This is the 4844/Celestia blob rule; the exec layer already implements it one le
 |---|---|---|
 | `SETTLE_PROOF_TRUSTLESS` | `True` | A valid proof settles the root with **no bonded quorum** |
 | `SETTLE_PROOF_RECURSIVE` | `True` | L1 honours a K→1 recursion bundle |
-| `SETTLE_PROOF_RECORDS` | `True` | Records half is bound too (alphanet-15 reroll) |
+| `SETTLE_PROOF_RECORDS` | `True` | Records half is bound too (betanet-15 reroll) |
 | `SETTLE_PROOF_DEPTH_GATED` | `True` | Proofs not consulted past `FINALITY_DEPTH` |
 | `SETTLE_PROOF_MAX_SPAN` | 240 | 4 × `EPOCH_LENGTH` |
 | `EXEC_TREE_DEPTH` | 256 | Full digest-width slot space; never needs a depth bump |

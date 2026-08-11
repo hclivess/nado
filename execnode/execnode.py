@@ -337,7 +337,7 @@ SETTLE_SUBMIT_TIMEOUT_PROOF = int(os.environ.get("NADO_SETTLE_SUBMIT_TIMEOUT_PRO
 # any block and /get_settled never moved.
 #
 # This is the same anti-pattern protocol.py records under RESERVED_TX_MARGIN: tip+2/+4/+5 "forked
-# alphanet-12 three times on 2026-07-28" because an exact-landing tx could not propagate in time. 60 blocks
+# betanet-12 three times on 2026-07-28" because an exact-landing tx could not propagate in time. 60 blocks
 # (~6 min) covers the verification plus propagation and stays far under TX_LANDING_WINDOW (360), so a tx
 # admitted against a slightly-behind peer still fits.
 # RAISED for the INLINE proof, then LOWERED AGAIN once the proof stopped being huge. 60 blocks (~6 min)
@@ -3173,7 +3173,7 @@ async def h_prove_transfer(request):
             bundle, public = await asyncio.to_thread(_prove)   # heavy STARK proving off the event loop
             if w.get("withdraw_addr"):
                 bundle["withdraw_addr"] = w["withdraw_addr"]
-        # DA-ONLY (alphanet, no legacy single-operator apply): the delegated prover RETURNS the proof; the
+        # DA-ONLY (betanet, no legacy single-operator apply): the delegated prover RETURNS the proof; the
         # caller publishes it to /da/publish and submits an L1 blob carrying only the commitment, so every
         # exec node applies it in L1 order. The exec node NEVER applies a transfer out-of-band. The bundle
         # rides as an opaque JSON STRING (its big field ints survive re-parse).

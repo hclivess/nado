@@ -45,7 +45,7 @@ class DaStore:
         #
         # WHY IT EXISTS. prune() was written for exactly this and, until 2026-08-06, was called from ONE
         # place in the whole tree: tests/test_da_store.py. Production never pruned, so the store grew
-        # without bound. MEASURED on the alphanet-15 node that day: exec_da held 41 GB in 109 objects
+        # without bound. MEASURED on the betanet-15 node that day: exec_da held 41 GB in 109 objects
         # (1,916 files) — every settle proof published during the 2026-08-04/05 transport work, at ~390 MB
         # each (a ~120 MiB proof erasure-coded k=4/n=8). It was 99.8% of the node's 41 GB footprint; the
         # blocks themselves were 75 MB. A snapshot node had quietly become an archival one.

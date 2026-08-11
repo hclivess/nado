@@ -2,7 +2,7 @@
 
 ## What happened
 
-After the alphanet-6 fleet converged on the snapshot re-anchor sync model, nodes began
+After the betanet-6 fleet converged on the snapshot re-anchor sync model, nodes began
 bootstrapping from **state snapshots** and pruning historical block bodies. Registration-PoSW
 difficulty v2 counted `register` txs by **scanning block bodies** and silently returned `0`
 for any epoch a node did not hold — so the required multiplier became a function of each

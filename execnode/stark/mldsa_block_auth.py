@@ -33,7 +33,7 @@ two natively on every single transaction. So the leaf is a pure function of IN-B
 native verifier's business, and a proof's public statement takes the pubkey the VERIFIER resolved — never one
 the prover chose.
 
-WIRED (alphanet-14): ops/block_ops.construct_block commits (auth_root, auth_count) inside the hash preimage
+WIRED (betanet-14): ops/block_ops.construct_block commits (auth_root, auth_count) inside the hash preimage
 and core_loop.verify_block independently recomputes both from the block's own transactions and rejects on
 mismatch. Evidence itself is DETACHED (see evidence_ok): raw signatures are what every block ships today, and
 a stark envelope is accepted wherever a prover can supply one — same block hash either way.

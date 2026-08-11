@@ -16,7 +16,7 @@ from execnode import zkvmasm, runtimes
 from ops.address_ops import make_address
 
 # The game-fleet deployer key, identified by its PUBLIC-KEY BODY rather than a pinned address string.
-# This gate was previously a hardcoded "ndo…" address; the alphanet-7 debrand moved the operator to
+# This gate was previously a hardcoded "ndo…" address; the betanet-7 debrand moved the operator to
 # "mldsa44…", so the digest baked into `reward` stopped matching the caller and EVERY prize payout
 # reverted on the operator-only require — the faucet could not pay a single scoreboard winner. Deriving
 # the address through make_address() means a future prefix change follows the one-constant rebrand point

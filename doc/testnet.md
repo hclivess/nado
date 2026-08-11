@@ -7,7 +7,7 @@ trusted on a real mesh of nodes.
 
 ## Status
 
-**SUPERSEDED.** This pre-relaunch bring-up plan predates the live bonded lanes. S4.3 (bonded selection) is wired and live on alphanet-6; the multi-node testnet runs via `scripts/testnet/`. Kept for the local-networking notes below.
+**SUPERSEDED.** This pre-relaunch bring-up plan predates the live bonded lanes. S4.3 (bonded selection) is wired and live on betanet-6; the multi-node testnet runs via `scripts/testnet/`. Kept for the local-networking notes below.
 This document is the plan and the harness contract.
 
 ## What a node needs to boot

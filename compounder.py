@@ -66,7 +66,7 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, semapho
 async def get_tx_ids_of(peer, port, logger, fail_storage, semaphore):
     """GET /transaction_ids from one peer -> (peer, [txid,...]) or None. A peer that cannot serve
     the reconciliation wire is treated like any other failing peer (fail_storage -> purge queue) —
-    NO legacy-wire tolerance on alphanet; the whole mesh speaks one protocol version."""
+    NO legacy-wire tolerance on betanet; the whole mesh speaks one protocol version."""
     url_construct = f"http://{hostport(peer, port)}/transaction_ids?compress=zstd"
     try:
         async with semaphore:

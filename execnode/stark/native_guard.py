@@ -1,5 +1,5 @@
 """
-Shared guard for the native accelerators — and, since alphanet-14, the place that makes them MANDATORY.
+Shared guard for the native accelerators — and, since betanet-14, the place that makes them MANDATORY.
 
 RUST-ONLY POLICY (project owner's decision, 2026-07-29). Where a Rust variant exists, it is the only
 production implementation. A missing or stale .so is a HARD FAILURE at load, not a quiet downgrade to Python.
@@ -101,7 +101,7 @@ def require(crate: str, so_path, crate_dir, reason: str = ""):
             f"native crate '{crate}' is REQUIRED but its library is missing"
             f"{(' (' + reason + ')') if reason else ''}. Build it (scripts/build_pq_native.sh for mldsa44, "
             f"`cargo build --release` in native/{crate} otherwise). There is no Python fallback: since "
-            f"alphanet-14 the Rust kernel is the only production implementation, because a silent downgrade "
+            f"betanet-14 the Rust kernel is the only production implementation, because a silent downgrade "
             f"produces right answers slowly and is therefore invisible until it has already misled you.")
     if is_stale(so_path, crate_dir):
         raise NativeMissing(

@@ -90,7 +90,7 @@ implementation of its case:
 ### Closing the BLAKE2B gap — measured, and not the way it looked
 
 The obvious shortcut was to switch the shielded pool to the ALGHASH2 backend, which the arena already covers.
-Since alphanet-14 is a reroll the format break is free, so the only question was cost. Measured on the real
+Since betanet-14 is a reroll the format break is free, so the only question was cost. Measured on the real
 join-split circuit (`T=2048`, `W=21`, `D=8`, 8 queries):
 
 | backend | prove | verify |
@@ -109,7 +109,7 @@ native LDE/Merkle/FRI. The framing is small (`backend.py` `_Blake2b`): leaf = `b
 the arena stores digests as u64 lanes while blake2b digests are 32 raw bytes, and a fully native blake2b prove
 also needs the transcript (`t_init`/`t_absorb`/`t_challenge`/`t_index`/`t_grind_hash`) in Rust.
 
-**Deliberately not done before the alphanet-14 tag.** Introducing an unverified hash implementation on the
+**Deliberately not done before the betanet-14 tag.** Introducing an unverified hash implementation on the
 live shielded path immediately before a release inverts the risk order, and rule 4 above applies: the Python
 blake2b body is the natural differential oracle for that port, so it must be verified byte-for-byte *first*
 and retired *after*. It is the next port, not this one.

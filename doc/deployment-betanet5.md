@@ -1,7 +1,7 @@
-# alphanet-5 deployment — the multi-part cutover (zkVM-only, provable contracts, games)
+# betanet-5 deployment — the multi-part cutover (zkVM-only, provable contracts, games)
 
-> **HISTORICAL / SUPERSEDED.** This is the runbook for the 2026-07-14 alphanet-5 cutover; the chain has
-> since rerolled (currently **alphanet-6**). Kept as a record of that event — the general reroll procedure
+> **HISTORICAL / SUPERSEDED.** This is the runbook for the 2026-07-14 betanet-5 cutover; the chain has
+> since rerolled (currently **betanet-6**). Kept as a record of that event — the general reroll procedure
 > now lives in [updates-and-rerolls.md](updates-and-rerolls.md) and `scripts/purge_resync.sh`.
 
 This is the operational runbook for the 2026-07-14 cutover that shipped the ZK-execution-proof stack
@@ -24,13 +24,13 @@ tested before touching the chain — so Part A can sit on `main` while the chain
 memory. **Do not restart `nado-exec` after this merge until Part C** (it imports the now-deleted `vm.py` only
 via the old in-memory process; a restart picks up the new code, which is only coherent post-reboot).
 
-## Part B — the L1 reboot to alphanet-5 (DESTRUCTIVE — carries balances forward)
+## Part B — the L1 reboot to betanet-5 (DESTRUCTIVE — carries balances forward)
 
 Wiping the chain is irreversible. **Back up first**, then carry every coin forward, then wipe + reboot.
 
 1. **Back up the live state** (restorable if aborted):
    ```bash
-   BK=/root/nado-alphanet4-backup-$(date +%Y%m%d-%H%M%S); mkdir -p "$BK"
+   BK=/root/nado-betanet4-backup-$(date +%Y%m%d-%H%M%S); mkdir -p "$BK"
    cp -a blocks index exec_state.json private exec_da message_pool.dat peers.dat "$BK/"
    ```
 2. **Quiesce** so the state is final: `systemctl stop nado-exec nado forum`.
@@ -49,27 +49,27 @@ Wiping the chain is irreversible. **Back up first**, then carry every coin forwa
    `private/genesis_alloc.dat` and the git-tracked `genesis_data/genesis_alloc.dat` — **commit the latter**
    so every joining node builds the identical genesis (block-0 account seeding does not change the genesis
    hash, but it MUST be byte-identical across nodes or state forks).
-4. **Bump the chain id + timestamp** in `protocol.py`: `CHAIN_ID = "alphanet-5"`, a fresh recent
+4. **Bump the chain id + timestamp** in `protocol.py`: `CHAIN_ID = "betanet-5"`, a fresh recent
    `GENESIS_TIMESTAMP`. Commit.
 5. **Wipe the old chain + exec state** (keeps `private/` keys + `genesis_alloc.dat`, keeps `peers/`):
    ```bash
    HOME=/root python3 purge.py -y          # blocks/ index/ logs/
    rm -f exec_state.json exec_state.json~tmp exec_state.json.*; rm -rf exec_da
    ```
-6. **Start L1**: `systemctl start nado`. On boot it rebuilds genesis as alphanet-5 and seeds the carried
-   balances. **Verify:** `curl localhost:9173/status` shows `chain_id: alphanet-5`; `/get_supply`
+6. **Start L1**: `systemctl start nado`. On boot it rebuilds genesis as betanet-5 and seeds the carried
+   balances. **Verify:** `curl localhost:9173/status` shows `chain_id: betanet-5`; `/get_supply`
    `total_supply` equals the carry-forward tool's total; a spot-check of `/get_account?address=…` matches the
    alloc (allowing for a few blocks of emission once producing).
 
 > **Finality after a reboot needs the validator set back.** The bootstrap node alone rarely holds >2/3 of
 > bonded stake, so FFG finality resumes only once the other carried-forward validators update their code and
-> rejoin alphanet-5 (they re-genesis from the shared `genesis_data/genesis_alloc.dat`). The chain produces +
+> rejoin betanet-5 (they re-genesis from the shared `genesis_data/genesis_alloc.dat`). The chain produces +
 > depth-finalizes meanwhile, and the FFG inactivity leak recovers the quorum over epochs if some never return.
 
 ## Part C — restart the exec node on the zkVM runtime
 
 `systemctl start nado-exec forum`. The exec node comes up on the new code with a fresh, empty state and tails
-alphanet-5 from genesis. **Verify:** `curl localhost:9273/exec/runtimes` → `{"runtimes":["zkvm"],…}`;
+betanet-5 from genesis. **Verify:** `curl localhost:9273/exec/runtimes` → `{"runtimes":["zkvm"],…}`;
 `/exec/root` shows `contracts: 0` and a `cursor` that advances as finalized blocks arrive.
 
 ## Part D — deploy the games + wire the frontends (repeat per game)
@@ -106,7 +106,7 @@ Games return only as zkVM ports (`execnode/games/<name>.py`). Each is a self-con
   `ExecState`, play a full game via `apply_blob`, assert escrow/payout/`decode_view`, and prove one method.
 - Deploy (Part D.1) and wire (Part D.2).
 
-## Live on alphanet-5
+## Live on betanet-5
 
 | game | cid | notes |
 |---|---|---|
@@ -128,4 +128,4 @@ the same checklist; the mega-contracts need a feasibility pass against the singl
 
 Parts A/D are reversible (revert commits / redeploy). Part B is not, except by restoring the Part-B.1 backup:
 stop services, restore `blocks index exec_state.json` from the backup dir, revert the `protocol.py` chain-id
-bump, restart. Only viable before the network has meaningfully advanced on alphanet-5.
+bump, restart. Only viable before the network has meaningfully advanced on betanet-5.

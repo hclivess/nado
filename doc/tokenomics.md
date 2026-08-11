@@ -217,6 +217,6 @@ part of emission and hold no key:
 | `TREASURY_BURN_BPS` | 100 (1 %) | Self-burn of balance above the floor |
 | `MIN_TX_FEE` | 1 000 raw | Consensus anti-spam fee floor |
 
-> **Status:** testnet alpha (`chain_id = alphanet-6`). Several parameters carry alpha
+> **Status:** testnet alpha (`chain_id = betanet-6`). Several parameters carry alpha
 > values flagged for mainnet tuning (e.g. `TREASURY_VOTE_ACTIVATION_EPOCHS`,
 > `TREASURY_RUNWAY_FLOOR`). Always read the current value from `protocol.py`.

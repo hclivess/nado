@@ -43,7 +43,7 @@ def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry:
     claim, as soon as non-settling validators bonded past 1/3). Both branches read only committed on-chain
     state, so the result is identical on every node. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM).
 
-    TRUSTLESS PROOF: gated on protocol.SETTLE_PROOF_TRUSTLESS (FALSE on alphanet-10 -> quorum-only, so this
+    TRUSTLESS PROOF: gated on protocol.SETTLE_PROOF_TRUSTLESS (FALSE on betanet-10 -> quorum-only, so this
     is byte-identical to the pre-flag behaviour; a proof still verifies and records its marker but the marker
     is not honoured). The VALIDATION side (ops/transaction_ops settle branch) is complete and hardened: it
     binds the proof to the committed per-block EXEC SUMMARIES (pruning-immune, not block bodies), requires the

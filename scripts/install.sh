@@ -56,7 +56,7 @@
 # the directory moves into the account home, a compatibility symlink stays at the old path (operator
 # tooling, cron jobs and stale shebangs keep resolving), extra repo-run units (forum, bet-oracle) are
 # re-pointed and de-rooted, and ownership + git safe.directory are fixed up. (The migration is
-# TRANSITIONAL, for alphanet-era root installs — it gets removed at mainnet release, by which point every
+# TRANSITIONAL, for betanet-era root installs — it gets removed at mainnet release, by which point every
 # node is on the account layout; see the SUNSET note at the migration branch below.) Re-runs and the
 # node's self-heal AUTO-ADOPT an existing non-root install, so a later plain `--service` run can never
 # quietly hand the node back to root:
@@ -259,7 +259,7 @@ if [ -n "$SERVICE_ACCOUNT" ]; then
     # units (forum, bet-oracle) are re-pointed and de-rooted too — they read the same keys/paths.
     #
     # SUNSET AT MAINNET: this whole migration branch (move + symlink + extra-unit rewriting) exists
-    # only to carry alphanet-era root installs over to the service account. By mainnet release every
+    # only to carry betanet-era root installs over to the service account. By mainnet release every
     # node will have been migrated (or freshly installed straight into the account layout), so DELETE
     # the branch then and keep only the fresh-install path: create account -> clone/verify at
     # $SERVICE_HOME/nado -> refuse with a clear error if an old-layout install is detected.

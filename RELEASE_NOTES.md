@@ -1,8 +1,8 @@
-# Alphanet reboot — 2026-07-14 (alphanet-5: zkVM-only, provable contracts, games returning)
+# Betanet reboot — 2026-07-14 (betanet-5: zkVM-only, provable contracts, games returning)
 
 > **Chain reboot.** Deleting the legacy stack VM (v1.0.0-alpha.9) made the field-native **zkVM the only
-> contract runtime**, so alphanet-4 was rebooted to **alphanet-5** with a fresh genesis. Every holder's
-> **balance + bonded stake carried forward** (`tools/alphanet5_carryforward.py`): exec-side user balances +
+> contract runtime**, so betanet-4 was rebooted to **betanet-5** with a fresh genesis. Every holder's
+> **balance + bonded stake carried forward** (`tools/betanet5_carryforward.py`): exec-side user balances +
 > uncollected dividends folded into L1 balances, contract game-pots refunded to their players, and the folds
 > debited from the escrow reserved accounts so total supply is conserved EXACTLY (Δ=0). Nodes rebuild the
 > identical genesis from the shared `genesis_data/genesis_alloc.dat`. Bonded validators must update + rejoin

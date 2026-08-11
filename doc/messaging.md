@@ -261,7 +261,7 @@ possible recipients — a **tunable anonymity set**). This slides between the ex
 | full-scan tags | nothing | whole pool | ❌ at high volume |
 | OMR / PIR | nothing | one message | ✅ but heavy server crypto (future) |
 
-**Plan:** v1 ships **full-scan detection tags** (fine at alphanet volume). As traffic grows, enable **FMD
+**Plan:** v1 ships **full-scan detection tags** (fine at betanet volume). As traffic grows, enable **FMD
 bucketing** with K auto-sized to the pool, keeping client bandwidth bounded against a real recipient
 anonymity set; keep **cleartext-`to` as an opt-out** for users who don't want the scan cost. **OMR/PIR**
 (private *and* O(1) bandwidth) is the eventual upgrade, deferred as too compute-heavy today.

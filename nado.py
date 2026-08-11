@@ -272,7 +272,7 @@ async def status(request):
             "update_remote_reachable": ((memserver.updatability or {}).get("checks") or {}).get("remote_reachable"),
             "dead_fork_probe": getattr(memserver, "dead_fork_probe", None),
             # NETWORK PARTITION KEY: peers gate admission on this (peer_loop) so nodes on a different
-            # chain (e.g. a pre-relaunch alphanet) never enter the status/consensus pools — a foreign
+            # chain (e.g. a pre-relaunch betanet) never enter the status/consensus pools — a foreign
             # chain's advertised weight would otherwise stall production via the caught-up gate.
             "chain_id": CHAIN_ID,
         }
@@ -1198,7 +1198,7 @@ async def get_treasury_status(request):
             # prevents by snapshotting. The Quorum tab is what people read before voting, and it was showing a
             # different election from the one being run.
             #
-            # VERIFIED ON CHAIN (alphanet-16, proposal c0078b53, 1 NADO -> faucet): with one activated voter
+            # VERIFIED ON CHAIN (betanet-16, proposal c0078b53, 1 NADO -> faucet): with one activated voter
             # holding 100 shares, casting 'no' moved approving_shares 100 -> 0 while `voters` stayed at 2.
             # The old expression returns 100 for that same state, because the voter is still in the set and
             # still activated — it never looked at the choice at all.
@@ -1778,7 +1778,7 @@ async def state_health(request):
     PER-SUB-DB root breakdown {db: [root, rows]} (snapshot_ops.per_db_roots) at the current tip, with the L2
     settled (exec_cursor, exec_root) and tip/finalized heights. Pure DIAGNOSTIC, no consensus effect: an
     external watcher polls this on several peers and, when two disagree at the same height, sees WHICH sub-DB
-    diverged in one shot instead of inferring a fork from block hashes (the alphanet-8 wedge took a replay
+    diverged in one shot instead of inferring a fork from block hashes (the betanet-8 wedge took a replay
     harness to localize to the meta DB — this endpoint is that harness, live). Rate-limited like other reads."""
     if _rate_limited(request, 6):        # two full-state walks are expensive; this is a diagnostic, not a poll target
         return _RL()

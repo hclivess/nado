@@ -127,7 +127,7 @@ Send a `blob` tx (`recipient:"blob"`, `amount:0`, `data:<payload>`) via `POST /s
 |---|---|---|
 | `deploy` | `code, abi?, nonce?, runtime?` | Deploy a contract. `cid = hash(["deploy", deployer, code, nonce])[:32]`. |
 | `call` | `contract, method, args[], value?` | Invoke a contract method; persists new storage if it doesn't revert. `value` escrows raw NADO from your bridge balance into the contract for the call (the VM's `VALUE` opcode sees it; `PAY` spends it; a revert refunds exactly). |
-| `upgrade` | `contract, code, runtime?, abi?` | Deployer-only (alphanet): replace a contract's code, keeping its cid + storage. |
+| `upgrade` | `contract, code, runtime?, abi?` | Deployer-only (betanet): replace a contract's code, keeping its cid + storage. |
 | `emit` | `to_ns, data` | Append a cross-domain message to the outbox. |
 | `bridge_withdraw` | `amount` | Burn exec bridge balance → provable L1 exit (claim with `/exec/withdrawal_proof`). |
 | `collect_dividend` | — | Burn accrued dividend → provable L1 claim. |

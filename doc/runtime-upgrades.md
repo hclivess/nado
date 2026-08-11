@@ -1,6 +1,6 @@
 # Runtime upgrades — decentralized, atomic, verifiable (mainnet design)
 
-> **Status: DRAFT / design target for mature mainnet.** Not for alphanet, which keeps the simple
+> **Status: DRAFT / design target for mature mainnet.** Not for betanet, which keeps the simple
 > fast-iterating model below. This note answers one question: on mainnet, how does the chain's own logic
 > (balances, staking, issuance, consensus rules) change over time **without a central party deciding, without
 > a coordinated-fork scramble, and without silent divergence** — and how that reconciles with NADO's
@@ -11,7 +11,7 @@
 ## 0. The problem, stated honestly
 
 Today the runtime is native Python and upgrades happen through `ops/self_update.py`: each node fetches
-`origin/main` of **one pinned repo (`github.com/hclivess/nado`)**, fast-forwards, and restarts. On alphanet,
+`origin/main` of **one pinned repo (`github.com/hclivess/nado`)**, fast-forwards, and restarts. On betanet,
 consensus changes go live immediately with no activation ceremony. That is fine for a fast-moving alpha. It
 is **not** acceptable for a mature mainnet, on two independent axes:
 

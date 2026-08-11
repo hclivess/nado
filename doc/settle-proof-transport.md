@@ -183,7 +183,7 @@ In the order they had to fall:
 
 ### 6.1 Peers could not verify a proof at all — the deepest cause
 
-All three peers were missing `libgoldilocks.so`. Since alphanet-14 there is **no Python fallback**
+All three peers were missing `libgoldilocks.so`. Since betanet-14 there is **no Python fallback**
 (`native_guard.require` raises `NativeMissing`), so no peer could verify a settle proof under **any**
 circumstances — any size, DA or inline, however well it propagated.
 
@@ -480,7 +480,7 @@ records movement**, which is why measured coverage is 2 proofs against 13 bare s
   `calls=0`, and `execnode.py:621` already sets `_fold = … and bool(calls)`, so the gate has not been
   reached. It can only be exercised once the records gate lets a span with calls through.
 * **Cost of the inline pivot**: blocks carrying a proof are large, so gossip and sync move real bytes. That
-  is a deliberate alphanet trade — a proof that lands beats a smaller one that cannot.
+  is a deliberate betanet trade — a proof that lands beats a smaller one that cannot.
 
 ## 8. The sparse root was the constant term — measured and removed (2026-08-06)
 
@@ -579,7 +579,7 @@ trade, because it removes redundancy rather than security. It also means the tra
 192 MiB `MAX_TX_BODY`, size-scaled gossip timeouts, a 180-block runway) now has ~12× the headroom it was
 sized for, and the DA path is no longer near any limit.
 * **Cost of the inline pivot**: blocks carrying a proof are large, so gossip and sync move real bytes. That
-  is a deliberate alphanet trade — a proof that lands beats a smaller one that cannot. After §9 a proof is
+  is a deliberate betanet trade — a proof that lands beats a smaller one that cannot. After §9 a proof is
   9.73 MiB, so this cost is now small.
 
 ## 10. Which gate actually refuses a span — counted, not guessed (2026-08-06)

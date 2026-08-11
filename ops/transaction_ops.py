@@ -202,8 +202,8 @@ def verify_attestation_equivocation_proof(proof):
             # sender, the epochs match, and the target_hashes differ (different lineage) — a valid-looking
             # equivocation proof that burns an honest validator's bond, repeatable once per overlapping
             # epoch until the stake is gone. Old-generation bodies survive rerolls on disk and in backups,
-            # so this is reachable in practice (it went live the moment alphanet-8 was rerolled to
-            # alphanet-9). The block-authorship proof is implicitly chain-bound via parent_hash; this one
+            # so this is reachable in practice (it went live the moment betanet-8 was rerolled to
+            # betanet-9). The block-authorship proof is implicitly chain-bound via parent_hash; this one
             # is not, so bind it explicitly. chain_id is inside the signed txid preimage, so it cannot be
             # forged onto a foreign-chain attestation.
             if tx.get("chain_id") != CHAIN_ID:

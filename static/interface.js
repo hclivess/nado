@@ -46,7 +46,7 @@ const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, 
 const POSW_TARGET_MARGIN = POSW_ANCHOR_OFFSET;
 const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
-const ADDR_PREFIX = ""    // removed at alphanet-14; NO backwards compatibility;
+const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
 const MSIG_PREFIX = "msig";                 // policy accounts (multisig) — own discriminator
 const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;                     // 46 today
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");    // strict (lowercase)
@@ -4886,7 +4886,7 @@ async function renderRollbacks() {
 // CONSENSUS-HEALTH panel: state-root REJECTS (blocks refused because our as-of-parent L1 root diverged
 // from the producer — the fatal-divergence signal) + EMERGENCY-mode ENTRIES (falling out of consensus into
 // a rollback/resync burst), per day. Both ride /rollback_stats (node-local). A healthy fleet trends flat at
-// zero; a sustained rejects spike is the fingerprint of a state fork (the alphanet-8 wedge). Days predating
+// zero; a sustained rejects spike is the fingerprint of a state fork (the betanet-8 wedge). Days predating
 // this telemetry arrive null ("not measured"), drawn empty — never a fake zero.
 async function renderDivergence(rb) {
   // `rb` is renderRollbacks' already-fetched /rollback_stats payload — both panels read the SAME endpoint,
@@ -6476,7 +6476,7 @@ async function ensureFastStarkHash() {
   try { setFieldWasm(await initGoldilocksWasm()); } catch (e) { /* NTT stays pure-JS BigInt */ }
   _starkInit = true;
 }
-// DA-only submission (alphanet — no legacy single-operator path): publish the ~1-4MB proof to the DA layer
+// DA-only submission (betanet — no legacy single-operator path): publish the ~1-4MB proof to the DA layer
 // (too big for a 16KB blob), then submit an L1 blob carrying ONLY the proof's commitment. Every exec node
 // resolves the proof by that commitment from DA and applies it in L1 ORDER — so the shielded pool is
 // reconstructible by the whole bonded quorum. Throws (no fallback) if DA publish or the relay is unavailable.
@@ -7142,7 +7142,7 @@ function installBgSignListener() {
 
 /* Network tag (header, upper right): which chain this wallet signs for. The relay's /status is the source of
  * truth — the wallet ADOPTS its chain_id at boot, so chain upgrades resolve automatically (no more
- * "alphanet-N ≠ alphanet-M" limbo after a reroll). The fallback literal only covers the pre-fetch window;
+ * "betanet-N ≠ betanet-M" limbo after a reroll). The fallback literal only covers the pre-fetch window;
  * a failed fetch keeps the fallback and the next signed tx surfaces any real problem via the node's own
  * "Wrong or missing chain id" rejection. */
 // Re-adopt the relay's AUTHORITATIVE network identity (chain_id + finality window) from /status.

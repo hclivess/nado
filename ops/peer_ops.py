@@ -271,7 +271,7 @@ def probe_height_for(peer_finalized, peer_tip, our_height, margin):
     """PURE: the highest height at or below `our_height` that the peer can answer AND where a disagreement
     could still show up. Returns None when no usable height exists. See tests/test_probe_height.py.
 
-    WHY NOT SIMPLY THE PEER'S FINALIZED HEIGHT (the bug this replaces, measured on alphanet-15 2026-08-03).
+    WHY NOT SIMPLY THE PEER'S FINALIZED HEIGHT (the bug this replaces, measured on betanet-15 2026-08-03).
     A node that has forked correctly REFUSES to self-finalize while the peer-majority tip is off its chain,
     so its finalized height freezes at the last height it agreed on — which is BELOW the fork point, by
     construction. Comparing there is therefore vacuous: both chains share all history below the fork, so the

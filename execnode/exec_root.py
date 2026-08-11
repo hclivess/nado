@@ -1,5 +1,5 @@
 """
-THE settled execution-layer state root (alphanet-6, FROZEN SCHEME — doc/zk-recursion.md §5c deployment).
+THE settled execution-layer state root (betanet-6, FROZEN SCHEME — doc/zk-recursion.md §5c deployment).
 
     state_root = alghash2.rnode( KV_ROOT , RECORDS_ROOT )         serialized 64-hex (storage_tree.digest_hex)
 

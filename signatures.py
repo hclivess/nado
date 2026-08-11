@@ -169,7 +169,7 @@ _BACKEND_REASON = [None]
 
 
 def _fallback(reason):
-    """HARD-FAIL. Since alphanet-14 the native ML-DSA backend is the only production implementation.
+    """HARD-FAIL. Since betanet-14 the native ML-DSA backend is the only production implementation.
 
     THE DEFAULT IS NOW INVERTED. This used to return the pure-Python backend and hard-fail only when
     NADO_PQ_REQUIRE_NATIVE was set. The argument for that default was that the fallback is byte-equivalent
@@ -194,7 +194,7 @@ def _fallback(reason):
         return _PurePyBackend()
     raise RuntimeError(
         f"the native ML-DSA (RustCrypto ml-dsa) backend is unavailable: {reason}. REFUSING TO START. Since "
-        f"alphanet-14 there is no Python fallback in production: it is byte-equivalent but ~84x slower and not "
+        f"betanet-14 there is no Python fallback in production: it is byte-equivalent but ~84x slower and not "
         f"constant-time, so running on it degrades a node silently rather than visibly — which has already "
         f"cost this project a set of misleading benchmark numbers. Build it with scripts/build_pq_native.sh "
         f"(needs cargo). For a build or for the Python-vs-Rust conformance tests, set "

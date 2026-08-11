@@ -31,8 +31,8 @@ confers no advantage and there is nothing to grind. Coins enter circulation only
 > bootstrap binding to a finalized signed checkpoint). On top of consensus, a **STARK-proven execution
 > layer** (a field-native zkVM) is live and carries real dApps — ~20 on-chain games, shielded transfers,
 > and end-to-end-encrypted on-chain messaging. Run it on testnet / at your own risk; do not secure value
-> of consequence with it yet. The alphanet **rerolls often** (fresh genesis, balances carried forward) as
-> consensus changes land strictly with no backward-compat; the current chain id is `alphanet-6`.
+> of consequence with it yet. The betanet **rerolls often** (fresh genesis, balances carried forward) as
+> consensus changes land strictly with no backward-compat; the current chain id is `betanet-6`.
 
 ---
 
@@ -459,7 +459,7 @@ NADO nodes update themselves. Two mechanisms:
   agreeing with us vetoes it), because the remedy destroys chain-derived data. `private/` is never touched.
 
 **Genesis rerolls.** Because consensus changes ship **strictly, with no backward compatibility**, the
-alphanet occasionally **rerolls to a fresh genesis** (balances carried forward from the prior chain).
+betanet occasionally **rerolls to a fresh genesis** (balances carried forward from the prior chain).
 This is signalled in the code by a bumped `CHAIN_GENERATION`: on the next update a current node
 **automatically wipes its old chain data and boots the new genesis** — no manual step. (Keys in
 `private/` are never touched.) A node that has fallen too far behind to auto-detect the reroll clears
@@ -784,7 +784,7 @@ live.)
   stays intact. `ops/multisig_ops.py`.
 - **Hashing & serialization** — BLAKE2b over `canonical_bytes()` (compact, sorted-key, ASCII JSON,
   float-free). Every consensus integer is a raw integer, so a browser reproduces identical bytes with
-  BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "alphanet-1"`, blocking
+  BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "betanet-1"`, blocking
   cross-chain / pre-relaunch replay.
 - **Wire** — transactions submit over **HTTP POST + msgpack** (an ML-DSA-44 tx is too large for a GET
   URL); msgpack is wire/transport only and never the hashed preimage.
@@ -809,7 +809,7 @@ setup** anywhere. Full component map with measured numbers and per-piece status:
   the commitment on chain → verify — **already works in production**.
 - **Recursion, for O(1) verification** — a verifier-authoritative in-circuit STARK/FRI verifier, an
   in-circuit Fiat–Shamir transcript, a K→1 collapse and fold-of-folds, so an epoch's root verifies in
-  constant time regardless of how much executed. Live on the consensus path since alphanet-14.
+  constant time regardless of how much executed. Live on the consensus path since betanet-14.
 - **Rust proving, no fallback** — `native/starkprove` (2 222 lines), `native/alghash2`,
   `native/starkcompose`, `native/mldsa44`. The guard **fail-stops** rather than degrading quietly,
   because a Python path shadowing a Rust one is invisible degradation, not a safety net.
@@ -817,7 +817,7 @@ setup** anywhere. Full component map with measured numbers and per-piece status:
   in the browser with no install.
 
 > **Honest status (updated 2026-08-06).** **Trustless settlement now works end to end.** Block **43153**
-> on alphanet-15 carries a settle with `proof=True` for `exec_cursor 42876`: a peer verified the STARK in
+> on betanet-15 carries a settle with `proof=True` for `exec_cursor 42876`: a peer verified the STARK in
 > **114.5 s** and returned `{"result": true}`, all four nodes agree on the block hash, it is final at
 > depth 71, and `/get_settled` returns the proven root. **The exec root advanced on a validity proof
 > rather than a bonded quorum.**
@@ -830,7 +830,7 @@ setup** anywhere. Full component map with measured numbers and per-piece status:
 > for it, which matters because only one node in this fleet runs a DA store.
 >
 > Six independent blockers had to fall, each individually fatal — the deepest being that **all three peers
-> were missing `libgoldilocks.so`**, so with no Python fallback since alphanet-14 no peer could verify a
+> were missing `libgoldilocks.so`**, so with no Python fallback since betanet-14 no peer could verify a
 > settle proof under any circumstances. [`doc/settle-proof-transport.md`](doc/settle-proof-transport.md)
 > §6 documents all six with evidence.
 >
@@ -901,7 +901,7 @@ shape is unchanged (49 chars).
   (deploy/call/upgrade/lock with `value` escrow, bridge/dividend, emit, privacy) with params + how to submit
   and read. Contracts run on a **STARK-provable zkVM** (the only runtime), authored in **zkasm**
   (`execnode/zkvmasm.py`); every call is provable (`doc/zk-execution-proofs.md`). **Settlement accepts a
-  validity proof as of alphanet-14** (`SETTLE_PROOF_RECURSIVE`): a settle transaction may carry a K→1
+  validity proof as of betanet-14** (`SETTLE_PROOF_RECURSIVE`): a settle transaction may carry a K→1
   recursion bundle and L1 verifies ONE proof for the epoch — **~0.3 s, independent of the call count** —
   replaying the authenticated I/O log to recompute the post-state root with **no re-execution**. The
   bonded-stake quorum (`settlement_justified`, the same >2/3 shape as finality) remains the path for epochs
@@ -911,7 +911,7 @@ shape is unchanged (49 chars).
   battleship, tamagotchi-NFT pets, and multiplayer Texas hold'em with an on-chain 7-card hand evaluator —
   each an ordinary upgradable contract (opt-in immutability via `lock`) with no game-specific API.
 - **STARK recursion — succinct, K→1, O(1) verify** — [`doc/zk-recursion.md`](doc/zk-recursion.md): the path to
-  verifying an epoch of execution in constant time. **Live on the L1 consensus path since alphanet-14** (`SETTLE_PROOF_RECURSIVE`), gated behind a reroll
+  verifying an epoch of execution in constant time. **Live on the L1 consensus path since betanet-14** (`SETTLE_PROOF_RECURSIVE`), gated behind a reroll
   because a node honouring the `recursive` field skips the classic per-segment check: a
   verifier-authoritative in-circuit STARK verifier over an algebraic hash (**alghash2**); **T-independent
   ("succinct") verification** (structured periodic columns — no per-proof O(T) work); a **K→1 collapse** (one

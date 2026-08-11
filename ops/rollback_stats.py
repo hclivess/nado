@@ -167,7 +167,7 @@ def record(depth: int = 1):
 def record_reject():
     """Count ONE state-root gate REFUSAL against today — a block whose committed L1/L2 root did not
     match this node's as-of-parent state (the fatal-divergence signal). A sustained daily spike is the
-    fingerprint of a state fork (the alphanet-8 wedge); a healthy fleet trends flat/zero."""
+    fingerprint of a state fork (the betanet-8 wedge); a healthy fleet trends flat/zero."""
     _persist(lambda rec: rec.__setitem__("r", (rec.get("r") or 0) + 1))
 
 

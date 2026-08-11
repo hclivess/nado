@@ -7,7 +7,7 @@ difficulty and REJECTS a registration whose PoSW does not prove it. An attacker 
 skip the client-side work simply produces proofs that every HONEST node rejects — the difficulty is not a
 client courtesy, it is a validity rule.
 
-WHY v2 (2026-07-17 alphanet-6 split postmortem): v1 computed the multiplier from the LIVE recert_by_epoch
+WHY v2 (2026-07-17 betanet-6 split postmortem): v1 computed the multiplier from the LIVE recert_by_epoch
 LMDB index and its window INCLUDED the anchor's own, still-filling epoch. Both silently broke the determinism
 a validity rule requires:
   1. The index is incrementally maintained (insert on apply, delete on rollback) and SURVIVES upgrades — fleet
@@ -29,7 +29,7 @@ posw.verify is EXACT-T, so each side rejects the other's honest registers and ev
 splits them — a freshly re-anchored node re-truncates its own visibility and loops forever, and EVERY new
 node joining by snapshot inherits the incompatibility on arrival.
 
-v3 therefore counts from the recert_by_epoch STATE INDEX, which since the alphanet-6 generation is
+v3 therefore counts from the recert_by_epoch STATE INDEX, which since the betanet-6 generation is
 CONSENSUS STATE, not a node-local convenience:
   · it is snapshot-carried and validated by the snapshot state_root at import (ops/snapshot_ops) — a
     snapshot-booted node holds EXACTLY the counts a from-genesis node derived, with zero bodies retained;

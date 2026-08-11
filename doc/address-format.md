@@ -69,7 +69,7 @@ re-prefixing the members changes the multisig address BODY, not just its prefix 
 nothing marks a policy account on-chain, `rekey_alloc.py` cannot even tell which alloc entries
 are multisig. A naive re-key would land those balances on addresses no descriptor derives —
 bricked. Therefore the switch procedure includes: **announce a pre-snapshot window in which
-multisig balances must be moved to keyed accounts** (on alphanet today that is ~zero accounts);
+multisig balances must be moved to keyed accounts** (on betanet today that is ~zero accounts);
 the new generation launches multisig as v2 — own `msig` prefix, new domain tag, new-format
 members. This is precisely why the discriminator prefix is worth having: with `msig…` visible,
 any FUTURE format migration can enumerate policy accounts and define their carry-over.
@@ -78,7 +78,7 @@ any FUTURE format migration can enumerate policy accounts and define their carry
 
 Consensus domain tags also carry the brand — invisible to users, but they exist:
 `nado-stark`, `nado-msig-v1`, `nado-register`, `nado-randao-commit`/`-secret`, `nado-fx`,
-`nado-rec-digest` (the chain_id is already brand-free — `alphanet-6`, and it changes every reroll;
+`nado-rec-digest` (the chain_id is already brand-free — `betanet-6`, and it changes every reroll;
 `nado-relaunch-1` now survives only as the frozen wallet self-test vector), plus non-consensus ones (`nado-forum-login`,
 `nado-lang`, localStorage keys). Outside a reroll, renaming any consensus tag is a fork for zero
 value. AT the reroll everything re-derives from genesis anyway, so renaming them to brand-free

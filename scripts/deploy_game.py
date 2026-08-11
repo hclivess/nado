@@ -57,7 +57,7 @@ def main():
 
     keys = load_keys()
     # Re-derive the sender from the PUBKEY under the current ADDRESS_PREFIX, rather than trusting the address
-    # cached in the keyfile. Across a debrand/prefix cutover (alphanet-7: ndo… → mldsa44…) the keyfile can hold
+    # cached in the keyfile. Across a debrand/prefix cutover (betanet-7: ndo… → mldsa44…) the keyfile can hold
     # a STALE address string while the funded account lives under the re-rolled current-prefix address — signing
     # with the stale one is rejected "Empty account". make_address is deterministic, so this is a no-op when the
     # stored address is already current.

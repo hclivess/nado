@@ -502,7 +502,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # prove_transition, and once that moved into a worker thread the two proves drove the SAME global arena
     # concurrently: whichever called reset() second cleared the other's retained columns, and the first then
     # asked for a column that no longer existed. That is exactly what sp_commit_col returning -1 means, and
-    # it is what the live log showed on every records-bearing span after the alphanet-16 cutover:
+    # it is what the live log showed on every records-bearing span after the betanet-16 cutover:
     #     records half FAILED … RuntimeError: sp_commit_col failed
     #
     # try/finally, not `with`, only because the region is large: a raise anywhere inside must still release,

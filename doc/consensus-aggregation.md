@@ -1,6 +1,6 @@
 # Consensus-load aggregation — scaling L1 into the mainstream
 
-> **Status: IMPLEMENTED** (live on alphanet-6). The two shipped pieces of the scaling envelope from
+> **Status: IMPLEMENTED** (live on betanet-6). The two shipped pieces of the scaling envelope from
 > [scaling-analysis.md](scaling-analysis.md) §A/§B/#1: a **native ML-DSA verify backend** (constant-factor,
 > the immediate win) and the **merged committee-gated epoch duty** (the asymptotic fix, O(N)→O(seats)).
 > Companion to [mining.md](mining.md) (selection), the FFG/RANDAO design, and
@@ -100,7 +100,7 @@ mirroring `_weighted_draw`). So:
 
 ### 3c. Backward compatibility — none at runtime, full for history
 
-Per alphanet's **no-legacy-tolerance** policy: the historical `attest`/`commit`/`reveal` recipients stay
+Per betanet's **no-legacy-tolerance** policy: the historical `attest`/`commit`/`reveal` recipients stay
 **consensus-valid forever** (genesis sync must replay the blocks that contain them), but the mempool
 **refuses new ones** — every honest validator emits the merged `duty`. Block-level uniqueness is enforced
 across both forms: a `duty`-carried attest and a bare `attest` for the same `(sender, epoch)` (or two reveals

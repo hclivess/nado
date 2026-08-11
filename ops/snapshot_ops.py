@@ -81,7 +81,7 @@ def read_state(home=None):
     # ONE MVCC snapshot across ALL sub-DBs (all_db_pairs) — a per-sub-DB txn could tear the state if a block
     # commits mid-walk, yielding a root for no committed height. CANONICALIZE empty accounts: skip any
     # all-default (absent-equivalent) account row — a zero doc reads identically to a missing one, so dropping
-    # it makes the state_root INVARIANT to read-created-account residue (an alphanet-7 h76000 seed-split cause).
+    # it makes the state_root INVARIANT to read-created-account residue (an betanet-7 h76000 seed-split cause).
     for name, k, v in kv_ops.all_db_pairs(kv_ops.SNAPSHOT_DBS):
         if name == "accounts" and kv_ops.account_value_is_default(v):
             continue
@@ -99,7 +99,7 @@ def read_state(home=None):
 #   (1) ROOT_EXCLUDED_DBS — whole sub-DBs. block_by_num/block_by_hash are written on block ARRIVAL
 #       (save_block), so their contents depend on a node's height, history-retention/pruning, and
 #       orphan/fork bodies accumulated across reorgs. Including them made the root diverge between nodes
-#       that agree on every block — the alphanet-8 fresh-sync wedge (a catching-up node computed a different
+#       that agree on every block — the betanet-8 fresh-sync wedge (a catching-up node computed a different
 #       as-of-parent root than the producer, tripping the gate at ~h62).
 #         treasury_proposals — a WRITE-ONLY display index (the /treasury tab), NOT read by any consensus
 #           path (treasury_execute takes its spend from the tx's own `data`, and quorum from treasury_votes).
@@ -134,7 +134,7 @@ ROOT_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below"))
 #           one falling out of the retention window (exec_summary_del(h - EXEC_SUMMARY_RETENTION)); but
 #           rollback_one_block only deletes the block's OWN height and never restores the retention-dropped
 #           row. So a node that has rolled back holds a DIFFERENT execsum set than a forward-only node at the
-#           same tip — which forked the root and wedged the fleet (alphanet-8 h4260: an emergency-mode
+#           same tip — which forked the root and wedged the fleet (betanet-8 h4260: an emergency-mode
 #           rollback storm dropped execsum:3301..3305 on the catching-up nodes; their l1_state_root diverged
 #           from the canonical forward-only chain and the FATAL gate correctly refused them, forever). The
 #           summaries stay CARRIED in the snapshot (settle-with-proof binding needs the window) — only the
@@ -194,7 +194,7 @@ def state_fingerprint(home=None):
     """(l1_state_root, {sub_db: (merkle_root, row_count)}) derived from ONE read_state() walk — a single
     MVCC snapshot, so the overall root and its per-DB breakdown are guaranteed consistent with EACH OTHER.
     Pure DIAGNOSTIC (no consensus path): comparing the map between two nodes at the same tip localizes a
-    state divergence to the exact sub-DB in one shot (the alphanet-8 h4260 wedge needed a replay harness for
+    state divergence to the exact sub-DB in one shot (the betanet-8 h4260 wedge needed a replay harness for
     this). Computing root and breakdown from separate walks would let a block commit between them and produce
     a root that doesn't correspond to its own breakdown — a self-inconsistent diagnostic."""
     triples = _root_triples(read_state(home))

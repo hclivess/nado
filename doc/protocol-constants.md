@@ -8,9 +8,9 @@ can import it without a cycle.
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `CHAIN_ID` | `"alphanet-6"` | Bound into every signed tx + block body (anti cross-chain replay, M3); changes at every reroll |
+| `CHAIN_ID` | `"betanet-6"` | Bound into every signed tx + block body (anti cross-chain replay, M3); changes at every reroll |
 | `DENOMINATION` | `10_000_000_000` | 1 NADO in raw units (`to_readable_amount` divides by this) |
-| `GENESIS_TIMESTAMP` | `1784257440` | Genesis block timestamp (alphanet-6) |
+| `GENESIS_TIMESTAMP` | `1784257440` | Genesis block timestamp (betanet-6) |
 
 ## Treasury & reserved addresses
 
@@ -33,7 +33,7 @@ can import it without a cycle.
 
 ## Mining (PROVISIONAL — simulate before locking)
 
-These gate the S4 bonded-mining mechanism (live on alphanet-6).
+These gate the S4 bonded-mining mechanism (live on betanet-6).
 
 | Constant | Value | Meaning |
 |----------|-------|---------|

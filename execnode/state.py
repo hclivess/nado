@@ -109,14 +109,14 @@ def _coerce_fri_value(v):
 # The operator key that deployed the game-contract fleet; a constant, so the rule is identical on every
 # exec node replaying the same blob stream.
 # RE-DERIVED AT EVERY ADDRESS-FORMAT CHANGE — the SAME operator key throughout, only the string moves.
-# alphanet-7 debrand: ndo… -> mldsa44…. alphanet-14 prefix removal: mldsa44… -> the bare 42-hex body plus a
+# betanet-7 debrand: ndo… -> mldsa44…. betanet-14 prefix removal: mldsa44… -> the bare 42-hex body plus a
 # checksum. That body (ebd27698662f14ee2389e509781d5ff57487f4289a) is identical across all three; the
 # checksum is RECOMPUTED, because it covers the whole preceding string — a stale prefix cannot just be
 # trimmed off or the result fails validation.
 #
 # Leaving the old literal would not have raised anything. It is a plain string compared against the deployer
 # of a fixed-name contract, so the operator's key would silently stop matching and `faucet` and `sovereign`
-# could never be (re)deployed on the new chain — precisely the failure the alphanet-7 note above describes,
+# could never be (re)deployed on the new chain — precisely the failure the betanet-7 note above describes,
 # repeating itself one format change later.
 FIXED_CIDS = {"faucet": "ebd27698662f14ee2389e509781d5ff57487f4289a4d67",
               "sovereign": "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"}
@@ -332,7 +332,7 @@ class ExecState:
         # committed bridge leaves).
         self.zk_addrs = {}        # str(field digest) -> addr
         # STATE-ROOT CACHE: state_root() is a pure function of the root-committed state. The root is the
-        # FROZEN alphanet-6 scheme (execnode/exec_root.py): rnode(kv half, records half), two persistent
+        # FROZEN betanet-6 scheme (execnode/exec_root.py): rnode(kv half, records half), two persistent
         # depth-256 sparse alghash2 trees that are DIFF-APPLIED per recompute — O(changed·depth) hashing
         # per block, never a whole-state rebuild (the cold build happens once, at load/bootstrap). Every
         # root-affecting mutator calls _touch() (under _mutate_lock) to invalidate the cached hex; the
@@ -370,7 +370,7 @@ class ExecState:
         self.wd_nonce = d.get("wd_nonce", 0)
         ob = d.get("outbox", {})
         if not isinstance(ob, dict):
-            # NO legacy shapes on alphanet: a pre-dict outbox snapshot must not half-load — fail
+            # NO legacy shapes on betanet: a pre-dict outbox snapshot must not half-load — fail
             # loudly; the operator re-bootstraps from a settled checkpoint (NADO_EXEC_BOOTSTRAP).
             raise ValueError("exec state has a legacy outbox shape — re-bootstrap this node")
         self.outbox = ob
@@ -575,7 +575,7 @@ class ExecState:
         return distributed
 
     def state_root(self):
-        """THE settled execution-layer root (frozen alphanet-6 scheme, execnode/exec_root.py):
+        """THE settled execution-layer root (frozen betanet-6 scheme, execnode/exec_root.py):
         rnode(kv half, records half) of the two depth-256 sparse alghash2 trees, 64-hex — identical on
         every honest node at the same cursor. This is the root the bonded quorum settles on L1 and every
         bridge/dividend/unshield/xmsg exit is proven against. Cached; invalidated by _touch."""
@@ -1020,7 +1020,7 @@ class ExecState:
                 # UPGRADABILITY (per-contract, opt-out): a contract is upgradable by its deployer unless it
                 # deploys with {"upgradable": false}. A stable contract can later renounce upgradability
                 # permanently via the `lock` op. This keeps mainnet safe (lockable/immutable) while letting a
-                # deployer iterate freely until they lock. Default True preserves the alphanet workflow.
+                # deployer iterate freely until they lock. Default True preserves the betanet workflow.
                 upgradable = payload.get("upgradable", True) is not False
                 self.contracts[cid] = {"code": code, "storage": storage, "deployer": sender,
                                        "runtime": rt_name, "abi": abi if isinstance(abi, dict) else {},

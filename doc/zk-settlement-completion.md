@@ -7,7 +7,7 @@ bonded quorum — the settlement authority.
 
 ## TL;DR
 
-**UPDATE 2026-07-27 (post-reroll):** Track 1 is **DONE and LIVE** on `alphanet-11`. `SETTLE_PROOF_TRUSTLESS`
+**UPDATE 2026-07-27 (post-reroll):** Track 1 is **DONE and LIVE** on `betanet-11`. `SETTLE_PROOF_TRUSTLESS`
 is **True**; the self-checking prover loop ships in `execnode.py` (opt-in `NADO_EXEC_SETTLE_PROVE`); the
 acceptance branch is enabled and proven e2e (`tests/test_settle_trustless_flag.py`,
 `tests/test_settle_prover_sim.py`). A STARK validity proof — not the bonded quorum — can now justify the exec

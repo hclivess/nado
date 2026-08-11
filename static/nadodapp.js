@@ -29,13 +29,13 @@ const PEND_TTL_MS = 120000;      // how long a CLICKED action stays "pending" wi
 const PEND_TIP_TTL = 4;
 const STALL_MS = 45000;          // exec cursor frozen this long = the chain isn't advancing (node catching up / partition), not "your tx is slow" — see chainStalled()
 // ---- address format (ONE constant — see the rebrand-proofing rule) --------------------------------
-// An address is 42 hex of the pubkey + a 4-hex blake2b checksum over it. No prefix (alphanet-14).
-export const ADDR_PREFIX = ""    // removed at alphanet-14; NO backwards compatibility;
+// An address is 42 hex of the pubkey + a 4-hex blake2b checksum over it. No prefix (betanet-14).
+export const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
 const ADDR_BODY = 42;
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");
 
 /**
- * SELF-HEAL a signed-in session address across an address-format change (the alphanet-7 debrand:
+ * SELF-HEAL a signed-in session address across an address-format change (the betanet-7 debrand:
  * ndo… → mldsa44… → prefixless). Games persist only the ADDRESS from the wallet handshake, so a session established
  * before the change keeps the OLD string in localStorage forever — the game then reads balances/state for
  * an address that owns nothing and shows the player an empty account ("0 NADO", "Playing as ndo…") while

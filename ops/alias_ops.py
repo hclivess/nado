@@ -28,7 +28,7 @@ def valid_alias_name(name) -> bool:
     """A syntactically valid, non-colliding alias name: ALIAS_MIN_LEN..ALIAS_MAX_LEN chars, lowercase
     [a-z0-9_-] starting with a letter, NOT a reserved word, and NOT address-shaped (does not VALIDATE as an
     address, and does not carry MSIG_PREFIX). Address-shapedness is a real check rather than a prefix sniff:
-    the keyed-address prefix was removed at alphanet-14, and startswith("") matches everything."""
+    the keyed-address prefix was removed at betanet-14, and startswith("") matches everything."""
     if not isinstance(name, str):
         return False
     if not (ALIAS_MIN_LEN <= len(name) <= ALIAS_MAX_LEN):

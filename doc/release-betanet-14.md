@@ -1,4 +1,4 @@
-# alphanet-14 — release notes
+# betanet-14 — release notes
 
 **Status:** FINAL. Every number below is from a completed green run; nothing is extrapolated
 until the heavy K→1 fold has passed end-to-end and the fleet is deployed. If you are reading this and those
@@ -21,7 +21,7 @@ Four things that had to land together, plus the fleet fixes found while landing 
    of the pubkey plus a 4-hex checksum — 46 characters.
 
 This is a **clean-break reroll**: new `CHAIN_ID`, new `GENESIS_TIMESTAMP`, `CHAIN_GENERATION 15`. Nothing
-from alphanet-13 carries over, and that is deliberate — items 1, 3 and 4 all change bytes that are inside a
+from betanet-13 carries over, and that is deliberate — items 1, 3 and 4 all change bytes that are inside a
 hash, and item 4 orphans every existing address string outright.
 
 ---
@@ -276,7 +276,7 @@ heaviest advertised tip on our canonical chain?", and a node alone on a fork min
 so its own tip *is* the heaviest and it agreed with itself. It then advanced an *enforced, un-crossable*
 floor past the fork point and could no longer roll back to rejoin, leaving only the data-destroying
 dead-fork purge. Corroboration now requires an **independent** peer. Failing the check merely freezes the
-floor, which is the safe direction. Observed live at alphanet-13 h5924.
+floor, which is the safe direction. Observed live at betanet-13 h5924.
 
 **`TX_INCLUSION_DELAY` 2 → 8.** The h5924 split was caused by a blob tx whose `min_block` was that very
 height: three nodes held it, one did not, and two otherwise-identical blocks differed in nothing but their
@@ -316,7 +316,7 @@ reason each survived is more instructive than the fix.
 **1. CRITICAL — the chain would not have started.** `construct_block` hashes the block preimage;
 `block_content_hash` re-derives it; `save_block` **raises** on mismatch. `auth_root`/`auth_count` went into
 the first and not the second, so this was never a subtle mismatch somewhere — **every block was
-unpersistable** and alphanet-14 would have halted on block 1. There *was* a test asserting the commitment is
+unpersistable** and betanet-14 would have halted on block 1. There *was* a test asserting the commitment is
 inside the hash, and it passed: it compared two `construct_block` outputs to each other and never against the
 re-derivation, so it was structurally incapable of seeing it. Two dicts holding one definition is the defect;
 the missing field was only its symptom.
@@ -351,9 +351,9 @@ Diagnostics that came out of this, because the failures were all silent:
 
 ## Upgrade
 
-Clean break. Purge and resync; there is no migration path from alphanet-13 and none is wanted.
+Clean break. Purge and resync; there is no migration path from betanet-13 and none is wanted.
 
-- `CHAIN_ID = "alphanet-14"`, `GENESIS_TIMESTAMP = 1785440953`, `CHAIN_GENERATION = 15`
+- `CHAIN_ID = "betanet-14"`, `GENESIS_TIMESTAMP = 1785440953`, `CHAIN_GENERATION = 15`
 - Both native crates must be rebuilt: `native/starkprove` **and** `native/alghash2`. A stale degree-2 `.so`
   against degree-3 Python is rejected by the handshake, which is the intended behaviour — but a stale
   library from *before* the handshake existed only checks that the symbols are present, and would call the
@@ -375,7 +375,7 @@ observed on 2026-07-29 — h5924 (`blob`, `min_block`), h6424 (`register`), h769
 reserved transactions must land at *exactly* `max_block`, so `RESERVED_TX_MARGIN` (30) and `DUTY_TX_MARGIN`
 (12) buy propagation **time** but not landing **tolerance**: any producer that has not received the tx by
 precisely that height builds without it, the two honest blocks differ in nothing but their tx set, and the
-chain forks. alphanet-14 inherits this unchanged.
+chain forks. betanet-14 inherits this unchanged.
 
 It is not fixed here on purpose. Changing where a transaction may land is a **consensus rule change on the
 validation path**, entirely unrelated to the proof system this release is about — and bolting it onto a

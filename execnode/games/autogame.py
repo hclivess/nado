@@ -91,7 +91,7 @@ NSLOT = 6
 
 # tile classes. THE ORDER IS LOAD-BEARING: the contract derives the class as a sum of threshold
 # comparisons (see TILE_CUTS), which yields exactly this ordering — renumbering is a WORLD CHANGE, done
-# deliberately twice now (both 2026-07-21, alphanet: no compatibility): once for HORDE/AMBUSH/GALE/IDOL,
+# deliberately twice now (both 2026-07-21, betanet: no compatibility): once for HORDE/AMBUSH/GALE/IDOL,
 # and again for the ELEVEN classes that take the road to 25 tile types. The newcomers, by what they ask:
 #
 #   MIMIC    — a fight that is always carrying loot: one body, elite-level, bites twice as hard as its
@@ -167,7 +167,7 @@ AFFIX_NAMES = ("none", "keen", "heavy", "warding", "swift", "vampiric", "blazing
 # meaningful ONLY in the weapon slot; every other slot rolls kind 0. Each class rewrites the engagement math
 # against a different axis of the road (see _fight): sword neutral, axe the aggressor (+renown/+damage-in),
 # maul the crusher (renown up vs the big ones, down vs a crowd), spear the skirmisher (damage-in down vs a
-# crowd, renown down in a duel). On alphanet this is a clean packing widen — no legacy item to preserve.
+# crowd, renown down in a duel). On betanet this is a clean packing widen — no legacy item to preserve.
 W_SWORD, W_AXE, W_MAUL, W_SPEAR = range(4)
 NWKIND = 4
 WKIND_NAMES = ("sword", "axe", "maul", "spear")

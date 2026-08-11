@@ -45,7 +45,7 @@ Composition is concatenation. The chain condition `A.roots[-1] == B.roots[0]` is
 constraint is needed, and **K_A and K_B may overlap freely**: if both write key `k`, B simply observes A's
 value as its `old`, because B was proven against A's post-root.
 
-This is what the K→1 fold (`SETTLE_PROOF_RECURSIVE`, alphanet-14) collapses: K chained segment proofs
+This is what the K→1 fold (`SETTLE_PROOF_RECURSIVE`, betanet-14) collapses: K chained segment proofs
 re-verified inside ONE recursion bundle whose verification is O(1). Multi-epoch spans in
 `prove_settlement_sparse` are exactly this shape.
 

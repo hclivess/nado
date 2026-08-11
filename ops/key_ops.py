@@ -22,7 +22,7 @@ def load_keys(file=f"{get_home()}/private/keys.dat"):
     """{"private_key": "", "public_key": "", "address": ""}
 
     The address is ALWAYS re-derived from the public key under the CURRENT ADDRESS_PREFIX rather than
-    trusted from the file. A keyfile written before an address-format change (the alphanet-7 debrand:
+    trusted from the file. A keyfile written before an address-format change (the betanet-7 debrand:
     ndo… → mldsa44…) caches the OLD string, and every consumer — the node's own mining identity in
     /mining_status and the producer registries, contract deploys, operator scripts — would then act as
     an address that owns nothing. make_address is deterministic, so this is a no-op for a current keyfile.
@@ -64,7 +64,7 @@ def uniqueness(value):
 # repetitive-looking addresses. It MUST be satisfiable by the current address alphabet, and that is the
 # whole story of this constant:
 #
-# it was 18, which was fine while addresses carried the mldsa44 name prefix. alphanet-14 removed the
+# it was 18, which was fine while addresses carried the mldsa44 name prefix. betanet-14 removed the
 # prefix (4ed77695), leaving a bare 46-char LOWERCASE HEX address — an alphabet of exactly 16 symbols. A
 # demand for 18 distinct characters then became UNSATISFIABLE, and `while ... < 18: redraw` turned into an
 # infinite loop burning a core.
@@ -87,7 +87,7 @@ def generate_keys():
     BOUNDED on purpose. The filter is a cosmetic nicety; being unable to satisfy it is a CONFIGURATION
     BUG (the threshold outran the address alphabet), and the correct response to that is to say so, not to
     spin forever. An unbounded loop here cost the network every new node it could have gained between
-    alphanet-14 and now, silently, because a hang reports nothing.
+    betanet-14 and now, silently, because a hang reports nothing.
     """
     for _ in range(_MAX_KEYGEN_DRAWS):
         keydict = generate_keydict()

@@ -360,7 +360,7 @@ class CoreClient(threading.Thread):
     def _genesis_cold_start_blocked(self, peers) -> bool:
         """Refuse to mint THE FIRST BLOCK of a chain while we are merely early rather than actually alone.
 
-        This closes the race that split alphanet-13 (see protocol.GENESIS_QUIET_S). At a reroll every node
+        This closes the race that split betanet-13 (see protocol.GENESIS_QUIET_S). At a reroll every node
         purges and restarts, but not simultaneously; the first one back finds an empty peer table and, if the
         operator set min_peers = 0, happily mines a solo chain from the shared genesis. Four minutes of head
         start was enough to carry it past the finality depth, after which the split was permanent.
@@ -627,7 +627,7 @@ class CoreClient(threading.Thread):
         our tip (_rollback_one_for_reorg: "the donor does NOT know our tip, so our chain has diverged").
         So on a genuine fork the tip probe must fail, and if earliest is also unsatisfiable the gate
         excludes precisely the donors the reorg needs — donor selection returns None, and the node never
-        rolls back even one block. Measured on alphanet-15 2026-08-03: 185.100.232.131 forked at h=7143 and
+        rolls back even one block. Measured on betanet-15 2026-08-03: 185.100.232.131 forked at h=7143 and
         sat 431 blocks behind for over an hour with its height rising monotonically and never once dropping.
         Its tip was unknown to the majority (it was forked) and its earliest block (2735) was below the
         majority's snapshot-bootstrapped history, so every donor failed and no rollback was ever attempted.
@@ -872,8 +872,8 @@ class CoreClient(threading.Thread):
             # (mislabelled as ours) and ends up with a broken store — tip set, zero block bodies. chain_id is
             # informational for block LINKAGE, but it IS the network's identity, so a donor whose chain_id
             # isn't ours is dropped BEFORE any quorum / weight selection — the same gate the sync-donor path
-            # already applies ("Chain of X is not <ours>"). Observed live during the alphanet-11 reroll: a
-            # stranded seed on alphanet-10 poisoned a fresh node's bootstrap to a phantom 6000-block tip.
+            # already applies ("Chain of X is not <ours>"). Observed live during the betanet-11 reroll: a
+            # stranded seed on betanet-10 poisoned a fresh node's bootstrap to a phantom 6000-block tip.
             statuses = [s if (isinstance(s, dict) and s.get("chain_id") == CHAIN_ID) else None for s in raw]
             responders = [ip for ip, s in zip(peers, statuses) if s]
 
@@ -1089,7 +1089,7 @@ class CoreClient(threading.Thread):
         # heaviest and it corroborates itself. That is precisely the wedge this predicate exists to prevent,
         # and it failed open in exactly that case.
         #
-        # Observed live, alphanet-13 h5924 (2026-07-29): .131 built a block for the same winner, same parent,
+        # Observed live, betanet-13 h5924 (2026-07-29): .131 built a block for the same winner, same parent,
         # same state_root, 4s earlier and without a blob tx whose min_block was that very height. It then
         # mined alone, stayed heaviest, corroborated its own depth floor up to 5974 — 50 blocks PAST the fork
         # — and became unable to roll back and rejoin. The other three had the same fork point below their
@@ -1105,7 +1105,7 @@ class CoreClient(threading.Thread):
         # HEAVIER-FOREIGN-CLAIM VETO (2026-07-30, restored + hardened; complements the independence rule
         # below, it does not replace it). Independent corroboration stops a LONE forker self-finalizing,
         # but a minority CLIQUE corroborates itself: two nodes on the same lighter branch each advertise
-        # an on-chain tip for the other, so both floors advance — observed live on alphanet-14 while the
+        # an on-chain tip for the other, so both floors advance — observed live on betanet-14 while the
         # strictly-heavier solo chain sat plainly advertised in their status pools (~92k vs ~65k weight),
         # cementing 60+ blocks of a branch fork choice says must lose. Any peer claiming strictly MORE
         # cumulative weight on a tip that is not on our canonical chain — or whose tip we cannot even
@@ -1297,7 +1297,7 @@ class CoreClient(threading.Thread):
             # a fork is the FASTEST chain there is (it wins every slot unopposed), so "heavier" is exactly
             # what a stranded node looks like.
             #
-            # Observed live 2026-07-28 on alphanet-13: 185.100.232.5 rerolled ~4 minutes ahead of the others,
+            # Observed live 2026-07-28 on betanet-13: 185.100.232.5 rerolled ~4 minutes ahead of the others,
             # built its own chain from the shared genesis, and sat at tip 273 / weight 88725 against three
             # agreeing nodes at ~217 / 70525. Its probe correctly said stranded, 3 disagree, 0 agree — and the
             # weight rule I had just added vetoed the purge because the isolated node was the heavy one. The
@@ -1318,7 +1318,7 @@ class CoreClient(threading.Thread):
             # `_unanimous` demands that EVERY peer we asked disagrees, so a single peer that fails to answer
             # makes it permanently False — and a lone forker is always the heavy side, because it wins every
             # slot unopposed. Both escape hatches then shut at once and the node forks forever. Measured live
-            # on alphanet-15 (2026-08-03): node .131 sat at stranded=True, fork_state=dead_fork, agree=[],
+            # on betanet-15 (2026-08-03): node .131 sat at stranded=True, fork_state=dead_fork, agree=[],
             # disagree=2, peers_asked=3 -> unanimous False -> vetoed on weight, for hours, lead widening.
             #
             # Time breaks that deadlock without weakening the storm guard. In a symmetric split each side
@@ -1905,7 +1905,7 @@ class CoreClient(threading.Thread):
                     from execnode.stark.records_bind import block_records_effects
                     _rec, _derivable = block_records_effects(block)
                     # PRESENCE-DIVIDEND ACCRUAL — the LAST records movement that was not derivable, and the
-                    # single largest reason a span was refused: measured over one day on alphanet-15, "span
+                    # single largest reason a span was refused: measured over one day on betanet-15, "span
                     # crosses a dividend epoch boundary" was 55 of 146 refusals. It moves records on a
                     # boundary block with NO transaction at all, so the tx scan above can never see it.
                     #
@@ -2126,7 +2126,7 @@ class CoreClient(threading.Thread):
             epoch_hi = (X + 1) * EPOCH_LENGTH - 1
             # PROPAGATION HEADROOM (see RESERVED_TX_MARGIN): tip+5 gave the duty tx ~30s to reach every
             # producer, and a producer that has it builds a different block than one that does not — this
-            # forked alphanet-12 at h12605. Aim further ahead, but never past a deadline a due section
+            # forked betanet-12 at h12605. Aim further ahead, but never past a deadline a due section
             # needs: the epoch always, and the RANDAO reveal window when a reveal is actually pending.
             # The reveal clamp applies ONLY while that deadline is still ahead of us — otherwise a
             # long-passed reveal_hi would drag max_block below the tip and suppress the whole duty tx
@@ -2255,7 +2255,7 @@ class CoreClient(threading.Thread):
                 return                                  # accrue (don't rebaseline) until it's worth a tx
             # tip+2 gave this tx ~12s to reach every producer before its landing block was built. Blocks are
             # deterministic, so producers that had not seen it yet assembled a DIFFERENT block — an auto-bond
-            # minted right after a node restart forked alphanet-12 at h12506. See RESERVED_TX_MARGIN.
+            # minted right after a node restart forked betanet-12 at h12506. See RESERVED_TX_MARGIN.
             max_block = self.memserver.latest_block["block_number"] + RESERVED_TX_MARGIN
             tx = construct_bond_tx(self.memserver.keydict, to_bond, MIN_TX_FEE, max_block)
             self.memserver.merge_transaction(tx, user_origin=True)
@@ -2654,7 +2654,7 @@ class CoreClient(threading.Thread):
             # This is what binds L1 STATE to consensus: a node whose account/producer state diverged from the
             # producer's — a non-deterministic apply, a rollback-path bug, silent corruption — rejects the
             # block HERE instead of extending it and carrying a different state that only surfaces, with no
-            # tiebreak, at snapshot sync (the alphanet-7 h76000 split). A rejected block just forks off and
+            # tiebreak, at snapshot sync (the betanet-7 h76000 split). A rejected block just forks off and
             # loses fork-choice; it can never become a silent state fork. DIVERGENCE IS FATAL BY DESIGN — a
             # halted node is recoverable, a node that climbs on diverged state is silent poison.
             from ops.snapshot_ops import l1_state_root
@@ -2662,7 +2662,7 @@ class CoreClient(threading.Thread):
             if block.get("state_root") != our_state_root:
                 # DIAGNOSTIC (no consensus effect): dump OUR per-sub-DB root fingerprint + count the reject.
                 # Comparing this one line against another node's at the same height localizes the divergence
-                # to the exact sub-DB immediately (the alphanet-8 wedge needed a replay harness for this).
+                # to the exact sub-DB immediately (the betanet-8 wedge needed a replay harness for this).
                 # THROTTLED: a diverged node re-enters emergency ~1/s and retries every peer, and the
                 # fingerprint costs a FULL extra state walk + a stats file rewrite — unthrottled it amplifies
                 # the very wedge it reports. One report per _DIVERGENCE_LOG_EVERY seconds is plenty to diagnose.

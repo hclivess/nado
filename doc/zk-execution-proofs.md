@@ -26,7 +26,7 @@ to the `["kv", cid, "slots", …]` leaves `execnode/state.py` already commits in
 `settlement_proofs.settlement_verifier(...)` plugs straight into `ops.settlement_ops.set_settlement_verifier`
 — the Phase-2b seam — so L1 can justify a root by proof instead of by bonded quorum.
 
-**Reboot + game migration (2026-07-14, post-v1.0.0-alpha.9; the chain has since rerolled to alphanet-6).** Deleting stackvm made the zkVM the
+**Reboot + game migration (2026-07-14, post-v1.0.0-alpha.9; the chain has since rerolled to betanet-6).** Deleting stackvm made the zkVM the
 only runtime, so the chain was rebooted with every holder's balance + bonded stake carried
 forward (`tools/alphanet5_carryforward.py`; exec-side balances + dividends folded into L1, contract pots
 refunded to players, supply conserved exactly). Games return only as zkVM ports (`execnode/games/`):

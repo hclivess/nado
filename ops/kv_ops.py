@@ -78,7 +78,7 @@ _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 #               are REORG-PATH-DEPENDENT (two nodes reaching the same canonical tip via different reorg paths
 #               legitimately retain different journal residue) and, unlike gc_revert, were never pruned — so
 #               they grow unbounded with chain length. Carrying them in the state_root GUARANTEED divergent
-#               snapshot hashes (the alphanet-7 h76000 seed split: ~1730 bond_since_revert + hb/msgkey rows
+#               snapshot hashes (the betanet-7 h76000 seed split: ~1730 bond_since_revert + hb/msgkey rows
 #               differed). A snapshot's state is at a FINALIZED checkpoint C, and rollback can never cross the
 #               finalized floor (>= C), so no journal entry for a block <= C is ever needed; the only journals
 #               rollback ever reads are for the (finalized, tip] reorg window, all ABOVE C, which the normal
@@ -373,7 +373,7 @@ def account_value_is_default(value: bytes) -> bool:
     returns the IDENTICAL zero doc whether such a row is present or missing (missing fields default to
     0), so an all-default row is semantically indistinguishable from no row — yet its physical presence
     changes the snapshot state_root. get_account no longer persists on read, but historical
-    read-created-account residue can still sit in one node's DB and not another's (the alphanet-7 h76000
+    read-created-account residue can still sit in one node's DB and not another's (the betanet-7 h76000
     seed split had one such ghost row). read_state skips these so the root is invariant to the residue.
     Deliberately STRICTER than gc_ops._trivially_empty: `registered`/`fidelity`/`last_hb_epoch` must also
     be 0 here, because a nonzero one of those is real open-lane/heartbeat state, NOT absent-equivalent."""
@@ -1087,7 +1087,7 @@ def dividend_inflow_add(epoch: int, amount: int, revert: bool = False):
     though meta_get_int reads both as 0. Forward only ever ADDS positive inflow (credit_block_reward calls
     this under `if dividend:`), so a key is present iff its running total is > 0. Reverting the FIRST inflow
     of an epoch back to 0 must therefore DELETE the key, not store a 0 — otherwise rollback leaves a phantom
-    `divinflow:<e>=0` row that forks the root vs a forward-only node (an alphanet-8 rollback-asymmetry wedge
+    `divinflow:<e>=0` row that forks the root vs a forward-only node (an betanet-8 rollback-asymmetry wedge
     cause; see snapshot_ops.ROOT_EXCLUDED_META_PREFIXES for its sibling)."""
     k = f"divinflow:{int(epoch)}"
     new = meta_get_int(k, 0) + (-int(amount) if revert else int(amount))

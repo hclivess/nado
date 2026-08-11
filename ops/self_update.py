@@ -463,7 +463,7 @@ def check_and_update(trigger: str) -> dict:
             # be missing a REQUIRED native library, and then it silently cannot do its job: measured
             # 2026-08-06, peers on the correct HEAD lacked libgoldilocks.so and rejected every settle proof
             # with "NativeMissing: native crate 'goldilocks' is REQUIRED but its library is missing". Since
-            # alphanet-14 there is no Python fallback, so those nodes could never verify a proof at all.
+            # betanet-14 there is no Python fallback, so those nodes could never verify a proof at all.
             # The rebuild used to run ONLY on the update path, so a node that was already current never
             # built the missing library no matter how many times /update was called — which is exactly the
             # state .141 was left in after it happened to be mid-cascade during the wave that built it.
@@ -559,7 +559,7 @@ def _shared_libs(crate_path):
 
 def _missing_required_libs():
     """Crates from _CRATES that exist in the tree but have NO compiled shared library. These are the ones a
-    node cannot run without (there is no Python fallback since alphanet-14), so an /update should build them
+    node cannot run without (there is no Python fallback since betanet-14), so an /update should build them
     even when git is already current."""
     out = []
     for crate in _CRATES:
@@ -675,9 +675,9 @@ def _rebuild_native_if_changed(old, new):
     DELETED — purging is still the right call, because a wrong answer is worse than no answer.
 
     WHAT PURGING NO LONGER BUYS YOU, and this paragraph is the correction: it used to force "the pure-Python
-    fallback (slower, but bit-identical and consensus-safe)". Since ALPHANET-14 there is no Python fallback.
+    fallback (slower, but bit-identical and consensus-safe)". Since BETANET-14 there is no Python fallback.
     execnode/stark/native_guard.require() raises NativeMissing for an ABSENT library exactly as loudly as for
-    a stale one ("There is no Python fallback: since alphanet-14 the Rust kernel is the only production
+    a stale one ("There is no Python fallback: since betanet-14 the Rust kernel is the only production
     implementation"), unless NADO_ALLOW_ABSENT_NATIVE is set. So on a box without cargo, a crate whose sources
     changed ends with a purged .so and an exec node that REFUSES TO START — not a slow one.
 
@@ -717,9 +717,9 @@ def _rebuild_native_if_changed(old, new):
         # every proof-carrying settle they were offered was rejected outright —
         #     "Settle proof invalid: segment 0: epoch proof invalid: malformed proof: NativeMissing:
         #      native crate 'goldilocks' is REQUIRED but its library is missing"
-        # — and since there is no Python fallback since alphanet-14, NO settle proof could EVER have been
+        # — and since there is no Python fallback since betanet-14, NO settle proof could EVER have been
         # verified anywhere on this fleet, at any size, through DA or inline. It is the deepest reason no
-        # proof has ever landed on alphanet-15, underneath every transport problem.
+        # proof has ever landed on betanet-15, underneath every transport problem.
         if not touched and _has_shared_lib(path):
             continue                                     # unchanged AND already built → its .so is still valid
         ok = False

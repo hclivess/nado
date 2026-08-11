@@ -99,7 +99,7 @@ concatenated into a single STARK). **L1 verifies one proof in ~0.3 s, independen
 replaying the authenticated I/O log to recompute the post-state root with **no re-execution**.
 
 That is the asymmetry ZK exists for: re-running ten thousand contract calls is genuinely expensive; checking
-a proof that they ran correctly is not. Live as `SETTLE_PROOF_RECURSIVE` since the alphanet-14 reroll. The
+a proof that they ran correctly is not. Live as `SETTLE_PROOF_RECURSIVE` since the betanet-14 reroll. The
 shielded pool (`execnode/stark/joinsplit2.py`) is the other legitimate use, for a different reason — its
 inputs are hidden by construction, so there is no cheaper alternative for it to compete against.
 

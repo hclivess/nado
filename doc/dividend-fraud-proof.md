@@ -1,6 +1,6 @@
 # Dividend fraud-proof — from 2/3-bonded-quorum trust to 1-honest-challenger (Phase-2b)
 
-> **Status: BUILDING** (alphanet). Upgrades the presence-dividend's per-address allocation from
+> **Status: BUILDING** (betanet). Upgrades the presence-dividend's per-address allocation from
 > *trust the 2/3 bonded settlement quorum* to *trust any single honest challenger*, while keeping the L1
 > happy path **O(1)**. Companion to [presence-dividend.md](presence-dividend.md) (the accrual) and the
 > execution/settlement layer ([execution-layer.md](execution-layer.md)).
@@ -120,7 +120,7 @@ off the per-block path, and paid for by the challenger's bond + the slash it tri
   fidelity as of `e`. Exec and L1 use the identical `get_open_registry(e)` / `open_shares` code — one source
   of truth, so they cannot disagree except on a genuine settlement fault.
 
-## 5. Rollout (alphanet)
+## 5. Rollout (betanet)
 
 1. **A — deterministic accrual + `?epoch=` weights** (makes the root canonical; independently valuable).
 2. **B — per-epoch receipts** committed in the exec root + withdrawal unchanged.

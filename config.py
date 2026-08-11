@@ -35,7 +35,7 @@ def get_protocol():
     rejected at handshake, so bump this on breaking wire/consensus changes to shed old nodes.
     3 (2026-07-18): the bit-width-audit + reg-difficulty-v2 consensus changes, strict.
     4 (2026-07-18): reg-difficulty v3 — state-index counts (see reg_difficulty.py).
-    5 (2026-07-18): the DEBRAND CUTOVER — alphanet-7 genesis reroll: mldsa44/msig address
+    5 (2026-07-18): the DEBRAND CUTOVER — betanet-7 genesis reroll: mldsa44/msig address
     prefixes, every domain-separation tag renamed brand-free (doc/debrand.md). STRICT.
     6 (2026-07-24): SNAPSHOT-ROOT DETERMINISM — the h76000 seed-split fix. Rollback now reverts a
     block's txs in reverse-application order (path-dependent bond_since restore); the reorg-path-dependent
@@ -43,7 +43,7 @@ def get_protocol():
     the state_root; all-default account rows are canonicalized out of the root. These change how the
     state_root/snapshot_hash are computed, so old nodes MUST be shed (they would advertise a different
     root at the same height and never form the sync quorum). STRICT.
-    7 (2026-07-27): the alphanet-10 SECURITY + DETERMINISM reroll. Breaking on every axis, so old nodes
+    7 (2026-07-27): the betanet-10 SECURITY + DETERMINISM reroll. Breaking on every axis, so old nodes
     must be shed: (a) the exec DA binding no longer hashes block_timestamp and the exec VM's TIME opcode
     now reads protocol.chain_clock(height) instead — block_timestamp is outside the block-hash preimage
     and legitimately differs between honest nodes, so both were non-deterministic (measured live: the same

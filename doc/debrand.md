@@ -27,7 +27,7 @@ Everything here re-derives from genesis at a reroll; renaming outside one is a f
 | `nado-empty-merkle` | `DOMAIN_EMPTY_MERKLE` | `hashing.py` | `empty-merkle-v1` |
 | `nado-randao-beacon` | `DOMAIN_RANDAO_BEACON` | `protocol.py` / (fold is node-side only) | `randao-beacon-v1` |
 
-`chain_id` is already brand-free (`alphanet-6`) and changes at every reroll anyway.
+`chain_id` is already brand-free (`betanet-6`) and changes at every reroll anyway.
 `_GENESIS_BODY` in `protocol.py` is an address literal — re-derived at the reroll (flagged inline).
 
 ## Class 3 — ⚠ KEY-DERIVED tags (special rules — read both paragraphs)
@@ -36,12 +36,12 @@ These derive from the **user's seed**, not from the chain: a reroll does NOT res
 renaming them silently changes the derived keys — derived accounts and shielded notes become
 unreachable with no error anywhere.
 
-**Operator decision (2026-07-18): they flip WITH the alphanet cutover anyway** — this is alphanet;
+**Operator decision (2026-07-18): they flip WITH the betanet cutover anyway** — this is betanet;
 nothing here is worth preserving beyond main-account balances. Consequences, folded into the
 pre-snapshot notice: move DERIVED-account and MULTISIG balances to your MAIN account, WITHDRAW
 exec-layer (game-token) balances to L1 (the exec ledger resets — unwithdrawn tokens are
 forfeit), and unshield any shielded notes before the snapshot — only main keyed-account balances carry (via
-`rekey_alloc.py`); everything seed-derived re-derives fresh under the new tags on alphanet-7.
+`rekey_alloc.py`); everything seed-derived re-derives fresh under the new tags on betanet-7.
 **After mainnet, the frozen-forever rule applies**: renaming any of these post-launch requires
 explicit migration code, never a sed.
 
@@ -100,5 +100,5 @@ shielded pool resets at a reroll.
 | when | what |
 |---|---|
 | anytime, no coordination | Class 5 cosmetics (except the autoupdater pin — coordinate with a wave), Class 4 pairs |
-| at the alphanet-7 cutover reroll | Class 1 prefix + ALL of Class 2 **and Class 3** in the same commit (operator decision: everything flips while it's still alphanet) |
+| at the betanet-7 cutover reroll | Class 1 prefix + ALL of Class 2 **and Class 3** in the same commit (operator decision: everything flips while it's still betanet) |
 | never after mainnet (without migration code) | Class 3 key-derived tags + secret-bearing localStorage keys |
