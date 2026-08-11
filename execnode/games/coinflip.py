@@ -24,6 +24,10 @@ SRC = {
         movi r2 0
         lt r2 r0
         require r2
+        movi r2 4294967296
+        mov r5 r0
+        lt r5 r2
+        require r5
         slot r4 1 r0
         sload r5 r4
         nez r5
