@@ -449,7 +449,12 @@ def check_and_update(trigger: str) -> dict:
             return _blocked(f"origin is '{url}', not the official repo — refusing to pull from it")
 
         try:
-            _git("fetch", "--quiet", "origin", _BRANCH, timeout=60)
+            # --tags is REQUIRED, not cosmetic: the reported version is `git describe --tags`, so a node that
+            # fast-forwards the branch without fetching tags keeps naming whatever stale tag it happens to
+            # hold. The fleet then reports DIVERGENT versions (alpha.11 / alpha.12 / a bare hash) while every
+            # node runs the identical commit — which reads as a broken/partial rollout and makes the version
+            # column useless for spotting a genuinely un-updated node.
+            _git("fetch", "--quiet", "--tags", "--force", "origin", _BRANCH, timeout=60)
         except Exception as e:
             # git's OWN words. "offline?" was a guess, and it was usually wrong — the failures this actually
             # reports are auth prompts, DNS hiccups, a stale index.lock, and genuine timeouts, which need

@@ -974,7 +974,10 @@ GENESIS_QUIET_S = 1800           # 30 min: a /update wave restarts nodes MINUTES
 # without a wipe. The gate must require a MAJORITY of the known fleet, not any two nodes: a minority that
 # starts the chain IS the fork. Seed-peer count is the fleet size estimate every node shares (genesis_open
 # is the same file everywhere), so a majority of it is a quorum every node computes identically.
-GENESIS_QUIET_MIN_PEERS = 4      # >= majority of the 5-node fleet (4 of 5 incl. self) — never a minority
+GENESIS_QUIET_MIN_PEERS = 3      # 3 PEERS = 4 nodes incl. self = a real majority of the 5-node fleet.
+                                 # This counts PEERS, not nodes: 2 (the old value) meant 3 nodes, a MINORITY
+                                 # that split betanet-1; 4 would demand every other node be linked at once,
+                                 # which a normal restart stagger never satisfies (observed 3/4, gate stuck).
 
 # How long a measured fork state stays cached. The probe costs ~log2(depth) direct peer round-trips, so it
 # must not run every ~1s pass; but it gates reorg/re-anchor decisions, so it must not go badly stale either.
