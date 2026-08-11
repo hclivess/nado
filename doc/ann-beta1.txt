@@ -1,0 +1,83 @@
+[center][img height=300]https://talkimg.com/images/2026/07/03/ULcA2j.jpg[/img][/center]
+
+[color=red]Deflationary — Harder than BTC. No premine. No dev fund. Post-quantum, zk-STARK, exec node, HTLC, 1-click mining, quorum, zstd, shares for all. Python/Rust/JS, 70/30. Hash-lottery PoS.[/color]
+
+[size=18pt][b]Update — v1.0.0-beta.1: NADO leaves alpha. Betanet is live.[/b][/size]
+NADO is out of alpha. [b]Betanet[/b] is the mainnet dress rehearsal — it behaves like mainnet, and the headline change is simple: [b]your balance now persists[/b], block to block and release to release, instead of resetting between demos. Everything you'd want at launch is already running: post-quantum signatures end to end, a browser-provable zk-STARK shielded pool, a 20+ contract app layer, and one-click mining from your pocket.
+
+[url=https://github.com/hclivess/nado/releases/tag/v1.0.0-beta.1]Release + full notes[/url]  •  [url=https://github.com/hclivess/nado]GitHub[/url]
+
+[hr]
+
+[b][size=15pt]What "betanet" means[/size][/b]
+
+[list]
+[li][b]Balances stick.[/b] Unlike the alpha (a resettable demo), betanet carries your coins forward across normal upgrades. It's the real economy, warming up.[/li]
+[li][b]A reroll is still on the table.[/b] Betanet is a hardening phase — if a consensus-level fix needs a fresh genesis, we reroll and say so openly. Treat coins as test value until mainnet.[/li]
+[li][b]Fair launch, unchanged.[/b] No premine, no dev fund, no allocation. Betanet started from a fresh genesis with [b]every balance at zero[/b] — every coin comes from the open mining lane and the base subsidy, same as day one.[/li]
+[/list]
+
+[hr]
+
+[b][size=15pt]🔒 Private payments, without elliptic curves[/size][/b]
+
+Monero/Zcash-style curve privacy is a non-starter on a chain built to survive quantum — a quantum computer breaks it, and for confidential amounts it could [i]silently inflate the supply[/i]. So the pool is built on [b]hash-based zk-STARKs[/b]: post-quantum sound, [b]no trusted setup[/b], nothing Shor-breakable.
+
+From the Shield tab:
+[list]
+[li][b]Shield / unshield[/b] — deposit into the pool, withdraw to a [i]different[/i] address.[/li]
+[li][b]Shielded transfers[/b] — note→note payments with [b]no on-chain amount[/b]. A stable [tt]znado…[/tt] shielded address (QR + share), and a [tt]znote…[/tt] claim code you hand the recipient out-of-band.[/li]
+[li][b]Any amount + change[/b] — one join-split proof binds ownership (ML-DSA-authorised), Merkle membership in the pool, the nullifier (no double-spend), two output commitments (recipient + change), and value conservation.[/li]
+[/list]
+
+The ~1 MB proof stays [b]off L1[/b] — the execution node verifies and applies it, and only the settled pool state-root reaches L1 via the bonded 2/3 quorum.
+
+[hr]
+
+[b][size=15pt]⚡ On-device proving — private [i]and[/i] fast[/size][/b]
+
+Tick [b]"Prove on this device"[/b] and your browser fetches the pool leaves, builds the Merkle path, and generates the entire STARK itself — [b]your keys and amounts never leave the phone[/b]. A browser-made proof is byte-for-byte accepted by the same verifier the node runs.
+
+And it's quick: in-browser proving went from [b]~22 s down to ~2 s[/b] (a WASM BLAKE2b, a WASM Goldilocks field/NTT, a whole-tree WASM Merkle, batch inversion). The exact same Rust binds natively into the node's delegated prover for anyone who'd rather not prove locally. Prefer not to trust your node with the witness? Run your own execution node — or just tick the box.
+
+[hr]
+
+[b][size=15pt]🛡️ Hardened for the beta[/size][/b]
+
+Before flipping the switch we ran a [b]deep, multi-agent security review[/b] over the whole stack — consensus and rollback, the STARK verifier, the shielded pool, the app contracts, the network/RPC surface, and the Rust cores — then fixed and shipped every real finding. A few of the closes:
+
+[list]
+[li]The settlement verifier now [b]pins its own soundness parameters[/b] instead of taking them from the prover.[/li]
+[li]A rollback edge that could diverge a snapshot-synced node's state root is closed (it journals the change instead of inferring it from pruned history).[/li]
+[li]The app contracts [b]bound every id[/b], closing a cross-entity storage aliasing trick that could lock a table's funds.[/li]
+[li]The RPC surface is scoped against oversized-request DoS.[/li]
+[li]The post-quantum signature backend now has to [b]prove it rejects bad signatures[/b], not just accept good ones, before the node will adopt it.[/li]
+[/list]
+
+Post-quantum ML-DSA-44 authenticates every transaction and block.
+
+[hr]
+
+[b][size=15pt]🎮 A whole app layer[/size][/b]
+
+20+ provable contracts on a permissionless zkVM: banked games with a real 1% edge that accrues to [i]whoever opens the table[/i] (never to us), on-chain poker with no house, parimutuel markets, a full NFT with marketplace and escrowed bids, and more. [b]Rake-free by design[/b] — app fees burn to every holder, and no address can freeze, censor, or seize. The 10% per-block treasury cut is a [b]governance-voted[/b] pool, spent only by on-chain vote — not a founder's wallet.
+
+[hr]
+
+[b][size=15pt]Also aboard[/size][/b]
+
+[list]
+[li][b]Presence dividend[/b] — most of every open-lane block streams to everyone present, weighted by steady presence; one-tap Collect against the settled root.[/li]
+[li][b]Click-through block explorer[/b] + rich-list leaderboard, right in the light client.[/li]
+[li][b]Wallet hardening[/b] — BIP39 24-word recovery, optional AES-256-GCM at-rest encryption with auto-lock, key import.[/li]
+[li][b]One-command install[/b] — [tt]scripts/install.sh --exec[/tt] brings up L1 + the shielded-pool node together (systemd), building the native prover when Rust is present.[/li]
+[li]Every string translated across [b]16 languages[/b]; social share + QR throughout.[/li]
+[/list]
+
+[hr]
+
+[b][size=15pt]Honest status[/size][/b]
+
+Betanet is [b]pre-mainnet[/b]. Balances persist across normal upgrades, but a genesis reroll remains possible while consensus hardens — so treat coins as test value until mainnet. On privacy: shield/unshield [i]amounts[/i] are public on L1; real unlinkability comes from shielded transfers [i]inside[/i] the pool plus a busy pool, and the anonymity set grows with use. Deposits and withdrawals are always sound. Run it, move some NADO privately, [i]try to break it[/i], and tell us.
+
+[center][b]Open the link. Mine from your pocket. Now own a balance that stays.[/b][/center]
