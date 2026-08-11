@@ -13,7 +13,7 @@ NADO is out of alpha. [b]Betanet[/b] is the mainnet dress rehearsal — it behav
 
 [list]
 [li][b]Balances stick.[/b] Unlike the alpha (a resettable demo), betanet carries your coins forward across normal upgrades. It's the real economy, warming up.[/li]
-[li][b]A reroll is still on the table.[/b] Betanet is a hardening phase — if a consensus-level fix needs a fresh genesis, we reroll and say so openly. Treat coins as test value until mainnet.[/li]
+[li][b]Your coins are real, and they go to mainnet.[/b] What you mine on betanet is not test money — balances carry forward to mainnet. Betanet is still a hardening phase, so if a consensus-level fix needs a fresh genesis we reroll and say so openly — and balances are carried across.[/li]
 [li][b]Fair launch, unchanged.[/b] No premine, no dev fund, no allocation. Betanet started from a fresh genesis with [b]every balance at zero[/b] — every coin comes from the open mining lane and the base subsidy, same as day one.[/li]
 [/list]
 
@@ -78,6 +78,6 @@ Post-quantum ML-DSA-44 authenticates every transaction and block.
 
 [b][size=15pt]Honest status[/size][/b]
 
-Betanet is [b]pre-mainnet[/b]. Balances persist across normal upgrades, but a genesis reroll remains possible while consensus hardens — so treat coins as test value until mainnet. On privacy: shield/unshield [i]amounts[/i] are public on L1; real unlinkability comes from shielded transfers [i]inside[/i] the pool plus a busy pool, and the anonymity set grows with use. Deposits and withdrawals are always sound. Run it, move some NADO privately, [i]try to break it[/i], and tell us.
+Betanet is [b]pre-mainnet[/b], but it is not a sandbox: balances persist across upgrades and [b]carry forward to mainnet[/b]. A genesis reroll remains possible while consensus hardens — if it happens, balances are carried across and we say so openly. On privacy: shield/unshield [i]amounts[/i] are public on L1; real unlinkability comes from shielded transfers [i]inside[/i] the pool plus a busy pool, and the anonymity set grows with use. Deposits and withdrawals are always sound. Run it, move some NADO privately, [i]try to break it[/i], and tell us.
 
 [center][b]Open the link. Mine from your pocket. Now own a balance that stays.[/b][/center]
