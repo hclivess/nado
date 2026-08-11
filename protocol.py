@@ -27,7 +27,7 @@ if not __debug__:
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-17"  # KV code + per-call asset binding: settle proofs authenticate contract code, gen 18
+CHAIN_ID = "betanet-1"  # BETANET LAUNCH (gen 19): fresh genesis, all balances reset to zero, fair relaunch
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -61,7 +61,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1786293000  # alphanet-17: KV code + per-call asset binding (gen 18). New DISTINCT
+GENESIS_TIMESTAMP = 1786468000  # betanet-1 launch (gen 19): fresh DISTINCT genesis, balances reset. New DISTINCT
                                 # timestamp so no prior-generation block links in.
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
@@ -477,7 +477,15 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   stranded old-code nodes keep out-weighing the fresh chain in fork choice.
 #   OPERATIONAL: a reroll wipes exec state — redeploy the game-contract fleet in the SAME session
 #   (execnode.games.redeploy), or the games silently vanish.
-CHAIN_GENERATION = 18
+# 19 (2026-08-11): BETANET LAUNCH reroll — new CHAIN_ID ("betanet-1") + new GENESIS_TIMESTAMP, so the
+#   genesis hash is DISTINCT (the generation-10 lesson). The project leaves alpha: this genesis resets
+#   EVERY balance and bonded stake to ZERO (genesis_data/genesis_alloc.dat emptied to [], TREASURY_GENESIS
+#   still 0) — a clean fair relaunch, no premine, no carry-forward. Betanet behaves like mainnet (balances
+#   persist across ordinary /update waves) but MAY still be rerolled while consensus hardens. Ships the
+#   pre-launch security remediation (pubkey-once revert journal, settle query-count pinning, contract id
+#   bounds, DoS scoping, ML-DSA negative-vector self-test). OPERATIONAL: redeploy the game-contract fleet
+#   in the SAME session (execnode.games.redeploy) — the reroll wipes exec state and their old cids.
+CHAIN_GENERATION = 19
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

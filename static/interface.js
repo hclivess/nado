@@ -31,10 +31,9 @@ import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
  * adds no trust: the relay already supplies balances, fees and block targets. */
-let CHAIN_ID = "alphanet-17";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
+let CHAIN_ID = "betanet-1";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
 const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
-const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
 // registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (≈1 day at ~8 min/epoch).
 const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, POSW_LEASE_EPOCHS = 240;
@@ -410,12 +409,6 @@ function addrBookRender() {
   paint();
   abResolveAliases(book.map((x) => x.addr)).then(paint);
 }
-
-function powTarget() { return 1n << BigInt(256 - REGISTER_POW_BITS); }
-function powHashInt(address, nonce) {
-  return BigInt("0x" + blake2bHash([DOMAIN_REGISTER, address, nonce]));
-}
-function powValid(address, nonce) { return powHashInt(address, nonce) < powTarget(); }
 
 /* ----------------------------------------------------------------------------------------------
  * Transactions: build body, add txid (over the body incl. fee), then ML-DSA-44 sign(unhex(txid)).
@@ -1242,32 +1235,6 @@ function renderSecurity() {
   if ($("autolockSel")) $("autolockSel").value = String(autolockMinutes());
 }
 
-/* ----------------------------------------------------------------------------------------------
- * Registration PoW — chunked async so the UI stays responsive (and is cancellable).
- * -------------------------------------------------------------------------------------------- */
-function solveRegistrationPow(address, { onProgress, signal } = {}) {
-  const target = powTarget();
-  const start = performance.now();
-  let nonce = 0;
-  const CHUNK = 1500;
-  return new Promise((resolve, reject) => {
-    function step() {
-      if (signal && signal.cancelled) return reject(new Error("cancelled"));
-      const end = nonce + CHUNK;
-      for (; nonce < end; nonce++) {
-        if (powHashInt(address, nonce) < target) {
-          return resolve({ nonce, hashes: nonce + 1, seconds: (performance.now() - start) / 1000 });
-        }
-      }
-      if (onProgress) {
-        const secs = (performance.now() - start) / 1000;
-        onProgress({ hashes: nonce, seconds: secs, rate: nonce / Math.max(secs, 0.001) });
-      }
-      setTimeout(step, 0); // yield to the event loop / repaint
-    }
-    step();
-  });
-}
 
 /* ----------------------------------------------------------------------------------------------
  * Mining engine
@@ -2610,19 +2577,15 @@ const VEC = {
   torture_hash: "69029840259d7c85d5c3e61f09abc352d0554c9b4320ef7d59bb6942647b840c",
   bigobj_canonical: "{\"amount\":99999999999999999999,\"x\":9007199254740993}",
   bigobj_hash: "8a09e2d0782c39dd1522f8a83c5338d2960d1b9710ec5c18e66d6cc20354de20",
-  pow_address: "96381e3725f85cfe0ab8de17623957b4565ca9b04d9e7e",
-  pow_nonce: 7498,
-  pow_target_str: "1766847064778384329583297500742918515827483896875618958121606201292619776",
-  pow_hash_int_str: "967317524127122590372847889687325346550786553544156505698899221471391632",
   fixed_priv: "4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a", // 32-byte ML-DSA-44 seed
   // Tx vectors carry NO signature (ML-DSA is hedged); only txid/canonical are comparable.
   // REGENERATE via tools/gen_selftest_vectors.py after ANY field/format/tag/chain_id change.
-  register_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-14", "fee": 0, "recipient": "register", "pow_nonce": 2108331, "txid": "745f159949043a25de3c82043e33d006b29334c2fe9a7b3d3fd9d15141ee6146"},
-  register_canonical: "{\"amount\":0,\"chain_id\":\"alphanet-14\",\"data\":\"\",\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"pow_nonce\":2108331,\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
-  heartbeat_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-14", "fee": 0, "recipient": "heartbeat", "epoch": 205, "txid": "3f56b10c827bbfabf01d1e9618692d4d938c46612270304f979a52d4a345a11d"},
-  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"alphanet-14\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
-  transfer_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 123456, "timestamp": 1700000000, "data": "hello world", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "alphanet-14", "fee": 1000, "recipient": "6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498", "txid": "c9691636da2b8e53b5d7d468e27c5313ba5ff968f7acb16f079074b910687049"},
-  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"alphanet-14\",\"data\":\"hello world\",\"fee\":1000,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
+  register_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-1", "fee": 0, "recipient": "register", "txid": "6eae521870f2bb7bd249ccba3c80b75069147675bcef3ac41d7c102e3f38fc09"},
+  register_canonical: "{\"amount\":0,\"chain_id\":\"betanet-1\",\"data\":\"\",\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
+  heartbeat_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-1", "fee": 0, "recipient": "heartbeat", "epoch": 205, "txid": "780b1fc54dee336002a9a4be82fdc5849d706b7267b7f1af838fc638ace7ab22"},
+  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"betanet-1\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
+  transfer_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 123456, "timestamp": 1700000000, "data": "hello world", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-1", "fee": 1000, "recipient": "6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498", "txid": "7315bf3bd2ca46b3e2f97f5f9b300bd6bcdc957111d11ea9949b1b537b5519a3"},
+  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"betanet-1\",\"data\":\"hello world\",\"fee\":1000,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
 };
 
 function bodyOf(tx) {
@@ -2647,11 +2610,6 @@ function runSelfTest() {
   const bigobj = { amount: 99999999999999999999n, x: 9007199254740993n };
   add("canonical(BigInt > 2^53)", canonicalize(bigobj), VEC.bigobj_canonical);
   add("blake2b_hash(BigInt obj)", blake2bHash(bigobj), VEC.bigobj_hash);
-
-  // registration PoW
-  add("registration PoW target", powTarget().toString(), VEC.pow_target_str);
-  add("registration PoW hash(int)", powHashInt(VEC.pow_address, VEC.pow_nonce).toString(), VEC.pow_hash_int_str);
-  add("registration PoW valid", String(powValid(VEC.pow_address, VEC.pow_nonce)), "true");
 
   // key derivation — ML-DSA-44 keygen is deterministic from the 32-byte seed.
   const kpA = keypairFromPriv(VEC.fixed_priv);
