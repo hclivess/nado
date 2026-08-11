@@ -9,6 +9,20 @@ so anything can import it without a cycle).
 """
 from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 
+# FAIL-CLOSED under `python -O` / PYTHONOPTIMIZE. The consensus signature/txid verification spine
+# (validate_origin, validate_txid, verify_multisig_origin) signals rejection by raising AssertionError;
+# with asserts stripped those checks fall through to `return True`, accepting UNSIGNED, malleable txs =
+# universal forgery. Refuse to run rather than run silently unverified. protocol is imported by every
+# consensus process, so this gate covers the node, the exec node, and the tools. (Set NADO_ALLOW_NO_ASSERT=1
+# only for a deliberate non-consensus utility run.)
+if not __debug__:
+    import os as _os
+    if _os.environ.get("NADO_ALLOW_NO_ASSERT") != "1":
+        raise RuntimeError(
+            "NADO refuses to start with assertions disabled (python -O / PYTHONOPTIMIZE): the consensus "
+            "signature-verification spine rejects via `assert`, which -O strips, turning every rejection "
+            "into a silent accept. Run without -O.")
+
 # Bound into every signed transaction and block body so a transaction/block from another
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +

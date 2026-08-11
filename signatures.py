@@ -134,9 +134,27 @@ def _interop_ok(candidate) -> bool:
             return False  # deterministic keygen must agree (addresses derive from the public key)
         rnd = b"\x07" * 32
         # native signs -> pure-Python verifies, and pure-Python signs -> native verifies
+        good = _PurePyBackend.sign_internal(sec_p, msg, rnd)
         if not _PurePyBackend.verify_internal(pub_p, msg, candidate.sign_internal(sec_p, msg, rnd)):
             return False
-        if not candidate.verify_internal(pub_p, msg, _PurePyBackend.sign_internal(sec_p, msg, rnd)):
+        if not candidate.verify_internal(pub_p, msg, good):
+            return False
+        # NEGATIVE VECTORS (required): a positive-only self-test cannot catch the dangerous direction — a
+        # native verifier that OVER-ACCEPTS (returns True for a signature the FIPS-204 reference rejects:
+        # a broken build, or an unaudited lib mishandling non-canonical/out-of-range encodings). Because
+        # every node runs the same .so, such over-acceptance is chain-wide signature forgery that would not
+        # even show as a fork. The candidate MUST REJECT all of the following, or it is refused:
+        flipped = bytearray(good); flipped[0] ^= 0x01           # (a) one flipped byte
+        if candidate.verify_internal(pub_p, msg, bytes(flipped)):
+            return False
+        if candidate.verify_internal(pub_p, b"a different message", good):  # (b) wrong message
+            return False
+        pub_other, _ = _PurePyBackend.keygen_internal(b"\x99" * 32)
+        if candidate.verify_internal(pub_other, msg, good):     # (c) wrong public key
+            return False
+        if candidate.verify_internal(pub_p, msg, b"\x00" * len(good)):  # (d) all-zero / garbage sig
+            return False
+        if candidate.verify_internal(pub_p, msg, good[:-1]):    # (e) truncated sig
             return False
         return True
     except Exception:
