@@ -27,7 +27,7 @@ if not __debug__:
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "betanet-1"  # BETANET LAUNCH (gen 19): fresh genesis, all balances reset to zero, fair relaunch
+CHAIN_ID = "betanet-2"  # BETANET (gen 20): re-cut after the gen-19 launch split; balances still zero
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -61,7 +61,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1786468000  # betanet-1 launch (gen 19): fresh DISTINCT genesis, balances reset. New DISTINCT
+GENESIS_TIMESTAMP = 1786471500  # betanet-2 (gen 20): re-cut after the gen-19 split. New DISTINCT
                                 # timestamp so no prior-generation block links in.
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
@@ -485,7 +485,16 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 #   pre-launch security remediation (pubkey-once revert journal, settle query-count pinning, contract id
 #   bounds, DoS scoping, ML-DSA negative-vector self-test). OPERATIONAL: redeploy the game-contract fleet
 #   in the SAME session (execnode.games.redeploy) — the reroll wipes exec state and their old cids.
-CHAIN_GENERATION = 19
+# 20 (2026-08-11): RE-CUT after the gen-19 launch SPLIT. betanet-1 forked 3 ways within 13 blocks
+#   (h13 / h12 / h94, one identical genesis) because GENESIS_QUIET_MIN_PEERS was 2: two nodes reached each
+#   other, released the first-block gate and started the chain while the other three were still on the old
+#   generation. Each minority then finalized its own fork, and a finality floor on a minority fork cannot
+#   roll back — unrecoverable without a wipe. FIX (the reason this reroll exists): the gate now requires a
+#   MAJORITY of the fleet (GENESIS_QUIET_MIN_PEERS 2 -> 4) and waits 30 min (GENESIS_QUIET_S 600 -> 1800),
+#   so a minority can never start the chain. New CHAIN_ID + GENESIS_TIMESTAMP so the split gen-19 chains
+#   cannot linger in fork choice. Balances remain ZERO (empty alloc); prefixless producer set unchanged.
+#   OPERATIONAL: redeploy the game contracts after regenesis (the gen-19 deploys died with that chain).
+CHAIN_GENERATION = 20
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
@@ -957,8 +966,16 @@ DEAD_FORK_ALONE_S = 3600         # 1h continuously alone -> purge even if our br
 # BOUNDED, so this can never brick a node: once GENESIS_QUIET_S has elapsed the node produces regardless.
 # A genuinely standalone deployment (no seeds configured, or none reachable) pays this delay exactly once,
 # at genesis, and never again — the gate is dead the instant the chain has a single block.
-GENESIS_QUIET_S = 600            # 10 min > the ~4 min restart stagger that actually caused the split
-GENESIS_QUIET_MIN_PEERS = 2      # contacted peers that release the gate early (the normal path: seconds)
+GENESIS_QUIET_S = 1800           # 30 min: a /update wave restarts nodes MINUTES apart and a node that is
+                                 # merely slow to pull must not be left behind by a chain that already started.
+# MIN_PEERS was 2, and 2 IS NOT A MAJORITY. On the betanet-1 launch two nodes reached each other, released
+# the gate, and minted block 1 while the other three were still finishing the OLD chain — a 3-way split
+# (h13 / h12 / h94) with each minority's finality floor locked onto its own fork, which is unrecoverable
+# without a wipe. The gate must require a MAJORITY of the known fleet, not any two nodes: a minority that
+# starts the chain IS the fork. Seed-peer count is the fleet size estimate every node shares (genesis_open
+# is the same file everywhere), so a majority of it is a quorum every node computes identically.
+GENESIS_QUIET_MIN_PEERS = 4      # >= majority of the 5-node fleet (4 of 5 incl. self) — never a minority
+
 # How long a measured fork state stays cached. The probe costs ~log2(depth) direct peer round-trips, so it
 # must not run every ~1s pass; but it gates reorg/re-anchor decisions, so it must not go badly stale either.
 FORK_STATE_TTL_S = 60

@@ -51,13 +51,13 @@ for (const k of ["register", "heartbeat", "transfer"]) {
   add(`${k} txid (public_key-excluded)`, createTxid(bodyOf(VEC[`${k}_tx`])), VEC[`${k}_tx`].txid);
 }
 
-// the betanet-1 address format itself
+// the betanet-2 address format itself
 add("ADDR_PREFIX removed", ADDR_PREFIX, "");
 add("ADDR_LEN is 46", String(ADDR_LEN), "46");
 add("generated address is 46 chars", String(VEC.make_address_out.length), "46");
 add("isAddress accepts it", String(isAddress(VEC.make_address_out)), "true");
 add("isAddress rejects a prefixed address", String(isAddress("mldsa44" + VEC.make_address_out)), "false");
-add("vectors are betanet-1", VEC.register_tx.chain_id, "betanet-1");
+add("vectors are betanet-2", VEC.register_tx.chain_id, "betanet-2");
 
 console.log(`\n${fail === 0 ? "ALL PASS" : fail + " FAILURES"} — ${pass}/${pass + fail} checks`);
 process.exit(fail ? 1 : 0);

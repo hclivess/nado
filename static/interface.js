@@ -31,7 +31,7 @@ import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
  * adds no trust: the relay already supplies balances, fees and block targets. */
-let CHAIN_ID = "betanet-1";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
+let CHAIN_ID = "betanet-2";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
 const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
@@ -1465,6 +1465,14 @@ async function submitRegistration() {
   const res = await submitTransaction(tx);
   const m = res.data && (res.data.message || JSON.stringify(res.data));
   if (!(res.data && res.data.result)) {
+    // ALREADY REGISTERED this epoch is SUCCESS, not failure. The one-per-epoch guard rejects a duplicate
+    // recert ("sender already recerted this epoch") — which can only happen because the presence lease is
+    // ALREADY active (e.g. the node auto-registered this address, or a prior start this epoch). Proceed to
+    // mine instead of aborting; re-registering only renews the lease, which isn't needed again this epoch.
+    if (/already recerted|one register per epoch|already registered/i.test(m || "")) {
+      log("ok", i18("log.alreadyRegistered", "Already registered this epoch — presence lease active, mining."));
+      return true;
+    }
     // surface the relay's exact reason (e.g. "Empty account") so the user isn't blind.
     log("err", i18("log.regRejected", "Register rejected by relay: {m}", {m}));
     if (/empty account/i.test(m || "")) {
@@ -2580,12 +2588,12 @@ const VEC = {
   fixed_priv: "4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a", // 32-byte ML-DSA-44 seed
   // Tx vectors carry NO signature (ML-DSA is hedged); only txid/canonical are comparable.
   // REGENERATE via tools/gen_selftest_vectors.py after ANY field/format/tag/chain_id change.
-  register_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-1", "fee": 0, "recipient": "register", "txid": "6eae521870f2bb7bd249ccba3c80b75069147675bcef3ac41d7c102e3f38fc09"},
-  register_canonical: "{\"amount\":0,\"chain_id\":\"betanet-1\",\"data\":\"\",\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
-  heartbeat_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-1", "fee": 0, "recipient": "heartbeat", "epoch": 205, "txid": "780b1fc54dee336002a9a4be82fdc5849d706b7267b7f1af838fc638ace7ab22"},
-  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"betanet-1\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
-  transfer_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 123456, "timestamp": 1700000000, "data": "hello world", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-1", "fee": 1000, "recipient": "6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498", "txid": "7315bf3bd2ca46b3e2f97f5f9b300bd6bcdc957111d11ea9949b1b537b5519a3"},
-  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"betanet-1\",\"data\":\"hello world\",\"fee\":1000,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
+  register_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-2", "fee": 0, "recipient": "register", "txid": "b991adb926f9614dd9c87a78aff8a9bc237c882676df64281140cc1da97bf289"},
+  register_canonical: "{\"amount\":0,\"chain_id\":\"betanet-2\",\"data\":\"\",\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
+  heartbeat_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-2", "fee": 0, "recipient": "heartbeat", "epoch": 205, "txid": "b69c1057b15cddba9ff3dc41782dc86bd1c013f5de5ba7103f9881794332d7f0"},
+  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"betanet-2\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
+  transfer_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 123456, "timestamp": 1700000000, "data": "hello world", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-2", "fee": 1000, "recipient": "6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498", "txid": "0104634445420f97b275f4c8083ddf729cc04d9f2050d61842c349f0dc47ebe4"},
+  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"betanet-2\",\"data\":\"hello world\",\"fee\":1000,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
 };
 
 function bodyOf(tx) {
