@@ -1086,6 +1086,12 @@ export class NadoDapp {
     const p = { op: "call", contract: (opts && opts.cid) || this.cid, method, args };
     const isValue = valueRaw != null;
     if (isValue) p.value = valueRaw;
+    // ASSET-DENOMINATED CALL VALUE (doc/assets.md): `value` is an amount, `asset` names WHAT it is — 0 or
+    // absent is native NADO. A call carries exactly one asset, which is why this is a single field and not
+    // a list. Without it the SDK could only ever escrow NADO, so no page could deposit a token into a
+    // contract (the DEX's fundt/swapt, and every asset dApp after it). The exec layer reads the same field
+    // name off the blob, so this is the whole plumbing.
+    if (opts && opts.asset) p.asset = opts.asset;
     // "carries a value field" is NOT "moves value". Games pass 0n for their FREE calls, and 0n != null is
     // true in JS — so isValue is true for them, and any policy keyed on it silently treats a free call as a
     // staked one. That is exactly how the tip-based pend expiry below ended up excluding autogame (its nine
