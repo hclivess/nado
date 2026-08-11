@@ -53,6 +53,9 @@ def build():
     with c.method("open") as m:
         vid = m.arg(0)
         m.require(vid > 0)
+        m.require(vid < (1 << 32))                      # id is a slot key: field*2^32+vid. Without the
+        # upper bound a vid >= 2^32 aliases onto another field's slots (cross-entity storage aliasing —
+        # a permissionless permanent lock). The `lt` macro RANGE-reverts >=2^62 and rejects [2^32,2^62).
         m.require(_c(m, OWN, vid).get() == 0)          # vid unused
         m.require(m.in_asset() == 0)                   # the SEED is native; the asset is named, not sent
 
