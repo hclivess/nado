@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import zstandard
 from ops.transaction_ops import construct_blob_tx
 from ops.key_ops import load_keys
-from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
+from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY, TX_LANDING_WINDOW
 
 
 def _get(l1, path):
@@ -64,7 +64,10 @@ def main():
     from ops.address_ops import make_address
     keys["address"] = make_address(keys["public_key"])
     tip = int(_get(args.l1, "/get_latest_block")["block_number"])
-    tx = construct_blob_tx(keys, payload, max_block=tip + 20, fee=args.fee,
+    # max_block is an EXPIRY DEADLINE, not a target. tip+20 was far too tight — after TX_INCLUSION_DELAY
+    # (8) it left ~12 blocks for the tx to gossip to whichever peer is producing (this box is usually not
+    # the producer) and be included, so upgrades routinely expired unmined. Use the standard wide window.
+    tx = construct_blob_tx(keys, payload, max_block=tip + TX_LANDING_WINDOW, fee=args.fee,
                            min_block=tip + TX_INCLUSION_DELAY)
     print(f"submitting {payload['op']} blob tx {tx['txid'][:16]}… → {args.l1}")
     print(json.dumps(_post(args.l1, "/submit_transaction", tx), indent=2))
