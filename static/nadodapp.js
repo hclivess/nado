@@ -105,7 +105,18 @@ function enableClickFeedback() {
 
 // ---- amounts -------------------------------------------------------------------------------------
 export function nadoToRaw(s) {
-  s = String(s || "").trim().replace(",", ".");   // Czech/EU keyboards type "0,20" — accept it as 0.20
+  // Same decimal-separator rules as the wallet (interface.js nadoToRaw) — the two MUST agree, or an amount
+  // a game accepts is one the wallet then rejects at signing. Spaces/apostrophes are grouping; with BOTH
+  // separators present the LAST is the decimal; a lone separator is the decimal (under-states rather than
+  // over-sends). The old `replace(",", ".")` only replaced the FIRST comma, so "1.234,56" fell through.
+  s = String(s || "").trim().replace(/[\s  ']/g, "");
+  const lastDot = s.lastIndexOf("."), lastCom = s.lastIndexOf(",");
+  if (lastDot >= 0 && lastCom >= 0) {
+    const dec = Math.max(lastDot, lastCom);
+    s = s.slice(0, dec).replace(/[.,]/g, "") + "." + s.slice(dec + 1);
+  } else {
+    s = s.replace(",", ".");
+  }
   if (!/^\d+(\.\d+)?$/.test(s)) return null;
   const [w, f = ""] = s.split("."); const raw = BigInt(w) * RAW + BigInt((f + "0000000000").slice(0, 10));
   return raw > 0n ? raw : null;

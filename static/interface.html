@@ -927,7 +927,7 @@
 
     <div class="mt"><div class="label" data-i18n="shield.depositTitle">Deposit (shield)</div></div>
     <label data-i18n="shield.amount">Amount (NADO)</label>
-    <input id="shieldAmount" type="number" min="0" step="0.0001" placeholder="0.0" />
+    <input id="shieldAmount" type="number" min="0" step="0.0001" placeholder="0.0" / inputmode="decimal">
     <button id="btnShield" class="primary mt" style="width:100%" data-i18n="shield.deposit">Shield coins</button>
 
     <div class="mt"><div class="label" data-i18n="shield.notesTitle">Your banknotes</div></div>
@@ -957,7 +957,7 @@
     <label data-i18n="shield.sendTo">Recipient shielded address</label>
     <input id="zsendTo" placeholder="zaddr…" autocomplete="off" spellcheck="false" />
     <label class="mt" data-i18n="shield.amount">Amount (NADO)</label>
-    <input id="zsendAmount" type="number" min="0" step="0.0001" placeholder="0.0" />
+    <input id="zsendAmount" type="number" min="0" step="0.0001" placeholder="0.0" / inputmode="decimal">
     <div class="small faint mt" style="display:flex;align-items:center;gap:8px">🔒 <span data-i18n="shield.ondevice">Proved on this device — fully private (the node never sees your amounts or keys)</span></div>
     <button id="btnZsend" class="primary mt" style="width:100%" data-i18n="shield.zsend">Send shielded</button>
     <div id="zsendCodeBox" class="warnbox mt small hidden">
@@ -1145,6 +1145,6 @@
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
 <script defer src="/static/i18n.js?v=91256219"></script>
-<script type="module" src="/static/interface.js?v=2059481e"></script>
+<script type="module" src="/static/interface.js?v=67b61a2d"></script>
 </body>
 </html>

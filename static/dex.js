@@ -11,7 +11,7 @@
 //  * The quote recomputes out = RT·dxf/(RN+dxf), dxf = dx·9970/10000, EXACTLY as the contract does, in
 //    BigInt. A float quote would drift from the chain and mis-set minOut, turning a good swap into a revert.
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
-         orderCards, disp, share, installModes, playModes } from "./nadodapp.js?v=730ba78a";
+         orderCards, disp, share, installModes, playModes } from "./nadodapp.js?v=b23153af";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });

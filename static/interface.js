@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare } from "./nadodapp.js?v=730ba78a";   // THE one share implementation (SDK)
+import { share as sdkShare } from "./nadodapp.js?v=b23153af";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -910,8 +910,30 @@ function rawToNado(raw) {
   const frac = (raw % DENOMINATION).toString().padStart(10, "0").replace(/0+$/, "");
   return (neg ? "-" : "") + whole.toString() + (frac ? "." + frac : "");
 }
+// DECIMAL SEPARATOR: accept BOTH "." and ",". Most of Europe types "0,5" — on a phone that is not even a
+// choice, because iOS/Android render the decimal key from the DEVICE LOCALE, so a European keyboard offers
+// a comma and no dot at all. This function used to reject that outright ("invalid amount"), which made the
+// wallet unusable for depositing/sending from those phones. The dApp SDK (nadodapp.js nadoToRaw) already
+// accepted commas; the wallet did not, so the two disagreed.
+//
+// The ambiguous case is a group separator: "1,000" could be one thousand (EU grouping) or 1.0 (comma as
+// decimal). The rule here, in order:
+//   * spaces / NBSP / apostrophes are ALWAYS grouping — stripped.
+//   * if BOTH separators appear, the LAST one is the decimal and the other is grouping ("1.234,56", "1,234.56").
+//   * if only ONE appears, it is the DECIMAL separator ("1,5" -> 1.5, "1,000" -> 1.0).
+// The last rule is deliberate: reading a lone separator as decimal can only UNDER-state an amount, while
+// reading it as grouping could silently send a thousand times more than the user meant. Under-sending is an
+// annoyance; over-sending is a loss. This also matches the SDK, so both paths agree on every input.
 function nadoToRaw(amountStr) {
-  const m = String(amountStr).trim().match(/^(\d+)(?:\.(\d{1,10}))?$/);
+  let s = String(amountStr).trim().replace(/[\s  ']/g, "");
+  const lastDot = s.lastIndexOf("."), lastCom = s.lastIndexOf(",");
+  if (lastDot >= 0 && lastCom >= 0) {
+    const dec = Math.max(lastDot, lastCom);
+    s = s.slice(0, dec).replace(/[.,]/g, "") + "." + s.slice(dec + 1);
+  } else {
+    s = s.replace(",", ".");
+  }
+  const m = s.match(/^(\d+)(?:\.(\d{1,10}))?$/);
   if (!m) throw new Error("invalid amount");
   const whole = BigInt(m[1]);
   const frac = BigInt((m[2] || "").padEnd(10, "0"));

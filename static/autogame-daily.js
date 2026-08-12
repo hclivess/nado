@@ -19,7 +19,7 @@
 // maximise a compounding renown/gear/streak/stamina economy — with a cash-out decision live at every step
 // — is a planning problem with branching factor 8 and a horizon of 124. Knowing the road is the premise of
 // the puzzle, not the answer to it.
-import { algHashn } from "./nadodapp.js?v=730ba78a";
+import { algHashn } from "./nadodapp.js?v=b23153af";
 import { H, provableSeed, unpackMoves, packMoves } from "./provable.js?v=8d15167d";
 import * as R from "./autogame-rules.js?v=a3d6848d";
 import * as E from "./autogame-engine.js?v=8a997c33";
