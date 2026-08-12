@@ -5,21 +5,20 @@ The rates below are MEASURED on a live betanet node (height 16 678, 4 669 txs, 1
 estimated: per-sub-DB byte totals came from walking each LMDB store, and the body figure from the blocks
 directory. Re-measure with `--measure` on any node to refresh them.
 
-TWO MODES, AND THE DEFAULT IS THE EXPENSIVE ONE:
+THREE MODES:
 
-  * ARCHIVE (`archive: True` — the DEFAULT) keeps ALL block bodies forever. Nothing plateaus.
-  * ROLLING (`archive: False`, NADO_ARCHIVE) drops finalized bodies older than history_retention_blocks
-    (100 800 = 7 days at 6 s). Only then does the body term plateau.
+  * ARCHIVE (`archive: True` — the DEFAULT) keeps ALL block bodies and ALL tx history forever.
+  * ROLLING (`archive: False`) drops finalized bodies older than history_retention_blocks (100 800 =
+    7 days at 6 s), and now ALSO prunes the tx history to tx_history_retention_blocks (floored at
+    TX_HISTORY_MIN_RETENTION = 5000 blocks, ~8 h — the replay guard's horizon plus margin).
+  * ROLLING, BODIES ONLY — what rolling mode used to be, kept here to show what the tx-history half buys.
 
-What NEITHER mode prunes:
+What NO mode prunes, and is therefore the floor on every node:
 
-  * the number<->hash index — deliberately kept in both (beacon anchors, FFG epoch boundaries and PoSW
-    anchors resolve through it, including for heights before a snapshot), 144 B/block, forever;
-  * the tx history (tx + tx_by_sender + tx_by_recipient), 360 B/tx, forever. Rolling mode "drops only
-    bodies"; the heavy tx history stays on disk.
-
-So an idle chain grows forever even in rolling mode, and on a busy chain the tx history — which rolling
-mode does NOT touch — dominates. Rolling mode is a bounded win on bodies, not a fix for growth.
+  * the number<->hash index, 144 B/block, forever. Beacon anchors, FFG epoch boundaries and PoSW anchors
+    resolve through it — including for heights before a snapshot — so it is deliberately kept in all
+    modes. On a fully-pruned node this becomes the DOMINANT term: it grows with height even on an
+    idle chain, and nothing bounds it.
 
 A SNAPSHOT-SYNCED node is the genuinely small one: it never receives pre-checkpoint bodies or tx history
 at all (both are excluded from snapshots), so it starts near zero and grows from its checkpoint forward.
@@ -55,19 +54,24 @@ HISTORY_RETENTION_BLOCKS = 100800    # protocol.py — bodies older than this ar
 BLOCKS_PER_DAY = 86400 // BLOCK_TIME
 
 
-def model(days, tx_per_block, accounts, archive=True):
+TX_HISTORY_MIN_RETENTION = 5000      # protocol.py — the enforced floor on the tx-history window
+
+
+def model(days, tx_per_block, accounts, archive=True, prune_tx=True):
     """Bytes on disk after `days`, at a steady `tx_per_block` and a final account count.
 
-    archive=True (the DEFAULT node config) keeps every body forever; archive=False is rolling mode and
-    caps bodies at the retention window. Neither prunes the per-block index or the tx history."""
+    archive=True (the DEFAULT) keeps every body and all tx history. archive=False caps bodies at the
+    retention window and, when prune_tx, caps the tx history at TX_HISTORY_MIN_RETENTION. The per-block
+    number<->hash index is never pruned in any mode."""
     height = BLOCKS_PER_DAY * days
     txs = height * tx_per_block
 
     bodies_blocks = height if archive else min(height, HISTORY_RETENTION_BLOCKS)
     bodies = bodies_blocks * (BODY_PER_BLOCK_IDLE + tx_per_block * BODY_PER_TX)
 
-    perm_blocks = height * PERM_PER_BLOCK                          # unbounded, per block
-    perm_txs = txs * PERM_PER_TX                                   # unbounded, per tx
+    tx_blocks = height if (archive or not prune_tx) else min(height, TX_HISTORY_MIN_RETENTION)
+    perm_blocks = height * PERM_PER_BLOCK                          # unbounded in EVERY mode
+    perm_txs = tx_blocks * tx_per_block * PERM_PER_TX
     state = accounts * PER_ACCOUNT
     fixed = (SNAPSHOTS_MIB + EXEC_STATE_MIB + EXEC_STASH_MIB) * 1024 * 1024
     return {"height": height, "txs": txs, "bodies": bodies, "perm_blocks": perm_blocks,
@@ -106,21 +110,25 @@ def main():
     print(f"  permanent: {PERM_PER_BLOCK} B/block + {PERM_PER_TX} B/tx; account {PER_ACCOUNT} B\n")
     for name, tpb, acct in SCENARIOS:
         print(f"{name}")
-        print(f"  {'horizon':>9} {'height':>12} {'ARCHIVE tot':>13} {'ROLLING tot':>13} "
-              f"{'bodies(arch)':>13} {'bodies(roll)':>13} {'tx index':>12}")
+        print(f"  {'horizon':>9} {'height':>12} {'ARCHIVE':>13} {'ROLL(bodies)':>13} "
+              f"{'ROLL(+tx)':>13} {'blk index':>12}")
         for d in HORIZONS:
             a = model(d, tpb, acct(d), archive=True)
-            r = model(d, tpb, acct(d), archive=False)
+            rb = model(d, tpb, acct(d), archive=False, prune_tx=False)
+            rt = model(d, tpb, acct(d), archive=False, prune_tx=True)
             label = f"{d//365}y" if d >= 365 else f"{d}d"
-            print(f"  {label:>9} {a['height']:>12,} {fmt(a['total'])} {fmt(r['total'])} "
-                  f"{fmt(a['bodies'])} {fmt(r['bodies'])} {fmt(a['perm_txs'])}")
+            print(f"  {label:>9} {a['height']:>12,} {fmt(a['total'])} {fmt(rb['total'])} "
+                  f"{fmt(rt['total'])} {fmt(a['perm_blocks'])}")
         print()
-    a10 = model(365 * 10, 20, 20000 + 365 * 10 * 200, archive=True)
-    r10 = model(365 * 10, 20, 20000 + 365 * 10 * 200, archive=False)
-    saved = a10["total"] - r10["total"]
-    print(f"Busy chain at 10 years: rolling mode saves {fmt(saved)} of bodies, but the node is still")
-    print(f"  {fmt(r10['total'])} because the tx history ({fmt(r10['perm_txs'])}) is kept in BOTH modes.")
-    print("  Rolling mode bounds the bodies; it does not bound the node.")
+    a = model(365 * 10, 20, 20000 + 365 * 10 * 200, archive=True)
+    rb = model(365 * 10, 20, 20000 + 365 * 10 * 200, archive=False, prune_tx=False)
+    rt = model(365 * 10, 20, 20000 + 365 * 10 * 200, archive=False, prune_tx=True)
+    print("Busy chain (20 tx/block) at 10 years:")
+    print(f"  archive                {fmt(a['total'])}")
+    print(f"  rolling, bodies only   {fmt(rb['total'])}   <- what rolling mode used to give")
+    print(f"  rolling + tx pruning   {fmt(rt['total'])}   <- now")
+    print(f"  Of that {fmt(rt['total'])}, {fmt(rt['perm_blocks'])} is the number<->hash index, which NO mode")
+    print("  prunes. It is now the dominant term and the real floor on a pruned node.")
 
 
 def measure_live():
