@@ -58,12 +58,10 @@ Saturation (queries beyond which soundness stops improving at all):
 | 8 | 190 |
 | 16 | 173 |
 
-**The headline row is `blowup 16 / 96 queries`: 164.4 provable bits — 8 bits MORE than we have today —
-at 30% of the opening size.** There is no security/size tradeoff to agonise over at that point; it is
-better on both axes. `blowup 16 / 80` (159.7 bits, 0.25x) is also still stronger than today.
-
-If one wanted to spend the gain on size instead of security, `blowup 16 / 64` gives 144.4 bits at
-**0.20x** — a 5x reduction, still comfortably above 128.
+On soundness alone the best row is `blowup 16 / 96 queries`: 164.4 provable bits — 8 bits MORE than
+today — at 30% of the opening size. **§4 measures what that costs the prover and rejects it**; the rows
+that survive are `blowup 8 / 96` (154.2 bits) and `blowup 4 / 192` (163.2 bits). Read this table as
+"what is *available* at each rate", not as the recommendation.
 
 ---
 
@@ -134,9 +132,10 @@ follow automatically — the model does not need editing, only the constants.
 
 Suggested order:
 
-1. benchmark prove cost at blowup 4/8/16 (the one open question);
-2. pick the row that keeps prove time inside the settle cadence — preferring **blowup 16 / 96** if it
-   fits, since it is strictly better than today, else **blowup 8 / 96**;
+1. ~~benchmark prove cost at blowup 4/8/16~~ — **done**, see §4 (`tools/bench_fri_blowup.py`). Remaining:
+   re-measure on a REAL settle prove, where FRI is not the dominant term;
+2. pick the row that keeps prove time inside the settle cadence — **blowup 8 / 96** is the target and
+   **blowup 4 / 192** the fallback (§4); blowup 16 is rejected on prove time and memory;
 3. change `FRI_BLOWUP` and `NUM_QUERIES` together, in the same commit as a `CHAIN_GENERATION` bump;
 4. re-run the settle-proof E2E and confirm `soundness.py` reports the expected bits.
 
