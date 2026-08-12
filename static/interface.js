@@ -5461,7 +5461,11 @@ async function rollupCall() {
   const ok = !!(res.data && res.data.result);
   const status = ok ? i18("rollup.histSent", "sent (applies at finality)") : i18("rollup.rejected", "Rejected: ") + ((res.data && res.data.message) || "");
   $("rollupCallMsg").textContent = ok ? i18("rollup.callSent", "Call submitted — state updates after finality.") : status;
-  rollupHistLog(ns, { cid: p.cid, method: p.method, args: p.args, ok, status, ts: Date.now() });
+  // STAMP THE BLOCK, not just the clock. A contract call is ordered by BLOCK, and a wall-clock time is
+  // the one thing that cannot be compared against chain state later; `blk` is the tip this call was
+  // submitted against, so the entry can be lined up with the explorer and with when it actually applied.
+  rollupHistLog(ns, { cid: p.cid, method: p.method, args: p.args, ok, status,
+                      ts: Date.now(), blk: latest.block_number });
 }
 
 async function rollupView() {
@@ -5473,7 +5477,8 @@ async function rollupView() {
       + "&method=" + encodeURIComponent(p.method) + "&args=" + encodeURIComponent(JSON.stringify(p.args));
     const j = await (await fetch(u, { cache: "no-store" })).json();
     out.textContent = i18("rollup.result", "Result: ") + JSON.stringify(j.result);
-    rollupHistLog(ns, { cid: p.cid, method: p.method, args: p.args, ok: true, status: "→ " + JSON.stringify(j.result), ts: Date.now() });
+    rollupHistLog(ns, { cid: p.cid, method: p.method, args: p.args, ok: true,
+                        status: "→ " + JSON.stringify(j.result), ts: Date.now(), blk: state.latest });
   } catch (e) { out.textContent = i18("rollup.execDown", "Execution node unreachable."); }
 }
 
@@ -5488,9 +5493,19 @@ function rollupRenderHistory() {
   const el = $("rollupHistory"); if (!el) return;
   let arr = []; try { arr = (JSON.parse(localStorage.getItem("nado_rollup_hist") || "{}"))[rollupNs()] || []; } catch (e) {}
   if (!arr.length) { el.innerHTML = '<span class="faint">' + escapeHtml(i18("rollup.noHistory", "No calls yet.")) + '</span>'; return; }
+  // A bare toLocaleTimeString() ("8:23:41") is not a timestamp: no date, so anything older than today is
+  // ambiguous, and no block, so it cannot be lined up with the chain at all. Show the local date+time AND
+  // the block the call was submitted against. Older entries predate `blk` and simply omit it.
+  const stamp = (e) => {
+    const d = new Date(e.ts);
+    const p2 = (n) => String(n).padStart(2, "0");
+    const when = isFinite(d) ? `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} `
+                             + `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}` : "";
+    return when + (e.blk != null ? "  ·  #" + e.blk : "");
+  };
   el.innerHTML = arr.map((e) => '<div class="rollup-hist"><span class="mono">' + escapeHtml((e.cid || "").slice(0, 10)) + '….' + escapeHtml(e.method)
     + '(' + escapeHtml(JSON.stringify(e.args)) + ')</span> <span class="' + (e.ok ? "faint" : "err") + '">' + escapeHtml(e.status) + '</span> '
-    + '<span class="faint">' + escapeHtml(new Date(e.ts).toLocaleTimeString()) + '</span></div>').join("");
+    + '<span class="faint mono">' + escapeHtml(stamp(e)) + '</span></div>').join("");
 }
 
 /* ----------------------------------------------------------------------------------------------
