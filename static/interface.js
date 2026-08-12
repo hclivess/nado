@@ -6194,13 +6194,15 @@ const AUTO_VOTE_DEFAULT_ALLOW = ["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f
 // Since "" legitimately means "the user cleared the list, approve any recipient", every wallet that had
 // seen that build was indistinguishable from a deliberate clear, and the shipped default could never apply
 // to it. Bumping the key retires those accidental writes exactly once; a real choice made under _v2 sticks.
-// BUMPED v2 -> v3 when "faucet" joined the shipped default. The default only applies when NOTHING is
-// stored (raw === null), so every wallet that had ever saved this box — including the accidental blur
-// writes described above — would have kept a list without the faucet and never seen it. Retiring the key
-// once is the same remedy used for v2, and it is the only way a new shipped default reaches wallets that
-// are already in the wild. COST, stated plainly: a user who deliberately customised the list is reset to
-// the default once and has to re-enter their choice; a choice made under _v3 then sticks.
-const AUTO_VOTE_ALLOW_KEY = "nado_auto_vote_allow_v3";
+// KEY STAYS AT v2 — deliberately. Bumping it would push the new shipped default to wallets already in
+// the wild, but at the cost of WIPING every list a user had customised, and a customised allow-list is a
+// governance preference, not chain state: it must survive. The upgrade below reaches the same wallets
+// without destroying anything.
+const AUTO_VOTE_ALLOW_KEY = "nado_auto_vote_allow_v2";
+// The previous shipped default. A stored list EXACTLY equal to it was never actually customised — it is
+// the default that got written to storage (an edit, or the accidental blur write described above) — so it
+// may safely follow the default forward. Any other list is the user's own and is returned untouched.
+const AUTO_VOTE_PREV_DEFAULT = ["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f"];
 function autoVoteEnabled() {
   try { return (localStorage.getItem("nado_auto_vote_yes") || "1") === "1"; } catch (e) { return true; }
 }
@@ -6208,7 +6210,14 @@ function autoVoteAllow() {
   try {
     const raw = localStorage.getItem(AUTO_VOTE_ALLOW_KEY);
     if (raw === null) return AUTO_VOTE_DEFAULT_ALLOW.slice();   // untouched -> the shipped default
-    return raw.split(/[\s,]+/).filter(Boolean);                 // "" means the user CLEARED it: any recipient
+    const list = raw.split(/[\s,]+/).filter(Boolean);           // "" means the user CLEARED it: any recipient
+    // NON-DESTRUCTIVE UPGRADE: a stored list identical to the PREVIOUS shipped default was never a real
+    // choice, so it follows the default forward and picks up "faucet". A list the user actually edited —
+    // including one they cleared, and including one they deliberately removed faucet from — is returned
+    // exactly as stored. Settings are preserved; only the un-customised default moves.
+    if (list.length === AUTO_VOTE_PREV_DEFAULT.length
+        && list.every((x, i) => x === AUTO_VOTE_PREV_DEFAULT[i])) return AUTO_VOTE_DEFAULT_ALLOW.slice();
+    return list;
   } catch (e) { return AUTO_VOTE_DEFAULT_ALLOW.slice(); }
 }
 
