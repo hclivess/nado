@@ -597,7 +597,10 @@ The two real levers:
 
 1. **Fewer queries for the same security** — raise the FRI blowup factor and lean on grinding. 320 queries
    implies a low blowup; standard parameterisations reach comparable security at 40–80. This is a
-   consensus change and rides a reroll.
+   consensus change and rides a reroll. **Now quantified with our OWN soundness model:
+   [`doc/fri-parameters.md`](doc/fri-parameters.md)** — blowup 16 at 96 queries is 164.4 provable bits
+   (vs 156.0 today) at 0.30x the opening size, i.e. better on BOTH axes. The one unmeasured cost is the
+   8x-larger LDE domain on the prover; benchmark before choosing.
 2. **Publish the proof to DA and carry only its commitment on chain** — what a rollup normally does, and
    the plumbing already exists (`/da/publish`, `exec_da`, and the shielded path already submits this way).
 
