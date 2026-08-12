@@ -349,7 +349,8 @@ by running this again.
 > symlink keeps the old path working.)
 
 Flags: `--user <name>` runs everything as a dedicated non-root account (recommended, see above); `--exec`
-also runs the execution / shielded-pool node on `:9273`; `--wallet` adds the desktop-wallet deps;
+also runs the execution / shielded-pool node on `:9273` (**recommended for a mining node — without it the
+presence dividend is never auto-collected**, see below); `--wallet` adds the desktop-wallet deps;
 `--auto-bond <pct>` auto-compounds mined rewards (see below); `--home <dir>` keeps chain data under
 `<dir>/nado` instead of `~/nado`. Run `scripts/install.sh --help` for all options.
 
@@ -385,7 +386,7 @@ Common variants (re-run the one-liner with these appended, or `sudo scripts/inst
 --service --user nado               # run as a dedicated non-root account (recommended; migrates in place)
 --service --auto-bond 25            # auto-bond 25% of mined rewards
 --service --home /srv/nado-data     # chain data in /srv/nado-data/nado
---service --exec                    # also run the execution / shielded-pool node on :9273
+--service --exec                    # execution / shielded-pool node on :9273 (also enables dividend auto-collect)
 ```
 
 ### Auto-bond — compound mined rewards into stake, hands-free
@@ -476,8 +477,15 @@ Two more unattended behaviors round out a hands-free headless node (both best-ef
 disrupting consensus):
 
 - **Auto-collect the presence dividend** — **on by default** (`auto_collect_dividend` / `NADO_AUTO_COLLECT`):
-  sweeps your accrued dividend into a provable collection. Skipped unless the node is an open-lane member
+  sweeps your accrued dividend into a provable collection, then claims it to L1 with the fee-exempt
+  `dividend_withdraw` proof once the exec root settles. Skipped unless the node is an open-lane member
   (a bonded-only node accrues none, so it never burns a wasted fee).
+  > **Needs the exec node (`--exec`).** The LOCAL execution node is the accrual oracle: auto-collect reads
+  > your exact accrued balance from it and only spends the fee once the accrual is worth it
+  > (`AUTO_COLLECT_MIN_RAW`, 10 000x the fee) rather than sweeping blind. **An L1-only node still EARNS the
+  > dividend but never collects it** — the accrual just grows. Either install with `--exec`, or open the
+  > same address in the browser wallet, which claims for you. Nothing is lost by collecting late: the
+  > accrual is on-chain state, not something the node holds.
 - **Auto-register the open lane** — **opt-in** (`auto_register` / `NADO_AUTO_REGISTER=1`): keeps the PoSW
   presence lease alive (registers when absent, renews inside the lease tail), so a server can mine the free
   lane 24/7 unattended. Off by default so a headless node never silently joins — and Sybil-loads — the open
