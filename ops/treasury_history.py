@@ -120,7 +120,10 @@ def scan(tip_height, load_block) -> dict:
                 continue          # pruned/missing body: skip it, but keep the cursor moving
             if d.get("start_height") is None:
                 d["start_height"] = h      # where THIS node's view of the archive actually begins
-            for tx in (b.get("transactions") or []):
+            # `block_transactions` is the field a stored block actually carries — NOT `transactions`.
+            # Reading the wrong name is silent: every block looks empty, the cursor still advances, and the
+            # archive reports a confident zero forever. ops/daily_stats.py reads the same field.
+            for tx in (b.get("block_transactions") or b.get("transactions") or []):
                 rec = _payout_of(tx, h)
                 if rec:
                     d["payouts"].append(rec)

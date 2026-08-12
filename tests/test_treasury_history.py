@@ -22,7 +22,8 @@ def check(name, cond):
 
 
 def mk(h, txs):
-    return {"block_number": h, "transactions": txs}
+    # the REAL field name a stored block carries (ops/daily_stats.py reads the same)
+    return {"block_number": h, "block_transactions": txs}
 
 
 def pay(to, amt, pid="p1", memo="", by="exec1"):
