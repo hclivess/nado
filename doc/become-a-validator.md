@@ -63,8 +63,41 @@ register and renew by itself, add this to its unit and restart:
 Environment=NADO_AUTO_REGISTER=1
 ```
 
-Add `--exec` to the install line if you also want the execution node (contracts, the shielded pool, the
-DEX). That is optional — L1 validation does not need it.
+Add `--exec` if you also want the execution node (contracts, the shielded pool, the DEX). L1 validation
+does not need it — but **without it the node never auto-collects your presence dividend** (see *Getting
+paid* below), so for a mining node it is closer to recommended than optional.
+
+---
+
+## Getting paid — block rewards vs the dividend (and what collects automatically)
+
+Two different things arrive, and only one of them is automatic everywhere.
+
+**Block rewards** land in your balance the moment you produce a block. Nothing to claim.
+
+**The presence dividend** does not. Most of every open-lane block streams into a dividend pool that
+accrues to you *off-chain*, on the execution layer, weighted by the same `open_shares()` fidelity weight.
+Turning that accrual into spendable NADO is two steps, both of which the software can do for you:
+
+1. `collect_dividend` — sweeps your accrual into a provable withdrawal (costs `MIN_TX_FEE`);
+2. `dividend_withdraw` — a **fee-exempt** Merkle proof against the settled exec root that actually moves
+   the coins to L1. It can only run once the exec root has **settled**, so expect a delay.
+
+| Where you mine | Collects automatically? |
+|---|---|
+| Browser wallet (phone/desktop) | **Yes** — it claims pending dividends and sweeps for you. |
+| Node **with** the exec node (`--exec`) | **Yes** — on by default (`NADO_AUTO_COLLECT`), once per epoch. |
+| Node **without** the exec node | **No.** Nothing collects; the accrual keeps growing unclaimed. |
+
+**That last row is the trap.** The node's auto-collect uses its **local exec node as the accrual oracle** —
+it reads your exact accrued balance and only spends the fee once the accrual is worth it
+(`AUTO_COLLECT_MIN_RAW` = 0.001 NADO, 10 000x the fee). With no local exec node it deliberately does
+nothing rather than burn fees sweeping blind. So an L1-only node **still earns the dividend, but never
+claims it**.
+
+If you run a headless node and want the dividend collected hands-free, install with `--exec`. Otherwise
+you can always open the same address in the browser wallet and let it claim — the accrual is on-chain
+state, not something the node holds locally, so nothing is lost by collecting late.
 
 ### What actually maximises open-lane earnings
 
