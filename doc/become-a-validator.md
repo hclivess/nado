@@ -14,7 +14,7 @@ disagree, the code is right and this document is a bug.
 |---|---|---|
 | **Cost to enter** | free — no coins | 10 NADO per selection share |
 | **Share of block slots** | 30% | 70% |
-| **What decides your weight** | presence + continuity (capital-free) | bonded capital, capped |
+| **What decides your weight** | presence + continuity (capital-free) | bonded capital, capped — *and* ramped by the same continuity streak |
 | **Cap** | — | 1000 NADO (100 shares) per address |
 | **Risk** | none | stake is slashable; 24 h unbond timelock |
 | **How to start** | open the wallet, press *Start mining* | bond coins you have already earned |
@@ -94,6 +94,78 @@ automatically, once per epoch.
 
 > **Common misreading:** a share costs **10 NADO**, not 100. If you have seen 100 somewhere, it was a
 > stale tooltip in the wallet (fixed 2026-08-12) — the protocol value has been 10 NADO.
+
+---
+
+## How the presence lease actually works (and why it renews late)
+
+**Registration is a lease, not a flag.** A `register` transaction records a *recert* at the current
+epoch. You are eligible in the open lane **iff your most recent recert is within `POSW_LEASE_EPOCHS`**.
+
+    epoch          = 60 blocks x 6 s = 6 minutes
+    lease          = 240 epochs      = 24 hours
+
+Nothing expires you actively — eligibility is simply "was your last recert within the last 240 epochs?"
+
+**Both miners renew near the end of the lease, on purpose:**
+
+| Who | Renews when | Margin left |
+|---|---|---|
+| Browser wallet | once `epoch - reg_epoch >= 192` (80% of the lease) | ~4.8 hours |
+| Node (`NADO_AUTO_REGISTER=1`) | once `epoch >= reg_epoch + 230` (last 10 epochs) | ~1 hour |
+
+**Why not renew early?** Renewing *resets the clock* — a recert at 50% of the lease buys the same 24 h a
+recert at 80% does, so renewing early just pays the sequential proof more often for nothing. And why not
+renew at the very last epoch? Because a renewal has to be computed, submitted, gossiped and mined; the
+margin is there so a brief outage, a slow block or a missed slot cannot silently drop you out of the lane.
+
+**A renewal is not free and not instant.** It computes a fresh sequential proof (~1 s), and it is an
+ordinary transaction that has to land. This is the whole anti-Sybil design: identity costs sequential
+real time *continuously*, not once.
+
+---
+
+## Shares — the thing that actually decides how often you win
+
+"Shares" are **selection weight**: the protocol draws one producer per slot, and your chance is your
+weight over the lane's total. The two lanes compute weight completely differently.
+
+### Open-lane weight (capital-free)
+
+    open_weight = OPEN_BASE_FLOOR + min(fidelity, FIDELITY_CAP) * OPEN_FID_BONUS // FIDELITY_CAP
+                = 2 + min(fidelity, 30) * 8 // 30          ->  ranges 2 .. 10
+
+Coins are irrelevant here. What moves it is **fidelity**, the continuity streak:
+
+- every recert that is **continuous** (gap since the previous one <= 240 epochs, i.e. you renewed before
+  the lease lapsed) adds `FIDELITY_GAIN = 1`;
+- **a lapse resets fidelity to 1** — not to zero, but the whole ramp is lost;
+- it saturates at `FIDELITY_CAP = 30`.
+
+Since a renewal happens about once a day, going from a fresh identity (weight 2) to maximum (weight 10)
+takes roughly **30 days of unbroken presence**. That 5x is the entire reward for staying present, and it
+is why churned or rotated identities never catch up with a node that simply stays up.
+
+### Bonded-lane shares (capital, capped — and ALSO ramped)
+
+    shares = min(bonded, BOND_CAP) // B_MIN            = min(bonded, 1000 NADO) // 10 NADO   -> 0 .. 100
+    if fidelity < FIDELITY_CAP:
+        shares = shares * fidelity // FIDELITY_CAP     # the anti-whale time ramp
+
+- **10 NADO = 1 share**, and **1000 NADO (100 shares) is the ceiling** — bonding past it buys nothing.
+- **Split-neutral:** weight depends on total bonded capital, so spreading it over many addresses gains
+  nothing.
+- **The fidelity ramp applies here too**, and this surprises people: capital alone does not buy weight on
+  day one. An address that bonds 1000 NADO with fidelity 1 gets `100 * 1 // 30 = 3` shares, not 100. Full
+  weight arrives only after the same ~30 continuous recerts. **A whale cannot buy its proportional share
+  instantly — it has to also be present, for a month.**
+
+### Putting it together
+
+The two lanes are separate draws (30% of slots open, 70% bonded) and **bonding does not remove you from
+the open lane**. A node that registers, stays present, and bonds earned coins is eligible in both, with
+both weights ramping on the same continuity clock. Staying online is not merely good practice here — it
+is the only input that raises weight in *either* lane.
 
 ---
 
