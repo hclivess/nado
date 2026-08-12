@@ -110,6 +110,12 @@ contents depend on a node's height/retention/reorg history, not on the block seq
 made catching-up nodes diverge (the betanet-8 fresh-sync wedge — see
 [determinism-and-chain-id.md](determinism-and-chain-id.md)). Blocks stay secured by their own hash chain.
 
+Being carried-but-unrooted also means the number↔hash index is the one store that grows forever in every
+mode (144 B/block, ~7 GiB at ten years) and that no node may prune on its own — different retention would
+mean different `snapshot_hash` values. Bounding it deterministically in the checkpoint height, and why
+`block_by_hash` can use a far shallower window than `block_by_num`, is worked out in
+[index-pruning.md](index-pruning.md).
+
 ## Migration
 
 On a reindex, `reindex_fast.rebuild_from_blocks` wipes the index and rebuilds the KV
