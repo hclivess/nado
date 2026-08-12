@@ -14,7 +14,7 @@ disagree, the code is right and this document is a bug.
 |---|---|---|
 | **Cost to enter** | free — no coins | 10 NADO per selection share |
 | **Share of block slots** | 30% | 70% |
-| **What decides your weight** | presence + continuity (capital-free) | bonded capital, capped — *and* ramped by the same continuity streak |
+| **What decides your weight** | presence + continuity (capital-free) | bonded capital, capped; new stake ramps over ~3 h by bond age |
 | **Cap** | — | 1000 NADO (100 shares) per address |
 | **Risk** | none | stake is slashable; 24 h unbond timelock |
 | **How to start** | open the wallet, press *Start mining* | bond coins you have already earned |
@@ -146,19 +146,36 @@ Since a renewal happens about once a day, going from a fresh identity (weight 2)
 takes roughly **30 days of unbroken presence**. That 5x is the entire reward for staying present, and it
 is why churned or rotated identities never catch up with a node that simply stays up.
 
-### Bonded-lane shares (capital, capped — and ALSO ramped)
+**Fidelity is paid twice.** The same weight also sets your slice of the **presence dividend** — most of
+every open-lane block streams into a dividend pool that is split by exactly this `open_shares()` weight
+(`ops/dividend_ops.py`). For a small miner that is usually the larger of the two effects: you are paid
+for presence even in blocks you did not win. The dividend recomputes fidelity *as of the paid epoch*
+(`fidelity_at_epoch`, reconstructed from your recert history) and that reconstruction must stay
+byte-identical to the live ramp — a fraud proof that miscomputed it would false-slash an honest settler.
 
-    shares = min(bonded, BOND_CAP) // B_MIN            = min(bonded, 1000 NADO) // 10 NADO   -> 0 .. 100
-    if fidelity < FIDELITY_CAP:
-        shares = shares * fidelity // FIDELITY_CAP     # the anti-whale time ramp
+**Where fidelity does NOT apply:** bonded selection shares (see below), fork-choice weight, and the
+settlement/FFG quorum. It is a presence signal for the free lane and the dividend, never a consensus
+weight for finality.
 
-- **10 NADO = 1 share**, and **1000 NADO (100 shares) is the ceiling** — bonding past it buys nothing.
-- **Split-neutral:** weight depends on total bonded capital, so spreading it over many addresses gains
+### Bonded-lane shares (capital, capped — ramped by BOND AGE, not fidelity)
+
+    shares = min(bonded, BOND_CAP) // B_MIN     = min(bonded, 1000 NADO) // 10 NADO   -> 0 .. 100
+
+- **10 NADO = 1 share**, **1000 NADO (100 shares) is the ceiling** — bonding past it buys nothing.
+- **Split-neutral:** weight depends on total bonded capital, so spreading it across addresses gains
   nothing.
-- **The fidelity ramp applies here too**, and this surprises people: capital alone does not buy weight on
-  day one. An address that bonds 1000 NADO with fidelity 1 gets `100 * 1 // 30 = 3` shares, not 100. Full
-  weight arrives only after the same ~30 continuous recerts. **A whale cannot buy its proportional share
-  instantly — it has to also be present, for a month.**
+- **Fidelity does NOT apply here.** The bonded registry is built with `fidelity: None`, which switches
+  the fidelity ramp off (`ops/account_ops._compute_bonded_registry`). Fresh stake instead ramps on its
+  own clock:
+
+        producer_weight = shares * min(tenure, BOND_RAMP_EPOCHS) // BOND_RAMP_EPOCHS
+        tenure = current_epoch - bond_since        (BOND_RAMP_EPOCHS = 30 epochs = ~3 hours)
+
+  So newly bonded stake reaches full producer weight over **~3 hours**, not a month — enough that a
+  sudden whale cannot control the very next epoch.
+- **That ramp applies to the producer draw ONLY.** It is deliberately excluded from `total_bonded_shares`,
+  so fork-choice weight and the FFG/settlement quorum stay ramp-free — finality is never made
+  tenure-dependent (`doc/takeover-resistance.md`).
 
 ### Putting it together
 
