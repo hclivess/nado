@@ -213,6 +213,14 @@ class MemServer:
             v = self.config.get(cfg, default) if v is None else v
             return str(v).strip().lower() not in ("0", "false", "no", "off")
         self.auto_collect_dividend = _flag("NADO_AUTO_COLLECT", "auto_collect_dividend", True)
+        # rolling-mode tx-history window (0 = the protocol floor); read here so the core loop's prune pass
+        # sees an operator override without re-reading config on every block.
+        try:
+            self.tx_history_retention_blocks = int(
+                os.environ.get("NADO_TX_HISTORY_RETENTION")
+                or self.config.get("tx_history_retention_blocks", 0) or 0)
+        except Exception:
+            self.tx_history_retention_blocks = 0
         # Latest conservation-invariant reconciliation (ops/invariants.py), refreshed by the core loop's
         # periodic duty and served read-only at /invariants. None until the first check runs. Purely a
         # detector cache — nothing consensus reads it.

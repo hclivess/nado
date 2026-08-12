@@ -417,6 +417,30 @@ def get_block_hash_by_number(number):
         return None
 
 
+def prune_tx_history_window(finalized_height: int, retention: int, logger) -> int:
+    """ROLLING MODE, tx half: prune tx-history rows below `finalized_height - retention`.
+
+    This is the term that dominates a busy node's disk at scale — bodies plateau under rolling mode but
+    the tx history never did, so at 20 tx/block it is ~97% of a ten-year footprint (tools/sim_disk_growth.py).
+
+    THE FLOOR IS THE WHOLE SAFETY ARGUMENT. The at-most-once replay guard reads this index, and a tx
+    mined at H is unreplayable once the chain passes H + TX_LANDING_WINDOW (its max_block cannot reach
+    further). So the retained window must exceed TX_LANDING_WINDOW, plus FINALITY_DEPTH because a reorg
+    may re-apply blocks, plus margin. TX_HISTORY_MIN_RETENTION encodes that and is enforced here rather
+    than trusted to config: an operator setting a small number must get a safe one, not a replay hole."""
+    from protocol import TX_HISTORY_MIN_RETENTION
+    keep = max(int(retention or 0), TX_HISTORY_MIN_RETENTION)
+    cutoff = int(finalized_height) - keep
+    if cutoff <= 0:
+        return 0
+    from ops import kv_ops
+    n = kv_ops.prune_tx_history(cutoff)
+    if n:
+        logger.info(f"Rolling prune: dropped {n} tx-history row(s) below #{cutoff} "
+                    f"(keeping {keep} blocks; floor {TX_HISTORY_MIN_RETENTION})")
+    return n
+
+
 def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
     """ROLLING MODE (doc/rolling-mode-and-da.md): unreference block BODIES (drop their segment-store
     locators) for FINALIZED heights older than the retention window, while KEEPING the number<->hash

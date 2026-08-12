@@ -159,6 +159,11 @@ def create_config(ip: str, config_path: str = None):
         # kept, so it still validates + serves the beacon/FFG). Overridable via NADO_ARCHIVE / env.
         "archive": True,
         "history_retention_blocks": 0,  # 0 = use protocol.HISTORY_RETENTION_BLOCKS default
+        # TX HISTORY retention (rolling mode only). The tx index is what actually dominates disk at scale:
+        # bodies plateau once pruned, the tx history did not. 0 = keep protocol.TX_HISTORY_MIN_RETENTION
+        # (~8 h), which is the floor the replay guard needs; a LARGER value keeps more explorer depth.
+        # Any value is floored in code — a small number cannot open a replay hole. Archive nodes ignore it.
+        "tx_history_retention_blocks": 0,
         # PROGRESSIVE IP-DIVERSITY registration budget (non-consensus relay admission control). Expressed
         # as "equivalent same-EXACT-IP addresses" per hour: a same-/32 peer costs 1.0 of it, same-/24 0.5,
         # /16 0.25, /8 0.125, unrelated 0 — so the effective limit scales ~64/exact IP, ~128 per /24, ~256

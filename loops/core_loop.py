@@ -29,6 +29,7 @@ from ops.block_ops import (
     verify_block_signature,
     get_block_hash_by_number,
     prune_block_bodies,
+    prune_tx_history_window,
     randao_eligible_bonded,
 )
 from ops.mining_ops import select_producer_two_lane, epoch_of, block_fork_weight
@@ -2205,7 +2206,8 @@ class CoreClient(threading.Thread):
 
     def maybe_prune_history(self):
         """ROLLING MODE (non-consensus, opt-in): on a pruned node (memserver.archive == False), delete
-        block BODIES finalized below the retention window. STATE + the number<->hash indexes are kept,
+        block BODIES and TX-HISTORY rows finalized below their retention windows. STATE + the
+        number<->hash indexes are kept,
         so the node keeps validating and serving the beacon/FFG lookbacks. Archive nodes (default) skip
         this entirely. Best-effort + incremental (a meta watermark bounds per-call work); never raises
         into the core loop. See doc/rolling-mode-and-da.md and block_ops.prune_block_bodies."""
@@ -2215,6 +2217,12 @@ class CoreClient(threading.Thread):
             finalized = get_finalized_height()
             retention = getattr(self.memserver, "history_retention_blocks", 0)
             prune_block_bodies(finalized, retention, self.logger)
+            # TX HISTORY, the other half of rolling mode. Bodies plateau once pruned, but the tx index
+            # never did — at 20 tx/block it is ~97% of a ten-year footprint. Its own retention knob
+            # (tx_history_retention_blocks) is floored in prune_tx_history_window so a small setting
+            # cannot open a replay hole. 0 keeps the floor; archive nodes never reach this code.
+            prune_tx_history_window(
+                finalized, getattr(self.memserver, "tx_history_retention_blocks", 0), self.logger)
         except Exception as e:
             self.logger.error(f"Rolling-mode prune failed: {e}")
 

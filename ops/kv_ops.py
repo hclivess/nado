@@ -1612,6 +1612,55 @@ def tx_index_put(txid: str, block_number: int, sender: str, recipient: str):
     _write(_do)
 
 
+def prune_tx_history(cutoff_height: int, max_rows: int = 20000):
+    """ROLLING MODE, tx half: drop tx-history rows for blocks strictly below `cutoff_height`.
+    Returns the number of primary rows deleted. NODE-LOCAL and non-consensus by construction.
+
+    WHY THIS IS SAFE. The three history sub-DBs are already excluded from the state root AND from
+    snapshots (_HISTORY_DBS), so deleting rows cannot move the root or change what a peer downloads —
+    every snapshot-synced node ALREADY runs with no pre-checkpoint tx history and validates fine.
+
+    THE ONE CONSENSUS-RELEVANT READER is the at-most-once replay guard (`tx_get` in
+    block_ops.match_transactions_target and core_loop's verify path), and it has a natural horizon: a tx
+    is admitted only while `max_block <= tip + TX_LANDING_WINDOW` and can be included only at
+    `block_number <= max_block`, so a tx mined at H is unreplayable past H + TX_LANDING_WINDOW. Keeping
+    anything beyond that window is dead weight for consensus. The caller enforces the floor
+    (block_ops.prune_tx_history_window); this function is the mechanism.
+
+    Rollback safety: a revert can never cross `finalized_height`, and the floor keeps the retained window
+    far above FINALITY_DEPTH, so tx_index_del is never asked to remove a row that was already pruned.
+
+    Bounded per call (`max_rows`) so a node with years of history catches up over several passes instead
+    of blocking the core loop on one enormous transaction."""
+    def _do(txn):
+        tdb, sdb, rdb = _dbs()["tx"], _dbs()["tx_by_sender"], _dbs()["tx_by_recipient"]
+        cur = txn.cursor(tdb)
+        doomed = []
+        for key, raw in cur:                      # the primary is keyed by txid, so this is a scan
+            try:
+                rec = _unpack(raw)
+            except Exception:
+                continue                          # unreadable row: leave it rather than guess
+            if int(rec.get("block_number", 0)) < cutoff_height:
+                doomed.append((key, rec))
+                if len(doomed) >= max_rows:
+                    break
+        for key, rec in doomed:
+            txn.delete(key, db=tdb)
+            dv = _dup_tx_value(int(rec["block_number"]), key.decode())
+            # delete the exact dup written on apply; a missing dup is not an error (an older build may
+            # have indexed only the primary), so failures here must not abort the whole prune.
+            for db, addr in ((sdb, rec.get("sender")), (rdb, rec.get("recipient"))):
+                if not addr:
+                    continue
+                try:
+                    txn.delete(addr.encode(), dv, db=db)
+                except Exception:
+                    pass
+        return len(doomed)
+    return _write(_do)
+
+
 def tx_index_del(txid: str, block_number: int, sender: str, recipient: str):
     """Revert tx_index_put EXACTLY: delete the primary and the precise dups written on apply
     (the block||txid encoding makes each dup key unambiguous)."""

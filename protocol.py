@@ -662,6 +662,14 @@ AUTO_BOND_DEFAULT_PERCENT = 80
 # retention at REWARD_WINDOW+FINALITY_DEPTH+1 so even a misconfigured tiny value cannot break rollback. This is a per-node choice (archive nodes keep everything); it changes NO block/hash.
 # 100_800 blocks ~= 1 week of history at 6s blocks (7×14,400) — generous recent-body window while still
 # bounding a rolling node's disk (the unbounded->bounded win); archive nodes keep everything.
+# TX-HISTORY PRUNING FLOOR (rolling mode, non-consensus). The at-most-once replay guard reads the tx
+# index, and a tx mined at height H can never be replayed past H + TX_LANDING_WINDOW, because its
+# max_block cannot reach further (memserver admits only max_block <= tip + TX_LANDING_WINDOW). So the
+# retained window has to clear TX_LANDING_WINDOW, plus FINALITY_DEPTH for a reorg that re-applies blocks,
+# plus generous margin. 5000 blocks (~8 h at 6 s) is ~12x the strict requirement — cheap insurance on the
+# one index whose loss could allow a replay, while still cutting the term that dominates disk at scale.
+TX_HISTORY_MIN_RETENTION = 5000
+
 HISTORY_RETENTION_BLOCKS = 100_800
 
 # --- Mining: TWO-LANE diligence selection (PROVISIONAL — simulate before lock-in) ---
