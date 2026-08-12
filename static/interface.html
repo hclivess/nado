@@ -314,7 +314,7 @@
       <div class="stat" data-i18n-title="tip.openWeight" title="Total open-lane selection weight across all present miners. Your weight is a share of this — the bigger your slice, the more often you win the free lane.">
         <div class="label" data-i18n="lanes.openWeight">Open weight <span class="hint">ⓘ</span></div>
         <div class="value sm" id="laneOpenWeight">—</div></div>
-      <div class="stat" data-i18n-title="tip.bondedShares" title="Total bonded selection shares across all validators. Your bonded shares are a portion of this (100 NADO / B_MIN per share).">
+      <div class="stat" data-i18n-title="tip.bondedShares" title="Total bonded selection shares across all validators. Your bonded shares are a portion of this (10 NADO / B_MIN per share).">
         <div class="label" data-i18n="lanes.bondedShares">Bonded shares <span class="hint">ⓘ</span></div>
         <div class="value sm" id="laneBondedShares">—</div></div>
     </div>
@@ -617,7 +617,7 @@
     <h2 data-i18n="stake.title">Stake — bond / unbond</h2>
     <div class="stat-grid">
       <div class="stat"><div class="label" data-i18n="stake.spendable">Spendable</div><div class="value sm" id="stkAvail">—</div></div>
-      <div class="stat" data-i18n-title="tip.stakeBonded" title="BONDED — coins locked as bonded stake. Bonded stake earns you slots in the BONDED mining lane (~80% of blocks). 100 NADO (B_MIN) per selection share.">
+      <div class="stat" data-i18n-title="tip.stakeBonded" title="BONDED — coins locked as bonded stake. Bonded stake earns you slots in the BONDED mining lane (~80% of blocks). 10 NADO (B_MIN) per selection share.">
         <div class="label" data-i18n="lbl.bonded">Bonded <span class="hint">ⓘ</span></div><div class="value sm" id="stkBonded">—</div></div>
     </div>
 
@@ -625,7 +625,7 @@
     <div class="hint-banner mt" style="display:block">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <label style="margin:0" data-i18n="stake.apyLabel">Savings APY
-          <span class="hint" data-i18n-title="tip.apy" title="Estimated from the reward of recent blocks: the bonded lane mints ~80% of blocks and a bonded block pays its producer 70% of the reward, shared across all bonded shares (100 NADO each). The presence dividend — funded by 20% of every bonded block plus 70% of every open block — is an EXTRA, capital-free yield paid to present open-lane miners, shown separately. Estimate only; it falls as more coins bond.">ⓘ</span>
+          <span class="hint" data-i18n-title="tip.apy" title="Estimated from the reward of recent blocks: the bonded lane mints ~80% of blocks and a bonded block pays its producer 70% of the reward, shared across all bonded shares (10 NADO each). The presence dividend — funded by 20% of every bonded block plus 70% of every open block — is an EXTRA, capital-free yield paid to present open-lane miners, shown separately. Estimate only; it falls as more coins bond.">ⓘ</span>
         </label>
         <button id="btnApy" class="ghost" style="width:auto;padding:6px 12px" data-i18n="stake.apyBtn">Estimate</button>
       </div>
@@ -635,7 +635,7 @@
     <div class="warnbox mt" data-i18n-html="stake.warn">Unbonded stake stays locked for <b id="stkDelay">1440</b> blocks (BOND_UNLOCK_DELAY) after an unbond request before it is spendable again.</div>
 
     <label class="mt" data-i18n="stake.bondAmount">Bond amount (NADO) — move spendable → bonded
-      <span class="hint" data-i18n-title="tip.bondAmt" title="Locks spendable balance as bonded stake to mine the bonded lane. 100 NADO buys one bonded selection share.">ⓘ</span>
+      <span class="hint" data-i18n-title="tip.bondAmt" title="Locks spendable balance as bonded stake to mine the bonded lane. 10 NADO buys one bonded selection share.">ⓘ</span>
     </label>
     <input id="bondAmount" placeholder="0.0" inputmode="decimal" autocomplete="off" />
     <div class="small faint mt" data-i18n="send.fee">Network fee: <span id="bondFeeInfo" class="mono">—</span>
@@ -1144,7 +1144,7 @@
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=91256219"></script>
-<script type="module" src="/static/interface.js?v=67b61a2d"></script>
+<script defer src="/static/i18n.js?v=0003e935"></script>
+<script type="module" src="/static/interface.js?v=9858f5cc"></script>
 </body>
 </html>

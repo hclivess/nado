@@ -120,6 +120,10 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
 
 ## How mining works
 
+> **Just want to start validating?** → **[How to become a NADO validator](doc/become-a-validator.md)** —
+> the practical version: the free open lane needs no coins, one line installs a node, and a bonded share
+> costs 10 NADO. This section is the mechanism behind it.
+
 Time is divided into **epochs** of `EPOCH_LENGTH = 60` slots, each keyed by a per-epoch randomness
 **beacon**. For each slot the protocol deterministically draws exactly one producer.
 
@@ -284,6 +288,9 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
 ---
 
 ## Quickstart — run a node
+
+> New validator? **[doc/become-a-validator.md](doc/become-a-validator.md)** walks the whole path end to
+> end (open lane vs bonded, what each costs, what actually raises your weight).
 
 NADO runs on Python 3.10+. The entrypoint is `nado.py`; the node serves its API and web UI on port
 **9173**.
