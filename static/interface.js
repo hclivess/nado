@@ -5278,8 +5278,26 @@ async function rollupLoadExamples() {
 }
 
 // pending deploys tracked locally (per ns) so the pickers show them BEFORE they land at finality
-function rollupPendLoad() { try { return JSON.parse(localStorage.getItem("nado_rollup_pending") || "{}"); } catch { return {}; } }
-function rollupPendSave(p) { try { localStorage.setItem("nado_rollup_pending", JSON.stringify(p)); } catch (e) {} }
+// CHAIN-SCOPED local caches. A genesis reroll replaces the chain but localStorage survives it, so the
+// rollup call history and the pending-call set kept showing entries from a chain that no longer exists —
+// calls against contracts whose cids are gone, and "confirming…" pendings that can never confirm because
+// the block they targeted was never on THIS chain. Both are stamped with the live CHAIN_ID (which
+// refreshNetIdentity adopts from the relay) and dropped when it changes. Settings (autosign, PoSW rate)
+// are deliberately NOT scoped — a preference is not chain state.
+function lsChainGet(key, fallback) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || "null");
+    if (raw && typeof raw === "object" && raw.chain === CHAIN_ID) return raw.v;
+    if (raw !== null) localStorage.removeItem(key);     // another chain (or a pre-stamp cache): drop it once
+  } catch (e) {}
+  return fallback;
+}
+function lsChainSet(key, v) {
+  try { localStorage.setItem(key, JSON.stringify({ chain: CHAIN_ID, v })); } catch (e) {}
+}
+
+function rollupPendLoad() { return lsChainGet("nado_rollup_pending", {}) || {}; }
+function rollupPendSave(p) { lsChainSet("nado_rollup_pending", p); }
 function rollupAddPending(ns, cid, methods, abi) {
   const p = rollupPendLoad(); (p[ns] = p[ns] || {})[cid] = { methods, abi: abi || {}, ts: Date.now() }; rollupPendSave(p);
 }
@@ -5484,14 +5502,14 @@ async function rollupView() {
 
 // per-namespace local call history (last 30) shown in the tab — immediate feedback for what you called
 function rollupHistLog(ns, entry) {
-  let all = {}; try { all = JSON.parse(localStorage.getItem("nado_rollup_hist") || "{}"); } catch (e) {}
+  const all = lsChainGet("nado_rollup_hist", {}) || {};
   const arr = all[ns] || []; arr.unshift(entry); all[ns] = arr.slice(0, 30);
-  try { localStorage.setItem("nado_rollup_hist", JSON.stringify(all)); } catch (e) {}
+  lsChainSet("nado_rollup_hist", all);
   rollupRenderHistory();
 }
 function rollupRenderHistory() {
   const el = $("rollupHistory"); if (!el) return;
-  let arr = []; try { arr = (JSON.parse(localStorage.getItem("nado_rollup_hist") || "{}"))[rollupNs()] || []; } catch (e) {}
+  const arr = (lsChainGet("nado_rollup_hist", {}) || {})[rollupNs()] || [];
   if (!arr.length) { el.innerHTML = '<span class="faint">' + escapeHtml(i18("rollup.noHistory", "No calls yet.")) + '</span>'; return; }
   // A bare toLocaleTimeString() ("8:23:41") is not a timestamp: no date, so anything older than today is
   // ambiguous, and no block, so it cannot be lined up with the chain at all. Show the local date+time AND
