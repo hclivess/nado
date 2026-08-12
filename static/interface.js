@@ -308,7 +308,16 @@ function validateAddress(addr) {
 // ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter).
 // case-insensitive on purpose: on-chain alias names are all-lowercase, and callers normalize with
 // .toLowerCase() before resolving/sending — typing "Alice" must behave exactly like "alice".
-function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/i.test(s || "") && !ADDR_PRE_RE_I.test(s || ""); }
+// An alias is a NAME that is not address-shaped. The old test was `!ADDR_PRE_RE_I.test(s)` — a prefix
+// check — and ADDR_PREFIX is "" since the debrand, so that regex is /^/ and matches EVERY string: the
+// function returned false for every input, which silently broke alias REGISTRATION and every send-to-alias
+// path. (Exactly the hazard ops/address_ops.is_address documents on the Python side: with an empty prefix
+// `startswith(ADDRESS_PREFIX)` is true for everything, so the sniff must be replaced by a real test.)
+// Address-shaped = exactly ADDR_LEN lowercase hex; an alias must start with a letter and may contain
+// [a-z0-9_-], so the two are only ambiguous for an all-hex name of exactly that length — which the
+// address test wins, since an address is what a user would mean by it.
+const isAddressShaped = (s) => typeof s === "string" && s.length === ADDR_LEN && /^[0-9a-f]+$/i.test(s);
+function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/i.test(s || "") && !isAddressShaped(s || ""); }
 // i18n helper for dynamic (JS-set) strings — translates via i18n.js's window.t, English fallback.
 function i18(k, fb, vars) { return (typeof window !== "undefined" && window.t) ? window.t(k, fb, vars) : (fb != null ? fb : k); }
 async function resolveAlias(name) {
@@ -6141,13 +6150,24 @@ let _autoVoting = false;
 // Quorum tab states plainly that it is on, what it votes for, and that each vote costs a fee. It is a
 // visible default, not a silent one — a wallet must never spend someone's fees or cast their governance
 // vote in a way they cannot see.
-const AUTO_VOTE_DEFAULT_ALLOW = ["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f"];
+// "faucet" ships alongside it: a treasury spend to the faucet refills the public prize bank that pays
+// new miners, so it is the one recipient whose proposals are self-evidently in every holder's interest —
+// and it is a RESERVED name, not an address anyone can claim, so it cannot be squatted or redirected.
+// (The chain already treats it as the single reserved recipient a treasury spend may pay; account_ops
+// routes it through BRIDGE_ESCROW so the coins have a real exit path.)
+const AUTO_VOTE_DEFAULT_ALLOW = ["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f", "faucet"];
 // KEY IS VERSIONED, and that is not cosmetic. The first cut of this box wired `ta.onchange = ta.onblur`,
 // and BLUR FIRES WITHOUT AN EDIT — so merely opening the Quorum tab and clicking away wrote "" to storage.
 // Since "" legitimately means "the user cleared the list, approve any recipient", every wallet that had
 // seen that build was indistinguishable from a deliberate clear, and the shipped default could never apply
 // to it. Bumping the key retires those accidental writes exactly once; a real choice made under _v2 sticks.
-const AUTO_VOTE_ALLOW_KEY = "nado_auto_vote_allow_v2";
+// BUMPED v2 -> v3 when "faucet" joined the shipped default. The default only applies when NOTHING is
+// stored (raw === null), so every wallet that had ever saved this box — including the accidental blur
+// writes described above — would have kept a list without the faucet and never seen it. Retiring the key
+// once is the same remedy used for v2, and it is the only way a new shipped default reaches wallets that
+// are already in the wild. COST, stated plainly: a user who deliberately customised the list is reset to
+// the default once and has to re-enter their choice; a choice made under _v3 then sticks.
+const AUTO_VOTE_ALLOW_KEY = "nado_auto_vote_allow_v3";
 function autoVoteEnabled() {
   try { return (localStorage.getItem("nado_auto_vote_yes") || "1") === "1"; } catch (e) { return true; }
 }
