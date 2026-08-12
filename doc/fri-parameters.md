@@ -1,10 +1,11 @@
 # FRI parameters — can we trade blowup for queries and shrink the proof?
 
-**Short answer: yes, and by more than expected.** NADO's own soundness model says
-`FRI_BLOWUP = 16` with **96 queries** is *stronger* than today's `blowup 2 / 320 queries` — 164.4 provable
-bits against 156.0 — while cutting the FRI openings to **30%** of their current size. The security
-argument is settled; what is not yet measured is the prover cost of the larger evaluation domain, and
-that is the only thing standing between this analysis and a decision.
+**Short answer: yes — but the winner is blowup 8, not 16.** On soundness alone `blowup 16 / 96 queries`
+looks best (164.4 provable bits against today's 156.0 at 30% of the opening size). Measured, its prover
+cost is **4.74x** with **4x** peak memory, which a ~250 s prove against a ~180 s settle cadence cannot
+absorb. **`blowup 8 / 96 queries`** keeps essentially today's security (154.2 bits) at **0.36x proof size
+and 0.30x verify time** for 2.35x FRI-prove cost — and that multiplier shrinks on the real settle path,
+where FRI is not the dominant term. See §4 for the measurements.
 
 Everything below is computed with `execnode/stark/soundness.py` — the repo's own model, at the live
 parameters it reports (`E=192, nu=18, grind=18, log_trace=17`) — not with numbers borrowed from a paper.
@@ -81,28 +82,46 @@ This lever is worth pulling for three other reasons:
 
 ---
 
-## 4. The cost that is NOT yet measured, and gates the decision
+## 4. The prover cost — MEASURED, and it changes the recommendation
 
-Raising the blowup enlarges the **evaluation domain**: at blowup 16 the LDE is over 16x the trace length
-instead of 2x, i.e. **8x the current domain**. That falls on the prover — the low-degree extension, the
-Merkle commitment over it, and the per-layer folding.
+`tools/bench_fri_blowup.py` proves and **verifies** the same 16 384-row trace at each configuration
+(scaling `_blowup` for the prover and shimming the verifier's `expected_blowup`, so every run is a proof
+that actually validates — an unverified proof is not a benchmark).
 
-This matters because proving is already the bottleneck, not proof size:
+| fri_blowup | queries | prove s | verify s | proof MiB | peak RSS MiB | vs today: prove / verify / size |
+|---|---|---|---|---|---|---|
+| **2** | **320** | **5.81** | **2.61** | **9.92** | **94** | 1.00x / 1.00x / 1.00x |
+| 4 | 192 | 8.00 | 1.78 | 6.50 | 156 | **1.38x** / 0.68x / 0.66x |
+| 8 | 96 | 13.63 | 0.79 | 3.53 | 216 | **2.35x** / 0.30x / 0.36x |
+| 16 | 96 | 27.52 | 1.05 | 3.80 | 372 | **4.74x** / 0.40x / 0.38x |
 
-* a prove takes ~250 s against a settle cadence of ~180 s;
-* `sparse_projection` is 137–158 s of a 240–270 s prove, and `SparseStore.root()` is 65.8 s of that;
-* `prove_transition` dominates at ~126 s per state update.
+**Blowup 16 is off the table for the settle path.** 4.74x prove time and 4x peak memory against a prove
+that already runs ~250 s versus a ~180 s settle cadence would put a span far beyond its window — the
+in-flight guard would reject the next span before the previous one finished. The size win (0.38x) is real
+but cannot be bought at that price. Note also that blowup 16 at 96 queries is *larger* on the wire than
+blowup 8 at the same query count (3.80 vs 3.53 MiB): more fold layers and a bigger final layer eat part
+of the saving, so the last doubling pays twice and delivers nothing.
 
-An 8x domain does not multiply total prove time by 8 — the dominant costs above are *not* the FRI LDE —
-but it is certainly not free, and **nobody has measured it**. Fewer queries also makes the *verifier*
-and the *opening phase* cheaper, which partly offsets it.
+**What the benchmark overstates.** This is a pure STARK prove, where the LDE and FRI dominate. The real
+settle prove does not look like that: `sparse_projection` is 137–158 s of a 240–270 s prove and
+`SparseStore.root()` is 65.8 s of that — work that does not scale with the FRI blowup at all. So the
+multipliers above are an upper bound on the settle path; if FRI is ~40% of a real prove, blowup 8's 2.35x
+becomes roughly 1.5x overall. **Measure on the real settle prove before committing** — this bench sizes
+the FRI term, not the whole job.
 
-> **Do not ship this on the model alone.** Benchmark `prove` at (blowup 4, 8, 16) with the matching query
-> counts on a real epoch trace and compare wall-clock and peak RSS against today. If blowup 16 pushes a
-> prove past the settle cadence, blowup 8 at 96 queries (154.2 bits, 0.30x) buys nearly the same size cut
-> for a quarter of the domain growth.
+**Verification gets materially cheaper**, and that is the underrated half: 0.30x at blowup 8. Every node
+pays verify on every apply and on every fresh sync, so a 3x cut there is a permanent, fleet-wide saving
+against a one-time prover cost paid by whoever settles.
 
----
+### Revised recommendation
+
+The analysis in §2 favoured blowup 16 on soundness alone. With the prover measured, that inverts:
+
+* **blowup 8 / 96 queries** is the target — 154.2 provable bits (about today's 156.0), **0.36x proof
+  size, 0.30x verify**, at 2.35x FRI-prove cost that the real settle path will dilute.
+* **blowup 4 / 192 queries** is the safe fallback — 163.2 bits (*better* than today), 0.66x size, 0.68x
+  verify, only 1.38x prove.
+* **blowup 16 is rejected** on prove time and memory, despite having the best soundness-per-byte.
 
 ## 5. Deployment
 
