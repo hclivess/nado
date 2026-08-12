@@ -118,9 +118,8 @@ Bounding `block_by_hash` alone halves the term and is the low-risk half of the c
 * **No genesis reroll.** Both stores are root-excluded, so the state root is untouched and existing
   balances/history are unaffected.
 * **It does change `snapshot_hash`.** Nodes on the old rule and the new rule disagree on the digest of the
-  same checkpoint, so this needs a coordinated cut-over — batch it with the next change that already
-  breaks snapshot format (the FRI reparameterisation reroll in `doc/fri-parameters.md` is the obvious
-  vehicle).
+  same checkpoint, so this needs a coordinated cut-over. That is the only reason to batch it with another
+  change rather than ship it alone — it is not urgent, and nothing forces it onto any particular reroll.
 * **Order:** land the payload filter first (behind the generation gate), then add local pruning below the
   window, then re-measure with `tools/sim_disk_growth.py --measure`.
 * **Regression to pin:** a snapshot joiner must still resolve a `POSW_DIFF_TRAIL`-deep hash lookback, and
