@@ -143,45 +143,56 @@ from on-chain DA calldata, verifying every proof with `verify_settlement_sparse`
 configuration in a **fresh process** — the module-level `_E_CACHE`/`_FOLD_CACHE` in `settlement_sparse`
 survive between proves, so three configs in one interpreter measure cache warmth, not the blowup.
 
-Measured on two spans of the SAME length (30 blocks) so that call load is the only variable. The busy one
-was produced by submitting 300 real `faucet.fund()` calls to the live chain (bridge-funded, so they
-execute rather than being skipped) — the idle span is what betanet-2 looks like with no contract traffic
-at all.
+Busy span 17430 → 17460 (30 blocks, 248 real exec calls, ~8/block), produced by submitting 300
+bridge-funded `faucet.fund()` calls to the live chain so they actually execute rather than being skipped.
 
-**Idle — span 16920 → 16950, 0 exec calls:**
+**COLD vs WARM IS THE WHOLE STORY, and getting it wrong inverts the answer.**
+`storage_tree._FOLD_CACHE` is a cross-store cache (see the analysis in that file, 2026-08-06) that makes
+each settle prove cost O(slots the span changed) instead of O(all slots). A **fresh process** pays the
+full singleton-fold rebuild — ~50 s of alghash2 permutations — that a long-running exec node pays **once**.
+Since this bench runs every configuration in its own process (it must, or the cache contaminates the
+comparison), the naive run measures cold starts, which production is not.
 
-| fri_blowup | queries | prove s | of which sparse | non-sparse | verify s | proof MiB | peak RSS | vs today |
-|---|---|---|---|---|---|---|---|---|
-| **2** | **320** | **58.8** | 55.0 | 3.7 | **4.7** | **9.76** | 114 | 1.00x / 1.00x / 1.00x |
-| 4 | 192 | 73.6 | 64.3 | 9.3 | 2.8 | 7.16 | 115 | 1.25x / 0.59x / 0.73x |
-| 8 | 96 | 65.2 | 55.1 | 10.1 | 2.0 | 4.88 | 138 | **1.11x** / 0.43x / **0.50x** |
+**COLD — every config in a fresh process:**
 
-**Busy — span 17430 → 17460, 248 exec calls (~8 per block):**
+| fri_blowup | queries | prove s | of which sparse | verify s | proof MiB | peak RSS | vs today |
+|---|---|---|---|---|---|---|---|
+| **2** | **320** | **58.9** | 50.0 | **5.0** | **12.06** | 162 | 1.00x / 1.00x / 1.00x |
+| 4 | 192 | 63.1 | 50.4 | 3.7 | 8.63 | 213 | 1.07x / 0.72x / 0.72x |
+| 8 | 96 | 75.1 | 51.7 | 2.8 | 5.68 | 327 | **1.27x** / 0.55x / 0.47x |
 
-| fri_blowup | queries | prove s | of which sparse | non-sparse | verify s | proof MiB | peak RSS | vs today |
-|---|---|---|---|---|---|---|---|---|
-| **2** | **320** | **58.9** | 50.0 | 9.0 | **5.0** | **12.06** | 162 | 1.00x / 1.00x / 1.00x |
-| 4 | 192 | 63.1 | 50.4 | 12.7 | 3.7 | 8.63 | 213 | 1.07x / 0.72x / 0.72x |
-| 8 | 96 | 75.1 | 51.7 | 23.4 | 2.8 | 5.68 | 327 | **1.27x** / 0.55x / **0.47x** |
+**WARM (`--warm`) — one discarded prove first, i.e. what a running exec node actually does:**
 
-**The blowup-indifferent sparse half is 94% of the prove idle and still 85% busy.** That is why the 3.14x
-FRI-term multiplier lands as 1.11x idle and only 1.27x busy: the settle prove is dominated by state-tree
-work that the blowup does not touch, at both ends of the load range we can currently produce.
+| fri_blowup | queries | prove s | of which sparse | verify s | proof MiB | peak RSS | vs today |
+|---|---|---|---|---|---|---|---|
+| **2** | **320** | **10.2** | 0.5 | **4.5** | **12.06** | 168 | 1.00x / 1.00x / 1.00x |
+| 4 | 192 | 13.5 | 0.6 | 3.5 | 8.63 | 218 | 1.32x / 0.76x / 0.72x |
+| 8 | 96 | 26.2 | 0.7 | 2.5 | 5.68 | 332 | **2.57x** / 0.55x / **0.47x** |
 
-Three things this settles that the isolated bench got wrong:
+The sparse half is **85% of a cold prove and 5% of a warm one**. So the FRI multiplier lands at 1.27x cold
+and **2.57x warm** — and warm is the production number. That is close to the 3.14x the isolated bench
+(§4) reports, which means **the isolated bench was broadly right about the multiplier all along**; the
+"94% sparse, so it barely matters" framing came from measuring cold starts.
 
-* **the prove cost is small, not prohibitive** — 1.27x on a busy span, against the 2.35x (Python) and 7.0x
-  (Python) figures the two rejections were written on;
-* **the size win is ~0.47x, not 0.36x** — and it barely moves with load (0.50x idle → 0.47x busy), because
-  a settle proof carries substantial non-FRI content;
-* **memory roughly doubles** — 162 → 327 MiB peak at blowup 8 on the busy span. That is the real cost, and
-  it is the one nobody had measured.
+What survives from this, measured:
 
-**This is the busy-span measurement §7 asks for, and it does not overturn the rejection** — it makes the
-lever look cheaper than either rejection claimed while leaving the decisive argument untouched (§7). It is
-recorded so the next person starts from measurements instead of re-deriving them a third time. Load higher
-than ~8 calls/block has not been measured; the sparse share would keep falling and the multiplier keep
-rising, but it starts from 1.27x.
+* **prove cost in production is 2.57x**, not the 1.27x a cold benchmark suggests, and not the 2.35x/7.0x
+  Python figures the two rejections were written on;
+* **the size win is ~0.47x, not 0.36x**, and it does not move with load — a settle proof carries
+  substantial non-FRI content;
+* **memory roughly doubles** — 162 → 332 MiB peak at blowup 8. Nobody had measured this;
+* **verify is 0.55x**, cold or warm, because verification does not touch the fold cache.
+
+A steady-state settle prove is **10.2 s**, not the ~250 s figure quoted in older documents. Load beyond
+~8 calls/block has not been measured.
+
+**SCOPE — this is the UNFOLDED path only.** Every figure above comes from
+`prove_settlement_sparse(..., recursive=False, fold=False)`. The K→1 recursion fold is a different and far
+heavier prove: `execnode.py` records a real folded run at **1156.9 s total** with
+`prove_transition=883.6 s`, against a `SETTLE_PROVE_TIMEOUT` of 1200 s. None of the blowup ratios here
+have been measured on the folded path, and it would be wrong to assume they carry over — the fold's cost
+sits in `prove_transition`, which the unfolded path reports as 0.0 s. Do not quote 10.2 s or 2.57x for a
+folded prove.
 
 ### What this benchmark is NOT
 
@@ -230,17 +241,40 @@ consensus change that moves a proof between two sizes that are handled identical
 verify and transport wins it does deliver are available for free once DA transport lands. The open work on
 settle-proof size is **DA transport** (§5 item 3 of the transport doc).
 
-**Requirement 1 has now been met** (§4a): the busy-span measurement exists, and it makes the lever look
-*better* than either rejection claimed — 1.27x prove for 0.47x size and 0.55x verify at ~8 calls/block.
-The prove-cost objection is dead. It was never the load-bearing one.
+**Requirement 1 has now been met** (§4a): the busy-span measurement exists, warm and cold. In production
+(warm) the lever costs **2.57x prove** and **~2x prover memory** for 0.47x size and 0.55x verify. That is
+a real cost — not the 7.0x the first rejection claimed, but not the 1.27x a cold benchmark suggests
+either.
 
 **Requirement 2 has not been met and is the whole question:** what does a 32 MiB proof let us do that a
 97 MiB proof does not? Both need DA; neither fits in a block. Until someone answers that, the size table
 is irrelevant no matter how good it looks, and a consensus change cannot be justified by it.
 
 The one genuinely attractive number is **verify at 0.55x**, paid by every node on every apply and every
-fresh sync. If that becomes the reason to act, say so explicitly and weigh it against the ~2x prover
-memory (§4a) — do not smuggle it in behind the proof-size argument, which is the mistake made twice here.
+fresh sync. If that becomes the reason to act, say so explicitly and weigh it against 2.57x prove and 2x
+prover memory — do not smuggle it in behind the proof-size argument, which is the mistake made twice here.
+
+### The improvement this exercise actually found
+
+Not FRI. **A cold settle prove is 58.9 s and a warm one is 10.2 s** — a ~48 s gap that is entirely
+`SparseStore.root()` rebuilding singleton folds: ~2.15 M alghash2 permutations at 17.6 µs, of which 99.6%
+are folds of a lone leaf against the canonical empty roots. `_FOLD_CACHE` removes it in steady state but
+**nothing removes it for a cold process**, and cold processes are not rare:
+
+* every exec-node restart pays it before its first settle;
+* every **verify** in a fresh process pays it — including a fresh-syncing node checking historical settles.
+
+The permutation is already native and is genuine compute (54 rounds x a dense 12x12 MDS), so there is no
+FFI overhead worth shaving; `storage_tree.py` says as much. The ways down are to do **fewer** permutations
+or to not redo them:
+
+1. **persist the fold cache** across restarts — the folded chain is a pure function of
+   `(depth, key, value)`, so it is safe to write to disk and reload; this is engineering, not consensus;
+2. **reduce `EXEC_TREE_DEPTH`** (256 today) — folds scale linearly with depth, but this is a consensus
+   change and needs its own argument.
+
+Neither has been attempted. Both are larger wins than the FRI lever, and neither requires touching the
+proof format.
 
 ---
 

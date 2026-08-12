@@ -62,6 +62,25 @@ _E_CACHE = {}
 # SAFETY: this memoizes a pure function, so roots are bit-identical with the cache cold, warm, or
 # disabled — it can never change a root, only the time to compute one. `depth` is part of the key
 # because the empty roots e[i] differ per depth (tests use small depths against the same process).
+#
+# CONFIRMED END TO END 2026-08-13 (betanet-2, 27 contracts, 8,376 slots, native arena, a real 30-block
+# span with 248 exec calls — tools/bench_settle_fri.py):
+#
+#     whole settle prove   COLD 58.9 s   WARM 10.2 s
+#     of which root()      COLD 50.0 s   WARM  0.5 s      (sparse_projection itself is 0.24 s either way)
+#
+# So this cache is worth ~6x on the whole prove, and the numbers above hold: native permute12 is 17.6 us
+# of the 22.7 us rnode call, so porting the tree walk to Rust buys ~22% and not more.
+#
+# WHAT IS STILL UNFIXED: nothing removes the cold cost. A restarted exec node pays ~50 s before its first
+# settle, and every VERIFY in a fresh process pays it too — including a fresh-syncing node checking
+# historical settles. The folded chain is a pure function of (depth, key, value), so it is safe to
+# PERSIST across restarts; that has not been built. The other lever is a smaller EXEC_TREE_DEPTH (folds
+# scale linearly with it), which is a consensus change. See doc/fri-parameters.md §7.
+#
+# DO NOT BENCHMARK THIS COLD AND REPORT IT AS PRODUCTION. Measuring several configurations in one process
+# hides the cache; measuring each in a fresh process measures cold starts. Both mistakes were made on
+# 2026-08-13 and each inverted a conclusion about FRI parameters.
 _FOLD_CACHE = {}
 _FOLD_CACHE_MAX = 1 << 17        # ~131k entries; production carries ~9k, so this only bounds a runaway
 

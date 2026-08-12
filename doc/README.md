@@ -75,10 +75,16 @@ The weight difference is the reason the quorum remains the working path:
 | | Exec-node quorum (carries settlement today) | Validity proof (rule live, never completed) |
 |---|---|---|
 | Settle a batch | run the zkVM (`execnode/zkvm.py`), attest the root | prove the epoch's state transition (STARK) |
-| Compute | ~native (µs–ms) | **240–270 s measured** on production state |
+| Compute | ~native (µs–ms) | **10.2 s warm / 58.9 s cold** — re-measured 2026-08-13 |
 | L1 verify | **one integer compare** | one proof, ~0.3 s, independent of call count |
 | Payload | a few hundred bytes | **97–118 MiB** — ~380× a full block, so it must go via DA |
 | Trust | 2/3 honest bonded stake — **= NADO finality** | cryptographic soundness only |
+
+The compute row is the one people get wrong: `storage_tree._FOLD_CACHE` makes a running prover's settle
+cost O(slots the span changed), so a steady-state prove is **10.2 s**, while a fresh process (a restart,
+or any verify outside a long-lived prover) pays a ~50 s singleton-fold rebuild on top. Older documents
+quote ~250 s; that is the cold number from before the cache, and quoting it as the steady-state cost has
+inverted a conclusion more than once — see [fri-parameters.md](fri-parameters.md) §4a.
 
 A rollup is **as secure as L1 for ~free** under the quorum; the validity proof removes one assumption
 (that 2/3 of bonded stake is honest — the same assumption already securing every balance) at a real cost

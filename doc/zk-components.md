@@ -155,24 +155,44 @@ Proving *that the exec state root moved correctly* — the machinery a validity-
 | Single-bundle aggregation | `execnode/stark/settlement_aggregate.py` | 55 | capability | |
 | O(1)-shaped bound epoch | `execnode/stark/bound_epoch_o1.py` | 84 | capability | |
 
-**Measured proving cost** (production state: 25 contracts, 7 780 zkVM storage slots, empty call span):
+**Measured proving cost.** The single most important thing here is that **cold and warm differ by ~6x**,
+and quoting one for the other has repeatedly produced wrong conclusions. `storage_tree._FOLD_CACHE` is a
+cross-store cache that makes each prove cost O(slots the span changed); a **fresh process** pays a full
+singleton-fold rebuild that a running exec node pays **once**.
 
-| stage | time |
-|---|---|
-| `sparse_projection` | 137–158 s |
-| `prove_epoch` | 100–124 s |
-| `prove_transition` | 0.0 s |
-| **total** | **240–270 s** |
+Re-measured 2026-08-13 on betanet-2 (27 contracts, 8 376 zkVM slots, depth 256, native arena) over a real
+30-block span carrying 248 exec calls — `tools/bench_settle_fri.py`, `--warm` for the second column:
 
-Two things worth knowing, both of which contradict what was previously assumed here:
+| stage | COLD (fresh process) | WARM (steady state) |
+|---|---|---|
+| `sparse_projection` | 0.24 s | 0.24 s |
+| `SparseStore.root()` | **50.0 s** | **0.5 s** |
+| `prove_epoch` + rest | 9.0 s | 9.7 s |
+| **total** | **58.9 s** | **10.2 s** |
 
-1. **`sparse_projection` dominates**, not `prove_epoch`. An earlier note claimed it was free (0.0 s) and
-   said not to optimise it — that measurement came from an *empty-state fixture*. On production shape it
-   is the single largest stage.
-2. Inside it, `SparseStore.root()` is **65.8 s standalone**: 1 892 408 `rnode` calls (~243 per leaf — the
-   singleton folds through 256 empty levels). But the seam is *not* the cost. Measured, native
-   `permute12` is **26.92 µs** of the **35.41 µs** `rnode` call, so the kernel dominates and porting the
-   tree walk to Rust would buy only ~24%.
+Three things worth knowing:
+
+1. **`sparse_projection` itself is not the cost — 0.24 s.** An older row here attributed 137–158 s to it;
+   that figure bundled `SparseStore.root()`, which is where the time actually goes. The projection is a
+   dict build over 8 376 slots.
+2. **`SparseStore.root()` is the whole cold cost**: ~2.15 M `rnode` calls (~256 per leaf — singleton folds
+   of a lone leaf through the empty levels). The seam is *not* the problem: native `permute12` measures
+   **17.6 µs** of the **22.7 µs** `rnode` call, so the kernel dominates and porting the tree walk to Rust
+   would buy ~22%. The only real ways down are **fewer** permutations (a smaller `EXEC_TREE_DEPTH`,
+   consensus change) or **not redoing them** (persisting the fold cache across restarts, pure engineering).
+   Neither has been attempted.
+3. **Cold is not a corner case.** Every exec-node restart pays it before its first settle, and every
+   *verify* in a fresh process pays it — including a fresh-syncing node checking historical settles. The
+   steady-state 10.2 s is the right number for a running prover and the wrong number for a cold one.
+
+**Scope: these are UNFOLDED proves** (`recursive=False, fold=False`). The K→1 recursion fold is a
+separate, far heavier path — `execnode.py` records a real folded run at **1156.9 s** with
+`prove_transition=883.6 s`, the stage the unfolded path reports as 0.0 s. Nothing above has been measured
+on the folded path.
+
+Older documents quote ~250 s for a settle prove. That was a cold measurement taken before the fold cache,
+and it should not be used to argue that prove time is the binding constraint — see
+[`fri-parameters.md`](fri-parameters.md) §4a, where exactly that confusion inverted a conclusion twice.
 
 ---
 

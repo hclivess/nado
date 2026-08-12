@@ -135,6 +135,13 @@ def main():
     ap.add_argument("--ns", default="default")
     ap.add_argument("--node", default="http://127.0.0.1:9173")
     ap.add_argument("--out", default=None, help="write the result rows here as JSON")
+    ap.add_argument("--warm", action="store_true",
+                    help="Prove ONCE and discard before measuring, so the run reflects a STEADY-STATE node "
+                         "rather than a cold start. storage_tree._FOLD_CACHE is a cross-store cache that "
+                         "makes each settle prove O(slots the span changed) instead of O(all slots); a "
+                         "fresh process pays the full ~50s singleton-fold rebuild that a long-running exec "
+                         "node pays only once. Cold is the honest number for a node that just restarted; "
+                         "warm is the honest number for every settle after that.")
     ap.add_argument("--k", type=int, default=None,
                     help="run ONE config (k=1,2,4 -> fri_blowup 2,4,8) and print one JSON row. The driver "
                          "uses this to give each config a FRESH PROCESS; see _drive().")
@@ -173,6 +180,10 @@ def main():
         fri.verify = (lambda pr, *a, _k=k, **kw: orig_fri_verify(
             pr, *a, **{**kw, "expected_blowup": (kw.get("expected_blowup") or 2) * _k}))
         try:
+            if args.warm:
+                SS.prove_settlement_sparse(
+                    pre, calls, cursor=cur, rec_hex=rec_hex, beacons=beacons, block_hashes=bhashes,
+                    pre_bridge=bridge, depth=EXEC_TREE_DEPTH, num_queries=queries)
             with PhaseTimer() as pt:
                 t0 = time.perf_counter()
                 proof = SS.prove_settlement_sparse(
@@ -205,6 +216,8 @@ def _drive(args):
     for k, _q in CONFIGS:
         cmd = [sys.executable, os.path.abspath(__file__), "--stash", args.stash, "--to", str(args.to),
                "--ns", args.ns, "--node", args.node, "--k", str(k)]
+        if args.warm:
+            cmd.append("--warm")
         p = subprocess.run(cmd, capture_output=True, text=True,
                            env={**os.environ, "PYTHONPATH": os.path.dirname(
                                os.path.dirname(os.path.abspath(__file__)))})

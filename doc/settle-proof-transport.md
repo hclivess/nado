@@ -151,11 +151,18 @@ trace — which sizes the FRI term in isolation and cannot say what share of a s
 comes up a third time: the size argument is the only one that matters, and it has already been answered.
 
 **The busy-span measurement now exists** ([fri-parameters.md](fri-parameters.md) §4a, 30 blocks / 248 real
-exec calls, native, process-isolated) and it goes the *other* way from both rejections: blowup 8 costs
-**1.27× prove** for **0.47× size** and **0.55× verify**, at ~2× prover memory. The prove-cost objection in
-this section is therefore dead as well as mis-measured. What survives is only this: 32 MiB and 97 MiB are
-handled identically, so the size cut does not change the architecture. Anyone re-opening this needs to
-answer *that*, not produce another timing table.
+exec calls, native, process-isolated, measured both cold and warm). In production (warm) blowup 8 costs
+**2.57× prove** and **~2× prover memory** for **0.47× size** and **0.55× verify**. So the prove-cost
+objection was mis-measured but not baseless — it is a real cost, just 2.57× rather than the 7.0× claimed.
+
+What decides it remains unchanged: 32 MiB and 97 MiB are handled identically, so the size cut does not
+change the architecture. Anyone re-opening this needs to answer *that*, not produce another timing table.
+
+**One number here is stale and worth correcting:** a steady-state settle prove is **10.2 s**, not the
+~250 s this document quotes elsewhere. The ~250 s figure is a cold-process cost — `SparseStore.root()`
+rebuilding ~2.15 M singleton folds — which `storage_tree._FOLD_CACHE` removes for every settle after the
+first. Any argument in this document that rests on prove time being the binding constraint should be
+re-checked against 10.2 s.
 
 ## 5. Recommendation
 
