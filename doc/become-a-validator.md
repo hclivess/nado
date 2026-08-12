@@ -210,6 +210,35 @@ weight for finality.
   so fork-choice weight and the FFG/settlement quorum stay ramp-free — finality is never made
   tenure-dependent (`doc/takeover-resistance.md`).
 
+### Reading the wallet's lane panel
+
+The wallet shows two lines that look symmetric and are not. A real example:
+
+    Open lane        115 miners ·  18/60 slots
+    Savings lane       8 miners ·  33 shares
+
+| What you see | What it is |
+|---|---|
+| `115 miners` | `open_registry_size` — identities holding a **valid presence lease right now**. It falls when leases lapse, not when people stop watching. |
+| `18/60 slots` | `K_OPEN / EPOCH_LENGTH` — the open lane's **fixed allocation**: 18 of every 60 slots in an epoch, i.e. the 30% split. |
+| `8 miners` | `bonded_registry_size` — addresses holding bonded stake. |
+| `33 shares` | `total_bonded_shares` — total selection shares across all of them. At `B_MIN` = 10 NADO/share that is ~330 NADO bonded chain-wide. |
+
+**`18/60` is not "18 of 60 slots used".** It is a constant. It does not move with activity, it is not a
+progress bar, and a full epoch always awards all 60 slots. It is telling you the lane split: 18 open,
+42 bonded, every epoch, forever.
+
+**The two lines have completely different competition.** In that example 115 present identities compete
+for 18 slots per epoch, while 8 bonded addresses compete for 42. That is not unfair — it is the design
+working as intended. The open lane is the free, Sybil-resistant, many-participant lane, so a single open
+miner wins rarely; the bonded lane is capital-gated, so few addresses share more slots. It is also why
+**block wins are the wrong thing for a small open miner to watch**: the presence dividend pays you by
+fidelity weight in blocks you did not win, and for most people it is the larger number (see *Getting paid*).
+
+Two useful sanity checks: `33 shares` across `8 miners` averages ~4 shares (~40 NADO) each, so nobody is
+near the 100-share cap; and if `115 miners` drops sharply, that is leases expiring — usually miners who
+stopped renewing, not a network fault.
+
 ### Putting it together
 
 The two lanes are separate draws (30% of slots open, 70% bonded) and **bonding does not remove you from

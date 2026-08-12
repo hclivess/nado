@@ -1,11 +1,26 @@
 # FRI parameters — can we trade blowup for queries and shrink the proof?
 
-**Short answer: yes — but the winner is blowup 8, not 16.** On soundness alone `blowup 16 / 96 queries`
-looks best (164.4 provable bits against today's 156.0 at 30% of the opening size). Measured, its prover
-cost is **4.74x** with **4x** peak memory, which a ~250 s prove against a ~180 s settle cadence cannot
-absorb. **`blowup 8 / 96 queries`** keeps essentially today's security (154.2 bits) at **0.36x proof size
-and 0.30x verify time** for 2.35x FRI-prove cost — and that multiplier shrinks on the real settle path,
-where FRI is not the dominant term. See §4 for the measurements.
+> **STATUS: this lever is REJECTED — on the size argument, not on prove cost.** The question was closed on
+> 2026-08-03 in [settle-proof-transport.md §4b](settle-proof-transport.md) (commit `6a6614cc`), and this
+> document was written on 2026-08-12 without citing that, recommending blowup 8. **That was a
+> regression** — a closed question re-opened on weaker evidence.
+>
+> On re-examination *both* rounds leaned on prove-cost numbers taken with `NADO_ALLOW_PYTHON_KERNELS=1`,
+> timing a prover no node runs. Those figures are **withdrawn** (§4b there, §4 here) and replaced with
+> native measurements. The rejection survives regardless, because it never depended on them: at protocol
+> strength the lever turns ~97 MiB into ~32 MiB, and **32 MiB still needs DA exactly as 97 MiB does**, so
+> it does not change the architecture. That is the argument to answer if anyone re-opens this — a third
+> time — not the timing table.
+>
+> What is worth keeping here is the *soundness accounting* (§2) and the native cost measurements (§4,
+> §4a). The recommendation does not survive; see §7.
+
+**Short answer: no.** On soundness alone the trade looks attractive — `blowup 16 / 96 queries` reaches
+164.4 provable bits against today's 156.0 at 30% of the opening size, and `blowup 8 / 96` holds 154.2
+bits at 0.36× size. Measured natively, blowup 8 costs **3.14× on the FRI term** and **1.11× on a real
+(idle) settle prove**, and halves the proof. But the size it buys does not cross the threshold that would
+matter: DA is required at 97 MiB and at 32 MiB alike, so a consensus change buys a smaller number in the
+same architecture.
 
 Everything below is computed with `execnode/stark/soundness.py` — the repo's own model, at the live
 parameters it reports (`E=192, nu=18, grind=18, log_trace=17`) — not with numbers borrowed from a paper.
@@ -59,9 +74,9 @@ Saturation (queries beyond which soundness stops improving at all):
 | 16 | 173 |
 
 On soundness alone the best row is `blowup 16 / 96 queries`: 164.4 provable bits — 8 bits MORE than
-today — at 30% of the opening size. **§4 measures what that costs the prover and rejects it**; the rows
-that survive are `blowup 8 / 96` (154.2 bits) and `blowup 4 / 192` (163.2 bits). Read this table as
-"what is *available* at each rate", not as the recommendation.
+today — at 30% of the opening size. **No row survives as a recommendation** — §4 and §4b of the transport
+doc both measure the prover cost and reject the lever (§7). Read this table strictly as "what is
+*available* at each rate" — it is the soundness accounting, not a menu to pick from.
 
 ---
 
@@ -70,78 +85,141 @@ that survive are `blowup 8 / 96` (154.2 bits) and `blowup 4 / 192` (163.2 bits).
 **It does not put the proof in a block, and it never can.** A full block is ~256 KiB and
 `MAX_BLOB_BYTES_PER_BLOCK` is 1 MiB. Even a 5x cut leaves a ~20 MiB proof — still ~80x an entire block.
 The DA path (publish the proof, carry only its commitment) remains the only architecture that works.
-This lever is worth pulling for three other reasons:
 
-* **transport** — 20 MiB gossips and erasure-codes very differently from 97 MiB;
-* **verify time** — fewer queries is directly less verifier work on every node, on every apply and every
-  fresh sync;
-* **headroom** — it moves the inline path from "impossible" to "merely large", which matters while DA
-  coverage is still one-node-deep.
+**This paragraph used to continue "…so the lever is still worth pulling for three other reasons" and list
+transport, verify time and headroom. That framing is what produced the wrong recommendation, so it is
+struck.** Those three benefits are real but none of them requires a consensus change:
+
+* **transport** — 32 MiB and 97 MiB are handled by the same DA path; neither gossips inline.
+* **verify time** — the 0.33x verify win is genuine and is the strongest thing this lever has (§4). It is
+  also the one benefit obtainable another way: the periodic-column fix already cut verify 6.7x
+  (1267 s → 187.9 s) with no protocol change at all.
+* **headroom** — "merely large" is not a category the protocol has. A proof either fits in a block or
+  needs DA, and 32 MiB needs DA.
+
+Read §7 before treating any of the tables below as actionable.
 
 ---
 
-## 4. The prover cost — MEASURED, and it changes the recommendation
+## 4. The prover cost on an ISOLATED FRI term — measured
 
 `tools/bench_fri_blowup.py` proves and **verifies** the same 16 384-row trace at each configuration
 (scaling `_blowup` for the prover and shimming the verifier's `expected_blowup`, so every run is a proof
 that actually validates — an unverified proof is not a benchmark).
 
+> **The Python-kernel table that stood here has been DELETED.** It was taken with
+> `NADO_ALLOW_PYTHON_KERNELS=1`, timing a prover no node runs and that the Rust-only guard treats as a
+> hard failure. It is replaced below by a native-arena run of the identical trace, not corrected in place.
+
 | fri_blowup | queries | prove s | verify s | proof MiB | peak RSS MiB | vs today: prove / verify / size |
 |---|---|---|---|---|---|---|
-| **2** | **320** | **5.81** | **2.61** | **9.92** | **94** | 1.00x / 1.00x / 1.00x |
-| 4 | 192 | 8.00 | 1.78 | 6.50 | 156 | **1.38x** / 0.68x / 0.66x |
-| 8 | 96 | 13.63 | 0.79 | 3.53 | 216 | **2.35x** / 0.30x / 0.36x |
-| 16 | 96 | 27.52 | 1.05 | 3.80 | 372 | **4.74x** / 0.40x / 0.38x |
+| **2** | **320** | **6.01** | **2.86** | **9.92** | **94** | 1.00x / 1.00x / 1.00x |
+| 4 | 192 | 12.90 | 1.80 | 6.50 | 156 | **2.14x** / 0.63x / 0.66x |
+| 8 | 96 | 18.88 | 0.96 | 3.53 | 217 | **3.14x** / 0.33x / 0.36x |
+| 16 | 96 | 36.74 | 0.95 | 3.80 | 372 | **6.11x** / 0.33x / 0.38x |
 
-**Blowup 16 is off the table for the settle path.** 4.74x prove time and 4x peak memory against a prove
-that already runs ~250 s versus a ~180 s settle cadence would put a span far beyond its window — the
-in-flight guard would reject the next span before the previous one finished. The size win (0.38x) is real
-but cannot be bought at that price. Note also that blowup 16 at 96 queries is *larger* on the wire than
-blowup 8 at the same query count (3.80 vs 3.53 MiB): more fold layers and a bigger final layer eat part
-of the saving, so the last doubling pays twice and delivers nothing.
+**Native is WORSE than the withdrawn Python figures, not better** (3.14x against 2.35x at blowup 8; 6.11x
+against 4.74x at 16). The Rust arena has already removed the overhead that the blowup does not touch, so
+the extra LDE and Merkle work is a larger share of what remains. Verify and size ratios are essentially
+unchanged, since those are protocol quantities rather than implementation ones.
 
-**What the benchmark overstates.** This is a pure STARK prove, where the LDE and FRI dominate. The real
-settle prove does not look like that: `sparse_projection` is 137–158 s of a 240–270 s prove and
-`SparseStore.root()` is 65.8 s of that — work that does not scale with the FRI blowup at all. So the
-multipliers above are an upper bound on the settle path; if FRI is ~40% of a real prove, blowup 8's 2.35x
-becomes roughly 1.5x overall. **Measure on the real settle prove before committing** — this bench sizes
-the FRI term, not the whole job.
+Note also that blowup 16 at 96 queries is *larger* on the wire than blowup 8 at the same query count
+(3.80 vs 3.53 MiB): more fold layers and a bigger final layer eat part of the saving, so the last doubling
+pays twice and delivers nothing.
 
-**Verification gets materially cheaper**, and that is the underrated half: 0.30x at blowup 8. Every node
+**Trace size matters more than it looks.** The same native bench at 1024 rows reports 0.90x / 1.01x /
+3.18x — blowup 8 appears free because fixed per-prove overhead swamps the LDE at that size. Only the
+16 384-row run above is representative. A small run is a smoke test, not a measurement.
+
+**Verification gets materially cheaper**, and that is the underrated half: 0.33x at blowup 8. Every node
 pays verify on every apply and on every fresh sync, so a 3x cut there is a permanent, fleet-wide saving
 against a one-time prover cost paid by whoever settles.
 
-### Revised recommendation
+### 4a. The same question, measured END TO END on the real settle path
 
-The analysis in §2 favoured blowup 16 on soundness alone. With the prover measured, that inverts:
+`tools/bench_settle_fri.py` drives the actual `prove_settlement_sparse` entry point against a real settle
+stash written by the live node (27 deployed contracts, `depth=EXEC_TREE_DEPTH=256`), with calls rebuilt
+from on-chain DA calldata, verifying every proof with `verify_settlement_sparse`. Native arena, and each
+configuration in a **fresh process** — the module-level `_E_CACHE`/`_FOLD_CACHE` in `settlement_sparse`
+survive between proves, so three configs in one interpreter measure cache warmth, not the blowup.
 
-* **blowup 8 / 96 queries** is the target — 154.2 provable bits (about today's 156.0), **0.36x proof
-  size, 0.30x verify**, at 2.35x FRI-prove cost that the real settle path will dilute.
-* **blowup 4 / 192 queries** is the safe fallback — 163.2 bits (*better* than today), 0.66x size, 0.68x
-  verify, only 1.38x prove.
-* **blowup 16 is rejected** on prove time and memory, despite having the best soundness-per-byte.
+Span 16920 → 16950 (30 blocks, **0 exec calls** — see the caveat):
 
-## 5. Deployment
+| fri_blowup | queries | prove s | of which sparse | non-sparse | verify s | proof MiB | vs today |
+|---|---|---|---|---|---|---|---|
+| **2** | **320** | **58.8** | 55.0 | 3.7 | **4.7** | **9.76** | 1.00x / 1.00x / 1.00x |
+| 4 | 192 | 73.6 | 64.3 | 9.3 | 2.8 | 7.16 | 1.25x / 0.59x / 0.73x |
+| 8 | 96 | 65.2 | 55.1 | 10.1 | 2.0 | 4.88 | **1.11x** / 0.43x / **0.50x** |
 
-Changing FRI parameters changes what a verifier accepts, so **this is a consensus change and rides a
-generation reroll** — a proof built at the old parameters is not verifiable under the new ones, and settle
-proofs are re-verified on block apply and on fresh sync. It cannot be a hot toggle.
+**94% of this prove is blowup-indifferent sparse work**, so the 3.14x FRI multiplier lands as 1.11x
+overall. That is the number the isolated bench could not produce, and it is the honest reason the toy
+ratios must not be quoted for the settle path.
+
+**CAVEAT, and it is a large one: this span carries zero exec calls**, because the chain has had no
+contract activity (0 calls in the last 1400 blocks at the time of measurement). The exec AIR trace is
+therefore minimal, which *understates* both the FRI share of the prove and the blowup multiplier — and
+explains why the size ratio is 0.50x here rather than the 0.36x the isolated bench predicts. On a busy
+span the numbers move toward the isolated bench in both directions. **A busy-span measurement has never
+been taken**; anyone re-opening this must take one.
+
+### What this benchmark is NOT
+
+It proves a **single-column** 16 384-row trace whose constraint is `x' = x² + 7`. No LogUp, no periodic
+columns, no sparse projection, no recursion fold — none of the machinery the settle circuit is made of. It
+sizes **the FRI term in isolation**, which was its stated purpose, and it cannot tell you what fraction of
+a settle prove that term is. Multiplying its 0.36× size ratio against the real ~97 MiB proof is an
+extrapolation, not a measurement, and any figure derived that way should be treated as a guess.
+
+The measurement that *does* speak to the settle path is §4b of
+[settle-proof-transport.md](settle-proof-transport.md): 53.3 s → 374.4 s for 3.166 MiB → 1.070 MiB.
+`tools/bench_settle_fri.py` drives the real `prove_settlement_sparse` entry point against a real settle
+stash if a further data point is ever wanted.
+
+## 5. Why it is not a free knob anyway
+
+`fri_blowup = 2` is a **structural identity**, not a setting. `stark.py` derives
+`blowup = 2·next_pow2(max_degree)`, `N = blowup·T`, `deg_bound = next_pow2(max_degree)·T`, so
+`fri_blowup = N/deg_bound = 2` falls out — and `stark_native.py` pins it for that reason. Both benchmarks
+reach other values by monkey-patching `stark._blowup` and shimming the verifier's `expected_blowup`. That
+is legitimate for measurement and misleading as a sense of how easy the change would be: raising the
+blowup to 16 means an 8× larger LDE domain, paid in NTT and Merkle work on every column.
+
+## 6. If it were ever revisited: deployment
+
+Changing FRI parameters changes what a verifier accepts. Whether that needs a genesis reroll depends
+entirely on whether any settle proof has actually landed on the live chain: proofs are re-verified on
+block apply and on fresh sync, so old proofs under new parameters would fail. With **no landed settle
+proofs**, a coordinated fleet `/update` is sufficient and no reroll is involved. Verify that before
+assuming either way — do not repeat the claim that it "rides a reroll" without checking.
 
 `soundness.py` reads the live parameters, so once `FRI_BLOWUP`/`NUM_QUERIES` move, the reported figures
 follow automatically — the model does not need editing, only the constants.
 
-Suggested order:
+## 7. Standing conclusion
 
-1. ~~benchmark prove cost at blowup 4/8/16~~ — **done**, see §4 (`tools/bench_fri_blowup.py`). Remaining:
-   re-measure on a REAL settle prove, where FRI is not the dominant term;
-2. pick the row that keeps prove time inside the settle cadence — **blowup 8 / 96** is the target and
-   **blowup 4 / 192** the fallback (§4); blowup 16 is rejected on prove time and memory;
-3. change `FRI_BLOWUP` and `NUM_QUERIES` together, in the same commit as a `CHAIN_GENERATION` bump;
-4. re-run the settle-proof E2E and confirm `soundness.py` reports the expected bits.
+**Do not raise the FRI blowup** — but be precise about why, because the usual reason is wrong.
+
+*Not* because the prover cost is prohibitive. Natively it is 3.14× on the FRI term and, on a real settle
+prove at today's load, **1.11× overall** (§4a) — that is affordable. The two rounds that rejected this on
+prove time were both reading Python-prover numbers.
+
+**Because it does not change the architecture.** At protocol strength the lever takes ~97 MiB to ~32 MiB.
+Both need DA; neither fits in a block (1 MiB `MAX_BLOB_BYTES_PER_BLOCK`, ~256 KiB a full block). A
+consensus change that moves a proof between two sizes that are handled identically buys nothing, and the
+verify and transport wins it does deliver are available for free once DA transport lands. The open work on
+settle-proof size is **DA transport** (§5 item 3 of the transport doc).
+
+If someone proposes this a third time, these are the two things that have never been produced and would
+have to be:
+
+1. an end-to-end native measurement on a **busy** span (every settle-path measurement to date has been on
+   a zero-call span, which understates the FRI share — §4a);
+2. an argument for what a 32 MiB proof lets us do that a 97 MiB proof does not. If the answer is still
+   "nothing, both need DA", the size table is irrelevant no matter how good it looks.
 
 ---
 
-## 6. Related reading
+## 8. Related reading
 
 The result above comes from the Johnson-bound regime the model already implements. If we ever want to
 push further, the relevant literature is **proximity gaps for Reed–Solomon codes** (Ben-Sasson, Carmon,

@@ -129,20 +129,27 @@ Restated with §3 folded in, the three candidates are:
 (`stark_native.py` pins it for exactly that reason). Raising it to 16 means an **8× larger LDE domain**,
 paid in NTT and Merkle work on every column.
 
-Measured at equal provable security (blowup 2 needs 4× the queries of blowup 16 for the same bits):
+**The prove-time measurement that originally justified this section has been WITHDRAWN.** It reported
+53.3 s → 374.4 s ("3.0× smaller for 7.0× slower") on 2026-08-03 — one day before
+`7afb5728 settle prover: default to an arena-covered backend — one wrong default put it all in Python`.
+It timed the **Python** prover, which no node runs and which the Rust-only guard now treats as a hard
+failure. Re-measured on the native arena, the prove-cost picture is not merely smaller, it is different in
+kind (blowup 8 is roughly free on prove time). Those numbers are deleted rather than corrected in place,
+because a stale figure with a plausible story attached is what produced two rounds of wrong conclusions
+here. See [fri-parameters.md](fri-parameters.md) §4 for the native measurements.
 
-| config | proving time | proof size |
-|---|---|---|
-| blowup 2, NQ 8 | 53.3 s | 3.166 MiB |
-| blowup 16, NQ 2 | **374.4 s** | **1.070 MiB** |
+**The rejection stands anyway, on the argument that never depended on prove time.** At protocol strength
+the lever turns ~97 MiB into ~32 MiB. 32 MiB is still ~128× a block, so **DA is required either way** —
+and at the max-span cadence the difference is 5.7 vs 1.9 GiB/day, which no operator would notice. A
+smaller proof that still cannot go in a block does not change the architecture, so the lever is not worth
+a consensus change regardless of what it costs the prover. **Dropped.**
 
-**3.0× smaller for 7.0× slower.** At protocol strength that turns ~97 MiB into ~32 MiB while multiplying a
-proving cost that is already the binding constraint (the K→1 fold cannot complete at all).
-
-And it does not change the conclusion it was meant to serve: 32 MiB is still ~128× a block, so DA is
-required either way — and at the max-span cadence the difference is 5.7 vs 1.9 GiB/day, which no operator
-would notice. **Paying 7× proving time to move between two numbers that both need DA is a bad trade, so
-this lever is dropped.**
+**This has now been proposed twice**, and both times the argument leaned on prove-cost numbers that turned
+out to be Python artifacts. [fri-parameters.md](fri-parameters.md) was written on 2026-08-12 without
+citing this section and recommended blowup 8 on the strength of a benchmark over a single-column toy
+trace — which sizes the FRI term in isolation and cannot say what share of a settle prove it is. If it
+comes up a third time: the size argument is the only one that matters, it has already been answered, and
+the burden is an end-to-end native measurement on a *busy* span showing something new.
 
 ## 5. Recommendation
 

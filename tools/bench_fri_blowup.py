@@ -14,8 +14,24 @@ the fold layers all grow. This script scales `_blowup` by k (k = 1,2,4,8 -> fri_
 the same trace at each, VERIFIES the result (an unverified proof is not a benchmark), and reports wall
 time, peak RSS and proof size.
 
-Run:  NADO_ALLOW_PYTHON_KERNELS=1 PYTHONPATH=. python3 tools/bench_fri_blowup.py [log_rows]
-The Python-kernels flag is required because this proves off-node; it never touches chain state.
+Run:  PYTHONPATH=. python3 tools/bench_fri_blowup.py [log_rows]
+
+DO NOT SET NADO_ALLOW_PYTHON_KERNELS. This line used to read `NADO_ALLOW_PYTHON_KERNELS=1 ...`, and the
+numbers in doc/fri-parameters.md §4 were taken that way — i.e. they timed the PYTHON prover, which no node
+runs and which the Rust-only guard treats as a hard failure. Re-measured natively at the SAME 16 384-row
+trace, the prover cost is UNDERSTATED by the Python run, not overstated:
+
+    prove ratio vs blowup 2/320    blowup 4    blowup 8    blowup 16
+    Python kernels (the old §4)      1.38x       2.35x        4.74x
+    native arena (correct)           2.14x       3.14x        6.11x
+
+USE A REPRESENTATIVE TRACE. At log_rows=10 (1024 rows) the same native run reports 0.90x / 1.01x / 3.18x,
+because fixed per-prove overhead swamps the LDE at that size and blowup 8 looks free. It is not. Default
+to 14 or larger; a small run is a smoke test, not a measurement.
+
+The patch below reaches the arena correctly — stark_native.py:492 reads `stark._blowup`, so scaling it
+propagates into the native path, and if the arena ever refused the call `_native_fallback` RAISES rather
+than silently dropping to Python, so a completed run is proof the run was native.
 """
 import json
 import os
