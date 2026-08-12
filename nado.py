@@ -1808,6 +1808,22 @@ async def state_health(request):
     return _resp(await asyncio.to_thread(_snap))
 
 
+async def treasury_history_report(request):
+    """GET /treasury_history?limit=: the DURABLE governance archive — every treasury payout that actually
+    executed on this chain, newest first, plus per-recipient totals (who received how much, how often).
+
+    Derived from `treasury_execute` TRANSACTIONS in blocks, which are permanent, rather than from the
+    `treasury_proposals` display index the Quorum tab reads: that index drops expired proposals, caps at
+    50, and is excluded from the state root, so it can differ between nodes and is not a record of
+    anything. `start_height` says where THIS node's view begins — a snapshot-synced node has no blocks
+    below its checkpoint, so it archives forward from there. Rate-limited 60/min per IP."""
+    if _rate_limited(request, 60):
+        return _RL()
+    from ops import treasury_history
+    limit = _qint(request, "limit", 200)
+    return _resp(await asyncio.to_thread(treasury_history.report, limit))
+
+
 async def daily_stats_report(request):
     """GET /daily_stats?days=: per-UTC-day network telemetry sampled by this node (ops/daily_stats.py):
     transactions + fees per day from the block walk, daily-peak peers/miners/mempool gauges. Node-local
@@ -2002,6 +2018,7 @@ async def make_app(port):
         web.get("/invariants", invariants_report),
         web.get("/rollback_stats", rollback_stats_report),
         web.get("/daily_stats", daily_stats_report),
+        web.get("/treasury_history", treasury_history_report),
         web.get("/state_health", state_health),
         web.get("/update", update_node),
         web.get("/update_peer", update_peer),
@@ -2293,6 +2310,13 @@ def _daily_stats_loop():
                     floors = {"up_agree": max(0, min(100, round(consensus.upcoming_block_hash_pool_percentage))),
                               "tip_agree": max(0, min(100, round(consensus.block_hash_pool_percentage)))}
                 daily_stats.sample(tip, _load_block, gauges, floors)
+                # Governance archive: walk the same freshly-incorporated blocks for treasury payouts.
+                # Pull-only and failure-isolated — a bad pass must never take down telemetry sampling.
+                try:
+                    from ops import treasury_history as _th
+                    _th.scan(tip, _load_block)
+                except Exception:
+                    pass
         except Exception as e:
             logger.info(f"daily-stats sample failed (retrying next pass): {e}")
         time.sleep(daily_stats.SAMPLE_INTERVAL)
