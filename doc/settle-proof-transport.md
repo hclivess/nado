@@ -148,8 +148,14 @@ a consensus change regardless of what it costs the prover. **Dropped.**
 out to be Python artifacts. [fri-parameters.md](fri-parameters.md) was written on 2026-08-12 without
 citing this section and recommended blowup 8 on the strength of a benchmark over a single-column toy
 trace — which sizes the FRI term in isolation and cannot say what share of a settle prove it is. If it
-comes up a third time: the size argument is the only one that matters, it has already been answered, and
-the burden is an end-to-end native measurement on a *busy* span showing something new.
+comes up a third time: the size argument is the only one that matters, and it has already been answered.
+
+**The busy-span measurement now exists** ([fri-parameters.md](fri-parameters.md) §4a, 30 blocks / 248 real
+exec calls, native, process-isolated) and it goes the *other* way from both rejections: blowup 8 costs
+**1.27× prove** for **0.47× size** and **0.55× verify**, at ~2× prover memory. The prove-cost objection in
+this section is therefore dead as well as mis-measured. What survives is only this: 32 MiB and 97 MiB are
+handled identically, so the size cut does not change the architecture. Anyone re-opening this needs to
+answer *that*, not produce another timing table.
 
 ## 5. Recommendation
 

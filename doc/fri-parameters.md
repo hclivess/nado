@@ -143,24 +143,45 @@ from on-chain DA calldata, verifying every proof with `verify_settlement_sparse`
 configuration in a **fresh process** — the module-level `_E_CACHE`/`_FOLD_CACHE` in `settlement_sparse`
 survive between proves, so three configs in one interpreter measure cache warmth, not the blowup.
 
-Span 16920 → 16950 (30 blocks, **0 exec calls** — see the caveat):
+Measured on two spans of the SAME length (30 blocks) so that call load is the only variable. The busy one
+was produced by submitting 300 real `faucet.fund()` calls to the live chain (bridge-funded, so they
+execute rather than being skipped) — the idle span is what betanet-2 looks like with no contract traffic
+at all.
 
-| fri_blowup | queries | prove s | of which sparse | non-sparse | verify s | proof MiB | vs today |
-|---|---|---|---|---|---|---|---|
-| **2** | **320** | **58.8** | 55.0 | 3.7 | **4.7** | **9.76** | 1.00x / 1.00x / 1.00x |
-| 4 | 192 | 73.6 | 64.3 | 9.3 | 2.8 | 7.16 | 1.25x / 0.59x / 0.73x |
-| 8 | 96 | 65.2 | 55.1 | 10.1 | 2.0 | 4.88 | **1.11x** / 0.43x / **0.50x** |
+**Idle — span 16920 → 16950, 0 exec calls:**
 
-**94% of this prove is blowup-indifferent sparse work**, so the 3.14x FRI multiplier lands as 1.11x
-overall. That is the number the isolated bench could not produce, and it is the honest reason the toy
-ratios must not be quoted for the settle path.
+| fri_blowup | queries | prove s | of which sparse | non-sparse | verify s | proof MiB | peak RSS | vs today |
+|---|---|---|---|---|---|---|---|---|
+| **2** | **320** | **58.8** | 55.0 | 3.7 | **4.7** | **9.76** | 114 | 1.00x / 1.00x / 1.00x |
+| 4 | 192 | 73.6 | 64.3 | 9.3 | 2.8 | 7.16 | 115 | 1.25x / 0.59x / 0.73x |
+| 8 | 96 | 65.2 | 55.1 | 10.1 | 2.0 | 4.88 | 138 | **1.11x** / 0.43x / **0.50x** |
 
-**CAVEAT, and it is a large one: this span carries zero exec calls**, because the chain has had no
-contract activity (0 calls in the last 1400 blocks at the time of measurement). The exec AIR trace is
-therefore minimal, which *understates* both the FRI share of the prove and the blowup multiplier — and
-explains why the size ratio is 0.50x here rather than the 0.36x the isolated bench predicts. On a busy
-span the numbers move toward the isolated bench in both directions. **A busy-span measurement has never
-been taken**; anyone re-opening this must take one.
+**Busy — span 17430 → 17460, 248 exec calls (~8 per block):**
+
+| fri_blowup | queries | prove s | of which sparse | non-sparse | verify s | proof MiB | peak RSS | vs today |
+|---|---|---|---|---|---|---|---|---|
+| **2** | **320** | **58.9** | 50.0 | 9.0 | **5.0** | **12.06** | 162 | 1.00x / 1.00x / 1.00x |
+| 4 | 192 | 63.1 | 50.4 | 12.7 | 3.7 | 8.63 | 213 | 1.07x / 0.72x / 0.72x |
+| 8 | 96 | 75.1 | 51.7 | 23.4 | 2.8 | 5.68 | 327 | **1.27x** / 0.55x / **0.47x** |
+
+**The blowup-indifferent sparse half is 94% of the prove idle and still 85% busy.** That is why the 3.14x
+FRI-term multiplier lands as 1.11x idle and only 1.27x busy: the settle prove is dominated by state-tree
+work that the blowup does not touch, at both ends of the load range we can currently produce.
+
+Three things this settles that the isolated bench got wrong:
+
+* **the prove cost is small, not prohibitive** — 1.27x on a busy span, against the 2.35x (Python) and 7.0x
+  (Python) figures the two rejections were written on;
+* **the size win is ~0.47x, not 0.36x** — and it barely moves with load (0.50x idle → 0.47x busy), because
+  a settle proof carries substantial non-FRI content;
+* **memory roughly doubles** — 162 → 327 MiB peak at blowup 8 on the busy span. That is the real cost, and
+  it is the one nobody had measured.
+
+**This is the busy-span measurement §7 asks for, and it does not overturn the rejection** — it makes the
+lever look cheaper than either rejection claimed while leaving the decisive argument untouched (§7). It is
+recorded so the next person starts from measurements instead of re-deriving them a third time. Load higher
+than ~8 calls/block has not been measured; the sparse share would keep falling and the multiplier keep
+rising, but it starts from 1.27x.
 
 ### What this benchmark is NOT
 
@@ -209,13 +230,17 @@ consensus change that moves a proof between two sizes that are handled identical
 verify and transport wins it does deliver are available for free once DA transport lands. The open work on
 settle-proof size is **DA transport** (§5 item 3 of the transport doc).
 
-If someone proposes this a third time, these are the two things that have never been produced and would
-have to be:
+**Requirement 1 has now been met** (§4a): the busy-span measurement exists, and it makes the lever look
+*better* than either rejection claimed — 1.27x prove for 0.47x size and 0.55x verify at ~8 calls/block.
+The prove-cost objection is dead. It was never the load-bearing one.
 
-1. an end-to-end native measurement on a **busy** span (every settle-path measurement to date has been on
-   a zero-call span, which understates the FRI share — §4a);
-2. an argument for what a 32 MiB proof lets us do that a 97 MiB proof does not. If the answer is still
-   "nothing, both need DA", the size table is irrelevant no matter how good it looks.
+**Requirement 2 has not been met and is the whole question:** what does a 32 MiB proof let us do that a
+97 MiB proof does not? Both need DA; neither fits in a block. Until someone answers that, the size table
+is irrelevant no matter how good it looks, and a consensus change cannot be justified by it.
+
+The one genuinely attractive number is **verify at 0.55x**, paid by every node on every apply and every
+fresh sync. If that becomes the reason to act, say so explicitly and weigh it against the ~2x prover
+memory (§4a) — do not smuggle it in behind the proof-size argument, which is the mistake made twice here.
 
 ---
 
