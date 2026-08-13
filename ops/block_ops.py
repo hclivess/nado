@@ -151,7 +151,15 @@ def _lands_flexibly(transaction):
     # raise; it would just change consensus. The sniff was never a test anyway: "mldsa44" + garbage passed.
     from ops.address_ops import is_address
     r = transaction.get("recipient")
-    return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw") or is_address(r))
+    # `faucet` BELONGS HERE and was simply missed when the reserved recipient was added. A donation is the
+    # same shape as a bridge deposit — validate_transaction checks only "amount > 0" and "fee >= MIN_TX_FEE"
+    # — so it carries no landing-block-dependent timing whatsoever. Left out, it took the EXACT-landing
+    # branch below and was includable only in the single block numbered exactly max_block, so a donation
+    # sat in the mempool and expired unmined. Observed on betanet-3: a faucet tx pending across 47 blocks,
+    # validating cleanly at every height (no exclusion logged) and never selected, which is precisely the
+    # signature of exact-landing on a tx nobody targets exactly. It is also part of why the faucet has
+    # never held a balance on any generation.
+    return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet") or is_address(r))
 
 
 def check_target_match(transaction_list, block_number, logger):
