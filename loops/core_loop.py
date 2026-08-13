@@ -2417,8 +2417,23 @@ class CoreClient(threading.Thread):
             if self.last_auto_register_epoch == epoch:
                 return
             acc = get_account(self.memserver.address)
+            # THE LEASE GUARD READ A FIELD THAT DOES NOT EXIST. `reg_epoch` is not stored on the account —
+            # it is an ENRICHMENT the HTTP handler adds (nado.py: data["reg_epoch"] = recert_latest(addr)).
+            # The raw doc this loop reads has no such key, so `acc.get("reg_epoch", -1)` was ALWAYS -1, the
+            # `reg_ep >= 0` test was always False, and the guard NEVER fired: this node re-registered every
+            # single epoch — 240x more often than the once-per-lease it documents.
+            #
+            # It was not harmless. A recert is +1 fidelity (there was no minimum spacing until
+            # FIDELITY_MIN_GAP_EPOCHS), so auto-registering nodes ran their fidelity to 366-379 in 1.6 days
+            # while browser miners sat at 1 — weight 10 vs 2, i.e. 5x the open-lane selection AND 5x the
+            # presence-dividend share. That is the reward gap users reported. It also burned ~240s/day of
+            # PoSW per node instead of ~1s, spammed ~240 register txs/day each, and inflated the
+            # registration-difficulty baseline (which is why the anti-flood multiplier sat at 1x).
+            #
+            # Read the recert index directly — the same source the enrichment uses.
             if acc and int(acc.get("registered", 0)) == 1:
-                reg_ep = int(acc.get("reg_epoch", -1))
+                from ops import kv_ops as _kv
+                reg_ep = int(_kv.recert_latest(self.memserver.address))
                 if reg_ep >= 0 and epoch < reg_ep + POSW_LEASE_EPOCHS - 10:   # still well inside the lease
                     self.last_auto_register_epoch = epoch
                     return
