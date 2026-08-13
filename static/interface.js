@@ -36,13 +36,16 @@ const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
 // registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (≈1 day at ~8 min/epoch).
-const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, POSW_LEASE_EPOCHS = 240;
+const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 150, POSW_LEASE_EPOCHS = 240;
 // Headroom (in blocks) between the current tip and the register/recert max_block, so the tx still lands
 // BEFORE its target while the sequential PoW is computing. It is capped by POSW_ANCHOR_OFFSET: the anchor is
 // block (target − POSW_ANCHOR_OFFSET), which the client must be able to FETCH now, so target ≤ tip + offset.
-// The old value (8 blocks ≈ 64 s at 8 s/block) was too tight when the PoW runs in pure JS (WASM unavailable) —
-// the chain passed target during proving and the node rejected it "Target block too low". Use the max (≈240 s).
-const POSW_TARGET_MARGIN = POSW_ANCHOR_OFFSET;
+// This used to be pinned AT the offset (30 blocks, 180 s), which also made the anchor the live tip. Both
+// were wrong: the budget has to cover the WORK the difficulty demands, and an entry registration owes up
+// to 512 x POSW_T sequential hashes — unfinishable on a phone inside 180 s, which surfaced only as a
+// rejected tx. protocol.py now separates the two: offset 150, target 90, so the anchor is tip-60 (deeper
+// than FINALITY_DEPTH at prove time) and the budget is 90 blocks = 540 s. MUST match protocol.py.
+const POSW_TARGET_MARGIN = 90;
 const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
 const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
@@ -3736,17 +3739,30 @@ async function maybeAutoBond(acc, ms) {
   // and the node rejects the overlap as "overspending balance" — exactly what happens when a phone locks
   // and then resumes several epochs later. Times out after 3 epochs so a dropped bond never wedges it.
   if (state.autoBondPending) {
-    if (bonded >= state.autoBondPending.target || (epoch - state.autoBondPending.epoch) > 3) {
+    const landed = bonded >= state.autoBondPending.target;
+    if (landed || (epoch - state.autoBondPending.epoch) > 3) {
+      // The baseline was advanced optimistically at submit time, so a bond that LANDED needs no
+      // reconciliation. One that timed out never happened: give its slice of the mining gain back, so
+      // those earnings are retried instead of being written off. (This used to snap the baseline to
+      // `balance` in both cases — which, now that the baseline counts MINED coins, would have written a
+      // balance figure into a produced-denominated counter and broken the accounting outright.)
+      if (!landed && state.autoBondPending.consumed) state.autoBondBaseline -= state.autoBondPending.consumed;
       state.autoBondPending = null;
-      state.autoBondBaseline = balance;                 // reconcile to on-chain reality after it lands
     } else {
       return;
     }
   }
-  if (state.autoBondBaseline == null) { state.autoBondBaseline = balance; return; }  // only future earnings
-  if (bonded >= BOND_CAP) { state.autoBondBaseline = balance; return; }              // already at the cap
-  const gain = balance - state.autoBondBaseline;
-  if (gain <= 0n) { state.autoBondBaseline = balance; return; }                      // balance fell — rebaseline
+  // EARNINGS ARE MINED COINS, NOT INCOMING COINS. This baselined on BALANCE, so every credit the wallet
+  // received counted as "new mining rewards" and got swept into savings behind a 24h timelock: a transfer
+  // from a friend, a faucet payout, a bridge deposit, and — worst — a matured `withdraw`, which put the
+  // coins the user had just deliberately taken OUT of savings straight back in. `produced` is the chain's
+  // counter of what this address actually MINED, so it moves only on a won slot. Same fix as the node's
+  // core_loop.maybe_auto_bond, which this mirrors.
+  const mined = BigInt(acc.produced ?? 0);
+  if (state.autoBondBaseline == null) { state.autoBondBaseline = mined; return; }    // only future mining
+  if (bonded >= BOND_CAP) { state.autoBondBaseline = mined; return; }                // already at the cap
+  const gain = mined - state.autoBondBaseline;
+  if (gain <= 0n) { state.autoBondBaseline = mined; return; }                        // nothing mined since
 
   let toBond = (gain * BigInt(pct)) / 100n;
   const headroom = BOND_CAP - bonded;
@@ -3761,9 +3777,15 @@ async function maybeAutoBond(acc, ms) {
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
       state.lastAutoBondEpoch = epoch;
-      state.autoBondPending = { target: bonded + toBond, epoch };  // wait for THIS to land before the next
-      state.autoBondBaseline = balance - toBond - BigInt(fee);   // optimistic; reconciled once it confirms
-      log("ok", i18("log.autoBonded", "Auto-bonded {a} NADO ({p}% of {g} new rewards) → bonded lane.", {a: rawToNado(toBond), p: pct, g: rawToNado(gain)}));
+      // Consume only the slice of the MINED gain this bond covers — the whole gain when nothing clamped,
+      // less when the cap cut it down, so the remainder stays claimable on a later pass. Moves forward
+      // over mined coins only; a received or withdrawn credit can never enter the baseline.
+      const covered = (toBond * 100n) / BigInt(pct);
+      const consumed = gain < covered ? gain : covered;
+      // wait for THIS to land before the next, and remember what it consumed so a timeout can undo it
+      state.autoBondPending = { target: bonded + toBond, epoch, consumed };
+      state.autoBondBaseline += consumed;
+      log("ok", i18("log.autoBonded", "Auto-bonded {a} NADO ({p}% of {g} newly mined) → bonded lane.", {a: rawToNado(toBond), p: pct, g: rawToNado(gain)}));
       refreshDashboard().catch(() => {});
     } else {
       const m = res.data && (res.data.message || JSON.stringify(res.data));

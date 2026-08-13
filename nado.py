@@ -1247,7 +1247,7 @@ async def get_posw_difficulty(request):
         chain-derived requirement; there is no other mode."""
         from ops.reg_difficulty import difficulty_multiplier, _window_count, entry_multiplier
         from ops.mining_ops import epoch_of
-        from protocol import POSW_T, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW
+        from protocol import POSW_T, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN, POSW_DIFF_WINDOW
         try:
             h = memserver.latest_block["block_number"]
         except Exception:
@@ -1260,9 +1260,9 @@ async def get_posw_difficulty(request):
         # the wallet proves the wrong T and every node rejects an honest registration (posw.verify is
         # EXACT-T). Callers now pass their own max_block; the default is the wallet's convention.
         try:
-            max_block = int(want_mb) if want_mb else h + POSW_ANCHOR_OFFSET
+            max_block = int(want_mb) if want_mb else h + POSW_TARGET_MARGIN
         except (TypeError, ValueError):
-            max_block = h + POSW_ANCHOR_OFFSET
+            max_block = h + POSW_TARGET_MARGIN
         anchor_epoch = epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET))
         mult = difficulty_multiplier(anchor_epoch)
         recent = _window_count(anchor_epoch - POSW_DIFF_WINDOW, anchor_epoch - 1)

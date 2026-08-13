@@ -44,7 +44,7 @@ STRICT, NO COMPATIBILITY (policy): every node computes the identical v3 requirem
 deployed as the PROTOCOL 4 flag day (old-rules nodes are shed at the handshake), never as a compat path
 in consensus code.
 """
-from protocol import (POSW_ENTRY_MULT, POSW_LEASE_EPOCHS, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
+from protocol import (POSW_ENTRY_MULT, POSW_LEASE_EPOCHS, POSW_T, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
                       POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH)
 
 
@@ -121,8 +121,8 @@ def required_posw_t(anchor_epoch: int, sender=None) -> int:
     return POSW_T * difficulty_multiplier(anchor_epoch) * entry_multiplier(sender, anchor_epoch)
 
 
-def mint_multiplier(tip_height: int, max_block: int) -> int:
-    """The multiplier OUR OWN prover works at for a registration targeting `max_block` — exactly the
-    strict consensus requirement (there is deliberately no other mode)."""
-    from ops.mining_ops import epoch_of
-    return difficulty_multiplier(epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET)))
+# mint_multiplier() lived here: "the multiplier OUR OWN prover works at". It returned the RATE multiplier
+# only, so anything minting from it under-worked an ENTRY registration by POSW_ENTRY_MULT and had the proof
+# rejected by every node. Its last caller (core_loop.maybe_auto_register) had already been moved onto
+# required_posw_t(); leaving the function behind as the obvious-looking thing to reach for is how the same
+# bug gets reintroduced. There is exactly one way to ask what a registration owes: required_posw_t().

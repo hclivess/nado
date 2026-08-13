@@ -10,7 +10,8 @@ was moved into the flexibly-landing class (proof-gated, at-most-once, no landing
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from protocol import TX_TARGET_MARGIN, TX_LANDING_WINDOW, ADDRESS_PREFIX
+from protocol import TX_TARGET_MARGIN, TX_LANDING_WINDOW
+from signatures import make_address
 from ops.block_ops import _lands_flexibly, check_target_match, match_transactions_target
 import logging
 _LOG = logging.getLogger("t"); _LOG.addHandler(logging.NullHandler())
@@ -28,11 +29,12 @@ def _tx(recipient, max_block, min_block=0, txid=None):
             "txid": txid or f"{recipient}:{max_block}:{min_block}"}
 
 
-# A plain-transfer recipient must carry the LIVE prefix: _lands_flexibly() routes on
-# `recipient.startswith(ADDRESS_PREFIX)`, so a pinned "ndo…" literal stopped selecting the flexible path
-# the moment the prefix was rebranded — and this list is the test's whole definition of "flexible".
-PAYEE = ADDRESS_PREFIX + "abc123"
-FLEX = [PAYEE, "blob", "bridge", "bridge_withdraw", "dividend_withdraw"]
+# A plain-transfer recipient must be a REAL address. _lands_flexibly() no longer routes on a prefix
+# check — it calls is_address(), which validates the CHECKSUM — so a made-up literal like "abc123" is
+# classified as neither a reserved recipient nor an address and takes the exact-landing branch, exactly
+# as a typo'd address would. Derive one instead of pinning a string.
+PAYEE = make_address("ebd27698662f14ee2389e509781d5ff57487f4289a")
+FLEX = [PAYEE, "blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet"]
 EXACT = ["bond", "unbond", "withdraw", "register", "msgkey", "attest", "commit", "reveal", "duty",
          "settle", "alias", "htlc_lock"]
 

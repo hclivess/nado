@@ -23,11 +23,13 @@ from ops import transaction_ops as T
 from ops import posw
 from config import get_timestamp_seconds
 from hashing import create_nonce
-from protocol import CHAIN_ID, MIN_TX_FEE, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, TX_TARGET_MARGIN, ALIAS_REGISTRATION_FEE
+from protocol import (CHAIN_ID, MIN_TX_FEE, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN,
+                      TX_TARGET_MARGIN, ALIAS_REGISTRATION_FEE)
 
 DEC = 10 ** 10  # NADO has 10 decimals
 # max_block headroom. EXACT-landing txs (bond/unbond/alias/governance — must land at exactly max_block) use a
-# SMALL margin so the wait is short; the register PoSW anchor (max_block-30) must also stay in a settled epoch.
+# SMALL margin so the wait is short. `register` is the exception: it uses POSW_TARGET_MARGIN, the budget the
+# protocol sizes for a proof that can run for minutes (see protocol.POSW_ANCHOR_OFFSET).
 # FLEXIBLY-landing txs (value send, blob/collect, bridge, dividend_withdraw — land anywhere in the window) use
 # the GENEROUS TX_TARGET_MARGIN so they don't expire before inclusion and re-gossip-flood "Target block too low".
 MARGIN = 6
@@ -153,7 +155,9 @@ def c_register(kd, node, a):
     """One-time open-lane mining registration: fetch the PoSW anchor block (max_block - 30) and the
     node's current required T, compute the sequential proof locally (can take a while), then submit.
     The anchor must be settled by submission time — MARGIN keeps it inside an already-final range."""
-    tb = _tip(node) + MARGIN
+    # POSW_TARGET_MARGIN, not the generic exact-landing MARGIN: this is the one tx whose max_block has to
+    # cover a proof that can run for minutes, and the protocol sizes that budget (see POSW_ANCHOR_OFFSET).
+    tb = _tip(node) + POSW_TARGET_MARGIN
     anchor_num = max(0, tb - POSW_ANCHOR_OFFSET)
     anchor = _get(node, "/get_block_number?number=%d" % anchor_num).get("block_hash")
     if not anchor:

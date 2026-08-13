@@ -9,7 +9,8 @@ from genesis import create_indexers
 create_indexers()
 
 from protocol import DENOMINATION, MIN_TX_FEE, AUTO_BOND_MIN_RAW, BOND_CAP, EPOCH_LENGTH
-from ops.account_ops import create_account, get_account, change_balance, change_bonded
+from ops.account_ops import (create_account, get_account, change_balance, change_bonded,
+                             increase_produced_count)
 from ops.key_ops import generate_keys
 from loops.core_loop import CoreClient as Core
 
@@ -54,8 +55,14 @@ def set_epoch(mem, epoch):
     mem.latest_block = {"block_number": epoch * EPOCH_LENGTH}
 
 def add_reward(addr, nado):
-    """Credit addr with a mining reward of `nado` whole NADO."""
+    """Credit addr with a mining reward of `nado` whole NADO — balance AND the `produced` counter.
+
+    Auto-bond compounds MINED coins, and `produced` is what says a coin was mined (see
+    test_auto_bond_mined_only). This used to move balance alone, which is what a RECEIVE looks like:
+    the fixture could not tell the two apart, which is precisely the confusion that let the shipped
+    code sweep transfers and matured withdrawals into savings."""
     change_balance(addr, int(nado * DENOMINATION), logger=logger)
+    increase_produced_count(addr, int(nado * DENOMINATION), logger=logger)
 
 def apply_bond(addr, raw, fee):
     """Simulate a bond tx landing: move raw from spendable to bonded and destroy the fee."""
@@ -100,8 +107,9 @@ def t3():
     core, mem, kd = make_core(pct=1)
     core.maybe_auto_bond()                        # baseline = 0
     # 1% of this gain must be < AUTO_BOND_MIN_RAW (0.001 NADO). gain = 0.05 NADO -> 1% = 0.0005 NADO.
-    add_reward(kd["address"], 0)                  # noop
-    change_balance(kd["address"], AUTO_BOND_MIN_RAW * 50, logger=logger)  # gain = 5e8 raw
+    add_reward_raw = AUTO_BOND_MIN_RAW * 50       # gain = 5e8 raw, MINED (not received)
+    change_balance(kd["address"], add_reward_raw, logger=logger)
+    increase_produced_count(kd["address"], add_reward_raw, logger=logger)
     set_epoch(mem, 2)
     base_before = core.auto_bond_baseline
     core.maybe_auto_bond()

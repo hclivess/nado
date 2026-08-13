@@ -300,7 +300,28 @@ def valid_namespace(ns) -> bool:
 POSW_T = 1_000_000           # total sequential hash steps (~1 s on a phone; single-core spam < ~1M/day)
 POSW_S = 2_000               # steps per checkpoint segment -> C = T // S = 500 segments
 POSW_K = 20                  # Fiat-Shamir spot-checks (soundness); verify ~ (K+1)·S hashes
-POSW_ANCHOR_OFFSET = 30      # anchor block = max_block − this (>= FINALITY_DEPTH: finalized & stable)
+POSW_ANCHOR_OFFSET = 150     # anchor block = max_block − this (>= FINALITY_DEPTH: finalized & stable)
+# HOW LONG A PROVER ACTUALLY HAS. A `register` lands at EXACTLY max_block, and its anchor
+# (max_block − POSW_ANCHOR_OFFSET) must already exist when proving STARTS — so a client targeting
+# tip+M can only choose M <= POSW_ANCHOR_OFFSET, and M blocks is its entire proving budget.
+#
+# With the offset at 30 the budget was 30 blocks (180 s) and the anchor was the TIP itself (depth 0 at
+# prove time — below FINALITY_DEPTH, contrary to the note above). That budget is not a function of the
+# WORK the difficulty demands, and the two had drifted badly apart: an entry registration owes
+# POSW_ENTRY_MULT × the rate multiplier = up to 512 × POSW_T = 512M sequential hashes. Measured with the
+# hasher the browser miner actually ships (WASM blake2b, ~3.2M h/s on a desktop, ~4-10x slower on a
+# phone), a mid-range phone needed ~121 s of a 180 s window at 96x and simply could not finish at all
+# above that. It produced a VALID proof for a block the chain had already passed, and the submit came
+# back as a flat rejection — reported by users as "the relay rejected the registration".
+#
+# Widening the offset fixes the binding constraint without touching the anti-Sybil COST by one hash.
+# At offset 150 a client targets tip+90: the anchor is tip−60, which is 60 blocks deep at prove time
+# (past FINALITY_DEPTH=45, so the note above becomes true) and 150 deep at landing. Budget: 90 blocks
+# = 540 s, enough for the worst case on a slow phone.
+#
+# CONSENSUS. validate_transaction re-derives the anchor from max_block, so a node on a different offset
+# computes a different challenge and rejects every honest registration. Flag day, no compat path.
+POSW_TARGET_MARGIN = 90      # blocks a client may target ahead of the tip = its proving budget (540 s)
 
 # PERIODIC PRESENCE: registration is a renewable LEASE. A `register` (with a fresh PoSW) grants OPEN-lane
 # eligibility for POSW_LEASE_EPOCHS; to stay present you renew (another PoSW) each period, else you lapse

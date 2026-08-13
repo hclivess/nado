@@ -1,3 +1,62 @@
+# 2026-08-13 (later the same day) — new miners could not join, and auto-bond compounded the wrong coins
+
+> **CONSENSUS FLAG DAY.** `POSW_ANCHOR_OFFSET` moves 30 -> 150 and a new `POSW_TARGET_MARGIN = 90` sizes the
+> proving budget. `validate_transaction` re-derives a registration's PoSW anchor from its own `max_block`, so
+> a node on the old offset computes a different challenge and rejects every honest registration. No compat
+> path, no height gate: update the whole fleet. No reroll — chain state is untouched.
+
+**New miners could not register, and the error said nothing useful.** A `register` lands at *exactly*
+`max_block`, and its anchor (`max_block − POSW_ANCHOR_OFFSET`) must already exist when proving starts — so a
+client targeting `tip+M` can only pick `M ≤ offset`, and `M` blocks was its entire proving budget. That
+budget (30 blocks, 180 s) was never a function of the *work* the difficulty demands, and the two had drifted
+far apart: an entry registration owes `POSW_ENTRY_MULT × rate` = up to 512 × `POSW_T` = 512M sequential
+hashes. Benchmarked against the hasher the miner actually ships:
+
+    WASM blake2b (what the browser uses)     3.17M hashes/sec
+    pure-JS fallback (WASM unavailable)      0.07M hashes/sec      <- 45x cliff
+
+    entry at the 96x that was live (96M)     desktop  30s | mid phone 121s | slow phone 303s   [window 180s]
+
+The phone finished a **perfectly valid proof for a block the chain had already passed**, the submit was
+refused, and the wallet reported *"the relay rejected the registration"*. Offset 150 / margin 90 gives a
+540 s budget and makes the anchor `tip−60` — 60 blocks deep at prove time, which is finally past
+`FINALITY_DEPTH` as the constant's own comment had always claimed. **The anti-Sybil cost does not change by
+a single hash.** The 512× worst case still does not fit on a slow phone; that case only occurs when the rate
+multiplier is pinned at its 16× cap by a sustained registration flood, which is when throttling entry is the
+point.
+
+**Auto-bond compounded coins it was never asked to touch.** It measured "newly-mined earnings" as the rise
+in spendable *balance*, which is not the same thing — it swept up transfers, faucet payouts, bridge
+deposits, and, worst, a **matured `withdraw`**: the coins the operator had just deliberately taken *out* of
+savings went straight back in behind another 24 h timelock, at 99% on a node. Leaving the bonded lane was
+silently self-reversing, once per unbond, forever. Both the node (`core_loop.maybe_auto_bond`) and the
+wallet (`autoBond`) now baseline on `produced` — the consensus counter of what the address actually mined,
+which moves only on a won slot. A clamped bond consumes only the slice of the gain it covered, so the
+remainder stays claimable instead of being written off.
+
+**Also:**
+
+- `/posw_difficulty` answered for a landing block nobody uses (`tip+6`, the CLI's margin) while every browser
+  miner targets `tip+margin` — two anchors that straddle an epoch boundary for 24 of every 60 heights.
+  `posw.verify` is EXACT-T, so whenever the rate multiplier differed across that boundary an honest
+  registration was rejected. Latent while the multiplier sat at 3×; live the moment it stepped to 2×, which
+  it did that afternoon (24/360 heights in the window then disagreed). Callers pass their own `max_block`,
+  and `required_t` now comes from `required_posw_t()` itself rather than a second copy of the formula.
+- `nado_cli register` called that endpoint **bare**, so it never saw the entry multiplier and under-worked
+  every first CLI registration by 32×. `mint_multiplier()` — which returned the rate multiplier alone and was
+  the obvious-looking thing to reach for — is deleted rather than left as a trap.
+- **`nado_cli withdraw`** exists. `unbond` only records a request; the only code that ever finished the exit
+  was the browser wallet's `refreshUnbond()`, so a headless operator who unbonded had no way to claim the
+  coins back at all.
+- The wallet now says when WASM is unavailable (that path cannot finish a registration in any window), and
+  `poswRate()`'s flat 700,000 guess — wrong by 4.5× one way and 10× the other — is seeded from the backend
+  that will actually run.
+- Explorer: an account read the `registered` flag alone and announced *"yes (OPEN-lane miner)"* at an address
+  that was also the largest bonded producer on the chain; lanes are not exclusive. Fidelity was shown out of
+  1000 when `FIDELITY_CAP` is 30, telling a fully-ramped miner it was at 3%.
+
+---
+
 # betanet-3 — 2026-08-13 (carry-forward reroll: dividends folded, fidelity farming closed)
 
 > **Chain reboot with balances carried.** `CHAIN_GENERATION 21`, `CHAIN_ID betanet-3`. Every holder's

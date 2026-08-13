@@ -2257,8 +2257,21 @@ class CoreClient(threading.Thread):
         that percentage of this node's NEWLY-MINED spendable earnings straight into bonded stake — fully
         unattended auto-compounding of the bonded lane. Best-effort; never raises into the core loop.
 
-        Earnings = the increase in our own spendable balance since the last accounted-for baseline. We
-        throttle to at most one auto-bond per epoch (a bond isn't per-block unique-keyed, so we self-
+        EARNINGS ARE MINED COINS, NOT INCOMING COINS. This measured the rise in our spendable BALANCE,
+        which is not the same thing and silently swept up every other credit the account received: a
+        transfer someone sent us, a faucet payout, a bridge deposit — and, worst of all, a matured
+        `withdraw`, i.e. the coins the operator had just deliberately taken OUT of savings. Unbond half
+        your stake and 24h later the withdraw lands, reads as a balance gain, and 99% of it goes straight
+        back into savings behind another 24h timelock. The operator's own instruction to leave the lane
+        was undone by the compounder, once per unbond, forever.
+
+        `produced` is the consensus counter of what this address actually MINED (open + bonded block
+        rewards; increase_produced_count is revert-symmetric, so it tracks reorgs). It moves only when we
+        win a slot, which is exactly the "newly-mined earnings" this feature claims to compound. Received
+        coins do not touch it, so they can no longer be locked up by a background loop that was never
+        asked to touch them.
+
+        We throttle to at most one auto-bond per epoch (a bond isn't per-block unique-keyed, so we self-
         limit to avoid spamming the mempool), accumulate below the AUTO_BOND_MIN_RAW dust floor instead
         of emitting fee-dominated dust txs, and STOP once bonded >= BOND_CAP (extra bond buys no weight,
         so locking more would just freeze coins for nothing)."""
@@ -2272,15 +2285,16 @@ class CoreClient(threading.Thread):
             acc = get_account(self.memserver.address)
             balance = int(acc.get("balance", 0)) if acc else 0
             bonded = int(acc.get("bonded", 0)) if acc else 0
+            mined = int(acc.get("produced", 0)) if acc else 0
             if self.auto_bond_baseline is None:
-                self.auto_bond_baseline = balance       # first observation: only FUTURE earnings bond
+                self.auto_bond_baseline = mined         # first observation: only FUTURE mining bonds
                 return
             if bonded >= BOND_CAP:
-                self.auto_bond_baseline = balance       # already at the weight cap — nothing to gain
+                self.auto_bond_baseline = mined         # already at the weight cap — nothing to gain
                 return
-            gain = balance - self.auto_bond_baseline
+            gain = mined - self.auto_bond_baseline
             if gain <= 0:
-                self.auto_bond_baseline = balance       # balance fell (a prior bond/send landed) — rebaseline
+                self.auto_bond_baseline = mined         # nothing mined since (or a reorg took some back)
                 return
             to_bond = (gain * int(pct)) // 100
             # never bond past the cap (no extra weight), and never bond what we can't pay the fee for
@@ -2301,11 +2315,13 @@ class CoreClient(threading.Thread):
             tx = construct_bond_tx(self.memserver.keydict, to_bond, MIN_TX_FEE, max_block)
             self.memserver.merge_transaction(tx, user_origin=True)
             self.last_auto_bond_epoch = epoch
-            # account for the gain now; the bond+fee will reduce balance in a later block (negative
-            # delta, harmlessly rebaselined). Optimistic baseline = expected post-bond spendable.
-            self.auto_bond_baseline = balance - to_bond - MIN_TX_FEE
+            # Consume only the slice of the mined gain this bond actually covers. When nothing clamped,
+            # that is the whole gain; when the cap or the liquidity reserve cut `to_bond` down, the
+            # remainder stays claimable on a later pass instead of being written off. The baseline can
+            # only ever move FORWARD over mined coins, so a received or withdrawn credit never enters it.
+            self.auto_bond_baseline += min(gain, (to_bond * 100) // int(pct))
             self.logger.info(
-                f"Auto-bond: bonding {to_bond} raw ({pct}% of {gain} new earnings) into the bonded lane "
+                f"Auto-bond: bonding {to_bond} raw ({pct}% of {gain} newly MINED) into the bonded lane "
                 f"(max_block {max_block})")
         except Exception as e:
             self.logger.warning(f"Auto-bond skipped: {e}")
@@ -2542,9 +2558,13 @@ class CoreClient(threading.Thread):
                     return
             from ops import posw
             from ops.block_ops import get_block_hash_by_number
-            from ops.reg_difficulty import mint_multiplier
-            from protocol import POSW_T
-            max_block = self.memserver.latest_block["block_number"] + 4
+            from protocol import POSW_T, POSW_TARGET_MARGIN
+            # tip+4 was 24 s to prove AND land. Fine for a renewal (POSW_T at ~2M h/s here is under a
+            # second), impossible for this node's FIRST registration, which owes the entry multiplier —
+            # 32x the rate requirement, 31 s of proving at today's 2x. The node was quietly relying on
+            # having registered back when the multiplier was 1. Use the same budget every other prover
+            # gets; `register` lands at exactly max_block, so a wider target costs only latency.
+            max_block = self.memserver.latest_block["block_number"] + POSW_TARGET_MARGIN
             anchor = get_block_hash_by_number(max(0, max_block - POSW_ANCHOR_OFFSET))
             if not anchor:
                 return
