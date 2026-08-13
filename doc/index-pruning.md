@@ -86,7 +86,7 @@ read on every block.
 
 ---
 
-## 4. The fix: bound the snapshot payload deterministically
+## 4. THE STANDARD (implemented — protocol.INDEX_RETENTION_NUM / INDEX_RETENTION_HASH)
 
 Filter the carried rows by a window keyed on the **checkpoint height C** — a value every node already
 agrees on, since it is what the snapshot is *of*:
@@ -113,14 +113,54 @@ At 6 s blocks, ten years is 52.6 M blocks:
 
 Bounding `block_by_hash` alone halves the term and is the low-risk half of the change.
 
+### The rule, precisely
+
+A snapshot of checkpoint height **C** carries index rows for heights in **[C − N, C]** and no others:
+
+    block_by_num    N = INDEX_RETENTION_NUM  = 50 000     (~3.5 days; 2.1x the deepest consumer)
+    block_by_hash   N = INDEX_RETENTION_HASH = 10 000     (~17 h;  222x FINALITY_DEPTH)
+
+Three properties make it a standard rather than a setting:
+
+1. **It is a pure function of C.** Every honest node builds a byte-identical payload for the same
+   checkpoint, so `state_digest` and `snapshot_hash` agree regardless of how much history each node
+   happens to hold locally. This is the whole reason the depth cannot be a node policy.
+2. **It is a ceiling AND a floor.** Keeping more is filtered away on export; keeping *less* means the node
+   cannot reproduce the payload and its digest will not match — it is simply not a valid donor. "Prunes to
+   the standard" and "prunes as much as it likes" are different things, and only the first interoperates.
+3. **It is enforced on IMPORT, not just export.** `_payload_triples` re-derives the window from the
+   manifest's own `snapshot_height`, so a donor shipping out-of-window rows has them dropped rather than
+   trusted. A forged `block_by_num` row IS a forged epoch-beacon / PoSW anchor; the filter that stops it
+   must not depend on the donor's good behaviour. Rows *above* C are refused for the same reason — they
+   cannot exist in an honest snapshot of C.
+
+Once the payload is bounded, deleting the local rows below the window is invisible to consensus, so it
+returns to being a node policy: `kv_ops.prune_index_window` runs on the rolling path; an archive node
+never reaches it and keeps the full index, which is its job.
+
+**Two watermarks, not one.** The directions have different depths, so heights between `lo_num` and
+`lo_hash` lose their hash row while the num row must stay. A shared watermark advances past them and their
+num row is never collected once the deeper window catches up — a leak whose only symptom is an index that
+quietly stops shrinking. `prune_index_window` keeps `index_pruned_below_num` and `index_pruned_below_hash`
+separately.
+
 ### Deployment
 
 * **No genesis reroll.** Both stores are root-excluded, so the state root is untouched and existing
   balances/history are unaffected.
 * **It does change `snapshot_hash`.** Nodes on the old rule and the new rule disagree on the digest of the
-  same checkpoint, so this needs a coordinated cut-over. That is the only reason to batch it with another
-  change rather than ship it alone — it is not urgent, and nothing forces it onto any particular reroll.
-* **Order:** land the payload filter first (behind the generation gate), then add local pruning below the
-  window, then re-measure with `tools/sim_disk_growth.py --measure`.
-* **Regression to pin:** a snapshot joiner must still resolve a `POSW_DIFF_TRAIL`-deep hash lookback, and
-  `block_already_indexed` must still reject a replayed tip block. Both are cheap to assert directly.
+  same checkpoint, so this is a coordinated fleet cut-over — the same shape as any other flag day here.
+* **Measured on a 60 000-block chain** (`tests/test_index_pruning_e2e.py`): windowing dropped 50% of the
+  transferred payload, and the joiner still resolved the deepest consensus lookback (`POSW_DIFF_TRAIL x
+  EPOCH_LENGTH` = 24 000 blocks) after import.
+
+### Tests
+
+`tests/test_index_pruning.py` — window arithmetic, determinism across differently-pruned nodes, rejection
+of rows above C, and the local prune against a real LMDB including the two-watermark leak.
+
+`tests/test_index_pruning_e2e.py` — the path that would actually break a fleet: two real node homes at the
+same checkpoint holding different history must emit identical `state_root` / `state_digest` /
+`entry_count` / `snapshot_hash`; a third empty node imports through `import_snapshot()` and ends up with
+exactly the window; an over-pruned node is shown NOT to be a valid donor; and an injected out-of-window row
+is dropped while a row tampered *inside* the window still fails authentication.

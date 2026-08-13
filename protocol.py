@@ -739,6 +739,43 @@ TX_HISTORY_MIN_RETENTION = 5000
 
 HISTORY_RETENTION_BLOCKS = 100_800
 
+# --- NUMBER<->HASH INDEX RETENTION (doc/index-pruning.md) — a PROTOCOL rule, not a node policy ---
+#
+# block_by_num (height -> hash) and block_by_hash (hash -> height) are the only stores that grow forever in
+# EVERY mode: 144 B/block combined, ~7 GiB at ten years of 6 s blocks, and on a fully pruned node they are
+# the dominant term. Bodies plateau once rolling prunes them; these did not.
+#
+# They cannot be pruned as a node POLICY. Both live in kv_ops.SNAPSHOT_DBS and every carried row feeds
+# state_digest, so two nodes that retained different depths emit different snapshot_hash values for the SAME
+# checkpoint and fail quorum agreement — a consensus split produced by a disk-space setting. The rule
+# therefore has to be one every node computes identically, and the only height they all already agree on is
+# the checkpoint height C the snapshot is OF. So: the payload carries [C - N, C], nothing else, for both
+# indexes. Because the window is a pure function of C, every honest node builds a byte-identical payload.
+#
+# Once the PAYLOAD is bounded, pruning the local rows below the window is unobservable to consensus and
+# becomes a node policy again (rolling nodes prune; an archive node keeps everything, which is its job).
+#
+# THE TWO WINDOWS ARE DELIBERATELY DIFFERENT, and that asymmetry is where most of the saving comes from:
+#
+#   block_by_num  — ~20 consumers, and every one of them wants the HASH ITSELF, not a body: the epoch
+#     beacon anchor, FFG epoch-boundary targets, the recert target_hash check, the PoSW anchor at
+#     max_block-POSW_ANCHOR_OFFSET, checkpoint hashes, fork-resolution's height->hash binary search, the
+#     peer hash-at-height service, snapshot manifest verification, and the exec layer's BHASH opcode.
+#     Deepest real consumer: POSW_DIFF_TRAIL (400) * EPOCH_LENGTH = 24 000 blocks, and exec's blockhash
+#     ring is 20 000. 50 000 is ~2x the deepest, with the margin on the side that breaks loudly.
+#
+#   block_by_hash — exactly ONE non-test reader in the tree: block_already_indexed(), the idempotence
+#     guard on incorporate_block ("did we already apply this exact block?"). That question is only ever
+#     asked about a block arriving NOW, so its useful depth is the reorg horizon, FINALITY_DEPTH = 45. A
+#     block offered from 40 000 heights back fails height and parent checks long before the guard is
+#     consulted. 10 000 is ~200x FINALITY_DEPTH — half the permanent index bought back for a tip-local
+#     dedupe check.
+#
+# Changing either value changes snapshot_hash, so it is a coordinated cut-over across the fleet (no reroll:
+# both stores are ROOT_EXCLUDED, so the state root and every balance are untouched).
+INDEX_RETENTION_NUM = 50_000       # heights of height->hash carried/kept (~3.5 days at 6 s)
+INDEX_RETENTION_HASH = 10_000      # heights of hash->height carried/kept (~17 h, ~200x FINALITY_DEPTH)
+
 # --- Mining: TWO-LANE diligence selection (PROVISIONAL — simulate before lock-in) ---
 # Each epoch's slots split into an OPEN lane (anyone, zero coins) and a BONDED lane (locked stake).
 # The split is a beacon-keyed permutation over slot indices, so the open lane is EXACTLY OPEN_BPS

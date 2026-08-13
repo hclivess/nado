@@ -24,6 +24,7 @@ import os
 import shutil
 
 from ops import codec
+from protocol import INDEX_RETENTION_NUM, INDEX_RETENTION_HASH
 
 from ops.data_ops import get_home
 from ops import kv_ops
@@ -253,25 +254,60 @@ SNAPSHOT_PAYLOAD_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_b
 SNAPSHOT_PAYLOAD_EXCLUDED_META_PREFIXES = (b"tvprevE:", b"tvprevW:")
 
 
-def _payload_triples(triples):
+def _index_row_in_window(name, key, value, checkpoint_height):
+    """Is this number<->hash index row inside the carried window for a snapshot of `checkpoint_height`?
+
+    THE STANDARD (protocol.INDEX_RETENTION_NUM / INDEX_RETENTION_HASH, doc/index-pruning.md). These two
+    sub-DBs are the only stores that grow forever in every mode — 144 B/block, ~7 GiB per decade — and they
+    could not be pruned as a node policy because every carried row feeds state_digest: two nodes retaining
+    different depths emit different snapshot_hash values for the SAME checkpoint and fail quorum. So the
+    depth is fixed by a rule keyed on the one height every node already agrees on, the checkpoint height C
+    the snapshot is OF. The window is a pure function of C, so every honest node builds a byte-identical
+    payload — which is what makes local pruning below it unobservable, and therefore allowed.
+
+    Rows AT OR BELOW C only. A row above C cannot exist in an honest snapshot of C, and admitting one would
+    let a donor smuggle a forged future anchor past the filter that exists to stop exactly that.
+
+    Non-index rows are not this function's business and are passed through by the caller."""
+    if checkpoint_height is None:                     # unbounded (tests / callers with no checkpoint)
+        return True
+    if name == "block_by_num":
+        height = int.from_bytes(key, "big")           # key IS the height (8B BE)
+        lo = checkpoint_height - INDEX_RETENTION_NUM
+    elif name == "block_by_hash":
+        height = int.from_bytes(value, "big")         # key is the hash; the VALUE is the height
+        lo = checkpoint_height - INDEX_RETENTION_HASH
+    else:
+        return True
+    return lo <= height <= checkpoint_height
+
+
+def _payload_triples(triples, checkpoint_height=None):
     """The canonical TRANSFER payload: read_state() minus the rows two honest nodes can legitimately differ
-    on. Order-preserving. Everything dropped here is already outside the state root, so state_root is
-    unchanged whether it is computed over the full list or this one."""
+    on, and minus number<->hash index rows outside the retention window for `checkpoint_height`.
+    Order-preserving. Everything dropped here is already outside the state root, so state_root is
+    unchanged whether it is computed over the full list or this one.
+
+    `checkpoint_height` is threaded through BOTH sides on purpose. On export it bounds what we send; on
+    IMPORT it re-derives the same window from the manifest's own snapshot_height, so a donor that ships
+    out-of-window index rows has them dropped rather than trusted — the same reason finalized_height and
+    execsum rows are re-filtered here instead of being taken on faith."""
     return [t for t in triples
             if t[0] not in SNAPSHOT_PAYLOAD_EXCLUDED_DBS
             and not (t[0] == "meta"
                      and (t[1] in SNAPSHOT_PAYLOAD_EXCLUDED_META_KEYS
-                          or t[1].startswith(SNAPSHOT_PAYLOAD_EXCLUDED_META_PREFIXES)))]
+                          or t[1].startswith(SNAPSHOT_PAYLOAD_EXCLUDED_META_PREFIXES)))
+            and _index_row_in_window(t[0], t[1], t[2], checkpoint_height)]
 
 
-def state_digest(triples):
+def state_digest(triples, checkpoint_height=None):
     """blake2b over the FULL canonical (db, key, value) triple list — every row a snapshot carries, INCLUDING
     the ones _root_triples excludes from the consensus root. This is the payload authenticator: it rides in
     manifest_hash, so the quorum-agreed snapshot_hash commits to every transferred byte, while staying
     INVARIANT to how the payload is split into chunks (unlike the chunk sha256 list it replaces, which was
     keyed by the NADO_SNAPSHOT_CHUNK_ROWS env). Order is the caller's canonical sort."""
     h = hashlib.blake2b(digest_size=32)
-    for t in _payload_triples(triples):
+    for t in _payload_triples(triples, checkpoint_height):
         h.update(hashlib.blake2b(_leaf(t), digest_size=32).digest())
     return h.hexdigest()
 
@@ -287,7 +323,7 @@ def build_snapshot(snapshot_height, block_hash, protocol, version, home=None):
     # identifies it) over the canonical payload, so two honest nodes at the same checkpoint emit the
     # identical entry_count / chunks / state_digest / snapshot_hash.
     state_root = merkle_root(_root_triples(triples))
-    payload = _payload_triples(triples)
+    payload = _payload_triples(triples, snapshot_height)
     chunk_bytes, chunk_meta = _pack_chunks(payload)
 
     manifest = {
@@ -301,7 +337,7 @@ def build_snapshot(snapshot_height, block_hash, protocol, version, home=None):
         # manifest_hash + import_snapshot: without this, a donor matching an honest snapshot_hash could
         # substitute arbitrary EXCLUDED rows (a forged finalized_height permanently wedges rollback; a
         # forged block_by_num row forges the epoch-beacon anchor) — entry_count alone is only a count.
-        "state_digest": state_digest(payload),
+        "state_digest": state_digest(payload, snapshot_height),
         "entry_count": len(payload),
         "chunk_count": len(chunk_meta),
         "chunks": chunk_meta,
@@ -394,7 +430,11 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
     # 3) CANONICALIZE the received payload, then verify. Dropping the excluded rows here (rather than
     # trusting the donor to have omitted them) means an injected finalized_height / execsum row can never
     # reach our DB NOR shift entry_count/state_digest — it is simply not part of the identity.
-    triples = _payload_triples(triples)
+    # Re-derive the index window from the manifest's own snapshot_height, exactly as the donor should
+    # have. A donor shipping rows outside it has them dropped here, so they can neither enter our DB nor
+    # shift entry_count/state_digest — the same posture already applied to finalized_height and execsum.
+    _C = int(manifest.get("snapshot_height") or 0) or None
+    triples = _payload_triples(triples, _C)
     triples.sort(key=lambda t: (t[0], t[1], t[2]))
     if len(triples) != manifest["entry_count"]:
         _log(logger, "error", "snapshot entry_count mismatch")
@@ -406,7 +446,7 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
     # the quorum-agreed snapshot_hash could substitute any EXCLUDED row (a forged finalized_height wedges
     # rollback permanently; a forged block_by_num forges the epoch-beacon anchor). entry_count is a count,
     # not a digest, so an in-place value edit keeps it exact. state_digest covers every transferred row.
-    if manifest.get("state_digest") != state_digest(triples):
+    if manifest.get("state_digest") != state_digest(triples, _C):
         _log(logger, "error", "snapshot state_digest mismatch after reassembly (payload tampered)")
         return False
 

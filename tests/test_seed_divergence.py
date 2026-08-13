@@ -362,9 +362,21 @@ def test_snapshot_payload_authenticated():
     # Tamper a root-excluded row that is NOT node-local: block storage. (finalized_height/pruned_below are
     # deliberately outside the digest — honest peers legitimately differ there — and are defended by the
     # import-time CLAMP instead; that is asserted separately below.)
-    poisoned = [(n, k, b"forged-orphan-body" if n == "block_by_hash" else v) for n, k, v in triples]
+    # TAMPER an EXISTING carried row. Seed a real reverse-index row first: since index retention landed
+    # (protocol.INDEX_RETENTION_*), block_by_hash values are read as heights, so a row INJECTED with a
+    # junk value now decodes outside the window and is dropped by _payload_triples rather than reaching
+    # the digest. Dropping an injected row is the stronger outcome — the forgery never touches our DB —
+    # but it is not the case this check is about, which is a donor EDITING a row we would otherwise take.
     if not any(n == "block_by_hash" for n, _, _ in triples):
-        poisoned = poisoned + [("block_by_hash", b"\x01" * 32, b"forged-orphan-body")]
+        kv_ops.block_index_put(0, "a" * 64) if hasattr(kv_ops, "block_index_put") else None
+        def _seed_rev(txn):
+            d = kv_ops._dbs()
+            txn.put((0).to_bytes(8, "big"), b"a" * 64, db=d["block_by_num"])
+            txn.put(b"a" * 64, (0).to_bytes(8, "big"), db=d["block_by_hash"])
+        kv_ops._write(_seed_rev)
+        triples = _payload_triples(read_state())
+        man, _mc = build_snapshot(1000, "bh" * 32, 10, "v1")
+    poisoned = [(n, k, b"forged-orphan-body" if n == "block_by_hash" else v) for n, k, v in triples]
     pchunk = codec.pack([[n, k, v] for n, k, v in poisoned])
     evil = dict(man)                                     # honest core fields, attacker's payload
     evil["chunks"] = [{"id": 0, "sha256": hashlib.sha256(pchunk).hexdigest(),
@@ -375,6 +387,12 @@ def test_snapshot_payload_authenticated():
           evil["snapshot_hash"] == man["snapshot_hash"])
     check("but a payload with a tampered ROOT-EXCLUDED row is REJECTED at import",
           import_snapshot(evil, [pchunk]) is False)
+    # INJECTION (as opposed to editing) of an index row is now DEFUSED rather than rejected: the window
+    # filter drops it, so it shifts neither the digest nor our DB. Weaker-looking, strictly stronger —
+    # a rejected import is a failed sync, a dropped row is an attack that simply did nothing.
+    injected = list(triples) + [("block_by_hash", b"\x02" * 32, b"forged-orphan-body")]
+    check("an INJECTED out-of-window index row is dropped, not trusted",
+          len(_payload_triples(injected, 1000)) == len(_payload_triples(list(triples), 1000)))
 
     # ---- TRANSFER-PAYLOAD CANONICALIZATION (four honest nodes advertised four different snapshot_hashes
     # for identical state_root: two had finalized_height, two did not, and their execsum: sets differed) ----

@@ -1493,6 +1493,74 @@ def block_index_put(block_number: int, block_hash: str):
     _write(_do)
 
 
+def prune_index_window(upto_height: int, keep_num: int, keep_hash: int, max_rows: int = 4000):
+    """Drop number<->hash index rows below the retention window (doc/index-pruning.md). Returns
+    {"num": n, "hash": m} — how many rows each direction lost.
+
+    SAFE ONLY BECAUSE THE SNAPSHOT PAYLOAD IS BOUNDED BY THE SAME RULE. These sub-DBs are in SNAPSHOT_DBS
+    and every carried row feeds state_digest, so before the payload was windowed, a node that pruned them
+    locally would emit a different snapshot_hash for the same checkpoint and fail quorum — a consensus
+    split caused by a disk setting. With snapshot_ops._payload_triples filtering to [C-N, C] on both the
+    export and import sides, rows below the window are outside the snapshot identity, and dropping them
+    locally is unobservable.
+
+    TWO WATERMARKS, because the two directions have DIFFERENT depths (protocol.INDEX_RETENTION_*): 50 000
+    heights of block_by_num for ~20 consensus lookbacks, 10 000 of block_by_hash for one tip-local dedupe
+    guard. A single watermark is wrong and quietly leaks: heights between lo_num and lo_hash have their
+    hash row dropped while the num row must stay, so a shared watermark advances past them and their num
+    row is never collected once the deeper window catches up.
+
+    Both passes iterate block_by_num, which maps height->hash directly, so a hash row is only deleted when
+    we can name it — the reverse index is keyed by hash, and finding a height in it means decoding every
+    value. Each pass is bounded (max_rows) so enabling this on a long chain never stalls the caller."""
+    lo_num = int(upto_height) - int(keep_num)
+    lo_hash = int(upto_height) - int(keep_hash)
+
+    def _do(txn):
+        dbs = _dbs()
+        out = {"num": 0, "hash": 0}
+
+        def _mark_get(key):
+            """Read a watermark INSIDE this txn. meta_get_int/meta_set_int open their own transactions,
+            and LMDB refuses a second write txn on the same thread — the sweep must stay in one."""
+            raw = txn.get(key.encode(), db=dbs["meta"])
+            return int(_unpack(raw)) if raw is not None else 0
+
+        def _mark_set(key, value):
+            txn.put(key.encode(), _pack(int(value)), db=dbs["meta"])
+
+        def _sweep(mark_key, limit, drop):
+            """Walk block_by_num from the watermark up to `limit`, applying `drop(txn, key, hash)`."""
+            if limit <= 0:
+                return 0
+            start = _mark_get(mark_key)
+            if start >= limit:
+                return 0
+            n = last = 0
+            with txn.cursor(db=dbs["block_by_num"]) as cur:
+                if not cur.set_range(be8(max(0, start))):
+                    return 0
+                for k, v in cur.iternext(keys=True, values=True):
+                    h = int.from_bytes(k, "big")
+                    if h >= limit or n >= max_rows:
+                        break
+                    if drop(txn, k, v):
+                        n += 1
+                    last = h
+            # advance only over heights actually visited, so nothing is skipped unswept
+            _mark_set(mark_key, min(last + 1, limit))
+            return n
+
+        # HASH first: its window is shallower, and while the num row still exists we can name the hash.
+        out["hash"] = _sweep("index_pruned_below_hash", lo_hash,
+                             lambda t, k, v: t.delete(bytes(v), db=dbs["block_by_hash"]))
+        # NUM second, deeper. Its rows are what the hash sweep reads, so it must never run ahead of it.
+        out["num"] = _sweep("index_pruned_below_num", lo_num,
+                            lambda t, k, v: t.delete(k, db=dbs["block_by_num"]))
+        return out
+    return _write(_do)
+
+
 def block_index_del(block_number: int, block_hash: str):
     """Delete both directions of the mapping (rollback unindex)."""
     def _do(txn):

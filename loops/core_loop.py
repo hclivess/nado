@@ -2297,6 +2297,16 @@ class CoreClient(threading.Thread):
             # cannot open a replay hole. 0 keeps the floor; archive nodes never reach this code.
             prune_tx_history_window(
                 finalized, getattr(self.memserver, "tx_history_retention_blocks", 0), self.logger)
+            # THE NUMBER<->HASH INDEX, the last store that grew forever in every mode (144 B/block,
+            # ~7 GiB/decade — the dominant term once bodies and tx history are pruned). Its depth is a
+            # PROTOCOL rule, not this node's choice: the snapshot payload carries [C-N, C] by the same
+            # constants, so rows below the window are outside the snapshot identity and dropping them here
+            # cannot move snapshot_hash. Archive nodes never reach this code and keep the full index.
+            from protocol import INDEX_RETENTION_NUM, INDEX_RETENTION_HASH
+            dropped = kv_ops.prune_index_window(finalized, INDEX_RETENTION_NUM, INDEX_RETENTION_HASH)
+            if dropped["num"] or dropped["hash"]:
+                self.logger.info(f"Index prune: dropped {dropped['num']} height->hash and "
+                                 f"{dropped['hash']} hash->height rows below the retention window")
         except Exception as e:
             self.logger.error(f"Rolling-mode prune failed: {e}")
 
