@@ -888,6 +888,36 @@ async function rpcJSON(path, { timeout = 12000, retry = true } = {}) {
 
 // The latest block, or null when the relay is momentarily unreachable (never throws for a blip, so the
 // poll loop just shows "disconnected" and retries next tick instead of logging an error).
+// EXEC-NODE JSON, with rpcJSON's contract. nado-exec is a SEPARATE service, so it restarts, 502s and
+// goes away independently of the relay — and every shielded-pool call reached it as a bare
+// `(await fetch(...)).json()`. On an HTML error page (a restart, a proxy 502, an outage) `.json()` throws
+// a SyntaxError, and the caller's catch printed its raw text:
+//
+//     Shielded-pool error: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+//
+// which names neither the service that is down nor whether it is worth retrying. rpcJSON has handled
+// exactly this for the relay all along; the exec node simply had no equivalent.
+async function execJSON(path, { base = null, method = "GET", body = null, timeout = 15000 } = {}) {
+  const url = (base || execBase()) + path;
+  const opts = method === "GET"
+    ? { method, cache: "no-store" }
+    : { method, cache: "no-store", headers: { "Content-Type": "application/json" }, body };
+  let res;
+  try {
+    res = await fetchWithTimeout(url, opts, timeout);        // already throws RelayUnreachable on network/timeout
+  } catch (e) {
+    throw new RelayUnreachable(i18("exec.unreachable",
+      "the exec node is unreachable right now — try again in a moment"));
+  }
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch {
+    throw new RelayUnreachable(i18("exec.notJson",
+      "the exec node returned no data (HTTP {s}) — it may be restarting; try again in a moment",
+      { s: res.status || "?" }));
+  }
+}
+
 async function getLatestBlock() {
   try { return (await rpcJSON("/get_latest_block")).data; }
   catch (e) { if (isTransient(e)) return null; throw e; }
@@ -3815,6 +3845,10 @@ function randaoSecretFor(epoch) { return blake2bHash([DOMAIN_RANDAO_SECRET, mast
 let _randaoBusy = false;
 const _randaoDead = new Set();     // epochs with a DETERMINISTIC reveal rejection — same inputs give the same
                                    // answer, so a resubmit can never succeed; never send one twice
+// The three rejections that can never change for a given (sender, epoch). Anchored to the node's own
+// assertion text in ops/transaction_ops._validate_reveal_fields — if those strings move, this must too,
+// and the cost of missing one is a duty tx that retries forever and takes the attest + commit down with it.
+const DEAD_REVEAL_RE = /no matching commit for this reveal|does not open the commitment|already revealed for the epoch/i;
 const _dutyDone = {};              // epoch X -> true once our duty tx for X was accepted (no re-submit)
 
 // MERGED EPOCH DUTY (doc/consensus-aggregation.md): the node no longer accepts standalone
@@ -3833,6 +3867,7 @@ async function maybeRandao() {
     const latest = state.latest;
     const X = Math.floor(latest / EPOCH_LENGTH);
     for (const k of Object.keys(_dutyDone)) { if (Number(k) < X) delete _dutyDone[k]; }
+    for (const e of _randaoDead) { if (e < X) _randaoDead.delete(e); }   // its reveal window is long shut
     if (_dutyDone[X]) return;                                   // already accepted this epoch
 
     // COMMITTEE GATE: only seat-holders may post a duty tx — check before broadcasting so a
@@ -3869,9 +3904,36 @@ async function maybeRandao() {
       data.reveal = { target_epoch: X + 1, secret: randaoSecretFor(X + 1) };
     }
 
-    const tx = buildTransferTx(state.wallet, "duty", 0n, 0, tb, data, nowSeconds(), !pubkeyEstablished(acc));
-    const res = await submitTransaction(tx);
-    const msg = String(res.data && (res.data.message || ""));
+    let tx = buildTransferTx(state.wallet, "duty", 0n, 0, tb, data, nowSeconds(), !pubkeyEstablished(acc));
+    let res = await submitTransaction(tx);
+    let msg = String(res.data && (res.data.message || ""));
+
+    // A DEAD REVEAL MUST NOT TAKE THE REST OF THE DUTY WITH IT. The three sections ride in ONE tx, so a
+    // reveal the chain can never accept fails the WHOLE thing — and the attest and the next commit, both
+    // perfectly valid, are lost with it. That is not cosmetic: the validator silently stops attesting for
+    // FFG and stops committing for future epochs, for as long as it keeps retrying.
+    //
+    // And it retries forever. These rejections do not match the "nothing left to post" pattern below, so
+    // _dutyDone[X] is never set and every poll pass resubmits the identical doomed tx. Observed live:
+    // "Epoch duty rejected: Could not merge remote transaction: No matching commit for this reveal",
+    // once a minute, after a node restart cost the wallet its commit for that epoch.
+    //
+    // These are PERMANENT, which is why _randaoDead exists ("a resubmit can never succeed") — and nothing
+    // ever added to it. A commit for epoch E has to be posted in epoch E-2, while the reveal lands in
+    // E-1's finalized window, so by the time a reveal is rejected for a missing commit that window shut an
+    // epoch ago and commit_get(sender, E) stays empty for good. Same for a secret that does not open the
+    // commitment, or one already revealed: identical inputs, identical answer, every time.
+    if (!(res.data && res.data.result) && data.reveal && DEAD_REVEAL_RE.test(msg)) {
+      _randaoDead.add(X + 1);
+      delete data.reveal;                                       // never send this one again
+      log("info", i18("log.dutyRevealDead",
+        "Reveal for epoch {e} cannot be accepted ({m}) — dropping it and posting the rest of the duty.",
+        {e: X + 1, m: msg.replace(/^Could not merge remote transaction:\s*/i, "").slice(0, 70)}));
+      tx = buildTransferTx(state.wallet, "duty", 0n, 0, tb, data, nowSeconds(), !pubkeyEstablished(acc));
+      res = await submitTransaction(tx);
+      msg = String(res.data && (res.data.message || ""));
+    }
+
     if (res.data && res.data.result) {
       _dutyDone[X] = true;
       log("ok", i18("log.dutyOk", "Epoch duty submitted for epoch {e} — bonded lane eligible ✓", {e: X}));
@@ -6491,7 +6553,7 @@ async function renderShield() {
   const bal = notes.filter((n) => !n.spent).reduce((s, n) => s + BigInt(n.value), 0n);
   $("shieldBal").textContent = rawToNado(bal) + " NADO";
   try {
-    const p = await (await fetch(execBase() + "/exec/field_shielded", { cache: "no-store" })).json();
+    const p = await execJSON("/exec/field_shielded");
     $("shieldPool").textContent = i18("shield.poolInfo", "{n} banknotes · root {r}", { n: p.notes, r: (p.root || "").slice(0, 10) + "…" });
   } catch (e) { $("shieldPool").textContent = "—"; }
   claimUnshields(true).catch(() => {});    // seamless: sweep any settled withdrawals into the balance automatically
@@ -6675,10 +6737,10 @@ async function ensureFastStarkHash() {
 // resolves the proof by that commitment from DA and applies it in L1 ORDER — so the shielded pool is
 // reconstructible by the whole bonded quorum. Throws (no fallback) if DA publish or the relay is unavailable.
 async function _daSubmitFieldTransfer(bundle, execBase) {
-  const pr = await fetch(execBase + "/da/publish", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bundle) });
-  if (!pr.ok) throw new Error("DA publish failed (HTTP " + pr.status + ")");
-  const commitment = (await pr.json()).commitment;
+  // Same treatment as the reads: a 200 carrying an HTML error page would otherwise reach .json() and
+  // surface as "Unexpected token '<'" through the generic shielded-pool catch.
+  const commitment = (await execJSON("/da/publish", { base: execBase, method: "POST",
+                                                      body: JSON.stringify(bundle) })).commitment;
   if (!commitment) throw new Error("DA publish returned no commitment");
   if (!state.wallet) throw new Error("no wallet loaded");
   const latest = await getLatestBlock();
@@ -6694,7 +6756,7 @@ async function _daSubmitFieldTransfer(bundle, execBase) {
 async function _onDeviceProve2(wit, execBase) {
   await ensureFastStarkHash();
   ensureShielded();
-  const leaves = (await (await fetch(execBase + "/exec/field_leaves", { cache: "no-store" })).json()).leaves || [];
+  const leaves = (await execJSON("/exec/field_leaves", { base: execBase })).leaves || [];
   const cm = BigInt(wit.cm);
   const idx = leaves.findIndex((l) => BigInt(l) === cm);
   if (idx < 0) throw new Error("note not in the pool yet");
@@ -6919,7 +6981,7 @@ async function doReceiveShielded() {
     const [vB, rB] = code.slice(5).split(".");
     const value = _b36(vB), rho = _b36(rB);
     const cm = alghash.commit(value, shieldOwner(), rho);      // reconstruct the note with YOUR key
-    const info = await (await fetch(execBase() + "/exec/field_shielded?cm=" + cm.toString(), { cache: "no-store" })).json();
+    const info = await execJSON("/exec/field_shielded?cm=" + cm.toString());
     if (info.pos === null || info.pos === undefined) { log("err", i18("shield.noteNotFound", "That banknote isn't in the pool yet — ask the sender to confirm it settled, then retry.")); return; }
     const notes = loadNotes();
     if (notes.some((n) => n.cm === cm.toString())) { log("info", i18("shield.already", "You already have that banknote.")); return; }
@@ -6934,12 +6996,12 @@ async function doReceiveShielded() {
 async function claimUnshields(silent) {
   if (!state.wallet) return;
   try {
-    const r = await (await fetch(execBase() + "/exec/unshields?addr=" + encodeURIComponent(state.wallet.address), { cache: "no-store" })).json();
+    const r = await execJSON("/exec/unshields?addr=" + encodeURIComponent(state.wallet.address));
     const pending = r.unshields || [];
     if (!pending.length) { if (!silent) $("shieldStatus").textContent = i18("shield.noClaims", "No pending withdrawals for this address."); return; }
     let claimed = 0;
     for (const u of pending) {
-      const pr = await (await fetch(execBase() + "/exec/unshield_proof?nonce=" + encodeURIComponent(u.nonce), { cache: "no-store" })).json();
+      const pr = await execJSON("/exec/unshield_proof?nonce=" + encodeURIComponent(u.nonce));
       if (pr.error || !pr.proof) continue;
       const latest = await getLatestBlock(); const target = latest.block_number + 8;
       const data = { addr: pr.addr, amount: pr.amount, nonce: pr.nonce, proof: pr.proof };
