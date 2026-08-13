@@ -421,3 +421,70 @@ SSRF, injection, deserialization, eclipse, forum SQLi) all verified HARDENED.
   `>=0` gates, `_has_float`, big-ints), supply inflation (block_reward equality-enforced + range,
   conserved splits), balance underflow (fails closed via `floor_zero` raise), fee-exempt value carry
   (all assert amount==0), settlement-oracle/escrow caps.
+
+---
+
+# Addendum — 2026-08-13, pre-reroll exploit sweep
+
+Two findings from re-auditing the economic surface before a balance-carrying reroll. Both matter more
+than usual in that context: **carrying balances forward makes an exploit's proceeds permanent.**
+
+## FIXED — Fidelity was farmable to the cap in 3 hours
+
+`FIDELITY_GAIN` was awarded per continuous **recert**, and the only spacing rule anywhere was
+`validate_transaction`'s "one register per epoch" — an epoch being **6 minutes**. So the ramp `protocol.py`
+described as "consecutive recerts (~days)" reached `FIDELITY_CAP = 30` in 30 epochs, lifting open weight
+from 2 to 10 — a **5x multiplier on both open-lane producer selection and the presence dividend** — for
+~1 s of sequential PoSW per recert on a **fee-exempt** transaction.
+
+Fixed by `FIDELITY_MIN_GAP_EPOCHS = 192` (`a1faab61`), height-gated at epoch 862 so the dividend's
+historical replay stays byte-identical. **Measured exploitation: none.** `total_open_weight /
+open_registry_size` was **2.27** against a maximum of 10.0 (117 miners, weight 266), i.e. essentially
+every identity sat at fidelity 1. Balances were therefore safe to carry.
+
+## OPEN — the open-lane Sybil bound is weaker than documented, and the dividend is the prize
+
+**Claim being audited:** `protocol.py` says fidelity "is only a ~5x open-weight booster, NOT the Sybil
+bound (the 30% lane cap is)". The 30% cap bounds the lane's *share of blocks*. It does not bound one
+actor's share *of that lane*, and the presence dividend is distributed by the same weight.
+
+**Every registered, present identity earns `OPEN_BASE_FLOOR = 2` regardless of anything else.** So an
+actor's take of the open lane is `2N / (honest_weight + 2N)`. Against the measured honest weight of 266:
+
+| target share of the open lane | identities | daily PoSW at 1x | at the 16x cap |
+|---|---|---|---|
+| 25% | 44 | 0.7 core-min | 11.8 core-min |
+| 50% | **133** | **2.2 core-min** | 35.5 core-min |
+| 75% | 399 | 6.7 core-min | 106.4 core-min |
+| 90% | 1197 | 20.0 core-min | 319.2 core-min |
+
+That share applies to open-lane block production **and** to the presence dividend — which is the larger
+prize: **70% of every open block plus 20% of every bonded block** (`OPEN_TIP_BPS = 2000`,
+`BONDED_DIVIDEND_BPS = 2000`). PoSW is sequential *per proof* but trivially parallel across identities, so
+the cost is core-minutes per day, not a barrier.
+
+**The registration difficulty ramp does not close it.** `difficulty_multiplier` is
+`recent_20_epochs // baseline` capped at `POSW_DIFF_MAX_MULT = 16`. An actor onboarding gradually keeps
+`recent` near the baseline and stays at **1x** indefinitely; even the cap only makes it 16 s per identity
+per day.
+
+**The 64-per-IP limit is NOT a consensus rule.** `ops.ratelimit.allow_registration` is called from exactly
+one place — `nado.py:493`, the HTTP submission handler. It appears nowhere in `ops/transaction_ops.py`
+validation. A registration that bypasses it (submitted to a different node, from a different IP, or
+gossiped straight to peers) is **fully valid and accepted by every node**. It is admission policy on one
+door, not a property of the chain.
+
+**Whether it is currently being exploited is UNKNOWN.** 117 open miners at an average weight of 2.27 is
+equally consistent with 117 honest fresh identities and with a farm — the two are indistinguishable from
+aggregate state. Distinguishing them needs per-address registration-timing and payout clustering, which
+no endpoint currently exposes.
+
+**Directions, none implemented:**
+- make the per-identity cost recurring in *capital* rather than only in CPU (even a dust bond to enter the
+  open lane changes the economics), or
+- move the IP/range budget into consensus so it binds every node, or
+- make `OPEN_BASE_FLOOR` sub-linear in identity count per payout epoch, or
+- accept it explicitly as a documented property with the dividend sized accordingly.
+
+Do not treat this as fixed by the fidelity patch — that patch removed the *5x accelerator*, not the
+*flat-floor-per-identity* economics underneath it.
