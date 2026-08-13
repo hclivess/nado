@@ -1124,6 +1124,34 @@ GC_MAX_PER_EPOCH = 2000                  # per-boundary work bound (rows+account
 # a ramp it stopped paying for. It is only a ~5x open-weight booster, NOT the Sybil bound (the 30% lane cap is).
 FIDELITY_CAP = 30                  # consecutive recerts (~days) to fully ramp the open bonus
 FIDELITY_GAIN = 1                  # per continuous recert
+
+# FIDELITY WAS FARMABLE, and this is the fix. The gain above is per RECERT, and the only spacing rule
+# anywhere is validate's "one register per epoch" — an epoch being 6 minutes. So the ramp the comment
+# describes as "≈ days of continuous presence" could be completed in 30 epochs = 3 HOURS by recerting
+# every epoch, taking open weight from 2 to 10 (a 5x producer-selection AND presence-dividend multiplier)
+# for nothing but a ~1 s sequential PoSW each time — `register` is fee-exempt. Reported by a user who saw
+# their fidelity rise by 4 in one day and asked why the documentation said 1.
+#
+# The signal is meant to measure ELAPSED CONTINUOUS PRESENCE, so a gain now also requires the recert to be
+# spaced at least this far from the previous one. A closer recert still RENEWS THE LEASE (presence is
+# unaffected, nobody is dropped for renewing early) — it simply earns no ramp. 192 epochs is exactly the
+# browser miner's own renewal trigger (80% of the 240-epoch lease) and the node renews at 230, so both
+# honest paths are untouched; only recerting faster than the lease requires stops paying.
+#
+# This also makes the documented rule true. doc/become-a-validator.md already told users "renewing early
+# just pays the sequential proof more often for nothing" — which was FALSE under the old code, because
+# early renewal bought +1 fidelity. It is true now.
+FIDELITY_MIN_GAP_EPOCHS = 192
+
+# HEIGHT-GATED, and it MUST be. dividend_ops.fidelity_at_epoch REPLAYS an address's whole recert history
+# to reconstruct its weight as of a past epoch, and that reconstruction has to stay byte-identical to what
+# the live ramp actually applied — a fraud proof that recomputed it differently would FALSE-SLASH an
+# honest settler (doc/presence-dividend.md). Changing the rule unconditionally would silently rewrite
+# every historical weight. So the new spacing requirement applies only to recerts at/after this epoch, and
+# both the live path (account_ops.apply_register) and the replay (dividend_ops.fidelity_at_epoch) consult
+# the same gate. Set ahead of the fleet so every node is updated before it bites; epoch 382 was live when
+# this landed, and an epoch is 6 minutes, so this is ~2 days out.
+FIDELITY_MIN_GAP_ACTIVATION_EPOCH = 862
 # deepest recert-row lookback any WEIGHT reconstruction needs (see the idle-GC note above):
 # a run longer than this is fidelity-capped, so pre-horizon rows can never change open_shares.
 SATURATION_LOOKBACK_EPOCHS = (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS

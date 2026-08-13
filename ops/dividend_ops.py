@@ -14,7 +14,8 @@ immutable, revert-safe recert history — so we replay the exact ramp `apply_reg
 `fidelity_at_epoch` MUST stay byte-identical to that ramp (ops/account_ops.apply_register) — a fraud proof
 that miscomputes it would false-slash honest settlers. test_dividend_fidelity.py pins the two together.
 """
-from protocol import POSW_LEASE_EPOCHS, FIDELITY_GAIN
+from protocol import (POSW_LEASE_EPOCHS, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS,
+                      FIDELITY_MIN_GAP_ACTIVATION_EPOCH)
 from ops import kv_ops
 from ops.mining_ops import open_shares
 
@@ -27,7 +28,12 @@ def fidelity_at_epoch(address: str, epoch: int) -> int:
     prev = -1
     for r in kv_ops.recert_epochs(address, upto_epoch=epoch):    # ascending, only recerts <= epoch
         continuous = prev >= 0 and (r - prev) <= POSW_LEASE_EPOCHS
-        fid = (fid + FIDELITY_GAIN) if continuous else FIDELITY_GAIN   # lapse/first -> reset to GAIN
+        # MUST MIRROR account_ops.apply_register EXACTLY, activation gate included — this replay is what a
+        # dividend fraud proof checks against, so any divergence false-slashes an honest settler.
+        gain = FIDELITY_GAIN
+        if continuous and r >= FIDELITY_MIN_GAP_ACTIVATION_EPOCH and (r - prev) < FIDELITY_MIN_GAP_EPOCHS:
+            gain = 0
+        fid = (fid + gain) if continuous else FIDELITY_GAIN            # lapse/first -> reset to GAIN
         prev = r
     return fid
 

@@ -175,9 +175,21 @@ Coins are irrelevant here. What moves it is **fidelity**, the continuity streak:
 - **a lapse resets fidelity to 1** — not to zero, but the whole ramp is lost;
 - it saturates at `FIDELITY_CAP = 30`.
 
-Since a renewal happens about once a day, going from a fresh identity (weight 2) to maximum (weight 10)
-takes roughly **30 days of unbroken presence**. That 5x is the entire reward for staying present, and it
-is why churned or rotated identities never catch up with a node that simply stays up.
+**Fidelity counts RECERTS, not days.** This document previously said reaching maximum weight "takes
+roughly 30 days of unbroken presence". That describes what the *default miners* do, not what the protocol
+requires. The only spacing rule is **one recert per epoch** — and an epoch is 6 minutes — so 30 recerts
+can be spread over 30 days or packed into **3 hours**. Registration is also fee-exempt, so the only cost
+is the sequential proof-of-work, whose difficulty rises with recent registration *volume across the
+network* (`ops/reg_difficulty.py`), not with how often you personally recert.
+
+Two practical consequences:
+
+- **If your fidelity jumped by more than 1 in a day, nothing is wrong** — your wallet recerted more than
+  once. Each recert is +1.
+- **Two identities present for the same wall-clock time can have very different weight** (2 vs 10, a 5x
+  spread) purely from recert frequency. Weight 10 pays 5x the dividend share of weight 2.
+
+That is worth knowing when comparing your rewards against someone else's.
 
 **Fidelity is paid twice.** The same weight also sets your slice of the **presence dividend** — most of
 every open-lane block streams into a dividend pool that is split by exactly this `open_shares()` weight
