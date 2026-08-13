@@ -82,8 +82,25 @@ the numbers are only small because nobody is using contracts yet.
 2. **Decide explicitly about contract-held positions.** They cannot be carried (the contracts are
    redeployed empty). Either drain them first, or announce that open positions are void — but do not
    discover it afterwards.
-3. **Redeploy all contracts in the SAME session as the reroll.** A reroll wipes all of them and the
-   failure is silent: the website keeps its cids and every call reverts against nothing.
+3. **Redeploy all contracts in the SAME session as the reroll** — but note what that does and does not
+   involve. A reroll wipes every contract, and until they are redeployed each call reverts against
+   nothing, silently. What it does **not** require is rewiring the website: **contract ids are
+   deterministic**. `ExecState.contract_id` is `H(deployer, code, nonce)` and the deploy nonce is PINNED
+   (`execnode/games/deploy.py --nonce`, default `a5`), so the same deployer key + unchanged code
+   reproduces byte-identical cids across a genesis reroll. Every hardcoded cid in `static/*.js` stays
+   valid.
+
+   `python3 -m execnode.games.redeploy` is idempotent on exactly that basis: it computes every target cid
+   offline, deploys only what is missing, then rewires and restamps. `--check` reports without touching
+   anything — verified on betanet-2, 26/26 up to date, every frontend + reward-table cid resolving.
+
+   Two things that DO move a cid, and therefore break the wiring: changing the contract's **code**, or
+   deploying from a **different key**. Both are ordinary reasons to redeploy; neither is caused by the
+   reroll itself.
+
+   Contracts are deployed **upgradable** (`upgradable: True` on all 27 live today, one deployer), so a
+   code change afterwards goes through `deploy.py --upgrade <cid>` and keeps the cid and its storage —
+   never a fresh deploy, which would strand the address.
 4. **Re-check every height/epoch-gated constant** — see [`SCHEDULED_CLEANUPS.md`](../SCHEDULED_CLEANUPS.md).
    Epoch numbering restarts, so an activation constant that was 2 days out lands weeks into the new chain
    and silently leaves the old behaviour live until then. In particular
