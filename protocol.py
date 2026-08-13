@@ -27,7 +27,8 @@ if not __debug__:
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "betanet-2"  # BETANET (gen 20): re-cut after the gen-19 launch split; balances still zero
+CHAIN_ID = "betanet-3"  # BETANET (gen 21): the CARRY-FORWARD reroll — balances, dividends and bridged
+                        # coins fold forward from betanet-2 (genesis_data/genesis_alloc.dat)
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -61,7 +62,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1786471500  # betanet-2 (gen 20): re-cut after the gen-19 split. New DISTINCT
+GENESIS_TIMESTAMP = 1786617600  # betanet-3 (gen 21): the carry-forward reroll. New DISTINCT
                                 # timestamp so no prior-generation block links in.
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
@@ -522,7 +523,7 @@ POSW_ENTRY_MULT = 32
 #   so a minority can never start the chain. New CHAIN_ID + GENESIS_TIMESTAMP so the split gen-19 chains
 #   cannot linger in fork choice. Balances remain ZERO (empty alloc); prefixless producer set unchanged.
 #   OPERATIONAL: redeploy the game contracts after regenesis (the gen-19 deploys died with that chain).
-CHAIN_GENERATION = 20
+CHAIN_GENERATION = 21
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
