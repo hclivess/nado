@@ -16,7 +16,14 @@ REPRODUCED (2026-08-13, 60 MiB loopback ext4, fetch run as the unprivileged serv
     fatal: unable to write loose object file: No space left on device
     fatal: unpack-objects failed
 
-Two details that make it sneakier than "disk full":
+DISK WAS NOT THE FLEET'S CAUSE. The reproduction matched the STRING, not this incident: once the new
+telemetry shipped, 89.143.197.28 reported 1424 GiB free and was still failing intermittently. git prints
+"fatal: unpack-objects failed" whenever the unpack-objects CHILD fails for ANY reason — ENOSPC, inode
+exhaustion, or an OOM-kill — with nothing to tell them apart. The cause on these hosts is still UNKNOWN;
+all three are now measured so the next occurrence names itself rather than earning another hypothesis.
+Intermittency (the same node fetches fine on a retry minutes later) fits memory pressure, not a full disk.
+
+Two details that make the disk case sneakier than "disk full":
   1. The write that fails is a LOOSE OBJECT. git takes the unpack-objects path whenever an incoming pack
      holds fewer than transfer.unpackLimit (default 100) objects — which is every push this project makes —
      so ordinary fetches land in git's most space-hungry form. Measured on the dev checkout: 2030 loose
@@ -79,6 +86,18 @@ def main():
           abs(free - (st.f_bavail * st.f_frsize) / (1024 * 1024)) < 1.0)
     check("f_bavail really is the stricter number (or equal, if unreserved)",
           st.f_bavail <= st.f_bfree)
+
+    # ---- BYTES ARE NOT THE ONLY WAY THIS FAILS --------------------------------------------------------
+    # 89.143.197.28 reported 1424 GiB free while every fetch died with "unpack-objects failed". git prints
+    # that whenever the unpack-objects CHILD fails for ANY reason, so the message cannot distinguish
+    # ENOSPC from inode exhaustion from an OOM-kill. All three are recorded so the next failure names
+    # itself instead of inviting another hypothesis.
+    r = su.updatability(probe_remote=False)
+    check("inodes are measured (one loose object = one FILE; the worst consumer this node has)",
+          "free_inodes" in r["checks"] or not os.statvfs(su._REPO_DIR).f_files)
+    check("available memory is measured (an OOM-killed child reports the same string)",
+          "mem_available_mb" in r["checks"])
+    check("...and a healthy host trips none of them", not r["blocking"])
 
     # ---- thresholds are ordered and sane --------------------------------------------------------------
     check("warn threshold is above the blocking one", su._DISK_WARN_MB > su._DISK_BLOCKING_MB)

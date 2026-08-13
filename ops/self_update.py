@@ -389,6 +389,11 @@ def updatability(probe_remote=True) -> dict:
     # space-hungry form git has. (2) ext4 reserves 5% for root, so the SERVICE USER hits the wall while
     # df still shows space and a root shell can write happily: the same fetch that fails under systemd
     # succeeds when an operator tries it by hand, which sends them looking anywhere but here.
+    # BYTES ARE ONLY ONE OF THE THREE WAYS THIS WRITE FAILS, and on this fleet they were the wrong one:
+    # 89.143.197.28 reported 1424 GiB free while every fetch died with "unpack-objects failed". git prints
+    # that whenever the unpack-objects CHILD fails, for ANY reason, with no distinguishing detail — so the
+    # message alone cannot tell ENOSPC from ENOSPC-on-inodes from an OOM-kill. Record all three; a single
+    # observation at the next failure then names the cause instead of inviting another hypothesis.
     try:
         st = os.statvfs(_REPO_DIR)
         free_mb = (st.f_bavail * st.f_frsize) / (1024 * 1024)      # f_bavail = free to a NON-root user
@@ -400,9 +405,40 @@ def updatability(probe_remote=True) -> dict:
         elif free_mb < _DISK_WARN_MB:
             warnings.append(f"low disk: {free_mb:.0f} MiB free on the checkout filesystem "
                             f"(fetch starts failing under ~{_DISK_BLOCKING_MB} MiB)")
+
+        # INODES. A filesystem with terabytes free still cannot create a file once it is out of inodes,
+        # and the unpack-objects path is the single worst consumer this node has: it writes ONE FILE PER
+        # OBJECT. f_favail is 0 on filesystems that do not report inodes (btrfs, some overlays) — absence
+        # is not exhaustion, so only a positive total is judged.
+        if st.f_files:
+            checks["free_inodes"] = st.f_favail
+            if st.f_favail < 10_000:
+                blocking.append(f"only {st.f_favail} inodes free on the checkout filesystem — git cannot "
+                                f"create objects no matter how many bytes are free")
+            elif st.f_favail < 100_000:
+                warnings.append(f"low inodes: {st.f_favail} free on the checkout filesystem")
     except Exception as e:
         checks["free_disk_mb"] = None
         warnings.append(f"could not read free disk space: {type(e).__name__}: {e}")
+
+    # MEMORY. git spawns unpack-objects as a child; if the OOM killer takes it, git reports exactly the
+    # same "fatal: unpack-objects failed". That fits what this fleet shows better than disk does — the
+    # failure is INTERMITTENT (the same node fetches successfully on a retry minutes later), which is what
+    # memory pressure looks like and is not what a full disk looks like. Unproven, which is the point of
+    # recording it: nothing here could distinguish the two before.
+    try:
+        info = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                k, _, v = line.partition(":")
+                info[k] = int(v.split()[0]) if v.split() and v.split()[0].isdigit() else 0
+        avail_mb = info.get("MemAvailable", 0) / 1024
+        checks["mem_available_mb"] = round(avail_mb, 1)
+        if avail_mb and avail_mb < 128:
+            warnings.append(f"low memory: {avail_mb:.0f} MiB available — git's unpack-objects child can be "
+                            f"OOM-killed, which surfaces as 'unpack-objects failed'")
+    except Exception:
+        checks["mem_available_mb"] = None
 
     # LAST FETCH OUTCOME. updatability() is pure inspection and cannot fetch, so a repo that is fine
     # locally looks fine here even when every fetch fails. check_and_update records its verdict; surface
