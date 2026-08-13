@@ -691,6 +691,27 @@ except Exception as _e:                                # never let a cache file 
     print(f"[execnode] fold cache: load skipped ({type(_e).__name__}: {_e})", flush=True)
 
 
+_fold_saved_at = [0.0, 0]        # [monotonic of last save, cache size at that save]
+FOLD_SAVE_MIN_INTERVAL = 300     # seconds; the file is ~1.5 MB at production size, so this is cheap
+FOLD_SAVE_MIN_GROWTH = 64        # ...and only worth rewriting when meaningfully more folds exist
+
+
+def _maybe_persist_fold_cache():
+    """Persist on a throttle. HOOKED TO BLOCK APPLICATION, not to proving: the cache is filled by any
+    SparseStore.root(), which every applied block performs, whereas a BUILT settle proof can go hours
+    without occurring (0 in the last 2000 log lines when this was written). Tying the save to proving
+    would have meant the cold-start win almost never materialised."""
+    import time as _t
+    from execnode.stark import storage_tree as _STT
+    now = _t.monotonic()
+    n = len(_STT._FOLD_CACHE)
+    if now - _fold_saved_at[0] < FOLD_SAVE_MIN_INTERVAL or n - _fold_saved_at[1] < FOLD_SAVE_MIN_GROWTH:
+        return 0
+    written = _persist_fold_cache()
+    _fold_saved_at[0], _fold_saved_at[1] = now, n
+    return written
+
+
 def _persist_fold_cache():
     """Write the fold cache back so the NEXT process starts warm. Best-effort by construction: a failure
     costs a cold rebuild after the next restart and nothing else."""
@@ -1388,7 +1409,8 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # after a completed prove is now named: this line, the self-check line above, the DA publish/FAILED
     # lines, or the REFUSED retry.
     print(f"[execnode] settle-with-proof BUILT ns={ns} span {sc}->{cur} — self-checks passed", flush=True)
-    # The fold cache is at its most complete right here, so this is where it is worth writing out.
+    # The cache is at its most complete right here, so force a write regardless of the throttle. The
+    # routine save is on block application (_maybe_persist_fold_cache) — see the note there.
     _persist_fold_cache()
     # 6a. ATTACH THE RECORDS HALF, if the span moved it. The three fields are exactly what
     # ops/transaction_ops.py reads: the transition, the claimed post root, and the PRE projection that
@@ -2484,6 +2506,7 @@ async def tail_loop():
                     print(f"[execnode] +{applied} block(s) → cursor {state.cursor} · "
                           f"root {state.state_root()[:16]}… · {len(state.contracts)} contract(s)"
                           + (f" · +{len(states)-1} rollup ns" if len(states) > 1 else ""), flush=True)
+                    _maybe_persist_fold_cache()
                     if SETTLE:
                         # NEVER AWAIT SETTLING FROM THE TAIL. maybe_settle can spend MINUTES proving, and
                         # awaiting it here stops block application for that whole time — the tail is a
