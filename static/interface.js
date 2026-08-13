@@ -317,7 +317,19 @@ function validateAddress(addr) {
 // [a-z0-9_-], so the two are only ambiguous for an all-hex name of exactly that length — which the
 // address test wins, since an address is what a user would mean by it.
 const isAddressShaped = (s) => typeof s === "string" && s.length === ADDR_LEN && /^[0-9a-f]+$/i.test(s);
-function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/i.test(s || "") && !isAddressShaped(s || ""); }
+// RESERVED NAMES ARE NOT ALIASES. `faucet` and `bridge` are protocol-reserved recipients that take an
+// ordinary positive-amount transfer (transaction_ops: "Faucet donation amount must be positive" /
+// "Bridge deposit amount must be positive"), but they also match the alias shape — so the send path
+// resolved them as aliases and refused with `Alias "faucet" is not registered.` Nobody can ever register
+// them either, because they are reserved, so the lookup could never start succeeding.
+// Kept to the names that genuinely accept a plain value transfer: every other reserved recipient
+// (bond/unbond/register/attest/…) has its own flow and its own tx shape, and typing one into the send box
+// should still be rejected rather than silently sent.
+const SENDABLE_RESERVED = new Set(["faucet", "bridge"]);
+const isSendableReserved = (s) => SENDABLE_RESERVED.has(String(s || "").trim().toLowerCase());
+function looksLikeAlias(s) {
+  return /^[a-z][a-z0-9_-]{2,31}$/i.test(s || "") && !isAddressShaped(s || "") && !isSendableReserved(s);
+}
 // i18n helper for dynamic (JS-set) strings — translates via i18n.js's window.t, English fallback.
 function i18(k, fb, vars) { return (typeof window !== "undefined" && window.t) ? window.t(k, fb, vars) : (fb != null ? fb : k); }
 async function resolveAlias(name) {
@@ -334,6 +346,11 @@ async function validateSendTo() {
  const v = ($("sendTo").value || "").trim().toLowerCase();
   if (!v) { setMsg("sendToMsg", "", null); return; }
   if (validateAddress(v)) { setMsg("sendToMsg", i18("sto.valid", "✓ valid address"), "ok"); return; }
+  // A reserved recipient is valid as typed — looksLikeAlias already excludes these, but say so plainly
+  // rather than falling through to "invalid", which is what a user sending to the faucet would have read.
+  if (isSendableReserved(v)) {
+    setMsg("sendToMsg", i18("sto.reserved", "✓ reserved name — sends directly to {n}", { n: v }), "ok"); return;
+  }
   if (looksLikeAlias(v)) {
     setMsg("sendToMsg", i18("sto.resolving", "resolving alias…"), null);
     const owner = await resolveAlias(v);
@@ -341,7 +358,7 @@ async function validateSendTo() {
     setMsg("sendToMsg", owner ? `${i18("sto.aliasPre","✓ alias →")} ${_abShort(owner)}` : `${i18("sto.aliasNoPre","✗ alias")} “${v}” ${i18("sto.aliasNoSuf","is not registered")}`, owner ? "ok" : "err");
     return;
   }
-  setMsg("sendToMsg", i18("sto.invalid", "✗ invalid — a 46-char address or a registered alias name"), "err");
+  setMsg("sendToMsg", i18("sto.invalid", "✗ invalid — a 46-char address, a registered alias, or a reserved name"), "err");
 }
 
 // ADDRESS BOOK: every recipient you send to (alias or address) is remembered in localStorage, offered
@@ -397,12 +414,12 @@ function _abRow(x) {
 async function saveCurrentContact() {
   let to = ($("sendTo").value || "").trim().toLowerCase(); let alias = "";
   if (!to) { setMsg("sendMsg", "Enter an address or alias to save.", "err"); return; }
-  if (!validateAddress(to) && looksLikeAlias(to)) {
+  if (!validateAddress(to) && !isSendableReserved(to) && looksLikeAlias(to)) {
     const owner = await resolveAlias(to);
     if (!owner) { setMsg("sendMsg", `Alias "${to}" is not registered.`, "err"); return; }
     alias = to; to = owner;
   }
-  if (!validateAddress(to)) { setMsg("sendMsg", "Enter a valid address or a registered alias to save.", "err"); return; }
+  if (!validateAddress(to) && !isSendableReserved(to)) { setMsg("sendMsg", "Enter a valid address, a registered alias, or a reserved name to save.", "err"); return; }
   const label = await uiPrompt({ title: i18("ab.nameIt", "Name this contact (optional):"), placeholder: alias || "e.g. Alice" });
   if (label === null) return;
   addrBookAdd(to, (label || "").trim() || alias);
@@ -2910,13 +2927,13 @@ async function doSend() {
   // recipient), while a valid address is lowercase hex anyway — so "Alice" sends to "alice".
   const recipient = $("sendTo").value.trim().toLowerCase();
   let resolvedOwner = null;
-  if (!validateAddress(recipient)) {
+  if (!validateAddress(recipient) && !isSendableReserved(recipient)) {
     if (looksLikeAlias(recipient)) {
       setMsg("sendMsg", `Resolving alias "${recipient}"…`, null);
       resolvedOwner = await resolveAlias(recipient);
       if (!resolvedOwner) { setMsg("sendMsg", `Alias "${recipient}" is not registered.`, "err"); return; }
     } else {
-      setMsg("sendMsg", i18("msg.badRecipient", "Invalid recipient — a 46-char address or a registered alias name."), "err"); return;
+      setMsg("sendMsg", i18("msg.badRecipient", "Invalid recipient — a 46-char address, a registered alias, or a reserved name (faucet, bridge)."), "err"); return;
     }
   }
   let rawAmount;
@@ -5694,7 +5711,7 @@ async function msigPropose() {
         const owner = await resolveAlias(recipient);
         if (!owner) { setMsg("msigProposeMsg", i18("msig.aliasMissing", "That alias isn't registered."), "err"); return; }
       } else {
-        setMsg("msigProposeMsg", i18("msg.badRecipient", "Invalid recipient — a 46-char address or a registered alias name."), "err"); return;
+        setMsg("msigProposeMsg", i18("msg.badRecipient", "Invalid recipient — a 46-char address, a registered alias, or a reserved name (faucet, bridge)."), "err"); return;
       }
     }
     let rawAmount;
