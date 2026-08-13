@@ -13,7 +13,7 @@ os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_regdiff_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.getLogger().addHandler(logging.NullHandler())
 
-from protocol import POSW_T, POSW_S, POSW_K, POSW_DIFF_FLOOR, POSW_DIFF_WINDOW, POSW_DIFF_MAX_MULT
+from protocol import POSW_T, POSW_S, POSW_K, POSW_DIFF_FLOOR, POSW_DIFF_WINDOW, POSW_DIFF_MAX_MULT, POSW_ENTRY_MULT
 from ops import posw
 from ops import reg_difficulty as rd
 
@@ -67,14 +67,31 @@ def t5_window_bounds():
     assert rd.difficulty_multiplier(E) == 1, "out-of-window epoch must not count"
 
 def t6_mint_is_strict():
-    """The mint-side multiplier IS the strict consensus requirement — no mirror, no other mode."""
+    """What a prover mints IS the strict consensus requirement — no mirror, no second mode.
+
+    This used to assert that of mint_multiplier(), which returned the RATE multiplier ALONE. That made it
+    the wrong thing for a prover to mint from: an ENTRY registration also owes POSW_ENTRY_MULT, so anything
+    following it under-worked a first registration by 32x and had the proof rejected by every node (which
+    is exactly what nado_cli did). The function is gone; required_posw_t() is the single answer to "what
+    does this registration owe", and it takes the SENDER because the answer depends on them."""
     orig = rd.difficulty_multiplier
     rd.difficulty_multiplier = lambda e: 3
+    orig_entry = rd.is_entry_registration
     try:
-        assert rd.mint_multiplier(100, 10_000) == 3
-        assert rd.mint_multiplier(100, 10_000_000) == 3
+        assert not hasattr(rd, "mint_multiplier"), \
+            "mint_multiplier is deleted on purpose — it omits the entry multiplier"
+        # a RENEWAL owes the rate multiplier only
+        rd.is_entry_registration = lambda s, e: False
+        assert rd.required_posw_t(100, "renewer") == POSW_T * 3
+        # an ENTRY owes the rate multiplier AND the entry multiplier
+        rd.is_entry_registration = lambda s, e: True
+        assert rd.required_posw_t(100, "newcomer") == POSW_T * 3 * POSW_ENTRY_MULT
+        # asked with NO sender it can only report the rate part — the display path. A prover that mints
+        # from this (the nado_cli bug) under-works every entry.
+        assert rd.required_posw_t(100) == POSW_T * 3
     finally:
         rd.difficulty_multiplier = orig
+        rd.is_entry_registration = orig_entry
 
 for t in (t1_normal_load_is_1x, t2_flood_ramps_difficulty, t3_capped_at_max, t4_anchor_epoch_excluded,
           t5_window_bounds, t6_mint_is_strict):

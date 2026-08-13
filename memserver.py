@@ -1,4 +1,5 @@
 import asyncio
+import os
 import queue
 import threading
 
@@ -215,6 +216,10 @@ class MemServer:
         self.auto_collect_dividend = _flag("NADO_AUTO_COLLECT", "auto_collect_dividend", True)
         # rolling-mode tx-history window (0 = the protocol floor); read here so the core loop's prune pass
         # sees an operator override without re-reading config on every block.
+        # `os` was never imported here, so this raised NameError on EVERY boot — swallowed by the bare
+        # `except Exception` below, which quietly pinned the retention to 0. Neither the env var nor the
+        # config key had any effect on any node, and nothing said so. (Found by test_no_undefined_names,
+        # which is exactly the omission that test exists for.)
         try:
             self.tx_history_retention_blocks = int(
                 os.environ.get("NADO_TX_HISTORY_RETENTION")

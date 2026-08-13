@@ -169,8 +169,13 @@ def apply_stale_checkout(now=None):
         if t - seen[1] < _STALE_MIN_AGE:
             return {"status": "observing", "running": run, "repo": repo,
                     "for_s": round(t - seen[1], 1)}
+        # _schedule_restart, not _restart_services — the latter has never existed, so this raised
+        # NameError and the outer handler reported {"status": "error"} instead of restarting. The
+        # self-heal was dead in a way that HID itself: _stale_acted[0] is set on the line above, so
+        # after the first failure every later pass short-circuits to "already_restarted" for a restart
+        # that never happened. Found by test_no_undefined_names.
         _stale_acted[0] = repo
-        services = _restart_services()
+        services = _schedule_restart()
         return {"status": "restarting", "running": run, "repo": repo, "services": services}
     except Exception as e:
         return {"status": "error", "reason": f"{type(e).__name__}: {e}"}
