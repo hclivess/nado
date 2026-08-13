@@ -17,7 +17,15 @@ WHAT MUST NOT HAPPEN, which is what these checks are mostly about:
     native crate) — it must act at most once per head;
   • firing on a checkout observed mid-`git merge`, before HEAD has moved.
 
-These are called, not grepped, with _restart_services monkeypatched so nothing is actually restarted.
+These are called, not grepped, with _schedule_restart monkeypatched so nothing is actually restarted.
+
+A NOTE ON WHY THAT NAME MATTERS. This file used to patch `SU._restart_services`, a function that has never
+existed in the module. Python resolves globals at CALL time, so assigning it here CREATED it — which made
+the production call site `services = _restart_services()` resolve under test and raise NameError everywhere
+else. The stale-checkout self-heal was dead in production for as long as this file was green, and it hid
+the failure too: `_stale_acted[0]` is set on the line ABOVE the call, so after the first NameError every
+later pass short-circuited to "already_restarted" for a restart that never happened. Patch the function
+that is actually called, and assert the phantom name stays absent.
 
 Run: python3 tests/test_stale_checkout_restart.py
 """
@@ -53,7 +61,11 @@ def setup(running, repo, dirty=False):
     SU.running_head = lambda: running
     SU.repo_head = lambda: repo
     SU.working_tree_dirty = lambda: dirty
-    SU._restart_services = lambda: (restarts.append(True) or ["nado", "nado-exec", "forum"])
+    # patch what the code CALLS. Creating a name the module does not have would resurrect the exact
+    # trap described in the docstring: a green test over a production NameError.
+    assert not hasattr(SU, "_restart_services"), \
+        "self_update._restart_services is a phantom — the real function is _schedule_restart"
+    SU._schedule_restart = lambda: (restarts.append(True) or ["nado", "nado-exec", "forum"])
 
 
 def t_current_checkout_does_nothing():
