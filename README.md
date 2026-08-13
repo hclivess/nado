@@ -911,6 +911,10 @@ shape is unchanged (49 chars).
   default sink is burn.**
 - **Consensus hardening plan** — [`doc/consensus-hardening-plan.md`](doc/consensus-hardening-plan.md):
   the locked, ordered design for the remaining security milestones.
+- **Scheduled cleanups** — [`SCHEDULED_CLEANUPS.md`](SCHEDULED_CLEANUPS.md): activation gates and
+  migration shims that are correct today and deletable at a stated chain height, each with the reason the
+  *earlier* cleanup is a bug. Check it after any genesis reroll — height numbering restarts and every
+  activation constant in it becomes wrong.
 - **Storage design** — [`doc/storage-kv-migration.md`](doc/storage-kv-migration.md).
 - **Execution-layer instructions** — [`doc/exec-instructions.md`](doc/exec-instructions.md): every blob op
   (deploy/call/upgrade/lock with `value` escrow, bridge/dividend, emit, privacy) with params + how to submit

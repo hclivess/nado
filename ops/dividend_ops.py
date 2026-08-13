@@ -33,6 +33,7 @@ def fidelity_at_epoch(address: str, epoch: int) -> int:
         # DO NOT "clean up" the gate when the rule goes live: this loop replays PRE-activation recerts too,
         # and dropping the branch would reconstruct historical weights that were never applied. It is
         # deletable only at epoch 10_862 — see the note on FIDELITY_MIN_GAP_ACTIVATION_EPOCH in protocol.py.
+        # SCHEDULED-CLEANUP: epoch 10_862 (block 651_720) — see SCHEDULED_CLEANUPS.md #1.
         gain = FIDELITY_GAIN
         if continuous and r >= FIDELITY_MIN_GAP_ACTIVATION_EPOCH and (r - prev) < FIDELITY_MIN_GAP_EPOCHS:
             gain = 0

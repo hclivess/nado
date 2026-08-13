@@ -649,6 +649,7 @@ def apply_register(address: str, epoch: int, logger, revert=False):
         # keep the two in lockstep or a fraud proof false-slashes an honest settler. The gate is NOT
         # scaffolding to remove once the rule is live; it is deletable only at epoch 10_862 (see
         # FIDELITY_MIN_GAP_ACTIVATION_EPOCH in protocol.py).
+        # SCHEDULED-CLEANUP: epoch 10_862 (block 651_720) — see SCHEDULED_CLEANUPS.md #1.
         gain = FIDELITY_GAIN
         if continuous and epoch >= FIDELITY_MIN_GAP_ACTIVATION_EPOCH and (epoch - prev) < FIDELITY_MIN_GAP_EPOCHS:
             gain = 0

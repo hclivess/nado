@@ -1163,7 +1163,8 @@ FIDELITY_MIN_GAP_ACTIVATION_EPOCH = 862          # = block 51_720
 # RECERT_HISTORY_EPOCHS = 10_000 (~6 weeks; the GC in nado.py trims below E - SATURATION_LOOKBACK_EPOCHS,
 # which is smaller, so 10_000 is the conservative bound). So:
 #
-#     safe to delete at epoch 862 + 10_000 = 10_862   (block 651_720, ~42 days after activation)
+#     SCHEDULED-CLEANUP: safe to delete at epoch 862 + 10_000 = 10_862  (block 651_720, ~42 days after
+#     activation). Tracked in SCHEDULED_CLEANUPS.md — remove the entry only when the code goes.
 #
 # At that point both branches can go and the spacing becomes unconditional. Before it, they cannot.
 #
