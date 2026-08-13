@@ -2446,7 +2446,10 @@ class CoreClient(threading.Thread):
             if not anchor:
                 return
             # strict v2 requirement — the one and only difficulty mode
-            req_t = POSW_T * mint_multiplier(self.memserver.latest_block["block_number"], max_block)
+            # Mint at the FULL consensus requirement — rate multiplier AND entry multiplier. Using only
+            # the rate part would under-work every first registration and have it rejected by every node.
+            from ops.reg_difficulty import required_posw_t as _req_t
+            req_t = _req_t(epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET)), self.memserver.address)
             proof = posw.prove(posw.challenge_bytes(self.memserver.address, anchor), T=req_t, S=POSW_S, k=POSW_K)
             tx = construct_register_tx(self.memserver.keydict, max_block, proof)
             self.memserver.merge_transaction(tx, user_origin=True)

@@ -1034,7 +1034,10 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # STRICT at every height — no compatibility (policy): deployed as the PROTOCOL 4 flag day.
         from ops.reg_difficulty import required_posw_t
         from ops.mining_ops import epoch_of
-        req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)))
+        # SENDER IS REQUIRED: the requirement now includes the ENTRY multiplier, which is a function of
+        # this sender's own recert history as of the anchor epoch (reg_difficulty.is_entry_registration).
+        req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)),
+                                transaction["sender"])
         assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
                            req_t, POSW_S, POSW_K), "Invalid registration PoSW (or below the required difficulty)"
         # ONE RECERT PER EPOCH (revert-symmetry / anti-fork): apply_register records the recert at

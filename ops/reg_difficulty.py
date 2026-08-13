@@ -44,7 +44,7 @@ STRICT, NO COMPATIBILITY (policy): every node computes the identical v3 requirem
 deployed as the PROTOCOL 4 flag day (old-rules nodes are shed at the handshake), never as a compat path
 in consensus code.
 """
-from protocol import (POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
+from protocol import (POSW_ENTRY_MULT, POSW_ENTRY_ACTIVATION_EPOCH, POSW_LEASE_EPOCHS, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
                       POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH)
 
 
@@ -82,10 +82,43 @@ def difficulty_multiplier(anchor_epoch: int) -> int:
     return min(POSW_DIFF_MAX_MULT, max(1, recent // baseline))
 
 
-def required_posw_t(anchor_epoch: int) -> int:
+def is_entry_registration(sender: str, anchor_epoch: int) -> bool:
+    """True if `sender` held NO valid presence lease as of `anchor_epoch` — a NEW identity (or one that let
+    its lease lapse) ENTERING the open lane, rather than an established one renewing.
+
+    DETERMINISM, which is the whole difficulty of putting this in consensus. Every input is settled chain
+    state that both the prover and every validator read identically:
+      * `anchor_epoch` is derived from the tx's own max_block (minus POSW_ANCHOR_OFFSET), so it is a
+        FINALIZED past epoch, not a moving target;
+      * the recert history is the snapshot-carried, state_root-validated recert index, read only as far
+        back as POSW_LEASE_EPOCHS (240) — far inside any GC horizon, so a snapshot-booted node and a
+        from-genesis node agree (the failure mode that split betanet-6; see the v2/v3 notes above);
+      * it depends ONLY on the sender's own recerts, which only the sender can extend and only once per
+        epoch — so nothing another actor does can change the answer between prove-time and land-time.
+    """
+    if anchor_epoch < 0:
+        return True
+    from ops import kv_ops                              # local, mirroring chain_register_count above
+    hist = kv_ops.recert_epochs(sender, upto_epoch=anchor_epoch)
+    if not hist:
+        return True                                    # never registered -> entry
+    return (anchor_epoch - hist[-1]) > POSW_LEASE_EPOCHS   # lease had lapsed -> re-entry
+
+
+def entry_multiplier(sender, anchor_epoch: int) -> int:
+    """POSW_ENTRY_MULT for a new/lapsed identity, else 1. Gated on POSW_ENTRY_ACTIVATION_EPOCH so proofs
+    minted before the rule remain valid and historical blocks re-validate unchanged."""
+    if sender is None or anchor_epoch < POSW_ENTRY_ACTIVATION_EPOCH:
+        return 1
+    return POSW_ENTRY_MULT if is_entry_registration(sender, anchor_epoch) else 1
+
+
+def required_posw_t(anchor_epoch: int, sender=None) -> int:
     """The CONSENSUS number of sequential PoSW steps a registration anchored in `anchor_epoch` must prove =
-    POSW_T × difficulty_multiplier. Recomputed by every node in validation and enforced against the proof."""
-    return POSW_T * difficulty_multiplier(anchor_epoch)
+    POSW_T × rate multiplier × entry multiplier. Recomputed by every node in validation and enforced against
+    the proof. `sender` is optional only so callers that merely want to DISPLAY the rate multiplier (the
+    /posw_difficulty endpoint with no address) keep working; validation always passes it."""
+    return POSW_T * difficulty_multiplier(anchor_epoch) * entry_multiplier(sender, anchor_epoch)
 
 
 def mint_multiplier(tip_height: int, max_block: int) -> int:

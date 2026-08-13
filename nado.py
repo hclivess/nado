@@ -1240,10 +1240,11 @@ async def get_posw_difficulty(request):
     # Current registration PoSW difficulty (doc/ip-spoofing-and-sybil.md): the CONSENSUS multiplier + required
     # sequential-step count for a registration anchored at the current finalized anchor epoch. The wallet reads
     # this to (a) prove at the right difficulty and (b) show the user the expected wait ("×N due to a spike").
+    addr = _q(request, "address", "") or None
     def _work():
         """Compute the difficulty a prover should use RIGHT NOW (worker thread) — the strict v2
         chain-derived requirement; there is no other mode."""
-        from ops.reg_difficulty import difficulty_multiplier, _window_count
+        from ops.reg_difficulty import difficulty_multiplier, _window_count, entry_multiplier
         from ops.mining_ops import epoch_of
         from protocol import POSW_T, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW
         try:
@@ -1254,8 +1255,14 @@ async def get_posw_difficulty(request):
         anchor_epoch = epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET))
         mult = difficulty_multiplier(anchor_epoch)
         recent = _window_count(anchor_epoch - POSW_DIFF_WINDOW, anchor_epoch - 1)
+        # ENTRY MULTIPLIER — a FIRST (or post-lapse) registration must prove POSW_ENTRY_MULT x more work.
+        # The wallet computes its PoSW client-side, so it has to be TOLD: called without `address` this
+        # endpoint can only report the rate multiplier, and a new miner proving at that would under-work
+        # its very first proof and be rejected by every node. Renewals are unaffected (multiplier 1).
+        emult = entry_multiplier(addr, anchor_epoch) if addr else 1
         return {"block_number": h, "anchor_epoch": anchor_epoch, "multiplier": mult,
-                "base_t": POSW_T, "required_t": POSW_T * mult,
+                "base_t": POSW_T, "required_t": POSW_T * mult * emult,
+                "entry_multiplier": emult, "is_entry": emult > 1,
                 "recent_registrations": recent, "window_epochs": POSW_DIFF_WINDOW}
     return _resp(await asyncio.to_thread(_work))
 

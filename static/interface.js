@@ -522,15 +522,24 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   return buildRegisterTx(state.wallet, targetBlock, proof, nowSeconds());
 }
 
-// Current registration difficulty from the relay: {reqT, mult, recent}. Falls back to base (1× normal load).
-async function registrationDifficulty() {
+// Current registration difficulty from the relay: {reqT, mult, recent, entryMult}. Falls back to base.
+//
+// THE ADDRESS MATTERS. required_t now folds in the ENTRY multiplier — a first registration (or one after
+// the lease lapsed) must prove POSW_ENTRY_MULT× more sequential work than a renewal. That is a function of
+// THIS address's recert history, so the relay cannot answer it without being told who is asking; called
+// bare it reports the rate multiplier only, and a new miner proving at that would under-work its very
+// first proof and be rejected by every node. Renewals get entry_multiplier 1 and are unchanged.
+async function registrationDifficulty(address) {
   try {
-    const r = await fetch(relayBase() + "/posw_difficulty", { cache: "no-store" });
+    const q = address ? "?address=" + encodeURIComponent(address) : "";
+    const r = await fetch(relayBase() + "/posw_difficulty" + q, { cache: "no-store" });
     const d = await r.json();
     const t = Number(d.required_t);
-    if (t >= POSW_T && t % POSW_S === 0) return { reqT: t, mult: Number(d.multiplier) || 1, recent: Number(d.recent_registrations) || 0 };
+    if (t >= POSW_T && t % POSW_S === 0) return { reqT: t, mult: Number(d.multiplier) || 1,
+                                                  entryMult: Number(d.entry_multiplier) || 1,
+                                                  recent: Number(d.recent_registrations) || 0 };
   } catch (e) { /* older node / offline → base difficulty */ }
-  return { reqT: POSW_T, mult: 1, recent: 0 };
+  return { reqT: POSW_T, mult: 1, entryMult: 1, recent: 0 };
 }
 // Rolling estimate of this device's sequential-hash rate (hashes/sec), so the wait ETA is device-calibrated.
 function poswRate() { const r = parseFloat(localStorage.getItem("nado_posw_rate") || ""); return (r > 0 && isFinite(r)) ? r : 700000; }
@@ -1383,7 +1392,7 @@ async function maybeRenewLease(acc) {
       const latest = await getLatestBlock();
       if (!latest || typeof latest.block_number !== "number") return;
       const tx = await computeRegisterTx(latest.block_number + POSW_TARGET_MARGIN, null,
-        (await registrationDifficulty()).reqT);   // quiet: no UI takeover; still prove at the required difficulty
+        (await registrationDifficulty(state.wallet.address)).reqT);   // quiet: no UI takeover; still prove at the required difficulty
       const res = await submitTransaction(tx);
       if (res.data && res.data.result) { log("ok", i18("log.leaseRenewed", "Presence lease renewed ✓")); return; }
       lastMsg = (res.data && res.data.message) || "";
@@ -1468,13 +1477,18 @@ async function submitRegistration() {
 
   // compute the registration Proof of SEQUENTIAL Work (non-parallelizable ~1 s chain, replaces hashcash)
   // Registration difficulty (consensus, scales with load) + a device-calibrated wait estimate, shown up front.
-  const diff = await registrationDifficulty();
+  const diff = await registrationDifficulty(state.wallet.address);
   const etaSec = Math.max(1, Math.ceil(diff.reqT / poswRate()));
   setStartBtnBusy(i18("mine.registering", "Registering…"));
   const busyNote = diff.mult > 1
     ? " " + i18("reg.difficultyHigh", "Network is busy — ×{m} difficulty from {n} recent registrations.", { m: diff.mult, n: diff.recent })
     : "";
-  setRegBanner(i18("reg.computingEta", "Computing your one-time registration proof — about {s}s on this device.", { s: etaSec }) + busyNote + REASSURE);
+  // A FIRST registration costs ×POSW_ENTRY_MULT (anti-Sybil: creating an identity is dear, keeping one is
+  // cheap). Say so, or a ~30s one-off wait reads as the app hanging — renewals after this are ~1s.
+  const entryNote = (diff.entryMult || 1) > 1
+    ? " " + i18("reg.entryCost", "This is a one-time joining proof (×{m}) — renewals are much faster.", { m: diff.entryMult })
+    : "";
+  setRegBanner(i18("reg.computingEta", "Computing your one-time registration proof — about {s}s on this device.", { s: etaSec }) + busyNote + entryNote + REASSURE);
   showRegProgress(i18("reg.computingLabel", "Registering — computing sequential proof-of-work…"), i18("reg.starting", "starting…"));
   let tx;
   const t0 = Date.now();

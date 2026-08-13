@@ -319,6 +319,33 @@ POSW_DIFF_WINDOW = 20        # recent-registration window (epochs) whose rate se
 POSW_DIFF_TRAIL = 400        # longer trailing window defining the "normal" rate baseline (~2 days)
 POSW_DIFF_FLOOR = 20         # min baseline registrations/window (prevents tiny-network over-sensitivity + div-by-0)
 POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (bounds honest-user cost)
+
+# ENTRY COST — the consensus-enforceable half of "one device may not onboard thousands of identities".
+#
+# The 64-per-IP cap (ops.ratelimit.allow_registration) is called from ONE place: nado.py's HTTP submission
+# handler. It is admission policy on one door, not a rule of the chain — a registration submitted to a
+# different node, from a different IP, or gossiped straight to peers is fully valid and every node accepts
+# it. IT CANNOT BE MADE CONSENSUS: a transaction carries no IP (sender/pubkey/posw/signature only), and
+# transactions arrive by GOSSIP, so the address a node observes is the RELAYING PEER, not the originator.
+# Different nodes would compute different answers for the same block — the exact non-determinism class that
+# has wedged this chain before. A self-declared IP field would be forgeable and free to vary.
+#
+# What IS consensus-checkable is the sender's OWN recert history. So the cost is moved to identity
+# CREATION: a register from an address with no valid lease as of the anchor epoch (a new identity, or one
+# that let its lease lapse) pays POSW_ENTRY_MULT x the base sequential work; an established identity
+# RENEWING pays the base. That is the right shape for anti-Sybil — creation dear, presence cheap — and it
+# leaves the open lane capital-free, which is the point of the lane.
+#
+# Sizing: at the measured honest weight (266 across 117 miners), 133 identities take half the open lane and
+# half the presence dividend. At 32x that is ~71 core-minutes of one-time work instead of ~2, and it
+# COMPOSES with the rate multiplier (up to 16x), so a burst pays up to 512x base each.
+# It depends only on the sender's own history, which only the sender can extend and only once per epoch,
+# so prover and validator cannot disagree between prove-time and land-time.
+POSW_ENTRY_MULT = 32
+
+# Same activation epoch as the fidelity spacing rule ON PURPOSE: two consensus changes at one height means
+# ONE divergence point for any node that fails to update, not two. See SCHEDULED_CLEANUPS.md.
+POSW_ENTRY_ACTIVATION_EPOCH = 862
 # CHAIN GENERATION (genesis-reroll flag, ops/data_ops.py): each generation is ONE GENESIS LINEAGE —
 # bump this in the SAME commit as a genesis reroll (nothing to do with the 60-block consensus epochs).
 # Every node stamps the generation its on-disk data was built under; on boot after an update, a mismatch
