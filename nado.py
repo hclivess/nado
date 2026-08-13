@@ -2239,6 +2239,32 @@ except Exception as e:
 memserver = MemServer(logger=logger)
 
 logger.info(f"NADO version {memserver.version} started")
+
+# AN ARCHIVE NODE THAT SNAP-SYNCED IS NOT AN ARCHIVE. snapshot_bootstrap backfills only
+# REWARD_WINDOW + 2*EPOCH_LENGTH + FINALITY_DEPTH bodies behind its anchor and nothing older, EVER — so a
+# node that boots that way with archive=true keeps everything from its snapshot forward and has nothing
+# before it, while advertising itself as the peer that can serve history.
+#
+# We do NOT refuse snapshot sync to fix that, and the reason matters: rolling is the default now, so within
+# one retention window no peer will hold deep bodies to serve. Forcing a from-genesis replay would not
+# produce a full archive, it would produce a node that can never sync at all. The honest move is to say
+# what this node actually is, once, loudly, at boot — an operator who wants a TRUE archive has to sync
+# from genesis while some peer still serves it, or copy an existing archive's data directory.
+try:
+    if getattr(memserver, "archive", False):
+        _eb = memserver.earliest_block if isinstance(memserver.earliest_block, dict) else {}
+        _from = int(_eb.get("block_number") or 0)
+        if _from > 1:
+            logger.warning("=" * 78)
+            logger.warning(f"ARCHIVE MODE, BUT THIS NODE'S HISTORY STARTS AT BLOCK {_from}.")
+            logger.warning("  It was bootstrapped from a snapshot, so the bodies below that height were")
+            logger.warning("  never downloaded and never will be. It archives everything from here FORWARD;")
+            logger.warning("  it cannot serve the chain before it. Peers reading node_type=archive will")
+            logger.warning("  expect otherwise. For a true archive: sync from genesis while a peer still")
+            logger.warning("  serves those bodies, or copy an existing archive node's data directory.")
+            logger.warning("=" * 78)
+except Exception:
+    pass                                    # a diagnostic must never keep the node from starting
 logger.info(f"Your address: {memserver.address}")
 logger.info(f"Your IP: {memserver.ip}")
 
