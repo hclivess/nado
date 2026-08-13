@@ -9,13 +9,15 @@ earnings model that is wrong, or a balance that has collapsed while a loop keeps
 account with nobody watching. Halving bounds the worst single unattended mistake to something a human can
 still recover from.
 
-It applies to the committed TOTAL (amount + fee), not the fee alone. Auto-bond moves real value, and while
-bonded coins remain the owner's they sit behind the unbond timelock and cannot pay for anything meanwhile —
-so "it's still yours" is not a reason to exempt it.
+SCOPE: it governs OUTFLOWS (fees). Auto-bond is exempt on purpose — bonding moves coins between the
+owner's own columns and returns after the unbond timelock, so it is not a spend; it is bounded by a
+liquidity reserve instead. That distinction is load-bearing: applying the ceiling to auto-bond capped a
+99% setting at ~50% for fresh nodes, throttling exactly the nodes trying to reach BOND_CAP.
 
 WHAT THESE CHECKS PIN: the boundary itself (exactly half is allowed, one raw unit more is not), that it
 fails CLOSED on degenerate inputs rather than dividing by zero or waving through a zero-balance account,
-and that both spending paths in the loop actually consult it — a ceiling nothing calls is decoration.
+and that each path consults the rule that actually applies to it — a ceiling nothing calls is decoration,
+and a ceiling on the wrong path is worse than none.
 """
 import os
 import sys
@@ -68,9 +70,15 @@ def main():
             b = src[i:src.index("def " + end, i)]
             return "\n".join(l.split("#", 1)[0] for l in b.splitlines())
 
+        # AUTO-BOND IS DELIBERATELY EXEMPT FROM THE CEILING. It is not an outflow — coins move between the
+        # owner's own columns and return after the unbond timelock. Applying the half-rule here silently
+        # capped a 99% auto-bond at ~50% for fresh nodes (whose new earnings ARE most of their balance),
+        # i.e. it would have throttled exactly the nodes trying to reach BOND_CAP. It gets a LIQUIDITY
+        # RESERVE instead: always leave enough behind to keep paying fees.
         bond = body("maybe_auto_bond", "maybe_auto_collect")
-        check("auto-bond consults the ceiling", "auto_spend_allowed" in bond)
-        check("auto-bond weighs amount PLUS fee against it", "to_bond + MIN_TX_FEE" in bond)
+        check("auto-bond is NOT gated by the outflow ceiling", "auto_spend_allowed" not in bond)
+        check("auto-bond keeps a liquidity reserve", "AUTO_COLLECT_MIN_RAW" in bond)
+        check("auto-bond still guarantees it can pay its own fee", "MIN_TX_FEE" in bond)
 
         vote = body("maybe_auto_vote", "maybe_auto_register")
         check("auto-vote consults the ceiling", "auto_spend_allowed" in vote)

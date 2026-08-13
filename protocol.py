@@ -675,10 +675,27 @@ AUTO_BOND_MIN_RAW = AUTO_MIN_FEE_MULTIPLE * MIN_TX_FEE     # 0.001 NADO at defau
 # accrual just keeps growing fee-free until it's worth a tx.
 AUTO_COLLECT_MIN_RAW = AUTO_MIN_FEE_MULTIPLE * MIN_TX_FEE  # 0.001 NADO at defaults: smallest sweep-worthy dividend
 # Default auto-bond percentage applied when the operator/user has NOT chosen one (fresh node config,
-# a browser with no saved preference, a new desktop wallet). 80 = route 80% of newly-mined spendable
+# a browser with no saved preference, a new desktop wallet). Route this % of newly-mined spendable
 # earnings into bonded stake out of the box, so miners join the capital-gated bonded lane hands-free
 # without ever touching a setting. Still fully overridable (config / env / UI), and 0 explicitly = off.
-AUTO_BOND_DEFAULT_PERCENT = 80
+#
+# WHY 99 AND NOT 80 — the percentage does not decide who leads, BOND_CAP does, and a HIGHER percentage
+# reaches that equaliser sooner for everyone. Measured on betanet-2's distribution (leader 33 of 42
+# shares), time to reach the 1000 NADO cap:
+#
+#     pct    leader     1-share node    fresh node
+#     20%     6.0 d        294.6 d        5952 d
+#     80%     1.5 d         73.7 d        1488 d
+#     99%     1.2 d         59.5 d        1203 d
+#
+# The leader caps almost immediately at ANY setting — it out-earns the field 33x, so no dial stops it
+# arriving first. What the dial actually controls is how fast EVERYONE ELSE reaches the same ceiling, and
+# past the cap extra stake buys no weight at all. So the setting that most limits how long one node can
+# run ahead is the highest one that still leaves a node able to pay its fees — hence 99, with the
+# liquidity reserve in core_loop.maybe_auto_bond holding back what a node needs to keep transacting.
+#
+# Note this is a CLIENT DEFAULT, not consensus: wallets and operators override it freely.
+AUTO_BOND_DEFAULT_PERCENT = 99
 
 # --- Rolling mode / history retention (NON-CONSENSUS node-local policy; see doc/rolling-mode-and-da.md) ---
 # A "rolling" (pruned) node keeps STATE + a window of recent block BODIES and drops older bodies, so the

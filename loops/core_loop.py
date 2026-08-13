@@ -85,18 +85,21 @@ DEAD_FORK_ESCALATE_AFTER = 3
 
 
 
-# NO AUTOMATED OPERATION MAY COMMIT MORE THAN HALF THE SPENDABLE BALANCE IN ONE ACTION.
+# NO AUTOMATED OPERATION MAY SPEND MORE THAN HALF THE SPENDABLE BALANCE IN ONE ACTION.
 #
-# Operator rule, and a hard ceiling rather than a heuristic: whatever an unattended path decides to do —
-# pay a fee, move coins into stake — it may never put more than 50% of what the node can spend behind a
-# single transaction. The point is not today's numbers (every automated tx here is currently a rounding
-# error against any node's balance); it is that these paths compute their amounts from EARNINGS, and an
-# earnings model that is wrong, or a balance that has collapsed, must not be able to empty an account
-# unattended. Halving bounds the worst single mistake to something a human can still recover from.
+# Operator rule, and a hard ceiling rather than a heuristic: an unattended path may never put more than 50%
+# of what the node can spend behind a single transaction. Not for today's numbers (every automated tx here
+# is a rounding error against any node's balance) but because these paths size themselves from EARNINGS,
+# and an earnings model that is wrong — or a balance that collapsed while a loop kept running — must not be
+# able to empty an account with nobody watching.
 #
-# Applies to the committed TOTAL (amount + fee), not the fee alone: auto-bond moves real value, and while
-# bonded coins remain the owner's they are locked behind the unbond timelock and cannot pay for anything
-# meanwhile.
+# SPEND MEANS OUTFLOW, AND AUTO-BOND IS NOT ONE. An earlier revision applied this to auto-bond's
+# amount+fee, which was a scoping error with a real consequence: auto-bond takes a percentage of NEWLY
+# MINED coins, and for a fresh node new earnings ARE most of the balance — so at a high auto-bond percent
+# the ceiling would have silently refused the bond on exactly the nodes trying to reach BOND_CAP, quietly
+# turning a 99% setting into ~50%. Bonding moves coins between the owner's own columns and returns after
+# the unbond timelock; a fee is gone. So the ceiling governs fees, and auto-bond is governed instead by a
+# LIQUIDITY RESERVE: it must leave enough behind to keep paying for things.
 AUTO_SPEND_MAX_FRACTION = 2          # 1/2 of the spendable balance
 
 
@@ -2284,8 +2287,13 @@ class CoreClient(threading.Thread):
             to_bond = min(to_bond, BOND_CAP - bonded)
             if to_bond < AUTO_BOND_MIN_RAW or balance < to_bond + MIN_TX_FEE:
                 return                                  # accrue (don't rebaseline) until it's worth a tx
-            if not auto_spend_allowed(balance, to_bond + MIN_TX_FEE):
-                return                                  # >half the balance in ONE action — see the rule at module scope
+            # LIQUIDITY RESERVE, not the half-ceiling (see the module note): bonding is not an outflow,
+            # but a node still has to be able to pay fees afterwards — collect_dividend, a treasury
+            # vote — and bonded coins are behind a 24h timelock. Never bond the node broke.
+            if balance - (to_bond + MIN_TX_FEE) < AUTO_COLLECT_MIN_RAW:
+                to_bond = balance - MIN_TX_FEE - AUTO_COLLECT_MIN_RAW      # bond what we can, keep the reserve
+                if to_bond < AUTO_BOND_MIN_RAW:
+                    return
             # tip+2 gave this tx ~12s to reach every producer before its landing block was built. Blocks are
             # deterministic, so producers that had not seen it yet assembled a DIFFERENT block — an auto-bond
             # minted right after a node restart forked betanet-12 at h12506. See RESERVED_TX_MARGIN.
