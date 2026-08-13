@@ -89,10 +89,15 @@ def _load() -> dict:
         with open(_stats_path()) as f:
             data = json.load(f)
         if isinstance(data, dict) and isinstance(data.get("days"), dict):
-            if data.get("chain") == now:
+            stamp = data.get("chain")
+            if stamp == now or stamp is None:
+                # ADOPT an UNSTAMPED file instead of discarding it. A missing stamp means the file was
+                # written by a build from before stamping existed — that is an UPGRADE, not a reroll, and
+                # throwing it away would silently wipe every node's accumulated trend history on a routine
+                # update. Only a stamp that is PRESENT AND DIFFERENT proves a different genesis lineage.
+                data["chain"] = now
                 return data
-            # different genesis lineage (or a pre-stamp file): start this chain's history clean
-            return {"chain": now, "last_height": 0, "days": {}}
+            return {"chain": now, "last_height": 0, "days": {}}   # different lineage -> start clean
     except Exception:
         pass
     return {"chain": now, "last_height": 0, "days": {}}

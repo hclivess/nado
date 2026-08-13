@@ -48,7 +48,13 @@ keyed = [a for a in addrs if a not in P.RESERVED_RECIPIENTS and len(a) == P.ADDR
 named = [a for a in addrs if a in P.RESERVED_RECIPIENTS]
 other = [a for a in addrs if a not in P.RESERVED_RECIPIENTS and len(a) != P.ADDRESS_LENGTH]
 
-check(len(entries) > 0, f"the genesis allocation is non-empty ({len(entries)} entries)")
+# AN EMPTY ALLOCATION IS A VALID, DELIBERATE STATE. The betanet launch (834f3246, CHAIN_GENERATION 19)
+# shipped a fresh genesis with ALL BALANCES ZERO, so genesis_alloc.dat is `{}` — and this file's real job
+# (catching un-rekeyed / malformed / duplicated addresses) is vacuously satisfied by an empty alloc rather
+# than violated by it. Asserting non-emptiness unconditionally turned an intended launch decision into a
+# red test. Report the shape instead, and run the value checks only when there IS an allocation.
+EMPTY = len(entries) == 0
+print(f"      allocation entries: {len(entries)}" + ("   (empty — a zero-balance genesis)" if EMPTY else ""))
 
 # ---------------------------------------------------------------- THE DEFECT ITSELF
 stale = [a for a in addrs if a.startswith("mldsa44")]
@@ -94,8 +100,11 @@ check(len(P._GENESIS_BODY) == P.ADDRESS_BODY,
 # catches it, because the totals are what the chain actually mints at genesis.
 total_bal = sum(int(e.get("balance", 0) or 0) for e in entries)
 total_bond = sum(int(e.get("bonded", 0) or 0) for e in entries)
-check(total_bal > 0 and total_bond > 0,
-      f"genesis carries real value (balance={total_bal}, bonded={total_bond})")
+# Only meaningful for a carrying reroll: a NON-empty alloc must actually carry value, or the carry
+# silently produced zero balances. A deliberately empty genesis has nothing to check here.
+if not EMPTY:
+    check(total_bal > 0 and total_bond > 0,
+          f"genesis carries real value (balance={total_bal}, bonded={total_bond})")
 check(len(set(addrs)) == len(addrs),
       "no allocation address appears twice (a re-key that collided two accounts would double-credit one)")
 
