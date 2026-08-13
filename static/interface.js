@@ -519,7 +519,17 @@ function buildMsgkeyTx(wallet, kemPubHex, targetBlock, timestamp) {
 // which is far faster than pure JS. Cached; falls back to the JS blake2b if WASM is unavailable.
 let _wasmB2b;   // undefined = not yet tried; function = ready; null = unavailable
 async function miningHashDeps() {
-  if (_wasmB2b === undefined) { try { _wasmB2b = await initBlake2bWasm(); } catch (e) { _wasmB2b = null; } }
+  if (_wasmB2b === undefined) {
+    try { _wasmB2b = await initBlake2bWasm(); } catch (e) { _wasmB2b = null; }
+    // Losing WASM is not a mild slowdown — measured, it is ~3.2M hashes/s vs ~0.07M, and the registration
+    // proof has a fixed-length window to land in. On the JS path a registration simply cannot finish in
+    // time, and the only symptom used to be a rejected tx. Name the cause once, up front.
+    if (_wasmB2b === null) {
+      log("err", i18("log.noWasm", "WebAssembly is unavailable in this browser — the proof-of-work falls " +
+        "back to a ~45× slower path and registration will very likely time out. Try a browser with WASM " +
+        "enabled (or disable any script blocker on this page)."));
+    }
+  }
   return { blake2b: _wasmB2b ? (b) => _wasmB2b(b) : blake2b, bytesToHex, hexToBytes };
 }
 
@@ -546,9 +556,16 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
 // THIS address's recert history, so the relay cannot answer it without being told who is asking; called
 // bare it reports the rate multiplier only, and a new miner proving at that would under-work its very
 // first proof and be rejected by every node. Renewals get entry_multiplier 1 and are unchanged.
-async function registrationDifficulty(address) {
+// `maxBlock` matters for the same reason `address` does: the rate multiplier is read at the anchor epoch
+// (maxBlock - POSW_ANCHOR_OFFSET). An answer computed for a DIFFERENT landing block is only accidentally
+// the one validation will apply, and posw.verify is EXACT-T — so on any height where the two straddle an
+// epoch boundary the wallet would prove the wrong T and every node would reject an honest registration.
+async function registrationDifficulty(address, maxBlock) {
   try {
-    const q = address ? "?address=" + encodeURIComponent(address) : "";
+    const p = new URLSearchParams();
+    if (address) p.set("address", address);
+    if (maxBlock) p.set("max_block", String(maxBlock));
+    const q = p.toString() ? "?" + p.toString() : "";
     const r = await fetch(relayBase() + "/posw_difficulty" + q, { cache: "no-store" });
     const d = await r.json();
     const t = Number(d.required_t);
@@ -559,7 +576,15 @@ async function registrationDifficulty(address) {
   return { reqT: POSW_T, mult: 1, entryMult: 1, recent: 0 };
 }
 // Rolling estimate of this device's sequential-hash rate (hashes/sec), so the wait ETA is device-calibrated.
-function poswRate() { const r = parseFloat(localStorage.getItem("nado_posw_rate") || ""); return (r > 0 && isFinite(r)) ? r : 700000; }
+// The FALLBACK matters: the flat 700,000 guess was wrong in both directions and by a lot — measured here,
+// the WASM blake2b runs ~3.2M/s while the pure-JS fallback manages ~0.07M/s, a 45× cliff. Guessing 700k
+// told a WASM user a 30s proof would take 137s, and a JS-fallback user that a 23-minute proof would take
+// 137s. Seed from the backend that is actually going to run, then let the measured rate take over.
+function poswRate() {
+  const r = parseFloat(localStorage.getItem("nado_posw_rate") || "");
+  if (r > 0 && isFinite(r)) return r;
+  return _wasmB2b ? 2_000_000 : 100_000;
+}
 function savePoswRate(hashes, ms) { if (hashes > 0 && ms > 200) { try { localStorage.setItem("nado_posw_rate", String(Math.round(hashes / (ms / 1000)))); } catch (e) {} } }
 
 
@@ -983,6 +1008,7 @@ function nadoToRaw(amountStr) {
 // PRESENT open-lane miners (not to stake), so it's shown separately as a capital-free bonus.
 const B_MIN_RAW = 100_000_000_000n;        // protocol.py B_MIN: 10 NADO per bonded selection share — MUST track the node
 const BASE_SUBSIDY_RAW = 1_000_000_000n;   // protocol.py: 0.1 NADO/block reward floor
+const FIDELITY_CAP = 30;                   // protocol.py FIDELITY_CAP: continuous recerts to fully ramp the open bonus
 async function estimateSavingsApy() {
   const box = $("apyResult");
   if (!box) return;
@@ -1494,7 +1520,7 @@ async function submitRegistration() {
 
   // compute the registration Proof of SEQUENTIAL Work (non-parallelizable ~1 s chain, replaces hashcash)
   // Registration difficulty (consensus, scales with load) + a device-calibrated wait estimate, shown up front.
-  const diff = await registrationDifficulty(state.wallet.address);
+  const diff = await registrationDifficulty(state.wallet.address, targetBlock);
   const etaSec = Math.max(1, Math.ceil(diff.reqT / poswRate()));
   setStartBtnBusy(i18("mine.registering", "Registering…"));
   const busyNote = diff.mult > 1
@@ -1520,8 +1546,31 @@ async function submitRegistration() {
   } finally {
     show("powWrap", false);
   }
-  savePoswRate(diff.reqT, Date.now() - t0);
-  log("ok", `Sequential PoW computed in ${((Date.now() - t0) / 1000).toFixed(1)}s (${diff.reqT.toLocaleString()} hashes${diff.mult > 1 ? `, ×${diff.mult} difficulty` : ""}).`);
+  const proveMs = Date.now() - t0;
+  savePoswRate(diff.reqT, proveMs);
+  log("ok", `Sequential PoW computed in ${(proveMs / 1000).toFixed(1)}s (${diff.reqT.toLocaleString()} hashes${diff.mult > 1 ? `, ×${diff.mult} difficulty` : ""}).`);
+  // DID THE PROOF OUTLIVE ITS OWN WINDOW? `register` is EXACT-LANDING at max_block, and max_block is
+  // pinned to tip+POSW_TARGET_MARGIN at the START of proving — the anchor (max_block-POSW_ANCHOR_OFFSET)
+  // has to already exist, so the budget is hard-capped at POSW_TARGET_MARGIN blocks no matter how much
+  // work the difficulty demands. A device slower than that finishes a perfectly VALID proof for a block
+  // the chain has already passed, and the submit comes back as a flat rejection — which is what users
+  // reported as "the relay rejected the registration", with nothing on screen connecting it to speed.
+  // Say it plainly instead, with the device's measured rate, and let the retry aim at a fresh tip.
+  try {
+    const now = await getLatestBlock();
+    if (now && typeof now.block_number === "number") {
+      state.latest = now.block_number;
+      if (now.block_number >= targetBlock) {
+        const rate = Math.round(diff.reqT / Math.max(0.001, proveMs / 1000));
+        log("err", i18("log.regTooSlow",
+          "Proof took {s}s but the registration window is only {w}s on this chain — this device hashes " +
+          "~{r}/s and this registration needed {t}. Retrying against a fresh block.",
+          { s: (proveMs / 1000).toFixed(0), w: POSW_TARGET_MARGIN * 6, r: rate.toLocaleString(),
+            t: diff.reqT.toLocaleString() }));
+        return false;
+      }
+    }
+  } catch (e) { /* tip unreadable — just submit and let the relay answer */ }
   setRegBanner(i18("reg.submitting", "Submitting registration to the network…") + REASSURE);
   log("info", `Submitting register tx ${tx.txid.slice(0, 16)}… (max_block ${targetBlock}).`);
   const res = await submitTransaction(tx);
@@ -4357,14 +4406,29 @@ function exRenderBlock(b) {
     ["Transactions", String(txs.length)],
   ])}${txs.length ? `<div class="ex-rows mt">${txs.map(exTxRow).join("")}</div>` : `<div class="faint small mt">${i18("ex.noTxs", "no transactions")}</div>`}`;
 }
+// Which mining lane(s) this account is in. Both can be true — a bond ADDS the savings lane, it does not
+// remove you from the open one (the same rule the lane legend applies to the miner's own address).
+function exLanes(a) {
+  const open = !!a.registered, saved = BigInt(a.bonded ?? 0) >= B_MIN_RAW;
+  if (open && saved) return i18("ex.regBoth", "yes — OPEN + SAVINGS lane");
+  if (saved) return i18("ex.regBonded", "savings lane only (bonded, not registered)");
+  if (open) return i18("ex.regYes", "yes (OPEN-lane miner)");
+  return i18("badge.no", "no");
+}
 function exRenderAccount(a) {
   return `<h2>${i18("ex.account","Account")}</h2>${exKV([
     ["Address", `<span class="mono">${exEsc(a.address)}</span>`],
     ["Balance", exNado(a.balance)],
     ["Bonded", exNado(a.bonded)],
     ["Produced", exNado(a.produced)],
-    ["Registered", a.registered ? i18("ex.regYes", "yes (OPEN-lane miner)") : i18("badge.no", "no")],
-    ["Fidelity", num(a.fidelity) + " / 1000"],
+    // LANES ARE NOT EXCLUSIVE. `registered` is open-lane presence; `bonded >= B_MIN` is savings-lane
+    // weight; an account can hold both at once (this node does). The old label read the `registered`
+    // flag alone and announced "yes (OPEN-lane miner)" at an address that was also the largest bonded
+    // producer on the chain — it hid the lane that was earning nearly all of the rewards.
+    ["Registered", exLanes(a)],
+    // FIDELITY_CAP is 30, not 1000 — the ramp saturates at 30 continuous recerts, so "1 / 1000" told
+    // a fully-ramped miner it was at 3% of the bonus it had actually maxed out.
+    ["Fidelity", num(a.fidelity) + " / " + FIDELITY_CAP + (Number(a.fidelity) >= FIDELITY_CAP ? " (max)" : "")],
   ])}<div class="row mt"><button class="accent" id="exLoadTxs">${i18("ex.showTxs", "Show transactions")}</button></div><div id="exAcctTxs" class="ex-rows mt"></div>`;
 }
 function exRenderTx(t) {

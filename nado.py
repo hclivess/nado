@@ -1241,6 +1241,7 @@ async def get_posw_difficulty(request):
     # sequential-step count for a registration anchored at the current finalized anchor epoch. The wallet reads
     # this to (a) prove at the right difficulty and (b) show the user the expected wait ("×N due to a spike").
     addr = _q(request, "address", "") or None
+    want_mb = _q(request, "max_block", "")
     def _work():
         """Compute the difficulty a prover should use RIGHT NOW (worker thread) — the strict v2
         chain-derived requirement; there is no other mode."""
@@ -1251,7 +1252,17 @@ async def get_posw_difficulty(request):
             h = memserver.latest_block["block_number"]
         except Exception:
             h = 0
-        max_block = h + 6                      # the CLI/wallet target a registration a few blocks out
+        # ANSWER FOR THE CALLER'S OWN LANDING BLOCK. The requirement is read at the anchor epoch
+        # max_block-POSW_ANCHOR_OFFSET, so an answer computed at a max_block the caller is not going to
+        # use is only accidentally right. This defaulted to h+6 (the CLI's margin) while every browser
+        # miner targets h+POSW_ANCHOR_OFFSET — two anchors 24 blocks apart, which straddle an epoch
+        # boundary for 24 of every 60 heights. Whenever the rate multiplier differs across that boundary
+        # the wallet proves the wrong T and every node rejects an honest registration (posw.verify is
+        # EXACT-T). Callers now pass their own max_block; the default is the wallet's convention.
+        try:
+            max_block = int(want_mb) if want_mb else h + POSW_ANCHOR_OFFSET
+        except (TypeError, ValueError):
+            max_block = h + POSW_ANCHOR_OFFSET
         anchor_epoch = epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET))
         mult = difficulty_multiplier(anchor_epoch)
         recent = _window_count(anchor_epoch - POSW_DIFF_WINDOW, anchor_epoch - 1)
@@ -1260,8 +1271,13 @@ async def get_posw_difficulty(request):
         # endpoint can only report the rate multiplier, and a new miner proving at that would under-work
         # its very first proof and be rejected by every node. Renewals are unaffected (multiplier 1).
         emult = entry_multiplier(addr, anchor_epoch) if addr else 1
-        return {"block_number": h, "anchor_epoch": anchor_epoch, "multiplier": mult,
-                "base_t": POSW_T, "required_t": POSW_T * mult * emult,
+        # required_t comes from the CONSENSUS function itself, not a second copy of the formula here.
+        # This endpoint exists to tell a prover what validation will demand, so any drift between the
+        # two is a rejected honest registration — the one failure it is meant to prevent.
+        from ops.reg_difficulty import required_posw_t
+        return {"block_number": h, "max_block": max_block,
+                "anchor_epoch": anchor_epoch, "multiplier": mult,
+                "base_t": POSW_T, "required_t": required_posw_t(anchor_epoch, addr),
                 "entry_multiplier": emult, "is_entry": emult > 1,
                 "recent_registrations": recent, "window_epochs": POSW_DIFF_WINDOW}
     return _resp(await asyncio.to_thread(_work))

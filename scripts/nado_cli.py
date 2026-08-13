@@ -10,7 +10,8 @@ surface — the node validates a CLI tx exactly like a browser one (signature, P
     python3 scripts/nado_cli.py <cmd> ...       # HOME=<node data home> selects private/keys.dat
     python3 scripts/nado_cli.py --node http://127.0.0.1:9173 send ndo… 12.5
 
-Commands: info · send · register · bond · unbond · alias · propose · vote · execute · collect · bridge-deposit
+Commands: info · send · register · bond · unbond · withdraw · alias · propose · vote · execute · collect
+          bridge-deposit
           msig-address · msig-propose · msig-sign · msig-submit   (M-of-N multisig co-signing)
 """
 import argparse, json, os, sys, urllib.error, urllib.request
@@ -101,8 +102,35 @@ def c_bond(kd, node, a):
 
 
 def c_unbond(kd, node, a):
-    """Release `amount` NADO of bonded stake back to spendable balance."""
+    """REQUEST the release of `amount` NADO of bonded stake. The coins do NOT move yet — they stay
+    bonded (and slashable, and selection-weighted) until `withdraw` claims them after the delay."""
     _submit(node, T.construct_unbond_tx(kd, raw(a.amount), _tip(node) + MARGIN))
+
+
+def c_withdraw(kd, node, a):
+    """Claim a MATURED unbond: bonded -> spendable. The second half of leaving savings.
+
+    Nothing headless could build this. `unbond` only records the request, and the only code that ever
+    finished the exit was the browser wallet's refreshUnbond() — so a node operator who unbonded had no
+    way to get their coins back at all. Consensus validated the recipient the whole time; the CLI just
+    had no command for it.
+
+    The pending record (amount + release_block) is read from the node, because validation requires the
+    tx data to match it EXACTLY. max_block is the deterministic landing block the maturity check is made
+    against, so it must be >= release_block."""
+    p = _get(node, "/get_unbond?address=" + kd["address"])
+    pending = p.get("pending")
+    if not pending:
+        sys.exit("no pending unbond on " + kd["address"] + " — run `unbond <amount>` first.")
+    tip, release = int(p["height"]), int(pending["release_block"])
+    max_block = max(release, tip + MARGIN)
+    if max_block - tip > TX_TARGET_MARGIN:
+        sys.exit(f"unbond matures at block {release}, tip is {tip} ({release - tip} blocks / "
+                 f"~{(release - tip) * 6 // 3600}h away). Re-run this once it is within "
+                 f"{TX_TARGET_MARGIN} blocks — a tx targeting further out is refused by the mempool.")
+    print(f"claiming {Decimal(pending['amount']) / DEC} NADO (matured at block {release}) "
+          f"— landing at block {max_block}")
+    _submit(node, T.construct_withdraw_tx(kd, int(pending["amount"]), release, max_block))
 
 
 def c_alias(kd, node, a):
@@ -130,9 +158,19 @@ def c_register(kd, node, a):
     anchor = _get(node, "/get_block_number?number=%d" % anchor_num).get("block_hash")
     if not anchor:
         sys.exit("no anchor block %d yet" % anchor_num)
+    # ASK FOR *THIS* ADDRESS, AT *THIS* max_block. required_t folds in two multipliers and both depend on
+    # arguments the bare call cannot know: the ENTRY multiplier is a function of the sender's own recert
+    # history (a first/lapsed registration owes POSW_ENTRY_MULT× more), and the rate multiplier is read at
+    # the anchor epoch max_block-POSW_ANCHOR_OFFSET, not at some default the endpoint picks. Calling it
+    # bare under-worked every first CLI registration by 32× and every node rejected the proof — posw.verify
+    # is EXACT-T, so proving too little and proving too much fail identically.
     req_t = POSW_T
     try:
-        req_t = int(_get(node, "/posw_difficulty").get("required_t", POSW_T))
+        d = _get(node, "/posw_difficulty?address=%s&max_block=%d" % (kd["address"], tb))
+        req_t = int(d.get("required_t", POSW_T))
+        if int(d.get("entry_multiplier", 1)) > 1:
+            print("first (or post-lapse) registration for this address — entry multiplier ×%d"
+                  % int(d["entry_multiplier"]))
     except Exception:
         pass
     print("proving PoSW (T=%d, ~sequential) …" % req_t)
@@ -246,6 +284,7 @@ def main():
     s = sub.add_parser("send"); s.add_argument("to"); s.add_argument("amount"); s.add_argument("--memo"); s.add_argument("--fee")
     s = sub.add_parser("bond"); s.add_argument("amount")
     s = sub.add_parser("unbond"); s.add_argument("amount")
+    sub.add_parser("withdraw")
     s = sub.add_parser("alias"); s.add_argument("op", choices=["register", "transfer", "unregister"]); s.add_argument("name"); s.add_argument("--to")
     sub.add_parser("register")
     sub.add_parser("collect")
@@ -270,7 +309,8 @@ def main():
         sys.exit("no keys.dat — start a node once (or pass --keys) to generate one.")
     kd = load_keys(kf) if kf else load_keys()
 
-    cmds = {"info": c_info, "send": c_send, "bond": c_bond, "unbond": c_unbond, "alias": c_alias,
+    cmds = {"info": c_info, "send": c_send, "bond": c_bond, "unbond": c_unbond, "withdraw": c_withdraw,
+            "alias": c_alias,
             "register": c_register, "collect": c_collect, "update": c_update, "propose": c_propose, "vote": c_vote,
             "execute": c_execute, "bridge-deposit": c_bridge_deposit,
             "msig-address": c_msig_address, "msig-propose": c_msig_propose,
