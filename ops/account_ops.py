@@ -1,5 +1,5 @@
 from ops import kv_ops
-from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, FIDELITY_MIN_GAP_ACTIVATION_EPOCH, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
+from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -645,13 +645,13 @@ def apply_register(address: str, epoch: int, logger, revert=False):
         # ANTI-FARM SPACING (protocol.FIDELITY_MIN_GAP_EPOCHS): a continuous recert earns the ramp only if
         # it is far enough from the previous one. Closer recerts still renew the LEASE (presence is
         # untouched) but earn nothing, which is what stops 30 epochs of spam reaching FIDELITY_CAP. Gated
-        # on the activation epoch so dividend_ops.fidelity_at_epoch can replay history identically —
-        # keep the two in lockstep or a fraud proof false-slashes an honest settler. The gate is NOT
-        # scaffolding to remove once the rule is live; it is deletable only at epoch 10_862 (see
-        # FIDELITY_MIN_GAP_ACTIVATION_EPOCH in protocol.py).
-        # SCHEDULED-CLEANUP: epoch 10_862 (block 651_720) — see SCHEDULED_CLEANUPS.md #1.
+        # UNCONDITIONAL. The activation gate existed only to keep dividend_ops.fidelity_at_epoch's replay
+        # of PRE-RULE recerts byte-identical to what the live ramp had applied — get that wrong and a
+        # dividend fraud proof false-slashes an honest settler. A genesis reroll leaves NO pre-rule recert
+        # history to preserve, so the gate has nothing to protect and is removed rather than re-dated.
+        # dividend_ops.fidelity_at_epoch must stay in exact lockstep with this.
         gain = FIDELITY_GAIN
-        if continuous and epoch >= FIDELITY_MIN_GAP_ACTIVATION_EPOCH and (epoch - prev) < FIDELITY_MIN_GAP_EPOCHS:
+        if continuous and (epoch - prev) < FIDELITY_MIN_GAP_EPOCHS:
             gain = 0
         net = gain - decay                                      # cur_fid+net = cur_fid+gain (cont) or GAIN
         kv_ops.recert_put(address, epoch)

@@ -44,7 +44,7 @@ STRICT, NO COMPATIBILITY (policy): every node computes the identical v3 requirem
 deployed as the PROTOCOL 4 flag day (old-rules nodes are shed at the handshake), never as a compat path
 in consensus code.
 """
-from protocol import (POSW_ENTRY_MULT, POSW_ENTRY_ACTIVATION_EPOCH, POSW_LEASE_EPOCHS, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
+from protocol import (POSW_ENTRY_MULT, POSW_LEASE_EPOCHS, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
                       POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH)
 
 
@@ -106,9 +106,9 @@ def is_entry_registration(sender: str, anchor_epoch: int) -> bool:
 
 
 def entry_multiplier(sender, anchor_epoch: int) -> int:
-    """POSW_ENTRY_MULT for a new/lapsed identity, else 1. Gated on POSW_ENTRY_ACTIVATION_EPOCH so proofs
-    minted before the rule remain valid and historical blocks re-validate unchanged."""
-    if sender is None or anchor_epoch < POSW_ENTRY_ACTIVATION_EPOCH:
+    """POSW_ENTRY_MULT for a new/lapsed identity, else 1. UNCONDITIONAL: this ships with a genesis reroll,
+    so there are no pre-rule proofs to keep valid and no historical blocks to re-validate."""
+    if sender is None:
         return 1
     return POSW_ENTRY_MULT if is_entry_registration(sender, anchor_epoch) else 1
 

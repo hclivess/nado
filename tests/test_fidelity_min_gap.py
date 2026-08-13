@@ -46,11 +46,10 @@ def main():
         os.environ["HOME"] = d
         os.makedirs(os.path.join(d, "nado"), exist_ok=True)
         from ops import kv_ops, account_ops, dividend_ops
-        from protocol import (FIDELITY_CAP, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS,
-                              FIDELITY_MIN_GAP_ACTIVATION_EPOCH, POSW_LEASE_EPOCHS)
+        from protocol import FIDELITY_CAP, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, POSW_LEASE_EPOCHS
         kv_ops.init_env()
 
-        A0 = FIDELITY_MIN_GAP_ACTIVATION_EPOCH
+        A0 = 1000        # any epoch: the rule is UNCONDITIONAL since it ships with the reroll
 
         class _Log:
             def info(self, *a):
@@ -78,8 +77,8 @@ def main():
         check("the gap is below both honest triggers", FIDELITY_MIN_GAP_EPOCHS <= 192)
 
         # ---- presence is NOT punished for renewing early --------------------------------------------
-        early = [A0, A0 + 10]
-        run("early", early)
+        early2 = [A0, A0 + 10]
+        run("early", early2)
         acc = kv_ops.get_account("early") or {}
         check("an early recert still renews the lease (registered stays 1)", int(acc.get("registered", 0)) == 1)
         check("...and is still in the open registry", "early" in account_ops.get_open_registry(A0 + 10))
@@ -89,14 +88,16 @@ def main():
         lapsed = [A0, A0 + 192, A0 + 192 + POSW_LEASE_EPOCHS + 1]
         check("a lapse still resets to GAIN", run("lapsed", lapsed) == FIDELITY_GAIN)
 
-        # ---- the activation gate preserves history --------------------------------------------------
-        pre = [A0 - 40 + i for i in range(10)]                 # tight recerts BEFORE activation
-        check("pre-activation tight recerts keep the OLD ramp", run("historic", pre) == 10 * FIDELITY_GAIN)
+        # ---- NO ACTIVATION GATE: the rule applies to every recert, at every height ---------------------
+        # It shipped WITH a genesis reroll, so there is no pre-rule recert history to preserve — which is
+        # the only thing the old height gate protected (dividend replay of already-applied weights).
+        early = [10 + i for i in range(10)]                    # tight recerts at a LOW epoch
+        check("tight recerts are unrewarded at ANY height", run("historic", early) == FIDELITY_GAIN)
 
         # ---- THE TWO IMPLEMENTATIONS MUST AGREE (else a fraud proof false-slashes) -------------------
         mismatch = None
         for addr, epochs in (("spammer", spam), ("browser", browser), ("node", node),
-                             ("lapsed", lapsed), ("historic", pre), ("early", early)):
+                             ("lapsed", lapsed), ("historic", early), ("early", early2)):
             live = int((kv_ops.get_account(addr) or {}).get("fidelity", 0))
             replay = dividend_ops.fidelity_at_epoch(addr, max(epochs))
             if live != replay:
