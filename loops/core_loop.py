@@ -85,6 +85,26 @@ DEAD_FORK_ESCALATE_AFTER = 3
 
 
 
+# NO AUTOMATED OPERATION MAY COMMIT MORE THAN HALF THE SPENDABLE BALANCE IN ONE ACTION.
+#
+# Operator rule, and a hard ceiling rather than a heuristic: whatever an unattended path decides to do —
+# pay a fee, move coins into stake — it may never put more than 50% of what the node can spend behind a
+# single transaction. The point is not today's numbers (every automated tx here is currently a rounding
+# error against any node's balance); it is that these paths compute their amounts from EARNINGS, and an
+# earnings model that is wrong, or a balance that has collapsed, must not be able to empty an account
+# unattended. Halving bounds the worst single mistake to something a human can still recover from.
+#
+# Applies to the committed TOTAL (amount + fee), not the fee alone: auto-bond moves real value, and while
+# bonded coins remain the owner's they are locked behind the unbond timelock and cannot pay for anything
+# meanwhile.
+AUTO_SPEND_MAX_FRACTION = 2          # 1/2 of the spendable balance
+
+
+def auto_spend_allowed(balance, committed):
+    """True if an unattended path may commit `committed` raw (amount + fee) against `balance` raw."""
+    return committed > 0 and balance > 0 and committed <= balance // AUTO_SPEND_MAX_FRACTION
+
+
 def majority_on_our_canonical(majority_hash, get_block_fn, canonical_hash_at_fn):
     """CORROBORATED DEPTH FINALITY predicate, extracted for direct testing. True when the peer-majority tip
     hash lies ON OUR CANONICAL CHAIN (it is our tip or one of its ancestors — peers lagging a healthy
@@ -2264,6 +2284,8 @@ class CoreClient(threading.Thread):
             to_bond = min(to_bond, BOND_CAP - bonded)
             if to_bond < AUTO_BOND_MIN_RAW or balance < to_bond + MIN_TX_FEE:
                 return                                  # accrue (don't rebaseline) until it's worth a tx
+            if not auto_spend_allowed(balance, to_bond + MIN_TX_FEE):
+                return                                  # >half the balance in ONE action — see the rule at module scope
             # tip+2 gave this tx ~12s to reach every producer before its landing block was built. Blocks are
             # deterministic, so producers that had not seen it yet assembled a DIFFERENT block — an auto-bond
             # minted right after a node restart forked betanet-12 at h12506. See RESERVED_TX_MARGIN.
@@ -2447,7 +2469,7 @@ class CoreClient(threading.Thread):
             # BALANCE: a node whose spendable balance is not worth many thousands of fees has no business
             # burning them on votes. Today every voter is far above this; it matters the day one is not.
             _bal = int((get_account(me) or {}).get("balance", 0))
-            if _bal < AUTO_COLLECT_MIN_RAW:
+            if _bal < AUTO_COLLECT_MIN_RAW or not auto_spend_allowed(_bal, MIN_TX_FEE):
                 return
             # And bound a single pass: a burst of proposals must not drain a node in one epoch. Whatever is
             # left is picked up next epoch — votes are only refused, never lost.
