@@ -1,4 +1,4 @@
-# 2026-08-13 (later the same day) — new miners could not join, and auto-bond compounded the wrong coins
+# v1.0.0-beta.2 — 2026-08-13 — new miners could not join, and auto-bond compounded the wrong coins
 
 > **CONSENSUS FLAG DAY.** `POSW_ANCHOR_OFFSET` moves 30 -> 150 and a new `POSW_TARGET_MARGIN = 90` sizes the
 > proving budget. `validate_transaction` re-derives a registration's PoSW anchor from its own `max_block`, so
@@ -54,6 +54,62 @@ remainder stays claimable instead of being written off.
 - Explorer: an account read the `registered` flag alone and announced *"yes (OPEN-lane miner)"* at an address
   that was also the largest bonded producer on the chain; lanes are not exclusive. Fidelity was shown out of
   1000 when `FIDELITY_CAP` is 30, telling a fully-ramped miner it was at 3%.
+
+## A dead RANDAO reveal killed the whole epoch duty, forever
+
+Reported from a live session, once a minute: `Epoch duty rejected: … No matching commit for this reveal`.
+A bonded validator's FFG attest (epoch X), RANDAO commit (X+2) and reveal (X+1) ride in **one** `duty` tx,
+so a reveal the chain can never accept fails the whole transaction and takes the attest and the next
+commit — both perfectly valid — with it. The validator silently stops attesting for FFG and stops
+committing for future epochs, and retries forever, because the rejection never matched the "nothing left
+to post" pattern.
+
+The rejection is permanent, which is what `_randaoDead` was declared for ("a resubmit can never succeed")
+— and nothing ever added to it. A commit for epoch E must be posted in E−2 while its reveal lands in E−1's
+finalized window, so by the time a reveal is refused for a missing commit that window shut an epoch
+earlier. Now: mark it dead, drop the reveal section, resubmit at once so the attest and commit still land.
+
+## A node that cannot update itself now says so
+
+Four nodes stopped updating and stayed stuck for a day while answering `/status` with
+`update_capable: true, update_blocking: [], update_remote_reachable: true`. Nothing in the diagnosis
+looked at the host, and `update_available` is derived from the last *successful* fetch — which on a node
+whose every fetch fails can never learn that origin moved.
+
+`git fetch` was dying with `fatal: unpack-objects failed`. I reproduced that exactly (60 MiB loopback
+ext4, fetching as the unprivileged service account) — and then the new telemetry **disproved it as the
+cause here**: `89.143.197.28` reported 1424 GiB free and was still failing. git prints that line whenever
+the `unpack-objects` child dies for *any* reason, so the message cannot separate ENOSPC from inode
+exhaustion from an OOM-kill. All three are now measured, with the last fetch error, and surfaced in
+`/status` (`update_free_disk_mb`, `update_warnings`) — the warning band fires with ~1 GiB of headroom,
+days ahead, where `blocking` only fires once the node is already stranded.
+
+`check_and_update` also repacks and retries once on a space-shaped failure, and both fetch call sites pass
+`-c transfer.unpackLimit=1` so an incoming pack stays a pack (measured: 2030 loose objects = 35.1 MiB vs
+17112 packed = 22.6 MiB). **Measured limit, stated in the code:** `git gc` writes the new pack before
+dropping the old objects, so it needs free space of roughly the pack size — on a 13 MiB `.git` it failed
+at 6 MiB free, at 4, at 2 and at 0. The retry rescues loose-object bloat, not a full disk. Only the early
+warning catches that.
+
+## Also
+
+- **`nado_cli withdraw`** exists. `unbond` only records a request; the only code that ever finished the
+  exit was the browser wallet, so a headless operator who unbonded could not claim their coins back.
+- **`execJSON()`** — every shielded-pool call reached the exec node as a bare `(await fetch(…)).json()`.
+  `nado-exec` restarts independently of the relay, and on an HTML error page that surfaced to the user as
+  `Unexpected token '<', "<!DOCTYPE "… is not valid JSON`. `rpcJSON` had handled this for the relay all
+  along; the exec node had no equivalent.
+- **Three dead code paths the suite was already reporting.** `memserver.py` used `os.environ` without
+  importing `os`, inside a bare `except` — it raised on every boot and silently pinned
+  `tx_history_retention_blocks` to 0, so that setting has never worked on any node. `self_update.py`
+  called `_restart_services()`, which has never existed, so the stale-checkout self-heal reported an error
+  instead of restarting — and hid it, because `_stale_acted` is set on the line above the failing call.
+  `mint_multiplier()` returned the rate multiplier alone, so anything minting from it under-worked an
+  entry registration by 32×; deleted rather than left as a trap.
+- **Two tests were hiding bugs rather than catching them.** `test_stale_checkout_restart` patched
+  `SU._restart_services` — assigning a name the module lacks *created* it, so the test was green over a
+  production `NameError`. `test_auto_bond`'s fixture credited balance without touching `produced`, i.e. it
+  could not tell a mining reward from a receive — precisely the confusion behind the auto-bond bug.
 
 ---
 
