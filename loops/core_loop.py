@@ -36,6 +36,7 @@ from ops.mining_ops import select_producer_two_lane, epoch_of, block_fork_weight
 from ops import kv_ops
 from ops import fork_resolution
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
+    AUTO_MIN_FEE_MULTIPLE, \
     TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, DUTY_TX_MARGIN
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size, get_home
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
@@ -2439,6 +2440,19 @@ class CoreClient(threading.Thread):
             me = self.memserver.address
             if me not in get_bonded_registry():       # no shares -> our vote carries no weight; skip the fee
                 return
+            # NEVER SPEND MORE THAN THE NODE CAN AFFORD. A treasury vote carries MIN_TX_FEE, and this is the
+            # only automated path that pays a fee without a value it is unlocking to compare against
+            # (auto_bond and auto_collect each guard on AUTO_MIN_FEE_MULTIPLE x their own fee). Governance
+            # participation has no per-tx payout, so the guard is the same dust floor applied to the
+            # BALANCE: a node whose spendable balance is not worth many thousands of fees has no business
+            # burning them on votes. Today every voter is far above this; it matters the day one is not.
+            _bal = int((get_account(me) or {}).get("balance", 0))
+            if _bal < AUTO_COLLECT_MIN_RAW:
+                return
+            # And bound a single pass: a burst of proposals must not drain a node in one epoch. Whatever is
+            # left is picked up next epoch — votes are only refused, never lost.
+            _budget = max(1, _bal // (MIN_TX_FEE * AUTO_MIN_FEE_MULTIPLE))
+            _cast = 0
             h = self.memserver.latest_block["block_number"]
             for pid, spend in kv_ops.treasury_proposals_all():
                 expiry = int(spend.get("expiry", 0))
@@ -2455,6 +2469,11 @@ class CoreClient(threading.Thread):
                 self.memserver.merge_transaction(tx, user_origin=True)
                 self.logger.info(f"Auto-vote: YES on {pid[:12]}… → {spend.get('recipient')} "
                                  f"({int(spend.get('amount', 0)) / 1e10:.4f} NADO, whitelisted)")
+                _cast += 1
+                if _cast >= _budget:
+                    self.logger.info(f"Auto-vote: fee budget reached ({_cast} this epoch); the rest wait "
+                                     f"for the next one")
+                    break
         except Exception as e:
             self.logger.info(f"Auto-vote skipped: {e}")
 

@@ -231,9 +231,22 @@ class MemServer:
         # Optional exec-layer view for the escrow invariants. A node with no exec side leaves this None and
         # only the L1 supply invariant runs.
         self.exec_state_view = None
-        # AUTO-REGISTER + renew the open-lane PoSW lease, unattended — DEFAULT OFF (opt-in: a headless node does
-        # not silently join the open lane). NADO_AUTO_REGISTER=1 (or config auto_register:true) turns it on.
-        self.auto_register = _flag("NADO_AUTO_REGISTER", "auto_register", False)
+        # AUTO-REGISTER + renew the open-lane PoSW lease, unattended — DEFAULT ON.
+        #
+        # It was opt-in ("a headless node should not silently join, and Sybil-load, the open lane"), and the
+        # cost of that default was measured on betanet-2: of 8 fleet nodes, TWO were running, validating and
+        # relaying for the whole life of the chain while earning EXACTLY ZERO — 0.00 produced, fidelity 0,
+        # registered 0 — purely because nobody had set an environment variable on them. Running a node and
+        # getting nothing is not a safe default, it is a silent misconfiguration that looks like working.
+        #
+        # The Sybil worry the old default guarded against is now handled where it belongs, in consensus
+        # rather than in a flag: POSW_ENTRY_MULT makes creating an identity cost 32x a renewal, and
+        # FIDELITY_MIN_GAP_EPOCHS stops the continuity ramp being farmed. Neither existed when this default
+        # was chosen. Note also that auto-register was never the Sybil lever anyway — it registers ONE
+        # identity, this node's own key; a Sybil does not need it.
+        #
+        # NADO_AUTO_REGISTER=0 (or config auto_register:false) opts a node out.
+        self.auto_register = _flag("NADO_AUTO_REGISTER", "auto_register", True)
 
         # AUTO-VOTE on treasury proposals paying a WHITELISTED recipient — DEFAULT ON, whitelist-restricted.
         #

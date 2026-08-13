@@ -105,6 +105,11 @@ def main():
     check("the loop skips when it has already voted", "treasury_voters" in code)
     check("the loop refuses an empty allow-list", "if not allow" in code)
     check("the loop skips when it holds no bonded shares", "get_bonded_registry" in code)
+    # NEVER SPEND MORE THAN IT CAN AFFORD. A vote carries MIN_TX_FEE and, unlike auto_bond/auto_collect,
+    # unlocks no value to weigh it against — so the guard is the same dust floor applied to the BALANCE,
+    # plus a per-pass budget so a burst of proposals cannot drain a node in one epoch.
+    check("the loop refuses to vote below the fee dust floor", "AUTO_COLLECT_MIN_RAW" in code)
+    check("the loop bounds how many votes one pass may pay for", "_budget" in code and "break" in code)
 
     print()
     print("ALL AUTO-VOTE WHITELIST CHECKS PASSED" if not _fails else f"{len(_fails)} FAILURE(S): {_fails}")

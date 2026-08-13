@@ -56,16 +56,18 @@ This one line is the only officially supported install:
 curl -sSfL https://raw.githubusercontent.com/hclivess/nado/main/scripts/install.sh | sudo bash -s -- --service --user nado --pq-native
 ```
 
-It installs the node as a systemd service and builds the native post-quantum verifier. To have the node
-register and renew by itself, add this to its unit and restart:
-
-```
-Environment=NADO_AUTO_REGISTER=1
-```
+It installs the node as a systemd service and builds the native post-quantum verifier. **It registers and
+renews its open-lane lease by itself** — nothing to configure. (This used to need
+`Environment=NADO_AUTO_REGISTER=1` and it no longer does. Two nodes on our own fleet ran for the whole life
+of a chain earning exactly zero because that line was missing; a node that mines nothing until you set an
+environment variable is a misconfiguration that looks like it is working.) Opt out with
+`Environment=NADO_AUTO_REGISTER=0`.
 
 Add `--exec` if you also want the execution node (contracts, the shielded pool, the DEX). L1 validation
 does not need it — but **without it the node never auto-collects your presence dividend** (see *Getting
-paid* below), so for a mining node it is closer to recommended than optional.
+paid* below), so for a mining node it is closer to recommended than optional. This is not a small
+difference: on betanet-2 the two mining nodes without an exec node had **25.54 NADO each sitting
+uncollected**, while the one with it had 0.03 because it sweeps continuously.
 
 ---
 
@@ -145,7 +147,7 @@ Nothing expires you actively — eligibility is simply "was your last recert wit
 | Who | Renews when | Margin left |
 |---|---|---|
 | Browser wallet | once `epoch - reg_epoch >= 192` (80% of the lease) | ~4.8 hours |
-| Node (`NADO_AUTO_REGISTER=1`) | once `epoch >= reg_epoch + 230` (last 10 epochs) | ~1 hour |
+| Node (auto-register, on by default) | once `epoch >= reg_epoch + 230` (last 10 epochs) | ~1 hour |
 
 **Why not renew early?** Renewing *resets the clock* — a recert at 50% of the lease buys the same 24 h a
 recert at 80% does, so renewing early just pays the sequential proof more often for nothing. And why not
