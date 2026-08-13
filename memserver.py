@@ -280,7 +280,11 @@ class MemServer:
         if _arch is not None:
             self.archive = _arch.strip().lower() not in ("0", "false", "no", "off")
         else:
-            self.archive = bool(self.config.get("archive", True))
+            # ROLLING BY DEFAULT — must match config.py's "archive" default, and it is this fallback (not
+            # the config file) that decides for every node whose config predates the key. Archive costs a
+            # measured ~47.6 GB/year of block bodies; a node that fills its disk stops UPDATING, not just
+            # archiving. Existing configs with an explicit "archive": true keep archiving, untouched.
+            self.archive = bool(self.config.get("archive", False))
         try:
             _hrb = int(_os.environ.get("NADO_HISTORY_RETENTION_BLOCKS")
                        or self.config.get("history_retention_blocks", 0) or 0)

@@ -253,8 +253,8 @@ async def status(request):
             # always kept, so it still validates and serves the beacon/FFG). Advertised so the network
             # panel can show WHAT each peer is, not just which commit it runs — the two answer different
             # questions when you are working out who can serve history.
-            "node_type": "archive" if getattr(memserver, "archive", True) else "rolling",
-            "history_retention": (0 if getattr(memserver, "archive", True)
+            "node_type": "archive" if getattr(memserver, "archive", False) else "rolling",
+            "history_retention": (0 if getattr(memserver, "archive", False)
                                   else int(getattr(memserver, "history_retention_blocks", 0) or 0)),
             "update_available": bool(self_update.latest_known() and self_update.running_head()
                                      and self_update.latest_known() != self_update.running_head()),

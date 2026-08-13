@@ -153,11 +153,21 @@ def create_config(ip: str, config_path: str = None):
         # un-updatable (no git checkout, no systemd unit, ...) repairs itself by running the LOCAL
         # scripts/install.sh once per boot. Set False to only diagnose and log — never run the installer.
         "auto_heal": True,
-        # ROLLING MODE (non-consensus, doc/rolling-mode-and-da.md): archive=True keeps ALL block bodies
-        # forever (default — no data loss, current behaviour). Set False for a "rolling"/pruned node that
-        # drops block BODIES older than history_retention_blocks (state + number<->hash indexes are always
-        # kept, so it still validates + serves the beacon/FFG). Overridable via NADO_ARCHIVE / env.
-        "archive": True,
+        # ROLLING MODE (non-consensus, doc/rolling-mode-and-da.md) is the DEFAULT: a rolling node drops
+        # block BODIES older than history_retention_blocks, keeping state and the number<->hash indexes,
+        # so it still validates, produces, and serves the beacon/FFG — it just cannot serve ancient bodies.
+        #
+        # WHY THIS FLIPPED. archive=True keeps every body forever, and "forever" is not a rounding error:
+        # measured on betanet-3 at 133 MB/day of bodies, an archive node costs ~47.6 GB/year. That is a
+        # fine default for the one box that hosts an explorer and a terrible one for the volunteer VPSes
+        # that are most of the network — and a node that fills its disk does not merely stop archiving, it
+        # stops UPDATING (git fetch cannot write) and eventually forks. Rolling caps bodies at
+        # HISTORY_RETENTION_BLOCKS (7 days, ~930 MB) with a hard consensus floor underneath it that config
+        # cannot lower (block_ops.prune_block_bodies).
+        #
+        # Set True to keep everything — do that on an explorer/seed node, where old bodies are the product.
+        # Overridable via NADO_ARCHIVE / env.
+        "archive": False,
         "history_retention_blocks": 0,  # 0 = use protocol.HISTORY_RETENTION_BLOCKS default
         # TX HISTORY retention (rolling mode only). The tx index is what actually dominates disk at scale:
         # bodies plateau once pruned, the tx history did not. 0 = keep protocol.TX_HISTORY_MIN_RETENTION

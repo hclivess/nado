@@ -2234,10 +2234,10 @@ class CoreClient(threading.Thread):
         """ROLLING MODE (non-consensus, opt-in): on a pruned node (memserver.archive == False), delete
         block BODIES and TX-HISTORY rows finalized below their retention windows. STATE + the
         number<->hash indexes are kept,
-        so the node keeps validating and serving the beacon/FFG lookbacks. Archive nodes (default) skip
-        this entirely. Best-effort + incremental (a meta watermark bounds per-call work); never raises
+        so the node keeps validating and serving the beacon/FFG lookbacks. Rolling is now the DEFAULT
+        (config.py "archive": False); ARCHIVE nodes skip this entirely. Best-effort + incremental (a meta watermark bounds per-call work); never raises
         into the core loop. See doc/rolling-mode-and-da.md and block_ops.prune_block_bodies."""
-        if getattr(self.memserver, "archive", True):
+        if getattr(self.memserver, "archive", False):     # default matches config.py / memserver
             return
         try:
             finalized = get_finalized_height()
