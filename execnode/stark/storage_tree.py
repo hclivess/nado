@@ -74,8 +74,13 @@ _E_CACHE = {}
 #
 # THE COLD COST IS WHAT PERSISTENCE BELOW FIXES — measured 50.30 s -> 0.64 s across a simulated restart
 # on production state (8,403 folds, a 1.5 MB file, 0.42 s to reload), root bit-identical. A restarted exec
-# node paid ~50 s before its first settle, and every VERIFY in a fresh process paid it too — including a
-# fresh-syncing node checking historical settles. save_fold_cache/load_fold_cache carry it across restarts.
+# node paid ~50 s before its first settle. save_fold_cache/load_fold_cache carry it across restarts.
+#
+# THIS IS A PROVER-ONLY WIN. An earlier revision of this comment also claimed "every VERIFY in a fresh
+# process pays it, including a fresh-syncing node". MEASURED, THAT IS FALSE: verify_settlement_sparse on
+# the same span is 5.04 s cold and 4.52 s warm — a sparse verifier checks AUTHENTICATION PATHS and never
+# rebuilds the tree, so it never touches this cache. Only a node that PROVES benefits, which today is the
+# settling exec node alone.
 #
 # NOT the other lever: shrinking EXEC_TREE_DEPTH was considered and REJECTED. It is a collision parameter,
 # not a performance knob — slot_key/code_key are alghash2 digests TRUNCATED to `depth` bits, so a smaller
@@ -99,8 +104,9 @@ def clear_fold_cache():
 # The in-memory cache above turns a ~50 s root() rebuild into O(changed) — but only for the SECOND prove
 # in a process. Measured 2026-08-13 on betanet-2 (8,376 slots, depth 256, native arena, a real 30-block
 # span): a whole settle prove is 58.9 s cold and 10.2 s warm, and 50.0 s of the cold number is root().
-# A restarted exec node pays that before its first settle, and so does every VERIFY in a fresh process —
-# including a fresh-syncing node re-checking historical settles. Persisting the cache removes it.
+# A restarted exec node pays that before its first settle. Persisting the cache removes it. Note this is a
+# PROVER-only cost: verify is 5.04 s cold vs 4.52 s warm on the same span, because a sparse verifier walks
+# authentication paths instead of rebuilding the tree.
 #
 # WHY THIS IS SAFE TO PERSIST AT ALL: an entry memoizes a PURE function of (depth, key, value), so the
 # root is bit-identical whether the cache is cold, warm, loaded from disk, or disabled. It can only change

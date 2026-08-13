@@ -179,11 +179,16 @@ Three things worth knowing:
    of a lone leaf through the empty levels). The seam is *not* the problem: native `permute12` measures
    **17.6 µs** of the **22.7 µs** `rnode` call, so the kernel dominates and porting the tree walk to Rust
    would buy ~22%. The only real ways down are **fewer** permutations (a smaller `EXEC_TREE_DEPTH`,
-   consensus change) or **not redoing them** (persisting the fold cache across restarts, pure engineering).
-   Neither has been attempted.
-3. **Cold is not a corner case.** Every exec-node restart pays it before its first settle, and every
-   *verify* in a fresh process pays it — including a fresh-syncing node checking historical settles. The
-   steady-state 10.2 s is the right number for a running prover and the wrong number for a cold one.
+   consensus change — **rejected**, it is a collision parameter; see `fri-parameters.md` §7) or **not
+   redoing them** — persisting the fold cache across restarts, which is now **BUILT**
+   (`storage_tree.save_fold_cache`/`load_fold_cache`, wired into the exec node): 50.30 s → 0.64 s across a
+   restart, root bit-identical, no consensus change and no reroll.
+3. **Cold applies to the PROVER only.** Every exec-node restart pays it before its first settle. It was
+   briefly claimed here that a fresh-process *verify* pays it too — measured, that is false: verify is
+   **5.04 s cold vs 4.52 s warm** on the same span, because a sparse verifier walks authentication paths
+   and never rebuilds the tree. So a fresh-syncing L1 node is unaffected, and so is any node that does not
+   prove. The steady-state 10.2 s is the right number for a running prover and the wrong number for a cold
+   one.
 
 **Scope: these are UNFOLDED proves** (`recursive=False, fold=False`). The K→1 recursion fold is a
 separate, far heavier path — `execnode.py` records a real folded run at **1156.9 s** with

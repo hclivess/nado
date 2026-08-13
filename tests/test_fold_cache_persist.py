@@ -4,7 +4,9 @@ Persisting the singleton-fold cache across restarts (storage_tree.save_fold_cach
 WHY IT EXISTS: measured 2026-08-13 on betanet-2 (8,376 slots, depth 256, native arena, a real 30-block
 span), a settle prove is 58.9 s cold and 10.2 s warm — 50.0 s of the cold number is SparseStore.root()
 rebuilding singleton folds. The in-memory _FOLD_CACHE removes that for the second prove in a process;
-this removes it for the first. A restarted exec node and every verify in a fresh process pay it today.
+this removes it for the first. A restarted exec node pays it today. (PROVER-ONLY: verify measures 5.04 s
+cold vs 4.52 s warm on the same span — a sparse verifier walks authentication paths and never rebuilds
+the tree.)
 
 WHAT MUST BE TRUE, and what these checks pin:
 

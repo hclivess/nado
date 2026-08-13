@@ -261,8 +261,12 @@ Not FRI. **A cold settle prove is 58.9 s and a warm one is 10.2 s** — a ~48 s 
 are folds of a lone leaf against the canonical empty roots. `_FOLD_CACHE` removes it in steady state but
 **nothing removes it for a cold process**, and cold processes are not rare:
 
-* every exec-node restart pays it before its first settle;
-* every **verify** in a fresh process pays it — including a fresh-syncing node checking historical settles.
+* every exec-node restart pays it before its first settle.
+
+It is **prover-only**, though — an earlier revision of this section also claimed every *verify* in a fresh
+process pays it. Measured on the same span, verify is **5.04 s cold and 4.52 s warm**: a sparse verifier
+walks authentication paths and never rebuilds the tree, so it never touches this cache. Only a node that
+proves benefits.
 
 The permutation is already native and is genuine compute (54 rounds x a dense 12x12 MDS), so there is no
 FFI overhead worth shaving; `storage_tree.py` says as much. The ways down are to do **fewer** permutations
