@@ -50,9 +50,25 @@ _CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/s
 _RESTART_FLAG = "/run/nado/restart-request"
 _RESTART_BRIDGE = "/etc/systemd/system/nado-restart.path"
 
+def _log():
+    """Module logger. check_and_update() is reached from the HTTP handler, the timer and the peer-hint
+    cascade, none of which pass one in — and a disk failure that is only visible in a returned dict is
+    exactly how four nodes sat stranded for a day without anything in the journal saying why."""
+    import logging
+    return logging.getLogger("nado")
+
+
 _lock = threading.Lock()
 _last_check = [0.0]
 _latest_remote = [None]               # origin/main head seen by the LAST fetch — /status advertises it
+_last_fetch_error = [None]            # git's own words from the LAST failed fetch (None once one succeeds)
+
+# Free-disk thresholds for the checkout filesystem, measured against f_bavail (what a NON-root user may
+# use — ext4 holds back 5% for root, and the node does not run as root). A fetch of one of this project's
+# commits writes single-digit MiB in loose objects; 200 MiB is comfortably above that with room for the
+# repack a self-heal gc performs, and 1 GiB is early enough that an operator can act before it bites.
+_DISK_BLOCKING_MB = 200
+_DISK_WARN_MB = 1024
 
 
 def latest_known():
@@ -201,8 +217,19 @@ def _git(*args, timeout=15):
         raise GitError(f"git {args[0]}: {type(e).__name__}: {e}")
     if p.returncode != 0:
         tail = [ln for ln in (p.stderr or "").strip().splitlines() if ln.strip()]
-        raise GitError(f"git {args[0]}: exit {p.returncode}" + (f" — {tail[-1][:200]}" if tail else ""))
+        raise GitError(f"git {_subcommand(args)}: exit {p.returncode}"
+                       + (f" — {tail[-1][:200]}" if tail else ""))
     return (p.stdout or "").strip()
+
+
+def _subcommand(args):
+    """The git SUBCOMMAND in args, skipping any leading `-c key=value` pairs — so a call that sets config
+    inline still reports "git fetch: ..." and not "git -c: ...". The whole point of this module's error
+    handling is that a failure names the thing that failed."""
+    i = 0
+    while i < len(args) and args[i] == "-c":
+        i += 2
+    return args[i] if i < len(args) else (args[0] if args else "?")
 
 
 # --- NEAR-REAL-TIME UPDATE CASCADE (peer hints) ----------------------------------------------------
@@ -294,6 +321,29 @@ def _has_restart_capability():
     return False
 
 
+def _free_disk_mb():
+    """MiB free on the checkout filesystem to a NON-root user (f_bavail, not f_bfree — ext4 reserves 5%
+    for root and the node does not run as root). None if it cannot be read."""
+    try:
+        st = os.statvfs(_REPO_DIR)
+        return round((st.f_bavail * st.f_frsize) / (1024 * 1024), 1)
+    except Exception:
+        return None
+
+
+def _looks_like_disk_pressure(err) -> bool:
+    """Is this git failure the out-of-space one, i.e. worth a repack-and-retry rather than a bare report?
+
+    Matched on git's own message. "unpack-objects failed" earns its place next to the explicit ENOSPC
+    strings: it is what the fleet actually reported, and it is emitted when the loose-object write path
+    cannot complete — which in practice means no space (verified by reproduction) or no inodes. Both are
+    exactly what a repack relieves."""
+    s = str(err).lower()
+    return any(m in s for m in ("no space left", "unpack-objects failed", "disk quota exceeded",
+                                "unable to write loose object", "cannot allocate memory",
+                                "no space", "enospc"))
+
+
 def updatability(probe_remote=True) -> dict:
     """Diagnose whether this node can self-update. Pure inspection — never mutates anything. Returns
     {capable, blocking[], warnings[], checks{}} where `capable` is False ONLY for local permanent defects."""
@@ -325,6 +375,40 @@ def updatability(probe_remote=True) -> dict:
             except Exception:
                 checks["origin"] = None
                 blocking.append("no 'origin' remote")
+
+    # FREE DISK. This is the failure that actually stranded four nodes on betanet-3, and NOTHING here
+    # detected it: they answered /status with capable=true, blocking=[], remote_reachable=true while every
+    # single fetch died. Reproduced exactly (60 MiB loopback fs, fetch as the unprivileged service user):
+    #
+    #     fatal: unable to write loose object file: No space left on device
+    #     fatal: unpack-objects failed
+    #
+    # Two details that make this sneakier than "disk full". (1) The write that fails is a LOOSE OBJECT:
+    # git takes the unpack-objects path whenever an incoming pack holds fewer than transfer.unpackLimit
+    # (default 100) objects, which is every push this project makes — so fetches land in the most
+    # space-hungry form git has. (2) ext4 reserves 5% for root, so the SERVICE USER hits the wall while
+    # df still shows space and a root shell can write happily: the same fetch that fails under systemd
+    # succeeds when an operator tries it by hand, which sends them looking anywhere but here.
+    try:
+        st = os.statvfs(_REPO_DIR)
+        free_mb = (st.f_bavail * st.f_frsize) / (1024 * 1024)      # f_bavail = free to a NON-root user
+        checks["free_disk_mb"] = round(free_mb, 1)
+        if free_mb < _DISK_BLOCKING_MB:
+            blocking.append(f"only {free_mb:.0f} MiB free on the checkout filesystem — git fetch cannot "
+                            f"write objects (needs > {_DISK_BLOCKING_MB} MiB); free space or the node "
+                            f"cannot update")
+        elif free_mb < _DISK_WARN_MB:
+            warnings.append(f"low disk: {free_mb:.0f} MiB free on the checkout filesystem "
+                            f"(fetch starts failing under ~{_DISK_BLOCKING_MB} MiB)")
+    except Exception as e:
+        checks["free_disk_mb"] = None
+        warnings.append(f"could not read free disk space: {type(e).__name__}: {e}")
+
+    # LAST FETCH OUTCOME. updatability() is pure inspection and cannot fetch, so a repo that is fine
+    # locally looks fine here even when every fetch fails. check_and_update records its verdict; surface
+    # it, so the condition is visible in /status instead of only to whoever calls /update by hand.
+    if _last_fetch_error[0]:
+        blocking.append(f"last git fetch failed: {_last_fetch_error[0]}")
 
     checks["restart_capable"] = _has_restart_capability()
     checks["restart_bridge"] = os.path.isfile(_RESTART_BRIDGE)
@@ -459,12 +543,50 @@ def check_and_update(trigger: str) -> dict:
             # hold. The fleet then reports DIVERGENT versions (alpha.11 / alpha.12 / a bare hash) while every
             # node runs the identical commit — which reads as a broken/partial rollout and makes the version
             # column useless for spotting a genuinely un-updated node.
-            _git("fetch", "--quiet", "--tags", "--force", "origin", _BRANCH, timeout=60)
+            # transfer.unpackLimit=1 keeps the incoming pack AS a pack instead of exploding it into
+            # loose objects. git only takes the unpack-objects path below this limit (default 100),
+            # and every push this project makes is smaller than that — so without the flag the
+            # self-updater writes git's least space-efficient form on every single fetch, forever.
+            _git("-c", "transfer.unpackLimit=1",
+                 "fetch", "--quiet", "--tags", "--force", "origin", _BRANCH, timeout=60)
+            _last_fetch_error[0] = None
         except Exception as e:
-            # git's OWN words. "offline?" was a guess, and it was usually wrong — the failures this actually
-            # reports are auth prompts, DNS hiccups, a stale index.lock, and genuine timeouts, which need
-            # completely different fixes from each other.
-            return {"status": "fetch_failed", "reason": f"git fetch failed: {e}"}
+            # SELF-HEAL THE SPACE CASE BEFORE GIVING UP — but do not oversell it. A repack is a real
+            # reclaim: measured on the dev checkout, 2030 loose objects occupied 35.1 MiB while 17112
+            # PACKED objects occupied 22.6 MiB (~17.7 KiB per loose object against ~1.4 KiB), because
+            # loose objects never delta-compress against each other and each burns a whole filesystem
+            # block. A failed fetch also strands tmp_obj_/tmp_pack_ garbage that only a prune removes.
+            #
+            # MEASURED LIMIT (do not weaken the disk warnings on the strength of this retry): `git gc`
+            # writes the NEW pack before deleting the old objects, so it needs free space of roughly the
+            # existing pack size. On a 13 MiB .git it failed at 6 MiB free, at 4, at 2, and at 0 —
+            # "fatal: failed to run repack", reclaiming nothing. This rescues the band where loose-object
+            # bloat has eaten the headroom but a repack still fits. It CANNOT rescue a genuinely full
+            # disk; the warning thresholds above are what has to catch that, early.
+            if _looks_like_disk_pressure(e):
+                try:
+                    _git("gc", "--prune=now", "--quiet", timeout=300)
+                    _git("-c", "transfer.unpackLimit=1",
+                         "fetch", "--quiet", "--tags", "--force", "origin", _BRANCH, timeout=60)
+                    _last_fetch_error[0] = None
+                    _log().warning("self-update: fetch failed on disk pressure; git gc reclaimed enough "
+                                   "to complete it. FREE DISK ON THIS HOST — a repack only buys one "
+                                   "reprieve and the next fetch may not be recoverable.")
+                except Exception as e2:
+                    _last_fetch_error[0] = f"{e2}"
+                    _log().error("THIS NODE IS OUT OF DISK AND CANNOT UPDATE. It will drift out of "
+                                 f"consensus. Free space on the checkout filesystem "
+                                 f"({_free_disk_mb()} MiB free) — a repack could not even run.")
+                    return {"status": "fetch_failed", "reason": f"git fetch failed: {e2}",
+                            "self_heal": "git gc could not run either — the host is out of disk, "
+                                         "not merely fragmented. Free space on the checkout filesystem.",
+                            "free_disk_mb": _free_disk_mb()}
+            else:
+                # git's OWN words. "offline?" was a guess, and it was usually wrong — the failures this
+                # actually reports are auth prompts, DNS hiccups, a stale index.lock, and genuine timeouts,
+                # which need completely different fixes from each other.
+                _last_fetch_error[0] = f"{e}"
+                return {"status": "fetch_failed", "reason": f"git fetch failed: {e}"}
 
         local, remote = _git("rev-parse", "HEAD"), _git("rev-parse", f"origin/{_BRANCH}")
         _latest_remote[0] = remote[:12]
