@@ -17,9 +17,9 @@
 
 **Short answer: no.** On soundness alone the trade looks attractive — `blowup 16 / 96 queries` reaches
 164.4 provable bits against today's 156.0 at 30% of the opening size, and `blowup 8 / 96` holds 154.2
-bits at 0.36× size. Measured natively, blowup 8 costs **3.14× on the FRI term** and **1.11× on a real
-(idle) settle prove**, and halves the proof. But the size it buys does not cross the threshold that would
-matter: DA is required at 97 MiB and at 32 MiB alike, so a consensus change buys a smaller number in the
+bits at 0.36× size. Measured natively, blowup 8 costs **3.14× on the FRI term** and **2.57× on a real
+settle prove in steady state** (§4a), and halves the proof. But the size it buys does not cross the
+threshold that would matter: DA is required at 97 MiB and at 32 MiB alike, so a consensus change buys a smaller number in the
 same architecture.
 
 Everything below is computed with `execnode/stark/soundness.py` — the repo's own model, at the live
@@ -254,7 +254,7 @@ The one genuinely attractive number is **verify at 0.55x**, paid by every node o
 fresh sync. If that becomes the reason to act, say so explicitly and weigh it against 2.57x prove and 2x
 prover memory — do not smuggle it in behind the proof-size argument, which is the mistake made twice here.
 
-### The improvement this exercise actually found
+### The improvement this exercise actually found — now shipped
 
 Not FRI. **A cold settle prove is 58.9 s and a warm one is 10.2 s** — a ~48 s gap that is entirely
 `SparseStore.root()` rebuilding singleton folds: ~2.15 M alghash2 permutations at 17.6 µs, of which 99.6%
@@ -266,15 +266,49 @@ are folds of a lone leaf against the canonical empty roots. `_FOLD_CACHE` remove
 
 The permutation is already native and is genuine compute (54 rounds x a dense 12x12 MDS), so there is no
 FFI overhead worth shaving; `storage_tree.py` says as much. The ways down are to do **fewer** permutations
-or to not redo them:
+or to not redo them — the second of which is now built:
 
-1. **persist the fold cache** across restarts — the folded chain is a pure function of
-   `(depth, key, value)`, so it is safe to write to disk and reload; this is engineering, not consensus;
-2. **reduce `EXEC_TREE_DEPTH`** (256 today) — folds scale linearly with depth, but this is a consensus
-   change and needs its own argument.
+1. **persist the fold cache** across restarts — **BUILT** (`storage_tree.save_fold_cache` /
+   `load_fold_cache`, wired into the exec node at startup and after each proof). The folded chain is a
+   pure function of `(depth, key, value)`, so the file is safe to reload and roots stay bit-identical.
+   Measured on the same production state (8 376 slots, depth 256, native):
 
-Neither has been attempted. Both are larger wins than the FRI lever, and neither requires touching the
-proof format.
+   | | |
+   |---|---|
+   | `root()` cold, no cache file | **50.30 s** |
+   | file written | 8 403 folds, 1.5 MB |
+   | `root()` after a simulated restart | **0.64 s** (reload 0.42 s) — **79x** |
+   | root identical | yes |
+
+   That takes a cold settle prove from 58.9 s to roughly 10 s — the warm figure — on the *first* settle
+   after a restart rather than the second. No consensus change and no format change, so it ships on a
+   fleet update with **no reroll**. The file is validated on load (fingerprint over depth + alghash2
+   parameters + empty roots, then a random spot-recompute) and any anomaly discards it entirely, falling
+   back to today's cold rebuild. `tests/test_fold_cache_persist.py` pins that, on the native path only.
+
+2. ~~**reduce `EXEC_TREE_DEPTH`**~~ — **withdrawn.** An earlier revision of this section listed it as a
+   second option "needing its own argument". Checking it properly, the argument is already made and goes
+   the other way:
+
+   * `protocol.py` declares it **FROZEN** — *"256 = the full alghash2 digest: position security saturates
+     the hash itself, so this never changes"* — and `exec_root.DEPTH` carries the same note, kept equal by
+     test.
+   * It is **not a performance knob, it is a collision parameter.** `slot_key`/`code_key` are alghash2
+     digests **truncated to `depth` bits** (`acc & ((1 << depth) - 1)`), and `exec_state_bind` says
+     outright that a real deployment uses ~256 "so distinct (cid, slot) never share a leaf". Two keys
+     colliding means one contract's storage silently aliases another's — corruption, not slowness.
+     Birthday probability n²/2^(d+1): at 1 B slots, d=64 is **1 in 36**; d=128 is 1.5e-21; d=256 is
+     4.3e-60. Only ≥128 is defensible, and that buys just **2×**.
+   * It is consensus-binding (`verify_settlement_sparse` pins the caller's depth against every segment)
+     and would move `EXEC_GENESIS_ROOT`, so it needs a **reroll**, not a fleet update.
+
+   A 2× cold-path win for a reroll plus giving up digest-saturating position security, when option 1 gets
+   the same or more for free, is not a trade worth making.
+
+**And it is not tested end to end at any realistic depth.** Production runs 256; the settle tests run
+`D8 = 8` (with one at 4 and one at 30). Nothing exercises 64 or 128, and nothing tests a depth
+*migration* at all. That alone would have to be built before the option could even be evaluated — which
+is a further reason option 1 is the right target.
 
 ---
 

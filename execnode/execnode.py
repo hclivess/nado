@@ -672,7 +672,35 @@ if _exec_stored_gen() not in (None, _CHAIN_GENERATION):
     _shutil.rmtree(DA_DIR, ignore_errors=True)
 
 states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
-state = states["default"]   # the full-featured default layer; shielded/bridge/dividend endpoints use it
+state = states["default"]
+
+# WARM THE SINGLETON-FOLD CACHE FROM DISK. Measured 2026-08-13 (betanet-2, 8,376 slots, depth 256, native,
+# a real 30-block span): a settle prove is 58.9 s COLD and 10.2 s WARM, and 50.0 s of the cold number is
+# SparseStore.root() rebuilding folds this process has not seen yet. Without this every restart pays it
+# before its first settle. The cache memoizes a PURE function, so a loaded entry cannot change a root —
+# only how fast it is computed; load_fold_cache validates the file (fingerprint + spot-recompute) and
+# returns 0 on anything suspicious, in which case we simply rebuild cold as before.
+FOLD_CACHE_PATH = f"{STATE_PATH}.folds.json"
+try:
+    from execnode.stark import storage_tree as _STT
+    from protocol import EXEC_TREE_DEPTH as _FOLD_DEPTH
+    _n = _STT.load_fold_cache(FOLD_CACHE_PATH, _FOLD_DEPTH)
+    if _n:
+        print(f"[execnode] fold cache: warmed {_n} folds from disk", flush=True)
+except Exception as _e:                                # never let a cache file stop the node from booting
+    print(f"[execnode] fold cache: load skipped ({type(_e).__name__}: {_e})", flush=True)
+
+
+def _persist_fold_cache():
+    """Write the fold cache back so the NEXT process starts warm. Best-effort by construction: a failure
+    costs a cold rebuild after the next restart and nothing else."""
+    try:
+        from execnode.stark import storage_tree as _STT
+        from protocol import EXEC_TREE_DEPTH as _D
+        return _STT.save_fold_cache(FOLD_CACHE_PATH, _D)
+    except Exception as _e:
+        print(f"[execnode] fold cache: save failed ({type(_e).__name__}: {_e})", flush=True)
+        return 0   # the full-featured default layer; shielded/bridge/dividend endpoints use it
 
 # JOINT-GENESIS CANARY: a freshly-loaded EMPTY default layer (cursor == -1) MUST hash to EXEC_GENESIS_ROOT.
 # If it doesn't, the exec-root scheme drifted from the hardcoded genesis constant — starting would settle a
@@ -1360,6 +1388,8 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # after a completed prove is now named: this line, the self-check line above, the DA publish/FAILED
     # lines, or the REFUSED retry.
     print(f"[execnode] settle-with-proof BUILT ns={ns} span {sc}->{cur} — self-checks passed", flush=True)
+    # The fold cache is at its most complete right here, so this is where it is worth writing out.
+    _persist_fold_cache()
     # 6a. ATTACH THE RECORDS HALF, if the span moved it. The three fields are exactly what
     # ops/transaction_ops.py reads: the transition, the claimed post root, and the PRE projection that
     # records_bind.pinned_pre_get hashes against the tip's records root so every value the binding

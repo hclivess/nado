@@ -72,11 +72,16 @@ _E_CACHE = {}
 # So this cache is worth ~6x on the whole prove, and the numbers above hold: native permute12 is 17.6 us
 # of the 22.7 us rnode call, so porting the tree walk to Rust buys ~22% and not more.
 #
-# WHAT IS STILL UNFIXED: nothing removes the cold cost. A restarted exec node pays ~50 s before its first
-# settle, and every VERIFY in a fresh process pays it too — including a fresh-syncing node checking
-# historical settles. The folded chain is a pure function of (depth, key, value), so it is safe to
-# PERSIST across restarts; that has not been built. The other lever is a smaller EXEC_TREE_DEPTH (folds
-# scale linearly with it), which is a consensus change. See doc/fri-parameters.md §7.
+# THE COLD COST IS WHAT PERSISTENCE BELOW FIXES — measured 50.30 s -> 0.64 s across a simulated restart
+# on production state (8,403 folds, a 1.5 MB file, 0.42 s to reload), root bit-identical. A restarted exec
+# node paid ~50 s before its first settle, and every VERIFY in a fresh process paid it too — including a
+# fresh-syncing node checking historical settles. save_fold_cache/load_fold_cache carry it across restarts.
+#
+# NOT the other lever: shrinking EXEC_TREE_DEPTH was considered and REJECTED. It is a collision parameter,
+# not a performance knob — slot_key/code_key are alghash2 digests TRUNCATED to `depth` bits, so a smaller
+# depth means distinct (cid, slot) can share a leaf (one contract's storage aliasing another's). protocol.py
+# freezes it at 256 for exactly that reason, and only >=128 is defensible, which buys a mere 2x. See
+# doc/fri-parameters.md §7.
 #
 # DO NOT BENCHMARK THIS COLD AND REPORT IT AS PRODUCTION. Measuring several configurations in one process
 # hides the cache; measuring each in a fresh process measures cold starts. Both mistakes were made on
@@ -88,6 +93,128 @@ _FOLD_CACHE_MAX = 1 << 17        # ~131k entries; production carries ~9k, so thi
 def clear_fold_cache():
     """Drop the singleton-fold cache (tests that want a cold measurement; never needed for correctness)."""
     _FOLD_CACHE.clear()
+
+
+# ---- PERSISTING THE FOLD CACHE ACROSS RESTARTS ------------------------------------------------------
+# The in-memory cache above turns a ~50 s root() rebuild into O(changed) — but only for the SECOND prove
+# in a process. Measured 2026-08-13 on betanet-2 (8,376 slots, depth 256, native arena, a real 30-block
+# span): a whole settle prove is 58.9 s cold and 10.2 s warm, and 50.0 s of the cold number is root().
+# A restarted exec node pays that before its first settle, and so does every VERIFY in a fresh process —
+# including a fresh-syncing node re-checking historical settles. Persisting the cache removes it.
+#
+# WHY THIS IS SAFE TO PERSIST AT ALL: an entry memoizes a PURE function of (depth, key, value), so the
+# root is bit-identical whether the cache is cold, warm, loaded from disk, or disabled. It can only change
+# how long a root takes to compute, never what it is. That is also why shipping it needs no reroll and no
+# consensus change — a fleet update is enough.
+#
+# WHY IT IS STILL VALIDATED ON LOAD: "pure function" protects against a STALE cache, not a WRONG file. A
+# truncated write, a bit-flip on disk, or a file copied between nodes running different hash parameters
+# would each feed silent garbage into a consensus-visible root. Two guards, both fail-closed:
+#
+#   1. FINGERPRINT — the header binds (format version, depth, alghash2 WIDTH/CAPACITY/ROUNDS, and the
+#      digest of the canonical empty roots for that depth). alghash2 has already changed under this code
+#      once (8 -> 54 rounds, db03a1f) and silently desynced EXEC_GENESIS_ROOT; a cache written before such
+#      a change must not survive it. Any mismatch -> the file is ignored entirely.
+#   2. SPOT-RECOMPUTE — a random sample of loaded entries is recomputed from scratch and compared. One
+#      mismatch discards the WHOLE file rather than the offending entry, because a file that is wrong
+#      anywhere has no claim to be right elsewhere.
+#
+# A rejected cache is never an error: it costs the cold rebuild, which is exactly today's behaviour.
+_FOLD_FORMAT = 1
+
+
+def _fold_fingerprint(depth):
+    """Bind a persisted cache to the hash parameters AND depth it was computed under (see guard 1)."""
+    import hashlib
+    h = hashlib.blake2b(digest_size=16)
+    h.update(f"{_FOLD_FORMAT}|{int(depth)}|{A2.WIDTH}|{A2.CAPACITY}|{A2.ROUNDS}".encode())
+    for d in empty_roots(depth):                       # the empty roots ARE the permutation's fingerprint
+        for lane in d:
+            h.update(int(lane).to_bytes(8, "big"))
+    return h.hexdigest()
+
+
+def _recompute_fold(depth, key, value, level):
+    """The singleton fold for (key, value) at `level`, computed from scratch — the oracle guard 2 uses."""
+    e = empty_roots(depth)
+    node = _leaf(value)
+    for i in range(level):
+        node = A2.rnode(e[i], node) if (key >> i) & 1 else A2.rnode(node, e[i])
+    return node
+
+
+def save_fold_cache(path, depth):
+    """Write the singleton-fold cache for `depth` to `path` atomically. Returns entries written.
+
+    Only entries matching `depth` are written — the cache is keyed across depths (tests run small ones in
+    the same process) and a file that mixed them could not be fingerprinted."""
+    import json
+    import os
+    rows = [(k[1], k[2], v[0], [int(x) for x in v[1]])
+            for k, v in _FOLD_CACHE.items() if k[0] == depth]
+    if not rows:
+        return 0
+    blob = {"fingerprint": _fold_fingerprint(depth), "depth": int(depth), "rows": rows}
+    tmp = f"{path}.tmp{os.getpid()}"
+    with open(tmp, "w") as fh:
+        json.dump(blob, fh, separators=(",", ":"))
+    os.replace(tmp, path)                              # atomic: a crash leaves the OLD file, never a torn one
+    return len(rows)
+
+
+def load_fold_cache(path, depth, samples=64, logger=None):
+    """Load a persisted fold cache, VALIDATED. Returns entries accepted (0 = the file was not usable).
+
+    Fails closed on every anomaly — a missing file, a fingerprint mismatch, a malformed row, or a single
+    failed spot-recompute all yield 0 and leave the in-memory cache untouched. The caller then simply pays
+    the cold rebuild, which is the behaviour without this file at all."""
+    import json
+    import random
+
+    def _no(why):
+        if logger:
+            logger.info(f"[fold-cache] ignoring {path}: {why} — rebuilding cold")
+        return 0
+
+    try:
+        with open(path) as fh:
+            blob = json.load(fh)
+    except FileNotFoundError:
+        return 0
+    except Exception as e:
+        return _no(f"unreadable ({type(e).__name__})")
+    try:
+        if int(blob.get("depth", -1)) != int(depth):
+            return _no(f"depth {blob.get('depth')} != {depth}")
+        if blob.get("fingerprint") != _fold_fingerprint(depth):
+            return _no("fingerprint mismatch (hash parameters or empty roots changed)")
+        rows = blob["rows"]
+        staged = {}
+        for key, value, level, digest in rows:
+            k, v, lv = int(key), int(value), int(level)
+            if v == 0 or lv < 0 or lv > depth or k < 0 or k >> depth:
+                return _no("malformed row")
+            staged[(depth, k, v)] = (lv, tuple(int(x) % F.P for x in digest))
+    except Exception as e:
+        return _no(f"malformed ({type(e).__name__})")
+    if not staged:
+        return 0
+
+    # guard 2 — recompute a random sample from scratch; one mismatch discards the whole file
+    keys = list(staged)
+    for kk in random.sample(keys, min(samples, len(keys))):
+        _d, k, v = kk
+        lv, digest = staged[kk]
+        if _recompute_fold(depth, k, v, lv) != digest:
+            return _no("spot-recompute mismatch — the file is wrong, not merely stale")
+
+    _FOLD_CACHE.update(staged)
+    while len(_FOLD_CACHE) > _FOLD_CACHE_MAX:
+        _FOLD_CACHE.pop(next(iter(_FOLD_CACHE)))
+    if logger:
+        logger.info(f"[fold-cache] loaded {len(staged)} folds from {path} "
+                    f"({min(samples, len(keys))} spot-recomputed)")
+    return len(staged)
 
 
 def empty_roots(depth):
