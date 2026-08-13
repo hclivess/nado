@@ -224,6 +224,16 @@ async def status(request):
             "latest_block_height": lb.get("block_number"),
             "latest_block_weight": lb.get("cumulative_weight", 0),
             "earliest_block_hash": eb.get("block_hash"),
+            # BODY HORIZON — the oldest height this node can actually serve a BODY for, which is the
+            # question every caller of node_type is really asking. node_type is a POLICY flag ("do I
+            # prune?"), and it was being read as a capability claim. Those are not the same thing, and on
+            # a snapshot-booted node they are barely related: snapshot_bootstrap backfills only
+            # REWARD_WINDOW + 2*EPOCH_LENGTH + FINALITY_DEPTH = 265 bodies behind its anchor and nothing
+            # older, ever. Such a node with archive=true advertises "archive" while holding 265 blocks of
+            # history — it archives everything from its snapshot FORWARD and nothing before it. Publish
+            # the horizon so a peer picking a donor, or an explorer deciding what it can render, reads a
+            # measured fact instead of a promise the flag cannot keep.
+            "earliest_block_height": eb.get("block_number"),
             "finalized_height": memserver.finalized_height,
             "ffg_finalized": memserver.ffg_finalized,
             "protocol": memserver.protocol,
