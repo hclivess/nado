@@ -2762,19 +2762,38 @@ function renderSelfTest(cases) {
  * Full wallet: download key, send, bond/unbond, receive QR, transaction history
  * -------------------------------------------------------------------------------------------- */
 
-/* Download the key as a JSON file via a Blob + a temporary <a download> (explicit user request). */
-function downloadKeyFile() {
+/* Download the key as a JSON file via a Blob + a temporary <a download> (explicit user request).
+ *
+ * THE FILE MUST CARRY THE RECOVERY PHRASE. It shipped with the raw seed only, which is technically
+ * sufficient — the 32-byte seed IS the identity and import accepts 64-hex — but it is not what users are
+ * told to keep. Every "back up your wallet" instruction, the save screen and the reveal panel all present
+ * the 24 words as THE backup, so a file called `nado-key-….json` that silently omits them reads as a
+ * complete backup while missing the thing the user believes they saved. The two are the same secret in two
+ * encodings; a backup should contain the one a human can actually transcribe and re-enter.
+ *
+ * async because seedToMnemonic() is: the phrase is DERIVED from the seed, never stored, so there is nothing
+ * to look up synchronously. If derivation ever fails the file is still written with the seed — a backup
+ * missing the phrase beats no backup at all — and the note says so rather than pretending it is complete. */
+async function downloadKeyFile() {
   // Fall back to pendingWallet: on the "⚠ Save your private key" screen the freshly-generated key is
   // held in pendingWallet and is NOT yet state.wallet (that happens only on "Continue → store"). Without
   // this, a brand-new user who clicks Download on that very screen got a confusing "No wallet loaded."
   // HD SAFETY: export the MASTER key (recovers every derived account), not the active child.
   const w = (masterSeedOf() ? keypairFromPriv(masterSeedOf()) : null) || state.wallet || pendingWallet;
   if (!w) { uiAlert(i18("wallet.needFirst", "Create or import a wallet first — then you can download its key file.")); return; }
+  // Derive the 24-word phrase from the SAME master seed the file exports, so the two can never disagree.
+  let mnemonic = null;
+  try { mnemonic = await seedToMnemonic(hexToBytes(w.privateKey)); } catch (e) { mnemonic = null; }
   const keyfile = {
     private_key: w.privateKey,            // the 32-byte ML-DSA-44 SEED (hex) — this IS the secret
+    mnemonic,                             // the SAME secret as 24 words — what users are told to keep
     public_key: w.publicKey,
     address: w.address,
-    note: "NADO ML-DSA-44 key — keep secret, no recovery",
+    note: mnemonic
+      ? "NADO ML-DSA-44 key — keep secret, no recovery. `mnemonic` and `private_key` are the SAME secret "
+        + "in two encodings; either one alone restores this wallet and every account derived from it."
+      : "NADO ML-DSA-44 key — keep secret, no recovery. The recovery phrase could not be derived in this "
+        + "browser, so this file has the raw seed ONLY; `private_key` still restores the wallet in full.",
   };
   const blob = new Blob([JSON.stringify(keyfile, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -2832,14 +2851,22 @@ function importKeyFile(file) {
     let obj = null;
     try { obj = JSON.parse(text); } catch (e) { obj = null; }
     if (obj && obj.enc) { importEncryptedBlob(obj); return; }   // an encrypted backup -> ask for the password
-    try {
-      const priv = (obj && (obj.private_key || obj.privateKey || obj.private || obj.seed)) || (obj ? null : text);
-      if (!priv) throw new Error(i18("import.noKey", "no private key found in the file"));
-      adoptWallet(keypairFromPriv(String(priv).trim()), { needsSavePrompt: false });
-      log("info", i18("log.keyImported", "Imported key from file."));
-    } catch (e) {
-      uiAlert(i18("import.fileFailed", "Import from file failed:") + " " + e.message);
-    }
+    (async () => {
+      try {
+        let priv = (obj && (obj.private_key || obj.privateKey || obj.private || obj.seed)) || (obj ? null : text);
+        // ACCEPT A PHRASE TOO. The exported keyfile now carries `mnemonic` alongside the seed, and the two
+        // are the same secret — so a file that has only the phrase (hand-trimmed, or written by a future
+        // export that drops the raw seed) must still import rather than reporting "no private key found".
+        if (!priv && obj && obj.mnemonic && looksLikeMnemonic(String(obj.mnemonic))) {
+          priv = bytesToHex(await mnemonicToSeed(String(obj.mnemonic).trim()));
+        }
+        if (!priv) throw new Error(i18("import.noKey", "no private key found in the file"));
+        adoptWallet(keypairFromPriv(String(priv).trim()), { needsSavePrompt: false });
+        log("info", i18("log.keyImported", "Imported key from file."));
+      } catch (e) {
+        uiAlert(i18("import.fileFailed", "Import from file failed:") + " " + e.message);
+      }
+    })();
   };
   reader.onerror = () => uiAlert(i18("import.readErr", "Could not read the file."));
   reader.readAsText(file);
@@ -6936,9 +6963,9 @@ function wireEvents() {
   });
 
   // --- full-wallet wiring ---
-  $("btnDlKey").onclick = downloadKeyFile;
+  $("btnDlKey").onclick = () => downloadKeyFile().catch(() => {});
   $("btnDlKeySave").onclick = () => {
-    downloadKeyFile();
+    downloadKeyFile().catch(() => {});
     // key saved -> hand the onboarding pulse from Download to the "I have saved it" toggle
     $("btnDlKeySave").classList.remove("pulse-ready");
     const track = document.querySelector("#savePrompt .tgl-track");
@@ -6958,7 +6985,7 @@ function wireEvents() {
   if ($("zsendDeliverTo")) $("zsendDeliverTo").onkeydown = (e) => {
     if (e.key === "Enter") { e.preventDefault(); doDeliverZbill().catch(() => {}); }
   };
-  $("btnDlKeySettings").onclick = downloadKeyFile;
+  $("btnDlKeySettings").onclick = () => downloadKeyFile().catch(() => {});
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
   if ($("btnMsigDerive")) $("btnMsigDerive").onclick = () => msigDerive();
   if ($("btnMsigPropose")) $("btnMsigPropose").onclick = () => msigPropose();
