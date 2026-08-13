@@ -269,6 +269,15 @@ async def status(request):
             # operator had no way to tell which precondition was vetoing. That guessing is what stretched the
             # .141 incident; these are diagnostics only, nothing reads them back.
             "update_blocking": (memserver.updatability or {}).get("blocking") or [],
+            # THE WARNING BAND IS THE PART THAT PREVENTS ANYTHING. `blocking` only fires once the node is
+            # ALREADY unable to update — by then the disk is full and, measured, not even `git gc` can run
+            # (it writes the new pack before dropping the old objects, so it needs roughly the pack size
+            # free). The low-disk warning fires with ~1 GiB of headroom, i.e. days of notice, and without
+            # it here that notice existed only in this node's own journal — invisible to exactly the
+            # fleet-wide sweep that would act on it. Four nodes wedged on betanet-3 while every remote
+            # check said they were fine.
+            "update_warnings": (memserver.updatability or {}).get("warnings") or [],
+            "update_free_disk_mb": ((memserver.updatability or {}).get("checks") or {}).get("free_disk_mb"),
             "update_remote_reachable": ((memserver.updatability or {}).get("checks") or {}).get("remote_reachable"),
             "dead_fork_probe": getattr(memserver, "dead_fork_probe", None),
             # NETWORK PARTITION KEY: peers gate admission on this (peer_loop) so nodes on a different
