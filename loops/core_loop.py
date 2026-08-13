@@ -882,6 +882,31 @@ class CoreClient(threading.Thread):
         if self.memserver.latest_block["block_number"] != 0 and not force_reanchor:
             return False   # genesis-only for normal bootstrap; force_reanchor re-anchors an established node
         try:
+            # AN ARCHIVE NODE MUST NOT SHORTCUT ITS WAY PAST THE HISTORY IT EXISTS TO KEEP.
+            #
+            # A fresh bootstrap backfills only REWARD_WINDOW + 2*EPOCH_LENGTH + FINALITY_DEPTH bodies behind
+            # the anchor and nothing older, ever. Taking it with archive=true produces a node that keeps
+            # everything from its snapshot FORWARD, holds nothing before it, and advertises node_type
+            # "archive" to peers that read that as "can serve history". Convenient, and a lie — and the
+            # operator has no reason to suspect it, because the node syncs fast and looks healthy.
+            #
+            # `archive: true` is an explicit, deliberate setting. Honour it: refuse the shortcut and say
+            # what a real archive costs. This is deliberately NOT the default posture — rolling nodes take
+            # the snapshot path as before, which is the whole point of having it.
+            if getattr(self.memserver, "archive", False) and not force_reanchor:
+                self.logger.error("=" * 78)
+                self.logger.error("ARCHIVE NODE: REFUSING SNAPSHOT BOOTSTRAP.")
+                self.logger.error("  A snapshot carries STATE, not history — this node would start with a")
+                self.logger.error("  few hundred blocks of bodies and never obtain the chain before them,")
+                self.logger.error("  while telling peers it is an archive. That is not an archive.")
+                self.logger.error("  For a true archive, either:")
+                self.logger.error("    * sync from genesis (leave it running; it needs a peer that still")
+                self.logger.error("      serves deep bodies — rolling nodes do not), or")
+                self.logger.error("    * copy an existing archive node's data directory, or")
+                self.logger.error("    * set \"archive\": false to run as a rolling node instead.")
+                self.logger.error("=" * 78)
+                return False
+
             peers = list(self.memserver.peers)
             if len(peers) < 1:
                 return False
@@ -1047,6 +1072,29 @@ class CoreClient(threading.Thread):
                     break
                 save_block(body, logger=self.logger)
                 oldest, filled = body, filled + 1
+            # AN ESTABLISHED ARCHIVE NODE JUST LOST ITS ARCHIVE. force_reanchor is wedge recovery: the
+            # blocks below the new earliest are orphaned in the store — bytes may linger as inert garbage,
+            # but nothing references them, so this node can no longer SERVE the chain before `oldest`.
+            # That is the archive, gone, on a node whose whole purpose was keeping it.
+            #
+            # We do not refuse the re-anchor. Refusing is worse: the node is on a dead fork it cannot leave
+            # by rollback, so declining leaves it wedged forever, still serving nothing. What must not
+            # happen is losing it SILENTLY — an archive operator has to know their history now starts at N,
+            # so they can re-seed from another archive rather than discover it from a user's bug report.
+            _prev_earliest = int((self.memserver.earliest_block or {}).get("block_number") or 0) \
+                if isinstance(self.memserver.earliest_block, dict) else 0
+            _new_earliest = int(oldest.get("block_number") or 0)
+            if getattr(self.memserver, "archive", False) and _new_earliest > max(1, _prev_earliest):
+                self.logger.error("=" * 78)
+                self.logger.error("ARCHIVE TRUNCATED BY WEDGE RECOVERY.")
+                self.logger.error(f"  History started at block {_prev_earliest}; it now starts at "
+                                  f"{_new_earliest}.")
+                self.logger.error(f"  {_new_earliest - _prev_earliest} blocks of bodies are orphaned and can "
+                                  f"no longer be served.")
+                self.logger.error("  This node had to re-anchor onto the heaviest chain to leave a fork it")
+                self.logger.error("  could not exit by rollback — the alternative was staying wedged.")
+                self.logger.error("  RE-SEED from another archive's data directory to restore the range.")
+                self.logger.error("=" * 78)
             set_earliest_block_info(earliest_block=oldest, logger=self.logger)
             self.memserver.earliest_block = oldest
 
