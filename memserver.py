@@ -235,6 +235,25 @@ class MemServer:
         # not silently join the open lane). NADO_AUTO_REGISTER=1 (or config auto_register:true) turns it on.
         self.auto_register = _flag("NADO_AUTO_REGISTER", "auto_register", False)
 
+        # AUTO-VOTE on treasury proposals paying a WHITELISTED recipient — DEFAULT ON, whitelist-restricted.
+        #
+        # WHY THIS EXISTS AT ALL: the browser wallet has auto-voted since the feature shipped, but treasury
+        # quorum is counted in BONDED SHARES, and browser miners hold almost none. Measured on betanet-2:
+        # 108 of 117 open miners have ZERO voting shares, so their auto-vote is a no-op, while all 42 shares
+        # sit with 9 bonded node operators whose software never voted at all. Quorum is 28 of 42 — literally
+        # unreachable, which is why the treasury held 109 NADO with zero proposals ever paid. Whitelisting
+        # was decorative until the side holding the weight also votes.
+        #
+        # The whitelist is the safety property, not the flag: a node will only ever auto-approve a spend to
+        # a listed recipient. The default is the reserved `faucet` escrow — keyless, public-good, and
+        # impossible to redirect — so the shipped behaviour cannot move funds to anyone's address. Operators
+        # widen it deliberately (NADO_AUTO_VOTE_ALLOW="faucet,<addr>") or switch it off entirely.
+        self.auto_vote = _flag("NADO_AUTO_VOTE", "auto_vote", True)
+        _allow = _os.environ.get("NADO_AUTO_VOTE_ALLOW")
+        if _allow is None:
+            _allow = self.config.get("auto_vote_allow", "faucet")
+        self.auto_vote_allow = [a.strip().lower() for a in str(_allow).split(",") if a.strip()]
+
         # ROLLING MODE (non-consensus): archive=True (default) keeps ALL block bodies; False runs a
         # pruned/rolling node that drops bodies older than history_retention_blocks (state + indexes
         # kept). NADO_ARCHIVE=0/false selects rolling mode headless. See doc/rolling-mode-and-da.md.

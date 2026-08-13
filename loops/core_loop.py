@@ -297,6 +297,7 @@ class CoreClient(threading.Thread):
         # PoSW lease alive, hands-free. Throttled to one of each per epoch (see maybe_auto_collect/register).
         self.last_auto_collect_epoch = -1
         self.last_auto_register_epoch = -1
+        self.last_auto_vote_epoch = -1
         # anti-spam backoff for the emergency-mode "Could not find a syncable peer" retry (fires every ~1s
         # while no donor is reachable — a persistent normal state on a lone/bootstrap node).
         self._last_no_syncable_log = 0
@@ -457,6 +458,7 @@ class CoreClient(threading.Thread):
                 self.maybe_auto_bond()
                 self.maybe_auto_collect()
                 self.maybe_auto_register()
+                self.maybe_auto_vote()
                 # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
                 self.maybe_prune_history()
                 # CONSERVATION INVARIANTS (ops/invariants.py): supply is a closed system, so any "coins from
@@ -2403,6 +2405,58 @@ class CoreClient(threading.Thread):
                 f"window [{_tip + TX_INCLUSION_DELAY}, {_tip + TX_TARGET_MARGIN}])")
         except Exception as e:
             self.logger.info(f"Auto-collect skipped: {e}")
+
+    def maybe_auto_vote(self):
+        """AUTO-VOTE 'yes' on open treasury proposals paying a WHITELISTED recipient (memserver.auto_vote,
+        allow-list memserver.auto_vote_allow, default ["faucet"]). Throttled to once per epoch.
+
+        WHY THE NODE AND NOT JUST THE WALLET: treasury quorum is counted in BONDED SHARES. The browser
+        wallet has auto-voted since the feature shipped, but measured on betanet-2, 108 of 117 open miners
+        hold ZERO shares — their votes count for nothing — while all 42 shares sit with 9 bonded node
+        operators whose software never voted at all. Quorum is 28 of 42, so it was unreachable by
+        construction: the treasury accumulated 109 NADO and paid out nothing, ever, because the only
+        parties with weight had no way to say yes. Whitelisting is meaningless unless that side votes.
+
+        SAFETY IS THE WHITELIST, NOT THE FLAG. A listed recipient is the only thing this will ever approve,
+        and the shipped default is the reserved `faucet` escrow — keyless and impossible to redirect — so
+        the default behaviour cannot move treasury funds to any individual's address. A vote carries a
+        small anti-spam fee, so this refuses to guess: it votes only on proposals it can see it has NOT
+        already voted on, mirroring the wallet's `voted` rule (which is 'has cast a vote, yes OR no', so a
+        deliberate `no` is never flipped to yes)."""
+        if not getattr(self.memserver, "auto_vote", False):
+            return
+        allow = [a for a in (getattr(self.memserver, "auto_vote_allow", None) or [])]
+        if not allow:
+            return                                   # an empty list means "approve anything" — never here
+        try:
+            from ops import kv_ops
+            from ops.transaction_ops import construct_treasury_vote_tx
+            from ops.account_ops import get_bonded_registry
+            epoch = epoch_of(self.memserver.latest_block["block_number"])
+            if getattr(self, "last_auto_vote_epoch", None) == epoch:
+                return
+            self.last_auto_vote_epoch = epoch
+            me = self.memserver.address
+            if me not in get_bonded_registry():       # no shares -> our vote carries no weight; skip the fee
+                return
+            h = self.memserver.latest_block["block_number"]
+            for pid, spend in kv_ops.treasury_proposals_all():
+                expiry = int(spend.get("expiry", 0))
+                if h > expiry or kv_ops.treasury_executed_exists(pid):
+                    continue                          # expired or already paid
+                if str(spend.get("recipient", "")).lower() not in allow:
+                    continue                          # not whitelisted -> a human decides
+                if any(v.lower() == me.lower() for v in kv_ops.treasury_voters(pid)):
+                    continue                          # already voted (yes OR no) -> never re-cast
+                tx = construct_treasury_vote_tx(self.memserver.keydict, spend.get("recipient"),
+                                                int(spend.get("amount", 0)), spend.get("memo", ""),
+                                                spend.get("nonce"), h + RESERVED_TX_MARGIN,
+                                                expiry, choice="yes")
+                self.memserver.merge_transaction(tx, user_origin=True)
+                self.logger.info(f"Auto-vote: YES on {pid[:12]}… → {spend.get('recipient')} "
+                                 f"({int(spend.get('amount', 0)) / 1e10:.4f} NADO, whitelisted)")
+        except Exception as e:
+            self.logger.info(f"Auto-vote skipped: {e}")
 
     def maybe_auto_register(self):
         """AUTO-REGISTER (opt-in, default off, memserver.auto_register): keep this node present in the OPEN lane
