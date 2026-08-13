@@ -97,6 +97,47 @@ def main():
         check("the floor alone is a small fraction of that",
               floor * BLOCK_TIME / 86400 * MB_PER_DAY < days * MB_PER_DAY)
 
+    # ---- the MIGRATION, which is the only thing that reaches an already-installed node ---------------
+    # A changed default reaches new installs and nothing else: create_config is create-only and writes
+    # every default at install time, so the value the old installer wrote is indistinguishable on disk
+    # from a value the operator chose. Observed directly — flipping the default moved exactly the ONE node
+    # whose config predated the key, while five nodes carrying an installer-written "archive": true kept
+    # archiving. Those five are the nodes the change is for.
+    import json
+    from config import migrate_config, get_config, update_config, CONFIG_VERSION
+    cdir = os.path.join(d, "nado", "private")
+    os.makedirs(cdir, exist_ok=True)
+    cp = os.path.join(cdir, "config.json")
+
+    def write(cfg):
+        json.dump(cfg, open(cp, "w"))
+
+    write({"port": 9173, "archive": True, "auto_update": True})
+    r = migrate_config(config_path=cp)
+    check("an installer-written archive=True is migrated to rolling",
+          r["migrated"] and r["changed"].get("archive") is False)
+    check("...and the file now says so", get_config(cp)["archive"] is False)
+    check("...and is stamped, so it never runs twice",
+          get_config(cp)["config_version"] == CONFIG_VERSION)
+    check("re-running is a no-op", migrate_config(config_path=cp)["migrated"] is False)
+
+    # THE IMPORTANT ONE: a deliberate choice must survive. An explorer/seed operator sets archive back on;
+    # a migration that kept re-flipping it would be a bug that silently deletes their history.
+    update_config({"archive": True}, cp)
+    migrate_config(config_path=cp)
+    check("an operator who deliberately re-enables archive KEEPS it", get_config(cp)["archive"] is True)
+
+    write({"port": 9173})
+    check("a config that never had the key is left alone (already rolling by default)",
+          "archive" not in migrate_config(config_path=cp).get("changed", {}))
+    write({"port": 9173, "archive": False})
+    check("an operator who already chose rolling is untouched",
+          "archive" not in migrate_config(config_path=cp).get("changed", {}))
+
+    # every knob create_config writes must be readable by the migration path
+    check("newly created configs are stamped with the current version",
+          '"config_version": CONFIG_VERSION' in open(os.path.join(root, "config.py")).read())
+
     print()
     print("ALL ROLLING-DEFAULT CHECKS PASSED" if not _fails else f"{len(_fails)} FAILURE(S): {_fails}")
     return 1 if _fails else 0

@@ -115,6 +115,54 @@ def update_config(new_config: dict, config_path: str = None):
         json.dump(config, outfile)
 
 
+# Bumped when a DEFAULT changes in a way an already-written config would otherwise pin forever.
+# create_config stamps it; migrate_config applies the delta once to older files. See migrate_config.
+CONFIG_VERSION = 1
+
+
+def migrate_config(logger=None, config_path: str = None) -> dict:
+    """Apply one-time default changes to a config written by an older installer. Returns what it did.
+
+    THE PROBLEM THIS SOLVES. create_config writes EVERY default into config.json at install time, and it
+    is deliberately create-only. So a default change reaches new installs and NOTHING ELSE: the value the
+    old installer wrote is indistinguishable, on disk, from a value the operator chose, and it pins the old
+    behaviour forever. Observed directly — flipping "archive" to False moved exactly the one node whose
+    config predated the key, while five nodes carrying an installer-written "archive": true kept archiving.
+    Those are the nodes the change is FOR, and none of them can be reached with a shell.
+
+    So: version the file. A config with no `config_version` was written before this mechanism existed, and
+    its knobs are old DEFAULTS, not decisions. Migrating them once is a data migration in the same spirit
+    as the config.dat -> config.json rename above — not a compatibility layer, and it never runs twice.
+
+    Deliberately narrow. It touches ONLY keys listed in a migration step, only when they still hold the old
+    default (a value the operator changed to anything else is left alone), and it stamps the version so a
+    later deliberate "archive": true is permanent. Non-consensus, and reversible by editing one key."""
+    config_path = config_path or _config_path()
+    try:
+        config = get_config(config_path)
+    except Exception:
+        return {"migrated": False, "reason": "no config"}
+    have = int(config.get("config_version", 0) or 0)
+    if have >= CONFIG_VERSION:
+        return {"migrated": False, "version": have}
+
+    changed = {}
+    # v1: rolling mode became the default. An archive node costs a measured ~47.6 GB/year of block bodies,
+    # and a node that fills its disk stops UPDATING, not just archiving. Only flip the value the old
+    # installer wrote; an operator who set it to anything else has already made a decision.
+    if have < 1 and config.get("archive") is True:
+        changed["archive"] = False
+
+    changed["config_version"] = CONFIG_VERSION
+    update_config(changed, config_path)
+    if logger and len(changed) > 1:
+        logger.warning(f"config migrated to v{CONFIG_VERSION}: "
+                       + ", ".join(f"{k}={v}" for k, v in changed.items() if k != "config_version")
+                       + " (set it back explicitly if that was a deliberate choice)")
+    return {"migrated": True, "from": have, "to": CONFIG_VERSION,
+            "changed": {k: v for k, v in changed.items() if k != "config_version"}}
+
+
 def create_config(ip: str, config_path: str = None):
     """Write the initial config.json with every default knob (all NON-consensus, operator-tunable).
     Strictly create-only: an existing file is NEVER overwritten, so re-running genesis/bootstrap
@@ -125,6 +173,9 @@ def create_config(ip: str, config_path: str = None):
         "port": get_port(),
         "ip": ip,
         "server_key": create_nonce(length=64),
+        # Stamps the defaults this file was born with, so a LATER default change can be applied once
+        # to it (migrate_config) instead of being pinned forever by a value the installer wrote.
+        "config_version": CONFIG_VERSION,
         "min_peers": 2,
         # Per-burst rollback allowance. MUST stay < FINALITY_DEPTH (45) so an honest reorg inside the
         # unfinalized window always completes instead of stopping half-way and leaving the node wedged.

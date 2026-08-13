@@ -26,7 +26,7 @@ def _zstd_wire():
 
 import versioner
 import time
-from config import get_protocol, get_config, get_timestamp_seconds, hostport
+from config import get_protocol, get_config, get_timestamp_seconds, hostport, migrate_config
 from ops import self_update
 from genesis import make_genesis, make_folders
 from loops.consensus_loop import ConsensusClient
@@ -2214,6 +2214,17 @@ _port_check_host = get_config()["ip"] if os.environ.get("NADO_TESTNET") else "lo
 assert not is_port_in_use(get_config()["port"], _port_check_host), "Port already in use, exiting"
 signal.signal(signal.SIGINT, handler)
 signal.signal(signal.SIGTERM, handler)
+
+# ONE-TIME CONFIG MIGRATION, before MemServer reads a single knob. create_config is create-only and writes
+# every default at install time, so a changed default otherwise reaches new installs and nothing else — the
+# value the old installer wrote looks exactly like a value the operator chose. Narrow and idempotent: it
+# only touches keys still holding the old default, and stamps config_version so it never runs twice.
+try:
+    _mig = migrate_config(logger=logger)
+    if _mig.get("changed"):
+        logger.warning(f"config migrated: {_mig['changed']}")
+except Exception as e:
+    logger.warning(f"config migration skipped: {type(e).__name__}: {e}")
 
 memserver = MemServer(logger=logger)
 
