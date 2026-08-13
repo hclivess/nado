@@ -343,9 +343,10 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 # so prover and validator cannot disagree between prove-time and land-time.
 POSW_ENTRY_MULT = 32
 
-# Same activation epoch as the fidelity spacing rule ON PURPOSE: two consensus changes at one height means
-# ONE divergence point for any node that fails to update, not two. See SCHEDULED_CLEANUPS.md.
-POSW_ENTRY_ACTIVATION_EPOCH = 862
+# UNCONDITIONAL — this ships WITH a genesis reroll, so there are no pre-rule proofs to keep valid and no
+# historical blocks to re-validate. It was briefly height-gated (epoch 862) while the plan was to activate
+# on the running chain; a reroll makes that gate pure dead weight, and re-dating it would have left the
+# hole open for the first ~3.5 days of the new chain.
 # CHAIN GENERATION (genesis-reroll flag, ops/data_ops.py): each generation is ONE GENESIS LINEAGE —
 # bump this in the SAME commit as a genesis reroll (nothing to do with the 60-block consensus epochs).
 # Every node stamps the generation its on-disk data was built under; on boot after an update, a mismatch
@@ -1170,35 +1171,18 @@ FIDELITY_GAIN = 1                  # per continuous recert
 # early renewal bought +1 fidelity. It is true now.
 FIDELITY_MIN_GAP_EPOCHS = 192
 
-# HEIGHT-GATED, and it MUST be. dividend_ops.fidelity_at_epoch REPLAYS an address's whole recert history
-# to reconstruct its weight as of a past epoch, and that reconstruction has to stay byte-identical to what
-# the live ramp actually applied — a fraud proof that recomputed it differently would FALSE-SLASH an
-# honest settler (doc/presence-dividend.md). Changing the rule unconditionally would silently rewrite
-# every historical weight. So the new spacing requirement applies only to recerts at/after this epoch, and
-# both the live path (account_ops.apply_register) and the replay (dividend_ops.fidelity_at_epoch) consult
-# the same gate. Set ahead of the fleet so every node is updated before it bites; epoch 382 was live when
-# this landed, and an epoch is 6 minutes, so this is ~2 days out.
-FIDELITY_MIN_GAP_ACTIVATION_EPOCH = 862          # = block 51_720
+# UNCONDITIONAL — and it is only safe to be, because this ships WITH a genesis reroll.
 #
-# WHEN THIS GATE MAY BE DELETED — NOT at activation. The obvious cleanup ("the rule is live now, drop the
-# branch") is WRONG and would be a false-slashing bug. fidelity_at_epoch replays an address's WHOLE recert
-# history, including recerts from BEFORE this epoch; removing the gate makes that replay apply the spacing
-# rule to pre-activation recerts and reconstruct weights that differ from the ones actually applied. A
-# dividend fraud proof checks exactly that reconstruction, so an honest settler gets slashed.
+# The rule was height-gated (epoch 862) while it was going to activate on a running chain, because
+# dividend_ops.fidelity_at_epoch REPLAYS an address's whole recert history to reconstruct its weight as of
+# a past epoch, and that replay must stay byte-identical to what the live ramp actually applied — a
+# dividend fraud proof checks exactly that reconstruction, so an ungated change silently rewrites every
+# historical weight and FALSE-SLASHES an honest settler.
 #
-# The gate is dead only once NO pre-activation recert row can still be replayed. Rows are retained for
-# RECERT_HISTORY_EPOCHS = 10_000 (~6 weeks; the GC in nado.py trims below E - SATURATION_LOOKBACK_EPOCHS,
-# which is smaller, so 10_000 is the conservative bound). So:
-#
-#     SCHEDULED-CLEANUP: safe to delete at epoch 862 + 10_000 = 10_862  (block 651_720, ~42 days after
-#     activation). Tracked in SCHEDULED_CLEANUPS.md — remove the entry only when the code goes.
-#
-# At that point both branches can go and the spacing becomes unconditional. Before it, they cannot.
-#
-# A GENESIS REROLL VOIDS THIS CONSTANT — epoch numbering restarts, so 862 would land ~3.5 days into the new
-# chain and silently leave the exploit open until then. On any reroll, make the spacing UNCONDITIONAL
-# (delete the gate in both account_ops and dividend_ops) rather than re-picking a number: a fresh chain has
-# no pre-activation history to preserve, which is the only thing the gate exists for.
+# A reroll leaves NO pre-rule recert history, so there is nothing for the gate to protect. Removing it is
+# strictly correct here, and strictly better than re-dating it: an activation epoch carried into a fresh
+# chain lands days in, leaving fidelity farmable for exactly the window where an early weight advantage
+# compounds most. account_ops.apply_register and dividend_ops.fidelity_at_epoch must stay in lockstep.
 # deepest recert-row lookback any WEIGHT reconstruction needs (see the idle-GC note above):
 # a run longer than this is fidelity-capped, so pre-horizon rows can never change open_shares.
 SATURATION_LOOKBACK_EPOCHS = (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS

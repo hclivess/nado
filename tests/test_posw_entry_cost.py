@@ -49,15 +49,14 @@ def main():
         os.makedirs(os.path.join(d, "nado"), exist_ok=True)
         from ops import kv_ops, account_ops
         from ops import reg_difficulty as RD
-        from protocol import (POSW_T, POSW_ENTRY_MULT, POSW_ENTRY_ACTIVATION_EPOCH,
-                              POSW_LEASE_EPOCHS)
+        from protocol import POSW_T, POSW_ENTRY_MULT, POSW_LEASE_EPOCHS
         kv_ops.init_env()
 
         class _Log:
             def info(self, *a):
                 pass
 
-        A0 = POSW_ENTRY_ACTIVATION_EPOCH
+        A0 = 1000        # any epoch: UNCONDITIONAL, it ships with the reroll
         NEW, OLD, LAPSED = "n" * 46, "o" * 46, "l" * 46
 
         # OLD is an established identity: recert just before the anchor we will test at.
@@ -80,11 +79,9 @@ def main():
         check("the entry cost COMPOSES with the rate multiplier",
               t_new == POSW_T * base_rate * POSW_ENTRY_MULT)
 
-        # ---- the activation gate ---------------------------------------------------------------------
-        pre = A0 - 5
-        check("before activation an entry pays the plain rate requirement",
-              RD.required_posw_t(pre, NEW) == POSW_T * RD.difficulty_multiplier(pre))
-        check("...and entry_multiplier is 1 there", RD.entry_multiplier(NEW, pre) == 1)
+        # ---- NO ACTIVATION GATE: an entry is dear at every height --------------------------------------
+        check("an entry is charged at a LOW epoch too (no gate)",
+              RD.entry_multiplier(NEW, 5) == POSW_ENTRY_MULT)
 
         # ---- a caller with no sender still gets the display value ------------------------------------
         check("required_posw_t() without a sender = rate only (display path)",
