@@ -30,6 +30,9 @@ def fidelity_at_epoch(address: str, epoch: int) -> int:
         continuous = prev >= 0 and (r - prev) <= POSW_LEASE_EPOCHS
         # MUST MIRROR account_ops.apply_register EXACTLY, activation gate included — this replay is what a
         # dividend fraud proof checks against, so any divergence false-slashes an honest settler.
+        # DO NOT "clean up" the gate when the rule goes live: this loop replays PRE-activation recerts too,
+        # and dropping the branch would reconstruct historical weights that were never applied. It is
+        # deletable only at epoch 10_862 — see the note on FIDELITY_MIN_GAP_ACTIVATION_EPOCH in protocol.py.
         gain = FIDELITY_GAIN
         if continuous and r >= FIDELITY_MIN_GAP_ACTIVATION_EPOCH and (r - prev) < FIDELITY_MIN_GAP_EPOCHS:
             gain = 0

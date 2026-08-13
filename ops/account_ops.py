@@ -646,7 +646,9 @@ def apply_register(address: str, epoch: int, logger, revert=False):
         # it is far enough from the previous one. Closer recerts still renew the LEASE (presence is
         # untouched) but earn nothing, which is what stops 30 epochs of spam reaching FIDELITY_CAP. Gated
         # on the activation epoch so dividend_ops.fidelity_at_epoch can replay history identically —
-        # keep the two in lockstep or a fraud proof false-slashes an honest settler.
+        # keep the two in lockstep or a fraud proof false-slashes an honest settler. The gate is NOT
+        # scaffolding to remove once the rule is live; it is deletable only at epoch 10_862 (see
+        # FIDELITY_MIN_GAP_ACTIVATION_EPOCH in protocol.py).
         gain = FIDELITY_GAIN
         if continuous and epoch >= FIDELITY_MIN_GAP_ACTIVATION_EPOCH and (epoch - prev) < FIDELITY_MIN_GAP_EPOCHS:
             gain = 0

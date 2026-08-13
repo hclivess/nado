@@ -1151,7 +1151,26 @@ FIDELITY_MIN_GAP_EPOCHS = 192
 # both the live path (account_ops.apply_register) and the replay (dividend_ops.fidelity_at_epoch) consult
 # the same gate. Set ahead of the fleet so every node is updated before it bites; epoch 382 was live when
 # this landed, and an epoch is 6 minutes, so this is ~2 days out.
-FIDELITY_MIN_GAP_ACTIVATION_EPOCH = 862
+FIDELITY_MIN_GAP_ACTIVATION_EPOCH = 862          # = block 51_720
+#
+# WHEN THIS GATE MAY BE DELETED — NOT at activation. The obvious cleanup ("the rule is live now, drop the
+# branch") is WRONG and would be a false-slashing bug. fidelity_at_epoch replays an address's WHOLE recert
+# history, including recerts from BEFORE this epoch; removing the gate makes that replay apply the spacing
+# rule to pre-activation recerts and reconstruct weights that differ from the ones actually applied. A
+# dividend fraud proof checks exactly that reconstruction, so an honest settler gets slashed.
+#
+# The gate is dead only once NO pre-activation recert row can still be replayed. Rows are retained for
+# RECERT_HISTORY_EPOCHS = 10_000 (~6 weeks; the GC in nado.py trims below E - SATURATION_LOOKBACK_EPOCHS,
+# which is smaller, so 10_000 is the conservative bound). So:
+#
+#     safe to delete at epoch 862 + 10_000 = 10_862   (block 651_720, ~42 days after activation)
+#
+# At that point both branches can go and the spacing becomes unconditional. Before it, they cannot.
+#
+# A GENESIS REROLL VOIDS THIS CONSTANT — epoch numbering restarts, so 862 would land ~3.5 days into the new
+# chain and silently leave the exploit open until then. On any reroll, make the spacing UNCONDITIONAL
+# (delete the gate in both account_ops and dividend_ops) rather than re-picking a number: a fresh chain has
+# no pre-activation history to preserve, which is the only thing the gate exists for.
 # deepest recert-row lookback any WEIGHT reconstruction needs (see the idle-GC note above):
 # a run longer than this is fidelity-capped, so pre-horizon rows can never change open_shares.
 SATURATION_LOOKBACK_EPOCHS = (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS
