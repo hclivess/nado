@@ -52,6 +52,50 @@ node performs the same check for its own files, so a stale execution layer can n
 Combined with the updater, **one `/update` wave fully deploys a reroll**: pull → restart → purge →
 fresh chain. No manual steps on any operator's box.
 
+### Pre-reroll checklist — what a "balances carry forward" promise actually has to cover
+
+Betanet's promise is that **balances persist and carry to mainnet**. The purge above deletes *exec state*
+as well as blocks, and several kinds of user value live **only** in exec state. Building the genesis alloc
+from L1 account balances alone silently destroys them. Verified on betanet-2, 2026-08-13:
+
+| Value | Where it lives | What a naive alloc does |
+|---|---|---|
+| L1 account balances | `accounts` sub-DB | carried — this is the easy part |
+| **Bridged coins** | L1 escrow holds the COINS (`bridge` account, keyless); **exec state holds who owns them** | coins land in a keyless account nobody can spend; the real owners get nothing |
+| **Faucet donations** | same shape — `faucet` is a keyless reserved account | same |
+| **Accrued dividends** | exec-side, unclaimed until `collect_dividend` + `dividend_withdraw` | lost |
+| **Contract-held stakes** | contract storage (open games, bets, LP positions) | lost |
+| **Asset balances** | exec `abal` | lost |
+
+Measured at the time of writing so the scale is known rather than guessed: L1 `bridge` escrow held
+**1.43017 NADO** against an exec-side ledger of **1.192822 NADO across 4 holders**; contract storage was
+**8 412 slots**, of which **99.3% sat in one contract** (`386cc6bd021c`, the bet book), with only 3 of 27
+contracts holding any state at all. Small today — but the mechanism does not get safer as it grows, and
+the numbers are only small because nobody is using contracts yet.
+
+**So, before rerolling:**
+
+1. **Sweep or re-allocate every exec-side claim**, not just L1 balances — bridge, faucet, accrued
+   dividends, asset balances. Either credit each holder directly in the alloc, or land real
+   `bridge_withdraw`/`collect_dividend` transactions *before* the reroll so the value is on L1 when the
+   snapshot is taken. Do not carry the keyless escrow account itself; carry its beneficiaries.
+2. **Decide explicitly about contract-held positions.** They cannot be carried (the contracts are
+   redeployed empty). Either drain them first, or announce that open positions are void — but do not
+   discover it afterwards.
+3. **Redeploy all contracts in the SAME session as the reroll.** A reroll wipes all of them and the
+   failure is silent: the website keeps its cids and every call reverts against nothing.
+4. **Re-check every height/epoch-gated constant** — see [`SCHEDULED_CLEANUPS.md`](../SCHEDULED_CLEANUPS.md).
+   Epoch numbering restarts, so an activation constant that was 2 days out lands weeks into the new chain
+   and silently leaves the old behaviour live until then. In particular
+   `FIDELITY_MIN_GAP_ACTIVATION_EPOCH` must be made **unconditional** on any reroll — a fresh chain has no
+   pre-activation history to preserve, and leaving it gated would reopen the fidelity-farming exploit for
+   the first days of the new chain, which is exactly when an early weight advantage compounds most.
+5. **Check the carried balances are not exploit-inflated.** Cheap aggregate test for the fidelity case:
+   `mining_status` gives `total_open_weight / open_registry_size`. 2.0 means everyone is at fidelity 1;
+   10.0 means everyone is maxed. Betanet-2 measured **2.27**, i.e. no meaningful farming, so its balances
+   were safe to carry. Do the equivalent check for whatever the current known exploit is — carrying
+   balances makes an exploit's proceeds permanent.
+
 ## Abandoning a fork WITHOUT a reroll (per-node reset)
 
 When only *some* nodes sit on a dead fork (e.g. they ran old rules while the network moved on), the
