@@ -776,6 +776,31 @@ HISTORY_RETENTION_BLOCKS = 100_800
 INDEX_RETENTION_NUM = 50_000       # heights of height->hash carried/kept (~3.5 days at 6 s)
 INDEX_RETENTION_HASH = 10_000      # heights of hash->height carried/kept (~17 h, ~200x FINALITY_DEPTH)
 
+# --- REPAIR WINDOW for the 2026-08-14 state-root pollution (betanet-3) ---------------------------------
+#
+# The index-prune watermarks (index_pruned_below_num/_hash) were written into `meta` without being added to
+# snapshot_ops.ROOT_EXCLUDED_META_KEYS, so for a stretch of blocks the committed L1 state root included a
+# NODE-LOCAL disk-retention value. The prune first fires when finality crosses INDEX_RETENTION_HASH, which
+# is why the fleet split at exactly block 10047: rolling nodes wrote the row and moved their root, archive
+# nodes never wrote it and refused to extend. Both behaviours were correct given the inputs.
+#
+# The roots committed over that span are UNVERIFIABLE BY CONSTRUCTION, and that is the key point: they
+# encode how far one particular node had pruned its own disk. No other node can reproduce that value — an
+# archive node never had one at all — so re-deriving those roots is not merely hard, it is meaningless.
+# Enforcing them would be enforcing noise, and it permanently wedges every honest node that cannot guess a
+# peer's pruning progress.
+#
+# So the equality gate is SUSPENDED across the affected span and RE-ARMED at a fixed height every node
+# agrees on. Nothing else is relaxed: the block hash chain, the producer signature, cumulative weight, the
+# tx validity rules and the per-tx state transitions are all enforced exactly as before over this span —
+# only the one field that was polluted is not compared. A block carrying genuinely corrupt state still
+# fails on those.
+#
+# The window is deliberately tight: it starts at the first polluted height and ends just far enough ahead
+# for the fleet to adopt the fix (measured fleet tips when this was cut: 14580 / 11001 / 10046).
+STATE_ROOT_UNENFORCED_FROM = 10_047     # first block whose committed root could carry the watermark
+STATE_ROOT_ENFORCED_AGAIN_AT = 16_000   # from here the clean, policy-free root is enforced again
+
 # --- Mining: TWO-LANE diligence selection (PROVISIONAL — simulate before lock-in) ---
 # Each epoch's slots split into an OPEN lane (anyone, zero coins) and a BONDED lane (locked stake).
 # The split is a beacon-keyed permutation over slot indices, so the open lane is EXACTLY OPEN_BPS

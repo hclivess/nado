@@ -2865,8 +2865,26 @@ class CoreClient(threading.Thread):
             # loses fork-choice; it can never become a silent state fork. DIVERGENCE IS FATAL BY DESIGN — a
             # halted node is recoverable, a node that climbs on diverged state is silent poison.
             from ops.snapshot_ops import l1_state_root
+            from protocol import STATE_ROOT_UNENFORCED_FROM, STATE_ROOT_ENFORCED_AGAIN_AT
             our_state_root = l1_state_root()   # consensus subset only — block storage excluded (determinism)
-            if block.get("state_root") != our_state_root:
+            # REPAIR WINDOW (protocol.STATE_ROOT_UNENFORCED_FROM/_ENFORCED_AGAIN_AT). Over one bounded span
+            # the committed root included a node-local disk-retention watermark, so those roots encode how
+            # far ONE node had pruned and are unverifiable by construction — an archive node never held the
+            # value at all. Comparing against them wedges every honest node forever, so the comparison (and
+            # only the comparison) is suspended across the span. Everything else on this path still runs:
+            # hash chain, signature, cumulative weight, tx validity, per-tx state transitions.
+            _bn = int(block.get("block_number") or 0)
+            _unenforced = STATE_ROOT_UNENFORCED_FROM <= _bn < STATE_ROOT_ENFORCED_AGAIN_AT
+            if _unenforced and block.get("state_root") != our_state_root:
+                if not getattr(self, "_repair_window_logged", False):
+                    self._repair_window_logged = True
+                    self.logger.warning(
+                        f"STATE-ROOT REPAIR WINDOW: accepting block {_bn} whose committed root "
+                        f"{str(block.get('state_root'))[:16]} differs from ours {our_state_root[:16]}. "
+                        f"Roots in [{STATE_ROOT_UNENFORCED_FROM}, {STATE_ROOT_ENFORCED_AGAIN_AT}) carried a "
+                        f"node-local prune watermark and cannot be re-derived by anyone. Full enforcement "
+                        f"resumes at {STATE_ROOT_ENFORCED_AGAIN_AT}.")
+            elif block.get("state_root") != our_state_root:
                 # DIAGNOSTIC (no consensus effect): dump OUR per-sub-DB root fingerprint + count the reject.
                 # Comparing this one line against another node's at the same height localizes the divergence
                 # to the exact sub-DB immediately (the betanet-8 wedge needed a replay harness for this).
