@@ -126,7 +126,15 @@ def read_state(home=None):
 # Blocks are already secured by their own hash chain, and finality/pruning by their own monotonic rules;
 # none of this belongs in the state commitment.
 ROOT_EXCLUDED_DBS = frozenset(("block_by_num", "block_by_hash", "treasury_proposals"))
-ROOT_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below"))
+#         index_pruned_below_num / index_pruned_below_hash — the number<->hash INDEX prune watermarks,
+#           advanced by LOCAL retention progress exactly like pruned_below. Omitting them forked the fleet
+#           on 2026-08-14: the index prune first fires when finality crosses INDEX_RETENTION_HASH (10 000),
+#           so at block 10047 every ROLLING node wrote index_pruned_below_hash into meta, its committed root
+#           moved, and every ARCHIVE node — which never prunes and so never writes the row — computed the
+#           old root and correctly refused to extend. A node's disk-retention policy must never be able to
+#           move the consensus root; that is the whole reason this list exists.
+ROOT_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below",
+                                     b"index_pruned_below_num", b"index_pruned_below_hash"))
 
 #   (3) ROOT_EXCLUDED_META_PREFIXES — families of `meta` rows whose PRESENCE is retention / rollback-path
 #       dependent rather than a pure function of the applied block sequence — the same exclusion class as

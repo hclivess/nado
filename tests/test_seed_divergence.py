@@ -766,8 +766,27 @@ def test_node_local_meta_excluded_from_root():
     base = read_state()
     root_a = l1_state_root()
 
-    check("finalized_height / pruned_below are excluded from the root",
-          ROOT_EXCLUDED_META_KEYS == frozenset((b"finalized_height", b"pruned_below")))
+    # EVERY node-local meta row must be excluded — asserted as CONTAINMENT plus a behavioural check, not
+    # as equality with a literal set. The literal form is what let the 2026-08-14 fleet fork through: the
+    # index-prune watermarks were added to `meta` without being added here, and this check could only fail
+    # AFTER someone had already thought to list them — i.e. never. The behavioural half below cannot be
+    # satisfied by forgetting.
+    for _k in (b"finalized_height", b"pruned_below",
+               b"index_pruned_below_num", b"index_pruned_below_hash"):
+        check(f"{_k.decode()} is excluded from the root", _k in ROOT_EXCLUDED_META_KEYS)
+
+    # THE PROPERTY ITSELF: a node's disk-retention progress must not move the consensus root. Two nodes,
+    # identical in every block-derived row, differing only in how far each has pruned, must agree.
+    from ops import kv_ops as _kv
+    _root_clean = l1_state_root()
+    _kv.meta_set_int("index_pruned_below_hash", 1)
+    _kv.meta_set_int("index_pruned_below_num", 12345)
+    _kv.meta_set_int("pruned_below", 999)
+    check("a node that has PRUNED computes the same root as one that has not",
+          l1_state_root() == _root_clean)
+    _kv.meta_set_int("index_pruned_below_hash", 777_777)
+    check("...and the root does not move as pruning PROGRESSES",
+          l1_state_root() == _root_clean)
 
     # meta rows are key.encode() -> _pack(int) (see kv_ops.meta_set_int). Two nodes at the same tip, IDENTICAL
     # in every block-derived row, differing ONLY in the two node-local finality/prune values — plus one
