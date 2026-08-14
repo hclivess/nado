@@ -46,6 +46,17 @@ const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 150,
 // rejected tx. protocol.py now separates the two: offset 150, target 90, so the anchor is tip-60 (deeper
 // than FINALITY_DEPTH at prove time) and the budget is 90 blocks = 540 s. MUST match protocol.py.
 const POSW_TARGET_MARGIN = 90;
+// The margin a PARTICULAR proof needs, rather than the worst case. `register` lands EXACTLY at max_block,
+// so every block of margin is latency the user waits through — and the ceiling (90 = 9 min) is budgeted
+// for the most expensive ENTRY proof at a flood multiplier, which a renewal never pays. Derived from the
+// work actually owed and this device's MEASURED hash rate, with 3x headroom for a slow/throttled tab, a
+// floor of 12 blocks so propagation always has time, and the protocol ceiling on top.
+// MUST NOT exceed POSW_TARGET_MARGIN: the anchor is max_block-POSW_ANCHOR_OFFSET and has to already exist.
+function poswTargetMarginFor(requiredT) {
+  const secs = (Number(requiredT) || POSW_T) / Math.max(1, poswRate());
+  const blocks = Math.ceil((secs * 3) / 6) + 12;          // 3x headroom + propagation floor
+  return Math.max(12, Math.min(POSW_TARGET_MARGIN, blocks));
+}
 const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
 const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
@@ -1452,11 +1463,28 @@ function failStart(reason) {
 // what makes mining a SINGLE click: registration, on-chain confirmation and heartbeats are all handled
 // in the background without the user ever clicking "Start mining" a second time.
 let _renewingLease = false;
+// A renewal ALREADY BROADCAST and not yet landed: {targetBlock, atEpoch}. Without this the renewal is
+// re-broadcast on every poll for as long as the tx is in flight, because the only "have I renewed?"
+// signal is acc.reg_epoch — which is ON-CHAIN state and cannot move until the tx is mined. `register`
+// is EXACT-LANDING, so the in-flight window is the whole target margin: 3 min at the old margin of 30,
+// 9 min once it became 90, and the retries scale with it. Measured on betanet-3 the day the margin
+// changed: 552 stuck registers from 37 senders, ~27 attempts each, every one rejected "sender already
+// recerted this epoch" — the FIRST renewal had landed and all the rest were noise the user experienced
+// as renewal being broken. _renewingLease alone could never catch this: it is cleared as soon as the
+// SUBMIT returns, not when the tx lands.
+let _renewSubmitted = null;
 async function maybeRenewLease(acc) {
   if (_renewingLease || state.registering || state.regSubmitted || !state.mining) return;
   const epochNow = state.latest != null ? Math.floor((state.latest + 8) / EPOCH_LENGTH) : null;
   const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
   if (epochNow == null || regEpoch < 0) return;
+  if (_renewSubmitted) {
+    // landed (the chain's recert epoch moved past what it was when we broadcast) -> done
+    if (regEpoch > _renewSubmitted.atEpoch) { _renewSubmitted = null; return; }
+    // still inside its landing window -> wait; only a MISSED target frees us to try again
+    if (state.latest == null || state.latest <= _renewSubmitted.targetBlock) return;
+    _renewSubmitted = null;
+  }
   if ((epochNow - regEpoch) < Math.floor(POSW_LEASE_EPOCHS * 0.8)) return;   // lease still healthy
   _renewingLease = true;
   try {
@@ -1467,10 +1495,19 @@ async function maybeRenewLease(acc) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const latest = await getLatestBlock();
       if (!latest || typeof latest.block_number !== "number") return;
-      const tx = await computeRegisterTx(latest.block_number + POSW_TARGET_MARGIN, null,
-        (await registrationDifficulty(state.wallet.address)).reqT);   // quiet: no UI takeover; still prove at the required difficulty
+      // SIZE THE MARGIN TO THE ACTUAL WORK, not to the worst case. POSW_TARGET_MARGIN (90 blocks, 9 min)
+      // is budgeted for the most expensive ENTRY proof; a renewal is base difficulty — ~0.3 s of WASM
+      // hashing — and paying a 9-minute landing window for it is pure latency, made worse by `register`
+      // landing EXACTLY at max_block, so the whole margin is time the tx sits in the mempool.
+      const _d = await registrationDifficulty(state.wallet.address);
+      const tb = latest.block_number + poswTargetMarginFor(_d.reqT);
+      const tx = await computeRegisterTx(tb, null, _d.reqT);   // quiet: no UI takeover; still prove at the required difficulty
       const res = await submitTransaction(tx);
-      if (res.data && res.data.result) { log("ok", i18("log.leaseRenewed", "Presence lease renewed ✓")); return; }
+      if (res.data && res.data.result) {
+        _renewSubmitted = { targetBlock: tb, atEpoch: regEpoch };   // don't re-broadcast until it lands
+        log("ok", i18("log.leaseRenewed", "Presence lease renewed ✓"));
+        return;
+      }
       lastMsg = (res.data && res.data.message) || "";
       if (!/too low/i.test(lastMsg)) break;   // a different rejection won't be fixed by retrying
     }
@@ -1549,11 +1586,13 @@ async function submitRegistration() {
   const latest = await getLatestBlock();
   if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay /get_latest_block unavailable");
   state.latest = latest.block_number;
-  const targetBlock = latest.block_number + POSW_TARGET_MARGIN;  // headroom so the tx lands before its target block
-
-  // compute the registration Proof of SEQUENTIAL Work (non-parallelizable ~1 s chain, replaces hashcash)
-  // Registration difficulty (consensus, scales with load) + a device-calibrated wait estimate, shown up front.
-  const diff = await registrationDifficulty(state.wallet.address, targetBlock);
+  // Provisional target only, to ASK for the difficulty; the real one is sized to the work that comes back.
+  const diff = await registrationDifficulty(state.wallet.address,
+                                            latest.block_number + POSW_TARGET_MARGIN);
+  // `register` lands EXACTLY at max_block, so every block of margin is latency. Budget it from the work
+  // actually owed and this device's measured rate instead of always paying the worst case (see
+  // poswTargetMarginFor): a cheap renewal lands in ~1 min, an expensive entry still gets the full window.
+  const targetBlock = latest.block_number + poswTargetMarginFor(diff.reqT);
   const etaSec = Math.max(1, Math.ceil(diff.reqT / poswRate()));
   setStartBtnBusy(i18("mine.registering", "Registering…"));
   const busyNote = diff.mult > 1
