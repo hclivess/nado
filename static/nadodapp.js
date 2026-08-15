@@ -103,18 +103,12 @@ function applyDappTheme() {
   try {
     if (!document.getElementById("nadoThemeCSS")) {
       const l = document.createElement("link");
-      l.id = "nadoThemeCSS"; l.rel = "stylesheet"; l.href = "/static/theme.css?v=e6cd2069";
+      l.id = "nadoThemeCSS"; l.rel = "stylesheet"; l.href = "/static/theme.css?v=b851a71b";
       document.head.appendChild(l);
     }
     const t = localStorage.getItem("nado_theme");
     if (t && /^[a-z]{3,10}$/.test(t) && t !== "teal") document.documentElement.setAttribute("data-theme", t);
     else document.documentElement.removeAttribute("data-theme");
-    // Background art rides along on the same attribute mechanism — theme.css carries the html[data-bg]
-    // rules, so mirroring the id is the whole job and the SDK never names an artwork file. A game page
-    // that skipped this would sit on the plain ground while the wallet showed a watermark.
-    const g = localStorage.getItem("nado_bg");
-    if (g && /^[a-z]{3,12}$/.test(g) && g !== "none") document.documentElement.setAttribute("data-bg", g);
-    else document.documentElement.removeAttribute("data-bg");
   } catch (e) { /* storage disabled — the default palette is correct */ }
 }
 try { applyDappTheme(); } catch (e) {}
