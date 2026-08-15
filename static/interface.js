@@ -1114,6 +1114,53 @@ async function estimateSavingsApy() {
 const LS_WALLET = "nado_miner_wallet";
 const LS_RELAY = "nado_miner_relay";
 const LS_AUTOBOND = "nado_autobond_pct";   // persisted auto-bond percentage (0..100)
+const LS_THEME = "nado_theme";              // persisted accent theme id ("" / "teal" = the default)
+
+/* THEMES. Each entry is only an accent pair; surfaces, text and borders are shared with the base theme,
+ * so a theme cannot change any contrast ratio the interface was designed against. The swatch previews the
+ * exact gradient the buttons will use, which is why the picker renders the colours rather than naming
+ * them — "ocean" means nothing until you see it, and the label would need translating in 16 languages to
+ * say less than the circle does. */
+const THEMES = [
+  { id: "teal",   a: "#00ad93", b: "#00c9a7" },   // the default — no data-theme attribute
+  { id: "violet", a: "#7c5cff", b: "#a78bfa" },
+  { id: "ocean",  a: "#2f81f7", b: "#58a6ff" },
+  { id: "ember",  a: "#f0883e", b: "#ffab70" },
+  { id: "rose",   a: "#db61a2", b: "#f778ba" },
+  { id: "forest", a: "#3fb950", b: "#56d364" },
+  { id: "gold",   a: "#d29922", b: "#e3b341" },
+];
+
+/* Apply a theme id. Unknown/absent -> the default teal, which carries NO data-theme attribute so the
+ * :root block stays authoritative and a stale stored value can never leave the interface half-styled. */
+function applyTheme(id) {
+  const t = THEMES.find((x) => x.id === id) || THEMES[0];
+  if (t.id === "teal") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", t.id);
+  try { localStorage.setItem(LS_THEME, t.id); } catch (e) {}
+  const grid = document.getElementById("themeGrid");
+  if (grid) for (const b of grid.children) b.setAttribute("aria-pressed", String(b.dataset.theme === t.id));
+  return t.id;
+}
+
+/* Build the picker once. Each swatch IS its theme's button gradient, so choosing is visual. */
+function renderThemePicker() {
+  const grid = document.getElementById("themeGrid");
+  if (!grid || grid.children.length) return;
+  const cur = (() => { try { return localStorage.getItem(LS_THEME) || "teal"; } catch (e) { return "teal"; } })();
+  for (const t of THEMES) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "themedot";
+    b.dataset.theme = t.id;
+    b.style.background = `linear-gradient(135deg, ${t.a}, ${t.b})`;
+    b.title = t.id;
+    b.setAttribute("aria-label", t.id);
+    b.setAttribute("aria-pressed", String(t.id === cur));
+    b.onclick = () => applyTheme(t.id);
+    grid.appendChild(b);
+  }
+}
 const LS_MINING = "nado_mining";           // "1" while mining, so a browser refresh auto-resumes (no re-click)
 const AUTO_BOND_DEFAULT_PCT = 80;          // default when the user has never set one (matches protocol.AUTO_BOND_DEFAULT_PERCENT)
 const LS_PENDING_PAY = "nado_pending_pay"; // sessionStorage: a pay-request awaiting wallet setup
@@ -7380,6 +7427,9 @@ function wireEvents() {
  * Boot
  * -------------------------------------------------------------------------------------------- */
 async function boot() {
+  // THEME FIRST, before any paint: applying it later means a flash of the default accent on every load.
+  try { applyTheme(localStorage.getItem(LS_THEME) || "teal"); } catch (e) {}
+  renderThemePicker();
   bgExecTriageEarly();   // hidden-iframe sign request we can't autosign silently → bounce to the redirect NOW, before the crypto load
   // relay
   state.relay = localStorage.getItem(LS_RELAY) || null;
