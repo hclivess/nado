@@ -9,10 +9,9 @@
   --txt-faint: #5d6b7a;
   --accent: #00ad93;          /* NADO brand teal (matches the logo + nadochain.com) */
   --accent-2: #00c9a7;        /* lighter teal for gradients/hover */
-  /* THEMES (data-theme on <html>) recolour the interface by overriding these three and nothing else.
-     --accent-rgb is the same colour as --accent in bare channels, because rgba() cannot take a hex var:
-     the glow, the button shadow, the pill fills and the page wash all need alpha over the accent, and
-     they were hardcoded to the teal — so a theme changed the buttons and left the page still teal. */
+  /* --accent-rgb repeats --accent in bare channels: rgba() cannot take a hex custom property, and the
+     page wash / button shadow / pill fills all need alpha over the accent. These were hardcoded to the
+     teal, so a theme recoloured the buttons and left the page glow teal. See the THEMES block below. */
   --accent-rgb: 0, 173, 147;
   --bonded: #d29922;
   --open: #3fb950;
@@ -441,12 +440,54 @@ a { color: var(--accent-2); }
  * The pairs run light -> dark within one hue so the 135deg button gradient reads as depth rather than as
  * two different colours, and each is picked to stay legible against the dark #0b0f14 ground.
  * ------------------------------------------------------------------------------------------------ */
-html[data-theme="violet"] { --accent: #7c5cff; --accent-2: #a78bfa; --accent-rgb: 124, 92, 255; }
-html[data-theme="ocean"]  { --accent: #2f81f7; --accent-2: #58a6ff; --accent-rgb: 47, 129, 247; }
-html[data-theme="ember"]  { --accent: #f0883e; --accent-2: #ffab70; --accent-rgb: 240, 136, 62; }
-html[data-theme="rose"]   { --accent: #db61a2; --accent-2: #f778ba; --accent-rgb: 219, 97, 162; }
-html[data-theme="forest"] { --accent: #3fb950; --accent-2: #56d364; --accent-rgb: 63, 185, 80; }
-html[data-theme="gold"]   { --accent: #d29922; --accent-2: #e3b341; --accent-rgb: 210, 153, 34; }
+/* ---------------------------------------------------------------------------------------------------
+ * THEMES. A theme replaces the WHOLE palette — page ground, card surfaces, borders, the three text
+ * weights and the accent pair — so the interface is recoloured rather than just its buttons. Everything
+ * downstream already reads these variables (101 uses across the stylesheet), so no rule needs touching.
+ *
+ * CONTRAST IS MEASURED, NOT EYEBALLED. Tinting surfaces toward a hue is exactly how a theme quietly
+ * makes text unreadable, so every palette here was checked with the WCAG relative-luminance formula and
+ * tests/test_themes.mjs recomputes it on every run. The bar is the base theme's own behaviour: body text
+ * >= 4.5:1 on both the page and a card, dim text >= 4.5:1, faint text >= 3:1, accent >= 3:1. Measured
+ * results run 14.6-16.8:1 for body text and 4.5-7.6:1 for the accent — all above WCAG AA.
+ *
+ * --accent-rgb repeats the accent in bare channels because rgba() cannot take a hex custom property; the
+ * page wash, button shadow and pill fills need alpha over it. The test asserts it is arithmetically the
+ * same colour as --accent, since a mismatch is invisible in review and obvious on screen.
+ *
+ * `teal` is the default and deliberately has no block — the :root values stay authoritative, so a stale
+ * or tampered stored theme leaves a fully-styled page rather than a half-applied one.
+ * ------------------------------------------------------------------------------------------------ */
+html[data-theme="violet"] {
+  --bg: #0d0a16; --bg-elev: #171327; --bg-elev2: #1f1a33; --border: #312a4d;
+  --txt: #ece9f6; --txt-dim: #a49bc4; --txt-faint: #6b6390;
+  --accent: #7c5cff; --accent-2: #a78bfa; --accent-rgb: 124, 92, 255;
+}
+html[data-theme="ocean"] {
+  --bg: #080f18; --bg-elev: #101c2b; --bg-elev2: #172538; --border: #243a55;
+  --txt: #e4eefb; --txt-dim: #95aecd; --txt-faint: #5f7796;
+  --accent: #2f81f7; --accent-2: #58a6ff; --accent-rgb: 47, 129, 247;
+}
+html[data-theme="ember"] {
+  --bg: #150d08; --bg-elev: #231810; --bg-elev2: #2e2016; --border: #472f1e;
+  --txt: #f7ebe2; --txt-dim: #c5a68f; --txt-faint: #8d715c;
+  --accent: #f0883e; --accent-2: #ffab70; --accent-rgb: 240, 136, 62;
+}
+html[data-theme="rose"] {
+  --bg: #150a11; --bg-elev: #24141d; --bg-elev2: #301a27; --border: #4b2b3d;
+  --txt: #f8e9f1; --txt-dim: #c99cb4; --txt-faint: #8f6a7e;
+  --accent: #db61a2; --accent-2: #f778ba; --accent-rgb: 219, 97, 162;
+}
+html[data-theme="forest"] {
+  --bg: #08120b; --bg-elev: #0f2015; --bg-elev2: #152b1d; --border: #22432e;
+  --txt: #e6f4e9; --txt-dim: #98bda4; --txt-faint: #638071;
+  --accent: #3fb950; --accent-2: #56d364; --accent-rgb: 63, 185, 80;
+}
+html[data-theme="gold"] {
+  --bg: #121006; --bg-elev: #201c0e; --bg-elev2: #2b2513; --border: #443a1c;
+  --txt: #f6f0dd; --txt-dim: #c3b384; --txt-faint: #8b7d55;
+  --accent: #d29922; --accent-2: #e3b341; --accent-rgb: 210, 153, 34;
+}
 
 /* The theme picker: one swatch per theme, each showing its own gradient so the choice is the preview. */
 .themegrid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }

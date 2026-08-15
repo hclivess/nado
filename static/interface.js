@@ -1122,13 +1122,13 @@ const LS_THEME = "nado_theme";              // persisted accent theme id ("" / "
  * them — "ocean" means nothing until you see it, and the label would need translating in 16 languages to
  * say less than the circle does. */
 const THEMES = [
-  { id: "teal",   a: "#00ad93", b: "#00c9a7" },   // the default — no data-theme attribute
-  { id: "violet", a: "#7c5cff", b: "#a78bfa" },
-  { id: "ocean",  a: "#2f81f7", b: "#58a6ff" },
-  { id: "ember",  a: "#f0883e", b: "#ffab70" },
-  { id: "rose",   a: "#db61a2", b: "#f778ba" },
-  { id: "forest", a: "#3fb950", b: "#56d364" },
-  { id: "gold",   a: "#d29922", b: "#e3b341" },
+  { id: "teal",   a: "#00ad93", b: "#00c9a7", bg: "#0b0f14" },   // the default — no data-theme attribute
+  { id: "violet",  a: "#7c5cff", b: "#a78bfa", bg: "#0d0a16" },
+  { id: "ocean",   a: "#2f81f7", b: "#58a6ff", bg: "#080f18" },
+  { id: "ember",   a: "#f0883e", b: "#ffab70", bg: "#150d08" },
+  { id: "rose",    a: "#db61a2", b: "#f778ba", bg: "#150a11" },
+  { id: "forest",  a: "#3fb950", b: "#56d364", bg: "#08120b" },
+  { id: "gold",    a: "#d29922", b: "#e3b341", bg: "#121006" },
 ];
 
 /* Apply a theme id. Unknown/absent -> the default teal, which carries NO data-theme attribute so the
@@ -1153,7 +1153,9 @@ function renderThemePicker() {
     b.type = "button";
     b.className = "themedot";
     b.dataset.theme = t.id;
-    b.style.background = `linear-gradient(135deg, ${t.a}, ${t.b})`;
+    // Preview the WHOLE palette, not just the button: the accent gradient sits on the theme's own page
+    // ground, so a swatch shows both the colour you get and the surface it will sit on.
+    b.style.background = `linear-gradient(135deg, ${t.a} 0%, ${t.b} 45%, ${t.bg} 46%, ${t.bg} 100%)`;
     b.title = t.id;
     b.setAttribute("aria-label", t.id);
     b.setAttribute("aria-pressed", String(t.id === cur));
