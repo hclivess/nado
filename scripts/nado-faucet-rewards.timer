@@ -1,0 +1,18 @@
+# Run the NADO faucet prize distributor once a day, just after the UTC boundary the leaderboards are keyed
+# on (boards rank YESTERDAY's verified play, so running before the boundary pays the wrong day).
+#
+# RandomizedDelaySec so several operators would not all submit in the same block. Persistent=true so a
+# reboot or a box that was down at 00:20 still pays that day's prizes on the next start instead of
+# silently skipping them — safe because the payout is idempotent per (game, day, rank).
+[Unit]
+Description=Run the NADO faucet prize distributor daily
+Documentation=file:///root/nado/doc/faucet.md
+
+[Timer]
+OnCalendar=*-*-* 00:20:00 UTC
+RandomizedDelaySec=600
+Persistent=true
+Unit=nado-faucet-rewards.service
+
+[Install]
+WantedBy=timers.target

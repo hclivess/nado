@@ -13,7 +13,8 @@ no per-address grants, no enrollment registry. The loop:
    via a governance spend (`treasury_vote`/`treasury_execute` allow the reserved `faucet` recipient),
    and anyone can top it up exec-side with the contract's `fund()`.
 2. **Airdrop play** — enrolled games offer free play; the results land on each game's scoreboard.
-3. **Prizes out, daily** — the operator's distributor (`_faucet_rewards.py`, cron) tallies every
+3. **Prizes out, daily** — the operator's distributor (`_faucet_rewards.py`, run by
+   `scripts/nado-faucet-rewards.timer`) tallies every
    enrolled game's leaderboard off-chain — a PROVABLE computation: the boards derive from the game
    contracts' on-chain storage, so anyone can recompute them and audit that the right addresses were
    paid — and calls the contract's `reward(idx, day, rank, addr, amount)` per top finisher
@@ -30,6 +31,25 @@ Two methods, nothing else:
 
 The operator gets no new powers over user funds: the faucet balance is donations earmarked for
 prizes, and every payout is publicly attributable to a scoreboard placement anyone can verify.
+
+## 2b. Scheduling the distributor — the step that is easy to miss
+
+**Donations do not pay themselves out.** `reward()` is operator-only and nothing in the node calls it, so a
+faucet with no scheduled distributor accumulates forever and every airdrop-play board goes unpaid. That was
+the live state on betanet-3: a funded bank, 14 enrolled games, and no distributor on the box — the code was
+written and simply never scheduled, with nothing in the repo to notice was missing.
+
+    sudo scripts/install-timers.sh          # installs + enables the faucet timer (and the bet oracle)
+    systemctl list-timers 'nado-*'          # confirm it is armed
+    systemctl start nado-faucet-rewards     # run one now; safe, see below
+
+Runs daily at 00:20 UTC — after the boundary the boards are keyed on, because they rank YESTERDAY's
+verified play. `Persistent=true`, so a box that was down at 00:20 still pays that day rather than silently
+skipping it, and `RandomizedDelaySec` keeps several operators out of the same block.
+
+Re-running is safe by construction: the contract marks `(game, day, rank)` and reverts a repeat, an
+underfunded payout reverts, and the per-game daily budget is capped in the script — so a stuck or
+double-firing timer cannot double-pay or drain the bank.
 
 ## 3. Enrolling a game
 

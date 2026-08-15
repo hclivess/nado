@@ -1,0 +1,25 @@
+# NADO faucet PRIZE DISTRIBUTOR (doc/faucet.md). The faucet is a prize bank, not a handout tap: donations
+# to the L1 `faucet` recipient escrow into BRIDGE_ESCROW and mirror into the exec contract's balance, and
+# they only move when THIS bot runs. It reads each enrolled game's leaderboard from on-chain state and pays
+# the top finishers via faucet.reward(idx, day, rank, addr, amount).
+#
+# Without it scheduled, airdrop play never pays out and the bank just accumulates — which is exactly the
+# state betanet-3 was in: a funded faucet, 14 enrolled games, and no distributor anywhere on the box.
+#
+# SAFE TO RE-RUN. faucet.reward() marks (game, day, rank) and reverts a repeat, so a retry, an overlapping
+# run or a Persistent catch-up can never double-pay; an underfunded payout reverts too (fails closed).
+# The budget is capped in the script (BUDGET per game per day), so a runaway timer cannot drain the bank.
+#
+# HOME=/root so the operator wallet key (private/keys.dat) is found — reward() is operator-only.
+[Unit]
+Description=NADO faucet prize distributor — pay airdrop-play leaderboards from the faucet
+Documentation=file:///root/nado/doc/faucet.md
+After=network-online.target nado.service nado-exec.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=HOME=/root
+WorkingDirectory=/root/nado
+ExecStart=/root/nado/nado_venv/bin/python /root/nado/_faucet_rewards.py
+TimeoutStartSec=900
