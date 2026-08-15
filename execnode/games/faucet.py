@@ -10,7 +10,19 @@ There is deliberately NO self-serve claim path — no PoW grind, no per-address 
 registry. Play the free airdrop games, place on the scoreboard, get paid.
 
 Methods: fund()[value] · reward(idx, day, rank, addr, amount) — operator-only, at most once per
-(game, day, rank) via the H(idx, day, rank) idempotency marker; an underfunded payout reverts.
+(game, day, rank) via the H(idx, day, rank) idempotency marker; an underfunded payout reverts ·
+set_operator(addr_digest) — hand the payout right to another key.
+
+OPERATOR IS STATE, NOT CODE. The gate used to be a digest assembled into `reward` itself, which made the
+key un-rotatable without an `upgrade`, invisible on-chain (you had to disassemble to see who could spend),
+and — on a contract that was ever `lock`ed — bound to that one key permanently, with no way back even for
+its owner. It now lives in a storage slot that `set_operator` rotates, so separating the operator key from
+the node/staking key is an ordinary transaction rather than a code change. Contract OWNERSHIP was already
+transferable (state.transfer_contract keeps cid + storage); this closes the matching gap for the SPENDING
+right, so the two can be split and moved independently.
+
+Unset reads as the deploy-time key, so an already-deployed faucet keeps working across the upgrade with no
+migration step and no window where nobody can pay.
 """
 from execnode import zkvmasm, runtimes
 from ops.address_ops import make_address
@@ -40,11 +52,32 @@ FUND = """
 # Operator-only. IDEMPOTENT: a (game, day, rank) can be paid AT MOST ONCE — a re-run of the
 # distributor reverts the already-paid ranks (no double payout). Underfunded → the runtime reverts
 # the pay (fails closed).
-REWARD = f"""
-    ctx r5 caller
-    movi r6 {OP_DIG}
-    eq r5 r6
-    require r5             ; operator only
+# Config slot for the operator digest. Payout markers live at H(idx, day, rank), so a small integer slot
+# is only as safe as "no alghash output equals 1" — the same collision assumption the idempotency scheme
+# already rests on (distinct triples must not share a slot), not a new one.
+SLOT_OPERATOR = 1
+
+# Resolve the operator into r5: the configured slot, or the deploy-time key when it was never set.
+# Inlined into both methods — the VM has no calls, and eight instructions is cheaper than any alternative.
+# r5 is free again the moment the caller check passes, so this costs no extra register (there are 8, and
+# r7 is the DIVMOD remainder).
+def _load_operator():
+    return f"""
+    movi r5 {SLOT_OPERATOR}
+    sload r5 r5            ; r5 = configured operator digest (0 = never set)
+    jnz r5 @have_op
+    movi r5 {OP_DIG}       ; bootstrap: the key that deployed it
+have_op:
+"""
+
+# reward(idx, day, rank, addr, amount): pay a LEADERBOARD PLACEMENT prize from the faucet balance.
+# Operator-only. IDEMPOTENT: a (game, day, rank) can be paid AT MOST ONCE — a re-run of the
+# distributor reverts the already-paid ranks (no double payout). Underfunded → the runtime reverts
+# the pay (fails closed).
+REWARD = _load_operator() + """
+    ctx r6 caller
+    eq r6 r5
+    require r6             ; operator only
     hash r6 <- r0 r1 r2    ; idempotency key = H(idx, day, rank)
     sload r5 r6
     nez r5
@@ -56,11 +89,29 @@ REWARD = f"""
     ret r0
 """
 
-SRC = {"fund": FUND, "reward": REWARD}
+# set_operator(digest): hand the payout right to another key. Only the CURRENT operator may do it, so the
+# deploy-time key can pass the role on once and never hold it again. Zero is REFUSED: storing it would read
+# as "unset" and silently restore the bootstrap key, turning a handover into a takeback. The non-zero check
+# is `nez` on a copy rather than `lt`, because `lt` RANGE-checks its operands below 2^62 and an address
+# digest is a full-field element that can exceed that — a comparison would revert on legitimate keys.
+SET_OPERATOR = _load_operator() + f"""
+    ctx r6 caller
+    eq r6 r5
+    require r6             ; only the current operator may rotate
+    mov r6 r0
+    nez r6
+    require r6             ; new digest must be non-zero (0 would read as "unset")
+    movi r5 {SLOT_OPERATOR}
+    sstore r5 r0
+    ret r0
+"""
+
+SRC = {"fund": FUND, "reward": REWARD, "set_operator": SET_OPERATOR}
 
 ABI = {
     "fund": {"args": [], "value": True},
     "reward": {"args": ["idx", "day", "rank", "addr", "amount"]},
+    "set_operator": {"args": ["digest"]},
 }
 
 

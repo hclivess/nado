@@ -4,6 +4,7 @@ import socket
 import time
 
 from hashing import create_nonce
+from protocol import AUTO_BOND_DEFAULT_PERCENT
 from ops.data_ops import get_home
 
 
@@ -191,9 +192,14 @@ def create_config(ip: str, config_path: str = None):
         "finality_depth": 45,
         "block_time": 6,
         # AUTO-BOND (non-consensus): % of newly-mined earnings to auto-compound into bonded stake,
-        # unattended. Defaults to protocol.AUTO_BOND_DEFAULT_PERCENT (80) so a fresh node joins the
-        # bonded lane hands-free; set 0 to disable. Overridable via the NADO_AUTO_BOND_PERCENT env var.
-        "auto_bond_percent": 80,
+        # unattended, so a fresh node joins the bonded lane hands-free; 0 disables it. Overridable via
+        # the NADO_AUTO_BOND_PERCENT env var.
+        #
+        # WRITE THE CONSTANT, never a literal. This said 80 while protocol.AUTO_BOND_DEFAULT_PERCENT was
+        # raised to 99, so a FRESH install got 80 baked into its config file while a config that merely
+        # lacked the key fell back to 99 — two nodes installed a week apart quietly compounding at
+        # different rates, and no way to tell from the outside which one you had.
+        "auto_bond_percent": AUTO_BOND_DEFAULT_PERCENT,
         # INTEGRATED AUTO-UPDATE (non-consensus, ops/self_update.py): keep the node on origin/main of the
         # official repo — a daily fast-forward check plus the remote /update trigger (harmless for anyone
         # to call: it only decides WHEN, the code always comes from the repo you already run). Set False
