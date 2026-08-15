@@ -4,7 +4,7 @@
 // alive, trains with a rarity-scaled limit-function success chance, battles other pets for stakes (loser
 // has a 20% chance to die), and transfers between wallets like any NFT. All money moves happen in the
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shortAddr, shareInvite, confirmingLabel, esc } from "./nadodapp.js?v=b23153af";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shortAddr, shareInvite, confirmingLabel, esc } from "./nadodapp.js?v=7a65876e";
 import * as G from "./pets-genes.js?v=6878090a";
 import { HAND_ART } from "./pets-art-hand.js?v=666a1afd";   // bespoke per-animal art (grows toward the full roster)
 import { loadCrypto, ADDR_PREFIX } from "./nadotx.js?v=cde4652c";

@@ -3,7 +3,7 @@
 // full legality run in your browser; every move is recorded ON-CHAIN (a trustless, ordered game log with a move
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards, resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify, confirmingLabel, lsLoad, lsSave , installModes , playModes} from "./nadodapp.js?v=b23153af";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards, resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify, confirmingLabel, lsLoad, lsSave , installModes , playModes} from "./nadodapp.js?v=7a65876e";
 import { Chess } from "./chess-engine.js?v=27f5c714";
 import { Practice } from "./practice.js?v=240abea6";   // free in-browser practice vs the computer
 

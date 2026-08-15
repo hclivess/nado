@@ -89,11 +89,35 @@ export function orderCards(ids) {
 // click no longer navigates away — without it a submitted bet/spin/buy-in feels like nothing happened. Injected
 // once (dapp.init calls it); a capturing document listener flashes the clicked button, forcing a reflow so rapid
 // re-clicks re-trigger the animation. Purely cosmetic; ignores disabled buttons.
+/* THEME, on every dapp page. Game pages carry inline <style> and load no shared stylesheet, so the SDK
+ * brings the palette with it: link static/theme.css (the generated single source of truth) and mirror the
+ * wallet's stored choice onto <html>. Without this the SDK's own chrome — toggles, mode tabs, modals,
+ * toasts — rendered its hardcoded fallbacks, so the wallet themed and every game stayed brand teal.
+ *
+ * Runs before first paint where it can (the SDK is loaded in <head> by the game pages) and is idempotent,
+ * so a page that loads the SDK twice does not stack link elements. The stored value is validated rather
+ * than trusted: an unknown id leaves the :root defaults in charge instead of half-styling the page. */
+let _themeOn = false;
+function applyDappTheme() {
+  if (_themeOn || typeof document === "undefined") return; _themeOn = true;
+  try {
+    if (!document.getElementById("nadoThemeCSS")) {
+      const l = document.createElement("link");
+      l.id = "nadoThemeCSS"; l.rel = "stylesheet"; l.href = "/static/theme.css";
+      document.head.appendChild(l);
+    }
+    const t = localStorage.getItem("nado_theme");
+    if (t && /^[a-z]{3,10}$/.test(t) && t !== "teal") document.documentElement.setAttribute("data-theme", t);
+    else document.documentElement.removeAttribute("data-theme");
+  } catch (e) { /* storage disabled — the default palette is correct */ }
+}
+try { applyDappTheme(); } catch (e) {}
+
 let _clickFxOn = false;
 function enableClickFeedback() {
   if (_clickFxOn || typeof document === "undefined") return; _clickFxOn = true;
   const s = document.createElement("style");
-  s.textContent = "@keyframes nadoClickFx{0%{box-shadow:0 0 0 0 rgba(0,201,167,.6);transform:scale(.96)}100%{box-shadow:0 0 0 16px rgba(0,201,167,0);transform:scale(1)}}button.nado-fx{animation:nadoClickFx .5s ease-out}";
+  s.textContent = "@keyframes nadoClickFx{0%{box-shadow:0 0 0 0 rgba(var(--accent-rgb),.6);transform:scale(.96)}100%{box-shadow:0 0 0 16px rgba(var(--accent-rgb),0);transform:scale(1)}}button.nado-fx{animation:nadoClickFx .5s ease-out}";
   document.head.appendChild(s);
   document.addEventListener("click", (e) => {
     const b = e.target && e.target.closest && e.target.closest("button");
@@ -191,14 +215,14 @@ export function modalDialog({ title, body, okLabel = _t("ok", "OK"), cancelLabel
   ov.id = "nadoModal";
   ov.style.cssText = "position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(4,8,12,.72);padding:16px";
   const card = document.createElement("div");
-  card.style.cssText = "background:#131a23;border:1px solid #243140;border-radius:16px;max-width:420px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.6)";
-  card.innerHTML = '<div style="font-size:17px;font-weight:800;color:#e6edf3;margin-bottom:8px">' + title + "</div>"
-    + '<div style="font-size:13.5px;color:#93a1b0;line-height:1.55;margin-bottom:16px">' + body + "</div>";
+  card.style.cssText = "background:var(--bg-elev);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.6)";
+  card.innerHTML = '<div style="font-size:17px;font-weight:800;color:var(--txt);margin-bottom:8px">' + title + "</div>"
+    + '<div style="font-size:13.5px;color:var(--txt-dim);line-height:1.55;margin-bottom:16px">' + body + "</div>";
   const row = document.createElement("div");
   row.style.cssText = "display:flex;gap:10px";
   const mk = (txt, primary) => { const b = document.createElement("button"); b.textContent = txt;
-    b.style.cssText = "flex:1;font:inherit;font-weight:800;border-radius:11px;padding:12px;cursor:pointer;border:1px solid #243140;"
-      + (primary ? "background:linear-gradient(135deg,#00ad93,#00c9a7);color:#04110a;border-color:transparent" : "background:#1a232e;color:#e6edf3"); return b; };
+    b.style.cssText = "flex:1;font:inherit;font-weight:800;border-radius:11px;padding:12px;cursor:pointer;border:1px solid var(--border);"
+      + (primary ? "background:linear-gradient(135deg,var(--accent),var(--accent-2));color:var(--bg);border-color:transparent" : "background:var(--bg-elev2);color:var(--txt)"); return b; };
   const cancel = mk(cancelLabel, false), ok = mk(okLabel, true);
   cancel.onclick = () => ov.remove();
   ok.onclick = () => { ov.remove(); onOk && onOk(); };
@@ -230,8 +254,8 @@ export function inviteGate(dapp, { kind, id, title, body, joinLabel, onJoin }) {
 // "confirming…" lifecycle. `notify`/`toast`/`ok` below are thin helpers over this.
 const _ALERT_TONES = {
   warn: { bg: "#2a1214", bd: "rgba(248,81,73,.65)", fg: "#ffb4ae", icon: "⚠ " },
-  info: { bg: "#0e2027", bd: "rgba(0,201,167,.5)", fg: "#7fe9d3", icon: "" },
-  ok:   { bg: "#0f2417", bd: "rgba(0,201,167,.55)", fg: "#8ff0c6", icon: "" },   // messages carry their own ✓
+  info: { bg: "#0e2027", bd: "rgba(var(--accent-rgb),.5)", fg: "#7fe9d3", icon: "" },
+  ok:   { bg: "#0f2417", bd: "rgba(var(--accent-rgb),.55)", fg: "#8ff0c6", icon: "" },   // messages carry their own ✓
 };
 // ---- SDK modal dialogs (uiConfirm / uiPrompt / uiAlert) -------------------------------------------------
 // A self-contained replacement for the browser's blocking alert()/confirm()/prompt() — themed, i18n-aware,
@@ -247,11 +271,11 @@ function _modalCSS() {
     + ".sdk-modal-bg.hidden{display:none}"
     + ".sdk-modal{max-width:400px;width:100%;background:var(--card,var(--panel,#141a24));color:var(--txt,var(--fg,#e8eef6));border:1px solid var(--border,rgba(255,255,255,.12));border-radius:14px;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.5);animation:sdkPop .16s cubic-bezier(.2,.9,.3,1.15)}"
     + ".sdk-modal h3{margin:0 0 12px;font-size:16px;font-weight:700}"
-    + ".sdk-modal-body{color:var(--dim,var(--txt-dim,#9fb0c3));font-size:14px;margin-bottom:14px;white-space:pre-line}.sdk-modal-body.hidden{display:none}"
+    + ".sdk-modal-body{color:var(--txt-dim);font-size:14px;margin-bottom:14px;white-space:pre-line}.sdk-modal-body.hidden{display:none}"
     + ".sdk-modal-warn{color:var(--warn,#e3b341);font-size:13px;font-weight:600;margin-bottom:14px}.sdk-modal-warn.hidden{display:none}"
     + ".sdk-modal-input{width:100%;box-sizing:border-box;margin-bottom:16px;padding:10px 12px;font-size:15px;border-radius:9px;border:1px solid var(--border,rgba(255,255,255,.14));background:var(--bg,#0b0f16);color:inherit}.sdk-modal-input.hidden{display:none}"
     + ".sdk-modal-actions{display:flex;gap:10px}.sdk-modal-actions button{flex:1;padding:11px;font-size:14px;font-weight:600;border-radius:9px;cursor:pointer;border:1px solid var(--border,rgba(255,255,255,.14))}"
-    + ".sdk-modal-actions .ok{background:var(--accent,var(--accent2,#4f8cff));color:#04101f;border-color:transparent}"
+    + ".sdk-modal-actions .ok{background:linear-gradient(135deg,var(--accent),var(--accent-2));color:var(--bg);border-color:transparent}"
     + ".sdk-modal-actions .ok.danger{background:var(--danger,#e5484d);color:#fff}"
     + ".sdk-modal-actions .cancel{background:transparent;color:inherit}.sdk-modal-actions .cancel.hidden{display:none}"
     + "@keyframes sdkFade{from{opacity:0}to{opacity:1}}@keyframes sdkPop{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}";
@@ -321,7 +345,7 @@ export function alertBar(msg, actionLabel, actionFn, opts) {
     const b = document.createElement("button");
     b.textContent = actionLabel;
     b.style.cssText = "display:block;margin-top:9px;font:inherit;font-weight:800;border:0;border-radius:9px;"
-      + "padding:9px 14px;background:linear-gradient(135deg,#00ad93,#00c9a7);color:#04110a;cursor:pointer";
+      + "padding:9px 14px;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:var(--bg);cursor:pointer";
     b.onclick = () => { el.remove(); actionFn(); };
     el.appendChild(b);
   }
@@ -542,14 +566,14 @@ function _modeCss() {
   const s = document.createElement("style");
   s.textContent = `
 .modebar{display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap}
-.modebar .modetab{flex:1 1 0;min-width:118px;background:var(--elev,#131a23);border:1px solid var(--border,#243140);
-  border-radius:11px;padding:10px;font-weight:800;color:var(--dim,#93a1b0);font-family:inherit;font-size:14px;
+.modebar .modetab{flex:1 1 0;min-width:118px;background:var(--bg-elev);border:1px solid var(--border);
+  border-radius:11px;padding:10px;font-weight:800;color:var(--txt-dim);font-family:inherit;font-size:14px;
   cursor:pointer;line-height:1.25;transition:background .15s ease,color .15s ease,border-color .15s ease}
-.modebar .modetab:hover{color:var(--txt,#e6edf3)}
+.modebar .modetab:hover{color:var(--txt)}
 /* the tab you are already on is not a button that does nothing — say so with the cursor too, or it reads
    as broken ("clicking Play for stakes does nothing") */
 .modebar .modetab.on{cursor:default}
-.modebar .modetab.on{background:linear-gradient(135deg,var(--accent,#00ad93),var(--accent2,#00c9a7));
+.modebar .modetab.on{background:linear-gradient(135deg,var(--accent),var(--accent-2));
   color:#04110a;border-color:transparent}
 .modebar .mbadge{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;font-size:10px;
   font-weight:800;background:rgba(0,0,0,.18);vertical-align:middle}
@@ -1043,7 +1067,7 @@ export class NadoDapp {
     let el = (typeof document !== "undefined") && document.getElementById("nadoBgBusy");
     if (on) {
       if (!el) { el = document.createElement("div"); el.id = "nadoBgBusy";
-        el.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9998;background:#131a23;border:1px solid #00c9a7;color:#00c9a7;font:600 12px/1.4 system-ui,sans-serif;padding:7px 14px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.5);pointer-events:none";
+        el.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9998;background:var(--bg-elev);border:1px solid var(--accent-2);color:var(--accent-2);font:600 12px/1.4 system-ui,sans-serif;padding:7px 14px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.5);pointer-events:none";
         el.textContent = _t("sdk.signing", "🔏 Signing…"); (document.body || document.documentElement).appendChild(el); }
     } else if (el) el.remove();
   }

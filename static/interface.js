@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare } from "./nadodapp.js?v=b23153af";   // THE one share implementation (SDK)
+import { share as sdkShare } from "./nadodapp.js?v=7a65876e";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -1123,6 +1123,10 @@ const LS_THEME = "nado_theme";              // persisted accent theme id ("" / "
  * say less than the circle does. */
 const THEMES = [
   { id: "teal",   a: "#00ad93", b: "#00c9a7", bg: "#0b0f14" },   // the default — no data-theme attribute
+  { id: "aqua",   a: "#40e0d0", b: "#7ceee3", bg: "#06120f" },
+  { id: "toxic",   a: "#39ff14", b: "#7cff5a", bg: "#060806" },
+  { id: "hazard",  a: "#ffe600", b: "#fff45c", bg: "#0a0800" },
+  { id: "alarm",   a: "#ff1f1f", b: "#ff6161", bg: "#0a0303" },
   { id: "violet",  a: "#7c5cff", b: "#a78bfa", bg: "#0d0a16" },
   { id: "ocean",   a: "#2f81f7", b: "#58a6ff", bg: "#080f18" },
   { id: "ember",   a: "#f0883e", b: "#ffab70", bg: "#150d08" },

@@ -37,7 +37,9 @@ const varOf = (blk, name) => (blk.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{
 
 const VARS = ['bg', 'bg-elev', 'bg-elev2', 'border', 'txt', 'txt-dim', 'txt-faint', 'accent', 'accent-2'];
 for (const id of new Set(cssIds)) {
-  const blk = css.match(new RegExp(`html\\[data-theme="${id}"\\]\\s*\\{([^}]*)\\}`))[1];
+  // a selector spans SEVERAL blocks (palette + logo ramp); merge them, or the first one wins
+  const blk = [...css.matchAll(new RegExp(`html\\[data-theme="${id}"\\]\\s*\\{([^}]*)\\}`, 'g'))]
+    .map((m) => m[1]).join('');
 
   check(`${id}: replaces the WHOLE palette, not just the accent`,
     VARS.every((v) => new RegExp(`--${v}:`).test(blk)) && /--accent-rgb:/.test(blk));
@@ -75,6 +77,38 @@ check('every picker entry carries its page ground for that preview',
   [...js.match(/const THEMES = \[([\s\S]*?)\];/)[1].matchAll(/bg:\s*"#/g)].length);
 check('the picker is keyboard-reachable and states which is active',
   /aria-pressed/.test(js) && /:focus-visible/.test(css));
+
+
+// ---- the SDK and the logo must follow the theme too --------------------------------------------------
+// A theme that stops at the wallet is the bug this file grew out of: game pages load no shared stylesheet
+// and the SDK hardcoded its own palette, so the wallet themed and every game stayed brand teal.
+const sdk = readFileSync(R + 'nadodapp.js', 'utf8');
+const tok = readFileSync(R + 'theme.css', 'utf8');
+const svg = readFileSync(R + 'logo.svg', 'utf8');
+const html = readFileSync(R + 'interface.html', 'utf8');
+
+check('the SDK carries the shared tokens to every dapp page', /theme\.css/.test(sdk));
+check('...and mirrors the wallet\'s stored choice', /nado_theme/.test(sdk) && /data-theme/.test(sdk));
+check('...validating it rather than trusting it', /\/\^\[a-z\]\{3,10\}\$\//.test(sdk));
+check('the SDK hardcodes NO palette colour any more',
+  !/#(00ad93|00c9a7|131a23|243140|e6edf3|93a1b0|1a232e)/i.test(sdk));
+check('the SDK stopped inventing variable names nothing defines',
+  !/--accent2|--elev,|--dim,/.test(sdk));
+check('theme.css defines every palette', (tok.match(/--accent-rgb:/g) || []).length === new Set(cssIds).size + 1);
+
+check('the logo is driven by variables', (svg.match(/var\(--logo-\d/g) || []).length === 5);
+check('...with the brand teal kept as the fallback, so the favicon still renders',
+  /var\(--logo-5, #00ad93\)/.test(svg));
+check('the header logo is INLINE (an <img src> cannot inherit page variables)',
+  /var\(--logo-1/.test(html) && !/<img class="logo"/.test(html));
+for (const id of new Set(cssIds)) {
+  const merged = [...css.matchAll(new RegExp(`html\\[data-theme="${id}"\\]\\s*\\{([^}]*)\\}`, 'g'))]
+    .map((m) => m[1]).join('');
+  check(`${id}: has a 5-step logo ramp`, (merged.match(/--logo-\d:/g) || []).length === 5);
+  const acc = (merged.match(/--accent:\s*(#[0-9a-fA-F]{6})/) || [])[1];
+  const top = (merged.match(/--logo-5:\s*(#[0-9a-fA-F]{6})/) || [])[1];
+  check(`${id}: the logo's lightest step IS the accent`, acc && top && acc.toLowerCase() === top.toLowerCase());
+}
 
 console.log('\n' + (fails ? `${fails} FAILURE(S)` : 'ALL THEME CHECKS PASSED'));
 process.exit(fails ? 1 : 0);

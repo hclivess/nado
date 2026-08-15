@@ -458,6 +458,11 @@ a { color: var(--accent-2); }
  * `teal` is the default and deliberately has no block — the :root values stay authoritative, so a stale
  * or tampered stored theme leaves a fully-styled page rather than a half-applied one.
  * ------------------------------------------------------------------------------------------------ */
+html[data-theme="aqua"] {
+  --bg: #06120f; --bg-elev: #0d1f1b; --bg-elev2: #132a25; --border: #1e4239;
+  --txt: #e2f7f2; --txt-dim: #8fc3b9; --txt-faint: #5d8880;
+  --accent: #40e0d0; --accent-2: #7ceee3; --accent-rgb: 64, 224, 208;
+}
 html[data-theme="violet"] {
   --bg: #0d0a16; --bg-elev: #171327; --bg-elev2: #1f1a33; --border: #312a4d;
   --txt: #ece9f6; --txt-dim: #a49bc4; --txt-faint: #6b6390;
@@ -498,3 +503,67 @@ html[data-theme="gold"] {
 .themedot:hover { transform: translateY(-2px); }
 .themedot[aria-pressed="true"] { border-color: var(--txt); transform: translateY(-2px); }
 .themedot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+
+/* ---------------------------------------------------------------------------------------------------
+ * LOGO RAMP. The mark is five shades of one hue — a depth ramp, not five colours — so it re-hues cleanly
+ * per theme: each ramp keeps the artwork's original LIGHTNESS curve and only rotates the hue, with the
+ * lightest step being exactly that theme's --accent. Recomputing the curve rather than picking five new
+ * colours by hand is what keeps the facets reading as the same solid under every theme.
+ *
+ * logo.svg keeps the brand teal as each var's fallback, so the favicon and any <img src="logo.svg"> —
+ * neither of which can see page CSS — still render the original mark. Only the INLINED copy in the header
+ * follows the theme. -------------------------------------------------------------------------------- */
+:root {
+  --logo-1: #00443a; --logo-2: #006c5c; --logo-3: #00836f; --logo-4: #009982; --logo-5: #00ad93;
+}
+html[data-theme="aqua"] {
+  --logo-1: #106159; --logo-2: #199b8e; --logo-3: #1ebcac; --logo-4: #24dbc9; --logo-5: #40e0d0;
+}
+html[data-theme="violet"] {
+  --logo-1: #1b0088; --logo-2: #2b00d9; --logo-3: #3808ff; --logo-4: #5c34ff; --logo-5: #7c5cff;
+}
+html[data-theme="ocean"] {
+  --logo-1: #04306f; --logo-2: #074cb1; --logo-3: #085dd6; --logo-4: #0e6df6; --logo-5: #2f81f7;
+}
+html[data-theme="ember"] {
+  --logo-1: #6e3309; --logo-2: #af510e; --logo-3: #d46210; --logo-4: #ed741e; --logo-5: #f0883e;
+}
+html[data-theme="rose"] {
+  --logo-1: #651741; --logo-2: #a12567; --logo-3: #c32c7d; --logo-4: #d44390; --logo-5: #db61a2;
+}
+html[data-theme="forest"] {
+  --logo-1: #19491f; --logo-2: #277332; --logo-3: #308c3d; --logo-4: #38a447; --logo-5: #3fb950;
+}
+html[data-theme="gold"] {
+  --logo-1: #533c0d; --logo-2: #836015; --logo-3: #9f741a; --logo-4: #ba871e; --logo-5: #d29922;
+}
+
+/* HAZARD PALETTES — the signage/rave combos: a near-black ground with one fluorescent accent.
+ * The look depends on the accent screaming, so the surfaces stay almost neutral; the risk is that a
+ * saturated fluorescent on black reads as vibrating rather than legible, which is why these were
+ * measured like every other theme (toxic 14.8:1, hazard 15.8:1, alarm 5.3:1 accent-on-ground). */
+html[data-theme="toxic"] {
+  --bg: #060806; --bg-elev: #101410; --bg-elev2: #171d16; --border: #2a3a26;
+  --txt: #eaf7e6; --txt-dim: #a6c69c; --txt-faint: #6f8a67;
+  --accent: #39ff14; --accent-2: #7cff5a; --accent-rgb: 57, 255, 20;
+}
+html[data-theme="toxic"] {
+  --logo-1: #116c00; --logo-2: #1bac00; --logo-3: #21d000; --logo-4: #26f300; --logo-5: #39ff14;
+}
+html[data-theme="hazard"] {
+  --bg: #0a0800; --bg-elev: #151200; --bg-elev2: #1e1a04; --border: #3d3512;
+  --txt: #faf6e2; --txt-dim: #cbbf86; --txt-faint: #8d8352;
+  --accent: #ffe600; --accent-2: #fff45c; --accent-rgb: 255, 230, 0;
+}
+html[data-theme="hazard"] {
+  --logo-1: #645a00; --logo-2: #9f9000; --logo-3: #c1ae00; --logo-4: #e2cc00; --logo-5: #ffe600;
+}
+html[data-theme="alarm"] {
+  --bg: #0a0303; --bg-elev: #180909; --bg-elev2: #210d0d; --border: #421a1a;
+  --txt: #fdeaea; --txt-dim: #d09a9a; --txt-faint: #946a6a;
+  --accent: #ff1f1f; --accent-2: #ff6161; --accent-rgb: 255, 31, 31;
+}
+html[data-theme="alarm"] {
+  --logo-1: #700000; --logo-2: #b30000; --logo-3: #d90000; --logo-4: #fd0000; --logo-5: #ff1f1f;
+}

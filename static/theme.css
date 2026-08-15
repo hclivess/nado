@@ -1,0 +1,82 @@
+/* NADO THEME TOKENS — the single source of truth for every themeable colour.
+ *
+ * WHY THIS FILE EXISTS. The palette used to live in three places that could not agree: interface.css had
+ * the real values, nadodapp.js (the dapp SDK every game page loads) hardcoded its own copies as hex
+ * literals, and where it did use variables it invented DIFFERENT names — --accent2, --elev, --dim —
+ * that nothing anywhere defined, so its fallbacks were what actually rendered. The visible result: the
+ * wallet themed, and every game page stayed brand teal no matter what you picked.
+ *
+ * Game pages carry inline <style> and load no shared stylesheet, so the tokens have to travel with the
+ * SDK. nadodapp.js injects this file's contents on load; interface.html links it directly. One file, one
+ * set of names, both surfaces.
+ *
+ * GENERATED — do not hand-edit. tools/gen_theme_tokens.py derives it from interface.css so the wallet and
+ * the SDK cannot drift apart; tests/test_themes.mjs recomputes every contrast ratio from whatever ends up
+ * here, so a palette that dips below the readability bar fails the build rather than shipping.
+ */
+
+:root {
+  --bg: #0b0f14; --bg-elev: #131a23; --bg-elev2: #1a232e; --border: #243140;
+  --txt: #e6edf3; --txt-dim: #93a1b0; --txt-faint: #5d6b7a;
+  --accent: #00ad93; --accent-2: #00c9a7; --accent-rgb: 0, 173, 147;
+}
+
+html[data-theme="aqua"] {
+  --bg: #06120f; --bg-elev: #0d1f1b; --bg-elev2: #132a25; --border: #1e4239;
+  --txt: #e2f7f2; --txt-dim: #8fc3b9; --txt-faint: #5d8880;
+  --accent: #40e0d0; --accent-2: #7ceee3; --accent-rgb: 64, 224, 208;
+}
+
+html[data-theme="violet"] {
+  --bg: #0d0a16; --bg-elev: #171327; --bg-elev2: #1f1a33; --border: #312a4d;
+  --txt: #ece9f6; --txt-dim: #a49bc4; --txt-faint: #6b6390;
+  --accent: #7c5cff; --accent-2: #a78bfa; --accent-rgb: 124, 92, 255;
+}
+
+html[data-theme="ocean"] {
+  --bg: #080f18; --bg-elev: #101c2b; --bg-elev2: #172538; --border: #243a55;
+  --txt: #e4eefb; --txt-dim: #95aecd; --txt-faint: #5f7796;
+  --accent: #2f81f7; --accent-2: #58a6ff; --accent-rgb: 47, 129, 247;
+}
+
+html[data-theme="ember"] {
+  --bg: #150d08; --bg-elev: #231810; --bg-elev2: #2e2016; --border: #472f1e;
+  --txt: #f7ebe2; --txt-dim: #c5a68f; --txt-faint: #8d715c;
+  --accent: #f0883e; --accent-2: #ffab70; --accent-rgb: 240, 136, 62;
+}
+
+html[data-theme="rose"] {
+  --bg: #150a11; --bg-elev: #24141d; --bg-elev2: #301a27; --border: #4b2b3d;
+  --txt: #f8e9f1; --txt-dim: #c99cb4; --txt-faint: #8f6a7e;
+  --accent: #db61a2; --accent-2: #f778ba; --accent-rgb: 219, 97, 162;
+}
+
+html[data-theme="forest"] {
+  --bg: #08120b; --bg-elev: #0f2015; --bg-elev2: #152b1d; --border: #22432e;
+  --txt: #e6f4e9; --txt-dim: #98bda4; --txt-faint: #638071;
+  --accent: #3fb950; --accent-2: #56d364; --accent-rgb: 63, 185, 80;
+}
+
+html[data-theme="gold"] {
+  --bg: #121006; --bg-elev: #201c0e; --bg-elev2: #2b2513; --border: #443a1c;
+  --txt: #f6f0dd; --txt-dim: #c3b384; --txt-faint: #8b7d55;
+  --accent: #d29922; --accent-2: #e3b341; --accent-rgb: 210, 153, 34;
+}
+
+html[data-theme="toxic"] {
+  --bg: #060806; --bg-elev: #101410; --bg-elev2: #171d16; --border: #2a3a26;
+  --txt: #eaf7e6; --txt-dim: #a6c69c; --txt-faint: #6f8a67;
+  --accent: #39ff14; --accent-2: #7cff5a; --accent-rgb: 57, 255, 20;
+}
+
+html[data-theme="hazard"] {
+  --bg: #0a0800; --bg-elev: #151200; --bg-elev2: #1e1a04; --border: #3d3512;
+  --txt: #faf6e2; --txt-dim: #cbbf86; --txt-faint: #8d8352;
+  --accent: #ffe600; --accent-2: #fff45c; --accent-rgb: 255, 230, 0;
+}
+
+html[data-theme="alarm"] {
+  --bg: #0a0303; --bg-elev: #180909; --bg-elev2: #210d0d; --border: #421a1a;
+  --txt: #fdeaea; --txt-dim: #d09a9a; --txt-faint: #946a6a;
+  --accent: #ff1f1f; --accent-2: #ff6161; --accent-rgb: 255, 31, 31;
+}
