@@ -15,6 +15,7 @@ const R = '/srv/nado-home/nado/static/';
 const css = readFileSync(R + 'interface.css', 'utf8');
 const js  = readFileSync(R + 'interface.js', 'utf8');
 const i18 = readFileSync(R + 'i18n.js', 'utf8');
+const read = (rel) => readFileSync('/srv/nado-home/nado/' + rel, 'utf8');
 let fails = 0;
 const check = (n, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + n); if (!c) fails++; };
 
@@ -108,6 +109,61 @@ for (const id of new Set(cssIds)) {
   const acc = (merged.match(/--accent:\s*(#[0-9a-fA-F]{6})/) || [])[1];
   const top = (merged.match(/--logo-5:\s*(#[0-9a-fA-F]{6})/) || [])[1];
   check(`${id}: the logo's lightest step IS the accent`, acc && top && acc.toLowerCase() === top.toLowerCase());
+}
+
+
+// ---- controls and on-accent text ---------------------------------------------------------------------
+// `.switch` was a class with no rules behind it, so six Settings/Quorum/Assets toggles were plain native
+// checkboxes painted with the BROWSER's accent — green on most platforms — under every theme.
+check('native controls take the theme accent', /accent-color:\s*var\(--accent\)/.test(css));
+check('...applied to checkboxes generally, so a new control is themed by default',
+  /input\[type="checkbox"\][^{]*\{[^}]*accent-color/.test(css));
+// ONE toggle implementation, not two. `.tgl` was a hand-built pill (three elements of markup) that lived
+// only in interface.css; `.switch` was an unstyled class that fell through to a NATIVE checkbox — a white
+// square on a dark card, sitting right below the .tgl pill in the same panel. `.switch` is now that pill
+// drawn on the input itself, and .tgl is deleted rather than kept in parallel.
+const rules = css.replace(/\/\*[\s\S]*?\*\//g, '');   // prose still explains .tgl; only RULES matter
+check('.tgl is gone — a single toggle implementation remains',
+  !/\.tgl\b/.test(rules) && !/tgl-track/.test(read('static/interface.html') + read('static/interface.js')));
+check('.switch is drawn, not left to the browser',
+  /input\[type="checkbox"\]\.switch\s*\{[^}]*appearance:\s*none/.test(css));
+check('...with a knob that moves on :checked', /\.switch:checked::after[^}]*translateX/.test(css));
+check('an unchecked NATIVE box paints dark, not white', /color-scheme:\s*dark/.test(css));
+check('text ON the accent follows the theme ground, not a teal-era constant',
+  !/color:\s*#04110a/.test(css));
+
+// A button label is --bg on --accent; on a light accent (toxic, hazard, aqua) a fixed near-black was
+// wrong, and a theme whose ground is close to its accent would render an unreadable button.
+for (const [sel, id] of [[':root', 'teal'], ...[...new Set(cssIds)].map((i) => [`html[data-theme="${i}"]`, i])]) {
+  const blk = [...css.matchAll(new RegExp(sel.replace(/[[\]]/g, '\\$&') + '\\s*\\{([^}]*)\\}', 'g'))]
+    .map((m) => m[1]).join('');
+  const bg = (blk.match(/--bg:\s*(#[0-9a-fA-F]{6})/) || [])[1];
+  const acc = (blk.match(/--accent:\s*(#[0-9a-fA-F]{6})/) || [])[1];
+  if (!bg || !acc) continue;
+  check(`${id}: the button label is legible on its own accent (${ratio(bg, acc).toFixed(2)}:1 >= 4.5)`,
+    ratio(bg, acc) >= 4.5);
+}
+
+// ---- UNIVERSALITY: the theme has to reach the game pages, not just the wallet ------------------------
+// Game pages carry their own inline <style> and load no shared stylesheet — theme.css is injected by the
+// SDK. So anything they need must be IN theme.css: the tokens, the component rules, and the legacy var
+// names (--elev/--dim/--accent2) those 24 pages were written against and still hardcode as brand teal.
+const theme = read('static/theme.css');
+check('theme.css carries the shared component region, not just tokens',
+  /SHARED-COMPONENTS/.test(theme) && /\.switch/.test(theme));
+check('the toggle is defined ONCE — theme.css copies interface.css verbatim',
+  (css.match(/>>> SHARED-COMPONENTS([\s\S]*?)<<< SHARED-COMPONENTS/) || [])[1] ===
+  (theme.match(/>>> SHARED-COMPONENTS([\s\S]*?)<<< SHARED-COMPONENTS/) || [])[1]);
+for (const a of ['--elev', '--elev2', '--dim', '--faint', '--accent2']) {
+  check(`theme.css overrides the legacy name ${a} the game pages use`,
+    new RegExp(a.replace('-', '\\-') + ':\\s*var\\(').test(theme));
+}
+check('the page glow derives from the accent (all 24 game pages hardcoded teal)',
+  /radial-gradient\([^)]*rgba\(var\(--accent-rgb\)/.test(theme));
+// every palette must supply the aliases, or a theme would half-apply on a game page
+for (const id of [...new Set(cssIds)]) {
+  const blk = (theme.match(new RegExp(`html\\[data-theme="${id}"\\]\\s*\\{([^}]*)\\}`)) || [])[1] || '';
+  check(`${id}: exports both vocabularies`, /--accent2:/.test(blk) && /--accent-2:/.test(blk));
 }
 
 console.log('\n' + (fails ? `${fails} FAILURE(S)` : 'ALL THEME CHECKS PASSED'));

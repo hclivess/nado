@@ -30,7 +30,7 @@
 <meta name="twitter:title" content="NADO Interface — wallet, miner & explorer" />
 <meta name="twitter:description" content="Your NADO wallet, miner, explorer and shielded pool in one page — no install, no signup." />
 <meta name="twitter:image" content="https://raw.githubusercontent.com/hclivess/nado/main/graphics/bauhaus.png" />
-<link rel="stylesheet" href="/static/interface.css?v=71bbe2ed" />
+<link rel="stylesheet" href="/static/interface.css?v=58cf72f0" />
 <style>
 .spin{display:inline-block;animation:nadospin 1s linear infinite}
 @keyframes nadospin{to{transform:rotate(360deg)}}
@@ -136,9 +136,8 @@
       <button id="btnDlKeySave" class="accent pulse-ready" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>
     </div>
     <div class="row mt">
-      <label class="small tgl" style="display:flex;align-items:center;gap:10px;margin:0;cursor:pointer">
-        <input type="checkbox" id="ackSave" />
-        <span class="tgl-track" aria-hidden="true"><span class="tgl-knob"></span></span>
+      <label class="small" style="display:flex;align-items:center;gap:10px;margin:0;cursor:pointer">
+        <input type="checkbox" id="ackSave" class="switch" />
         <span data-i18n="save.ack">I have saved my private key</span>
       </label>
     </div>
@@ -1159,6 +1158,6 @@
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
 <script defer src="/static/i18n.js?v=81e27d4e"></script>
-<script type="module" src="/static/interface.js?v=fa5cd376"></script>
+<script type="module" src="/static/interface.js?v=519db55a"></script>
 </body>
 </html>

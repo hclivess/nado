@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare } from "./nadodapp.js?v=7a65876e";   // THE one share implementation (SDK)
+import { share as sdkShare } from "./nadodapp.js?v=d93887e4";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -1137,6 +1137,32 @@ const THEMES = [
 
 /* Apply a theme id. Unknown/absent -> the default teal, which carries NO data-theme attribute so the
  * :root block stays authoritative and a stale stored value can never leave the interface half-styled. */
+/* THEMED FAVICON. The SVG favicon renders in its OWN document, so it cannot see the page's CSS variables
+ * — the inlined header logo follows the theme and the tab icon would stay brand teal beside it. Swapping
+ * the <link href> for a data: URI with the ramp baked in is the only way to move it, and it is cheap: the
+ * mark is already five var(--logo-N) fills, so this substitutes the same ramp the stylesheet uses.
+ * Best-effort — a browser that ignores SVG favicons simply keeps favicon.ico, which is the fallback the
+ * page already ships for exactly that case. */
+let _faviconSrc = null;
+async function applyThemedFavicon(id) {
+  try {
+    const link = document.querySelector('link[rel="icon"][type="image/svg+xml"]');
+    if (!link) return;
+    if (_faviconSrc == null) {
+      const r = await fetch("/static/logo.svg", { cache: "force-cache" });
+      _faviconSrc = await r.text();
+    }
+    // read the ramp the CSS resolved for this theme, so the tab icon and the header mark cannot disagree
+    const cs = getComputedStyle(document.documentElement);
+    let svg = _faviconSrc;
+    for (let i = 1; i <= 5; i++) {
+      const c = cs.getPropertyValue(`--logo-${i}`).trim();
+      if (c) svg = svg.replace(new RegExp(`var\\(--logo-${i},\\s*(#[0-9a-fA-F]{6})\\)`, "g"), c);
+    }
+    link.href = "data:image/svg+xml," + encodeURIComponent(svg);
+  } catch (e) { /* keep the shipped icon */ }
+}
+
 function applyTheme(id) {
   const t = THEMES.find((x) => x.id === id) || THEMES[0];
   if (t.id === "teal") document.documentElement.removeAttribute("data-theme");
@@ -1144,6 +1170,7 @@ function applyTheme(id) {
   try { localStorage.setItem(LS_THEME, t.id); } catch (e) {}
   const grid = document.getElementById("themeGrid");
   if (grid) for (const b of grid.children) b.setAttribute("aria-pressed", String(b.dataset.theme === t.id));
+  applyThemedFavicon(t.id);   // after the attribute, so getComputedStyle reads the NEW ramp
   return t.id;
 }
 
@@ -2804,8 +2831,7 @@ function adoptWallet(w, { needsSavePrompt }) {
     $("btnConfirmSave").disabled = true;
     // fresh save screen -> restart the onboarding pulse chain at the Download button
     $("btnDlKeySave").classList.add("pulse-ready");
-    const _tr = document.querySelector("#savePrompt .tgl-track");
-    if (_tr) _tr.classList.remove("pulse-ready");
+    $("ackSave").classList.remove("pulse-ready");
     show("onboard", false);
     show("savePrompt", true);
   } else {
@@ -7178,8 +7204,8 @@ function wireEvents() {
   // acking hands it to Continue (whose own pulse-ready arms via :not(:disabled) the moment it enables).
   $("ackSave").onchange = (e) => {
     $("btnConfirmSave").disabled = !e.target.checked;
-    const track = document.querySelector("#savePrompt .tgl-track");
-    if (track) track.classList.toggle("pulse-ready", !e.target.checked && !$("btnDlKeySave").classList.contains("pulse-ready"));
+    $("ackSave").classList.toggle("pulse-ready",
+      !e.target.checked && !$("btnDlKeySave").classList.contains("pulse-ready"));
   };
   $("btnConfirmSave").onclick = () => {
     state.wallet = pendingWallet; pendingWallet = null;
@@ -7248,8 +7274,7 @@ function wireEvents() {
     downloadKeyFile().catch(() => {});
     // key saved -> hand the onboarding pulse from Download to the "I have saved it" toggle
     $("btnDlKeySave").classList.remove("pulse-ready");
-    const track = document.querySelector("#savePrompt .tgl-track");
-    if (track && !$("ackSave").checked) track.classList.add("pulse-ready");
+    if (!$("ackSave").checked) $("ackSave").classList.add("pulse-ready");
   };
   if ($("btnSwapLock")) $("btnSwapLock").onclick = () => swapLock();
   if ($("btnSwapClaim")) $("btnSwapClaim").onclick = () => swapClaim();

@@ -103,7 +103,7 @@ function applyDappTheme() {
   try {
     if (!document.getElementById("nadoThemeCSS")) {
       const l = document.createElement("link");
-      l.id = "nadoThemeCSS"; l.rel = "stylesheet"; l.href = "/static/theme.css";
+      l.id = "nadoThemeCSS"; l.rel = "stylesheet"; l.href = "/static/theme.css?v=b851a71b";
       document.head.appendChild(l);
     }
     const t = localStorage.getItem("nado_theme");

@@ -93,7 +93,7 @@ button, .btn {
 button:active { transform: translateY(1px); }
 button:disabled { opacity: .5; cursor: not-allowed; }
 /* brand-teal CTAs (match nadochain.com): dark text on a teal gradient, subtle lift on hover */
-button.primary, button.accent { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: #04110a; font-weight: 800; box-shadow: 0 6px 20px rgba(var(--accent-rgb),.30); }
+button.primary, button.accent { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: var(--bg); font-weight: 800; box-shadow: 0 6px 20px rgba(var(--accent-rgb),.30); }
 button.primary:hover:not(:disabled), button.accent:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(var(--accent-rgb),.42); }
 button.ghost { background: transparent; }
 button.ghost:hover:not(:disabled) { border-color: var(--accent); }
@@ -345,7 +345,7 @@ a { color: var(--accent-2); }
 .msg-compose { margin-top: 8px; }
 .msgbubble { max-width: 84%; padding: 7px 11px; border-radius: 12px; }
 .msgbubble.in { align-self: flex-start; background: var(--bg-elev); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-.msgbubble.out { align-self: flex-end; background: var(--accent); color: #04110a; border-bottom-right-radius: 4px; }
+.msgbubble.out { align-self: flex-end; background: var(--accent); color: var(--bg); border-bottom-right-radius: 4px; }
 .msgbubble .msgtext { white-space: pre-wrap; word-break: break-word; line-height: 1.35; }
 .msgbubble .msgmeta { margin-top: 2px; }
 .msgbubble.out .msgmeta { color: rgba(4,17,10,.72); }
@@ -371,15 +371,72 @@ a { color: var(--accent-2); }
 .rollup-hist:last-child { border-bottom: 0; }
 #rollupArgs .rollup-arg { margin-top: 2px; }
 
-/* ---- toggle switch (replaces the native checkbox on the key-save acknowledgement) ---- */
-.tgl input { position: absolute; opacity: 0; width: 0; height: 0; }
-.tgl .tgl-track { flex: 0 0 auto; width: 44px; height: 25px; border-radius: 999px; background: #26313d;
-  border: 1px solid var(--border); position: relative; transition: background .18s, border-color .18s; }
-.tgl .tgl-knob { position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%;
-  background: #e6edf3; box-shadow: 0 1px 3px rgba(0,0,0,.4); transition: transform .18s; }
-.tgl input:checked + .tgl-track { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; }
-.tgl input:checked + .tgl-track .tgl-knob { transform: translateX(19px); background: #04110a; }
-.tgl input:focus-visible + .tgl-track { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
+/* >>> SHARED-COMPONENTS — copied VERBATIM into static/theme.css by tools/gen_theme_tokens.py.
+ * Everything between the sentinels must depend on nothing but the palette variables, because it is
+ * served to the ten game pages, which carry their own inline <style> and load no other stylesheet.
+ * Edit it HERE and regenerate; theme.css is not hand-editable. --------------------------------------
+ *
+ * ONE TOGGLE, EVERYWHERE. There used to be two, and neither worked properly:
+ *
+ * 1. `.switch` was a class with NO rules behind it — the Settings/Quorum/Assets toggles and every game
+ *    page's toggles were plain NATIVE checkboxes. On a dark card an unchecked native box paints as a
+ *    white square, and accent-color cannot help because it only tints the CHECKED fill. A box is also
+ *    the wrong affordance: each of these is an on/off preference, not a form field.
+ * 2. `.tgl` was a hand-built pill that DID look right, but it cost three elements of markup, lived in
+ *    interface.css where no game page could see it, and sat directly below the white native boxes in
+ *    the same Settings panel — which is precisely what made them read as broken.
+ *
+ * `.switch` is now that same pill drawn on the input itself with appearance:none: identical geometry,
+ * zero extra markup, and `.tgl` is deleted rather than kept in parallel. Because it is in this shared
+ * region it reaches the wallet and all ten game pages from one definition, so an SDK toggle can no
+ * longer stay OS-green while the wallet themes.
+ *
+ * The reset below is load-bearing: the generic `input, textarea, select` rule (correct for text fields)
+ * sets width:100%, padding, a border and a background, which stretched every box into a full-width
+ * padded block long before theming existed. Undo those four before styling anything, or the sizing
+ * here fights inherited padding. Boxes that are NOT .switch keep accent-color, and color-scheme:dark
+ * paints their unchecked state dark instead of white — every palette is dark. */
+/* The page glow. The wallet already derived it from the accent; all 24 game pages hardcoded the brand
+ * teal into their own body rule, so a themed page still sat in a teal halo. Restating it here from
+ * --accent-rgb gives both surfaces one definition — this sheet loads after their inline style, so the
+ * literal loses. Identical to the wallet's own rule, and `background` is a shorthand, so the
+ * attachment has to be restated with it or a themed page would scroll its glow. */
+html, body {
+  background: radial-gradient(1100px 560px at 50% -12%, rgba(var(--accent-rgb),.10), var(--bg) 62%);
+  background-attachment: fixed;
+}
+
+input[type="checkbox"], input[type="radio"] {
+  width: auto; padding: 0; border: 0; background: none; border-radius: 0;   /* undo the text-field rule */
+  accent-color: var(--accent);
+  color-scheme: dark;                   /* unchecked native box paints dark, not white */
+  cursor: pointer; flex: 0 0 auto;
+}
+input[type="range"], progress { accent-color: var(--accent); }
+input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
+  outline: 2px solid var(--accent-2); outline-offset: 2px;
+}
+
+input[type="checkbox"].switch {
+  -webkit-appearance: none; appearance: none;
+  position: relative; width: 44px; height: 25px; margin: 0; border-radius: 999px;
+  background: var(--bg-elev2); border: 1px solid var(--border);
+  transition: background .18s, border-color .18s;
+}
+input[type="checkbox"].switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%;
+  background: var(--txt); box-shadow: 0 1px 3px rgba(0,0,0,.4); transition: transform .18s, background .18s;
+}
+input[type="checkbox"].switch:checked {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent;
+}
+input[type="checkbox"].switch:checked::after { transform: translateX(19px); background: var(--bg); }
+input[type="checkbox"].switch:disabled { opacity: .5; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  input[type="checkbox"].switch, input[type="checkbox"].switch::after { transition: none; }
+}
+/* <<< SHARED-COMPONENTS */
 
 /* the save-and-continue button PULSES once it's armed (ack toggled on) — the eye goes straight to it */
 .pulse-ready:not(:disabled) { animation: pulseready 1.3s ease-in-out infinite; }

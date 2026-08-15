@@ -19,64 +19,152 @@
   --bg: #0b0f14; --bg-elev: #131a23; --bg-elev2: #1a232e; --border: #243140;
   --txt: #e6edf3; --txt-dim: #93a1b0; --txt-faint: #5d6b7a;
   --accent: #00ad93; --accent-2: #00c9a7; --accent-rgb: 0, 173, 147;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
 
 html[data-theme="aqua"] {
   --bg: #06120f; --bg-elev: #0d1f1b; --bg-elev2: #132a25; --border: #1e4239;
   --txt: #e2f7f2; --txt-dim: #8fc3b9; --txt-faint: #5d8880;
   --accent: #40e0d0; --accent-2: #7ceee3; --accent-rgb: 64, 224, 208;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
 
 html[data-theme="violet"] {
   --bg: #0d0a16; --bg-elev: #171327; --bg-elev2: #1f1a33; --border: #312a4d;
   --txt: #ece9f6; --txt-dim: #a49bc4; --txt-faint: #6b6390;
   --accent: #7c5cff; --accent-2: #a78bfa; --accent-rgb: 124, 92, 255;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
 
 html[data-theme="ocean"] {
   --bg: #080f18; --bg-elev: #101c2b; --bg-elev2: #172538; --border: #243a55;
   --txt: #e4eefb; --txt-dim: #95aecd; --txt-faint: #5f7796;
   --accent: #2f81f7; --accent-2: #58a6ff; --accent-rgb: 47, 129, 247;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
 
 html[data-theme="ember"] {
   --bg: #150d08; --bg-elev: #231810; --bg-elev2: #2e2016; --border: #472f1e;
   --txt: #f7ebe2; --txt-dim: #c5a68f; --txt-faint: #8d715c;
   --accent: #f0883e; --accent-2: #ffab70; --accent-rgb: 240, 136, 62;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
 
 html[data-theme="rose"] {
   --bg: #150a11; --bg-elev: #24141d; --bg-elev2: #301a27; --border: #4b2b3d;
   --txt: #f8e9f1; --txt-dim: #c99cb4; --txt-faint: #8f6a7e;
   --accent: #db61a2; --accent-2: #f778ba; --accent-rgb: 219, 97, 162;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
 
 html[data-theme="forest"] {
   --bg: #08120b; --bg-elev: #0f2015; --bg-elev2: #152b1d; --border: #22432e;
   --txt: #e6f4e9; --txt-dim: #98bda4; --txt-faint: #638071;
   --accent: #3fb950; --accent-2: #56d364; --accent-rgb: 63, 185, 80;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
 
 html[data-theme="gold"] {
   --bg: #121006; --bg-elev: #201c0e; --bg-elev2: #2b2513; --border: #443a1c;
   --txt: #f6f0dd; --txt-dim: #c3b384; --txt-faint: #8b7d55;
   --accent: #d29922; --accent-2: #e3b341; --accent-rgb: 210, 153, 34;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
 
 html[data-theme="toxic"] {
   --bg: #060806; --bg-elev: #101410; --bg-elev2: #171d16; --border: #2a3a26;
   --txt: #eaf7e6; --txt-dim: #a6c69c; --txt-faint: #6f8a67;
   --accent: #39ff14; --accent-2: #7cff5a; --accent-rgb: 57, 255, 20;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
 
 html[data-theme="hazard"] {
   --bg: #0a0800; --bg-elev: #151200; --bg-elev2: #1e1a04; --border: #3d3512;
   --txt: #faf6e2; --txt-dim: #cbbf86; --txt-faint: #8d8352;
   --accent: #ffe600; --accent-2: #fff45c; --accent-rgb: 255, 230, 0;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
 
 html[data-theme="alarm"] {
   --bg: #0a0303; --bg-elev: #180909; --bg-elev2: #210d0d; --border: #421a1a;
   --txt: #fdeaea; --txt-dim: #d09a9a; --txt-faint: #946a6a;
   --accent: #ff1f1f; --accent-2: #ff6161; --accent-rgb: 255, 31, 31;
+  --elev: var(--bg-elev); --elev2: var(--bg-elev2); --dim: var(--txt-dim);
+  --faint: var(--txt-faint); --accent2: var(--accent-2);
 }
+
+/* >>> SHARED-COMPONENTS — copied VERBATIM into static/theme.css by tools/gen_theme_tokens.py.
+ * Everything between the sentinels must depend on nothing but the palette variables, because it is
+ * served to the ten game pages, which carry their own inline <style> and load no other stylesheet.
+ * Edit it HERE and regenerate; theme.css is not hand-editable. --------------------------------------
+ *
+ * ONE TOGGLE, EVERYWHERE. There used to be two, and neither worked properly:
+ *
+ * 1. `.switch` was a class with NO rules behind it — the Settings/Quorum/Assets toggles and every game
+ *    page's toggles were plain NATIVE checkboxes. On a dark card an unchecked native box paints as a
+ *    white square, and accent-color cannot help because it only tints the CHECKED fill. A box is also
+ *    the wrong affordance: each of these is an on/off preference, not a form field.
+ * 2. `.tgl` was a hand-built pill that DID look right, but it cost three elements of markup, lived in
+ *    interface.css where no game page could see it, and sat directly below the white native boxes in
+ *    the same Settings panel — which is precisely what made them read as broken.
+ *
+ * `.switch` is now that same pill drawn on the input itself with appearance:none: identical geometry,
+ * zero extra markup, and `.tgl` is deleted rather than kept in parallel. Because it is in this shared
+ * region it reaches the wallet and all ten game pages from one definition, so an SDK toggle can no
+ * longer stay OS-green while the wallet themes.
+ *
+ * The reset below is load-bearing: the generic `input, textarea, select` rule (correct for text fields)
+ * sets width:100%, padding, a border and a background, which stretched every box into a full-width
+ * padded block long before theming existed. Undo those four before styling anything, or the sizing
+ * here fights inherited padding. Boxes that are NOT .switch keep accent-color, and color-scheme:dark
+ * paints their unchecked state dark instead of white — every palette is dark. */
+/* The page glow. The wallet already derived it from the accent; all 24 game pages hardcoded the brand
+ * teal into their own body rule, so a themed page still sat in a teal halo. Restating it here from
+ * --accent-rgb gives both surfaces one definition — this sheet loads after their inline style, so the
+ * literal loses. Identical to the wallet's own rule, and `background` is a shorthand, so the
+ * attachment has to be restated with it or a themed page would scroll its glow. */
+html, body {
+  background: radial-gradient(1100px 560px at 50% -12%, rgba(var(--accent-rgb),.10), var(--bg) 62%);
+  background-attachment: fixed;
+}
+
+input[type="checkbox"], input[type="radio"] {
+  width: auto; padding: 0; border: 0; background: none; border-radius: 0;   /* undo the text-field rule */
+  accent-color: var(--accent);
+  color-scheme: dark;                   /* unchecked native box paints dark, not white */
+  cursor: pointer; flex: 0 0 auto;
+}
+input[type="range"], progress { accent-color: var(--accent); }
+input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
+  outline: 2px solid var(--accent-2); outline-offset: 2px;
+}
+
+input[type="checkbox"].switch {
+  -webkit-appearance: none; appearance: none;
+  position: relative; width: 44px; height: 25px; margin: 0; border-radius: 999px;
+  background: var(--bg-elev2); border: 1px solid var(--border);
+  transition: background .18s, border-color .18s;
+}
+input[type="checkbox"].switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%;
+  background: var(--txt); box-shadow: 0 1px 3px rgba(0,0,0,.4); transition: transform .18s, background .18s;
+}
+input[type="checkbox"].switch:checked {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent;
+}
+input[type="checkbox"].switch:checked::after { transform: translateX(19px); background: var(--bg); }
+input[type="checkbox"].switch:disabled { opacity: .5; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  input[type="checkbox"].switch, input[type="checkbox"].switch::after { transition: none; }
+}
+/* <<< SHARED-COMPONENTS */
