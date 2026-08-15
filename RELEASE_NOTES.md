@@ -1,3 +1,122 @@
+# v1.0.0-beta.3 — 2026-08-14 — a fleet fork of my own making, and the guards that close the class
+
+> **CONSENSUS.** Two changes bind: the number<->hash index is now bounded by protocol rule, and the
+> index-prune watermarks are excluded from the L1 state root. A bounded repair window
+> `[10047, 16000)` let the fleet cross the damage without a reroll; it has already expired and full
+> enforcement is back on. No reroll, no lost balances, no lost history.
+
+## The incident: a disk-retention counter reached consensus
+
+The index-retention work below wrote two watermarks into the `meta` sub-DB —
+`index_pruned_below_num` / `index_pruned_below_hash` — recording how far a node had pruned **its own
+disk**. `meta` feeds `l1_state_root()`, which is committed into every block header, and the new keys
+were never added to `ROOT_EXCLUDED_META_KEYS`. So a node's storage policy became consensus state.
+
+The split was clean and both sides were right. The index prune first fires when finality crosses
+`INDEX_RETENTION_HASH = 10 000`, so at block **10047** every ROLLING node wrote the watermark and its
+committed root moved, while every ARCHIVE node — which never prunes, so never wrote the row — computed
+the old root and correctly refused to extend. The fleet fragmented across three heights.
+
+**Diagnosed by replay, not by inspection.** Restoring the wedged node's OWN checkpoint at 10000 and
+replaying its OWN bodies forward reproduced `c55b376f31ee1296` — so its state was never corrupt; it was
+the honest result of applying the blocks. On that same state:
+
+    root with the watermark EXCLUDED : c55b376f31ee1296
+    root with the watermark INCLUDED : 00f00a01e387ccf3   <- the root committed in block 10047
+
+Bit-for-bit. That is what turned a guess into a diagnosis.
+
+**Recovery without a reroll.** The roots already committed over the affected span encode one node's disk
+state, so they are unverifiable *by construction* — an archive node never held the value at all.
+Enforcing them wedges every honest node permanently. So the equality comparison, and only the
+comparison, was suspended across `[10047, 16000)` and re-armed at a height every node agreed on;
+hash chain, producer signature, cumulative weight, tx validity and per-tx state transitions stayed
+enforced throughout. The fleet crossed 16000 with an archive node and five rolling nodes computing
+identical roots, zero divergence.
+
+## The tests that should have caught it, and why they did not
+
+Both failures were the same shape: a test that asserts a **literal** instead of a **property** cannot
+fail until someone has already performed the act it was meant to enforce.
+
+- `test_seed_divergence` asserted `ROOT_EXCLUDED_META_KEYS == frozenset((...))`. It could only go red
+  after the missing key had been added. Now containment plus a behavioural check — a node that has
+  pruned must compute the same root as one that has not, and the root must not move as pruning
+  progresses — plus the converse, that a block-derived row still DOES move it.
+- **New:** `tests/test_no_local_state_in_root.py` reads `kv_ops.py`, extracts the meta keys written
+  inside `prune_*`/`gc_*` functions, and requires each to be excluded. A future prune that stashes a
+  watermark fails the day it is written, not the day finality crosses its threshold in production.
+- **New:** `tests/test_rollback_symmetry.py` asserts rollback is the exact inverse of apply against the
+  REAL `incorporate_block`/`rollback_one_block`. The existing round-trip check hand-copied both
+  sequences ("mirrors ...") and so tested a replica that stayed symmetric while production drifted.
+
+## Storage: rolling by default, and the last unbounded store bounded
+
+- **Rolling mode is the default.** An archive node keeps every body forever — measured at 133 MB/day,
+  **~47.6 GB/year**. Fine for the one box hosting an explorer, unreasonable for volunteer VPSes; and a
+  node that fills its disk stops UPDATING, then forks. Rolling keeps state and the number<->hash
+  indexes, dropping only bodies older than the retention window, over a hard consensus floor config
+  cannot lower. Four independent decision sites now move together, pinned by test.
+- **`config_version`.** A changed default reached new installs and nothing else, because
+  `create_config` writes every default at install time and is create-only — the installer's value is
+  indistinguishable on disk from an operator's choice. Observed directly: flipping `archive` moved
+  exactly the ONE node whose config predated the key. One-time migration, narrow (only keys still
+  holding the old default), and a deliberate `"archive": true` set afterwards survives.
+- **The number<->hash index is bounded by protocol rule** (`doc/index-pruning.md`). At 144 B/block it
+  was ~7 GiB/decade and the dominant term once bodies and tx history are pruned. It could not be a node
+  setting — every carried row feeds `state_digest`, so differing depths split `snapshot_hash`. The
+  window is keyed on the checkpoint height C every node already agrees on: `[C-N, C]`, with
+  `N_num = 50 000` (~2.1x the deepest consumer) and `N_hash = 10 000` (~222x `FINALITY_DEPTH`, since its
+  only reader is a tip-local dedupe guard). Enforced on IMPORT as well as export, so a donor shipping
+  out-of-window rows has them dropped rather than trusted. Measured e2e on a 60 000-block chain:
+  **50% of the transferred payload dropped**, joiner still resolving the 24 000-deep lookback.
+
+## Archive nodes stop lying about what they hold
+
+- **A fresh archive node refuses snapshot bootstrap.** It backfills 265 bodies behind its anchor and
+  nothing older, ever — so `archive: true` used to yield a node that syncs fast, looks healthy, holds
+  nothing before its snapshot, and advertises "archive" to peers who read that as "can serve history".
+  Refused, naming every route to a real archive.
+- **Wedge recovery is NOT refused** — that node is on a fork it cannot leave by rollback, so declining
+  leaves it wedged forever serving nothing. It now logs the exact range lost and tells the operator to
+  re-seed.
+- **`earliest_block_height` in `/status`** — the body horizon. `node_type` answers "do I prune?";
+  callers were reading it as "can you serve history?".
+
+## Registration
+
+- **Renewals stopped re-broadcasting.** Reported as "renewal is especially difficult today", and it was:
+  552 registers from 37 senders, ~27 attempts each, every one rejected "sender already recerted this
+  epoch" — the first landed and the rest were noise. `maybeRenewLease` guarded on a flag cleared when
+  the SUBMIT returned, not when the tx LANDED, and its only other signal (`acc.reg_epoch`) is on-chain
+  state that cannot move until mined. Widening `POSW_TARGET_MARGIN` 30 -> 90 took that window from 3 to
+  9 minutes and the retries scaled with it.
+- **The target margin is sized to the work owed**, not the worst case: a base renewal now lands in
+  ~13 blocks (78 s) instead of 90 (540 s), while an expensive entry proof on a slow phone still gets the
+  full window.
+
+## Validation
+
+2000-transaction stress test after recovery: **2000/2000 accepted, 2000/2000 mined**, all 147 recipients
+credited, peak 44 txs in a block, 2.55 tx/s sustained, mempool building a backlog and draining it — and
+**zero state divergence across the whole run** with all nodes in lockstep. The submit rate limiter
+(30/min per IP per node), not the chain, was the ingestion ceiling.
+
+Test suite: **263 passed, 30 failed, ZERO regressions** — every failure reproduces at v1.0.0-beta.2 and
+predates this release (settle/STARK proving, games, and browser e2e that need a display). The one apparent
+regression, `pool_ui_e2e.mjs`, was a 180 s timeout on a box that was mining and had just absorbed the
+stress test; it passes in 480 s, and `pool.html` does not load any file this release touched.
+
+A second, unrelated fork appeared during validation: `202.91.32.228` — the node that had been stuck at
+height 63 with a frozen core loop all day — diverged alone at h17313 on a HEAVIER chain. Two safety
+mechanisms did their job with no operator action: the state-root gate **refused the heavier chain** rather
+than following weight into invalid state, and the dead-fork probe flipped to `stranded`, purged, resynced
+and rejoined. Cause not established — it predates none of the fixes here, sits 1300 blocks past the repair
+window, and the node destroyed its own evidence while healing. Recorded as unexplained rather than
+attributed to a guess.
+
+---
+
 # v1.0.0-beta.2 — 2026-08-13 — new miners could not join, and auto-bond compounded the wrong coins
 
 > **CONSENSUS FLAG DAY.** `POSW_ANCHOR_OFFSET` moves 30 -> 150 and a new `POSW_TARGET_MARGIN = 90` sizes the
