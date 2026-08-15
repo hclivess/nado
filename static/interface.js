@@ -4549,6 +4549,29 @@ function exLanes(a) {
   if (open) return i18("ex.regYes", "yes (OPEN-lane miner)");
   return i18("badge.no", "no");
 }
+// Reserved names whose coins are HELD SOMEWHERE ELSE: {name: [holder, exec-ledger key]}. The explorer
+// resolves these to the account that actually holds the value plus the exec-side ledger entry that says
+// how much of it is theirs, instead of reporting a missing row.
+const EX_ESCROWED = { faucet: ["bridge", "faucet"] };
+
+async function exRenderEscrowed(name) {
+  const [holder, ledgerKey] = EX_ESCROWED[name];
+  let vault = null, mine = null;
+  try { vault = await exGetJSON("/get_account?address=" + encodeURIComponent(holder)); } catch (e) {}
+  try {
+    const b = await (await fetch(execBase() + "/exec/bridge?provisional=1", { cache: "no-store" })).json();
+    const v = b && b.balances && b.balances[ledgerKey];
+    if (v != null) mine = String(v);
+  } catch (e) { /* exec node optional — the L1 half still explains it */ }
+  return `<h2>${exEsc(name)}</h2>${exKV([
+    ["Balance", mine != null ? exNado(mine)
+      : `<span class="faint">${i18("ex.escrowUnknown", "unavailable (no exec node reachable)")}</span>`],
+    ["Held in", exLink("a", holder, holder)],
+  ])}<div class="faint small mt">${i18("ex.escrowNote",
+    "\u0022{n}\u0022 is a reserved name, not a wallet: coins sent to it are escrowed in {h}, which is where " +
+    "they are redeemed from. The balance above is its share of that escrow.", { n: name, h: holder })}</div>`;
+}
+
 function exRenderAccount(a) {
   return `<h2>${i18("ex.account","Account")}</h2>${exKV([
     ["Address", `<span class="mono">${exEsc(a.address)}</span>`],
@@ -4581,6 +4604,12 @@ function exShowResult(html) { const r = $("exResult"); r.innerHTML = html; r.cla
 async function exOpen(kind, val) {
   try {
     if (kind === "a") {
+      // ESCROWED RESERVED NAMES need explaining, not a 404. `faucet` holds no balance of its own — a
+      // donation to it is redirected into BRIDGE_ESCROW, because that is where a prize winner redeems it
+      // (ops/account_ops.py: escrow must match the redemption path). So the account row genuinely does
+      // not exist, and searching it returned "Not found on this node… the node may have pruned it" — two
+      // wrong things at once: nothing was pruned, and the coins are there. Show where they actually live.
+      if (EX_ESCROWED[val]) { exShowResult(await exRenderEscrowed(val)); return; }
       exShowResult(exRenderAccount(await exGetJSON("/get_account?address=" + encodeURIComponent(val))));
       const btn = $("exLoadTxs"); if (btn) btn.onclick = async () => {
         const box = $("exAcctTxs"); box.innerHTML = `<div class="faint small">${i18("ex.loading", "loading…")}</div>`;
