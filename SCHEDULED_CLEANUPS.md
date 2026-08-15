@@ -12,6 +12,28 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 
 ---
 
+
+## STATE-ROOT REPAIR WINDOW — `[10047, 16000)` · deletable after the next genesis reroll, NOT at 16000
+
+`loops/core_loop.incorporate_block` suspends the state-root EQUALITY COMPARISON across
+`protocol.STATE_ROOT_UNENFORCED_FROM .. STATE_ROOT_ENFORCED_AGAIN_AT`. Everything else on that path stays
+enforced — hash chain, producer signature, cumulative weight, tx validity, per-tx state transitions.
+
+**Why it exists.** The index-prune watermarks briefly fed the L1 state root, so the roots committed over
+that span encode how far one node had pruned its own disk. No other node can reproduce that value — an
+archive node never held one at all — which makes those roots unverifiable *by construction*. Enforcing
+them wedges every honest node permanently; the fleet was split at exactly h10047 until this landed.
+
+**Why it cannot go at 16000, which is the tempting reading.** The window is not about the LIVE tip — the
+chain passed 16000 within hours and full enforcement resumed there. It is about REPLAY: any node syncing
+from genesis still walks 10047..15999 and still meets those unverifiable roots. Delete the branch and a
+from-genesis sync becomes impossible on betanet-3, which is the one situation nobody tests until it is
+needed. A snapshot-booted node skips the span entirely and is unaffected either way.
+
+**Deletable when** betanet-3 is rerolled (the span stops existing) — or when from-genesis sync of this
+chain is formally unsupported. Delete both constants and the `_unenforced` branch together; leaving the
+constants behind invites someone to "re-enable" a window whose blocks are gone.
+
 ## 1. `FIDELITY_MIN_GAP_ACTIVATION_EPOCH` — the fidelity anti-farm gate
 
 | | |

@@ -1,3 +1,79 @@
+# v1.0.0-beta.4 — 2026-08-15 — the faucet actually pays, and a scary number that was never real
+
+> No consensus change. Wallet, operator tooling and the apps page. Safe to update at any time; nodes need
+> no coordination for this one.
+
+## The faucet was never going to pay anything
+
+`reward()` is operator-only and nothing in the node calls it — the distributor `_faucet_rewards.py` is the
+only caller. It had been written, 14 games were enrolled against it, and **it was scheduled nowhere**: no
+crontab entry, no systemd timer, nothing in `/etc/cron.d`. Donations accumulated and every airdrop-play
+leaderboard went unpaid. Verified by hand: the exec layer showed a funded faucet balance and the
+distributor ran clean when invoked, so only the trigger was missing.
+
+The deeper problem was that the schedule lived nowhere in the repo. `bet-oracle` had the same shape —
+units committed, installed by hand — so a unit that exists on one machine silently stops existing.
+
+    scripts/nado-faucet-rewards.{service,timer}   the distributor, matching the bet-oracle convention
+    scripts/install-timers.sh                     installs + enables every OPERATOR timer (--list to preview)
+    doc/faucet.md §2b                             the scheduling step, and why re-running is safe
+
+Deliberately separate from `install.sh`: these act **as the operator** — they spend from operator-owned
+banks and sign with the operator key — so a normal node must not run them. Daily at 00:20 UTC, after the
+boundary the boards are keyed on (they rank *yesterday's* verified play), `Persistent=true` so a box that
+was down still pays that day, randomised so operators don't collide in a block. Re-running is safe by
+construction: the contract marks `(game, day, rank)` and reverts a repeat, underfunded payouts revert, and
+the per-game budget is capped in the script.
+
+**Autogame was paid prizes it never advertised.** The "🪂 airdrop play" badge is set by hand per tile while
+payouts come from a separate list — two hand-maintained lists that must agree, with nothing checking them:
+14 enrolled, 13 badged. Autogame had a working Daily Gauntlet, a replay oracle and rules shared with it, so
+the free play was real and would have been paid — but its tile advertised only the staked march, with no
+badge and no mention of free play at all. `tests/test_faucet_badges.py` now pins both directions: every
+paid game must advertise, and nothing may claim airdrop play without being enrolled (a badge promising
+prizes that never arrive is the worse failure). Verified it catches the real bug rather than merely passing.
+
+## "It says 25913 blocks to register"
+
+A user was, reasonably, alarmed. The registration banner computes the remaining distance as
+`targetBlock - state.latest`, guarded by `state.latest != null` — but `0 != null` is TRUE, so whenever the
+relay reported a low or zero tip (several nodes were resyncing that day) the subtraction returned the
+**absolute target height** and the wallet presented it as blocks remaining.
+
+The bound was there to be used: the tx is built as `tip + poswTargetMarginFor(...)`, so the distance can
+never legitimately exceed `POSW_TARGET_MARGIN`. Anything larger is not a long wait — it is our view of the
+tip being wrong. A number is now shown only when it is credible; otherwise the banner says it is syncing
+with the relay instead of inventing a figure.
+
+The same report noted that part was not translated, and it was not — both progress strings were inline
+English template literals. That turned out to be one instance of a class: `tools/check_i18n.py` flags keys
+referenced by `interface.js` but absent from the English base, which render their raw fallback in **every**
+language, and it was failing with 33 of them. This fixes the registration/mining path and everything added
+on 2026-08-14/15 — 10 keys × 16 languages. 23 remain (`quorum.autoYes*`, `shield.*`), all pre-existing;
+left rather than bulk-translated blind, since they deserve the same care.
+
+Also: three Czech strings used **`epochová`**, an adjective Czech does not form from *epocha* — and the
+real one, `epochální`, is a false friend meaning "momentous". Replaced with the genitive (`úkol epochy`,
+`atestace epochy`), and a doubled "epoch" dropped from the duty message.
+
+## Also
+
+- **Apps tab in the wallet**, linking to `nadochain.com/apps` (the canonical URL — `/apps.html` 301s to
+  it), styled like the existing Web tab, translated in all 16 languages.
+- **`config.py` wrote a stale auto-bond default.** It baked the literal `80` while
+  `protocol.AUTO_BOND_DEFAULT_PERCENT` had been raised to `99`, so a **fresh install** compounded at a
+  different rate than a config that merely lacked the key — two nodes installed a week apart behaving
+  differently with no way to tell from the outside which you had. It now writes the constant.
+
+## Not in this release
+
+A faucet change making the operator key rotatable on-chain was written and then **reverted** — the
+mechanism that matters (`state.transfer_contract`, which moves contract ownership with cid and storage
+preserved) already existed, and modifying a funded contract was not worth the risk for what it added.
+Nothing was ever deployed; the built code matches the on-chain contract exactly.
+
+---
+
 # v1.0.0-beta.3 — 2026-08-14 — a fleet fork of my own making, and the guards that close the class
 
 > **CONSENSUS.** Two changes bind: the number<->hash index is now bounded by protocol rule, and the
