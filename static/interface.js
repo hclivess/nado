@@ -1475,12 +1475,30 @@ function setStartBtnIdle(label) {
 }
 // Update the staged status banner. `html` is built only from our own constant strings plus
 // escapeHtml()'d dynamic values, so innerHTML is safe here. kind: "ok" | "warn" | undefined (info).
-function setRegBanner(html, kind) {
+//
+// `tag` marks a PROBLEM banner — one whose condition can end on its own with no further stage ever
+// running to overwrite it. The narration banners (computing/submitting/waiting) are each superseded by
+// the next stage, so they can never go stale; "relay unreachable" and "didn't confirm" have no next
+// stage, and both were left on screen indefinitely after the thing they warned about had healed. The
+// tag is what lets the poll loop retract exactly the stale one and never a live message.
+let _regBannerTag = null;
+function setRegBanner(html, kind, tag) {
   const el = $("regBanner");
   if (!el) return;
   el.className = "hint-banner mt" + (kind ? " " + kind : "");
   $("regBannerMsg").innerHTML = html;
+  _regBannerTag = tag || null;
   show("regBanner", true);
+}
+// Retract a problem banner IF it is still the one showing. Passing the tag matters: by the time this
+// runs the banner may have been replaced by live narration, and hiding that would erase real progress.
+function clearRegBanner(tag) {
+  // `!tag` first, or the untagged case matches itself: narration carries tag null, so a bare
+  // clearRegBanner() would satisfy `_regBannerTag !== tag` as false and hide live progress. Retraction
+  // is only ever meaningful for a NAMED problem.
+  if (!tag || _regBannerTag !== tag) return;
+  _regBannerTag = null;
+  show("regBanner", false);
 }
 function hideRegBannerSoon(ms = 6000) {
   setTimeout(() => { if (state.mining && !state.starting) show("regBanner", false); }, ms);
@@ -1513,7 +1531,7 @@ function failStart(reason) {
   setStartBtnIdle();
   $("mineState").textContent = i18("mine.idle", "Idle");
   setRegBanner(i18("reg.retry", "Registration didn't confirm — tap Start to retry.") +
-    (reason ? ' <span class="faint">(' + escapeHtml(reason) + ')</span>' : ""), "warn");
+    (reason ? ' <span class="faint">(' + escapeHtml(reason) + ')</span>' : ""), "warn", "failed");
   clearTimeout(_failRecheckTimer);
   let tries = 0;
   const recheck = async () => {
@@ -1635,7 +1653,7 @@ async function maybeRegister() {
     // logging an error or tearing down mining, so a 5 s node bounce never scares the user.
     if (isTransient(e)) {                          // finally{} below clears state.registering
       setConn(false);
-      setRegBanner(i18("reg.reconnecting", "Relay momentarily unreachable — reconnecting…"), "warn");
+      setRegBanner(i18("reg.reconnecting", "Relay momentarily unreachable — reconnecting…"), "warn", "unreachable");
       return;
     }
     if (e.message !== "cancelled") { log("err", "Auto-register error: " + e.message); failed = e.message; }
@@ -1811,6 +1829,14 @@ async function pollOnce() {
     const wasStarting = state.starting || $("btnMine").disabled; // were we still in the setup phase?
     if (state.regSubmitted) { state.regSubmitted = null; show("powWrap", false); log("ok", i18("log.regConfirmed", "Registration confirmed on chain ✓")); }
     markMiningActive();                       // flip the button to the working Stop/Mining toggle
+    // We are registered, present and the relay just answered — so any problem banner is now describing a
+    // condition that has healed. Retract it. Only `wasStarting` used to touch the banner here, which is
+    // why these went stale: a blip during STEADY mining, or a failStart that self-healed back into
+    // mining, both land here with wasStarting false and nothing ever cleared the warning. Retracting is
+    // safe to do every poll — it is a no-op unless that exact banner is still the one on screen, and if
+    // the problem recurs the next poll puts it straight back.
+    clearRegBanner("unreachable");
+    clearRegBanner("failed");
     if (wasStarting) {
       setRegBanner(i18("reg.confirmed", "Registered ✓ — mining now."), "ok");
       hideRegBannerSoon();
