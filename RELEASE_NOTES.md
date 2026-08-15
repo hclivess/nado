@@ -65,6 +65,14 @@ real one, `epochální`, is a false friend meaning "momentous". Replaced with th
   different rate than a config that merely lacked the key — two nodes installed a week apart behaving
   differently with no way to tell from the outside which you had. It now writes the constant.
 
+## Validation
+
+Full suite: **264 passed, 30 failed, zero regressions** — the failure set is byte-identical to the
+v1.0.0-beta.3 run, and every one of those 30 was already reproduced at v1.0.0-beta.2 (settle/STARK
+proving, games, and browser e2e that need a display). All 14 constants the wallet mirrors from protocol.py
+verified equal, served asset stamps match their files, and the fleet is 8/8 in lockstep with
+`disagree=0`.
+
 ## Not in this release
 
 A faucet change making the operator key rotatable on-chain was written and then **reverted** — the
