@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare } from "./nadodapp.js?v=d93887e4";   // THE one share implementation (SDK)
+import { share as sdkShare } from "./nadodapp.js?v=6b894ade";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -1115,6 +1115,7 @@ const LS_WALLET = "nado_miner_wallet";
 const LS_RELAY = "nado_miner_relay";
 const LS_AUTOBOND = "nado_autobond_pct";   // persisted auto-bond percentage (0..100)
 const LS_THEME = "nado_theme";              // persisted accent theme id ("" / "teal" = the default)
+const LS_BG = "nado_bg";                   // background art id; mirrored onto game pages by the SDK
 
 /* THEMES. Each entry is only an accent pair; surfaces, text and borders are shared with the base theme,
  * so a theme cannot change any contrast ratio the interface was designed against. The swatch previews the
@@ -1194,6 +1195,53 @@ function renderThemePicker() {
     grid.appendChild(b);
   }
 }
+/* BACKGROUND ART — the second picker, independent of the colour theme.
+ *
+ * The id is the whole contract with the CSS: html[data-bg="<id>"] carries the url, so nothing here knows
+ * a filename and adding a background means one CSS rule plus one line in this list. `art` is the same
+ * file again for the SWATCH only — a preview has to show the actual mark, and a swatch is the one place
+ * that legitimately names a file. "none" is first and is the default: it sets no attribute at all, so a
+ * stale or unknown stored id degrades to the plain page rather than to a half-applied one. */
+const BACKGROUNDS = [
+  { id: "none",       art: null },
+  { id: "bevel",      art: "/static/bg/nado-3d-bevel.svg" },
+  { id: "isometric",  art: "/static/bg/nado-3d-isometric.svg" },
+  { id: "torus",      art: "/static/bg/nado-3d-torus-lit.svg" },
+  { id: "sweep",      art: "/static/bg/nado-faces-sweep-strong.svg" },
+  { id: "outline",    art: "/static/bg/nado-simple-gaps.svg" },
+  { id: "silhouette", art: "/static/bg/nado-simple-silhouette-teal.svg" },
+];
+
+function applyBackground(id) {
+  const b = BACKGROUNDS.find((x) => x.id === id) || BACKGROUNDS[0];
+  if (b.id === "none") document.documentElement.removeAttribute("data-bg");
+  else document.documentElement.setAttribute("data-bg", b.id);
+  try { localStorage.setItem(LS_BG, b.id); } catch (e) { /* storage off — applies for this page only */ }
+  const grid = document.getElementById("bgGrid");
+  if (grid) for (const el of grid.children) el.setAttribute("aria-pressed", String(el.dataset.bg === b.id));
+  return b.id;
+}
+
+function renderBgPicker() {
+  const grid = document.getElementById("bgGrid");
+  if (!grid || grid.children.length) return;
+  const cur = (() => { try { return localStorage.getItem(LS_BG) || "none"; } catch (e) { return "none"; } })();
+  for (const b of BACKGROUNDS) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "bgdot";
+    el.dataset.bg = b.id;
+    // the swatch shows the art on the CURRENT palette's ground, so it previews the pairing you will get
+    if (b.art) el.style.backgroundImage = `url("${b.art}")`;
+    else el.textContent = "\u2205";           // empty set — "no background", and it needs no artwork
+    el.title = b.id;
+    el.setAttribute("aria-label", b.id);
+    el.setAttribute("aria-pressed", String(b.id === cur));
+    el.onclick = () => applyBackground(b.id);
+    grid.appendChild(el);
+  }
+}
+
 const LS_MINING = "nado_mining";           // "1" while mining, so a browser refresh auto-resumes (no re-click)
 const AUTO_BOND_DEFAULT_PCT = 80;          // default when the user has never set one (matches protocol.AUTO_BOND_DEFAULT_PERCENT)
 const LS_PENDING_PAY = "nado_pending_pay"; // sessionStorage: a pay-request awaiting wallet setup
@@ -7461,6 +7509,7 @@ async function boot() {
   // THEME FIRST, before any paint: applying it later means a flash of the default accent on every load.
   try { applyTheme(localStorage.getItem(LS_THEME) || "teal"); } catch (e) {}
   renderThemePicker();
+  renderBgPicker();
   bgExecTriageEarly();   // hidden-iframe sign request we can't autosign silently → bounce to the redirect NOW, before the crypto load
   // relay
   state.relay = localStorage.getItem(LS_RELAY) || null;

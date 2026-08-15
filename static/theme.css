@@ -128,15 +128,56 @@ html[data-theme="alarm"] {
  * padded block long before theming existed. Undo those four before styling anything, or the sizing
  * here fights inherited padding. Boxes that are NOT .switch keep accent-color, and color-scheme:dark
  * paints their unchecked state dark instead of white — every palette is dark. */
+/* ---- SELECTABLE BACKGROUND ART -------------------------------------------------------------------
+ * A second, independent axis next to the colour themes: the palette says what colour the page is, this
+ * says what is BEHIND it. The art is the NADO mark itself, from the variant set in graphics/variants —
+ * already drawn, so this ships no new artwork.
+ *
+ * Tiled, not one centred copy. A single mark was tried first and read as a stray graphic behind the
+ * cards — present on an empty page, gone the moment content covered it. As a repeating field it reads as
+ * wallpaper, which is what a background should do: even, ignorable, and unaffected by how long the page
+ * is. Opacity is halved against the single-copy version for the same reason — a full field at .13 is
+ * loud where one mark at .13 was barely there.
+ *
+ * The 6% is also what keeps the two pickers independent: a gold-lit mark under the violet palette reads
+ * as texture, not as a colour clash, so no pairing of the two can produce something unusable and neither
+ * picker needs to know about the other. It sits on ::before rather than in the body background because
+ * only a separate layer can carry its own opacity; z-index -1 keeps it above the page glow and below
+ * every pixel of content, and pointer-events:none keeps it out of hit-testing.
+ *
+ * Selection travels as html[data-bg], exactly parallel to html[data-theme]: the wallet sets the
+ * attribute, the SDK mirrors it onto game pages, and NEITHER builds a URL — the mapping lives here, in
+ * the shared region, so a background is added by adding one rule and one picker entry. Unset (or an id
+ * with no rule) leaves --bg-art unset, the layer paints nothing, and the page looks exactly as before. */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background-image: var(--bg-art, none);
+  background-repeat: repeat; background-position: 0 0;
+  background-size: 124px;
+  opacity: .06;   /* TILED, so it covers everything: a single watermark needs .13, a full field needs half */
+}
+html[data-bg="bevel"]      { --bg-art: url("/static/bg/nado-3d-bevel.svg"); }
+html[data-bg="isometric"]  { --bg-art: url("/static/bg/nado-3d-isometric.svg"); }
+html[data-bg="torus"]      { --bg-art: url("/static/bg/nado-3d-torus-lit.svg"); }
+html[data-bg="sweep"]      { --bg-art: url("/static/bg/nado-faces-sweep-strong.svg"); }
+html[data-bg="outline"]    { --bg-art: url("/static/bg/nado-simple-gaps.svg"); }
+html[data-bg="silhouette"] { --bg-art: url("/static/bg/nado-simple-silhouette-teal.svg"); }
+
 /* The page glow. The wallet already derived it from the accent; all 24 game pages hardcoded the brand
  * teal into their own body rule, so a themed page still sat in a teal halo. Restating it here from
  * --accent-rgb gives both surfaces one definition — this sheet loads after their inline style, so the
  * literal loses. Identical to the wallet's own rule, and `background` is a shorthand, so the
  * attachment has to be restated with it or a themed page would scroll its glow. */
-html, body {
+html {
   background: radial-gradient(1100px 560px at 50% -12%, rgba(var(--accent-rgb),.10), var(--bg) 62%);
   background-attachment: fixed;
 }
+/* The glow lives on <html>, and BODY MUST STAY TRANSPARENT — this is what makes the art layer above
+ * visible at all. Painting order in the root stacking context puts negative-z-index descendants BEFORE
+ * the backgrounds of in-flow non-positioned boxes, so an opaque body background paints straight over
+ * body::before no matter how high its opacity is. (Symptom, if this is ever undone: the picker appears
+ * to work — attribute set, URL resolving, no console error — and the page simply never changes.) */
+body { background: transparent; }
 
 input[type="checkbox"], input[type="radio"] {
   width: auto; padding: 0; border: 0; background: none; border-radius: 0;   /* undo the text-field rule */

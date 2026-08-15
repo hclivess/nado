@@ -166,5 +166,38 @@ for (const id of [...new Set(cssIds)]) {
   check(`${id}: exports both vocabularies`, /--accent2:/.test(blk) && /--accent-2:/.test(blk));
 }
 
+// ---- BACKGROUND ART: the second, independent axis ---------------------------------------------------
+// Same universality rule as the palette — the html[data-bg] rules live in the shared region so the SDK
+// can mirror the id onto a game page without ever naming an artwork file. The failure this pins is a
+// picker entry whose CSS rule was never added: the swatch appears, the click "works", nothing changes.
+import { existsSync } from 'node:fs';
+const bgIds = [...js.match(/const BACKGROUNDS = \[([\s\S]*?)\];/)[1].matchAll(/id:\s*"([a-z]+)"/g)].map(m => m[1]);
+const cssBgIds = [...new Set([...css.matchAll(/html\[data-bg="([a-z]+)"\]/g)].map(m => m[1]))];
+check(`the picker offers several backgrounds (${bgIds.length})`, bgIds.length >= 4);
+check('"none" is first and is the default (it sets no attribute at all)', bgIds[0] === 'none');
+check('every offered background has a CSS rule',
+  bgIds.slice(1).every((i) => cssBgIds.includes(i)));
+check('every CSS background rule is offered by the picker', cssBgIds.every((i) => bgIds.includes(i)));
+check('the art rules ride in the SHARED region, so game pages get them too',
+  cssBgIds.every((i) => new RegExp(`html\\[data-bg="${i}"\\]`).test(theme)));
+// a url() that 404s degrades to a plain page and is invisible in review — check the files are really there
+for (const m of css.matchAll(/html\[data-bg="([a-z]+)"\][^{]*\{[^}]*url\("([^"]+)"\)/g)) {
+  check(`${m[1]}: its artwork exists at ${m[2]}`, existsSync('/srv/nado-home/nado' + m[2]));
+}
+// the swatch previews the real file, so a picker entry pointing at a missing preview is the same bug
+for (const m of js.matchAll(/art:\s*"([^"]+)"/g)) {
+  check(`swatch art exists: ${m[1]}`, existsSync('/srv/nado-home/nado' + m[1]));
+}
+const sdkSrc = read('static/nadodapp.js');
+check('the SDK mirrors the background choice onto game pages', /nado_bg/.test(sdkSrc) && /data-bg/.test(sdkSrc));
+check('...and i18n.js applies it BEFORE first paint, like the theme',
+  /nado_bg/.test(i18) && /data-bg/.test(i18));
+// The art layer only renders if BODY is transparent: a negative-z-index child paints before the
+// backgrounds of in-flow boxes, so an opaque body background hides it completely and silently.
+check('body stays transparent so the art layer is visible at all',
+  /body \{ background: transparent; \}/.test(css));
+check('...and the page glow moved to <html> to make that possible',
+  /^html \{\n\s*background: radial-gradient/m.test(css));
+
 console.log('\n' + (fails ? `${fails} FAILURE(S)` : 'ALL THEME CHECKS PASSED'));
 process.exit(fails ? 1 : 0);
