@@ -1524,12 +1524,23 @@ async function maybeRegister() {
       log("err", i18("log.regExpired", "Registration tx expired before inclusion — re-registering automatically."));
       state.regSubmitted = null;                 // fall through and broadcast a fresh one
     } else {
-      const away = state.latest != null ? Math.max(0, state.regSubmitted.targetBlock - state.latest) : null;
+      // HOW FAR IS "FAR"? The tx was built as tip + poswTargetMarginFor(...), so the remaining distance can
+      // never legitimately exceed POSW_TARGET_MARGIN. A larger number does not mean a long wait — it means
+      // OUR view of the tip is wrong, which happens whenever the relay is still syncing and reports a low
+      // tip. The old guard was `state.latest != null`, and `0 != null` is TRUE, so a relay at height 0
+      // turned "blocks to go" into the absolute target height: a user was shown "25913 blocks to register"
+      // and reasonably concluded it was broken. Show a number only when it is credible, and say plainly
+      // that we are waiting on the relay when it is not.
+      const tipKnown = typeof state.latest === "number" && state.latest > 0;
+      const rawAway = tipKnown ? state.regSubmitted.targetBlock - state.latest : null;
+      const away = (rawAway != null && rawAway >= 0 && rawAway <= POSW_TARGET_MARGIN) ? rawAway : null;
+      const tgt = state.regSubmitted.targetBlock;
       showRegProgress(i18("reg.pending", "Registration in progress — waiting for it to be included in a block…"),
-        away != null ? `~${away} block(s) until target ${state.regSubmitted.targetBlock}`
-                     : `target block ${state.regSubmitted.targetBlock}`);
+        away != null ? i18("reg.untilTarget", "~{n} block(s) to go — target block {b}", {n: away, b: tgt})
+                     : i18("reg.targetOnly", "target block {b} — syncing with the relay…", {b: tgt}));
       setRegBanner(i18("reg.waiting", "Waiting for on-chain confirmation — this can take a few blocks") +
-        (away != null ? " (~" + escapeHtml(String(away)) + " to go, target block " + escapeHtml(String(state.regSubmitted.targetBlock)) + ")" : "") +
+        (away != null ? " " + escapeHtml(i18("reg.toGo", "(~{n} to go, target block {b})", {n: away, b: tgt}))
+                      : "") +
         "…" + REASSURE);
       return;                                     // still pending; let the poll loop keep checking
     }
