@@ -145,6 +145,42 @@ def t_a_transition_cannot_recreate_an_existing_note():
         f"a transition recreated an existing note: {r}"
 
 
+# ---- mod-P aliasing of the public delta ---------------------------------------------------------------
+# The circuit pins CONS = -public_delta as a FIELD element, so every delta congruent mod P satisfies the
+# same boundary: a proof for -1000 is equally a proof for -1000 - P. Without a bound, the proof attests to
+# `delta mod P`, not to the delta the ledger then moves.
+#
+# HONEST SEVERITY: this was not exploitable in practice. Total supply (~2.3e12 raw) is nine orders of
+# magnitude below P (~1.8e19), so the op's solvency checks would always have refused an aliased amount.
+# It is fixed because "an unreachable amount stops it" is a property of today's supply and check ordering,
+# not of the proof — and the proof is what is supposed to be doing the work.
+def t_the_delta_is_bound_to_an_integer_not_a_residue():
+    from execnode.stark import field as Fld
+    cm = S.note_commitment(CID, S.KIND_VALUE, [1000], S.owner_of(ALICE), 222)
+    pool = S.ShieldedStatePool({CID: [cm]})
+    public, proof = S.prove_transition(pool, CID, S.KIND_VALUE, ALICE, [1000], 222,
+                                       pool.position(CID, cm), [0], S.owner_of(ALICE), 333,
+                                       public_delta=-1000, withdraw_addr="dest")
+    fresh = lambda: S.ShieldedStatePool({CID: [cm]})
+    assert S.verify_transition(public, proof, fresh()) is None, "the honest withdrawal was rejected"
+    for alias in (-1000 - Fld.P, -1000 + Fld.P):
+        pub = dict(public, public_delta=alias)
+        r = S.verify_transition(pub, proof, fresh())
+        assert r is not None and "out of range" in r, \
+            f"a delta aliased mod P was accepted ({alias}): {r}"
+
+
+def t_the_bound_matches_the_in_circuit_range():
+    """|delta| < VALUE_MAX, the same bound the note values are held to in-circuit. Together they make the
+    mod-P conservation equation coincide with the integer one — the C-3 argument, applied to the one
+    public value the range gadget does not cover."""
+    assert S.VALUE_MAX == 1 << 62, "VALUE_MAX moved away from the circuit's range bound"
+    p = S.ShieldedStatePool()
+    r = S.verify_transition({"cid": CID, "kind": S.KIND_VALUE, "nullifiers": [], "public_delta": S.VALUE_MAX,
+                             "out_commitments": [1]}, {"stark": {}}, p)
+    assert r is not None and "out of range" in r, f"a delta at the bound was accepted: {r}"
+
+
 for name, fn in list(globals().items()):
     if name.startswith("t_"):
         check(name[2:].replace("_", " "), fn)

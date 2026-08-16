@@ -354,6 +354,18 @@ def verify_transition(public, proof, pool):
             # rule at all — the transition would be "valid" by virtue of nobody checking it.
             return f"note kind {kind} has no proving circuit (its predicate is not enforced in-circuit)"
         delta = int(public.get("public_delta", 0))
+        # DELTA MUST BE BOUNDED, and this is a soundness check, not hygiene. The circuit pins
+        # CONS = -public_delta as a FIELD element, so every delta congruent mod P satisfies the same
+        # boundary: a proof for -1000 is equally a proof for -1000 - P. Without this bound the proof
+        # attests to `delta mod P`, not to the delta the ledger then moves. Today the solvency checks in
+        # the op happen to refuse the absurd amounts that result — but that is incidental, it depends on a
+        # contract's escrow being small, and it would evaporate the moment those checks were reordered or
+        # a contract held a large balance. With |delta| < VALUE_MAX and both note values range-bound below
+        # 2^61 in-circuit, the mod-P equation coincides with the integer one and exactly ONE integer delta
+        # satisfies a given proof. That is the same reasoning the C-3 range gadget exists for, applied to
+        # the one public value the gadget does not cover.
+        if not -VALUE_MAX < delta < VALUE_MAX:
+            return f"public_delta out of range (|delta| must be < {VALUE_MAX})"
         # The destination rides in the Fiat-Shamir transcript, so a front-runner cannot copy a proof, swap
         # the address and redirect the exit (the pool's H-4 lesson, inherited).
         aux = str(public.get("withdraw_addr") or "")

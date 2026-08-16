@@ -122,6 +122,20 @@ The fix is one rule, checked before either verifier runs: **a commitment is uniq
 nullifier is. It therefore covers deposits and transitions alike rather than only the path that exposed
 it, and an honest depositor pays nothing for it — fresh `rho` gives a fresh commitment.
 
+### The public delta is bound to an integer, not a residue
+
+The circuit pins `CONS = -public_delta` as a **field element**, so every delta congruent mod P satisfies
+the same boundary: a proof for `-1000` is equally a proof for `-1000 - P`. Without a bound, the proof
+attests to `delta mod P` — not to the delta the ledger then moves.
+
+**Honest severity: not exploitable in practice.** Total supply (~2.3e12 raw) is nine orders of magnitude
+below P (~1.8e19), so the op's solvency checks would always have refused an aliased amount. It is fixed
+anyway, because "an unreachable amount stops it" is a property of today's supply and of the order the
+checks happen to run in — not a property of the proof, and the proof is what is supposed to be doing the
+work. `|delta| < VALUE_MAX` together with the in-circuit range bound on both note values makes the mod-P
+equation coincide with the integer one, so exactly one integer delta satisfies a given proof. It is the
+C-3 argument applied to the one public value the range gadget does not cover.
+
 ## 8. What the chain commits
 
 `execnode/exec_root.py` tags **11** (`T_APP_ROOT`, per contract) and **12** (`T_APP_NULL`, the spent-set
