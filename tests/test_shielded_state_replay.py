@@ -44,6 +44,8 @@ def check(name, fn):
 
 
 CID = "d0be764f3da9c9cc6bb609280a887929"
+OTHER_CID = "230860957a7c1db403434ffb4a3969b3"
+REAL_ADDR = "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"
 ALICE = 0xA11CE
 
 print("proving one deposit (~6 s)…", flush=True)
@@ -179,6 +181,49 @@ def t_the_bound_matches_the_in_circuit_range():
     r = S.verify_transition({"cid": CID, "kind": S.KIND_VALUE, "nullifiers": [], "public_delta": S.VALUE_MAX,
                              "out_commitments": [1]}, {"stark": {}}, p)
     assert r is not None and "out of range" in r, f"a delta at the bound was accepted: {r}"
+
+
+# ---- the withdrawal destination ----------------------------------------------------------------------
+# Unlike the pool's unshield — which records an exit for L1 to release, and lets L1 check the address —
+# a private withdrawal credits an exec-layer balance DIRECTLY. Whatever string lands there IS the account.
+def _withdraw_to(dest):
+    cm = S.note_commitment(CID, S.KIND_VALUE, [1000], S.owner_of(ALICE), 222)
+    pool = S.ShieldedStatePool({CID: [cm]})
+    public, proof = S.prove_transition(pool, CID, S.KIND_VALUE, ALICE, [1000], 222,
+                                       pool.position(CID, cm), [0], S.owner_of(ALICE), 333,
+                                       public_delta=-1000, withdraw_addr=dest)
+    st = _state()
+    st.contracts[OTHER_CID] = {"runtime": "zkvm", "code": {}, "storage": {}, "abi": {}}
+    st.bridge[CID] = 1000
+    st.app_state = S.ShieldedStatePool({CID: [cm]})
+    return st, st.apply_blob({"op": "private_call", "public": public, "proof": proof}, "alice", "w")
+
+
+def t_a_withdrawal_to_a_real_address_works():
+    st, r = _withdraw_to(REAL_ADDR)
+    assert r.startswith("private_call "), f"an honest withdrawal was rejected: {r}"
+    assert st.bridge[REAL_ADDR] == 1000, "the destination was not credited"
+
+
+def t_a_withdrawal_cannot_target_a_contract():
+    """The turnstile-breaking shape: crediting a contract's escrow while it holds NO notes makes
+    bridge[cid] != that contract's private total, and the coins are unspendable, because spending contract
+    escrow requires a note under that cid."""
+    st, r = _withdraw_to(OTHER_CID)
+    assert "not a spendable account" in r, f"a withdrawal credited a contract's escrow: {r}"
+    assert OTHER_CID not in st.bridge, "the rejected withdrawal still moved value"
+    assert st.bridge[CID] == 1000, "the rejected withdrawal drained the source contract"
+
+
+def t_a_withdrawal_cannot_burn_to_a_non_address():
+    """A typo or truncation would otherwise create a balance under a key no bridge_withdraw can move."""
+    st, r = _withdraw_to("not-an-address")
+    assert "not a spendable account" in r, f"value was burned to a non-address: {r}"
+
+
+def t_a_withdrawal_cannot_target_a_reserved_name():
+    st, r = _withdraw_to("bond")
+    assert "not a spendable account" in r, f"a reserved protocol name was accepted as a destination: {r}"
 
 
 for name, fn in list(globals().items()):

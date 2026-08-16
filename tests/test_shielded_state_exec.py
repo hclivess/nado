@@ -42,6 +42,9 @@ def check(name, fn):
 CID = "d0be764f3da9c9cc6bb609280a887929"
 NSK, NSK2 = 0xC0FFEE1234, 0xBEEF5678
 SENDER = "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"
+# A REAL checksummed address: a withdrawal destination has to be a spendable account, because it
+# credits an exec balance directly rather than recording an exit for L1 to validate.
+DEST = "c041167affec9c9649cbf3fe72f921a7fb001ba9831ba0"
 
 
 def _state():
@@ -136,11 +139,11 @@ def t_a_withdrawal_releases_escrow_to_the_named_destination():
         assert st.apply_blob(_blob(st, [], [([30], S.owner_of(NSK), 1)], public_delta=30),
                              SENDER, "dep2").startswith("private_call ")
         b = _blob(st, [([30], NSK, 1)], [], public_delta=-30)
-        b["public"]["withdraw_addr"] = "recipient_addr"
+        b["public"]["withdraw_addr"] = DEST
         r = st.apply_blob(b, SENDER, "wd1")
         assert r.startswith("private_call "), f"a withdrawal was rejected: {r}"
         assert st.bridge.get(CID) is None, f"escrow row was not deleted at zero: {st.bridge.get(CID)}"
-        assert st.bridge["recipient_addr"] == 30, "the destination was not credited"
+        assert st.bridge[DEST] == 30, "the destination was not credited"
 
 
 def t_escrow_tracks_the_private_total():
@@ -158,7 +161,7 @@ def t_escrow_tracks_the_private_total():
         assert st.bridge[CID] == 100, f"a private split moved public escrow: {st.bridge[CID]}"
         # withdraw the 30
         b = _blob(st, [([30], NSK, 3)], [], public_delta=-30)
-        b["public"]["withdraw_addr"] = "dest"
+        b["public"]["withdraw_addr"] = DEST
         assert st.apply_blob(b, SENDER, "w").startswith("private_call ")
         assert st.bridge[CID] == 70, f"escrow does not track the private total: {st.bridge[CID]}"
 
@@ -181,7 +184,7 @@ def t_a_withdrawal_beyond_escrow_is_refused():
         assert st.apply_blob(_blob(st, [], [([10], S.owner_of(NSK), 1)], public_delta=10),
                              SENDER, "d2").startswith("private_call ")
         b = _blob(st, [([10], NSK, 1)], [], public_delta=-999)
-        b["public"]["withdraw_addr"] = "dest"
+        b["public"]["withdraw_addr"] = DEST
         r = st.apply_blob(b, SENDER, "w2")
         assert "escrow cannot cover" in r, f"a withdrawal drained more than the contract held: {r}"
         assert st.bridge[CID] == 10, "a refused withdrawal moved escrow"

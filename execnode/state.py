@@ -19,6 +19,7 @@ from execnode.zkvm import ZkVMError
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
 from execnode.shielded import ShieldedPool, apply_transfer
 from execnode.shielded_state import apply_transition
+from ops.address_ops import validate_address
 
 # RANDOMNESS-WINDOW RETENTION — the horizons below which advance_beacons/record_block_hash prune. They also
 # define window_canonical(): a node holds a CANONICAL window iff its floors reach at least this far back, i.e.
@@ -1516,8 +1517,23 @@ class ExecState:
                 # fences with "coins enter only via an L1 shield".
                 delta = int(public.get("public_delta", 0))
                 dest = public.get("withdraw_addr")
-                if delta < 0 and not dest:
-                    return "skip private_call: withdrawal names no destination"
+                if delta < 0:
+                    # THE DESTINATION MUST BE A SPENDABLE ACCOUNT. Unlike the pool's unshield — which
+                    # records an exit for L1 to release and lets L1 check the address — this credits an
+                    # exec-layer balance DIRECTLY, so whatever string lands here IS the account. Unvalidated,
+                    # two things happen, both reachable by any user:
+                    #   * a destination that is not an address (a typo, a truncation) creates a balance
+                    #     under a key no bridge_withdraw can ever move — a silent burn;
+                    #   * a destination that is a CONTRACT ID credits that contract's escrow while it holds
+                    #     no matching notes, which breaks the turnstile invariant this feature documents
+                    #     (bridge[cid] == that contract's private total) and strands the coins, since
+                    #     spending contract escrow requires a note under that cid.
+                    # The cid exclusion is not redundant with the checksum: a cid passes validate_address
+                    # with probability ~1/65536, which is not a guarantee.
+                    if not dest:
+                        return "skip private_call: withdrawal names no destination"
+                    if not validate_address(dest, allow_reserved=False) or dest in self.contracts:
+                        return "skip private_call: withdrawal destination is not a spendable account"
                 with self._mutate_lock:                    # M-10: serialize against thread-applies, exactly
                     # SOLVENCY IS CHECKED BEFORE THE TRANSITION, and the funds move only after it succeeds.
                     # Both halves matter: checking after would let a transition apply that the ledger then

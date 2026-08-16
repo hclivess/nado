@@ -136,6 +136,21 @@ work. `|delta| < VALUE_MAX` together with the in-circuit range bound on both not
 equation coincide with the integer one, so exactly one integer delta satisfies a given proof. It is the
 C-3 argument applied to the one public value the range gadget does not cover.
 
+### The withdrawal destination must be a spendable account
+
+Unlike the pool's unshield — which records an exit for L1 to release and lets L1 check the address — a
+private withdrawal credits an exec-layer balance **directly**. Whatever string lands there *is* the
+account. Unvalidated, two things followed, both reachable by any user:
+
+- a destination that is not an address (a typo, a truncation) created a balance under a key no
+  `bridge_withdraw` can ever move — a silent burn;
+- a destination that was a **contract id** credited that contract's escrow while it held no matching
+  notes, breaking the turnstile invariant this document states (`bridge[cid]` == that contract's private
+  total) and stranding the coins, since spending contract escrow requires a note under that cid.
+
+The destination is now checked as a real, non-reserved account, and contract ids are excluded explicitly —
+a cid passes the checksum with probability ~1/65536, which is not a guarantee.
+
 ## 8. What the chain commits
 
 `execnode/exec_root.py` tags **11** (`T_APP_ROOT`, per contract) and **12** (`T_APP_NULL`, the spent-set
