@@ -28,8 +28,11 @@ three join-split modules omit the argument and therefore take blake2b, which is 
 prover cannot run on a node at all (measured 2026-08-16, tests/test_joinsplit_backend_gap.py). This circuit
 does not inherit that.
 
-STATUS: the trace and its AIR. prove/verify wrappers are here; the seam into shielded_state.verify_transition
-is the next slice.
+STATUS: live. Two statements — a 1-in/1-out transition and a 0-in/1-out deposit — share this one AIR, and
+shielded_state.verify_transition reaches both through its `proof["stark"]` branch. The state machine pins
+the declared geometry (arity against the note kind, depth against the pool) before calling, and this module
+bounds it again on its own account, because a verifier that allocates from numbers a stranger chose cannot
+rely on its caller having checked them.
 """
 from execnode.stark import field as F, alghash, stark
 

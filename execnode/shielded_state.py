@@ -27,17 +27,22 @@ THE THREE DIFFERENCES FROM A VALUE NOTE, and why each one is needed:
      note they created. It also makes a nullifier collision across contracts impossible for free, since cid
      is inside cm.
 
-PHASED, exactly like the pool it extends (doc/privacy.md §3), and the seam is the same shape:
+PHASED, exactly like the pool it extends (doc/privacy.md §3), and BOTH phases are now behind one seam:
 
-  * PHASE 1 (this file): `verify_transition` re-checks openings, membership, nullifier and commitment
-    derivation IN THE CLEAR. SOUND — no double-spend, no forged membership, no predicate violation — but
-    NOT private, because the witness carries nsk. It is dev/test scaffolding: `CONSENSUS_ALLOW_TRANSPARENT`
-    is False and the exec node refuses a transparent witness, so this path can never settle a chain.
-  * PHASE 2 (next slice): `proof` is a STARK over the same statement and the verifier sees only `public`.
-    The state machine below does not change — only what is behind the seam.
+  * PHASE 2 (live): `proof` carries a STARK over the statement and the verifier sees only `public` —
+    execnode/stark/appnote_circuit.py, reached through the `proof["stark"]` branch below. This is the only
+    path a chain ever takes.
+  * PHASE 1 (dev only): `verify_transition` can instead re-check openings, membership, nullifier and
+    commitment derivation IN THE CLEAR. Sound — no double-spend, no forged membership, no predicate
+    violation — but NOT private, because the witness carries nsk. `CONSENSUS_ALLOW_TRANSPARENT` is False
+    and stays False; it survives as the specification the circuit is diffed against, which is a job it has
+    already done (it caught the note range disagreeing with the AIR by a factor of two).
 
-Nothing here is wired into the settled root or the blob dispatcher until its own slice; this module is the
-state machine and its verifier, standing alone and fully tested first.
+Wired end to end: the settled root commits the note roots and the spent set (execnode/exec_root.py tags
+11/12), the blob dispatcher applies `op: private_call` (execnode/state.py), and the proof rides DA rather
+than L1. What is NOT here, deliberately, is contract CODE: a private call never enters the zkVM, so the
+rule enforced is the note KIND's predicate rather than anything the contract says. See
+doc/shielded-contracts.md §5.
 """
 from execnode.stark import field as F, alghash
 from hashing import blake2b_hash
@@ -302,25 +307,6 @@ class ShieldedStatePool:
 # node must refuse it; this flag is the single place that decision is written down.
 CONSENSUS_ALLOW_TRANSPARENT = False
 
-
-def transition_sighash(public):
-    """The bytes a transition's public statement is identified by: contract, spent nullifiers, created
-    commitments, the public delta AND the withdrawal destination. Sorted and '|'-joined rather than passed
-    as lists, so the digest is byte-identical in the browser port (Python's str(list) is a
-    non-reproducible repr).
-
-    withdraw_addr is bound UNCONDITIONALLY — empty string when there is no destination — and that is the
-    pool's H-4 fix, learned there and inherited here rather than rediscovered: with the destination outside
-    the signed/proven message, a front-runner could copy a victim's blob, swap only the address for their
-    own and land it first. The proof still verified, because the address was not in what it committed to,
-    and the exit was silently redirected. Unconditional inclusion means signer and verifier can never
-    disagree about whether the field was present."""
-    return blake2b_hash(["app-sighash", str(public.get("cid")),
-                         "|".join(sorted(str(n) for n in public.get("nullifiers", []))),
-                         "|".join(sorted(str(c) for c in public.get("out_commitments", []))),
-                         str(int(public.get("public_delta", 0))),
-                         str(int(public.get("kind", 0))),
-                         str(public.get("withdraw_addr") or "")])
 
 
 def verify_transition(public, proof, pool):

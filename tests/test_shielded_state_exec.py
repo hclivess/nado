@@ -202,14 +202,28 @@ def t_a_withdrawal_must_name_a_destination():
             f"an unaddressed withdrawal was accepted: {r}"
 
 
-def t_the_destination_is_bound_into_the_statement():
-    """H-4, inherited from the pool: with withdraw_addr outside the proven message a front-runner could
-    copy the blob, swap only the address, and redirect the exit."""
-    a = {"cid": CID, "kind": S.KIND_VALUE, "nullifiers": [1], "out_commitments": [],
-         "public_delta": -10, "withdraw_addr": "victim"}
-    b = dict(a, withdraw_addr="attacker")
-    assert S.transition_sighash(a) != S.transition_sighash(b), \
-        "the withdrawal destination is not bound — an exit can be redirected"
+def t_the_destination_is_wired_into_the_proof_transcript():
+    """H-4: with withdraw_addr outside the proven message, a front-runner could copy a blob, swap only the
+    address and redirect the exit.
+
+    THIS CHECKS THE WIRING, and says so, because the previous version of this test did not. It hashed two
+    statements through a `transition_sighash` helper and asserted the digests differed — which proves that
+    a hash function is a hash function, and nothing about whether the system binds anything. That helper
+    turned out to be DEAD CODE: nothing in either verifier called it, because authorisation here is
+    knowledge of nsk proven in-circuit rather than a signature over a sighash, so the pool's sighash shape
+    was never needed. A passing test pointing at unreachable code is worse than no test.
+
+    The real binding is `aux` in the Fiat-Shamir transcript, and the BEHAVIOURAL proof of it lives in
+    tests/test_shielded_state_seam.py::a_redirected_exit_is_refused, which takes a real proof, swaps the
+    destination and requires the verifier to refuse. This asserts the wiring that test depends on."""
+    import inspect
+    src = inspect.getsource(S.verify_transition)
+    assert 'aux = str(public.get("withdraw_addr") or "")' in src, \
+        "the destination is no longer bound into the transcript"
+    assert src.count("aux=aux") == 2, \
+        "aux is not passed to BOTH the deposit and the transition verifier"
+    assert not hasattr(S, "transition_sighash"), \
+        "transition_sighash is back — if something needs it, this test should test THAT thing"
 
 
 def t_unknown_contract_is_refused():
