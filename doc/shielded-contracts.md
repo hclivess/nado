@@ -102,7 +102,10 @@ not the app's.
 A new private app is a new kind plus a predicate. Conservation is one possible rule, not the law: a
 hidden-hand note in a card game conserves nothing and only has to be well-formed.
 
-**The bound is 2^61, measured.** `c_rng_top` sums THREE bit columns of the MSB nibble, so a bound value is
+**The bound is 2^61, and it is now DERIVED rather than restated.** `RNG_TOP_BITS = 3` is the one number:
+`c_rng_top` sums exactly that many bit columns, and `RANGE_BOUND = 1 << (4·RNG_NIBBLES − RNG_TOP_BITS)` is
+computed from it, with `VALUE_MAX` importing it. A constant that mirrors a constraint should come from the
+constraint — testing them for agreement afterwards catches drift, but not having two of them is better. `c_rng_top` sums THREE bit columns of the MSB nibble, so a bound value is
 < 2^61 — verified by building honest traces (2^61 − 1 satisfies the AIR, 2^61 does not). Note that
 `joinsplit_circuit`'s *module docstring* says "top 2 bits pinned to 0 … [0, 2^62)" and is **wrong**; its own
 inline comment on that constraint says 2^61 and is right. `VALUE_MAX` here was 2^62 because it was taken

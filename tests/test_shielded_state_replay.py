@@ -389,6 +389,43 @@ def t_max_fields_has_one_definition():
     assert S.MAX_FIELDS is AC.MAX_FIELDS, "MAX_FIELDS has drifted into two definitions"
 
 
+def t_the_value_bound_is_derived_from_the_gadget_not_restated():
+    """VALUE_MAX was 2^62 while the circuit enforced 2^61, because the constant was copied from prose about
+    the constraint instead of from the constraint. It is now COMPUTED from RNG_TOP_BITS — the same number
+    c_rng_top sums bit columns from — so the two cannot say different things. This checks the derivation
+    against reality by building traces at the boundary, not against another constant."""
+    from execnode.stark import appnote_circuit as AC, alghash
+
+    def provable(v):
+        tr, T, _cm = AC.build_deposit_trace(12345, S.KIND_VALUE, [v], alghash.owner_of(9), 5)
+        per = AC.deposit_periodic(T, 1, 12345, S.KIND_VALUE)
+        return not any(c(tr[r], tr[r + 1], [x[r] for x in per]) != 0
+                       for r in range(T - 1) for c in AC.transitions())
+
+    assert S.VALUE_MAX is AC.RANGE_BOUND, "the state machine restates the bound instead of importing it"
+    assert AC.RANGE_BOUND == 1 << (4 * AC.RNG_NIBBLES - AC.RNG_TOP_BITS), "the derivation drifted"
+    assert provable(AC.RANGE_BOUND - 1), "the derived bound is above the circuit's real one"
+    assert not provable(AC.RANGE_BOUND), "the derived bound is below the circuit's real one"
+
+
+def t_oversized_lists_are_rejected_before_being_converted():
+    import time
+    pub = {"cid": CID, "kind": S.KIND_VALUE, "public_delta": 0, "out_commitments": [1],
+           "nullifiers": list(range(200_000))}
+    t0 = time.time()
+    r = S.verify_transition(pub, {"stark": {"arity": 1}}, S.ShieldedStatePool())
+    dt = time.time() - t0
+    assert "exceeds" in r, f"an oversized statement was not rejected: {r}"
+    assert dt < 0.01, f"rejection took {dt:.3f}s — the list was converted before the bound ran"
+
+
+def t_a_non_list_statement_is_refused():
+    r = S.verify_transition({"cid": CID, "kind": S.KIND_VALUE, "nullifiers": "not-a-list",
+                             "out_commitments": [1], "public_delta": 0}, {"stark": {"arity": 1}},
+                            S.ShieldedStatePool())
+    assert r == "nullifiers and out_commitments must be lists", f"a string was iterated as a list: {r}"
+
+
 for name, fn in list(globals().items()):
     if name.startswith("t_"):
         check(name[2:].replace("_", " "), fn)

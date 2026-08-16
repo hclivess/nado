@@ -51,7 +51,7 @@ from hashing import blake2b_hash
 # The circuit sits lower in the import graph (it must not import the state machine back), so that is the
 # end that owns them.
 from execnode.stark import appnote_circuit as AC
-from execnode.stark.appnote_circuit import DOM_APPCM, DOM_APPNF, MAX_FIELDS
+from execnode.stark.appnote_circuit import DOM_APPCM, DOM_APPNF, MAX_FIELDS, RANGE_BOUND
 
 # 2^18 = 262,144 notes per contract — the LARGEST depth whose trace still fits T=2048, measured against
 # THIS circuit's geometry rather than the join-split's.
@@ -160,15 +160,13 @@ def fold_path(leaf, sibs, dirs):
 # spends and creates, plus the transition's PUBLIC deltas, is this a legal move for this kind of note?
 # It never sees owners, randomness or positions — those are the pool's business, not the app's.
 KIND_VALUE = 1                      # fields = [amount]: the private per-contract balance note
-# MEASURED, not copied. The C-3 range gadget's c_rng_top sums THREE bit columns (RB0+RB1+RB2) of the MSB
-# nibble, so a bound value is < 2^61 — verified by building honest traces: 2^61 - 1 satisfies the AIR and
-# 2^61 does not. joinsplit_circuit's MODULE docstring says "top 2 bits pinned to 0 ... [0, 2^62)" and is
-# wrong; its own inline comment on that constraint says 2^61 and is right. This constant was 2^62 because
-# it was taken from the docstring, which made the TRANSPARENT verifier looser than the circuit — and Phase
-# 1 exists precisely to be the specification the circuit is diffed against. A note above 2^61 would have
-# been creatable on the dev path and unspendable by any proof. Total supply is ~2^41, so 2^61 leaves twenty
-# doublings of headroom.
-VALUE_MAX = 1 << 61
+# THE CIRCUIT'S OWN BOUND, imported rather than restated. It is computed there from the number of bit
+# columns c_rng_top pins, so the constant and the constraint are one number. This was 2^62 — copied from
+# joinsplit_circuit's module docstring, which contradicts its own inline comment and the code — while the
+# circuit enforced 2^61, making the TRANSPARENT verifier looser than the circuit it exists to specify. A
+# note above the circuit's bound would have been creatable on the dev path and spendable by no proof.
+# Total supply is ~2^41, so 2^61 leaves twenty doublings of headroom.
+VALUE_MAX = RANGE_BOUND
 
 
 def _predicate_value(in_fields, out_fields, public_delta):
@@ -346,10 +344,19 @@ def verify_transition(public, proof, pool):
     if predicate is None:
         return f"unknown note kind {kind}"
 
-    nfs = [int(n) % F.P for n in public.get("nullifiers", [])]
-    cms = [int(c) % F.P for c in public.get("out_commitments", [])]
-    if len(nfs) > MAX_INPUTS or len(cms) > MAX_OUTPUTS:
+    # BOUND BEFORE COERCING. The lists come straight off a blob, so their LENGTH is checked before anything
+    # is built from them — otherwise a statement declaring 200k nullifiers costs a 200k-element conversion
+    # before the bound that was always going to reject it. Small (~32 ms at the blob-size ceiling, so this
+    # is hygiene rather than a vulnerability), but it is the same ordering the geometry bounds needed and
+    # the same one apply_transition needs: do no work on behalf of an input you have not accepted yet.
+    raw_nfs = public.get("nullifiers") or []
+    raw_cms = public.get("out_commitments") or []
+    if not isinstance(raw_nfs, list) or not isinstance(raw_cms, list):
+        return "nullifiers and out_commitments must be lists"
+    if len(raw_nfs) > MAX_INPUTS or len(raw_cms) > MAX_OUTPUTS:
         return f"transition exceeds {MAX_INPUTS} inputs / {MAX_OUTPUTS} outputs"
+    nfs = [int(n) % F.P for n in raw_nfs]
+    cms = [int(c) % F.P for c in raw_cms]
     if not nfs and not cms:
         return "transition spends and creates nothing"
     if len(set(nfs)) != len(nfs):

@@ -52,6 +52,14 @@ NCOLS = 19
 RNG_NIBBLES = 16
 RNG_BLOCK = RNG_NIBBLES + 1
 RNG_VALUES = 2
+# HOW MANY TOP BITS THE GADGET PINS, and the value bound that follows from it. ONE number: c_rng_top sums
+# exactly this many bit columns, and RANGE_BOUND is computed from it, so the constraint and the constant
+# cannot say different things. They already did once — shielded_state.VALUE_MAX was 2^62, copied from
+# joinsplit_circuit's module docstring, while the constraint pinned three bits and enforced 2^61. That made
+# the transparent verifier LOOSER than the circuit it is supposed to specify. A constant that mirrors a
+# constraint should be derived from it, not tested against it after the fact.
+RNG_TOP_BITS = 3
+RANGE_BOUND = 1 << (4 * RNG_NIBBLES - RNG_TOP_BITS)      # 2^61
 
 OWN_END = 2 * R                              # OWNER = [DOM_OWNER, nsk]
 NUL_ELEMS = 3                                # NULLIFIER = [DOM_APPNF, nsk, cm_in]
@@ -441,9 +449,13 @@ def transitions():
         return F.mul(per[RNG_START], cur[ACC])
 
     def c_rng_top(cur, nxt, per):
-        """Top 3 bits of the MSB nibble pinned to 0 → each bound value < 2^61, the margin that makes the
-        mod-P conservation equation coincide with integer conservation."""
-        return F.mul(per[RNG_START], F.add(F.add(cur[RB0], cur[RB1]), cur[RB2]))
+        """The MSB nibble's top RNG_TOP_BITS bits pinned to 0 → each bound value < RANGE_BOUND, the margin
+        that makes the mod-P conservation equation coincide with integer conservation. Summed from the same
+        constant RANGE_BOUND is computed from, so the two cannot disagree."""
+        acc = 0
+        for reg in (RB0, RB1, RB2, RB3)[:RNG_TOP_BITS]:
+            acc = F.add(acc, cur[reg])
+        return F.mul(per[RNG_START], acc)
 
     def c_bit(reg):
         return lambda cur, nxt, per: F.mul(per[RNG_ACC], F.mul(cur[reg], F.sub(1, cur[reg])))
