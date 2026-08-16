@@ -34,6 +34,7 @@ from protocol import chain_clock as _chain_clock
 from aiohttp import web
 
 from execnode.state import ExecState
+from execnode import shielded_state as _appstate
 
 L1 = os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/")
 STATE_PATH = os.environ.get("NADO_EXEC_STATE", "exec_state.json")
@@ -3199,6 +3200,28 @@ async def h_field_shielded(request):
                               "nullifiers": len(fp.nullifiers), "cursor": state.cursor, "pos": pos})
 
 
+async def h_private_state(request):
+    """Shielded-contract state: per-contract note counts and roots, and the size of the spent set.
+
+    Everything here is ALREADY public — a note root and a nullifier count are what the settled state root
+    commits, so serving them reveals nothing a chain observer could not derive. What is deliberately NOT
+    served is any per-note data: no commitments, no positions, no ownership. The field pool's endpoint
+    answers ?cm= with a leaf position because its wallet needs that to build a path; a shielded-contract
+    wallet builds its path from notes it already holds, so there is no reason to offer a lookup that would
+    let an observer confirm a guessed commitment is in the tree.
+
+    ?cid=<id> narrows to one contract. Big field ints are returned as strings (JS precision)."""
+    ap = getattr(state, "app_state", None)
+    if ap is None:
+        return web.json_response({"contracts": {}, "nullifiers": 0, "cursor": state.cursor})
+    want = request.query.get("cid")
+    cids = [want] if want else sorted(ap.trees)
+    return web.json_response({
+        "contracts": {c: {"notes": len(ap.trees.get(c, [])), "root": str(ap.root(c))} for c in cids},
+        "nullifiers": len(ap.nullifiers), "cursor": state.cursor,
+        "tree_depth": _appstate.TREE_DEPTH, "kinds": sorted(_appstate.PREDICATES)})
+
+
 async def h_prove_transfer(request):
     """Delegated prover, 1-output (DA-only): the wallet POSTs its SECRET witness (nsk, note opening, output,
     amounts); we build the Merkle path and prove the join-split STARK off the event loop, then RETURN the
@@ -3450,6 +3473,7 @@ async def main():
                     web.get("/exec/settlement", h_settlement),
                     web.get("/exec/shielded", h_shielded),
                     web.get("/exec/field_shielded", h_field_shielded),
+                    web.get("/exec/private_state", h_private_state),
                     web.get("/exec/field_leaves", h_field_leaves),
                     web.post("/exec/prove_transfer", h_prove_transfer),
                     web.post("/exec/prove_transfer2", h_prove_transfer2),
