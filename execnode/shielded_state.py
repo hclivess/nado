@@ -1,0 +1,354 @@
+"""
+SHIELDED CONTRACTS — private application state (ROADMAP Track F).
+
+WHAT THIS IS. The shielded pool (execnode/shielded_field.py) hides *values*: a note is (value, owner, rho)
+and the one invariant its circuit knows is value conservation. Every contract deployed today is the opposite
+— public bytecode, public storage, public inputs. This module is the missing middle: **private state with
+public code**. A contract's private state lives in typed NOTES the user holds; a state transition SPENDS
+notes (revealing nullifiers) and CREATES notes (revealing commitments), and nothing else about it is visible.
+
+It is deliberately NOT a second pool. It reuses the pool's exact machinery — alghash over Goldilocks, the
+fixed-depth Merkle tree whose path folds the way the membership region folds, an append-only commitment tree
+with a bounded anchor window, a spent-nullifier set — because the whole point is that the proving,
+DA-transport and settlement path that already carries shielded transfers carries these unchanged.
+
+THE THREE DIFFERENCES FROM A VALUE NOTE, and why each one is needed:
+
+  1. A note is TYPED and SCOPED: (cid, kind, fields…, owner, rho). `cid` scopes it to one contract so notes
+     can never be moved between apps; `kind` selects which transition predicate applies; `fields` is the
+     private state itself, of whatever arity that kind declares.
+  2. Conservation is a PER-KIND PREDICATE, not a global law. A value note conserves; a game's hidden-hand
+     note doesn't conserve anything, it just has to be well-formed. `PREDICATES` is the whole extension
+     point — a new private app is a new kind plus a predicate, not a new pool.
+  3. The nullifier binds the COMMITMENT, not the randomness: nf = H(DOM_APPNF, nsk, cm). The value pool
+     derives nf = H(nsk, rho) and its own docstring records the consequence — "the SENDER, who chose rho,
+     can also compute this — a minor spend-detection leak". Binding cm instead closes that leak here: cm
+     commits to the owner, and the sender does not hold nsk, so a sender cannot recognise the spend of a
+     note they created. It also makes a nullifier collision across contracts impossible for free, since cid
+     is inside cm.
+
+PHASED, exactly like the pool it extends (doc/privacy.md §3), and the seam is the same shape:
+
+  * PHASE 1 (this file): `verify_transition` re-checks openings, membership, nullifier and commitment
+    derivation IN THE CLEAR. SOUND — no double-spend, no forged membership, no predicate violation — but
+    NOT private, because the witness carries nsk. It is dev/test scaffolding: `CONSENSUS_ALLOW_TRANSPARENT`
+    is False and the exec node refuses a transparent witness, so this path can never settle a chain.
+  * PHASE 2 (next slice): `proof` is a STARK over the same statement and the verifier sees only `public`.
+    The state machine below does not change — only what is behind the seam.
+
+Nothing here is wired into the settled root or the blob dispatcher until its own slice; this module is the
+state machine and its verifier, standing alone and fully tested first.
+"""
+from execnode.stark import field as F, alghash
+from hashing import blake2b_hash
+
+# Domain tags for the shielded-CONTRACT note algebra. Disjoint from alghash's value-note tags
+# (DOM_OWNER/CM/NF/NODE = 1..4) so an app note can never be confused with a pool note under any hash.
+# APPEND ONLY — a tag number is part of every commitment ever computed under it.
+DOM_APPCM, DOM_APPNF, DOM_APPCID = 5, 6, 7
+
+TREE_DEPTH = 20                     # 2^20 = 1,048,576 notes per contract. Proving cost is linear in depth,
+                                    # so this is the one number to revisit when the membership region's cost
+                                    # is measured — it is per-CONTRACT, not per-chain, which is why it can be
+                                    # this generous without paying for it on every proof.
+ANCHOR_WINDOW = 128                 # recent roots a proof may target, per contract (mirrors the pool)
+EMPTY_LEAF = 0
+
+MAX_FIELDS = 16                     # arity ceiling per note — bounds the sponge and therefore the trace
+MAX_INPUTS = 4                      # notes one transition may spend
+MAX_OUTPUTS = 4                     # notes one transition may create
+
+
+def _empty_roots(depth):
+    """e[i] = root of an all-empty subtree of height i (e[depth] = the empty-tree root)."""
+    e = [EMPTY_LEAF]
+    for _ in range(depth):
+        e.append(alghash.merkle_node(e[-1], e[-1]))
+    return e
+
+
+_EMPTY = _empty_roots(TREE_DEPTH)
+EMPTY_ROOT = _EMPTY[TREE_DEPTH]
+
+
+def cid_element(cid):
+    """A contract id (hex string, or the fixed names "faucet"/"sovereign") folded to ONE field element.
+
+    Folded rather than limbed because it is only ever an opaque scope tag here — nothing reconstructs a cid
+    from it, and one element keeps it to a single sponge absorption in the circuit. Domain-tagged so the fold
+    cannot collide with any other blake2b use in the tree."""
+    return int(blake2b_hash(["appcid", str(cid)]), 16) % F.P
+
+
+def note_commitment(cid, kind, fields, owner, rho):
+    """cm = hashn([DOM_APPCM, cid, kind, arity, *fields, owner, rho]).
+
+    ARITY IS BOUND, and it is not redundant. The sponge absorbs a flat sequence, so without an explicit
+    length two notes of different shape could in principle be made to absorb the same sequence; binding the
+    arity makes the note's shape part of what the commitment commits to, and gives the circuit a public
+    handle on how many field absorptions a given kind performs."""
+    fields = [int(f) % F.P for f in fields]
+    if len(fields) > MAX_FIELDS:
+        raise ValueError(f"note arity {len(fields)} exceeds MAX_FIELDS={MAX_FIELDS}")
+    return alghash.hashn([DOM_APPCM, cid_element(cid), int(kind) % F.P, len(fields),
+                          *fields, int(owner) % F.P, int(rho) % F.P])
+
+
+def note_nullifier(nsk, cm):
+    """nf = hashn([DOM_APPNF, nsk, cm]) — see the module note on why this binds cm and not rho."""
+    return alghash.hashn([DOM_APPNF, int(nsk) % F.P, int(cm) % F.P])
+
+
+def owner_of(nsk):
+    """Owner id for a shielded key — the pool's own derivation, reused so ONE key serves both."""
+    return alghash.owner_of(int(nsk) % F.P)
+
+
+# ---- the fixed-depth tree (same shape the membership region folds) -----------------------------------
+def tree_root(leaves):
+    """Root of the fixed-depth alghash tree over `leaves`, padding short levels with the empty-subtree root."""
+    if not leaves:
+        return EMPTY_ROOT
+    level = list(leaves)
+    for d in range(TREE_DEPTH):
+        level = [alghash.merkle_node(level[i], level[i + 1] if i + 1 < len(level) else _EMPTY[d])
+                 for i in range(0, len(level), 2)]
+    return level[0]
+
+
+def tree_path(leaves, pos):
+    """(siblings, dirs) for the leaf at `pos`; dirs[i] = bit i of pos (0 = this node is the left child)."""
+    sibs, dirs, idx = [], [], pos
+    level = list(leaves)
+    for d in range(TREE_DEPTH):
+        sib = idx ^ 1
+        sibs.append(level[sib] if sib < len(level) else _EMPTY[d])
+        dirs.append(idx & 1)
+        level = [alghash.merkle_node(level[i], level[i + 1] if i + 1 < len(level) else _EMPTY[d])
+                 for i in range(0, len(level), 2)]
+        idx //= 2
+    return sibs, dirs
+
+
+def fold_path(leaf, sibs, dirs):
+    """Fold a membership path to a root — the exact computation the circuit's MEMBERSHIP region performs,
+    kept here so the transparent verifier and the eventual AIR can be diffed against one another."""
+    acc = int(leaf) % F.P
+    for sib, d in zip(sibs, dirs):
+        acc = alghash.merkle_node(sib, acc) if d else alghash.merkle_node(acc, sib)
+    return acc
+
+
+# ---- per-kind transition predicates ------------------------------------------------------------------
+# THE EXTENSION POINT. A predicate answers one question: given the fields of the notes this transition
+# spends and creates, plus the transition's PUBLIC deltas, is this a legal move for this kind of note?
+# It never sees owners, randomness or positions — those are the pool's business, not the app's.
+KIND_VALUE = 1                      # fields = [amount]: the private per-contract balance note
+VALUE_MAX = 1 << 62                 # matches the pool's C-3 in-circuit range bound
+
+
+def _predicate_value(in_fields, out_fields, public_delta):
+    """Conservation for the value note: Σ in + public_delta = Σ out.
+
+    public_delta > 0 means value ENTERS the private state (a public deposit paid into it); < 0 means it
+    LEAVES. Sums are taken as INTEGERS, not field elements: mod-P conservation is not conservation, and the
+    bound below is what makes the two coincide. It is the same wraparound the pool's C-3 range gadget exists
+    to stop — a crafted output near P would balance mod P and mint value from nothing."""
+    if any(len(f) != 1 for f in in_fields + out_fields):
+        return "value note takes exactly one field (amount)"
+    tot_in = sum(f[0] for f in in_fields)
+    tot_out = sum(f[0] for f in out_fields)
+    if not all(0 <= f[0] < VALUE_MAX for f in in_fields + out_fields):
+        return f"note amount outside [0, {VALUE_MAX})"
+    if not -VALUE_MAX < public_delta < VALUE_MAX:
+        return "public_delta out of range"
+    if tot_in + public_delta != tot_out:
+        return f"value not conserved: {tot_in} + {public_delta} != {tot_out}"
+    return None
+
+
+PREDICATES = {KIND_VALUE: _predicate_value}
+
+
+# ---- the pool ----------------------------------------------------------------------------------------
+class ShieldedStatePool:
+    """Per-contract append-only note trees + one global spent-nullifier set.
+
+    WHY THE NULLIFIER SET IS GLOBAL while the trees are per-contract: the trees are separate so a proof's
+    membership cost is bounded by ONE app's history rather than the whole chain's, and so a contract's note
+    root is a single record in the settled state. The nullifier set is shared because a nullifier is only
+    ever a "has this exact note been spent" question, cm already binds cid, and one set is one record and
+    one lookup instead of N."""
+
+    def __init__(self, trees=None, nullifiers=None, anchors=None):
+        self.trees = {c: [int(x) % F.P for x in v] for c, v in (trees or {}).items()}
+        self.nullifiers = set(int(n) % F.P for n in (nullifiers or []))
+        self.anchors = {c: list(v) for c, v in (anchors or {}).items()}
+        for cid in self.trees:
+            self._remember(cid, self.root(cid))
+
+    # -- tree ------------------------------------------------------------------------------------------
+    def root(self, cid):
+        """Current note-tree root for `cid` (the empty-tree root for a contract with no notes yet)."""
+        return tree_root(self.trees.get(cid, []))
+
+    def _remember(self, cid, root):
+        a = self.anchors.setdefault(cid, [])
+        if root not in a:
+            a.append(root)
+            if len(a) > ANCHOR_WINDOW:
+                del a[:-ANCHOR_WINDOW]
+
+    def knows_root(self, cid, root):
+        """Anchor freshness: did this contract's tree recently hold `root`? A proof is built against a root
+        that the next block may already have moved past, so a window rather than an equality test."""
+        return int(root) % F.P in self.anchors.get(cid, [])
+
+    def append(self, cid, cm):
+        """Append a commitment to `cid`'s tree and register the resulting root as a valid anchor."""
+        self.trees.setdefault(cid, []).append(int(cm) % F.P)
+        self._remember(cid, self.root(cid))
+
+    def position(self, cid, cm):
+        """Leaf index of `cm` in `cid`'s tree (the path witness needs it), or None if absent."""
+        try:
+            return self.trees.get(cid, []).index(int(cm) % F.P)
+        except ValueError:
+            return None
+
+    # -- nullifiers ------------------------------------------------------------------------------------
+    def has_nullifier(self, nf):
+        return int(nf) % F.P in self.nullifiers
+
+    def spend(self, nf):
+        self.nullifiers.add(int(nf) % F.P)
+
+    def nullifier_digest(self):
+        """One digest over the spent set — what the settled root commits, so the record is O(1) in the set."""
+        return blake2b_hash(["app_nfset", *sorted(str(n) for n in self.nullifiers)])
+
+    # -- persistence -----------------------------------------------------------------------------------
+    def to_dict(self):
+        """JSON-safe snapshot — every field int as a STRING (JS loses precision above 2^53)."""
+        return {"trees": {c: [str(x) for x in v] for c, v in self.trees.items()},
+                "nullifiers": [str(n) for n in sorted(self.nullifiers)],
+                "anchors": {c: [str(a) for a in v] for c, v in self.anchors.items()}}
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls({c: [int(x) for x in v] for c, v in (d.get("trees") or {}).items()},
+                   [int(n) for n in d.get("nullifiers", [])],
+                   {c: [int(a) for a in v] for c, v in (d.get("anchors") or {}).items()})
+
+
+# ---- the verifier seam -------------------------------------------------------------------------------
+# CONSENSUS SWITCH. Phase 1's witness carries nsk in the clear, which is sound but not private — and a chain
+# that accepted it would be publishing spend keys. It exists so the state machine, its tests and its
+# integration can be built and frozen before the circuit lands, exactly as the pool's Phase 1 did. The exec
+# node must refuse it; this flag is the single place that decision is written down.
+CONSENSUS_ALLOW_TRANSPARENT = False
+
+
+def transition_sighash(public):
+    """The bytes a transition's public statement is identified by: contract, spent nullifiers, created
+    commitments and the public delta. Sorted and '|'-joined rather than passed as lists, so the digest is
+    byte-identical in the browser port (Python's str(list) is a non-reproducible repr)."""
+    return blake2b_hash(["app-sighash", str(public.get("cid")),
+                         "|".join(sorted(str(n) for n in public.get("nullifiers", []))),
+                         "|".join(sorted(str(c) for c in public.get("out_commitments", []))),
+                         str(int(public.get("public_delta", 0))),
+                         str(int(public.get("kind", 0)))])
+
+
+def verify_transition(public, proof, pool):
+    """Check a private state transition against ONLY its public statement plus `proof`.
+
+    Returns None when the transition is valid, or a human-readable reason when it is not. It NEVER mutates
+    the pool — apply_transition does that, and only after this has returned None, so a rejected transition
+    can never leave a half-applied nullifier behind. (That ordering is not stylistic: the pool's own
+    apply_transfer had to be fixed for exactly this, where a malformed unshield burned the note before the
+    destination was validated.)
+
+    Phase 1 verifies a transparent witness. Phase 2 will verify a STARK here and see no witness at all; the
+    checks it must enforce are the ones written out below, one for one."""
+    if not isinstance(public, dict) or not isinstance(proof, dict):
+        return "malformed transition"
+    cid = public.get("cid")
+    if not cid:
+        return "transition names no contract"
+    kind = int(public.get("kind", 0))
+    predicate = PREDICATES.get(kind)
+    if predicate is None:
+        return f"unknown note kind {kind}"
+
+    nfs = [int(n) % F.P for n in public.get("nullifiers", [])]
+    cms = [int(c) % F.P for c in public.get("out_commitments", [])]
+    if len(nfs) > MAX_INPUTS or len(cms) > MAX_OUTPUTS:
+        return f"transition exceeds {MAX_INPUTS} inputs / {MAX_OUTPUTS} outputs"
+    if not nfs and not cms:
+        return "transition spends and creates nothing"
+    if len(set(nfs)) != len(nfs):
+        return "duplicate nullifier within one transition"
+    for nf in nfs:
+        if pool.has_nullifier(nf):
+            return "note already spent"
+
+    if proof.get("stark") is not None:
+        return "stark verification is not implemented yet (phase 2)"
+    if not CONSENSUS_ALLOW_TRANSPARENT:
+        return "transparent witness refused — a proof is required"
+
+    # ---- Phase 1: re-check the witness in the clear -------------------------------------------------
+    w = proof.get("witness")
+    if not isinstance(w, dict):
+        return "no witness and no proof"
+    ins, outs = w.get("inputs") or [], w.get("outputs") or []
+    if len(ins) != len(nfs) or len(outs) != len(cms):
+        return "witness does not match the public statement"
+
+    root = int(public.get("root", EMPTY_ROOT)) % F.P
+    if nfs and not pool.knows_root(cid, root):
+        return "unknown anchor — the transition targets a root this contract never held"
+
+    in_fields, out_fields = [], []
+    for i, note in enumerate(ins):
+        try:
+            nsk, fields, rho = int(note["nsk"]), [int(f) for f in note["fields"]], int(note["rho"])
+            sibs, dirs = [int(s) for s in note["siblings"]], [int(d) & 1 for d in note["dirs"]]
+        except (KeyError, TypeError, ValueError):
+            return f"input {i}: malformed witness"
+        if len(sibs) != TREE_DEPTH or len(dirs) != TREE_DEPTH:
+            return f"input {i}: path is not {TREE_DEPTH} deep"
+        cm = note_commitment(cid, kind, fields, owner_of(nsk), rho)
+        if fold_path(cm, sibs, dirs) != root:
+            return f"input {i}: not a member of the tree at that root"
+        if note_nullifier(nsk, cm) != nfs[i]:
+            return f"input {i}: nullifier is not derived from this note"
+        in_fields.append(fields)
+
+    for i, note in enumerate(outs):
+        try:
+            fields, owner, rho = [int(f) for f in note["fields"]], int(note["owner"]), int(note["rho"])
+        except (KeyError, TypeError, ValueError):
+            return f"output {i}: malformed witness"
+        if note_commitment(cid, kind, fields, owner, rho) != cms[i]:
+            return f"output {i}: commitment is not derived from this note"
+        out_fields.append(fields)
+
+    return predicate(in_fields, out_fields, int(public.get("public_delta", 0)))
+
+
+def apply_transition(public, proof, pool):
+    """Verify, then apply: record every nullifier and append every output commitment.
+
+    Verification runs FIRST and in full — see verify_transition on why the ordering is load-bearing. Returns
+    None on success or the rejection reason, having mutated nothing in the failure case."""
+    reason = verify_transition(public, proof, pool)
+    if reason is not None:
+        return reason
+    cid = public["cid"]
+    for nf in public.get("nullifiers", []):
+        pool.spend(nf)
+    for cm in public.get("out_commitments", []):
+        pool.append(cid, cm)
+    return None
