@@ -151,6 +151,21 @@ account. Unvalidated, two things followed, both reachable by any user:
 The destination is now checked as a real, non-reserved account, and contract ids are excluded explicitly —
 a cid passes the checksum with probability ~1/65536, which is not a guarantee.
 
+### The anchor window — measured, not widened
+
+`knows_root` decides whether a transition is accepted, yet the anchor list is **not** committed by
+`exec_root`. A divergence there would fork the fleet with no root mismatch to signal it, so it is pinned by
+test rather than assumed: the anchor set is a pure function of the applied sequence and survives a
+snapshot.
+
+MEASURED: exactly `ANCHOR_WINDOW` (128) appends **to one contract** evict a root. A transition proof takes
+~31 s to build (~5 blocks) and blob inclusion runs at roughly one per block, so the margin is ~25x. Trees
+and windows are per contract, so a busy vault cannot invalidate a quiet one's in-flight proofs — which is
+the reason the trees were split per contract rather than pooled.
+
+Left at 128 deliberately. It is a liveness property to watch if a single contract ever sustains high
+append throughput, not a live problem, and it gates acceptance — so it cannot be changed on one node.
+
 ## 8. What the chain commits
 
 `execnode/exec_root.py` tags **11** (`T_APP_ROOT`, per contract) and **12** (`T_APP_NULL`, the spent-set

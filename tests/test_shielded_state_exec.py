@@ -267,6 +267,22 @@ def t_private_state_survives_save_and_load():
         assert back.state_root() == st.state_root(), "settled root did not survive a reload"
 
 
+def t_clone_carries_private_state():
+    """The provisional tail runs on ExecState.clone(). If a clone dropped app_state it would apply private
+    calls against an EMPTY pool — accepting double-spends speculatively and diverging from the finalized
+    state, which is a fork the state root would only reveal after the fact."""
+    st = _state()
+    cm = _seed(st, [1000], NSK, 1)
+    st.app_state.spend(12345)
+    c = st.clone()
+    assert hasattr(c, "app_state"), "the clone has no private state at all"
+    assert len(c.app_state.trees.get(CID, [])) == 1, "the clone lost the note tree"
+    assert c.app_state.has_nullifier(12345), "the clone lost the spent set — it would accept a double spend"
+    assert c.app_state.has_commitment(CID, cm), "the clone lost the duplicate guard"
+    c.app_state.append(CID, 999)
+    assert len(st.app_state.trees[CID]) == 1, "the clone shares state with the finalized pool"
+
+
 for name, fn in list(globals().items()):
     if name.startswith("t_"):
         check(name[2:].replace("_", " "), fn)

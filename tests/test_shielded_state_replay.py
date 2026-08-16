@@ -226,6 +226,63 @@ def t_a_withdrawal_cannot_target_a_reserved_name():
     assert "not a spendable account" in r, f"a reserved protocol name was accepted as a destination: {r}"
 
 
+# ---- the anchor window: consensus-gating, but NOT in the state root ----------------------------------
+# knows_root decides whether a transition is ACCEPTED, yet the anchor list is not committed by exec_root.
+# So a divergence here would fork the fleet with no root mismatch to signal it — which is the reason these
+# checks exist even though the current implementation is sound.
+def t_the_anchor_set_is_a_pure_function_of_the_applied_sequence():
+    def build(n):
+        p = S.ShieldedStatePool()
+        for i in range(n):
+            p.append(CID, S.note_commitment(CID, S.KIND_VALUE, [i], S.owner_of(ALICE), i))
+        return p
+    a, b = build(40), build(40)
+    assert a.anchors == b.anchors, "two nodes applying the same sequence disagree about known roots"
+    assert S.ShieldedStatePool.from_dict(a.to_dict()).anchors == a.anchors, \
+        "the anchor set does not survive a snapshot — a restored node would reject live proofs"
+
+
+def t_the_window_evicts_at_exactly_the_documented_depth():
+    """MEASURED: 128 appends to ONE contract evict a root. A transition proof takes ~31 s to build (~5
+    blocks), and blob inclusion runs at roughly one per block, so the margin is ~25x. Recorded rather than
+    widened: this is a liveness property to watch if a single contract ever sustains high append
+    throughput, not a live problem, and ANCHOR_WINDOW gates acceptance so it cannot be changed unilaterally."""
+    p = S.ShieldedStatePool()
+    p.append(CID, S.note_commitment(CID, S.KIND_VALUE, [0], S.owner_of(ALICE), 0))
+    target = p.root(CID)
+    for k, expected in ((S.ANCHOR_WINDOW - 1, True), (S.ANCHOR_WINDOW, False)):
+        q = S.ShieldedStatePool.from_dict(p.to_dict())
+        for i in range(1, k + 1):
+            q.append(CID, S.note_commitment(CID, S.KIND_VALUE, [i], S.owner_of(ALICE), i))
+        assert q.knows_root(CID, target) is expected, \
+            f"after {k} appends the root should be {'known' if expected else 'evicted'}"
+
+
+def t_one_contracts_activity_cannot_evict_anothers_anchors():
+    """Trees and anchor windows are per-contract, so a busy vault cannot invalidate a quiet one's
+    in-flight proofs. This is the reason the trees were split per contract in the first place."""
+    p = S.ShieldedStatePool()
+    p.append(CID, S.note_commitment(CID, S.KIND_VALUE, [0], S.owner_of(ALICE), 0))
+    target = p.root(CID)
+    for i in range(S.ANCHOR_WINDOW * 2):
+        p.append(OTHER_CID, S.note_commitment(OTHER_CID, S.KIND_VALUE, [i], S.owner_of(ALICE), i))
+    assert p.knows_root(CID, target), "activity on another contract evicted this contract's anchor"
+
+
+# ---- the note kind cannot be aliased -----------------------------------------------------------------
+def t_the_kind_cannot_be_aliased_mod_p():
+    """kind is absorbed into the circuit as kind % P, so kind and kind + P would produce the same public
+    column. What closes it is that PREDICATES and STARK_KINDS are looked up on the RAW integer, before the
+    circuit is ever reached — the same shape as the delta bound, and worth pinning so a future refactor
+    that normalises the lookup key does not quietly open it."""
+    from execnode.stark import field as Fld
+    p = S.ShieldedStatePool()
+    for aliased in (S.KIND_VALUE + Fld.P, S.KIND_VALUE - Fld.P):
+        r = S.verify_transition({"cid": CID, "kind": aliased, "nullifiers": [], "out_commitments": [1],
+                                 "public_delta": 5}, {"stark": {}}, p)
+        assert r == f"unknown note kind {aliased}", f"a kind aliased mod P was accepted: {r}"
+
+
 for name, fn in list(globals().items()):
     if name.startswith("t_"):
         check(name[2:].replace("_", " "), fn)
