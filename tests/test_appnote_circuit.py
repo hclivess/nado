@@ -23,10 +23,19 @@ from execnode import shielded_state as S
 FAILS = []
 
 
+class Skipped(Exception):
+    """A skip must NOT report as a pass. FAST=1 used to print '(skipped)' and then 'PASS', so the single
+    most valuable check in this file — the real prove/verify round trip — announced success while doing
+    nothing. That is the same false-assurance shape this branch found in a test defending dead code, and it
+    is worse here because it hid a skip rather than a triviality."""
+
+
 def check(name, fn):
     try:
         fn()
         print("PASS  " + name)
+    except Skipped as e:
+        print(f"SKIP  {name} — {e}")
     except AssertionError as e:
         print("FAIL  " + name + " — " + str(e))
         FAILS.append(name)
@@ -178,8 +187,7 @@ def t_a_non_bit_range_column_is_caught():
 # the structure actually composes into a sound proof. Set FAST=1 to skip it while iterating.
 def t_prove_and_verify_round_trip():
     if os.environ.get("FAST"):
-        print("      (skipped — FAST=1)")
-        return
+        raise Skipped("FAST=1; run without it to prove and verify for real")
     D = 12
     w = _witness(D)
     delta = FOUT[0] - FIN[0]                      # fields_in + delta = fields_out

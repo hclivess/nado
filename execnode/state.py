@@ -1501,6 +1501,13 @@ class ExecState:
                 if not isinstance(public, dict) or not isinstance(proof, dict):
                     return "skip: bad private_call"
                 cid = public.get("cid")
+                # TYPE-CHECK BEFORE USING IT AS A KEY. An unhashable cid (a list, a dict) raises TypeError
+                # on the `in` below. apply_blob's catch-all would turn that into a skip, so nothing breaks
+                # — but this dispatch has been here before: a blob carrying an unhashable `ns` once raised
+                # in the block loop and froze the exec cursor fleet-wide for one MIN_TX_FEE transaction.
+                # Checking the type is what that was fixed with, and a catch-all is not the same guarantee.
+                if not isinstance(cid, str):
+                    return "skip private_call: contract id must be a string"
                 if cid not in self.contracts:
                     return "skip private_call: no such contract"
                 # THE TURNSTILE. public_delta is the ONLY way value crosses between the public ledger and a

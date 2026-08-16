@@ -426,6 +426,19 @@ def t_a_non_list_statement_is_refused():
     assert r == "nullifiers and out_commitments must be lists", f"a string was iterated as a list: {r}"
 
 
+def t_a_malformed_contract_id_is_typed_out_not_caught_by_the_catch_all():
+    """apply_blob's catch-all would turn an unhashable cid into a skip anyway. Checking the type is still
+    the right guard: this dispatch has been here before — a blob carrying an unhashable `ns` once raised in
+    the block loop and froze the exec cursor fleet-wide for one MIN_TX_FEE transaction — and 'an exception
+    handler happens to catch it' is not the same guarantee as 'it is rejected on purpose'."""
+    import tempfile
+    from execnode.state import ExecState
+    st = ExecState(path=os.path.join(tempfile.mkdtemp(), "s.json"))
+    for bad in (["a"], {"a": 1}, 7, None):
+        r = st.apply_blob({"op": "private_call", "public": {"cid": bad}, "proof": {}}, "s", "t")
+        assert r == "skip private_call: contract id must be a string", f"cid={bad!r} gave {r}"
+
+
 for name, fn in list(globals().items()):
     if name.startswith("t_"):
         check(name[2:].replace("_", " "), fn)
