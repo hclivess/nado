@@ -97,10 +97,18 @@ not the app's.
 
 | kind | fields | predicate |
 |---|---|---|
-| `KIND_VALUE` | `[amount]` | `Σ in + public_delta = Σ out`, every amount in `[0, 2^62)` |
+| `KIND_VALUE` | `[amount]` | `Σ in + public_delta = Σ out`, every amount in `[0, 2^61)` |
 
 A new private app is a new kind plus a predicate. Conservation is one possible rule, not the law: a
 hidden-hand note in a card game conserves nothing and only has to be well-formed.
+
+**The bound is 2^61, measured.** `c_rng_top` sums THREE bit columns of the MSB nibble, so a bound value is
+< 2^61 — verified by building honest traces (2^61 − 1 satisfies the AIR, 2^61 does not). Note that
+`joinsplit_circuit`'s *module docstring* says "top 2 bits pinned to 0 … [0, 2^62)" and is **wrong**; its own
+inline comment on that constraint says 2^61 and is right. `VALUE_MAX` here was 2^62 because it was taken
+from that docstring, which made the transparent verifier LOOSER than the circuit — and Phase 1 exists to be
+the specification the circuit is diffed against. A note above 2^61 would have been creatable on the dev
+path and unspendable by any proof. Total supply is ~2^41, so 2^61 leaves twenty doublings of headroom.
 
 The range bound is not decoration. Conservation over the field is conservation **mod P**, and Goldilocks
 `P ≈ 2^64` is barely above the coin range — without it, an output near `P` balances mod P and mints value

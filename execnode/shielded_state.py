@@ -150,7 +150,15 @@ def fold_path(leaf, sibs, dirs):
 # spends and creates, plus the transition's PUBLIC deltas, is this a legal move for this kind of note?
 # It never sees owners, randomness or positions — those are the pool's business, not the app's.
 KIND_VALUE = 1                      # fields = [amount]: the private per-contract balance note
-VALUE_MAX = 1 << 62                 # matches the pool's C-3 in-circuit range bound
+# MEASURED, not copied. The C-3 range gadget's c_rng_top sums THREE bit columns (RB0+RB1+RB2) of the MSB
+# nibble, so a bound value is < 2^61 — verified by building honest traces: 2^61 - 1 satisfies the AIR and
+# 2^61 does not. joinsplit_circuit's MODULE docstring says "top 2 bits pinned to 0 ... [0, 2^62)" and is
+# wrong; its own inline comment on that constraint says 2^61 and is right. This constant was 2^62 because
+# it was taken from the docstring, which made the TRANSPARENT verifier looser than the circuit — and Phase
+# 1 exists precisely to be the specification the circuit is diffed against. A note above 2^61 would have
+# been creatable on the dev path and unspendable by any proof. Total supply is ~2^41, so 2^61 leaves twenty
+# doublings of headroom.
+VALUE_MAX = 1 << 61
 
 
 def _predicate_value(in_fields, out_fields, public_delta):

@@ -173,10 +173,23 @@ def t_the_delta_is_bound_to_an_integer_not_a_residue():
 
 
 def t_the_bound_matches_the_in_circuit_range():
-    """|delta| < VALUE_MAX, the same bound the note values are held to in-circuit. Together they make the
-    mod-P conservation equation coincide with the integer one — the C-3 argument, applied to the one
-    public value the range gadget does not cover."""
-    assert S.VALUE_MAX == 1 << 62, "VALUE_MAX moved away from the circuit's range bound"
+    """|delta| < VALUE_MAX, and VALUE_MAX is the bound the notes are ACTUALLY held to in-circuit — measured
+    by building honest traces, not read off a docstring. Together they make the mod-P conservation equation
+    coincide with the integer one: the C-3 argument, applied to the one public value the gadget does not
+    cover. The two verifiers must agree on the note range, or the transparent path (which exists to be the
+    circuit's specification) would admit notes no proof could ever spend."""
+    from execnode.stark import appnote_circuit as AC, alghash
+
+    def trace_ok(v):
+        tr, T, _cm = AC.build_deposit_trace(12345, S.KIND_VALUE, [v], alghash.owner_of(9), 5)
+        per = AC.deposit_periodic(T, 1, 12345, S.KIND_VALUE)
+        return not any(c(tr[r], tr[r + 1], [x[r] for x in per]) != 0
+                       for r in range(T - 1) for c in AC.transitions())
+
+    assert trace_ok(S.VALUE_MAX - 1), "a value just under VALUE_MAX is not provable — the bound is too high"
+    assert not trace_ok(S.VALUE_MAX), "a value at VALUE_MAX is provable — the bound is too low"
+    assert S.PREDICATES[S.KIND_VALUE]([[S.VALUE_MAX]], [[0]], -S.VALUE_MAX) is not None, \
+        "the transparent predicate admits a value the circuit refuses"
     p = S.ShieldedStatePool()
     # the stub declares a VALID shape, so the delta bound is the check under test rather than the arity one
     r = S.verify_transition({"cid": CID, "kind": S.KIND_VALUE, "nullifiers": [], "public_delta": S.VALUE_MAX,
