@@ -501,3 +501,155 @@ def verify(proof, cid_el, kind, root, nf, cm_out, public_delta, root_is_known, a
     return stark.verify(proof, transitions(), _boundaries(g, root, nf, cm_out, public_delta),
                         periodic=periodic(int(proof["T"]), arity, D, cid_el, kind),
                         max_degree=MAX_DEGREE, aux=aux, backend=BK.get(BACKEND))
+
+
+# =======================================================================================================
+# THE DEPOSIT STATEMENT (0-in / 1-out) — how private state comes into existence at all.
+#
+# The transition above spends a note and creates a note. A DEPOSIT has nothing to spend: public coins
+# become the FIRST private note. Without it, a chain with CONSENSUS_ALLOW_TRANSPARENT off can never create
+# a note, so the whole feature cannot bootstrap — found by trying to write the worked example, which is
+# what worked examples are for.
+#
+# WHY A PROOF IS NEEDED AT ALL when the amount is public. The deposited value IS public (it equals
+# public_delta — the coins visibly left the ledger). What must stay hidden is WHO the note belongs to, so
+# the opening cannot simply be published: revealing owner and rho would let anyone recompute cm and follow
+# that note forever. The proof therefore attests one thing — this commitment commits to exactly the value
+# that was escrowed — while hiding the owner. That is precisely Zcash's shielding property: the amount
+# entering is public, the recipient is not.
+#
+# ONE AIR, TWO STATEMENTS. This deliberately reuses transitions() unchanged rather than adding a second
+# constraint set. Every constraint the deposit does not need is satisfied trivially: the unused absorb and
+# capture selectors are zero columns, so the capture registers hold at 0 and c_cons still reads
+# CONS = VIN - VOUT with VIN = 0. A second AIR would be a second thing to audit, and the reason this one
+# generalised so cleanly is that a deposit is a transition with its input regions selected out.
+# =======================================================================================================
+
+def deposit_geometry(arity):
+    """Only the OUTPUT region and the range blocks — no OWNER, COMMIT, NULLIFIER or MEMBERSHIP. Row 0
+    starts the sponge directly from the boundary (the same way the transition trace starts OWNER), so no
+    reset row is needed ahead of it."""
+    ce = cm_elems(arity)
+    out_end = ce * R
+    return {"ce": ce, "out_start": 0, "out_end": out_end,
+            "total": out_end + RNG_VALUES * RNG_BLOCK}
+
+
+def deposit_trace_len(arity):
+    return _next_pow2(deposit_geometry(arity)["total"] + 1)
+
+
+def deposit_absorb_schedule(arity, cid_el, kind):
+    """{row: (source, value)} — the public head, the value, then the opening as free witness."""
+    head = [(PUB, cid_el), (PUB, kind), (PUB, arity)]
+    body = [(REG_VOUT, 0)] * arity
+    return {i * R - 1: ent for i, ent in enumerate(head + body + [(FREE, 0), (FREE, 0)], start=1)}
+
+
+def deposit_periodic(T, arity, cid_el, kind):
+    """The same 26 columns; every selector the deposit does not use is a zero column, which is what lets
+    transitions() be reused verbatim."""
+    g = deposit_geometry(arity)
+    sched = deposit_absorb_schedule(arity, cid_el, kind)
+    out_end, total = g["out_end"], g["total"]
+
+    def col(fn):
+        return [1 if fn(r) else 0 for r in range(T)]
+
+    def src_is(*want):
+        return col(lambda r: r in sched and sched[r][0] in want and r < out_end - 1)
+
+    rng = lambda r: out_end <= r < total
+    p = [[0] * T for _ in range(NPER)]
+    p[RC0] = [alghash.RC[r % R][0] for r in range(T)]
+    p[RC1] = [alghash.RC[r % R][1] for r in range(T)]
+    p[AVOUT] = src_is(REG_VOUT)
+    p[AFREE] = src_is(FREE)
+    p[APUB] = src_is(PUB)
+    p[PUBMSG] = [(sched[r][1] % F.P) if (r in sched and sched[r][0] == PUB and r < out_end - 1) else 0
+                 for r in range(T)]
+    p[RNG_ACC] = col(lambda r: rng(r) and (r - out_end) % RNG_BLOCK < RNG_NIBBLES)
+    p[RNG_START] = col(lambda r: rng(r) and (r - out_end) % RNG_BLOCK == 0)
+    p[RBIND_VIN] = col(lambda r: r == out_end + 0 * RNG_BLOCK + RNG_NIBBLES)
+    p[RBIND_VOUT] = col(lambda r: r == out_end + 1 * RNG_BLOCK + RNG_NIBBLES)
+    return p
+
+
+def build_deposit_trace(cid_el, kind, fields_out, owner_out, rho_out):
+    """The honest deposit witness. VIN stays 0 throughout, so c_cons reads CONS = -v_out and the boundary
+    pins it to -public_delta exactly as it does for a transition."""
+    arity = len(fields_out)
+    g = deposit_geometry(arity)
+    T = deposit_trace_len(arity)
+    owner_out, rho_out = owner_out % F.P, rho_out % F.P
+    v_out = fields_out[0] % F.P
+    sched = deposit_absorb_schedule(arity, cid_el, kind)
+    cons = F.sub(0, v_out)
+    rfill = _range_fill(g["out_end"], (0, fields_out[0]))
+    tr = []
+    s0, s1, ab = DOM_APPCM, alghash.IV, DOM_APPCM
+    free_msgs, free_i = [owner_out, rho_out], 0
+    for r in range(T):
+        acc, rb0, rb1, rb2, rb3 = rfill.get(r, (0, 0, 0, 0, 0))
+        tr.append([s0, s1, ab, 0, 0, 0, 0, 0, 0, 0, 0, v_out, cons, 0,
+                   acc, rb0, rb1, rb2, rb3])
+        r0, r1 = _round(s0, s1, r)
+        if r in sched and r < g["out_end"] - 1:
+            src, val = sched[r]
+            if src == PUB:
+                msg = val % F.P
+            elif src == REG_VOUT:
+                msg = v_out
+            else:
+                msg = free_msgs[free_i]
+                free_i += 1
+            s0, s1, ab = F.add(r0, msg), r1, msg
+        else:
+            s0, s1 = r0, r1
+    return tr, T, note_cm(cid_el, kind, fields_out, owner_out, rho_out)
+
+
+def _deposit_boundaries(g, cm_out, public_delta):
+    """Row 0 opens the OUTPUT sponge directly. ROOTREG and NFREG are pinned to 0 — a deposit proves no
+    membership and reveals no nullifier, and pinning them is what stops a transition proof being presented
+    as a deposit or the reverse."""
+    return [(0, S0, DOM_APPCM), (0, S1, alghash.IV), (0, AB, DOM_APPCM),
+            (0, CONS, F.sub(0, public_delta % F.P)),
+            (g["out_end"], ROOTREG, 0),
+            (g["out_end"], NFREG, 0),
+            (g["out_end"], S0, cm_out % F.P)]
+
+
+def prove_deposit(cid_el, kind, fields_out, owner_out, rho_out, public_delta,
+                  num_queries=stark.NUM_QUERIES, aux=None):
+    """Prove that `cm_out` commits to exactly the escrowed value, hiding its owner. Returns (proof, cm_out)."""
+    from execnode.stark import backend as BK
+    arity = len(fields_out)
+    tr, T, cm_out = build_deposit_trace(cid_el, kind, fields_out, owner_out, rho_out)
+    g = deposit_geometry(arity)
+    proof = stark.prove(tr, transitions(), _deposit_boundaries(g, cm_out, public_delta),
+                        periodic=deposit_periodic(T, arity, cid_el, kind), max_degree=MAX_DEGREE,
+                        num_queries=num_queries, aux=aux, backend=BK.get(BACKEND))
+    proof["arity"], proof["deposit"] = arity, True
+    return proof, cm_out
+
+
+def verify_deposit(proof, cid_el, kind, cm_out, public_delta, aux=None):
+    """Verify a deposit against its public statement. Returns (ok, reason)."""
+    from execnode.stark import backend as BK
+    if not proof.get("deposit"):
+        return False, "not a deposit proof"
+    try:
+        arity = int(proof["arity"])
+    except (KeyError, TypeError, ValueError):
+        return False, "proof does not declare its geometry"
+    if arity < 1:
+        return False, "degenerate geometry"
+    if int(proof.get("T", -1)) != deposit_trace_len(arity):
+        return False, "trace length does not match the declared geometry"
+    if int(public_delta) <= 0:
+        return False, "a deposit must bring value in"
+    g = deposit_geometry(arity)
+    return stark.verify(proof, transitions(), _deposit_boundaries(g, cm_out, public_delta),
+                        periodic=deposit_periodic(int(proof["T"]), arity, cid_el, kind),
+                        max_degree=MAX_DEGREE, aux=aux, backend=BK.get(BACKEND))

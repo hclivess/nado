@@ -53,7 +53,42 @@ Three things differ from a value note, each for a reason:
   minor spend-detection leak"*. Binding `cm` closes it. A sender does not hold `nsk`, so they cannot
   recognise the spend of a note they created.
 
-## 4. Transition rules are per-kind predicates
+## 4. Two statements, because a deposit has nothing to spend
+
+| statement | shape | trace | prove | what it proves |
+|---|---|---|---|---|
+| **deposit** | 0-in / 1-out, `delta > 0` | 256 | ~5 s | this commitment commits to exactly the escrowed value |
+| **transition** | 1-in / 1-out | 2048 | ~31 s | membership, nullifier derivation, and the kind's predicate |
+
+The deposit is not an optimisation, it is a prerequisite: with the transparent path off, a 1-in/1-out
+circuit alone means **no note can ever be created** and the feature cannot bootstrap. That was found by
+trying to write the worked example, which is what worked examples are for.
+
+A deposit still needs a proof even though its amount is public. The value that entered is visible — the
+coins left the ledger in plain sight — but the *owner* must not be, so the opening cannot simply be
+published: revealing `owner` and `rho` would let anyone recompute `cm` and follow that note forever. The
+proof attests one thing (this commitment commits to exactly the escrowed value) while hiding whose it is.
+That is Zcash's shielding property: the amount entering is public, the recipient is not.
+
+**One AIR serves both.** The deposit reuses `transitions()` unchanged rather than adding a second
+constraint set — every constraint it does not need is satisfied trivially, because the unused absorb and
+capture selectors are zero columns, so the capture registers hold at 0 and `c_cons` still reads
+`CONS = VIN - VOUT` with `VIN = 0`. A second AIR would be a second thing to audit.
+
+## 5. What a private call does NOT do — the honest limit
+
+**A private call does not execute contract code.** `private_call` never enters the zkVM. The contract is
+the *scope* a note belongs to; the rule enforced is the note **kind's** predicate, drawn from a shared
+library and built into the AIR. So the accurate description of what is built today is "private state,
+scoped per contract, governed by a shared kind library" — not yet "arbitrary private functions".
+
+That is a real gap and it is the one the zkVM-with-a-private-tape route was meant to close: a kernel that
+binds a *specific contract method* to the private transition, so a contract can impose its own rules on
+its own private state. Everything below it — notes, trees, nullifiers, the turnstile, DA, the settled-root
+binding — is indifferent to which route supplies the predicate, which is why that can land later without
+disturbing any of it.
+
+## 6. Transition rules are per-kind predicates
 
 This is the extension point, and the reason this is not simply a second pool. A predicate answers one
 question — given the fields of the notes a transition spends and creates, plus its public delta, is this a
@@ -71,7 +106,7 @@ The range bound is not decoration. Conservation over the field is conservation *
 `P ≈ 2^64` is barely above the coin range — without it, an output near `P` balances mod P and mints value
 from nothing. It is the same attack the pool's C-3 in-circuit range gadget exists to stop.
 
-## 5. What the chain commits
+## 7. What the chain commits
 
 `execnode/exec_root.py` tags **11** (`T_APP_ROOT`, per contract) and **12** (`T_APP_NULL`, the spent-set
 digest). Both are digests **in the position**, value 1 — a note root is a 64-bit field element, and
@@ -87,7 +122,7 @@ over minutes rather than atomically would split. This project has been there twi
 change altered the genesis root and wedged the fleet, and a prune watermark leaking into the root split it
 at h10047. A chain with no private state therefore projects byte-identically, on disk and in the root.
 
-## 6. Transport: the proof rides DA, L1 carries a commitment
+## 8. Transport: the proof rides DA, L1 carries a commitment
 
 MEASURED: a transition proof is **24.7 MiB**; the public statement it proves is **183 bytes**. The blob cap
 is 64 KiB, so the proof cannot ride L1 and does not try to. The blob carries the public statement plus a DA
@@ -112,7 +147,7 @@ table and not two branches.
 L1 admission already validates `proof_da` for **any** blob payload, op-agnostically, so private calls
 inherit the path-traversal guard for free.
 
-## 7. `op: private_call`, and why it is not `op: call`
+## 9. `op: private_call`, and why it is not `op: call`
 
 `calls_commit.block_calls` collects only `op == "call"` into the settlement calls list, and a call the
 chain skips or reverts makes the **whole span unprovable** (ROADMAP, 2026-08-06). A private call is
@@ -144,7 +179,7 @@ rather than rediscovered: with the destination outside the proven message, a fro
 victim's blob, swap only the address for their own, land it first, and the proof would still verify
 because the address was not in what it committed to.
 
-## 8. Phased, like the pool it extends
+## 10. Phased, like the pool it extends
 
 - **Phase 1 — built.** `verify_transition` re-checks openings, membership, nullifier and commitment
   derivation in the clear. Sound — no double-spend, no forged membership, no predicate violation — but not
@@ -164,7 +199,7 @@ because the address was not in what it committed to.
   prover ships, the honest phrasing is "private except from the operator". The kernels are already native
   Rust, so this is a target and a witness-generation path, not a new prover.
 
-## 9. Measured, 2026-08-16
+## 11. Measured, 2026-08-16
 
 Taken on this box against `joinsplit_circuit` — the circuit the private-transition AIR generalises — so
 these are the numbers the design is built on rather than guesses.
@@ -198,7 +233,7 @@ largest tree that costs nothing extra — chosen by measurement, not by taste. D
 to the client-side question: a phone is not this box. The Phase-3 decision (WASM prover vs. a blind
 delegated one) should be made against a measured phone number, not this one.
 
-## 10. What would sink it
+## 12. What would sink it
 
 Proving cost, not cryptography. Putting a private call through the VM AIR multiplies the trace by every
 step of the call, and this chain has already met the ceiling from the other side — a settle span of 119
@@ -206,7 +241,7 @@ record updates was declined on 2026-08-16 because the proof would have been ~1 7
 `SETTLE_INLINE_MAX` and taken ~5 355 s to build. The 13 s above is for a ONE-note transition with a fixed
 statement; a general private call is strictly more.
 
-## 11. Files
+## 13. Files
 
 | | |
 |---|---|
@@ -216,4 +251,7 @@ statement; a general private call is strictly more.
 | `execnode/execnode.py` | `GET /exec/private_state` |
 | `tests/test_shielded_state.py` | 24 soundness checks — the specification the circuit gets diffed against |
 | `tests/test_shielded_state_root.py` | 10 checks, three of which pin the compatibility invariant |
-| `tests/test_shielded_state_exec.py` | 9 integration checks |
+| `tests/test_shielded_state_exec.py` | integration checks, including the turnstile |
+| `tests/test_shielded_state_seam.py` | the proof-only path: 12 checks, one real proof |
+| `tests/test_shielded_state_da.py` | a real 24.7 MiB proof through Reed-Solomon k-of-n |
+| `tests/test_shielded_vault_e2e.py` | **the worked example** — deposit, private transfer, withdrawal |

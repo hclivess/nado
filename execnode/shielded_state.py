@@ -326,14 +326,22 @@ def verify_transition(public, proof, pool):
             # rule built in, so accepting a proof for a kind the AIR knows nothing about would enforce no
             # rule at all — the transition would be "valid" by virtue of nobody checking it.
             return f"note kind {kind} has no proving circuit (its predicate is not enforced in-circuit)"
-        if len(nfs) != 1 or len(cms) != 1:
-            return "the transition circuit proves exactly one input and one output"
-        # The withdrawal destination rides in the Fiat-Shamir transcript, so a front-runner cannot copy
-        # this proof, swap the address and redirect the exit (the pool's H-4 lesson, inherited).
-        ok, why = AC.verify(proof["stark"], cid_element(cid), kind, root, nfs[0], cms[0],
-                            int(public.get("public_delta", 0)),
-                            lambda r: pool.knows_root(cid, r),
-                            aux=str(public.get("withdraw_addr") or ""))
+        delta = int(public.get("public_delta", 0))
+        # The destination rides in the Fiat-Shamir transcript, so a front-runner cannot copy a proof, swap
+        # the address and redirect the exit (the pool's H-4 lesson, inherited).
+        aux = str(public.get("withdraw_addr") or "")
+        if not nfs and len(cms) == 1 and delta > 0:
+            # DEPOSIT (0-in/1-out): public coins become the first private note. There is nothing to spend,
+            # so there is no nullifier and no membership — which is exactly why it needs its own statement
+            # rather than being squeezed into the transition one. The deposited amount is public (it left
+            # the ledger in plain sight); what the proof hides is WHOSE note it becomes.
+            ok, why = AC.verify_deposit(proof["stark"], cid_element(cid), kind, cms[0], delta, aux=aux)
+        elif len(nfs) == 1 and len(cms) == 1:
+            ok, why = AC.verify(proof["stark"], cid_element(cid), kind, root, nfs[0], cms[0], delta,
+                                lambda r: pool.knows_root(cid, r), aux=aux)
+        else:
+            return ("no circuit for this shape — a deposit is 0-in/1-out with a positive delta, "
+                    "a transition is 1-in/1-out")
         return None if ok else f"proof rejected: {why}"
 
     if not CONSENSUS_ALLOW_TRANSPARENT:
@@ -394,6 +402,20 @@ def prove_transition(pool, cid, kind, nsk, fields_in, rho_in, cm_in_pos, fields_
               "public_delta": public_delta}
     if withdraw_addr:
         public["withdraw_addr"] = withdraw_addr
+    return public, {"stark": stark_proof}
+
+
+def prove_deposit(cid, kind, fields_out, owner_out, rho_out, public_delta):
+    """DELEGATED PROVER for a deposit: public coins -> the first private note. Returns (public, proof).
+
+    A deposit needs no pool state at all — there is nothing to spend, so no Merkle path and no anchor. That
+    is also why it is much cheaper than a transition: the trace is the OUTPUT region alone."""
+    if int(public_delta) <= 0:
+        raise ValueError("a deposit must bring value in (public_delta > 0)")
+    stark_proof, cm_out = AC.prove_deposit(cid_element(cid), kind, fields_out, owner_out, rho_out,
+                                           public_delta, aux="")
+    public = {"cid": cid, "kind": kind, "root": EMPTY_ROOT, "nullifiers": [],
+              "out_commitments": [cm_out], "public_delta": int(public_delta)}
     return public, {"stark": stark_proof}
 
 
