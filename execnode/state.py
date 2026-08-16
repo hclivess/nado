@@ -18,6 +18,7 @@ from hashing import blake2b_hash, canonical_bytes
 from execnode.zkvm import ZkVMError
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
 from execnode.shielded import ShieldedPool, apply_transfer
+from execnode.shielded_state import apply_transition
 
 # RANDOMNESS-WINDOW RETENTION — the horizons below which advance_beacons/record_block_hash prune. They also
 # define window_canonical(): a node holds a CANONICAL window iff its floors reach at least this far back, i.e.
@@ -300,6 +301,11 @@ class ExecState:
         # a DELEGATED PROVER (client sends the witness -> exec builds the path + proves the full join-split).
         from execnode.shielded_field import FieldShieldedPool
         self.field_pool = FieldShieldedPool()
+        # SHIELDED CONTRACTS (execnode/shielded_state.py): private application STATE, as against the pools
+        # above which hold private VALUE. Per-contract note trees + one spent set. Contributes nothing to
+        # the settled root until a contract actually holds a note, so its mere existence cannot move a root.
+        from execnode.shielded_state import ShieldedStatePool
+        self.app_state = ShieldedStatePool()
         # Shielded aggregate supply — see _restore. Note VALUES are private; every CHANGE to their total is
         # public, so the pool's total is auditable without seeing into it (ops/invariants.py).
         self.pool_value = 0        # live total value of all notes in both pools
@@ -387,6 +393,9 @@ class ExecState:
         self.unshield_withdrawals = d.get("unshield_withdrawals", {})
         self.uw_nonce = d.get("uw_nonce", 0)
         self.field_pool = FieldShieldedPool.from_dict(d["field_pool"]) if "field_pool" in d else FieldShieldedPool()
+        from execnode.shielded_state import ShieldedStatePool
+        self.app_state = (ShieldedStatePool.from_dict(d["app_state"]) if "app_state" in d
+                          else ShieldedStatePool())
         # SHIELDED SUPPLY (ops/invariants.py). Individual note VALUES are private, but every CHANGE to the
         # pool's total is public by construction — a deposit carries its L1 amount, and a transfer's
         # public_value/fee are public inputs. So the pool's aggregate value is auditable even though its
@@ -415,7 +424,12 @@ class ExecState:
         """The full serializable payload (identical to what save() writes), taken UNDER the mutate lock so a
         concurrent thread-apply can't tear it. Shared by save() and clone()."""
         with self._mutate_lock:
-            return {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
+            # An EMPTY app_state is omitted entirely, so a node that holds no private state writes the same
+            # snapshot bytes it always did — the on-disk twin of the "empty is absent" rule the settled-root
+            # projection follows (execnode/exec_root.py). from_dict treats an absent key as an empty pool.
+            extra = {"app_state": self.app_state.to_dict()} if self.app_state.trees or self.app_state.nullifiers else {}
+            return {**extra,
+                    "contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
                     "assets": self.assets, "abal": self.abal, "allow": self.allow,
                     "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
                     "outbox": self.outbox, "outbox_seq": self.outbox_seq, "inbox": self.inbox,
@@ -1460,6 +1474,47 @@ class ExecState:
                     self.unshield_withdrawals[nonce] = {"addr": addr, "amount": -pv}
                     return f"unshield {-pv} -> {addr[:12]}… nonce {nonce}"
                 return f"shielded_transfer ok ({len(public.get('out_commitments', []))} out)"
+
+            if op == "private_call":
+                # SHIELDED CONTRACT transition (execnode/shielded_state.py): spend private notes, create
+                # private notes. Nothing about the transition is visible but its nullifiers, its output
+                # commitments and its public delta.
+                #
+                # DELIBERATELY ITS OWN OP, NOT op == "call". calls_commit.block_calls collects only
+                # op == "call" into the settlement calls list, and a call the chain SKIPS or REVERTS makes
+                # the whole span unprovable (ROADMAP, 2026-08-06: "a span containing a call the chain skips
+                # or reverts is currently unprovable at all"). A private call is rejected whenever its proof
+                # does not verify — which is a thing any user can cause at will — so routing it through the
+                # zkVM call path would hand every user a lever to switch the chain off validity proofs, one
+                # bad proof per span. As its own op it is invisible to block_calls, so a rejection here is a
+                # pure no-op and cannot poison settlement. Do not "simplify" this into a contract call.
+                #
+                # public/proof ride as OPAQUE JSON STRINGS for the same reason field_transfer's bundle does:
+                # they carry Goldilocks field elements, and JS loses integer precision above 2^53.
+                pj, prj = payload.get("public_json"), payload.get("proof_json")
+                try:
+                    public = json.loads(pj) if pj is not None else payload.get("public")
+                    proof = json.loads(prj) if prj is not None else payload.get("proof")
+                except Exception:
+                    return "skip: bad private_call json"
+                if not isinstance(public, dict) or not isinstance(proof, dict):
+                    return "skip: bad private_call"
+                cid = public.get("cid")
+                if cid not in self.contracts:
+                    return "skip private_call: no such contract"
+                # UNBACKED-MINT FENCE, the same one apply_field_transfer needs and for the same reason: a
+                # blob is user-supplied and escrow-free, so a nonzero public delta here would create or
+                # destroy value that nothing on the other side accounts for. Private state may be
+                # REARRANGED at this stage; funding and draining it against the contract's own balance is
+                # its own slice, and it has to debit/credit that balance in the same mutation to be sound.
+                if int(public.get("public_delta", 0)) != 0:
+                    return "skip private_call: public_delta must be 0 until the funded path exists"
+                with self._mutate_lock:                    # M-10: serialize against thread-applies, exactly
+                    reason = apply_transition(public, proof, self.app_state)   # as the field pool does
+                if reason is not None:
+                    return f"skip private_call: {reason}"
+                return (f"private_call {str(cid)[:12]}… "
+                        f"{len(public.get('nullifiers', []))} in / {len(public.get('out_commitments', []))} out")
 
             return f"skip: unknown op {op!r}"
         except ZkVMError as e:
