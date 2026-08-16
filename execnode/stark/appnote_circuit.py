@@ -153,7 +153,12 @@ def absorb_schedule(arity, D, cid_el, kind):
     sched = {R - 1: (REG_NSK, 0)}                                   # OWNER: nsk
     # COMMIT: cid, kind, arity (public) · fields (secret registers) · owner · rho
     head = [(PUB, cid_el), (PUB, kind), (PUB, arity)]
-    body = [(REG_VIN, 0)] * arity                                   # arity==1 for KIND_VALUE -> the VIN column
+    # ONLY FIELD 0 TAKES A REGISTER. There is one value-register pair (VIN/VOUT) because conservation is a
+    # linear check over field 0; every further field is FREE WITNESS, which is not a weakening — an INPUT
+    # note's extra fields are pinned by cm_in's membership in the tree, and an OUTPUT note's are the
+    # prover's to choose, exactly as owner and rho are. Whether they mean anything is the kind predicate's
+    # business, which is the whole point of typed notes.
+    body = [(REG_VIN, 0)] + [(FREE, 0)] * (arity - 1)
     tail = [(REG_OWN, 0), (REG_RHO, 0)]
     for i, ent in enumerate(head + body + tail, start=1):
         sched[g["own_end"] + i * R - 1] = ent
@@ -161,7 +166,7 @@ def absorb_schedule(arity, D, cid_el, kind):
     sched[g["com_end"] + 1 * R - 1] = (REG_NSK, 0)
     sched[g["com_end"] + 2 * R - 1] = (REG_CARRY, 0)
     # OUTPUT: the same public head, then the output opening as FREE witness (the zero-knowledge part)
-    out_body = [(REG_VOUT, 0)] * arity
+    out_body = [(REG_VOUT, 0)] + [(FREE, 0)] * (arity - 1)
     for i, ent in enumerate(head + out_body + [(FREE, 0), (FREE, 0)], start=1):
         sched[g["out_start"] + i * R - 1] = ent
     return sched
@@ -187,7 +192,10 @@ def build_trace(nsk, cid_el, kind, fields_in, rho_in, siblings, dirs, fields_out
     s0, s1, ab = alghash.DOM_OWNER, alghash.IV, alghash.DOM_OWNER
     carry = sib = dr = own = nfreg = rootreg = 0
     lvl = 0
-    free_msgs = [owner_out, rho_out]
+    # The FREE lane is consumed in row order: COMMIT's extra input fields, then OUTPUT's extra output
+    # fields, then the output opening. Keep this list in the same order as absorb_schedule emits FREE.
+    free_msgs = ([f % F.P for f in fields_in[1:]] + [f % F.P for f in fields_out[1:]]
+                 + [owner_out, rho_out])
     free_i = 0
     for r in range(T):
         acc, rb0, rb1, rb2, rb3 = rfill.get(r, (0, 0, 0, 0, 0))
@@ -542,7 +550,7 @@ def deposit_trace_len(arity):
 def deposit_absorb_schedule(arity, cid_el, kind):
     """{row: (source, value)} — the public head, the value, then the opening as free witness."""
     head = [(PUB, cid_el), (PUB, kind), (PUB, arity)]
-    body = [(REG_VOUT, 0)] * arity
+    body = [(REG_VOUT, 0)] + [(FREE, 0)] * (arity - 1)
     return {i * R - 1: ent for i, ent in enumerate(head + body + [(FREE, 0), (FREE, 0)], start=1)}
 
 
@@ -588,7 +596,8 @@ def build_deposit_trace(cid_el, kind, fields_out, owner_out, rho_out):
     rfill = _range_fill(g["out_end"], (0, fields_out[0]))
     tr = []
     s0, s1, ab = DOM_APPCM, alghash.IV, DOM_APPCM
-    free_msgs, free_i = [owner_out, rho_out], 0
+    free_msgs = [f % F.P for f in fields_out[1:]] + [owner_out, rho_out]
+    free_i = 0
     for r in range(T):
         acc, rb0, rb1, rb2, rb3 = rfill.get(r, (0, 0, 0, 0, 0))
         tr.append([s0, s1, ab, 0, 0, 0, 0, 0, 0, 0, 0, v_out, cons, 0,

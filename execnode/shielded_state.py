@@ -181,6 +181,14 @@ PREDICATES = {KIND_VALUE: _predicate_value}
 # no proving path yet — but the reverse would mean shipping a circuit for a rule nothing else agrees on.
 STARK_KINDS = {KIND_VALUE}
 
+# The SHAPE each kind's predicate assumes. A predicate is written against a fixed number of fields —
+# _predicate_value reads fields[0] as the amount and rejects anything else — so a note of the wrong arity
+# under that kind is a note the rule was never written for. The transparent verifier catches it because
+# the predicate inspects the openings; the PROOF path never sees them, so the arity has to be pinned here
+# against what the proof declares. Without it, a KIND_VALUE note could be created with two fields, and the
+# second would be entirely ungoverned.
+KIND_ARITY = {KIND_VALUE: 1}
+
 
 # ---- the pool ----------------------------------------------------------------------------------------
 class ShieldedStatePool:
@@ -353,6 +361,23 @@ def verify_transition(public, proof, pool):
             # rule built in, so accepting a proof for a kind the AIR knows nothing about would enforce no
             # rule at all — the transition would be "valid" by virtue of nobody checking it.
             return f"note kind {kind} has no proving circuit (its predicate is not enforced in-circuit)"
+        stark = proof["stark"] if isinstance(proof.get("stark"), dict) else {}
+        # THE PROOF'S DECLARED SHAPE MUST MATCH THE KIND'S. A predicate is written against a fixed number
+        # of fields — _predicate_value reads fields[0] as the amount and rejects anything else — so a note
+        # of the wrong arity under that kind is a note the rule was never written for. The transparent
+        # verifier catches it by inspecting the openings; the proof path never sees them, and the CIRCUIT
+        # is happy to prove any arity, because being arity-parametric is the point of it. So the binding
+        # between shape and kind has to be made here, or a KIND_VALUE note could be minted with a second
+        # field that no rule governs.
+        want_arity = KIND_ARITY.get(kind)
+        if want_arity is not None and stark.get("arity") != want_arity:
+            return f"kind {kind} takes {want_arity} field(s); the proof declares {stark.get('arity')}"
+        # DEPTH IS STRUCTURAL, not merely improbable. A membership proof at any depth but this pool's could
+        # only fold to a root the contract knows by hash collision — but "collision-resistance stops it" is
+        # the wrong argument for something the verifier can just check, and it would silently become the
+        # only argument the day TREE_DEPTH changed.
+        if nfs and stark.get("D") != TREE_DEPTH:
+            return f"membership proof is depth {stark.get('D')}, this pool is depth {TREE_DEPTH}"
         delta = int(public.get("public_delta", 0))
         # DELTA MUST BE BOUNDED, and this is a soundness check, not hygiene. The circuit pins
         # CONS = -public_delta as a FIELD element, so every delta congruent mod P satisfies the same

@@ -153,8 +153,10 @@ def t_a_shape_with_no_circuit_is_refused():
         ("0-in/1-out draining value", {"nullifiers": [], "out_commitments": [3], "public_delta": -5}),
         ("1-in/0-out", {"nullifiers": [1], "out_commitments": [], "public_delta": 0}),
     ]:
+        # a VALID shape declaration, so the SHAPE-of-statement check is what rejects these rather than
+        # the arity pin that now runs ahead of it
         r = S.verify_transition({"cid": CID, "kind": S.KIND_VALUE, "root": p.root(CID), **pub},
-                                {"stark": {"anything": 1}}, p)
+                                {"stark": {"arity": 1, "D": S.TREE_DEPTH}}, p)
         assert r is not None and "no circuit for this shape" in r, f"{shape} reached a circuit: {r}"
 
 

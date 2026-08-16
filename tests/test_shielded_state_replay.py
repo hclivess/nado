@@ -178,8 +178,9 @@ def t_the_bound_matches_the_in_circuit_range():
     public value the range gadget does not cover."""
     assert S.VALUE_MAX == 1 << 62, "VALUE_MAX moved away from the circuit's range bound"
     p = S.ShieldedStatePool()
+    # the stub declares a VALID shape, so the delta bound is the check under test rather than the arity one
     r = S.verify_transition({"cid": CID, "kind": S.KIND_VALUE, "nullifiers": [], "public_delta": S.VALUE_MAX,
-                             "out_commitments": [1]}, {"stark": {}}, p)
+                             "out_commitments": [1]}, {"stark": {"arity": 1}}, p)
     assert r is not None and "out of range" in r, f"a delta at the bound was accepted: {r}"
 
 
@@ -281,6 +282,46 @@ def t_the_kind_cannot_be_aliased_mod_p():
         r = S.verify_transition({"cid": CID, "kind": aliased, "nullifiers": [], "out_commitments": [1],
                                  "public_delta": 5}, {"stark": {}}, p)
         assert r == f"unknown note kind {aliased}", f"a kind aliased mod P was accepted: {r}"
+
+
+# ---- the proof's declared shape must match the kind's -------------------------------------------------
+# The circuit is arity-parametric BY DESIGN — that is what makes a new note type a new predicate rather
+# than a new circuit. So the circuit will happily prove a two-field KIND_VALUE note, and the binding
+# between shape and kind can only be made by the state machine. Without it, a KIND_VALUE note could carry
+# a second field that _predicate_value never looks at and therefore no rule governs.
+def t_a_kind_cannot_be_minted_at_the_wrong_arity():
+    from execnode.stark import appnote_circuit as AC
+    stark, cm = AC.prove_deposit(S.cid_element(CID), S.KIND_VALUE, [1000, 777], S.owner_of(ALICE), 42,
+                                 public_delta=1000, aux="")
+    ok, _ = AC.verify_deposit(stark, S.cid_element(CID), S.KIND_VALUE, cm, 1000, aux="")
+    assert ok, "the fixture proof should be valid — the point is that VALIDITY is not enough"
+    pub = {"cid": CID, "kind": S.KIND_VALUE, "root": S.EMPTY_ROOT, "nullifiers": [],
+           "out_commitments": [cm], "public_delta": 1000}
+    p = S.ShieldedStatePool()
+    r = S.apply_transition(pub, {"stark": stark}, p)
+    assert r == "kind 1 takes 1 field(s); the proof declares 2", f"wrong-arity note minted: {r}"
+    assert not p.trees.get(CID), "the refused note was still appended"
+
+
+def t_every_provable_kind_declares_its_arity():
+    """A kind that can be proved but has no declared shape would slip past the check above entirely."""
+    missing = S.STARK_KINDS - set(S.KIND_ARITY)
+    assert not missing, f"provable kinds with no declared arity: {missing}"
+
+
+def t_a_membership_proof_must_match_the_pool_depth():
+    """A proof at another depth could only fold to a known root by hash collision — but the verifier can
+    simply check it, and should, rather than leaning on collision-resistance for a structural property."""
+    cm = S.note_commitment(CID, S.KIND_VALUE, [1000], S.owner_of(ALICE), 1)
+    pool = S.ShieldedStatePool({CID: [cm]})
+    pub, prf = S.prove_transition(pool, CID, S.KIND_VALUE, ALICE, [1000], 1, 0, [1000],
+                                  S.owner_of(ALICE), 2, public_delta=0)
+    fresh = lambda: S.ShieldedStatePool({CID: [cm]})
+    assert S.verify_transition(pub, prf, fresh()) is None, "the honest transition was rejected"
+    shallow = {"stark": dict(prf["stark"], D=4)}
+    r = S.verify_transition(pub, shallow, fresh())
+    assert r == f"membership proof is depth 4, this pool is depth {S.TREE_DEPTH}", \
+        f"a relabelled depth was accepted: {r}"
 
 
 for name, fn in list(globals().items()):

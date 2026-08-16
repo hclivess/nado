@@ -166,6 +166,22 @@ the reason the trees were split per contract rather than pooled.
 Left at 128 deliberately. It is a liveness property to watch if a single contract ever sustains high
 append throughput, not a live problem, and it gates acceptance — so it cannot be changed on one node.
 
+### The proof's declared shape must match the kind's
+
+The circuit is **arity-parametric by design** — that is what makes a new note type a new predicate rather
+than a new circuit. It will therefore happily prove a two-field `KIND_VALUE` note, and it is right to.
+
+The binding between shape and kind can only be made by the state machine, and it has to be, because a
+predicate is written against a fixed number of fields: `_predicate_value` reads `fields[0]` as the amount.
+A `KIND_VALUE` note with a second field is a note that rule was never written for, and nothing would
+govern the extra field. The transparent verifier catches it by inspecting the openings; the proof path
+never sees them. `KIND_ARITY` closes it, and a check asserts every provable kind declares one — a kind
+that could be proved but had no declared shape would slip past entirely.
+
+Depth is pinned the same way. A membership proof at any depth but the pool's could only fold to a known
+root by hash collision, but "collision-resistance stops it" is the wrong argument for something the
+verifier can simply check, and it would silently become the *only* argument the day `TREE_DEPTH` changed.
+
 ## 8. What the chain commits
 
 `execnode/exec_root.py` tags **11** (`T_APP_ROOT`, per contract) and **12** (`T_APP_NULL`, the spent-set
