@@ -211,6 +211,16 @@ and `MAX_DEPTH` are now enforced in the verifier itself, before a single column 
 0.000 s. `MAX_FIELDS` also had two definitions and now has one — a bound that exists twice is a bound that
 can disagree with itself.
 
+### A contract upgrade cannot strand or re-govern private state
+
+An upgrade preserves the cid, notes are scoped by cid, and the rules come from the note **kind** rather
+than the contract's code. So upgrading a contract can neither invalidate its private state nor change how
+existing notes behave. That is worth stating as a property rather than leaving implicit: the alternative —
+an upgrade silently invalidating everyone's notes — would be a rug pull with no attacker in it.
+
+If a contract ever did vanish, the notes stay in the tree and the escrow stays in the ledger. The failure
+mode is *frozen*, never *silently gone*, and there is a check for that too.
+
 ## 8. What the chain commits
 
 `execnode/exec_root.py` tags **11** (`T_APP_ROOT`, per contract) and **12** (`T_APP_NULL`, the spent-set
@@ -369,4 +379,6 @@ statement; a general private call is strictly more.
 | `tests/test_shielded_state_exec.py` | integration checks, including the turnstile |
 | `tests/test_shielded_state_seam.py` | the proof-only path: 12 checks, one real proof |
 | `tests/test_shielded_state_da.py` | a real 24.7 MiB proof through Reed-Solomon k-of-n |
+| `tests/test_shielded_state_replay.py` | the adversarial suite — replay, aliasing, bounds, geometry |
+| `tests/test_shielded_state_atomicity.py` | every rejection path leaves the pool untouched |
 | `tests/test_shielded_vault_e2e.py` | **the worked example** — deposit, private transfer, withdrawal |
