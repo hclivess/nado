@@ -42,10 +42,15 @@ state machine and its verifier, standing alone and fully tested first.
 from execnode.stark import field as F, alghash
 from hashing import blake2b_hash
 
-# Domain tags for the shielded-CONTRACT note algebra. Disjoint from alghash's value-note tags
-# (DOM_OWNER/CM/NF/NODE = 1..4) so an app note can never be confused with a pool note under any hash.
-# APPEND ONLY — a tag number is part of every commitment ever computed under it.
-DOM_APPCM, DOM_APPNF, DOM_APPCID = 5, 6, 7
+# Domain tags for the shielded-CONTRACT note algebra — disjoint from alghash's value-note tags
+# (DOM_OWNER/CM/NF/NODE = 1..4) so an app note can never be confused with a pool note under any hash, and
+# APPEND ONLY, because a tag number is part of every commitment ever computed under it.
+#
+# They are DEFINED IN THE CIRCUIT and imported here, not the other way round: the AIR has to absorb the
+# same tags this module hashes, and a second copy of a consensus constant is a second thing that can drift.
+# The circuit sits lower in the import graph (it must not import the state machine back), so that is the
+# end that owns them.
+from execnode.stark.appnote_circuit import DOM_APPCM, DOM_APPNF
 
 TREE_DEPTH = 20                     # 2^20 = 1,048,576 notes per contract. Proving cost is linear in depth,
                                     # so this is the one number to revisit when the membership region's cost
