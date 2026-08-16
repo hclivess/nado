@@ -134,16 +134,49 @@ because the address was not in what it committed to.
   prover ships, the honest phrasing is "private except from the operator". The kernels are already native
   Rust, so this is a target and a witness-generation path, not a new prover.
 
-## 8. What would sink it
+## 8. Measured, 2026-08-16
+
+Taken on this box against `joinsplit_circuit` — the circuit the private-transition AIR generalises — so
+these are the numbers the design is built on rather than guesses.
+
+| depth | trace `T` | backend | prove | note |
+|---|---|---|---|---|
+| 12 | 2048 | blake2b | 24.2 s | the default, and **not natively provable** |
+| 12 | 2048 | alghash2 | 13.8 s | the arena covers this one |
+| 20 | 2048 | blake2b | 25.3 s | |
+| 20 | 2048 | alghash2 | 12.9 s | |
+
+**Three findings, in order of how much they change the plan.**
+
+**1. The join-split path cannot prove on a node at all.** `stark.prove`'s native arena covers only the
+`alghash2` and `recursion` backends; everything else falls through to `require_native_prover`, which
+refuses outside a build or a conformance test. All three join-split modules — `joinsplit.py`,
+`joinsplit_circuit.py`, `joinsplit2.py` — call `stark.prove` **without a backend**, so they take
+`backend.DEFAULT`, which is `blake2b`. On a node that raises `NativeMissing`; the measurement above needed
+`NADO_ALLOW_PYTHON_KERNELS=1` to run at all. This is not a shielded-contracts problem — it means the
+**pool's own Phase-2 delegated prover is inoperable in production today**, and it predates this work.
+
+*Consequence here:* the private-transition circuit passes `backend=alghash2` from birth. A circuit that
+inherits the default would be born unprovable on the machines meant to run it.
+
+**2. Tree depth 12 → 20 is free, and 20 is exactly the ceiling.** Trace length is
+`next_pow2(385 + 81·D + 1)`, so every depth up to 20 lands on `T = 2048`; depth 21 gives 2086 and crosses
+to `T = 4096`, doubling the prove. `TREE_DEPTH = 20` (1,048,576 notes per contract) is therefore the
+largest tree that costs nothing extra — chosen by measurement, not by taste. Do not raise it to 21.
+
+**3. ~13 s per proof on a server core.** That is the delegated-prover figure, and it is the honest input
+to the client-side question: a phone is not this box. The Phase-3 decision (WASM prover vs. a blind
+delegated one) should be made against a measured phone number, not this one.
+
+## 9. What would sink it
 
 Proving cost, not cryptography. Putting a private call through the VM AIR multiplies the trace by every
 step of the call, and this chain has already met the ceiling from the other side — a settle span of 119
 record updates was declined on 2026-08-16 because the proof would have been ~1 794 MiB against
-`SETTLE_INLINE_MAX` and taken ~5 355 s to build. The number that decides this is **proving seconds per
-private call on a phone**, and nobody has measured it. That measurement belongs before the circuit work,
-not after it.
+`SETTLE_INLINE_MAX` and taken ~5 355 s to build. The 13 s above is for a ONE-note transition with a fixed
+statement; a general private call is strictly more.
 
-## 9. Files
+## 10. Files
 
 | | |
 |---|---|
