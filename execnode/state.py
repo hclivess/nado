@@ -1502,19 +1502,46 @@ class ExecState:
                 cid = public.get("cid")
                 if cid not in self.contracts:
                     return "skip private_call: no such contract"
-                # UNBACKED-MINT FENCE, the same one apply_field_transfer needs and for the same reason: a
-                # blob is user-supplied and escrow-free, so a nonzero public delta here would create or
-                # destroy value that nothing on the other side accounts for. Private state may be
-                # REARRANGED at this stage; funding and draining it against the contract's own balance is
-                # its own slice, and it has to debit/credit that balance in the same mutation to be sound.
-                if int(public.get("public_delta", 0)) != 0:
-                    return "skip private_call: public_delta must be 0 until the funded path exists"
+                # THE TURNSTILE. public_delta is the ONLY way value crosses between the public ledger and a
+                # contract's private state, and every unit of it is escrowed on the public side by the
+                # contract itself — so `bridge[cid]` is, at every height, exactly the total of that
+                # contract's private notes. Individual note values stay private; the aggregate is public by
+                # construction, which is the same auditability the pools have (ops/invariants.py).
+                #
+                #   delta > 0  DEPOSIT    debit the blob's sender, escrow into the contract
+                #   delta < 0  WITHDRAW   release from the contract's escrow to a NAMED destination
+                #
+                # A blob is user-supplied and escrow-free, so without this the delta would create or
+                # destroy value nothing on the other side accounts for — the hole apply_field_transfer
+                # fences with "coins enter only via an L1 shield".
+                delta = int(public.get("public_delta", 0))
+                dest = public.get("withdraw_addr")
+                if delta < 0 and not dest:
+                    return "skip private_call: withdrawal names no destination"
                 with self._mutate_lock:                    # M-10: serialize against thread-applies, exactly
-                    reason = apply_transition(public, proof, self.app_state)   # as the field pool does
-                if reason is not None:
-                    return f"skip private_call: {reason}"
+                    # SOLVENCY IS CHECKED BEFORE THE TRANSITION, and the funds move only after it succeeds.
+                    # Both halves matter: checking after would let a transition apply that the ledger then
+                    # could not fund, and moving before would have to be unwound on a verification failure.
+                    if delta > 0 and self.bridge.get(sender, 0) < delta:
+                        return f"skip private_call: insufficient bridge balance for the deposit ({sender[:12]}…)"
+                    if delta < 0 and self.bridge.get(cid, 0) < -delta:
+                        return "skip private_call: contract escrow cannot cover the withdrawal"
+                    reason = apply_transition(public, proof, self.app_state)
+                    if reason is not None:
+                        return f"skip private_call: {reason}"
+                    if delta > 0:
+                        self.bridge[sender] -= delta
+                        if self.bridge[sender] == 0:       # zero is ABSENT — a lingering 0 row is a
+                            del self.bridge[sender]        # non-block-derived value in the settled root
+                        self.bridge[cid] = self.bridge.get(cid, 0) + delta
+                    elif delta < 0:
+                        self.bridge[cid] = self.bridge.get(cid, 0) + delta
+                        if self.bridge[cid] == 0:
+                            del self.bridge[cid]
+                        self.bridge[dest] = self.bridge.get(dest, 0) - delta
+                flow = "" if not delta else (f" +{delta} in" if delta > 0 else f" {-delta} out -> {str(dest)[:12]}…")
                 return (f"private_call {str(cid)[:12]}… "
-                        f"{len(public.get('nullifiers', []))} in / {len(public.get('out_commitments', []))} out")
+                        f"{len(public.get('nullifiers', []))} in / {len(public.get('out_commitments', []))} out{flow}")
 
             return f"skip: unknown op {op!r}"
         except ZkVMError as e:

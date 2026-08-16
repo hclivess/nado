@@ -251,13 +251,22 @@ CONSENSUS_ALLOW_TRANSPARENT = False
 
 def transition_sighash(public):
     """The bytes a transition's public statement is identified by: contract, spent nullifiers, created
-    commitments and the public delta. Sorted and '|'-joined rather than passed as lists, so the digest is
-    byte-identical in the browser port (Python's str(list) is a non-reproducible repr)."""
+    commitments, the public delta AND the withdrawal destination. Sorted and '|'-joined rather than passed
+    as lists, so the digest is byte-identical in the browser port (Python's str(list) is a
+    non-reproducible repr).
+
+    withdraw_addr is bound UNCONDITIONALLY — empty string when there is no destination — and that is the
+    pool's H-4 fix, learned there and inherited here rather than rediscovered: with the destination outside
+    the signed/proven message, a front-runner could copy a victim's blob, swap only the address for their
+    own and land it first. The proof still verified, because the address was not in what it committed to,
+    and the exit was silently redirected. Unconditional inclusion means signer and verifier can never
+    disagree about whether the field was present."""
     return blake2b_hash(["app-sighash", str(public.get("cid")),
                          "|".join(sorted(str(n) for n in public.get("nullifiers", []))),
                          "|".join(sorted(str(c) for c in public.get("out_commitments", []))),
                          str(int(public.get("public_delta", 0))),
-                         str(int(public.get("kind", 0)))])
+                         str(int(public.get("kind", 0))),
+                         str(public.get("withdraw_addr") or "")])
 
 
 def verify_transition(public, proof, pool):

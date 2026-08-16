@@ -97,11 +97,26 @@ proof per span. As its own op it is invisible to `block_calls`, so a rejection i
 `tests/test_shielded_state_exec.py` builds a real block carrying a `private_call` blob and asserts
 `block_calls` ignores it. Do not "simplify" this into a contract call.
 
-**Unbacked-mint fence.** `public_delta` must be `0`. A blob is user-supplied and escrow-free, so a nonzero
-delta would create or destroy value nothing on the other side accounts for — the hole
-`apply_field_transfer` fences with *"coins enter only via an L1 shield"*. Private state may be rearranged
-today; funding and draining it against the contract's own balance is its own slice, because it must move
-that balance in the same mutation to be sound.
+**The turnstile.** `public_delta` is the only way value crosses between the public ledger and a
+contract's private state, and every unit of it is escrowed on the public side by the contract itself — so
+`bridge[cid]` equals, at every height, the total of that contract's private notes. Individual note values
+stay private; the aggregate is public by construction, the same auditability the pools have.
+
+```
+delta > 0   DEPOSIT    debit the blob's sender, escrow into the contract
+delta < 0   WITHDRAW   release from the contract's escrow to a NAMED destination
+```
+
+Solvency is checked *before* the transition and the funds move *after* it succeeds. Both halves matter:
+checking afterwards would let a transition apply that the ledger then could not fund, and moving first
+would have to be unwound on a verification failure. A blob is user-supplied and escrow-free, so without
+this the delta would create or destroy value nothing on the other side accounts for — the hole
+`apply_field_transfer` fences with *"coins enter only via an L1 shield"*.
+
+`withdraw_addr` is bound into `transition_sighash` unconditionally. That is the pool's H-4 fix, inherited
+rather than rediscovered: with the destination outside the proven message, a front-runner could copy a
+victim's blob, swap only the address for their own, land it first, and the proof would still verify
+because the address was not in what it committed to.
 
 ## 7. Phased, like the pool it extends
 

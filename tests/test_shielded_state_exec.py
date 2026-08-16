@@ -113,14 +113,100 @@ def t_a_private_call_never_enters_the_settlement_call_list():
     assert len(calls) == 1, f"a private_call entered the provable calls list ({len(calls)} calls)"
 
 
-# ---- the funded path is fenced off until it exists ---------------------------------------------------
-def t_nonzero_public_delta_is_refused():
+# ---- the turnstile: value crossing between the public ledger and private state ----------------------
+# bridge[cid] must equal the total of that contract's private notes at every height. Individual note
+# values are private; the aggregate is public by construction, which is what makes the whole thing
+# auditable without seeing into it.
+def t_a_deposit_debits_the_sender_and_escrows_in_the_contract():
     with _Transparent():
         st = _state()
-        _seed(st, [100], NSK, 1)
-        b = _blob(st, [([100], NSK, 1)], [([130], S.owner_of(NSK), 2)], public_delta=30)
-        r = st.apply_blob(b, SENDER, "tx2")
-        assert "public_delta must be 0" in r, f"unbacked value entered private state: {r}"
+        st.bridge[SENDER] = 500
+        b = _blob(st, [], [([30], S.owner_of(NSK), 1)], public_delta=30)
+        r = st.apply_blob(b, SENDER, "dep1")
+        assert r.startswith("private_call "), f"a funded deposit was rejected: {r}"
+        assert st.bridge[SENDER] == 470, f"sender was not debited: {st.bridge[SENDER]}"
+        assert st.bridge[CID] == 30, f"contract did not escrow the deposit: {st.bridge.get(CID)}"
+        assert len(st.app_state.trees[CID]) == 1, "the deposited note was not created"
+
+
+def t_a_withdrawal_releases_escrow_to_the_named_destination():
+    with _Transparent():
+        st = _state()
+        st.bridge[SENDER] = 500
+        assert st.apply_blob(_blob(st, [], [([30], S.owner_of(NSK), 1)], public_delta=30),
+                             SENDER, "dep2").startswith("private_call ")
+        b = _blob(st, [([30], NSK, 1)], [], public_delta=-30)
+        b["public"]["withdraw_addr"] = "recipient_addr"
+        r = st.apply_blob(b, SENDER, "wd1")
+        assert r.startswith("private_call "), f"a withdrawal was rejected: {r}"
+        assert st.bridge.get(CID) is None, f"escrow row was not deleted at zero: {st.bridge.get(CID)}"
+        assert st.bridge["recipient_addr"] == 30, "the destination was not credited"
+
+
+def t_escrow_tracks_the_private_total():
+    """The turnstile invariant, over a deposit, an internal split and a partial withdrawal."""
+    with _Transparent():
+        st = _state()
+        st.bridge[SENDER] = 500
+        assert st.apply_blob(_blob(st, [], [([100], S.owner_of(NSK), 1)], public_delta=100),
+                             SENDER, "d").startswith("private_call ")
+        assert st.bridge[CID] == 100, "escrow wrong after deposit"
+        # split 100 into 70 + 30, entirely inside private state — escrow must not move
+        assert st.apply_blob(_blob(st, [([100], NSK, 1)],
+                                   [([70], S.owner_of(NSK2), 2), ([30], S.owner_of(NSK), 3)]),
+                             SENDER, "s").startswith("private_call ")
+        assert st.bridge[CID] == 100, f"a private split moved public escrow: {st.bridge[CID]}"
+        # withdraw the 30
+        b = _blob(st, [([30], NSK, 3)], [], public_delta=-30)
+        b["public"]["withdraw_addr"] = "dest"
+        assert st.apply_blob(b, SENDER, "w").startswith("private_call ")
+        assert st.bridge[CID] == 70, f"escrow does not track the private total: {st.bridge[CID]}"
+
+
+def t_an_unfunded_deposit_moves_nothing():
+    with _Transparent():
+        st = _state()
+        st.bridge[SENDER] = 5
+        b = _blob(st, [], [([30], S.owner_of(NSK), 1)], public_delta=30)
+        r = st.apply_blob(b, SENDER, "dep3")
+        assert "insufficient bridge balance" in r, f"an unfunded deposit was accepted: {r}"
+        assert st.bridge[SENDER] == 5, "a rejected deposit moved the sender's balance"
+        assert not st.app_state.trees.get(CID), "a rejected deposit created a note"
+
+
+def t_a_withdrawal_beyond_escrow_is_refused():
+    with _Transparent():
+        st = _state()
+        st.bridge[SENDER] = 500
+        assert st.apply_blob(_blob(st, [], [([10], S.owner_of(NSK), 1)], public_delta=10),
+                             SENDER, "d2").startswith("private_call ")
+        b = _blob(st, [([10], NSK, 1)], [], public_delta=-999)
+        b["public"]["withdraw_addr"] = "dest"
+        r = st.apply_blob(b, SENDER, "w2")
+        assert "escrow cannot cover" in r, f"a withdrawal drained more than the contract held: {r}"
+        assert st.bridge[CID] == 10, "a refused withdrawal moved escrow"
+        assert not st.app_state.nullifiers, "a refused withdrawal spent the note"
+
+
+def t_a_withdrawal_must_name_a_destination():
+    with _Transparent():
+        st = _state()
+        st.bridge[SENDER] = 500
+        assert st.apply_blob(_blob(st, [], [([10], S.owner_of(NSK), 1)], public_delta=10),
+                             SENDER, "d3").startswith("private_call ")
+        r = st.apply_blob(_blob(st, [([10], NSK, 1)], [], public_delta=-10), SENDER, "w3")
+        assert r == "skip private_call: withdrawal names no destination", \
+            f"an unaddressed withdrawal was accepted: {r}"
+
+
+def t_the_destination_is_bound_into_the_statement():
+    """H-4, inherited from the pool: with withdraw_addr outside the proven message a front-runner could
+    copy the blob, swap only the address, and redirect the exit."""
+    a = {"cid": CID, "kind": S.KIND_VALUE, "nullifiers": [1], "out_commitments": [],
+         "public_delta": -10, "withdraw_addr": "victim"}
+    b = dict(a, withdraw_addr="attacker")
+    assert S.transition_sighash(a) != S.transition_sighash(b), \
+        "the withdrawal destination is not bound — an exit can be redirected"
 
 
 def t_unknown_contract_is_refused():
