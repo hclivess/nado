@@ -466,12 +466,24 @@ def transitions():
     def c_bind(sel, val):
         return lambda cur, nxt, per: F.mul(per[sel], F.sub(cur[ACC], cur[val]))
 
+    # ORDER MUST MATCH TRANSITION_NAMES. The names exist so a test can assert WHICH constraint catches a
+    # given tamper, not merely that something did — without that, every constraint here could be deleted
+    # one at a time with the suite still green, because the remaining ones cover for whichever is missing.
+    # Measured: before the names, all eight constraints probed were individually removable in silence.
     return [c_s1, c_s0, c_ab, c_carry, c_own, c_nf, c_root,
             c_hold(NSK), c_hold(RHO), c_hold(VIN), c_hold(VOUT),
             c_sib, c_dir, c_dirbit, c_cons,
             c_rng_acc, c_rng_reset, c_rng_top,
             c_bit(RB0), c_bit(RB1), c_bit(RB2), c_bit(RB3),
             c_bind(RBIND_VIN, VIN), c_bind(RBIND_VOUT, VOUT)]
+
+
+TRANSITION_NAMES = ("c_s1", "c_s0", "c_ab", "c_carry", "c_own", "c_nf", "c_root",
+                    "hold_NSK", "hold_RHO", "hold_VIN", "hold_VOUT",
+                    "c_sib", "c_dir", "c_dirbit", "c_cons",
+                    "rng_acc", "rng_reset", "rng_top",
+                    "bit_RB0", "bit_RB1", "bit_RB2", "bit_RB3",
+                    "bind_VIN", "bind_VOUT")
 
 
 # ---- prove / verify -----------------------------------------------------------------------------------

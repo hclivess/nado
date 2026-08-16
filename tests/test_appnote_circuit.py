@@ -63,14 +63,20 @@ def _build(D=4):
 
 
 def _violations(tr, T, per, cons=None):
-    """{constraint index: [rows]} — the diagnostic an FRI failure cannot give you."""
+    """{constraint NAME: [rows]} — the diagnostic an FRI failure cannot give you.
+
+    Keyed by name rather than index so a tamper check can name the constraint that must catch it. That
+    distinction is not cosmetic: with checks that only asserted SOMETHING was violated, every constraint in
+    the AIR could be deleted one at a time and the suite stayed green, because the remaining ones caught
+    the crude trace edits anyway. Measured, before this changed: eight for eight removable in silence."""
     cons = cons or AC.transitions()
+    assert len(cons) == len(AC.TRANSITION_NAMES), "TRANSITION_NAMES is out of step with transitions()"
     bad = {}
     for r in range(T - 1):
         cur, nxt, prow = tr[r], tr[r + 1], [c[r] for c in per]
         for i, c in enumerate(cons):
             if c(cur, nxt, prow) != 0:
-                bad.setdefault(i, []).append(r)
+                bad.setdefault(AC.TRANSITION_NAMES[i], []).append(r)
     return bad
 
 
@@ -122,15 +128,19 @@ def t_every_constraint_holds_at_every_row():
 
 
 # ---- and a tampered one does not --------------------------------------------------------------------
-def _expect_violation(mutate, what):
+def _expect_violation(mutate, what, by):
+    """`by` NAMES the constraint that must catch this tamper. Asserting only that something caught it is
+    what let every constraint be individually removable — the others simply covered."""
     w, tr, T, per, root, nf, cm_out = _build()
     mutate(tr, per, AC.geometry(1, 4))
-    assert _violations(tr, T, per), f"{what} was not caught by any constraint"
+    bad = _violations(tr, T, per)
+    assert bad, f"{what} was not caught by any constraint"
+    assert by in bad, f"{what} was caught by {sorted(bad)} but NOT by {by}, which is the one that must"
 
 
 def t_tampering_with_the_spent_amount_is_caught():
     _expect_violation(lambda tr, per, g: [row.__setitem__(AC.VIN, row[AC.VIN] + 1) for row in tr],
-                      "changing the input amount")
+                      "changing the input amount", by="c_s0")
 
 
 def t_breaking_conservation_is_caught():
@@ -138,14 +148,14 @@ def t_breaking_conservation_is_caught():
     def m(tr, per, g):
         for row in tr:
             row[AC.VOUT] = F.add(row[AC.VOUT], 1)      # v_out changed, CONS left alone
-    _expect_violation(m, "breaking value conservation")
+    _expect_violation(m, "breaking value conservation", by="c_cons")
 
 
 def t_a_secret_register_that_changes_mid_trace_is_caught():
     def m(tr, per, g):
         for row in tr[g["com_end"]:]:
             row[AC.NSK] = F.add(row[AC.NSK], 1)        # a different nsk for the nullifier than the commitment
-    _expect_violation(m, "swapping nsk mid-trace")
+    _expect_violation(m, "swapping nsk mid-trace", by="hold_NSK")
 
 
 def t_relabelling_the_contract_is_caught():
@@ -166,20 +176,20 @@ def t_a_forged_merkle_sibling_is_caught():
     def m(tr, per, g):
         for row in tr[g["merk"]:g["out_start"]]:
             row[AC.SIB] = F.add(row[AC.SIB], 1)
-    _expect_violation(m, "forging a membership sibling")
+    _expect_violation(m, "forging a membership sibling", by="c_s0")
 
 
 def t_a_non_boolean_direction_is_caught():
     def m(tr, per, g):
         for row in tr[g["merk"]:g["out_start"]]:
             row[AC.DIR] = 7                            # not 0/1 -> the child interpolation is not a swap
-    _expect_violation(m, "a non-boolean path direction")
+    _expect_violation(m, "a non-boolean path direction", by="c_dirbit")
 
 
 def t_a_non_bit_range_column_is_caught():
     def m(tr, per, g):
         tr[g["out_end"] + 2][AC.RB0] = 5               # the soundness hinge of the decomposition
-    _expect_violation(m, "a non-boolean range bit")
+    _expect_violation(m, "a non-boolean range bit", by="bit_RB0")
 
 
 # ---- the real thing: a proof, and everything a verifier must refuse ---------------------------------
