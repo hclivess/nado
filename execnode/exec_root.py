@@ -41,6 +41,12 @@ DOM_REC = 8                       # record-position domain (exec_state_bind DOM_
 T_BRIDGE_BAL, T_DIV_BAL, T_BRIDGE_WD, T_DIV_WD, T_UNSHIELD_WD, T_DIGEST, T_KVX = 1, 2, 3, 4, 5, 6, 7
 T_ASSET_BAL, T_ASSET_META = 8, 9   # (asset, holder) -> balance, and asset -> a digest of its metadata
 T_ASSET_ALLOW = 10                 # (asset, owner, spender) -> allowance (delegated-spend authorization)
+# SHIELDED CONTRACTS (execnode/shielded_state.py). Private application state enters the settled root the
+# same way the two pools already do — as a digest IN THE POSITION — so a contract's private note root is
+# provable against one settled root by the SAME bounded verifier as a bridge balance. Appending these two
+# is the whole state-binding cost of the feature: tags 1-10 do not move, so no historical root is
+# invalidated and no CHAIN_GENERATION reroll is required.
+T_APP_ROOT, T_APP_NULL = 11, 12    # (cid, note root) -> 1, and the spent-nullifier set digest -> 1
 
 
 def _limbs(part):
@@ -150,6 +156,26 @@ def records_projection(st):
     out[record_key(T_DIGEST, "field_root", str(int(st.field_pool.root()) % F.P))] = 1
     out[record_key(T_DIGEST, "field_nfset",
                    blake2b_hash(["field_nfset", *sorted(str(n) for n in st.field_pool.nullifiers)]))] = 1
+    # SHIELDED CONTRACTS: one record per contract that holds private state, plus one for the spent set.
+    # getattr, because an exec state built before this feature simply has no pool and must project to the
+    # same root it always did — an absent attribute is not an empty pool, it is "this half is unchanged".
+    # Roots go in the POSITION rather than the value for the reason the module header gives: a note root is
+    # a 64-bit field element, and a 64-bit value would bound binding far below the position's 256 bits.
+    #
+    # EMPTY IS ABSENT, and this is the load-bearing part. If the feature emitted a record unconditionally —
+    # even just the digest of an empty nullifier set — then every node's state root would move the instant
+    # the code shipped, and a fleet that upgrades over minutes rather than atomically would split. Emitting
+    # nothing until a contract actually holds private state makes the projection byte-identical to today's
+    # on a chain that has none, so this ships as an ordinary update: no activation height, no reroll. It is
+    # the same "zero == absent" convention the withdrawal records already use.
+    app = getattr(st, "app_state", None)
+    if app is not None:
+        for cid in sorted(app.trees):                       # sorted: the projection is order-independent,
+            if not app.trees[cid]:                          # but a stable walk keeps diffs readable
+                continue                                    # a contract with no notes contributes nothing
+            out[record_key(T_APP_ROOT, cid, str(int(app.root(cid)) % F.P))] = 1
+        if app.nullifiers:
+            out[record_key(T_APP_NULL, app.nullifier_digest())] = 1
     for _s, msg in st.outbox.items():
         out[record_key(T_DIGEST, "outbox", leaf_digest(msg_outbox_leaf(msg)))] = 1
     for i, msg in enumerate(st.inbox):
