@@ -382,7 +382,32 @@ what knows that its loader wants the library at the crate root rather than in `t
 
 Verified by checking the branch out fresh and running it: one command, then every suite green.
 
-## 15. Files
+## 15. Are the tests load-bearing?
+
+A passing test is evidence only if it would fail when the thing it tests is broken. This branch found the
+counter-example the hard way: a test that hashed two statements and asserted the digests differed, claiming
+to prove the withdrawal destination was bound. It passed, it proved nothing, and the helper it exercised
+was dead code.
+
+`tests/mutation_check.py` breaks each guard in turn and requires the suite that covers it to go red:
+
+| guard broken | suite | result |
+|---|---|---|
+| duplicate-commitment guard | replay | CAUGHT |
+| delta bound | replay | CAUGHT |
+| arity pin | replay | CAUGHT |
+| depth pin | replay | CAUGHT |
+| destination validation | replay | CAUGHT |
+| empty-is-absent projection | root | CAUGHT |
+| nullifier-set absence | root | CAUGHT |
+| geometry bound (circuit) | replay | CAUGHT |
+| transparent-path switch | state | CAUGHT |
+| no-mutation-on-rejection | atomicity | CAUGHT |
+
+Ten for ten, working tree clean afterwards. Every one of those guards exists because of a specific defect
+found on this branch; this establishes that removing any of them is noticed.
+
+## 16. Files
 
 | | |
 |---|---|
