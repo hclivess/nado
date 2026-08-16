@@ -2060,9 +2060,13 @@ prov_states = None
 PROV_MAX_TAIL = 64          # cap the speculative tail depth (bounds work if this node is far behind the tip)
 
 # Blob ops whose proof rides the DA layer rather than L1: op -> the payload field the fetched bytes are
-# injected into before apply_blob sees them. Both proofs are far past the 64 KiB blob cap (a shielded
-# transfer 1-4 MB, a private-call transition proof ~20 MiB), so the blob carries a commitment and the bytes
-# travel k-of-n. Adding an op here is all it takes to give it the same all-or-nothing stall semantics.
+# injected into before apply_blob sees them. Both proofs are far past the 64 KiB blob cap — a shielded
+# transfer 1-4 MB per doc/privacy.md, and a private-call transition proof MEASURED at 24.7 MiB against a
+# 183-byte public statement — so the blob carries a commitment and the bytes travel k-of-n.
+#
+# ONE TABLE, not two branches, because the all-or-nothing stall in _apply_block is what keeps every node
+# applying the identical bundle: a per-op difference there is a fork. Adding an op here is all it takes to
+# give it those semantics.
 _DA_BLOB_OPS = {"field_transfer": "bundle_json", "private_call": "proof_json"}
 
 
@@ -2077,11 +2081,7 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
     resolved = {}
     for tx in block.get("block_transactions", []):
         d = tx.get("data")
-        # WHICH OPS RIDE DA, and the field each one's bytes are injected back into. Both carry a STARK far
-        # past the 64 KiB blob cap (a shielded transfer 1-4 MB, a private-call proof ~20 MiB), so L1 carries
-        # only the commitment and the bytes travel k-of-n. One table rather than two branches: the
-        # all-or-nothing stall below is the property that keeps every node applying the identical bundle,
-        # and it must not come to differ between ops.
+        # Which ops ride DA, and the field each one's bytes are injected back into — see _DA_BLOB_OPS.
         inject = _DA_BLOB_OPS.get(d.get("op")) if isinstance(d, dict) else None
         if (tx.get("recipient") == "blob" and isinstance(d, dict)
                 and inject and d.get("proof_da") and inject not in d):
