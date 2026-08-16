@@ -407,6 +407,13 @@ was dead code.
 Ten for ten, working tree clean afterwards. Every one of those guards exists because of a specific defect
 found on this branch; this establishes that removing any of them is noticed.
 
+**The AIR gets the same treatment, and initially failed it.** Dropping any of eight constraints probed left
+the circuit suite green, because the tamper checks asserted only that *something* objected — so the
+remaining constraints covered for whichever was missing. Each tamper now names the constraint that must
+catch it, and a table supplies one tamper per constraint with a bookkeeping check that none is left
+unpinned. Verified by neutering each constraint **in place** (body replaced by a constant zero, list length
+untouched, so the length guard cannot be what notices): **24 of 24 caught**.
+
 ## 16. Files
 
 | | |

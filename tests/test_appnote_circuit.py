@@ -192,6 +192,65 @@ def t_a_non_bit_range_column_is_caught():
     _expect_violation(m, "a non-boolean range bit", by="bit_RB0")
 
 
+# ---- one tamper per constraint, so none of them is inert -------------------------------------------
+# Each entry breaks ONE cell and names the constraint that must object. Multiple constraints may fire —
+# the sponge lanes are coupled — so the assertion is that the NAMED one is among them, which is what makes
+# a constraint that has been neutered detectable. Without this table every constraint in the AIR was
+# individually deletable with the suite still green.
+def _cell(col, at, delta=1):
+    """Bump one column at one row — the smallest edit that isolates a constraint."""
+    def m(tr, per, g):
+        tr[at(g)][col] = F.add(tr[at(g)][col], delta)
+    return m
+
+
+CONSTRAINT_TAMPERS = [
+    ("c_s1",      _cell(AC.S1, lambda g: g["own_end"] + 5)),
+    ("c_s0",      _cell(AC.S0, lambda g: g["own_end"] + 5)),
+    ("c_ab",      _cell(AC.AB, lambda g: g["own_end"] + 5)),
+    ("c_own",     _cell(AC.OWN, lambda g: g["com_end"] + 3)),
+    ("c_carry",   _cell(AC.CARRY, lambda g: g["nul_end"] - 3)),
+    ("c_nf",      _cell(AC.NFREG, lambda g: g["nul_end"] + 3)),
+    ("c_root",    _cell(AC.ROOTREG, lambda g: g["out_end"] - 3)),
+    ("c_sib",     _cell(AC.SIB, lambda g: g["merk"] + 5)),
+    ("c_dir",     _cell(AC.DIR, lambda g: g["merk"] + 5)),
+    ("hold_NSK",  _cell(AC.NSK, lambda g: g["com_end"] + 1)),
+    ("hold_RHO",  _cell(AC.RHO, lambda g: g["com_end"] + 1)),
+    ("hold_VIN",  _cell(AC.VIN, lambda g: g["com_end"] + 1)),
+    ("hold_VOUT", _cell(AC.VOUT, lambda g: g["com_end"] + 1)),
+    ("c_cons",    _cell(AC.CONS, lambda g: g["own_end"])),
+    ("rng_acc",   _cell(AC.ACC, lambda g: g["out_end"] + 3)),
+    ("rng_reset", _cell(AC.ACC, lambda g: g["out_end"])),
+    ("rng_top",   _cell(AC.RB0, lambda g: g["out_end"])),
+    ("bit_RB1",   _cell(AC.RB1, lambda g: g["out_end"] + 2, delta=5)),
+    ("bit_RB2",   _cell(AC.RB2, lambda g: g["out_end"] + 2, delta=5)),
+    ("bit_RB3",   _cell(AC.RB3, lambda g: g["out_end"] + 2, delta=5)),
+    ("bind_VIN",  _cell(AC.ACC, lambda g: g["out_end"] + AC.RNG_NIBBLES)),
+    ("bind_VOUT", _cell(AC.ACC, lambda g: g["out_end"] + AC.RNG_BLOCK + AC.RNG_NIBBLES)),
+]
+
+
+def t_every_constraint_is_load_bearing():
+    """One tamper per constraint, each naming its own. A constraint nothing names can be neutered in
+    silence — which was true of the entire AIR until this table existed."""
+    missing = []
+    for name, mutate in CONSTRAINT_TAMPERS:
+        w, tr, T, per, root, nf, cm_out = _build()
+        mutate(tr, per, AC.geometry(1, 4))
+        bad = _violations(tr, T, per)
+        if name not in bad:
+            missing.append(f"{name} (caught instead by {sorted(bad) or 'NOTHING'})")
+    assert not missing, "tampers not caught by the constraint that should: " + "; ".join(missing)
+
+
+def t_no_constraint_is_left_unpinned():
+    """Bookkeeping, so a constraint added later cannot arrive without a tamper naming it."""
+    # bit_RB0 and c_dirbit are named by their own dedicated checks above rather than by the table.
+    named = {n for n, _ in CONSTRAINT_TAMPERS} | {"bit_RB0", "c_dirbit"}
+    unpinned = set(AC.TRANSITION_NAMES) - named
+    assert not unpinned, f"constraints with no tamper naming them: {sorted(unpinned)}"
+
+
 # ---- the real thing: a proof, and everything a verifier must refuse ---------------------------------
 # ~25 s (prove ~18, verify ~7). Everything above is a fast structural check; this is the one that proves
 # the structure actually composes into a sound proof. Set FAST=1 to skip it while iterating.
