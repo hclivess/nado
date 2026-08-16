@@ -2059,6 +2059,12 @@ async def _get_json(session, path):
 prov_states = None
 PROV_MAX_TAIL = 64          # cap the speculative tail depth (bounds work if this node is far behind the tip)
 
+# Blob ops whose proof rides the DA layer rather than L1: op -> the payload field the fetched bytes are
+# injected into before apply_blob sees them. Both proofs are far past the 64 KiB blob cap (a shielded
+# transfer 1-4 MB, a private-call transition proof ~20 MiB), so the blob carries a commitment and the bytes
+# travel k-of-n. Adding an op here is all it takes to give it the same all-or-nothing stall semantics.
+_DA_BLOB_OPS = {"field_transfer": "bundle_json", "private_call": "proof_json"}
+
 
 async def _apply_block(session, states_map, default_state, block, verbose=True):
     """Apply ONE L1 block's exec-relevant txs — blobs to their namespace in states_map, bridge/shield to
@@ -2071,8 +2077,14 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
     resolved = {}
     for tx in block.get("block_transactions", []):
         d = tx.get("data")
+        # WHICH OPS RIDE DA, and the field each one's bytes are injected back into. Both carry a STARK far
+        # past the 64 KiB blob cap (a shielded transfer 1-4 MB, a private-call proof ~20 MiB), so L1 carries
+        # only the commitment and the bytes travel k-of-n. One table rather than two branches: the
+        # all-or-nothing stall below is the property that keeps every node applying the identical bundle,
+        # and it must not come to differ between ops.
+        inject = _DA_BLOB_OPS.get(d.get("op")) if isinstance(d, dict) else None
         if (tx.get("recipient") == "blob" and isinstance(d, dict)
-                and d.get("op") == "field_transfer" and d.get("proof_da") and "bundle_json" not in d):
+                and inject and d.get("proof_da") and inject not in d):
             # A MALFORMED proof_da (path chars -> DaStore._dir raises) or non-UTF-8 DA bytes are NOT a
             # temporarily-unavailable proof — they are a permanently-bad tx, so SKIP it (apply_blob then
             # no-ops the field_transfer) rather than stall or crash the whole block forever. `bb is None`
@@ -2082,12 +2094,12 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
                 bb = await da_fetch(session, d["proof_da"])
                 if bb is None:
                     if verbose:
-                        print(f"[execnode] block {h}: a field_transfer proof is UNAVAILABLE via DA — stalling at {h}", flush=True)
+                        print(f"[execnode] block {h}: a {d['op']} proof is UNAVAILABLE via DA — stalling at {h}", flush=True)
                     return False
-                resolved[tx.get("txid")] = bb.decode()
+                resolved[tx.get("txid")] = (inject, bb.decode())
             except Exception as e:
                 if verbose:
-                    print(f"[execnode] block {h}: skipping field_transfer with bad DA proof ({type(e).__name__})", flush=True)
+                    print(f"[execnode] block {h}: skipping {d.get('op')} with bad DA proof ({type(e).__name__})", flush=True)
     for tx in block.get("block_transactions", []):
       # PER-TX GUARD (halt-class, audit 2026-07): this DISPATCH code — not apply_blob, which is already
       # fully guarded — used a payload field (`ns`) as a dict key with no type check, so a blob carrying an
@@ -2097,7 +2109,8 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
       # cursor regardless (a block from history, or any future field this loop reads without checking).
       try:
         if tx.get("txid") in resolved and isinstance(tx.get("data"), dict):
-            tx = {**tx, "data": {**tx["data"], "bundle_json": resolved[tx["txid"]]}}
+            _field, _bytes = resolved[tx["txid"]]
+            tx = {**tx, "data": {**tx["data"], _field: _bytes}}
         r = tx.get("recipient")
         if r == "blob":
             d = tx.get("data")

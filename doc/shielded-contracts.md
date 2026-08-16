@@ -87,7 +87,32 @@ over minutes rather than atomically would split. This project has been there twi
 change altered the genesis root and wedged the fleet, and a prune watermark leaking into the root split it
 at h10047. A chain with no private state therefore projects byte-identically, on disk and in the root.
 
-## 6. `op: private_call`, and why it is not `op: call`
+## 6. Transport: the proof rides DA, L1 carries a commitment
+
+MEASURED: a transition proof is **24.7 MiB**; the public statement it proves is **183 bytes**. The blob cap
+is 64 KiB, so the proof cannot ride L1 and does not try to. The blob carries the public statement plus a DA
+commitment; the bytes travel Reed-Solomon k-of-n with a PQ Merkle commitment, and any k shards
+reconstruct trustlessly — every `(shard, proof)` self-verifies, so a set salted with bad shards needs k
+GOOD ones rather than being corrupted by the bad.
+
+This is not a new mechanism. Shielded transfers already ride exactly this path, and `private_call` was
+added to the **same** op table (`_DA_BLOB_OPS` in `execnode/execnode.py`) rather than given its own
+resolver:
+
+```
+_DA_BLOB_OPS = {"field_transfer": "bundle_json", "private_call": "proof_json"}
+```
+
+The property that table protects is **all-or-nothing**: `_apply_block` resolves every DA-carried proof in a
+block BEFORE mutating anything, and an unavailable proof stalls the block in L1 order rather than
+half-applying it. Every honest node fetches the identical bundle by commitment, so all of them apply the
+same thing or none of it. A per-op difference there would be a fork, which is precisely why there is one
+table and not two branches.
+
+L1 admission already validates `proof_da` for **any** blob payload, op-agnostically, so private calls
+inherit the path-traversal guard for free.
+
+## 7. `op: private_call`, and why it is not `op: call`
 
 `calls_commit.block_calls` collects only `op == "call"` into the settlement calls list, and a call the
 chain skips or reverts makes the **whole span unprovable** (ROADMAP, 2026-08-06). A private call is
@@ -119,7 +144,7 @@ rather than rediscovered: with the destination outside the proven message, a fro
 victim's blob, swap only the address for their own, land it first, and the proof would still verify
 because the address was not in what it committed to.
 
-## 7. Phased, like the pool it extends
+## 8. Phased, like the pool it extends
 
 - **Phase 1 — built.** `verify_transition` re-checks openings, membership, nullifier and commitment
   derivation in the clear. Sound — no double-spend, no forged membership, no predicate violation — but not
@@ -139,7 +164,7 @@ because the address was not in what it committed to.
   prover ships, the honest phrasing is "private except from the operator". The kernels are already native
   Rust, so this is a target and a witness-generation path, not a new prover.
 
-## 8. Measured, 2026-08-16
+## 9. Measured, 2026-08-16
 
 Taken on this box against `joinsplit_circuit` — the circuit the private-transition AIR generalises — so
 these are the numbers the design is built on rather than guesses.
@@ -173,7 +198,7 @@ largest tree that costs nothing extra — chosen by measurement, not by taste. D
 to the client-side question: a phone is not this box. The Phase-3 decision (WASM prover vs. a blind
 delegated one) should be made against a measured phone number, not this one.
 
-## 9. What would sink it
+## 10. What would sink it
 
 Proving cost, not cryptography. Putting a private call through the VM AIR multiplies the trace by every
 step of the call, and this chain has already met the ceiling from the other side — a settle span of 119
@@ -181,7 +206,7 @@ record updates was declined on 2026-08-16 because the proof would have been ~1 7
 `SETTLE_INLINE_MAX` and taken ~5 355 s to build. The 13 s above is for a ONE-note transition with a fixed
 statement; a general private call is strictly more.
 
-## 10. Files
+## 11. Files
 
 | | |
 |---|---|
