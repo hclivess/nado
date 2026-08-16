@@ -51,7 +51,7 @@ from hashing import blake2b_hash
 # The circuit sits lower in the import graph (it must not import the state machine back), so that is the
 # end that owns them.
 from execnode.stark import appnote_circuit as AC
-from execnode.stark.appnote_circuit import DOM_APPCM, DOM_APPNF
+from execnode.stark.appnote_circuit import DOM_APPCM, DOM_APPNF, MAX_FIELDS
 
 # 2^18 = 262,144 notes per contract — the LARGEST depth whose trace still fits T=2048, measured against
 # THIS circuit's geometry rather than the join-split's.
@@ -71,7 +71,6 @@ TREE_DEPTH = 18
 ANCHOR_WINDOW = 128                 # recent roots a proof may target, per contract (mirrors the pool)
 EMPTY_LEAF = 0
 
-MAX_FIELDS = 16                     # arity ceiling per note — bounds the sponge and therefore the trace
 MAX_INPUTS = 4                      # notes one transition may spend
 MAX_OUTPUTS = 4                     # notes one transition may create
 

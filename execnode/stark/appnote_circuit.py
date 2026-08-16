@@ -56,6 +56,17 @@ RNG_VALUES = 2
 OWN_END = 2 * R                              # OWNER = [DOM_OWNER, nsk]
 NUL_ELEMS = 3                                # NULLIFIER = [DOM_APPNF, nsk, cm_in]
 
+# GEOMETRY BOUNDS, enforced HERE because this is where the geometry is CONSUMED. verify() reads arity and
+# depth from the proof — attacker-supplied — and builds NPER periodic columns of length trace_len(arity, D)
+# from them. Unbounded, a declared arity of 10^6 asks for a 67M-row trace and ~49 GB of columns; a declared
+# depth of 10^6 asks for ~98 GB. Neither is reachable through private_call, because the state machine pins
+# arity against KIND_ARITY and depth against TREE_DEPTH before calling — but that guard lives in the
+# CALLER, and a verifier that allocates from numbers a stranger chose has to bound them itself. Any other
+# caller of this module gets no protection from a check it does not run.
+MAX_FIELDS = 16                              # arity ceiling; shielded_state imports this rather than
+                                             # keeping a second copy (the domain-tag pattern)
+MAX_DEPTH = 32                               # matches the pool's SHIELD_DEPTH — generous, and finite
+
 
 def cm_elems(arity):
     """Elements a note-commitment sponge absorbs: DOM, cid, kind, arity, <arity fields>, owner, rho."""
@@ -497,8 +508,9 @@ def verify(proof, cid_el, kind, root, nf, cm_out, public_delta, root_is_known, a
         D, arity = int(proof["D"]), int(proof["arity"])
     except (KeyError, TypeError, ValueError):
         return False, "proof does not declare its geometry"
-    if D < 1 or arity < 1:
-        return False, "degenerate geometry"
+    if not (1 <= arity <= MAX_FIELDS) or not (1 <= D <= MAX_DEPTH):
+        return False, (f"geometry out of range (arity 1..{MAX_FIELDS}, depth 1..{MAX_DEPTH}) — refused "
+                       f"before building any column")
     if int(proof.get("T", -1)) != trace_len(arity, D):
         return False, "trace length does not match the declared geometry"
     if not root_is_known(root):
@@ -652,8 +664,9 @@ def verify_deposit(proof, cid_el, kind, cm_out, public_delta, aux=None):
         arity = int(proof["arity"])
     except (KeyError, TypeError, ValueError):
         return False, "proof does not declare its geometry"
-    if arity < 1:
-        return False, "degenerate geometry"
+    if not (1 <= arity <= MAX_FIELDS):
+        return False, (f"geometry out of range (arity 1..{MAX_FIELDS}) — refused before building any "
+                       f"column")
     if int(proof.get("T", -1)) != deposit_trace_len(arity):
         return False, "trace length does not match the declared geometry"
     if int(public_delta) <= 0:

@@ -355,6 +355,40 @@ def t_tree_depth_is_the_largest_free_depth():
     assert len(sibs) == S.TREE_DEPTH == len(dirs), "the pool's path depth differs from TREE_DEPTH"
 
 
+# ---- the verifier must not allocate from numbers a stranger chose ------------------------------------
+# verify() reads arity and depth from the PROOF and builds NPER periodic columns of length
+# trace_len(arity, D) from them. Unbounded, a declared arity of 10^6 asks for a 67M-row trace (~49 GB of
+# columns) and a declared depth of 10^6 asks for ~98 GB. The state machine pins both before calling — but
+# that guard lives in the CALLER, and the allocation happens in the callee.
+def t_an_absurd_geometry_is_refused_before_anything_is_built():
+    import time
+    from execnode.stark import appnote_circuit as AC
+    for label, proof in [("arity 10^6", {"arity": 10 ** 6, "D": 18}),
+                         ("depth 10^6", {"arity": 1, "D": 10 ** 6}),
+                         ("arity MAX+1", {"arity": AC.MAX_FIELDS + 1, "D": 18}),
+                         ("depth MAX+1", {"arity": 1, "D": AC.MAX_DEPTH + 1})]:
+        proof["T"] = AC.trace_len(proof["arity"], proof["D"])   # a T that MATCHES, so that check passes
+        t0 = time.time()
+        ok, why = AC.verify(proof, 1, 1, 0, 0, 0, 0, lambda r: True)
+        assert not ok and "out of range" in why, f"{label} was not refused: {why}"
+        assert time.time() - t0 < 1.0, f"{label} took real work to refuse — something was allocated"
+
+
+def t_the_deposit_verifier_bounds_arity_too():
+    from execnode.stark import appnote_circuit as AC
+    p = {"deposit": True, "arity": 10 ** 6}
+    p["T"] = AC.trace_len(p["arity"], 1)
+    ok, why = AC.verify_deposit(p, 1, 1, 0, 5)
+    assert not ok and "out of range" in why, f"the deposit verifier accepted an absurd arity: {why}"
+
+
+def t_max_fields_has_one_definition():
+    """It was defined in both the circuit and the state machine. A bound that exists twice is a bound that
+    can disagree with itself — the same reason the domain tags live in one place."""
+    from execnode.stark import appnote_circuit as AC
+    assert S.MAX_FIELDS is AC.MAX_FIELDS, "MAX_FIELDS has drifted into two definitions"
+
+
 for name, fn in list(globals().items()):
     if name.startswith("t_"):
         check(name[2:].replace("_", " "), fn)

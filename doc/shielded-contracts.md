@@ -190,6 +190,24 @@ Depth is pinned the same way. A membership proof at any depth but the pool's cou
 root by hash collision, but "collision-resistance stops it" is the wrong argument for something the
 verifier can simply check, and it would silently become the *only* argument the day `TREE_DEPTH` changed.
 
+### The verifier bounds the geometry it is handed
+
+`verify` reads arity and depth from the **proof** and builds `NPER` periodic columns of length
+`trace_len(arity, D)` from them. Computed, not allocated:
+
+| declared | trace | periodic cells | implied |
+|---|---|---|---|
+| arity 1, depth 18 | 2 048 | 53 248 | — |
+| arity 10⁶, depth 18 | 67 108 864 | 1 744 830 464 | ~49 GB |
+| arity 1, depth 10⁶ | 134 217 728 | 3 489 660 928 | ~98 GB |
+
+Not reachable through `private_call` — the state machine pins arity against `KIND_ARITY` and depth against
+`TREE_DEPTH` before calling. But **that guard lives in the caller and the allocation happens in the
+callee**, so any other user of the circuit gets no protection from a check it does not run. `MAX_FIELDS`
+and `MAX_DEPTH` are now enforced in the verifier itself, before a single column is built; the refusal takes
+0.000 s. `MAX_FIELDS` also had two definitions and now has one — a bound that exists twice is a bound that
+can disagree with itself.
+
 ## 8. What the chain commits
 
 `execnode/exec_root.py` tags **11** (`T_APP_ROOT`, per contract) and **12** (`T_APP_NULL`, the spent-set
