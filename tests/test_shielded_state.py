@@ -143,15 +143,19 @@ def t_the_stark_seam_is_live_and_rejects_a_bogus_proof():
     assert "transparent" not in r, f"a stark blob fell through to the transparent path: {r}"
 
 
-def t_a_transition_with_more_than_one_note_has_no_circuit_yet():
-    """The circuit proves exactly 1-in/1-out. A multi-note statement must be refused rather than silently
-    verified against whichever note the circuit happened to look at."""
+def t_a_shape_with_no_circuit_is_refused():
+    """Two statements exist: a deposit (0-in/1-out, delta > 0) and a transition (1-in/1-out). Anything
+    else must be refused rather than silently verified against whichever note a circuit looked at."""
     p = S.ShieldedStatePool()
-    r = S.verify_transition({"cid": CID, "kind": S.KIND_VALUE, "root": p.root(CID),
-                             "nullifiers": [1, 2], "out_commitments": [3, 4]},
-                            {"stark": {"anything": 1}}, p)
-    assert r == "the transition circuit proves exactly one input and one output", \
-        f"a multi-note transition reached the circuit: {r}"
+    for shape, pub in [
+        ("2-in/2-out", {"nullifiers": [1, 2], "out_commitments": [3, 4], "public_delta": 0}),
+        ("0-in/1-out with no value entering", {"nullifiers": [], "out_commitments": [3], "public_delta": 0}),
+        ("0-in/1-out draining value", {"nullifiers": [], "out_commitments": [3], "public_delta": -5}),
+        ("1-in/0-out", {"nullifiers": [1], "out_commitments": [], "public_delta": 0}),
+    ]:
+        r = S.verify_transition({"cid": CID, "kind": S.KIND_VALUE, "root": p.root(CID), **pub},
+                                {"stark": {"anything": 1}}, p)
+        assert r is not None and "no circuit for this shape" in r, f"{shape} reached a circuit: {r}"
 
 
 # ---- the transitions themselves (with the switch forced on, as dev/test) -----------------------------

@@ -106,7 +106,23 @@ The range bound is not decoration. Conservation over the field is conservation *
 `P ≈ 2^64` is barely above the coin range — without it, an output near `P` balances mod P and mints value
 from nothing. It is the same attack the pool's C-3 in-circuit range gadget exists to stop.
 
-## 7. What the chain commits
+## 7. A commitment is unique, and that is a fund-lock guard
+
+Found by attacking the finished system rather than by any of the 86 checks that existed when it was
+"done" — every one of those exercised it working, not an adversary reusing a valid artefact.
+
+A deposit is 0-in/1-out: it has **no nullifier**, because there is nothing to spend. Nothing about its
+proof or public statement is therefore consumed, so both are **infinitely replayable**. Each replay
+appended the same commitment again — and since `nf = H(nsk, cm)` depends only on the note, every copy
+shares ONE nullifier. Spend either and the rest are permanently unspendable while their value still sits
+in the contract's escrow: coins locked forever, and the turnstile broken with them (escrow counted value
+that could never be claimed).
+
+The fix is one rule, checked before either verifier runs: **a commitment is unique**, exactly as a
+nullifier is. It therefore covers deposits and transitions alike rather than only the path that exposed
+it, and an honest depositor pays nothing for it — fresh `rho` gives a fresh commitment.
+
+## 8. What the chain commits
 
 `execnode/exec_root.py` tags **11** (`T_APP_ROOT`, per contract) and **12** (`T_APP_NULL`, the spent-set
 digest). Both are digests **in the position**, value 1 — a note root is a 64-bit field element, and
@@ -122,7 +138,7 @@ over minutes rather than atomically would split. This project has been there twi
 change altered the genesis root and wedged the fleet, and a prune watermark leaking into the root split it
 at h10047. A chain with no private state therefore projects byte-identically, on disk and in the root.
 
-## 8. Transport: the proof rides DA, L1 carries a commitment
+## 9. Transport: the proof rides DA, L1 carries a commitment
 
 MEASURED: a transition proof is **24.7 MiB**; the public statement it proves is **183 bytes**. The blob cap
 is 64 KiB, so the proof cannot ride L1 and does not try to. The blob carries the public statement plus a DA
@@ -147,7 +163,7 @@ table and not two branches.
 L1 admission already validates `proof_da` for **any** blob payload, op-agnostically, so private calls
 inherit the path-traversal guard for free.
 
-## 9. `op: private_call`, and why it is not `op: call`
+## 10. `op: private_call`, and why it is not `op: call`
 
 `calls_commit.block_calls` collects only `op == "call"` into the settlement calls list, and a call the
 chain skips or reverts makes the **whole span unprovable** (ROADMAP, 2026-08-06). A private call is
@@ -179,7 +195,7 @@ rather than rediscovered: with the destination outside the proven message, a fro
 victim's blob, swap only the address for their own, land it first, and the proof would still verify
 because the address was not in what it committed to.
 
-## 10. Phased, like the pool it extends
+## 11. Phased, like the pool it extends
 
 - **Phase 1 — built.** `verify_transition` re-checks openings, membership, nullifier and commitment
   derivation in the clear. Sound — no double-spend, no forged membership, no predicate violation — but not
@@ -199,7 +215,7 @@ because the address was not in what it committed to.
   prover ships, the honest phrasing is "private except from the operator". The kernels are already native
   Rust, so this is a target and a witness-generation path, not a new prover.
 
-## 11. Measured, 2026-08-16
+## 12. Measured, 2026-08-16
 
 Taken on this box against `joinsplit_circuit` — the circuit the private-transition AIR generalises — so
 these are the numbers the design is built on rather than guesses.
@@ -233,7 +249,7 @@ largest tree that costs nothing extra — chosen by measurement, not by taste. D
 to the client-side question: a phone is not this box. The Phase-3 decision (WASM prover vs. a blind
 delegated one) should be made against a measured phone number, not this one.
 
-## 12. What would sink it
+## 13. What would sink it
 
 Proving cost, not cryptography. Putting a private call through the VM AIR multiplies the trace by every
 step of the call, and this chain has already met the ceiling from the other side — a settle span of 119
@@ -241,7 +257,7 @@ record updates was declined on 2026-08-16 because the proof would have been ~1 7
 `SETTLE_INLINE_MAX` and taken ~5 355 s to build. The 13 s above is for a ONE-note transition with a fixed
 statement; a general private call is strictly more.
 
-## 13. Files
+## 14. Files
 
 | | |
 |---|---|

@@ -196,6 +196,9 @@ class ShieldedStatePool:
         self.trees = {c: [int(x) % F.P for x in v] for c, v in (trees or {}).items()}
         self.nullifiers = set(int(n) % F.P for n in (nullifiers or []))
         self.anchors = {c: list(v) for c, v in (anchors or {}).items()}
+        # Membership index per contract, so has_commitment is O(1) rather than a scan. Derived state only:
+        # it is rebuilt from `trees` and never persisted, so it can never disagree with the committed tree.
+        self._cmset = {c: set(v) for c, v in self.trees.items()}
         for cid in self.trees:
             self._remember(cid, self.root(cid))
 
@@ -218,8 +221,23 @@ class ShieldedStatePool:
 
     def append(self, cid, cm):
         """Append a commitment to `cid`'s tree and register the resulting root as a valid anchor."""
-        self.trees.setdefault(cid, []).append(int(cm) % F.P)
+        cm = int(cm) % F.P
+        self.trees.setdefault(cid, []).append(cm)
+        self._cmset.setdefault(cid, set()).add(cm)
         self._remember(cid, self.root(cid))
+
+    def has_commitment(self, cid, cm):
+        """Is this exact commitment already in `cid`'s tree?
+
+        A COMMITMENT IS UNIQUE, exactly as a nullifier is, and for a reason that cost real money to find:
+        nf = H(nsk, cm) depends only on the note, so two identical commitments share ONE nullifier. Spend
+        either and the other becomes permanently unspendable while its value still sits in the contract's
+        escrow — a fund lock, and the turnstile invariant breaks with it. Deposits made this reachable: a
+        deposit has no nullifier, so its proof and public statement are infinitely replayable, and each
+        replay appended the same commitment again. Rejecting the duplicate closes it at the source, costs an
+        honest depositor nothing (fresh rho gives a fresh commitment), and applies to every path rather than
+        only the one that exposed it."""
+        return (int(cm) % F.P) in self._cmset.get(cid, ())
 
     def position(self, cid, cm):
         """Leaf index of `cm` in `cid`'s tree (the path witness needs it), or None if absent."""
@@ -316,6 +334,15 @@ def verify_transition(public, proof, pool):
 
     # The anchor the transition is built against. Read HERE, above both verifier paths, because both need
     # it — the STARK hands it to the circuit's root_is_known, the transparent path folds a path to it.
+    # NO DUPLICATE COMMITMENTS — see ShieldedStatePool.has_commitment for why this is a fund-lock guard
+    # and not hygiene. Checked here, before either verifier runs, so it holds for deposits and transitions
+    # alike and cannot be reached only through whichever path happens to be cheapest to replay.
+    if len(set(cms)) != len(cms):
+        return "duplicate output commitment within one transition"
+    for cm in cms:
+        if pool.has_commitment(cid, cm):
+            return "output commitment already exists (a replayed or reused note)"
+
     root = int(public.get("root", EMPTY_ROOT)) % F.P
 
     # ---- Phase 2: a STARK over the same statement, verified against `public` alone -------------------
