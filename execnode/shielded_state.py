@@ -50,6 +50,7 @@ from hashing import blake2b_hash
 # same tags this module hashes, and a second copy of a consensus constant is a second thing that can drift.
 # The circuit sits lower in the import graph (it must not import the state machine back), so that is the
 # end that owns them.
+from execnode.stark import appnote_circuit as AC
 from execnode.stark.appnote_circuit import DOM_APPCM, DOM_APPNF
 
 TREE_DEPTH = 20                     # 2^20 = 1,048,576 notes per contract. Proving cost is linear in depth,
@@ -173,6 +174,12 @@ def _predicate_value(in_fields, out_fields, public_delta):
 
 
 PREDICATES = {KIND_VALUE: _predicate_value}
+
+# Kinds whose predicate the CIRCUIT enforces, and therefore the only kinds a proof may be accepted for.
+# The two tables are deliberately separate: PREDICATES is what the transparent verifier evaluates, this is
+# what an AIR has built in. A kind can legitimately exist in the first and not the second — it simply has
+# no proving path yet — but the reverse would mean shipping a circuit for a rule nothing else agrees on.
+STARK_KINDS = {KIND_VALUE}
 
 
 # ---- the pool ----------------------------------------------------------------------------------------
@@ -307,8 +314,28 @@ def verify_transition(public, proof, pool):
         if pool.has_nullifier(nf):
             return "note already spent"
 
+    # The anchor the transition is built against. Read HERE, above both verifier paths, because both need
+    # it — the STARK hands it to the circuit's root_is_known, the transparent path folds a path to it.
+    root = int(public.get("root", EMPTY_ROOT)) % F.P
+
+    # ---- Phase 2: a STARK over the same statement, verified against `public` alone -------------------
     if proof.get("stark") is not None:
-        return "stark verification is not implemented yet (phase 2)"
+        if kind not in STARK_KINDS:
+            # A kind whose predicate the CIRCUIT does not enforce must never take this path. The
+            # transparent verifier runs PREDICATES explicitly; the proof path relies on the AIR having the
+            # rule built in, so accepting a proof for a kind the AIR knows nothing about would enforce no
+            # rule at all — the transition would be "valid" by virtue of nobody checking it.
+            return f"note kind {kind} has no proving circuit (its predicate is not enforced in-circuit)"
+        if len(nfs) != 1 or len(cms) != 1:
+            return "the transition circuit proves exactly one input and one output"
+        # The withdrawal destination rides in the Fiat-Shamir transcript, so a front-runner cannot copy
+        # this proof, swap the address and redirect the exit (the pool's H-4 lesson, inherited).
+        ok, why = AC.verify(proof["stark"], cid_element(cid), kind, root, nfs[0], cms[0],
+                            int(public.get("public_delta", 0)),
+                            lambda r: pool.knows_root(cid, r),
+                            aux=str(public.get("withdraw_addr") or ""))
+        return None if ok else f"proof rejected: {why}"
+
     if not CONSENSUS_ALLOW_TRANSPARENT:
         return "transparent witness refused — a proof is required"
 
@@ -320,7 +347,6 @@ def verify_transition(public, proof, pool):
     if len(ins) != len(nfs) or len(outs) != len(cms):
         return "witness does not match the public statement"
 
-    root = int(public.get("root", EMPTY_ROOT)) % F.P
     if nfs and not pool.knows_root(cid, root):
         return "unknown anchor — the transition targets a root this contract never held"
 
@@ -350,6 +376,25 @@ def verify_transition(public, proof, pool):
         out_fields.append(fields)
 
     return predicate(in_fields, out_fields, int(public.get("public_delta", 0)))
+
+
+def prove_transition(pool, cid, kind, nsk, fields_in, rho_in, cm_in_pos, fields_out, owner_out, rho_out,
+                     public_delta=0, withdraw_addr=None):
+    """DELEGATED PROVER: given the secret witness and the input note's position, build the Merkle path from
+    the pool and produce the transition proof. Returns (public, proof) ready for apply_transition.
+
+    The caller sees the witness — that is the delegated model this inherits from the pool, and it is the
+    honest limit of the feature today: private from the chain and from other users, NOT from whoever runs
+    this. A WASM/blind prover is what makes it unilateral (doc/shielded-contracts.md §7)."""
+    sibs, dirs = tree_path(pool.trees.get(cid, []), cm_in_pos)
+    stark_proof, root, nf, cm_out = AC.prove(nsk, cid_element(cid), kind, fields_in, rho_in, sibs, dirs,
+                                             fields_out, owner_out, rho_out, public_delta=public_delta,
+                                             aux=str(withdraw_addr or ""))
+    public = {"cid": cid, "kind": kind, "root": root, "nullifiers": [nf], "out_commitments": [cm_out],
+              "public_delta": public_delta}
+    if withdraw_addr:
+        public["withdraw_addr"] = withdraw_addr
+    return public, {"stark": stark_proof}
 
 
 def apply_transition(public, proof, pool):

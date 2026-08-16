@@ -131,11 +131,27 @@ def t_transparent_witness_is_refused_by_default():
         "a transparent witness was accepted with the switch off"
 
 
-def t_stark_seam_is_honest_about_being_unbuilt():
+def t_the_stark_seam_is_live_and_rejects_a_bogus_proof():
+    """The seam is wired (tests/test_shielded_state_seam.py proves a real one end to end). What matters
+    here is the shape of a REJECTION: a proof-shaped object that is not a proof must be refused, and must
+    be refused without the transparent path being consulted."""
     p = S.ShieldedStatePool()
-    r = S.verify_transition({"cid": CID, "kind": S.KIND_VALUE, "nullifiers": [1], "out_commitments": []},
+    _seed(p, CID, [100], NSK, 1)
+    public, _ = _spend(p, CID, [([100], NSK, 1)], [([100], S.owner_of(NSK2), 2)])
+    r = S.verify_transition(public, {"stark": {"anything": 1}}, p)
+    assert r is not None, "a bogus stark proof was accepted"
+    assert "transparent" not in r, f"a stark blob fell through to the transparent path: {r}"
+
+
+def t_a_transition_with_more_than_one_note_has_no_circuit_yet():
+    """The circuit proves exactly 1-in/1-out. A multi-note statement must be refused rather than silently
+    verified against whichever note the circuit happened to look at."""
+    p = S.ShieldedStatePool()
+    r = S.verify_transition({"cid": CID, "kind": S.KIND_VALUE, "root": p.root(CID),
+                             "nullifiers": [1, 2], "out_commitments": [3, 4]},
                             {"stark": {"anything": 1}}, p)
-    assert "phase 2" in r, f"stark seam did not say it is unbuilt: {r}"
+    assert r == "the transition circuit proves exactly one input and one output", \
+        f"a multi-note transition reached the circuit: {r}"
 
 
 # ---- the transitions themselves (with the switch forced on, as dev/test) -----------------------------

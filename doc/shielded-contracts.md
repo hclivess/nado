@@ -1,9 +1,10 @@
 # Shielded contracts — private application state
 
-> **Status: PHASE 1 BUILT, INERT.** The state machine, its binding into the settled root and the
-> `private_call` op are implemented and tested. `CONSENSUS_ALLOW_TRANSPARENT` is `False`, so every
-> transition is refused today — the feature starts doing work when the Phase-2 circuit lands. Merging it
-> changes no root and no snapshot on a chain that holds no private state.
+> **Status: PHASE 2 BUILT.** The state machine, the settled-root binding, the `private_call` op, the
+> turnstile and the **transition circuit** are implemented and tested. A private state change proves and
+> verifies as one STARK; `CONSENSUS_ALLOW_TRANSPARENT` stays `False` and the transparent witness path is
+> dev-only scaffolding. Merging changes no root and no snapshot on a chain that holds no private state.
+> What remains is DA transport for the proof, a worked example contract, and client-side proving.
 
 ## 1. What this is, and what it is not
 
@@ -125,10 +126,14 @@ because the address was not in what it committed to.
   private, because the witness carries `nsk`. It is scaffolding: it freezes the state machine and its
   soundness suite *before* the circuit, so the AIR can be diffed against a specification that already
   exists. `CONSENSUS_ALLOW_TRANSPARENT = False` keeps it off any chain.
-- **Phase 2 — next.** `proof` becomes a STARK over the same statement and the verifier sees only `public`.
-  The state machine does not change; only what sits behind the seam does. Route: the zkVM AIR
-  (`vm_circuit.py`) with a private input tape, rather than per-contract circuits — one VM, one circuit,
-  one thing to get right. Per-contract AIRs are an optimisation for hot paths once cost is measured.
+- **Phase 2 — built.** `execnode/stark/appnote_circuit.py` proves the whole statement and the verifier
+  sees only `public`. The state machine did not change; only what sits behind the seam did. Note the route
+  taken differs from the original plan: rather than the zkVM AIR with a private tape, this generalises the
+  join-split's own AIR to a typed note, because the statement a KIND_VALUE transition makes is exactly the
+  join-split's plus three public absorptions. The zkVM route is still the right answer for kinds whose
+  predicate is arbitrary program logic; this one covers every kind whose rule is expressible as
+  constraints, which is where the useful cases start. `STARK_KINDS` is the gate: a kind whose predicate the
+  AIR does not enforce cannot take the proof path at all, because it would then be checked by nobody.
 - **Phase 3 — the real bar.** Client-side proving. Today `shielded_field.py` hands the exec node the
   witness, so the pool is private from the chain but **not from whoever runs the exec node**. Until a WASM
   prover ships, the honest phrasing is "private except from the operator". The kernels are already native
