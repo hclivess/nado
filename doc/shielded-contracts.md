@@ -366,7 +366,23 @@ record updates was declined on 2026-08-16 because the proof would have been ~1 7
 `SETTLE_INLINE_MAX` and taken ~5 355 s to build. The 13 s above is for a ONE-note transition with a fixed
 statement; a general private call is strictly more.
 
-## 14. Files
+## 14. Running the tests from a clean checkout
+
+```
+bash scripts/build_native_all.sh     # once — builds the five crates a node builds for itself
+python3 tests/test_shielded_state.py # …and the rest
+```
+
+A NODE never needs this: `ops/self_update.py` rebuilds missing or stale crates as part of advancing, so
+the fleet self-heals. A CHECKOUT does. The only build script shipped `mldsa44`, yet every `NativeMissing`
+message — for any of the five — points the reader at it, so a fresh clone follows the instruction it is
+given and is still missing four libraries. `build_native_all.sh` reads the crate list from
+`ops/self_update.py` rather than restating it, and delegates `mldsa44` to `build_pq_native.sh`, which is
+what knows that its loader wants the library at the crate root rather than in `target/release`.
+
+Verified by checking the branch out fresh and running it: one command, then every suite green.
+
+## 15. Files
 
 | | |
 |---|---|
