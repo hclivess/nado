@@ -337,6 +337,24 @@ def t_a_membership_proof_must_match_the_pool_depth():
         f"a relabelled depth was accepted: {r}"
 
 
+def t_tree_depth_is_the_largest_free_depth():
+    """TREE_DEPTH must be the deepest tree whose trace still fits the current power of two. RECOMPUTED from
+    the circuit's own geometry, not asserted as a literal: the constant arrived here at 20 because that was
+    measured against the JOIN-SPLIT, whose commitment region is 3R smaller — so this circuit was paying a
+    doubled trace (T=4096, ~31% more prove time) for capacity it does not need. A constant that mirrors a
+    circuit has to be checked against that circuit."""
+    from execnode.stark import appnote_circuit as AC
+    T = AC.trace_len(1, S.TREE_DEPTH)
+    assert AC.trace_len(1, S.TREE_DEPTH + 1) > T, \
+        f"depth {S.TREE_DEPTH + 1} would still fit T={T} — TREE_DEPTH is leaving capacity unused"
+    assert AC.trace_len(1, S.TREE_DEPTH) == T, "geometry is not self-consistent"
+    # and the tree the pool actually builds must match what the circuit is told to expect
+    p = S.ShieldedStatePool()
+    p.append(CID, S.note_commitment(CID, S.KIND_VALUE, [1], S.owner_of(ALICE), 1))
+    sibs, dirs = S.tree_path(p.trees[CID], 0)
+    assert len(sibs) == S.TREE_DEPTH == len(dirs), "the pool's path depth differs from TREE_DEPTH"
+
+
 for name, fn in list(globals().items()):
     if name.startswith("t_"):
         check(name[2:].replace("_", " "), fn)

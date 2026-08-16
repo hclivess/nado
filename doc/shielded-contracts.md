@@ -308,10 +308,20 @@ refuses outside a build or a conformance test. All three join-split modules — 
 *Consequence here:* the private-transition circuit passes `backend=alghash2` from birth. A circuit that
 inherits the default would be born unprovable on the machines meant to run it.
 
-**2. Tree depth 12 → 20 is free, and 20 is exactly the ceiling.** Trace length is
-`next_pow2(385 + 81·D + 1)`, so every depth up to 20 lands on `T = 2048`; depth 21 gives 2086 and crosses
-to `T = 4096`, doubling the prove. `TREE_DEPTH = 20` (1,048,576 notes per contract) is therefore the
-largest tree that costs nothing extra — chosen by measurement, not by taste. Do not raise it to 21.
+**2. Tree depth — and a correction.** That row was measured against the JOIN-SPLIT's geometry and then
+applied to this circuit, which is not the same shape: this one spends `(arity+6)·R` on COMMIT *and* on
+OUTPUT, three extra public absorptions each, so its total is larger and it crosses to `T = 4096` two levels
+sooner. Measured against the right circuit:
+
+| depth | trace | prove | capacity |
+|---|---|---|---|
+| 18 | 2048 | 21.1 s | 262,144 notes |
+| 20 | 4096 | 30.7 s | 1,048,576 notes |
+
+`TREE_DEPTH = 18` — 31% off every transition proof for a quarter of the capacity, which is per-contract and
+still ample. It also explains prove times earlier in this document that were put down to machine load: they
+were a doubled trace. The test recomputes the maximum from the circuit's own geometry, so the constant
+cannot drift away from the circuit the way it drifted in from the wrong one.
 
 **3. ~13 s per proof on a server core.** That is the delegated-prover figure, and it is the honest input
 to the client-side question: a phone is not this box. The Phase-3 decision (WASM prover vs. a blind

@@ -53,10 +53,21 @@ from hashing import blake2b_hash
 from execnode.stark import appnote_circuit as AC
 from execnode.stark.appnote_circuit import DOM_APPCM, DOM_APPNF
 
-TREE_DEPTH = 20                     # 2^20 = 1,048,576 notes per contract. Proving cost is linear in depth,
-                                    # so this is the one number to revisit when the membership region's cost
-                                    # is measured — it is per-CONTRACT, not per-chain, which is why it can be
-                                    # this generous without paying for it on every proof.
+# 2^18 = 262,144 notes per contract — the LARGEST depth whose trace still fits T=2048, measured against
+# THIS circuit's geometry rather than the join-split's.
+#
+# It was 20, from a measurement of the join-split, which spends 4R on its commitment region. This circuit
+# spends (arity+6)R on COMMIT *and* on OUTPUT — three extra public absorptions each — so its total is
+# larger and it crosses to T=4096 two levels sooner. Measured end to end:
+#
+#     depth 18   T=2048   prove 21.1 s   262,144 notes
+#     depth 20   T=4096   prove 30.7 s   1,048,576 notes
+#
+# 31% off every transition proof for a quarter of the capacity, which is per-CONTRACT and still ample. It
+# also explains prove times I had put down to machine load: they were a doubled trace.
+# tests/test_shielded_state_replay.py recomputes this maximum from the geometry, so the constant cannot
+# drift away from the circuit again the way it drifted in from the wrong one.
+TREE_DEPTH = 18
 ANCHOR_WINDOW = 128                 # recent roots a proof may target, per contract (mirrors the pool)
 EMPTY_LEAF = 0
 
