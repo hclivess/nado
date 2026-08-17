@@ -230,7 +230,11 @@
         <div class="label" data-i18n="lbl.total">Total <span class="hint">ⓘ</span></div><div class="value sm" id="walTotal">—</div></div>
       <div class="stat hidden" id="walExecStat" data-i18n-title="tip.playable" title="PLAYABLE (TOKENS) — your execution-layer balance: the tokens the NADO games spend and pay out. Buy in from your Free balance in any game; cash out any time to get NADO back.">
         <div class="label" data-i18n="lbl.playable">🪙 Playable <span class="hint">ⓘ</span></div><div class="value sm" id="walExec">—</div>
-        <div class="pend hidden" id="walExecPend" data-i18n-title="tip.pendExec" title="Still confirming — this buy-in / cash-out is being sealed into a block. It is NOT playable yet; your token balance updates automatically (usually well under a minute). Nothing is lost."></div></div>
+        <div class="pend hidden" id="walExecPend" data-i18n-title="tip.pendExec" title="Still confirming — this buy-in / cash-out is being sealed into a block. It is NOT playable yet; your token balance updates automatically (usually well under a minute). Nothing is lost."></div>
+        <!-- The row's own tooltip promises "cash out any time", but until now the only cash-out lived in the
+             GAME pages (nadodapp.wireWallet's ⬇ Cash out slider). A player who checked their wallet saw a
+             balance they had no way to act on — the same shape as the pending-unbond gap fixed above. -->
+        <button class="accent" id="btnExecCashOut" data-i18n="exec.cashOut" style="display:block;margin:6px auto 0">Cash out</button></div>
       <div class="stat" data-i18n-title="tip.registered" title="REGISTERED — you've done the one-time on-chain registration (a quick proof-of-work). It's required once before you can mine the OPEN lane. Done automatically when you start mining.">
         <div class="label" data-i18n="lbl.registered">Registered <span class="hint">ⓘ</span></div><div class="value sm" id="walReg">—</div></div>
       <div class="stat" data-i18n-title="tip.present" title="PRESENT — you hold a valid presence lease (a recent PoSW recert), so you're currently ELIGIBLE to win open-lane blocks. The wallet renews the lease automatically before it lapses; if it stops, presence lapses and you stop earning until it resumes.">

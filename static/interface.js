@@ -848,6 +848,63 @@ async function collectDividend() {
   finally { state._collecting = false; }
 }
 
+/* CASH OUT playable tokens (exec -> L1), from the WALLET.
+ *
+ * The Playable row has always shown the balance and its tooltip has always promised "cash out any time to
+ * get NADO back" — but the only cash-out control lived in the GAME pages (nadodapp.wireWallet's ⬇ Cash out
+ * slider). So a player who won, opened their wallet and looked, saw a number they could not act on, and had
+ * to guess that the way out was back through a game. Exactly the pending-unbond gap this file already fixed
+ * once: "an exit begun here could never be finished from here".
+ *
+ * Same op the SDK submits (`bridge_withdraw`, nadodapp.js:1105), so both paths stay one mechanism. The
+ * amount is asked for rather than assumed — cashing out everything by default would be a surprise for
+ * someone mid-session with a table still staked. Blank/short-hand "all" is offered as the default value. */
+async function cashOutExec() {
+  if (!state.wallet || state._cashingOut) return;
+  const btn = $("btnExecCashOut");
+  let bal = 0n;
+  try {
+    const b = await (await fetch(execBase() + "/exec/bridge?provisional=1", { cache: "no-store" })).json();
+    bal = BigInt((b.balances || {})[state.wallet.address] || 0);
+  } catch (e) { log("err", i18("exec.balUnreachable", "Exec node unreachable — can't read your playable balance right now.")); return; }
+  if (bal <= 0n) { log("err", i18("exec.nothingToCashOut", "Nothing to cash out — your playable balance is 0.")); return; }
+
+  const entered = await uiPrompt({
+    title: i18("exec.cashOutHow", "Cash out how much? (you have {a} NADO playable)", { a: rawToNado(bal) }),
+    value: rawToNado(bal),
+  });
+  if (entered == null) return;
+  let raw;
+  try { raw = nadoToRaw(String(entered).trim()); } catch (e) { raw = 0n; }
+  if (!raw || raw <= 0n) { log("err", i18("exec.badAmount", "Enter an amount to cash out.")); return; }
+  // Re-check against the balance we just read: the games spend from this same balance, so a stale number
+  // here would submit a withdraw the exec layer rejects.
+  if (raw > bal) { log("err", i18("exec.cashOutShort", "You only have {a} NADO playable.", { a: rawToNado(bal) })); return; }
+
+  const okc = await uiConfirm({
+    title: i18("exec.cashOutTitle", "Cash out playable tokens"),
+    body: i18("exec.cashOutBody", "Move {a} NADO from your playable (game) balance back to your L1 wallet. It lands automatically once the execution layer settles — usually well under a minute.", { a: rawToNado(raw) }),
+    confirmText: i18("exec.cashOutGo", "Cash out"),
+  });
+  if (!okc) return;
+
+  state._cashingOut = true;
+  if (btn) btn.disabled = true;
+  try {
+    const { res } = await submitResilient(async () => {
+      const latest = await getLatestBlock();
+      if (!latest) throw new RelayUnreachable("relay unavailable");
+      return buildBlobTx(state.wallet, { op: "bridge_withdraw", amount: raw }, latest.block_number + TX_TARGET_MARGIN,
+        MIN_TX_FEE, nowSeconds(), latest.block_number + TX_INCLUSION_DELAY);
+    });
+    if (res && res.data && res.data.result)
+      log("ok", i18("exec.cashOutSent", "Cash-out submitted — {a} NADO returns to your wallet once it settles.", { a: rawToNado(raw) }));
+    else
+      log("err", i18("exec.cashOutRejected", "Cash-out rejected: {m}", { m: (res && res.data && (res.data.message || "")) || "" }));
+  } catch (e) { log("err", i18("exec.cashOutFailed", "Cash-out failed: {m}", { m: e.message })); }
+  finally { state._cashingOut = false; if (btn) btn.disabled = false; }
+}
+
 // A relay that is momentarily unreachable — a fetch reject (offline/DNS/TLS), a request timeout, an
 // HTTP 5xx/429, or a non-JSON body (a proxy 502 HTML page). This is EXPECTED and transient: the node
 // bounces for a few seconds on a restart/crash-restart, and Cloudflare/nginx answer with an error page
@@ -7318,6 +7375,7 @@ function wireEvents() {
   };
   $("btnDlKeySettings").onclick = () => downloadKeyFile().catch(() => {});
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
+  if ($("btnExecCashOut")) $("btnExecCashOut").onclick = () => cashOutExec();
   if ($("btnMsigDerive")) $("btnMsigDerive").onclick = () => msigDerive();
   if ($("btnMsigPropose")) $("btnMsigPropose").onclick = () => msigPropose();
   if ($("btnMsigSign")) $("btnMsigSign").onclick = () => msigSign();
