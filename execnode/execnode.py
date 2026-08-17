@@ -49,10 +49,67 @@ POLL = float(os.environ.get("NADO_EXEC_POLL", "5"))
 # tip before we treat the on-disk state as reroll-stranded and reset to genesis (see tail_loop). ~30s so a
 # slow L1 restart reporting a transient finalized=0 can never trigger it; a genuinely purged L1 stays >window.
 STALE_RESET_POLLS = max(3, int(30 / POLL))
-# FINALITY-REVERT PROBE cadence (see tail_loop): how many polls between hash-agreement checks of our
-# highest applied block against L1. One extra request per minute at the default POLL=5; the failure it
-# catches is permanent and silent, so a cheap standing probe beats waiting for a symptom.
-DIVERGENCE_PROBE_POLLS = max(1, int(60 / POLL))
+# FINALITY-REVERT PROBE cadence (see tail_loop): polls between hash-agreement checks of our highest
+# applied block against L1. EVERY poll: one extra local request per 5 s is nothing, and the requirement
+# (operator, 2026-08-17) is that L1 and the exec layer never disagree — a once-a-minute probe was a
+# minute of serving a dead chain. Together with the parent-linkage check on every applied block and the
+# snapshot-hash check on every status, detection latency is one poll.
+DIVERGENCE_PROBE_POLLS = 1
+
+# ---- REWIND CHECKPOINTS -------------------------------------------------------------------------
+# A finality revert is recovered by REWINDING to the newest checkpoint at or below the fork point and
+# replaying the canonical tail from L1 — seconds, local, no donor — instead of a wipe-and-replay from
+# genesis (minutes, needs a complete archive). Checkpoints are the same self-describing payloads the
+# settle stash keeps (ns/cursor/state_root/state, restorable via ExecState._restore), written beside the
+# state file under a distinct separator so the two generation wipes sweep them and _stash_load ignores
+# them. A LADDER, so any fork depth has a nearby checkpoint at bounded disk:
+#   fine   — every CKPT_FINE cursors, kept for the last CKPT_FINE_SPAN cursors
+#   coarse — every CKPT_COARSE cursors, kept for the last CKPT_COARSE_SPAN cursors
+# ~5 MB each here: (2000/500 + 100000/10000) ≈ 14 files ≈ 70 MB. Deeper than CKPT_COARSE_SPAN falls
+# through to the archive / bootstrap ladder.
+_CKPT_SEP = "~ckpt~"
+CKPT_FINE, CKPT_FINE_SPAN = 500, 2_000
+CKPT_COARSE, CKPT_COARSE_SPAN = 10_000, 100_000
+
+
+def ckpt_keep(cursors, now):
+    """Which checkpoint cursors to KEEP given the ladder above. Pure, so the retention is testable.
+
+    Checkpoints are written at the TRUE cursor when it crosses a rung, so a batch apply (cold replay
+    lands hundreds of blocks per poll) rarely produces a cursor that is an exact multiple. Retention
+    therefore works in BUCKETS, keeping the OLDEST checkpoint per bucket — the one nearest the rung
+    boundary — so that for ANY fork point there is a checkpoint at or below it within one bucket:
+    within CKPT_FINE_SPAN of `now`, one per CKPT_FINE bucket; within CKPT_COARSE_SPAN, one per
+    CKPT_COARSE bucket; the newest overall always; and never anything above `now` — a checkpoint from
+    a rewound-away future is exactly what must not survive a rewind. (Newest-per-bucket was tried first
+    and lost the coarse rung to a fine checkpoint sharing its bucket, leaving a 15k-block hole.)"""
+    cs = sorted({int(c) for c in cursors if int(c) <= now})
+    if not cs:
+        return set()
+    keep = {cs[-1]}
+    fine, coarse = {}, {}
+    for c in cs:                                # ascending -> setdefault keeps the OLDEST per bucket
+        if now - c <= CKPT_FINE_SPAN:
+            fine.setdefault(c // CKPT_FINE, c)
+        if now - c <= CKPT_COARSE_SPAN:
+            coarse.setdefault(c // CKPT_COARSE, c)
+    keep.update(fine.values())
+    keep.update(coarse.values())
+    return keep
+
+
+def rewind_target(checkpoints, fork_point):
+    """The checkpoint cursor to rewind to: the NEWEST at or below the fork point that EVERY namespace has
+    (all namespaces must land on one cursor, because the tail loop replays from a single watermark). None
+    if no common checkpoint sits at or below it — the caller then falls through to the archive/bootstrap
+    ladder. `checkpoints` is {ns: iterable of cursors}."""
+    if not checkpoints:
+        return None
+    common = None
+    for ns, cs in checkpoints.items():
+        s = {int(c) for c in cs if int(c) <= fork_point}
+        common = s if common is None else (common & s)
+    return max(common) if common else None
 
 
 def probe_height(block_hashes, tip: int) -> int:
@@ -117,6 +174,219 @@ def finality_reverted(block_hashes, height: int, l1_reply) -> bool:
         return int(l1_hash, 16) != int(block_hashes[height])
     except (TypeError, ValueError):
         return False        # unparseable is not proof of anything
+
+
+def linkage_broken(block_hashes, height: int, block) -> bool:
+    """True iff the block about to be applied at `height` does NOT chain onto the block we applied at
+    height-1. Same asymmetry as finality_reverted: only a parsed parent_hash that differs from a hash we
+    hold is a break; a missing parent_hash, a height we never recorded, or garbage is 'no evidence'."""
+    if not isinstance(block, dict) or height - 1 not in (block_hashes or {}):
+        return False
+    ph = block.get("parent_hash")
+    if not ph or not isinstance(ph, str):
+        return False
+    try:
+        return int(ph, 16) != int(block_hashes[height - 1])
+    except (TypeError, ValueError):
+        return False
+
+
+def snapshot_disagrees(block_hashes, l1_status) -> bool:
+    """True iff L1 advertises a checkpoint (snapshot_height/snapshot_hash) at a height we have applied
+    whose hash differs from ours — i.e. L1 has re-anchored onto a chain that does not contain our block
+    there. Known the instant L1 says so, before it rebuilds a single block."""
+    try:
+        sh = int((l1_status or {}).get("snapshot_height", -1))
+        shash = (l1_status or {}).get("snapshot_hash")
+    except (TypeError, ValueError):
+        return False
+    if sh < 0 or not shash or sh not in (block_hashes or {}):
+        return False
+    try:
+        return int(shash, 16) != int(block_hashes[sh])
+    except (TypeError, ValueError):
+        return False
+
+
+def _ckpt_path(ns, cursor):
+    return f"{STATE_PATH}{_CKPT_SEP}{ns}~{int(cursor)}.json"
+
+
+def _ckpt_list():
+    """{ns: sorted [cursor]} of on-disk rewind checkpoints (self-describing files only)."""
+    import glob as _g
+    out = {}
+    pref = f"{STATE_PATH}{_CKPT_SEP}"
+    for p in _g.glob(pref + "*.json"):
+        tail = p[len(pref):-len(".json")]
+        ns, _sep, cur = tail.rpartition("~")
+        if not _sep or ns not in NAMESPACES:
+            continue
+        try:
+            out.setdefault(ns, []).append(int(cur))
+        except ValueError:
+            continue
+    return {ns: sorted(v) for ns, v in out.items()}
+
+
+def _ckpt_maybe_persist(prev_cursor, cursor):
+    """Write a rewind checkpoint for EVERY namespace when the cursor crosses a fine rung, then apply the
+    ladder retention. Best-effort; a lost checkpoint costs a deeper rewind, never correctness."""
+    if cursor < 0 or cursor // CKPT_FINE == prev_cursor // CKPT_FINE:
+        return                                     # no rung crossed since the last persist
+    # Written at the TRUE cursor (the payload must describe the state it holds); ckpt_keep buckets by rung.
+    for ns, st in states.items():
+        try:
+            payload = json.dumps({"ns": ns, "cursor": st.cursor, "state_root": st.state_root(),
+                                  "state": st._snapshot()}, sort_keys=True)
+            p = _ckpt_path(ns, st.cursor)
+            with open(p + ".tmp", "w") as f:
+                f.write(payload)
+            os.replace(p + ".tmp", p)
+        except Exception as e:
+            print(f"[execnode] rewind checkpoint ns={ns} cursor={st.cursor} not written: {e}", flush=True)
+    try:
+        for ns, cs in _ckpt_list().items():
+            keep = ckpt_keep(cs, cursor)
+            for cval in cs:
+                if cval not in keep:
+                    try:
+                        os.remove(_ckpt_path(ns, cval))
+                    except OSError:
+                        pass
+    except Exception:
+        pass
+
+
+async def _find_fork_point(session, block_hashes, tip):
+    """Highest height at which our applied hash agrees with L1's canonical chain, or None. Binary search
+    over the heights we hold, using hash_only so L1 answers below its body floor. Heights L1 cannot name
+    at all are treated as unknown and the search narrows away from them; the result is only ever a height
+    at which agreement was actually OBSERVED."""
+    if not block_hashes:
+        return None
+    hs = sorted(h for h in block_hashes if 0 < h <= tip)
+    if not hs:
+        return None
+
+    async def agrees(h):
+        r = await _get_json(session, f"/get_block_number?number={h}&hash_only=1")
+        body = (r or {}).get("block") or r or {}
+        bh = body.get("block_hash") if isinstance(body, dict) else None
+        if not bh:
+            return None
+        try:
+            return int(bh, 16) == int(block_hashes[h])
+        except (TypeError, ValueError):
+            return None
+
+    lo, hi, best = 0, len(hs) - 1, None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        a = await agrees(hs[mid])
+        if a is True:
+            best = hs[mid]
+            lo = mid + 1
+        elif a is False:
+            hi = mid - 1
+        else:
+            # unknown at mid: probe upward for the nearest answerable height, else give up on this half
+            k = mid + 1
+            while k <= hi and (a := await agrees(hs[k])) is None:
+                k += 1
+            if k > hi:
+                hi = mid - 1
+            elif a:
+                best = hs[k]
+                lo = k + 1
+            else:
+                hi = k - 1
+    return best
+
+
+def _rewind_to(cursor):
+    """Restore every namespace from its checkpoint at `cursor` and reset the derived globals, exactly as
+    _reset_states_to_genesis does minus the wipe. Stash entries ABOVE the cursor are from the abandoned
+    chain and are dropped; the DA store is untouched (content-addressed). Returns True on success."""
+    global _last_settled_cursor, prov_states, _prov_key, _prov_last, _prov_since_full
+    restored = {}
+    for ns, st in states.items():
+        p = _ckpt_path(ns, cursor)
+        try:
+            snap = json.load(open(p))
+            if snap.get("ns") != ns or int(snap.get("cursor", -1)) != int(cursor):
+                raise ValueError("checkpoint does not describe itself")
+            restored[ns] = snap["state"]
+        except Exception as e:
+            print(f"[execnode] rewind: checkpoint ns={ns} cursor={cursor} unusable ({e})", flush=True)
+            return False
+    for ns, st in states.items():
+        st._restore(restored[ns])
+        st.save()
+    _last_settled_cursor = -1
+    prov_states = None
+    _prov_key = None
+    _prov_last = None
+    _prov_since_full = 0
+    # stash entries above the rewind point describe the dead chain
+    for ns, hist in list(_settled_history.items()):
+        for c in [c for c in hist if c > cursor]:
+            hist.pop(c, None)
+            try:
+                os.remove(_stash_path(ns, c))
+            except OSError:
+                pass
+        _settled_snapshots.pop(ns, None)
+        if hist:
+            _settled_snapshots[ns] = hist[max(hist)]
+    # checkpoints above the rewind point likewise
+    for ns, cs in _ckpt_list().items():
+        for c in cs:
+            if c > cursor:
+                try:
+                    os.remove(_ckpt_path(ns, c))
+                except OSError:
+                    pass
+    STRANDED.clear()
+    print(f"[execnode] REWOUND every namespace to checkpoint cursor {cursor}; replaying the canonical "
+          f"tail from L1", flush=True)
+    return True
+
+
+async def _recover_from_revert(session, status, reason):
+    """THE RECOVERY LADDER for a proven finality revert, best first — every rung lands somewhere strictly
+    better than a state that mixes a dead fork with canonical history:
+      0. REWIND to the newest common checkpoint at or below the fork point and replay the tail from L1
+         — seconds, local, no donor, no wipe. The normal path.
+      1. L1 archive contiguous from genesis -> wipe + cold replay (keeping DA).
+      2. a bootstrap donor -> wipe + adopt its quorum-vouched checkpoint (keeping DA).
+      3. neither -> keep the mostly-right state, record STRANDED, re-evaluate next poll.
+    Nothing here is an alarm; every rung is a mechanism, and rung 3 is a retry."""
+    tip = int((status or {}).get("latest_block_height", 0) or 0)
+    fp = await _find_fork_point(session, state.block_hashes, tip)
+    if fp is not None:
+        target = rewind_target(_ckpt_list(), fp)
+        if target is not None and _rewind_to(target):
+            print(f"[execnode] recovered from finality revert ({reason}): fork point {fp}, rewound to "
+                  f"checkpoint {target}", flush=True)
+            return
+        print(f"[execnode] finality revert ({reason}): fork point {fp} but no common checkpoint at or "
+              f"below it — falling through to replay/bootstrap", flush=True)
+    else:
+        print(f"[execnode] finality revert ({reason}): fork point not determinable from L1 — falling through "
+              f"to replay/bootstrap", flush=True)
+    can_replay = recovery_available(status, BOOTSTRAP)
+    if can_replay:
+        _reset_states_to_genesis(reason=f"finality revert: {reason} ({can_replay})", keep_da=True)
+        STRANDED.clear()
+        await _maybe_bootstrap(session)
+        return
+    if not STRANDED:
+        print(f"[execnode] exec state is STRANDED on an abandoned chain and no recovery source is available "
+              f"yet (no checkpoint at/below the fork point, L1 archive incomplete: earliest "
+              f"{status.get('earliest_block_height')}, no NADO_EXEC_BOOTSTRAP). Keeping the current state; "
+              f"re-checking every {DIVERGENCE_PROBE_POLLS * POLL:.0f}s.", flush=True)
+    STRANDED.update({"since_cursor": state.cursor, "reason": reason, "fork_point": fp})
 
 # --- DA layer: erasure-coded availability for the shielded-transfer STARK proofs (too big for an L1 blob,
 # so only the transfer STATEMENT + the proof's `commitment` ride on-chain). This node keeps a local DaStore;
@@ -2518,43 +2788,27 @@ async def tail_loop():
                 divergence_polls += 1
                 if divergence_polls >= DIVERGENCE_PROBE_POLLS:
                     divergence_polls = 0
-                    _probe = probe_height(state.block_hashes,
-                                          int(status.get("latest_block_height", 0) or 0))
-                    if _probe:
-                        _pb = await _get_json(session, f"/get_block_number?number={_probe}")
-                        if finality_reverted(state.block_hashes, _probe, _pb):
-                            print(f"[execnode] FINALITY REVERTED: our applied block {_probe} hashes "
-                                  f"{int(state.block_hashes[_probe]):#x} but L1 disagrees — exec state "
-                                  f"belongs to an abandoned chain", flush=True)
-                            # RECOVER, BUT ONLY INTO SOMETHING BETTER. A reset is a wipe-and-cold-replay
-                            # of every finalized L1 body. On a node whose L1 archive is complete that
-                            # rebuilds the correct state; on one whose archive was truncated it replays
-                            # blocks 56735+ onto an EMPTY state — every contract, every balance, the
-                            # faucet — gone, and it never settles again. That is worse than the disease:
-                            # a contaminated state is right below the fork point and wrong only above it.
-                            # So the ladder is: (1) complete archive -> reset + replay; (2) a bootstrap
-                            # donor -> reset + adopt its quorum-vouched checkpoint; (3) neither -> keep the
-                            # mostly-right state, mark it stranded, and RE-EVALUATE every probe cycle —
-                            # the archive refill (core_loop) or an operator setting NADO_EXEC_BOOTSTRAP
-                            # makes (1) or (2) true later, and recovery then happens on its own. No alarm
-                            # takes the place of a mechanism; nobody is reading the log.
-                            can_replay = recovery_available(status, BOOTSTRAP)
-                            if can_replay:
-                                _reset_states_to_genesis(
-                                    reason=f"finality revert: block {_probe} disagrees with L1 ({can_replay})",
-                                    keep_da=True)      # blobs are content-addressed and this is the only store
-                                STRANDED.clear()
-                                await _maybe_bootstrap(session)   # no-op unless NADO_EXEC_BOOTSTRAP is set
-                            else:
-                                if not STRANDED:
-                                    print(f"[execnode] exec state is STRANDED on an abandoned chain and no "
-                                          f"recovery source is available yet (L1 archive incomplete: earliest "
-                                          f"{status.get('earliest_block_height')}; no NADO_EXEC_BOOTSTRAP). "
-                                          f"Keeping the current state; re-checking every "
-                                          f"{DIVERGENCE_PROBE_POLLS * POLL:.0f}s.", flush=True)
-                                STRANDED.update({"since_cursor": state.cursor, "probe": _probe})
-                            await asyncio.sleep(POLL)
-                            continue
+                    reason = None
+                    # (a) L1's advertised checkpoint: if L1 re-anchored to a snapshot at a height we have
+                    #     applied and its hash differs from ours, the revert is known the moment L1 says so
+                    #     — before it has rebuilt a single block for the linkage check to see.
+                    if snapshot_disagrees(state.block_hashes, status):
+                        reason = f"L1 checkpoint {status.get('snapshot_height')} disagrees with our applied block"
+                    # (b) our highest applied block vs L1's chain, hash-only so a body-less height still
+                    #     answers (a revert below the body floor must not be invisible).
+                    if reason is None:
+                        _probe = probe_height(state.block_hashes,
+                                              int(status.get("latest_block_height", 0) or 0))
+                        if _probe:
+                            _pb = await _get_json(session, f"/get_block_number?number={_probe}&hash_only=1")
+                            if finality_reverted(state.block_hashes, _probe, _pb):
+                                reason = f"block {_probe} disagrees with L1"
+                    if reason:
+                        print(f"[execnode] FINALITY REVERTED: {reason} — exec state belongs to an abandoned "
+                              f"chain; recovering", flush=True)
+                        await _recover_from_revert(session, status, reason)
+                        await asyncio.sleep(POLL)
+                        continue
                 # STALE-EXEC GUARD (reroll self-heal): we apply ONLY finalized blocks, so on a consistent chain
                 # the cursor can never exceed L1's finalized tip. If it DOES, our on-disk state belongs to an OLD
                 # chain that a reroll purged on L1 but left here (pre-.gen-marker state, or a load-before-purge
@@ -2597,11 +2851,22 @@ async def tail_loop():
                     continue
                 stale_polls = 0
                 applied = 0
+                prev_cursor_for_ckpt = state.cursor
                 while state.cursor < finalized:
                     h = state.cursor + 1
                     block = await _get_json(session, f"/get_block_number?number={h}")
                     if not isinstance(block, dict):
                         break                                  # fetch problem; retry next poll
+                    # PARENT LINKAGE — the zero-gap detector. The block we are about to apply must chain
+                    # onto the block we applied last. If it does not, L1's canonical chain no longer
+                    # contains our block h-1: finality was reverted beneath us, and applying h would stack
+                    # canonical history on top of a dead fork. Caught BEFORE the first wrong apply, on the
+                    # very block that reveals it — no probe interval, no window of mixed state.
+                    if linkage_broken(state.block_hashes, h, block):
+                        print(f"[execnode] FINALITY REVERTED (linkage): block {h} does not chain onto our "
+                              f"applied block {h - 1} — recovering", flush=True)
+                        await _recover_from_revert(session, status, f"linkage break at {h}")
+                        break
                     if "block_transactions" not in block:
                         # A FINALIZED block (h <= finalized) with no body is PRUNED (rolling mode drops old
                         # block bodies, leaving only {block_number}). Such blocks predate the exec features and
@@ -2646,6 +2911,7 @@ async def tail_loop():
                         print(f"[execnode] dividend accrue error: {e}", flush=True)
                     for _st in states.values():
                         _st.save()
+                    _ckpt_maybe_persist(prev_cursor_for_ckpt, state.cursor)
                     print(f"[execnode] +{applied} block(s) → cursor {state.cursor} · "
                           f"root {state.state_root()[:16]}… · {len(state.contracts)} contract(s)"
                           + (f" · +{len(states)-1} rollup ns" if len(states) > 1 else ""), flush=True)

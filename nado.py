@@ -648,12 +648,21 @@ async def block_by_hash(request):
 
 
 async def block_by_number(request):
-    """GET /get_block_number?number=&compress=: one block by height; 404 when unknown or pruned."""
+    """GET /get_block_number?number=&compress=[&hash_only=1]: one block by height; 404 when unknown or
+    pruned. With hash_only=1 the number->hash INDEX answers even where the body is gone (pruned, or
+    below an archive gap): {"block_number", "block_hash"}. That is what the exec node's finality-revert
+    probe needs — it compares HASHES at heights it applied, and must be able to do so at heights whose
+    body L1 no longer serves, or a revert below the body floor is undetectable."""
     def _work():
         """Blocking block read (worker thread)."""
         try:
             data = get_block_number(_q(request, "number"))
             code = 200
+            if not data and _q(request, "hash_only", "") == "1":
+                from ops.block_ops import get_block_hash_by_number as _hbn
+                bh = _hbn(int(_q(request, "number")))
+                if bh:
+                    data = {"block_number": int(_q(request, "number")), "block_hash": bh}
             if not data:
                 data, code = "Not found", 404   # 404, not 403: a missing/pruned record isn't "forbidden"
             return serialize(name="block_number", output=data, compress=_q(request, "compress", "none")), code

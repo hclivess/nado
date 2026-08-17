@@ -34,7 +34,9 @@ os.makedirs(_TMP, exist_ok=True)
 os.environ.setdefault("NADO_EXEC_STATE", os.path.join(_TMP, "exec_state.json"))
 os.environ.setdefault("NADO_EXEC_DA", os.path.join(_TMP, "exec_da"))
 
-from execnode.execnode import finality_reverted, probe_height, recovery_available
+from execnode.execnode import (finality_reverted, probe_height, recovery_available, linkage_broken,
+                               snapshot_disagrees, ckpt_keep, rewind_target,
+                               CKPT_FINE, CKPT_FINE_SPAN, CKPT_COARSE, CKPT_COARSE_SPAN)
 
 FAILS = []
 
@@ -110,6 +112,95 @@ def t_a_height_we_never_applied_is_not_divergence():
     assert finality_reverted(None, 300, {"block_hash": "dddd"}) is False
 
 
+# ---- ZERO-GAP DETECTORS: parent linkage on every apply, checkpoint hash on every status ----------------
+def t_linkage_break_is_caught_on_the_very_next_block():
+    """The block about to be applied must chain onto the one we applied last."""
+    assert linkage_broken(OURS, 301, {"parent_hash": "dddd"}) is True, "a block not chaining onto ours is a break"
+    assert linkage_broken(OURS, 301, {"parent_hash": "cccc"}) is False, "a block chaining onto ours is fine"
+
+
+def t_linkage_absence_of_information_is_not_a_break():
+    assert linkage_broken(OURS, 301, {}) is False
+    assert linkage_broken(OURS, 301, {"parent_hash": None}) is False
+    assert linkage_broken(OURS, 301, {"parent_hash": "not-hex"}) is False
+    assert linkage_broken(OURS, 999, {"parent_hash": "dddd"}) is False, "we never applied 998 — nothing to compare"
+    assert linkage_broken(OURS, 301, "garbage") is False
+    assert linkage_broken({}, 301, {"parent_hash": "dddd"}) is False
+
+
+def t_l1_checkpoint_disagreement_is_known_the_instant_l1_says_so():
+    assert snapshot_disagrees(OURS, {"snapshot_height": 200, "snapshot_hash": "beef"}) is True
+    assert snapshot_disagrees(OURS, {"snapshot_height": 200, "snapshot_hash": "bbbb"}) is False
+    assert snapshot_disagrees(OURS, {"snapshot_height": 999, "snapshot_hash": "beef"}) is False, "not applied yet"
+    assert snapshot_disagrees(OURS, {"snapshot_height": None, "snapshot_hash": "beef"}) is False
+    assert snapshot_disagrees(OURS, {}) is False
+    assert snapshot_disagrees(OURS, None) is False
+
+
+# ---- REWIND CHECKPOINT LADDER --------------------------------------------------------------------------
+def t_ladder_keeps_a_fine_rung_per_bucket_and_coarse_rungs_deeper():
+    now = 100_000
+    # batch-applied checkpoints that never land on exact multiples
+    cs = [now - 120, now - 620, now - 1_120, now - 1_620, now - 2_120,     # fine buckets, one aged out
+          now - 9_990, now - 19_990, now - 99_990, now - 100_990]           # coarse buckets, one aged out
+    keep = ckpt_keep(cs, now)
+    assert now - 120 in keep and now - 620 in keep and now - 1_120 in keep and now - 1_620 in keep
+    assert now - 2_120 not in keep, "a fine checkpoint past CKPT_FINE_SPAN must age out"
+    assert now - 9_990 in keep and now - 19_990 in keep and now - 99_990 in keep
+    assert now - 100_990 not in keep, "a coarse checkpoint past CKPT_COARSE_SPAN must age out"
+
+
+def t_ladder_keeps_the_one_nearest_the_rung_boundary():
+    """Oldest per bucket, so every rung boundary has a checkpoint just above it — for any fork point
+    there is one at or below it within a bucket. (Newest-per-bucket left a 15k hole: see the docstring.)"""
+    now = 10_000
+    keep = ckpt_keep([9_010, 9_090, 9_490], now)          # all in fine bucket 18
+    assert 9_010 in keep, "the checkpoint nearest the rung boundary must survive"
+    assert 9_490 in keep, "and the newest overall always does"
+    assert 9_090 not in keep, "the middle one is redundant"
+
+
+def t_ladder_gives_every_fork_point_a_checkpoint_within_one_bucket_below():
+    """The property the ladder exists for. Simulate honest batch-applied checkpoints across the whole
+    coarse span and check every fork point can rewind without a hole larger than a bucket."""
+    now = 200_000
+    cs = list(range(7, now, 137))                          # off-rung, dense
+    keep = sorted(ckpt_keep(cs, now))
+    for fp in range(now - CKPT_COARSE_SPAN + CKPT_COARSE, now, 3_331):
+        below = [c for c in keep if c <= fp]
+        assert below, f"no checkpoint at or below fork point {fp}"
+        gap = fp - max(below)
+        bucket = CKPT_FINE if now - fp <= CKPT_FINE_SPAN else CKPT_COARSE
+        assert gap <= bucket + 137, f"fork point {fp}: nearest checkpoint {max(below)} is {gap} below (> {bucket})"
+
+
+def t_ladder_never_keeps_the_future():
+    """After a rewind, checkpoints ABOVE the cursor describe the dead chain."""
+    keep = ckpt_keep([500, 1_000, 1_500, 2_000], 1_200)
+    assert 1_500 not in keep and 2_000 not in keep
+    assert 1_000 in keep
+
+
+def t_ladder_always_keeps_the_newest_at_or_below_now():
+    assert 777 in ckpt_keep([777], 100_000), "even an off-rung lone checkpoint survives"
+
+
+def t_rewind_target_is_the_newest_common_checkpoint_at_or_below_the_fork():
+    cks = {"default": [500, 1_000, 1_500, 2_000], "ns2": [500, 1_000, 2_000]}
+    assert rewind_target(cks, 1_700) == 1_000, "1500 is not common to ns2; 1000 is the newest common"
+    assert rewind_target(cks, 2_500) == 2_000
+    assert rewind_target(cks, 400) is None, "nothing at or below a fork below every checkpoint"
+    assert rewind_target({}, 1_000) is None
+    assert rewind_target({"default": []}, 1_000) is None
+
+
+def t_a_rewind_never_lands_above_the_fork_point():
+    """Rewinding to a checkpoint above the fork would keep dead-fork state — the whole point is to get below."""
+    for fp in (999, 1_000, 1_001, 1_499):
+        t = rewind_target({"default": [500, 1_000, 1_500]}, fp)
+        assert t is not None and t <= fp, f"target {t} above fork point {fp}"
+
+
 # ---- RECOVERY MUST ONLY EVER LAND SOMEWHERE BETTER ---------------------------------------------------
 def t_a_complete_archive_permits_a_cold_replay():
     assert recovery_available({"earliest_block_height": 0}, "") == "archive"
@@ -148,16 +239,27 @@ def t_the_loop_runs_the_probe_and_recovers_through_the_ladder():
     probe_at = src.index("divergence_polls += 1")
     inversion_at = src.index("if state.cursor > finalized:")
     assert probe_at < inversion_at, "the probe sits inside the inversion guard it exists to bypass"
-    # The reset is GATED on a recovery source, keeps DA, and the no-source case retries instead of wiping.
-    blk = src[src.index("if finality_reverted(state.block_hashes, _probe, _pb):"):]
-    blk = blk[:blk.index("# STALE-EXEC GUARD")]
-    assert "can_replay = recovery_available(status, BOOTSTRAP)" in blk, "the wipe is no longer gated"
-    assert "keep_da=True" in blk, "a finality-revert reset wipes the only DA store again"
-    assert "STRANDED.update(" in blk, "the no-recovery-source case no longer records itself"
-    assert blk.count("_reset_states_to_genesis(") == 1, "a reset outside the gate"
-    reset_at = blk.index("_reset_states_to_genesis(")
-    gate_at = blk.index("if can_replay:")
-    assert gate_at < reset_at, "the reset runs before the gate"
+    # Both detectors route into ONE recovery routine.
+    loop = src[src.index("async def tail_loop"):]
+    assert "await _recover_from_revert(session, status, reason)" in loop, "the probe no longer recovers"
+    assert "if linkage_broken(state.block_hashes, h, block):" in loop, "the per-block linkage check is gone"
+    assert 'await _recover_from_revert(session, status, f"linkage break at {h}")' in loop
+    assert "if snapshot_disagrees(state.block_hashes, status):" in loop, "the L1-checkpoint check is gone"
+    assert "hash_only=1" in loop, "the probe no longer asks hash-only (blind below the body floor)"
+    # The linkage check must sit BEFORE the block is applied.
+    lk = loop.index("if linkage_broken(state.block_hashes, h, block):")
+    ap = loop.index("if not await _apply_block(session, states, state, block, verbose=True):")
+    assert lk < ap, "linkage is checked after the block was already applied"
+    # The recovery ladder: rewind first; wipe only gated, keeping DA; no source -> STRANDED, not a wipe.
+    rec = src[src.index("async def _recover_from_revert"):]
+    rec = rec[:rec.index("\n# --- DA layer")]
+    assert "rewind_target(_ckpt_list(), fp)" in rec and "_rewind_to(target)" in rec, "rewind is not tried first"
+    assert "can_replay = recovery_available(status, BOOTSTRAP)" in rec, "the wipe is no longer gated"
+    assert "keep_da=True" in rec, "a finality-revert reset wipes the only DA store again"
+    assert "STRANDED.update(" in rec, "the no-recovery-source case no longer records itself"
+    assert rec.count("_reset_states_to_genesis(") == 1, "a reset outside the gate"
+    assert rec.index("_rewind_to(target)") < rec.index("if can_replay:") < rec.index("_reset_states_to_genesis("), \
+        "ladder order must be rewind -> gate -> reset"
 
 
 def t_the_reset_keeps_da_when_asked():
