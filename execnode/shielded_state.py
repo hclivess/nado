@@ -346,6 +346,11 @@ def verify_transition(public, proof, pool):
     if not nfs and not cms:
         return "transition spends and creates nothing"
     if len(set(nfs)) != len(nfs):
+        # DEFENCE IN DEPTH, and worth labelling as such rather than leaving it to look load-bearing: on the
+        # live path this is unreachable, because the STARK branch admits only 1-in/1-out and a two-input
+        # statement is refused by the shape check regardless. It matters the moment a multi-input circuit
+        # exists, and it is the check the transparent path relies on today. Removing it because "nothing
+        # reaches it" would leave that circuit's first version spending one note twice.
         return "duplicate nullifier within one transition"
     for nf in nfs:
         if pool.has_nullifier(nf):

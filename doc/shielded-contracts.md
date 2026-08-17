@@ -393,6 +393,13 @@ was dead code.
 
 | guard broken | suite | result |
 |---|---|---|
+| double-spend check | state | CAUGHT |
+| nullifier recording | state | CAUGHT |
+| commitment recording | state | CAUGHT |
+| statement-shape check | state | CAUGHT |
+| anchor freshness | state | CAUGHT |
+| contract must exist | exec | CAUGHT |
+| deposit / withdrawal solvency | exec | CAUGHT |
 | duplicate-commitment guard | replay | CAUGHT |
 | delta bound | replay | CAUGHT |
 | arity pin | replay | CAUGHT |
@@ -404,7 +411,7 @@ was dead code.
 | transparent-path switch | state | CAUGHT |
 | no-mutation-on-rejection | atomicity | CAUGHT |
 
-Ten for ten, working tree clean afterwards. Every one of those guards exists because of a specific defect
+Twenty for twenty, working tree clean afterwards. Every one of those guards exists because of a specific defect
 found on this branch; this establishes that removing any of them is noticed.
 
 **The AIR gets the same treatment, and initially failed it.** Dropping any of eight constraints probed left
