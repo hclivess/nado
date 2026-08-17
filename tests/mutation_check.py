@@ -6,6 +6,12 @@ differed, claiming to prove the withdrawal destination was bound. It passed, it 
 helper it exercised turned out to be dead code — so the assurance it gave was entirely false. Every guard
 below was added in response to a real defect; this establishes that removing any one of them is noticed.
 
+DRIVE IT FROM THIS TABLE, never from a copy. A pointer in this file once named the wrong suite; the fix
+was applied with a string replace that silently did not match, the script printed success anyway, and the
+"verification" was a separate snippet with the correct suite hardcoded — so it confirmed the intended fix
+while the file still held the broken one. The mutation duly survived again on the next full run. If you
+re-check a subset, read the entries out of MUTATIONS rather than retyping them.
+
 KILL-SAFE, and that mattered immediately. The first version reverted in a `finally`, which SIGTERM skips —
 a timeout killed it mid-run and left a consensus guard replaced by `if False:` in the working tree. Now:
 mutations are restored from an in-memory copy of the ORIGINAL bytes, signal handlers restore on
@@ -73,12 +79,39 @@ MUTATIONS = [
      "test_shielded_state_replay"),
     ("deposit solvency", "execnode/state.py",
      "                    if delta > 0 and self.bridge.get(sender, 0) < delta:",
-     "                    if False:", "test_shielded_state_replay"),
+     "                    if False:", "test_shielded_state_exec"),
     ("withdrawal solvency", "execnode/state.py",
      "                    if delta < 0 and self.bridge.get(cid, 0) < -delta:",
      "                    if False:", "test_shielded_state_exec"),
     ("anchor freshness", "execnode/shielded_state.py",
      "    if nfs and not pool.knows_root(cid, root):", "    if False:", "test_shielded_state"),
+    # LIVE-PATH STRUCTURAL GUARDS, added after cross-referencing the harness against every `if` in
+    # verify_transition whose body returns — 22 guards, 7 covered before this. Derived from the source
+    # rather than recalled, which is how the double-spend omission was found one commit ago.
+    #
+    # NOT listed, deliberately: the six checks reachable only through the TRANSPARENT verifier
+    # (fold_path != root, nullifier/commitment derivation, path length, witness shape). They are covered
+    # behaviourally by the forged-membership, unbound-nullifier and unopened-commitment tests, and the path
+    # is off in consensus. Recorded here so their absence is a decision rather than an oversight.
+    ("kind has a circuit", "execnode/shielded_state.py",
+     "        if kind not in STARK_KINDS:", "        if False:", "test_shielded_state_seam"),
+    ("input/output bound", "execnode/shielded_state.py",
+     "    if len(raw_nfs) > MAX_INPUTS or len(raw_cms) > MAX_OUTPUTS:", "    if False:",
+     "test_shielded_state"),
+    ("duplicate output commitment", "execnode/shielded_state.py",
+     "    if len(set(cms)) != len(cms):", "    if False:", "test_shielded_state_replay"),
+    ("statement names a contract", "execnode/shielded_state.py",
+     "    if not cid:", "    if False:", "test_shielded_state_atomicity"),
+    ("statement is a dict", "execnode/shielded_state.py",
+     "    if not isinstance(public, dict) or not isinstance(proof, dict):", "    if False:",
+     "test_shielded_state_atomicity"),
+    ("lists are lists", "execnode/shielded_state.py",
+     "    if not isinstance(raw_nfs, list) or not isinstance(raw_cms, list):", "    if False:",
+     "test_shielded_state_replay"),
+    ("empty transition", "execnode/shielded_state.py",
+     "    if not nfs and not cms:", "    if False:", "test_shielded_state"),
+    ("kind has a predicate", "execnode/shielded_state.py",
+     "    if predicate is None:", "    if False:", "test_shielded_state"),
     ("no-mutation-on-rejection", "execnode/shielded_state.py",
      "    reason = verify_transition(public, proof, pool)\n    if reason is not None:\n        return reason",
      "    reason = verify_transition(public, proof, pool)\n    if reason is not None:\n        pool.spend(999)\n        return reason",

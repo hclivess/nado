@@ -152,6 +152,26 @@ def t_notes_under_a_missing_contract_are_unspendable_but_not_lost():
     assert st.bridge[CID] == 1000, "the escrow was dropped"
 
 
+def t_each_rejection_gives_its_own_reason():
+    """The table above asserts only that SOMETHING rejected. That is too weak to pin a specific guard: with
+    the contract-name check disabled, a statement carrying no cid falls through and is rejected later for
+    spending and creating nothing — a different bug wearing the same green tick. Mutation testing found
+    exactly that. These assert the EXACT reason, so the guard that produced it is the one under test."""
+    p = _pool()
+    cases = [
+        ({"kind": S.KIND_VALUE}, "transition names no contract"),
+        (dict(GOOD, cid=CID, kind=999), "unknown note kind 999"),
+        (dict(GOOD, cid=CID, nullifiers=[], out_commitments=[]), "transition spends and creates nothing"),
+        (dict(GOOD, cid=CID, nullifiers="x"), "nullifiers and out_commitments must be lists"),
+    ]
+    for public, expected in cases:
+        public = dict(public)
+        if "root" in public:
+            public["root"] = p.root(CID)
+        r = S.verify_transition(public, STARK, _pool())
+        assert r == expected, f"expected {expected!r}, got {r!r}"
+
+
 for name, fn in list(globals().items()):
     if name.startswith("t_"):
         check(name[2:].replace("_", " "), fn)
