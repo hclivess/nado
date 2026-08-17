@@ -1,6 +1,10 @@
 # Rolling mode & data availability — design note
 
-**Status: DESIGN ONLY. Nothing here is built** (except where it says "already exists").
+**Status: rolling mode, idle-GC and the DA store are BUILT** (this note predates them — treat the
+design sections as rationale; `config.py` "archive", `loops/core_loop.maybe_prune_history`, `ops/da_store`).
+The finality figures below are stale: `FINALITY_DEPTH` is 45 and the un-crossable floor is now
+`hard_finality` — see [finality.md](finality.md), which also covers how a re-anchor now PRESERVES the
+canonical chain on an archive node (canonical restore + background self-repair) instead of truncating it.
 Rolling mode lets a node keep only the **state plus a window of recent epochs** and drop
 older block history, so NADO stays **phone-mineable under adoption** — a phone can never
 hold full history. The moment nodes prune, they create a **data-availability (DA)

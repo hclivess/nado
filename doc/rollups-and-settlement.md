@@ -115,6 +115,49 @@ This split is deliberate: the VM stays a tiny, auditable, deterministic core, wh
 orchestration. It also draws the Phase-2b line exactly — a validity proof would prove **the VM's execution**
 (the pure function), never the node's orchestration.
 
+## 2b. L1 reverts and the exec layer — no gap, by construction — **BUILT** (2026-08-17)
+
+The exec node applies **only depth-finalized** L1 blocks, so L1's ordinary reorgs (above the depth floor)
+never touch anything it applied. What *can* reach it is a revert that crosses the depth floor — legal under
+the two-floor model ([finality.md](finality.md)), but bounded: the hard floor caps every legal revert at
+`FINALITY_HARD_BACKSTOP` (600 blocks), and in practice at the FFG lag (~1–2 epochs). The exec side is built
+so that even those cannot open a gap:
+
+- **Detection at one-poll latency, two independent ways.** Every block is checked for **parent linkage**
+  against the previously applied block *before* it is applied — a revert is caught on the very block that
+  reveals it, and canonical history is never stacked onto a dead fork. Independently, a **hash-only probe**
+  compares the highest applied block against L1's chain every poll (`/get_block_number?hash_only=1`
+  answers from the number↔hash index even where the body is pruned, so a revert below the body floor
+  cannot hide). Both are strict about evidence: no reply, a 404, or garbage is *never* read as divergence
+  (the 2026-08-03 rule — a guard that read missing information as evidence once destroyed the live state
+  and all 25 contracts).
+- **Recovery by REWIND, deliberately not by inverse-rollback.** The node continuously writes
+  **rewind checkpoints** (self-describing `{ns, cursor, state_root, state}` payloads; fine rung every 500
+  cursors kept for 2 000, coarse every 10 000 kept for 100 000, oldest-per-bucket so every rung boundary is
+  covered) and also counts the **settle stash** as rungs (same payload shape, captured continuously for the
+  prover — in the first live revert the ladder was one rung old and the stash held the fork point's exact
+  cursor). On a proven revert: binary-search the fork point against L1, restore the newest common rung at
+  or below it, drop everything above (including block-hash ring entries a mid-capture race may have leaked
+  into a payload — restoring them re-infected the state once, observed as a 20-minute rewind loop, fixed),
+  and let the tail replay the canonical chain forward. An inverse-rollback path is **not needed and not
+  wanted**: undo-code that must exactly mirror apply-code is the bug class that forked L1 at h4260
+  (rollback ≠ inverse of incorporate for two meta rows); replay-from-checkpoint reuses the one forward
+  code path and cannot drift from it.
+- **The recovery ladder only ever lands somewhere strictly better.** Rewind (seconds, local, no donor) →
+  wipe-and-cold-replay *only if* L1's archive is contiguous from genesis (keeping the DA store — blobs are
+  content-addressed and valid on every chain that references them) → bootstrap from a settled checkpoint →
+  otherwise keep the mostly-right state, mark it `stranded` (machine-readable on `/exec/root`), and
+  re-evaluate every poll. Nothing in the ladder can destroy state on a false positive, and every legal
+  revert (≤ the hard-floor bound) is inside the fine-rung span by construction.
+- The **provisional** (pre-finality) view is rebuilt from the finalized checkpoint every poll and absorbs
+  ordinary reorgs by design; it is served only behind `?provisional=1` and never persisted.
+
+Code: `execnode/execnode.py` (`linkage_broken`, `probe_height`/`finality_reverted`, `_ckpt_maybe_persist`,
+`_rewind_sources`/`_rewind_to`, `_find_fork_point`, `_recover_from_revert`, `recovery_available`,
+`STRANDED`). Tests: `tests/test_exec_finality_revert_probe.py`, `tests/test_exec_rewind_e2e.py` — both
+mutation-checked, and the whole path validated live twice on 2026-08-17 (fork point 61380, then the 62655
+split).
+
 ---
 
 ## 3. Data availability — `blob`s

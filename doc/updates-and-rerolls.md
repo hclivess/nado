@@ -24,6 +24,17 @@ remote or branch refuses):
   logs the defect and advertises it in `/status`, instead of running the local `scripts/install.sh`.
 - `/status` advertises `running_commit`, `latest_main` and `update_available`, so a lagging node is
   visible at a glance.
+- **Config is never rewritten by an update.** The `config_version` migration mechanism still stamps the
+  version, but its rewrite steps are disabled by operator decision (2026-08-17, `dd085b9f`): on disk, a
+  value the installer wrote is indistinguishable from a value the operator chose, so "flip the old
+  default" is a guess about intent — and when the v1 step guessed wrong it silently converted archive
+  nodes to rolling. Re-enabling any rewrite is a deliberate act that belongs in release notes.
+- **The wave is also how consensus-behaviour changes deploy.** The two-floor finality change
+  ([finality.md](finality.md)) shipped with no height gate: its only new persistent key is outside the
+  consensus root, so a mixed fleet commits identical roots mid-rollout, and the wave (plus
+  `/update_peer` for stragglers and the peer-hint cascade from status gossip) converged all eight nodes
+  within minutes. That pattern only works when the change is root-neutral — anything that moves the
+  root still needs a generation reroll, exactly as below.
 
 ## No backward compatibility — the consensus policy
 

@@ -440,7 +440,7 @@ Full map, with measured numbers and per-component status:
 | DA transport (k-of-n + commitment + defer) | **BUILT** | Availability ≠ validity: unresolved defers, never rejects |
 | **Trustless settlement, end to end** | **NOT WORKING** | Rule is live and unconditional; **zero proof-carrying settles have ever completed**. Current stop: `PRE MISMATCH` — the stashed pre-state does not reproduce L1's justified root |
 | Signature aggregation | **REMOVED** | Built, measured, deleted 2026-07-31 — post-mortem kept deliberately |
-| **Shielded contracts (private application state)** | **BUILT ON BRANCH `shielded-contracts`, NOT YET REACHABLE FROM A CLIENT** | Private *state* with public *code*. Reuses the shielded pool's note/nullifier machinery and the DA→commitment→verify loop; see below |
+| **Shielded contracts (private application state)** | **MERGED & CONSENSUS-LIVE (f5e4e7c8), NOT YET REACHABLE FROM A CLIENT** | Private *state* with public *code*. Reuses the shielded pool's note/nullifier machinery and the DA→commitment→verify loop; see below |
 | Program obfuscation (Diamond iO) | **RESEARCH** | Nothing implemented, scheduled, or promised |
 
 **Open work, in the order the measurements justify:**

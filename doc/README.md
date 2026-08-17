@@ -23,6 +23,7 @@ It also records the multi-agent **security review** that motivated much of this 
 | [storage.md](storage.md) | The current schemaless **LMDB** key-value index (`ops/kv_ops.py`), atomic `incorporate_block`/rollback, snapshot sync, and the "stuck node" fixes |
 | [storage-kv-migration.md](storage-kv-migration.md) | The SQLite → LMDB migration: engine decision (`py-lmdb`), the full sub-DB schema, atomicity, and the cut-over steps |
 | [consensus-hardening-plan.md](consensus-hardening-plan.md) | The locked, ordered design for the consensus-security milestones (#15–#18); the first wave is implemented, the rest is planned |
+| [finality.md](finality.md) | **Finality & fork recovery (two-floor model, BUILT)** — `hard_finality` (FFG quorum + wide backstop) is the un-crossable floor, depth is crossable cadence; measured-evidence fork recovery, canonical-chain-preserving re-anchor, the exec layer's revert/rewind interplay |
 | [determinism-and-chain-id.md](determinism-and-chain-id.md) | Canonical hashing (audit M14), chain-id binding (M3), txid/signature scheme, address derivation, browser reproducibility |
 | [security-review.md](security-review.md) | The reviewed findings, what this relaunch fixes, and what remains open (historical audit snapshot) |
 | [protocol-constants.md](protocol-constants.md) | Reference table of every constant in `protocol.py` (values, meaning, which are provisional) |
