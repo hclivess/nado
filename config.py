@@ -147,12 +147,19 @@ def migrate_config(logger=None, config_path: str = None) -> dict:
     if have >= CONFIG_VERSION:
         return {"migrated": False, "version": have}
 
+    # DISABLED BY OPERATOR DECISION (2026-08-17). No migration step may rewrite a node's config.
+    #
+    # The mechanism below was built to move nodes off a stale installer default, and the v1 step flipped
+    # `archive: true` -> false. The objection is the one the docstring itself concedes: on disk, a value the
+    # installer wrote is INDISTINGUISHABLE from a value the operator chose, so "only flip the old default"
+    # is a guess about intent, and when it guesses wrong it silently turns an archive node into a rolling
+    # one. An operator who wanted rolling mode can set one key; a node that quietly stopped keeping history
+    # is discovered from a user's bug report, which is exactly the failure this repo has already had once.
+    #
+    # The VERSION STAMP still runs, so a config written before the mechanism existed is marked current and
+    # no later step can claim it as un-migrated. Re-enabling any rewrite is a deliberate act: add the step
+    # back here, and say so in the release notes.
     changed = {}
-    # v1: rolling mode became the default. An archive node costs a measured ~47.6 GB/year of block bodies,
-    # and a node that fills its disk stops UPDATING, not just archiving. Only flip the value the old
-    # installer wrote; an operator who set it to anything else has already made a decision.
-    if have < 1 and config.get("archive") is True:
-        changed["archive"] = False
 
     changed["config_version"] = CONFIG_VERSION
     update_config(changed, config_path)
