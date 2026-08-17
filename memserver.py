@@ -406,6 +406,30 @@ class MemServer:
     # /transactions_by_id request at the same figure. The remainder arrives on the next 1s pass.
     _RECONCILE_MAX_IDS = 1000
 
+    @staticmethod
+    def reject_cooldown_s(message, funder_in_pool):
+        """How long a REFUSED gossip tx cools before re-fetch — graded by what the refusal MEANS.
+
+        A flat 60 s cooled every refusal equally, and that was a fork driver: "Empty account" is a spend
+        from a fresh address whose FUNDING tx is still in the mempool — the account exists only once the
+        funding MINES (~TX_INCLUSION_DELAY blocks), so nodes that saw the spend early refused + cooled it
+        for 60 s while nodes that saw it late admitted it. Divergent pools for up to ~10 blocks, and
+        deterministic production turns a divergent pool straight into a split (the 62655/62895 class).
+
+        TERMINAL refusals (the tx can never become valid — bad bytes, bad signature, already mined,
+        superseded, out-of-window target) keep the long cooldown: re-fetching them is pure waste.
+        TRANSIENT refusals (account not funded YET, mempool full) cool briefly — 2 block times — so the
+        pool re-converges within the same window the funding needs to mine. And an "Empty account" whose
+        funder we can SEE in our own pool does not cool at all: the very next reconcile pass after the
+        funding mines admits it, which is the earliest any node can."""
+        TERMINAL = ("Malformed transaction", "Invalid txid", "Invalid signature", "Already mined",
+                    "Superseded", "Target block too high", "Target block too low")
+        if any(t in str(message) for t in TERMINAL):
+            return 60
+        if "Empty account" in str(message) and funder_in_pool:
+            return 0
+        return 12
+
     def merge_remote_transactions(self, user_origin=False, skip_pool_peers=()) -> None:
         """MEMPOOL SET RECONCILIATION (replaces the full-pool download): for each peer whose
         advertised pool hash differs from ours (skip_pool_peers filters the identical ones), fetch
@@ -424,7 +448,11 @@ class MemServer:
                 # rejected tx from the same divergent peer every second. 60s TTL: a transient reason
                 # (mempool full, account funded later) is retried after the cooldown.
                 if isinstance(result, dict) and not result.get("result") and isinstance(tx.get("txid"), str):
-                    self._tx_reject_cache[tx["txid"]] = now + 60
+                    _funder_seen = any(isinstance(t, dict) and t.get("recipient") == tx.get("sender")
+                                       for t in self.transaction_pool)
+                    _cool = self.reject_cooldown_s(result.get("message"), _funder_seen)
+                    if _cool:
+                        self._tx_reject_cache[tx["txid"]] = now + _cool
             # bounded: drop expired entries; hard-cap so a flood of unique invalid txids can't grow it
             if len(self._tx_reject_cache) > 20000:
                 self._tx_reject_cache = {i: t for i, t in self._tx_reject_cache.items() if t > now}
