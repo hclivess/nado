@@ -278,7 +278,9 @@ def t_no_rollback_before_the_branch_is_held_and_checked():
     fetch_at = ab.index("snapshot_ops.fetch_block(")
     content_at = ab.index("block_content_hash(b)")
     weight_at = ab.index('staged[-1].get("cumulative_weight", 0)')
-    roll_at = ab.index("_rollback_one_for_reorg(")
+    # the possession-path rollback is the one AFTER the weight check (the deep-catch-up fallback keeps
+    # its own ancestor-bounded roll earlier, gated on the cap overflow — see its dedicated test below)
+    roll_at = ab.index("_rollback_one_for_reorg(", weight_at)
     apply_at = ab.index("produce_block(block=blk")
     assert fetch_at < content_at < weight_at < roll_at < apply_at, \
         "adoption must fetch -> verify content -> verify weight claim -> roll -> apply, in that order"
@@ -295,6 +297,21 @@ def t_the_emergency_reorg_leg_goes_through_adoption():
     assert "if adopted is None:" in loop, "the budget/floor escalation path is gone"
     assert loop.count("_rollback_one_for_reorg(") == 0, \
         "a rollback path in the emergency loop outside _adopt_branch — the free-rollback vector is back"
+
+
+def t_deep_catch_up_falls_back_to_forward_sync_not_failure():
+    """A majority branch longer than the staging cap is a long absence, not an illegal reorg (.141: a
+    30-block fork against a ~700-block majority branch). Adoption must roll to the measured ancestor and
+    hand over to the donor fast-forward — bailing out left the node stuck striking tips forever."""
+    s = src("loops/core_loop.py")
+    ab = s[s.index("def _adopt_branch"):]
+    ab = ab[:ab.index("\n    def ")]
+    assert "longer than the staging cap" in ab, "the deep catch-up fallback is gone"
+    deep = ab[ab.index("longer than the staging cap"):]
+    assert "_rollback_one_for_reorg(ancestor=anc)" in deep, "deep catch-up no longer rolls to the ancestor"
+    assert "self._fork_state_cache = None" in deep, "deep catch-up leaves the spent verdict cached"
+    assert "self._reject_heaviest_tip()" not in deep.split("staged.reverse()")[0], \
+        "deep catch-up still benches the legitimate majority tip"
 
 
 for name, fn in [(n, f) for n, f in list(globals().items()) if n.startswith("t_")]:

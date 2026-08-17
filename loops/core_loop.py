@@ -1419,8 +1419,23 @@ class CoreClient(threading.Thread):
                 return False                       # walk missed the measured ancestor — inconsistent branch
             cur = ph
         else:
-            self._reject_heaviest_tip()
-            return False                           # deeper than any legal reorg can be
+            # DEEP CATCH-UP: the branch from the advertised tip to our ancestor is longer than the staging
+            # cap — not an illegal reorg, just a long absence (OUR side of the fork is still bounded by the
+            # hard floor; THEIR side is however far the majority ran while we were away). Possession of the
+            # whole branch is impractical here, and unnecessary: the ROLL part is still small
+            # (ancestor-bounded, verdict-backed by the multi-peer hash probes — the substantiation the
+            # free-rollback fix actually requires), and everything after it is ordinary forward sync with
+            # full per-block validation. Roll to the ancestor, drop the spent verdict, and let the next
+            # pass's donor flow fast-forward from the common chain (knows_block at the ancestor is True on
+            # every majority donor).
+            self.logger.warning(f"Branch adoption: majority branch longer than the staging cap — rolling to "
+                                f"the measured ancestor {anc} and continuing by forward sync")
+            self.memserver.rollbacks = 0
+            while self.memserver.latest_block["block_number"] > anc:
+                if self._rollback_one_for_reorg(ancestor=anc):
+                    return None                    # budget/floor refused: escalate (re-anchor)
+            self._fork_state_cache = None
+            return False                           # not adopted here — the donor flow finishes the job
         staged.reverse()
         if int(staged[-1].get("cumulative_weight", 0)) <= int(our_w):
             self._reject_heaviest_tip()
