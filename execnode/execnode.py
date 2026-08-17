@@ -191,23 +191,6 @@ def linkage_broken(block_hashes, height: int, block) -> bool:
         return False
 
 
-def snapshot_disagrees(block_hashes, l1_status) -> bool:
-    """True iff L1 advertises a checkpoint (snapshot_height/snapshot_hash) at a height we have applied
-    whose hash differs from ours — i.e. L1 has re-anchored onto a chain that does not contain our block
-    there. Known the instant L1 says so, before it rebuilds a single block."""
-    try:
-        sh = int((l1_status or {}).get("snapshot_height", -1))
-        shash = (l1_status or {}).get("snapshot_hash")
-    except (TypeError, ValueError):
-        return False
-    if sh < 0 or not shash or sh not in (block_hashes or {}):
-        return False
-    try:
-        return int(shash, 16) != int(block_hashes[sh])
-    except (TypeError, ValueError):
-        return False
-
-
 def _ckpt_path(ns, cursor):
     return f"{STATE_PATH}{_CKPT_SEP}{ns}~{int(cursor)}.json"
 
@@ -2789,20 +2772,16 @@ async def tail_loop():
                 if divergence_polls >= DIVERGENCE_PROBE_POLLS:
                     divergence_polls = 0
                     reason = None
-                    # (a) L1's advertised checkpoint: if L1 re-anchored to a snapshot at a height we have
-                    #     applied and its hash differs from ours, the revert is known the moment L1 says so
-                    #     — before it has rebuilt a single block for the linkage check to see.
-                    if snapshot_disagrees(state.block_hashes, status):
-                        reason = f"L1 checkpoint {status.get('snapshot_height')} disagrees with our applied block"
-                    # (b) our highest applied block vs L1's chain, hash-only so a body-less height still
-                    #     answers (a revert below the body floor must not be invisible).
-                    if reason is None:
-                        _probe = probe_height(state.block_hashes,
-                                              int(status.get("latest_block_height", 0) or 0))
-                        if _probe:
-                            _pb = await _get_json(session, f"/get_block_number?number={_probe}&hash_only=1")
-                            if finality_reverted(state.block_hashes, _probe, _pb):
-                                reason = f"block {_probe} disagrees with L1"
+                    # Our highest applied block vs L1's chain, hash-only so a body-less height still
+                    # answers (a revert below the body floor must not be invisible). (A comparison against
+                    # /status snapshot_hash was tried and REMOVED: that field is the snapshot PAYLOAD hash,
+                    # not the block hash at snapshot_height — it fired on every poll on a healthy node.)
+                    _probe = probe_height(state.block_hashes,
+                                          int(status.get("latest_block_height", 0) or 0))
+                    if _probe:
+                        _pb = await _get_json(session, f"/get_block_number?number={_probe}&hash_only=1")
+                        if finality_reverted(state.block_hashes, _probe, _pb):
+                            reason = f"block {_probe} disagrees with L1"
                     if reason:
                         print(f"[execnode] FINALITY REVERTED: {reason} — exec state belongs to an abandoned "
                               f"chain; recovering", flush=True)

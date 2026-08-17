@@ -35,7 +35,7 @@ os.environ.setdefault("NADO_EXEC_STATE", os.path.join(_TMP, "exec_state.json"))
 os.environ.setdefault("NADO_EXEC_DA", os.path.join(_TMP, "exec_da"))
 
 from execnode.execnode import (finality_reverted, probe_height, recovery_available, linkage_broken,
-                               snapshot_disagrees, ckpt_keep, rewind_target,
+                               ckpt_keep, rewind_target,
                                CKPT_FINE, CKPT_FINE_SPAN, CKPT_COARSE, CKPT_COARSE_SPAN)
 
 FAILS = []
@@ -128,13 +128,15 @@ def t_linkage_absence_of_information_is_not_a_break():
     assert linkage_broken({}, 301, {"parent_hash": "dddd"}) is False
 
 
-def t_l1_checkpoint_disagreement_is_known_the_instant_l1_says_so():
-    assert snapshot_disagrees(OURS, {"snapshot_height": 200, "snapshot_hash": "beef"}) is True
-    assert snapshot_disagrees(OURS, {"snapshot_height": 200, "snapshot_hash": "bbbb"}) is False
-    assert snapshot_disagrees(OURS, {"snapshot_height": 999, "snapshot_hash": "beef"}) is False, "not applied yet"
-    assert snapshot_disagrees(OURS, {"snapshot_height": None, "snapshot_hash": "beef"}) is False
-    assert snapshot_disagrees(OURS, {}) is False
-    assert snapshot_disagrees(OURS, None) is False
+def t_the_status_snapshot_hash_is_never_used_as_a_block_hash():
+    """/status snapshot_hash is the snapshot PAYLOAD hash, not the block hash at snapshot_height. A detector
+    comparing the two fired on every poll on a healthy node (2026-08-17 20:41, right after deploy) and
+    marked it stranded. Pin its absence."""
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "execnode", "execnode.py"), encoding="utf8").read()
+    loop = src[src.index("async def tail_loop"):]
+    assert "snapshot_disagrees" not in src, "the snapshot_hash-as-block-hash detector is back"
+    assert 'status.get("snapshot_hash")' not in loop and "status[\"snapshot_hash\"]" not in loop
 
 
 # ---- REWIND CHECKPOINT LADDER --------------------------------------------------------------------------
@@ -244,7 +246,6 @@ def t_the_loop_runs_the_probe_and_recovers_through_the_ladder():
     assert "await _recover_from_revert(session, status, reason)" in loop, "the probe no longer recovers"
     assert "if linkage_broken(state.block_hashes, h, block):" in loop, "the per-block linkage check is gone"
     assert 'await _recover_from_revert(session, status, f"linkage break at {h}")' in loop
-    assert "if snapshot_disagrees(state.block_hashes, status):" in loop, "the L1-checkpoint check is gone"
     assert "hash_only=1" in loop, "the probe no longer asks hash-only (blind below the body floor)"
     # The linkage check must sit BEFORE the block is applied.
     lk = loop.index("if linkage_broken(state.block_hashes, h, block):")

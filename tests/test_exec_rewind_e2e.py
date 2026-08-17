@@ -85,7 +85,6 @@ def t_checkpoints_were_written_as_rungs_were_crossed():
 
 
 def t_detectors_fire_on_the_reanchor():
-    assert X.snapshot_disagrees(st.block_hashes, STATUS), "L1's B-chain checkpoint at 1000 must disagree"
     assert X.linkage_broken(st.block_hashes, 1201, {"parent_hash": H("B", 1200)}), "B's 1201 must not chain onto our A-1200"
     assert not X.linkage_broken(st.block_hashes, 901, {"parent_hash": H("A", 900)}), "B's 901 chains onto A-900 fine"
 
