@@ -98,6 +98,14 @@ storms are the one mechanism that has actually corrupted state, h4260). Now:
    stale verdict or a lying donor; rolling past a proven ancestor is pure loss either way.
 4. A positive mismatch with a non-`REORG` verdict is one peer against the probe quorum: strike the tip it
    advertised, never the chain.
+5. **Production is suppressed on a measured minority fork.** Deterministic production means both sides of
+   a mempool split advance every slot at near-equal weight — the heavier-tip gate never fires, and both
+   sides extend their forks for hours. The produce slot now consults the verdict when the peer majority's
+   tip hash differs from ours *and* the mismatch has persisted `MINORITY_GRACE_S` (so block-boundary
+   propagation lag never fires a probe): positive `REORG`/`DEAD_FORK` skips the slot; `UNKNOWN`/`BEHIND`
+   never halt production (ignorance must not stall a partitioned node, and the seeds-first headcount
+   resolves an even split toward the seeded side). Per-node suppression cannot stall the network —
+   production is replicated, so any node on the majority branch builds the identical canonical block.
 
 Live validation: under a real two-sided split at 62655, the final code burst-rolled 62663→62655 in one
 second, the fresh probe flipped to `behind`, a majority donor attested, fast-forward converged (hash-

@@ -187,6 +187,36 @@ def t_the_reorg_leg_stops_at_the_measured_ancestor():
     assert "refusing to roll deeper" in leg
 
 
+def t_production_is_suppressed_on_a_measured_minority_fork():
+    """Deterministic production means BOTH sides of a mempool split advance every slot at near-equal
+    weight — the heavier-tip gate never fires and both extend their forks for hours (splits at 62655 and
+    62895). Production must consult the measured verdict; positive REORG/DEAD_FORK suppresses the slot."""
+    s = src("loops/core_loop.py")
+    nm = s[s.index("def normal_mode"):s.index("def emergency_mode")]
+    assert "MINORITY-FORK PRODUCTION GATE" in nm, "the production gate is gone"
+    assert "_vs in (fork_resolution.REORG, fork_resolution.DEAD_FORK)" in nm, \
+        "the gate no longer requires POSITIVE evidence — UNKNOWN/BEHIND must never halt production"
+    assert "and not _on_minority" in nm, "the suppression flag no longer reaches the produce condition"
+    gate_at = nm.index("_on_minority = False")
+    build_at = nm.index("block_candidate = get_block_candidate(")
+    assert gate_at < build_at, "the gate runs after the candidate is already built"
+
+
+def t_the_production_gate_is_cheap_on_the_healthy_path():
+    """The verdict walk is ~40 hash probes; it must fire only on a PERSISTED majority-hash mismatch —
+    every block boundary mismatches for the propagation second, and probing there would stall minting."""
+    s = src("loops/core_loop.py")
+    nm = s[s.index("def normal_mode"):s.index("def emergency_mode")]
+    assert "_maj_hash != self.memserver.latest_block[\"block_hash\"]" in nm, \
+        "the cheap gossip trigger is gone — the probe would run unconditionally"
+    assert "MINORITY_GRACE_S" in nm, "the hysteresis is gone — block-boundary lag would fire probes"
+    probe_at = nm.index("_vs = self._fork_state()")
+    grace_at = nm.index("MINORITY_GRACE_S")
+    assert grace_at < probe_at, "the probe runs before the hysteresis has passed"
+    reset_at = nm.index("self._prod_minority_since = None")
+    assert reset_at > probe_at, "the hysteresis timer is never reset when back on the majority hash"
+
+
 for name, fn in [(n, f) for n, f in list(globals().items()) if n.startswith("t_")]:
     check(name[2:].replace("_", " "), fn)
 

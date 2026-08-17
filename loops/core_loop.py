@@ -570,11 +570,45 @@ class CoreClient(threading.Thread):
                     rejected_tips=self.consensus.rejected_tips,
                     benched=self._benched_tip_hashes())
 
+                # MINORITY-FORK PRODUCTION GATE. The heavier-tip gate above cannot see the fork case that
+                # actually persists: production is DETERMINISTIC (same winner both sides, different tx set),
+                # so after a mempool split BOTH branches advance every slot at near-equal weight — neither
+                # side ever sees "heavier", and both extend their forks for hours (observed 2026-08-17/18,
+                # splits at 62655 and 62895). The measured verdict CAN see it, so never extend a branch it
+                # says is not the majority's.
+                #
+                # Cost discipline: the verdict walk is ~40 hash probes, so it must never run on the healthy
+                # path. Trigger only when the peer majority's tip hash differs from OURS (gossip, free) and
+                # that mismatch has PERSISTED (same 5 s hysteresis as minority_block_consensus — every block
+                # boundary mismatches for the propagation second). Then consult the cached verdict:
+                # POSITIVE evidence only — REORG/DEAD_FORK suppresses this slot; UNKNOWN/BEHIND never block
+                # production (ignorance must not halt a partitioned node, and the probe's seeds-first
+                # headcount resolves an even split toward the seeded side). Per-node suppression cannot
+                # stall the network: production is replicated — any node on the majority branch builds the
+                # identical canonical block.
+                _maj_hash = self.consensus.majority_block_hash
+                _on_minority = False
+                if _maj_hash and _maj_hash != self.memserver.latest_block["block_hash"]:
+                    _now_g = get_timestamp_seconds()
+                    if getattr(self, "_prod_minority_since", None) is None:
+                        self._prod_minority_since = _now_g
+                    elif _now_g - self._prod_minority_since >= MINORITY_GRACE_S:
+                        _vs = self._fork_state()
+                        if _vs in (fork_resolution.REORG, fork_resolution.DEAD_FORK):
+                            _on_minority = True
+                            if _now_g - getattr(self, "_last_minority_suppress_log", 0.0) >= _EMERGENCY_LOG_EVERY:
+                                self._last_minority_suppress_log = _now_g
+                                self.logger.warning(f"Production suppressed: measured fork state is {_vs} — "
+                                                    f"refusing to extend a minority branch")
+                else:
+                    self._prod_minority_since = None
+
                 # min_peers == 0 enables SOLO production (a single node mints without a peer mesh) —
                 # used for a stable single-node relay/demo where multi-node fork-choice churn is undesirable.
                 if (len(peers) >= self.memserver.min_peers
                         and not self._genesis_cold_start_blocked(peers)
-                        and not self.memserver.force_sync_ip):
+                        and not self.memserver.force_sync_ip
+                        and not _on_minority):
                     block_candidate = get_block_candidate(logger=self.logger,
                                                           transaction_pool=self._candidate_pool(),
                                                           latest_block=self.memserver.latest_block
