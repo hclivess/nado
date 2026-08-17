@@ -1059,6 +1059,35 @@ class CoreClient(threading.Thread):
             # parent_hash from the anchor, fetching + saving each body. Bounded + best-effort (a pruned donor
             # may lack the deepest ones; we stop cleanly and set earliest to the oldest we actually got).
             tail_depth = REWARD_WINDOW + 2 * EPOCH_LENGTH + FINALITY_DEPTH
+            # AN ARCHIVE NODE MUST NOT COME BACK SHORTER THAN IT WENT IN.
+            #
+            # The fork that forced this recovery was ABOVE the finality floor, so every block BELOW the fork
+            # point is COMMON to both chains: it is not orphaned fork history, it is the majority chain's own
+            # history, and this node was serving it a minute ago. Recovery used to drop all of it anyway,
+            # because adopt_new_identity wipes the segment store wholesale — correct for the abandoned fork,
+            # and indiscriminate about everything beneath it. Measured on this box 2026-08-17: a re-anchor to
+            # a height-57000 snapshot moved earliest from 49735 to 56735 and cost 7000 blocks of bodies.
+            #
+            # We do NOT relax the identity wipe to save them — "the disk makes no statement the new identity
+            # does not vouch for" is the invariant that stopped a fresh joiner wedging at 13000, and keeping
+            # locally-stored bodies would mean re-publishing bytes chosen by the dead chain. Instead we walk
+            # further: on an archive node the backfill continues down to where our history previously
+            # started, re-fetching each body FROM THE DONOR and chaining it by parent_hash, so everything
+            # served is vouched for by the chain we just adopted.
+            #
+            # Best-effort, exactly as before: a rolling donor simply lacks the deepest bodies, and we stop
+            # cleanly at the oldest one we actually got rather than failing the recovery. Recovery is rare
+            # and an archive that comes back whole is worth the fetch; progress is logged because this can
+            # now run for thousands of blocks instead of a few hundred.
+            _archive = bool(getattr(self.memserver, "archive", False))
+            _prev_earliest_bn = int((self.memserver.earliest_block or {}).get("block_number") or 0) \
+                if isinstance(self.memserver.earliest_block, dict) else 0
+            if _archive and _prev_earliest_bn > 0:
+                want = int(anchor.get("block_number", 0)) - _prev_earliest_bn + 1
+                if want > tail_depth:
+                    tail_depth = want
+                    self.logger.warning(f"Archive node: backfilling {tail_depth} bodies to restore history "
+                                        f"down to block {_prev_earliest_bn}")
             oldest, filled = anchor, 0
             for _ in range(tail_depth):
                 ph = oldest.get("parent_hash")
@@ -1072,10 +1101,15 @@ class CoreClient(threading.Thread):
                     break
                 save_block(body, logger=self.logger)
                 oldest, filled = body, filled + 1
-            # AN ESTABLISHED ARCHIVE NODE JUST LOST ITS ARCHIVE. force_reanchor is wedge recovery: the
-            # blocks below the new earliest are orphaned in the store — bytes may linger as inert garbage,
-            # but nothing references them, so this node can no longer SERVE the chain before `oldest`.
-            # That is the archive, gone, on a node whose whole purpose was keeping it.
+                if _archive and filled % 500 == 0:
+                    self.logger.warning(f"Archive backfill: {filled}/{tail_depth} bodies restored "
+                                        f"(at block {int(body.get('block_number', 0))})")
+            # THE BACKFILL ABOVE COULD NOT RESTORE THE WHOLE ARCHIVE. Reaching here means the donor ran out
+            # of bodies before we got back down to our old earliest (a rolling donor, typically), so blocks
+            # below the new earliest are unreferenced in the store and this node can no longer SERVE the
+            # chain before `oldest`. Now that the archive backfill lands, this is the exception rather than
+            # every re-anchor — but when it happens it is still the archive, partly gone, on a node whose
+            # whole purpose was keeping it.
             #
             # We do not refuse the re-anchor. Refusing is worse: the node is on a dead fork it cannot leave
             # by rollback, so declining leaves it wedged forever, still serving nothing. What must not
