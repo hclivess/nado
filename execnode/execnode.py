@@ -287,14 +287,38 @@ async def _find_fork_point(session, block_hashes, tip):
     return best
 
 
+def _rewind_sources():
+    """{ns: {cursor: path}} of EVERY on-disk state payload a rewind can restore from: the dedicated
+    rewind checkpoints (~ckpt~) AND the settle stash (~stash~). The stash entries are the same
+    self-describing {ns, cursor, state_root, state} shape, captured continuously for the prover — which
+    makes them free extra rungs, and often FINER ones: on 2026-08-17 the first live finality revert hit
+    while the checkpoint ladder was one rung old (nothing at/below the fork point 61380), but the stash
+    held that exact cursor. Checkpoints win on a cursor collision (they were written for this purpose)."""
+    import glob as _g
+    out = {}
+    for sep in (_STASH_SEP, _CKPT_SEP):          # ckpt second -> overwrites the stash on a cursor collision
+        pref = f"{STATE_PATH}{sep}"
+        for p in _g.glob(pref + "*.json"):
+            tail = p[len(pref):-len(".json")]
+            ns, _s, cur = tail.rpartition("~")
+            if not _s or ns not in NAMESPACES:
+                continue
+            try:
+                out.setdefault(ns, {})[int(cur)] = p
+            except ValueError:
+                continue
+    return out
+
+
 def _rewind_to(cursor):
-    """Restore every namespace from its checkpoint at `cursor` and reset the derived globals, exactly as
-    _reset_states_to_genesis does minus the wipe. Stash entries ABOVE the cursor are from the abandoned
+    """Restore every namespace from its rewind source at `cursor` and reset the derived globals, exactly
+    as _reset_states_to_genesis does minus the wipe. Stash entries ABOVE the cursor are from the abandoned
     chain and are dropped; the DA store is untouched (content-addressed). Returns True on success."""
     global _last_settled_cursor, prov_states, _prov_key, _prov_last, _prov_since_full
+    sources = _rewind_sources()
     restored = {}
     for ns, st in states.items():
-        p = _ckpt_path(ns, cursor)
+        p = sources.get(ns, {}).get(int(cursor)) or _ckpt_path(ns, cursor)
         try:
             snap = json.load(open(p))
             if snap.get("ns") != ns or int(snap.get("cursor", -1)) != int(cursor):
@@ -348,7 +372,7 @@ async def _recover_from_revert(session, status, reason):
     tip = int((status or {}).get("latest_block_height", 0) or 0)
     fp = await _find_fork_point(session, state.block_hashes, tip)
     if fp is not None:
-        target = rewind_target(_ckpt_list(), fp)
+        target = rewind_target({ns: list(cs) for ns, cs in _rewind_sources().items()}, fp)
         if target is not None and _rewind_to(target):
             print(f"[execnode] recovered from finality revert ({reason}): fork point {fp}, rewound to "
                   f"checkpoint {target}", flush=True)

@@ -116,6 +116,37 @@ def t_the_rewound_state_refollows_l1_from_the_checkpoint():
         "L1's next canonical block does not chain onto the rewound state"
 
 
+def t_a_settle_stash_entry_serves_as_a_rewind_rung():
+    """THE LIVE CASE (2026-08-17 21:1x): the first real finality revert hit while the checkpoint ladder
+    was one rung old — nothing at/below the fork point — but the settle stash held the fork point's exact
+    cursor. The stash is the same self-describing payload, so it must count as a rung."""
+    c = X.state.cursor
+    stash_cur = c - 7
+    payload = json.dumps({"ns": "default", "cursor": stash_cur,
+                          "state_root": X.state.state_root(), "state": X.state._snapshot()})
+    open(X._stash_path("default", stash_cur), "w").write(payload)
+    srcs = X._rewind_sources()
+    assert stash_cur in srcs.get("default", {}), "a stash entry is invisible to the rewind sources"
+    t = X.rewind_target({ns: list(cs) for ns, cs in srcs.items()}, c - 5)
+    assert t == stash_cur, f"rewind target {t} ignored the stash rung at {stash_cur}"
+    os.remove(X._stash_path("default", stash_cur))
+
+
+def t_checkpoint_beats_stash_on_a_cursor_collision():
+    c = X.state.cursor
+    ck = json.load(open(X._ckpt_path("default", c))) if os.path.exists(X._ckpt_path("default", c)) else None
+    payload = json.dumps({"ns": "default", "cursor": c, "state_root": "x", "state": {}})
+    open(X._stash_path("default", c), "w").write(payload)
+    ckp = json.dumps({"ns": "default", "cursor": c, "state_root": X.state.state_root(),
+                      "state": X.state._snapshot()})
+    open(X._ckpt_path("default", c), "w").write(ckp)
+    srcs = X._rewind_sources()
+    assert srcs["default"][c] == X._ckpt_path("default", c), "stash shadowed a dedicated checkpoint"
+    os.remove(X._stash_path("default", c))
+    if ck is None:
+        os.remove(X._ckpt_path("default", c))
+
+
 def t_no_checkpoint_below_the_fork_means_stranded_not_wiped():
     """Fork point below every checkpoint + truncated archive + no bootstrap: keep state, record STRANDED."""
     # make L1 disagree from height 1 (deep fork), keep archive truncated, no bootstrap
