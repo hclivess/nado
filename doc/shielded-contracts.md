@@ -382,7 +382,21 @@ what knows that its loader wants the library at the crate root rather than in `t
 
 Verified by checking the branch out fresh and running it: one command, then every suite green.
 
-## 15. Are the tests load-bearing?
+## 15. The document is checked against the code
+
+Every load-bearing NUMBER above is asserted against the constant or measurement it reports, by
+`tests/test_shielded_doc_matches_code.py`. Prose has no compiler, and the most expensive mistake on this
+branch came from trusting prose over the thing it described — `VALUE_MAX` was 2^62 because it was copied
+from a docstring, while the constraint that docstring described enforced 2^61.
+
+Verified to actually detect drift rather than merely pass: `TREE_DEPTH`, a record tag, `ANCHOR_WINDOW`, the
+range bound, a dropped DA op and a deleted honest-limit paragraph were each introduced in turn, and each
+was caught.
+
+Timings are deliberately **not** pinned — they are measurements on one machine at one moment, and
+asserting them would fail elsewhere for no useful reason. They are labelled as measured, with conditions.
+
+## 16. Are the tests load-bearing?
 
 A passing test is evidence only if it would fail when the thing it tests is broken. This branch found the
 counter-example the hard way: a test that hashed two statements and asserted the digests differed, claiming
@@ -421,7 +435,7 @@ catch it, and a table supplies one tamper per constraint with a bookkeeping chec
 unpinned. Verified by neutering each constraint **in place** (body replaced by a constant zero, list length
 untouched, so the length guard cannot be what notices): **24 of 24 caught**.
 
-## 16. Files
+## 17. Files
 
 | | |
 |---|---|
