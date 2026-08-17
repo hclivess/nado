@@ -80,7 +80,11 @@ def t_the_da_op_table_matches():
     src = open(os.path.join(os.path.dirname(DOC), "..", "execnode", "execnode.py"), encoding="utf8").read()
     m = re.search(r'_DA_BLOB_OPS = \{([^}]*)\}', src)
     assert m, "the DA op table is gone from the source"
-    for op in re.findall(r'"([a-z_]+)":', m.group(1)):
+    ops = re.findall(r'"([a-z_]+)":', m.group(1))
+    # `assert m` is NOT enough: the regex matches an EMPTY table too, and then the loop below never runs.
+    assert ops, "the DA op table is empty — this test would otherwise pass vacuously"
+    assert "private_call" in ops, "private_call no longer rides DA"
+    for op in ops:
         assert op in TEXT, f"the document does not mention the DA-carried op {op!r}"
 
 
@@ -96,6 +100,10 @@ def t_the_two_statement_shapes_match_the_code():
 
 
 def t_the_kinds_table_matches():
+    # ASSERT THE COLLECTION IS NON-EMPTY FIRST. Every assertion below lives inside the loop, so an empty
+    # PREDICATES would make this pass while checking nothing — the vacuous-loop shape, which is the same
+    # family as the dead-code test and the skip-reported-as-PASS already found on this branch.
+    assert S.PREDICATES, "no note kinds are registered — this test would otherwise pass vacuously"
     for kind in sorted(S.PREDICATES):
         name = {S.KIND_VALUE: "KIND_VALUE"}.get(kind)
         assert name, f"kind {kind} exists in code with no name known to this test"

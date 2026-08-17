@@ -109,6 +109,7 @@ def t_nullifier_is_not_computable_by_the_sender():
 
 def t_path_folds_to_the_root():
     leaves = [S.note_commitment(CID, S.KIND_VALUE, [i], S.owner_of(NSK), i) for i in range(5)]
+    assert leaves, "no leaves built — every assertion below is inside the loop over them"
     root = S.tree_root(leaves)
     for pos in range(len(leaves)):
         sibs, dirs = S.tree_path(leaves, pos)
