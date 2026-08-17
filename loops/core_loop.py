@@ -2478,10 +2478,18 @@ class CoreClient(threading.Thread):
         archive would. It cannot be done from outside the process (two writers on the live LMDB), so the
         node does it itself. Throttled to one attempt per ARCHIVE_REFILL_EVERY seconds while a gap exists,
         nothing at all otherwise, and never two fills at once."""
-        if not getattr(self.memserver, "archive", False):
-            return
+        # STATE THE GATES, ONCE. The first deployment of this method produced no output for two full
+        # throttle windows and there was no way to tell WHICH silent early-return was taken — the exact
+        # "log line instead of a mechanism" failure, inverted: a mechanism with no evidence it runs.
         eb = self.memserver.earliest_block if isinstance(self.memserver.earliest_block, dict) else None
         cur = int((eb or {}).get("block_number") or 0)
+        if not getattr(self, "_refill_gates_logged", False):
+            self._refill_gates_logged = True
+            self.logger.warning(f"Archive refill armed: archive={getattr(self.memserver, 'archive', False)} "
+                                f"earliest={cur} peers={len(list(self.memserver.peers))} "
+                                f"interval={ARCHIVE_REFILL_EVERY}s")
+        if not getattr(self.memserver, "archive", False):
+            return
         if cur <= 0:
             return
         if getattr(self, "_deep_fill_thread", None) and self._deep_fill_thread.is_alive():
@@ -2489,11 +2497,14 @@ class CoreClient(threading.Thread):
         now = time.time()
         if now - getattr(self, "_last_refill_try", 0.0) < ARCHIVE_REFILL_EVERY:
             return
-        self._last_refill_try = now
         try:
             peers = list(self.memserver.peers)
             if not peers:
+                # DO NOT consume the throttle slot on "nothing to try": at boot the peer list is empty for
+                # the first seconds, and burning the slot here silently pushed the first real attempt 10
+                # minutes out (observed 2026-08-17 20:45 — the refill logged nothing for its first window).
                 return
+            self._last_refill_try = now
 
             async def _statuses(ips):
                 return await asyncio.gather(*[get_remote_status(ip, logger=self.logger) for ip in ips],
