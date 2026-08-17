@@ -155,7 +155,29 @@ checkpoints + settle-stash rungs, and a recovery ladder that only ever lands som
 (rewind → cold-replay iff the L1 archive is contiguous from genesis, keeping DA → bootstrap → STRANDED,
 kept state, retried every poll and exposed machine-readably on `/exec/root`).
 
-## 6. File / test map
+## 6. Honest limits (2026-08-18)
+
+Stated so a reader trusts the right amount — over-trust is a worse failure than any single gap:
+
+- **The math is PoS-grade; the decentralization isn't yet.** The fleet is eight nodes and the bonded
+  registry is small: ⅓ of the seats — the equivocation threshold behind `hard_finality` — is a handful of
+  validators, most operated by the same project. Every guarantee above should be read as "against this
+  validator set". The mechanisms are built for the larger set; the larger set does not exist yet.
+- **Verdicts are stake-weighted, but the stake is the same small registry.** `/hash_attest` +
+  `probe_block_hash_signed` close the per-IP Sybil softness (a swarm adds headcount, a validator adds
+  seats, seeds remain the unsigned liveness fallback) — bounded griefing is now bounded harder, but
+  "⅔ of seats" still names a small club.
+- **Slashing is now automatic, and lightly battle-tested.** The watchtower
+  (`memserver.maybe_watchtower_slash`) turns an observed FFG double-vote into a submitted slash with no
+  human in the loop, exercised end-to-end with real keys in `tests/test_watchtower_slash.py` — but it has
+  never fired against a real adversary, and the penalty economics (SLASH_BOND_PENALTY vs what an attack
+  earns) are untested at scale.
+- **Forks are contained, not prevented.** Splits still originate in mempool divergence; the machinery
+  above makes them resolve in seconds instead of hours and makes reverting cost an attacker a real
+  branch. The known admission-order driver ("Empty account" while the funder is still in the pool) is
+  fixed; sustained-load pool divergence (mempool-full eviction under pressure) is not exercised yet.
+
+## 7. File / test map
 
 | Piece | Code | Tests |
 |---|---|---|

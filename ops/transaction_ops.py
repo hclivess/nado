@@ -185,6 +185,20 @@ def construct_duty_tx(keydict, max_block, attest=None, commit=None, reveal=None)
     return tx
 
 
+def construct_slash_tx(keydict, proof, max_block):
+    """Build the SIGNED fee-exempt slash tx from an equivocation proof (block-authorship or FFG
+    attestation double-vote). Anyone may report — the unforgeable proof is the anti-spam — and the
+    WATCHTOWER (memserver.maybe_watchtower_slash) is the automatic reporter: punishment must land
+    because the protocol saw the offence, not because a human happened to."""
+    tx = {"sender": keydict["address"], "recipient": "slash", "amount": 0,
+          "timestamp": get_timestamp_seconds(), "data": proof, "nonce": create_nonce(),
+          "max_block": max_block, "chain_id": CHAIN_ID, "fee": 0,
+          "public_key": keydict["public_key"]}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def verify_attestation_equivocation_proof(proof):
     """Verify an FFG ATTESTATION double-vote: the SAME bonded validator SIGNED two attestations for the SAME
     target_epoch but DIFFERENT target_hash. proof = {"attest_a": <signed attest tx>, "attest_b": <signed

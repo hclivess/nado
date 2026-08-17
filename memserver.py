@@ -495,6 +495,57 @@ class MemServer:
         return out
 
 
+    def maybe_watchtower_slash(self, transaction):
+        """THE WATCHTOWER: automatic slashing on an OBSERVED FFG double-vote. Slash validation has been
+        complete for a while (resolve_slash: both proof kinds, dedup, penalty) — but nothing ever
+        SUBMITTED one, so punishment existed only if a human noticed and hand-built the proof tx.
+        Accountability that depends on someone watching is not accountability.
+
+        Every gossiped attest-bearing tx passes through here BEFORE admission (the equivocating second
+        vote is typically REFUSED as a duplicate section, so hooking after admission would drop the
+        evidence). We remember the last signed attest tx per (sender, epoch); a second one with a
+        DIFFERENT target_hash is an irrefutable double-vote — build the proof from the two full signed
+        txs and merge the fee-exempt slash tx into our own pool (gossip carries it from there). The
+        memory is one tx per validator per epoch, pruned two epochs back — bounded by the committee size.
+
+        Never raises into admission, and never fires on our own txs re-entering (same target_hash)."""
+        try:
+            if not isinstance(transaction, dict) or transaction.get("recipient") not in ("duty", "attest"):
+                return
+            d = transaction.get("data") or {}
+            att = d.get("attest") if transaction.get("recipient") == "duty" else d
+            if not isinstance(att, dict):
+                return
+            epoch, thash = att.get("target_epoch"), att.get("target_hash")
+            sender = transaction.get("sender")
+            if not isinstance(epoch, int) or isinstance(epoch, bool) or not thash or not sender:
+                return
+            if not hasattr(self, "_attest_watch"):
+                self._attest_watch = {}
+            prev = self._attest_watch.get((sender, epoch))
+            if prev is None:
+                self._attest_watch[(sender, epoch)] = transaction
+                # prune: nothing older than 2 epochs back can still be slashed ahead of its dedup anyway
+                for k in [k for k in self._attest_watch if k[1] < epoch - 2]:
+                    self._attest_watch.pop(k, None)
+                return
+            prev_att = (prev.get("data") or {}).get("attest") if prev.get("recipient") == "duty" \
+                else (prev.get("data") or {})
+            if not isinstance(prev_att, dict) or prev_att.get("target_hash") == thash:
+                return                                    # same vote re-gossiped: honest
+            from protocol import TX_LANDING_WINDOW
+            from ops.transaction_ops import verify_attestation_equivocation_proof, construct_slash_tx
+            proof = {"attest_a": prev, "attest_b": transaction}
+            if not verify_attestation_equivocation_proof(proof):
+                return                                    # would not survive validation — do not spam
+            self.logger.warning(f"WATCHTOWER: FFG double-vote by {sender[:16]}… at epoch {epoch} — "
+                                f"submitting the slash")
+            slash = construct_slash_tx(self.keydict, proof,
+                                       self.latest_block["block_number"] + TX_LANDING_WINDOW - 5)
+            self.merge_transaction(slash, user_origin=True)
+        except Exception as e:
+            self.logger.warning(f"watchtower error (non-fatal): {e}")
+
     def merge_transaction(self, transaction, user_origin=False) -> dict:
         """warning, can get stuck if not efficient"""
         from protocol import TX_LANDING_WINDOW
@@ -505,6 +556,9 @@ class MemServer:
                 or not isinstance(transaction.get("max_block"), int)
                 or isinstance(transaction.get("max_block"), bool)):
             return {"result": False, "message": "Malformed transaction"}
+
+        # WATCHTOWER (before any refusal path — a refused duplicate attest section IS the evidence)
+        self.maybe_watchtower_slash(transaction)
 
         # RE-GOSSIP FAST PATH: peers re-serve their whole pool every second, so the overwhelmingly
         # common case is a tx we already hold. O(1) txid-set check BEFORE any validation or DB read —
