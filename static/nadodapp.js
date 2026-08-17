@@ -526,8 +526,8 @@ export function renderWallet(dapp) {
   if ($("who")) $("who").textContent = signedIn ? disp(dapp.me) : "not signed in";
   if ($("bal")) $("bal").textContent = rawToNado(dapp.exec) + " NADO";
   if ($("l1bal")) $("l1bal").textContent = rawToNado(dapp.l1) + " NADO";
-  const bm = document.getElementById("buyinSliderM"); if (bm) bm.textContent = _t("sdk.ofWallet", "of {n} wallet", { n: rawToNado(dapp.l1) });
-  const cm = document.getElementById("cashoutSliderM"); if (cm) cm.textContent = _t("sdk.ofPlayable", "of {n} playable", { n: rawToNado(dapp.exec) });
+  const bm = document.getElementById("buyinSliderM"); if (bm) bm.textContent = _t("ofWallet", "of {n} wallet", { n: rawToNado(dapp.l1) });
+  const cm = document.getElementById("cashoutSliderM"); if (cm) cm.textContent = _t("ofPlayable", "of {n} playable", { n: rawToNado(dapp.exec) });
   return signedIn;
 }
 // The faucet PRIZE TAPER — rank 1..5 shares of a game's daily faucet budget. MIRRORS _faucet_rewards.py
@@ -1068,7 +1068,7 @@ export class NadoDapp {
     if (on) {
       if (!el) { el = document.createElement("div"); el.id = "nadoBgBusy";
         el.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9998;background:var(--bg-elev);border:1px solid var(--accent-2);color:var(--accent-2);font:600 12px/1.4 system-ui,sans-serif;padding:7px 14px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.5);pointer-events:none";
-        el.textContent = _t("sdk.signing", "🔏 Signing…"); (document.body || document.documentElement).appendChild(el); }
+        el.textContent = _t("signing", "🔏 Signing…"); (document.body || document.documentElement).appendChild(el); }
     } else if (el) el.remove();
   }
   _bgPump() {
