@@ -440,6 +440,7 @@ Full map, with measured numbers and per-component status:
 | DA transport (k-of-n + commitment + defer) | **BUILT** | Availability ≠ validity: unresolved defers, never rejects |
 | **Trustless settlement, end to end** | **NOT WORKING** | Rule is live and unconditional; **zero proof-carrying settles have ever completed**. Current stop: `PRE MISMATCH` — the stashed pre-state does not reproduce L1's justified root |
 | Signature aggregation | **REMOVED** | Built, measured, deleted 2026-07-31 — post-mortem kept deliberately |
+| **Shielded contracts (private application state)** | **BUILT ON BRANCH `shielded-contracts`, NOT YET REACHABLE FROM A CLIENT** | Private *state* with public *code*. Reuses the shielded pool's note/nullifier machinery and the DA→commitment→verify loop; see below |
 | Program obfuscation (Diamond iO) | **RESEARCH** | Nothing implemented, scheduled, or promised |
 
 **Open work, in the order the measurements justify:**
@@ -456,6 +457,85 @@ Full map, with measured numbers and per-component status:
    26.9 µs of the 35.4 µs `rnode` call — so porting the tree walk buys only ~24%. A Toeplitz-Karatsuba
    MDS could cut the permutation ~1.8× without changing the hash, but that is consensus-critical and
    **time is not the binding constraint**. Do this last.
+
+#### Shielded contracts — private application state on our own machinery
+
+The shielded pool hides **values**; every contract deployed today is public bytecode with public storage and
+public inputs (`doc/obfuscation-diamond-io.md` §1 states this plainly). The gap between those two is the whole
+of "private apps": **private state with public code**. That is strictly less than the iO research goal, which
+hides the *code*. Keep the two apart in every discussion; they are different projects and only one of them is
+buildable today.
+
+What makes this cheap for us is that the pipeline already exists and already carries traffic. A private
+contract call is the **same** proof→DA→commitment→L1-order→verify loop the shielded pool runs; only the
+statement inside the proof changes. Of the components a private call touches, exactly two are new.
+
+**The finding that decides the cost: no reroll.** `execnode/exec_root.py` folds the settled root as
+`rnode(KV_ROOT, RECORDS_ROOT)`, and the RECORDS half already commits the shielded and field pool roots and
+nullifier sets as *digests in the position*. Its tag table is FROZEN-**append-only**, and the module says so:
+"extending validity proofs over MORE of the root later is forward-compatible work on the SAME tree — no future
+genesis reroll, no hard fork". A per-contract note root and nullifier set are two more tags (11, 12). Tags 1–10
+never move, so no historical root is invalidated. Given that every `CHAIN_GENERATION` reroll wipes all 25
+contracts and forces a coordinated redeploy, this is the difference between a feature and a relaunch.
+
+**The five pieces, in dependency order:**
+
+1. **Generalise the note.** Today `(value, owner, rho)` with conservation hardcoded into
+   `joinsplit_circuit.py`. A state note is `(cid, note_type, fields…, owner, rho)`; conservation becomes a
+   per-type predicate rather than a global law. Concretely: `cid` and `type` join the COMMIT region's sponge
+   input, and `VIN`/`VOUT` become generic field slots. The C-3 range gadget stays — any field standing for a
+   quantity still needs it, for the same mod-P wraparound reason.
+2. **The private kernel circuit.** Two routes. **(A) per-contract AIRs** — cheap to prove, but needs a
+   compiler and makes every contract a bespoke circuit to audit. **(B) the zkVM with a private input tape** —
+   `vm_circuit.py` already proves a *public* program on *public* inputs producing a *public* I/O log; add a
+   private tape plus note-read/note-emit opcodes and the same AIR proves a private call. B is far more
+   expensive per call and has one VM, one circuit, one thing to get right. **Start with B**; move hot
+   contracts to A once cost is measured rather than guessed.
+3. **Client-side proving — the piece that decides whether any of this is real.** `shielded_field.py` today:
+   "the wallet hands the exec node the witness, the exec node builds the path and proves the whole
+   join-split." That is private from the chain and from other users, but **not from whoever runs the exec
+   node**. A sequencer that never sees a witness is the bar; ours sees all of them. The kernels are already native Rust
+   (Track F), so the work is a WASM target plus browser witness generation, not a new prover. Until it ships,
+   say "private except from the operator" — do not let the word do work it has not earned.
+4. **Two-domain call semantics.** A private call yields nullifiers, new commitments, an optional enqueued
+   public call, and a proof. Apply in L1 order: verify → every nullifier unseen → append commitments → run the
+   enqueued public call in the existing zkVM. The only legal direction is private → public; public state must
+   never read private state.
+5. **Size and reach.** A per-call proof is the same 1–4 MB order as a shielded transfer, so it rides DA. The
+   K→1 fold keeps a many-call span at one verification. Reach is the unsolved half and it is operational, not
+   architectural: DA k-of-n is meaningless while one node in the fleet runs `nado-exec` (Track F, item 3 of the
+   2026-08-06 post-mortem).
+
+**The hazard this design specifically must not walk into.** A call the chain *skips* or *reverts* is a no-op on
+chain but the prover cannot represent one, so a single skipped call makes the whole settlement span unprovable
+— the open blocker recorded above under 2026-08-06. Observed on the live node again on 2026-08-16:
+
+```
+block 42282  skip: insufficient bridge balance for call value
+settle-with-proof SKIPPED — span 42270 -> 42300 contains an unprovable call at block 42282
+```
+
+A private call whose proof fails to verify must therefore be **rejected at blob admission**, never admitted and
+then skipped during apply. Get that wrong and any user can switch the chain off validity proofs at will by
+submitting one bad proof per span. This is a hard precondition, not a nice-to-have — and it argues for fixing
+the skip/revert representation *before* private calls exist, not alongside them.
+
+**Phasing** (each independently shippable; nothing after P0 needs a reroll):
+
+| | Delivers | Turns on |
+|---|---|---|
+| **P0** | Raise the field pool tree from `TREE_DEPTH = 12` to production depth; migrate the pool tree + browser client BLAKE2b → alghash | Nothing new — finishes the rollout `doc/privacy.md` §6 already lists as pending |
+| **P1** | Generalised note `(cid, type, fields)` + record tags 11–12 | Per-contract shielded balances: private state exists, one note type |
+| **P2** | Private kernel over the zkVM with a private input tape | Arbitrary private functions, delegated proving |
+| **P3** | WASM prover in the wallet | Privacy becomes **unilateral** — the operator stops seeing witnesses |
+| **P4** | Per-contract circuits for hot paths; DA shards on peer nodes | Cost and reach — usable rather than demonstrable |
+
+**What would sink it: proving cost, not cryptography.** Route B multiplies the VM trace by every step of every
+private call, and we have already met the ceiling from the other direction — a span of 119 record updates was
+declined on 2026-08-16 because the proof would be ~1 794 MiB against `SETTLE_INLINE_MAX` and take ~5 355 s to
+build. The number that decides this is **proving seconds per private call on a phone**, and nobody has measured
+it. That measurement belongs before P1, not after P2 — it is the cheapest possible way to find out whether the
+rest of this is worth building.
 
 ### Track G — Signature-scheme agility (more post-quantum, never less)
 
