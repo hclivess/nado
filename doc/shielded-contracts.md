@@ -382,6 +382,29 @@ what knows that its loader wants the library at the crate root rather than in `t
 
 Verified by checking the branch out fresh and running it: one command, then every suite green.
 
+### A prover hint that does not pay off here — measured, and declined
+
+`stark.prove` emits a runtime hint on every deposit: a dense periodic column of length 256 is 1-periodic,
+and passing it as `{"period": 1, "base": [...], "sparse": [...]}` lets the verifier evaluate it in O(1)
+instead of building an O(N) coset LDE. Sixteen of the deposit statement's twenty-six columns are entirely
+zero, so it looks like free money.
+
+Implemented and measured, deposit statement, 23 of 26 columns compacted:
+
+| columns | prove | verify | proof digest |
+|---|---|---|---|
+| structured | 11.2 s | 6.44 s | `e95fd2e165306b64` |
+| dense | 8.9 s | **5.09 s** | `e95fd2e165306b64` |
+
+**Slower, both sides.** The proof bytes are byte-identical — `_per_expand`'s contract holds exactly as
+documented — but the verifier's structured path uses the closed-form Lagrange basis
+`L_r(x) = g^r·(x^T − 1)/(T·(x − g^r))`, which costs a field **inversion per sparse row per query point**.
+At `NUM_QUERIES = 320` across 23 columns that outweighs one cached O(T) interpolation when T is 256 or
+2048. The hint is aimed at large T, where the interpolation dominates; these traces are not large.
+
+Reverted. Recorded here because the hint fires on every run and looks authoritative, and the next person to
+follow it deserves the measurement rather than a second afternoon.
+
 ## 15. The document is checked against the code
 
 Every load-bearing NUMBER above is asserted against the constant or measurement it reports, by
