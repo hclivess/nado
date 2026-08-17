@@ -460,6 +460,22 @@ def get_finalized_height() -> int:
     return kv_ops.meta_get_int("finalized_height", 0)
 
 
+def get_hard_finality() -> int:
+    """The UN-CROSSABLE floor (two-floor model, protocol.FINALITY_HARD_BACKSTOP doc): the highest of the
+    FFG-finalized checkpoint (quorum-attested, slashable to revert) and the wide liveness backstop.
+    rollback_one_block refuses to cross THIS, not finalized_height; fork classification and re-anchor
+    candidate floors use it too. Monotonic, meta-persisted, ROOT-EXCLUDED (it is derived through the
+    node-LOCAL corroboration gate, so it must never enter the consensus root). Defaults to 0."""
+    return kv_ops.meta_get_int("hard_finality", 0)
+
+
+def set_hard_finality(height: int):
+    """Persist the hard-finality floor. Strictly monotonic — a quorum-signed checkpoint never un-happens,
+    and unlike finalized_height there is NO recovery exception: a chain view where this floor is wrong
+    is a chain view where >1/3 of bonded seats equivocated, which is slashing's problem, not rollback's."""
+    kv_ops.meta_set_int("hard_finality", int(height))
+
+
 def set_finalized_height(height: int):
     """Persist the finalized-height floor. Callers MUST keep it monotonic (only ever increase it).
 

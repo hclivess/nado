@@ -7,7 +7,7 @@ import time
 import traceback
 
 from config import get_timestamp_seconds, get_config
-from ops.account_ops import get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_finalized_height, get_account
+from ops.account_ops import get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_finalized_height, get_hard_finality, set_hard_finality, get_account
 from ops.block_ops import (
     knows_block,
     get_blocks_after,
@@ -55,7 +55,7 @@ from ops.transaction_ops import (construct_duty_tx,
                                  construct_dividend_withdraw_tx)
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
-from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
+from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW
 
 # ARCHIVE SELF-REPAIR cadence (seconds): how often an archive node whose history does not reach genesis
 # looks for a peer that reaches deeper and starts a background fill (_maybe_refill_archive). Only while a
@@ -955,11 +955,18 @@ class CoreClient(threading.Thread):
                 # and every tail block after the import is re-verified by verify_block, so a bogus checkpoint
                 # cannot be extended and the real heaviest chain re-triggers.
                 our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
-                floor = 0 if allow_below_floor else self.memserver.finalized_height
+                # TWO-FLOOR: the re-anchor floor is the HARD floor, escalated or not. A snapshot below the
+                # depth floor but above the quorum floor is a legal landing point — that geometry used to
+                # force escalation, which then passed 0 and could cross ANY floor, which is how archives got
+                # truncated and the exec layer stranded. Crossing the hard floor is never recovery: it would
+                # adopt a chain conflicting with a checkpoint a >2/3 bonded quorum signed — joining an
+                # equivocation. When FFG has not finalized yet, hard is 0 and this degenerates to the old
+                # escalated behaviour; `allow_below_floor` survives only as the escalation LABEL.
+                floor = get_hard_finality()
                 cand = reanchor_candidates(peers, statuses, our_weight, floor)
                 if not cand:
                     self.logger.info("Re-anchor: no peer advertises a strictly-heavier chain with a snapshot "
-                                     f"above {'0 (ESCALATED)' if allow_below_floor else 'our finality floor'};"
+                                     f"above {'the HARD floor (ESCALATED)' if allow_below_floor else 'our finality floor'};"
                                      " staying put")
                     return False
                 # RANK BY CORROBORATION, NOT BY THE UNVERIFIED NUMBER. latest_block_weight is peer-asserted
@@ -1225,9 +1232,14 @@ class CoreClient(threading.Thread):
             if not peers:
                 return fork_resolution.UNKNOWN
             tip = self.memserver.latest_block["block_number"]
+            # HARD floor, not depth (two-floor model): classify() calls a fork DEAD (unrecoverable by
+            # rollback) only below what rollback actually refuses to cross. Using the depth floor here is
+            # what turned every >45-block fork into a floor-crossing "wedge recovery"; above the hard floor
+            # the verdict is now REORG and the ordinary rollback leg handles it.
+            from ops.account_ops import get_hard_finality as _ghf
             verdict = fork_resolution.resolve(
                 our_hash_at=get_block_hash_by_number,
-                tip=tip, finalized=get_finalized_height(), peers=peers,
+                tip=tip, finalized=_ghf(), peers=peers,
                 probe=lambda peer, h: probe_block_hash(peer, h, port=self.memserver.port))
             self._fork_state_cache = (now, verdict["state"])
             self.logger.info(f"Fork state: {verdict['state']} (ancestor={verdict['ancestor']}, "
@@ -1284,9 +1296,15 @@ class CoreClient(threading.Thread):
             _stalled = self.memserver.since_last_block >= DEAD_FORK_STALL_S
 
             from ops.peer_ops import seed_peers, stranded_below_finality, peer_tip_weight
-            from ops.account_ops import get_finalized_height
+            from ops.account_ops import get_hard_finality
             from ops.block_ops import get_block_hash_by_number
-            height = get_finalized_height()
+            # TWO-FLOOR: probe at the HARD floor — the deepest point this node refuses to move. The depth
+            # floor is crossable now, so disagreement there is an ordinary REORG for the rollback leg, not
+            # grounds for the destructive purge. hard == 0 means no immutable prefix exists yet: every
+            # divergence is reachable by rollback or re-anchor, so there is nothing to escape from.
+            height = get_hard_finality()
+            if height <= 0:
+                return False
             ours = get_block_hash_by_number(height)
             if not ours:
                 return False
@@ -2060,52 +2078,61 @@ class CoreClient(threading.Thread):
         # just leaves a stale tip that re-syncs forward; block_already_indexed prevents re-apply.
         set_latest_block_info(latest_block=block, logger=self.logger)
 
-        # ENFORCED FINALITY (#17 step 1): advance the persisted monotonic finalized-height floor. A
-        # block at height H finalizes everything at/below H - finality_depth; rollback_one_block then
-        # REFUSES to cross it. Monotonic (max), recomputable, and crash-conservative: a crash between
-        # the block commit above and this write leaves the floor one behind (never ahead) and it
-        # re-advances on the next block — it can never finalize something that wasn't committed.
+        # ENFORCED FINALITY (#17 step 1, two-floor model since 2026-08-17): advance BOTH persisted floors.
+        # `finalized_height` (depth) keeps its cadence for everything latency-sensitive; `hard_finality`
+        # (FFG quorum + wide backstop) is what rollback refuses to cross. Crash-conservative as before: a
+        # crash between the block commit above and these writes leaves the floors one behind (never
+        # ahead) and they re-advance on the next block.
         # The floor is the DEEPER (higher) of two guarantees: the CORROBORATED time/depth floor
         # (tip - finality_depth, advanced only while the peer-majority tip lies on OUR canonical chain —
         # see _depth_floor_corroborated: a node producing alone on a minority fork must never self-finalize
         # it, which is how a partition wedged a node permanently below its own floor), and the FFG
-        # checkpoint (block E*EPOCH_LENGTH that a >2/3 bonded-stake quorum attested — OBJECTIVE,
-        # accountable, slashable). Folding FFG in makes a stake-finalized checkpoint UN-REORGABLE
-        # (rollback_one_block refuses to cross finalized_height), so remote sync can never adopt a heavier
-        # chain that conflicts with it — the safety FFG was built for, now enforced instead of merely
-        # MEASURED REALITY (do not trust the paragraph above on this point): the FFG term can NEVER win
-        # this max() in any legal configuration. ffg_finalized_checkpoint requires the CHILD checkpoint
-        # block (e+1)*EPOCH_LENGTH to exist, so ffg_final <= tip - EPOCH_LENGTH = tip - 60; memserver
-        # asserts max_rollbacks < finality_depth < EPOCH_LENGTH and lifts finality_depth to at least
-        # FINALITY_DEPTH, so finality_depth in [45, 59] and depth_final = tip - finality_depth >= tip - 59.
-        # Hence ffg_final < depth_final ALWAYS. FFG is therefore OBSERVATIONAL today (still recorded,
-        # attested and slashable, and reported in /status) — the enforced floor is the corroborated depth
-        # floor. The ffg term and its gate below are kept as defence-in-depth so the formula stays correct
-        # if those bounds ever change; they are not load-bearing now. Anyone re-enabling real FFG
-        # enforcement must gate it on an FFG-specific liveness signal, NOT on heaviest_block_hash (which an
-        # attacker can withhold at zero cost).
+        # checkpoint (block E*EPOCH_LENGTH that a >2/3 bonded-seat quorum attested, it AND its child —
+        # OBJECTIVE, accountable, slashable).
+        #
+        # HISTORY: an earlier formula folded ffg into finalized_height itself, where — as its own comment
+        # eventually measured — ffg_final <= tip - 60 < depth_final = tip - [45..59] meant the FFG term
+        # could NEVER win the max() and quorum finality was purely observational. The enforced floor was a
+        # 45-block local observation, and treating THAT as un-crossable is what turned every deeper fork
+        # into a floor-crossing wedge recovery (2026-08-17: eight in one day, two archive truncations).
+        # Now FFG is the un-crossable floor and depth is cadence, which is what each actually is. The old
+        # warning stands and is honoured: FFG enforcement is gated on _depth_floor_corroborated (a real
+        # liveness/partition signal), never on heaviest_block_hash.
+        # TWO-FLOOR ADVANCE (protocol.FINALITY_HARD_BACKSTOP doc). finalized_height keeps its depth cadence
+        # — it feeds the exec layer, pruning, snapshots and status, and its latency must not move — but it
+        # is no longer what rollback refuses to cross. The UN-CROSSABLE floor is hard_finality: the
+        # FFG-finalized checkpoint (>2/3 bonded seats attested it AND its child — reverting it means
+        # slashable equivocation) folded with the wide liveness backstop (tip - FINALITY_HARD_BACKSTOP), so
+        # a stalled committee bounds reorg exposure at an hour instead of unbinding it entirely. The old
+        # formula folded ffg into finalized_height where, as its own comment measured, it could NEVER win
+        # the max() — quorum finality was observational. Now it is the thing rollback enforces.
         depth_final = block["block_number"] - self.memserver.finality_depth
         ffg_final = int(getattr(self.memserver, "ffg_finalized", 0) or 0)
+        backstop_final = block["block_number"] - FINALITY_HARD_BACKSTOP
         if not self._depth_floor_corroborated():
-            # UNCORROBORATED TIP (minority side of a partition, or solo on a fork): neither floor may
-            # advance. The depth floor was already gated this way; FFG was NOT, and that was a hole. FFG's
-            # justification denominator applies an INACTIVITY LEAK (INACTIVITY_WINDOW = 3 epochs), so on the
-            # minority side of a partition lasting >3 epochs the absent majority validators leak OUT of the
-            # denominator, the minority's own committee becomes >2/3 of the "active" stake, and it
-            # FFG-finalizes its OWN fork. finalized_height is an enforced, un-crossable floor
-            # (rollback_one_block raises FinalityViolation), so on heal that node cannot roll back to rejoin
-            # the canonical chain — a self-inflicted permanent wedge escapable only by the drastic
-            # purge-and-resync dead-fork path. FFG stays fully OBJECTIVE and accountable (the attestations
-            # are still recorded and slashable, and ffg_finalized is still reported in /status); we only
-            # decline to ENFORCE an un-reorgable floor from a chain view the visible network does not
-            # corroborate. (Given ffg_final < depth_final always, zeroing ffg here changes nothing today —
-            # it keeps the two floors consistent rather than leaving one ungated.)
+            # UNCORROBORATED TIP (minority side of a partition, or solo on a fork): NO floor may advance.
+            # FFG's justification denominator applies an INACTIVITY LEAK (INACTIVITY_WINDOW = 3 epochs), so
+            # on the minority side of a partition lasting >3 epochs the absent majority validators leak OUT
+            # of the denominator, the minority's own committee becomes >2/3 of the "active" stake, and it
+            # FFG-finalizes its OWN fork. hard_finality is the enforced, un-crossable floor, so on heal that
+            # node could never roll back to rejoin the canonical chain — a self-inflicted permanent wedge.
+            # The gate matters MORE now that the ffg term is load-bearing, not less.
             depth_final = 0
             ffg_final = 0
-        new_final = max(self.memserver.finalized_height, depth_final, ffg_final)
-        if new_final > self.memserver.finalized_height:
+            backstop_final = 0
+        # READ THE PERSISTED FLOOR, not the memserver mirror: rollback_one_block now legally LOWERS
+        # finalized_height when a reorg crosses the depth floor, and max()ing against a stale high mirror
+        # here would resurrect the old branch's floor one block later, silently re-raising what the
+        # rollback just lowered. The mirror is refreshed below either way.
+        prev_depth = get_finalized_height()
+        new_final = max(prev_depth, depth_final)
+        if new_final > prev_depth:
             set_finalized_height(new_final)
-            self.memserver.finalized_height = new_final
+        self.memserver.finalized_height = new_final
+        prev_hard = get_hard_finality()
+        new_hard = max(prev_hard, ffg_final, backstop_final)
+        if new_hard > prev_hard:
+            set_hard_finality(new_hard)
 
         # lazy NODE-LOCAL cleanup: idle-GC revert records below finality can never be needed
         # (rollback refuses to cross the floor). Epoch boundaries only — negligible either way.

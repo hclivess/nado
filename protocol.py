@@ -1154,6 +1154,26 @@ RANDAO_ENFORCED = False
 # inside one epoch (60) so the epoch-beacon anchor stays un-reorgable and long-range reorgs stay capped.
 FINALITY_DEPTH = 45
 
+# HARD FINALITY (two-floor model, 2026-08-17). FINALITY_DEPTH above is a LOCAL OBSERVATION — "no reorg
+# reached this deep in 4.5 minutes" — and treating it as un-crossable is what created the "finality
+# revert" class: two branches of a fork each advance their own depth floor within minutes, neither can
+# legally roll back to the ancestor, and recovery must then cross floors (the escalated floor=0
+# re-anchor), truncating archives and stranding the exec layer on the way. Measured on 2026-08-17:
+# eight floor-crossing recoveries in one day.
+#
+# The UN-CROSSABLE floor is now the FFG-finalized checkpoint (ops/attestation_ops) — a >2/3 bonded-seat
+# quorum attested it and its child, so reverting it requires slashable equivocation, not just a heavier
+# chain — with this depth as a wide LIVENESS BACKSTOP: if attestations stall, hard finality still
+# advances at tip - FINALITY_HARD_BACKSTOP, so long-range/51% reorg exposure stays bounded (the #17
+# guarantee) without the 45-block hair trigger. Ten epochs: a fork must sustain a full HOUR of divergence
+# before floors lock, vs 4.5 minutes — and the corroboration gate must ALSO have failed the whole time.
+#
+# FINALITY_DEPTH itself keeps every other role (exec follow depth, pruning, status, duty windows):
+# `finalized_height` still advances at tip - FINALITY_DEPTH, it is just no longer what rollback refuses
+# to cross — rollback.py refuses at the hard floor and legally lowers the depth floor when a deep reorg
+# crosses it (the exec layer absorbs that with its rewind checkpoints).
+FINALITY_HARD_BACKSTOP = 10 * EPOCH_LENGTH
+
 # LOAD-BEARING CONSENSUS INVARIANT (asserted): settle-with-proof validation (transaction_ops.validate_
 # transaction) reads exec_summary_get(h) for every height in a proof's span, but `execsum:` rows are EXCLUDED
 # from the state root (retention/rollback-path dependent). A node lacking a needed summary would REJECT a

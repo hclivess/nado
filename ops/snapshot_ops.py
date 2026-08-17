@@ -133,7 +133,13 @@ ROOT_EXCLUDED_DBS = frozenset(("block_by_num", "block_by_hash", "treasury_propos
 #           moved, and every ARCHIVE node — which never prunes and so never writes the row — computed the
 #           old root and correctly refused to extend. A node's disk-retention policy must never be able to
 #           move the consensus root; that is the whole reason this list exists.
-ROOT_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below",
+#         hard_finality — the un-crossable floor (two-floor model): FFG checkpoint folded with the wide
+#           liveness backstop, advanced through the node-LOCAL corroboration gate — so two honest nodes
+#           at the same tip can legitimately hold different values (one was partitioned, one was not).
+#           Including it would be the h10047 index-watermark fork all over again. Root-excluded from the
+#           key's FIRST deploy, so a mixed fleet during the update wave computes identical roots: old
+#           nodes never write the key, new nodes write it outside the commitment.
+ROOT_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below", b"hard_finality",
                                      b"index_pruned_below_num", b"index_pruned_below_hash"))
 
 #   (3) ROOT_EXCLUDED_META_PREFIXES — families of `meta` rows whose PRESENCE is retention / rollback-path

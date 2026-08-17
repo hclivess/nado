@@ -34,7 +34,7 @@ from loops.core_loop import CoreClient
 from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
-from ops.account_ops import get_account, fetch_totals, get_bonded_registry
+from ops.account_ops import get_account, fetch_totals, get_bonded_registry, get_hard_finality as _ghf
 from ops.address_ops import proof_sender, is_address
 from signatures import (verify as _mldsa_verify, unhex as _mldsa_unhex,
                         backend_name as _pq_backend_name,
@@ -236,6 +236,9 @@ async def status(request):
             "earliest_block_height": eb.get("block_number"),
             "finalized_height": memserver.finalized_height,
             "ffg_finalized": memserver.ffg_finalized,
+            # the UN-CROSSABLE floor (two-floor model, protocol.FINALITY_HARD_BACKSTOP): quorum checkpoint
+            # folded with the wide liveness backstop — what rollback refuses and re-anchors floor at
+            "hard_finality": _ghf(),
             "protocol": memserver.protocol,
             # CONSENSUS CONSTANTS THE BROWSER MUST MATCH. static/interface.js hardcodes these and its own
             # comments say "MUST match protocol.py" — they drifted anyway (FINALITY_DEPTH sat at 12 vs 45,
