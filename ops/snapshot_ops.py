@@ -748,13 +748,23 @@ def adopt_new_identity(logger=None, home=None):
       - the block-body segment store (orphaned fork bodies were the "donor knows my tip" bait),
       - our own persisted checkpoints (captured on the abandoned identity — the exact poison that
         wedged a fresh joiner at 13000).
-    After this returns, the node's disk makes no statement the new identity does not vouch for."""
-    kv_ops.wipe_non_carried_dbs()
-    segment_store.reset(home)
+    After this returns, the node's disk makes no statement the new identity does not vouch for.
+
+    BLOCK BODIES ARE THE EXCEPTION, AND THE INVARIANT STILL HOLDS. A body is keyed by its hash and the
+    hash covers its content, so a body whose hash sits on the adopted chain IS a statement the new
+    identity vouches for — byte for byte. Most of a re-anchoring node's bodies are exactly that: the
+    canonical chain below the fork point, common to both sides. Wiping them made every wedge recovery an
+    archive truncation (2026-08-17: history 0->49735, then ->56735, on a node nothing had pruned). So the
+    locators and segments are KEPT here and reconciled by loops/core_loop against the adopted chain via
+    ops/canonical_restore: canonical bodies stay referenced, fork bodies are unreferenced (the "donor knows
+    my tip" bait was fork bodies, and they still go), and missing canonical bodies are fetched. Until that
+    reconcile runs, a stale locator can only ever resolve to a body that verifies against its own hash."""
+    kv_ops.wipe_non_carried_dbs()          # keeps block_loc — see there
     dropped = drop_all_checkpoints(home)
     if logger:
-        logger.warning("Adopted new chain identity: wiped tx history, block bodies, local indexes and "
-                       f"{dropped} checkpoint(s) of the abandoned chain")
+        logger.warning("Adopted new chain identity: wiped tx history and local indexes and "
+                       f"{dropped} checkpoint(s) of the abandoned chain; block bodies retained for "
+                       "canonical reconcile")
 
 
 def load_checkpoint_manifest(height, home=None):

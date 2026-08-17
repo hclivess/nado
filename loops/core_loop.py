@@ -485,6 +485,10 @@ class CoreClient(threading.Thread):
                 self.maybe_auto_vote()
                 # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
                 self.maybe_prune_history()
+                # ARCHIVE REFILL: advance earliest_block as the background canonical-chain fill (after a
+                # re-anchor) lands deeper bodies. The fill thread never writes block_ends itself — that
+                # file is core-thread-only — so it reports and this tick commits.
+                self._maybe_advance_earliest()
                 # CONSERVATION INVARIANTS (ops/invariants.py): supply is a closed system, so any "coins from
                 # thin air" bug — the class this codebase has hit ~10 times — must break one of them. Runs
                 # in the node so it needs no external step, throttled hard because it scans the account
@@ -1027,6 +1031,13 @@ class CoreClient(threading.Thread):
                                     "anchor) — dead-end snapshot refused pre-import")
                 return False
 
+            # CAPTURE OUR OWN CHAIN'S INDEX BEFORE IT IS REPLACED. import_snapshot drops block_by_num /
+            # block_by_hash and repopulates them from the donor's payload, and that payload is WINDOWED
+            # ([C-INDEX_RETENTION_NUM, C]) — so an archive's deep index would be gone after this line, from
+            # any donor. It is also how the canonical restore below finds the fork point (where old and
+            # new agree) and re-derives every deep row the import throws away. Cheap: 144 B/height.
+            _old_index = dict(kv_ops.block_by_num_items())
+
             # 4) COMMIT: replace the carried consensus state. import_snapshot verifies every chunk
             # sha256 + the re-derived state_root BEFORE its write txn, so a failure here still leaves
             # the old identity fully intact.
@@ -1034,8 +1045,9 @@ class CoreClient(threading.Thread):
                 return False
 
             # ...and retire the abandoned identity: every artifact NOT carried by the snapshot dies
-            # with the chain it described (tx history, block bodies + locators, GC reverts, our own
-            # checkpoints). One invariant instead of per-artifact cleanups — see adopt_new_identity.
+            # with the chain it described (tx history, GC reverts, our own checkpoints) — EXCEPT block
+            # bodies, which are reconciled against the adopted chain just below rather than wiped, because
+            # most of them are the canonical chain itself. See adopt_new_identity and ops/canonical_restore.
             snapshot_ops.adopt_new_identity(logger=self.logger)
 
             save_block(anchor, logger=self.logger)
@@ -1051,84 +1063,15 @@ class CoreClient(threading.Thread):
             # lived here are both subsumed by adopt_new_identity above: nothing of the abandoned chain
             # survives the identity change, so there is nothing left to purge case by case.)
 
-            # BACKFILL the recent block BODIES the C+1..tip tail replay can NOT rebuild. block_by_num/hash
-            # arrived in the snapshot, so HASH lookbacks (beacon anchor (epoch-1)*EPOCH_LENGTH, FFG/PoSW
-            # epoch boundaries) already resolve — but rollback and block serving read block BODIES just
-            # behind C (the old get_block_reward body lookback is gone; REWARD_WINDOW is kept as margin).
-            # Without those bodies a post-snapshot rollback would fail. Walk back by
-            # parent_hash from the anchor, fetching + saving each body. Bounded + best-effort (a pruned donor
-            # may lack the deepest ones; we stop cleanly and set earliest to the oldest we actually got).
-            tail_depth = REWARD_WINDOW + 2 * EPOCH_LENGTH + FINALITY_DEPTH
-            # AN ARCHIVE NODE MUST NOT COME BACK SHORTER THAN IT WENT IN.
-            #
-            # The fork that forced this recovery was ABOVE the finality floor, so every block BELOW the fork
-            # point is COMMON to both chains: it is not orphaned fork history, it is the majority chain's own
-            # history, and this node was serving it a minute ago. Recovery used to drop all of it anyway,
-            # because adopt_new_identity wipes the segment store wholesale — correct for the abandoned fork,
-            # and indiscriminate about everything beneath it. Measured on this box 2026-08-17: a re-anchor to
-            # a height-57000 snapshot moved earliest from 49735 to 56735 and cost 7000 blocks of bodies.
-            #
-            # We do NOT relax the identity wipe to save them — "the disk makes no statement the new identity
-            # does not vouch for" is the invariant that stopped a fresh joiner wedging at 13000, and keeping
-            # locally-stored bodies would mean re-publishing bytes chosen by the dead chain. Instead we walk
-            # further: on an archive node the backfill continues down to where our history previously
-            # started, re-fetching each body FROM THE DONOR and chaining it by parent_hash, so everything
-            # served is vouched for by the chain we just adopted.
-            #
-            # Best-effort, exactly as before: a rolling donor simply lacks the deepest bodies, and we stop
-            # cleanly at the oldest one we actually got rather than failing the recovery. Recovery is rare
-            # and an archive that comes back whole is worth the fetch; progress is logged because this can
-            # now run for thousands of blocks instead of a few hundred.
-            _archive = bool(getattr(self.memserver, "archive", False))
-            _prev_earliest_bn = int((self.memserver.earliest_block or {}).get("block_number") or 0) \
-                if isinstance(self.memserver.earliest_block, dict) else 0
-            if _archive and _prev_earliest_bn > 0:
-                want = int(anchor.get("block_number", 0)) - _prev_earliest_bn + 1
-                if want > tail_depth:
-                    tail_depth = want
-                    self.logger.warning(f"Archive node: backfilling {tail_depth} bodies to restore history "
-                                        f"down to block {_prev_earliest_bn}")
-            oldest, filled = anchor, 0
-            for _ in range(tail_depth):
-                ph = oldest.get("parent_hash")
-                if not ph or int(oldest.get("block_number", 0)) <= 0:
-                    break
-                body = asyncio.run(snapshot_ops.fetch_block(source, self.memserver.port, ph))
-                if not body or body.get("block_hash") != ph:
-                    self.logger.warning(f"Snapshot body backfill stopped at height "
-                                        f"{int(oldest.get('block_number', 0)) - 1} ({filled}/{tail_depth} "
-                                        f"bodies) — donor lacks it; deeper lookbacks may skip until tail sync")
-                    break
-                save_block(body, logger=self.logger)
-                oldest, filled = body, filled + 1
-                if _archive and filled % 500 == 0:
-                    self.logger.warning(f"Archive backfill: {filled}/{tail_depth} bodies restored "
-                                        f"(at block {int(body.get('block_number', 0))})")
-            # THE BACKFILL ABOVE COULD NOT RESTORE THE WHOLE ARCHIVE. Reaching here means the donor ran out
-            # of bodies before we got back down to our old earliest (a rolling donor, typically), so blocks
-            # below the new earliest are unreferenced in the store and this node can no longer SERVE the
-            # chain before `oldest`. Now that the archive backfill lands, this is the exception rather than
-            # every re-anchor — but when it happens it is still the archive, partly gone, on a node whose
-            # whole purpose was keeping it.
-            #
-            # We do not refuse the re-anchor. Refusing is worse: the node is on a dead fork it cannot leave
-            # by rollback, so declining leaves it wedged forever, still serving nothing. What must not
-            # happen is losing it SILENTLY — an archive operator has to know their history now starts at N,
-            # so they can re-seed from another archive rather than discover it from a user's bug report.
-            _prev_earliest = int((self.memserver.earliest_block or {}).get("block_number") or 0) \
-                if isinstance(self.memserver.earliest_block, dict) else 0
-            _new_earliest = int(oldest.get("block_number") or 0)
-            if getattr(self.memserver, "archive", False) and _new_earliest > max(1, _prev_earliest):
-                self.logger.error("=" * 78)
-                self.logger.error("ARCHIVE TRUNCATED BY WEDGE RECOVERY.")
-                self.logger.error(f"  History started at block {_prev_earliest}; it now starts at "
-                                  f"{_new_earliest}.")
-                self.logger.error(f"  {_new_earliest - _prev_earliest} blocks of bodies are orphaned and can "
-                                  f"no longer be served.")
-                self.logger.error("  This node had to re-anchor onto the heaviest chain to leave a fork it")
-                self.logger.error("  could not exit by rollback — the alternative was staying wedged.")
-                self.logger.error("  RE-SEED from another archive's data directory to restore the range.")
-                self.logger.error("=" * 78)
+            # CANONICAL-CHAIN RESTORE (ops/canonical_restore). The fork that forced this was above the
+            # finality floor, so every block below the fork point is COMMON to both chains — the majority
+            # chain's own history, which we were serving a minute ago. It is kept, not re-fetched: a body's
+            # hash covers its bytes, so a body on the adopted chain IS vouched for by the new identity. Fork
+            # bodies are unreferenced. Deep index rows the windowed import dropped are re-put. What is
+            # canonical and absent is fetched from the donor: ALL of it on an archive node (an archive must
+            # come out of recovery with every canonical block it went in with — and, if it was truncated
+            # before, this is where it gets its history back), the rollback window on a rolling one.
+            oldest = self._restore_canonical_chain(_old_index, anchor, source)
             set_earliest_block_info(earliest_block=oldest, logger=self.logger)
             self.memserver.earliest_block = oldest
 
@@ -2311,6 +2254,291 @@ class CoreClient(threading.Thread):
                                  f"reveal={bool(reveal)} (ffg_finalized={self.memserver.ffg_finalized})")
         except Exception as e:
             self.logger.error(f"Epoch duty failed: {e}")
+
+    def _restore_canonical_chain(self, old_index, anchor, source):
+        """Reconcile our retained block bodies against the chain we just adopted, and refill what is
+        canonical and missing. Returns the block that history is now contiguous from (the new earliest).
+
+        Thin executor over ops/canonical_restore.plan — the decision is pure and tested there; this walks
+        its answer against LMDB, the segment store and the donor. Ordering is chosen so an interruption at
+        any point leaves a strictly-better state than before it ran:
+          1. re-put the deep index rows the windowed import dropped (restores get_block_number depth);
+          2. resolve any UNDETERMINED range (fork deeper than the donor's index window) by parent-hash
+             walk from the lowest named block, fetching from the donor as needed;
+          3. fetch the missing canonical bodies within the ROLLBACK WINDOW synchronously — the core loop
+             needs those before it validates another block;
+          4. unreference fork bodies: only a body at a height whose canonical hash we can NAME, and which
+             differs, is ever removed. A body we cannot place is kept — deleting history on the strength
+             of "I can't prove it" is the failure this exists to end;
+          5. on an ARCHIVE node, hand the deep remainder (everything else canonical-and-missing, then the
+             unnamed chain below our lowest index row, walked by parent_hash down to genesis) to a
+             background thread. Tens of thousands of fetches must not stall block production, and the
+             result is the same: the archive comes back whole, or as whole as any donor can make it —
+             and whatever is still missing is re-requested at the next re-anchor, because the plan is
+             recomputed from what is actually on disk every time."""
+        from ops import canonical_restore as CR
+        from ops.block_ops import get_block_number as _gbn
+        archive = bool(getattr(self.memserver, "archive", False))
+        C = int(anchor.get("block_number", 0))
+        new_index = {h: bh for h, bh in kv_ops.block_by_num_items() if h <= C}
+        has_body = lambda bh: kv_ops.block_loc_get(bh) is not None
+        p = CR.plan(old_index, new_index, C, has_body)
+        for n in p.notes:
+            self.logger.warning(f"Canonical restore: {n}")
+        self.logger.warning(f"Canonical restore: anchor {C}, fork point {p.fork_point}, imported index floor "
+                            f"{p.new_floor}; {p.kept} local bodies canonical, {len(p.missing)} missing, "
+                            f"{len(p.reput)} deep index rows to re-put"
+                            + (f", undetermined {p.undetermined}" if p.undetermined else ""))
+
+        # 1. deep index rows
+        if p.reput:
+            n = kv_ops.block_index_put_many(p.reput)
+            self.logger.warning(f"Canonical restore: re-put {n} deep number<->hash rows the import dropped")
+
+        # 2. undetermined range: walk parent_hash down from the lowest NAMED block. Each step names one
+        #    more height; a local body serves the walk, otherwise the donor does. Stops at the first
+        #    height whose hash equals our old index (that IS the fork point — everything below is ours),
+        #    or when neither we nor the donor have the body.
+        canonical = dict(p.canonical)
+        missing = list(p.missing)
+        if p.undetermined:
+            lo, hi = p.undetermined
+            cur_h = hi + 1
+            cur_hash = canonical.get(cur_h)
+            walked = 0
+            while cur_hash and cur_h > lo:
+                body = get_block(cur_hash) or None
+                if not body:
+                    body = asyncio.run(snapshot_ops.fetch_block(source, self.memserver.port, cur_hash))
+                    if body and body.get("block_hash") == cur_hash:
+                        save_block(body, logger=self.logger)
+                    else:
+                        self.logger.warning(f"Canonical restore: cannot resolve block {cur_h - 1} — neither we "
+                                            f"nor the donor hold block {cur_h}; deeper chain stays as it was")
+                        break
+                ph = body.get("parent_hash")
+                if not ph:
+                    break
+                cur_h -= 1
+                canonical[cur_h] = ph
+                walked += 1
+                if not has_body(ph):
+                    missing.append((cur_h, ph))
+                if old_index.get(cur_h) == ph:
+                    for h, bh in old_index.items():          # the fork point: our own index is authoritative below
+                        if h < cur_h:
+                            canonical[h] = bh
+                            if not has_body(bh):
+                                missing.append((h, bh))
+                    p.fork_point = cur_h
+                    self.logger.warning(f"Canonical restore: fork point {cur_h} found by parent-hash walk after "
+                                        f"{walked} steps; old index adopted below it")
+                    break
+                cur_hash = ph
+            deep = sorted((h, bh) for h, bh in canonical.items() if p.new_floor is not None and h < p.new_floor)
+            if deep:
+                kv_ops.block_index_put_many(deep)
+
+        # 3. the rollback window, synchronously
+        tail_depth = REWARD_WINDOW + 2 * EPOCH_LENGTH + FINALITY_DEPTH
+        missing = sorted(set(missing), reverse=True)
+        near = [(h, bh) for h, bh in missing if h >= C - tail_depth]
+        deep_missing = [(h, bh) for h, bh in missing if h < C - tail_depth]
+        fetched = 0
+        for h, bh in near:
+            body = asyncio.run(snapshot_ops.fetch_block(source, self.memserver.port, bh))
+            if body and body.get("block_hash") == bh:
+                save_block(body, logger=self.logger)
+                fetched += 1
+            else:
+                self.logger.warning(f"Canonical restore: donor {source} lacks block {h} inside the rollback "
+                                    f"window; deeper lookbacks may skip until tail sync")
+                break
+
+        # 4. unreference fork bodies — precisely: a body is removed iff we can NAME the canonical block at
+        #    its height and it is a different one. Anything we cannot place stays.
+        canon_hashes = set(canonical.values())
+        purged = 0
+        for bh in kv_ops.block_loc_hashes():
+            if bh in canon_hashes or bh == anchor.get("block_hash"):
+                continue
+            body = get_block(bh) or None
+            bn = int(body.get("block_number", -1)) if body else -1
+            if bn in canonical:
+                kv_ops.block_loc_del(bh)
+                purged += 1
+        self.logger.warning(f"Canonical restore: {fetched}/{len(near)} rollback-window bodies fetched, "
+                            f"{purged} fork bodies unreferenced, {len(deep_missing)} deep canonical bodies "
+                            f"still missing" + (" — refilling in the background" if archive else
+                                                " (rolling node: below retention, not fetched)"))
+
+        # 5. archive: the deep remainder, in the background
+        floor = CR.contiguous_floor(canonical, has_body, C)
+        lowest_named = min(canonical) if canonical else C
+        if archive:
+            self._start_deep_fill(source, deep_missing, lowest_named, canonical.get(lowest_named))
+        else:
+            self._start_tx_reindex()
+        return _gbn(floor) or anchor
+
+    def _start_deep_fill(self, source, deep_missing, lowest_named, lowest_named_hash):
+        """ARCHIVE: fetch every deep canonical body we can name, then EXTEND the chain downward past our
+        lowest index row by parent_hash — that is how a previously-truncated archive gets heights back that
+        no index we hold can name any more (this box: 0..6999 after today's imports). Every learned
+        (height, hash) is index-put so get_block_number resolves it. Runs in a thread: it is tens of
+        thousands of fetches on a truncated archive and must not stall the core loop. Reports progress via
+        self._deep_fill_progress; the core loop tick commits earliest_block from it. Ends by starting the
+        tx-history reindex, which needs the bodies to exist first."""
+        if getattr(self, "_deep_fill_thread", None) and self._deep_fill_thread.is_alive():
+            self.logger.warning("Canonical restore: a deep fill is already running; the new plan will be "
+                                "picked up at the next re-anchor")
+            return
+        self._deep_fill_progress = {"fetched": 0, "extended": 0, "done": False, "lowest": lowest_named}
+
+        def _run():
+            fetched = failed = 0
+            for h, bh in deep_missing:                                # highest first, as planned
+                try:
+                    body = asyncio.run(snapshot_ops.fetch_block(source, self.memserver.port, bh))
+                except Exception:
+                    body = None
+                if body and body.get("block_hash") == bh:
+                    save_block(body, logger=self.logger)
+                    fetched += 1
+                    self._deep_fill_progress["fetched"] = fetched
+                    if fetched % 1000 == 0:
+                        self.logger.warning(f"Archive refill: {fetched}/{len(deep_missing)} deep bodies fetched "
+                                            f"(at block {h})")
+                else:
+                    failed += 1
+                time.sleep(0.01)
+            # extend below the lowest height any index can name, by parent_hash, to genesis
+            extended = 0
+            cur_h, cur_hash = lowest_named, lowest_named_hash
+            while cur_hash and cur_h > 0:
+                body = get_block(cur_hash) or None
+                if not body:
+                    break                                             # the chain of custody is broken here
+                ph = body.get("parent_hash")
+                if not ph:
+                    break
+                cur_h -= 1
+                if kv_ops.block_loc_get(ph) is None:
+                    try:
+                        nb = asyncio.run(snapshot_ops.fetch_block(source, self.memserver.port, ph))
+                    except Exception:
+                        nb = None
+                    if not nb or nb.get("block_hash") != ph:
+                        self.logger.warning(f"Archive refill: donor {source} lacks block {cur_h}; the archive "
+                                            f"is contiguous from {cur_h + 1} — re-requested at the next re-anchor")
+                        cur_h += 1
+                        break
+                    save_block(nb, logger=self.logger)
+                kv_ops.block_index_put_many([(cur_h, ph)])
+                extended += 1
+                self._deep_fill_progress["extended"] = extended
+                self._deep_fill_progress["lowest"] = cur_h
+                if extended % 1000 == 0:
+                    self.logger.warning(f"Archive refill: extended {extended} blocks below the index floor "
+                                        f"(at block {cur_h})")
+                cur_hash = ph
+                time.sleep(0.01)
+            self._deep_fill_progress["done"] = True
+            self.logger.warning(f"Archive refill finished: {fetched} deep bodies fetched ({failed} unavailable "
+                                f"from {source}), chain extended {extended} blocks down to {cur_h}")
+            self._start_tx_reindex()
+
+        self._deep_fill_thread = threading.Thread(target=_run, name="archive-refill", daemon=True)
+        self._deep_fill_thread.start()
+
+    def _maybe_advance_earliest(self):
+        """Core-loop tick: if the background refill has landed deeper bodies, move earliest_block down to
+        the new contiguous floor. block_ends.dat is written by the core thread only, so the fill thread
+        never touches it. Cheap: a few locator lookups per tick, nothing when no fill is running."""
+        prog = getattr(self, "_deep_fill_progress", None)
+        if not prog:
+            return
+        try:
+            cur = int((self.memserver.earliest_block or {}).get("block_number") or 0) \
+                if isinstance(self.memserver.earliest_block, dict) else 0
+            if cur <= 0:
+                if prog.get("done"):
+                    self._deep_fill_progress = None
+                return
+            from ops.block_ops import get_block_number as _gbn
+            h = cur
+            # walk down through what is now present, contiguously
+            while h > 0:
+                nh = kv_ops.hash_by_number(h - 1)
+                if not nh or kv_ops.block_loc_get(nh) is None:
+                    break
+                h -= 1
+            if h < cur:
+                blk = _gbn(h)
+                if blk:
+                    set_earliest_block_info(earliest_block=blk, logger=self.logger)
+                    self.memserver.earliest_block = blk
+                    self.logger.warning(f"Archive refill: history now contiguous from block {h} (was {cur})")
+            if prog.get("done"):
+                self._deep_fill_progress = None
+        except Exception as e:
+            self.logger.error(f"advance-earliest failed: {e}")
+
+    def _start_tx_reindex(self):
+        """Rebuild the tx-history index from the canonical bodies on disk, in a background thread,
+        resumably. adopt_new_identity wipes tx history because rows for FORK blocks would make the
+        at-most-once replay gate reject a legitimate tx that was in both a fork block and its canonical
+        replacement — but rows for canonical blocks are correct, and they are what
+        /get_transactions_of_account (the thing a user's "where is my money" is answered from) reads.
+        Idempotent (tx_index_put is insert-or-ignore) and bounded per step; a marker file makes it resume
+        after a restart. Recipient is resolved against the CURRENT alias table, as incorporate does."""
+        import json as _json
+        from ops.data_ops import get_home
+        from ops.block_ops import get_block_number as _gbn
+        marker = f"{get_home()}/index/tx_reindex.json"
+        if getattr(self, "_tx_reindex_thread", None) and self._tx_reindex_thread.is_alive():
+            return
+        try:
+            start = int(_json.load(open(marker)).get("next", 0))
+        except Exception:
+            start = 0
+        top = int(get_finalized_height() or 0)
+
+        def _run():
+            from ops import alias_ops
+            h = start
+            done = 0
+            while h <= top and not getattr(self, "_stop_reindex", False):
+                blk = _gbn(h)
+                if blk:
+                    for tx in blk.get("block_transactions") or []:
+                        try:
+                            recip = alias_ops.resolve_alias(tx["recipient"]) or tx["recipient"]
+                            kv_ops.tx_index_put(txid=tx["txid"], block_number=h, sender=tx["sender"],
+                                                recipient=recip)
+                        except Exception:
+                            pass
+                h += 1
+                done += 1
+                if done % 2000 == 0:
+                    try:
+                        _json.dump({"next": h}, open(marker, "w"))
+                    except Exception:
+                        pass
+                    time.sleep(0.05)      # yield the write lock to the core loop
+            try:
+                import os as _os
+                if h > top:
+                    if _os.path.exists(marker):
+                        _os.remove(marker)
+                else:
+                    _json.dump({"next": h}, open(marker, "w"))
+            except Exception:
+                pass
+            self.logger.warning(f"tx-history reindex: {done} blocks indexed ({start}..{h - 1})")
+
+        self._tx_reindex_thread = threading.Thread(target=_run, name="tx-reindex", daemon=True)
+        self._tx_reindex_thread.start()
 
     def maybe_prune_history(self):
         """ROLLING MODE (non-consensus, opt-in): on a pruned node (memserver.archive == False), delete

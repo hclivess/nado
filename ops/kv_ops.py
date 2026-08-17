@@ -1921,7 +1921,12 @@ def wipe_non_carried_dbs(txn=None):
     # fork, re-anchor, find attestation_exists(X) False and no memo, and sign a SECOND attestation for X
     # with H2 — a valid same-generation equivocation proof against ourselves (the CHAIN_ID bind only stops
     # CROSS-generation pairs). So it is excluded from the wipe.
-    names = sorted(set(_PLAIN_DBS + _DUP_DBS) - set(SNAPSHOT_DBS) - {"attest_memo"})
+    # BLOCK BODIES ARE NOT "ABOUT THE ABANDONED CHAIN" — most of them are the canonical chain, common to
+    # both sides of the fork, and this node was serving them a minute ago. Dropping block_loc wholesale is
+    # what turned every wedge recovery into an archive truncation (2026-08-17: 0->49735, then ->56735).
+    # The locators are now retained here and RECONCILED against the adopted chain by
+    # ops/canonical_restore + core_loop: canonical bodies stay referenced, fork bodies are unreferenced.
+    names = sorted(set(_PLAIN_DBS + _DUP_DBS) - set(SNAPSHOT_DBS) - {"attest_memo", "block_loc"})
     def _do(t):
         for name in names:
             t.drop(_dbs()[name], delete=False)     # empty, keep the handle
@@ -1929,6 +1934,50 @@ def wipe_non_carried_dbs(txn=None):
         _do(txn)
     else:
         _write(_do)
+
+
+# --- canonical-chain restore across a re-anchor (ops/canonical_restore.py) ------------------------
+
+def block_by_num_items():
+    """Every (height, hash) row of the number->hash index, ascending. Captured BEFORE import_snapshot so
+    the deep rows the windowed payload drops can be re-put afterwards (they are outside the snapshot
+    identity, so restoring them is unobservable to consensus)."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["block_by_num"]) as cur:
+            for k, v in cur:
+                out.append((un_be8(k), v.decode()))
+        return out
+    return _read(_do)
+
+
+def block_index_put_many(pairs):
+    """INSERT-OR-IGNORE many number<->hash rows in ONE write txn (block_index_put per row would open
+    tens of thousands of txns for an archive's deep index)."""
+    def _do(txn):
+        nd, hd = _dbs()["block_by_num"], _dbs()["block_by_hash"]
+        n = 0
+        for h, bh in pairs:
+            bn, bhb = be8(int(h)), bh.encode()
+            if txn.get(bn, db=nd) is None:
+                txn.put(bn, bhb, db=nd); n += 1
+            if txn.get(bhb, db=hd) is None:
+                txn.put(bhb, bn, db=hd)
+        return n
+    return _write(_do)
+
+
+def block_loc_hashes():
+    """Every block hash that currently has a body locator (the \\x00-prefixed per-segment counters are
+    skipped). Used to find the fork bodies to unreference after a re-anchor."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["block_loc"]) as cur:
+            for k, _v in cur:
+                if not k.startswith(b"\x00"):
+                    out.append(k.decode())
+        return out
+    return _read(_do)
 
 
 # --- idle-account GC support (ops/gc_ops.py — CONSENSUS sweeps, NODE-LOCAL revert records) ---------

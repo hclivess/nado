@@ -1,38 +1,26 @@
-"""Wedge recovery must not truncate an ARCHIVE node's history.
+"""An archive node must come out of wedge recovery with every CANONICAL block it went in with.
 
-WHY THIS FILE EXISTS. On 2026-08-17 this box re-anchored to a height-57000 snapshot to escape a fork and
-logged:
+WHY THIS FILE EXISTS. On 2026-08-17 this box's archive was truncated twice by re-anchoring, with nothing
+pruned: history 0 -> 49735 at 01:47, then 49735 -> 56735 at 13:32. Three causes, all in the recovery
+path: bodies were wiped wholesale, only a fixed window was re-fetched, and the windowed snapshot import
+replaced the deep number<->hash index. The requirement is now explicit: history means the canonical chain,
+and an archive node must not lose any of it. Fork blocks are not history; blocks below the fork point are.
 
-    ARCHIVE TRUNCATED BY WEDGE RECOVERY.
-      History started at block 49735; it now starts at 56735.
-      7000 blocks of bodies are orphaned and can no longer be served.
-
-The node was a genuine archive (`archive: true`), so nothing pruned it — the backfill after a re-anchor
-simply walked back a FIXED window (REWARD_WINDOW + 2*EPOCH_LENGTH + FINALITY_DEPTH) and stopped, and
-adopt_new_identity had already wiped the segment store. The fork was ABOVE the finality floor, so every
-block below the fork point was common to both chains: history the majority chain still vouches for, thrown
-away by the recovery.
-
-What is asserted here is the DEPTH DECISION, not the network round-trip: given an anchor height and a
-previous earliest, an archive node must choose a backfill deep enough to get back to where it started,
-and a rolling node must keep the cheap fixed window. That is the line that regressed, and it is pure
-arithmetic, so it can be tested without a donor.
+The decision lives in ops/canonical_restore.plan, PURE (no LMDB, no network) so this file can exercise
+every shape directly. The first version of this test asserted against a COPY of the logic and stayed
+green with the real gate disabled — so every check here calls the real planner, and the suite is
+mutation-checked against it (see the commit).
 
 Run: python3 tests/test_reanchor_archive_backfill.py
 """
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
+from ops import canonical_restore as CR
 
 FAILS = []
-SRC = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "loops", "core_loop.py"), encoding="utf8").read()
-
-FIXED = REWARD_WINDOW + 2 * EPOCH_LENGTH + FINALITY_DEPTH
 
 
 def check(name, fn):
@@ -47,73 +35,145 @@ def check(name, fn):
         FAILS.append(name)
 
 
-def depth(archive, anchor_bn, prev_earliest):
-    """The backfill depth the re-anchor path picks.
+def H(chain, h):
+    """A fake hash: same chain letter + height -> same hash. Distinct chains differ."""
+    return f"{chain}{h:08x}"
 
-    THIS IS A COPY OF THE SOURCE'S ARITHMETIC, and a copy proves nothing on its own: the first version of
-    this file asserted only against this function, so disabling the real gate in core_loop.py left every
-    arithmetic check GREEN. Caught by mutating the source and watching the suite pass. The copy is kept
-    because it documents the intended behaviour readably — but the binding checks are the source assertions
-    below, which pin the actual gate line, and those are what the mutation test exercises."""
-    tail_depth = FIXED
-    if archive and prev_earliest > 0:
-        want = anchor_bn - prev_earliest + 1
-        if want > tail_depth:
-            tail_depth = want
-    return tail_depth
+
+def chain(letter, lo, hi):
+    return {h: H(letter, h) for h in range(lo, hi + 1)}
+
+
+def forked(lo, fork, hi_old, hi_new):
+    """Our chain 'a' from lo..hi_old, canonical 'a' up to `fork` then 'b' up to hi_new."""
+    old = chain("a", lo, hi_old)
+    new = chain("a", lo, fork)
+    new.update(chain("b", fork + 1, hi_new))
+    return old, new
 
 
 # ---- the incident, replayed -------------------------------------------------------------------------
-def t_the_2026_08_17_truncation_would_not_happen_now():
-    """anchor 57000, history began at 49735 -> must walk the whole 7266, not the fixed window."""
-    d = depth(True, 57000, 49735)
-    assert d == 57000 - 49735 + 1, f"archive backfill depth {d} does not reach block 49735"
-    assert d > FIXED, "the fixed window would still have been used — this is the regression"
+def t_the_01_47_truncation_would_not_happen():
+    """Archive from GENESIS (earliest 0), fork near the tip, donor index windowed. Everything below the
+    fork point must be kept, not re-fetched — and 0 is a real earliest, not 'no earliest'."""
+    old, new_full = forked(0, 49_700, 49_800, 57_000)
+    new = {h: v for h, v in new_full.items() if h >= 57_000 - 50_000}    # windowed import
+    have = set(old.values())                                              # we hold our whole chain
+    p = CR.plan(old, new, 57_000, lambda bh: bh in have)
+    assert p.fork_point == 49_700, f"fork point {p.fork_point}"
+    assert p.kept == 49_701, f"kept {p.kept} — every block 0..49700 must be kept, none re-fetched"
+    assert all(h > 49_700 for h, _ in p.missing), "a block below the fork point was listed as missing"
+    assert len(p.missing) == 57_000 - 49_700, "the canonical blocks above the fork are what is missing"
+    assert p.undetermined is None
 
 
-def t_archive_reaches_exactly_its_previous_earliest():
-    for anchor, prev in ((57000, 49735), (60000, 1), (12345, 12000)):
-        d = depth(True, anchor, prev)
-        assert anchor - d + 1 <= prev, f"depth {d} from {anchor} stops short of {prev}"
+def t_the_deep_index_the_import_dropped_is_re_put():
+    old, new_full = forked(0, 49_700, 49_800, 57_000)
+    new = {h: v for h, v in new_full.items() if h >= 7_000}
+    p = CR.plan(old, new, 57_000, lambda bh: True)
+    reput = dict(p.reput)
+    assert set(reput) == set(range(0, 7_000)), "exactly the rows below the imported window are re-put"
+    assert all(reput[h] == old[h] for h in reput), "re-put rows must come from our own (canonical) index"
 
 
-# ---- the cost must not be imposed on nodes that did not ask for it ----------------------------------
-def t_rolling_node_keeps_the_cheap_fixed_window():
-    """A rolling node prunes this range anyway; making it refetch thousands of bodies would be pure cost."""
-    assert depth(False, 57000, 49735) == FIXED, "rolling node paid the archive backfill cost"
+def t_missing_is_highest_first():
+    """So an interrupted fetch has filled the rollback window nearest the tip."""
+    old, new = forked(0, 100, 150, 300)
+    p = CR.plan(old, new, 300, lambda bh: bh in set(old.values()))
+    hs = [h for h, _ in p.missing]
+    assert hs == sorted(hs, reverse=True), "missing must be ordered highest first"
 
 
-def t_archive_never_shrinks_below_the_consensus_window():
-    """The fixed window is a correctness floor (rollback + lookbacks), never a ceiling to fall under."""
-    # previous earliest very close to the anchor -> `want` is tiny and must NOT win
-    assert depth(True, 57000, 56990) == FIXED, "archive backfill fell below the consensus floor"
-    assert depth(True, 57000, 0) == FIXED, "a node with no recorded earliest must keep the floor"
+# ---- fork bodies vs history ------------------------------------------------------------------------
+def t_fork_bodies_are_named_and_history_is_not_purged():
+    old, new = forked(0, 100, 150, 300)
+    p = CR.plan(old, new, 300, lambda bh: True)
+    assert p.is_fork_body(120, H("a", 120)), "our block 120 is on the abandoned fork"
+    assert not p.is_fork_body(50, H("a", 50)), "our block 50 is canonical — never a fork body"
+    assert p.is_fork_body(50, "zzzz"), "at a height we CAN name, a different body is positively a fork body"
+    assert not p.is_fork_body(999, "zzzz"), "at a height we CANNOT name, a body is KEPT, not purged"
 
 
-# ---- the code must actually contain the decision (not just this test's copy of it) -------------------
-def t_the_source_gates_on_archive_and_prev_earliest():
-    assert "_archive = bool(getattr(self.memserver" in SRC, "the archive flag is gone from the re-anchor path"
-    assert "_prev_earliest_bn" in SRC, "the previous-earliest read is gone from the re-anchor path"
-    m = re.search(r"want = int\(anchor\.get\(\"block_number\", 0\)\) - _prev_earliest_bn \+ 1", SRC)
-    assert m, "the backfill no longer computes a depth that reaches the previous earliest"
+def t_no_body_below_the_fork_point_is_ever_missing_or_fork():
+    old, new = forked(0, 100, 150, 300)
+    p = CR.plan(old, new, 300, lambda bh: True)
+    for h in range(0, 101):
+        assert p.canonical[h] == old[h]
+        assert not p.is_fork_body(h, old[h])
 
 
-def t_the_gate_is_actually_reached_not_just_defined():
-    """THE CHECK THAT CAUGHT THE VACUOUS SUITE. Computing `want` is worthless if the branch guarding it can
-    never run — disabling the gate (`if False and ...`) left every other assertion here green. Pin the gate
-    condition itself, and pin that the depth it computes is the one the loop below actually iterates."""
-    assert re.search(r"if _archive and _prev_earliest_bn > 0:", SRC), \
-        "the archive backfill gate is no longer reachable on an archive node"
-    # `want` must be assigned INTO tail_depth, and tail_depth must be what the backfill loop ranges over.
-    assert re.search(r"tail_depth = want", SRC), "the computed depth is never adopted as tail_depth"
-    assert re.search(r"for _ in range\(tail_depth\):", SRC), "the backfill loop no longer uses tail_depth"
+# ---- the deep-fork (escalated recovery) shape ------------------------------------------------------
+def t_fork_deeper_than_the_donor_index_is_flagged_undetermined_not_guessed():
+    """Old and new share NO agreeing height in the window: the plan must not invent a fork point, and
+    must hand the gap to the parent-hash walk instead of purging or keeping blindly."""
+    old = chain("a", 0, 1_000)
+    new = chain("b", 900, 1_100)                       # donor window starts above the (unknown) fork
+    p = CR.plan(old, new, 1_100, lambda bh: True)
+    assert p.fork_point is None
+    assert p.undetermined == (0, 899), f"undetermined {p.undetermined}"
+    assert p.notes, "the deep-fork case must be explained in the plan"
+    assert not p.is_fork_body(500, H("a", 500)), "an unnamed height is never a fork body"
+    assert p.is_fork_body(950, H("a", 950)), "inside the window we CAN name the canonical block"
 
 
-def t_the_truncation_error_is_now_the_exception_path():
-    """It must still exist — a donor that lacks the bodies has to be reported, loudly."""
-    assert "ARCHIVE TRUNCATED BY WEDGE RECOVERY." in SRC, "the truncation alarm was removed"
-    assert "COULD NOT RESTORE THE WHOLE ARCHIVE" in SRC, \
-        "the comment still claims every re-anchor truncates the archive"
+# ---- rolling donor / previously-truncated archive --------------------------------------------------
+def t_previously_truncated_archive_lists_the_hole_as_missing():
+    """This box after 01:47: our index knows 49735.., bodies 49735... The plan must want the hole."""
+    old = chain("a", 49_735, 60_000)
+    new = chain("a", 7_000, 57_000)                    # donor happens to know deeper than we do
+    have = {H("a", h) for h in range(49_735, 60_001)}
+    p = CR.plan(old, new, 57_000, lambda bh: bh in have)
+    assert p.fork_point == 57_000
+    holes = [h for h, _ in p.missing]
+    assert min(holes) == 7_000 and max(holes) == 49_734, f"missing range {min(holes)}..{max(holes)}"
+    assert p.kept == 57_000 - 49_735 + 1
+
+
+def t_contiguous_floor_means_no_gaps():
+    canon = chain("a", 0, 100)
+    have = {H("a", h) for h in range(0, 101)} - {H("a", 40)}
+    assert CR.contiguous_floor(canon, lambda bh: bh in have, 100) == 41, \
+        "history 'from N' must mean every block from N — a gap at 40 makes the floor 41"
+    assert CR.contiguous_floor(canon, lambda bh: True, 100) == 0
+
+
+# ---- degenerate inputs -----------------------------------------------------------------------------
+def t_empty_indexes_do_not_crash_and_name_nothing():
+    p = CR.plan({}, {}, 10, lambda bh: True)
+    assert p.canonical == {} and p.missing == [] and p.reput == []
+    p = CR.plan({}, chain("b", 5, 10), 10, lambda bh: False)
+    assert p.fork_point is None and len(p.missing) == 6
+
+
+def t_new_index_rows_above_the_anchor_are_ignored():
+    """The tail sync owns everything above C; the plan must not fetch or purge there."""
+    old, new = forked(0, 100, 150, 300)
+    new[400] = "beyond"
+    p = CR.plan(old, new, 300, lambda bh: True)
+    assert 400 not in p.canonical
+
+
+# ---- the executor is wired to the plan and to the retained bodies ------------------------------------
+def t_identity_change_no_longer_wipes_bodies():
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "ops", "snapshot_ops.py"), encoding="utf8").read()
+    fn = src[src.index("def adopt_new_identity"):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "segment_store.reset(" not in fn, "adopt_new_identity wipes the segment store again"
+    kv = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "ops", "kv_ops.py"), encoding="utf8").read()
+    assert '{"attest_memo", "block_loc"}' in kv, "wipe_non_carried_dbs drops block_loc again"
+
+
+def t_core_loop_captures_the_old_index_before_import_and_restores_after():
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "loops", "core_loop.py"), encoding="utf8").read()
+    cap = src.index("_old_index = dict(kv_ops.block_by_num_items())")
+    imp = src.index("snapshot_ops.import_snapshot(manifest, chunks")
+    assert cap < imp, "the old index must be captured BEFORE import_snapshot replaces it"
+    assert "self._restore_canonical_chain(_old_index, anchor, source)" in src
+    assert "def _start_deep_fill(" in src, "archive nodes no longer refill the deep chain"
+    assert "self._maybe_advance_earliest()" in src, "the refill can never move earliest_block"
 
 
 for name, fn in list(globals().items()):
@@ -121,5 +181,5 @@ for name, fn in list(globals().items()):
         check(name[2:].replace("_", " "), fn)
 
 print()
-print(f"{len(FAILS)} FAILURE(S): {FAILS}" if FAILS else "ARCHIVE SURVIVES WEDGE RECOVERY")
+print(f"{len(FAILS)} FAILURE(S): {FAILS}" if FAILS else "ARCHIVE KEEPS THE CANONICAL CHAIN THROUGH RECOVERY")
 sys.exit(1 if FAILS else 0)
