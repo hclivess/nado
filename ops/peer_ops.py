@@ -213,6 +213,42 @@ def seed_peers():
     return list(dict.fromkeys(DEFAULT_SEED_PEERS + extra))
 
 
+def probe_block_hash_signed(peer, height, port=9173, timeout=6, tip_hint=0):
+    """One peer's SIGNED claim of its hash at `height` -> (hash, seats) — the stake-weighted probe
+    behind the fork verdict (doc/finality.md §3a). Falls back to the UNSIGNED probe at weight 0 when the
+    peer predates /hash_attest or the signature does not hold, so the seeds-first headcount keeps
+    working as the liveness anchor — stake hardens the verdict, it never becomes a liveness dependency.
+
+    Seats come from the PROBER'S OWN committed bonded registry (deterministic), so a Sybil peer-set adds
+    zero weight no matter how many IPs it holds. Freshness: the signed as_of (the signer's tip at signing)
+    must sit within 2 epochs of `tip_hint` — a signature captured before the signer itself reorged must
+    not restate a dead view forever."""
+    import json as _json, urllib.request as _rq
+    from protocol import EPOCH_LENGTH
+    try:
+        with _rq.urlopen(f"http://{peer}:{port}/hash_attest?height={int(height)}", timeout=timeout) as r:
+            d = _json.loads(r.read(1_000_000))
+        h = d.get("block_hash") if isinstance(d, dict) else None
+        if not (isinstance(h, str) and len(h) == 64):
+            raise ValueError("no usable claim")
+        addr, pk, sig, as_of = d.get("address"), d.get("public_key"), d.get("signature"), int(d.get("as_of", 0))
+        if tip_hint and abs(int(tip_hint) - as_of) > 2 * EPOCH_LENGTH:
+            return h, 0                                   # stale view: count the claim, weigh it nothing
+        from ops.address_ops import proof_sender
+        from ops.block_ops import hash_attest_message
+        from signatures import verify as _ver
+        if addr and pk and sig and proof_sender(public_key=pk, sender=addr) \
+                and _ver(signed=sig, public_key=pk, message=hash_attest_message(int(height), h, as_of)):
+            from ops.account_ops import get_bonded_registry
+            from ops.mining_ops import selection_shares
+            reg = get_bonded_registry()
+            seats = int(selection_shares((reg.get(addr) or {}).get("bonded", 0))) if addr in reg else 0
+            return h, seats
+        return h, 0
+    except Exception:
+        return probe_block_hash(peer, height, port=port, timeout=timeout), 0
+
+
 def probe_block_hash(peer, height, port=9173, timeout=6):
     """One peer's block hash at `height`, or None. Deliberately a plain blocking GET against the peer's
     public API rather than anything routed through the status pool — see stranded_below_finality for why

@@ -1056,6 +1056,17 @@ def block_signature_message(block) -> bytes:
     return _block_sig_message_fields(block["block_number"], block["parent_hash"], block["block_hash"])
 
 
+def hash_attest_message(height: int, block_hash: str, as_of_height: int) -> bytes:
+    """Bytes a node signs when ATTESTING its canonical hash at a height for the fork-verdict probes
+    (stake-signed verdicts; doc/finality.md §3a). Binds chain identity + the claim + freshness:
+      * chain_id — a signature from another generation must not count;
+      * height/block_hash — the claim itself;
+      * as_of_height — the signer's tip when it signed, so a STALE signature (captured before the signer
+        itself reorged) is refused by the prober's freshness window instead of counting forever.
+    Replay of a FRESH signature is harmless: it restates a live claim the signer would make again."""
+    return f"hashattest|{CHAIN_ID}|{int(height)}|{str(block_hash)}|{int(as_of_height)}".encode()
+
+
 def verify_equivocation_proof(proof) -> tuple:
     """Verify a block-authorship EQUIVOCATION proof: the SAME identity validly signed TWO DIFFERENT
     blocks at the SAME height+parent (#15 step 5C). proof = {block_number, parent_hash, public_key,

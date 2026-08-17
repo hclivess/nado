@@ -1270,7 +1270,7 @@ class CoreClient(threading.Thread):
             cached = getattr(self, "_fork_state_cache", None)
             if cached and now - cached[0] < FORK_STATE_TTL_S:
                 return cached[1]["state"]
-            from ops.peer_ops import seed_peers, probe_block_hash
+            from ops.peer_ops import seed_peers, probe_block_hash_signed
             from ops.block_ops import get_block_hash_by_number
             from ops.account_ops import get_finalized_height
             # SEEDS FIRST. The verdict here is a per-IP headcount (fork_resolution.majority_hash), and it
@@ -1295,7 +1295,8 @@ class CoreClient(threading.Thread):
             verdict = fork_resolution.resolve(
                 our_hash_at=get_block_hash_by_number,
                 tip=tip, finalized=_ghf(), peers=peers,
-                probe=lambda peer, h: probe_block_hash(peer, h, port=self.memserver.port))
+                probe=lambda peer, h: probe_block_hash_signed(peer, h, port=self.memserver.port,
+                                                              tip_hint=tip))
             self._fork_state_cache = (now, verdict)   # FULL verdict: the reorg leg needs the ancestor too
             self.logger.info(f"Fork state: {verdict['state']} (ancestor={verdict['ancestor']}, "
                              f"tip={tip}, probes={verdict['probes']})")

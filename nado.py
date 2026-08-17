@@ -40,7 +40,7 @@ from signatures import (verify as _mldsa_verify, unhex as _mldsa_unhex,
                         backend_name as _pq_backend_name,
                         backend_degraded_reason as _pq_backend_reason)
 from ops.mining_ops import total_shares
-from ops.block_ops import get_block, recommended_fee, get_block_number, SYNC_BATCH_MAX, SYNC_BATCH_BYTES
+from ops.block_ops import get_block, recommended_fee, get_block_number, get_block_hash_by_number, SYNC_BATCH_MAX, SYNC_BATCH_BYTES
 from ops.data_ops import get_home, allow_async, get_byte_size
 from ops.key_ops import keyfile_found, generate_keys, save_keys
 from ops.log_ops import get_logger
@@ -648,6 +648,41 @@ async def block_by_hash(request):
             return f"Error: {e}", 403
     out, code = await asyncio.to_thread(_work)
     return _resp(out, status=code)
+
+
+_HASH_ATTEST_CACHE = {}    # height -> (as_of, response) — bounds the free-signing oracle (~one sign/height/tip)
+
+async def hash_attest(request):
+    """GET /hash_attest?height= : this node's SIGNED claim of its canonical hash at `height` — the
+    stake-weighted half of the fork-verdict probes (doc/finality.md §3a). The reply binds
+    (chain_id, height, hash, as_of=our tip) under the node's ML-DSA key; the PROBER weighs it by the
+    signer's bonded seats in the prober's OWN committed registry, so a Sybil peer-set adds zero weight
+    while the seeds keep working as the unsigned liveness fallback. Signing is cached per (height, tip)
+    — a flood re-serves the cached signature instead of grinding ML-DSA."""
+    def _work():
+        try:
+            h = int(_q(request, "height"))
+        except (TypeError, ValueError):
+            return "Bad height", 400
+        bh = get_block_hash_by_number(h)
+        if not bh:
+            return "Not found", 404
+        as_of = int(memserver.latest_block.get("block_number", 0))
+        cached = _HASH_ATTEST_CACHE.get(h)
+        if cached and cached[0] == as_of:
+            return cached[1], 200
+        from ops.block_ops import hash_attest_message
+        from signatures import sign as _sig
+        resp = {"height": h, "block_hash": bh, "as_of": as_of, "address": memserver.address,
+                "public_key": memserver.keydict["public_key"],
+                "signature": _sig(memserver.private_key, hash_attest_message(h, bh, as_of))}
+        if len(_HASH_ATTEST_CACHE) > 512:
+            _HASH_ATTEST_CACHE.clear()
+        _HASH_ATTEST_CACHE[h] = (as_of, resp)
+        return resp, 200
+    out, code = await asyncio.to_thread(_work)
+    return _resp(serialize(name="hash_attest", output=out, compress="none") if code == 200 else out,
+                 status=code)
 
 
 async def block_by_number(request):
@@ -2064,6 +2099,7 @@ async def make_app(port):
         web.get("/get_blocks_after", blocks_after),
         web.get("/get_blocks_before", blocks_before),
         web.get("/get_block_number", block_by_number),
+        web.get("/hash_attest", hash_attest),
         web.get("/get_block", block_by_hash),
         web.get("/get_account", account),
         web.get("/get_account_mempool", account_mempool),

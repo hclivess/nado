@@ -40,16 +40,26 @@ _SWEEP = 64
 
 
 def majority_hash(height, peers, probe, min_answers=2):
-    """The hash a strict majority of ANSWERING peers report at `height`, or None if there is no majority or
-    too few answers. `probe(peer, height) -> hash|None`."""
+    """The hash a strict majority of ANSWERING WEIGHT reports at `height`, or None if there is no majority
+    or too few answers.
+
+    `probe(peer, height)` returns either `hash|None` (legacy headcount) or `(hash, seats)` — the
+    STAKE-SIGNED probe (peer_ops.probe_block_hash_signed): a verified bonded validator's answer counts
+    1 + its selection seats, an unsigned/unverifiable answer counts 1. This closes the Sybil-softness of
+    the per-IP headcount without becoming a liveness dependency: a fleet with no signed answers degrades
+    to exactly the old seeds-first headcount, while a single real validator outweighs any number of
+    seatless IPs. min_answers stays a COUNT of answers — stake weighs the verdict, never quorum liveness."""
     answers = {}
+    count = 0
     for p in peers:
-        h = probe(p, height)
+        r = probe(p, height)
+        h, seats = (r if isinstance(r, tuple) else (r, 0))
         if h:
-            answers[h] = answers.get(h, 0) + 1
-    total = sum(answers.values())
-    if total < int(min_answers):
+            answers[h] = answers.get(h, 0) + 1 + max(0, int(seats or 0))
+            count += 1
+    if count < int(min_answers):
         return None
+    total = sum(answers.values())
     top, n = max(answers.items(), key=lambda kv: kv[1])
     return top if n > total * _AGREE else None
 
