@@ -132,6 +132,26 @@ def t_a_settle_stash_entry_serves_as_a_rewind_rung():
     os.remove(X._stash_path("default", stash_cur))
 
 
+def t_a_lying_payload_cannot_reinfect_the_ring():
+    """THE 20-MINUTE REWIND LOOP (2026-08-17 21:2x): a stash payload claiming cursor C carried dead-branch
+    ring entries for C+1..C+2 (live-capture race), so every rewind RESTORED the contamination the probe
+    then re-detected. A rewind must drop everything above the payload's own cursor."""
+    c = X.state.cursor
+    target = c - 20
+    snap = dict(X.state._snapshot())
+    poisoned = dict(snap.get("block_hashes", {}))
+    poisoned[str(target + 1)] = str(0xDEAD)          # dead-branch entries ABOVE the claimed cursor
+    poisoned[str(target + 2)] = str(0xBEEF)
+    snap["block_hashes"] = poisoned
+    snap["cursor"] = target
+    open(X._ckpt_path("default", target), "w").write(
+        json.dumps({"ns": "default", "cursor": target, "state_root": "r", "state": snap}))
+    assert X._rewind_to(target), "rewind refused a restorable checkpoint"
+    assert all(h <= target for h in X.state.block_hashes), \
+        f"ring entries above the cursor survived the rewind: {[h for h in X.state.block_hashes if h > target]}"
+    os.remove(X._ckpt_path("default", target))
+
+
 def t_checkpoint_beats_stash_on_a_cursor_collision():
     c = X.state.cursor
     ck = json.load(open(X._ckpt_path("default", c))) if os.path.exists(X._ckpt_path("default", c)) else None

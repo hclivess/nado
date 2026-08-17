@@ -329,6 +329,15 @@ def _rewind_to(cursor):
             return False
     for ns, st in states.items():
         st._restore(restored[ns])
+        # TRUST NOTHING ABOVE THE PAYLOAD'S OWN CURSOR. A settle-stash payload is captured from the LIVE
+        # state, and the state can advance mid-capture (the documented "records half moved on" race) — so
+        # a payload claiming cursor C can carry block-hash ring entries for C+1.. from the branch being
+        # abandoned. Observed live 2026-08-17: the stash at 61380 carried dead-branch hashes for
+        # 61381-61382, so every rewind RESTORED the contamination the probe then re-detected — a perfect
+        # 5-second rewind loop that ran for twenty minutes. The ring above the cursor is refilled from L1
+        # by the very next apply either way, so dropping it costs nothing and ends the class.
+        for h in [h for h in st.block_hashes if h > int(cursor)]:
+            st.block_hashes.pop(h, None)
         st.save()
     _last_settled_cursor = -1
     prov_states = None
