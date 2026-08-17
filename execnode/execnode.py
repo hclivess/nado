@@ -49,6 +49,48 @@ POLL = float(os.environ.get("NADO_EXEC_POLL", "5"))
 # tip before we treat the on-disk state as reroll-stranded and reset to genesis (see tail_loop). ~30s so a
 # slow L1 restart reporting a transient finalized=0 can never trigger it; a genuinely purged L1 stays >window.
 STALE_RESET_POLLS = max(3, int(30 / POLL))
+# FINALITY-REVERT PROBE cadence (see tail_loop): how many polls between hash-agreement checks of our
+# highest applied block against L1. One extra request per minute at the default POLL=5; the failure it
+# catches is permanent and silent, so a cheap standing probe beats waiting for a symptom.
+DIVERGENCE_PROBE_POLLS = max(1, int(60 / POLL))
+
+
+def probe_height(block_hashes, tip: int) -> int:
+    """The height to hash-check our applied state against L1, or 0 if there is nothing worth asking.
+
+    The HIGHEST block we have applied that L1 can still be expected to answer for. Highest, because a
+    sub-finality rewind leaves the chains agreeing BELOW the fork point and disagreeing above it — probing
+    low is exactly the blindness that let the existing stale-exec guard pass a contaminated node. Capped at
+    L1's tip because it cannot answer for heights it has not rebuilt yet.
+
+    Pure and separately tested: the first test written for this file asserted against a COPY of the logic,
+    which stayed green when the real gate was disabled, so the decision lives here where a test can call it."""
+    if not block_hashes or tip <= 0:
+        return 0
+    h = min(max(block_hashes), tip)
+    return h if h > 0 and h in block_hashes else 0
+
+
+def finality_reverted(block_hashes, height: int, l1_reply) -> bool:
+    """True only on a PROVEN disagreement between our applied block at `height` and L1's block there.
+
+    Every other outcome — no reply, a malformed one, a pruned body carrying no hash, a height we never
+    applied — returns False. That asymmetry is the whole safety argument: this predicate drives an automatic
+    wipe-and-replay, and on 2026-08-03 a guard that treated MISSING INFORMATION as evidence (a bare height
+    inversion during a slow L1 restart) destroyed the live state and all 25 deployed contracts. Absence of
+    information is never divergence."""
+    if height not in (block_hashes or {}):
+        return False
+    if not isinstance(l1_reply, dict):
+        return False        # a list/string/None body is a broken relay, not a statement about the chain
+    body = l1_reply.get("block") or l1_reply
+    l1_hash = body.get("block_hash") if isinstance(body, dict) else None
+    if not l1_hash:
+        return False
+    try:
+        return int(l1_hash, 16) != int(block_hashes[height])
+    except (TypeError, ValueError):
+        return False        # unparseable is not proof of anything
 
 # --- DA layer: erasure-coded availability for the shielded-transfer STARK proofs (too big for an L1 blob,
 # so only the transfer STATEMENT + the proof's `commitment` ride on-chain). This node keeps a local DaStore;
@@ -2408,10 +2450,53 @@ async def tail_loop():
     async with aiohttp.ClientSession() as session:
         await _maybe_bootstrap(session)
         stale_polls = 0     # consecutive polls seeing cursor > finalized (reroll-stranded state); see below
+        divergence_polls = 0    # polls since the last canonicality probe; see FINALITY-REVERT PROBE below
         while True:
             try:
                 status = await _get_json(session, "/status")
                 finalized = int(status.get("finalized_height", 0))
+
+                # ---- FINALITY-REVERT PROBE ------------------------------------------------------------
+                # THE HOLE THIS CLOSES. The stale-exec guard below only runs inside `cursor > finalized`,
+                # and it compares at min(max_applied, finalized). Both facts fail on a sub-finality rewind:
+                #
+                #   * L1 CAN rewind below its finality floor. core_loop.reanchor_candidates passes floor=0
+                #     for ESCALATED recovery ("a floor that keeps pinning us to a lighter chain is itself
+                #     the fault"), so reverted-finalized blocks are a real code path, not a theoretical one.
+                #   * If the re-anchor lands BELOW the fork point, the guard's comparison height sits below
+                #     it too, the hashes agree, and it concludes "same chain, our state is fine" — while
+                #     every block we applied ABOVE the fork came from the abandoned chain.
+                #   * Worse, the inversion is TRANSIENT. Once L1 rebuilds past our cursor, `cursor >
+                #     finalized` is false forever, the guard never runs again, and the contamination is
+                #     permanent AND invisible. The node then serves confidently wrong balances and merely
+                #     stops settling (maybe_settle refuses to post a proof that can't reproduce its own
+                #     root) — a log line, not an alarm.
+                #
+                # So probe independently of the height ordering. We apply ONLY finalized blocks, so any
+                # height in state.block_hashes was final when we applied it: if L1's chain now disagrees
+                # there, finality itself was reverted and our state belongs to a chain that no longer
+                # exists. Probe the HIGHEST such height L1 can still answer for — that is above the fork
+                # point, where the guard below is blind.
+                #
+                # SAFE TO ACT ON, unlike the bare height inversion that wiped this node's 25 contracts on
+                # 2026-08-03: only a genuine hash MISMATCH triggers. A restarting L1, a missing block, a
+                # pruned body with no hash and a malformed reply all fall through to "no evidence, do
+                # nothing" — the probe can report divergence, never absence of information.
+                divergence_polls += 1
+                if divergence_polls >= DIVERGENCE_PROBE_POLLS:
+                    divergence_polls = 0
+                    _probe = probe_height(state.block_hashes,
+                                          int(status.get("latest_block_height", 0) or 0))
+                    if _probe:
+                        _pb = await _get_json(session, f"/get_block_number?number={_probe}")
+                        if finality_reverted(state.block_hashes, _probe, _pb):
+                            print(f"[execnode] FINALITY REVERTED: our applied block {_probe} hashes "
+                                  f"{int(state.block_hashes[_probe]):#x} but L1 disagrees — exec state "
+                                  f"belongs to an abandoned chain", flush=True)
+                            _reset_states_to_genesis(
+                                reason=f"finality revert: block {_probe} disagrees with L1")
+                            await asyncio.sleep(POLL)
+                            continue
                 # STALE-EXEC GUARD (reroll self-heal): we apply ONLY finalized blocks, so on a consistent chain
                 # the cursor can never exceed L1's finalized tip. If it DOES, our on-disk state belongs to an OLD
                 # chain that a reroll purged on L1 but left here (pre-.gen-marker state, or a load-before-purge

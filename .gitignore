@@ -181,3 +181,4 @@ chain_generation
 # node-local runtime telemetry (stats sampler) — never source
 daily_stats.json
 rollback_stats.json
+tests/.tmp_finality_probe/
