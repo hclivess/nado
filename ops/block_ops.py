@@ -1171,25 +1171,38 @@ def check_block_auth_evidence(block):
 
 
 async def knows_block(target_peer, port, hash, number, logger):
-    """ask a peer whether OUR block at height `number` is on ITS canonical chain
-    (GET /get_block_number + hash compare). Storing the hash is NOT knowing it: a fork leftover
-    lingering in the peer's store by hash must answer False here, because a donor that "knows" a
-    block it cannot extend baits the fast-forward sync leg into serves-nothing tip rejection —
-    observed live wedging a fresh node on a donor's abandoned-fork checkpoint. False on non-200
-    AND on any network error — an unreachable peer just counts as not knowing."""
+    """TRI-STATE: is OUR block at height `number` on the peer's canonical chain?
+
+        True   the peer serves OUR hash at that height — it knows the block.
+        False  the peer ANSWERED with a DIFFERENT hash at that height — positive evidence our block is
+               not on its chain. (Storing the hash is NOT knowing it: a fork leftover lingering in the
+               peer's store by hash must not count, because a donor that "knows" a block it cannot
+               extend baits the fast-forward leg into serves-nothing tip rejection.)
+        None   the peer COULD NOT ANSWER — unreachable, timeout, non-200 (it may simply not have the
+               height yet: a donor momentarily behind us 404s), malformed body.
+
+    THE DISTINCTION IS LOAD-BEARING. The old contract collapsed None into False ("an unreachable peer
+    just counts as not knowing"), and emergency sync ROLLS BACK A REAL BLOCK on False — so every donor
+    timeout converted directly into a reverted block, and a flaky donor could eat an entire 40-block
+    burst (measured 2026-08-17: 2,609 rollbacks, 20 exhausted bursts, in one day, while the chain was
+    healthy). Absence of information is never evidence of divergence — the same rule the exec layer's
+    finality-revert probe enforces, for the same reason (2026-08-03). Truthiness-only callers are
+    unaffected (None is falsy, the conservative read for donor qualification)."""
     try:
         url_construct = f"http://{hostport(target_peer, port)}/get_block_number?number={int(number)}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
                 if response.status != 200:
-                    return False
+                    return None
                 data = await response.json(content_type=None)
-                return isinstance(data, dict) and data.get("block_hash") == hash
+                if not isinstance(data, dict) or not data.get("block_hash"):
+                    return None
+                return True if data.get("block_hash") == hash else False
 
     except Exception as e:
         logger.error(f"Failed to check block {hash} (height {number}) from {target_peer}: {e}")
-        return False
+        return None
 
 
 async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="zstd"):

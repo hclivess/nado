@@ -1214,7 +1214,7 @@ class CoreClient(threading.Thread):
             now = get_timestamp_seconds()
             cached = getattr(self, "_fork_state_cache", None)
             if cached and now - cached[0] < FORK_STATE_TTL_S:
-                return cached[1]
+                return cached[1]["state"]
             from ops.peer_ops import seed_peers, probe_block_hash
             from ops.block_ops import get_block_hash_by_number
             from ops.account_ops import get_finalized_height
@@ -1241,13 +1241,22 @@ class CoreClient(threading.Thread):
                 our_hash_at=get_block_hash_by_number,
                 tip=tip, finalized=_ghf(), peers=peers,
                 probe=lambda peer, h: probe_block_hash(peer, h, port=self.memserver.port))
-            self._fork_state_cache = (now, verdict["state"])
+            self._fork_state_cache = (now, verdict)   # FULL verdict: the reorg leg needs the ancestor too
             self.logger.info(f"Fork state: {verdict['state']} (ancestor={verdict['ancestor']}, "
                              f"tip={tip}, probes={verdict['probes']})")
             return verdict["state"]
         except Exception as e:
             self.logger.warning(f"fork-state probe failed: {e}")
             return fork_resolution.UNKNOWN
+
+    def _fork_verdict(self):
+        """The full measured verdict {state, ancestor, ...} behind _fork_state(), same cache. The reorg
+        leg is gated on this rather than on one donor's word — see emergency_mode."""
+        state = self._fork_state()
+        cached = getattr(self, "_fork_state_cache", None)
+        if cached and isinstance(cached[1], dict):
+            return cached[1]
+        return {"state": state, "ancestor": None}
 
     def _maybe_escape_dead_fork(self) -> bool:
         """LAST-RESORT AUTORECOVERY: purge + resync when the node is provably stranded on a minority fork
@@ -1648,18 +1657,59 @@ class CoreClient(threading.Thread):
                         logger=self.logger))
 
                     if known_block:
+                        self._donor_unanswered = 0
                         self.logger.info(f"{peer} knows block {block_hash}")
                         if self._fast_forward_from(peer=peer, from_hash=block_hash):
                             break
-                    elif self._rollback_one_for_reorg():
-                        # the reorg leg gave up: rollback budget spent, no local parent left (snapshot floor),
-                        # or the finality floor refused it. If a strictly-heavier chain exists this is a
-                        # deep/minority fork we must re-anchor out of, rather than exit and re-mine our losing
-                        # fork (which would only advance our floor and cement the wedge).
-                        if self._maybe_reanchor():
-                            self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
-                            continue
-                        break
+                    elif known_block is None:
+                        # THE DONOR COULD NOT ANSWER — timeout, momentarily behind us (404), malformed.
+                        # This used to be indistinguishable from "our tip is not on its chain" and went
+                        # straight to the ROLLBACK leg, converting every donor blip into a reverted real
+                        # block (2026-08-17: 2,609 rollbacks, 20 exhausted 40-block bursts, on a healthy
+                        # chain). A peer that cannot attest either way is evidence of NOTHING; retry, and
+                        # only after several consecutive non-answers strike the tip so a permanently mute
+                        # donor pool cannot pin us here.
+                        self._donor_unanswered = getattr(self, "_donor_unanswered", 0) + 1
+                        if self._donor_unanswered >= 3:
+                            self._donor_unanswered = 0
+                            self.logger.info(f"Donors cannot attest our tip either way ({peer} et al.) — "
+                                             f"striking the advertised tip, not our chain")
+                            self._reject_heaviest_tip()
+                        time.sleep(1)
+                    else:
+                        # POSITIVE mismatch: the donor serves a DIFFERENT block at our tip height. Still not
+                        # enough to revert real blocks on one peer's word — gate the rollback on the MEASURED
+                        # fork verdict (hash probes over up to 8 peers, seeds first, min 2 answers, cached):
+                        #   REORG      proven divergence with a known common ancestor -> roll back TOWARD the
+                        #              ancestor and never past it (rolling below it is pure loss; the old leg
+                        #              probed blindly one block at a time and could burn the whole budget).
+                        #   DEAD_FORK  divergence at/below the hard floor -> the re-anchor/escape ladder.
+                        #   BEHIND/SYNCED/UNKNOWN -> NO rollback. Behind means our chain is a prefix of the
+                        #              majority's (the mismatching donor is itself lagging or on a fork);
+                        #              unknown means we could not measure — and ignorance never reverts.
+                        self._donor_unanswered = 0
+                        verdict = self._fork_verdict()
+                        vstate = verdict.get("state")
+                        if vstate == fork_resolution.REORG:
+                            if self._rollback_one_for_reorg(ancestor=verdict.get("ancestor")):
+                                # the reorg leg gave up: budget spent, no local parent (snapshot floor), the
+                                # finality floor refused, or we reached the ancestor and the donor STILL
+                                # disagrees. If a strictly-heavier chain exists this is a deep/minority fork
+                                # to re-anchor out of, rather than exit and re-mine our losing fork.
+                                if self._maybe_reanchor():
+                                    self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
+                                    continue
+                                break
+                        elif vstate == fork_resolution.DEAD_FORK:
+                            if self._maybe_reanchor() or self._maybe_escape_dead_fork():
+                                self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
+                                continue
+                            time.sleep(1)
+                        else:
+                            self.logger.info(f"Tip mismatch from {peer} but measured fork state is "
+                                             f"{vstate} — not rolling back; striking the tip instead")
+                            self._reject_heaviest_tip()
+                            time.sleep(1)
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
@@ -1728,13 +1778,22 @@ class CoreClient(threading.Thread):
             self._reject_heaviest_tip()
             return True
 
-    def _rollback_one_for_reorg(self) -> bool:
-        """REORG leg of emergency sync: the donor does NOT know our tip, so our chain has diverged —
-        revert ONE block (reinserting its txs into the mempool; revert symmetry: a reorg must
-        re-mine user transactions, never drop them) and let the next pass retry the donor one block
-        deeper. Returns True when the emergency pass should END: the per-burst rollback budget is
-        exhausted, no local parent remains to roll back through (snapshot-bootstrapped node), or
-        the finality floor refused the reorg — each rejects the tip so we don't spin on it."""
+    def _rollback_one_for_reorg(self, ancestor=None) -> bool:
+        """REORG leg of emergency sync: the MEASURED verdict says our chain diverged (see emergency_mode
+        — one donor's word no longer reaches here) — revert ONE block (reinserting its txs into the
+        mempool; revert symmetry: a reorg must re-mine user transactions, never drop them) and let the
+        next pass retry the donor one block deeper. Returns True when the emergency pass should END: the
+        per-burst rollback budget is exhausted, no local parent remains (snapshot-bootstrapped node), the
+        finality floor refused the reorg — each rejects the tip so we don't spin on it — or the tip has
+        reached the verdict's common ANCESTOR and the donor still disagrees, which means the verdict is
+        stale or the donor is lying, and rolling PAST the proven ancestor is pure loss either way (the old
+        leg probed blindly one block at a time and could burn the whole 40-block budget on a bad donor)."""
+        if ancestor is not None and int(self.memserver.latest_block["block_number"]) <= int(ancestor):
+            self.logger.warning(f"Reorg leg reached the measured common ancestor {ancestor} and the donor "
+                                f"still disagrees — refusing to roll deeper; striking the tip")
+            self.memserver.rollbacks = 0
+            self._reject_heaviest_tip()
+            return True
         if self.memserver.rollbacks >= self.memserver.max_rollbacks:
             self.logger.error(
                 f"Rollbacks exhausted ({self.memserver.rollbacks}/{self.memserver.max_rollbacks})")
