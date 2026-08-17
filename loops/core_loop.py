@@ -1619,6 +1619,36 @@ class CoreClient(threading.Thread):
                 if not self.minority_block_consensus() and not self.memserver.force_sync_ip:
                     self.logger.info("No heavier valid tip remains; leaving emergency mode")
                     break
+                # VERDICT FIRST, DONOR SECOND. When the measured verdict is REORG with a known ancestor,
+                # roll toward the ancestor WITHOUT consulting any donor. Observed live (2026-08-17 23:06,
+                # a real two-sided split at 62655): donor selection keys off the heaviest ADVERTISED tip,
+                # which flip-flops between the split's sides as both advance — a same-fork donor "knows"
+                # our tip, fast-forward re-inflates the very fork we just rolled back, and each pass burns
+                # a 5 s knows_block round-trip, throttling recovery to ~1 rollback a minute on a 12-block
+                # fork. The verdict already IS the decision; the donor only matters once we are at the
+                # ancestor and need the majority chain fetched.
+                verdict = self._fork_verdict()
+                vstate = verdict.get("state")
+                _anc = verdict.get("ancestor")
+                if (vstate == fork_resolution.REORG and _anc is not None
+                        and int(self.memserver.latest_block["block_number"]) > int(_anc)):
+                    if self._rollback_one_for_reorg(ancestor=_anc):
+                        if self._maybe_reanchor():
+                            self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
+                            continue
+                        break
+                    if int(self.memserver.latest_block["block_number"]) <= int(_anc):
+                        # landed on the measured ancestor: the verdict that got us here is spent — force a
+                        # fresh probe before ANY further rollback can happen (a stale REORG verdict must
+                        # never revert canonical blocks after we adopt the majority chain).
+                        self._fork_state_cache = None
+                    continue
+                if vstate == fork_resolution.DEAD_FORK:
+                    if self._maybe_reanchor() or self._maybe_escape_dead_fork():
+                        self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
+                        continue
+                    time.sleep(1)
+                    continue
                 peer = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
                 if not peer:
                     now = get_timestamp_seconds()
@@ -1659,7 +1689,12 @@ class CoreClient(threading.Thread):
                     if known_block:
                         self._donor_unanswered = 0
                         self.logger.info(f"{peer} knows block {block_hash}")
-                        if self._fast_forward_from(peer=peer, from_hash=block_hash):
+                        ended = self._fast_forward_from(peer=peer, from_hash=block_hash)
+                        # blocks may have been adopted either way — the cached verdict describes a tip
+                        # that no longer exists; a stale REORG must never drive a rollback of the chain
+                        # we just fetched.
+                        self._fork_state_cache = None
+                        if ended:
                             break
                     elif known_block is None:
                         # THE DONOR COULD NOT ANSWER — timeout, momentarily behind us (404), malformed.
@@ -1677,39 +1712,16 @@ class CoreClient(threading.Thread):
                             self._reject_heaviest_tip()
                         time.sleep(1)
                     else:
-                        # POSITIVE mismatch: the donor serves a DIFFERENT block at our tip height. Still not
-                        # enough to revert real blocks on one peer's word — gate the rollback on the MEASURED
-                        # fork verdict (hash probes over up to 8 peers, seeds first, min 2 answers, cached):
-                        #   REORG      proven divergence with a known common ancestor -> roll back TOWARD the
-                        #              ancestor and never past it (rolling below it is pure loss; the old leg
-                        #              probed blindly one block at a time and could burn the whole budget).
-                        #   DEAD_FORK  divergence at/below the hard floor -> the re-anchor/escape ladder.
-                        #   BEHIND/SYNCED/UNKNOWN -> NO rollback. Behind means our chain is a prefix of the
-                        #              majority's (the mismatching donor is itself lagging or on a fork);
-                        #              unknown means we could not measure — and ignorance never reverts.
+                        # POSITIVE mismatch on one donor's word — but the measured verdict (checked BEFORE
+                        # donor selection this pass) was not REORG/DEAD_FORK, i.e. the probe quorum says
+                        # our chain is a prefix (BEHIND/SYNCED) or could not measure (UNKNOWN). One peer
+                        # against the quorum: the mismatching donor is itself lagging or forked. Strike
+                        # the tip it advertised; NEVER the chain. Ignorance never reverts.
                         self._donor_unanswered = 0
-                        verdict = self._fork_verdict()
-                        vstate = verdict.get("state")
-                        if vstate == fork_resolution.REORG:
-                            if self._rollback_one_for_reorg(ancestor=verdict.get("ancestor")):
-                                # the reorg leg gave up: budget spent, no local parent (snapshot floor), the
-                                # finality floor refused, or we reached the ancestor and the donor STILL
-                                # disagrees. If a strictly-heavier chain exists this is a deep/minority fork
-                                # to re-anchor out of, rather than exit and re-mine our losing fork.
-                                if self._maybe_reanchor():
-                                    self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
-                                    continue
-                                break
-                        elif vstate == fork_resolution.DEAD_FORK:
-                            if self._maybe_reanchor() or self._maybe_escape_dead_fork():
-                                self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
-                                continue
-                            time.sleep(1)
-                        else:
-                            self.logger.info(f"Tip mismatch from {peer} but measured fork state is "
-                                             f"{vstate} — not rolling back; striking the tip instead")
-                            self._reject_heaviest_tip()
-                            time.sleep(1)
+                        self.logger.info(f"Tip mismatch from {peer} but measured fork state disagrees — "
+                                         f"not rolling back; striking the tip instead")
+                        self._reject_heaviest_tip()
+                        time.sleep(1)
 
         except Exception as e:
             self.logger.info(f"Error: {e}")

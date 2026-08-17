@@ -131,12 +131,41 @@ def t_no_rollback_without_a_reorg_verdict():
     assert "verdict = self._fork_verdict()" in loop, "the rollback leg is no longer verdict-gated"
     # the ONLY rollback call must be inside the REORG branch and must carry the ancestor bound
     assert loop.count("_rollback_one_for_reorg(") == 1, "a rollback path outside the verdict gate"
-    assert "_rollback_one_for_reorg(ancestor=verdict.get(\"ancestor\"))" in loop
-    reorg_at = loop.index("if vstate == fork_resolution.REORG:")
+    assert "_rollback_one_for_reorg(ancestor=_anc)" in loop
+    reorg_at = loop.index("if (vstate == fork_resolution.REORG and _anc is not None")
     rb_at = loop.index("_rollback_one_for_reorg(")
     assert reorg_at < rb_at, "the rollback is not inside the REORG branch"
     # non-REORG mismatches strike the tip, never the chain
     assert "not rolling back; striking the tip instead" in loop
+
+
+def t_verdict_is_checked_before_any_donor_is_consulted():
+    """THE SEESAW (observed live 2026-08-17 23:06, a real split at 62655): donor selection keys off the
+    heaviest ADVERTISED tip, which flip-flops between a split's sides — a same-fork donor 'knows' our tip
+    and fast-forward re-inflates the fork just rolled back, while each pass burns a 5 s knows_block
+    round-trip (~1 rollback/minute on a 12-block fork). Under a measured REORG the rollback must run
+    before, and without, any donor interaction."""
+    s = src("loops/core_loop.py")
+    loop = s[s.index("def emergency_mode"):s.index("def _fast_forward_from")]
+    verdict_at = loop.index("verdict = self._fork_verdict()")
+    donor_at = loop.index("peer = self.get_peer_to_sync_from(")
+    knows_at = loop.index("known_block = asyncio.run(knows_block(")
+    assert verdict_at < donor_at < knows_at, "the verdict no longer precedes donor selection"
+    assert loop.index("_rollback_one_for_reorg(") < donor_at, \
+        "the REORG rollback consults a donor first — the seesaw is back"
+
+
+def t_stale_verdicts_cannot_revert_freshly_adopted_blocks():
+    """After landing on the ancestor, and after ANY fast-forward, the cached REORG verdict describes a tip
+    that no longer exists — it must be dropped before it can drive another rollback."""
+    s = src("loops/core_loop.py")
+    loop = s[s.index("def emergency_mode"):s.index("def _fast_forward_from")]
+    assert loop.count("self._fork_state_cache = None") >= 2, \
+        "the verdict cache is not invalidated on both transitions (ancestor reached / fast-forward)"
+    ff_at = loop.index("ended = self._fast_forward_from(")
+    inv_after_ff = loop.index("self._fork_state_cache = None", ff_at)
+    brk = loop.index("if ended:", ff_at)
+    assert inv_after_ff < brk, "fast-forward can exit the loop with a stale verdict still cached"
 
 
 def t_none_answers_do_not_strike_immediately_but_do_eventually():
