@@ -98,7 +98,23 @@ storms are the one mechanism that has actually corrupted state, h4260). Now:
    stale verdict or a lying donor; rolling past a proven ancestor is pure loss either way.
 4. A positive mismatch with a non-`REORG` verdict is one peer against the probe quorum: strike the tip it
    advertised, never the chain.
-5. **Production is suppressed on a measured minority fork.** Deterministic production means both sides of
+5. **Ties resolve ONCE, at the first divergent block.** Weight increments are content-independent, so
+   a same-height split is a *permanent exact tie* — and the old lowest-TIP-hash tie-break re-rolled every
+   block, flipping which side should switch faster than any reorg could finish (the hours-long see-saws).
+   `fork_resolution.tie_winner` compares the branches' blocks at ancestor+1 — a value that never changes
+   as the branches grow — so both sides compute one permanent winner and exactly one side reorgs, once.
+   The winning side keeps producing (see the production gate below), which starves the losing branch and
+   makes the majority strictly heavier — repairing the very weight signal whose tie caused the stall.
+6. **Possession before rollback** (`_adopt_branch`). The old order — roll toward the ancestor, then hope
+   a donor serves the better chain — made disruption free: any advertisement surviving the verdict probes
+   cost real rollbacks and churn even when nothing valid was ever served. Now the competing branch is
+   FETCHED FIRST (walked by parent-hash from the advertised tip to the measured ancestor), pre-verified
+   (content hash, linkage, the weight claim), and only then does the node roll to the ancestor and apply
+   it through the one canonical apply path — `verify_block` re-derives and enforces everything the
+   pre-check cannot know without state. A branch failing mid-apply costs the advertiser a benched tip and
+   us seconds: our own bodies are still in the store and are re-applied. An attacker must now present a
+   held, hash-consistent, heavier branch that survives full validation to cause ANY revert.
+7. **Production is suppressed on a measured minority fork.** Deterministic production means both sides of
    a mempool split advance every slot at near-equal weight — the heavier-tip gate never fires, and both
    sides extend their forks for hours. The produce slot now consults the verdict when the peer majority's
    tip hash differs from ours *and* the mismatch has persisted `MINORITY_GRACE_S` (so block-boundary

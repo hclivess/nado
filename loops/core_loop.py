@@ -594,7 +594,10 @@ class CoreClient(threading.Thread):
                         self._prod_minority_since = _now_g
                     elif _now_g - self._prod_minority_since >= MINORITY_GRACE_S:
                         _vs = self._fork_state()
-                        if _vs in (fork_resolution.REORG, fork_resolution.DEAD_FORK):
+                        _tie_ours = (int(self.consensus.heaviest_block_weight or 0) == int(
+                                         self.memserver.latest_block.get("cumulative_weight", 0))
+                                     and self._tie_break_ours(_maj_hash) is True)
+                        if _vs in (fork_resolution.REORG, fork_resolution.DEAD_FORK) and not _tie_ours:
                             _on_minority = True
                             if _now_g - getattr(self, "_last_minority_suppress_log", 0.0) >= _EMERGENCY_LOG_EVERY:
                                 self._last_minority_suppress_log = _now_g
@@ -876,6 +879,24 @@ class CoreClient(threading.Thread):
             """we already hold the canonical tip locally; normal incorporation adopts it"""
             self._minority_since = None
             return False
+        # STABLE TIE-BREAK (equal weight). Weight increments are content-independent, so a same-height
+        # split is a PERMANENT exact tie — and the lowest-TIP-hash rule below the grace window re-rolled
+        # every block, flipping which side should switch faster than any reorg could finish (the
+        # hours-long see-saws at 62655/62895). Resolve ties at the FIRST DIVERGENT block instead
+        # (_tie_break_ours): permanent, computed identically by both sides, so exactly one side switches.
+        # True -> our branch is canonical: never switch. None (no evidence) -> don't switch either, but
+        # keep the grace timer running so evidence arriving later acts immediately. False -> fall through
+        # to the grace window and switch.
+        if int(self.consensus.heaviest_block_weight or 0) == int(
+                self.memserver.latest_block.get("cumulative_weight", 0)):
+            _tb = self._tie_break_ours(hh)
+            if _tb is True:
+                self._minority_since = None
+                return False
+            if _tb is None:
+                if self._minority_since is None:
+                    self._minority_since = get_timestamp_seconds()
+                return False
         # GRACE WINDOW — the fork-choice above is right, but "a better tip exists that we do not hold yet"
         # is ALSO what every normal block looks like for the second between a peer advertising it and the
         # gossip delivering it. Without hysteresis that transient reads as a fork: measured 51 emergency
@@ -1292,6 +1313,136 @@ class CoreClient(threading.Thread):
             return cached[1]
         return {"state": state, "ancestor": None}
 
+    def _tie_break_ours(self, hh):
+        """STABLE equal-weight fork choice, wired to the measured verdict: True = our branch is canonical,
+        False = theirs is, None = no evidence either way (which never switches or suppresses anything).
+
+        Weight increments are content-independent, so a same-height split is a PERMANENT exact tie — and
+        the old lowest-TIP-hash tie-break re-rolled every block, flipping the verdict faster than any
+        reorg could complete (the hours-long see-saws at 62655/62895). The FIRST DIVERGENT block
+        (ancestor+1) never changes as branches grow: both sides compute one permanent winner
+        (fork_resolution.tie_winner) and exactly one side reorgs, once. Ours is a local index read;
+        theirs is one probe of a peer advertising `hh`, cached per-ancestor for FORK_STATE_TTL_S."""
+        from protocol import FORK_STATE_TTL_S
+        try:
+            v = self._fork_verdict()
+            anc = v.get("ancestor")
+            if v.get("state") != fork_resolution.REORG or anc is None:
+                return None
+            ours = get_block_hash_by_number(anc + 1)
+            if not ours:
+                return None
+            now = time.monotonic()
+            cached = getattr(self, "_tie_theirs_cache", None)
+            if cached and cached[0] == anc and now - cached[2] < FORK_STATE_TTL_S:
+                theirs = cached[1]
+            else:
+                from ops.peer_ops import probe_block_hash
+                theirs = None
+                for ip, st in self.consensus.status_pool.copy().items():
+                    if isinstance(st, dict) and st.get("latest_block_hash") == hh:
+                        theirs = probe_block_hash(ip, anc + 1, port=self.memserver.port)
+                        if theirs:
+                            break
+                self._tie_theirs_cache = (anc, theirs, now)
+            if not theirs or theirs == ours:
+                return None
+            return fork_resolution.tie_winner(ours, theirs) == "ours"
+        except Exception as e:
+            self.logger.warning(f"tie-break probe failed: {e}")
+            return None
+
+    def _reapply_local_branch(self, old_tip):
+        """Restore OUR branch from the local store after a failed adoption: the bodies were never deleted
+        (they are content-addressed), so walk old_tip's parent chain down to the current (rolled-back) tip
+        and re-apply forward through the one canonical apply path. Best-effort — a partial restore leaves
+        the node lower but consistent, and ordinary sync continues from there."""
+        try:
+            chain = []
+            b = old_tip
+            while isinstance(b, dict) and b.get("block_number", 0) > self.memserver.latest_block["block_number"]:
+                chain.append(b)
+                b = get_block(b.get("parent_hash")) or None
+            for blk in reversed(chain):
+                if not self.produce_block(block=blk, remote=True, remote_peer=None):
+                    break
+            self.logger.warning(f"Re-applied our own branch back to {self.memserver.latest_block['block_number']} "
+                                f"after a failed adoption")
+        except Exception as e:
+            self.logger.error(f"local branch re-apply failed: {e}")
+
+    def _adopt_branch(self, anc):
+        """POSSESSION-BEFORE-ROLLBACK: never revert a real block until the competing branch is HELD and
+        pre-verified. The old order (roll toward the ancestor, then hope a donor serves the better chain)
+        made disruption free: any advertisement that survived the verdict probes cost us real rollbacks
+        and churn even when nothing valid was ever served. Now the branch is fetched FIRST — walked by
+        parent_hash from the advertised tip down to the measured ancestor, each block checked for content
+        hash and linkage, the claimed weight checked against ours — and only then do we roll to the
+        ancestor and apply it through the one canonical apply path (produce_block -> verify_block, which
+        re-derives and ENFORCES everything the pre-check cannot know without state). A branch that fails
+        mid-apply costs the attacker a benched tip and us seconds: our own bodies are still in the store
+        and _reapply_local_branch restores them.
+
+        Returns True (adopted), False (nothing usable — caller waits/strikes), or None (rollback refused:
+        budget/floor — caller escalates to the re-anchor ladder, exactly as before)."""
+        hh = self.consensus.heaviest_block_hash
+        our_w = self.memserver.latest_block.get("cumulative_weight", 0)
+        src = next((ip for ip, st in self.consensus.status_pool.copy().items()
+                    if isinstance(st, dict) and st.get("latest_block_hash") == hh), None)
+        if not src or not hh:
+            return False
+        anc_hash = get_block_hash_by_number(anc)
+        if not anc_hash:
+            return False
+        from ops.block_ops import block_content_hash
+        from protocol import FINALITY_HARD_BACKSTOP
+        staged, cur = [], hh
+        for _ in range(FINALITY_HARD_BACKSTOP + EPOCH_LENGTH):
+            b = asyncio.run(snapshot_ops.fetch_block(src, self.memserver.port, cur))
+            if not isinstance(b, dict) or b.get("block_hash") != cur:
+                self.logger.info(f"Branch adoption: {src} stopped serving its own branch at {cur[:12]}")
+                self._reject_heaviest_tip()
+                return False
+            try:
+                if b.get("block_number", 0) != 0 and block_content_hash(b) != b["block_hash"]:
+                    raise ValueError("content hash mismatch")
+            except Exception as e:
+                self.logger.warning(f"Branch adoption: {src} served a forged/corrupt block ({e}) — benching")
+                self._reject_heaviest_tip()
+                return False
+            staged.append(b)
+            ph = b.get("parent_hash")
+            if ph == anc_hash:
+                break
+            if not ph or int(b.get("block_number", 0)) <= int(anc):
+                self._reject_heaviest_tip()
+                return False                       # walk missed the measured ancestor — inconsistent branch
+            cur = ph
+        else:
+            self._reject_heaviest_tip()
+            return False                           # deeper than any legal reorg can be
+        staged.reverse()
+        if int(staged[-1].get("cumulative_weight", 0)) <= int(our_w):
+            self._reject_heaviest_tip()
+            return False                           # possession disproved the advertisement
+        old_tip = self.memserver.latest_block
+        self.memserver.rollbacks = 0
+        while self.memserver.latest_block["block_number"] > anc:
+            if self._rollback_one_for_reorg(ancestor=anc):
+                return None                        # budget/floor refused mid-burst: escalate (re-anchor)
+        for blk in staged:
+            if not self.produce_block(block=blk, remote=True, remote_peer=src):
+                self.logger.warning(f"Branch adoption: block {blk.get('block_number')} from {src} failed "
+                                    f"full validation — restoring our own branch")
+                self._reapply_local_branch(old_tip)
+                self._reject_heaviest_tip()
+                return False
+        self._fork_state_cache = None              # the tip this verdict described no longer exists
+        self.logger.warning(f"Adopted the measured majority branch: rolled to {anc}, applied "
+                            f"{len(staged)} block(s) from {src}, tip now "
+                            f"{self.memserver.latest_block['block_number']}")
+        return True
+
     def _maybe_escape_dead_fork(self) -> bool:
         """LAST-RESORT AUTORECOVERY: purge + resync when the node is provably stranded on a minority fork
         AT OR BELOW its own finality floor.
@@ -1666,16 +1817,21 @@ class CoreClient(threading.Thread):
                 _anc = verdict.get("ancestor")
                 if (vstate == fork_resolution.REORG and _anc is not None
                         and int(self.memserver.latest_block["block_number"]) > int(_anc)):
-                    if self._rollback_one_for_reorg(ancestor=_anc):
+                    # POSSESSION BEFORE ROLLBACK: fetch + pre-verify the competing branch, and only then
+                    # revert anything (see _adopt_branch — the free-rollback vector dies here: an
+                    # advertisement that cannot be substantiated with a held, hash-consistent, heavier
+                    # branch costs us NOTHING but the fetch, and the tip gets benched).
+                    adopted = self._adopt_branch(_anc)
+                    if adopted is None:
+                        # rollback refused mid-adoption (budget/floor): the fork is deeper than the leg
+                        # can serve — escalate exactly as the old give-up path did.
                         if self._maybe_reanchor():
                             self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
                             continue
                         break
-                    if int(self.memserver.latest_block["block_number"]) <= int(_anc):
-                        # landed on the measured ancestor: the verdict that got us here is spent — force a
-                        # fresh probe before ANY further rollback can happen (a stale REORG verdict must
-                        # never revert canonical blocks after we adopt the majority chain).
-                        self._fork_state_cache = None
+                    if adopted:
+                        continue
+                    time.sleep(1)
                     continue
                 if vstate == fork_resolution.DEAD_FORK:
                     if self._maybe_reanchor() or self._maybe_escape_dead_fork():

@@ -129,12 +129,16 @@ def t_no_rollback_without_a_reorg_verdict():
     loop = loop[:loop.index("def _fast_forward_from")]
     assert "elif known_block is None:" in loop, "the couldn't-answer case is no longer separated"
     assert "verdict = self._fork_verdict()" in loop, "the rollback leg is no longer verdict-gated"
-    # the ONLY rollback call must be inside the REORG branch and must carry the ancestor bound
-    assert loop.count("_rollback_one_for_reorg(") == 1, "a rollback path outside the verdict gate"
-    assert "_rollback_one_for_reorg(ancestor=_anc)" in loop
+    # since possession-before-rollback, the emergency loop itself contains NO rollback call at all —
+    # reverting lives only inside _adopt_branch, which is only reachable through the REORG branch.
+    assert loop.count("_rollback_one_for_reorg(") == 0, "a rollback path outside _adopt_branch"
     reorg_at = loop.index("if (vstate == fork_resolution.REORG and _anc is not None")
-    rb_at = loop.index("_rollback_one_for_reorg(")
-    assert reorg_at < rb_at, "the rollback is not inside the REORG branch"
+    adopt_at = loop.index("self._adopt_branch(_anc)")
+    assert reorg_at < adopt_at, "adoption is not inside the REORG branch"
+    src_all = src("loops/core_loop.py")
+    ab = src_all[src_all.index("def _adopt_branch"):]
+    ab = ab[:ab.index("\n    def ")]
+    assert "_rollback_one_for_reorg(ancestor=anc)" in ab, "the adoption burst lost the ancestor bound"
     # non-REORG mismatches strike the tip, never the chain
     assert "not rolling back; striking the tip instead" in loop
 
@@ -151,8 +155,8 @@ def t_verdict_is_checked_before_any_donor_is_consulted():
     donor_at = loop.index("peer = self.get_peer_to_sync_from(")
     knows_at = loop.index("known_block = asyncio.run(knows_block(")
     assert verdict_at < donor_at < knows_at, "the verdict no longer precedes donor selection"
-    assert loop.index("_rollback_one_for_reorg(") < donor_at, \
-        "the REORG rollback consults a donor first — the seesaw is back"
+    assert loop.index("self._adopt_branch(_anc)") < donor_at, \
+        "the REORG path consults the heaviest-tip donor flow first — the seesaw is back"
 
 
 def t_stale_verdicts_cannot_revert_freshly_adopted_blocks():
@@ -160,8 +164,13 @@ def t_stale_verdicts_cannot_revert_freshly_adopted_blocks():
     that no longer exists — it must be dropped before it can drive another rollback."""
     s = src("loops/core_loop.py")
     loop = s[s.index("def emergency_mode"):s.index("def _fast_forward_from")]
-    assert loop.count("self._fork_state_cache = None") >= 2, \
-        "the verdict cache is not invalidated on both transitions (ancestor reached / fast-forward)"
+    assert loop.count("self._fork_state_cache = None") >= 1, \
+        "the emergency loop no longer invalidates the verdict after a fast-forward"
+    src_all = src("loops/core_loop.py")
+    ab = src_all[src_all.index("def _adopt_branch"):]
+    ab = ab[:ab.index("\n    def ")]
+    assert "self._fork_state_cache = None" in ab, \
+        "a successful adoption no longer drops the verdict that described the dead tip"
     ff_at = loop.index("ended = self._fast_forward_from(")
     inv_after_ff = loop.index("self._fork_state_cache = None", ff_at)
     brk = loop.index("if ended:", ff_at)
@@ -215,6 +224,77 @@ def t_the_production_gate_is_cheap_on_the_healthy_path():
     assert grace_at < probe_at, "the probe runs before the hysteresis has passed"
     reset_at = nm.index("self._prod_minority_since = None")
     assert reset_at > probe_at, "the hysteresis timer is never reset when back on the majority hash"
+
+
+# ---- STABLE TIE-BREAK: splits must resolve once, not see-saw for hours --------------------------------
+def t_tie_winner_is_stable_and_symmetric():
+    """Weight increments are content-independent, so a same-height split is a PERMANENT exact tie. The
+    old lowest-TIP-hash rule re-rolled every block; the first-divergent-block comparison never changes."""
+    from ops.fork_resolution import tie_winner
+    assert tie_winner("aaaa", "bbbb") == "ours"
+    assert tie_winner("bbbb", "aaaa") == "theirs"
+    # SYMMETRY: the two sides of a split must reach OPPOSITE conclusions from mirrored inputs — that is
+    # what makes exactly one side reorg.
+    assert tie_winner("aaaa", "bbbb") == "ours" and tie_winner("bbbb", "aaaa") == "theirs"
+    # STABILITY: the answer is a pure function of the first divergents — growing branches change nothing.
+    for _ in range(3):
+        assert tie_winner("aaaa", "bbbb") == "ours"
+
+
+def t_tie_winner_no_evidence_never_switches():
+    from ops.fork_resolution import tie_winner
+    assert tie_winner(None, "bbbb") == "ours"
+    assert tie_winner("aaaa", None) == "ours"
+    assert tie_winner("", "") == "ours"
+    assert tie_winner("aaaa", "aaaa") == "ours", "no divergence is not a reason to switch"
+
+
+def t_minority_consensus_resolves_ties_at_the_divergence_point():
+    s = src("loops/core_loop.py")
+    mc = s[s.index("def minority_block_consensus"):]
+    mc = mc[:mc.index("def snapshot_bootstrap")]
+    assert "_tb = self._tie_break_ours(hh)" in mc, "the tie case no longer consults the stable tie-break"
+    tie_at = mc.index("_tb = self._tie_break_ours(hh)")
+    grace_at = mc.index("# GRACE WINDOW")
+    assert tie_at < grace_at, "the tie-break must resolve BEFORE the grace/switch path"
+    assert "if _tb is True:" in mc and "if _tb is None:" in mc, \
+        "winning or unknown ties must never fall through to the switch path"
+
+
+def t_the_production_gate_respects_a_won_tie():
+    """The winning side of a split must keep producing — that is what starves the minority branch and
+    makes the majority strictly heavier, repairing the weight signal itself."""
+    s = src("loops/core_loop.py")
+    nm = s[s.index("def normal_mode"):s.index("def emergency_mode")]
+    assert "and not _tie_ours" in nm, "a won tie no longer exempts production from suppression"
+    assert "self._tie_break_ours(" in nm
+
+
+# ---- POSSESSION BEFORE ROLLBACK: disruption must cost the attacker a real branch ----------------------
+def t_no_rollback_before_the_branch_is_held_and_checked():
+    s = src("loops/core_loop.py")
+    ab = s[s.index("def _adopt_branch"):]
+    ab = ab[:ab.index("\n    def ")]
+    fetch_at = ab.index("snapshot_ops.fetch_block(")
+    content_at = ab.index("block_content_hash(b)")
+    weight_at = ab.index('staged[-1].get("cumulative_weight", 0)')
+    roll_at = ab.index("_rollback_one_for_reorg(")
+    apply_at = ab.index("produce_block(block=blk")
+    assert fetch_at < content_at < weight_at < roll_at < apply_at, \
+        "adoption must fetch -> verify content -> verify weight claim -> roll -> apply, in that order"
+    assert "self._reapply_local_branch(old_tip)" in ab, \
+        "a branch failing full validation must restore OUR branch, not leave the node rolled back"
+    assert ab.count("self._reject_heaviest_tip()") >= 4, \
+        "unusable branches must be benched — repeat attempts have to cost the advertiser"
+
+
+def t_the_emergency_reorg_leg_goes_through_adoption():
+    s = src("loops/core_loop.py")
+    loop = s[s.index("def emergency_mode"):s.index("def _fast_forward_from")]
+    assert "adopted = self._adopt_branch(_anc)" in loop, "the REORG leg no longer requires possession"
+    assert "if adopted is None:" in loop, "the budget/floor escalation path is gone"
+    assert loop.count("_rollback_one_for_reorg(") == 0, \
+        "a rollback path in the emergency loop outside _adopt_branch — the free-rollback vector is back"
 
 
 for name, fn in [(n, f) for n, f in list(globals().items()) if n.startswith("t_")]:

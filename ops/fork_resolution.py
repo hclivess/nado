@@ -213,6 +213,25 @@ def find_common_ancestor(our_hash_at, tip, peers, probe, floor=0, min_answers=2)
     return lo, probes
 
 
+def tie_winner(ours_first_divergent: str, theirs_first_divergent: str) -> str:
+    """STABLE equal-weight fork choice: which branch is canonical when two branches carry EXACTLY equal
+    cumulative weight (weight increments are content-independent, so every same-height split is a
+    permanent exact tie).
+
+    The old tie-break compared TIP hashes — which re-roll every block, so which side "wins" flipped
+    every ~6 s and neither side could finish a reorg before the verdict inverted; splits see-sawed for
+    hours (observed 2026-08-17/18 at 62655 and 62895). The FIRST DIVERGENT block (ancestor+1) never
+    changes as the branches grow, so this comparison is computed identically and PERMANENTLY by both
+    sides: exactly one side reorgs, once.
+
+    Returns "ours" / "theirs". Missing or equal inputs return "ours" — no evidence never switches a
+    node off its own chain (the same asymmetry as everything else in this module)."""
+    if (not ours_first_divergent or not theirs_first_divergent
+            or ours_first_divergent == theirs_first_divergent):
+        return "ours"
+    return "ours" if ours_first_divergent < theirs_first_divergent else "theirs"
+
+
 def classify(ancestor, tip, finalized):
     """Turn the ancestor into the single action to take. Pure arithmetic — see the module docstring."""
     if ancestor is None:
