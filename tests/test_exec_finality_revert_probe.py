@@ -34,7 +34,7 @@ os.makedirs(_TMP, exist_ok=True)
 os.environ.setdefault("NADO_EXEC_STATE", os.path.join(_TMP, "exec_state.json"))
 os.environ.setdefault("NADO_EXEC_DA", os.path.join(_TMP, "exec_da"))
 
-from execnode.execnode import finality_reverted, probe_height
+from execnode.execnode import finality_reverted, probe_height, recovery_available
 
 FAILS = []
 
@@ -110,19 +110,63 @@ def t_a_height_we_never_applied_is_not_divergence():
     assert finality_reverted(None, 300, {"block_hash": "dddd"}) is False
 
 
-# ---- the probe must actually be wired into the loop --------------------------------------------------
-def t_the_loop_runs_the_probe_and_resets_on_it():
+# ---- RECOVERY MUST ONLY EVER LAND SOMEWHERE BETTER ---------------------------------------------------
+def t_a_complete_archive_permits_a_cold_replay():
+    assert recovery_available({"earliest_block_height": 0}, "") == "archive"
+
+
+def t_a_truncated_archive_does_not_permit_a_wipe():
+    """This box today: earliest 56735. A reset would replay 56735+ onto an EMPTY state — every contract,
+    every balance, the faucet — gone. That is the 2026-08-03 disaster; the wipe must not be offered."""
+    assert recovery_available({"earliest_block_height": 56735}, "") == ""
+    assert recovery_available({"earliest_block_height": 1}, "") == ""
+
+
+def t_a_bootstrap_donor_permits_recovery_regardless_of_archive():
+    assert recovery_available({"earliest_block_height": 56735}, "http://donor:9273") == "bootstrap"
+
+
+def t_a_complete_archive_is_preferred_over_bootstrap():
+    """Local truth first: the archive needs no third party."""
+    assert recovery_available({"earliest_block_height": 0}, "http://donor:9273") == "archive"
+
+
+def t_missing_or_garbage_status_permits_nothing():
+    for st in (None, {}, {"earliest_block_height": None}, {"earliest_block_height": "x"}):
+        assert recovery_available(st, "") == "", f"{st!r} must not authorise a wipe"
+
+
+# ---- the probe must actually be wired into the loop, and wired to the ladder ---------------------------
+def t_the_loop_runs_the_probe_and_recovers_through_the_ladder():
     src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                             "execnode", "execnode.py"), encoding="utf8").read()
     assert "divergence_polls += 1" in src, "the probe counter is not advanced in the tail loop"
     assert "if divergence_polls >= DIVERGENCE_PROBE_POLLS:" in src, "the probe is never reached"
     assert "if finality_reverted(state.block_hashes, _probe, _pb):" in src, \
         "the loop no longer acts on the probe"
-    assert "_reset_states_to_genesis(" in src, "a detected finality revert no longer recovers"
     # It must NOT be nested inside the cursor>finalized guard — that nesting is the bug being fixed.
     probe_at = src.index("divergence_polls += 1")
     inversion_at = src.index("if state.cursor > finalized:")
     assert probe_at < inversion_at, "the probe sits inside the inversion guard it exists to bypass"
+    # The reset is GATED on a recovery source, keeps DA, and the no-source case retries instead of wiping.
+    blk = src[src.index("if finality_reverted(state.block_hashes, _probe, _pb):"):]
+    blk = blk[:blk.index("# STALE-EXEC GUARD")]
+    assert "can_replay = recovery_available(status, BOOTSTRAP)" in blk, "the wipe is no longer gated"
+    assert "keep_da=True" in blk, "a finality-revert reset wipes the only DA store again"
+    assert "STRANDED.update(" in blk, "the no-recovery-source case no longer records itself"
+    assert blk.count("_reset_states_to_genesis(") == 1, "a reset outside the gate"
+    reset_at = blk.index("_reset_states_to_genesis(")
+    gate_at = blk.index("if can_replay:")
+    assert gate_at < reset_at, "the reset runs before the gate"
+
+
+def t_the_reset_keeps_da_when_asked():
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "execnode", "execnode.py"), encoding="utf8").read()
+    assert "def _reset_states_to_genesis(reason=\"\", keep_da=False):" in src
+    fn = src[src.index("def _reset_states_to_genesis("):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "if not keep_da:\n        _s.rmtree(DA_DIR" in fn, "DA is wiped unconditionally"
 
 
 for name, fn in list(globals().items()):

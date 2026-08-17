@@ -71,6 +71,32 @@ def probe_height(block_hashes, tip: int) -> int:
     return h if h > 0 and h in block_hashes else 0
 
 
+def recovery_available(l1_status, bootstrap_url: str) -> str:
+    """Which recovery source, if any, can rebuild exec state after a finality revert. Returns a short
+    label ("archive" / "bootstrap") or "" for none.
+
+    A wipe-and-cold-replay is only a recovery when the L1 archive can actually feed it: earliest_block_height
+    0 means bodies are contiguous from genesis (core_loop's canonical restore keeps that so). A truncated
+    archive would replay the tail onto an empty state — the 2026-08-03 shape — so it does not qualify. A
+    bootstrap donor (NADO_EXEC_BOOTSTRAP) qualifies regardless: it adopts a quorum-vouched checkpoint.
+    Absent both, the caller keeps the current state and asks again next cycle."""
+    try:
+        earliest = int((l1_status or {}).get("earliest_block_height", -1))
+    except (TypeError, ValueError):
+        earliest = -1
+    if earliest == 0:
+        return "archive"
+    if bootstrap_url:
+        return "bootstrap"
+    return ""
+
+
+# Set (non-empty) while exec state is known to belong to an abandoned chain and no recovery source is
+# available yet. Exposed on /exec/root so a client can tell "this node's balances are stale" from "this
+# node is fine" — machine-readable state, not a log line for a human who is not there.
+STRANDED = {}
+
+
 def finality_reverted(block_hashes, height: int, l1_reply) -> bool:
     """True only on a PROVEN disagreement between our applied block at `height` and L1's block there.
 
@@ -792,7 +818,7 @@ _SETTLE_SKIP_LOG_EVERY = 300
 _settle_skip_logged = {}
 
 
-def _reset_states_to_genesis(reason=""):
+def _reset_states_to_genesis(reason="", keep_da=False):
     """Nuke the exec layer back to genesis IN-PROCESS and rebuild the state map — no restart needed.
 
     This is the RUNTIME belt to the boot-time generation-marker wipe above. That wipe only fires when a .gen
@@ -805,13 +831,20 @@ def _reset_states_to_genesis(reason=""):
     global states, state, DA, _last_settled_cursor, prov_states, _prov_key, _prov_last, _prov_since_full
     import glob as _g
     import shutil as _s
-    print(f"[execnode] RESET to genesis{(' — ' + reason) if reason else ''}: wiping exec state + DA", flush=True)
+    print(f"[execnode] RESET to genesis{(' — ' + reason) if reason else ''}: wiping exec state"
+          f"{'' if keep_da else ' + DA'}", flush=True)
     for _p in _g.glob(STATE_PATH + "*"):          # default + namespaced state files AND the stale .gen mark
         try:
             os.remove(_p)
         except OSError:
             pass
-    _s.rmtree(DA_DIR, ignore_errors=True)
+    # DA blobs are CONTENT-ADDRESSED (keyed by commitment), so a blob is valid on every chain that references
+    # it. A reroll makes them garbage (new genesis, nothing references them) — but a same-chain recovery, e.g.
+    # a finality revert, must KEEP them: the cold replay below re-applies every DA-carried op and stalls on
+    # a blob it cannot fetch, and this box is the fleet's only DA store (peers run no exec node), so a wipe
+    # here is permanent loss of every proof ever posted.
+    if not keep_da:
+        _s.rmtree(DA_DIR, ignore_errors=True)
     _stash_clear()          # stale-generation pre-states would fail every self-check; drop them outright
     DA = DaStore(DA_DIR, retain=DA_RETAIN)
     states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
@@ -2493,8 +2526,33 @@ async def tail_loop():
                             print(f"[execnode] FINALITY REVERTED: our applied block {_probe} hashes "
                                   f"{int(state.block_hashes[_probe]):#x} but L1 disagrees — exec state "
                                   f"belongs to an abandoned chain", flush=True)
-                            _reset_states_to_genesis(
-                                reason=f"finality revert: block {_probe} disagrees with L1")
+                            # RECOVER, BUT ONLY INTO SOMETHING BETTER. A reset is a wipe-and-cold-replay
+                            # of every finalized L1 body. On a node whose L1 archive is complete that
+                            # rebuilds the correct state; on one whose archive was truncated it replays
+                            # blocks 56735+ onto an EMPTY state — every contract, every balance, the
+                            # faucet — gone, and it never settles again. That is worse than the disease:
+                            # a contaminated state is right below the fork point and wrong only above it.
+                            # So the ladder is: (1) complete archive -> reset + replay; (2) a bootstrap
+                            # donor -> reset + adopt its quorum-vouched checkpoint; (3) neither -> keep the
+                            # mostly-right state, mark it stranded, and RE-EVALUATE every probe cycle —
+                            # the archive refill (core_loop) or an operator setting NADO_EXEC_BOOTSTRAP
+                            # makes (1) or (2) true later, and recovery then happens on its own. No alarm
+                            # takes the place of a mechanism; nobody is reading the log.
+                            can_replay = recovery_available(status, BOOTSTRAP)
+                            if can_replay:
+                                _reset_states_to_genesis(
+                                    reason=f"finality revert: block {_probe} disagrees with L1 ({can_replay})",
+                                    keep_da=True)      # blobs are content-addressed and this is the only store
+                                STRANDED.clear()
+                                await _maybe_bootstrap(session)   # no-op unless NADO_EXEC_BOOTSTRAP is set
+                            else:
+                                if not STRANDED:
+                                    print(f"[execnode] exec state is STRANDED on an abandoned chain and no "
+                                          f"recovery source is available yet (L1 archive incomplete: earliest "
+                                          f"{status.get('earliest_block_height')}; no NADO_EXEC_BOOTSTRAP). "
+                                          f"Keeping the current state; re-checking every "
+                                          f"{DIVERGENCE_PROBE_POLLS * POLL:.0f}s.", flush=True)
+                                STRANDED.update({"since_cursor": state.cursor, "probe": _probe})
                             await asyncio.sleep(POLL)
                             continue
                 # STALE-EXEC GUARD (reroll self-heal): we apply ONLY finalized blocks, so on a consistent chain
@@ -2942,7 +3000,10 @@ async def h_root(request):
     want_root = (not prov) or request.query.get("root") == "1" or st._root_cache is not None
     return web.json_response({"ns": request.query.get("ns", "default"),
                               "state_root": st.state_root() if want_root else None,
-                              "cursor": st.cursor, "block_ts": st.block_ts, "contracts": len(st.contracts), "l1": L1})
+                              "cursor": st.cursor, "block_ts": st.block_ts, "contracts": len(st.contracts), "l1": L1,
+                              # non-empty while this node's exec state is known to belong to an abandoned
+                              # chain and is awaiting a recovery source (see FINALITY-REVERT PROBE)
+                              "stranded": dict(STRANDED) if STRANDED else None})
 
 
 async def h_settlement(request):
