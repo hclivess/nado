@@ -18,6 +18,8 @@ from hashing import blake2b_hash, canonical_bytes
 from execnode.zkvm import ZkVMError
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
 from execnode.shielded import ShieldedPool, apply_transfer
+from execnode.shielded_state import apply_transition
+from ops.address_ops import validate_address
 
 # RANDOMNESS-WINDOW RETENTION — the horizons below which advance_beacons/record_block_hash prune. They also
 # define window_canonical(): a node holds a CANONICAL window iff its floors reach at least this far back, i.e.
@@ -300,6 +302,11 @@ class ExecState:
         # a DELEGATED PROVER (client sends the witness -> exec builds the path + proves the full join-split).
         from execnode.shielded_field import FieldShieldedPool
         self.field_pool = FieldShieldedPool()
+        # SHIELDED CONTRACTS (execnode/shielded_state.py): private application STATE, as against the pools
+        # above which hold private VALUE. Per-contract note trees + one spent set. Contributes nothing to
+        # the settled root until a contract actually holds a note, so its mere existence cannot move a root.
+        from execnode.shielded_state import ShieldedStatePool
+        self.app_state = ShieldedStatePool()
         # Shielded aggregate supply — see _restore. Note VALUES are private; every CHANGE to their total is
         # public, so the pool's total is auditable without seeing into it (ops/invariants.py).
         self.pool_value = 0        # live total value of all notes in both pools
@@ -387,6 +394,9 @@ class ExecState:
         self.unshield_withdrawals = d.get("unshield_withdrawals", {})
         self.uw_nonce = d.get("uw_nonce", 0)
         self.field_pool = FieldShieldedPool.from_dict(d["field_pool"]) if "field_pool" in d else FieldShieldedPool()
+        from execnode.shielded_state import ShieldedStatePool
+        self.app_state = (ShieldedStatePool.from_dict(d["app_state"]) if "app_state" in d
+                          else ShieldedStatePool())
         # SHIELDED SUPPLY (ops/invariants.py). Individual note VALUES are private, but every CHANGE to the
         # pool's total is public by construction — a deposit carries its L1 amount, and a transfer's
         # public_value/fee are public inputs. So the pool's aggregate value is auditable even though its
@@ -415,7 +425,12 @@ class ExecState:
         """The full serializable payload (identical to what save() writes), taken UNDER the mutate lock so a
         concurrent thread-apply can't tear it. Shared by save() and clone()."""
         with self._mutate_lock:
-            return {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
+            # An EMPTY app_state is omitted entirely, so a node that holds no private state writes the same
+            # snapshot bytes it always did — the on-disk twin of the "empty is absent" rule the settled-root
+            # projection follows (execnode/exec_root.py). from_dict treats an absent key as an empty pool.
+            extra = {"app_state": self.app_state.to_dict()} if self.app_state.trees or self.app_state.nullifiers else {}
+            return {**extra,
+                    "contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
                     "assets": self.assets, "abal": self.abal, "allow": self.allow,
                     "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
                     "outbox": self.outbox, "outbox_seq": self.outbox_seq, "inbox": self.inbox,
@@ -1460,6 +1475,96 @@ class ExecState:
                     self.unshield_withdrawals[nonce] = {"addr": addr, "amount": -pv}
                     return f"unshield {-pv} -> {addr[:12]}… nonce {nonce}"
                 return f"shielded_transfer ok ({len(public.get('out_commitments', []))} out)"
+
+            if op == "private_call":
+                # SHIELDED CONTRACT transition (execnode/shielded_state.py): spend private notes, create
+                # private notes. Nothing about the transition is visible but its nullifiers, its output
+                # commitments and its public delta.
+                #
+                # DELIBERATELY ITS OWN OP, NOT op == "call". calls_commit.block_calls collects only
+                # op == "call" into the settlement calls list, and a call the chain SKIPS or REVERTS makes
+                # the whole span unprovable (ROADMAP, 2026-08-06: "a span containing a call the chain skips
+                # or reverts is currently unprovable at all"). A private call is rejected whenever its proof
+                # does not verify — which is a thing any user can cause at will — so routing it through the
+                # zkVM call path would hand every user a lever to switch the chain off validity proofs, one
+                # bad proof per span. As its own op it is invisible to block_calls, so a rejection here is a
+                # pure no-op and cannot poison settlement. Do not "simplify" this into a contract call.
+                #
+                # public/proof ride as OPAQUE JSON STRINGS for the same reason field_transfer's bundle does:
+                # they carry Goldilocks field elements, and JS loses integer precision above 2^53.
+                pj, prj = payload.get("public_json"), payload.get("proof_json")
+                try:
+                    public = json.loads(pj) if pj is not None else payload.get("public")
+                    proof = json.loads(prj) if prj is not None else payload.get("proof")
+                except Exception:
+                    return "skip: bad private_call json"
+                if not isinstance(public, dict) or not isinstance(proof, dict):
+                    return "skip: bad private_call"
+                cid = public.get("cid")
+                # TYPE-CHECK BEFORE USING IT AS A KEY. An unhashable cid (a list, a dict) raises TypeError
+                # on the `in` below. apply_blob's catch-all would turn that into a skip, so nothing breaks
+                # — but this dispatch has been here before: a blob carrying an unhashable `ns` once raised
+                # in the block loop and froze the exec cursor fleet-wide for one MIN_TX_FEE transaction.
+                # Checking the type is what that was fixed with, and a catch-all is not the same guarantee.
+                if not isinstance(cid, str):
+                    return "skip private_call: contract id must be a string"
+                if cid not in self.contracts:
+                    return "skip private_call: no such contract"
+                # THE TURNSTILE. public_delta is the ONLY way value crosses between the public ledger and a
+                # contract's private state, and every unit of it is escrowed on the public side by the
+                # contract itself — so `bridge[cid]` is, at every height, exactly the total of that
+                # contract's private notes. Individual note values stay private; the aggregate is public by
+                # construction, which is the same auditability the pools have (ops/invariants.py).
+                #
+                #   delta > 0  DEPOSIT    debit the blob's sender, escrow into the contract
+                #   delta < 0  WITHDRAW   release from the contract's escrow to a NAMED destination
+                #
+                # A blob is user-supplied and escrow-free, so without this the delta would create or
+                # destroy value nothing on the other side accounts for — the hole apply_field_transfer
+                # fences with "coins enter only via an L1 shield".
+                delta = int(public.get("public_delta", 0))
+                dest = public.get("withdraw_addr")
+                if delta < 0:
+                    # THE DESTINATION MUST BE A SPENDABLE ACCOUNT. Unlike the pool's unshield — which
+                    # records an exit for L1 to release and lets L1 check the address — this credits an
+                    # exec-layer balance DIRECTLY, so whatever string lands here IS the account. Unvalidated,
+                    # two things happen, both reachable by any user:
+                    #   * a destination that is not an address (a typo, a truncation) creates a balance
+                    #     under a key no bridge_withdraw can ever move — a silent burn;
+                    #   * a destination that is a CONTRACT ID credits that contract's escrow while it holds
+                    #     no matching notes, which breaks the turnstile invariant this feature documents
+                    #     (bridge[cid] == that contract's private total) and strands the coins, since
+                    #     spending contract escrow requires a note under that cid.
+                    # The cid exclusion is not redundant with the checksum: a cid passes validate_address
+                    # with probability ~1/65536, which is not a guarantee.
+                    if not dest:
+                        return "skip private_call: withdrawal names no destination"
+                    if not validate_address(dest, allow_reserved=False) or dest in self.contracts:
+                        return "skip private_call: withdrawal destination is not a spendable account"
+                with self._mutate_lock:                    # M-10: serialize against thread-applies, exactly
+                    # SOLVENCY IS CHECKED BEFORE THE TRANSITION, and the funds move only after it succeeds.
+                    # Both halves matter: checking after would let a transition apply that the ledger then
+                    # could not fund, and moving before would have to be unwound on a verification failure.
+                    if delta > 0 and self.bridge.get(sender, 0) < delta:
+                        return f"skip private_call: insufficient bridge balance for the deposit ({sender[:12]}…)"
+                    if delta < 0 and self.bridge.get(cid, 0) < -delta:
+                        return "skip private_call: contract escrow cannot cover the withdrawal"
+                    reason = apply_transition(public, proof, self.app_state)
+                    if reason is not None:
+                        return f"skip private_call: {reason}"
+                    if delta > 0:
+                        self.bridge[sender] -= delta
+                        if self.bridge[sender] == 0:       # zero is ABSENT — a lingering 0 row is a
+                            del self.bridge[sender]        # non-block-derived value in the settled root
+                        self.bridge[cid] = self.bridge.get(cid, 0) + delta
+                    elif delta < 0:
+                        self.bridge[cid] = self.bridge.get(cid, 0) + delta
+                        if self.bridge[cid] == 0:
+                            del self.bridge[cid]
+                        self.bridge[dest] = self.bridge.get(dest, 0) - delta
+                flow = "" if not delta else (f" +{delta} in" if delta > 0 else f" {-delta} out -> {str(dest)[:12]}…")
+                return (f"private_call {str(cid)[:12]}… "
+                        f"{len(public.get('nullifiers', []))} in / {len(public.get('out_commitments', []))} out{flow}")
 
             return f"skip: unknown op {op!r}"
         except ZkVMError as e:

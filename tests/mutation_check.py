@@ -1,0 +1,169 @@
+"""Mutation check: break one guard at a time, and require the suite that claims to cover it to go RED.
+
+WHY THIS EXISTS. A passing test is evidence only if it would fail when the thing it tests is broken. This
+branch found the counter-example the hard way: a test that hashed two statements and asserted the digests
+differed, claiming to prove the withdrawal destination was bound. It passed, it proved nothing, and the
+helper it exercised turned out to be dead code — so the assurance it gave was entirely false. Every guard
+below was added in response to a real defect; this establishes that removing any one of them is noticed.
+
+DRIVE IT FROM THIS TABLE, never from a copy. A pointer in this file once named the wrong suite; the fix
+was applied with a string replace that silently did not match, the script printed success anyway, and the
+"verification" was a separate snippet with the correct suite hardcoded — so it confirmed the intended fix
+while the file still held the broken one. The mutation duly survived again on the next full run. If you
+re-check a subset, read the entries out of MUTATIONS rather than retyping them.
+
+KILL-SAFE, and that mattered immediately. The first version reverted in a `finally`, which SIGTERM skips —
+a timeout killed it mid-run and left a consensus guard replaced by `if False:` in the working tree. Now:
+mutations are restored from an in-memory copy of the ORIGINAL bytes, signal handlers restore on
+SIGTERM/SIGINT, and the run ends by asserting `git status` is clean and SAYING SO. A harness that can leave
+a guard switched off is more dangerous than any bug it might find.
+
+    python3 tests/mutation_check.py       # ~25 min; every line must read CAUGHT
+"""
+import os, shutil, signal, subprocess, sys
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PY_BIN = sys.executable
+_ORIGINALS = {}
+
+def _purge_bytecode():
+    """Delete every __pycache__ under the repo.
+
+    NOT optional, and not hygiene. Python invalidates a .pyc on (source mtime, source size). A mutation
+    that is the SAME BYTE LENGTH as the original — 18 -> 19, `11, 12` -> `13, 14`, 3 -> 4, 128 -> 256 —
+    restored within the same mtime second leaves the cached bytecode considered valid, so the MUTATED code
+    keeps running from cache while the source on disk is correct. Observed exactly that: the source read
+    TREE_DEPTH = 18 and a fresh interpreter reported 19. Every result from a same-length mutation is
+    untrustworthy without this, in both directions — a later suite can fail against code that no longer
+    exists, and a mutation can appear caught for the wrong reason."""
+    for root, dirs, _files in os.walk(ROOT):
+        for d in list(dirs):
+            if d == "__pycache__":
+                shutil.rmtree(os.path.join(root, d), ignore_errors=True)
+                dirs.remove(d)
+
+
+def restore_all(*_a):
+    for path, data in _ORIGINALS.items():
+        open(path, "w", encoding="utf8").write(data)
+    _ORIGINALS.clear()
+    _purge_bytecode()
+
+signal.signal(signal.SIGTERM, lambda *a: (restore_all(), sys.exit(143)))
+signal.signal(signal.SIGINT, lambda *a: (restore_all(), sys.exit(130)))
+
+MUTATIONS = [
+    ("duplicate-commitment guard", "execnode/shielded_state.py",
+     "        if pool.has_commitment(cid, cm):", "        if False:", "test_shielded_state_replay"),
+    ("delta bound", "execnode/shielded_state.py",
+     "        if not -VALUE_MAX < delta < VALUE_MAX:", "        if False:", "test_shielded_state_replay"),
+    ("arity pin", "execnode/shielded_state.py",
+     '        if want_arity is not None and stark.get("arity") != want_arity:', "        if False:",
+     "test_shielded_state_replay"),
+    ("depth pin", "execnode/shielded_state.py",
+     '        if nfs and stark.get("D") != TREE_DEPTH:', "        if False:", "test_shielded_state_replay"),
+    ("destination validation", "execnode/state.py",
+     "                    if not validate_address(dest, allow_reserved=False) or dest in self.contracts:",
+     "                    if False:", "test_shielded_state_replay"),
+    ("empty-is-absent projection", "execnode/exec_root.py",
+     "            if not app.trees[cid]:", "            if False:", "test_shielded_state_root"),
+    ("nullifier-set absence", "execnode/exec_root.py",
+     "        if app.nullifiers:", "        if True:", "test_shielded_state_root"),
+    ("geometry bound (circuit)", "execnode/stark/appnote_circuit.py",
+     "    if not (1 <= arity <= MAX_FIELDS) or not (1 <= D <= MAX_DEPTH):", "    if False:",
+     "test_shielded_state_replay"),
+    ("transparent-path switch", "execnode/shielded_state.py",
+     "CONSENSUS_ALLOW_TRANSPARENT = False", "CONSENSUS_ALLOW_TRANSPARENT = True", "test_shielded_state"),
+    # THE DOUBLE-SPEND GUARD AND THE RECORDING THAT MAKES IT WORK. Omitted from the first version of this
+    # list, which is the worst possible omission: a shielded system's entire integrity rests on a
+    # nullifier being checked once and recorded once. Added after re-reading the list against the 28
+    # guards that actually reject.
+    ("double-spend check", "execnode/shielded_state.py",
+     "        if pool.has_nullifier(nf):", "        if False:", "test_shielded_state"),
+    ("nullifier recording", "execnode/shielded_state.py",
+     "    for nf in public.get(\"nullifiers\", []):\n        pool.spend(nf)",
+     "    for nf in []:\n        pool.spend(nf)", "test_shielded_state"),
+    ("commitment recording", "execnode/shielded_state.py",
+     "    for cm in public.get(\"out_commitments\", []):\n        pool.append(cid, cm)",
+     "    for cm in []:\n        pool.append(cid, cm)", "test_shielded_state"),
+    ("same-transition double spend", "execnode/shielded_state.py",
+     "    if len(set(nfs)) != len(nfs):", "    if False:", "test_shielded_state"),
+    ("statement-shape check", "execnode/shielded_state.py",
+     "        elif len(nfs) == 1 and len(cms) == 1:", "        elif True:", "test_shielded_state"),
+    ("contract must exist", "execnode/state.py",
+     "                if cid not in self.contracts:", "                if False:",
+     "test_shielded_state_exec"),
+    ("cid type check", "execnode/state.py",
+     "                if not isinstance(cid, str):", "                if False:",
+     "test_shielded_state_replay"),
+    ("deposit solvency", "execnode/state.py",
+     "                    if delta > 0 and self.bridge.get(sender, 0) < delta:",
+     "                    if False:", "test_shielded_state_exec"),
+    ("withdrawal solvency", "execnode/state.py",
+     "                    if delta < 0 and self.bridge.get(cid, 0) < -delta:",
+     "                    if False:", "test_shielded_state_exec"),
+    ("anchor freshness", "execnode/shielded_state.py",
+     "    if nfs and not pool.knows_root(cid, root):", "    if False:", "test_shielded_state"),
+    # LIVE-PATH STRUCTURAL GUARDS, added after cross-referencing the harness against every `if` in
+    # verify_transition whose body returns — 22 guards, 7 covered before this. Derived from the source
+    # rather than recalled, which is how the double-spend omission was found one commit ago.
+    #
+    # NOT listed, deliberately: the six checks reachable only through the TRANSPARENT verifier
+    # (fold_path != root, nullifier/commitment derivation, path length, witness shape). They are covered
+    # behaviourally by the forged-membership, unbound-nullifier and unopened-commitment tests, and the path
+    # is off in consensus. Recorded here so their absence is a decision rather than an oversight.
+    ("kind has a circuit", "execnode/shielded_state.py",
+     "        if kind not in STARK_KINDS:", "        if False:", "test_shielded_state_seam"),
+    ("input/output bound", "execnode/shielded_state.py",
+     "    if len(raw_nfs) > MAX_INPUTS or len(raw_cms) > MAX_OUTPUTS:", "    if False:",
+     "test_shielded_state"),
+    ("duplicate output commitment", "execnode/shielded_state.py",
+     "    if len(set(cms)) != len(cms):", "    if False:", "test_shielded_state_replay"),
+    ("statement names a contract", "execnode/shielded_state.py",
+     "    if not cid:", "    if False:", "test_shielded_state_atomicity"),
+    ("statement is a dict", "execnode/shielded_state.py",
+     "    if not isinstance(public, dict) or not isinstance(proof, dict):", "    if False:",
+     "test_shielded_state_atomicity"),
+    ("lists are lists", "execnode/shielded_state.py",
+     "    if not isinstance(raw_nfs, list) or not isinstance(raw_cms, list):", "    if False:",
+     "test_shielded_state_replay"),
+    ("empty transition", "execnode/shielded_state.py",
+     "    if not nfs and not cms:", "    if False:", "test_shielded_state"),
+    ("kind has a predicate", "execnode/shielded_state.py",
+     "    if predicate is None:", "    if False:", "test_shielded_state"),
+    ("no-mutation-on-rejection", "execnode/shielded_state.py",
+     "    reason = verify_transition(public, proof, pool)\n    if reason is not None:\n        return reason",
+     "    reason = verify_transition(public, proof, pool)\n    if reason is not None:\n        pool.spend(999)\n        return reason",
+     "test_shielded_state_atomicity"),
+]
+
+print(f"{'guard broken':32s} {'suite':30s} result", flush=True)
+survived = []
+for label, path, old, new, suite in MUTATIONS:
+    full = os.path.join(ROOT, path)
+    src = open(full, encoding="utf8").read()
+    if old not in src:
+        print(f"{label:32s} {suite:30s} SKIP — anchor not found", flush=True)
+        survived.append(label + " (anchor)"); continue
+    _ORIGINALS[full] = src
+    open(full, "w", encoding="utf8").write(src.replace(old, new, 1))
+    try:
+        rc = subprocess.run([PY_BIN, f"tests/{suite}.py"], cwd=ROOT, capture_output=True,
+                            text=True, timeout=1200,
+                            env={**os.environ, "FAST": "1",
+                                 "PYTHONDONTWRITEBYTECODE": "1"}).returncode
+    except subprocess.TimeoutExpired:
+        rc = -1
+    finally:
+        restore_all()
+    caught = rc != 0
+    print(f"{label:32s} {suite:30s} {'CAUGHT' if caught else '*** SURVIVED ***'}", flush=True)
+    if not caught:
+        survived.append(label)
+
+dirty = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, capture_output=True,
+                       text=True).stdout.strip()
+print()
+print("working tree after the run:", "CLEAN" if not dirty else "DIRTY -> " + dirty)
+print(f"{len(survived)} mutation(s) survived: {survived}" if survived else
+      "every broken guard was caught by the suite that claims to cover it")
+sys.exit(1 if (survived or dirty) else 0)

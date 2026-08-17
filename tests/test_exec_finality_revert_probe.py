@@ -254,7 +254,9 @@ def t_the_loop_runs_the_probe_and_recovers_through_the_ladder():
     # The recovery ladder: rewind first; wipe only gated, keeping DA; no source -> STRANDED, not a wipe.
     rec = src[src.index("async def _recover_from_revert"):]
     rec = rec[:rec.index("\n# --- DA layer")]
-    assert "rewind_target(_ckpt_list(), fp)" in rec and "_rewind_to(target)" in rec, "rewind is not tried first"
+    # the rewind sources include the settle stash since 162db69c, so pin the call SHAPE, not the old arg
+    assert "rewind_target(" in rec and "_rewind_sources()" in rec and "_rewind_to(target)" in rec, \
+        "rewind is not tried first (or no longer draws from ckpt+stash sources)"
     assert "can_replay = recovery_available(status, BOOTSTRAP)" in rec, "the wipe is no longer gated"
     assert "keep_da=True" in rec, "a finality-revert reset wipes the only DA store again"
     assert "STRANDED.update(" in rec, "the no-recovery-source case no longer records itself"
