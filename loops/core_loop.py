@@ -57,6 +57,11 @@ from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
 
+# ARCHIVE SELF-REPAIR cadence (seconds): how often an archive node whose history does not reach genesis
+# looks for a peer that reaches deeper and starts a background fill (_maybe_refill_archive). Only while a
+# gap exists; a whole archive costs nothing here.
+ARCHIVE_REFILL_EVERY = 600
+
 # How often (seconds) emergency mode logs "Could not find a syncable peer". The loop still retries every
 # ~1s, but a lone/bootstrap node with no reachable donor would otherwise flood the log once/sec.
 NO_SYNCABLE_LOG_INTERVAL = 30
@@ -489,6 +494,9 @@ class CoreClient(threading.Thread):
                 # re-anchor) lands deeper bodies. The fill thread never writes block_ends itself — that
                 # file is core-thread-only — so it reports and this tick commits.
                 self._maybe_advance_earliest()
+                # ARCHIVE SELF-REPAIR: an archive whose history stops short of genesis fills the gap from a
+                # peer that reaches deeper, without waiting for a re-anchor to trigger it.
+                self._maybe_refill_archive()
                 # CONSERVATION INVARIANTS (ops/invariants.py): supply is a closed system, so any "coins from
                 # thin air" bug — the class this codebase has hit ~10 times — must break one of them. Runs
                 # in the node so it needs no external step, throttled hard because it scans the account
@@ -1071,7 +1079,16 @@ class CoreClient(threading.Thread):
             # canonical and absent is fetched from the donor: ALL of it on an archive node (an archive must
             # come out of recovery with every canonical block it went in with — and, if it was truncated
             # before, this is where it gets its history back), the rollback window on a rolling one.
-            oldest = self._restore_canonical_chain(_old_index, anchor, source)
+            try:
+                oldest = self._restore_canonical_chain(_old_index, anchor, source)
+            except Exception as e:
+                # The identity has already changed above; a fault here must not leave the node without an
+                # earliest pointer or wedge the recovery. Fall back to "history from the anchor" — no worse
+                # than the old behaviour, and the retained bodies are still there for the periodic archive
+                # refill (_maybe_refill_archive) to reconcile on its next pass.
+                self.logger.error(f"Canonical restore failed ({e}); history pointer set to the anchor and the "
+                                  f"archive refill will retry")
+                oldest = anchor
             set_earliest_block_info(earliest_block=oldest, logger=self.logger)
             self.memserver.earliest_block = oldest
 
@@ -2450,6 +2467,58 @@ class CoreClient(threading.Thread):
 
         self._deep_fill_thread = threading.Thread(target=_run, name="archive-refill", daemon=True)
         self._deep_fill_thread.start()
+
+    def _maybe_refill_archive(self):
+        """ARCHIVE SELF-REPAIR, without waiting for a re-anchor. If this is an archive node and its history
+        does not reach genesis, find a peer whose does — or reaches deeper than ours — and start the same
+        background deep fill the re-anchor path uses, walking parent_hash down from our earliest block.
+
+        This is how the archive this box lost on 2026-08-17 (0..56734) comes back: rolling peers still hold
+        those bodies until their retention window passes block 0 (~2026-08-20), and after that only another
+        archive would. It cannot be done from outside the process (two writers on the live LMDB), so the
+        node does it itself. Throttled to one attempt per ARCHIVE_REFILL_EVERY seconds while a gap exists,
+        nothing at all otherwise, and never two fills at once."""
+        if not getattr(self.memserver, "archive", False):
+            return
+        eb = self.memserver.earliest_block if isinstance(self.memserver.earliest_block, dict) else None
+        cur = int((eb or {}).get("block_number") or 0)
+        if cur <= 0:
+            return
+        if getattr(self, "_deep_fill_thread", None) and self._deep_fill_thread.is_alive():
+            return
+        now = time.time()
+        if now - getattr(self, "_last_refill_try", 0.0) < ARCHIVE_REFILL_EVERY:
+            return
+        self._last_refill_try = now
+        try:
+            peers = list(self.memserver.peers)
+            if not peers:
+                return
+
+            async def _statuses(ips):
+                return await asyncio.gather(*[get_remote_status(ip, logger=self.logger) for ip in ips],
+                                            return_exceptions=True)
+            raw = asyncio.run(_statuses(peers))
+            cands = []
+            for ip, st in zip(peers, raw):
+                if not isinstance(st, dict) or st.get("chain_id") != CHAIN_ID:
+                    continue
+                try:
+                    pe = int(st.get("earliest_block_height", 10 ** 12))
+                except (TypeError, ValueError):
+                    continue
+                if pe < cur:
+                    cands.append((pe, ip))
+            if not cands:
+                self.logger.info(f"Archive refill: history starts at {cur} and no peer reaches deeper; will retry")
+                return
+            cands.sort()
+            depth, source = cands[0]
+            self.logger.warning(f"Archive refill: history starts at {cur}; peer {source} reaches {depth} — "
+                                f"filling {cur - max(depth, 0)} blocks in the background")
+            self._start_deep_fill(source, [], cur, eb.get("block_hash"))
+        except Exception as e:
+            self.logger.error(f"Archive refill attempt failed: {e}")
 
     def _maybe_advance_earliest(self):
         """Core-loop tick: if the background refill has landed deeper bodies, move earliest_block down to
