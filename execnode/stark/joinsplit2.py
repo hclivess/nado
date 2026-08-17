@@ -5,16 +5,18 @@ joinsplit_circuit with a second OUTPUT region and 2-output value conservation:
 
   owner=H(nsk) · cm_in=commit(v_in,owner,rho_in) · membership(cm_in,path)=root · nf=H(nsk,rho_in) ·
   cm_out1=commit(v_out1,owner1,rho1) · cm_out2=commit(v_out2,owner2,rho2) ·
-  v_in + public_value == v_out1 + v_out2 + fee ·  0 <= v_in, v_out1, v_out2 < 2^62   (C-3 range proof)
+  v_in + public_value == v_out1 + v_out2 + fee ·  0 <= v_in, v_out1, v_out2 < 2^61   (C-3 range proof)
 
 Public: root, nf, cm_out1, cm_out2, public_value, fee. Six sponge regions run back-to-back
 (OWNER, COMMIT, NULLIFIER, MEMBERSHIP, OUTPUT1, OUTPUT2); handoffs capture each region's output into a register.
 
 C-3 RANGE PROOF: conservation is only mod P and P ≈ 2^64 barely exceeds the coin range, so without bounding the
 values a crafted change value could wrap past P and record an exit far larger than the input (drain the shared
-escrow). Every note value is bit-decomposed and forced into [0, 2^62) (64 bits, 4 per row, top 2 pinned to 0);
-with the state-side |public_value|,fee ≤ 2^62 bound the mod-P conservation then equals INTEGER conservation, so
-no wraparound assignment exists. One 17-row block per value (16 nibble rows + 1 bind row) follows OUTPUT2.
+escrow). Every note value is bit-decomposed and forced into [0, 2^61) (64 bits, 4 per row, top 3 pinned to 0);
+with the state-side |public_value|,fee ≤ 2^61 bound (state.MAX_EXIT_VALUE) the mod-P conservation then equals
+INTEGER conservation, so no wraparound assignment exists. 2^61 IS LOAD-BEARING: at 2^62 the five ~2^62 terms
+summed past P and a -P wraparound let a 1-coin input record a 2^62-coin exit (C-3b) — the arithmetic is spelled
+out at c_rng_top below, and execnode/state.py:MAX_EXIT_VALUE must match. One 17-row block per value (16 nibble rows + 1 bind row) follows OUTPUT2.
 """
 from execnode.stark import field as F, alghash, membership as MB, stark
 

@@ -7,7 +7,7 @@ zero-knowledge proof, revealing only the public root, nullifier, output commitme
   nf      = hashn([DOM_NF, nsk, rho_in])                  (revealed)
   cm_out  = hashn([DOM_CM, v_out, owner_out, rho_out])    (revealed)
   v_in + public_value = v_out + fee                        (value conservation, over the SECRET values)
-  0 <= v_in, v_out < 2^62                                  (C-3 in-circuit range proof — see below)
+  0 <= v_in, v_out < 2^61                                  (C-3 in-circuit range proof — see below)
 
 Extends the authorised-spend circuit (a former standalone module, since removed) with an OUTPUT region and value conservation.
 v_in and v_out live in persistent register columns so conservation is a linear check over the SECRET values;
@@ -18,9 +18,12 @@ C-3 RANGE PROOF. Conservation is only enforced modulo P, and Goldilocks P ≈ 2^
 range, so without bounding the values a crafted "change" value could WRAP past P: e.g. spend a 1-coin note
 with public_value = -X, letting the output value be (1 - X) mod P ≈ P, and the mod-P equation still balances —
 recording an unshield of X ≫ 1 and draining the shared escrow. We therefore bit-decompose every note value in
-the trace and force it into [0, 2^62): 64 bits, 4 per row, with the top 2 bits pinned to 0. With the state-side
-bound |public_value|, fee ≤ 2^62, the mod-P conservation then coincides with INTEGER conservation, so no
-wraparound assignment exists. One 17-row block per value (16 nibble-accumulation rows + 1 bind row) is appended
+the trace and force it into [0, 2^61): 64 bits, 4 per row, with the top 3 bits pinned to 0 (c_rng_top). With
+the state-side bound |public_value|, fee ≤ 2^61 (state.MAX_EXIT_VALUE), the mod-P conservation then coincides
+with INTEGER conservation, so no wraparound assignment exists. THE BOUND IS 2^61, NOT 2^62: the wider bound was
+the C-3b vulnerability — see the worst-case sum in joinsplit2.c_rng_top and execnode/state.py:MAX_EXIT_VALUE,
+both of which this line must agree with. (Prose has no compiler: a reader who trusted the old "2^62" here once
+built a verifier LOOSER than the circuit it was specifying.) One 17-row block per value (16 nibble-accumulation rows + 1 bind row) is appended
 after the sponge regions; for the production depth this leaves the trace length unchanged.
 """
 from execnode.stark import field as F, alghash, membership as MB, stark
