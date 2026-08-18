@@ -361,6 +361,22 @@ def t_verdict_probes_are_memoized():
     assert "90" in m, "the memo TTL is gone"
 
 
+def t_adoption_survives_the_stale_hash_race():
+    """heaviest_block_hash goes stale within one 6 s block; an exact-hash src lookup missing must fall
+    back to the strictly-heaviest advertiser and walk from ITS tip — .26/.28 sat ONE block off the
+    majority chain for 15+ minutes failing the exact lookup every pass (2026-08-18)."""
+    s = src("loops/core_loop.py")
+    ab = s[s.index("def _adopt_branch"):]
+    ab = ab[:ab.index("\n    def ")]
+    assert "THE STALE-HASH RACE" in ab, "the src fallback is gone from _adopt_branch"
+    assert "src, hh = best_ip, best_tip" in ab, "the fallback no longer walks from the advertiser's tip"
+    assert "w > best_w" in ab and "best_w, best_ip, best_tip = int(our_w), None, None" in ab, \
+        "the fallback no longer requires STRICTLY heavier than us"
+    esc = s[s.index("def _adopt_heaviest_pairwise"):]
+    esc = esc[:esc.index("\n    def ")]
+    assert "stale-hash race" in esc, "the pairwise escape still races the exact hash"
+
+
 for name, fn in [(n, f) for n, f in list(globals().items()) if n.startswith("t_")]:
     check(name[2:].replace("_", " "), fn)
 

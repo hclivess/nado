@@ -1347,7 +1347,18 @@ class CoreClient(threading.Thread):
             src = next((ip for ip, st in self.consensus.status_pool.copy().items()
                         if isinstance(st, dict) and st.get("latest_block_hash") == hh), None)
             if not src:
-                return False
+                # stale-hash race (see _adopt_branch): take the strictly-heaviest advertiser instead
+                best_w, src = our_w, None
+                for ip, st in self.consensus.status_pool.copy().items():
+                    if isinstance(st, dict):
+                        try:
+                            w = int(st.get("latest_block_weight") or 0)
+                        except (TypeError, ValueError):
+                            continue
+                        if w > best_w and st.get("latest_block_hash"):
+                            best_w, src = w, ip
+                if not src:
+                    return False
             from ops.account_ops import get_hard_finality
             from ops.block_ops import get_block_hash_by_number
             tip = int(self.memserver.latest_block["block_number"])
@@ -1440,7 +1451,28 @@ class CoreClient(threading.Thread):
         our_w = self.memserver.latest_block.get("cumulative_weight", 0)
         src = next((ip for ip, st in self.consensus.status_pool.copy().items()
                     if isinstance(st, dict) and st.get("latest_block_hash") == hh), None)
-        if not src or not hh:
+        if not src:
+            # THE STALE-HASH RACE. heaviest_block_hash is derived from gossip, and on a 6 s chain every
+            # peer has advertised a NEWER tip by the time this scan runs — so the exact-hash lookup missed,
+            # adoption returned False, and the next pass raced the same way. Observed live 2026-08-18: the
+            # .26/.28 pair sat ONE BLOCK off the majority chain for 15+ minutes, failing this lookup every
+            # pass. The branch matters, not the momentary tip: fall back to the strictly-heaviest
+            # advertising peer and walk from ITS current tip — possession + full validation vet whatever
+            # branch it actually serves.
+            best_w, best_ip, best_tip = int(our_w), None, None
+            for ip, st in self.consensus.status_pool.copy().items():
+                if not isinstance(st, dict):
+                    continue
+                try:
+                    w = int(st.get("latest_block_weight") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if w > best_w and st.get("latest_block_hash"):
+                    best_w, best_ip, best_tip = w, ip, st["latest_block_hash"]
+            if best_ip is None:
+                return False
+            src, hh = best_ip, best_tip
+        if not hh:
             return False
         anc_hash = get_block_hash_by_number(anc)
         if not anc_hash:
