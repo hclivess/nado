@@ -1174,8 +1174,10 @@ class CoreClient(threading.Thread):
                                     f"{target_height} — this node can now be re-anchored to")
             except Exception as e:
                 self.logger.error(f"Could not re-publish the adopted checkpoint (non-fatal): {e}")
+            # (NameError regression 2026-08-18: this line referenced a variable deleted in a refactor,
+            # so the except below treated every SUCCESSFUL bootstrap as failed and full-synced instead.)
             self.logger.warning(f"Snapshot bootstrap complete at height {target_height}; "
-                                f"backfilled {filled} recent bodies behind C; replaying tail")
+                                f"history floor {oldest}; replaying tail")
             return True
 
         except Exception as e:
@@ -3327,6 +3329,13 @@ class CoreClient(threading.Thread):
         epoch's duty pass drains both sides. Keyed on the exec view, not the `registered` flag — a lapsed
         member with leftover accrual still gets swept. Best-effort; never raises into the core loop."""
         if not getattr(self.memserver, "auto_collect_dividend", True):
+            return
+        # NEVER while our consensus view is suspect: the min_block propagation guard below is computed
+        # from OUR tip, and in emergency/recovery that tip is stale — min_block = stale_tip + 8 can
+        # already be in the past network-wide, which is zero protection. A collect blob emitted mid
+        # catch-up seeded fork h67088 (fork_diffs.jsonl #6, 2026-08-18) exactly this way. The sweep is
+        # discretionary; it can always wait for the next healthy epoch.
+        if self.memserver.emergency_mode:
             return
         try:
             epoch = epoch_of(self.memserver.latest_block["block_number"])
