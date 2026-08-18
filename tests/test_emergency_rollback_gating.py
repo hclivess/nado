@@ -377,6 +377,22 @@ def t_adoption_survives_the_stale_hash_race():
     assert "stale-hash race" in esc, "the pairwise escape still races the exact hash"
 
 
+def t_behind_mismatches_never_bench_the_heavier_tips():
+    """The self-re-forking treadmill (.28, 2026-08-18): striking leader tips on a BEHIND mismatch emptied
+    the peer-ahead production gate, the node won the next slot, re-mined a one-block fork from its
+    divergent mempool, and looped forever. BEHIND rotates donors or adopts from the ancestor — it never
+    strikes, and self-mined blocks above a stale verdict's ancestor go through possession-adoption."""
+    s = src("loops/core_loop.py")
+    loop = s[s.index("def emergency_mode"):s.index("def _fast_forward_from")]
+    blk = loop[loop.index("POSITIVE mismatch on one donor's word, with a non-REORG verdict"):]
+    assert "vstate == fork_resolution.BEHIND and _anc2 is not None" in blk, \
+        "the stale-BEHIND self-fork case no longer adopts from the ancestor"
+    assert "leaving the heavier tips unbenched" in blk, "BEHIND strikes heavier tips again"
+    behind_at = blk.index("elif vstate == fork_resolution.BEHIND:")
+    strike_at = blk.index("self._reject_heaviest_tip()")
+    assert behind_at < strike_at, "the strike is reachable from the BEHIND path"
+
+
 for name, fn in [(n, f) for n, f in list(globals().items()) if n.startswith("t_")]:
     check(name[2:].replace("_", " "), fn)
 

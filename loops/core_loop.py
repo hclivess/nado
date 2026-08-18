@@ -2037,16 +2037,39 @@ class CoreClient(threading.Thread):
                             self._reject_heaviest_tip()
                         time.sleep(1)
                     else:
-                        # POSITIVE mismatch on one donor's word — but the measured verdict (checked BEFORE
-                        # donor selection this pass) was not REORG/DEAD_FORK, i.e. the probe quorum says
-                        # our chain is a prefix (BEHIND/SYNCED) or could not measure (UNKNOWN). One peer
-                        # against the quorum: the mismatching donor is itself lagging or forked. Strike
-                        # the tip it advertised; NEVER the chain. Ignorance never reverts.
+                        # POSITIVE mismatch on one donor's word, with a non-REORG verdict. Two honest
+                        # explanations, and striking was wrong for both (observed live on .28, 2026-08-18:
+                        # striking the LEADER tips emptied the peer-ahead production gate, the node won the
+                        # next slot, re-mined a one-block fork from its divergent mempool, and looped —
+                        # rolling to the ancestor and re-forking every few slots, forever):
+                        #   * a stale BEHIND verdict + blocks we SELF-MINED above its ancestor since it was
+                        #     cached — our tip is a fresh fork block; adopt the majority branch from the
+                        #     ancestor exactly like a REORG (possession + full validation as always);
+                        #   * genuinely BEHIND with this one donor lagging/forked — rotate donors, and
+                        #     leave the heavier tips alone so the caught-up gate keeps us from minting.
                         self._donor_unanswered = 0
-                        self.logger.info(f"Tip mismatch from {peer} but measured fork state disagrees — "
-                                         f"not rolling back; striking the tip instead")
-                        self._reject_heaviest_tip()
-                        time.sleep(1)
+                        _anc2 = verdict.get("ancestor")
+                        if (vstate == fork_resolution.BEHIND and _anc2 is not None
+                                and int(self.memserver.latest_block["block_number"]) > int(_anc2)):
+                            adopted = self._adopt_branch(_anc2)
+                            self._rec("adopt_selffork_result", result=repr(adopted), ancestor=_anc2)
+                            if adopted is None:
+                                if self._maybe_reanchor():
+                                    self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
+                                    continue
+                                break
+                            if adopted:
+                                continue
+                            time.sleep(1)
+                        elif vstate == fork_resolution.BEHIND:
+                            self.logger.info(f"Tip mismatch from {peer} while BEHIND — rotating donors, "
+                                             f"leaving the heavier tips unbenched")
+                            time.sleep(1)
+                        else:
+                            self.logger.info(f"Tip mismatch from {peer} but measured fork state disagrees — "
+                                             f"not rolling back; striking the tip instead")
+                            self._reject_heaviest_tip()
+                            time.sleep(1)
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
