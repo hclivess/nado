@@ -1494,23 +1494,34 @@ class CoreClient(threading.Thread):
         self._rec("adopt_fetching", src=src, start=str(hh)[:12])
         staged, cur = [], hh
         for _ in range(FINALITY_HARD_BACKSTOP + EPOCH_LENGTH):
-            b = asyncio.run(snapshot_ops.fetch_block(src, self.memserver.port, cur))
-            if not isinstance(b, dict) or b.get("block_hash") != cur:
-                self.logger.info(f"Branch adoption: {src} stopped serving its own branch at {cur[:12]}")
-                self._reject_heaviest_tip()
-                return False
-            try:
-                if b.get("block_number", 0) != 0 and block_content_hash(b) != b["block_hash"]:
-                    raise ValueError("content hash mismatch")
-            except Exception as e:
-                self.logger.warning(f"Branch adoption: {src} served a forged/corrupt block ({e}) — benching")
-                self._reject_heaviest_tip()
-                return False
+            # RESTART-PROOF RATCHET: bodies are content-addressed, so persist every fetched block
+            # immediately and check the LOCAL store first on the next attempt. The .26/.28 pair was
+            # restart-looping (cause on their boxes, not reachable from here), and every restart threw
+            # away a half-finished 300-block staged walk — the fetch could never outlive the process.
+            # Now each short life fetches what is still missing and the walk completes across lives.
+            b = get_block(cur) or None
+            if not isinstance(b, dict):
+                b = asyncio.run(snapshot_ops.fetch_block(src, self.memserver.port, cur))
+                if not isinstance(b, dict) or b.get("block_hash") != cur:
+                    self._rec("adopt_failed", why="donor stopped serving", at_hash=str(cur)[:12], src=src)
+                    self.logger.info(f"Branch adoption: {src} stopped serving its own branch at {cur[:12]}")
+                    self._reject_heaviest_tip()
+                    return False
+                try:
+                    if b.get("block_number", 0) != 0 and block_content_hash(b) != b["block_hash"]:
+                        raise ValueError("content hash mismatch")
+                except Exception as e:
+                    self._rec("adopt_failed", why=f"forged/corrupt: {e}", src=src)
+                    self.logger.warning(f"Branch adoption: {src} served a forged/corrupt block ({e}) — benching")
+                    self._reject_heaviest_tip()
+                    return False
+                save_block(b, logger=self.logger)          # the ratchet: survives our next restart
             staged.append(b)
             ph = b.get("parent_hash")
             if ph == anc_hash:
                 break
             if not ph or int(b.get("block_number", 0)) <= int(anc):
+                self._rec("adopt_failed", why="walk missed the ancestor", ancestor=int(anc), src=src)
                 self._reject_heaviest_tip()
                 return False                       # walk missed the measured ancestor — inconsistent branch
             cur = ph
@@ -1534,6 +1545,7 @@ class CoreClient(threading.Thread):
             return False                           # not adopted here — the donor flow finishes the job
         staged.reverse()
         if int(staged[-1].get("cumulative_weight", 0)) <= int(our_w):
+            self._rec("adopt_failed", why="possession disproved the weight claim", src=src)
             self._reject_heaviest_tip()
             return False                           # possession disproved the advertisement
         old_tip = self.memserver.latest_block
@@ -1546,6 +1558,8 @@ class CoreClient(threading.Thread):
         self._rec("adopt_applying", src=src, staged=len(staged))
         for blk in staged:
             if not self.produce_block(block=blk, remote=True, remote_peer=src):
+                self._rec("adopt_failed", why="block failed full validation",
+                          height=blk.get("block_number"), src=src)
                 self.logger.warning(f"Branch adoption: block {blk.get('block_number')} from {src} failed "
                                     f"full validation — restoring our own branch")
                 self._reapply_local_branch(old_tip)
