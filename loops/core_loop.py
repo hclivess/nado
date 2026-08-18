@@ -37,7 +37,7 @@ from ops import kv_ops
 from ops import fork_resolution
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
     AUTO_MIN_FEE_MULTIPLE, \
-    TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, DUTY_TX_MARGIN
+    TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, DUTY_TX_MARGIN, FLEX_TX_MIN_MARGIN
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size, get_home
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
@@ -3360,7 +3360,7 @@ class CoreClient(threading.Thread):
                         continue                        # proof must be against the SETTLED root; retry next epoch
                     tx = construct_dividend_withdraw_tx(
                         self.memserver.keydict, int(w["amount"]), str(w["nonce"]), pr["proof"], max_block,
-                        min_block=self.memserver.latest_block["block_number"] + TX_INCLUSION_DELAY)
+                        min_block=self.memserver.latest_block["block_number"] + FLEX_TX_MIN_MARGIN)
                     self.memserver.merge_transaction(tx, user_origin=True)
                     self.logger.info(
                         f"Auto-collect: claimed settled dividend withdrawal of {w['amount']} raw "
@@ -3375,11 +3375,11 @@ class CoreClient(threading.Thread):
             _tip = self.memserver.latest_block["block_number"]
             tx = construct_blob_tx(self.memserver.keydict, {"op": "collect_dividend"},
                                    _tip + TX_TARGET_MARGIN, MIN_TX_FEE,
-                                   min_block=_tip + TX_INCLUSION_DELAY)
+                                   min_block=_tip + FLEX_TX_MIN_MARGIN)
             self.memserver.merge_transaction(tx, user_origin=True)
             self.logger.info(
                 f"Auto-collect: swept presence dividend of {accrued} raw (fee {MIN_TX_FEE}, "
-                f"window [{_tip + TX_INCLUSION_DELAY}, {_tip + TX_TARGET_MARGIN}])")
+                f"window [{_tip + FLEX_TX_MIN_MARGIN}, {_tip + TX_TARGET_MARGIN}])")
         except Exception as e:
             self.logger.info(f"Auto-collect skipped: {e}")
 
