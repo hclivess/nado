@@ -1313,6 +1313,16 @@ class CoreClient(threading.Thread):
             return cached[1]
         return {"state": state, "ancestor": None}
 
+    def _rec_fail(self, why, **detail):
+        """Like _rec but PERSISTENT: failures land in their own /status field ("recovery_fail") that the
+        phase stream does not overwrite — a failure frame lived ~3 s before the next phase clobbered it,
+        unpollable from outside."""
+        try:
+            self.memserver.recovery_fail = {"why": why, "at": get_timestamp_seconds(),
+                                            "tip": self.memserver.latest_block.get("block_number"), **detail}
+        except Exception:
+            pass
+
     def _rec(self, phase, **detail):
         """Publish the recovery state machine's current step to /status ("recovery" field). Two nodes
         (.26/.28, 2026-08-18) sat wedged behind opaque restarts with no shell access — the only readable
@@ -1503,7 +1513,7 @@ class CoreClient(threading.Thread):
             if not isinstance(b, dict):
                 b = asyncio.run(snapshot_ops.fetch_block(src, self.memserver.port, cur))
                 if not isinstance(b, dict) or b.get("block_hash") != cur:
-                    self._rec("adopt_failed", why="donor stopped serving", at_hash=str(cur)[:12], src=src)
+                    self._rec_fail("donor stopped serving", at_hash=str(cur)[:12], src=src)
                     self.logger.info(f"Branch adoption: {src} stopped serving its own branch at {cur[:12]}")
                     self._reject_heaviest_tip()
                     return False
@@ -1511,7 +1521,7 @@ class CoreClient(threading.Thread):
                     if b.get("block_number", 0) != 0 and block_content_hash(b) != b["block_hash"]:
                         raise ValueError("content hash mismatch")
                 except Exception as e:
-                    self._rec("adopt_failed", why=f"forged/corrupt: {e}", src=src)
+                    self._rec_fail(f"forged/corrupt: {e}", src=src)
                     self.logger.warning(f"Branch adoption: {src} served a forged/corrupt block ({e}) — benching")
                     self._reject_heaviest_tip()
                     return False
@@ -1521,7 +1531,7 @@ class CoreClient(threading.Thread):
             if ph == anc_hash:
                 break
             if not ph or int(b.get("block_number", 0)) <= int(anc):
-                self._rec("adopt_failed", why="walk missed the ancestor", ancestor=int(anc), src=src)
+                self._rec_fail("walk missed the ancestor", ancestor=int(anc), src=src)
                 self._reject_heaviest_tip()
                 return False                       # walk missed the measured ancestor — inconsistent branch
             cur = ph
@@ -1545,7 +1555,7 @@ class CoreClient(threading.Thread):
             return False                           # not adopted here — the donor flow finishes the job
         staged.reverse()
         if int(staged[-1].get("cumulative_weight", 0)) <= int(our_w):
-            self._rec("adopt_failed", why="possession disproved the weight claim", src=src)
+            self._rec_fail("possession disproved the weight claim", src=src)
             self._reject_heaviest_tip()
             return False                           # possession disproved the advertisement
         old_tip = self.memserver.latest_block
@@ -1558,7 +1568,7 @@ class CoreClient(threading.Thread):
         self._rec("adopt_applying", src=src, staged=len(staged))
         for blk in staged:
             if not self.produce_block(block=blk, remote=True, remote_peer=src):
-                self._rec("adopt_failed", why="block failed full validation",
+                self._rec_fail("block failed full validation",
                           height=blk.get("block_number"), src=src)
                 self.logger.warning(f"Branch adoption: block {blk.get('block_number')} from {src} failed "
                                     f"full validation — restoring our own branch")
