@@ -640,16 +640,32 @@ async def account_transactions(request):
     return _resp(out, status=code)
 
 
-async def block_by_hash(request):
-    """GET /get_block?hash=&compress=: one block by hash; 404 when unknown or pruned."""
+async def block_lookup(request):
+    """GET /get_block?hash=&compress= OR /get_block?number=&compress=[&hash_only=1]: ONE endpoint, one
+    block, addressed either way. With number + hash_only=1 the number->hash INDEX answers even where the
+    body is gone (pruned, or below an archive gap): {"block_number", "block_hash"} — what the exec
+    node's finality-revert probe needs at heights whose body L1 no longer serves.
+    Also served (deprecated) as /get_block_number?number= — TODO: remove that route once no deployed
+    client calls it; the serialize name stays keyed to the parameter so old parsers on either route see
+    byte-identical replies."""
     def _work():
         """Blocking block read (worker thread)."""
         try:
-            data = get_block(_q(request, "hash"))
+            num = _q(request, "number")
+            if num is not None and num != "":
+                data = get_block_number(num)
+                if not data and _q(request, "hash_only", "") == "1":
+                    bh = get_block_hash_by_number(int(num))
+                    if bh:
+                        data = {"block_number": int(num), "block_hash": bh}
+                name = "block_number"
+            else:
+                data = get_block(_q(request, "hash"))
+                name = "block_hash"
             code = 200
             if not data:
-                data, code = "Not found", 404
-            return serialize(name="block_hash", output=data, compress=_q(request, "compress", "none")), code
+                data, code = "Not found", 404   # 404, not 403: a missing/pruned record isn't "forbidden"
+            return serialize(name=name, output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
             return f"Error: {e}", 403
     out, code = await asyncio.to_thread(_work)
@@ -689,31 +705,6 @@ async def hash_attest(request):
     out, code = await asyncio.to_thread(_work)
     return _resp(serialize(name="hash_attest", output=out, compress="none") if code == 200 else out,
                  status=code)
-
-
-async def block_by_number(request):
-    """GET /get_block_number?number=&compress=[&hash_only=1]: one block by height; 404 when unknown or
-    pruned. With hash_only=1 the number->hash INDEX answers even where the body is gone (pruned, or
-    below an archive gap): {"block_number", "block_hash"}. That is what the exec node's finality-revert
-    probe needs — it compares HASHES at heights it applied, and must be able to do so at heights whose
-    body L1 no longer serves, or a revert below the body floor is undetectable."""
-    def _work():
-        """Blocking block read (worker thread)."""
-        try:
-            data = get_block_number(_q(request, "number"))
-            code = 200
-            if not data and _q(request, "hash_only", "") == "1":
-                from ops.block_ops import get_block_hash_by_number as _hbn
-                bh = _hbn(int(_q(request, "number")))
-                if bh:
-                    data = {"block_number": int(_q(request, "number")), "block_hash": bh}
-            if not data:
-                data, code = "Not found", 404   # 404, not 403: a missing/pruned record isn't "forbidden"
-            return serialize(name="block_number", output=data, compress=_q(request, "compress", "none")), code
-        except Exception as e:
-            return f"Error: {e}", 403
-    out, code = await asyncio.to_thread(_work)
-    return _resp(out, status=code)
 
 
 def _collect_block_chain(start_hash, count, link_field):
@@ -2104,9 +2095,9 @@ async def make_app(port):
         web.get("/get_transaction", transaction),
         web.get("/get_blocks_after", blocks_after),
         web.get("/get_blocks_before", blocks_before),
-        web.get("/get_block_number", block_by_number),
+        web.get("/get_block_number", block_lookup),   # DEPRECATED alias — TODO: remove (use /get_block?number=)
         web.get("/hash_attest", hash_attest),
-        web.get("/get_block", block_by_hash),
+        web.get("/get_block", block_lookup),
         web.get("/get_account", account),
         web.get("/get_account_mempool", account_mempool),
         web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool,
