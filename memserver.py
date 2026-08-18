@@ -105,6 +105,8 @@ class MemServer:
         self.reported_uptime = self.get_uptime()
 
         self.emergency_mode = False
+        self.pool_warmed = False     # production gate: True after the first completed pool reconcile
+                                     # with a peer (or solo/timeout fallback) — see core_loop.normal_mode
 
         self.version = read_version()
         block_ends_info = get_block_ends_info(logger=logger)

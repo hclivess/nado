@@ -460,7 +460,14 @@ class CoreClient(threading.Thread):
             with self.memserver.mempool_lock:
                 pool = self.memserver.transaction_pool
                 if pool:
-                    kept = [t for t in pool if kv_ops.tx_get(t.get("txid")) is None]
+                    # ... and (3) EVICT EXPIRED txs (max_block behind the tip) HERE, every pass — not
+                    # only after producing a block ourselves. Eviction lived solely on the own-production
+                    # path, so a node that rarely wins slots NEVER evicted: measured 2026-08-18 as one
+                    # node re-serving an hour-dead claim to the whole fleet every reconcile (and hoarding
+                    # 54 expired bonds), a permanent pool-divergence pump.
+                    _tip_now = self.memserver.latest_block["block_number"]
+                    kept = [t for t in pool if kv_ops.tx_get(t.get("txid")) is None
+                            and t.get("max_block", 0) > _tip_now]
                     culled = cull_buffer(buffer=kept, limit=self.memserver.transaction_pool_max_bytes)
                     if len(culled) != len(pool):
                         self.memserver.transaction_pool = culled
@@ -608,9 +615,23 @@ class CoreClient(threading.Thread):
 
                 # min_peers == 0 enables SOLO production (a single node mints without a peer mesh) —
                 # used for a stable single-node relay/demo where multi-node fork-choice churn is undesirable.
+                #
+                # POOL WARM-UP GATE: a freshly restarted node's pool is EMPTY, and deterministic
+                # production turns "my pool differs" straight into a same-height fork — every deploy
+                # wave seeded forks this way (blob h67007, bond h68376, duty h68345, all restart-window).
+                # Don't mint until the pool has reconciled once with a peer (peer_loop sets pool_warmed
+                # after its first completed merge_remote_transactions pass). Liveness-safe: warmed is
+                # forced True when there are no peers to reconcile with (solo mode) or 60 s after start
+                # (a mute mesh must not stall a producer forever).
+                if (not self.memserver.pool_warmed
+                        and (not peers or self.memserver.get_uptime() > 60)):
+                    self.memserver.pool_warmed = True
+                    if peers:
+                        self.logger.warning("Pool warm-up window expired unreconciled — producing anyway")
                 if (len(peers) >= self.memserver.min_peers
                         and not self._genesis_cold_start_blocked(peers)
                         and not self.memserver.force_sync_ip
+                        and self.memserver.pool_warmed
                         and not _on_minority):
                     block_candidate = get_block_candidate(logger=self.logger,
                                                           transaction_pool=self._candidate_pool(),

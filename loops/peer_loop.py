@@ -149,6 +149,11 @@ class PeerClient(threading.Thread):
                 _same_pool = {p for p, h in self.consensus.transaction_hash_pool.copy().items()
                               if h == _our_pool_hash}
                 self.memserver.merge_remote_transactions(user_origin=False, skip_pool_peers=_same_pool)
+                # first completed reconcile pass against a live peer set -> the pool reflects the
+                # network's, so production is safe (core_loop pool warm-up gate). Peers whose hash
+                # already matches ours count as reconciled-by-equality.
+                if not self.memserver.pool_warmed and (self.consensus.transaction_hash_pool or _same_pool):
+                    self.memserver.pool_warmed = True
 
                 _seeds = set(seed_peers())
                 for peer, ban_time in self.memserver.unreachable.copy().items():

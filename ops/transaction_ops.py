@@ -1482,10 +1482,13 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert addr == transaction["sender"], "bridge_withdraw must be self-claimed (sender == addr)"
         assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad withdraw amount"
         assert isinstance(nonce, str) and isinstance(proof, dict), "bad withdraw nonce/proof"
-        _cur, settled_root = latest_settled(ns)
-        assert settled_root, "no settled execution-layer root yet for this namespace"
-        assert ER.verify_withdrawal(settled_root, addr, amount, nonce, proof), \
-            "withdrawal is not proven against the settled execution-layer root"
+        # WINDOWED like dividend_withdraw (same bug class): an exit proven against the newest root died
+        # at the next settle; the (ns, addr, nonce) nullifier still guarantees at-most-once release.
+        from ops.settlement_ops import recent_settled_roots
+        _window = recent_settled_roots(ns, k=3)
+        assert _window, "no settled execution-layer root yet for this namespace"
+        assert any(ER.verify_withdrawal(_root, addr, amount, nonce, proof) for _c, _root in _window), \
+            "withdrawal is not proven against the settled execution-layer root window"
         assert not kv_ops.bridge_nullifier_exists(ns, addr, nonce), "this withdrawal was already claimed"
         escrow = get_account(BRIDGE_ESCROW, create_on_error=False)
         assert escrow and escrow.get("balance", 0) >= amount, "bridge escrow underfunded"
@@ -1512,10 +1515,14 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         seq = msg.get("seq")
         assert isinstance(seq, int) and not isinstance(seq, bool) and seq >= 0, "xmsg message seq must be a non-negative int"
         assert msg.get("to_ns") == to_ns, "xmsg message.to_ns must match the delivery to_ns"
-        _cur, settled_root = latest_settled(from_ns)
-        assert settled_root, "sending namespace has no settled root yet"
-        assert ER.verify_outbox_msg(settled_root, seq, msg.get("from"), msg.get("to_ns"), msg.get("data"), proof), \
-            "message is not proven against from_ns's settled root"
+        # WINDOWED like dividend/bridge claims (same bug class); the (from_ns, seq) nullifier still
+        # guarantees at-most-once delivery.
+        from ops.settlement_ops import recent_settled_roots
+        _window = recent_settled_roots(from_ns, k=3)
+        assert _window, "sending namespace has no settled root yet"
+        assert any(ER.verify_outbox_msg(_root, seq, msg.get("from"), msg.get("to_ns"), msg.get("data"), proof)
+                   for _c, _root in _window), \
+            "message is not proven against from_ns's settled root window"
         assert not kv_ops.xmsg_nullifier_exists(from_ns, seq), "this cross-domain message was already delivered"
     elif recipient == "dividend_withdraw":
         # DIVIDEND COLLECTION (doc/presence-dividend.md): prove {addr, amount, nonce} is in the bonded-quorum
@@ -1530,10 +1537,17 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert addr == transaction["sender"], "dividend_withdraw must be self-claimed (sender == addr)"
         assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad dividend amount"
         assert isinstance(nonce, str) and isinstance(proof, dict), "bad dividend nonce/proof"
-        _cur, settled_root = latest_settled()
-        assert settled_root, "no settled execution-layer root yet"
-        assert ER.verify_dividend(settled_root, addr, amount, nonce, proof), \
-            "dividend collection is not proven against the settled execution-layer root"
+        # WINDOWED settlement validity (2026-08-18): a claim proven against ONLY the newest settled
+        # root died the moment the next settle landed — permanently unminable, rebuilt each epoch, a
+        # growing pool graveyard some peers held and others refused (the dominant residual fork/slow-
+        # block driver). Any of the last K justified roots now proves the claim; the (addr, nonce)
+        # NULLIFIER below still guarantees at-most-once payout. Deterministic: the window is a pure
+        # read of on-chain attestations (see settlement_ops.recent_settled_roots).
+        from ops.settlement_ops import recent_settled_roots
+        _window = recent_settled_roots(k=3)
+        assert _window, "no settled execution-layer root yet"
+        assert any(ER.verify_dividend(_root, addr, amount, nonce, proof) for _c, _root in _window), \
+            "dividend collection is not proven against the settled execution-layer root window"
         assert not kv_ops.dividend_nullifier_exists(addr, nonce), "this dividend was already collected"
         pool = get_account(DIVIDEND_POOL, create_on_error=False)
         assert pool and pool.get("balance", 0) >= amount, "dividend pool underfunded"
@@ -1667,10 +1681,13 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert addr == transaction["sender"], "unshield must be self-claimed (sender == addr)"
         assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad unshield amount"
         assert isinstance(nonce, str) and isinstance(proof, dict), "bad unshield nonce/proof"
-        _cur, settled_root = latest_settled()
-        assert settled_root, "no settled execution-layer root yet"
-        assert ER.verify_unshield(settled_root, addr, amount, nonce, proof), \
-            "unshield is not proven against the settled execution-layer root"
+        # WINDOWED like the other settlement-proven claims (same bug class); the (addr, nonce)
+        # nullifier still guarantees at-most-once release.
+        from ops.settlement_ops import recent_settled_roots
+        _window = recent_settled_roots(k=3)
+        assert _window, "no settled execution-layer root yet"
+        assert any(ER.verify_unshield(_root, addr, amount, nonce, proof) for _c, _root in _window), \
+            "unshield is not proven against the settled execution-layer root window"
         assert not kv_ops.shield_nullifier_exists(addr, nonce), "this unshield was already claimed"
         escrow = get_account(SHIELD_ESCROW, create_on_error=False)
         assert escrow and escrow.get("balance", 0) >= amount, "shield escrow underfunded"

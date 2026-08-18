@@ -118,6 +118,54 @@ def _latest_settled_uncached(ns: str = DEFAULT_NS):
     return (-1, None)
 
 
+# recent_settled_roots cache: same single-reference generation-keyed pattern as latest_settled.
+_recent_settled_cache = [None]
+
+
+def recent_settled_roots(ns: str = DEFAULT_NS, k: int = 3):
+    """The last `k` JUSTIFIED (cursor, root) pairs for `ns`, descending — the validity WINDOW for
+    settlement-proven claims (dividend_withdraw). Validating a claim against ONLY latest_settled()
+    meant every claim died the moment the next settle landed: a claim proven against root R became
+    permanently unminable once R+1 justified, so the auto-claimer rebuilt it every epoch and the pool
+    carried a growing graveyard of claims some peers held and others refused — measured as the
+    dominant residual fork/slow-block driver on 2026-08-18 (16 dead claims in one pool). A window of
+    the last k roots gives every claim ~k settle intervals to land; the per-(addr, nonce) NULLIFIER
+    (kv_ops.dividend_nullifier_exists) already guarantees a claim pays at most once, against whichever
+    root it proves.
+
+    DETERMINISTIC: a pure read of committed settlement attestations + the bonded registry (both inside
+    the L1 state root), same as latest_settled — every node at the same parent state derives the
+    identical window. Memoised on the write generation; bypassed inside a write txn."""
+    if kv_ops.in_write_txn():
+        return _recent_settled_uncached(ns, k)
+    key = (kv_ops.env_path(), kv_ops.write_generation(), ns, int(k))
+    entry = _recent_settled_cache[0]
+    if entry is not None and entry[0] == key:
+        return entry[1]
+    result = _recent_settled_uncached(ns, k)
+    _recent_settled_cache[0] = (key, result)
+    return result
+
+
+def _recent_settled_uncached(ns: str, k: int):
+    reg = get_bonded_registry()
+    if total_bonded_shares(reg) == 0:
+        return []
+    out = []
+    for cursor in reversed(kv_ops.settlement_cursors(ns)):
+        seen = set()
+        for _v, root in kv_ops.settlements_for_cursor(ns, cursor):
+            if root in seen:
+                continue
+            seen.add(root)
+            if settlement_justified(ns, cursor, root, reg):
+                out.append((cursor, root))
+                break                                   # one justified root per cursor
+        if len(out) >= max(1, int(k)):
+            break
+    return out
+
+
 def settled_header_commitment(ns: str = DEFAULT_NS):
     """The (exec_cursor, exec_root) the L1 block header commits to BIND L2 into the L1 hash chain: the
     highest L1-JUSTIFIED settled (cursor, root) for `ns` as of committed state, or the empty sentinel
