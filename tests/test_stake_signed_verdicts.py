@@ -81,8 +81,11 @@ def t_the_verdict_actually_uses_the_signed_probe():
     s = open(os.path.join(ROOT, "loops", "core_loop.py"), encoding="utf8").read()
     fs = s[s.index("def _fork_state"):]
     fs = fs[:fs.index("def _fork_verdict")]
-    assert "probe_block_hash_signed" in fs, "the verdict probes are headcount-only again"
-    assert "tip_hint=tip" in fs, "the freshness window is not passed — stale signatures count forever"
+    assert "self._memo_probe(peer, h, tip)" in fs, "the verdict probes are headcount-only again"
+    memo = s[s.index("def _memo_probe"):]
+    memo = memo[:memo.index("\n    def ")]
+    assert "probe_block_hash_signed" in memo and "tip_hint=tip" in memo, \
+        "the freshness window is not passed — stale signatures count forever"
     p = open(os.path.join(ROOT, "ops", "peer_ops.py"), encoding="utf8").read()
     fn = p[p.index("def probe_block_hash_signed"):]
     fn = fn[:fn.index("def probe_block_hash(")]

@@ -51,8 +51,14 @@ def majority_hash(height, peers, probe, min_answers=2):
     seatless IPs. min_answers stays a COUNT of answers — stake weighs the verdict, never quorum liveness."""
     answers = {}
     count = 0
-    for p in peers:
-        r = probe(p, height)
+    # PARALLEL FAN-OUT. Serial probing cost ~1.5 s per peer, ~45 s per fresh verdict round — and the
+    # emergency loop evaluates the verdict every pass, so nodes spent ~half their wall-clock parked in
+    # non-producing emergency mode "evaluating" (measured 2026-08-18: 51% of an hour, 45-120 s per
+    # episode, block gaps up to 150 s fleet-wide). One slow peer now costs one timeout, not a round.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(peers)))) as ex:
+        results = list(ex.map(lambda pr: probe(pr, height), peers))
+    for r in results:
         h, seats = (r if isinstance(r, tuple) else (r, 0))
         if h:
             answers[h] = answers.get(h, 0) + 1 + max(0, int(seats or 0))
