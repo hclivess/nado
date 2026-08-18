@@ -159,10 +159,11 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
                              # a relay a few blocks stale ate the whole margin and forked h67761 on a
                              # sweep that became eligible ~6s after submit. These txs are per-epoch —
                              # 3 min of patience is free, and 30 absorbs any realistic tip staleness.
-DUTY_TX_MARGIN = 20          # duty: additionally clamped by the epoch and RANDAO-reveal deadlines.
-                             # 12 (72s) still lost the propagation race under load (fork seed h66680:
-                             # our block carried the duty tx, the fleet's did not); 20 (2 min) with the
-                             # deadline clamps intact — the clamp, not the margin, bounds overshoot.
+DUTY_TX_MARGIN = 30          # duty: additionally clamped by the epoch and RANDAO-reveal deadlines.
+                             # 12 (72s) lost the propagation race under load (h66680), and 20 still lost
+                             # it from a stale-tipped submitter (h69365: effective margin = 20 - staleness).
+                             # 30 matches RESERVED/FLEX margins; the deadline clamps, not the margin,
+                             # bound overshoot.
 
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).
