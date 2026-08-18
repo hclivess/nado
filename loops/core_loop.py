@@ -1568,6 +1568,22 @@ class CoreClient(threading.Thread):
         self._rec("adopt_applying", src=src, staged=len(staged))
         for blk in staged:
             if not self.produce_block(block=blk, remote=True, remote_peer=src):
+                rej = getattr(self.memserver, "last_block_reject", None) or {}
+                if "our state diverged from the producer" in str(rej.get("error", "")):
+                    # NOT the donor's fault — OUR committed state is corrupt at a parent whose HASH we
+                    # agree on (the h4260 rollback-asymmetry class: hours of roll-and-remine cycles left
+                    # residue no rollback can fix, observed on .26/.28 with three different state roots at
+                    # one agreed block). No branch will ever validate on top of a wrong state DB, so
+                    # striking donors is self-harm: ESCALATE to the re-anchor ladder — a snapshot import
+                    # replaces the state wholesale (quorum-vouched), and canonical restore keeps our
+                    # bodies. Restore our branch first so we stay self-consistent until it lands.
+                    self._rec_fail("own state corrupt at agreed parent — escalating to re-anchor",
+                                   height=blk.get("block_number"))
+                    self.logger.error(f"Branch adoption: our L1 state is CORRUPT at agreed parent "
+                                      f"{int(anc)} ({rej.get('error', '')[:120]}) — re-anchoring to a "
+                                      f"quorum snapshot")
+                    self._reapply_local_branch(old_tip)
+                    return None
                 self._rec_fail("block failed full validation",
                           height=blk.get("block_number"), src=src)
                 self.logger.warning(f"Branch adoption: block {blk.get('block_number')} from {src} failed "
