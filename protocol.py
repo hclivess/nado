@@ -154,7 +154,10 @@ TX_TARGET_MARGIN = 300
 # different landing heights for their own txs). Kept well under TX_LANDING_WINDOW so a tx admitted against
 # a slightly-behind peer still fits.
 RESERVED_TX_MARGIN = 30      # bond/register: ~3 min at 6s/block
-DUTY_TX_MARGIN = 12          # duty: additionally clamped by the epoch and RANDAO-reveal deadlines
+DUTY_TX_MARGIN = 20          # duty: additionally clamped by the epoch and RANDAO-reveal deadlines.
+                             # 12 (72s) still lost the propagation race under load (fork seed h66680:
+                             # our block carried the duty tx, the fleet's did not); 20 (2 min) with the
+                             # deadline clamps intact — the clamp, not the margin, bounds overshoot.
 
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).

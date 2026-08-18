@@ -3350,7 +3350,8 @@ class CoreClient(threading.Thread):
                     if not pr or not settled_root or pr.get("state_root") != settled_root:
                         continue                        # proof must be against the SETTLED root; retry next epoch
                     tx = construct_dividend_withdraw_tx(
-                        self.memserver.keydict, int(w["amount"]), str(w["nonce"]), pr["proof"], max_block)
+                        self.memserver.keydict, int(w["amount"]), str(w["nonce"]), pr["proof"], max_block,
+                        min_block=self.memserver.latest_block["block_number"] + TX_INCLUSION_DELAY)
                     self.memserver.merge_transaction(tx, user_origin=True)
                     self.logger.info(
                         f"Auto-collect: claimed settled dividend withdrawal of {w['amount']} raw "

@@ -702,10 +702,13 @@ async function submitResilient(buildTxFn, tries = 8) {
   }
   return { res: last, tx };
 }
-function buildDividendWithdrawTx(wallet, addr, amount, nonce, proof, targetBlock, timestamp) {
+function buildDividendWithdrawTx(wallet, addr, amount, nonce, proof, targetBlock, timestamp, minBlock) {
   const draft = { sender: wallet.address, recipient: "dividend_withdraw", amount: 0, timestamp,
     data: { addr, amount, nonce, proof }, nonce: randNonce(), public_key: wallet.publicKey,
     max_block: targetBlock, chain_id: CHAIN_ID };
+  // flexibly-landing: min_block is the propagation guard (fork seed h66894 — a claim included by its own
+  // node before gossip delivered it). minBlock optional for compatibility with existing callers.
+  if (minBlock) draft.min_block = minBlock;
   return finalizeTransaction(draft, wallet.privateKey, 0);   // fee-exempt
 }
 

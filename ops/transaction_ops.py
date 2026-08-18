@@ -420,7 +420,7 @@ def construct_blob_tx(keydict, payload, max_block, fee, min_block=0):
     return tx
 
 
-def construct_dividend_withdraw_tx(keydict, amount, nonce, proof, max_block):
+def construct_dividend_withdraw_tx(keydict, amount, nonce, proof, max_block, min_block=0):
     """Build a SIGNED presence-dividend claim: recipient 'dividend_withdraw', fee-exempt, self-claimed
     (data.addr == sender). Releases a COLLECTED {addr, amount, nonce} from the DIVIDEND_POOL once its
     Merkle proof verifies against the settled execution-layer root (validate_transaction checks that)."""
@@ -429,6 +429,11 @@ def construct_dividend_withdraw_tx(keydict, amount, nonce, proof, max_block):
           "data": {"addr": keydict["address"], "amount": int(amount), "nonce": str(nonce), "proof": proof},
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
+    if int(min_block) > 0:
+        # dividend_withdraw lands FLEXIBLY, so min_block is its propagation guard — without it the
+        # claiming node includes its own claim the second it exists, before gossip delivers it anywhere,
+        # and forks the chain (fork seed h66894). Same rule every flexibly-landing tx already follows.
+        tx["min_block"] = int(min_block)
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx

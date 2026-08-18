@@ -1828,7 +1828,11 @@ async def maybe_settle(session):
         from ops.key_ops import load_keys
         keys = load_keys()
         latest = await _get_json(session, "/get_latest_block")
-        target = int(latest["block_number"]) + 2
+        # +12, not +2: settle is EXACT-landing, so its target IS its propagation deadline. 12 s of
+        # headroom forked the chain whenever gossip ran a beat slow (fork seed h66830 — our block carried
+        # the settle, the fleet's did not). 72 s costs one minute of settle latency and buys every
+        # producer the tx before any may include it.
+        target = int(latest["block_number"]) + 12
         ok_any = False
         for ns, st in states.items():
             # PROVENANCE GATE: never attest an exec_root computed from a NON-canonical randomness window. A
@@ -2097,7 +2101,7 @@ async def maybe_settle(session):
             if True:
                 try:
                     _fresh = await _get_json(session, "/get_latest_block")
-                    target = int(_fresh["block_number"]) + 2
+                    target = int(_fresh["block_number"]) + 12
                 except Exception:
                     pass                                   # keep the old deadline rather than skip the settle
             if proof is not None:
@@ -2210,7 +2214,7 @@ async def maybe_settle(session):
                 # under TX_LANDING_WINDOW (360), so a tx admitted against a slightly-behind peer still fits.
                 _has_records = bool(isinstance(proof, dict) and proof.get("records"))
                 _margin = ((SETTLE_PROOF_RECORDS_TX_MARGIN if _has_records else SETTLE_PROOF_TX_MARGIN)
-                           if (proof is not None or proof_da) else 2)
+                           if (proof is not None or proof_da) else 12)
                 target = int(_fresh2["block_number"]) + _margin
             except Exception:
                 pass                                       # keep the old deadline rather than skip the settle
@@ -2315,7 +2319,7 @@ async def maybe_settle(session):
                 # 97 MiB body that is not instant.
                 try:
                     _fresh = await _get_json(session, "/get_latest_block")
-                    target = int(_fresh["block_number"]) + 2
+                    target = int(_fresh["block_number"]) + 12
                 except Exception:
                     pass
                 tx = construct_settle_tx(keys, cur, root, target, ns=ns)
