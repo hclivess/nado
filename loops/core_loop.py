@@ -3855,6 +3855,16 @@ class CoreClient(threading.Thread):
 
         except Exception as e:
             self.logger.warning(f"Block production skipped due to: {e}")
+            # remote diagnosis (/status "last_block_reject"): WHY this node refused a block its peers
+            # accepted — the .26/.28 pair rejected the majority's 64916 through six opaque False returns
+            # before this field existed.
+            try:
+                self.memserver.last_block_reject = {
+                    "height": block.get("block_number") if isinstance(block, dict) else None,
+                    "hash": str(block.get("block_hash"))[:16] if isinstance(block, dict) else None,
+                    "error": str(e)[:200], "at": get_timestamp_seconds()}
+            except Exception:
+                pass
             time.sleep(1)
             return False
 
