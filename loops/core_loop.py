@@ -1558,6 +1558,39 @@ class CoreClient(threading.Thread):
             self._rec_fail("possession disproved the weight claim", src=src)
             self._reject_heaviest_tip()
             return False                           # possession disproved the advertisement
+        # FORK FORENSICS: this is the one moment both branches are in hand — ours still referenced,
+        # theirs staged. Record the FIRST divergent block's difference (the fork's seed) before the roll
+        # deletes our side's locators. Answers "what actually forks this chain" with data instead of
+        # theory: divergent tx sets point at propagation (which tx, which kind), identical tx sets point
+        # at ordering/creator/timestamp. Appended to ~/nado/fork_diffs.jsonl + the latest on /status.
+        try:
+            import json as _json
+            from ops.data_ops import get_home as _gh
+            for _blk in staged:
+                _n = int(_blk.get("block_number", -1))
+                _oh = get_block_hash_by_number(_n)
+                _ob = get_block(_oh) if _oh else None
+                if not isinstance(_ob, dict) or _ob.get("block_hash") == _blk.get("block_hash"):
+                    continue
+                _sig = lambda b: sorted((t.get("recipient"),
+                                         (t.get("data") or {}).get("op") if isinstance(t.get("data"), dict) else None,
+                                         str(t.get("txid"))[:16])
+                                        for t in (b.get("block_transactions") or []))
+                _so, _st = _sig(_ob), _sig(_blk)
+                _d = {"at": get_timestamp_seconds(), "h": _n, "anc": int(anc), "src": src}
+                if _so != _st:
+                    _d["only_ours"] = [list(t) for t in _so if t not in _st][:6]
+                    _d["only_theirs"] = [list(t) for t in _st if t not in _so][:6]
+                else:
+                    _d.update({"same_txs": len(_so), "creator_ours": str(_ob.get("block_creator"))[:12],
+                               "creator_theirs": str(_blk.get("block_creator"))[:12],
+                               "ts_ours": _ob.get("block_timestamp"), "ts_theirs": _blk.get("block_timestamp")})
+                self.memserver.last_fork_diff = _d
+                with open(f"{_gh()}/fork_diffs.jsonl", "a") as _f:
+                    _f.write(_json.dumps(_d) + "\n")
+                break                                    # the first divergent block is the seed
+        except Exception:
+            pass
         old_tip = self.memserver.latest_block
         self._rec("adopt_rolling", src=src, staged=len(staged), to=int(anc))
         self.memserver.rollbacks = 0

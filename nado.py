@@ -244,6 +244,7 @@ async def status(request):
             "recovery": getattr(memserver, "recovery_debug", None),
             "recovery_fail": getattr(memserver, "recovery_fail", None),
             "last_block_reject": getattr(memserver, "last_block_reject", None),
+            "last_fork_diff": getattr(memserver, "last_fork_diff", None),
             "protocol": memserver.protocol,
             # CONSENSUS CONSTANTS THE BROWSER MUST MATCH. static/interface.js hardcodes these and its own
             # comments say "MUST match protocol.py" — they drifted anyway (FINALITY_DEPTH sat at 12 vs 45,
