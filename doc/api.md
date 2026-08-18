@@ -34,7 +34,7 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 | GET | `/get_block_number` | `?number=` | one block by height |
 | GET | `/get_blocks_after` · `/get_blocks_before` | `?hash=&count=` | ranges for sync |
 | GET | `/get_settled` | — | latest settled/finalized height |
-| GET | `/status` | — | node status: `chain_id`, `version`, tip, peers |
+| GET | `/status` | — | node status: `chain_id`, `version`, tip, peers; debug telemetry: `hard_finality`, `recovery` (live recovery phase), `recovery_fail` (last failed recovery), `last_block_reject` (why production last skipped), `last_fork_diff` (tx-set diff of the last fork's first divergent block) |
 | GET | `/health` | — | liveness |
 | GET | `/get_snapshot_manifest` · `/get_snapshot_chunk` | `?index=` | fast-sync snapshot |
 
@@ -151,6 +151,13 @@ Besides `blob`, `POST /submit_transaction` accepts these `recipient` values (bui
 | `msgkey` | Publish your ML-KEM-768 messaging key. |
 | `attest` | Validator attestation. |
 | `htlc_lock` / `htlc_claim` / `htlc_refund` | Hash-timelock (atomic swaps). |
+
+**Landing semantics.** `max_block` binds every tx. `blob`, `bridge`, `bridge_withdraw`,
+`dividend_withdraw`, `faucet` and plain transfers land *flexibly* in `[min_block, max_block]` — set
+`min_block` to your submit tip + 8 (`TX_INCLUSION_DELAY`) so no producer can include the tx before it
+has propagated (omitting it is legal but was a measured fork driver). Everything else (`settle`, duty,
+`bond`, `register`, governance, …) lands *exactly* at `max_block`; aim it far enough ahead for gossip
+(the node's own submitters use 12–20 blocks).
 
 ---
 

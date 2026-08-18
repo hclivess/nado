@@ -172,10 +172,21 @@ Stated so a reader trusts the right amount — over-trust is a worse failure tha
   human in the loop, exercised end-to-end with real keys in `tests/test_watchtower_slash.py` — but it has
   never fired against a real adversary, and the penalty economics (SLASH_BOND_PENALTY vs what an attack
   earns) are untested at scale.
-- **Forks are contained, not prevented.** Splits still originate in mempool divergence; the machinery
-  above makes them resolve in seconds instead of hours and makes reverting cost an attacker a real
-  branch. The known admission-order driver ("Empty account" while the funder is still in the pool) is
-  fixed; sustained-load pool divergence (mempool-full eviction under pressure) is not exercised yet.
+- **Forks are contained, not prevented.** Splits originate in mempool divergence; the machinery above
+  makes them resolve in seconds instead of hours and makes reverting cost an attacker a real branch.
+  The *measured* origins are on record: every fork seed captured by the forensics hook (below) was a
+  SYSTEM tx the producing node included before gossip delivered it — settle aiming `tip+2` (12 s of
+  propagation on an exact-landing tx), duty with a 72 s margin that lost under load, and
+  `dividend_withdraw` claims built without a `min_block` guard. All three fixed (f7244bab): settle aims
+  `tip+12`, `DUTY_TX_MARGIN` is 20 (deadline-clamped), and dividend claims carry
+  `min_block = tip + TX_INCLUSION_DELAY` in the signed body. The earlier admission-order driver ("Empty
+  account" while the funder is still in the pool) is fixed by graded reject cooldowns; sustained-load
+  pool divergence (mempool-full eviction under pressure) is not exercised yet.
+- **Fork forensics are always-on.** Before `_adopt_branch` rolls anything back it records the FIRST
+  divergent block's tx-set diff — `only_ours` / `only_theirs` by recipient — to
+  `~/nado/fork_diffs.jsonl` and mirrors the latest entry as `last_fork_diff` on `/status` (alongside
+  `recovery`, `recovery_fail`, `last_block_reject`, `hard_finality`). A fork whose cause is not in that
+  file is a new class, not a recurrence.
 
 ## 7. File / test map
 
@@ -186,6 +197,7 @@ Stated so a reader trusts the right amount — over-trust is a worse failure tha
 | Emergency gating | `ops/block_ops.knows_block` (tri-state), `core_loop.emergency_mode` / `_rollback_one_for_reorg` | `tests/test_emergency_rollback_gating.py` |
 | Canonical restore | `ops/canonical_restore.py`, `core_loop._restore_canonical_chain/_start_deep_fill/_maybe_refill_archive`, `ops/snapshot_ops.adopt_new_identity`, `ops/kv_ops.wipe_non_carried_dbs` | `tests/test_reanchor_archive_backfill.py`, `tests/test_canonical_restore_executor.py` |
 | Exec revert/rewind | `execnode/execnode.py` (probe, linkage, checkpoints, ladder) | `tests/test_exec_finality_revert_probe.py`, `tests/test_exec_rewind_e2e.py` |
+| Landing margins / fork seeds | `ops/block_ops._lands_flexibly` + `check_target_match` (window vs exact), `ops/transaction_ops.construct_dividend_withdraw_tx` (`min_block`), `protocol.DUTY_TX_MARGIN`, settle targets in `execnode/execnode.py` | `tests/test_fork_seed_landing_margins.py` |
 
 Every suite above is mutation-checked: the load-bearing rules were each broken deliberately and observed
 to turn the suite red before any of this shipped.
