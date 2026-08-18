@@ -1295,8 +1295,7 @@ class CoreClient(threading.Thread):
             verdict = fork_resolution.resolve(
                 our_hash_at=get_block_hash_by_number,
                 tip=tip, finalized=_ghf(), peers=peers,
-                probe=lambda peer, h: probe_block_hash_signed(peer, h, port=self.memserver.port,
-                                                              tip_hint=tip))
+                probe=lambda peer, h: self._memo_probe(peer, h, tip))
             self._fork_state_cache = (now, verdict)   # FULL verdict: the reorg leg needs the ancestor too
             self.logger.info(f"Fork state: {verdict['state']} (ancestor={verdict['ancestor']}, "
                              f"tip={tip}, probes={verdict['probes']})")
@@ -1313,6 +1312,57 @@ class CoreClient(threading.Thread):
         if cached and isinstance(cached[1], dict):
             return cached[1]
         return {"state": state, "ancestor": None}
+
+    def _memo_probe(self, peer, h, tip):
+        """probe_block_hash_signed with a 90 s (peer, height) memo. A verdict round is ~46 probes and the
+        binary search re-asks the same heights every FORK_STATE_TTL_S — unmemoized, each emergency pass
+        burned ~65 s of serial probing, the core loop hit 140 s/pass, and the whole fleet starved each
+        other's event loops into timeouts (the 2026-08-18 09:00 freeze). Answers are immutable facts about
+        committed heights, so a short memo is safe; it dies with the verdict cache."""
+        from ops.peer_ops import probe_block_hash_signed
+        now = time.monotonic()
+        memo = getattr(self, "_probe_memo", None)
+        if memo is None or now - memo[0] > 90:
+            memo = (now, {})
+            self._probe_memo = memo
+        key = (peer, int(h))
+        if key in memo[1]:
+            return memo[1][key]
+        r = probe_block_hash_signed(peer, h, port=self.memserver.port, timeout=3, tip_hint=tip)
+        memo[1][key] = r
+        return r
+
+    def _adopt_heaviest_pairwise(self):
+        """THE NO-MAJORITY ESCAPE (fork_resolution.pairwise_ancestor doc): a multi-way scatter gives every
+        node an UNKNOWN verdict, UNKNOWN correctly never reverts, and the fleet deadlocks — each branch
+        producing alone. Weight still exists without a majority: find the common ancestor with the ONE
+        peer advertising the strictly-heaviest tip and possession-adopt its branch. Returns the same
+        tri-state as _adopt_branch (True adopted / False nothing usable / None escalate)."""
+        try:
+            hh = self.consensus.heaviest_block_hash
+            hw = int(self.consensus.heaviest_block_weight or 0)
+            our_w = int(self.memserver.latest_block.get("cumulative_weight", 0))
+            if not hh or hw <= our_w:
+                return False
+            src = next((ip for ip, st in self.consensus.status_pool.copy().items()
+                        if isinstance(st, dict) and st.get("latest_block_hash") == hh), None)
+            if not src:
+                return False
+            from ops.account_ops import get_hard_finality
+            from ops.block_ops import get_block_hash_by_number
+            tip = int(self.memserver.latest_block["block_number"])
+            anc = fork_resolution.pairwise_ancestor(
+                get_block_hash_by_number, tip,
+                lambda h: (lambda r: r[0] if isinstance(r, tuple) else r)(self._memo_probe(src, h, tip)),
+                floor=get_hard_finality())
+            if anc is None or anc >= tip:
+                return False
+            self.logger.warning(f"No probe majority but {src} advertises a strictly-heavier branch "
+                                f"(w {hw} > {our_w}); pairwise ancestor {anc} — attempting adoption")
+            return self._adopt_branch(anc)
+        except Exception as e:
+            self.logger.warning(f"pairwise adoption failed: {e}")
+            return False
 
     def _tie_break_ours(self, hh):
         """STABLE equal-weight fork choice, wired to the measured verdict: True = our branch is canonical,
@@ -1855,6 +1905,19 @@ class CoreClient(threading.Thread):
                         continue
                     time.sleep(1)
                     continue
+                if vstate == fork_resolution.UNKNOWN:
+                    # NO PROBE MAJORITY (multi-way scatter): the pairwise weight escape — see
+                    # _adopt_heaviest_pairwise. Without this, UNKNOWN + no donor froze the node for as
+                    # long as the scatter lasted (35 min observed), while it benched the very tips it
+                    # needed. Possession + full validation keep the safety story identical.
+                    adopted = self._adopt_heaviest_pairwise()
+                    if adopted is None:
+                        if self._maybe_reanchor():
+                            self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
+                            continue
+                        break
+                    if adopted:
+                        continue
                 peer = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
                 if not peer:
                     now = get_timestamp_seconds()
@@ -1871,6 +1934,11 @@ class CoreClient(threading.Thread):
                     # only exit — normal fast-forward/reorg both require a donor that knows our root).
                     elif self._maybe_reanchor() or self._maybe_escape_dead_fork():
                         self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
+                    elif vstate == fork_resolution.UNKNOWN:
+                        # NO evidence + no donor: benching the heaviest tip here starves the recovery of
+                        # the very branch it needs (observed: one honest leader tip excluded per pass for
+                        # 35 minutes). The pairwise escape above is the exit; just wait.
+                        time.sleep(1)
                     else:
                         # STRIKE THE HEAVIEST TIP even though we never got as far as fetching from it.
                         # Donor selection only considers peers advertising the HEAVIEST tip, so a lone

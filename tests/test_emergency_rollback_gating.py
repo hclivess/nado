@@ -314,6 +314,53 @@ def t_deep_catch_up_falls_back_to_forward_sync_not_failure():
         "deep catch-up still benches the legitimate majority tip"
 
 
+def t_pairwise_ancestor_finds_the_agreement_with_one_peer():
+    """The no-majority escape: a three-way scatter has no quorum, but the common ancestor with ONE
+    advertiser needs none. Observed 2026-08-18 09:00 — UNKNOWN verdicts froze the node 35 minutes."""
+    from ops.fork_resolution import pairwise_ancestor
+    ours = {h: f"a{h}" for h in range(0, 101)}
+    theirs = {h: f"a{h}" for h in range(0, 81)}
+    theirs.update({h: f"b{h}" for h in range(81, 121)})
+    anc = pairwise_ancestor(lambda h: ours.get(h), 100, lambda h: theirs.get(h), floor=50)
+    assert anc == 80, f"pairwise ancestor {anc} != 80"
+
+
+def t_pairwise_ancestor_treats_non_answers_as_disagreement_never_agreement():
+    from ops.fork_resolution import pairwise_ancestor
+    ours = {h: f"a{h}" for h in range(0, 101)}
+    anc = pairwise_ancestor(lambda h: ours.get(h), 100, lambda h: None, floor=0)
+    assert anc is None, "a mute peer produced an ancestor — no evidence widened a claim"
+
+
+def t_unknown_verdicts_take_the_pairwise_weight_escape():
+    s = src("loops/core_loop.py")
+    loop = s[s.index("def emergency_mode"):s.index("def _fast_forward_from")]
+    assert "if vstate == fork_resolution.UNKNOWN:" in loop, "the no-majority escape is gone"
+    assert "self._adopt_heaviest_pairwise()" in loop
+    esc = s[s.index("def _adopt_heaviest_pairwise"):]
+    esc = esc[:esc.index("\n    def ")]
+    assert "hw <= our_w" in esc, "the escape no longer requires a STRICTLY heavier branch"
+    assert "pairwise_ancestor(" in esc and "return self._adopt_branch(anc)" in esc, \
+        "the escape no longer goes through possession-adoption"
+    assert "get_hard_finality()" in esc, "the pairwise search floor is not the hard floor"
+
+
+def t_no_donor_plus_unknown_does_not_bench_honest_tips():
+    s = src("loops/core_loop.py")
+    loop = s[s.index("def emergency_mode"):s.index("def _fast_forward_from")]
+    assert "elif vstate == fork_resolution.UNKNOWN:" in loop, \
+        "the no-donor branch benches the heaviest tip on zero evidence again"
+
+
+def t_verdict_probes_are_memoized():
+    s = src("loops/core_loop.py")
+    assert "self._memo_probe(peer, h, tip)" in s, "the verdict probe is unmemoized — 140s core loops"
+    m = s[s.index("def _memo_probe"):]
+    m = m[:m.index("\n    def ")]
+    assert "timeout=3" in m, "the probe timeout is back to 6s serial"
+    assert "90" in m, "the memo TTL is gone"
+
+
 for name, fn in [(n, f) for n, f in list(globals().items()) if n.startswith("t_")]:
     check(name[2:].replace("_", " "), fn)
 

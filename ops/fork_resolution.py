@@ -223,6 +223,39 @@ def find_common_ancestor(our_hash_at, tip, peers, probe, floor=0, min_answers=2)
     return lo, probes
 
 
+def pairwise_ancestor(our_hash_at, tip, peer_probe, floor=0):
+    """Highest height in (floor, tip] where OUR hash equals ONE peer's hash, or None.
+
+    THE NO-MAJORITY ESCAPE. resolve() needs a probe MAJORITY, and a multi-way scatter has none: every
+    branch is a minority, every verdict is UNKNOWN, and UNKNOWN correctly never reverts — so the whole
+    fleet can deadlock, each side producing its own branch (observed live 2026-08-18 09:00, a three-way
+    scatter at ~64940 that froze this node for 35 minutes). Weight is the objective rule that still
+    exists without a majority: sync toward the strictly-heaviest advertised branch — and for that, the
+    common ancestor with THAT ONE ADVERTISER is enough, no quorum required. Safety is unchanged: the
+    caller possession-adopts (fetch, pre-verify, full validation on apply), so a lying advertiser still
+    cannot cause a revert onto anything invalid.
+
+    Binary search, ~log2(depth) probes against a single peer. `peer_probe(height) -> hash|None`; a
+    non-answer narrows the search downward (no evidence never widens a claim)."""
+    lo, hi = int(floor), int(tip)
+    best = None
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        ours = our_hash_at(mid)
+        theirs = peer_probe(mid)
+        if ours and theirs and ours == theirs:
+            best = mid
+            lo = mid
+        else:
+            hi = mid - 1
+    if best is None:
+        ours = our_hash_at(lo)
+        theirs = peer_probe(lo) if lo > 0 else None
+        if lo > 0 and ours and theirs and ours == theirs:
+            best = lo
+    return best
+
+
 def tie_winner(ours_first_divergent: str, theirs_first_divergent: str) -> str:
     """STABLE equal-weight fork choice: which branch is canonical when two branches carry EXACTLY equal
     cumulative weight (weight increments are content-independent, so every same-height split is a
