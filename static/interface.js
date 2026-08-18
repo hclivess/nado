@@ -824,7 +824,10 @@ async function claimPendingDividends(pending) {
     try {
       const pr = await (await fetch(execBase() + "/exec/dividend_proof?nonce=" + encodeURIComponent(p.nonce), { cache: "no-store" })).json();
       if (!pr || pr.state_root !== settledRoot) continue;   // proof must be against the SETTLED root; else wait
-      const tx = buildDividendWithdrawTx(state.wallet, state.wallet.address, p.amount, p.nonce, pr.proof, latest.block_number + TX_TARGET_MARGIN, nowSeconds());
+      // minBlock: the SAME anti-reorg propagation delay every other flexibly-landing tx uses. A claim
+      // without it seeded the h67961 fork split (min_block: None, straight from this call site).
+      const tx = buildDividendWithdrawTx(state.wallet, state.wallet.address, p.amount, p.nonce, pr.proof, latest.block_number + TX_TARGET_MARGIN, nowSeconds(),
+        latest.block_number + TX_INCLUSION_DELAY);
       const res = await submitTransaction(tx);
       if (res.data && res.data.result) log("ok", i18("log.divCollected", "Dividend collected: +{a} NADO to your balance.", {a: rawToNado(BigInt(p.amount))}));
     } catch (e) { /* not claimable yet (unsettled) — retry next refresh */ }

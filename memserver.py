@@ -453,6 +453,17 @@ class MemServer:
                     _cool = self.reject_cooldown_s(result.get("message"), _funder_seen)
                     if _cool:
                         self._tx_reject_cache[tx["txid"]] = now + _cool
+                    # REJECT TELEMETRY (/status recent_tx_rejects): fork seed h68261 was a 4-minute-old
+                    # collect blob our pool simply did not hold — and nothing recorded whether it was
+                    # refused (and why) or never delivered. A refused SYSTEM tx is a future fork; make
+                    # every gossip refusal readable from outside. Ring of the last 20.
+                    try:
+                        self.recent_tx_rejects = ([{"txid": tx["txid"][:16],
+                                                    "recipient": str(tx.get("recipient"))[:24],
+                                                    "why": str(result.get("message"))[:60], "at": now}]
+                                                  + getattr(self, "recent_tx_rejects", []))[:20]
+                    except Exception:
+                        pass
             # bounded: drop expired entries; hard-cap so a flood of unique invalid txids can't grow it
             if len(self._tx_reject_cache) > 20000:
                 self._tx_reject_cache = {i: t for i, t in self._tx_reject_cache.items() if t > now}
