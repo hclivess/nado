@@ -239,6 +239,9 @@ async def status(request):
             # the UN-CROSSABLE floor (two-floor model, protocol.FINALITY_HARD_BACKSTOP): quorum checkpoint
             # folded with the wide liveness backstop — what rollback refuses and re-anchors floor at
             "hard_finality": _ghf(),
+            # the recovery state machine's current step (verdicts, adoption phases, last swallowed
+            # exception) — remote diagnosis for nodes with no shell access; see core_loop._rec
+            "recovery": getattr(memserver, "recovery_debug", None),
             "protocol": memserver.protocol,
             # CONSENSUS CONSTANTS THE BROWSER MUST MATCH. static/interface.js hardcodes these and its own
             # comments say "MUST match protocol.py" — they drifted anyway (FINALITY_DEPTH sat at 12 vs 45,

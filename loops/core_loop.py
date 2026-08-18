@@ -1313,6 +1313,18 @@ class CoreClient(threading.Thread):
             return cached[1]
         return {"state": state, "ancestor": None}
 
+    def _rec(self, phase, **detail):
+        """Publish the recovery state machine's current step to /status ("recovery" field). Two nodes
+        (.26/.28, 2026-08-18) sat wedged behind opaque restarts with no shell access — the only readable
+        surface was their status page, so the recovery path now narrates itself there: verdicts, adoption
+        steps, refusals, and the last swallowed exception. Costs a dict assignment."""
+        try:
+            self.memserver.recovery_debug = {"phase": phase, "at": get_timestamp_seconds(),
+                                             "tip": self.memserver.latest_block.get("block_number"),
+                                             **detail}
+        except Exception:
+            pass
+
     def _memo_probe(self, peer, h, tip):
         """probe_block_hash_signed with a 90 s (peer, height) memo. A verdict round is ~46 probes and the
         binary search re-asks the same heights every FORK_STATE_TTL_S — unmemoized, each emergency pass
@@ -1479,6 +1491,7 @@ class CoreClient(threading.Thread):
             return False
         from ops.block_ops import block_content_hash
         from protocol import FINALITY_HARD_BACKSTOP
+        self._rec("adopt_fetching", src=src, start=str(hh)[:12])
         staged, cur = [], hh
         for _ in range(FINALITY_HARD_BACKSTOP + EPOCH_LENGTH):
             b = asyncio.run(snapshot_ops.fetch_block(src, self.memserver.port, cur))
@@ -1524,10 +1537,13 @@ class CoreClient(threading.Thread):
             self._reject_heaviest_tip()
             return False                           # possession disproved the advertisement
         old_tip = self.memserver.latest_block
+        self._rec("adopt_rolling", src=src, staged=len(staged), to=int(anc))
         self.memserver.rollbacks = 0
         while self.memserver.latest_block["block_number"] > anc:
             if self._rollback_one_for_reorg(ancestor=anc):
+                self._rec("adopt_roll_refused", to=int(anc))
                 return None                        # budget/floor refused mid-burst: escalate (re-anchor)
+        self._rec("adopt_applying", src=src, staged=len(staged))
         for blk in staged:
             if not self.produce_block(block=blk, remote=True, remote_peer=src):
                 self.logger.warning(f"Branch adoption: block {blk.get('block_number')} from {src} failed "
@@ -1913,6 +1929,7 @@ class CoreClient(threading.Thread):
                 verdict = self._fork_verdict()
                 vstate = verdict.get("state")
                 _anc = verdict.get("ancestor")
+                self._rec("verdict", state=str(vstate), ancestor=_anc)
                 if (vstate == fork_resolution.REORG and _anc is not None
                         and int(self.memserver.latest_block["block_number"]) > int(_anc)):
                     # POSSESSION BEFORE ROLLBACK: fetch + pre-verify the competing branch, and only then
@@ -1920,6 +1937,7 @@ class CoreClient(threading.Thread):
                     # advertisement that cannot be substantiated with a held, hash-consistent, heavier
                     # branch costs us NOTHING but the fetch, and the tip gets benched).
                     adopted = self._adopt_branch(_anc)
+                    self._rec("adopt_reorg_result", result=repr(adopted), ancestor=_anc)
                     if adopted is None:
                         # rollback refused mid-adoption (budget/floor): the fork is deeper than the leg
                         # can serve — escalate exactly as the old give-up path did.
@@ -1943,6 +1961,7 @@ class CoreClient(threading.Thread):
                     # long as the scatter lasted (35 min observed), while it benched the very tips it
                     # needed. Possession + full validation keep the safety story identical.
                     adopted = self._adopt_heaviest_pairwise()
+                    self._rec("adopt_pairwise_result", result=repr(adopted))
                     if adopted is None:
                         if self._maybe_reanchor():
                             self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
@@ -2031,6 +2050,7 @@ class CoreClient(threading.Thread):
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
+            self._rec("emergency_exception", error=str(e)[:160])
             raise
 
     def _fast_forward_from(self, peer, from_hash) -> bool:
