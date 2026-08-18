@@ -393,6 +393,19 @@ def t_behind_mismatches_never_bench_the_heavier_tips():
     assert behind_at < strike_at, "the strike is reachable from the BEHIND path"
 
 
+def t_behind_contradicted_by_distinct_donors_escapes_pairwise():
+    """A stake-weighted majority at our own tip can be won by our own partisans in a same-height split
+    (4v5 h67961): BEHIND + ancestor==tip + every heavy donor positively refusing our tip = livelock.
+    Three DISTINCT refusals must trigger the pairwise escape; one donor must only rotate."""
+    src = open(os.path.join(ROOT, "loops", "core_loop.py"), encoding="utf8").read()
+    b = src[src.index("elif vstate == fork_resolution.BEHIND:"):]
+    b = b[:b.index("else:")]
+    assert "_behind_refusals" in b and ".add(peer)" in b, "refusals are not tracked per-donor"
+    assert ">= 3" in b, "the distinct-donor threshold is gone"
+    assert "_adopt_heaviest_pairwise()" in b, "the contradiction no longer resolves pairwise"
+    assert "leaving the heavier tips unbenched" in b, "single-donor mismatch must still only rotate"
+
+
 for name, fn in [(n, f) for n, f in list(globals().items()) if n.startswith("t_")]:
     check(name[2:].replace("_", " "), fn)
 

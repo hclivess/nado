@@ -2137,6 +2137,33 @@ class CoreClient(threading.Thread):
                                 continue
                             time.sleep(1)
                         elif vstate == fork_resolution.BEHIND:
+                            # ONE donor refusing our tip while BEHIND is a lagging/forked donor — rotate.
+                            # But REPEATED positive refusals from DISTINCT donors contradict the verdict:
+                            # a stake-weighted majority_hash can be won at our own tip height by our own
+                            # partisans in a same-height split (4v5, h67961, 2026-08-18 — the seat-heavy
+                            # side outvoted the headcount side, classified BEHIND with ancestor == tip,
+                            # and parked forever while the other branch ran away: the "heavier branch"
+                            # never EXTENDS a tip it does not contain, so forward sync can never link).
+                            # Measurement beats the verdict: resolve pairwise against the heaviest
+                            # advertiser exactly like the no-majority escape.
+                            self._behind_refusals = getattr(self, "_behind_refusals", set())
+                            self._behind_refusals.add(peer)
+                            if len(self._behind_refusals) >= 3:
+                                self._behind_refusals = set()
+                                self.logger.warning("BEHIND verdict contradicted by 3 distinct donors "
+                                                    "positively refusing our tip — resolving pairwise "
+                                                    "against the heaviest advertiser")
+                                self._rec("behind_contradicted", donors=3)
+                                adopted = self._adopt_heaviest_pairwise()
+                                self._fork_state_cache = None
+                                if adopted is None:
+                                    if self._maybe_reanchor():
+                                        self.logger.warning("Re-anchored from seed snapshot; continuing "
+                                                            "with tail sync")
+                                        continue
+                                    break
+                                if adopted:
+                                    continue
                             self.logger.info(f"Tip mismatch from {peer} while BEHIND — rotating donors, "
                                              f"leaving the heavier tips unbenched")
                             time.sleep(1)
