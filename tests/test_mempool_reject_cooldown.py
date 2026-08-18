@@ -51,6 +51,14 @@ def t_transient_refusals_cool_briefly():
         "defaulting terminal would re-create the fork driver for every new message"
 
 
+def t_exec_settle_skew_refusals_never_cool():
+    """A claim proven against a root THIS node has not settled yet is refused by admission until the
+    local exec catches up — cooling it delayed delivery for minutes and forked h68851/h68921. The first
+    reconcile after our settle must be able to admit it."""
+    assert cooldown("Could not merge remote transaction: dividend collection is not proven against the settled execution-layer root") == 0
+    assert cooldown("no settled execution-layer root yet") == 0
+
+
 def t_a_spend_whose_funder_we_hold_never_cools():
     """The fork-driver case exactly: funding in the pool, spend refused until it mines. The next 1 s
     reconcile pass after the funding mines must be able to admit it immediately."""

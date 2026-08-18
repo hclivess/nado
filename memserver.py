@@ -428,6 +428,14 @@ class MemServer:
             return 60
         if "Empty account" in str(message) and funder_in_pool:
             return 0
+        # EXEC-SETTLE SKEW: dividend claims (and their collect blobs) validate at admission against the
+        # receiving node's OWN settled exec root, which lags differently per node — a claim proven
+        # against a root this node has not settled YET was refused + cooled 12s repeatedly, delaying
+        # delivery for minutes (measured: fork seed h68851/h68921 — the majority never held a 3-minute-old
+        # claim). The refusal resolves the moment OUR exec settles; cool 0 so the first reconcile after
+        # that admits it, the earliest any node can.
+        if "not proven against the settled" in str(message) or "no settled execution-layer root" in str(message):
+            return 0
         return 12
 
     def merge_remote_transactions(self, user_origin=False, skip_pool_peers=()) -> None:
@@ -601,6 +609,20 @@ class MemServer:
         elif transaction["max_block"] > self.latest_block["block_number"] + TX_LANDING_WINDOW:
             msg = {"result": False,
                    "message": f"Target block too high"}
+            return msg
+
+        # USER-ORIGIN PROPAGATION GUARD (door-level, so it can never diverge pools: a tx refused at its
+        # OWN entry door never exists anywhere). Browser wallets running a stale cached interface.js
+        # still build dividend claims with no min_block — one seeded the h67961 4v5 split, another
+        # forked h68851 AFTER the JS fix shipped (the fix cannot reach a client that has not refreshed).
+        # Gossip-origin txs are exempt: an already-admitted legacy tx must keep relaying identically on
+        # every node.
+        elif (user_origin and transaction.get("recipient") == "dividend_withdraw"
+                and int(transaction.get("min_block", 0) or 0)
+                        < self.latest_block["block_number"] + 4):
+            msg = {"result": False,
+                   "message": "min_block missing or too near: refresh your wallet — claims must give "
+                              "the network time to propagate before they can be mined"}
             return msg
 
         # SUPERSEDED single-duty forms (doc/consensus-aggregation.md): attest/commit/reveal stay
