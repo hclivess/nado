@@ -172,21 +172,23 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
 #     CHAIN_GENERATION reroll: it decides which rows a from-genesis replay writes into the STATE ROOT
 #     at historical heights. Deleting it early makes every fresh sync compute different historical
 #     roots and wedge fatally. At the reroll, delete it plus /get_open_weights' reconstruction fallback.
-EPOCH_WEIGHTS_COMMIT_ACTIVATION = 82200  # from this height (a boundary, 60*1370), every epoch-boundary
-                             # block COMMITS the just-completed epoch's open-lane weights into L1 state
-                             # (kv_ops.epoch_weights_commit) — the presence-dividend's input becomes an
-                             # immutable state row instead of a query-time reconstruction. The 2026-08-19
-                             # frozen-quorum post-mortem proved weights_at_epoch drifts across code
-                             # versions (three historical replays missed the justified root; the ramp
-                             # rewrites history under every fidelity/pool change). Committed rows enter
-                             # the state ROOT, so from this height a wrong answer is a root split, not a
-                             # silent divergence. HEIGHT-GATED because the new rows change the root at
-                             # the commit block: every node must start committing at the same boundary
-                             # (self-update wave completes well before activation; a fresh replayer
-                             # applies the same rule at the same heights). No historical roots change,
-                             # so no reroll. Retention: ~10 KB/epoch, unpruned for now — a windowed
-                             # journaled prune (execsum-style) is future work.
-                             # Epoch boundary (81000 = epoch 1350), ~2h after the deploy wave.
+# SELF-DISARMING AT THE REROLL (operator directive 2026-08-20: "safer to delete than to risk leaving
+# it in for the reroll"): the gate is tied to THIS chain's identity, so any future CHAIN_ID starts at
+# 0 — committed weights from its genesis, no drift window reborn, nothing to remember on the reroll
+# checklist, and the whole expression deletes naturally when betanet-3 dies. It cannot be a bare
+# deletion TODAY because the row SET is consensus state: the live fleet holds epochw rows only for
+# epochs >= 1369, and an ungated replay (canonical_restore on an archive) would commit ALL past epochs
+# — splitting CURRENT state roots against the fleet, not merely historical ones.
+EPOCH_WEIGHTS_COMMIT_ACTIVATION = 82200 if CHAIN_ID == "betanet-3" else 0
+                             # from this height (a boundary, 60*1370; 0 = genesis on any future chain),
+                             # every epoch-boundary block COMMITS the just-completed epoch's open-lane
+                             # weights into L1 state (kv_ops.epoch_weights_commit) — the presence-
+                             # dividend's input becomes an immutable state row instead of a query-time
+                             # reconstruction. The 2026-08-19 frozen-quorum post-mortem proved
+                             # weights_at_epoch drifts across code versions (three historical replays
+                             # missed the justified root). Committed rows enter the state ROOT, so a
+                             # wrong answer is a root split, not a silent divergence. Retention:
+                             # ~10 KB/epoch, unpruned for now — a windowed journaled prune is future work.
 
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).

@@ -57,7 +57,8 @@ def t1_accrual_position_changes_the_root():
 
 
 def t2_pin_canonical_accrual_gated_and_before_apply():
-    assert "DIV_ACCRUAL_CANONICAL_FROM = 82000" in _SRC, "activation height must be hardcoded"
+    assert 'DIV_ACCRUAL_CANONICAL_FROM = 82000 if _CHAIN_ID == "betanet-3" else 0' in _SRC, \
+        "gate must be hardcoded AND chain-id-tied (self-disarming at any reroll)"
     assert "NADO_EXEC_DIV" not in _SRC, "activation must not be env-tweakable"
     tl = _SRC[_SRC.index("async def tail_loop"):]
     i = tl.index("h >= DIV_ACCRUAL_CANONICAL_FROM")

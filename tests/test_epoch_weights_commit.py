@@ -66,7 +66,8 @@ def t2_revert_deletes():
 
 
 def t3_pins():
-    assert "EPOCH_WEIGHTS_COMMIT_ACTIVATION = 82200" in open(os.path.join(_ROOT, "protocol.py")).read()
+    assert 'EPOCH_WEIGHTS_COMMIT_ACTIVATION = 82200 if CHAIN_ID == "betanet-3" else 0' in open(os.path.join(_ROOT, "protocol.py")).read(), \
+        "gate must be chain-id-tied (self-disarming at any reroll)"
     i = _CORE.index("kv_ops.epoch_weights_commit(_E, weights_at_epoch(_E))")
     seg = _CORE[max(0, i - 800):i]
     assert "_bn >= EPOCH_WEIGHTS_COMMIT_ACTIVATION and _bn % EPOCH_LENGTH == 0" in seg, \

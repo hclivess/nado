@@ -2915,14 +2915,16 @@ async def _repair_bootstrap(session):
 # (h // EPOCH_LENGTH) - 1 — a pure function of h, identical on every node. Below it, the legacy
 # epilogue behavior is preserved so existing lineages replay their own history unchanged. HARDCODED,
 # never env-tweakable: a per-node override would be the bug this fixes.
-# TODO(delete SOON, not at the reroll): per operator directive ("delete gates after the blocks are
-# passed"), remove this gate + the epilogue accrual path the moment every fleet exec cursor AND every
-# adoptable settle checkpoint sits above 82000 (check /exec/roots + stashes fleet-wide — expected
-# 2026-08-20/21). Safe then because the sub-82000 span protects nothing reproducible: pre-gate accrual
-# was batch-timing-dependent (the frozen-quorum bug), so a replay through it diverges under EITHER
-# rule and anchor-adoption heals it identically. (protocol.py's EPOCH_WEIGHTS gate is different — that
-# one changes historical STATE ROOTS and must survive to the reroll.)
-DIV_ACCRUAL_CANONICAL_FROM = 82000
+# SELF-DISARMING AT THE REROLL (operator directive: gates must not survive into a new generation) —
+# tied to the chain identity, so any future CHAIN_ID accrues canonically from cursor 0 and the whole
+# expression deletes naturally with betanet-3.
+# TODO(delete SOON): remove this gate + the epilogue accrual path the moment every fleet exec cursor
+# AND every adoptable settle checkpoint sits above 82000 (check /exec/roots + stashes — expected
+# 2026-08-20/21). Safe then: the sub-82000 span protects nothing reproducible (pre-gate accrual was
+# batch-timing-dependent — the frozen-quorum bug — so a replay through it diverges under either rule
+# and anchor-adoption heals it identically).
+from protocol import CHAIN_ID as _CHAIN_ID
+DIV_ACCRUAL_CANONICAL_FROM = 82000 if _CHAIN_ID == "betanet-3" else 0
 
 # on-chain settle attestations observed during replay: ns -> cursor -> root -> set(sender prefixes).
 # Exec nodes replay every finalized block, so two attesters posting DIFFERENT roots at the SAME
