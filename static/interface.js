@@ -831,6 +831,14 @@ async function claimPendingDividends(pending) {
   const latest = await getLatestBlock(); if (!latest) return;
   for (const p of pending) {
     try {
+      // ONE claim per landing attempt (same bug as the unbond auto-claim, 2026-08-19): the exec node
+      // lists the dividend as unclaimed until the claim LANDS on L1, so every refresh tick in the
+      // submit->landing gap rebuilt the same claim with a fresh txid — 19 duplicates of one nonce sat
+      // in the mempool as phantom pending credit. Hold each nonce until the submitted claim has had
+      // min_block + one more inclusion delay to land; if it still shows pending after that, resubmit.
+      if (!state._divClaimGate) state._divClaimGate = {};
+      const gate = state._divClaimGate[p.nonce];
+      if (gate && latest.block_number < gate) continue;     // an earlier claim for this nonce is still landing
       const pr = await (await fetch(execBase() + "/exec/dividend_proof?nonce=" + encodeURIComponent(p.nonce), { cache: "no-store" })).json();
       if (!pr || pr.state_root !== settledRoot) continue;   // proof must be against the SETTLED root; else wait
       // minBlock: the SAME anti-reorg propagation delay every other flexibly-landing tx uses. A claim
@@ -838,6 +846,7 @@ async function claimPendingDividends(pending) {
       const tx = buildDividendWithdrawTx(state.wallet, state.wallet.address, p.amount, p.nonce, pr.proof, latest.block_number + TX_TARGET_MARGIN, nowSeconds(),
         latest.block_number + TX_INCLUSION_DELAY);
       const res = await submitTransaction(tx);
+      state._divClaimGate[p.nonce] = latest.block_number + TX_INCLUSION_DELAY * 2;
       if (res.data && res.data.result) log("ok", i18("log.divCollected", "Dividend collected: +{a} NADO to your balance.", {a: rawToNado(BigInt(p.amount))}));
     } catch (e) { /* not claimable yet (unsettled) — retry next refresh */ }
   }

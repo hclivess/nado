@@ -644,6 +644,21 @@ class MemServer:
                               "to land"}
             return msg
 
+        # DUPLICATE dividend claim (same class, observed live 2026-08-19 13:26: 19 copies of one
+        # exec-nonce from a single wallet pooled at once — the exec node lists a dividend as unclaimed
+        # until the claim LANDS, so wallets re-built it every poll tick). The exec nonce identifies the
+        # claim; a second copy for the same (sender, nonce) can never pay out. User-origin only, gossip
+        # exempt — identical divergence-safety argument as the two gates above.
+        elif (user_origin and transaction.get("recipient") == "dividend_withdraw"
+                and any(t.get("recipient") == "dividend_withdraw"
+                        and t.get("sender") == transaction.get("sender")
+                        and (t.get("data") or {}).get("nonce") == (transaction.get("data") or {}).get("nonce")
+                        for t in self.transaction_pool)):
+            msg = {"result": False,
+                   "message": "dividend claim already pending — the earlier claim is still waiting "
+                              "to land"}
+            return msg
+
         # SUPERSEDED single-duty forms (doc/consensus-aggregation.md): attest/commit/reveal stay
         # consensus-valid FOREVER (historical blocks carry them; genesis sync replays them), but NEW
         # ones are refused at the mempool door — every honest validator emits the merged `duty` tx,

@@ -88,6 +88,10 @@ def t_duplicate_unbond_withdraw_is_refused_at_the_door():
     assert 'user_origin and transaction.get("recipient") == "withdraw"' in gate, \
         "the withdraw dedupe gate is gone or no longer user-origin-only"
     assert "already pending" in gate, "the refusal message changed shape"
+    div = src[src.index("DUPLICATE dividend claim"):]
+    div = div[:div.index("SUPERSEDED")]
+    assert 'user_origin and transaction.get("recipient") == "dividend_withdraw"' in div \
+        and '.get("nonce")' in div, "the dividend-claim dedupe gate (per sender+exec-nonce) is gone"
     js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "static", "interface.js"), encoding="utf8").read()
     assert "_unbondClaimTarget" in js and js.index("_unbondClaimTarget") < js.index("buildWithdrawUnbondTx(state.wallet"), \

@@ -162,9 +162,10 @@ has propagated (omitting it is legal but was a measured fork driver). Everything
 **Mempool door gates (user-origin only).** The relay refuses at submission — never at gossip, so a
 refusal can't diverge pools — (a) a `dividend_withdraw` whose `min_block` is missing or nearer than
 tip + 4 ("refresh your wallet"), and (b) a second `withdraw` (unbond claim) from a sender who already
-has one waiting in the pool ("unbond withdrawal already pending") — an account has one pending-unbond
-slot, so one in-flight claim is complete; duplicate claims only pile up as phantom pending credit in
-wallet history until they die.
+has one waiting in the pool ("unbond withdrawal already pending"), and (c) a second `dividend_withdraw`
+for the same (sender, exec nonce) while one is pooled ("dividend claim already pending"). One in-flight
+claim is complete — duplicates can never pay out and only pile up as phantom pending credit in wallet
+history until they die.
 
 ---
 
