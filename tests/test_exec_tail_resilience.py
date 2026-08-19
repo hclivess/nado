@@ -31,7 +31,7 @@ _TL = _SRC[_SRC.index("async def tail_loop"):]
 
 def t1_batch_fetch_degrades_not_raises():
     i = _TL.index("while state.cursor < finalized:")
-    seg = _TL[i:i + 2500]
+    seg = _TL[i:i + 5000]   # widened for the batch-prefetch block
     j = seg.index('_get_json(session, f"/get_block?number={h}")')
     assert "try:" in seg[:j], "the batch block-fetch must be exception-wrapped"
     k = seg.index("except", j)
@@ -52,8 +52,28 @@ def t3_tail_error_names_the_type():
         "the tail-error handler must name the exception type (str(TimeoutError) is empty)"
 
 
+def t4_batch_prefetch_with_single_fetch_fallback():
+    # catch-up must amortize round trips (one /get_blocks_after call per ~100 blocks) but the
+    # single-block fetch stays the correctness path: any batch problem falls through to it, the
+    # buffer is POLL-LOCAL (refilled from the current cursor's own hash -> reorg-safe), and only
+    # finalized-bounded blocks enter it.
+    i = _TL.index("prefetch = {}")
+    seg = _TL[i:i + 3000]
+    assert "/get_blocks_after?hash={_ph}&count=" in seg, "batch prefetch must key off our own last hash"
+    assert '_b["block_number"] <= finalized' in seg, "prefetch must never admit unfinalized blocks"
+    assert 'f"/get_block?number={h}"' in seg, "single-block fetch must remain the fallback"
+    assert seg.index("get_blocks_after") < seg.index('f"/get_block?number={h}"'), "batch tried first"
+
+
+def t5_provisional_guarded_and_named():
+    assert "if tip - state.cursor <= 200:" in _TL, "provisional refresh must pause during deep catch-up"
+    assert "provisional refresh error: {type(e).__name__}" in _TL, "provisional errors must name the type"
+
+
 check("batch fetch degrades to break, never kills the poll", t1_batch_fetch_degrades_not_raises)
 check("mid-batch persistence", t2_mid_batch_persistence)
 check("tail error names the exception type", t3_tail_error_names_the_type)
+check("batch prefetch, poll-local, finality-bounded, single-fetch fallback", t4_batch_prefetch_with_single_fetch_fallback)
+check("provisional refresh paused while behind; errors named", t5_provisional_guarded_and_named)
 print(f"\n{'ALL PASS' if fails == 0 else f'{fails} FAILURE(S)'}")
 sys.exit(1 if fails else 0)

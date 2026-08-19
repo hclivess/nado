@@ -3280,23 +3280,45 @@ async def tail_loop():
                 stale_polls = 0
                 applied = 0
                 prev_cursor_for_ckpt = state.cursor
+                prefetch = {}          # poll-local h -> block from ONE /get_blocks_after call (see below)
                 while state.cursor < finalized:
                     h = state.cursor + 1
-                    # A SLOW FETCH MUST END THE BATCH, NEVER THE POLL. This batch makes one sequential
-                    # request per block — hundreds when catching up — and _get_json RAISES on its 15s
-                    # timeout. Unhandled, that raise skipped the ENTIRE poll epilogue below: dividend
-                    # accrual, the state SAVE, the checkpoint, the settle spawn. Under a busy L1 every
-                    # poll died this way — MEASURED 2026-08-19: 0 completed epilogues in 100 minutes,
-                    # exec_state.json 2h stale while blocks applied in memory, every restart re-replaying
-                    # hours. (Invisible for weeks because str(TimeoutError) is "" — the log said
-                    # "tail error: " and nothing else.) A fetch failure is the NORMAL degraded case the
-                    # `break` below was always meant for; make the raise take that path too.
-                    try:
-                        block = await _get_json(session, f"/get_block?number={h}")
-                    except (asyncio.TimeoutError, aiohttp.ClientError, OSError) as e:
-                        print(f"[execnode] block fetch {h} failed ({type(e).__name__}) — pausing batch, "
-                              f"keeping progress", flush=True)
-                        block = None
+                    # BATCH PREFETCH, POLL-LOCAL. One block per HTTP round trip made catch-up latency-bound:
+                    # on a loaded host each answer took 1-15 s, batches died after 1-3 blocks on the 15 s
+                    # timeout, and the exec FELL BEHIND the chain while healthy (MEASURED 2026-08-20 00:01:
+                    # 1.7 applied/min vs 8 produced/min, 500 behind and growing). /get_blocks_after?hash=
+                    # returns up to ~100 descendants of our last applied block in ONE call, amortizing the
+                    # round trip ~100x. The buffer lives inside this poll only (refilled from the CURRENT
+                    # cursor's own hash each time), so a reorg/rewind can never serve a stale block, and
+                    # every per-block rule below — linkage, canonical accrual, the body-less gap, settle
+                    # observation — runs unchanged on buffered and single-fetched blocks alike. Any batch
+                    # problem falls back to the single-block fetch, which remains the correctness path.
+                    block = prefetch.pop(h, None)
+                    if block is None:
+                        _ph = state.block_hashes.get(state.cursor)
+                        if _ph and (finalized - state.cursor) > 3:
+                            try:
+                                _r = await _get_json(session, f"/get_blocks_after?hash={_ph}&count=100")
+                                for _b in (_r.get("blocks_after") or []) if isinstance(_r, dict) else []:
+                                    if isinstance(_b, dict) and isinstance(_b.get("block_number"), int) \
+                                            and _b["block_number"] <= finalized:
+                                        prefetch[_b["block_number"]] = _b
+                                block = prefetch.pop(h, None)
+                            except Exception:
+                                pass                       # batch is an optimisation; the fallback decides
+                    if block is None:
+                        # A SLOW FETCH MUST END THE BATCH, NEVER THE POLL. _get_json RAISES on its 15s
+                        # timeout; unhandled, that raise skipped the ENTIRE poll epilogue (dividend accrual,
+                        # the state SAVE, the checkpoint, the settle spawn) — MEASURED 2026-08-19: 0
+                        # completed epilogues in 100 minutes, exec_state.json 2h stale while blocks applied
+                        # in memory. (Invisible for weeks because str(TimeoutError) is "".) A fetch failure
+                        # is the NORMAL degraded case the `break` below was always meant for.
+                        try:
+                            block = await _get_json(session, f"/get_block?number={h}")
+                        except (asyncio.TimeoutError, aiohttp.ClientError, OSError) as e:
+                            print(f"[execnode] block fetch {h} failed ({type(e).__name__}) — pausing batch, "
+                                  f"keeping progress", flush=True)
+                            block = None
                     if not isinstance(block, dict):
                         break                                  # fetch problem; retry next poll
                     # PARENT LINKAGE — the zero-gap detector. The block we are about to apply must chain
@@ -3439,9 +3461,17 @@ async def tail_loop():
                     latest = await _get_json(session, "/get_latest_block")
                     tip = int(latest.get("block_number", state.cursor)) if isinstance(latest, dict) else state.cursor
                     tip_hash = latest.get("block_hash") if isinstance(latest, dict) else None
-                    await _refresh_provisional(session, state.cursor, tip, tip_hash)
+                    # SKIP WHILE FAR BEHIND. The provisional view exists to show the unfinalized tail a
+                    # beat early — meaningless when the FINALIZED cursor itself is hundreds of blocks
+                    # stale, yet the refresh still cloned the full state and re-fetched/re-applied up to
+                    # PROV_MAX_TAIL blocks EVERY POLL, competing for the same starved L1 + CPU the
+                    # catch-up needed (measured 2026-08-20: exec at 70% CPU while applying 1.7 blocks/min,
+                    # 500 behind and falling). Catch-up first; the tail view resumes within 200 of the tip.
+                    if tip - state.cursor <= 200:
+                        await _refresh_provisional(session, state.cursor, tip, tip_hash)
                 except Exception as e:
-                    print(f"[execnode] provisional refresh error: {e}", flush=True)
+                    # NAME THE TYPE — str(TimeoutError) is "" (the same invisibility the tail handler had).
+                    print(f"[execnode] provisional refresh error: {type(e).__name__}: {e}", flush=True)
             except Exception as e:
                 # NAME THE TYPE. str(asyncio.TimeoutError()) is "" — this line printed literally
                 # "tail error: " for every timeout, which is how a 100%-poll-failure mode stayed
