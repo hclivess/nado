@@ -3011,7 +3011,21 @@ async def tail_loop():
                 prev_cursor_for_ckpt = state.cursor
                 while state.cursor < finalized:
                     h = state.cursor + 1
-                    block = await _get_json(session, f"/get_block_number?number={h}")
+                    # A SLOW FETCH MUST END THE BATCH, NEVER THE POLL. This batch makes one sequential
+                    # request per block — hundreds when catching up — and _get_json RAISES on its 15s
+                    # timeout. Unhandled, that raise skipped the ENTIRE poll epilogue below: dividend
+                    # accrual, the state SAVE, the checkpoint, the settle spawn. Under a busy L1 every
+                    # poll died this way — MEASURED 2026-08-19: 0 completed epilogues in 100 minutes,
+                    # exec_state.json 2h stale while blocks applied in memory, every restart re-replaying
+                    # hours. (Invisible for weeks because str(TimeoutError) is "" — the log said
+                    # "tail error: " and nothing else.) A fetch failure is the NORMAL degraded case the
+                    # `break` below was always meant for; make the raise take that path too.
+                    try:
+                        block = await _get_json(session, f"/get_block_number?number={h}")
+                    except (asyncio.TimeoutError, aiohttp.ClientError, OSError) as e:
+                        print(f"[execnode] block fetch {h} failed ({type(e).__name__}) — pausing batch, "
+                              f"keeping progress", flush=True)
+                        block = None
                     if not isinstance(block, dict):
                         break                                  # fetch problem; retry next poll
                     # PARENT LINKAGE — the zero-gap detector. The block we are about to apply must chain
@@ -3040,6 +3054,13 @@ async def tail_loop():
                     if not await _apply_block(session, states, state, block, verbose=True):
                         break                                  # DA stall: do NOT advance the cursor; retry next poll
                     applied += 1
+                    # PERSIST MID-BATCH. A long catch-up (hundreds of blocks after a restart or an L1
+                    # stall) used to reach disk only at the epilogue — one interruption anywhere and the
+                    # whole batch replayed again next restart. ~5.7 MB dump every 200 blocks is noise
+                    # against the refetch cost of losing them.
+                    if applied % 200 == 0:
+                        for _st in states.values():
+                            _st.save()
                 if applied:
                     # PRESENCE DIVIDEND (doc/presence-dividend.md) — DETERMINISTIC per-epoch accrual: for each
                     # fully-completed epoch not yet accrued, distribute that epoch's total DIVIDEND_POOL inflow
@@ -3123,7 +3144,10 @@ async def tail_loop():
                 except Exception as e:
                     print(f"[execnode] provisional refresh error: {e}", flush=True)
             except Exception as e:
-                print(f"[execnode] tail error: {e}", flush=True)
+                # NAME THE TYPE. str(asyncio.TimeoutError()) is "" — this line printed literally
+                # "tail error: " for every timeout, which is how a 100%-poll-failure mode stayed
+                # unnoticed for weeks. An empty message is not a small bug; it is invisibility.
+                print(f"[execnode] tail error: {type(e).__name__}: {e}", flush=True)
             await asyncio.sleep(POLL)
 
 
