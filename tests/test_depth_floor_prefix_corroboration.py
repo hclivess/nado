@@ -32,6 +32,11 @@ _SRC = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 
 def t1_pins():
     fn = _SRC[_SRC.index("def _depth_floor_corroborated"):_SRC.index("def _fork_state")]
+    g = fn.index("majority_on_our_canonical(heaviest")
+    assert "_extends_us(_peer, _budget)" in fn[g:g + 1900], \
+        "the heaviest-tip gate must consult the prefix probe (the first landing missed it)"
+    assert fn.index("_budget = [4]") < g, "one budget per pass, created before the heaviest gate"
+    assert fn.count("_budget = [4]") == 1, "budget must never reset mid-pass"
     v = fn.index("_t is None or not majority_on_our_canonical")
     assert "_extends_us(_peer, _budget)" in fn[v:v + 300], \
         "an unanswerable heavier claim must consult the prefix probe before vetoing"
@@ -43,6 +48,7 @@ def t1_pins():
     assert "_memo_probe(peer, our_h, our_h)" in ex, "must ride the 90s fork-verdict memo"
     assert "budget[0] <= 0" in ex and "budget[0] -= 1" in ex, "new probes must be budget-capped"
     assert "h == our_hash" in ex, "corroboration = the peer's signed hash at OUR height equals OUR tip"
+    assert "pop((peer, our_h)" in ex, "memoized FAILURES must re-probe, not stand for 90s"
 
 
 def t2_behavioral():

@@ -1237,8 +1237,22 @@ class CoreClient(threading.Thread):
         heaviest = self.consensus.heaviest_block_hash
         if not heaviest:
             return True
+        _budget = [4]      # shared prefix-probe budget for this pass (see LAGGING-PREFIX below)
         if not majority_on_our_canonical(heaviest, get_block, get_block_hash_by_number):
-            return False
+            # LAGGING-PREFIX ESCAPE (2026-08-19, second landing of the same fix): this early return was
+            # the gate the first landing never reached — a lagging node NEVER holds the heaviest
+            # advertised tip (everyone is ahead of it), so this returned False before the veto-loop and
+            # fallback probes below ever ran, and the floor stayed frozen (measured: still frozen at
+            # 81242 after the first fix shipped; external probes confirmed every peer's signed hash at
+            # our height MATCHED ours). Same principle as below: if a heaviest-class peer's signed hash
+            # at OUR height equals OUR tip hash, the heavier chain CONTAINS us — we are behind it, not
+            # forked from it.
+            for _peer, _w in sorted(((p, w) for p, w in (self.consensus.weight_pool or {}).copy().items()
+                                     if isinstance(w, int)), key=lambda kv: -kv[1])[:4]:
+                if self._extends_us(_peer, _budget):
+                    break
+            else:
+                return False
         # SOMEONE ELSE HAS TO SAY IT. The check above asks "is the heaviest tip on our chain", and for a node
         # ALONE ON A FORK the answer is trivially yes — it mines every slot unopposed, so its own tip IS the
         # heaviest and it corroborates itself. That is precisely the wedge this predicate exists to prevent,
@@ -1280,8 +1294,8 @@ class CoreClient(threading.Thread):
         # betanet-14 minority clique still fails (the heavier foreign peer's hash at their height is not
         # theirs); and a liar could already grant corroboration by advertising our tip in the hash pool,
         # so no new trust is extended. Probes are memoized (_memo_probe, 90 s) and budgeted per pass —
-        # unmemoized serial probing is what caused the 2026-08-18 09:00 fleet freeze.
-        _budget = [4]
+        # unmemoized serial probing is what caused the 2026-08-18 09:00 fleet freeze. (_budget is
+        # created above, before the heaviest-tip gate — ONE budget per pass, never reset mid-pass.)
         _our_w = int((self.memserver.latest_block or {}).get("cumulative_weight", 0) or 0)
         for _peer, _w in (self.consensus.weight_pool or {}).copy().items():
             if not isinstance(_w, int) or _w <= _our_w:
@@ -1318,11 +1332,17 @@ class CoreClient(threading.Thread):
         if not our_h or not our_hash:
             return False
         memo = getattr(self, "_probe_memo", None)
-        cached = memo is not None and (peer, our_h) in memo[1]
-        if not cached:
+        cached = memo is not None and memo[1].get((peer, our_h))
+        # a memoized FAILURE (None-hash) must not stand for 90 s — under host load a single 3 s probe
+        # timeout would otherwise pin this peer un-corroborating for the whole memo window while the
+        # floor stays frozen. Successes are immutable facts and ride the memo; failures re-probe
+        # whenever the budget allows.
+        if not (cached and cached[0]):
             if budget[0] <= 0:
                 return False
             budget[0] -= 1
+            if memo is not None:
+                memo[1].pop((peer, our_h), None)       # drop the cached failure so _memo_probe re-asks
         try:
             h, _seats = self._memo_probe(peer, our_h, our_h)
         except Exception:
