@@ -659,6 +659,36 @@ class MemServer:
                               "to land"}
             return msg
 
+        # COLLECT-BLOB PROPAGATION GUARD (user-origin only): the exact rule the dividend_withdraw gate
+        # enforces, for the collect blob that REQUESTS the dividend. Stale cached wallets still build it
+        # with no min_block, and it seeded the ONLY two organic forks after the duty class was closed
+        # (h79050 #32, h80403 #36 — both "only_ours: blob/collect_dividend"). The match is deliberately
+        # narrow — only op == "collect_dividend", which nothing but the wallet's collect path builds —
+        # so game/SDK blobs are untouched. Gossip exempt, as always: door refusals cannot diverge pools.
+        elif (user_origin and transaction.get("recipient") == "blob"
+                and isinstance(transaction.get("data"), dict)
+                and transaction["data"].get("op") == "collect_dividend"
+                and int(transaction.get("min_block", 0) or 0)
+                        < self.latest_block["block_number"] + 4):
+            msg = {"result": False,
+                   "message": "min_block missing or too near: refresh your wallet — claims must give "
+                              "the network time to propagate before they can be mined"}
+            return msg
+
+        # DUPLICATE registration (user-origin only): register is EXACT-landing, so under head churn a
+        # wallet's registration misses its block and the wallet re-mints — 50 registrations sat pooled
+        # at 16:35 (several senders holding 2-3 copies) while exactly one landed in 40 blocks. A second
+        # copy from the same sender while one is still in flight can never register anything extra;
+        # refuse it at the door (gossip exempt) so the pool carries one attempt per wallet.
+        elif (user_origin and transaction.get("recipient") == "register"
+                and any(t.get("recipient") == "register"
+                        and t.get("sender") == transaction.get("sender")
+                        for t in self.transaction_pool)):
+            msg = {"result": False,
+                   "message": "registration already pending — the earlier attempt is still waiting "
+                              "to land"}
+            return msg
+
         # SUPERSEDED single-duty forms (doc/consensus-aggregation.md): attest/commit/reveal stay
         # consensus-valid FOREVER (historical blocks carry them; genesis sync replays them), but NEW
         # ones are refused at the mempool door — every honest validator emits the merged `duty` tx,

@@ -92,6 +92,14 @@ def t_duplicate_unbond_withdraw_is_refused_at_the_door():
     div = div[:div.index("SUPERSEDED")]
     assert 'user_origin and transaction.get("recipient") == "dividend_withdraw"' in div \
         and '.get("nonce")' in div, "the dividend-claim dedupe gate (per sender+exec-nonce) is gone"
+    cb = src[src.index("COLLECT-BLOB PROPAGATION GUARD"):]
+    cb = cb[:cb.index("DUPLICATE registration")]
+    assert '"op") == "collect_dividend"' in cb and "min_block" in cb, \
+        "the collect-blob min_block gate is gone (h79050/h80403 seed class)"
+    rg = src[src.index("DUPLICATE registration"):]
+    rg = rg[:rg.index("SUPERSEDED")]
+    assert 'transaction.get("recipient") == "register"' in rg and "user_origin" in rg, \
+        "the register dedupe gate is gone"
     js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "static", "interface.js"), encoding="utf8").read()
     assert "_unbondClaimTarget" in js and js.index("_unbondClaimTarget") < js.index("buildWithdrawUnbondTx(state.wallet"), \
