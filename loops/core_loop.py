@@ -1267,20 +1267,67 @@ class CoreClient(threading.Thread):
         # locate this pass (the pools refresh on different cadences; an unanswerable heavier claim is the
         # LEAST corroborated case, not a pass) — freezes the floor. Freezing is the safe direction; a
         # liar merely delays our finality and its tip re-benches on the next failed fetch.
+        # LAGGING-PREFIX CORROBORATION (2026-08-19). Both checks below share a blind spot that froze this
+        # node's floor for 2.5 hours ON THE CANONICAL CHAIN: majority_on_our_canonical requires us to HOLD
+        # the peer's advertised tip block, but a node that is merely SLOW (overloaded host, ~30 blocks
+        # behind) never holds anyone's current tip — every peer is ahead of it. Every heavier peer claim
+        # was then "unanswerable" (the veto), no advertised hash was a block we hold (the corroboration
+        # loop), and the floor sat frozen at 81242 across restarts while the tip followed the fleet
+        # normally — starving the exec layer, which caps at finalized. "Behind on the SAME chain" is not
+        # "on a different chain", and it IS corroborable: a SIGNED peer claim that its hash at OUR height
+        # equals OUR tip hash proves our chain is a strict prefix of the peer's heavier one. A forker's
+        # hash at our height differs (that is what forking means), so a lone forker gains nothing; the
+        # betanet-14 minority clique still fails (the heavier foreign peer's hash at their height is not
+        # theirs); and a liar could already grant corroboration by advertising our tip in the hash pool,
+        # so no new trust is extended. Probes are memoized (_memo_probe, 90 s) and budgeted per pass —
+        # unmemoized serial probing is what caused the 2026-08-18 09:00 fleet freeze.
+        _budget = [4]
         _our_w = int((self.memserver.latest_block or {}).get("cumulative_weight", 0) or 0)
         for _peer, _w in (self.consensus.weight_pool or {}).copy().items():
             if not isinstance(_w, int) or _w <= _our_w:
                 continue
             _t = self.consensus.block_hash_pool.get(_peer)
             if _t is None or not majority_on_our_canonical(_t, get_block, get_block_hash_by_number):
-                return False
+                if not self._extends_us(_peer, _budget):
+                    return False
         _me = {self.memserver.ip, get_config().get("ip")} - {None}
         for _peer, _hash in self.consensus.block_hash_pool.copy().items():
             if _peer in _me or not _hash:
                 continue
             if majority_on_our_canonical(_hash, get_block, get_block_hash_by_number):
                 return True
+        # nobody advertises a tip we hold — the lagging case. Ask the heaviest few directly whether
+        # their chain contains our tip (see the header comment).
+        for _peer, _w in sorted(((p, w) for p, w in (self.consensus.weight_pool or {}).copy().items()
+                                 if isinstance(w, int) and p not in _me),
+                                key=lambda kv: -kv[1])[:4]:
+            if self._extends_us(_peer, _budget):
+                return True
         return False
+
+    def _extends_us(self, peer, budget):
+        """True when `peer`'s SIGNED hash claim at OUR tip height equals our tip hash — proof our chain
+        is a strict prefix of the peer's (we are behind the same chain, not on a fork). Uses the same
+        90 s (peer, height) memo as the fork verdict; `budget` (single-element list) caps NEW probes per
+        corroboration pass so a large peer set can never serialize into a loop-freezing probe storm —
+        an exhausted budget just answers False, which only delays the floor one pass (the safe
+        direction)."""
+        lb = self.memserver.latest_block or {}
+        our_h = int(lb.get("block_number", 0) or 0)
+        our_hash = lb.get("block_hash")
+        if not our_h or not our_hash:
+            return False
+        memo = getattr(self, "_probe_memo", None)
+        cached = memo is not None and (peer, our_h) in memo[1]
+        if not cached:
+            if budget[0] <= 0:
+                return False
+            budget[0] -= 1
+        try:
+            h, _seats = self._memo_probe(peer, our_h, our_h)
+        except Exception:
+            return False
+        return h == our_hash
 
     def _fork_state(self):
         """Measured fork state (ops/fork_resolution.resolve), cached for FORK_STATE_TTL_S.
