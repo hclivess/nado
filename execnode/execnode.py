@@ -1853,6 +1853,42 @@ async def maybe_settle(session):
                           f"would risk a divergent exec_root. Set NADO_EXEC_BOOTSTRAP to adopt the settled "
                           f"checkpoint.", flush=True)
                 continue
+            # SELF-DISQUALIFICATION. If L1 has JUSTIFIED a (cursor, root) we also attested — with a
+            # DIFFERENT root — then the quorum has ruled against our state. Our lineage is wrong by
+            # definition (settled = canonical), and every future root we compute extends the wrong
+            # lineage. Mark the state replay_gap so the gate below mutes us and auto-repair adopts the
+            # canonical checkpoint. Without this, a divergent node keeps attesting its own roots forever
+            # and (with enough shares) can freeze the quorum — betanet-3 ran 11k+ cursors frozen this way.
+            try:
+                _sd = await _get_json(session, f"/get_settled?ns={ns}")
+                if isinstance(_sd, dict) and "exec_cursor" in _sd:
+                    _sc = int(_sd["exec_cursor"])
+                    _ours = st.attested.get(_sc)
+                    if _ours is not None and str(_sd.get("exec_root", "")) and _ours != str(_sd["exec_root"]):
+                        st.replay_gap = True
+                        st.save()
+                        print(f"[execnode] settle ns={ns} SELF-DISQUALIFIED — L1 justified cursor {_sc} "
+                              f"root {str(_sd['exec_root'])[:16]}… but we attested {_ours[:16]}…; our "
+                              f"lineage is non-canonical. Muting attestations until repair-bootstrap "
+                              f"adopts the settled checkpoint.", flush=True)
+            except Exception:
+                pass  # best-effort; the gate below still holds
+            # COMPLETENESS GATE. window_canonical() checks the RANDOMNESS window against a MOVING
+            # retention horizon — it self-heals with time even when the state underneath was built over
+            # a replay gap (pruned bodies carrying deploys/calls were silently skipped). state_complete()
+            # is PERMANENT provenance: genesis-clean floors, or a quorum-verified bootstrap, and never a
+            # recorded replay gap. A node failing it must not vote on settlement — its root is a guess.
+            if not st.state_complete():
+                _now = time.time()
+                _k = ("state_complete", ns)
+                if (_now - _settle_skip_logged.get(_k, 0.0)) >= _SETTLE_SKIP_LOG_EVERY:
+                    _settle_skip_logged[_k] = _now
+                    print(f"[execnode] settle ns={ns} SKIPPED — state provenance incomplete "
+                          f"(replay_gap={st.replay_gap}, bootstrapped={st.bootstrapped}, "
+                          f"beacon_floor={st.beacon_floor}, blockhash_floor={st.blockhash_floor}); this "
+                          f"node will not attest until auto-repair verifies a settled checkpoint from a "
+                          f"peer (runs automatically) or a from-genesis replay completes.", flush=True)
+                continue
             # CAPTURE THE WHOLE PAIR ATOMICALLY, RECORDS HALF INCLUDED. This used to read (cursor, root)
             # and say "the tail loop is single-task, so st does not advance during the (possibly
             # minutes-long) proving await below". That was true when settling was AWAITED from the tail.
@@ -2330,6 +2366,12 @@ async def maybe_settle(session):
                 proof = None
             if isinstance(out, dict) and out.get("result"):
                 ok_any = True
+                # REMEMBER WHAT WE ATTESTED. The self-disqualification check above compares L1's justified
+                # (cursor, root) against this memo: if the quorum later settles the SAME cursor with a
+                # DIFFERENT root, we know — not guess — that our lineage lost. Bounded to the last 64.
+                st.attested[cur] = root
+                for _oc in sorted(st.attested)[:-64]:
+                    del st.attested[_oc]
                 # stash the snapshot AT this settle so /exec/state_snapshot can serve a joiner a
                 # payload that is verifiable against exactly this (cursor, root) once justified — AND it is
                 # the pre-state the NEXT settle-with-proof extends. Serialized NOW — the live dicts keep
@@ -2762,6 +2804,11 @@ async def _maybe_bootstrap(session):
                 if (settled.get("state_root") == root
                         and int(settled.get("exec_cursor", -2)) == int(snap.get("cursor", -3))):
                     st._restore(snap["state"])         # payload carries cursor/last_div_epoch/pools
+                    # PROVENANCE: this state is now quorum-verified — whatever gaps or flags the DONOR's
+                    # payload carried are superseded by the L1 attestation of this exact (cursor, root).
+                    st.bootstrapped = True
+                    st.replay_gap = False
+                    st.attested = {}
                     st.save()
                     print(f"[execnode] BOOTSTRAPPED ns={ns} from settled checkpoint cursor {st.cursor} "
                           f"root {root[:16]}… (verified against L1 quorum)", flush=True)
@@ -2775,6 +2822,86 @@ async def _maybe_bootstrap(session):
         else:
             print(f"[execnode] bootstrap ns={ns} FAILED after retries — continuing with plain replay "
                   f"(safe only while L1 still retains full recert history)", flush=True)
+
+
+_repair_last = 0.0                     # last _repair_bootstrap attempt (monotonic-ish wall clock)
+_REPAIR_EVERY = 600.0                  # seconds between repair attempts while a ns stays incomplete
+
+
+async def _repair_bootstrap(session):
+    """AUTO-REPAIR (existing-state side): a namespace whose state is PROVENANCE-INCOMPLETE
+    (state_complete() False — replay gap recorded, or non-genesis floors and never bootstrapped) is
+    muted from settling by maybe_settle, and a muted node never heals by itself: its state is wrong,
+    not late. This adopts a donor's settled checkpoint OVER the existing state, with exactly
+    _maybe_bootstrap's trust model — the payload is accepted only if the state_root RECOMPUTED from
+    it matches the L1-QUORUM-settled (cursor, root); the bonded quorum vouches, never the donor.
+
+    Donors are the explicit NADO_EXEC_BOOTSTRAP url (if set) plus every L1 peer's exec port — no
+    configuration needed on the broken node. NOTE the two-phase healing this implies fleet-wide:
+    while the OLD settled checkpoint predates every donor's stash window, no donor can serve it and
+    repair keeps failing quietly. That is correct — the muted divergent attesters age out of the
+    settle-activity window (SETTLE_ACTIVITY_CURSORS), the remaining complete node(s) justify a FRESH
+    cursor, and THAT checkpoint is servable. Called inline from the tail (single-task, so it can
+    never race _apply_block), throttled to every _REPAIR_EVERY seconds."""
+    global _last_settled_cursor, prov_states, _prov_key, _prov_last, _prov_since_full
+    import threading as _threading
+    need = [ns for ns, st in states.items() if st.cursor >= 0 and not st.state_complete()]
+    if not need:
+        return
+    donors = ([BOOTSTRAP] if BOOTSTRAP else [])
+    try:
+        pr = await _get_json(session, "/peers")
+        for ip in (pr.get("peers") or []) if isinstance(pr, dict) else []:
+            host = f"[{ip}]" if (":" in ip and not ip.startswith("[")) else ip
+            donors.append(f"http://{host}:{PORT}")
+    except Exception:
+        pass
+    for ns in need:
+        st = states[ns]
+        settled = await _get_json(session, f"/get_settled?ns={ns}")
+        if not (isinstance(settled, dict) and settled.get("state_root")):
+            continue                       # nothing justified for this ns — nothing to verify against
+        for donor in donors:
+            try:
+                async with session.get(f"{donor}/exec/state_snapshot?ns={ns}",
+                                       timeout=aiohttp.ClientTimeout(total=20)) as r:
+                    snap = await r.json(content_type=None)
+                if not isinstance(snap, dict) or "state" not in snap:
+                    continue
+                cand = ExecState.__new__(ExecState)    # verify on a scratch instance, never on `st`
+                cand.path = st.path + "#repair-verify"
+                cand._mutate_lock = _threading.RLock()
+                cand._restore(snap["state"])
+                root = cand.state_root()
+                if not (settled.get("state_root") == root
+                        and int(settled.get("exec_cursor", -2)) == int(snap.get("cursor", -3))):
+                    continue                           # stale or divergent donor — try the next one
+                st._restore(snap["state"])
+                # same hygiene as _rewind_to: the donor serialized this from a LIVE state, so the
+                # block-hash ring can carry entries above the payload's own cursor — drop them.
+                for h in [h for h in st.block_hashes if h > int(st.cursor)]:
+                    st.block_hashes.pop(h, None)
+                st.bootstrapped = True
+                st.replay_gap = False
+                st.attested = {}
+                st.save()
+                # the adopted payload IS this ns's settled checkpoint — seed the stash with it, and
+                # drop everything derived from the abandoned lineage.
+                _settled_snapshots[ns] = json.dumps({"ns": ns, "cursor": st.cursor, "state_root": root,
+                                                     "state": st._snapshot()}, sort_keys=True)
+                _settled_history[ns] = {st.cursor: _settled_snapshots[ns]}
+                _stash_persist(ns, st.cursor, _settled_snapshots[ns])
+                _last_settled_cursor = -1
+                prov_states = None
+                _prov_key = None
+                _prov_last = None
+                _prov_since_full = 0
+                print(f"[execnode] REPAIR-BOOTSTRAPPED ns={ns} from {donor} at settled cursor "
+                      f"{st.cursor} root {root[:16]}… (verified against L1 quorum) — provenance "
+                      f"restored, settle attestations re-enabled", flush=True)
+                break
+            except Exception:
+                continue                               # unreachable/slow donor — try the next one
 
 
 async def tail_loop():
@@ -2899,10 +3026,15 @@ async def tail_loop():
                         break
                     if "block_transactions" not in block:
                         # A FINALIZED block (h <= finalized) with no body is PRUNED (rolling mode drops old
-                        # block bodies, leaving only {block_number}). Such blocks predate the exec features and
-                        # carry nothing to replay, so SKIP them — otherwise a fresh exec node can never
-                        # cold-start on a pruned chain. Advance only the default cursor (the loop watermark);
-                        # other ns cursors catch up on the next block with a body.
+                        # block bodies, leaving only {block_number}). SKIP it so a fresh exec node can still
+                        # cold-start on a pruned chain — BUT record the gap. The old premise ("such blocks
+                        # predate the exec features") died at the reroll: a pruned body may carry deploys,
+                        # calls, collects. A state built over a gap is a GUESS, and betanet-3 proved it
+                        # (the frozen-quorum incident: gap-started exec nodes silently skipped the contract
+                        # deploys and diverged on every multi-attester cursor). replay_gap is PERMANENT
+                        # provenance: it makes state_complete() False, which mutes this node's settle
+                        # attestations until a quorum-verified bootstrap replaces the state.
+                        state.replay_gap = True
                         state.cursor = h
                         continue
                     if not await _apply_block(session, states, state, block, verbose=True):
@@ -2969,6 +3101,17 @@ async def tail_loop():
                         _settle_tasks.add(_t)
                         _t.add_done_callback(_settle_tasks.discard)
                         _t.add_done_callback(_settle_task_done)
+                # AUTO-REPAIR PROBE — inline (single-task, can never race _apply_block above), throttled,
+                # and a no-op the moment every namespace passes state_complete(). See _repair_bootstrap.
+                global _repair_last
+                _now = time.time()
+                if (_now - _repair_last) >= _REPAIR_EVERY:
+                    if any(st.cursor >= 0 and not st.state_complete() for st in states.values()):
+                        _repair_last = _now
+                        try:
+                            await _repair_bootstrap(session)
+                        except Exception as e:
+                            print(f"[execnode] repair-bootstrap error: {e}", flush=True)
                 # Rebuild the PROVISIONAL view EVERY poll (even with no newly-finalized block — the tip still
                 # advances ~every block_time, so a just-included bet/reveal/deposit shows within ~one block
                 # instead of a whole finality window). Best-effort; never breaks the finalized tail.

@@ -325,6 +325,14 @@ class ExecState:
         self.beacons = {}          # epoch(int) -> beacon(int), cached
         self.beacon_floor = None   # first epoch we witness in full (set on first advance) — below it, unavailable
         self.blockhash_floor = None  # first L1 height we recorded (set on first record_block_hash) — provenance:
+        # STATE PROVENANCE (2026-08-19, settle-quorum incident): three flags that decide whether this
+        # state may be ATTESTED on L1 (see state_complete). Persisted in the payload but NOT committed to
+        # state_root (the root is derived from the sparse trees), so they are node-local metadata.
+        self.replay_gap = False    # a body-less finalized block was SKIPPED during replay -> state is
+                                   # provably missing exec txs; PERMANENT until a verified bootstrap
+        self.bootstrapped = False  # state was adopted from a quorum-verified settled checkpoint
+        self.attested = {}         # cursor(int) -> root we ATTESTED on L1 (bounded memo) — lets the node
+                                   # self-disqualify when a later-justified root contradicts its own
         # together with beacon_floor this is how far back our randomness windows reach. A node that cold-started
         # mid-flight (pruned L1 / failed bootstrap) has RAISED floors and must not settle (see window_canonical).
         # BLOCKHASH randomness (#randao): finalized L1 block hashes, height(int) -> hash(int). Like the beacon this
@@ -419,6 +427,9 @@ class ExecState:
         if self.blockhash_floor is None and self.block_hashes:
             self.blockhash_floor = min(self.block_hashes)
         self.zk_addrs = d.get("zk_addrs", {})
+        self.replay_gap = bool(d.get("replay_gap", False))
+        self.bootstrapped = bool(d.get("bootstrapped", False))
+        self.attested = {int(c): str(r) for c, r in (d.get("attested") or {}).items()}
         self._touch()          # also (re)creates the cache fields on a bare clone() instance
 
     def _snapshot(self):
@@ -444,7 +455,9 @@ class ExecState:
                     "beacons": {str(e): str(v) for e, v in self.beacons.items()}, "beacon_floor": self.beacon_floor,
                     "blockhash_floor": self.blockhash_floor,
                     "block_hashes": {str(h): str(v) for h, v in self.block_hashes.items()},
-                    "zk_addrs": self.zk_addrs}
+                    "zk_addrs": self.zk_addrs,
+                    "replay_gap": self.replay_gap, "bootstrapped": self.bootstrapped,
+                    "attested": {str(c): r for c, r in self.attested.items()}}
 
     def clone(self):
         """A deep, independent, DISK-FREE copy for provisional/speculative apply (the unfinalized L1 tail).
@@ -800,6 +813,28 @@ class ExecState:
         bh_ok = (self.blockhash_floor is not None
                  and self.blockhash_floor <= max(1, self.cursor - _BLOCKHASH_RING))
         return beacon_ok and bh_ok
+
+    def state_complete(self):
+        """PROVENANCE-COMPLETE gate for ATTESTING (maybe_settle): True iff every exec-relevant tx since
+        genesis is provably reflected in this state. window_canonical above is NOT enough — it compares
+        floors against a MOVING retention horizon, so a cold-started node's gap simply AGES PAST the
+        check (observed 2026-08-19: nodes gated for ~40h then began attesting roots computed from
+        0-contract state, and no two settlers ever agreed on a root again — settlement froze fleet-wide).
+        Contract/dividend completeness never heals with time; only two provenances are sound:
+          * built from GENESIS: the floors prove it (beacon_floor at its genesis value, blockhash_floor
+            at the first block) AND no body-less finalized block was ever skipped (replay_gap), or
+          * adopted from a QUORUM-VERIFIED settled checkpoint (bootstrapped) with no skip since.
+        replay_gap is PERMANENT until a verified bootstrap replaces the state — a missing block body
+        can carry a deploy or a collect, and a silent skip there is exactly the divergence mechanism
+        (state.py call/collect_dividend skip paths)."""
+        if self.replay_gap:
+            return False
+        if self.bootstrapped:
+            return True
+        if self.cursor is None or self.cursor < 0:
+            return False
+        return (self.beacon_floor is not None and self.beacon_floor <= _GENESIS_BEACON_FLOOR
+                and self.blockhash_floor is not None and self.blockhash_floor <= 1)
 
     def record_block_hash(self, height, block_hash):
         """Record one finalized L1 block hash for the BLOCKHASH opcode. `block_hash` is the block's hex hash;

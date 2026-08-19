@@ -94,6 +94,15 @@ programmability immediately with zero L1 risk, and the one later concession (a v
 >   `/get_settled` (`tests/test_settlement.py`). The exec `state_root` is a
 >   **Merkle** root, so a `bridge` deposit → exec credit → `bridge_withdraw` burn → **Merkle proof against
 >   the settled root** → L1 escrow release round-trips trust-minimized (`tests/test_bridge.py`).
+> - **Attestation provenance (betanet-3 frozen-quorum fix):** an exec node only VOTES on settlement when
+>   its state is provably complete — `ExecState.state_complete()`: from-genesis floors
+>   (`beacon_floor <= 2`, `blockhash_floor <= 1`), or a checkpoint bootstrap verified against the
+>   L1-settled `(cursor, root)`, and NEVER a recorded `replay_gap` (a body-less finalized block skipped
+>   during replay — on a pruned L1 that block may have carried the contract deploys, so the resulting
+>   state is a guess). A node whose attested root is later contradicted by the justified quorum
+>   self-disqualifies, and a muted node auto-repairs by adopting a peer's settled checkpoint
+>   (quorum-verified, donor-untrusted) once one is servable (`tests/test_exec_state_provenance.py`).
+>   Before this, cold-started nodes attested divergent roots forever and could freeze `/get_settled`.
 > - **Still to do:** the DA availability/pruning window, and **Phase-2b** — replacing the bonded-quorum
 >   settlement verifier with a single succinct STARK validity proof (the seam is in place). Trust today is
 >   the bonded stake (a validator committee), not yet a validity proof.
