@@ -646,9 +646,9 @@ async def block_lookup(request):
     block, addressed either way. With number + hash_only=1 the number->hash INDEX answers even where the
     body is gone (pruned, or below an archive gap): {"block_number", "block_hash"} — what the exec
     node's finality-revert probe needs at heights whose body L1 no longer serves.
-    Also served (deprecated) as /get_block_number?number= — TODO: remove that route once no deployed
-    client calls it; the serialize name stays keyed to the parameter so old parsers on either route see
-    byte-identical replies."""
+    (The /get_block_number alias was REMOVED 2026-08-19 after every in-repo caller — peer probes, the
+    exec tail, the wallet, scripts, tests — moved here; /get_block?number= was already served by every
+    deployed build, so updated callers stayed compatible through the update wave.)"""
     def _work():
         """Blocking block read (worker thread)."""
         try:
@@ -1407,6 +1407,16 @@ async def get_open_weights(request):
                 e = int(q_epoch)
             except (TypeError, ValueError):
                 return {"error": "bad epoch"}
+            # COMMITTED-FIRST (EPOCH_WEIGHTS_COMMIT_ACTIVATION): from the activation boundary every
+            # completed epoch's weights are FROZEN into L1 state at commit time — immune to the
+            # reconstruction drift that every fidelity/pool code change inflicts on weights_at_epoch
+            # (measured 2026-08-19: replaying a 6-hour-old epoch under the day's build no longer
+            # reproduced what the fleet computed live). Serve the immutable row whenever one exists;
+            # reconstruction remains only for pre-activation history.
+            from ops import kv_ops as _kv
+            _committed = _kv.epoch_weights_get(e)
+            if _committed is not None:
+                return {"epoch": e, "weights": _committed, "committed": True}
             # WEIGHT SAFETY (idle-GC, ops/gc_ops.py): weights_at_epoch(E) replays recert rows down
             # to E - SATURATION_LOOKBACK_EPOCHS; rows below the gc_rows_below watermark are GONE.
             # Refuse (410-style error) rather than serve a silently-truncated reconstruction — a
@@ -2096,7 +2106,6 @@ async def make_app(port):
         web.get("/get_transaction", transaction),
         web.get("/get_blocks_after", blocks_after),
         web.get("/get_blocks_before", blocks_before),
-        web.get("/get_block_number", block_lookup),   # DEPRECATED alias — TODO: remove (use /get_block?number=)
         web.get("/hash_attest", hash_attest),
         web.get("/get_block", block_lookup),
         web.get("/get_account", account),

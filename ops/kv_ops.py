@@ -23,6 +23,7 @@ consensus hashing stays canonical_bytes, untouched by any of this.
 """
 import os
 import struct
+import json
 import threading
 
 import lmdb
@@ -523,6 +524,46 @@ def meta_del(key: str):
     def _do(txn):
         txn.delete(key.encode(), db=_dbs()["meta"])
     _write(_do)
+
+
+# --- committed epoch weights: the presence-dividend's IMMUTABLE per-epoch input --------------------
+
+def epoch_weights_commit(epoch: int, weights: dict = None, revert: bool = False):
+    """Persist (or on revert DELETE) the open-lane weights for a COMPLETED epoch — the dividend's
+    consensus input, frozen into L1 state the moment the epoch ends.
+
+    WHY COMMITTED, NOT RECONSTRUCTED (2026-08-19, the frozen-quorum post-mortem's last debt):
+    weights_at_epoch(E) is "deterministic and reconstructible" only against ONE version of the ramp
+    code — replaying a 6-hour-old epoch under today's build produced a DIFFERENT answer than the
+    fleet computed live (measured: three reconstruction attempts missed the historically-justified
+    exec root, including one replaying the node's own journal-recorded accrual boundaries). Any
+    fidelity/pool code change silently rewrites history for whoever reconstructs after it. A row
+    committed AT the boundary is computed exactly once, at one code version, at the same height, on
+    every node — version-independent forever after, and it rides the state root so a divergent
+    answer is a root split, not a silent drift.
+
+    Canonical JSON (sort_keys, no spaces) so the stored bytes — and with them the root — are
+    independent of dict insertion order. Revert DELETES the key (canonical-absent, the divinflow
+    lesson: a phantom row forks the root against a forward-only node)."""
+    k = f"epochw:{int(epoch)}".encode()
+    if revert:
+        def _do(txn):
+            txn.delete(k, db=_dbs()["meta"])
+    else:
+        blob = json.dumps({str(a): int(w) for a, w in (weights or {}).items()},
+                          sort_keys=True, separators=(",", ":")).encode()
+        def _do(txn):
+            txn.put(k, blob, db=_dbs()["meta"])
+    _write(_do)
+
+
+def epoch_weights_get(epoch: int):
+    """The COMMITTED weights for `epoch` as {address: shares}, or None if no row (pre-activation
+    epoch, or the boundary block hasn't landed yet)."""
+    def _do(txn):
+        raw = txn.get(f"epochw:{int(epoch)}".encode(), db=_dbs()["meta"])
+        return None if raw is None else {a: int(w) for a, w in json.loads(raw).items()}
+    return _read(_do)
 
 
 # --- slashing replay guard (#15/#16 step 5C/6): one slash per (offender, height) ------------------

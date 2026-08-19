@@ -56,7 +56,7 @@ from ops.transaction_ops import (construct_duty_tx,
                                  construct_dividend_withdraw_tx)
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
-from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW
+from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW, EPOCH_WEIGHTS_COMMIT_ACTIVATION
 
 # ARCHIVE SELF-REPAIR cadence (seconds): how often an archive node whose history does not reach genesis
 # looks for a peer that reaches deeper and starts a background fill (_maybe_refill_archive). Only while a
@@ -2698,6 +2698,16 @@ class CoreClient(threading.Thread):
             # Anti-hoard self-burn (doc/treasury.md §3.2): at period boundaries, destroy a slice of the idle
             # treasury. Runs in this same write txn, so it's atomic with the reward + reverts with the block.
             apply_treasury_burn(block, logger=self.logger)
+            # COMMITTED EPOCH WEIGHTS (protocol.EPOCH_WEIGHTS_COMMIT_ACTIVATION): the FIRST block of every
+            # epoch freezes the JUST-COMPLETED epoch's open-lane weights into L1 state. Computed here —
+            # after this block's registers/recerts applied — from the recert rows <= E, i.e. a pure
+            # function of applied blocks at ONE code version, identically on every node at this height.
+            # rollback_one_block holds the exact inverse (row DELETED; re-apply recomputes it identically).
+            _bn = block["block_number"]
+            if _bn >= EPOCH_WEIGHTS_COMMIT_ACTIVATION and _bn % EPOCH_LENGTH == 0:
+                from ops.dividend_ops import weights_at_epoch
+                _E = _bn // EPOCH_LENGTH - 1
+                kv_ops.epoch_weights_commit(_E, weights_at_epoch(_E))
 
             totals = get_totals(block=block)  # produced = full reward = total emission
             index_totals(produced=totals["produced"],

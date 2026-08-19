@@ -165,6 +165,16 @@ DUTY_TX_MARGIN = 30          # duty: additionally clamped by the epoch and RANDA
                              # 30 matches RESERVED/FLEX margins; the deadline clamps, not the margin,
                              # bound overshoot. LEGACY from DUTY_WINDOW_ACTIVATION: only pre-activation
                              # builders use this — windowed duties land anywhere in [tip+8, deadline].
+# TODO(next reroll): height-activation gates MUST NOT outlive their purpose (operator directive
+# 2026-08-19). Each gate below exists ONLY so pre-activation history replays byte-identically; at the
+# next CHAIN_GENERATION reroll there is no pre-activation history left, so at that moment DELETE the
+# constant, the gate branches, and every LEGACY path it protects (grep the constant's name):
+#   * DUTY_WINDOW_ACTIVATION      -> windowed duties become unconditional; delete the exact-landing
+#                                    legacy duty branch + DUTY_TX_MARGIN
+#   * EPOCH_WEIGHTS_COMMIT_ACTIVATION -> boundary commit becomes unconditional; delete the
+#                                    reconstruction fallback in /get_open_weights (committed rows only)
+#   * execnode DIV_ACCRUAL_CANONICAL_FROM -> per-block canonical accrual becomes unconditional; delete
+#                                    the batch-epilogue accrual path
 DUTY_WINDOW_ACTIVATION = 81000  # from this height, duty txs carry min_block and land FLEXIBLY in
                              # [min_block, deadline] instead of exactly at max_block. Every duty timing
                              # rule binds to max_block (attest epoch = tb//EPOCH_LENGTH, commit E-2,
@@ -173,6 +183,20 @@ DUTY_WINDOW_ACTIVATION = 81000  # from this height, duty txs carry min_block and
                              # 2026-08-19 seed was a duty racing its own exact landing: #31, #33-35).
                              # Height-gates the BUILDER only; validation accepts windowed duties from
                              # deploy (lenient-first), so a mixed-version fleet never rejects a block.
+EPOCH_WEIGHTS_COMMIT_ACTIVATION = 82200  # from this height (a boundary, 60*1370), every epoch-boundary
+                             # block COMMITS the just-completed epoch's open-lane weights into L1 state
+                             # (kv_ops.epoch_weights_commit) — the presence-dividend's input becomes an
+                             # immutable state row instead of a query-time reconstruction. The 2026-08-19
+                             # frozen-quorum post-mortem proved weights_at_epoch drifts across code
+                             # versions (three historical replays missed the justified root; the ramp
+                             # rewrites history under every fidelity/pool change). Committed rows enter
+                             # the state ROOT, so from this height a wrong answer is a root split, not a
+                             # silent divergence. HEIGHT-GATED because the new rows change the root at
+                             # the commit block: every node must start committing at the same boundary
+                             # (self-update wave completes well before activation; a fresh replayer
+                             # applies the same rule at the same heights). No historical roots change,
+                             # so no reroll. Retention: ~10 KB/epoch, unpruned for now — a windowed
+                             # journaled prune (execsum-style) is future work.
                              # Epoch boundary (81000 = epoch 1350), ~2h after the deploy wave.
 
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---

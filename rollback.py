@@ -72,6 +72,13 @@ def rollback_one_block(logger, block, depth: int = 1) -> dict:
 
         credit_block_reward(block, logger=logger, revert=True)
         apply_treasury_burn(block, logger=logger, revert=True)   # restore any anti-hoard burn at this height
+        # EXACT INVERSE of incorporate_block's committed-epoch-weights write (same gate): the boundary
+        # block created the epochw row, so rolling that block back DELETES it — canonical-absent, never a
+        # phantom row (the divinflow/h4260 rollback-asymmetry lesson). Re-applying the block recomputes
+        # the identical row from the identical recert history.
+        from protocol import EPOCH_WEIGHTS_COMMIT_ACTIVATION, EPOCH_LENGTH as _EL
+        if block["block_number"] >= EPOCH_WEIGHTS_COMMIT_ACTIVATION and block["block_number"] % _EL == 0:
+            kv_ops.epoch_weights_commit(block["block_number"] // _EL - 1, revert=True)
 
         totals = get_totals(block=block, revert=True)
         index_totals(produced=totals["produced"], fees=totals["fees"])
