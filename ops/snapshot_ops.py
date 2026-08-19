@@ -254,7 +254,23 @@ def _pack_chunks(triples):
 # case that split NEVER heals: nothing ever deletes the ghost. block_by_num/block_by_hash stay CARRIED —
 # a joiner needs them for deep hash-lookbacks, and their index writes are exact inverses that no path prunes.
 SNAPSHOT_PAYLOAD_EXCLUDED_DBS = frozenset(("treasury_proposals",))
-SNAPSHOT_PAYLOAD_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below"))
+# hard_finality + the index-pruning watermarks joined finalized_height/pruned_below on 2026-08-19,
+# after a live payload diff at checkpoint 81000 found them as the ONLY divergence (3 rows of 156277)
+# between an archive node and the rolling fleet — state_root IDENTICAL, snapshot_hash split anyway:
+#   meta:hard_finality            80390 vs 80400   (backstop pacing vs the objective FFG boundary —
+#                                                   node-LOCAL pacing, exactly like finalized_height)
+#   meta:index_pruned_below_hash  56954 vs 70954   (retention POLICY watermarks: archive prunes less;
+#   meta:index_pruned_below_num   16954 vs 30954    the WINDOW is already normalized to a pure function
+#                                                   of C by _index_row_in_window, but the watermark rows
+#                                                   still leaked the local policy into the digest)
+# Every one of these was introduced AFTER this exclusion set was written and never added — the h10047
+# lesson ("any new meta row enters consensus surfaces unless excluded") applying to the DIGEST instead
+# of the root. A split digest splits agree_snapshot's bootstrap vote for no state reason at all. All
+# three rows are node-derivable: a joiner re-grows hard_finality from FFG/backstop exactly as it already
+# re-derives finalized_height, and absent watermarks merely make its first prune sweep start from 0.
+SNAPSHOT_PAYLOAD_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below",
+                                                 b"hard_finality",
+                                                 b"index_pruned_below_num", b"index_pruned_below_hash"))
 # execsum: is deliberately NOT excluded. Block VALIDITY depends on it — validate_transaction resolves
 # every summary in a settle-with-proof span and fails closed on a miss — so a joiner that lacked the
 # pre-checkpoint window would REJECT a settle-with-proof block its peers ACCEPT: a validity fork between

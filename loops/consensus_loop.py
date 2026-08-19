@@ -71,6 +71,7 @@ class ConsensusClient(threading.Thread):
 
         self.block_hash_pool = {}
         self.status_pool = {}
+        self._snap_pool_logged = set()       # (height, our_hash) pairs already CRITICAL-logged (snapshot pool)
         self.transaction_hash_pool = {}
         self.upcoming_block_hash_pool = {}   # SAME-TIP peers only -> advertised NEXT-block tx-set hash (rebuilt fresh per pass)
 
@@ -273,6 +274,43 @@ class ConsensusClient(threading.Thread):
             if isinstance(status, dict) and status.get("latest_block_weight") is not None:
                 weight_pool[peer] = status["latest_block_weight"]
         self.weight_pool = weight_pool
+
+        # SNAPSHOT-HASH POOL (2026-08-19) — the hash-pool pattern for the CHECKPOINT layer. Every status
+        # already advertises (snapshot_height, snapshot_hash), checkpoint heights are fleet-aligned, and
+        # since the payload normalization in snapshot_ops (hard_finality + index watermarks excluded, the
+        # last node-local rows) two honest nodes at the same height MUST advertise the same hash. Nobody
+        # ever compared: at checkpoint 81000 this node advertised a digest 3-of-156277 rows apart from the
+        # entire fleet and no alarm existed anywhere (the alphanet-7 h76000 split shipped the same way).
+        # A mismatch splits agree_snapshot's bootstrap vote, so it is a fleet-health defect the moment it
+        # exists — log CRITICAL once per (height, our_hash) the instant we are out of majority.
+        try:
+            import ops.snapshot_ops as _snap
+            _h = _snap.latest_final_checkpoint_height(int(self.memserver.finalized_height or 0))
+            _cache = getattr(self, "_snap_advert_cache", None)      # (height, hash), reloaded on new checkpoint
+            if _h and (not _cache or _cache[0] != int(_h)):
+                _m = _snap.load_checkpoint_manifest(_h)
+                _cache = (int(_h), str(_m.get("snapshot_hash"))) if isinstance(_m, dict) else None
+                self._snap_advert_cache = _cache
+            _my = _cache
+            if _my:
+                _votes = {}
+                for _peer, _st in self.status_pool.copy().items():
+                    if (isinstance(_st, dict) and int(_st.get("snapshot_height", -1) or -1) == _my[0]
+                            and _st.get("snapshot_hash")):
+                        _votes.setdefault(str(_st["snapshot_hash"]), []).append(_peer)
+                _total = sum(len(v) for v in _votes.values())
+                if _votes and _total >= 2:
+                    _best_hash, _best = max(_votes.items(), key=lambda kv: len(kv[1]))
+                    _key = (_my[0], _my[1])
+                    if _my[1] != _best_hash and len(_best) * 2 > _total and _key not in self._snap_pool_logged:
+                        self._snap_pool_logged.add(_key)
+                        self.logger.error(
+                            f"CRITICAL: SNAPSHOT HASH OUT OF MAJORITY at checkpoint {_my[0]} — ours "
+                            f"{_my[1][:12]}… vs majority {_best_hash[:12]}… held by {len(_best)}/{_total} "
+                            f"({[str(x)[:15] for x in _best]}); our checkpoint cannot win a bootstrap "
+                            f"quorum vote — a payload row is leaking node-local state into the digest")
+        except Exception:
+            pass
 
         # FLEET-BLIND RELEASE VALVE (2026-07-30, .210 post-reroll). Peer-benching is PER-PEER anti-DoS:
         # one forker mustn't own the donor pool. But during the reroll restart storm a node struck out
