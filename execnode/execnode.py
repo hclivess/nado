@@ -3107,6 +3107,71 @@ async def _anchor_adopt(session, finalized):
             continue
 
 
+# EXEC ROOT POOL — the L1's hash-pool pattern, applied to the layer that never had it. The L1 never
+# trusts its own block hash in isolation: it continuously compares against every peer's advertised
+# hashes and treats "outside majority" as an alarm state. The exec layer shipped WITHOUT any of that —
+# each node computed its root in a vacuum and submitted settle attestations blind, which is how three
+# attesters ran divergent for 12k+ cursors with no node ever noticing. Settle cursors are batch-timing-
+# staggered and never comparable across nodes; EPOCH-BOUNDARY cursors are hit by every node identically,
+# so those are the pool's comparison points (ExecState.boundary_roots). This probe polls every peer's
+# /exec/roots, compares at the newest shared boundary, and CRITICAL-logs the moment this node's root is
+# out of majority — detection within ~one epoch (~6 min) instead of ~never.
+ROOT_POOL_EVERY = 300.0
+_root_pool_last = 0.0
+_root_pool_logged = {}
+
+
+async def _root_pool_probe(session):
+    """Compare our epoch-boundary roots against every reachable peer's. Never raises; logs only."""
+    try:
+        pr = await _get_json(session, "/peers")
+        peers = (pr.get("peers") or []) if isinstance(pr, dict) else []
+    except Exception:
+        return
+    for ns, st in states.items():
+        if not st.boundary_roots:
+            continue
+        votes = {}                                   # boundary cursor -> root -> count (incl. ourselves)
+        for c, r in st.boundary_roots.items():
+            votes.setdefault(c, {}).setdefault(r, []).append("self")
+        reachable = 0
+        for ip in peers:
+            host = f"[{ip}]" if (":" in ip and not ip.startswith("[")) else ip
+            try:
+                async with session.get(f"http://{host}:{PORT}/exec/roots?ns={ns}",
+                                       timeout=aiohttp.ClientTimeout(total=8)) as r:
+                    pj = await r.json(content_type=None)
+                if not isinstance(pj, dict) or not isinstance(pj.get("boundary_roots"), dict):
+                    continue
+                reachable += 1
+                for c, root in pj["boundary_roots"].items():
+                    votes.setdefault(int(c), {}).setdefault(str(root), []).append(ip)
+            except Exception:
+                continue
+        if not reachable:
+            return                                   # nobody to compare against — no evidence either way
+        shared = [c for c, roots in votes.items()
+                  if c in st.boundary_roots and sum(len(v) for v in roots.values()) >= 2]
+        if not shared:
+            continue
+        c = max(shared)                              # newest boundary with at least one peer answer
+        roots = votes[c]
+        ours = st.boundary_roots[c]
+        total = sum(len(v) for v in roots.values())
+        best_root, best = max(roots.items(), key=lambda kv: len(kv[1]))
+        if ours != best_root and len(best) * 2 > total:
+            if _root_pool_logged.get((ns, c)) is None:
+                _root_pool_logged[(ns, c)] = True
+                print(f"[execnode] CRITICAL: EXEC ROOT OUT OF MAJORITY ns={ns} boundary cursor {c} — "
+                      f"ours {ours[:12]}… vs majority {best_root[:12]}… held by {len(best)}/{total} "
+                      f"({[x[:15] for x in best]}); full pool: "
+                      + "; ".join(f"{r[:10]}…×{len(v)}" for r, v in roots.items()), flush=True)
+        elif ours == best_root:
+            _root_pool_logged.pop((ns, c), None)
+        for old in [k for k in _root_pool_logged if k[0] == ns and k[1] < c - 2000]:
+            _root_pool_logged.pop(old, None)
+
+
 async def tail_loop():
     """Follow L1 forever: each poll, replay every newly FINALIZED block's exec-relevant txs (blob /
     bridge / shield) into `state` in block order — skipping pruned (body-less) finalized blocks — then
@@ -3264,6 +3329,15 @@ async def tail_loop():
                     if not await _apply_block(session, states, state, block, verbose=True):
                         break                                  # DA stall: do NOT advance the cursor; retry next poll
                     applied += 1
+                    # EXEC HASH POOL entry (see ExecState.boundary_roots): at every epoch-boundary cursor,
+                    # record the root — the exactly-comparable point the root-pool probe below compares
+                    # across peers, L1-hash-pool style. Recorded AFTER the boundary block applies, so it is
+                    # a pure function of the block stream (canonical accrual already ran for h if due).
+                    for _st in states.values():
+                        if _st.cursor >= 0 and _st.cursor % _EPOCH_LENGTH == 0:
+                            _st.boundary_roots[_st.cursor] = _st.state_root()
+                            for _old in sorted(_st.boundary_roots)[:-32]:
+                                del _st.boundary_roots[_old]
                     # PERSIST MID-BATCH. A long catch-up (hundreds of blocks after a restart or an L1
                     # stall) used to reach disk only at the epilogue — one interruption anywhere and the
                     # whole batch replayed again next restart. ~5.7 MB dump every 200 blocks is noise
@@ -3350,6 +3424,11 @@ async def tail_loop():
                         await _anchor_adopt(session, finalized)
                     except Exception as e:
                         print(f"[execnode] anchor-adopt error: {type(e).__name__}: {e}", flush=True)
+                # EXEC ROOT-POOL PROBE — the L1 hash-pool pattern for the exec layer. See _root_pool_probe.
+                global _root_pool_last
+                if (_now - _root_pool_last) >= ROOT_POOL_EVERY:
+                    _root_pool_last = _now
+                    await _root_pool_probe(session)
                 # Rebuild the PROVISIONAL view EVERY poll (even with no newly-finalized block — the tip still
                 # advances ~every block_time, so a just-included bet/reveal/deposit shows within ~one block
                 # instead of a whole finality window). Best-effort; never breaks the finalized tail.
@@ -3622,6 +3701,19 @@ async def da_fetch(session, commitment):
         return data
     except Exception:
         return None
+
+
+async def h_roots(request):
+    """GET /exec/roots?ns= — this node's epoch-boundary root ring {cursor: root} plus its live cursor:
+    the exec-layer HASH POOL entry. Boundary cursors are the exactly-comparable points every node passes
+    through identically, so peers compare these to detect divergence within ~one epoch (see
+    _root_pool_probe) instead of discovering it years later as a frozen settle quorum."""
+    ns = request.query.get("ns", "default")
+    st = states.get(ns)
+    if st is None:
+        return _NS404()
+    return web.json_response({"ns": ns, "cursor": st.cursor,
+                              "boundary_roots": {str(c): r for c, r in st.boundary_roots.items()}})
 
 
 async def h_state_snapshot(request):
@@ -4305,6 +4397,7 @@ async def main():
     loop forever — the HTTP server and the L1 tail share one event loop."""
     app = web.Application(middlewares=[_cors], client_max_size=MAX_BODY_BYTES)   # H-7: cap POST body size
     app.add_routes([web.get("/exec/root", h_root),
+                    web.get("/exec/roots", h_roots),
                     web.get("/exec/accounting", h_accounting),
                     web.get("/exec/state_snapshot", h_state_snapshot),
                     web.get("/exec/settlement", h_settlement),
