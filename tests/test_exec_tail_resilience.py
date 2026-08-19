@@ -58,7 +58,7 @@ def t4_batch_prefetch_with_single_fetch_fallback():
     # buffer is POLL-LOCAL (refilled from the current cursor's own hash -> reorg-safe), and only
     # finalized-bounded blocks enter it.
     i = _TL.index("prefetch = {}")
-    seg = _TL[i:i + 3000]
+    seg = _TL[i:i + 6000]
     assert "/get_blocks_after?hash={_ph}&count=" in seg, "batch prefetch must key off our own last hash"
     assert '_b["block_number"] <= finalized' in seg, "prefetch must never admit unfinalized blocks"
     assert 'f"/get_block?number={h}"' in seg, "single-block fetch must remain the fallback"

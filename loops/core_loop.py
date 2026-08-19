@@ -37,8 +37,7 @@ from ops import kv_ops
 from ops import fork_resolution
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
     AUTO_MIN_FEE_MULTIPLE, \
-    TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, DUTY_TX_MARGIN, FLEX_TX_MIN_MARGIN, \
-    DUTY_WINDOW_ACTIVATION
+    TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, FLEX_TX_MIN_MARGIN
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size, get_home
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
@@ -2884,24 +2883,19 @@ class CoreClient(threading.Thread):
             _hi = epoch_hi
             if _reveal_due and reveal_hi > latest["block_number"]:
                 _hi = min(epoch_hi, reveal_hi)
-            # WINDOWED DUTY (DUTY_WINDOW_ACTIVATION): land anywhere in [tip+8, deadline] instead of
-            # exactly at one height. The exact landing was the last organic fork class — a producer
-            # one gossip-hop ahead included its own duty and split the fleet (every 2026-08-19 seed).
-            # min_block gives the tx a full inclusion delay to reach every producer; max_block keeps
-            # every deadline clamp, so the section semantics (all bound to max_block) are unchanged.
-            # Builder-side height gate only: validation accepts windowed duties from deploy, so the
-            # mixed-version window during the update wave can never reject a block.
-            _windowed = latest["block_number"] + 1 >= DUTY_WINDOW_ACTIVATION
-            if _windowed:
-                min_block = latest["block_number"] + TX_INCLUSION_DELAY
-                max_block = _hi
-                if min_block > max_block:
-                    return  # epoch tail — duties resume next epoch
-            else:
-                min_block = 0
-                max_block = min(latest["block_number"] + DUTY_TX_MARGIN, _hi)
-                if max_block <= latest["block_number"]:
-                    return  # epoch tail — duties resume next epoch
+            # WINDOWED DUTY (unconditional since the 81000 activation passed — gate deleted 2026-08-20
+            # per operator directive "delete gates after the blocks are passed"): land anywhere in
+            # [tip+8, deadline] instead of exactly at one height. The exact landing was the last organic
+            # fork class — a producer one gossip-hop ahead included its own duty and split the fleet
+            # (every 2026-08-19 seed). min_block gives the tx a full inclusion delay to reach every
+            # producer; max_block keeps every deadline clamp, so the section semantics (all bound to
+            # max_block) are unchanged. Deleting the gate was SAFE because it steered the BUILDER only:
+            # validation is content-keyed (a duty WITH min_block lands windowed, one without lands
+            # exact), so historical pre-81000 duties replay byte-identically without any constant.
+            min_block = latest["block_number"] + TX_INCLUSION_DELAY
+            max_block = _hi
+            if min_block > max_block:
+                return  # epoch tail — duties resume next epoch
 
             attest = commit = reveal = None
             if X >= 1 and not kv_ops.attestation_exists(X, me):

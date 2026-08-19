@@ -83,11 +83,13 @@ def t_settle_targets_give_propagation_headroom():
 
 
 def t_duty_margin_is_widened_but_still_clamped():
-    from protocol import DUTY_TX_MARGIN, EPOCH_LENGTH
-    assert DUTY_TX_MARGIN >= 20, f"DUTY_TX_MARGIN regressed to {DUTY_TX_MARGIN}"
-    assert DUTY_TX_MARGIN < EPOCH_LENGTH, "a margin >= an epoch would defeat the deadline clamps"
+    # DUTY_TX_MARGIN died with the DUTY_WINDOW_ACTIVATION gate (2026-08-20, post-activation deletion):
+    # duties are windowed unconditionally, so the deadline clamps ARE the bound — pin that they exist
+    # and that no margin/constant crept back in.
     s = open(os.path.join(ROOT, "loops", "core_loop.py"), encoding="utf8").read()
-    assert "reveal_hi" in s and "epoch_hi" in s, "the deadline clamps the margin relies on are gone"
+    assert "reveal_hi" in s and "epoch_hi" in s, "the deadline clamps are gone"
+    assert "DUTY_TX_MARGIN" not in s and "DUTY_WINDOW_ACTIVATION" not in s, \
+        "the deleted duty gate/margin crept back into the builder"
 
 
 def t_windowed_duty_lands_flexibly_and_legacy_stays_exact():
@@ -116,18 +118,14 @@ def t_windowed_duty_lands_flexibly_and_legacy_stays_exact():
         "legacy duty must stay EXACT-landing (historical replay)"
 
 
-def t_duty_builder_is_gated_on_the_activation_height():
-    from protocol import DUTY_WINDOW_ACTIVATION, EPOCH_LENGTH
-    assert DUTY_WINDOW_ACTIVATION % EPOCH_LENGTH == 0, "activation should sit on an epoch boundary"
+def t_duty_builder_activation_gate():
+    # The 81000 activation gate was DELETED 2026-08-20 (post-activation, per operator directive):
+    # the builder emits windowed duties unconditionally. Pin that the gate stayed dead and the
+    # windowed construction stands.
     s = open(os.path.join(ROOT, "loops", "core_loop.py"), encoding="utf8").read()
-    assert 'latest["block_number"] + 1 >= DUTY_WINDOW_ACTIVATION' in s, \
-        "the builder height gate is gone — windowed duties before fleet update reject blocks on old nodes"
-    site = s[s.index("construct_duty_tx(kd, max_block"):]
-    assert "min_block=min_block" in site[:200], "the builder no longer passes min_block"
-    b = open(os.path.join(ROOT, "ops", "block_ops.py"), encoding="utf8").read()
-    assert 'r == "duty" and "min_block" in transaction' in b, \
-        "_lands_flexibly no longer recognises the windowed duty form"
-
+    assert "DUTY_WINDOW_ACTIVATION" not in s, "the deleted activation gate crept back"
+    assert 'min_block = latest["block_number"] + TX_INCLUSION_DELAY' in s, \
+        "the windowed duty construction is gone"
 
 def t_one_block_splits_resolve_inline_without_emergency():
     """The inline fast path: check_mode tries _inline_tip_swap before entering emergency mode, and the

@@ -17,7 +17,7 @@ import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from protocol import (RESERVED_TX_MARGIN, DUTY_TX_MARGIN, TX_LANDING_WINDOW,
+from protocol import (RESERVED_TX_MARGIN, TX_LANDING_WINDOW,
                       EPOCH_LENGTH, FINALITY_DEPTH, BLOCK_TIME)
 
 fails = []
@@ -36,28 +36,26 @@ MIN_SECONDS = 60
 check(RESERVED_TX_MARGIN * BLOCK_TIME >= MIN_SECONDS,
       f"bond/register window is >= {MIN_SECONDS}s ({RESERVED_TX_MARGIN} blocks x {BLOCK_TIME}s "
       f"= {RESERVED_TX_MARGIN * BLOCK_TIME}s)")
-check(DUTY_TX_MARGIN * BLOCK_TIME >= MIN_SECONDS,
-      f"duty window is >= {MIN_SECONDS}s ({DUTY_TX_MARGIN} blocks x {BLOCK_TIME}s "
-      f"= {DUTY_TX_MARGIN * BLOCK_TIME}s)")
+# DUTY_TX_MARGIN checks removed 2026-08-20: the constant died with the DUTY_WINDOW_ACTIVATION
+# gate (windowed duties are unconditional; the deadline clamps bound overshoot, not a margin).
 
 # The mempool gate admits a tx only while tip < max_block < tip + TX_LANDING_WINDOW. A margin at or over
 # the window would be rejected at admission by any peer even slightly behind us.
 check(RESERVED_TX_MARGIN < TX_LANDING_WINDOW, "bond/register margin fits under TX_LANDING_WINDOW")
-check(DUTY_TX_MARGIN < TX_LANDING_WINDOW, "duty margin fits under TX_LANDING_WINDOW")
 
 # Regression on the exact values that forked the chain.
 check(RESERVED_TX_MARGIN > 2, "bond margin is no longer the tip+2 that forked h12506")
-check(DUTY_TX_MARGIN > 5, "duty margin is no longer the tip+5 that forked h12605")
 
 
 def duty_max_block(tip, X, reveal_due):
-    """Mirror of the landing-height choice in core_loop.produce_epoch_duty."""
+    """Mirror of the landing-height choice in core_loop.produce_epoch_duty (post gate-deletion:
+    duties are ALWAYS windowed — max_block is the deadline clamp itself, no margin)."""
     reveal_hi = (X + 1) * EPOCH_LENGTH - FINALITY_DEPTH - 1
     epoch_hi = (X + 1) * EPOCH_LENGTH - 1
     hi = epoch_hi
     if reveal_due and reveal_hi > tip:
         hi = min(epoch_hi, reveal_hi)
-    return min(tip + DUTY_TX_MARGIN, hi), reveal_hi, epoch_hi
+    return hi, reveal_hi, epoch_hi
 
 
 X = 10

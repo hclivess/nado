@@ -2915,9 +2915,13 @@ async def _repair_bootstrap(session):
 # (h // EPOCH_LENGTH) - 1 — a pure function of h, identical on every node. Below it, the legacy
 # epilogue behavior is preserved so existing lineages replay their own history unchanged. HARDCODED,
 # never env-tweakable: a per-node override would be the bug this fixes.
-# TODO(next reroll): delete this gate + the epilogue accrual path with it — per-block canonical
-# accrual becomes unconditional the moment no pre-82000 history can seed a replay (operator directive
-# 2026-08-19: activation gates must not live past their activation era; see protocol.py's gate TODO).
+# TODO(delete SOON, not at the reroll): per operator directive ("delete gates after the blocks are
+# passed"), remove this gate + the epilogue accrual path the moment every fleet exec cursor AND every
+# adoptable settle checkpoint sits above 82000 (check /exec/roots + stashes fleet-wide — expected
+# 2026-08-20/21). Safe then because the sub-82000 span protects nothing reproducible: pre-gate accrual
+# was batch-timing-dependent (the frozen-quorum bug), so a replay through it diverges under EITHER
+# rule and anchor-adoption heals it identically. (protocol.py's EPOCH_WEIGHTS gate is different — that
+# one changes historical STATE ROOTS and must survive to the reroll.)
 DIV_ACCRUAL_CANONICAL_FROM = 82000
 
 # on-chain settle attestations observed during replay: ns -> cursor -> root -> set(sender prefixes).
@@ -3297,15 +3301,25 @@ async def tail_loop():
                     if block is None:
                         _ph = state.block_hashes.get(state.cursor)
                         if _ph and (finalized - state.cursor) > 3:
+                            # OWN TIMEOUT, AND NEVER SILENT. A 100-block collect is ~100 disk reads +
+                            # serialize on an L1 that answers single blocks in 1-15 s under load — the
+                            # shared 15 s _get_json timeout killed the batch on exactly the hosts that
+                            # need it, and the bare `except: pass` hid that completely (observed
+                            # 2026-08-20 00:32: prefetch shipped, batches still +1/+2, zero log evidence
+                            # why — the same invisibility bug as the empty str(TimeoutError), one layer
+                            # up). One 60 s call per ~100 blocks is a fine trade; a failure names itself.
                             try:
-                                _r = await _get_json(session, f"/get_blocks_after?hash={_ph}&count=100")
+                                async with session.get(f"{L1}/get_blocks_after?hash={_ph}&count=100",
+                                                       timeout=aiohttp.ClientTimeout(total=60)) as _resp:
+                                    _r = await _resp.json(content_type=None)
                                 for _b in (_r.get("blocks_after") or []) if isinstance(_r, dict) else []:
                                     if isinstance(_b, dict) and isinstance(_b.get("block_number"), int) \
                                             and _b["block_number"] <= finalized:
                                         prefetch[_b["block_number"]] = _b
                                 block = prefetch.pop(h, None)
-                            except Exception:
-                                pass                       # batch is an optimisation; the fallback decides
+                            except Exception as _e:
+                                print(f"[execnode] batch prefetch after {state.cursor} failed "
+                                      f"({type(_e).__name__}: {_e}) — single-block fallback", flush=True)
                     if block is None:
                         # A SLOW FETCH MUST END THE BATCH, NEVER THE POLL. _get_json RAISES on its 15s
                         # timeout; unhandled, that raise skipped the ENTIRE poll epilogue (dividend accrual,

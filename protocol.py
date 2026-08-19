@@ -159,30 +159,19 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
                              # a relay a few blocks stale ate the whole margin and forked h67761 on a
                              # sweep that became eligible ~6s after submit. These txs are per-epoch —
                              # 3 min of patience is free, and 30 absorbs any realistic tip staleness.
-DUTY_TX_MARGIN = 30          # duty: additionally clamped by the epoch and RANDAO-reveal deadlines.
-                             # 12 (72s) lost the propagation race under load (h66680), and 20 still lost
-                             # it from a stale-tipped submitter (h69365: effective margin = 20 - staleness).
-                             # 30 matches RESERVED/FLEX margins; the deadline clamps, not the margin,
-                             # bound overshoot. LEGACY from DUTY_WINDOW_ACTIVATION: only pre-activation
-                             # builders use this — windowed duties land anywhere in [tip+8, deadline].
-# TODO(next reroll): height-activation gates MUST NOT outlive their purpose (operator directive
-# 2026-08-19). Each gate below exists ONLY so pre-activation history replays byte-identically; at the
-# next CHAIN_GENERATION reroll there is no pre-activation history left, so at that moment DELETE the
-# constant, the gate branches, and every LEGACY path it protects (grep the constant's name):
-#   * DUTY_WINDOW_ACTIVATION      -> windowed duties become unconditional; delete the exact-landing
-#                                    legacy duty branch + DUTY_TX_MARGIN
-#   * EPOCH_WEIGHTS_COMMIT_ACTIVATION -> boundary commit becomes unconditional; delete the
-#                                    reconstruction fallback in /get_open_weights (committed rows only)
-#   * execnode DIV_ACCRUAL_CANONICAL_FROM -> per-block canonical accrual becomes unconditional; delete
-#                                    the batch-epilogue accrual path
-DUTY_WINDOW_ACTIVATION = 81000  # from this height, duty txs carry min_block and land FLEXIBLY in
-                             # [min_block, deadline] instead of exactly at max_block. Every duty timing
-                             # rule binds to max_block (attest epoch = tb//EPOCH_LENGTH, commit E-2,
-                             # reveal window lo<=tb<=hi), never to the landing height, so the window is
-                             # semantically free — and it deletes the LAST organic fork class (every
-                             # 2026-08-19 seed was a duty racing its own exact landing: #31, #33-35).
-                             # Height-gates the BUILDER only; validation accepts windowed duties from
-                             # deploy (lenient-first), so a mixed-version fleet never rejects a block.
+# GATE HYGIENE (operator directive 2026-08-19/20: "delete gates after the blocks are passed"):
+#   * DUTY_WINDOW_ACTIVATION (81000) — DELETED 2026-08-20, the day after it passed. It steered the
+#     BUILDER only; validation is content-keyed ("min_block" in tx -> windowed, absent -> exact), so
+#     pre-81000 duties replay byte-identically with no constant. DUTY_TX_MARGIN went with it (only the
+#     deleted legacy builder branch read it). Every builder now emits windowed duties unconditionally.
+#   * execnode DIV_ACCRUAL_CANONICAL_FROM (82000) — delete AS SOON AS every fleet exec cursor and
+#     every adoptable settle checkpoint sits above 82000 (check /exec/roots fleet-wide); the epilogue
+#     accrual path below it protects nothing reproducible (pre-82000 accrual was batch-timing-dependent
+#     — the frozen-quorum bug — so a sub-gate replay diverges either way and anchor-adoption heals it).
+#   * EPOCH_WEIGHTS_COMMIT_ACTIVATION (below) — the ONE gate that must survive until the next
+#     CHAIN_GENERATION reroll: it decides which rows a from-genesis replay writes into the STATE ROOT
+#     at historical heights. Deleting it early makes every fresh sync compute different historical
+#     roots and wedge fatally. At the reroll, delete it plus /get_open_weights' reconstruction fallback.
 EPOCH_WEIGHTS_COMMIT_ACTIVATION = 82200  # from this height (a boundary, 60*1370), every epoch-boundary
                              # block COMMITS the just-completed epoch's open-lane weights into L1 state
                              # (kv_ops.epoch_weights_commit) — the presence-dividend's input becomes an
