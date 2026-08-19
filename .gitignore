@@ -183,3 +183,4 @@ daily_stats.json
 rollback_stats.json
 tests/.tmp_finality_probe/
 treasury_history.json
+fork_diffs.jsonl
