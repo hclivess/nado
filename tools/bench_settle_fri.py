@@ -54,7 +54,7 @@ def peak_mib():
 
 
 def fetch_block(node, n):
-    with urllib.request.urlopen(f"{node}/get_block_number?number={n}", timeout=15) as r:
+    with urllib.request.urlopen(f"{node}/get_block?number={n}", timeout=15) as r:
         return json.load(r)
 
 

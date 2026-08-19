@@ -32,7 +32,7 @@ _TL = _SRC[_SRC.index("async def tail_loop"):]
 def t1_batch_fetch_degrades_not_raises():
     i = _TL.index("while state.cursor < finalized:")
     seg = _TL[i:i + 2500]
-    j = seg.index('_get_json(session, f"/get_block_number?number={h}")')
+    j = seg.index('_get_json(session, f"/get_block?number={h}")')
     assert "try:" in seg[:j], "the batch block-fetch must be exception-wrapped"
     k = seg.index("except", j)
     assert "TimeoutError" in seg[k:k + 200] and "ClientError" in seg[k:k + 200], \
@@ -42,7 +42,7 @@ def t1_batch_fetch_degrades_not_raises():
 
 def t2_mid_batch_persistence():
     i = _TL.index("applied += 1")
-    seg = _TL[i:i + 1200]
+    seg = _TL[i:i + 2200]   # widened: the exec hash-pool boundary-roots block sits between apply and save
     assert "applied % " in seg and "_st.save()" in seg, \
         "progress must persist periodically INSIDE the apply loop, not only at the epilogue"
 

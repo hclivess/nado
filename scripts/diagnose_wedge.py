@@ -54,7 +54,7 @@ def status(host, port=9173):
 def block_hash(host, n, port=9173):
     """The block hash at height n, or None when the node does not have that height."""
     try:
-        d = get(f"http://{host}:{port}/get_block_number?number={n}")
+        d = get(f"http://{host}:{port}/get_block?number={n}")
         b = d.get("block") or d
         return b.get("block_hash")
     except Exception:
@@ -207,7 +207,7 @@ def main():
     print(f"=> the disputed state is 'state after {lo}', attested by block {lo + 1}")
     print(f"=> it was produced by APPLYING block {culprit}\n")
     try:
-        d = get(f"http://{best_peer}:{a.port}/get_block_number?number={culprit}")
+        d = get(f"http://{best_peer}:{a.port}/get_block?number={culprit}")
         b = d.get("block") or d
         txs = b.get("block_transactions") or []
         print(f"block {culprit}: creator={str(b.get('block_creator'))[:20]}  transactions={len(txs)}")

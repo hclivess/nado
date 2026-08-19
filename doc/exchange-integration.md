@@ -38,7 +38,7 @@ decimal strings.
 |---|---|
 | `GET /status` | Tip + **finality**: `latest_block_hash`, `finalized_height`, `ffg_finalized`, `snapshot_height`, `protocol`, `version`, `chain_id`. Poll this. |
 | `GET /get_latest_block` | Full latest block (height, hash, txs). |
-| `GET /get_block_number?number=N` | Block by height. |
+| `GET /get_block?number=N` | Block by height. |
 | `GET /get_block?hash=H` | Block by hash. |
 | `GET /get_account?address=A[&readable=true]` | Balance & account record: `balance`, `produced`, `bonded`, `reg_epoch`. `404` if the account has never been seen. |
 | `GET /get_transaction?txid=T` | One tx by id. **Note:** returns the tx body only — see the [confirmations gap](#6-confirmations--finality). |

@@ -60,9 +60,9 @@ def finalized():
 def blockhash(h):
     """BHASH(h) as the contract sees it — the L1 block hash reduced into the field.
 
-    The param is `number`, not `block_number` (nado.py: GET /get_block_number?number=). The wrong name 404s,
+    The param is `number`, not `block_number` (nado.py: GET /get_block?number=). The wrong name 404s,
     and a 404 here reads as 'the chain is missing a block' rather than 'the test typed the URL wrong'."""
-    b = j(L1 + f"/get_block_number?number={h}")
+    b = j(L1 + f"/get_block?number={h}")
     return int(b["block_hash"], 16) % F.P
 
 

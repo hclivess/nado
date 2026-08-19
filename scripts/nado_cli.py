@@ -159,7 +159,7 @@ def c_register(kd, node, a):
     # cover a proof that can run for minutes, and the protocol sizes that budget (see POSW_ANCHOR_OFFSET).
     tb = _tip(node) + POSW_TARGET_MARGIN
     anchor_num = max(0, tb - POSW_ANCHOR_OFFSET)
-    anchor = _get(node, "/get_block_number?number=%d" % anchor_num).get("block_hash")
+    anchor = _get(node, "/get_block?number=%d" % anchor_num).get("block_hash")
     if not anchor:
         sys.exit("no anchor block %d yet" % anchor_num)
     # ASK FOR *THIS* ADDRESS, AT *THIS* max_block. required_t folds in two multipliers and both depend on

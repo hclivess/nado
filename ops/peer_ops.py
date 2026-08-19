@@ -255,7 +255,7 @@ def probe_block_hash(peer, height, port=9173, timeout=6):
     that independence is the whole point."""
     import json as _json, urllib.request as _rq
     try:
-        with _rq.urlopen(f"http://{peer}:{port}/get_block_number?number={int(height)}", timeout=timeout) as r:
+        with _rq.urlopen(f"http://{peer}:{port}/get_block?number={int(height)}", timeout=timeout) as r:
             d = _json.loads(r.read(1_000_000))
         h = d.get("block_hash") if isinstance(d, dict) else None
         return h if isinstance(h, str) and len(h) == 64 else None

@@ -31,7 +31,7 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 |---|---|---|---|
 | GET | `/get_latest_block` | — | tip block (has `block_number`) |
 | GET | `/get_block` | `?hash=` or `?number=` (+`hash_only=1`) | one block, by hash or height; `hash_only=1` answers from the height index even where the body is pruned |
-| GET | `/get_block_number` | `?number=` | DEPRECATED alias of `/get_block?number=` — will be removed |
+
 | GET | `/get_blocks_after` · `/get_blocks_before` | `?hash=&count=` | ranges for sync |
 | GET | `/get_settled` | — | latest settled/finalized height |
 | GET | `/status` | — | node status: `chain_id`, `version`, tip, peers; debug telemetry: `hard_finality`, `recovery` (live recovery phase), `recovery_fail` (last failed recovery), `last_block_reject` (why production last skipped), `last_fork_diff` (tx-set diff of the last fork's first divergent block) |

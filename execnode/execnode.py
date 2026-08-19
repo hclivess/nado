@@ -255,7 +255,7 @@ async def _find_fork_point(session, block_hashes, tip):
         return None
 
     async def agrees(h):
-        r = await _get_json(session, f"/get_block_number?number={h}&hash_only=1")
+        r = await _get_json(session, f"/get_block?number={h}&hash_only=1")
         body = (r or {}).get("block") or r or {}
         bh = body.get("block_hash") if isinstance(body, dict) else None
         if not bh:
@@ -1457,7 +1457,7 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     calls = []
     span_blocks = []       # the span's blocks in order — the RECORDS half derives PER BLOCK, like L1
     for h in range(sc + 1, cur + 1):
-        blk = await _get_json(session, f"/get_block_number?number={h}")
+        blk = await _get_json(session, f"/get_block?number={h}")
         if not blk or not blk.get("block_hash"):
             return None
         calls += CC.block_calls(blk, ns)
@@ -2675,7 +2675,7 @@ async def _refresh_provisional(session, finalized, tip, tip_hash=None):
     if (prov_states is not None and _prov_last and _prov_since_full < PROV_FULL_EVERY
             and finalized <= _prov_last[0] < tip
             and _prov_div_epoch == _div_epoch_now):
-        anchor = await _get_json(session, f"/get_block_number?number={_prov_last[0]}")
+        anchor = await _get_json(session, f"/get_block?number={_prov_last[0]}")
         if isinstance(anchor, dict) and anchor.get("block_hash") == _prov_last[1]:
             # same chain: keep the tail we already executed and add only what's new. Clone it rather than
             # mutating in place — readers hold prov_states while we work, and a half-applied block is a
@@ -2690,7 +2690,7 @@ async def _refresh_provisional(session, finalized, tip, tip_hash=None):
     default_clone = clones.get("default")
     last = _prov_last if keep else None
     while h <= tip:
-        block = await _get_json(session, f"/get_block_number?number={h}")
+        block = await _get_json(session, f"/get_block?number={h}")
         if not isinstance(block, dict) or "block_transactions" not in block:
             break                                # unfetchable / body-less -> stop the speculative tail here
         if not await _apply_block(session, clones, default_clone, block, verbose=False):
@@ -2716,7 +2716,7 @@ async def _refresh_provisional(session, finalized, tip, tip_hash=None):
         fdef, fh = fresh.get("default"), finalized + 1
         while fh <= tip:
             _m = time.time()
-            b = await _get_json(session, f"/get_block_number?number={fh}")
+            b = await _get_json(session, f"/get_block?number={fh}")
             _t_fetch += time.time() - _m
             if not isinstance(b, dict) or "block_transactions" not in b:
                 break
@@ -2915,6 +2915,9 @@ async def _repair_bootstrap(session):
 # (h // EPOCH_LENGTH) - 1 — a pure function of h, identical on every node. Below it, the legacy
 # epilogue behavior is preserved so existing lineages replay their own history unchanged. HARDCODED,
 # never env-tweakable: a per-node override would be the bug this fixes.
+# TODO(next reroll): delete this gate + the epilogue accrual path with it — per-block canonical
+# accrual becomes unconditional the moment no pre-82000 history can seed a replay (operator directive
+# 2026-08-19: activation gates must not live past their activation era; see protocol.py's gate TODO).
 DIV_ACCRUAL_CANONICAL_FROM = 82000
 
 # on-chain settle attestations observed during replay: ns -> cursor -> root -> set(sender prefixes).
@@ -3225,7 +3228,7 @@ async def tail_loop():
                     _probe = probe_height(state.block_hashes,
                                           int(status.get("latest_block_height", 0) or 0))
                     if _probe:
-                        _pb = await _get_json(session, f"/get_block_number?number={_probe}&hash_only=1")
+                        _pb = await _get_json(session, f"/get_block?number={_probe}&hash_only=1")
                         if finality_reverted(state.block_hashes, _probe, _pb):
                             reason = f"block {_probe} disagrees with L1"
                     if reason:
@@ -3258,7 +3261,7 @@ async def tail_loop():
                         if _h in state.block_hashes and _h > 0:
                             _shared = _h
                     if _shared is not None:
-                        _blk = await _get_json(session, f"/get_block_number?number={_shared}")
+                        _blk = await _get_json(session, f"/get_block?number={_shared}")
                         _bh = (_blk or {}).get("block") or _blk or {}
                         _l1h = _bh.get("block_hash")
                         if _l1h and int(_l1h, 16) == int(state.block_hashes[_shared]):
@@ -3289,7 +3292,7 @@ async def tail_loop():
                     # "tail error: " and nothing else.) A fetch failure is the NORMAL degraded case the
                     # `break` below was always meant for; make the raise take that path too.
                     try:
-                        block = await _get_json(session, f"/get_block_number?number={h}")
+                        block = await _get_json(session, f"/get_block?number={h}")
                     except (asyncio.TimeoutError, aiohttp.ClientError, OSError) as e:
                         print(f"[execnode] block fetch {h} failed ({type(e).__name__}) — pausing batch, "
                               f"keeping progress", flush=True)

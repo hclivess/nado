@@ -68,7 +68,7 @@ def l1_hash(h):
     return H("A", h) if h <= FORK else H("B", h)
 
 async def fake_get_json(session, path):
-    if path.startswith("/get_block_number?number="):
+    if path.startswith("/get_block?number="):
         num = int(path.split("=")[1].split("&")[0])
         return {"block_number": num, "block_hash": l1_hash(num)}
     return {}

@@ -551,7 +551,7 @@ async function miningHashDeps() {
 // the node derives identically), compute the non-parallelizable sequential proof, and build the register tx.
 async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   const anchorNum = Math.max(0, targetBlock - POSW_ANCHOR_OFFSET);
-  const r = await fetch(relayBase() + "/get_block_number?number=" + anchorNum, { cache: "no-store" });
+  const r = await fetch(relayBase() + "/get_block?number=" + anchorNum, { cache: "no-store" });
   const b = await r.json().catch(() => null);
   const anchorHash = b && b.block_hash;
   if (!anchorHash) throw new Error("registration anchor block unavailable");
@@ -1146,7 +1146,7 @@ async function estimateSavingsApy() {
     const tip = (await rpcJSON("/get_latest_block")).data || {};
     const n = num(tip.block_number);
     const nums = []; for (let i = 0; i < 30 && n - i > 0; i++) nums.push(n - i);
-    const blks = await Promise.all(nums.map((x) => rpcJSON("/get_block_number?number=" + x).then((r) => r.data).catch(() => null)));
+    const blks = await Promise.all(nums.map((x) => rpcJSON("/get_block?number=" + x).then((r) => r.data).catch(() => null)));
     const rewards = blks.filter(Boolean).map((b) => { try { return BigInt(b.block_reward || 0); } catch { return 0n; } }).filter((r) => r > 0n);
     const avgReward = rewards.length ? Number(rewards.reduce((a, b) => a + b, 0n) / BigInt(rewards.length)) : Number(BASE_SUBSIDY_RAW);
     const blockTime = num(ms.block_time) || state.blockTime || 8;
@@ -4129,7 +4129,7 @@ async function maybeRandao() {
     // FFG attest (epoch X's checkpoint = first block of X)
     if (X >= 1) {
       try {
-        const b = await (await fetch(relayBase() + "/get_block_number?number=" + (X * EPOCH_LENGTH), { cache: "no-store" })).json();
+        const b = await (await fetch(relayBase() + "/get_block?number=" + (X * EPOCH_LENGTH), { cache: "no-store" })).json();
         if (b && b.block_hash) data.attest = { target_epoch: X, target_hash: b.block_hash };
       } catch (e) { /* skip attest this pass */ }
     }
@@ -4651,7 +4651,7 @@ async function exLoadRecent() {
   try {
     const tip = await exGetJSON("/get_latest_block");
     const nums = []; for (let n = tip.block_number, lo = Math.max(0, n - 11); n >= lo; n--) nums.push(n);
-    const blocks = await Promise.all(nums.map((n) => exGetJSON("/get_block_number?number=" + n).catch(() => null)));
+    const blocks = await Promise.all(nums.map((n) => exGetJSON("/get_block?number=" + n).catch(() => null)));
     $("exRecent").innerHTML = blocks.filter(Boolean).map(exBlockRow).join("") || `<div class="faint small">${i18("ex.noBlocks", "no blocks")}</div>`;
   } catch { $("exRecent").innerHTML = `<div class="faint small">${i18("ex.unavail", "unavailable")}</div>`; }
 }
@@ -4809,7 +4809,7 @@ async function exOpen(kind, val) {
       };
     } else if (kind === "b") {
       let b = null;
-      if (/^\d+$/.test(val)) b = await exGetJSON("/get_block_number?number=" + val);
+      if (/^\d+$/.test(val)) b = await exGetJSON("/get_block?number=" + val);
       else { try { b = await exGetJSON("/get_block?hash=" + encodeURIComponent(val)); } catch { b = null; }
         if (!b || !b.block_hash) { try { const t = await exGetJSON("/get_transaction?txid=" + encodeURIComponent(val)); if (t) { exShowResult(exRenderTx(t)); return; } } catch {} } }
       if (!b || b === false || !b.block_hash) throw new Error("not found");
@@ -5454,7 +5454,7 @@ async function renderStats() {
   const N = 16, nums = [];
   for (let i = Math.max(1, (tip || 0) - N + 1); i <= (tip || 0); i++) nums.push(i);
   const blocks = (await Promise.all(nums.map((n) =>
-    fetch(relayBase() + "/get_block_number?number=" + n, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    fetch(relayBase() + "/get_block?number=" + n, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
   ))).filter((b) => b && typeof b.block_number === "number");
   blocks.sort((a, b) => a.block_number - b.block_number);
   const times = [], tlabels = [];

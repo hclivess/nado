@@ -1209,7 +1209,7 @@ async def knows_block(target_peer, port, hash, number, logger):
     finality-revert probe enforces, for the same reason (2026-08-03). Truthiness-only callers are
     unaffected (None is falsy, the conservative read for donor qualification)."""
     try:
-        url_construct = f"http://{hostport(target_peer, port)}/get_block_number?number={int(number)}"
+        url_construct = f"http://{hostport(target_peer, port)}/get_block?number={int(number)}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:

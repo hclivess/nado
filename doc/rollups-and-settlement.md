@@ -126,7 +126,7 @@ so that even those cannot open a gap:
 - **Detection at one-poll latency, two independent ways.** Every block is checked for **parent linkage**
   against the previously applied block *before* it is applied — a revert is caught on the very block that
   reveals it, and canonical history is never stacked onto a dead fork. Independently, a **hash-only probe**
-  compares the highest applied block against L1's chain every poll (`/get_block_number?hash_only=1`
+  compares the highest applied block against L1's chain every poll (`/get_block?number=&hash_only=1`
   answers from the number↔hash index even where the body is pruned, so a revert below the body floor
   cannot hide). Both are strict about evidence: no reply, a 404, or garbage is *never* read as divergence
   (the 2026-08-03 rule — a guard that read missing information as evidence once destroyed the live state
