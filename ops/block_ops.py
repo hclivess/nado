@@ -151,6 +151,15 @@ def _lands_flexibly(transaction):
     # raise; it would just change consensus. The sniff was never a test anyway: "mldsa44" + garbage passed.
     from ops.address_ops import is_address
     r = transaction.get("recipient")
+    # WINDOWED DUTY (DUTY_WINDOW_ACTIVATION, 2026-08-19): a duty tx that CARRIES min_block lands
+    # flexibly in [min_block, max_block]. Every duty timing rule binds to max_block — attest epoch is
+    # tb // EPOCH_LENGTH, commit targets epoch_of(tb)+2, the reveal window asserts lo <= tb <= hi —
+    # never to the landing height, so any landing at or below max_block preserves the exact same
+    # semantics while removing the landing cliff that seeded every remaining organic fork (a producer
+    # including its own duty one gossip-hop before the rest of the fleet had it). LEGACY duties carry
+    # no min_block and keep EXACT landing below — historical replay is byte-identical.
+    if r == "duty" and "min_block" in transaction:
+        return True
     # `faucet` BELONGS HERE and was simply missed when the reserved recipient was added. A donation is the
     # same shape as a bridge deposit — validate_transaction checks only "amount > 0" and "fee >= MIN_TX_FEE"
     # — so it carries no landing-block-dependent timing whatsoever. Left out, it took the EXACT-landing

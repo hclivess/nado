@@ -37,7 +37,8 @@ from ops import kv_ops
 from ops import fork_resolution
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
     AUTO_MIN_FEE_MULTIPLE, \
-    TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, DUTY_TX_MARGIN, FLEX_TX_MIN_MARGIN
+    TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, DUTY_TX_MARGIN, FLEX_TX_MIN_MARGIN, \
+    DUTY_WINDOW_ACTIVATION
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size, get_home
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
@@ -1376,6 +1377,35 @@ class CoreClient(threading.Thread):
         r = probe_block_hash_signed(peer, h, port=self.memserver.port, timeout=3, tip_hint=tip)
         memo[1][key] = r
         return r
+
+    def _inline_tip_swap(self):
+        """ONE-BLOCK TIE FAST PATH (2026-08-19). Every organic fork this week was a single divergent
+        block that self-heals — but healing went through full emergency recovery (verdict probing,
+        donor selection, mode churn), freezing finality for minutes over a paper cut (30 min at 14:20,
+        which is also what pushed the exec layer visibly behind L1). When the measured verdict already
+        says REORG with the ancestor exactly ONE below our tip, the entire fix is: fetch the sibling
+        branch, verify it, roll back one block, apply — which is precisely _adopt_branch(tip-1), the
+        tested possession-before-rollback path. Run it INLINE from check_mode and skip emergency mode
+        entirely; production and duty flow continue on the very next pass, so finality never freezes.
+        Anything deeper (ancestor < tip-1, UNKNOWN/BEHIND verdicts, refused rollbacks) falls through
+        to the existing machinery unchanged. Fork-choice is untouched: minority_block_consensus has
+        already decided WE are the yielding side before this runs — this only changes how cheaply the
+        yield happens."""
+        try:
+            v = self._fork_verdict()
+            tip = int(self.memserver.latest_block["block_number"])
+            if v.get("state") != fork_resolution.REORG or v.get("ancestor") != tip - 1:
+                return False
+            adopted = self._adopt_branch(tip - 1)
+            if adopted is True:
+                self._fork_state_cache = None      # the tip this verdict described no longer exists
+                self._rec("inline_tip_swap", h=tip)
+                self.logger.warning(f"One-block split at {tip} resolved inline — emergency skipped")
+                return True
+            return False
+        except Exception as e:
+            self.logger.info(f"Inline tip swap declined: {e}")
+            return False
 
     def _adopt_heaviest_pairwise(self):
         """THE NO-MAJORITY ESCAPE (fork_resolution.pairwise_ancestor doc): a multi-way scatter gives every
@@ -2777,9 +2807,24 @@ class CoreClient(threading.Thread):
             _hi = epoch_hi
             if _reveal_due and reveal_hi > latest["block_number"]:
                 _hi = min(epoch_hi, reveal_hi)
-            max_block = min(latest["block_number"] + DUTY_TX_MARGIN, _hi)
-            if max_block <= latest["block_number"]:
-                return  # epoch tail — duties resume next epoch
+            # WINDOWED DUTY (DUTY_WINDOW_ACTIVATION): land anywhere in [tip+8, deadline] instead of
+            # exactly at one height. The exact landing was the last organic fork class — a producer
+            # one gossip-hop ahead included its own duty and split the fleet (every 2026-08-19 seed).
+            # min_block gives the tx a full inclusion delay to reach every producer; max_block keeps
+            # every deadline clamp, so the section semantics (all bound to max_block) are unchanged.
+            # Builder-side height gate only: validation accepts windowed duties from deploy, so the
+            # mixed-version window during the update wave can never reject a block.
+            _windowed = latest["block_number"] + 1 >= DUTY_WINDOW_ACTIVATION
+            if _windowed:
+                min_block = latest["block_number"] + TX_INCLUSION_DELAY
+                max_block = _hi
+                if min_block > max_block:
+                    return  # epoch tail — duties resume next epoch
+            else:
+                min_block = 0
+                max_block = min(latest["block_number"] + DUTY_TX_MARGIN, _hi)
+                if max_block <= latest["block_number"]:
+                    return  # epoch tail — duties resume next epoch
 
             attest = commit = reveal = None
             if X >= 1 and not kv_ops.attestation_exists(X, me):
@@ -2834,7 +2879,8 @@ class CoreClient(threading.Thread):
 
             if not (attest or commit or reveal):
                 return  # every duty already on-chain
-            tx = construct_duty_tx(kd, max_block, attest=attest, commit=commit, reveal=reveal)
+            tx = construct_duty_tx(kd, max_block, attest=attest, commit=commit, reveal=reveal,
+                                   min_block=min_block)
             result = self.memserver.merge_transaction(tx, user_origin=True)
             if result and result.get("result"):
                 self.logger.info(f"Epoch duty {X}: attest={bool(attest)} commit={bool(commit)} "
@@ -3989,8 +4035,14 @@ class CoreClient(threading.Thread):
         otherwise. Also releases force_sync_ip once we agree with >80% of peers on a fresh tip —
         the forced donor has served its purpose and normal fork-choice takes back over."""
         if self.minority_block_consensus():
-            self.memserver.emergency_mode = True
-            self.logger.warning("We are out of consensus")
+            # ONE-BLOCK FAST PATH first: a same-height split with a common parent is a paper cut —
+            # swap the single block inline (see _inline_tip_swap) instead of dragging the node
+            # through emergency recovery and freezing finality. Deeper divergence falls through.
+            if self._inline_tip_swap():
+                self.memserver.emergency_mode = False
+            else:
+                self.memserver.emergency_mode = True
+                self.logger.warning("We are out of consensus")
         elif self.memserver.force_sync_ip:
             self.memserver.emergency_mode = True
             self.logger.warning("Forced sync switched to emergency mode")

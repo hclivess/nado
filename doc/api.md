@@ -155,9 +155,13 @@ Besides `blob`, `POST /submit_transaction` accepts these `recipient` values (bui
 **Landing semantics.** `max_block` binds every tx. `blob`, `bridge`, `bridge_withdraw`,
 `dividend_withdraw`, `faucet` and plain transfers land *flexibly* in `[min_block, max_block]` — set
 `min_block` to your submit tip + 8 (`TX_INCLUSION_DELAY`) so no producer can include the tx before it
-has propagated (omitting it is legal but was a measured fork driver). Everything else (`settle`, duty,
+has propagated (omitting it is legal but was a measured fork driver). Everything else (`settle`,
 `bond`, `register`, governance, …) lands *exactly* at `max_block`; aim it far enough ahead for gossip
-(the node's own submitters use 12–20 blocks).
+(the node's own submitters use 12–30 blocks). `duty` is windowed since block 81,000
+(`DUTY_WINDOW_ACTIVATION`): it carries a signed `min_block` and lands anywhere in
+`[min_block, max_block]` — every duty timing rule binds to `max_block`, so the window is semantically
+free and removes the landing cliff that seeded the last organic fork class; legacy duties (no
+`min_block`) still land exactly.
 
 **Mempool door gates (user-origin only).** The relay refuses at submission — never at gossip, so a
 refusal can't diverge pools — (a) a `dividend_withdraw` whose `min_block` is missing or nearer than

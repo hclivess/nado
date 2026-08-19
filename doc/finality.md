@@ -182,6 +182,14 @@ Stated so a reader trusts the right amount — over-trust is a worse failure tha
   `min_block = tip + TX_INCLUSION_DELAY` in the signed body. The earlier admission-order driver ("Empty
   account" while the funder is still in the pool) is fixed by graded reject cooldowns; sustained-load
   pool divergence (mempool-full eviction under pressure) is not exercised yet.
+  After those fixes the ONE surviving organic class was still duty: exact landing races its own
+  propagation whenever the epoch/reveal deadline clamps compress the margin (every 2026-08-19 seed).
+  Two changes close it (see `DUTY_WINDOW_ACTIVATION`): duties land *flexibly* in
+  `[tip+8, deadline]` from block 81,000 (the deadline cliff, not the margin, was the race), and a
+  one-block same-height split now resolves INLINE — `check_mode` runs `_inline_tip_swap`
+  (verdict says REORG with ancestor == tip−1 → `_adopt_branch(tip-1)`, the tested
+  possession-before-rollback path) without entering emergency mode, so a paper-cut split no longer
+  freezes finality for minutes.
 - **Fork forensics are always-on.** Before `_adopt_branch` rolls anything back it records the FIRST
   divergent block's tx-set diff — `only_ours` / `only_theirs` by recipient — to
   `~/nado/fork_diffs.jsonl` and mirrors the latest entry as `last_fork_diff` on `/status` (alongside

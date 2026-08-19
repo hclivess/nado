@@ -163,7 +163,17 @@ DUTY_TX_MARGIN = 30          # duty: additionally clamped by the epoch and RANDA
                              # 12 (72s) lost the propagation race under load (h66680), and 20 still lost
                              # it from a stale-tipped submitter (h69365: effective margin = 20 - staleness).
                              # 30 matches RESERVED/FLEX margins; the deadline clamps, not the margin,
-                             # bound overshoot.
+                             # bound overshoot. LEGACY from DUTY_WINDOW_ACTIVATION: only pre-activation
+                             # builders use this — windowed duties land anywhere in [tip+8, deadline].
+DUTY_WINDOW_ACTIVATION = 81000  # from this height, duty txs carry min_block and land FLEXIBLY in
+                             # [min_block, deadline] instead of exactly at max_block. Every duty timing
+                             # rule binds to max_block (attest epoch = tb//EPOCH_LENGTH, commit E-2,
+                             # reveal window lo<=tb<=hi), never to the landing height, so the window is
+                             # semantically free — and it deletes the LAST organic fork class (every
+                             # 2026-08-19 seed was a duty racing its own exact landing: #31, #33-35).
+                             # Height-gates the BUILDER only; validation accepts windowed duties from
+                             # deploy (lenient-first), so a mixed-version fleet never rejects a block.
+                             # Epoch boundary (81000 = epoch 1350), ~2h after the deploy wave.
 
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).

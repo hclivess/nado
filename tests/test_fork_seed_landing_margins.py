@@ -90,6 +90,60 @@ def t_duty_margin_is_widened_but_still_clamped():
     assert "reveal_hi" in s and "epoch_hi" in s, "the deadline clamps the margin relies on are gone"
 
 
+def t_windowed_duty_lands_flexibly_and_legacy_stays_exact():
+    """DUTY_WINDOW_ACTIVATION: a duty CARRYING min_block lands anywhere in [min_block, max_block]
+    (the last organic fork class was a duty racing its own exact landing); a legacy duty (no
+    min_block) keeps exact landing so historical replay is byte-identical."""
+    from ops.key_ops import generate_keys
+    from ops.transaction_ops import construct_duty_tx, create_txid
+    from ops.block_ops import check_target_match
+    keys = generate_keys()
+    class _L:
+        def __getattr__(self, _n):
+            return lambda *a, **k: None
+    _log = _L()
+    tx = construct_duty_tx(keys, 600, attest={"target_epoch": 9, "target_hash": "x"}, min_block=520)
+    assert tx.get("min_block") == 520, "min_block did not make it into the duty tx"
+    body = {k: v for k, v in tx.items() if k not in ("txid", "signature")}
+    assert create_txid(body) == tx["txid"], "duty min_block is OUTSIDE the txid — strippable in flight"
+    assert not check_target_match([tx], 519, _log), "landed BELOW min_block — the exact race reborn"
+    assert check_target_match([tx], 520, _log) and check_target_match([tx], 600, _log), \
+        "the duty window itself broke"
+    assert not check_target_match([tx], 601, _log), "landed past the deadline"
+    legacy = construct_duty_tx(keys, 600, attest={"target_epoch": 9, "target_hash": "x"})
+    assert "min_block" not in legacy, "legacy duty grew a min_block"
+    assert check_target_match([legacy], 600, _log) and not check_target_match([legacy], 599, _log), \
+        "legacy duty must stay EXACT-landing (historical replay)"
+
+
+def t_duty_builder_is_gated_on_the_activation_height():
+    from protocol import DUTY_WINDOW_ACTIVATION, EPOCH_LENGTH
+    assert DUTY_WINDOW_ACTIVATION % EPOCH_LENGTH == 0, "activation should sit on an epoch boundary"
+    s = open(os.path.join(ROOT, "loops", "core_loop.py"), encoding="utf8").read()
+    assert 'latest["block_number"] + 1 >= DUTY_WINDOW_ACTIVATION' in s, \
+        "the builder height gate is gone — windowed duties before fleet update reject blocks on old nodes"
+    site = s[s.index("construct_duty_tx(kd, max_block"):]
+    assert "min_block=min_block" in site[:200], "the builder no longer passes min_block"
+    b = open(os.path.join(ROOT, "ops", "block_ops.py"), encoding="utf8").read()
+    assert 'r == "duty" and "min_block" in transaction' in b, \
+        "_lands_flexibly no longer recognises the windowed duty form"
+
+
+def t_one_block_splits_resolve_inline_without_emergency():
+    """The inline fast path: check_mode tries _inline_tip_swap before entering emergency mode, and the
+    swap only fires for an ancestor exactly one below the tip (deeper divergence keeps the full
+    machinery)."""
+    s = open(os.path.join(ROOT, "loops", "core_loop.py"), encoding="utf8").read()
+    cm = s[s.index("def check_mode"):]
+    cm = cm[:cm.index("def run")]
+    assert "_inline_tip_swap" in cm and cm.index("_inline_tip_swap") < cm.index("emergency_mode = True"), \
+        "check_mode no longer tries the inline swap before emergency"
+    sw = s[s.index("def _inline_tip_swap"):]
+    sw = sw[:sw.index("\n    def ")]
+    assert 'v.get("ancestor") != tip - 1' in sw, "the swap is no longer limited to one-block splits"
+    assert "_adopt_branch(tip - 1)" in sw, "the swap no longer reuses the tested adoption path"
+
+
 for name, fn in [(n, f) for n, f in list(globals().items()) if n.startswith("t_")]:
     check(name[2:].replace("_", " "), fn)
 

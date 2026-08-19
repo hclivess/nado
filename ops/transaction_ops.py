@@ -163,11 +163,14 @@ def _validate_reveal_fields(data: dict, tb: int, sender: str):
     assert secret not in kv_ops.reveals_for_epoch(E), "This secret is already revealed for the epoch"
 
 
-def construct_duty_tx(keydict, max_block, attest=None, commit=None, reveal=None):
+def construct_duty_tx(keydict, max_block, attest=None, commit=None, reveal=None, min_block=0):
     """Build the SIGNED merged per-epoch DUTY tx (doc/consensus-aggregation.md): the validator's FFG
     attest (landing epoch X), RANDAO commit (X+2) and reveal (X+1) sections — whichever are due —
-    under ONE ML-DSA signature instead of three full txs. Fee-exempt committee duty; lands exactly
-    at max_block like every timing-critical reserved tx."""
+    under ONE ML-DSA signature instead of three full txs. Fee-exempt committee duty.
+
+    min_block > 0 (DUTY_WINDOW_ACTIVATION): the tx lands FLEXIBLY in [min_block, max_block] — the
+    signed min_block is the propagation guard (no producer can front-run it), max_block carries every
+    timing deadline (epoch / RANDAO-reveal clamps). min_block=0 builds the LEGACY exact-landing form."""
     data = {}
     if attest is not None:
         data["attest"] = attest
@@ -180,6 +183,8 @@ def construct_duty_tx(keydict, max_block, attest=None, commit=None, reveal=None)
           "timestamp": get_timestamp_seconds(), "data": data, "nonce": create_nonce(),
           "max_block": max_block, "chain_id": CHAIN_ID, "fee": 0,
           "public_key": keydict["public_key"]}
+    if min_block and int(min_block) > 0:
+        tx["min_block"] = int(min_block)   # inside the signed body: create_txid below binds it
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
