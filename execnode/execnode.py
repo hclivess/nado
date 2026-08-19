@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import aiohttp
 from protocol import chain_clock as _chain_clock
+from protocol import EPOCH_LENGTH as _EPOCH_LENGTH
 from aiohttp import web
 
 from execnode.state import ExecState
@@ -2904,6 +2905,83 @@ async def _repair_bootstrap(session):
                 continue                               # unreachable/slow donor — try the next one
 
 
+# CANONICAL ACCRUAL ACTIVATION (the accrual-order determinism fix). MEASURED 2026-08-19: replaying
+# the SAME state over the SAME 532 blocks (81 collect_dividends) with accrual at batch ends vs
+# per-block produced DIFFERENT roots — the epilogue accrues at POLL-BATCH boundaries, so whether a
+# collect_dividend burns a pre- or post-accrual balance depended on each node's private poll timing.
+# That is a consensus nondeterminism: structurally identical nodes (26/26 byte-identical contracts)
+# attested different roots forever, and the settle quorum froze for 11k+ cursors.
+# From this L1 height, accrual is CANONICAL: before applying block h, the watermark must be
+# (h // EPOCH_LENGTH) - 1 — a pure function of h, identical on every node. Below it, the legacy
+# epilogue behavior is preserved so existing lineages replay their own history unchanged. HARDCODED,
+# never env-tweakable: a per-node override would be the bug this fixes.
+DIV_ACCRUAL_CANONICAL_FROM = 82000
+
+# on-chain settle attestations observed during replay: ns -> cursor -> root -> set(sender prefixes).
+# Exec nodes replay every finalized block, so two attesters posting DIFFERENT roots at the SAME
+# cursor is directly visible to everyone — yet nothing ever looked. The frozen quorum ran 11k+
+# cursors with 0/8 multi-attester agreement and the only symptom was /get_settled quietly not
+# moving. This memo turns that into a CRITICAL log line the moment it happens.
+_settle_observed = {}
+_settle_conflict_logged = set()
+
+
+async def _accrue_owed(session, st, epoch_incl):
+    """Accrue presence-dividend epochs on `st` up to epoch_incl (inclusive). Returns False on any
+    fetch/pruning problem — the caller must then HOLD the cursor (never apply a block whose owed
+    accrual is missing: the order is the consensus rule)."""
+    try:
+        while st.last_div_epoch < epoch_incl:
+            E = st.last_div_epoch + 1
+            inf = await _get_json(session, f"/get_dividend_inflow?epoch={E}")
+            inflow = int(inf.get("inflow", 0)) if isinstance(inf, dict) else 0
+            ow = await _get_json(session, f"/get_open_weights?epoch={E}")
+            if not isinstance(ow, dict) or ow.get("error"):
+                print(f"[execnode] canonical accrual STALLED at epoch {E}: "
+                      f"{(ow or {}).get('error') if isinstance(ow, dict) else ow} — cursor holds", flush=True)
+                return False
+            dist = st.accrue_dividend_epoch(inflow, (ow or {}).get("weights", {}))
+            st.last_div_epoch = E
+            if dist:
+                print(f"[execnode] dividend epoch {E}: +{dist} raw (canonical)", flush=True)
+    except Exception as e:
+        print(f"[execnode] canonical accrual error at epoch {st.last_div_epoch + 1}: "
+              f"{type(e).__name__}: {e} — cursor holds", flush=True)
+        return False
+    return True
+
+
+def _observe_settles(block, our_attested):
+    """Record every settle attestation in `block` and CRITICAL-log the first time two attesters
+    post different roots for the same (ns, cursor). Pure bookkeeping — never raises."""
+    try:
+        for t in block.get("block_transactions", []):
+            if t.get("recipient") != "settle" or not isinstance(t.get("data"), dict):
+                continue
+            d = t["data"]
+            try:
+                sc = int(d.get("exec_cursor"))
+            except (TypeError, ValueError):
+                continue
+            ns = str(d.get("ns", "") or "default")
+            root = str(d.get("state_root", ""))
+            roots = _settle_observed.setdefault(ns, {}).setdefault(sc, {})
+            roots.setdefault(root, set()).add(str(t.get("sender", ""))[:10])
+            if len(roots) > 1 and (ns, sc) not in _settle_conflict_logged:
+                _settle_conflict_logged.add((ns, sc))
+                ours = our_attested.get(sc)
+                print(f"[execnode] CRITICAL: SETTLE ROOT CONFLICT ns={ns} cursor {sc} — "
+                      + "; ".join(f"{r[:12]}… by {sorted(s)}" for r, s in roots.items())
+                      + (f"; our attested root {ours[:12]}…" if ours else "")
+                      + " — the settle quorum CANNOT justify this cursor; divergent exec state in the fleet",
+                      flush=True)
+            # bound the memo
+            for old in [c for c in _settle_observed[ns] if c < sc - 2000]:
+                del _settle_observed[ns][old]
+    except Exception:
+        pass
+
+
 async def tail_loop():
     """Follow L1 forever: each poll, replay every newly FINALIZED block's exec-relevant txs (blob /
     bridge / shield) into `state` in block order — skipping pruned (body-less) finalized blocks — then
@@ -3038,6 +3116,12 @@ async def tail_loop():
                               f"applied block {h - 1} — recovering", flush=True)
                         await _recover_from_revert(session, status, f"linkage break at {h}")
                         break
+                    # CANONICAL ACCRUAL (see DIV_ACCRUAL_CANONICAL_FROM): before block h may apply, the
+                    # dividend watermark must equal (h // EPOCH_LENGTH) - 1 — a pure function of h. The
+                    # legacy epilogue accrual below self-noops once this keeps the watermark current.
+                    if h >= DIV_ACCRUAL_CANONICAL_FROM:
+                        if not await _accrue_owed(session, state, h // _EPOCH_LENGTH - 1):
+                            break                              # owed accrual unavailable: HOLD the cursor
                     if "block_transactions" not in block:
                         # A FINALIZED block (h <= finalized) with no body is PRUNED (rolling mode drops old
                         # block bodies, leaving only {block_number}). SKIP it so a fresh exec node can still
@@ -3051,6 +3135,7 @@ async def tail_loop():
                         state.replay_gap = True
                         state.cursor = h
                         continue
+                    _observe_settles(block, state.attested)    # divergence alarm: see _observe_settles
                     if not await _apply_block(session, states, state, block, verbose=True):
                         break                                  # DA stall: do NOT advance the cursor; retry next poll
                     applied += 1
@@ -3413,6 +3498,18 @@ async def h_state_snapshot(request):
     re-derives state_root from `state` and accepts only if it matches the L1-settled (cursor, root),
     so a lying donor can waste its time but never poison it. 404 until this node has settled once."""
     ns = request.query.get("ns", "default")
+    cur_q = request.query.get("cursor")
+    if cur_q:
+        # by-cursor: serve any stashed settle pre-state, so a joiner/repairer can ask for the exact
+        # cursor L1 has justified instead of whatever this donor settled last.
+        try:
+            raw = (_settled_history.get(ns) or {}).get(int(cur_q))
+        except ValueError:
+            return web.json_response({"error": "bad cursor"}, status=400)
+        if raw is None:
+            return web.json_response({"error": f"no stashed snapshot at cursor {cur_q} "
+                                               f"(held: {sorted(_settled_history.get(ns) or {})})"}, status=404)
+        return web.Response(text=raw, content_type="application/json")
     raw = _settled_snapshots.get(ns)
     if raw is None:
         return web.json_response({"error": "no settled snapshot yet (node hasn't settled since start)"},
