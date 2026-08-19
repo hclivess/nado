@@ -77,3 +77,20 @@ check("batch prefetch, poll-local, finality-bounded, single-fetch fallback", t4_
 check("provisional refresh paused while behind; errors named", t5_provisional_guarded_and_named)
 print(f"\n{'ALL PASS' if fails == 0 else f'{fails} FAILURE(S)'}")
 sys.exit(1 if fails else 0)
+
+
+def t6_peer_fallback_fully_verified():
+    # peer bodies are only trustable with the anti-fork invariant recomputed per block: own-anchor
+    # linkage + block_content_hash == declared hash + own-finality bound. And the ring stores hashes
+    # as INTS — the anchor must be hex-formatted or the batch URL silently matches nothing.
+    pb = _SRC[_SRC.index("async def _peer_batch"):_SRC.index("async def tail_loop")]
+    assert "block_content_hash(b) != b.get" in pb or "block_content_hash(b) == b" in pb.replace("!=","=="), \
+        "peer blocks must have their content hash RECOMPUTED"
+    assert 'b.get("parent_hash") != expect' in pb, "peer batch must chain from OUR anchor"
+    assert '> finalized' in pb, "peer batch must respect our own finality bound"
+    tl = _TL
+    assert 'format(_ph, "064x")' in tl, "the int-stored ring hash must be hex-formatted for the URL"
+    assert "_peer_batch(session, _ph, finalized)" in tl, "peer fallback wired after the local batch"
+
+
+check("peer fallback: recomputed hashes, own anchor, finality bound, hex anchor", t6_peer_fallback_fully_verified)

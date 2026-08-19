@@ -3181,6 +3181,54 @@ async def _root_pool_probe(session):
             _root_pool_logged.pop(old, None)
 
 
+# PEER BATCH FALLBACK for the tail prefetch. The local L1 shares this host's GIL and CPU with
+# consensus work, so under load its API answers in 1-15+ s while fleet peers answer in 30-300 ms
+# (measured). Fetching bodies from a peer is safe ONLY with full verification, which this has:
+#   * parent-linkage anchored at OUR OWN last applied hash (the peer cannot choose the anchor),
+#   * block_content_hash RECOMPUTED per block and required to equal the declared block_hash — the
+#     same anti-fork invariant produce_block enforces, so a forged body cannot survive,
+#   * heights bounded by OUR local finality (a peer cannot feed us past our own floor).
+# A lying peer can therefore at worst serve us exactly the canonical chain, or nothing.
+_peer_cache = [0.0, []]                 # (fetched_at, [ips]) — /peers cached ~10 min
+
+
+async def _peer_batch(session, parent_hash, finalized, want=100):
+    """Verified block batch from the first fleet peer that answers. {} when none does."""
+    from ops.block_ops import block_content_hash    # lazy, like maybe_settle's ops import
+    now = time.time()
+    if now - _peer_cache[0] > 600:
+        try:
+            pr = await _get_json(session, "/peers")
+            _peer_cache[0] = now
+            _peer_cache[1] = [f"[{ip}]" if (":" in ip and not ip.startswith("[")) else ip
+                              for ip in ((pr.get("peers") or []) if isinstance(pr, dict) else [])]
+        except Exception:
+            pass
+    for peer in _peer_cache[1]:
+        try:
+            async with session.get(f"http://{peer}:9173/get_blocks_after?hash={parent_hash}&count={want}",
+                                   timeout=aiohttp.ClientTimeout(total=20)) as r:
+                d = await r.json(content_type=None)
+            out = {}
+            expect = parent_hash
+            for b in (d.get("blocks_after") or []) if isinstance(d, dict) else []:
+                if not isinstance(b, dict) or b.get("parent_hash") != expect:
+                    break
+                if b.get("block_number") is None or int(b["block_number"]) > finalized:
+                    break
+                if block_content_hash(b) != b.get("block_hash"):
+                    print(f"[execnode] peer {peer} served a hash-inconsistent block "
+                          f"{b.get('block_number')} — dropping the rest of its batch", flush=True)
+                    break
+                out[int(b["block_number"])] = b
+                expect = b["block_hash"]
+            if out:
+                return out
+        except Exception:
+            continue
+    return {}
+
+
 async def tail_loop():
     """Follow L1 forever: each poll, replay every newly FINALIZED block's exec-relevant txs (blob /
     bridge / shield) into `state` in block order — skipping pruned (body-less) finalized blocks — then
@@ -3302,6 +3350,12 @@ async def tail_loop():
                     block = prefetch.pop(h, None)
                     if block is None:
                         _ph = state.block_hashes.get(state.cursor)
+                        # the BLOCKHASH ring stores hashes as INTS (int(hex,16) — state.record_block_hash);
+                        # a URL built from the decimal form matches nothing and the empty answer is not an
+                        # exception, so the batch path silently never fired (observed 2026-08-20 00:55:
+                        # zero batch-failure lines AND zero batch hits — all progress was single fetches).
+                        if isinstance(_ph, int):
+                            _ph = format(_ph, "064x")
                         if _ph and (finalized - state.cursor) > 3:
                             # OWN TIMEOUT, AND NEVER SILENT. A 100-block collect is ~100 disk reads +
                             # serialize on an L1 that answers single blocks in 1-15 s under load — the
@@ -3321,7 +3375,12 @@ async def tail_loop():
                                 block = prefetch.pop(h, None)
                             except Exception as _e:
                                 print(f"[execnode] batch prefetch after {state.cursor} failed "
-                                      f"({type(_e).__name__}: {_e}) — single-block fallback", flush=True)
+                                      f"({type(_e).__name__}: {_e}) — trying peers", flush=True)
+                            if block is None and not prefetch:
+                                # local L1 too slow/empty: VERIFIED peer batch (see _peer_batch — full
+                                # content-hash recompute + own-anchor linkage; can only yield canon).
+                                prefetch.update(await _peer_batch(session, _ph, finalized))
+                                block = prefetch.pop(h, None)
                     if block is None:
                         # A SLOW FETCH MUST END THE BATCH, NEVER THE POLL. _get_json RAISES on its 15s
                         # timeout; unhandled, that raise skipped the ENTIRE poll epilogue (dividend accrual,
