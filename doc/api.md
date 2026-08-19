@@ -159,6 +159,13 @@ has propagated (omitting it is legal but was a measured fork driver). Everything
 `bond`, `register`, governance, …) lands *exactly* at `max_block`; aim it far enough ahead for gossip
 (the node's own submitters use 12–20 blocks).
 
+**Mempool door gates (user-origin only).** The relay refuses at submission — never at gossip, so a
+refusal can't diverge pools — (a) a `dividend_withdraw` whose `min_block` is missing or nearer than
+tip + 4 ("refresh your wallet"), and (b) a second `withdraw` (unbond claim) from a sender who already
+has one waiting in the pool ("unbond withdrawal already pending") — an account has one pending-unbond
+slot, so one in-flight claim is complete; duplicate claims only pile up as phantom pending credit in
+wallet history until they die.
+
 ---
 
 ## 5. Coin Flip dApp flow (`coinflip.nadochain.com`)

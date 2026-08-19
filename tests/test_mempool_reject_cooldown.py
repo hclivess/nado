@@ -76,6 +76,24 @@ def t_the_caching_site_uses_the_grading():
     assert 't.get("recipient") == tx.get("sender")' in site, "the funder-in-pool check is gone"
 
 
+def t_duplicate_unbond_withdraw_is_refused_at_the_door():
+    """2026-08-19: the wallet auto-claim re-submitted the matured-unbond withdraw every poll tick until
+    it landed — ~20 identical claims pooled at once, shown to the user as +200 NADO phantom pending.
+    The door gate refuses a USER-ORIGIN withdraw while the sender already has one pooled; gossip stays
+    exempt so admitted duplicates keep relaying identically (pool-divergence safety)."""
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "memserver.py"), encoding="utf8").read()
+    gate = src[src.index("DUPLICATE unbond-withdraw"):]
+    gate = gate[:gate.index("SUPERSEDED")]
+    assert 'user_origin and transaction.get("recipient") == "withdraw"' in gate, \
+        "the withdraw dedupe gate is gone or no longer user-origin-only"
+    assert "already pending" in gate, "the refusal message changed shape"
+    js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "static", "interface.js"), encoding="utf8").read()
+    assert "_unbondClaimTarget" in js and js.index("_unbondClaimTarget") < js.index("buildWithdrawUnbondTx(state.wallet"), \
+        "the wallet-side one-claim-per-landing-window guard is gone"
+
+
 for name, fn in [(n, f) for n, f in list(globals().items()) if n.startswith("t_")]:
     check(name[2:].replace("_", " "), fn)
 

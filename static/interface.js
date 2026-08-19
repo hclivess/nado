@@ -750,6 +750,15 @@ async function claimMaturedUnbond(pending, auto) {
     const acc = await getAccount(state.wallet.address);
     const targetBlock = await nextTargetBlock();
     if (targetBlock < pending.release_block) return;         // not matured at the landing block yet
+    // ONE claim per landing window. The poll re-enters here every tick while /get_unbond still shows
+    // the pending record — i.e. for the whole submit->landing gap — and every tick used to submit
+    // ANOTHER withdraw (fresh nonce -> fresh txid). ~20 duplicates sat in the mempool at once, the
+    // history pane showed them all as incoming credit (+200 "pending" for a 10-NADO unbond,
+    // 2026-08-19), and every copy but the winner died "no pending unbond to withdraw". The claim is
+    // EXACT-landing at targetBlock, so it is decided (landed or dead) once the tip passes it:
+    // re-arm only then. (targetBlock - 8 == the tip nextTargetBlock() just read.)
+    if (state._unbondClaimTarget && state._unbondClaimTarget > targetBlock - 8) return;
+    state._unbondClaimTarget = targetBlock;
     const tx = buildWithdrawUnbondTx(state.wallet, pending.amount, pending.release_block, targetBlock,
                                      nowSeconds(), !pubkeyEstablished(acc));
     await submitAndReport(tx, "Withdraw", "stakeMsg");

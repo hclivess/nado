@@ -627,6 +627,23 @@ class MemServer:
                               "the network time to propagate before they can be mined"}
             return msg
 
+        # DUPLICATE unbond-withdraw (door-level, user-origin only — same divergence-safety argument as
+        # the dividend gate above). The wallet poll re-entered its auto-claim every tick for the whole
+        # submit->landing gap and each tick built a fresh withdraw (new nonce -> new txid), so ~20
+        # identical claims piled into the pool at once; every copy after the winner died "no pending
+        # unbond to withdraw" and the wallet displayed the pile as phantom incoming credit (+200 shown
+        # for a 10-coin unbond, 2026-08-19). An account has ONE pending-unbond slot, so one in-flight
+        # claim per sender is complete — a second copy can never release more coins. Gossip is exempt:
+        # already-admitted duplicates must keep relaying identically on every node.
+        elif (user_origin and transaction.get("recipient") == "withdraw"
+                and any(t.get("recipient") == "withdraw"
+                        and t.get("sender") == transaction.get("sender")
+                        for t in self.transaction_pool)):
+            msg = {"result": False,
+                   "message": "unbond withdrawal already pending — the earlier claim is still waiting "
+                              "to land"}
+            return msg
+
         # SUPERSEDED single-duty forms (doc/consensus-aggregation.md): attest/commit/reveal stay
         # consensus-valid FOREVER (historical blocks carry them; genesis sync replays them), but NEW
         # ones are refused at the mempool door — every honest validator emits the merged `duty` tx,
