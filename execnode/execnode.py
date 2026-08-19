@@ -2966,12 +2966,12 @@ def _observe_settles(block, our_attested):
             ns = str(d.get("ns", "") or "default")
             root = str(d.get("state_root", ""))
             roots = _settle_observed.setdefault(ns, {}).setdefault(sc, {})
-            roots.setdefault(root, set()).add(str(t.get("sender", ""))[:10])
+            roots.setdefault(root, set()).add(str(t.get("sender", "")))   # FULL sender: anchor matching needs it
             if len(roots) > 1 and (ns, sc) not in _settle_conflict_logged:
                 _settle_conflict_logged.add((ns, sc))
                 ours = our_attested.get(sc)
                 print(f"[execnode] CRITICAL: SETTLE ROOT CONFLICT ns={ns} cursor {sc} — "
-                      + "; ".join(f"{r[:12]}… by {sorted(s)}" for r, s in roots.items())
+                      + "; ".join(f"{r[:12]}… by {sorted(x[:10] for x in s)}" for r, s in roots.items())
                       + (f"; our attested root {ours[:12]}…" if ours else "")
                       + " — the settle quorum CANNOT justify this cursor; divergent exec state in the fleet",
                       flush=True)
@@ -2980,6 +2980,131 @@ def _observe_settles(block, our_attested):
                 del _settle_observed[ns][old]
     except Exception:
         pass
+
+
+# FROZEN-QUORUM AUTO-RECOVERY (anchor-verified adoption). The settle quorum can DEADLOCK: N attesters,
+# every one on a different lineage, no subset with the same root above 2/3 of active shares — betanet-3
+# ran 12k+ cursors frozen this way, and no amount of waiting can end it (each attester keeps re-attesting
+# its own lineage forever). Trust-minimized convergence is impossible once the last justified checkpoint
+# ages out of every stash (proven irreproducible here: three replay attempts, including one using the
+# journal-recorded accrual boundaries, all missed — /get_open_weights recomputes old epochs from TODAY's
+# pool state). So the deadlock breaker anoints the ANCHOR — the chain operator's settle address, the same
+# party whose pushed code every fleet node already auto-runs, so this encodes NO trust the fleet does not
+# already extend. A node that sees the quorum frozen adopts the anchor's snapshot, verified against the
+# anchor's OWN ML-DSA-SIGNED settle attestation as replayed from a FINALIZED L1 block (inclusion = the
+# signature was verified by L1 consensus; _observe_settles carries the evidence). The anchor node itself
+# never adopts. After every divergent attester converges onto the anchor lineage, the next settles agree,
+# the quorum justifies, and the ordinary machinery (self-disqualify + repair-bootstrap against JUSTIFIED
+# checkpoints) guards everything thereafter.
+SETTLE_ANCHOR = "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"
+ANCHOR_STALL_CURSORS = 2880          # settled tip this many cursors behind ours = the quorum is frozen
+ANCHOR_ADOPT_EVERY = 1800.0          # seconds between adoption attempts
+_anchor_last = 0.0
+_anchor_is_self = None               # tri-state cache: None = not yet checked
+
+
+def _anchor_self():
+    """True iff THIS node settles as the anchor (it must never adopt — it IS the lineage)."""
+    global _anchor_is_self
+    if _anchor_is_self is None:
+        try:
+            from ops.key_ops import load_keys
+            _anchor_is_self = (load_keys().get("address") == SETTLE_ANCHOR)
+        except Exception:
+            _anchor_is_self = False
+    return _anchor_is_self
+
+
+async def _anchor_adopt(session, finalized):
+    """One adoption attempt per frozen namespace: find a peer serving a snapshot whose RECOMPUTED root
+    matches an (cursor, root) the ANCHOR attested in a finalized block, and adopt it. Guards:
+      * only when /get_settled is ANCHOR_STALL_CURSORS+ behind our cursor (a live quorum never triggers)
+      * snapshot cursor <= our finalized view (an adopted cursor above it would trip the reroll-stranded
+        detector and reset the state to genesis — measured code path, not a hypothetical)
+      * one adoption per freeze episode (anchor_adopted_at rate-limit)
+      * the anchor node itself never adopts."""
+    global _last_settled_cursor, prov_states, _prov_key, _prov_last, _prov_since_full
+    import threading as _threading
+    if _anchor_self():
+        return
+    for ns, st in states.items():
+        if st.cursor < 0:
+            continue
+        settled = await _get_json(session, f"/get_settled?ns={ns}")
+        try:
+            settled_cur = int(settled.get("exec_cursor"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if st.cursor - settled_cur < ANCHOR_STALL_CURSORS:
+            continue                                   # quorum is alive (or freeze too young) — never adopt
+        if st.anchor_adopted_at >= 0 and st.cursor - st.anchor_adopted_at < ANCHOR_STALL_CURSORS:
+            continue                                   # already adopted this episode; give settling time
+        anchored = {(c, r) for c, roots in _settle_observed.get(ns, {}).items()
+                    for r, senders in roots.items() if SETTLE_ANCHOR in senders}
+        if not anchored:
+            continue                                   # no anchor attestation replayed yet — wait
+        donors = ([BOOTSTRAP] if BOOTSTRAP else [])
+        try:
+            pr = await _get_json(session, "/peers")
+            for ip in (pr.get("peers") or []) if isinstance(pr, dict) else []:
+                host = f"[{ip}]" if (":" in ip and not ip.startswith("[")) else ip
+                donors.append(f"http://{host}:{PORT}")
+        except Exception:
+            pass
+        # ask donors for the exact cursors we saw the anchor attest (newest first) — the donor's LATEST
+        # stash is typically one settle ahead of what we've finalized/observed (settle cadence ≈ finality
+        # lag), so fetching by cursor is what makes the on-chain evidence and the payload line up.
+        # CANONICAL-ERA ONLY: adopting a pre-DIV_ACCRUAL_CANONICAL_FROM checkpoint would make the adopter
+        # re-replay pre-activation blocks with EPILOGUE accrual timing — its own private batch boundaries —
+        # and re-diverge from the anchor before ever reaching the canonical era. Forward replay is only
+        # deterministic from the activation height, so only checkpoints at/after it are adoptable.
+        wanted = sorted((c for c, _ in anchored
+                         if c <= finalized and c >= DIV_ACCRUAL_CANONICAL_FROM), reverse=True)[:6]
+        adopted = False
+        for donor, want in ((d, c) for c in wanted for d in donors):
+            try:
+                async with session.get(f"{donor}/exec/state_snapshot?ns={ns}&cursor={want}",
+                                       timeout=aiohttp.ClientTimeout(total=30)) as r:
+                    snap = await r.json(content_type=None)
+                if not isinstance(snap, dict) or "state" not in snap:
+                    continue
+                snap_cur = int(snap.get("cursor", -1))
+                if snap_cur > finalized:
+                    continue                           # stranded-detector guard: never outrun our finality
+                cand = ExecState.__new__(ExecState)    # verify on a scratch instance, never on `st`
+                cand.path = st.path + "#anchor-verify"
+                cand._mutate_lock = _threading.RLock()
+                cand._restore(snap["state"])
+                root = cand.state_root()
+                if (snap_cur, root) not in anchored:
+                    continue                           # not the anchor lineage (or unattested) — next donor
+                st._restore(snap["state"])
+                for h in [h for h in st.block_hashes if h > int(st.cursor)]:
+                    st.block_hashes.pop(h, None)       # same live-serialization hygiene as _rewind_to
+                st.bootstrapped = True
+                st.replay_gap = False
+                st.attested = {}
+                st.anchor_adopted_at = st.cursor
+                st.save()
+                _settled_snapshots[ns] = json.dumps({"ns": ns, "cursor": st.cursor, "state_root": root,
+                                                     "state": st._snapshot()}, sort_keys=True)
+                _settled_history[ns] = {st.cursor: _settled_snapshots[ns]}
+                _stash_persist(ns, st.cursor, _settled_snapshots[ns])
+                _last_settled_cursor = -1
+                prov_states = None
+                _prov_key = None
+                _prov_last = None
+                _prov_since_full = 0
+                print(f"[execnode] ANCHOR ADOPTION ns={ns}: quorum frozen at {settled_cur} for "
+                      f"{st.cursor - settled_cur}+ cursors — adopted the anchor lineage from {donor} at "
+                      f"cursor {snap_cur} root {root[:16]}… (verified against the anchor's signed settle "
+                      f"attestation in a finalized L1 block). Re-attesting from this lineage.", flush=True)
+                adopted = True
+                break
+            except Exception:
+                continue
+        if adopted:
+            continue
 
 
 async def tail_loop():
@@ -3209,7 +3334,7 @@ async def tail_loop():
                         _t.add_done_callback(_settle_task_done)
                 # AUTO-REPAIR PROBE — inline (single-task, can never race _apply_block above), throttled,
                 # and a no-op the moment every namespace passes state_complete(). See _repair_bootstrap.
-                global _repair_last
+                global _repair_last, _anchor_last
                 _now = time.time()
                 if (_now - _repair_last) >= _REPAIR_EVERY:
                     if any(st.cursor >= 0 and not st.state_complete() for st in states.values()):
@@ -3218,6 +3343,13 @@ async def tail_loop():
                             await _repair_bootstrap(session)
                         except Exception as e:
                             print(f"[execnode] repair-bootstrap error: {e}", flush=True)
+                # FROZEN-QUORUM AUTO-RECOVERY PROBE — same inline/throttled discipline. See _anchor_adopt.
+                if (_now - _anchor_last) >= ANCHOR_ADOPT_EVERY:
+                    _anchor_last = _now
+                    try:
+                        await _anchor_adopt(session, finalized)
+                    except Exception as e:
+                        print(f"[execnode] anchor-adopt error: {type(e).__name__}: {e}", flush=True)
                 # Rebuild the PROVISIONAL view EVERY poll (even with no newly-finalized block — the tip still
                 # advances ~every block_time, so a just-included bet/reveal/deposit shows within ~one block
                 # instead of a whole finality window). Best-effort; never breaks the finalized tail.

@@ -331,7 +331,8 @@ class ExecState:
         self.replay_gap = False    # a body-less finalized block was SKIPPED during replay -> state is
                                    # provably missing exec txs; PERMANENT until a verified bootstrap
         self.bootstrapped = False  # state was adopted from a quorum-verified settled checkpoint
-        self.attested = {}         # cursor(int) -> root we ATTESTED on L1 (bounded memo) — lets the node
+        self.attested = {}         # cursor(int) -> root we ATTESTED on L1 (bounded memo)
+        self.anchor_adopted_at = -1  # cursor at which this state last ADOPTED the anchor lineage (rate-limit) — lets the node
                                    # self-disqualify when a later-justified root contradicts its own
         # together with beacon_floor this is how far back our randomness windows reach. A node that cold-started
         # mid-flight (pruned L1 / failed bootstrap) has RAISED floors and must not settle (see window_canonical).
@@ -429,6 +430,7 @@ class ExecState:
         self.zk_addrs = d.get("zk_addrs", {})
         self.replay_gap = bool(d.get("replay_gap", False))
         self.bootstrapped = bool(d.get("bootstrapped", False))
+        self.anchor_adopted_at = int(d.get("anchor_adopted_at", -1))
         self.attested = {int(c): str(r) for c, r in (d.get("attested") or {}).items()}
         self._touch()          # also (re)creates the cache fields on a bare clone() instance
 
@@ -457,6 +459,7 @@ class ExecState:
                     "block_hashes": {str(h): str(v) for h, v in self.block_hashes.items()},
                     "zk_addrs": self.zk_addrs,
                     "replay_gap": self.replay_gap, "bootstrapped": self.bootstrapped,
+                    "anchor_adopted_at": self.anchor_adopted_at,
                     "attested": {str(c): r for c, r in self.attested.items()}}
 
     def clone(self):
