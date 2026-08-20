@@ -2924,25 +2924,7 @@ async def _repair_bootstrap(session):
                 continue                               # unreachable/slow donor — try the next one
 
 
-# CANONICAL ACCRUAL ACTIVATION (the accrual-order determinism fix). MEASURED 2026-08-19: replaying
-# the SAME state over the SAME 532 blocks (81 collect_dividends) with accrual at batch ends vs
-# per-block produced DIFFERENT roots — the epilogue accrues at POLL-BATCH boundaries, so whether a
-# collect_dividend burns a pre- or post-accrual balance depended on each node's private poll timing.
-# That is a consensus nondeterminism: structurally identical nodes (26/26 byte-identical contracts)
-# attested different roots forever, and the settle quorum froze for 11k+ cursors.
-# From this L1 height, accrual is CANONICAL: before applying block h, the watermark must be
-# (h // EPOCH_LENGTH) - 1 — a pure function of h, identical on every node. Below it, the legacy
-# epilogue behavior is preserved so existing lineages replay their own history unchanged. HARDCODED,
-# never env-tweakable: a per-node override would be the bug this fixes.
-# SELF-DISARMING AT THE REROLL (operator directive: gates must not survive into a new generation) —
-# tied to the chain identity, so any future CHAIN_ID accrues canonically from cursor 0 and the whole
-# expression deletes naturally with betanet-3.
-# TODO(delete SOON): remove this gate + the epilogue accrual path the moment every fleet exec cursor
-# AND every adoptable settle checkpoint sits above 82000 (check /exec/roots + stashes — expected
-# 2026-08-20/21). Safe then: the sub-82000 span protects nothing reproducible (pre-gate accrual was
-# batch-timing-dependent — the frozen-quorum bug — so a replay through it diverges under either rule
-# and anchor-adoption heals it identically).
-f# CANONICAL PER-BLOCK DIVIDEND ACCRUAL — UNGATED since the betanet-4 reroll (gen 22). The betanet-3
+# CANONICAL PER-BLOCK DIVIDEND ACCRUAL — UNGATED since the betanet-4 reroll (gen 22). The betanet-3
 # height gate (82000) and the legacy batch-boundary epilogue accrual are DELETED: accrual runs before
 # every block applies, so the dividend watermark is a pure function of the block stream from cursor 0.
 
