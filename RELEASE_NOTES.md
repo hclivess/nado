@@ -1,3 +1,28 @@
+# v1.0.0-beta.5 — 2026-08-20 — betanet-4: the convergence reroll, every amount carried
+
+> **CHAIN_GENERATION 22.** Nodes purge and boot betanet-4 from genesis automatically on restart.
+> All balances, bonded stakes, uncollected dividends, pending withdrawals and bridge amounts carried
+> forward — supply conserved exactly (Δ=0, 244 accounts). Contract ids unchanged; games redeployed
+> at their existing addresses.
+
+## Every 2026-08-20 consensus rule ships ungated, from block 0
+
+Canonical per-block dividend accrual, committed epoch weights, quantized boundary settle
+attestations. Every betanet-3 height gate is DELETED — including the h10047-16000 state-root repair
+window, whose raw heights would otherwise have suspended root enforcement on THIS chain at h10047.
+
+## Generation identity, three layers deep (what this cutover taught)
+
+A reroll's purge marker is a hint that hand-installed layouts miss; block-0 hash checks are mute on
+rolling nodes that hold no block 0 — and purged nodes were re-infected by the un-purged majority via
+quorum snapshots that carry no genesis-descent proof. The durable identity is arithmetic: **height is
+bound to wallclock** (production paces at BLOCK_TIME, so no chain of this genesis can be taller than
+~2x elapsed since GENESIS_TIMESTAMP). Boot purges on-disk data that exceeds the bound; status
+admission refuses peers advertising an impossible height; /status advertises genesis_hash and
+admission refuses a mismatch. A previous generation's chain can no longer veto finality, win a
+verdict, or serve a snapshot here.
+
+
 # v1.0.0-beta.4 — 2026-08-15 — the faucet actually pays, and a scary number that was never real
 
 > No consensus change. Wallet, operator tooling and the apps page. Safe to update at any time; nodes need
