@@ -2212,6 +2212,32 @@ from ops.data_ops import chain_purge_due, purge_chain_data, stamp_chain_generati
 if chain_purge_due():
     logger.warning("CHAIN_GENERATION bumped — a genesis reroll shipped with this update; wiping chain data for regenesis")
     purge_chain_data(logger)
+
+# GENESIS-IDENTITY BACKSTOP (2026-08-20, the betanet-4 cutover). The marker above is a HINT that can
+# miss: three hand-installed nodes kept extending the OLD chain through the reroll because their
+# generation marker was absent (split/non-systemd layouts), and a missing marker deliberately stamps
+# instead of purging — which then PERMANENTLY exempts the stale data. The CHAIN ITSELF is the truth:
+# block 0's hash is blake2b_hash_link(GENESIS_TIMESTAMP, []) by construction, so on-disk data whose
+# block 0 hashes differently belongs to another genesis, full stop — purge it regardless of markers.
+# Read via a STANDALONE read-only LMDB open (never kv_ops.init_env: purging directories underneath
+# the process-wide cached env would leave later writes going to deleted inodes).
+try:
+    if os.path.exists(f"{get_home()}/index/block_ends.dat"):
+        import lmdb as _lmdb
+        from hashing import blake2b_hash_link as _bhl
+        _e = _lmdb.open(f"{get_home()}/index/state", readonly=True, lock=False, max_dbs=64)
+        try:
+            _db = _e.open_db(b"block_by_num", create=False)
+            with _e.begin(db=_db) as _txn:
+                _g0 = _txn.get((0).to_bytes(8, "big"))
+        finally:
+            _e.close()
+        if _g0 is not None and _g0.decode() != _bhl(link_from=GENESIS_TIMESTAMP, link_to=[]):
+            logger.warning("On-disk block 0 does not match protocol GENESIS_TIMESTAMP — "
+                           "foreign-generation chain data; wiping for regenesis")
+            purge_chain_data(logger)
+except Exception as _ge:
+    logger.warning(f"genesis-identity check skipped ({type(_ge).__name__}: {_ge})")
 stamp_chain_generation()
 
 # GENESIS SENTINEL: key off block_ends.dat (written LAST by make_genesis), NOT the blocks/ dir (created FIRST
