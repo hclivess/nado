@@ -198,6 +198,22 @@ async def legacy_static_redirect(request):
     raise web.HTTPFound("/static/interface." + request.match_info["ext"])
 
 
+_GENESIS_HASH_CACHE = [None]
+
+
+def _genesis_hash_cached():
+    """Block 0's hash, computed once per process (immutable for a running node: a reroll purges and
+    restarts). None while genesis hasn't landed yet — peers treat a missing field as unknown, never
+    as foreign."""
+    if _GENESIS_HASH_CACHE[0] is None:
+        try:
+            from ops.block_ops import get_block_hash_by_number
+            _GENESIS_HASH_CACHE[0] = get_block_hash_by_number(0)
+        except Exception:
+            return None
+    return _GENESIS_HASH_CACHE[0]
+
+
 async def status(request):
     """GET /status: the node's status dict — address, chain ends (latest/earliest hash, weight),
     finalized_height + ffg_finalized, protocol/version, chain_id (the network partition key peers gate
@@ -223,6 +239,12 @@ async def status(request):
             # problem. Old peers without this field fall back to finalized_height in the UI.
             "latest_block_height": lb.get("block_number"),
             "latest_block_weight": lb.get("cumulative_weight", 0),
+            # GENERATION IDENTITY (2026-08-20, the betanet-4 cutover): CHAIN_ID is a code label two
+            # generations can momentarily share (un-purged reroll stragglers run the new code over the
+            # old chain), but block 0's hash is unforgeable chain identity. Peers refuse status
+            # admission on a mismatch (peer_loop) — one filter that starves every consensus pool of
+            # foreign-generation weight/verdict claims at once.
+            "genesis_hash": _genesis_hash_cached(),
             "earliest_block_hash": eb.get("block_hash"),
             # BODY HORIZON — the oldest height this node can actually serve a BODY for, which is the
             # question every caller of node_type is really asking. node_type is a POLICY flag ("do I

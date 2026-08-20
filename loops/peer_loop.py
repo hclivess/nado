@@ -12,6 +12,21 @@ from ops.peer_ops import seed_default_peers, seed_peers, status_fields_well_type
 from ops import self_update
 from protocol import CHAIN_ID
 
+
+_OUR_GENESIS_CACHE = [None]
+
+
+def _our_genesis():
+    """Our block 0 hash, cached per process (immutable while running; a reroll restarts the node)."""
+    if _OUR_GENESIS_CACHE[0] is None:
+        try:
+            from ops.block_ops import get_block_hash_by_number
+            _OUR_GENESIS_CACHE[0] = get_block_hash_by_number(0)
+        except Exception:
+            return None
+    return _OUR_GENESIS_CACHE[0]
+
+
 # How often (seconds) a node BELOW min_peers re-seeds + reloads peers from drive. The peer loop still spins
 # ~1/s for status/tx work, but the "No peers, reloading from drive" retry is throttled to this so a peerless
 # node (solo/bootstrap, or one that can't yet reach the network) doesn't flood the log every second.
@@ -224,6 +239,19 @@ class PeerClient(threading.Thread):
                         # gate (_peer_ahead) and minority_block_consensus, stalling production and
                         # looping emergency sync against blocks verify_block can only reject.
                         self.logger.error(f"Chain of {key} is not {CHAIN_ID}: {value.get('chain_id')}")
+                        self.memserver.ban_peer(key)
+                    elif (value.get('genesis_hash') is not None and _our_genesis() is not None
+                          and value.get('genesis_hash') != _our_genesis()):
+                        # FOREIGN GENERATION (2026-08-20, the betanet-4 cutover): same CHAIN_ID string,
+                        # different block 0 — un-purged reroll stragglers ran the new code over the OLD
+                        # chain and their ~9M-weight tips poisoned every pool at once: the depth-floor
+                        # veto froze finality at 0 from block 1, and the stake-signed fork verdicts
+                        # pushed REORG adoptions toward a chain that can never link to our genesis.
+                        # Block 0 is unforgeable chain identity; refuse the status like a wrong chain.
+                        # A missing field (old code) admits — the fleet self-updates within minutes and
+                        # then advertises honestly.
+                        self.logger.error(f"Genesis of {key} is not ours ({str(value.get('genesis_hash'))[:16]}…) "
+                                          f"— foreign-generation chain; refusing status admission")
                         self.memserver.ban_peer(key)
                     elif not status_fields_well_typed(value):
                         # MALFORMED-TYPE status: a numeric field (esp. latest_block_weight) that is
