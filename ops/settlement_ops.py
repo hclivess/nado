@@ -15,6 +15,8 @@ The proof path is checked first (cheapest + trustless); the quorum path keeps se
 has landed yet. The old node-local verifier callback is GONE — proof authority now lives on-chain, where
 transaction-validation reads (cross-msg / dividend / unshield / bridge exit) stay deterministic by construction.
 """
+import threading
+
 from ops import kv_ops
 from ops.account_ops import get_bonded_registry
 from ops.mining_ops import total_bonded_shares, selection_shares
@@ -72,6 +74,13 @@ def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry:
 # latest_settled cache: one ((env_path, write_generation, ns), result) tuple, same single-reference,
 # GIL-atomic pattern as account_ops._bonded_reg_cache and snapshot_ops._root_cache.
 _latest_settled_cache = [None]
+# THUNDERING-HERD LOCK (2026-08-20): the unjustified-top-cursor cliff (docstring below) is expensive,
+# and it is reached from EVERY claim validation in the mempool merge, twice per block, and /get_settled
+# — a dozen Tornado worker threads all miss the generation key at once after every write txn and each
+# re-ran the full walk CONCURRENTLY, serialising on the GIL. py-spy (11:55, node 60 blocks behind):
+# ~80% of busy samples were parallel copies of this walk, starving the core thread to 37s/block applies.
+# One computer per generation; everyone else waits for its cached result instead of duplicating it.
+_latest_settled_lock = threading.Lock()
 
 
 def latest_settled(ns: str = DEFAULT_NS):
@@ -96,9 +105,13 @@ def latest_settled(ns: str = DEFAULT_NS):
     entry = _latest_settled_cache[0]
     if entry is not None and entry[0] == key:
         return entry[1]
-    result = _latest_settled_uncached(ns)
-    _latest_settled_cache[0] = (key, result)
-    return result
+    with _latest_settled_lock:
+        entry = _latest_settled_cache[0]          # re-check: the herd resolves to one compute
+        if entry is not None and entry[0] == key:
+            return entry[1]
+        result = _latest_settled_uncached(ns)
+        _latest_settled_cache[0] = (key, result)
+        return result
 
 
 def _latest_settled_uncached(ns: str = DEFAULT_NS):
