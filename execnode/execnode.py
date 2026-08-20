@@ -3202,8 +3202,11 @@ async def _peer_batch(session, parent_hash, finalized, want=100):
             _peer_cache[0] = now
             _peer_cache[1] = [f"[{ip}]" if (":" in ip and not ip.startswith("[")) else ip
                               for ip in ((pr.get("peers") or []) if isinstance(pr, dict) else [])]
-        except Exception:
-            pass
+        except Exception as e:
+            # keep any stale list (still good donors) but SAY the refresh failed — a quiet failure
+            # here left the fallback iterating an empty list with zero log evidence (2026-08-20).
+            print(f"[execnode] /peers refresh failed ({type(e).__name__}: {e}) — "
+                  f"{len(_peer_cache[1])} cached peers", flush=True)
     for peer in _peer_cache[1]:
         try:
             async with session.get(f"http://{peer}:9173/get_blocks_after?hash={parent_hash}&count={want}",
@@ -3365,8 +3368,13 @@ async def tail_loop():
                             # why — the same invisibility bug as the empty str(TimeoutError), one layer
                             # up). One 60 s call per ~100 blocks is a fine trade; a failure names itself.
                             try:
+                                # 20s, not 60: peers answer this same call in ~0.3s, so when the LOCAL
+                                # L1 is GIL-starved (its emergency loop pins the process) a long local
+                                # wait only delays the peer fallback — measured 2026-08-20 11:09-11:15:
+                                # one poll burned 60s local batch + peer miss + 15s single fetch for
+                                # ZERO blocks while finality ran 168 cursors ahead.
                                 async with session.get(f"{L1}/get_blocks_after?hash={_ph}&count=100",
-                                                       timeout=aiohttp.ClientTimeout(total=60)) as _resp:
+                                                       timeout=aiohttp.ClientTimeout(total=20)) as _resp:
                                     _r = await _resp.json(content_type=None)
                                 for _b in (_r.get("blocks_after") or []) if isinstance(_r, dict) else []:
                                     if isinstance(_b, dict) and isinstance(_b.get("block_number"), int) \
@@ -3381,6 +3389,14 @@ async def tail_loop():
                                 # content-hash recompute + own-anchor linkage; can only yield canon).
                                 prefetch.update(await _peer_batch(session, _ph, finalized))
                                 block = prefetch.pop(h, None)
+                                if block is None and not prefetch:
+                                    # NEVER SILENT (the empty-str(TimeoutError) lesson, one layer up
+                                    # again): an empty peer fallback was invisible for 15 min on
+                                    # 2026-08-20 — the /peers refresh had failed quietly and the
+                                    # fallback looped over ZERO peers.
+                                    print(f"[execnode] peer batch after {state.cursor} empty "
+                                          f"({len(_peer_cache[1])} peers known) — single fetch",
+                                          flush=True)
                     if block is None:
                         # A SLOW FETCH MUST END THE BATCH, NEVER THE POLL. _get_json RAISES on its 15s
                         # timeout; unhandled, that raise skipped the ENTIRE poll epilogue (dividend accrual,

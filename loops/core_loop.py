@@ -68,6 +68,12 @@ NO_SYNCABLE_LOG_INTERVAL = 30
 # Seconds a strictly-better-but-unheld tip must PERSIST before we call it a fork and enter emergency
 # mode. Below this it is ordinary propagation lag (see minority_block_consensus). ~half a block.
 MINORITY_GRACE_S = 5
+# TREADMILL GUARD (emergency exit hysteresis): a clean-prefix BEHIND verdict within this many blocks
+# of the heaviest ADVERTISED tip exits the emergency loop instead of racing gossip forever — that
+# residue is propagation lag, and the loop's own pass overhead (knows_block RTT + fetch + verify)
+# regenerates it every pass. See the exit in emergency_mode(). Advertised tips among healthy peers
+# straggle by 1-2 blocks; 2 keeps genuine multi-block deficits inside the loop.
+EMERGENCY_EXIT_LAG = 2
 
 # How often (seconds) to log + telemetry-count an emergency-mode entry. emergency_mode() is re-entered
 # ~1/s while behind; without this throttle "Entering/Looping emergency mode" spammed the journal and a
@@ -2122,6 +2128,33 @@ class CoreClient(threading.Thread):
                 vstate = verdict.get("state")
                 _anc = verdict.get("ancestor")
                 self._rec("verdict", state=str(vstate), ancestor=_anc)
+                # TREADMILL EXIT (2026-08-20). The break above requires momentarily holding the exact
+                # heaviest ADVERTISED tip — but a serial donor-pull pass costs a knows_block round-trip
+                # + fetch + verify, so on a chain producing every ~6-11s the check re-fails by 1-2 blocks
+                # every pass, forever: measured 7h20m continuously in emergency (03:20->10:43) with the
+                # node applying at chain speed the whole time. While trapped here the core thread never
+                # runs normal_mode (NO FFG duty votes from our committee seats, no production, and the
+                # busy loop starves this process's API event loop — the exec tail behind it froze 168
+                # cursors on local timeouts). A clean-prefix BEHIND within a couple of blocks of the
+                # advertised tip IS propagation, not a fork: leave, restart the grace window, and let
+                # normal cadence (gossip fast-forward / the next grace-gated entry) close the tail.
+                # Safety unchanged: fork evidence (REORG/DEAD_FORK/self-mined-above-ancestor) never
+                # takes this exit, and the caught-up production gate still refuses to MINT while behind.
+                if vstate == fork_resolution.BEHIND and not self.memserver.force_sync_ip:
+                    _ours_n = int(self.memserver.latest_block["block_number"])
+                    if _anc is not None and int(_anc) >= _ours_n:      # our tip is ON the majority chain
+                        _hh = self.consensus.heaviest_block_hash
+                        _hn = None
+                        for _st in self.consensus.status_pool.copy().values():
+                            if isinstance(_st, dict) and _st.get("latest_block_hash") == _hh:
+                                _hn = _st.get("latest_block_height")
+                                break
+                        if _hn is not None and int(_hn) - _ours_n <= EMERGENCY_EXIT_LAG:
+                            self._minority_since = get_timestamp_seconds()
+                            self.logger.info(
+                                f"Clean prefix within {int(_hn) - _ours_n} block(s) of the advertised "
+                                f"tip — leaving emergency to normal cadence (treadmill guard)")
+                            break
                 if (vstate == fork_resolution.REORG and _anc is not None
                         and int(self.memserver.latest_block["block_number"]) > int(_anc)):
                     # POSSESSION BEFORE ROLLBACK: fetch + pre-verify the competing branch, and only then
