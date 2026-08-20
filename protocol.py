@@ -27,8 +27,10 @@ if not __debug__:
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "betanet-3"  # BETANET (gen 21): the CARRY-FORWARD reroll — balances, dividends and bridged
-                        # coins fold forward from betanet-2 (genesis_data/genesis_alloc.dat)
+CHAIN_ID = "betanet-4"  # BETANET (gen 22): the CONVERGENCE reroll — balances, dividends and bridged
+                        # coins fold forward from betanet-3 (genesis_data/genesis_alloc.dat); every
+                        # 2026-08-20 consensus rule (canonical accrual, committed epoch weights,
+                        # quantized settles) is live from block 0, gates self-disarmed by this rename
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -62,7 +64,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1786617600  # betanet-3 (gen 21): the carry-forward reroll. New DISTINCT
+GENESIS_TIMESTAMP = 1787239522  # betanet-4 (gen 22): the convergence reroll. New DISTINCT
                                 # timestamp so no prior-generation block links in.
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
