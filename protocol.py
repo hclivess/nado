@@ -161,27 +161,13 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
                              # a relay a few blocks stale ate the whole margin and forked h67761 on a
                              # sweep that became eligible ~6s after submit. These txs are per-epoch —
                              # 3 min of patience is free, and 30 absorbs any realistic tip staleness.
-# GATE HYGIENE (operator directive 2026-08-19/20: "delete gates after the blocks are passed"):
-#   * DUTY_WINDOW_ACTIVATION (81000) — DELETED 2026-08-20, the day after it passed. It steered the
-#     BUILDER only; validation is content-keyed ("min_block" in tx -> windowed, absent -> exact), so
-#     pre-81000 duties replay byte-identically with no constant. DUTY_TX_MARGIN went with it (only the
-#     deleted legacy builder branch read it). Every builder now emits windowed duties unconditionally.
-#   * execnode DIV_ACCRUAL_CANONICAL_FROM (82000) — delete AS SOON AS every fleet exec cursor and
-#     every adoptable settle checkpoint sits above 82000 (check /exec/roots fleet-wide); the epilogue
-#     accrual path below it protects nothing reproducible (pre-82000 accrual was batch-timing-dependent
-#     — the frozen-quorum bug — so a sub-gate replay diverges either way and anchor-adoption heals it).
-#   * EPOCH_WEIGHTS_COMMIT_ACTIVATION (below) — the ONE gate that must survive until the next
-#     CHAIN_GENERATION reroll: it decides which rows a from-genesis replay writes into the STATE ROOT
-#     at historical heights. Deleting it early makes every fresh sync compute different historical
-#     roots and wedge fatally. At the reroll, delete it plus /get_open_weights' reconstruction fallback.
-# SELF-DISARMING AT THE REROLL (operator directive 2026-08-20: "safer to delete than to risk leaving
-# it in for the reroll"): the gate is tied to THIS chain's identity, so any future CHAIN_ID starts at
-# 0 — committed weights from its genesis, no drift window reborn, nothing to remember on the reroll
-# checklist, and the whole expression deletes naturally when betanet-3 dies. It cannot be a bare
-# deletion TODAY because the row SET is consensus state: the live fleet holds epochw rows only for
-# epochs >= 1369, and an ungated replay (canonical_restore on an archive) would commit ALL past epochs
-# — splitting CURRENT state roots against the fleet, not merely historical ones.
-EPOCH_WEIGHTS_COMMIT_ACTIVATION = 82200 if CHAIN_ID == "betanet-3" else 0
+
+# GATE HYGIENE (operator directive: height-activation gates MUST NOT survive their activation).
+# ALL betanet-3 gates were DELETED at the betanet-4 (gen 22) reroll — committed epoch weights,
+# canonical per-block dividend accrual, quantized boundary settles, and the h10047-16000 state-root
+# repair window are simply THE RULES from block 0 of this generation. Any future consensus change
+# ships either at a reroll (ungated) or with a gate tied to the CURRENT CHAIN_ID string, so it
+# self-disarms at the next rename (the a4eddab0 pattern) — never a bare height that outlives its chain.
                              # from this height (a boundary, 60*1370; 0 = genesis on any future chain),
                              # every epoch-boundary block COMMITS the just-completed epoch's open-lane
                              # weights into L1 state (kv_ops.epoch_weights_commit) — the presence-
@@ -812,30 +798,9 @@ HISTORY_RETENTION_BLOCKS = 100_800
 INDEX_RETENTION_NUM = 50_000       # heights of height->hash carried/kept (~3.5 days at 6 s)
 INDEX_RETENTION_HASH = 10_000      # heights of hash->height carried/kept (~17 h, ~200x FINALITY_DEPTH)
 
-# --- REPAIR WINDOW for the 2026-08-14 state-root pollution (betanet-3) ---------------------------------
-#
-# The index-prune watermarks (index_pruned_below_num/_hash) were written into `meta` without being added to
-# snapshot_ops.ROOT_EXCLUDED_META_KEYS, so for a stretch of blocks the committed L1 state root included a
-# NODE-LOCAL disk-retention value. The prune first fires when finality crosses INDEX_RETENTION_HASH, which
-# is why the fleet split at exactly block 10047: rolling nodes wrote the row and moved their root, archive
-# nodes never wrote it and refused to extend. Both behaviours were correct given the inputs.
-#
-# The roots committed over that span are UNVERIFIABLE BY CONSTRUCTION, and that is the key point: they
-# encode how far one particular node had pruned its own disk. No other node can reproduce that value — an
-# archive node never had one at all — so re-deriving those roots is not merely hard, it is meaningless.
-# Enforcing them would be enforcing noise, and it permanently wedges every honest node that cannot guess a
-# peer's pruning progress.
-#
-# So the equality gate is SUSPENDED across the affected span and RE-ARMED at a fixed height every node
-# agrees on. Nothing else is relaxed: the block hash chain, the producer signature, cumulative weight, the
-# tx validity rules and the per-tx state transitions are all enforced exactly as before over this span —
-# only the one field that was polluted is not compared. A block carrying genuinely corrupt state still
-# fails on those.
-#
-# The window is deliberately tight: it starts at the first polluted height and ends just far enough ahead
-# for the fleet to adopt the fix (measured fleet tips when this was cut: 14580 / 11001 / 10046).
-STATE_ROOT_UNENFORCED_FROM = 10_047     # first block whose committed root could carry the watermark
-STATE_ROOT_ENFORCED_AGAIN_AT = 16_000   # from here the clean, policy-free root is enforced again
+# (The betanet-3 h10047-16000 STATE-ROOT REPAIR WINDOW was deleted at the gen-22 reroll: those
+# polluted roots exist only on the dead betanet-3 chain, which nothing replays. Root equality is
+# enforced at EVERY height of this generation.)
 
 # --- Mining: TWO-LANE diligence selection (PROVISIONAL — simulate before lock-in) ---
 # Each epoch's slots split into an OPEN lane (anyone, zero coins) and a BONDED lane (locked stake).

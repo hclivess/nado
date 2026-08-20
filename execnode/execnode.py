@@ -2942,8 +2942,9 @@ async def _repair_bootstrap(session):
 # 2026-08-20/21). Safe then: the sub-82000 span protects nothing reproducible (pre-gate accrual was
 # batch-timing-dependent — the frozen-quorum bug — so a replay through it diverges under either rule
 # and anchor-adoption heals it identically).
-from protocol import CHAIN_ID as _CHAIN_ID
-DIV_ACCRUAL_CANONICAL_FROM = 82000 if _CHAIN_ID == "betanet-3" else 0
+f# CANONICAL PER-BLOCK DIVIDEND ACCRUAL — UNGATED since the betanet-4 reroll (gen 22). The betanet-3
+# height gate (82000) and the legacy batch-boundary epilogue accrual are DELETED: accrual runs before
+# every block applies, so the dividend watermark is a pure function of the block stream from cursor 0.
 
 # on-chain settle attestations observed during replay: ns -> cursor -> root -> set(sender prefixes).
 # Exec nodes replay every finalized block, so two attesters posting DIFFERENT roots at the SAME
@@ -3082,12 +3083,10 @@ async def _anchor_adopt(session, finalized):
         # ask donors for the exact cursors we saw the anchor attest (newest first) — the donor's LATEST
         # stash is typically one settle ahead of what we've finalized/observed (settle cadence ≈ finality
         # lag), so fetching by cursor is what makes the on-chain evidence and the payload line up.
-        # CANONICAL-ERA ONLY: adopting a pre-DIV_ACCRUAL_CANONICAL_FROM checkpoint would make the adopter
-        # re-replay pre-activation blocks with EPILOGUE accrual timing — its own private batch boundaries —
-        # and re-diverge from the anchor before ever reaching the canonical era. Forward replay is only
-        # deterministic from the activation height, so only checkpoints at/after it are adoptable.
+        # (Every checkpoint is canonical-era since the gen-22 reroll — accrual is per-block from
+        # cursor 0, so any finalized checkpoint replays deterministically and is adoptable.)
         wanted = sorted((c for c, _ in anchored
-                         if c <= finalized and c >= DIV_ACCRUAL_CANONICAL_FROM), reverse=True)[:6]
+                         if c <= finalized), reverse=True)[:6]
         adopted = False
         for donor, want in ((d, c) for c in wanted for d in donors):
             try:
@@ -3441,12 +3440,10 @@ async def tail_loop():
                               f"applied block {h - 1} — recovering", flush=True)
                         await _recover_from_revert(session, status, f"linkage break at {h}")
                         break
-                    # CANONICAL ACCRUAL (see DIV_ACCRUAL_CANONICAL_FROM): before block h may apply, the
-                    # dividend watermark must equal (h // EPOCH_LENGTH) - 1 — a pure function of h. The
-                    # legacy epilogue accrual below self-noops once this keeps the watermark current.
-                    if h >= DIV_ACCRUAL_CANONICAL_FROM:
-                        if not await _accrue_owed(session, state, h // _EPOCH_LENGTH - 1):
-                            break                              # owed accrual unavailable: HOLD the cursor
+                    # CANONICAL ACCRUAL: before block h may apply, the dividend watermark must equal
+                    # (h // EPOCH_LENGTH) - 1 — a pure function of h, from cursor 0 (ungated at gen 22).
+                    if not await _accrue_owed(session, state, h // _EPOCH_LENGTH - 1):
+                        break                                  # owed accrual unavailable: HOLD the cursor
                     if "block_transactions" not in block:
                         # A FINALIZED block (h <= finalized) with no body is PRUNED (rolling mode drops old
                         # block bodies, leaving only {block_number}). SKIP it so a fresh exec node can still
@@ -3481,36 +3478,8 @@ async def tail_loop():
                         for _st in states.values():
                             _st.save()
                 if applied:
-                    # PRESENCE DIVIDEND (doc/presence-dividend.md) — DETERMINISTIC per-epoch accrual: for each
-                    # fully-completed epoch not yet accrued, distribute that epoch's total DIVIDEND_POOL inflow
-                    # (L1 /get_dividend_inflow?epoch=E) over weights_at_epoch(E) (L1 /get_open_weights?epoch=E).
-                    # Both are epoch-bound, so accrual is a PURE FUNCTION of the finalized block stream —
-                    # identical on every node, committed in state_root. (The old code read a LIVE pool balance +
-                    # LIVE current-epoch weights per poll batch → non-deterministic → default-layer settlement
-                    # divergence.) Dividend is a DEFAULT-layer feature, so it accrues on `state`.
-                    try:
-                        from protocol import EPOCH_LENGTH
-                        cur_epoch = state.cursor // EPOCH_LENGTH
-                        while state.last_div_epoch < cur_epoch - 1:      # only epochs the cursor has fully passed
-                            E = state.last_div_epoch + 1
-                            inf = await _get_json(session, f"/get_dividend_inflow?epoch={E}")
-                            inflow = int(inf.get("inflow", 0)) if isinstance(inf, dict) else 0
-                            ow = await _get_json(session, f"/get_open_weights?epoch={E}")
-                            if isinstance(ow, dict) and ow.get("error"):
-                                # L1 pruned the recert history this epoch's weights need (idle-GC).
-                                # NEVER accrue from a truncated reconstruction (would fork the
-                                # settled root) — stall accrual + tell the operator to re-bootstrap.
-                                print(f"[execnode] dividend accrual STALLED at epoch {E}: {ow['error']} — "
-                                      f"re-bootstrap this node from a settled checkpoint "
-                                      f"(NADO_EXEC_BOOTSTRAP)", flush=True)
-                                break
-                            weights = (ow or {}).get("weights", {}) if isinstance(ow, dict) else {}
-                            dist = state.accrue_dividend_epoch(inflow, weights)
-                            state.last_div_epoch = E
-                            if dist:
-                                print(f"[execnode] dividend epoch {E}: +{dist} raw to {len(weights)} miner(s)", flush=True)
-                    except Exception as e:
-                        print(f"[execnode] dividend accrue error: {e}", flush=True)
+                    # (legacy batch-boundary epilogue accrual DELETED at gen 22 — the per-block
+                    # canonical accrual above keeps last_div_epoch current before any block applies.)
                     for _st in states.values():
                         _st.save()
                     _ckpt_maybe_persist(prev_cursor_for_ckpt, state.cursor)

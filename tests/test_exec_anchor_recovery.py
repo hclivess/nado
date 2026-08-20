@@ -57,8 +57,8 @@ def t2_pin_guards():
     assert "&cursor={want}" in _FN, "fetch must be by observed anchored cursor"
     assert "SETTLE_ANCHOR in senders" in _FN, "verification binds to the anchor's on-chain attestation"
     assert "(snap_cur, root) not in anchored" in _FN, "payload root must match the attested pair"
-    assert "c >= DIV_ACCRUAL_CANONICAL_FROM" in _FN, \
-        "only canonical-era checkpoints are adoptable (pre-era re-replay would re-diverge)"
+    assert "DIV_ACCRUAL_CANONICAL_FROM" not in _FN, \
+        "gen 22: every checkpoint is canonical-era (per-block accrual from cursor 0); the era filter is gone"
 
 
 def t3_pin_adoption_effects():

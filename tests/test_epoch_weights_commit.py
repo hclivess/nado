@@ -66,19 +66,19 @@ def t2_revert_deletes():
 
 
 def t3_pins():
-    assert 'EPOCH_WEIGHTS_COMMIT_ACTIVATION = 82200 if CHAIN_ID == "betanet-3" else 0' in open(os.path.join(_ROOT, "protocol.py")).read(), \
-        "gate must be chain-id-tied (self-disarming at any reroll)"
+    assert "EPOCH_WEIGHTS_COMMIT_ACTIVATION" not in open(os.path.join(_ROOT, "protocol.py")).read(), \
+        "the betanet-3 gate was DELETED at the gen-22 reroll and must STAY deleted (ungated from epoch 0)"
     i = _CORE.index("kv_ops.epoch_weights_commit(_E, weights_at_epoch(_E))")
     seg = _CORE[max(0, i - 800):i]
-    assert "_bn >= EPOCH_WEIGHTS_COMMIT_ACTIVATION and _bn % EPOCH_LENGTH == 0" in seg, \
-        "commit must be activation- and boundary-gated"
+    assert "_bn % EPOCH_LENGTH == 0" in seg and "EPOCH_WEIGHTS_COMMIT_ACTIVATION" not in seg, \
+        "commit must be boundary-gated ONLY (ungated since gen 22)"
     assert "_bn // EPOCH_LENGTH - 1" in seg, "the committed epoch is the JUST-COMPLETED one"
     assert _CORE.index("credit_block_reward(block, logger=self.logger)") < i, \
         "commit runs with the block's other state writes (after this block's txs applied)"
     j = _RB.index("kv_ops.epoch_weights_commit(")
     rseg = _RB[max(0, j - 600):j + 200]
-    assert "revert=True" in rseg and "% _EL == 0" in rseg and "EPOCH_WEIGHTS_COMMIT_ACTIVATION" in rseg, \
-        "rollback must hold the exact inverse under the identical gate"
+    assert "revert=True" in rseg and "% _EL == 0" in rseg and "EPOCH_WEIGHTS_COMMIT_ACTIVATION" not in rseg, \
+        "rollback must hold the exact inverse under the identical (ungated, boundary-only) condition"
     k = _API.index("epoch_weights_get(e)")
     aseg = _API[k:k + 400]
     assert '"committed": True' in aseg, "/get_open_weights must serve the committed row first"

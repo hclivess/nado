@@ -57,11 +57,13 @@ def t1_accrual_position_changes_the_root():
 
 
 def t2_pin_canonical_accrual_gated_and_before_apply():
-    assert 'DIV_ACCRUAL_CANONICAL_FROM = 82000 if _CHAIN_ID == "betanet-3" else 0' in _SRC, \
-        "gate must be hardcoded AND chain-id-tied (self-disarming at any reroll)"
+    assert "DIV_ACCRUAL_CANONICAL_FROM" not in _SRC, \
+        "the betanet-3 gate (and the legacy epilogue accrual) were DELETED at gen 22 and must STAY deleted"
     assert "NADO_EXEC_DIV" not in _SRC, "activation must not be env-tweakable"
+    assert "accrue_dividend_epoch" not in _SRC[_SRC.index("async def tail_loop"):], \
+        "the legacy batch-boundary epilogue accrual must stay deleted (per-block accrual is THE rule)"
     tl = _SRC[_SRC.index("async def tail_loop"):]
-    i = tl.index("h >= DIV_ACCRUAL_CANONICAL_FROM")
+    i = tl.index("if not await _accrue_owed(session, state, h // _EPOCH_LENGTH - 1)")
     seg = tl[i:i + 400]
     assert "_accrue_owed(session, state, h // _EPOCH_LENGTH - 1)" in seg, \
         "watermark must be a pure function of h"

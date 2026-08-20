@@ -55,7 +55,7 @@ from ops.transaction_ops import (construct_duty_tx,
                                  construct_dividend_withdraw_tx)
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
-from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW, EPOCH_WEIGHTS_COMMIT_ACTIVATION
+from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW
 
 # ARCHIVE SELF-REPAIR cadence (seconds): how often an archive node whose history does not reach genesis
 # looks for a peer that reaches deeper and starts a background fill (_maybe_refill_archive). Only while a
@@ -2765,13 +2765,13 @@ class CoreClient(threading.Thread):
             # Anti-hoard self-burn (doc/treasury.md §3.2): at period boundaries, destroy a slice of the idle
             # treasury. Runs in this same write txn, so it's atomic with the reward + reverts with the block.
             apply_treasury_burn(block, logger=self.logger)
-            # COMMITTED EPOCH WEIGHTS (protocol.EPOCH_WEIGHTS_COMMIT_ACTIVATION): the FIRST block of every
+            # COMMITTED EPOCH WEIGHTS (ungated since gen 22): the FIRST block of every
             # epoch freezes the JUST-COMPLETED epoch's open-lane weights into L1 state. Computed here —
             # after this block's registers/recerts applied — from the recert rows <= E, i.e. a pure
             # function of applied blocks at ONE code version, identically on every node at this height.
             # rollback_one_block holds the exact inverse (row DELETED; re-apply recomputes it identically).
             _bn = block["block_number"]
-            if _bn >= EPOCH_WEIGHTS_COMMIT_ACTIVATION and _bn % EPOCH_LENGTH == 0:
+            if _bn % EPOCH_LENGTH == 0:   # ungated since gen 22 — committed from epoch 0
                 from ops.dividend_ops import weights_at_epoch
                 _E = _bn // EPOCH_LENGTH - 1
                 kv_ops.epoch_weights_commit(_E, weights_at_epoch(_E))
@@ -3970,26 +3970,11 @@ class CoreClient(threading.Thread):
             # loses fork-choice; it can never become a silent state fork. DIVERGENCE IS FATAL BY DESIGN — a
             # halted node is recoverable, a node that climbs on diverged state is silent poison.
             from ops.snapshot_ops import l1_state_root
-            from protocol import STATE_ROOT_UNENFORCED_FROM, STATE_ROOT_ENFORCED_AGAIN_AT
             our_state_root = l1_state_root()   # consensus subset only — block storage excluded (determinism)
-            # REPAIR WINDOW (protocol.STATE_ROOT_UNENFORCED_FROM/_ENFORCED_AGAIN_AT). Over one bounded span
-            # the committed root included a node-local disk-retention watermark, so those roots encode how
-            # far ONE node had pruned and are unverifiable by construction — an archive node never held the
-            # value at all. Comparing against them wedges every honest node forever, so the comparison (and
-            # only the comparison) is suspended across the span. Everything else on this path still runs:
-            # hash chain, signature, cumulative weight, tx validity, per-tx state transitions.
+            # (betanet-3's h10047-16000 repair window was deleted at the gen-22 reroll: equality is
+            # enforced at every height of this generation.)
             _bn = int(block.get("block_number") or 0)
-            _unenforced = STATE_ROOT_UNENFORCED_FROM <= _bn < STATE_ROOT_ENFORCED_AGAIN_AT
-            if _unenforced and block.get("state_root") != our_state_root:
-                if not getattr(self, "_repair_window_logged", False):
-                    self._repair_window_logged = True
-                    self.logger.warning(
-                        f"STATE-ROOT REPAIR WINDOW: accepting block {_bn} whose committed root "
-                        f"{str(block.get('state_root'))[:16]} differs from ours {our_state_root[:16]}. "
-                        f"Roots in [{STATE_ROOT_UNENFORCED_FROM}, {STATE_ROOT_ENFORCED_AGAIN_AT}) carried a "
-                        f"node-local prune watermark and cannot be re-derived by anyone. Full enforcement "
-                        f"resumes at {STATE_ROOT_ENFORCED_AGAIN_AT}.")
-            elif block.get("state_root") != our_state_root:
+            if block.get("state_root") != our_state_root:
                 # DIAGNOSTIC (no consensus effect): dump OUR per-sub-DB root fingerprint + count the reject.
                 # Comparing this one line against another node's at the same height localizes the divergence
                 # to the exact sub-DB immediately (the betanet-8 wedge needed a replay harness for this).
