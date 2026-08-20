@@ -56,10 +56,32 @@ def _leaf(triple) -> bytes:
     return codec.pack([name, key, value])
 
 
+# triple -> 32B leaf digest, shared across every merkle_root call (see the cache note there). Keys are
+# the (db, key, value) tuples themselves: identical bytes hash identically regardless of which walk
+# produced them, and a changed value is simply a different key — no invalidation protocol needed.
+_leaf_cache = {}
+
+
 def merkle_root(triples) -> str:
     """deterministic blake2b Merkle root over the FULL consensus state. `triples` MUST already be in
-    canonical sorted order (caller sorts). Every honest node re-derives the identical root from its own DB."""
-    leaves = [hashlib.blake2b(_leaf(t), digest_size=32).digest() for t in triples]
+    canonical sorted order (caller sorts). Every honest node re-derives the identical root from its own DB.
+
+    LEAF-DIGEST CACHE (2026-08-20): the per-block state-root walk was 31% of ALL process CPU (measured
+    by py-spy at ~100k rows / ~3.5s a walk — the docstring on l1_state_root predicted exactly this
+    scaling), yet between consecutive walks only ~a dozen rows actually change. Caching each triple's
+    leaf digest is PURE memoization — blake2b(_leaf(t)) is a pure function of the triple, so the root
+    stays bit-identical — and turns an unchanged row's pack+hash into a dict hit. Bounded by a clear()
+    at 500k entries (stale entries from deleted/rewritten rows just age out with the flush)."""
+    if len(_leaf_cache) > 500_000:
+        _leaf_cache.clear()
+    _lc = _leaf_cache
+    leaves = []
+    for t in triples:
+        d = _lc.get(t)
+        if d is None:
+            d = hashlib.blake2b(_leaf(t), digest_size=32).digest()
+            _lc[t] = d
+        leaves.append(d)
     if not leaves:
         return _blake2b(b"")
     while len(leaves) > 1:

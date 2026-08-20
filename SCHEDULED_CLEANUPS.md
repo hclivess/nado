@@ -70,3 +70,21 @@ with it).
 **On a reroll, do it immediately instead.** A fresh chain has no pre-activation history, which is the only
 thing the gate exists for. Making the rule unconditional is then strictly correct — and re-picking an
 activation number would leave the exploit open for the first ~3.5 days of the new chain.
+
+## STATE-ROOT ROW GROWTH — retention design REQUIRED at the gen-22 reroll (consensus change)
+
+Not a code deletion — a design debt with a deadline. The per-block `l1_state_root` walk covers every
+row of the consensus state, and six row families grow FOREVER: `att:` meta rows (21.8k @ h84.5k),
+RANDAO `commits` (21.9k) + `reveals` (17.8k), FFG `attestations`, `divnull` (4.4k), `settlements`
+(3.4k), and `epochw` (~10KB/epoch). Measured 2026-08-20: the walk was 31% of ALL process CPU
+(~3.5s/block at ~100k rows — total chain work is O(chain²)); fork churn multiplies it (each rejected
+same-height block re-verifies = another walk, p90 34s). The leaf-digest cache (snapshot_ops.merkle_root)
+bought an ~9x on unchanged rows, but the row COUNT still grows without bound — at 10x chain length even
+the cached walk and the LMDB iteration dominate again.
+
+**The fix is consensus-changing** (rows leaving the root change the root), so it lands at the reroll,
+free: gen-22 genesis defines retention windows from block 0 — e.g. commits/reveals/att older than the
+unbonding horizon, attestations older than hard finality, settled cursors older than the settle horizon,
+epochw beyond the dividend-replay window — and the walk shrinks to O(retention), permanently. Designing
+these windows is a REQUIRED reroll-checklist item next to the games redeploy; rerolling without them
+re-arms the same quadratic clock.
