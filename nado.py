@@ -2269,7 +2269,9 @@ try:
             # GENESIS_TIMESTAMP (plus slack) cannot be this generation's chain, pruned or not. Pure
             # arithmetic — no probe, no block 0, no marker.
             import time as _time
-            _bound = int((_time.time() - GENESIS_TIMESTAMP) / BLOCK_TIME) * 2 + 600
+            from protocol import BLOCK_TIME as _BT   # NOT in nado.py's top import list — the missing
+            # import made the whole backstop a named no-op on every node ("skipped (NameError)")
+            _bound = int((_time.time() - GENESIS_TIMESTAMP) / _BT) * 2 + 600
             with _lmdb.open(f"{get_home()}/index/state", readonly=True, lock=False,
                             max_dbs=64) as _e2:
                 _db2 = _e2.open_db(b"block_by_num", create=False)
