@@ -2255,6 +2255,25 @@ async def maybe_settle(session):
                 target = int(_fresh2["block_number"]) + _margin
             except Exception:
                 pass                                       # keep the old deadline rather than skip the settle
+            # CURSOR QUANTIZATION (2026-08-20). A bare attestation only counts toward the quorum when
+            # other settlers attest the IDENTICAL (cursor, root) — and free-running checkpoint cadences
+            # almost never coincide: measured today, f58d attested cursor 84585 and 7174 attested 84584
+            # with the SAME root, one apart, while share concentration (10/4/1 after auto-bond
+            # compounding) means no pair without the anchor reaches the strict 2/3 — the quorum re-froze
+            # at 68299 with every root AGREEING. Attest the latest recorded EPOCH-BOUNDARY pair instead
+            # (ExecState.boundary_roots — every exec records the same k*EPOCH_LENGTH cursors by
+            # construction, and canonical per-block accrual makes the roots equal), so all settlers meet
+            # on identical (cursor, root) every epoch. Proof settles keep the live cursor — the proof's
+            # span endpoints must match what is attested. Already-attested boundaries are skipped
+            # (nothing new to say; saves a duplicate tx per SETTLE_EVERY tick).
+            if proof is None:
+                _bcs = [c for c in st.boundary_roots if c <= cur]
+                if _bcs:
+                    _bc = max(_bcs)
+                    _br = st.boundary_roots[_bc]
+                    if st.attested.get(_bc) == _br:
+                        continue
+                    cur, root = _bc, _br
             tx = construct_settle_tx(keys, cur, root, target, ns=ns, proof=proof, proof_da=proof_da)
             if proof is not None:
                 # SIZE IS THE BINDING CONSTRAINT, so measure it rather than infer it. A settle carries one
