@@ -2111,8 +2111,28 @@ async def maybe_settle(session):
             # the in-flight check, given its own flag because _settle_proving is not raised during its
             # window, and now added here. When a second expensive path is introduced, every gate that names
             # the first one is a site that needs revisiting.
-            if proof is None and (_settle_proving or _records_proving or _pub_active or _pend_active
-                                  or _pend_hold):
+            _hold = (_settle_proving or _records_proving or _pub_active or _pend_active or _pend_hold)
+            if proof is None and _hold:
+                # HOLD ESCAPE (2026-08-20, betanet-4 h240 freeze): the hold exists to protect an
+                # in-flight proof's LANDABILITY — but once the justified tip is more than
+                # SETTLE_PROOF_MAX_SPAN behind our cursor, no proof over the old pre-state can land AT
+                # ALL (span cap + 'pre_root must extend the settled tip'), so holding bare settles
+                # protects nothing while a stuck flag freezes settlement forever. Observed: a records
+                # flag wedged at ~18:50, the once-ever log throttle made every later hold SILENT, and
+                # the quorum froze at 240 while boundaries 300..540 went unattested by the 10-share
+                # anchor. Fourth instance of the records-half-after-every-gate pattern.
+                try:
+                    _jn = await _get_json(session, f"/get_settled?ns={ns}")
+                    _jc = int((_jn or {}).get("exec_cursor", -1))
+                except Exception:
+                    _jc = -1
+                from protocol import SETTLE_PROOF_MAX_SPAN as _SPMS
+                if _jc >= 0 and (cur - _jc) > _SPMS:
+                    print(f"[execnode] settle hold OVERRIDDEN ns={ns} — justified tip {_jc} is "
+                          f"{cur - _jc} cursors behind (> span cap {_SPMS}); no in-flight proof can "
+                          f"land, settling bare", flush=True)
+                    _hold = False
+            if proof is None and _hold:
                 _k = (ns, "hold-for-inflight-proof")
                 if _settle_skip_logged.get(_k) != _k[1]:
                     _settle_skip_logged[_k] = _k[1]
