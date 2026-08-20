@@ -580,7 +580,7 @@ POSW_ENTRY_MULT = 32
 #   so a minority can never start the chain. New CHAIN_ID + GENESIS_TIMESTAMP so the split gen-19 chains
 #   cannot linger in fork choice. Balances remain ZERO (empty alloc); prefixless producer set unchanged.
 #   OPERATIONAL: redeploy the game contracts after regenesis (the gen-19 deploys died with that chain).
-CHAIN_GENERATION = 21
+CHAIN_GENERATION = 22
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
