@@ -31,7 +31,7 @@ _TL = _SRC[_SRC.index("async def tail_loop"):]
 
 def t1_batch_fetch_degrades_not_raises():
     i = _TL.index("while state.cursor < finalized:")
-    seg = _TL[i:i + 5000]   # widened for the batch-prefetch block
+    seg = _TL[i:i + 8000]   # widened again: peer-batch fallback sits between prefetch and the single-fetch except
     j = seg.index('_get_json(session, f"/get_block?number={h}")')
     assert "try:" in seg[:j], "the batch block-fetch must be exception-wrapped"
     k = seg.index("except", j)
