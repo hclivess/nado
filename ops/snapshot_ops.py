@@ -185,14 +185,92 @@ ROOT_EXCLUDED_META_KEYS = frozenset((b"finalized_height", b"pruned_below", b"har
 ROOT_EXCLUDED_META_PREFIXES = (b"execsum:", b"tvprevE:", b"tvprevW:")
 
 
+#   (4) ROOT RETENTION WINDOW (2026-08-20) — the per-block-cost-must-not-scale-with-chain-age fix.
+#       Six row families grow by construction every epoch forever (RANDAO commits/reveals, FFG
+#       attestations, the att:/divnull:/settle: replay guards, settlement attestations, recert_by_epoch),
+#       and l1_state_root walks + merkleizes ALL of them on EVERY block: measured 31% of process CPU at
+#       ~100k rows on betanet-3 (O(chain²) total work; the leaf cache bought 9x but not a bound).
+#       The root now commits only the LAST ROOT_RETENTION_EPOCHS epochs of those families. Nothing is
+#       DELETED — readers keep full history on disk (deleting would need a revert journal, the exact
+#       rollback-asymmetry class that corrupted roots at h4260) — rows merely leave the commitment.
+#       The reference epoch is derived from the triples THEMSELVES (the max committed `epochw:<E>` row,
+#       written unconditionally at every epoch boundary), so the filter is a pure function of committed
+#       state: identical on every node, and rollback-symmetric for free (reverting a boundary block
+#       deletes that epochw row, the window slides back one epoch, and the edge rows re-enter — exactly
+#       the inverse of applying it). An unparseable key is KEPT (never silently excluded).
+#       No activation gate: the window covers the whole chain until the reference epoch reaches
+#       ROOT_RETENTION_EPOCHS, so old and new code compute IDENTICAL roots until then — the fleet has
+#       until that epoch (60 epochs ≈ 6 h on a fresh chain) to carry the code, then the rule simply is.
+#       The window (60 epochs) exceeds every consensus lookback that reads these rows: the settlement
+#       activity window (SETTLE_ACTIVITY_CURSORS = 24 epochs), FFG justification, the RANDAO reveal lag.
+#       epochw:/divinflow: themselves are NOT windowed — one row per epoch, and they are the dividend
+#       replay's ground truth, which a from-genesis exec reads in full.
+ROOT_RETENTION_EPOCHS = 60
+ROOT_WINDOWED_DBS = frozenset(("commits", "reveals", "attestations", "settlements", "recert_by_epoch"))
+ROOT_WINDOWED_META_PREFIXES = (b"att:", b"divnull:", b"settle:")
+_EPOCHW_PREFIX = b"epochw:"
+
+
+def _row_epoch(name, key):
+    """The epoch a windowed row belongs to, derived from its KEY alone, or None when the key does not
+    carry one (such a row is always kept). Formats (see ops/kv_ops.py writers):
+      commits            <addr>|<epoch>              reveals / attestations / recert_by_epoch   8-byte BE epoch
+      settlements        <ns>\\x00<8-byte BE cursor>   meta att:<addr>:<epoch>   divnull:<addr>:<epoch>
+      meta settle:<ns>:<addr>:<cursor>                 (cursors map to epochs by // EPOCH_LENGTH)"""
+    from protocol import EPOCH_LENGTH
+    try:
+        if name == "commits":
+            return int(key.rsplit(b"|", 1)[1])
+        if name in ("reveals", "attestations", "recert_by_epoch"):
+            return int.from_bytes(key[:8], "big") if len(key) >= 8 else None
+        if name == "settlements":
+            return int.from_bytes(key[-8:], "big") // EPOCH_LENGTH if len(key) > 8 else None
+        if name == "meta":
+            if key.startswith((b"att:", b"divnull:")):
+                return int(key.rsplit(b":", 1)[1])
+            if key.startswith(b"settle:"):
+                return int(key.rsplit(b":", 1)[1]) // EPOCH_LENGTH
+    except (ValueError, IndexError):
+        return None
+    return None
+
+
+def _root_reference_epoch(triples):
+    """max committed epochw:<E> epoch among `triples`, or None when none is committed yet."""
+    best = None
+    for name, key, _v in triples:
+        if name == "meta" and key.startswith(_EPOCHW_PREFIX):
+            try:
+                e = int(key[len(_EPOCHW_PREFIX):])
+            except ValueError:
+                continue
+            if best is None or e > best:
+                best = e
+    return best
+
+
 def _root_triples(triples):
     """the consensus subset of a full read_state() list — everything the state root commits (block storage
     and node-local / retention-dependent meta rows excluded; see ROOT_EXCLUDED_DBS / ROOT_EXCLUDED_META_KEYS
-    / ROOT_EXCLUDED_META_PREFIXES). Order-preserving, so a pre-sorted input stays sorted."""
-    return [t for t in triples
+    / ROOT_EXCLUDED_META_PREFIXES), then the RETENTION WINDOW over the epoch-growing families (see (4)
+    above). Order-preserving, so a pre-sorted input stays sorted."""
+    base = [t for t in triples
             if t[0] not in ROOT_EXCLUDED_DBS
             and not (t[0] == "meta" and t[1] in ROOT_EXCLUDED_META_KEYS)
             and not (t[0] == "meta" and t[1].startswith(ROOT_EXCLUDED_META_PREFIXES))]
+    ref = _root_reference_epoch(base)
+    if ref is None or ref < ROOT_RETENTION_EPOCHS:
+        return base                    # window covers the whole chain: byte-identical to the unwindowed root
+    floor = ref - ROOT_RETENTION_EPOCHS
+    out = []
+    for t in base:
+        name, key = t[0], t[1]
+        if name in ROOT_WINDOWED_DBS or (name == "meta" and key.startswith(ROOT_WINDOWED_META_PREFIXES)):
+            e = _row_epoch(name, key)
+            if e is not None and e < floor:
+                continue
+        out.append(t)
+    return out
 
 
 # state-root cache: a SINGLE ((env_path, home, write_generation), root) tuple, held as one reference so a
