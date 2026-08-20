@@ -1307,6 +1307,15 @@ class CoreClient(threading.Thread):
                 continue
             _t = self.consensus.block_hash_pool.get(_peer)
             if _t is None or not majority_on_our_canonical(_t, get_block, get_block_hash_by_number):
+                # FOREIGN-GENERATION EXEMPTION (2026-08-20, the betanet-4 cutover): a heavier claim can
+                # only veto if the claimant shares OUR genesis. Three un-purged reroll stragglers kept
+                # advertising the PREVIOUS chain's ~9M cumulative weight under the new CHAIN_ID and froze
+                # the fresh chain's depth floor at 0 from block 1 — but fork choice can NEVER adopt a
+                # chain whose blocks cannot link to our block 0, so vetoing on its weight honors a chain
+                # that is impossible to reorg onto. A probe failure keeps the veto (unknown != foreign —
+                # never widen the exemption on silence).
+                if not self._same_genesis(_peer):
+                    continue
                 if not self._extends_us(_peer, _budget):
                     return False
         _me = {self.memserver.ip, get_config().get("ip")} - {None}
@@ -1323,6 +1332,32 @@ class CoreClient(threading.Thread):
             if self._extends_us(_peer, _budget):
                 return True
         return False
+
+    def _same_genesis(self, peer) -> bool:
+        """False when `peer`'s block 0 differs from OUR genesis — a FOREIGN-GENERATION chain (a reroll
+        straggler still mining the previous chain). Its weight claims are void for finality decisions:
+        fork choice can never adopt blocks that cannot link to our block 0. Memoized 600s per peer, so
+        a straggler that finally purges regains standing within one TTL. A failed probe reports True
+        (same genesis assumed): unknown must KEEP its veto power — freezing is the safe direction."""
+        _now = time.time()
+        _cache = getattr(self, "_genesis_id_cache", None)
+        if _cache is None:
+            _cache = self._genesis_id_cache = {}
+        _hit = _cache.get(peer)
+        if _hit is not None and _now - _hit[1] < 600.0:
+            return _hit[0]
+        try:
+            from ops.peer_ops import probe_block_hash
+            _ours = get_block_hash_by_number(0)
+            _theirs = probe_block_hash(peer, 0, port=self.memserver.port)
+            same = (not _ours) or (_theirs is None) or (_theirs == _ours)
+            if not same:
+                self.logger.warning(f"{peer} is on a FOREIGN-GENERATION chain (their block 0 "
+                                    f"{str(_theirs)[:16]}… != ours) — its weight claims carry no veto")
+        except Exception:
+            same = True
+        _cache[peer] = (same, _now)
+        return same
 
     def _extends_us(self, peer, budget):
         """True when `peer`'s SIGNED hash claim at OUR tip height equals our tip hash — proof our chain
