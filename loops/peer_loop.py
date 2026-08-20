@@ -10,7 +10,7 @@ from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_pe
 from ops.peer_ops import get_public_ip, update_local_ip, check_ip, subnet_diversity_ok
 from ops.peer_ops import seed_default_peers, seed_peers, status_fields_well_typed
 from ops import self_update
-from protocol import CHAIN_ID
+from protocol import CHAIN_ID, GENESIS_TIMESTAMP, BLOCK_TIME
 
 
 _OUR_GENESIS_CACHE = [None]
@@ -239,6 +239,19 @@ class PeerClient(threading.Thread):
                         # gate (_peer_ahead) and minority_block_consensus, stalling production and
                         # looping emergency sync against blocks verify_block can only reject.
                         self.logger.error(f"Chain of {key} is not {CHAIN_ID}: {value.get('chain_id')}")
+                        self.memserver.ban_peer(key)
+                    elif (isinstance(value.get('latest_block_height'), int)
+                          and value['latest_block_height'] >
+                          (get_timestamp_seconds() - GENESIS_TIMESTAMP) // BLOCK_TIME * 2 + 600):
+                        # IMPLAUSIBLE HEIGHT = FOREIGN GENERATION (rolling-proof identity): production
+                        # paces at BLOCK_TIME, so no chain of OUR genesis can be taller than ~2x the
+                        # wallclock elapsed since GENESIS_TIMESTAMP (+slack). An old-generation chain
+                        # under the new CHAIN_ID always fails this — including on snapshot-booted
+                        # rolling peers that hold no block 0 for the genesis_hash check below. This is
+                        # what stops the reroll re-infection: no old-chain status ever enters the pools,
+                        # so no snapshot, weight claim, or verdict from it is ever considered.
+                        self.logger.error(f"Height of {key} ({value['latest_block_height']}) is impossible "
+                                          f"for this genesis — foreign-generation chain; refusing status")
                         self.memserver.ban_peer(key)
                     elif (value.get('genesis_hash') is not None and _our_genesis() is not None
                           and value.get('genesis_hash') != _our_genesis()):

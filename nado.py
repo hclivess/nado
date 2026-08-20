@@ -2258,6 +2258,29 @@ try:
             logger.warning("On-disk block 0 does not match protocol GENESIS_TIMESTAMP — "
                            "foreign-generation chain data; wiping for regenesis")
             purge_chain_data(logger)
+        else:
+            # HEIGHT-vs-WALLCLOCK BOUND (the rolling-node identity, 2026-08-20). A snapshot-booted /
+            # rolling node holds NO block 0 to compare (_g0 is None above, so the hash check is mute) —
+            # which is exactly how purged nodes were RE-INFECTED at the betanet-4 cutover: they rebooted
+            # into an old-chain majority, snapshot bootstrap adopted the heavier quorum snapshot with no
+            # genesis-descent proof, and 7 of 10 nodes ended back on the dead chain within minutes. But
+            # height is bound to wallclock by construction: production paces at BLOCK_TIME, so a chain
+            # whose max height exceeds ~2x the blocks the CURRENT genesis could have produced since
+            # GENESIS_TIMESTAMP (plus slack) cannot be this generation's chain, pruned or not. Pure
+            # arithmetic — no probe, no block 0, no marker.
+            import time as _time
+            _bound = int((_time.time() - GENESIS_TIMESTAMP) / BLOCK_TIME) * 2 + 600
+            with _lmdb.open(f"{get_home()}/index/state", readonly=True, lock=False,
+                            max_dbs=64) as _e2:
+                _db2 = _e2.open_db(b"block_by_num", create=False)
+                with _e2.begin(db=_db2) as _txn2:
+                    _cur2 = _txn2.cursor()
+                    _maxh = int.from_bytes(_cur2.key(), "big") if _cur2.last() else 0
+            if _maxh > _bound:
+                logger.warning(f"On-disk chain reaches height {_maxh} but this genesis could have "
+                               f"produced at most ~{_bound} blocks since GENESIS_TIMESTAMP — "
+                               f"foreign-generation chain data; wiping for regenesis")
+                purge_chain_data(logger)
 except Exception as _ge:
     logger.warning(f"genesis-identity check skipped ({type(_ge).__name__}: {_ge})")
 stamp_chain_generation()
