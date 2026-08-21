@@ -5208,18 +5208,39 @@ async function renderNodes() {
   const tipList = Object.entries(tips).sort((a, b) => (b[1].n - a[1].n) || (b[1].weight - a[1].weight));
   const majHash = tipList.length ? tipList[0][0] : null;
   const majHeight = majHash ? tips[majHash].height : null;
+  // CONVERGENT OR FORKED — RESOLVED, not guessed. Two tips at different heights say nothing by hash
+  // alone: 13331/f5d6 under 13332/06b5 is either the parent (catching up) or another branch. So ask
+  // the relay for ITS hash at each distinct tip height (/get_block?number=&hash_only=1 — an index read):
+  //   same hash  → that tip is a PREFIX of the relay's chain → converging
+  //   different  → a different block at the same height      → FORKED
+  //   above the relay's tip → cannot be verified from here   → "ahead of relay"
+  // The reference is the relay the wallet is talking to, and the subline says so.
+  const relayH = self && self.latest_block_height != null ? self.latest_block_height : null;
+  const relayHash = self && self.latest_block_hash;
+  const verdictByTip = {};
+  await Promise.all(tipList.map(async ([h, t]) => {
+    if (h === relayHash) { verdictByTip[h] = "same"; return; }
+    if (relayH == null || t.height == null) { verdictByTip[h] = "unknown"; return; }
+    if (t.height > relayH) { verdictByTip[h] = "ahead"; return; }
+    try {
+      const r = await (await fetch(relayBase() + `/get_block?number=${t.height}&hash_only=1`, { cache: "no-store" })).json();
+      const ours = r && (r.block_hash || (r.data && r.data.block_hash));
+      verdictByTip[h] = !ours ? "unknown" : ours === h ? "prefix" : "fork";
+    } catch { verdictByTip[h] = "unknown"; }
+  }));
   const branchOf = (st) => {
     const h = st.latest_block_hash;
     if (!h) return [`<span class="faint">?</span>`, ""];
     const short = `<span class="mono" title="${h}">${h.slice(0, 6)}</span>`;
-    if (h === majHash) return [`<span style="color:${_CGRN}">●</span> ${short}`, ""];
-    const d = (st.latest_block_height != null && majHeight != null) ? st.latest_block_height - majHeight : 0;
-    if (d === 0) return [`<span style="color:${_CRED}">✕</span> ${short}`, `color:${_CRED}`];
-    if (d < 0) return [`<span style="color:${_CGOLD}">▲</span> ${short} <span class="faint">${d}</span>`, `color:${_CGOLD}`];
-    return [`<span style="color:var(--acc,#3aa0ff)">◆</span> ${short} <span class="faint">+${d}</span>`, ""];
+    const d = (st.latest_block_height != null && relayH != null) ? st.latest_block_height - relayH : 0;
+    const v = verdictByTip[h];
+    if (v === "same") return [`<span style="color:${_CGRN}">●</span> ${short} <span class="faint">${i18("stats.brSame", "same")}</span>`, ""];
+    if (v === "prefix") return [`<span style="color:${_CGRN}">●</span> ${short} <span class="faint">${i18("stats.brConv", "converging")} ${d}</span>`, ""];
+    if (v === "fork") return [`<span style="color:${_CRED}">✕</span> ${short} <b>${i18("stats.brFork", "FORKED")}</b>`, `color:${_CRED}`];
+    if (v === "ahead") return [`<span style="color:var(--acc,#3aa0ff)">◆</span> ${short} <span class="faint">${i18("stats.brAhead", "ahead of relay")} +${d}</span>`, ""];
+    return [`<span class="faint">?</span> ${short}`, ""];
   };
-  const forked = rows.filter(([, st]) => st.latest_block_hash && st.latest_block_hash !== majHash
-    && st.latest_block_height === majHeight).length;
+  const forked = rows.filter(([, st]) => verdictByTip[st.latest_block_hash] === "fork").length;
   // CHECKPOINT = a hash at a height every node shares (the snapshot checkpoint), so it identifies a fork
   // that predates the tip even when heights differ. Majority per checkpoint height; a minority hash at
   // the SAME checkpoint height is a fork older than that checkpoint — unambiguous, shown red.
@@ -5331,10 +5352,15 @@ async function renderNodes() {
     } catch (e) { b.disabled = false; b.textContent = "↻"; b.title = i18("stats.ndFailed", "failed — retry"); }
   });
   if (sub) {
+    const vName = { same: i18("stats.brSame", "same"), prefix: i18("stats.brConv", "converging"), fork: i18("stats.brFork", "FORKED"),
+                    ahead: i18("stats.brAhead", "ahead of relay"), unknown: "?" };
     const tipsTxt = tipList.length > 1
-      ? " · " + tipList.length + " " + i18("stats.ndTips", "distinct tips") + ": "
-        + tipList.map(([h, t]) => `${t.height}/${h.slice(0, 6)} ×${t.n}`).join(", ")
-        + (forked ? " · " + i18("stats.ndForked", "{f} forked at the same height", { f: forked }) : "")
+      ? " · " + tipList.length + " " + i18("stats.ndTips", "distinct tips vs this relay's chain") + ": "
+        + tipList.map(([h, t]) => `${t.height}/${h.slice(0, 6)} ×${t.n} ${vName[verdictByTip[h]] || "?"}`).join(", ")
+        + (forked ? " · " + i18("stats.ndForked", "{f} node(s) FORKED", { f: forked })
+           : tipList.some(([h]) => verdictByTip[h] === "ahead" || verdictByTip[h] === "unknown")
+             ? " · " + i18("stats.ndNoFork", "no fork among verifiable tips")
+             : " · " + i18("stats.ndConv", "all convergent"))
         + (ckpForked ? " · " + i18("stats.ndCkpForked", "{f} on a different checkpoint hash", { f: ckpForked }) : "")
       : " · " + i18("stats.ndOneTip", "all on one tip");
     sub.textContent = i18("stats.nodesSub", "{n} nodes seen · {u} on the latest code · newest main {m}",
