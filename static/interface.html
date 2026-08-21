@@ -756,7 +756,7 @@
       <svg id="chartGeo" viewBox="0 0 640 320" width="100%" style="height:auto;max-width:880px;border:1px solid var(--line,#1c2530);border-radius:12px;background:#0b1016"></svg>
       <div id="geoCountries" class="faint small" style="margin-top:6px"></div></div>
     <div class="mt"><div class="label" data-i18n="stats.nodes">Network nodes — what each peer is running</div>
-      <div id="nodesTable"></div>   <!-- no overflow-x: the table is built to FIT, not to scroll -->
+      <div id="nodesTable" style="max-width:100%;overflow-x:auto"></div>   <!-- built to FIT; overflow-x is a guard so a wide row can never bleed past the card -->
       <div class="faint small" id="nodesSub">—</div></div>
     <div class="faint small mt" data-i18n="stats.note">Live from the relay you're connected to. Time-series cover the most recent blocks.</div>
   </div>
@@ -1162,6 +1162,6 @@
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
 <script defer src="/static/i18n.js?v=bd2b0d3f"></script>
-<script type="module" src="/static/interface.js?v=8bef6621u"></script>
+<script type="module" src="/static/interface.js?v=8bef6621v"></script>
 </body>
 </html>

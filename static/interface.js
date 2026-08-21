@@ -5231,14 +5231,16 @@ async function renderNodes() {
   const branchOf = (st) => {
     const h = st.latest_block_hash;
     if (!h) return [`<span class="faint">?</span>`, ""];
-    const short = `<span class="mono" title="${h}">${h.slice(0, 6)}</span>`;
     const d = (st.latest_block_height != null && relayH != null) ? st.latest_block_height - relayH : 0;
     const v = verdictByTip[h];
-    if (v === "same") return [`<span style="color:${_CGRN}">●</span> ${short} <span class="faint">${i18("stats.brSame", "same")}</span>`, ""];
-    if (v === "prefix") return [`<span style="color:${_CGRN}">●</span> ${short} <span class="faint">${i18("stats.brConv", "converging")} ${d}</span>`, ""];
-    if (v === "fork") return [`<span style="color:${_CRED}">✕</span> ${short} <b>${i18("stats.brFork", "FORKED")}</b>`, `color:${_CRED}`];
-    if (v === "ahead") return [`<span style="color:var(--acc,#3aa0ff)">◆</span> ${short} <span class="faint">${i18("stats.brAhead", "ahead of relay")} +${d}</span>`, ""];
-    return [`<span class="faint">?</span> ${short}`, ""];
+    const g = (sym, col, word, extra) =>
+      [`<span title="${word} · ${h}" style="color:${col}">${sym}</span><span class="mono" title="${h}">${h.slice(0, 4)}</span>${extra || ""}`,
+       v === "fork" ? `color:${_CRED}` : ""];
+    if (v === "same")   return g("●", _CGRN, i18("stats.brSame", "same tip as this relay"));
+    if (v === "prefix") return g("●", _CGRN, i18("stats.brConv", "converging — a prefix of this relay's chain"), `<span class="faint">${d}</span>`);
+    if (v === "fork")   return g("✕", _CRED, i18("stats.brFork", "FORKED — a different block at this height"), `<b>!</b>`);
+    if (v === "ahead")  return g("◆", "var(--acc,#3aa0ff)", i18("stats.brAhead", "ahead of this relay — not verifiable yet"), `<span class="faint">+${d}</span>`);
+    return g("?", "inherit", "unknown");
   };
   const forked = rows.filter(([, st]) => verdictByTip[st.latest_block_hash] === "fork").length;
   // CHECKPOINT = a hash at a height every node shares (the snapshot checkpoint), so it identifies a fork
@@ -5263,6 +5265,9 @@ async function renderNodes() {
             + (bad ? ` <span style="color:${_CRED}">✕ fork</span>` : ""), bad ? `color:${_CRED}` : ""];
   };
   const ckpForked = rows.filter(([, st]) => checkpointOf(st)[1]).length;
+  const showWeight = new Set(rows.map(([, st]) => st.latest_block_weight)).size > 1;
+  const showCkp = Object.keys(ckp).length > 1;   // a column only when it carries information; else the subline states it
+  const ckpUniform = Object.keys(ckp).length === 1 ? Object.keys(ckp)[0] : null;
   // PHONE LAYOUT: eight nowrap columns cannot fit ~360px, and the two ways a table can respond to that are
   // both bad — a horizontal scrollbar (stats hidden off-screen behind a swipe) or letting it overflow the
   // card. So below NARROW_PX the same data is rendered as one stacked block per node instead: identity +
@@ -5299,8 +5304,10 @@ async function renderNodes() {
     const who = _ccFlag(label) + `<span class="mono" title="${label}">`
       + (isSelf ? `<b>${_shortIp(label)}</b>` : _shortIp(label)) + "</span>";
     const [ckpCell, ckpStyle] = checkpointOf(st);
-    const oddCells = [[chain, chainBad ? `color:${_CRED}` : `color:${_CGRN}`], [ckpCell, ckpStyle]];
-    if (showOdd) oddCells.unshift([`p${st.protocol != null ? st.protocol : "?"}`, protoBad ? `color:${_CRED}` : ""]);
+    const oddCells = [];
+    if (showOdd) oddCells.push([`p${st.protocol != null ? st.protocol : "?"}`, protoBad ? `color:${_CRED}` : ""],
+                               [chain, chainBad ? `color:${_CRED}` : `color:${_CGRN}`]);
+    if (showCkp) oddCells.push([ckpCell, ckpStyle]);
     if (narrow) {
       // stat chips carry their own label, because without a header row "15988 · 5.41M · 2h" is unreadable
       const chip = (k, v, extra) => `<span style="white-space:nowrap;${extra || ""}"><span class="faint">${k}</span> ${v}</span>`;
@@ -5311,7 +5318,7 @@ async function renderNodes() {
         + `<span style="flex:0 0 auto">${act}</span></div>`
         + `<div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;margin-top:2px">`
         + chip(i18("stats.ndVersion", "Version"), ver + (upd ? ` <span style="color:${_CGOLD}">⬆</span>` : ""))
-        + oddCells.map(([t, ex], i) => chip(i === oddCells.length - 1 ? i18("stats.ndCheckpoint", "Checkpoint") : "", t, ex)).join("")
+        + oddCells.map(([t, ex]) => chip("", t, ex)).join("")
         + chip(i18("stats.ndHeight", "Height"), height)
         + chip(i18("stats.ndBranch", "Branch"), branch, branchStyle)
         + chip(i18("stats.ndWeight", "Weight"), weight)
@@ -5325,7 +5332,7 @@ async function renderNodes() {
       + oddCells.map(([t, ex]) => td(t, ex)).join("")
       + td(height)
       + td(branch, branchStyle)
-      + td(weight)
+      + (showWeight ? td(weight) : "")
       + td(_uptime(st.reported_uptime))
       + td(act)
       + "</tr>";
@@ -5334,8 +5341,8 @@ async function renderNodes() {
     : `<table style="width:100%;border-collapse:collapse;table-layout:auto">   <!-- no min-width: the table FITS the card; columns that carry no information are dropped instead -->
     <thead><tr style="border-bottom:1px solid var(--line,#1c2530)">
       ${th(i18("stats.ndNode", "Node"))}${th(i18("stats.ndVersion", "Version"))}${th(i18("stats.ndType", "Type"))}
-      ${showOdd ? th(i18("stats.ndProto", "Proto")) : ""}${th(i18("stats.ndChain", "Chain"))}${th(i18("stats.ndCheckpoint", "Checkpoint"))}
-      ${th(i18("stats.ndHeight", "Height"))}${th(i18("stats.ndBranch", "Branch"))}${th(i18("stats.ndWeight", "Weight"))}${th(i18("stats.ndUptime", "Uptime"))}${th("")}
+      ${showOdd ? th(i18("stats.ndProto", "Proto")) + th(i18("stats.ndChain", "Chain")) : ""}${showCkp ? th(i18("stats.ndCheckpoint", "Checkpoint")) : ""}
+      ${th(i18("stats.ndHeight", "Height"))}${th(i18("stats.ndBranch", "Branch"))}${showWeight ? th(i18("stats.ndWeight", "Weight")) : ""}${th(i18("stats.ndUptime", "Uptime"))}${th("")}
     </tr></thead><tbody>${body}</tbody></table>`;
   box.querySelectorAll(".node-upd").forEach((b) => b.onclick = async () => {
     const ip = b.dataset.upd ? decodeURIComponent(b.dataset.upd) : "";
@@ -5363,8 +5370,10 @@ async function renderNodes() {
              : " · " + i18("stats.ndConv", "all convergent"))
         + (ckpForked ? " · " + i18("stats.ndCkpForked", "{f} on a different checkpoint hash", { f: ckpForked }) : "")
       : " · " + i18("stats.ndOneTip", "all on one tip");
+    const idTxt = (!showOdd && self && self.chain_id ? " · " + self.chain_id : "")
+      + (ckpUniform ? " · " + i18("stats.ndCkpAll", "checkpoint") + " " + ckpUniform.split("/")[0] + "/" + ckpUniform.split("/")[1].slice(0, 6) + " ×" + rows.length : "");
     sub.textContent = i18("stats.nodesSub", "{n} nodes seen · {u} on the latest code · newest main {m}",
-      { n: rows.length, u: onLatest, m: latestMain ? String(latestMain).slice(0, 8) : "—" }) + tipsTxt;
+      { n: rows.length, u: onLatest, m: latestMain ? String(latestMain).slice(0, 8) : "—" }) + idTxt + tipsTxt;
     sub.style.color = (forked || ckpForked) ? _CRED : "";   // propagation shows several tips 1 block apart; only a same-height hash conflict is alarming
   }
 }
