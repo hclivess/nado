@@ -1043,7 +1043,7 @@
       <div class="msg-main">
         <div id="msgThread" class="msgthread"></div>
         <div class="row msg-compose" style="gap:6px">
-          <input id="msgBody" placeholder="Write a message…" data-i18n-ph="msg.bodyPh" autocomplete="off" style="flex:1">
+          <input id="msgBody" placeholder="Write a message…" data-i18n-ph="msg.bodyPh" autocomplete="off" maxlength="1800" style="flex:1">
           <button class="accent" id="msgSendBtn" data-i18n="msg.send">Send</button>
         </div>
         <div class="small faint" id="msgHint"></div>
@@ -1162,6 +1162,6 @@
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
 <script defer src="/static/i18n.js?v=bd2b0d3f"></script>
-<script type="module" src="/static/interface.js?v=1ee04553"></script>
+<script type="module" src="/static/interface.js?v=8bef6621t"></script>
 </body>
 </html>

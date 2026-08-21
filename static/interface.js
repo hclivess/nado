@@ -5191,6 +5191,57 @@ async function renderNodes() {
   // — which is exactly when you need to see them, and they are already coloured red in that case.
   const showOdd = !!self && rows.some(([, st]) => st.protocol !== self.protocol || (st.chain_id || "?") !== self.chain_id);
   let onLatest = 0;
+  // BRANCH IDENTIFICATION (2026-08-21). Height alone hid a split: 7 nodes at 13208 and 3 at 13206 read
+  // as "propagation lag" while both sides were frozen for 73 min on different chains. The tip hash IS
+  // the branch. Majority tip = the hash most nodes advertise (ties → heavier). Verdict per node:
+  //   ● same hash as the majority                 → on the majority branch
+  //   ✕ same height, different hash               → a FORK, no ambiguity
+  //   ▲ lower height                              → behind by k (lag OR an unresolved split — the
+  //                                                  subline's distinct-tip list tells them apart)
+  //   ◆ higher height                             → ahead of the majority by k
+  const tips = {};
+  for (const [, st] of rows) {
+    const h = st.latest_block_hash; if (!h) continue;
+    const t = tips[h] || (tips[h] = { n: 0, height: st.latest_block_height, weight: st.latest_block_weight || 0 });
+    t.n++;
+  }
+  const tipList = Object.entries(tips).sort((a, b) => (b[1].n - a[1].n) || (b[1].weight - a[1].weight));
+  const majHash = tipList.length ? tipList[0][0] : null;
+  const majHeight = majHash ? tips[majHash].height : null;
+  const branchOf = (st) => {
+    const h = st.latest_block_hash;
+    if (!h) return [`<span class="faint">?</span>`, ""];
+    const short = `<span class="mono" title="${h}">${h.slice(0, 6)}</span>`;
+    if (h === majHash) return [`<span style="color:${_CGRN}">●</span> ${short}`, ""];
+    const d = (st.latest_block_height != null && majHeight != null) ? st.latest_block_height - majHeight : 0;
+    if (d === 0) return [`<span style="color:${_CRED}">✕</span> ${short}`, `color:${_CRED}`];
+    if (d < 0) return [`<span style="color:${_CGOLD}">▲</span> ${short} <span class="faint">${d}</span>`, `color:${_CGOLD}`];
+    return [`<span style="color:var(--acc,#3aa0ff)">◆</span> ${short} <span class="faint">+${d}</span>`, ""];
+  };
+  const forked = rows.filter(([, st]) => st.latest_block_hash && st.latest_block_hash !== majHash
+    && st.latest_block_height === majHeight).length;
+  // CHECKPOINT = a hash at a height every node shares (the snapshot checkpoint), so it identifies a fork
+  // that predates the tip even when heights differ. Majority per checkpoint height; a minority hash at
+  // the SAME checkpoint height is a fork older than that checkpoint — unambiguous, shown red.
+  const ckp = {};
+  for (const [, st] of rows) {
+    if (st.snapshot_hash == null || st.snapshot_height == null) continue;
+    const k = st.snapshot_height + "/" + st.snapshot_hash;
+    ckp[k] = (ckp[k] || 0) + 1;
+  }
+  const ckpMajByHeight = {};
+  for (const [k, n] of Object.entries(ckp)) {
+    const [h, hash] = k.split("/");
+    if (!ckpMajByHeight[h] || ckpMajByHeight[h].n < n) ckpMajByHeight[h] = { hash, n };
+  }
+  const checkpointOf = (st) => {
+    if (st.snapshot_hash == null || st.snapshot_height == null) return [`<span class="faint">?</span>`, ""];
+    const maj = ckpMajByHeight[st.snapshot_height];
+    const bad = maj && maj.hash !== st.snapshot_hash;
+    return [`<span class="mono" title="${st.snapshot_hash}">${st.snapshot_height}/${st.snapshot_hash.slice(0, 6)}</span>`
+            + (bad ? ` <span style="color:${_CRED}">✕ fork</span>` : ""), bad ? `color:${_CRED}` : ""];
+  };
+  const ckpForked = rows.filter(([, st]) => checkpointOf(st)[1]).length;
   // PHONE LAYOUT: eight nowrap columns cannot fit ~360px, and the two ways a table can respond to that are
   // both bad — a horizontal scrollbar (stats hidden off-screen behind a swipe) or letting it overflow the
   // card. So below NARROW_PX the same data is rendered as one stacked block per node instead: identity +
@@ -5223,11 +5274,12 @@ async function renderNodes() {
       ? `<span title="${i18("stats.ndFinalized", "finalized")}: ${st.finalized_height != null ? st.finalized_height : "?"}">${st.latest_block_height}</span>`
       : "?";
     const weight = `${st.latest_block_weight != null ? (st.latest_block_weight / 1e6).toFixed(2) + "M" : "?"}`;
+    const [branch, branchStyle] = branchOf(st);
     const who = _ccFlag(label) + `<span class="mono" title="${label}">`
       + (isSelf ? `<b>${_shortIp(label)}</b>` : _shortIp(label)) + "</span>";
-    const oddCells = showOdd
-      ? [[`p${st.protocol != null ? st.protocol : "?"}`, protoBad ? `color:${_CRED}` : ""],
-         [chain, chainBad ? `color:${_CRED}` : `color:${_CGRN}`]] : [];
+    const [ckpCell, ckpStyle] = checkpointOf(st);
+    const oddCells = [[chain, chainBad ? `color:${_CRED}` : `color:${_CGRN}`], [ckpCell, ckpStyle]];
+    if (showOdd) oddCells.unshift([`p${st.protocol != null ? st.protocol : "?"}`, protoBad ? `color:${_CRED}` : ""]);
     if (narrow) {
       // stat chips carry their own label, because without a header row "15988 · 5.41M · 2h" is unreadable
       const chip = (k, v, extra) => `<span style="white-space:nowrap;${extra || ""}"><span class="faint">${k}</span> ${v}</span>`;
@@ -5238,8 +5290,9 @@ async function renderNodes() {
         + `<span style="flex:0 0 auto">${act}</span></div>`
         + `<div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;margin-top:2px">`
         + chip(i18("stats.ndVersion", "Version"), ver + (upd ? ` <span style="color:${_CGOLD}">⬆</span>` : ""))
-        + oddCells.map(([t, ex]) => chip("", t, ex)).join("")
+        + oddCells.map(([t, ex], i) => chip(i === oddCells.length - 1 ? i18("stats.ndCheckpoint", "Checkpoint") : "", t, ex)).join("")
         + chip(i18("stats.ndHeight", "Height"), height)
+        + chip(i18("stats.ndBranch", "Branch"), branch, branchStyle)
         + chip(i18("stats.ndWeight", "Weight"), weight)
         + chip(i18("stats.ndUptime", "Uptime"), _uptime(st.reported_uptime))
         + "</div></div>";
@@ -5250,6 +5303,7 @@ async function renderNodes() {
       + td(_nodeType(st))
       + oddCells.map(([t, ex]) => td(t, ex)).join("")
       + td(height)
+      + td(branch, branchStyle)
       + td(weight)
       + td(_uptime(st.reported_uptime))
       + td(act)
@@ -5259,8 +5313,8 @@ async function renderNodes() {
     : `<table style="width:100%;border-collapse:collapse;table-layout:auto">   <!-- no min-width: the table FITS the card; columns that carry no information are dropped instead -->
     <thead><tr style="border-bottom:1px solid var(--line,#1c2530)">
       ${th(i18("stats.ndNode", "Node"))}${th(i18("stats.ndVersion", "Version"))}${th(i18("stats.ndType", "Type"))}
-      ${showOdd ? th(i18("stats.ndProto", "Proto")) + th(i18("stats.ndChain", "Chain")) : ""}
-      ${th(i18("stats.ndHeight", "Height"))}${th(i18("stats.ndWeight", "Weight"))}${th(i18("stats.ndUptime", "Uptime"))}${th("")}
+      ${showOdd ? th(i18("stats.ndProto", "Proto")) : ""}${th(i18("stats.ndChain", "Chain"))}${th(i18("stats.ndCheckpoint", "Checkpoint"))}
+      ${th(i18("stats.ndHeight", "Height"))}${th(i18("stats.ndBranch", "Branch"))}${th(i18("stats.ndWeight", "Weight"))}${th(i18("stats.ndUptime", "Uptime"))}${th("")}
     </tr></thead><tbody>${body}</tbody></table>`;
   box.querySelectorAll(".node-upd").forEach((b) => b.onclick = async () => {
     const ip = b.dataset.upd ? decodeURIComponent(b.dataset.upd) : "";
@@ -5276,8 +5330,17 @@ async function renderNodes() {
       setTimeout(() => renderNodes().catch(() => {}), 4000);   // reflect the new state shortly after
     } catch (e) { b.disabled = false; b.textContent = "↻"; b.title = i18("stats.ndFailed", "failed — retry"); }
   });
-  if (sub) sub.textContent = i18("stats.nodesSub", "{n} nodes seen · {u} on the latest code · newest main {m}",
-    { n: rows.length, u: onLatest, m: latestMain ? String(latestMain).slice(0, 8) : "—" });
+  if (sub) {
+    const tipsTxt = tipList.length > 1
+      ? " · " + tipList.length + " " + i18("stats.ndTips", "distinct tips") + ": "
+        + tipList.map(([h, t]) => `${t.height}/${h.slice(0, 6)} ×${t.n}`).join(", ")
+        + (forked ? " · " + i18("stats.ndForked", "{f} forked at the same height", { f: forked }) : "")
+        + (ckpForked ? " · " + i18("stats.ndCkpForked", "{f} on a different checkpoint hash", { f: ckpForked }) : "")
+      : " · " + i18("stats.ndOneTip", "all on one tip");
+    sub.textContent = i18("stats.nodesSub", "{n} nodes seen · {u} on the latest code · newest main {m}",
+      { n: rows.length, u: onLatest, m: latestMain ? String(latestMain).slice(0, 8) : "—" }) + tipsTxt;
+    sub.style.color = (forked || ckpForked) ? _CRED : "";   // propagation shows several tips 1 block apart; only a same-height hash conflict is alarming
+  }
 }
 
 // zkVM EXEC-LAYER (L2) vitals on the Stats tab: how far the exec cursor trails the L1 tip, contract count,
@@ -6265,13 +6328,25 @@ async function renderMsig() {
 let MSG = null;
 async function loadMessaging() {
   if (MSG) return MSG;
-  try { MSG = await import('./messaging.js'); }
+  try { MSG = await import('./messaging.js?v=ratchet2'); }
   catch (e) { MSG = null; log("err", "Messaging unavailable: " + (e && e.message || e)); }
   return MSG;
 }
 function _msgKey(suffix) { return "nado_msg_v1_" + (state.wallet ? state.wallet.address : "_") + "_" + suffix; }
 function msgHistLoad() { try { return JSON.parse(localStorage.getItem(_msgKey("hist")) || "{}"); } catch { return {}; } }
 function msgHistSave(h) { try { localStorage.setItem(_msgKey("hist"), JSON.stringify(h)); } catch (e) {} }
+// Ratchet sessions (doc/messaging.md §3.2): root/chain keys + ratchet keypairs per peer. Same at-rest model as the
+// history (browser localStorage, this device only) — wiping it strands live sessions until the peer re-initialises.
+function msgSessLoad() { try { const s = JSON.parse(localStorage.getItem(_msgKey("sess")) || "null"); return (s && s.v === 2 && s.peers) ? s : MSG.sessionsNew(); } catch { return MSG.sessionsNew(); } }
+function msgSessSave(st) { try { localStorage.setItem(_msgKey("sess"), JSON.stringify(st)); } catch (e) {} }
+// Seal through the ratchet, persisting the advanced session state BEFORE the network round-trip (a message key
+// must never be reusable after the envelope exists, whether or not the POST succeeds).
+function msgSeal(m, id, peerAddr, kemPub, payload, ts) {
+  const st = msgSessLoad();
+  const env = m.ratchetSeal(id, state.wallet.address, st, peerAddr, kemPub, payload, ts);
+  msgSessSave(st);
+  return env;
+}
 function msgCursor() { return parseInt(localStorage.getItem(_msgKey("cursor")) || "0", 10) || 0; }
 function msgSetCursor(n) { try { localStorage.setItem(_msgKey("cursor"), String(n)); } catch (e) {} }
 function _nowSec() { return Math.floor(Date.now() / 1000); }
@@ -6348,8 +6423,7 @@ async function msgSend() {
   }
   let res, mid;
   try {
-    const env = m.makeEnvelope(id, state.wallet.address, kemPub,
-      { type: "msg", from: state.wallet.address, alias: myPrimaryAlias(), body, ts }, ts);
+    const env = msgSeal(m, id, addr, kemPub, { type: "msg", from: state.wallet.address, alias: myPrimaryAlias(), body, ts }, ts);
     mid = m.messageId(env);
     res = await (await fetch(relayBase() + "/message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(env) })).json();
   } catch (e) { res = { result: false, reason: e && e.message || i18("msg.sendFail", "send failed") }; }
@@ -6362,7 +6436,7 @@ async function msgSendAck(m, id, toAddr, ackId) {
   const kemPub = await msgFetchKemPub(toAddr);
   if (!kemPub) return;
   const ts = _nowSec();
-  const env = m.makeEnvelope(id, state.wallet.address, kemPub, { type: "ack", from: state.wallet.address, ackId, ts }, ts);
+  let env; try { env = msgSeal(m, id, toAddr, kemPub, { type: "ack", from: state.wallet.address, ackId, ts }, ts); } catch (e) { return; }
   try { await fetch(relayBase() + "/message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(env) }); } catch (e) {}
 }
 
@@ -6379,7 +6453,12 @@ async function msgPoll() {
     let env;
     try { env = (await (await fetch(relayBase() + "/message?id=" + t.id, { cache: "no-store" })).json()).message; } catch { continue; }
     if (!env) continue;
-    const pt = m.tryOpen(id, env);
+    let pt = null;
+    if (env.v === 2) {                                            // ratchet: open against our sessions (commits state on success)
+      const st = msgSessLoad();
+      const r = m.ratchetOpen(id, st, env, _nowSec());
+      if (r) { msgSessSave(st); pt = r.pt; }
+    } else pt = m.tryOpen(id, env);                               // v1 legacy (pre-ratchet wallets)
     if (!pt) continue;                                            // not ours (or not decryptable)
     if (pt.type === "ack") {
       for (const c of Object.values(hist)) for (const msg of c.messages)
@@ -7197,9 +7276,12 @@ async function deliverZbill(code, toRaw, zaddrUsed) {
   const ts = _nowSec();
   // `body` carries the claim link so a wallet that does NOT understand type "zbill" still shows something
   // openable, rather than an empty chat bubble. Older wallets fall through to the plain-message branch.
-  const env = m.makeEnvelope(id, state.wallet.address, kemPub,
-    { type: "zbill", from: state.wallet.address, alias: myPrimaryAlias(), code, ts,
-      body: i18("shield.dmBody", "A private NADO banknote — open to claim:") + " " + claimLink(code) }, ts);
+  let env;
+  try {
+    env = msgSeal(m, id, addr, kemPub,
+      { type: "zbill", from: state.wallet.address, alias: myPrimaryAlias(), code, ts,
+        body: i18("shield.dmBody", "A private NADO banknote — open to claim:") + " " + claimLink(code) }, ts);
+  } catch (e) { return (e && e.message) || i18("msg.sendFail", "send failed"); }
   const res = await (await fetch(relayBase() + "/message", { method: "POST",
     headers: { "Content-Type": "application/json" }, body: JSON.stringify(env) })).json();
   if (!res || !res.result) return (res && res.reason) || i18("msg.sendFail", "send failed");
