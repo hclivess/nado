@@ -60,7 +60,7 @@ check("no on-chain registration binds a shielded owner to a messaging key", () =
 // ---- delivery is sealed, and addressed by ACCOUNT ------------------------------------------------------
 
 check("the code is sealed in an envelope, never posted in the clear", () => {
-  has(deliver, "makeEnvelope", "delivery must seal the payload");
+  has(deliver, "msgSeal", "delivery must seal the payload (through the ratchet)");
   has(deliver, "msgFetchKemPub", "delivery must resolve the recipient's ML-KEM public key");
   // the only network write is the sealed envelope
   const posts = deliver.split("fetch(").length - 1;

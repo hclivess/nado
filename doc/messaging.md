@@ -85,26 +85,54 @@ in the bundle (authenticity), and the whole first message is ML-DSA-signed by Al
 prekeys are consumed once; when the pool is exhausted the session still forms from `ik+spk` (slightly weaker
 initial PCS until the first ratchet).
 
-### 3.2 The Double Ratchet (KEM ratchet + symmetric chains)
+### 3.2 The Double Ratchet (KEM ratchet + symmetric chains) — **BUILT** (`static/messaging.js`, envelope `v: 2`)
 
-- **Root / asymmetric ratchet — KEM, not DH.** Each party holds a current **ratchet ML-KEM keypair**. To
-  ratchet, the sender **generates a fresh ephemeral ML-KEM keypair**, and the *receiver* **encapsulates to
-  the sender's new public key** on its next reply; the resulting shared secret is mixed into the **root
-  key** via HKDF, deriving a fresh sending/receiving **chain key**. A fresh KEM keypair each ratchet is what
-  delivers **post-compromise security** — after one clean round-trip, a past key leak is healed.
-- **Symmetric ratchet — per-message keys.** Within a chain, each message advances a KDF chain
-  (`ck → (ck', mk) = KDF(ck)`; `mk` = message key, used once, then deleted). That's **forward secrecy**:
-  deleting `mk` after use means a later compromise can't read earlier messages.
-- **Out-of-order / offline** handling: each message carries its ratchet public key + chain counters, so the
-  receiver can advance ratchets and cache a bounded set of **skipped message keys** for late-arriving
-  messages (exactly Signal's scheme).
+Signal's state machine with every DH replaced by an ML-KEM-768 encapsulation. Because a KEM is one-sided, the
+party that **starts a new sending chain** encapsulates to the peer's latest ratchet public key and ships the
+ciphertext `c` in every header of that chain (where Signal ships its DH pub), together with its **own freshly
+generated ratchet public key `k`** for the peer to encapsulate to in turn.
+
+- **Root / asymmetric ratchet.** Receiving a header whose `k` is new = a ratchet step: `ss = decap(c, ourRatchetSec)`,
+  `(rk', ckr) = KDF_rk(rk, ss)`, start a new receiving chain, and mark our sending chain stale so our **next send
+  generates a fresh keypair** and encapsulates to `k`. That fresh keypair is what delivers **post-compromise
+  security**: a leaked state stops decrypting as soon as the leaked party has sent on a fresh chain (one round-trip,
+  exactly Signal's healing bound — the test `tests/test_msg_ratchet.mjs` pins both the "not healed yet" and the
+  "healed" halves).
+- **Symmetric ratchet.** `(ck', mk) = KDF_ck(ck)` per message; `mk` is used once and deleted — **forward secrecy**
+  (a session snapshot cannot re-decrypt anything already read, including the pool's stored copy of it).
+- **Session setup ("KEM-X3DH", identity key only).** The initiator encapsulates `i` to the recipient's **on-chain
+  identity KEM key** (`msgkey` tx) → `ss0 → rk0`; the first chain then encapsulates to the identity key again, so the
+  session is normal-ratchet from message #1. `i` rides along on every message **until the peer has replied** (a lost
+  first message must not strand the session). There are no one-time prekeys: the PCS start is weaker than with an
+  `opk` exactly until the first reply, then identical.
+- **Out-of-order / offline.** Headers carry `pn`/`n`; a receiver caches up to `MAX_SKIP = 200` skipped message keys
+  per gap (600 per session, FIFO), so late messages from a previous chain still open. Every receive works on a
+  copy of the session and commits only on a successful AEAD open — a bogus envelope never corrupts state.
+- **Crossed first messages** (both sides initiate before hearing the other) leave two valid sessions per peer; the
+  sender uses the one the peer most recently spoke on, and at most 3 are kept.
+- **Recipient hiding with a ratchet.** The tag can no longer be `H(ss)` of a per-message decap. Instead
+  `tag = H_dk(nonce)` with `dk = KDF(rk0, 'detect')`, a **session-constant detection key**: the receiver hashes every
+  fetched nonce under each session's `dk` (cheap, no KEM) and only trial-decapsulates `i` for envelopes no session
+  claims. Tags stay unlinkable to the node (fresh nonce per message); a leaked `dk` lets an attacker *detect* a
+  conversation's messages but not read them.
+- **KDFs.** `KDF_rk(rk, ss) = blake2b(key=rk, 'nado-msg-rk' ‖ ss, 64) → rk' ‖ ck`;
+  `KDF_ck(ck) = blake2b(key=ck, 'nado-msg-ck', 32), blake2b(key=ck, 'nado-msg-mk', 32)`. The AEAD is the v1
+  blake2b-CTR encrypt-then-MAC under `mk`, with the **header as associated data**.
+- **Header** (base64 in `hdr`, opaque to the node): `flags(1) ‖ pn(4) ‖ n(4) ‖ k(1184) ‖ c(1088) ‖ [i(1088)]`.
+  Envelope overhead is ~10.8 KB per chain message / ~12.3 KB per session-init against the pool's 16 KiB cap, which
+  leaves ~2.5 KB / ~1.9 KB of body; `ratchetSeal` refuses an oversized body **before** advancing the chain, and
+  the compose box caps at `MSG_BODY_MAX = 1800` chars.
+- **Storage / honest limits.** Sessions persist in the wallet's `localStorage` beside the history (this device
+  only, same at-rest model as the history). Wiping it strands live sessions: the peer's messages cannot be read
+  until *they* receive something from us on a new session (our next send re-initialises; `sessionsForget(peer)`
+  forces it). v1 envelopes are still **received** (legacy wallets), never sent.
 
 ### 3.3 The wire envelope
 
 ```
 envelope = {
-  v, from, to,        // addresses (to = alias resolved before send); `from` used for the registered-gate (§6)
-  hdr,                // ratchet public key + prev-chain-len + msg-# (+ the KEM ciphertexts on the FIRST msg)
+  v, sender, public_key,   // v=1 legacy / v=2 ratchet; NO `to` (recipient hidden, §9.1); sender gates registration (§6)
+  hdr,                // v2: base64 ratchet header (k, c, pn, n, + init ct while unanswered); v1: hex KEM ct
   nonce, ct,          // AEAD (blake2b-AEAD or ChaCha20-Poly1305) of the body under this message's key mk
   ts, pow,            // timestamp + anti-spam proof-of-work (§6)
   sig                 // ML-DSA sig over blake2b(everything above) — sender auth + integrity
@@ -124,8 +152,12 @@ against the standard Double-Ratchet test vectors (adapted to ML-KEM) and fuzzed 
 
 Mirror the existing `transaction_pool`, but **never drain into a block**:
 
-- Each node keeps a **message pool**: a map `msg_id → envelope` (`msg_id = blake2b(envelope)`), bounded in
-  size and by **TTL** (e.g. 7 days; evict oldest/expired first).
+- Each node keeps a **message pool**: a map `msg_id → envelope` (`msg_id = blake2b(envelope)`), bounded
+  **primarily by bytes** — `MSG_POOL_MAX_BYTES` = 5 MiB; when an insert crosses it the oldest-accepted
+  envelopes are **rotated out** (ring buffer by arrival order) until it fits. A long **TTL backstop**
+  (`MSG_TTL_SECONDS` = 90 days) reaps anything rotation never reached and bounds how old an accepted
+  `ts` may be. So an undelivered message lives as long as the node's churn allows: on a quiet network that
+  is weeks to months; under a flood the pool degrades to "old messages drop early," never OOM.
 - **Gossip:** on receiving a valid new envelope (good `sig`, good `pow`, within size/rate limits), a node
   adds it and relays it to peers — the same anti-loop set-reconciliation the tx mempool uses. So a message
   propagates to the whole network within a few gossip rounds, independent of whether the recipient is
@@ -163,13 +195,14 @@ notification:
 1. **Immediate (at send time):** a node rejects submission (sender **not registered**, rate-limited, or
    oversize), **or** the recipient has **no published prekey bundle** (no messaging key to encrypt to). The
    client shows "not delivered" instantly, with the reason.
-2. **Timeout:** the message reached the pool but **no delivery ACK arrived before the TTL** (7 days) — the
-   recipient never came online to fetch it. When the TTL elapses, the client flips the message to "not
-   delivered."
+2. **Timeout:** the message reached the pool but **no delivery ACK arrived** before it was rotated out
+   (or hit the 90-day TTL backstop) — the recipient never came online to fetch it. The client has no view
+   of a remote pool's churn, so it uses a fixed client-side patience window (7 days) to flip the message
+   to "not delivered."
 
 Implementation: the sender's client keeps a local **pending table** `{msg_id → sent_ts, status}`, watches
 its own inbox for the matching delivery ACK, and on each open/poll expires any still-pending message older
-than the TTL to **not delivered**. Because the layer is store-and-forward and best-effort, "not delivered"
+than its patience window to **not delivered**. Because the layer is store-and-forward and best-effort, "not delivered"
 means precisely **"no delivery confirmation within 7 days"** — the UI should word it that way (e.g. *"Not
 delivered — hasn't come online in 7 days"*) and offer **Resend** (a fresh ratchet message). Read receipts /
 typing indicators are further encrypted control-message types — out of scope for v1.
@@ -189,8 +222,8 @@ same cheap-identity defenses the chain already uses:
    adaptively if the pool floods.
 3. **Rate limits:** per-`from` and per-source-IP caps (reuse the forum's limiter); per-`to` inbox caps so
    one victim can't be buried.
-4. **Size + pool caps:** max envelope size (e.g. 16 KB), max pool bytes, TTL eviction — a hard memory bound
-   so a flood degrades to "old messages drop early," never OOM.
+4. **Size + pool caps:** max envelope size (16 KiB), max pool bytes (5 MiB, oldest rotated out first),
+   TTL backstop — a hard memory bound so a flood degrades to "old messages drop early," never OOM.
 
 None of these charge a fee; together they make spam **rate-limited and PoW-priced**, consistent with
 NADO's "cost identities, not usage" philosophy.
