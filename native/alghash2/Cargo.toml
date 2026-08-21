@@ -3,7 +3,7 @@ name = "nado-alghash2"
 version = "0.1.0"
 edition = "2021"
 description = "NADO native alghash2 wide-sponge hash — Rust cdylib for the STARK-recursion hot path (doc/zk-recursion.md)"
-license = "Apache-2.0 OR MIT"
+license = "AGPL-3.0-or-later"
 
 [lib]
 name = "nado_alghash2"

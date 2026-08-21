@@ -3,7 +3,7 @@ name = "nado-starkcompose"
 version = "0.1.0"
 edition = "2021"
 description = "NADO native STARK composition — evaluates the constraint-IR (execnode/stark/air_ir.py) over the LDE domain, bit-identical to stark._composition. The prover's dominant field-arithmetic loop, off the Python interpreter."
-license = "Apache-2.0 OR MIT"
+license = "AGPL-3.0-or-later"
 
 [lib]
 name = "nado_starkcompose"
