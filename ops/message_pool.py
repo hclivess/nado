@@ -25,8 +25,12 @@ from ops import codec
 from hashing import blake2b_hash
 
 # --- off-chain messaging parameters (NOT consensus — safe to tune per release) -----------------------------
-MSG_TTL_SECONDS   = 7 * 24 * 3600     # a message lives at most 7 days undelivered, then it is reaped
-MSG_MAX_COUNT     = 100_000           # hard cap on pooled messages (oldest evicted first) — bounds memory
+MSG_POOL_MAX_BYTES = 5 * 1024 * 1024  # PRIMARY bound: total envelope bytes held; oldest-accepted ROTATED out
+                                      # as new ones arrive (a ring buffer by seq), so an undelivered message
+                                      # lives as long as the pool's churn allows — days to months on a quiet net
+MSG_TTL_SECONDS   = 90 * 24 * 3600    # BACKSTOP only: the oldest a message may be (by ts on accept, by recv in
+                                      # gc). Was 7 days as the primary reaper; rotation by bytes replaced that.
+MSG_MAX_COUNT     = 100_000           # secondary hard cap on pooled message COUNT (oldest evicted first)
 MSG_MAX_BYTES     = 16 * 1024         # max single envelope size (16 KiB) — ratchet header + body ciphertext
 MSG_TS_SKEW       = 2 * 3600          # reject envelopes whose ts is >2 h in the future (clock-skew slack)
 MSG_POW_BITS      = 12                # per-message hashcash difficulty (leading zero bits) — ~a few k hashes
@@ -90,16 +94,18 @@ def prekey_signing_digest(bundle: dict) -> str:
 
 class MessagePool:
     def __init__(self, ttl_seconds=MSG_TTL_SECONDS, max_count=MSG_MAX_COUNT,
-                 max_bytes=MSG_MAX_BYTES, pow_bits=MSG_POW_BITS):
+                 max_bytes=MSG_MAX_BYTES, pow_bits=MSG_POW_BITS, max_pool_bytes=MSG_POOL_MAX_BYTES):
         """Every cap/difficulty is injectable so tests run with tiny limits and cheap PoW; production
         uses the module defaults. Nothing here is consensus — two nodes with different knobs still agree
         on the chain."""
         self.ttl = ttl_seconds
         self.max_count = max_count
         self.max_bytes = max_bytes
+        self.max_pool_bytes = max_pool_bytes
         self.pow_bits = pow_bits
         self._seq = 0                 # monotonic cursor; every accepted message gets the next seq
-        self.messages = {}            # msg_id -> {"env": envelope, "recv": ts, "seq": n}
+        self.messages = {}            # msg_id -> {"env": envelope, "recv": ts, "seq": n, "size": wire bytes}
+        self.total_bytes = 0          # running sum of record["size"] — the rotation budget's meter
         self.prekeys = {}             # address -> {"bundle": bundle, "ts": spk_ts-or-ts}
         self._lock = threading.Lock() # guards every mutation + save snapshot (see module docstring)
         self._dirty = False           # set on mutation; save() skips (and clears) when nothing changed
@@ -113,7 +119,8 @@ class MessagePool:
             return False, "not a dict", None
         if any(f not in env for f in _ENVELOPE_FIELDS):
             return False, "missing field", None
-        if _rough_size(env) > self.max_bytes:
+        size = _rough_size(env)
+        if size > self.max_bytes:
             return False, "too big", None
         ts = env.get("ts")
         if not isinstance(ts, int):
@@ -136,7 +143,8 @@ class MessagePool:
             if mid in self.messages:                 # re-check under the lock (raced duplicate)
                 return True, "duplicate", mid
             self._seq += 1
-            self.messages[mid] = {"env": env, "recv": now, "seq": self._seq}
+            self.messages[mid] = {"env": env, "recv": now, "seq": self._seq, "size": size}
+            self.total_bytes += size
             self._evict_over_cap()
             self._dirty = True
         return True, "ok", mid
@@ -162,9 +170,11 @@ class MessagePool:
     def drop(self, msg_id) -> bool:
         """Explicit removal (e.g. on a delivery ack). Returns True if it was present."""
         with self._lock:
-            hit = self.messages.pop(msg_id, None) is not None
-            self._dirty = self._dirty or hit
-            return hit
+            rec = self.messages.pop(msg_id, None)
+            if rec is not None:
+                self.total_bytes -= rec.get("size", 0)
+                self._dirty = True
+            return rec is not None
 
     # ---- prekey bundles (the off-chain directory) -------------------------------------------------------
     def add_prekey(self, bundle, is_registered, verify_sig) -> tuple:
@@ -200,25 +210,27 @@ class MessagePool:
         with self._lock:
             dead = [mid for mid, r in self.messages.items() if now - r["recv"] > self.ttl]
             for mid in dead:
-                del self.messages[mid]
+                self.total_bytes -= self.messages.pop(mid).get("size", 0)
             self._dirty = self._dirty or bool(dead)
             return len(dead)
 
     def _evict_over_cap(self):
-        """Enforce max_count by evicting the LOWEST-seq (oldest-accepted) messages first — the pool's
-        hard memory bound. A flood can therefore only displace old traffic, never grow the pool, and
-        each displacing message still costs its own PoW (DoS floor)."""
-        if len(self.messages) <= self.max_count:
+        """ROTATION: enforce the byte budget (max_pool_bytes, the primary bound) and the count cap by
+        evicting the LOWEST-seq (oldest-accepted) messages first — a ring buffer keyed by arrival order.
+        A flood can therefore only displace old traffic, never grow the pool, and each displacing message
+        still costs its own PoW (DoS floor). Caller holds the lock. Inserts are append-only in seq order,
+        so the dict's iteration order IS seq order (except after load(), which sorts once)."""
+        if len(self.messages) <= self.max_count and self.total_bytes <= self.max_pool_bytes:
             return
-        # evict the oldest by seq until back under the cap
-        surplus = len(self.messages) - self.max_count
-        oldest = sorted(self.messages.items(), key=lambda kv: kv[1]["seq"])[:surplus]
-        for mid, _ in oldest:
-            del self.messages[mid]
+        for mid in list(self.messages):                          # oldest first
+            if len(self.messages) <= self.max_count and self.total_bytes <= self.max_pool_bytes:
+                break
+            self.total_bytes -= self.messages.pop(mid).get("size", 0)
 
     def stats(self) -> dict:
         """pool counters for the node's status/monitoring surface"""
-        return {"messages": len(self.messages), "prekeys": len(self.prekeys), "cursor": self._seq}
+        return {"messages": len(self.messages), "prekeys": len(self.prekeys), "cursor": self._seq,
+                "bytes": self.total_bytes, "max_bytes": self.max_pool_bytes}
 
     # ---- persistence: survive a node RESTART (the pool is otherwise in-memory, so a restart silently
     #      dropped every undelivered DM + published prekey). Opaque encrypted envelopes, so this is just bytes.
@@ -252,12 +264,20 @@ class MessagePool:
         except Exception:
             return 0
         self._seq = int(data.get("seq", 0) or 0)
-        self.messages = {k: v for k, v in (data.get("messages") or {}).items()
-                         if isinstance(v, dict) and now - int(v.get("recv", 0)) <= self.ttl}
+        kept = [(k, v) for k, v in (data.get("messages") or {}).items()
+                if isinstance(v, dict) and now - int(v.get("recv", 0)) <= self.ttl]
+        kept.sort(key=lambda kv: kv[1].get("seq", 0))            # restore seq order (rotation relies on it)
+        for _, v in kept:
+            if "size" not in v:                                  # pre-rotation file: size it once now
+                v["size"] = _rough_size(v.get("env"))
+        self.messages = dict(kept)
+        self.total_bytes = sum(v["size"] for v in self.messages.values())
         self.prekeys = dict(data.get("prekeys") or {})
-        # dirty iff the load itself changed state vs the file (TTL reap dropped something):
-        # a reap must be persisted by the next save, an untouched load needs no re-write.
-        self._dirty = len(self.messages) != len(data.get("messages") or {})
+        before = len(data.get("messages") or {})
+        self._evict_over_cap()                                   # budget may have shrunk between releases
+        # dirty iff the load itself changed state vs the file (reap/rotation dropped something):
+        # a drop must be persisted by the next save, an untouched load needs no re-write.
+        self._dirty = len(self.messages) != before
         return len(self.messages)
 
 
