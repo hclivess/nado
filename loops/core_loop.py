@@ -2184,12 +2184,24 @@ class CoreClient(threading.Thread):
                             if isinstance(_st, dict) and _st.get("latest_block_hash") == _hh:
                                 _hn = _st.get("latest_block_height")
                                 break
-                        if _hn is not None and int(_hn) - _ours_n <= EMERGENCY_EXIT_LAG:
+                        # PROGRESS CONDITION (2026-08-21). The exit assumes normal cadence can close the
+                        # tail — true only when deterministic fast-forward can REBUILD the missing block
+                        # from our mempool. When it cannot (the producer path logs "un-reconstructable
+                        # tip; deferring to sync"), the two guards defer to each other forever: measured
+                        # 73 min frozen at 13206 with the tip advertised at 13208. So take the exit only
+                        # once per height: if we are still where we were the last time we took it, the
+                        # tail did not close by itself — fall through to the donor fetch below.
+                        if (_hn is not None and int(_hn) - _ours_n <= EMERGENCY_EXIT_LAG
+                                and getattr(self, "_treadmill_exit_height", None) != _ours_n):
+                            self._treadmill_exit_height = _ours_n
                             self._minority_since = get_timestamp_seconds()
                             self.logger.info(
                                 f"Clean prefix within {int(_hn) - _ours_n} block(s) of the advertised "
                                 f"tip — leaving emergency to normal cadence (treadmill guard)")
                             break
+                        if _hn is not None and int(_hn) - _ours_n <= EMERGENCY_EXIT_LAG:
+                            self.logger.info(f"Treadmill guard already taken at {_ours_n} without progress "
+                                             f"— fetching the tail from a donor instead")
                 if (vstate == fork_resolution.REORG and _anc is not None
                         and int(self.memserver.latest_block["block_number"]) > int(_anc)):
                     # POSSESSION BEFORE ROLLBACK: fetch + pre-verify the competing branch, and only then

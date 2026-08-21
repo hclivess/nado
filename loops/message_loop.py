@@ -336,6 +336,71 @@ class MessageClient(threading.Thread):
             + (" — syncing" if self.memserver.emergency_mode else ""),
         )
 
+        # --- Tip watchdog ----------------------------------------------------
+        # 2026-08-21: the tip sat at 13206 for 73 minutes while peers advertised 13208. Finality above
+        # screamed FROZEN the whole time — but it says WHAT stopped, not WHY, and nothing acted. The
+        # "why" was in two places nobody reads: a per-iteration ERROR from native_guard (a STALE .so),
+        # and the sync loop's treadmill guard handing off to a fast-forward that could not rebuild the
+        # block. This line measures the tip itself against what the mesh advertises, and the one below
+        # names a stale crate as its own component AND repairs it when it safely can.
+        try:
+            best_peer = 0
+            for _st in self.consensus.status_pool.copy().values():
+                if isinstance(_st, dict) and isinstance(_st.get("latest_block_height"), int):
+                    best_peer = max(best_peer, _st["latest_block_height"])
+            if getattr(self, "_tip_last", None) is None or tip > self._tip_last:
+                self._tip_last, self._tip_moved_at = tip, now
+            tip_frozen = now - getattr(self, "_tip_moved_at", now)
+            peers_ahead = best_peer - tip
+            if tip_frozen >= 300 and peers_ahead > 0:
+                tip_level = "down"
+            elif tip_frozen >= 120 and peers_ahead > 0:
+                tip_level = "warn"
+            else:
+                tip_level = "ok"
+            components["Tip"] = (
+                tip_level,
+                f"#{tip}" + (f" · peers ahead by {peers_ahead}" if peers_ahead > 0 else " · at the mesh tip")
+                + (f" · FROZEN {int(tip_frozen)}s" if tip_frozen >= 120 else "")
+                + (f" · last reject: {str(self.memserver.last_block_reject)[:80]}"
+                   if tip_level != "ok" and getattr(self.memserver, "last_block_reject", None) else ""),
+            )
+        except Exception:
+            pass
+
+        # --- Native crates ----------------------------------------------------
+        # A stale .so fail-stops every validation that touches it, and the node then looks like a sync
+        # problem. Check it here every pass (cheap: a few stat calls), name the crate, and rebuild when
+        # the tree is clean — the updater's own path, which otherwise runs only on an explicit /update.
+        # A DIRTY tree (someone mid-edit on this box) is reported, not rebuilt: the updater refuses for
+        # the same reason, and this is exactly the state the 2026-08-21 stall was in.
+        try:
+            if now - getattr(self, "_native_checked_at", 0.0) >= 60:
+                self._native_checked_at = now
+                stale = self_update._stale_required_libs()
+                if stale:
+                    try:
+                        self_update._git("diff", "--quiet"); self_update._git("diff", "--cached", "--quiet")
+                        clean = True
+                    except Exception:
+                        clean = False
+                    if clean:
+                        self_update._build_crates(stale)
+                        still = self_update._stale_required_libs()
+                        self._native_state = ("warn", f"STALE {stale} — rebuilt; "
+                                              + ("still stale, needs a manual cargo build" if still
+                                                 else "the node must RESTART to load it"))
+                    else:
+                        self._native_state = ("down", f"STALE {stale} — working tree has uncommitted edits, "
+                                                      f"refusing to auto-rebuild: run `cargo build --release` "
+                                                      f"in native/<crate> and restart")
+                else:
+                    self._native_state = ("ok", "all required libraries current")
+            if getattr(self, "_native_state", None):
+                components["Native"] = self._native_state
+        except Exception:
+            pass
+
         # --- Running code --------------------------------------------------
         # A fix that is committed but not RUNNING is not a fix. `update_available` in /status compares
         # against origin as of the last fetch, so it stays silent when the repair was committed locally —
