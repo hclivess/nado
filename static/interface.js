@@ -5113,10 +5113,18 @@ function _uptime(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
 }
-/** an IPv4 shortened for a narrow table: keep the two octets that actually distinguish peers (full IP on hover) */
+/** an IP shortened for a narrow table: keep the tail that actually distinguishes peers (full IP on hover).
+ * IPv4 -> last two octets; IPv6 -> last two groups (2001:b07:…:fea2:7bae was rendered FULL, blowing the
+ * node-table layout — reported 2026-08-23). */
 function _shortIp(ip) {
-  const m = String(ip).match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-  return m ? "\u2026" + m[3] + "." + m[4] : String(ip);
+  const v = String(ip);
+  const m = v.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (m) return "\u2026" + m[3] + "." + m[4];
+  if (v.includes(":")) {
+    const g = v.split(":").filter(Boolean);
+    if (g.length >= 2) return "\u2026" + g[g.length - 2] + ":" + g[g.length - 1];
+  }
+  return v;
 }
 
 /**
