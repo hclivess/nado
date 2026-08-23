@@ -627,8 +627,12 @@ function buildTransferTx(wallet, recipient, rawAmount, fee, targetBlock, data, t
 // PUBKEY-ONCE (#19): is the sender's pubkey already recorded on-chain? The node stores it on an
 // address's FIRST on-chain tx (register OR any transfer), after which later txs may omit it. If we
 // can't tell (no account doc / relay hiccup) return false so we include the key — always safe.
+// ONLY the stored public_key counts: `registered === 1` used to imply it, but genesis-seeded
+// open-lane identities (genesis.py) carry registered=1 with NO pubkey — after a reroll, an address
+// that hadn't yet sent a tx this generation then omitted the key and every bond/transfer died with
+// "Missing public_key and no on-chain pubkey for sender" (reported 2026-08-23).
 function pubkeyEstablished(acc) {
-  return !!(acc && (acc.public_key || acc.registered === 1));
+  return !!(acc && acc.public_key);
 }
 
 /* ----------------------------------------------------------------------------------------------
