@@ -3464,6 +3464,19 @@ async def tail_loop():
                     if not await _apply_block(session, states, state, block, verbose=True):
                         break                                  # DA stall: do NOT advance the cursor; retry next poll
                     applied += 1
+                    # REMEMBER THIS ROOT POINT (per ns): exit proofs must verify against the root L1
+                    # SETTLED, which trails the live root by a settle cadence; the ring lets the proof
+                    # handlers serve ?root=<settled> instead of forcing wallets to wait for the live root
+                    # to coincide with a settled one (measured 5-12 h for dividend claims on a busy chain).
+                    # Free when the block changed nothing (cached root) — but skipped entirely during
+                    # deep catch-up (a cold replay computing the root per state-changing block would add
+                    # hours); the ring only matters once the node serves proofs near the tip.
+                    if h >= finalized - 240:
+                        for _st in states.values():
+                            try:
+                                _st.note_root_point()
+                            except Exception:
+                                pass                           # bookkeeping must never stall the tail
                     # EXEC HASH POOL entry (see ExecState.boundary_roots): at every epoch-boundary cursor,
                     # record the root — the exactly-comparable point the root-pool probe below compares
                     # across peers, L1-hash-pool style. Recorded AFTER the boundary block applies, so it is
@@ -4059,12 +4072,20 @@ async def h_outbox_proof(request):
     st = _state_for(request)
     if st is None:
         return _NS404()
-    p = st.outbox_proof(request.query.get("seq", ""))
-    if p is None:
+    from execnode import exec_root as ER
+    try:
+        msg = st.outbox[str(int(request.query.get("seq", "")))]
+    except (KeyError, ValueError, TypeError):
         return web.json_response({"error": "not found"}, status=404)
-    p["ns"] = request.query.get("ns", "default")
-    p["state_root"] = st.state_root()
-    return web.json_response(p)
+    dg = ER.leaf_digest(ER.msg_outbox_leaf(msg))
+    # ?root= — a recent remembered root (pass L1's settled root for this ns), else the live root.
+    got = st.record_proof_at(request.query.get("root"), ER.T_DIGEST, "outbox", dg, value=1)
+    if not got:
+        return web.json_response({"error": "root not held (not applied yet, too old, or the record "
+                                           "postdates it) — retry after the next settle"}, status=409)
+    proof, root = got
+    return web.json_response({"message": msg, "proof": proof,
+                              "ns": request.query.get("ns", "default"), "state_root": root})
 
 
 async def h_inbox(request):
@@ -4158,14 +4179,22 @@ async def h_allowances(request):
 
 
 async def h_withdrawal_proof(request):
-    """Merkle proof for a bridge-withdrawal record (?nonce=) against the CURRENT state_root (also
-    returned); the claim only succeeds on L1 once a settled root covers it. 404 if the nonce is unknown."""
+    """Merkle proof for a bridge-withdrawal record (?nonce=) against ?root= (a recent remembered root —
+    pass L1's settled root) or the CURRENT state_root (also returned); the claim only succeeds on L1 once
+    a settled root covers it. 404 if the nonce is unknown; 409 if ?root= is not held."""
     # the Merkle proof a user submits to L1's bridge_withdraw to claim their exit against the settled root
-    p = state.withdrawal_proof(request.query.get("nonce", ""))
-    if not p:
+    from execnode import exec_root as ER
+    nonce = str(request.query.get("nonce", ""))
+    w = state.withdrawals.get(nonce)
+    if not w:
         return web.json_response({"error": "not found"}, status=404)
-    p["state_root"] = state.state_root()
-    return web.json_response(p)
+    got = state.record_proof_at(request.query.get("root"), ER.T_BRIDGE_WD, w["addr"], nonce, value=w["amount"])
+    if not got:
+        return web.json_response({"error": "root not held (not applied yet, too old, or the record "
+                                           "postdates it) — retry after the next settle"}, status=409)
+    proof, root = got
+    return web.json_response({"addr": w["addr"], "amount": w["amount"], "nonce": nonce,
+                              "proof": proof, "state_root": root})
 
 
 async def h_dividend(request):
@@ -4183,14 +4212,22 @@ async def h_dividend(request):
 
 
 async def h_dividend_proof(request):
-    """Merkle proof for a collected dividend withdrawal (?nonce=) against the CURRENT state_root,
-    submitted to L1's dividend_withdraw once settled. 404 if the nonce is unknown."""
+    """Merkle proof for a collected dividend withdrawal (?nonce=) against ?root= (a recent root the tail
+    remembered — pass L1's settled root) or the CURRENT state_root, submitted to L1's dividend_withdraw
+    once settled. 404 if the nonce is unknown; 409 if ?root= is not held (the wallet retries next settle)."""
     # the Merkle proof a miner submits to L1's dividend_withdraw to claim a collection against the settled root
-    p = state.dividend_withdrawal_proof(request.query.get("nonce", ""))
-    if not p:
+    from execnode import exec_root as ER
+    nonce = str(request.query.get("nonce", ""))
+    w = state.dividend_withdrawals.get(nonce)
+    if not w:
         return web.json_response({"error": "not found"}, status=404)
-    p["state_root"] = state.state_root()
-    return web.json_response(p)
+    got = state.record_proof_at(request.query.get("root"), ER.T_DIV_WD, w["addr"], nonce, value=w["amount"])
+    if not got:
+        return web.json_response({"error": "root not held (not applied yet, too old, or the record "
+                                           "postdates it) — retry after the next settle"}, status=409)
+    proof, root = got
+    return web.json_response({"addr": w["addr"], "amount": w["amount"], "nonce": nonce,
+                              "proof": proof, "state_root": root})
 
 
 @web.middleware
@@ -4377,14 +4414,22 @@ async def h_unshields(request):
 
 
 async def h_unshield_proof(request):
-    """Merkle proof for a recorded unshield exit (?nonce=) against the CURRENT state_root, submitted to
-    L1's `unshield` to release SHIELD_ESCROW coins once settled. 404 if the nonce is unknown."""
+    """Merkle proof for a recorded unshield exit (?nonce=) against ?root= (a recent remembered root —
+    pass L1's settled root) or the CURRENT state_root, submitted to L1's `unshield` to release
+    SHIELD_ESCROW coins once settled. 404 if the nonce is unknown; 409 if ?root= is not held."""
     # the Merkle proof a user submits to L1's `unshield` to release SHIELD_ESCROW coins against the settled root
-    p = state.unshield_withdrawal_proof(request.query.get("nonce", ""))
-    if not p:
+    from execnode import exec_root as ER
+    nonce = str(request.query.get("nonce", ""))
+    w = state.unshield_withdrawals.get(nonce)
+    if not w:
         return web.json_response({"error": "not found"}, status=404)
-    p["state_root"] = state.state_root()
-    return web.json_response(p)
+    got = state.record_proof_at(request.query.get("root"), ER.T_UNSHIELD_WD, w["addr"], nonce, value=w["amount"])
+    if not got:
+        return web.json_response({"error": "root not held (not applied yet, too old, or the record "
+                                           "postdates it) — retry after the next settle"}, status=409)
+    proof, root = got
+    return web.json_response({"addr": w["addr"], "amount": w["amount"], "nonce": nonce,
+                              "proof": proof, "state_root": root})
 
 
 def _zkvm_contract(st, cid):

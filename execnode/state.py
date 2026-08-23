@@ -332,6 +332,7 @@ class ExecState:
                                    # provably missing exec txs; PERMANENT until a verified bootstrap
         self.bootstrapped = False  # state was adopted from a quorum-verified settled checkpoint
         self.attested = {}         # cursor(int) -> root we ATTESTED on L1 (bounded memo)
+        self._root_ring = {}       # root hex -> (kv half-root, records projection); see note_root_point
         self.anchor_adopted_at = -1  # cursor at which this state last ADOPTED the anchor lineage (rate-limit)
         self.boundary_roots = {}   # epoch-boundary cursor (int, k*EPOCH_LENGTH) -> state_root AT that cursor.
                                    # The exec-layer HASH POOL entry: settle cursors are batch-timing-staggered
@@ -581,6 +582,58 @@ class ExecState:
             return None
         return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce),
                 "proof": self._record_proof(ER.T_DIV_WD, w["addr"], str(nonce))}
+
+    # RECENT-ROOT RING (exit proofs against a SETTLED root). Every exit proof — bridge/dividend/unshield
+    # withdrawals, outbox messages — must verify against the root L1 has SETTLED, but this state keeps
+    # moving: the settled cursor trails the live cursor by a settle cadence, and every dividend accrual
+    # (each 60 blocks) or contract call in that gap changes the live root. A proof built against the live
+    # root then fails L1's verifier, and the wallet's only option was to wait until the live root happened
+    # to equal the settled one again — on a busy chain that was a 5-12 HOUR wait for a dividend claim
+    # (reported 2026-08-23). The ring keeps the records half (a few hundred leaves) and the kv half-root at
+    # each of the last _ROOT_RING_KEEP distinct roots, so a proof can be served against whichever recent
+    # root L1 settled. The records leaf being proven is immutable once written; only its siblings differ
+    # per root, which is exactly what the ring restores.
+    _ROOT_RING_KEEP = 128
+
+    def note_root_point(self):
+        """Remember (kv half-root, records projection) at the CURRENT root if it is new. Called by the
+        finalized tail after each applied block; free when the block changed nothing (cached root)."""
+        ring = getattr(self, "_root_ring", None)
+        if ring is None:
+            ring = self._root_ring = {}
+        with self._mutate_lock:
+            root = self.state_root()
+            if root in ring:
+                return root
+            from execnode import exec_root as ER
+            kv, _rec = self._sparse_stores()
+            ring[root] = (kv.root(), ER.records_projection(self))
+            while len(ring) > self._ROOT_RING_KEEP:
+                del ring[next(iter(ring))]
+            return root
+
+    def record_proof_at(self, root_hex, tag, *parts, value=None):
+        """({"kv","path"}, root) for the record at record_key(tag, *parts) against `root_hex` — the live
+        root (root_hex None/equal), else a root remembered by note_root_point. None if that root is not
+        held (too old, or this node has not applied the settled cursor yet) OR if `value` is given and the
+        record did not yet hold it under that root (e.g. a withdrawal collected after the settle): a proof
+        built from those siblings could never verify, so the caller waits for the next settle instead."""
+        from execnode import exec_root as ER
+        from execnode.stark import storage_tree as SST
+        from execnode.stark import field as F
+        with self._mutate_lock:
+            live = self.state_root()
+            if not root_hex or root_hex == live:
+                return self._record_proof(tag, *parts), live
+            ent = getattr(self, "_root_ring", {}).get(root_hex)
+            if not ent:
+                return None
+            kv_root, proj = ent
+            key = ER.record_key(tag, *parts)
+            if value is not None and proj.get(key, 0) != int(value) % F.P:
+                return None
+            store = SST.SparseStore(ER.DEPTH, proj)
+            return ER.record_proof(kv_root, store, key), root_hex
 
     def accrue_dividend_epoch(self, inflow, weights):
         with self._mutate_lock:

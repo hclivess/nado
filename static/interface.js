@@ -839,7 +839,11 @@ async function claimPendingDividends(pending) {
       if (!state._divClaimGate) state._divClaimGate = {};
       const gate = state._divClaimGate[p.nonce];
       if (gate && latest.block_number < gate) continue;     // an earlier claim for this nonce is still landing
-      const pr = await (await fetch(execBase() + "/exec/dividend_proof?nonce=" + encodeURIComponent(p.nonce), { cache: "no-store" })).json();
+      // Ask for the proof AGAINST the settled root (root=): the exec node's live root keeps moving
+      // (accruals every epoch + any contract call), so waiting for it to coincide with a settled root
+      // stalled claims for hours on a busy chain. Older exec nodes ignore the param and return the live
+      // root — the equality check below then degrades to the old wait-for-coincidence behavior.
+      const pr = await (await fetch(execBase() + "/exec/dividend_proof?nonce=" + encodeURIComponent(p.nonce) + "&root=" + encodeURIComponent(settledRoot), { cache: "no-store" })).json();
       if (!pr || pr.state_root !== settledRoot) continue;   // proof must be against the SETTLED root; else wait
       // minBlock: the SAME anti-reorg propagation delay every other flexibly-landing tx uses. A claim
       // without it seeded the h67961 fork split (min_block: None, straight from this call site).
@@ -7382,8 +7386,13 @@ async function claimUnshields(silent) {
     const pending = r.unshields || [];
     if (!pending.length) { if (!silent) $("shieldStatus").textContent = i18("shield.noClaims", "No pending withdrawals for this address."); return; }
     let claimed = 0;
+    // Prove against the SETTLED root (root=) — L1 verifies unshield exits against it, and the exec
+    // node's live root has usually moved past it (see claimPendingDividends). Older exec nodes ignore
+    // the param; the claim then only lands when the live root happens to be the settled one (old behavior).
+    let settledRoot = null;
+    try { const st = await (await fetch(relayBase() + "/get_settled", { cache: "no-store" })).json(); settledRoot = st && st.state_root; } catch (e) {}
     for (const u of pending) {
-      const pr = await execJSON("/exec/unshield_proof?nonce=" + encodeURIComponent(u.nonce));
+      const pr = await execJSON("/exec/unshield_proof?nonce=" + encodeURIComponent(u.nonce) + (settledRoot ? "&root=" + encodeURIComponent(settledRoot) : ""));
       if (pr.error || !pr.proof) continue;
       const latest = await getLatestBlock(); const target = latest.block_number + 8;
       const data = { addr: pr.addr, amount: pr.amount, nonce: pr.nonce, proof: pr.proof };
