@@ -41,6 +41,17 @@ Quorum finality was observational; observation was law.
   old depth floor provided, minus the hair trigger: a stalled committee bounds long-range/51 % exposure at
   an hour instead of unbinding it, and an honest fork must persist a full hour — with the corroboration
   gate *also* failed throughout — before floors lock.
+- **The backstop term is clamped to external corroboration** (2026-08-23). `_depth_floor_corroborated`
+  passes when the heaviest advertised tip is *our own* — always true for the node on the strictly-heaviest
+  branch, including a lone forker producing alone. Left unchecked, `tip − 600` eventually crosses the fork
+  ancestor and hard-locks the fork, whose only exit is the destructive dead-fork purge (an archive node
+  loses history). The backstop may therefore never advance past the last height some **other** node
+  verifiably vouched for on our chain (a peer-advertised tip whose hash our index holds at that height —
+  a local check, no probes). The FFG term needs no clamp: a lone branch can never hold a ⅔-seat quorum.
+  There is deliberately NO solo exemption: an empty peer pool means nobody vouches, so an isolated
+  node's backstop stays frozen (it re-arms on the first external vouch) — a network-isolated producer
+  hard-locking its own branch is the archive-truncation class this exists to end. Tested:
+  `scenario_wedge` in `scripts/testnet/test_fork_resolution.py`.
 - **Both floors advance only through `_depth_floor_corroborated`**. This matters *more* with FFG
   load-bearing: the justification denominator leaks inactive seats out after `INACTIVITY_WINDOW` epochs, so
   the minority side of a >3-epoch partition would otherwise become >⅔ of its own "active" stake and
@@ -94,6 +105,9 @@ storms are the one mechanism that has actually corrupted state, h4260). Now:
    different hash (positive evidence); `None` = unreachable / timeout / 404 (a donor momentarily behind us
    404s our height) / malformed — evidence of nothing. `None` never rolls back; three *consecutive*
    non-answers strike the advertised tip (a mute donor pool must not pin the node), never the chain.
+   A **positive refusal streak** from one donor (5× the same (donor, tip) under a BEHIND verdict)
+   triggers the pairwise-weight escape, same as 3 distinct refusers — a thin pool can never produce 3
+   distinct refusers (observed: 651 refusals from one lone heaviest advertiser, 20+ min parked).
 3. **The burst is bounded by the proven ancestor.** Reaching it with the donor still disagreeing means a
    stale verdict or a lying donor; rolling past a proven ancestor is pure loss either way.
 4. A positive mismatch with a non-`REORG` verdict is one peer against the probe quorum: strike the tip it
@@ -114,14 +128,26 @@ storms are the one mechanism that has actually corrupted state, h4260). Now:
    pre-check cannot know without state. A branch failing mid-apply costs the advertiser a benched tip and
    us seconds: our own bodies are still in the store and are re-applied. An attacker must now present a
    held, hash-consistent, heavier branch that survives full validation to cause ANY revert.
+   Three refinements from the 2026-08-23 fleet freeze: the walk discovers the true **graft point** itself
+   (the first staged block whose parent we already hold — the measured ancestor is majority-relative, the
+   staged branch is advertiser-relative, and when they differ the old walk rolled back shared blocks:
+   an 84-block rollback where a 7-block forward sync was correct); the roll is budgeted by the
+   **measured span** (capped by the hard backstop — a fixed cap can never complete a legal deep reorg,
+   since finality freezes during a split and branches legally outgrow it); and a roll refused mid-burst
+   **restores our own branch** before escalating (the node was abandoned mid-branch at a height nobody
+   chose).
 7. **Production is suppressed on a measured minority fork.** Deterministic production means both sides of
    a mempool split advance every slot at near-equal weight — the heavier-tip gate never fires, and both
    sides extend their forks for hours. The produce slot now consults the verdict when the peer majority's
    tip hash differs from ours *and* the mismatch has persisted `MINORITY_GRACE_S` (so block-boundary
    propagation lag never fires a probe): positive `REORG`/`DEAD_FORK` skips the slot; `UNKNOWN`/`BEHIND`
    never halt production (ignorance must not stall a partitioned node, and the seeds-first headcount
-   resolves an even split toward the seeded side). Per-node suppression cannot stall the network —
-   production is replicated, so any node on the majority branch builds the identical canonical block.
+   resolves an even split toward the seeded side). A branch **strictly heavier than every advertised tip is
+   never suppressed** (2026-08-23): weight is the fork-choice rule, so when nothing heavier is advertised,
+   ours IS the canonical branch regardless of headcount — the lone heaviest producer once suppressed
+   itself as a "minority" while every lighter group was parked mid-reorg, and the whole network stopped
+   minting. Exact ties keep the stable tie-break. With the exemption, per-node suppression cannot stall
+   the network: some node is always on the heaviest-or-majority branch and builds the canonical block.
 
 Live validation: under a real two-sided split at 62655, the final code burst-rolled 62663→62655 in one
 second, the fresh probe flipped to `behind`, a majority donor attested, fast-forward converged (hash-

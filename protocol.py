@@ -1174,6 +1174,14 @@ FINALITY_DEPTH = 45
 # to cross — rollback.py refuses at the hard floor and legally lowers the depth floor when a deep reorg
 # crosses it (the exec layer absorbs that with its rewind checkpoints).
 FINALITY_HARD_BACKSTOP = 10 * EPOCH_LENGTH
+# TESTNET-ONLY override: the loopback fork-resolution suite must exercise "the backstop crossed the fork
+# ancestor" (scenario `wedge`, scripts/testnet/test_fork_resolution.py) without producing 600 blocks per
+# branch. Guarded on NADO_TESTNET so mainnet stays the literal above; every testnet child sets the same
+# value, so the net is internally consistent.
+import os as _os                       # local alias: protocol.py deliberately has no other imports to leak
+if _os.environ.get("NADO_TESTNET") and _os.environ.get("NADO_TESTNET_BACKSTOP"):
+    FINALITY_HARD_BACKSTOP = int(_os.environ["NADO_TESTNET_BACKSTOP"])
+del _os
 
 # LOAD-BEARING CONSENSUS INVARIANT (asserted): settle-with-proof validation (transaction_ops.validate_
 # transaction) reads exec_summary_get(h) for every height in a proof's span, but `execsum:` rows are EXCLUDED

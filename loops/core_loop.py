@@ -2895,7 +2895,38 @@ class CoreClient(threading.Thread):
         # the max() — quorum finality was observational. Now it is the thing rollback enforces.
         depth_final = block["block_number"] - self.memserver.finality_depth
         ffg_final = int(getattr(self.memserver, "ffg_finalized", 0) or 0)
-        backstop_final = block["block_number"] - FINALITY_HARD_BACKSTOP
+        # EXTERNAL CORROBORATION CLAMP ON THE BACKSTOP (L1-1, 2026-08-23). _depth_floor_corroborated
+        # passes when the heaviest advertised tip is OUR OWN — always true for the node on the strictly-
+        # heaviest branch, including a lone forker producing alone (observed: .28 alone on its fork for
+        # ~90 blocks during the fleet freeze). Left unchecked, tip - FINALITY_HARD_BACKSTOP eventually
+        # crosses the fork ancestor and hard-locks the fork: un-crossable by definition, and the only
+        # exit from there is the DESTRUCTIVE dead-fork purge (an archive node loses history). The FFG
+        # term needs no clamp — a lone branch can never hold a 2/3-seat quorum — but the backstop is a
+        # pure local clock, so it must not outrun the last height any OTHER node verifiably vouched for
+        # on our chain: a peer advertising a tip that IS a block of ours (their height <= ours and our
+        # index holds their hash) corroborates our prefix up to that height, checked against the LOCAL
+        # index — free, no probes. Sybil-soft in the safe direction: false corroboration merely restores
+        # today's behaviour, while withheld corroboration only slows the backstop (never the FFG floor).
+        # In-memory only — a restart starts at 0 and the term re-arms on the first external match.
+        _ours_n = int(block["block_number"])
+        _ext = int(getattr(self, "_ext_corrob_height", 0) or 0)
+        # NO solo exemption, deliberately: an empty peer pool means NOBODY vouches — a network-isolated
+        # node that kept producing past the backstop would otherwise hard-lock its own branch and, on
+        # heal, could only recover by the destructive purge (the 2026-08-17 archive-truncation class).
+        # A deliberately solo chain merely keeps hard_finality at its FFG value; rollback stays bounded
+        # by the verdict machinery, and the moment ANY peer vouches, the backstop re-arms.
+        try:
+            for _ip, _st in self.consensus.status_pool.copy().items():
+                if not isinstance(_st, dict):
+                    continue
+                _ph, _phash = _st.get("latest_block_height"), _st.get("latest_block_hash")
+                if (isinstance(_ph, int) and 0 < _ph <= _ours_n and _phash and _ph > _ext
+                        and get_block_hash_by_number(_ph) == _phash):
+                    _ext = _ph
+        except Exception:
+            pass                                   # corroboration is an enabler; failing to find it is safe
+        self._ext_corrob_height = _ext
+        backstop_final = min(block["block_number"] - FINALITY_HARD_BACKSTOP, _ext)
         if not self._depth_floor_corroborated():
             # UNCORROBORATED TIP (minority side of a partition, or solo on a fork): NO floor may advance.
             # FFG's justification denominator applies an INACTIVITY LEAK (INACTIVITY_WINDOW = 3 epochs), so

@@ -54,15 +54,17 @@ NODES = int(os.environ.get("NADO_FORKNET_NODES", "0"))             # scenario-sp
 MAX_ROLLBACKS = 10          # mirrors the per-node config below; the split must outgrow this
 
 
-def seed(home, i, all_keys, bond_manifest, peer_indices):
-    """run_testnet.seed_node, but the peer mesh is only `peer_indices` (partition support)."""
+def seed(home, i, all_keys, bond_manifest, peer_indices, cfg_extra=None):
+    """run_testnet.seed_node, but the peer mesh is only `peer_indices` (partition support) and
+    `cfg_extra` merges per-node config overrides (e.g. min_peers=0 for a deliberately lone producer)."""
     base = os.path.join(home, "nado")
     os.makedirs(os.path.join(base, "private"), exist_ok=True)
     os.makedirs(os.path.join(base, "peers"), exist_ok=True)
-    json.dump({"port": PORT, "ip": node_ip(i), "protocol": 2,
-               "server_key": secrets.token_hex(32), "min_peers": 1,
-               "max_rollbacks": MAX_ROLLBACKS, "block_time": BLOCK_TIME},
-              open(os.path.join(base, "private", "config.json"), "w"))
+    cfg = {"port": PORT, "ip": node_ip(i), "protocol": 2,
+           "server_key": secrets.token_hex(32), "min_peers": 1,
+           "max_rollbacks": MAX_ROLLBACKS, "block_time": BLOCK_TIME}
+    cfg.update(cfg_extra or {})
+    json.dump(cfg, open(os.path.join(base, "private", "config.json"), "w"))
     json.dump(all_keys[i], open(os.path.join(base, "private", "keys.dat"), "w"))
     json.dump(bond_manifest, open(os.path.join(base, "private", "genesis_bonds.dat"), "w"))
     for j in peer_indices:
@@ -73,7 +75,7 @@ def seed(home, i, all_keys, bond_manifest, peer_indices):
 _LIVE_PROCS = []
 
 
-def launch(n, meshes, stagger=False):
+def launch(n, meshes, stagger=False, cfg_extra_by_node=None):
     """Start n nodes; node i's initial peer mesh is meshes[i] (list of node indices, incl. itself).
     With stagger=True, node 0 boots alone and the rest start only after it has produced a few blocks —
     fresh fully-meshed nodes otherwise RACE at genesis (deterministic production + divergent mempools =
@@ -88,7 +90,7 @@ def launch(n, meshes, stagger=False):
     for i in range(n):
         home = os.path.join(tmp, f"n{i}")
         os.makedirs(home, exist_ok=True)
-        seed(home, i, keys, bond_manifest, meshes[i])
+        seed(home, i, keys, bond_manifest, meshes[i], (cfg_extra_by_node or {}).get(i))
         env = dict(os.environ, HOME=home, NADO_TESTNET="1")
         log = open(os.path.join(home, "node.log"), "w")
         procs.append(subprocess.Popen([sys.executable, os.path.join(REPO, "nado.py")],
@@ -306,8 +308,84 @@ def scenario_split(minority=2, majority=3, grow_past=None):
         teardown(procs)
 
 
+def scenario_wedge():
+    """L1-1 (backstop external-corroboration clamp). The wedge: a node producing ALONE past the backstop
+    hard-locks its own branch — tip-minus-backstop crosses the (recent) fork ancestor — and when its
+    branch then LOSES, only the destructive dead-fork purge can move it. The clamp freezes the backstop
+    while nobody vouches, so the loser rejoins by an ordinary deep reorg.
+
+    Shape (matters!): the fork ancestor must be RECENT — a genesis-partitioned net gives both sides hard
+    floors above their only common ancestor and proves nothing. So: converge all 5 meshed (staggered),
+    then PARTITION BY RESTART with rewritten peer meshes (lone node solo w/ min_peers=0, majority of 4),
+    let the lone side outrun the shrunken backstop, freeze it while the majority pulls strictly heavier,
+    heal via /announce_peer, and require the lone node to converge with NO purge in its log.
+    Re-execs itself with NADO_TESTNET_BACKSTOP=30 if unset."""
+    if os.environ.get("NADO_TESTNET_BACKSTOP") is None:
+        env = dict(os.environ, NADO_TESTNET_BACKSTOP="30")
+        r = subprocess.run([sys.executable, os.path.abspath(__file__), "wedge"], env=env)
+        return r.returncode == 0
+    backstop = int(os.environ["NADO_TESTNET_BACKSTOP"])
+    n = 5
+    meshes = [list(range(n))] * n
+    procs, homes, keys, tmp = launch(n, meshes, stagger=True)
+    try:
+        assert wait_all_up(n), "nodes failed to boot"
+        ok, snap = wait_converged(n, 60 * BLOCK_TIME)
+        assert ok, f"shared-prefix convergence failed: {snap}"
+        fork_base = min(h for h, _ in snap.values())
+        print(f"[wedge] shared prefix to {fork_base}; partitioning by restart (backstop {backstop})")
+        # ---- partition: restart everyone with rewritten meshes (chain data persists in the homes) ----
+        teardown(procs)
+        _LIVE_PROCS.clear()
+        import glob as _glob
+        for i in range(n):
+            pd = os.path.join(homes[i], "nado", "peers")
+            for f in _glob.glob(os.path.join(pd, "*.dat")):
+                os.remove(f)
+            mesh = [0] if i == 0 else [1, 2, 3, 4]
+            for j in mesh:
+                peer = {"peer_address": keys[j]["address"], "peer_ip": node_ip(j), "peer_port": PORT}
+                json.dump(peer, open(os.path.join(pd, f"{base64encode(node_ip(j))}.dat"), "w"))
+            cfgp = os.path.join(homes[i], "nado", "private", "config.json")
+            cfg = json.load(open(cfgp))
+            cfg["min_peers"] = 0 if i == 0 else 1
+            json.dump(cfg, open(cfgp, "w"))
+            env = dict(os.environ, HOME=homes[i], NADO_TESTNET="1")
+            log = open(os.path.join(homes[i], "node.log"), "a")
+            procs[i] = subprocess.Popen([sys.executable, os.path.join(REPO, "nado.py")],
+                                        cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT)
+        _LIVE_PROCS.extend(procs)
+        assert wait_all_up(n), "nodes failed to reboot into the partition"
+        # ---- lone side outruns the backstop past the shared prefix ----
+        lone_target = fork_base + backstop + 12
+        assert wait_height([0], lone_target, (backstop + 40) * BLOCK_TIME * 6 + 300), \
+            f"lone node failed to outrun the backstop: {heights(n)}"
+        # ---- freeze the lone side so the majority branch ends strictly heavier ----
+        procs[0].send_signal(signal.SIGSTOP)
+        lone_h = heights(1).get(0, (0, ""))[0] or lone_target
+        assert wait_height([1, 2, 3, 4], lone_h + 8, 40 * BLOCK_TIME * 6 + 300), \
+            f"majority failed to outweigh the lone branch: {heights(n)}"
+        procs[0].send_signal(signal.SIGCONT)
+        hs = heights(n)
+        print(f"[wedge] pre-heal: {hs}")
+        # ---- heal ----
+        healed = 0
+        for j in (1, 2, 3, 4):
+            healed += announce(0, node_ip(j)) + announce(j, node_ip(0))
+        print(f"[wedge] partition healed ({healed} announcements)")
+        ok, snap = wait_converged(n, 600)
+        assert ok, f"lone node failed to converge after heal: {snap}"
+        log = open(os.path.join(homes[0], "node.log")).read()
+        for marker in ("DEAD FORK (", "Purge complete"):
+            assert marker not in log, f"lone node took the DESTRUCTIVE purge path ({marker!r}) — the clamp failed"
+        print(f"[wedge] PASS — lone node rejoined by ordinary reorg at {snap[0]}")
+        return True
+    finally:
+        teardown(procs)
+
+
 SCENARIOS = {"behind": scenario_behind, "split": scenario_split, "swarm": scenario_swarm,
-             "clean": clean}
+             "wedge": scenario_wedge, "clean": clean}
 
 
 import atexit
@@ -324,7 +402,7 @@ def _reap():
 
 
 def main():
-    names = sys.argv[1:] or ["behind", "split"]
+    names = sys.argv[1:] or ["behind", "split", "wedge"]
     results = {}
     for name in names:
         print(f"===== scenario: {name} =====", flush=True)
