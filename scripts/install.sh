@@ -39,6 +39,12 @@
 # "auto_update": false in private/config.json. The old nado-update.service/.timer pair is retired — this
 # installer removes it if found. Legacy --auto-update flags are accepted and ignored.
 #
+# Host firewall: when ufw or firewalld is ACTIVE, the installer opens 9173/tcp (and 9273/tcp with the
+# exec node) in it — allow-rules only, idempotent, never installs or enables a firewall, and a raw
+# iptables policy only gets printed instructions. Opt out with --no-firewall. Router/NAT port
+# forwarding still has to be done on the router; nodes behind IPv4 CGNAT stay reachable over IPv6
+# (both listeners are dual-stack).
+#
 # Data directory: the node keeps its chain under $HOME/nado. Pass --home <dir> to put it elsewhere
 # (the services then run with HOME=<dir>, so chain data lands in <dir>/nado). Recommended whenever the
 # repo checkout itself sits at ~/nado, so chain data does not mix into the working tree:
@@ -153,6 +159,7 @@ PQ_NATIVE=""
 # an unconditional =0 here would silently switch auto-bond off on nodes that rely on the default.
 AUTO_BOND="${NADO_AUTO_BOND_PERCENT:-}"
 SERVICE_ACCOUNT=""   # --user: dedicated non-root system account that owns and runs everything
+OPEN_FIREWALL=1      # --no-firewall: skip opening 9173/9273 in an ACTIVE host firewall
 while [ $# -gt 0 ]; do
   case "$1" in
     --wallet)      WITH_WALLET=1 ;;
@@ -176,6 +183,7 @@ while [ $# -gt 0 ]; do
     # --dir belongs to bootstrap mode (where to clone); inside a checkout the location is already fixed
     --dir)         shift; echo "note: already inside a checkout ($REPO_DIR) — --dir ignored" ;;
     --dir=*)       echo "note: already inside a checkout ($REPO_DIR) — --dir ignored" ;;
+    --no-firewall) OPEN_FIREWALL=0 ;;         # don't touch ufw/firewalld even if active
     -h|--help)
       sed -n '3,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'
       exit 0 ;;
@@ -737,6 +745,41 @@ else
     echo "        $([ $EXEC_SETTLE -eq 1 ] && echo "NADO_EXEC_SETTLE=1 ")nohup $VENV_PY execnode/execnode.py > exec.out 2>&1 &"
   fi
   echo "    (re-run with sudo and --service to install boot-on-start, restart-on-crash systemd services.)"
+fi
+
+# ---- host firewall: open the node ports in an ACTIVE firewall (best-effort) ----------------------
+# "Ports closed — not accepting inbound" reports kept tracing to a host firewall silently dropping
+# 9173/9273 (2026-08-23: a node fixed its router forwarding and STILL couldn't open :9273 — ufw).
+# Rules: only ever ADD allow rules, only to a firewall that is ALREADY active (never install or enable
+# one), idempotent on re-runs, and a failure only prints — the install itself never dies here.
+# Router/NAT port-forwarding cannot be automated from inside the box; that stays a printed reminder.
+if [ $OPEN_FIREWALL -eq 1 ] && [ "$(id -u)" -eq 0 ]; then
+  NADO_PORTS="9173"; [ $WITH_EXEC -eq 1 ] && NADO_PORTS="9173 9273"
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "^Status: active"; then
+    for _p in $NADO_PORTS; do
+      ufw allow "$_p/tcp" comment "NADO node" >/dev/null 2>&1 \
+        && echo "==> ufw: allowed $_p/tcp" \
+        || echo "WARNING: ufw is active but 'ufw allow $_p/tcp' failed — open it by hand"
+    done
+  elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    _fw_changed=0
+    for _p in $NADO_PORTS; do
+      firewall-cmd --query-port="$_p/tcp" >/dev/null 2>&1 && continue
+      firewall-cmd --permanent --add-port="$_p/tcp" >/dev/null 2>&1 \
+        && { echo "==> firewalld: opened $_p/tcp"; _fw_changed=1; } \
+        || echo "WARNING: firewalld is running but opening $_p/tcp failed — open it by hand"
+    done
+    [ $_fw_changed -eq 1 ] && firewall-cmd --reload >/dev/null 2>&1
+  elif command -v iptables >/dev/null 2>&1 && iptables -S INPUT 2>/dev/null | grep -qE "^-P INPUT (DROP|REJECT)|-j (DROP|REJECT)"; then
+    # a raw iptables/nftables policy is somebody's hand-rolled setup — adding rules blind risks breaking
+    # it (wrong chain, wrong position, not persisted). Say exactly what is needed instead of guessing.
+    echo "WARNING: an iptables INPUT policy is filtering traffic on this box; the installer does not"
+    echo "         edit raw iptables. Allow the node ports yourself, e.g.:"
+    for _p in $NADO_PORTS; do echo "           iptables -I INPUT -p tcp --dport $_p -j ACCEPT"; done
+    echo "         (and persist it with your distro's mechanism, e.g. netfilter-persistent)"
+  fi
+elif [ $OPEN_FIREWALL -eq 1 ]; then
+  echo "note: not root — skipped checking the host firewall for ports 9173/9273 (re-run with sudo, or open them yourself)"
 fi
 
 echo "==> The node serves its API + web miner on http://<this-host>:9173  (forward port 9173 for rewards)."
