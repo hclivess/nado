@@ -1,63 +1,77 @@
-# Multi-node testnet
+# Local testnet procedure
 
-The testnet is how S4.3 (live bonded-mining integration) and the broader relaunch get
-validated end-to-end — unit tests prove the primitives, but consensus convergence, sync,
-snapshot bootstrap, reward enforcement across nodes, and fail-closed authorship can only be
-trusted on a real mesh of nodes.
+Repeatable multi-node testnets on one machine, for fork-resolution and sync work. Everything here is
+throwaway: each run lives under `/tmp/nado-forknet-*` (or the harness's own temp dir), never touches
+real node data, and cleans up after itself.
 
-## Status
+## The two harnesses
 
-**SUPERSEDED.** This pre-relaunch bring-up plan predates the live bonded lanes. S4.3 (bonded selection) is wired and live on betanet-6; the multi-node testnet runs via `scripts/testnet/`. Kept for the local-networking notes below.
-This document is the plan and the harness contract.
+| harness | what it does |
+|---|---|
+| `scripts/testnet/run_testnet.py [n] [seconds]` | n meshed nodes from one genesis; passes when they converge on a common tip. The smoke test. |
+| `scripts/testnet/test_fork_resolution.py [scenario ...]` | adversarial scenarios (below); exit 0 only if every scenario converges. |
 
-## What a node needs to boot
+Both launch real `nado.py` processes on loopback IPs (`127.0.0.2`, `127.0.0.3`, …) with
+`NADO_TESTNET=1`, which:
 
-`nado.py` starts a Tornado HTTP server plus four daemon threads (core/consensus/peer/message).
-To bring one up programmatically a node needs, under its own `$HOME/nado`:
-- `private/config.json` (created by `config.create_config`) — `port`, `ip`, `server_key`,
-  `min_peers`, `auto_bond_percent`, …
-- `private/keys.dat` (an ML-DSA-44 / FIPS 204 keypair → `ndo…` address).
-- genesis (`genesis.make_genesis`) + the LMDB key-value index env (`create_indexers` → `ops/kv_ops`).
-- at least one seed peer to discover the mesh.
+- binds each node to its own `127.0.0.x` (no dual-stack listener),
+- makes `get_public_ip` return the configured IP (no internet),
+- relaxes `check_ip` for loopback peers,
+- **skips the baked-in mainnet operator seeds** (`ops/peer_ops.seed_peers`), so testnet children
+  never dial production boxes. A testnet that wants seeds sets `NADO_SEED_PEERS` itself.
 
-## Blockers to running a LOCAL testnet (must be addressed)
+## Scenarios (`test_fork_resolution.py`)
 
-1. **Port is hardcoded.** `config.get_port()` returns `9173`; several call sites use it
-   directly. A local testnet needs N nodes on N ports → route the port through config
-   everywhere (or a `NADO_PORT` env override).
-2. **`check_ip` rejects loopback/private IPs.** `peer_ops.check_ip` (correctly, for mainnet)
-   refuses `127.0.0.1`/RFC1918, so localhost nodes can't peer. A testnet needs a **test mode**
-   that allows private IPs (the `NADO_TESTNET=1` env relaxes `check_ip`). Do **not**
-   relax it on mainnet.
-3. **`get_public_ip` calls out to the internet** (`api.ipify.org`). In an offline/local run the
-   node must take its IP from config instead of fetching it.
-4. **Shared genesis.** Every node must start from the *same* genesis block hash; either run
-   `make_genesis` with identical params per node, or copy one node's genesis block file +
-   `block_ends.dat` to the others.
-5. **Bonded eligibility (S4.3).** With bonded mining, the genesis/treasury (seeded) must bond,
-   (the faucet is a prize bank, not a starter-bond tap — a fresh node mines the OPEN lane for coins, then optionally bonds them). Until S4.3 is
-   wired, the testnet exercises the legacy IP-based producer path with all the S1–S3 + S2b +
-   burn-removal changes (still a valuable integration smoke test).
+- **behind** — one node SIGSTOPped while the rest produce, then resumed: must catch up by pure
+  forward sync (zero rollbacks on the lagger).
+- **split** — two groups boot with disjoint peer meshes from one genesis, each mines its own branch
+  until both outgrow `max_rollbacks`, then the partition heals via `/announce_peer`: every node must
+  end on ONE branch. This models the 2026-08-23 mainnet incident (measured reorg span 84 vs rollback
+  cap 40, graft-point mismatch, mid-branch abandonment).
+- **swarm** — N fully-meshed nodes (default 50) from one genesis must converge and keep producing.
+  Run it explicitly; it is not part of the default set.
+- **clean** — kill every stray testnet node from any prior run (matched by `HOME` under
+  `/tmp/nado-forknet-*` + `NADO_TESTNET=1` in its environ) and delete their directories.
 
-## Harness plan (`scripts/testnet/`, to be added)
+```bash
+# default set (behind + split), ~15-25 min
+python3 scripts/testnet/test_fork_resolution.py
 
-A driver that:
-1. Creates `N` temp data dirs, each with config (distinct port, `ip=127.0.0.x` or `127.0.0.1`
-   + port, test mode on), a fresh key, and a **shared** genesis.
-2. Launches `N` `nado.py` processes (or an in-process variant) seeded with each other's
-   `ip:port`.
-3. Polls `/status` on each until they converge on a common `latest_block` hash and height.
-4. Asserts: blocks are produced and propagate; all nodes agree on the tip hash (no fork);
-   the **reward equals the deterministic value** on every node; a transaction submitted to one
-   node lands in a block all nodes accept; bond/unbond changes `bonded` consistently; a freshly
-   **snapshot-bootstrapped** node reaches the same tip; an injected bad-reward / bad-author /
-   wrong-`chain_id` block is **rejected**.
-5. Tears all nodes down and reports.
+# one scenario
+python3 scripts/testnet/test_fork_resolution.py split
 
-## Acceptance criteria (S4.3 gate)
+# the 50-node swarm (heavy: ~50 python processes; nice it and close other work)
+NADO_FORKNET_NODES=50 nice -n 15 python3 scripts/testnet/test_fork_resolution.py swarm
 
-Per the design study, S4.3 ships only behind a passing multi-node + snapshot test asserting:
-a block accepted by a full node is also accepted by a freshly snapshot-bootstrapped node under
-reward recompute-enforcement, and producer authorship is fail-closed. Golden cross-node
-determinism vectors (beacon, registry root, winner, block hash) should be checked in CI before
-any value launch.
+# after a crash / Ctrl+C, or just to be sure nothing leaked
+python3 scripts/testnet/test_fork_resolution.py clean
+```
+
+## Knobs
+
+| env | default | meaning |
+|---|---|---|
+| `NADO_FORKNET_NODES` | scenario-specific | node count for `swarm` |
+| `NADO_TESTNET_BLOCKTIME` | 6 | seconds per block. 2 is faster but starves mempool gossip on a loaded box — same-height forks from divergent tx sets are then the harness's fault, not the node's. |
+| `NADO_TESTNET_PORT` | 19173 | listen port. Default deliberately ≠ 9173 so the suite runs on a box that also runs a production node (a `0.0.0.0:9173` listener blocks every `127.0.0.x:9173` bind). |
+
+## Cleanup guarantees
+
+1. Every scenario tears its nodes down in a `finally:` (SIGCONT first — a SIGSTOPped node ignores
+   SIGTERM — then terminate/kill) and the suite has an `atexit` reaper for its own crashes.
+2. `clean` is the belt-and-braces sweep for anything that still leaked (e.g. `kill -9` of the suite).
+3. Temp dirs are `/tmp/nado-forknet-*`; deleting them is always safe.
+
+## Scaling notes (50+ nodes)
+
+- Budget ~1 CPU-thread per 4-6 nodes at 6 s blocks; a 50-node swarm on a shared box wants `nice`.
+- File descriptors: each node opens sockets to every peer; raise `ulimit -n` above 4096 for 50 nodes.
+- Loopback IPs `127.0.0.2..127.0.0.254` need no setup on Linux (the whole 127/8 answers).
+- Prefer one big `swarm` for scale smoke and small `split`/`behind` nets for behavioral assertions —
+  a 50-node split takes much longer to outgrow the rollback cap than a 5-node one and proves no more.
+
+## Adding a scenario
+
+Write a `scenario_<name>()` in `test_fork_resolution.py` using the helpers (`launch(n, meshes)` for
+custom peer meshes, `announce(i, ip)` to heal partitions, `SIGSTOP`/`SIGCONT` on `procs[i]` for lag,
+`wait_converged` for the pass signal), register it in `SCENARIOS`, and always tear down in `finally:`.

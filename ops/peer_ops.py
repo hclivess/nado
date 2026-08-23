@@ -210,6 +210,11 @@ def seed_peers():
     snapshot from a LONE donor (loops/core_loop.snapshot_bootstrap) — membership in this operator-defined
     set is the anchor; there is no peer-reputation score."""
     extra = [x.strip() for x in (os.environ.get("NADO_SEED_PEERS") or "").split(",") if x.strip()]
+    if os.environ.get("NADO_TESTNET"):
+        # a loopback testnet must NEVER dial the mainnet operator anchors — its children were observed
+        # re-dialing the real bootstrap boxes every peer pass (harmless to consensus, different genesis,
+        # but real traffic at real nodes). The testnet defines its own seeds via NADO_SEED_PEERS or none.
+        return extra
     return list(dict.fromkeys(DEFAULT_SEED_PEERS + extra))
 
 
