@@ -810,6 +810,24 @@ def _build_crates(crates):
             r = subprocess.run([cargo, "build", "--release"], cwd=path, timeout=600,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             report[crate] = "built" if r.returncode == 0 else "build-failed"
+            if r.returncode == 0:
+                # CARGO'S EXIT 0 CERTIFIES THE ARTIFACT MATCHES TODAY'S SOURCES — but it does NOT promise
+                # to rewrite the .so: when only mtimes moved (git checkout stamps pulled files with pull
+                # time; a manifest or license-header commit touches sources without changing what
+                # compiles) cargo's fingerprinting deems the build current and leaves the artifact's
+                # mtime old, while native_guard's staleness test is PURE MTIME. Observed fleet-wide
+                # 2026-08-23: seven nodes answered "built" on every /update yet kept rejecting any block
+                # carrying a settle proof with "alghash2 is STALE", and the update path's own verify
+                # reported "rebuild did not clear the staleness" forever. Refreshing the artifact mtime
+                # after a certified-current build is truthful (cargo just proved the correspondence) and
+                # heals the guard live — it re-evaluates per load attempt, no restart needed.
+                _now = time.time()
+                for _lib in _shared_libs(path):
+                    try:
+                        if os.path.getmtime(_lib) < _now:
+                            os.utime(_lib, (_now, _now))
+                    except OSError:
+                        pass
         except Exception:
             report[crate] = "build-failed"
     return report
