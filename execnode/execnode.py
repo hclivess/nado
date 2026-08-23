@@ -24,6 +24,7 @@ Query:  curl localhost:9273/exec/root
 import asyncio
 import json
 import os
+import socket
 import sys
 import time
 
@@ -4552,6 +4553,21 @@ async def main():
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, BIND, PORT).start()
+    if BIND == "0.0.0.0":
+        # DUAL-STACK: same approach as nado.py's L1 listener — a SEPARATE IPv6 socket with IPV6_V6ONLY=1,
+        # so v4 clients keep arriving as plain v4 addresses on the v4 socket instead of ::ffff:-mapped
+        # ones (rate-limit keys stay real v4). Best-effort: a host with no IPv6 just skips it. Without
+        # this, a node behind IPv4 CGNAT with native IPv6 is reachable on :9173 but not :9273 (#86).
+        try:
+            s6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            s6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            s6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s6.bind(("::", PORT))
+            s6.setblocking(False)
+            await web.SockSite(runner, s6).start()
+            print(f"[execnode] also listening on [::]:{PORT} (IPv6)", flush=True)
+        except Exception as e:
+            print(f"[execnode] IPv6 listener not started (no IPv6 on this host?): {e}", flush=True)
     print(f"[execnode] query API on {BIND}:{PORT}"
           + ("" if BIND != "0.0.0.0" else "  (PUBLIC — mutating /exec POSTs are unauthenticated; bounded by size cap + in-flight limit)"),
           flush=True)
