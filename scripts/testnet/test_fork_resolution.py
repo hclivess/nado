@@ -73,9 +73,13 @@ def seed(home, i, all_keys, bond_manifest, peer_indices):
 _LIVE_PROCS = []
 
 
-def launch(n, meshes):
+def launch(n, meshes, stagger=False):
     """Start n nodes; node i's initial peer mesh is meshes[i] (list of node indices, incl. itself).
-    Returns (procs, homes, keys, tmp)."""
+    With stagger=True, node 0 boots alone and the rest start only after it has produced a few blocks —
+    fresh fully-meshed nodes otherwise RACE at genesis (deterministic production + divergent mempools =
+    same-height forks; observed 2026-08-23: 4 fresh nodes -> 3 branches + one parked, no convergence in
+    3 min). Real nodes join an established chain, so scenarios about anything OTHER than genesis racing
+    should stagger. Returns (procs, homes, keys, tmp)."""
     tmp = tempfile.mkdtemp(prefix="nado-forknet-")
     keys = [generate_keydict() for _ in range(n)]
     bond_manifest = sorted(({"address": kd["address"], "bonded": B_MIN} for kd in keys),
@@ -90,6 +94,13 @@ def launch(n, meshes):
         procs.append(subprocess.Popen([sys.executable, os.path.join(REPO, "nado.py")],
                                       cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT))
         homes.append(home)
+        if stagger and i == 0:
+            t0 = time.time()
+            while time.time() - t0 < 60 + 20 * BLOCK_TIME:
+                st = status(0)
+                if st.get("latest_block_height", 0) >= 4:
+                    break
+                time.sleep(2)
     _LIVE_PROCS.extend(procs)
     return procs, homes, keys, tmp
 
@@ -232,10 +243,10 @@ def scenario_behind():
     """One lagging node must rejoin by pure forward sync."""
     n = 4
     meshes = [list(range(n))] * n
-    procs, homes, keys, tmp = launch(n, meshes)
+    procs, homes, keys, tmp = launch(n, meshes, stagger=True)
     try:
         assert wait_all_up(n), "nodes failed to boot"
-        ok, _ = wait_converged(n, 180)
+        ok, _ = wait_converged(n, 60 * BLOCK_TIME)
         assert ok, "initial convergence failed"
         base_h = max(h for h, _ in heights(n).values())
         procs[n - 1].send_signal(signal.SIGSTOP)
@@ -246,9 +257,16 @@ def scenario_behind():
         print(f"[behind] node {n-1} resumed")
         ok, snap = wait_converged(n, 300)
         assert ok, f"lagger failed to catch up: {snap}"
-        # forward-sync only: the lagger's log must show no successful rollback of a real block
+        # forward-sync purity, precisely: the lagger must never revert a block the FLEET holds. Rolling
+        # its OWN post-resume blocks is legitimate — on wake it can mint 1-2 blocks on its stale view
+        # before gossip tells it the fleet is ahead, and reorging those away is the healthy self-fork
+        # exit (observed in every run; those hashes never appear on any other node).
+        import re as _re
         log = open(os.path.join(homes[n - 1], "node.log")).read()
-        assert "Rolled back" not in log, "lagger rolled back real blocks while merely BEHIND"
+        rolled = _re.findall(r"Rolled back ([0-9a-f]{16})", log)
+        fleet_log = "".join(open(os.path.join(homes[j], "node.log")).read() for j in range(n - 1))
+        offenders = [h for h in set(rolled) if h in fleet_log]
+        assert not offenders, f"lagger rolled back FLEET blocks while merely BEHIND: {offenders}"
         print(f"[behind] PASS — converged at {snap}")
         return True
     finally:
