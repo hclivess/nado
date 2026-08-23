@@ -70,7 +70,8 @@ class _Srv:
             if self.mode == "nohash":
                 return web.json_response({"block_number": 100})
         app = web.Application()
-        app.add_routes([web.get("/get_block_number", h)])
+        # /get_block_number was removed 2026-08-19 — knows_block asks /get_block?number= now
+        app.add_routes([web.get("/get_block", h), web.get("/get_block_number", h)])
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "127.0.0.1", 0)
@@ -138,7 +139,8 @@ def t_no_rollback_without_a_reorg_verdict():
     src_all = src("loops/core_loop.py")
     ab = src_all[src_all.index("def _adopt_branch"):]
     ab = ab[:ab.index("\n    def ")]
-    assert "_rollback_one_for_reorg(ancestor=anc)" in ab, "the adoption burst lost the ancestor bound"
+    assert "_rollback_one_for_reorg(ancestor=anc, budget=_budget)" in ab, \
+        "the adoption burst lost the ancestor bound (or the measured span budget, 2026-08-23)"
     # non-REORG mismatches strike the tip, never the chain
     assert "not rolling back; striking the tip instead" in loop
 
@@ -191,7 +193,7 @@ def t_the_reorg_leg_stops_at_the_measured_ancestor():
     leg = leg[:leg.index("\n    def ")]
     assert "ancestor=None" in leg.splitlines()[0], "the leg no longer accepts the ancestor bound"
     guard = leg.index("<= int(ancestor)")
-    budget = leg.index("self.memserver.rollbacks >= self.memserver.max_rollbacks")
+    budget = leg.index("self.memserver.rollbacks >= _cap")
     assert guard < budget, "the ancestor guard must run before the budget check"
     assert "refusing to roll deeper" in leg
 
@@ -308,7 +310,8 @@ def t_deep_catch_up_falls_back_to_forward_sync_not_failure():
     ab = ab[:ab.index("\n    def ")]
     assert "longer than the staging cap" in ab, "the deep catch-up fallback is gone"
     deep = ab[ab.index("longer than the staging cap"):]
-    assert "_rollback_one_for_reorg(ancestor=anc)" in deep, "deep catch-up no longer rolls to the ancestor"
+    assert "_rollback_one_for_reorg(ancestor=anc, budget=_budget)" in deep, \
+        "deep catch-up no longer rolls to the ancestor (with the measured span budget)"
     assert "self._fork_state_cache = None" in deep, "deep catch-up leaves the spent verdict cached"
     assert "self._reject_heaviest_tip()" not in deep.split("staged.reverse()")[0], \
         "deep catch-up still benches the legitimate majority tip"
@@ -399,11 +402,14 @@ def t_behind_contradicted_by_distinct_donors_escapes_pairwise():
     Three DISTINCT refusals must trigger the pairwise escape; one donor must only rotate."""
     src = open(os.path.join(ROOT, "loops", "core_loop.py"), encoding="utf8").read()
     b = src[src.index("elif vstate == fork_resolution.BEHIND:"):]
-    b = b[:b.index("else:")]
+    b = b[:b.index("leaving the heavier tips unbenched")]
     assert "_behind_refusals" in b and ".add(peer)" in b, "refusals are not tracked per-donor"
     assert ">= 3" in b, "the distinct-donor threshold is gone"
+    assert "_behind_refusal_streak >= 5" in b, \
+        "the single-donor streak fallback is gone (2026-08-23: 651 refusals from ONE donor parked the node)"
     assert "_adopt_heaviest_pairwise()" in b, "the contradiction no longer resolves pairwise"
-    assert "leaving the heavier tips unbenched" in b, "single-donor mismatch must still only rotate"
+    full = src[src.index("elif vstate == fork_resolution.BEHIND:"):]
+    assert "leaving the heavier tips unbenched" in full, "single-donor mismatch must still only rotate"
 
 
 for name, fn in [(n, f) for n, f in list(globals().items()) if n.startswith("t_")]:

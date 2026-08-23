@@ -607,10 +607,22 @@ class CoreClient(threading.Thread):
                         self._prod_minority_since = _now_g
                     elif _now_g - self._prod_minority_since >= MINORITY_GRACE_S:
                         _vs = self._fork_state()
-                        _tie_ours = (int(self.consensus.heaviest_block_weight or 0) == int(
-                                         self.memserver.latest_block.get("cumulative_weight", 0))
-                                     and self._tie_break_ours(_maj_hash) is True)
-                        if _vs in (fork_resolution.REORG, fork_resolution.DEAD_FORK) and not _tie_ours:
+                        _our_w = int(self.memserver.latest_block.get("cumulative_weight", 0))
+                        _hv_w = int(self.consensus.heaviest_block_weight or 0)
+                        _tie_ours = (_hv_w == _our_w and self._tie_break_ours(_maj_hash) is True)
+                        # NEVER suppress the strictly-heaviest branch (2026-08-23 fleet deadlock): weight
+                        # is the fork-choice rule, so when no peer advertises anything heavier than OUR
+                        # chain, ours IS the canonical branch regardless of headcount — the lone heaviest
+                        # producer suppressed itself ("minority") while every lighter group was parked
+                        # unable to reorg, and the whole network stopped minting for 20+ minutes. The
+                        # docstring's "any node on the majority branch builds the identical block" only
+                        # holds when the majority branch is the heaviest; when it is not, suppressing the
+                        # heaviest halts the one branch everyone must converge to.
+                        # STRICTLY greater: an exact tie stays with _tie_ours (the stable first-divergent
+                        # tie-break) — a >= here would bypass it and revive the see-saw it fixed.
+                        _ours_heaviest = _our_w > 0 and _our_w > _hv_w
+                        if (_vs in (fork_resolution.REORG, fork_resolution.DEAD_FORK)
+                                and not _tie_ours and not _ours_heaviest):
                             _on_minority = True
                             if _now_g - getattr(self, "_last_minority_suppress_log", 0.0) >= _EMERGENCY_LOG_EVERY:
                                 self._last_minority_suppress_log = _now_g
@@ -1688,9 +1700,20 @@ class CoreClient(threading.Thread):
                 save_block(b, logger=self.logger)          # the ratchet: survives our next restart
             staged.append(b)
             ph = b.get("parent_hash")
-            if ph == anc_hash:
+            # GRAFT-POINT DISCOVERY (2026-08-23). `anc` was measured against the MAJORITY's chain, but the
+            # branch being walked comes from the heaviest ADVERTISER — a different branch whenever majority
+            # and weight disagree, and possibly an EXTENSION OF OUR OWN chain (we adopt the branch we are
+            # already on after it out-runs us). Walking blindly down to `anc` then rolled back every shared
+            # block just to re-apply it — observed live at 43589: an 84-block rollback (exhausting the
+            # 40-block budget mid-burst, abandoning the node at 43549) where the correct action was a
+            # 7-block fast-forward. The walk itself knows better: the FIRST staged block whose parent we
+            # already hold at parent height IS the true graft point — everything below it is shared by
+            # parent-linkage, so roll exactly to there and no further.
+            _bn = int(b.get("block_number", 0))
+            if ph and get_block_hash_by_number(_bn - 1) == ph:
+                anc, anc_hash = _bn - 1, ph
                 break
-            if not ph or int(b.get("block_number", 0)) <= int(anc):
+            if not ph or _bn <= int(anc):
                 self._rec_fail("walk missed the ancestor", ancestor=int(anc), src=src)
                 self._reject_heaviest_tip()
                 return False                       # walk missed the measured ancestor — inconsistent branch
@@ -1708,8 +1731,10 @@ class CoreClient(threading.Thread):
             self.logger.warning(f"Branch adoption: majority branch longer than the staging cap — rolling to "
                                 f"the measured ancestor {anc} and continuing by forward sync")
             self.memserver.rollbacks = 0
+            _span = int(self.memserver.latest_block["block_number"]) - int(anc)
+            _budget = min(max(_span, self.memserver.max_rollbacks), FINALITY_HARD_BACKSTOP)
             while self.memserver.latest_block["block_number"] > anc:
-                if self._rollback_one_for_reorg(ancestor=anc):
+                if self._rollback_one_for_reorg(ancestor=anc, budget=_budget):
                     return None                    # budget/floor refused: escalate (re-anchor)
             self._fork_state_cache = None
             return False                           # not adopted here — the donor flow finishes the job
@@ -1754,9 +1779,19 @@ class CoreClient(threading.Thread):
         old_tip = self.memserver.latest_block
         self._rec("adopt_rolling", src=src, staged=len(staged), to=int(anc))
         self.memserver.rollbacks = 0
+        # the span is MEASURED and the branch is HELD: budget exactly what the roll needs, hard-capped by
+        # the backstop (the finality floor still refuses per-block inside the leg). See fix note in
+        # _rollback_one_for_reorg.
+        _span = int(self.memserver.latest_block["block_number"]) - int(anc)
+        _budget = min(max(_span, self.memserver.max_rollbacks), FINALITY_HARD_BACKSTOP)
         while self.memserver.latest_block["block_number"] > anc:
-            if self._rollback_one_for_reorg(ancestor=anc):
+            if self._rollback_one_for_reorg(ancestor=anc, budget=_budget):
                 self._rec("adopt_roll_refused", to=int(anc))
+                # NEVER abandon the node mid-branch (2026-08-23: a refused burst left the tip at 43549 —
+                # neither our old tip nor the ancestor, a state nobody chose, with production suppressed).
+                # Our bodies are content-addressed and still in the store: restore the branch we came
+                # from, THEN escalate to the re-anchor ladder self-consistent.
+                self._reapply_local_branch(old_tip)
                 return None                        # budget/floor refused mid-burst: escalate (re-anchor)
         self._rec("adopt_applying", src=src, staged=len(staged))
         for blk in staged:
@@ -2454,7 +2489,7 @@ class CoreClient(threading.Thread):
             self._reject_heaviest_tip()
             return True
 
-    def _rollback_one_for_reorg(self, ancestor=None) -> bool:
+    def _rollback_one_for_reorg(self, ancestor=None, budget=None) -> bool:
         """REORG leg of emergency sync: the MEASURED verdict says our chain diverged (see emergency_mode
         — one donor's word no longer reaches here) — revert ONE block (reinserting its txs into the
         mempool; revert symmetry: a reorg must re-mine user transactions, never drop them) and let the
@@ -2470,9 +2505,16 @@ class CoreClient(threading.Thread):
             self.memserver.rollbacks = 0
             self._reject_heaviest_tip()
             return True
-        if self.memserver.rollbacks >= self.memserver.max_rollbacks:
+        # `budget` widens the per-burst cap for a MEASURED, POSSESSION-BACKED reorg: the span to the
+        # ancestor is known, the competing branch is fully staged, hash-linked and strictly heavier, so
+        # the blind-rollback risk max_rollbacks guards against does not exist — while a split runs,
+        # finality freezes and both sides legally outgrow any fixed cap (observed 2026-08-23: span 84 vs
+        # cap 40 — the reorg could NEVER complete and the node parked mid-branch). The finality floor
+        # (FinalityViolation below) and the hard backstop cap in the caller still bound the depth.
+        _cap = int(budget) if budget else self.memserver.max_rollbacks
+        if self.memserver.rollbacks >= _cap:
             self.logger.error(
-                f"Rollbacks exhausted ({self.memserver.rollbacks}/{self.memserver.max_rollbacks})")
+                f"Rollbacks exhausted ({self.memserver.rollbacks}/{_cap})")
             self.memserver.rollbacks = 0
             self._reject_heaviest_tip()
             return True
