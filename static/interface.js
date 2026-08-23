@@ -3046,7 +3046,9 @@ function runSelfTest() {
   add("register tx carries public_key (establishes it on-chain)", String(hasPub(buildRegisterTx(w, 12345, 2108331, 1700000000))), "true");
   add("transfer OMITS public_key when sender established", String(hasPub(buildTransferTx(w, VEC.transfer_tx.recipient, 123456n, 1000, 12345, "", 1700000000, false))), "false");
   add("transfer CARRIES public_key when not established", String(hasPub(buildTransferTx(w, VEC.transfer_tx.recipient, 123456n, 1000, 12345, "", 1700000000, true))), "true");
-  add("pubkeyEstablished(registered acc)", String(pubkeyEstablished({ registered: 1 })), "true");
+  // registered=1 WITHOUT a stored pubkey is NOT established (genesis-seeded identities carry
+  // registered=1 with no on-chain key — omitting it got every first tx rejected, 2026-08-23):
+  add("pubkeyEstablished(registered, no stored pubkey)", String(pubkeyEstablished({ registered: 1 })), "false");
   add("pubkeyEstablished(acc with stored pubkey)", String(pubkeyEstablished({ public_key: "ab" })), "true");
   add("pubkeyEstablished(fresh/absent acc)", String(pubkeyEstablished(null) || pubkeyEstablished({ registered: 0 })), "false");
 
