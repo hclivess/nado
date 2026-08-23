@@ -2345,12 +2345,28 @@ class CoreClient(threading.Thread):
                             # advertiser exactly like the no-majority escape.
                             self._behind_refusals = getattr(self, "_behind_refusals", set())
                             self._behind_refusals.add(peer)
-                            if len(self._behind_refusals) >= 3:
+                            # ...and ONE donor refusing the SAME tip over and over is the same
+                            # contradiction when the pool never yields 3 distinct refusers (2026-08-23:
+                            # a lone heaviest advertiser on a divergent branch refused 651 times while
+                            # only one other donor ever refused — 2 < 3, parked 20+ min at 43510 with
+                            # the majority serving happily; "rotating donors" re-picks the heaviest
+                            # advertiser every pass, so the streak IS the rotation). Distinct-donor
+                            # evidence stays preferred; the streak is the fallback for thin pools.
+                            _bk = (peer, self.consensus.heaviest_block_hash)
+                            if getattr(self, "_behind_refusal_key", None) == _bk:
+                                self._behind_refusal_streak += 1
+                            else:
+                                self._behind_refusal_key, self._behind_refusal_streak = _bk, 1
+                            if len(self._behind_refusals) >= 3 or self._behind_refusal_streak >= 5:
+                                _why = (f"{len(self._behind_refusals)} distinct donors"
+                                        if len(self._behind_refusals) >= 3 else
+                                        f"donor {peer} refusing the same tip x{self._behind_refusal_streak}")
                                 self._behind_refusals = set()
-                                self.logger.warning("BEHIND verdict contradicted by 3 distinct donors "
+                                self._behind_refusal_key = None
+                                self.logger.warning(f"BEHIND verdict contradicted by {_why} "
                                                     "positively refusing our tip — resolving pairwise "
                                                     "against the heaviest advertiser")
-                                self._rec("behind_contradicted", donors=3)
+                                self._rec("behind_contradicted", why=_why)
                                 adopted = self._adopt_heaviest_pairwise()
                                 self._fork_state_cache = None
                                 if adopted is None:
