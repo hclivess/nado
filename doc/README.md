@@ -142,3 +142,5 @@ it in unit tests.
 - `ops/kv_ops.py` — the schemaless **LMDB** key-value index: env + named sub-DBs, key/value encoding, and the atomic `write_txn()` context (replaced the deleted `ops/sqlite_ops.py`).
 - `loops/core_loop.py` — the node state machine; `incorporate_block`/`verify_block`.
 - `rollback.py`, `genesis.py`, `reindex_fast.py`, `ops/snapshot_ops.py`.
+
+- [memoization.md](memoization.md) — every cache in the node, exec layer, STARK/native and browser: key, eviction, consensus relevance
