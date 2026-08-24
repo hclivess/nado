@@ -21,6 +21,7 @@ It also records the multi-agent **security review** that motivated much of this 
 | [reward-capture-theorem.md](reward-capture-theorem.md) | **Theorem** — the "one miner takes all the rewards" worst case: capture ≤ `20% + 80%·s`, so a free/Sybil attacker is capped at 20% and total monopoly requires owning ~all the stake. Proof, corollaries, and the five assumptions that hold it |
 | [presence-dividend.md](presence-dividend.md) | **Design proposal** — smooth the open lane from a per-block jackpot into a fidelity-weighted *presence dividend*: split the open block reward into a small producer tip + a redistributed pool, accrued off-L1 on the execution layer and withdrawn in aggregate. `O(1)` on L1, Sybil-bounded by fidelity + the 20% cap, no dust bloat |
 | [storage.md](storage.md) | The current schemaless **LMDB** key-value index (`ops/kv_ops.py`), atomic `incorporate_block`/rollback, snapshot sync, and the "stuck node" fixes |
+| [memoization.md](memoization.md) | Every cache in the node, exec layer, STARK/native crates and browser — what it memoizes, its key, eviction rule, consensus relevance, and the incidents behind the rules |
 | [storage-kv-migration.md](storage-kv-migration.md) | The SQLite → LMDB migration: engine decision (`py-lmdb`), the full sub-DB schema, atomicity, and the cut-over steps |
 | [consensus-hardening-plan.md](consensus-hardening-plan.md) | The locked, ordered design for the consensus-security milestones (#15–#18); the first wave is implemented, the rest is planned |
 | [finality.md](finality.md) | **Finality & fork recovery (two-floor model, BUILT)** — `hard_finality` (FFG quorum + wide backstop) is the un-crossable floor, depth is crossable cadence; measured-evidence fork recovery, canonical-chain-preserving re-anchor, the exec layer's revert/rewind interplay |
@@ -143,4 +144,3 @@ it in unit tests.
 - `loops/core_loop.py` — the node state machine; `incorporate_block`/`verify_block`.
 - `rollback.py`, `genesis.py`, `reindex_fast.py`, `ops/snapshot_ops.py`.
 
-- [memoization.md](memoization.md) — every cache in the node, exec layer, STARK/native and browser: key, eviction, consensus relevance
