@@ -96,6 +96,7 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 |---|---|---|---|
 | GET | `/exec/dividend` | `?ns=&address=` | accrued dividend |
 | GET | `/exec/dividend_proof` | `?ns=&nonce=` | proof for a `collect_dividend` claim |
+| GET | `/exec/dividend_proofs` | `?address=[&root=]` | every claimable proof for an address in one call; served against L1's settled root by default |
 
 ### Shielded pools (privacy)
 | Method | Path | Params | Returns |

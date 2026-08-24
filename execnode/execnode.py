@@ -3262,6 +3262,7 @@ async def tail_loop():
     print(f"[execnode] tailing {L1} · state={STATE_PATH} · cursor={state.cursor}", flush=True)
     async with aiohttp.ClientSession() as session:
         await _maybe_bootstrap(session)
+        await _seed_root_ring(session)
         stale_polls = 0     # consecutive polls seeing cursor > finalized (reroll-stranded state); see below
         divergence_polls = 0    # polls since the last canonicality probe; see FINALITY-REVERT PROBE below
         while True:
@@ -4211,23 +4212,158 @@ async def h_dividend(request):
     return web.json_response({"dividend": state.dividend, "cursor": state.cursor})
 
 
-async def h_dividend_proof(request):
-    """Merkle proof for a collected dividend withdrawal (?nonce=) against ?root= (a recent root the tail
-    remembered — pass L1's settled root) or the CURRENT state_root, submitted to L1's dividend_withdraw
-    once settled. 404 if the nonce is unknown; 409 if ?root= is not held (the wallet retries next settle)."""
-    # the Merkle proof a miner submits to L1's dividend_withdraw to claim a collection against the settled root
+# L1's justified settled root, remembered for the proof handlers. A dividend claim only LANDS when its
+# proof is against a root L1 holds (the last 3 justified — ops/settlement_ops.recent_settled_roots), so a
+# proof request that names no root gets the SETTLED one, not the live one. Before this, a wallet with the
+# pre-5f08c0a9 interface.js (no ?root=) received live-root proofs that could never match, retried every
+# tick for every pending nonce, and at ~2 req/s those retries pinned the exec event loop (2026-08-24,
+# 436 unclaimed nonces). Refreshed by the poll loop; a short TTL fetch here covers a handler that runs
+# before the first poll. (cursor, root, fetched_at).
+_l1_settled_hint = {}
+_SETTLED_HINT_TTL = 6.0
+
+
+async def _settled_root_hint(ns="default"):
+    """(cursor, root) of L1's justified settle for `ns`, or (None, None). Cached SETTLED_HINT_TTL seconds."""
+    ent = _l1_settled_hint.get(ns)
+    if ent and time.time() - ent[2] < _SETTLED_HINT_TTL:
+        return ent[0], ent[1]
+    try:
+        async with aiohttp.ClientSession() as s:
+            d = await _get_json(s, f"/get_settled?ns={ns}")
+        cur, root = int((d or {}).get("exec_cursor", -1)), (d or {}).get("state_root")
+    except Exception:
+        cur, root = (ent[0], ent[1]) if ent else (None, None)
+    _l1_settled_hint[ns] = (cur, root, time.time())
+    return cur, root
+
+
+def _dividend_proof_one(nonce, root_hex):
+    """({addr, amount, nonce, proof, state_root} | None, status) for one collected dividend withdrawal
+    against `root_hex` (None = live). status: 200, 404 (unknown nonce), 409 (root not held / record postdates it)."""
     from execnode import exec_root as ER
-    nonce = str(request.query.get("nonce", ""))
     w = state.dividend_withdrawals.get(nonce)
     if not w:
-        return web.json_response({"error": "not found"}, status=404)
-    got = state.record_proof_at(request.query.get("root"), ER.T_DIV_WD, w["addr"], nonce, value=w["amount"])
+        return None, 404
+    got = state.record_proof_at(root_hex, ER.T_DIV_WD, w["addr"], nonce, value=w["amount"])
     if not got:
+        return None, 409
+    proof, root = got
+    return {"addr": w["addr"], "amount": w["amount"], "nonce": nonce, "proof": proof, "state_root": root}, 200
+
+
+async def _proof_root_for(request):
+    """The root a proof request is served against: ?root= if given; else L1's settled root when this node
+    holds it (so the proof is CLAIMABLE); else the live root (the historical behaviour, for a node that has
+    not yet applied the settled cursor — the wallet's equality check then waits, as before)."""
+    root_hex = request.query.get("root")
+    if root_hex:
+        return root_hex
+    _cur, sr = await _settled_root_hint()
+    if sr and sr in getattr(state, "_root_ring", {}):
+        return sr
+    return None
+
+
+def _seed_root_ring_sync(ns, cursor, root_hex):
+    """Remember `root_hex` (L1's justified root at `cursor`) in the ring from its stash payload, so exit
+    proofs against the SETTLED root are servable right after a restart. The ring is in-memory: a node
+    restarted after the justified cursor has no entry for it until the NEXT settle justifies — one
+    settle interval during which every claim silently waits (the old client shape) or 409s. Cost: one
+    copy of the live KV half-tree diff-applied to the stash's contracts (O(changed·depth)), not the
+    ~70s cold build — and the result is checked against the stash's own root before it is trusted."""
+    from execnode import exec_root as ER
+    st = states.get(ns)
+    if st is None or root_hex in getattr(st, "_root_ring", {}):
+        return False
+    path = _stash_path(ns, cursor)
+    if not os.path.exists(path):
+        return False
+    with open(path) as f:
+        payload = json.load(f)
+    if str(payload.get("state_root")) != root_hex or int(payload.get("cursor", -1)) != int(cursor):
+        return False
+    snap = payload.get("state") or {}
+    view = ExecState.snapshot_view(snap)
+    with st._mutate_lock:
+        st.state_root()                                  # ensures the live half-trees exist
+        live_kv = st._kv_store
+        kv = live_kv.__class__.__new__(live_kv.__class__)
+        kv.depth, kv.e = live_kv.depth, live_kv.e
+        kv.values, kv._keys, kv._memo = dict(live_kv.values), list(live_kv._keys), dict(live_kv._memo)
+        ER.apply_projection(kv, ER.kv_projection(view.contracts))
+        rec_p = ER.records_projection(view)
+        from execnode.stark import storage_tree as SST
+        rec = SST.SparseStore(ER.DEPTH, rec_p)
+        if ER.full_root_hex(kv.root(), rec.root()) != root_hex:
+            print(f"[execnode] root-ring seed REFUSED ns={ns} cursor={cursor}: stash does not reproduce "
+                  f"{root_hex[:16]}…", flush=True)
+            return False
+        ring = getattr(st, "_root_ring", None)
+        if ring is None:
+            ring = st._root_ring = {}
+        ring[root_hex] = (kv.root(), rec_p)
+        cache = getattr(st, "_ring_stores", None)
+        if cache is None:
+            cache = st._ring_stores = {}
+        cache[root_hex] = rec
+    return True
+
+
+async def _seed_root_ring(session):
+    """At boot: if L1's justified root is not in the ring but its stash is on disk, seed it (in a thread)."""
+    for ns in list(states):
+        try:
+            settled = await _get_json(session, f"/get_settled?ns={ns}")
+            cur, root = int((settled or {}).get("exec_cursor", -1)), (settled or {}).get("state_root")
+            if cur < 0 or not root:
+                continue
+            t0 = time.time()
+            if await asyncio.to_thread(_seed_root_ring_sync, ns, cur, root):
+                print(f"[execnode] root ring seeded ns={ns} with L1's justified root at cursor {cur} "
+                      f"({root[:16]}…) in {time.time() - t0:.1f}s", flush=True)
+        except Exception as e:
+            print(f"[execnode] root-ring seed error ns={ns}: {type(e).__name__}: {e}", flush=True)
+
+
+async def h_dividend_proof(request):
+    """Merkle proof for a collected dividend withdrawal (?nonce=) against ?root= (a recent root the tail
+    remembered — pass L1's settled root), else L1's SETTLED root when held, else the CURRENT state_root;
+    submitted to L1's dividend_withdraw. 404 if the nonce is unknown; 409 if the root is not held or the
+    record postdates it (the wallet retries next settle)."""
+    # the Merkle proof a miner submits to L1's dividend_withdraw to claim a collection against the settled root
+    nonce = str(request.query.get("nonce", ""))
+    out, status = _dividend_proof_one(nonce, await _proof_root_for(request))
+    if status == 404:
+        return web.json_response({"error": "not found"}, status=404)
+    if status == 409:
         return web.json_response({"error": "root not held (not applied yet, too old, or the record "
                                            "postdates it) — retry after the next settle"}, status=409)
-    proof, root = got
-    return web.json_response({"addr": w["addr"], "amount": w["amount"], "nonce": nonce,
-                              "proof": proof, "state_root": root})
+    return web.json_response(out)
+
+
+async def h_dividend_proofs(request):
+    """ONE request for every claimable proof of ?address= (optionally ?root=, same rules as
+    /exec/dividend_proof): {"state_root", "proofs": [...], "skipped": n}. The wallet used to ask per
+    pending nonce per tick — 53 nonces = 53 round trips every refresh — and the exec node answered each
+    from scratch; this is the batched shape, and a proof here costs ~1ms (state.py _sparse_stores memo).
+    Nonces whose record postdates the root are counted in `skipped`, not errored: they claim next settle."""
+    addr = request.query.get("address", "")
+    if not addr:
+        return web.json_response({"error": "address required"}, status=400)
+    root_hex = await _proof_root_for(request)
+    proofs, skipped, root = [], 0, None
+    for nonce, w in sorted(state.dividend_withdrawals.items()):
+        if w["addr"] != addr:
+            continue
+        out, status = _dividend_proof_one(nonce, root_hex)
+        if status == 200:
+            proofs.append(out)
+            root = out["state_root"]
+        else:
+            skipped += 1
+    return web.json_response({"address": addr, "state_root": root or root_hex or state.state_root(),
+                              "proofs": proofs, "skipped": skipped})
 
 
 @web.middleware
@@ -4588,6 +4724,7 @@ async def main():
                     web.get("/exec/withdrawal_proof", h_withdrawal_proof),
                     web.get("/exec/dividend", h_dividend),
                     web.get("/exec/dividend_proof", h_dividend_proof),
+                    web.get("/exec/dividend_proofs", h_dividend_proofs),
                     web.get("/da/meta", h_da_meta),
                     web.get("/da/have", h_da_have),
                     web.get("/da/shard", h_da_shard),

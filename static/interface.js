@@ -827,27 +827,44 @@ async function refreshDividend() {
   if (pending.length && !state._claiming) { state._claiming = true; try { await claimPendingDividends(pending); } finally { state._claiming = false; } }
 }
 
+// Claims submitted per refresh tick. A wallet can hold dozens of unclaimed nonces (53 on one address,
+// 2026-08-24); each claim is its own fee-exempt L1 tx, so the burst is bounded here rather than dumped
+// into the mempool at once. Every claim is gated by _divClaimGate until it has had time to land, so the
+// backlog drains at DIV_CLAIMS_PER_TICK per tick without ever duplicating a nonce.
+const DIV_CLAIMS_PER_TICK = 10;
+
 async function claimPendingDividends(pending) {
   let settled;
   try { settled = await (await fetch(relayBase() + "/get_settled", { cache: "no-store" })).json(); } catch { return; }
   const settledRoot = settled && settled.state_root;
   if (!settledRoot) return;
   const latest = await getLatestBlock(); if (!latest) return;
-  for (const p of pending) {
+  // ONE claim per landing attempt (same bug as the unbond auto-claim, 2026-08-19): the exec node
+  // lists the dividend as unclaimed until the claim LANDS on L1, so every refresh tick in the
+  // submit->landing gap rebuilt the same claim with a fresh txid — 19 duplicates of one nonce sat
+  // in the mempool as phantom pending credit. Hold each nonce until the submitted claim has had
+  // min_block + one more inclusion delay to land; if it still shows pending after that, resubmit.
+  if (!state._divClaimGate) state._divClaimGate = {};
+  const due = pending.filter(p => { const g = state._divClaimGate[p.nonce]; return !(g && latest.block_number < g); });
+  if (!due.length) return;
+  // ONE round trip for every proof (/exec/dividend_proofs), AGAINST the settled root (root=): the exec
+  // node's live root keeps moving (accruals every epoch + any contract call), so waiting for it to
+  // coincide with a settled root stalled claims for hours on a busy chain. Per-nonce fetches — one
+  // request per pending nonce per tick — were what pinned the exec node on 2026-08-24, so the batch
+  // is the primary path; the per-nonce endpoint is kept only for an exec node that predates it.
+  let proofs = null;
+  try {
+    const b = await (await fetch(execBase() + "/exec/dividend_proofs?address=" + encodeURIComponent(state.wallet.address) + "&root=" + encodeURIComponent(settledRoot), { cache: "no-store" })).json();
+    if (b && Array.isArray(b.proofs)) proofs = new Map(b.proofs.map(pr => [String(pr.nonce), pr]));
+  } catch (e) { proofs = null; }
+  let submitted = 0;
+  for (const p of due) {
+    if (submitted >= DIV_CLAIMS_PER_TICK) break;
     try {
-      // ONE claim per landing attempt (same bug as the unbond auto-claim, 2026-08-19): the exec node
-      // lists the dividend as unclaimed until the claim LANDS on L1, so every refresh tick in the
-      // submit->landing gap rebuilt the same claim with a fresh txid — 19 duplicates of one nonce sat
-      // in the mempool as phantom pending credit. Hold each nonce until the submitted claim has had
-      // min_block + one more inclusion delay to land; if it still shows pending after that, resubmit.
-      if (!state._divClaimGate) state._divClaimGate = {};
-      const gate = state._divClaimGate[p.nonce];
-      if (gate && latest.block_number < gate) continue;     // an earlier claim for this nonce is still landing
-      // Ask for the proof AGAINST the settled root (root=): the exec node's live root keeps moving
-      // (accruals every epoch + any contract call), so waiting for it to coincide with a settled root
-      // stalled claims for hours on a busy chain. Older exec nodes ignore the param and return the live
-      // root — the equality check below then degrades to the old wait-for-coincidence behavior.
-      const pr = await (await fetch(execBase() + "/exec/dividend_proof?nonce=" + encodeURIComponent(p.nonce) + "&root=" + encodeURIComponent(settledRoot), { cache: "no-store" })).json();
+      let pr = proofs ? proofs.get(String(p.nonce)) : null;
+      if (!pr && !proofs) {      // old exec node: no batch endpoint — fall back to one fetch per nonce
+        pr = await (await fetch(execBase() + "/exec/dividend_proof?nonce=" + encodeURIComponent(p.nonce) + "&root=" + encodeURIComponent(settledRoot), { cache: "no-store" })).json();
+      }
       if (!pr || pr.state_root !== settledRoot) continue;   // proof must be against the SETTLED root; else wait
       // minBlock: the SAME anti-reorg propagation delay every other flexibly-landing tx uses. A claim
       // without it seeded the h67961 fork split (min_block: None, straight from this call site).
@@ -855,6 +872,7 @@ async function claimPendingDividends(pending) {
         latest.block_number + TX_INCLUSION_DELAY);
       const res = await submitTransaction(tx);
       state._divClaimGate[p.nonce] = latest.block_number + TX_INCLUSION_DELAY * 2;
+      submitted++;
       if (res.data && res.data.result) log("ok", i18("log.divCollected", "Dividend collected: +{a} NADO to your balance.", {a: rawToNado(BigInt(p.amount))}));
     } catch (e) { /* not claimable yet (unsettled) — retry next refresh */ }
   }
