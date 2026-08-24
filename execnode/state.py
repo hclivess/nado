@@ -538,6 +538,17 @@ class ExecState:
         recompute hashes only what changed (O(changed·depth))."""
         from execnode import exec_root as ER
         from execnode.stark import storage_tree as SST
+        # MEMO ON THE MUTATION GENERATION. The diff-apply below is cheap, but the PROJECTIONS feeding it
+        # are not: kv_projection re-derives one alghash2 slot_key per storage slot (10k slots = 0.34s idle,
+        # several seconds under load) — and every /exec/dividend_proof on the live root came through here
+        # (state_root is cached; _record_proof was not). Measured 2026-08-24: ~2 such requests/s from
+        # wallets with hundreds of unclaimed nonces pinned the event loop, the finalized tail's 64 block
+        # fetches queued behind them, and the exec cursor advanced in 6-minute lurches (56/44 behind L1).
+        # Nothing changed between two calls at the same _mut_gen — _touch bumps it on every mutator, the
+        # same trust state_root's cache already rests on — so the stores are returned as they stand.
+        gen = getattr(self, "_mut_gen", 0)
+        if self._kv_store is not None and getattr(self, "_stores_gen", None) == gen:
+            return self._kv_store, self._rec_store
         kv_p = ER.kv_projection(self.contracts)
         rec_p = ER.records_projection(self)
         if self._kv_store is None:
@@ -546,6 +557,7 @@ class ExecState:
         else:
             ER.apply_projection(self._kv_store, kv_p)
             ER.apply_projection(self._rec_store, rec_p)
+        self._stores_gen = gen
         return self._kv_store, self._rec_store
 
     def unshields_for(self, addr):
@@ -632,7 +644,18 @@ class ExecState:
             key = ER.record_key(tag, *parts)
             if value is not None and proj.get(key, 0) != int(value) % F.P:
                 return None
-            store = SST.SparseStore(ER.DEPTH, proj)
+            # ONE TREE PER REMEMBERED ROOT, not one per request: building the records half from its
+            # projection is 4.5s idle (706 leaves, depth 256) and was paid again for every ?root= proof.
+            # Cached beside the ring and pruned with it, so a root that is no longer held frees its tree.
+            cache = getattr(self, "_ring_stores", None)
+            if cache is None:
+                cache = self._ring_stores = {}
+            store = cache.get(root_hex)
+            if store is None:
+                store = cache[root_hex] = SST.SparseStore(ER.DEPTH, proj)
+                ring = self._root_ring
+                for k in [k for k in cache if k not in ring]:
+                    del cache[k]
             return ER.record_proof(kv_root, store, key), root_hex
 
     def accrue_dividend_epoch(self, inflow, weights):
