@@ -186,7 +186,7 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet"})
+RESERVED_RECIPIENTS = frozenset({"auth", "bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet"})
 
 # --- SHIELDED POOL (post-quantum zk-STARK privacy, doc/privacy.md) — L1 side of an EXECUTION-LAYER feature ---
 # L1 never sees a note or verifies a proof; it only escrows the transparent coins that enter/leave the pool
@@ -579,6 +579,7 @@ POSW_ENTRY_MULT = 32
 #   history, which no longer exists. OPERATIONAL: redeploy the game contracts in the SAME session
 #   (execnode.games.redeploy — pinned nonce => identical cids, upgradable) and re-fund the faucet.
 CHAIN_GENERATION = 23
+
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
@@ -1341,6 +1342,22 @@ SATURATION_LOOKBACK_EPOCHS = (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS
 DOMAIN_GENESIS_BEACON = "genesis-beacon-v1"
 GENESIS_BEACON = blake2b_hash([DOMAIN_GENESIS_BEACON, CHAIN_ID])
 
+
+# ACCOUNT AUTHENTICATION AS STATE (doc/key-rotation.md, Roadmap Track H). An address may carry an auth config —
+# authenticators + a SIGNING policy (who may spend/act) + a RECONFIG policy (who may change the keys) — so keys
+# rotate and a stolen hot key can be recovered while the address, bond, ramp, fidelity and every exec-side
+# balance stay. Absent config = today's single derived key. Generation-keyed: dormant on this chain (the `auth`
+# recipient is refused and no account can hold a config), live from block 0 of the next generation — no gate
+# ever needs deleting. auth_history is a new SNAPSHOT_DBS member; empty it contributes nothing to the root.
+# NADO_AUTH_FORCE=1 activates it on the CURRENT generation for tests and throwaway testnets ONLY — never on a
+# validator: a node with it set accepts txs the fleet refuses and forks itself off.
+import os as _os_auth                  # local alias, same discipline as the other in-file alias below
+AUTH_ACTIVE = CHAIN_GENERATION >= 24 or _os_auth.environ.get("NADO_AUTH_FORCE") == "1"
+AUTH_MAX_KEYS = 4                  # hot, recovery, two guardians; every key is a potential verify per tx
+AUTH_POLICY_MAX_DEPTH = 2          # THRESHOLD of THRESHOLDs of IDs — enough for guardians, nothing more
+AUTH_DELAY = BOND_UNLOCK_DELAY     # a partial-policy change waits this long (1 day): the network gets a day to notice
+AUTH_FREEZE = 7 * BOND_UNLOCK_DELAY  # after a recovery-key cancel, no partial-policy change for a week
+AUTH_HISTORY_KEEP = 8              # configs kept per address for evidence-at-height (deeper is beyond finality)
 
 # ======================================================================================================
 # THE 2026-08-25 DIVIDEND RULES — unconditional since the betanet-5 (gen 23) reroll. They rode the last hours

@@ -94,6 +94,14 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
                      logger=logger, revert=revert)
         return
 
+    # --- ACCOUNT AUTHENTICATION (doc/key-rotation.md): install / rotate / cancel the sender's auth config.
+    #     Fee-paying (debited + destroyed like every fee), zero amount. Revert-symmetric via auth_revert.
+    if recipient == "auth":
+        from ops.auth_ops import apply_auth_tx
+        change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
+        apply_auth_tx(transaction, block_height, logger, revert=revert)
+        return
+
     # --- SLASHING (#15 step 5C): a fee-exempt tx carrying a proven equivocation proof in `data`.
     # validate_transaction already verified the proof + that the offender holds enough bond + is not
     # already slashed at this height, so reflect just extracts (offender, height) and burns the bond.
