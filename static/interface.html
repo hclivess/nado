@@ -331,10 +331,10 @@
     <h2 data-i18n="lanes.title">Selection lanes</h2>
     <!-- Who's in each lane right now (from /mining_status: open/bonded registry sizes + lane weights) -->
     <div class="stat-grid">
-      <div class="stat" data-i18n-title="tip.openLane" title="Registered, present miners competing for the ~20% free lane">
+      <div class="stat" data-i18n-title="tip.openLane" title="Registered, present miners competing for the ~30% free lane">
         <div class="label" data-i18n="lanes.open">Open lane <span class="hint">ⓘ</span></div>
         <div class="value sm"><span id="laneOpenCount">—</span> <span data-i18n="lane.miners">miners</span></div></div>
-      <div class="stat" data-i18n-title="tip.bondedLane" title="Bonded-stake validators competing for the ~80% stake lane">
+      <div class="stat" data-i18n-title="tip.bondedLane" title="Bonded-stake validators competing for the ~70% stake lane">
         <div class="label" data-i18n="lanes.bonded">Bonded lane <span class="hint">ⓘ</span></div>
         <div class="value sm"><span id="laneBondedCount">—</span> <span data-i18n="lane.validators">validators</span></div></div>
       <div class="stat" data-i18n-title="tip.openWeight" title="Total open-lane selection weight across all present miners. Your weight is a share of this — the bigger your slice, the more often you win the free lane.">
@@ -346,14 +346,25 @@
     </div>
     <div class="lanes mt">
       <div class="lanebar">
-        <div class="open" id="laneOpen" style="flex:0 0 20%">OPEN 20%</div>
-        <div class="bonded" id="laneBonded" style="flex:0 0 80%">BONDED 80%</div>
+        <div class="open" id="laneOpen" style="flex:0 0 30%">OPEN 30%</div>
+        <div class="bonded" id="laneBonded" style="flex:0 0 70%">BONDED 70%</div>
       </div>
       <div class="lane-legend">
         <span><i class="open"></i><span data-i18n="lane.legendOpen">Open lane — free, capital-less</span><span id="laneOpenYou" class="youmark"></span></span>
         <span><i class="bonded"></i><span data-i18n="lane.legendBonded">Bonded lane — locked stake</span><span id="laneBondedYou" class="youmark"></span></span>
       </div>
       <div class="myshare" id="myShare">—</div>
+    </div>
+    <!-- REWARD SPLIT per lane — the other half of the story. The bar above says who WINS blocks (lane sizes);
+         this says where each won block's reward GOES: producer / presence pot (the dividend) / treasury.
+         Numbers come from the protocol constants mirrored in interface.js, so a split change shows up here. -->
+    <div class="mt">
+      <div class="label" data-i18n="lanes.rewardTitle">Where a block's reward goes</div>
+      <div class="stat-grid">
+        <div class="stat"><div class="label" data-i18n="lanes.rewardOpen">Open-lane block</div><div class="value sm" id="laneRewardOpen">—</div></div>
+        <div class="stat"><div class="label" data-i18n="lanes.rewardSavings">Savings-lane block</div><div class="value sm" id="laneRewardSavings">—</div></div>
+      </div>
+      <div class="small faint" id="laneRewardNote" data-i18n="lanes.rewardNote">The presence pot is the dividend shared by everyone keeping their page open, weighted by fidelity. Lane sizes (who wins how many blocks) are unchanged; since betanet-5 a savings-lane block sends 40 % of itself to the pot (was 20 %).</div>
     </div>
   </div>
 

@@ -37,7 +37,8 @@ def main():
     # plain integers the wallet declares under the SAME name as protocol.py
     SAME_NAME = ["POSW_T", "POSW_S", "POSW_K", "POSW_ANCHOR_OFFSET", "POSW_LEASE_EPOCHS",
                  "POSW_TARGET_MARGIN", "EPOCH_LENGTH", "FINALITY_DEPTH", "TX_TARGET_MARGIN",
-                 "BOND_UNLOCK_DELAY", "FIDELITY_CAP"]
+                 "BOND_UNLOCK_DELAY", "FIDELITY_CAP", "FIDELITY_MIN_GAP_EPOCHS",
+                 "TREASURY_BPS", "OPEN_TIP_BPS", "BONDED_DIVIDEND_BPS"]
     # and the ones the wallet renames (raw-unit suffix / BigInt literal)
     RENAMED = {"B_MIN_RAW": "B_MIN", "MIN_TX_FEE": "MIN_TX_FEE"}
 
