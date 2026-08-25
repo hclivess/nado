@@ -79,11 +79,19 @@ try {
   const a2 = await getAccount(addr);
   step("a wrong recovery phrase changes nothing", a2.auth.v === 2 && !a2.auth_pending);
 
-  // --- Reload: the signer must be re-found from the seed (binding scan), address unchanged
-  await page.reload({ waitUntil: "networkidle2" });
-  await page.waitForSelector("#walAddr", { visible: true, timeout: 30000 });
-  await waitFor(async () => (await page.$eval("#walAddr", (e) => e.textContent)).trim() === addr, "address after reload", 30000);
-  step("after reload the wallet shows the same address", (await page.$eval("#walAddr", (e) => e.textContent)).trim() === addr);
+  // --- Reload: the signer must be re-found from the seed (binding scan), address unchanged.
+  // domcontentloaded, not networkidle2 — the wallet polls forever, so "network idle" never arrives.
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+  const reOk = await waitFor(async () => {
+    const t = await page.evaluate(() => {
+      const el = document.getElementById("walAddr");
+      const onboard = document.getElementById("onboard");
+      return { addr: el ? el.textContent.trim() : "", onboarding: !!(onboard && !onboard.classList.contains("hidden")) };
+    });
+    if (t.onboarding) { step("after reload", false, "onboarding shown — wallet was not persisted"); return true; }
+    return t.addr === addr;
+  }, "address after reload", 60000);
+  step("after reload the wallet shows the same address", reOk && (await page.$eval("#walAddr", (e) => e.textContent)).trim() === addr);
 
   // --- Send with the rotated-in key (the normal Send tab), must land
   const before = Number(((await getAccount(payee)) || {}).balance || 0);

@@ -149,6 +149,7 @@ def main():
         RT.seed_node(homes[i], i, keys, bond_manifest)
         json.dump(alloc, open(os.path.join(homes[i], "nado", "private", "genesis_alloc.dat"), "w"))
     HOT = keys[0]; ACCT = HOT["address"]
+    state = {}                                   # cross-step notes (e.g. the height the rotation landed at)
     REC, EVE, NEW = generate_keydict(), generate_keydict(), generate_keydict()
     PAYEE = generate_keydict()["address"]
 
