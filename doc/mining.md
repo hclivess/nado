@@ -67,6 +67,17 @@ the model is a **capped, fair-launch bonded chain**: lock coins (you keep them) 
    `POSW_LEASE_EPOCHS` (≈ 1 day), *not* a per-epoch heartbeat. (The original per-epoch heartbeat
    tx and `PRESENCE_WINDOW` were removed; presence is now the renewable recert.)
 
+   **Renewal timing and fidelity.** A recert earns `+1` fidelity only when it lands at least
+   `FIDELITY_MIN_GAP_EPOCHS` (192 ≈ 19.2 h) after the previous one; an earlier recert still renews
+   the lease but earns nothing and moves the anchor, so the *next* point is 19.2 h from it. The
+   wallet renews automatically at 80 % of the lease — exactly that threshold — which shifts the
+   expiry ~4.8 h earlier each day until it falls into the night and a closed wallet lapses (a
+   fidelity reset). The wallet card therefore shows the lease countdown and a **Renew presence
+   now** button that is enabled only inside the earning window (last ~4.8 h of the lease): renewing
+   there earns the same `+1` the automatic path would and pins the expiry to that time of day.
+   Nothing changes on-chain — the button simply chooses *when* in the already-rewarded window the
+   renewal happens.
+
 ### Sybil/botnet cost
 
 To capture a fraction `f` of selection you must lock `f/(1-f)` of the honest bonded capital;

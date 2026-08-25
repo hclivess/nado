@@ -1160,6 +1160,7 @@ function nadoToRaw(amountStr) {
 const B_MIN_RAW = 100_000_000_000n;        // protocol.py B_MIN: 10 NADO per bonded selection share — MUST track the node
 const BASE_SUBSIDY_RAW = 1_000_000_000n;   // protocol.py: 0.1 NADO/block reward floor
 const FIDELITY_CAP = 30;                   // protocol.py FIDELITY_CAP: continuous recerts to fully ramp the open bonus
+const FIDELITY_MIN_GAP_EPOCHS = 192;       // protocol.py: a recert earns +1 only this far after the previous one
 async function estimateSavingsApy() {
   const box = $("apyResult");
   if (!box) return;
@@ -1691,6 +1692,14 @@ async function maybeRenewLease(acc) {
     _renewSubmitted = null;
   }
   if ((epochNow - regEpoch) < Math.floor(POSW_LEASE_EPOCHS * 0.8)) return;   // lease still healthy
+  await broadcastLeaseRenewal(regEpoch);
+}
+
+// The renewal itself — shared by the automatic path above and the manual button below. Returns true once a
+// register tx was accepted by the relay (it then lands EXACTLY at its target block; _renewSubmitted holds
+// off any re-broadcast until it does).
+async function broadcastLeaseRenewal(regEpoch) {
+  if (_renewingLease) return false;
   _renewingLease = true;
   try {
     log("info", i18("log.leaseRenewing", "Presence lease expiring — renewing (fresh sequential proof)…"));
@@ -1699,7 +1708,7 @@ async function maybeRenewLease(acc) {
     let lastMsg = "";
     for (let attempt = 0; attempt < 2; attempt++) {
       const latest = await getLatestBlock();
-      if (!latest || typeof latest.block_number !== "number") return;
+      if (!latest || typeof latest.block_number !== "number") return false;
       // SIZE THE MARGIN TO THE ACTUAL WORK, not to the worst case. POSW_TARGET_MARGIN (90 blocks, 9 min)
       // is budgeted for the most expensive ENTRY proof; a renewal is base difficulty — ~0.3 s of WASM
       // hashing — and paying a 9-minute landing window for it is pure latency, made worse by `register`
@@ -1711,7 +1720,7 @@ async function maybeRenewLease(acc) {
       if (res.data && res.data.result) {
         _renewSubmitted = { targetBlock: tb, atEpoch: regEpoch };   // don't re-broadcast until it lands
         log("ok", i18("log.leaseRenewed", "Presence lease renewed ✓"));
-        return;
+        return true;
       }
       lastMsg = (res.data && res.data.message) || "";
       if (!/too low/i.test(lastMsg)) break;   // a different rejection won't be fixed by retrying
@@ -1719,6 +1728,82 @@ async function maybeRenewLease(acc) {
     log("err", i18("log.leaseRejected", "Lease renewal rejected: {m}", { m: lastMsg }));
   } catch (e) { log("err", i18("log.leaseError", "Lease renewal error: {m}", { m: e.message })); }
   finally { _renewingLease = false; }
+  return false;
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * MANUAL "RENEW PRESENCE" — the lease panel on the wallet card.
+ *
+ * WHY. The automatic renewal fires at 80% of the lease, which is also the earliest point a recert earns
+ * fidelity (FIDELITY_MIN_GAP_EPOCHS = 192 of 240). Every automatic renewal therefore lands ~4.8 h EARLIER in
+ * the day than the previous expiry, so over a week the expiry walks right around the clock — and when it
+ * reaches the middle of the night with the wallet closed, the lease lapses and the fidelity streak resets
+ * (reported 2026-08-25). Renewing by hand inside the earning window lets the user pin the expiry to a time
+ * of day they will actually be awake for.
+ *
+ * NO NEW RULE, NO FARM. The button is enabled only when epochNow − regEpoch ≥ FIDELITY_MIN_GAP_EPOCHS, i.e.
+ * exactly when the chain would credit the renewal (+1 fidelity, one per ≥19.2 h — the same cadence honest
+ * automatic renewal already earns). The protocol accepts an earlier `register` too, but it earns nothing and
+ * pushes the NEXT earning point out (apply_register moves the recert anchor), so the panel says when the
+ * window opens instead of offering a renewal that would cost the user a day of ramp.
+ * ---------------------------------------------------------------------------------------------- */
+function _fmtClock(secsFromNow) {
+  try { return new Date(Date.now() + secsFromNow * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+  catch (e) { return ""; }
+}
+function refreshLeasePanel(acc, ms) {
+  const wrap = $("leaseWrap"), btn = $("btnRenewLease");
+  if (!wrap || !btn) return;
+  const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
+  const epochNow = (ms && typeof ms.epoch === "number") ? ms.epoch
+    : (state.latest != null ? Math.floor((state.latest + 8) / EPOCH_LENGTH) : null);
+  const registered = !!(acc && acc.registered === 1);
+  if (!registered || regEpoch < 0 || epochNow == null || (epochNow - regEpoch) >= POSW_LEASE_EPOCHS) {
+    show("leaseWrap", false);
+    return;
+  }
+  const epochSecs = EPOCH_LENGTH * ((ms && ms.block_time) || state.blockTime || 8);
+  const epochsLeft = regEpoch + POSW_LEASE_EPOCHS - epochNow;
+  const secsLeft = Math.max(0, epochsLeft * epochSecs);
+  const gap = epochNow - regEpoch;
+  const earnsIn = Math.max(0, (regEpoch + FIDELITY_MIN_GAP_EPOCHS - epochNow) * epochSecs);
+  $("leaseLeft").textContent = i18("lease.left", "expires in about {t} (≈ {c})", { t: humanizeSeconds(secsLeft), c: _fmtClock(secsLeft) });
+  const landing = !!_renewSubmitted && regEpoch <= _renewSubmitted.atEpoch;
+  let note, enabled;
+  if (landing) {
+    note = i18("lease.landing", "Renewal submitted — waiting for it to land on chain…");
+    enabled = false;
+  } else if (gap >= FIDELITY_MIN_GAP_EPOCHS) {
+    note = i18("lease.canRenew", "Renewing now earns +1 fidelity and moves your expiry to about {c} tomorrow.",
+      { c: _fmtClock(POSW_LEASE_EPOCHS * epochSecs) });
+    enabled = !!state.wallet && !_renewingLease && !state.registering;
+  } else {
+    note = i18("lease.tooEarly", "Renewing earns fidelity from about {c} (in {t}). Renewing sooner keeps you present but earns no fidelity.",
+      { c: _fmtClock(earnsIn), t: humanizeSeconds(earnsIn) });
+    enabled = false;
+  }
+  $("leaseNote").textContent = note;
+  btn.disabled = !enabled;
+  show("leaseWrap", true);
+}
+async function renewLeaseManually() {
+  if (!state.wallet || _renewingLease || state.registering) return;
+  const btn = $("btnRenewLease");
+  if (btn) btn.disabled = true;
+  try {
+    const [acc, ms] = await Promise.all([getAccount(state.wallet.address), getMiningStatus(state.wallet.address)]);
+    const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
+    const epochNow = (ms && typeof ms.epoch === "number") ? ms.epoch : null;
+    if (regEpoch < 0 || epochNow == null) return;
+    if ((epochNow - regEpoch) < FIDELITY_MIN_GAP_EPOCHS) {          // re-check against the chain, not the panel
+      log("info", i18("log.leaseTooEarly", "Too early — renewing now would earn no fidelity. The panel shows when it will."));
+      return;
+    }
+    if (_renewSubmitted && regEpoch <= _renewSubmitted.atEpoch && state.latest != null && state.latest <= _renewSubmitted.targetBlock) return;
+    await broadcastLeaseRenewal(regEpoch);
+    refreshDashboard().catch(() => {});
+  } catch (e) { log("err", i18("log.leaseError", "Lease renewal error: {m}", { m: e.message })); }
+  finally { refreshDashboard().catch(() => {}); }
 }
 
 async function maybeRegister() {
@@ -2481,6 +2566,7 @@ async function refreshDashboard() {
     refreshDividend().catch(() => {});                 // presence dividend accrued off-L1 + auto-claim settled
     $("walReg").innerHTML = acc.registered === 1 ? `<span class="badge ok">${i18("badge.yes","yes")}</span>` : `<span class="badge no">${i18("badge.no","no")}</span>`;
     $("walFidelity").textContent = acc.fidelity ?? 0;
+    refreshLeasePanel(acc, ms);                         // lease countdown + manual renew inside the earning window
     $("sendAvail").textContent = bal + " NADO";
     $("stkAvail").textContent = bal + " NADO";
     $("stkBonded").textContent = bonded + " NADO";
@@ -7557,6 +7643,7 @@ function wireEvents() {
   };
   $("btnDlKeySettings").onclick = () => downloadKeyFile().catch(() => {});
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
+  if ($("btnRenewLease")) $("btnRenewLease").onclick = () => renewLeaseManually();
   if ($("btnExecCashOut")) $("btnExecCashOut").onclick = () => cashOutExec();
   if ($("btnMsigDerive")) $("btnMsigDerive").onclick = () => msigDerive();
   if ($("btnMsigPropose")) $("btnMsigPropose").onclick = () => msigPropose();
