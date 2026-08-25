@@ -599,6 +599,35 @@ larger half is the browser wallet/light-miner parity and multisig UI. Note for T
 added is another verification circuit if in-circuit signature verification is ever revisited — decide
 the roster before that build starts, not after.
 
+### Track H — Account authentication: rotate keys, recover accounts, keep the address
+
+**Design: [doc/key-rotation.md](doc/key-rotation.md)** (2026-08-25, reviewed against Monad's
+"Flexible and Upgradeable Account Authentication" MIP). Status: architecture for review, not built.
+
+Today an address *is* its ML-DSA key; a lost or stolen key loses the bonded stake and its ramp, the
+fidelity streak, aliases and every exec-side balance with it, and there is no proactive rotation.
+The track makes authentication **state**: an account carries `authenticators` + a `signing` policy
+(who may spend) + a `reconfig` policy (who may change the keys), `ID`/`THRESHOLD` only, hard-capped
+(4 keys, depth 2, one scheme). Recovery is not a mechanism, it is a policy: the wallet's "protected"
+preset is `signing = hot key`, `reconfig = hot AND recovery`, so a stolen hot key can spend the
+liquid balance but cannot take the account. Proof of possession on install, `config_version` replay
+guard, a 1-day pending window for partial-policy changes with cancel + 7-day freeze by a key the
+thief lacks — the war of resubmission is settled by policy, not by delay.
+
+- **What it does NOT do:** no PQ migration (already ML-DSA — the Monad MIP's main motive doesn't
+  apply), no multi-scheme, no programmability, no key→address index. Composes with Track G's `alg`
+  field, which becomes a per-authenticator attribute.
+- **Cost / risk:** one `authorized()` predicate replacing every `proof_sender` call (a source
+  assertion pins it), a new snapshot DB `auth_history` → **genesis-root change → ships at a reroll**
+  or behind a generation-keyed gate on the `auth` recipient; exact rollback symmetry required
+  (`auth_revert`). Single-key accounts keep exactly one verify per tx.
+- **Who it is for:** validators (240 NADO bonded + a 30-epoch ramp on this box alone) and long-streak
+  open miners — the identities that cannot be recreated. Everyone else gets a one-time "protect your
+  account" prompt and can ignore it.
+- **Sequence:** predicate + tests → config/state/revert → `auth` recipient → evidence `at_height` →
+  `/get_account` fields → wallet Security panel (two presets) → node `rotate-key` CLI. Queue with the
+  next root-changing reroll; do not reroll for it alone.
+
 ---
 
 ## 10. What we measure
@@ -636,6 +665,7 @@ honestly is rarer than it should be.
 | C | Fair ordering | **before 2 at scale** | Cheaper to commit now |
 | D | Dev surface | continuous | Other people build the winners |
 | E | Games | continuous | Already shipped; assets make them better |
+| H | Account authentication (key rotation / recovery) | next root-changing reroll | Validators and streaks are unrecoverable today; design done (doc/key-rotation.md) |
 
 ---
 
