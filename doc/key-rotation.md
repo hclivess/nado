@@ -1,8 +1,6 @@
 # Account authentication — keep the address, change the keys
 
-Design proposal, 2026-08-25 (revised the same day after reviewing Monad's
-[Flexible and Upgradeable Account Authentication](https://forum.monad.xyz/t/flexible-and-upgradeable-account-authentication/526)
-MIP — see §11). Not implemented. Status: **architecture for review**.
+Design proposal, 2026-08-25. Not implemented. Status: **architecture for review**.
 
 **Framing.** Account abstraction in its smallest useful form: an address stops being "the hash of one key"
 and becomes an **account whose authentication policy is state**. The policy says which keys may *spend*
@@ -42,8 +40,7 @@ Goals:
 3. No change to how addresses look, how *new* accounts derive them, or how anything references them
    (aliases, contracts, exec state, the wallet's HD derivation).
 
-Not a goal: post-quantum migration (NADO is ML-DSA already — the strongest motivation in the Monad
-MIP simply does not apply here), programmability, or multi-scheme support.
+Not a goal: post-quantum migration (NADO is ML-DSA already), programmability, or multi-scheme support.
 
 The non-goal, stated up front because every rotation design is measured against it:
 
@@ -78,8 +75,8 @@ policy := ["ID", i]                        # authenticator i signed
   is satisfied by a *set of valid signatures*; a transaction pays for every signature it presents, and
   the evaluator refuses more than `AUTH_MAX_KEYS` signatures outright. Single-key accounts (all of them
   today) cost exactly what they cost now: one verify.
-- **Only ML-DSA.** One scheme, one verifier, one per-signature cost. Scheme agility is what the Monad
-  design spends most of its complexity on; we have no need for it.
+- **Only ML-DSA.** One scheme, one verifier, one per-signature cost; scheme agility belongs to
+  Roadmap Track G and composes later as a per-authenticator attribute.
 
 The two policies are the whole idea. `signing` is what a thief with the hot key gets. `reconfig` is
 what it takes to change the keys — and if `reconfig` is not satisfiable by the hot key alone, the thief
@@ -181,7 +178,7 @@ under the full policy. The wallet still recommends a fresh recovery phrase after
 | exec layer (bridge, games, dividends, `zk_addrs`) | untouched |
 | messaging (`msgkey`, prekeys) | separate identity KEM key; unaffected. Re-publishing prekeys after a compromise is wallet hygiene, not a rule |
 | state root | account fields already in the root; `auth_history` is a new `SNAPSHOT_DBS` member — **a genesis-root change** (§9) |
-| `/get_account` | returns `auth_config` (public keys and policy — nothing secret), `auth_pending`, `auth_freeze`, so wallets never scrape state (the "read-path" gap the Monad thread flagged) |
+| `/get_account` | returns `auth_config` (public keys and policy — nothing secret), `auth_pending`, `auth_freeze`, so wallets never scrape state |
 | wallet (browser) | the hot key rotates to the next HD child (`accountChildSeed`), so the seed phrase still recovers it — no key→address index is needed anywhere; a Security panel shows key age, preset, pending changes with loud warnings, and the "protected" upgrade flow |
 | desktop wallet / node `keys.dat` | a `rotate-key` CLI that signs the reconfiguration, waits for effect, then swaps `keys.dat` (old file kept as `keys.dat.retired.<height>`) |
 
@@ -197,7 +194,7 @@ under the full policy. The wallet still recommends a fresh recovery phrase after
 | griefing / spam | fee-paying; one pending per account; only the account's own authenticators can act; `version` monotonic |
 | cross-chain replay | `chain_id` in the signed body; `version` pins the config a change extends |
 | reorg through a change | `auth_revert` restores the prior triple; the `auth_history` row is deleted (exact dupsort pair) |
-| two valid pending changes racing (the Monad thread's open question) | cannot happen: one pending per account, and a second is refused, not queued; a full-policy change lands immediately and clears the pending one |
+| two valid pending changes racing | cannot happen: one pending per account, and a second is refused, not queued; a full-policy change lands immediately and clears the pending one |
 | rotated-away key signs a block later | `authorized` without `at_height` rejects it; with `at_height` (evidence) it verifies only for heights it was valid |
 
 ## 8. Constants (draft)
@@ -206,7 +203,7 @@ under the full policy. The wallet still recommends a fresh recovery phrase after
 |---|---|---|
 | `AUTH_MAX_KEYS` | 4 | hot, recovery, two guardians; every key is a potential verify per tx |
 | policy depth | 2 | `THRESHOLD` of `THRESHOLD`s of `ID`s — enough for guardians, nothing more |
-| `AUTH_DELAY` | `BOND_UNLOCK_DELAY` (14,400 blocks ≈ 1 day) | the same "network gets a day to notice" horizon as pulling stake; 3 blocks (Monad) is not a human reaction window |
+| `AUTH_DELAY` | `BOND_UNLOCK_DELAY` (14,400 blocks ≈ 1 day) | the same "network gets a day to notice" horizon as pulling stake — a human reaction window, not a block count |
 | `AUTH_FREEZE` | 7 × 14,400 | long enough to rotate at leisure after a veto |
 | `AUTH_HISTORY_KEEP` | 8 | evidence deeper than the finality floor is unactionable |
 | fees | ordinary base fee for `auth` txs; never fee-exempt |
@@ -237,21 +234,3 @@ under the full policy. The wallet still recommends a fresh recovery phrase after
 - Session keys for games (a short-lived authenticator allowed only `blob` calls to listed contracts) —
   the biggest UX win in reach and the most exposed to state bloat. Out of scope here; if ever, it must
   be `max_block`-bounded and never persisted past expiry.
-
-## 11. Related work — Monad's "Flexible and Upgradeable Account Authentication"
-
-The MIP reaches the same conclusions from the EVM side: authentication is state, the address is an
-identifier, policy is `ID`/`THRESHOLD`, recovery is just the reconfiguration policy, proof of possession
-is mandatory, and races between equal key-holders are settled by policy design, not by delay. §2 and §5
-adopt its policy formulation and `config_version` directly — they are better than the first draft's
-"one recovery key" special case. Where this design deliberately differs:
-
-- **one scheme, hard bounds** — their multi-scheme `AuthConfig` and unbounded threshold trees are priced
-  in gas; we have no gas model on L1 and a 6-second block, so the language is capped instead;
-- **a human-scale delay and specified cancel/freeze semantics** — their 3-block activation and the
-  unspecified "two pending configs" case are the gaps their own thread flagged;
-- **no key→address index** — HD-derived rotation makes discovery unnecessary; the index is state growth
-  and a privacy leak for a wallet convenience (their reviewers said the same);
-- **no `ecrecover` problem** — our contracts never verify L1 signatures, so nothing downstream breaks;
-- **their main motivation (PQ migration) does not apply** — the case for us rests on validator and
-  streak recovery alone, which is why this stays scoped to two presets.

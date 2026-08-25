@@ -601,8 +601,7 @@ the roster before that build starts, not after.
 
 ### Track H — Account authentication: rotate keys, recover accounts, keep the address
 
-**Design: [doc/key-rotation.md](doc/key-rotation.md)** (2026-08-25, reviewed against Monad's
-"Flexible and Upgradeable Account Authentication" MIP). Status: architecture for review, not built.
+**Design: [doc/key-rotation.md](doc/key-rotation.md)** (2026-08-25). Status: architecture for review, not built.
 
 Today an address *is* its ML-DSA key; a lost or stolen key loses the bonded stake and its ramp, the
 fidelity streak, aliases and every exec-side balance with it, and there is no proactive rotation.
@@ -614,9 +613,8 @@ liquid balance but cannot take the account. Proof of possession on install, `con
 guard, a 1-day pending window for partial-policy changes with cancel + 7-day freeze by a key the
 thief lacks — the war of resubmission is settled by policy, not by delay.
 
-- **What it does NOT do:** no PQ migration (already ML-DSA — the Monad MIP's main motive doesn't
-  apply), no multi-scheme, no programmability, no key→address index. Composes with Track G's `alg`
-  field, which becomes a per-authenticator attribute.
+- **What it does NOT do:** no PQ migration (already ML-DSA), no multi-scheme, no programmability, no
+  key→address index. Composes with Track G's `alg` field, which becomes a per-authenticator attribute.
 - **Cost / risk:** one `authorized()` predicate replacing every `proof_sender` call (a source
   assertion pins it), a new snapshot DB `auth_history` → **genesis-root change → ships at a reroll**
   or behind a generation-keyed gate on the `auth` recipient; exact rollback symmetry required
