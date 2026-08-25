@@ -206,7 +206,7 @@ weight for finality.
 
 ### Bonded-lane shares (capital, capped — ramped by BOND AGE, not fidelity)
 
-    shares = min(bonded, BOND_CAP) // B_MIN     = min(bonded, 1000 NADO) // 10 NADO   -> 0 .. 100
+    shares = bonded // B_MIN                    = bonded // 10 NADO   (linear, no per-identity cap since 2026-08-25)
 
 - **10 NADO = 1 share**, **1000 NADO (100 shares) is the ceiling** — bonding past it buys nothing.
 - **Split-neutral:** weight depends on total bonded capital, so spreading it across addresses gains

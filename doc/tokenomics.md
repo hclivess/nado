@@ -45,7 +45,7 @@ payload (see `hashing.canonical_bytes`). Reference amounts:
 | `BASE_SUBSIDY` | 1 000 000 000 | 0.1 |
 | `ALIAS_REGISTRATION_FEE` | 10 000 000 | 0.001 |
 | `B_MIN` (one bonded share) | 100 000 000 000 | 10 |
-| `BOND_CAP` (per identity) | 10 000 000 000 000 | 1 000 |
+| ~~`BOND_CAP`~~ (per identity) | removed 2026-08-25 | — |
 
 ## 2. Fair launch — no premine
 
@@ -122,8 +122,8 @@ Locking stake buys **producer-selection shares** in the bonded lane:
 
 - `B_MIN = 10 NADO` — capital per selection share. Bonded stake is *refundable locked stake*,
   **not** spendable balance.
-- `BOND_CAP = 1 000 NADO` → `MAX_SHARES = 100` — a per-identity variance cap so a whale can't
-  monopolise the bonded lane.
+- No per-identity bond cap (removed 2026-08-25). The former `BOND_CAP = 1 000 NADO` / `MAX_SHARES = 100` was per
+  key, so a second key restored linear weight; it bound only honest single-key miners. Weight is `bonded // B_MIN`.
 - `BOND_RAMP_EPOCHS = 30` — a fresh bond's selection weight ramps linearly 0 → full over ~30
   epochs (stake-weighted bond age), giving the network reaction time against a sudden takeover.
 - `BOND_UNLOCK_DELAY = 1440 blocks` — after an `unbond` request the stake stays locked (and
@@ -208,7 +208,7 @@ part of emission and hold no key:
 | `OPEN_TIP_BPS` | 2000 (20 %) | Open producer's own cut of an open block |
 | `BONDED_DIVIDEND_BPS` | 2000 (20 %) | Bonded block's contribution to the dividend pool |
 | `B_MIN` | 10 NADO | Capital per bonded selection share |
-| `BOND_CAP` / `MAX_SHARES` | 100 000 NADO / 100 | Per-identity bond & share cap |
+| ~~`BOND_CAP` / `MAX_SHARES`~~ | removed 2026-08-25 | (was a per-identity bond & share cap) |
 | `BOND_RAMP_EPOCHS` | 30 | Fresh-bond selection-weight ramp |
 | `BOND_UNLOCK_DELAY` | 1440 blocks | Post-unbond lock (slashable) |
 | `SLASH_BOND_PENALTY` | `B_MIN` (1 000 NADO) | Burned per proven equivocation |

@@ -1,3 +1,5 @@
+> **Note (2026-08-25):** the per-identity `BOND_CAP` / `MAX_SHARES` cap referenced below was removed — bonded weight is linear in stake (`bonded // B_MIN`). References to the cap are historical.
+
 # NADO roadmap — building the demand machine
 
 > **Purpose.** This document takes an outside analysis of *where Solana's app revenue actually comes

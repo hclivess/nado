@@ -35,7 +35,7 @@ from ops.block_ops import (
 from ops.mining_ops import select_producer_two_lane, epoch_of, block_fork_weight
 from ops import kv_ops
 from ops import fork_resolution
-from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
+from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
     AUTO_MIN_FEE_MULTIPLE, \
     TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, FLEX_TX_MIN_MARGIN
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size, get_home
@@ -107,7 +107,7 @@ DEAD_FORK_ESCALATE_AFTER = 3
 # SPEND MEANS OUTFLOW, AND AUTO-BOND IS NOT ONE. An earlier revision applied this to auto-bond's
 # amount+fee, which was a scoping error with a real consequence: auto-bond takes a percentage of NEWLY
 # MINED coins, and for a fresh node new earnings ARE most of the balance — so at a high auto-bond percent
-# the ceiling would have silently refused the bond on exactly the nodes trying to reach BOND_CAP, quietly
+# the ceiling would have silently refused the bond on exactly the nodes trying to compound their bond, quietly
 # turning a 99% setting into ~50%. Bonding moves coins between the owner's own columns and returns after
 # the unbond timelock; a fee is gone. So the ceiling governs fees, and auto-bond is governed instead by a
 # LIQUIDITY RESERVE: it must leave enough behind to keep paying for things.
@@ -3531,8 +3531,8 @@ class CoreClient(threading.Thread):
 
         We throttle to at most one auto-bond per epoch (a bond isn't per-block unique-keyed, so we self-
         limit to avoid spamming the mempool), accumulate below the AUTO_BOND_MIN_RAW dust floor instead
-        of emitting fee-dominated dust txs, and STOP once bonded >= BOND_CAP (extra bond buys no weight,
-        so locking more would just freeze coins for nothing)."""
+        of emitting fee-dominated dust txs. There is no upper stop: bonded weight is linear in stake
+        (the per-identity cap was removed 2026-08-25), so every mined coin bonded is weight."""
         pct = getattr(self.memserver, "auto_bond_percent", 0)
         if not pct or pct <= 0:
             return
@@ -3547,16 +3547,12 @@ class CoreClient(threading.Thread):
             if self.auto_bond_baseline is None:
                 self.auto_bond_baseline = mined         # first observation: only FUTURE mining bonds
                 return
-            if bonded >= BOND_CAP:
-                self.auto_bond_baseline = mined         # already at the weight cap — nothing to gain
-                return
             gain = mined - self.auto_bond_baseline
             if gain <= 0:
                 self.auto_bond_baseline = mined         # nothing mined since (or a reorg took some back)
                 return
             to_bond = (gain * int(pct)) // 100
-            # never bond past the cap (no extra weight), and never bond what we can't pay the fee for
-            to_bond = min(to_bond, BOND_CAP - bonded)
+            # never bond what we can't pay the fee for
             if to_bond < AUTO_BOND_MIN_RAW or balance < to_bond + MIN_TX_FEE:
                 return                                  # accrue (don't rebaseline) until it's worth a tx
             # LIQUIDITY RESERVE, not the half-ceiling (see the module note): bonding is not an outflow,

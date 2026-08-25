@@ -38,8 +38,7 @@ These gate the S4 bonded-mining mechanism (live on betanet-6).
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `B_MIN` | `100_000_000_000` (10 NADO) | Capital per selection share / minimum bond to be eligible |
-| `BOND_CAP` | `10_000_000_000_000` (1,000 NADO) | Max effective bond per identity (variance cap) |
-| `MAX_SHARES` | `100` (`BOND_CAP // B_MIN`) | Max selection shares one identity can hold (anti-whale) |
+| ~~`BOND_CAP`~~ / ~~`MAX_SHARES`~~ | removed 2026-08-25 | Weight is linear in stake (`bonded // B_MIN`); the per-key cap never bound a whale with two keys |
 | `BOND_UNLOCK_DELAY` | `1440` blocks | Lock/cooldown after an unbond (anti-grind) |
 | `EPOCH_LENGTH` | `60` slots | Blocks per RANDAO beacon epoch |
 | `POSW_LEASE_EPOCHS` | `240` (~1 day) | OPEN-lane presence lease — an identity re-proves PoSW within this window to stay eligible |

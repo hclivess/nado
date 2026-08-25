@@ -1,3 +1,5 @@
+> **Note (2026-08-25):** the per-identity `BOND_CAP` / `MAX_SHARES` cap referenced below was removed — bonded weight is linear in stake (`bonded // B_MIN`). References to the cap are historical.
+
 # Node service reward — paying real infrastructure, without a farmable IP loop
 
 > **Status: design proposal (not implemented).** Captures the "reward public-IP operators, consensus-routed

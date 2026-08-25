@@ -722,20 +722,14 @@ AUTO_COLLECT_MIN_RAW = AUTO_MIN_FEE_MULTIPLE * MIN_TX_FEE  # 0.001 NADO at defau
 # earnings into bonded stake out of the box, so miners join the capital-gated bonded lane hands-free
 # without ever touching a setting. Still fully overridable (config / env / UI), and 0 explicitly = off.
 #
-# WHY 99 AND NOT 80 — the percentage does not decide who leads, BOND_CAP does, and a HIGHER percentage
-# reaches that equaliser sooner for everyone. Measured on betanet-2's distribution (leader 33 of 42
-# shares), time to reach the 1000 NADO cap:
-#
-#     pct    leader     1-share node    fresh node
-#     20%     6.0 d        294.6 d        5952 d
-#     80%     1.5 d         73.7 d        1488 d
-#     99%     1.2 d         59.5 d        1203 d
-#
-# The leader caps almost immediately at ANY setting — it out-earns the field 33x, so no dial stops it
-# arriving first. What the dial actually controls is how fast EVERYONE ELSE reaches the same ceiling, and
-# past the cap extra stake buys no weight at all. So the setting that most limits how long one node can
-# run ahead is the highest one that still leaves a node able to pay its fees — hence 99, with the
-# liquidity reserve in core_loop.maybe_auto_bond holding back what a node needs to keep transacting.
+# WHY 99 AND NOT 80 — bonded weight is linear in stake (no per-identity cap since 2026-08-25), so the
+# percentage decides how fast a miner's share of the lane tracks what it mines. The leader out-earns the
+# field many times over at ANY setting; what the dial controls is how quickly everyone ELSE compounds
+# toward their proportional share instead of leaving mined coins idle. So the setting that least
+# disadvantages a small miner is the highest one that still leaves a node able to pay its fees — hence
+# 99, with the liquidity reserve in core_loop.maybe_auto_bond holding back what a node needs to keep
+# transacting. (The old rationale cited a 1,000 NADO cap as "the equaliser"; that cap was per key and
+# bound only honest single-key miners — see the note above B_MIN.)
 #
 # Note this is a CLIENT DEFAULT, not consensus: wallets and operators override it freely.
 AUTO_BOND_DEFAULT_PERCENT = 99
@@ -1204,8 +1198,16 @@ B_MIN = 100_000_000_000            # 10 NADO: capital per bonded selection share
                                    # chain running on the zero-stake open-lane fallback. 10 NADO is reachable
                                    # by an ordinary miner yet still real skin-in-the-game (Sybil in the bonded
                                    # lane costs 10 NADO × shares, locked + slashable — unlike the free open lane).
-BOND_CAP = 10_000_000_000_000      # 1,000 NADO: max effective bond per identity (100x B_MIN)
-MAX_SHARES = BOND_CAP // B_MIN     # 100: variance cap so a whale can't monopolise the bonded lane
+# NO PER-IDENTITY BOND CAP (removed 2026-08-25). There was one — BOND_CAP = 1,000 NADO, MAX_SHARES = 100 —
+# sold as "a whale can't monopolise the bonded lane". It never did that: the cap was per KEY, and a second
+# key (the wallet derives them from the same seed) restored linear weight, while finality safety assumes
+# 2/3 of honest STAKE regardless of how many keys hold it and slashing is per key per offence either way.
+# The only party the cap actually bound was the honest single-identity miner, whose coins went idle at the
+# ceiling. Weight is now what it always was for anyone with two keys: linear in stake, shares = bonded //
+# B_MIN. Removed UNGATED: no identity had ever bonded above the old cap on this chain (leader 272 NADO
+# at removal, total supply ~5,200), so every historical share count is unchanged and fork-choice weight,
+# the FFG quorum and settlement justification replay identically. The bounds that are real stay:
+# capital cost, the BOND_RAMP_EPOCHS producer ramp, slashing, and the OPEN_BPS capital-free lane.
 # BONDED PRODUCER RAMP (anti-sudden-takeover): a newly-bonded identity's PRODUCER-SELECTION weight ramps
 # linearly from 0 to full over BOND_RAMP_EPOCHS, tracked by a STAKE-WEIGHTED bond age (so a top-up re-ramps
 # the new stake, closing the "age a cheap address then dump" loophole, while auto-bond's small top-ups barely

@@ -255,15 +255,16 @@ so this ramp is live. *(implemented)*
 non-spendable `bonded` column. Bonded-lane selection weight is:
 
 ```
-shares = min(bonded, BOND_CAP) // B_MIN      (0 below B_MIN)
+shares = bonded // B_MIN                     (0 below B_MIN; linear, no per-identity cap since 2026-08-25)
 ```
 
 with `B_MIN = 10 NADO` per share and `BOND_CAP = 1,000 NADO`. Two consequences:
 
 - **Split-neutral.** Sharding capital across many addresses gives *zero*
   advantage — weight depends only on total bonded capital, capped per identity.
-- **Whale-capped.** A single identity tops out at `MAX_SHARES = BOND_CAP // B_MIN
-  = 100` shares, so no whale can monopolize the bonded lane. *(implemented)*
+- **No per-identity cap.** The former `BOND_CAP`/`MAX_SHARES` (1,000 NADO / 100 shares) was removed
+  2026-08-25: it was per key, so a second key restored linear weight; finality safety assumes 2/3 honest
+  *stake* regardless of key count; it bound only honest single-key miners.
 
 > **Bonded time-ramp (sudden-whale defense, implemented).** A freshly-bonded identity
 > does **not** receive full producer weight immediately: its **producer-selection** weight
@@ -522,8 +523,8 @@ miners, so the real bound is off-L1 bookkeeping, not precision.
   below), not an instant reversal. A guarded UPDATE keeps `bonded` non-negative
   (fails closed). *(implemented)*
 - **Whale dampening (capital).** Selection weight is split-neutral and
-  per-identity capped (Section 2.5): `min(bonded, BOND_CAP) // B_MIN`, capped at
-  `MAX_SHARES = 100`. *(implemented)*
+  linear in stake (Section 2.5): `bonded // B_MIN`, no per-identity cap (removed
+  2026-08-25). *(implemented)*
 - **Whale dampening (time) — bonded producer ramp.** A freshly-bonded identity's
   **producer-selection** weight ramps linearly 0 → full over `BOND_RAMP_EPOCHS = 30`,
   keyed by a **stake-weighted bond age** (`bond_since`), so a top-up re-ramps the new
@@ -1296,8 +1297,7 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `K_OPEN` | `12` (= `EPOCH_LENGTH*OPEN_BPS//BPS_DENOM`) | Open slots/epoch; the other 48 are bonded. |
 | `BPS_DENOM` | `10000` | Basis-point denominator. |
 | `B_MIN` | `1e11` (10 NADO) | Capital per bonded selection share; 0 shares below this. Low enough that a fair-launch miner can enter the staking lane — the bonded registry no longer sits empty. |
-| `BOND_CAP` | `1e13` (1,000 NADO) | Max effective bond per identity (anti-whale); still `100 × B_MIN`. |
-| `MAX_SHARES` | `100` (= `BOND_CAP//B_MIN`) | Variance cap; max bonded shares one identity wields. |
+| ~~`BOND_CAP`~~ / ~~`MAX_SHARES`~~ | removed 2026-08-25 | Weight is linear in stake; the per-key cap never bound a whale with two keys. |
 | `BOND_UNLOCK_DELAY` | `1440` blocks | Unbond timelock — **enforced**: `unbond` is a release request (stake stays bonded + slashable); fee-exempt `withdraw` claims it at/after `release_block = current + 1440`. |
 | `BOND_RAMP_EPOCHS` | `30` | Bonded **producer-selection** weight ramps 0→full over this many epochs by stake-weighted bond age (`bond_since`) — anti-sudden-whale; **producer draw only**, never fork-choice/FFG/settlement weight (Section 4.5, doc/takeover-resistance.md). |
 | `POSW_T` / `POSW_S` / `POSW_K` | `1_000_000` / `2_000` / `20` | Sequential registration Proof-of-Work: chain length / checkpoint segment / Fiat-Shamir spot-checks (~1 s in-browser; verify `O(k·S)`). Post-quantum, consensus-verified; prices identity creation in non-parallelizable time. |

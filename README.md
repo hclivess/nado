@@ -199,12 +199,11 @@ addresses from one machine is throttled (below).
 
 A `bond` transaction moves spendable balance into a non-spendable `bonded` column; an `unbond`/`withdraw`
 pair moves it back out after a timelock (see below). Bonded selection weight is
-`min(bonded, BOND_CAP) // B_MIN`, capped at `MAX_SHARES = 100`:
+`bonded // B_MIN` — linear in stake, no per-identity cap (removed 2026-08-25):
 
 - **Split-neutral** — weight depends only on total bonded capital, so sharding across many addresses
   gains nothing.
-- **Whale-capped** — a single identity tops out at `BOND_CAP = 1,000 NADO` (`B_MIN = 10 NADO` per
-  share), so no whale can monopolise the lane. The bond is **refundable** — you keep your coins.
+- **No per-identity cap** — weight is linear in stake. The old `BOND_CAP` (1,000 NADO) was per key, so a second key restored linear weight; it bound only honest single-key miners and was removed 2026-08-25.
 
 > **Bonded lane + FFG finality — now active.** At the **10-NADO** entry the bonded registry is
 > **populated** and blocks began producing on the bonded lane the moment `B_MIN` dropped. At the old
@@ -397,7 +396,7 @@ their weight in the bonded lane without any manual `bond` transactions. It is **
 bonded lane hands-free) and fully **overridable** — set `0` to keep all rewards spendable; an explicit
 `0` is remembered and never reverts to the default. It is throttled to **at most one bond per epoch**,
 only fires once the accrued amount clears a small dust floor (so each bond dwarfs its tiny fee), and
-**stops automatically at `BOND_CAP`** (1,000 NADO — bonding past it buys no extra selection weight, so
+**never stops** (no per-identity cap since 2026-08-25 — every bonded coin is weight, so
 it never needlessly freezes coins). It is available in **all three clients**:
 
 - **Node (unattended):** set `auto_bond_percent` in `private/config.json`, or the
@@ -756,7 +755,7 @@ of FFG/RANDAO and the outstanding eclipse hardening above, the **documented resi
   of bonded stake via the same `slash` path as block-authorship double-signing. On-chain double-voting is
   still blocked by the per-epoch `UNIQUE(validator, epoch)` marker; cross-fork double-voting is now
   punished rather than merely prevented.
-- **The bonded `MAX_SHARES` cap is per-identity, not aggregate** — sharding capital above `BOND_CAP`
+- **There is no bonded per-identity cap (removed 2026-08-25)** — the old `MAX_SHARES` was per key; sharding capital above it
   across addresses recovers full proportional weight. The bonded lane is **capital-proportional by
   design**; the cap only limits single-address variance, not aggregate stake.
 - **Registration / fee-exempt state growth** — `register` writes an account doc; **idle-account GC is implemented**

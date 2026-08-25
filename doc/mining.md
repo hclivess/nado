@@ -51,8 +51,9 @@ the model is a **capped, fair-launch bonded chain**: lock coins (you keep them) 
 
 1. **Eligibility = a refundable BOND.** Lock coins into a separate `bonded` balance.
 2. **Weight = split-neutral, capped shares**, optionally ramped by **fidelity** (continuity):
-   `shares = min(bonded, BOND_CAP) // B_MIN`. Sharding capital across many addresses gives
-   **zero** advantage, and a whale is capped at `MAX_SHARES`.
+   `shares = bonded // B_MIN`, linear in stake. Sharding capital across many addresses gives
+   **zero** advantage — and merging it gives none either. (The per-identity `BOND_CAP`/`MAX_SHARES`
+   cap was removed 2026-08-25: it was per key, so it never bound a whale, only honest single-key miners.)
 3. **Randomness = a commit-reveal RANDAO beacon**, chained with the previous beacon and
    produced by the always-on bonded set — **not** the grindable parent-hash, and **never** an
    grindable signature (a malleable signature scheme accepts non-unique encodings, so a signature is
@@ -97,7 +98,7 @@ staker" — strictly less profitable than buying coins on the market.
   `balance`; bonded stake is never spendable.
 
 **S4.2 — selection + beacon** (`ops/mining_ops.py`, pure/deterministic/integer-only):
-- `selection_shares(bonded, fidelity=None)` — split-neutral, capped at `MAX_SHARES`, optional
+- `selection_shares(bonded, fidelity=None)` — split-neutral, linear (no cap), optional
   linear fidelity ramp to full over `FIDELITY_CAP`.
 - `select_producer(registry, beacon, slot)` — deterministic split-neutral weighted draw over
   `int(blake2b_hash([beacon, slot])) % total_shares`, canonical sorted-address walk.
@@ -167,12 +168,12 @@ Crucially the ramp is applied **only** in the producer draw (`mining_ops.select_
 via `bond_ramp_weight`). It deliberately does **not** touch **fork-choice chain weight** or the
 **FFG / settlement quorum**, which keep the ramp-free `total_bonded_shares` — so finality is never
 made tenure-dependent and the ramp can never stall the chain. It only *delays* a patient whale; the
-hard bounds stay real capital cost + the per-address `MAX_SHARES` cap + slashing/finality. Full
+hard bounds stay real capital cost + slashing/finality (no per-address cap since 2026-08-25). Full
 rationale and the takeover math: **doc/takeover-resistance.md**.
 
 ## Provisional parameters (simulate before locking)
 
-Bonded lane: `B_MIN = 1e11` (10 NADO), `BOND_CAP = 1e13` (1,000 NADO), `MAX_SHARES = 100`,
+Bonded lane: `B_MIN = 1e11` (10 NADO), no per-identity cap (removed 2026-08-25),
 `EPOCH_LENGTH = 60`, `BOND_UNLOCK_DELAY = 1440`, `BOND_RAMP_EPOCHS = 30`.
 Open lane: `OPEN_BPS = 3000` (30% ⇒ `K_OPEN = 18` slots/epoch), `OPEN_BASE_FLOOR = 2`,
 `OPEN_FID_BONUS = 8` (open weight ranges 2..10), `POSW_LEASE_EPOCHS = 240` (≈ 1 day recert lease).

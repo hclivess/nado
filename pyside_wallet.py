@@ -125,7 +125,6 @@ EPOCH_LENGTH = protocol.EPOCH_LENGTH           # slots per epoch (60)
 K_OPEN = protocol.K_OPEN                        # open-lane slots per epoch (12)
 OPEN_BPS = protocol.OPEN_BPS                    # open lane share in basis points (2000 = 20%)
 B_MIN = protocol.B_MIN                          # raw per bonded selection share (100 NADO)
-BOND_CAP = protocol.BOND_CAP                    # max effective bond per identity (10k NADO)
 MIN_TX_FEE = protocol.MIN_TX_FEE                # deterministic min fee (raw)
 AUTO_BOND_MIN_RAW = protocol.AUTO_BOND_MIN_RAW  # dust floor for an auto-bond (0.001 NADO)
 AUTO_BOND_DEFAULT_PERCENT = protocol.AUTO_BOND_DEFAULT_PERCENT  # default auto-bond % when unset (80)
@@ -900,7 +899,7 @@ class BondTab(QWidget):
         root.addWidget(hint(
             f"Bonding locks spendable balance into refundable stake that earns weight in the "
             f"BONDED mining lane. Selection weight is capped & split-neutral: one share per "
-            f"{fmt_nado(B_MIN)} bonded, up to {fmt_nado(BOND_CAP)} effective per identity. Bonding "
+            f"{fmt_nado(B_MIN)} bonded; weight is linear in stake with no per-identity cap. Bonding "
             f"pays the tiny automatic network fee ({fmt_nado(MIN_TX_FEE)}); unbonding is free. "
             f"Unbonding moves stake back toward spendable balance (subject to the node's unlock delay)."
         ))
@@ -1021,7 +1020,7 @@ class MiningTab(QWidget):
 
         # AUTO-BOND: compound a % of mining rewards straight into bonded stake while mining (mirrors the
         # node's headless auto_bond_percent and the browser miner's setting). Once per epoch, dust-floored,
-        # stops at BOND_CAP.
+        # no upper stop: bonded weight is linear in stake.
         ab_row = QHBoxLayout()
         ab_row.addWidget(QLabel("Auto-bond mining rewards"))
         self.auto_bond_spin = QSpinBox()
@@ -1030,7 +1029,7 @@ class MiningTab(QWidget):
         self.auto_bond_spin.setValue(int(self.app.auto_bond_pct))
         self.auto_bond_spin.setToolTip(
             "While mining, automatically bond this percentage of each block reward you earn — "
-            "compounding your bonded-lane weight hands-free. Capped at BOND_CAP; 0 = off.")
+            "compounding your bonded-lane weight hands-free. 0 = off.")
         self.auto_bond_spin.valueChanged.connect(self.app.set_auto_bond_pct)
         ab_row.addWidget(self.auto_bond_spin)
         ab_row.addStretch(1)
@@ -1725,7 +1724,7 @@ class WalletWindow(QMainWindow):
     def _maybe_auto_bond(self):
         """AUTO-BOND: route a configured % of newly-mined spendable earnings straight into bonded stake.
         Mirrors core_loop.maybe_auto_bond and the browser miner: one bond per epoch, accrues below the
-        AUTO_BOND_MIN_RAW dust floor, stops at BOND_CAP. Runs the decision + build+submit in a worker."""
+        AUTO_BOND_MIN_RAW dust floor. Runs the decision + build+submit in a worker."""
         if not self.auto_bond_pct or self.auto_bond_pct <= 0 or not self.mining_active or not self.keys:
             return
         pct = int(self.auto_bond_pct)
@@ -1746,14 +1745,11 @@ class WalletWindow(QMainWindow):
             if self.auto_bond_baseline is None:
                 self.auto_bond_baseline = balance         # only future earnings
                 return None
-            if bonded >= BOND_CAP:
-                self.auto_bond_baseline = balance         # already at the weight cap
-                return None
             gain = balance - self.auto_bond_baseline
             if gain <= 0:
                 self.auto_bond_baseline = balance         # balance fell — rebaseline
                 return None
-            to_bond = min((gain * pct) // 100, BOND_CAP - bonded)
+            to_bond = (gain * pct) // 100
             if to_bond < AUTO_BOND_MIN_RAW or balance < to_bond + MIN_TX_FEE:
                 return None                               # accrue (no rebaseline)
             resp = self.build_transfer("bond", to_bond, MIN_TX_FEE)

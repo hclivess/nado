@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ops.mining_ops import total_bonded_shares
 from ops.block_ops import construct_block
-from protocol import B_MIN, BOND_CAP, MAX_SHARES
+from protocol import B_MIN
 
 fails = 0
 def check(name, fn):
@@ -26,16 +26,17 @@ def check(name, fn):
 
 
 def t1():
-    """Prove total_bonded_shares is pure capped stake: 1 + 5 + MAX_SHARES + 0, ignoring fidelity and sub-B_MIN bonds."""
+    """Prove total_bonded_shares is pure linear stake: 1 + 5 + 1000 + 0, ignoring fidelity and sub-B_MIN bonds
+    (no per-identity cap since 2026-08-25 — a whale counts its whole stake)."""
     reg = {
         "a": {"bonded": B_MIN, "fidelity": 0},          # exactly 1 share
         "b": {"bonded": 5 * B_MIN, "fidelity": 0},      # 5 shares
-        "c": {"bonded": BOND_CAP * 10, "fidelity": 0},  # whale -> capped at MAX_SHARES
+        "c": {"bonded": 1000 * B_MIN, "fidelity": 0},   # whale -> 1000 shares, linear
         "d": {"bonded": B_MIN - 1, "fidelity": 99},     # below B_MIN -> 0 (fidelity ignored)
     }
     got = total_bonded_shares(reg)
-    assert got == 1 + 5 + MAX_SHARES + 0, got
-check("total_bonded_shares = pure capped stake, NO fidelity ramp", t1)
+    assert got == 1 + 5 + 1000 + 0, got
+check("total_bonded_shares = pure linear stake, NO fidelity ramp, NO cap", t1)
 
 def t2():
     """Prove an empty bonded registry yields weight 0."""

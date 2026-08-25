@@ -319,7 +319,7 @@
     </div>
 
     <!-- Auto-bond is also settable right here on the mining interface (kept in sync with the Stake tab). -->
-    <div class="row mt" style="align-items:center;gap:8px" data-i18n-title="tip.autobond" title="While mining, automatically bond this percentage of the block rewards you earn — compounding your bonded-lane weight hands-free. Capped at BOND_CAP; 0 = off. The node has the same option for headless mining (NADO_AUTO_BOND_PERCENT).">
+    <div class="row mt" style="align-items:center;gap:8px" data-i18n-title="tip.autobond" title="While mining, automatically bond this percentage of the block rewards you earn — compounding your bonded-lane weight hands-free (weight is linear in stake — no cap); 0 = off. The node has the same option for headless mining (NADO_AUTO_BOND_PERCENT).">
       <label style="margin:0;flex:1" data-i18n="stake.autobond">Auto-bond mining rewards <span class="hint">ⓘ</span></label>
       <input id="autoBondPctMine" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:80px" />
       <span class="small faint">%</span>
@@ -671,10 +671,10 @@
 
     <!-- AUTO-BOND: compound a % of mining rewards straight into bonded stake, hands-free. Mirrors the
          node's unattended auto-bond (core_loop.maybe_auto_bond): once per epoch, dust-floored, stops at
-         BOND_CAP. Applies in THIS browser while the tab is mining. -->
+         (no cap: bonded weight is linear in stake). Applies in THIS browser while the tab is mining. -->
     <div class="hint-banner mt" style="display:block">
       <label style="margin:0" data-i18n="stake.autobond">Auto-bond mining rewards
-        <span class="hint" data-i18n-title="tip.autobond" title="While this tab is mining, automatically bond this percentage of the block rewards you earn — compounding your bonded-lane weight hands-free. Capped at BOND_CAP; 0 = off. The node itself has the same option for headless mining (auto_bond_percent / NADO_AUTO_BOND_PERCENT).">ⓘ</span>
+        <span class="hint" data-i18n-title="tip.autobond" title="While this tab is mining, automatically bond this percentage of the block rewards you earn — compounding your bonded-lane weight hands-free (weight is linear in stake — no cap); 0 = off. The node itself has the same option for headless mining (auto_bond_percent / NADO_AUTO_BOND_PERCENT).">ⓘ</span>
       </label>
       <div class="mt" style="display:flex;align-items:center;gap:10px">
         <input id="autoBondPct" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:96px" />

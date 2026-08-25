@@ -39,7 +39,7 @@ def main():
                  "POSW_TARGET_MARGIN", "EPOCH_LENGTH", "FINALITY_DEPTH", "TX_TARGET_MARGIN",
                  "BOND_UNLOCK_DELAY", "FIDELITY_CAP"]
     # and the ones the wallet renames (raw-unit suffix / BigInt literal)
-    RENAMED = {"B_MIN_RAW": "B_MIN", "BOND_CAP": "BOND_CAP", "MIN_TX_FEE": "MIN_TX_FEE"}
+    RENAMED = {"B_MIN_RAW": "B_MIN", "MIN_TX_FEE": "MIN_TX_FEE"}
 
     seen = 0
     for name in SAME_NAME:

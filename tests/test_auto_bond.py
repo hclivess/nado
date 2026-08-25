@@ -8,7 +8,7 @@ logger = logging.getLogger("autobond"); logger.addHandler(logging.NullHandler())
 from genesis import create_indexers
 create_indexers()
 
-from protocol import DENOMINATION, MIN_TX_FEE, AUTO_BOND_MIN_RAW, BOND_CAP, EPOCH_LENGTH
+from protocol import DENOMINATION, MIN_TX_FEE, AUTO_BOND_MIN_RAW, EPOCH_LENGTH
 from ops.account_ops import (create_account, get_account, change_balance, change_bonded,
                              increase_produced_count)
 from ops.key_ops import generate_keys
@@ -117,16 +117,17 @@ def t3():
     assert core.auto_bond_baseline == base_before, "dust path must NOT rebaseline (keeps accruing)"
 check("below dust floor accrues without a tx or rebaseline", t3)
 
-# ---- 4. stops at BOND_CAP (extra bond buys no weight) --------------------------------------------
+# ---- 4. NO upper stop (the per-identity cap was removed 2026-08-25; weight is linear in stake) ----
 def t4():
-    """Prove no auto-bond is emitted once bonded is already at BOND_CAP."""
-    core, mem, kd = make_core(pct=100)
-    change_bonded(kd["address"], BOND_CAP, logger=logger)   # already at cap
+    """Prove auto-bond keeps compounding above the OLD 1,000 NADO cap — extra bond IS weight now."""
+    core, mem, kd = make_core(pct=50)             # <100% so the gain also covers the tx fee
+    change_bonded(kd["address"], 1000 * 100_000_000_000, logger=logger)   # 1,000 NADO already bonded
     core.maybe_auto_bond()                        # baseline
     add_reward(kd["address"], 100); set_epoch(mem, 2)
     core.maybe_auto_bond()
-    assert mem.submitted == [], "must not bond once bonded >= BOND_CAP"
-check("stops auto-bonding at BOND_CAP", t4)
+    assert len(mem.submitted) == 1, "must keep bonding past 1,000 NADO (no cap)"
+    assert mem.submitted[0]["amount"] == 50 * DENOMINATION, mem.submitted[0]["amount"]
+check("keeps auto-bonding past the old 1,000 NADO cap", t4)
 
 # ---- 5. pct=0 is fully off --------------------------------------------------------------------
 def t5():

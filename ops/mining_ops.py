@@ -9,8 +9,9 @@ select_producer into block production/verification) is the S4.3 integration laye
 
 Design (from the red-teamed "Option A" hybrid):
   - Sybil cost = locked refundable BOND, not a public IP. Selection weight is SPLIT-NEUTRAL:
-    shares = min(bonded, BOND_CAP) // B_MIN, so sharding capital across many addresses gives
-    exactly zero advantage, and the cap stops a whale from monopolising selection.
+    shares = bonded // B_MIN, linear in stake — sharding capital across many addresses gives
+    exactly zero advantage and merging it gives none either (no per-identity cap since 2026-08-25:
+    the old one was per KEY and only ever bound honest single-key miners).
   - Randomness = a commit-reveal RANDAO beacon contributed by always-on bonded participants and
     CHAINED with the previous beacon, so it cannot be ground by the previous producer (the
     grindable parent_block_hash seed — audit M6 — is abandoned) and a single withholder gets at
@@ -21,7 +22,7 @@ Design (from the red-teamed "Option A" hybrid):
 """
 from hashing import blake2b_hash
 from protocol import DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, DOMAIN_RANDAO_BEACON
-from protocol import (B_MIN, BOND_CAP, EPOCH_LENGTH, FIDELITY_CAP, BOND_RAMP_EPOCHS,
+from protocol import (B_MIN, EPOCH_LENGTH, FIDELITY_CAP, BOND_RAMP_EPOCHS,
                       K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS, REGISTER_POW_BITS)
 
 
@@ -31,15 +32,15 @@ def epoch_of(block_number: int) -> int:
 
 
 def selection_shares(bonded: int, fidelity=None) -> int:
-    """Split-neutral, capped selection weight for a bonded identity.
+    """Split-neutral, linear selection weight for a bonded identity.
 
-    shares = min(bonded, BOND_CAP) // B_MIN  (0 if under the minimum bond).
+    shares = bonded // B_MIN  (0 if under the minimum bond).
     Optional fidelity ramp (anti-whale time dimension): a newcomer's weight ramps linearly to
     full over FIDELITY_CAP epochs of continuous presence, so an instant whale cannot buy its
     full proportional share on day one. fidelity=None disables the ramp (full weight)."""
     if bonded < B_MIN:
         return 0
-    shares = min(bonded, BOND_CAP) // B_MIN
+    shares = bonded // B_MIN
     if fidelity is not None and fidelity < FIDELITY_CAP:
         shares = shares * fidelity // FIDELITY_CAP
     return shares
@@ -55,8 +56,8 @@ def total_shares(registry: dict) -> int:
 def total_bonded_shares(bonded_registry: dict) -> int:
     """Fork-choice CHAIN-WEIGHT contribution of one block (#16/#17 step 2): the TOTAL bonded selection
     capacity of the registry as-of-the-block's-PARENT, summed as pure committed stake (NO fidelity
-    ramp) so it is a stable, grind-proof, integer measure. Per identity: min(bonded,BOND_CAP)//B_MIN
-    (== capped at MAX_SHARES). Deliberately the TOTAL registry weight, NOT the slot winner's share —
+    ramp) so it is a stable, grind-proof, integer measure. Per identity: bonded//B_MIN (linear, no
+    per-identity cap). Deliberately the TOTAL registry weight, NOT the slot winner's share —
     that makes cumulative_weight BEACON-INDEPENDENT (a proposer cannot grind the beacon to inflate
     fork weight) and removes any self-bond-on-a-private-fork leverage. Browser-reproducible (integer
     only). fidelity is intentionally excluded so the weight does not drift with presence ramps."""
@@ -152,7 +153,7 @@ def open_shares(fidelity) -> int:
 
 
 def _bonded_shares(info: dict) -> int:
-    """bonded-lane weight of one registry entry: split-neutral capped shares incl. fidelity ramp"""
+    """bonded-lane weight of one registry entry: split-neutral linear shares incl. fidelity ramp"""
     return selection_shares(info["bonded"], info.get("fidelity"))
 
 

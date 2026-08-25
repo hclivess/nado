@@ -158,7 +158,7 @@ Emission splits: open lane `OPEN_BPS`=30% of slots, bonded lane 70% pro-rata to 
 is `π·(0.70 − r)/r`, which goes **negative past r=0.70** (open lane siphons 30%), so bonding self-limits — a
 "100% bonded" state cannot occur. Solving `real_yield(r)=h` for a ~3% hurdle gives a stable **~39% bonded**
 equilibrium (2% → ~44%, 5% → ~33%); the feedback converges without oscillation (simulated). No griefing: a
-whale over-bonding only burns its own yield and is capped by `BOND_CAP` (100 shares/identity).
+whale over-bonding only burns its own yield (no per-identity cap since 2026-08-25 — weight is linear in stake).
 
 ## Fairness — reduction applies to the open lane too, on purpose
 

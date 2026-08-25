@@ -3,7 +3,7 @@ os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_s42_")
 os.makedirs(os.path.expanduser("~/nado/logs"), exist_ok=True)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from protocol import B_MIN, BOND_CAP, MAX_SHARES, FIDELITY_CAP
+from protocol import B_MIN, FIDELITY_CAP
 from ops.mining_ops import (selection_shares, total_shares, select_producer,
                             beacon_commitment, verify_reveal, compute_beacon, epoch_of)
 from hashing import blake2b_hash
@@ -20,13 +20,15 @@ def check(name, fn):
     except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 def t1():
-    """Prove selection_shares gates below B_MIN, scales linearly, and caps at MAX_SHARES (anti-whale)."""
+    """Prove selection_shares gates below B_MIN and scales linearly with NO per-identity cap (removed
+    2026-08-25: the cap was per key and only ever bound honest single-key miners)."""
     assert selection_shares(0) == 0 and selection_shares(B_MIN - 1) == 0          # below min => ineligible
     assert selection_shares(B_MIN) == 1
     assert selection_shares(4 * B_MIN) == 4
-    assert selection_shares(1000 * B_MIN) == MAX_SHARES                            # capped, anti-whale
-    assert selection_shares(BOND_CAP * 10) == MAX_SHARES
-check("selection_shares: min gate, linear, capped at MAX_SHARES", t1)
+    assert selection_shares(1000 * B_MIN) == 1000                                  # linear, uncapped
+    assert selection_shares(10_000 * B_MIN) == 10_000
+    assert selection_shares(10_000 * B_MIN + B_MIN - 1) == 10_000                  # floor division
+check("selection_shares: min gate, linear, uncapped", t1)
 
 def t2():
     """Prove the fidelity ramp scales share weight linearly from 0 to full at FIDELITY_CAP."""

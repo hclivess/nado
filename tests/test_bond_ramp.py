@@ -18,7 +18,7 @@ logger = logging.getLogger("bramp"); logger.addHandler(logging.NullHandler())
 from genesis import create_indexers
 create_indexers()
 
-from protocol import BOND_RAMP_EPOCHS, B_MIN, EPOCH_LENGTH, BOND_CAP
+from protocol import BOND_RAMP_EPOCHS, B_MIN, EPOCH_LENGTH
 from ops import kv_ops
 from ops.account_ops import create_account, reflect_transaction, get_bonded_registry, apply_bond_since
 from ops.mining_ops import (bond_ramp_weight, selection_shares, total_bonded_shares,
@@ -100,7 +100,7 @@ def t6_selector_withholds_slots_from_a_sudden_whale():
     beacon = "c0ffee" * 8
     # aged small validator (unset age => full weight) vs a sudden whale with 100x stake, bonded THIS epoch
     aged = {"ndoAGED": {"bonded": 1 * B_MIN, "fidelity": None, "bond_since": None}}
-    fresh_whale = {"ndoWHALE": {"bonded": BOND_CAP, "fidelity": None, "bond_since": 200}}
+    fresh_whale = {"ndoWHALE": {"bonded": 100 * B_MIN, "fidelity": None, "bond_since": 200}}
     reg = {**aged, **fresh_whale}
     epoch = 200
     whale_wins = aged_wins = 0
@@ -115,8 +115,8 @@ def t7_quorum_and_weight_stay_ramp_free():
     """Prove total_bonded_shares (fork-choice weight + FFG/settlement quorum) ignores the ramp entirely."""
     # total_bonded_shares (fork-choice weight + FFG/settlement quorum) must IGNORE the ramp: a whale bonded
     # this instant still counts its FULL shares for finality — only PRODUCER selection is throttled.
-    fresh_whale = {"ndoWHALE": {"bonded": BOND_CAP, "fidelity": None, "bond_since": 200}}
-    raw = selection_shares(BOND_CAP)                            # 100 shares
+    fresh_whale = {"ndoWHALE": {"bonded": 100 * B_MIN, "fidelity": None, "bond_since": 200}}
+    raw = selection_shares(100 * B_MIN)                         # 100 shares
     assert total_bonded_shares(fresh_whale) == raw, "quorum/weight must use ramp-free shares"
 
 def t8_genesis_topup_keeps_aged_status():

@@ -12,7 +12,7 @@ still recover from.
 SCOPE: it governs OUTFLOWS (fees). Auto-bond is exempt on purpose — bonding moves coins between the
 owner's own columns and returns after the unbond timelock, so it is not a spend; it is bounded by a
 liquidity reserve instead. That distinction is load-bearing: applying the ceiling to auto-bond capped a
-99% setting at ~50% for fresh nodes, throttling exactly the nodes trying to reach BOND_CAP.
+99% setting at ~50% for fresh nodes, throttling exactly the nodes trying to compound their bond.
 
 WHAT THESE CHECKS PIN: the boundary itself (exactly half is allowed, one raw unit more is not), that it
 fails CLOSED on degenerate inputs rather than dividing by zero or waving through a zero-balance account,
@@ -73,7 +73,7 @@ def main():
         # AUTO-BOND IS DELIBERATELY EXEMPT FROM THE CEILING. It is not an outflow — coins move between the
         # owner's own columns and return after the unbond timelock. Applying the half-rule here silently
         # capped a 99% auto-bond at ~50% for fresh nodes (whose new earnings ARE most of their balance),
-        # i.e. it would have throttled exactly the nodes trying to reach BOND_CAP. It gets a LIQUIDITY
+        # i.e. it would have throttled exactly the nodes trying to compound their bond. It gets a LIQUIDITY
         # RESERVE instead: always leave enough behind to keep paying fees.
         bond = body("maybe_auto_bond", "maybe_auto_collect")
         check("auto-bond is NOT gated by the outflow ceiling", "auto_spend_allowed" not in bond)

@@ -45,7 +45,7 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         os.environ["HOME"] = d
         os.makedirs(os.path.join(d, "nado"), exist_ok=True)
-        from protocol import BOND_CAP, MIN_TX_FEE, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW
+        from protocol import MIN_TX_FEE, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW
 
         class Node:
             """The auto-bond decision path from core_loop.maybe_auto_bond, in isolation."""
@@ -57,14 +57,11 @@ def main():
                 if self.baseline is None:
                     self.baseline = mined
                     return 0
-                if bonded >= BOND_CAP:
-                    self.baseline = mined
-                    return 0
                 gain = mined - self.baseline
                 if gain <= 0:
                     self.baseline = mined
                     return 0
-                to_bond = min((gain * self.pct) // 100, BOND_CAP - bonded)
+                to_bond = (gain * self.pct) // 100
                 if to_bond < AUTO_BOND_MIN_RAW or balance < to_bond + MIN_TX_FEE:
                     return 0                                     # accrue, do NOT rebaseline
                 if balance - (to_bond + MIN_TX_FEE) < AUTO_COLLECT_MIN_RAW:
@@ -109,14 +106,7 @@ def main():
         b.step(balance=500 * NADO, bonded=0, mined=1010 * NADO)          # mined 10
         check("mining advances the baseline by what it consumed", b.baseline == 1010 * NADO)
 
-        # ---- a CLAMPED bond leaves its remainder claimable ----------------------------------------------
-        # bonded is 1 NADO under the cap, so only 1 NADO of a 100 NADO mining gain can be bonded; the
-        # other 99 must still be claimable later (it is not, if the baseline jumps the whole gain).
-        c = Node(100)
-        c.step(balance=500 * NADO, bonded=BOND_CAP - 1 * NADO, mined=0)
-        got = c.step(balance=500 * NADO, bonded=BOND_CAP - 1 * NADO, mined=100 * NADO)
-        check("a bond clamped by BOND_CAP bonds only the headroom", got == 1 * NADO)
-        check("...and consumes only that much of the gain", c.baseline == 1 * NADO)
+        # (the per-identity cap and its headroom clamp were removed 2026-08-25 — nothing to clamp)
 
         # ---- dust accrues instead of emitting a fee-dominated tx ----------------------------------------
         e = Node(99)

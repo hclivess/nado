@@ -53,7 +53,7 @@ tested); the remaining items are documented residuals / future hardening.
   portable proof (`verify_attestation_equivocation_proof`) that burns `SLASH_BOND_PENALTY` of bonded
   stake via the same `slash` path as block-authorship equivocation (`resolve_slash`). The per-epoch
   uniqueness marker still blocks on-chain double-voting; cross-fork double-voting is now punished.
-- **The bonded `MAX_SHARES` cap is per-identity, not aggregate** — sharding capital above `BOND_CAP`
+- **There is no bonded per-identity cap (removed 2026-08-25)** — the old `MAX_SHARES` was per key; sharding capital above it
   across addresses recovers full proportional weight. The bonded lane is therefore capital-proportional
   ("pay-to-win") by design; the cap limits single-address variance, not aggregate stake.
 - **Registration / fee-exempt state growth** — `register` writes an account doc; idle-account GC is now implemented

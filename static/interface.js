@@ -91,10 +91,8 @@ const TX_INCLUSION_DELAY = 8;
 // Mirror of protocol.TX_TARGET_MARGIN. (Exact-landing txs — bond/unbond/register/governance — do NOT use it.)
 const TX_TARGET_MARGIN = 300;
 const BOND_UNLOCK_DELAY = 14400; // protocol.py: blocks a bond stays locked after an unbond request (= 1 day at 6s)
-const BOND_CAP = 10_000_000_000_000n;   // protocol.py BOND_CAP: 1,000 NADO — bonding past this buys no weight.
-// Was 10x this (and the comment said 10,000 NADO) — stale since B_MIN dropped 1000 -> 10 NADO. autoBond()
-// below compounds up to BOND_CAP, so the wrong value silently bonded ~9,000 NADO of a user's coins into
-// weight-less stake. MUST track protocol.py: MAX_SHARES = BOND_CAP // B_MIN must stay 100.
+// No per-identity bond cap (protocol.py, removed 2026-08-25): bonded weight is linear in stake, so autoBond()
+// below compounds without an upper stop. (The old BOND_CAP was per key and only ever idled honest miners' coins.)
 const ALIAS_REGISTRATION_FEE = 10_000_000; // protocol.py: 0.001 NADO anti-squat fee for `alias` register
 const AUTO_BOND_MIN_RAW = 10_000_000n;  // protocol.py: dust floor for an auto-bond (0.001 NADO)
 
@@ -4083,8 +4081,8 @@ async function doBond(kind) {
 
 /* AUTO-BOND: compound a configured % of newly-mined spendable earnings straight into bonded stake.
  * Mirrors the node's core_loop.maybe_auto_bond EXACTLY: throttled to one bond per epoch, accrues
- * below the AUTO_BOND_MIN_RAW dust floor instead of emitting fee-dominated dust txs, and STOPS once
- * bonded >= BOND_CAP (extra bond buys no selection weight). `acc` is the just-fetched /get_account.
+ * below the AUTO_BOND_MIN_RAW dust floor instead of emitting fee-dominated dust txs. No upper stop:
+ * bonded weight is linear in stake. `acc` is the just-fetched /get_account.
  * Called from the mining poll loop while mining + registered. Best-effort; never throws to the loop. */
 function setAutoBondPct(pct) {
   pct = Math.max(0, Math.min(100, Math.floor(Number(pct) || 0)));
@@ -4140,13 +4138,10 @@ async function maybeAutoBond(acc, ms) {
   // core_loop.maybe_auto_bond, which this mirrors.
   const mined = BigInt(acc.produced ?? 0);
   if (state.autoBondBaseline == null) { state.autoBondBaseline = mined; return; }    // only future mining
-  if (bonded >= BOND_CAP) { state.autoBondBaseline = mined; return; }                // already at the cap
   const gain = mined - state.autoBondBaseline;
   if (gain <= 0n) { state.autoBondBaseline = mined; return; }                        // nothing mined since
 
   let toBond = (gain * BigInt(pct)) / 100n;
-  const headroom = BOND_CAP - bonded;
-  if (toBond > headroom) toBond = headroom;
   const fee = MIN_TX_FEE;
   if (toBond < AUTO_BOND_MIN_RAW || balance < toBond + BigInt(fee)) return;          // accrue (no rebaseline)
 

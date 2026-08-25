@@ -1,3 +1,5 @@
+> **Note (2026-08-25):** the per-identity `BOND_CAP` / `MAX_SHARES` cap referenced below was removed — bonded weight is linear in stake (`bonded // B_MIN`). References to the cap are historical.
+
 # Theorem — the worst case: one miner trying to take every reward
 
 This note states, as a theorem with proof, the maximum share of block rewards a **single adversary** can
