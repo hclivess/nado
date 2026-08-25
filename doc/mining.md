@@ -141,7 +141,9 @@ tip):
   **Redesigned & shipped** — heartbeats were removed; presence is now the renewable **PoSW recert
   lease**. The open registry (`account_ops.get_open_registry`) is derived from the revert-safe
   recert index, and the continuity **fidelity** streak is driven by recerts (`apply_register`;
-  continuous gap ≤ lease ⇒ +`FIDELITY_GAIN`, a lapse resets), feeding `open_shares` (range 2..10).
+  continuous gap ≤ lease ⇒ +`FIDELITY_GAIN`; a lapse HALVES it from `DIVIDEND_RULES_EPOCH`, reset before —
+  `protocol.fidelity_step`), feeding `open_shares` (selection, range 2..10) and `protocol.dividend_weight`
+  (the dividend's own convex 1..25 curve from `DIVIDEND_RULES_EPOCH`).
   The bonded lane keeps the `selection_shares` fidelity ramp OFF (`fidelity=None`) and instead uses
   the tenure-based **bonded producer ramp** (`bond_ramp_weight`, below).
 - **Consensus-pool reweight** (today one vote per peer, `consensus_loop.py`) by trust/stake.

@@ -97,7 +97,15 @@ Either way the dividend fraud-proof replay (`dividend_ops.fidelity_at_epoch`, `w
 unaffected — the levy changes the *inflow* per epoch, which is already recorded per epoch and
 revert-symmetric (`dividend_inflow_add`), not the weights.
 
-## 5. Bottom line
+## 5. Status (2026-08-25, later the same day)
+
+Built as one generation-keyed change activating at block 72,000 on gen 22 (`protocol.py` `_GEN22_RULES_ACTIVATION`):
+`BONDED_DIVIDEND_BPS_V2 = 4000`, the dividend's own convex 1..25 weight curve (`dividend_weight`), and a
+softened lapse (`fidelity_step`: halve, not reset). 1:25 rather than the 1:100 first floated: the Sybil math is
+the same either way (a patient farm's masks ramp too), the honest cost of a lapse is not. The remaining lever
+against a *patient* farm is the recurring per-identity recert cost (`POSW_T`), untouched here.
+
+## 6. Bottom line
 
 - A progressive tax by identity size is the bond cap's mistake again; do not build it.
 - The enforceable version already exists: `BONDED_DIVIDEND_BPS`. Raising it to 4000 is the move if the goal

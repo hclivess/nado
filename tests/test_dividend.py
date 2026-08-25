@@ -79,7 +79,7 @@ def t3_bonded_block_also_funds_the_dividend():
     from protocol import split_bonded_block_reward
     a = generate_keys()["address"]; create_account(a, balance=0)
     div0, tre0 = bal(DIVIDEND_POOL), bal(TREASURY_ADDRESS)
-    pc, div, tre = split_bonded_block_reward(R)   # (producer 70%, dividend 20%, treasury 10%)
+    pc, div, tre = split_bonded_block_reward(R, 0)   # pre-activation: (producer 70%, dividend 20%, treasury 10%)
     block = {"block_number": BONDED_SLOT, "block_creator": a, "block_reward": R}
     assert block_lane(block) == "bonded"
     with kv_ops.write_txn(): credit_block_reward(block, logger=logger)

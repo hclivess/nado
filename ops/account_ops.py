@@ -1,5 +1,5 @@
 from ops import kv_ops
-from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
+from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, fidelity_step, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -657,19 +657,12 @@ def apply_register(address: str, epoch: int, logger, revert=False):
         acc = kv_ops.get_account(address)
         cur_fid = int(acc.get("fidelity", 0)) if acc else 0
         continuous = prev >= 0 and (epoch - prev) <= POSW_LEASE_EPOCHS
-        decay = 0 if continuous else cur_fid                    # a lapse (or first recert) resets to GAIN
-        # ANTI-FARM SPACING (protocol.FIDELITY_MIN_GAP_EPOCHS): a continuous recert earns the ramp only if
-        # it is far enough from the previous one. Closer recerts still renew the LEASE (presence is
-        # untouched) but earn nothing, which is what stops 30 epochs of spam reaching FIDELITY_CAP. Gated
-        # UNCONDITIONAL. The activation gate existed only to keep dividend_ops.fidelity_at_epoch's replay
-        # of PRE-RULE recerts byte-identical to what the live ramp had applied — get that wrong and a
-        # dividend fraud proof false-slashes an honest settler. A genesis reroll leaves NO pre-rule recert
-        # history to preserve, so the gate has nothing to protect and is removed rather than re-dated.
-        # dividend_ops.fidelity_at_epoch must stay in exact lockstep with this.
-        gain = FIDELITY_GAIN
-        if continuous and (epoch - prev) < FIDELITY_MIN_GAP_EPOCHS:
-            gain = 0
-        net = gain - decay                                      # cur_fid+net = cur_fid+gain (cont) or GAIN
+        # THE RAMP LIVES IN protocol.fidelity_step — one function for this live apply and for the fraud-proof
+        # replay (dividend_ops.fidelity_at_epoch). They used to be two hand-mirrored copies with a comment
+        # begging them to stay in lockstep; a divergence false-slashes an honest settler. It carries the
+        # anti-farm spacing (a recert closer than FIDELITY_MIN_GAP_EPOCHS renews the lease, earns nothing)
+        # and, from DIVIDEND_RULES_EPOCH, the softened lapse (halve, not reset).
+        net = fidelity_step(cur_fid, continuous, epoch - prev, epoch) - cur_fid
         kv_ops.recert_put(address, epoch)
         kv_ops.account_set(address, "registered", 1)
         if not kv_ops.account_adjust(address, "fidelity", net, floor_zero=True):

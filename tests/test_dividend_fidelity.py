@@ -22,6 +22,7 @@ from protocol import POSW_LEASE_EPOCHS as LEASE
 from ops import kv_ops
 from ops.account_ops import create_account, get_account, apply_register
 from ops.mining_ops import open_shares
+from protocol import dividend_weight
 from ops.dividend_ops import fidelity_at_epoch, present_at_epoch, weights_at_epoch
 from ops.key_ops import generate_keys
 
@@ -81,9 +82,9 @@ def t4b_reconstruction_agrees_with_live_get_open_registry():
 def t5_weights_are_open_shares_of_reconstructed_fidelity():
     """Prove weights_at_epoch equals open_shares of the fidelity AS OF that epoch (historical, not current)."""
     e = SEQ[-1]
-    assert weights_at_epoch(e).get(A) == open_shares(fidelity_at_epoch(A, e)), "weight == open_shares(fidelity@e)"
+    assert weights_at_epoch(e).get(A) == dividend_weight(fidelity_at_epoch(A, e), e), "weight == dividend_weight(fidelity@e, e)"
     # a mid-history epoch weighs by THAT epoch's fidelity (3), not the current one (2)
-    assert weights_at_epoch(SEQ[2]).get(A) == open_shares(3), "historical weight uses historical fidelity"
+    assert weights_at_epoch(SEQ[2]).get(A) == dividend_weight(3, SEQ[2]), "historical weight uses historical fidelity"
 
 for name, fn in sorted(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():

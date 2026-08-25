@@ -1444,7 +1444,8 @@ async def get_open_weights(request):
         from ops.account_ops import get_open_registry
         epoch = epoch_of(memserver.latest_block["block_number"])
         reg = get_open_registry(epoch)
-        weights = {addr: open_shares(info.get("fidelity", 0)) for addr, info in reg.items()}
+        from protocol import dividend_weight
+        weights = {addr: dividend_weight(info.get("fidelity", 0), epoch) for addr, info in reg.items()}
         return {"epoch": epoch, "weights": weights}
     return _resp(await asyncio.to_thread(_work))
 

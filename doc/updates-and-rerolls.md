@@ -48,6 +48,18 @@ is operational, not code-level:
    with every breaking consensus change.
 2. **Chain generation bump (full genesis reroll)** — see below.
 
+**The one sanctioned exception: a generation-keyed activation.** A rule that must NOT re-split
+history (the 2026-08-25 dividend rules — `protocol.py` `_GEN22_RULES_ACTIVATION`) activates at a
+height on the CURRENT generation and at block 0 on any later one:
+
+    DIVIDEND_RULES_HEIGHT = 72_000 if CHAIN_GENERATION == 22 else 0
+
+This is not a compatibility window — every node enforces the identical rule at every height — it is
+a replay guard: fresh sync, reindex, rollback and the fraud-proof reconstruction must reproduce what
+the fleet applied live before the height. It retires ITSELF: the reroll commit bumps
+`CHAIN_GENERATION`, the expression becomes 0, and the pre-activation branch is inert (delete it or
+not). `tests/test_gen22_rule_gate.py` pins the shape so nobody turns it back into a bare height.
+
 ## Chain generations (genesis rerolls)
 
 `protocol.CHAIN_GENERATION` counts **genesis lineages** — nothing to do with the 60-slot consensus

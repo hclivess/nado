@@ -14,27 +14,21 @@ immutable, revert-safe recert history — so we replay the exact ramp `apply_reg
 `fidelity_at_epoch` MUST stay byte-identical to that ramp (ops/account_ops.apply_register) — a fraud proof
 that miscomputes it would false-slash honest settlers. test_dividend_fidelity.py pins the two together.
 """
-from protocol import POSW_LEASE_EPOCHS, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS
+from protocol import POSW_LEASE_EPOCHS, fidelity_step, dividend_weight
 from ops import kv_ops
-from ops.mining_ops import open_shares
 
 
 def fidelity_at_epoch(address: str, epoch: int) -> int:
     """Reconstruct `address`'s raw fidelity AS OF `epoch`, from its recert history (recerts <= epoch), by
-    replaying the exact apply_register ramp. Returns 0 if it had no recert at/behind `epoch` (uncapped —
-    open_shares() applies the FIDELITY_CAP saturation to the weight, matching the live path)."""
+    replaying the exact apply_register ramp (protocol.fidelity_step). Returns 0 if it had no recert at/behind
+    `epoch` (uncapped — dividend_weight() applies the FIDELITY_CAP saturation, matching the live path)."""
     fid = 0
     prev = -1
     for r in kv_ops.recert_epochs(address, upto_epoch=epoch):    # ascending, only recerts <= epoch
         continuous = prev >= 0 and (r - prev) <= POSW_LEASE_EPOCHS
-        # MUST MIRROR account_ops.apply_register EXACTLY, activation gate included — this replay is what a
-        # dividend fraud proof checks against, so any divergence false-slashes an honest settler.
-        # UNCONDITIONAL, and only because this ships WITH a genesis reroll: there is no pre-rule recert
-        # history for this loop to replay, so there is nothing the old activation gate could protect.
-        gain = FIDELITY_GAIN
-        if continuous and (r - prev) < FIDELITY_MIN_GAP_EPOCHS:
-            gain = 0
-        fid = (fid + gain) if continuous else FIDELITY_GAIN            # lapse/first -> reset to GAIN
+        # THE SAME FUNCTION the live apply uses (protocol.fidelity_step) — not a mirror of it. This replay is
+        # what a dividend fraud proof checks against, so the two cannot be allowed to drift.
+        fid = fidelity_step(fid, continuous, r - prev, r)
         prev = r
     return fid
 
@@ -53,7 +47,9 @@ def present_at_epoch(epoch: int) -> set:
 
 
 def weights_at_epoch(epoch: int) -> dict:
-    """{address: open_shares(fidelity_at_epoch(address, epoch))} for the present set at `epoch` — the
-    fidelity-weighted open-lane weights the dividend distributes by, as of that epoch. Deterministic and
-    reconstructible: this is what the exec node accrues against and what an L1 challenge re-derives."""
-    return {addr: open_shares(fidelity_at_epoch(addr, epoch)) for addr in present_at_epoch(epoch)}
+    """{address: dividend_weight(fidelity_at_epoch(address, epoch), epoch)} for the present set at `epoch` —
+    the fidelity-weighted weights the dividend distributes by, as of that epoch (protocol.dividend_weight:
+    the selection weight open_shares before DIVIDEND_RULES_EPOCH, the convex 1..25 dividend curve from it).
+    Deterministic and reconstructible: this is what the exec node accrues against and what an L1 challenge
+    re-derives."""
+    return {addr: dividend_weight(fidelity_at_epoch(addr, epoch), epoch) for addr in present_at_epoch(epoch)}
