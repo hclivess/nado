@@ -108,7 +108,7 @@ is redistributed differently per lane to reward *presence* over *capital*:
 | Lane | Producer | Treasury | Dividend pool |
 |---|---|---|---|
 | **Open** block | `OPEN_TIP_BPS = 20 %` | 10 % | **70 %** (the rest) |
-| **Bonded** block | 70 % | 10 % | `BONDED_DIVIDEND_BPS = 20 %` |
+| **Bonded** block | 50 % | 10 % | `BONDED_DIVIDEND_BPS = 40 %` (20 % before betanet-5) |
 
 The **DIVIDEND_POOL** (`"dividend"`, a keyless L1 account) accrues the redistributed share.
 It is paid out off-L1 by the execution node to the **currently-present open miners**, weighted
@@ -206,7 +206,7 @@ part of emission and hold no key:
 | `EPOCH_LENGTH` | 60 | Slots per epoch |
 | `OPEN_BPS` | 3000 (30 %) | Open-lane share of slots (Sybil ceiling) |
 | `OPEN_TIP_BPS` | 2000 (20 %) | Open producer's own cut of an open block |
-| `BONDED_DIVIDEND_BPS` | 2000 (20 %) | Bonded block's contribution to the dividend pool |
+| `BONDED_DIVIDEND_BPS` | 4000 (40 %) | Bonded block's contribution to the dividend pool (2000 before betanet-5, gen 23) |
 | `B_MIN` | 10 NADO | Capital per bonded selection share |
 | ~~`BOND_CAP` / `MAX_SHARES`~~ | removed 2026-08-25 | (was a per-identity bond & share cap) |
 | `BOND_RAMP_EPOCHS` | 30 | Fresh-bond selection-weight ramp |

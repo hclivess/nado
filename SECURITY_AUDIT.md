@@ -460,7 +460,7 @@ actor's take of the open lane is `2N / (honest_weight + 2N)`. Against the measur
 
 That share applies to open-lane block production **and** to the presence dividend — which is the larger
 prize: **70% of every open block plus 20% of every bonded block** (`OPEN_TIP_BPS = 2000`,
-`BONDED_DIVIDEND_BPS = 2000`). PoSW is sequential *per proof* but trivially parallel across identities, so
+`BONDED_DIVIDEND_BPS = 4000` since betanet-5, 2000 before). PoSW is sequential *per proof* but trivially parallel across identities, so
 the cost is core-minutes per day, not a barrier.
 
 **The registration difficulty ramp does not close it.** `difficulty_multiplier` is

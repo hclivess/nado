@@ -87,7 +87,7 @@ constant change applies the new split to every historical block on a fresh sync,
 different balances → different L1 state root → a fork against every node that applied the old split live.
 
 Two correct ways:
-1. **Height-gate the constant**: `bonded_dividend_bps(height)` returning 2000 below the activation height
+1. **Gate the constant** (generation-keyed) — returning 2000 below the activation height
    and the new value at/after it, used by both `split_bonded_block_reward` callers. Small, deterministic,
    and the repo's memory says gates were all deleted at gen-22 because they became dead weight — a gate
    here would be live, not dead.
@@ -97,18 +97,19 @@ Either way the dividend fraud-proof replay (`dividend_ops.fidelity_at_epoch`, `w
 unaffected — the levy changes the *inflow* per epoch, which is already recorded per epoch and
 revert-symmetric (`dividend_inflow_add`), not the weights.
 
-## 5. Status (2026-08-25, later the same day)
+## 5. Status (2026-08-25)
 
-Built as one generation-keyed change activating at block 72,000 on gen 22 (`protocol.py` `_GEN22_RULES_ACTIVATION`):
-`BONDED_DIVIDEND_BPS_V2 = 4000`, the dividend's own convex 1..25 weight curve (`dividend_weight`), and a
-softened lapse (`fidelity_step`: halve, not reset). 1:25 rather than the 1:100 first floated: the Sybil math is
-the same either way (a patient farm's masks ramp too), the honest cost of a lapse is not. The remaining lever
-against a *patient* farm is the recurring per-identity recert cost (`POSW_T`), untouched here.
+Shipped. Briefly gated on gen 22 (generation-keyed, block 72,000), then made unconditional by the betanet-5
+(gen 23) reroll the same day: `BONDED_DIVIDEND_BPS = 4000`, the dividend's own convex 1..25 weight curve
+(`protocol.dividend_weight`), and a softened lapse (`protocol.fidelity_step`: halve, not reset). 1:25 rather
+than the 1:100 first floated: the Sybil math is the same either way (a patient farm's masks ramp too), the
+honest cost of a lapse is not. The remaining lever against a *patient* farm is the recurring per-identity
+recert cost (`POSW_T`), untouched.
 
 ## 6. Bottom line
 
 - A progressive tax by identity size is the bond cap's mistake again; do not build it.
 - The enforceable version already exists: `BONDED_DIVIDEND_BPS`. Raising it to 4000 is the move if the goal
-  is more emission to the present, capital-free set. It needs a height gate or a reroll.
+  is more emission to the present, capital-free set. Done at gen 23 (see §5).
 - The actual concentration engine is 99 % auto-bond compounding on a lane that currently yields ~35 %/day.
   That is early-chain arithmetic, not a design flaw, and it dilutes as supply grows and more capital bonds.

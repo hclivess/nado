@@ -53,7 +53,7 @@ dividend  = R − treasury − tip                (the rest — goes to the pres
 - **`dividend`** is credited on L1 to a single reserved recipient — the **dividend pool** (add `"dividend"` to
   `RESERVED_RECIPIENTS`). One account, so still `O(1)` on L1. The pool simply accrues the redistributed emission.
 
-Bonded-lane blocks now ALSO contribute a modest `BONDED_DIVIDEND_BPS` (20%) slice to the same pool — the
+Bonded-lane blocks ALSO contribute a `BONDED_DIVIDEND_BPS` slice to the same pool — 40% since the betanet-5 (gen 23) reroll, 20% before — the
 passive-capital lane sharing with the active, capital-free open miners (producer keeps 70%, treasury 10%).
 It is kept small so staking stays clearly the more profitable use of capital (the security budget is
 preserved). So the dividend pool is fed by BOTH lanes; it is still redistributed to the OPEN-lane present set.
@@ -64,12 +64,11 @@ L1 by bonded quorum (Phase 2). It becomes the **dividend accountant**:
 
 - Each epoch it knows the present open registry and every present miner's **fidelity weight** `w_i`
   (`OPEN_BASE_FLOOR..OPEN_BASE_FLOOR+OPEN_FID_BONUS`, i.e. 2..10) — the same weight the lane draw already uses.
-  **Since 2026-08-25 (`DIVIDEND_RULES_EPOCH`)** the dividend has its own convex curve, `protocol.dividend_weight`,
+  **Since 2026-08-25 (betanet-5, gen 23)** the dividend has its own convex curve, `protocol.dividend_weight`,
   1..25: a fresh identity is worth 4 % of a 30-day one instead of 20 %, so a hundred fresh masks out-earn four
-  veterans, not twenty. A lapse now halves fidelity instead of resetting it (`protocol.fidelity_step`), and bonded
-  blocks send 40 % of themselves to the pool (`bonded_dividend_bps`). All three sit behind one generation-keyed
-  gate that retires itself at the next reroll — see the `_GEN22_RULES_ACTIVATION` block in `protocol.py` and
-  `doc/progressive-levy.md`.
+  veterans, not twenty. A lapse halves fidelity instead of resetting it (`protocol.fidelity_step`), and bonded
+  blocks send 40 % of themselves to the pool (`BONDED_DIVIDEND_BPS`). Unconditional from block 0 — see the
+  rules block in `protocol.py` and `doc/progressive-levy.md`.
 - It distributes that epoch's pooled `dividend` **pro-rata by `w_i`** into each miner's **off-L1** dividend
   balance.
 
@@ -131,7 +130,7 @@ constant** rather than a fraction, so it's predictable regardless of `R`.
 | `TREASURY_BPS` | `1000` (unchanged) | treasury cut of every block |
 | `OPEN_TIP_BPS` | `2000` | open producer's cut of an open-lane block (the rest, minus treasury, is the dividend) |
 | `DIVIDEND` recipient | `"dividend"` | reserved L1 pool address the dividend accrues to (`O(1)` on L1) |
-| dividend weight | `protocol.dividend_weight(fidelity, epoch)` — convex `1..25` (`1 + f²·24/900`) from `DIVIDEND_RULES_EPOCH`; the selection weight `2..10` before | per-miner pro-rata weight (Sybil-costly); **not** flat-per-identity. Separate from selection since 2026-08-25: selection keeps a liveness floor, the dividend's floor is economic |
+| dividend weight | `protocol.dividend_weight(fidelity)` — convex `1..25` (`1 + f²·24/900`) | per-miner pro-rata weight (Sybil-costly); **not** flat-per-identity. Separate from selection since 2026-08-25: selection keeps a liveness floor, the dividend's floor is economic |
 | min withdraw | e.g. `≥ 100× MIN_TX_FEE` | client-side floor so a withdrawal is always worth its fee |
 
 ## 8. Trade-offs & open questions

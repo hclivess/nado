@@ -44,6 +44,9 @@ def get_protocol():
     the state_root; all-default account rows are canonicalized out of the root. These change how the
     state_root/snapshot_hash are computed, so old nodes MUST be shed (they would advertise a different
     root at the same height and never form the sync quorum). STRICT.
+    8 (2026-08-25): the betanet-5 (gen 23) DIVIDEND-RULES reroll — linear bonded weight, the convex
+    dividend weight curve, the halving lapse and the 40% bonded levy from block 0; old nodes would split
+    every bonded block 70/20/10 and weight the dividend 2..10, so they are shed at the door. STRICT.
     7 (2026-07-27): the betanet-10 SECURITY + DETERMINISM reroll. Breaking on every axis, so old nodes
     must be shed: (a) the exec DA binding no longer hashes block_timestamp and the exec VM's TIME opcode
     now reads protocol.chain_clock(height) instead — block_timestamp is outside the block-hash preimage
@@ -55,7 +58,7 @@ def get_protocol():
     snapshot transfer payload is canonicalized (treasury_proposals + node-local meta rows excluded) and
     re-anchor/bootstrap now require a real quorum with seed anchoring. State transitions, the exec state
     root and the snapshot identity all change, so a gen-9/protocol-6 node can never agree with us. STRICT."""
-    return 7
+    return 8
 
 
 def get_port():

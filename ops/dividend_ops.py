@@ -28,7 +28,7 @@ def fidelity_at_epoch(address: str, epoch: int) -> int:
         continuous = prev >= 0 and (r - prev) <= POSW_LEASE_EPOCHS
         # THE SAME FUNCTION the live apply uses (protocol.fidelity_step) — not a mirror of it. This replay is
         # what a dividend fraud proof checks against, so the two cannot be allowed to drift.
-        fid = fidelity_step(fid, continuous, r - prev, r)
+        fid = fidelity_step(fid, continuous, r - prev)
         prev = r
     return fid
 
@@ -47,9 +47,8 @@ def present_at_epoch(epoch: int) -> set:
 
 
 def weights_at_epoch(epoch: int) -> dict:
-    """{address: dividend_weight(fidelity_at_epoch(address, epoch), epoch)} for the present set at `epoch` —
-    the fidelity-weighted weights the dividend distributes by, as of that epoch (protocol.dividend_weight:
-    the selection weight open_shares before DIVIDEND_RULES_EPOCH, the convex 1..25 dividend curve from it).
-    Deterministic and reconstructible: this is what the exec node accrues against and what an L1 challenge
-    re-derives."""
-    return {addr: dividend_weight(fidelity_at_epoch(addr, epoch), epoch) for addr in present_at_epoch(epoch)}
+    """{address: dividend_weight(fidelity_at_epoch(address, epoch))} for the present set at `epoch` — the
+    fidelity-weighted weights the dividend distributes by, as of that epoch (protocol.dividend_weight, the
+    convex 1..25 dividend curve). Deterministic and reconstructible: this is what the exec node accrues
+    against and what an L1 challenge re-derives."""
+    return {addr: dividend_weight(fidelity_at_epoch(addr, epoch)) for addr in present_at_epoch(epoch)}

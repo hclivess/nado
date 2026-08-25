@@ -1,3 +1,33 @@
+# v1.0.0-beta.6 — 2026-08-25 — betanet-5: the dividend-rules reroll, every amount carried
+
+> **CHAIN_GENERATION 23, protocol 8.** Nodes purge and boot betanet-5 from genesis automatically on
+> restart. All balances, bonded stakes, uncollected + pending dividends, user bridge balances and pending
+> exits carried forward — supply conserved exactly (`tools/alphanet6_carryforward.py`). Shielded pools
+> verified empty, no assets, contracts held no value. Contract ids unchanged (pinned deploy nonce);
+> games redeployed upgradable at their existing addresses.
+
+## What is different from block 0
+
+- **No per-identity bond cap.** `BOND_CAP` / `MAX_SHARES` are gone; bonded weight is `bonded // B_MIN`,
+  linear. The cap was per key — a second key restored linear weight — so it bound only honest single-key
+  miners while their coins idled at 1,000 NADO. Auto-bond no longer stops.
+- **The presence dividend weighs presence, not headcount.** Its own convex curve, `dividend_weight`
+  (1..25, `1 + f²·24/900`), separate from producer selection (which keeps its 2..10 liveness floor). A
+  fresh identity is worth 4 % of a 30-day one instead of 20 %.
+- **A lapse halves fidelity instead of resetting it** (`fidelity_step`, never below 1) — one missed
+  renewal is survivable. The live apply and the fraud-proof replay now call the same function.
+- **Bonded blocks send 40 % to the dividend pool** (was 20 %): producer 50 / dividend 40 / treasury 10.
+  The one enforceable "tax the rich": levied on the block, not the key (`doc/progressive-levy.md`).
+- **Wallet:** presence-lease panel under Mining with a manual *Renew presence now* inside the
+  fidelity-earning window; dividend claims batched and served against the settled root.
+
+## Gate hygiene
+
+These rules rode the last hours of gen 22 behind a generation-keyed gate
+(`… if CHAIN_GENERATION == 22 else 0`) and shipped ungated here; the gate is deleted and
+`tests/test_dividend_rules.py` pins that none survives. That shape is now the documented pattern for any
+consensus change that must not re-split history (`doc/updates-and-rerolls.md`).
+
 # v1.0.0-beta.5 — 2026-08-20 — betanet-4: the convergence reroll, every amount carried
 
 > **CHAIN_GENERATION 22.** Nodes purge and boot betanet-4 from genesis automatically on restart.

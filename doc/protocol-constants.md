@@ -39,14 +39,13 @@ These gate the S4 bonded-mining mechanism (live on betanet-6).
 |----------|-------|---------|
 | `B_MIN` | `100_000_000_000` (10 NADO) | Capital per selection share / minimum bond to be eligible |
 | ~~`BOND_CAP`~~ / ~~`MAX_SHARES`~~ | removed 2026-08-25 | Weight is linear in stake (`bonded // B_MIN`); the per-key cap never bound a whale with two keys |
-| `DIVIDEND_RULES_HEIGHT` / `_EPOCH` | `72_000` on gen 22, `0` on any later generation | Generation-keyed gate for the three 2026-08-25 dividend rules; retires itself at the next reroll |
-| `BONDED_DIVIDEND_BPS_V2` | `4000` | Bonded block's dividend cut from `DIVIDEND_RULES_HEIGHT` (was 20 %); producer 50 %, treasury 10 % |
+| `BONDED_DIVIDEND_BPS` | `4000` | Bonded block's dividend cut (40 %; 20 % before betanet-5); producer 50 %, treasury 10 %. Levied on the block, not the key |
 | `DIVIDEND_WEIGHT_MAX` | `25` | Top of the convex dividend weight curve `1 + f²·24/900` (floor 1) |
 | `BOND_UNLOCK_DELAY` | `1440` blocks | Lock/cooldown after an unbond (anti-grind) |
 | `EPOCH_LENGTH` | `60` slots | Blocks per RANDAO beacon epoch |
 | `POSW_LEASE_EPOCHS` | `240` (~1 day) | OPEN-lane presence lease — an identity re-proves PoSW within this window to stay eligible |
 | `FIDELITY_CAP` | `30` | Fidelity score ceiling; weight ramps to full at this value |
-| `FIDELITY_GAIN` | `1` | Fidelity gained per continuous recert (a lapse RESETS the streak; there is no `FIDELITY_DECAY` constant) |
+| `FIDELITY_GAIN` | `1` | Fidelity gained per continuous recert (a lapse HALVES the streak, never below 1; there is no `FIDELITY_DECAY` constant) |
 
 ## Block header fields (set in `construct_block`)
 

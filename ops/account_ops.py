@@ -661,8 +661,8 @@ def apply_register(address: str, epoch: int, logger, revert=False):
         # replay (dividend_ops.fidelity_at_epoch). They used to be two hand-mirrored copies with a comment
         # begging them to stay in lockstep; a divergence false-slashes an honest settler. It carries the
         # anti-farm spacing (a recert closer than FIDELITY_MIN_GAP_EPOCHS renews the lease, earns nothing)
-        # and, from DIVIDEND_RULES_EPOCH, the softened lapse (halve, not reset).
-        net = fidelity_step(cur_fid, continuous, epoch - prev, epoch) - cur_fid
+        # and the softened lapse (halve, not reset).
+        net = fidelity_step(cur_fid, continuous, epoch - prev) - cur_fid
         kv_ops.recert_put(address, epoch)
         kv_ops.account_set(address, "registered", 1)
         if not kv_ops.account_adjust(address, "fidelity", net, floor_zero=True):

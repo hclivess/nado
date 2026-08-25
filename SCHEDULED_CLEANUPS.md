@@ -23,3 +23,9 @@ construction, nothing deleted (readers keep full history). The rule engages by a
 epoch 60 (betanet-4 block ~3600); until then old and new code compute identical roots. Per-block root
 work is now O(window), permanently. Test: tests/test_root_retention_window.py. Nothing left to delete
 here — the entry stays only as the record of why the families are windowed.
+
+## 2026-08-25 — gen-22 dividend-rules gate: RETIRED at the betanet-5 (gen 23) reroll
+
+The generation-keyed gate (`DIVIDEND_RULES_HEIGHT = 72_000 if CHAIN_GENERATION == 22 else 0`) that carried the
+convex dividend curve, the halving lapse and the 40 % bonded levy for the last hours of gen 22 was deleted in
+the reroll commit; `tests/test_dividend_rules.py` asserts no such gate exists. Nothing scheduled.

@@ -27,10 +27,12 @@ if not __debug__:
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "betanet-4"  # BETANET (gen 22): the CONVERGENCE reroll — balances, dividends and bridged
-                        # coins fold forward from betanet-3 (genesis_data/genesis_alloc.dat); every
-                        # 2026-08-20 consensus rule (canonical accrual, committed epoch weights,
-                        # quantized settles) is live from block 0, gates self-disarmed by this rename
+CHAIN_ID = "betanet-5"  # BETANET (gen 23): the DIVIDEND-RULES reroll — balances, bonded stake,
+                        # dividends and bridged coins fold forward from betanet-4
+                        # (genesis_data/genesis_alloc.dat). Every 2026-08-25 rule is live from block 0
+                        # with NO gate: linear bonded weight (no per-identity cap), the dividend's own
+                        # convex 1..25 weight curve, a halving (not resetting) lapse, and the 40% bonded
+                        # levy into the presence dividend. The gen-22 activation gate is deleted.
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
@@ -64,7 +66,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1787239522  # betanet-4 (gen 22): the convergence reroll. New DISTINCT
+GENESIS_TIMESTAMP = 1787656983  # betanet-5 (gen 23): the dividend-rules reroll. New DISTINCT
                                 # timestamp so no prior-generation block links in.
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
@@ -163,11 +165,11 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
                              # 3 min of patience is free, and 30 absorbs any realistic tip staleness.
 
 # GATE HYGIENE (operator directive: height-activation gates MUST NOT survive their activation).
-# ALL betanet-3 gates were DELETED at the betanet-4 (gen 22) reroll — committed epoch weights,
-# canonical per-block dividend accrual, quantized boundary settles, and the h10047-16000 state-root
-# repair window are simply THE RULES from block 0 of this generation. Any future consensus change
-# ships either at a reroll (ungated) or with a gate tied to the CURRENT CHAIN_ID string, so it
-# self-disarms at the next rename (the a4eddab0 pattern) — never a bare height that outlives its chain.
+# ALL betanet-3 gates were DELETED at the betanet-4 (gen 22) reroll, and the gen-22 dividend-rules gate
+# at the betanet-5 (gen 23) reroll — every such rule is simply THE RULE from block 0 of this generation.
+# Any future consensus change ships either at a reroll (ungated) or with a gate keyed on the CURRENT
+# CHAIN_GENERATION (`H if CHAIN_GENERATION == <this> else 0`), so it self-disarms at the next reroll —
+# never a bare height that outlives its chain.
                              # from this height (a boundary, 60*1370; 0 = genesis on any future chain),
                              # every epoch-boundary block COMMITS the just-completed epoch's open-lane
                              # weights into L1 state (kv_ops.epoch_weights_commit) — the presence-
@@ -566,7 +568,17 @@ POSW_ENTRY_MULT = 32
 #   so a minority can never start the chain. New CHAIN_ID + GENESIS_TIMESTAMP so the split gen-19 chains
 #   cannot linger in fork choice. Balances remain ZERO (empty alloc); prefixless producer set unchanged.
 #   OPERATIONAL: redeploy the game contracts after regenesis (the gen-19 deploys died with that chain).
-CHAIN_GENERATION = 22
+# 21 (2026-08-20): betanet-3, the carry-forward reroll. 22 (2026-08-20): betanet-4, the convergence
+#   reroll — every 2026-08-20 rule ungated from block 0.
+# 23 (2026-08-25): betanet-5, the DIVIDEND-RULES reroll. Carry-forward (tools/alphanet6_carryforward.py,
+#   supply conserved exactly): balances, bonded, uncollected + pending dividends, user bridge balances,
+#   pending exits. Live from block 0 with NO gate: linear bonded weight (BOND_CAP/MAX_SHARES removed), the
+#   dividend's own convex 1..25 weight curve (dividend_weight), a lapse HALVES fidelity (fidelity_step),
+#   and bonded blocks send 40% to the presence dividend (BONDED_DIVIDEND_BPS). The generation-keyed gate
+#   that carried these rules for the last hours of gen 22 is deleted — it existed for replay of gen-22
+#   history, which no longer exists. OPERATIONAL: redeploy the game contracts in the SAME session
+#   (execnode.games.redeploy — pinned nonce => identical cids, upgradable) and re-fund the faucet.
+CHAIN_GENERATION = 23
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
@@ -623,7 +635,10 @@ BPS_DENOM = 10000
 # use of capital (i.e. the security budget is preserved). This only changes how emission is PAID OUT — a
 # jackpot becomes a stream — it does not enlarge any lane's share.
 OPEN_TIP_BPS = 2000          # open producer's cut of an open-lane block (20%); treasury 10%; dividend = rest (70%)
-BONDED_DIVIDEND_BPS = 2000   # bonded block's dividend cut BEFORE DIVIDEND_RULES_HEIGHT (20%); see bonded_dividend_bps()
+BONDED_DIVIDEND_BPS = 4000   # bonded block's contribution to the dividend pool (40%); producer keeps 50%, treasury 10%.
+                             # 20% until the betanet-5 (gen 23) reroll. This is the ONLY enforceable "tax the
+                             # rich": levied on the BLOCK, not the key, so no key-splitting escapes it — every
+                             # per-identity progressive rule is void because keys are free (doc/progressive-levy.md).
 DIVIDEND_POOL = "dividend"   # reserved L1 account the dividend accrues to (O(1) on L1)
 
 # --- Treasury governance (doc/treasury.md): stake-quorum spending. No multisig — the bonded lane IS the
@@ -1328,70 +1343,43 @@ GENESIS_BEACON = blake2b_hash([DOMAIN_GENESIS_BEACON, CHAIN_ID])
 
 
 # ======================================================================================================
-# GENERATION-KEYED RULE GATE (2026-08-25). Three rules below activate at DIVIDEND_RULES_HEIGHT on THIS chain
-# generation and are unconditional on any later one. The gate exists for REPLAY, not for running nodes: a
-# fresh sync, a reindex, a rollback through the activation height and the dividend fraud-proof's
-# weights_at_epoch reconstruction all recompute pre-activation blocks/epochs, and they must reproduce what
-# the fleet applied live. It cannot be removed while gen-22 history exists.
+# THE 2026-08-25 DIVIDEND RULES — unconditional since the betanet-5 (gen 23) reroll. They rode the last hours
+# of gen 22 behind a generation-keyed gate (`... if CHAIN_GENERATION == 22 else 0`, the self-retiring shape
+# doc/updates-and-rerolls.md keeps as the pattern); the reroll made the gate's only job — replaying gen-22
+# history identically — moot, and it is deleted rather than left as a dead branch.
 #
-# WHY IT IS KEYED ON CHAIN_GENERATION: gates were "to be removed at the next reroll" before, and the removal
-# depended on someone remembering. This one retires ITSELF — the reroll commit bumps CHAIN_GENERATION, the
-# expression evaluates to 0, every rule is active from block 0 of the new chain, and the dead branch can be
-# deleted at leisure (or never; it is inert). test_gen22_rule_gate pins the shape.
-#
-# The rules:
-#   1. dividend_weight — the presence dividend's per-miner weight gets its OWN curve, convex, 1..25, instead
-#      of reusing the producer-selection weight open_shares (2..10). Selection keeps its liveness floor (a
+#   1. dividend_weight — the presence dividend's per-miner weight has its OWN curve, convex, 1..25, instead of
+#      reusing the producer-selection weight open_shares (2..10). Selection keeps its liveness floor (a
 #      newcomer must be WINNABLE); the dividend has no liveness role, so its floor is purely economic. The
 #      floor/max ratio is the only knob that turns a per-HEADCOUNT payout into a per-PRESENCE one: at 1:5 a
 #      hundred fresh masks out-earn twenty veterans; at 1:25 they out-earn four. 1:25 not 1:100 because the
 #      Sybil math is the same (a patient farm's masks ramp too — doc/progressive-levy.md) while the honest
-#      cost of a lapse is not: this curve keeps two weeks of presence at ~25% of max and one missed night
-#      survivable (rule 2).
+#      cost of a lapse is not: two weeks of presence stay at ~25% of max and one missed night is survivable.
 #   2. fidelity_step — a LAPSE halves the ramp (max(GAIN, f // 2)) instead of resetting it to GAIN. Under a
 #      convex curve a full reset would turn one missed renewal into losing everything; halving is
 #      proportionate and gives a farm nothing (its masks never had a ramp to keep).
-#   3. bonded_dividend_bps — a bonded block sends 40% (was 20%) of itself to the dividend pool; producer 50%,
-#      treasury 10%. This is the ONLY enforceable "tax the rich" the chain can have: it is levied on the
-#      block, not the key, so no key-splitting escapes it (doc/progressive-levy.md). The lane still yields
-#      far above anything that threatens the security budget.
-_GEN22_RULES_ACTIVATION = 72_000
-DIVIDEND_RULES_HEIGHT = _GEN22_RULES_ACTIVATION if CHAIN_GENERATION == 22 else 0
-DIVIDEND_RULES_EPOCH = DIVIDEND_RULES_HEIGHT // EPOCH_LENGTH
-BONDED_DIVIDEND_BPS_V2 = 4000        # rule 3: bonded block -> dividend pool from DIVIDEND_RULES_HEIGHT
-DIVIDEND_WEIGHT_MAX = 25             # rule 1: a FIDELITY_CAP-day streak's dividend weight; floor is 1
+#   3. BONDED_DIVIDEND_BPS = 4000 (above) — a bonded block sends 40% of itself to the dividend pool.
+DIVIDEND_WEIGHT_MAX = 25             # a FIDELITY_CAP-day streak's dividend weight; the floor is 1
 
 
-def bonded_dividend_bps(height: int) -> int:
-    """The bonded block's dividend cut at `height` (rule 3): BONDED_DIVIDEND_BPS_V2 from DIVIDEND_RULES_HEIGHT,
-    BONDED_DIVIDEND_BPS before. Height-pure, so apply, rollback and reindex all split a block identically."""
-    return BONDED_DIVIDEND_BPS_V2 if int(height) >= DIVIDEND_RULES_HEIGHT else BONDED_DIVIDEND_BPS
-
-
-def fidelity_step(cur_fid: int, continuous: bool, gap: int, epoch: int) -> int:
-    """THE fidelity ramp — the new fidelity after a recert at `epoch`, given the current value, whether the
-    recert is continuous (gap <= POSW_LEASE_EPOCHS) and the gap to the previous one. ONE function, called by
-    the live apply (account_ops.apply_register) AND the fraud-proof replay (dividend_ops.fidelity_at_epoch):
-    the two used to be hand-mirrored, and a divergence there false-slashes an honest settler.
+def fidelity_step(cur_fid: int, continuous: bool, gap: int) -> int:
+    """THE fidelity ramp — the new fidelity after a recert, given the current value, whether the recert is
+    continuous (gap <= POSW_LEASE_EPOCHS) and the gap to the previous one. ONE function, called by the live
+    apply (account_ops.apply_register) AND the fraud-proof replay (dividend_ops.fidelity_at_epoch): the two
+    used to be hand-mirrored, and a divergence there false-slashes an honest settler.
       continuous, gap >= FIDELITY_MIN_GAP_EPOCHS -> +FIDELITY_GAIN
       continuous, gap <  FIDELITY_MIN_GAP_EPOCHS -> unchanged (renews the lease, earns nothing — anti-farm spacing)
-      lapse / first recert                        -> FIDELITY_GAIN before DIVIDEND_RULES_EPOCH,
-                                                     max(FIDELITY_GAIN, cur_fid // 2) from it (rule 2)"""
+      lapse / first recert                        -> max(FIDELITY_GAIN, cur_fid // 2)"""
     cur_fid = int(cur_fid)
     if continuous:
         return cur_fid + (0 if gap < FIDELITY_MIN_GAP_EPOCHS else FIDELITY_GAIN)
-    if int(epoch) >= DIVIDEND_RULES_EPOCH:
-        return max(FIDELITY_GAIN, cur_fid // 2)
-    return FIDELITY_GAIN
+    return max(FIDELITY_GAIN, cur_fid // 2)
 
 
-def dividend_weight(fidelity, epoch: int) -> int:
-    """Per-miner presence-dividend weight at `epoch` (rule 1). From DIVIDEND_RULES_EPOCH a convex 1..DIVIDEND_WEIGHT_MAX
-    curve, 1 + (f^2 * (MAX-1)) // FIDELITY_CAP^2, integer-only; before it the producer-selection weight
-    open_shares(f) (2..10), exactly what every committed pre-activation epoch row holds."""
+def dividend_weight(fidelity) -> int:
+    """Per-miner presence-dividend weight: a convex 1..DIVIDEND_WEIGHT_MAX curve, 1 + (f^2 * (MAX-1)) //
+    FIDELITY_CAP^2, integer-only (f saturates at FIDELITY_CAP; None/negative = 0)."""
     f = 0 if fidelity is None or int(fidelity) < 0 else min(int(fidelity), FIDELITY_CAP)
-    if int(epoch) < DIVIDEND_RULES_EPOCH:
-        return OPEN_BASE_FLOOR + f * OPEN_FID_BONUS // FIDELITY_CAP        # == mining_ops.open_shares(f)
     return 1 + (f * f * (DIVIDEND_WEIGHT_MAX - 1)) // (FIDELITY_CAP * FIDELITY_CAP)
 
 
@@ -1405,14 +1393,14 @@ def split_block_reward(reward: int):
     return producer_cut, treasury_cut
 
 
-def split_bonded_block_reward(reward: int, height: int):
-    """Three-way split for a BONDED-lane block at `height`: (producer, dividend, treasury) summing to EXACTLY
-    `reward`. treasury + dividend are floors, producer is the exact remainder (same rounding discipline as the
-    open split), so apply and rollback subtract identical integers. The dividend slice is bonded_dividend_bps(
-    height) — 20% before DIVIDEND_RULES_HEIGHT, 40% from it (rule 3 above); the treasury keeps its 10%; the
-    producer keeps the rest — the passive lane sharing with the capital-free open miners."""
+def split_bonded_block_reward(reward: int):
+    """Three-way split for a BONDED-lane block: (producer, dividend, treasury) summing to EXACTLY `reward`.
+    treasury + dividend are floors, producer is the exact remainder (same rounding discipline as the open
+    split), so apply and rollback subtract identical integers. The dividend slice is BONDED_DIVIDEND_BPS (40%),
+    the treasury keeps its 10%, the producer keeps the rest (50%) — the passive lane sharing with the
+    capital-free open miners."""
     treasury_cut = reward * TREASURY_BPS // BPS_DENOM
-    dividend_cut = reward * bonded_dividend_bps(height) // BPS_DENOM
+    dividend_cut = reward * BONDED_DIVIDEND_BPS // BPS_DENOM
     producer_cut = reward - treasury_cut - dividend_cut
     return producer_cut, dividend_cut, treasury_cut
 

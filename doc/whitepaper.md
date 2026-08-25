@@ -207,7 +207,7 @@ auto-resumes across a browser refresh — direct mining runs **indefinitely with
 your pocket mines for ~a day; a page left open mines perpetually. *(implemented)*
 
 Continuity **fidelity** is driven by the recert: each *continuous* recert (gap ≤ the lease) adds
-`FIDELITY_GAIN`, a lapse resets the streak, and it ramps the open-lane weight to full over `FIDELITY_CAP`
+`FIDELITY_GAIN`, a lapse halves the streak (never below 1), and it ramps the open-lane weight to full over `FIDELITY_CAP`
 consecutive recerts (≈ days) — so a churned/rotated Sybil cannot keep a ramp it stopped paying for.
 *(implemented)*
 
@@ -226,7 +226,7 @@ so this ramp is live. *(implemented)*
 
 > **Continuity is a recert streak** *(implemented — `account_ops.apply_recert`)*. Fidelity
 > is a **streak of consecutive recerts**: a recert that is *continuous* with the previous
-> one (gap ≤ `POSW_LEASE_EPOCHS`) adds `FIDELITY_GAIN`, while a **lapse resets the streak**
+> one (gap ≤ `POSW_LEASE_EPOCHS`) adds `FIDELITY_GAIN`, while a **lapse halves the streak** (never below 1; it reset it before betanet-5)
 > to a single gain. So fidelity measures **continuous** presence, not merely cumulative
 > attendance — a churned or rotated identity cannot keep a ramp it stopped paying PoSW for.
 > Revert-symmetry (byte-identical rollback) is preserved via a revert record storing the

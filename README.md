@@ -181,7 +181,7 @@ bonded slot is skipped, never the reverse, so the free lane can never absorb bon
 Open-lane selection weight is **capital-free**: a flat floor (`OPEN_BASE_FLOOR = 2`) every present
 identity always gets, plus a diligence ramp to `OPEN_FID_BONUS = 8` over `FIDELITY_CAP = 30` **consecutive
 recerts** (overall range 2..10). Fidelity is **continuity over recerts** (`apply_register`,
-revert-symmetric): a continuous recert adds a step, a lapse resets the streak — so a rotated/churned
+revert-symmetric): a continuous recert adds a step, a lapse halves the streak — so a rotated/churned
 identity can't keep a ramp it stopped paying for. The single most effective thing you can do is **stay
 present**. Mine to **one address** — splitting across addresses gains nothing, and onboarding many
 addresses from one machine is throttled (below).
@@ -763,7 +763,7 @@ of FFG/RANDAO and the outstanding eclipse hardening above, the **documented resi
   in-block at epoch boundaries (revert-safe, snapshot-root-identical on every node). Also bounded by the lane cap, per-IP rate limit, mempool cap, and the
   in-block one-register-per-sender dedup; idle-account GC is future work.
 - **Fidelity is continuity over recerts** — `apply_register` adds a step for each *continuous* recert
-  (gap ≤ the lease) and resets the streak on a lapse; it ramps the open bonus over `FIDELITY_CAP` recerts.
+  (gap ≤ the lease) and halves the streak on a lapse (never below 1); it ramps the open bonus over `FIDELITY_CAP` recerts.
 - **Snapshot bootstrap** trusts an 80%-of-peers quorum with **no hardcoded finalized checkpoint**
   cross-check (weak-subjectivity); a pinned checkpoint is future eclipse hardening.
 

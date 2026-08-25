@@ -141,9 +141,9 @@ tip):
   **Redesigned & shipped** — heartbeats were removed; presence is now the renewable **PoSW recert
   lease**. The open registry (`account_ops.get_open_registry`) is derived from the revert-safe
   recert index, and the continuity **fidelity** streak is driven by recerts (`apply_register`;
-  continuous gap ≤ lease ⇒ +`FIDELITY_GAIN`; a lapse HALVES it from `DIVIDEND_RULES_EPOCH`, reset before —
-  `protocol.fidelity_step`), feeding `open_shares` (selection, range 2..10) and `protocol.dividend_weight`
-  (the dividend's own convex 1..25 curve from `DIVIDEND_RULES_EPOCH`).
+  continuous gap ≤ lease ⇒ +`FIDELITY_GAIN`; a lapse HALVES it, never below 1 — `protocol.fidelity_step`),
+  feeding `open_shares` (selection, range 2..10) and `protocol.dividend_weight` (the dividend's own convex
+  1..25 curve).
   The bonded lane keeps the `selection_shares` fidelity ramp OFF (`fidelity=None`) and instead uses
   the tenure-based **bonded producer ramp** (`bond_ramp_weight`, below).
 - **Consensus-pool reweight** (today one vote per peer, `consensus_loop.py`) by trust/stake.
@@ -180,7 +180,7 @@ Bonded lane: `B_MIN = 1e11` (10 NADO), no per-identity cap (removed 2026-08-25),
 Open lane: `OPEN_BPS = 3000` (30% ⇒ `K_OPEN = 18` slots/epoch), `OPEN_BASE_FLOOR = 2`,
 `OPEN_FID_BONUS = 8` (open weight ranges 2..10), `POSW_LEASE_EPOCHS = 240` (≈ 1 day recert lease).
 Continuity fidelity: `FIDELITY_CAP = 30` consecutive recerts (was 1000 in the heartbeat design),
-`FIDELITY_GAIN = 1` per continuous recert — a lapse **resets** the streak (there is no separate
+`FIDELITY_GAIN = 1` per continuous recert — a lapse **halves** the streak, never below 1 (there is no separate
 `FIDELITY_DECAY` constant any more, and no `FAUCET_STARTER_BOND`: free presence must never mint
 bonded stake, so there is deliberately **no auto-bond faucet**).
 

@@ -122,7 +122,7 @@ def _credit(block):
         return None
     reward = block["block_reward"]
     cut = (split_open_block_reward(reward)[0] if lane == "open"
-           else split_bonded_block_reward(reward, n)[0])
+           else split_bonded_block_reward(reward)[0])
     return block["block_creator"], lane, cut
 
 

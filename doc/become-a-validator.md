@@ -174,7 +174,7 @@ Coins are irrelevant here. What moves it is **fidelity**, the continuity streak:
 
 - every recert that is **continuous** (gap since the previous one <= 240 epochs, i.e. you renewed before
   the lease lapsed) adds `FIDELITY_GAIN = 1`;
-- **a lapse resets fidelity to 1** — not to zero, but the whole ramp is lost;
+- **a lapse halves fidelity** (never below 1) — half the ramp is lost, not all of it (betanet-5; before, a lapse reset it to 1);
 - it saturates at `FIDELITY_CAP = 30`.
 
 **Fidelity counts RECERTS, not days.** This document previously said reaching maximum weight "takes

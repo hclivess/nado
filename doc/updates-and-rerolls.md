@@ -49,16 +49,17 @@ is operational, not code-level:
 2. **Chain generation bump (full genesis reroll)** — see below.
 
 **The one sanctioned exception: a generation-keyed activation.** A rule that must NOT re-split
-history (the 2026-08-25 dividend rules — `protocol.py` `_GEN22_RULES_ACTIVATION`) activates at a
-height on the CURRENT generation and at block 0 on any later one:
+history activates at a height on the CURRENT generation and at block 0 on any later one:
 
-    DIVIDEND_RULES_HEIGHT = 72_000 if CHAIN_GENERATION == 22 else 0
+    RULE_HEIGHT = <height> if CHAIN_GENERATION == <current> else 0
 
 This is not a compatibility window — every node enforces the identical rule at every height — it is
 a replay guard: fresh sync, reindex, rollback and the fraud-proof reconstruction must reproduce what
 the fleet applied live before the height. It retires ITSELF: the reroll commit bumps
-`CHAIN_GENERATION`, the expression becomes 0, and the pre-activation branch is inert (delete it or
-not). `tests/test_gen22_rule_gate.py` pins the shape so nobody turns it back into a bare height.
+`CHAIN_GENERATION`, the expression becomes 0, and the dead branch is deleted in the same commit.
+Used once so far: the 2026-08-25 dividend rules rode the last hours of gen 22 this way and shipped
+ungated at the betanet-5 (gen 23) reroll; `tests/test_dividend_rules.py` now pins that NO gate
+survives for them.
 
 ## Chain generations (genesis rerolls)
 
@@ -126,10 +127,9 @@ the numbers are only small because nobody is using contracts yet.
    never a fresh deploy, which would strand the address.
 4. **Re-check every height/epoch-gated constant** — see [`SCHEDULED_CLEANUPS.md`](../SCHEDULED_CLEANUPS.md).
    Epoch numbering restarts, so an activation constant that was 2 days out lands weeks into the new chain
-   and silently leaves the old behaviour live until then. In particular
-   `FIDELITY_MIN_GAP_ACTIVATION_EPOCH` must be made **unconditional** on any reroll — a fresh chain has no
-   pre-activation history to preserve, and leaving it gated would reopen the fidelity-farming exploit for
-   the first days of the new chain, which is exactly when an early weight advantage compounds most.
+   and silently leaves the old behaviour live until then. Every gated rule must ship **unconditional** at
+   a reroll — a fresh chain has no pre-activation history to preserve. A generation-keyed gate (above)
+   does this by itself; delete its dead branch in the reroll commit (gen 22→23: the dividend-rules gate).
 5. **Check the carried balances are not exploit-inflated.** Cheap aggregate test for the fidelity case:
    `mining_status` gives `total_open_weight / open_registry_size`. 2.0 means everyone is at fidelity 1;
    10.0 means everyone is maxed. Betanet-2 measured **2.27**, i.e. no meaningful farming, so its balances

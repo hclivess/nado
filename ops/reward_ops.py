@@ -45,7 +45,7 @@ def credit_block_reward(block, logger, revert=False):
         increase_produced_count(address=creator, amount=tip, revert=revert, logger=logger)
     else:
         # BONDED lane: producer keeps the majority, a modest slice funds the presence dividend, treasury 10%.
-        producer_cut, dividend, treasury = split_bonded_block_reward(reward, block["block_number"])
+        producer_cut, dividend, treasury = split_bonded_block_reward(reward)
         change_balance(address=creator, amount=producer_cut, revert=revert, logger=logger)
         if dividend:
             change_balance(address=DIVIDEND_POOL, amount=dividend, revert=revert, logger=logger)

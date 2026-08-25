@@ -75,15 +75,15 @@ def t2_open_block_credits_pool_and_reverts():
     assert bal(DIVIDEND_POOL) == div0 and bal(TREASURY_ADDRESS) == tre0, "revert returns pool + treasury exactly"
 
 def t3_bonded_block_also_funds_the_dividend():
-    """Prove a bonded block pays the producer 70% yet still contributes its dividend + treasury shares, revert-exact."""
+    """Prove a bonded block pays the producer 50% and contributes its 40% dividend + 10% treasury shares, revert-exact."""
     from protocol import split_bonded_block_reward
     a = generate_keys()["address"]; create_account(a, balance=0)
     div0, tre0 = bal(DIVIDEND_POOL), bal(TREASURY_ADDRESS)
-    pc, div, tre = split_bonded_block_reward(R, 0)   # pre-activation: (producer 70%, dividend 20%, treasury 10%)
+    pc, div, tre = split_bonded_block_reward(R)   # (producer 50%, dividend 40%, treasury 10%)
     block = {"block_number": BONDED_SLOT, "block_creator": a, "block_reward": R}
     assert block_lane(block) == "bonded"
     with kv_ops.write_txn(): credit_block_reward(block, logger=logger)
-    assert bal(a) == pc, "bonded producer keeps the majority (70%)"
+    assert bal(a) == pc, "bonded producer keeps 50%"
     assert bal(DIVIDEND_POOL) == div0 + div, "a bonded block now contributes its share to the dividend pool"
     assert bal(TREASURY_ADDRESS) == tre0 + tre, "treasury keeps 10%"
     with kv_ops.write_txn(): credit_block_reward(block, logger=logger, revert=True)
