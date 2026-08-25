@@ -2662,14 +2662,6 @@ function renderLanes(ms) {
   $("laneBonded").style.flex = `0 0 ${bondedPct}%`;
   $("laneOpen").textContent = `${i18("lane.openBar", "OPEN")} ${openPct}%`;
   $("laneBonded").textContent = `${i18("lane.savingsBar", "SAVINGS")} ${bondedPct}%`;
-  // Where a won block's reward goes, per lane (protocol split constants mirrored above).
-  if ($("laneRewardOpen")) {
-    const pct = (bps) => Math.round(bps / 100);
-    const P = i18("lane.producer", "producer"), Q = i18("lane.pot", "presence pot"), Tr = i18("lane.treasury", "treasury");
-    const openPot = 10000 - OPEN_TIP_BPS - TREASURY_BPS, savProd = 10000 - BONDED_DIVIDEND_BPS - TREASURY_BPS;
-    $("laneRewardOpen").textContent = `${pct(OPEN_TIP_BPS)}% ${P} · ${pct(openPot)}% ${Q} · ${pct(TREASURY_BPS)}% ${Tr}`;
-    $("laneRewardSavings").textContent = `${pct(savProd)}% ${P} · ${pct(BONDED_DIVIDEND_BPS)}% ${Q} · ${pct(TREASURY_BPS)}% ${Tr}`;
-  }
 
   // H-5: coerce every relay-supplied field to a number before it reaches the innerHTML sink below.
   const myOpen = num(ms.my_open_weight), totOpen = num(ms.total_open_weight);
