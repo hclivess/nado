@@ -1,5 +1,3 @@
-> **Note (2026-08-25):** the per-identity `BOND_CAP` / `MAX_SHARES` cap referenced below was removed — bonded weight is linear in stake (`bonded // B_MIN`). References to the cap are historical.
-
 # NADO roadmap — building the demand machine
 
 > **Purpose.** This document takes an outside analysis of *where Solana's app revenue actually comes
@@ -349,7 +347,7 @@ should not pretend to. What we can offer instead, and should build the terminal 
 
 ## Phase 6 — Liquid staking
 
-Bonding is BUILT (`bond`/`unbond`, `B_MIN` = 10 NADO, `BOND_CAP`, slashing, `BOND_UNLOCK_DELAY`) but
+Bonding is BUILT (`bond`/`unbond`, `B_MIN` = 10 NADO, linear uncapped weight since betanet-5, slashing, `BOND_UNLOCK_DELAY`) but
 bonded capital is **frozen and non-composable**, and `B_MIN` plus the unlock delay prices out small
 holders. A liquid staking token fixes both and is the standard second-order demand driver (Jito,
 Sanctum, Marinade).
@@ -433,7 +431,7 @@ Full map, with measured numbers and per-component status:
 |---|---|---|
 | Goldilocks field, FRI, STARK, AIR IR, LogUp | **BUILT** | `NUM_QUERIES=320`, blowup 2, 18 grind bits → ~146 provable bits (Johnson) |
 | alghash2 (in-circuit hash) | **BUILT** | Wide sponge, WIDTH 12 / RATE 8 / CAPACITY 4, α=7, 54 rounds. Post-quantum: 128-bit collision + Grover preimage |
-| Execution zkVM + its AIR | **BUILT** | The only contract runtime; **25 contracts live on chain** |
+| Execution zkVM + its AIR | **BUILT** | The only contract runtime; **26 contracts live on chain** (redeployed at unchanged cids at the betanet-5 reroll) |
 | Shielded pool (join-split, membership) | **BUILT** | The **one** place the full proof→DA→commitment→verify loop already works in production |
 | Recursion (in-circuit STARK/FRI verify, FS, fold-of-folds) | **BUILT** | O(1) verify side; live on the consensus path since betanet-14 |
 | K→1 fold | **BUILT, never run** | Needs contract calls to fold; an idle chain has none, so the node falls through to the unfolded prove |
