@@ -266,6 +266,29 @@ def main():
         assert [r[1] for r in kv_ops.auth_history(OWNER)] == [1, 2]
     check("7. the freeze binds partial changes by height only; full-policy changes are never frozen", t7)
 
+    # ---- 7b. multi-block reorg: unwind a spend by the rotated-in key, then the rotation itself ------------
+    def t7b():
+        before_root, _ = state_fingerprint()
+        rot = protected(3, hot=EVE)
+        b1 = land([auth_set([NEW, REC], rot, [EVE])], "rotate NEW -> EVE")
+        b2 = land([transfer_cfg(OWNER, [EVE], 2)], "spend with EVE")
+        b3 = land([transfer_cfg(OWNER, [EVE], 2), construct_auth_tx(OWNER, [REC], {"op": "cancel"}, FEE, height() + 20)][:1], "spend again")
+        for b in (b3, b2, b1):                                     # reverse order, like a real reorg
+            rollback.rollback_one_block(log, b); chain.pop()
+        assert state_fingerprint()[0] == before_root, "three-block reorg through a rotation must restore the root"
+        acc = get_account(OWNER); assert acc["auth"]["keys"][0] == NEW["public_key"]
+        refused(lambda: validate(transfer_cfg(OWNER, [EVE], 1)), "does not authorize")
+        validate(transfer_cfg(OWNER, [NEW], 1))
+        # re-apply the same blocks: byte-identical result (determinism across replay)
+        for b in (b1, b2, b3):
+            core.memserver.latest_block = {"block_number": b["block_number"] - 1}
+            CoreClient.incorporate_block(core, b, sort_list_dict(b["block_transactions"])); chain.append(b)
+        assert get_account(OWNER)["auth"] == rot
+        for b in (b3, b2, b1):
+            rollback.rollback_one_block(log, b); chain.pop()
+        assert state_fingerprint()[0] == before_root
+    check("7b. multi-block reorg through a rotation and spends restores the root; replay is deterministic", t7b)
+
     # ---- 8. uniqueness + multisig sender ----------------------------------------------------------------
     def t8():
         a = construct_auth_tx(OWNER, [NEW], {"op": "cancel"}, FEE, height() + 20)

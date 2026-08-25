@@ -1,6 +1,6 @@
 # Account authentication — keep the address, change the keys
 
-Design proposal, 2026-08-25. Not implemented. Status: **architecture for review**.
+Design 2026-08-25; implemented 2026-08-26 on branch `auth-config`. Status: **built, dormant until the next chain generation** (`protocol.AUTH_ACTIVE = CHAIN_GENERATION >= 24`; `NADO_AUTH_FORCE=1` activates it for tests and throwaway testnets only).
 
 **Framing.** Account abstraction in its smallest useful form: an address stops being "the hash of one key"
 and becomes an **account whose authentication policy is state**. The policy says which keys may *spend*
@@ -234,3 +234,27 @@ under the full policy. The wallet still recommends a fresh recovery phrase after
 - Session keys for games (a short-lived authenticator allowed only `blob` calls to listed contracts) —
   the biggest UX win in reach and the most exposed to state bloat. Out of scope here; if ever, it must
   be `max_block`-bounded and never persisted past expiry.
+
+## 11. Implementation map (as built)
+
+| piece | where |
+|---|---|
+| policy language, config validation, effective config, entry verification, `key_authorized` / `key_valid_at`, the `auth` tx (validate + apply/revert) | `ops/auth_ops.py` |
+| activation switch + constants (`AUTH_ACTIVE`, `AUTH_MAX_KEYS=4`, depth 2, `AUTH_DELAY`=1 day, `AUTH_FREEZE`=7 days, `AUTH_HISTORY_KEEP=8`) | `protocol.py` |
+| `auth_history` (dupsort, in the root — stores blake2b **digests** of the keys: a dupsort value is capped at 511 bytes) and `auth_revert` (node-local journal) | `ops/kv_ops.py` |
+| `validate_origin(tx, block_height)`: configured accounts / list signatures judged by the effective config; per-entry fee floor (entries beyond the first); `auth` branch; one `auth` per sender per block; `construct_auth_tx`, `sign_entries`, `auth_pop` | `ops/transaction_ops.py` |
+| `reflect_transaction` → `apply_auth_tx` (fee debited + destroyed) | `ops/account_ops.py` |
+| block winner signature via `key_authorized(pubkey, creator, height)`; equivocation proofs resolve the offender at the offence height (`offender` may be named for a rotated-in key); `auth` lands flexibly | `ops/block_ops.py` |
+| attestation equivocation proofs check the key at the attested epoch | `ops/transaction_ops.py` |
+| status hash attestations, messaging, prekeys, forum login → `key_authorized` | `ops/peer_ops.py`, `nado.py`, `forum/server.py` |
+| `keys.dat` may carry `account` (the address this key authorizes) — the node's identity after a rotation | `ops/key_ops.py` |
+| `/status.auth_active`; `/get_account` serves `auth`, `auth_pending`, `auth_freeze` | `nado.py` |
+| node CLI: `status` / `protect` / `rotate` / `adopt` / `cancel` | `scripts/auth_cli.py` |
+| wallet: signer binding (HD signer children `hd-auth-signer-v1`, scan on a wiped device), Account keys panel (Protect / Rotate / Cancel, recovery phrase shown once), list-signature builder, 16 languages | `static/interface.js`, `static/interface.html`, `static/i18n.js` |
+| tests: core (`tests/test_auth_config.py`), consensus end-to-end incl. multi-block reorg (`tests/test_auth_consensus.py`), multi-node testnet lifecycle (`scripts/testnet/test_auth_rotation.py`) | |
+
+Wire details that differ from the first draft: proof of possession signs `blake2b(["auth-pop-v1", CHAIN_ID,
+sender, cfg])` (it cannot sign the txid — it rides inside the txid's preimage); a key that signed the `auth`
+tx itself needs no separate pop; a configured single-key account may still omit its `public_key` (resolved
+from the config, PUBKEY-ONCE style). A matured pending change authorizes purely by height — no promotion
+write — and is materialised into `auth` by the next change.

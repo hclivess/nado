@@ -45,6 +45,13 @@ def load_keys(file=f"{get_home()}/private/keys.dat"):
             keydict["address"] = make_address(keydict["public_key"])
     except Exception:
         pass          # never make key loading fail on a derivation problem — fall back to the stored value
+    # ACCOUNT AUTHENTICATION (doc/key-rotation.md): after a key rotation the node's signing key no longer
+    # derives its account address. A keyfile written by scripts/auth_cli.py carries `account` — the address
+    # this key AUTHORIZES — and that is the node's identity (sender of every tx it mints, its registry entry).
+    # Absent = legacy: the derived address, exactly as before.
+    acct = keydict.get("account")
+    if isinstance(acct, str) and acct:
+        keydict["address"] = acct
     return keydict
 
 

@@ -258,7 +258,10 @@ def validate_auth_tx(transaction, block_height: int, signers: set):
     # mistyped config can never be installed.
     pop = d["pop"]
     assert isinstance(pop, dict), "pop must map new public keys to signatures"
-    have = set(cur.get("keys") or [])
+    # a key that SIGNED this tx has already proven possession (its signature over the txid verified); a
+    # first-ever transaction from a legacy account therefore installs its own derived key without a pop
+    have = set(cur.get("keys") or []) | {e.get("public_key") for e in resolve_entries(transaction, cur)
+                                          if signer_index(e.get("public_key"), address, cur) is not None}
     message = pop_message(address, d["cfg"])
     new = [k for k in keys if k not in have]
     assert set(pop.keys()) == set(new), "pop must cover exactly the new authenticators"

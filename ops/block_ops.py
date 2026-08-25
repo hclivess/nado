@@ -168,7 +168,10 @@ def _lands_flexibly(transaction):
     # validating cleanly at every height (no exclusion logged) and never selected, which is precisely the
     # signature of exact-landing on a tx nobody targets exactly. It is also part of why the faucet has
     # never held a balance on any generation.
-    return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet") or is_address(r))
+    # `auth` (account authentication, doc/key-rotation.md) likewise carries no landing-height timing of its
+    # own: its rules (version, policy, freeze, pending effective = landing height + AUTH_DELAY) are checked
+    # by validate_transaction at whatever height it lands, identically on every node.
+    return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet", "auth") or is_address(r))
 
 
 def check_target_match(transaction_list, block_number, logger):
