@@ -94,9 +94,14 @@ def t_binds_real_stark_proof():
     trace columns recompute (in-circuit, via air_ir) to that query's REAL FRI layer-0 value — exactly the
     stark.verify composition spot-check, done inside a recursion proof. The trace<->constraints half of an
     in-circuit STARK verifier, run against a real proof rather than hand-built values."""
-    from execnode.stark import stark, backend as B
-    from execnode.stark.transcript import Transcript, DOMAIN_STARK
+    from execnode.stark import stark, backend as B, extf, recursive_verify as RV
     b = B.RECURSION
+    # The RECURSION backend draws its alphas from the EXTENSION field (GF(p^3) since alphanet-14), and the real
+    # proof's FRI layer-0 values are extension pairs — so the program the composition check runs must be
+    # built ext_chal, and the alphas must be replayed in the inner proof's own field. Both come from the
+    # single authorities the recursion layer itself uses: stark.ext_challenges_active and RV._fs.
+    ext = stark.ext_challenges_active(b)
+    prog = air_ir.build_program(TRANS, W, 0, 0, ext_chal=ext)
     Tn, NQ_IN = 8, 2
     colv = [SEED]
     for _ in range(Tn - 1):
@@ -106,10 +111,8 @@ def t_binds_real_stark_proof():
     assert stark.verify(proof, TRANS, BND, max_degree=8, num_queries=NQ_IN, backend=b)[0], "inner proof must verify"
     N, blowup, col_roots = proof["N"], proof["blowup"], proof["col_roots"]
     nt, nb = len(TRANS), len(BND)
-    t = Transcript(DOMAIN_STARK, backend=b)             # one-phase AIR: absorb col roots, draw nt+nb alphas
-    for r in col_roots:
-        t.absorb(r)
-    alphas = [t.challenge() for _ in range(nt + nb)]
+    _mk, _chals, alphas = RV._fs(RV.public_part(proof), 0, nt + nb, b)   # one-phase AIR: absorb col roots, draw nt+nb alphas
+    alphas = [extf.canon(a) for a in alphas]
     x_dom = F.domain(N, stark.OFF)
     gT = F.primitive_root_of_unity(Tn)
     last = F.pw(gT, Tn - 1)
@@ -124,9 +127,9 @@ def t_binds_real_stark_proof():
         points.append({"cur": [(cols[c]["cur"], lo, cols[c]["cur_path"]) for c in range(W)],
                        "nxt": [(cols[c]["nxt"], nxt, cols[c]["nxt_path"]) for c in range(W)],
                        "per": [], "chal": [], "alphas": alphas, "invZ": F.inv(z), "bnd": bnd,
-                       "layer0": q["steps"][0]["lo"]})
-    rproof, public = CV.prove_comp(PROG, W, BND, points, col_roots, num_queries=4)
-    ok, why = CV.verify_comp(rproof, PROG, W, BND, public)
+                       "layer0": extf.canon(q["steps"][0]["lo"])})
+    rproof, public = CV.prove_comp(prog, W, BND, points, col_roots, num_queries=4)
+    ok, why = CV.verify_comp(rproof, prog, W, BND, public)
     assert ok, f"composition binding of a real STARK proof must verify: {why}"
 
 
