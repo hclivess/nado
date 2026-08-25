@@ -101,7 +101,7 @@ try {
   await page.type("#sendAmount", "0.5");
   await page.click("#btnSend");
   await page.waitForSelector(".modal-ok", { visible: true, timeout: 20000 });
-  await page.click(".modal-ok");
+  await page.$eval(".modal-ok", (e) => e.click());
   const sent = await waitFor(async () => Number(((await getAccount(payee)) || {}).balance || 0) >= before + 5_000_000_000, "send landed");
   step("send signed by the rotated-in key landed", sent);
 } catch (e) {
