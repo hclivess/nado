@@ -69,7 +69,8 @@ the model is a **capped, fair-launch bonded chain**: lock coins (you keep them) 
 
    **Renewal timing and fidelity.** A recert earns `+1` fidelity only when it lands at least
    `FIDELITY_MIN_GAP_EPOCHS` (192 ≈ 19.2 h) after the previous one; an earlier recert still renews
-   the lease but earns nothing and moves the anchor, so the *next* point is 19.2 h from it. The
+   the lease and never reduces fidelity — it just doesn't add the point yet, and the *next* point
+   is 19.2 h from it. The
    wallet renews automatically at 80 % of the lease — exactly that threshold — which shifts the
    expiry ~4.8 h earlier each day until it falls into the night and a closed wallet lapses (a
    fidelity reset). The wallet card therefore shows the lease countdown and a **Renew presence

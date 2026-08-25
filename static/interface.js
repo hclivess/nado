@@ -1778,7 +1778,7 @@ function refreshLeasePanel(acc, ms) {
       { c: _fmtClock(POSW_LEASE_EPOCHS * epochSecs) });
     enabled = !!state.wallet && !_renewingLease && !state.registering;
   } else {
-    note = i18("lease.tooEarly", "Renewing earns fidelity from about {c} (in {t}). Renewing sooner keeps you present but earns no fidelity.",
+    note = i18("lease.tooEarly", "The +1 fidelity for this renewal is available from about {c} (in {t}). Your fidelity is safe until the lease expires.",
       { c: _fmtClock(earnsIn), t: humanizeSeconds(earnsIn) });
     enabled = false;
   }
@@ -1796,7 +1796,7 @@ async function renewLeaseManually() {
     const epochNow = (ms && typeof ms.epoch === "number") ? ms.epoch : null;
     if (regEpoch < 0 || epochNow == null) return;
     if ((epochNow - regEpoch) < FIDELITY_MIN_GAP_EPOCHS) {          // re-check against the chain, not the panel
-      log("info", i18("log.leaseTooEarly", "Too early — renewing now would earn no fidelity. The panel shows when it will."));
+      log("info", i18("log.leaseTooEarly", "Not yet — the +1 for this renewal is available from the time shown in the panel. Your fidelity is safe until the lease expires."));
       return;
     }
     if (_renewSubmitted && regEpoch <= _renewSubmitted.atEpoch && state.latest != null && state.latest <= _renewSubmitted.targetBlock) return;
