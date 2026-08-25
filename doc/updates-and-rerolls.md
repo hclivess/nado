@@ -74,7 +74,11 @@ snapshots, exec state + DA; **never `private/`** (keys, config) — and regenesi
 node performs the same check for its own files, so a stale execution layer can never replay a new chain.
 
 Combined with the updater, **one `/update` wave fully deploys a reroll**: pull → restart → purge →
-fresh chain. No manual steps on any operator's box.
+fresh chain. No manual steps on any operator's box. (Two operational notes from gen 23: a node
+brought up with `systemctl start` after a manual stop does not forward the wave — call `GET /update`
+on it once so its peers get the ping; and the node-local telemetry files that survive the purge —
+`daily_stats.json`, `treasury_history.json`, `rollback_stats.json` — are stamped `CHAIN_ID/CHAIN_GENERATION`
+and drop themselves when it changes, so the Stats page never shows a previous lineage's reorgs.)
 
 ### Pre-reroll checklist — what a "balances carry forward" promise actually has to cover
 

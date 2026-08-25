@@ -51,7 +51,7 @@ def t_legacy_bare_count_loads_with_null_depth():
     import json
     day = "2019-06-15"
     with open(RS._stats_path(), "w") as f:
-        json.dump({day: 4}, f)
+        json.dump({day: 4, "__chain__": RS._chain_stamp()}, f)   # stamped: an unstamped file is a foreign lineage
     loaded = RS._load()
     assert loaded == {day: {"c": 4, "d": None, "r": None, "e": None}}, loaded
 
@@ -81,6 +81,7 @@ def t_retention_prunes_oldest_only():
     import json
     old = {f"2001-01-{d:02d}": 9 for d in range(1, 11)}
     with open(RS._stats_path(), "w") as f:
+        old["__chain__"] = RS._chain_stamp()
         json.dump(old, f)
     real, RS._RETENTION_DAYS = RS._RETENTION_DAYS, 3
     try:

@@ -34,6 +34,34 @@ _RETENTION_DAYS = 400                    # keep over a year of history; the char
 # with no record ARE real zeros (the node was up and nothing happened). Non-date key so the day-map
 # iteration can skip it.
 _SINCE_KEY = "__since__"
+# CHAIN-SCOPED (2026-08-25): this file deliberately survives the genesis-reroll purge (it sits at the node-home
+# top level, on the purge allowlist) — and so, after the betanet-5 reroll, the Stats panel showed July's reorgs
+# and emergency entries as if they belonged to a chain that was two hours old. Reorg history is only meaningful
+# within one genesis lineage. Same discipline as daily_stats/treasury_history: stamp CHAIN_ID/CHAIN_GENERATION and
+# drop everything when it differs. A file WITHOUT a stamp is dropped too — the stamp shipped after the gen-23
+# reroll, so every unstamped file on every node is the previous chain's history.
+_CHAIN_KEY = "__chain__"
+_MARKERS = (_SINCE_KEY, _CHAIN_KEY)
+
+
+def _chain_stamp() -> str:
+    try:
+        from protocol import CHAIN_ID, CHAIN_GENERATION
+        return f"{CHAIN_ID}/{CHAIN_GENERATION}"
+    except Exception:
+        return "?"
+
+
+def _raw() -> dict:
+    """The file as written, or {} — and {} (a foreign lineage) when its chain stamp is absent or differs."""
+    try:
+        with open(_stats_path()) as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or data.get(_CHAIN_KEY) != _chain_stamp():
+            return {}
+        return data
+    except Exception:
+        return {}
 
 
 def _stats_path():
@@ -49,14 +77,11 @@ def _load() -> dict:
     Legacy days stored as a bare int (count only, before depth tracking) load as d=None ("not
     measured") so the record survives the format change without inventing a depth it never saw."""
     try:
-        with open(_stats_path()) as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            return {}
+        data = _raw()
         out = {}
         for k, v in data.items():
-            if k == _SINCE_KEY:
-                continue                       # observation marker, not a day record
+            if k in _MARKERS:
+                continue                       # observation / chain markers, not day records
             if isinstance(v, dict):
                 d = v.get("d")
                 # r (state-root REJECTS) and e (EMERGENCY-mode entries) shipped after c/d; a record that
@@ -79,14 +104,11 @@ def _read_since() -> str:
     """The first UTC day this node observed, or the earliest day it has a record for (best available
     evidence on a file written before the marker existed), or None if we simply cannot tell."""
     try:
-        with open(_stats_path()) as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            return None
+        data = _raw()
         s = data.get(_SINCE_KEY)
         if isinstance(s, str) and s:
             return s
-        days = [k for k in data if k != _SINCE_KEY]
+        days = [k for k in data if k not in _MARKERS]
         return min(days) if days else None
     except Exception:
         return None
@@ -98,20 +120,22 @@ def note_observing():
     zero-days become meaningful — without this, absence of records is ambiguous forever."""
     try:
         with _lock:
-            try:
-                with open(_stats_path()) as f:
-                    data = json.load(f)
-                if not isinstance(data, dict):
-                    data = {}
-            except Exception:
-                data = {}
+            data = _raw()                     # {} for a foreign/unstamped lineage: that history is dropped here
             if data.get(_SINCE_KEY):
                 return
             if not data and os.path.exists(_stats_path()):
-                return                        # file exists but did not parse — do NOT overwrite real history
+                try:
+                    with open(_stats_path()) as f:
+                        _old = json.load(f)
+                    if isinstance(_old, dict) and _old.get(_CHAIN_KEY) == _chain_stamp():
+                        return                # same chain, file just did not parse into days — do NOT overwrite
+                except Exception:
+                    return                    # file exists but did not parse — do NOT overwrite real history
             # Prefer the earliest day we actually have a record for: stamping today on a node with months of
             # telemetry would null every previously-observed CALM day, over-correcting into the opposite error.
-            data[_SINCE_KEY] = (min(k for k in data) if data else _day())
+            days = [k for k in data if k not in _MARKERS]
+            data[_SINCE_KEY] = (min(days) if days else _day())
+            data[_CHAIN_KEY] = _chain_stamp()
             path = _stats_path()
             os.makedirs(os.path.dirname(path), exist_ok=True)
             tmp = f"{path}.tmp"
@@ -145,6 +169,7 @@ def _persist(mutate):
         since = _read_since() or _day()
         data = dict(data)
         data[_SINCE_KEY] = since
+        data[_CHAIN_KEY] = _chain_stamp()
         path = _stats_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = f"{path}.tmp"
