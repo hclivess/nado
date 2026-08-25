@@ -79,6 +79,9 @@ def _parse_records(f, upto=None):
         off += HEADER_SIZE + plen
 
 
+_READ_FILES_MAX = 64          # open 'rb' segment handles kept per store (one per segment, oldest closed first)
+
+
 class _Store:
     def __init__(self, home):
         self.home = home
@@ -165,6 +168,12 @@ class _Store:
                 f = self.read_files.get(seg)
                 if f is None:
                     f = open(segment_path(seg, self.home), "rb")
+                    while len(self.read_files) >= _READ_FILES_MAX:   # bounded fd count: drop the oldest
+                        _old = self.read_files.pop(next(iter(self.read_files)))
+                        try:
+                            _old.close()
+                        except OSError:
+                            pass
                     self.read_files[seg] = f
                 f.seek(off)
                 raw = f.read(total_len)

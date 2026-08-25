@@ -1369,6 +1369,8 @@ class CoreClient(threading.Thread):
         except Exception:
             same = True
         _cache[peer] = (same, _now)
+        for _p in [p for p, (_s, _t) in _cache.items() if _now - _t >= 600.0]:
+            _cache.pop(_p, None)                  # bounded: a churned-through peer set does not accumulate
         return same
 
     def _extends_us(self, peer, budget):

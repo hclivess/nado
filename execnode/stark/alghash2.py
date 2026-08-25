@@ -114,6 +114,12 @@ def _try_native():
         iv = (u64 * CAPACITY)(*IV)
         mds = (u64 * (WIDTH * WIDTH))(*[_MDS[i][j] for i in range(WIDTH) for j in range(WIDTH)])
         lib.init(rc, iv, mds)
+        try:                                          # newer .so: refuse a library whose init did not land
+            lib.ready.restype = ctypes.c_uint64
+            if int(lib.ready()) != 1:
+                raise ValueError("native alghash2 reports not initialised — rejected")
+        except AttributeError:
+            pass                                      # older .so without ready(): the self-test below still guards
         # INTEROP SELF-TEST — a stale/incompatible .so (e.g. one built for a different ROUNDS) is loaded and
         # TRUSTED by every caller, so it would silently diverge from consensus. Before adopting the native lib,
         # verify its permutation reproduces the pure-Python one on a fixed vector; on ANY mismatch reject it and

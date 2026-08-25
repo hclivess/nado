@@ -13,18 +13,10 @@ from ops import self_update
 from protocol import CHAIN_ID, GENESIS_TIMESTAMP, BLOCK_TIME
 
 
-_OUR_GENESIS_CACHE = [None]
-
-
 def _our_genesis():
-    """Our block 0 hash, cached per process (immutable while running; a reroll restarts the node)."""
-    if _OUR_GENESIS_CACHE[0] is None:
-        try:
-            from ops.block_ops import get_block_hash_by_number
-            _OUR_GENESIS_CACHE[0] = get_block_hash_by_number(0)
-        except Exception:
-            return None
-    return _OUR_GENESIS_CACHE[0]
+    """Our block 0 hash — the shared per-process memo in ops.block_ops (immutable while running)."""
+    from ops.block_ops import genesis_hash_cached
+    return genesis_hash_cached()
 
 
 # How often (seconds) a node BELOW min_peers re-seeds + reloads peers from drive. The peer loop still spins

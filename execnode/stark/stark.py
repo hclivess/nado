@@ -184,10 +184,13 @@ _PER_LDE_SEEN = OrderedDict()        # key -> True, admission filter (digests on
 _PER_LDE_SEEN_MAX = 256
 
 
-def _per_lde_key(col, N, T):
+def _per_lde_key(col, N, T, offset):
+    # The OFFSET IS PART OF THE KEY. The value is the column's LDE on the coset offset·<g>, so two callers
+    # with different shifts must never share an entry: every current call site passes OFF, and a key that
+    # omitted it was correct only by that coincidence — a future caller would silently get another coset.
     from array import array as _arr
     import hashlib as _hl
-    return (N, T, _hl.blake2b(_arr("Q", col).tobytes(), digest_size=16).digest())
+    return (N, T, int(offset) % F.P, _hl.blake2b(_arr("Q", col).tobytes(), digest_size=16).digest())
 
 
 _PER_HINTED = set()                  # digests already reported, so the hint is once per column, not per query
@@ -226,7 +229,7 @@ def _per_lde_cached(col, N, T, offset):
     whether the NTT runs again, never what it returns.
     """
     from array import array as _arr
-    k = _per_lde_key(col, N, T)
+    k = _per_lde_key(col, N, T, offset)
     hit = _PER_LDE_CACHE.get(k)
     if hit is not None:
         _PER_LDE_CACHE.move_to_end(k)                      # LRU: reuse protects the entry

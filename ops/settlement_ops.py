@@ -131,8 +131,12 @@ def _latest_settled_uncached(ns: str = DEFAULT_NS):
     return (-1, None)
 
 
-# recent_settled_roots cache: same single-reference generation-keyed pattern as latest_settled.
+# recent_settled_roots cache: same single-reference generation-keyed pattern as latest_settled — AND the
+# same herd lock. It is reached from every dividend_withdraw validation in the mempool merge, so after each
+# write txn a dozen worker threads miss the generation key together; without the lock each re-ran the
+# justification walk concurrently, exactly the 37s/block pattern latest_settled was locked for.
 _recent_settled_cache = [None]
+_recent_settled_lock = threading.Lock()
 
 
 def recent_settled_roots(ns: str = DEFAULT_NS, k: int = 3):
@@ -155,9 +159,13 @@ def recent_settled_roots(ns: str = DEFAULT_NS, k: int = 3):
     entry = _recent_settled_cache[0]
     if entry is not None and entry[0] == key:
         return entry[1]
-    result = _recent_settled_uncached(ns, k)
-    _recent_settled_cache[0] = (key, result)
-    return result
+    with _recent_settled_lock:
+        entry = _recent_settled_cache[0]          # re-check: the herd resolves to one compute
+        if entry is not None and entry[0] == key:
+            return entry[1]
+        result = _recent_settled_uncached(ns, k)
+        _recent_settled_cache[0] = (key, result)
+        return result
 
 
 def _recent_settled_uncached(ns: str, k: int):

@@ -323,10 +323,16 @@ struct Arena {
 }
 
 static ARENA: Mutex<Option<Arena>> = Mutex::new(None);
+/// ARENA GENERATION. Column/tree ids are raw positions into the arena, and sp_reset restarts them from 0 —
+/// so an id captured by one prove and used after another prove's reset does not fail, it silently aliases a
+/// DIFFERENT column (the class of bug the Python-side _LOCK exists to prevent). The generation makes that
+/// detectable: sp_reset bumps and returns it, sp_gen reads it, and the Python wrapper refuses to touch the
+/// arena when the generation it reset is no longer the live one.
+static GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Start a new proof: record geometry and clear any retained columns.
+/// Start a new proof: record geometry and clear any retained columns. Returns the new arena generation.
 #[no_mangle]
-pub extern "C" fn sp_reset(t: usize, n: usize, offset: u64) {
+pub extern "C" fn sp_reset(t: usize, n: usize, offset: u64) -> u64 {
     let mut g = ARENA.lock().unwrap();
     *g = Some(Arena {
         t,
@@ -335,6 +341,13 @@ pub extern "C" fn sp_reset(t: usize, n: usize, offset: u64) {
         cols: Vec::new(),
         trees: Vec::new(),
     });
+    GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+}
+
+/// The live arena generation (see GEN).
+#[no_mangle]
+pub extern "C" fn sp_gen() -> u64 {
+    GEN.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 /// Compute the LDE of one trace column (T values at `in_ptr`), RETAIN it in the arena, and (if `out_ptr` is

@@ -321,11 +321,11 @@ class MemServer:
         if peer not in self.purge_peers_list and peer not in self.unreachable:
             self.purge_peers_list.append(peer)
 
-    # HASH CACHES for the two per-second consensus signals below. Key = the pool LIST OBJECT itself
-    # (the cache keeps a live reference, so CPython can never recycle its id) + its length: every
-    # pool mutation either REASSIGNS self.transaction_pool (merge_transaction's post-append sort,
-    # purge, drain, cull — a new object) or changes its LENGTH in place (block-inclusion evict), so
-    # (same object, same length) proves the tx set is unchanged and the cached hash is exact. This
+    # HASH CACHES for the two per-second consensus signals below. Key = pool_gen, the counter the
+    # transaction_pool property setter bumps on EVERY reassignment (merge_transaction's post-append
+    # sort, purge, drain, cull) — see core_loop's "ASSIGN ONLY ON CHANGE" note: an earlier key on the
+    # list object + its length never hit under load, because the core loop reassigned the pool every
+    # pass. An unchanged pool_gen proves the tx set is unchanged and the cached hash is exact. This
     # turns the old O(pool)·sort + canonical-serialize EVERY SECOND into O(1) between pool changes —
     # the whole-mempool rehash was the classic hot-loop serialization cost at mempool scale.
     _pool_hash_cache = None            # (pool_gen, hash)

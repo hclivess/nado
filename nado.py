@@ -198,20 +198,10 @@ async def legacy_static_redirect(request):
     raise web.HTTPFound("/static/interface." + request.match_info["ext"])
 
 
-_GENESIS_HASH_CACHE = [None]
-
-
 def _genesis_hash_cached():
-    """Block 0's hash, computed once per process (immutable for a running node: a reroll purges and
-    restarts). None while genesis hasn't landed yet — peers treat a missing field as unknown, never
-    as foreign."""
-    if _GENESIS_HASH_CACHE[0] is None:
-        try:
-            from ops.block_ops import get_block_hash_by_number
-            _GENESIS_HASH_CACHE[0] = get_block_hash_by_number(0)
-        except Exception:
-            return None
-    return _GENESIS_HASH_CACHE[0]
+    """Block 0's hash for /status — the shared per-process memo in ops.block_ops."""
+    from ops.block_ops import genesis_hash_cached
+    return genesis_hash_cached()
 
 
 async def status(request):

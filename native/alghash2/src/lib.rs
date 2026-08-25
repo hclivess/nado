@@ -19,6 +19,14 @@ const CAP: usize = 4;
 static mut RC: [[u64; W]; R] = [[0; W]; R];
 static mut IV: [u64; CAP] = [0; CAP];
 static mut MDS: [[u64; W]; W] = [[0; W]; W];
+// INIT CHECK. RC/IV/MDS arrive from Python via `init`; before that they are all zero and every entry point
+// would still run, producing well-formed but WRONG digests — the same silent-desync class as the 8→54 round
+// change. `ready` lets the loader verify init happened before it trusts this library (and starkprove's
+// HASH_READY does the same for its copy of the constants).
+static mut READY: u64 = 0;
+
+#[no_mangle]
+pub unsafe extern "C" fn ready() -> u64 { READY }
 
 // Fast Goldilocks reduction of a 128-bit product to [0, p), NO division (p = 2^64 - 2^32 + 1, so
 // 2^64 ≡ 2^32-1 and 2^96 ≡ -1 mod p). Bit-identical to (x % p) — verified exhaustively against the Python
@@ -64,6 +72,7 @@ pub unsafe extern "C" fn init(rc: *const u64, iv: *const u64, mds: *const u64) {
     for r in 0..R { for i in 0..W { RC[r][i] = *rc.add(r * W + i); } }
     for i in 0..CAP { IV[i] = *iv.add(i); }
     for i in 0..W { for j in 0..W { MDS[i][j] = *mds.add(i * W + j); } }
+    READY = 1;
 }
 
 #[inline(always)]

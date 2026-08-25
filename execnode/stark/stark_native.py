@@ -161,9 +161,29 @@ def _init_hash(lib):
     lib.sp_init(ctypes.cast(rc, ctypes.c_void_p), ctypes.cast(iv, ctypes.c_void_p), ctypes.cast(mds, ctypes.c_void_p))
 
 
+_TL = threading.local()   # per-thread: the arena generation this thread's reset() produced
+
+
 def reset(T, N, offset):
-    """Begin a proof arena of geometry (T, N, offset). Clears any retained columns."""
-    _LIB.sp_reset(int(T), int(N), int(offset) % _P)
+    """Begin a proof arena of geometry (T, N, offset). Clears any retained columns. Remembers the arena
+    generation for _guard()."""
+    _LIB.sp_reset.restype = ctypes.c_uint64
+    _TL.gen = int(_LIB.sp_reset(int(T), int(N), int(offset) % _P))
+
+
+def _guard():
+    """Refuse to touch the arena if another reset() has happened since this thread's own. Column/tree ids
+    are raw positions that a reset restarts from 0, so a stale id would not fail — it would alias another
+    prove's column. _LOCK makes this impossible by construction; the guard makes a lock bug loud instead
+    of silent (an older .so without sp_gen is tolerated: no check)."""
+    fn = getattr(_LIB, "sp_gen", None)
+    if fn is None:
+        return
+    fn.restype = ctypes.c_uint64
+    mine = getattr(_TL, "gen", None)
+    live = int(fn())
+    if mine is not None and mine != live:
+        raise RuntimeError(f"arena reset by another prove (gen {mine} -> {live}); ids are stale")
 
 
 def grind(state, dom, bits):
@@ -184,6 +204,7 @@ def lde_column(col_values, N, want_out=True):
     """Compute + RETAIN the LDE of one trace column (T values on the size-T domain). Returns (col_id, lde_list)
     where lde_list is the N-length result if want_out else None. Bit-identical to
     stark._coset_evaluate(F.interpolate(col_values), N, OFF)."""
+    _guard()
     T = len(col_values)
     inbuf = (ctypes.c_uint64 * T)(*[int(v) % _P for v in col_values])
     outbuf = (ctypes.c_uint64 * N)() if want_out else None
@@ -198,6 +219,7 @@ def commit_col(col_id, hash_mode=0):
     """Merkle-commit a retained LDE column from the arena — no Python round-trip of the column. `hash_mode`
     0 = RECURSION (rleaf/rnode), 1 = ALGHASH2 (hashn leaf/node, the default backend). Returns (tree_id, root)
     with root a CAPACITY-tuple. Bit-identical to merkle.commit(col_lde[col_id], b)."""
+    _guard()
     root = (ctypes.c_uint64 * _CAP)()
     tid = _LIB.sp_commit_col(int(col_id), ctypes.cast(root, ctypes.c_void_p), int(hash_mode))
     if tid < 0:
@@ -208,6 +230,7 @@ def commit_col(col_id, hash_mode=0):
 def commit_rows(col_ids):
     """Row-commit a group of retained columns into ONE tree (leaf = rrow of the row across the group). Returns
     (tree_id, root). Bit-identical to stark._row_tree(group, N)."""
+    _guard()
     n = len(col_ids)
     ids = (ctypes.c_size_t * n)(*[int(c) for c in col_ids])
     root = (ctypes.c_uint64 * _CAP)()
@@ -220,6 +243,7 @@ def commit_rows(col_ids):
 def open_at(tree_id, pos, path_len):
     """Authentication path for leaf `pos` of a retained tree — a list of `path_len` CAPACITY-tuples, bottom-up.
     Bit-identical to merkle.open_at(layers, pos)."""
+    _guard()
     buf = (ctypes.c_uint64 * (path_len * _CAP))()
     got = _LIB.sp_open(int(tree_id), int(pos), ctypes.cast(buf, ctypes.c_void_p))
     if got < 0:
@@ -233,6 +257,7 @@ def compose(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
     (ids 0..W) then the `nper` periodic-LDE columns (ids W..W+nper), added via lde_column in that order. Reads
     them + computes invZ/boundary-denominators/domain in Rust; retains cp as a new arena column. Returns
     (cp_col_id, cp_list or None). Bit-identical to stark._composition → air_ir.compose_native."""
+    _guard()
     u32, u64 = ctypes.c_uint32, ctypes.c_uint64
     ops = prog["ops"]; consts = prog["consts"]; outputs = prog["outputs"]
     W, nper, nchal = prog["W"], prog["P"], len(chals)
@@ -287,6 +312,7 @@ def compose_ext(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
     count is len(outputs) - len(ext_pairs)*(D-1) + len(boundaries), NOT len(outputs) + len(boundaries).
     Returns (cp_col_id, (limb_lists...) or None); the further limb columns follow at cp_col_id + 1 ...
     Bit-identical to air_ir.compose_python under extension alphas."""
+    _guard()
     from execnode.stark import extf as ext2
     u32, u64 = ctypes.c_uint32, ctypes.c_uint64
     ops = prog["ops"]; consts = prog["consts"]; outputs = prog["outputs"]
@@ -341,6 +367,7 @@ def fold_ext(cols, offset, alpha):
     `cols` is the D arena column ids in limb order. It used to be two positional args (col_lo, col_hi); a
     tuple is what makes the call degree-agnostic, and passing the length lets the arena reject a caller that
     disagrees with it instead of reading past the end."""
+    _guard()
     from execnode.stark import extf as ext2
     D = ext2.DEGREE
     ids = list(cols)
@@ -363,6 +390,7 @@ def stark_OFF():
 
 def load_col(values):
     """Load a vector verbatim as a new arena column (no LDE); returns its id."""
+    _guard()
     n = len(values)
     buf = (ctypes.c_uint64 * n)(*[int(v) % _P for v in values])
     cid = _LIB.sp_load_col(ctypes.cast(buf, ctypes.c_void_p), n)
@@ -373,6 +401,7 @@ def load_col(values):
 
 def col_len(col):
     """Length of a retained column (FRI layers shrink by half each fold)."""
+    _guard()
     n = _LIB.sp_col_len(int(col))
     if n < 0:
         raise RuntimeError("sp_col_len: bad column")
@@ -382,6 +411,7 @@ def col_len(col):
 def fold(col, offset, alpha):
     """One FRI fold of a retained column → a new (half-length) arena column; returns its id. Bit-identical to
     fri._fold(evals, F.domain(m, offset), alpha)."""
+    _guard()
     cid = _LIB.sp_fold(int(col), int(offset) % _P, int(alpha) % _P)
     if cid < 0:
         raise RuntimeError("sp_fold failed")
@@ -406,6 +436,7 @@ def fri_prove_native(col_ids, offset, blowup, num_queries, transcript, hash_mode
     through every absorb/challenge/grind, and they are written back so the caller's transcript continues
     correctly for the openings that follow.
     """
+    _guard()
     import ctypes
     from execnode.stark import fri as _fri
     if not available():
@@ -626,6 +657,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
 
 def read(col, pos):
     """One retained LDE value ARENA[col][pos]."""
+    _guard()
     return _LIB.sp_read(int(col), int(pos))
 
 

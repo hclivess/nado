@@ -426,6 +426,21 @@ def get_block_number(number):
         return False
 
 
+_GENESIS_HASH_CACHE = [None]
+
+
+def genesis_hash_cached():
+    """Block 0's hash, computed once per process — immutable for a running node (a reroll purges and
+    restarts). None while genesis hasn't landed yet; callers treat a missing value as unknown, never as
+    foreign. The single memo for /status and the peer loop (they used to keep one each)."""
+    if _GENESIS_HASH_CACHE[0] is None:
+        try:
+            _GENESIS_HASH_CACHE[0] = get_block_hash_by_number(0)
+        except Exception:
+            return None
+    return _GENESIS_HASH_CACHE[0]
+
+
 def get_block_hash_by_number(number):
     """block hash for a block number from the block index, or None (no block-file read)."""
     try:
