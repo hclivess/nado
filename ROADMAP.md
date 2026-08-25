@@ -599,7 +599,7 @@ the roster before that build starts, not after.
 
 ### Track H — Account authentication: rotate keys, recover accounts, keep the address
 
-**Design: [doc/key-rotation.md](doc/key-rotation.md)** (2026-08-25). Status: architecture for review, not built.
+**Design: [doc/key-rotation.md](doc/key-rotation.md)** (2026-08-25). Status: **BUILT 2026-08-26 (branch `auth-config`), dormant until chain generation 24** — `protocol.AUTH_ACTIVE = CHAIN_GENERATION >= 24`; every rule, the wallet panel and the node CLI are in place and tested (core, consensus end-to-end with reorgs, multi-node testnet lifecycle); the next reroll switches it on from block 0 with nothing to delete.
 
 Today an address *is* its ML-DSA key; a lost or stolen key loses the bonded stake and its ramp, the
 fidelity streak, aliases and every exec-side balance with it, and there is no proactive rotation.

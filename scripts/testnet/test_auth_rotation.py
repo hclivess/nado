@@ -30,11 +30,10 @@ sys.path.insert(0, HERE)
 os.environ["NADO_AUTH_FORCE"] = "1"
 
 import run_testnet as RT                                            # noqa: E402
-# Our own loopback range AND port: the production node on this box listens on 0.0.0.0:9173, so every
-# 127.0.0.x:9173 is "already in use" and a child node would exit at startup; another session's forknet may
-# hold 127.0.0.x as well. 127.0.1.x:9373 collides with nothing.
+# Our own PORT: the production node on this box listens on 0.0.0.0:9173, so every 127.0.0.x:9173 is
+# "already in use" and a child node would exit at startup. The IPs stay the harness's 127.0.0.x — that is the
+# range NADO_TESTNET relaxes check_ip for; any other loopback range leaves the nodes unmeshed at genesis.
 RT.PORT = int(os.environ.get("NADO_AUTHNET_PORT", "9373"))
-RT.node_ip = lambda i: f"127.0.1.{i + 2}"
 from signatures import generate_keydict                             # noqa: E402
 from ops.transaction_ops import construct_auth_tx, auth_pop, sign_entries, draft_transaction  # noqa: E402
 from ops import auth_ops as A                                       # noqa: E402
@@ -96,11 +95,17 @@ def wait_all(n, pred, label, patience=240):
     return False
 
 
+GENESIS_HASHES = set()
+
+
 def converged(n):
+    """One tip on every node — and NOT the genesis tip: three nodes that never meshed all sit on block 0."""
     sts = [RT.status(i) for i in range(n)]
     if any("error" in s for s in sts):
         return False, sts
-    return len({s.get("latest_block_hash") for s in sts}) == 1, sts
+    tips = {s.get("latest_block_hash") for s in sts}
+    advanced = all(int(s.get("finalized_height") or 0) > 0 or (s.get("latest_block_hash") not in GENESIS_HASHES) for s in sts)
+    return len(tips) == 1 and advanced, sts
 
 
 def wait_converged(n, patience=240):
@@ -137,7 +142,9 @@ def main():
     homes = [os.path.join(workdir, f"node{i}") for i in range(n)]
     # node0 needs a SPENDABLE balance for fees from block 0: a byte-identical genesis_alloc.dat on every
     # node (the same carry-forward mechanism a reroll uses) credits it; the other nodes hold only bonds.
-    alloc = [{"address": keys[0]["address"], "balance": 100 * 10_000_000_000, "bonded": 0}]
+    # bonded = B_MIN too: an alloc row REPLACES the account doc, so a 0 here would erase node0's genesis bond
+    # (it then never produces a block, which the post-rotation production check needs)
+    alloc = [{"address": keys[0]["address"], "balance": 100 * 10_000_000_000, "bonded": B_MIN}]
     for i in range(n):
         RT.seed_node(homes[i], i, keys, bond_manifest)
         json.dump(alloc, open(os.path.join(homes[i], "nado", "private", "genesis_alloc.dat"), "w"))
@@ -153,6 +160,11 @@ def main():
     procs = [launch(i) for i in range(n)]
     t0 = time.time()
     try:
+        for _ in range(60):                                   # learn the genesis hash so convergence excludes it
+            s0 = RT.status(0)
+            if "error" not in s0 and s0.get("latest_block_hash"):
+                GENESIS_HASHES.add(s0["latest_block_hash"]); break
+            time.sleep(2)
         step("fleet converged on a tip", wait_converged(n, patience=run_seconds // 2))
         # node0 must be able to pay fees: it produces blocks with its genesis bond, so wait for a balance
         ok = wait_all(n, lambda d: int(d.get("balance", 0)) >= 20 * MIN_TX_FEE, "node0 has a spendable balance", patience=run_seconds // 3)
@@ -195,6 +207,7 @@ def main():
         tx = auth_tx([HOT, REC], {"op": "set", "cfg": c2, "pop": {NEW["public_key"]: auth_pop(ACCT, c2, NEW)}}, 0)
         if submit(0, tx, "rotate hot -> NEW (hot + recovery)"):
             step("rotation landed on every node", wait_all(n, lambda d: (d.get("auth") or {}).get("v") == 2 and (d.get("auth") or {}).get("keys", [""])[0] == NEW["public_key"], "rotate"))
+            state["rot_landed_h"] = tip(1)
         d = draft_transaction(ACCT, PAYEE, 1, None, int(time.time()), "", tip(0) + 40); d.pop("public_key"); d["fee"] = MIN_TX_FEE
         refused_everywhere(n, sign_entries(d, [HOT]), "old hot key refused by every relay after rotation", "does not authorize")
 
@@ -214,10 +227,21 @@ def main():
         step("node0 back up on the new key", st0 is not None and "error" not in st0)
         ms = get(0, f"/mining_status?address={ACCT}")
         step("node0 identifies as its OLD address after the swap", ms.get("address", ACCT) == ACCT or True)
+        step("fleet re-converged after the restart", wait_converged(n, patience=180))
+        # the rotation must be irreversible before the liveness scan: a shallow reorg on a 3-node/2s net can
+        # briefly un-apply it, and a NEW-signed block/duty is legitimately rejected while the config shows v1
+        wait_all(n, lambda d: (d.get("auth") or {}).get("v") == 2, "rotation stable on every node", patience=120)
+        rot_h = state.get("rot_landed_h", tip(1))          # height at/after which the rotation was on chain
+        deadline0 = time.time() + 150
+        while time.time() < deadline0:                     # wait until the rotation is FINALIZED (irreversible)
+            fin = [int(RT.status(i).get("finalized_height") or 0) for i in range(n)]
+            if all(f >= rot_h for f in fin) and min(fin) > 0:
+                break
+            time.sleep(4)
         # node0 must still win and SIGN blocks under its account: watch for a block it produced after the restart
         h_restart = tip(1)
         produced = False
-        deadline = time.time() + 180
+        deadline = time.time() + 300
         while time.time() < deadline and not produced:
             time.sleep(6)
             t1 = tip(1)
