@@ -94,6 +94,7 @@ function doRender() {
   renderPools();
   renderSwap();
   renderOtc();
+  renderLimits();
 }
 
 // ---- actions -------------------------------------------------------------------------------------------
@@ -102,7 +103,9 @@ function openPool() {
   const asset = ($("newAsset").value || "").trim();
   if (!asset) return alertBar("Enter the asset id to pair with NADO.");
   if (!(pid > 0 && pid < ID_MAX)) return alertBar("Pool id must be between 1 and 2^32-1.");
-  dapp.call("open", [pid, asset], null, "Opening pool…", { poolId: pid });
+  let aidB; try { aidB = BigInt(asset); } catch (e) { return alertBar("Asset id must be a number."); }
+  if (aidB <= 0n) return alertBar("Asset id must be a number.");
+  dapp.call("open", [pid, aidB], null, "Opening pool…", { poolId: pid });
 }
 
 function fundNative() {
@@ -112,7 +115,7 @@ function fundNative() {
   const u = toUnits(($("addN").value || "").trim());
   if (!(pos > 0 && pos < ID_MAX)) return alertBar("Enter a position id (1 … 2^32-1) — it is your LP slot.");
   if (u <= 0n) return alertBar("Enter a NADO amount (min 0.01).");
-  dapp.call("fundn", [pos, p.id, Number(u)], (u * UNIT).toString(), "Staging NADO…", { posId: pos });
+  dapp.call("fundn", [pos, p.id, Number(u)], u * UNIT, "Staging NADO…", { posId: pos });
 }
 
 function fundToken() {
@@ -123,7 +126,7 @@ function fundToken() {
   if (!(pos > 0)) return alertBar("Enter your position id.");
   if (u <= 0n) return alertBar("Enter a token amount.");
   // opts.asset makes this an ASSET-denominated call (value = amount, asset = which token).
-  dapp.call("fundt", [pos, p.id, Number(u)], (u * UNIT).toString(), "Staging token…",
+  dapp.call("fundt", [pos, p.id, Number(u)], u * UNIT, "Staging token…",
             { posId: pos }, { asset: p.asset });
 }
 
@@ -140,7 +143,7 @@ function refundPos() {
   const p = poolOf(lastSto, sel);
   const pos = Number(($("posId").value || "").trim());
   if (!(pos > 0)) return alertBar("Enter your position id.");
-  dapp.call("refund", [pos, p.id, p.asset], null, "Refunding staged funds…", { posId: pos });
+  dapp.call("refund", [pos, p.id, BigInt(p.asset)], null, "Refunding staged funds…", { posId: pos });
 }
 
 function exitPos() {
@@ -150,7 +153,7 @@ function exitPos() {
   const sh = Number(($("exitSh").value || "").trim());
   if (!(pos > 0)) return alertBar("Enter your position id.");
   if (!(sh > 0)) return alertBar("Enter how many shares to withdraw.");
-  dapp.call("exit", [pos, p.id, sh, p.asset], null, "Withdrawing liquidity…", { posId: pos });
+  dapp.call("exit", [pos, p.id, sh, BigInt(p.asset)], null, "Withdrawing liquidity…", { posId: pos });
 }
 
 function doSwap() {
@@ -161,10 +164,10 @@ function doSwap() {
   const minOut = BigInt(card.dataset.minout || "0");
   if (inU <= 0n) return alertBar("Enter an amount to swap.");
   if (($("dir").value || "n2t") === "n2t") {
-    dapp.call("swapn", [p.id, Number(inU), Number(minOut), p.asset], (inU * UNIT).toString(),
+    dapp.call("swapn", [p.id, Number(inU), Number(minOut), BigInt(p.asset)], inU * UNIT,
               "Swapping…", { poolId: p.id });
   } else {
-    dapp.call("swapt", [p.id, Number(inU), Number(minOut)], (inU * UNIT).toString(),
+    dapp.call("swapt", [p.id, Number(inU), Number(minOut)], inU * UNIT,
               "Swapping…", { poolId: p.id }, { asset: p.asset });
   }
 }
@@ -174,7 +177,7 @@ function doSwap() {
 // Same page, DIFFERENT contract: the book is its own tiny escrow contract beside the AMM (no shared state,
 // no shared upgrade surface), called through this dapp session via opts.cid. One venue, two contracts.
 const OTC_CID = "6bb0bd0d5dad478bb33d254e73cde85d";
-const OTC_ASK = 1, OTC_BID = 2;                       // kind: maker SELLS NADO / maker BUYS NADO
+const OTC_ASK = 1, OTC_BID = 2, OTC_INTRA = 3;                       // kind: maker SELLS NADO / maker BUYS NADO
 const OTC_ST = { 1: "open", 2: "filled", 3: "settled", 4: "refunded", 5: "cancelled" };
 const LIMB_BITS = 52n, LIMBS = 5;                     // must match otc.preimage_limbs
 const LS_OTC_SECRETS = "nado_otc_secrets";            // {orderId: 64-hex swap secret} — maker-side only
@@ -215,6 +218,7 @@ function otcOrders() {
     hsha: String(g("hsha", o) || ""), expn: Number(g("expn", o) || 0), expf: String(g("expf", o) || ""),
     st: Number(g("st", o) || 0), taker: String(g("taker", o) || ""), tadr: String(g("tadr", o) || ""),
     fref: String(g("fref", o) || ""), limbs: [0, 1, 2, 3, 4].map((i) => g("s" + i, o) || 0),
+    gast: String(g("gast", o) || "0"), wast: String(g("wast", o) || "0"), want: BigInt(g("want", o) || 0),
   })).filter((x) => x.kind);
 }
 const otcLeft = (od) => od.expn - (dapp.cursor || 0);          // blocks until the refund window opens
@@ -262,10 +266,10 @@ function renderOtc() {
   const book = $("otcBook"), mine = $("otcMine");
   if (!book || !mine) return;
   const all = otcOrders(), me = dapp.me;
-  const open = all.filter((x) => x.st === 1 && otcLeft(x) > 0);
+  const open = all.filter((x) => x.st === 1 && x.kind !== OTC_INTRA && otcLeft(x) > 0);
   book.innerHTML = open.length ? open.map((x) => otcRow(x, false)).join("")
     : `<p class="small dim">No open orders. Post one — the book is permissionless.</p>`;
-  const my = all.filter((x) => me && (x.maker === me || x.taker === me));
+  const my = all.filter((x) => me && x.kind !== OTC_INTRA && (x.maker === me || x.taker === me));
   mine.innerHTML = my.length ? my.map((x) => otcRow(x, true)).join("")
     : `<p class="small dim">Nothing yet — post or fill an order.</p>`;
   [book, mine].forEach((box) => box.querySelectorAll("[data-otc]").forEach((el) => {
@@ -293,8 +297,8 @@ async function otcPost() {
   const expf = Math.floor(Date.now() / 1000 + blocks * 6 * 0.6);
   const expn = (dapp.cursor || 0) + blocks;
   const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex; }
-  dapp.call("post", [o, kind, raw.toString(), chain, famt, faddr, hsha, hi, lo, expn, expf],
-            kind === OTC_ASK ? raw.toString() : null, "Posting order #" + o + "…", { otc: o }, { cid: OTC_CID });
+  dapp.call("post", [o, kind, raw, chain, famt, faddr, hsha, hi, lo, expn, expf],
+            kind === OTC_ASK ? raw : null, "Posting order #" + o + "…", { otc: o }, { cid: OTC_CID });
 }
 function otcAction(what, o) {
   const od = otcOrders().find((x) => x.o === o);
@@ -314,8 +318,13 @@ function otcAction(what, o) {
         + "amount " + od.wamt + " " + chain + ", to " + od.wadr + ", with a deadline BEFORE " + od.expf + "):") || "";
       if (!fref) return alertBar("Fill needs your foreign lock reference — create the " + chain + " HTLC first.");
     }
-    dapp.call("fill", [o, myf, fref], od.kind === OTC_BID ? od.namtRaw.toString() : null,
+    dapp.call("fill", [o, myf, fref], od.kind === OTC_BID ? od.namtRaw : null,
               "Filling #" + o + "…", { otc: o }, { cid: OTC_CID });
+    return;
+  }
+  if (what === "fillintra") {
+    dapp.call("fill_intra", [o], od.want, "Filling limit order #" + o + "…", { otc: o },
+              od.wast !== "0" ? { cid: OTC_CID, asset: od.wast } : { cid: OTC_CID });
     return;
   }
   if (what === "settle") {
@@ -326,6 +335,53 @@ function otcAction(what, o) {
   }
 }
 
+// ---- SWAP_INTRA limit orders (same otc contract, rendered beside the AMM) -----------------------------
+const limSide = (asset, amtRaw) => asset !== "0"
+  ? `<b>${amtRaw}</b> <span class="mono small dim">asset ${esc(asset).slice(0, 12)}…</span>`
+  : `<b>${rawToNado(amtRaw.toString())} NADO</b>`;
+function limRow(od) {
+  const me = dapp.me, mine = od.maker === me;
+  const left = otcLeft(od), expired = left <= 0;
+  const acts = [];
+  if (od.st === 1 && !expired && mine) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
+  if (od.st === 1 && !expired && !mine && me) acts.push(`<button class="primary" data-otc="fillintra" data-o="${od.o}">Fill</button>`);
+  if (od.st === 1 && expired) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Expire → refund</button>`);
+  const pill = od.st === 1 ? (expired ? '<span class="pill warn">expired</span>' : '<span class="pill">open</span>')
+                           : `<span class="pill">${OTC_ST[od.st] || od.st}</span>`;
+  return `<div class="loan"><div class="loanmain">
+      <div class="loantop">${pill} <b>#${od.o}</b> ${esc(disp(od.maker))} gives ${limSide(od.gast, od.escRaw)}
+        for ${limSide(od.wast, od.want)}</div>
+      <div class="loanterms small dim">${od.st === 1 && !expired ? `expires in ${left} blocks (~${blocksToTime(left)})` : ""}</div>
+    </div><div class="loanacts">${acts.join("")}</div></div>`;
+}
+function renderLimits() {
+  const box = $("otcLimits");
+  if (!box) return;
+  const me = dapp.me;
+  const rows = otcOrders().filter((x) => x.kind === OTC_INTRA)
+    .filter((x) => x.st === 1 || (me && x.maker === me && x.st !== 1))
+    .sort((a, b) => (a.st - b.st) || (b.o - a.o)).slice(0, 40);
+  box.innerHTML = rows.length ? rows.map(limRow).join("")
+    : `<p class="small dim">No limit orders yet — post one below.</p>`;
+  box.querySelectorAll("[data-otc]").forEach((el) => {
+    el.onclick = (ev) => { ev.preventDefault(); otcAction(el.getAttribute("data-otc"), Number(el.getAttribute("data-o"))); };
+  });
+}
+function limPost() {
+  const ga = ($("limGiveAsset").value || "").trim() || "0";
+  const wa = ($("limWantAsset").value || "").trim() || "0";
+  const blocks = Math.floor(Number($("limExpiry").value || 0));
+  const amt = (v, asset) => { try { return asset !== "0" ? BigInt((v || "").trim()) : BigInt(nadoToRaw((v || "").trim())); } catch (e) { return 0n; } };
+  const gv = amt($("limGiveAmt").value, ga), wv = amt($("limWantAmt").value, wa);
+  if (gv <= 0n || wv <= 0n) return alertBar("Enter both amounts (tokens in raw base units).");
+  if (ga === "0" && wa === "0") return alertBar("NADO for NADO is not a swap — one side must be an asset.");
+  if (!(blocks >= 20 && blocks <= 900000)) return alertBar("Expiry must be 20 … 900000 blocks.");
+  const o = randId();
+  let gaB, waB; try { gaB = BigInt(ga); waB = BigInt(wa); } catch (e) { return alertBar("Asset ids must be numbers."); }
+  dapp.call("post_intra", [o, gaB, gv, waB, wv, (dapp.cursor || 0) + blocks],
+            gv, "Posting limit order #" + o + "…", { otc: o },
+            gaB !== 0n ? { cid: OTC_CID, asset: ga } : { cid: OTC_CID });
+}
 // ---- wiring / boot ---------------------------------------------------------------------------------------
 async function refresh() {
   try {
@@ -338,7 +394,7 @@ async function refresh() {
 
 function wireUI() {
   wireWallet(dapp, render);
-  stickyInputs(dapp, ["newPid", "newAsset", "posId", "addN", "addT", "slip", "otcNado", "otcFAmt", "otcFAddr", "otcExpiry"]);
+  stickyInputs(dapp, ["newPid", "newAsset", "posId", "addN", "addT", "slip", "otcNado", "otcFAmt", "otcFAddr", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry"]);
   $("btnOpen").onclick = openPool;
   $("btnFundN").onclick = fundNative;
   $("btnFundT").onclick = fundToken;
@@ -347,6 +403,7 @@ function wireUI() {
   $("btnExit").onclick = exitPos;
   $("btnSwap").onclick = doSwap;
   const bp = $("btnOtcPost"); if (bp) bp.onclick = otcPost;
+  const lp = $("btnLimPost"); if (lp) lp.onclick = limPost;
   ["swapAmt", "slip", "dir"].forEach((id) => {
     const el = $(id);
     if (el) { el.oninput = renderSwap; el.onchange = renderSwap; }
@@ -367,6 +424,8 @@ dapp.onReturn((pend, ok, err) => {
     exit: "Withdrawal sent — confirming…",
     refund: "Refund sent — confirming…",
     post: "Order posted — confirming…",
+    post_intra: "Limit order posted — confirming…",
+    fill_intra: "Limit order filled — confirming…",
     fill: "Fill sent — confirming…",
     settle: "Settle sent — confirming…",
     expire: "Refund claim sent — confirming…",
@@ -380,8 +439,8 @@ async function boot() {
     alertBar("Crypto bundle failed to load — reload.");
     return;
   }
-  wireUI(); loadQR(); orderCards(["swapCard", "poolsCard", "liqCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
-  const modes = installModes(dapp, { modes: playModes({ icon: "🔄", play: ["swapCard", "poolsCard", "liqCard"],
+  wireUI(); loadQR(); orderCards(["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
+  const modes = installModes(dapp, { modes: playModes({ icon: "🔄", play: ["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard"],
     extra: [{ key: "cross", icon: "🌉", label: "Cross-chain", hint: "Swap NADO against BTC/ETH — atomic, no custodian, no wrapped coins.",
               cards: ["otcBookCard", "otcPostCard", "otcMyCard"] }] }) });
   render = modes.wrap(doRender);

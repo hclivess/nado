@@ -229,12 +229,35 @@
     <div id="otcMine" class="mt"></div>
   </div>
 
+  <!-- LIMIT ORDERS (otc contract SWAP_INTRA — exec-layer limit orders beside the AMM) -->
+  <div class="card hidden" id="otcLimitCard">
+    <h2>Limit orders</h2>
+    <p class="small dim">A fixed-price order beside the pool: escrow what you give, name what you want, and
+    the first taker to fill moves <b>both legs in one atomic call</b> — no partial fills, no middle state.
+    Cancel any time before it fills; after the expiry anyone can sweep it back to you. NADO amounts are in
+    NADO; token amounts are in the asset's raw base units.</p>
+    <div id="otcLimits" class="mt"></div>
+    <div class="row mt">
+      <input id="limGiveAsset" placeholder="give: asset id (empty = NADO)" autocomplete="off">
+      <input id="limGiveAmt" placeholder="give amount" inputmode="decimal" autocomplete="off">
+    </div>
+    <div class="row mt">
+      <input id="limWantAsset" placeholder="want: asset id (empty = NADO)" autocomplete="off">
+      <input id="limWantAmt" placeholder="want amount" inputmode="decimal" autocomplete="off">
+    </div>
+    <div class="row mt">
+      <label class="small dim" for="limExpiry">Expiry (blocks from now)</label>
+      <input id="limExpiry" value="3000" inputmode="numeric" style="max-width:110px" autocomplete="off">
+      <button class="primary" id="btnLimPost" style="flex:0 0 auto">Post order</button>
+    </div>
+  </div>
+
   <footer>
     <span>The pool contract is public and verifiable on the NADO execution layer. Providing liquidity
     carries impermanent loss — if the price moves, withdrawing returns a different mix than you put in.
     Nothing here is investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=d92c540d"></script>
+<script type="module" src="/static/dex.js?v=73ea9add"></script>
 </body>
 </html>
