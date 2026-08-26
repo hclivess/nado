@@ -90,7 +90,7 @@ The design is thin because NADO already ships the hard parts.
   │      gossip / relays / the wallet's Swap tab — latency only.          │
   │      Anyone can run one; none is trusted.                             │
   ├──────────────────────────────────────────────────────────────────────┤
-  │  L2  ORDER BOOK (binding, on-chain exec-layer contract `dex`)         │
+  │  L2  ORDER BOOK (binding, on-chain exec-layer contract `otc`)         │
   │      post_order · fill · cancel · expire.  Deterministic matching.    │
   │      Holds the NADO-side intent + escrow reference; the source of     │
   │      truth for "who agreed to swap what with whom".                   │
@@ -108,7 +108,12 @@ the system still clears.
 
 ---
 
-## 4. The order book contract (`dex`) — concrete VM design
+## 4. The order book contract (`otc`) — concrete VM design
+
+> **Naming (2026-08-26):** the design originally called this contract `dex`. That name is now taken: a
+> constant-product **AMM** shipped as `execnode/games/dex.py` (the ROADMAP Phase-2 venue for intra-NADO
+> NADO↔asset pairs). The cross-chain order book is a different contract and is named **`otc`** throughout —
+> maker/taker swaps against a foreign chain, no pooled liquidity, no shared honeypot.
 
 An ordinary `zkvm` contract (see [`exec-instructions.md`](exec-instructions.md)), authored + differentially
 verified against the real VM in `tests/test_dex_contract.py` exactly like `tests/test_bet_contract.py`. All
@@ -248,6 +253,48 @@ The NADO chain must release Alice's escrow to Bob **only** once `s` is known. Tw
 The key property: **the preimage is the bridge.** One 32-byte secret, published by the act of claiming,
 unlocks the mirror escrow. No message needs to be *trusted* across chains — only *observed*.
 
+### 6.5 The foreign-leg templates (concrete)
+
+Both templates use the **same 32-byte SHA-256 hashlock `H`** the NADO side bound at `post_order` — that is
+the entire cross-chain interface.
+
+**Bitcoin — P2WSH HTLC** (the standard swap script; one witness script, spendable two ways):
+
+```
+OP_IF
+    OP_SHA256 <H> OP_EQUALVERIFY
+    <claimant_pubkey> OP_CHECKSIG            # claim branch: reveal s with SHA256(s)=H
+OP_ELSE
+    <T2_locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP
+    <refund_pubkey> OP_CHECKSIG              # refund branch: only at/after T2 (absolute locktime)
+OP_ENDIF
+```
+
+The claim spend's witness carries `s` — publishing it on Bitcoin is what lets the NADO side settle.
+Confirmation margin: treat a BTC lock as real only at **≥ 2 confirmations** (~20 min), and budget the §6.3
+inequality as `T₂(wall clock) + 6 BTC blocks < T₁(wall clock)` so the claim itself can confirm before the
+NADO refund opens. Wallet-side verification is an SPV/Electrum/RPC read of the P2WSH outpoint — the user's
+own decision input, never NADO consensus.
+
+**Ethereum — minimal HTLC contract** (one contract serves every swap; ~40 lines, no owner, no upgrade path):
+
+```solidity
+struct Lock { address claimant; address refundee; uint256 amount; bytes32 H; uint256 deadline; }
+mapping(bytes32 => Lock) locks;              // key: keccak256(H, claimant, refundee, deadline)
+
+fund(claimant, H, deadline) payable          // escrows msg.value; deadline is T2 as a unix timestamp
+claim(key, s)   require(sha256(s) == H && block.timestamp <  deadline)  -> pay claimant (s now public calldata)
+refund(key)     require(block.timestamp >= deadline)                    -> pay refundee
+```
+
+ERC-20 swaps are the same contract with `transferFrom`/`transfer` instead of ETH value. Confirmation
+margin: post-merge finality (~2 epochs, ~13 min) before treating the lock as real; the same §6.3 inequality
+with Ethereum's clock.
+
+Neither template is NADO consensus code: they are reference legs the wallet constructs and *reads*. The only
+consensus-enforced piece remains the NADO-side escrow and the timelock-ordering check at
+`post_order`/`fill`.
+
 ---
 
 ## 7. Intra-NADO atomic swaps (no HTLC needed)
@@ -256,12 +303,13 @@ For assets that both live on NADO — two exec-layer tokens, an L1↔exec pair, 
 through L1 — atomicity is **free**: a single deterministic VM transaction moves both legs or reverts. No
 hashlock, no timelock, no second chain.
 
-- **`SWAP_INTRA` order** in the `dex` contract escrows asset A from the maker. `fill_intra(o)` with `VALUE` =
+- **`SWAP_INTRA` order** in the `otc` contract escrows asset A from the maker. `fill_intra(o)` with `VALUE` =
   asset B from the taker executes both `PAY`s in one method — maker gets B, taker gets A — atomically. If
   either leg can't be paid, the whole call reverts (the VM's all-or-nothing escrow settlement,
-  [`exec-instructions.md`](exec-instructions.md) §3). This is a classic on-chain limit-order DEX; it can be
-  extended to a constant-product AMM pool as a second contract if pooled liquidity is wanted (still
-  authority-free — the pool is a contract, not a custodian).
+  [`exec-instructions.md`](exec-instructions.md) §3). This is a classic on-chain limit-order DEX. Its pooled
+  companion **already ships**: `execnode/games/dex.py` is the constant-product AMM (x·y=k, 30 bps entirely
+  to LPs, no admin, no rake) for intra-NADO NADO↔asset pairs — still authority-free, the pool is a
+  contract, not a custodian.
 - **Cross-namespace / cross-rollup** swaps route through the L1 bridge
   ([`rollups-and-settlement.md`](rollups-and-settlement.md) "tunnels"): burn/lock in namespace X's exec state,
   mint/release in namespace Y, both proven against the shared L1 — again atomic within NADO's own consensus,
@@ -316,7 +364,7 @@ appetite:
 - **Short, tight timelocks** — the shorter the window, the less optionality. `HTLC_MIN_TIMELOCK` sets the
   floor; the order book should default to the *shortest* safe `T₂/T₁` for the chains involved.
 - **Non-refundable premium / collateral** — the second mover posts a small extra escrow that is forfeited to
-  the first mover on a non-completion, pricing the option. Encoded in the `dex` contract, released by the
+  the first mover on a non-completion, pricing the option. Encoded in the `otc` contract, released by the
   same refund logic — no arbiter.
 - **Reputation (soft, off-chain)** — the L3 layer can surface completion rates; purely advisory, never a
   gate.
@@ -362,7 +410,7 @@ and being a watchtower requires no permission, stake, or identity.
 
 ## 12. Security invariants (the checklist a reviewer verifies)
 
-1. **No divertible escrow.** Every `dex`/HTLC escrow releases only to {claimant-with-preimage before expiry,
+1. **No divertible escrow.** Every `otc`/HTLC escrow releases only to {claimant-with-preimage before expiry,
    original owner at/after expiry}. No method, no caller, no admin can do otherwise. (Contract has no owner;
    HTLC guards are revert-symmetric.)
 2. **Atomicity.** For a completed cross-chain swap, the preimage that unlocked leg A is exactly the preimage
@@ -385,14 +433,14 @@ and being a watchtower requires no permission, stake, or identity.
 | phase | deliverable | tests |
 |---|---|---|
 | **0 (done)** | HTLC tx types + client Swap tab | `tests/test_htlc.py` |
-| **1** | `dex` order-book contract (`ASK_NADO`/`BID_NADO`): post/cancel/fill/expire + escrow, timelock-ordering guard | `tests/test_dex_contract.py` (author-in-test + differential-verify vs the VM, like `test_bet_contract.py`) |
-| **2** | Cross-chain settle wiring: contract escrow → NADO `htlc_lock`/`htlc_claim`; wallet flow that generates `H`, posts, verifies the foreign HTLC (SPV read), reveals, and relays the preimage | `tests/test_dex_swap_e2e.py` (regtest BTC + local NADO) |
-| **3** | `SWAP_INTRA` + `fill_intra` (atomic exec-layer asset↔asset) and the cross-namespace tunnel path | `tests/test_dex_intra.py` |
-| **4** | Watchtower/relayer bounties + a reference permissionless relayer daemon (`scripts/dex_watchtower.py`, dry-run default like `bet_oracle.py`) | integration |
+| **1** | `otc` order-book contract (`ASK_NADO`/`BID_NADO`): post/cancel/fill/expire + escrow, timelock-ordering guard | `tests/test_otc_contract.py` (author-in-test + differential-verify vs the VM, like `test_bet_contract.py`) |
+| **2** | Foreign-leg templates (§6.5) + cross-chain settle wiring: contract escrow → NADO `htlc_lock`/`htlc_claim`; wallet flow that generates `H`, posts, verifies the foreign HTLC (SPV/RPC read), reveals, and relays the preimage | `tests/test_otc_swap_e2e.py` (regtest bitcoind + an ETH devnode + local NADO) |
+| **3** | `SWAP_INTRA` + `fill_intra` (atomic exec-layer asset↔asset) and the cross-namespace tunnel path | `tests/test_otc_intra.py` |
+| **4** | Watchtower/relayer bounties + a reference permissionless relayer daemon (`scripts/otc_watchtower.py`, dry-run default like `bet_oracle.py`) | integration |
 | **5 (optional, future)** | premium/collateral for the free option; L3 gossip discovery relay; a `bridge.nadochain.com` Swap dApp | — |
 
-**File map (to build):** `execnode/apps/dex.py` (+ `tests/test_dex_contract.py` as its source of
-truth), `static/dex.{html,js}` (the Swap dApp, on the shared `nadodapp.js` SDK), `scripts/dex_watchtower.py`,
+**File map (to build):** `execnode/games/otc.py` (+ `tests/test_otc_contract.py` as its source of
+truth), `static/otc.{html,js}` (the Swap dApp, on the shared `nadodapp.js` SDK), `scripts/otc_watchtower.py`,
 `website/nginx-bridge.nadochain.com.conf`, a card in `website/games.html`/the app catalog, and this doc.
 
 ---
