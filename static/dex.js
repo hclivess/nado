@@ -10,6 +10,7 @@
 //    in ONE place here (toUnits/fromUnits) so no other line has to remember the scale.
 //  * The quote recomputes out = RT·dxf/(RN+dxf), dxf = dx·9970/10000, EXACTLY as the contract does, in
 //    BigInt. A float quote would drift from the chain and mis-set minOut, turning a good swap into a revert.
+import { htlcScript, p2wshAddress } from "./btcleg.js?v=3854b338";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, playModes, algHashn, base, esc, randId,
          blocksToTime } from "./nadodapp.js?v=68e91695";
@@ -239,6 +240,7 @@ function otcRow(od, mine) {
   const acts = [];
   if (od.st === 1 && !expired && isMaker) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
   if ((od.st === 1 || od.st === 2) && !expired && me) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Boost</button>`);
+  if (od.st === 1 || od.st === 2) acts.push(`<button class="ghost" data-otc="btcleg" data-o="${od.o}">BTC leg</button>`);
   if (od.st === 1 && !expired && !isMaker && me) acts.push(`<button class="primary" data-otc="fillask" data-o="${od.o}">Fill…</button>`);
   if ((od.st === 1 || od.st === 2) && expired) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Expire → refund</button>`);
   if (od.st === 2 && !expired) acts.push(`<button class="primary" data-otc="settle" data-o="${od.o}">Settle…</button>`);
@@ -307,6 +309,15 @@ function otcAction(what, o) {
   if (!od) return;
   if (what === "showsecret") { const s = otcSecrets()[o]; if (s) prompt("Swap secret for order #" + o + " — keep it safe:", s); return; }
   if (what === "cancel") return dapp.call("cancel", [o], null, "Cancelling #" + o + "…", { otc: o }, { cid: OTC_CID });
+  if (what === "btcleg") {
+    // prefill the builder from the order: the SAME hashlock, the deadline both parties signed. Pubkeys are
+    // the two parties' own to exchange — an order stores receiving ADDRESSES, never Bitcoin pubkeys.
+    const h = $("btcH"), l = $("btcLock"), c = $("otcBtcCard");
+    if (h) h.value = /^[0-9a-fA-F]{64}$/.test(od.hsha) ? od.hsha : "";
+    if (l) l.value = od.expf || "";
+    if (c) { c.scrollIntoView({ behavior: "smooth" }); }
+    return;
+  }
   if (what === "boost") {
     // §8: attach a NADO bounty ANYONE can win by finishing this order (settle / expire / atomic fill).
     // It makes watchtowers work for you; cancel returns it to the maker.
@@ -392,6 +403,23 @@ function limPost() {
             gv, "Posting limit order #" + o + "…", { otc: o },
             gaB !== 0n ? { cid: OTC_CID, asset: ga } : { cid: OTC_CID });
 }
+async function btcBuild() {
+  const H = ($("btcH").value || "").trim().toLowerCase();
+  const cp = ($("btcClaimPub").value || "").trim().toLowerCase();
+  const rp = ($("btcRefundPub").value || "").trim().toLowerCase();
+  const lock = Math.floor(Number($("btcLock").value || 0));
+  const net = $("btcNet").value;
+  if (!/^[0-9a-f]{64}$/.test(H)) return alertBar("Hashlock must be 64 hex chars (use the order's BTC leg button).");
+  if (!/^0[23][0-9a-f]{64}$/.test(cp) || !/^0[23][0-9a-f]{64}$/.test(rp)) return alertBar("Pubkeys must be 33-byte compressed hex (starting 02/03).");
+  if (!(lock > 0)) return alertBar("Enter the locktime (the deadline both parties signed).");
+  try {
+    const sc = htlcScript(H, cp, rp, lock);
+    const addr = await p2wshAddress(sc, net);
+    const explorer = net === "bc" ? "https://mempool.space/address/" : net === "tb" ? "https://mempool.space/testnet/address/" : null;
+    $("btcOut").innerHTML = `<b>P2WSH address</b><br>${addr}<br><br><b>witness script</b> (keep it — spending needs it)<br>${sc}`
+      + (explorer ? `<br><br><a href="${explorer}${addr}" target="_blank" rel="noopener">check funding on mempool.space →</a>` : "");
+  } catch (e) { alertBar(String(e.message || e)); }
+}
 // ---- wiring / boot ---------------------------------------------------------------------------------------
 async function refresh() {
   try {
@@ -404,7 +432,7 @@ async function refresh() {
 
 function wireUI() {
   wireWallet(dapp, render);
-  stickyInputs(dapp, ["newPid", "newAsset", "posId", "addN", "addT", "slip", "otcNado", "otcFAmt", "otcFAddr", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry"]);
+  stickyInputs(dapp, ["newPid", "newAsset", "posId", "addN", "addT", "slip", "otcNado", "otcFAmt", "otcFAddr", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry", "btcClaimPub", "btcRefundPub"]);
   $("btnOpen").onclick = openPool;
   $("btnFundN").onclick = fundNative;
   $("btnFundT").onclick = fundToken;
@@ -414,6 +442,7 @@ function wireUI() {
   $("btnSwap").onclick = doSwap;
   const bp = $("btnOtcPost"); if (bp) bp.onclick = otcPost;
   const lp = $("btnLimPost"); if (lp) lp.onclick = limPost;
+  const bb = $("btnBtcBuild"); if (bb) bb.onclick = btcBuild;
   ["swapAmt", "slip", "dir"].forEach((id) => {
     const el = $(id);
     if (el) { el.oninput = renderSwap; el.onchange = renderSwap; }
@@ -450,10 +479,10 @@ async function boot() {
     alertBar("Crypto bundle failed to load — reload.");
     return;
   }
-  wireUI(); loadQR(); orderCards(["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
+  wireUI(); loadQR(); orderCards(["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "otcBtcCard", "walletcard"]);
   const modes = installModes(dapp, { modes: playModes({ icon: "🔄", play: ["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard"],
     extra: [{ key: "cross", icon: "🌉", label: "Cross-chain", hint: "Swap NADO against BTC/ETH — atomic, no custodian, no wrapped coins.",
-              cards: ["otcBookCard", "otcPostCard", "otcMyCard"] }] }) });
+              cards: ["otcBookCard", "otcPostCard", "otcMyCard", "otcBtcCard"] }] }) });
   render = modes.wrap(doRender);
   const q = new URLSearchParams(location.search).get("pool");
   if (q) sel = q;
