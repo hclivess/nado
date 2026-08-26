@@ -29,3 +29,10 @@ here — the entry stays only as the record of why the families are windowed.
 The generation-keyed gate (`DIVIDEND_RULES_HEIGHT = 72_000 if CHAIN_GENERATION == 22 else 0`) that carried the
 convex dividend curve, the halving lapse and the 40 % bonded levy for the last hours of gen 22 was deleted in
 the reroll commit; `tests/test_dividend_rules.py` asserts no such gate exists. Nothing scheduled.
+
+## Account authentication — activation expression (nothing to delete)
+
+`protocol.AUTH_ACTIVE = CHAIN_GENERATION >= 24 or NADO_AUTH_FORCE`. It is an expression, not a gate: on gen 23 the
+`auth` recipient is refused and no account can hold a config; on gen 24+ it is live from block 0. After the gen-24
+reroll the `>= 24` half is a tautology and MAY be simplified to `True` — optional, cosmetic. Never set
+`NADO_AUTH_FORCE` on a validator.

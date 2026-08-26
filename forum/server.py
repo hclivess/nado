@@ -429,7 +429,12 @@ async def sso_callback(request):
         return web.Response(text="login expired or unknown — try again", status=400)
     if not validate_address(address):
         return web.Response(text="bad address", status=400)
-    if not proof_sender(public_key=public_key, sender=address):
+    try:                                                   # rotation-aware (doc/key-rotation.md); pure check if no DB
+        from ops.auth_ops import key_authorized
+        _ok = key_authorized(public_key, address)
+    except Exception:
+        _ok = proof_sender(public_key=public_key, sender=address)
+    if not _ok:
         return web.Response(text="address does not match public key", status=400)
     msg = challenge_message(address, ch["nonce"], ch["issued"])
     try:

@@ -18,6 +18,7 @@ from ops.key_ops import load_keys
 from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops import kv_ops
+import protocol as _P
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
 
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
@@ -230,7 +231,12 @@ def verify_attestation_equivocation_proof(proof):
             pk, sig, txid, sender = tx.get("public_key"), tx.get("signature"), tx.get("txid"), tx.get("sender")
             if not (pk and sig and txid and sender) or not isinstance(sig, str):
                 return None
-            if not proof_sender(public_key=pk, sender=sender):        # pubkey must hash to the claimed sender
+            _d0 = tx.get("data") or {}
+            if tx.get("recipient") == "duty":
+                _d0 = _d0.get("attest") or {}
+            from ops.auth_ops import key_valid_at
+            _h = int(_d0.get("target_epoch", 0)) * EPOCH_LENGTH if isinstance(_d0.get("target_epoch"), int) else 0
+            if not key_valid_at(pk, sender, _h):                       # the key must have authorized the sender THEN
                 return None
             body = {k: v for k, v in tx.items() if k not in ("txid", "signature")}
             if create_txid(body) != txid:                              # txid binds the full attestation body
@@ -264,6 +270,39 @@ def resolve_slash(data):
     from ops.block_ops import verify_equivocation_proof
     r = verify_equivocation_proof(data)
     return (r[0], r[1]) if r else None
+
+
+def sign_entries(body, signer_keydicts):
+    """Finalize a drafted tx body for a CONFIGURED account: set the txid and a LIST of signature entries
+    (one per keydict) over it. The body must not carry a top-level public_key (each entry carries its own)."""
+    tx = {k: v for k, v in body.items() if k not in ("txid", "signature", "public_key")}
+    tx["txid"] = create_txid(tx)
+    msg = unhex(tx["txid"])
+    tx["signature"] = [{"public_key": kd["public_key"], "signature": sign(private_key=kd["private_key"], message=msg)}
+                       for kd in signer_keydicts]
+    return tx
+
+
+def auth_pop(sender, cfg, keydict):
+    """A new authenticator's proof of possession for `cfg` on `sender` (ops/auth_ops.pop_message)."""
+    from ops.auth_ops import pop_message
+    return sign(private_key=keydict["private_key"], message=pop_message(sender, cfg))
+
+
+def construct_auth_tx(sender, signer_keydicts, data, fee, max_block, min_block=0):
+    """Build a SIGNED `auth` tx (doc/key-rotation.md): data = {"op": "set", "cfg", "pop"} | {"op": "cancel"},
+    authenticated by a LIST of signature entries — one per signer keydict, each an ML-DSA signature over the
+    txid — the multisig wire shape. Fee-paying (never exempt), zero amount. The `sender` is the account being
+    reconfigured; the signers are whichever of its authenticators are acting."""
+    tx = {"sender": sender, "recipient": "auth", "amount": 0, "timestamp": get_timestamp_seconds(),
+          "data": data, "nonce": create_nonce(), "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee)}
+    if min_block:
+        tx["min_block"] = int(min_block)
+    tx["txid"] = create_txid(tx)
+    msg = unhex(tx["txid"])
+    tx["signature"] = [{"public_key": kd["public_key"], "signature": sign(private_key=kd["private_key"], message=msg)}
+                       for kd in signer_keydicts]
+    return tx
 
 
 def construct_commit_tx(keydict, target_epoch, commitment, max_block):
@@ -599,7 +638,7 @@ def reserved_uniqueness_key(tx):
     and heartbeat/reveal DUPSORT desync forks. Returns a hashable tuple."""
     r = tx.get("recipient")
     try:
-        if r in ("withdraw", "unbond", "register", "msgkey"):
+        if r in ("withdraw", "unbond", "register", "msgkey", "auth"):
             return (r, tx["sender"])                                  # one per sender per block
             # `msgkey` is fee-exempt and (unlike register) not epoch-gated, so without a per-block
             # uniqueness key an account could flood unlimited distinct-txid ~2.4 KB msgkey txs for free.
@@ -918,7 +957,13 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert isinstance(transaction.get("signature"), list), "multisig tx needs a signature list"
         assert transaction.get("fee", 0) >= MIN_TX_FEE * len(transaction["signature"]), \
             "multisig fee below the per-signature floor"
-    assert validate_origin(transaction), "Invalid origin"
+    if isinstance(transaction.get("signature"), list) and transaction.get("multisig") is None:
+        # a configured account pays the fee floor for every signature entry BEYOND the first (bounded by
+        # AUTH_MAX_KEYS in verify_entries) — the first is what a single-key tx already carries, so a
+        # fee-exempt duty signed by one authenticator stays exempt
+        assert transaction.get("fee", 0) >= MIN_TX_FEE * (len(transaction["signature"]) - 1), \
+            "fee below the per-signature floor"
+    assert validate_origin(transaction, block_height), "Invalid origin"
     # SENDER must be a real keyed address — never a reserved protocol pseudo-recipient.
     assert validate_address(transaction["sender"], allow_reserved=False), f"Invalid sender {transaction['sender']}"
     # RECIPIENT (the target) must be a checksum-valid address OR a reserved protocol recipient
@@ -1084,6 +1129,14 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # ML-KEM-768 public key = 1184 bytes = 2368 lowercase-hex chars (fixed length).
         assert isinstance(kp, str) and len(kp) == 2368 and all(c in "0123456789abcdef" for c in kp), \
             "msgkey kem_pub must be a 2368-hex-char ML-KEM-768 public key"
+    elif recipient == "auth":
+        # ACCOUNT AUTHENTICATION (doc/key-rotation.md): install / rotate / cancel the sender's auth config.
+        # validate_origin verified every signature entry; here the SIGNER SET decides the effect (full
+        # reconfig policy -> immediate; signing policy alone -> pending; a reconfig-only key -> cancel).
+        from ops import auth_ops
+        _acc = get_account(transaction["sender"], create_on_error=False)
+        _cfg = auth_ops.effective_config(transaction["sender"], _acc, block_height)
+        auth_ops.validate_auth_tx(transaction, block_height, auth_ops.verify_entries(transaction, transaction["sender"], _cfg))
     elif recipient == "alias":
         # ALIAS op (register / transfer / unregister): validate the op, name, ownership + fee floor.
         from ops import alias_ops
@@ -1934,7 +1987,7 @@ def validate_all_spending(transaction_pool: list):
     return True
 
 
-def validate_origin(transaction: dict):
+def validate_origin(transaction: dict, block_height=None):
     """signature is verified over the txid (which canonically commits the whole body,
     including chain_id); it is not itself part of the signed message."""
 
@@ -1944,6 +1997,24 @@ def validate_origin(transaction: dict):
     if transaction.get("multisig") is not None:
         from ops.multisig_ops import verify_multisig_origin
         return verify_multisig_origin(transaction)
+
+    # ACCOUNT AUTHENTICATION AS STATE (ops/auth_ops.py, doc/key-rotation.md): a CONFIGURED account — or any
+    # tx that signs with a LIST of entries — is judged by its effective config at `block_height`: every
+    # entry must be a valid signature by one of the account's authenticators, and the signer set must
+    # satisfy the SIGNING policy (an `auth` tx only needs a non-empty verified set here; which policy it
+    # satisfies decides its effect in validate_transaction). A legacy account with a string signature
+    # takes the unchanged path below, so today's transactions cost exactly what they cost.
+    if _P.AUTH_ACTIVE:
+        from ops import auth_ops
+        _acc = get_account(transaction["sender"], create_on_error=False)
+        if auth_ops.is_configured(_acc) or isinstance(transaction.get("signature"), list):
+            _cfg = auth_ops.effective_config(transaction["sender"], _acc, block_height)
+            _signers = auth_ops.verify_entries(transaction, transaction["sender"], _cfg)
+            if transaction.get("recipient") != "auth":
+                assert auth_ops.policy_satisfied(_cfg["sign"], _signers), "signers do not satisfy the account's signing policy"
+            return True
+    else:
+        assert not isinstance(transaction.get("signature"), list), "signature lists need account authentication (not active)"
 
     transaction = transaction.copy()
     signature = transaction["signature"]

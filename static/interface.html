@@ -1143,6 +1143,37 @@
       <option value="60">60 min</option>
     </select>
 
+    <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:16px 0" />
+    <!-- ACCOUNT KEYS (doc/key-rotation.md): the account's on-chain authentication policy. "Protect" adds a
+         recovery phrase so a stolen phone cannot take the account; "Rotate" moves signing to a fresh key while
+         the address (and stake, streak, everything) stays. Hidden until the chain generation supports it. -->
+    <div id="authWrap" class="hidden">
+      <div class="label" data-i18n="auth.title">🗝 Account keys</div>
+      <p class="small faint" data-i18n="auth.intro">Your address stays the same forever; the keys that may act for it can change. Protecting the account adds a separate recovery phrase — a thief with your device can spend what is liquid, but cannot take the account, your stake or your streak.</p>
+      <div id="authStatus" class="small mt"></div>
+      <div id="authPending" class="hint-banner mt hidden" role="status"></div>
+      <button id="btnAuthProtect" class="accent mt hidden" style="width:100%" data-i18n="auth.protect">Protect this account (add a recovery phrase)</button>
+      <button id="btnAuthRotate" class="ghost mt hidden" style="width:100%" data-i18n="auth.rotate">Rotate signing key</button>
+      <button id="btnAuthCancel" class="ghost mt hidden" style="width:100%" data-i18n="auth.cancel">Cancel pending change</button>
+      <div id="authRecoveryBox" class="mt hidden">
+        <label class="small" data-i18n="auth.recoveryPrompt">Recovery phrase (24 words) — needed for this action</label>
+        <textarea id="authRecoveryPhrase" rows="3" autocomplete="off" spellcheck="false"></textarea>
+        <div class="row mt">
+          <button id="btnAuthGo" class="accent" data-i18n="auth.confirm">Confirm</button>
+          <button id="btnAuthAbort" class="ghost" data-i18n="btn.cancel">Cancel</button>
+        </div>
+      </div>
+      <div id="authPhraseReveal" class="warnbox mt hidden">
+        <div class="small" data-i18n="auth.phraseIntro">Write this recovery phrase down and keep it OFFLINE. It is shown once, never stored on this device, and it can never spend — it can only cancel or approve key changes.</div>
+        <div class="addr-box mt"><span class="a mono" id="authNewPhrase" style="line-height:1.7"></span></div>
+        <label class="small mt"><input type="checkbox" id="authPhraseAck" /> <span data-i18n="auth.phraseAck">I have written it down</span></label>
+        <div class="row mt">
+          <button id="btnAuthPhraseGo" class="accent" disabled data-i18n="auth.phraseGo">Protect account</button>
+          <button id="btnAuthPhraseAbort" class="ghost" data-i18n="btn.cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <div class="row mt">
       <button id="btnSelfTest" class="ghost" data-i18n="btn.selftest">Run self-test</button>
       <button id="btnForget" class="danger" data-i18n="btn.forget">Forget wallet</button>

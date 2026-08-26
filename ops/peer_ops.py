@@ -239,10 +239,10 @@ def probe_block_hash_signed(peer, height, port=9173, timeout=6, tip_hint=0):
         addr, pk, sig, as_of = d.get("address"), d.get("public_key"), d.get("signature"), int(d.get("as_of", 0))
         if tip_hint and abs(int(tip_hint) - as_of) > 2 * EPOCH_LENGTH:
             return h, 0                                   # stale view: count the claim, weigh it nothing
-        from ops.address_ops import proof_sender
+        from ops.auth_ops import key_authorized
         from ops.block_ops import hash_attest_message
         from signatures import verify as _ver
-        if addr and pk and sig and proof_sender(public_key=pk, sender=addr) \
+        if addr and pk and sig and key_authorized(pk, addr) \
                 and _ver(signed=sig, public_key=pk, message=hash_attest_message(int(height), h, as_of)):
             from ops.account_ops import get_bonded_registry
             from ops.mining_ops import selection_shares

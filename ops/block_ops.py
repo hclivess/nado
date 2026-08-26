@@ -168,7 +168,10 @@ def _lands_flexibly(transaction):
     # validating cleanly at every height (no exclusion logged) and never selected, which is precisely the
     # signature of exact-landing on a tx nobody targets exactly. It is also part of why the faucet has
     # never held a balance on any generation.
-    return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet") or is_address(r))
+    # `auth` (account authentication, doc/key-rotation.md) likewise carries no landing-height timing of its
+    # own: its rules (version, policy, freeze, pending effective = landing height + AUTH_DELAY) are checked
+    # by validate_transaction at whatever height it lands, identically on every node.
+    return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet", "auth") or is_address(r))
 
 
 def check_target_match(transaction_list, block_number, logger):
@@ -1114,7 +1117,15 @@ def verify_equivocation_proof(proof) -> tuple:
             if not sig or not _verify_message(signed=sig, public_key=pk,
                                               message=_block_sig_message_fields(bn, parent, bh)):
                 return None
-        return make_address(pk), bn
+        # ACCOUNT AUTHENTICATION: the offender is the account the key authorized AT THAT HEIGHT — named in
+        # the proof when the key was a rotated-in authenticator (it no longer derives the address), else the
+        # address the key derives. Either way key_valid_at answers from auth_history, so a rotated-away
+        # key's past double-signs stay slashable and a key can never be pinned on an account it never held.
+        from ops.auth_ops import key_valid_at
+        offender = proof.get("offender") or make_address(pk)
+        if not isinstance(offender, str) or not key_valid_at(pk, offender, bn):
+            return None
+        return offender, bn
     except Exception:
         return None
 
@@ -1141,8 +1152,9 @@ def verify_block_signature(block) -> bool:
     signature = sig.get("signature")
     if not pubkey or not signature:
         return False
-    if not proof_sender(public_key=pubkey, sender=block["block_creator"]):
-        return False  # signer is not the selected winner for this slot
+    from ops.auth_ops import key_authorized
+    if not key_authorized(pubkey, block["block_creator"], height=block.get("block_number")):
+        return False  # signer is not (a key that authorizes) the selected winner for this slot
     return _verify_message(signed=signature, public_key=pubkey, message=block_signature_message(block))
 
 

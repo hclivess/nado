@@ -273,6 +273,7 @@ function switchAccount(i) {
   state.activeIdx = i;
   state._hdExpectedAddr = kp.address;      // so hdSync won't mistake this switch for an external reload
   // NEVER persistWallet here — LS_WALLET must stay the master seed so one phrase restores every account.
+  state.authAcct = null;
   showWalletUI();
   refreshDashboard().catch(() => {});
 }
@@ -1541,7 +1542,244 @@ function renderAllowedOrigins() {
     renderAllowedOrigins();
   });
 }
+/* ----------------------------------------------------------------------------------------------
+ * ACCOUNT AUTHENTICATION (doc/key-rotation.md) — the wallet half.
+ *
+ * The chain lets an address carry an auth config: authenticators + a SIGNING policy + a RECONFIG policy.
+ * This wallet exposes two presets and never the policy language:
+ *   single key  — today's account: keys=[hot], sign=ID(0), reconf=ID(0)
+ *   protected   — keys=[hot, recovery], sign=ID(0), reconf=THRESHOLD(2,[ID(0),ID(1)])
+ * The account ADDRESS is always the HD account's derived address (accountKeypair(master, idx)). The key that
+ * SIGNS for it may be a later HD child: authSignerKeypair(master, idx, k) with k>=1 — deterministic from the
+ * seed phrase, so a wiped device re-finds its signing key by scanning k=1..AUTH_SCAN against the on-chain
+ * config. The binding {account -> k} is cached chain-scoped in localStorage; losing it costs a scan, nothing
+ * more. The recovery key is a SEPARATE 24-word phrase, shown once, never stored; it is pasted only when an
+ * action needs it (rotating with the full policy, cancelling a thief's pending change).
+ * Wire shape mirrors ops/auth_ops.py + ops/multisig_ops.py: `signature` = [{public_key, signature}, ...].
+ * ---------------------------------------------------------------------------------------------- */
+const DOMAIN_HD_AUTH = "hd-auth-signer-v1";       // signer-child derivation: blake2b([DOMAIN, master, acctIdx, k], 32)
+const AUTH_SCAN = 48;                              // how many signer children a wiped device scans to re-find its key
+const LS_AUTH_SIGNER = "nado_auth_signer_v1";     // chain-scoped {account: k}
+const AUTH_FEE_PER_ENTRY = MIN_TX_FEE;
+
+function authSignerKeypair(master, acctIdx, k) {
+  if (!k) return accountKeypair(master, acctIdx);
+  return keypairFromPriv(blake2bHash([DOMAIN_HD_AUTH, master, acctIdx, k], 32));
+}
+function policySatisfied(p, signers) {
+  if (p[0] === "ID") return signers.has(p[1]);
+  let n = 0; for (const sp of p[2]) if (policySatisfied(sp, signers)) n++;
+  return n >= p[1];
+}
+function policyKeys(p, out = new Set()) {
+  if (p[0] === "ID") out.add(p[1]); else for (const sp of p[2]) policyKeys(sp, out);
+  return out;
+}
+function authEffective(acc, tipHeight) {
+  // mirrors auth_ops.effective_config: a matured pending config IS the live one, else the installed one
+  const pend = acc && acc.auth_pending;
+  if (pend && tipHeight != null && Number(pend.eff) <= tipHeight) return pend.cfg;
+  return (acc && acc.auth) || null;
+}
+function mldsaSignHex(privHex, msgBytes) {
+  const { publicKey, secretKey } = ml_dsa44.keygen(hexToBytes(privHex));
+  for (let i = 0; i < 8; i++) {                    // hedged signing: verify + retry (see finalizeTransaction)
+    const sig = ml_dsa44.sign(secretKey, msgBytes);
+    if (ml_dsa44.verify(publicKey, msgBytes, sig)) return { public_key: bytesToHex(publicKey), signature: bytesToHex(sig) };
+  }
+  throw new Error("could not produce a verifying signature — please retry");
+}
+function authPop(sender, cfg, privHex) {
+  // ops/auth_ops.pop_message: blake2b(["auth-pop-v1", CHAIN_ID, sender, cfg]) — canonical JSON, sorted keys
+  return mldsaSignHex(privHex, hexToBytes(blake2bHash(["auth-pop-v1", CHAIN_ID, sender, cfg]))).signature;
+}
+function authBuildTx(sender, signerPrivs, data, tipHeight) {
+  const body = { sender, recipient: "auth", amount: 0, timestamp: nowSeconds(), data, nonce: randNonce(),
+                 max_block: tipHeight + 40, chain_id: CHAIN_ID, fee: AUTH_FEE_PER_ENTRY * Math.max(1, signerPrivs.length),
+                 min_block: tipHeight + TX_INCLUSION_DELAY };
+  const txid = createTxid(body);
+  const m = hexToBytes(txid);
+  return { ...body, txid, signature: signerPrivs.map((p) => mldsaSignHex(p, m)) };
+}
+function authProtectedCfg(v, hotPub, recPub) {
+  return { v, keys: [hotPub, recPub], sign: ["ID", 0], reconf: ["THRESHOLD", 2, [["ID", 0], ["ID", 1]]] };
+}
+function authBindingGet() { return lsChainGet(LS_AUTH_SIGNER, {}) || {}; }
+function authBindingSet(account, k) { const b = authBindingGet(); b[account] = k; lsChainSet(LS_AUTH_SIGNER, b); }
+
+/* Re-anchor state.wallet to the key that currently authorizes the active HD account. Cheap when the account
+ * is unconfigured (nothing to do). Called after every wallet load / account switch / dashboard refresh. */
+async function authSync(acc) {
+  const master = masterSeedOf();
+  if (!master || !state.wallet) return;
+  if (state._authActive == null) {                  // once per session: is the feature live on this chain?
+    try { const st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json(); state._authActive = !!st.auth_active; }
+    catch (e) { state._authActive = false; }
+  }
+  const idx = state.activeIdx || 0;
+  const base = accountKeypair(master, idx);
+  const account = base.address;
+  try { if (!acc) acc = await getAccount(account); } catch (e) { return; }
+  state.authAcct = { address: account, cfg: (acc && acc.auth) || null, pending: (acc && acc.auth_pending) || null,
+                     freeze: Number((acc && acc.auth_freeze) || 0), active: !!state._authActive };
+  const cfg = authEffective(acc, state.latest);
+  if (!cfg) {                                       // legacy account: the base key signs
+    if (state.wallet.address !== account || state.wallet.publicKey !== base.publicKey) { state.wallet = base; state._hdExpectedAddr = account; }
+    state.authAcct.signerIdx = 0;
+    return;
+  }
+  const sole = cfg.keys.map((k, i) => policySatisfied(cfg.sign, new Set([i])) ? k : null);
+  const tryK = (k) => { const kp = authSignerKeypair(master, idx, k); return sole.includes(kp.publicKey) ? kp : null; };
+  let k = authBindingGet()[account], kp = (k != null) ? tryK(k) : null;
+  if (!kp) { for (k = 0; k <= AUTH_SCAN; k++) { kp = tryK(k); if (kp) break; } }
+  if (!kp) {                                         // no key of this seed can spend: the recovery phrase is needed
+    state.authAcct.signerIdx = null; state.authAcct.orphan = true;
+    return;
+  }
+  authBindingSet(account, k);
+  state.authAcct.signerIdx = k;
+  if (state.wallet.publicKey !== kp.publicKey || state.wallet.address !== account) {
+    state.wallet = { privateKey: kp.privateKey, publicKey: kp.publicKey, address: account };
+    state._hdExpectedAddr = account;
+  }
+}
+
+async function authWaitLanded(account, pred, label) {
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 6000));
+    let acc = null; try { acc = await getAccount(account); } catch (e) {}
+    if (acc && pred(acc)) { await authSync(acc); renderAuth(); return true; }
+  }
+  log("err", i18("auth.notLanded", "{l}: the change did not land in time — check the Explore tab and retry.", { l: label }));
+  return false;
+}
+
+function renderAuth() {
+  const wrap = $("authWrap");
+  if (!wrap) return;
+  const a = state.authAcct;
+  const active = a && a.active !== false;
+  show("authWrap", !!(state.wallet && a && active));
+  if (!state.wallet || !a || !active) return;
+  const cfg = a.cfg, pend = a.pending;
+  const prot = !!(cfg && cfg.keys && cfg.keys.length === 2 && cfg.reconf && cfg.reconf[0] === "THRESHOLD");
+  let s = prot ? '<b class="ok">' + i18("auth.protected", "Protected ✓ — a recovery phrase guards key changes") + "</b>"
+               : (cfg ? escapeHtml(i18("auth.single", "Single key (custom policy v{v})", { v: cfg.v }))
+                      : '<span class="faint">' + i18("auth.legacy", "Single key — anyone holding this device's key holds the account.") + "</span>");
+  if (a.signerIdx != null && a.signerIdx > 0) s += ' <span class="faint">' + escapeHtml(i18("auth.signer", "(signing key #{k})", { k: a.signerIdx })) + "</span>";
+  if (a.orphan) s = '<b class="warn">' + i18("auth.orphan", "This device's keys no longer sign for this account — use your recovery phrase to rotate to this device.") + "</b>";
+  $("authStatus").innerHTML = s;
+  if (pend) {
+    const eff = Number(pend.eff), left = state.latest != null ? Math.max(0, eff - state.latest) : null;
+    $("authPending").innerHTML = "⏳ " + escapeHtml(i18("auth.pendingMsg", "A key change is pending and takes effect at block {b}{t}. If you did not start it, cancel it with your recovery phrase now.",
+      { b: eff, t: left != null ? " (" + humanizeSeconds(left * (state.blockTime || 8)) + ")" : "" }));
+    show("authPending", true);
+  } else show("authPending", false);
+  const frozen = a.freeze && state.latest != null && state.latest < a.freeze;
+  show("btnAuthProtect", !cfg && !pend);
+  show("btnAuthRotate", !!cfg || !!pend || true);
+  $("btnAuthRotate").disabled = !!a.orphan && !prot;
+  show("btnAuthCancel", !!pend);
+  if (frozen) $("authStatus").innerHTML += '<div class="small faint">' + escapeHtml(i18("auth.frozen", "Partial key changes are frozen until block {b} (a recovery cancel happened).", { b: a.freeze })) + "</div>";
+}
+
+let _authAction = null;
+function authAskRecovery(kind) {
+  _authAction = kind;
+  $("authRecoveryPhrase").value = "";
+  show("authRecoveryBox", true);
+  $("authRecoveryPhrase").focus();
+}
+async function authRecoveryKeypair() {
+  const seed = await mnemonicToSeed($("authRecoveryPhrase").value);
+  return keypairFromPriv(bytesToHex(seed));
+}
+
+/* PROTECT: generate the recovery phrase, show it once, then install [hot, recovery] with reconf = both. */
+let _authNewRec = null;
+async function authProtectStart() {
+  if (!state.wallet || !state.authAcct) return;
+  const seed = new Uint8Array(32); crypto.getRandomValues(seed);
+  _authNewRec = keypairFromPriv(bytesToHex(seed));
+  $("authNewPhrase").textContent = await seedToMnemonic(seed);
+  $("authPhraseAck").checked = false; $("btnAuthPhraseGo").disabled = true;
+  show("authPhraseReveal", true);
+}
+async function authProtectGo() {
+  if (!_authNewRec || !state.wallet) return;
+  const account = state.authAcct.address;
+  const latest = await getLatestBlock(); if (!latest) return;
+  const cur = authEffective(await getAccount(account), latest.block_number);
+  const v = (cur ? cur.v : 0) + 1;
+  const cfg = authProtectedCfg(v, state.wallet.publicKey, _authNewRec.publicKey);
+  const data = { op: "set", cfg, pop: { [_authNewRec.publicKey]: authPop(account, cfg, _authNewRec.privateKey) } };
+  const tx = authBuildTx(account, [state.wallet.privateKey], data, latest.block_number);
+  show("authPhraseReveal", false); $("authNewPhrase").textContent = ""; _authNewRec = null;   // the phrase leaves memory here
+  const res = await submitTransaction(tx);
+  if (!(res.data && res.data.result)) { log("err", i18("auth.refused", "Key change refused: {m}", { m: (res.data && res.data.message) || "" })); return; }
+  log("info", i18("auth.submitted", "Key change submitted — waiting for it to land…"));
+  await authWaitLanded(account, (acc) => acc.auth && acc.auth.v === v, i18("auth.protect", "Protect this account"));
+  log("ok", i18("auth.protectedOk", "Account protected ✓ — key changes now need your recovery phrase."));
+}
+
+/* ROTATE: move signing to the next HD signer child. Protected accounts rotate immediately with hot + recovery;
+ * without the phrase (or on a single-key account) the change pends for ~a day and the old key keeps working. */
+async function authRotateGo(withRecovery) {
+  const master = masterSeedOf(); if (!master || !state.wallet || !state.authAcct) return;
+  const account = state.authAcct.address, idx = state.activeIdx || 0;
+  const latest = await getLatestBlock(); if (!latest) return;
+  const acc = await getAccount(account);
+  const cur = authEffective(acc, latest.block_number);
+  let k = (state.authAcct.signerIdx || 0) + 1, nk = authSignerKeypair(master, idx, k);
+  while (cur && cur.keys.includes(nk.publicKey)) { k++; nk = authSignerKeypair(master, idx, k); }
+  const keys = cur ? [nk.publicKey, ...cur.keys.slice(1)] : [nk.publicKey];
+  const cfg = cur ? { v: cur.v + 1, keys, sign: cur.sign, reconf: cur.reconf } : { v: 1, keys, sign: ["ID", 0], reconf: ["ID", 0] };
+  const signers = [state.authAcct.orphan ? null : state.wallet.privateKey];
+  if (withRecovery) { const rk = await authRecoveryKeypair(); if (!cur || !cur.keys.includes(rk.publicKey)) throw new Error(i18("auth.wrongPhrase", "That recovery phrase does not belong to this account.")); signers.push(rk.privateKey); }
+  const privs = signers.filter(Boolean);
+  const data = { op: "set", cfg, pop: { [nk.publicKey]: authPop(account, cfg, nk.privateKey) } };
+  const tx = authBuildTx(account, privs, data, latest.block_number);
+  const res = await submitTransaction(tx);
+  if (!(res.data && res.data.result)) { log("err", i18("auth.refused", "Key change refused: {m}", { m: (res.data && res.data.message) || "" })); return; }
+  log("info", i18("auth.submitted", "Key change submitted — waiting for it to land…"));
+  const ok = await authWaitLanded(account, (a2) => (a2.auth && a2.auth.v === cfg.v) || (a2.auth_pending && a2.auth_pending.cfg && a2.auth_pending.cfg.v === cfg.v), i18("auth.rotate", "Rotate signing key"));
+  if (ok) { authBindingSet(account, k); await authSync(); renderAuth(); showWalletUI(); }
+}
+
+async function authCancelGo(withRecovery) {
+  if (!state.wallet || !state.authAcct) return;
+  const account = state.authAcct.address;
+  const latest = await getLatestBlock(); if (!latest) return;
+  const priv = withRecovery ? (await authRecoveryKeypair()).privateKey : state.wallet.privateKey;
+  const tx = authBuildTx(account, [priv], { op: "cancel" }, latest.block_number);
+  const res = await submitTransaction(tx);
+  if (!(res.data && res.data.result)) { log("err", i18("auth.refused", "Key change refused: {m}", { m: (res.data && res.data.message) || "" })); return; }
+  await authWaitLanded(account, (a2) => !a2.auth_pending, i18("auth.cancel", "Cancel pending change"));
+}
+
+function wireAuthButtons() {
+  if ($("btnAuthProtect")) $("btnAuthProtect").onclick = () => authProtectStart().catch((e) => log("err", e.message));
+  if ($("authPhraseAck")) $("authPhraseAck").onchange = () => { $("btnAuthPhraseGo").disabled = !$("authPhraseAck").checked; };
+  if ($("btnAuthPhraseGo")) $("btnAuthPhraseGo").onclick = () => authProtectGo().catch((e) => log("err", e.message));
+  if ($("btnAuthPhraseAbort")) $("btnAuthPhraseAbort").onclick = () => { show("authPhraseReveal", false); $("authNewPhrase").textContent = ""; _authNewRec = null; };
+  if ($("btnAuthRotate")) $("btnAuthRotate").onclick = () => {
+    const a = state.authAcct; const prot = a && a.cfg && a.cfg.keys && a.cfg.keys.length > 1;
+    if (prot || (a && a.orphan)) authAskRecovery("rotate"); else authRotateGo(false).catch((e) => log("err", e.message));
+  };
+  if ($("btnAuthCancel")) $("btnAuthCancel").onclick = () => {
+    const a = state.authAcct; const prot = a && a.cfg && a.cfg.keys && a.cfg.keys.length > 1;
+    if (prot) authAskRecovery("cancel"); else authCancelGo(false).catch((e) => log("err", e.message));
+  };
+  if ($("btnAuthGo")) $("btnAuthGo").onclick = () => {
+    const kind = _authAction; show("authRecoveryBox", false);
+    const p = kind === "rotate" ? authRotateGo(true) : authCancelGo(true);
+    p.catch((e) => log("err", e.message)).finally(() => { $("authRecoveryPhrase").value = ""; });
+  };
+  if ($("btnAuthAbort")) $("btnAuthAbort").onclick = () => { show("authRecoveryBox", false); $("authRecoveryPhrase").value = ""; };
+}
+
 function renderSecurity() {
+  renderAuth();
   const enc = walletIsEncrypted();
   if ($("secStatus")) $("secStatus").innerHTML = enc
     ? '<b class="ok">' + i18("sec.on", "Encrypted at rest ✓") + "</b>"
@@ -2570,6 +2808,7 @@ async function refreshDashboard() {
     $("walReg").innerHTML = acc.registered === 1 ? `<span class="badge ok">${i18("badge.yes","yes")}</span>` : `<span class="badge no">${i18("badge.no","no")}</span>`;
     $("walFidelity").textContent = acc.fidelity ?? 0;
     refreshLeasePanel(acc, ms);                         // lease countdown + manual renew inside the earning window
+    authSync(acc).then(renderAuth).catch(() => {});      // re-anchor the signing key if the account's config moved
     $("sendAvail").textContent = bal + " NADO";
     $("stkAvail").textContent = bal + " NADO";
     $("stkBonded").textContent = bonded + " NADO";
@@ -3010,6 +3249,7 @@ function showWalletUI() {
   show("unlockCard", false);
   show("tabbar", true);
   hdSync();                                          // anchor the HD layer to the loaded wallet (Main on a fresh load)
+  authSync().then(() => { renderAccountBar(); renderAuth(); if (state.wallet) { $("walAddr").innerHTML = exLink("a", state.wallet.address, state.wallet.address); $("recvAddr").textContent = state.wallet.address; } }).catch(() => {});
   renderAccountBar();
   $("walAddr").innerHTML = exLink("a", state.wallet.address, state.wallet.address);   // the ACTIVE account's address — click-through to its Explore view
   // The "Reveal / export private key" section is the BACKUP surface — always the MASTER seed + phrase, which
@@ -7644,6 +7884,7 @@ function wireEvents() {
   $("btnDlKeySettings").onclick = () => downloadKeyFile().catch(() => {});
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
   if ($("btnRenewLease")) $("btnRenewLease").onclick = () => renewLeaseManually();
+  wireAuthButtons();
   if ($("btnExecCashOut")) $("btnExecCashOut").onclick = () => cashOutExec();
   if ($("btnMsigDerive")) $("btnMsigDerive").onclick = () => msigDerive();
   if ($("btnMsigPropose")) $("btnMsigPropose").onclick = () => msigPropose();

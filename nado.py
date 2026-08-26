@@ -198,6 +198,13 @@ async def legacy_static_redirect(request):
     raise web.HTTPFound("/static/interface." + request.match_info["ext"])
 
 
+def _protocol_auth_active():
+    """Whether account authentication (doc/key-rotation.md) is live on this chain generation — advertised on
+    /status so wallets show the Account keys panel only where an `auth` tx can land."""
+    import protocol as _p
+    return _p.AUTH_ACTIVE
+
+
 def _genesis_hash_cached():
     """Block 0's hash for /status — the shared per-process memo in ops.block_ops."""
     from ops.block_ops import genesis_hash_cached
@@ -234,6 +241,7 @@ async def status(request):
             # old chain), but block 0's hash is unforgeable chain identity. Peers refuse status
             # admission on a mismatch (peer_loop) — one filter that starves every consensus pool of
             # foreign-generation weight/verdict claims at once.
+            "auth_active": bool(_protocol_auth_active()),
             "genesis_hash": _genesis_hash_cached(),
             "earliest_block_hash": eb.get("block_hash"),
             # BODY HORIZON — the oldest height this node can actually serve a BODY for, which is the
@@ -1744,7 +1752,8 @@ def _msg_verify_sig(public_key, sender, env):
     signing digest (every envelope field except `sig`). Same verify() the tx path uses."""
     from ops.message_pool import signing_digest
     try:
-        if not public_key or not proof_sender(sender=sender, public_key=public_key):
+        from ops.auth_ops import key_authorized
+        if not public_key or not key_authorized(public_key, sender):
             return False
         return _mldsa_verify(signed=env.get("sig", ""), public_key=public_key,
                              message=_mldsa_unhex(signing_digest(env)))
@@ -1757,7 +1766,8 @@ def _prekey_verify_sig(public_key, address, bundle):
     must verify over the bundle's signing digest. False (never raises) on any failure."""
     from ops.message_pool import prekey_signing_digest
     try:
-        if not public_key or not proof_sender(sender=address, public_key=public_key):
+        from ops.auth_ops import key_authorized
+        if not public_key or not key_authorized(public_key, address):
             return False
         return _mldsa_verify(signed=bundle.get("sig", ""), public_key=public_key,
                              message=_mldsa_unhex(prekey_signing_digest(bundle)))

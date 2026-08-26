@@ -52,8 +52,8 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "pubkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo")
-_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "pubkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo", "auth_revert")
+_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes", "auth_history")
 
 # CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block-body + tx HISTORY (explorer-only,
 # rebuilt by replaying the C+1..tip tail). This is the FULL producer-selection + validation state — account
@@ -86,7 +86,7 @@ _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 #               C+1..tip tail replay rebuilds byte-for-byte as it re-incorporates each block. wipe_non_carried_dbs
 #               (all-DBs - SNAPSHOT_DBS) clears any stale residue on re-anchor. So they belong here, not in the root.
 _LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_revert", "msgkey_revert",
-                        "pubkey_revert", "execsum_revert", "attest_memo"))
+                        "pubkey_revert", "execsum_revert", "attest_memo", "auth_revert"))
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS))
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -2112,4 +2112,59 @@ def gc_revert_prune(below_height: int) -> int:
                     if not cur.first():
                         break
         return n
+    return _write(_do)
+
+
+# --- ACCOUNT AUTHENTICATION (doc/key-rotation.md): history of every auth config an address held (DUPSORT,
+# CONSENSUS STATE — in the root) + the txid-keyed revert journal (node-local). ---
+def auth_history_put(address: str, from_height: int, version: int, keys: list):
+    """Append 'from `from_height`, config `version` authorized `address` with `keys`' (`keys` = blake2b digests
+    of the authenticators — a DUPSORT value is capped at 511 bytes). Values sort by the big-endian height
+    prefix, so the newest entry is last and a range read by height is a scan."""
+    def _do(txn):
+        txn.put(address.encode(), be8(int(from_height)) + _pack([int(version), list(keys)]),
+                db=_dbs()["auth_history"], dupdata=True)
+    _write(_do)
+
+
+def auth_history_del(address: str, from_height: int, version: int, keys: list):
+    """Revert auth_history_put exactly (rollback): delete the precise dup."""
+    def _do(txn):
+        txn.delete(address.encode(), be8(int(from_height)) + _pack([int(version), list(keys)]),
+                   db=_dbs()["auth_history"])
+    _write(_do)
+
+
+def auth_history(address: str) -> list:
+    """[(from_height, version, key_digests), ...] ascending by from_height."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["auth_history"]) as cur:
+            if cur.set_key(address.encode()):
+                for v in cur.iternext_dup(keys=False, values=True):
+                    ver, keys = _unpack(v[8:])
+                    out.append((un_be8(v[:8]), int(ver), list(keys)))
+        return out
+    return _read(_do)
+
+
+def auth_revert_put(txid: str, prev_auth, prev_pending, prev_freeze, hist_row):
+    """The EXACT inverse of one `auth` tx: the account's prior (auth, auth_pending, auth_freeze) fields
+    (None = absent) and the auth_history row it appended (None if none). Keyed by txid, node-local."""
+    def _do(txn):
+        txn.put(txid.encode(), _pack([prev_auth, prev_pending, prev_freeze, hist_row]), db=_dbs()["auth_revert"])
+    _write(_do)
+
+
+def auth_revert_pop(txid: str):
+    """Read + DELETE the auth revert record. (True, prev_auth, prev_pending, prev_freeze, hist_row) or
+    (False, None, None, None, None) when no record exists. Runs in the active txn."""
+    def _do(txn):
+        key = txid.encode()
+        raw = txn.get(key, db=_dbs()["auth_revert"])
+        if raw is None:
+            return (False, None, None, None, None)
+        txn.delete(key, db=_dbs()["auth_revert"])
+        a, p, f, h = _unpack(raw)
+        return (True, a, p, f, h)
     return _write(_do)

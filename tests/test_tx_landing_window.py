@@ -25,8 +25,12 @@ def check(name, fn):
 
 
 def _tx(recipient, max_block, min_block=0, txid=None):
-    return {"recipient": recipient, "max_block": max_block, "min_block": min_block,
-            "txid": txid or f"{recipient}:{max_block}:{min_block}"}
+    # a LEGACY tx carries no min_block key at all — a windowed duty is recognised by the key's PRESENCE
+    # (block_ops._lands_flexibly), so min_block=0 must mean "absent", not "present and zero"
+    tx = {"recipient": recipient, "max_block": max_block, "txid": txid or f"{recipient}:{max_block}:{min_block}"}
+    if min_block:
+        tx["min_block"] = min_block
+    return tx
 
 
 # A plain-transfer recipient must be a REAL address. _lands_flexibly() no longer routes on a prefix
@@ -34,7 +38,7 @@ def _tx(recipient, max_block, min_block=0, txid=None):
 # classified as neither a reserved recipient nor an address and takes the exact-landing branch, exactly
 # as a typo'd address would. Derive one instead of pinning a string.
 PAYEE = make_address("ebd27698662f14ee2389e509781d5ff57487f4289a")
-FLEX = [PAYEE, "blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet"]
+FLEX = [PAYEE, "blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet", "auth"]
 EXACT = ["bond", "unbond", "withdraw", "register", "msgkey", "attest", "commit", "reveal", "duty",
          "settle", "alias", "htlc_lock"]
 
