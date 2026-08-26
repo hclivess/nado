@@ -437,9 +437,26 @@ async function btcBuild() {
   try {
     const sc = htlcScript(H, cp, rp, lock);
     const addr = await p2wshAddress(sc, net);
-    const explorer = net === "bc" ? "https://mempool.space/address/" : net === "tb" ? "https://mempool.space/testnet/address/" : null;
+    const site = net === "bc" ? "https://mempool.space" : net === "tb" ? "https://mempool.space/testnet" : null;
     $("btcOut").innerHTML = `<b>P2WSH address</b><br>${addr}<br><br><b>witness script</b> (keep it — spending needs it)<br>${sc}`
-      + (explorer ? `<br><br><a href="${explorer}${addr}" target="_blank" rel="noopener">check funding on mempool.space →</a>` : "");
+      + (site ? `<br><br><button class="ghost" id="btnBtcVerify">Verify funding</button>
+         <a href="${site}/address/${addr}" target="_blank" rel="noopener" class="small" style="margin-left:10px">open on mempool.space →</a>
+         <div id="btcVerifyOut" class="small mt"></div>` : "");
+    const vb = $("btnBtcVerify");
+    if (vb) vb.onclick = async () => {
+      // A convenience READ of a public explorer — the user's own decision input (§6.4 B), never consensus.
+      const out = $("btcVerifyOut");
+      out.textContent = "checking…";
+      try {
+        const a = await (await fetch(`${site}/api/address/${addr}`, { cache: "no-store" })).json();
+        const conf = BigInt(a.chain_stats.funded_txo_sum || 0), pend = BigInt(a.mempool_stats.funded_txo_sum || 0);
+        const btc = (v) => `${Number(v) / 1e8} BTC`;
+        out.innerHTML = conf > 0n
+          ? `<span style="color:var(--accent2)">CONFIRMED: ${btc(conf)} locked in this HTLC</span>` + (pend > 0n ? ` (+${btc(pend)} unconfirmed)` : "")
+          : pend > 0n ? `UNCONFIRMED: ${btc(pend)} seen in the mempool — wait for ≥2 confirmations before acting on it`
+          : "nothing funded at this address yet";
+      } catch (e) { out.textContent = "couldn't reach the explorer — open the link and check manually"; }
+    };
   } catch (e) { alertBar(String(e.message || e)); }
 }
 // ---- wiring / boot ---------------------------------------------------------------------------------------
