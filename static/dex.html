@@ -189,27 +189,23 @@
   <!-- LIQUIDITY -->
   <div class="card hidden" id="liqCard">
     <h2>Liquidity</h2>
-    <p class="small dim">A call carries exactly one asset, so adding liquidity is <b>two deposits then a
-    join</b>, staged into a position you own. Anything you have staged but not joined is
-    <b>always refundable</b> — pick a position id and keep using it.</p>
+    <p class="small dim">Deposit both sides, then confirm — each side is its own transaction because a
+    transaction carries one currency. Anything deposited but not yet confirmed is <b>always refundable</b>.
+    <span id="liqPos" class="dim"></span></p>
     <div class="row mt">
-      <label class="small dim" for="posId">Position id</label>
-      <input id="posId" placeholder="e.g. 1234" inputmode="numeric" autocomplete="off">
+      <input id="addN" placeholder="NADO amount" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFundN" style="flex:0 0 auto">1 · Deposit NADO</button>
     </div>
     <div class="row mt">
-      <input id="addN" placeholder="NADO side" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnFundN" style="flex:0 0 auto">1 · Stage NADO</button>
+      <input id="addT" placeholder="token amount" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFundT" style="flex:0 0 auto">2 · Deposit token</button>
     </div>
     <div class="row mt">
-      <input id="addT" placeholder="token side" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnFundT" style="flex:0 0 auto">2 · Stage token</button>
+      <button class="primary" id="btnJoin">3 · Confirm liquidity</button>
+      <button class="ghost" id="btnRefund" style="flex:0 0 auto">Take deposits back</button>
     </div>
     <div class="row mt">
-      <button class="primary" id="btnJoin">3 · Add liquidity</button>
-      <button class="ghost" id="btnRefund" style="flex:0 0 auto">Refund staged</button>
-    </div>
-    <div class="row mt">
-      <input id="exitSh" placeholder="shares to withdraw" inputmode="numeric" autocomplete="off">
+      <input id="exitSh" placeholder="how much of your position to withdraw" inputmode="numeric" autocomplete="off">
       <button class="ghost" id="btnExit" style="flex:0 0 auto">Withdraw liquidity</button>
     </div>
     <div class="small dim mt">The first provider sets the opening price. After that the NADO side sets how
@@ -219,12 +215,14 @@
   <!-- OPEN A POOL -->
   <div class="card" id="openCard">
     <h2>Open a pool</h2>
-    <p class="small dim">Pair any execution-layer asset with NADO. Opening is permissionless and free —
-    it just claims an id; the pool is empty until someone provides liquidity.</p>
+    <p class="small dim">Pair any token with NADO. Opening is permissionless and free — the pool is empty
+    until someone adds liquidity.</p>
     <div class="row mt">
-      <input id="newPid" placeholder="pool id (1 … 2^32-1)" inputmode="numeric" autocomplete="off">
-      <input id="newAsset" placeholder="asset id" autocomplete="off">
-      <button class="ghost" id="btnOpen" style="flex:0 0 auto">Open</button>
+      <select id="newAsset"></select>
+      <button class="ghost" id="btnOpen" style="flex:0 0 auto">Open pool</button>
+    </div>
+    <div class="row mt hidden" id="newAssetCustomRow">
+      <input id="newAssetCustom" placeholder="paste the token id" autocomplete="off">
     </div>
   </div>
 
@@ -285,18 +283,17 @@
   <!-- LIMIT ORDERS (otc contract SWAP_INTRA — exec-layer limit orders beside the AMM) -->
   <div class="card hidden" id="otcLimitCard">
     <h2>Limit orders</h2>
-    <p class="small dim">A fixed-price order beside the pool: escrow what you give, name what you want, and
-    the first taker to fill moves <b>both legs in one atomic call</b> — no partial fills, no middle state.
-    Cancel any time before it fills; after the expiry anyone can sweep it back to you. NADO amounts are in
-    NADO; token amounts are in the asset's raw base units.</p>
+    <p class="small dim">Name your own price instead of taking the pool's: say what you give and what you
+    want, and the first person to accept swaps <b>both sides in one go</b> — no partial fills. Cancel any
+    time before someone takes it; after it expires anyone can return it to you.</p>
     <div id="otcLimits" class="mt"></div>
     <div class="row mt">
-      <input id="limGiveAsset" placeholder="give: asset id (empty = NADO)" autocomplete="off">
-      <input id="limGiveAmt" placeholder="give amount" inputmode="decimal" autocomplete="off">
+      <select id="limGiveAsset"></select>
+      <input id="limGiveAmt" placeholder="you give" inputmode="decimal" autocomplete="off">
     </div>
     <div class="row mt">
-      <input id="limWantAsset" placeholder="want: asset id (empty = NADO)" autocomplete="off">
-      <input id="limWantAmt" placeholder="want amount" inputmode="decimal" autocomplete="off">
+      <select id="limWantAsset"></select>
+      <input id="limWantAmt" placeholder="you want" inputmode="decimal" autocomplete="off">
     </div>
     <div class="row mt">
       <label class="small dim" for="limExpiry">Expiry (blocks from now)</label>
@@ -311,6 +308,6 @@
     Nothing here is investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=1d73f0c1"></script>
+<script type="module" src="/static/dex.js?v=96462bb0"></script>
 </body>
 </html>

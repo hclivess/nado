@@ -24,10 +24,29 @@ const UNIT = 100000000n;              // 1e8 raw = 0.01 NADO — must match dex.
 const FEE_NUM = 9970n, FEE_DEN = 10000n;
 const ID_MAX = 4294967296;            // 2^32 — ids are slot keys (see the contract's slot model)
 
+const LS_POS = "nado_dex_pos";
+function posFor(poolId) {                            // your LP slot for this pool — created once, invisibly
+  let m = {}; try { m = JSON.parse(localStorage.getItem(LS_POS) || "{}"); } catch (e) {}
+  if (!m[poolId]) { m[poolId] = randId(); try { localStorage.setItem(LS_POS, JSON.stringify(m)); } catch (e) {} }
+  return m[poolId];
+}
 const toUnits = (nado) => { try { return BigInt(nadoToRaw(nado)) / UNIT; } catch (e) { return 0n; } };
 const fromUnits = (u) => rawToNado((BigInt(u) * UNIT).toString());
 
 let lastSto = null;
+let assetReg = {};                                   // key: String(Number(id)) -> {sym, name, dec, id}
+const akey = (id) => String(Number(id));
+const tokMeta = (id) => assetReg[akey(id)] || null;
+const tokSym = (id) => (tokMeta(id) || {}).sym || "token";
+const tokName = (id) => { const m = tokMeta(id); return m ? (m.name || m.sym) : "unknown token"; };
+async function refreshAssets() {
+  try {
+    const r = await (await fetch(base() + "/exec/assets?ns=" + dapp.ns, { cache: "no-store" })).json();
+    const map = {};
+    for (const a of (r.assets || [])) map[akey(a.id)] = { sym: a.sym, name: a.name, dec: Number(a.dec) || 0, id: String(a.id) };
+    if (Object.keys(map).length || !Object.keys(assetReg).length) assetReg = map;
+  } catch (e) { /* keep the last good registry */ }
+}
 let sel = null;                       // selected pool id
 let render = () => {};
 
@@ -63,10 +82,11 @@ function renderPools() {
   box.innerHTML = ids.map((id) => {
     const p = poolOf(lastSto, id);
     const on = String(p.id) === String(sel) ? " sel" : "";
+    const sym = tokSym(p.asset);
     return `<div class="poolrow${on}" data-pool="${p.id}" style="cursor:pointer">
-      <div><b>#${p.id}</b> <span class="mono small dim">${disp(p.asset).slice(0, 20)}</span></div>
-      <div class="mono small">${fromUnits(p.rn)} NADO · ${fromUnits(p.rt)} TKN</div>
-      <div class="small dim">${p.sup > 0n ? "≈ " + midPrice(p).toFixed(6) + " TKN/NADO" : "empty — needs liquidity"}</div>
+      <div><b>${esc(sym)} / NADO</b> <span class="small dim">${esc(tokName(p.asset))}</span></div>
+      <div class="mono small">${fromUnits(p.rn)} NADO · ${fromUnits(p.rt)} ${esc(sym)}</div>
+      <div class="small dim">${p.sup > 0n ? "1 NADO ≈ " + midPrice(p).toFixed(4) + " " + esc(sym) : "empty — needs liquidity"}</div>
     </div>`;
   }).join("");
   box.querySelectorAll(".poolrow").forEach((el) => {
@@ -74,61 +94,92 @@ function renderPools() {
   });
 }
 
+function renderLiq() {
+  const el = $("liqPos");
+  if (!el || !sel || !lastSto) return;
+  const p = poolOf(lastSto, sel), sym = tokSym(p.asset);
+  const t = $("addT"); if (t) t.placeholder = `${sym} amount`;
+  el.textContent = `You are adding to the ${sym} / NADO pool.`;
+}
 function renderSwap() {
   const card = $("swapCard");
   if (!card) return;
   gate({ swapCard: !!sel, liqCard: !!sel });
   if (!sel || !lastSto) return;
   const p = poolOf(lastSto, sel);
-  const dir = ($("dir") || {}).value || "n2t";     // n2t = sell NADO, t2n = sell token
+  const sym = tokSym(p.asset);
+  const dsel = $("dir");
+  if (dsel && dsel.dataset.sym !== sym) {              // keep the picker named after the ACTUAL token
+    const keep = dsel.value || "n2t";
+    dsel.innerHTML = `<option value="n2t">NADO → ${esc(sym)}</option><option value="t2n">${esc(sym)} → NADO</option>`;
+    dsel.value = keep; dsel.dataset.sym = sym;
+  }
+  const dir = (dsel || {}).value || "n2t";     // n2t = sell NADO, t2n = sell token
   const inU = toUnits((($("swapAmt") || {}).value || "").trim());
   const out = dir === "n2t" ? quoteOut(inU, p.rn, p.rt) : quoteOut(inU, p.rt, p.rn);
   const slipPct = Number((($("slip") || {}).value) || "1");
   // minOut = the quote reduced by the tolerance, rounded DOWN (the contract compares UNITs as integers).
   const minOut = out * BigInt(Math.max(0, Math.round((100 - slipPct) * 100))) / 10000n;
   $("quote").textContent = out > 0n
-    ? `${fromUnits(out)} ${dir === "n2t" ? "TKN" : "NADO"}   (min ${fromUnits(minOut)})`
+    ? `${fromUnits(out)} ${dir === "n2t" ? sym : "NADO"}   (at worst ${fromUnits(minOut)})`
     : "—";
+  const amtIn = $("swapAmt"); if (amtIn) amtIn.placeholder = `amount in ${dir === "n2t" ? "NADO" : sym}`;
   card.dataset.minout = String(minOut);
   card.dataset.inunits = String(inU);
 }
 
+function fillAssetPicker(el, { withNado = true, keepValue = true } = {}) {
+  if (!el) return;
+  const prev = keepValue ? el.value : "";
+  const toks = Object.values(assetReg);
+  const opts = (withNado ? [`<option value="0">NADO</option>`] : [])
+    .concat(toks.map((a) => `<option value="${a.id}">${esc(a.sym)} — ${esc(a.name || a.sym)}</option>`));
+  const sig = opts.join("");
+  if (el.dataset.sig === sig) { return; }
+  el.dataset.sig = sig;
+  el.innerHTML = opts.length ? opts.join("") : `<option value="">no tokens yet</option>`;
+  if (prev && [...el.options].some((o) => o.value === prev)) el.value = prev;
+}
 function doRender() {
+  fillAssetPicker($("newAsset"), { withNado: false });
+  fillAssetPicker($("limGiveAsset"));
+  fillAssetPicker($("limWantAsset"));
   renderMarket();
   renderPools();
   renderSwap();
+  renderLiq();
   renderOtc();
   renderLimits();
 }
 
 // ---- actions -------------------------------------------------------------------------------------------
 function openPool() {
-  const pid = Number(($("newPid").value || "").trim());
-  const asset = ($("newAsset").value || "").trim();
-  if (!asset) return alertBar("Enter the asset id to pair with NADO.");
-  if (!(pid > 0 && pid < ID_MAX)) return alertBar("Pool id must be between 1 and 2^32-1.");
-  let aidB; try { aidB = BigInt(asset); } catch (e) { return alertBar("Asset id must be a number."); }
-  if (aidB <= 0n) return alertBar("Asset id must be a number.");
-  dapp.call("open", [pid, aidB], null, "Opening pool…", { poolId: pid });
+  const asset = (($("newAsset") || {}).value || ($("newAssetCustom") || {}).value || "").trim();
+  if (!asset) return alertBar("No tokens exist yet to pair with NADO.");
+  let aidB; try { aidB = BigInt(asset); } catch (e) { return alertBar("That token id isn't valid."); }
+  if (aidB <= 0n) return alertBar("That token id isn't valid.");
+  if (lastSto) for (const id of poolIds(lastSto))                       // don't open a duplicate market
+    if (akey(poolOf(lastSto, id).asset) === akey(asset)) { sel = String(id); render();
+      return alertBar(`A ${tokSym(asset)} / NADO pool already exists — selected it for you.`); }
+  const pid = randId();
+  dapp.call("open", [pid, aidB], null, `Opening the ${tokSym(asset)} / NADO pool…`, { poolId: pid });
 }
 
 function fundNative() {
   if (!sel) return alertBar("Select a pool first.");
   const p = poolOf(lastSto, sel);
-  const pos = Number(($("posId").value || "").trim());
+  const pos = posFor(p.id);
   const u = toUnits(($("addN").value || "").trim());
-  if (!(pos > 0 && pos < ID_MAX)) return alertBar("Enter a position id (1 … 2^32-1) — it is your LP slot.");
-  if (u <= 0n) return alertBar("Enter a NADO amount (min 0.01).");
+  if (u <= 0n) return alertBar("Enter a NADO amount (at least 0.01).");
   dapp.call("fundn", [pos, p.id, Number(u)], u * UNIT, "Staging NADO…", { posId: pos });
 }
 
 function fundToken() {
   if (!sel) return alertBar("Select a pool first.");
   const p = poolOf(lastSto, sel);
-  const pos = Number(($("posId").value || "").trim());
+  const pos = posFor(p.id);
   const u = toUnits(($("addT").value || "").trim());
-  if (!(pos > 0)) return alertBar("Enter your position id.");
-  if (u <= 0n) return alertBar("Enter a token amount.");
+  if (u <= 0n) return alertBar(`Enter a ${tokSym(p.asset)} amount.`);
   // opts.asset makes this an ASSET-denominated call (value = amount, asset = which token).
   dapp.call("fundt", [pos, p.id, Number(u)], u * UNIT, "Staging token…",
             { posId: pos }, { asset: p.asset });
@@ -137,27 +188,21 @@ function fundToken() {
 function joinPool() {
   if (!sel) return alertBar("Select a pool first.");
   const p = poolOf(lastSto, sel);
-  const pos = Number(($("posId").value || "").trim());
-  if (!(pos > 0)) return alertBar("Enter your position id.");
-  dapp.call("join", [pos, p.id], null, "Adding liquidity…", { posId: pos });
+  dapp.call("join", [posFor(p.id), p.id], null, "Confirming your liquidity…", { posId: posFor(p.id) });
 }
 
 function refundPos() {
   if (!sel) return alertBar("Select a pool first.");
   const p = poolOf(lastSto, sel);
-  const pos = Number(($("posId").value || "").trim());
-  if (!(pos > 0)) return alertBar("Enter your position id.");
-  dapp.call("refund", [pos, p.id, BigInt(p.asset)], null, "Refunding staged funds…", { posId: pos });
+  dapp.call("refund", [posFor(p.id), p.id, BigInt(p.asset)], null, "Returning your deposits…", { posId: posFor(p.id) });
 }
 
 function exitPos() {
   if (!sel) return alertBar("Select a pool first.");
   const p = poolOf(lastSto, sel);
-  const pos = Number(($("posId").value || "").trim());
   const sh = Number(($("exitSh").value || "").trim());
-  if (!(pos > 0)) return alertBar("Enter your position id.");
-  if (!(sh > 0)) return alertBar("Enter how many shares to withdraw.");
-  dapp.call("exit", [pos, p.id, sh, BigInt(p.asset)], null, "Withdrawing liquidity…", { posId: pos });
+  if (!(sh > 0)) return alertBar("Enter how much of your position to withdraw.");
+  dapp.call("exit", [posFor(p.id), p.id, sh, BigInt(p.asset)], null, "Withdrawing your liquidity…", { posId: posFor(p.id) });
 }
 
 function doSwap() {
@@ -583,7 +628,7 @@ async function otcAction(what, o) {
 
 // ---- SWAP_INTRA limit orders (same otc contract, rendered beside the AMM) -----------------------------
 const limSide = (asset, amtRaw) => asset !== "0"
-  ? `<b>${amtRaw}</b> <span class="mono small dim">asset ${esc(asset).slice(0, 12)}…</span>`
+  ? `<b>${amtRaw}</b> ${esc(tokSym(asset))}`
   : `<b>${rawToNado(amtRaw.toString())} NADO</b>`;
 function limRow(od) {
   const me = dapp.me, mine = od.maker === me;
@@ -615,13 +660,13 @@ function renderLimits() {
   });
 }
 function limPost() {
-  const ga = ($("limGiveAsset").value || "").trim() || "0";
-  const wa = ($("limWantAsset").value || "").trim() || "0";
+  const ga = ($("limGiveAsset").value || "0").trim() || "0";
+  const wa = ($("limWantAsset").value || "0").trim() || "0";
   const blocks = Math.floor(Number($("limExpiry").value || 0));
   const amt = (v, asset) => { try { return asset !== "0" ? BigInt((v || "").trim()) : BigInt(nadoToRaw((v || "").trim())); } catch (e) { return 0n; } };
   const gv = amt($("limGiveAmt").value, ga), wv = amt($("limWantAmt").value, wa);
-  if (gv <= 0n || wv <= 0n) return alertBar("Enter both amounts (tokens in raw base units).");
-  if (ga === "0" && wa === "0") return alertBar("NADO for NADO is not a swap — one side must be an asset.");
+  if (gv <= 0n || wv <= 0n) return alertBar("Enter both amounts.");
+  if (ga === "0" && wa === "0") return alertBar("Pick a token on one side — NADO for NADO is not a swap.");
   if (!(blocks >= 20 && blocks <= 900000)) return alertBar("Expiry must be 20 … 900000 blocks.");
   const o = randId();
   let gaB, waB; try { gaB = BigInt(ga); waB = BigInt(wa); } catch (e) { return alertBar("Asset ids must be numbers."); }
@@ -666,8 +711,8 @@ function renderMarket() {
   const p = poolOf(lastSto, sel);
   const live = p.rn > 0n && p.rt > 0n && p.sup > 0n;
   const price = live ? Number(p.rt) / Number(p.rn) : 0;
-  const asset = disp(p.asset).slice(0, 14);
-  $("mktPair").textContent = `${asset} / NADO`;
+  const sym = tokSym(p.asset);
+  $("mktPair").textContent = `${sym} / NADO`;
   $("mktPrice").textContent = live ? fmtPrice(price) : "—";
   // 24h change (or first point in range) from the observed series
   const all = priceStore()[p.id] || [];
@@ -682,10 +727,10 @@ function renderMarket() {
   // stats
   const tvlNado = live ? fromUnits(p.rn * 2n) : "0";       // NADO-side ×2 ≈ total value in NADO
   $("mktStats").innerHTML = [
-    ["Price", live ? fmtPrice(price) + " TKN/NADO" : "—"],
-    ["Inverse", live ? fmtPrice(1 / price) + " NADO/TKN" : "—"],
-    ["NADO reserve", fromUnits(p.rn)],
-    ["Token reserve", fromUnits(p.rt)],
+    ["1 NADO buys", live ? fmtPrice(price) + " " + sym : "—"],
+    [`1 ${sym} buys`, live ? fmtPrice(1 / price) + " NADO" : "—"],
+    ["NADO in pool", fromUnits(p.rn)],
+    [sym + " in pool", fromUnits(p.rt)],
     ["Pool value", "≈ " + tvlNado + " NADO"],
     ["LP shares", p.sup.toString()],
     ["Swap fee", "0.30%"],
@@ -696,8 +741,9 @@ function renderMarket() {
 
 // --- the price line chart: SVG, crosshair + tooltip (dataviz interaction layer) ---
 const CW = 600, CH = 220, CML = 6, CMR = 54, CMT = 12, CMB = 20;
-let _mktBound = false, _mktPts = [];
+let _mktBound = false, _mktPts = [], _ttSym = "token";
 function renderChart(p) {
+  _ttSym = tokSym(p.asset);
   const svg = $("mktChart"), empty = $("mktEmpty");
   const data = priceSeries(p.id);
   if (data.length < 2) {
@@ -749,7 +795,7 @@ function renderChart(p) {
       tt.style.opacity = "1";
       tt.style.left = (best[0] / CW * r.width) + "px";
       tt.style.top = (best[1] / CH * r.height) + "px";
-      tt.innerHTML = `<b>${fmtPrice(best[3])}</b> TKN/NADO<br><span style="color:var(--faint)">${fmtAgo(best[2])}</span>`;
+      tt.innerHTML = `1 NADO = <b>${fmtPrice(best[3])}</b> ${_ttSym}<br><span style="color:var(--faint)">${fmtAgo(best[2])}</span>`;
     });
     svg.addEventListener("mouseleave", () => {
       tt.style.opacity = "0";
@@ -783,8 +829,8 @@ function renderDepth(p, price) {
   svg.innerHTML =
     `<line x1="${midX}" y1="4" x2="${midX}" y2="${DH - 12}" stroke="var(--border)" stroke-width="1"/>` +
     areaOf(sell, -1, "var(--danger)") + areaOf(buy, 1, "var(--accent2)") +
-    `<text x="8" y="${DH - 2}" fill="var(--danger)" font-size="9.5" font-family="ui-monospace,monospace">← sell NADO impact</text>` +
-    `<text x="${DW - 8}" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">buy NADO impact →</text>`;
+    `<text x="8" y="${DH - 2}" fill="var(--danger)" font-size="9.5" font-family="ui-monospace,monospace">← bigger sells get a worse rate</text>` +
+    `<text x="${DW - 8}" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">bigger buys get a worse rate →</text>`;
 }
 
 // ---- wiring / boot ---------------------------------------------------------------------------------------
@@ -793,6 +839,7 @@ async function refresh() {
     const sto = await dapp.storage();
     if (sto) lastSto = sto;
   } catch (e) { /* transient relay blip — keep the last good view rather than blanking the page */ }
+  await refreshAssets();
   samplePrices(lastSto);
   await otcRefresh();
   render();
@@ -800,7 +847,7 @@ async function refresh() {
 
 function wireUI() {
   wireWallet(dapp, render);
-  stickyInputs(dapp, ["newPid", "newAsset", "posId", "addN", "addT", "slip", "otcNado", "otcFAmt", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry"]);
+  stickyInputs(dapp, ["addN", "addT", "slip", "otcNado", "otcFAmt", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry"]);
   $("btnOpen").onclick = openPool;
   $("btnFundN").onclick = fundNative;
   $("btnFundT").onclick = fundToken;
