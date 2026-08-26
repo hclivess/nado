@@ -466,7 +466,7 @@ and being a watchtower requires no permission, stake, or identity.
 |---|---|---|
 | **0 (done)** | HTLC tx types + client Swap tab | `tests/test_htlc.py` |
 | **1 (done 2026-08-26)** | `otc` order-book contract (`ASK_NADO`/`BID_NADO`): post/cancel/fill/settle/expire + attributable escrow, dual hashlock, claim/refund window split, reroll attribution wired into the carry-forward | `tests/otc_contract_test.py` (author-in-test + differential-verify vs the real VM, 53 asserts) |
-| **2** | Foreign-leg templates (§6.5) + cross-chain settle wiring: contract escrow → NADO `htlc_lock`/`htlc_claim`; wallet flow that generates `H`, posts, verifies the foreign HTLC (SPV/RPC read), reveals, and relays the preimage | `tests/test_otc_swap_e2e.py` (regtest bitcoind + an ETH devnode + local NADO) |
+| **2 (legs done 2026-08-26)** | Foreign legs SHIPPED: `scripts/otc_btc_leg.py` (P2WSH HTLC builder/signer + CLI: address/claim/refund/extract, BIP143, no wallet dependency) and `scripts/HtlcEth.sol` (the one-contract ETH HTLC). Still open: in-wallet foreign-leg construction + SPV/RPC verification UX (today the dApp shows the parameters and the CLI operates the leg) | `tests/test_otc_swap_e2e.py` — 15/15: regtest bitcoind + anvil + the real otc contract, ONE secret opens all three, both refund paths, both wrong-secret rejections |
 | **3** | `SWAP_INTRA` + `fill_intra` (atomic exec-layer asset↔asset) and the cross-namespace tunnel path | `tests/test_otc_intra.py` |
 | **4** | Watchtower/relayer bounties + a reference permissionless relayer daemon (`scripts/otc_watchtower.py`, dry-run default like `bet_oracle.py`) | integration |
 | **5 (optional, future)** | premium/collateral for the free option; L3 gossip discovery relay; a `bridge.nadochain.com` Swap dApp | — |
