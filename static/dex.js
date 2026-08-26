@@ -1121,7 +1121,7 @@ async function boot() {
     alertBar("Crypto bundle failed to load — reload.");
     return;
   }
-  wireUI(); loadQR(); orderCards(["marketCard", "swapCard", "liqCard", "poolsCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
+  wireUI(); loadQR(); orderCards(["tradeRow", "liqCard", "poolsCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
   window.addEventListener("popstate", () => { wantMarket = null; readUrl(); render(); });
   const modes = installModes(dapp, { modes: [
     { key: "swap", icon: "🔄", label: "Swap", hint: "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools.",

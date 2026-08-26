@@ -27,6 +27,7 @@
   .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
   @media (min-width:1000px){ .wrap{max-width:1120px} }
   .traderow{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+  .traderow:not(:has(> .card:not(.hidden))){display:none}
   .traderow>.card{margin:12px 0;flex:1 1 100%;min-width:0}
   @media (min-width:1000px){
     .traderow>#marketCard{flex:1 1 61%}
@@ -355,6 +356,6 @@
     investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=f4a77275"></script>
+<script type="module" src="/static/dex.js?v=4f02cbbb"></script>
 </body>
 </html>
