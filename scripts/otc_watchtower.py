@@ -4,8 +4,10 @@
 Watches the deployed `otc` contract and does the two things a swap party shouldn't have to stay online for —
 both already permissionless in the contract, so ANYONE may run this:
 
-  * EXPIRE SWEEP — any order at/past its refund height is expired; the escrow drains back to whoever funded
-    it (never to this tower). A vanished counterparty can strand nobody.
+  * EXPIRE SWEEP — any order at/past its refund height is expired, releasing the maker's collateral to the
+    party the contract names (never to this tower) and closing the row. NOTE the swap PRINCIPAL is not in
+    this contract: a cross-chain swap's NADO leg is an L1 HTLC, refunded with `htlc_refund` by its own
+    sender, so sweeping here settles the order's collateral and tips, not the trade.
   * SETTLE RELAY — for a FILLED order it scans new Bitcoin blocks (via a bitcoin-cli you point it at) for a
     claim witness whose SHA-256 matches the order's hashlock: the revealed secret is re-posted as
     settle(o, limbs), paying the RECORDED party (never the caller). A taker who went offline after the maker
@@ -89,16 +91,16 @@ def parse_orders(storage):
         out.append({"o": int(o), "kind": int(g("kind").get(o) or 0), "st": int(g("st").get(o) or 0),
                     "expn": int(g("expn").get(o) or 0), "esc": int(g("esc").get(o) or 0),
                     "hsha": str(g("hsha").get(o) or ""), "wch": str(g("wch").get(o) or ""),
-                    "bnty": int(g("bnty").get(o) or 0)})
+                    "bnty": int(g("bnty").get(o) or 0), "pheld": int(g("pheld").get(o) or 0)})
     return out
 
 
 def expire_candidates(orders, cursor):
-    """Orders whose refund window is open: open/filled, at/past expn. Zero-escrow opens are skipped (an
-    unfilled BID holds nothing — expiring it only tidies state and burns our fee)."""
+    """Orders whose refund window is open: open/filled, at/past expn. Rows holding nothing are skipped —
+    expiring them only tidies state and burns our fee."""
     live = [x for x in orders
             if x["st"] in (OPEN, FILLED) and cursor >= x["expn"]
-            and not (x["st"] == OPEN and x["esc"] == 0 and x["bnty"] == 0)]
+            and (x["esc"] or x["bnty"] or x["pheld"])]
     return [x["o"] for x in sorted(live, key=lambda x: -x["bnty"])]   # §8: the paying work first
 
 

@@ -112,11 +112,6 @@ def vm_hashlocks(s_hex):
     return [alghash.hashn([limbs[0] + d] + limbs[1:]) for d in HDOM]
 
 
-def vm_hashlock(s_hex):
-    """The first digest — kept for callers that only need one (views, tests)."""
-    return vm_hashlocks(s_hex)[0]
-
-
 def vm_hashlock_parts(s_hex):
     """The four hashlocks as the eight (hi32, lo32) halves post() takes — a JS JSON number is exact only
     to 2^53, so each field element crosses the wire in two 32-bit pieces and the contract recombines."""

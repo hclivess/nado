@@ -699,7 +699,7 @@ function otcRow(od, mine) {
         <a href="#" data-otc="showsecret" data-o="${od.o}">back up</a> — keep a copy: it is all this swap
         needs on any device (never share it before the counterparty's lock is CONFIRMED).</div>`;
     if (od.st === 2 && od.hid) detail += `<div class="small mt">NADO leg locked on L1: <span class="mono">${esc(String(od.hid)).slice(0, 24)}…</span> — check its amount, hashlock and expiry in your wallet's Swap tab before sending anything.</div>`;
-    if (od.st === 2) detail += `<div class="small dim mt">Foreign leg ref: <span class="mono">${esc(od.fref).slice(0, 40)}</span>
+    if (od.st === 2 && od.fref && od.fref !== "pending") detail += `<div class="small dim mt">Foreign leg ref: <span class="mono">${esc(od.fref).slice(0, 40)}</span>
       · counterparty ${esc(disp(isMaker ? od.taker : od.maker))}</div>`;
     if (od.st === 3 && od.limbs.some((x) => Number(x) > 0)) {
       const rs = otcSecretFromLimbs(od.limbs);
@@ -708,7 +708,7 @@ function otcRow(od, mine) {
   }
   return `<div class="loan"><div class="loanmain">
       <div class="loantop">${pill} <b>#${od.o}</b> ${esc(disp(od.maker))} ${head}</div>
-      <div class="loanterms">${od.prem > 0n ? `asks a ${rawToNado(od.prem.toString())} NADO good-faith deposit · ` : ""}${od.bnty > 0n ? `<span class="pill">+${rawToNado(od.bnty.toString())} NADO tip</span> · ` : ""}hashlock <span class="dim">${esc(od.hsha).slice(0, 18)}…</span> ·
+      <div class="loanterms">${od.prem > 0n ? `maker has ${rawToNado(od.prem.toString())} NADO at stake · ` : ""}${od.bnty > 0n ? `<span class="pill">+${rawToNado(od.bnty.toString())} NADO tip</span> · ` : ""}hashlock <span class="dim">${esc(od.hsha).slice(0, 18)}…</span> ·
         ${od.st <= 2 ? (expired ? "refundable now" : `expires in ${left} blocks (~${blocksToTime(left)})`) : ""}
         ${od.expf ? `· ${esc(coinOf(od))} deadline ${new Date(Number(od.expf) * 1000).toISOString().slice(0, 16).replace("T", " ")}Z` : ""}</div>
       <div class="loanwho dim small">on <b>${esc((netOf(od) || {}).label || od.wch)}</b> · ${sells ? "maker receives" : "taker receives"} ${chain} at ${esc((sells ? od.wadr : od.tadr || od.wadr).split("|")[0]) || "(swap key published)"}</div>
@@ -816,7 +816,7 @@ async function otcAction(what, o) {
         + "could let the maker reclaim their NADO and still take your coin. Not safe to fill.");
     }
     const chain = coinOf(od);
-    let myf, fref = "auto";
+    let myf, fref = "pending";
     const ch = chainOf(od);
     if (ch === "btc") {
       const kp = genKeypair();                          // the swap's own key; the address to fund appears on the row after the fill lands

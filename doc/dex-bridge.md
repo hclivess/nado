@@ -189,23 +189,27 @@ same window, it never interprets it.
 
 ### 4.3 Methods (all permissionless; `//` = revert guard)
 
-- **`post(o, kind, namt, wch, wamt, wadr, hsha, hvmHi, hvmLo, expn, expf)`** (the alghash hashlock
-  rides as two 32-bit halves — a JS JSON number is exact only to 2^53 —) with `VALUE = namt` for an `ASK_NADO`
-  (0 for a `BID_NADO` — the NADO side arrives with the taker's fill).
+- **`post(o, kind, namt, wch, wamt, wadr, hsha, hi0, lo0 … hi3, lo3, expn, expf)`** — the four alghash
+  hashlocks ride as 32-bit halves (a JS JSON number is exact only to 2^53). **`VALUE` must be 0**: a
+  cross-chain order escrows nothing here, because the NADO leg is an L1 HTLC (see WHERE THE MONEY SITS).
+  `namt` is the advertised amount.
   `// o fresh; kind ∈ {1,2}; namt > 0 (range-gated < 2^62); every commitment non-zero; expn in the HTLC
   window; VALUE == (kind==ASK ? namt : 0).`
 - **`cancel(o)`** — maker only, only while `open`. Refunds the escrow to the maker. `// state==open &&
   caller==maker`.
-- **`fill(o, tadr, fref)`** with `VALUE = namt` for a `BID_NADO` — first valid taker wins (the tx inclusion
+- **`bind(o, htlcId)`** — either party records the L1 HTLC that carries the NADO leg, so the counterparty
+  and any watchtower can verify its amount, hashlock and expiry before funding the foreign side.
+- **`fill(o, tadr, fref)`** with **`VALUE` 0** — first valid taker wins (the tx inclusion
   delay + deterministic mempool make the race fair, §9). Pins the taker's foreign HTLC reference so the
   maker can verify that lock before revealing `s`. `// state==open && cursor < expn && VALUE matches kind.`
-- **`settle(o, l0..l4)`** — **anyone** holding the preimage (the counterparty, a watchtower). `// state==
-  filled && cursor < expn && alghash(l0..l4) == hvm (each limb < 2^52).` Pays the escrow to the recorded
-  party, never the caller: ASK → taker, BID → maker. Submitting the limbs publishes `s` on NADO — for a BID
-  that is exactly what hands the taker their claim on the foreign leg (and the limbs are stored in `s0..s4`).
-- **`expire(o)`** — anyone, at/after `expn`. Drains an unsettled order's escrow back to whoever funded it
-  (ASK → maker, filled BID → taker, intra → maker; asset escrows refund via APAY) and marks `refunded`. The
-  no-authority safety valve: a stuck order is never trapped. `// state ∈ {open, filled} && cursor ≥ expn.`
+- **`settle(o, l0..l4)`** — **anyone** holding the preimage. `// state==filled && cursor < expn && all four
+  alghash digests match (each limb < 2^52).` The swap principal is not here, so this closes the order,
+  returns the maker's collateral and pays the tip; publishing the limbs also puts `s` on NADO where the
+  counterparty or a watchtower can read it to finish the other leg.
+- **`expire(o)`** — anyone, at/after `expn`. Closes an unfinished order: a SWAP_INTRA escrow returns to its
+  maker (via APAY for assets), the collateral goes to the taker if the swap was filled and to the maker if
+  it was not, and the tip pays the sweeper. A cross-chain swap's own legs are refunded on their own chains
+  (`htlc_refund` on L1, the CLTV branch on Bitcoin). `// state ∈ {open, filled} && cursor ≥ expn.`
 - **`post_intra(o, giveAsset, giveAmt, wantAsset, wantAmt, expn)`** with `VALUE = giveAmt` of `giveAsset`
   (0 = native) — a SWAP_INTRA limit order (§7): both sides live on the exec layer, so no hashlock and no
   foreign chain. `// sides > 0; not NADO-for-NADO; the escrowed value matches the stated give side.`
