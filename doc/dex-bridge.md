@@ -150,6 +150,17 @@ attribution (§4.4) possible without any off-chain index.
 | `taker` 14 / `tadr` 15 / `fref` 16 | `o` | taker digest / taker's foreign address / foreign HTLC txid-outpoint |
 | `s0..s4` 20–24 | `o` | the revealed preimage limbs, stored at settle so the counterparty reads them from a view |
 
+**The wide hashlock (2026-08-27).** One alghash digest is a single field element (~64 bits) over a
+128-bit sponge state, which an audit priced at roughly **2^44** to forge — far weaker than the SHA-256 the
+same swap uses on the foreign side. The VM has no wider hash opcode, so the NADO lock is **four** digests
+of the same secret, each over a differently-offset first limb (`HDOM` in `execnode/games/otc.py`, mirrored
+in `static/dex.js`): a forger must satisfy four independent 64-bit constraints with one tuple of limbs,
+which restores a generic cost far beyond reach, at the price of four HASH blocks per settle. What is
+**still not** cryptographically bound is `hsha` to `hvm` — nothing forces the maker to derive both from
+the same secret, because the VM cannot compute SHA-256. That binding needs a SHA-256 opcode (a consensus
+change); until then the mitigation is economic: the §9.1 maker collateral makes a maker's walk cost more
+than it gains, and the dApp should not be used for value above that collateral.
+
 **The dual hashlock.** The zkVM's only in-circuit hash is the alghash sponge — there is no SHA-256 opcode —
 while Bitcoin script can *only* check SHA-256. So the ONE 32-byte secret `s` binds two commitments at post
 time: `H_sha = SHA-256(s)` locks the foreign HTLC and `H_vm = alghash.hashn(limbs(s))` locks the escrow
@@ -262,6 +273,12 @@ Both legs complete. Alice got BTC, Bob got NADO. No coin was ever custodied.
   public Bitcoin chain and claims the NADO any time before `T₁`. `s` is public the instant Alice spends.
 
 ### 6.3 The timelock-ordering invariant (non-negotiable)
+
+> **ENFORCED IN-CIRCUIT since 2026-08-27.** This was a wallet-side promise the wallet never kept — an
+> audit showed a maker could set a foreign deadline outlasting the NADO window, reclaim their NADO at
+> `expn`, and *still* claim the foreign coin. `post` and `fill` now both check it against the VM's own
+> chain clock: `time + FOREIGN_MIN_S < expf` and `expf + FOREIGN_MARGIN_S < time + (expn − cursor)·6`.
+> `fill` re-checks because the NADO window shrinks in real time while `expf` stays put.
 
 `T₂` (foreign, taker's refund) **must** expire strictly *before* `T₁` (NADO, maker's refund), with enough
 margin for the second claim to confirm:

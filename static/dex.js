@@ -274,9 +274,18 @@ const otcLimbs = (sHex) => {                          // 32-byte secret -> five 
 };
 const otcSecretFromLimbs = (ls) =>                    // s0..s4 back to the 64-hex secret (after a settle)
   ls.reduce((v, l, i) => v | (BigInt(l) << (LIMB_BITS * BigInt(i))), 0n).toString(16).padStart(64, "0");
-const otcVmParts = (sHex) => {                        // H_vm = alghash(limbs), as the two 32-bit halves post() takes
-  const h = algHashn(otcLimbs(sHex).map(BigInt));
-  return [Number(h >> 32n), Number(h & 0xFFFFFFFFn)];
+// The WIDE hashlock: four alghash digests of the same limbs, each with a different offset on the first
+// limb. One 64-bit digest was forgeable at roughly 2^44 (audit); four independent constraints on one
+// secret put that back out of reach, and the VM needs no new opcode. Must match otc.py HDOM exactly.
+const HDOM = [0n, 0x10000000001n, 0x20000000003n, 0x30000000007n];
+const otcVmParts = (sHex) => {                        // the four hashlocks, as the eight halves post() takes
+  const L = otcLimbs(sHex).map(BigInt);
+  const out = [];
+  for (const d of HDOM) {
+    const h = algHashn([L[0] + d, L[1], L[2], L[3], L[4]]);
+    out.push(Number(h >> 32n), Number(h & 0xFFFFFFFFn));
+  }
+  return out;
 };
 async function sha256Hex(hex) {                       // H_sha — the FOREIGN chain's native hashlock of the same s
   const b = new Uint8Array(hex.match(/../g).map((x) => parseInt(x, 16)));
@@ -744,7 +753,12 @@ async function otcPost() {
   // Derive the foreign deadline from CHAIN time, not the poster's clock, and keep it comfortably inside
   // the NADO window (§6.3): the foreign side must be refundable BEFORE the NADO escrow unlocks.
   const nowSec = (dapp.chainNow && dapp.chainNow()) || Math.floor(Date.now() / 1000);
-  const expf = Math.floor(nowSec + blocks * 6 * 0.6);
+  // Land in the middle of the window the contract enforces (§6.3, otc.py FOREIGN_MIN_S/FOREIGN_MARGIN_S):
+  // late enough for the foreign leg to be funded and confirmed, early enough to refund before the NADO side.
+  const FOREIGN_MIN_S = 3600, FOREIGN_MARGIN_S = 7200, windowS = blocks * 6;
+  if (windowS < FOREIGN_MIN_S + FOREIGN_MARGIN_S + 1800)
+    return alertBar(`That expiry is too short for a ${$("otcChain").value.toUpperCase()} swap — use at least ${Math.ceil((FOREIGN_MIN_S + FOREIGN_MARGIN_S + 1800) / 6)} blocks.`);
+  const expf = Math.floor(nowSec + (FOREIGN_MIN_S + windowS - FOREIGN_MARGIN_S) / 2);
   const expn = (dapp.cursor || 0) + blocks;
   const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex + (kp ? "  ·  BTC key: " + kp.k : ""); }
   dapp.call("post", [o, kind, raw, net, famt, packed, hsha, hi, lo, expn, expf],

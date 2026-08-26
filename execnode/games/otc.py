@@ -36,13 +36,13 @@ Storage (order id `o` = a frontend random int < 2^32; all slot-keyed => enumerab
   1 mk  2 kind(1=ASK_NADO maker gives NADO / 2=BID_NADO maker wants NADO)  3 maker(caller digest)
   4 esc(live NADO escrow, raw)  5 namt(the NADO side amount, raw)  6 wch(foreign chain digest)
   7 wamt(foreign amount digest)  8 wadr(maker's foreign receiving addr digest)  9 hsha(SHA-256 hashlock
-  digest)  10 hvm(alghash hashlock, field element)  11 expn(NADO refund height)  12 expf(foreign deadline,
+  digest)  10 hvm + 31/32/33 hv1..hv3(the FOUR alghash hashlocks — one field element each)  11 expn(NADO refund height)  12 expf(foreign deadline,
   opaque)  13 st(1 open 2 filled 3 settled 4 refunded 5 cancelled)  14 taker(digest)  15 tadr(taker's
   foreign addr digest)  16 fref(foreign HTLC txid/outpoint digest)  18 LIST  20..24 s0..s4(revealed limbs)
   25 gast/26 wast/27 want(SWAP_INTRA: give-asset, want-asset — 0 = native — and want amount)
   28 bnty(§8 bounty) 29 prem/30 pheld(§9.1 maker collateral: promised / held).
-Methods: post(o,kind,namt,wch,wamt,wadr,hsha,hvmHi,hvmLo,expn,expf) — the alghash hashlock rides as two
-  32-bit halves because a JS JSON number only holds 2^53 exactly (hvm = hi·2^32 + lo mod P) —[VALUE=namt for ASK] · cancel(o) maker/open ·
+Methods: post(o,kind,namt,wch,wamt,wadr,hsha,hi0,lo0,hi1,lo1,hi2,lo2,hi3,lo3,expn,expf) — the four
+  alghash hashlocks ride as 32-bit halves because a JS JSON number only holds 2^53 exactly —[VALUE=namt for ASK] · cancel(o) maker/open ·
   fill(o,tadr,fref)[VALUE=namt for BID] · settle(o,l0..l4) anyone with the preimage · expire(o) anyone late ·
   boost(o)[VALUE=NADO bounty] anyone, while open/filled — first correct actor wins it (§8) ·
   set_premium(o)[VALUE] maker/open/HTLC-only — the §9.1 free-option price: the MAKER posts collateral,
@@ -59,12 +59,26 @@ MK, KIND, MAKER, ESC, NAMT, WCH, WAMT, WADR, HSHA, HVM = 1, 2, 3, 4, 5, 6, 7, 8,
 EXPN, EXPF, ST, TAKER, TADR, FREF, LIST = 11, 12, 13, 14, 15, 16, 18
 S0 = 20                            # fields 20..24: the revealed preimage limbs (public after settle)
 GAST, WAST, WANT = 25, 26, 27      # SWAP_INTRA sides: give-asset, want-asset (0 = native), want amount
+HV1, HV2, HV3 = 31, 32, 33         # the other three digests of the WIDE hashlock (HVM/10 holds the first)
 BNTY = 28                          # attached NADO bounty (§8) — first correct actor (settle/fill_intra/expire) wins it
 PREM, PHELD = 29, 30               # §9.1 free-option premium: required (maker-set) / escrowed by the taker at fill
 ASK, BID, INTRA = 1, 2, 3
 OPEN, FILLED, SETTLED, REFUNDED, CANCELLED = 1, 2, 3, 4, 5
 ID_MAX = 1 << 32
 LIMB_BITS, LIMBS = 52, 5           # 5x52 = 260 >= 256 secret bits; each limb < 2^52 (LT-safe)
+# WIDE HASHLOCK. One alghash digest is a single field element (~64 bits) and the sponge's state is only
+# 128 bits wide, so an audit put a forged preimage at roughly 2^44 work — far below the SHA-256 side of
+# the same swap. The VM has no wider hash opcode, so the lock is FOUR digests of the same secret, each
+# over a differently-offset first limb: a forger must satisfy four independent 64-bit constraints with
+# one tuple of limbs, which puts the generic cost back out of reach. Costs four HASH blocks per settle.
+HDOM = [0, 0x10000000001, 0x20000000003, 0x30000000007]
+# §6.3 TIMELOCK ORDERING, now enforced in-circuit (it used to be a wallet-side promise the wallet never
+# kept). The foreign leg must be refundable well BEFORE the NADO escrow unlocks, or a maker can reclaim
+# their NADO and still claim the foreign coin. The VM knows the chain clock (TIME) and the block cadence,
+# so the whole inequality is checkable here.
+FOREIGN_MIN_S = 3600               # the foreign leg needs at least this long to be funded and confirmed
+FOREIGN_MARGIN_S = 7200            # ... and must expire this far before the NADO side does
+BLOCK_SECS = 6
 HTLC_MIN_TIMELOCK = 10             # mirror the L1 HTLC bounds (ops/transaction_ops.py)
 HTLC_MAX_TIMELOCK = 1_000_000
 
@@ -76,15 +90,24 @@ def preimage_limbs(s_hex):
     return [(v >> (LIMB_BITS * i)) & ((1 << LIMB_BITS) - 1) for i in range(LIMBS)]
 
 
+def vm_hashlocks(s_hex):
+    """The FOUR alghash digests that lock the secret in-contract (see WIDE HASHLOCK above)."""
+    limbs = preimage_limbs(s_hex)
+    return [alghash.hashn([limbs[0] + d] + limbs[1:]) for d in HDOM]
+
+
 def vm_hashlock(s_hex):
-    """H_vm — the in-contract hashlock of the secret (the alghash side of the dual hashlock)."""
-    return alghash.hashn(preimage_limbs(s_hex))
+    """The first digest — kept for callers that only need one (views, tests)."""
+    return vm_hashlocks(s_hex)[0]
 
 
 def vm_hashlock_parts(s_hex):
-    """H_vm as the (hi32, lo32) halves post() takes — a JS JSON number is exact only to 2^53, so the
-    field element crosses the wire in two 32-bit pieces and the contract recombines hi*2^32+lo."""
-    return divmod(vm_hashlock(s_hex), 1 << 32)
+    """The four hashlocks as the eight (hi32, lo32) halves post() takes — a JS JSON number is exact only
+    to 2^53, so each field element crosses the wire in two 32-bit pieces and the contract recombines."""
+    out = []
+    for h in vm_hashlocks(s_hex):
+        out.extend(divmod(h, 1 << 32))
+    return out
 
 
 def escrow_refunds(storage, zk_addrs):
@@ -129,14 +152,18 @@ def build():
         m.require(m.arg(4) != 0)                                # want_amt
         m.require(m.arg(5) != 0)                                # maker's foreign receiving address
         m.require(m.arg(6) != 0)                                # SHA-256 hashlock (foreign leg)
-        m.require(m.arg(7) < ID_MAX)                            # hvm high half fits 32 bits
-        m.require(m.arg(8) < ID_MAX)                            # hvm low half fits 32 bits
-        # Guard the RECOMBINED element, not the halves: hi*2^32+lo is reduced mod P, and P = 2^64-2^32+1,
-        # so hi=2^32-1 with lo=1 lands on exactly 0 while hi+lo is plainly non-zero (audit finding).
-        m.require(m.arg(7) * (1 << 32) + m.arg(8) != 0)         # alghash hashlock non-zero
-        m.require(m.cursor() + HTLC_MIN_TIMELOCK < m.arg(9) + 1)          # expn >= cursor + MIN
-        m.require(m.arg(9) < m.cursor() + (HTLC_MAX_TIMELOCK + 1))        # expn <= cursor + MAX
-        m.require(m.arg(10) != 0)                               # foreign deadline (opaque — see TIMELOCKS)
+        # the four hashlock halves (args 7..14); each is bounded and each RECOMBINED element must be
+        # non-zero — guarding the halves alone missed hi=2^32-1, lo=1, which wraps to exactly 0 mod P.
+        for _i in range(4):
+            m.require(m.arg(7 + _i * 2) < ID_MAX)
+            m.require(m.arg(8 + _i * 2) < ID_MAX)
+            m.require(m.arg(7 + _i * 2) * (1 << 32) + m.arg(8 + _i * 2) != 0)
+        m.require(m.cursor() + HTLC_MIN_TIMELOCK < m.arg(15) + 1)         # expn >= cursor + MIN
+        m.require(m.arg(15) < m.cursor() + (HTLC_MAX_TIMELOCK + 1))       # expn <= cursor + MAX
+        # §6.3 IN-CIRCUIT: the foreign deadline must sit inside the NADO window with room on both sides.
+        m.require(m.time() + FOREIGN_MIN_S < m.arg(16))                   # far enough out to be fundable
+        m.require(m.arg(16) + FOREIGN_MARGIN_S
+                  < m.time() + (m.arg(15) - m.cursor()) * BLOCK_SECS)     # ... and safely before expn
         # the escrow rule per kind, branchless: ASK escrows exactly namt now, BID escrows nothing (the
         # NADO side arrives with the taker's fill).
         m.require(m.value() == zkpy.select(m.arg(1) == ASK, m.arg(2), m.const(0)))
@@ -149,8 +176,11 @@ def build():
         m.slot(WADR, o).set(m.arg(5))
         m.slot(HSHA, o).set(m.arg(6))
         m.slot(HVM, o).set(m.arg(7) * (1 << 32) + m.arg(8))
-        m.slot(EXPN, o).set(m.arg(9))
-        m.slot(EXPF, o).set(m.arg(10))
+        m.slot(HV1, o).set(m.arg(9) * (1 << 32) + m.arg(10))
+        m.slot(HV2, o).set(m.arg(11) * (1 << 32) + m.arg(12))
+        m.slot(HV3, o).set(m.arg(13) * (1 << 32) + m.arg(14))
+        m.slot(EXPN, o).set(m.arg(15))
+        m.slot(EXPF, o).set(m.arg(16))
         m.slot(ST, o).set(m.const(OPEN))
         m.slot(MK, o).set(m.const(1))
         cnt = m.set(m.slot(0, m.const(0)).get(), "cnt")
@@ -197,6 +227,10 @@ def build():
         # 0-value fill() could flip an intra order to FILLED and freeze its escrow until expiry.
         m.require((m.slot(KIND, o).get() - ASK) * (m.slot(KIND, o).get() - BID) == 0)
         m.require(m.cursor() < m.slot(EXPN, o).get())           # a fill can never race the refund window
+        # §6.3 again at FILL: the NADO window shrinks in real time while the foreign deadline stays put,
+        # so an order that was safe to post can become unsafe to fill. The taker is the one who loses.
+        m.require(m.slot(EXPF, o).get() + FOREIGN_MARGIN_S
+                  < m.time() + (m.slot(EXPN, o).get() - m.cursor()) * BLOCK_SECS)
         m.require(m.in_asset() == 0)
         m.require(m.arg(1) != 0)                                # taker's foreign receiving address
         m.require(m.arg(2) != 0)                                # foreign HTLC txid/outpoint
@@ -263,7 +297,11 @@ def build():
         m.require(m.arg(3) < m.const(1 << LIMB_BITS))
         m.require(m.arg(4) < m.const(1 << LIMB_BITS))
         m.require(m.arg(5) < m.const(1 << LIMB_BITS))
-        m.require(zkpy.hash(m.arg(1), m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HVM, o).get())
+        # all four constraints, on the SAME limbs — see WIDE HASHLOCK
+        m.require(zkpy.hash(m.arg(1) + HDOM[0], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HVM, o).get())
+        m.require(zkpy.hash(m.arg(1) + HDOM[1], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV1, o).get())
+        m.require(zkpy.hash(m.arg(1) + HDOM[2], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV2, o).get())
+        m.require(zkpy.hash(m.arg(1) + HDOM[3], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV3, o).get())
         m.jnz(m.slot(PHELD, o).get() == 0, "pskip")             # COMPLETION: the collateral goes home
         m.pay(m.slot(MAKER, o).get(), m.slot(PHELD, o).get())
         m.label("pskip")
@@ -388,8 +426,9 @@ def build():
 
 
 ABI = {
-    "post":   {"args": ["orderId", "kind", "nadoAmt", "wantChain", "wantAmt", "wantAddr",
-                        "shaHashlock", "vmHashHi", "vmHashLo", "expiryN", "expiryF"], "value": True},
+    "post":   {"args": ["orderId", "kind", "nadoAmt", "wantChain", "wantAmt", "wantAddr", "shaHashlock",
+                        "vmHi0", "vmLo0", "vmHi1", "vmLo1", "vmHi2", "vmLo2", "vmHi3", "vmLo3",
+                        "expiryN", "expiryF"], "value": True},
     "cancel": {"args": ["orderId"]},
     "fill":   {"args": ["orderId", "takerAddr", "foreignRef"], "value": True},
     "settle": {"args": ["orderId", "l0", "l1", "l2", "l3", "l4"]},
@@ -404,6 +443,8 @@ ABI = {
                  "namt": {"field": NAMT, "index": "orders"}, "wch": {"field": WCH, "index": "orders"},
                  "wamt": {"field": WAMT, "index": "orders"}, "wadr": {"field": WADR, "index": "orders"},
                  "hsha": {"field": HSHA, "index": "orders"}, "hvm": {"field": HVM, "index": "orders"},
+                 "hv1": {"field": HV1, "index": "orders"}, "hv2": {"field": HV2, "index": "orders"},
+                 "hv3": {"field": HV3, "index": "orders"},
                  "expn": {"field": EXPN, "index": "orders"}, "expf": {"field": EXPF, "index": "orders"},
                  "st": {"field": ST, "index": "orders"}, "taker": {"field": TAKER, "index": "orders"},
                  "tadr": {"field": TADR, "index": "orders"}, "fref": {"field": FREF, "index": "orders"},
