@@ -281,9 +281,13 @@
   <div class="card hidden" id="otcBookCard">
     <h2>Cross-chain order book</h2>
     <p class="small dim">Swap NADO against <b>BTC / ETH</b> with no custodian and no wrapped coins: both
-    sides lock behind the <b>same secret</b> (an atomic swap). The NADO side escrows in a contract that can
-    only ever pay the funder back (cancel / expiry) or the counterparty against the secret — nobody else,
-    ever. The foreign side is a standard HTLC you create on that chain with the hashlock shown here.</p>
+    sides lock behind the <b>same secret</b> (an atomic swap). The NADO side is escrowed in an <b>L1
+    HTLC</b> under exactly the same SHA-256 hashlock as the foreign side, so one revealed secret opens
+    both and neither party can take one leg without giving up the other. This order book coordinates the
+    two; it never holds your coins.</p>
+    <p class="small warn">The NADO leg is created in your <a href="https://get.nadochain.com/">wallet's
+    Swap tab</a> (or with <span class="mono">scripts/otc_btc_leg.py</span> / <span class="mono">otc_eth_leg.mjs</span>)
+    — one-click locking from this page is not wired yet, so treat cross-chain as expert-only for now.</p>
     <div id="otcBook" class="mt"></div>
   </div>
 
@@ -362,6 +366,6 @@
     investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=9876555e"></script>
+<script type="module" src="/static/dex.js?v=b1efc76f"></script>
 </body>
 </html>

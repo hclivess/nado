@@ -12,10 +12,23 @@ HOW A SWAP WORKS (ASK_NADO: Alice sells NADO for BTC):
   the preimage IS the bridge (§6.4). BID_NADO is the mirror (the NADO comes from the taker at fill time and
   settle pays the maker — who knows s — so revealing s on NADO is what lets the taker claim the foreign leg).
 
-DUAL HASHLOCK: the zkVM has no SHA-256 (its only hash is the alghash sponge), so the foreign chain and this
-contract each get a hashlock in their OWN native hash of the one secret: H_sha = SHA-256(s) locks the foreign
-HTLC, H_vm = alghash.hashn(limbs(s)) locks the escrow here. Both bind at post time; revealing s anywhere
-opens both. `preimage_limbs`/`vm_hashlock` below are the single shared definition (wallet + tests): s split
+WHERE THE MONEY SITS (the security-critical part). A cross-chain swap's NADO leg is escrowed in an **L1
+HTLC** (`htlc_lock`/`htlc_claim`/`htlc_refund`), NOT in this contract. That is not a style choice: L1
+verifies `sha256(preimage) == hashlock` natively, so the NADO leg and the foreign leg are locked by literally
+the SAME SHA-256 image and one revealed secret provably opens both. This contract only ever holds the
+maker's COLLATERAL and any tips — never the swap principal.
+
+An earlier version escrowed the principal here, gated on an alghash image the maker supplied ALONGSIDE the
+SHA-256 one. Nothing forced the two to come from the same secret (the VM cannot compute SHA-256 to check),
+so a maker could post two unrelated hashlocks, claim the foreign coin with one, and leave the NADO side
+permanently unclaimable — keeping both sides. An audit proved it. Moving the principal to the L1 HTLC
+removes the class outright: there is ONE hashlock, checked by code that can actually compute it.
+
+The four alghash digests survive, but now they gate only the COLLATERAL: proving knowledge of the secret
+returns the maker their own deposit. Forging that image would let an attacker hand the maker their money
+back — nothing to steal, so the weaker hash is harmless exactly here.
+
+`preimage_limbs`/`vm_hashlocks` below are the single shared definition (wallet + tests): s split
 little-endian into five 52-bit field limbs (5x52 >= 256; each limb < 2^52 so every range gate is LT-safe).
 
 TIMELOCKS: expiry_n is the NADO-side refund height — fill and settle require cursor < expiry_n, expire()
@@ -42,8 +55,10 @@ Storage (order id `o` = a frontend random int < 2^32; all slot-keyed => enumerab
   25 gast/26 wast/27 want(SWAP_INTRA: give-asset, want-asset — 0 = native — and want amount)
   28 bnty(§8 bounty) 29 prem/30 pheld(§9.1 maker collateral: promised / held).
 Methods: post(o,kind,namt,wch,wamt,wadr,hsha,hi0,lo0,hi1,lo1,hi2,lo2,hi3,lo3,expn,expf) — the four
-  alghash hashlocks ride as 32-bit halves because a JS JSON number only holds 2^53 exactly —[VALUE=namt for ASK] · cancel(o) maker/open ·
-  fill(o,tadr,fref)[VALUE=namt for BID] · settle(o,l0..l4) anyone with the preimage · expire(o) anyone late ·
+  alghash hashlocks ride as 32-bit halves because a JS JSON number only holds 2^53 exactly. NO VALUE —
+  the principal is in the L1 HTLC · cancel(o) maker/open · fill(o,tadr,fref)[no VALUE] ·
+  bind(o,htlcId) records the L1 HTLC holding the NADO leg · settle(o,l0..l4) anyone with the preimage,
+  closes the order and returns the collateral · expire(o) anyone late ·
   boost(o)[VALUE=NADO bounty] anyone, while open/filled — first correct actor wins it (§8) ·
   set_premium(o)[VALUE] maker/open/HTLC-only — the §9.1 free-option price: the MAKER posts collateral,
   completion/cancel returns it, and walking (expire after a fill) forfeits it to the taker ·
@@ -60,6 +75,7 @@ EXPN, EXPF, ST, TAKER, TADR, FREF, LIST = 11, 12, 13, 14, 15, 16, 18
 S0 = 20                            # fields 20..24: the revealed preimage limbs (public after settle)
 GAST, WAST, WANT = 25, 26, 27      # SWAP_INTRA sides: give-asset, want-asset (0 = native), want amount
 HV1, HV2, HV3 = 31, 32, 33         # the other three digests of the WIDE hashlock (HVM/10 holds the first)
+HID = 34                           # the L1 HTLC that actually carries the NADO leg (txid digest)
 BNTY = 28                          # attached NADO bounty (§8) — first correct actor (settle/fill_intra/expire) wins it
 PREM, PHELD = 29, 30               # §9.1 free-option premium: required (maker-set) / escrowed by the taker at fill
 ASK, BID, INTRA = 1, 2, 3
@@ -128,7 +144,7 @@ def escrow_refunds(storage, zk_addrs):
         esc = g(ESC, o)
         if esc and not (g(KIND, o) == INTRA and g(GAST, o)):   # an ASSET escrow has no native attribution —
             #                                                    exec assets die with the generation
-            add(g(TAKER, o) if (g(KIND, o) == BID and g(ST, o) == FILLED) else g(MAKER, o), esc)
+            add(g(MAKER, o), esc)                              # only SWAP_INTRA escrows here, always the maker's
         add(g(MAKER, o), g(BNTY, o))       # a live bounty (always native) refunds to the order's owner of record
         add(g(MAKER, o), g(PHELD, o))      # the maker posted the collateral — a reroll is not a walk
     return out
@@ -164,13 +180,12 @@ def build():
         m.require(m.time() + FOREIGN_MIN_S < m.arg(16))                   # far enough out to be fundable
         m.require(m.arg(16) + FOREIGN_MARGIN_S
                   < m.time() + (m.arg(15) - m.cursor()) * BLOCK_SECS)     # ... and safely before expn
-        # the escrow rule per kind, branchless: ASK escrows exactly namt now, BID escrows nothing (the
-        # NADO side arrives with the taker's fill).
-        m.require(m.value() == zkpy.select(m.arg(1) == ASK, m.arg(2), m.const(0)))
+        # NO PRINCIPAL HERE. The NADO leg is escrowed in an L1 HTLC under the same SHA-256 hashlock as the
+        # foreign leg (see WHERE THE MONEY SITS). `namt` is the advertised amount, not an escrow.
+        m.require(m.value() == 0)
         m.slot(KIND, o).set(m.arg(1))
         m.slot(MAKER, o).set(m.caller())
         m.slot(NAMT, o).set(m.arg(2))
-        m.slot(ESC, o).set(m.value())
         m.slot(WCH, o).set(m.arg(3))
         m.slot(WAMT, o).set(m.arg(4))
         m.slot(WADR, o).set(m.arg(5))
@@ -234,8 +249,7 @@ def build():
         m.require(m.in_asset() == 0)
         m.require(m.arg(1) != 0)                                # taker's foreign receiving address
         m.require(m.arg(2) != 0)                                # foreign HTLC txid/outpoint
-        m.require(m.value() == zkpy.select(m.slot(KIND, o).get() == BID, m.slot(NAMT, o).get(), m.const(0)))
-        m.slot(ESC, o).set(m.slot(ESC, o).get() + m.value())    # BID: the taker's NADO enters escrow here
+        m.require(m.value() == 0)                               # the NADO leg lives in the L1 HTLC, not here
         m.slot(TAKER, o).set(m.caller())
         m.slot(TADR, o).set(m.arg(1))
         m.slot(FREF, o).set(m.arg(2))
@@ -281,10 +295,26 @@ def build():
         m.slot(BNTY, o).set(m.slot(BNTY, o).get() + m.value())
         m.ret(m.slot(BNTY, o).get())
 
-    # settle(o, l0..l4) — ANYONE holding the preimage (the counterparty, a watchtower). Payment goes to the
-    # recorded party, never the caller: ASK pays the taker (they bought the NADO), BID pays the maker.
-    # Submitting the limbs publishes the secret on NADO — for a BID that is exactly what hands the taker
-    # their claim on the foreign leg (the limbs are also stored, so clients read them from a view).
+    # bind(o, htlcId) — either party records the L1 HTLC carrying the NADO leg, so the counterparty and any
+    # watchtower can find and verify it (amount, hashlock, expiry) before funding the foreign side.
+    with c.method("bind") as m:
+        o = m.arg(0)
+        m.require(o > 0)
+        m.require(o < ID_MAX)
+        m.require(m.slot(MK, o).get() == 1)
+        m.require(m.slot(ST, o).get() == FILLED)
+        m.require((m.slot(MAKER, o).get() - m.caller()) * (m.slot(TAKER, o).get() - m.caller()) == 0)
+        m.require(m.in_asset() == 0)
+        m.require(m.value() == 0)
+        m.require(m.arg(1) != 0)
+        m.require(m.slot(HID, o).get() == 0)                    # recorded once — it is what the taker verifies
+        m.slot(HID, o).set(m.arg(1))
+        m.ret(m.arg(1))
+
+    # settle(o, l0..l4) — the swap COMPLETED: whoever holds the preimage proves it and the order closes.
+    # The principal is not here (it moved through the L1 HTLC), so this returns the maker's collateral and
+    # pays the tip. Publishing the limbs also puts the secret on NADO, where the counterparty or a
+    # watchtower can read it — which is how the other leg still gets claimed if someone goes offline.
     with c.method("settle") as m:
         o = m.arg(0)
         m.require(o > 0)
@@ -311,10 +341,7 @@ def build():
         m.slot(S0 + 2, o).set(m.arg(3))
         m.slot(S0 + 3, o).set(m.arg(4))
         m.slot(S0 + 4, o).set(m.arg(5))
-        esc = m.set(m.slot(ESC, o).get(), "esc")
-        m.slot(ESC, o).set(m.const(0))
         m.slot(ST, o).set(m.const(SETTLED))
-        m.pay(zkpy.select(m.slot(KIND, o).get() == ASK, m.slot(TAKER, o).get(), m.slot(MAKER, o).get()), esc)
         b = m.set(m.slot(BNTY, o).get(), "b")                   # the §8 bounty goes to WHOEVER settled
         m.slot(BNTY, o).set(m.const(0))
         m.jnz(b == 0, "bdone")
@@ -387,7 +414,7 @@ def build():
         m.jnz(b == 0, "bdone")
         m.pay(m.caller(), b)
         m.label("bdone")
-        m.ret(esc)
+        m.ret(m.slot(HID, o).get())
 
     # expire(o) — anyone, at/after expn. The no-authority safety valve: a stuck order always drains back to
     # whoever funded its escrow (ASK -> maker, filled BID -> taker), callable by anybody, never trapped.
@@ -404,11 +431,11 @@ def build():
               m.slot(PHELD, o).get())                           # pays the taker; unfilled returns it home
         m.label("pskip")
         m.slot(PHELD, o).set(m.const(0))
-        esc = m.set(m.slot(ESC, o).get(), "esc")
+        esc = m.set(m.slot(ESC, o).get(), "esc")                # only a SWAP_INTRA order escrows here
         m.slot(ESC, o).set(m.const(0))
         m.slot(ST, o).set(m.const(REFUNDED))
-        m.jnz(esc == 0, "done")                                 # an open BID holds nothing
-        tgt = m.set(zkpy.select(m.slot(KIND, o).get() == BID, m.slot(TAKER, o).get(), m.slot(MAKER, o).get()), "tgt")
+        m.jnz(esc == 0, "done")
+        tgt = m.set(m.slot(MAKER, o).get(), "tgt")              # intra escrow is always the maker's
         m.jnz(m.slot(GAST, o).get() != 0, "asset")              # an intra order may escrow an exec ASSET
         m.pay(tgt, esc)
         m.jmp("done")
@@ -432,6 +459,7 @@ ABI = {
     "cancel": {"args": ["orderId"]},
     "fill":   {"args": ["orderId", "takerAddr", "foreignRef"], "value": True},
     "settle": {"args": ["orderId", "l0", "l1", "l2", "l3", "l4"]},
+    "bind":   {"args": ["orderId", "l1HtlcId"]},
     "expire": {"args": ["orderId"]},
     "boost":  {"args": ["orderId"], "value": True},
     "set_premium": {"args": ["orderId"], "value": True},
@@ -447,7 +475,7 @@ ABI = {
                  "hv3": {"field": HV3, "index": "orders"},
                  "expn": {"field": EXPN, "index": "orders"}, "expf": {"field": EXPF, "index": "orders"},
                  "st": {"field": ST, "index": "orders"}, "taker": {"field": TAKER, "index": "orders"},
-                 "tadr": {"field": TADR, "index": "orders"}, "fref": {"field": FREF, "index": "orders"},
+                 "tadr": {"field": TADR, "index": "orders"}, "fref": {"field": FREF, "index": "orders"}, "hid": {"field": HID, "index": "orders"},
                  "s0": {"field": S0, "index": "orders"}, "s1": {"field": S0 + 1, "index": "orders"},
                  "s2": {"field": S0 + 2, "index": "orders"}, "s3": {"field": S0 + 3, "index": "orders"},
                  "s4": {"field": S0 + 4, "index": "orders"},
@@ -456,6 +484,6 @@ ABI = {
                  "bnty": {"field": BNTY, "index": "orders"},
                  "prem": {"field": PREM, "index": "orders"}, "pheld": {"field": PHELD, "index": "orders"}},
         "indexes": {"orders": {"cnt": 0, "list": LIST}},
-        "addr": ["maker", "taker", "wch", "wamt", "wadr", "tadr", "hsha", "fref"],
+        "addr": ["maker", "taker", "wch", "wamt", "wadr", "tadr", "hsha", "fref", "hid"],
     },
 }

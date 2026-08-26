@@ -64,115 +64,106 @@ def fdl(expn=EXPN):
     return st.block_ts + (O.FOREIGN_MIN_S + win - O.FOREIGN_MARGIN_S) // 2
 
 def post(o, kind, expn=EXPN, who=A, value=None):
-    v = amt(o) if (kind == O.ASK and value is None) else (value or 0)
+    # a cross-chain order carries NO value: the NADO leg is escrowed in an L1 HTLC (see the contract's
+    # WHERE THE MONEY SITS). `value` stays a parameter only so the guard battery can prove that.
     call(who, "post", [o, kind, amt(o), "btc", f"0.00{o}", f"bc1qmaker{o}", hsha(o),
-                       *O.vm_hashlock_parts(secret(o)), expn, fdl(expn)], v or None)
+                       *O.vm_hashlock_parts(secret(o)), expn, fdl(expn)], value)
 
 supply0 = sum(st.bridge.values())
 
-# ---- A. ASK post + cancel -------------------------------------------------------------------------
+# ---- A. post + cancel (no principal in the contract) ----------------------------------------------
 post(1, O.ASK)
 ok(rd(O.MK, 1) == 1 and rd(O.ST, 1) == O.OPEN, "ask posted")
-ok(rd(O.ESC, 1) == amt(1) and rd(O.NAMT, 1) == amt(1), "ask escrowed exactly namt")
+ok(rd(O.ESC, 1) == 0 and rd(O.NAMT, 1) == amt(1), "NOTHING is escrowed here — namt is only the advertised amount")
+ok(st.bridge.get(cid, 0) == 0 and st.bridge[A] == START, "no NADO left the maker's balance")
 ok(rd(O.KIND, 1) == O.ASK and rd(O.MAKER, 1) == zkvm_addr_digest(A), "kind+maker recorded")
-ok(rd(O.HVM, 1) == O.vm_hashlock(secret(1)) and rd(O.EXPN, 1) == EXPN, "hashlock+expiry recorded")
-ok(st.bridge.get(cid, 0) == amt(1) and st.bridge[A] == START - amt(1), "escrow moved maker->contract")
+ok(rd(O.HVM, 1) == O.vm_hashlocks(secret(1))[0] and rd(O.HV3, 1) == O.vm_hashlocks(secret(1))[3], "all four hashlocks stored")
+ok(rd(O.EXPN, 1) == EXPN, "expiry recorded")
 ok(rd(0, 0) == 1 and rd(O.LIST, 0) == 1, "order list index")
+ok(refused(A, "post", [2, O.ASK, amt(2), "btc", "x", "y", hsha(2), *P8(), EXPN, fdl()], amt(2)),
+   "a post that tries to escrow VALUE is refused")
 ok(refused(C, "cancel", [1]), "cancel by a stranger refused")
 call(A, "cancel", [1])
-ok(rd(O.ST, 1) == O.CANCELLED and rd(O.ESC, 1) == 0 and st.bridge[A] == START, "cancel refunds the maker")
+ok(rd(O.ST, 1) == O.CANCELLED, "cancel closes the order")
 ok(refused(A, "cancel", [1]), "double cancel refused")
 
 # ---- B. post guard battery ------------------------------------------------------------------------
-ok(refused(A, "post", [1, O.ASK, amt(1), "btc", "x", "y", hsha(1), *O.vm_hashlock_parts(secret(1)), EXPN, fdl()], amt(1)), "duplicate id refused")
-ok(refused(A, "post", [0, O.ASK, 5, "btc", "x", "y", hsha(9), *O.vm_hashlock_parts(secret(9)), EXPN, fdl()], 5), "id 0 refused")
-ok(refused(A, "post", [1 << 32, O.ASK, 5, "btc", "x", "y", hsha(9), *O.vm_hashlock_parts(secret(9)), EXPN, fdl()], 5), "id >= 2^32 refused")
-ok(refused(A, "post", [9, 3, 5, "btc", "x", "y", hsha(9), *O.vm_hashlock_parts(secret(9)), EXPN, fdl()], 5), "kind 3 refused")
-ok(refused(A, "post", [9, O.ASK, 0, "btc", "x", "y", hsha(9), *O.vm_hashlock_parts(secret(9)), EXPN, fdl()]), "zero amount refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *O.vm_hashlock_parts(secret(9)), EXPN, fdl()]), "ask without escrow refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *O.vm_hashlock_parts(secret(9)), EXPN, fdl()], 4), "ask with wrong value refused")
-ok(refused(A, "post", [9, O.BID, 5, "btc", "x", "y", hsha(9), *O.vm_hashlock_parts(secret(9)), EXPN, fdl()], 5), "bid with value refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), 105, fdl(105)], 5), "expiry below MIN_TIMELOCK refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), 100 + O.HTLC_MAX_TIMELOCK + 1, fdl()], 5), "expiry past MAX_TIMELOCK refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 0, 0, 0, 0, 0, 0, 0, EXPN, fdl()], 5), "an all-zero hashlock set is refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(h0=1 << 32), EXPN, fdl()], 5), "oversized hashlock half refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(h5=1 << 32), EXPN, fdl()], 5), "oversized hashlock half (later digest) refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", 0, *P8(), EXPN, fdl()], 5), "zero sha hashlock refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), EXPN, 0], 5), "zero foreign deadline refused")
-# §6.3 IN-CIRCUIT: the foreign deadline must sit inside the NADO window, with room at both ends
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), EXPN, st.block_ts + 60], 5),
+ok(refused(A, "post", [1, O.ASK, amt(1), "btc", "x", "y", hsha(1), *O.vm_hashlock_parts(secret(1)), EXPN, fdl()]), "duplicate id refused")
+ok(refused(A, "post", [0, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), EXPN, fdl()]), "id 0 refused")
+ok(refused(A, "post", [1 << 32, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), EXPN, fdl()]), "id >= 2^32 refused")
+ok(refused(A, "post", [9, 3, 5, "btc", "x", "y", hsha(9), *P8(), EXPN, fdl()]), "kind 3 refused")
+ok(refused(A, "post", [9, O.ASK, 0, "btc", "x", "y", hsha(9), *P8(), EXPN, fdl()]), "zero amount refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), 105, fdl(105)]), "expiry below MIN_TIMELOCK refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), 100 + O.HTLC_MAX_TIMELOCK + 1, fdl()]), "expiry past MAX_TIMELOCK refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 0, 0, 0, 0, 0, 0, 0, EXPN, fdl()]), "an all-zero hashlock set is refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(h0=1 << 32), EXPN, fdl()]), "oversized hashlock half refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(h5=1 << 32), EXPN, fdl()]), "oversized hashlock half (later digest) refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", 0, *P8(), EXPN, fdl()]), "zero sha hashlock refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), EXPN, 0]), "zero foreign deadline refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), EXPN, st.block_ts + 60]),
    "a foreign deadline too soon to fund is refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), EXPN, st.block_ts + 10 ** 7], 5),
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), EXPN, st.block_ts + 10 ** 7]),
    "a foreign deadline OUTLIVING the NADO window is refused (the maker could reclaim and still claim)")
 ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), *P8(), EXPN,
-                       st.block_ts + (EXPN - st.cursor) * O.BLOCK_SECS - 60], 5),
+                       st.block_ts + (EXPN - st.cursor) * O.BLOCK_SECS - 60]),
    "a foreign deadline inside the claim margin is refused")
-ok(refused(A, "post", [9, O.ASK, 5, 0, "x", "y", hsha(9), *O.vm_hashlock_parts(secret(9)), EXPN, fdl()], 5), "zero want_chain refused")
+ok(refused(A, "post", [9, O.ASK, 5, 0, "x", "y", hsha(9), *P8(), EXPN, fdl()]), "zero want_chain refused")
 
-# ---- C. ASK fill + settle -------------------------------------------------------------------------
+# ---- C. fill / bind / settle (the L1 HTLC carries the money) --------------------------------------
 post(2, O.ASK)
 ok(refused(C, "fill", [1, "bc1qtaker", "btc:txid:0"]), "fill on a cancelled order refused")
-ok(refused(C, "fill", [2, "bc1qtaker", "btc:txid:0"], 5), "fill of an ask with value refused")
+ok(refused(C, "fill", [2, "bc1qtaker", "btc:txid:0"], 5), "a fill that tries to escrow VALUE is refused")
 ok(refused(C, "fill", [2, 0, "btc:txid:0"]), "fill without taker address refused")
 ok(refused(C, "fill", [2, "bc1qtaker", 0]), "fill without foreign lock ref refused")
 call(C, "fill", [2, "bc1qtaker2", "btc:lock:2"])
 ok(rd(O.ST, 2) == O.FILLED and rd(O.TAKER, 2) == zkvm_addr_digest(C), "ask filled, taker recorded")
-ok(rd(O.FREF, 2) == zkvm_addr_digest("btc:lock:2"), "foreign lock ref pinned")
+ok(st.bridge.get(cid, 0) == 0, "still nothing escrowed in the contract")
+ok(refused(R, "bind", [2, "l1:htlc:2"]), "a stranger cannot bind the L1 HTLC")
+call(A, "bind", [2, "l1:htlc:2"])
+ok(rd(O.HID, 2) == zkvm_addr_digest("l1:htlc:2"), "the L1 HTLC carrying the NADO leg is recorded")
+ok(refused(C, "bind", [2, "l1:other"]), "the binding is recorded once")
 ok(refused(R, "fill", [2, "bc1qother", "btc:lock:x"]), "second fill refused")
 ok(refused(A, "cancel", [2]), "cancel after fill refused")
 L2 = O.preimage_limbs(secret(2))
 bad = list(L2); bad[0] ^= 1
 ok(refused(R, "settle", [2] + bad), "settle with a wrong preimage refused")
 ok(refused(R, "settle", [2, L2[0] + (1 << O.LIMB_BITS), L2[1], L2[2], L2[3], L2[4]]), "oversized limb refused")
-cb = st.bridge.get(C, 0)
-call(R, "settle", [2] + L2)                                   # a WATCHTOWER settles; payment goes to the taker
-ok(rd(O.ST, 2) == O.SETTLED and rd(O.ESC, 2) == 0, "ask settled")
-ok(st.bridge[C] == cb + amt(2), "ask escrow paid to the TAKER (not the caller)")
-ok([rd(O.S0 + i, 2) for i in range(5)] == L2, "revealed limbs stored for the counterparty's view")
+call(R, "settle", [2] + L2)                                   # a WATCHTOWER can close a completed swap
+ok(rd(O.ST, 2) == O.SETTLED, "settle closes the order")
+ok([rd(O.S0 + i, 2) for i in range(5)] == L2, "the secret is published for the counterparty and watchtowers")
 ok(refused(R, "settle", [2] + L2), "double settle refused")
 post(6, O.ASK)
 ok(refused(R, "settle", [6] + O.preimage_limbs(secret(6))), "settle of an unfilled order refused")
+ok(refused(A, "bind", [6, "l1:x"]), "bind before a fill refused")
 
-# ---- D. BID fill + settle -------------------------------------------------------------------------
+# ---- D. BID is symmetric ---------------------------------------------------------------------------
 post(3, O.BID)
 ok(rd(O.ESC, 3) == 0 and rd(O.ST, 3) == O.OPEN, "bid posts with no escrow")
-ok(refused(C, "fill", [3, "bc1qtaker3", "btc:lock:3"]), "bid fill without value refused")
-ok(refused(C, "fill", [3, "bc1qtaker3", "btc:lock:3"], amt(3) - 1), "bid fill with wrong value refused")
-call(C, "fill", [3, "bc1qtaker3", "btc:lock:3"], amt(3))
-ok(rd(O.ESC, 3) == amt(3) and rd(O.ST, 3) == O.FILLED, "bid fill escrows the taker's NADO")
-ab = st.bridge[A]
-call(A, "settle", [3] + O.preimage_limbs(secret(3)))          # the maker knows s and reveals it on NADO
-ok(rd(O.ST, 3) == O.SETTLED and st.bridge[A] == ab + amt(3), "bid escrow paid to the MAKER")
+ok(refused(C, "fill", [3, "bc1qtaker3", "btc:lock:3"], amt(3)), "a BID fill that sends VALUE is refused")
+call(C, "fill", [3, "bc1qtaker3", "btc:lock:3"])
+ok(rd(O.ST, 3) == O.FILLED and st.bridge.get(cid, 0) == 0, "bid fill escrows nothing here")
+call(A, "settle", [3] + O.preimage_limbs(secret(3)))
+ok(rd(O.ST, 3) == O.SETTLED, "bid closes on the preimage")
 
-# ---- E. expiry windows ----------------------------------------------------------------------------
+# ---- E. expiry -------------------------------------------------------------------------------------
 post(4, O.ASK)
 ok(refused(R, "expire", [4]), "expire before the deadline refused")
 st.cursor = EXPIRED
 ok(refused(C, "fill", [4, "bc1qt", "btc:l"]), "fill at/after expiry refused")
-ma = st.bridge[A]
 call(R, "expire", [4])
-ok(rd(O.ST, 4) == O.REFUNDED and st.bridge[A] == ma + amt(4), "expired open ask refunds the maker (called by anyone)")
+ok(rd(O.ST, 4) == O.REFUNDED, "expired order closes")
 ok(refused(R, "expire", [4]), "double expire refused")
 st.cursor = 100
 post(5, O.BID)
-call(C, "fill", [5, "bc1qtaker5", "btc:lock:5"], amt(5))
+call(C, "fill", [5, "bc1qtaker5", "btc:lock:5"])
 st.cursor = EXPIRED
 ok(refused(A, "settle", [5] + O.preimage_limbs(secret(5))), "settle at/after expiry refused")
-tb = st.bridge[C]
 call(R, "expire", [5])
-ok(rd(O.ST, 5) == O.REFUNDED and st.bridge[C] == tb + amt(5), "expired filled bid refunds the TAKER")
+ok(rd(O.ST, 5) == O.REFUNDED, "expired filled order closes")
 st.cursor = 100
 
-# ---- F. reroll attribution ------------------------------------------------------------------------
-post(7, O.ASK)                                                # live: open ask (maker A)
-call(C, "fill", [7, "bc1qtaker7", "btc:lock:7"])              # -> filled ask, escrow still the maker's
-post(8, O.BID)
-call(C, "fill", [8, "bc1qtaker8", "btc:lock:8"], amt(8))      # filled bid, escrow is the TAKER's
-ref = O.escrow_refunds(st.contracts[cid]["storage"], st.zk_addrs)
-ok(ref == {A: amt(6) + amt(7), C: amt(8)}, f"escrow_refunds attributes every live escrow to its funder: {ref}")
-ok(sum(ref.values()) == st.bridge.get(cid, 0), "attribution sums EXACTLY to the contract's balance")
-ok(rd(0, 0) == 8, "order count")
-ok(sum(st.bridge.values()) == supply0, "supply conserved across the whole run")
+# ---- F. supply ------------------------------------------------------------------------------------
+ok(sum(st.bridge.values()) == supply0, "supply conserved")
 
 # ---- H. SWAP_INTRA (§7): both legs on the exec layer, one atomic call -----------------------------
 from execnode.state import asset_id
@@ -215,7 +206,7 @@ st.cursor = 100
 call(A, "post_intra", [15, 0, 10 ** 10, aid, 5, EXPN], 10 ** 10)          # native give, left open
 call(A, "post_intra", [16, aid, 10, 0, 10 ** 10, EXPN], 10, asset=aid)    # asset give, left open
 ref2 = O.escrow_refunds(st.contracts[cid]["storage"], st.zk_addrs)
-ok(ref2 == {A: amt(6) + amt(7) + 10 ** 10, C: amt(8)}, f"attribution includes native intra, skips asset intra: {ref2}")
+ok(ref2 == {A: 10 ** 10}, f"attribution: only the native intra escrow is held here now: {ref2}")
 ok(sum(ref2.values()) == st.bridge.get(cid, 0), "attribution still sums EXACTLY to the contract's native pot")
 ok(sum(st.bridge.values()) == supply0, "native supply conserved across the intra section too")
 
@@ -230,20 +221,20 @@ call(C, "fill", [20, "bc1qtaker20", "btc:lock:20"])
 rb, cb = st.bridge[R], st.bridge.get(C, 0)
 call(R, "settle", [20] + O.preimage_limbs(secret(20)))    # the WATCHTOWER settles...
 ok(st.bridge[R] == rb + 15 * 10 ** 8, "...and wins the whole bounty")
-ok(st.bridge[C] == cb + amt(20) and rd(O.BNTY, 20) == 0, "the taker still gets exactly the escrow")
+ok(st.bridge[C] == cb and rd(O.BNTY, 20) == 0, "the taker gets nothing HERE — their NADO came from the L1 HTLC")
 post(21, O.ASK)
 call(A, "boost", [21], 10 ** 9)
 st.cursor = EXPIRED
 rb, ab = st.bridge[R], st.bridge[A]
 call(R, "expire", [21])
-ok(st.bridge[R] == rb + 10 ** 9 and st.bridge[A] == ab + amt(21), "expire: sweeper wins the bounty, maker gets the escrow")
+ok(st.bridge[R] == rb + 10 ** 9 and st.bridge[A] == ab, "expire: the sweeper wins the bounty; there is no principal here to return")
 st.cursor = 100
 post(22, O.ASK)
 call(R, "boost", [22], 5 * 10 ** 8)
 ab = st.bridge[A]
 call(A, "cancel", [22])
-ok(st.bridge[A] == ab + amt(22) + 5 * 10 ** 8 and rd(O.BNTY, 22) == 0,
-   "cancel: nothing was performed — escrow AND bounty land with the maker")
+ok(st.bridge[A] == ab + 5 * 10 ** 8 and rd(O.BNTY, 22) == 0,
+   "cancel: nothing was performed — the bounty goes back to the maker")
 call(A, "post_intra", [23, aid, 60, 0, 10 ** 10, EXPN], 60, asset=aid)
 call(A, "boost", [23], 10 ** 9)
 cb = st.bridge[C]
@@ -255,8 +246,8 @@ post(24, O.ASK)
 call(R, "boost", [24], 7 * 10 ** 8)
 call(A, "boost", [16], 3 * 10 ** 8)                        # o16 = the asset-intra order left open in H4
 ref3 = O.escrow_refunds(st.contracts[cid]["storage"], st.zk_addrs)
-ok(ref3 == {A: amt(6) + amt(7) + 10 ** 10 + amt(24) + 7 * 10 ** 8 + 3 * 10 ** 8, C: amt(8)},
-   f"attribution: escrows + live bounties, asset esc still skipped: {ref3}")
+ok(ref3 == {A: 10 ** 10 + 7 * 10 ** 8 + 3 * 10 ** 8},
+   f"attribution: the intra escrow plus live bounties, all to the maker: {ref3}")
 ok(sum(ref3.values()) == st.bridge.get(cid, 0), "attribution == the contract's native pot, exactly")
 ok(sum(st.bridge.values()) == supply0, "native supply conserved through the bounty section")
 
@@ -287,7 +278,7 @@ st.cursor = EXPIRED
 ab, cb = st.bridge[A], st.bridge[C]
 call(R, "expire", [31])
 ok(st.bridge[C] == cb + 10 ** 9, "WALK: the maker's collateral is forfeited to the TAKER")
-ok(st.bridge[A] == ab + amt(31), "the maker gets only their own escrow back, never the collateral")
+ok(st.bridge[A] == ab, "the maker gets nothing else back — their principal was never here")
 st.cursor = 100
 # never filled -> the collateral comes home, by cancel and by expiry
 post(32, O.BID)
@@ -300,14 +291,14 @@ call(A, "set_premium", [33], 4 * 10 ** 8)
 st.cursor = EXPIRED
 ab = st.bridge[A]
 call(R, "expire", [33])
-ok(st.bridge[A] == ab + amt(33) + 4 * 10 ** 8, "expiry while UNFILLED returns escrow and collateral to the maker")
+ok(st.bridge[A] == ab + 4 * 10 ** 8, "expiry while UNFILLED returns the collateral to the maker")
 st.cursor = 100
 # BID fill needs the trade value only
 post(34, O.BID)
 call(A, "set_premium", [34], 3 * 10 ** 8)
-ok(refused(C, "fill", [34, "x", "y"], amt(34) + 3 * 10 ** 8), "BID fill with the old premium-inclusive value refused")
-call(C, "fill", [34, "bc1qt34", "btc:lock:34"], amt(34))
-ok(rd(O.ESC, 34) == amt(34) and rd(O.PHELD, 34) == 3 * 10 ** 8, "BID: escrow is the trade, collateral stays the maker's")
+ok(refused(C, "fill", [34, "x", "y"], amt(34)), "a BID fill that sends VALUE is refused")
+call(C, "fill", [34, "bc1qt34", "btc:lock:34"])
+ok(rd(O.ESC, 34) == 0 and rd(O.PHELD, 34) == 3 * 10 ** 8, "BID: nothing escrowed here, the collateral stays the maker's")
 
 # ---- K. audit regressions ---------------------------------------------------------------------------
 # the hashlock guard must catch the field wrap: hi=2^32-1, lo=1 recombines to exactly 0 mod P

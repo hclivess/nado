@@ -150,16 +150,28 @@ attribution (§4.4) possible without any off-chain index.
 | `taker` 14 / `tadr` 15 / `fref` 16 | `o` | taker digest / taker's foreign address / foreign HTLC txid-outpoint |
 | `s0..s4` 20–24 | `o` | the revealed preimage limbs, stored at settle so the counterparty reads them from a view |
 
+**WHERE THE MONEY SITS (2026-08-27, security-critical).** A cross-chain swap's NADO leg is escrowed in an
+**L1 HTLC** (`htlc_lock`/`htlc_claim`/`htlc_refund`), never in the `otc` contract. L1 verifies
+`sha256(preimage) == hashlock` natively, so the NADO leg and the foreign leg carry literally the SAME
+SHA-256 image and one revealed secret provably opens both. The order book coordinates and holds only the
+maker's collateral and any tips.
+
+This replaces the original design, in which the contract escrowed the principal behind an *alghash* image
+the maker supplied alongside the SHA-256 one. Nothing forced the two to come from the same secret — the VM
+cannot compute SHA-256 to check — so a maker could post two unrelated hashlocks, claim the foreign coin
+with one, and leave the NADO side permanently unclaimable, keeping both legs. An audit proved it. Moving
+the principal to the L1 HTLC removes the class outright rather than mitigating it, and needs no new VM
+opcode and no reroll. `bind(o, htlcId)` records which L1 HTLC carries the leg so the counterparty and any
+watchtower can verify its amount, hashlock and expiry before funding the foreign side.
+
 **The wide hashlock (2026-08-27).** One alghash digest is a single field element (~64 bits) over a
 128-bit sponge state, which an audit priced at roughly **2^44** to forge — far weaker than the SHA-256 the
 same swap uses on the foreign side. The VM has no wider hash opcode, so the NADO lock is **four** digests
 of the same secret, each over a differently-offset first limb (`HDOM` in `execnode/games/otc.py`, mirrored
 in `static/dex.js`): a forger must satisfy four independent 64-bit constraints with one tuple of limbs,
-which restores a generic cost far beyond reach, at the price of four HASH blocks per settle. What is
-**still not** cryptographically bound is `hsha` to `hvm` — nothing forces the maker to derive both from
-the same secret, because the VM cannot compute SHA-256. That binding needs a SHA-256 opcode (a consensus
-change); until then the mitigation is economic: the §9.1 maker collateral makes a maker's walk cost more
-than it gains, and the dApp should not be used for value above that collateral.
+which restores a generic cost far beyond reach, at the price of four HASH blocks per settle. These four digests now gate only the **collateral**, not the principal: proving the
+secret returns the maker their own deposit, so forging the image would hand the maker their money back —
+nothing to steal, and the weaker hash is harmless exactly there.
 
 **The dual hashlock.** The zkVM's only in-circuit hash is the alghash sponge — there is no SHA-256 opcode —
 while Bitcoin script can *only* check SHA-256. So the ONE 32-byte secret `s` binds two commitments at post

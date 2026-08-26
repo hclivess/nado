@@ -673,7 +673,7 @@ function otcRow(od, mine) {
       else if (sells && isTaker) hint = `Next: send the ${foreign} to the address below. When the maker claims it, press Settle — your NADO arrives automatically.`;
       else if (!sells && isMaker) hint = `Next: send the ${foreign} to the address below, wait for confirmations, then press Settle to collect your NADO.`;
       else if (!sells && isTaker) hint = `Next: wait — when the maker collects their NADO here, a Claim your BTC button appears on this row.`;
-    } else if ((od.st === 1 || od.st === 2) && expired) hint = "Expired — Reclaim returns everything to whoever put it in.";
+    } else if ((od.st === 1 || od.st === 2) && expired) hint = "Expired — reclaim each leg on its own chain (the NADO leg is an L1 HTLC refund).";
     if (hint) detail += `<div class="small mt" style="color:var(--accent2)">${hint}</div>`;
     if (chainOf(od) === "btc" && od.st >= 2 && (isMaker || isTaker)) {
       const b = btcInfo(od);
@@ -747,7 +747,7 @@ async function otcPost() {
     if (ek) { kp = { k: ek.k }; packed = faddr + "|" + ek.addr; } }
   otcSaveRec(o, Object.assign({ s: sHex }, kp || {})); // BEFORE the wallet redirect can navigate away
   const hsha = await sha256Hex(sHex);
-  const [hi, lo] = otcVmParts(sHex);
+  const vmParts = otcVmParts(sHex);            // the four hashlocks, eight 32-bit halves
   // expf: the FOREIGN leg's deadline both parties sign. Advisory to the VM (it cannot read that chain);
   // the wallet suggests ~60% of the NADO window in unix seconds so the foreign refund opens first (§6.3).
   // Derive the foreign deadline from CHAIN time, not the poster's clock, and keep it comfortably inside
@@ -761,8 +761,10 @@ async function otcPost() {
   const expf = Math.floor(nowSec + (FOREIGN_MIN_S + windowS - FOREIGN_MARGIN_S) / 2);
   const expn = (dapp.cursor || 0) + blocks;
   const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex + (kp ? "  ·  BTC key: " + kp.k : ""); }
-  dapp.call("post", [o, kind, raw, net, famt, packed, hsha, hi, lo, expn, expf],
-            kind === OTC_ASK ? raw : null, "Posting order #" + o + "…", { otc: o }, { cid: OTC_CID });
+  // No VALUE: the NADO leg of a cross-chain swap is escrowed in an L1 HTLC under the SAME SHA-256
+  // hashlock as the foreign leg, never in this contract (see otc.py WHERE THE MONEY SITS).
+  dapp.call("post", [o, kind, raw, net, famt, packed, hsha, ...vmParts, expn, expf],
+            null, "Posting order #" + o + "…", { otc: o }, { cid: OTC_CID });
 }
 async function otcAction(what, o) {
   const od = otcOrders().find((x) => x.o === o);
@@ -823,10 +825,7 @@ async function otcAction(what, o) {
         faddrSet(netKeyOf(od), myf);
       }
     }
-    if (od.prem > 0n && !confirm(`This order asks a good-faith deposit of ${rawToNado(od.prem.toString())} NADO on top of the trade. It is returned to you when the swap completes — forfeited to the maker only if you walk away. Continue?`)) return;
-    const total = (od.kind === OTC_BID ? od.namtRaw : 0n) + od.prem;
-    dapp.call("fill", [o, myf, fref], total > 0n ? total : null,
-              "Filling #" + o + "…", { otc: o }, { cid: OTC_CID });
+    dapp.call("fill", [o, myf, fref], null, "Filling #" + o + "…", { otc: o }, { cid: OTC_CID });
     return;
   }
   if (what === "fillintra") {
