@@ -12,6 +12,7 @@
 //    BigInt. A float quote would drift from the chain and mis-set minOut, turning a good swap into a revert.
 import { htlcScript, p2wshAddress } from "./btcleg.js?v=3854b338";
 import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=15418184";
+import { htlcAbi } from "./ethsign.js?v=1";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, playModes, algHashn, base, esc, randId,
          blocksToTime } from "./nadodapp.js?v=68e91695";
@@ -310,6 +311,62 @@ function otcOrders() {
 }
 const otcLeft = (od) => od.expn - (dapp.cursor || 0);          // blocks until the refund window opens
 
+// ---- the ETHEREUM leg (injected wallet: the page builds calldata, MetaMask signs and pays the gas) ----
+// One shared ownerless HtlcEth per EVM chain (doc/dex-bridge.md §6.5). Filled once deployed; until then an
+// ETH order's row shows the exact scripts/otc_eth_leg.mjs command instead of a dead button.
+const ETH_HTLC = { "0xaa36a7": "" };                   // chainId(hex) -> HtlcEth address ("" = not deployed yet)
+const ethProv = () => (typeof window !== "undefined" ? window.ethereum : null);
+async function ethReq(method, params) { return ethProv().request({ method, params: params || [] }); }
+async function ethConnect() {
+  if (!ethProv()) throw new Error("no Ethereum wallet in this browser (install MetaMask, or use scripts/otc_eth_leg.mjs)");
+  const [addr] = await ethReq("eth_requestAccounts");
+  const chain = await ethReq("eth_chainId");
+  return { addr, chain };
+}
+function ethHtlcFor(chain) { return ETH_HTLC[chain] || ""; }
+function ethDeadline(od) { return Number(od.expf) || 0; }
+// the maker's/taker's EVM address for an order rides in the same "|"-packed field the BTC pubkey uses
+const ethAddrOf = (field) => { const p = (field || "").split("|").pop(); return /^0x[0-9a-fA-F]{40}$/.test(p) ? p : ""; };
+async function ethLeg(od, mode) {
+  // mode: fund (the ETH sender locks) · claim (reveal s, get paid) · refund (after the deadline)
+  try {
+    const { addr, chain } = await ethConnect();
+    const htlc = ethHtlcFor(chain);
+    if (!htlc) { alertBar("The HtlcEth contract isn't deployed on this EVM network yet — the Reveal command below runs the leg from a terminal."); return; }
+    const sells = od.kind === OTC_ASK;                  // ASK: taker sends ETH, maker claims
+    const senderAddr = sells ? ethAddrOf(od.tadr) : ethAddrOf(od.wadr);   // who funded the lock (the refundee)
+    const claimAddr = sells ? ethAddrOf(od.wadr) : ethAddrOf(od.tadr);    // who claims with the secret
+    const dl = ethDeadline(od);
+    const key = htlcAbi.lockKey(od.hsha, claimAddr, senderAddr, dl);
+    let data, valueHex;
+    if (mode === "fund") { data = htlcAbi.fund(claimAddr, od.hsha, dl); valueHex = "0x" + (BigInt(Math.round(Number(od.wamt) * 1e18))).toString(16); }
+    else if (mode === "claim") {
+      let sHex = sells ? otcRec(od.o).s : otcSecretFromLimbs(od.limbs);
+      if (!/^[0-9a-f]{64}$/.test(sHex || "")) return alertBar("The swap secret isn't available yet.");
+      data = htlcAbi.claim(key, sHex);
+    } else data = htlcAbi.refund(key);
+    const txid = await ethReq("eth_sendTransaction", [{ from: addr, to: htlc, data, value: valueHex }]);
+    alertBar((mode === "fund" ? "ETH locked" : mode === "claim" ? "Claimed" : "Reclaimed") + " — tx " + String(txid).slice(0, 20) + "…");
+  } catch (e) { alertBar(String((e && e.message) || e).slice(0, 140)); }
+}
+async function ethFoundSecret(od) {
+  // the taker (ASK) reads s out of the maker's claim calldata on the EVM to settle the NADO side
+  try {
+    const { chain } = await ethConnect(); const htlc = ethHtlcFor(chain);
+    if (!htlc) return null;
+    const logs = await ethReq("eth_getLogs", [{ address: htlc, fromBlock: "earliest", toBlock: "latest",
+      topics: ["0x" + (await (async () => { const { keccak_256 } = await import("./vendor/noble-sha3.js?v=1");
+        return Array.from(keccak_256(new TextEncoder().encode("Claimed(bytes32,bytes32)")), (x) => x.toString(16).padStart(2, "0")).join(""); })())] }]);
+    for (const lg of logs) { const s = (lg.data || "").slice(-64); if (/^[0-9a-f]{64}$/.test(s) && (await sha256Hex(s)) === od.hsha) return s; }
+  } catch (e) {}
+  return null;
+}
+function ethCliHint(od) {
+  const rec = otcRec(od.o);
+  return `<div class="small dim mt">No browser wallet detected. Run the ETH leg from a terminal:<br>
+    <span class="mono" style="word-break:break-all">node scripts/otc_eth_leg.mjs claim --rpc &lt;RPC&gt; --key ${rec.k ? rec.k.slice(0, 8) + "…(your key)" : "&lt;key&gt;"} --hash ${esc(od.hsha)} --deadline ${ethDeadline(od)} --secret &lt;s&gt;</span></div>`;
+}
+
 // ---- rendering ----------------------------------------------------------------------------------------
 function otcRow(od, mine) {
   const me = dapp.me, isMaker = od.maker === me, isTaker = od.taker === me;
@@ -329,6 +386,11 @@ function otcRow(od, mine) {
   if (od.st === 1 && !expired && isMaker) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
   if ((od.st === 1 || od.st === 2) && expired && party) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim</button>`);
   if ((od.st === 1 || od.st === 2) && !expired && party) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip</button>`);
+  const isEth = od.wch === "eth";
+  const ethSender = isEth && (sells ? isTaker : isMaker), ethClaimer = isEth && (sells ? isMaker : isTaker);
+  if (isEth && od.st === 2 && ethSender) acts.push(`<button class="primary" data-otc="ethfund" data-o="${od.o}">Lock the ETH…</button>`);
+  if (isEth && ((sells && od.st === 2) || (!sells && od.st === 3)) && ethClaimer) acts.unshift(`<button class="primary" data-otc="ethclaim" data-o="${od.o}">Claim the ETH…</button>`);
+  if (isEth && od.st >= 2 && ethSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="ethrefund" data-o="${od.o}">Reclaim ETH</button>`);
   const btc = od.wch === "btc" ? btcInfo(od) : null;
   const btcFunder = od.wch === "btc" && (sells ? isTaker : isMaker);
   const btcClaimer = od.wch === "btc" && (sells ? isMaker : isTaker);
@@ -341,9 +403,16 @@ function otcRow(od, mine) {
     let hint = "";
     if (od.st === 1 && !expired && isMaker) hint = "Waiting for a taker — your funds stay reclaimable. Cancel any time.";
     else if (od.st === 2 && !expired) {
-      if (sells && isMaker) hint = `Next: press Verify below — once the taker's ${chain} lock shows CONFIRMED, press Claim the BTC. Claiming completes your side.`;
-      else if (sells && isTaker) hint = `Next: send the ${chain} to the address below. When the maker claims it, press Settle — your NADO arrives automatically.`;
-      else if (!sells && isMaker) hint = `Next: send the ${chain} to the address below, wait for confirmations, then press Settle to collect your NADO.`;
+      const foreign = od.wch === "eth" ? "ETH" : chain;
+      if (od.wch === "eth") {
+        if (sells && isMaker) hint = `Next: once the taker has locked the ETH, press Claim the ETH — your wallet signs it and it completes the swap.`;
+        else if (sells && isTaker) hint = `Next: press Lock the ETH (your wallet pays it into the swap). When the maker claims it, press Settle for your NADO.`;
+        else if (!sells && isMaker) hint = `Next: press Lock the ETH, then Settle to collect your NADO.`;
+        else hint = `Next: wait — when the maker settles, a Claim the ETH button appears here.`;
+      }
+      else if (sells && isMaker) hint = `Next: press Verify below — once the taker's ${foreign} lock shows CONFIRMED, press Claim the BTC. Claiming completes your side.`;
+      else if (sells && isTaker) hint = `Next: send the ${foreign} to the address below. When the maker claims it, press Settle — your NADO arrives automatically.`;
+      else if (!sells && isMaker) hint = `Next: send the ${foreign} to the address below, wait for confirmations, then press Settle to collect your NADO.`;
       else if (!sells && isTaker) hint = `Next: wait — when the maker collects their NADO here, a Claim your BTC button appears on this row.`;
     } else if ((od.st === 1 || od.st === 2) && expired) hint = "Expired — Reclaim returns everything to whoever put it in.";
     if (hint) detail += `<div class="small mt" style="color:var(--accent2)">${hint}</div>`;
@@ -354,6 +423,7 @@ function otcRow(od, mine) {
         <span id="btcv${od.o}" class="dim"></span></div>`;
       else if (!btcParts(od)) detail += `<div class="small dim mt">The counterparty's client didn't publish a Bitcoin key — finish this leg with scripts/otc_btc_leg.py.</div>`;
     }
+    if (od.wch === "eth" && od.st >= 2 && (isMaker || isTaker) && !ethProv()) detail += ethCliHint(od);
     const secret = otcRec(od.o).s;
     if (secret && (od.st === 1 || od.st === 2))
       detail += `<div class="small dim mt">Your swap secret: <span class="mono">${secret.slice(0, 16)}…</span>
@@ -401,7 +471,11 @@ async function otcPost() {
   if (!(blocks >= 20 && blocks <= 900000)) return alertBar("Expiry must be 20 … 900000 blocks.");
   const o = randId();
   const sHex = Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, "0")).join("");
-  const kp = chain === "btc" ? genKeypair() : null;    // the swap's own Bitcoin key — never typed, never leaves this browser
+  let kp = null, packed = faddr;
+  if (chain === "btc") { kp = genKeypair(); packed = faddr + "|" + kp.pub; }
+  else if (chain === "eth") { const ek = ethProv() ? null : (await import("./ethsign.js?v=1")).ethKeypair();
+    // with a wallet the maker's own EVM address is used at claim time; without one, a page key is generated for the CLI
+    if (ek) { kp = { k: ek.k }; packed = faddr + "|" + ek.addr; } }
   otcSaveRec(o, Object.assign({ s: sHex }, kp || {})); // BEFORE the wallet redirect can navigate away
   const hsha = await sha256Hex(sHex);
   const [hi, lo] = otcVmParts(sHex);
@@ -410,11 +484,10 @@ async function otcPost() {
   const expf = Math.floor(Date.now() / 1000 + blocks * 6 * 0.6);
   const expn = (dapp.cursor || 0) + blocks;
   const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex + (kp ? "  ·  BTC key: " + kp.k : ""); }
-  const wadr = kp ? faddr + "|" + kp.pub : faddr;
-  dapp.call("post", [o, kind, raw, chain, famt, wadr, hsha, hi, lo, expn, expf],
+  dapp.call("post", [o, kind, raw, chain, famt, packed, hsha, hi, lo, expn, expf],
             kind === OTC_ASK ? raw : null, "Posting order #" + o + "…", { otc: o }, { cid: OTC_CID });
 }
-function otcAction(what, o) {
+async function otcAction(what, o) {
   const od = otcOrders().find((x) => x.o === o);
   if (!od) return;
   if (what === "showsecret") {
@@ -446,6 +519,9 @@ function otcAction(what, o) {
       const kp = genKeypair();                          // the swap's own key; the address to fund appears on the row after the fill lands
       otcSaveRec(o, { k: kp.k, pub: kp.pub });
       myf = kp.pub;
+    } else if (od.wch === "eth") {
+      if (ethProv()) { const { addr } = await ethConnect(); myf = addr; }   // the taker's own EVM account
+      else { const ek = (await import("./ethsign.js?v=1")).ethKeypair(); otcSaveRec(o, { k: ek.k }); myf = ek.addr; }
     } else {
       myf = prompt(od.kind === OTC_ASK
         ? "Your " + chain + " refund address (your " + chain + " lock refunds there if the swap dies):"
@@ -467,10 +543,14 @@ function otcAction(what, o) {
   if (what === "btcverify") { btcVerifyInto(od, "btcv" + o); return; }
   if (what === "btcclaim") { btcSpendFlow(od, "claim"); return; }
   if (what === "btcrefund") { btcSpendFlow(od, "refund"); return; }
+  if (what === "ethfund") { ethLeg(od, "fund"); return; }
+  if (what === "ethclaim") { ethLeg(od, "claim"); return; }
+  if (what === "ethrefund") { ethLeg(od, "refund"); return; }
   if (what === "settle") {
     (async () => {
       let s = otcRec(o).s;                              // a maker settles with their own stored secret
       if (!s && od.wch === "btc") { alertBar("Looking up the revealed secret on Bitcoin…"); s = await btcFoundSecret(od); }
+      if (!s && od.wch === "eth") { alertBar("Looking up the revealed secret on Ethereum…"); s = await ethFoundSecret(od); }
       if (!s) s = (prompt("Paste the revealed 64-hex swap secret (from the foreign-chain claim):") || "").trim().toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(s || "")) return alertBar("That is not a 32-byte hex secret.");
       dapp.call("settle", [o, ...otcLimbs(s)], null, "Settling #" + o + "…", { otc: o }, { cid: OTC_CID });
