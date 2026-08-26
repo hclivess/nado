@@ -14,7 +14,7 @@ import { htlcScript, p2wshAddress } from "./btcleg.js?v=3854b338";
 import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=15418184";
 import { htlcAbi } from "./ethsign.js?v=1";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
-         orderCards, disp, share, installModes, playModes, algHashn, base, esc, randId,
+         orderCards, disp, share, installModes, algHashn, base, esc, randId,
          blocksToTime } from "./nadodapp.js?v=68e91695";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
@@ -94,6 +94,7 @@ function renderSwap() {
 }
 
 function doRender() {
+  renderMarket();
   renderPools();
   renderSwap();
   renderOtc();
@@ -606,12 +607,171 @@ function limPost() {
             gv, "Posting limit order #" + o + "…", { otc: o },
             gaB !== 0n ? { cid: OTC_CID, asset: ga } : { cid: OTC_CID });
 }
+
+// ===== MARKET: live price sampling + the exchange chart (dataviz: single price series, up/down color) =====
+const LS_PRICES = "nado_dex_prices";
+let mktRange = 3600;                                 // seconds; 0 = all
+const priceStore = () => { try { return JSON.parse(localStorage.getItem(LS_PRICES) || "{}"); } catch (e) { return {}; } };
+function samplePrices(sto) {
+  if (!sto) return;
+  const store = priceStore(), now = Date.now();
+  let changed = false;
+  for (const id of poolIds(sto)) {
+    const p = poolOf(sto, id);
+    if (p.rn <= 0n || p.rt <= 0n || p.sup <= 0n) continue;
+    const price = Number(p.rt) / Number(p.rn);
+    const arr = store[id] || (store[id] = []);
+    const last = arr[arr.length - 1];
+    if (!last || last[1] !== price || now - last[0] > 30000) {       // on a move, or a 30s heartbeat
+      arr.push([now, price]); changed = true;
+      if (arr.length > 2000) arr.splice(0, arr.length - 2000);
+    }
+  }
+  if (changed) { try { localStorage.setItem(LS_PRICES, JSON.stringify(store)); } catch (e) {} }
+}
+function priceSeries(id) {
+  const arr = priceStore()[id] || [];
+  return mktRange > 0 ? arr.filter((x) => x[0] >= Date.now() - mktRange * 1000) : arr;
+}
+const fmtPrice = (v) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4);
+const fmtAgo = (ts) => { const s = Math.max(0, (Date.now() - ts) / 1000); return s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : s < 172800 ? Math.round(s / 3600) + "h ago" : Math.round(s / 86400) + "d ago"; };
+
+function renderMarket() {
+  const card = $("marketCard");
+  if (!card) return;
+  gate({ marketCard: !!sel });
+  if (!sel || !lastSto) return;
+  const p = poolOf(lastSto, sel);
+  const live = p.rn > 0n && p.rt > 0n && p.sup > 0n;
+  const price = live ? Number(p.rt) / Number(p.rn) : 0;
+  const asset = disp(p.asset).slice(0, 14);
+  $("mktPair").textContent = `${asset} / NADO`;
+  $("mktPrice").textContent = live ? fmtPrice(price) : "—";
+  // 24h change (or first point in range) from the observed series
+  const all = priceStore()[p.id] || [];
+  const dayAgo = all.filter((x) => x[0] >= Date.now() - 86400000)[0];
+  const base = dayAgo ? dayAgo[1] : (all[0] ? all[0][1] : price);
+  const chgEl = $("mktChg");
+  if (live && base > 0) {
+    const pct = (price - base) / base * 100;
+    chgEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%";
+    chgEl.className = "chg " + (Math.abs(pct) < 0.005 ? "flat" : pct > 0 ? "up" : "dn");
+  } else { chgEl.textContent = "no trades yet"; chgEl.className = "chg flat"; }
+  // stats
+  const tvlNado = live ? fromUnits(p.rn * 2n) : "0";       // NADO-side ×2 ≈ total value in NADO
+  $("mktStats").innerHTML = [
+    ["Price", live ? fmtPrice(price) + " TKN/NADO" : "—"],
+    ["Inverse", live ? fmtPrice(1 / price) + " NADO/TKN" : "—"],
+    ["NADO reserve", fromUnits(p.rn)],
+    ["Token reserve", fromUnits(p.rt)],
+    ["Pool value", "≈ " + tvlNado + " NADO"],
+    ["LP shares", p.sup.toString()],
+    ["Swap fee", "0.30%"],
+  ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  renderChart(p);
+  renderDepth(p, price);
+}
+
+// --- the price line chart: SVG, crosshair + tooltip (dataviz interaction layer) ---
+const CW = 600, CH = 220, CML = 6, CMR = 54, CMT = 12, CMB = 20;
+let _mktBound = false, _mktPts = [];
+function renderChart(p) {
+  const svg = $("mktChart"), empty = $("mktEmpty");
+  const data = priceSeries(p.id);
+  if (data.length < 2) {
+    svg.innerHTML = "";
+    empty.classList.remove("hidden");
+    empty.textContent = data.length ? "One price point so far — the line draws once the pool ticks again." : "Collecting live prices — the chart fills in as this pool trades and time passes.";
+    _mktPts = []; return;
+  }
+  empty.classList.add("hidden");
+  const t0 = data[0][0], t1 = data[data.length - 1][0], span = Math.max(1, t1 - t0);
+  let lo = Infinity, hi = -Infinity;
+  for (const d of data) { lo = Math.min(lo, d[1]); hi = Math.max(hi, d[1]); }
+  const pad = (hi - lo) * 0.08 || hi * 0.02 || 1; lo -= pad; hi += pad;
+  const X = (t) => CML + (t - t0) / span * (CW - CML - CMR);
+  const Y = (v) => CMT + (1 - (v - lo) / (hi - lo || 1)) * (CH - CMT - CMB);
+  _mktPts = data.map((d) => [X(d[0]), Y(d[1]), d[0], d[1]]);
+  const up = data[data.length - 1][1] >= data[0][1];
+  const col = up ? "var(--accent2)" : "var(--danger)";
+  const line = _mktPts.map((q, i) => (i ? "L" : "M") + q[0].toFixed(1) + " " + q[1].toFixed(1)).join(" ");
+  const area = `M${_mktPts[0][0].toFixed(1)} ${(CH - CMB)} L` + _mktPts.map((q) => q[0].toFixed(1) + " " + q[1].toFixed(1)).join(" L") + ` L${_mktPts[_mktPts.length - 1][0].toFixed(1)} ${(CH - CMB)} Z`;
+  // 4 horizontal grid lines + right-edge price labels
+  let grid = "";
+  for (let i = 0; i <= 4; i++) {
+    const gy = CMT + i / 4 * (CH - CMT - CMB), gv = hi - i / 4 * (hi - lo);
+    grid += `<line x1="${CML}" y1="${gy.toFixed(1)}" x2="${CW - CMR}" y2="${gy.toFixed(1)}" stroke="var(--border)" stroke-width="1" opacity="0.5"/>`;
+    grid += `<text x="${CW - CMR + 6}" y="${(gy + 3.5).toFixed(1)}" fill="var(--faint)" font-size="10" font-family="ui-monospace,monospace">${fmtPrice(gv)}</text>`;
+  }
+  const tlab = (t, anchor, x) => `<text x="${x}" y="${CH - 6}" fill="var(--faint)" font-size="10" text-anchor="${anchor}" font-family="ui-monospace,monospace">${fmtAgo(t)}</text>`;
+  svg.setAttribute("viewBox", `0 0 ${CW} ${CH}`);
+  svg.innerHTML =
+    `<defs><linearGradient id="mgrad" x1="0" y1="0" x2="0" y2="1">
+       <stop offset="0" stop-color="${up ? 'var(--accent)' : 'var(--danger)'}" stop-opacity="0.28"/>
+       <stop offset="1" stop-color="${up ? 'var(--accent)' : 'var(--danger)'}" stop-opacity="0"/></linearGradient></defs>` +
+    grid +
+    `<path d="${area}" fill="url(#mgrad)"/><path d="${line}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+    tlab(t0, "start", CML) + tlab(t1, "end", CW - CMR) +
+    `<line id="mktCross" x1="0" y1="${CMT}" x2="0" y2="${CH - CMB}" stroke="var(--dim)" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>` +
+    `<circle id="mktDot" r="3.5" fill="${col}" stroke="var(--elev)" stroke-width="1.5" opacity="0"/>`;
+  if (!_mktBound) {
+    _mktBound = true;
+    const wrap = svg.parentElement, tt = $("mktTt");
+    svg.addEventListener("mousemove", (e) => {
+      if (!_mktPts.length) return;
+      const r = svg.getBoundingClientRect(), vx = (e.clientX - r.left) / r.width * CW;
+      let best = _mktPts[0]; for (const q of _mktPts) if (Math.abs(q[0] - vx) < Math.abs(best[0] - vx)) best = q;
+      const cr = svg.querySelector("#mktCross"), dt = svg.querySelector("#mktDot");
+      if (cr) { cr.setAttribute("x1", best[0]); cr.setAttribute("x2", best[0]); cr.setAttribute("opacity", "1"); }
+      if (dt) { dt.setAttribute("cx", best[0]); dt.setAttribute("cy", best[1]); dt.setAttribute("opacity", "1"); }
+      tt.style.opacity = "1";
+      tt.style.left = (best[0] / CW * r.width) + "px";
+      tt.style.top = (best[1] / CH * r.height) + "px";
+      tt.innerHTML = `<b>${fmtPrice(best[3])}</b> TKN/NADO<br><span style="color:var(--faint)">${fmtAgo(best[2])}</span>`;
+    });
+    svg.addEventListener("mouseleave", () => {
+      tt.style.opacity = "0";
+      const cr = svg.querySelector("#mktCross"), dt = svg.querySelector("#mktDot");
+      if (cr) cr.setAttribute("opacity", "0"); if (dt) dt.setAttribute("opacity", "0");
+    });
+  }
+}
+
+// --- depth: execution price vs trade size, both directions (always meaningful, no history needed) ---
+const DW = 600, DH = 110;
+function renderDepth(p, price) {
+  const svg = $("mktDepth");
+  if (!(p.rn > 0n && p.rt > 0n) || !price) { svg.innerHTML = ""; return; }
+  const RN = Number(p.rn), RT = Number(p.rt), F = 0.997, N = 40, maxFrac = 0.35;
+  const buy = [], sell = [];                          // [sizeFrac, execPrice(TKN/NADO)]
+  for (let i = 1; i <= N; i++) {
+    const f = i / N * maxFrac;
+    const dxn = RN * f, outT = RT * (dxn * F) / (RN + dxn * F); buy.push([f, outT / dxn]);
+    const dxt = RT * f, outN = RN * (dxt * F) / (RT + dxt * F); sell.push([f, dxt / outN]);
+  }
+  let lo = price, hi = price;
+  for (const a of buy.concat(sell)) { lo = Math.min(lo, a[1]); hi = Math.max(hi, a[1]); }
+  const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const midX = DW / 2, X = (f, side) => midX + side * (f / maxFrac) * (DW / 2 - 8);
+  const Y = (v) => 6 + (1 - (v - lo) / (hi - lo || 1)) * (DH - 18);
+  const path = (arr, side) => "M" + [[0, price]].concat(arr).map(([f, v]) => X(f, side).toFixed(1) + " " + Y(v).toFixed(1)).join(" L");
+  const areaOf = (arr, side, col) => `<path d="${path(arr, side)} L${X(arr[arr.length - 1][0], side).toFixed(1)} ${DH - 12} L${midX} ${DH - 12} Z" fill="${col}" opacity="0.13"/>` +
+    `<path d="${path(arr, side)}" fill="none" stroke="${col}" stroke-width="1.5"/>`;
+  svg.setAttribute("viewBox", `0 0 ${DW} ${DH}`);
+  svg.innerHTML =
+    `<line x1="${midX}" y1="4" x2="${midX}" y2="${DH - 12}" stroke="var(--border)" stroke-width="1"/>` +
+    areaOf(sell, -1, "var(--danger)") + areaOf(buy, 1, "var(--accent2)") +
+    `<text x="8" y="${DH - 2}" fill="var(--danger)" font-size="9.5" font-family="ui-monospace,monospace">← sell NADO impact</text>` +
+    `<text x="${DW - 8}" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">buy NADO impact →</text>`;
+}
+
 // ---- wiring / boot ---------------------------------------------------------------------------------------
 async function refresh() {
   try {
     const sto = await dapp.storage();
     if (sto) lastSto = sto;
   } catch (e) { /* transient relay blip — keep the last good view rather than blanking the page */ }
+  samplePrices(lastSto);
   await otcRefresh();
   render();
 }
@@ -628,6 +788,12 @@ function wireUI() {
   $("btnSwap").onclick = doSwap;
   const bp = $("btnOtcPost"); if (bp) bp.onclick = otcPost;
   const lp = $("btnLimPost"); if (lp) lp.onclick = limPost;
+  const rb = $("mktRanges");
+  if (rb) rb.querySelectorAll("button").forEach((b) => { b.onclick = () => {
+    mktRange = Number(b.getAttribute("data-range"));
+    rb.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    render();
+  }; });
   ["swapAmt", "slip", "dir"].forEach((id) => {
     const el = $(id);
     if (el) { el.oninput = renderSwap; el.onchange = renderSwap; }
@@ -665,10 +831,13 @@ async function boot() {
     alertBar("Crypto bundle failed to load — reload.");
     return;
   }
-  wireUI(); loadQR(); orderCards(["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
-  const modes = installModes(dapp, { modes: playModes({ icon: "🔄", play: ["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard"],
-    extra: [{ key: "cross", icon: "🌉", label: "Cross-chain", hint: "Swap NADO against BTC/ETH — atomic, no custodian, no wrapped coins.",
-              cards: ["otcBookCard", "otcPostCard", "otcMyCard"] }] }) });
+  wireUI(); loadQR(); orderCards(["marketCard", "swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
+  const modes = installModes(dapp, { modes: [
+    { key: "swap", icon: "🔄", label: "Swap", hint: "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools.",
+      cards: ["marketCard", "swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard"] },
+    { key: "cross", icon: "🌉", label: "Cross-chain", hint: "Atomic BTC/ETH ↔ NADO swaps — no custodian, no wrapped coins.",
+      cards: ["otcBookCard", "otcPostCard", "otcMyCard"] },
+  ] });
   render = modes.wrap(doRender);
   const q = new URLSearchParams(location.search).get("pool");
   if (q) sel = q;

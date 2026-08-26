@@ -37,6 +37,33 @@
   .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
   label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
   input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  select{width:100%;font:inherit;font-size:13px;color:var(--txt);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 34px 11px 12px;
+    -webkit-appearance:none;appearance:none;cursor:pointer;
+    background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+    background-position:calc(100% - 18px) 50%,calc(100% - 12px) 50%;background-size:6px 6px,6px 6px;background-repeat:no-repeat}
+  select:focus{outline:none;border-color:var(--accent2)}
+  select option{background:var(--elev2);color:var(--txt)}
+  /* --- market / chart --- */
+  .mkt{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 20px;margin-bottom:12px}
+  .mkt .pair{font-size:17px;font-weight:800;letter-spacing:.2px}
+  .mkt .price{font-family:var(--mono);font-size:26px;font-weight:800;line-height:1}
+  .mkt .chg{font-family:var(--mono);font-size:13px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .mkt .chg.up{color:var(--accent2);background:rgba(0,201,167,.13)}
+  .mkt .chg.dn{color:var(--danger);background:rgba(248,81,73,.13)}
+  .mkt .chg.flat{color:var(--dim);background:var(--elev2)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:12px}
+  .stat{background:var(--elev);padding:9px 12px}
+  .stat .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+  .stat .v{font-family:var(--mono);font-size:14px;margin-top:2px}
+  .rangebtns{display:flex;gap:4px;margin:10px 0 6px}
+  .rangebtns button{padding:4px 10px;font-size:11px;font-weight:700;border-radius:7px;background:var(--elev2);color:var(--dim);border:1px solid var(--border)}
+  .rangebtns button.on{background:var(--accent);color:#04110a;border-color:transparent}
+  .chartwrap{position:relative;width:100%;height:220px}
+  .chartwrap svg{display:block;width:100%;height:100%;overflow:visible}
+  .chart-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--faint);font-size:12.5px;padding:20px}
+  .tt{position:absolute;pointer-events:none;background:var(--elev2);border:1px solid var(--border);border-radius:8px;padding:6px 9px;font-family:var(--mono);font-size:11.5px;white-space:nowrap;transform:translate(-50%,-115%);opacity:0;transition:opacity .08s;z-index:5}
+  .depthwrap{width:100%;height:110px;margin-top:6px}
+  .depthwrap svg{display:block;width:100%;height:100%;overflow:visible}
   input:focus{outline:none;border-color:var(--accent2)}
   input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:10px 0 4px;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
@@ -104,6 +131,29 @@
       <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
     </div>
     <div class="small dim mt">Deposit moves L1 → exec (usable here); Withdraw moves exec → L1.</div>
+  </div>
+
+  <!-- MARKET (price chart + stats for the selected pool) -->
+  <div class="card hidden" id="marketCard">
+    <div class="mkt">
+      <span class="pair" id="mktPair">—</span>
+      <span class="price" id="mktPrice">—</span>
+      <span class="chg flat" id="mktChg">—</span>
+    </div>
+    <div class="rangebtns" id="mktRanges">
+      <button data-range="3600" class="on">1H</button>
+      <button data-range="86400">1D</button>
+      <button data-range="604800">1W</button>
+      <button data-range="0">ALL</button>
+    </div>
+    <div class="chartwrap"><svg id="mktChart" preserveAspectRatio="none"></svg>
+      <div class="tt" id="mktTt"></div>
+      <div class="chart-empty hidden" id="mktEmpty"></div>
+    </div>
+    <div class="small dim" style="margin-top:8px">Price impact by trade size (the pool's <span class="mono">x·y=k</span> depth):</div>
+    <div class="depthwrap"><svg id="mktDepth" preserveAspectRatio="none"></svg></div>
+    <div class="stats" id="mktStats"></div>
+    <div class="small dim mt">Observed mid-price, sampled live from the pool reserves. History fills in as the pool trades and time passes — nothing is back-filled or simulated.</div>
   </div>
 
   <!-- SWAP -->
@@ -260,6 +310,6 @@
     Nothing here is investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=00067862"></script>
+<script type="module" src="/static/dex.js?v=04878168"></script>
 </body>
 </html>
