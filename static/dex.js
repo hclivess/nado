@@ -463,6 +463,86 @@ function ethCliHint(od) {
     <span class="mono" style="word-break:break-all">node scripts/otc_eth_leg.mjs claim --rpc ${od.wch === "eths" ? "https://ethereum-sepolia-rpc.publicnode.com" : "&lt;rpc&gt;"} --htlc ${esc((netOf(od) || {}).htlc || "&lt;deploy first&gt;")} --key &lt;your-eth-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --refundee &lt;addr&gt; --deadline ${ethDeadline(od)} --secret &lt;s&gt;</span></div>`;
 }
 
+// ---- cross-chain markets: a BTC/NADO book IS a market, so it gets the same header, chart and stats ----
+let xsel = "btc";                                    // selected cross-chain network
+const XKEY = (net) => "x:" + net;
+const otcPrice = (od) => {                           // NADO per 1 foreign coin
+  const f = Number(od.wamt); const nado = Number(od.namtRaw) / 1e10;
+  return f > 0 && nado > 0 ? nado / f : 0;
+};
+function bookOf(net) {
+  const bids = [], asks = [];                        // bid = someone paying NADO for the coin (ASK_NADO)
+  for (const od of otcOrders()) {
+    if (od.wch !== net || od.st !== 1 || od.kind === OTC_INTRA || otcLeft(od) <= 0) continue;
+    const px = otcPrice(od);
+    if (!px) continue;
+    (od.kind === OTC_ASK ? bids : asks).push({ px, size: Number(od.wamt), o: od.o, od });
+  }
+  bids.sort((a, b) => b.px - a.px); asks.sort((a, b) => a.px - b.px);
+  const bb = bids[0] ? bids[0].px : 0, ba = asks[0] ? asks[0].px : 0;
+  return { bids, asks, bb, ba, mid: bb && ba ? (bb + ba) / 2 : (bb || ba) };
+}
+function renderXMarket() {
+  const nets = Object.keys(NETS);
+  const pick = $("mktPick");
+  if (pick) {
+    const opts = nets.map((k) => `<option value="${k}">${esc(NETS[k].coin)} / NADO — ${esc(NETS[k].label)}</option>`).join("");
+    if (pick.dataset.sig !== opts) { pick.dataset.sig = opts; pick.innerHTML = opts; }
+    if (!nets.includes(xsel)) xsel = nets[0];
+    pick.value = xsel;
+  }
+  const net = NETS[xsel] || {}, b = bookOf(xsel);
+  $("mktPair").textContent = `${net.coin} / NADO`;
+  $("mktPrice").textContent = b.mid ? fmtPrice(b.mid) : "—";
+  const st24 = stats24(XKEY(xsel), b.mid);
+  const chgEl = $("mktChg");
+  if (st24 && b.mid) {
+    chgEl.textContent = (st24.pct >= 0 ? "+" : "") + st24.pct.toFixed(2) + "%  24h";
+    chgEl.className = "chg " + (Math.abs(st24.pct) < 0.005 ? "flat" : st24.pct > 0 ? "up" : "dn");
+  } else { chgEl.textContent = b.bids.length || b.asks.length ? "one side quoted" : "no open orders"; chgEl.className = "chg flat"; }
+  const mine = otcOrders().filter((x) => x.wch === xsel && dapp.me && (x.maker === dapp.me || x.taker === dapp.me)).length;
+  $("mktStats").innerHTML = [
+    ["Best bid", b.bb ? fmtPrice(b.bb) + " NADO" : "—"],
+    ["Best ask", b.ba ? fmtPrice(b.ba) + " NADO" : "—"],
+    ["Spread", b.bb && b.ba ? ((b.ba - b.bb) / b.ba * 100).toFixed(2) + "%" : "—"],
+    ["Buy orders", String(b.bids.length)],
+    ["Sell orders", String(b.asks.length)],
+    ["Your orders", String(mine)],
+  ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  const cap = $("depthCap"); if (cap) cap.textContent = "Live order book — how much is offered at each price:";
+  renderChart(XKEY(xsel), "NADO", `1 ${net.coin} =`);
+  renderBookDepth(b, net.coin);
+  syncUrl(false);
+}
+// the order book as cumulative depth — the classic book view, drawn from live open orders
+function renderBookDepth(b, coin) {
+  const svg = $("mktDepth");
+  if (!svg) return;
+  if (!b.bids.length && !b.asks.length) {
+    svg.innerHTML = `<text x="${DW / 2}" y="${DH / 2}" fill="var(--faint)" font-size="11" text-anchor="middle">no open orders — post one below</text>`;
+    svg.setAttribute("viewBox", `0 0 ${DW} ${DH}`); return;
+  }
+  const cum = (arr) => { let t = 0; return arr.map((x) => ({ px: x.px, t: (t += x.size) })); };
+  const B = cum(b.bids), A = cum(b.asks);
+  const pxs = B.concat(A).map((x) => x.px), maxT = Math.max(...B.concat(A).map((x) => x.t), 1e-12);
+  const lo = Math.min(...pxs), hi = Math.max(...pxs), span = (hi - lo) || hi * 0.02 || 1;
+  const mid = b.mid || (lo + hi) / 2;
+  const X = (px) => 8 + (px - (mid - span)) / (2 * span) * (DW - 16);
+  const Y = (t) => 6 + (1 - t / maxT) * (DH - 20);
+  const side = (arr, col, dir) => {
+    if (!arr.length) return "";
+    const pts = arr.map((x) => `${X(x.px).toFixed(1)} ${Y(x.t).toFixed(1)}`).join(" L");
+    const x0 = X(arr[0].px).toFixed(1), xN = X(arr[arr.length - 1].px).toFixed(1);
+    return `<path d="M${x0} ${DH - 14} L${pts} L${xN} ${DH - 14} Z" fill="${col}" opacity="0.14"/>` +
+           `<path d="M${pts}" fill="none" stroke="${col}" stroke-width="1.5"/>`;
+  };
+  svg.setAttribute("viewBox", `0 0 ${DW} ${DH}`);
+  svg.innerHTML = `<line x1="${X(mid).toFixed(1)}" y1="4" x2="${X(mid).toFixed(1)}" y2="${DH - 14}" stroke="var(--border)"/>` +
+    side(B, "var(--accent2)", 1) + side(A, "var(--danger)", -1) +
+    `<text x="8" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" font-family="ui-monospace,monospace">buying ${esc(coin)} ←</text>` +
+    `<text x="${DW - 8}" y="${DH - 2}" fill="var(--danger)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">→ selling ${esc(coin)}</text>`;
+}
+
 // ---- rendering ----------------------------------------------------------------------------------------
 function otcRow(od, mine) {
   const me = dapp.me, isMaker = od.maker === me, isTaker = od.taker === me;
@@ -544,7 +624,7 @@ function renderOtc() {
   const book = $("otcBook"), mine = $("otcMine");
   if (!book || !mine) return;
   const all = otcOrders(), me = dapp.me;
-  const open = all.filter((x) => x.st === 1 && x.kind !== OTC_INTRA && otcLeft(x) > 0);
+  const open = all.filter((x) => x.st === 1 && x.kind !== OTC_INTRA && x.wch === xsel && otcLeft(x) > 0);
   book.innerHTML = open.length ? open.map((x) => otcRow(x, false)).join("")
     : `<p class="small dim">No open orders. Post one — the book is permissionless.</p>`;
   const my = all.filter((x) => me && x.kind !== OTC_INTRA && (x.maker === me || x.taker === me));
@@ -724,6 +804,8 @@ let curMode = "swap";
 const symOfPool = (p) => tokSym(p.asset).toUpperCase();
 function marketUrl(includeOrigin = true) {
   let q = "";
+  if (curMode === "cross") return (includeOrigin ? location.origin + location.pathname : location.pathname)
+    + "?market=" + encodeURIComponent((NETS[xsel] || {}).coin || xsel) + "&mode=cross";
   if (sel && lastSto) { const p = poolOf(lastSto, sel); const sym = symOfPool(p);
     q = "?market=" + encodeURIComponent(sym && sym !== "TOKEN" ? sym : String(p.id)); }
   if (curMode && curMode !== "swap") q += (q ? "&" : "?") + "mode=" + curMode;
@@ -739,6 +821,8 @@ function readUrl() {                                 // "?market=DEMO" (symbol) 
   const m = (q.get("market") || q.get("pool") || "").trim();
   if (!m) return;
   if (/^\d+$/.test(m)) sel = m; else wantMarket = m.toUpperCase();
+  if (wantMarket) for (const k of Object.keys(NETS))          // a coin symbol also names a cross-chain market
+    if ((NETS[k].coin || "").toUpperCase() === wantMarket) { xsel = k; break; }
 }
 const priceStore = () => { try { return JSON.parse(localStorage.getItem(LS_PRICES) || "{}"); } catch (e) { return {}; } };
 function samplePrices(sto) {
@@ -786,6 +870,7 @@ const fmtAgo = (ts) => { const s = Math.max(0, (Date.now() - ts) / 1000); return
 function renderMarket() {
   const card = $("marketCard");
   if (!card) return;
+  if (curMode === "cross") { gate({ marketCard: true }); return renderXMarket(); }
   // Land on a live market instead of an empty page: pick the deepest pool until the user chooses one.
   const ids = lastSto ? poolIds(lastSto) : [];
   if (wantMarket && lastSto) {                       // a permalink names the market by its token symbol
@@ -833,18 +918,19 @@ function renderMarket() {
     ["LP shares", p.sup.toString()],
     ["Swap fee", "0.30%"],
   ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
-  renderChart(p);
+  const cap = $("depthCap"); if (cap) cap.textContent = "How much the rate moves as your trade gets bigger:";
+  renderChart(p.id, sym);
   renderDepth(p, price);
   syncUrl(false);
 }
 
 // --- the price line chart: SVG, crosshair + tooltip (dataviz interaction layer) ---
 const CW = 600, CH = 220, CML = 6, CMR = 54, CMT = 12, CMB = 20;
-let _mktBound = false, _mktPts = [], _ttSym = "token";
-function renderChart(p) {
-  _ttSym = tokSym(p.asset);
+let _mktBound = false, _mktPts = [], _ttSym = "token", _ttUnit = "";
+function renderChart(key, sym, unit) {
+  _ttSym = sym; _ttUnit = unit || "";
   const svg = $("mktChart"), empty = $("mktEmpty");
-  const data = priceSeries(p.id);
+  const data = priceSeries(key);
   if (data.length < 2) {
     svg.innerHTML = "";
     empty.classList.remove("hidden");
@@ -894,7 +980,7 @@ function renderChart(p) {
       tt.style.opacity = "1";
       tt.style.left = (best[0] / CW * r.width) + "px";
       tt.style.top = (best[1] / CH * r.height) + "px";
-      tt.innerHTML = `1 NADO = <b>${fmtPrice(best[3])}</b> ${_ttSym}<br><span style="color:var(--faint)">${fmtAgo(best[2])}</span>`;
+      tt.innerHTML = `${_ttUnit || "1 NADO ="} <b>${fmtPrice(best[3])}</b> ${_ttSym}<br><span style="color:var(--faint)">${fmtAgo(best[2])}</span>`;
     });
     svg.addEventListener("mouseleave", () => {
       tt.style.opacity = "0";
@@ -987,7 +1073,7 @@ function wireUI() {
   if (fl) fl.onclick = () => { const d = $("dir"); if (!d) return;
     d.value = d.value === "n2t" ? "t2n" : "n2t"; if (amt) amt.value = ""; renderSwap(); };
   const mp = $("mktPick");
-  if (mp) mp.onchange = () => { sel = mp.value; syncUrl(true); render(); };
+  if (mp) mp.onchange = () => { if (curMode === "cross") xsel = mp.value; else sel = mp.value; syncUrl(true); render(); };
   const rb = $("mktRanges");
   if (rb) rb.querySelectorAll("button").forEach((b) => { b.onclick = () => {
     mktRange = Number(b.getAttribute("data-range"));
@@ -1041,7 +1127,7 @@ async function boot() {
     { key: "swap", icon: "🔄", label: "Swap", hint: "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools.",
       cards: ["marketCard", "swapCard", "liqCard", "poolsCard", "otcLimitCard", "openCard"] },
     { key: "cross", icon: "🌉", label: "Cross-chain", hint: "Atomic BTC/ETH ↔ NADO swaps — no custodian, no wrapped coins.",
-      cards: ["otcBookCard", "otcPostCard", "otcMyCard"] },
+      cards: ["marketCard", "otcBookCard", "otcPostCard", "otcMyCard"] },
   ], onChange: (k) => { curMode = k; syncUrl(true); } });
   curMode = new URLSearchParams(location.search).get("mode") === "cross" ? "cross" : "swap";
   render = modes.wrap(doRender);
