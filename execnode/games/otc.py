@@ -44,6 +44,8 @@ Methods: post(o,kind,namt,wch,wamt,wadr,hsha,hvmHi,hvmLo,expn,expf) — the algh
   32-bit halves because a JS JSON number only holds 2^53 exactly (hvm = hi·2^32 + lo mod P) —[VALUE=namt for ASK] · cancel(o) maker/open ·
   fill(o,tadr,fref)[VALUE=namt for BID] · settle(o,l0..l4) anyone with the preimage · expire(o) anyone late ·
   boost(o)[VALUE=NADO bounty] anyone, while open/filled — first correct actor wins it (§8) ·
+  set_premium(o,amt) maker/open/HTLC-only — the §9.1 free-option price: the taker escrows it at fill,
+  completion returns it, walking forfeits it to the maker ·
   post_intra(o,ga,gv,wa,wv,expn)[VALUE=gv of ga] / fill_intra(o)[VALUE=wv of wa] — SWAP_INTRA (§7): both
   sides on the exec layer, both legs in one atomic call, no hashlock, open→settled directly.
 Amounts are RAW NADO throughout: no products, no pro-rata — only EQ/escrow moves — and the `namt > 0` range
@@ -57,6 +59,7 @@ EXPN, EXPF, ST, TAKER, TADR, FREF, LIST = 11, 12, 13, 14, 15, 16, 18
 S0 = 20                            # fields 20..24: the revealed preimage limbs (public after settle)
 GAST, WAST, WANT = 25, 26, 27      # SWAP_INTRA sides: give-asset, want-asset (0 = native), want amount
 BNTY = 28                          # attached NADO bounty (§8) — first correct actor (settle/fill_intra/expire) wins it
+PREM, PHELD = 29, 30               # §9.1 free-option premium: required (maker-set) / escrowed by the taker at fill
 ASK, BID, INTRA = 1, 2, 3
 OPEN, FILLED, SETTLED, REFUNDED, CANCELLED = 1, 2, 3, 4, 5
 ID_MAX = 1 << 32
@@ -103,6 +106,7 @@ def escrow_refunds(storage, zk_addrs):
             #                                                    exec assets die with the generation
             add(g(TAKER, o) if (g(KIND, o) == BID and g(ST, o) == FILLED) else g(MAKER, o), esc)
         add(g(MAKER, o), g(BNTY, o))       # a live bounty (always native) refunds to the order's owner of record
+        add(g(TAKER, o), g(PHELD, o))      # an escrowed premium returns to the taker — a reroll is not a walk
     return out
 
 
@@ -188,13 +192,30 @@ def build():
         m.require(m.in_asset() == 0)
         m.require(m.arg(1) != 0)                                # taker's foreign receiving address
         m.require(m.arg(2) != 0)                                # foreign HTLC txid/outpoint
-        m.require(m.value() == zkpy.select(m.slot(KIND, o).get() == BID, m.slot(NAMT, o).get(), m.const(0)))
-        m.slot(ESC, o).set(m.slot(ESC, o).get() + m.value())    # BID: the taker's NADO enters escrow here
+        m.require(m.value() == zkpy.select(m.slot(KIND, o).get() == BID, m.slot(NAMT, o).get(), m.const(0))
+                  + m.slot(PREM, o).get())                     # ... plus the §9.1 premium, if the maker set one
+        m.slot(PHELD, o).set(m.slot(PREM, o).get())
+        m.slot(ESC, o).set(m.slot(ESC, o).get() + m.value() - m.slot(PREM, o).get())   # BID: the taker's NADO
         m.slot(TAKER, o).set(m.caller())
         m.slot(TADR, o).set(m.arg(1))
         m.slot(FREF, o).set(m.arg(2))
         m.slot(ST, o).set(m.const(FILLED))
         m.ret(o)
+
+    # set_premium(o, amt) — maker only, while open: price the taker's FREE OPTION (§9.1). The second mover
+    # escrows `amt` extra NADO at fill; completing the swap returns it, walking (expire after fill)
+    # forfeits it to the maker. HTLC kinds only — an intra swap has no window and no option. 0 clears.
+    with c.method("set_premium") as m:
+        o = m.arg(0)
+        m.require(m.slot(MK, o).get() == 1)
+        m.require(m.slot(ST, o).get() == OPEN)
+        m.require(m.slot(MAKER, o).get() == m.caller())
+        m.require((m.slot(KIND, o).get() - ASK) * (m.slot(KIND, o).get() - BID) == 0)
+        m.require(m.in_asset() == 0)
+        m.require(m.value() == 0)
+        m.require(m.arg(1) < m.const(1 << 61))                  # LT-safe sanity bound
+        m.slot(PREM, o).set(m.arg(1))
+        m.ret(m.arg(1))
 
     # boost(o) [VALUE = added NADO bounty] — §8 watchtower/relayer bounties: ANYONE may attach NADO that
     # whoever performs the order's next required action wins (settle / fill_intra pays it to the caller,
@@ -225,6 +246,10 @@ def build():
         m.require(m.arg(4) < m.const(1 << LIMB_BITS))
         m.require(m.arg(5) < m.const(1 << LIMB_BITS))
         m.require(zkpy.hash(m.arg(1), m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HVM, o).get())
+        m.jnz(m.slot(PHELD, o).get() == 0, "pskip")             # COMPLETION: the §9.1 premium returns
+        m.pay(m.slot(TAKER, o).get(), m.slot(PHELD, o).get())
+        m.label("pskip")
+        m.slot(PHELD, o).set(m.const(0))
         m.slot(S0 + 0, o).set(m.arg(1))
         m.slot(S0 + 1, o).set(m.arg(2))
         m.slot(S0 + 2, o).set(m.arg(3))
@@ -314,6 +339,10 @@ def build():
         st = m.set(m.slot(ST, o).get(), "st")
         m.require((st - OPEN) * (st - FILLED) == 0)
         m.require(m.slot(EXPN, o).get() < m.cursor() + 1)       # cursor >= expn
+        m.jnz(m.slot(PHELD, o).get() == 0, "pskip")             # the swap DIED after a fill: the taker's
+        m.pay(m.slot(MAKER, o).get(), m.slot(PHELD, o).get())   # §9.1 premium is forfeited to the maker
+        m.label("pskip")
+        m.slot(PHELD, o).set(m.const(0))
         esc = m.set(m.slot(ESC, o).get(), "esc")
         m.slot(ESC, o).set(m.const(0))
         m.slot(ST, o).set(m.const(REFUNDED))
@@ -343,6 +372,7 @@ ABI = {
     "settle": {"args": ["orderId", "l0", "l1", "l2", "l3", "l4"]},
     "expire": {"args": ["orderId"]},
     "boost":  {"args": ["orderId"], "value": True},
+    "set_premium": {"args": ["orderId", "amount"]},
     "post_intra": {"args": ["orderId", "giveAsset", "giveAmt", "wantAsset", "wantAmt", "expiryN"], "value": True},
     "fill_intra": {"args": ["orderId"], "value": True},
     "_view": {
@@ -359,7 +389,8 @@ ABI = {
                  "s4": {"field": S0 + 4, "index": "orders"},
                  "gast": {"field": GAST, "index": "orders"}, "wast": {"field": WAST, "index": "orders"},
                  "want": {"field": WANT, "index": "orders"},
-                 "bnty": {"field": BNTY, "index": "orders"}},
+                 "bnty": {"field": BNTY, "index": "orders"},
+                 "prem": {"field": PREM, "index": "orders"}, "pheld": {"field": PHELD, "index": "orders"}},
         "indexes": {"orders": {"cnt": 0, "list": LIST}},
         "addr": ["maker", "taker", "wch", "wamt", "wadr", "tadr", "hsha", "fref"],
     },

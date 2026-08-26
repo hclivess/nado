@@ -220,7 +220,7 @@ function otcOrders() {
     st: Number(g("st", o) || 0), taker: String(g("taker", o) || ""), tadr: String(g("tadr", o) || ""),
     fref: String(g("fref", o) || ""), limbs: [0, 1, 2, 3, 4].map((i) => g("s" + i, o) || 0),
     gast: String(g("gast", o) || "0"), wast: String(g("wast", o) || "0"), want: BigInt(g("want", o) || 0),
-    bnty: BigInt(g("bnty", o) || 0),
+    bnty: BigInt(g("bnty", o) || 0), prem: BigInt(g("prem", o) || 0), pheld: BigInt(g("pheld", o) || 0),
   })).filter((x) => x.kind);
 }
 const otcLeft = (od) => od.expn - (dapp.cursor || 0);          // blocks until the refund window opens
@@ -237,15 +237,28 @@ function otcRow(od, mine) {
   const pill = od.st === 1
     ? (expired ? '<span class="pill warn">expired</span>' : '<span class="pill">open</span>')
     : `<span class="pill${od.st === 2 ? " warn" : ""}">${OTC_ST[od.st] || od.st}</span>`;
+  const party = isMaker || isTaker;
   const acts = [];
+  if (od.st === 2 && !expired && party) acts.push(`<button class="primary" data-otc="settle" data-o="${od.o}">Settle…</button>`);
+  if (od.st === 1 && !expired && !isMaker && me && !mine) acts.push(`<button class="primary" data-otc="fillask" data-o="${od.o}">Fill…</button>`);
   if (od.st === 1 && !expired && isMaker) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
-  if ((od.st === 1 || od.st === 2) && !expired && me) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Boost</button>`);
-  if (od.st === 1 || od.st === 2) acts.push(`<button class="ghost" data-otc="btcleg" data-o="${od.o}">BTC leg</button>`);
-  if (od.st === 1 && !expired && !isMaker && me) acts.push(`<button class="primary" data-otc="fillask" data-o="${od.o}">Fill…</button>`);
-  if ((od.st === 1 || od.st === 2) && expired) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Expire → refund</button>`);
-  if (od.st === 2 && !expired) acts.push(`<button class="primary" data-otc="settle" data-o="${od.o}">Settle…</button>`);
+  if ((od.st === 1 || od.st === 2) && expired && party) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim</button>`);
+  if ((od.st === 1 || od.st === 2) && !expired && party) {
+    acts.push(`<button class="ghost" data-otc="btcleg" data-o="${od.o}">BTC leg</button>`);
+    acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip</button>`);
+  }
+  if (od.st === 1 && !expired && isMaker && od.kind !== OTC_INTRA) acts.push(`<button class="ghost" data-otc="prem" data-o="${od.o}">Deposit…</button>`);
   let detail = "";
   if (mine) {
+    let hint = "";
+    if (od.st === 1 && !expired && isMaker) hint = "Waiting for a taker — your funds stay reclaimable. Cancel any time.";
+    else if (od.st === 2 && !expired) {
+      if (sells && isMaker) hint = `Next: verify the taker's ${chain} lock (BTC leg), then claim it with your swap secret — claiming publishes the secret and completes the swap.`;
+      else if (sells && isTaker) hint = `Next: once the maker claims your ${chain} lock, the secret becomes public — press Settle and paste it to collect your NADO.`;
+      else if (!sells && isMaker) hint = `Next: lock the ${chain} you owe (BTC leg), wait for confirmations, then press Settle — it publishes your secret and collects your NADO.`;
+      else if (!sells && isTaker) hint = `Next: when the maker settles here, the revealed secret appears on this row — use it to claim the ${chain} they locked for you.`;
+    } else if ((od.st === 1 || od.st === 2) && expired) hint = "Expired — Reclaim returns everything to whoever put it in.";
+    if (hint) detail += `<div class="small mt" style="color:var(--accent2)">${hint}</div>`;
     const secret = otcSecrets()[od.o];
     if (secret && (od.st === 1 || od.st === 2))
       detail += `<div class="small dim mt">Your swap secret: <span class="mono">${secret.slice(0, 16)}…</span>
@@ -260,7 +273,7 @@ function otcRow(od, mine) {
   }
   return `<div class="loan"><div class="loanmain">
       <div class="loantop">${pill} <b>#${od.o}</b> ${esc(disp(od.maker))} ${head}</div>
-      <div class="loanterms">${od.bnty > 0n ? `<span class="pill">+${rawToNado(od.bnty.toString())} NADO bounty</span> · ` : ""}hashlock <span class="dim">${esc(od.hsha).slice(0, 18)}…</span> ·
+      <div class="loanterms">${od.prem > 0n ? `asks a ${rawToNado(od.prem.toString())} NADO good-faith deposit · ` : ""}${od.bnty > 0n ? `<span class="pill">+${rawToNado(od.bnty.toString())} NADO tip</span> · ` : ""}hashlock <span class="dim">${esc(od.hsha).slice(0, 18)}…</span> ·
         ${od.st <= 2 ? (expired ? "refundable now" : `expires in ${left} blocks (~${blocksToTime(left)})`) : ""}</div>
       <div class="loanwho dim small">${sells ? "maker receives" : "taker receives"} ${chain} at ${esc(sells ? od.wadr : od.tadr || od.wadr)}</div>
       ${detail}
@@ -315,13 +328,20 @@ function otcAction(what, o) {
     const h = $("btcH"), l = $("btcLock"), c = $("otcBtcCard");
     if (h) h.value = /^[0-9a-fA-F]{64}$/.test(od.hsha) ? od.hsha : "";
     if (l) l.value = od.expf || "";
-    if (c) { c.scrollIntoView({ behavior: "smooth" }); }
+    if (c) { c.classList.remove("hidden"); c.scrollIntoView({ behavior: "smooth" }); }
     return;
+  }
+  if (what === "prem") {
+    const raw = (prompt("Good-faith deposit the taker must escrow (in NADO). Returned to them on completion; forfeited to you if they walk away. Enter 0 to remove it:") || "").trim();
+    let amt;
+    try { amt = raw === "0" ? 0n : BigInt(nadoToRaw(raw)); } catch (e) { return; }
+    if (amt == null || amt < 0n) return;
+    return dapp.call("set_premium", [o, amt], null, "Setting deposit on #" + o + "…", { otc: o }, { cid: OTC_CID });
   }
   if (what === "boost") {
     // §8: attach a NADO bounty ANYONE can win by finishing this order (settle / expire / atomic fill).
     // It makes watchtowers work for you; cancel returns it to the maker.
-    const amt = (() => { try { return BigInt(nadoToRaw((prompt("Bounty in NADO — whoever completes or sweeps this order wins it:") || "").trim())); } catch (e) { return 0n; } })();
+    const amt = (() => { try { return BigInt(nadoToRaw((prompt("Tip in NADO — it pays whoever finishes or reclaims this swap for you (you, or any watchtower). Attach:") || "").trim())); } catch (e) { return 0n; } })();
     if (amt <= 0n) return;
     return dapp.call("boost", [o], amt, "Boosting #" + o + "…", { otc: o }, { cid: OTC_CID });
   }
@@ -338,7 +358,9 @@ function otcAction(what, o) {
         + "amount " + od.wamt + " " + chain + ", to " + od.wadr + ", with a deadline BEFORE " + od.expf + "):") || "";
       if (!fref) return alertBar("Fill needs your foreign lock reference — create the " + chain + " HTLC first.");
     }
-    dapp.call("fill", [o, myf, fref], od.kind === OTC_BID ? od.namtRaw : null,
+    if (od.prem > 0n && !confirm(`This order asks a good-faith deposit of ${rawToNado(od.prem.toString())} NADO on top of the trade. It is returned to you when the swap completes — forfeited to the maker only if you walk away. Continue?`)) return;
+    const total = (od.kind === OTC_BID ? od.namtRaw : 0n) + od.prem;
+    dapp.call("fill", [o, myf, fref], total > 0n ? total : null,
               "Filling #" + o + "…", { otc: o }, { cid: OTC_CID });
     return;
   }
@@ -364,9 +386,9 @@ function limRow(od) {
   const left = otcLeft(od), expired = left <= 0;
   const acts = [];
   if (od.st === 1 && !expired && mine) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
-  if (od.st === 1 && !expired && me) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Boost</button>`);
+  if (od.st === 1 && !expired && mine) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip</button>`);
   if (od.st === 1 && !expired && !mine && me) acts.push(`<button class="primary" data-otc="fillintra" data-o="${od.o}">Fill</button>`);
-  if (od.st === 1 && expired) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Expire → refund</button>`);
+  if (od.st === 1 && expired && mine) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim</button>`);
   const pill = od.st === 1 ? (expired ? '<span class="pill warn">expired</span>' : '<span class="pill">open</span>')
                            : `<span class="pill">${OTC_ST[od.st] || od.st}</span>`;
   return `<div class="loan"><div class="loanmain">
@@ -467,6 +489,7 @@ dapp.onReturn((pend, ok, err) => {
     fill_intra: "Limit order filled — confirming…",
     fill: "Fill sent — confirming…",
     settle: "Settle sent — confirming…",
+    set_premium: "Deposit requirement set — confirming…",
     expire: "Refund claim sent — confirming…",
     boost: "Bounty attached — confirming…",
     cancel: "Cancel sent — confirming…",
@@ -482,7 +505,7 @@ async function boot() {
   wireUI(); loadQR(); orderCards(["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "otcBtcCard", "walletcard"]);
   const modes = installModes(dapp, { modes: playModes({ icon: "🔄", play: ["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard"],
     extra: [{ key: "cross", icon: "🌉", label: "Cross-chain", hint: "Swap NADO against BTC/ETH — atomic, no custodian, no wrapped coins.",
-              cards: ["otcBookCard", "otcPostCard", "otcMyCard", "otcBtcCard"] }] }) });
+              cards: ["otcBookCard", "otcPostCard", "otcMyCard"], keep: ["otcBtcCard"] }] }) });
   render = modes.wrap(doRender);
   const q = new URLSearchParams(location.search).get("pool");
   if (q) sel = q;

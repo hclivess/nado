@@ -190,9 +190,11 @@
 
   <div class="card hidden" id="otcPostCard">
     <h2>Post an order</h2>
-    <p class="small dim">Posting generates your <b>swap secret</b> — it is saved in this browser and shown
-    below; back it up. Selling NADO escrows it on-chain now; buying NADO escrows nothing until a taker
-    fills. An unfilled or unsettled order always refunds to whoever funded it after the expiry.</p>
+    <p class="small dim">Posting creates your <b>swap secret</b> (kept in this browser — back it up below).
+    Selling NADO locks it in the contract now; buying NADO locks nothing until someone fills. Whatever
+    happens, an unfinished order refunds to whoever paid in once it expires — nothing can get stuck. After
+    posting, the order's row offers <b>Deposit…</b> to make takers stake a returnable good-faith deposit,
+    and <b>Tip</b> to pay watchtowers to finish the swap for you.</p>
     <div class="row mt">
       <select id="otcKind">
         <option value="1">Sell NADO — receive a foreign coin</option>
@@ -284,6 +286,6 @@
     Nothing here is investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=78f48092"></script>
+<script type="module" src="/static/dex.js?v=1b2cf7a7"></script>
 </body>
 </html>

@@ -237,5 +237,41 @@ ok(ref3 == {A: amt(6) + amt(7) + 10 ** 10 + amt(24) + 7 * 10 ** 8 + 3 * 10 ** 8,
 ok(sum(ref3.values()) == st.bridge.get(cid, 0), "attribution == the contract's native pot, exactly")
 ok(sum(st.bridge.values()) == supply0, "native supply conserved through the bounty section")
 
+# ---- J. §9.1 free-option premium: the second mover's walk is priced --------------------------------
+post(30, O.ASK)
+ok(refused(C, "set_premium", [30, 10 ** 9]), "premium: stranger refused")
+ok(refused(A, "set_premium", [23, 10 ** 9]), "premium: intra order refused (no window, no option)")
+call(A, "set_premium", [30, 10 ** 9])
+ok(rd(O.PREM, 30) == 10 ** 9, "maker prices the option")
+ok(refused(C, "fill", [30, "bc1qt30", "btc:lock:30"]), "fill without the premium refused")
+call(C, "fill", [30, "bc1qt30", "btc:lock:30"], 10 ** 9)          # ASK fill now carries VALUE = premium
+ok(rd(O.PHELD, 30) == 10 ** 9 and rd(O.ESC, 30) == amt(30), "premium escrowed apart from the trade escrow")
+ok(refused(A, "set_premium", [30, 5]), "premium: locked once filled")
+cb = st.bridge[C]
+call(C, "settle", [30] + O.preimage_limbs(secret(30)))
+ok(st.bridge[C] == cb + amt(30) + 10 ** 9, "COMPLETION: taker gets the escrow AND the premium back")
+post(31, O.ASK)
+call(A, "set_premium", [31, 10 ** 9])
+call(C, "fill", [31, "bc1qt31", "btc:lock:31"], 10 ** 9)
+st.cursor = 600
+ab, cb = st.bridge[A], st.bridge[C]
+call(R, "expire", [31])
+ok(st.bridge[A] == ab + amt(31) + 10 ** 9 and st.bridge[C] == cb,
+   "WALK: the maker gets their escrow back plus the forfeited premium; the taker eats the price of the option")
+st.cursor = 100
+post(32, O.BID)
+call(A, "set_premium", [32, 5 * 10 ** 8])
+ok(refused(C, "fill", [32, "bc1qt32", "btc:lock:32"], amt(32)), "BID fill at trade-only value refused when a premium is set")
+call(C, "fill", [32, "bc1qt32", "btc:lock:32"], amt(32) + 5 * 10 ** 8)
+ok(rd(O.ESC, 32) == amt(32) and rd(O.PHELD, 32) == 5 * 10 ** 8, "BID: trade escrow and premium ride one value, split in storage")
+# attribution: a live PHELD is the TAKER's money-in-flight
+ref4 = O.escrow_refunds(st.contracts[cid]["storage"], st.zk_addrs)
+ok(ref4.get(C, 0) == amt(8) + amt(32) + 5 * 10 ** 8, f"attribution: filled-BID escrow + live premium return to the taker: {ref4.get(C)}")
+ok(sum(ref4.values()) == st.bridge.get(cid, 0), "attribution == the contract pot, exactly (premiums included)")
+ab = st.bridge[A]
+call(A, "settle", [32] + O.preimage_limbs(secret(32)))
+ok(st.bridge[A] == ab + amt(32) and rd(O.PHELD, 32) == 0, "BID completion: maker paid, premium released")
+ok(sum(st.bridge.values()) == supply0, "native supply conserved through the premium section")
+
 print(f"\n[otc] {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
