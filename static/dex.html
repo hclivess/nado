@@ -136,7 +136,8 @@
   <!-- MARKET (price chart + stats for the selected pool) -->
   <div class="card hidden" id="marketCard">
     <div class="mkt">
-      <span class="pair" id="mktPair">—</span>
+      <select id="mktPick" style="max-width:230px;flex:0 0 auto"></select>
+      <span class="pair hidden" id="mktPair">—</span>
       <span class="price" id="mktPrice">—</span>
       <span class="chg flat" id="mktChg">—</span>
     </div>
@@ -181,7 +182,7 @@
   <!-- POOLS -->
   <div class="card" id="poolsCard">
     <h2>Pools</h2>
-    <p class="small dim">Each market pairs a token with NADO. Tap one to trade it or to supply liquidity.</p>
+    <p class="small dim">All markets on the exchange. Tap one to trade it or to supply liquidity.</p>
     <div id="pools" class="mt"></div>
   </div>
 
@@ -307,6 +308,6 @@
     investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=f6f45ad5"></script>
+<script type="module" src="/static/dex.js?v=c23382c7"></script>
 </body>
 </html>

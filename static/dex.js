@@ -723,6 +723,19 @@ const fmtAgo = (ts) => { const s = Math.max(0, (Date.now() - ts) / 1000); return
 function renderMarket() {
   const card = $("marketCard");
   if (!card) return;
+  // Land on a live market instead of an empty page: pick the deepest pool until the user chooses one.
+  const ids = lastSto ? poolIds(lastSto) : [];
+  if (lastSto && (!sel || !ids.includes(String(sel)))) {
+    let best = null;
+    for (const id of ids) { const q = poolOf(lastSto, id); if (!best || q.rn > best.rn) best = q; }
+    if (best) sel = String(best.id);
+  }
+  const pick = $("mktPick");
+  if (pick && lastSto) {
+    const opts = ids.map((id) => { const q = poolOf(lastSto, id); return `<option value="${q.id}">${esc(tokSym(q.asset))} / NADO</option>`; }).join("");
+    if (pick.dataset.sig !== opts) { pick.dataset.sig = opts; pick.innerHTML = opts || `<option>no markets yet</option>`; }
+    if (sel) pick.value = String(sel);
+  }
   gate({ marketCard: !!sel });
   if (!sel || !lastSto) return;
   const p = poolOf(lastSto, sel);
@@ -889,6 +902,8 @@ function wireUI() {
     if (addrIn) addrIn.onchange = () => { if (addrIn.value.trim()) faddrSet(netSel.value, addrIn.value.trim()); };
     fillNets();
   }
+  const mp = $("mktPick");
+  if (mp) mp.onchange = () => { sel = mp.value; render(); };
   const rb = $("mktRanges");
   if (rb) rb.querySelectorAll("button").forEach((b) => { b.onclick = () => {
     mktRange = Number(b.getAttribute("data-range"));
@@ -932,10 +947,10 @@ async function boot() {
     alertBar("Crypto bundle failed to load — reload.");
     return;
   }
-  wireUI(); loadQR(); orderCards(["marketCard", "swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
+  wireUI(); loadQR(); orderCards(["marketCard", "swapCard", "liqCard", "poolsCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
   const modes = installModes(dapp, { modes: [
     { key: "swap", icon: "🔄", label: "Swap", hint: "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools.",
-      cards: ["marketCard", "swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard"] },
+      cards: ["marketCard", "swapCard", "liqCard", "poolsCard", "otcLimitCard", "openCard"] },
     { key: "cross", icon: "🌉", label: "Cross-chain", hint: "Atomic BTC/ETH ↔ NADO swaps — no custodian, no wrapped coins.",
       cards: ["otcBookCard", "otcPostCard", "otcMyCard"] },
   ] });
