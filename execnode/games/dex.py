@@ -280,5 +280,10 @@ ABI = {
                        "rn":  {"field": RN,  "index": "pools"},
                        "rt":  {"field": RT,  "index": "pools"},
                        "sup": {"field": SUP, "index": "pools"}},
-              "index": {"pools": {"count": 0, "list": LIST}}},
+              # NOTE the exact key names decode_view requires: "indexes" (plural) keyed by the index NAME
+              # each map references, and "cnt" (not "count") for the counter slot. This shipped as
+              # "index": {"pools": {"count": ...}} — read as the SIMPLE single-index schema, whose enum()
+              # found no "cnt" key, returned 0, and made EVERY map decode empty. The pools existed on
+              # chain the whole time; the frontend just could never see one.
+              "indexes": {"pools": {"cnt": 0, "list": LIST}}},
 }
