@@ -98,12 +98,20 @@ export async function deployHtlc(url, privHex, bytecodeHex) {
     rpc(url, "eth_gasPrice", []),
     rpc(url, "eth_chainId", []),
   ]);
+  // ESTIMATE the gas — a hardcoded limit silently under-funds a bigger contract, and the out-of-gas
+  // receipt carries no contractAddress, so the wait below would spin until it timed out with a
+  // misleading "no receipt yet". Fall back to a generous limit only if the node cannot estimate.
+  let gasLimit = 3_000_000n;
+  try { gasLimit = (BigInt(await rpc(url, "eth_estimateGas", [{ from, data: bytecodeHex }])) * 13n) / 10n; }
+  catch (e) { /* keep the fallback */ }
   const raw = await signTx({ privHex, nonce: BigInt(nonce), gasPriceWei: (BigInt(gasPrice) * 15n) / 10n,
-    gasLimit: 600000n, to: "", valueWei: 0n, dataHex: bytecodeHex.replace(/^0x/, ""), chainId: BigInt(chainId) });
+    gasLimit, to: "", valueWei: 0n, dataHex: bytecodeHex.replace(/^0x/, ""), chainId: BigInt(chainId) });
   const txid = await rpc(url, "eth_sendRawTransaction", [raw]);
   for (let i = 0; i < 60; i++) {
     const r = await rpc(url, "eth_getTransactionReceipt", [txid]).catch(() => null);
     if (r && r.contractAddress) return { txid, address: r.contractAddress };
+    if (r && r.status && BigInt(r.status) === 0n)          // mined and FAILED — say so instead of waiting
+      throw new Error("deploy reverted or ran out of gas (tx " + txid + ", gas used " + BigInt(r.gasUsed || 0) + ")");
     await new Promise((res) => setTimeout(res, 2000));
   }
   throw new Error("deploy sent (" + txid + ") but no receipt yet — check the explorer");
