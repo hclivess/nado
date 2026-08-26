@@ -338,7 +338,7 @@ async function refresh() {
 
 function wireUI() {
   wireWallet(dapp, render);
-  stickyInputs(["newPid", "newAsset", "posId", "addN", "addT", "slip", "otcNado", "otcFAmt", "otcFAddr", "otcExpiry"], "nado_dex_form");
+  stickyInputs(dapp, ["newPid", "newAsset", "posId", "addN", "addT", "slip", "otcNado", "otcFAmt", "otcFAddr", "otcExpiry"]);
   $("btnOpen").onclick = openPool;
   $("btnFundN").onclick = fundNative;
   $("btnFundT").onclick = fundToken;

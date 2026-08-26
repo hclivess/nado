@@ -36,13 +36,13 @@ of it is still open.
 | **Launchpad** | $144M (42%) — Pump.fun, Bags, LetsBonk | **ABSENT** | Needs asset primitive |
 | **Trading terminals** | $79M — Axiom, Photon, BullX, GMGN, Trojan | **ABSENT** — no charts, no indexer, no price history | Needs markets + indexer |
 | **Wallet swaps** | $49.6M — Phantom | **PARTIAL** — wallet has send/receive/stake/deploy/HTLC lock, but the "swap" UI is a raw HTLC lock/claim/refund form: no pair, no price, no counterparty discovery | Needs AMM + router |
-| **AMM / DEX** | Raydium, Orca, Meteora, Pumpswap | **DESIGN** — `doc/dex-bridge.md` specifies an on-chain order book + atomic VM swap; zero lines of it implemented | Needs asset primitive |
+| **AMM / DEX** | Raydium, Orca, Meteora, Pumpswap | **SHIPPED (AMM + order book)** — the constant-product AMM (`execnode/games/dex.py`) and the cross-chain OTC order book (`execnode/games/otc.py`, dex-bridge phase 1, live 2026-08-26 as the dex dApp's Cross-chain mode) are both on-chain; router still open | Needs asset primitive |
 | **Aggregator/router** | Jupiter, $812B routed in 2025 | **ABSENT** | Needs ≥2 venues |
 | **Liquid staking** | Jito, Sanctum, Marinade | **ABSENT** — bonding is BUILT (`bond`/`unbond`, `B_MIN`, slashing, bond-elastic emission) but there is no derivative token, no delegation | Needs asset primitive + delegation |
 | **Lending** | Kamino, Save, Drift, Sentora | **ABSENT** — no collateral/liquidation/interest code, and **no oracle** except the app-specific sports resolver | Needs assets + oracle |
 | **Stablecoin** | USDC/USDT rails | **DESIGN** — `doc/stablecoin.md` (nUSD, CDP + stability pool + stake-secured oracle), explicitly "nothing here is implemented" | Needs assets + oracle |
 | **RWA** | >$2B, +43% QoQ | **ABSENT** | Needs everything above + counterparties |
-| **Bridge / on-ramp** | CEX listings + wrapped everything | **PARTIAL** — HTLC atomic swap is BUILT and tested on the NADO leg (`tests/test_htlc.py`, 9 tests); no counterparty-chain client, no order book, no listing | The real gate on all demand |
+| **Bridge / on-ramp** | CEX listings + wrapped everything | **PARTIAL** — HTLC atomic swap BUILT and tested on the NADO leg (`tests/test_htlc.py`), and the OTC order book (maker/taker discovery + dual-hashlock escrow) is LIVE (`execnode/games/otc.py`); still missing: counterparty-chain clients (BTC/ETH leg wiring, dex-bridge phase 2), no listing | The real gate on all demand |
 | **MEV / block engine** | Jito | **N/A by design** — fees are burned, there is no priority-fee auction | See §2 |
 
 **What we have that they don't** (and should not throw away):
