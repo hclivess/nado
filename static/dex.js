@@ -314,7 +314,7 @@ const otcLeft = (od) => od.expn - (dapp.cursor || 0);          // blocks until t
 // ---- the ETHEREUM leg (injected wallet: the page builds calldata, MetaMask signs and pays the gas) ----
 // One shared ownerless HtlcEth per EVM chain (doc/dex-bridge.md §6.5). Filled once deployed; until then an
 // ETH order's row shows the exact scripts/otc_eth_leg.mjs command instead of a dead button.
-const ETH_HTLC = { "0xaa36a7": "" };                   // chainId(hex) -> HtlcEth address ("" = not deployed yet)
+const ETH_HTLC = { "0xaa36a7": "0xCd8F71E75Bb37F438c49a8011ae4037da5A8968F" };   // Sepolia (deployed 2026-08-26)
 const ethProv = () => (typeof window !== "undefined" ? window.ethereum : null);
 async function ethReq(method, params) { return ethProv().request({ method, params: params || [] }); }
 async function ethConnect() {
@@ -332,7 +332,7 @@ async function ethLeg(od, mode) {
   try {
     const { addr, chain } = await ethConnect();
     const htlc = ethHtlcFor(chain);
-    if (!htlc) { alertBar("The HtlcEth contract isn't deployed on this EVM network yet — the Reveal command below runs the leg from a terminal."); return; }
+    if (!htlc) { alertBar(chain === "0xaa36a7" ? "HtlcEth address missing — reload the page." : "Switch your wallet to the Sepolia test network (that is where the swap contract lives), then try again."); return; }
     const sells = od.kind === OTC_ASK;                  // ASK: taker sends ETH, maker claims
     const senderAddr = sells ? ethAddrOf(od.tadr) : ethAddrOf(od.wadr);   // who funded the lock (the refundee)
     const claimAddr = sells ? ethAddrOf(od.wadr) : ethAddrOf(od.tadr);    // who claims with the secret
@@ -364,7 +364,7 @@ async function ethFoundSecret(od) {
 function ethCliHint(od) {
   const rec = otcRec(od.o);
   return `<div class="small dim mt">No browser wallet detected. Run the ETH leg from a terminal:<br>
-    <span class="mono" style="word-break:break-all">node scripts/otc_eth_leg.mjs claim --rpc &lt;RPC&gt; --key ${rec.k ? rec.k.slice(0, 8) + "…(your key)" : "&lt;key&gt;"} --hash ${esc(od.hsha)} --deadline ${ethDeadline(od)} --secret &lt;s&gt;</span></div>`;
+    <span class="mono" style="word-break:break-all">node scripts/otc_eth_leg.mjs claim --rpc https://ethereum-sepolia-rpc.publicnode.com --htlc 0xCd8F71E75Bb37F438c49a8011ae4037da5A8968F --key &lt;your-eth-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --refundee &lt;addr&gt; --deadline ${ethDeadline(od)} --secret &lt;s&gt;</span></div>`;
 }
 
 // ---- rendering ----------------------------------------------------------------------------------------
