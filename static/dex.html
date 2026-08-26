@@ -178,12 +178,63 @@
     </div>
   </div>
 
+  <!-- CROSS-CHAIN ORDER BOOK (otc contract, doc/dex-bridge.md) -->
+  <div class="card hidden" id="otcBookCard">
+    <h2>Cross-chain order book</h2>
+    <p class="small dim">Swap NADO against <b>BTC / ETH</b> with no custodian and no wrapped coins: both
+    sides lock behind the <b>same secret</b> (an atomic swap). The NADO side escrows in a contract that can
+    only ever pay the funder back (cancel / expiry) or the counterparty against the secret — nobody else,
+    ever. The foreign side is a standard HTLC you create on that chain with the hashlock shown here.</p>
+    <div id="otcBook" class="mt"></div>
+  </div>
+
+  <div class="card hidden" id="otcPostCard">
+    <h2>Post an order</h2>
+    <p class="small dim">Posting generates your <b>swap secret</b> — it is saved in this browser and shown
+    below; back it up. Selling NADO escrows it on-chain now; buying NADO escrows nothing until a taker
+    fills. An unfilled or unsettled order always refunds to whoever funded it after the expiry.</p>
+    <div class="row mt">
+      <select id="otcKind">
+        <option value="1">Sell NADO — receive a foreign coin</option>
+        <option value="2">Buy NADO — pay with a foreign coin</option>
+      </select>
+      <input id="otcNado" placeholder="NADO amount" inputmode="decimal" autocomplete="off">
+    </div>
+    <div class="row mt">
+      <select id="otcChain">
+        <option value="btc">BTC (Bitcoin)</option>
+        <option value="eth">ETH (Ethereum)</option>
+      </select>
+      <input id="otcFAmt" placeholder="foreign amount (e.g. 0.005)" autocomplete="off">
+    </div>
+    <div class="row mt">
+      <input id="otcFAddr" placeholder="your address ON that chain (receive / refund)" autocomplete="off">
+    </div>
+    <div class="row mt">
+      <label class="small dim" for="otcExpiry">NADO-side expiry (blocks from now, 6 s each)</label>
+      <input id="otcExpiry" value="3000" inputmode="numeric" style="max-width:110px" autocomplete="off">
+    </div>
+    <div class="row mt"><button class="primary" id="btnOtcPost">Post order</button></div>
+    <div id="otcSecretBox" class="mt hidden">
+      <p class="small warn">Your swap secret — WITHOUT IT A FILLED SWAP CANNOT COMPLETE. It stays in this
+      browser; copy it somewhere safe too:</p>
+      <p class="mono small" id="otcSecretHex" style="word-break:break-all"></p>
+    </div>
+  </div>
+
+  <div class="card hidden" id="otcMyCard">
+    <h2>My swaps</h2>
+    <p class="small dim">Every order you posted or filled, with what to do next. A swap is <b>yours to
+    finish</b>: reveal / settle before the expiry, or reclaim with expire after it.</p>
+    <div id="otcMine" class="mt"></div>
+  </div>
+
   <footer>
     <span>The pool contract is public and verifiable on the NADO execution layer. Providing liquidity
     carries impermanent loss — if the price moves, withdrawing returns a different mix than you put in.
     Nothing here is investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=aa79a357"></script>
+<script type="module" src="/static/dex.js?v=521736ae"></script>
 </body>
 </html>
