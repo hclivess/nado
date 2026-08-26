@@ -181,8 +181,16 @@ same window, it never interprets it.
   party, never the caller: ASK → taker, BID → maker. Submitting the limbs publishes `s` on NADO — for a BID
   that is exactly what hands the taker their claim on the foreign leg (and the limbs are stored in `s0..s4`).
 - **`expire(o)`** — anyone, at/after `expn`. Drains an unsettled order's escrow back to whoever funded it
-  (ASK → maker, filled BID → taker) and marks `refunded`. The no-authority safety valve: a stuck order is
-  never trapped. `// state ∈ {open, filled} && cursor ≥ expn.`
+  (ASK → maker, filled BID → taker, intra → maker; asset escrows refund via APAY) and marks `refunded`. The
+  no-authority safety valve: a stuck order is never trapped. `// state ∈ {open, filled} && cursor ≥ expn.`
+- **`post_intra(o, giveAsset, giveAmt, wantAsset, wantAmt, expn)`** with `VALUE = giveAmt` of `giveAsset`
+  (0 = native) — a SWAP_INTRA limit order (§7): both sides live on the exec layer, so no hashlock and no
+  foreign chain. `// sides > 0; not NADO-for-NADO; the escrowed value matches the stated give side.`
+- **`fill_intra(o)`** with `VALUE = wantAmt` of `wantAsset` — BOTH legs in one atomic call (taker's value →
+  maker, maker's escrow → taker); either leg failing reverts everything. `open → settled` directly, no
+  middle state, no free-option window. `// state==open && kind==intra && cursor < expn && VALUE matches.`
+  (`fill()` correspondingly gates on the HTLC kinds — without that, a 0-value fill could flip an intra
+  order to `filled` and freeze its escrow until expiry.)
 
 Because the contract can **only** pay escrow back to its funder (cancel/expire) or forward to the recorded
 counterparty against the preimage the maker themselves committed to, there is no method and no caller that
@@ -467,7 +475,7 @@ and being a watchtower requires no permission, stake, or identity.
 | **0 (done)** | HTLC tx types + client Swap tab | `tests/test_htlc.py` |
 | **1 (done 2026-08-26)** | `otc` order-book contract (`ASK_NADO`/`BID_NADO`): post/cancel/fill/settle/expire + attributable escrow, dual hashlock, claim/refund window split, reroll attribution wired into the carry-forward | `tests/otc_contract_test.py` (author-in-test + differential-verify vs the real VM, 53 asserts) |
 | **2 (legs done 2026-08-26)** | Foreign legs SHIPPED: `scripts/otc_btc_leg.py` (P2WSH HTLC builder/signer + CLI: address/claim/refund/extract, BIP143, no wallet dependency) and `scripts/HtlcEth.sol` (the one-contract ETH HTLC). Still open: in-wallet foreign-leg construction + SPV/RPC verification UX (today the dApp shows the parameters and the CLI operates the leg) | `tests/test_otc_swap_e2e.py` — 15/15: regtest bitcoind + anvil + the real otc contract, ONE secret opens all three, both refund paths, both wrong-secret rejections |
-| **3** | `SWAP_INTRA` + `fill_intra` (atomic exec-layer asset↔asset) and the cross-namespace tunnel path | `tests/test_otc_intra.py` |
+| **3 (contract done 2026-08-26)** | `SWAP_INTRA` SHIPPED: `post_intra`/`fill_intra` — both legs (native↔asset or asset↔asset) in ONE atomic call, open→settled with no middle state; asset-aware cancel/expire refunds; `fill()` gained a kind gate (a 0-value HTLC fill could otherwise freeze an intra escrow until expiry). Cross-namespace tunnel path still open (routes through the L1 bridge, §7) | intra section of `tests/otc_contract_test.py` (72/72 total) |
 | **4** | Watchtower/relayer bounties + a reference permissionless relayer daemon (`scripts/otc_watchtower.py`, dry-run default like `bet_oracle.py`) | integration |
 | **5 (optional, future)** | premium/collateral for the free option; L3 gossip discovery relay; a `bridge.nadochain.com` Swap dApp | — |
 

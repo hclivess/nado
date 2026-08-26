@@ -29,18 +29,19 @@ cid = st.contract_id(A, code, "n")
 rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
 _n = [0]
 
-def call(who, method, args, value=None):
+def call(who, method, args, value=None, asset=None):
     _n[0] += 1
     p = {"op": "call", "contract": cid, "method": method, "args": args}
     if value: p["value"] = value
+    if asset: p["asset"] = asset
     st.apply_blob(p, who, f"{method}-{_n[0]}")
 
 def snap():
     return json.dumps({"s": st.contracts[cid]["storage"], "b": st.bridge}, sort_keys=True, default=str)
 
-def refused(who, method, args, value=None):
+def refused(who, method, args, value=None, asset=None):
     before = snap()
-    try: call(who, method, args, value)
+    try: call(who, method, args, value, asset)
     except Exception: pass
     return snap() == before
 
@@ -149,6 +150,51 @@ ok(ref == {A: amt(6) + amt(7), C: amt(8)}, f"escrow_refunds attributes every liv
 ok(sum(ref.values()) == st.bridge.get(cid, 0), "attribution sums EXACTLY to the contract's balance")
 ok(rd(0, 0) == 8, "order count")
 ok(sum(st.bridge.values()) == supply0, "supply conserved across the whole run")
+
+# ---- H. SWAP_INTRA (§7): both legs on the exec layer, one atomic call -----------------------------
+from execnode.state import asset_id
+st.apply_blob({"op": "asset_create", "seed": 1, "name": "Token", "sym": "TKN", "dec": 0,
+               "supply": 10 ** 9, "mintable": False}, A, "ac")
+aid = int(asset_id(A, 1))
+ok(st.asset_balance(aid, A) == 10 ** 9, "asset created, supply to the maker")
+# H1: A gives 100 TKN, wants 3 NADO — C fills with native value
+call(A, "post_intra", [10, aid, 100, 0, 3 * 10 ** 10, 600], 100, asset=aid)
+ok(rd(O.MK, 10) == 1 and rd(O.KIND, 10) == O.INTRA and rd(O.ESC, 10) == 100, "intra ask posted (asset give escrowed)")
+ok(st.asset_balance(aid, cid) == 100, "contract holds the asset escrow")
+ok(refused(C, "fill", [10, "x", "y"]), "HTLC fill() on an intra order refused (freeze-griefing gate)")
+ok(refused(C, "fill_intra", [10], 3 * 10 ** 10 - 1), "intra fill with wrong value refused")
+ok(refused(C, "fill_intra", [10], 100, asset=aid), "intra fill with wrong asset refused")
+ab = st.bridge[A]
+call(C, "fill_intra", [10], 3 * 10 ** 10)
+ok(rd(O.ST, 10) == O.SETTLED, "intra fill settles directly (no middle state)")
+ok(st.bridge[A] == ab + 3 * 10 ** 10 and st.asset_balance(aid, C) == 100, "BOTH legs moved atomically: maker got NADO, taker got TKN")
+# H2: C gives 2 NADO (native), wants 40 TKN — A fills with the asset
+call(C, "post_intra", [11, 0, 2 * 10 ** 10, aid, 40, 600], 2 * 10 ** 10)
+ok(rd(O.ESC, 11) == 2 * 10 ** 10 and rd(O.GAST, 11) == 0, "intra native-give posted")
+ab2 = st.bridge[A]
+call(A, "fill_intra", [11], 40, asset=aid)
+ok(rd(O.ST, 11) == O.SETTLED and st.asset_balance(aid, C) == 140 and st.bridge[A] == ab2 + 2 * 10 ** 10,
+   "native<->asset intra swap settled (maker got the TKN, taker got the escrowed NADO)")
+ok(refused(A, "fill_intra", [2]), "fill_intra on an HTLC order refused")
+ok(refused(A, "post_intra", [12, 0, 5, 0, 5, 600], 5), "NADO-for-NADO refused")
+# H3: cancel + expire refund the ASSET escrow
+call(A, "post_intra", [13, aid, 30, 0, 10 ** 10, 600], 30, asset=aid)
+a_tkn = st.asset_balance(aid, A)
+call(A, "cancel", [13])
+ok(rd(O.ST, 13) == O.CANCELLED and st.asset_balance(aid, A) == a_tkn + 30, "cancel refunds the ASSET escrow")
+call(A, "post_intra", [14, aid, 25, 0, 10 ** 10, 600], 25, asset=aid)
+st.cursor = 600
+a_tkn = st.asset_balance(aid, A)
+call(R, "expire", [14])
+ok(rd(O.ST, 14) == O.REFUNDED and st.asset_balance(aid, A) == a_tkn + 25, "expire refunds the ASSET escrow (called by anyone)")
+st.cursor = 100
+# H4: reroll attribution — native intra escrow attributes to the maker; asset escrow is skipped
+call(A, "post_intra", [15, 0, 10 ** 10, aid, 5, 600], 10 ** 10)          # native give, left open
+call(A, "post_intra", [16, aid, 10, 0, 10 ** 10, 600], 10, asset=aid)    # asset give, left open
+ref2 = O.escrow_refunds(st.contracts[cid]["storage"], st.zk_addrs)
+ok(ref2 == {A: amt(6) + amt(7) + 10 ** 10, C: amt(8)}, f"attribution includes native intra, skips asset intra: {ref2}")
+ok(sum(ref2.values()) == st.bridge.get(cid, 0), "attribution still sums EXACTLY to the contract's native pot")
+ok(sum(st.bridge.values()) == supply0, "native supply conserved across the intra section too")
 
 print(f"\n[otc] {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
