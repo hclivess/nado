@@ -50,7 +50,7 @@ def amt(o):    return o * 10 ** 10
 
 def post(o, kind, expn=600, who=A, value=None):
     v = amt(o) if (kind == O.ASK and value is None) else (value or 0)
-    call(who, "post", [o, kind, amt(o), "btc", f"0.00{o}", f"bc1qmaker{o}", hsha(o), O.vm_hashlock(secret(o)), expn, 999], v or None)
+    call(who, "post", [o, kind, amt(o), "btc", f"0.00{o}", f"bc1qmaker{o}", hsha(o), *O.vm_hashlock_parts(secret(o)), expn, 999], v or None)
 
 supply0 = sum(st.bridge.values())
 
@@ -68,20 +68,22 @@ ok(rd(O.ST, 1) == O.CANCELLED and rd(O.ESC, 1) == 0 and st.bridge[A] == START, "
 ok(refused(A, "cancel", [1]), "double cancel refused")
 
 # ---- B. post guard battery ------------------------------------------------------------------------
-ok(refused(A, "post", [1, O.ASK, amt(1), "btc", "x", "y", hsha(1), O.vm_hashlock(secret(1)), 600, 999], amt(1)), "duplicate id refused")
-ok(refused(A, "post", [0, O.ASK, 5, "btc", "x", "y", hsha(9), 7, 600, 999], 5), "id 0 refused")
-ok(refused(A, "post", [1 << 32, O.ASK, 5, "btc", "x", "y", hsha(9), 7, 600, 999], 5), "id >= 2^32 refused")
-ok(refused(A, "post", [9, 3, 5, "btc", "x", "y", hsha(9), 7, 600, 999], 5), "kind 3 refused")
-ok(refused(A, "post", [9, O.ASK, 0, "btc", "x", "y", hsha(9), 7, 600, 999]), "zero amount refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 7, 600, 999]), "ask without escrow refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 7, 600, 999], 4), "ask with wrong value refused")
-ok(refused(A, "post", [9, O.BID, 5, "btc", "x", "y", hsha(9), 7, 600, 999], 5), "bid with value refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 7, 105, 999], 5), "expiry below MIN_TIMELOCK refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 7, 100 + O.HTLC_MAX_TIMELOCK + 1, 999], 5), "expiry past MAX_TIMELOCK refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 600, 999], 5), "zero vm hashlock refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", 0, 7, 600, 999], 5), "zero sha hashlock refused")
-ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 7, 600, 0], 5), "zero foreign deadline refused")
-ok(refused(A, "post", [9, O.ASK, 5, 0, "x", "y", hsha(9), 7, 600, 999], 5), "zero want_chain refused")
+ok(refused(A, "post", [1, O.ASK, amt(1), "btc", "x", "y", hsha(1), *O.vm_hashlock_parts(secret(1)), 600, 999], amt(1)), "duplicate id refused")
+ok(refused(A, "post", [0, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 7, 600, 999], 5), "id 0 refused")
+ok(refused(A, "post", [1 << 32, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 7, 600, 999], 5), "id >= 2^32 refused")
+ok(refused(A, "post", [9, 3, 5, "btc", "x", "y", hsha(9), 0, 7, 600, 999], 5), "kind 3 refused")
+ok(refused(A, "post", [9, O.ASK, 0, "btc", "x", "y", hsha(9), 0, 7, 600, 999]), "zero amount refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 7, 600, 999]), "ask without escrow refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 7, 600, 999], 4), "ask with wrong value refused")
+ok(refused(A, "post", [9, O.BID, 5, "btc", "x", "y", hsha(9), 0, 7, 600, 999], 5), "bid with value refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 7, 105, 999], 5), "expiry below MIN_TIMELOCK refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 7, 100 + O.HTLC_MAX_TIMELOCK + 1, 999], 5), "expiry past MAX_TIMELOCK refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 0, 600, 999], 5), "zero vm hashlock refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 1 << 32, 7, 600, 999], 5), "oversized vm hashlock high half refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 7, 1 << 32, 600, 999], 5), "oversized vm hashlock low half refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", 0, 0, 7, 600, 999], 5), "zero sha hashlock refused")
+ok(refused(A, "post", [9, O.ASK, 5, "btc", "x", "y", hsha(9), 0, 7, 600, 0], 5), "zero foreign deadline refused")
+ok(refused(A, "post", [9, O.ASK, 5, 0, "x", "y", hsha(9), 0, 7, 600, 999], 5), "zero want_chain refused")
 
 # ---- C. ASK fill + settle -------------------------------------------------------------------------
 post(2, O.ASK)

@@ -39,7 +39,8 @@ Storage (order id `o` = a frontend random int < 2^32; all slot-keyed => enumerab
   digest)  10 hvm(alghash hashlock, field element)  11 expn(NADO refund height)  12 expf(foreign deadline,
   opaque)  13 st(1 open 2 filled 3 settled 4 refunded 5 cancelled)  14 taker(digest)  15 tadr(taker's
   foreign addr digest)  16 fref(foreign HTLC txid/outpoint digest)  18 LIST  20..24 s0..s4(revealed limbs).
-Methods: post(o,kind,namt,wch,wamt,wadr,hsha,hvm,expn,expf)[VALUE=namt for ASK] · cancel(o) maker/open ·
+Methods: post(o,kind,namt,wch,wamt,wadr,hsha,hvmHi,hvmLo,expn,expf) — the alghash hashlock rides as two
+  32-bit halves because a JS JSON number only holds 2^53 exactly (hvm = hi·2^32 + lo mod P) —[VALUE=namt for ASK] · cancel(o) maker/open ·
   fill(o,tadr,fref)[VALUE=namt for BID] · settle(o,l0..l4) anyone with the preimage · expire(o) anyone late.
 Amounts are RAW NADO throughout: no products, no pro-rata — only EQ/escrow moves — and the `namt > 0` range
 gate bounds every amount below the 2^62 LT window at the door.
@@ -70,6 +71,12 @@ def vm_hashlock(s_hex):
     return alghash.hashn(preimage_limbs(s_hex))
 
 
+def vm_hashlock_parts(s_hex):
+    """H_vm as the (hi32, lo32) halves post() takes — a JS JSON number is exact only to 2^53, so the
+    field element crosses the wire in two 32-bit pieces and the contract recombines hi*2^32+lo."""
+    return divmod(vm_hashlock(s_hex), 1 << 32)
+
+
 def escrow_refunds(storage, zk_addrs):
     """{address: raw} refunding every order's LIVE escrow to whoever funded it — the reroll carry-forward's
     attribution for this contract (tools/*_carryforward.py). ASK escrow is the maker's; a filled BID's is
@@ -94,7 +101,9 @@ def escrow_refunds(storage, zk_addrs):
 def build():
     c = zkpy.Contract()
 
-    # post(o, kind, namt, wch, wamt, wadr, hsha, hvm, expn, expf) [VALUE = namt for ASK_NADO]
+    # post(o, kind, namt, wch, wamt, wadr, hsha, hvmHi, hvmLo, expn, expf) [VALUE = namt for ASK_NADO]
+    # The VM hashlock arrives as two 32-bit halves (JS JSON numbers are exact only to 2^53) — recombined
+    # and stored as the single field element settle() compares against.
     with c.method("post") as m:
         o = m.arg(0)
         m.require(o > 0)
@@ -107,10 +116,12 @@ def build():
         m.require(m.arg(4) != 0)                                # want_amt
         m.require(m.arg(5) != 0)                                # maker's foreign receiving address
         m.require(m.arg(6) != 0)                                # SHA-256 hashlock (foreign leg)
-        m.require(m.arg(7) != 0)                                # alghash hashlock (this contract's leg)
-        m.require(m.cursor() + HTLC_MIN_TIMELOCK < m.arg(8) + 1)          # expn >= cursor + MIN
-        m.require(m.arg(8) < m.cursor() + (HTLC_MAX_TIMELOCK + 1))        # expn <= cursor + MAX
-        m.require(m.arg(9) != 0)                                # foreign deadline (opaque — see TIMELOCKS)
+        m.require(m.arg(7) < ID_MAX)                            # hvm high half fits 32 bits
+        m.require(m.arg(8) < ID_MAX)                            # hvm low half fits 32 bits
+        m.require(m.arg(7) + m.arg(8) != 0)                     # alghash hashlock non-zero (halves < 2^32 can't wrap)
+        m.require(m.cursor() + HTLC_MIN_TIMELOCK < m.arg(9) + 1)          # expn >= cursor + MIN
+        m.require(m.arg(9) < m.cursor() + (HTLC_MAX_TIMELOCK + 1))        # expn <= cursor + MAX
+        m.require(m.arg(10) != 0)                               # foreign deadline (opaque — see TIMELOCKS)
         # the escrow rule per kind, branchless: ASK escrows exactly namt now, BID escrows nothing (the
         # NADO side arrives with the taker's fill).
         m.require(m.value() == zkpy.select(m.arg(1) == ASK, m.arg(2), m.const(0)))
@@ -122,9 +133,9 @@ def build():
         m.slot(WAMT, o).set(m.arg(4))
         m.slot(WADR, o).set(m.arg(5))
         m.slot(HSHA, o).set(m.arg(6))
-        m.slot(HVM, o).set(m.arg(7))
-        m.slot(EXPN, o).set(m.arg(8))
-        m.slot(EXPF, o).set(m.arg(9))
+        m.slot(HVM, o).set(m.arg(7) * (1 << 32) + m.arg(8))
+        m.slot(EXPN, o).set(m.arg(9))
+        m.slot(EXPF, o).set(m.arg(10))
         m.slot(ST, o).set(m.const(OPEN))
         m.slot(MK, o).set(m.const(1))
         cnt = m.set(m.slot(0, m.const(0)).get(), "cnt")
@@ -212,7 +223,7 @@ def build():
 
 ABI = {
     "post":   {"args": ["orderId", "kind", "nadoAmt", "wantChain", "wantAmt", "wantAddr",
-                        "shaHashlock", "vmHashlock", "expiryN", "expiryF"], "value": True},
+                        "shaHashlock", "vmHashHi", "vmHashLo", "expiryN", "expiryF"], "value": True},
     "cancel": {"args": ["orderId"]},
     "fill":   {"args": ["orderId", "takerAddr", "foreignRef"], "value": True},
     "settle": {"args": ["orderId", "l0", "l1", "l2", "l3", "l4"]},

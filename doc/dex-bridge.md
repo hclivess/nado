@@ -166,7 +166,8 @@ same window, it never interprets it.
 
 ### 4.3 Methods (all permissionless; `//` = revert guard)
 
-- **`post(o, kind, namt, wch, wamt, wadr, hsha, hvm, expn, expf)`** with `VALUE = namt` for an `ASK_NADO`
+- **`post(o, kind, namt, wch, wamt, wadr, hsha, hvmHi, hvmLo, expn, expf)`** (the alghash hashlock
+  rides as two 32-bit halves — a JS JSON number is exact only to 2^53 —) with `VALUE = namt` for an `ASK_NADO`
   (0 for a `BID_NADO` — the NADO side arrives with the taker's fill).
   `// o fresh; kind ∈ {1,2}; namt > 0 (range-gated < 2^62); every commitment non-zero; expn in the HTLC
   window; VALUE == (kind==ASK ? namt : 0).`
