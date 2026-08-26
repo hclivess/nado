@@ -16,7 +16,10 @@ remote or branch refuses):
   its services detached.
 - **Daily self-check** — 10 minutes after boot, then every 24 h.
 - **`nado_cli.py update`** — triggers a wave from the terminal.
-- Opt out with `"auto_update": false` in `private/config.json`. This also **disables the `/update` and
+- Opt out with `"auto_update": false` in `private/config.json`. Relatedly, `"auto_ip": false` pins the
+  configured `"ip"`: self-detection then never overwrites it — the escape hatch for a node whose reachable
+  address is one no detector can see from inside (IPv4 CGNAT + native IPv6, #86); detection also skips any
+  non-routable result (the 100.64/10 CGNAT egress) on its own. This also **disables the `/update` and
   `/update_peer` endpoints** (they answer 403), so an opted-out node can neither be update-triggered
   remotely nor used as a proxy to trigger other peers. Read per-request — no restart needed to flip it.
 - `"auto_heal": false` additionally disables the boot-time **installer self-repair**: a node diagnosed

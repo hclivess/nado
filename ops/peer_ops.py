@@ -730,6 +730,16 @@ def subnet_diversity_ok(new_ip: str, current_peers) -> bool:
     return same < MAX_PEERS_PER_SUBNET
 
 
+def usable_self_ip(ip):
+    """Is `ip` worth ADVERTISING as our own address? Parseable and globally routable — rejects the
+    IPv4-CGNAT range (100.64.0.0/10, RFC 6598) a carrier-grade NAT egress reports, RFC1918/ULA, loopback,
+    link-local, reserved. A detector result failing this must be SKIPPED, not stored (#86)."""
+    try:
+        return ipaddress.ip_address(ip).is_global
+    except ValueError:
+        return False
+
+
 async def get_public_ip(logger):
     """detect our own public IP for self-advertisement, PREFERRING IPv4: on a dual-stack host a v6-only
     self would be unreachable to v4-only peers (most of the current mesh) and could partition us. Tries
@@ -753,6 +763,15 @@ async def get_public_ip(logger):
                 async with session.get(url_construct) as response:
                     ip = (await response.text()).strip()
                     if ip:
+                        # A detected address that is not globally routable is USELESS to advertise — no
+                        # peer can dial it back. The big real-world case is IPv4 CGNAT (100.64.0.0/10,
+                        # RFC 6598): api4.ipify happily answers with the carrier's egress address. Skip
+                        # it and let the NEXT probe (api6 on such hosts) supply the address that is
+                        # actually reachable (#86: v4-CGNAT + native-v6 residential nodes — detection
+                        # kept overwriting the operator's working v6 with the dead CGNAT v4).
+                        if not usable_self_ip(ip):
+                            logger.info(f"Ignoring non-routable self-IP {ip!r} from {url_construct}")
+                            continue
                         return ip
 
         except Exception as e:
@@ -763,7 +782,14 @@ def update_local_ip(ip, logger):
     IP as a peer anymore — self is advertised to others via me_to() in /peers, and dialing ourselves just
     fails. (The old code re-saved the new IP as a peer here, which is what created the ghost self-peer and
     the repeated 'Failed to get peers of <own-ip>' self-dial errors.)"""
-    if ip and ip != get_config()["ip"]:
+    cfg = get_config()
+    if cfg.get("auto_ip") is False:
+        # The operator PINNED their address ("auto_ip": false in private/config.json): detection must
+        # never overwrite it. This is the CGNAT/NAT escape hatch — the address that reaches this node can
+        # be one no detector can see from inside (#86), and a manual fix that silently reverts on the
+        # next heavy refresh is worse than no knob at all.
+        return
+    if ip and ip != cfg["ip"]:
         update_config({"ip": ip})
         _own_ip_cache["v"] = ip      # keep check_ip's own-IP cache in step
         logger.info(f"Local IP updated to {ip}")
