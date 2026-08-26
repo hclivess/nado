@@ -18,11 +18,14 @@ from unittest import mock
 import ops.block_ops as B
 from protocol import ADDRESS_PREFIX
 
-# The recipient is NOT decoration here: _lands_flexibly() routes on `recipient.startswith(ADDRESS_PREFIX)`,
-# so a plain-transfer recipient must carry the LIVE prefix or these txs silently take the exact-landing
-# path (max_block 100 != block 10), match nothing, and the dedup assertion below grades an empty list.
-# It used to read "ndoX" and stopped exercising the dedup the moment the prefix was rebranded — derive it.
-PAYEE = ADDRESS_PREFIX + "X"
+# The recipient is NOT decoration here: _lands_flexibly() routes on is_address() — a CHECKSUM-VALID
+# address — so a plain-transfer recipient must be a real derived address or these txs silently take the
+# exact-landing path (max_block 100 != block 10), match nothing, and the dedup assertion grades an empty
+# list. It read ADDRESS_PREFIX + "X", which stopped being address-shaped the moment the prefix went empty
+# at the debrand AND the sniff moved from startswith(prefix) to the checksum — the same pinned-literal rot
+# this comment already warned about once. Derive a real address instead; it can never rot again.
+from ops.address_ops import make_address
+PAYEE = make_address("ab" * 60)
 pool = [
     {"txid": "aaaa", "max_block": 100, "recipient": PAYEE, "amount": 1},    # never mined
     {"txid": "bbbb", "max_block": 100, "recipient": "bridge", "amount": 5}, # already mined -> must be skipped

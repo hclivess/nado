@@ -112,10 +112,12 @@ def t6_unregister_frees_name():
 
 def t7_name_validation():
     """Prove valid_alias_name rejects short/cased/reserved/malformed names and accepts good ones."""
-    # The address-shaped case is DERIVED from the live prefix, never spelled out: this assertion used to
-    # read "ndofoo" and silently stopped testing anything the moment the prefix was rebranded (see
-    # doc/debrand.md — a pinned address literal is the recurring bug in this repo, not a one-off).
-    for bad in ("ab", "Alice", "bond", "alias", ADDRESS_PREFIX + "foo", MSIG_PREFIX + "foo",
+    # The address-shaped case is a REAL derived address, never a prefix concatenation: ADDRESS_PREFIX went
+    # empty at the debrand, so "ADDRESS_PREFIX + 'foo'" degraded to plain "foo" — a perfectly valid alias —
+    # and the assertion failed. valid_alias_name itself moved to is_address() (checksum) for the same
+    # reason; the test now derives its address the same way and can never rot with the prefix again.
+    from ops.address_ops import make_address
+    for bad in ("ab", "Alice", "bond", "alias", make_address("ab" * 60), MSIG_PREFIX + "foo",
                 "has space", "1abc", "a" * 33, "", 123):
         assert not alias_ops.valid_alias_name(bad), f"{bad!r} should be invalid"
     for good in ("alice", "shop_1", "my-name", "abc"):
