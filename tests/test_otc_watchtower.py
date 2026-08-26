@@ -26,10 +26,11 @@ sto = {"mk": {"1": 1, "2": 1, "3": 1, "4": 1, "5": 1},
        "esc":  {"1": 9, "2": 9, "3": 9, "4": 9, "5": 0},           # 5 = unfilled BID, nothing to refund
        "expn": {"1": 500, "2": 200, "3": 200, "4": 500, "5": 200},
        "hsha": {"1": H, "2": "zz-not-hex", "3": H, "4": H, "5": H},
-       "wch":  {"1": "btc", "2": "btc", "3": "btc", "4": "btc", "5": "btc"}}
+       "wch":  {"1": "btc", "2": "btc", "3": "btc", "4": "btc", "5": "btc"},
+       "bnty": {"2": 100, "5": 50}}                                # 5: zero-escrow open BID with a bounty
 orders = W.parse_orders(sto)
 ok(len(orders) == 5, "parse_orders")
-ok(sorted(W.expire_candidates(orders, 300)) == [2, 3], "expire: past-deadline open/filled only, zero-escrow open skipped")
+ok(W.expire_candidates(orders, 300) == [2, 5, 3], "expire: bounty-bearing first (100, 50, 0); a zero-escrow open WITH a bounty is worth sweeping")
 ok(W.expire_candidates(orders, 100) == [], "expire: nothing before any deadline")
 ok(W.watch_candidates(orders, 300) == [(1, H)], "watch: filled HTLC inside the window, well-formed hashlock only")
 ok(W.watch_candidates(orders, 600) == [], "watch: nothing past the window (refund territory)")

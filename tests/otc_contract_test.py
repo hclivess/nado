@@ -196,5 +196,46 @@ ok(ref2 == {A: amt(6) + amt(7) + 10 ** 10, C: amt(8)}, f"attribution includes na
 ok(sum(ref2.values()) == st.bridge.get(cid, 0), "attribution still sums EXACTLY to the contract's native pot")
 ok(sum(st.bridge.values()) == supply0, "native supply conserved across the intra section too")
 
+# ---- I. §8 bounties: boost() funds the permissionless safety roles ---------------------------------
+post(20, O.ASK)
+call(A, "boost", [20], 10 ** 9)
+call(R, "boost", [20], 5 * 10 ** 8)                       # a STRANGER may fund the safety of any order
+ok(rd(O.BNTY, 20) == 15 * 10 ** 8, "bounties accumulate (anyone may attach)")
+ok(refused(A, "boost", [20]), "zero-value boost refused")
+ok(refused(A, "boost", [2], 10 ** 9), "boost on a settled order refused")
+call(C, "fill", [20, "bc1qtaker20", "btc:lock:20"])
+rb, cb = st.bridge[R], st.bridge.get(C, 0)
+call(R, "settle", [20] + O.preimage_limbs(secret(20)))    # the WATCHTOWER settles...
+ok(st.bridge[R] == rb + 15 * 10 ** 8, "...and wins the whole bounty")
+ok(st.bridge[C] == cb + amt(20) and rd(O.BNTY, 20) == 0, "the taker still gets exactly the escrow")
+post(21, O.ASK)
+call(A, "boost", [21], 10 ** 9)
+st.cursor = 600
+rb, ab = st.bridge[R], st.bridge[A]
+call(R, "expire", [21])
+ok(st.bridge[R] == rb + 10 ** 9 and st.bridge[A] == ab + amt(21), "expire: sweeper wins the bounty, maker gets the escrow")
+st.cursor = 100
+post(22, O.ASK)
+call(R, "boost", [22], 5 * 10 ** 8)
+ab = st.bridge[A]
+call(A, "cancel", [22])
+ok(st.bridge[A] == ab + amt(22) + 5 * 10 ** 8 and rd(O.BNTY, 22) == 0,
+   "cancel: nothing was performed — escrow AND bounty land with the maker")
+call(A, "post_intra", [23, aid, 60, 0, 10 ** 10, 600], 60, asset=aid)
+call(A, "boost", [23], 10 ** 9)
+cb = st.bridge[C]
+call(C, "fill_intra", [23], 10 ** 10)
+ok(st.bridge[C] == cb - 10 ** 10 + 10 ** 9 and st.asset_balance(aid, C) == 200,
+   "fill_intra: completing the swap wins the bounty atomically with both legs")
+# reroll attribution: live bounties refund to the order's owner of record — even on an asset-intra order
+post(24, O.ASK)
+call(R, "boost", [24], 7 * 10 ** 8)
+call(A, "boost", [16], 3 * 10 ** 8)                        # o16 = the asset-intra order left open in H4
+ref3 = O.escrow_refunds(st.contracts[cid]["storage"], st.zk_addrs)
+ok(ref3 == {A: amt(6) + amt(7) + 10 ** 10 + amt(24) + 7 * 10 ** 8 + 3 * 10 ** 8, C: amt(8)},
+   f"attribution: escrows + live bounties, asset esc still skipped: {ref3}")
+ok(sum(ref3.values()) == st.bridge.get(cid, 0), "attribution == the contract's native pot, exactly")
+ok(sum(st.bridge.values()) == supply0, "native supply conserved through the bounty section")
+
 print(f"\n[otc] {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

@@ -43,6 +43,7 @@ Storage (order id `o` = a frontend random int < 2^32; all slot-keyed => enumerab
 Methods: post(o,kind,namt,wch,wamt,wadr,hsha,hvmHi,hvmLo,expn,expf) — the alghash hashlock rides as two
   32-bit halves because a JS JSON number only holds 2^53 exactly (hvm = hi·2^32 + lo mod P) —[VALUE=namt for ASK] · cancel(o) maker/open ·
   fill(o,tadr,fref)[VALUE=namt for BID] · settle(o,l0..l4) anyone with the preimage · expire(o) anyone late ·
+  boost(o)[VALUE=NADO bounty] anyone, while open/filled — first correct actor wins it (§8) ·
   post_intra(o,ga,gv,wa,wv,expn)[VALUE=gv of ga] / fill_intra(o)[VALUE=wv of wa] — SWAP_INTRA (§7): both
   sides on the exec layer, both legs in one atomic call, no hashlock, open→settled directly.
 Amounts are RAW NADO throughout: no products, no pro-rata — only EQ/escrow moves — and the `namt > 0` range
@@ -55,6 +56,7 @@ MK, KIND, MAKER, ESC, NAMT, WCH, WAMT, WADR, HSHA, HVM = 1, 2, 3, 4, 5, 6, 7, 8,
 EXPN, EXPF, ST, TAKER, TADR, FREF, LIST = 11, 12, 13, 14, 15, 16, 18
 S0 = 20                            # fields 20..24: the revealed preimage limbs (public after settle)
 GAST, WAST, WANT = 25, 26, 27      # SWAP_INTRA sides: give-asset, want-asset (0 = native), want amount
+BNTY = 28                          # attached NADO bounty (§8) — first correct actor (settle/fill_intra/expire) wins it
 ASK, BID, INTRA = 1, 2, 3
 OPEN, FILLED, SETTLED, REFUNDED, CANCELLED = 1, 2, 3, 4, 5
 ID_MAX = 1 << 32
@@ -90,17 +92,17 @@ def escrow_refunds(storage, zk_addrs):
     slots = storage.get("slots") or {}
     g = lambda f, k: int(slots.get(str(f * (1 << 32) + int(k)), 0))
     out = {}
+    def add(digest, amt):
+        addr = zk_addrs.get(str(digest))
+        if addr and amt:
+            out[addr] = out.get(addr, 0) + amt
     for i in range(g(0, 0)):
         o = g(LIST, i)
         esc = g(ESC, o)
-        if not esc:
-            continue
-        if g(KIND, o) == INTRA and g(GAST, o):
-            continue                       # an ASSET escrow has no native attribution — exec assets die with the generation
-        who = g(TAKER, o) if (g(KIND, o) == BID and g(ST, o) == FILLED) else g(MAKER, o)
-        addr = zk_addrs.get(str(who))
-        if addr:
-            out[addr] = out.get(addr, 0) + esc
+        if esc and not (g(KIND, o) == INTRA and g(GAST, o)):   # an ASSET escrow has no native attribution —
+            #                                                    exec assets die with the generation
+            add(g(TAKER, o) if (g(KIND, o) == BID and g(ST, o) == FILLED) else g(MAKER, o), esc)
+        add(g(MAKER, o), g(BNTY, o))       # a live bounty (always native) refunds to the order's owner of record
     return out
 
 
@@ -165,6 +167,11 @@ def build():
         m.label("asset")
         m.apay(m.slot(GAST, o).get(), m.slot(MAKER, o).get(), esc)
         m.label("done")
+        b = m.set(m.slot(BNTY, o).get(), "b")                   # nothing was performed — the bounty refunds
+        m.slot(BNTY, o).set(m.const(0))
+        m.jnz(b == 0, "bdone")
+        m.pay(m.slot(MAKER, o).get(), b)
+        m.label("bdone")
         m.ret(esc)
 
     # fill(o, tadr, fref) [VALUE = namt for BID_NADO] — first valid taker wins (the tx inclusion delay +
@@ -188,6 +195,20 @@ def build():
         m.slot(FREF, o).set(m.arg(2))
         m.slot(ST, o).set(m.const(FILLED))
         m.ret(o)
+
+    # boost(o) [VALUE = added NADO bounty] — §8 watchtower/relayer bounties: ANYONE may attach NADO that
+    # whoever performs the order's next required action wins (settle / fill_intra pays it to the caller,
+    # expire pays the sweeper; cancel returns it to the maker). Funds the permissionless safety roles
+    # without appointing anyone: first-come, and only for a CORRECT action the contract itself verifies.
+    with c.method("boost") as m:
+        o = m.arg(0)
+        m.require(m.slot(MK, o).get() == 1)
+        st = m.set(m.slot(ST, o).get(), "st")
+        m.require((st - OPEN) * (st - FILLED) == 0)
+        m.require(m.in_asset() == 0)                            # bounties are native NADO
+        m.require(m.value() > 0)
+        m.slot(BNTY, o).set(m.slot(BNTY, o).get() + m.value())
+        m.ret(m.slot(BNTY, o).get())
 
     # settle(o, l0..l4) — ANYONE holding the preimage (the counterparty, a watchtower). Payment goes to the
     # recorded party, never the caller: ASK pays the taker (they bought the NADO), BID pays the maker.
@@ -213,6 +234,11 @@ def build():
         m.slot(ESC, o).set(m.const(0))
         m.slot(ST, o).set(m.const(SETTLED))
         m.pay(zkpy.select(m.slot(KIND, o).get() == ASK, m.slot(TAKER, o).get(), m.slot(MAKER, o).get()), esc)
+        b = m.set(m.slot(BNTY, o).get(), "b")                   # the §8 bounty goes to WHOEVER settled
+        m.slot(BNTY, o).set(m.const(0))
+        m.jnz(b == 0, "bdone")
+        m.pay(m.caller(), b)
+        m.label("bdone")
         m.ret(esc)
 
     # post_intra(o, giveAsset, giveAmt, wantAsset, wantAmt, expn) [VALUE = giveAmt of giveAsset]
@@ -273,6 +299,11 @@ def build():
         m.label("gasset")
         m.apay(m.slot(GAST, o).get(), m.slot(TAKER, o).get(), esc)
         m.label("done")
+        b = m.set(m.slot(BNTY, o).get(), "b")                   # completing the swap IS the bountied action
+        m.slot(BNTY, o).set(m.const(0))
+        m.jnz(b == 0, "bdone")
+        m.pay(m.caller(), b)
+        m.label("bdone")
         m.ret(esc)
 
     # expire(o) — anyone, at/after expn. The no-authority safety valve: a stuck order always drains back to
@@ -294,6 +325,11 @@ def build():
         m.label("asset")
         m.apay(m.slot(GAST, o).get(), tgt, esc)
         m.label("done")
+        b = m.set(m.slot(BNTY, o).get(), "b")                   # the sweep bounty — pays the CALLER (§8)
+        m.slot(BNTY, o).set(m.const(0))
+        m.jnz(b == 0, "bdone")
+        m.pay(m.caller(), b)
+        m.label("bdone")
         m.ret(esc)
 
     return c.build()
@@ -306,6 +342,7 @@ ABI = {
     "fill":   {"args": ["orderId", "takerAddr", "foreignRef"], "value": True},
     "settle": {"args": ["orderId", "l0", "l1", "l2", "l3", "l4"]},
     "expire": {"args": ["orderId"]},
+    "boost":  {"args": ["orderId"], "value": True},
     "post_intra": {"args": ["orderId", "giveAsset", "giveAmt", "wantAsset", "wantAmt", "expiryN"], "value": True},
     "fill_intra": {"args": ["orderId"], "value": True},
     "_view": {
@@ -321,7 +358,8 @@ ABI = {
                  "s2": {"field": S0 + 2, "index": "orders"}, "s3": {"field": S0 + 3, "index": "orders"},
                  "s4": {"field": S0 + 4, "index": "orders"},
                  "gast": {"field": GAST, "index": "orders"}, "wast": {"field": WAST, "index": "orders"},
-                 "want": {"field": WANT, "index": "orders"}},
+                 "want": {"field": WANT, "index": "orders"},
+                 "bnty": {"field": BNTY, "index": "orders"}},
         "indexes": {"orders": {"cnt": 0, "list": LIST}},
         "addr": ["maker", "taker", "wch", "wamt", "wadr", "tadr", "hsha", "fref"],
     },

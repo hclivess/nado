@@ -88,15 +88,18 @@ def parse_orders(storage):
     for o in g("mk"):
         out.append({"o": int(o), "kind": int(g("kind").get(o) or 0), "st": int(g("st").get(o) or 0),
                     "expn": int(g("expn").get(o) or 0), "esc": int(g("esc").get(o) or 0),
-                    "hsha": str(g("hsha").get(o) or ""), "wch": str(g("wch").get(o) or "")})
+                    "hsha": str(g("hsha").get(o) or ""), "wch": str(g("wch").get(o) or ""),
+                    "bnty": int(g("bnty").get(o) or 0)})
     return out
 
 
 def expire_candidates(orders, cursor):
     """Orders whose refund window is open: open/filled, at/past expn. Zero-escrow opens are skipped (an
     unfilled BID holds nothing — expiring it only tidies state and burns our fee)."""
-    return [x["o"] for x in orders
-            if x["st"] in (OPEN, FILLED) and cursor >= x["expn"] and not (x["st"] == OPEN and x["esc"] == 0)]
+    live = [x for x in orders
+            if x["st"] in (OPEN, FILLED) and cursor >= x["expn"]
+            and not (x["st"] == OPEN and x["esc"] == 0 and x["bnty"] == 0)]
+    return [x["o"] for x in sorted(live, key=lambda x: -x["bnty"])]   # §8: the paying work first
 
 
 def watch_candidates(orders, cursor):
@@ -171,8 +174,10 @@ def one_pass(a, state):
         state["btc_from"] = tip_b + 1
     for o, s in secrets.items():
         submit_call(a.l1, "settle", [o] + preimage_limbs(s), f"relay the revealed secret for #{o}", a.submit)
+    bounty = sum(x["bnty"] for x in orders if x["st"] in (OPEN, FILLED))
     print(f"[tower] cursor {cursor}: {len(orders)} orders, {len(watches)} watched, "
-          f"{len(secrets)} secrets found, {len(expire_candidates(orders, cursor))} expirable", flush=True)
+          f"{len(secrets)} secrets found, {len(expire_candidates(orders, cursor))} expirable, "
+          f"{bounty} raw in live bounties", flush=True)
 
 
 def main():

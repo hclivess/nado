@@ -365,8 +365,9 @@ both assets are already inside the NADO ecosystem. HTLC is only for genuinely *f
 - **Maker/taker fees:** optional, and if charged they accrue to the swap's *counterparty pool* or are burned,
   **never to an operator** (there is none). A common choice: a tiny maker rebate funded by a taker fee, both
   expressed in the escrow and enforced by the contract — no privileged fee collector.
-- **Watchtower/relayer bounties (§10):** a maker/taker may attach a small NADO bounty to `expire()` and to a
-  claim-relay, claimable by *whoever* performs the action first. This funds the permissionless safety roles
+- **Watchtower/relayer bounties (§10) — IMPLEMENTED (`boost(o)`, 2026-08-26):** anyone may attach NADO to a
+  live order; settle/`fill_intra` pay it to the caller, `expire` to the sweeper, cancel back to the maker.
+  Claimable by *whoever* performs the action first. This funds the permissionless safety roles
   without appointing anyone. Because the bounty pays on a first-come race and only for a *correct* action
   (the contract verifies the preimage / the timeout), it cannot be gamed.
 - **No native token requirement to bridge:** a zero-NADO-balance claimant can still `htlc_claim` (it is
@@ -477,7 +478,7 @@ and being a watchtower requires no permission, stake, or identity.
 | **2 (legs done 2026-08-26)** | Foreign legs SHIPPED: `scripts/otc_btc_leg.py` (P2WSH HTLC builder/signer + CLI: address/claim/refund/extract, BIP143, no wallet dependency) and `scripts/HtlcEth.sol` (the one-contract ETH HTLC). Still open: in-wallet foreign-leg construction + SPV/RPC verification UX (today the dApp shows the parameters and the CLI operates the leg) | `tests/test_otc_swap_e2e.py` — 15/15: regtest bitcoind + anvil + the real otc contract, ONE secret opens all three, both refund paths, both wrong-secret rejections |
 | **3 (contract done 2026-08-26)** | `SWAP_INTRA` SHIPPED: `post_intra`/`fill_intra` — both legs (native↔asset or asset↔asset) in ONE atomic call, open→settled with no middle state; asset-aware cancel/expire refunds; `fill()` gained a kind gate (a 0-value HTLC fill could otherwise freeze an intra escrow until expiry). Cross-namespace tunnel path still open (routes through the L1 bridge, §7) | intra section of `tests/otc_contract_test.py` (72/72 total) |
 | **4 (daemon done 2026-08-26)** | `scripts/otc_watchtower.py` SHIPPED — expire sweep (escrow always drains home, zero-escrow opens skipped) + BTC secret-scan settle relay (finds a revealed preimage in any claim witness and re-posts settle; payment goes to the recorded party, never the tower) + secrets-file settle; contract discovered by method shape, dry-run default, --submit/--loop for the daemon. On-chain BOUNTIES for towers remain phase 5 (§8) | `tests/test_otc_watchtower.py` (8/8) + live dry-run |
-| **5 (optional, future)** | premium/collateral for the free option; L3 gossip discovery relay; a `bridge.nadochain.com` Swap dApp | — |
+| **5 (bounties done 2026-08-26; rest future)** | `boost(o)` bounties SHIPPED (§8) — the watchtower sweeps paying work first. Still future: premium/collateral for the free option (§9.1 — wants real order flow to price), L3 gossip discovery relay, a dedicated `bridge.nadochain.com` Swap dApp | bounty section of `tests/otc_contract_test.py` (83/83) |
 
 **File map (to build):** `execnode/games/otc.py` (+ `tests/test_otc_contract.py` as its source of
 truth), a cross-chain tab inside the existing `static/dex.{html,js}` exchange dApp (one venue: AMM + book, on the shared `nadodapp.js` SDK), `scripts/otc_watchtower.py`,
