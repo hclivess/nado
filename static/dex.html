@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NADO DEX — swap NADO and tokens, no listing, no admin</title>
-<meta name="description" content="A constant-product AMM on the NADO blockchain. Swap NADO against any execution-layer asset, or provide liquidity and earn the 30 bps fee. No listing, no admin key, no rake. Post-quantum secure, no install.">
+<meta name="description" content="Swap NADO for tokens, BTC and ETH with no middleman. Prices come from the pool, the 0.3% fee goes to liquidity providers, and no admin key can freeze or seize anything. Post-quantum secure, no install.">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <link rel="canonical" href="https://dex.nadochain.com/">
 <meta property="og:type" content="website">
@@ -108,10 +108,10 @@
     <h1>NADO <span class="a">DEX</span></h1>
     <a class="hub" href="https://nadochain.com/apps">🎮 All apps</a>
   </header>
-  <p class="sub">A <b>constant-product AMM</b> (x·y=k) on the NADO execution layer. Swap NADO against any
-  execution-layer asset, or provide liquidity and earn the fee. <b>No listing, no admin key, no rake</b> —
-  the 30 bps swap fee stays in the pool and accrues to liquidity providers. The contract can never mint,
-  and no address can freeze or seize a pool.</p>
+  <p class="sub">Trade NADO for any token, or swap it for <b>real BTC and ETH</b> with no middleman.
+  Prices come from the pool itself, so there is <b>no listing process, no admin key and nobody taking a
+  cut</b> — the 0.3% trading fee goes to the people who supplied the liquidity. Nobody can freeze your
+  funds or seize a pool, and nothing here can print new coins.</p>
 
   <div id="status"></div>
 
@@ -150,19 +150,18 @@
       <div class="tt" id="mktTt"></div>
       <div class="chart-empty hidden" id="mktEmpty"></div>
     </div>
-    <div class="small dim" style="margin-top:8px">Price impact by trade size (the pool's <span class="mono">x·y=k</span> depth):</div>
+    <div class="small dim" style="margin-top:8px">How much the rate moves as your trade gets bigger:</div>
     <div class="depthwrap"><svg id="mktDepth" preserveAspectRatio="none"></svg></div>
     <div class="stats" id="mktStats"></div>
-    <div class="small dim mt">Observed mid-price, sampled live from the pool reserves. History fills in as the pool trades and time passes — nothing is back-filled or simulated.</div>
+    <div class="small dim mt">Live price, taken straight from the pool. History is recorded as the market trades — nothing is back-filled or made up, so a gap means no trading happened.</div>
   </div>
 
   <!-- SWAP -->
   <div class="card hidden" id="swapCard">
     <h2>Swap</h2>
-    <p class="small dim">Priced by the pool itself: <span class="mono">out = R_out · dx_fee / (R_in + dx_fee)</span>.
-    The quote below is computed exactly as the contract computes it, so what you see is what lands. Your
-    <b>minimum received</b> is enforced on-chain — if the price moves past your tolerance the swap reverts
-    rather than filling badly.</p>
+    <p class="small dim">The quote below is worked out exactly the way the pool will settle it, so what you
+    see is what you get. The <b>at worst</b> figure is enforced on-chain: if the price moves further than
+    your tolerance while your swap is in flight, it is cancelled instead of filling at a bad rate.</p>
     <div class="row mt">
       <select id="dir">
         <option value="n2t">NADO → token</option>
@@ -182,7 +181,7 @@
   <!-- POOLS -->
   <div class="card" id="poolsCard">
     <h2>Pools</h2>
-    <p class="small dim">Every pool is a NADO ↔ asset pair. Tap one to trade it or add liquidity.</p>
+    <p class="small dim">Each market pairs a token with NADO. Tap one to trade it or to supply liquidity.</p>
     <div id="pools" class="mt"></div>
   </div>
 
@@ -208,8 +207,8 @@
       <input id="exitSh" placeholder="how much of your position to withdraw" inputmode="numeric" autocomplete="off">
       <button class="ghost" id="btnExit" style="flex:0 0 auto">Withdraw liquidity</button>
     </div>
-    <div class="small dim mt">The first provider sets the opening price. After that the NADO side sets how
-    many shares you mint, and the token side must cover its proportional part — any excess stays staged.</div>
+    <div class="small dim mt">The first person to supply a market sets its opening price. After that both
+    sides must go in at the market's current ratio — anything left over stays yours and can be taken back.</div>
   </div>
 
   <!-- OPEN A POOL -->
@@ -303,9 +302,9 @@
   </div>
 
   <footer>
-    <span>The pool contract is public and verifiable on the NADO execution layer. Providing liquidity
-    carries impermanent loss — if the price moves, withdrawing returns a different mix than you put in.
-    Nothing here is investment advice.</span>
+    <span>Every pool and swap is public and verifiable on-chain. Supplying liquidity carries risk: if the
+    price moves, withdrawing gives you back a different mix of the two than you put in. Nothing here is
+    investment advice.</span>
   </footer>
 </div>
 <script type="module" src="/static/dex.js?v=f6f45ad5"></script>
