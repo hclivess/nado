@@ -37,10 +37,10 @@ await E.sendTx(URL_, { privHex: K0, to: bob.addr, valueWei: 100n * 10n ** 18n, g
 
 const S_APPROVE = await keccakSel("approve(address,uint256)");
 const S_BAL = await keccakSel("balanceOf(address)");
-const S_FUND = await keccakSel("fund(address,address,bytes32,uint256,uint256)");
+const S_FUND = await keccakSel("fund(address,address,address,bytes32,uint256,uint256)");
 const S_CLAIM = await keccakSel("claim(bytes32,bytes32)");
 const S_REFUND = await keccakSel("refund(bytes32)");
-const S_KEY = await keccakSel("lockKey(address,bytes32,address,address,uint256)");
+const S_KEY = await keccakSel("lockKey(address,bytes32,address,address,uint256,uint256)");
 const now = async () => Number(BigInt((await E.rpc(URL_, "eth_getBlockByNumber", ["latest", false])).timestamp));
 
 async function scenario(name, binName, amount, expectEscrow) {
@@ -48,8 +48,8 @@ async function scenario(name, binName, amount, expectEscrow) {
   if (binName === "Evil.bin") await call(tok, "0x" + await keccakSel("setHtlc(address)") + pad(HTLC));
   await call(tok, "0x" + S_APPROVE + pad(HTLC) + num(amount));
   const dl = (await now()) + 3600;
-  await call(HTLC, "0x" + S_FUND + pad(tok) + pad(bob.addr) + pad("0x" + H) + num(dl) + num(amount));
-  const key = (await view(HTLC, S_KEY + pad(tok) + pad("0x" + H) + pad(bob.addr) + pad(A0) + num(dl))).slice(2);
+  await call(HTLC, "0x" + S_FUND + pad(tok) + pad(bob.addr) + pad(A0) + pad("0x" + H) + num(dl) + num(amount));
+  const key = (await view(HTLC, S_KEY + pad(tok) + pad("0x" + H) + pad(bob.addr) + pad(A0) + num(dl) + num(amount))).slice(2);
   const held = BigInt(await view(tok, S_BAL + pad(HTLC)));
   ok(held === expectEscrow, `${name}: contract escrowed what ARRIVED (${held}, expected ${expectEscrow})`);
   const b0 = BigInt(await view(tok, S_BAL + pad(bob.addr)));
@@ -72,9 +72,9 @@ ok(BigInt(await view(evil, revSel)) === 1n, "the nested call was REJECTED by the
 // wrong secret / early refund / late refund on a standard token
 const tok = await deploy(join("/tmp/erc20t/out", "Good.bin"));
 await call(tok, "0x" + S_APPROVE + pad(HTLC) + num(500));
-const dl2 = (await now()) + 600;
-await call(HTLC, "0x" + S_FUND + pad(tok) + pad(bob.addr) + pad("0x" + H) + num(dl2) + num(500));
-const key2 = (await view(HTLC, S_KEY + pad(tok) + pad("0x" + H) + pad(bob.addr) + pad(A0) + num(dl2))).slice(2);
+const dl2 = (await now()) + 1200;
+await call(HTLC, "0x" + S_FUND + pad(tok) + pad(bob.addr) + pad(A0) + pad("0x" + H) + num(dl2) + num(500));
+const key2 = (await view(HTLC, S_KEY + pad(tok) + pad("0x" + H) + pad(bob.addr) + pad(A0) + num(dl2) + num(500))).slice(2);
 let bad = ""; try { await call(HTLC, "0x" + S_CLAIM + pad("0x" + key2) + pad("0x" + "cd".repeat(32)), bob.k); } catch (e) { bad = e.message; }
 ok(/preimage|revert/i.test(bad), "wrong secret rejected: " + bad.slice(0, 40));
 let early = ""; try { await call(HTLC, "0x" + S_REFUND + pad("0x" + key2)); } catch (e) { early = e.message; }
@@ -83,6 +83,32 @@ await E.rpc(URL_, "evm_increaseTime", [1200]); await E.rpc(URL_, "evm_mine", [])
 const f0 = BigInt(await view(tok, S_BAL + pad(A0)));
 await call(HTLC, "0x" + S_REFUND + pad("0x" + key2), bob.k);          // anyone may trigger it
 ok(BigInt(await view(tok, S_BAL + pad(A0))) - f0 === 500n, "post-deadline refund returns the tokens to the funder, exactly");
+
+// ---- audit regressions -------------------------------------------------------------------------------
+// the key binds the AMOUNT: an underfunded lock lands elsewhere, so a claim finds nothing and the
+// preimage is never revealed (v1 let 1 unit of dust buy the victim's secret).
+const tok3 = await deploy(join("/tmp/erc20t/out", "Good.bin"));
+await call(tok3, "0x" + S_APPROVE + pad(HTLC) + num(1000));
+const dl3 = (await now()) + 1800;
+await call(HTLC, "0x" + S_FUND + pad(tok3) + pad(bob.addr) + pad(A0) + pad("0x" + H) + num(dl3) + num(1));  // 1 unit
+const agreedKey = (await view(HTLC, S_KEY + pad(tok3) + pad("0x" + H) + pad(bob.addr) + pad(A0) + num(dl3) + num(1000))).slice(2);
+let dust = ""; try { await call(HTLC, "0x" + S_CLAIM + pad("0x" + agreedKey) + pad("0x" + s), bob.k); } catch (e) { dust = e.message; }
+ok(/no lock|revert/i.test(dust), "an UNDERFUNDED lock cannot be claimed at the agreed key — the secret stays secret");
+// the deadline must sit inside a sane window (v1 accepted 2^256-1, making refunds unreachable forever)
+let far = ""; try { await call(HTLC, "0x" + S_FUND + pad(tok3) + pad(bob.addr) + pad(A0) + pad("0x" + H) + num(2n ** 200n) + num(10)); } catch (e) { far = e.message; }
+ok(/window|revert/i.test(far), "an absurd deadline is refused");
+let near = ""; try { await call(HTLC, "0x" + S_FUND + pad(tok3) + pad(bob.addr) + pad(A0) + pad("0x" + H) + num(await now() + 5) + num(10)); } catch (e) { near = e.message; }
+ok(/window|revert/i.test(near), "a deadline inside the minimum window is refused");
+// the refundee is explicit: someone else can fund on your behalf and the tokens still come back to YOU
+const third = E.ethKeypair();
+await E.sendTx(URL_, { privHex: K0, to: third.addr, valueWei: 10n ** 18n, gasLimit: 21000n });
+await call(tok3, "0x" + S_APPROVE + pad(HTLC) + num(700));
+const dl4 = (await now()) + 1200;
+await call(HTLC, "0x" + S_FUND + pad(tok3) + pad(bob.addr) + pad(third.addr) + pad("0x" + H) + num(dl4) + num(700));
+const key4 = (await view(HTLC, S_KEY + pad(tok3) + pad("0x" + H) + pad(bob.addr) + pad(third.addr) + num(dl4) + num(700))).slice(2);
+await E.rpc(URL_, "evm_increaseTime", [2400]); await E.rpc(URL_, "evm_mine", []);
+await call(HTLC, "0x" + S_REFUND + pad("0x" + key4), bob.k);
+ok(BigInt(await view(tok3, S_BAL + pad(third.addr))) === 700n, "a nominated refundee receives the refund, not the funder");
 
 console.log(`\n[htlc-erc20] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

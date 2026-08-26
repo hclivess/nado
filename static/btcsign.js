@@ -52,14 +52,6 @@ function serialize(txidLE, vout, sequence, outScript, outSat, witness, locktime)
              [0x01], u64(outSat), compact(outScript.length), outScript, wit, u32(locktime));
 }
 
-// destScript: pay-to the recipient. We accept a 33-byte compressed pubkey and pay it as P2WPKH — the
-// swept output the user controls; simplest self-contained sink (they can send onward from any wallet).
-async function p2wpkhFromPub(pubHex) {
-  const h = await crypto.subtle.digest("SHA-256", hexToBytes(pubHex));
-  // RIPEMD160 isn't in SubtleCrypto — but a P2WPKH needs it. We instead pay P2WSH-of-nothing? No:
-  throw new Error("p2wpkh needs ripemd160");
-}
-
 async function spend({ scriptHex, branchWitness, privHex, fundTxid, vout, amountSat, outScriptHex, feeSat, locktime, sequence }) {
   const script = hexToBytes(scriptHex);
   const txidLE = hexToBytes(fundTxid).reverse();
@@ -80,6 +72,10 @@ export function claimTx({ scriptHex, secretHex, privHex, fundTxid, vout, amountS
 }
 // PUBLIC: build a signed refund tx (valid only at/after locktime).
 export function refundTx({ scriptHex, locktime, privHex, fundTxid, vout, amountSat, outScriptHex, feeSat = 500 }) {
+  // nLockTime is 32 bits. A script demanding more can never be satisfied, so building this spend would
+  // hand the user a transaction that is rejected forever rather than one that waits.
+  if (!(Number.isInteger(locktime) && locktime > 0 && locktime < 2 ** 32))
+    throw new Error("this swap's deadline is out of range — its refund branch cannot be spent");
   return spend({ scriptHex, branchWitness: [new Uint8Array(0)], privHex,
                  fundTxid, vout, amountSat, outScriptHex, feeSat, locktime, sequence: 0xfffffffe });
 }
@@ -90,22 +86,32 @@ export { hexToBytes, bytesToHex };
 // legacy (P2PKH/P2SH). Returns the output script hex, or throws with a plain message.
 const B32C = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 function bech32Decode(addr) {
+  // Case must not be mixed (BIP-173) — check BEFORE lowercasing.
+  if (/[a-z]/.test(addr) && /[A-Z]/.test(addr)) throw new Error("mixed-case address");
   addr = addr.toLowerCase();
   const pos = addr.lastIndexOf("1");
   if (pos < 1) throw new Error("not a bech32 address");
   const hrp = addr.slice(0, pos);
   const data = [];
   for (const c of addr.slice(pos + 1)) { const v = B32C.indexOf(c); if (v < 0) throw new Error("bad bech32 char"); data.push(v); }
-  // checksum constant distinguishes bech32 (v0) from bech32m (v1+); we accept either — the witver decides.
   const exp = [...hrp].map((c) => c.charCodeAt(0) >>> 5).concat([0], [...hrp].map((c) => c.charCodeAt(0) & 31));
   const poly = (() => { const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]; let chk = 1;
     for (const x of exp.concat(data)) { const b = chk >>> 25; chk = ((chk & 0x1ffffff) << 5) ^ x; for (let i = 0; i < 5; i++) if ((b >>> i) & 1) chk ^= G[i]; } return chk >>> 0; })();
-  if (poly !== 1 && poly !== 0x2bc830a3) throw new Error("bad bech32 checksum");
   const ver = data[0];
+  if (ver > 16) throw new Error("bad witness version");
+  // BIP-350: v0 uses the bech32 constant, v1+ uses bech32m. Accepting EITHER for any version (which this
+  // did) lets a mistyped/foreign address through and can produce an anyone-can-spend output.
+  const want = ver === 0 ? 1 : 0x2bc830a3;
+  if (poly !== want) throw new Error("bad checksum for that address type");
   let acc = 0, bits = 0; const prog = [];
   for (const d of data.slice(1, -6)) { acc = (acc << 5) | d; bits += 5; if (bits >= 8) { bits -= 8; prog.push((acc >>> bits) & 0xff); } }
+  if (bits >= 5 || ((acc << (8 - bits)) & 0xff) !== 0) throw new Error("bad padding in the address");
   if (prog.length < 2 || prog.length > 40) throw new Error("bad witness program");
   if (ver === 0 && prog.length !== 20 && prog.length !== 32) throw new Error("bad v0 program length");
+  if (ver === 1 && prog.length !== 32) throw new Error("bad taproot program length");
+  // A version this build does not know is refused rather than encoded blindly: an unrecognised witness
+  // program of the wrong length is spendable by ANYONE under current relay rules.
+  if (ver >= 2) throw new Error("unsupported address type (witness v" + ver + ")");
   return { hrp, ver, prog: new Uint8Array(prog) };
 }
 async function base58checkDecode(addr) {
@@ -128,6 +134,10 @@ export async function addressToScript(addr, hrpExpected) {
     return bytesToHex(cat([op, d.prog.length], d.prog));
   }
   const { version, hash } = await base58checkDecode(addr);
+  if (hash.length !== 20) throw new Error("bad legacy address");
+  const main = version === 0x00 || version === 0x05;                    // vs testnet/regtest 0x6f / 0xc4
+  if (hrpExpected && (hrpExpected === "bc") !== main)
+    throw new Error(`that is a ${main ? "mainnet" : "testnet"} address, but this swap is on ${hrpExpected === "bc" ? "mainnet" : "testnet"}`);
   if (version === 0x00 || version === 0x6f) return bytesToHex(cat([0x76, 0xa9, 0x14], hash, [0x88, 0xac])); // P2PKH
   if (version === 0x05 || version === 0xc4) return bytesToHex(cat([0xa9, 0x14], hash, [0x87]));             // P2SH
   throw new Error("unsupported address type — paste a bech32 (bc1…) or legacy address");

@@ -237,41 +237,66 @@ ok(ref3 == {A: amt(6) + amt(7) + 10 ** 10 + amt(24) + 7 * 10 ** 8 + 3 * 10 ** 8,
 ok(sum(ref3.values()) == st.bridge.get(cid, 0), "attribution == the contract's native pot, exactly")
 ok(sum(st.bridge.values()) == supply0, "native supply conserved through the bounty section")
 
-# ---- J. §9.1 free-option premium: the second mover's walk is priced --------------------------------
+# ---- J. §9.1 free-option collateral: the MAKER posts it, a walk pays the TAKER ---------------------
+# (audit finding: it used to be the taker's deposit, forfeited to the maker — i.e. paid to the walker,
+#  since the maker holds the secret and decides whether the swap ever completes.)
 post(30, O.ASK)
-ok(refused(C, "set_premium", [30, 10 ** 9]), "premium: stranger refused")
-ok(refused(A, "set_premium", [23, 10 ** 9]), "premium: intra order refused (no window, no option)")
-call(A, "set_premium", [30, 10 ** 9])
-ok(rd(O.PREM, 30) == 10 ** 9, "maker prices the option")
-ok(refused(C, "fill", [30, "bc1qt30", "btc:lock:30"]), "fill without the premium refused")
-call(C, "fill", [30, "bc1qt30", "btc:lock:30"], 10 ** 9)          # ASK fill now carries VALUE = premium
-ok(rd(O.PHELD, 30) == 10 ** 9 and rd(O.ESC, 30) == amt(30), "premium escrowed apart from the trade escrow")
-ok(refused(A, "set_premium", [30, 5]), "premium: locked once filled")
-cb = st.bridge[C]
+ok(refused(C, "set_premium", [30], 10 ** 9), "collateral: a stranger cannot set it")
+ok(refused(A, "set_premium", [23], 10 ** 9), "collateral: intra order refused (no window, no option)")
+ok(refused(A, "set_premium", [30]), "collateral: must actually be funded")
+ab = st.bridge[A]
+call(A, "set_premium", [30], 10 ** 9)
+ok(rd(O.PREM, 30) == 10 ** 9 and rd(O.PHELD, 30) == 10 ** 9, "maker posts the collateral up front")
+ok(st.bridge[A] == ab - 10 ** 9, "the collateral leaves the MAKER's balance")
+ok(refused(A, "set_premium", [30], 5 * 10 ** 8), "collateral is set once")
+cb = st.bridge.get(C, 0)
+call(C, "fill", [30, "bc1qt30", "btc:lock:30"])                 # taker pays NOTHING extra now
+ok(st.bridge[C] == cb and rd(O.PHELD, 30) == 10 ** 9, "the taker funds no deposit to fill")
+ok(refused(A, "set_premium", [30], 10 ** 8), "collateral: locked once filled")
+ab = st.bridge[A]
 call(C, "settle", [30] + O.preimage_limbs(secret(30)))
-ok(st.bridge[C] == cb + amt(30) + 10 ** 9, "COMPLETION: taker gets the escrow AND the premium back")
+ok(st.bridge[A] == ab + 10 ** 9, "COMPLETION returns the collateral to the maker")
+# the walk: maker never reveals, order expires while FILLED -> the taker is compensated
 post(31, O.ASK)
-call(A, "set_premium", [31, 10 ** 9])
-call(C, "fill", [31, "bc1qt31", "btc:lock:31"], 10 ** 9)
+call(A, "set_premium", [31], 10 ** 9)
+call(C, "fill", [31, "bc1qt31", "btc:lock:31"])
 st.cursor = 600
 ab, cb = st.bridge[A], st.bridge[C]
 call(R, "expire", [31])
-ok(st.bridge[A] == ab + amt(31) + 10 ** 9 and st.bridge[C] == cb,
-   "WALK: the maker gets their escrow back plus the forfeited premium; the taker eats the price of the option")
+ok(st.bridge[C] == cb + 10 ** 9, "WALK: the maker's collateral is forfeited to the TAKER")
+ok(st.bridge[A] == ab + amt(31), "the maker gets only their own escrow back, never the collateral")
 st.cursor = 100
+# never filled -> the collateral comes home, by cancel and by expiry
 post(32, O.BID)
-call(A, "set_premium", [32, 5 * 10 ** 8])
-ok(refused(C, "fill", [32, "bc1qt32", "btc:lock:32"], amt(32)), "BID fill at trade-only value refused when a premium is set")
-call(C, "fill", [32, "bc1qt32", "btc:lock:32"], amt(32) + 5 * 10 ** 8)
-ok(rd(O.ESC, 32) == amt(32) and rd(O.PHELD, 32) == 5 * 10 ** 8, "BID: trade escrow and premium ride one value, split in storage")
-# attribution: a live PHELD is the TAKER's money-in-flight
-ref4 = O.escrow_refunds(st.contracts[cid]["storage"], st.zk_addrs)
-ok(ref4.get(C, 0) == amt(8) + amt(32) + 5 * 10 ** 8, f"attribution: filled-BID escrow + live premium return to the taker: {ref4.get(C)}")
-ok(sum(ref4.values()) == st.bridge.get(cid, 0), "attribution == the contract pot, exactly (premiums included)")
+call(A, "set_premium", [32], 5 * 10 ** 8)
 ab = st.bridge[A]
-call(A, "settle", [32] + O.preimage_limbs(secret(32)))
-ok(st.bridge[A] == ab + amt(32) and rd(O.PHELD, 32) == 0, "BID completion: maker paid, premium released")
-ok(sum(st.bridge.values()) == supply0, "native supply conserved through the premium section")
+call(A, "cancel", [32])
+ok(st.bridge[A] == ab + 5 * 10 ** 8 and rd(O.PHELD, 32) == 0, "cancel returns the unrisked collateral")
+post(33, O.ASK)
+call(A, "set_premium", [33], 4 * 10 ** 8)
+st.cursor = 600
+ab = st.bridge[A]
+call(R, "expire", [33])
+ok(st.bridge[A] == ab + amt(33) + 4 * 10 ** 8, "expiry while UNFILLED returns escrow and collateral to the maker")
+st.cursor = 100
+# BID fill needs the trade value only
+post(34, O.BID)
+call(A, "set_premium", [34], 3 * 10 ** 8)
+ok(refused(C, "fill", [34, "x", "y"], amt(34) + 3 * 10 ** 8), "BID fill with the old premium-inclusive value refused")
+call(C, "fill", [34, "bc1qt34", "btc:lock:34"], amt(34))
+ok(rd(O.ESC, 34) == amt(34) and rd(O.PHELD, 34) == 3 * 10 ** 8, "BID: escrow is the trade, collateral stays the maker's")
+
+# ---- K. audit regressions ---------------------------------------------------------------------------
+# the hashlock guard must catch the field wrap: hi=2^32-1, lo=1 recombines to exactly 0 mod P
+P_FIELD = 2 ** 64 - 2 ** 32 + 1
+ok(refused(A, "post", [40, O.ASK, amt(1), "btc", "x", "y", hsha(40), (1 << 32) - 1, 1, 600, 999], amt(1)),
+   "hashlock halves that wrap to zero are refused")
+# every method bounds the order id — slots alias above 2^32
+BIG = (1 << 32) + 7
+for meth, args, val in (("cancel", [BIG], None), ("fill", [BIG, "x", "y"], None), ("expire", [BIG], None),
+                        ("boost", [BIG], 10 ** 8), ("set_premium", [BIG], 10 ** 8),
+                        ("settle", [BIG] + O.preimage_limbs(secret(1)), None), ("fill_intra", [BIG], None)):
+    ok(refused(A, meth, args, val), f"{meth}: an id above 2^32 is refused (no slot aliasing)")
 
 print(f"\n[otc] {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

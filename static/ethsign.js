@@ -53,16 +53,39 @@ export async function signTx({ privHex, nonce, gasPriceWei, gasLimit, to, valueW
 const pad32 = (b) => { const r = new Uint8Array(32); r.set(b, 32 - b.length); return r; };
 const selector = (sig) => bytesToHex(keccak_256(new TextEncoder().encode(sig)).slice(0, 4));
 export const htlcAbi = {
-  fund: (claimant, Hhex, deadline) => "0x" + selector("fund(address,bytes32,uint256)")
-    + bytesToHex(pad32(hexToBytes(claimant))) + bytesToHex(pad32(hexToBytes(Hhex))) + bytesToHex(pad32(numBytes(deadline))),
+  fund: (claimant, refundee, Hhex, deadline) => "0x" + selector("fund(address,address,bytes32,uint256)")
+    + bytesToHex(pad32(hexToBytes(claimant))) + bytesToHex(pad32(hexToBytes(refundee)))
+    + bytesToHex(pad32(hexToBytes(Hhex))) + bytesToHex(pad32(numBytes(deadline))),
   claim: (keyHex, sHex) => "0x" + selector("claim(bytes32,bytes32)")
     + bytesToHex(pad32(hexToBytes(keyHex))) + bytesToHex(pad32(hexToBytes(sHex))),
   refund: (keyHex) => "0x" + selector("refund(bytes32)") + bytesToHex(pad32(hexToBytes(keyHex))),
   locks: (keyHex) => "0x" + selector("locks(bytes32)") + bytesToHex(pad32(hexToBytes(keyHex))),
-  // key = keccak256(abi.encode(H, claimant, refundee, deadline))
-  lockKey: (Hhex, claimant, refundee, deadline) => bytesToHex(keccak_256(new Uint8Array([
-    ...pad32(hexToBytes(Hhex)), ...pad32(hexToBytes(claimant)), ...pad32(hexToBytes(refundee)), ...pad32(numBytes(deadline))]))),
+  withdraw: () => "0x" + selector("withdraw()"),
+  // key = keccak256(abi.encode(H, claimant, refundee, deadline, amount)) — the AMOUNT is bound, so an
+  // underfunded lock lands elsewhere and can never trick a claimant into revealing the preimage.
+  lockKey: (Hhex, claimant, refundee, deadline, amountWei) => bytesToHex(keccak_256(new Uint8Array([
+    ...pad32(hexToBytes(Hhex)), ...pad32(hexToBytes(claimant)), ...pad32(hexToBytes(refundee)),
+    ...pad32(numBytes(deadline)), ...pad32(numBytes(amountWei))]))),
 };
+
+// BEFORE revealing a preimage, read the lock back and check it is the one that was agreed. A claim that
+// reverts still publishes the secret in its calldata, so "try it and see" is not an option.
+export async function verifyLock(url, htlc, key, want) {
+  const raw = await rpc(url, "eth_call", [{ to: htlc, data: htlcAbi.locks(key) }, "latest"]);
+  const b = raw.replace(/^0x/, "");
+  if (b.length < 64 * 5) return { ok: false, why: "no lock at that key" };
+  const word = (i) => BigInt("0x" + b.slice(i * 64, (i + 1) * 64));
+  const got = { claimant: "0x" + b.slice(24, 64), refundee: "0x" + b.slice(64 + 24, 128),
+                amount: word(2), H: "0x" + b.slice(3 * 64, 4 * 64), deadline: word(4) };
+  if (got.amount === 0n) return { ok: false, why: "no lock at that key" };
+  if (want.amount != null && got.amount < BigInt(want.amount))
+    return { ok: false, why: `the lock holds ${got.amount} wei, less than the agreed ${want.amount}` };
+  if (want.claimant && got.claimant.toLowerCase() !== want.claimant.toLowerCase())
+    return { ok: false, why: "the lock pays a different address" };
+  if (want.deadline != null && got.deadline !== BigInt(want.deadline))
+    return { ok: false, why: "the lock has a different deadline" };
+  return { ok: true, lock: got };
+}
 
 // ---- JSON-RPC ------------------------------------------------------------------------------------------
 export async function rpc(url, method, params) {
@@ -132,15 +155,18 @@ export const erc20Abi = {
   symbol: () => "0x" + _sel("symbol()"),
 };
 export const htlcErc20Abi = {
-  fund: (token, claimant, Hhex, deadline, amount) => "0x" + _sel("fund(address,address,bytes32,uint256,uint256)")
-    + _addr(token) + _addr(claimant) + bytesToHex(_pad32(hexToBytes(Hhex))) + _n(deadline) + _n(amount),
+  fund: (token, claimant, refundee, Hhex, deadline, amount) => "0x"
+    + _sel("fund(address,address,address,bytes32,uint256,uint256)")
+    + _addr(token) + _addr(claimant) + _addr(refundee) + bytesToHex(_pad32(hexToBytes(Hhex))) + _n(deadline) + _n(amount),
   claim: (keyHex, sHex) => "0x" + _sel("claim(bytes32,bytes32)")
     + bytesToHex(_pad32(hexToBytes(keyHex))) + bytesToHex(_pad32(hexToBytes(sHex))),
   refund: (keyHex) => "0x" + _sel("refund(bytes32)") + bytesToHex(_pad32(hexToBytes(keyHex))),
-  // key = keccak256(abi.encode(token, H, claimant, refundee, deadline)) — the token is part of the identity
-  lockKey: (token, Hhex, claimant, refundee, deadline) => bytesToHex(keccak_256(new Uint8Array([
+  locks: (keyHex) => "0x" + _sel("locks(bytes32)") + bytesToHex(_pad32(hexToBytes(keyHex))),
+  // key = keccak256(abi.encode(token, H, claimant, refundee, deadline, amount)) — token AND amount bound
+  lockKey: (token, Hhex, claimant, refundee, deadline, amount) => bytesToHex(keccak_256(new Uint8Array([
     ...hexToBytes(_addr(token)), ...hexToBytes(bytesToHex(_pad32(hexToBytes(Hhex)))),
-    ...hexToBytes(_addr(claimant)), ...hexToBytes(_addr(refundee)), ...hexToBytes(_n(deadline))]))),
+    ...hexToBytes(_addr(claimant)), ...hexToBytes(_addr(refundee)), ...hexToBytes(_n(deadline)),
+    ...hexToBytes(_n(amount))]))),
 };
 // A token's decimals/symbol, read straight from the contract (cached per url+token by the caller).
 export async function erc20Meta(url, token) {

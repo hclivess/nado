@@ -39,13 +39,14 @@ Storage (order id `o` = a frontend random int < 2^32; all slot-keyed => enumerab
   digest)  10 hvm(alghash hashlock, field element)  11 expn(NADO refund height)  12 expf(foreign deadline,
   opaque)  13 st(1 open 2 filled 3 settled 4 refunded 5 cancelled)  14 taker(digest)  15 tadr(taker's
   foreign addr digest)  16 fref(foreign HTLC txid/outpoint digest)  18 LIST  20..24 s0..s4(revealed limbs)
-  25 gast/26 wast/27 want(SWAP_INTRA: give-asset, want-asset — 0 = native — and want amount).
+  25 gast/26 wast/27 want(SWAP_INTRA: give-asset, want-asset — 0 = native — and want amount)
+  28 bnty(§8 bounty) 29 prem/30 pheld(§9.1 maker collateral: promised / held).
 Methods: post(o,kind,namt,wch,wamt,wadr,hsha,hvmHi,hvmLo,expn,expf) — the alghash hashlock rides as two
   32-bit halves because a JS JSON number only holds 2^53 exactly (hvm = hi·2^32 + lo mod P) —[VALUE=namt for ASK] · cancel(o) maker/open ·
   fill(o,tadr,fref)[VALUE=namt for BID] · settle(o,l0..l4) anyone with the preimage · expire(o) anyone late ·
   boost(o)[VALUE=NADO bounty] anyone, while open/filled — first correct actor wins it (§8) ·
-  set_premium(o,amt) maker/open/HTLC-only — the §9.1 free-option price: the taker escrows it at fill,
-  completion returns it, walking forfeits it to the maker ·
+  set_premium(o)[VALUE] maker/open/HTLC-only — the §9.1 free-option price: the MAKER posts collateral,
+  completion/cancel returns it, and walking (expire after a fill) forfeits it to the taker ·
   post_intra(o,ga,gv,wa,wv,expn)[VALUE=gv of ga] / fill_intra(o)[VALUE=wv of wa] — SWAP_INTRA (§7): both
   sides on the exec layer, both legs in one atomic call, no hashlock, open→settled directly.
 Amounts are RAW NADO throughout: no products, no pro-rata — only EQ/escrow moves — and the `namt > 0` range
@@ -106,7 +107,7 @@ def escrow_refunds(storage, zk_addrs):
             #                                                    exec assets die with the generation
             add(g(TAKER, o) if (g(KIND, o) == BID and g(ST, o) == FILLED) else g(MAKER, o), esc)
         add(g(MAKER, o), g(BNTY, o))       # a live bounty (always native) refunds to the order's owner of record
-        add(g(TAKER, o), g(PHELD, o))      # an escrowed premium returns to the taker — a reroll is not a walk
+        add(g(MAKER, o), g(PHELD, o))      # the maker posted the collateral — a reroll is not a walk
     return out
 
 
@@ -130,7 +131,9 @@ def build():
         m.require(m.arg(6) != 0)                                # SHA-256 hashlock (foreign leg)
         m.require(m.arg(7) < ID_MAX)                            # hvm high half fits 32 bits
         m.require(m.arg(8) < ID_MAX)                            # hvm low half fits 32 bits
-        m.require(m.arg(7) + m.arg(8) != 0)                     # alghash hashlock non-zero (halves < 2^32 can't wrap)
+        # Guard the RECOMBINED element, not the halves: hi*2^32+lo is reduced mod P, and P = 2^64-2^32+1,
+        # so hi=2^32-1 with lo=1 lands on exactly 0 while hi+lo is plainly non-zero (audit finding).
+        m.require(m.arg(7) * (1 << 32) + m.arg(8) != 0)         # alghash hashlock non-zero
         m.require(m.cursor() + HTLC_MIN_TIMELOCK < m.arg(9) + 1)          # expn >= cursor + MIN
         m.require(m.arg(9) < m.cursor() + (HTLC_MAX_TIMELOCK + 1))        # expn <= cursor + MAX
         m.require(m.arg(10) != 0)                               # foreign deadline (opaque — see TIMELOCKS)
@@ -158,6 +161,8 @@ def build():
     # cancel(o) — maker only, only while open. The escrow (ASK) drains back to the maker.
     with c.method("cancel") as m:
         o = m.arg(0)
+        m.require(o > 0)
+        m.require(o < ID_MAX)                                   # slots alias above 2^32 (audit)
         m.require(m.slot(MK, o).get() == 1)
         m.require(m.slot(ST, o).get() == OPEN)
         m.require(m.slot(MAKER, o).get() == m.caller())
@@ -171,8 +176,9 @@ def build():
         m.label("asset")
         m.apay(m.slot(GAST, o).get(), m.slot(MAKER, o).get(), esc)
         m.label("done")
-        b = m.set(m.slot(BNTY, o).get(), "b")                   # nothing was performed — the bounty refunds
-        m.slot(BNTY, o).set(m.const(0))
+        b = m.set(m.slot(BNTY, o).get() + m.slot(PHELD, o).get(), "b")   # nothing was performed: the bounty
+        m.slot(BNTY, o).set(m.const(0))                                  # AND the maker's own collateral
+        m.slot(PHELD, o).set(m.const(0))                                 # both go back to the maker
         m.jnz(b == 0, "bdone")
         m.pay(m.slot(MAKER, o).get(), b)
         m.label("bdone")
@@ -183,6 +189,8 @@ def build():
     # can verify that lock before revealing the secret.
     with c.method("fill") as m:
         o = m.arg(0)
+        m.require(o > 0)
+        m.require(o < ID_MAX)                                   # slots alias above 2^32 (audit)
         m.require(m.slot(MK, o).get() == 1)
         m.require(m.slot(ST, o).get() == OPEN)
         # HTLC kinds only: an intra order settles atomically through fill_intra. Without this gate a
@@ -192,30 +200,36 @@ def build():
         m.require(m.in_asset() == 0)
         m.require(m.arg(1) != 0)                                # taker's foreign receiving address
         m.require(m.arg(2) != 0)                                # foreign HTLC txid/outpoint
-        m.require(m.value() == zkpy.select(m.slot(KIND, o).get() == BID, m.slot(NAMT, o).get(), m.const(0))
-                  + m.slot(PREM, o).get())                     # ... plus the §9.1 premium, if the maker set one
-        m.slot(PHELD, o).set(m.slot(PREM, o).get())
-        m.slot(ESC, o).set(m.slot(ESC, o).get() + m.value() - m.slot(PREM, o).get())   # BID: the taker's NADO
+        m.require(m.value() == zkpy.select(m.slot(KIND, o).get() == BID, m.slot(NAMT, o).get(), m.const(0)))
+        m.slot(ESC, o).set(m.slot(ESC, o).get() + m.value())    # BID: the taker's NADO enters escrow here
         m.slot(TAKER, o).set(m.caller())
         m.slot(TADR, o).set(m.arg(1))
         m.slot(FREF, o).set(m.arg(2))
         m.slot(ST, o).set(m.const(FILLED))
         m.ret(o)
 
-    # set_premium(o, amt) — maker only, while open: price the taker's FREE OPTION (§9.1). The second mover
-    # escrows `amt` extra NADO at fill; completing the swap returns it, walking (expire after fill)
-    # forfeits it to the maker. HTLC kinds only — an intra swap has no window and no option. 0 clears.
+    # set_premium(o) [VALUE = the maker's collateral] — maker only, while open: price the FREE OPTION
+    # (§9.1). The MAKER posts it, because the maker generates the secret and is therefore the party who
+    # can walk away after seeing the price move; completing (settle) or never being filled (cancel /
+    # expire-while-open) returns it, and a walk — expire AFTER a fill — forfeits it to the taker. An
+    # earlier version had the taker post it and the maker collect on a walk, which paid the walker: an
+    # audit proved a maker could farm takers' deposits risk-free by simply never revealing the secret.
+    # HTLC kinds only — an intra swap settles in one call, so it has no window and no option.
     with c.method("set_premium") as m:
         o = m.arg(0)
+        m.require(o > 0)
+        m.require(o < ID_MAX)
         m.require(m.slot(MK, o).get() == 1)
         m.require(m.slot(ST, o).get() == OPEN)
         m.require(m.slot(MAKER, o).get() == m.caller())
         m.require((m.slot(KIND, o).get() - ASK) * (m.slot(KIND, o).get() - BID) == 0)
         m.require(m.in_asset() == 0)
-        m.require(m.value() == 0)
-        m.require(m.arg(1) < m.const(1 << 61))                  # LT-safe sanity bound
-        m.slot(PREM, o).set(m.arg(1))
-        m.ret(m.arg(1))
+        m.require(m.slot(PREM, o).get() == 0)                   # set once — changing it would need a refund path
+        m.require(m.value() > 0)
+        m.require(m.value() < m.const(1 << 61))                 # LT-safe sanity bound
+        m.slot(PREM, o).set(m.value())
+        m.slot(PHELD, o).set(m.value())                         # held from the moment it is promised
+        m.ret(m.value())
 
     # boost(o) [VALUE = added NADO bounty] — §8 watchtower/relayer bounties: ANYONE may attach NADO that
     # whoever performs the order's next required action wins (settle / fill_intra pays it to the caller,
@@ -223,6 +237,8 @@ def build():
     # without appointing anyone: first-come, and only for a CORRECT action the contract itself verifies.
     with c.method("boost") as m:
         o = m.arg(0)
+        m.require(o > 0)
+        m.require(o < ID_MAX)                                   # slots alias above 2^32 (audit)
         m.require(m.slot(MK, o).get() == 1)
         st = m.set(m.slot(ST, o).get(), "st")
         m.require((st - OPEN) * (st - FILLED) == 0)
@@ -237,6 +253,8 @@ def build():
     # their claim on the foreign leg (the limbs are also stored, so clients read them from a view).
     with c.method("settle") as m:
         o = m.arg(0)
+        m.require(o > 0)
+        m.require(o < ID_MAX)                                   # slots alias above 2^32 (audit)
         m.require(m.slot(MK, o).get() == 1)
         m.require(m.slot(ST, o).get() == FILLED)
         m.require(m.cursor() < m.slot(EXPN, o).get())           # claim and refund can never overlap
@@ -246,8 +264,8 @@ def build():
         m.require(m.arg(4) < m.const(1 << LIMB_BITS))
         m.require(m.arg(5) < m.const(1 << LIMB_BITS))
         m.require(zkpy.hash(m.arg(1), m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HVM, o).get())
-        m.jnz(m.slot(PHELD, o).get() == 0, "pskip")             # COMPLETION: the §9.1 premium returns
-        m.pay(m.slot(TAKER, o).get(), m.slot(PHELD, o).get())
+        m.jnz(m.slot(PHELD, o).get() == 0, "pskip")             # COMPLETION: the collateral goes home
+        m.pay(m.slot(MAKER, o).get(), m.slot(PHELD, o).get())
         m.label("pskip")
         m.slot(PHELD, o).set(m.const(0))
         m.slot(S0 + 0, o).set(m.arg(1))
@@ -302,6 +320,8 @@ def build():
     # the whole call reverts (the VM's all-or-nothing escrow settlement). open -> settled directly.
     with c.method("fill_intra") as m:
         o = m.arg(0)
+        m.require(o > 0)
+        m.require(o < ID_MAX)                                   # slots alias above 2^32 (audit)
         m.require(m.slot(MK, o).get() == 1)
         m.require(m.slot(ST, o).get() == OPEN)
         m.require(m.slot(KIND, o).get() == INTRA)
@@ -335,12 +355,15 @@ def build():
     # whoever funded its escrow (ASK -> maker, filled BID -> taker), callable by anybody, never trapped.
     with c.method("expire") as m:
         o = m.arg(0)
+        m.require(o > 0)
+        m.require(o < ID_MAX)                                   # slots alias above 2^32 (audit)
         m.require(m.slot(MK, o).get() == 1)
         st = m.set(m.slot(ST, o).get(), "st")
         m.require((st - OPEN) * (st - FILLED) == 0)
         m.require(m.slot(EXPN, o).get() < m.cursor() + 1)       # cursor >= expn
-        m.jnz(m.slot(PHELD, o).get() == 0, "pskip")             # the swap DIED after a fill: the taker's
-        m.pay(m.slot(MAKER, o).get(), m.slot(PHELD, o).get())   # §9.1 premium is forfeited to the maker
+        m.jnz(m.slot(PHELD, o).get() == 0, "pskip")             # collateral: a WALK (expired while filled)
+        m.pay(zkpy.select(st == FILLED, m.slot(TAKER, o).get(), m.slot(MAKER, o).get()),
+              m.slot(PHELD, o).get())                           # pays the taker; unfilled returns it home
         m.label("pskip")
         m.slot(PHELD, o).set(m.const(0))
         esc = m.set(m.slot(ESC, o).get(), "esc")
@@ -372,7 +395,7 @@ ABI = {
     "settle": {"args": ["orderId", "l0", "l1", "l2", "l3", "l4"]},
     "expire": {"args": ["orderId"]},
     "boost":  {"args": ["orderId"], "value": True},
-    "set_premium": {"args": ["orderId", "amount"]},
+    "set_premium": {"args": ["orderId"], "value": True},
     "post_intra": {"args": ["orderId", "giveAsset", "giveAmt", "wantAsset", "wantAmt", "expiryN"], "value": True},
     "fill_intra": {"args": ["orderId"], "value": True},
     "_view": {

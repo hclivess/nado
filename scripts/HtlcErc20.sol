@@ -25,6 +25,8 @@ contract HtlcErc20 {
     mapping(bytes32 => Lock) public locks;   // key: keccak256(abi.encode(token, H, claimant, refundee, deadline))
 
     uint256 private _entered;                // reentrancy guard: token code is arbitrary and runs on transfer
+    uint256 public constant MIN_WINDOW = 10 minutes;   // an unbounded deadline made refunds unreachable
+    uint256 public constant MAX_WINDOW = 30 days;
 
     event Funded(bytes32 indexed key, address indexed token, address indexed claimant,
                  address refundee, uint256 amount, bytes32 H, uint256 deadline);
@@ -37,27 +39,31 @@ contract HtlcErc20 {
         _entered = 0;
     }
 
-    function lockKey(address token, bytes32 H, address claimant, address refundee, uint256 deadline)
-        public pure returns (bytes32)
+    // `amount` is the AGREED figure both sides know from the order — binding it means an underfunded
+    // lock lands on a different key, the claim reverts "no lock", and the preimage is never revealed.
+    // (What is actually escrowed can be less for a fee-on-transfer token; that is the `got` below.)
+    function lockKey(address token, bytes32 H, address claimant, address refundee, uint256 deadline,
+                     uint256 amount) public pure returns (bytes32)
     {
-        return keccak256(abi.encode(token, H, claimant, refundee, deadline));
+        return keccak256(abi.encode(token, H, claimant, refundee, deadline, amount));
     }
 
     // Approve this contract for `amount` of `token` first, then fund. The ESCROWED figure is what actually
     // arrived, so a fee-on-transfer token escrows (and later pays out) its post-fee amount.
-    function fund(address token, address claimant, bytes32 H, uint256 deadline, uint256 amount)
-        external lock_ returns (bytes32 key)
+    function fund(address token, address claimant, address refundee, bytes32 H, uint256 deadline,
+                  uint256 amount) external lock_ returns (bytes32 key)
     {
-        require(amount > 0 && token != address(0) && claimant != address(0), "bad lock");
-        require(deadline > block.timestamp, "deadline in the past");
-        key = lockKey(token, H, claimant, msg.sender, deadline);
+        require(amount > 0 && token != address(0) && claimant != address(0) && refundee != address(0), "bad lock");
+        require(deadline >= block.timestamp + MIN_WINDOW && deadline <= block.timestamp + MAX_WINDOW,
+                "deadline outside the allowed window");
+        key = lockKey(token, H, claimant, refundee, deadline, amount);
         require(locks[key].amount == 0, "exists");
         uint256 before = IERC20(token).balanceOf(address(this));
         _call(token, abi.encodeWithSelector(IERC20.transferFrom.selector, msg.sender, address(this), amount));
         uint256 got = IERC20(token).balanceOf(address(this)) - before;
         require(got > 0, "nothing received");
-        locks[key] = Lock(token, claimant, msg.sender, got, H, deadline);
-        emit Funded(key, token, claimant, msg.sender, got, H, deadline);
+        locks[key] = Lock(token, claimant, refundee, got, H, deadline);
+        emit Funded(key, token, claimant, refundee, got, H, deadline);
     }
 
     // Reveal s with SHA256(s) == H, strictly before the deadline. s becomes public calldata — that is what

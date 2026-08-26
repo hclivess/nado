@@ -18,7 +18,8 @@ export function htlcScript(hHex, claimPubHex, refundPubHex, locktime) {
   const H = hexToBytes(hHex), cp = hexToBytes(claimPubHex), rp = hexToBytes(refundPubHex);
   if (H.length !== 32) throw new Error("hashlock must be 32 bytes hex");
   if (cp.length !== 33 || rp.length !== 33) throw new Error("pubkeys must be 33-byte compressed hex");
-  if (!(locktime > 0)) throw new Error("locktime must be positive");
+  if (!(Number.isInteger(locktime) && locktime > 0 && locktime < 2 ** 32))
+    throw new Error("locktime must be a whole number below 2^32 (nLockTime is 32 bits)");
   const ln = scriptnum(locktime);
   const parts = [[0x63, 0xa8, 0x20], H, [0x88, 0x21], cp, [0xac, 0x67, ln.length], ln,
                  [0xb1, 0x75, 0x21], rp, [0xac, 0x68]];
