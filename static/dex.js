@@ -12,7 +12,7 @@
 //    BigInt. A float quote would drift from the chain and mis-set minOut, turning a good swap into a revert.
 import { htlcScript, p2wshAddress } from "./btcleg.js?v=3854b338";
 import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=15418184";
-import { htlcAbi } from "./ethsign.js?v=1";
+import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec } from "./ethsign.js?v=2";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, algHashn, base, esc, randId,
          blocksToTime } from "./nadodapp.js?v=68e91695";
@@ -289,14 +289,21 @@ const otcSaveRec = (o, patch) => { const m = otcSecrets(); const cur = typeof m[
 const NETS = {
   btc:  { chain: "btc", coin: "BTC", label: "Bitcoin",          hrp: "bc",  explorer: "https://mempool.space" },
   btct: { chain: "btc", coin: "tBTC", label: "Bitcoin testnet", hrp: "tb",  explorer: "https://mempool.space/testnet" },
-  eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", evm: "0xaa36a7", htlc: "0xCd8F71E75Bb37F438c49a8011ae4037da5A8968F" },
-  eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1",     htlc: "" },
+  eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", evm: "0xaa36a7", htlc: "0xCd8F71E75Bb37F438c49a8011ae4037da5A8968F", erc20: "0x81feecb4de6ad8f23c1db38b4a1f0068cb723117" },
+  eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1",     htlc: "", erc20: "" },
 };
 const NET_BY_CHAIN = { btc: ["btc", "btct"], eth: ["eths", "eth"] };
-const netOf = (od) => NETS[od.wch] || null;
-const chainOf = (od) => (NETS[od.wch] || {}).chain || String(od.wch || "");
-const coinOf = (od) => (NETS[od.wch] || {}).coin || String(od.wch || "").toUpperCase();
-const explorerOf = (od) => (NETS[od.wch] || {}).explorer || "https://mempool.space";
+// An ERC-20 swap names its token inside the network field: wch = "<network>|<token address>". Everything
+// below reads the network through netKeyOf, so a token order behaves exactly like a native one.
+const netKeyOf = (od) => String(od.wch || "").split("|")[0];
+const tokAddrOf = (od) => { const t = String(od.wch || "").split("|")[1] || ""; return /^0x[0-9a-fA-F]{40}$/.test(t) ? t : ""; };
+const netOf = (od) => NETS[netKeyOf(od)] || null;
+const chainOf = (od) => (NETS[netKeyOf(od)] || {}).chain || netKeyOf(od);
+const erc20Names = {};                               // "0xtoken" -> {symbol, decimals}, read from the chain
+const coinOf = (od) => { const t = tokAddrOf(od);
+  if (t) return (erc20Names[t.toLowerCase()] || {}).symbol || "TOKEN";
+  return (NETS[netKeyOf(od)] || {}).coin || netKeyOf(od).toUpperCase(); };
+const explorerOf = (od) => (NETS[netKeyOf(od)] || {}).explorer || "https://mempool.space";
 // your address per NETWORK — typed once, reused forever (a swap always pays you on the same network)
 const LS_FADDR = "nado_otc_faddr";
 const faddrAll = () => { try { return JSON.parse(localStorage.getItem(LS_FADDR) || "{}"); } catch (e) { return {}; } };
@@ -422,28 +429,62 @@ function ethDeadline(od) { return Number(od.expf) || 0; }
 // the maker's/taker's EVM address for an order rides in the same "|"-packed field the BTC pubkey uses
 const ethAddrOf = (field) => { const p = (field || "").split("|").pop(); return /^0x[0-9a-fA-F]{40}$/.test(p) ? p : ""; };
 async function ethLeg(od, mode) {
-  // mode: fund (the ETH sender locks) · claim (reveal s, get paid) · refund (after the deadline)
+  // mode: fund (the ETH/token sender locks) · claim (reveal s, get paid) · refund (after the deadline)
   try {
     const { addr, chain } = await ethConnect();
-    const net = netOf(od) || {};
-    const htlc = ethHtlcFor(od);
-    if (!htlc) { alertBar(`No swap contract is deployed on ${net.label || "that network"} yet — use the command shown on this row.`); return; }
+    const net = netOf(od) || {}, token = tokAddrOf(od);
+    const htlc = token ? (net.erc20 || "") : ethHtlcFor(od);
+    if (!htlc) { alertBar(`No ${token ? "token" : ""} swap contract is deployed on ${net.label || "that network"} yet — use the command shown on this row.`); return; }
     if (chain !== net.evm) { alertBar(`Switch your wallet to ${net.label} — this order is on that network.`); return; }
-    const sells = od.kind === OTC_ASK;                  // ASK: taker sends ETH, maker claims
+    const sells = od.kind === OTC_ASK;                  // ASK: taker sends the coin, maker claims
     const senderAddr = sells ? ethAddrOf(od.tadr) : ethAddrOf(od.wadr);   // who funded the lock (the refundee)
     const claimAddr = sells ? ethAddrOf(od.wadr) : ethAddrOf(od.tadr);    // who claims with the secret
     const dl = ethDeadline(od);
-    const key = htlcAbi.lockKey(od.hsha, claimAddr, senderAddr, dl);
+    const key = token ? htlcErc20Abi.lockKey(token, od.hsha, claimAddr, senderAddr, dl)
+                      : htlcAbi.lockKey(od.hsha, claimAddr, senderAddr, dl);
     let data, valueHex;
-    if (mode === "fund") { data = htlcAbi.fund(claimAddr, od.hsha, dl); valueHex = "0x" + (BigInt(Math.round(Number(od.wamt) * 1e18))).toString(16); }
-    else if (mode === "claim") {
+    if (mode === "fund") {
+      if (token) {
+        const meta = await ethTokenMeta(token);
+        const amt = toUnitsDec(od.wamt, meta.decimals);
+        if (amt <= 0n) return alertBar("That order's token amount is not a number.");
+        // ERC-20 needs an allowance first — top it up only when it is short, so a second swap costs one tx.
+        const cur = BigInt(await ethReq("eth_call", [{ to: token, data: erc20Abi.allowance(addr, htlc) }, "latest"]) || "0x0");
+        if (cur < amt) {
+          alertBar(`Approving ${meta.symbol}… confirm the first transaction, then the lock.`);
+          await ethReq("eth_sendTransaction", [{ from: addr, to: token, data: erc20Abi.approve(htlc, amt) }]);
+        }
+        data = htlcErc20Abi.fund(token, claimAddr, od.hsha, dl, amt);
+      } else {
+        data = htlcAbi.fund(claimAddr, od.hsha, dl);
+        valueHex = "0x" + toUnitsDec(od.wamt, 18).toString(16);
+      }
+    } else if (mode === "claim") {
       let sHex = sells ? otcRec(od.o).s : otcSecretFromLimbs(od.limbs);
       if (!/^[0-9a-f]{64}$/.test(sHex || "")) return alertBar("The swap secret isn't available yet.");
-      data = htlcAbi.claim(key, sHex);
-    } else data = htlcAbi.refund(key);
+      data = token ? htlcErc20Abi.claim(key, sHex) : htlcAbi.claim(key, sHex);
+    } else data = token ? htlcErc20Abi.refund(key) : htlcAbi.refund(key);
     const txid = await ethReq("eth_sendTransaction", [{ from: addr, to: htlc, data, value: valueHex }]);
-    alertBar((mode === "fund" ? "ETH locked" : mode === "claim" ? "Claimed" : "Reclaimed") + " — tx " + String(txid).slice(0, 20) + "…");
+    alertBar((mode === "fund" ? "Locked" : mode === "claim" ? "Claimed" : "Reclaimed") + " — tx " + String(txid).slice(0, 20) + "…");
   } catch (e) { alertBar(String((e && e.message) || e).slice(0, 140)); }
+}
+// a token's symbol/decimals, read once from the chain and cached (the row shows the symbol, the lock needs the decimals)
+async function ethTokenMeta(token) {
+  const k = token.toLowerCase();
+  if (erc20Names[k]) return erc20Names[k];
+  const url = ethProv() ? null : null;
+  try {
+    const dec = await ethReq("eth_call", [{ to: token, data: erc20Abi.decimals() }, "latest"]);
+    const raw = await ethReq("eth_call", [{ to: token, data: erc20Abi.symbol() }, "latest"]);
+    const b = raw.replace(/^0x/, "");
+    let sym = "TOKEN";
+    if (b.length === 64) sym = (decodeURIComponent(b.replace(/(..)/g, "%$1")) || "").replace(/\u0000+$/, "").trim() || "TOKEN";
+    else if (b.length > 128) { const len = Number(BigInt("0x" + b.slice(64, 128)));
+      sym = decodeURIComponent(b.slice(128, 128 + len * 2).replace(/(..)/g, "%$1")) || "TOKEN"; }
+    erc20Names[k] = { symbol: sym, decimals: Number(BigInt(dec || "0x12")) };
+  } catch (e) { erc20Names[k] = { symbol: "TOKEN", decimals: 18 }; }
+  render();
+  return erc20Names[k];
 }
 async function ethFoundSecret(od) {
   // the taker (ASK) reads s out of the maker's claim calldata on the EVM to settle the NADO side
@@ -563,6 +604,7 @@ function otcRow(od, mine) {
   if ((od.st === 1 || od.st === 2) && expired && party) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim</button>`);
   if ((od.st === 1 || od.st === 2) && !expired && party) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip</button>`);
   const isEth = chainOf(od) === "eth";
+  if (isEth && tokAddrOf(od) && !erc20Names[tokAddrOf(od).toLowerCase()] && ethProv()) ethTokenMeta(tokAddrOf(od));
   const ethSender = isEth && (sells ? isTaker : isMaker), ethClaimer = isEth && (sells ? isMaker : isTaker);
   if (isEth && od.st === 2 && ethSender) acts.push(`<button class="primary" data-otc="ethfund" data-o="${od.o}">Lock the ETH…</button>`);
   if (isEth && ((sells && od.st === 2) || (!sells && od.st === 3)) && ethClaimer) acts.unshift(`<button class="primary" data-otc="ethclaim" data-o="${od.o}">Claim the ETH…</button>`);
@@ -639,12 +681,17 @@ function renderOtc() {
 async function otcPost() {
   const kind = Number($("otcKind").value);
   const raw = (() => { try { return BigInt(nadoToRaw(($("otcNado").value || "").trim())); } catch (e) { return 0n; } })();
-  const net = $("otcNet").value, chain = (NETS[net] || {}).chain, famt = ($("otcFAmt").value || "").trim(), faddr = ($("otcFAddr").value || "").trim();
+  const netSelV = $("otcNet").value, chain = (NETS[netSelV] || {}).chain;
+  const tokenV = ((($("otcToken") || {}).value) || "").trim();
+  if (tokenV && !/^0x[0-9a-fA-F]{40}$/.test(tokenV)) return alertBar("A token address looks like 0x followed by 40 hex characters.");
+  if (tokenV && !(NETS[netSelV] || {}).erc20) return alertBar(`Token swaps are not available on ${(NETS[netSelV] || {}).label} yet.`);
+  const net = tokenV ? netSelV + "|" + tokenV.toLowerCase() : netSelV;   // the token rides in the network field
+  const famt = ($("otcFAmt").value || "").trim(), faddr = ($("otcFAddr").value || "").trim();
   const blocks = Math.floor(Number($("otcExpiry").value || 0));
   if (raw <= 0n) return alertBar("Enter the NADO amount.");
   if (!famt || !(Number(famt) > 0)) return alertBar("Enter the foreign amount.");
-  if (!faddr) return alertBar("Enter your " + (NETS[net] || {}).label + " address.");
-  faddrSet(net, faddr);                                // typed once — reused for every future swap on this network
+  if (!faddr) return alertBar("Enter your " + (NETS[netSelV] || {}).label + " address.");
+  faddrSet(netSelV, faddr);                                // typed once — reused for every future swap on this network
   if (!(blocks >= 20 && blocks <= 900000)) return alertBar("Expiry must be 20 … 900000 blocks.");
   const o = randId();
   const sHex = Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, "0")).join("");
@@ -1050,7 +1097,12 @@ function wireUI() {
       netSel.innerHTML = keys.map((k) => `<option value="${k}">${NETS[k].label}</option>`).join("");
       loadAddr();
     };
-    const loadAddr = () => { if (addrIn) { addrIn.value = faddrGet(netSel.value); 
+    const showTok = () => {
+      const row = $("otcTokenRow"), on = !!(NETS[netSel.value] || {}).erc20;
+      if (row) row.classList.toggle("hidden", !on);
+      if (!on && $("otcToken")) $("otcToken").value = "";
+    };
+    const loadAddr = () => { showTok(); if (addrIn) { addrIn.value = faddrGet(netSel.value); 
       addrIn.placeholder = `your ${(NETS[netSel.value] || {}).label || ""} address (saved for next time)`; } };
     chainSel.onchange = fillNets;
     netSel.onchange = loadAddr;

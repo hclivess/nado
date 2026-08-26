@@ -327,7 +327,7 @@ claim(key, s)   require(sha256(s) == H && block.timestamp <  deadline)  -> pay c
 refund(key)     require(block.timestamp >= deadline)                    -> pay refundee
 ```
 
-ERC-20 swaps are the same contract with `transferFrom`/`transfer` instead of ETH value. Confirmation
+ERC-20 swaps ship as their own contract, **`scripts/HtlcErc20.sol`** — same hashlock/deadline, escrow moved with `transferFrom`/`transfer`, **live on Sepolia at `0x81feecb4de6ad8f23c1db38b4a1f0068cb723117`**. Two token behaviours are handled explicitly: non-standard returns (USDT-style tokens return nothing) and fee-on-transfer (the escrow is the MEASURED balance delta, never the requested figure). A reentrancy guard plus delete-before-call contains hostile token code — proven in `tests/test_htlc_erc20.mjs` with a token that re-enters during `transferFrom`. An order names its token inside the network field (`wch = "<network>|<token address>"`), so a token swap needs no contract change on the NADO side. Confirmation
 margin: post-merge finality (~2 epochs, ~13 min) before treating the lock as real; the same §6.3 inequality
 with Ethereum's clock.
 

@@ -117,3 +117,54 @@ export async function deployHtlc(url, privHex, bytecodeHex) {
   throw new Error("deploy sent (" + txid + ") but no receipt yet — check the explorer");
 }
 export async function ethBalance(url, addr) { return BigInt(await rpc(url, "eth_getBalance", [addr, "latest"])); }
+
+
+// ---- ERC-20: the token leg (HtlcErc20) plus the token calls a swap needs -------------------------------
+const _pad32 = (b) => { const r = new Uint8Array(32); r.set(b, 32 - b.length); return r; };
+const _sel = (sig) => bytesToHex(keccak_256(new TextEncoder().encode(sig)).slice(0, 4));
+const _addr = (a) => bytesToHex(_pad32(hexToBytes(a)));
+const _n = (v) => bytesToHex(_pad32(numBytes(v)));
+export const erc20Abi = {
+  approve: (spender, amount) => "0x" + _sel("approve(address,uint256)") + _addr(spender) + _n(amount),
+  allowance: (owner, spender) => "0x" + _sel("allowance(address,address)") + _addr(owner) + _addr(spender),
+  balanceOf: (who) => "0x" + _sel("balanceOf(address)") + _addr(who),
+  decimals: () => "0x" + _sel("decimals()"),
+  symbol: () => "0x" + _sel("symbol()"),
+};
+export const htlcErc20Abi = {
+  fund: (token, claimant, Hhex, deadline, amount) => "0x" + _sel("fund(address,address,bytes32,uint256,uint256)")
+    + _addr(token) + _addr(claimant) + bytesToHex(_pad32(hexToBytes(Hhex))) + _n(deadline) + _n(amount),
+  claim: (keyHex, sHex) => "0x" + _sel("claim(bytes32,bytes32)")
+    + bytesToHex(_pad32(hexToBytes(keyHex))) + bytesToHex(_pad32(hexToBytes(sHex))),
+  refund: (keyHex) => "0x" + _sel("refund(bytes32)") + bytesToHex(_pad32(hexToBytes(keyHex))),
+  // key = keccak256(abi.encode(token, H, claimant, refundee, deadline)) — the token is part of the identity
+  lockKey: (token, Hhex, claimant, refundee, deadline) => bytesToHex(keccak_256(new Uint8Array([
+    ...hexToBytes(_addr(token)), ...hexToBytes(bytesToHex(_pad32(hexToBytes(Hhex)))),
+    ...hexToBytes(_addr(claimant)), ...hexToBytes(_addr(refundee)), ...hexToBytes(_n(deadline))]))),
+};
+// A token's decimals/symbol, read straight from the contract (cached per url+token by the caller).
+export async function erc20Meta(url, token) {
+  const dec = await rpc(url, "eth_call", [{ to: token, data: erc20Abi.decimals() }, "latest"]).catch(() => "0x12");
+  let sym = "TOKEN";
+  try {                                              // symbol() is usually a dynamic string; some tokens use bytes32
+    const raw = await rpc(url, "eth_call", [{ to: token, data: erc20Abi.symbol() }, "latest"]);
+    const b = hexToBytes(raw);
+    if (b.length === 32) sym = new TextDecoder().decode(b).replace(/\u0000+$/, "").trim() || "TOKEN";
+    else if (b.length > 64) {
+      const len = Number(BigInt("0x" + bytesToHex(b.slice(32, 64))));
+      sym = new TextDecoder().decode(b.slice(64, 64 + len)) || "TOKEN";
+    }
+  } catch (e) { /* keep the fallback */ }
+  return { decimals: Number(BigInt(dec || "0x12")), symbol: sym };
+}
+export const toUnitsDec = (amountStr, decimals) => {   // "1.25", 6 -> 1250000n  (no float maths)
+  const s = String(amountStr).trim();
+  if (!/^\d*(\.\d*)?$/.test(s) || s === "" || s === ".") return 0n;
+  const [w, f = ""] = s.split(".");
+  return BigInt((w || "0") + (f + "0".repeat(decimals)).slice(0, decimals) || "0");
+};
+export const fromUnitsDec = (v, decimals) => {
+  const s = BigInt(v).toString().padStart(decimals + 1, "0");
+  const w = s.slice(0, s.length - decimals), f = s.slice(s.length - decimals).replace(/0+$/, "");
+  return f ? `${w}.${f}` : w;
+};

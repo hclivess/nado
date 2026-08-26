@@ -10,6 +10,10 @@
 //   node scripts/otc_eth_leg.mjs fund     --rpc URL --key HEX --htlc ADDR --claimant ADDR --hash H --deadline UNIX --value WEI
 //   node scripts/otc_eth_leg.mjs claim    --rpc URL --key HEX --htlc ADDR --hash H --claimant ADDR --refundee ADDR --deadline UNIX --secret S
 //   node scripts/otc_eth_leg.mjs refund   --rpc URL --key HEX --htlc ADDR --hash H --claimant ADDR --refundee ADDR --deadline UNIX
+//
+// ERC-20 swaps: add --token ADDR to deploy/fund/claim/refund. `deploy --token any` deploys HtlcErc20
+// instead of HtlcEth; fund approves the token first, and the amount is given in whole tokens (--amount
+// 12.5) because the decimals are read from the token itself.
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -19,22 +23,39 @@ const args = Object.fromEntries(process.argv.slice(3).join(" ").split("--").filt
   .map((s) => { const [k, ...v] = s.trim().split(/\s+/); return [k, v.join(" ")]; }));
 const cmd = process.argv[2];
 const need = (k) => { if (!args[k]) { console.error("missing --" + k); process.exit(2); } return args[k]; };
-const solBin = () => "0x" + (function () {
-  try { return readFileSync(join(HERE, "HtlcEth.bin"), "utf8").trim(); }
-  catch (e) { console.error("HtlcEth.bin not found — run: /root/tools/solc --bin --optimize scripts/HtlcEth.sol | tail -1 > scripts/HtlcEth.bin"); process.exit(2); }
+const solBin = (file = "HtlcEth.bin") => "0x" + (function () {
+  try { return readFileSync(join(HERE, file), "utf8").trim(); }
+  catch (e) { console.error(`${file} not found — build it with /root/tools/solc --bin --optimize`); process.exit(2); }
 })();
 try {
+  const tok = args.token && /^0x[0-9a-fA-F]{40}$/.test(args.token) ? args.token : null;
+  const keyOf = () => tok
+    ? E.htlcErc20Abi.lockKey(tok, need("hash"), need("claimant"), need("refundee"), Number(need("deadline")))
+    : E.htlcAbi.lockKey(need("hash"), need("claimant"), need("refundee"), Number(need("deadline")));
   if (cmd === "key") { const k = E.ethKeypair(); console.log(JSON.stringify(k)); }
-  else if (cmd === "deploy") { console.log(JSON.stringify(await E.deployHtlc(need("rpc"), need("key"), solBin()))); }
-  else if (cmd === "fund") {
-    const data = E.htlcAbi.fund(need("claimant"), need("hash"), Number(need("deadline")));
-    console.log(await E.sendTx(need("rpc"), { privHex: need("key"), to: need("htlc"), valueWei: BigInt(need("value")), gasLimit: 200000n, dataHex: data }));
+  else if (cmd === "deploy") {
+    const which = args.token ? "HtlcErc20.bin" : "HtlcEth.bin";
+    console.log(JSON.stringify(await E.deployHtlc(need("rpc"), need("key"), solBin(which))));
+  } else if (cmd === "fund") {
+    if (tok) {
+      const rpc = need("rpc"), htlc = need("htlc"), pk = need("key");
+      const meta = await E.erc20Meta(rpc, tok);
+      const amt = args.amount ? E.toUnitsDec(args.amount, meta.decimals) : BigInt(need("value"));
+      console.log(`approving ${args.amount || amt} ${meta.symbol}…`);
+      await E.sendTx(rpc, { privHex: pk, to: tok, gasLimit: 120000n, dataHex: E.erc20Abi.approve(htlc, amt) });
+      const data = E.htlcErc20Abi.fund(tok, need("claimant"), need("hash"), Number(need("deadline")), amt);
+      console.log(await E.sendTx(rpc, { privHex: pk, to: htlc, gasLimit: 300000n, dataHex: data }));
+    } else {
+      const data = E.htlcAbi.fund(need("claimant"), need("hash"), Number(need("deadline")));
+      console.log(await E.sendTx(need("rpc"), { privHex: need("key"), to: need("htlc"), valueWei: BigInt(need("value")), gasLimit: 200000n, dataHex: data }));
+    }
   } else if (cmd === "claim") {
-    const key = E.htlcAbi.lockKey(need("hash"), need("claimant"), need("refundee"), Number(need("deadline")));
-    const data = E.htlcAbi.claim(key, need("secret"));
-    console.log(await E.sendTx(need("rpc"), { privHex: need("key"), to: need("htlc"), gasLimit: 200000n, dataHex: data }));
+    const key = keyOf();
+    const data = tok ? E.htlcErc20Abi.claim(key, need("secret")) : E.htlcAbi.claim(key, need("secret"));
+    console.log(await E.sendTx(need("rpc"), { privHex: need("key"), to: need("htlc"), gasLimit: 300000n, dataHex: data }));
   } else if (cmd === "refund") {
-    const key = E.htlcAbi.lockKey(need("hash"), need("claimant"), need("refundee"), Number(need("deadline")));
-    console.log(await E.sendTx(need("rpc"), { privHex: need("key"), to: need("htlc"), gasLimit: 200000n, dataHex: E.htlcAbi.refund(key) }));
+    const key = keyOf();
+    const data = tok ? E.htlcErc20Abi.refund(key) : E.htlcAbi.refund(key);
+    console.log(await E.sendTx(need("rpc"), { privHex: need("key"), to: need("htlc"), gasLimit: 300000n, dataHex: data }));
   } else { console.error("commands: key | deploy | fund | claim | refund"); process.exit(2); }
 } catch (e) { console.error("error:", e.message); process.exit(1); }
