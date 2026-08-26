@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare } from "./nadodapp.js?v=68e91695";   // THE one share implementation (SDK)
+import { share as sdkShare } from "./nadodapp.js?v=9f96d60e";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -3074,7 +3074,7 @@ async function resumePendingExecSign() {
   const back = bg
     ? (params) => { const o = { nadoExecSign: 1 }; try { new URLSearchParams(params).forEach((v, k) => { o[k] = v; }); } catch (e) {} try { window.parent.postMessage(o, retUrl.origin); } catch (e) {} }
     : (params) => { location.href = req.ret + (req.ret.includes("?") ? "&" : "?") + params; };
-  if (bg && (call.connect || call.deposit)) return needUI();   // sign-in / deposit always need the visible confirm
+  if (bg && (call.connect || call.deposit || call.htlc_lock)) return needUI();   // sign-in / deposit / swap-lock always need the visible confirm
   if (call.connect) {   // lightweight "sign in": just return the wallet address, no transaction, no fee
     const c = await uiConfirm({
       title: i18("dapp.connectTitle", "Sign in"),
@@ -3108,6 +3108,39 @@ async function resumePendingExecSign() {
           data: "", nonce: randNonce(), public_key: state.wallet.publicKey, max_block: latest.block_number + TX_TARGET_MARGIN,
           min_block: latest.block_number + TX_INCLUSION_DELAY, chain_id: CHAIN_ID };
         return finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE);
+      });
+      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
+                                       : "ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
+    } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
+    return;
+  }
+  if (call.htlc_lock) {   // ATOMIC-SWAP LOCK: escrow L1 NADO under a SHA-256 hashlock for a named claimant.
+    // This is the NADO leg of a cross-chain swap. It lives on L1 because L1 verifies SHA-256 natively, so
+    // this lock and the foreign chain's lock carry the SAME hashlock and one secret opens both.
+    const L = call.htlc_lock || {};
+    let amt; try { amt = BigInt(L.amount); } catch (e) { back("ok=0&err=bad+amount"); return; }
+    const claimant = String(L.claimant || ""), hashlock = String(L.hashlock || "").toLowerCase();
+    const blocks = Math.floor(Number(L.blocks) || 0);
+    if (!ADDR_RE_I.test(claimant) || !/^[0-9a-f]{64}$/.test(hashlock) || amt <= 0n || !(blocks > 0)) {
+      back("ok=0&err=bad+swap+lock"); return;
+    }
+    const okc = await uiConfirm({
+      title: i18("dapp.swapTitle", "Lock NADO for an atomic swap"),
+      body: i18("dapp.swapBody", "{app} is asking you to escrow {n} NADO on the main chain. Only someone who knows the swap secret can take it, and only before it expires — after that you reclaim it yourself.", { app: req.app, n: rawToNado(amt) }),
+      rows: [{ k: i18("dapp.amount", "Amount"), v: rawToNado(amt) + " NADO" },
+             { k: i18("dapp.swapClaimant", "Claimable by"), v: claimant },
+             { k: i18("dapp.swapHash", "Hashlock"), v: hashlock.slice(0, 20) + "…" },
+             { k: i18("dapp.swapExpiry", "You can reclaim after"), v: blocks + " blocks" }],
+      confirmText: i18("dapp.swapLock", "Lock"),
+    });
+    if (!okc) { back("ok=0"); return; }
+    try {
+      const { res, tx } = await submitResilient(async () => {
+        const latest = await getLatestBlock();
+        if (!latest) throw new Error("relay unavailable");
+        const target = latest.block_number + TX_TARGET_MARGIN;
+        return buildTransferTx(state.wallet, "htlc_lock", amt, MIN_TX_FEE, target,
+                               { claimant, hashlock, expiry: target + blocks }, nowSeconds());
       });
       back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
                                        : "ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));

@@ -1103,6 +1103,15 @@ export class NadoDapp {
   signIn() { this._goRedirect({ connect: true, label: "sign in" }, { phase: "connect" }); }
   deposit(raw) { this._goRedirect({ deposit: { amount: raw.toString() }, label: "buy in " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
   withdraw(raw, pend) { this.signBlob({ op: "bridge_withdraw", amount: raw }, "cash out " + rawToNado(raw) + " NADO", pend || { phase: "withdraw" }); }
+  // htlcLock: the NADO leg of a cross-chain atomic swap — an L1 escrow under a SHA-256 hashlock that only
+  // the named claimant can take, and only with the secret, before `blocks` have passed. It is an L1 tx (not
+  // a contract call) because L1 verifies SHA-256 natively, so this lock and the foreign chain's lock share
+  // ONE hashlock. Always shown for explicit confirmation by the wallet; never auto-signed.
+  htlcLock({ claimant, hashlock, amount, blocks }, pend) {
+    this._goRedirect({ htlc_lock: { claimant, hashlock, amount: amount.toString(), blocks },
+                       label: "lock " + rawToNado(amount) + " NADO for an atomic swap" },
+                     pend || { phase: "htlc_lock" });
+  }
   signBlob(blob, label, pend, opts) {
     // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing
     this._pendAdd(pend, !!(opts && opts.stakes), !!(opts && opts.tipExpire));

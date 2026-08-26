@@ -285,9 +285,9 @@
     HTLC</b> under exactly the same SHA-256 hashlock as the foreign side, so one revealed secret opens
     both and neither party can take one leg without giving up the other. This order book coordinates the
     two; it never holds your coins.</p>
-    <p class="small warn">The NADO leg is created in your <a href="https://get.nadochain.com/">wallet's
-    Swap tab</a> (or with <span class="mono">scripts/otc_btc_leg.py</span> / <span class="mono">otc_eth_leg.mjs</span>)
-    — one-click locking from this page is not wired yet, so treat cross-chain as expert-only for now.</p>
+    <p class="small dim">Whoever owes the NADO locks it from this page (your wallet confirms the amount,
+    the counterparty and the refund height); the other side then checks that lock before sending anything.
+    Cross-chain swaps are new — check every figure yourself and start small.</p>
     <div id="otcBook" class="mt"></div>
   </div>
 
@@ -366,6 +366,6 @@
     investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=b1efc76f"></script>
+<script type="module" src="/static/dex.js?v=fd39c536"></script>
 </body>
 </html>

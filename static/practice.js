@@ -9,7 +9,7 @@
 // i18n: every shared string lives under the sdk.* bundle so new games add ZERO translation keys for
 // the common chrome. The distinction from real play is loud by design (see [[ux-is-priority]]): the
 // strip always says these are play chips.
-import { $ } from "./nadodapp.js?v=68e91695";
+import { $ } from "./nadodapp.js?v=9f96d60e";
 
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;
 

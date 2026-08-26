@@ -15,7 +15,7 @@ import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=1
 import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec } from "./ethsign.js?v=2";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, algHashn, base, esc, randId,
-         blocksToTime } from "./nadodapp.js?v=68e91695";
+         blocksToTime } from "./nadodapp.js?v=9f96d60e";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -433,7 +433,7 @@ function otcOrders() {
     wch: String(g("wch", o) || ""), wamt: String(g("wamt", o) || ""), wadr: String(g("wadr", o) || ""),
     hsha: String(g("hsha", o) || ""), expn: Number(g("expn", o) || 0), expf: String(g("expf", o) || ""),
     st: Number(g("st", o) || 0), taker: String(g("taker", o) || ""), tadr: String(g("tadr", o) || ""),
-    fref: String(g("fref", o) || ""), limbs: [0, 1, 2, 3, 4].map((i) => g("s" + i, o) || 0),
+    fref: String(g("fref", o) || ""), hid: String(g("hid", o) || ""), limbs: [0, 1, 2, 3, 4].map((i) => g("s" + i, o) || 0),
     gast: String(g("gast", o) || "0"), wast: String(g("wast", o) || "0"), want: BigInt(g("want", o) || 0),
     bnty: BigInt(g("bnty", o) || 0), prem: BigInt(g("prem", o) || 0), pheld: BigInt(g("pheld", o) || 0),
   })).filter((x) => x.kind);
@@ -644,6 +644,11 @@ function otcRow(od, mine) {
   if (od.st === 1 && !expired && isMaker) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
   if ((od.st === 1 || od.st === 2) && expired && party) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim</button>`);
   if ((od.st === 1 || od.st === 2) && !expired && party) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip</button>`);
+  const owesNado = od.st === 2 && (sells ? isMaker : isTaker);   // who provides the NADO side of this swap
+  if (owesNado && !expired && !od.hid) {
+    acts.unshift(`<button class="primary" data-otc="nadolock" data-o="${od.o}">Lock the NADO…</button>`);
+    acts.push(`<button class="ghost" data-otc="nadobind" data-o="${od.o}">I already locked it</button>`);
+  }
   const isEth = chainOf(od) === "eth";
   if (isEth && tokAddrOf(od) && !erc20Names[tokAddrOf(od).toLowerCase()] && ethProv()) ethTokenMeta(tokAddrOf(od));
   const ethSender = isEth && (sells ? isTaker : isMaker), ethClaimer = isEth && (sells ? isMaker : isTaker);
@@ -669,8 +674,10 @@ function otcRow(od, mine) {
         else if (!sells && isMaker) hint = `Next: press Lock the ETH, then Settle to collect your NADO.`;
         else hint = `Next: wait — when the maker settles, a Claim the ETH button appears here.`;
       }
+      else if (sells && isMaker && !od.hid) hint = `Next: press Lock the NADO — it escrows your NADO on the main chain under this swap's hashlock, takeable only by the taker and only with the secret.`;
       else if (sells && isMaker) hint = `Next: press Verify below — once the taker's ${foreign} lock shows CONFIRMED, press Claim the BTC. Claiming completes your side.`;
-      else if (sells && isTaker) hint = `Next: send the ${foreign} to the address below. When the maker claims it, press Settle — your NADO arrives automatically.`;
+      else if (sells && isTaker && !od.hid) hint = `Next: wait — the maker must lock their NADO on the main chain first. Do not send any ${foreign} until you can see and check that lock.`;
+      else if (sells && isTaker) hint = `Next: check the maker's NADO lock (id below), then send the ${foreign}. When the maker claims it the secret becomes public, and you claim the NADO with it.`;
       else if (!sells && isMaker) hint = `Next: send the ${foreign} to the address below, wait for confirmations, then press Settle to collect your NADO.`;
       else if (!sells && isTaker) hint = `Next: wait — when the maker collects their NADO here, a Claim your BTC button appears on this row.`;
     } else if ((od.st === 1 || od.st === 2) && expired) hint = "Expired — reclaim each leg on its own chain (the NADO leg is an L1 HTLC refund).";
@@ -691,6 +698,7 @@ function otcRow(od, mine) {
       detail += `<div class="small dim mt">Your swap secret: <span class="mono">${secret.slice(0, 16)}…</span>
         <a href="#" data-otc="showsecret" data-o="${od.o}">back up</a> — keep a copy: it is all this swap
         needs on any device (never share it before the counterparty's lock is CONFIRMED).</div>`;
+    if (od.st === 2 && od.hid) detail += `<div class="small mt">NADO leg locked on L1: <span class="mono">${esc(String(od.hid)).slice(0, 24)}…</span> — check its amount, hashlock and expiry in your wallet's Swap tab before sending anything.</div>`;
     if (od.st === 2) detail += `<div class="small dim mt">Foreign leg ref: <span class="mono">${esc(od.fref).slice(0, 40)}</span>
       · counterparty ${esc(disp(isMaker ? od.taker : od.maker))}</div>`;
     if (od.st === 3 && od.limbs.some((x) => Number(x) > 0)) {
@@ -832,6 +840,25 @@ async function otcAction(what, o) {
     dapp.call("fill_intra", [o], od.want, "Filling limit order #" + o + "…", { otc: o },
               od.wast !== "0" ? { cid: OTC_CID, asset: od.wast } : { cid: OTC_CID });
     return;
+  }
+  if (what === "nadolock") {
+    // The NADO leg of the swap: an L1 HTLC under the order's OWN SHA-256 hashlock, so the same secret
+    // opens it and the foreign lock. The order-book contract never holds this money.
+    const sells = od.kind === OTC_ASK;
+    const owes = sells ? od.maker : od.taker;            // ASK: the maker sells NADO; BID: the taker provides it
+    const to = sells ? od.taker : od.maker;
+    if (dapp.me !== owes) return alertBar("The NADO side of this swap is not yours to lock.");
+    if (!/^[0-9a-f]{46}$/.test(String(to))) return alertBar("The counterparty's NADO address isn't visible yet — wait for their fill to land.");
+    const blocks = Math.max(1, od.expn - (dapp.cursor || 0));
+    if (!confirm(`Lock ${rawToNado(od.namtRaw.toString())} NADO on the main chain for ${String(to).slice(0, 10)}…?\n\n`
+      + `They can only take it with the swap secret, and only within ${blocks} blocks. After that you reclaim it yourself.`)) return;
+    dapp.htlcLock({ claimant: to, hashlock: od.hsha, amount: od.namtRaw, blocks }, { otc: o, phase: "htlc_lock" });
+    return;
+  }
+  if (what === "nadobind") {
+    const id = (prompt("Paste the transaction id of the L1 HTLC you created for this swap:") || "").trim();
+    if (!/^[0-9a-f]{16,}$/.test(id)) return alertBar("That doesn't look like a transaction id.");
+    return dapp.call("bind", [o, id], null, "Recording the NADO lock…", { otc: o }, { cid: OTC_CID });
   }
   if (what === "btccopy") { const b = btcInfo(od); if (b) navigator.clipboard.writeText(b.addr).then(() => alertBar("Address copied.")); return; }
   if (what === "btcverify") { btcVerifyInto(od, "btcv" + o); return; }
