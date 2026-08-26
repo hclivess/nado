@@ -23,6 +23,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops import kv_ops
 from ops.data_ops import get_home
 from tools.alphanet5_carryforward import attribute_pot, _num
+from execnode.games import otc as _otc
+
+
+def pot_refunds_for(cid, contract, pot, zk_addrs):
+    """Route a contract's pot to its refund attribution. The OTC order book (doc/dex-bridge.md §4.4) keeps an
+    ENUMERABLE maker/taker escrow ledger precisely so a reroll refunds every live order to whoever funded it —
+    detect it by its ABI and use the contract module's own attribution; anything unattributed (should be 0)
+    falls to the deployer so Σ == pot stays exact. Every other contract goes through the legacy attribute_pot."""
+    if {"post", "fill", "settle", "expire"} <= set(contract.get("abi") or {}):
+        refunds = _otc.escrow_refunds(contract.get("storage") or {}, zk_addrs)
+        residual = pot - sum(refunds.values())
+        assert residual >= 0, f"{cid}: otc escrow ledger {sum(refunds.values())} exceeds pot {pot}"
+        if residual:
+            dep = contract.get("deployer")
+            refunds[dep] = refunds.get(dep, 0) + residual
+        assert sum(refunds.values()) == pot, f"{cid}: otc attribution != pot"
+        return refunds
+    return attribute_pot(cid, contract, pot)
 
 EXEC_STATE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exec_state.json")
 
@@ -69,7 +87,7 @@ def build():
     # 3) refund POTS to players (digest-slot games: residual -> deployer/operator of record)
     pot_refunds = {}
     for cid, pot in pot_bridge.items():
-        for addr, amt in attribute_pot(cid, contracts[cid], pot).items():
+        for addr, amt in pot_refunds_for(cid, contracts[cid], pot, d.get("zk_addrs") or {}).items():
             pot_refunds[addr] = pot_refunds.get(addr, 0) + amt
             credit(addr, amt)
     # 4) fold uncollected dividends + pending dividend withdrawals

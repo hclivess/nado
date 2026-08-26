@@ -115,10 +115,10 @@ the system still clears.
 > NADO↔asset pairs). The cross-chain order book is a different contract and is named **`otc`** throughout —
 > maker/taker swaps against a foreign chain, no pooled liquidity, no shared honeypot.
 
-An ordinary `zkvm` contract (see [`exec-instructions.md`](exec-instructions.md)), authored + differentially
-verified against the real VM in `tests/test_dex_contract.py` exactly like `tests/test_bet_contract.py`. All
-money moves through the contract's `VALUE`/`PAY` escrow; **no method is gated on any admin address** — the
-contract has no owner. State is `{map: {key: int|str}}`; keys are `"|"`-namespaced (`key2`).
+An ordinary `zkvm` contract (see [`exec-instructions.md`](exec-instructions.md)), authored + differentially verified against the real VM in `tests/otc_contract_test.py` (**shipped** — 53 asserts,
+both kinds end to end). All money moves through the contract's `VALUE`/`PAY` escrow; **no method is gated on
+any admin address** — the contract has no owner. State is slot-keyed and fully enumerable;
+`execnode/games/otc.py` is the schema of record.
 
 ### 4.1 Order kinds
 
@@ -128,47 +128,77 @@ contract has no owner. State is `{map: {key: int|str}}`; keys are `"|"`-namespac
 - **`SWAP_INTRA`** — maker offers exec-layer asset A for asset B, settled by a single atomic VM swap (§7);
   no HTLC, no foreign chain.
 
-### 4.2 Storage schema (keyed by order id `o` = `randId()`)
+### 4.2 Storage schema (implemented)
 
-| map | key | meaning |
+Slot-keyed by order id `o` (a client-chosen random int < 2^32) — **fully enumerable** (slot 0 holds the
+count, a LIST field the ids; no hash-keyed cells), which is what makes both the storage view and the reroll
+attribution (§4.4) possible without any off-chain index.
+
+| field | key | meaning |
 |---|---|---|
-| `mk` | `o` | 1 = order exists |
-| `kind` | `o` | `ASK_NADO` / `BID_NADO` / `SWAP_INTRA` |
-| `maker` | `o` | maker address |
-| `give` | `o` | NADO (raw) escrowed by the maker for this order (0 for `BID_NADO`) |
-| `want_chain` | `o` | foreign chain id (`btc`,`eth`,…) or an intra-NADO asset id |
-| `want_amt` | `o` | amount of the wanted asset (string; foreign-chain native units) |
-| `want_addr` | `o` | maker's receiving address on the foreign chain |
-| `hashlock` | `o` | SHA-256 hashlock `H` the maker will use (bound at post time) |
-| `expiry_n` | `o` | maker's NADO-side HTLC expiry height `T₁` (the LONGER lock) |
-| `expiry_f` | `o` | the foreign-side expiry `T₂ < T₁` the taker MUST use (in that chain's height/time) |
-| `state` | `o` | `open` → `filled` → `settled` / `refunded` / `cancelled` |
-| `taker` | `o` | taker address (set on fill) |
-| `swap_nado` | `o` | the NADO `htlc_lock` txid (the swap id) once locked |
-| `min_block` | `o` | (inherited from every tx) inclusion-delay so fills can't be front-run — see §9 |
+| `mk` 1 | `o` | 1 = order exists |
+| `kind` 2 | `o` | 1 = `ASK_NADO` (maker gives NADO) · 2 = `BID_NADO` (maker wants NADO) |
+| `maker` 3 | `o` | maker (caller digest) |
+| `esc` 4 | `o` | LIVE NADO escrow, raw — the maker's for an ASK, the taker's once a BID fills |
+| `namt` 5 | `o` | the NADO side amount, raw |
+| `wch` 6 / `wamt` 7 / `wadr` 8 | `o` | foreign chain / amount / maker's receiving address (string digests) |
+| `hsha` 9 | `o` | `SHA-256(s)` — the FOREIGN leg's hashlock (digest of the 64-hex string) |
+| `hvm` 10 | `o` | `alghash(limbs(s))` — THIS contract's hashlock (see the dual hashlock below) |
+| `expn` 11 | `o` | NADO-side refund height `T` — fill/settle require `cursor < expn`, expire requires `≥` |
+| `expf` 12 | `o` | the foreign leg's deadline, **opaque** (see §6.3 note below) |
+| `st` 13 | `o` | 1 open → 2 filled → 3 settled / 4 refunded / 5 cancelled |
+| `taker` 14 / `tadr` 15 / `fref` 16 | `o` | taker digest / taker's foreign address / foreign HTLC txid-outpoint |
+| `s0..s4` 20–24 | `o` | the revealed preimage limbs, stored at settle so the counterparty reads them from a view |
+
+**The dual hashlock.** The zkVM's only in-circuit hash is the alghash sponge — there is no SHA-256 opcode —
+while Bitcoin script can *only* check SHA-256. So the ONE 32-byte secret `s` binds two commitments at post
+time: `H_sha = SHA-256(s)` locks the foreign HTLC and `H_vm = alghash.hashn(limbs(s))` locks the escrow
+here, where `limbs(s)` splits `s` little-endian into five 52-bit field limbs (5×52 ≥ 256; each limb < 2^52
+so every range gate stays inside the VM's LT window). Revealing `s` anywhere opens both. `preimage_limbs` /
+`vm_hashlock` in `execnode/games/otc.py` are the single shared definition for wallet + tests.
+
+**Timelock note (§6.3 in practice).** `expn` is enforced in-circuit (`[cursor+HTLC_MIN_TIMELOCK,
+cursor+HTLC_MAX_TIMELOCK]`, mirroring the L1 HTLC bounds) and splits claim from refund exactly: settle needs
+`cursor < expn`, expire needs `cursor ≥ expn`. `expf` lives on a chain whose clock this VM cannot observe, so
+the §6.3 ordering invariant (foreign refund + claim margin strictly before `expn`) is verified by the
+wallet/watchtower before it accepts a fill — the contract stores `expf` so both parties committed to the
+same window, it never interprets it.
 
 ### 4.3 Methods (all permissionless; `//` = revert guard)
 
-- **`post_order(o, kind, want_chain, want_amt, want_addr, hashlock, expiry_n, expiry_f)`** with `VALUE` =
-  the maker's NADO for an `ASK_NADO` (0 otherwise).
-  `// o is fresh; expiry_n ∈ [h+HTLC_MIN_TIMELOCK, h+HTLC_MAX_TIMELOCK]; expiry_f encodes a strictly shorter
-  wall-clock window than expiry_n (§6.3); for ASK_NADO the escrowed VALUE == give.` The escrow is now held by
-  the contract, releasable only back to the maker (cancel/expire) or forward into the settled swap.
-- **`cancel(o)`** — maker only, only while `open`. Refunds `give` to the maker. `// state==open && caller==maker`.
-- **`fill(o, taker_want_addr, foreign_lock_ref)`** — a taker commits to the other side. Records `taker`,
-  flips `state open→filled`, and pins the **foreign leg reference** (the txid/outpoint of the taker's HTLC on
-  the foreign chain, so the maker can verify it before revealing). `// state==open`. Fill is a *race*: the
-  first valid fill wins; the inclusion delay + deterministic mempool (§9) make that race fair.
-- **`settle_nado(o)`** — the party entitled to the NADO side calls this once the preimage is public. It
-  simply forwards the maker's escrow into a NADO `htlc_lock` bound to `{claimant, hashlock, expiry_n}` — or,
-  if you prefer to keep the HTLC outside the contract, `settle_nado` just releases escrow to the maker after
-  verifying the foreign leg matured (see §6.4 variant). `// state==filled`.
-- **`expire(o)`** — anyone, after `expiry_n`. Refunds an unsettled order's `give` to the maker and marks
-  `refunded`. This is the no-authority safety valve: a stuck order always drains back to its owner, callable
-  by anybody (a watchtower, the maker, a bot), never trapped. `// state∈{open,filled} && height≥expiry_n`.
+- **`post(o, kind, namt, wch, wamt, wadr, hsha, hvm, expn, expf)`** with `VALUE = namt` for an `ASK_NADO`
+  (0 for a `BID_NADO` — the NADO side arrives with the taker's fill).
+  `// o fresh; kind ∈ {1,2}; namt > 0 (range-gated < 2^62); every commitment non-zero; expn in the HTLC
+  window; VALUE == (kind==ASK ? namt : 0).`
+- **`cancel(o)`** — maker only, only while `open`. Refunds the escrow to the maker. `// state==open &&
+  caller==maker`.
+- **`fill(o, tadr, fref)`** with `VALUE = namt` for a `BID_NADO` — first valid taker wins (the tx inclusion
+  delay + deterministic mempool make the race fair, §9). Pins the taker's foreign HTLC reference so the
+  maker can verify that lock before revealing `s`. `// state==open && cursor < expn && VALUE matches kind.`
+- **`settle(o, l0..l4)`** — **anyone** holding the preimage (the counterparty, a watchtower). `// state==
+  filled && cursor < expn && alghash(l0..l4) == hvm (each limb < 2^52).` Pays the escrow to the recorded
+  party, never the caller: ASK → taker, BID → maker. Submitting the limbs publishes `s` on NADO — for a BID
+  that is exactly what hands the taker their claim on the foreign leg (and the limbs are stored in `s0..s4`).
+- **`expire(o)`** — anyone, at/after `expn`. Drains an unsettled order's escrow back to whoever funded it
+  (ASK → maker, filled BID → taker) and marks `refunded`. The no-authority safety valve: a stuck order is
+  never trapped. `// state ∈ {open, filled} && cursor ≥ expn.`
 
-Because the contract can **only** pay the maker (refund) or move escrow into a hashlock/timelock the maker
-themselves parameterised, there is no method and no caller that can divert a swap. That is the whole point.
+Because the contract can **only** pay escrow back to its funder (cancel/expire) or forward to the recorded
+counterparty against the preimage the maker themselves committed to, there is no method and no caller that
+can divert a swap. That is the whole point.
+
+### 4.4 Reroll survivability & venue
+
+Every escrowed raw is **attributable on-chain**: orders are enumerable and each carries its funder and live
+`esc`, so at a genesis reroll (doc/updates-and-rerolls.md) the carry-forward refunds every open/filled order
+exactly to whoever funded it — `otc.escrow_refunds` is that attribution (the contract module owns its own
+schema), and `tools/alphanet6_carryforward.py` routes any contract whose ABI carries `post/fill/settle/
+expire` through it. Funds always survive a reroll; the *orders* do not carry (their expiry heights belong to
+the dead chain, and the foreign leg falls back to its own refund path) — makers simply re-post.
+
+**Venue:** the order book is a separate contract from the `dex` AMM (no shared state; separate audit and
+upgrade surfaces) but the SAME user-facing exchange — the cross-chain book ships as a tab inside the
+existing `static/dex.{html,js}` dApp on the shared `nadodapp.js` SDK, not as a second app.
 
 ---
 
@@ -240,8 +270,9 @@ single most important consensus check in the whole design.
 
 The NADO chain must release Alice's escrow to Bob **only** once `s` is known. Two ways, pick per deployment:
 
-- **(A) Direct — Bob submits `s`.** Bob simply calls the settle with `s`; the contract checks
-  `SHA-256(s)==H`. Bob learned `s` by watching Bitcoin. **This needs nothing from NADO about Bitcoin** — the
+- **(A) Direct — Bob submits `s`.** Bob simply calls `settle(o, limbs(s))`; the contract checks the
+  alghash side of the dual hashlock, `alghash(limbs(s))==H_vm` (§4.2 — the VM has no SHA-256, so the one
+  secret carries a hashlock in each chain's native hash; both were bound at post). Bob learned `s` by watching Bitcoin. **This needs nothing from NADO about Bitcoin** — the
   preimage is self-authenticating. This is the default and is fully trustless (it is exactly how
   [`htlc.md`](htlc.md) §3 works). The order book just coordinates *discovery*; settlement is the raw HTLC.
 - **(B) SPV-verified — for the reverse direction / added safety.** When NADO is the *shorter* leg and must
@@ -433,14 +464,14 @@ and being a watchtower requires no permission, stake, or identity.
 | phase | deliverable | tests |
 |---|---|---|
 | **0 (done)** | HTLC tx types + client Swap tab | `tests/test_htlc.py` |
-| **1** | `otc` order-book contract (`ASK_NADO`/`BID_NADO`): post/cancel/fill/expire + escrow, timelock-ordering guard | `tests/test_otc_contract.py` (author-in-test + differential-verify vs the VM, like `test_bet_contract.py`) |
+| **1 (done 2026-08-26)** | `otc` order-book contract (`ASK_NADO`/`BID_NADO`): post/cancel/fill/settle/expire + attributable escrow, dual hashlock, claim/refund window split, reroll attribution wired into the carry-forward | `tests/otc_contract_test.py` (author-in-test + differential-verify vs the real VM, 53 asserts) |
 | **2** | Foreign-leg templates (§6.5) + cross-chain settle wiring: contract escrow → NADO `htlc_lock`/`htlc_claim`; wallet flow that generates `H`, posts, verifies the foreign HTLC (SPV/RPC read), reveals, and relays the preimage | `tests/test_otc_swap_e2e.py` (regtest bitcoind + an ETH devnode + local NADO) |
 | **3** | `SWAP_INTRA` + `fill_intra` (atomic exec-layer asset↔asset) and the cross-namespace tunnel path | `tests/test_otc_intra.py` |
 | **4** | Watchtower/relayer bounties + a reference permissionless relayer daemon (`scripts/otc_watchtower.py`, dry-run default like `bet_oracle.py`) | integration |
 | **5 (optional, future)** | premium/collateral for the free option; L3 gossip discovery relay; a `bridge.nadochain.com` Swap dApp | — |
 
 **File map (to build):** `execnode/games/otc.py` (+ `tests/test_otc_contract.py` as its source of
-truth), `static/otc.{html,js}` (the Swap dApp, on the shared `nadodapp.js` SDK), `scripts/otc_watchtower.py`,
+truth), a cross-chain tab inside the existing `static/dex.{html,js}` exchange dApp (one venue: AMM + book, on the shared `nadodapp.js` SDK), `scripts/otc_watchtower.py`,
 `website/nginx-bridge.nadochain.com.conf`, a card in `website/games.html`/the app catalog, and this doc.
 
 ---
