@@ -184,3 +184,5 @@ rollback_stats.json
 tests/.tmp_finality_probe/
 treasury_history.json
 fork_diffs.jsonl
+static/market/prices.json
+static/market/prices.json.tmp

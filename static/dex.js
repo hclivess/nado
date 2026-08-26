@@ -677,6 +677,16 @@ function limPost() {
 
 // ===== MARKET: live price sampling + the exchange chart (dataviz: single price series, up/down color) =====
 const LS_PRICES = "nado_dex_prices";
+// SHARED history: a node-side sampler publishes the pool's price series, so a first-time visitor sees the
+// real chart immediately instead of an empty box that only fills while their own tab stays open. The local
+// samples below still add fine-grained recent points on top.
+let sharedPrices = {};
+async function refreshSharedPrices() {
+  try {
+    const r = await (await fetch("/static/market/prices.json", { cache: "no-store" })).json();
+    if (r && r.pools) sharedPrices = r.pools;
+  } catch (e) { /* sampler not running — the local series still works */ }
+}
 let mktRange = 3600;                                 // seconds; 0 = all
 const priceStore = () => { try { return JSON.parse(localStorage.getItem(LS_PRICES) || "{}"); } catch (e) { return {}; } };
 function samplePrices(sto) {
@@ -697,8 +707,15 @@ function samplePrices(sto) {
   if (changed) { try { localStorage.setItem(LS_PRICES, JSON.stringify(store)); } catch (e) {} }
 }
 function priceSeries(id) {
-  const arr = priceStore()[id] || [];
-  return mktRange > 0 ? arr.filter((x) => x[0] >= Date.now() - mktRange * 1000) : arr;
+  const shared = (sharedPrices[id] || []).map((x) => [x[0] * 1000, x[1]]);   // sampler stores whole seconds
+  const local = priceStore()[id] || [];
+  const seen = new Set(), all = [];
+  for (const pt of shared.concat(local).sort((a, b) => a[0] - b[0])) {
+    const k = Math.round(pt[0] / 1000);
+    if (seen.has(k)) continue;
+    seen.add(k); all.push(pt);
+  }
+  return mktRange > 0 ? all.filter((x) => x[0] >= Date.now() - mktRange * 1000) : all;
 }
 const fmtPrice = (v) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4);
 const fmtAgo = (ts) => { const s = Math.max(0, (Date.now() - ts) / 1000); return s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : s < 172800 ? Math.round(s / 3600) + "h ago" : Math.round(s / 86400) + "d ago"; };
@@ -715,7 +732,7 @@ function renderMarket() {
   $("mktPair").textContent = `${sym} / NADO`;
   $("mktPrice").textContent = live ? fmtPrice(price) : "—";
   // 24h change (or first point in range) from the observed series
-  const all = priceStore()[p.id] || [];
+  const all = priceSeries(p.id).length ? priceSeries(p.id) : (priceStore()[p.id] || []);
   const dayAgo = all.filter((x) => x[0] >= Date.now() - 86400000)[0];
   const base = dayAgo ? dayAgo[1] : (all[0] ? all[0][1] : price);
   const chgEl = $("mktChg");
@@ -840,6 +857,7 @@ async function refresh() {
     if (sto) lastSto = sto;
   } catch (e) { /* transient relay blip — keep the last good view rather than blanking the page */ }
   await refreshAssets();
+  await refreshSharedPrices();
   samplePrices(lastSto);
   await otcRefresh();
   render();
