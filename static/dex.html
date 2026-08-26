@@ -254,38 +254,12 @@
     </div>
   </div>
 
-  <!-- BITCOIN LEG BUILDER (client-side §6.5 P2WSH HTLC — parity-tested against scripts/otc_btc_leg.py) -->
-  <div class="card hidden" id="otcBtcCard">
-    <h2>Bitcoin leg builder</h2>
-    <p class="small dim">The foreign side of a swap is a standard <b>P2WSH HTLC</b> under the order's
-    hashlock. Exchange <b>compressed pubkeys</b> (33-byte hex — not addresses) with your counterparty, set
-    the deadline you both signed, and fund the address below from any Bitcoin wallet. Everything is computed
-    in your browser; verify the funding yourself on a block explorer before revealing anything.</p>
-    <div class="row mt">
-      <input id="btcH" placeholder="hashlock H (64-hex SHA-256, from the order)" autocomplete="off">
-    </div>
-    <div class="row mt">
-      <input id="btcClaimPub" placeholder="claimant pubkey (66-hex, who claims with the secret)" autocomplete="off">
-      <input id="btcRefundPub" placeholder="refund pubkey (66-hex, who refunds after the deadline)" autocomplete="off">
-    </div>
-    <div class="row mt">
-      <input id="btcLock" placeholder="locktime (block height or unix time)" inputmode="numeric" autocomplete="off">
-      <select id="btcNet" style="max-width:140px">
-        <option value="bc">mainnet</option>
-        <option value="tb">testnet</option>
-        <option value="bcrt">regtest</option>
-      </select>
-      <button class="primary" id="btnBtcBuild" style="flex:0 0 auto">Build</button>
-    </div>
-    <div id="btcOut" class="mono small mt" style="word-break:break-all"></div>
-  </div>
-
   <footer>
     <span>The pool contract is public and verifiable on the NADO execution layer. Providing liquidity
     carries impermanent loss — if the price moves, withdrawing returns a different mix than you put in.
     Nothing here is investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=85d4dd3b"></script>
+<script type="module" src="/static/dex.js?v=ed6bec4f"></script>
 </body>
 </html>

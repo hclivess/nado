@@ -11,6 +11,7 @@
 //  * The quote recomputes out = RT·dxf/(RN+dxf), dxf = dx·9970/10000, EXACTLY as the contract does, in
 //    BigInt. A float quote would drift from the chain and mis-set minOut, turning a good swap into a revert.
 import { htlcScript, p2wshAddress } from "./btcleg.js?v=3854b338";
+import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=15418184";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, playModes, algHashn, base, esc, randId,
          blocksToTime } from "./nadodapp.js?v=68e91695";
@@ -200,7 +201,91 @@ async function sha256Hex(hex) {                       // H_sha — the FOREIGN c
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", b)), (x) => x.toString(16).padStart(2, "0")).join("");
 }
 const otcSecrets = () => { try { return JSON.parse(localStorage.getItem(LS_OTC_SECRETS) || "{}"); } catch (e) { return {}; } };
-const otcSaveSecret = (o, s) => { const m = otcSecrets(); m[o] = s; localStorage.setItem(LS_OTC_SECRETS, JSON.stringify(m)); };
+const otcRec = (o) => { const v = otcSecrets()[o]; return typeof v === "string" ? { s: v } : (v || {}); };
+const otcSaveRec = (o, patch) => { const m = otcSecrets(); const cur = typeof m[o] === "string" ? { s: m[o] } : (m[o] || {});
+  m[o] = Object.assign(cur, patch); localStorage.setItem(LS_OTC_SECRETS, JSON.stringify(m)); };
+
+// ---- the AUTOMATIC Bitcoin leg (no builder, no pubkey pasting — see btcsign.js) -----------------------
+const MEMPOOL = "https://mempool.space";
+const btcCache = {};                                   // orderId -> { script, addr } once computed
+function btcParts(od) {
+  // both parties' swap pubkeys ride the order itself (packed behind "|" in their address fields)
+  if (od.wch !== "btc") return null;
+  const okp = (p) => /^0[23][0-9a-f]{64}$/.test(p || "");
+  const mp = (od.wadr.split("|")[1] || "").toLowerCase();
+  const tp = ((od.tadr || "").split("|").pop() || "").toLowerCase();
+  if (!okp(mp) || !okp(tp)) return null;
+  const sells = od.kind === OTC_ASK;                   // ASK: the maker RECEIVES the BTC -> claimant
+  return { claimPub: sells ? mp : tp, refundPub: sells ? tp : mp, lock: Math.floor(Number(od.expf) || 0) };
+}
+function btcInfo(od) {
+  if (od.st < 2) return null;                          // the address exists once BOTH keys are known (filled)
+  if (btcCache[od.o]) return btcCache[od.o] === "pending" ? null : btcCache[od.o];
+  const p = btcParts(od);
+  if (!p || !/^[0-9a-f]{64}$/.test(od.hsha) || !(p.lock > 0)) return null;
+  btcCache[od.o] = "pending";
+  const script = htlcScript(od.hsha, p.claimPub, p.refundPub, p.lock);
+  p2wshAddress(script, "bc").then((addr) => { btcCache[od.o] = { script, addr }; render(); });
+  return null;
+}
+async function btcVerifyInto(od, elId) {
+  const el = document.getElementById(elId), b = btcInfo(od);
+  if (!el || !b) return;
+  el.textContent = "checking…";
+  try {
+    const a = await (await fetch(`${MEMPOOL}/api/address/${b.addr}`, { cache: "no-store" })).json();
+    const conf = Number(a.chain_stats.funded_txo_sum || 0), pend = Number(a.mempool_stats.funded_txo_sum || 0);
+    el.innerHTML = conf > 0
+      ? `<span style="color:var(--accent2)">CONFIRMED: ${conf / 1e8} BTC locked</span>${pend ? ` (+${pend / 1e8} unconfirmed)` : ""}`
+      : pend > 0 ? `UNCONFIRMED: ${pend / 1e8} BTC in the mempool — wait for ≥2 confirmations`
+      : "nothing sent to this address yet";
+  } catch (e) { el.textContent = "explorer unreachable — try again"; }
+}
+async function btcSpendFlow(od, mode) {
+  // ONE button: find the funded coin, ask where to send it, sign in-page, broadcast via the explorer.
+  const b = btcInfo(od);
+  if (!b) return alertBar("Still deriving the Bitcoin address — try again in a second.");
+  let utxo;
+  try { utxo = (await (await fetch(`${MEMPOOL}/api/address/${b.addr}/utxo`, { cache: "no-store" })).json())[0]; }
+  catch (e) { return alertBar("Explorer unreachable — try again."); }
+  if (!utxo) return alertBar("Nothing to spend at the swap address (not funded, or already spent).");
+  if (!utxo.status.confirmed && !confirm("The coin is still UNCONFIRMED. Continue anyway?")) return;
+  const rec = otcRec(od.o);
+  if (!rec.k) return alertBar("This browser doesn't hold the swap key for this order (use the device you posted/filled from, or scripts/otc_btc_leg.py).");
+  const payout = (prompt("Your Bitcoin address — where the coins should go:") || "").trim();
+  if (!payout) return;
+  let outScriptHex;
+  try { outScriptHex = await addressToScript(payout, "bc"); } catch (e) { return alertBar(String(e.message || e)); }
+  let feeRate = 10;
+  try { feeRate = Math.max(1, (await (await fetch(`${MEMPOOL}/api/v1/fees/recommended`)).json()).fastestFee); } catch (e) {}
+  const feeSat = feeRate * 160;                        // ~160 vB for this 1-in/1-out P2WSH spend
+  const sHex = mode === "claim" ? (od.kind === OTC_ASK ? rec.s : otcSecretFromLimbs(od.limbs)) : null;
+  if (mode === "claim" && !/^[0-9a-f]{64}$/.test(sHex || "")) return alertBar("The swap secret isn't available yet.");
+  try {
+    const hex = mode === "claim"
+      ? await claimTx({ scriptHex: b.script, secretHex: sHex, privHex: rec.k, fundTxid: utxo.txid,
+                        vout: utxo.vout, amountSat: utxo.value, outScriptHex, feeSat })
+      : await refundTx({ scriptHex: b.script, locktime: Math.floor(Number(od.expf)), privHex: rec.k,
+                         fundTxid: utxo.txid, vout: utxo.vout, amountSat: utxo.value, outScriptHex, feeSat });
+    const r = await fetch(`${MEMPOOL}/api/tx`, { method: "POST", body: hex });
+    const t = (await r.text()).trim();
+    if (!r.ok) return alertBar(/non-final|non-BIP68/.test(t) ? "The Bitcoin deadline hasn't passed yet — try again after it." : "Bitcoin rejected it: " + t.slice(0, 120));
+    alertBar((mode === "claim" ? "Claimed! " : "Reclaimed! ") + "Bitcoin txid: " + t.slice(0, 24) + "… — coins on the way to " + payout.slice(0, 16) + "…");
+  } catch (e) { alertBar(String(e.message || e)); }
+}
+async function btcFoundSecret(od) {
+  // the taker's shortcut: the maker's claim already published the secret ON BITCOIN — read it back.
+  const b = btcInfo(od);
+  if (!b) return null;
+  try {
+    for (const tx of await (await fetch(`${MEMPOOL}/api/address/${b.addr}/txs`, { cache: "no-store" })).json())
+      for (const vin of tx.vin || [])
+        if (vin.prevout && vin.prevout.scriptpubkey_address === b.addr)
+          for (const w of vin.witness || [])
+            if (typeof w === "string" && w.length === 64 && (await sha256Hex(w)) === od.hsha) return w;
+  } catch (e) {}
+  return null;
+}
 
 // ---- reads --------------------------------------------------------------------------------------------
 async function otcRefresh() {
@@ -243,23 +328,33 @@ function otcRow(od, mine) {
   if (od.st === 1 && !expired && !isMaker && me && !mine) acts.push(`<button class="primary" data-otc="fillask" data-o="${od.o}">Fill…</button>`);
   if (od.st === 1 && !expired && isMaker) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
   if ((od.st === 1 || od.st === 2) && expired && party) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim</button>`);
-  if ((od.st === 1 || od.st === 2) && !expired && party) {
-    acts.push(`<button class="ghost" data-otc="btcleg" data-o="${od.o}">BTC leg</button>`);
-    acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip</button>`);
-  }
+  if ((od.st === 1 || od.st === 2) && !expired && party) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip</button>`);
+  const btc = od.wch === "btc" ? btcInfo(od) : null;
+  const btcFunder = od.wch === "btc" && (sells ? isTaker : isMaker);
+  const btcClaimer = od.wch === "btc" && (sells ? isMaker : isTaker);
+  if (btc && od.st === 2 && btcClaimer && sells && otcRec(od.o).s) acts.unshift(`<button class="primary" data-otc="btcclaim" data-o="${od.o}">Claim the BTC…</button>`);
+  if (btc && od.st === 3 && btcClaimer && !sells) acts.unshift(`<button class="primary" data-otc="btcclaim" data-o="${od.o}">Claim your BTC…</button>`);
+  if (btc && od.st >= 2 && btcFunder && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="btcrefund" data-o="${od.o}">Reclaim BTC</button>`);
   if (od.st === 1 && !expired && isMaker && od.kind !== OTC_INTRA) acts.push(`<button class="ghost" data-otc="prem" data-o="${od.o}">Deposit…</button>`);
   let detail = "";
   if (mine) {
     let hint = "";
     if (od.st === 1 && !expired && isMaker) hint = "Waiting for a taker — your funds stay reclaimable. Cancel any time.";
     else if (od.st === 2 && !expired) {
-      if (sells && isMaker) hint = `Next: verify the taker's ${chain} lock (BTC leg), then claim it with your swap secret — claiming publishes the secret and completes the swap.`;
-      else if (sells && isTaker) hint = `Next: once the maker claims your ${chain} lock, the secret becomes public — press Settle and paste it to collect your NADO.`;
-      else if (!sells && isMaker) hint = `Next: lock the ${chain} you owe (BTC leg), wait for confirmations, then press Settle — it publishes your secret and collects your NADO.`;
-      else if (!sells && isTaker) hint = `Next: when the maker settles here, the revealed secret appears on this row — use it to claim the ${chain} they locked for you.`;
+      if (sells && isMaker) hint = `Next: press Verify below — once the taker's ${chain} lock shows CONFIRMED, press Claim the BTC. Claiming completes your side.`;
+      else if (sells && isTaker) hint = `Next: send the ${chain} to the address below. When the maker claims it, press Settle — your NADO arrives automatically.`;
+      else if (!sells && isMaker) hint = `Next: send the ${chain} to the address below, wait for confirmations, then press Settle to collect your NADO.`;
+      else if (!sells && isTaker) hint = `Next: wait — when the maker collects their NADO here, a Claim your BTC button appears on this row.`;
     } else if ((od.st === 1 || od.st === 2) && expired) hint = "Expired — Reclaim returns everything to whoever put it in.";
     if (hint) detail += `<div class="small mt" style="color:var(--accent2)">${hint}</div>`;
-    const secret = otcSecrets()[od.o];
+    if (od.wch === "btc" && od.st >= 2 && (isMaker || isTaker)) {
+      const b = btcInfo(od);
+      if (b) detail += `<div class="small mt">${btcFunder && od.st === 2 ? `<b>Send exactly ${esc(od.wamt)} BTC to:</b><br>` : `Swap address: `}<span class="mono" style="word-break:break-all">${b.addr}</span>
+        <a href="#" data-otc="btccopy" data-o="${od.o}">copy</a> · <a href="#" data-otc="btcverify" data-o="${od.o}">verify</a>
+        <span id="btcv${od.o}" class="dim"></span></div>`;
+      else if (!btcParts(od)) detail += `<div class="small dim mt">The counterparty's client didn't publish a Bitcoin key — finish this leg with scripts/otc_btc_leg.py.</div>`;
+    }
+    const secret = otcRec(od.o).s;
     if (secret && (od.st === 1 || od.st === 2))
       detail += `<div class="small dim mt">Your swap secret: <span class="mono">${secret.slice(0, 16)}…</span>
         <a href="#" data-otc="showsecret" data-o="${od.o}">show</a> — reveal it on the ${chain} side ONLY after
@@ -275,7 +370,7 @@ function otcRow(od, mine) {
       <div class="loantop">${pill} <b>#${od.o}</b> ${esc(disp(od.maker))} ${head}</div>
       <div class="loanterms">${od.prem > 0n ? `asks a ${rawToNado(od.prem.toString())} NADO good-faith deposit · ` : ""}${od.bnty > 0n ? `<span class="pill">+${rawToNado(od.bnty.toString())} NADO tip</span> · ` : ""}hashlock <span class="dim">${esc(od.hsha).slice(0, 18)}…</span> ·
         ${od.st <= 2 ? (expired ? "refundable now" : `expires in ${left} blocks (~${blocksToTime(left)})`) : ""}</div>
-      <div class="loanwho dim small">${sells ? "maker receives" : "taker receives"} ${chain} at ${esc(sells ? od.wadr : od.tadr || od.wadr)}</div>
+      <div class="loanwho dim small">${sells ? "maker receives" : "taker receives"} ${chain} at ${esc((sells ? od.wadr : od.tadr || od.wadr).split("|")[0]) || "(swap key published)"}</div>
       ${detail}
     </div><div class="loanacts">${acts.join("")}</div></div>`;
 }
@@ -306,7 +401,8 @@ async function otcPost() {
   if (!(blocks >= 20 && blocks <= 900000)) return alertBar("Expiry must be 20 … 900000 blocks.");
   const o = randId();
   const sHex = Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, "0")).join("");
-  otcSaveSecret(o, sHex);                              // BEFORE the wallet redirect can navigate away
+  const kp = chain === "btc" ? genKeypair() : null;    // the swap's own Bitcoin key — never typed, never leaves this browser
+  otcSaveRec(o, Object.assign({ s: sHex }, kp || {})); // BEFORE the wallet redirect can navigate away
   const hsha = await sha256Hex(sHex);
   const [hi, lo] = otcVmParts(sHex);
   // expf: the FOREIGN leg's deadline both parties sign. Advisory to the VM (it cannot read that chain);
@@ -314,7 +410,8 @@ async function otcPost() {
   const expf = Math.floor(Date.now() / 1000 + blocks * 6 * 0.6);
   const expn = (dapp.cursor || 0) + blocks;
   const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex; }
-  dapp.call("post", [o, kind, raw, chain, famt, faddr, hsha, hi, lo, expn, expf],
+  const wadr = kp ? faddr + "|" + kp.pub : faddr;
+  dapp.call("post", [o, kind, raw, chain, famt, wadr, hsha, hi, lo, expn, expf],
             kind === OTC_ASK ? raw : null, "Posting order #" + o + "…", { otc: o }, { cid: OTC_CID });
 }
 function otcAction(what, o) {
@@ -322,15 +419,6 @@ function otcAction(what, o) {
   if (!od) return;
   if (what === "showsecret") { const s = otcSecrets()[o]; if (s) prompt("Swap secret for order #" + o + " — keep it safe:", s); return; }
   if (what === "cancel") return dapp.call("cancel", [o], null, "Cancelling #" + o + "…", { otc: o }, { cid: OTC_CID });
-  if (what === "btcleg") {
-    // prefill the builder from the order: the SAME hashlock, the deadline both parties signed. Pubkeys are
-    // the two parties' own to exchange — an order stores receiving ADDRESSES, never Bitcoin pubkeys.
-    const h = $("btcH"), l = $("btcLock"), c = $("otcBtcCard");
-    if (h) h.value = /^[0-9a-fA-F]{64}$/.test(od.hsha) ? od.hsha : "";
-    if (l) l.value = od.expf || "";
-    if (c) { c.classList.remove("hidden"); c.scrollIntoView({ behavior: "smooth" }); }
-    return;
-  }
   if (what === "prem") {
     const raw = (prompt("Good-faith deposit the taker must escrow (in NADO). Returned to them on completion; forfeited to you if they walk away. Enter 0 to remove it:") || "").trim();
     let amt;
@@ -348,15 +436,16 @@ function otcAction(what, o) {
   if (what === "expire") return dapp.call("expire", [o], null, "Reclaiming #" + o + "…", { otc: o }, { cid: OTC_CID });
   if (what === "fillask") {
     const chain = od.wch.toUpperCase();
-    const myf = prompt(od.kind === OTC_ASK
-      ? "Your " + chain + " refund address (your " + chain + " HTLC refunds there if the swap dies):"
-      : "Your " + chain + " receiving address (the maker's " + chain + " HTLC pays you there):");
-    if (!myf) return;
-    let fref = "awaiting-maker";
-    if (od.kind === OTC_ASK) {
-      fref = prompt("Paste the txid of the " + chain + " HTLC you created for the maker (hashlock above, "
-        + "amount " + od.wamt + " " + chain + ", to " + od.wadr + ", with a deadline BEFORE " + od.expf + "):") || "";
-      if (!fref) return alertBar("Fill needs your foreign lock reference — create the " + chain + " HTLC first.");
+    let myf, fref = "auto";
+    if (od.wch === "btc") {
+      const kp = genKeypair();                          // the swap's own key; the address to fund appears on the row after the fill lands
+      otcSaveRec(o, { k: kp.k, pub: kp.pub });
+      myf = kp.pub;
+    } else {
+      myf = prompt(od.kind === OTC_ASK
+        ? "Your " + chain + " refund address (your " + chain + " lock refunds there if the swap dies):"
+        : "Your " + chain + " receiving address (the maker's " + chain + " lock pays you there):");
+      if (!myf) return;
     }
     if (od.prem > 0n && !confirm(`This order asks a good-faith deposit of ${rawToNado(od.prem.toString())} NADO on top of the trade. It is returned to you when the swap completes — forfeited to the maker only if you walk away. Continue?`)) return;
     const total = (od.kind === OTC_BID ? od.namtRaw : 0n) + od.prem;
@@ -369,11 +458,18 @@ function otcAction(what, o) {
               od.wast !== "0" ? { cid: OTC_CID, asset: od.wast } : { cid: OTC_CID });
     return;
   }
+  if (what === "btccopy") { const b = btcInfo(od); if (b) navigator.clipboard.writeText(b.addr).then(() => alertBar("Address copied.")); return; }
+  if (what === "btcverify") { btcVerifyInto(od, "btcv" + o); return; }
+  if (what === "btcclaim") { btcSpendFlow(od, "claim"); return; }
+  if (what === "btcrefund") { btcSpendFlow(od, "refund"); return; }
   if (what === "settle") {
-    let s = otcSecrets()[o];                            // a BID maker settles with their own stored secret
-    if (!s) s = (prompt("Paste the revealed 64-hex swap secret (from the foreign-chain claim):") || "").trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(s || "")) return alertBar("That is not a 32-byte hex secret.");
-    dapp.call("settle", [o, ...otcLimbs(s)], null, "Settling #" + o + "…", { otc: o }, { cid: OTC_CID });
+    (async () => {
+      let s = otcRec(o).s;                              // a maker settles with their own stored secret
+      if (!s && od.wch === "btc") { alertBar("Looking up the revealed secret on Bitcoin…"); s = await btcFoundSecret(od); }
+      if (!s) s = (prompt("Paste the revealed 64-hex swap secret (from the foreign-chain claim):") || "").trim().toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(s || "")) return alertBar("That is not a 32-byte hex secret.");
+      dapp.call("settle", [o, ...otcLimbs(s)], null, "Settling #" + o + "…", { otc: o }, { cid: OTC_CID });
+    })();
   }
 }
 
@@ -425,40 +521,6 @@ function limPost() {
             gv, "Posting limit order #" + o + "…", { otc: o },
             gaB !== 0n ? { cid: OTC_CID, asset: ga } : { cid: OTC_CID });
 }
-async function btcBuild() {
-  const H = ($("btcH").value || "").trim().toLowerCase();
-  const cp = ($("btcClaimPub").value || "").trim().toLowerCase();
-  const rp = ($("btcRefundPub").value || "").trim().toLowerCase();
-  const lock = Math.floor(Number($("btcLock").value || 0));
-  const net = $("btcNet").value;
-  if (!/^[0-9a-f]{64}$/.test(H)) return alertBar("Hashlock must be 64 hex chars (use the order's BTC leg button).");
-  if (!/^0[23][0-9a-f]{64}$/.test(cp) || !/^0[23][0-9a-f]{64}$/.test(rp)) return alertBar("Pubkeys must be 33-byte compressed hex (starting 02/03).");
-  if (!(lock > 0)) return alertBar("Enter the locktime (the deadline both parties signed).");
-  try {
-    const sc = htlcScript(H, cp, rp, lock);
-    const addr = await p2wshAddress(sc, net);
-    const site = net === "bc" ? "https://mempool.space" : net === "tb" ? "https://mempool.space/testnet" : null;
-    $("btcOut").innerHTML = `<b>P2WSH address</b><br>${addr}<br><br><b>witness script</b> (keep it — spending needs it)<br>${sc}`
-      + (site ? `<br><br><button class="ghost" id="btnBtcVerify">Verify funding</button>
-         <a href="${site}/address/${addr}" target="_blank" rel="noopener" class="small" style="margin-left:10px">open on mempool.space →</a>
-         <div id="btcVerifyOut" class="small mt"></div>` : "");
-    const vb = $("btnBtcVerify");
-    if (vb) vb.onclick = async () => {
-      // A convenience READ of a public explorer — the user's own decision input (§6.4 B), never consensus.
-      const out = $("btcVerifyOut");
-      out.textContent = "checking…";
-      try {
-        const a = await (await fetch(`${site}/api/address/${addr}`, { cache: "no-store" })).json();
-        const conf = BigInt(a.chain_stats.funded_txo_sum || 0), pend = BigInt(a.mempool_stats.funded_txo_sum || 0);
-        const btc = (v) => `${Number(v) / 1e8} BTC`;
-        out.innerHTML = conf > 0n
-          ? `<span style="color:var(--accent2)">CONFIRMED: ${btc(conf)} locked in this HTLC</span>` + (pend > 0n ? ` (+${btc(pend)} unconfirmed)` : "")
-          : pend > 0n ? `UNCONFIRMED: ${btc(pend)} seen in the mempool — wait for ≥2 confirmations before acting on it`
-          : "nothing funded at this address yet";
-      } catch (e) { out.textContent = "couldn't reach the explorer — open the link and check manually"; }
-    };
-  } catch (e) { alertBar(String(e.message || e)); }
-}
 // ---- wiring / boot ---------------------------------------------------------------------------------------
 async function refresh() {
   try {
@@ -471,7 +533,7 @@ async function refresh() {
 
 function wireUI() {
   wireWallet(dapp, render);
-  stickyInputs(dapp, ["newPid", "newAsset", "posId", "addN", "addT", "slip", "otcNado", "otcFAmt", "otcFAddr", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry", "btcClaimPub", "btcRefundPub"]);
+  stickyInputs(dapp, ["newPid", "newAsset", "posId", "addN", "addT", "slip", "otcNado", "otcFAmt", "otcFAddr", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry"]);
   $("btnOpen").onclick = openPool;
   $("btnFundN").onclick = fundNative;
   $("btnFundT").onclick = fundToken;
@@ -481,7 +543,6 @@ function wireUI() {
   $("btnSwap").onclick = doSwap;
   const bp = $("btnOtcPost"); if (bp) bp.onclick = otcPost;
   const lp = $("btnLimPost"); if (lp) lp.onclick = limPost;
-  const bb = $("btnBtcBuild"); if (bb) bb.onclick = btcBuild;
   ["swapAmt", "slip", "dir"].forEach((id) => {
     const el = $(id);
     if (el) { el.oninput = renderSwap; el.onchange = renderSwap; }
@@ -519,10 +580,10 @@ async function boot() {
     alertBar("Crypto bundle failed to load — reload.");
     return;
   }
-  wireUI(); loadQR(); orderCards(["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "otcBtcCard", "walletcard"]);
+  wireUI(); loadQR(); orderCards(["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
   const modes = installModes(dapp, { modes: playModes({ icon: "🔄", play: ["swapCard", "poolsCard", "liqCard", "otcLimitCard", "openCard"],
     extra: [{ key: "cross", icon: "🌉", label: "Cross-chain", hint: "Swap NADO against BTC/ETH — atomic, no custodian, no wrapped coins.",
-              cards: ["otcBookCard", "otcPostCard", "otcMyCard"], keep: ["otcBtcCard"] }] }) });
+              cards: ["otcBookCard", "otcPostCard", "otcMyCard"] }] }) });
   render = modes.wrap(doRender);
   const q = new URLSearchParams(location.search).get("pool");
   if (q) sel = q;

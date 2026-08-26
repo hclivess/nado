@@ -132,3 +132,9 @@ export async function addressToScript(addr, hrpExpected) {
   if (version === 0x05 || version === 0xc4) return bytesToHex(cat([0xa9, 0x14], hash, [0x87]));             // P2SH
   throw new Error("unsupported address type — paste a bech32 (bc1…) or legacy address");
 }
+
+// PUBLIC: a fresh Bitcoin keypair for one swap — generated per order, stored only in the browser.
+export function genKeypair() {
+  const k = secp.utils.randomPrivateKey();
+  return { k: bytesToHex(k), pub: bytesToHex(secp.getPublicKey(k, true)) };
+}
