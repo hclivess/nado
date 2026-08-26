@@ -357,8 +357,8 @@ function otcRow(od, mine) {
     const secret = otcRec(od.o).s;
     if (secret && (od.st === 1 || od.st === 2))
       detail += `<div class="small dim mt">Your swap secret: <span class="mono">${secret.slice(0, 16)}…</span>
-        <a href="#" data-otc="showsecret" data-o="${od.o}">show</a> — reveal it on the ${chain} side ONLY after
-        verifying the counterparty's lock.</div>`;
+        <a href="#" data-otc="showsecret" data-o="${od.o}">back up</a> — keep a copy: it is all this swap
+        needs on any device (never share it before the counterparty's lock is CONFIRMED).</div>`;
     if (od.st === 2) detail += `<div class="small dim mt">Foreign leg ref: <span class="mono">${esc(od.fref).slice(0, 40)}</span>
       · counterparty ${esc(disp(isMaker ? od.taker : od.maker))}</div>`;
     if (od.st === 3 && od.limbs.some((x) => Number(x) > 0)) {
@@ -409,7 +409,7 @@ async function otcPost() {
   // the wallet suggests ~60% of the NADO window in unix seconds so the foreign refund opens first (§6.3).
   const expf = Math.floor(Date.now() / 1000 + blocks * 6 * 0.6);
   const expn = (dapp.cursor || 0) + blocks;
-  const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex; }
+  const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex + (kp ? "  ·  BTC key: " + kp.k : ""); }
   const wadr = kp ? faddr + "|" + kp.pub : faddr;
   dapp.call("post", [o, kind, raw, chain, famt, wadr, hsha, hi, lo, expn, expf],
             kind === OTC_ASK ? raw : null, "Posting order #" + o + "…", { otc: o }, { cid: OTC_CID });
@@ -417,7 +417,12 @@ async function otcPost() {
 function otcAction(what, o) {
   const od = otcOrders().find((x) => x.o === o);
   if (!od) return;
-  if (what === "showsecret") { const s = otcSecrets()[o]; if (s) prompt("Swap secret for order #" + o + " — keep it safe:", s); return; }
+  if (what === "showsecret") {
+    const r = otcRec(o);
+    const parts = [r.s ? "secret: " + r.s : "", r.k ? "btc-key: " + r.k : ""].filter(Boolean).join("   ");
+    if (parts) prompt("Backup for swap #" + o + " — copy it somewhere safe (it is ALL this swap needs on any device):", parts);
+    return;
+  }
   if (what === "cancel") return dapp.call("cancel", [o], null, "Cancelling #" + o + "…", { otc: o }, { cid: OTC_CID });
   if (what === "prem") {
     const raw = (prompt("Good-faith deposit the taker must escrow (in NADO). Returned to them on completion; forfeited to you if they walk away. Enter 0 to remove it:") || "").trim();
