@@ -41,9 +41,12 @@ const tokSym = (id) => (tokMeta(id) || {}).sym || "token";
 const tokName = (id) => { const m = tokMeta(id); return m ? (m.name || m.sym) : "unknown token"; };
 async function refreshAssets() {
   try {
-    const r = await (await fetch(base() + "/exec/assets?ns=" + dapp.ns, { cache: "no-store" })).json();
+    // ?holder= returns YOUR balance per asset in the same request (doc/assets.md) — one poll, not one per token
+    const q = "/exec/assets?ns=" + dapp.ns + (dapp.me ? "&holder=" + encodeURIComponent(dapp.me) : "");
+    const r = await (await fetch(base() + q, { cache: "no-store" })).json();
     const map = {};
-    for (const a of (r.assets || [])) map[akey(a.id)] = { sym: a.sym, name: a.name, dec: Number(a.dec) || 0, id: String(a.id) };
+    for (const a of (r.assets || [])) map[akey(a.id)] = { sym: a.sym, name: a.name, dec: Number(a.dec) || 0,
+      id: String(a.id), bal: a.balance != null ? String(a.balance) : null };
     if (Object.keys(map).length || !Object.keys(assetReg).length) assetReg = map;
   } catch (e) { /* keep the last good registry */ }
 }
@@ -68,6 +71,14 @@ function quoteOut(inUnits, resIn, resOut) {
   return (resOut * dxf) / (resIn + dxf);
 }
 
+function execUnits() {                                 // your spendable NADO on the exchange, in pool units
+  try { return dapp.me ? BigInt(dapp.exec || 0n) / UNIT : null; } catch (e) { return null; }
+}
+function tokenUnits(assetId) {                        // your balance of the pool's token, in pool units
+  const m = tokMeta(assetId);
+  if (!dapp.me || !m || m.bal == null) return null;
+  try { return BigInt(m.bal) / UNIT; } catch (e) { return null; }
+}
 const midPrice = (p) => (p.rn > 0n ? Number(p.rt) / Number(p.rn) : 0);   // display only, never minOut
 
 // ---- rendering ---------------------------------------------------------------------------------------
@@ -82,11 +93,15 @@ function renderPools() {
   box.innerHTML = ids.map((id) => {
     const p = poolOf(lastSto, id);
     const on = String(p.id) === String(sel) ? " sel" : "";
-    const sym = tokSym(p.asset);
+    const sym = tokSym(p.asset), live = p.sup > 0n && p.rn > 0n;
+    const price = live ? midPrice(p) : 0;
+    const st = live ? stats24(p.id, price) : null;
+    const chg = st ? (st.pct >= 0 ? "+" : "") + st.pct.toFixed(2) + "%" : "—";
+    const cls = st ? (Math.abs(st.pct) < 0.005 ? "" : st.pct > 0 ? "up" : "dn") : "";
     return `<div class="poolrow${on}" data-pool="${p.id}" style="cursor:pointer">
-      <div><b>${esc(sym)} / NADO</b> <span class="small dim">${esc(tokName(p.asset))}</span></div>
-      <div class="mono small">${fromUnits(p.rn)} NADO · ${fromUnits(p.rt)} ${esc(sym)}</div>
-      <div class="small dim">${p.sup > 0n ? "1 NADO ≈ " + midPrice(p).toFixed(4) + " " + esc(sym) : "empty — needs liquidity"}</div>
+      <div><b>${esc(sym)} / NADO</b><div class="small dim">${live ? fromUnits(p.rn) + " NADO liquidity" : "empty — needs liquidity"}</div></div>
+      <div class="num">${live ? fmtPrice(price) + " " + esc(sym) : "—"}</div>
+      <div class="chgc ${cls}">${chg}</div>
     </div>`;
   }).join("");
   box.querySelectorAll(".poolrow").forEach((el) => {
@@ -126,6 +141,22 @@ function renderSwap() {
   const amtIn = $("swapAmt"); if (amtIn) amtIn.placeholder = `amount in ${dir === "n2t" ? "NADO" : sym}`;
   card.dataset.minout = String(minOut);
   card.dataset.inunits = String(inU);
+  // ticket chrome: which side is which, what you hold, the rate and what the trade itself moves the price by
+  const paySym = dir === "n2t" ? "NADO" : sym, getSym = dir === "n2t" ? sym : "NADO";
+  const setTxt = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+  setTxt("paySym", paySym); setTxt("getSym", getSym);
+  const execRate = inU > 0n && out > 0n ? Number(out) / Number(inU) : (dir === "n2t" ? midPrice(p) : (midPrice(p) ? 1 / midPrice(p) : 0));
+  setTxt("sumRate", execRate ? `1 ${paySym} ≈ ${fmtPrice(execRate)} ${getSym}` : "—");
+  const spot = dir === "n2t" ? midPrice(p) : (midPrice(p) ? 1 / midPrice(p) : 0);
+  const impact = spot > 0 && execRate > 0 ? (1 - execRate / spot) * 100 : 0;
+  const imp = $("sumImpact");
+  if (imp) { imp.textContent = inU > 0n && out > 0n ? impact.toFixed(2) + "%" : "—";
+    imp.style.color = impact >= 5 ? "var(--danger)" : impact >= 1 ? "var(--warn)" : "var(--dim)"; }
+  const qa = $("quoteAmt"); if (qa) qa.value = out > 0n ? fromUnits(out) : "";
+  const payBalU = dir === "n2t" ? execUnits() : tokenUnits(p.asset);
+  setTxt("payBal", payBalU === null ? "—" : "Balance " + fromUnits(payBalU) + " " + paySym);
+  const getBalU = dir === "n2t" ? tokenUnits(p.asset) : execUnits();
+  setTxt("getBal", getBalU === null ? "" : "Balance " + fromUnits(getBalU) + " " + getSym);
 }
 
 function fillAssetPicker(el, { withNado = true, keepValue = true } = {}) {
@@ -727,8 +758,8 @@ function samplePrices(sto) {
   }
   if (changed) { try { localStorage.setItem(LS_PRICES, JSON.stringify(store)); } catch (e) {} }
 }
-function priceSeries(id) {
-  const shared = (sharedPrices[id] || []).map((x) => [x[0] * 1000, x[1]]);   // sampler stores whole seconds
+function priceSeriesAll(id) {                          // the merged series, ignoring the range buttons
+  const shared = (sharedPrices[id] || []).map((x) => [x[0] * 1000, x[1]]);
   const local = priceStore()[id] || [];
   const seen = new Set(), all = [];
   for (const pt of shared.concat(local).sort((a, b) => a[0] - b[0])) {
@@ -736,7 +767,18 @@ function priceSeries(id) {
     if (seen.has(k)) continue;
     seen.add(k); all.push(pt);
   }
+  return all;
+}
+function priceSeries(id) {
+  const all = priceSeriesAll(id);
   return mktRange > 0 ? all.filter((x) => x[0] >= Date.now() - mktRange * 1000) : all;
+}
+function stats24(id, priceNow) {
+  const cut = Date.now() - 86400000;
+  const pts = priceSeriesAll(id).filter((x) => x[0] >= cut).map((x) => x[1]);
+  if (!pts.length) return null;
+  const first = pts[0], hi = Math.max(...pts, priceNow || -Infinity), lo = Math.min(...pts, priceNow || Infinity);
+  return { first, hi, lo, pct: first > 0 ? ((priceNow || pts[pts.length - 1]) - first) / first * 100 : 0 };
 }
 const fmtPrice = (v) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4);
 const fmtAgo = (ts) => { const s = Math.max(0, (Date.now() - ts) / 1000); return s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : s < 172800 ? Math.round(s / 3600) + "h ago" : Math.round(s / 86400) + "d ago"; };
@@ -771,13 +813,11 @@ function renderMarket() {
   $("mktPair").textContent = `${sym} / NADO`;
   $("mktPrice").textContent = live ? fmtPrice(price) : "—";
   // 24h change (or first point in range) from the observed series
-  const all = priceSeries(p.id).length ? priceSeries(p.id) : (priceStore()[p.id] || []);
-  const dayAgo = all.filter((x) => x[0] >= Date.now() - 86400000)[0];
-  const base = dayAgo ? dayAgo[1] : (all[0] ? all[0][1] : price);
+  const st24 = live ? stats24(p.id, price) : null;
   const chgEl = $("mktChg");
-  if (live && base > 0) {
-    const pct = (price - base) / base * 100;
-    chgEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%";
+  if (st24) {
+    const pct = st24.pct;
+    chgEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%  24h";
     chgEl.className = "chg " + (Math.abs(pct) < 0.005 ? "flat" : pct > 0 ? "up" : "dn");
   } else { chgEl.textContent = "no trades yet"; chgEl.className = "chg flat"; }
   // stats
@@ -785,6 +825,8 @@ function renderMarket() {
   $("mktStats").innerHTML = [
     ["1 NADO buys", live ? fmtPrice(price) + " " + sym : "—"],
     [`1 ${sym} buys`, live ? fmtPrice(1 / price) + " NADO" : "—"],
+    ["24h high", st24 ? fmtPrice(st24.hi) : "—"],
+    ["24h low", st24 ? fmtPrice(st24.lo) : "—"],
     ["NADO in pool", fromUnits(p.rn)],
     [sym + " in pool", fromUnits(p.rt)],
     ["Pool value", "≈ " + tvlNado + " NADO"],
@@ -929,6 +971,21 @@ function wireUI() {
     if (addrIn) addrIn.onchange = () => { if (addrIn.value.trim()) faddrSet(netSel.value, addrIn.value.trim()); };
     fillNets();
   }
+  const amt = $("swapAmt");
+  document.querySelectorAll(".pcts button[data-pct]").forEach((b) => {
+    b.onclick = () => {
+      if (!sel || !lastSto || !amt) return;
+      const p = poolOf(lastSto, sel), d = ($("dir") || {}).value || "n2t";
+      const bal = d === "n2t" ? execUnits() : tokenUnits(p.asset);
+      if (bal == null) return alertBar("Sign in to use your balance.");
+      const pct = BigInt(b.getAttribute("data-pct"));
+      amt.value = fromUnits(bal * pct / 100n);
+      renderSwap();
+    };
+  });
+  const fl = $("btnFlip");
+  if (fl) fl.onclick = () => { const d = $("dir"); if (!d) return;
+    d.value = d.value === "n2t" ? "t2n" : "n2t"; if (amt) amt.value = ""; renderSwap(); };
   const mp = $("mktPick");
   if (mp) mp.onchange = () => { sel = mp.value; syncUrl(true); render(); };
   const rb = $("mktRanges");
