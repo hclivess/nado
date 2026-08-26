@@ -90,7 +90,7 @@ function renderPools() {
     </div>`;
   }).join("");
   box.querySelectorAll(".poolrow").forEach((el) => {
-    el.onclick = () => { sel = el.getAttribute("data-pool"); render(); };
+    el.onclick = () => { sel = el.getAttribute("data-pool"); syncUrl(true); render(); };
   });
 }
 
@@ -688,6 +688,27 @@ async function refreshSharedPrices() {
   } catch (e) { /* sampler not running — the local series still works */ }
 }
 let mktRange = 3600;                                 // seconds; 0 = all
+let wantMarket = null;                               // a symbol from the URL, resolved once assets load
+let curMode = "swap";
+const symOfPool = (p) => tokSym(p.asset).toUpperCase();
+function marketUrl(includeOrigin = true) {
+  let q = "";
+  if (sel && lastSto) { const p = poolOf(lastSto, sel); const sym = symOfPool(p);
+    q = "?market=" + encodeURIComponent(sym && sym !== "TOKEN" ? sym : String(p.id)); }
+  if (curMode && curMode !== "swap") q += (q ? "&" : "?") + "mode=" + curMode;
+  return (includeOrigin ? location.origin + location.pathname : location.pathname) + q;
+}
+function syncUrl(push) {
+  const url = marketUrl(false);
+  if (url === location.pathname + location.search) return;
+  try { history[push ? "pushState" : "replaceState"]({ m: sel, mode: curMode }, "", url); } catch (e) {}
+}
+function readUrl() {                                 // "?market=DEMO" (symbol) or a raw pool id; legacy ?pool=
+  const q = new URLSearchParams(location.search);
+  const m = (q.get("market") || q.get("pool") || "").trim();
+  if (!m) return;
+  if (/^\d+$/.test(m)) sel = m; else wantMarket = m.toUpperCase();
+}
 const priceStore = () => { try { return JSON.parse(localStorage.getItem(LS_PRICES) || "{}"); } catch (e) { return {}; } };
 function samplePrices(sto) {
   if (!sto) return;
@@ -725,6 +746,11 @@ function renderMarket() {
   if (!card) return;
   // Land on a live market instead of an empty page: pick the deepest pool until the user chooses one.
   const ids = lastSto ? poolIds(lastSto) : [];
+  if (wantMarket && lastSto) {                       // a permalink names the market by its token symbol
+    const hit = ids.find((id) => symOfPool(poolOf(lastSto, id)) === wantMarket);
+    if (hit) { sel = String(hit); wantMarket = null; }
+    else if (Object.keys(assetReg).length) wantMarket = null;   // unknown symbol — fall through to the default
+  }
   if (lastSto && (!sel || !ids.includes(String(sel)))) {
     let best = null;
     for (const id of ids) { const q = poolOf(lastSto, id); if (!best || q.rn > best.rn) best = q; }
@@ -767,6 +793,7 @@ function renderMarket() {
   ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
   renderChart(p);
   renderDepth(p, price);
+  syncUrl(false);
 }
 
 // --- the price line chart: SVG, crosshair + tooltip (dataviz interaction layer) ---
@@ -903,7 +930,7 @@ function wireUI() {
     fillNets();
   }
   const mp = $("mktPick");
-  if (mp) mp.onchange = () => { sel = mp.value; render(); };
+  if (mp) mp.onchange = () => { sel = mp.value; syncUrl(true); render(); };
   const rb = $("mktRanges");
   if (rb) rb.querySelectorAll("button").forEach((b) => { b.onclick = () => {
     mktRange = Number(b.getAttribute("data-range"));
@@ -915,7 +942,11 @@ function wireUI() {
     if (el) { el.oninput = renderSwap; el.onchange = renderSwap; }
   });
   const sh = $("btnShare");
-  if (sh) sh.onclick = () => share("NADO DEX", "Swap NADO and tokens on a post-quantum chain — no listing, no admin, no rake.");
+  if (sh) sh.onclick = () => {
+    const url = marketUrl(true);
+    const pair = sel && lastSto ? symOfPool(poolOf(lastSto, sel)) + "/NADO" : "NADO DEX";
+    share(pair + " on NADO DEX", `Trade ${pair} on a post-quantum chain — no listing, no admin, no rake. ${url}`);
+  };
 }
 
 dapp.onReturn((pend, ok, err) => {
@@ -948,15 +979,16 @@ async function boot() {
     return;
   }
   wireUI(); loadQR(); orderCards(["marketCard", "swapCard", "liqCard", "poolsCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
+  window.addEventListener("popstate", () => { wantMarket = null; readUrl(); render(); });
   const modes = installModes(dapp, { modes: [
     { key: "swap", icon: "🔄", label: "Swap", hint: "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools.",
       cards: ["marketCard", "swapCard", "liqCard", "poolsCard", "otcLimitCard", "openCard"] },
     { key: "cross", icon: "🌉", label: "Cross-chain", hint: "Atomic BTC/ETH ↔ NADO swaps — no custodian, no wrapped coins.",
       cards: ["otcBookCard", "otcPostCard", "otcMyCard"] },
-  ] });
+  ], onChange: (k) => { curMode = k; syncUrl(true); } });
+  curMode = new URLSearchParams(location.search).get("mode") === "cross" ? "cross" : "swap";
   render = modes.wrap(doRender);
-  const q = new URLSearchParams(location.search).get("pool");
-  if (q) sel = q;
+  readUrl();
   refresh();
   setInterval(refresh, 3000);
 }
