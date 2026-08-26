@@ -93,15 +93,20 @@ try {
   }, "address after reload", 60000);
   step("after reload the wallet shows the same address", reOk && (await page.$eval("#walAddr", (e) => e.textContent)).trim() === addr);
 
-  // --- Send with the rotated-in key (the normal Send tab), must land
+  // --- Send with the rotated-in key (the normal Send tab), must land. DOM-level clicks throughout:
+  // puppeteer's clickable-point check trips on covered/animated elements, and what we test is the app's
+  // handlers, not Chrome's hit-testing.
   const before = Number(((await getAccount(payee)) || {}).balance || 0);
-  await page.click('[data-tabbtn="send"]');
-  await page.waitForSelector("#sendTo", { visible: true });
+  await page.$eval('[data-tabbtn="send"]', (e) => e.click());
+  await page.waitForSelector("#sendTo", { visible: true, timeout: 20000 });
+  step("send tab open", true);
   await page.type("#sendTo", payee);
   await page.type("#sendAmount", "0.5");
-  await page.click("#btnSend");
+  await page.$eval("#btnSend", (e) => e.click());
+  step("review clicked", true);
   await page.waitForSelector(".modal-ok", { visible: true, timeout: 20000 });
   await page.$eval(".modal-ok", (e) => e.click());
+  step("confirm clicked", true);
   const sent = await waitFor(async () => Number(((await getAccount(payee)) || {}).balance || 0) >= before + 5_000_000_000, "send landed");
   step("send signed by the rotated-in key landed", sent);
 } catch (e) {
