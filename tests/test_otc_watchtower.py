@@ -46,5 +46,46 @@ ok(found == {1: s}, "scan: the claim witness yields the watched order's secret")
 ok(W.preimage_limbs(s) == ref_limbs(s), "limbs match the contract module's definition exactly")
 ok(W.scan_txs(["00" * 60], [(1, H)]) == {}, "scan: no secret, no relay")
 
+# ---- the Solana scan: a claim carries the preimage in its instruction data (tag 1 + 32 bytes) ------------
+B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def b58(b):
+    n = int.from_bytes(b, "big")
+    out = ""
+    while n:
+        n, r = divmod(n, 58)
+        out = B58[r] + out
+    return "1" * (len(b) - len(b.lstrip(b"\x00"))) + (out or "1")
+
+
+ok(W._b58decode(b58(bytes(range(32)))) == bytes(range(32)), "base58 round-trips a 32-byte address")
+ok(W._b58decode("11" + b58(b"\x00\x00" + b"z" * 30)[2:]) is not None, "leading zeros survive")
+
+claim_data = b58(bytes([1]) + bytes.fromhex(s))
+calls = []
+
+
+def fake_rpc(url, method, params):
+    calls.append((method, params))
+    if method == "getSignaturesForAddress":
+        return [{"signature": "SIGNEW", "err": None}, {"signature": "SIGOLD", "err": None},
+                {"signature": "SIGBAD", "err": {"InstructionError": [0, "Custom"]}}]
+    return {"transaction": {"message": {"instructions": [
+        {"data": b58(bytes([2]))},                       # a refund carries no preimage
+        {"data": claim_data if params[0] == "SIGNEW" else b58(bytes([1]) + b"\x11" * 32)}]}}}
+
+
+W._sol_rpc, real_rpc = fake_rpc, W._sol_rpc
+st = {}
+got = W.sol_claim_secrets("http://rpc", "PROG", [(1, H), (7, "ab" * 32)], st)
+ok(got == {1: s}, "solana scan: the watched hashlock's preimage is found, an unrelated one is not")
+ok(st.get("sol_until") == "SIGNEW", "solana scan: the newest signature is remembered, so the next pass reads only what is new")
+calls.clear()
+W.sol_claim_secrets("http://rpc", "PROG", [(1, H)], st)
+ok(calls[0][1][1].get("until") == "SIGNEW", "solana scan: that cursor is actually sent as `until`")
+ok(not any(c[1][0] == "SIGBAD" for c in calls if c[0] == "getTransaction"), "solana scan: a failed transaction is never read")
+W._sol_rpc = real_rpc
+
 print(f"\n[tower] {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

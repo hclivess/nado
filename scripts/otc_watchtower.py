@@ -21,8 +21,10 @@ Usage:
     HOME=/srv/nado-home python3 scripts/otc_watchtower.py scan                      # dry-run one pass
     HOME=/srv/nado-home python3 scripts/otc_watchtower.py scan --submit --loop 60   # the real daemon
         [--l1 URL] [--exec URL] [--cid CID] [--btc-cli "bitcoin-cli -rpcwait ..."] [--secrets FILE]
+        [--sol-rpc URL --sol-program ID]
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -126,6 +128,58 @@ def scan_txs(tx_hexes, watches):
     return found
 
 
+def sol_claim_secrets(rpc, program, watches, state):
+    """{orderId: secret} for every watched hashlock revealed by a claim in the Solana HTLC program.
+
+    Solana needs no block walk: every transaction that touched the program is listed by address, and a
+    claim carries the preimage in its instruction data (tag 1, then 32 bytes). We remember the newest
+    signature seen so a later pass only reads what is new."""
+    found, newest = {}, None
+    want = {bytes.fromhex(H): o for o, H in watches}
+    params = {"limit": 200, "commitment": "confirmed"}
+    if state.get("sol_until"):
+        params["until"] = state["sol_until"]
+    sigs = _sol_rpc(rpc, "getSignaturesForAddress", [program, params]) or []
+    for i, row in enumerate(sigs):
+        if i == 0:
+            newest = row.get("signature")
+        if row.get("err"):
+            continue
+        tx = _sol_rpc(rpc, "getTransaction", [row["signature"],
+                      {"encoding": "json", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}])
+        for ix in ((tx or {}).get("transaction", {}).get("message", {}) or {}).get("instructions", []) or []:
+            d = _b58decode(ix.get("data") or "")
+            if len(d) != 33 or d[0] != 1:
+                continue
+            h = hashlib.sha256(d[1:]).digest()
+            if h in want:
+                found[want[h]] = d[1:].hex()
+    if newest:
+        state["sol_until"] = newest
+    return found
+
+
+_B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def _b58decode(t):
+    n = 0
+    for ch in t:
+        i = _B58.find(ch)
+        if i < 0:
+            return b""
+        n = n * 58 + i
+    out = n.to_bytes((n.bit_length() + 7) // 8, "big")
+    return b"\x00" * (len(t) - len(t.lstrip("1"))) + out
+
+
+def _sol_rpc(url, method, params):
+    r = _post(url, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+    if r.get("error"):
+        raise RuntimeError(r["error"].get("message", "solana rpc error"))
+    return r.get("result")
+
+
 def preimage_limbs(s_hex):
     v = int(s_hex, 16)
     return [(v >> (LIMB_BITS * i)) & ((1 << LIMB_BITS) - 1) for i in range(LIMBS)]
@@ -163,6 +217,7 @@ def one_pass(a, state):
     for o in expire_candidates(orders, cursor):
         submit_call(a.l1, "expire", [o], f"refund order #{o} to its funder", a.submit)
     watches = watch_candidates(orders, cursor)
+    by_id = {x["o"]: x for x in orders}
     secrets = {}
     if a.secrets and os.path.exists(a.secrets):
         known = {int(k): v for k, v in json.load(open(a.secrets)).items()}
@@ -174,6 +229,11 @@ def one_pass(a, state):
         for h in range(start, tip_b + 1):
             secrets.update(scan_txs(btc_block_txs(a.btc_cli, h), [w for w in watches if w[0] not in secrets]))
         state["btc_from"] = tip_b + 1
+    if a.sol_rpc and a.sol_program:
+        sol_watches = [(o, H) for o, H in watches
+                       if o not in secrets and str(by_id.get(o, {}).get("wch", "")).split("|")[0].startswith("sol")]
+        if sol_watches:
+            secrets.update(sol_claim_secrets(a.sol_rpc, a.sol_program, sol_watches, state))
     for o, s in secrets.items():
         submit_call(a.l1, "settle", [o] + preimage_limbs(s), f"relay the revealed secret for #{o}", a.submit)
     bounty = sum(x["bnty"] for x in orders if x["st"] in (OPEN, FILLED))
@@ -190,6 +250,8 @@ def main():
     ap.add_argument("--cid", default=None)
     ap.add_argument("--btc-cli", default=None, help='e.g. "bitcoin-cli -rpcwait" — enables the BTC secret scan')
     ap.add_argument("--btc-lookback", type=int, default=144, help="blocks to scan back on first run (default ~1 day)")
+    ap.add_argument("--sol-rpc", default=None, help="Solana RPC URL — enables the Solana claim scan")
+    ap.add_argument("--sol-program", default=None, help="the deployed HTLC program id on that cluster")
     ap.add_argument("--secrets", default=None, help="JSON file {orderId: 64-hex secret} to settle from")
     ap.add_argument("--submit", action="store_true", help="actually post (default: dry-run)")
     ap.add_argument("--loop", type=int, default=0, help="seconds between passes (0 = one pass and exit)")
