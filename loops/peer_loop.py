@@ -7,7 +7,7 @@ from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from config import test_self_port
 from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers
-from ops.peer_ops import get_public_ip, update_local_ip, check_ip, subnet_diversity_ok
+from ops.peer_ops import get_public_ip, get_public_ips, pick_reachable_ip, update_local_ip, check_ip, subnet_diversity_ok
 from ops.peer_ops import seed_default_peers, seed_peers, status_fields_well_typed
 from ops import self_update
 from protocol import CHAIN_ID, GENESIS_TIMESTAMP, BLOCK_TIME
@@ -201,8 +201,13 @@ class PeerClient(threading.Thread):
                                      fails=self.memserver.purge_peers_list,
                                      unreachable=self.memserver.unreachable)
 
-                    update_local_ip(ip=asyncio.run(get_public_ip(logger=self.logger)),
-                                    logger=self.logger)
+                    # Which of our addresses to advertise is decided by which one ANSWERS, not by which
+                    # family it belongs to: a CGNAT'd v4 is globally routable and completely undialable
+                    # (#86). Probing before writing is also what makes a hand-pinned address stick.
+                    _cands = asyncio.run(get_public_ips(logger=self.logger))
+                    _best = pick_reachable_ip(_cands, self.memserver.port, self.logger,
+                                              current=self.memserver.ip)
+                    update_local_ip(ip=_best, logger=self.logger)
 
                     self.memserver.can_mine = test_self_port(self.memserver.ip, self.memserver.port)
 

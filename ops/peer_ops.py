@@ -8,7 +8,7 @@ import threading
 
 from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
-from config import get_port, get_config, get_timestamp_seconds, update_config, hostport
+from config import get_port, get_config, get_timestamp_seconds, update_config, hostport, test_self_port
 from .data_ops import set_and_sort, get_home
 from .net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY
 
@@ -757,25 +757,58 @@ async def get_public_ip(logger):
     urls = ["https://api4.ipify.org", "https://api6.ipify.org",
             "https://api.ipify.org", "https://ipinfo.io/ip"]
 
+    for ip in await get_public_ips(logger):
+        return ip
+
+
+async def get_public_ips(logger):
+    """Every address the outside world sees us as, best-first (IPv4, then IPv6). PLURAL because a
+    dual-stack host has more than one, and which is right is not decided by family — it is decided by
+    which one can actually be dialled back. See pick_reachable_ip."""
+    if os.environ.get("NADO_TESTNET"):
+        try:
+            return [get_config()["ip"]]
+        except Exception:
+            return ["127.0.0.1"]
+    urls = ["https://api4.ipify.org", "https://api6.ipify.org",
+            "https://api.ipify.org", "https://ipinfo.io/ip"]
+    out = []
     for url_construct in urls:
         try:
-            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
                     ip = (await response.text()).strip()
-                    if ip:
-                        # A detected address that is not globally routable is USELESS to advertise — no
-                        # peer can dial it back. The big real-world case is IPv4 CGNAT (100.64.0.0/10,
-                        # RFC 6598): api4.ipify happily answers with the carrier's egress address. Skip
-                        # it and let the NEXT probe (api6 on such hosts) supply the address that is
-                        # actually reachable (#86: v4-CGNAT + native-v6 residential nodes — detection
-                        # kept overwriting the operator's working v6 with the dead CGNAT v4).
-                        if not usable_self_ip(ip):
-                            logger.info(f"Ignoring non-routable self-IP {ip!r} from {url_construct}")
-                            continue
-                        return ip
-
+                    if not ip:
+                        continue
+                    if not usable_self_ip(ip):
+                        logger.info(f"Ignoring non-routable self-IP {ip!r} from {url_construct}")
+                        continue
+                    if ip not in out:
+                        out.append(ip)
         except Exception as e:
             logger.error(f"Unable to fetch IP from {url_construct}: {e}")
+    return out
+
+
+def pick_reachable_ip(candidates, port, logger, current=None):
+    """Of the addresses the world sees us as, pick one that ACTUALLY ANSWERS on our port.
+
+    Routability is not reachability, and that gap is the whole bug. Behind carrier-grade NAT the address
+    api4.ipify reports is a real, globally-routable, PUBLIC IPv4 — the carrier's, shared between its
+    customers — and nothing out there can dial it back to us. It passes every routability test there is.
+    A node in exactly that position (v4 CGNAT + native IPv6, issue #86) kept overwriting its working IPv6
+    with that dead v4 on every heavy refresh, which is why a hand-edited config and a reboot did not stick.
+
+    So the tie-break is the self-probe the node already runs for can_mine: keep the address whose port
+    answers. If none answer, change nothing — an unreachable node should not also churn its identity."""
+    for ip in candidates:
+        if test_self_port(ip, port):
+            return ip
+    if current and test_self_port(current, port):
+        logger.info(f"Keeping {current}: none of {candidates} answered on port {port}")
+        return current
+    return None
+
 
 def update_local_ip(ip, logger):
     """Keep the node's configured public IP current (detected via get_public_ip). We do NOT store our own

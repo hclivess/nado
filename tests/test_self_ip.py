@@ -51,5 +51,23 @@ ok(get_config()["ip"] == "203.0.113.7", "default (no pin) — detection still up
 update_local_ip(None, log)
 ok(get_config()["ip"] == "203.0.113.7", "a failed detection (None) changes nothing")
 
+# ---- 3. routable but UNREACHABLE: the case that actually bit ---------------------------------------
+# A carrier-grade NAT egress is a real public IPv4 shared between customers. It passes every routability
+# test and cannot be dialled back. The tie-break must be the self-probe, not the address family.
+import ops.peer_ops as P
+
+_reachable = {"2a01:e0a:1::1"}
+P.test_self_port = lambda ip, port: ip in _reachable          # pretend only the v6 answers
+log2 = logging.getLogger("t2")
+ok(P.pick_reachable_ip(["93.56.171.227", "2a01:e0a:1::1"], 9173, log2) == "2a01:e0a:1::1",
+   "picks the address that ANSWERS, not the first routable one")
+ok(P.pick_reachable_ip(["93.56.171.227"], 9173, log2, current="2a01:e0a:1::1") == "2a01:e0a:1::1",
+   "keeps a working pinned address when the detected one does not answer")
+ok(P.pick_reachable_ip(["93.56.171.227"], 9173, log2, current="1.2.3.4") is None,
+   "when nothing answers it changes nothing rather than churning to a dead address")
+_reachable.add("93.56.171.227")
+ok(P.pick_reachable_ip(["93.56.171.227", "2a01:e0a:1::1"], 9173, log2) == "93.56.171.227",
+   "with both reachable it keeps the v4-first preference the mesh needs")
+
 print(f"\n[self-ip] {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

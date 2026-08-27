@@ -1,0 +1,16 @@
+[package]
+name = "nado-htlc"
+version = "0.1.0"
+edition = "2021"
+description = "Solana leg of the NADO OTC cross-chain atomic swap (doc/dex-bridge.md 6.5)"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+solana-program = "2.1"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
