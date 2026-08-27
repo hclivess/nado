@@ -360,13 +360,51 @@ claim(key, s)   require(sha256(s) == H && block.timestamp <  deadline)  -> pay c
 refund(key)     require(block.timestamp >= deadline)                    -> pay refundee
 ```
 
-ERC-20 swaps ship as their own contract, **`scripts/HtlcErc20.sol`** — same hashlock/deadline, escrow moved with `transferFrom`/`transfer`, **live on Sepolia at `0x81feecb4de6ad8f23c1db38b4a1f0068cb723117`**. Two token behaviours are handled explicitly: non-standard returns (USDT-style tokens return nothing) and fee-on-transfer (the escrow is the MEASURED balance delta, never the requested figure). A reentrancy guard plus delete-before-call contains hostile token code — proven in `tests/test_htlc_erc20.mjs` with a token that re-enters during `transferFrom`. An order names its token inside the network field (`wch = "<network>|<token address>"`), so a token swap needs no contract change on the NADO side. Confirmation
+ERC-20 swaps ship as their own contract, **`scripts/HtlcErc20.sol`** — same hashlock/deadline, escrow moved with `transferFrom`/`transfer`, **live on Sepolia at `0x6d6104704e1956c36851d4c36fdad77ce75a6106`**. Two token behaviours are handled explicitly: non-standard returns (USDT-style tokens return nothing) and fee-on-transfer (the escrow is the MEASURED balance delta, never the requested figure). A reentrancy guard plus delete-before-call contains hostile token code — proven in `tests/test_htlc_erc20.mjs` with a token that re-enters during `transferFrom`. An order names its token inside the network field (`wch = "<network>|<token address>"`), so a token swap needs no contract change on the NADO side. Confirmation
 margin: post-merge finality (~2 epochs, ~13 min) before treating the lock as real; the same §6.3 inequality
 with Ethereum's clock.
 
-> **Shipped (2026-08-26):** `scripts/HtlcEth.sol` (compiled to `scripts/HtlcEth.bin`) is the contract; `static/ethsign.js` signs it in-page and `scripts/otc_eth_leg.mjs` from a terminal (both proven end to end against a live EVM). In the dApp the ETH leg uses an **injected wallet** (MetaMask/EIP-1193 — the user's own funded account pays gas, the account model needs it) with the CLI shown as the fallback when no wallet is present. A single ownerless `HtlcEth` per EVM chain is reused via `ETH_HTLC[chainId]`. **DEPLOYED LIVE on Ethereum Sepolia (2026-08-26) at `0xCd8F71E75Bb37F438c49a8011ae4037da5A8968F`** (tx `0x7921bd2b…`, block 11572909) — the dApp's ETH leg is wired to it, so ETH↔NADO swaps run on real Sepolia today: connect an injected wallet on the Sepolia network, or drive it with `scripts/otc_eth_leg.mjs`.
+> **Shipped (2026-08-26):** `scripts/HtlcEth.sol` (compiled to `scripts/HtlcEth.bin`) is the contract; `static/ethsign.js` signs it in-page and `scripts/otc_eth_leg.mjs` from a terminal (both proven end to end against a live EVM). In the dApp the ETH leg uses an **injected wallet** (MetaMask/EIP-1193 — the user's own funded account pays gas, the account model needs it) with the CLI shown as the fallback when no wallet is present. A single ownerless `HtlcEth` per EVM chain is reused via `ETH_HTLC[chainId]`. **DEPLOYED LIVE on Ethereum Sepolia at `0xd5f47927999c31ce4fe3de11bc560678094486e7`** — the dApp's ETH leg is wired to it, so ETH↔NADO swaps run on real Sepolia today: connect an injected wallet on the Sepolia network, or drive it with `scripts/otc_eth_leg.mjs`.
 
-Neither template is NADO consensus code: they are reference legs the wallet constructs and *reads*. The only
+> **Do not use the first deployments.** `0xCd8F71E7…8968F` (HtlcEth) and `0x81feecb4…23117` (HtlcErc20)
+> are still on Sepolia and still answer, but they are the pre-audit versions whose lock key did not bind
+> the amount: an attacker could fund one wei against a victim's swap terms, and the victim claiming that
+> dust would publish the preimage and lose the other leg. The live addresses above bind the amount into
+> the key. Nothing points at the old ones any more; they are named here only so nobody resurrects them
+> from an old note.
+
+**Solana — an HTLC program with the escrow in a PDA** (`scripts/solana-htlc`, ~230 lines, no admin key,
+no fee). Bitcoin needs nothing deployed because its HTLC is a script; Solana has no such script, so the
+conditions live in a program and the escrow in an account that program owns:
+
+```
+seeds  = ["htlc", H, claimant, funder, deadline_le, amount_le]     -> the escrow PDA
+fund   [funder(signer), lock(PDA), system]   data: H(32) claimant(32) deadline(i64) amount(u64)
+claim  [caller(signer), lock, claimant]      data: s(32)   require sha256(s)==H && now <  deadline
+refund [caller(signer), lock, funder]                      require                  now >= deadline
+```
+
+Because every term is a seed, **the address is the agreement**: an underfunded lock lands at a different
+address entirely, so a claimant's client simply finds no account and can never be tricked into revealing
+the secret for dust — the same failure the audit proved against the first Ethereum contract, ruled out
+here by construction rather than by a check. `claim`/`refund` are permissionless (the lamports still move
+only to the recorded party), which matters because Solana is an account model and a freshly generated swap
+address cannot pay its own fee: a counterparty or the watchtower submits on its behalf. Deadlines are
+Clock-sysvar unix timestamps, bounded to 10 minutes … 30 days, so §6.3 is stated in the same wall clock as
+the other legs. Confirmation margin: treat a lock as real at `confirmed`, and remember that reads default
+to `finalized` (~13 s later) — the wrong commitment reports a funded lock as absent.
+
+> **Shipped (2026-08-28):** the program builds with `cargo-build-sbf --arch v3` (v0/v1/v2 deployment is
+> disabled by SIMD-0500) and passes 15/15 against a live validator. `static/solsign.js` is the client —
+> base58, ed25519, PDA derivation, transaction assembly, RPC — running unchanged in the browser and in
+> `scripts/otc_sol_leg.mjs`; its signed transactions are byte-identical to `solders` (16/16,
+> `tests/test_solsign.mjs`). The dApp's Solana rows use an injected wallet (Phantom's base58-message
+> request, no SDK bundled) with the CLI as the fallback, and the watchtower relays a Solana-revealed
+> secret without a block walk. Program id `C4WceD67WW9c5LS4Qu3NSCcfmPfdy5KLidhsRA18waNC` on every cluster
+> (the keypair is kept); **not yet deployed to devnet or mainnet**, so `NETS.sold.program` is empty and
+> the dApp says so on the row rather than letting anyone fund a lock with no program behind it.
+
+None of these templates is NADO consensus code: they are reference legs the wallet constructs and *reads*. The only
 consensus-enforced piece remains the NADO-side escrow and the timelock-ordering check at
 `post_order`/`fill`.
 
