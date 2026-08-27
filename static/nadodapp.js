@@ -187,8 +187,16 @@ export function algHashn(elements) {
   return alghash.hashn(elements.map((x) => ((BigInt(x) % P) + P) % P));
 }
 export const ALG_P = () => alghash.P;
-// blocksToTime(blocks): render a block count as m:ss at the given block time (default 6s) — shared countdown fmt.
-export const blocksToTime = (blocks, secs = 6) => { const b = Math.max(0, blocks) * secs, m = Math.floor(b / 60), s = b % 60; return m + ":" + String(s).padStart(2, "0"); };
+// blocksToTime(blocks): a block count as elapsed time at the given block time (default 6s). A few minutes
+// reads best as m:ss, but a swap window of two days does NOT read as "3809:18" — above an hour it switches
+// to the units people actually use. Short game countdowns are unchanged.
+export const blocksToTime = (blocks, secs = 6) => {
+  const t = Math.max(0, blocks) * secs;
+  if (t >= 86400) { const d = Math.floor(t / 86400), h = Math.round((t % 86400) / 3600); return h ? `${d}d ${h}h` : `${d}d`; }
+  if (t >= 3600) { const h = Math.floor(t / 3600), m = Math.round((t % 3600) / 60); return m ? `${h}h ${m}m` : `${h}h`; }
+  const m = Math.floor(t / 60), sec = t % 60;
+  return m + ":" + String(sec).padStart(2, "0");
+};
 // fmtWhen(ts, day): the shared "when was this scored" stamp for a leaderboard entry. `ts` is chain-minted
 // UTC seconds (0 = the entry predates the timestamp field); `day` is the UTC day index (floor(unix/86400)).
 // A real ts renders day + HH:MM UTC ("Jul 22 · 14:30"); with only a day we can show the date but not the
