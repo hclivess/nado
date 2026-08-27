@@ -978,8 +978,9 @@ function _pickCss() {
   .pickrow .dot{width:26px;height:26px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
     background:var(--elev,#131a23);border:1px solid var(--border,#243140);font-size:11px;font-weight:800;color:var(--accent2,#00c9a7)}
   .pickrow .txt{min-width:0;flex:1 1 auto}
-  .pickrow .t1{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .pickrow .t2{font-size:11.5px;color:var(--faint,#5d6b7a);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickrow .t1{display:block;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickrow .t2{display:block;margin-top:1px;font-size:11.5px;color:var(--faint,#5d6b7a);overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
   .pickempty{padding:14px 10px;color:var(--faint,#5d6b7a);font-size:12.5px;text-align:center}
   .seg{display:flex;border:1px solid var(--border,#243140);border-radius:11px;overflow:hidden}
   .seg button{flex:1 1 0;border:0;border-radius:0;font:inherit;background:var(--bg,#0b0f14);

@@ -16,7 +16,7 @@ import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec } 
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=86f13b65";
+         blocksToTime } from "./nadodapp.js?v=ffe11a07";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -611,6 +611,12 @@ function renderXMarket() {
     if (pick.dataset.sig !== opts) { pick.dataset.sig = opts; pick.innerHTML = opts; }
     if (!nets.includes(xsel)) xsel = nets[0];
     pick.value = xsel;
+  }
+  const netSel0 = $("otcNet");
+  if (netSel0 && !netSel0.dataset.touched && netSel0.value !== xsel
+      && [...netSel0.options].some((o) => o.value === xsel)) {
+    netSel0.value = xsel;                              // the form follows the market you are looking at
+    netSel0.dispatchEvent(new Event("change", { bubbles: true }));
   }
   const net = NETS[xsel] || {}, b = bookOf(xsel);
   $("mktPair").textContent = `${net.coin} / NADO`;
@@ -1321,7 +1327,7 @@ function wireUI() {
     };
     const loadAddr = () => { showTok(); if (addrIn) { addrIn.value = faddrGet(netSel.value); 
       addrIn.placeholder = `your ${(NETS[netSel.value] || {}).label || ""} address (saved for next time)`; } };
-    netSel.onchange = loadAddr;
+    netSel.onchange = () => { netSel.dataset.touched = "1"; loadAddr(); };
     if (addrIn) addrIn.onchange = () => { if (addrIn.value.trim()) faddrSet(netSel.value, addrIn.value.trim()); };
     fillNets();
   }
