@@ -15,6 +15,7 @@ import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=1
 import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec } from "./ethsign.js?v=2";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
+         renderWallet,
          uiConfirm, uiPrompt,
          blocksToTime } from "./nadodapp.js?v=99fc7471";
 
@@ -188,6 +189,8 @@ function fillAssetPicker(el, { withNado = true, keepValue = true, search = "" } 
   if (prev && [...el.options].some((o) => o.value === prev)) el.value = prev;
 }
 function doRender() {
+  renderWallet(dapp);                                 // who you are + both balances; without this a
+                                                      // completed sign-in never showed up on the page
   fillAssetPicker($("newAsset"), { withNado: false });
   fillAssetPicker($("limGiveAsset"));
   fillTokenPicker();
