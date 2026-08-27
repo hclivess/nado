@@ -954,7 +954,9 @@ function _pickCss() {
   s.id = "nadoPickCSS";
   s.textContent = `
   .pick{position:relative;display:inline-block;min-width:0}
-  .pick select.enhanced{position:absolute;opacity:0;pointer-events:none;width:100%;height:100%;left:0;top:0}
+  .seg{position:relative}
+  select.enhanced{position:absolute!important;opacity:0!important;pointer-events:none!important;
+    width:100%;height:100%;left:0;top:0;margin:0;padding:0;border:0}
   .pickbtn{display:flex;align-items:center;gap:8px;width:100%;justify-content:space-between;font:inherit;
     background:var(--bg,#0b0f14);border:1px solid var(--border,#243140);color:var(--txt,#e6edf3);
     border-radius:11px;padding:10px 12px;font-weight:700;font-size:13.5px;cursor:pointer;text-align:left}
@@ -1010,7 +1012,8 @@ export function enhanceSelects(root = document) {
   if (typeof document === "undefined") return;
   root.querySelectorAll("select:not([data-enhanced])").forEach((sel) => {
     if (sel.multiple || sel.size > 1) return;
-    if (sel.options.length === 2) enhanceToggle(sel); else enhanceSelect(sel);
+    if (sel.options.length === 2 && !sel.classList.contains("searchable")) enhanceToggle(sel);
+    else enhanceSelect(sel);
   });
   refreshPickers();
 }
