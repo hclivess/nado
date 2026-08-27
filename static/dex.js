@@ -41,12 +41,19 @@ const tokSym = (id) => (tokMeta(id) || {}).sym || "token";
 const tokName = (id) => { const m = tokMeta(id); return m ? (m.name || m.sym) : "unknown token"; };
 async function refreshAssets() {
   try {
-    // ?holder= returns YOUR balance per asset in the same request (doc/assets.md) — one poll, not one per token
-    const q = "/exec/assets?ns=" + dapp.ns + (dapp.me ? "&holder=" + encodeURIComponent(dapp.me) : "");
-    const r = await (await fetch(base() + q, { cache: "no-store" })).json();
+    // TWO requests on purpose: ?holder= filters the registry down to assets you already hold (the node
+    // skips zero balances), so asking with it was hiding every token from the pickers. The unfiltered
+    // registry is what a trader needs to SEE; the holder pass only adds what you own.
+    const [reg, mine] = await Promise.all([
+      (await fetch(base() + "/exec/assets?ns=" + dapp.ns, { cache: "no-store" })).json(),
+      dapp.me ? (await fetch(base() + "/exec/assets?ns=" + dapp.ns + "&holder=" + encodeURIComponent(dapp.me),
+                             { cache: "no-store" })).json() : Promise.resolve({ assets: [] }),
+    ]);
     const map = {};
-    for (const a of (r.assets || [])) map[akey(a.id)] = { sym: a.sym, name: a.name, dec: Number(a.dec) || 0,
-      id: String(a.id), bal: a.balance != null ? String(a.balance) : null };
+    for (const a of (reg.assets || [])) map[akey(a.id)] = { sym: a.sym, name: a.name, dec: Number(a.dec) || 0,
+      id: String(a.id), bal: null };
+    for (const a of ((mine && mine.assets) || []))
+      if (map[akey(a.id)]) map[akey(a.id)].bal = a.balance != null ? String(a.balance) : null;
     if (Object.keys(map).length || !Object.keys(assetReg).length) assetReg = map;
   } catch (e) { /* keep the last good registry */ }
 }
@@ -163,22 +170,27 @@ function renderSwap() {
   setTxt("getBal", getBalU === null ? "" : "Balance " + fromUnits(getBalU) + " " + getSym);
 }
 
-function fillAssetPicker(el, { withNado = true, keepValue = true } = {}) {
+function fillAssetPicker(el, { withNado = true, keepValue = true, search = "" } = {}) {
   if (!el) return;
   const prev = keepValue ? el.value : "";
-  const toks = Object.values(assetReg);
-  const opts = (withNado ? [`<option value="0">NADO</option>`] : [])
-    .concat(toks.map((a) => `<option value="${a.id}">${esc(a.sym)} — ${esc(a.name || a.sym)}</option>`));
+  const q = String(search || "").trim().toLowerCase();
+  const toks = Object.values(assetReg).filter((a) => !q
+    || (a.sym || "").toLowerCase().includes(q) || (a.name || "").toLowerCase().includes(q) || String(a.id).includes(q));
+  toks.sort((a, b) => (b.bal ? 1 : 0) - (a.bal ? 1 : 0) || String(a.sym).localeCompare(String(b.sym)));
+  const opts = (withNado && (!q || "nado".includes(q)) ? [`<option value="0">NADO</option>`] : [])
+    .concat(toks.map((a) => `<option value="${a.id}">${esc(a.sym)} — ${esc(a.name || a.sym)}${a.bal ? " ·" : ""}</option>`));
   const sig = opts.join("");
   if (el.dataset.sig === sig) { return; }
   el.dataset.sig = sig;
-  el.innerHTML = opts.length ? opts.join("") : `<option value="">no tokens yet</option>`;
+  el.innerHTML = opts.length ? opts.join("") : `<option value="">${q ? "no token matches that" : "no tokens yet"}</option>`;
   if (prev && [...el.options].some((o) => o.value === prev)) el.value = prev;
 }
 function doRender() {
-  fillAssetPicker($("newAsset"), { withNado: false });
-  fillAssetPicker($("limGiveAsset"));
-  fillAssetPicker($("limWantAsset"));
+  const sq = (($("assetSearch") || {}).value) || "";
+  fillAssetPicker($("newAsset"), { withNado: false, search: sq });
+  fillAssetPicker($("limGiveAsset"), { search: (($("limSearch") || {}).value) || "" });
+  fillTokenPicker();
+  fillAssetPicker($("limWantAsset"), { search: (($("limSearch") || {}).value) || "" });
   renderMarket();
   renderPools();
   renderSwap();
@@ -319,6 +331,17 @@ const coinOf = (od) => { const t = tokAddrOf(od);
 const explorerOf = (od) => (NETS[netKeyOf(od)] || {}).explorer || "https://mempool.space";
 // your address per NETWORK — typed once, reused forever (a swap always pays you on the same network)
 const LS_FADDR = "nado_otc_faddr";
+// KNOWN ERC-20s. Deliberately NOT a hardcoded address list: a wrong address here would send someone's
+// money to the wrong contract. Tokens become known by being VERIFIED against the chain (symbol/decimals
+// read from the contract itself) or by appearing on a live order, and are remembered per network.
+const LS_TOKENS = "nado_otc_tokens";
+const tokensAll = () => { try { return JSON.parse(localStorage.getItem(LS_TOKENS) || "{}"); } catch (e) { return {}; } };
+const tokensFor = (net) => tokensAll()[net] || {};
+function tokenRemember(net, addr, meta) {
+  const all = tokensAll(); const m = all[net] || (all[net] = {});
+  m[addr.toLowerCase()] = { sym: meta.symbol, dec: meta.decimals };
+  try { localStorage.setItem(LS_TOKENS, JSON.stringify(all)); } catch (e) {}
+}
 const faddrAll = () => { try { return JSON.parse(localStorage.getItem(LS_FADDR) || "{}"); } catch (e) { return {}; } };
 const faddrGet = (net) => faddrAll()[net] || "";
 const faddrSet = (net, a) => { const m = faddrAll(); m[net] = a; try { localStorage.setItem(LS_FADDR, JSON.stringify(m)); } catch (e) {} };
@@ -731,6 +754,44 @@ function renderOtc() {
 }
 
 // ---- actions ------------------------------------------------------------------------------------------
+// Fill the ERC-20 picker from what is actually known on this network, and say what a pasted address is.
+function fillTokenPicker() {
+  const netSel = $("otcNet"), tp = $("otcTokenPick");
+  if (!tp || !netSel) return;
+  const net = netSel.value, known = tokensFor(net);
+  for (const od of otcOrders()) {                      // tokens seen on live orders count as discovered
+    const t = tokAddrOf(od);
+    if (t && netKeyOf(od) === net && !known[t.toLowerCase()]) {
+      const m = erc20Names[t.toLowerCase()];
+      known[t.toLowerCase()] = { sym: (m && m.symbol) || "token", dec: (m && m.decimals) || 18 };
+    }
+  }
+  const opts = [`<option value="">${esc((NETS[net] || {}).coin || "the coin")} itself (no token)</option>`]
+    .concat(Object.keys(known).map((a) => `<option value="${a}">${esc(known[a].sym)} · ${a.slice(0, 10)}…</option>`));
+  const sig = opts.join("");
+  if (tp.dataset.sig !== sig) { tp.dataset.sig = sig; tp.innerHTML = sig; }
+}
+function showTokenInfo(text, bad) {
+  const el = $("otcTokenInfo");
+  if (el) { el.innerHTML = text ? `<span style="color:var(--${bad ? "danger" : "accent2"})">${esc(text)}</span>` : ""; }
+}
+async function verifyPastedToken() {
+  const a = (($("otcToken") || {}).value || "").trim(), net = ($("otcNet") || {}).value;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(a)) return showTokenInfo("A token address is 0x followed by 40 hex characters.", true);
+  if (!ethProv()) return showTokenInfo("Connect an Ethereum wallet to check this token against the chain.", true);
+  showTokenInfo("checking the contract…");
+  try {
+    const { chain } = await ethConnect();
+    if (chain !== (NETS[net] || {}).evm) return showTokenInfo(`Switch your wallet to ${(NETS[net] || {}).label} to check a token there.`, true);
+    const meta = await ethTokenMeta(a);
+    if (!meta || meta.symbol === "TOKEN") return showTokenInfo("That address did not answer as an ERC-20 — check it on a block explorer.", true);
+    tokenRemember(net, a, meta);
+    fillTokenPicker();
+    // A symbol is whatever the contract SAYS it is; the address is the only identity that matters.
+    showTokenInfo(`${meta.symbol} · ${meta.decimals} decimals · ${a} — any contract can claim any symbol, so check the address.`);
+  } catch (e) { showTokenInfo(String((e && e.message) || e).slice(0, 120), true); }
+}
+
 async function otcPost() {
   const kind = Number($("otcKind").value);
   const raw = (() => { try { return BigInt(nadoToRaw(($("otcNado").value || "").trim())); } catch (e) { return 0n; } })();
@@ -1027,7 +1088,9 @@ function renderMarket() {
   }
   const pick = $("mktPick");
   if (pick && lastSto) {
-    const opts = ids.map((id) => { const q = poolOf(lastSto, id); return `<option value="${q.id}">${esc(tokSym(q.asset))} / NADO</option>`; }).join("");
+    const mq = String((($("mktSearch") || {}).value) || "").trim().toLowerCase();
+    const shown = ids.filter((id) => !mq || tokSym(poolOf(lastSto, id).asset).toLowerCase().includes(mq));
+    const opts = (shown.length ? shown : ids).map((id) => { const q = poolOf(lastSto, id); return `<option value="${q.id}">${esc(tokSym(q.asset))} / NADO</option>`; }).join("");
     if (pick.dataset.sig !== opts) { pick.dataset.sig = opts; pick.innerHTML = opts || `<option>no markets yet</option>`; }
     if (sel) pick.value = String(sel);
   }
@@ -1221,6 +1284,12 @@ function wireUI() {
     d.value = d.value === "n2t" ? "t2n" : "n2t"; if (amt) amt.value = ""; renderSwap(); };
   const mp = $("mktPick");
   if (mp) mp.onchange = () => { if (curMode === "cross") xsel = mp.value; else sel = mp.value; syncUrl(true); render(); };
+  ["assetSearch", "limSearch", "mktSearch"].forEach((id) => {
+    const e = $(id); if (e) e.oninput = () => render();
+  });
+  const tp = $("otcTokenPick"), ti = $("otcToken"), tc = $("btnTokCheck");
+  if (tp) tp.onchange = () => { if (ti) ti.value = tp.value; showTokenInfo(); };
+  if (tc) tc.onclick = () => verifyPastedToken();
   const rb = $("mktRanges");
   if (rb) rb.querySelectorAll("button").forEach((b) => { b.onclick = () => {
     mktRange = Number(b.getAttribute("data-range"));

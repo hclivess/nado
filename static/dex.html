@@ -168,6 +168,8 @@
   <div class="card hidden" id="marketCard">
     <div class="mkt">
       <select id="mktPick" style="max-width:230px;flex:0 0 auto"></select>
+      <input id="mktSearch" placeholder="find a market" autocomplete="off"
+             style="max-width:150px;flex:0 0 auto;padding:8px 10px;font-size:12px">
       <span class="pair hidden" id="mktPair">—</span>
       <span class="price" id="mktPrice">—</span>
       <span class="chg flat" id="mktChg">—</span>
@@ -269,6 +271,9 @@
     <p class="small dim">Pair any token with NADO. Opening is permissionless and free — the pool is empty
     until someone adds liquidity.</p>
     <div class="row mt">
+      <input id="assetSearch" placeholder="search tokens by name, symbol or id" autocomplete="off">
+    </div>
+    <div class="row mt">
       <select id="newAsset"></select>
       <button class="ghost" id="btnOpen" style="flex:0 0 auto">Open pool</button>
     </div>
@@ -314,7 +319,9 @@
       <input id="otcFAmt" placeholder="foreign amount (e.g. 0.005)" autocomplete="off">
     </div>
     <div class="row mt hidden" id="otcTokenRow">
-      <input id="otcToken" placeholder="ERC-20 token address (leave empty to swap ETH itself)" autocomplete="off">
+      <select id="otcTokenPick" style="max-width:230px;flex:0 0 auto"></select>
+      <input id="otcToken" placeholder="or paste an ERC-20 contract address" autocomplete="off">
+      <button class="ghost" id="btnTokCheck" style="flex:0 0 auto">Check</button>
     </div>
     <div class="row mt">
       <input id="otcFAddr" placeholder="your address on that network (saved for next time)" autocomplete="off">
@@ -324,6 +331,7 @@
       <input id="otcExpiry" value="9000" inputmode="numeric" style="max-width:110px" autocomplete="off">
     </div>
     <div class="row mt"><button class="primary" id="btnOtcPost">Post order</button></div>
+    <div id="otcTokenInfo" class="small mt"></div>
     <div id="otcSecretBox" class="mt hidden">
       <p class="small warn">Your swap secret — WITHOUT IT A FILLED SWAP CANNOT COMPLETE. It stays in this
       browser; copy it somewhere safe too:</p>
@@ -346,6 +354,9 @@
     time before someone takes it; after it expires anyone can return it to you.</p>
     <div id="otcLimits" class="mt"></div>
     <div class="row mt">
+      <input id="limSearch" placeholder="search tokens" autocomplete="off">
+    </div>
+    <div class="row mt">
       <select id="limGiveAsset"></select>
       <input id="limGiveAmt" placeholder="you give" inputmode="decimal" autocomplete="off">
     </div>
@@ -366,6 +377,6 @@
     investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=fd39c536"></script>
+<script type="module" src="/static/dex.js?v=2c426d99"></script>
 </body>
 </html>
