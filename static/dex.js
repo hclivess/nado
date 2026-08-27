@@ -319,7 +319,6 @@ const NETS = {
   eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", evm: "0xaa36a7", htlc: "0xd5f47927999c31ce4fe3de11bc560678094486e7", erc20: "0x6d6104704e1956c36851d4c36fdad77ce75a6106" },
   eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1",     htlc: "", erc20: "" },
 };
-const NET_BY_CHAIN = { btc: ["btc", "btct"], eth: ["eths", "eth"] };
 // An ERC-20 swap names its token inside the network field: wch = "<network>|<token address>". Everything
 // below reads the network through netKeyOf, so a token order behaves exactly like a native one.
 const netKeyOf = (od) => String(od.wch || "").split("|")[0];
@@ -789,8 +788,9 @@ function fillTokenPicker() {
       known[t.toLowerCase()] = { sym: (m && m.symbol) || "token", dec: (m && m.decimals) || 18 };
     }
   }
-  const opts = [`<option value="">${esc((NETS[net] || {}).coin || "the coin")} itself (no token)</option>`]
-    .concat(Object.keys(known).map((a) => `<option value="${a}">${esc(known[a].sym)} · ${a.slice(0, 10)}…</option>`));
+  const opts = [`<option value="">${esc((NETS[net] || {}).coin || "the coin")} itself — no token</option>`]
+    .concat(Object.keys(known).map((a) => `<option value="${a}">${esc(known[a].sym)} · ${a.slice(0, 10)}…</option>`))
+    .concat([`<option value="?">another token — paste its address</option>`]);
   const sig = opts.join("");
   if (tp.dataset.sig !== sig) { tp.dataset.sig = sig; tp.innerHTML = sig; }
 }
@@ -819,7 +819,8 @@ async function otcPost() {
   const kind = Number($("otcKind").value);
   const raw = (() => { try { return BigInt(nadoToRaw(($("otcNado").value || "").trim())); } catch (e) { return 0n; } })();
   const netSelV = $("otcNet").value, chain = (NETS[netSelV] || {}).chain;
-  const tokenV = ((($("otcToken") || {}).value) || "").trim();
+  const tp2 = $("otcTokenPick");
+  const tokenV = (tp2 && tp2.value && tp2.value !== "?") ? tp2.value : ((($("otcToken") || {}).value) || "").trim();
   if (tokenV && !/^0x[0-9a-fA-F]{40}$/.test(tokenV)) return alertBar("A token address looks like 0x followed by 40 hex characters.");
   if (tokenV && !(NETS[netSelV] || {}).erc20) return alertBar(`Token swaps are not available on ${(NETS[netSelV] || {}).label} yet.`);
   const net = tokenV ? netSelV + "|" + tokenV.toLowerCase() : netSelV;   // the token rides in the network field
@@ -849,7 +850,7 @@ async function otcPost() {
   // late enough for the foreign leg to be funded and confirmed, early enough to refund before the NADO side.
   const FOREIGN_MIN_S = 3600, FOREIGN_MARGIN_S = 7200, windowS = blocks * 6;
   if (windowS < FOREIGN_MIN_S + FOREIGN_MARGIN_S + 1800)
-    return alertBar(`That expiry is too short for a ${$("otcChain").value.toUpperCase()} swap — use at least ${Math.ceil((FOREIGN_MIN_S + FOREIGN_MARGIN_S + 1800) / 6)} blocks.`);
+    return alertBar(`That expiry is too short for a ${(NETS[$("otcNet").value] || {}).coin || "cross-chain"} swap — use at least ${Math.ceil((FOREIGN_MIN_S + FOREIGN_MARGIN_S + 1800) / 6)} blocks.`);
   const expf = Math.floor(nowSec + (FOREIGN_MIN_S + windowS - FOREIGN_MARGIN_S) / 2);
   const expn = (dapp.cursor || 0) + blocks;
   const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex + (kp ? "  ·  BTC key: " + kp.k : ""); }
@@ -1296,11 +1297,11 @@ function wireUI() {
   $("btnSwap").onclick = (e) => runAction(e.currentTarget, doSwap);
   const bp = $("btnOtcPost"); if (bp) bp.onclick = (e) => runAction(e.currentTarget, otcPost);
   const lp = $("btnLimPost"); if (lp) lp.onclick = (e) => runAction(e.currentTarget, limPost);
-  const chainSel = $("otcChain"), netSel = $("otcNet"), addrIn = $("otcFAddr");
-  if (chainSel && netSel) {
+  const netSel = $("otcNet"), addrIn = $("otcFAddr");
+  if (netSel) {
+    // ONE control, not two: a separate "chain" dropdown said nothing the network did not already say.
     const fillNets = () => {
-      const keys = NET_BY_CHAIN[chainSel.value] || [];
-      netSel.innerHTML = keys.map((k) => `<option value="${k}">${NETS[k].label}</option>`).join("");
+      netSel.innerHTML = Object.keys(NETS).map((k) => `<option value="${k}">${NETS[k].coin} · ${NETS[k].label}</option>`).join("");
       loadAddr();
     };
     const showTok = () => {
@@ -1310,7 +1311,6 @@ function wireUI() {
     };
     const loadAddr = () => { showTok(); if (addrIn) { addrIn.value = faddrGet(netSel.value); 
       addrIn.placeholder = `your ${(NETS[netSel.value] || {}).label || ""} address (saved for next time)`; } };
-    chainSel.onchange = fillNets;
     netSel.onchange = loadAddr;
     if (addrIn) addrIn.onchange = () => { if (addrIn.value.trim()) faddrSet(netSel.value, addrIn.value.trim()); };
     fillNets();
@@ -1337,9 +1337,19 @@ function wireUI() {
   enhanceSelect($("mktPick"), { searchPlaceholder: "Search markets" });
   ["newAsset", "limGiveAsset", "limWantAsset", "otcTokenPick"].forEach((id) =>
     enhanceSelect($(id), { searchPlaceholder: "Search tokens by name, symbol or id" }));
-  const tp = $("otcTokenPick"), ti = $("otcToken"), tc = $("btnTokCheck");
-  if (tp) tp.onchange = () => { if (ti) ti.value = tp.value; showTokenInfo(); };
-  if (tc) tc.onclick = (e) => runAction(e.currentTarget, verifyPastedToken);
+  // ONE token control: pick a known token, or pick "another token" and paste it — the paste box checks
+  // itself as you type, so no separate button repeats the job.
+  const tp = $("otcTokenPick"), ti = $("otcToken");
+  if (tp) tp.onchange = () => {
+    const other = tp.value === "?";
+    if (ti) { ti.classList.toggle("hidden", !other); if (!other) ti.value = tp.value; else ti.focus(); }
+    showTokenInfo();
+  };
+  if (ti) ti.oninput = () => {
+    clearTimeout(ti._t);
+    if (/^0x[0-9a-fA-F]{40}$/.test(ti.value.trim())) ti._t = setTimeout(verifyPastedToken, 350);
+    else showTokenInfo();
+  };
   const rb = $("mktRanges");
   if (rb) rb.querySelectorAll("button").forEach((b) => { b.onclick = () => {
     mktRange = Number(b.getAttribute("data-range"));

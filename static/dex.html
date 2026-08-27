@@ -330,17 +330,12 @@
       <input id="otcNado" placeholder="NADO amount" inputmode="decimal" autocomplete="off">
     </div>
     <div class="row mt">
-      <select id="otcChain">
-        <option value="btc">BTC (Bitcoin)</option>
-        <option value="eth">ETH (Ethereum)</option>
-      </select>
       <select id="otcNet"></select>
-      <input id="otcFAmt" placeholder="foreign amount (e.g. 0.005)" autocomplete="off">
+      <input id="otcFAmt" placeholder="how much of it" autocomplete="off">
     </div>
     <div class="row mt hidden" id="otcTokenRow">
-      <select id="otcTokenPick" style="max-width:230px;flex:0 0 auto"></select>
-      <input id="otcToken" placeholder="or paste an ERC-20 contract address" autocomplete="off">
-      <button class="ghost" id="btnTokCheck" style="flex:0 0 auto">Check</button>
+      <select id="otcTokenPick"></select>
+      <input id="otcToken" class="hidden" placeholder="paste the token's contract address" autocomplete="off">
     </div>
     <div class="row mt">
       <input id="otcFAddr" placeholder="your address on that network (saved for next time)" autocomplete="off">
@@ -393,6 +388,6 @@
     investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=c570b60c"></script>
+<script type="module" src="/static/dex.js?v=49a23751"></script>
 </body>
 </html>
