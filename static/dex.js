@@ -637,8 +637,11 @@ function renderBookDepth(b, coin) {
   const cum = (arr) => { let t = 0; return arr.map((x) => ({ px: x.px, t: (t += x.size) })); };
   const B = cum(b.bids), A = cum(b.asks);
   const pxs = B.concat(A).map((x) => x.px), maxT = Math.max(...B.concat(A).map((x) => x.t), 1e-12);
-  const lo = Math.min(...pxs), hi = Math.max(...pxs), span = (hi - lo) || hi * 0.02 || 1;
+  const lo = Math.min(...pxs), hi = Math.max(...pxs);
   const mid = b.mid || (lo + hi) / 2;
+  // one order, or several at one price, means hi === lo — without a floor the whole scale collapses to a
+  // point and the chart renders empty, which reads as "no orders" when there certainly are some.
+  const span = Math.max(hi - lo, mid * 0.05, 1e-9);
   const X = (px) => 8 + (px - (mid - span)) / (2 * span) * (DW - 16);
   const Y = (t) => 6 + (1 - t / maxT) * (DH - 20);
   const side = (arr, col, dir) => {
@@ -651,6 +654,7 @@ function renderBookDepth(b, coin) {
   svg.setAttribute("viewBox", `0 0 ${DW} ${DH}`);
   svg.innerHTML = `<line x1="${X(mid).toFixed(1)}" y1="4" x2="${X(mid).toFixed(1)}" y2="${DH - 14}" stroke="var(--border)"/>` +
     side(B, "var(--accent2)", 1) + side(A, "var(--danger)", -1) +
+    `<text x="${X(mid).toFixed(1)}" y="${DH - 2}" fill="var(--faint)" font-size="9" text-anchor="middle" font-family="ui-monospace,monospace">${fmtPrice(mid)}</text>` +
     `<text x="8" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" font-family="ui-monospace,monospace">buying ${esc(coin)} ←</text>` +
     `<text x="${DW - 8}" y="${DH - 2}" fill="var(--danger)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">→ selling ${esc(coin)}</text>`;
 }
