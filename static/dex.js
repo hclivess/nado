@@ -16,7 +16,7 @@ import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec } 
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=a62d23d4";
+         blocksToTime } from "./nadodapp.js?v=86f13b65";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -336,8 +336,18 @@ const LS_FADDR = "nado_otc_faddr";
 // money to the wrong contract. Tokens become known by being VERIFIED against the chain (symbol/decimals
 // read from the contract itself) or by appearing on a live order, and are remembered per network.
 const LS_TOKENS = "nado_otc_tokens";
+// A short seed list so the picker is not empty on a fresh browser. Every entry was verified against the
+// chain before being written here — the contract itself answered with this symbol and this many decimals
+// (Sepolia, 2026-08-27). Nothing is taken on trust: the address is always shown next to the symbol,
+// because any contract can claim any name and only the address is identity.
+const SEED_TOKENS = {
+  eths: {
+    "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238": { sym: "USDC", dec: 6 },      // name() "USDC", 6 dp
+    "0xfff9976782d46cc05630d1f6ebab18b2324d6b14": { sym: "WETH", dec: 18 },     // name() "Wrapped Ether"
+  },
+};
 const tokensAll = () => { try { return JSON.parse(localStorage.getItem(LS_TOKENS) || "{}"); } catch (e) { return {}; } };
-const tokensFor = (net) => tokensAll()[net] || {};
+const tokensFor = (net) => Object.assign({}, SEED_TOKENS[net] || {}, tokensAll()[net] || {});
 function tokenRemember(net, addr, meta) {
   const all = tokensAll(); const m = all[net] || (all[net] = {});
   m[addr.toLowerCase()] = { sym: meta.symbol, dec: meta.decimals };

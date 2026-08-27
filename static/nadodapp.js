@@ -907,7 +907,8 @@ export function enhanceSelect(sel, { searchPlaceholder = "Search", icon = true }
       const [head, ...rest] = o.text.split(" — ");
       const badge = icon ? `<span class="dot">${esc((head || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?")}</span>` : "";
       return `<div class="pickrow${o.value === sel.value ? " sel" : ""}" data-v="${esc(o.value)}">${badge}
-        <span class="txt"><span class="t1">${esc(head)}</span>${rest.length ? `<span class="t2">${esc(rest.join(" — "))}</span>` : ""}</span></div>`;
+        <span class="txt"><span class="t1">${esc(head)}</span>${rest.length ? `<span class="t2">${esc(rest.join(" — "))}</span>` : ""}</span>
+        ${o.value === sel.value ? '<span class="tick">✓</span>' : ""}</div>`;
     }).join("") : `<div class="pickempty">nothing matches “${esc(search.value)}”</div>`;
     cursor = rows().findIndex((r) => r.classList.contains("sel"));
     rows().forEach((r) => { r.onclick = () => choose(r.getAttribute("data-v")); });
@@ -965,8 +966,15 @@ function _pickCss() {
   .pickpanel input:focus{outline:none;border-color:var(--accent2,#00c9a7)}
   .picklist{max-height:290px;overflow:auto}
   .pickrow{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;cursor:pointer;font-size:13.5px}
-  .pickrow:hover,.pickrow.on{background:rgba(0,173,147,.14)}
-  .pickrow.sel{outline:1px solid var(--accent,#00ad93)}
+  .pickrow{position:relative;transition:background .1s}
+  .pickrow:hover{background:rgba(255,255,255,.05)}
+  .pickrow.on{background:rgba(0,173,147,.16);box-shadow:inset 0 0 0 1px rgba(0,201,167,.45)}
+  .pickrow.sel{background:rgba(0,173,147,.22)}
+  .pickrow.sel .t1{color:var(--accent2,#00c9a7)}
+  .pickrow.sel::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:3px;border-radius:3px;
+    background:var(--accent2,#00c9a7)}
+  .pickrow.sel .dot{border-color:var(--accent,#00ad93);color:var(--accent2,#00c9a7)}
+  .pickrow .tick{margin-left:auto;color:var(--accent2,#00c9a7);font-weight:800;flex:0 0 auto}
   .pickrow .dot{width:26px;height:26px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
     background:var(--elev,#131a23);border:1px solid var(--border,#243140);font-size:11px;font-weight:800;color:var(--accent2,#00c9a7)}
   .pickrow .txt{min-width:0;flex:1 1 auto}

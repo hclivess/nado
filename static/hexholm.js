@@ -7,7 +7,7 @@
 // browser until the game is decided).
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, notify, confirmingLabel, disp, share,
          renderWallet, renderScore, renderTopScores, scoreBump, scoreSort, resolveAliases, blocksToTime,
-         randSecret, algHashn, ALG_P , installModes } from "./nadodapp.js?v=a62d23d4";
+         randSecret, algHashn, ALG_P , installModes } from "./nadodapp.js?v=86f13b65";
 import { DuelGame } from "./duelgame.js?v=c586c636";
 import * as E from "./hexholm-engine.js?v=f89044c7";
 import { pickMove, prng, soloReplay, soloScore, botMustAct, seedOfDay, packRun, verifyClaim,
