@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare } from "./nadodapp.js?v=9f96d60e";   // THE one share implementation (SDK)
+import { share as sdkShare, enhanceSelects } from "./nadodapp.js?v=5fb54437";   // THE one share implementation (SDK) + the shared select picker
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -8223,3 +8223,12 @@ async function initNetTag() {
 }
 
 boot();
+
+
+// Upgrade every <select> once the page exists, and again whenever a render fills one in: the picker is
+// idempotent (it marks what it has done), so this is cheap and keeps dynamically built lists searchable.
+function _enhanceLater() { try { enhanceSelects(); } catch (e) {} }
+if (typeof document !== "undefined") {
+  document.addEventListener("DOMContentLoaded", _enhanceLater);
+  setInterval(_enhanceLater, 1500);
+}

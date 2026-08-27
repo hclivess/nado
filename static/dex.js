@@ -14,8 +14,8 @@ import { htlcScript, p2wshAddress } from "./btcleg.js?v=3854b338";
 import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=15418184";
 import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec } from "./ethsign.js?v=2";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
-         orderCards, disp, share, installModes, algHashn, base, esc, randId,
-         blocksToTime } from "./nadodapp.js?v=9f96d60e";
+         orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, enhanceToggle,
+         blocksToTime } from "./nadodapp.js?v=5fb54437";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -34,7 +34,8 @@ const toUnits = (nado) => { try { return BigInt(nadoToRaw(nado)) / UNIT; } catch
 const fromUnits = (u) => rawToNado((BigInt(u) * UNIT).toString());
 
 let lastSto = null;
-let assetReg = {};                                   // key: String(Number(id)) -> {sym, name, dec, id}
+let assetReg = {};
+const _pickerApi = {};             // id -> the picker wrapping that <select>, so labels follow dynamic options                                   // key: String(Number(id)) -> {sym, name, dec, id}
 const akey = (id) => String(Number(id));
 const tokMeta = (id) => assetReg[akey(id)] || null;
 const tokSym = (id) => (tokMeta(id) || {}).sym || "token";
@@ -186,17 +187,17 @@ function fillAssetPicker(el, { withNado = true, keepValue = true, search = "" } 
   if (prev && [...el.options].some((o) => o.value === prev)) el.value = prev;
 }
 function doRender() {
-  const sq = (($("assetSearch") || {}).value) || "";
-  fillAssetPicker($("newAsset"), { withNado: false, search: sq });
-  fillAssetPicker($("limGiveAsset"), { search: (($("limSearch") || {}).value) || "" });
+  fillAssetPicker($("newAsset"), { withNado: false });
+  fillAssetPicker($("limGiveAsset"));
   fillTokenPicker();
-  fillAssetPicker($("limWantAsset"), { search: (($("limSearch") || {}).value) || "" });
+  fillAssetPicker($("limWantAsset"));
   renderMarket();
   renderPools();
   renderSwap();
   renderLiq();
   renderOtc();
   renderLimits();
+  Object.values(_pickerApi).forEach((p) => p && p.refresh());
 }
 
 // ---- actions -------------------------------------------------------------------------------------------
@@ -1088,9 +1089,8 @@ function renderMarket() {
   }
   const pick = $("mktPick");
   if (pick && lastSto) {
-    const mq = String((($("mktSearch") || {}).value) || "").trim().toLowerCase();
-    const shown = ids.filter((id) => !mq || tokSym(poolOf(lastSto, id).asset).toLowerCase().includes(mq));
-    const opts = (shown.length ? shown : ids).map((id) => { const q = poolOf(lastSto, id); return `<option value="${q.id}">${esc(tokSym(q.asset))} / NADO</option>`; }).join("");
+    const opts = ids.map((id) => { const q = poolOf(lastSto, id);
+      return `<option value="${q.id}">${esc(tokSym(q.asset))} / NADO — ${esc(tokName(q.asset))}</option>`; }).join("");
     if (pick.dataset.sig !== opts) { pick.dataset.sig = opts; pick.innerHTML = opts || `<option>no markets yet</option>`; }
     if (sel) pick.value = String(sel);
   }
@@ -1223,6 +1223,7 @@ function renderDepth(p, price) {
     `<text x="${DW - 8}" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">bigger buys get a worse rate →</text>`;
 }
 
+
 // ---- wiring / boot ---------------------------------------------------------------------------------------
 async function refresh() {
   try {
@@ -1284,9 +1285,11 @@ function wireUI() {
     d.value = d.value === "n2t" ? "t2n" : "n2t"; if (amt) amt.value = ""; renderSwap(); };
   const mp = $("mktPick");
   if (mp) mp.onchange = () => { if (curMode === "cross") xsel = mp.value; else sel = mp.value; syncUrl(true); render(); };
-  ["assetSearch", "limSearch", "mktSearch"].forEach((id) => {
-    const e = $(id); if (e) e.oninput = () => render();
+  ["mktPick", "newAsset", "limGiveAsset", "limWantAsset", "otcTokenPick"].forEach((id) => {
+    const ph = id === "mktPick" ? "Search markets" : "Search tokens by name, symbol or id";
+    _pickerApi[id] = enhanceSelect($(id), { searchPlaceholder: ph });
   });
+  ["otcKind", "otcChain", "otcNet"].forEach((id) => enhanceToggle($(id)));
   const tp = $("otcTokenPick"), ti = $("otcToken"), tc = $("btnTokCheck");
   if (tp) tp.onchange = () => { if (ti) ti.value = tp.value; showTokenInfo(); };
   if (tc) tc.onclick = () => verifyPastedToken();

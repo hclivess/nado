@@ -5,7 +5,7 @@
 // ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
 // oracle beyond the math — field-native alghash, byte-identical to the zkVM contract's in-VM HASH
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame } from "./nadodapp.js?v=9f96d60e";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame } from "./nadodapp.js?v=5fb54437";
 import { Practice } from "./practice.js?v=53073278";   // free in-browser practice vs the computer
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=8d15167d";
 import * as SALVO from "./battleship-daily.js?v=421b29b3";

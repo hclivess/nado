@@ -47,6 +47,30 @@
   .sum{margin-top:10px;border-top:1px solid var(--border);padding-top:8px}
   .sum .kv{padding:3px 0;font-size:12.5px}
   /* market table */
+  .pick{position:relative;display:inline-block;min-width:0}
+  .pick select.enhanced{position:absolute;opacity:0;pointer-events:none;width:100%;height:100%;left:0;top:0}
+  .pickbtn{display:flex;align-items:center;gap:8px;width:100%;justify-content:space-between;
+    background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:10px 12px;font-weight:700;font-size:13.5px}
+  .pickbtn:hover{border-color:var(--accent)}
+  .pickbtn .car{color:var(--faint);font-size:10px;flex:0 0 auto}
+  .pickbtn .lab{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickpanel{position:absolute;z-index:40;top:calc(100% + 6px);left:0;min-width:min(320px,86vw);
+    background:var(--elev2);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.55);padding:8px}
+  .pickpanel input{width:100%;font-size:13px;padding:9px 10px;margin-bottom:6px}
+  .picklist{max-height:290px;overflow:auto}
+  .pickrow{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;cursor:pointer;font-size:13.5px}
+  .pickrow:hover,.pickrow.on{background:rgba(0,173,147,.14)}
+  .pickrow.sel{outline:1px solid var(--accent)}
+  .pickrow .dot{width:26px;height:26px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
+    background:var(--elev);border:1px solid var(--border);font-size:11px;font-weight:800;color:var(--accent2)}
+  .pickrow .txt{min-width:0;flex:1 1 auto}
+  .pickrow .t1{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickrow .t2{font-size:11.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickempty{padding:14px 10px;color:var(--faint);font-size:12.5px;text-align:center}
+  /* two-choice controls read better as a segmented switch than a dropdown */
+  .seg{display:flex;gap:0;border:1px solid var(--border);border-radius:11px;overflow:hidden}
+  .seg button{flex:1 1 0;border:0;border-radius:0;background:var(--bg);color:var(--dim);font-size:13px;padding:10px 12px}
+  .seg button.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04110a;font-weight:800}
   .mkthead,.poolrow{display:grid;grid-template-columns:1.35fr 1fr 0.8fr;gap:10px;align-items:center}
   .mkthead{padding:4px 12px;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
   .poolrow .num{font-family:var(--mono);font-size:12.5px;text-align:right}
@@ -167,9 +191,7 @@
   <!-- MARKET (price chart + stats for the selected pool) -->
   <div class="card hidden" id="marketCard">
     <div class="mkt">
-      <select id="mktPick" style="max-width:230px;flex:0 0 auto"></select>
-      <input id="mktSearch" placeholder="find a market" autocomplete="off"
-             style="max-width:150px;flex:0 0 auto;padding:8px 10px;font-size:12px">
+      <select id="mktPick" style="max-width:250px;flex:0 0 auto"></select>
       <span class="pair hidden" id="mktPair">—</span>
       <span class="price" id="mktPrice">—</span>
       <span class="chg flat" id="mktChg">—</span>
@@ -271,9 +293,6 @@
     <p class="small dim">Pair any token with NADO. Opening is permissionless and free — the pool is empty
     until someone adds liquidity.</p>
     <div class="row mt">
-      <input id="assetSearch" placeholder="search tokens by name, symbol or id" autocomplete="off">
-    </div>
-    <div class="row mt">
       <select id="newAsset"></select>
       <button class="ghost" id="btnOpen" style="flex:0 0 auto">Open pool</button>
     </div>
@@ -354,9 +373,6 @@
     time before someone takes it; after it expires anyone can return it to you.</p>
     <div id="otcLimits" class="mt"></div>
     <div class="row mt">
-      <input id="limSearch" placeholder="search tokens" autocomplete="off">
-    </div>
-    <div class="row mt">
       <select id="limGiveAsset"></select>
       <input id="limGiveAmt" placeholder="you give" inputmode="decimal" autocomplete="off">
     </div>
@@ -377,6 +393,6 @@
     investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=2c426d99"></script>
+<script type="module" src="/static/dex.js?v=f8188e09"></script>
 </body>
 </html>

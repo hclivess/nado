@@ -862,6 +862,146 @@ export function shareInvite(kind, id, text, qrpx = 200) {
 }
 
 // ---- the wallet-backed dApp session --------------------------------------------------------------
+// ---- searchable picker: a modern token/market selector that ENHANCES a native <select> ----------------
+// The <select> stays in the DOM and remains the single source of truth (every existing .value read and
+// .onchange keeps working, and with no JS the page still functions). It is hidden visually and driven by a
+// button + panel with type-to-search, arrow-key navigation and click-away — what a trader expects, and
+// what a bare dropdown cannot do once there are more than a handful of tokens.
+const _pickers = [];
+let _pickCssDone = false;
+export function enhanceSelect(sel, { searchPlaceholder = "Search", icon = true } = {}) {
+  if (!sel || sel.dataset.enhanced || sel.classList.contains("plain")) return null;
+  _pickCss();
+  if (!sel.options.length) return null;
+  sel.dataset.enhanced = "1";
+  sel.classList.add("enhanced");
+  const wrap = document.createElement("div");
+  wrap.className = "pick";
+  wrap.style.cssText = sel.style.cssText;                 // inherit whatever width the layout gave the select
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.appendChild(sel);
+  const btn = document.createElement("button");
+  btn.className = "pickbtn"; btn.type = "button";
+  btn.innerHTML = `<span class="lab"></span><span class="car">▼</span>`;
+  const panel = document.createElement("div");
+  panel.className = "pickpanel pickhidden";
+  panel.innerHTML = `<input type="text" placeholder="${esc(searchPlaceholder)}" autocomplete="off"><div class="picklist"></div>`;
+  wrap.appendChild(btn); wrap.appendChild(panel);
+  const search = panel.querySelector("input"), list = panel.querySelector(".picklist");
+  let cursor = -1;
+  const label = () => { const o = sel.options[sel.selectedIndex];
+    btn.querySelector(".lab").textContent = o ? o.text : "—"; };
+  const rows = () => [...list.querySelectorAll(".pickrow")];
+  function draw() {
+    const q = search.value.trim().toLowerCase();
+    const opts = [...sel.options].filter((o) => !q || o.text.toLowerCase().includes(q) || String(o.value).toLowerCase().includes(q));
+    list.innerHTML = opts.length ? opts.map((o) => {
+      const [head, ...rest] = o.text.split(" — ");
+      const badge = icon ? `<span class="dot">${esc((head || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?")}</span>` : "";
+      return `<div class="pickrow${o.value === sel.value ? " sel" : ""}" data-v="${esc(o.value)}">${badge}
+        <span class="txt"><span class="t1">${esc(head)}</span>${rest.length ? `<span class="t2">${esc(rest.join(" — "))}</span>` : ""}</span></div>`;
+    }).join("") : `<div class="pickempty">nothing matches “${esc(search.value)}”</div>`;
+    cursor = rows().findIndex((r) => r.classList.contains("sel"));
+    rows().forEach((r) => { r.onclick = () => choose(r.getAttribute("data-v")); });
+  }
+  function choose(v) { sel.value = v; label(); close(); sel.dispatchEvent(new Event("change", { bubbles: true })); }
+  function open() {
+    _pickers.forEach((p) => p !== api && p.close());
+    panel.classList.remove("pickhidden"); search.value = ""; draw();
+    setTimeout(() => search.focus(), 0);
+  }
+  function close() { panel.classList.add("pickhidden"); }
+  function move(d) {
+    const rs = rows(); if (!rs.length) return;
+    cursor = (cursor + d + rs.length) % rs.length;
+    rs.forEach((r, i) => r.classList.toggle("on", i === cursor));
+    rs[cursor].scrollIntoView({ block: "nearest" });
+  }
+  btn.onclick = (e) => { e.preventDefault(); panel.classList.contains("pickhidden") ? open() : close(); };
+  search.oninput = draw;
+  search.onkeydown = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+    else if (e.key === "Enter") { e.preventDefault(); const r = rows()[cursor] || rows()[0]; if (r) choose(r.getAttribute("data-v")); }
+    else if (e.key === "Escape") { e.preventDefault(); close(); btn.focus(); }
+  };
+  const api = { refresh: label, close, el: wrap };
+  _pickers.push(api); label();
+  return api;
+}
+document.addEventListener("click", (e) => {              // click-away closes whichever panel is open
+  _pickers.forEach((p) => { if (!p.el.contains(e.target)) p.close(); });
+});
+
+// The picker's own stylesheet, injected once per page. It lives here rather than in every game's inline
+// <style> for the same reason the theme does: one definition, and a page gets it by loading the SDK.
+function _pickCss() {
+  if (_pickCssDone || typeof document === "undefined") return;
+  _pickCssDone = true;
+  const s = document.createElement("style");
+  s.id = "nadoPickCSS";
+  s.textContent = `
+  .pick{position:relative;display:inline-block;min-width:0}
+  .pick select.enhanced{position:absolute;opacity:0;pointer-events:none;width:100%;height:100%;left:0;top:0}
+  .pickbtn{display:flex;align-items:center;gap:8px;width:100%;justify-content:space-between;font:inherit;
+    background:var(--bg,#0b0f14);border:1px solid var(--border,#243140);color:var(--txt,#e6edf3);
+    border-radius:11px;padding:10px 12px;font-weight:700;font-size:13.5px;cursor:pointer;text-align:left}
+  .pickbtn:hover{border-color:var(--accent,#00ad93)}
+  .pickbtn .car{color:var(--faint,#5d6b7a);font-size:10px;flex:0 0 auto}
+  .pickbtn .lab{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickpanel{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:min(320px,86vw);
+    background:var(--elev2,#1a232e);border:1px solid var(--border,#243140);border-radius:12px;
+    box-shadow:0 16px 40px rgba(0,0,0,.55);padding:8px}
+  .pickpanel input{width:100%;font:inherit;font-size:13px;padding:9px 10px;margin-bottom:6px;border-radius:9px;
+    background:var(--bg,#0b0f14);color:var(--txt,#e6edf3);border:1px solid var(--border,#243140)}
+  .pickpanel input:focus{outline:none;border-color:var(--accent2,#00c9a7)}
+  .picklist{max-height:290px;overflow:auto}
+  .pickrow{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;cursor:pointer;font-size:13.5px}
+  .pickrow:hover,.pickrow.on{background:rgba(0,173,147,.14)}
+  .pickrow.sel{outline:1px solid var(--accent,#00ad93)}
+  .pickrow .dot{width:26px;height:26px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
+    background:var(--elev,#131a23);border:1px solid var(--border,#243140);font-size:11px;font-weight:800;color:var(--accent2,#00c9a7)}
+  .pickrow .txt{min-width:0;flex:1 1 auto}
+  .pickrow .t1{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickrow .t2{font-size:11.5px;color:var(--faint,#5d6b7a);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickempty{padding:14px 10px;color:var(--faint,#5d6b7a);font-size:12.5px;text-align:center}
+  .seg{display:flex;border:1px solid var(--border,#243140);border-radius:11px;overflow:hidden}
+  .seg button{flex:1 1 0;border:0;border-radius:0;font:inherit;background:var(--bg,#0b0f14);
+    color:var(--dim,#93a1b0);font-size:13px;padding:10px 12px;cursor:pointer}
+  .seg button.on{background:linear-gradient(135deg,var(--accent,#00ad93),var(--accent2,#00c9a7));color:#04110a;font-weight:800}
+  .pickhidden{display:none!important}`;
+  document.head.appendChild(s);
+}
+
+// enhanceSelects(root): upgrade every <select> under `root`. A two-option select becomes a segmented
+// switch, anything longer becomes a searchable panel; add class="plain" to opt a select out. Idempotent,
+// so it is safe to call again after a render adds more.
+export function enhanceSelects(root = document) {
+  if (typeof document === "undefined") return;
+  root.querySelectorAll("select:not([data-enhanced])").forEach((sel) => {
+    if (sel.multiple || sel.size > 1) return;
+    if (sel.options.length === 2) enhanceToggle(sel); else enhanceSelect(sel);
+  });
+}
+
+// a two-choice dropdown reads better as a segmented switch
+export function enhanceToggle(sel) {
+  if (!sel || sel.dataset.enhanced || sel.classList.contains("plain") || sel.options.length !== 2) return;
+  _pickCss();
+  sel.dataset.enhanced = "1"; sel.classList.add("enhanced");
+  const wrap = document.createElement("div");
+  wrap.className = "seg"; wrap.style.cssText = sel.style.cssText;
+  sel.parentNode.insertBefore(wrap, sel); wrap.appendChild(sel);
+  const btns = [...sel.options].map((o) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = o.text;
+    b.onclick = (e) => { e.preventDefault(); sel.value = o.value; sync(); sel.dispatchEvent(new Event("change", { bubbles: true })); };
+    wrap.appendChild(b); return b;
+  });
+  function sync() { btns.forEach((b, i) => b.classList.toggle("on", sel.options[i].value === sel.value)); }
+  sync();
+}
+
+
 export class NadoDapp {
   constructor({ cid, app, ns = "default" }) {
     this.cid = cid; this.app = app; this.ns = ns;
@@ -992,7 +1132,7 @@ export class NadoDapp {
   }
 
   async init() {
-    enableClickFeedback(); await loadCrypto();
+    enableClickFeedback(); enhanceSelects(); await loadCrypto();
     if (!this._healedMe) this.me = this._healMe();   // crypto is bound now — finish any deferred session heal
     this._handleReturn(); if (this.me) await this.refresh();
   }
