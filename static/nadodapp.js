@@ -982,6 +982,19 @@ export function enhanceSelects(root = document) {
     if (sel.multiple || sel.size > 1) return;
     if (sel.options.length === 2) enhanceToggle(sel); else enhanceSelect(sel);
   });
+  refreshPickers();
+}
+// Keep every picker's button label in step with its select, including lists that are refilled by a poll.
+export function refreshPickers() { _pickers.forEach((p) => { try { p.refresh(); } catch (e) {} }); }
+// Most option lists on these pages arrive from a fetch, so one pass at load would miss them. The sweep is
+// idempotent (each select is marked once) and only touches selects that are still unenhanced.
+let _pickSweep = null;
+export function autoEnhanceSelects() {
+  if (typeof document === "undefined" || _pickSweep) return;
+  const run = () => { try { enhanceSelects(); } catch (e) {} };
+  run();
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
+  _pickSweep = setInterval(run, 1200);
 }
 
 // a two-choice dropdown reads better as a segmented switch
@@ -1132,7 +1145,7 @@ export class NadoDapp {
   }
 
   async init() {
-    enableClickFeedback(); enhanceSelects(); await loadCrypto();
+    enableClickFeedback(); autoEnhanceSelects(); await loadCrypto();
     if (!this._healedMe) this.me = this._healMe();   // crypto is bound now — finish any deferred session heal
     this._handleReturn(); if (this.me) await this.refresh();
   }

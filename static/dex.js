@@ -14,8 +14,8 @@ import { htlcScript, p2wshAddress } from "./btcleg.js?v=3854b338";
 import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=15418184";
 import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec } from "./ethsign.js?v=2";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
-         orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, enhanceToggle,
-         blocksToTime } from "./nadodapp.js?v=5fb54437";
+         orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
+         blocksToTime } from "./nadodapp.js?v=0b106259";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -197,7 +197,7 @@ function doRender() {
   renderLiq();
   renderOtc();
   renderLimits();
-  Object.values(_pickerApi).forEach((p) => p && p.refresh());
+  refreshPickers();                                   // option lists change every poll — keep the labels honest
 }
 
 // ---- actions -------------------------------------------------------------------------------------------
@@ -1285,11 +1285,11 @@ function wireUI() {
     d.value = d.value === "n2t" ? "t2n" : "n2t"; if (amt) amt.value = ""; renderSwap(); };
   const mp = $("mktPick");
   if (mp) mp.onchange = () => { if (curMode === "cross") xsel = mp.value; else sel = mp.value; syncUrl(true); render(); };
-  ["mktPick", "newAsset", "limGiveAsset", "limWantAsset", "otcTokenPick"].forEach((id) => {
-    const ph = id === "mktPick" ? "Search markets" : "Search tokens by name, symbol or id";
-    _pickerApi[id] = enhanceSelect($(id), { searchPlaceholder: ph });
-  });
-  ["otcKind", "otcChain", "otcNet"].forEach((id) => enhanceToggle($(id)));
+  // the SDK sweeps every select on the page (including lists filled by a later poll); these two only
+  // need their search wording set, so they are enhanced eagerly with a better placeholder
+  enhanceSelect($("mktPick"), { searchPlaceholder: "Search markets" });
+  ["newAsset", "limGiveAsset", "limWantAsset", "otcTokenPick"].forEach((id) =>
+    enhanceSelect($(id), { searchPlaceholder: "Search tokens by name, symbol or id" }));
   const tp = $("otcTokenPick"), ti = $("otcToken"), tc = $("btnTokCheck");
   if (tp) tp.onchange = () => { if (ti) ti.value = tp.value; showTokenInfo(); };
   if (tc) tc.onclick = () => verifyPastedToken();
