@@ -663,7 +663,7 @@ function renderBookDepth(b, coin) {
   };
   svg.setAttribute("viewBox", `0 0 ${DW} ${DH}`);
   svg.innerHTML = `<line x1="${X(mid).toFixed(1)}" y1="4" x2="${X(mid).toFixed(1)}" y2="${DH - 14}" stroke="var(--border)"/>` +
-    side(B, "var(--accent2)", 1) + side(A, "var(--danger)", -1) +
+    side(B, "var(--accent2)", -1) + side(A, "var(--danger)", 1) +   // bids run LEFT of mid, asks RIGHT
     `<text x="${X(mid).toFixed(1)}" y="${DH - 2}" fill="var(--faint)" font-size="9" text-anchor="middle" font-family="ui-monospace,monospace">${fmtPrice(mid)}</text>` +
     `<text x="8" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" font-family="ui-monospace,monospace">buying ${esc(coin)} ←</text>` +
     `<text x="${DW - 8}" y="${DH - 2}" fill="var(--danger)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">→ selling ${esc(coin)}</text>`;
