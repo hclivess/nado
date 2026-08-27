@@ -831,6 +831,16 @@ async function verifyPastedToken() {
   } catch (e) { showTokenInfo(String((e && e.message) || e).slice(0, 120), true); }
 }
 
+// The segmented switch carries the short label; the sentence explaining it lives underneath and follows
+// the choice, instead of being crammed into a button.
+function kindHint() {
+  const el = $("otcKindHint"), k = (($("otcKind") || {}).value) || "1";
+  const coin = (NETS[($("otcNet") || {}).value] || {}).coin || "the coin";
+  if (el) el.textContent = k === "1"
+    ? `You give NADO and receive ${coin}. You generate the swap secret, so you finish the swap.`
+    : `You give ${coin} and receive NADO. The taker generates the secret and finishes the swap.`;
+}
+
 async function otcPost() {
   const kind = Number($("otcKind").value);
   const raw = (() => { try { return BigInt(nadoToRaw(($("otcNado").value || "").trim())); } catch (e) { return 0n; } })();
@@ -1327,7 +1337,7 @@ function wireUI() {
     };
     const loadAddr = () => { showTok(); if (addrIn) { addrIn.value = faddrGet(netSel.value); 
       addrIn.placeholder = `your ${(NETS[netSel.value] || {}).label || ""} address (saved for next time)`; } };
-    netSel.onchange = () => { netSel.dataset.touched = "1"; loadAddr(); };
+    netSel.onchange = () => { netSel.dataset.touched = "1"; loadAddr(); kindHint(); };
     if (addrIn) addrIn.onchange = () => { if (addrIn.value.trim()) faddrSet(netSel.value, addrIn.value.trim()); };
     fillNets();
   }
@@ -1355,6 +1365,9 @@ function wireUI() {
     enhanceSelect($(id), { searchPlaceholder: "Search tokens by name, symbol or id" }));
   // ONE token control: pick a known token, or pick "another token" and paste it — the paste box checks
   // itself as you type, so no separate button repeats the job.
+  const kindSel = $("otcKind");
+  if (kindSel) kindSel.onchange = kindHint;
+  kindHint();
   const tp = $("otcTokenPick"), ti = $("otcToken");
   if (tp) tp.onchange = () => {
     const other = tp.value === "?";
