@@ -644,12 +644,22 @@ function renderBookDepth(b, coin) {
   const span = Math.max(hi - lo, mid * 0.05, 1e-9);
   const X = (px) => 8 + (px - (mid - span)) / (2 * span) * (DW - 16);
   const Y = (t) => 6 + (1 - t / maxT) * (DH - 20);
+  // A depth chart is a STEP: the cumulative total rises at each price and HOLDS until the next one,
+  // running outward from mid to the edge of the panel. Plotting only the data points meant a book with a
+  // single order — whose price IS the mid — collapsed to a zero-width sliver and rendered blank, which
+  // reads as "no orders" on a market that has one.
   const side = (arr, col, dir) => {
     if (!arr.length) return "";
-    const pts = arr.map((x) => `${X(x.px).toFixed(1)} ${Y(x.t).toFixed(1)}`).join(" L");
-    const x0 = X(arr[0].px).toFixed(1), xN = X(arr[arr.length - 1].px).toFixed(1);
-    return `<path d="M${x0} ${DH - 14} L${pts} L${xN} ${DH - 14} Z" fill="${col}" opacity="0.14"/>` +
-           `<path d="M${pts}" fill="none" stroke="${col}" stroke-width="1.5"/>`;
+    const edge = dir > 0 ? DW - 8 : 8;                 // bids run left of mid, asks run right
+    const base = DH - 14;
+    const pts = arr.map((x) => [X(x.px), Y(x.t)]);
+    const last = pts[pts.length - 1];
+    let line = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+    for (let i = 1; i < pts.length; i++) line += ` L${pts[i][0].toFixed(1)} ${pts[i - 1][1].toFixed(1)} L${pts[i][0].toFixed(1)} ${pts[i][1].toFixed(1)}`;
+    line += ` L${edge.toFixed(1)} ${last[1].toFixed(1)}`;
+    const area = `M${pts[0][0].toFixed(1)} ${base} L` + line.slice(1).replace(/^M/, "") + ` L${edge.toFixed(1)} ${base} Z`;
+    return `<path d="${area}" fill="${col}" opacity="0.16"/>` +
+           `<path d="${line}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/>`;
   };
   svg.setAttribute("viewBox", `0 0 ${DW} ${DH}`);
   svg.innerHTML = `<line x1="${X(mid).toFixed(1)}" y1="4" x2="${X(mid).toFixed(1)}" y2="${DH - 14}" stroke="var(--border)"/>` +
