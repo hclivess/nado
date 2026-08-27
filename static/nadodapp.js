@@ -877,6 +877,9 @@ export function shareInvite(kind, id, text, qrpx = 200) {
 // what a bare dropdown cannot do once there are more than a handful of tokens.
 const _pickers = [];
 let _pickCssDone = false;
+// Injected at module load, not on first use: the point is to be in place BEFORE the first paint, so a
+// select never flashes as an operating-system control while the page is still starting up.
+if (typeof document !== "undefined") queueMicrotask(() => { try { _pickCss(); } catch (e) {} });
 export function enhanceSelect(sel, { searchPlaceholder = "Search", icon = true } = {}) {
   if (!sel || sel.dataset.enhanced || sel.classList.contains("plain")) return null;
   _pickCss();
@@ -986,7 +989,17 @@ function _pickCss() {
   .seg button{flex:1 1 0;border:0;border-radius:0;font:inherit;background:var(--bg,#0b0f14);
     color:var(--dim,#93a1b0);font-size:13px;padding:10px 12px;cursor:pointer}
   .seg button.on{background:linear-gradient(135deg,var(--accent,#00ad93),var(--accent2,#00c9a7));color:#04110a;font-weight:800}
-  .pickhidden{display:none!important}`;
+  .pickhidden{display:none!important}
+  /* Until a select is enhanced (and if JS never runs at all) it should still look like the rest of the
+     app rather than an OS control — same surface, same border, same caret. */
+  select:not(.enhanced):not(.plain){-webkit-appearance:none;appearance:none;font:inherit;font-size:13.5px;
+    font-weight:700;color:var(--txt,#e6edf3);background-color:var(--bg,#0b0f14);
+    border:1px solid var(--border,#243140);border-radius:11px;padding:10px 34px 10px 12px;cursor:pointer;
+    background-image:linear-gradient(45deg,transparent 50%,var(--faint,#5d6b7a) 50%),
+      linear-gradient(135deg,var(--faint,#5d6b7a) 50%,transparent 50%);
+    background-position:calc(100% - 18px) 50%,calc(100% - 12px) 50%;
+    background-size:6px 6px,6px 6px;background-repeat:no-repeat}
+  select:not(.enhanced):not(.plain) option{background:var(--elev2,#1a232e);color:var(--txt,#e6edf3)}`;
   document.head.appendChild(s);
 }
 
@@ -1008,6 +1021,7 @@ export function refreshPickers() { _pickers.forEach((p) => { try { p.refresh(); 
 let _pickSweep = null;
 export function autoEnhanceSelects() {
   if (typeof document === "undefined" || _pickSweep) return;
+  _pickCss();
   const run = () => { try { enhanceSelects(); } catch (e) {} };
   run();
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
@@ -1031,6 +1045,10 @@ export function enhanceToggle(sel) {
   sync();
 }
 
+
+// The sweep starts as soon as this module runs. dapp.init() also calls it, but init awaits the crypto
+// bundle first, which is long after the user can see (and click) the page.
+if (typeof document !== "undefined") queueMicrotask(() => { try { autoEnhanceSelects(); } catch (e) {} });
 
 export class NadoDapp {
   constructor({ cid, app, ns = "default" }) {

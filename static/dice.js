@@ -5,7 +5,7 @@
 //     roll_g = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + seatId ) % 100
 // Once the settle block is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=ffe11a07";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=0c465605";
 import { BankedGame } from "./bankedgame.js?v=a5d95bc2";
 import { Practice } from "./practice.js?v=53073278";      // free in-browser practice (play chips, no chain)
 

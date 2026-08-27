@@ -16,7 +16,7 @@ import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec } 
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=ffe11a07";
+         blocksToTime } from "./nadodapp.js?v=0c465605";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
