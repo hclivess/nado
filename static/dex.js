@@ -15,6 +15,7 @@ import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=1
 import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec } from "./ethsign.js?v=2";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
+         uiConfirm, uiPrompt,
          blocksToTime } from "./nadodapp.js?v=0b106259";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
@@ -399,10 +400,12 @@ async function btcSpendFlow(od, mode) {
       ? `No coin here pays the agreed ${od.wamt} ${coinOf(od)} (largest: ${most / 1e8}). Claiming a smaller one would publish your secret for nothing.`
       : `Nothing here to reclaim (largest: ${most / 1e8}).`);
   }
-  if (!utxo.status.confirmed && !confirm("The coin is still UNCONFIRMED. Continue anyway?")) return;
+  if (!utxo.status.confirmed && !await uiConfirm({ title: "That coin is still unconfirmed",
+    body: "It has not been mined yet, so this spend may not be accepted. Continue anyway?", danger: true })) return;
   const rec = otcRec(od.o);
   if (!rec.k) return alertBar("This browser doesn't hold the swap key for this order (use the device you posted/filled from, or scripts/otc_btc_leg.py).");
-  const payout = (prompt("Your Bitcoin address — where the coins should go:") || "").trim();
+  const payout = ((await uiPrompt({ title: "Where should the coins go?",
+    body: `Your ${coinOf(od)} address — this spend pays it directly.`, placeholder: "address" })) || "").trim();
   if (!payout) return;
   let outScriptHex;
   try { outScriptHex = await addressToScript(payout, (netOf(od) || {}).hrp || "bc"); } catch (e) { return alertBar(String(e.message || e)); }
@@ -412,7 +415,11 @@ async function btcSpendFlow(od, mode) {
   // estimate could burn most of the coin, and the only prior guard was "output > 0" (audit).
   const feeSat = Math.min(feeRate * 160, Math.floor(utxo.value * 0.02), 200000);
   if (utxo.value - feeSat < 546) return alertBar("This coin is too small to spend after fees.");
-  if (!confirm(`Send ${(utxo.value - feeSat) / 1e8} ${coinOf(od)} to ${payout}\n\nnetwork fee ${feeSat} sat (${(feeSat / utxo.value * 100).toFixed(2)}%)\n\nContinue?`)) return;
+  if (!await uiConfirm({ title: mode === "claim" ? "Claim these coins" : "Reclaim these coins",
+    rows: [{ k: "You receive", v: (utxo.value - feeSat) / 1e8 + " " + coinOf(od) },
+           { k: "To", v: payout.slice(0, 22) + (payout.length > 22 ? "…" : "") },
+           { k: "Network fee", v: `${feeSat} sat (${(feeSat / utxo.value * 100).toFixed(2)}%)` }],
+    confirmText: "Send" })) return;
   const sHex = mode === "claim" ? (od.kind === OTC_ASK ? rec.s : otcSecretFromLimbs(od.limbs)) : null;
   if (mode === "claim" && !/^[0-9a-f]{64}$/.test(sHex || "")) return alertBar("The swap secret isn't available yet.");
   try {
@@ -750,7 +757,8 @@ function renderOtc() {
   mine.innerHTML = my.length ? my.map((x) => otcRow(x, true)).join("")
     : `<p class="small dim">Nothing yet — post or fill an order.</p>`;
   [book, mine].forEach((box) => box.querySelectorAll("[data-otc]").forEach((el) => {
-    el.onclick = (ev) => { ev.preventDefault(); otcAction(el.getAttribute("data-otc"), Number(el.getAttribute("data-o"))); };
+    el.onclick = (ev) => { ev.preventDefault();
+      runAction(el.tagName === "BUTTON" ? el : null, () => otcAction(el.getAttribute("data-otc"), Number(el.getAttribute("data-o")), el)); };
   }));
 }
 
@@ -836,7 +844,15 @@ async function otcPost() {
   dapp.call("post", [o, kind, raw, net, famt, packed, hsha, ...vmParts, expn, expf],
             null, "Posting order #" + o + "…", { otc: o }, { cid: OTC_CID });
 }
-async function otcAction(what, o) {
+async function runAction(btn, fn) {
+  if (!btn) return fn();
+  if (btn.dataset.busy) return;                        // ignore the double-click instead of firing twice
+  const was = btn.textContent;
+  btn.dataset.busy = "1"; btn.disabled = true; btn.textContent = "working…";
+  try { return await fn(); }
+  finally { delete btn.dataset.busy; btn.disabled = false; btn.textContent = was; }
+}
+async function otcAction(what, o, btn) {
   const od = otcOrders().find((x) => x.o === o);
   if (!od) return;
   if (what === "showsecret") {
@@ -848,12 +864,16 @@ async function otcAction(what, o) {
       hashlock: od.hsha, deadline: od.expf, amount: od.wamt },
       r.s ? { secret: r.s } : {}, r.k ? { key: r.k } : {}, r.pub ? { pubkey: r.pub } : {},
       b ? { script: b.script, address: b.addr } : {}));
-    if (r.s || r.k) prompt("Backup for swap #" + o + " — copy it somewhere safe. It is everything this swap needs to be finished or reclaimed from another device:", blob);
+    if (r.s || r.k) await uiPrompt({ title: `Back up swap #${o}`,
+      body: "Copy this somewhere safe — it is everything this swap needs to be finished or reclaimed from another device.",
+      value: blob, confirmText: "Done" });
     return;
   }
   if (what === "cancel") return dapp.call("cancel", [o], null, "Cancelling #" + o + "…", { otc: o }, { cid: OTC_CID });
   if (what === "prem") {
-    const raw = (prompt("Good-faith deposit the taker must escrow (in NADO). Returned to them on completion; forfeited to you if they walk away. Enter 0 to remove it:") || "").trim();
+    const raw = ((await uiPrompt({ title: "Put collateral behind this order",
+      body: "You escrow this yourself. It comes back when the swap completes or if nobody fills the order — and goes to the taker if you walk away after they have committed.",
+      placeholder: "amount in NADO" })) || "").trim();
     let amt;
     try { amt = raw === "0" ? 0n : BigInt(nadoToRaw(raw)); } catch (e) { return; }
     if (amt == null || amt < 0n) return;
@@ -862,7 +882,10 @@ async function otcAction(what, o) {
   if (what === "boost") {
     // §8: attach a NADO bounty ANYONE can win by finishing this order (settle / expire / atomic fill).
     // It makes watchtowers work for you; cancel returns it to the maker.
-    const amt = (() => { try { return BigInt(nadoToRaw((prompt("Tip in NADO — it pays whoever finishes or reclaims this swap for you (you, or any watchtower). Attach:") || "").trim())); } catch (e) { return 0n; } })();
+    const typed = ((await uiPrompt({ title: "Tip whoever finishes this swap",
+      body: "Paid to whoever completes or reclaims this order — you, the counterparty, or any watchtower running unattended.",
+      placeholder: "amount in NADO" })) || "").trim();
+    const amt = (() => { try { return BigInt(nadoToRaw(typed)); } catch (e) { return 0n; } })();
     if (amt <= 0n) return;
     return dapp.call("boost", [o], amt, "Boosting #" + o + "…", { otc: o }, { cid: OTC_CID });
   }
@@ -890,7 +913,8 @@ async function otcAction(what, o) {
     } else {
       myf = faddrGet(netKeyOf(od));                    // typed once per network, then never again
       if (!myf) {
-        myf = prompt(`Your ${(netOf(od) || {}).label || chain} address (saved for next time):`);
+        myf = await uiPrompt({ title: `Your ${(netOf(od) || {}).label || chain} address`,
+          body: "Where this swap pays you on that chain. Saved for next time.", placeholder: "address" });
         if (!myf) return;
         faddrSet(netKeyOf(od), myf);
       }
@@ -912,13 +936,19 @@ async function otcAction(what, o) {
     if (dapp.me !== owes) return alertBar("The NADO side of this swap is not yours to lock.");
     if (!/^[0-9a-f]{46}$/.test(String(to))) return alertBar("The counterparty's NADO address isn't visible yet — wait for their fill to land.");
     const blocks = Math.max(1, od.expn - (dapp.cursor || 0));
-    if (!confirm(`Lock ${rawToNado(od.namtRaw.toString())} NADO on the main chain for ${String(to).slice(0, 10)}…?\n\n`
-      + `They can only take it with the swap secret, and only within ${blocks} blocks. After that you reclaim it yourself.`)) return;
+    if (!await uiConfirm({ title: "Lock the NADO side",
+      body: "They can only take it with the swap secret, and only before it expires — after that you reclaim it yourself.",
+      rows: [{ k: "Amount", v: rawToNado(od.namtRaw.toString()) + " NADO" },
+             { k: "Claimable by", v: String(to).slice(0, 16) + "…" },
+             { k: "You can reclaim after", v: blocks + " blocks" }],
+      confirmText: "Lock" })) return;
     dapp.htlcLock({ claimant: to, hashlock: od.hsha, amount: od.namtRaw, blocks }, { otc: o, phase: "htlc_lock" });
     return;
   }
   if (what === "nadobind") {
-    const id = (prompt("Paste the transaction id of the L1 HTLC you created for this swap:") || "").trim();
+    const id = ((await uiPrompt({ title: "Record your NADO lock",
+      body: "Paste the transaction id of the L1 HTLC you created, so the counterparty can find and check it.",
+      placeholder: "transaction id" })) || "").trim();
     if (!/^[0-9a-f]{16,}$/.test(id)) return alertBar("That doesn't look like a transaction id.");
     return dapp.call("bind", [o, id], null, "Recording the NADO lock…", { otc: o }, { cid: OTC_CID });
   }
@@ -934,7 +964,9 @@ async function otcAction(what, o) {
       let s = otcRec(o).s;                              // a maker settles with their own stored secret
       if (!s && chainOf(od) === "btc") { alertBar("Looking up the revealed secret on Bitcoin…"); s = await btcFoundSecret(od); }
       if (!s && chainOf(od) === "eth") { alertBar("Looking up the revealed secret on Ethereum…"); s = await ethFoundSecret(od); }
-      if (!s) s = (prompt("Paste the revealed 64-hex swap secret (from the foreign-chain claim):") || "").trim().toLowerCase();
+      if (!s) s = ((await uiPrompt({ title: "Paste the swap secret",
+        body: "The 64-character secret revealed when the other leg was claimed — this page could not find it automatically.",
+        placeholder: "64 hex characters" })) || "").trim().toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(s || "")) return alertBar("That is not a 32-byte hex secret.");
       dapp.call("settle", [o, ...otcLimbs(s)], null, "Settling #" + o + "…", { otc: o }, { cid: OTC_CID });
     })();
@@ -971,7 +1003,8 @@ function renderLimits() {
   box.innerHTML = rows.length ? rows.map(limRow).join("")
     : `<p class="small dim">No limit orders yet — post one below.</p>`;
   box.querySelectorAll("[data-otc]").forEach((el) => {
-    el.onclick = (ev) => { ev.preventDefault(); otcAction(el.getAttribute("data-otc"), Number(el.getAttribute("data-o"))); };
+    el.onclick = (ev) => { ev.preventDefault();
+      runAction(el.tagName === "BUTTON" ? el : null, () => otcAction(el.getAttribute("data-otc"), Number(el.getAttribute("data-o")), el)); };
   });
 }
 function limPost() {
@@ -1240,15 +1273,15 @@ async function refresh() {
 function wireUI() {
   wireWallet(dapp, render);
   stickyInputs(dapp, ["addN", "addT", "slip", "otcNado", "otcFAmt", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry"]);
-  $("btnOpen").onclick = openPool;
-  $("btnFundN").onclick = fundNative;
-  $("btnFundT").onclick = fundToken;
-  $("btnJoin").onclick = joinPool;
-  $("btnRefund").onclick = refundPos;
-  $("btnExit").onclick = exitPos;
-  $("btnSwap").onclick = doSwap;
-  const bp = $("btnOtcPost"); if (bp) bp.onclick = otcPost;
-  const lp = $("btnLimPost"); if (lp) lp.onclick = limPost;
+  $("btnOpen").onclick = (e) => runAction(e.currentTarget, openPool);
+  $("btnFundN").onclick = (e) => runAction(e.currentTarget, fundNative);
+  $("btnFundT").onclick = (e) => runAction(e.currentTarget, fundToken);
+  $("btnJoin").onclick = (e) => runAction(e.currentTarget, joinPool);
+  $("btnRefund").onclick = (e) => runAction(e.currentTarget, refundPos);
+  $("btnExit").onclick = (e) => runAction(e.currentTarget, exitPos);
+  $("btnSwap").onclick = (e) => runAction(e.currentTarget, doSwap);
+  const bp = $("btnOtcPost"); if (bp) bp.onclick = (e) => runAction(e.currentTarget, otcPost);
+  const lp = $("btnLimPost"); if (lp) lp.onclick = (e) => runAction(e.currentTarget, limPost);
   const chainSel = $("otcChain"), netSel = $("otcNet"), addrIn = $("otcFAddr");
   if (chainSel && netSel) {
     const fillNets = () => {
@@ -1292,7 +1325,7 @@ function wireUI() {
     enhanceSelect($(id), { searchPlaceholder: "Search tokens by name, symbol or id" }));
   const tp = $("otcTokenPick"), ti = $("otcToken"), tc = $("btnTokCheck");
   if (tp) tp.onchange = () => { if (ti) ti.value = tp.value; showTokenInfo(); };
-  if (tc) tc.onclick = () => verifyPastedToken();
+  if (tc) tc.onclick = (e) => runAction(e.currentTarget, verifyPastedToken);
   const rb = $("mktRanges");
   if (rb) rb.querySelectorAll("button").forEach((b) => { b.onclick = () => {
     mktRange = Number(b.getAttribute("data-range"));
