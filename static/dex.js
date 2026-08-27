@@ -616,6 +616,8 @@ async function solTerms(od) {
   const program = solProgramOf(od);
   if (!program) throw new Error(`No swap program is deployed on ${(netOf(od) || {}).label} yet.`);
   if (!funder || !claimant) throw new Error("This swap's Solana addresses aren't both published yet.");
+  if (!/^[0-9a-f]{64}$/.test(od.hsha || "")) throw new Error("This order has no usable hashlock.");
+  if (!(deadline > 0) || lamports <= 0n) throw new Error("This order's Solana amount or deadline is missing.");
   const { address } = await S.htlcPda(program, od.hsha, claimant, funder, deadline, Number(lamports));
   return { S, sells, funder, claimant, deadline, lamports, program, address, rpc: solRpcOf(od) };
 }
