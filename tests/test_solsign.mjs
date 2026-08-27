@@ -97,6 +97,10 @@ await s.solSend(URL, stranger.address, [s.ixClaim(PID, stranger.address, lock, c
 const after = await s.solBalance(URL, claimant.address);
 ok(after - before >= BigInt(amount), "a third party submitted the claim and the claimant was paid " +
    (after - before) + " lamports");
+// The NADO side settles by reading the preimage back off Solana — nobody has to paste anything.
+const found = await s.solFoundSecret(URL, lock, hashlock);
+ok(found === secret, "the secret was recovered from the claim transaction on chain");
+ok((await s.solLockInfo(URL, PID, lock)) === null, "the lock record is gone once claimed");
 await rejects("the same lock cannot be claimed twice", () => s.solSend(URL, stranger.address,
   [s.ixClaim(PID, stranger.address, lock, claimant.address, secret)], keys));
 

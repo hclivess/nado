@@ -102,7 +102,7 @@ export const ixRefund = (programId, caller, lock, funder) => ({
 });
 
 // ---- a legacy transaction: one account list, everything else indexes into it ----------------------------
-function compileMessage(payer, ixs, blockhash) {
+export function compileMessage(payer, ixs, blockhash) {
   const meta = new Map();                                   // address -> {signer, writable}
   const touch = (pk, signer, writable) => {
     const m = meta.get(pk) || { signer: false, writable: false };
@@ -168,4 +168,67 @@ export async function solSend(url, payer, ixs, secrets) {
     await new Promise((r) => setTimeout(r, 400));
   }
   throw new Error("sent (" + sig + ") but not confirmed yet");
+}
+
+// ---- reading a lock back ---------------------------------------------------------------------------------
+/** The lock's own record, or null if nothing is there. Never trust the terms you were handed — read these. */
+export async function solLockInfo(url, programId, address) {
+  const v = (await solRpc(url, "getAccountInfo", [address, { encoding: "base64", commitment: "confirmed" }])).value;
+  if (!v) return null;
+  const raw = Uint8Array.from(atob(v.data[0]), (c) => c.charCodeAt(0));
+  if (raw.length < 112) return null;
+  const rd = (o, n, signed) => { let x = 0n; for (let i = n - 1; i >= 0; i--) x = (x << 8n) | BigInt(raw[o + i]);
+    return signed && x >= 1n << 63n ? x - (1n << 64n) : x; };
+  return { owner: v.owner, lamports: BigInt(v.lamports), program: programId,
+    hashlock: [...raw.slice(0, 32)].map((x) => x.toString(16).padStart(2, "0")).join(""),
+    claimant: b58encode(raw.slice(32, 64)), refunder: b58encode(raw.slice(64, 96)),
+    deadline: Number(rd(96, 8, true)), amount: rd(104, 8) };
+}
+
+/** The preimage, dug out of the claim transaction that spent this lock. How the NADO side learns the secret. */
+export async function solFoundSecret(url, address, hashHex) {
+  // Read at "confirmed": a claim that just landed is not finalized for another ~13 seconds, and the
+  // default commitment would report the transaction as simply not existing.
+  const sigs = await solRpc(url, "getSignaturesForAddress", [address, { limit: 20, commitment: "confirmed" }]);
+  for (const { signature } of sigs || []) {
+    const tx = await solRpc(url, "getTransaction", [signature, { encoding: "json", commitment: "confirmed", maxSupportedTransactionVersion: 0 }]);
+    for (const ix of tx?.transaction?.message?.instructions || []) {
+      const d = ix.data ? b58decode(ix.data) : null;     // instruction data is base58 in the JSON encoding
+      if (!d || d.length !== 33 || d[0] !== 1) continue;  // tag 1 = claim, then 32 bytes of preimage
+      const s = [...d.slice(1)].map((x) => x.toString(16).padStart(2, "0")).join("");
+      if (!hashHex || hex(await sha256(d.slice(1))) === hashHex) return s;
+    }
+  }
+  return null;
+}
+const hex = (b) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+
+// ---- an injected wallet (Phantom, Solflare, Backpack) ----------------------------------------------------
+// Solana is an ACCOUNT model, so whoever submits pays the fee: a freshly generated page key holds nothing
+// and cannot claim its own payout. That is why the browser path uses the visitor's real wallet, exactly as
+// the Ethereum leg uses MetaMask, and falls back to the headless CLI when there is none.
+export function solProvider() {
+  const w = typeof window === "undefined" ? null : window;
+  return (w && (w.phantom?.solana || (w.solana && w.solana.isPhantom ? w.solana : null) || w.solflare || w.backpack?.solana || w.solana)) || null;
+}
+export async function solWalletConnect() {
+  const p = solProvider();
+  if (!p) throw new Error("no Solana wallet found in this browser");
+  const r = await p.connect();
+  const pk = (r && r.publicKey) || p.publicKey;
+  if (!pk) throw new Error("the wallet did not return an address");
+  return { provider: p, address: pk.toString ? pk.toString() : String(pk) };
+}
+/** Sign and send through the wallet. Phantom's low-level request takes a base58 MESSAGE — no SDK needed. */
+export async function solWalletSend(url, provider, payer, ixs) {
+  const { message } = compileMessage(payer, ixs, await solBlockhash(url));
+  let sig;
+  if (provider.request) {
+    const r = await provider.request({ method: "signAndSendTransaction", params: { message: b58encode(message) } });
+    sig = r && (r.signature || r);
+  } else if (provider.signAndSendTransaction) {
+    const r = await provider.signAndSendTransaction({ serializeMessage: () => message, message });
+    sig = r && (r.signature || r);
+  } else throw new Error("this wallet cannot send transactions");
+  return String(sig);
 }

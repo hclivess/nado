@@ -321,6 +321,11 @@ const NETS = {
   btct: { chain: "btc", coin: "tBTC", label: "Bitcoin testnet", hrp: "tb",  explorer: "https://mempool.space/testnet" },
   eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", evm: "0xaa36a7", htlc: "0xd5f47927999c31ce4fe3de11bc560678094486e7", erc20: "0x6d6104704e1956c36851d4c36fdad77ce75a6106" },
   eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1",     htlc: "", erc20: "" },
+  // Solana needs a deployed PROGRAM (unlike Bitcoin, whose HTLC is just a script). `program: ""` means
+  // nothing is deployed on that cluster yet and the row says so rather than letting anyone fund a lock
+  // into thin air. Filling one in is the only change a new cluster needs.
+  sold: { chain: "sol", coin: "devSOL", label: "Solana devnet", rpc: "https://api.devnet.solana.com", cluster: "devnet", program: "", explorer: "https://explorer.solana.com" },
+  sol:  { chain: "sol", coin: "SOL", label: "Solana mainnet", rpc: "https://api.mainnet-beta.solana.com", cluster: "", program: "", explorer: "https://explorer.solana.com" },
 };
 // An ERC-20 swap names its token inside the network field: wch = "<network>|<token address>". Everything
 // below reads the network through netKeyOf, so a token order behaves exactly like a native one.
@@ -587,6 +592,74 @@ function ethCliHint(od) {
     <span class="mono" style="word-break:break-all">node scripts/otc_eth_leg.mjs claim --rpc ${od.wch === "eths" ? "https://ethereum-sepolia-rpc.publicnode.com" : "&lt;rpc&gt;"} --htlc ${esc((netOf(od) || {}).htlc || "&lt;deploy first&gt;")} --key &lt;your-eth-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --refundee &lt;addr&gt; --deadline ${ethDeadline(od)} --secret &lt;s&gt;</span></div>`;
 }
 
+// ---- the Solana leg (scripts/solana-htlc, via static/solsign.js) -------------------------------------
+// The escrow is a program-derived address whose SEEDS ARE THE SWAP'S TERMS, so both sides compute the same
+// address from public data and an underfunded lock simply lands somewhere else — a claimant can never be
+// tricked into publishing the secret for dust. Solana is an account model, so whoever submits pays the
+// fee: the browser path uses the visitor's own wallet (as the Ethereum leg uses MetaMask) and falls back
+// to the headless CLI on the row when no wallet is installed.
+let SOL = null;
+const solMod = async () => (SOL || (SOL = await import("./solsign.js?v=1")));
+const solProgramOf = (od) => (netOf(od) || {}).program || "";
+const solRpcOf = (od) => (netOf(od) || {}).rpc || "";
+const isB58Addr = (a) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a || "");
+const solAddrOf = (field) => { const a = String(field || "").split("|")[0]; return isB58Addr(a) ? a : ""; };
+function solHas() { try { const w = window; return !!(w.phantom?.solana || w.solflare || w.backpack?.solana || w.solana); } catch (e) { return false; } }
+const solLamports = (amt) => { const [i, f = ""] = String(amt).split("."); return BigInt(i || 0) * 1000000000n + BigInt(((f + "000000000").slice(0, 9)) || 0); };
+
+async function solTerms(od) {
+  const S = await solMod();
+  const sells = od.kind === OTC_ASK;                     // ASK: the taker sends the coin, the maker claims
+  const funder = solAddrOf(sells ? od.tadr : od.wadr);
+  const claimant = solAddrOf(sells ? od.wadr : od.tadr);
+  const deadline = Number(od.expf) || 0, lamports = solLamports(od.wamt);
+  const program = solProgramOf(od);
+  if (!program) throw new Error(`No swap program is deployed on ${(netOf(od) || {}).label} yet.`);
+  if (!funder || !claimant) throw new Error("This swap's Solana addresses aren't both published yet.");
+  const { address } = await S.htlcPda(program, od.hsha, claimant, funder, deadline, Number(lamports));
+  return { S, sells, funder, claimant, deadline, lamports, program, address, rpc: solRpcOf(od) };
+}
+async function solLeg(od, mode) {
+  try {
+    const t = await solTerms(od);
+    const { provider, address: me } = await t.S.solWalletConnect();
+    const want = mode === "claim" ? t.claimant : t.funder;
+    if (me !== want)
+      return alertBar(`This swap's Solana side belongs to ${want.slice(0, 8)}… — switch your wallet to that account.`);
+    let ix;
+    if (mode === "fund") {
+      const already = await t.S.solLockInfo(t.rpc, t.program, t.address);
+      if (already) return alertBar("That lock is already funded — nothing more to send.");
+      ix = t.S.ixFund(t.program, me, t.address, od.hsha, t.claimant, t.deadline, Number(t.lamports));
+    } else if (mode === "claim") {
+      const sHex = t.sells ? otcRec(od.o).s : otcSecretFromLimbs(od.limbs);
+      if (!/^[0-9a-f]{64}$/.test(sHex || "")) return alertBar("The swap secret isn't available yet.");
+      if (Math.floor(Date.now() / 1000) > t.deadline - 900)
+        return alertBar("Too close to this lock's deadline — a claim that lands late would publish your secret and pay nothing.");
+      // Read the escrow back before revealing anything: the secret buys nothing from an empty account.
+      const info = await t.S.solLockInfo(t.rpc, t.program, t.address);
+      if (!info) return alertBar("No lock exists at this swap's address yet — nothing to claim.");
+      if (info.owner !== t.program) return alertBar("That account is not owned by the swap program — do not reveal your secret.");
+      if (info.hashlock !== od.hsha || info.claimant !== t.claimant || info.amount < t.lamports)
+        return alertBar("The lock on chain does not match this order's terms — claiming it would publish your secret for nothing.");
+      ix = t.S.ixClaim(t.program, me, t.address, t.claimant, sHex);
+    } else {
+      ix = t.S.ixRefund(t.program, me, t.address, t.funder);
+    }
+    const sig = await t.S.solWalletSend(t.rpc, provider, me, [ix]);
+    alertBar((mode === "fund" ? "Locked" : mode === "claim" ? "Claimed" : "Reclaimed") + " — tx " + sig.slice(0, 20) + "…");
+  } catch (e) { alertBar(String((e && e.message) || e).slice(0, 160)); }
+}
+async function solFoundSecret(od) {
+  try { const t = await solTerms(od); return await t.S.solFoundSecret(t.rpc, t.address, od.hsha); }
+  catch (e) { return null; }
+}
+function solCliHint(od) {
+  const net = netOf(od) || {};
+  return `<div class="small dim mt">No Solana wallet detected. Run this leg from a terminal:<br>
+    <span class="mono" style="word-break:break-all">node scripts/otc_sol_leg.mjs claim --rpc ${esc(net.rpc || "&lt;rpc&gt;")} --program ${esc(net.program || "&lt;not deployed&gt;")} --key &lt;your-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --funder &lt;addr&gt; --deadline ${Number(od.expf) || 0} --amount ${String(solLamports(od.wamt))} --secret &lt;s&gt;</span></div>`;
+}
+
 // ---- cross-chain markets: a BTC/NADO book IS a market, so it gets the same header, chart and stats ----
 let xsel = "btc";                                    // selected cross-chain network
 const XKEY = (net) => "x:" + net;
@@ -718,6 +791,11 @@ function otcRow(od, mine) {
   if (isEth && od.st === 2 && ethSender) acts.push(`<button class="primary" data-otc="ethfund" data-o="${od.o}">Lock the ETH…</button>`);
   if (isEth && ((sells && od.st === 2) || (!sells && od.st === 3)) && ethClaimer) acts.unshift(`<button class="primary" data-otc="ethclaim" data-o="${od.o}">Claim the ETH…</button>`);
   if (isEth && od.st >= 2 && ethSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="ethrefund" data-o="${od.o}">Reclaim ETH</button>`);
+  const isSol = chainOf(od) === "sol";
+  const solSender = isSol && (sells ? isTaker : isMaker), solClaimer = isSol && (sells ? isMaker : isTaker);
+  if (isSol && od.st === 2 && solSender) acts.push(`<button class="primary" data-otc="solfund" data-o="${od.o}">Lock the ${chain}…</button>`);
+  if (isSol && ((sells && od.st === 2) || (!sells && od.st === 3)) && solClaimer) acts.unshift(`<button class="primary" data-otc="solclaim" data-o="${od.o}">Claim the ${chain}…</button>`);
+  if (isSol && od.st >= 2 && solSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="solrefund" data-o="${od.o}">Reclaim ${chain}</button>`);
   const btc = chainOf(od) === "btc" ? btcInfo(od) : null;
   const btcFunder = chainOf(od) === "btc" && (sells ? isTaker : isMaker);
   const btcClaimer = chainOf(od) === "btc" && (sells ? isMaker : isTaker);
@@ -737,6 +815,12 @@ function otcRow(od, mine) {
         else if (!sells && isMaker) hint = `Next: press Lock the ETH, then Settle to collect your NADO.`;
         else hint = `Next: wait — when the maker settles, a Claim the ETH button appears here.`;
       }
+      else if (chainOf(od) === "sol") {
+        if (sells && isMaker) hint = `Next: once the taker has locked the ${foreign}, press Claim the ${foreign} — your wallet signs it and that completes the swap.`;
+        else if (sells && isTaker) hint = `Next: press Lock the ${foreign} (your wallet pays it into the swap). When the maker claims it, press Settle for your NADO.`;
+        else if (!sells && isMaker) hint = `Next: press Lock the ${foreign}, then Settle to collect your NADO.`;
+        else hint = `Next: wait — when the maker settles, a Claim the ${foreign} button appears here.`;
+      }
       else if (sells && isMaker && !od.hid) hint = `Next: press Lock the NADO — it escrows your NADO on the main chain under this swap's hashlock, takeable only by the taker and only with the secret.`;
       else if (sells && isMaker) hint = `Next: press Verify below — once the taker's ${foreign} lock shows CONFIRMED, press Claim the BTC. Claiming completes your side.`;
       else if (sells && isTaker && !od.hid) hint = `Next: wait — the maker must lock their NADO on the main chain first. Do not send any ${foreign} until you can see and check that lock.`;
@@ -753,6 +837,10 @@ function otcRow(od, mine) {
       else if (!btcParts(od)) detail += `<div class="small dim mt">The counterparty's client didn't publish a Bitcoin key — finish this leg with scripts/otc_btc_leg.py.</div>`;
     }
     if (chainOf(od) === "eth" && od.st >= 2 && (isMaker || isTaker) && !ethProv()) detail += ethCliHint(od);
+    if (chainOf(od) === "sol" && od.st >= 2 && (isMaker || isTaker)) {
+      if (!solProgramOf(od)) detail += `<div class="small dim mt">No swap program is deployed on ${esc((netOf(od) || {}).label)} yet — this order cannot be completed here.</div>`;
+      else if (!solHas()) detail += solCliHint(od);
+    }
     const rec0 = otcRec(od.o);
     if ((rec0.k || rec0.s) && (od.st === 1 || od.st === 2))
       detail += `<div class="small dim mt"><a href="#" data-otc="showsecret" data-o="${od.o}">Back up this swap</a> — without it a lost browser means lost funds.</div>`;
@@ -954,6 +1042,10 @@ async function otcAction(what, o, btn) {
     } else if (ch === "eth") {
       if (ethProv()) { const { addr } = await ethConnect(); myf = addr; }   // the taker's own EVM account
       else { const ek = (await import("./ethsign.js?v=1")).ethKeypair(); otcSaveRec(o, { k: ek.k }); myf = ek.addr; }
+    } else if (ch === "sol" && solHas()) {
+      try { myf = (await (await solMod()).solWalletConnect()).address; }   // the taker's own Solana account
+      catch (e) { myf = ""; }
+      if (!myf) return alertBar("Connect your Solana wallet to fill this order — it is the account the swap pays.");
     } else {
       myf = faddrGet(netKeyOf(od));                    // typed once per network, then never again
       if (!myf) {
@@ -1000,6 +1092,9 @@ async function otcAction(what, o, btn) {
   if (what === "btcverify") { btcVerifyInto(od, "btcv" + o); return; }
   if (what === "btcclaim") { btcSpendFlow(od, "claim"); return; }
   if (what === "btcrefund") { btcSpendFlow(od, "refund"); return; }
+  if (what === "solfund") { solLeg(od, "fund"); return; }
+  if (what === "solclaim") { solLeg(od, "claim"); return; }
+  if (what === "solrefund") { solLeg(od, "refund"); return; }
   if (what === "ethfund") { ethLeg(od, "fund"); return; }
   if (what === "ethclaim") { ethLeg(od, "claim"); return; }
   if (what === "ethrefund") { ethLeg(od, "refund"); return; }
@@ -1008,6 +1103,7 @@ async function otcAction(what, o, btn) {
       let s = otcRec(o).s;                              // a maker settles with their own stored secret
       if (!s && chainOf(od) === "btc") { alertBar("Looking up the revealed secret on Bitcoin…"); s = await btcFoundSecret(od); }
       if (!s && chainOf(od) === "eth") { alertBar("Looking up the revealed secret on Ethereum…"); s = await ethFoundSecret(od); }
+      if (!s && chainOf(od) === "sol") { alertBar("Looking up the revealed secret on Solana…"); s = await solFoundSecret(od); }
       if (!s) s = ((await uiPrompt({ title: "Paste the swap secret",
         body: "The 64-character secret revealed when the other leg was claimed — this page could not find it automatically.",
         placeholder: "64 hex characters" })) || "").trim().toLowerCase();
