@@ -1434,6 +1434,7 @@ function showUnlock() {
   if ($("unlockRelayUrl")) { $("unlockRelayUrl").value = state.relay || ""; $("unlockRelayUrl").placeholder = location.origin; }
   if ($("unlockPass")) $("unlockPass").value = "";
   if ($("unlockErr")) $("unlockErr").textContent = "";
+  show("booting", false);
   show("unlockCard", true);
   // A locked wallet is still MINING on-chain until its PoSW lease lapses — show how much presence is left
   // (we know the address even while locked). Refresh it periodically so the countdown stays live.
@@ -3306,6 +3307,7 @@ function signSplash(app) {
   } catch (e) {}
 }
 function showWalletUI() {
+  show("booting", false);
   wireAutosignToggle();
   show("onboard", false);
   show("savePrompt", false);
@@ -7830,6 +7832,7 @@ async function claimUnshields(silent) {
 /* Pre-wallet view: no tabs, ONE decision. Settings (relay URL etc.) stay behind an "Advanced" disclosure
  * on the onboarding card — a first-time visitor should not meet dApp trust switches before they have a key. */
 function enterOnboarding() {
+  show("booting", false);
   show("tabbar", false);
   document.querySelectorAll("[data-tab]").forEach((el) => show(el.id, false));
   show("settingsCard", false);
@@ -8146,6 +8149,7 @@ async function boot() {
   try {
     await loadDeps();
   } catch (e) {
+    show("booting", false);
     show("bootError", true);
     $("bootErrorMsg").textContent = "Could not load crypto (local vendor bundle + CDN both failed): " + (e && e.message || e);
     return;
