@@ -39,7 +39,10 @@
   .game h3{margin:0 0 4px;font-size:21px}
   .game .tag{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--accent2);margin-bottom:10px}
   .game .tag.soon{color:var(--faint)}
-  .game p{margin:0 0 18px;color:var(--muted);font-size:14.5px;flex:1}
+  .game p{margin:0 0 6px;color:var(--muted);font-size:14.5px;flex:1;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .game.open p{display:block;-webkit-line-clamp:unset}
+  .game .morelink{align-self:flex-start;background:none;border:0;padding:10px 0 16px;min-height:44px;color:var(--accent2);font-size:13px;font-weight:600;cursor:pointer}
+  .game.open .morelink::after{content:" ‹"}.game .morelink::after{content:" ›"}
   .game .meta{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
   .pill{background:rgba(0,173,147,.08);border:1px solid rgba(0,173,147,.22);border-radius:999px;padding:4px 11px;font-size:12px;color:var(--muted)}
   .btn{display:inline-block;text-align:center;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04110a;
@@ -353,7 +356,7 @@ function renderGames() {
     const meta = (isGame ? "" : `<span class="pill" style="border-color:#e3b341;color:#e3b341">${
         T("apps.kind." + (g.kind || "game"), g.kindLabel || "not a game")}</span>`)
       + g.meta.map((m, i) => `<span class="pill">${T("games." + g.slug + ".m" + i, m)}</span>`).join("")
-      + (g.faucet ? `<span class="pill" style="border-color:#3fb950;color:#3fb950">${T("games.faucetPill", "🪂 airdrop play")}</span>` : "");
+      + (g.faucet ? `<span class="pill" style="border-color:#3fb950;color:#3fb950">${T("games.faucetPill", "airdrop play")}</span>` : "");
     const cta = g.live
       ? `<a class="btn" href="${g.url}">${isGame ? T("games.play", "Play {name} →", { name })
                                                  : T("apps.open", "Open {name} →", { name })}</a>`
@@ -364,6 +367,7 @@ function renderGames() {
     <div class="tag${g.live ? "" : " soon"}">${tag}</div>
     <h3>${name}</h3>
     <p>${blurb}</p>
+    <button type="button" class="morelink" onclick="this.closest('.game').classList.toggle('open')">${T("apps.more", "How it works")}</button>
     <div class="meta">${meta}</div>
     ${cta}
   </div>`;

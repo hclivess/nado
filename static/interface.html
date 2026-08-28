@@ -108,6 +108,7 @@
       <button id="btnGenerate" class="primary pulse-ready" data-i18n="btn.genKey">Generate new key</button>
       <button id="btnShowImport" class="ghost" data-i18n="btn.importKey">Import key</button>
     </div>
+    <div class="small mt"><a href="#" id="onboardAdvanced" style="color:var(--muted)">Advanced settings ›</a></div>
     <div id="importBox" class="mt hidden">
       <label data-i18n="import.label">Private key (64-hex seed) or 24-word recovery phrase</label>
       <input id="importKey" placeholder="4d3c2b1a…   or   word1 word2 … word24" autocomplete="off" spellcheck="false" />
@@ -133,7 +134,7 @@
     <label class="mt" data-i18n="save.addr">Address</label>
     <div class="addr-box"><span class="a mono" id="newAddr"></span></div>
     <div class="row mt">
-      <button id="btnDlKeySave" class="accent pulse-ready" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>
+      <button id="btnDlKeySave" class="accent pulse-ready" data-i18n="btn.dlKey">Download key file (JSON)</button>
     </div>
     <div class="row mt">
       <label class="small" style="display:flex;align-items:center;gap:10px;margin:0;cursor:pointer">
@@ -210,7 +211,6 @@
     <button class="tab" data-tabbtn="messages" data-i18n="tab.messages">Messages<span id="msgBadge" class="tabbadge hidden"></span></button>
     <button class="tab" data-tabbtn="settings" data-i18n="tab.settings">Settings</button>
     <a class="tab" href="https://nadochain.com/apps" target="_blank" rel="noopener" data-i18n="tab.apps">Apps</a>
-    <a class="tab" href="https://nadochain.com" target="_blank" rel="noopener" data-i18n="tab.web">Web</a>
   </nav>
 
   <!-- WALLET -->
@@ -273,7 +273,7 @@
       <div class="addr-box"><span class="a mono" id="walPriv"></span>
         <button class="copy" data-i18n="btn.copy" data-copy="walPriv">Copy</button></div>
       <div class="row mt">
-        <button id="btnDlKey" class="accent" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>
+        <button id="btnDlKey" class="accent" data-i18n="btn.dlKey">Download key file (JSON)</button>
       </div>
     </details>
   </div>
@@ -1072,6 +1072,7 @@
       <span class="small faint" style="display:block" data-i18n="settings.themeSub">Recolours the whole interface — surfaces, text and controls. Contrast is checked for every theme.</span>
       <div id="themeGrid" class="themegrid"></div>
     </div>
+    <div class="settings-sect" data-i18n="settings.sectSign">Signing & dApps</div>
     <div class="row" style="align-items:flex-start;gap:10px;margin-bottom:14px">
       <input id="autosignDapp" type="checkbox" class="switch" />
       <label for="autosignDapp" style="margin:0;flex:1;cursor:pointer">
@@ -1114,6 +1115,7 @@
       <div class="row"><input id="autosignBetCap" inputmode="decimal" placeholder="0 = always confirm bets" style="max-width:200px"></div>
       <span class="small faint" data-i18n="settings.betCapSub">A middle ground if you leave the switch above off: bets/spins that escrow up to this much sign without a tap; bigger stakes always ask.</span>
     </div>
+    <div class="settings-sect" data-i18n="settings.sectNet">Network</div>
     <label data-i18n="settings.relay">Relay node URL (a full node that accepts your transactions)</label>
     <div class="row">
       <input id="relayUrl" class="grow" placeholder="https://node.example:9173" />
@@ -1121,18 +1123,19 @@
     </div>
     <p class="small faint mt" data-i18n-html="settings.relayNote">Defaults to this page's origin. A custom relay must be same-origin or
       send CORS headers, or your browser will block reads.</p>
+    <div class="settings-sect" data-i18n="settings.sectBackup">Backup</div>
     <div class="row mt">
-      <button id="btnDlKeySettings" class="accent" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>
+      <button id="btnDlKeySettings" class="accent" data-i18n="btn.dlKey">Download key file (JSON)</button>
     </div>
 
     <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:16px 0" />
-    <div class="label" data-i18n="sec.title">🔐 Wallet security</div>
+    <div class="label" data-i18n="sec.title">Wallet security</div>
     <p class="small faint" data-i18n="sec.intro">Encrypt the private key stored in this browser with a password (AES-256-GCM). It's decrypted only in memory while unlocked, and auto-lock re-locks it after a period of inactivity.</p>
     <div id="secStatus" class="small mt"></div>
     <button id="btnEncrypt" class="accent mt" style="width:100%" data-i18n="sec.encrypt">Encrypt wallet with a password</button>
     <button id="btnRemoveEnc" class="ghost mt hidden" style="width:100%" data-i18n="sec.remove">Remove password (store in plain text)</button>
-    <button id="btnLockNow" class="ghost mt hidden" style="width:100%" data-i18n="sec.lockNow">🔒 Lock now</button>
-    <button id="btnDlEnc" class="ghost mt hidden" style="width:100%" data-i18n="sec.dlEnc">⤓ Download encrypted backup</button>
+    <button id="btnLockNow" class="ghost mt hidden" style="width:100%" data-i18n="sec.lockNow">Lock now</button>
+    <button id="btnDlEnc" class="ghost mt hidden" style="width:100%" data-i18n="sec.dlEnc">Download encrypted backup</button>
     <label class="mt" data-i18n="sec.autolock">Auto-lock after inactivity</label>
     <select id="autolockSel">
       <option value="0" data-i18n="sec.autolockOff">Off</option>
@@ -1148,7 +1151,7 @@
          recovery phrase so a stolen phone cannot take the account; "Rotate" moves signing to a fresh key while
          the address (and stake, streak, everything) stays. Hidden until the chain generation supports it. -->
     <div id="authWrap" class="hidden">
-      <div class="label" data-i18n="auth.title">🗝 Account keys</div>
+      <div class="label" data-i18n="auth.title">Account keys</div>
       <p class="small faint" data-i18n="auth.intro">Your address stays the same forever; the keys that may act for it can change. Protecting the account adds a separate recovery phrase — a thief with your device can spend what is liquid, but cannot take the account, your stake or your streak.</p>
       <div id="authStatus" class="small mt"></div>
       <div id="authPending" class="hint-banner mt hidden" role="status"></div>
@@ -1174,6 +1177,7 @@
       </div>
     </div>
 
+    <div class="settings-sect" data-i18n="settings.sectAdv">Advanced</div>
     <div class="row mt">
       <button id="btnSelfTest" class="ghost" data-i18n="btn.selftest">Run self-test</button>
       <button id="btnForget" class="danger" data-i18n="btn.forget">Forget wallet</button>

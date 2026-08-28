@@ -1087,7 +1087,7 @@ function log(kind, msg) {
   line.innerHTML = `<span class="t">${t}</span> <span class="${kind}">${escapeHtml(msg)}</span>`;
   el.appendChild(line);
   el.scrollTop = el.scrollHeight;
-  show("logCard", true);
+  if (state.wallet) show("logCard", true);              // the activity log is part of the wallet, not of onboarding
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -6216,7 +6216,7 @@ function showTab(name) {
   else if (name === "quorum") renderQuorum().catch(() => {});
   else if (name === "multisig") renderMsig().catch(() => {});
   else if (name === "messages") msgOpen().catch(() => {});
-  else if (name === "settings") renderSecurity();
+  else if (name === "settings") { renderSecurity(); show("selftestCard", false); }   // the self-test appears when asked for, not on every visit
 }
 
 /* ----------------------------------------------------------------------------------------------
@@ -7827,13 +7827,18 @@ async function claimUnshields(silent) {
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); }
 }
 
-/* Pre-wallet view: no tabs; show onboarding + the Settings card (so the relay can be configured). */
+/* Pre-wallet view: no tabs, ONE decision. Settings (relay URL etc.) stay behind an "Advanced" disclosure
+ * on the onboarding card — a first-time visitor should not meet dApp trust switches before they have a key. */
 function enterOnboarding() {
   show("tabbar", false);
   document.querySelectorAll("[data-tab]").forEach((el) => show(el.id, false));
-  show("settingsCard", true);
+  show("settingsCard", false);
+  show("logCard", false);
   show("savePrompt", false);
   show("onboard", true);
+  const adv = $("onboardAdvanced");
+  if (adv && !adv.dataset.wired) { adv.dataset.wired = "1"; adv.onclick = (e) => { e.preventDefault();
+    const on = $("settingsCard").classList.contains("hidden"); show("settingsCard", on); adv.textContent = (on ? "Hide advanced settings" : "Advanced settings") + " ›"; }; }
 }
 
 /* ----------------------------------------------------------------------------------------------
@@ -8153,7 +8158,7 @@ async function boot() {
   // run the self-test automatically on boot (also logs to console)
   let ok = false;
   try { ok = runSelfTest(); } catch (e) { log("err", "Self-test crashed: " + e.message); }
-  log(ok ? "ok" : "err", `Self-test: ${ok ? "all vectors match Python ✓" : "MISMATCH — see Self-test card"}`);
+  if (!ok) log("err", "Self-test: MISMATCH — see Self-test card");   // a passing self-test is not an event worth a log line
 
   // load existing wallet or onboard
   const w = loadWallet();

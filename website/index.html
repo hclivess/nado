@@ -98,6 +98,7 @@
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px}
   .card h3{margin:0 0 8px;font-size:18px}
+  .card .ico{display:none}   /* emoji glyphs render as boxes without an emoji font; the titles carry the cards */
   .card p{margin:0;color:var(--muted);font-size:15px}
   .card .ico{font-size:22px;margin-bottom:10px}
   .warn{background:rgba(0,173,147,.06);border:1px solid rgba(0,173,147,.25);border-radius:14px;padding:16px 18px;color:var(--muted);font-size:14.5px}
@@ -147,22 +148,20 @@
 
   <div class="hero">
     <img class="mark" src="/logo.svg" alt="NADO logo" />
-    <h1 data-i18n-html="hero.h1">Mine rewards from your <span class="g">phone</span> —<br>quantum-safe, and private by design.</h1>
-    <p class="lead" data-i18n-html="hero.lead">NADO is a <b>phone-mineable, fair-launch, post-quantum</b> blockchain. Signatures are
-      quantum-resistant (ML-DSA-44), and transfers can be made <b>fully private</b> with in-browser
-      zero-knowledge STARK proofs — no rig, no install. Open one link and you're a full participant:
-      <b>wallet, miner, explorer and shielded pool</b> in a single web page.</p>
+    <h1 data-i18n-html="hero.h1">Mine rewards from your <span class="g">phone</span>.<br>Quantum-safe. Private by design.</h1>
+    <p class="lead" data-i18n-html="hero.lead">A <b>fair-launch, post-quantum</b> blockchain you mine from a phone — no rig, no install.
+      Open one link and you have the <b>wallet, miner, explorer and shielded pool</b> in a single page.</p>
     <div class="cta">
       <a class="btn" href="https://get.nadochain.com" data-i18n="hero.open">Open the Interface →</a>
       <a class="btn ghost" href="https://github.com/hclivess/nado" data-i18n="hero.code">View the code</a>
-      <a class="btn discord" href="https://discord.gg/6aEBWTvcTV" data-i18n="hero.discord">💬 Join the Discord</a>
+      <a class="btn discord" href="https://discord.gg/6aEBWTvcTV" data-i18n="hero.discord">Join the Discord</a>
       <small data-i18n="hero.small">No app store, no signup, no seed-phrase ceremony — just a URL.</small>
     </div>
     <div class="badges">
-      <span class="badge" data-i18n-html="badge.phone">📱 <b>Phone-mineable</b> — no rig</span>
-      <span class="badge" data-i18n-html="badge.pq">🔒 <b>Post-quantum</b> signatures</span>
-      <span class="badge" data-i18n-html="badge.priv">🛡️ <b>Private transfers</b> (zk-STARK)</span>
-      <span class="badge" data-i18n-html="badge.fair">🎯 <b>Fair launch</b>, no premine</span>
+      <span class="badge" data-i18n-html="badge.phone"><b>Phone-mineable</b> — no rig</span>
+      <span class="badge" data-i18n-html="badge.pq"><b>Post-quantum</b> signatures</span>
+      <span class="badge" data-i18n-html="badge.priv"><b>Private transfers</b> (zk-STARK)</span>
+      <span class="badge" data-i18n-html="badge.fair"><b>Fair launch</b>, no premine</span>
     </div>
   </div>
 
@@ -172,7 +171,7 @@
       one hash decides each block's producer, so faster hardware (ASICs, GPUs) confers no advantage and there is
       nothing to grind. A phone competes on equal terms with a datacenter — and can win a block even while its
       tab is closed, because winners are credited by address and a relay assembles the block for them.</p>
-    <div class="warn" data-i18n-html="what.warn">⚠ <b>Betanet — pre-mainnet, but not a sandbox.</b> What you mine is real: balances persist across
+    <div class="warn" data-i18n-html="what.warn"><b>Betanet — pre-mainnet, but not a sandbox.</b> What you mine is real: balances persist across
       upgrades and carry forward to mainnet. Consensus is still hardening, so a genesis reroll
       remains possible — if it happens, balances are carried across and we say so openly.</div>
   </section>
@@ -267,7 +266,7 @@
     </div>
     <div class="center" style="margin-top:34px;display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
       <a class="btn" href="https://get.nadochain.com" data-i18n="hero.open">Open the Interface →</a>
-      <a class="btn discord" href="https://discord.gg/6aEBWTvcTV" data-i18n="hero.discord2">💬 Join the Discord</a>
+      <a class="btn discord" href="https://discord.gg/6aEBWTvcTV" data-i18n="hero.discord2">Join the Discord</a>
     </div>
   </section>
 

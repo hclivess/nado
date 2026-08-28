@@ -143,7 +143,10 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .stat .value { font-size: 20px; font-weight: 700; margin-top: 4px; font-family: var(--mono); }
 .stat .value.sm { font-size: 15px; }
 .stat[title] { cursor: help; }
-.hint { color: var(--txt-faint); font-size: 10px; margin-left: 4px; cursor: help; font-weight: 700; }
+/* the help badge is DRAWN, not a glyph: ⓘ (U+24D8) is missing from many system fonts and renders as a box */
+.hint { display: inline-grid; place-items: center; width: 13px; height: 13px; margin-left: 4px; vertical-align: 1px;
+  border: 1px solid var(--txt-faint); border-radius: 50%; color: var(--txt-faint); font-size: 0; cursor: help; }
+.hint::before { content: "i"; font: 700 9px/1 var(--sans); }
 .stat[title]:hover { border-color: var(--accent-2); }
 
 .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); }
@@ -624,3 +627,6 @@ html[data-theme="alarm"] {
 html[data-theme="alarm"] {
   --logo-1: #700000; --logo-2: #b30000; --logo-3: #d90000; --logo-4: #fd0000; --logo-5: #ff1f1f;
 }
+
+/* settings: one card, clearly sectioned — a reader finds "Network" or "Backup" by scanning, not by reading */
+.settings-sect { margin: 24px 0 8px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-faint); }
