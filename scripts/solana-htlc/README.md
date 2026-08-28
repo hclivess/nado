@@ -59,3 +59,17 @@ The escrow address is predictable from the order's public terms, and `create_acc
 that already holds lamports — so a stranger could have blocked any swap for ~0.001 SOL. `fund` therefore
 tops the balance up, then `allocate`s and `assign`s under the PDA's signature; whatever was dropped in
 beforehand simply joins the escrow (test 12 in `tests/test_solana_htlc.py`).
+
+## SPL tokens
+
+`fund_token` (tag 3) locks a token instead of lamports. The mint becomes a seventh PDA seed — the same
+terms in another token are another agreement — and the escrow is the lock PDA's own associated token
+account, which only the PDA (i.e. only this program) can sign for. `claim` and `refund` detect a token
+lock from the record's mint field and take six extra accounts (lock ATA, recipient ATA, mint, token
+program, ATA program, system program); the recipient's ATA is created idempotently on the submitter's
+dime, so a permissionless claim never fails on a missing account, and the escrow ATA is closed with its
+rent going to the recipient. The token instructions are built by hand (Transfer 3, CloseAccount 9, ATA
+CreateIdempotent 1) so the crate carries no token dependency. Tests 13–17 in `tests/test_solana_htlc.py`
+and the token block in `tests/test_solsign.mjs` create a mint with `spl-token` on the local validator.
+CLI: `--mint <address>` on lock/show/fund/claim/refund, with `--amount` in base units.
+

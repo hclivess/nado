@@ -14,6 +14,9 @@
 //   node scripts/otc_sol_leg.mjs refund  --rpc URL --key HEX --program P --hash H --claimant A --funder A --deadline UNIX --amount LAMPORTS
 //   node scripts/otc_sol_leg.mjs show    --rpc URL --program P --hash H --claimant A --funder A --deadline UNIX --amount LAMPORTS
 //
+// SPL tokens: add --mint <mint address> to lock/show/fund/claim/refund; --amount is then in the token's
+// base units (6 dp USDC: 1.5 USDC = 1500000). The escrow is the lock's own token account.
+//
 // `lock` and `show` need no key: anyone can derive the escrow address from the public terms and read it,
 // which is exactly how a counterparty verifies the lock before funding their own side.
 import { fileURLToPath } from "url";
@@ -32,8 +35,11 @@ async function lockOf() {
   if (!/^[0-9a-f]{64}$/i.test(hash)) { console.error("--hash must be 32 bytes of hex"); process.exit(2); }
   const claimant = need("claimant"), deadline = Number(need("deadline")), amount = Number(need("amount"));
   const funder = args.funder || (args.key ? await S.solAddressOf(args.key) : need("funder"));
-  const { address, bump } = await S.htlcPda(program, hash, claimant, funder, deadline, amount);
-  return { program, hash, claimant, funder, deadline, amount, address, bump };
+  const mint = args.mint || "";
+  const { address, bump } = mint ? await S.htlcPdaTok(program, hash, claimant, funder, deadline, amount, mint)
+                                 : await S.htlcPda(program, hash, claimant, funder, deadline, amount);
+  const lockAta = mint ? await S.ataOf(address, mint) : "";
+  return { program, hash, claimant, funder, deadline, amount, address, bump, mint, lockAta };
 }
 // Solana is an account model: the SUBMITTER pays the fee, and a freshly generated swap address holds
 // nothing. The program lets anyone submit a claim (the lamports still go only to the recorded claimant),
@@ -73,6 +79,7 @@ try {
       hashlock: hexOf(raw.subarray(0, 32)),
       claimant: S.b58encode(raw.subarray(32, 64)), refunder: S.b58encode(raw.subarray(64, 96)),
       deadline: Number(raw.readBigInt64LE(96)), amount: Number(raw.readBigUInt64LE(104)),
+      mint: raw.length >= 144 && raw.subarray(112, 144).some((x) => x) ? S.b58encode(raw.subarray(112, 144)) : "",
       matchesTerms: hexOf(raw.subarray(0, 32)) === l.hash && S.b58encode(raw.subarray(32, 64)) === l.claimant
         && Number(raw.readBigUInt64LE(104)) === l.amount && info.owner === l.program,
     }, null, 2));
@@ -81,20 +88,26 @@ try {
     const key = need("key"), payer = await S.solAddressOf(key);
     args.funder = payer;                                   // the funder IS the signer, by the program's rule
     const l = await lockOf();
-    const sig = await send(payer, [S.ixFund(l.program, payer, l.address, l.hash, l.claimant, l.deadline, l.amount)], key);
+    const ix = l.mint ? S.ixFundToken(l.program, payer, l.address, l.hash, l.claimant, l.deadline, l.amount, l.mint, await S.ataOf(payer, l.mint), l.lockAta)
+                      : S.ixFund(l.program, payer, l.address, l.hash, l.claimant, l.deadline, l.amount);
+    const sig = await send(payer, [ix], key);
     console.log(JSON.stringify({ signature: sig, lock: l.address, amount: l.amount }, null, 2));
 
   } else if (cmd === "claim") {
     const key = need("key"), payer = await S.solAddressOf(key);
     const secret = need("secret").replace(/^0x/, "");
     const l = await lockOf();
-    const sig = await send(payer, [S.ixClaim(l.program, payer, l.address, l.claimant, secret)], key);
+    const ix = l.mint ? S.ixClaimToken(l.program, payer, l.address, l.claimant, secret, l.mint, l.lockAta, await S.ataOf(l.claimant, l.mint))
+                      : S.ixClaim(l.program, payer, l.address, l.claimant, secret);
+    const sig = await send(payer, [ix], key);
     console.log(JSON.stringify({ signature: sig, paid: l.claimant, lock: l.address }, null, 2));
 
   } else if (cmd === "refund") {
     const key = need("key"), payer = await S.solAddressOf(key);
     const l = await lockOf();
-    const sig = await send(payer, [S.ixRefund(l.program, payer, l.address, l.funder)], key);
+    const ix = l.mint ? S.ixRefundToken(l.program, payer, l.address, l.funder, l.mint, l.lockAta, await S.ataOf(l.funder, l.mint))
+                      : S.ixRefund(l.program, payer, l.address, l.funder);
+    const sig = await send(payer, [ix], key);
     console.log(JSON.stringify({ signature: sig, returned: l.funder, lock: l.address }, null, 2));
 
   } else {

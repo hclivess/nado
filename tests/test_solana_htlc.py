@@ -157,6 +157,63 @@ def main():
     ok(good, f"    ...and the funder can still lock into it {'' if good else err}")
     ok(balance(l3) >= amount + 1 + 1_000_000, "    ...the dust just joined the escrow")
 
+    # --- SPL tokens: the same lock holding a token; the mint is a seventh seed, the escrow is the PDA's ATA ---
+    import subprocess
+    TOKEN = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+    ATA = Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
+    PAYER = os.environ.get("SOL_PAYER", "/tmp/svl/payer.json")
+    cli = lambda *a: subprocess.run(["spl-token", "-u", RPC, "--fee-payer", PAYER, *a], capture_output=True, text=True, timeout=120)
+    r = cli("create-token", "--mint-authority", PAYER, "--decimals", "6", "--output", "json")
+    mint = Pubkey.from_string(json.loads(r.stdout)["commandOutput"]["address"]) if r.returncode == 0 else None
+    ok(mint is not None, f"13. a test mint exists on the validator {'' if mint else r.stderr[:160]}")
+    ata = lambda owner: Pubkey.find_program_address([bytes(owner), bytes(TOKEN), bytes(mint)], ATA)[0]
+    cli("create-account", str(mint), "--owner", str(alice.pubkey()))
+    cli("mint", str(mint), "1000", str(ata(alice.pubkey())), "--mint-authority", PAYER)
+    tok_bal = lambda owner: int((rpc("getTokenAccountBalance", [str(ata(owner)), {"commitment": "confirmed"}]).get("result") or {}).get("value", {}).get("amount", 0))
+    ok(tok_bal(alice.pubkey()) == 1000 * 10**6, "    alice holds 1000 tokens")
+
+    def pda_tok(hashlock, claimant, funder, deadline, amount):
+        seeds = [b"htlc", hashlock, bytes(claimant), bytes(funder), struct.pack("<q", deadline), struct.pack("<Q", amount), bytes(mint)]
+        return Pubkey.find_program_address(seeds, PROGRAM)[0]
+    def ix_fund_tok(funder, lock, hashlock, claimant, deadline, amount):
+        data = bytes([3]) + hashlock + bytes(claimant) + struct.pack("<q", deadline) + struct.pack("<Q", amount) + bytes(mint)
+        return Instruction(PROGRAM, data, [
+            AccountMeta(funder, True, True), AccountMeta(lock, False, True), AccountMeta(SYS_ID, False, False),
+            AccountMeta(ata(funder), False, True), AccountMeta(ata(lock), False, True), AccountMeta(mint, False, False),
+            AccountMeta(TOKEN, False, False), AccountMeta(ATA, False, False)])
+    def tok_tail(lock, to):
+        return [AccountMeta(ata(lock), False, True), AccountMeta(ata(to), False, True), AccountMeta(mint, False, False),
+                AccountMeta(TOKEN, False, False), AccountMeta(ATA, False, False), AccountMeta(SYS_ID, False, False)]
+    def ix_claim_tok(caller, lock, claimant, preimage):
+        return Instruction(PROGRAM, bytes([1]) + preimage, [
+            AccountMeta(caller, True, True), AccountMeta(lock, False, True), AccountMeta(claimant, False, True)] + tok_tail(lock, claimant))
+    def ix_refund_tok(caller, lock, funder):
+        return Instruction(PROGRAM, bytes([2]), [
+            AccountMeta(caller, True, True), AccountMeta(lock, False, True), AccountMeta(funder, False, True)] + tok_tail(lock, funder))
+
+    tamt = 250 * 10**6
+    tl = pda_tok(H, bob.pubkey(), alice.pubkey(), deadline, tamt)
+    good, err = send([ix_fund_tok(alice.pubkey(), tl, H, bob.pubkey(), deadline, tamt)], [alice])
+    ok(good, f"14. 250 tokens locked into the PDA's token account {'' if good else err}")
+    ok(tok_bal(tl) == tamt and tok_bal(alice.pubkey()) == 750 * 10**6, "    escrow holds 250, alice keeps 750")
+    bad, _ = send([ix_claim_tok(carol.pubkey(), tl, carol.pubkey(), secret)], [carol])
+    ok(not bad, "15. a token claim cannot redirect to a stranger")
+    bad, _ = send([ix_claim_tok(bob.pubkey(), tl, bob.pubkey(), os.urandom(32))], [bob])
+    ok(not bad, "    ...nor open with a wrong preimage")
+    good, err = send([ix_claim_tok(carol.pubkey(), tl, bob.pubkey(), secret)], [carol])
+    ok(good, f"16. a third party submits the claim; bob (who never held this token) is paid {'' if good else err}")
+    ok(tok_bal(bob.pubkey()) == tamt, "    bob's new token account holds the 250")
+    ok(rpc("getAccountInfo", [str(ata(tl)), {"commitment": "confirmed"}])["result"]["value"] is None, "    the escrow token account is closed")
+    bad, _ = send([ix_claim_tok(bob.pubkey(), tl, bob.pubkey(), secret)], [bob])
+    ok(not bad, "    ...and cannot be claimed twice")
+    # refund path
+    short2 = int(time.time()) + 700                           # fresh: the earlier `short` has aged past MIN_WINDOW
+    t2 = pda_tok(H, bob.pubkey(), alice.pubkey(), short2, 100 * 10**6)
+    good, err = send([ix_fund_tok(alice.pubkey(), t2, H, bob.pubkey(), short2, 100 * 10**6)], [alice])
+    ok(good, f"17. a second token lock funded {'' if good else err}")
+    bad, _ = send([ix_refund_tok(carol.pubkey(), t2, carol.pubkey())], [carol])
+    ok(not bad, "    a token refund cannot be redirected either")
+
     print(f"\n[solana-htlc] {passed} passed, {failed} failed", flush=True)
     return 1 if failed else 0
 

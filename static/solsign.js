@@ -93,6 +93,42 @@ export const ixClaim = (programId, caller, lock, claimant, preimageHex) => ({
          { pubkey: claimant, isSigner: false, isWritable: true }],
   data: cat(new Uint8Array([1]), hex2(preimageHex)),
 });
+// ---- SPL tokens: the same lock, holding a token instead of lamports ----------------------------------
+// The mint is a seventh seed (same terms in another token = another agreement = another address) and the
+// escrow is the lock PDA's associated token account. Claim/refund carry six extra accounts so the program
+// can move the tokens out and close the escrow account; the preimage and tags are unchanged.
+export const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+export const ATA_PROGRAM = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+export const ataOf = async (owner, mint) =>
+  (await findPda([b58decode(owner), b58decode(TOKEN_PROGRAM), b58decode(mint)], ATA_PROGRAM)).address;
+export const htlcPdaTok = (programId, hashlockHex, claimant, funder, deadline, amount, mint) =>
+  findPda([...htlcSeeds(hashlockHex, claimant, funder, deadline, amount), b58decode(mint)], programId);
+export const ixFundToken = (programId, funder, lock, hashlockHex, claimant, deadline, amount, mint, funderAta, lockAta) => ({
+  programId,
+  keys: [{ pubkey: funder, isSigner: true, isWritable: true },
+         { pubkey: lock, isSigner: false, isWritable: true },
+         { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+         { pubkey: funderAta, isSigner: false, isWritable: true },
+         { pubkey: lockAta, isSigner: false, isWritable: true },
+         { pubkey: mint, isSigner: false, isWritable: false },
+         { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+         { pubkey: ATA_PROGRAM, isSigner: false, isWritable: false }],
+  data: cat(new Uint8Array([3]), hex2(hashlockHex), b58decode(claimant), i64le(deadline), u64le(amount), b58decode(mint)),
+});
+const tokTail = (lockAta, toAta, mint) => [
+  { pubkey: lockAta, isSigner: false, isWritable: true }, { pubkey: toAta, isSigner: false, isWritable: true },
+  { pubkey: mint, isSigner: false, isWritable: false }, { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+  { pubkey: ATA_PROGRAM, isSigner: false, isWritable: false }, { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false }];
+export const ixClaimToken = (programId, caller, lock, claimant, preimageHex, mint, lockAta, claimantAta) => {
+  const ix = ixClaim(programId, caller, lock, claimant, preimageHex);
+  ix.keys[0].isWritable = true;                          // the submitter pays for the recipient's token account if it is missing
+  ix.keys.push(...tokTail(lockAta, claimantAta, mint)); return ix;
+};
+export const ixRefundToken = (programId, caller, lock, funder, mint, lockAta, funderAta) => {
+  const ix = ixRefund(programId, caller, lock, funder);
+  ix.keys[0].isWritable = true;
+  ix.keys.push(...tokTail(lockAta, funderAta, mint)); return ix;
+};
 export const ixRefund = (programId, caller, lock, funder) => ({
   programId,
   keys: [{ pubkey: caller, isSigner: true, isWritable: false },
@@ -177,12 +213,14 @@ export async function solLockInfo(url, programId, address) {
   if (!v) return null;
   const raw = Uint8Array.from(atob(v.data[0]), (c) => c.charCodeAt(0));
   if (raw.length < 112) return null;
+  const mintB = raw.length >= 144 ? raw.slice(112, 144) : new Uint8Array(32);
+  const mint = mintB.some((x) => x) ? b58encode(mintB) : "";
   const rd = (o, n, signed) => { let x = 0n; for (let i = n - 1; i >= 0; i--) x = (x << 8n) | BigInt(raw[o + i]);
     return signed && x >= 1n << 63n ? x - (1n << 64n) : x; };
   return { owner: v.owner, lamports: BigInt(v.lamports), program: programId,
     hashlock: [...raw.slice(0, 32)].map((x) => x.toString(16).padStart(2, "0")).join(""),
     claimant: b58encode(raw.slice(32, 64)), refunder: b58encode(raw.slice(64, 96)),
-    deadline: Number(rd(96, 8, true)), amount: rd(104, 8) };
+    deadline: Number(rd(96, 8, true)), amount: rd(104, 8), mint };
 }
 
 /** The preimage, dug out of the claim transaction that spent this lock. How the NADO side learns the secret. */

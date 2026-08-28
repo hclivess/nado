@@ -141,5 +141,31 @@ await rejects("the same lock cannot be claimed twice", () => s.solSend(URL, stra
   delete globalThis.window;
 }
 
+// ---- SPL tokens through the client: mint via the CLI, then fund / claim with solsign's builders ---------
+{
+  const { execFileSync } = await import("child_process");
+  const PAYER = process.env.SOL_PAYER || "/tmp/svl/payer.json";
+  const cli = (...a) => execFileSync("spl-token", ["-u", URL, "--fee-payer", PAYER, ...a], { encoding: "utf8", timeout: 120000 });
+  const mint = JSON.parse(cli("create-token", "--mint-authority", PAYER, "--decimals", "6", "--output", "json")).commandOutput.address;
+  const tf = await s.solKeypair(), tc = await s.solKeypair(), tw = await s.solKeypair();   // funder, claimant, watchtower
+  for (const k of [tf, tc, tw]) await airdrop(k.address, 2n * SOL);
+  cli("create-account", mint, "--owner", tf.address);
+  cli("mint", mint, "500", await s.ataOf(tf.address, mint), "--mint-authority", PAYER);
+  const tkeys = { [tf.address]: tf.k, [tc.address]: tc.k, [tw.address]: tw.k };
+  const tsecret = "ee".repeat(32), thash = hex(await sha256b(hex2(tsecret)));
+  const tdl = Math.floor(Date.now() / 1000) + 3600, tamt = 125_000_000;   // 125 tokens at 6 dp
+  const { address: tl } = await s.htlcPdaTok(PID, thash, tc.address, tf.address, tdl, tamt, mint);
+  const bal = async (owner) => { try { return BigInt((await s.solRpc(URL, "getTokenAccountBalance", [await s.ataOf(owner, mint), { commitment: "confirmed" }])).value.amount); } catch (e) { return 0n; } };
+  await s.solSend(URL, tf.address, [s.ixFundToken(PID, tf.address, tl, thash, tc.address, tdl, tamt, mint, await s.ataOf(tf.address, mint), await s.ataOf(tl, mint))], tkeys);
+  ok(await bal(tl) === BigInt(tamt) && await bal(tf.address) === 375_000_000n, "token lock: 125 tokens sit in the escrow's own token account");
+  const tinfo = await s.solLockInfo(URL, PID, tl);
+  ok(tinfo && tinfo.mint === mint && tinfo.amount === BigInt(tamt), "the lock record names the mint and the amount");
+  await rejects("a wrong preimage is refused on a token lock", async () => s.solSend(URL, tc.address,
+    [s.ixClaimToken(PID, tc.address, tl, tc.address, "ab".repeat(32), mint, await s.ataOf(tl, mint), await s.ataOf(tc.address, mint))], tkeys));
+  await s.solSend(URL, tw.address, [s.ixClaimToken(PID, tw.address, tl, tc.address, tsecret, mint, await s.ataOf(tl, mint), await s.ataOf(tc.address, mint))], tkeys);
+  ok(await bal(tc.address) === BigInt(tamt), "a watchtower submitted the token claim; the claimant (who had no token account) holds the 125");
+  ok((await s.solFoundSecret(URL, tl, thash)) === tsecret, "the secret is recovered from the token claim exactly as from a native one");
+}
+
 console.log(`\n[solsign] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

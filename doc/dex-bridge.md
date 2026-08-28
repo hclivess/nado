@@ -412,6 +412,10 @@ to `finalized` (~13 s later) — the wrong commitment reports a funded lock as a
 > `tests/test_solsign.mjs`). The dApp's Solana rows use an injected wallet (Phantom's base58-message
 > request, no SDK bundled) with the CLI as the fallback, and the watchtower relays a Solana-revealed
 > secret without a block walk. Program id `C4WceD67WW9c5LS4Qu3NSCcfmPfdy5KLidhsRA18waNC` on every cluster
+> **SPL tokens (2026-08-28):** `fund_token` escrows any SPL mint in the lock PDA's associated token account;
+> the mint is a seventh seed. An order names the mint in its network field (`sold|<mint>`), the dApp reads
+> the mint's decimals from the chain, and the devnet USDC mint (`4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`,
+> verified as a 6-decimal spl-token mint) is seeded. Every token — ERC-20 or SPL — is its own market on the dex.
 > (the keypair is kept); **not yet deployed to devnet or mainnet**, so `NETS.sold.program` is empty and
 > the dApp says so on the row rather than letting anyone fund a lock with no program behind it.
 

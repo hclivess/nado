@@ -354,12 +354,18 @@ const NETS = {
 // An ERC-20 swap names its token inside the network field: wch = "<network>|<token address>". Everything
 // below reads the network through netKeyOf, so a token order behaves exactly like a native one.
 const netKeyOf = (od) => String(od.wch || "").split("|")[0];
-const tokAddrOf = (od) => { const t = String(od.wch || "").split("|")[1] || ""; return /^0x[0-9a-fA-F]{40}$/.test(t) ? t : ""; };
+// a token rides in the order's network field: "eths|0x…" (ERC-20) or "sold|<mint>" (SPL). EVM addresses
+// are case-insensitive and stored lowercase; Solana mints are base58 and case-SENSITIVE — never lowercase them.
+const isB58Addr = (a) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a || "");
+const tokNorm = (t) => (/^0x/i.test(t) ? t.toLowerCase() : t);
+const tokAddrOf = (od) => { const t = String(od.wch || "").split("|")[1] || ""; return /^0x[0-9a-fA-F]{40}$/.test(t) || isB58Addr(t) ? t : ""; };
+const mktKeyOf = (od) => netKeyOf(od) + (tokAddrOf(od) ? "|" + tokNorm(tokAddrOf(od)) : "");   // the MARKET an order trades in
+const netSupportsTokens = (k) => { const n = NETS[k] || {}; return !!(n.erc20 || (n.chain === "sol" && n.program)); };
 const netOf = (od) => NETS[netKeyOf(od)] || null;
 const chainOf = (od) => (NETS[netKeyOf(od)] || {}).chain || netKeyOf(od);
 const erc20Names = {};                               // "0xtoken" -> {symbol, decimals}, read from the chain
 const coinOf = (od) => { const t = tokAddrOf(od);
-  if (t) return (erc20Names[t.toLowerCase()] || {}).symbol || "TOKEN";
+  if (t) return (erc20Names[tokNorm(t)] || {}).symbol || (tokensFor(netKeyOf(od))[tokNorm(t)] || {}).sym || "TOKEN";
   return (NETS[netKeyOf(od)] || {}).coin || netKeyOf(od).toUpperCase(); };
 const explorerOf = (od) => (NETS[netKeyOf(od)] || {}).explorer || "https://mempool.space";
 // your address per NETWORK — typed once, reused forever (a swap always pays you on the same network)
@@ -373,6 +379,7 @@ const LS_TOKENS = "nado_otc_tokens";
 // (Sepolia, 2026-08-27). Nothing is taken on trust: the address is always shown next to the symbol,
 // because any contract can claim any name and only the address is identity.
 const SEED_TOKENS = {
+  sold: { "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU": { sym: "USDC", dec: 6 } },   // Circle's devnet USDC — verified on chain: spl-token mint, 6 dp
   eths: {
     "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238": { sym: "USDC", dec: 6 },      // name() "USDC", 6 dp
     "0xfff9976782d46cc05630d1f6ebab18b2324d6b14": { sym: "WETH", dec: 18 },     // name() "Wrapped Ether"
@@ -627,27 +634,41 @@ function ethCliHint(od) {
 // fee: the browser path uses the visitor's own wallet (as the Ethereum leg uses MetaMask) and falls back
 // to the headless CLI on the row when no wallet is installed.
 let SOL = null;
-const solMod = async () => (SOL || (SOL = await import("./solsign.js?v=7b20b5b6")));
+const solMod = async () => (SOL || (SOL = await import("./solsign.js?v=6f9e1078")));
 const solProgramOf = (od) => (netOf(od) || {}).program || "";
 const solRpcOf = (od) => (netOf(od) || {}).rpc || "";
-const isB58Addr = (a) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a || "");
 const solAddrOf = (field) => { const a = String(field || "").split("|")[0]; return isB58Addr(a) ? a : ""; };
 function solHas() { try { const w = window; return !!(w.phantom?.solana || w.solflare || w.backpack?.solana || w.solana); } catch (e) { return false; } }
 const solLamports = (amt) => { const [i, f = ""] = String(amt).split("."); return BigInt(i || 0) * 1000000000n + BigInt(((f + "000000000").slice(0, 9)) || 0); };
 
+const solMintMeta = {};                               // mint -> {decimals}, read from the chain once
+async function solMintDecimals(rpc, mint) {
+  if (solMintMeta[mint]) return solMintMeta[mint].decimals;
+  const S = await solMod();
+  const v = (await S.solRpc(rpc, "getAccountInfo", [mint, { encoding: "jsonParsed" }])).value;
+  const info = v && v.data && v.data.parsed && v.data.parsed.type === "mint" ? v.data.parsed.info : null;
+  if (!info) throw new Error("That mint address is not an SPL token.");
+  solMintMeta[mint] = { decimals: Number(info.decimals) };
+  return solMintMeta[mint].decimals;
+}
+const solTokUnits = (amt, dec) => { const [i, f = ""] = String(amt).trim().replace(",", ".").split("."); return BigInt((i || "0") + (f + "0".repeat(dec)).slice(0, dec)); };
 async function solTerms(od) {
   const S = await solMod();
   const sells = od.kind === OTC_ASK;                     // ASK: the taker sends the coin, the maker claims
   const funder = solAddrOf(sells ? od.tadr : od.wadr);
   const claimant = solAddrOf(sells ? od.wadr : od.tadr);
-  const deadline = Number(od.expf) || 0, lamports = solLamports(od.wamt);
+  const deadline = Number(od.expf) || 0, rpc = solRpcOf(od);
+  const mint = chainOf(od) === "sol" && isB58Addr(tokAddrOf(od)) ? tokAddrOf(od) : "";   // an SPL order names its mint
+  const lamports = mint ? solTokUnits(od.wamt, await solMintDecimals(rpc, mint)) : solLamports(od.wamt);   // "lamports" = the lock's amount units
   const program = solProgramOf(od);
   if (!program) throw new Error(`No swap program is deployed on ${(netOf(od) || {}).label} yet.`);
   if (!funder || !claimant) throw new Error("This swap's Solana addresses aren't both published yet.");
   if (!/^[0-9a-f]{64}$/.test(od.hsha || "")) throw new Error("This order has no usable hashlock.");
   if (!(deadline > 0) || lamports <= 0n) throw new Error("This order's Solana amount or deadline is missing.");
-  const { address } = await S.htlcPda(program, od.hsha, claimant, funder, deadline, Number(lamports));
-  return { S, sells, funder, claimant, deadline, lamports, program, address, rpc: solRpcOf(od) };
+  const { address } = mint ? await S.htlcPdaTok(program, od.hsha, claimant, funder, deadline, Number(lamports), mint)
+                           : await S.htlcPda(program, od.hsha, claimant, funder, deadline, Number(lamports));
+  const lockAta = mint ? await S.ataOf(address, mint) : "";
+  return { S, sells, funder, claimant, deadline, lamports, program, address, rpc, mint, lockAta };
 }
 async function solLeg(od, mode) {
   try {
@@ -657,10 +678,12 @@ async function solLeg(od, mode) {
     if (me !== want)
       return alertBar(`This swap's Solana side belongs to ${want.slice(0, 8)}… — switch your wallet to that account.`);
     let ix;
+    const ata = async (owner) => t.mint ? await t.S.ataOf(owner, t.mint) : "";
     if (mode === "fund") {
       const already = await t.S.solLockInfo(t.rpc, t.program, t.address);
       if (already) return alertBar("That lock is already funded — nothing more to send.");
-      ix = t.S.ixFund(t.program, me, t.address, od.hsha, t.claimant, t.deadline, Number(t.lamports));
+      ix = t.mint ? t.S.ixFundToken(t.program, me, t.address, od.hsha, t.claimant, t.deadline, Number(t.lamports), t.mint, await ata(me), t.lockAta)
+                  : t.S.ixFund(t.program, me, t.address, od.hsha, t.claimant, t.deadline, Number(t.lamports));
     } else if (mode === "claim") {
       const sHex = await otcKnownSecret(od);
       if (!sHex) return alertBar("The swap secret isn't available yet.");
@@ -670,11 +693,13 @@ async function solLeg(od, mode) {
       const info = await t.S.solLockInfo(t.rpc, t.program, t.address);
       if (!info) return alertBar("No lock exists at this swap's address yet — nothing to claim.");
       if (info.owner !== t.program) return alertBar("That account is not owned by the swap program — do not reveal your secret.");
-      if (info.hashlock !== od.hsha || info.claimant !== t.claimant || info.amount < t.lamports)
+      if (info.hashlock !== od.hsha || info.claimant !== t.claimant || info.amount < t.lamports || (info.mint || "") !== t.mint)
         return alertBar("The lock on chain does not match this order's terms — claiming it would publish your secret for nothing.");
-      ix = t.S.ixClaim(t.program, me, t.address, t.claimant, sHex);
+      ix = t.mint ? t.S.ixClaimToken(t.program, me, t.address, t.claimant, sHex, t.mint, t.lockAta, await ata(t.claimant))
+                  : t.S.ixClaim(t.program, me, t.address, t.claimant, sHex);
     } else {
-      ix = t.S.ixRefund(t.program, me, t.address, t.funder);
+      ix = t.mint ? t.S.ixRefundToken(t.program, me, t.address, t.funder, t.mint, t.lockAta, await ata(t.funder))
+                  : t.S.ixRefund(t.program, me, t.address, t.funder);
     }
     const sig = await t.S.solWalletSend(t.rpc, provider, me, [ix]);
     alertBar((mode === "fund" ? "Locked" : mode === "claim" ? "Claimed" : "Reclaimed") + " — tx " + sig.slice(0, 20) + "…");
@@ -687,12 +712,29 @@ async function solFoundSecret(od) {
 function solCliHint(od) {
   const net = netOf(od) || {};
   return `<div class="small dim mt">No Solana wallet detected. Run this leg from a terminal:<br>
-    <span class="mono" style="word-break:break-all">node scripts/otc_sol_leg.mjs claim --rpc ${esc(net.rpc || "&lt;rpc&gt;")} --program ${esc(net.program || "&lt;not deployed&gt;")} --key &lt;your-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --funder &lt;addr&gt; --deadline ${Number(od.expf) || 0} --amount ${String(solLamports(od.wamt))} --secret &lt;s&gt;</span></div>`;
+    <span class="mono" style="word-break:break-all">node scripts/otc_sol_leg.mjs claim --rpc ${esc(net.rpc || "&lt;rpc&gt;")} --program ${esc(net.program || "&lt;not deployed&gt;")} --key &lt;your-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --funder &lt;addr&gt; --deadline ${Number(od.expf) || 0} --amount ${tokAddrOf(od) ? "&lt;units&gt;" : String(solLamports(od.wamt))}${tokAddrOf(od) ? " --mint " + esc(tokAddrOf(od)) : ""} --secret &lt;s&gt;</span></div>`;
 }
 
 // ---- cross-chain markets: a BTC/NADO book IS a market, so it gets the same header, chart and stats ----
-let xsel = "btc";                                    // selected cross-chain network
-const XKEY = (net) => "x:" + net;
+let xsel = "btc";                                    // selected cross-chain MARKET: a network key, or "net|token"
+const XKEY = (key) => "x:" + key;
+/** Every cross-chain market: each network's coin, plus every token known on it (seeded, verified, or seen on a live order). */
+function xMarkets() {
+  const out = [];
+  for (const k of Object.keys(NETS)) {
+    const n = NETS[k];
+    out.push({ key: k, net: k, token: "", coin: n.coin, label: n.label, chain: n.chain });
+    if (!netSupportsTokens(k)) continue;
+    const toks = tokensFor(k);
+    for (const od of otcOrders()) {
+      const t = tokAddrOf(od);
+      if (t && netKeyOf(od) === k && !toks[tokNorm(t)]) toks[tokNorm(t)] = { sym: (erc20Names[tokNorm(t)] || {}).symbol || "TOKEN", dec: 18 };
+    }
+    for (const a of Object.keys(toks)) out.push({ key: k + "|" + a, net: k, token: a, coin: toks[a].sym, label: `${toks[a].sym} on ${n.label}`, chain: n.chain });
+  }
+  return out;
+}
+const xMarket = (key) => xMarkets().find((m) => m.key === key) || null;
 const otcPrice = (od) => {                           // NADO per 1 foreign coin
   const f = Number(od.wamt); const nado = Number(od.namtRaw) / 1e10;
   return f > 0 && nado > 0 ? nado / f : 0;
@@ -700,7 +742,7 @@ const otcPrice = (od) => {                           // NADO per 1 foreign coin
 function bookOf(net) {
   const bids = [], asks = [];                        // bid = someone paying NADO for the coin (ASK_NADO)
   for (const od of otcOrders()) {
-    if (netKeyOf(od) !== net || tokAddrOf(od) || od.st !== 1 || od.kind === OTC_INTRA || otcLeft(od) <= 0) continue;   // a token order is not priced in the coin
+    if (mktKeyOf(od) !== net || od.st !== 1 || od.kind === OTC_INTRA || otcLeft(od) <= 0) continue;   // a token is its own market
     const px = otcPrice(od);
     if (!px) continue;
     (od.kind === OTC_ASK ? bids : asks).push({ px, size: Number(od.wamt), o: od.o, od });
@@ -710,21 +752,25 @@ function bookOf(net) {
   return { bids, asks, bb, ba, mid: bb && ba ? (bb + ba) / 2 : (bb || ba) };
 }
 function renderXMarket() {
-  const nets = Object.keys(NETS);
+  const mkts = xMarkets(), keys = mkts.map((m) => m.key);
+  if (wantMarket) { const hit = mkts.find((m) => m.coin.toUpperCase() === wantMarket); if (hit) { xsel = hit.key; wantMarket = null; } }
   const pick = $("mktPick");
   if (pick) {
-    const opts = nets.map((k) => `<option value="${k}">${esc(NETS[k].coin)} / NADO — ${esc(NETS[k].label)}</option>`).join("");
+    const opts = mkts.map((m) => `<option value="${esc(m.key)}">${esc(m.coin)} / NADO — ${esc(m.label)}</option>`).join("");
     if (pick.dataset.sig !== opts) { pick.dataset.sig = opts; pick.innerHTML = opts; }
-    if (!nets.includes(xsel)) xsel = nets[0];
+    if (!keys.includes(xsel)) xsel = keys[0];
     pick.value = xsel;
   }
-  const netSel0 = $("otcNet");
-  if (netSel0 && !netSel0.dataset.touched && netSel0.value !== xsel
-      && [...netSel0.options].some((o) => o.value === xsel)) {
-    netSel0.value = xsel;                              // the form follows the market you are looking at
-    netSel0.dispatchEvent(new Event("change", { bubbles: true }));
+  const m = xMarket(xsel) || mkts[0];
+  const netSel0 = $("otcNet"), tp0 = $("otcTokenPick");
+  if (netSel0 && !netSel0.dataset.touched && [...netSel0.options].some((o) => o.value === m.net)) {
+    if (netSel0.value !== m.net) { netSel0.value = m.net; netSel0.dispatchEvent(new Event("change", { bubbles: true })); }
+    fillTokenPicker();                                 // the picker must already list the token before it can be selected
+    if (tp0 && tp0.value !== m.token && [...tp0.options].some((o) => o.value === m.token)) {   // the form follows the market you are looking at
+      tp0.value = m.token; tp0.dispatchEvent(new Event("change", { bubbles: true }));
+    }
   }
-  const net = NETS[xsel] || {}, b = bookOf(xsel);
+  const net = Object.assign({}, NETS[m.net] || {}, { coin: m.coin, label: m.label }), b = bookOf(xsel);
   $("mktPair").textContent = `${net.coin} / NADO`;
   $("mktPrice").textContent = b.mid ? fmtPrice(b.mid) : "—";
   const st24 = stats24(XKEY(xsel), b.mid);
@@ -733,7 +779,7 @@ function renderXMarket() {
     chgEl.textContent = (st24.pct >= 0 ? "+" : "") + st24.pct.toFixed(2) + "%  24h";
     chgEl.className = "chg " + (Math.abs(st24.pct) < 0.005 ? "flat" : st24.pct > 0 ? "up" : "dn");
   } else { chgEl.textContent = b.bids.length || b.asks.length ? "one side quoted" : "no open orders"; chgEl.className = "chg flat"; }
-  const mine = otcOrders().filter((x) => netKeyOf(x) === xsel && dapp.me && (x.maker === dapp.me || x.taker === dapp.me)).length;
+  const mine = otcOrders().filter((x) => mktKeyOf(x) === xsel && dapp.me && (x.maker === dapp.me || x.taker === dapp.me)).length;
   $("mktStats").innerHTML = [
     ["Best bid", b.bb ? fmtPrice(b.bb) + " NADO" : "—"],
     ["Best ask", b.ba ? fmtPrice(b.ba) + " NADO" : "—"],
@@ -823,6 +869,7 @@ async function foreignLockCheck(od) {
       if (info.hashlock !== od.hsha) bad.push("hashlock differs");
       if (info.claimant !== t.claimant) bad.push("claimant is not the counterparty");
       if (info.amount < t.lamports) bad.push("amount short");
+      if ((info.mint || "") !== t.mint) bad.push(t.mint ? "not this token" : "a token lock, not SOL");
       el.innerHTML = bad.length ? `<span style="color:var(--danger)">DOES NOT MATCH: ${esc(bad.join("; "))}</span>`
         : `<span style="color:var(--accent2)">verified: ${esc(od.wamt)} ${esc(coinOf(od))} locked until ${new Date(t.deadline * 1000).toISOString().slice(0, 16).replace("T", " ")}Z</span>`;
     } else if (ch === "eth") {
@@ -977,7 +1024,7 @@ function renderOtc() {
   const book = $("otcBook"), mine = $("otcMine");
   if (!book || !mine) return;
   const all = otcOrders(), me = dapp.me;
-  const open = all.filter((x) => x.st === 1 && x.kind !== OTC_INTRA && netKeyOf(x) === xsel && otcLeft(x) > 0);
+  const open = all.filter((x) => x.st === 1 && x.kind !== OTC_INTRA && mktKeyOf(x) === xsel && otcLeft(x) > 0);
   book.innerHTML = open.length ? open.map((x) => otcRow(x, false)).join("")
     : `<p class="small dim">No open orders. Post one — the book is permissionless.</p>`;
   const my = all.filter((x) => me && x.kind !== OTC_INTRA && (x.maker === me || x.taker === me));
@@ -1033,7 +1080,9 @@ async function verifyPastedToken() {
 // the choice, instead of being crammed into a button.
 function kindHint() {
   const el = $("otcKindHint"), k = (($("otcKind") || {}).value) || "1";
-  const coin = (NETS[($("otcNet") || {}).value] || {}).coin || "the coin";
+  const netK = ($("otcNet") || {}).value, tp = $("otcTokenPick");
+  const tokSel = tp && tp.value && tp.value !== "?" ? (tokensFor(netK)[tp.value] || {}).sym || "the token" : "";
+  const coin = tokSel || (NETS[netK] || {}).coin || "the coin";
   if (el) el.textContent = k === "1"
     ? `You give NADO and receive ${coin}. You generate the swap secret, so you finish the swap.`
     : `You give ${coin} and receive NADO. You generate the swap secret; your ${coin} lock must outlast the taker's NADO lock.`;
@@ -1045,9 +1094,10 @@ async function otcPost() {
   const netSelV = $("otcNet").value, chain = (NETS[netSelV] || {}).chain;
   const tp2 = $("otcTokenPick");
   const tokenV = (tp2 && tp2.value && tp2.value !== "?") ? tp2.value : ((($("otcToken") || {}).value) || "").trim();
-  if (tokenV && !/^0x[0-9a-fA-F]{40}$/.test(tokenV)) return alertBar("A token address looks like 0x followed by 40 hex characters.");
-  if (tokenV && !(NETS[netSelV] || {}).erc20) return alertBar(`Token swaps are not available on ${(NETS[netSelV] || {}).label} yet.`);
-  const net = tokenV ? netSelV + "|" + tokenV.toLowerCase() : netSelV;   // the token rides in the network field
+  if (tokenV && chain === "eth" && !/^0x[0-9a-fA-F]{40}$/.test(tokenV)) return alertBar("A token address looks like 0x followed by 40 hex characters.");
+  if (tokenV && chain === "sol" && !isB58Addr(tokenV)) return alertBar("A Solana token is named by its mint address (32–44 base58 characters).");
+  if (tokenV && !netSupportsTokens(netSelV)) return alertBar(`Token swaps are not available on ${(NETS[netSelV] || {}).label} yet.`);
+  const net = tokenV ? netSelV + "|" + tokNorm(tokenV) : netSelV;   // the token rides in the network field
   const famt = ($("otcFAmt").value || "").trim(), faddr = ($("otcFAddr").value || "").trim();
   const blocks = Math.floor(Number($("otcExpiry").value || 0));
   if (raw <= 0n) return alertBar("Enter the NADO amount.");
@@ -1324,7 +1374,7 @@ const symOfPool = (p) => tokSym(p.asset).toUpperCase();
 function marketUrl(includeOrigin = true) {
   let q = "";
   if (curMode === "cross") return (includeOrigin ? location.origin + location.pathname : location.pathname)
-    + "?market=" + encodeURIComponent((NETS[xsel] || {}).coin || xsel) + "&mode=cross";
+    + "?market=" + encodeURIComponent((xMarket(xsel) || {}).coin || xsel) + "&mode=cross";
   if (sel && lastSto) { const p = poolOf(lastSto, sel); const sym = symOfPool(p);
     q = "?market=" + encodeURIComponent(sym && sym !== "TOKEN" ? sym : String(p.id)); }
   if (curMode && curMode !== "swap") q += (q ? "&" : "?") + "mode=" + curMode;
@@ -1340,8 +1390,8 @@ function readUrl() {                                 // "?market=DEMO" (symbol) 
   const m = (q.get("market") || q.get("pool") || "").trim();
   if (!m) return;
   if (/^\d+$/.test(m)) sel = m; else wantMarket = m.toUpperCase();
-  if (wantMarket) for (const k of Object.keys(NETS))          // a coin symbol also names a cross-chain market
-    if ((NETS[k].coin || "").toUpperCase() === wantMarket) { xsel = k; break; }
+  if (wantMarket) { const hit = xMarkets().find((m) => m.coin.toUpperCase() === wantMarket);   // a coin or token symbol names a cross-chain market
+    if (hit) { xsel = hit.key; if (!hit.token) wantMarket = null; } }
 }
 const priceStore = () => { try { return JSON.parse(localStorage.getItem(LS_PRICES) || "{}"); } catch (e) { return {}; } };
 function samplePrices(sto) {
@@ -1587,7 +1637,7 @@ function wireUI() {
       loadAddr();
     };
     const showTok = () => {
-      const row = $("otcTokenRow"), on = !!(NETS[netSel.value] || {}).erc20;
+      const row = $("otcTokenRow"), on = netSupportsTokens(netSel.value);
       if (row) row.classList.toggle("hidden", !on);
       if (!on && $("otcToken")) $("otcToken").value = "";
     };
