@@ -157,6 +157,16 @@
   .chartwrap.empty{height:96px}
   .modehint{margin-top:-4px}
   .offmarket{display:none!important}
+  /* a swap row: the stepper, then ONE next action */
+  .steps{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0 6px}
+  .stp{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);padding:3px 8px;border-radius:999px;border:1px solid var(--border);background:var(--bg)}
+  .stp.done{color:var(--accent2);border-color:transparent;background:rgba(0,201,167,.12)}
+  .stp.cur{color:#04110a;background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent}
+  .nextact{margin:6px 0 4px}
+  .nextact button.primary{width:100%;padding:12px}
+  .waiting{display:inline-flex;align-items:center;gap:8px;color:var(--dim);font-size:13px;padding:6px 0}
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent2);border-radius:50%;animation:dexspin .9s linear infinite}
+  @keyframes dexspin{to{transform:rotate(360deg)}}
   .hint{font-size:12px;color:var(--dim);margin-top:5px}
   #walletcard:not(.signed) .needsig{display:none}
   @media (max-width:620px){
@@ -412,6 +422,6 @@
     moves, you withdraw a different mix than you put in. Not investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=ec597351"></script>
+<script type="module" src="/static/dex.js?v=fae21c2e"></script>
 </body>
 </html>

@@ -8,7 +8,7 @@
 //   · at SHOWDOWN one click reveals your secret; the CONTRACT re-derives your 7 cards and ranks the full
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
-import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, inviteGate, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=013aba9d";
+import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, inviteGate, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=c52c5678";
 import { BankedGame } from "./bankedgame.js?v=a5d95bc2";   // the ONE banked-table reader — hold'em overlays its street phases
 import { Practice } from "./practice.js?v=53073278";       // free in-browser practice (play chips, no chain)
 

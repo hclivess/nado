@@ -1371,8 +1371,16 @@ export class NadoDapp {
   // no NADO at all can still claim. Publishing the preimage is what lets the counterparty claim the
   // mirrored lock on the other chain — the wallet shows it before signing.
   htlcClaim({ htlcId, preimage }, pend) {
-    this._goRedirect({ htlc_claim: { htlc_id: htlcId, preimage }, label: "claim the NADO of an atomic swap" },
-                     pend || { phase: "htlc_claim" });
+    // BACKGROUND first: a claim can only ever pay the wallet that signs it (the wallet checks claimant ==
+    // itself and the preimage against the lock's hashlock), so a wallet with auto-sign on signs it silently
+    // and the swap completes without a tap. A wallet that wants a confirm answers needui → redirect.
+    this._go({ htlc_claim: { htlc_id: htlcId, preimage }, label: "claim the NADO of an atomic swap" },
+             pend || { phase: "htlc_claim" }, true, false);
+  }
+  // htlcRefund: take back an expired L1 swap lock. Visible confirm in the wallet — it is the user's own
+  // money coming home, but a refund is still a signature that moves funds.
+  htlcRefund({ htlcId }, pend) {
+    this._goRedirect({ htlc_refund: { htlc_id: htlcId }, label: "reclaim an expired atomic-swap lock" }, pend || { phase: "htlc_refund" });
   }
   signBlob(blob, label, pend, opts) {
     // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing

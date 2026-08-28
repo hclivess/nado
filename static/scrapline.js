@@ -6,7 +6,7 @@
 // unpredictable when you signed, replayable by every browser); once both have drafted 9 rounds the fight
 // resolves as a pure deterministic simulation and the wager settles concede / agree / refund-timeout.
 // This module owns ONLY the Scrapline half: offers, gear slots, and the combat report.
-import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base , installModes } from "./nadodapp.js?v=013aba9d";
+import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base , installModes } from "./nadodapp.js?v=c52c5678";
 import { DuelGame } from "./duelgame.js?v=c586c636";
 import * as E from "./scrapline-engine.js?v=225f846d";
 import { ART } from "./scrapline-art.js?v=5dc6e120";

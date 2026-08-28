@@ -1,0 +1,16 @@
+[Unit]
+Description=NADO OTC watchtower (expire sweep + relays revealed swap secrets from ETH/SOL/L1)
+After=network-online.target nado.service nado-exec.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nado
+WorkingDirectory=/srv/nado-home/nado
+Environment=HOME=/srv/nado-home
+ExecStart=/srv/nado-home/nado/nado_venv/bin/python /srv/nado-home/nado/scripts/otc_watchtower.py scan --submit --loop 60 --eth eth https://ethereum-rpc.publicnode.com 0xcd8f71e75bb37f438c49a8011ae4037da5a8968f --eth eths https://ethereum-sepolia-rpc.publicnode.com 0xd5f47927999c31ce4fe3de11bc560678094486e7
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

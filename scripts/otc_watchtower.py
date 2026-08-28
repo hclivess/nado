@@ -45,13 +45,13 @@ LIMB_BITS, LIMBS = 52, 5                                           # must match 
 
 
 def _get(url, timeout=15):
-    with urllib.request.urlopen(url, timeout=timeout) as r:
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; nado-watchtower/1)"}), timeout=timeout) as r:
         return json.loads(r.read().decode())
 
 
 def _post(url, body, timeout=20):
     req = urllib.request.Request(url, data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"}, method="POST")
+                                 headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; nado-watchtower/1)"}, method="POST")   # public RPCs 403 a bare urllib UA
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
@@ -154,30 +154,38 @@ def nado_claim_secrets(l1, orders, watches):
 ETH_CLAIMED_TOPIC = "0x38d6042dbdae8e73a7f6afbabd3fbe0873f9f5ed3cd71294591c3908c2e65fee"     # keccak256("Claimed(bytes32,bytes32)") — HtlcEth and HtlcErc20 emit the same event
 
 
+ETH_LOG_CHUNK = 100          # public RPCs cap eth_getLogs ranges (publicnode: 100 blocks without a token)
+ETH_LOOKBACK = 2000          # first pass: ~7 hours of mainnet; later passes only read what is new
+ETH_PASS_MAX = 3000          # never chase more than this in one pass — the cursor carries the rest
+
+
 def eth_claim_secrets(rpc, htlc, watches, state, net="eth"):
-    """{orderId: secret} from the HTLC contract's Claimed logs. Each log's data is the 32-byte preimage;
-    we remember the last block scanned per network so a pass reads only what is new."""
+    """{orderId: secret} from the HTLC contract's Claimed logs, read in RPC-sized chunks. Each log's data is
+    the 32-byte preimage; we remember the last block scanned per network so a pass reads only what is new."""
     cursor = "eth_from:" + net
     want = {bytes.fromhex(H): o for o, H in watches}
     found = {}
     tip = int(_sol_rpc(rpc, "eth_blockNumber", []), 16)
-    start = int(state.get(cursor, max(0, tip - 50000)))
-    if start > tip:
-        return found
-    logs = _sol_rpc(rpc, "eth_getLogs", [{"address": htlc, "fromBlock": hex(start), "toBlock": hex(tip),
-                                          "topics": [ETH_CLAIMED_TOPIC]}]) or []
-    for lg in logs:
-        d = str(lg.get("data") or "")[-64:]
-        if len(d) != 64:
-            continue
-        try:
-            raw = bytes.fromhex(d)
-        except ValueError:
-            continue
-        h = hashlib.sha256(raw).digest()
-        if h in want:
-            found[want[h]] = d
-    state[cursor] = tip + 1
+    start = int(state.get(cursor, max(0, tip - ETH_LOOKBACK)))
+    end = min(tip, start + ETH_PASS_MAX)
+    at = start
+    while at <= end:
+        hi = min(end, at + ETH_LOG_CHUNK - 1)
+        logs = _sol_rpc(rpc, "eth_getLogs", [{"address": htlc, "fromBlock": hex(at), "toBlock": hex(hi),
+                                              "topics": [ETH_CLAIMED_TOPIC]}]) or []
+        for lg in logs:
+            d = str(lg.get("data") or "")[-64:]
+            if len(d) != 64:
+                continue
+            try:
+                raw = bytes.fromhex(d)
+            except ValueError:
+                continue
+            h = hashlib.sha256(raw).digest()
+            if h in want:
+                found[want[h]] = d
+        at = hi + 1
+    state[cursor] = end + 1
     return found
 
 
