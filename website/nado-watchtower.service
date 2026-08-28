@@ -8,7 +8,7 @@ Type=simple
 User=nado
 WorkingDirectory=/srv/nado-home/nado
 Environment=HOME=/srv/nado-home
-ExecStart=/srv/nado-home/nado/nado_venv/bin/python /srv/nado-home/nado/scripts/otc_watchtower.py scan --submit --loop 60 --eth eth https://ethereum-rpc.publicnode.com 0xcd8f71e75bb37f438c49a8011ae4037da5a8968f --eth eths https://ethereum-sepolia-rpc.publicnode.com 0xd5f47927999c31ce4fe3de11bc560678094486e7
+ExecStart=/srv/nado-home/nado/nado_venv/bin/python /srv/nado-home/nado/scripts/otc_watchtower.py scan --submit --loop 60 --eth eth https://ethereum-rpc.publicnode.com 0x16a2714026cf9ace31cf4fd9b20fcedc3721e71b 0x3a6ed3d17cc00feeb5dd53b69341d42b09ed9e14 --eth eths https://ethereum-sepolia-rpc.publicnode.com 0xea946ca7df38607ba8af01e30486524c97363ec3 0x16a2714026cf9ace31cf4fd9b20fcedc3721e71b
 Restart=always
 RestartSec=30
 

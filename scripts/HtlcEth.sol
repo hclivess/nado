@@ -24,6 +24,9 @@ contract HtlcEth {
     struct Lock { address claimant; address refundee; uint256 amount; bytes32 H; uint256 deadline; }
     mapping(bytes32 => Lock) public locks;
     mapping(address => uint256) public credits;   // owed to someone whose push payment failed
+    // The revealed preimage, readable by anyone with a plain eth_call. Logs carry it too, but public RPCs
+    // ration eth_getLogs; state is served everywhere, and the other chain's settlement depends on finding s.
+    mapping(bytes32 => bytes32) public revealed;
 
     uint256 public constant MIN_WINDOW = 10 minutes;
     uint256 public constant MAX_WINDOW = 30 days;
@@ -59,6 +62,7 @@ contract HtlcEth {
         require(sha256(abi.encodePacked(s)) == L.H, "bad preimage");
         require(block.timestamp < L.deadline, "expired");
         delete locks[key];
+        revealed[key] = s;
         emit Claimed(key, s);
         _pay(L.claimant, L.amount);
     }

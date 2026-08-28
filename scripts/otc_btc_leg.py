@@ -15,7 +15,10 @@ code: these are reference legs the wallet constructs and *reads* (used by tests/
 regtest).
 """
 import hashlib
-from coincurve import PrivateKey
+try:
+    from coincurve import PrivateKey          # signing only; the watchtower imports this module for extract_secret alone
+except ImportError:                             # noqa: E722
+    PrivateKey = None
 
 # ---- hashes / encodings ---------------------------------------------------------------------------------
 sha256 = lambda b: hashlib.sha256(b).digest()

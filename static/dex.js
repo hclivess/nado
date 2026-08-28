@@ -343,9 +343,9 @@ const otcSaveRec = (o, patch) => { const m = otcSecrets(); const cur = typeof m[
 const NETS = {
   btc:  { chain: "btc", coin: "BTC", label: "Bitcoin",          hrp: "bc",  explorer: "https://mempool.space" },
   btct: { chain: "btc", coin: "tBTC", label: "Bitcoin testnet", test: true, hrp: "tb",  explorer: "https://mempool.space/testnet" },
-  eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", test: true, evm: "0xaa36a7", rpc: "https://ethereum-sepolia-rpc.publicnode.com", htlc: "0xd5f47927999c31ce4fe3de11bc560678094486e7", erc20: "0x6d6104704e1956c36851d4c36fdad77ce75a6106" },
-  // mainnet 2026-08-28: bytecode verified byte-identical to the audited Sepolia contracts before wiring
-  eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1", rpc: "https://ethereum-rpc.publicnode.com",     htlc: "0xcd8f71e75bb37f438c49a8011ae4037da5a8968f", erc20: "0x81feecb4de6ad8f23c1db38b4a1f0068cb723117" },
+  eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", test: true, evm: "0xaa36a7", rpc: "https://ethereum-sepolia-rpc.publicnode.com", htlc: "0xea946ca7df38607ba8af01e30486524c97363ec3", erc20: "0x16a2714026cf9ace31cf4fd9b20fcedc3721e71b" },
+  // 2026-08-29: contracts record the revealed preimage (revealed(key)) — every address below verified against the build by eth_getCode
+  eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1", rpc: "https://ethereum-rpc.publicnode.com",     htlc: "0x16a2714026cf9ace31cf4fd9b20fcedc3721e71b", erc20: "0x3a6ed3d17cc00feeb5dd53b69341d42b09ed9e14" },
   // Solana needs a deployed PROGRAM (unlike Bitcoin, whose HTLC is just a script). `program: ""` means
   // nothing is deployed on that cluster yet and the row says so rather than letting anyone fund a lock
   // into thin air. Filling one in is the only change a new cluster needs.
@@ -943,11 +943,21 @@ async function foreignLockState(od) {
       const held = words.length ? BigInt("0x" + words[token ? 3 : 2]) : 0n;
       if (held >= amtWei && amtWei > 0n) return { state: "funded", html: `<span style="color:var(--accent2)">verified: ${esc(od.wamt)} ${esc(coinOf(od))} locked under this order's exact terms until ${new Date(dl * 1000).toISOString().slice(0, 16).replace("T", " ")}Z</span>` };
       if (held > 0n) return { state: "short", html: `<span style="color:var(--danger)">UNDERFUNDED: holds less than the agreed amount</span>` };
-      const sec = await ethFoundSecretRpc(od, net.rpc, htlc);
-      return sec ? { state: "claimed", html: `<span style="color:var(--accent2)">claimed</span>` } : { state: "none", html: "— nothing locked under these terms yet" };
+      const sec = await ethRevealed(od, net.rpc, htlc, key, token);
+      return sec ? { state: "claimed", html: `<span style="color:var(--accent2)">claimed</span>`, secret: sec } : { state: "none", html: "— nothing locked under these terms yet" };
     }
     return { state: "none", html: "" };
   } catch (e) { return { state: "error", html: "— could not read the lock: " + esc(String(e.message || e).slice(0, 80)) }; }
+}
+/** The preimage the contract recorded when the lock under this key was claimed — one eth_call, served by any RPC. */
+async function ethRevealed(od, rpc, htlc, key, token) {
+  try {
+    const r = await (await fetch(rpc, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: htlc, data: (token ? htlcErc20Abi : htlcAbi).revealed(key) }, "latest"] }) })).json();
+    const s = String(r.result || "").replace(/^0x/, "").slice(-64);
+    if (/^[0-9a-f]{64}$/.test(s) && /[1-9a-f]/.test(s) && (await sha256Hex(s)) === od.hsha) return s;
+  } catch (e) {}
+  return null;
 }
 /** Claimed(key, s) logs over a plain RPC (no wallet needed) — the secret, if the lock under this order was claimed. */
 async function ethFoundSecretRpc(od, rpc, htlc) {
@@ -1011,10 +1021,10 @@ async function probeSwap(od) {
   try {
     if (od.hid) { const h = await nadoHtlc(od); st.nado = h ? h.status : "none"; st.nadoDoc = h; }
     st.secret = await otcKnownSecret(od);
-    if (od.st >= 2) { const f = await foreignLockState(od); st.foreign = f.state; st.foreignHtml = f.html; }
+    if (od.st >= 2) { const f = await foreignLockState(od); st.foreign = f.state; st.foreignHtml = f.html; st.fsecret = f.secret || null; if (!st.secret && f.secret) st.secret = f.secret; }
     if (!st.secret && (st.foreign === "claimed" || od.st === 3)) {   // the reveal happened on the foreign chain
       const ch = chainOf(od);
-      st.secret = ch === "btc" ? await btcFoundSecret(od) : ch === "eth" ? await ethFoundSecretRpc(od, (netOf(od) || {}).rpc, tokAddrOf(od) ? (netOf(od) || {}).erc20 : ethHtlcFor(od)) : ch === "sol" ? await solFoundSecret(od) : null;
+      st.secret = ch === "btc" ? await btcFoundSecret(od) : ch === "eth" ? st.fsecret || null : ch === "sol" ? await solFoundSecret(od) : null;
     }
   } catch (e) {}
   st.busy = false; st.at = Date.now();

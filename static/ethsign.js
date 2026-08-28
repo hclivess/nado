@@ -60,6 +60,7 @@ export const htlcAbi = {
     + bytesToHex(pad32(hexToBytes(keyHex))) + bytesToHex(pad32(hexToBytes(sHex))),
   refund: (keyHex) => "0x" + selector("refund(bytes32)") + bytesToHex(pad32(hexToBytes(keyHex))),
   locks: (keyHex) => "0x" + selector("locks(bytes32)") + bytesToHex(pad32(hexToBytes(keyHex))),
+  revealed: (keyHex) => "0x" + selector("revealed(bytes32)") + bytesToHex(pad32(hexToBytes(keyHex))),   // the preimage once claimed, by eth_call — no logs needed
   withdraw: () => "0x" + selector("withdraw()"),
   // key = keccak256(abi.encode(H, claimant, refundee, deadline, amount)) — the AMOUNT is bound, so an
   // underfunded lock lands elsewhere and can never trick a claimant into revealing the preimage.
@@ -162,6 +163,7 @@ export const htlcErc20Abi = {
     + bytesToHex(_pad32(hexToBytes(keyHex))) + bytesToHex(_pad32(hexToBytes(sHex))),
   refund: (keyHex) => "0x" + _sel("refund(bytes32)") + bytesToHex(_pad32(hexToBytes(keyHex))),
   locks: (keyHex) => "0x" + _sel("locks(bytes32)") + bytesToHex(_pad32(hexToBytes(keyHex))),
+  revealed: (keyHex) => "0x" + _sel("revealed(bytes32)") + bytesToHex(_pad32(hexToBytes(keyHex))),
   // key = keccak256(abi.encode(token, H, claimant, refundee, deadline, amount)) — token AND amount bound
   lockKey: (token, Hhex, claimant, refundee, deadline, amount) => bytesToHex(keccak_256(new Uint8Array([
     ...hexToBytes(_addr(token)), ...hexToBytes(bytesToHex(_pad32(hexToBytes(Hhex)))),

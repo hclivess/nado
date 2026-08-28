@@ -6,9 +6,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from otc_mainnet_eth_e2e import *   # noqa
 oid = int(sys.argv[1]); rec = json.load(open(os.path.join(ROOT, "private", f"otc_mainnet_swap_{oid}.json")))
 taker = json.load(open(os.path.join(ROOT, "private", "otc_e2e_taker.json")))
-got = W.eth_claim_secrets(ETH_RPC, rec["htlc"], [(oid, rec["hashlock"])], {}, "eth")
-found = got.get(oid)
+found = None
+try:
+    got = W.eth_claim_secrets(ETH_RPC, rec["htlc"], [(oid, rec["hashlock"])], {}, "eth"); found = got.get(oid)
+except Exception as e:
+    print(f"  (log scan failed: {str(e)[:80]})", flush=True)
 ok(found == rec["secret"], "7. the secret read back from the mainnet Claimed log equals the one on disk")
+if not found:
+    found = rec["secret"]; print("     continuing with the secret from disk", flush=True)
 h = get(L1 + f"/get_htlc?id={rec['l1_lock']}")["htlc"]
 if h["status"] == "open":
     tbal0 = l1_bal(taker["address"])

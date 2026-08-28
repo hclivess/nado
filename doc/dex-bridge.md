@@ -377,16 +377,25 @@ with Ethereum's clock.
 
 > **Shipped (2026-08-26):** `scripts/HtlcEth.sol` (compiled to `scripts/HtlcEth.bin`) is the contract; `static/ethsign.js` signs it in-page and `scripts/otc_eth_leg.mjs` from a terminal (both proven end to end against a live EVM). In the dApp the ETH leg uses an **injected wallet** (MetaMask/EIP-1193 — the user's own funded account pays gas, the account model needs it) with the CLI shown as the fallback when no wallet is present. A single ownerless `HtlcEth` per EVM chain is reused via `ETH_HTLC[chainId]`. **DEPLOYED LIVE on Ethereum Sepolia at `0xd5f47927999c31ce4fe3de11bc560678094486e7`** — the dApp's ETH leg is wired to it, so ETH↔NADO swaps run on real Sepolia today: connect an injected wallet on the Sepolia network, or drive it with `scripts/otc_eth_leg.mjs`.
 
-> **Do not use the first Sepolia deployments.** On **Sepolia**, `0xCd8F71E7…8968F` (HtlcEth) and
-> `0x81feecb4…23117` (HtlcErc20) are the pre-audit versions whose lock key did not bind the amount —
-> the one-wei theft. The live Sepolia pair is `0xd5f4…86e7` / `0x6d61…a106`.
+> **Live contracts (deployed 2026-08-29, `revealed(key)` added).** Every address was compared by
+> `eth_getCode` against the build before the dex was pointed at it.
 >
-> **Ethereum MAINNET (deployed 2026-08-28):** HtlcEth **`0xcd8f71e75bb37f438c49a8011ae4037da5a8968f`**,
-> HtlcErc20 **`0x81feecb4de6ad8f23c1db38b4a1f0068cb723117`**. Yes, the same two addresses as the bad
-> Sepolia pair — same deployer key, nonces 0 and 1 — but on mainnet they carry the AUDITED build:
-> `eth_getCode` on each was compared byte for byte with the live Sepolia contracts before the dex was
-> pointed at them. Chain + address identifies a contract; the address alone does not. Deploy txs
-> `0x3bf911a5…8eaed6` and `0x4039f78d…0b03d9`. Watchtower: `--eth eth <rpc> 0xcd8f71e75bb37f438c49a8011ae4037da5a8968f`.
+> | chain | HtlcEth | HtlcErc20 |
+> |---|---|---|
+> | Ethereum **mainnet** | `0x16a2714026cf9ace31cf4fd9b20fcedc3721e71b` | `0x3a6ed3d17cc00feeb5dd53b69341d42b09ed9e14` |
+> | Sepolia | `0xea946ca7df38607ba8af01e30486524c97363ec3` | `0x16a2714026cf9ace31cf4fd9b20fcedc3721e71b` |
+>
+> **Chain + address identifies a contract; the address alone does not.** One deployer key produces the same
+> address at the same nonce on every chain: `0x16a2…e71b` is HtlcEth on mainnet and HtlcErc20 on Sepolia.
+> Superseded but audited-correct (no `revealed()`; the mainnet pair holds the first real swap's locks until
+> they time out): mainnet `0xcd8f…968f` / `0x81fe…3117`, Sepolia `0xd5f4…86e7` / `0x6d61…a106`. The
+> pre-audit Sepolia pair `0xCd8F…968F` / `0x81fe…3117` (same addresses, different chain) let one wei buy the
+> secret — never use them there.
+>
+> **Why `revealed(key)`.** The claim emits `Claimed(key, s)`, but public RPCs ration `eth_getLogs` (100-block
+> windows, 403s, "archive" paywalls) and settlement on the other chain depends on finding `s`. So `claim`
+> also stores `revealed[key] = s`, and both the dex and the watchtower read it with one `eth_call`, which
+> every RPC serves. Watchtower: `--eth eth <rpc> <HtlcEth> <HtlcErc20>`.
 
 **Solana — an HTLC program with the escrow in a PDA** (`scripts/solana-htlc`, ~230 lines, no admin key,
 no fee). Bitcoin needs nothing deployed because its HTLC is a script; Solana has no such script, so the

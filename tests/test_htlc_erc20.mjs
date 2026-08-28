@@ -54,6 +54,8 @@ async function scenario(name, binName, amount, expectEscrow) {
   ok(held === expectEscrow, `${name}: contract escrowed what ARRIVED (${held}, expected ${expectEscrow})`);
   const b0 = BigInt(await view(tok, S_BAL + pad(bob.addr)));
   await call(HTLC, "0x" + S_CLAIM + pad("0x" + key) + pad("0x" + s), bob.k);
+const S_REVEALED = await keccakSel("revealed(bytes32)");
+ok((await view(HTLC, S_REVEALED + pad("0x" + key))).slice(-64) === s, "revealed(key) returns the preimage by eth_call — no log scan needed");
   const b1 = BigInt(await view(tok, S_BAL + pad(bob.addr)));
   ok(b1 > b0, `${name}: claim with the secret paid the claimant (+${b1 - b0})`);
   return { tok, key };

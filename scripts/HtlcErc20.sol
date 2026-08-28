@@ -23,6 +23,9 @@ interface IERC20 {
 contract HtlcErc20 {
     struct Lock { address token; address claimant; address refundee; uint256 amount; bytes32 H; uint256 deadline; }
     mapping(bytes32 => Lock) public locks;   // key: keccak256(abi.encode(token, H, claimant, refundee, deadline))
+    // The revealed preimage, readable by anyone with a plain eth_call. Logs carry it too, but public RPCs
+    // ration eth_getLogs; state is served everywhere, and the other chain's settlement depends on finding s.
+    mapping(bytes32 => bytes32) public revealed;
 
     uint256 private _entered;                // reentrancy guard: token code is arbitrary and runs on transfer
     uint256 public constant MIN_WINDOW = 10 minutes;   // an unbounded deadline made refunds unreachable
@@ -74,6 +77,7 @@ contract HtlcErc20 {
         require(sha256(abi.encodePacked(s)) == L.H, "bad preimage");
         require(block.timestamp < L.deadline, "expired");
         delete locks[key];
+        revealed[key] = s;
         emit Claimed(key, s);
         _call(L.token, abi.encodeWithSelector(IERC20.transfer.selector, L.claimant, L.amount));
     }

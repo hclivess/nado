@@ -137,5 +137,24 @@ ok(st.get("eth_from:eth") == 1001, "eth scan: the next pass starts after the sca
 ok(any(c[0] == "eth_getLogs" and c[1][0]["topics"] == [W.ETH_CLAIMED_TOPIC] for c in calls), "eth scan: filters on the Claimed topic")
 W._sol_rpc = real_rpc
 
+# revealed(key): the EVM lock key from the order's own terms (cross-checked against a real mainnet lock) and
+# the preimage read back with one eth_call
+k = W.eth_lock_key("b197142dbb96dac8fc89ed6c2b76085468e4def231437fb6e10eba60e69fdb54", "0x2657ef0fb650ffbd8a72feb0d498247bf68baece",
+                   "0x406Ed37679f237EA099985D8C9CE96B538F916b0", 1787977858, 200000000000000)
+ok(k.startswith("2a810e0c895145777b956eb9736a6f82"), "eth: the lock key matches the contract's (mainnet lock 0x2a810e0c…)")
+ok(W.keccak256(b"").hex().startswith("c5d24601"), "eth: keccak-256 test vector")
+orders = [{"o": 9, "kind": 1, "wch": "eth", "wadr": "0x2657ef0fb650ffbd8a72feb0d498247bf68baece",
+           "tadr": "0x406Ed37679f237EA099985D8C9CE96B538F916b0", "expf": 1787977858, "wamt": "0.0002"}]
+k9 = W.eth_lock_key(H, orders[0]["wadr"], orders[0]["tadr"], 1787977858, 200000000000000)   # the order's OWN key
+def rev_rpc(url, method, params):
+    calls.append((method, params))
+    if method == "eth_call" and params[0]["data"].startswith("0x" + W._SEL_REVEALED):
+        return "0x" + s if params[0]["data"].endswith(k9) else "0x" + "00" * 32
+    return "0x0"
+W._sol_rpc = rev_rpc; calls.clear()
+got = W.eth_revealed_secrets("http://eth", "0xhtlc", None, orders, [(9, H)], {})
+ok(got == {9: s}, "eth: revealed(key) yields the watched order's preimage")
+W._sol_rpc = real_rpc
+
 print(f"\n[tower] {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

@@ -95,7 +95,8 @@ def parse_orders(storage):
                     "expn": int(g("expn").get(o) or 0), "esc": int(g("esc").get(o) or 0),
                     "hsha": str(g("hsha").get(o) or ""), "wch": str(g("wch").get(o) or ""),
                     "bnty": int(g("bnty").get(o) or 0), "pheld": int(g("pheld").get(o) or 0),
-                    "hid": str(g("hid").get(o) or "")})
+                    "hid": str(g("hid").get(o) or ""), "wadr": str(g("wadr").get(o) or ""),
+                    "tadr": str(g("tadr").get(o) or ""), "expf": int(g("expf").get(o) or 0), "wamt": str(g("wamt").get(o) or "0")})
     return out
 
 
@@ -152,6 +153,102 @@ def nado_claim_secrets(l1, orders, watches):
 
 
 ETH_CLAIMED_TOPIC = "0x38d6042dbdae8e73a7f6afbabd3fbe0873f9f5ed3cd71294591c3908c2e65fee"     # keccak256("Claimed(bytes32,bytes32)") — HtlcEth and HtlcErc20 emit the same event
+
+
+# ---- keccak-256, pure python: the EVM lock key is keccak(abi.encode(...)) and this box has no keccak lib ----
+_KRC = [1, 0x8082, 0x800000000000808A, 0x8000000080008000, 0x808B, 0x80000001, 0x8000000080008081, 0x8000000000008009,
+        0x8A, 0x88, 0x80008009, 0x8000000A, 0x8000808B, 0x800000000000008B, 0x8000000000008089, 0x8000000000008003,
+        0x8000000000008002, 0x8000000000000080, 0x800A, 0x800000008000000A, 0x8000000080008081, 0x8000000000008080,
+        0x80000001, 0x8000000080008008]
+_KROT = [[0, 36, 3, 41, 18], [1, 44, 10, 45, 2], [62, 6, 43, 15, 61], [28, 55, 25, 21, 56], [27, 20, 39, 8, 14]]
+_M64 = (1 << 64) - 1
+
+
+def _keccak_f(A):
+    rol = lambda v, n: ((v << n) | (v >> (64 - n))) & _M64
+    for rc in _KRC:
+        C = [A[x][0] ^ A[x][1] ^ A[x][2] ^ A[x][3] ^ A[x][4] for x in range(5)]
+        D = [C[(x - 1) % 5] ^ rol(C[(x + 1) % 5], 1) for x in range(5)]
+        A = [[A[x][y] ^ D[x] for y in range(5)] for x in range(5)]
+        B = [[0] * 5 for _ in range(5)]
+        for x in range(5):
+            for y in range(5):
+                B[y][(2 * x + 3 * y) % 5] = rol(A[x][y], _KROT[x][y])
+        A = [[B[x][y] ^ ((~B[(x + 1) % 5][y]) & B[(x + 2) % 5][y]) for y in range(5)] for x in range(5)]
+        A[0][0] ^= rc
+    return A
+
+
+def keccak256(data):
+    rate = 136
+    data = bytes(data) + b"\x01" + b"\x00" * (rate - 1 - len(data) % rate)
+    data = data[:-1] + bytes([data[-1] | 0x80])
+    A = [[0] * 5 for _ in range(5)]
+    for off in range(0, len(data), rate):
+        blk = data[off:off + rate]
+        for i in range(rate // 8):
+            A[i % 5][i // 5] ^= int.from_bytes(blk[i * 8:i * 8 + 8], "little")
+        A = _keccak_f(A)
+    out = b""
+    for i in range(4):
+        out += A[i % 5][i // 5].to_bytes(8, "little")
+    return out
+
+
+assert keccak256(b"").hex() == "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+_SEL_REVEALED = keccak256(b"revealed(bytes32)")[:4].hex()
+_SEL_DECIMALS = keccak256(b"decimals()")[:4].hex()
+
+
+def eth_lock_key(hashlock_hex, claimant, refundee, deadline, amount, token=None):
+    """keccak256(abi.encode([token,] H, claimant, refundee, deadline, amount)) — HtlcEth / HtlcErc20's lock key."""
+    w = lambda n: int(n).to_bytes(32, "big")
+    a = lambda h: bytes(12) + bytes.fromhex(h[2:] if h.startswith("0x") else h)
+    parts = ([a(token)] if token else []) + [bytes.fromhex(hashlock_hex), a(claimant), a(refundee), w(deadline), w(amount)]
+    return keccak256(b"".join(parts)).hex()
+
+
+def eth_revealed_secrets(rpc, htlc_native, htlc_erc20, orders, watches, decimals_cache):
+    """{orderId: secret} by reading revealed(key) on the HTLC contract for each watched order — ONE eth_call
+    per order, served by every RPC. Logs carry the same preimage but public RPCs ration eth_getLogs."""
+    found = {}
+    by_id = {x["o"]: x for x in orders}
+    for o, H in watches:
+        x = by_id.get(o)
+        if not x or not x.get("wadr") or not x.get("tadr"):
+            continue
+        ask = int(x["kind"]) == 1                             # ASK_NADO: the taker funds the foreign leg
+        sender = x["tadr"] if ask else x["wadr"]                # who funded the foreign leg (the refundee)
+        claimant = x["wadr"] if ask else x["tadr"]              # who claims it with the secret
+        sender, claimant = sender.split("|")[-1], claimant.split("|")[-1]
+        token = x["wch"].split("|")[1] if "|" in x["wch"] else None
+        htlc = htlc_erc20 if token else htlc_native
+        if not htlc or not _is_evm_addr(sender) or not _is_evm_addr(claimant):
+            continue
+        try:
+            if token:
+                if token not in decimals_cache:
+                    decimals_cache[token] = int(_sol_rpc(rpc, "eth_call", [{"to": token, "data": "0x" + _SEL_DECIMALS}, "latest"]), 16)
+                dec = decimals_cache[token]
+            else:
+                dec = 18
+            amount = _to_units(x["wamt"], dec)
+            key = eth_lock_key(H, claimant, sender, int(x["expf"]), amount, token)
+            r = _sol_rpc(rpc, "eth_call", [{"to": htlc, "data": "0x" + _SEL_REVEALED + key}, "latest"])
+            s = str(r or "")[-64:]
+            if len(s) == 64 and int(s, 16) and hashlib.sha256(bytes.fromhex(s)).hexdigest() == H:
+                found[o] = s
+        except Exception:
+            continue
+    return found
+
+
+_is_evm_addr = lambda a: bool(re.fullmatch(r"0x[0-9a-fA-F]{40}", a or ""))
+
+
+def _to_units(amount_str, dec):
+    i, _, f = str(amount_str).strip().partition(".")
+    return int((i or "0") + (f + "0" * dec)[:dec])
 
 
 ETH_LOG_CHUNK = 100          # public RPCs cap eth_getLogs ranges (publicnode: 100 blocks without a token)
@@ -303,11 +400,13 @@ def one_pass(a, state):
     # the NADO L1 first: a claimed HTLC carries its preimage, whichever chain the swap is against
     if watches:
         secrets.update(nado_claim_secrets(a.l1, orders, [w for w in watches if w[0] not in secrets]))
-    for net, rpc, htlc in (a.eth or []):          # each EVM network: the HTLC contract's Claimed logs
+    for spec in (a.eth or []):                    # each EVM network: revealed(key) on the HTLC contracts
+        net, rpc, htlc = spec[0], spec[1], spec[2]
+        erc20 = spec[3] if len(spec) > 3 else None
         eth_watches = [(o, H) for o, H in watches
                        if o not in secrets and str(by_id.get(o, {}).get("wch", "")).split("|")[0] == net]
         if eth_watches:
-            secrets.update(eth_claim_secrets(rpc, htlc, eth_watches, state, net))
+            secrets.update(eth_revealed_secrets(rpc, htlc, erc20, orders, eth_watches, state.setdefault("eth_dec", {})))
     for net, rpc, program in (a.sol or []):       # each Solana cluster is its own network key in wch
         sol_watches = [(o, H) for o, H in watches
                        if o not in secrets and str(by_id.get(o, {}).get("wch", "")).split("|")[0] == net]
@@ -329,8 +428,8 @@ def main():
     ap.add_argument("--cid", default=None)
     ap.add_argument("--btc-cli", default=None, help='e.g. "bitcoin-cli -rpcwait" — enables the BTC secret scan')
     ap.add_argument("--btc-lookback", type=int, default=144, help="blocks to scan back on first run (default ~1 day)")
-    ap.add_argument("--eth", nargs=3, action="append", metavar=("NET", "RPC", "HTLC"),
-                    help="enable the Ethereum claim scan for one network: its wch key (eths / eth), RPC URL, HtlcEth address")
+    ap.add_argument("--eth", nargs="+", action="append", metavar="NET RPC HTLC [ERC20]",
+                    help="enable the Ethereum secret scan for one network: its wch key (eths / eth), RPC URL, HtlcEth address, optionally HtlcErc20")
     ap.add_argument("--sol", nargs=3, action="append", metavar=("NET", "RPC", "PROGRAM"),
                     help="enable the Solana claim scan for one cluster: its wch key (sold / sol), RPC URL, program id")
     ap.add_argument("--secrets", default=None, help="JSON file {orderId: 64-hex secret} to settle from")
