@@ -51,7 +51,7 @@ a 74 KB program plus fees; the deployer is `private/sol_deployer.json`.
     solana --url https://api.devnet.solana.com program deploy target/deploy/nado_htlc.so \
         -k private/sol_deployer.json --program-id private/sol_program.json
 
-Then fill the id into `NETS.sold.program` in `static/dex.js` and pass `--sol-program` to the watchtower.
+Then fill the id into `NETS.sold.program` in `static/dex.js` and pass `--sol sold <rpc> <program id>` to the watchtower.
 
 ## Pre-dusting the escrow address cannot block a swap
 
