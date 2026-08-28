@@ -794,15 +794,17 @@ function renderXMarket() {
   const mkts = xMarkets(), keys = mkts.map((m) => m.key);
   const pick = $("mktPick");
   if (pick) {
-    const opts = mkts.map((m) => `<option value="${esc(m.key)}">${esc(m.coin)} / NADO — ${esc(m.label)}</option>`).join("");
+    const opts = mkts.map((m) => `<option value="${esc(m.key)}">${esc(m.coin)} / NADO${xMarketBlocker(m) ? " · soon" : ""} — ${esc(m.label)}</option>`).join("");
     if (pick.dataset.sig !== opts) { pick.dataset.sig = opts; pick.innerHTML = opts; }
     if (!keys.includes(xsel)) xsel = keys[0];
     pick.value = xsel;
   }
   if (!keys.includes(xsel)) xsel = keys[0];
   const m = xMarket(xsel) || mkts[0];
-  const blk = xMarketBlocker(m), bb = $("mktBlocker");
-  if (bb) { bb.textContent = blk; bb.classList.toggle("hidden", !blk); }
+  // a market that cannot trade yet SHOWS it: "soon" in the picker and the pill, no post form, and a book
+  // that points at where trading is live — nothing to read, nothing to click that will not work
+  const blk = xMarketBlocker(m);
+  gate({ otcPostCard: !blk });
   const pb = $("btnOtcPost"); if (pb) { pb.disabled = !!blk; pb.title = blk; }
   const netSel0 = $("otcNet"), tp0 = $("otcTokenPick");
   if (netSel0 && !netSel0.dataset.touched && [...netSel0.options].some((o) => o.value === m.net)) {
@@ -820,7 +822,8 @@ function renderXMarket() {
   if (st24 && b.mid) {
     chgEl.textContent = (st24.pct >= 0 ? "+" : "") + st24.pct.toFixed(2) + "%  24h";
     chgEl.className = "chg " + (Math.abs(st24.pct) < 0.005 ? "flat" : st24.pct > 0 ? "up" : "dn");
-  } else { chgEl.textContent = b.bids.length || b.asks.length ? "one side quoted" : "no open orders"; chgEl.className = "chg flat"; }
+  } else { chgEl.textContent = blk ? "coming soon" : b.bids.length || b.asks.length ? "one side quoted" : "no open orders"; chgEl.className = "chg flat"; }
+  chgEl.title = blk;
   const mine = otcOrders().filter((x) => mktKeyOf(x) === xsel && dapp.me && (x.maker === dapp.me || x.taker === dapp.me)).length;
   $("mktStats").innerHTML = [
     ["Best bid", b.bb ? fmtPrice(b.bb) + " NADO" : "—"],
@@ -833,15 +836,15 @@ function renderXMarket() {
   const cap = $("depthCap"); if (cap) cap.textContent = "Live order book — how much is offered at each price:";
   const mc = $("mktCap"); if (mc) mc.textContent = "Prices come from open orders on this book. Nothing is back-filled — a gap means nothing was offered.";
   renderChart(XKEY(xsel), "NADO", `1 ${net.coin} =`);
-  renderBookDepth(b, net.coin);
+  renderBookDepth(b, net.coin, blk ? (xEnv === "main" ? "trading opens when the swap contract is live — try Testnet" : "trading opens when the swap program is live") : "");
   syncUrl(false);
 }
 // the order book as cumulative depth — the classic book view, drawn from live open orders
-function renderBookDepth(b, coin) {
+function renderBookDepth(b, coin, emptyText = "") {
   const svg = $("mktDepth");
   if (!svg) return;
   if (!b.bids.length && !b.asks.length) {
-    svg.innerHTML = `<text x="${DW / 2}" y="${DH / 2}" fill="var(--faint)" font-size="11" text-anchor="middle">no open orders — post one below</text>`;
+    svg.innerHTML = `<text x="${DW / 2}" y="${DH / 2}" fill="var(--faint)" font-size="11" text-anchor="middle">${esc(emptyText || "no open orders — post one below")}</text>`;
     svg.setAttribute("viewBox", `0 0 ${DW} ${DH}`); return;
   }
   const cum = (arr) => { let t = 0; return arr.map((x) => ({ px: x.px, t: (t += x.size) })); };
