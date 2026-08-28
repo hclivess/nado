@@ -15,7 +15,7 @@
 // claim). Outcomes are integers 0..nout-1 everywhere. Per-user positions are read through the contract's
 // /exec/view methods (claimable_of etc.) — see the myCache notes below.
 import { Book } from "./bookgame.js?v=1508662f";
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, disp, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js?v=99fc7471";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, disp, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js?v=5f60bece";
 
 const CID = "386cc6bd021cbb183d33bdf56c23f49f";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });
@@ -33,7 +33,7 @@ const fmtLeft = (s) => { s = Math.max(0, Math.round(s)); const d = Math.floor(s 
 let lastSto = null, activeMarket = null, selOutcome = null;
 // Matches list scales to thousands: filter (settled markets accumulate forever, so hide them by default) +
 // text search + a DOM cap so we never inject thousands of cards at once. shownN grows via "show more".
-const PAGE_SIZE = 60;
+const PAGE_SIZE = 12;   // a screenful; "Show more" fetches the rest — 60 cards was a 12,000px page
 let searchQ = "", mktFilter = "live", shownN = PAGE_SIZE;
 const isSettled = (m) => m.status === "resolved" || m.status === "void";
 function visibleMarkets(mkts) {

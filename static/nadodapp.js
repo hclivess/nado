@@ -113,6 +113,66 @@ function applyDappTheme() {
 }
 try { applyDappTheme(); } catch (e) {}
 
+/* POLISH, on every dapp page — the parts of a page's chrome that should read the same everywhere:
+ *  - the intro paragraph keeps ONE lead sentence; the rest opens under "How this works ›"
+ *  - emoji glyphs leave headings, labels, the hub link and the mode bar (they are not icons, and they
+ *    render as boxes wherever the system has no emoji font)
+ *  - the wallet card's balances and bank controls are hidden until someone is signed in
+ * Idempotent, and re-run on "nado-lang" because i18n rewrites the very nodes it touches. */
+const _EMO = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}]+\s*/gu;
+function _stripEmoji(el) {
+  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) if (_EMO.test(n.nodeValue)) { _EMO.lastIndex = 0; n.nodeValue = n.nodeValue.replace(_EMO, ""); }
+  _EMO.lastIndex = 0;
+}
+let _polishCssOn = false;
+export function polishPage() {
+  if (typeof document === "undefined") return;
+  if (!_polishCssOn) {
+    _polishCssOn = true;
+    const st = document.createElement("style");
+    st.textContent = "details.more{margin:0 0 6px}details.more summary{cursor:pointer;list-style:none;color:var(--accent2,#00c9a7);font-size:12px;font-weight:600;display:inline-block;padding:2px 0}"
+      + "details.more summary::-webkit-details-marker{display:none}details.more summary::after{content:' ›';color:var(--faint,#5d6b7a)}details.more[open] summary::after{content:' ‹'}"
+      + "details.more>div{margin-top:6px;color:var(--dim,#93a1b0);font-size:12.5px}"
+      + "#walletcard:not(.signed) .needsig{display:none}"
+      + ":is(button,a,input,select,summary):focus-visible{outline:2px solid var(--accent2,#00c9a7);outline-offset:2px}";
+    document.head.appendChild(st);
+  }
+  try {
+    // intro: one sentence stays, the rest folds
+    const sub = document.querySelector("header + p.sub, header ~ p.sub, p.sub");
+    // i18n rewrites the paragraph's innerHTML on every language apply, which puts the folded text back;
+    // a long paragraph next to an existing fold means exactly that — redo it from scratch
+    if (sub && sub.nextElementSibling?.classList?.contains("more") && (sub.textContent || "").trim().length > 170) sub.nextElementSibling.remove();
+    if (sub && !sub.nextElementSibling?.classList?.contains("more") && (sub.textContent || "").trim().length > 170) {
+      const w = document.createTreeWalker(sub, NodeFilter.SHOW_TEXT);
+      let seen = 0, cut = null;
+      for (let n = w.nextNode(); n && !cut; n = w.nextNode()) {
+        const m = /[.!?](\s)/.exec(n.nodeValue);
+        if (m && seen + m.index > 50) cut = [n, m.index + 1];
+        seen += n.nodeValue.length;
+      }
+      if (cut) {
+        const r = document.createRange(); r.setStart(cut[0], cut[1]); r.setEndAfter(sub.lastChild);
+        const rest = r.extractContents();
+        if ((rest.textContent || "").trim().length > 40) {
+          const d = document.createElement("details"); d.className = "more";
+          d.innerHTML = "<summary>" + (typeof _t === "function" ? _t("howThisWorks", "How this works") : "How this works") + "</summary><div></div>";
+          d.lastChild.appendChild(rest);
+          sub.after(d);
+        } else sub.append(rest);
+      }
+    }
+    // glyphs out of chrome text
+    document.querySelectorAll(".hub, #walletcard .k, .card h2, #modeBar, .seg button, #walletcard button").forEach(_stripEmoji);
+    // the wallet card: rows that only mean something once signed in
+    for (const id of ["l1bal", "bal"]) { const e = document.getElementById(id); const row = e && e.closest(".kv"); if (row) row.classList.add("needsig"); }
+    for (const id of ["buyinSlider", "cashoutSlider"]) { const e = document.getElementById(id); const box = e && e.parentElement && e.parentElement.parentElement; if (box) box.classList.add("needsig"); }
+    const ba = document.getElementById("bankAmt"); const brow = ba && ba.closest(".row"); if (brow) brow.classList.add("needsig");
+  } catch (e) { /* cosmetic — never let the polish pass break a page */ }
+}
+if (typeof window !== "undefined") window.addEventListener("nado-lang", () => setTimeout(polishPage, 0));
+
 let _clickFxOn = false;
 function enableClickFeedback() {
   if (_clickFxOn || typeof document === "undefined") return; _clickFxOn = true;
@@ -502,7 +562,7 @@ export function wireWallet(dapp) {
     const buyMax = () => dapp.l1 > _L1_FEE_RESERVE ? dapp.l1 - _L1_FEE_RESERVE : 0n;
     const pctOf = (slId, maxRaw) => { const p = Math.max(0, Math.min(100, parseFloat(document.getElementById(slId).value) || 0)); return p >= 100 ? maxRaw : (BigInt(Math.round(p * 100)) * maxRaw) / 10000n; };
     const mkRow = (slId, label, btn) => {
-      const box = document.createElement("div"); box.style.margin = "14px 0 0";
+      const box = document.createElement("div"); box.className = "needsig"; box.style.margin = "14px 0 0";   // bank controls: signed-in only
       // header: the action verb (left) + the resolved % · amount (right) — well ABOVE the slider so the knob never covers it
       const head = document.createElement("div"); head.className = "small"; head.style.cssText = "display:flex;justify-content:space-between;gap:8px;margin-bottom:2px;font-weight:700;color:var(--txt)";
       head.innerHTML = '<span>' + label + '</span><span class="mono dim" id="' + slId + 'P">0% · 0 NADO</span>';
@@ -530,6 +590,7 @@ export function wireWallet(dapp) {
 // renderWallet(dapp): the who/bal/l1bal header row; returns signedIn so render() can gate on it.
 export function renderWallet(dapp) {
   const signedIn = !!dapp.me;
+  const wc = $("walletcard"); if (wc) wc.classList.toggle("signed", signedIn);   // balances and bank controls show only once they mean something
   if ($("btnSignIn")) $("btnSignIn").classList.toggle("hidden", signedIn);
   if ($("who")) $("who").textContent = signedIn ? disp(dapp.me) : "not signed in";
   if ($("bal")) $("bal").textContent = rawToNado(dapp.exec) + " NADO";
@@ -602,7 +663,7 @@ export function modeBar(el, modes, active, onChange) {
     '<button type="button" class="modetab' + (m.key === active ? " on" : "") + '" data-mode="' + esc(m.key) + '"'
     + ' aria-pressed="' + (m.key === active ? "true" : "false") + '"'
     + (m.hint ? ' title="' + esc(m.hint) + '"' : "") + ">"
-    + (m.icon ? '<span class="mi" aria-hidden="true">' + m.icon + "</span> " : "") + esc(m.label)
+    + esc(m.label)                                    // labels only: emoji icons render as boxes without an emoji font
     + (m.badge ? ' <span class="mbadge">' + esc(m.badge) + "</span>" : "") + "</button>").join("");
   el.querySelectorAll("[data-mode]").forEach((b) => {
     b.onclick = () => { if (b.dataset.mode !== active) onChange(b.dataset.mode); };
@@ -1183,7 +1244,7 @@ export class NadoDapp {
   }
 
   async init() {
-    enableClickFeedback(); autoEnhanceSelects(); await loadCrypto();
+    enableClickFeedback(); autoEnhanceSelects(); polishPage(); await loadCrypto();
     if (!this._healedMe) this.me = this._healMe();   // crypto is bound now — finish any deferred session heal
     this._handleReturn(); if (this.me) await this.refresh();
   }

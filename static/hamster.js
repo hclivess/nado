@@ -8,7 +8,7 @@
 // contract's alghash math (algHashn) to show genes and animate the run; the contract is the authority.
 // Contract: execnode/games/hamster.py.
 import { Book } from "./bookgame.js?v=1508662f";
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js?v=99fc7471";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js?v=5f60bece";
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=8d15167d";
 import * as DERBY from "./hamster-daily.js?v=76438a9f";
 

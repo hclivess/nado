@@ -17,7 +17,7 @@ import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, 
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=13c995a7";
+         blocksToTime } from "./nadodapp.js?v=5f60bece";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
