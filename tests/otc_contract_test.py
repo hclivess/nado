@@ -58,16 +58,18 @@ def P8(**kw):
         v[int(k[1:])] = x
     return v
 
-def fdl(expn=EXPN):
-    """A foreign deadline inside the §6.3 window the contract now enforces in-circuit."""
+def fdl(expn=EXPN, kind=None):
+    """A foreign deadline on the right side of §6.3 for the kind: ASK inside the NADO window, BID past it."""
     win = (expn - st.cursor) * O.BLOCK_SECS
+    if kind == O.BID:
+        return st.block_ts + win + O.FOREIGN_MARGIN_S + 3600
     return st.block_ts + (O.FOREIGN_MIN_S + win - O.FOREIGN_MARGIN_S) // 2
 
 def post(o, kind, expn=EXPN, who=A, value=None):
     # a cross-chain order carries NO value: the NADO leg is escrowed in an L1 HTLC (see the contract's
     # WHERE THE MONEY SITS). `value` stays a parameter only so the guard battery can prove that.
     call(who, "post", [o, kind, amt(o), "btc", f"0.00{o}", f"bc1qmaker{o}", hsha(o),
-                       *O.vm_hashlock_parts(secret(o)), expn, fdl(expn)], value)
+                       *O.vm_hashlock_parts(secret(o)), expn, fdl(expn, kind)], value)
 
 supply0 = sum(st.bridge.values())
 
@@ -122,6 +124,12 @@ ok(refused(R, "bind", [2, "l1:htlc:2"]), "a stranger cannot bind the L1 HTLC")
 call(A, "bind", [2, "l1:htlc:2"])
 ok(rd(O.HID, 2) == zkvm_addr_digest("l1:htlc:2"), "the L1 HTLC carrying the NADO leg is recorded")
 ok(refused(C, "bind", [2, "l1:other"]), "the binding is recorded once")
+# §6.3 is KIND-DEPENDENT: the leg the secret-holder (always the maker) funds must outlast the one they claim
+ask_bad = [7, O.ASK, amt(7), "btc", "x", "y", hsha(7), *P8(), EXPN, fdl(EXPN, O.BID)]
+ok(refused(A, "post", ask_bad), "ASK with the foreign deadline PAST the NADO window refused (maker could reclaim NADO and still claim)")
+bid_bad = [7, O.BID, amt(7), "btc", "x", "y", hsha(7), *P8(), EXPN, fdl(EXPN, O.ASK)]
+ok(refused(A, "post", bid_bad), "BID with the foreign deadline INSIDE the NADO window refused (maker could reclaim foreign and still claim NADO)")
+ok(refused(A, "fill", [2, "bc1qself", "btc:self"]) , "a maker cannot fill their own order")
 ok(refused(R, "fill", [2, "bc1qother", "btc:lock:x"]), "second fill refused")
 ok(refused(A, "cancel", [2]), "cancel after fill refused")
 L2 = O.preimage_limbs(secret(2))
@@ -136,11 +144,19 @@ post(6, O.ASK)
 ok(refused(R, "settle", [6] + O.preimage_limbs(secret(6))), "settle of an unfilled order refused")
 ok(refused(A, "bind", [6, "l1:x"]), "bind before a fill refused")
 
+post(8, O.ASK, expn=st.cursor + 400)
+st.cursor = st.cursor + 400 - O.HTLC_MIN_TIMELOCK + 1
+ok(refused(C, "fill", [8, "bc1qlate", "btc:late"]), "a fill with no room left for the NADO lock refused")
+st.cursor = 100
+
 # ---- D. BID is symmetric ---------------------------------------------------------------------------
 post(3, O.BID)
 ok(rd(O.ESC, 3) == 0 and rd(O.ST, 3) == O.OPEN, "bid posts with no escrow")
 ok(refused(C, "fill", [3, "bc1qtaker3", "btc:lock:3"], amt(3)), "a BID fill that sends VALUE is refused")
 call(C, "fill", [3, "bc1qtaker3", "btc:lock:3"])
+ok(refused(A, "bind", [3, "l1:htlc:3"]), "BID: the maker does not owe the NADO leg, so cannot bind it")
+call(C, "bind", [3, "l1:htlc:3"])
+ok(rd(O.HID, 3) == zkvm_addr_digest("l1:htlc:3"), "BID: the taker records the L1 HTLC they funded")
 ok(rd(O.ST, 3) == O.FILLED and st.bridge.get(cid, 0) == 0, "bid fill escrows nothing here")
 call(A, "settle", [3] + O.preimage_limbs(secret(3)))
 ok(rd(O.ST, 3) == O.SETTLED, "bid closes on the preimage")
@@ -277,8 +293,8 @@ call(C, "fill", [31, "bc1qt31", "btc:lock:31"])
 st.cursor = EXPIRED
 ab, cb = st.bridge[A], st.bridge[C]
 call(R, "expire", [31])
-ok(st.bridge[C] == cb + 10 ** 9, "WALK: the maker's collateral is forfeited to the TAKER")
-ok(st.bridge[A] == ab, "the maker gets nothing else back — their principal was never here")
+ok(st.bridge[A] == ab + 10 ** 9 and st.bridge[C] == cb, "expiry while FILLED returns the collateral to the MAKER — "
+   "the contract cannot see the foreign chain, so a forfeit to the taker would pay a taker who filled and did nothing")
 st.cursor = 100
 # never filled -> the collateral comes home, by cancel and by expiry
 post(32, O.BID)

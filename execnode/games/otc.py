@@ -171,10 +171,22 @@ def build():
             m.require(m.arg(7 + _i * 2) * (1 << 32) + m.arg(8 + _i * 2) != 0)
         m.require(m.cursor() + HTLC_MIN_TIMELOCK < m.arg(15) + 1)         # expn >= cursor + MIN
         m.require(m.arg(15) < m.cursor() + (HTLC_MAX_TIMELOCK + 1))       # expn <= cursor + MAX
-        # §6.3 IN-CIRCUIT: the foreign deadline must sit inside the NADO window with room on both sides.
+        # §6.3 IN-CIRCUIT, and it depends on WHO HOLDS THE SECRET. The maker generates it for both kinds.
+        # The leg the secret-holder CLAIMS must expire first, so the counterparty still has time to use the
+        # revealed secret on the other leg; the leg the secret-holder FUNDS must therefore last longer.
+        #   ASK: maker funds NADO (expn), claims the foreign leg (expf)  =>  expf + margin < expn
+        #   BID: maker funds the foreign leg (expf), claims NADO (expn)  =>  expn + margin < expf
+        # An earlier version applied the ASK inequality to both: a BID maker could refund the foreign leg
+        # at expf and still claim the taker's NADO before expn — both sides, no secret ever at risk.
         m.require(m.time() + FOREIGN_MIN_S < m.arg(16))                   # far enough out to be fundable
+        m.jnz(m.arg(1) == BID, "bid")
         m.require(m.arg(16) + FOREIGN_MARGIN_S
-                  < m.time() + (m.arg(15) - m.cursor()) * BLOCK_SECS)     # ... and safely before expn
+                  < m.time() + (m.arg(15) - m.cursor()) * BLOCK_SECS)     # ASK: foreign safely before expn
+        m.jmp("ordered")
+        m.label("bid")
+        m.require(m.time() + (m.arg(15) - m.cursor()) * BLOCK_SECS + FOREIGN_MARGIN_S
+                  < m.arg(16))                                            # BID: NADO safely before foreign
+        m.label("ordered")
         # NO PRINCIPAL HERE. The NADO leg is escrowed in an L1 HTLC under the same SHA-256 hashlock as the
         # foreign leg (see WHERE THE MONEY SITS). `namt` is the advertised amount, not an escrow.
         m.require(m.value() == 0)
@@ -237,10 +249,21 @@ def build():
         # 0-value fill() could flip an intra order to FILLED and freeze its escrow until expiry.
         m.require((m.slot(KIND, o).get() - ASK) * (m.slot(KIND, o).get() - BID) == 0)
         m.require(m.cursor() < m.slot(EXPN, o).get())           # a fill can never race the refund window
-        # §6.3 again at FILL: the NADO window shrinks in real time while the foreign deadline stays put,
-        # so an order that was safe to post can become unsafe to fill. The taker is the one who loses.
+        # the NADO leg is locked AFTER the fill with expiry expn, so there must still be room for a lock
+        m.require(m.cursor() + HTLC_MIN_TIMELOCK < m.slot(EXPN, o).get() + 1)
+        m.require(m.slot(MAKER, o).get() != m.caller())         # self-fill would farm third-party bounties
+        # §6.3 again at FILL, in the same kind-dependent direction as post: the NADO window shrinks in
+        # real time while the foreign deadline stays put, so an ASK that was safe to post can become
+        # unsafe to fill (the taker is the one who loses). A BID's inequality only gets looser with time,
+        # but stating it here keeps one rule in one shape.
+        m.jnz(m.slot(KIND, o).get() == BID, "bid")
         m.require(m.slot(EXPF, o).get() + FOREIGN_MARGIN_S
                   < m.time() + (m.slot(EXPN, o).get() - m.cursor()) * BLOCK_SECS)
+        m.jmp("ordered")
+        m.label("bid")
+        m.require(m.time() + (m.slot(EXPN, o).get() - m.cursor()) * BLOCK_SECS + FOREIGN_MARGIN_S
+                  < m.slot(EXPF, o).get())
+        m.label("ordered")
         m.require(m.in_asset() == 0)
         m.require(m.arg(1) != 0)                                # taker's foreign receiving address
         m.require(m.arg(2) != 0)                                # foreign HTLC txid/outpoint
@@ -251,13 +274,11 @@ def build():
         m.slot(ST, o).set(m.const(FILLED))
         m.ret(o)
 
-    # set_premium(o) [VALUE = the maker's collateral] — maker only, while open: price the FREE OPTION
-    # (§9.1). The MAKER posts it, because the maker generates the secret and is therefore the party who
-    # can walk away after seeing the price move; completing (settle) or never being filled (cancel /
-    # expire-while-open) returns it, and a walk — expire AFTER a fill — forfeits it to the taker. An
-    # earlier version had the taker post it and the maker collect on a walk, which paid the walker: an
-    # audit proved a maker could farm takers' deposits risk-free by simply never revealing the secret.
-    # HTLC kinds only — an intra swap settles in one call, so it has no window and no option.
+    # set_premium(o) [VALUE = the maker's collateral] — maker only, while open. A self-escrowed deposit that
+    # comes back on every terminal state (settle, cancel, expire). It is a SIGNAL of commitment, nothing
+    # more: this contract cannot observe the foreign chain, so it can never judge who walked, and any rule
+    # that forfeited it to the taker was a bounty for filling and doing nothing (see expire). Kept so
+    # existing orders drain cleanly; the dApp no longer offers it.
     with c.method("set_premium") as m:
         o = m.arg(0)
         m.require(o > 0)
@@ -298,7 +319,10 @@ def build():
         m.require(o < ID_MAX)
         m.require(m.slot(MK, o).get() == 1)
         m.require(m.slot(ST, o).get() == FILLED)
-        m.require((m.slot(MAKER, o).get() - m.caller()) * (m.slot(TAKER, o).get() - m.caller()) == 0)
+        # only the party who OWES the NADO leg may record it (ASK: maker, BID: taker). Set-once by either
+        # party let the counterparty squat the slot with garbage and strand the real lock unrecorded.
+        m.require(zkpy.select(m.slot(KIND, o).get() == ASK, m.slot(MAKER, o).get(), m.slot(TAKER, o).get())
+                  == m.caller())
         m.require(m.in_asset() == 0)
         m.require(m.value() == 0)
         m.require(m.arg(1) != 0)
@@ -342,7 +366,7 @@ def build():
         m.jnz(b == 0, "bdone")
         m.pay(m.caller(), b)
         m.label("bdone")
-        m.ret(esc)
+        m.ret(o)                                                # (`esc` here would be another method's register)
 
     # post_intra(o, giveAsset, giveAmt, wantAsset, wantAmt, expn) [VALUE = giveAmt of giveAsset]
     # SWAP_INTRA (§7): both sides live on NADO's exec layer, so atomicity is free — no hashlock, no
@@ -409,7 +433,7 @@ def build():
         m.jnz(b == 0, "bdone")
         m.pay(m.caller(), b)
         m.label("bdone")
-        m.ret(m.slot(HID, o).get())
+        m.ret(o)                                                # HID is always 0 for an intra order
 
     # expire(o) — anyone, at/after expn. The no-authority safety valve: a stuck order always drains back to
     # whoever funded its escrow (ASK -> maker, filled BID -> taker), callable by anybody, never trapped.
@@ -421,9 +445,14 @@ def build():
         st = m.set(m.slot(ST, o).get(), "st")
         m.require((st - OPEN) * (st - FILLED) == 0)
         m.require(m.slot(EXPN, o).get() < m.cursor() + 1)       # cursor >= expn
-        m.jnz(m.slot(PHELD, o).get() == 0, "pskip")             # collateral: a WALK (expired while filled)
-        m.pay(zkpy.select(st == FILLED, m.slot(TAKER, o).get(), m.slot(MAKER, o).get()),
-              m.slot(PHELD, o).get())                           # pays the taker; unfilled returns it home
+        # The collateral goes HOME, filled or not. It used to forfeit to the taker when an order expired
+        # filled ("the maker walked") — but this contract cannot see the foreign chain, so it cannot tell
+        # a walking maker from a taker who filled and never performed. A fill costs nothing, so that
+        # forfeit was free money for any taker, and the maker's only escape (settle) revealed the secret
+        # while the L1 lock was still claimable. A deposit judged on a fact nobody here can observe is
+        # not a deposit; it is a bounty for griefing.
+        m.jnz(m.slot(PHELD, o).get() == 0, "pskip")
+        m.pay(m.slot(MAKER, o).get(), m.slot(PHELD, o).get())
         m.label("pskip")
         m.slot(PHELD, o).set(m.const(0))
         esc = m.set(m.slot(ESC, o).get(), "esc")                # only a SWAP_INTRA order escrows here
