@@ -148,6 +148,15 @@ def main():
     bad, _ = send([ix_fund(alice.pubkey(), near, H, bob.pubkey(), now + 60, amount)], [alice])
     ok(not bad, "11. a deadline inside the minimum window is refused")
 
+    # --- a stranger pre-dusting the predictable escrow address must NOT block the swap ---
+    from solders.system_program import transfer, TransferParams
+    l3, _ = pda(H, bob.pubkey(), alice.pubkey(), deadline, amount + 1)
+    good, _ = send([transfer(TransferParams(from_pubkey=carol.pubkey(), to_pubkey=l3, lamports=1_000_000))], [carol])
+    ok(good and balance(l3) == 1_000_000, "12. a stranger dusted the escrow address before it was funded")
+    good, err = send([ix_fund(alice.pubkey(), l3, H, bob.pubkey(), deadline, amount + 1)], [alice])
+    ok(good, f"    ...and the funder can still lock into it {'' if good else err}")
+    ok(balance(l3) >= amount + 1 + 1_000_000, "    ...the dust just joined the escrow")
+
     print(f"\n[solana-htlc] {passed} passed, {failed} failed", flush=True)
     return 1 if failed else 0
 

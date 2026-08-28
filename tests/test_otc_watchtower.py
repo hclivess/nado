@@ -85,6 +85,23 @@ calls.clear()
 W.sol_claim_secrets("http://rpc", "PROG", [(1, H)], st)
 ok(calls[0][1][1].get("until") == "SIGNEW", "solana scan: that cursor is actually sent as `until`")
 ok(not any(c[1][0] == "SIGBAD" for c in calls if c[0] == "getTransaction"), "solana scan: a failed transaction is never read")
+
+# A busy program: 200 rows fill the first page; the claim we want is on the SECOND page.
+def paged_rpc(url, method, params):
+    calls.append((method, params))
+    if method == "getSignaturesForAddress":
+        if params[1].get("before") == "S199":
+            return [{"signature": "SDEEP", "err": None}]
+        return [{"signature": f"S{i}", "err": None} for i in range(200)]
+    return {"transaction": {"message": {"instructions": [
+        {"data": claim_data if params[0] == "SDEEP" else b58(bytes([2]))}]}}}
+
+
+W._sol_rpc = paged_rpc
+calls.clear(); st = {}
+got = W.sol_claim_secrets("http://rpc", "PROG", [(1, H)], st)
+ok(got == {1: s}, "solana scan: a claim beyond the first page of signatures is still found")
+ok(st.get("sol_until") == "S0", "solana scan: the cursor is the newest row of the FIRST page")
 W._sol_rpc = real_rpc
 
 print(f"\n[tower] {passed} passed, {failed} failed")

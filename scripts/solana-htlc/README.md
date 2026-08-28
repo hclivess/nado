@@ -52,3 +52,10 @@ a 74 KB program plus fees; the deployer is `private/sol_deployer.json`.
         -k private/sol_deployer.json --program-id private/sol_program.json
 
 Then fill the id into `NETS.sold.program` in `static/dex.js` and pass `--sol-program` to the watchtower.
+
+## Pre-dusting the escrow address cannot block a swap
+
+The escrow address is predictable from the order's public terms, and `create_account` refuses an address
+that already holds lamports — so a stranger could have blocked any swap for ~0.001 SOL. `fund` therefore
+tops the balance up, then `allocate`s and `assign`s under the PDA's signature; whatever was dropped in
+beforehand simply joins the escrow (test 12 in `tests/test_solana_htlc.py`).

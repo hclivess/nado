@@ -599,7 +599,7 @@ function ethCliHint(od) {
 // fee: the browser path uses the visitor's own wallet (as the Ethereum leg uses MetaMask) and falls back
 // to the headless CLI on the row when no wallet is installed.
 let SOL = null;
-const solMod = async () => (SOL || (SOL = await import("./solsign.js?v=1")));
+const solMod = async () => (SOL || (SOL = await import("./solsign.js?v=2")));
 const solProgramOf = (od) => (netOf(od) || {}).program || "";
 const solRpcOf = (od) => (netOf(od) || {}).rpc || "";
 const isB58Addr = (a) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a || "");

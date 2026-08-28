@@ -226,9 +226,10 @@ export async function solWalletSend(url, provider, payer, ixs) {
   if (provider.request) {
     const r = await provider.request({ method: "signAndSendTransaction", params: { message: b58encode(message) } });
     sig = r && (r.signature || r);
-  } else if (provider.signAndSendTransaction) {
-    const r = await provider.signAndSendTransaction({ serializeMessage: () => message, message });
-    sig = r && (r.signature || r);
-  } else throw new Error("this wallet cannot send transactions");
+  } else {
+    // Other providers' signAndSendTransaction wants a web3.js Transaction object, which this page does not
+    // bundle — be honest about it rather than hand them something shaped like one.
+    throw new Error("this wallet has no low-level request API — use Phantom, or the CLI shown on the row");
+  }
   return String(sig);
 }

@@ -136,24 +136,33 @@ def sol_claim_secrets(rpc, program, watches, state):
     signature seen so a later pass only reads what is new."""
     found, newest = {}, None
     want = {bytes.fromhex(H): o for o, H in watches}
-    params = {"limit": 200, "commitment": "confirmed"}
-    if state.get("sol_until"):
-        params["until"] = state["sol_until"]
-    sigs = _sol_rpc(rpc, "getSignaturesForAddress", [program, params]) or []
-    for i, row in enumerate(sigs):
-        if i == 0:
-            newest = row.get("signature")
-        if row.get("err"):
-            continue
-        tx = _sol_rpc(rpc, "getTransaction", [row["signature"],
-                      {"encoding": "json", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}])
-        for ix in ((tx or {}).get("transaction", {}).get("message", {}) or {}).get("instructions", []) or []:
-            d = _b58decode(ix.get("data") or "")
-            if len(d) != 33 or d[0] != 1:
+    # Pages are newest-first and capped, so walk them with `before` until the page runs short — stopping
+    # at the first page and remembering its top row would silently skip everything under the cap.
+    before = None
+    while True:
+        params = {"limit": 200, "commitment": "confirmed"}
+        if state.get("sol_until"):
+            params["until"] = state["sol_until"]
+        if before:
+            params["before"] = before
+        sigs = _sol_rpc(rpc, "getSignaturesForAddress", [program, params]) or []
+        for row in sigs:
+            if newest is None:
+                newest = row.get("signature")
+            if row.get("err"):
                 continue
-            h = hashlib.sha256(d[1:]).digest()
-            if h in want:
-                found[want[h]] = d[1:].hex()
+            tx = _sol_rpc(rpc, "getTransaction", [row["signature"],
+                          {"encoding": "json", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}])
+            for ix in ((tx or {}).get("transaction", {}).get("message", {}) or {}).get("instructions", []) or []:
+                d = _b58decode(ix.get("data") or "")
+                if len(d) != 33 or d[0] != 1:
+                    continue
+                h = hashlib.sha256(d[1:]).digest()
+                if h in want:
+                    found[want[h]] = d[1:].hex()
+        if len(sigs) < params["limit"]:
+            break
+        before = sigs[-1]["signature"]
     if newest:
         state["sol_until"] = newest
     return found

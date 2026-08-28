@@ -25,7 +25,7 @@ use solana_program::{
     entrypoint::ProgramResult,
     hash::hashv,
     msg,
-    program::invoke_signed,
+    program::{invoke, invoke_signed},
     program_error::ProgramError,
     pubkey::Pubkey,
     rent::Rent,
@@ -140,13 +140,31 @@ fn fund(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
     }
 
     // The escrow is the account's own lamports: rent for the record, plus the swap amount on top.
+    //
+    // NOT `create_account`: that refuses an address that already holds lamports, and this address is
+    // predictable from the order's public terms. A stranger could send it the rent minimum (~0.001 SOL)
+    // and block the swap forever. So: top the balance up to what is needed, then allocate and assign —
+    // the same three steps, each of which tolerates lamports being there already. Whatever a stranger
+    // dropped in simply becomes part of the escrow and goes to whoever the lock pays out to.
     let rent = Rent::get()?.minimum_balance(LOCK_LEN);
     let lamports = rent.checked_add(amount).ok_or(ProgramError::ArithmeticOverflow)?;
     let bump_arr = [bump];
     let signer: [&[u8]; 7] = [seeds[0], seeds[1], seeds[2], seeds[3], seeds[4], seeds[5], &bump_arr];
+    let have = lock_ai.lamports();
+    if have < lamports {
+        invoke(
+            &system_instruction::transfer(refunder.key, lock_ai.key, lamports - have),
+            &[refunder.clone(), lock_ai.clone(), system.clone()],
+        )?;
+    }
     invoke_signed(
-        &system_instruction::create_account(refunder.key, lock_ai.key, lamports, LOCK_LEN as u64, program_id),
-        &[refunder.clone(), lock_ai.clone(), system.clone()],
+        &system_instruction::allocate(lock_ai.key, LOCK_LEN as u64),
+        &[lock_ai.clone(), system.clone()],
+        &[&signer],
+    )?;
+    invoke_signed(
+        &system_instruction::assign(lock_ai.key, program_id),
+        &[lock_ai.clone(), system.clone()],
         &[&signer],
     )?;
     Lock { hashlock, claimant, refunder: *refunder.key, deadline, amount }
