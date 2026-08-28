@@ -17,7 +17,7 @@ import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, 
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=8a2ced0e";
+         blocksToTime } from "./nadodapp.js?v=13c995a7";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -105,7 +105,10 @@ function tokenUnits(assetId) {                        // your balance of the poo
   if (!dapp.me || !m || m.bal == null) return null;
   try { return BigInt(m.bal) / UNIT; } catch (e) { return null; }
 }
-const midPrice = (p) => (p.rn > 0n ? Number(p.rt) / Number(p.rn) : 0);   // display only, never minOut
+// Price = tokens per NADO in the token's OWN decimals. The pool counts both sides in UNIT-sized steps, so
+// the unit ratio rt/rn must be scaled by 10^(10-dec) — a 0-decimal token's pool unit is 10^10 tokens.
+const pScale = (assetId) => 10 ** (10 - tokDec(assetId));
+const midPrice = (p) => (p.rn > 0n ? Number(p.rt) / Number(p.rn) * pScale(p.asset) : 0);   // display only, never minOut
 
 // ---- rendering ---------------------------------------------------------------------------------------
 function renderPools() {
@@ -126,7 +129,7 @@ function renderPools() {
     const cls = st ? (Math.abs(st.pct) < 0.005 ? "" : st.pct > 0 ? "up" : "dn") : "";
     return `<div class="poolrow${on}" data-pool="${p.id}" style="cursor:pointer">
       <div><b>${esc(sym)} / NADO</b><div class="small dim">${live ? fromUnits(p.rn) + " NADO liquidity" : "empty — needs liquidity"}</div></div>
-      <div class="num">${live ? fmtPrice(price) + " " + esc(sym) : "—"}</div>
+      <div class="num">${live ? fmtShort(price) + " " + esc(sym) : "—"}</div>
       <div class="chgc ${cls}">${chg}</div>
     </div>`;
   }).join("");
@@ -176,7 +179,8 @@ function renderSwap() {
   const paySym = dir === "n2t" ? "NADO" : sym, getSym = dir === "n2t" ? sym : "NADO";
   const setTxt = (id, v) => { const e = $(id); if (e) e.textContent = v; };
   setTxt("paySym", paySym); setTxt("getSym", getSym);
-  const execRate = inU > 0n && out > 0n ? Number(out) / Number(inU) : (dir === "n2t" ? midPrice(p) : (midPrice(p) ? 1 / midPrice(p) : 0));
+  const unitRate = inU > 0n && out > 0n ? Number(out) / Number(inU) : 0;
+  const execRate = unitRate ? (dir === "n2t" ? unitRate * pScale(p.asset) : unitRate / pScale(p.asset)) : (dir === "n2t" ? midPrice(p) : (midPrice(p) ? 1 / midPrice(p) : 0));
   setTxt("sumRate", execRate ? `1 ${paySym} ≈ ${fmtPrice(execRate)} ${getSym}` : "—");
   const spot = dir === "n2t" ? midPrice(p) : (midPrice(p) ? 1 / midPrice(p) : 0);
   const impact = spot > 0 && execRate > 0 ? (1 - execRate / spot) * 100 : 0;
@@ -206,6 +210,7 @@ function fillAssetPicker(el, { withNado = true, keepValue = true, search = "" } 
   if (prev && [...el.options].some((o) => o.value === prev)) el.value = prev;
 }
 function doRender() {
+  const wc = $("walletcard"); if (wc) wc.classList.toggle("signed", !!dapp.me);
   renderWallet(dapp);                                 // who you are + both balances; without this a
                                                       // completed sign-in never showed up on the page
   fillAssetPicker($("newAsset"), { withNado: false });
@@ -738,6 +743,7 @@ function renderXMarket() {
     ["Your orders", String(mine)],
   ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
   const cap = $("depthCap"); if (cap) cap.textContent = "Live order book — how much is offered at each price:";
+  const mc = $("mktCap"); if (mc) mc.textContent = "Prices come from open orders on this book. Nothing is back-filled — a gap means nothing was offered.";
   renderChart(XKEY(xsel), "NADO", `1 ${net.coin} =`);
   renderBookDepth(b, net.coin);
   syncUrl(false);
@@ -1345,7 +1351,7 @@ function samplePrices(sto) {
   for (const id of poolIds(sto)) {
     const p = poolOf(sto, id);
     if (p.rn <= 0n || p.rt <= 0n || p.sup <= 0n) continue;
-    const price = Number(p.rt) / Number(p.rn);
+    const price = Number(p.rt) / Number(p.rn);         // stored in pool units (the server sampler does the same); scaled on read
     const arr = store[id] || (store[id] = []);
     const last = arr[arr.length - 1];
     if (!last || last[1] !== price || now - last[0] > 30000) {       // on a move, or a 30s heartbeat
@@ -1359,10 +1365,11 @@ function priceSeriesAll(id) {                          // the merged series, ign
   const shared = (sharedPrices[id] || []).map((x) => [x[0] * 1000, x[1]]);
   const local = priceStore()[id] || [];
   const seen = new Set(), all = [];
+  const sc = lastSto && /^\d+$/.test(String(id)) ? pScale(poolOf(lastSto, id).asset) : 1;   // pool series: units -> the token's decimals
   for (const pt of shared.concat(local).sort((a, b) => a[0] - b[0])) {
     const k = Math.round(pt[0] / 1000);
     if (seen.has(k)) continue;
-    seen.add(k); all.push(pt);
+    seen.add(k); all.push([pt[0], pt[1] * sc]);
   }
   return all;
 }
@@ -1377,7 +1384,11 @@ function stats24(id, priceNow) {
   const first = pts[0], hi = Math.max(...pts, priceNow || -Infinity), lo = Math.min(...pts, priceNow || Infinity);
   return { first, hi, lo, pct: first > 0 ? ((priceNow || pts[pts.length - 1]) - first) / first * 100 : 0 };
 }
-const fmtPrice = (v) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4);
+const group = (s) => String(s).replace(/^(-?)(\d+)/, (m, sg, d) => sg + d.replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+// Compact for tight cells (axis labels, stat tiles): 668.27B reads; 668,269,230,769.23 does not fit.
+const fmtShort = (v) => { const a = Math.abs(v); if (!(a >= 1e5)) return fmtPrice(v);
+  const u = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]].find(([k]) => a >= k); return (v / u[0]).toFixed(2) + u[1]; };
+const fmtPrice = (v) => v > 0 && v < 1e-6 ? "< 0.000001" : group(v >= 1e15 ? v.toExponential(3) : v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4));
 const fmtAgo = (ts) => { const s = Math.max(0, (Date.now() - ts) / 1000); return s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : s < 172800 ? Math.round(s / 3600) + "h ago" : Math.round(s / 86400) + "d ago"; };
 
 function renderMarket() {
@@ -1407,10 +1418,11 @@ function renderMarket() {
   if (!sel || !lastSto) return;
   const p = poolOf(lastSto, sel);
   const live = p.rn > 0n && p.rt > 0n && p.sup > 0n;
-  const price = live ? Number(p.rt) / Number(p.rn) : 0;
+  const price = live ? midPrice(p) : 0;               // in the token's own decimals, like every other figure
   const sym = tokSym(p.asset);
   $("mktPair").textContent = `${sym} / NADO`;
-  $("mktPrice").textContent = live ? fmtPrice(price) : "—";
+  $("mktPrice").textContent = live ? fmtShort(price) : "—";
+  $("mktPrice").title = live ? fmtPrice(price) + " " + sym + " per NADO" : "";
   // 24h change (or first point in range) from the observed series
   const st24 = live ? stats24(p.id, price) : null;
   const chgEl = $("mktChg");
@@ -1422,17 +1434,18 @@ function renderMarket() {
   // stats
   const tvlNado = live ? fromUnits(p.rn * 2n) : "0";       // NADO-side ×2 ≈ total value in NADO
   $("mktStats").innerHTML = [
-    ["1 NADO buys", live ? fmtPrice(price) + " " + esc(sym) : "—"],
-    [`1 ${esc(sym)} buys`, live ? fmtPrice(1 / price) + " NADO" : "—"],
-    ["24h high", st24 ? fmtPrice(st24.hi) : "—"],
-    ["24h low", st24 ? fmtPrice(st24.lo) : "—"],
-    ["NADO in pool", fromUnits(p.rn)],
-    [esc(sym) + " in pool", tokFromUnits(p.rt, p.asset)],
+    ["1 NADO buys", live ? fmtShort(price) + " " + esc(sym) : "—"],
+    [`1 ${esc(sym)} buys`, live ? fmtShort(1 / price) + " NADO" : "—"],
+    ["24h high", st24 ? fmtShort(st24.hi) : "—"],
+    ["24h low", st24 ? fmtShort(st24.lo) : "—"],
+    ["NADO in pool", group(fromUnits(p.rn))],
+    [esc(sym) + " in pool", fmtShort(Number(tokFromUnits(p.rt, p.asset)))],
     ["Pool value", "≈ " + tvlNado + " NADO"],
     ["LP shares", p.sup.toString()],
     ["Swap fee", "0.30%"],
   ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
   const cap = $("depthCap"); if (cap) cap.textContent = "How much the rate moves as your trade gets bigger:";
+  const mc = $("mktCap"); if (mc) mc.textContent = "Live price, straight from the pool. Nothing is back-filled — a gap means no trading happened.";
   renderChart(p.id, sym);
   renderDepth(p, price);
   syncUrl(false);
@@ -1445,6 +1458,7 @@ function renderChart(key, sym, unit) {
   _ttSym = sym; _ttUnit = unit || "";
   const svg = $("mktChart"), empty = $("mktEmpty");
   const data = priceSeries(key);
+  svg.parentElement.classList.toggle("empty", data.length < 2);
   if (data.length < 2) {
     svg.innerHTML = "";
     empty.classList.remove("hidden");
@@ -1455,7 +1469,9 @@ function renderChart(key, sym, unit) {
   const t0 = data[0][0], t1 = data[data.length - 1][0], span = Math.max(1, t1 - t0);
   let lo = Infinity, hi = -Infinity;
   for (const d of data) { lo = Math.min(lo, d[1]); hi = Math.max(hi, d[1]); }
-  const pad = (hi - lo) * 0.08 || hi * 0.02 || 1; lo -= pad; hi += pad;
+  // Floor the range at 0.5% of the price: a series that only differs by float noise (the sampler rounds
+  // to 10 digits, the browser does not) must draw flat, not as a cliff stretched to full height.
+  const pad = Math.max((hi - lo) * 0.08, hi * 0.005, 1e-12); lo -= pad; hi += pad;
   const X = (t) => CML + (t - t0) / span * (CW - CML - CMR);
   const Y = (v) => CMT + (1 - (v - lo) / (hi - lo || 1)) * (CH - CMT - CMB);
   _mktPts = data.map((d) => [X(d[0]), Y(d[1]), d[0], d[1]]);
@@ -1468,7 +1484,7 @@ function renderChart(key, sym, unit) {
   for (let i = 0; i <= 4; i++) {
     const gy = CMT + i / 4 * (CH - CMT - CMB), gv = hi - i / 4 * (hi - lo);
     grid += `<line x1="${CML}" y1="${gy.toFixed(1)}" x2="${CW - CMR}" y2="${gy.toFixed(1)}" stroke="var(--border)" stroke-width="1" opacity="0.5"/>`;
-    grid += `<text x="${CW - CMR + 6}" y="${(gy + 3.5).toFixed(1)}" fill="var(--faint)" font-size="10" font-family="ui-monospace,monospace">${fmtPrice(gv)}</text>`;
+    grid += `<text x="${CW - CMR + 6}" y="${(gy + 3.5).toFixed(1)}" fill="var(--faint)" font-size="10" font-family="ui-monospace,monospace">${fmtShort(gv)}</text>`;
   }
   const tlab = (t, anchor, x) => `<text x="${x}" y="${CH - 6}" fill="var(--faint)" font-size="10" text-anchor="${anchor}" font-family="ui-monospace,monospace">${fmtAgo(t)}</text>`;
   svg.setAttribute("viewBox", `0 0 ${CW} ${CH}`);
@@ -1509,12 +1525,12 @@ const DW = 600, DH = 110;
 function renderDepth(p, price) {
   const svg = $("mktDepth");
   if (!(p.rn > 0n && p.rt > 0n) || !price) { svg.innerHTML = ""; return; }
-  const RN = Number(p.rn), RT = Number(p.rt), F = 0.997, N = 40, maxFrac = 0.35;
-  const buy = [], sell = [];                          // [sizeFrac, execPrice(TKN/NADO)]
+  const RN = Number(p.rn), RT = Number(p.rt), F = 0.997, N = 40, maxFrac = 0.35, sc = pScale(p.asset);
+  const buy = [], sell = [];                          // [sizeFrac, execPrice(TKN/NADO)] in the token's decimals
   for (let i = 1; i <= N; i++) {
     const f = i / N * maxFrac;
-    const dxn = RN * f, outT = RT * (dxn * F) / (RN + dxn * F); buy.push([f, outT / dxn]);
-    const dxt = RT * f, outN = RN * (dxt * F) / (RT + dxt * F); sell.push([f, dxt / outN]);
+    const dxn = RN * f, outT = RT * (dxn * F) / (RN + dxn * F); buy.push([f, outT / dxn * sc]);
+    const dxt = RT * f, outN = RN * (dxt * F) / (RT + dxt * F); sell.push([f, dxt / outN * sc]);
   }
   let lo = price, hi = price;
   for (const a of buy.concat(sell)) { lo = Math.min(lo, a[1]); hi = Math.max(hi, a[1]); }
@@ -1665,12 +1681,17 @@ async function boot() {
     alertBar("Crypto bundle failed to load — reload.");
     return;
   }
-  wireUI(); loadQR(); orderCards(["tradeRow", "liqCard", "poolsCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
+  wireUI(); loadQR();
+  // blocks -> a duration a person can read, live under both expiry fields
+  const human = (id, out) => { const el = $(id), o = $(out); if (!el || !o) return;
+    const f = () => { const b = Math.floor(Number(el.value || 0)); o.textContent = b > 0 ? "≈ " + blocksToTime(b) : ""; };
+    el.oninput = f; f(); };
+  human("otcExpiry", "otcExpiryHuman"); human("limExpiry", "limExpiryHuman"); orderCards(["tradeRow", "liqCard", "poolsCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
   window.addEventListener("popstate", () => { wantMarket = null; readUrl(); render(); });
   const modes = installModes(dapp, { modes: [
-    { key: "swap", icon: "🔄", label: "Swap", hint: "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools.",
+    { key: "swap", icon: "", label: "Swap", hint: "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools.",
       cards: ["marketCard", "swapCard", "liqCard", "poolsCard", "otcLimitCard", "openCard"] },
-    { key: "cross", icon: "🌉", label: "Cross-chain", hint: "Atomic BTC/ETH ↔ NADO swaps — no custodian, no wrapped coins.",
+    { key: "cross", icon: "", label: "Cross-chain", hint: "Atomic BTC / ETH / SOL ↔ NADO swaps — no custodian, no wrapped coins.",
       cards: ["marketCard", "otcBookCard", "otcPostCard", "otcMyCard"] },
   ], onChange: (k) => { curMode = k; syncUrl(true); } });
   curMode = modes.get();                                 // the SDK restores a remembered mode when the URL names none

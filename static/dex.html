@@ -144,6 +144,26 @@
   .loanacts button{padding:8px 12px;font-size:12.5px;white-space:nowrap}
   .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid var(--border);background:var(--elev2);color:var(--dim)}
   .pill.warn{border-color:var(--warn);color:var(--warn);background:rgba(227,179,65,.12)}
+  /* one short lead line stays visible; the explanation opens on demand */
+  details.more{margin:0 0 4px}
+  details.more summary{cursor:pointer;list-style:none;color:var(--accent2);font-size:12px;font-weight:600;display:inline-block;padding:2px 0}
+  details.more summary::-webkit-details-marker{display:none}
+  details.more summary::after{content:" ›";color:var(--faint)}
+  details.more[open] summary::after{content:" ‹"}
+  details.more p{margin:6px 0 0}
+  .lead{margin:0 0 6px}
+  header h1{white-space:nowrap}
+  :is(button,a,input,select,summary):focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
+  .chartwrap.empty{height:96px}
+  .modehint{margin-top:-4px}
+  .hint{font-size:12px;color:var(--dim);margin-top:5px}
+  #walletcard:not(.signed) .needsig{display:none}
+  @media (max-width:620px){
+    .row:has(> button){flex-direction:column}
+    .row:has(> button)>*{flex:1 1 auto!important;width:100%}
+    .amtbox .row,.mkt{flex-direction:row}
+    header .hub{padding:6px 10px}
+  }
 </style>
 <style>
   .poolrow{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 12px;
@@ -160,31 +180,31 @@
       <path d="M8 18h22l-6-6 4-4 13 13-13 13-4-4 6-6H8z" fill="#00c9a7"/>
       <path d="M40 30H18l6 6-4 4L7 27 20 14l4 4-6 6h22z" fill="#00ad93" opacity=".75"/></svg></span>
     <h1>NADO <span class="a">DEX</span></h1>
-    <a class="hub" href="https://nadochain.com/apps">🎮 All apps</a>
+    <a class="hub" href="https://nadochain.com/apps">All apps</a>
   </header>
-  <p class="sub">Trade NADO for any token, or swap it for <b>real BTC and ETH</b> with no middleman.
-  Prices come from the pool itself, so there is <b>no listing process, no admin key and nobody taking a
-  cut</b> — the 0.3% trading fee goes to the people who supplied the liquidity. Nobody can freeze your
-  funds or seize a pool, and nothing here can print new coins.</p>
+  <p class="sub">Swap NADO for tokens, or for <b>real BTC, ETH and SOL</b> — no middleman, no listing, no
+  admin key. The 0.3% fee goes to the people who supply the liquidity.</p>
 
   <div id="status"></div>
 
   <!-- WALLET -->
   <div class="card" id="walletcard">
     <h2>Wallet</h2>
-    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each
-    action there, then bounce back; your key never touches this site. Swaps settle in the execution layer:
-    deposit NADO to trade or provide liquidity, withdraw any time.</p>
+    <p class="small dim lead">Every action is confirmed in your <a href="https://get.nadochain.com/">NADO wallet</a>; your key never touches this site.</p>
+    <details class="more"><summary>How balances work</summary><p class="small dim">Trades settle in the
+    execution layer. Buy in to move NADO from your main-chain wallet to a usable balance here; cash out
+    moves it back. Both are yours to do at any time.</p></details>
     <div class="kv mt"><span class="k">Acting as</span><span class="mono" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="kv"><span class="k">🏦 Usable balance</span><span class="mono" id="bal">—</span></div>
+    <div class="kv needsig"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv needsig"><span class="k">Usable balance</span><span class="mono" id="bal">—</span></div>
     <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+    <div class="needsig">
     <div class="row mt">
       <input id="bankAmt" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
       <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
     </div>
-    <div class="small dim mt">Deposit moves L1 → exec (usable here); Withdraw moves exec → L1.</div>
+    </div>
   </div>
 
   <div class="traderow" id="tradeRow">
@@ -209,15 +229,16 @@
     <div class="small dim" style="margin-top:8px" id="depthCap">How much the rate moves as your trade gets bigger:</div>
     <div class="depthwrap"><svg id="mktDepth" preserveAspectRatio="none"></svg></div>
     <div class="stats" id="mktStats"></div>
-    <div class="small dim mt">Live price, taken straight from the pool. History is recorded as the market trades — nothing is back-filled or made up, so a gap means no trading happened.</div>
+    <div class="small dim mt" id="mktCap">Live price, straight from the pool. Nothing is back-filled — a gap means no trading happened.</div>
   </div>
 
   <!-- SWAP -->
   <div class="card hidden" id="swapCard">
     <h2>Swap</h2>
-    <p class="small dim">The quote below is worked out exactly the way the pool will settle it, so what you
-    see is what you get. The <b>at worst</b> figure is enforced on-chain: if the price moves further than
-    your tolerance while your swap is in flight, it is cancelled instead of filling at a bad rate.</p>
+    <p class="small dim lead">What you see is what settles — the quote is computed exactly as the pool will.</p>
+    <details class="more"><summary>How this works</summary><p class="small dim">The <b>at worst</b> figure
+    is enforced on-chain: if the price moves past your tolerance while your swap is in flight, it is
+    cancelled instead of filling at a bad rate.</p></details>
     <select id="dir" class="hidden">
       <option value="n2t">NADO → token</option>
       <option value="t2n">token → NADO</option>
@@ -231,7 +252,7 @@
         <span class="mono" id="paySym" style="flex:0 0 auto;font-weight:700">NADO</span>
       </div>
     </div>
-    <div class="flip"><button class="ghost" id="btnFlip" title="Swap direction">⇅</button></div>
+    <div class="flip"><button class="ghost" id="btnFlip" title="Swap direction" aria-label="Swap direction"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M5 2v10M2 9l3 3 3-3M11 14V4M8 7l3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
     <div class="amtbox">
       <div class="top"><span>You receive</span><span id="getBal">—</span></div>
       <div class="row" style="align-items:center;gap:8px">
@@ -256,7 +277,7 @@
   <!-- POOLS -->
   <div class="card" id="poolsCard">
     <h2>Pools</h2>
-    <p class="small dim">All markets on the exchange. Tap one to trade it or to supply liquidity.</p>
+    <p class="small dim lead">Tap a market to trade it or supply liquidity.</p>
     <div class="mkthead mt"><span>Market</span><span style="text-align:right">Price (in NADO)</span><span style="text-align:right">24h</span></div>
     <div id="pools"></div>
   </div>
@@ -264,9 +285,11 @@
   <!-- LIQUIDITY -->
   <div class="card hidden" id="liqCard">
     <h2>Liquidity</h2>
-    <p class="small dim">Deposit both sides, then confirm — each side is its own transaction because a
-    transaction carries one currency. Anything deposited but not yet confirmed is <b>always refundable</b>.
-    <span id="liqPos" class="dim"></span></p>
+    <p class="small dim lead">Deposit both sides, then confirm. <span id="liqPos" class="dim"></span></p>
+    <details class="more"><summary>How this works</summary><p class="small dim">Each side is its own
+    transaction because a transaction carries one currency. Anything deposited but not yet confirmed is
+    <b>always refundable</b>. The first person to supply a market sets its opening price; after that both
+    sides go in at the market's current ratio, and anything left over stays yours.</p></details>
     <div class="row mt">
       <input id="addN" placeholder="NADO amount" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnFundN" style="flex:0 0 auto">1 · Deposit NADO</button>
@@ -283,15 +306,13 @@
       <input id="exitSh" placeholder="how much of your position to withdraw" inputmode="numeric" autocomplete="off">
       <button class="ghost" id="btnExit" style="flex:0 0 auto">Withdraw liquidity</button>
     </div>
-    <div class="small dim mt">The first person to supply a market sets its opening price. After that both
-    sides must go in at the market's current ratio — anything left over stays yours and can be taken back.</div>
+
   </div>
 
   <!-- OPEN A POOL -->
   <div class="card" id="openCard">
     <h2>Open a pool</h2>
-    <p class="small dim">Pair any token with NADO. Opening is permissionless and free — the pool is empty
-    until someone adds liquidity.</p>
+    <p class="small dim lead">Pair any token with NADO — permissionless and free.</p>
     <div class="row mt">
       <select class="searchable" id="newAsset"></select>
       <button class="ghost" id="btnOpen" style="flex:0 0 auto">Open pool</button>
@@ -304,24 +325,22 @@
   <!-- CROSS-CHAIN ORDER BOOK (otc contract, doc/dex-bridge.md) -->
   <div class="card hidden" id="otcBookCard">
     <h2>Cross-chain order book</h2>
-    <p class="small dim">Swap NADO against <b>BTC / ETH</b> with no custodian and no wrapped coins: both
-    sides lock behind the <b>same secret</b> (an atomic swap). The NADO side is escrowed in an <b>L1
-    HTLC</b> under exactly the same SHA-256 hashlock as the foreign side, so one revealed secret opens
-    both and neither party can take one leg without giving up the other. This order book coordinates the
-    two; it never holds your coins.</p>
-    <p class="small dim">Whoever owes the NADO locks it from this page (your wallet confirms the amount,
-    the counterparty and the refund height); the other side then checks that lock before sending anything.
-    Cross-chain swaps are new — check every figure yourself and start small.</p>
+    <p class="small dim lead">Swap NADO against real <b>BTC, ETH or SOL</b> — no custodian, no wrapped coins. New: check every figure and start small.</p>
+    <details class="more"><summary>How an atomic swap works</summary><p class="small dim">Both sides lock
+    behind the <b>same secret</b>. The NADO side sits in an L1 HTLC under exactly the same SHA-256 hashlock
+    as the other chain's lock, so one revealed secret opens both and neither party can take one leg without
+    giving up the other. Each row verifies the counterparty's lock for you before you commit yours, and
+    tells you the next step. This book only coordinates — it never holds your coins.</p></details>
     <div id="otcBook" class="mt"></div>
   </div>
 
   <div class="card hidden" id="otcPostCard">
     <h2>Post an order</h2>
-    <p class="small dim">Posting creates your <b>swap secret</b> (kept in this browser — back it up below).
-    Selling NADO locks it in the contract now; buying NADO locks nothing until someone fills. Whatever
-    happens, an unfinished order refunds to whoever paid in once it expires — nothing can get stuck. After
-    posting, the order's row offers <b>Deposit…</b> to make takers stake a returnable good-faith deposit,
-    and <b>Tip</b> to pay watchtowers to finish the swap for you.</p>
+    <p class="small dim lead">Posting costs nothing and locks nothing — funds move only after someone fills.</p>
+    <details class="more"><summary>How this works</summary><p class="small dim">Posting creates your
+    <b>swap secret</b> (kept in this browser — back it up). Once filled, your row walks you through the
+    locks. An unfinished swap refunds to whoever paid in once it expires — nothing can get stuck. A
+    <b>Tip</b> on the row pays watchtowers to finish the swap for you.</p></details>
     <div class="row mt">
       <select id="otcKind">
         <option value="1">Sell NADO</option>
@@ -344,7 +363,7 @@
       <input id="otcFAddr" placeholder="your address on that network (saved for next time)" autocomplete="off">
     </div>
     <div class="row mt">
-      <label class="small dim" for="otcExpiry">NADO-side expiry (blocks from now, 6 s each)</label>
+      <label class="small dim" for="otcExpiry">NADO-side expiry, in blocks <span class="mono" id="otcExpiryHuman"></span></label>
       <input id="otcExpiry" value="9000" inputmode="numeric" style="max-width:110px" autocomplete="off">
     </div>
     <div class="row mt"><button class="primary" id="btnOtcPost">Post order</button></div>
@@ -358,17 +377,16 @@
 
   <div class="card hidden" id="otcMyCard">
     <h2>My swaps</h2>
-    <p class="small dim">Every order you posted or filled, with what to do next. A swap is <b>yours to
-    finish</b>: reveal / settle before the expiry, or reclaim with expire after it.</p>
+    <p class="small dim lead">Every order you posted or filled, with its next step.</p>
     <div id="otcMine" class="mt"></div>
   </div>
 
   <!-- LIMIT ORDERS (otc contract SWAP_INTRA — exec-layer limit orders beside the AMM) -->
   <div class="card hidden" id="otcLimitCard">
     <h2>Limit orders</h2>
-    <p class="small dim">Name your own price instead of taking the pool's: say what you give and what you
-    want, and the first person to accept swaps <b>both sides in one go</b> — no partial fills. Cancel any
-    time before someone takes it; after it expires anyone can return it to you.</p>
+    <p class="small dim lead">Name your own price; the first taker swaps both sides in one go.</p>
+    <details class="more"><summary>How this works</summary><p class="small dim">No partial fills. Cancel any
+    time before someone takes it; after it expires anyone can return it to you.</p></details>
     <div id="otcLimits" class="mt"></div>
     <div class="row mt">
       <select class="searchable" id="limGiveAsset"></select>
@@ -379,18 +397,17 @@
       <input id="limWantAmt" placeholder="you want" inputmode="decimal" autocomplete="off">
     </div>
     <div class="row mt">
-      <label class="small dim" for="limExpiry">Expiry (blocks from now)</label>
+      <label class="small dim" for="limExpiry">Expiry, in blocks <span class="mono" id="limExpiryHuman"></span></label>
       <input id="limExpiry" value="3000" inputmode="numeric" style="max-width:110px" autocomplete="off">
       <button class="primary" id="btnLimPost" style="flex:0 0 auto">Post order</button>
     </div>
   </div>
 
   <footer>
-    <span>Every pool and swap is public and verifiable on-chain. Supplying liquidity carries risk: if the
-    price moves, withdrawing gives you back a different mix of the two than you put in. Nothing here is
-    investment advice.</span>
+    <span>Everything here is public and verifiable on-chain. Supplying liquidity carries risk: if the price
+    moves, you withdraw a different mix than you put in. Not investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=69b902f2"></script>
+<script type="module" src="/static/dex.js?v=79a51223"></script>
 </body>
 </html>

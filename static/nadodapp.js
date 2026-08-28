@@ -515,8 +515,8 @@ export function wireWallet(dapp) {
       return { box, sl };
     };
     if (dep) dep.textContent = _t("buyIn", "Buy in"); if (wd) wd.textContent = _t("cashOut", "Cash out");
-    const bi = mkRow("buyinSlider", "⬆ " + _t("buyIn", "Buy in"), dep);
-    const co = mkRow("cashoutSlider", "⬇ " + _t("cashOut", "Cash out"), wd);
+    const bi = mkRow("buyinSlider", _t("buyIn", "Buy in"), dep);
+    const co = mkRow("cashoutSlider", _t("cashOut", "Cash out"), wd);
     oldRow.insertAdjacentElement("afterend", co.box);
     oldRow.insertAdjacentElement("afterend", bi.box);
     oldRow.classList.add("hidden");   // the old amount+buttons row (buttons were moved into the slider rows)
