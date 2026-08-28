@@ -3,7 +3,7 @@
 // roll FARKLES your turn. No autoplay. Each roll's randomness is pinned to a FUTURE block hash nobody can
 // predict, so the dice are objective and unriggable. Highest banked score when the table's play window ends
 // takes the whole pot. Built on the shared SDK (nadodapp.js) — matches tests/test_farkle_contract.py exactly.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp , installModes , playModes} from "./nadodapp.js?v=5f60bece";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp , installModes , playModes} from "./nadodapp.js?v=013aba9d";
 import { BankedGame } from "./bankedgame.js?v=a5d95bc2";
 import { Practice } from "./practice.js?v=53073278";      // free in-browser practice (solo score-attack, no chain)
 

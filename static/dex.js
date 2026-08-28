@@ -17,7 +17,7 @@ import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, 
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=5f60bece";
+         blocksToTime } from "./nadodapp.js?v=013aba9d";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -342,13 +342,13 @@ const otcSaveRec = (o, patch) => { const m = otcSecrets(); const cur = typeof m[
 // address and nobody sends mainnet coins to a testnet script. Adding a network is one row here.
 const NETS = {
   btc:  { chain: "btc", coin: "BTC", label: "Bitcoin",          hrp: "bc",  explorer: "https://mempool.space" },
-  btct: { chain: "btc", coin: "tBTC", label: "Bitcoin testnet", hrp: "tb",  explorer: "https://mempool.space/testnet" },
-  eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", evm: "0xaa36a7", rpc: "https://ethereum-sepolia-rpc.publicnode.com", htlc: "0xd5f47927999c31ce4fe3de11bc560678094486e7", erc20: "0x6d6104704e1956c36851d4c36fdad77ce75a6106" },
+  btct: { chain: "btc", coin: "tBTC", label: "Bitcoin testnet", test: true, hrp: "tb",  explorer: "https://mempool.space/testnet" },
+  eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", test: true, evm: "0xaa36a7", rpc: "https://ethereum-sepolia-rpc.publicnode.com", htlc: "0xd5f47927999c31ce4fe3de11bc560678094486e7", erc20: "0x6d6104704e1956c36851d4c36fdad77ce75a6106" },
   eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1", rpc: "https://ethereum-rpc.publicnode.com",     htlc: "", erc20: "" },
   // Solana needs a deployed PROGRAM (unlike Bitcoin, whose HTLC is just a script). `program: ""` means
   // nothing is deployed on that cluster yet and the row says so rather than letting anyone fund a lock
   // into thin air. Filling one in is the only change a new cluster needs.
-  sold: { chain: "sol", coin: "devSOL", label: "Solana devnet", rpc: "https://api.devnet.solana.com", cluster: "devnet", program: "", explorer: "https://explorer.solana.com" },
+  sold: { chain: "sol", coin: "devSOL", label: "Solana devnet", test: true, rpc: "https://api.devnet.solana.com", cluster: "devnet", program: "", explorer: "https://explorer.solana.com" },
   sol:  { chain: "sol", coin: "SOL", label: "Solana mainnet", rpc: "https://api.mainnet-beta.solana.com", cluster: "", program: "", explorer: "https://explorer.solana.com" },
 };
 // An ERC-20 swap names its token inside the network field: wch = "<network>|<token address>". Everything
@@ -360,7 +360,12 @@ const isB58Addr = (a) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a || "");
 const tokNorm = (t) => (/^0x/i.test(t) ? t.toLowerCase() : t);
 const tokAddrOf = (od) => { const t = String(od.wch || "").split("|")[1] || ""; return /^0x[0-9a-fA-F]{40}$/.test(t) || isB58Addr(t) ? t : ""; };
 const mktKeyOf = (od) => netKeyOf(od) + (tokAddrOf(od) ? "|" + tokNorm(tokAddrOf(od)) : "");   // the MARKET an order trades in
-const netSupportsTokens = (k) => { const n = NETS[k] || {}; return !!(n.erc20 || (n.chain === "sol" && n.program)); };
+const netSupportsTokens = (k) => ["eth", "sol"].includes((NETS[k] || {}).chain);   // ERC-20 / SPL; a missing contract is said at lock time
+// Mainnet and testnets are different worlds and never share a list: one switch, remembered, in the URL.
+const LS_ENV = "nado_dex_env";
+let xEnv = (() => { try { return localStorage.getItem(LS_ENV) === "test" ? "test" : "main"; } catch (e) { return "main"; } })();
+const envOf = (k) => ((NETS[k] || {}).test ? "test" : "main");
+function setEnv(e) { xEnv = e === "test" ? "test" : "main"; try { localStorage.setItem(LS_ENV, xEnv); } catch (x) {} }
 const netOf = (od) => NETS[netKeyOf(od)] || null;
 const chainOf = (od) => (NETS[netKeyOf(od)] || {}).chain || netKeyOf(od);
 const erc20Names = {};                               // "0xtoken" -> {symbol, decimals}, read from the chain
@@ -378,12 +383,33 @@ const LS_TOKENS = "nado_otc_tokens";
 // chain before being written here — the contract itself answered with this symbol and this many decimals
 // (Sepolia, 2026-08-27). Nothing is taken on trust: the address is always shown next to the symbol,
 // because any contract can claim any name and only the address is identity.
+// KNOWN TOKENS, every address VERIFIED against its chain before it went in here (symbol() and decimals()
+// read over JSON-RPC on 2026-08-28). A wrong address would send someone's money to the wrong contract.
 const SEED_TOKENS = {
-  sold: { "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU": { sym: "USDC", dec: 6 } },   // Circle's devnet USDC — verified on chain: spl-token mint, 6 dp
-  eths: {
-    "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238": { sym: "USDC", dec: 6 },      // name() "USDC", 6 dp
-    "0xfff9976782d46cc05630d1f6ebab18b2324d6b14": { sym: "WETH", dec: 18 },     // name() "Wrapped Ether"
+  eth: {
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { sym: "USDC", dec: 6 },
+    "0xdac17f958d2ee523a2206206994597c13d831ec7": { sym: "USDT", dec: 6 },
+    "0x6b175474e89094c44da98b954eedeac495271d0f": { sym: "DAI", dec: 18 },
+    "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599": { sym: "WBTC", dec: 8 },
+    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": { sym: "WETH", dec: 18 },
+    "0x514910771af9ca656af840dff83e8264ecf986ca": { sym: "LINK", dec: 18 },
+    "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984": { sym: "UNI", dec: 18 },
+    "0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9": { sym: "AAVE", dec: 18 },
+    "0xae7ab96520de3a18e5e111b5eaab095312d7fe84": { sym: "stETH", dec: 18 },
+    "0x6982508145454ce325ddbe47a25d4ec3d2311933": { sym: "PEPE", dec: 18 },
+    "0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce": { sym: "SHIB", dec: 18 },
+    "0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2": { sym: "MKR", dec: 18 },
+    "0xb50721bcf8d664c30412cfbc6cf7a15145234ad1": { sym: "ARB", dec: 18 },
+    "0xfaba6f8e4a5e8ab82f62fe7c39859fa577269be3": { sym: "ONDO", dec: 18 },
   },
+  eths: {
+    "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238": { sym: "USDC", dec: 6 },
+    "0xfff9976782d46cc05630d1f6ebab18b2324d6b14": { sym: "WETH", dec: 18 },
+    "0x779877a7b0d9e8603169ddbd7836e478b4624789": { sym: "LINK", dec: 18 },
+    "0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357": { sym: "DAI", dec: 18 },
+    "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984": { sym: "UNI", dec: 18 },
+  },
+  sold: { "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU": { sym: "USDC", dec: 6 } },   // Circle devnet USDC — spl-token mint, 6 dp
 };
 const tokensAll = () => { try { return JSON.parse(localStorage.getItem(LS_TOKENS) || "{}"); } catch (e) { return {}; } };
 const tokensFor = (net) => Object.assign({}, SEED_TOKENS[net] || {}, tokensAll()[net] || {});
@@ -719,10 +745,11 @@ function solCliHint(od) {
 let xsel = "btc";                                    // selected cross-chain MARKET: a network key, or "net|token"
 const XKEY = (key) => "x:" + key;
 /** Every cross-chain market: each network's coin, plus every token known on it (seeded, verified, or seen on a live order). */
-function xMarkets() {
+function xMarkets(env = xEnv) {
   const out = [];
   for (const k of Object.keys(NETS)) {
     const n = NETS[k];
+    if (envOf(k) !== env) continue;
     out.push({ key: k, net: k, token: "", coin: n.coin, label: n.label, chain: n.chain });
     if (!netSupportsTokens(k)) continue;
     const toks = tokensFor(k);
@@ -734,7 +761,7 @@ function xMarkets() {
   }
   return out;
 }
-const xMarket = (key) => xMarkets().find((m) => m.key === key) || null;
+const xMarket = (key) => xMarkets("main").concat(xMarkets("test")).find((m) => m.key === key) || null;
 const otcPrice = (od) => {                           // NADO per 1 foreign coin
   const f = Number(od.wamt); const nado = Number(od.namtRaw) / 1e10;
   return f > 0 && nado > 0 ? nado / f : 0;
@@ -752,8 +779,11 @@ function bookOf(net) {
   return { bids, asks, bb, ba, mid: bb && ba ? (bb + ba) / 2 : (bb || ba) };
 }
 function renderXMarket() {
+  if (wantMarket) { const hit = xMarkets("main").concat(xMarkets("test")).find((m) => m.coin.toUpperCase() === wantMarket);
+    if (hit) { setEnv(envOf(hit.net)); xsel = hit.key; wantMarket = null; } }
+  const seg = $("envSeg");
+  if (seg) { seg.classList.remove("hidden"); seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.env === xEnv)); }
   const mkts = xMarkets(), keys = mkts.map((m) => m.key);
-  if (wantMarket) { const hit = mkts.find((m) => m.coin.toUpperCase() === wantMarket); if (hit) { xsel = hit.key; wantMarket = null; } }
   const pick = $("mktPick");
   if (pick) {
     const opts = mkts.map((m) => `<option value="${esc(m.key)}">${esc(m.coin)} / NADO — ${esc(m.label)}</option>`).join("");
@@ -761,6 +791,7 @@ function renderXMarket() {
     if (!keys.includes(xsel)) xsel = keys[0];
     pick.value = xsel;
   }
+  if (!keys.includes(xsel)) xsel = keys[0];
   const m = xMarket(xsel) || mkts[0];
   const netSel0 = $("otcNet"), tp0 = $("otcTokenPick");
   if (netSel0 && !netSel0.dataset.touched && [...netSel0.options].some((o) => o.value === m.net)) {
@@ -1374,7 +1405,7 @@ const symOfPool = (p) => tokSym(p.asset).toUpperCase();
 function marketUrl(includeOrigin = true) {
   let q = "";
   if (curMode === "cross") return (includeOrigin ? location.origin + location.pathname : location.pathname)
-    + "?market=" + encodeURIComponent((xMarket(xsel) || {}).coin || xsel) + "&mode=cross";
+    + "?market=" + encodeURIComponent((xMarket(xsel) || {}).coin || xsel) + "&mode=cross" + (xEnv === "test" ? "&net=test" : "");
   if (sel && lastSto) { const p = poolOf(lastSto, sel); const sym = symOfPool(p);
     q = "?market=" + encodeURIComponent(sym && sym !== "TOKEN" ? sym : String(p.id)); }
   if (curMode && curMode !== "swap") q += (q ? "&" : "?") + "mode=" + curMode;
@@ -1387,6 +1418,7 @@ function syncUrl(push) {
 }
 function readUrl() {                                 // "?market=DEMO" (symbol) or a raw pool id; legacy ?pool=
   const q = new URLSearchParams(location.search);
+  if (q.get("net") === "test") setEnv("test"); else if (q.get("net") === "main") setEnv("main");
   const m = (q.get("market") || q.get("pool") || "").trim();
   if (!m) return;
   if (/^\d+$/.test(m)) sel = m; else wantMarket = m.toUpperCase();
@@ -1465,6 +1497,7 @@ function renderMarket() {
     if (sel) pick.value = String(sel);
   }
   gate({ marketCard: !!sel });
+  const seg = $("envSeg"); if (seg) seg.classList.add("hidden");   // the mainnet/testnet switch belongs to cross-chain markets only
   if (!sel || !lastSto) return;
   const p = poolOf(lastSto, sel);
   const live = p.rn > 0n && p.rt > 0n && p.sup > 0n;
@@ -1633,7 +1666,11 @@ function wireUI() {
   if (netSel) {
     // ONE control, not two: a separate "chain" dropdown said nothing the network did not already say.
     const fillNets = () => {
-      netSel.innerHTML = Object.keys(NETS).map((k) => `<option value="${k}">${NETS[k].coin} · ${NETS[k].label}</option>`).join("");
+      const list = Object.keys(NETS).filter((k) => envOf(k) === xEnv);
+      const sig = list.join(",");
+      if (netSel.dataset.sig === sig) return;
+      netSel.dataset.sig = sig; delete netSel.dataset.touched;
+      netSel.innerHTML = list.map((k) => `<option value="${k}">${NETS[k].coin} · ${NETS[k].label}</option>`).join("");
       loadAddr();
     };
     const showTok = () => {
@@ -1646,6 +1683,11 @@ function wireUI() {
     netSel.onchange = () => { netSel.dataset.touched = "1"; loadAddr(); kindHint(); };
     if (addrIn) addrIn.onchange = () => { if (addrIn.value.trim()) faddrSet(netSel.value, addrIn.value.trim()); };
     fillNets();
+    window.addEventListener("nado-dex-env", fillNets);   // the switch above the market re-lists the networks
+    const seg = $("envSeg");
+    if (seg) seg.querySelectorAll("button").forEach((b) => { b.onclick = () => {
+      setEnv(b.dataset.env); xsel = (xMarkets()[0] || {}).key || xsel;
+      window.dispatchEvent(new Event("nado-dex-env")); syncUrl(true); render(); }; });
   }
   const amt = $("swapAmt");
   document.querySelectorAll(".pcts button[data-pct]").forEach((b) => {

@@ -949,7 +949,10 @@ export function enhanceSelect(sel, { searchPlaceholder = "Search", icon = true }
   sel.classList.add("enhanced");
   const wrap = document.createElement("div");
   wrap.className = "pick";
-  wrap.style.cssText = sel.style.cssText;                 // inherit whatever width the layout gave the select
+  // inherit only the LAYOUT the page gave the select (width, flex, margins) — never its border, background,
+  // padding or radius: the .pickbtn inside draws those, and copying them drew a second outline around it
+  for (const k of ["width", "maxWidth", "minWidth", "flex", "flexBasis", "flexGrow", "flexShrink", "margin", "marginTop", "marginBottom", "marginLeft", "marginRight", "alignSelf"])
+    if (sel.style[k]) wrap.style[k] = sel.style[k];
   sel.parentNode.insertBefore(wrap, sel);
   wrap.appendChild(sel);
   const btn = document.createElement("button");

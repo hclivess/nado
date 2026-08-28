@@ -210,6 +210,9 @@
   <div class="traderow" id="tradeRow">
   <!-- MARKET (price chart + stats for the selected pool) -->
   <div class="card hidden" id="marketCard">
+    <div class="seg hidden" id="envSeg" style="max-width:240px;margin-bottom:10px" role="tablist" aria-label="Network">
+      <button data-env="main" class="on">Mainnet</button><button data-env="test">Testnet</button>
+    </div>
     <div class="mkt">
       <select class="searchable" id="mktPick" style="max-width:250px;flex:0 0 auto"></select>
       <span class="pair hidden" id="mktPair">—</span>
@@ -408,6 +411,6 @@
     moves, you withdraw a different mix than you put in. Not investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=94fa45e6"></script>
+<script type="module" src="/static/dex.js?v=14293ab0"></script>
 </body>
 </html>
