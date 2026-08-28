@@ -762,6 +762,14 @@ function xMarkets(env = xEnv) {
   return out;
 }
 const xMarket = (key) => xMarkets("main").concat(xMarkets("test")).find((m) => m.key === key) || null;
+/** Why a market cannot be traded yet, or "" — Bitcoin needs nothing deployed; EVM and Solana need their swap contract. */
+function xMarketBlocker(m) {
+  if (!m) return "";
+  const n = NETS[m.net] || {};
+  if (n.chain === "eth" && !(m.token ? n.erc20 : n.htlc)) return `The ${m.token ? "token" : "ETH"} swap contract is not deployed on ${n.label} yet — trading here opens when it is.`;
+  if (n.chain === "sol" && !n.program) return `The swap program is not deployed on ${n.label} yet — trading here opens when it is.`;
+  return "";
+}
 const otcPrice = (od) => {                           // NADO per 1 foreign coin
   const f = Number(od.wamt); const nado = Number(od.namtRaw) / 1e10;
   return f > 0 && nado > 0 ? nado / f : 0;
@@ -793,6 +801,9 @@ function renderXMarket() {
   }
   if (!keys.includes(xsel)) xsel = keys[0];
   const m = xMarket(xsel) || mkts[0];
+  const blk = xMarketBlocker(m), bb = $("mktBlocker");
+  if (bb) { bb.textContent = blk; bb.classList.toggle("hidden", !blk); }
+  const pb = $("btnOtcPost"); if (pb) { pb.disabled = !!blk; pb.title = blk; }
   const netSel0 = $("otcNet"), tp0 = $("otcTokenPick");
   if (netSel0 && !netSel0.dataset.touched && [...netSel0.options].some((o) => o.value === m.net)) {
     if (netSel0.value !== m.net) { netSel0.value = m.net; netSel0.dispatchEvent(new Event("change", { bubbles: true })); }
