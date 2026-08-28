@@ -80,7 +80,7 @@ W._sol_rpc, real_rpc = fake_rpc, W._sol_rpc
 st = {}
 got = W.sol_claim_secrets("http://rpc", "PROG", [(1, H), (7, "ab" * 32)], st)
 ok(got == {1: s}, "solana scan: the watched hashlock's preimage is found, an unrelated one is not")
-ok(st.get("sol_until") == "SIGNEW", "solana scan: the newest signature is remembered, so the next pass reads only what is new")
+ok(st.get("sol_until:sol") == "SIGNEW", "solana scan: the newest signature is remembered, so the next pass reads only what is new")
 calls.clear()
 W.sol_claim_secrets("http://rpc", "PROG", [(1, H)], st)
 ok(calls[0][1][1].get("until") == "SIGNEW", "solana scan: that cursor is actually sent as `until`")
@@ -101,7 +101,9 @@ W._sol_rpc = paged_rpc
 calls.clear(); st = {}
 got = W.sol_claim_secrets("http://rpc", "PROG", [(1, H)], st)
 ok(got == {1: s}, "solana scan: a claim beyond the first page of signatures is still found")
-ok(st.get("sol_until") == "S0", "solana scan: the cursor is the newest row of the FIRST page")
+ok(st.get("sol_until:sol") == "S0", "solana scan: the cursor is the newest row of the FIRST page")
+W.sol_claim_secrets("http://devnet", "PROG2", [(1, H)], st, net="sold")
+ok(st.get("sol_until:sold") == "S0" and st.get("sol_until:sol") == "S0", "solana scan: each cluster keeps its own cursor")
 W._sol_rpc = real_rpc
 
 print(f"\n[tower] {passed} passed, {failed} failed")

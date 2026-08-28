@@ -21,7 +21,7 @@ Usage:
     HOME=/srv/nado-home python3 scripts/otc_watchtower.py scan                      # dry-run one pass
     HOME=/srv/nado-home python3 scripts/otc_watchtower.py scan --submit --loop 60   # the real daemon
         [--l1 URL] [--exec URL] [--cid CID] [--btc-cli "bitcoin-cli -rpcwait ..."] [--secrets FILE]
-        [--sol-rpc URL --sol-program ID]
+        [--sol NET RPC PROGRAM ...]        # one per cluster, e.g. --sol sold https://api.devnet.solana.com C4Wc…
 """
 import argparse
 import hashlib
@@ -128,12 +128,13 @@ def scan_txs(tx_hexes, watches):
     return found
 
 
-def sol_claim_secrets(rpc, program, watches, state):
+def sol_claim_secrets(rpc, program, watches, state, net="sol"):
     """{orderId: secret} for every watched hashlock revealed by a claim in the Solana HTLC program.
 
     Solana needs no block walk: every transaction that touched the program is listed by address, and a
     claim carries the preimage in its instruction data (tag 1, then 32 bytes). We remember the newest
     signature seen so a later pass only reads what is new."""
+    cursor = "sol_until:" + net
     found, newest = {}, None
     want = {bytes.fromhex(H): o for o, H in watches}
     # Pages are newest-first and capped, so walk them with `before` until the page runs short — stopping
@@ -141,8 +142,8 @@ def sol_claim_secrets(rpc, program, watches, state):
     before = None
     while True:
         params = {"limit": 200, "commitment": "confirmed"}
-        if state.get("sol_until"):
-            params["until"] = state["sol_until"]
+        if state.get(cursor):
+            params["until"] = state[cursor]
         if before:
             params["before"] = before
         sigs = _sol_rpc(rpc, "getSignaturesForAddress", [program, params]) or []
@@ -164,7 +165,7 @@ def sol_claim_secrets(rpc, program, watches, state):
             break
         before = sigs[-1]["signature"]
     if newest:
-        state["sol_until"] = newest
+        state[cursor] = newest
     return found
 
 
@@ -238,11 +239,11 @@ def one_pass(a, state):
         for h in range(start, tip_b + 1):
             secrets.update(scan_txs(btc_block_txs(a.btc_cli, h), [w for w in watches if w[0] not in secrets]))
         state["btc_from"] = tip_b + 1
-    if a.sol_rpc and a.sol_program:
+    for net, rpc, program in (a.sol or []):       # each Solana cluster is its own network key in wch
         sol_watches = [(o, H) for o, H in watches
-                       if o not in secrets and str(by_id.get(o, {}).get("wch", "")).split("|")[0].startswith("sol")]
+                       if o not in secrets and str(by_id.get(o, {}).get("wch", "")).split("|")[0] == net]
         if sol_watches:
-            secrets.update(sol_claim_secrets(a.sol_rpc, a.sol_program, sol_watches, state))
+            secrets.update(sol_claim_secrets(rpc, program, sol_watches, state, net))
     for o, s in secrets.items():
         submit_call(a.l1, "settle", [o] + preimage_limbs(s), f"relay the revealed secret for #{o}", a.submit)
     bounty = sum(x["bnty"] for x in orders if x["st"] in (OPEN, FILLED))
@@ -259,8 +260,8 @@ def main():
     ap.add_argument("--cid", default=None)
     ap.add_argument("--btc-cli", default=None, help='e.g. "bitcoin-cli -rpcwait" — enables the BTC secret scan')
     ap.add_argument("--btc-lookback", type=int, default=144, help="blocks to scan back on first run (default ~1 day)")
-    ap.add_argument("--sol-rpc", default=None, help="Solana RPC URL — enables the Solana claim scan")
-    ap.add_argument("--sol-program", default=None, help="the deployed HTLC program id on that cluster")
+    ap.add_argument("--sol", nargs=3, action="append", metavar=("NET", "RPC", "PROGRAM"),
+                    help="enable the Solana claim scan for one cluster: its wch key (sold / sol), RPC URL, program id")
     ap.add_argument("--secrets", default=None, help="JSON file {orderId: 64-hex secret} to settle from")
     ap.add_argument("--submit", action="store_true", help="actually post (default: dry-run)")
     ap.add_argument("--loop", type=int, default=0, help="seconds between passes (0 = one pass and exit)")

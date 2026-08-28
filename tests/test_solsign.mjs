@@ -11,6 +11,8 @@
 //   solana-test-validator --reset --ledger /tmp/svl/test-ledger --rpc-port 8999 ...
 //   node tests/test_solsign.mjs <program_id> [rpc_url]
 import * as s from "../static/solsign.js";
+import * as ed from "../static/vendor/noble-ed25519.js";
+const hex2 = (h) => new Uint8Array(h.match(/../g).map((x) => parseInt(x, 16)));
 
 const PID = process.argv[2], URL = process.argv[3] || "http://127.0.0.1:8999";
 if (!PID) { console.error("usage: test_solsign.mjs <program_id> [rpc]"); process.exit(2); }
@@ -103,6 +105,41 @@ ok(found === secret, "the secret was recovered from the claim transaction on cha
 ok((await s.solLockInfo(URL, PID, lock)) === null, "the lock record is gone once claimed");
 await rejects("the same lock cannot be claimed twice", () => s.solSend(URL, stranger.address,
   [s.ixClaim(PID, stranger.address, lock, claimant.address, secret)], keys));
+
+// The browser path: an injected wallet. No extension exists here, so a stub provider stands in — one that
+// behaves like Phantom's low-level request API (base58 MESSAGE in, signature out) and really signs and
+// sends. This proves the page-side assembly, the connect flow and the send flow, not the extension itself.
+{
+  const wal = await s.solKeypair();
+  await airdrop(wal.address, 2n * SOL);
+  const stub = {
+    publicKey: { toString: () => wal.address },
+    connect: async () => ({ publicKey: { toString: () => wal.address } }),
+    request: async ({ method, params }) => {
+      if (method !== "signAndSendTransaction") throw new Error("unexpected " + method);
+      const msg = s.b58decode(params.message);
+      const sig = await ed.signAsync(msg, hex2(wal.k));
+      const raw = new Uint8Array([1, ...sig, ...msg]);
+      let b64 = ""; for (const b of raw) b64 += String.fromCharCode(b);
+      return { signature: await s.solRpc(URL, "sendTransaction", [btoa(b64), { encoding: "base64", preflightCommitment: "processed" }]) };
+    },
+  };
+  globalThis.window = { phantom: { solana: stub } };
+  const { provider, address } = await s.solWalletConnect();
+  ok(address === wal.address && provider === stub, "wallet connect returns the provider's account");
+  const dl = now + 7200, hl2 = hex(await sha256b(new Uint8Array(32).fill(7)));
+  const { address: wl } = await s.htlcPda(PID, hl2, claimant.address, wal.address, dl, amount);
+  const sig = await s.solWalletSend(URL, provider, wal.address, [s.ixFund(PID, wal.address, wl, hl2, claimant.address, dl, amount)]);
+  for (let i = 0; i < 40; i++) {
+    const st = (await s.solRpc(URL, "getSignatureStatuses", [[sig]])).value[0];
+    if (st && st.confirmationStatus !== "processed") break;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  const info = await s.solLockInfo(URL, PID, wl);
+  ok(info && info.owner === PID && info.amount === BigInt(amount), "a wallet-signed fund (base58 message via request) landed as a valid lock");
+  ok((await s.solWalletSend(URL, { }, wal.address, []).catch((e) => e.message)).includes("Phantom"), "a wallet without the request API is refused plainly");
+  delete globalThis.window;
+}
 
 console.log(`\n[solsign] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
