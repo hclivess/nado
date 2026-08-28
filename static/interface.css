@@ -283,7 +283,7 @@ a { color: var(--accent-2); }
 
 /* inline button spinner — shown on the Start/Mine button while one-time registration is underway */
 .spin {
-  display: inline-block; width: 14px; height: 14px;
+  display: inline-block; width: 14px; height: 14px; flex: 0 0 auto;   /* never squashed into an ellipse by a flex row's text */
   margin-right: 9px; vertical-align: -2px;
   border: 2px solid rgba(255,255,255,.35);
   border-top-color: #fff;

@@ -3934,8 +3934,18 @@ class CoreClient(threading.Thread):
                     # (learned from a sync batch's tail — see _fetch_sync_batch). Only the expensive
                     # settle-proof verification consults it; every structural check runs regardless.
                     # Our OWN candidate block is never deep: `remote` is False there and we are at the tip.
+                    # The mesh tip is whichever is freshest: the sync batch's tail OR the status pool's best
+                    # advertised height. 2026-08-29: blocks adopted through the inline tip swap never set
+                    # _known_tip_height, so a node 240 blocks behind verified EVERY settle proof in full
+                    # (5-18 min each, one per ~6 min of chain) and could never catch up — the depth gate
+                    # written for exactly that case was dead on that path.
+                    try:
+                        _best_peer = max((int(v.get("latest_block_height") or 0)
+                                          for v in self.consensus.status_pool.copy().values() if isinstance(v, dict)), default=0)
+                    except Exception:
+                        _best_peer = 0
                     _deep = bool(remote) and (
-                        int(getattr(self, "_known_tip_height", 0)) - int(block["block_number"])
+                        max(int(getattr(self, "_known_tip_height", 0)), _best_peer) - int(block["block_number"])
                         > FINALITY_DEPTH)
                     validate_transaction(transaction=transaction,
                                          logger=logger,
