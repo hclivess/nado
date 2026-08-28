@@ -56,11 +56,11 @@ try {
       console.log(`approving ${args.amount || amt} ${meta.symbol}…`);
       await E.sendTx(rpc, { privHex: pk, to: tok, gasLimit: 120000n, dataHex: E.erc20Abi.approve(htlc, amt) });
       const data = E.htlcErc20Abi.fund(tok, need("claimant"), E.ethAddress(pk), hashOf(), Number(need("deadline")), amt);
-      console.log(await E.sendTx(rpc, { privHex: pk, to: htlc, gasLimit: 300000n, dataHex: data }));
+      console.log(JSON.stringify({ txid: await E.sendTx(rpc, { privHex: pk, to: htlc, gasLimit: 300000n, dataHex: data }) }));
     } else {
       const pk = need("key");                              // the funder IS the refundee, by the contract's rule
       const data = E.htlcAbi.fund(need("claimant"), E.ethAddress(pk), hashOf(), Number(need("deadline")));
-      console.log(await E.sendTx(need("rpc"), { privHex: pk, to: need("htlc"), valueWei: BigInt(need("value")), gasLimit: 200000n, dataHex: data }));
+      console.log(JSON.stringify({ txid: await E.sendTx(need("rpc"), { privHex: pk, to: need("htlc"), valueWei: BigInt(need("value")), gasLimit: 200000n, dataHex: data }) }));
     }
   } else if (cmd === "show") {
     // read the lock back under the exact key the terms imply — the counterparty's check before funding
@@ -72,10 +72,10 @@ try {
   } else if (cmd === "claim") {
     const key = await keyOf();
     const data = tok ? E.htlcErc20Abi.claim(key, need("secret")) : E.htlcAbi.claim(key, need("secret"));
-    console.log(await E.sendTx(need("rpc"), { privHex: need("key"), to: need("htlc"), gasLimit: 300000n, dataHex: data }));
+    console.log(JSON.stringify({ txid: await E.sendTx(need("rpc"), { privHex: need("key"), to: need("htlc"), gasLimit: 300000n, dataHex: data }) }));
   } else if (cmd === "refund") {
     const key = await keyOf();
     const data = tok ? E.htlcErc20Abi.refund(key) : E.htlcAbi.refund(key);
-    console.log(await E.sendTx(need("rpc"), { privHex: need("key"), to: need("htlc"), gasLimit: 300000n, dataHex: data }));
+    console.log(JSON.stringify({ txid: await E.sendTx(need("rpc"), { privHex: need("key"), to: need("htlc"), gasLimit: 300000n, dataHex: data }) }));
   } else { console.error("commands: key | deploy | fund | claim | refund | show"); process.exit(2); }
 } catch (e) { console.error("error:", e.message); process.exit(1); }
