@@ -14,3 +14,6 @@ solana-program = "2.1"
 overflow-checks = true
 lto = "fat"
 codegen-units = 1
+opt-level = "z"
+strip = true
+panic = "abort"
