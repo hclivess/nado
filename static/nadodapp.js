@@ -321,7 +321,7 @@ export function inviteGate(dapp, { kind, id, title, body, joinLabel, onJoin }) {
 // should send anything a player needs to NOTICE here instead of #status; #status stays for the in-place
 // "confirming…" lifecycle. `notify`/`toast`/`ok` below are thin helpers over this.
 const _ALERT_TONES = {
-  warn: { bg: "#2a1214", bd: "rgba(248,81,73,.65)", fg: "#ffb4ae", icon: "⚠ " },
+  warn: { bg: "#2a1214", bd: "rgba(248,81,73,.65)", fg: "#ffb4ae", icon: "" },
   info: { bg: "#0e2027", bd: "rgba(var(--accent-rgb),.5)", fg: "#7fe9d3", icon: "" },
   ok:   { bg: "#0f2417", bd: "rgba(var(--accent-rgb),.55)", fg: "#8ff0c6", icon: "" },   // messages carry their own ✓
 };
@@ -866,7 +866,7 @@ export function recentChips(el, items, onSelect, emptyMsg) {
   if (!el) return;
   el.innerHTML = items.length ? items.map((x) => '<button class="chip' + (x.live ? "" : " pending") + '" data-t="' + x.id + '"'
       + (x.live ? "" : ' title="' + _t("chipConfirmingTitle", "still confirming on-chain — your entry hasn't vanished") + '"') + ">" + (x.icon || "🎯") + " #" + x.id
-      + (x.live ? (x.tag ? " · " + x.tag : "") : " · " + _t("chipConfirming", "confirming ⏳")) + "</button>").join(" ")
+      + (x.live ? (x.tag ? " · " + x.tag : "") : " · " + _t("chipConfirming", "confirming…")) + "</button>").join(" ")
     : '<span class="dim">' + (emptyMsg || _t("noGamesYet", "No games yet.")) + "</span>";
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => onSelect(parseInt(b.dataset.t, 10)));
 }
@@ -881,7 +881,7 @@ export function statusLabel(pend, ok, err, extra) {
 // confirmingLabel(): the ONE ⏳ label for a button whose action is click-pending/confirming on-chain, so
 // every game's disabled state reads identically. Pattern: btn.disabled = dapp.busy(phase, k, v); if so,
 // btn.textContent = confirmingLabel() (optionally confirmingLabel(origLabel) to keep the verb visible).
-export const confirmingLabel = (verb) => (verb ? verb + " — " : "") + _t("confirmingBtn", "⏳ confirming on-chain…");
+export const confirmingLabel = (verb) => (verb ? verb + " — " : "") + _t("confirmingBtn", "confirming on-chain…");
 
 // ---- the shared auto-rolling table schema (roulette / dice / video-table games) -------------------
 // NOTE: the banked-table reader lives in ONE place — BankedGame (static/bankedgame.js): `bg.read(sto, t)` and

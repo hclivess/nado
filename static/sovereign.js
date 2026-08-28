@@ -4,10 +4,10 @@
 // it through the engine to derive the live world (my nation + every rival), and turns dashboard taps into
 // ply-bound act() calls. Practice mode runs the identical engine over a local sandbox of bot nations.
 import { NadoDapp, $, _m, base, notify, confirmingLabel, alertBar, disp, share, wireWallet, renderWallet, stickyInputs,
-         orderCards, resolveAliases, renderTopScores, uiPrompt, uiConfirm } from "./nadodapp.js?v=c52c5678";
+         orderCards, resolveAliases, renderTopScores, uiPrompt, uiConfirm } from "./nadodapp.js?v=f4ce01cb";
 import * as E from "./sovereign-engine.js?v=8972a5f7";
 import { ART } from "./sovereign-art.js?v=b1838f38";
-import { Practice, prand } from "./practice.js?v=53073278";
+import { Practice, prand } from "./practice.js?v=a2d98706";
 
 const CID = "sovereign";                              // fixed-name deploy (like the faucet); set at deploy
 const dapp = new NadoDapp({ cid: CID, app: "Sovereign" });

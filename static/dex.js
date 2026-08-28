@@ -11,13 +11,13 @@
 //  * The quote recomputes out = RT·dxf/(RN+dxf), dxf = dx·9970/10000, EXACTLY as the contract does, in
 //    BigInt. A float quote would drift from the chain and mis-set minOut, turning a good swap into a revert.
 import { htlcScript, p2wshAddress } from "./btcleg.js?v=93bc368e";
-import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=8ae7a389";
-import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec, ethKeypair } from "./ethsign.js?v=2bb64986";
+import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=dc3d1162";
+import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec, ethKeypair } from "./ethsign.js?v=b35591fc";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=c52c5678";
+         blocksToTime } from "./nadodapp.js?v=f4ce01cb";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
