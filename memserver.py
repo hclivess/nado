@@ -440,6 +440,32 @@ class MemServer:
             return 0
         return 12
 
+    @staticmethod
+    def _is_proof_settle(tx) -> bool:
+        d = tx.get("data") if isinstance(tx, dict) else None
+        return tx.get("recipient") == "settle" and isinstance(d, dict) and ("proof" in d or "proof_da" in d)
+
+    def _queue_proof_merge(self, tx, user_origin):
+        """Hand a proof-bearing settle to the single proof worker (dedup by txid: one verification per tx)."""
+        import queue, threading
+        if not hasattr(self, "_proof_q"):
+            self._proof_q, self._proof_inflight = queue.Queue(), set()
+            def _worker():
+                while True:
+                    tx, uo = self._proof_q.get()
+                    try:
+                        self.merge_transaction(tx, uo)
+                    except Exception as e:
+                        self.logger.error(f"proof worker: {e}")
+                    finally:
+                        self._proof_inflight.discard(tx.get("txid"))
+            threading.Thread(target=_worker, name="proof_verify", daemon=True).start()
+        txid = tx.get("txid")
+        if txid in self._proof_inflight or txid in self._pool_txid_set():
+            return
+        self._proof_inflight.add(txid)
+        self._proof_q.put((tx, user_origin))
+
     def merge_remote_transactions(self, user_origin=False, skip_pool_peers=()) -> None:
         """MEMPOOL SET RECONCILIATION (replaces the full-pool download): for each peer whose
         advertised pool hash differs from ours (skip_pool_peers filters the identical ones), fetch
@@ -453,6 +479,13 @@ class MemServer:
             missing = asyncio.run(self._fetch_missing_remote_txs(pool_peers))
             now = get_timestamp_seconds()
             for tx in missing:
+                # A PROOF-BEARING SETTLE is verified on its own worker, one at a time, never inline: its
+                # STARK verification runs for minutes in Python, and inline it froze this thread's status
+                # pass (2026-08-29, 70 blocks behind while believing it led the mesh). The worker calls the
+                # very same merge_transaction, so admission rules are unchanged — only the thread differs.
+                if self._is_proof_settle(tx):
+                    self._queue_proof_merge(tx, user_origin)
+                    continue
                 result = self.merge_transaction(tx, user_origin)
                 # REFUSED gossip body -> cool it down (see _tx_reject_cache): don't re-fetch the same
                 # rejected tx from the same divergent peer every second. 60s TTL: a transient reason

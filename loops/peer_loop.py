@@ -152,16 +152,6 @@ class PeerClient(threading.Thread):
                 # (Was `if 0 or 1 in periods`, itself a bug parsing to `if 1 in periods`.)
                 # PREFILTER (audit): a peer advertising the SAME transaction_pool_hash as ours has
                 # nothing new in its pool — skip that full-pool download (buffers still fetched).
-                _our_pool_hash = self.memserver.transaction_pool_hash
-                _same_pool = {p for p, h in self.consensus.transaction_hash_pool.copy().items()
-                              if h == _our_pool_hash}
-                self.memserver.merge_remote_transactions(user_origin=False, skip_pool_peers=_same_pool)
-                # first completed reconcile pass against a live peer set -> the pool reflects the
-                # network's, so production is safe (core_loop pool warm-up gate). Peers whose hash
-                # already matches ours count as reconciled-by-equality.
-                if not self.memserver.pool_warmed and (self.consensus.transaction_hash_pool or _same_pool):
-                    self.memserver.pool_warmed = True
-
                 _seeds = set(seed_peers())
                 for peer, ban_time in self.memserver.unreachable.copy().items():
                     # operator seeds are the anchor: never keep them benched — retry immediately. Ordinary
@@ -279,6 +269,23 @@ class PeerClient(threading.Thread):
                         # within seconds instead of whenever the 15-min timer happens to fire. Ff-only
                         # against the pinned official repo; recognized/old/cooled-down values are no-ops.
                         self_update.peer_hint(value.get("latest_main") or value.get("running_commit"))
+
+                # MEMPOOL RECONCILE runs AFTER status admission, never before it. 2026-08-29: a restarted
+                # node pulled a settle-proof tx from a peer's pool and spent 20+ minutes verifying it
+                # inline right here — and because the status pass sat BEHIND the merge, status_pool
+                # stayed empty the whole time: the node saw "no peer ahead", stayed in produce mode,
+                # never synced, and sat 70 blocks behind a mesh it believed it was leading. Statuses are
+                # cheap and are what every other loop steers by; they go first. (The proof itself is now
+                # verified on its own worker — see memserver.merge_remote_transactions.)
+                _our_pool_hash = self.memserver.transaction_pool_hash
+                _same_pool = {p for p, h in self.consensus.transaction_hash_pool.copy().items()
+                              if h == _our_pool_hash}
+                self.memserver.merge_remote_transactions(user_origin=False, skip_pool_peers=_same_pool)
+                # first completed reconcile pass against a live peer set -> the pool reflects the
+                # network's, so production is safe (core_loop pool warm-up gate). Peers whose hash
+                # already matches ours count as reconciled-by-equality.
+                if not self.memserver.pool_warmed and (self.consensus.transaction_hash_pool or _same_pool):
+                    self.memserver.pool_warmed = True
 
                 self.purge_peers()
                 self.duration = get_timestamp_seconds() - start
