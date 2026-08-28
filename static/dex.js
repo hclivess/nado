@@ -804,7 +804,7 @@ function renderXMarket() {
   // a market that cannot trade yet SHOWS it: "soon" in the picker and the pill, no post form, and a book
   // that points at where trading is live — nothing to read, nothing to click that will not work
   const blk = xMarketBlocker(m);
-  gate({ otcPostCard: !blk });
+  const pc = $("otcPostCard"); if (pc) pc.classList.toggle("offmarket", !!blk);   // its own class: the mode switcher re-shows gated cards after every render
   const pb = $("btnOtcPost"); if (pb) { pb.disabled = !!blk; pb.title = blk; }
   const netSel0 = $("otcNet"), tp0 = $("otcTokenPick");
   if (netSel0 && !netSel0.dataset.touched && [...netSel0.options].some((o) => o.value === m.net)) {
