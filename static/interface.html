@@ -223,25 +223,25 @@
       <button class="copy" data-i18n="btn.copy" data-copy="walAddr">Copy</button></div>
     <div class="stat-grid mt">
       <div class="stat" data-i18n-title="tip.free" title="FREE — your spendable balance: coins you can send or bond right now.">
-        <div class="label" data-i18n="lbl.free">Free <span class="hint">ⓘ</span></div><div class="value sm" id="walBalance">—</div>
+        <div class="label" data-i18n="lbl.free">Free</div><div class="value sm" id="walBalance">—</div>
         <div class="pend hidden" id="walBalancePend" data-i18n-title="tip.pendFree" title="Still confirming — the network is sealing these coins into a block. They are NOT spendable yet; they'll appear in your balance automatically (usually well under a minute). Nothing is lost."></div></div>
       <div class="stat" data-i18n-title="tip.bonded" title="BONDED — coins locked as bonded stake. Bonded stake increases your odds in the bonded mining lane; it unlocks BOND_UNLOCK_DELAY (1440) blocks after you request an unbond.">
-        <div class="label" data-i18n="lbl.bonded">Bonded <span class="hint">ⓘ</span></div><div class="value sm" id="walBonded">—</div></div>
+        <div class="label" data-i18n="lbl.bonded">Bonded</div><div class="value sm" id="walBonded">—</div></div>
       <div class="stat" data-i18n-title="tip.total" title="TOTAL — free (spendable) + bonded (staked).">
-        <div class="label" data-i18n="lbl.total">Total <span class="hint">ⓘ</span></div><div class="value sm" id="walTotal">—</div></div>
+        <div class="label" data-i18n="lbl.total">Total</div><div class="value sm" id="walTotal">—</div></div>
       <div class="stat hidden" id="walExecStat" data-i18n-title="tip.playable" title="PLAYABLE (TOKENS) — your execution-layer balance: the tokens the NADO games spend and pay out. Buy in from your Free balance in any game; cash out any time to get NADO back.">
-        <div class="label" data-i18n="lbl.playable">🪙 Playable <span class="hint">ⓘ</span></div><div class="value sm" id="walExec">—</div>
+        <div class="label" data-i18n="lbl.playable">🪙 Playable</div><div class="value sm" id="walExec">—</div>
         <div class="pend hidden" id="walExecPend" data-i18n-title="tip.pendExec" title="Still confirming — this buy-in / cash-out is being sealed into a block. It is NOT playable yet; your token balance updates automatically (usually well under a minute). Nothing is lost."></div>
         <!-- The row's own tooltip promises "cash out any time", but until now the only cash-out lived in the
              GAME pages (nadodapp.wireWallet's ⬇ Cash out slider). A player who checked their wallet saw a
              balance they had no way to act on — the same shape as the pending-unbond gap fixed above. -->
         <button class="accent" id="btnExecCashOut" data-i18n="exec.cashOut" style="display:block;margin:6px auto 0">Cash out</button></div>
       <div class="stat" data-i18n-title="tip.registered" title="REGISTERED — you've done the one-time on-chain registration (a quick proof-of-work). It's required once before you can mine the OPEN lane. Done automatically when you start mining.">
-        <div class="label" data-i18n="lbl.registered">Registered <span class="hint">ⓘ</span></div><div class="value sm" id="walReg">—</div></div>
+        <div class="label" data-i18n="lbl.registered">Registered</div><div class="value sm" id="walReg">—</div></div>
       <div class="stat" data-i18n-title="tip.present" title="PRESENT — you hold a valid presence lease (a recent PoSW recert), so you're currently ELIGIBLE to win open-lane blocks. The wallet renews the lease automatically before it lapses; if it stops, presence lapses and you stop earning until it resumes.">
-        <div class="label" data-i18n="lbl.present">Present <span class="hint">ⓘ</span></div><div class="value sm" id="walPresent">—</div></div>
+        <div class="label" data-i18n="lbl.present">Present</div><div class="value sm" id="walPresent">—</div></div>
       <div class="stat" data-i18n-title="tip.fidelity" title="FIDELITY — a continuity score that rises each epoch you stay present (up to a cap) and increases your weight in the open lane, so steady miners win a bit more often. Going absent reduces its effect.">
-        <div class="label" data-i18n="lbl.fidelity">Fidelity <span class="hint">ⓘ</span></div><div class="value sm" id="walFidelity">—</div></div>
+        <div class="label" data-i18n="lbl.fidelity">Fidelity</div><div class="value sm" id="walFidelity">—</div></div>
     </div>
 
 
@@ -287,7 +287,7 @@
     <!-- Staged setup/registration status. Reuses the .hint-banner ⓘ convention; updated live through
          the one-time auto-registration (solve PoW → submit → wait for confirmation → mining). -->
     <div id="regBanner" class="hint-banner mt hidden" role="status" aria-live="polite">
-      <span class="hint">ⓘ</span><span id="regBannerMsg"></span>
+      <span class="spin" aria-hidden="true"></span><span id="regBannerMsg"></span>
     </div>
 
     <div id="powWrap" class="mt hidden">
@@ -301,9 +301,9 @@
       <div class="stat"><div class="label" data-i18n="mine.status">Status</div><div class="value sm" id="mineState" data-i18n="mine.idle">Idle</div></div>
       <div class="stat"><div class="label" data-i18n="mine.epoch">Current epoch</div><div class="value sm" id="mineEpoch">—</div></div>
       <div class="stat" data-i18n-title="tip.eta" title="EXPECTED TIME TO MINE — a rough average wait until you win a block, based on your share of the open lane vs everyone else mining it. It's a statistical average, not a countdown.">
-        <div class="label" data-i18n="mine.eta">Expected time to mine <span class="hint">ⓘ</span></div><div class="value sm" id="mineEta">—</div></div>
+        <div class="label" data-i18n="mine.eta">Expected time to mine</div><div class="value sm" id="mineEta">—</div></div>
       <div class="stat" data-i18n-title="tip.locked" title="MINING WHILE LOCKED — your PoSW presence lease stays valid on-chain, so a locked/asleep phone keeps mining until it lapses. Renewing the lease (a fresh post-quantum PoSW recert) needs your phone active, so reopen the app before this runs out — it renews in about a second, automatically. (Sending a transaction always needs your phone unlocked at that moment.)">
-        <div class="label" data-i18n="mine.locked">Mining while locked <span class="hint">ⓘ</span></div><div class="value sm" id="mineLocked">—</div></div>
+        <div class="label" data-i18n="mine.locked">Mining while locked</div><div class="value sm" id="mineLocked">—</div></div>
     </div>
 
     <!-- PRESENCE LEASE: when it lapses, and a MANUAL renew for the fidelity-earning window. The automatic
@@ -321,7 +321,7 @@
 
     <!-- Auto-bond is also settable right here on the mining interface (kept in sync with the Stake tab). -->
     <div class="row mt" style="align-items:center;gap:8px" data-i18n-title="tip.autobond" title="While mining, automatically bond this percentage of the block rewards you earn — compounding your bonded-lane weight hands-free (weight is linear in stake — no cap); 0 = off. The node has the same option for headless mining (NADO_AUTO_BOND_PERCENT).">
-      <label style="margin:0;flex:1" data-i18n="stake.autobond">Auto-bond mining rewards <span class="hint">ⓘ</span></label>
+      <label style="margin:0;flex:1" data-i18n="stake.autobond">Auto-bond mining rewards</label>
       <input id="autoBondPctMine" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:80px" />
       <span class="small faint">%</span>
     </div>
@@ -333,16 +333,16 @@
     <!-- Who's in each lane right now (from /mining_status: open/bonded registry sizes + lane weights) -->
     <div class="stat-grid">
       <div class="stat" data-i18n-title="tip.openLane" title="Registered, present miners competing for the ~30% free lane">
-        <div class="label" data-i18n="lanes.open">Open lane <span class="hint">ⓘ</span></div>
+        <div class="label" data-i18n="lanes.open">Open lane</div>
         <div class="value sm"><span id="laneOpenCount">—</span> <span data-i18n="lane.miners">miners</span></div></div>
       <div class="stat" data-i18n-title="tip.bondedLane" title="Bonded-stake validators competing for the ~70% stake lane">
-        <div class="label" data-i18n="lanes.bonded">Bonded lane <span class="hint">ⓘ</span></div>
+        <div class="label" data-i18n="lanes.bonded">Bonded lane</div>
         <div class="value sm"><span id="laneBondedCount">—</span> <span data-i18n="lane.validators">validators</span></div></div>
       <div class="stat" data-i18n-title="tip.openWeight" title="Total open-lane selection weight across all present miners. Your weight is a share of this — the bigger your slice, the more often you win the free lane.">
-        <div class="label" data-i18n="lanes.openWeight">Open weight <span class="hint">ⓘ</span></div>
+        <div class="label" data-i18n="lanes.openWeight">Open weight</div>
         <div class="value sm" id="laneOpenWeight">—</div></div>
       <div class="stat" data-i18n-title="tip.bondedShares" title="Total bonded selection shares across all validators. Your bonded shares are a portion of this (10 NADO / B_MIN per share).">
-        <div class="label" data-i18n="lanes.bondedShares">Bonded shares <span class="hint">ⓘ</span></div>
+        <div class="label" data-i18n="lanes.bondedShares">Bonded shares</div>
         <div class="value sm" id="laneBondedShares">—</div></div>
     </div>
     <div class="lanes mt">
@@ -383,7 +383,7 @@
   <div id="sendCard" class="card hidden" data-tab="send">
     <h2 data-i18n="send.title">Send</h2>
     <div id="payBanner" class="hint-banner hidden">
-      <span class="hint">ⓘ</span><span id="payBannerMsg" data-i18n="payBanner.msg">Payment request loaded — review and confirm.</span>
+     <span id="payBannerMsg" data-i18n="payBanner.msg">Payment request loaded — review and confirm.</span>
     </div>
     <label data-i18n="send.recipient">Recipient address
       <span class="hint" data-i18n-title="tip.recipient" title="A 49-character NADO address starting with 'ndo'. The final 4 characters are a checksum — a mistyped address fails validation and is never broadcast.">ⓘ</span>
@@ -645,7 +645,7 @@
     <div class="stat-grid">
       <div class="stat"><div class="label" data-i18n="stake.spendable">Spendable</div><div class="value sm" id="stkAvail">—</div></div>
       <div class="stat" data-i18n-title="tip.stakeBonded" title="BONDED — coins locked as bonded stake. Bonded stake earns you slots in the BONDED mining lane (~80% of blocks). 10 NADO (B_MIN) per selection share.">
-        <div class="label" data-i18n="lbl.bonded">Bonded <span class="hint">ⓘ</span></div><div class="value sm" id="stkBonded">—</div></div>
+        <div class="label" data-i18n="lbl.bonded">Bonded</div><div class="value sm" id="stkBonded">—</div></div>
     </div>
 
     <!-- Estimated savings (bonded-lane) APY, computed from recent on-chain performance + the presence dividend. -->
@@ -1211,7 +1211,7 @@
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=ed53ba00"></script>
-<script type="module" src="/static/interface.js?v=5a5fe53c"></script>
+<script defer src="/static/i18n.js?v=20e32f71"></script>
+<script type="module" src="/static/interface.js?v=af815853"></script>
 </body>
 </html>
