@@ -5,7 +5,7 @@
 // two FUTURE L1 block hashes when you pick, and draw_i = HASH(bh(gh)+bh(gh+1)+seat·100 + picks+i) mod
 // tilesLeft is a mine iff < N. Resolve is permissionless; reap() frees abandoned seats. See
 // tests/test_mines_contract.py — the contract enforces exactly this math.
-import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=f4ce01cb";
+import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=a8b7da3b";
 import { BankedGame } from "./bankedgame.js?v=0ae45040";
 import { Practice } from "./practice.js?v=a2d98706";      // free in-browser practice (play chips, no chain)
 

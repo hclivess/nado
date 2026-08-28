@@ -972,7 +972,8 @@ export function enhanceSelect(sel, { searchPlaceholder = "Search", icon = true }
     const opts = [...sel.options].filter((o) => !q || o.text.toLowerCase().includes(q) || String(o.value).toLowerCase().includes(q));
     list.innerHTML = opts.length ? opts.map((o) => {
       const [head, ...rest] = o.text.split(" — ");
-      const badge = icon ? `<span class="dot">${esc((head || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?")}</span>` : "";
+      // initials are UNICODE letters: "Čeština" is "ČE", not "ET" (the old ASCII-only strip dropped the Č)
+      const badge = icon ? `<span class="dot">${esc([...(head || "?")].filter((c) => /[\p{L}\p{N}]/u.test(c)).slice(0, 2).join("").toUpperCase() || "?")}</span>` : "";
       return `<div class="pickrow${o.value === sel.value ? " sel" : ""}" data-v="${esc(o.value)}">${badge}
         <span class="txt"><span class="t1">${esc(head)}</span>${rest.length ? `<span class="t2">${esc(rest.join(" — "))}</span>` : ""}</span>
         ${o.value === sel.value ? '<span class="tick">✓</span>' : ""}</div>`;
@@ -983,6 +984,10 @@ export function enhanceSelect(sel, { searchPlaceholder = "Search", icon = true }
   function choose(v) { sel.value = v; label(); close(); sel.dispatchEvent(new Event("change", { bubbles: true })); }
   function open() {
     _pickers.forEach((p) => p !== api && p.close());
+    // open toward the side that has room: a picker at the right edge of a header must not run off-screen
+    // and drag the whole page into a horizontal scroll
+    const rw = wrap.getBoundingClientRect(), pw = Math.min(320, window.innerWidth * 0.86);
+    if (rw.left + pw > window.innerWidth - 8) { panel.style.left = "auto"; panel.style.right = "0"; } else { panel.style.left = "0"; panel.style.right = "auto"; }
     panel.classList.remove("pickhidden"); search.value = ""; draw();
     setTimeout(() => search.focus(), 0);
   }
@@ -1027,7 +1032,7 @@ function _pickCss() {
   .pickbtn:hover{border-color:var(--accent,#00ad93)}
   .pickbtn .car{color:var(--faint,#5d6b7a);font-size:10px;flex:0 0 auto}
   .pickbtn .lab{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .pickpanel{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:min(320px,86vw);
+  .pickpanel{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:min(320px,86vw);max-width:calc(100vw - 24px);
     background:var(--elev2,#1a232e);border:1px solid var(--border,#243140);border-radius:12px;
     box-shadow:0 16px 40px rgba(0,0,0,.55);padding:8px}
   .pickpanel input{width:100%;font:inherit;font-size:13px;padding:9px 10px;margin-bottom:6px;border-radius:9px;
