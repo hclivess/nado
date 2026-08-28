@@ -344,7 +344,8 @@ const NETS = {
   btc:  { chain: "btc", coin: "BTC", label: "Bitcoin",          hrp: "bc",  explorer: "https://mempool.space" },
   btct: { chain: "btc", coin: "tBTC", label: "Bitcoin testnet", test: true, hrp: "tb",  explorer: "https://mempool.space/testnet" },
   eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", test: true, evm: "0xaa36a7", rpc: "https://ethereum-sepolia-rpc.publicnode.com", htlc: "0xd5f47927999c31ce4fe3de11bc560678094486e7", erc20: "0x6d6104704e1956c36851d4c36fdad77ce75a6106" },
-  eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1", rpc: "https://ethereum-rpc.publicnode.com",     htlc: "", erc20: "" },
+  // mainnet 2026-08-28: bytecode verified byte-identical to the audited Sepolia contracts before wiring
+  eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1", rpc: "https://ethereum-rpc.publicnode.com",     htlc: "0xcd8f71e75bb37f438c49a8011ae4037da5a8968f", erc20: "0x81feecb4de6ad8f23c1db38b4a1f0068cb723117" },
   // Solana needs a deployed PROGRAM (unlike Bitcoin, whose HTLC is just a script). `program: ""` means
   // nothing is deployed on that cluster yet and the row says so rather than letting anyone fund a lock
   // into thin air. Filling one in is the only change a new cluster needs.

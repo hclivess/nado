@@ -377,12 +377,16 @@ with Ethereum's clock.
 
 > **Shipped (2026-08-26):** `scripts/HtlcEth.sol` (compiled to `scripts/HtlcEth.bin`) is the contract; `static/ethsign.js` signs it in-page and `scripts/otc_eth_leg.mjs` from a terminal (both proven end to end against a live EVM). In the dApp the ETH leg uses an **injected wallet** (MetaMask/EIP-1193 — the user's own funded account pays gas, the account model needs it) with the CLI shown as the fallback when no wallet is present. A single ownerless `HtlcEth` per EVM chain is reused via `ETH_HTLC[chainId]`. **DEPLOYED LIVE on Ethereum Sepolia at `0xd5f47927999c31ce4fe3de11bc560678094486e7`** — the dApp's ETH leg is wired to it, so ETH↔NADO swaps run on real Sepolia today: connect an injected wallet on the Sepolia network, or drive it with `scripts/otc_eth_leg.mjs`.
 
-> **Do not use the first deployments.** `0xCd8F71E7…8968F` (HtlcEth) and `0x81feecb4…23117` (HtlcErc20)
-> are still on Sepolia and still answer, but they are the pre-audit versions whose lock key did not bind
-> the amount: an attacker could fund one wei against a victim's swap terms, and the victim claiming that
-> dust would publish the preimage and lose the other leg. The live addresses above bind the amount into
-> the key. Nothing points at the old ones any more; they are named here only so nobody resurrects them
-> from an old note.
+> **Do not use the first Sepolia deployments.** On **Sepolia**, `0xCd8F71E7…8968F` (HtlcEth) and
+> `0x81feecb4…23117` (HtlcErc20) are the pre-audit versions whose lock key did not bind the amount —
+> the one-wei theft. The live Sepolia pair is `0xd5f4…86e7` / `0x6d61…a106`.
+>
+> **Ethereum MAINNET (deployed 2026-08-28):** HtlcEth **`0xcd8f71e75bb37f438c49a8011ae4037da5a8968f`**,
+> HtlcErc20 **`0x81feecb4de6ad8f23c1db38b4a1f0068cb723117`**. Yes, the same two addresses as the bad
+> Sepolia pair — same deployer key, nonces 0 and 1 — but on mainnet they carry the AUDITED build:
+> `eth_getCode` on each was compared byte for byte with the live Sepolia contracts before the dex was
+> pointed at them. Chain + address identifies a contract; the address alone does not. Deploy txs
+> `0x3bf911a5…8eaed6` and `0x4039f78d…0b03d9`. Watchtower: `--eth eth <rpc> 0xcd8f71e75bb37f438c49a8011ae4037da5a8968f`.
 
 **Solana — an HTLC program with the escrow in a PDA** (`scripts/solana-htlc`, ~230 lines, no admin key,
 no fee). Bitcoin needs nothing deployed because its HTLC is a script; Solana has no such script, so the
