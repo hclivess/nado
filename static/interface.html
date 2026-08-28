@@ -1068,6 +1068,9 @@
   <div id="settingsCard" class="card hidden" data-tab="settings">
     <h2 data-i18n="settings.title">Settings</h2>
     <div style="margin-bottom:18px">
+      <div class="settings-sect" style="margin-top:0;padding-top:0;border-top:0" data-i18n="settings.sectLang">Language</div>
+      <div id="langMount"></div>
+      <div class="settings-sect" data-i18n="settings.sectLook">Appearance</div>
       <b data-i18n="settings.theme">Theme</b>
       <span class="small faint" style="display:block" data-i18n="settings.themeSub">Recolours the whole interface — surfaces, text and controls. Contrast is checked for every theme.</span>
       <div id="themeGrid" class="themegrid"></div>
@@ -1210,7 +1213,7 @@
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=20e32f71"></script>
+<script defer src="/static/i18n.js?v=0335776f"></script>
 <script type="module" src="/static/interface.js?v=af815853"></script>
 </body>
 </html>

@@ -4649,14 +4649,18 @@
     const sel = document.createElement("select");
     sel.id = "langSelect";
     sel.setAttribute("aria-label", "Language");
-    sel.style.cssText = "margin-top:4px;background:#0b0f14;color:inherit;border:1px solid #1c2530;border-radius:8px;padding:2px 5px;font-size:11px;max-width:130px";
+    // Where it lives: a page that offers a #langMount (the wallet's Settings) gets a normal, full-width
+    // setting there — language is a preference, not header chrome. Other pages keep the compact header pick.
+    const mount = document.getElementById("langMount");
+    sel.style.cssText = mount ? "width:100%;max-width:320px;margin-top:6px"
+      : "margin-top:4px;background:#0b0f14;color:inherit;border:1px solid #1c2530;border-radius:8px;padding:2px 5px;font-size:11px;max-width:130px";
     Object.keys(T).forEach((l) => {
       const o = document.createElement("option");
       o.value = l; o.textContent = NAMES[l] || l; if (l === LANG) o.selected = true;
       sel.appendChild(o);
     });
     sel.addEventListener("change", () => setLang(sel.value));
-    const host = document.querySelector("header.app .conn") || document.querySelector("header.app") || document.querySelector("header") || document.body;
+    const host = mount || document.querySelector("header.app .conn") || document.querySelector("header.app") || document.querySelector("header") || document.body;
     // No app/game header to dock into → pin it to the top corner instead of letting it fall to the end of <body> (bottom-left).
     if (host === document.body) {
       sel.style.cssText += ";position:fixed;top:8px;" + (RTL.has(LANG) ? "left" : "right") + ":8px;z-index:2147483647;margin-top:0";

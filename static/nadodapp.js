@@ -973,7 +973,7 @@ export function enhanceSelect(sel, { searchPlaceholder = "Search", icon = true }
     list.innerHTML = opts.length ? opts.map((o) => {
       const [head, ...rest] = o.text.split(" — ");
       // initials are UNICODE letters: "Čeština" is "ČE", not "ET" (the old ASCII-only strip dropped the Č)
-      const badge = icon ? `<span class="dot">${esc([...(head || "?")].filter((c) => /[\p{L}\p{N}]/u.test(c)).slice(0, 2).join("").toUpperCase() || "?")}</span>` : "";
+      const badge = icon ? `<span class="dot">${esc([...(head || "?")].filter((c) => /[\p{L}\p{M}\p{N}]/u.test(c)).slice(0, 2).join("").toUpperCase() || "?")}</span>` : "";
       return `<div class="pickrow${o.value === sel.value ? " sel" : ""}" data-v="${esc(o.value)}">${badge}
         <span class="txt"><span class="t1">${esc(head)}</span>${rest.length ? `<span class="t2">${esc(rest.join(" — "))}</span>` : ""}</span>
         ${o.value === sel.value ? '<span class="tick">✓</span>' : ""}</div>`;
