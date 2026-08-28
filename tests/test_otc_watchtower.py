@@ -106,5 +106,36 @@ W.sol_claim_secrets("http://devnet", "PROG2", [(1, H)], st, net="sold")
 ok(st.get("sol_until:sold") == "S0" and st.get("sol_until:sol") == "S0", "solana scan: each cluster keeps its own cursor")
 W._sol_rpc = real_rpc
 
+# The NADO L1 reveal: a claimed HTLC carries its preimage — a BID taker's only automatic source.
+def fake_get(url, timeout=15):
+    if "get_htlc?id=HID1" in url:
+        return {"htlc": {"status": "claimed", "preimage": s, "hashlock": H}}
+    if "get_htlc?id=HID2" in url:
+        return {"htlc": {"status": "open"}}
+    return {"htlc": None}
+
+
+W._get, real_get = fake_get, W._get
+orders = [{"o": 1, "hid": "HID1"}, {"o": 2, "hid": "HID2"}, {"o": 3, "hid": ""}]
+got = W.nado_claim_secrets("http://l1", orders, [(1, H), (2, H), (3, H)])
+ok(got == {1: s}, "L1 scan: a CLAIMED bound HTLC yields its preimage; open or unbound orders yield nothing")
+W._get = real_get
+
+# The Ethereum reveal: Claimed(key, s) logs on the HTLC contract, scanned by block range per network.
+def eth_rpc(url, method, params):
+    calls.append((method, params))
+    if method == "eth_blockNumber":
+        return hex(1000)
+    return [{"data": "0x" + s}, {"data": "0x" + "22" * 32}]
+
+
+W._sol_rpc = eth_rpc
+calls.clear(); st = {}
+got = W.eth_claim_secrets("http://eth", "0xhtlc", [(5, H)], st)
+ok(got == {5: s}, "eth scan: the watched hashlock's preimage is read out of a Claimed log")
+ok(st.get("eth_from:eth") == 1001, "eth scan: the next pass starts after the scanned tip")
+ok(any(c[0] == "eth_getLogs" and c[1][0]["topics"] == [W.ETH_CLAIMED_TOPIC] for c in calls), "eth scan: filters on the Claimed topic")
+W._sol_rpc = real_rpc
+
 print(f"\n[tower] {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

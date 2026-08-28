@@ -122,9 +122,14 @@ any admin address** — the contract has no owner. State is slot-keyed and fully
 
 ### 4.1 Order kinds
 
-- **`ASK_NADO`** — maker offers NADO (escrowed in the contract now) for a foreign asset. The maker is the
-  *hashlock originator* (generates the secret) → gets the **longer** timelock.
-- **`BID_NADO`** — maker offers a foreign asset for NADO; the NADO side is provided by the taker. Symmetric.
+- **`ASK_NADO`** — maker offers NADO (in an L1 HTLC) for a foreign asset. The maker is the *hashlock
+  originator* (generates the secret) → the leg they FUND (NADO, `expn`) gets the **longer** timelock;
+  the foreign leg they claim expires first (`expf + margin < expn`).
+- **`BID_NADO`** — maker offers a foreign asset for NADO; the NADO side is provided by the taker. The
+  maker STILL generates the secret, so the mirror holds: the leg the maker funds is now the FOREIGN one,
+  and it must outlast the taker's NADO lock (`expn + margin < expf`). Order of operations follows from
+  that: the maker locks the foreign leg first, the taker checks it and locks NADO, the maker claims the
+  NADO (revealing `s` on L1), the taker claims the foreign leg with it.
 - **`SWAP_INTRA`** — maker offers exec-layer asset A for asset B, settled by a single atomic VM swap (§7);
   no HTLC, no foreign chain.
 
@@ -194,7 +199,7 @@ same window, it never interprets it.
   cross-chain order escrows nothing here, because the NADO leg is an L1 HTLC (see WHERE THE MONEY SITS).
   `namt` is the advertised amount.
   `// o fresh; kind ∈ {1,2}; namt > 0 (range-gated < 2^62); every commitment non-zero; expn in the HTLC
-  window; VALUE == (kind==ASK ? namt : 0).`
+  window; VALUE == 0 (the principal is in the L1 HTLC); expf on the kind's side of §6.3.`
 - **`cancel(o)`** — maker only, only while `open`. Refunds the escrow to the maker. `// state==open &&
   caller==maker`.
 - **`bind(o, htlcId)`** — either party records the L1 HTLC that carries the NADO leg, so the counterparty
@@ -293,8 +298,14 @@ Both legs complete. Alice got BTC, Bob got NADO. No coin was ever custodied.
 > **ENFORCED IN-CIRCUIT since 2026-08-27.** This was a wallet-side promise the wallet never kept — an
 > audit showed a maker could set a foreign deadline outlasting the NADO window, reclaim their NADO at
 > `expn`, and *still* claim the foreign coin. `post` and `fill` now both check it against the VM's own
-> chain clock: `time + FOREIGN_MIN_S < expf` and `expf + FOREIGN_MARGIN_S < time + (expn − cursor)·6`.
-> `fill` re-checks because the NADO window shrinks in real time while `expf` stays put.
+> chain clock: `time + FOREIGN_MIN_S < expf`, then **by kind** — ASK: `expf + FOREIGN_MARGIN_S <
+> time + (expn − cursor)·6`; BID: `time + (expn − cursor)·6 + FOREIGN_MARGIN_S < expf`. `fill` re-checks
+> because the NADO window shrinks in real time while `expf` stays put.
+>
+> **2026-08-28: the BID direction was inverted.** The first in-circuit version applied the ASK inequality
+> to both kinds. In a BID the maker funds the foreign leg and claims the NADO, so "foreign expires first"
+> let the maker refund the foreign leg at `expf` and still claim the taker's NADO before `expn`. The rule
+> is not "foreign before NADO"; it is "the leg the secret-holder funds outlasts the leg they claim".
 
 `T₂` (foreign, taker's refund) **must** expire strictly *before* `T₁` (NADO, maker's refund), with enough
 margin for the second claim to confirm:
@@ -477,10 +488,12 @@ appetite:
 
 - **Short, tight timelocks** — the shorter the window, the less optionality. `HTLC_MIN_TIMELOCK` sets the
   floor; the order book should default to the *shortest* safe `T₂/T₁` for the chains involved.
-- **Non-refundable premium / collateral — IMPLEMENTED (`set_premium(o, amt)`, 2026-08-26):** the maker
-  prices the option per order; the taker escrows it at fill (one value, split in storage), settle returns
-  it, expire-after-fill forfeits it to the maker. Released by the same refund logic — no arbiter. Shown in
-  the dApp as a \"good-faith deposit\".
+- **Collateral — TRIED AND WITHDRAWN (2026-08-28).** `set_premium(o)` let the maker self-escrow a
+  deposit that forfeited to the taker when an order expired filled. But this contract cannot observe the
+  foreign chain, so it cannot tell a walking maker from a taker who filled (free) and never performed —
+  the forfeit was a bounty for griefing, and the maker's only escape (`settle`) revealed the secret while
+  the L1 lock was still claimable. The method remains so existing deposits drain home on every terminal
+  state; the dApp no longer offers it. A forfeit judged on a fact nobody on chain can see is not a deposit.
 - **Reputation (soft, off-chain)** — the L3 layer can surface completion rates; purely advisory, never a
   gate.
 - **Prefer intra-NADO (§7)** — no window, no option, whenever both assets are on NADO.
@@ -552,7 +565,7 @@ and being a watchtower requires no permission, stake, or identity.
 | **2 (legs done 2026-08-26)** | Foreign legs SHIPPED: `scripts/otc_btc_leg.py` (P2WSH HTLC builder/signer + CLI: address/claim/refund/extract, BIP143, no wallet dependency) and `scripts/HtlcEth.sol` (the one-contract ETH HTLC). The BTC leg is now FULLY AUTOMATIC in the dApp (2026-08-26): per-order swap keys generated in-browser (never typed, never leave the page), pubkeys ride the order's own address fields, every row derives the P2WSH address itself (`btcleg.js`) and offers Send-exactly/Copy/Verify, one-click Claim/Reclaim signs in-page (`btcsign.js` — BIP143 + RFC-6979 via vendored @noble/secp256k1, byte-identical to the Python leg) and broadcasts via the explorer, and Settle auto-reads the revealed secret from the claim witness. The explorer reads are the user's own decision input (§6.4 B), never consensus. the ETH leg is wired too (injected-wallet in the dApp + `scripts/otc_eth_leg.mjs` headless); `scripts/otc_btc_leg.py` / `otc_eth_leg.mjs` stay as the expert paths | `tests/test_otc_swap_e2e.py` — 15/15: regtest bitcoind + anvil + the real otc contract, ONE secret opens all three, both refund paths, both wrong-secret rejections |
 | **3 (contract done 2026-08-26)** | `SWAP_INTRA` SHIPPED: `post_intra`/`fill_intra` — both legs (native↔asset or asset↔asset) in ONE atomic call, open→settled with no middle state; asset-aware cancel/expire refunds; `fill()` gained a kind gate (a 0-value HTLC fill could otherwise freeze an intra escrow until expiry). Cross-namespace tunnel path still open (routes through the L1 bridge, §7) | intra section of `tests/otc_contract_test.py` (72/72 total) |
 | **4 (daemon done 2026-08-26)** | `scripts/otc_watchtower.py` SHIPPED — expire sweep (escrow always drains home, zero-escrow opens skipped) + BTC secret-scan settle relay (finds a revealed preimage in any claim witness and re-posts settle; payment goes to the recorded party, never the tower) + secrets-file settle; contract discovered by method shape, dry-run default, --submit/--loop for the daemon. On-chain BOUNTIES for towers remain phase 5 (§8) | `tests/test_otc_watchtower.py` (8/8) + live dry-run |
-| **5 (bounties done 2026-08-26; rest future)** | `boost(o)` bounties SHIPPED (§8) — the watchtower sweeps paying work first. §9.1 premium/collateral SHIPPED too (`set_premium` — maker-priced per order, dApp \"good-faith deposit\"). The L3 gossip discovery relay is DROPPED as unnecessary — §5's whole argument is that the on-chain book IS the discovery layer, and it is live. Still future: a dedicated `bridge.nadochain.com` Swap dApp (cosmetic), ETH-leg automation (needs HtlcEth deployed on a real EVM chain — an operator decision, it costs gas) | bounty section of `tests/otc_contract_test.py` (83/83) |
+| **5 (bounties done 2026-08-26; rest future)** | `boost(o)` bounties SHIPPED (§8) — the watchtower sweeps paying work first. §9.1 collateral was shipped and then WITHDRAWN 2026-08-28 (unobservable performance made the forfeit free money for takers — see §9.1). The L3 gossip discovery relay is DROPPED as unnecessary — §5's whole argument is that the on-chain book IS the discovery layer, and it is live. Still future: a dedicated `bridge.nadochain.com` Swap dApp (cosmetic), ETH-leg automation (needs HtlcEth deployed on a real EVM chain — an operator decision, it costs gas) | bounty section of `tests/otc_contract_test.py` (83/83) |
 
 **File map (to build):** `execnode/games/otc.py` (+ `tests/test_otc_contract.py` as its source of
 truth), a cross-chain tab inside the existing `static/dex.{html,js}` exchange dApp (one venue: AMM + book, on the shared `nadodapp.js` SDK), `scripts/otc_watchtower.py`,

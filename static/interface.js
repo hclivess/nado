@@ -3074,7 +3074,7 @@ async function resumePendingExecSign() {
   const back = bg
     ? (params) => { const o = { nadoExecSign: 1 }; try { new URLSearchParams(params).forEach((v, k) => { o[k] = v; }); } catch (e) {} try { window.parent.postMessage(o, retUrl.origin); } catch (e) {} }
     : (params) => { location.href = req.ret + (req.ret.includes("?") ? "&" : "?") + params; };
-  if (bg && (call.connect || call.deposit || call.htlc_lock)) return needUI();   // sign-in / deposit / swap-lock always need the visible confirm
+  if (bg && (call.connect || call.deposit || call.htlc_lock || call.htlc_claim)) return needUI();   // sign-in / deposit / swap-lock always need the visible confirm
   if (call.connect) {   // lightweight "sign in": just return the wallet address, no transaction, no fee
     const c = await uiConfirm({
       title: i18("dapp.connectTitle", "Sign in"),
@@ -3141,6 +3141,36 @@ async function resumePendingExecSign() {
         const target = latest.block_number + TX_TARGET_MARGIN;
         return buildTransferTx(state.wallet, "htlc_lock", amt, MIN_TX_FEE, target,
                                { claimant, hashlock, expiry: target + blocks }, nowSeconds());
+      });
+      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
+                                       : "ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
+    } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
+    return;
+  }
+  if (call.htlc_claim) {   // ATOMIC-SWAP CLAIM: take an L1 HTLC's NADO with the secret. Reveals the secret on chain.
+    const L = call.htlc_claim || {};
+    const hid = String(L.htlc_id || ""), preimage = String(L.preimage || "").toLowerCase();
+    if (!/^[0-9a-f]{16,}$/.test(hid) || !/^[0-9a-f]{64}$/.test(preimage)) { back("ok=0&err=bad+swap+claim"); return; }
+    let doc = null;
+    try { doc = (await rpcJSON("/get_htlc?id=" + encodeURIComponent(hid))).htlc; } catch (e) {}
+    if (!doc) { back("ok=0&err=" + encodeURIComponent("no such swap lock")); return; }
+    if (doc.claimant !== state.wallet.address) { back("ok=0&err=" + encodeURIComponent("that lock is claimable by " + doc.claimant.slice(0, 12) + "…, not this wallet")); return; }
+    if ((await _sha256hex(Uint8Array.from(preimage.match(/../g), (x) => parseInt(x, 16)))) !== String(doc.hashlock).toLowerCase()) { back("ok=0&err=" + encodeURIComponent("secret does not match the lock's hashlock")); return; }
+    const okc = await uiConfirm({
+      title: i18("dapp.swapClaimTitle", "Claim NADO from an atomic swap"),
+      body: i18("dapp.swapClaimBody", "{app} is asking you to claim {n} NADO escrowed for you on the main chain. This PUBLISHES the swap secret — the other side of the swap becomes claimable by your counterparty the moment it lands.", { app: req.app, n: rawToNado(BigInt(doc.amount)) }),
+      rows: [{ k: i18("dapp.amount", "Amount"), v: rawToNado(BigInt(doc.amount)) + " NADO" },
+             { k: i18("dapp.swapLockId", "Lock"), v: hid.slice(0, 20) + "…" },
+             { k: i18("dapp.swapExpiry2", "Claimable until block"), v: String(doc.expiry) }],
+      confirmText: i18("dapp.swapClaim", "Claim"),
+    });
+    if (!okc) { back("ok=0"); return; }
+    try {
+      const { res, tx } = await submitResilient(async () => {
+        const latest = await getLatestBlock();
+        if (!latest) throw new Error("relay unavailable");
+        return buildTransferTx(state.wallet, "htlc_claim", 0n, 0, latest.block_number + TX_TARGET_MARGIN,
+                               { htlc_id: hid, preimage }, nowSeconds());
       });
       back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
                                        : "ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));

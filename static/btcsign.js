@@ -68,7 +68,7 @@ async function spend({ scriptHex, branchWitness, privHex, fundTxid, vout, amount
 // PUBLIC: build a signed claim tx (reveals the 32-byte secret). outScriptHex is where the BTC goes.
 export function claimTx({ scriptHex, secretHex, privHex, fundTxid, vout, amountSat, outScriptHex, feeSat = 500 }) {
   return spend({ scriptHex, branchWitness: [hexToBytes(secretHex), new Uint8Array([1])], privHex,
-                 fundTxid, vout, amountSat, outScriptHex, feeSat, locktime: 0, sequence: 0xffffffff });
+                 fundTxid, vout, amountSat, outScriptHex, feeSat, locktime: 0, sequence: 0xfffffffd });   // RBF-signalling: a claim stuck under the fee floor can be bumped
 }
 // PUBLIC: build a signed refund tx (valid only at/after locktime).
 export function refundTx({ scriptHex, locktime, privHex, fundTxid, vout, amountSat, outScriptHex, feeSat = 500 }) {

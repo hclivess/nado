@@ -21,6 +21,7 @@ Usage:
     HOME=/srv/nado-home python3 scripts/otc_watchtower.py scan                      # dry-run one pass
     HOME=/srv/nado-home python3 scripts/otc_watchtower.py scan --submit --loop 60   # the real daemon
         [--l1 URL] [--exec URL] [--cid CID] [--btc-cli "bitcoin-cli -rpcwait ..."] [--secrets FILE]
+        [--eth NET RPC HTLC ...]           # one per EVM network, e.g. --eth eths https://ethereum-sepolia-rpc.publicnode.com 0xd5f4…
         [--sol NET RPC PROGRAM ...]        # one per cluster, e.g. --sol sold https://api.devnet.solana.com C4Wc…
 """
 import argparse
@@ -93,7 +94,8 @@ def parse_orders(storage):
         out.append({"o": int(o), "kind": int(g("kind").get(o) or 0), "st": int(g("st").get(o) or 0),
                     "expn": int(g("expn").get(o) or 0), "esc": int(g("esc").get(o) or 0),
                     "hsha": str(g("hsha").get(o) or ""), "wch": str(g("wch").get(o) or ""),
-                    "bnty": int(g("bnty").get(o) or 0), "pheld": int(g("pheld").get(o) or 0)})
+                    "bnty": int(g("bnty").get(o) or 0), "pheld": int(g("pheld").get(o) or 0),
+                    "hid": str(g("hid").get(o) or "")})
     return out
 
 
@@ -125,6 +127,57 @@ def scan_txs(tx_hexes, watches):
             if s:
                 found[o] = s
                 break
+    return found
+
+
+def nado_claim_secrets(l1, orders, watches):
+    """{orderId: secret} for every watched order whose bound L1 HTLC has been CLAIMED — the claim tx records
+    the preimage. This is the reveal that matters for a BID: the maker takes the taker's NADO with the
+    secret, and nothing obliges them to also call settle. Reading it here is what makes the taker's foreign
+    claim automatic instead of a favour."""
+    found = {}
+    by_id = {x["o"]: x for x in orders}
+    for o, H in watches:
+        hid = by_id.get(o, {}).get("hid")
+        if not hid:
+            continue
+        try:
+            doc = (_get(f"{l1}/get_htlc?id={hid}") or {}).get("htlc") or {}
+        except Exception:
+            continue
+        pre = str(doc.get("preimage") or "")
+        if doc.get("status") == "claimed" and len(pre) == 64 and hashlib.sha256(bytes.fromhex(pre)).hexdigest() == H:
+            found[o] = pre
+    return found
+
+
+ETH_CLAIMED_TOPIC = "0x38d6042dbdae8e73a7f6afbabd3fbe0873f9f5ed3cd71294591c3908c2e65fee"     # keccak256("Claimed(bytes32,bytes32)") — HtlcEth and HtlcErc20 emit the same event
+
+
+def eth_claim_secrets(rpc, htlc, watches, state, net="eth"):
+    """{orderId: secret} from the HTLC contract's Claimed logs. Each log's data is the 32-byte preimage;
+    we remember the last block scanned per network so a pass reads only what is new."""
+    cursor = "eth_from:" + net
+    want = {bytes.fromhex(H): o for o, H in watches}
+    found = {}
+    tip = int(_sol_rpc(rpc, "eth_blockNumber", []), 16)
+    start = int(state.get(cursor, max(0, tip - 50000)))
+    if start > tip:
+        return found
+    logs = _sol_rpc(rpc, "eth_getLogs", [{"address": htlc, "fromBlock": hex(start), "toBlock": hex(tip),
+                                          "topics": [ETH_CLAIMED_TOPIC]}]) or []
+    for lg in logs:
+        d = str(lg.get("data") or "")[-64:]
+        if len(d) != 64:
+            continue
+        try:
+            raw = bytes.fromhex(d)
+        except ValueError:
+            continue
+        h = hashlib.sha256(raw).digest()
+        if h in want:
+            found[want[h]] = d
+    state[cursor] = tip + 1
     return found
 
 
@@ -239,6 +292,14 @@ def one_pass(a, state):
         for h in range(start, tip_b + 1):
             secrets.update(scan_txs(btc_block_txs(a.btc_cli, h), [w for w in watches if w[0] not in secrets]))
         state["btc_from"] = tip_b + 1
+    # the NADO L1 first: a claimed HTLC carries its preimage, whichever chain the swap is against
+    if watches:
+        secrets.update(nado_claim_secrets(a.l1, orders, [w for w in watches if w[0] not in secrets]))
+    for net, rpc, htlc in (a.eth or []):          # each EVM network: the HTLC contract's Claimed logs
+        eth_watches = [(o, H) for o, H in watches
+                       if o not in secrets and str(by_id.get(o, {}).get("wch", "")).split("|")[0] == net]
+        if eth_watches:
+            secrets.update(eth_claim_secrets(rpc, htlc, eth_watches, state, net))
     for net, rpc, program in (a.sol or []):       # each Solana cluster is its own network key in wch
         sol_watches = [(o, H) for o, H in watches
                        if o not in secrets and str(by_id.get(o, {}).get("wch", "")).split("|")[0] == net]
@@ -260,6 +321,8 @@ def main():
     ap.add_argument("--cid", default=None)
     ap.add_argument("--btc-cli", default=None, help='e.g. "bitcoin-cli -rpcwait" — enables the BTC secret scan')
     ap.add_argument("--btc-lookback", type=int, default=144, help="blocks to scan back on first run (default ~1 day)")
+    ap.add_argument("--eth", nargs=3, action="append", metavar=("NET", "RPC", "HTLC"),
+                    help="enable the Ethereum claim scan for one network: its wch key (eths / eth), RPC URL, HtlcEth address")
     ap.add_argument("--sol", nargs=3, action="append", metavar=("NET", "RPC", "PROGRAM"),
                     help="enable the Solana claim scan for one cluster: its wch key (sold / sol), RPC URL, program id")
     ap.add_argument("--secrets", default=None, help="JSON file {orderId: 64-hex secret} to settle from")

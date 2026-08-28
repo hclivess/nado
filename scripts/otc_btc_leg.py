@@ -151,7 +151,7 @@ def _spend(script, branch_witness, priv_hex, txid_hex, vout, amount_sat, out_scr
 def claim_tx(script, secret, priv_hex, txid_hex, vout, amount_sat, out_script, fee_sat=1000):
     """Spend the HTLC through the claim branch, REVEALING `secret` on-chain (witness = sig, s, 1, script)."""
     return _spend(script, [secret, b"\x01"], priv_hex, txid_hex, vout, amount_sat, out_script,
-                  fee_sat, locktime=0, sequence=0xffffffff)
+                  fee_sat, locktime=0, sequence=0xfffffffd)   # RBF-signalling, byte-identical to btcsign.js
 
 
 def refund_tx(script, locktime, priv_hex, txid_hex, vout, amount_sat, out_script, fee_sat=1000):

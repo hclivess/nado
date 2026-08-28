@@ -1303,6 +1303,13 @@ export class NadoDapp {
                        label: "lock " + rawToNado(amount) + " NADO for an atomic swap" },
                      pend || { phase: "htlc_lock" });
   }
+  // htlcClaim: take the NADO leg of a swap with the secret. The L1 tx is fee-exempt, so a claimant holding
+  // no NADO at all can still claim. Publishing the preimage is what lets the counterparty claim the
+  // mirrored lock on the other chain — the wallet shows it before signing.
+  htlcClaim({ htlcId, preimage }, pend) {
+    this._goRedirect({ htlc_claim: { htlc_id: htlcId, preimage }, label: "claim the NADO of an atomic swap" },
+                     pend || { phase: "htlc_claim" });
+  }
   signBlob(blob, label, pend, opts) {
     // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing
     this._pendAdd(pend, !!(opts && opts.stakes), !!(opts && opts.tipExpire));

@@ -10,14 +10,14 @@
 //    in ONE place here (toUnits/fromUnits) so no other line has to remember the scale.
 //  * The quote recomputes out = RT·dxf/(RN+dxf), dxf = dx·9970/10000, EXACTLY as the contract does, in
 //    BigInt. A float quote would drift from the chain and mis-set minOut, turning a good swap into a revert.
-import { htlcScript, p2wshAddress } from "./btcleg.js?v=3854b338";
-import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=15418184";
-import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec } from "./ethsign.js?v=2";
+import { htlcScript, p2wshAddress } from "./btcleg.js?v=93bc368e";
+import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=8ae7a389";
+import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec, ethKeypair } from "./ethsign.js?v=2bb64986";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=99fc7471";
+         blocksToTime } from "./nadodapp.js?v=8a2ced0e";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -34,6 +34,22 @@ function posFor(poolId) {                            // your LP slot for this po
 }
 const toUnits = (nado) => { try { return BigInt(nadoToRaw(nado)) / UNIT; } catch (e) { return 0n; } };
 const fromUnits = (u) => rawToNado((BigInt(u) * UNIT).toString());
+// A pool counts a token in the same UNIT-sized steps as NADO, but the token's own decimals decide what a
+// raw unit MEANS — a 0-decimal token's pool unit is 10^10 whole tokens. These two are the only place that
+// scale lives; NADO keeps toUnits/fromUnits.
+const tokDec = (assetId) => { const m = tokMeta(assetId); return m ? Number(m.dec) || 0 : 10; };
+function tokToUnits(str, assetId) {                    // "12.5" of a d-decimal token -> pool units (floored)
+  const [i, f = ""] = String(str || "").trim().replace(",", ".").split(".");
+  if (!/^\d*$/.test(i) || !/^\d*$/.test(f)) return 0n;
+  const d = tokDec(assetId);
+  const raw = BigInt((i || "0") + (f + "0".repeat(d)).slice(0, d));
+  return raw / UNIT;
+}
+function tokFromUnits(u, assetId) {                    // pool units -> a decimal string in the token's own decimals
+  const d = tokDec(assetId), raw = (BigInt(u) * UNIT).toString().padStart(d + 1, "0");
+  const ip = raw.slice(0, raw.length - d), fp = d ? raw.slice(raw.length - d).replace(/0+$/, "") : "";
+  return fp ? ip + "." + fp : ip;
+}
 
 let lastSto = null;
 let assetReg = {};
@@ -140,8 +156,9 @@ function renderSwap() {
     dsel.value = keep; dsel.dataset.sym = sym;
   }
   const dir = (dsel || {}).value || "n2t";     // n2t = sell NADO, t2n = sell token
-  const inU = toUnits((($("swapAmt") || {}).value || "").trim());
+  const inU = dir === "n2t" ? toUnits((($("swapAmt") || {}).value || "").trim()) : tokToUnits(($("swapAmt") || {}).value, p.asset);
   const out = dir === "n2t" ? quoteOut(inU, p.rn, p.rt) : quoteOut(inU, p.rt, p.rn);
+  const fmtOut = (u) => dir === "n2t" ? tokFromUnits(u, p.asset) : fromUnits(u);
   // A comma decimal ("0,5") or any junk used to throw here — BEFORE the dataset below was written — so
   // the button kept signing the PREVIOUS amount while the box showed something else (audit).
   const slipRaw = String((($("slip") || {}).value) || "1").replace(",", ".");
@@ -150,7 +167,7 @@ function renderSwap() {
   // minOut = the quote reduced by the tolerance, rounded DOWN (the contract compares UNITs as integers).
   const minOut = out * BigInt(Math.max(0, Math.round((100 - slipPct) * 100))) / 10000n;
   $("quote").textContent = out > 0n
-    ? `${fromUnits(out)} ${dir === "n2t" ? sym : "NADO"}   (at worst ${fromUnits(minOut)})`
+    ? `${fmtOut(out)} ${dir === "n2t" ? sym : "NADO"}   (at worst ${fmtOut(minOut)})`
     : "—";
   const amtIn = $("swapAmt"); if (amtIn) amtIn.placeholder = `amount in ${dir === "n2t" ? "NADO" : sym}`;
   card.dataset.minout = String(minOut);
@@ -166,11 +183,11 @@ function renderSwap() {
   const imp = $("sumImpact");
   if (imp) { imp.textContent = inU > 0n && out > 0n ? impact.toFixed(2) + "%" : "—";
     imp.style.color = impact >= 5 ? "var(--danger)" : impact >= 1 ? "var(--warn)" : "var(--dim)"; }
-  const qa = $("quoteAmt"); if (qa) qa.value = out > 0n ? fromUnits(out) : "";
+  const qa = $("quoteAmt"); if (qa) qa.value = out > 0n ? fmtOut(out) : "";
   const payBalU = dir === "n2t" ? execUnits() : tokenUnits(p.asset);
-  setTxt("payBal", payBalU === null ? "—" : "Balance " + fromUnits(payBalU) + " " + paySym);
+  setTxt("payBal", payBalU === null ? "—" : "Balance " + (dir === "n2t" ? fromUnits(payBalU) : tokFromUnits(payBalU, p.asset)) + " " + paySym);
   const getBalU = dir === "n2t" ? tokenUnits(p.asset) : execUnits();
-  setTxt("getBal", getBalU === null ? "" : "Balance " + fromUnits(getBalU) + " " + getSym);
+  setTxt("getBal", getBalU === null ? "" : "Balance " + (dir === "n2t" ? tokFromUnits(getBalU, p.asset) : fromUnits(getBalU)) + " " + getSym);
 }
 
 function fillAssetPicker(el, { withNado = true, keepValue = true, search = "" } = {}) {
@@ -230,8 +247,8 @@ function fundToken() {
   if (!sel) return alertBar("Select a pool first.");
   const p = poolOf(lastSto, sel);
   const pos = posFor(p.id);
-  const u = toUnits(($("addT").value || "").trim());
-  if (u <= 0n) return alertBar(`Enter a ${tokSym(p.asset)} amount.`);
+  const u = tokToUnits($("addT").value, p.asset);
+  if (u <= 0n) return alertBar(`Enter a ${tokSym(p.asset)} amount (at least ${tokFromUnits(1n, p.asset)} ${tokSym(p.asset)} — the pool counts in that step).`);
   // opts.asset makes this an ASSET-denominated call (value = amount, asset = which token).
   dapp.call("fundt", [pos, p.id, Number(u)], u * UNIT, "Staging token…",
             { posId: pos }, { asset: p.asset });
@@ -253,7 +270,7 @@ function exitPos() {
   if (!sel) return alertBar("Select a pool first.");
   const p = poolOf(lastSto, sel);
   const sh = Number(($("exitSh").value || "").trim());
-  if (!(sh > 0)) return alertBar("Enter how much of your position to withdraw.");
+  if (!(Number.isInteger(sh) && sh > 0)) return alertBar("Enter a whole number of shares to withdraw.");
   dapp.call("exit", [posFor(p.id), p.id, sh, BigInt(p.asset)], null, "Withdrawing your liquidity…", { posId: posFor(p.id) });
 }
 
@@ -264,6 +281,8 @@ function doSwap() {
   const inU = BigInt(card.dataset.inunits || "0");
   const minOut = BigInt(card.dataset.minout || "0");
   if (inU <= 0n) return alertBar("Enter an amount to swap.");
+  if (inU >= 1n << 31n) return alertBar("That amount is above the pool's per-trade bound.");
+  if (minOut <= 0n) return alertBar("This pool cannot fill that amount — nothing would come out.");   // the contract requires out > 0
   if (($("dir").value || "n2t") === "n2t") {
     dapp.call("swapn", [p.id, Number(inU), Number(minOut), BigInt(p.asset)], inU * UNIT,
               "Swapping…", { poolId: p.id });
@@ -319,8 +338,8 @@ const otcSaveRec = (o, patch) => { const m = otcSecrets(); const cur = typeof m[
 const NETS = {
   btc:  { chain: "btc", coin: "BTC", label: "Bitcoin",          hrp: "bc",  explorer: "https://mempool.space" },
   btct: { chain: "btc", coin: "tBTC", label: "Bitcoin testnet", hrp: "tb",  explorer: "https://mempool.space/testnet" },
-  eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", evm: "0xaa36a7", htlc: "0xd5f47927999c31ce4fe3de11bc560678094486e7", erc20: "0x6d6104704e1956c36851d4c36fdad77ce75a6106" },
-  eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1",     htlc: "", erc20: "" },
+  eths: { chain: "eth", coin: "SepETH", label: "Ethereum Sepolia", evm: "0xaa36a7", rpc: "https://ethereum-sepolia-rpc.publicnode.com", htlc: "0xd5f47927999c31ce4fe3de11bc560678094486e7", erc20: "0x6d6104704e1956c36851d4c36fdad77ce75a6106" },
+  eth:  { chain: "eth", coin: "ETH", label: "Ethereum mainnet",  evm: "0x1", rpc: "https://ethereum-rpc.publicnode.com",     htlc: "", erc20: "" },
   // Solana needs a deployed PROGRAM (unlike Bitcoin, whose HTLC is just a script). `program: ""` means
   // nothing is deployed on that cluster yet and the row says so rather than letting anyone fund a lock
   // into thin air. Filling one in is the only change a new cluster needs.
@@ -437,8 +456,12 @@ async function btcSpendFlow(od, mode) {
            { k: "To", v: payout.slice(0, 22) + (payout.length > 22 ? "…" : "") },
            { k: "Network fee", v: `${feeSat} sat (${(feeSat / utxo.value * 100).toFixed(2)}%)` }],
     confirmText: "Send" })) return;
-  const sHex = mode === "claim" ? (od.kind === OTC_ASK ? rec.s : otcSecretFromLimbs(od.limbs)) : null;
-  if (mode === "claim" && !/^[0-9a-f]{64}$/.test(sHex || "")) return alertBar("The swap secret isn't available yet.");
+  const sHex = mode === "claim" ? await otcKnownSecret(od) : null;
+  if (mode === "claim" && !sHex) return alertBar("The swap secret isn't available yet.");
+  // A claim that lands after the deadline still publishes the secret; Bitcoin's CLTV clock is median-time-
+  // past, which lags wall time by up to ~1h, so keep a wider margin than the other chains.
+  if (mode === "claim" && Math.floor(Date.now() / 1000) > Math.floor(Number(od.expf)) - 3600 - 900)
+    return alertBar("Too close to this lock's deadline — a claim that lands late would publish your secret and pay nothing.");
   try {
     const hex = mode === "claim"
       ? await claimTx({ scriptHex: b.script, secretHex: sHex, privHex: rec.k, fundTxid: utxo.txid,
@@ -530,7 +553,7 @@ async function ethLeg(od, mode) {
         // ERC-20 needs an allowance first — top it up only when it is short, so a second swap costs one tx.
         const cur = BigInt(await ethReq("eth_call", [{ to: token, data: erc20Abi.allowance(addr, htlc) }, "latest"]) || "0x0");
         if (cur < amt) {
-          alertBar(`Approving ${meta.symbol}… confirm the first transaction, then the lock.`);
+          alertBar(`Approving ${meta0.symbol || "the token"}… confirm the first transaction, then the lock.`);
           await ethReq("eth_sendTransaction", [{ from: addr, to: token, data: erc20Abi.approve(htlc, amt) }]);
         }
         data = htlcErc20Abi.fund(token, claimAddr, addr, od.hsha, dl, amt);
@@ -539,8 +562,8 @@ async function ethLeg(od, mode) {
         valueHex = "0x" + amtWei.toString(16);
       }
     } else if (mode === "claim") {
-      let sHex = sells ? otcRec(od.o).s : otcSecretFromLimbs(od.limbs);
-      if (!/^[0-9a-f]{64}$/.test(sHex || "")) return alertBar("The swap secret isn't available yet.");
+      const sHex = await otcKnownSecret(od);
+      if (!sHex) return alertBar("The swap secret isn't available yet.");
       const nowS2 = Math.floor(Date.now() / 1000);
       if (nowS2 > dl - 900)                              // a claim that misses the deadline still leaks s
         return alertBar("Too close to this lock's deadline — a claim that lands late would publish your secret and pay nothing.");
@@ -599,7 +622,7 @@ function ethCliHint(od) {
 // fee: the browser path uses the visitor's own wallet (as the Ethereum leg uses MetaMask) and falls back
 // to the headless CLI on the row when no wallet is installed.
 let SOL = null;
-const solMod = async () => (SOL || (SOL = await import("./solsign.js?v=2")));
+const solMod = async () => (SOL || (SOL = await import("./solsign.js?v=7b20b5b6")));
 const solProgramOf = (od) => (netOf(od) || {}).program || "";
 const solRpcOf = (od) => (netOf(od) || {}).rpc || "";
 const isB58Addr = (a) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a || "");
@@ -634,8 +657,8 @@ async function solLeg(od, mode) {
       if (already) return alertBar("That lock is already funded — nothing more to send.");
       ix = t.S.ixFund(t.program, me, t.address, od.hsha, t.claimant, t.deadline, Number(t.lamports));
     } else if (mode === "claim") {
-      const sHex = t.sells ? otcRec(od.o).s : otcSecretFromLimbs(od.limbs);
-      if (!/^[0-9a-f]{64}$/.test(sHex || "")) return alertBar("The swap secret isn't available yet.");
+      const sHex = await otcKnownSecret(od);
+      if (!sHex) return alertBar("The swap secret isn't available yet.");
       if (Math.floor(Date.now() / 1000) > t.deadline - 900)
         return alertBar("Too close to this lock's deadline — a claim that lands late would publish your secret and pay nothing.");
       // Read the escrow back before revealing anything: the secret buys nothing from an empty account.
@@ -672,7 +695,7 @@ const otcPrice = (od) => {                           // NADO per 1 foreign coin
 function bookOf(net) {
   const bids = [], asks = [];                        // bid = someone paying NADO for the coin (ASK_NADO)
   for (const od of otcOrders()) {
-    if (netKeyOf(od) !== net || od.st !== 1 || od.kind === OTC_INTRA || otcLeft(od) <= 0) continue;
+    if (netKeyOf(od) !== net || tokAddrOf(od) || od.st !== 1 || od.kind === OTC_INTRA || otcLeft(od) <= 0) continue;   // a token order is not priced in the coin
     const px = otcPrice(od);
     if (!px) continue;
     (od.kind === OTC_ASK ? bids : asks).push({ px, size: Number(od.wamt), o: od.o, od });
@@ -762,6 +785,78 @@ function renderBookDepth(b, coin) {
     `<text x="${DW - 8}" y="${DH - 2}" fill="var(--danger)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">→ selling ${esc(coin)}</text>`;
 }
 
+// ---- the NADO leg on L1 -------------------------------------------------------------------------------
+// The site proxies the L1 API at its root, so the page can read the bound HTLC back: its terms (before
+// anyone funds the other side) and, once claimed, the PREIMAGE — which is how a BID taker learns the
+// secret the maker revealed by taking their NADO, whether or not the maker ever calls settle.
+async function nadoHtlc(od) {
+  if (!od.hid) return null;
+  try { return (await (await fetch(base() + "/get_htlc?id=" + encodeURIComponent(od.hid), { cache: "no-store" })).json()).htlc || null; }
+  catch (e) { return null; }
+}
+/** The swap secret from wherever it is known — checked against the order's hashlock before it is used. */
+async function otcKnownSecret(od) {
+  const cands = [otcRec(od.o).s];
+  if (od.limbs.some((x) => Number(x) > 0)) cands.push(otcSecretFromLimbs(od.limbs));
+  for (const c of cands) if (/^[0-9a-f]{64}$/.test(c || "") && (await sha256Hex(c)) === od.hsha) return c;
+  const h = await nadoHtlc(od);
+  if (h && h.status === "claimed" && /^[0-9a-f]{64}$/.test(h.preimage || "") && (await sha256Hex(h.preimage)) === od.hsha) return h.preimage;
+  return null;
+}
+/** Fill #fchk<o> with a verdict on the FOREIGN lock (ETH/SOL; Bitcoin has its own verify link). */
+async function foreignLockCheck(od) {
+  const el = $("fchk" + od.o); if (!el) return;
+  const ch = chainOf(od), net = netOf(od) || {};
+  try {
+    if (ch === "sol") {
+      const t = await solTerms(od);
+      const info = await t.S.solLockInfo(t.rpc, t.program, t.address);
+      if (!info) { el.textContent = "— nothing locked yet"; return; }
+      const bad = [];
+      if (info.owner !== t.program) bad.push("not owned by the swap program");
+      if (info.hashlock !== od.hsha) bad.push("hashlock differs");
+      if (info.claimant !== t.claimant) bad.push("claimant is not the counterparty");
+      if (info.amount < t.lamports) bad.push("amount short");
+      el.innerHTML = bad.length ? `<span style="color:var(--danger)">DOES NOT MATCH: ${esc(bad.join("; "))}</span>`
+        : `<span style="color:var(--accent2)">verified: ${esc(od.wamt)} ${esc(coinOf(od))} locked until ${new Date(t.deadline * 1000).toISOString().slice(0, 16).replace("T", " ")}Z</span>`;
+    } else if (ch === "eth") {
+      const token = tokAddrOf(od), htlc = token ? (net.erc20 || "") : ethHtlcFor(od);
+      if (!htlc || !net.rpc) { el.textContent = ""; return; }
+      const sells = od.kind === OTC_ASK;
+      const senderAddr = sells ? ethAddrOf(od.tadr) : ethAddrOf(od.wadr), claimAddr = sells ? ethAddrOf(od.wadr) : ethAddrOf(od.tadr);
+      if (!senderAddr || !claimAddr) { el.textContent = "— addresses not both published yet"; return; }
+      const dec = token ? (await ethTokenMeta(token) || {}).decimals : 18;
+      const amtWei = toUnitsDec(od.wamt, dec == null ? 18 : dec), dl = ethDeadline(od);
+      const key = token ? htlcErc20Abi.lockKey(token, od.hsha, claimAddr, senderAddr, dl, amtWei) : htlcAbi.lockKey(od.hsha, claimAddr, senderAddr, dl, amtWei);
+      const r = await (await fetch(net.rpc, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: htlc, data: (token ? htlcErc20Abi : htlcAbi).locks(key) }, "latest"] }) })).json();
+      const words = String(r.result || "0x").replace(/^0x/, "").match(/.{64}/g) || [];
+      const held = words.length ? BigInt("0x" + words[token ? 3 : 2]) : 0n;
+      // the key binds hashlock, claimant, refundee, deadline AND amount — a lock under this key with the
+      // agreed balance is the agreement; anything else simply lives under another key
+      el.innerHTML = held >= amtWei && amtWei > 0n
+        ? `<span style="color:var(--accent2)">verified: ${esc(od.wamt)} ${esc(coinOf(od))} locked under this order's exact terms until ${new Date(dl * 1000).toISOString().slice(0, 16).replace("T", " ")}Z</span>`
+        : held > 0n ? `<span style="color:var(--danger)">UNDERFUNDED: holds less than the agreed amount</span>` : "— nothing locked under these terms yet";
+    }
+  } catch (e) { el.textContent = "— could not read the lock: " + String(e.message || e).slice(0, 80); }
+}
+/** Fill #hchk<o> with a verdict on the bound L1 lock: amount, hashlock, claimant, expiry, status. */
+async function nadoHtlcCheck(od) {
+  const el = $("hchk" + od.o); if (!el) return;
+  const h = await nadoHtlc(od);
+  if (!h) { el.textContent = "— not found on L1 yet"; return; }
+  const sells = od.kind === OTC_ASK, wantClaimant = sells ? od.taker : od.maker;
+  const bad = [];
+  if (BigInt(h.amount || 0) < od.namtRaw) bad.push(`amount ${rawToNado(String(h.amount || 0))} < ${rawToNado(od.namtRaw.toString())}`);
+  if (String(h.hashlock || "").toLowerCase() !== od.hsha) bad.push("hashlock differs");
+  if (String(h.claimant || "") !== String(wantClaimant)) bad.push("claimant is not the counterparty");
+  if (Number(h.expiry || 0) < od.expn) bad.push(`expires at ${h.expiry}, before this order's ${od.expn}`);
+  if (h.status !== "open") bad.push("status " + h.status);
+  el.innerHTML = bad.length
+    ? `<span style="color:var(--danger)">DOES NOT MATCH: ${esc(bad.join("; "))} — do not fund your side</span>`
+    : `<span style="color:var(--accent2)">verified: ${rawToNado(String(h.amount))} NADO, this hashlock, claimable by the counterparty until block ${Number(h.expiry)}</span>`;
+}
+
 // ---- rendering ----------------------------------------------------------------------------------------
 function otcRow(od, mine) {
   const me = dapp.me, isMaker = od.maker === me, isTaker = od.taker === me;
@@ -783,6 +878,11 @@ function otcRow(od, mine) {
   if ((od.st === 1 || od.st === 2) && expired && party) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim</button>`);
   if ((od.st === 1 || od.st === 2) && !expired && party) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip</button>`);
   const owesNado = od.st === 2 && (sells ? isMaker : isTaker);   // who provides the NADO side of this swap
+  const getsNado = (sells ? isTaker : isMaker);                   // ... and who takes it with the secret
+  if (od.st >= 2 && od.st !== 4 && od.hid && getsNado && !expired) acts.unshift(`<button class="primary" data-otc="nadoclaim" data-o="${od.o}">Claim the NADO…</button>`);
+  // the counterparty's foreign claim needs the secret: a BID taker can have it as soon as the NADO lock
+  // is claimed on L1 (the row reads the preimage back), not only after the maker also calls settle
+  const secretMayExist = od.st === 3 || (od.st === 2 && !!od.hid);
   if (owesNado && !expired && !od.hid) {
     acts.unshift(`<button class="primary" data-otc="nadolock" data-o="${od.o}">Lock the NADO…</button>`);
     acts.push(`<button class="ghost" data-otc="nadobind" data-o="${od.o}">I already locked it</button>`);
@@ -791,44 +891,36 @@ function otcRow(od, mine) {
   if (isEth && tokAddrOf(od) && !erc20Names[tokAddrOf(od).toLowerCase()] && ethProv()) ethTokenMeta(tokAddrOf(od));
   const ethSender = isEth && (sells ? isTaker : isMaker), ethClaimer = isEth && (sells ? isMaker : isTaker);
   if (isEth && od.st === 2 && ethSender) acts.push(`<button class="primary" data-otc="ethfund" data-o="${od.o}">Lock the ETH…</button>`);
-  if (isEth && ((sells && od.st === 2) || (!sells && od.st === 3)) && ethClaimer) acts.unshift(`<button class="primary" data-otc="ethclaim" data-o="${od.o}">Claim the ETH…</button>`);
+  if (isEth && ((sells && od.st === 2) || (!sells && secretMayExist)) && ethClaimer) acts.unshift(`<button class="primary" data-otc="ethclaim" data-o="${od.o}">Claim the ETH…</button>`);
   if (isEth && od.st >= 2 && ethSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="ethrefund" data-o="${od.o}">Reclaim ETH</button>`);
   const isSol = chainOf(od) === "sol";
   const solSender = isSol && (sells ? isTaker : isMaker), solClaimer = isSol && (sells ? isMaker : isTaker);
   if (isSol && od.st === 2 && solSender) acts.push(`<button class="primary" data-otc="solfund" data-o="${od.o}">Lock the ${chain}…</button>`);
-  if (isSol && ((sells && od.st === 2) || (!sells && od.st === 3)) && solClaimer) acts.unshift(`<button class="primary" data-otc="solclaim" data-o="${od.o}">Claim the ${chain}…</button>`);
+  if (isSol && ((sells && od.st === 2) || (!sells && secretMayExist)) && solClaimer) acts.unshift(`<button class="primary" data-otc="solclaim" data-o="${od.o}">Claim the ${chain}…</button>`);
   if (isSol && od.st >= 2 && solSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="solrefund" data-o="${od.o}">Reclaim ${chain}</button>`);
   const btc = chainOf(od) === "btc" ? btcInfo(od) : null;
   const btcFunder = chainOf(od) === "btc" && (sells ? isTaker : isMaker);
   const btcClaimer = chainOf(od) === "btc" && (sells ? isMaker : isTaker);
   if (btc && od.st === 2 && btcClaimer && sells && otcRec(od.o).s) acts.unshift(`<button class="primary" data-otc="btcclaim" data-o="${od.o}">Claim the BTC…</button>`);
-  if (btc && od.st === 3 && btcClaimer && !sells) acts.unshift(`<button class="primary" data-otc="btcclaim" data-o="${od.o}">Claim your BTC…</button>`);
+  if (btc && secretMayExist && btcClaimer && !sells) acts.unshift(`<button class="primary" data-otc="btcclaim" data-o="${od.o}">Claim your BTC…</button>`);
   if (btc && od.st >= 2 && btcFunder && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="btcrefund" data-o="${od.o}">Reclaim BTC</button>`);
-  if (od.st === 1 && !expired && isMaker && od.kind !== OTC_INTRA) acts.push(`<button class="ghost" data-otc="prem" data-o="${od.o}">Deposit…</button>`);
   let detail = "";
   if (mine) {
     let hint = "";
     if (od.st === 1 && !expired && isMaker) hint = "Waiting for a taker — your funds stay reclaimable. Cancel any time.";
     else if (od.st === 2 && !expired) {
       const foreign = chain;
-      if (chainOf(od) === "eth") {
-        if (sells && isMaker) hint = `Next: once the taker has locked the ETH, press Claim the ETH — your wallet signs it and it completes the swap.`;
-        else if (sells && isTaker) hint = `Next: press Lock the ETH (your wallet pays it into the swap). When the maker claims it, press Settle for your NADO.`;
-        else if (!sells && isMaker) hint = `Next: press Lock the ETH, then Settle to collect your NADO.`;
-        else hint = `Next: wait — when the maker settles, a Claim the ETH button appears here.`;
-      }
-      else if (chainOf(od) === "sol") {
-        if (sells && isMaker) hint = `Next: once the taker has locked the ${foreign}, press Claim the ${foreign} — your wallet signs it and that completes the swap.`;
-        else if (sells && isTaker) hint = `Next: press Lock the ${foreign} (your wallet pays it into the swap). When the maker claims it, press Settle for your NADO.`;
-        else if (!sells && isMaker) hint = `Next: press Lock the ${foreign}, then Settle to collect your NADO.`;
-        else hint = `Next: wait — when the maker settles, a Claim the ${foreign} button appears here.`;
-      }
-      else if (sells && isMaker && !od.hid) hint = `Next: press Lock the NADO — it escrows your NADO on the main chain under this swap's hashlock, takeable only by the taker and only with the secret.`;
-      else if (sells && isMaker) hint = `Next: press Verify below — once the taker's ${foreign} lock shows CONFIRMED, press Claim the BTC. Claiming completes your side.`;
-      else if (sells && isTaker && !od.hid) hint = `Next: wait — the maker must lock their NADO on the main chain first. Do not send any ${foreign} until you can see and check that lock.`;
-      else if (sells && isTaker) hint = `Next: check the maker's NADO lock (id below), then send the ${foreign}. When the maker claims it the secret becomes public, and you claim the NADO with it.`;
-      else if (!sells && isMaker) hint = `Next: send the ${foreign} to the address below, wait for confirmations, then press Settle to collect your NADO.`;
-      else if (!sells && isTaker) hint = `Next: wait — when the maker collects their NADO here, a Claim your BTC button appears on this row.`;
+      const isBtc = chainOf(od) === "btc";
+      const lockF = isBtc ? `send the ${foreign} to the address below` : `press Lock the ${foreign} (your wallet pays it into the swap)`;
+      const claimF = isBtc ? `press Claim the ${foreign}` : `press Claim the ${foreign} — your wallet signs it`;
+      if (sells && isMaker && !od.hid) hint = `Next: press Lock the NADO — it escrows your NADO on the main chain under this swap's hashlock, takeable only by the taker and only with the secret.`;
+      else if (sells && isMaker) hint = `Next: once the taker's ${foreign} lock is CONFIRMED and holds the agreed amount, ${claimF}. Claiming reveals the secret, and that completes your side.`;
+      else if (sells && isTaker && !od.hid) hint = `Next: wait — the maker must lock their NADO on the main chain first. Do not send any ${foreign} until that lock shows as verified below.`;
+      else if (sells && isTaker) hint = `Next: once the NADO lock below reads "verified", ${lockF}. When the maker claims it the secret becomes public — then press Claim the NADO.`;
+      else if (!sells && isMaker && !od.hid) hint = `Next: ${lockF} FIRST — you hold the secret, so your lock goes in before the taker's. The taker locks the NADO once they have checked yours.`;
+      else if (!sells && isMaker) hint = `Next: once the NADO lock below reads "verified", press Claim the NADO — that reveals the secret, and the taker claims your ${foreign} with it.`;
+      else if (!sells && isTaker && !od.hid) hint = `Next: wait for the maker's ${foreign} lock and CHECK it (the agreed amount, this hashlock, a deadline past this order's NADO expiry). Only then press Lock the NADO.`;
+      else if (!sells && isTaker) hint = `Next: wait. When the maker claims your NADO the secret becomes public, and Claim the ${foreign} works here.`;
     } else if ((od.st === 1 || od.st === 2) && expired) hint = "Expired — reclaim each leg on its own chain (the NADO leg is an L1 HTLC refund).";
     if (hint) detail += `<div class="small mt" style="color:var(--accent2)">${hint}</div>`;
     if (chainOf(od) === "btc" && od.st >= 2 && (isMaker || isTaker)) {
@@ -837,6 +929,10 @@ function otcRow(od, mine) {
         <a href="#" data-otc="btccopy" data-o="${od.o}">copy</a> · <a href="#" data-otc="btcverify" data-o="${od.o}">verify</a>
         <span id="btcv${od.o}" class="dim"></span></div>`;
       else if (!btcParts(od)) detail += `<div class="small dim mt">The counterparty's client didn't publish a Bitcoin key — finish this leg with scripts/otc_btc_leg.py.</div>`;
+    }
+    if ((chainOf(od) === "eth" || chainOf(od) === "sol") && od.st === 2 && (isMaker || isTaker)) {
+      detail += `<div class="small mt">${esc(coinOf(od))} lock: <span id="fchk${od.o}" class="dim">checking…</span></div>`;
+      setTimeout(() => foreignLockCheck(od), 0);
     }
     if (chainOf(od) === "eth" && od.st >= 2 && (isMaker || isTaker) && !ethProv()) detail += ethCliHint(od);
     if (chainOf(od) === "sol" && od.st >= 2 && (isMaker || isTaker)) {
@@ -851,7 +947,10 @@ function otcRow(od, mine) {
       detail += `<div class="small dim mt">Your swap secret: <span class="mono">${secret.slice(0, 16)}…</span>
         <a href="#" data-otc="showsecret" data-o="${od.o}">back up</a> — keep a copy: it is all this swap
         needs on any device (never share it before the counterparty's lock is CONFIRMED).</div>`;
-    if (od.st === 2 && od.hid) detail += `<div class="small mt">NADO leg locked on L1: <span class="mono">${esc(String(od.hid)).slice(0, 24)}…</span> — check its amount, hashlock and expiry in your wallet's Swap tab before sending anything.</div>`;
+    if (od.st === 2 && od.hid) {
+      detail += `<div class="small mt">NADO leg locked on L1: <span class="mono">${esc(String(od.hid)).slice(0, 24)}…</span> <span id="hchk${od.o}" class="dim">checking…</span></div>`;
+      setTimeout(() => nadoHtlcCheck(od), 0);
+    }
     if (od.st === 2 && od.fref && od.fref !== "pending") detail += `<div class="small dim mt">Foreign leg ref: <span class="mono">${esc(od.fref).slice(0, 40)}</span>
       · counterparty ${esc(disp(isMaker ? od.taker : od.maker))}</div>`;
     if (od.st === 3 && od.limbs.some((x) => Number(x) > 0)) {
@@ -931,7 +1030,7 @@ function kindHint() {
   const coin = (NETS[($("otcNet") || {}).value] || {}).coin || "the coin";
   if (el) el.textContent = k === "1"
     ? `You give NADO and receive ${coin}. You generate the swap secret, so you finish the swap.`
-    : `You give ${coin} and receive NADO. The taker generates the secret and finishes the swap.`;
+    : `You give ${coin} and receive NADO. You generate the swap secret; your ${coin} lock must outlast the taker's NADO lock.`;
 }
 
 async function otcPost() {
@@ -948,13 +1047,18 @@ async function otcPost() {
   if (raw <= 0n) return alertBar("Enter the NADO amount.");
   if (!famt || !(Number(famt) > 0)) return alertBar("Enter the foreign amount.");
   if (!faddr) return alertBar("Enter your " + (NETS[netSelV] || {}).label + " address.");
+  // Validate the receiving address by chain NOW: a bad one is otherwise discovered only when the other
+  // side locks to it (an EVM lock to a malformed address pads to 0x000…0 — unclaimable by anyone).
+  if (chain === "eth" && !/^0x[0-9a-fA-F]{40}$/.test(faddr)) return alertBar("An Ethereum address is 0x followed by 40 hex characters.");
+  if (chain === "sol" && !isB58Addr(faddr)) return alertBar("That is not a Solana address (32–44 base58 characters).");
+  if (chain === "btc") { try { await addressToScript(faddr, (NETS[netSelV] || {}).hrp || "bc"); } catch (e) { return alertBar("That is not a valid " + (NETS[netSelV] || {}).label + " address: " + String(e.message || e)); } }
   faddrSet(netSelV, faddr);                                // typed once — reused for every future swap on this network
   if (!(blocks >= 20 && blocks <= 900000)) return alertBar("Expiry must be 20 … 900000 blocks.");
   const o = randId();
   const sHex = Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, "0")).join("");
   let kp = null, packed = faddr;
   if (chain === "btc") { kp = genKeypair(); packed = faddr + "|" + kp.pub; }
-  else if (chain === "eth") { const ek = ethProv() ? null : (await import("./ethsign.js?v=1")).ethKeypair();
+  else if (chain === "eth") { const ek = ethProv() ? null : ethKeypair();
     // with a wallet the maker's own EVM address is used at claim time; without one, a page key is generated for the CLI
     if (ek) { kp = { k: ek.k }; packed = faddr + "|" + ek.addr; } }
   otcSaveRec(o, Object.assign({ s: sHex }, kp || {})); // BEFORE the wallet redirect can navigate away
@@ -968,9 +1072,22 @@ async function otcPost() {
   // Land in the middle of the window the contract enforces (§6.3, otc.py FOREIGN_MIN_S/FOREIGN_MARGIN_S):
   // late enough for the foreign leg to be funded and confirmed, early enough to refund before the NADO side.
   const FOREIGN_MIN_S = 3600, FOREIGN_MARGIN_S = 7200, windowS = blocks * 6;
+  // Every foreign HTLC template caps its deadline (HtlcEth / the Solana program: 30 days), so the deadline
+  // this order carries must be reachable there — otherwise the lock reverts and the order can only expire.
+  const FOREIGN_MAX_S = 29 * 24 * 3600;
   if (windowS < FOREIGN_MIN_S + FOREIGN_MARGIN_S + 1800)
     return alertBar(`That expiry is too short for a ${(NETS[$("otcNet").value] || {}).coin || "cross-chain"} swap — use at least ${Math.ceil((FOREIGN_MIN_S + FOREIGN_MARGIN_S + 1800) / 6)} blocks.`);
-  const expf = Math.floor(nowSec + (FOREIGN_MIN_S + windowS - FOREIGN_MARGIN_S) / 2);
+  // §6.3 is KIND-DEPENDENT (otc.py post): the maker generates the secret for both kinds, and the leg the
+  // maker FUNDS must outlast the leg they CLAIM. ASK: maker funds NADO, so the foreign deadline sits
+  // inside the NADO window. BID: maker funds the foreign leg, so its deadline sits PAST the NADO window.
+  let expf;
+  if (kind === OTC_ASK) expf = Math.floor(nowSec + (FOREIGN_MIN_S + windowS - FOREIGN_MARGIN_S) / 2);
+  else {
+    expf = Math.floor(nowSec + windowS + FOREIGN_MARGIN_S + 3600);
+    if (expf > nowSec + FOREIGN_MAX_S)
+      return alertBar(`A buy order's ${(NETS[$("otcNet").value] || {}).coin || "foreign"} lock must outlast its NADO expiry, and that chain allows at most 30 days — use at most ${Math.floor((FOREIGN_MAX_S - FOREIGN_MARGIN_S - 3600) / 6)} blocks.`);
+  }
+  if (expf > nowSec + FOREIGN_MAX_S) expf = nowSec + FOREIGN_MAX_S;   // ASK: clamp long NADO windows; the margin still holds
   const expn = (dapp.cursor || 0) + blocks;
   const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex + (kp ? "  ·  BTC key: " + kp.k : ""); }
   // No VALUE: the NADO leg of a cross-chain swap is escrowed in an L1 HTLC under the SAME SHA-256
@@ -1004,15 +1121,6 @@ async function otcAction(what, o, btn) {
     return;
   }
   if (what === "cancel") return dapp.call("cancel", [o], null, "Cancelling #" + o + "…", { otc: o }, { cid: OTC_CID });
-  if (what === "prem") {
-    const raw = ((await uiPrompt({ title: "Put collateral behind this order",
-      body: "You escrow this yourself. It comes back when the swap completes or if nobody fills the order — and goes to the taker if you walk away after they have committed.",
-      placeholder: "amount in NADO" })) || "").trim();
-    let amt;
-    try { amt = raw === "0" ? 0n : BigInt(nadoToRaw(raw)); } catch (e) { return; }
-    if (amt == null || amt < 0n) return;
-    return dapp.call("set_premium", [o, amt], null, "Setting deposit on #" + o + "…", { otc: o }, { cid: OTC_CID });
-  }
   if (what === "boost") {
     // §8: attach a NADO bounty ANYONE can win by finishing this order (settle / expire / atomic fill).
     // It makes watchtowers work for you; cancel returns it to the maker.
@@ -1025,14 +1133,17 @@ async function otcAction(what, o, btn) {
   }
   if (what === "expire") return dapp.call("expire", [o], null, "Reclaiming #" + o + "…", { otc: o }, { cid: OTC_CID });
   if (what === "fillask") {
-    // §6.3: refuse to fund a foreign leg whose deadline is not safely INSIDE the NADO refund window.
-    // Nothing on chain enforces this, so a maker can otherwise strand the taker's coin (audit).
+    // §6.3 from the TAKER's side (the contract enforces the same rule; this is the plain-language refusal).
+    // ASK: the taker funds the foreign leg, so its deadline must sit safely INSIDE the NADO window.
+    // BID: the taker funds the NADO leg, so the maker's foreign deadline must sit safely PAST it.
     const nowS = (dapp.chainNow && dapp.chainNow()) || Math.floor(Date.now() / 1000);
     const nadoWindowS = Math.max(0, (od.expn - (dapp.cursor || 0))) * 6;
     const fdl = Number(od.expf) || 0;
-    if (!(fdl > nowS + 1800 && fdl < nowS + nadoWindowS * 0.75)) {
+    const okAsk = fdl > nowS + 1800 && fdl < nowS + nadoWindowS * 0.75;
+    const okBid = fdl > nowS + nadoWindowS + 7200;
+    if (od.kind === OTC_ASK ? !okAsk : !okBid) {
       return alertBar("This order's foreign deadline does not line up with its NADO expiry — filling it "
-        + "could let the maker reclaim their NADO and still take your coin. Not safe to fill.");
+        + "could let the maker reclaim their own lock and still take yours. Not safe to fill.");
     }
     const chain = coinOf(od);
     let myf, fref = "pending";
@@ -1043,7 +1154,7 @@ async function otcAction(what, o, btn) {
       myf = kp.pub;
     } else if (ch === "eth") {
       if (ethProv()) { const { addr } = await ethConnect(); myf = addr; }   // the taker's own EVM account
-      else { const ek = (await import("./ethsign.js?v=1")).ethKeypair(); otcSaveRec(o, { k: ek.k }); myf = ek.addr; }
+      else { const ek = ethKeypair(); otcSaveRec(o, { k: ek.k }); myf = ek.addr; }
     } else if (ch === "sol" && solHas()) {
       try { myf = (await (await solMod()).solWalletConnect()).address; }   // the taker's own Solana account
       catch (e) { myf = ""; }
@@ -1075,12 +1186,35 @@ async function otcAction(what, o, btn) {
     if (!/^[0-9a-f]{46}$/.test(String(to))) return alertBar("The counterparty's NADO address isn't visible yet — wait for their fill to land.");
     const blocks = Math.max(1, od.expn - (dapp.cursor || 0));
     if (!await uiConfirm({ title: "Lock the NADO side",
-      body: "They can only take it with the swap secret, and only before it expires — after that you reclaim it yourself.",
+      body: sells ? "They can only take it with the swap secret, and only before it expires — after that you reclaim it yourself."
+                  : `Lock ONLY after you have checked the maker's ${coinOf(od)} lock: the agreed amount, this order's hashlock, and a deadline past this order's NADO expiry. The maker holds the secret — if their lock is missing or short, they can take your NADO and give nothing.`,
       rows: [{ k: "Amount", v: rawToNado(od.namtRaw.toString()) + " NADO" },
              { k: "Claimable by", v: String(to).slice(0, 16) + "…" },
              { k: "You can reclaim after", v: blocks + " blocks" }],
       confirmText: "Lock" })) return;
     dapp.htlcLock({ claimant: to, hashlock: od.hsha, amount: od.namtRaw, blocks }, { otc: o, phase: "htlc_lock" });
+    return;
+  }
+  if (what === "nadoclaim") {
+    // The NADO leg pays out through an L1 htlc_claim, not through this contract. ASK: the taker claims once
+    // the maker revealed the secret on the foreign chain. BID: the maker claims with their own secret — and
+    // that reveal is what lets the taker claim the foreign leg.
+    const sells = od.kind === OTC_ASK;
+    if (dapp.me !== (sells ? od.taker : od.maker)) return alertBar("The NADO side of this swap is not yours to claim.");
+    let s = await otcKnownSecret(od);
+    if (!s && sells) {
+      alertBar(`Looking up the revealed secret on ${coinOf(od)}…`);
+      const ch = chainOf(od);
+      s = ch === "btc" ? await btcFoundSecret(od) : ch === "eth" ? await ethFoundSecret(od) : ch === "sol" ? await solFoundSecret(od) : null;
+    }
+    if (!s) s = ((await uiPrompt({ title: "Paste the swap secret",
+      body: "The 64-character secret — this page could not find it on any chain yet.", placeholder: "64 hex characters" })) || "").trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(s || "") || (await sha256Hex(s)) !== od.hsha) return alertBar("That secret does not match this order's hashlock.");
+    const h = await nadoHtlc(od);
+    if (h && h.status !== "open") return alertBar(`That NADO lock is already ${h.status}.`);
+    if (!sells && Number(od.expf) && Math.floor(Date.now() / 1000) > Number(od.expf) - 7200)
+      return alertBar("Too close to your own foreign deadline — claiming now reveals the secret while the taker may no longer have time to claim your lock.");
+    dapp.htlcClaim({ htlcId: od.hid, preimage: s }, { otc: o, phase: "htlc_claim" });
     return;
   }
   if (what === "nadobind") {
@@ -1102,7 +1236,7 @@ async function otcAction(what, o, btn) {
   if (what === "ethrefund") { ethLeg(od, "refund"); return; }
   if (what === "settle") {
     (async () => {
-      let s = otcRec(o).s;                              // a maker settles with their own stored secret
+      let s = await otcKnownSecret(od);                 // own secret, published limbs, or the L1 claim
       if (!s && chainOf(od) === "btc") { alertBar("Looking up the revealed secret on Bitcoin…"); s = await btcFoundSecret(od); }
       if (!s && chainOf(od) === "eth") { alertBar("Looking up the revealed secret on Ethereum…"); s = await ethFoundSecret(od); }
       if (!s && chainOf(od) === "sol") { alertBar("Looking up the revealed secret on Solana…"); s = await solFoundSecret(od); }
@@ -1293,7 +1427,7 @@ function renderMarket() {
     ["24h high", st24 ? fmtPrice(st24.hi) : "—"],
     ["24h low", st24 ? fmtPrice(st24.lo) : "—"],
     ["NADO in pool", fromUnits(p.rn)],
-    [esc(sym) + " in pool", fromUnits(p.rt)],
+    [esc(sym) + " in pool", tokFromUnits(p.rt, p.asset)],
     ["Pool value", "≈ " + tvlNado + " NADO"],
     ["LP shares", p.sup.toString()],
     ["Swap fee", "0.30%"],
@@ -1400,16 +1534,21 @@ function renderDepth(p, price) {
 
 
 // ---- wiring / boot ---------------------------------------------------------------------------------------
+let refreshing = false;
 async function refresh() {
+  if (refreshing) return;                                // a slow node must not stack overlapping refreshes
+  refreshing = true;
   try {
-    const sto = await dapp.storage();
-    if (sto) lastSto = sto;
-  } catch (e) { /* transient relay blip — keep the last good view rather than blanking the page */ }
-  await refreshAssets();
-  await refreshSharedPrices();
-  samplePrices(lastSto);
-  await otcRefresh();
-  render();
+    try {
+      const sto = await dapp.storage();
+      if (sto) lastSto = sto;
+    } catch (e) { /* transient relay blip — keep the last good view rather than blanking the page */ }
+    await refreshAssets();
+    await refreshSharedPrices();
+    samplePrices(lastSto);
+    await otcRefresh();
+    render();
+  } finally { refreshing = false; }
 }
 
 function wireUI() {
@@ -1450,7 +1589,7 @@ function wireUI() {
       const bal = d === "n2t" ? execUnits() : tokenUnits(p.asset);
       if (bal == null) return alertBar("Sign in to use your balance.");
       const pct = BigInt(b.getAttribute("data-pct"));
-      amt.value = fromUnits(bal * pct / 100n);
+      amt.value = d === "n2t" ? fromUnits(bal * pct / 100n) : tokFromUnits(bal * pct / 100n, p.asset);
       renderSwap();
     };
   });
@@ -1494,7 +1633,7 @@ function wireUI() {
   if (sh) sh.onclick = () => {
     const url = marketUrl(true);
     const pair = sel && lastSto ? symOfPool(poolOf(lastSto, sel)) + "/NADO" : "NADO DEX";
-    share(pair + " on NADO DEX", `Trade ${pair} on a post-quantum chain — no listing, no admin, no rake. ${url}`);
+    share(url, `Trade ${pair} on a post-quantum chain — no listing, no admin, no rake.`, sh, pair + " on NADO DEX");
   };
 }
 
@@ -1514,7 +1653,6 @@ dapp.onReturn((pend, ok, err) => {
     fill_intra: "Limit order filled — confirming…",
     fill: "Fill sent — confirming…",
     settle: "Settle sent — confirming…",
-    set_premium: "Deposit requirement set — confirming…",
     expire: "Refund claim sent — confirming…",
     boost: "Bounty attached — confirming…",
     cancel: "Cancel sent — confirming…",
@@ -1535,8 +1673,12 @@ async function boot() {
     { key: "cross", icon: "🌉", label: "Cross-chain", hint: "Atomic BTC/ETH ↔ NADO swaps — no custodian, no wrapped coins.",
       cards: ["marketCard", "otcBookCard", "otcPostCard", "otcMyCard"] },
   ], onChange: (k) => { curMode = k; syncUrl(true); } });
-  curMode = new URLSearchParams(location.search).get("mode") === "cross" ? "cross" : "swap";
+  curMode = modes.get();                                 // the SDK restores a remembered mode when the URL names none
   render = modes.wrap(doRender);
+  window.addEventListener("popstate", () => {
+    const m = new URLSearchParams(location.search).get("mode") === "cross" ? "cross" : "swap";
+    if (m !== modes.get()) modes.set(m);
+  });
   readUrl();
   refresh();
   setInterval(refresh, 3000);

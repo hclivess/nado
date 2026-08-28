@@ -1734,6 +1734,11 @@ class ExecState:
                     continue
                 if name in addr_fields:                    # resolve the stored digest back to its L1 address
                     val = self.zk_addrs.get(str(val), val)
+                elif isinstance(val, int) and val >= (1 << 53):
+                    # a JSON number above 2^53 is silently ROUNDED by every browser (asset ids, digests):
+                    # the dex shipped rounded asset ids in every token-side call. Send it as a string —
+                    # BigInt("…")/String(…) on the client already accept either form.
+                    val = str(val)
                 m[str(k)] = val
             if m:
                 out[name] = m
