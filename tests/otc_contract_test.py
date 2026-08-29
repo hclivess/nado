@@ -149,6 +149,22 @@ st.cursor = st.cursor + 400 - O.HTLC_MIN_TIMELOCK + 1
 ok(refused(C, "fill", [8, "bc1qlate", "btc:late"]), "a fill with no room left for the NADO lock refused")
 st.cursor = 100
 
+# ---- C2. release: a taker who fills and never binds cannot lock the order forever ----------------
+post(88, O.BID)
+call(C, "fill", [88, "0xtaker88", "pending"])
+ok(refused(A, "release", [88]), "release inside the taker's window refused")
+ok(refused(C, "release", [88]), "the taker cannot release (only the maker)")
+st.cursor = st.cursor + O.FILL_WINDOW + 1
+ok(refused(R, "release", [88]), "a stranger cannot release")
+call(A, "release", [88])
+ok(rd(O.ST, 88) == O.OPEN and rd(O.TAKER, 88) == 0 and rd(O.FILLH, 88) == 0, "after the window the maker releases: OPEN again, taker cleared")
+call(R, "fill", [88, "0xtaker88b", "pending"])
+ok(rd(O.ST, 88) == O.FILLED and rd(O.TAKER, 88) == zkvm_addr_digest(R), "a released order can be filled by someone else")
+call(R, "bind", [88, "l1:htlc:88"])
+st.cursor = st.cursor + O.FILL_WINDOW + 1
+ok(refused(A, "release", [88]), "once the NADO leg is bound, release is impossible — someone has money at risk")
+st.cursor = 100
+
 # ---- D. BID is symmetric ---------------------------------------------------------------------------
 post(3, O.BID)
 ok(rd(O.ESC, 3) == 0 and rd(O.ST, 3) == O.OPEN, "bid posts with no escrow")

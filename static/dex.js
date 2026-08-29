@@ -543,7 +543,7 @@ function otcOrders() {
     wch: String(g("wch", o) || ""), wamt: String(g("wamt", o) || ""), wadr: String(g("wadr", o) || ""),
     hsha: String(g("hsha", o) || ""), expn: Number(g("expn", o) || 0), expf: String(g("expf", o) || ""),
     st: Number(g("st", o) || 0), taker: String(g("taker", o) || ""), tadr: String(g("tadr", o) || ""),
-    fref: String(g("fref", o) || ""), hid: String(g("hid", o) || ""), limbs: [0, 1, 2, 3, 4].map((i) => g("s" + i, o) || 0),
+    fref: String(g("fref", o) || ""), hid: String(g("hid", o) || ""), fillh: Number(g("fillh", o) || 0), limbs: [0, 1, 2, 3, 4].map((i) => g("s" + i, o) || 0),
     gast: String(g("gast", o) || "0"), wast: String(g("wast", o) || "0"), want: BigInt(g("want", o) || 0),
     bnty: BigInt(g("bnty", o) || 0), prem: BigInt(g("prem", o) || 0), pheld: BigInt(g("pheld", o) || 0),
   })).filter((x) => x.kind);
@@ -1054,6 +1054,14 @@ function swapPlan(od, S) {
   if (owesNado && expired && od.hid && nadoOpen) return P({ act: "nadorefund", label: `Reclaim your ${nado}`, step: 5 });
   if (owesF && fexp && fFunded) return P({ act: refundF, label: `Reclaim your ${fam}`, step: 5 });
   if (expired || fexp) return P({ wait: "Expired — each side reclaims its own lock", step: 5 });
+  // a fill costs nothing: if the taker never bound the NADO leg within the fill window, the maker may
+  // release the order back to open (contract: release). Before that, say how long is left.
+  if (isMaker && !od.hid) {
+    const fillh = Number(od.fillh || 0), left = fillh ? fillh + 600 - (dapp.cursor || 0) : 600;
+    const takerOwesNado = !sells;
+    if (fillh && left <= 0 && (takerOwesNado || !fFunded)) return P({ act: "release", label: "Release this order — the taker never locked", step: 2 });
+    if (takerOwesNado && !nadoOpen) return P({ wait: `Waiting for the taker to lock ${nado} (they have ~${blocksToTime(Math.max(0, left))} left, then you can release)`, step: 3 });
+  }
   // the secret-holder (the maker) funds FIRST: ASK = maker's NADO, BID = maker's foreign coin
   if (sells) {
     if (isMaker) {
@@ -1489,6 +1497,7 @@ async function otcAction(what, o, btn) {
     if (dapp.htlcRefund) return dapp.htlcRefund({ htlcId: od.hid }, { otc: o, phase: "htlc_refund" });
     return alertBar("Reclaim the NADO lock from your wallet's Swap tab (lock " + od.hid.slice(0, 12) + "…).");
   }
+  if (what === "release") return dapp.call("release", [o], null, "Releasing #" + o + "…", { otc: o }, { cid: OTC_CID });
   if (what === "nadoclaim") {
     // The NADO leg pays out through an L1 htlc_claim, not through this contract. ASK: the taker claims once
     // the maker revealed the secret on the foreign chain. BID: the maker claims with their own secret — and
@@ -1994,6 +2003,7 @@ dapp.onReturn((pend, ok, err) => {
     expire: "Refund claim sent — confirming…",
     boost: "Bounty attached — confirming…",
     cancel: "Cancel sent — confirming…",
+    release: "Order released — confirming…",
   });
   refresh();
 });

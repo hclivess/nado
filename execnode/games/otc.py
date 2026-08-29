@@ -76,6 +76,8 @@ S0 = 20                            # fields 20..24: the revealed preimage limbs 
 GAST, WAST, WANT = 25, 26, 27      # SWAP_INTRA sides: give-asset, want-asset (0 = native), want amount
 HV1, HV2, HV3 = 31, 32, 33         # the other three digests of the WIDE hashlock (HVM/10 holds the first)
 HID = 34                           # the L1 HTLC that actually carries the NADO leg (txid digest)
+FILLH = 35                         # the block the fill landed in — starts the taker's window to bind their side
+FILL_WINDOW = 600                  # blocks (~1 h) a taker has to bind the NADO leg before the maker may release the order
 BNTY = 28                          # attached NADO bounty (§8) — first correct actor (settle/fill_intra/expire) wins it
 PREM, PHELD = 29, 30               # §9.1 free-option premium: required (maker-set) / escrowed by the taker at fill
 ASK, BID, INTRA = 1, 2, 3
@@ -271,6 +273,7 @@ def build():
         m.slot(TAKER, o).set(m.caller())
         m.slot(TADR, o).set(m.arg(1))
         m.slot(FREF, o).set(m.arg(2))
+        m.slot(FILLH, o).set(m.cursor())
         m.slot(ST, o).set(m.const(FILLED))
         m.ret(o)
 
@@ -437,6 +440,28 @@ def build():
 
     # expire(o) — anyone, at/after expn. The no-authority safety valve: a stuck order always drains back to
     # whoever funded its escrow (ASK -> maker, filled BID -> taker), callable by anybody, never trapped.
+    # release(o) — maker only: a fill costs nothing, so a taker who fills and never performs would otherwise
+    # lock the order (and, for a BID, the maker's foreign lock) for the whole window. If NO NADO leg has been
+    # bound within FILL_WINDOW blocks of the fill, the maker may put the order back to OPEN. Safe in both
+    # kinds: for a BID the taker owes the NADO lock (none bound = they did nothing); for an ASK the maker
+    # owes it and locks FIRST, so with none bound no taker can have funded a foreign leg against it yet.
+    # 2026-08-29: the first real taker filled a mainnet bid and walked; this is what that taught.
+    with c.method("release") as m:
+        o = m.arg(0)
+        m.require(o > 0)
+        m.require(o < ID_MAX)
+        m.require(m.slot(MK, o).get() == 1)
+        m.require(m.slot(ST, o).get() == FILLED)
+        m.require(m.slot(MAKER, o).get() == m.caller())
+        m.require(m.slot(HID, o).get() == 0)                    # nothing bound: nobody has anything at risk here
+        m.require(m.slot(FILLH, o).get() + FILL_WINDOW < m.cursor() + 1)   # the taker had their window
+        m.slot(TAKER, o).set(m.const(0))
+        m.slot(TADR, o).set(m.const(0))
+        m.slot(FREF, o).set(m.const(0))
+        m.slot(FILLH, o).set(m.const(0))
+        m.slot(ST, o).set(m.const(OPEN))
+        m.ret(o)
+
     with c.method("expire") as m:
         o = m.arg(0)
         m.require(o > 0)
@@ -499,7 +524,7 @@ ABI = {
                  "hv3": {"field": HV3, "index": "orders"},
                  "expn": {"field": EXPN, "index": "orders"}, "expf": {"field": EXPF, "index": "orders"},
                  "st": {"field": ST, "index": "orders"}, "taker": {"field": TAKER, "index": "orders"},
-                 "tadr": {"field": TADR, "index": "orders"}, "fref": {"field": FREF, "index": "orders"}, "hid": {"field": HID, "index": "orders"},
+                 "tadr": {"field": TADR, "index": "orders"}, "fref": {"field": FREF, "index": "orders"}, "hid": {"field": HID, "index": "orders"}, "fillh": {"field": FILLH, "index": "orders"},
                  "s0": {"field": S0, "index": "orders"}, "s1": {"field": S0 + 1, "index": "orders"},
                  "s2": {"field": S0 + 2, "index": "orders"}, "s3": {"field": S0 + 3, "index": "orders"},
                  "s4": {"field": S0 + 4, "index": "orders"},

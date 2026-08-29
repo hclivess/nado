@@ -200,6 +200,11 @@ same window, it never interprets it.
   `namt` is the advertised amount.
   `// o fresh; kind ∈ {1,2}; namt > 0 (range-gated < 2^62); every commitment non-zero; expn in the HTLC
   window; VALUE == 0 (the principal is in the L1 HTLC); expf on the kind's side of §6.3.`
+- **`release(o)`** — maker only, while `filled` and **no NADO leg bound**, once `FILL_WINDOW` (600 blocks,
+  ~1 h) has passed since the fill: the order returns to `open` with the taker cleared. A fill is free, so
+  without this a taker who fills and walks would lock the order — and a BID maker's foreign lock — for the
+  whole window (2026-08-29, the first real mainnet taker did exactly that). Safe in both kinds: nobody has
+  funds at risk until the NADO leg is bound, and it is the maker who binds first in an ASK.
 - **`cancel(o)`** — maker only, only while `open`. Refunds the escrow to the maker. `// state==open &&
   caller==maker`.
 - **`bind(o, htlcId)`** — either party records the L1 HTLC that carries the NADO leg, so the counterparty
