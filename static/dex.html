@@ -211,7 +211,7 @@
     <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
     <div class="needsig">
     <div class="row mt">
-      <input id="bankAmt" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
+      <input id="bankAmt" aria-label="Amount" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
       <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
     </div>
@@ -222,19 +222,19 @@
   <!-- MARKET (price chart + stats for the selected pool) -->
   <div class="card hidden" id="marketCard">
     <div class="seg hidden" id="envSeg" style="max-width:240px;margin-bottom:10px" role="tablist" aria-label="Network">
-      <button data-env="main" class="on">Mainnet</button><button data-env="test">Testnet</button>
+      <button data-env="main" class="on" role="tab" aria-selected="true">Mainnet</button><button data-env="test" role="tab" aria-selected="false">Testnet</button>
     </div>
     <div class="mkt">
-      <select class="searchable" id="mktPick" style="max-width:250px;flex:0 0 auto"></select>
+      <select class="searchable" id="mktPick" aria-label="Market" style="max-width:250px;flex:0 0 auto"></select>
       <span class="pair hidden" id="mktPair">—</span>
       <span class="price" id="mktPrice">—</span>
       <span class="chg flat" id="mktChg">—</span>
     </div>
     <div class="rangebtns" id="mktRanges">
-      <button data-range="3600" class="on">1H</button>
-      <button data-range="86400">1D</button>
-      <button data-range="604800">1W</button>
-      <button data-range="0">ALL</button>
+      <button data-range="3600" class="on" aria-pressed="true">1H</button>
+      <button data-range="86400" aria-pressed="false">1D</button>
+      <button data-range="604800" aria-pressed="false">1W</button>
+      <button data-range="0" aria-pressed="false">ALL</button>
     </div>
     <div class="chartwrap"><svg id="mktChart" preserveAspectRatio="none"></svg>
       <div class="tt" id="mktTt"></div>
@@ -253,7 +253,7 @@
     <details class="more"><summary>How this works</summary><p class="small dim">The <b>at worst</b> figure
     is enforced on-chain: if the price moves past your tolerance while your swap is in flight, it is
     cancelled instead of filling at a bad rate.</p></details>
-    <select id="dir" class="hidden">
+    <select id="dir" aria-label="Swap direction" class="hidden">
       <option value="n2t">NADO → token</option>
       <option value="t2n">token → NADO</option>
     </select>
@@ -262,7 +262,7 @@
         <span><span id="payBal">—</span> <span class="pcts" style="display:inline-flex;margin-left:6px">
           <button data-pct="25">25%</button><button data-pct="50">50%</button><button data-pct="100">MAX</button></span></span></div>
       <div class="row" style="align-items:center;gap:8px">
-        <input id="swapAmt" placeholder="0.0" inputmode="decimal" autocomplete="off">
+        <input id="swapAmt" aria-label="Amount you pay" placeholder="0.0" inputmode="decimal" autocomplete="off">
         <span class="mono" id="paySym" style="flex:0 0 auto;font-weight:700">NADO</span>
       </div>
     </div>
@@ -279,7 +279,7 @@
       <div class="kv"><span class="k">Price impact</span><span class="mono" id="sumImpact">—</span></div>
       <div class="kv"><span class="k">At worst you get</span><span class="mono" id="quote">—</span></div>
       <div class="kv"><span class="k">Trading fee</span><span class="mono">0.30%</span></div>
-      <div class="kv"><span class="k">Max slippage</span><span><input id="slip" value="1" inputmode="decimal"
+      <div class="kv"><span class="k">Max slippage</span><span><input id="slip" aria-label="Maximum slippage, percent" value="1" inputmode="decimal"
         style="max-width:62px;padding:3px 7px;font-size:12px;text-align:right"> %</span></div>
     </div>
     <div class="row mt"><button class="primary" id="btnSwap">Swap</button>
@@ -305,11 +305,11 @@
     <b>always refundable</b>. The first person to supply a market sets its opening price; after that both
     sides go in at the market's current ratio, and anything left over stays yours.</p></details>
     <div class="row mt">
-      <input id="addN" placeholder="NADO amount" inputmode="decimal" autocomplete="off">
+      <input id="addN" aria-label="NADO amount to deposit" placeholder="NADO amount" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnFundN" style="flex:0 0 auto">1 · Deposit NADO</button>
     </div>
     <div class="row mt">
-      <input id="addT" placeholder="token amount" inputmode="decimal" autocomplete="off">
+      <input id="addT" aria-label="Token amount to deposit" placeholder="token amount" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnFundT" style="flex:0 0 auto">2 · Deposit token</button>
     </div>
     <div class="row mt">
@@ -317,7 +317,7 @@
       <button class="ghost" id="btnRefund" style="flex:0 0 auto">Take deposits back</button>
     </div>
     <div class="row mt">
-      <input id="exitSh" placeholder="how much of your position to withdraw" inputmode="numeric" autocomplete="off">
+      <input id="exitSh" aria-label="Pool shares to withdraw" placeholder="pool shares to withdraw" inputmode="numeric" autocomplete="off">
       <button class="ghost" id="btnExit" style="flex:0 0 auto">Withdraw liquidity</button>
     </div>
 
@@ -328,11 +328,11 @@
     <h2>Open a pool</h2>
     <p class="small dim lead">Pair any token with NADO — permissionless and free.</p>
     <div class="row mt">
-      <select class="searchable" id="newAsset"></select>
+      <select class="searchable" id="newAsset" aria-label="Token to pair with NADO"></select>
       <button class="ghost" id="btnOpen" style="flex:0 0 auto">Open pool</button>
     </div>
     <div class="row mt hidden" id="newAssetCustomRow">
-      <input id="newAssetCustom" placeholder="paste the token id" autocomplete="off">
+      <input id="newAssetCustom" aria-label="Token id" placeholder="paste the token id" autocomplete="off">
     </div>
   </div>
 
@@ -356,25 +356,25 @@
     locks. An unfinished swap refunds to whoever paid in once it expires — nothing can get stuck. A
     <b>Tip</b> on the row pays watchtowers to finish the swap for you.</p></details>
     <div class="row mt">
-      <select id="otcKind">
+      <select id="otcKind" aria-label="Order side">
         <option value="1">Sell NADO</option>
         <option value="2">Buy NADO</option>
       </select>
-      <input id="otcNado" placeholder="NADO amount" inputmode="decimal" autocomplete="off">
+      <input id="otcNado" aria-label="NADO amount" placeholder="NADO amount" inputmode="decimal" autocomplete="off">
     </div>
     <div class="small dim" id="otcKindHint" style="margin-top:6px"></div>
     <div class="row mt">
     </div>
     <div class="row mt">
-      <select class="searchable" id="otcNet"></select>
-      <input id="otcFAmt" placeholder="how much of it" autocomplete="off">
+      <select class="searchable" id="otcNet" aria-label="Network"></select>
+      <input id="otcFAmt" aria-label="Amount of the other coin" placeholder="amount of that coin" autocomplete="off">
     </div>
     <div class="row mt hidden" id="otcTokenRow">
-      <select class="searchable" id="otcTokenPick"></select>
-      <input id="otcToken" class="hidden" placeholder="paste the token's contract address" autocomplete="off">
+      <select class="searchable" id="otcTokenPick" aria-label="Token"></select>
+      <input id="otcToken" aria-label="Token contract address" class="hidden" placeholder="paste the token's contract address" autocomplete="off">
     </div>
     <div class="row mt">
-      <div style="flex:1 1 0;min-width:0"><input id="otcFAddr" placeholder="your address on that network (saved for next time)" autocomplete="off" spellcheck="false">
+      <div style="flex:1 1 0;min-width:0"><input id="otcFAddr" aria-label="Your address on that network" placeholder="your address on that network (saved for next time)" autocomplete="off" spellcheck="false">
         <div id="otcFAddrHint" class="hint" aria-live="polite"></div></div>
     </div>
     <div class="row mt">
@@ -404,12 +404,12 @@
     time before someone takes it; after it expires anyone can return it to you.</p></details>
     <div id="otcLimits" class="mt"></div>
     <div class="row mt">
-      <select class="searchable" id="limGiveAsset"></select>
-      <input id="limGiveAmt" placeholder="you give" inputmode="decimal" autocomplete="off">
+      <select class="searchable" id="limGiveAsset" aria-label="Asset you give"></select>
+      <input id="limGiveAmt" aria-label="Amount you give" placeholder="amount you give" inputmode="decimal" autocomplete="off">
     </div>
     <div class="row mt">
-      <select class="searchable" id="limWantAsset"></select>
-      <input id="limWantAmt" placeholder="you want" inputmode="decimal" autocomplete="off">
+      <select class="searchable" id="limWantAsset" aria-label="Asset you want"></select>
+      <input id="limWantAmt" aria-label="Amount you want" placeholder="amount you want" inputmode="decimal" autocomplete="off">
     </div>
     <div class="row mt">
       <label class="small dim" for="limExpiry">Expiry, in blocks <span class="mono" id="limExpiryHuman"></span></label>
@@ -423,6 +423,6 @@
     moves, you withdraw a different mix than you put in. Not investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=cd2d22ac"></script>
+<script type="module" src="/static/dex.js?v=1f0601ff"></script>
 </body>
 </html>

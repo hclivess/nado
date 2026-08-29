@@ -115,6 +115,7 @@ function renderPools() {
   const box = $("pools");
   if (!box) return;
   const ids = lastSto ? poolIds(lastSto) : [];
+  if (!lastSto) { box.innerHTML = `<p class="small dim"><span class="spin"></span> Loading markets…</p>`; return; }
   if (!ids.length) {
     box.innerHTML = `<p class="small dim">No pools yet — open one below and seed it.</p>`;
     return;
@@ -143,7 +144,7 @@ function renderLiq() {
   if (!el || !sel || !lastSto) return;
   const p = poolOf(lastSto, sel), sym = tokSym(p.asset);
   const t = $("addT"); if (t) t.placeholder = `${sym} amount`;
-  el.textContent = `You are adding to the ${sym} / NADO pool.`;
+  el.innerHTML = `You are adding to the ${esc(sym)} / NADO pool. Position id <span class="mono">${esc(String(posFor(p.id)))}</span> — it lives in this browser; note it down if you clear site data (your wallet key plus this id recovers the position).`;
 }
 function renderSwap() {
   const card = $("swapCard");
@@ -185,7 +186,8 @@ function renderSwap() {
   const spot = dir === "n2t" ? midPrice(p) : (midPrice(p) ? 1 / midPrice(p) : 0);
   const impact = spot > 0 && execRate > 0 ? (1 - execRate / spot) * 100 : 0;
   const imp = $("sumImpact");
-  if (imp) { imp.textContent = inU > 0n && out > 0n ? impact.toFixed(2) + "%" : "—";
+  card.dataset.impact = String(inU > 0n && out > 0n ? impact : 0);
+  if (imp) { imp.textContent = inU > 0n && out > 0n ? impact.toFixed(2) + "%" + (impact >= 5 ? " (very high)" : impact >= 1 ? " (high)" : "") : "—";
     imp.style.color = impact >= 5 ? "var(--danger)" : impact >= 1 ? "var(--warn)" : "var(--dim)"; }
   const qa = $("quoteAmt"); if (qa) qa.value = out > 0n ? fmtOut(out) : "";
   const payBalU = dir === "n2t" ? execUnits() : tokenUnits(p.asset);
@@ -255,14 +257,21 @@ function fundToken() {
   const u = tokToUnits($("addT").value, p.asset);
   if (u <= 0n) return alertBar(`Enter a ${tokSym(p.asset)} amount (at least ${tokFromUnits(1n, p.asset)} ${tokSym(p.asset)} — the pool counts in that step).`);
   // opts.asset makes this an ASSET-denominated call (value = amount, asset = which token).
-  dapp.call("fundt", [pos, p.id, Number(u)], u * UNIT, "Staging token…",
+  dapp.call("fundt", [pos, p.id, Number(u)], u * UNIT, "Depositing token…",
             { posId: pos }, { asset: p.asset });
 }
 
-function joinPool() {
+async function joinPool() {
   if (!sel) return alertBar("Select a pool first.");
-  const p = poolOf(lastSto, sel);
-  dapp.call("join", [posFor(p.id), p.id], null, "Confirming your liquidity…", { posId: posFor(p.id) });
+  const p = poolOf(lastSto, sel), sym = tokSym(p.asset);
+  const live = p.sup > 0n && p.rn > 0n;
+  // value-free calls sign without a wallet dialog, so the page itself states what this does before it goes
+  if (!await uiConfirm({ title: "Add liquidity",
+    body: live ? `Both deposits go into the ${sym} / NADO pool at its current price and become pool shares. Anything that does not fit the ratio stays deposited and refundable.`
+               : `You are the first to supply ${sym} / NADO, so your two deposits SET its opening price. Check both amounts — a wrong ratio is free money for the first trader.`,
+    rows: live ? [{ k: "Pool price", v: `1 NADO = ${fmtPrice(midPrice(p))} ${sym}` }] : [],
+    confirmText: "Add liquidity" })) return;
+  dapp.call("join", [posFor(p.id), p.id], null, "Adding your liquidity…", { posId: posFor(p.id) });
 }
 
 function refundPos() {
@@ -271,23 +280,34 @@ function refundPos() {
   dapp.call("refund", [posFor(p.id), p.id, BigInt(p.asset)], null, "Returning your deposits…", { posId: posFor(p.id) });
 }
 
-function exitPos() {
+async function exitPos() {
   if (!sel) return alertBar("Select a pool first.");
-  const p = poolOf(lastSto, sel);
+  const p = poolOf(lastSto, sel), sym = tokSym(p.asset);
   const sh = Number(($("exitSh").value || "").trim());
-  if (!(Number.isInteger(sh) && sh > 0)) return alertBar("Enter a whole number of shares to withdraw.");
+  if (!(Number.isInteger(sh) && sh > 0)) return alertBar(`Enter how many pool shares to withdraw (a whole number — the pool has ${p.sup} in total).`);
+  if (BigInt(sh) > p.sup) return alertBar(`The whole pool has only ${p.sup} shares.`);
+  const outN = p.sup > 0n ? p.rn * BigInt(sh) / p.sup : 0n, outT = p.sup > 0n ? p.rt * BigInt(sh) / p.sup : 0n;
+  if (!await uiConfirm({ title: "Withdraw liquidity",
+    body: "Your shares are burned and both sides come back to your wallet. If you own fewer shares than this, the withdrawal is refused and nothing moves.",
+    rows: [{ k: "Shares", v: `${sh} of ${p.sup}` },
+           { k: "You receive", v: `≈ ${fromUnits(outN)} NADO + ${tokFromUnits(outT, p.asset)} ${sym}` }],
+    confirmText: "Withdraw" })) return;
   dapp.call("exit", [posFor(p.id), p.id, sh, BigInt(p.asset)], null, "Withdrawing your liquidity…", { posId: posFor(p.id) });
 }
 
-function doSwap() {
+async function doSwap() {
   if (!sel) return alertBar("Select a pool first.");
   const p = poolOf(lastSto, sel);
   const card = $("swapCard");
   const inU = BigInt(card.dataset.inunits || "0");
   const minOut = BigInt(card.dataset.minout || "0");
   if (inU <= 0n) return alertBar("Enter an amount to swap.");
-  if (inU >= 1n << 31n) return alertBar("That amount is above the pool's per-trade bound.");
+  if (inU >= 1n << 31n) return alertBar(`Trades are capped at ${fromUnits((1n << 31n) - 1n)} NADO-units per swap — split it into smaller swaps.`);
   if (minOut <= 0n) return alertBar("This pool cannot fill that amount — nothing would come out.");   // the contract requires out > 0
+  const impact = Number(card.dataset.impact || 0);
+  if (impact >= 5 && !await uiConfirm({ title: "High price impact", danger: true,
+    body: `This trade moves the pool's price by ${impact.toFixed(1)}%. You get at worst ${$("quote").textContent.replace(/.*at worst /, "").replace(")", "")}. A smaller amount, or several swaps, gets a better rate.`,
+    confirmText: "Swap anyway" })) return;
   if (($("dir").value || "n2t") === "n2t") {
     dapp.call("swapn", [p.id, Number(inU), Number(minOut), BigInt(p.asset)], inU * UNIT,
               "Swapping…", { poolId: p.id });
@@ -336,6 +356,15 @@ const otcSecrets = () => { try { return JSON.parse(localStorage.getItem(LS_OTC_S
 const otcRec = (o) => { const v = otcSecrets()[o]; return typeof v === "string" ? { s: v } : (v || {}); };
 const otcSaveRec = (o, patch) => { const m = otcSecrets(); const cur = typeof m[o] === "string" ? { s: m[o] } : (m[o] || {});
   m[o] = Object.assign(cur, patch); localStorage.setItem(LS_OTC_SECRETS, JSON.stringify(m)); };
+const otcForget = (o) => { const m = otcSecrets(); delete m[o]; try { localStorage.setItem(LS_OTC_SECRETS, JSON.stringify(m)); } catch (e) {} };
+// a wallet extension's error, in the user's terms — what happened and what to do, never its internals
+function walletErr(e) {
+  const m = String((e && e.message) || e || ""), code = e && e.code;
+  if (code === 4001 || /user (rejected|denied)|rejected the request/i.test(m)) return "You cancelled it in your wallet — nothing was sent.";
+  if (/insufficient funds/i.test(m)) return "Not enough coin in that account to pay the network fee.";
+  if (/chain|network/i.test(m) && /switch|unsupported|mismatch/i.test(m)) return "Your wallet is on a different network — switch it and try again.";
+  return "Your wallet refused the transaction: " + m.slice(0, 120);
+}
 
 // ---- the AUTOMATIC Bitcoin leg (no builder, no pubkey pasting — see btcsign.js) -----------------------
 // NETWORKS: an order's `wch` names the exact NETWORK, not just the coin — so both sides build the same
@@ -557,7 +586,7 @@ const otcLeft = (od) => od.expn - (dapp.cursor || 0);          // blocks until t
 const ethProv = () => (typeof window !== "undefined" ? window.ethereum : null);
 async function ethReq(method, params) { return ethProv().request({ method, params: params || [] }); }
 async function ethConnect() {
-  if (!ethProv()) throw new Error("no Ethereum wallet in this browser (install MetaMask, or use scripts/otc_eth_leg.mjs)");
+  if (!ethProv()) throw new Error("No Ethereum wallet in this browser — install MetaMask, or open this page in a wallet browser.");
   const [addr] = await ethReq("eth_requestAccounts");
   const chain = await ethReq("eth_chainId");
   return { addr, chain };
@@ -566,6 +595,18 @@ function ethHtlcFor(od) { return (netOf(od) || {}).htlc || ""; }
 function ethDeadline(od) { return Number(od.expf) || 0; }
 // the maker's/taker's EVM address for an order rides in the same "|"-packed field the BTC pubkey uses
 const ethAddrOf = (field) => { const p = (field || "").split("|").pop(); return /^0x[0-9a-fA-F]{40}$/.test(p) ? p : ""; };
+// One in-page summary before any foreign-chain wallet popup (the BTC leg has its own with the fee):
+// what this does, how much, on which network, until when. A wallet popup shows calldata, not meaning.
+async function legConfirm(od, mode, netLabel) {
+  const coin = coinOf(od), dl = new Date(ethDeadline(od) * 1000);
+  const when = dl.toISOString().slice(0, 16).replace("T", " ") + "Z";
+  const spec = mode === "fund"
+    ? { title: `Lock ${od.wamt} ${coin}`, body: `Only the counterparty can take it, and only with the swap secret. If they never do, you reclaim it after ${when}.`, confirmText: "Lock" }
+    : mode === "claim"
+    ? { title: `Claim ${od.wamt} ${coin}`, body: "Claiming publishes the swap secret on that chain — after this the counterparty can take the NADO side. This is what completes the swap.", confirmText: "Claim" }
+    : { title: `Reclaim ${od.wamt} ${coin}`, body: "Returns your locked coins to the account that funded them. Only possible after the deadline.", confirmText: "Reclaim" };
+  return uiConfirm(Object.assign(spec, { rows: [{ k: "Amount", v: `${od.wamt} ${coin}` }, { k: "Network", v: netLabel || coin }, { k: "Deadline", v: when }] }));
+}
 async function ethLeg(od, mode) {
   // mode: fund (the ETH/token sender locks) · claim (reveal s, get paid) · refund (after the deadline)
   try {
@@ -614,9 +655,10 @@ async function ethLeg(od, mode) {
         return alertBar(`That lock holds less than the agreed amount — claiming it would publish your secret for nothing.`);
       data = token ? htlcErc20Abi.claim(key, sHex) : htlcAbi.claim(key, sHex);
     } else data = token ? htlcErc20Abi.refund(key) : htlcAbi.refund(key);
+    if (!await legConfirm(od, mode, net.label)) return;
     const txid = await ethReq("eth_sendTransaction", [{ from: addr, to: htlc, data, value: valueHex }]);
     alertBar((mode === "fund" ? "Locked" : mode === "claim" ? "Claimed" : "Reclaimed") + " — tx " + String(txid).slice(0, 20) + "…");
-  } catch (e) { alertBar(String((e && e.message) || e).slice(0, 140)); }
+  } catch (e) { alertBar(walletErr(e)); }
 }
 // a token's symbol/decimals, read once from the chain and cached (the row shows the symbol, the lock needs the decimals)
 async function ethTokenMeta(token) {
@@ -650,8 +692,8 @@ async function ethFoundSecret(od) {
 }
 function ethCliHint(od) {
   const rec = otcRec(od.o);
-  return `<div class="small dim mt">No browser wallet detected. Run the ETH leg from a terminal:<br>
-    <span class="mono" style="word-break:break-all">node scripts/otc_eth_leg.mjs claim --rpc ${od.wch === "eths" ? "https://ethereum-sepolia-rpc.publicnode.com" : "&lt;rpc&gt;"} --htlc ${esc((netOf(od) || {}).htlc || "&lt;deploy first&gt;")} --key &lt;your-eth-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --refundee &lt;addr&gt; --deadline ${ethDeadline(od)} --secret &lt;s&gt;</span></div>`;
+  return `<div class="small dim mt">No Ethereum wallet in this browser. Install MetaMask (or open this page in a wallet browser) to finish this step here.
+    <details class="more"><summary>Advanced: finish it from a terminal</summary><span class="mono" style="word-break:break-all">node scripts/otc_eth_leg.mjs claim --rpc ${od.wch === "eths" ? "https://ethereum-sepolia-rpc.publicnode.com" : "&lt;rpc&gt;"} --htlc ${esc((netOf(od) || {}).htlc || "&lt;deploy first&gt;")} --key &lt;your-eth-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --refundee &lt;addr&gt; --deadline ${ethDeadline(od)} --secret &lt;s&gt;</span></details></div>`;
 }
 
 // ---- the Solana leg (scripts/solana-htlc, via static/solsign.js) -------------------------------------
@@ -728,9 +770,10 @@ async function solLeg(od, mode) {
       ix = t.mint ? t.S.ixRefundToken(t.program, me, t.address, t.funder, t.mint, t.lockAta, await ata(t.funder))
                   : t.S.ixRefund(t.program, me, t.address, t.funder);
     }
+    if (!await legConfirm(od, mode, (netOf(od) || {}).label)) return;
     const sig = await t.S.solWalletSend(t.rpc, provider, me, [ix]);
     alertBar((mode === "fund" ? "Locked" : mode === "claim" ? "Claimed" : "Reclaimed") + " — tx " + sig.slice(0, 20) + "…");
-  } catch (e) { alertBar(String((e && e.message) || e).slice(0, 160)); }
+  } catch (e) { alertBar(walletErr(e)); }
 }
 async function solFoundSecret(od) {
   try { const t = await solTerms(od); return await t.S.solFoundSecret(t.rpc, t.address, od.hsha); }
@@ -738,8 +781,8 @@ async function solFoundSecret(od) {
 }
 function solCliHint(od) {
   const net = netOf(od) || {};
-  return `<div class="small dim mt">No Solana wallet detected. Run this leg from a terminal:<br>
-    <span class="mono" style="word-break:break-all">node scripts/otc_sol_leg.mjs claim --rpc ${esc(net.rpc || "&lt;rpc&gt;")} --program ${esc(net.program || "&lt;not deployed&gt;")} --key &lt;your-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --funder &lt;addr&gt; --deadline ${Number(od.expf) || 0} --amount ${tokAddrOf(od) ? "&lt;units&gt;" : String(solLamports(od.wamt))}${tokAddrOf(od) ? " --mint " + esc(tokAddrOf(od)) : ""} --secret &lt;s&gt;</span></div>`;
+  return `<div class="small dim mt">No Solana wallet in this browser. Install Phantom (or open this page in a wallet browser) to finish this step here.
+    <details class="more"><summary>Advanced: finish it from a terminal</summary><span class="mono" style="word-break:break-all">node scripts/otc_sol_leg.mjs claim --rpc ${esc(net.rpc || "&lt;rpc&gt;")} --program ${esc(net.program || "&lt;not deployed&gt;")} --key &lt;your-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --funder &lt;addr&gt; --deadline ${Number(od.expf) || 0} --amount ${tokAddrOf(od) ? "&lt;units&gt;" : String(solLamports(od.wamt))}${tokAddrOf(od) ? " --mint " + esc(tokAddrOf(od)) : ""} --secret &lt;s&gt;</span></details></div>`;
 }
 
 // ---- cross-chain markets: a BTC/NADO book IS a market, so it gets the same header, chart and stats ----
@@ -791,7 +834,7 @@ function renderXMarket() {
   if (wantMarket) { const hit = xMarkets("main").concat(xMarkets("test")).find((m) => m.coin.toUpperCase() === wantMarket);
     if (hit) { setEnv(envOf(hit.net)); xsel = hit.key; wantMarket = null; } }
   const seg = $("envSeg");
-  if (seg) { seg.classList.remove("hidden"); seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.env === xEnv)); }
+  if (seg) { seg.classList.remove("hidden"); seg.querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b.dataset.env === xEnv); b.setAttribute("aria-selected", String(b.dataset.env === xEnv)); }); }
   const mkts = xMarkets(), keys = mkts.map((m) => m.key);
   const pick = $("mktPick");
   if (pick) {
@@ -942,7 +985,7 @@ async function foreignLockState(od) {
       const words = String(r.result || "0x").replace(/^0x/, "").match(/.{64}/g) || [];
       const held = words.length ? BigInt("0x" + words[token ? 3 : 2]) : 0n;
       if (held >= amtWei && amtWei > 0n) return { state: "funded", html: `<span style="color:var(--accent2)">verified: ${esc(od.wamt)} ${esc(coinOf(od))} locked under this order's exact terms until ${new Date(dl * 1000).toISOString().slice(0, 16).replace("T", " ")}Z</span>` };
-      if (held > 0n) return { state: "short", html: `<span style="color:var(--danger)">UNDERFUNDED: holds less than the agreed amount</span>` };
+      if (held > 0n) return { state: "short", html: `<span style="color:var(--danger)">UNDERFUNDED: holds less than the agreed amount — do not lock your side</span>` };
       const sec = await ethRevealed(od, net.rpc, htlc, key, token);
       return sec ? { state: "claimed", html: `<span style="color:var(--accent2)">claimed</span>`, secret: sec } : { state: "none", html: "— nothing locked under these terms yet" };
     }
@@ -994,13 +1037,13 @@ async function nadoHtlcCheck(od) {
   const sells = od.kind === OTC_ASK, wantClaimant = sells ? od.taker : od.maker;
   const bad = [];
   if (BigInt(h.amount || 0) < od.namtRaw) bad.push(`amount ${rawToNado(String(h.amount || 0))} < ${rawToNado(od.namtRaw.toString())}`);
-  if (String(h.hashlock || "").toLowerCase() !== od.hsha) bad.push("hashlock differs");
-  if (String(h.claimant || "") !== String(wantClaimant)) bad.push("claimant is not the counterparty");
-  if (Number(h.expiry || 0) < od.expn) bad.push(`expires at ${h.expiry}, before this order's ${od.expn}`);
-  if (h.status !== "open") bad.push("status " + h.status);
+  if (String(h.hashlock || "").toLowerCase() !== od.hsha) bad.push("locked under a different secret");
+  if (String(h.claimant || "") !== String(wantClaimant)) bad.push("not claimable by the counterparty");
+  if (Number(h.expiry || 0) < od.expn) bad.push(`unlocks ${blocksToTime(Math.max(0, od.expn - Number(h.expiry || 0)))} before this order expires`);
+  if (h.status !== "open") bad.push("already " + h.status);
   el.innerHTML = bad.length
     ? `<span style="color:var(--danger)">DOES NOT MATCH: ${esc(bad.join("; "))} — do not fund your side</span>`
-    : `<span style="color:var(--accent2)">verified: ${rawToNado(String(h.amount))} NADO, this hashlock, claimable by the counterparty until block ${Number(h.expiry)}</span>`;
+    : `<span style="color:var(--accent2)">verified: ${rawToNado(String(h.amount))} NADO, this hashlock, claimable by the counterparty for ≈ ${blocksToTime(Math.max(0, Number(h.expiry) - (dapp.cursor || 0)))}</span>`;
 }
 
 // ---- the swap engine ---------------------------------------------------------------------------------
@@ -1095,7 +1138,7 @@ function swapPlan(od, S) {
 const STEPS = (od) => ["Posted", "Taken", (od.kind === OTC_ASK ? "NADO" : coinOf(od)) + " locked", (od.kind === OTC_ASK ? coinOf(od) : "NADO") + " locked", "Claimed", "Done"];
 function stepperHtml(od, plan) {
   const names = STEPS(od), cur = Math.max(1, Math.min(6, plan.step || 1));
-  return `<div class="steps">${names.map((n, i) => `<span class="stp${i + 1 < cur ? " done" : i + 1 === cur ? " cur" : ""}">${esc(n)}</span>`).join("")}</div>`;
+  return `<div class="steps">${names.map((n, i) => `<span class="stp${i + 1 < cur ? " done" : i + 1 === cur ? " cur" : ""}"${i + 1 === cur ? ' aria-current="step"' : ""}>${i + 1 < cur ? "✓ " : i + 1 === cur ? "▸ " : ""}${esc(n)}</span>`).join("")}</div>`;
 }
 let _autoBusy = false;
 async function swapAutopilot() {
@@ -1138,10 +1181,10 @@ function otcRow(od, mine) {
   const acts = [];
   const settler = sells ? isTaker : isMaker;            // settle pays ASK->taker, BID->maker (otc.py)
   if (od.st === 2 && !expired && settler) acts.push(`<button class="primary" data-otc="settle" data-o="${od.o}">Settle…</button>`);
-  if (od.st === 1 && !expired && !isMaker && me && !mine) acts.push(`<button class="primary" data-otc="fillask" data-o="${od.o}">Fill…</button>`);
+  if (od.st === 1 && !expired && !isMaker && me && !mine) acts.push(`<button class="primary" data-otc="fillask" data-o="${od.o}">Take…</button>`);
   if (od.st === 1 && !expired && isMaker) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
-  if ((od.st === 1 || od.st === 2) && expired && party) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim</button>`);
-  if ((od.st === 1 || od.st === 2) && !expired && party) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip</button>`);
+  if ((od.st === 1 || od.st === 2) && expired && party) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim${od.hid && (sells ? isMaker : isTaker) ? " " + rawToNado(od.namtRaw.toString()) + " NADO" : ""}</button>`);
+  if ((od.st === 1 || od.st === 2) && !expired && party) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip…</button>`);
   const owesNado = od.st === 2 && (sells ? isMaker : isTaker);   // who provides the NADO side of this swap
   const getsNado = (sells ? isTaker : isMaker);                   // ... and who takes it with the secret
   if (od.st >= 2 && od.st !== 4 && od.hid && getsNado && !expired) acts.unshift(`<button class="primary" data-otc="nadoclaim" data-o="${od.o}">Claim the NADO…</button>`);
@@ -1157,12 +1200,12 @@ function otcRow(od, mine) {
   const ethSender = isEth && (sells ? isTaker : isMaker), ethClaimer = isEth && (sells ? isMaker : isTaker);
   if (isEth && od.st === 2 && ethSender) acts.push(`<button class="primary" data-otc="ethfund" data-o="${od.o}">Lock the ETH…</button>`);
   if (isEth && ((sells && od.st === 2) || (!sells && secretMayExist)) && ethClaimer) acts.unshift(`<button class="primary" data-otc="ethclaim" data-o="${od.o}">Claim the ETH…</button>`);
-  if (isEth && od.st >= 2 && ethSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="ethrefund" data-o="${od.o}">Reclaim ETH</button>`);
+  if (isEth && od.st >= 2 && ethSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="ethrefund" data-o="${od.o}">Reclaim ${esc(od.wamt)} ${chain}</button>`);
   const isSol = chainOf(od) === "sol";
   const solSender = isSol && (sells ? isTaker : isMaker), solClaimer = isSol && (sells ? isMaker : isTaker);
   if (isSol && od.st === 2 && solSender) acts.push(`<button class="primary" data-otc="solfund" data-o="${od.o}">Lock the ${chain}…</button>`);
   if (isSol && ((sells && od.st === 2) || (!sells && secretMayExist)) && solClaimer) acts.unshift(`<button class="primary" data-otc="solclaim" data-o="${od.o}">Claim the ${chain}…</button>`);
-  if (isSol && od.st >= 2 && solSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="solrefund" data-o="${od.o}">Reclaim ${chain}</button>`);
+  if (isSol && od.st >= 2 && solSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="solrefund" data-o="${od.o}">Reclaim ${esc(od.wamt)} ${chain}</button>`);
   const btc = chainOf(od) === "btc" ? btcInfo(od) : null;
   const btcFunder = chainOf(od) === "btc" && (sells ? isTaker : isMaker);
   const btcClaimer = chainOf(od) === "btc" && (sells ? isMaker : isTaker);
@@ -1186,14 +1229,14 @@ function otcRow(od, mine) {
       else if (!sells && isMaker) hint = `Next: once the NADO lock below reads "verified", press Claim the NADO — that reveals the secret, and the taker claims your ${foreign} with it.`;
       else if (!sells && isTaker && !od.hid) hint = `Next: wait for the maker's ${foreign} lock and CHECK it (the agreed amount, this hashlock, a deadline past this order's NADO expiry). Only then press Lock the NADO.`;
       else if (!sells && isTaker) hint = `Next: wait. When the maker claims your NADO the secret becomes public, and Claim the ${foreign} works here.`;
-    } else if ((od.st === 1 || od.st === 2) && expired) hint = "Expired — reclaim each leg on its own chain (the NADO leg is an L1 HTLC refund).";
+    } else if ((od.st === 1 || od.st === 2) && expired) hint = "Expired — press Reclaim to take back whatever you locked; the other chain's lock is reclaimed with its own button.";
     if (hint) detail += `<div class="small mt" style="color:var(--accent2)">${hint}</div>`;
     if (chainOf(od) === "btc" && od.st >= 2 && (isMaker || isTaker)) {
       const b = btcInfo(od);
       if (b) detail += `<div class="small mt">${btcFunder && od.st === 2 ? `<b>Send exactly ${esc(od.wamt)} BTC to:</b><br>` : `Swap address: `}<span class="mono" style="word-break:break-all">${b.addr}</span>
         <a href="#" data-otc="btccopy" data-o="${od.o}">copy</a> · <a href="#" data-otc="btcverify" data-o="${od.o}">verify</a>
         <span id="btcv${od.o}" class="dim"></span></div>`;
-      else if (!btcParts(od)) detail += `<div class="small dim mt">The counterparty's client didn't publish a Bitcoin key — finish this leg with scripts/otc_btc_leg.py.</div>`;
+      else if (!btcParts(od)) detail += `<div class="small dim mt">The counterparty's client did not publish a Bitcoin key, so this page cannot build the Bitcoin side. <details class="more"><summary>Advanced</summary>Finish it with scripts/otc_btc_leg.py.</details></div>`;
     }
     if ((chainOf(od) === "eth" || chainOf(od) === "sol") && od.st === 2 && (isMaker || isTaker)) {
       detail += `<div class="small mt">${esc(coinOf(od))} lock: <span id="fchk${od.o}" class="dim">checking…</span></div>`;
@@ -1213,14 +1256,14 @@ function otcRow(od, mine) {
         <a href="#" data-otc="showsecret" data-o="${od.o}">back up</a> — keep a copy: it is all this swap
         needs on any device (never share it before the counterparty's lock is CONFIRMED).</div>`;
     if (od.st === 2 && od.hid) {
-      detail += `<div class="small mt">NADO leg locked on L1: <span class="mono">${esc(String(od.hid)).slice(0, 24)}…</span> <span id="hchk${od.o}" class="dim">checking…</span></div>`;
+      detail += `<div class="small mt">NADO locked — lock <span class="mono">${esc(String(od.hid)).slice(0, 16)}…</span> <span id="hchk${od.o}" class="dim">checking…</span></div>`;
       setTimeout(() => nadoHtlcCheck(od), 0);
     }
-    if (od.st === 2 && od.fref && od.fref !== "pending") detail += `<div class="small dim mt">Foreign leg ref: <span class="mono">${esc(od.fref).slice(0, 40)}</span>
+    if (od.st === 2 && od.fref && od.fref !== "pending") detail += `<div class="small dim mt">Their ${chain} transaction: <span class="mono">${esc(od.fref).slice(0, 40)}</span>
       · counterparty ${esc(disp(isMaker ? od.taker : od.maker))}</div>`;
     if (od.st === 3 && od.limbs.some((x) => Number(x) > 0)) {
       const rs = otcSecretFromLimbs(od.limbs);
-      detail += `<div class="small mt">Revealed secret (claims the ${chain} HTLC): <span class="mono" style="word-break:break-all">${rs}</span></div>`;
+      detail += `<div class="small mt">Secret revealed — it unlocks the ${chain} side: <span class="mono" style="word-break:break-all">${rs}</span></div>`;
     }
   }
   let main = "", more = "";
@@ -1238,8 +1281,7 @@ function otcRow(od, mine) {
   return `<div class="loan"><div class="loanmain">
       <div class="loantop">${pill} <b>#${od.o}</b> ${esc(disp(od.maker))} ${head}</div>
       ${main}
-      <div class="loanterms">${od.prem > 0n ? `maker has ${rawToNado(od.prem.toString())} NADO at stake · ` : ""}${od.bnty > 0n ? `<span class="pill">+${rawToNado(od.bnty.toString())} NADO tip</span> · ` : ""}hashlock <span class="dim">${esc(od.hsha).slice(0, 18)}…</span> ·
-        ${od.st <= 2 ? (expired ? "refundable now" : `expires in ${left} blocks (~${blocksToTime(left)})`) : ""}
+      <div class="loanterms">${od.prem > 0n ? `maker has ${rawToNado(od.prem.toString())} NADO at stake · ` : ""}${od.bnty > 0n ? `<span class="pill">+${rawToNado(od.bnty.toString())} NADO tip</span> · ` : ""}${od.st <= 2 ? (expired ? "refundable now" : `expires in ${left} blocks (~${blocksToTime(left)})`) : ""}
         ${od.expf ? `· ${esc(coinOf(od))} deadline ${new Date(Number(od.expf) * 1000).toISOString().slice(0, 16).replace("T", " ")}Z` : ""}</div>
       <div class="loanwho dim small">on <b>${esc((netOf(od) || {}).label || od.wch)}</b> · ${sells ? "maker receives" : "taker receives"} ${chain} at ${esc((sells ? od.wadr : od.tadr || od.wadr).split("|")[0]) || "(swap key published)"}</div>
       ${detail}${more}
@@ -1251,10 +1293,10 @@ function renderOtc() {
   const all = otcOrders(), me = dapp.me;
   const open = all.filter((x) => x.st === 1 && x.kind !== OTC_INTRA && mktKeyOf(x) === xsel && otcLeft(x) > 0);
   book.innerHTML = open.length ? open.map((x) => otcRow(x, false)).join("")
-    : `<p class="small dim">No open orders. Post one — the book is permissionless.</p>`;
+    : otcSto ? `<p class="small dim">No open orders. Post one — the book is permissionless.</p>` : `<p class="small dim"><span class="spin"></span> Loading orders…</p>`;
   const my = all.filter((x) => me && x.kind !== OTC_INTRA && (x.maker === me || x.taker === me));
   mine.innerHTML = my.length ? my.map((x) => otcRow(x, true)).join("")
-    : `<p class="small dim">Nothing yet — post or fill an order.</p>`;
+    : `<p class="small dim">Nothing yet — post or take an order.</p>`;
   [book, mine].forEach((box) => box.querySelectorAll("[data-otc]").forEach((el) => {
     el.onclick = (ev) => { ev.preventDefault();
       runAction(el.tagName === "BUTTON" ? el : null, () => otcAction(el.getAttribute("data-otc"), Number(el.getAttribute("data-o")), el)); };
@@ -1334,7 +1376,7 @@ async function otcPost() {
   if (chain === "sol" && !isB58Addr(faddr)) return alertBar("That is not a Solana address (32–44 base58 characters).");
   if (chain === "btc") { try { await addressToScript(faddr, (NETS[netSelV] || {}).hrp || "bc"); } catch (e) { return alertBar("That is not a valid " + (NETS[netSelV] || {}).label + " address: " + String(e.message || e)); } }
   faddrSet(netSelV, faddr);                                // typed once — reused for every future swap on this network
-  if (!(blocks >= 20 && blocks <= 900000)) return alertBar("Expiry must be 20 … 900000 blocks.");
+  if (!(blocks >= 20 && blocks <= 900000)) return alertBar(`Expiry must be between 20 blocks (≈ ${blocksToTime(20)}) and 900,000 blocks (≈ ${blocksToTime(900000)}).`);
   const o = randId();
   const sHex = Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, "0")).join("");
   let kp = null, packed = faddr;
@@ -1370,6 +1412,19 @@ async function otcPost() {
   }
   if (expf > nowSec + FOREIGN_MAX_S) expf = nowSec + FOREIGN_MAX_S;   // ASK: clamp long NADO windows; the margin still holds
   const expn = (dapp.cursor || 0) + blocks;
+  {
+    const coinName = tokenV ? (tokensFor(netSelV)[tokenV] || {}).sym || "tokens" : (NETS[netSelV] || {}).coin || "coins";
+    const nadoF = Number(rawToNado(raw.toString())), price = nadoF > 0 ? Number(famt) / nadoF : 0;
+    const give = kind === OTC_ASK ? `${rawToNado(raw.toString())} NADO` : `${famt} ${coinName}`;
+    const get = kind === OTC_ASK ? `${famt} ${coinName}` : `${rawToNado(raw.toString())} NADO`;
+    if (!await uiConfirm({ title: kind === OTC_ASK ? "Sell NADO" : "Buy NADO",
+      body: "Posting locks nothing. Once someone takes it, both sides are committed and your row walks you through the locks.",
+      rows: [{ k: "You give", v: give }, { k: "You receive", v: get },
+             { k: "Price", v: `1 NADO = ${fmtPrice(price)} ${coinName}` },
+             { k: "Paid to", v: faddr.slice(0, 14) + "…" + faddr.slice(-6) },
+             { k: "Open for", v: `≈ ${blocksToTime(blocks)}` }],
+      confirmText: "Post order" })) { otcForget(o); return; }
+  }
   const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex + (kp ? "  ·  BTC key: " + kp.k : ""); }
   // No VALUE: the NADO leg of a cross-chain swap is escrowed in an L1 HTLC under the SAME SHA-256
   // hashlock as the foreign leg, never in this contract (see otc.py WHERE THE MONEY SITS).
@@ -1387,7 +1442,7 @@ async function runAction(btn, fn) {
 }
 async function otcAction(what, o, btn) {
   const od = otcOrders().find((x) => x.o === o);
-  if (!od) return;
+  if (!od) { render(); return alertBar("That order is no longer on the book — the list has been refreshed."); }
   if (what === "showsecret") {
     const r = otcRec(o);
     // Everything needed to rebuild the swap on another device — the key alone is not enough, because the
@@ -1404,13 +1459,15 @@ async function otcAction(what, o, btn) {
   }
   if (what === "cancel") return dapp.call("cancel", [o], null, "Cancelling #" + o + "…", { otc: o }, { cid: OTC_CID });
   if (what === "boost") {
+    if (od.st !== 1 && od.st !== 2) return alertBar("This order is finished — nothing left to tip.");
     // §8: attach a NADO bounty ANYONE can win by finishing this order (settle / expire / atomic fill).
     // It makes watchtowers work for you; cancel returns it to the maker.
     const typed = ((await uiPrompt({ title: "Tip whoever finishes this swap",
       body: "Paid to whoever completes or reclaims this order — you, the counterparty, or any watchtower running unattended.",
       placeholder: "amount in NADO" })) || "").trim();
-    const amt = (() => { try { return BigInt(nadoToRaw(typed)); } catch (e) { return 0n; } })();
-    if (amt <= 0n) return;
+    if (typed === "") return;                          // dismissed
+    const amt = (() => { try { return BigInt(nadoToRaw(typed.replace(",", "."))); } catch (e) { return 0n; } })();
+    if (amt <= 0n) return alertBar("Enter a tip in NADO, e.g. 0.5.");
     return dapp.call("boost", [o], amt, "Boosting #" + o + "…", { otc: o }, { cid: OTC_CID });
   }
   if (what === "expire") return dapp.call("expire", [o], null, "Reclaiming #" + o + "…", { otc: o }, { cid: OTC_CID });
@@ -1437,7 +1494,7 @@ async function otcAction(what, o, btn) {
     } else if (ch === "eth") {
       if (ethProv()) {                                  // the taker's own EVM account
         try { const { addr } = await ethConnect(); myf = addr; }
-        catch (e) { return alertBar("Your Ethereum wallet did not connect (" + ((e && e.message) || e) + "). Approve the connection in the wallet and click Fill again."); }
+        catch (e) { return alertBar("Your Ethereum wallet did not connect (" + ((e && e.message) || e) + "). Approve the connection in the wallet and click Take again."); }
       } else {
         // No wallet extension: ASK where the coin should go. Never silently invent a receive key —
         // a taker who did not know a key was generated for them cannot back it up, and the coin it
@@ -1473,6 +1530,10 @@ async function otcAction(what, o, btn) {
     return;
   }
   if (what === "fillintra") {
+    if (!await uiConfirm({ title: `Fill limit order #${o}`,
+      body: "Both sides swap in one transaction — no partial fills.",
+      rows: [{ k: "You give", v: limText(od.wast, od.want) }, { k: "You receive", v: limText(od.gast, od.escRaw) }],
+      confirmText: "Fill" })) return;
     dapp.call("fill_intra", [o], od.want, "Filling limit order #" + o + "…", { otc: o },
               od.wast !== "0" ? { cid: OTC_CID, asset: od.wast } : { cid: OTC_CID });
     return;
@@ -1531,7 +1592,7 @@ async function otcAction(what, o, btn) {
   }
   if (what === "nadobind") {
     const id = ((await uiPrompt({ title: "Record your NADO lock",
-      body: "Paste the transaction id of the L1 HTLC you created, so the counterparty can find and check it.",
+      body: "Paste the transaction id of the NADO lock you created, so the counterparty can find and check it.",
       placeholder: "transaction id" })) || "").trim();
     if (!/^[0-9a-f]{16,}$/.test(id)) return alertBar("That doesn't look like a transaction id.");
     return dapp.call("bind", [o, id], null, "Recording the NADO lock…", { otc: o }, { cid: OTC_CID });
@@ -1555,22 +1616,29 @@ async function otcAction(what, o, btn) {
       if (!s) s = ((await uiPrompt({ title: "Paste the swap secret",
         body: "The 64-character secret revealed when the other leg was claimed — this page could not find it automatically.",
         placeholder: "64 hex characters" })) || "").trim().toLowerCase();
-      if (!/^[0-9a-f]{64}$/.test(s || "")) return alertBar("That is not a 32-byte hex secret.");
+      if (!/^[0-9a-f]{64}$/.test(s || "")) return alertBar("A swap secret is exactly 64 hex characters.");
       dapp.call("settle", [o, ...otcLimbs(s)], null, "Settling #" + o + "…", { otc: o }, { cid: OTC_CID });
     })();
   }
 }
 
 // ---- SWAP_INTRA limit orders (same otc contract, rendered beside the AMM) -----------------------------
+// a token amount in its OWN decimals (raw = units of 10^-dec), NADO in NADO — never a raw integer on screen
+const tokRawText = (asset, raw) => { const d = tokDec(asset), s = BigInt(raw).toString().padStart(d + 1, "0");
+  const ip = s.slice(0, s.length - d), fp = d ? s.slice(s.length - d).replace(/0+$/, "") : ""; return fp ? ip + "." + fp : ip; };
+const tokTextRaw = (asset, str) => { const [i, f = ""] = String(str || "").trim().replace(",", ".").split(".");
+  if (!/^\d+$/.test(i || "0") || !/^\d*$/.test(f)) return 0n; const d = tokDec(asset);
+  if (f.length > d) return -1n; return BigInt((i || "0") + f.padEnd(d, "0")); };
+const limText = (asset, amtRaw) => asset !== "0" ? `${tokRawText(asset, amtRaw)} ${tokSym(asset)}` : `${rawToNado(amtRaw.toString())} NADO`;
 const limSide = (asset, amtRaw) => asset !== "0"
-  ? `<b>${amtRaw}</b> ${esc(tokSym(asset))}`
+  ? `<b>${tokRawText(asset, amtRaw)}</b> ${esc(tokSym(asset))}`
   : `<b>${rawToNado(amtRaw.toString())} NADO</b>`;
 function limRow(od) {
   const me = dapp.me, mine = od.maker === me;
   const left = otcLeft(od), expired = left <= 0;
   const acts = [];
   if (od.st === 1 && !expired && mine) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
-  if (od.st === 1 && !expired && mine) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip</button>`);
+  if (od.st === 1 && !expired && mine) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip…</button>`);
   if (od.st === 1 && !expired && !mine && me) acts.push(`<button class="primary" data-otc="fillintra" data-o="${od.o}">Fill</button>`);
   if (od.st === 1 && expired && mine) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim</button>`);
   const pill = od.st === 1 ? (expired ? '<span class="pill warn">expired</span>' : '<span class="pill">open</span>')
@@ -1578,7 +1646,7 @@ function limRow(od) {
   return `<div class="loan"><div class="loanmain">
       <div class="loantop">${pill} <b>#${od.o}</b> ${esc(disp(od.maker))} gives ${limSide(od.gast, od.escRaw)}
         for ${limSide(od.wast, od.want)}</div>
-      <div class="loanterms small dim">${od.bnty > 0n ? `+${rawToNado(od.bnty.toString())} NADO bounty · ` : ""}${od.st === 1 && !expired ? `expires in ${left} blocks (~${blocksToTime(left)})` : ""}</div>
+      <div class="loanterms small dim">${od.bnty > 0n ? `+${rawToNado(od.bnty.toString())} NADO tip · ` : ""}${od.st === 1 && !expired ? `expires in ${left} blocks (~${blocksToTime(left)})` : ""}</div>
     </div><div class="loanacts">${acts.join("")}</div></div>`;
 }
 function renderLimits() {
@@ -1589,23 +1657,29 @@ function renderLimits() {
     .filter((x) => x.st === 1 || (me && x.maker === me && x.st !== 1))
     .sort((a, b) => (a.st - b.st) || (b.o - a.o)).slice(0, 40);
   box.innerHTML = rows.length ? rows.map(limRow).join("")
-    : `<p class="small dim">No limit orders yet — post one below.</p>`;
+    : otcSto ? `<p class="small dim">No limit orders yet — post one below.</p>` : `<p class="small dim"><span class="spin"></span> Loading orders…</p>`;
   box.querySelectorAll("[data-otc]").forEach((el) => {
     el.onclick = (ev) => { ev.preventDefault();
       runAction(el.tagName === "BUTTON" ? el : null, () => otcAction(el.getAttribute("data-otc"), Number(el.getAttribute("data-o")), el)); };
   });
 }
-function limPost() {
+async function limPost() {
   const ga = ($("limGiveAsset").value || "0").trim() || "0";
   const wa = ($("limWantAsset").value || "0").trim() || "0";
   const blocks = Math.floor(Number($("limExpiry").value || 0));
-  const amt = (v, asset) => { try { return asset !== "0" ? BigInt((v || "").trim()) : BigInt(nadoToRaw((v || "").trim())); } catch (e) { return 0n; } };
+  const amt = (v, asset) => { try { return asset !== "0" ? tokTextRaw(asset, v) : BigInt(nadoToRaw((v || "").trim())); } catch (e) { return 0n; } };
   const gv = amt($("limGiveAmt").value, ga), wv = amt($("limWantAmt").value, wa);
+  if (gv < 0n || wv < 0n) return alertBar(`That token counts at most ${tokDec(gv < 0n ? ga : wa)} decimal places.`);
   if (gv <= 0n || wv <= 0n) return alertBar("Enter both amounts.");
   if (ga === "0" && wa === "0") return alertBar("Pick a token on one side — NADO for NADO is not a swap.");
-  if (!(blocks >= 20 && blocks <= 900000)) return alertBar("Expiry must be 20 … 900000 blocks.");
+  if (ga === wa) return alertBar("Pick two different assets.");
+  if (!(blocks >= 20 && blocks <= 900000)) return alertBar(`Expiry must be between 20 blocks (≈ ${blocksToTime(20)}) and 900,000 blocks (≈ ${blocksToTime(900000)}).`);
   const o = randId();
-  let gaB, waB; try { gaB = BigInt(ga); waB = BigInt(wa); } catch (e) { return alertBar("Asset ids must be numbers."); }
+  let gaB, waB; try { gaB = BigInt(ga); waB = BigInt(wa); } catch (e) { return alertBar("Pick a token from the list."); }
+  if (!await uiConfirm({ title: "Post limit order",
+    body: "Your side is escrowed now and comes back if you cancel or the order expires. The first taker swaps both sides in one go.",
+    rows: [{ k: "You give", v: limText(ga, gv) }, { k: "You receive", v: limText(wa, wv) }, { k: "Expires in", v: `≈ ${blocksToTime(blocks)}` }],
+    confirmText: "Post" })) return;
   dapp.call("post_intra", [o, gaB, gv, waB, wv, (dapp.cursor || 0) + blocks],
             gv, "Posting limit order #" + o + "…", { otc: o },
             gaB !== 0n ? { cid: OTC_CID, asset: ga } : { cid: OTC_CID });
@@ -1978,7 +2052,7 @@ function wireUI() {
   const rb = $("mktRanges");
   if (rb) rb.querySelectorAll("button").forEach((b) => { b.onclick = () => {
     mktRange = Number(b.getAttribute("data-range"));
-    rb.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    rb.querySelectorAll("button").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-pressed", String(x === b)); });
     render();
   }; });
   ["swapAmt", "slip", "dir"].forEach((id) => {
@@ -1997,8 +2071,8 @@ dapp.onReturn((pend, ok, err) => {
   if (pend && pend.poolId != null) sel = String(pend.poolId);
   dapp.showReturn(pend, ok, err, {
     open: "Pool opened — confirming…",
-    fundn: "NADO staged — confirming…",
-    fundt: "Token staged — confirming…",
+    fundn: "NADO deposited — confirming…",
+    fundt: "Token deposited — confirming…",
     join: "Liquidity added — confirming…",
     swapn: "Swap sent — confirming…",
     swapt: "Swap sent — confirming…",
@@ -2007,10 +2081,10 @@ dapp.onReturn((pend, ok, err) => {
     post: "Order posted — confirming…",
     post_intra: "Limit order posted — confirming…",
     fill_intra: "Limit order filled — confirming…",
-    fill: "Fill sent — confirming…",
+    fill: "Order taken — confirming…",
     settle: "Settle sent — confirming…",
-    expire: "Refund claim sent — confirming…",
-    boost: "Bounty attached — confirming…",
+    expire: "Reclaim sent — confirming…",
+    boost: "Tip attached — confirming…",
     cancel: "Cancel sent — confirming…",
     release: "Order released — confirming…",
   });
