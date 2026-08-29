@@ -822,6 +822,18 @@ class ExecState:
             if self.outbox.pop(key, None) is not None:
                 self._touch()
 
+    def bump_contract_slot(self, cid, key, delta):
+        """Add `delta` to one raw slot of a contract's storage from the exec node itself (consensus-side,
+        inside apply — every node does the same at the same block). Used for records a contract cannot
+        observe on its own, e.g. the faucet's DONATED counter fed by L1 donations."""
+        with self._mutate_lock:
+            c = self.contracts.get(cid)
+            if not c:
+                return
+            slots = c.setdefault("storage", {}).setdefault("slots", {})
+            slots[str(int(key))] = int(slots.get(str(int(key)), 0)) + int(delta)
+            self._touch()
+
     def credit_deposit(self, addr, amount):
         """Credit an exec-side bridge balance from an L1 `bridge` deposit (read from the ordered stream)."""
         with self._mutate_lock:
@@ -1482,6 +1494,13 @@ class ExecState:
                 c["runtime"] = rt_name
                 if isinstance(payload.get("abi"), dict):
                     c["abi"] = payload["abi"]
+                # FAUCET DONATION RECORD SEED, once, at the block that lands defund(): everything the faucet
+                # held until then was the operator's own funding (the treasury has never paid into it —
+                # verified against the ordered stream before this shipped), so DONATED starts at the balance
+                # at this exact block. Deterministic: every node applies this upgrade at the same height and
+                # reads the same balance. A treasury payout after this line is NOT counted, by design.
+                if cid == "faucet" and "defund" in (code or {}) and not (c.get("storage") or {}).get("slots", {}).get("7"):
+                    self.bump_contract_slot("faucet", 7, int(self.bridge.get("faucet", 0)))
                 return f"upgrade {cid} by {sender[:12]}… (code replaced, storage kept)"
 
             if op == "transfer_contract":

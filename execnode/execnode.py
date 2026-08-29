@@ -2596,6 +2596,13 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
             # faucet escrow; mirror it as spendable balance of the FIXED-NAME faucet CONTRACT ("faucet"
             # is its literal cid — see state.FIXED_CIDS), whose claim() method PAYs grants to players.
             default_state.credit_deposit("faucet", tx.get("amount", 0))
+            # an L1 donation FROM THE OPERATOR counts toward what defund() may take back (faucet.py slot 7)
+            try:
+                from execnode.games.faucet import OPERATOR as _FAUCET_OP
+                if tx.get("sender") == _FAUCET_OP:
+                    default_state.bump_contract_slot("faucet", 7, int(tx.get("amount", 0)))
+            except Exception:
+                pass
             if verbose:
                 print(f"[execnode] block {h}: faucet donation {tx.get('amount')} by {(tx.get('sender') or '')[:12]}…", flush=True)
         elif r == "treasury_execute":

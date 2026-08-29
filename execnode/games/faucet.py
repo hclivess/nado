@@ -10,7 +10,9 @@ There is deliberately NO self-serve claim path — no PoW grind, no per-address 
 registry. Play the free airdrop games, place on the scoreboard, get paid.
 
 Methods: fund()[value] · reward(idx, day, rank, addr, amount) — operator-only, at most once per
-(game, day, rank) via the H(idx, day, rank) idempotency marker; an underfunded payout reverts.
+(game, day, rank) via the H(idx, day, rank) idempotency marker; an underfunded payout reverts ·
+defund(amount) — operator-only, capped at the operator's OWN donations minus what was already taken
+back (slots 7/8), so treasury money in the faucet can never be withdrawn by anyone.
 """
 from execnode import zkvmasm, runtimes
 from ops.address_ops import make_address
@@ -28,11 +30,52 @@ OP_DIG = runtimes.zkvm_addr_digest(OPERATOR)
 
 # fund(): anyone may top the prize bank up exec-side (the call's VALUE is escrowed to this contract by
 # the call machinery itself before the method runs — this body only insists there IS a value).
-FUND = """
+# Slot 7 = DONATED: NADO the OPERATOR put in (exec-side fund() by the operator, and L1 donations the exec
+# node mirrors); slot 8 = DEFUNDED: what defund() has taken back. Treasury top-ups touch neither, which is
+# exactly what makes defund() unable to reach public money. Small integer keys cannot collide with the
+# reward markers, which are alghash outputs.
+DONATED, DEFUNDED = 7, 8
+
+FUND = f"""
     ctx r1 value
     movi r2 0
     lt r2 r1
     require r2              ; value > 0
+    ctx r5 caller
+    movi r6 {OP_DIG}
+    eq r5 r6
+    jnz r5 @rec
+    ret r0
+rec:
+    movi r6 {DONATED}
+    sload r7 r6
+    add r7 r1               ; DONATED += value (operator's own money, take-backable)
+    sstore r6 r7
+    ret r0
+"""
+
+# defund(amount): the OPERATOR takes back some of what the operator put in — never more than
+# DONATED - DEFUNDED, so treasury payouts into the faucet (public money) can never leave through here.
+# Auditable on chain: slot 7 is what went in, slot 8 what came back out.
+DEFUND = f"""
+    ctx r5 caller
+    movi r6 {OP_DIG}
+    eq r5 r6
+    require r5              ; operator only
+    movi r2 0
+    lt r2 r0
+    require r2              ; amount > 0
+    movi r6 {DONATED}
+    sload r3 r6             ; DONATED
+    movi r6 {DEFUNDED}
+    sload r4 r6             ; DEFUNDED
+    add r4 r0               ; DEFUNDED' = DEFUNDED + amount
+    gte r3 r4               ; DONATED >= DEFUNDED'
+    require r3              ; never more than the operator's own donations
+    movi r6 {DEFUNDED}
+    sstore r6 r4
+    movi r1 {OP_DIG}
+    pay r1 r0               ; back to the operator (reverts if the faucet cannot cover it)
     ret r0
 """
 
@@ -56,11 +99,13 @@ REWARD = f"""
     ret r0
 """
 
-SRC = {"fund": FUND, "reward": REWARD}
+SRC = {"fund": FUND, "reward": REWARD, "defund": DEFUND}
 
 ABI = {
     "fund": {"args": [], "value": True},
     "reward": {"args": ["idx", "day", "rank", "addr", "amount"]},
+    "defund": {"args": ["amount"]},
+    "_view": {"maps": {"donated": DONATED, "defunded": DEFUNDED}, "index": {"cnt": 0, "list": 0}},
 }
 
 

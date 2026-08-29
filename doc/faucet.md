@@ -58,3 +58,18 @@ Add the game to `_faucet_rewards.py`'s `GAMES` list with its cid and leaderboard
 `battleship` — fewest shots to sink the fleet), turn on the scoreboard prize column in the game's
 client (`renderScore(..., prize=true)`), and set `faucet:true` on its hub tile. That's the whole
 enrollment — the prize note on the scoreboard (`sdk.prizeNote`) tells players the top K win daily.
+
+## defund(amount) — the operator's own money can come back; nobody else's ever can
+
+Added 2026-08-29. The faucet keeps two counters in its own storage: **DONATED** (slot 7) — NADO the
+operator put in, whether by an exec-side `fund()` from the operator or an L1 donation the exec node
+mirrors — and **DEFUNDED** (slot 8) — what `defund()` has taken back. `defund(amount)` is operator-only
+and requires `DONATED − DEFUNDED ≥ amount`; a treasury → faucet payout raises the faucet's balance but
+never DONATED, so public money in the faucet cannot leave through this path, for anyone. Both counters
+are readable in the contract's view (`donated`, `defunded`), so the take-back is auditable on chain.
+
+When the upgrade that introduces `defund` is applied, DONATED is seeded once with the faucet's balance
+at that block: everything in it until then was the operator's funding (the treasury had never paid in —
+checked against the ordered stream before shipping). Every node applies the same upgrade at the same
+height and reads the same balance, so the seed is deterministic. `tests/test_faucet_defund.py`.
+
