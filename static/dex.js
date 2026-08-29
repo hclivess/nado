@@ -1427,7 +1427,18 @@ async function otcAction(what, o, btn) {
       myf = kp.pub;
     } else if (ch === "eth") {
       if (ethProv()) { const { addr } = await ethConnect(); myf = addr; }   // the taker's own EVM account
-      else { const ek = ethKeypair(); otcSaveRec(o, { k: ek.k }); myf = ek.addr; }
+      else {
+        // No wallet extension: ASK where the coin should go. Never silently invent a receive key —
+        // a taker who did not know a key was generated for them cannot back it up, and the coin it
+        // receives is only as safe as this browser's storage.
+        const typed = ((await uiPrompt({ title: `Where should the ${coin} be paid?`,
+          body: `Enter an ${(netOf(od) || {}).label} address you control — it receives the ${od.wamt} ${coin} when the swap completes. Leave it empty to let this page keep a fresh key for you (you must then back it up from the row).`,
+          value: faddrGet(netKeyOf(od)) || "", placeholder: "0x… address" })) || "").trim();
+        if (typed && !/^0x[0-9a-fA-F]{40}$/.test(typed)) return alertBar("An Ethereum address is 0x followed by 40 hex characters.");
+        if (typed) { myf = typed; faddrSet(netKeyOf(od), typed); }
+        else { const ek = ethKeypair(); otcSaveRec(o, { k: ek.k }); myf = ek.addr;
+          alertBar(`This page generated a receive key for you (${ek.addr.slice(0, 10)}…). Back it up from the row before the swap completes.`); }
+      }
     } else if (ch === "sol" && solHas()) {
       try { myf = (await (await solMod()).solWalletConnect()).address; }   // the taker's own Solana account
       catch (e) { myf = ""; }
