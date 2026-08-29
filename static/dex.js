@@ -879,6 +879,21 @@ function renderXMarket() {
   ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
   const cap = $("depthCap"); if (cap) cap.textContent = "Live order book — how much is offered at each price:";
   const mc = $("mktCap"); if (mc) mc.textContent = "Prices come from open orders on this book. Nothing is back-filled — a gap means nothing was offered.";
+  // WHAT YOU NEED, said up front — the other chain's side is signed by that chain's wallet, and a page that
+  // only reveals this at the lock step has already let someone post an order they cannot finish here
+  const rq = $("xReq");
+  if (rq) {
+    rq.classList.remove("hidden");
+    const ch = net.chain, has = ch === "eth" ? !!ethProv() : ch === "sol" ? solHas() : true;
+    rq.className = "small mt " + (has ? "dim" : "warn");
+    rq.innerHTML = ch === "eth"
+      ? (has ? `Ethereum wallet connected — the ${esc(net.coin)} side is signed by it.`
+             : `<b>An Ethereum wallet extension (MetaMask or similar) is required to trade ${esc(net.coin)} here.</b> None is detected in this browser. You can still post and take orders, but locking, claiming or reclaiming the ${esc(net.coin)} side must then be done from a terminal (shown on the swap row).`)
+      : ch === "sol"
+      ? (has ? `Solana wallet detected — the ${esc(net.coin)} side is signed by it.`
+             : `<b>A Solana wallet extension (Phantom or similar) is required to trade ${esc(net.coin)} here.</b> None is detected in this browser.`)
+      : `No extra wallet needed: this page builds and signs the Bitcoin side itself and shows you the address to fund.`;
+  }
   renderChart(XKEY(xsel), "NADO", `1 ${net.coin} =`);
   renderBookDepth(b, net.coin, blk ? (xEnv === "main" ? "trading opens when the swap contract is live — try Testnet" : "trading opens when the swap program is live") : "");
   syncUrl(false);
@@ -1800,6 +1815,7 @@ function renderMarket() {
   }
   gate({ marketCard: !!sel });
   const seg = $("envSeg"); if (seg) seg.classList.add("hidden");   // the mainnet/testnet switch belongs to cross-chain markets only
+  const rq0 = $("xReq"); if (rq0) rq0.classList.add("hidden");     // so does the wallet-requirement line
   if (!sel || !lastSto) return;
   const p = poolOf(lastSto, sel);
   const live = p.rn > 0n && p.rt > 0n && p.sup > 0n;

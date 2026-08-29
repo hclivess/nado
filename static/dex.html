@@ -244,6 +244,7 @@
     <div class="depthwrap"><svg id="mktDepth" preserveAspectRatio="none"></svg></div>
     <div class="stats" id="mktStats"></div>
     <div class="small dim mt" id="mktCap">Live price, straight from the pool. Nothing is back-filled — a gap means no trading happened.</div>
+    <div class="small mt hidden" id="xReq" aria-live="polite"></div>
   </div>
 
   <!-- SWAP -->
@@ -339,7 +340,7 @@
   <!-- CROSS-CHAIN ORDER BOOK (otc contract, doc/dex-bridge.md) -->
   <div class="card hidden" id="otcBookCard">
     <h2>Cross-chain order book</h2>
-    <p class="small dim lead">Swap NADO against real <b>BTC, ETH or SOL</b> — no custodian, no wrapped coins. New: check every figure and start small.</p>
+    <p class="small dim lead">Swap NADO against real <b>BTC, ETH or SOL</b> — no custodian, no wrapped coins. <b>ETH needs an Ethereum wallet extension (MetaMask), SOL a Solana one (Phantom); BTC needs nothing extra.</b> New: check every figure and start small.</p>
     <details class="more"><summary>How an atomic swap works</summary><p class="small dim">Both sides lock
     behind the <b>same secret</b>. The NADO side sits in an L1 HTLC under exactly the same SHA-256 hashlock
     as the other chain's lock, so one revealed secret opens both and neither party can take one leg without
@@ -423,6 +424,6 @@
     moves, you withdraw a different mix than you put in. Not investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=f4eb4a50"></script>
+<script type="module" src="/static/dex.js?v=50d326b8"></script>
 </body>
 </html>
