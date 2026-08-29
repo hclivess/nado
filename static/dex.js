@@ -1505,7 +1505,10 @@ async function otcAction(what, o, btn) {
         if (typed && !/^0x[0-9a-fA-F]{40}$/.test(typed)) return alertBar("An Ethereum address is 0x followed by 40 hex characters.");
         if (typed) { myf = typed; faddrSet(netKeyOf(od), typed); }
         else { const ek = ethKeypair(); otcSaveRec(o, { k: ek.k }); myf = ek.addr;
-          alertBar(`This page generated a receive key for you (${ek.addr.slice(0, 10)}…). Back it up from the row before the swap completes.`); }
+          // show the key NOW — the row it will later live on does not exist until the fill lands
+          await uiPrompt({ title: `Your ${coin} receive key for swap #${o}`,
+            body: `This page made a fresh Ethereum key to receive your ${od.wamt} ${coin} at ${ek.addr}. It is stored only in this browser — copy it somewhere safe now. Later it is also under My swaps → #${o} → More → Back up this swap.`,
+            value: JSON.stringify({ order: o, address: ek.addr, key: ek.k }), confirmText: "I saved it" }); }
       }
     } else if (ch === "sol" && solHas()) {
       try { myf = (await (await solMod()).solWalletConnect()).address; }   // the taker's own Solana account
