@@ -220,6 +220,7 @@ function doRender() {
   fillTokenPicker();
   fillAssetPicker($("limWantAsset"));
   renderMarket();
+  renderMarkets();
   renderPools();
   renderSwap();
   renderLiq();
@@ -1708,19 +1709,22 @@ const LS_PRICES = "nado_dex_prices";
 // SHARED history: a node-side sampler publishes the pool's price series, so a first-time visitor sees the
 // real chart immediately instead of an empty box that only fills while their own tab stays open. The local
 // samples below still add fine-grained recent points on top.
-let sharedPrices = {};
+let sharedPrices = {}, sharedTrades = {};
 async function refreshSharedPrices() {
   try {
     const r = await (await fetch("/static/market/prices.json", { cache: "no-store" })).json();
     if (r && r.pools) sharedPrices = r.pools;
+    if (r && r.trades) sharedTrades = r.trades;
   } catch (e) { /* sampler not running — the local series still works */ }
 }
 let mktRange = 3600;                                 // seconds; 0 = all
 let wantMarket = null;                               // a symbol from the URL, resolved once assets load
 let curMode = "swap";
+let modesRef = null;                                 // the mode switch, so a Markets row can open its venue
 const symOfPool = (p) => tokSym(p.asset).toUpperCase();
 function marketUrl(includeOrigin = true) {
   let q = "";
+  if (curMode === "markets") return (includeOrigin ? location.origin + location.pathname : location.pathname) + "?mode=markets";
   if (curMode === "cross") return (includeOrigin ? location.origin + location.pathname : location.pathname)
     + "?market=" + encodeURIComponent((xMarket(xsel) || {}).coin || xsel) + "&mode=cross" + (xEnv === "test" ? "&net=test" : "");
   if (sel && lastSto) { const p = poolOf(lastSto, sel); const sym = symOfPool(p);
@@ -1790,6 +1794,64 @@ const fmtShort = (v) => { const a = Math.abs(v); if (!(a >= 1e5)) return fmtPric
 const fmtPrice = (v) => v > 0 && v < 1e-6 ? "< 0.000001" : group(v >= 1e15 ? v.toExponential(3) : v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4));
 const fmtAgo = (ts) => { const s = Math.max(0, (Date.now() - ts) / 1000); return s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : s < 172800 ? Math.round(s / 3600) + "h ago" : Math.round(s / 86400) + "d ago"; };
 
+// ---- the Markets tab: one table, both venues, sortable, click-through -------------------------------
+const vol24 = (key) => (sharedTrades[key] || []).filter((t) => t[0] * 1000 >= Date.now() - 86400000).reduce((a, t) => a + Number(t[1] || 0), 0);
+const trades24 = (key) => (sharedTrades[key] || []).filter((t) => t[0] * 1000 >= Date.now() - 86400000).length;
+let mtSort = (() => { try { return JSON.parse(localStorage.getItem("nado_dex_mtsort") || "null") || { k: "liq", d: -1 }; } catch (e) { return { k: "liq", d: -1 }; } })();
+const MT_COLS = [
+  ["name", "Market"], ["price", "Price (NADO)"], ["chg", "24h"], ["vol", "24h volume"], ["liq", "Liquidity"], ["n", "Trades / orders"],
+];
+function marketRows() {
+  const rows = [];
+  for (const id of (lastSto ? poolIds(lastSto) : [])) {
+    const p = poolOf(lastSto, id), live = p.sup > 0n && p.rn > 0n, price = live ? midPrice(p) : 0;
+    const st = live ? stats24(p.id, price) : null;
+    rows.push({ venue: "swap", key: String(p.id), name: `${tokSym(p.asset)} / NADO`, sub: tokName(p.asset), env: "main",
+      price, chg: st ? st.pct : null, vol: vol24(String(p.id)), liq: live ? Number(fromUnits(p.rn * 2n).replace(/,/g, "")) : 0,
+      n: trades24(String(p.id)), nLabel: "trades" });
+  }
+  for (const m of xMarkets("main").concat(xMarkets("test"))) {
+    const b = bookOf(m.key), st = stats24(XKEY(m.key), b.mid);
+    const open = b.bids.concat(b.asks);
+    const liq = open.reduce((a, x) => a + Number(x.od.namtRaw) / 1e10, 0);
+    if (!open.length && !vol24(XKEY(m.key)) && m.token) continue;          // a token book nobody has used yet
+    rows.push({ venue: "cross", key: m.key, name: `${m.coin} / NADO`, sub: m.label, env: envOf(m.net), blocked: !!xMarketBlocker(m),
+      price: b.mid || 0, chg: st && b.mid ? st.pct : null, vol: vol24(XKEY(m.key)), liq, n: open.length, nLabel: "open orders" });
+  }
+  return rows;
+}
+function renderMarkets() {
+  const head = $("mtHead"), body = $("mtBody");
+  if (!head || !body || curMode !== "markets") return;
+  head.innerHTML = `<tr>${MT_COLS.map(([k, l]) => `<th data-k="${k}" class="${mtSort.k === k ? "on" : ""}" aria-sort="${mtSort.k === k ? (mtSort.d > 0 ? "ascending" : "descending") : "none"}">${l}${mtSort.k === k ? (mtSort.d > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr>`;
+  head.querySelectorAll("th").forEach((th) => { th.onclick = () => {
+    const k = th.dataset.k; mtSort = { k, d: mtSort.k === k ? -mtSort.d : (k === "name" ? 1 : -1) };
+    try { localStorage.setItem("nado_dex_mtsort", JSON.stringify(mtSort)); } catch (e) {}
+    renderMarkets(); }; });
+  const q = (($("mtSearch") || {}).value || "").trim().toLowerCase();
+  let rows = marketRows().filter((r) => !q || r.name.toLowerCase().includes(q) || (r.sub || "").toLowerCase().includes(q));
+  const nul = (v) => v == null || Number.isNaN(v);
+  rows.sort((a, b) => { const k = mtSort.k, av = a[k], bv = b[k];
+    if (k === "name") return mtSort.d * String(av).localeCompare(String(bv));
+    if (nul(av) && nul(bv)) return 0; if (nul(av)) return 1; if (nul(bv)) return -1;          // "—" always sinks
+    return mtSort.d * (Number(av) - Number(bv)) || String(a.name).localeCompare(String(b.name)); });
+  if (!lastSto && !otcSto) { body.innerHTML = `<tr><td colspan="6" class="dim"><span class="spin"></span> Loading markets…</td></tr>`; return; }
+  body.innerHTML = rows.length ? rows.map((r) => {
+    const chg = r.chg == null ? `<td class="dim">—</td>` : `<td class="${Math.abs(r.chg) < 0.005 ? "" : r.chg > 0 ? "up" : "dn"}">${(r.chg >= 0 ? "+" : "") + r.chg.toFixed(2)}%</td>`;
+    return `<tr class="mrow" data-venue="${r.venue}" data-key="${esc(r.key)}" data-env="${r.env}" tabindex="0" role="link" aria-label="Open ${esc(r.name)}">
+      <td>${esc(r.name)}<span class="venue">${r.venue === "swap" ? "AMM" : r.env === "test" ? "cross · testnet" : "cross-chain"}</span>${r.blocked ? '<span class="venue">soon</span>' : ""}<div class="small dim" style="font-weight:400">${esc(r.sub || "")}</div></td>
+      <td${r.price ? "" : ' class="dim"'}>${r.price ? fmtShort(r.price) : "—"}</td>${chg}
+      <td${r.vol ? "" : ' class="dim"'}>${r.vol ? group(fmtShort(r.vol)) : "—"}</td>
+      <td${r.liq ? "" : ' class="dim"'}>${r.liq ? fmtShort(r.liq) + " NADO" : "—"}</td>
+      <td${r.n ? "" : ' class="dim"'}>${r.n} ${r.nLabel}</td></tr>`; }).join("")
+    : `<tr><td colspan="6" class="dim">${q ? "No market matches that." : "No markets yet."}</td></tr>`;
+  const go = (tr) => { const v = tr.dataset.venue, k = tr.dataset.key;
+    if (v === "swap") sel = k; else { setEnv(tr.dataset.env); xsel = k; }
+    modesRef && modesRef.set(v);                     // onChange → curMode, URL, render
+    window.scrollTo({ top: 0, behavior: "smooth" }); };
+  body.querySelectorAll("tr.mrow").forEach((tr) => { tr.onclick = () => go(tr); tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(tr); } }; });
+  const note = $("mtNote"); if (note) note.textContent = "Price = pool mid (AMM) or order-book mid (cross-chain), in NADO per coin. 24h volume is NADO turned over: AMM pools estimated from reserve moves sampled every 30 s, cross-chain from settled swaps. Liquidity = pool value (AMM) or NADO across open orders (cross-chain).";
+}
 function renderMarket() {
   const card = $("marketCard");
   if (!card) return;
@@ -2045,6 +2107,7 @@ function wireUI() {
   const fl = $("btnFlip");
   if (fl) fl.onclick = () => { const d = $("dir"); if (!d) return;
     d.value = d.value === "n2t" ? "t2n" : "n2t"; if (amt) amt.value = ""; renderSwap(); };
+  const ms = $("mtSearch"); if (ms) ms.oninput = () => renderMarkets();
   const mp = $("mktPick");
   if (mp) mp.onchange = () => { if (curMode === "cross") xsel = mp.value; else sel = mp.value; syncUrl(true); render(); };
   // the SDK sweeps every select on the page (including lists filled by a later poll); these two only
@@ -2123,15 +2186,18 @@ async function boot() {
   human("otcExpiry", "otcExpiryHuman"); human("limExpiry", "limExpiryHuman"); orderCards(["tradeRow", "liqCard", "poolsCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
   window.addEventListener("popstate", () => { wantMarket = null; readUrl(); render(); });
   const modes = installModes(dapp, { modes: [
+    { key: "markets", icon: "", label: "Markets", hint: "Every pair on both venues — price, 24h change, volume, liquidity. Tap a row to trade it.",
+      cards: ["marketsCard"] },
     { key: "swap", icon: "", label: "Swap", hint: "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools.",
       cards: ["marketCard", "swapCard", "liqCard", "poolsCard", "otcLimitCard", "openCard"] },
     { key: "cross", icon: "", label: "Cross-chain", hint: "Atomic BTC / ETH / SOL ↔ NADO swaps — no custodian, no wrapped coins.",
       cards: ["marketCard", "otcBookCard", "otcPostCard", "otcMyCard"] },
   ], onChange: (k) => { curMode = k; syncUrl(true); render(); } });   // redraw NOW: the market card, its picker, chart and stats belong to the new mode
+  modesRef = modes;
   curMode = modes.get();                                 // the SDK restores a remembered mode when the URL names none
   render = modes.wrap(doRender);
   window.addEventListener("popstate", () => {
-    const m = new URLSearchParams(location.search).get("mode") === "cross" ? "cross" : "swap";
+    const qm = new URLSearchParams(location.search).get("mode"), m = qm === "cross" || qm === "markets" ? qm : "swap";
     if (m !== modes.get()) modes.set(m);
   });
   readUrl();

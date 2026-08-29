@@ -32,20 +32,20 @@ def sample():
     """{seriesKey: price}. AMM pools key on the pool id; a cross-chain market keys on 'x:<network>' and
     prices as NADO per 1 foreign coin, taken as the mid of the live order book (best bid/ask). A market
     with only one side quoted uses that side — an honest one-sided price beats no price."""
-    out = {}
+    out, res, fills = {}, {}, {}
     sto = _sto(CID)
     rn, rt = sto.get("rn") or {}, sto.get("rt") or {}
     for pid, n in rn.items():
         n, t = int(n or 0), int(rt.get(pid) or 0)
-        if n > 0 and t > 0: out[pid] = t / n
+        if n > 0 and t > 0:
+            out[pid] = t / n
+            res[pid] = n / 100                        # the NADO reserve, in NADO (a pool unit is 0.01 NADO)
     try:
         o = _sto(OTC)
         mk, kind, st, wch = o.get("mk") or {}, o.get("kind") or {}, o.get("st") or {}, o.get("wch") or {}
         namt, wamt = o.get("namt") or {}, o.get("wamt") or {}
         books = {}
         for oid in mk:
-            if int(st.get(oid) or 0) != 1:            # OPEN orders only
-                continue
             net = wch.get(oid)
             if not isinstance(net, str):
                 continue
@@ -55,6 +55,10 @@ def sample():
             except (TypeError, ValueError):
                 continue
             if n <= 0 or f <= 0:
+                continue
+            if int(st.get(oid) or 0) == 3:            # SETTLED = a completed swap; the volume series counts these
+                fills[oid] = ("x:" + net, n)
+            if int(st.get(oid) or 0) != 1:            # the book itself is OPEN orders only
                 continue
             b = books.setdefault(net, {"bid": [], "ask": []})
             # ASK_NADO (1) = maker pays NADO for the coin -> a BID for the coin; BID_NADO (2) = the ask.
@@ -66,19 +70,41 @@ def sample():
             if mid: out["x:" + net] = mid
     except Exception:
         pass                                          # the book is optional — never lose the AMM samples
-    return out
+    return out, res, fills
 
 def main():
     print(f"[dex-sampler] -> {OUT} every {EVERY}s", flush=True)
     while True:
         try:
             doc, now = load(), int(time.time())
-            prices = sample()
+            prices, res, fills = sample()
+            # VOLUME ("trades"): per market, [ts, NADO turned over]. An AMM pool's NADO reserve moves by
+            # exactly the NADO side of each swap, and a liquidity add/remove leaves the price unchanged —
+            # so a reserve move WITH a price move is trading. Sampled every EVERY seconds, so swaps that
+            # net out inside one interval are under-counted: an estimate, and it says so on the page.
+            # A cross-chain market counts each order the moment it reaches SETTLED, by its NADO amount.
+            trades, last = doc.setdefault("trades", {}), doc.setdefault("last", {})
             for pid, price in prices.items():
                 arr = doc["pools"].setdefault(pid, [])
-                if not arr or abs(arr[-1][1] - price) > 1e-12 or now - arr[-1][0] >= 300:
+                moved = arr and abs(arr[-1][1] - price) > 1e-12
+                if not arr or moved or now - arr[-1][0] >= 300:
                     arr.append([now, round(price, 10)])
                     del arr[:-KEEP]
+                if pid in res:
+                    prev = last.get(pid)
+                    if moved and prev is not None and abs(res[pid] - prev) > 1e-9:
+                        trades.setdefault(pid, []).append([now, round(abs(res[pid] - prev), 4)])
+                    last[pid] = res[pid]
+            first = "settled" not in doc              # first run: everything already settled predates this
+            seen = doc.setdefault("settled", [])      # series — remember it, do not book it as today's volume
+            for oid, (key, n) in fills.items():
+                if first: seen.append(oid); continue
+                if oid in seen: continue
+                seen.append(oid)
+                trades.setdefault(key, []).append([now, round(n, 4)])
+            del seen[:-5000]
+            for k in list(trades):                    # a week of trade events is plenty for a 24h figure
+                trades[k] = [t for t in trades[k] if t[0] >= now - 7 * 86400][-KEEP:]
             doc["ts"] = now
             tmp = OUT + ".tmp"
             with open(tmp, "w") as f: json.dump(doc, f, separators=(",", ":"))
