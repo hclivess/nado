@@ -2108,7 +2108,7 @@ async function boot() {
       cards: ["marketCard", "swapCard", "liqCard", "poolsCard", "otcLimitCard", "openCard"] },
     { key: "cross", icon: "", label: "Cross-chain", hint: "Atomic BTC / ETH / SOL ↔ NADO swaps — no custodian, no wrapped coins.",
       cards: ["marketCard", "otcBookCard", "otcPostCard", "otcMyCard"] },
-  ], onChange: (k) => { curMode = k; syncUrl(true); } });
+  ], onChange: (k) => { curMode = k; syncUrl(true); render(); } });   // redraw NOW: the market card, its picker, chart and stats belong to the new mode
   curMode = modes.get();                                 // the SDK restores a remembered mode when the URL names none
   render = modes.wrap(doRender);
   window.addEventListener("popstate", () => {
