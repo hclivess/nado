@@ -16,7 +16,7 @@ import {
   NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime, modeBar,
   confirmingLabel,
-} from "./nadodapp.js?v=1345c3b5";
+} from "./nadodapp.js?v=ef8ff764";
 import * as E from "./autogame-engine.js?v=8a997c33";
 import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
 import * as ART from "./autogame-art.js?v=a6a3eead";

@@ -14,7 +14,7 @@
 // Login + every signature is delegated to the NADO wallet; the key never touches this origin.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, gate, canPay, notify, confirmingLabel,
          wireWallet, renderWallet, stickyInputs, alertBar, loadQR, orderCards, installModes, playModes,
-         fmtWhen, uiConfirm, disp } from "./nadodapp.js?v=1345c3b5";
+         fmtWhen, uiConfirm, disp } from "./nadodapp.js?v=ef8ff764";
 
 const CID = "1594ee26854cce0279bd31458955e7df";
 const dapp = new NadoDapp({ cid: CID, app: "Lend" });

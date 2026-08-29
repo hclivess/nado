@@ -392,6 +392,14 @@ function _openModal(spec) {
   setTimeout(() => { (isPrompt ? inp : ok).focus(); }, 30);
   return new Promise((res) => { _modalResolve = res; });
 }
+// NOTHING FAILS SILENTLY: an error that escapes a click handler or a background task lands in the alert bar
+// with its message, instead of dying in the console where the user cannot see it.
+try {
+  window.addEventListener("unhandledrejection", (ev) => {
+    const e = ev && ev.reason; const m = (e && e.message) || (typeof e === "string" ? e : "");
+    if (m) { try { alertBar(m); } catch (_) {} }
+  });
+} catch (_) {}
 export function uiConfirm(spec) { return _openModal(Object.assign({}, spec, { kind: "confirm" })); }
 export function uiPrompt(spec) { return _openModal(Object.assign({}, spec, { kind: "prompt" })); }
 export function uiAlert(spec) { return _openModal(Object.assign({}, typeof spec === "string" ? { title: spec } : spec, { kind: "alert" })); }

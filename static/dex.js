@@ -17,7 +17,7 @@ import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, 
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=1345c3b5";
+         blocksToTime } from "./nadodapp.js?v=ef8ff764";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -1382,6 +1382,7 @@ async function runAction(btn, fn) {
   const was = btn.textContent;
   btn.dataset.busy = "1"; btn.disabled = true; btn.textContent = "working…";
   try { return await fn(); }
+  catch (e) { alertBar((e && e.message) || String(e)); }   // a click must never end in silence
   finally { delete btn.dataset.busy; btn.disabled = false; btn.textContent = was; }
 }
 async function otcAction(what, o, btn) {
@@ -1434,8 +1435,10 @@ async function otcAction(what, o, btn) {
       otcSaveRec(o, { k: kp.k, pub: kp.pub });
       myf = kp.pub;
     } else if (ch === "eth") {
-      if (ethProv()) { const { addr } = await ethConnect(); myf = addr; }   // the taker's own EVM account
-      else {
+      if (ethProv()) {                                  // the taker's own EVM account
+        try { const { addr } = await ethConnect(); myf = addr; }
+        catch (e) { return alertBar("Your Ethereum wallet did not connect (" + ((e && e.message) || e) + "). Approve the connection in the wallet and click Fill again."); }
+      } else {
         // No wallet extension: ASK where the coin should go. Never silently invent a receive key —
         // a taker who did not know a key was generated for them cannot back it up, and the coin it
         // receives is only as safe as this browser's storage.
