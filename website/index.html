@@ -294,12 +294,12 @@
 (function () {
   var T = window.__NADO_I18N__ || {};
   var NAMES = {en:"English",cs:"Čeština",es:"Español",pt:"Português",fr:"Français",de:"Deutsch",it:"Italiano",
-    ru:"Русский",zh:"中文",ja:"日本語",ko:"한국어",ar:"العربية",hi:"हिन्दी",tr:"Türkçe",id:"Indonesia",vi:"Tiếng Việt"};
+    ru:"Русский",zh:"中文",ja:"日本語",ko:"한국어",ar:"العربية",hi:"हिन्दी",tr:"Türkçe",id:"Bahasa Indonesia",vi:"Tiếng Việt"};
   var EN = {}; // captured DOM defaults so switching back to English restores the original text
   document.querySelectorAll("[data-i18n]").forEach(function (el) { EN[el.getAttribute("data-i18n")] = el.textContent; });
   document.querySelectorAll("[data-i18n-html]").forEach(function (el) { EN["#" + el.getAttribute("data-i18n-html")] = el.innerHTML; });
   function pick() {
-    try { var s = localStorage.getItem("nado_site_lang"); if (s && (s === "en" || T[s])) return s; } catch (e) {}
+    try { var s = localStorage.getItem("nado_lang") || localStorage.getItem("nado_site_lang"); if (s && (s === "en" || T[s])) return s; } catch (e) {}
     var ls = navigator.languages || [navigator.language || "en"];
     for (var i = 0; i < ls.length; i++) { var c = (ls[i] || "").slice(0, 2).toLowerCase(); if (c === "en" || T[c]) return c; }
     return "en";
@@ -322,7 +322,7 @@
     ["en"].concat(Object.keys(T)).forEach(function (c) {
       var o = document.createElement("option"); o.value = c; o.textContent = NAMES[c] || c; if (c === cur) o.selected = true; sel.appendChild(o);
     });
-    sel.addEventListener("change", function () { cur = sel.value; try { localStorage.setItem("nado_site_lang", cur); } catch (e) {} apply(cur); });
+    sel.addEventListener("change", function () { cur = sel.value; try { localStorage.setItem("nado_lang", cur); } catch (e) {} apply(cur); });
     header.appendChild(sel);
   }
   apply(cur);

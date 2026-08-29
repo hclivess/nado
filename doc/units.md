@@ -62,6 +62,28 @@ here is a consensus rule; it lives in the interface, the CLI's number formatting
 - `BASE_SUBSIDY = 1_000_000_000 raw` (max block reward) = **0.1 NADO** = exactly **1 dag**.
 - A `2,500,000,000 raw` transfer = **0.25 NADO** = `2.5 dag` = `25 jan`.
 
+## Where raw appears (read this before quoting or moving any amount)
+
+**Every number the node, the exec node or a contract hands you is raw** unless the field is a decimal
+string that names a foreign coin (the otc book's `wamt`, "0.000265" ETH). There is no endpoint that returns
+NADO as a float. Divide by `10**10` (`protocol.DENOMINATION`) — not `10**9`, not `10**8`:
+
+| Source | Fields | Unit |
+|---|---|---|
+| `GET /get_account` | `balance`, `bonded`, `produced` | raw |
+| `GET /get_rich_list` | `total`, `balance`, `bonded` | raw (`3_058_379_057_767` = **305.84 NADO**, not 3058) |
+| `GET /get_transaction`, blocks, mempool | `amount`, `fee` | raw |
+| `GET /exec/bridge` | `balances[addr]` | raw |
+| `GET /exec/contract`, `/exec/state_snapshot` | every storage slot, every `value` | raw |
+| contract methods (`VALUE`, args declared as amounts) | | raw |
+| `protocol.py` constants (`MIN_TX_FEE`, `BASE_SUBSIDY`, `AUTO_BOND_MIN_RAW`, …) | | raw |
+| wallet / explorer / dex UI, CLI output | | NADO (display only, `to_readable_amount`) |
+
+Sanity rule for scripts and operators: after converting, compare one figure against a value you already know
+(a node's own balance, the faucet's balance, a block subsidy of 0.1 NADO). A scale slip is a 10× wrong
+transfer, not a typo — this is why `ops.transaction_ops` and the drivers under `scripts/` build every amount
+as `int(round(nado * 10 ** 10))` and never pass a float to the chain.
+
 ## Honorable mentions
 
 The ladder is capped at ten rungs by the ten decimal places, so not everyone who shaped NADO/Bismuth could

@@ -11,11 +11,11 @@ the audited HtlcEth on mainnet (0xcd8f…968f). Both parties are driven from thi
   6 maker CLAIMS the ETH -> the secret is now public on Ethereum
   7 the taker learns it the way a watchtower would (Claimed log), claims the NADO on L1, settles
 
-Run: HOME=/srv/nado-home python3 scripts/testnet/otc_mainnet_eth_e2e.py
+Run: HOME=/srv/nado-home python3 scripts/otc_mainnet_eth_e2e.py
 """
 import hashlib, json, os, subprocess, sys, time, urllib.request
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT); sys.path.insert(0, os.path.join(ROOT, "scripts"))
 from ops.key_ops import load_keys                                          # noqa: E402
 from ops.transaction_ops import construct_blob_tx, draft_transaction, create_transaction   # noqa: E402

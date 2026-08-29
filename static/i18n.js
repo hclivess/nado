@@ -4644,16 +4644,30 @@
     applyI18n();
   }
 
+  // ONE language control for every page. The look is the landing page's `.langsel` (nadochain.com): a quiet
+  // bordered select with a chevron, no browser chrome. The same rule is injected here so the wallet, the dex,
+  // every game page and /apps render the identical control — there is no second picker anywhere.
+  function ensurePickerStyle() {
+    if (document.getElementById("langselStyle")) return;
+    const st = document.createElement("style"); st.id = "langselStyle";
+    st.textContent = ".langsel{background:var(--panel,#111823);color:var(--txt,#e6edf3);border:1px solid var(--line,#1c2530);border-radius:8px;" +
+      "padding:6px 26px 6px 9px;font:inherit;font-size:13px;line-height:1.2;cursor:pointer;-webkit-appearance:none;appearance:none;" +
+      "background-image:linear-gradient(45deg,transparent 50%,var(--muted,#8b9bab) 50%),linear-gradient(135deg,var(--muted,#8b9bab) 50%,transparent 50%);" +
+      "background-position:calc(100% - 15px) 51%,calc(100% - 10px) 51%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}" +
+      ".langsel:hover{border-color:var(--accent,#00ad93)}.langsel:focus{outline:none;border-color:var(--accent,#00ad93)}" +
+      ".langsel.mounted{width:100%;max-width:320px;margin-top:6px}";
+    document.head.appendChild(st);
+  }
   function buildPicker() {
     if (document.getElementById("langSelect")) return;
+    ensurePickerStyle();
     const sel = document.createElement("select");
-    sel.id = "langSelect";
+    sel.id = "langSelect"; sel.className = "langsel";
     sel.setAttribute("aria-label", "Language");
-    // Where it lives: a page that offers a #langMount (the wallet's Settings) gets a normal, full-width
-    // setting there — language is a preference, not header chrome. Other pages keep the compact header pick.
+    // Where it lives: a page that offers a #langMount (the wallet's Settings) gets it as a full-width
+    // setting there — language is a preference, not header chrome. Other pages dock it in the header.
     const mount = document.getElementById("langMount");
-    sel.style.cssText = mount ? "width:100%;max-width:320px;margin-top:6px"
-      : "margin-top:4px;background:#0b0f14;color:inherit;border:1px solid #1c2530;border-radius:8px;padding:2px 5px;font-size:11px;max-width:130px";
+    if (mount) sel.classList.add("mounted");
     Object.keys(T).forEach((l) => {
       const o = document.createElement("option");
       o.value = l; o.textContent = NAMES[l] || l; if (l === LANG) o.selected = true;
@@ -4661,9 +4675,9 @@
     });
     sel.addEventListener("change", () => setLang(sel.value));
     const host = mount || document.querySelector("header.app .conn") || document.querySelector("header.app") || document.querySelector("header") || document.body;
-    // No app/game header to dock into → pin it to the top corner instead of letting it fall to the end of <body> (bottom-left).
+    // No header to dock into → pin it to the top corner instead of letting it fall to the end of <body>.
     if (host === document.body) {
-      sel.style.cssText += ";position:fixed;top:8px;" + (RTL.has(LANG) ? "left" : "right") + ":8px;z-index:2147483647;margin-top:0";
+      sel.style.cssText = "position:fixed;top:8px;" + (RTL.has(LANG) ? "left" : "right") + ":8px;z-index:2147483647";
     }
     host.appendChild(sel);
   }

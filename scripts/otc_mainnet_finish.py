@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Finish a mainnet swap from its persisted record: read the secret back from Ethereum the way the
-watchtower does, claim the NADO on L1 as the taker, settle the order. Run: HOME=/srv/nado-home python3 scripts/testnet/otc_mainnet_finish.py <oid>"""
+watchtower does, claim the NADO on L1 as the taker, settle the order. Run: HOME=/srv/nado-home python3 scripts/otc_mainnet_finish.py <oid>"""
 import json, os, sys, time
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from otc_mainnet_eth_e2e import *   # noqa
 oid = int(sys.argv[1]); rec = json.load(open(os.path.join(ROOT, "private", f"otc_mainnet_swap_{oid}.json")))
 taker = json.load(open(os.path.join(ROOT, "private", "otc_e2e_taker.json")))
