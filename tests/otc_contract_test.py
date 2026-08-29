@@ -48,6 +48,7 @@ def refused(who, method, args, value=None, asset=None):
 def secret(o): return hashlib.sha256(f"secret{o}".encode()).hexdigest()
 def hsha(o):   return hashlib.sha256(bytes.fromhex(secret(o))).hexdigest()
 def amt(o):    return o * 10 ** 10
+def bond(o):   return max(amt(o) * O.TAKER_BOND_BPS // 10000, O.TAKER_BOND_MIN)   # a BID fill's taker bond
 
 EXPN, EXPIRED = 9000, 9100        # a NADO window long enough for a real foreign leg
 
@@ -151,16 +152,21 @@ st.cursor = 100
 
 # ---- C2. release: a taker who fills and never binds cannot lock the order forever ----------------
 post(88, O.BID)
-call(C, "fill", [88, "0xtaker88", "pending"])
+ok(refused(C, "fill", [88, "0xtaker88", "pending"]), "a BID fill WITHOUT the taker bond is refused — a fill must cost something")
+ok(refused(C, "fill", [88, "0xtaker88", "pending"], bond(88) - 1), "…and a short bond is refused")
+cb = st.bridge[C]; call(C, "fill", [88, "0xtaker88", "pending"], bond(88))
+ok(st.bridge[C] == cb - bond(88) and rd(O.TB, 88) == bond(88), "the bond (1% of the NADO, min 0.01) is escrowed at fill")
 ok(refused(A, "release", [88]), "release inside the taker's window refused")
 ok(refused(C, "release", [88]), "the taker cannot release (only the maker)")
 st.cursor = st.cursor + O.FILL_WINDOW + 1
 ok(refused(R, "release", [88]), "a stranger cannot release")
-call(A, "release", [88])
+ab = st.bridge[A]; call(A, "release", [88])
 ok(rd(O.ST, 88) == O.OPEN and rd(O.TAKER, 88) == 0 and rd(O.FILLH, 88) == 0, "after the window the maker releases: OPEN again, taker cleared")
-call(R, "fill", [88, "0xtaker88b", "pending"])
+ok(st.bridge[A] == ab + bond(88) and rd(O.TB, 88) == 0, "…and the walker's bond went to the maker: lockouts are not free")
+rb = st.bridge[R]; call(R, "fill", [88, "0xtaker88b", "pending"], bond(88))
 ok(rd(O.ST, 88) == O.FILLED and rd(O.TAKER, 88) == zkvm_addr_digest(R), "a released order can be filled by someone else")
 call(R, "bind", [88, "l1:htlc:88"])
+ok(st.bridge[R] == rb and rd(O.TB, 88) == 0, "binding the NADO leg returns the taker's bond in full")
 st.cursor = st.cursor + O.FILL_WINDOW + 1
 ok(refused(A, "release", [88]), "once the NADO leg is bound, release is impossible — someone has money at risk")
 st.cursor = 100
@@ -168,8 +174,8 @@ st.cursor = 100
 # ---- D. BID is symmetric ---------------------------------------------------------------------------
 post(3, O.BID)
 ok(rd(O.ESC, 3) == 0 and rd(O.ST, 3) == O.OPEN, "bid posts with no escrow")
-ok(refused(C, "fill", [3, "bc1qtaker3", "btc:lock:3"], amt(3)), "a BID fill that sends VALUE is refused")
-call(C, "fill", [3, "bc1qtaker3", "btc:lock:3"])
+ok(refused(C, "fill", [3, "bc1qtaker3", "btc:lock:3"], amt(3)), "a BID fill that sends the whole trade as VALUE is refused (a bond is 1–10%, not the trade)")
+call(C, "fill", [3, "bc1qtaker3", "btc:lock:3"], bond(3))
 ok(refused(A, "bind", [3, "l1:htlc:3"]), "BID: the maker does not owe the NADO leg, so cannot bind it")
 call(C, "bind", [3, "l1:htlc:3"])
 ok(rd(O.HID, 3) == zkvm_addr_digest("l1:htlc:3"), "BID: the taker records the L1 HTLC they funded")
@@ -328,8 +334,8 @@ st.cursor = 100
 # BID fill needs the trade value only
 post(34, O.BID)
 call(A, "set_premium", [34], 3 * 10 ** 8)
-ok(refused(C, "fill", [34, "x", "y"], amt(34)), "a BID fill that sends VALUE is refused")
-call(C, "fill", [34, "bc1qt34", "btc:lock:34"])
+ok(refused(C, "fill", [34, "x", "y"], amt(34)), "a BID fill that sends the whole trade as VALUE is refused (a bond is 1–10%, not the trade)")
+call(C, "fill", [34, "bc1qt34", "btc:lock:34"], bond(34))
 ok(rd(O.ESC, 34) == 0 and rd(O.PHELD, 34) == 3 * 10 ** 8, "BID: nothing escrowed here, the collateral stays the maker's")
 
 # ---- K. audit regressions ---------------------------------------------------------------------------

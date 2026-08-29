@@ -543,7 +543,7 @@ function otcOrders() {
     wch: String(g("wch", o) || ""), wamt: String(g("wamt", o) || ""), wadr: String(g("wadr", o) || ""),
     hsha: String(g("hsha", o) || ""), expn: Number(g("expn", o) || 0), expf: String(g("expf", o) || ""),
     st: Number(g("st", o) || 0), taker: String(g("taker", o) || ""), tadr: String(g("tadr", o) || ""),
-    fref: String(g("fref", o) || ""), hid: String(g("hid", o) || ""), fillh: Number(g("fillh", o) || 0), limbs: [0, 1, 2, 3, 4].map((i) => g("s" + i, o) || 0),
+    fref: String(g("fref", o) || ""), hid: String(g("hid", o) || ""), fillh: Number(g("fillh", o) || 0), tb: BigInt(g("tb", o) || 0), limbs: [0, 1, 2, 3, 4].map((i) => g("s" + i, o) || 0),
     gast: String(g("gast", o) || "0"), wast: String(g("wast", o) || "0"), want: BigInt(g("want", o) || 0),
     bnty: BigInt(g("bnty", o) || 0), prem: BigInt(g("prem", o) || 0), pheld: BigInt(g("pheld", o) || 0),
   })).filter((x) => x.kind);
@@ -1460,7 +1460,13 @@ async function otcAction(what, o, btn) {
         faddrSet(netKeyOf(od), myf);
       }
     }
-    dapp.call("fill", [o, myf, fref], null, "Filling #" + o + "…", { otc: o }, { cid: OTC_CID });
+    // a BID fill carries the taker bond (1% of the NADO, min 0.01) — back the moment you lock the NADO,
+    // to the maker if you never do. This is what makes a fill cost something.
+    const bondRaw = od.kind === OTC_BID ? (od.namtRaw * 100n / 10000n > 100000000n ? od.namtRaw * 100n / 10000n : 100000000n) : 0n;
+    if (bondRaw > 0n && !await uiConfirm({ title: "Take this order",
+      body: `A ${rawToNado(bondRaw.toString())} NADO bond is held while you complete your side. It comes back in full when you lock the ${rawToNado(od.namtRaw.toString())} NADO; if you never do, it goes to the maker.`,
+      rows: [{ k: "Bond", v: rawToNado(bondRaw.toString()) + " NADO" }], confirmText: "Take" })) return;
+    dapp.call("fill", [o, myf, fref], bondRaw > 0n ? bondRaw : null, "Filling #" + o + "…", { otc: o }, { cid: OTC_CID });
     return;
   }
   if (what === "fillintra") {

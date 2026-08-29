@@ -200,6 +200,11 @@ same window, it never interprets it.
   `namt` is the advertised amount.
   `// o fresh; kind ∈ {1,2}; namt > 0 (range-gated < 2^62); every commitment non-zero; expn in the HTLC
   window; VALUE == 0 (the principal is in the L1 HTLC); expf on the kind's side of §6.3.`
+- **Taker bond (2026-08-29).** A BID fill carries VALUE = 1% of the NADO amount (min 0.01 NADO). It
+  returns in full at `bind` (the taker locked their NADO), and goes to the maker at `release` or at
+  `expire` with nothing bound. A free fill was a free lockout; this is the price of walking away,
+  judged on a fact this chain can see. An ASK takes no bond: its taker owes a foreign lock the
+  contract cannot observe, and the maker binds first anyway.
 - **`release(o)`** — maker only, while `filled` and **no NADO leg bound**, once `FILL_WINDOW` (600 blocks,
   ~1 h) has passed since the fill: the order returns to `open` with the taker cleared. A fill is free, so
   without this a taker who fills and walks would lock the order — and a BID maker's foreign lock — for the

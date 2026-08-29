@@ -54,7 +54,8 @@ Storage (order id `o` = a frontend random int < 2^32; all slot-keyed => enumerab
   foreign addr digest)  16 fref(foreign HTLC txid/outpoint digest)  18 LIST  20..24 s0..s4(revealed limbs)
   25 gast/26 wast/27 want(SWAP_INTRA: give-asset, want-asset — 0 = native — and want amount)
   28 bnty(§8 bounty) 29 prem/30 pheld(§9.1 maker collateral: promised / held).
-Methods: post(o,kind,namt,wch,wamt,wadr,hsha,hi0,lo0,hi1,lo1,hi2,lo2,hi3,lo3,expn,expf) — the four
+Methods (fill of a BID carries VALUE = the taker bond, 1% of namt / min 0.01 NADO; back at bind, to the
+maker at release/expire-unbound): post(o,kind,namt,wch,wamt,wadr,hsha,hi0,lo0,hi1,lo1,hi2,lo2,hi3,lo3,expn,expf) — the four
   alghash hashlocks ride as 32-bit halves because a JS JSON number only holds 2^53 exactly. NO VALUE —
   the principal is in the L1 HTLC · cancel(o) maker/open · fill(o,tadr,fref)[no VALUE] ·
   bind(o,htlcId) records the L1 HTLC holding the NADO leg · settle(o,l0..l4) anyone with the preimage,
@@ -78,6 +79,9 @@ HV1, HV2, HV3 = 31, 32, 33         # the other three digests of the WIDE hashloc
 HID = 34                           # the L1 HTLC that actually carries the NADO leg (txid digest)
 FILLH = 35                         # the block the fill landed in — starts the taker's window to bind their side
 FILL_WINDOW = 600                  # blocks (~1 h) a taker has to bind the NADO leg before the maker may release the order
+TB = 36                            # the TAKER BOND held while a BID is filled (see fill)
+TAKER_BOND_BPS = 100               # 1% of the NADO amount …
+TAKER_BOND_MIN = 10 ** 8           # … and never less than 0.01 NADO: a fill must cost something a griefer feels
 BNTY = 28                          # attached NADO bounty (§8) — first correct actor (settle/fill_intra/expire) wins it
 PREM, PHELD = 29, 30               # §9.1 free-option premium: required (maker-set) / escrowed by the taker at fill
 ASK, BID, INTRA = 1, 2, 3
@@ -144,6 +148,7 @@ def escrow_refunds(storage, zk_addrs):
             add(g(MAKER, o), esc)                              # only SWAP_INTRA escrows here, always the maker's
         add(g(MAKER, o), g(BNTY, o))       # a live bounty (always native) refunds to the order's owner of record
         add(g(MAKER, o), g(PHELD, o))      # the maker posted the collateral — a reroll is not a walk
+        add(g(TAKER, o), g(TB, o))         # the taker's bond is the taker's — a reroll is not a walk either
     return out
 
 
@@ -269,7 +274,24 @@ def build():
         m.require(m.in_asset() == 0)
         m.require(m.arg(1) != 0)                                # taker's foreign receiving address
         m.require(m.arg(2) != 0)                                # foreign HTLC txid/outpoint
-        m.require(m.value() == 0)                               # the NADO leg lives in the L1 HTLC, not here
+        # THE TAKER BOND. A fill is otherwise free, and a free fill is a free lockout: fill, walk, and the
+        # order (plus a BID maker's foreign lock) is parked for its window. So a BID fill escrows a bond —
+        # 1% of the NADO amount, at least 0.01 NADO — that comes straight back the moment the taker BINDS
+        # their NADO lock (bind), and goes to the maker if the window passes with nothing bound (release,
+        # or expire). The contract can judge that fact: the bind is on this chain. An ASK's taker owes a
+        # FOREIGN lock the contract cannot see, so no bond is taken there — the maker binds first and
+        # release protects them until they do.
+        val = m.set(m.value(), "val")
+        m.jnz(m.slot(KIND, o).get() == BID, "bid_bond")
+        m.require(val == 0)                                     # an ASK takes no bond
+        m.jmp("bonded")
+        m.label("bid_bond")
+        m.require(m.slot(NAMT, o).get() < val * 100 + 1)        # bond >= 1% of the NADO amount …
+        m.require(m.const(TAKER_BOND_MIN) < val + 1)            # … and >= 0.01 NADO …
+        m.jnz(val == TAKER_BOND_MIN, "bonded")                  # (the floor is always acceptable)
+        m.require(val * 10 < m.slot(NAMT, o).get() + 1)         # … and <= 10%: a bond is a bond, not the trade
+        m.label("bonded")
+        m.slot(TB, o).set(val)
         m.slot(TAKER, o).set(m.caller())
         m.slot(TADR, o).set(m.arg(1))
         m.slot(FREF, o).set(m.arg(2))
@@ -331,6 +353,10 @@ def build():
         m.require(m.arg(1) != 0)
         m.require(m.slot(HID, o).get() == 0)                    # recorded once — it is what the taker verifies
         m.slot(HID, o).set(m.arg(1))
+        m.jnz(m.slot(TB, o).get() == 0, "tbdone")               # the taker bound their side: the bond's job is done
+        m.pay(m.slot(TAKER, o).get(), m.slot(TB, o).get())
+        m.label("tbdone")
+        m.slot(TB, o).set(m.const(0))
         m.ret(m.arg(1))
 
     # settle(o, l0..l4) — the swap COMPLETED: whoever holds the preimage proves it and the order closes.
@@ -358,6 +384,10 @@ def build():
         m.pay(m.slot(MAKER, o).get(), m.slot(PHELD, o).get())
         m.label("pskip")
         m.slot(PHELD, o).set(m.const(0))
+        m.jnz(m.slot(TB, o).get() == 0, "tbdone")               # a completed swap returns any bond to the taker
+        m.pay(m.slot(TAKER, o).get(), m.slot(TB, o).get())
+        m.label("tbdone")
+        m.slot(TB, o).set(m.const(0))
         m.slot(S0 + 0, o).set(m.arg(1))
         m.slot(S0 + 1, o).set(m.arg(2))
         m.slot(S0 + 2, o).set(m.arg(3))
@@ -455,6 +485,10 @@ def build():
         m.require(m.slot(MAKER, o).get() == m.caller())
         m.require(m.slot(HID, o).get() == 0)                    # nothing bound: nobody has anything at risk here
         m.require(m.slot(FILLH, o).get() + FILL_WINDOW < m.cursor() + 1)   # the taker had their window
+        m.jnz(m.slot(TB, o).get() == 0, "tbdone")               # the walker's bond pays the maker for the lockout
+        m.pay(m.slot(MAKER, o).get(), m.slot(TB, o).get())
+        m.label("tbdone")
+        m.slot(TB, o).set(m.const(0))
         m.slot(TAKER, o).set(m.const(0))
         m.slot(TADR, o).set(m.const(0))
         m.slot(FREF, o).set(m.const(0))
@@ -480,6 +514,14 @@ def build():
         m.pay(m.slot(MAKER, o).get(), m.slot(PHELD, o).get())
         m.label("pskip")
         m.slot(PHELD, o).set(m.const(0))
+        m.jnz(m.slot(TB, o).get() == 0, "tbdone")               # taker bond: to the maker if the taker never bound, else home
+        m.jnz(m.slot(HID, o).get() == 0, "tbmaker")
+        m.pay(m.slot(TAKER, o).get(), m.slot(TB, o).get())
+        m.jmp("tbdone")
+        m.label("tbmaker")
+        m.pay(m.slot(MAKER, o).get(), m.slot(TB, o).get())
+        m.label("tbdone")
+        m.slot(TB, o).set(m.const(0))
         esc = m.set(m.slot(ESC, o).get(), "esc")                # only a SWAP_INTRA order escrows here
         m.slot(ESC, o).set(m.const(0))
         m.slot(ST, o).set(m.const(REFUNDED))
@@ -524,7 +566,7 @@ ABI = {
                  "hv3": {"field": HV3, "index": "orders"},
                  "expn": {"field": EXPN, "index": "orders"}, "expf": {"field": EXPF, "index": "orders"},
                  "st": {"field": ST, "index": "orders"}, "taker": {"field": TAKER, "index": "orders"},
-                 "tadr": {"field": TADR, "index": "orders"}, "fref": {"field": FREF, "index": "orders"}, "hid": {"field": HID, "index": "orders"}, "fillh": {"field": FILLH, "index": "orders"},
+                 "tadr": {"field": TADR, "index": "orders"}, "fref": {"field": FREF, "index": "orders"}, "hid": {"field": HID, "index": "orders"}, "fillh": {"field": FILLH, "index": "orders"}, "tb": {"field": TB, "index": "orders"},
                  "s0": {"field": S0, "index": "orders"}, "s1": {"field": S0 + 1, "index": "orders"},
                  "s2": {"field": S0 + 2, "index": "orders"}, "s3": {"field": S0 + 3, "index": "orders"},
                  "s4": {"field": S0 + 4, "index": "orders"},
