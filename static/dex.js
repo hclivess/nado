@@ -806,7 +806,7 @@ function renderXMarket() {
   // that points at where trading is live — nothing to read, nothing to click that will not work
   const blk = xMarketBlocker(m);
   const pc = $("otcPostCard"); if (pc) pc.classList.toggle("offmarket", !!blk);   // its own class: the mode switcher re-shows gated cards after every render
-  const pb = $("btnOtcPost"); if (pb) { pb.disabled = !!blk; pb.title = blk; }
+  const pb = $("btnOtcPost"); if (pb) { pb.title = blk; pb.disabled = !!blk || !!(($("otcFAddrHint") || {}).style || {}).color && $("otcFAddrHint").style.color === "var(--danger)"; if (!blk) { const ai = $("otcFAddr"); if (ai && ai.oninput) ai.oninput(); } }
   const netSel0 = $("otcNet"), tp0 = $("otcTokenPick");
   if (netSel0 && !netSel0.dataset.touched && [...netSel0.options].some((o) => o.value === m.net)) {
     if (netSel0.value !== m.net) { netSel0.value = m.net; netSel0.dispatchEvent(new Event("change", { bubbles: true })); }
@@ -1878,7 +1878,29 @@ function wireUI() {
     const loadAddr = () => { showTok(); if (addrIn) { addrIn.value = faddrGet(netSel.value); 
       addrIn.placeholder = `your ${(NETS[netSel.value] || {}).label || ""} address (saved for next time)`; } };
     netSel.onchange = () => { netSel.dataset.touched = "1"; loadAddr(); kindHint(); };
-    if (addrIn) addrIn.onchange = () => { if (addrIn.value.trim()) faddrSet(netSel.value, addrIn.value.trim()); };
+    // LIVE address feedback: the field says what it thinks as you type — empty, wrong shape for this
+    // network, or valid — and Post stays disabled until it is valid. Nobody should learn their address
+    // was wrong from a refused button.
+    const addrHint = $("otcFAddrHint");
+    async function checkAddr() {
+      const v = (addrIn.value || "").trim(), n = NETS[netSel.value] || {}, ch = n.chain;
+      let ok = false, msg = "";
+      if (!v) msg = `Enter your ${n.label || "network"} address — it is where this swap pays you.`;
+      else if (ch === "eth") { ok = /^0x[0-9a-fA-F]{40}$/.test(v); msg = ok ? "Valid Ethereum address" : "An Ethereum address is 0x followed by 40 hex characters"; }
+      else if (ch === "sol") { ok = isB58Addr(v); msg = ok ? "Valid Solana address" : "A Solana address is 32–44 base58 characters"; }
+      else if (ch === "btc") { try { await addressToScript(v, n.hrp || "bc"); ok = true; msg = `Valid ${n.label} address`; } catch (e) { msg = `Not a ${n.label} address: ${String(e.message || e).slice(0, 60)}`; } }
+      else { ok = v.length > 8; msg = ok ? "" : "Address looks too short"; }
+      if (addrHint) { addrHint.textContent = msg; addrHint.style.color = !v ? "var(--dim)" : ok ? "var(--accent2)" : "var(--danger)"; }
+      addrIn.style.borderColor = !v ? "" : ok ? "var(--accent2)" : "var(--danger)";
+      const pb = $("btnOtcPost"); if (pb && !pb.title) pb.disabled = !ok;    // a market-level block (title set) wins
+      return ok;
+    }
+    if (addrIn) {
+      addrIn.oninput = () => { checkAddr(); };
+      addrIn.onchange = () => { if (addrIn.value.trim()) faddrSet(netSel.value, addrIn.value.trim()); checkAddr(); };
+      netSel.addEventListener("change", () => setTimeout(checkAddr, 0));
+      setTimeout(checkAddr, 0);
+    }
     fillNets();
     window.addEventListener("nado-dex-env", fillNets);   // the switch above the market re-lists the networks
     const seg = $("envSeg");

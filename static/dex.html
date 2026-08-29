@@ -374,7 +374,8 @@
       <input id="otcToken" class="hidden" placeholder="paste the token's contract address" autocomplete="off">
     </div>
     <div class="row mt">
-      <input id="otcFAddr" placeholder="your address on that network (saved for next time)" autocomplete="off">
+      <div style="flex:1 1 0;min-width:0"><input id="otcFAddr" placeholder="your address on that network (saved for next time)" autocomplete="off" spellcheck="false">
+        <div id="otcFAddrHint" class="hint" aria-live="polite"></div></div>
     </div>
     <div class="row mt">
       <label class="small dim" for="otcExpiry">NADO-side expiry, in blocks <span class="mono" id="otcExpiryHuman"></span></label>
@@ -422,6 +423,6 @@
     moves, you withdraw a different mix than you put in. Not investment advice.</span>
   </footer>
 </div>
-<script type="module" src="/static/dex.js?v=bf24946d"></script>
+<script type="module" src="/static/dex.js?v=e0490002"></script>
 </body>
 </html>
