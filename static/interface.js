@@ -7890,7 +7890,7 @@ async function claimUnshields(silent) {
     }
     if (claimed) $("shieldStatus").textContent = i18("shield.claimed", "Received {n} withdrawal(s) ✓ — coins are in your balance.", { n: claimed });
     else if (!silent) $("shieldStatus").textContent = i18("shield.notSettled", "Still settling on L1 — it'll arrive automatically in a few minutes.");
-    setTimeout(() => { refreshBalance().catch(() => {}); renderShield().catch(() => {}); }, 1800);
+    setTimeout(() => { refreshDashboard().catch(() => {}); renderShield().catch(() => {}); }, 1800);
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); }
 }
 

@@ -1427,7 +1427,7 @@ async function otcAction(what, o, btn) {
       return alertBar("This order's foreign deadline does not line up with its NADO expiry — filling it "
         + "could let the maker reclaim their own lock and still take yours. Not safe to fill.");
     }
-    const chain = coinOf(od);
+    const coin = coinOf(od);                             // the symbol the taker is paid in ("ETH", "USDC", "SOL", …)
     let myf, fref = "pending";
     const ch = chainOf(od);
     if (ch === "btc") {
@@ -1457,7 +1457,7 @@ async function otcAction(what, o, btn) {
     } else {
       myf = faddrGet(netKeyOf(od));                    // typed once per network, then never again
       if (!myf) {
-        myf = await uiPrompt({ title: `Your ${(netOf(od) || {}).label || chain} address`,
+        myf = await uiPrompt({ title: `Your ${(netOf(od) || {}).label || coin} address`,
           body: "Where this swap pays you on that chain. Saved for next time.", placeholder: "address" });
         if (!myf) return;
         faddrSet(netKeyOf(od), myf);
