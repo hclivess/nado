@@ -1054,7 +1054,44 @@ async function getMiningStatus(address) {
 
 /* Submit a transaction. A post-quantum (ML-DSA-44) tx is ~7.8 KB — far past a URL's safe length —
  * so we POST the canonical JSON body (BigInt-safe; the node json.loads() it back to the identical dict). */
+// OUTBOX: every transaction this wallet was told "accepted" for is remembered until it is MINED or past
+// its max_block, and re-broadcast meanwhile. A relay that restarts (its mempool is not durable) or
+// simply drops a tx can no longer make it vanish after saying yes — inclusion is verified, not assumed.
+const LS_OUTBOX = "nado_outbox";
+const outboxLoad = () => { try { return JSON.parse(localStorage.getItem(LS_OUTBOX) || "[]"); } catch (e) { return []; } };
+const outboxSave = (a) => { try { localStorage.setItem(LS_OUTBOX, JSON.stringify(a.slice(-20))); } catch (e) {} };
+function outboxAdd(tx) {
+  if (!tx || !tx.txid) return;
+  const a = outboxLoad().filter((e) => e.txid !== tx.txid);
+  a.push({ txid: tx.txid, max_block: Number(tx.max_block || 0), tx, at: Date.now(), tries: 0 });
+  outboxSave(a);
+}
+async function outboxTick(latest) {
+  const a = outboxLoad(); if (!a.length) return;
+  const keep = [];
+  for (const e of a) {
+    try {
+      const r = await fetch(relayBase() + "/get_transaction?txid=" + encodeURIComponent(e.txid), { cache: "no-store" });
+      if (r.ok) continue;                                                     // mined — done
+      if (e.max_block && latest > e.max_block) {                              // window closed, never mined
+        log("err", i18("outbox.expired", "Transaction {t}… was accepted but never included before its target block — it did not happen; send it again.", { t: e.txid.slice(0, 12) }));
+        continue;
+      }
+      if (Date.now() - (e.last || e.at) > 45000) {                            // still in its window: re-broadcast (idempotent)
+        e.last = Date.now(); e.tries = (e.tries || 0) + 1;
+        try { await _submitTransactionRaw(e.tx); } catch (x) {}
+      }
+    } catch (x) {}
+    keep.push(e);
+  }
+  outboxSave(keep);
+}
 async function submitTransaction(tx) {
+  const out = await _submitTransactionRaw(tx);
+  if (out && out.data && out.data.result) outboxAdd(tx);
+  return out;
+}
+async function _submitTransactionRaw(tx) {
   const payload = canonicalize(tx);
   // POST the canonical JSON body — the only submit path (a PQ tx is far too large for a GET URL).
   const res = await fetch(relayBase() + "/submit_transaction", {
@@ -2229,6 +2266,7 @@ async function pollOnce() {
     if (latest && typeof latest.block_number === "number") {
       state.latest = latest.block_number;
       setConn(true, latest.block_number);
+      outboxTick(latest.block_number).catch(() => {});
     } else {
       setConn(false);                 // null = relay momentarily unreachable (getLatestBlock ate the blip)
     }

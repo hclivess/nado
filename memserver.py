@@ -466,6 +466,58 @@ class MemServer:
         self._proof_inflight.add(txid)
         self._proof_q.put((tx, user_origin))
 
+    # ---- MEMPOOL PERSISTENCE ----------------------------------------------------------------------------
+    # A restart used to drop every pooled transaction on the floor: a client had been told "accepted" and
+    # the tx simply never existed again (2026-08-29: an order posted seconds before a self-update restart
+    # vanished). The pool is written to disk on shutdown and every few seconds, and re-merged on boot
+    # through the SAME validation as any gossiped tx — nothing is trusted from disk, only remembered.
+    @property
+    def pool_path(self):
+        from ops.data_ops import get_home
+        return f"{get_home()}/mempool.json"
+
+    def save_pool(self, force=False):
+        import time as _t
+        now = _t.time()
+        if not force and now - getattr(self, "_pool_saved_at", 0) < 5:
+            return 0
+        self._pool_saved_at = now
+        import json as _json
+        try:
+            txs = list(self.transaction_pool)
+            tmp = self.pool_path + ".tmp"
+            with open(tmp, "w") as f:
+                _json.dump(txs, f)
+            os.replace(tmp, self.pool_path)
+            return len(txs)
+        except Exception as e:
+            self.logger.error(f"mempool persist failed: {e}")
+            return 0
+
+    def load_pool(self):
+        """Re-merge the last persisted pool. Every tx goes through merge_transaction (full validation,
+        min/max_block window, spending) so a stale or forged file can only ever be refused."""
+        import json as _json
+        try:
+            with open(self.pool_path) as f:
+                txs = _json.load(f)
+        except FileNotFoundError:
+            return 0
+        except Exception as e:
+            self.logger.error(f"mempool restore: unreadable file ignored: {e}")
+            return 0
+        kept = 0
+        for tx in txs if isinstance(txs, list) else []:
+            try:
+                if self._is_proof_settle(tx):
+                    self._queue_proof_merge(tx, False); continue
+                r = self.merge_transaction(tx, False)
+                kept += 1 if isinstance(r, dict) and r.get("result") else 0
+            except Exception:
+                pass
+        self.logger.info(f"mempool restored: {kept} of {len(txs) if isinstance(txs, list) else 0} persisted transactions re-admitted")
+        return kept
+
     def merge_remote_transactions(self, user_origin=False, skip_pool_peers=()) -> None:
         """MEMPOOL SET RECONCILIATION (replaces the full-pool download): for each peer whose
         advertised pool hash differs from ours (skip_pool_peers filters the identical ones), fetch

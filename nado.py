@@ -68,6 +68,10 @@ def handler(signum, frame):
     message pool to disk, then exit 0. Block/state integrity needs no flush here (atomic writes + replay)."""
     logger.info(f"Terminating: {signum}: {frame}")
     memserver.terminate = True
+    try:
+        logger.info(f"Mempool persisted ({memserver.save_pool(force=True)} transactions)")
+    except Exception as e:
+        logger.error(f"mempool persist on shutdown failed: {e}")
     # Persist the off-chain message pool so a restart/redeploy doesn't drop undelivered DMs + prekeys.
     try:
         n = memserver.message_pool.stats().get("messages", 0)
@@ -2368,6 +2372,10 @@ except Exception as e:
 memserver = MemServer(logger=logger)
 
 logger.info(f"NADO version {memserver.version} started")
+try:
+    memserver.load_pool()          # the previous process's mempool, re-validated tx by tx
+except Exception as _e:
+    logger.error(f"mempool restore failed: {_e}")
 
 # AN ARCHIVE NODE THAT SNAP-SYNCED IS NOT AN ARCHIVE. snapshot_bootstrap backfills only
 # REWARD_WINDOW + 2*EPOCH_LENGTH + FINALITY_DEPTH bodies behind its anchor and nothing older, EVER — so a

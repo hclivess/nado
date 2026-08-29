@@ -287,6 +287,7 @@ class PeerClient(threading.Thread):
                 if not self.memserver.pool_warmed and (self.consensus.transaction_hash_pool or _same_pool):
                     self.memserver.pool_warmed = True
 
+                self.memserver.save_pool()          # every few seconds: a restart must not lose accepted txs
                 self.purge_peers()
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
