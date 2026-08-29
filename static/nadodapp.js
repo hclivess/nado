@@ -555,8 +555,32 @@ export const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasC
 // ---- shared UI blocks (every game has these exact elements — keep them in ONE place) --------------
 // wireWallet(dapp): the sign-in / deposit / withdraw buttons ("bankAmt" input) — identical in every game.
 const _L1_FEE_RESERVE = RAW / 1000n;   // leave ~0.001 NADO of L1 for the deposit tx fee when buying in 100%
+// The header wallet button every exchange has, top-right: "Connect wallet" until you sign in, then your
+// address and usable balance (a click goes to the wallet card). Mounted into the page's <header> by the
+// SDK so every dApp gets the same one; renderWallet keeps it current.
+function mountHeaderWallet(dapp) {
+  const hdr = document.querySelector("header");
+  if (!hdr || document.getElementById("hdrWallet")) return;
+  if (!document.getElementById("hdrWalletCss")) {
+    const css = document.createElement("style"); css.id = "hdrWalletCss";
+    css.textContent = `#hdrWallet{margin-left:8px;font:inherit;font-size:12px;font-weight:800;white-space:nowrap;border-radius:999px;padding:7px 13px;cursor:pointer;
+      border:1px solid var(--accent,#00ad93);background:linear-gradient(135deg,var(--accent,#00ad93),var(--accent2,#00c9a7));color:#04110a}
+      #hdrWallet.in{background:var(--elev,#111823);color:var(--txt,#e6edf3);border-color:var(--border,#1c2530);font-family:var(--mono,monospace);font-weight:700}
+      #hdrWallet.in:hover{border-color:var(--accent2,#00c9a7)} #hdrWallet .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent2,#00c9a7);margin-right:6px;vertical-align:1px}
+      header:has(#hdrWallet) .hub{margin-left:auto} @media (max-width:620px){#hdrWallet{padding:7px 10px} #hdrWallet .bal{display:none}}`;
+    document.head.appendChild(css);
+  }
+  const b = document.createElement("button"); b.id = "hdrWallet"; b.type = "button";
+  if (!hdr.querySelector(".hub")) b.style.marginLeft = "auto";
+  b.onclick = () => {
+    if (!dapp.me) return dapp.signIn();
+    const wc = $("walletcard"); if (wc) { wc.scrollIntoView({ behavior: "smooth", block: "start" }); wc.classList.add("flash"); setTimeout(() => wc.classList.remove("flash"), 1200); }
+  };
+  hdr.appendChild(b);
+}
 export function wireWallet(dapp) {
   const st = (m) => alertBar(m);   // deposit/withdraw input errors → the prominent toast, not the quiet #status
+  try { mountHeaderWallet(dapp); } catch (e) {}
   if ($("btnSignIn")) $("btnSignIn").onclick = () => dapp.signIn();
   if ($("btnDeposit")) $("btnDeposit").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return st(_t("depositEnter", "Enter an amount to deposit.")); if (raw + 1000n > dapp.l1) return st(_t("depositShort", "Not enough in your L1 wallet ({bal} NADO).", { bal: rawToNado(dapp.l1) })); dapp.deposit(raw); };
   if ($("btnWithdraw")) $("btnWithdraw").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return st(_t("withdrawEnter", "Enter an amount to withdraw.")); if (dapp.exec < raw) return st(_t("withdrawShort", "You only have {bal} NADO in the exec layer.", { bal: rawToNado(dapp.exec) })); dapp.withdraw(raw); };
@@ -601,6 +625,13 @@ export function renderWallet(dapp) {
   const wc = $("walletcard"); if (wc) wc.classList.toggle("signed", signedIn);   // balances and bank controls show only once they mean something
   if ($("btnSignIn")) $("btnSignIn").classList.toggle("hidden", signedIn);
   if ($("who")) $("who").textContent = signedIn ? disp(dapp.me) : "not signed in";
+  const hw = document.getElementById("hdrWallet");
+  if (hw) {
+    hw.classList.toggle("in", signedIn);
+    hw.innerHTML = signedIn ? `<span class="dot"></span>${esc(disp(dapp.me))}<span class="bal"> · ${esc(rawToNado(dapp.exec))} NADO</span>` : esc(_t("connectWallet", "Connect wallet"));
+    hw.title = signedIn ? _t("hdrWalletIn", "Your wallet — click for balances, buy in and cash out") : _t("hdrWalletOut", "Sign in with your NADO wallet");
+    hw.setAttribute("aria-label", hw.title);
+  }
   if ($("bal")) $("bal").textContent = rawToNado(dapp.exec) + " NADO";
   if ($("l1bal")) $("l1bal").textContent = rawToNado(dapp.l1) + " NADO";
   const bm = document.getElementById("buyinSliderM"); if (bm) bm.textContent = _t("ofWallet", "of {n} wallet", { n: rawToNado(dapp.l1) });
