@@ -2708,7 +2708,32 @@ function renderCoinPile(totalRaw, stats) {
   svg.innerHTML = defs + body + crown;
   const tierName = i18(m.key, m.en);
   if (isTop) cap.textContent = i18("pile.richest", "👑 Richest wallet on the network!") + " · " + tierName;
-  else { const p = Math.round(pctile * 100); cap.textContent = i18("pile.richerThan", "richer than {p}% of wallets", { p }) + " · " + tierName; }
+  else {
+    // The log-normal rank rounds to "100%" for everything above ~35 NADO on a 900-wallet chain — which reads as
+    // nonsense ("richer than 100% of wallets"). Cap the percentile caption at 99, and for a wallet that sits in
+    // the top 100 replace it with its EXACT rank from the rich list ("#12 of 900 wallets"), fetched lazily.
+    const p = Math.min(99, Math.round(pctile * 100));
+    cap.textContent = i18("pile.richerThan", "richer than {p}% of wallets", { p }) + " · " + tierName;
+    if (pctile >= 0.95 && stats && stats.count > 1) {
+      _exactRank(totalRaw, stats.count).then((n) => {
+        if (n) cap.textContent = i18("pile.rank", "#{n} of {c} wallets", { n, c: stats.count }) + " · " + tierName;
+      }).catch(() => {});
+    }
+  }
+}
+// Exact rank from the relay's top-100 rich list (cached 15 s), or null when this wallet is not in it.
+let _rankCache = { at: 0, list: null };
+async function _exactRank(totalRaw, count) {
+  const now = Date.now();
+  if (!_rankCache.list || now - _rankCache.at > 15000) {
+    const r = await rpcJSON("/get_rich_list", { retry: false });
+    const l = r && r.data && Array.isArray(r.data.rich_list) ? r.data.rich_list : null;
+    if (!l) return null;
+    _rankCache = { at: now, list: l.map((e) => { try { return BigInt(e.total); } catch (x) { return 0n; } }).sort((a, b) => (a > b ? -1 : a < b ? 1 : 0)) };
+  }
+  const l = _rankCache.list;
+  const above = l.filter((t) => t > totalRaw).length;
+  return above < l.length ? above + 1 : null;      // in the list's range -> exact rank; below its tail -> unknown
 }
 async function updateCoinPile(totalRaw) {
   try { renderCoinPile(totalRaw, await getWealthStats()); } catch (e) { /* non-fatal cosmetic */ }
