@@ -1,3 +1,5 @@
+import threading
+
 from ops import kv_ops
 from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, fidelity_step, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
 
@@ -544,6 +546,15 @@ def change_bonded(address: str, amount: int, logger, revert=False):
 # poll — the dominant per-block cost at scale). env_path is in the key so tests that switch HOME can
 # never serve another home's registry.
 _bonded_reg_cache = [None]          # [(key, registry)] or [None]
+# THUNDERING-HERD LOCKS (the latest_settled pattern, e2396baf). These caches are keyed on the write
+# generation, which every 6-second block bumps — and /mining_status polls from hundreds of wallets land on
+# HTTP worker threads all at once. Without a lock every worker that misses the fresh key recomputes the
+# registry in PARALLEL, serialising on the GIL against the core thread's block apply: py-spy on
+# 2026-09-01 (515 wallets polling, block applies at 3 s) put 38% of ALL process CPU in parallel copies of
+# the open-registry compute. One compute per generation; the herd reads the result. The in-write-txn
+# bypass stays AHEAD of the lock so the core thread never blocks mid-transaction.
+_bonded_reg_lock = threading.Lock()
+_open_reg_lock = threading.Lock()
 
 
 def _compute_bonded_registry():
@@ -574,10 +585,13 @@ def get_bonded_registry():
     key = (kv_ops.env_path(), kv_ops.write_generation())
     entry = _bonded_reg_cache[0]
     if entry is None or entry[0] != key:
-        # key captured BEFORE the scan: a concurrent commit mid-scan bumps the generation, so a
-        # torn read can be stored only under the OLD key and gets recomputed on the next call.
-        entry = (key, _compute_bonded_registry())
-        _bonded_reg_cache[0] = entry
+        with _bonded_reg_lock:
+            entry = _bonded_reg_cache[0]          # re-check: the herd resolves to ONE compute
+            if entry is None or entry[0] != key:
+                # key captured BEFORE the scan: a concurrent commit mid-scan bumps the generation, so a
+                # torn read can be stored only under the OLD key and gets recomputed on the next call.
+                entry = (key, _compute_bonded_registry())
+                _bonded_reg_cache[0] = entry
     return {addr: dict(info) for addr, info in entry[1].items()}
 
 
@@ -628,9 +642,11 @@ def get_open_registry(current_epoch: int):
     against PARENT state on the production/verification paths (as-of-parent guard, task #17).
     Cached per committed-write generation (bypassed inside a write txn), like get_bonded_registry."""
     def _compute():
+        # ONE txn for every member doc (get_accounts_many) — the same docs get_account returns, without an
+        # env.begin() per address. Iteration order is irrelevant to the result (a dict keyed by address).
         registry = {}
-        for address in kv_ops.recert_addresses_after(current_epoch - POSW_LEASE_EPOCHS):
-            account = kv_ops.get_account(address)
+        members = kv_ops.recert_addresses_after(current_epoch - POSW_LEASE_EPOCHS)
+        for address, account in kv_ops.get_accounts_many(members).items():
             if account and account.get("registered", 0) == 1:
                 registry[address] = {"fidelity": account.get("fidelity", 0)}
         return registry
@@ -639,8 +655,11 @@ def get_open_registry(current_epoch: int):
     key = (kv_ops.env_path(), kv_ops.write_generation(), current_epoch)
     entry = _open_reg_cache[0]
     if entry is None or entry[0] != key:
-        entry = (key, _compute())
-        _open_reg_cache[0] = entry
+        with _open_reg_lock:
+            entry = _open_reg_cache[0]            # re-check: the herd resolves to ONE compute
+            if entry is None or entry[0] != key:
+                entry = (key, _compute())
+                _open_reg_cache[0] = entry
     return {addr: dict(info) for addr, info in entry[1].items()}
 
 

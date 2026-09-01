@@ -20,6 +20,7 @@ explorer/history only and are rebuilt by replaying the tail. Snapshots verify ag
 chain by anchoring to the block hash at C and replaying the tail through normal validation.
 """
 import hashlib
+import threading
 import os
 import shutil
 
@@ -82,6 +83,11 @@ def merkle_root(triples) -> str:
             d = hashlib.blake2b(_leaf(t), digest_size=32).digest()
             _lc[t] = d
         leaves.append(d)
+    return _merkle_from_leaves(leaves)
+
+
+def _merkle_from_leaves(leaves):
+    """the tree fold over leaf digests (in canonical leaf order) — shared by merkle_root and the root walk"""
     if not leaves:
         return _blake2b(b"")
     while len(leaves) > 1:
@@ -277,6 +283,124 @@ def _root_triples(triples):
 # reader can never pair a stale key with a newer root under concurrent replacement (GIL-atomic load/store).
 # Same pattern, and the same justification, as account_ops._bonded_reg_cache.
 _root_cache = [None]
+# herd lock (the latest_settled pattern, e2396baf): /state_health sweeps, _record_reject and the block path
+# can all miss the generation at once — one walk per generation, the rest read the cached root.
+_root_lock = threading.Lock()
+
+
+# Sub-DBs whose keys START with the 8-byte big-endian epoch (kv_ops.be8): the retention floor is a single
+# cursor seek instead of a walk over every windowed-out row. Every writer of these DBs keys by be8(epoch)
+# (recert_put / reveal + attestation puts), so a key shorter than 8 bytes cannot exist — the slow path
+# would KEEP such a key (_row_epoch → None), and the seek would skip it if it sorted below the floor;
+# test_root_fast_walk pins the writers so the two paths stay identical.
+_EPOCH_PREFIXED_DBS = frozenset(("reveals", "attestations", "recert_by_epoch"))
+
+# (db, key) -> (value_bytes, leaf_digest) for the PLAIN (non-DUPSORT) root sub-DBs, so the per-block walk
+# neither copies nor re-hashes an unchanged value: the LMDB buffer is compared against the cached bytes
+# (memcmp, no allocation) and only a CHANGED row is materialised and hashed. Matters because `meta`
+# carries the epochw:<E> weight snapshots — one ~18 KB row per epoch, ~25 MB at epoch 1.4k and growing
+# with the chain — which the old walk copied and tuple-hashed on every block. Bounded like _leaf_cache.
+_plain_leaf_cache = {}
+
+
+def _walk_root_rows(home=None):
+    """Yield the consensus-root rows as (db, key_bytes, value_buffer) in CANONICAL order, materialising
+    only what survives the filter. Byte-for-byte the row set of _root_triples(read_state(home)) — the
+    exclusions and the retention window are applied to KEYS before a value is ever copied — but the
+    walk touches only the root sub-DBs (ROOT_EXCLUDED_DBS never opened: block_by_num/block_by_hash are
+    ~2 rows per block of the chain, more than half of what read_state used to read and discard), and the
+    epoch-prefixed families seek straight to the retention floor.
+
+    Order: sub-DBs in sorted name order (SNAPSHOT_DBS is sorted), keys in LMDB order, DUPSORT values in
+    LMDB order. LMDB compares keys and dup values as unsigned byte strings — exactly Python's bytes
+    ordering — so this IS the (db, key, value) sort the slow path performs; test_root_fast_walk asserts it.
+
+    The whole walk is ONE read txn (a single MVCC snapshot, the same tearing argument as all_db_pairs).
+    Values are yielded as LMDB buffers valid only until the cursor advances — the consumer must copy
+    (bytes(v)) anything it keeps beyond the current row."""
+    kv_ops.init_env(home)
+    env = kv_ops.get_env(home)
+    dbs = kv_ops.db_handles(home)
+    names = [n for n in kv_ops.SNAPSHOT_DBS if n not in ROOT_EXCLUDED_DBS]
+    with env.begin(write=False, buffers=True) as txn:
+        # Reference epoch first: the max committed epochw:<E> row (keys only — the values are the big ones).
+        # `epochw:` keys are DECIMAL, so lexicographic order is not numeric order: scan the prefix range.
+        ref = None
+        with txn.cursor(db=dbs["meta"]) as cur:
+            if cur.set_range(_EPOCHW_PREFIX):
+                for k in cur.iternext(keys=True, values=False):
+                    k = bytes(k)
+                    if not k.startswith(_EPOCHW_PREFIX):
+                        break
+                    try:
+                        e = int(k[len(_EPOCHW_PREFIX):])
+                    except ValueError:
+                        continue
+                    if ref is None or e > ref:
+                        ref = e
+        floor = None if (ref is None or ref < ROOT_RETENTION_EPOCHS) else ref - ROOT_RETENTION_EPOCHS
+        for name in names:
+            windowed_db = floor is not None and name in ROOT_WINDOWED_DBS
+            windowed_meta = floor is not None and name == "meta"
+            with txn.cursor(db=dbs[name]) as cur:
+                if windowed_db and name in _EPOCH_PREFIXED_DBS:
+                    if not cur.set_range(kv_ops.be8(floor)):
+                        continue
+                elif not cur.first():
+                    continue
+                for k, v in cur.iternext(keys=True, values=True):
+                    k = bytes(k)
+                    if name == "meta":
+                        if k in ROOT_EXCLUDED_META_KEYS or k.startswith(ROOT_EXCLUDED_META_PREFIXES):
+                            continue
+                        if windowed_meta and k.startswith(ROOT_WINDOWED_META_PREFIXES):
+                            e = _row_epoch(name, k)
+                            if e is not None and e < floor:
+                                continue
+                    elif windowed_db:
+                        e = _row_epoch(name, k)
+                        if e is not None and e < floor:
+                            continue
+                    if name == "accounts" and kv_ops.account_value_is_default(bytes(v)):
+                        continue
+                    yield name, k, v
+
+
+def read_root_state(home=None):
+    """The consensus-root triples (db, key_bytes, value_bytes), canonical order — identical to
+    _root_triples(read_state(home)), via the root-only walk. For diagnostics (state_fingerprint) and
+    tests; l1_state_root hashes straight off the walk without materialising."""
+    return [(n, k, bytes(v)) for n, k, v in _walk_root_rows(home)]
+
+
+def _root_from_walk(home=None):
+    """merkle_root over the root walk, with the plain-DB (db, key) → (value, digest) cache so an unchanged
+    row costs one memcmp. DUPSORT rows (small values) go through the triple-keyed _leaf_cache as before.
+    Same tree, same leaves, same root as merkle_root(read_root_state(home))."""
+    if len(_plain_leaf_cache) > 500_000:
+        _plain_leaf_cache.clear()
+    if len(_leaf_cache) > 500_000:
+        _leaf_cache.clear()
+    plain, dup, dup_dbs = _plain_leaf_cache, _leaf_cache, kv_ops.DUP_DBS
+    leaves = []
+    for name, k, v in _walk_root_rows(home):
+        if name in dup_dbs:
+            t = (name, k, bytes(v))
+            d = dup.get(t)
+            if d is None:
+                d = hashlib.blake2b(_leaf(t), digest_size=32).digest()
+                dup[t] = d
+        else:
+            ck = (name, k)
+            hit = plain.get(ck)
+            if hit is not None and hit[0] == v:          # buffer == bytes: memcmp, no copy
+                d = hit[1]
+            else:
+                vb = bytes(v)
+                d = hashlib.blake2b(_leaf((name, k, vb)), digest_size=32).digest()
+                plain[ck] = (vb, d)
+        leaves.append(d)
+    return _merkle_from_leaves(leaves)
 
 
 def l1_state_root(home=None):
@@ -300,8 +424,12 @@ def l1_state_root(home=None):
     entry = _root_cache[0]
     if entry is not None and entry[0] == key:
         return entry[1]
-    root = merkle_root(_root_triples(read_state(home)))
-    _root_cache[0] = (key, root)
+    with _root_lock:
+        entry = _root_cache[0]                    # re-check: a herd resolves to ONE walk per generation
+        if entry is not None and entry[0] == key:
+            return entry[1]
+        root = _root_from_walk(home)
+        _root_cache[0] = (key, root)
     return root
 
 
@@ -312,7 +440,7 @@ def state_fingerprint(home=None):
     state divergence to the exact sub-DB in one shot (the betanet-8 h4260 wedge needed a replay harness for
     this). Computing root and breakdown from separate walks would let a block commit between them and produce
     a root that doesn't correspond to its own breakdown — a self-inconsistent diagnostic."""
-    triples = _root_triples(read_state(home))
+    triples = read_root_state(home)
     by = {}
     for name, key, value in triples:
         by.setdefault(name, []).append((name, key, value))

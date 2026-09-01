@@ -88,6 +88,7 @@ _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 _LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_revert", "msgkey_revert",
                         "pubkey_revert", "execsum_revert", "attest_memo", "auth_revert"))
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS))
+DUP_DBS = frozenset(_DUP_DBS)     # the DUPSORT set, for readers that must treat multi-value keys differently
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
 ACCOUNT_FIELDS = ("balance", "produced", "bonded", "registered", "fidelity", "last_hb_epoch")
@@ -196,6 +197,13 @@ def get_env(home=None):
 def _dbs():
     get_env()  # ensure opened
     return _dbhandles[env_path()]
+
+
+def db_handles(home=None):
+    """The named sub-DB handles of `home`'s env ({name: handle}), opening it if needed — for callers that
+    run their own single read txn across several sub-DBs (snapshot_ops.read_root_state)."""
+    get_env(home)
+    return _dbhandles[env_path(home)]
 
 
 def init_env(home=None):
@@ -359,6 +367,12 @@ def get_account(address: str):
     body = _read(lambda txn: _get_body(txn, address))
     if body is None:
         return None
+    return _account_doc(address, body)
+
+
+def _account_doc(address: str, body):
+    """get_account's defaulting, shared with get_accounts_many: ACCOUNT_FIELDS default to 0, extra
+    (schemaless) fields pass through, `address` is echoed from the key."""
     acc = {"address": address}
     for f in ACCOUNT_FIELDS:
         acc[f] = body.get(f, 0)
@@ -366,6 +380,20 @@ def get_account(address: str):
         if k not in acc:
             acc[k] = v
     return acc
+
+
+def get_accounts_many(addresses):
+    """{address: doc} for every address in `addresses` that has a row — the SAME docs get_account returns,
+    read in ONE txn instead of one env.begin() per address. Derived-read computes (the open-lane registry)
+    read hundreds of docs per generation; a txn per doc was most of that cost."""
+    def _do(txn):
+        out = {}
+        for address in addresses:
+            body = _get_body(txn, address)
+            if body is not None:
+                out[address] = _account_doc(address, body)
+        return out
+    return _read(_do)
 
 
 def account_value_is_default(value: bytes) -> bool:
