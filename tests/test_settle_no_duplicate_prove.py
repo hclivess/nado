@@ -105,7 +105,7 @@ def t_the_hold_is_continuous_from_prove_to_submit():
     the flag by SETTLE_HOLD_MAX_S regardless."""
     i = SRC.index("proof = await _build_settlement_proof(")
     j = SRC.index('globals()["_settle_publishing"] = time.time()', i)
-    k = SRC.index("if proof is None and (_settle_proving", i)
+    k = SRC.index("if proof is None and _hold:", i)     # the disjunction moved into its own `_hold = (...)` line
     assert j < k, "the publish hold must be taken BEFORE the bare-settle hold is evaluated"
     seg = SRC[i:j]
     assert "if proof is not None:" in seg, "the hold must be taken as soon as a proof exists"

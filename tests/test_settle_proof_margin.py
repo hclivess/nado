@@ -86,9 +86,14 @@ def t_the_measurement_is_recorded_next_to_the_constant():
 
 
 def t_margin_is_only_applied_to_proof_carrying_settles():
-    """A bare settle must keep its tight margin — widening it would stall the quorum path too."""
-    assert "_margin = SETTLE_PROOF_TX_MARGIN if (proof is not None or proof_da) else 2" in SRC, \
-        "the wide margin must apply ONLY when a proof (inline or DA) is attached"
+    """A bare settle must keep its tight margin — widening it would stall the quorum path too. The margin
+    now FOLLOWS THE PROOF: a records half gets SETTLE_PROOF_RECORDS_TX_MARGIN, a KV-only proof
+    SETTLE_PROOF_TX_MARGIN, and a bare settle a small fixed runway (12; cursor quantization below it)."""
+    import re
+    m = re.search(r"_margin = \(\(SETTLE_PROOF_RECORDS_TX_MARGIN if _has_records else SETTLE_PROOF_TX_MARGIN\)\s*"
+                  r"if \(proof is not None or proof_da\) else (\d+)\)", SRC)
+    assert m, "the wide margin must apply ONLY when a proof (inline or DA) is attached"
+    assert int(m.group(1)) < 60, f"a bare settle's runway ({m.group(1)}) must stay far below the proof margin"
 
 
 for nm, fn in [("margin stays under TX_LANDING_WINDOW", t_margin_is_under_the_landing_window),
