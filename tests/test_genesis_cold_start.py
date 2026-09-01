@@ -30,6 +30,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import protocol as P
 from loops.core_loop import CoreClient
+import loops.core_loop as _CL
+
+# DETERMINISM, whatever the harness environment: the gate reads seed_peers() and get_config()["ip"].
+#  * under NADO_TESTNET seed_peers() returns only NADO_SEED_PEERS (a loopback testnet never dials the mainnet
+#    anchors) — with it set every "seeds configured" check below saw NO seeds and passed as "standalone";
+#  * get_config() raises without a config file, which the gate's fail-open except turned into "produce".
+# The checks manipulate PO.DEFAULT_SEED_PEERS directly, so read the baked-in list and a fixed own IP.
+os.environ.pop("NADO_TESTNET", None)
+_CL.get_config = lambda: {"ip": "10.0.0.9"}
 
 fails = []
 
