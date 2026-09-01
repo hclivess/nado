@@ -18,3 +18,4 @@ aiohttp
 # Optional, wallet-only (pyside_wallet.py desktop GUI). The node itself does NOT need this.
 PySide6~=6.6
 pyflakes>=3.0            # tests/test_no_undefined_names.py — static NameError check over heavy-gated paths
+coincurve>=20              # scripts/otc_btc_leg.py (BTC leg of OTC swaps) + tests/test_otc_swap_e2e.py, test_otc_watchtower.py
