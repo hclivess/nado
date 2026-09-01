@@ -601,7 +601,12 @@ def test_rollback_stats_reject_emergency_schema():
     from ops import rollback_stats as rs
 
     today = time.strftime("%Y-%m-%d", time.gmtime())
-    json.dump({today: {"c": 5, "d": 3}}, open(rs._stats_path(), "w"))   # legacy: no r/e keys
+    # CHAIN-STAMPED (73d33a18): a file whose stamp is absent or differs is a previous lineage's history and is
+    # dropped whole — so "legacy" here means the r/e keys are missing, on a file of THIS chain.
+    json.dump({today: {"c": 5, "d": 3}}, open(rs._stats_path(), "w"))   # unstamped: foreign lineage
+    check("an unstamped stats file is a previous chain's history and loads as empty", rs._load() == {})
+    json.dump({today: {"c": 5, "d": 3}, rs._CHAIN_KEY: rs._chain_stamp()},
+              open(rs._stats_path(), "w"))                                # legacy: no r/e keys, our chain
     rs.record_emergency()
     rec = rs.daily_counts(1)[-1]
     check("a legacy today-record normalises rejects null -> 0 once we are measuring", rec["rejects"] == 0)
