@@ -20,11 +20,28 @@ def check(name, fn):
 
 
 # --- the test AIR: "every active row's V is a byte" -------------------------------------------------
-# Main columns V (values), M (table-side multiplicities). Aux columns H, G, Z (LogUp helpers + accumulator).
-# Periodic: tbl = 0..255 then 0-padding, act = 1 on rows 0..T-2. Boundaries pin Z[0]=Z[T-1]=0 and M[T-1]=0.
+# Main columns V (values), M (table-side multiplicities). LOGICAL aux columns H, G, Z (LogUp helpers +
+# accumulator). Periodic: tbl = 0..255 then 0-padding, act = 1 on rows 0..T-2. Boundaries pin Z[0]=Z[T-1]=0
+# and M[T-1]=0.
+#
+# EXTENSION LAYOUT (stark.ext_challenges_active is True on every backend since fri.EXT_CHALLENGES): the
+# LogUp challenge β is a GF(p^DEGREE) element, so every aux column is extension-valued and occupies DEGREE
+# contiguous base columns (limbs), constraints read/return DEGREE-tuples, and the Z boundaries pin every
+# limb. This mirrors execnode/stark/vm_circuit (_aux_limbs / _algebra); the pre-2026-08 base-only builder
+# here handed a tuple β to F.add and could never build a witness.
+from execnode.stark import extf as E
+D = E.DEGREE
 V, M = 0, 1
-H, G, Z = 2, 3, 4
+W_MAIN = 2
+H, G, Z = 2, 3, 4                  # logical aux indices
 T = 256
+
+def _limbs(idx):
+    k = idx - W_MAIN
+    return range(W_MAIN + D * k, W_MAIN + D * k + D)
+
+def _rd(row, idx):
+    return tuple(row[c] for c in _limbs(idx))
 
 def _periodic():
     tbl = [i if i < 256 else 0 for i in range(T)]
@@ -32,30 +49,40 @@ def _periodic():
     return [tbl, act]
 
 def _transitions():
+    # *_f forms only: air_ir traces these constraints symbolically for the native composer
     def c_h(cur, nxt, per, chal):
         """h·(β+V) = active — binds the helper to the committed value."""
-        return F.sub(F.mul(cur[H], F.add(chal[0], cur[V])), per[1])
+        return E.sub_f(E.mul_f(_rd(cur, H), E.add_f(chal[0], cur[V])), per[1])
     def c_g(cur, nxt, per, chal):
         """g·(β+tbl) = m — binds the table helper to the public table + committed multiplicity."""
-        return F.sub(F.mul(cur[G], F.add(chal[0], per[0])), cur[M])
+        return E.sub_f(E.mul_f(_rd(cur, G), E.add_f(chal[0], per[0])), cur[M])
     def c_z(cur, nxt, per, chal):
         """z' = z + h - g — the running log-derivative sum."""
-        return F.sub(nxt[Z], F.add(cur[Z], F.sub(cur[H], cur[G])))
+        return E.sub_f(_rd(nxt, Z), E.add_f(_rd(cur, Z), E.sub_f(_rd(cur, H), _rd(cur, G))))
     return [c_h, c_g, c_z]
 
 def _aux_spec(tamper=None):
     tbl, act = _periodic()
     def build(trace, chal):
-        beta = chal[0]
+        beta = E.lift(chal[0])
         vals = [row[V] for row in trace]
         mult = [row[M] for row in trace]
-        h = logup.helper_column(act, vals, beta)                # h = active/(β+V)
-        g = logup.helper_column(mult, tbl, beta)                # g = m/(β+tbl)
-        z = logup.running_sum(h, [F.neg(x) for x in g])
+        def helper(active, fvals):                                # a_i / (β + f_i), zero on inactive rows
+            return [E.scalar_mul(E.inv(E.add(beta, E.lift(f))), a) if a else E.lift(0)
+                    for a, f in zip(active, fvals)]
+        h = helper(act, vals)                                     # h = active/(β+V)
+        g = helper(mult, tbl)                                     # g = m/(β+tbl)
+        z = [E.lift(0)] * T
+        for i in range(1, T):
+            z[i] = E.add(z[i - 1], E.sub(h[i - 1], g[i - 1]))
         if tamper:
             tamper(h, g, z)
-        return [h, g, z]
-    return {"num_challenges": 1, "num_aux": 3, "build": build}
+        cols = []
+        for logical in (h, g, z):                                 # each logical column -> D limb columns
+            for i in range(D):
+                cols.append([E.lift(v)[i] for v in logical])
+        return cols
+    return {"num_challenges": 1, "num_aux": 3 * D, "build": build}
 
 def _trace(values):
     """Main trace from a list of T-1 active values (last row padding)."""
@@ -64,7 +91,7 @@ def _trace(values):
     tr = [[values[i] if i < T - 1 else 0, mult[i]] for i in range(T)]
     return tr
 
-BND = [(0, Z, 0), (T - 1, Z, 0), (T - 1, M, 0)]
+BND = [(0, c, 0) for c in _limbs(Z)] + [(T - 1, c, 0) for c in _limbs(Z)] + [(T - 1, M, 0)]
 VALUES = [(i * 37 + 11) % 254 + 1 for i in range(T - 1)]     # bytes in 1..254
 
 def t1_valid_lookup():
@@ -97,7 +124,7 @@ def t3_tampered_multiplicity_rejected():
 def t4_tampered_accumulator_rejected():
     """A shifted Z column violates either the z-transition or its boundary pins."""
     def tamper(h, g, z):
-        z[10] = F.add(z[10], 1)
+        z[10] = E.add(z[10], E.lift(1))
     proof = stark.prove(_trace(VALUES), _transitions(), BND, periodic=_periodic(), max_degree=2,
                         aux_spec=_aux_spec(tamper))
     ok, why = stark.verify(proof, _transitions(), BND, periodic=_periodic(), max_degree=2,
