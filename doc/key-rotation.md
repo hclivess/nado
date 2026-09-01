@@ -1,6 +1,6 @@
 # Account authentication — keep the address, change the keys
 
-Design 2026-08-25; implemented 2026-08-26 on branch `auth-config`. Status: **built, dormant until the next chain generation** (`protocol.AUTH_ACTIVE = CHAIN_GENERATION >= 24`; `NADO_AUTH_FORCE=1` activates it for tests and throwaway testnets only).
+Design 2026-08-25; implemented 2026-08-26 on branch `auth-config`. Status: **LIVE since betanet-6 (gen 24, 2026-09-01)** — `protocol.AUTH_ACTIVE` is true from block 0; the wallet's "Protect this account" / rotation / recovery flows and the `auth` recipient are the live path.
 
 **Framing.** Account abstraction in its smallest useful form: an address stops being "the hash of one key"
 and becomes an **account whose authentication policy is state**. The policy says which keys may *spend*
