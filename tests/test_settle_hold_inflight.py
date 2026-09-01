@@ -95,9 +95,11 @@ src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # made STRICTLY STRONGER by adding `or _pend_hold` (2026-08-06, so the pass that declines to prove a second
 # span does not fall through to a bare settle). A check that fails when the thing it guards gets better is
 # testing the text, not the behaviour — so require each disjunct to be present instead.
-_hold_line = next((l for l in src.splitlines() if l.strip().startswith("if proof is None and (")), "")
+# the disjunction now lives in its own `_hold = (...)` line, consumed by `if proof is None and _hold:`
+_hold_line = next((l for l in src.splitlines() if l.strip().startswith("_hold = (")), "")
 check("maybe_settle holds when a prove is in flight",
-      all(part in _hold_line for part in ("_settle_proving", "_pub_active", "_pend_active")))
+      all(part in _hold_line for part in ("_settle_proving", "_pub_active", "_pend_active"))
+      and "if proof is None and _hold:" in src)
 # THE HOLD MUST SPAN PUBLISH AND SUBMIT, NOT JUST THE PROVE. _settle_proving is cleared by the prove
 # THREAD's done-callback, so it goes False at "BUILT" while ~230 s of publish (139 s) and inline L1
 # verification (94 s) still lie ahead. Bare settles resumed in that window and walked the tip forward:
@@ -119,7 +121,9 @@ check("the hold is released by the same guard that tracks the prove thread",
 # pipeline under a 420 s ceiling. Observed live 2026-08-04, the block builder DROPPING the tx outright:
 #     Candidate excludes pool tx 23e34dd950ea90cb: Settle proof pre_root must extend the settled tip
 import re as _re
-_sub = int(_re.search(r"^SETTLE_SUBMIT_TIMEOUT_PROOF = (\d+)", src, _re.M).group(1))
+# the constant became env-overridable: `= int(os.environ.get("...", "1800"))` — read the default either way
+_m = _re.search(r'^SETTLE_SUBMIT_TIMEOUT_PROOF = (?:int\(os\.environ\.get\([^,]+, "(\d+)"\)\)|(\d+))', src, _re.M)
+_sub = int(_m.group(1) or _m.group(2))
 _hold = eval(_re.search(r"^SETTLE_HOLD_MAX_S = (.+)$", src, _re.M).group(1),
              {"SETTLE_SUBMIT_TIMEOUT_PROOF": _sub})
 PUBLISH_MEASURED = 139          # worst DA publish observed for a 118.57 MiB proof
