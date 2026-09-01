@@ -73,8 +73,11 @@ def t3_window_excludes_only_old_windowed_rows():
         if windowed and e is not None:
             assert e >= floor, f"{name} {key!r} epoch {e} < floor {floor} must be excluded"
     kept = {(n, k) for n, k, _ in out}
-    assert ("meta", f"epochw:0".encode()) in kept and ("meta", b"divinflow:0") in kept, \
-        "epochw/divinflow are permanent root members"
+    assert ("meta", b"divinflow:0") in kept, "divinflow is a permanent root member (one row per epoch)"
+    # epochw follows the gen-24 rule (t1): windowed -> an epoch-0 snapshot is BELOW the floor and leaves the
+    # root; permanent -> it stays. Either way the rule is one flag, asserted here against the same flag.
+    assert (("meta", b"epochw:0") in kept) == (not EPOCHW_ROOT_WINDOWED), \
+        "epochw:0 membership must follow EPOCHW_ROOT_WINDOWED"
     assert ("accounts", ADDR.encode()) in kept and ("totals", b"totals") in kept
     assert ("commits", b"garbage-no-separator") in kept, "unparseable keys are never excluded"
     assert ("commits", f"{ADDR}|{floor - 1}".encode()) not in kept
