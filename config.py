@@ -146,14 +146,19 @@ def get_config(config_path: str = None):
 def update_config(new_config: dict, config_path: str = None):
     """Read-merge-write: overlay `new_config` keys onto the existing config and persist. Keys not
     mentioned pass through untouched, so a caller can flip one knob without knowing (or wiping)
-    the full schema. NOT crash-atomic — a plain truncate-and-rewrite of a non-consensus file."""
+    the full schema. Atomic rename so a concurrent reader never sees a partial file."""
     config_path = config_path or _config_path()
     config = get_config(config_path)
     for key, value in new_config.items():
         config[key] = value
 
-    with open(config_path, "w") as outfile:
+    # write-to-temp + rename: get_config() is read uncached from other threads (peer table, HTTP
+    # handlers), and a plain truncate-and-rewrite exposed a partial file to them for the duration of
+    # the dump — one JSONDecodeError aborted a whole peer pass. Rename is atomic on POSIX.
+    tmp = f"{config_path}.tmp"
+    with open(tmp, "w") as outfile:
         json.dump(config, outfile)
+    os.replace(tmp, config_path)
 
 
 # Bumped when a DEFAULT changes in a way an already-written config would otherwise pin forever.

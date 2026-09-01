@@ -3969,9 +3969,18 @@ class CoreClient(threading.Thread):
                     # _known_tip_height, so a node 240 blocks behind verified EVERY settle proof in full
                     # (5-18 min each, one per ~6 min of chain) and could never catch up — the depth gate
                     # written for exactly that case was dead on that path.
+                    # UPPER MEDIAN of the advertised heights, not the max: the depth gate RELAXES
+                    # verification, so its input must not be one peer's claim. With max(), a single
+                    # admitted status advertising a tall-but-plausible height (the plausibility gate
+                    # allows ~2x wallclock) made every remote block "deep" on every node at once, and
+                    # SETTLE_PROOF_DEPTH_GATED then skipped the STARK check fleet-wide. The median needs
+                    # a majority of the pool to lie; honest peers sit within a few blocks of each other,
+                    # so a node catching up still sees the mesh tip. A lone peer is still its own median.
                     try:
-                        _best_peer = max((int(v.get("latest_block_height") or 0)
-                                          for v in self.consensus.status_pool.copy().values() if isinstance(v, dict)), default=0)
+                        _hs = sorted(int(v.get("latest_block_height") or 0)
+                                     for v in self.consensus.status_pool.copy().values()
+                                     if isinstance(v, dict) and isinstance(v.get("latest_block_height"), int))
+                        _best_peer = _hs[len(_hs) // 2] if _hs else 0
                     except Exception:
                         _best_peer = 0
                     _deep = bool(remote) and (

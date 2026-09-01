@@ -217,8 +217,22 @@ class PeerClient(threading.Thread):
                     # node) must be treated as protocol -1 and banned, NOT crash the whole pass. The old
                     # hard `value['protocol']` raised KeyError, which propagated to the outer handler and
                     # skipped status admission AND purge_peers() for every remaining peer that pass.
-                    if not isinstance(value, dict) or value.get('protocol', -1) < self.memserver.protocol:
-                        self.logger.error(f"Protocol of {key} too low: {value.get('protocol') if isinstance(value, dict) else value}")
+                    # TYPE-CHECK FIRST. `protocol: null` or `"11"` made the `< self.memserver.protocol`
+                    # comparison below raise TypeError BEFORE the well-typed check (which sat last in this
+                    # chain) could refuse it — one malformed status aborted admission, mempool reconcile,
+                    # save_pool and purge_peers for every remaining peer, every pass, and the sender was
+                    # never banned because the crash preceded ban_peer.
+                    if not isinstance(value, dict) or not status_fields_well_typed(value):
+                        # MALFORMED-TYPE status: a numeric field (esp. latest_block_weight) that is
+                        # present but not an int would crash the fork-choice comparison (`str > int`
+                        # TypeError) on EVERY consensus pass and freeze the heaviest-tip refresh
+                        # node-wide — the same halt-class as an unvalidated tx field. Refuse it here so
+                        # no mistyped value ever reaches a comparison.
+                        self.logger.error(f"Status of {key} has malformed field types; refusing")
+                        self.memserver.ban_peer(key)
+                    elif not isinstance(value.get('protocol'), int) or value['protocol'] < self.memserver.protocol:
+                        # absent (old/broken/hostile node) counts as too low: banned, never crashed on
+                        self.logger.error(f"Protocol of {key} too low: {value.get('protocol')}")
                         self.memserver.ban_peer(key)
                     elif value.get('chain_id') != CHAIN_ID:
                         # WRONG CHAIN (or a pre-chain_id node that doesn't advertise one): NEVER admit
@@ -252,14 +266,6 @@ class PeerClient(threading.Thread):
                         # then advertises honestly.
                         self.logger.error(f"Genesis of {key} is not ours ({str(value.get('genesis_hash'))[:16]}…) "
                                           f"— foreign-generation chain; refusing status admission")
-                        self.memserver.ban_peer(key)
-                    elif not status_fields_well_typed(value):
-                        # MALFORMED-TYPE status: a numeric field (esp. latest_block_weight) that is
-                        # present but not an int would crash the fork-choice comparison (`str > int`
-                        # TypeError) on EVERY consensus pass and freeze the heaviest-tip refresh
-                        # node-wide — the same halt-class as an unvalidated tx field. Refuse it here so
-                        # no mistyped value ever reaches a comparison.
-                        self.logger.error(f"Status of {key} has malformed field types; refusing")
                         self.memserver.ban_peer(key)
                     else:
                         self.consensus.status_pool[key]=value

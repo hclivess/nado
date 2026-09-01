@@ -159,7 +159,11 @@ class MessagePool:
     def list_tags(self, since_seq=0, limit=5000) -> list:
         """Ordered [{"seq", "tag", "id"}] for seq > since_seq — the recipient scans these, matches its own
         tags, then fetches only its own bodies. `next` cursor = the max seq returned."""
-        rows = [r for r in self.messages.values() if r["seq"] > since_seq]
+        # under the lock: add_message (HTTP worker thread) and gc/_evict_over_cap (message loop) mutate
+        # `messages` concurrently, and iterating a dict while another thread resizes it raises
+        # RuntimeError ("dictionary changed size during iteration") — /tags answered 500 to the reader
+        with self._lock:
+            rows = [r for r in self.messages.values() if r["seq"] > since_seq]
         rows.sort(key=lambda r: r["seq"])
         return [{"seq": r["seq"], "tag": r["env"]["tag"], "id": message_id(r["env"])} for r in rows[:limit]]
 

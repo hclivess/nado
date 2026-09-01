@@ -226,7 +226,7 @@ class MessageClient(threading.Thread):
         # that is always red is a health line the operator learns to skip.
         try:
             our_h = self.memserver.latest_block["block_number"]
-            twins, proven = key_collision(self.consensus.status_pool, self.memserver.address, our_h,
+            twins, proven = key_collision(self.consensus.status_pool.copy(), self.memserver.address, our_h,
                                           self.memserver.latest_block["block_hash"],
                                           local_addresses=own_addresses(getattr(self.memserver, "ip", None)))
             # ONE OBSERVATION IS NOT EQUIVOCATION. The comparison is CROSS-TIME: `st` is a status snapshot
@@ -274,7 +274,7 @@ class MessageClient(threading.Thread):
         # stake, so below that the network is one outage from being unable to onboard a fresh node.
         try:
             from ops.snapshot_ops import SNAPSHOT_MIN_PEERS
-            distinct = len({st.get("address") for st in self.consensus.status_pool.values()
+            distinct = len({st.get("address") for st in self.consensus.status_pool.copy().values()
                             if isinstance(st, dict) and st.get("address")} - {self.memserver.address})
             fleet = distinct + 1
             # What a JOINER actually needs: agree_snapshot counts RESPONDING PEERS (self excluded), so a

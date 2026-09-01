@@ -102,7 +102,10 @@ def _migrate_legacy_peers():
 # known numeric/hash field is present but wrong-typed, at the admission boundary — so no downstream
 # consumer ever compares a mistyped value. Absent/None is allowed (a mid-restart peer legitimately omits
 # fields); bool is rejected for numerics (True/False must not masquerade as a weight/height).
-_STATUS_INT_FIELDS = ("latest_block_weight", "finalized_height", "ffg_finalized",
+# latest_block_height is in the list because core_loop's settle-proof DEPTH GATE reads it: a string height
+# survived `int()` there, so one peer advertising "999999999999" made every remote block "deep" fleet-wide
+# and switched the cryptographic settle verification off (SETTLE_PROOF_DEPTH_GATED trusts the depth signal).
+_STATUS_INT_FIELDS = ("latest_block_weight", "latest_block_height", "finalized_height", "ffg_finalized",
                       "snapshot_height", "reported_uptime", "protocol")
 _STATUS_STR_FIELDS = ("latest_block_hash", "earliest_block_hash", "upcoming_block_hash",
                       "transaction_pool_hash", "snapshot_hash", "address", "version", "chain_id")
@@ -563,12 +566,29 @@ def load_peer(logger, ip, key=None) -> [str, dict]:
     return peer if key is None else peer.get(key)
 
 
+CHECK_SAVE_PEERS_MAX = 50      # new candidate addresses dialled per peer-loop pass (one semaphore batch)
+
+
 def check_save_peers(peers, logger, fails, unreachable):
     """persist newly-reachable peers to the peer table (skipping self, non-routable, and already-known)"""
     # `peers` may be the UNTRUSTED flattened /peers gossip (get_list_of_peers): keep only string IPs so
     # a hostile peer's non-string element (e.g. a dict) can't raise `unhashable type` in set() and abort
     # the whole peer-loop pass. Non-string entries could never be a valid IP anyway.
-    good_peers = {p for p in peers if isinstance(p, str)} - set(fails) - set(unreachable)
+    # Only what could ever be PERSISTED is worth dialling: this function exists to learn the address of a
+    # NEW table entry, so an address already in the table, non-routable (check_ip: loopback/RFC1918/link-
+    # local/metadata — the SSRF class the guard exists for) or our own is skipped before any I/O, not after.
+    # Bounded per pass: the flattened /peers gossip is untrusted, and one peer listing thousands of
+    # blackholed addresses cost 5 s per 50 of them, every second, while statuses and the mempool went stale.
+    my_ip = get_config()["ip"]
+    good_peers = {p for p in peers if isinstance(p, str) and p != my_ip and check_ip(p)} \
+        - set(fails) - set(unreachable)
+    if good_peers:
+        with _PEERS_LOCK:
+            _known = _load_peers()
+        good_peers = {p for p in good_peers if p not in _known}
+    good_peers = set(sorted(good_peers)[:CHECK_SAVE_PEERS_MAX])
+    if not good_peers:
+        return
 
     local_fails = []
     candidates = asyncio.run(compound_get_status_pool(
@@ -578,7 +598,6 @@ def check_save_peers(peers, logger, fails, unreachable):
         logger=logger,
         semaphore=asyncio.Semaphore(50)))
 
-    my_ip = get_config()["ip"]
     with _PEERS_LOCK:
         table = _load_peers()
         changed = False
@@ -769,9 +788,6 @@ async def get_public_ip(logger):
     # PREFER IPv4 for self-advertisement: on a dual-stack host, advertising a v6-only self would make us
     # unreachable to v4-only peers (most of the current mesh) and can partition us. api4/api6 force a family;
     # try v4 first, fall back to v6 (so a v6-ONLY host still gets a usable address), then the generic probe.
-    urls = ["https://api4.ipify.org", "https://api6.ipify.org",
-            "https://api.ipify.org", "https://ipinfo.io/ip"]
-
     for ip in await get_public_ips(logger):
         return ip
 
