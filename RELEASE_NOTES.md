@@ -1,3 +1,25 @@
+# v1.0.0-beta.7 — 2026-09-01 — betanet-6: the sybil-rules + account-auth reroll, every amount carried
+
+> **CHAIN_GENERATION 24, protocol 9.** Nodes purge and boot betanet-6 from genesis automatically on
+> restart (genesis 2026-09-01T13:35:32Z). All balances, bonded stakes, uncollected + pending dividends, user bridge
+> balances and pending exits carried forward — supply conserved exactly (`tools/alphanet6_carryforward.py`).
+> Shielded pools verified empty. Contract ids unchanged (`H(deployer, code, pinned nonce)`); every contract
+> redeployed open + upgradable at its existing address; the two users whose small game stakes the tool
+> attributes to the operator are refunded by hand.
+
+## What is different from block 0
+
+- **Probation** (`PROBATION_FIDELITY` = 2): an identity earns no presence dividend and has open-lane weight 1
+  until its first timely renewal (~19 h). It is *absent* from the epoch's weight set, not weighted 0.
+- **Burst-proof registration difficulty**: the flood baseline is capped by the 14-day trailing rate.
+- **Relays** count only *entry* registrations against the per-IP budget (default 8/h).
+- **Account authentication live** (`AUTH_ACTIVE`): key rotation / recovery / multi-authenticator policies.
+- **epochw rows leave the per-block root window**; a 32-byte accumulator keeps the weight history root-bound.
+- **Leaderless assembly touch-ups** (already live on betanet-5): pre-assembly next-block reconcile,
+  most-complete-pool tie-break, no sender-wide purge on an aggregate-spend refusal.
+- Every node's fidelity/recert history restarts at 0 (recerts are not carried): the whole open lane is on
+  probation for its first day; the dividend pool carries forward and pays from day two.
+
 # v1.0.0-beta.6 — 2026-08-25 — betanet-5: the dividend-rules reroll, every amount carried
 
 > **CHAIN_GENERATION 23, protocol 8.** Nodes purge and boot betanet-5 from genesis automatically on

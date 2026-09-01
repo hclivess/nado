@@ -105,7 +105,9 @@ def t1_fast_walk_equals_slow_path():
     check("excluded meta keys/prefixes dropped",
           not any(k in so.ROOT_EXCLUDED_META_KEYS or k.startswith(so.ROOT_EXCLUDED_META_PREFIXES)
                   for n, k in keys if n == "meta"))
-    check("every epochw row kept (not windowed)", sum(1 for n, k in keys if k.startswith(b"epochw:")) == 3)
+    from protocol import EPOCHW_ROOT_WINDOWED
+    check("epochw rows: all kept before gen 24, windowed from gen 24",
+          sum(1 for n, k in keys if k.startswith(b"epochw:")) == (2 if EPOCHW_ROOT_WINDOWED else 3))
 
     # A CHANGED plain-row value must invalidate its cached digest (memcmp against the buffer, not a key hit).
     r0 = so.l1_state_root()

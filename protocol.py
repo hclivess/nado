@@ -27,7 +27,7 @@ if not __debug__:
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "betanet-5"  # BETANET (gen 23): the DIVIDEND-RULES reroll — balances, bonded stake,
+CHAIN_ID = "betanet-6"  # BETANET (gen 24): the SYBIL-RULES + ACCOUNT-AUTH reroll — balances, bonded stake,
                         # dividends and bridged coins fold forward from betanet-4
                         # (genesis_data/genesis_alloc.dat). Every 2026-08-25 rule is live from block 0
                         # with NO gate: linear bonded weight (no per-identity cap), the dividend's own
@@ -66,7 +66,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1787656983  # betanet-5 (gen 23): the dividend-rules reroll. New DISTINCT
+GENESIS_TIMESTAMP = 1788269732  # betanet-6 (gen 24): the sybil-rules + account-auth reroll (2026-09-01T13:35:32Z). New DISTINCT
                                 # timestamp so no prior-generation block links in.
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
@@ -578,7 +578,7 @@ POSW_ENTRY_MULT = 32
 #   that carried these rules for the last hours of gen 22 is deleted — it existed for replay of gen-22
 #   history, which no longer exists. OPERATIONAL: redeploy the game contracts in the SAME session
 #   (execnode.games.redeploy — pinned nonce => identical cids, upgradable) and re-fund the faucet.
-CHAIN_GENERATION = 23
+CHAIN_GENERATION = 24
 
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
@@ -1406,8 +1406,7 @@ def fidelity_step(cur_fid: int, continuous: bool, gap: int) -> int:
 
 
 # --- SYBIL RULES (2026-09-01; doc/ip-spoofing-and-sybil.md §"Probation"). A gen-23-keyed activation, per the gate
-# hygiene rule above: the height is THE rule from block 0 of the next generation and the expression self-disarms
-# at the reroll (SCHEDULED-CLEANUP: delete the gate at gen 24, keep the rules unconditional).
+# hygiene rule above: shipped gen-23-keyed at block 86 400 and made unconditional at the betanet-6 (gen 24) reroll.
 # WHY (measured 2026-09-01, 811 present open identities, ~540 registered in 48 h, 74% at fidelity <= 2): a fresh
 # identity got open weight 2 and dividend weight 1 from its FIRST lease, and 87% of open-lane value flows through
 # the dividend pool, which splits LINEARLY by identity count when the population is young — 500 disposable
@@ -1419,9 +1418,8 @@ def fidelity_step(cur_fid: int, continuous: bool, gap: int) -> int:
 #      day two. A mint-and-discard identity never leaves probation.
 #   3. SLOW-ADAPTING DIFFICULTY BASELINE (ops/reg_difficulty): the flood multiplier's baseline is the MIN of the
 #      2-day and 14-day trailing rates, so a sustained burst cannot become its own baseline within a fortnight.
-_GEN23_SYBIL_ACTIVATION = 86_400                     # epoch 1440 boundary; ~4 h after the 2026-09-01 15:00 push
-SYBIL_RULES_HEIGHT = _GEN23_SYBIL_ACTIVATION if CHAIN_GENERATION == 23 else 0
-SYBIL_RULES_EPOCH = SYBIL_RULES_HEIGHT // EPOCH_LENGTH
+# (The gen-23 activation gate — block 86 400 of betanet-5 — was deleted at the betanet-6 (gen 24) reroll: the
+# rules are simply THE rules from block 0. tests/test_sybil_rules.py pins that no gate survives.)
 PROBATION_FIDELITY = 2               # first lease = fidelity 1; the first timely renewal = 2 ends probation
 POSW_DIFF_TRAIL_LONG = 3360          # 14 days of epochs — the long trailing rate the difficulty baseline is capped by
 
@@ -1430,12 +1428,12 @@ def on_probation(fidelity, epoch: int) -> bool:
     """True if an identity with `fidelity` is on probation at `epoch` (rules 1+2 active and fidelity below
     PROBATION_FIDELITY). Pure; the one predicate both the live paths and the dividend replay share."""
     f = 0 if fidelity is None or int(fidelity) < 0 else int(fidelity)
-    return int(epoch) >= SYBIL_RULES_EPOCH and f < PROBATION_FIDELITY
+    return f < PROBATION_FIDELITY                        # `epoch` kept for call-site stability (no gate since gen 24)
 
 
 def dividend_weight(fidelity, epoch: int) -> int:
     """Per-miner presence-dividend weight AT `epoch`: a convex 1..DIVIDEND_WEIGHT_MAX curve, 1 + (f^2 * (MAX-1)) //
-    FIDELITY_CAP^2, integer-only (f saturates at FIDELITY_CAP; None/negative = 0). From SYBIL_RULES_EPOCH an
+    FIDELITY_CAP^2, integer-only (f saturates at FIDELITY_CAP; None/negative = 0). An
     identity on probation (fidelity < PROBATION_FIDELITY) has weight 0 — and a 0 here means OMITTED from the
     epoch's weight set (dividend_ops.weights_at_epoch, nado.get_open_weights): the exec accrual floors listed
     weights to 1, so presence in the set is the grant."""

@@ -154,3 +154,12 @@ The reborn node re-syncs from its peers; where strict rules refuse an old-rules 
 joins above it via the **snapshot bootstrap** (a donor's finalized checkpoint, verified against the
 quorum-settled root) and tail-syncs from there. This is the lightweight alternative to a generation
 bump: the canonical chain keeps running, only the stranded nodes reset.
+
+
+## 2026-09-01 — betanet-6 (gen 24)
+
+Same runbook as gen 23 (backup → stop nado-exec + nado → `tools/alphanet6_carryforward.py --write` → bump
+CHAIN_ID / GENESIS_TIMESTAMP / CHAIN_GENERATION / protocol → retire the gen-23 SYBIL gate → commit → purge →
+start → push → `/update` wave → `execnode.games.redeploy` → `_fund_faucet.py` → manual refunds of the pots the
+tool attributes to the operator). Audit before the wipe: DEX pool had a single LP (the operator), OTC escrow
+refunds summed to 0, lend/pool held nothing, shielded pools empty, one open HTLC (the operator's, expired).

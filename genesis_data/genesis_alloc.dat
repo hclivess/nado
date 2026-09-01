@@ -1,53 +1,138 @@
 [
 {
+"address": "000e525fbfb3d2049f261796248255e154798cf391beca",
+"balance": 1415584313,
+"bonded": 0
+},
+{
+"address": "006896e42ce060bfcc7bc56ffa2bf9449e1ed56c4170b1",
+"balance": 2360521937,
+"bonded": 0
+},
+{
+"address": "009dbbf67075b65f250d4d721ede2e5ab66ee37132c0dc",
+"balance": 1540780828,
+"bonded": 0
+},
+{
+"address": "00d92f0e6930961a6fc1c72da848a8d029f8eed5ab385c",
+"balance": 3412362618,
+"bonded": 0
+},
+{
 "address": "00e4a469d609076caccf5ed77d57924c9d38a6ef9e71d3",
 "balance": 58811590740,
 "bonded": 560000000
 },
 {
+"address": "011976bdc1591aeefb8e620b18c27a1edc63b436e6ea1e",
+"balance": 1515306911,
+"bonded": 0
+},
+{
 "address": "0124894c905dca8fbd058689d75fc0cfc2cd3d6ed8b057",
-"balance": 692302879,
-"bonded": 873902485622
+"balance": 1474080875,
+"bonded": 1033344495622
+},
+{
+"address": "0150611c57625648d801a7a3f90306474a6087b1540af7",
+"balance": 1423300828,
+"bonded": 0
 },
 {
 "address": "0165cfeb9bf1c90593975e0725e3e6ff2458e23d73644f",
-"balance": 6023466340,
+"balance": 3577979667,
 "bonded": 27460000
 },
 {
+"address": "0167578b4ed93817f5a234628800c2b7720beb0bc605d5",
+"balance": 2228954561,
+"bonded": 0
+},
+{
+"address": "0200a6c8f44ac4153cb00aa19fa3307bcf9ae800eddf8a",
+"balance": 1338036343,
+"bonded": 0
+},
+{
+"address": "0206ef98262746dadf750100deb6037425ba3e5f92cdc2",
+"balance": 1775588846,
+"bonded": 0
+},
+{
 "address": "025d5eab139964793440543805f2979530a3070cec27cc",
-"balance": 2646989163,
+"balance": 1362066513,
+"bonded": 0
+},
+{
+"address": "0265e64e5d4761e5663410d149e30b2d3a8929565cafd1",
+"balance": 1357058334,
+"bonded": 0
+},
+{
+"address": "02d1cf4f1f466108c66d197bd7f5dec760e639c906af01",
+"balance": 3585148429,
 "bonded": 0
 },
 {
 "address": "0318ff6dcfc2cee751000104b8395458c5bc02bb1ec507",
-"balance": 13760985829,
+"balance": 2117703656,
+"bonded": 0
+},
+{
+"address": "032e1072cec8c56de91264ba9305975b76be7f7ce4b00e",
+"balance": 4887989634,
+"bonded": 0
+},
+{
+"address": "033b70a32d0cafe89b10d1fb3be097c4515a704996c65a",
+"balance": 2093246534,
 "bonded": 0
 },
 {
 "address": "034222537cc54638813bc1825a5eece8b7d7799446d6c0",
-"balance": 675980914,
+"balance": 298525413,
+"bonded": 0
+},
+{
+"address": "03d42669ed17e701fa3950230d75e1c41317e4ba3d82ed",
+"balance": 2145677214,
 "bonded": 0
 },
 {
 "address": "03e3c85dcedb158abb1477a80147fd6a49fb2fd0fbe7a5",
-"balance": 7004619469,
+"balance": 166994704,
 "bonded": 0
 },
 {
 "address": "0473e8bed89514a49f19395fd83e2582f036ad536d3aa8",
-"balance": 2465965856,
+"balance": 4053988429,
 "bonded": 0
 },
 {
 "address": "04991f6de2f4a938ae3603e109647bd309bd19583ca5c5",
-"balance": 49014662742,
-"bonded": 5699600000
+"balance": 60572642339,
+"bonded": 6372048000
+},
+{
+"address": "04c7b536144df6c3b834998b9ec426d84fd3b7117be2bb",
+"balance": 2411765835,
+"bonded": 0
 },
 {
 "address": "04cfb99c8601e71ce331a35b2cbf647caadbd5fdbb4976",
-"balance": 36465757940,
-"bonded": 2757576000
+"balance": 51423211946,
+"bonded": 4290576000
+},
+{
+"address": "04e53c1f222c350cd3e3a346d1daa9e1456bc94182d63b",
+"balance": 1726545772,
+"bonded": 0
+},
+{
+"address": "04f2e57013fc46bd665b8fc843ef3239c507622583a4c9",
+"balance": 1300506925,
+"bonded": 0
 },
 {
 "address": "056ce44f9903a116b0d9140b295c581f3e883599b1d75c",
@@ -55,43 +140,108 @@
 "bonded": 877072000
 },
 {
+"address": "0650ed4e822e78b95c11715445e5c42e33d54d747ddfa3",
+"balance": 1952593897,
+"bonded": 0
+},
+{
 "address": "068c47a5d5b014d11b9377241b10166e8499d0651b08c5",
-"balance": 2684365856,
+"balance": 3936868429,
 "bonded": 0
 },
 {
 "address": "06ebcf39df7a094fd979ef676a68dda2e00ddcfb670761",
-"balance": 3263673926,
-"bonded": 2805376000
+"balance": 926038184,
+"bonded": 4217216000
+},
+{
+"address": "074f8bcfabfc89f1805d535a0ab9991bde189cc6f29fdc",
+"balance": 1895883694,
+"bonded": 0
+},
+{
+"address": "076b46e6c0bd648eeb1db3b08ab19d72fb561fda8d6ec2",
+"balance": 1339665925,
+"bonded": 0
+},
+{
+"address": "0781bd61c6c2398971ead8c9aa632e492d13feb5b8e5ec",
+"balance": 2003248767,
+"bonded": 0
 },
 {
 "address": "078d0ff642dfaac2d15b28dc83cff1082581616fe004e3",
-"balance": 3222769138,
-"bonded": 2513941535000
+"balance": 43227663017,
+"bonded": 3000000000000
 },
 {
 "address": "07a8b0aabc2046b69b509df37d33c5d6e47bd8c979ac57",
-"balance": 137695996825,
+"balance": 146288148682,
+"bonded": 0
+},
+{
+"address": "07b0472778535af19658d0b98bdad060649c5cdd1afa6f",
+"balance": 2329663127,
 "bonded": 0
 },
 {
 "address": "087d92a3b9a9411c121bfcf13677290ad33322ab0a7f58",
-"balance": 305141041,
+"balance": 1386206079,
+"bonded": 0
+},
+{
+"address": "08b522e4b11bea4f68cf0dda739586b7d37223f9f27d61",
+"balance": 1095359173,
+"bonded": 0
+},
+{
+"address": "0a9d54096df1d8054e9cdc6071960b317fea126ec00573",
+"balance": 5141039926,
+"bonded": 0
+},
+{
+"address": "0af10410e9789a22b4cba8cf5ceb11973533d326f01359",
+"balance": 4989940248,
 "bonded": 0
 },
 {
 "address": "0b253cf409521eea4a8341516b93467c16ef01103fc861",
-"balance": 11499961032,
-"bonded": 863904000
+"balance": 25750136920,
+"bonded": 2116720000
+},
+{
+"address": "0b40c335b44250f2407a1d299623c3457369ee8eb93a79",
+"balance": 1095200039,
+"bonded": 0
 },
 {
 "address": "0b598f2f871a393e5ffbe2afe124630b679c78b2ade8a9",
-"balance": 2903325856,
+"balance": 4015548429,
+"bonded": 0
+},
+{
+"address": "0b98d30f6ec4b6184b40c7a178754def299dfc698a0989",
+"balance": 1827484555,
+"bonded": 0
+},
+{
+"address": "0bc35b32c3394ade5f52669d2d2666faf0a6a0749b0b71",
+"balance": 9713024040,
 "bonded": 0
 },
 {
 "address": "0bda1b0054de50b2eb1349e20cff342aed454d28753534",
-"balance": 3244352096,
+"balance": 1078706793,
+"bonded": 0
+},
+{
+"address": "0c2f28ed1e24ec18869b3f3309130a9cc1db9e51059129",
+"balance": 15666140168,
+"bonded": 101136000
+},
+{
+"address": "0c4f43b1d77266be3f07e7fbb073e646cd6c54cecf5710",
+"balance": 1264391862,
 "bonded": 0
 },
 {
@@ -100,48 +250,173 @@
 "bonded": 407008000
 },
 {
+"address": "0d54942a397158272d695bb5cae29bd5f5af5c6c94b270",
+"balance": 9655539409,
+"bonded": 0
+},
+{
 "address": "0d61e115e3a5cf934200efbac7552186cd15a86d0584c6",
-"balance": 719660914,
+"balance": 259365413,
 "bonded": 87872000
 },
 {
 "address": "0d723c12e6a545b0092dd2a6ca5365804a8374fbdc1474",
-"balance": 2640145856,
+"balance": 3567869831,
 "bonded": 0
 },
 {
 "address": "0d8edd21e063e871eb5652dfc2d1756c121964422a3e68",
-"balance": 2465965856,
+"balance": 4476040056,
 "bonded": 0
 },
 {
 "address": "0e0c2446cad7c70edfa0e6ae849866153895c43428cd50",
-"balance": 13026158620,
-"bonded": 133892548000
+"balance": 7365174781,
+"bonded": 149094324000
+},
+{
+"address": "0e33a750aed30e7b4a3bde42bf3434a8b41c51bbe63892",
+"balance": 2418357214,
+"bonded": 0
+},
+{
+"address": "0eb8b0132600bd2cf383b7000aec8f1393d958b144ef15",
+"balance": 2043412610,
+"bonded": 0
+},
+{
+"address": "0ff3e1443931404c3fcbdc8285e4f1cdcef1ed41e584e7",
+"balance": 2035516838,
+"bonded": 0
 },
 {
 "address": "100d8616e73ddeff233fe9358e66fce947bf40cd4dd414",
-"balance": 3904963785,
+"balance": 1425366079,
+"bonded": 0
+},
+{
+"address": "102bbe0aa14005c0b999d26ccd4ea464ec88a1cfde0ccb",
+"balance": 1671946911,
 "bonded": 0
 },
 {
 "address": "10c9be5d1a4e956508ab50fdec08892a37e8c1c2450652",
-"balance": 2640685856,
+"balance": 3897708429,
 "bonded": 0
 },
 {
 "address": "111d53a0aee5763917b4fe1adeadc7abe458e90d9cb1be",
-"balance": 2553325856,
+"balance": 4054708429,
+"bonded": 67424000
+},
+{
+"address": "11c094ca2a90286e6e615dc2cd36143db6e3c47b53d97b",
+"balance": 34594531,
+"bonded": 0
+},
+{
+"address": "122ef3d4a44628cbcabe8da6637a7e3f94f66849327149",
+"balance": 4671459926,
+"bonded": 0
+},
+{
+"address": "123b59f2bc620b297d55ebc90b38e0e16cfc25e3d8f014",
+"balance": 2231829719,
+"bonded": 0
+},
+{
+"address": "128b386a1f3f215a18c5550fd91b9da9e92f8e86db2958",
+"balance": 11805711375,
+"bonded": 0
+},
+{
+"address": "12a3c0dc9bc22b9eeba1816204119f778a5d84195377d1",
+"balance": 1271560629,
+"bonded": 0
+},
+{
+"address": "12ac4e965be881157fdfed522f6986b3c7f1d21f12b451",
+"balance": 2004612610,
+"bonded": 0
+},
+{
+"address": "12e63323c5959408e25777e63af97ec230cbd42a64e691",
+"balance": 5044689634,
+"bonded": 0
+},
+{
+"address": "13461f3150067839875eac80fe16d8a9f7cd1686c3cb11",
+"balance": 6820767506,
+"bonded": 0
+},
+{
+"address": "137b651af903bb00fc10102bc37e577f7167dc1f0bb846",
+"balance": 3439615963,
+"bonded": 0
+},
+{
+"address": "13b20c9fbbadab5d6ab9b327ef36ffed71cec90d369a9b",
+"balance": 1994427610,
+"bonded": 0
+},
+{
+"address": "14c1da3e4272497459a06240b542ff5ac9ac7fc0ef8b0c",
+"balance": 1200418334,
+"bonded": 0
+},
+{
+"address": "1508c994280a72528d53609d6380613ed98c2fc19c88b7",
+"balance": 2150347610,
+"bonded": 0
+},
+{
+"address": "15253f265d4316542c757071250d1540516aab1e048b26",
+"balance": 1454744313,
+"bonded": 0
+},
+{
+"address": "1534e96eb97d669eff969f04d7d7e3e9760ea78299f2ab",
+"balance": 2256679610,
 "bonded": 0
 },
 {
 "address": "157aa2d48887b18ea349a7f072944243c99c5fe126c60b",
-"balance": 1760457222,
+"balance": 3897768429,
+"bonded": 0
+},
+{
+"address": "15af2ab1003636d878d180522cc19613b97521a9b21362",
+"balance": 2170846534,
+"bonded": 0
+},
+{
+"address": "15b1ed0cea7ca138e392500d5e5fef2eb50cf455cc3e40",
+"balance": 3232824607,
+"bonded": 0
+},
+{
+"address": "15d73e9379e0912be679ffae7f5bf0d4d2400de5030c4a",
+"balance": 1519044750,
 "bonded": 0
 },
 {
 "address": "15e860cbd85c22ba06063614b2b8acdd3534c235dce8a6",
-"balance": 2553325856,
+"balance": 3587215284,
+"bonded": 0
+},
+{
+"address": "161ef54da9a4135c2161044b491f8d2f46cff1b6834ab2",
+"balance": 2023168351,
+"bonded": 0
+},
+{
+"address": "1645651dc1487dc078b95a643a06bd96697d07aceac754",
+"balance": 1579940828,
+"bonded": 0
+},
+{
+"address": "168ac7be8235c7a02f5292b46f4ed848e7ab005cd946da",
+"balance": 1325121070,
 "bonded": 0
 },
 {
@@ -150,29 +425,89 @@
 "bonded": 0
 },
 {
+"address": "17233f64f6fc9ae110a9706ecee034e1c0951aeba1602d",
+"balance": 3665535284,
+"bonded": 0
+},
+{
+"address": "172a46423463785c516d677a8a323d4786385206ebd7b4",
+"balance": 1730562415,
+"bonded": 0
+},
+{
+"address": "175d55268f0c8afcb9ceb937ada48d1fb7ba2c9e2efd28",
+"balance": 3204742722,
+"bonded": 0
+},
+{
 "address": "17b1e2c48f3c6cf63006598b06874aa7fba7b9a1c9ac3e",
-"balance": 321318819,
-"bonded": 6320000
+"balance": 2161655208,
+"bonded": 2514341510000
+},
+{
+"address": "17b9c30c48f172c8fef11e1732a9978c0eb41ca20c5b1b",
+"balance": 1636524750,
+"bonded": 0
+},
+{
+"address": "17f6208540d088bc0621aaf0d9410a92bf19f265005ec8",
+"balance": 1180564963,
+"bonded": 0
 },
 {
 "address": "18089166756ab1b30d4368798cfb194f836796183a9b6c",
-"balance": 11712870451,
+"balance": 1339665925,
+"bonded": 0
+},
+{
+"address": "181e826c8cafd2b798012c2fd3a85dd1885a55a2c57829",
+"balance": 1705784408,
+"bonded": 0
+},
+{
+"address": "186e6bf94c973f72f86faa5eb95f1e74285bb8d89525bb",
+"balance": 9872764040,
 "bonded": 0
 },
 {
 "address": "192b1503ead4f04b65fb6c56211abbbb25e94db6535150",
-"balance": 4908004091,
-"bonded": 96834943908
+"balance": 22564792510,
+"bonded": 101593380908
+},
+{
+"address": "194121c017d11512573e1d8c1cfea8d8afa0504582f378",
+"balance": 2074676838,
+"bonded": 0
+},
+{
+"address": "1946ca875665cdbf5d4205f1dd1b125a1577cf8c656c77",
+"balance": 3111662414,
+"bonded": 0
+},
+{
+"address": "198a9157d60cb26a1487546951763700eeb77fd4e6d5a3",
+"balance": 1810486238,
+"bonded": 0
 },
 {
 "address": "1999bef4aa4d465155f5d984db20018578c28939dfc5fa",
-"balance": 6189718173,
-"bonded": 988420000
+"balance": 35180915501,
+"bonded": 4014440000
+},
+{
+"address": "19cf49599389c4b2431200b39524c5d9e3543ab510dca8",
+"balance": 1272025331,
+"bonded": 0
 },
 {
 "address": "19e8157b1b78c340f8955cb7bd4a95b12bdbe4188ba89f",
-"balance": 114483386706,
-"bonded": 625678386272
+"balance": 190773024223,
+"bonded": 672074890272
+},
+{
+"address": "1a40d2e3f4112de082e04c50704bb156e015c420f6d6cb",
+"balance": 5699987000,
+"bonded": 0
 },
 {
 "address": "1ab2e0cb064dcf5b21a9afc4e70ac0df8629dc3d083407",
@@ -181,18 +516,48 @@
 },
 {
 "address": "1acf5c2a382b4c473b43cd931a780bb7bbacd858e4106c",
-"balance": 143942774806,
-"bonded": 173900913243
+"balance": 13504672951,
+"bonded": 357944053243
 },
 {
 "address": "1ae9e93d3aa3469266192772009a919d06fccd885013a5",
-"balance": 2771185856,
+"balance": 3898128429,
+"bonded": 0
+},
+{
+"address": "1bacc7080660b6bea9446abba3f8a0566b7916fdfb0f12",
+"balance": 1924568767,
+"bonded": 0
+},
+{
+"address": "1bcb889f581b4f0530b51fe19c7711cc992b45d1a19bbc",
+"balance": 11964071375,
+"bonded": 0
+},
+{
+"address": "1c08e70793616809123a28760acafb9587e1cfc15d8d4e",
+"balance": 1717633897,
 "bonded": 0
 },
 {
 "address": "1d75f1c61ac5a3baf4305c3c7a27f593d8458dc6c72373",
-"balance": 18840357461,
-"bonded": 1015711000000
+"balance": 3203986969,
+"bonded": 1433777382000
+},
+{
+"address": "1e28b3c57256e642c168f3ac260a06950d6e7f20058582",
+"balance": 3216598541,
+"bonded": 0
+},
+{
+"address": "1ea59d76c560e549ba1ec823f63a2da78cf753015ab50e",
+"balance": 1325121070,
+"bonded": 0
+},
+{
+"address": "1ec2550fe5dcf860ad8b3d5a64ed0a73c2aadd54b6698b",
+"balance": 1904604795,
+"bonded": 0
 },
 {
 "address": "1efd1105bff7bef1504caf2edef02312fc8ed559d54c15",
@@ -200,53 +565,208 @@
 "bonded": 49344000
 },
 {
+"address": "1f08ef7c169e6e9d92497bf924211703c0cae5da751348",
+"balance": 1481761070,
+"bonded": 0
+},
+{
+"address": "1f57a8ac7ea2b9b4279937351aa6863b8cc58e6f8c3c12",
+"balance": 3470815284,
+"bonded": 0
+},
+{
+"address": "1fe2b262bfe42c2a512f3bb64e8b319595ee2a80f297ca",
+"balance": 1702715482,
+"bonded": 0
+},
+{
+"address": "2015122d3338a8a63e33b3d5cbe41feaf3d0d286c3cc11",
+"balance": 1347047079,
+"bonded": 0
+},
+{
+"address": "203f26653be97f9cd18a8b55f9bca153cc6bf6adccf32c",
+"balance": 1133809700,
+"bonded": 0
+},
+{
+"address": "20422fef2b463e5277f7b56b322e32b7193bd951923839",
+"balance": 4967529634,
+"bonded": 0
+},
+{
+"address": "207931b42ad305f8e8517225582e7cf05a808356b72001",
+"balance": 3639407220,
+"bonded": 0
+},
+{
+"address": "211cf470a0e4abd35627e5a35543e098ec6a048b0e3132",
+"balance": 2301901923,
+"bonded": 0
+},
+{
+"address": "213f9d06896536d0913b04d03f44a67c5bf0009bd29f58",
+"balance": 1360682217,
+"bonded": 0
+},
+{
+"address": "213fca191eee4283e71b3114846875fb9992acac62d4e9",
+"balance": 1627217179,
+"bonded": 0
+},
+{
 "address": "217170c6ab15bf37eeded4cb3959f3889b0689d7eba445",
-"balance": 2597005856,
+"balance": 3089600818,
+"bonded": 0
+},
+{
+"address": "217dc3e674be96adc51fbbe75250f9baa59f6b8afb33c7",
+"balance": 1596909072,
+"bonded": 0
+},
+{
+"address": "2185032faa4c8cac5e3fe393669fe7e7f2624ea8777fe6",
+"balance": 1556870198,
+"bonded": 0
+},
+{
+"address": "22e07b087cdd86359b3f727c5864a618192c8f94c85eba",
+"balance": 1879636463,
+"bonded": 0
+},
+{
+"address": "22f3ba74a721819c315841e8cf3fbccdf22b9a20fdd374",
+"balance": 3102253659,
 "bonded": 0
 },
 {
 "address": "23795130bd7127d1d310a295a1cacf603f3609575f9b9b",
-"balance": 2640145856,
+"balance": 4488915256,
+"bonded": 0
+},
+{
+"address": "23b5db4cafa34ce645ab478bc54e3873b31a82e2f550c8",
+"balance": 1303551862,
+"bonded": 0
+},
+{
+"address": "23e419564266afbe4ac000d504362f622278dec4862f9d",
+"balance": 3561087220,
+"bonded": 0
+},
+{
+"address": "23fa9db05ff4fdbec216f466844ad0377a0ff77a4245a3",
+"balance": 2292407373,
 "bonded": 0
 },
 {
 "address": "242264217ab6325ce7445a6c9aecdee248fb701e804870",
-"balance": 19243507058,
+"balance": 1602136253,
 "bonded": 307552000
 },
 {
+"address": "243970ca0ec83dd0e444b88cd9ed9b5a16fd9dd1af362d",
+"balance": 1700083694,
+"bonded": 0
+},
+{
 "address": "24a5a4a48947ab01783fb8fe28dcb78272c2ec1a03fae5",
-"balance": 348821041,
+"balance": 1322906513,
 "bonded": 0
 },
 {
 "address": "24f2029d23367fa181fcc7d461ac0610d01cd3e98dda4e",
-"balance": 1612817222,
+"balance": 3704335284,
+"bonded": 0
+},
+{
+"address": "25326591fb40e393a54d6883ab379678865fb28ee8a304",
+"balance": 1993270555,
+"bonded": 0
+},
+{
+"address": "256e82ab0e249b6a83e2002b3f93a29ec825efd37bdfa8",
+"balance": 3405527220,
+"bonded": 0
+},
+{
+"address": "2581f54d39ce59af4660bd9f69f5799987a0fb25626d96",
+"balance": 2013005063,
+"bonded": 0
+},
+{
+"address": "2621d18b12ba885eafc4b0c7cc30b1295310940583185a",
+"balance": 3662748429,
+"bonded": 0
+},
+{
+"address": "262561ed2a3b1ad8ca2b34fabb3bcc06cccc6eafee386e",
+"balance": 4887989634,
+"bonded": 0
+},
+{
+"address": "263ce8bd590320218ec60376b0ab82f78a0d2c09492827",
+"balance": 2161884265,
+"bonded": 0
+},
+{
+"address": "264b721ca3886b13d01e5aef3e0c0c018c528988d4cfef",
+"balance": 2317804265,
+"bonded": 0
+},
+{
+"address": "267b3e93f3f09499282760fcefc754da6a111b4d953cb0",
+"balance": 1377196343,
 "bonded": 0
 },
 {
 "address": "26bd7b5ecb4c0196f114347fbf9d2a3cb71778536d727b",
-"balance": 305141041,
+"balance": 2393479176,
+"bonded": 0
+},
+{
+"address": "26ed09a9cbf015d767c331dd4a90ea563b703b586ac135",
+"balance": 1915310555,
 "bonded": 0
 },
 {
 "address": "271b8500f6a82ab72df4ce99ee8a15b939d0d32010a355",
-"balance": 2597005856,
+"balance": 2699080818,
+"bonded": 0
+},
+{
+"address": "2788bd1021518e4fb8a89ce7b6e4ed75c60d027c6db0c6",
+"balance": 2134131465,
 "bonded": 0
 },
 {
 "address": "27c1bb4f9d55d40dc32b0c48447bde4563e5caab23be99",
-"balance": 1716237222,
+"balance": 4592440056,
 "bonded": 0
 },
 {
 "address": "27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f",
-"balance": 3314859165,
-"bonded": 412967759390
+"balance": 24285564596,
+"bonded": 474041879390
 },
 {
 "address": "287f065b07696bde93ac2109752f7f5de298418de5ad37",
-"balance": 155708472,
+"balance": 2235184656,
+"bonded": 0
+},
+{
+"address": "28eafc2e114dafb11058a6430822dd5e4e3042203a63c1",
+"balance": 3249247220,
+"bonded": 0
+},
+{
+"address": "28f3024538bacf054aed1ffd6179d4d9f0111c6c9078ca",
+"balance": 34594531,
+"bonded": 0
+},
+{
+"address": "295ecfef2aca3df2c4142fa129b85fd11fa332e11eb0e8",
+"balance": 1717633897,
 "bonded": 0
 },
 {
@@ -255,108 +775,328 @@
 "bonded": 0
 },
 {
+"address": "2a100478b492019532b28f1c95e2a460ed1624c3b9dd15",
+"balance": 34594531,
+"bonded": 0
+},
+{
+"address": "2a4fb76852886df57cc6c59e1f124a0323cdf3db190798",
+"balance": 3471175284,
+"bonded": 0
+},
+{
+"address": "2a5785ed10360533834c7cae2e4239139939a2c4164667",
+"balance": 1879996463,
+"bonded": 0
+},
+{
 "address": "2a64e49b1ea11e22354075857732ac54b5661fe3ae6804",
-"balance": 9624355930,
-"bonded": 85118629510
+"balance": 9626235446,
+"bonded": 95293349510
+},
+{
+"address": "2a9a69e8987af4c6c23aabde200abd29037398ebf80c33",
+"balance": 1352697343,
+"bonded": 0
 },
 {
 "address": "2afdbcf5c0ad2efbed5cb685c7ac3cfe950731a317f29e",
-"balance": 12718111948,
+"balance": 27406041649,
+"bonded": 0
+},
+{
+"address": "2b1e914687f7fea5a098e65ff0c8cf1f82e170995af201",
+"balance": 2057020878,
+"bonded": 0
+},
+{
+"address": "2bac671c55e68e8a20af1c64b2bec67b5c68ac72e74ef1",
+"balance": 1790204419,
 "bonded": 0
 },
 {
 "address": "2c03580b6ef6210f9606c49ef686511931a2f7e36347d2",
-"balance": 4848430803,
+"balance": 3432787898,
 "bonded": 25812160000
 },
 {
 "address": "2d292d204d93329336b78a9ba798d22a509c9b5aad9c0d",
-"balance": 3309473676,
+"balance": 3481624698,
+"bonded": 0
+},
+{
+"address": "2d41e7ad6fe200f01da39cff71c3fc78ebffb6dcd19141",
+"balance": 2145261923,
+"bonded": 0
+},
+{
+"address": "2d7f0a456bfe28eefa1a57b620cad3cf8058dec3ee38f8",
+"balance": 2421233517,
+"bonded": 0
+},
+{
+"address": "2d87780cf573b4869e48c661ce65f59b1735a7c861c3ac",
+"balance": 4944119926,
+"bonded": 0
+},
+{
+"address": "2d95da8e99aec3828a05d59dd594c552a272445afbf143",
+"balance": 1737240729,
+"bonded": 0
+},
+{
+"address": "2dc01b78aebec56ea7cf917345cfcc466c0420ad7ea1ba",
+"balance": 2013857117,
+"bonded": 0
+},
+{
+"address": "2de89ab912a261594d90af0c13dd64a0a2da041a9a5e5b",
+"balance": 4711019926,
+"bonded": 0
+},
+{
+"address": "2e5423b03dc0122574871e528027da0f124a86e140e57f",
+"balance": 3613071915,
 "bonded": 0
 },
 {
 "address": "2fa8c8f25e0802a86f100bf7036914c8d6fd2de8d3afa2",
-"balance": 9498203649,
+"balance": 1291310928,
 "bonded": 153920000
 },
 {
+"address": "2fafd342c6e0ca45f0d0946d4ef3bc6c5cf3fdcf38a87a",
+"balance": 1470177343,
+"bonded": 0
+},
+{
+"address": "2fb9766bac4ef93b8bcbf669924adb684a3a374b785840",
+"balance": 1431999152,
+"bonded": 0
+},
+{
+"address": "30e00063e1e21226117988d5feab42ccbff7941234a36c",
+"balance": 2360161937,
+"bonded": 0
+},
+{
 "address": "30f93afcfd598b998062b73ae5fe8ba99ce133775ad474",
-"balance": 3875913260,
+"balance": 2646726909,
 "bonded": 43936000
 },
 {
 "address": "31383fd87c2e0cd8182b7bfdce67c74547ad1f48ec6cbe",
-"balance": 10076837868,
+"balance": 9621838318,
 "bonded": 1747906976
 },
 {
+"address": "3169f9d533ac5d145eee3246c42773932e0e971158104d",
+"balance": 3898848429,
+"bonded": 0
+},
+{
 "address": "318e054e1cb1e3132afd9619aee565a9b414974694bd85",
-"balance": 6142491680,
+"balance": 3153539060,
 "bonded": 35840176509
 },
 {
 "address": "31e3c3e4a61419df9061bf72ab5b1a8f79d993dbebec4c",
-"balance": 3084179057,
+"balance": 3110960869,
+"bonded": 0
+},
+{
+"address": "3288fdcca0e1449cd9297298d637614c396b59bc624226",
+"balance": 3102613659,
 "bonded": 0
 },
 {
 "address": "32d0a526fba3a7b059b78be752c26b494721ce032ae910",
-"balance": 2640685856,
+"balance": 3936508429,
 "bonded": 0
 },
 {
 "address": "333c933e8ae2f933ba3e87d47c8197ece267181089909a",
-"balance": 2684365856,
+"balance": 3897708429,
+"bonded": 0
+},
+{
+"address": "344842e17f55679755e16d0197ec9724b2868e31cf1e1c",
+"balance": 1823264408,
+"bonded": 0
+},
+{
+"address": "3498dcda4e9f341c64962a18404b6356d6b3536bc35a47",
+"balance": 3897708429,
+"bonded": 0
+},
+{
+"address": "34b7ddc011b949030cee6d9c92aef31162985f7a1c1478",
+"balance": 2122364265,
 "bonded": 0
 },
 {
 "address": "34d209443957d639be66d4e933e369adc745d0f773b1fe",
-"balance": 4404456182,
+"balance": 1421567204,
+"bonded": 0
+},
+{
+"address": "34df58e70168db98c79bc96833b131804e1ad62ecb62a7",
+"balance": 3663468429,
+"bonded": 0
+},
+{
+"address": "35106f9f23a445a9a2449c693c79df21209e90b60b844c",
+"balance": 1485895162,
+"bonded": 0
+},
+{
+"address": "354bedc2e7b0c6df630e9d91322cf0c25667eb902f2b78",
+"balance": 1611315190,
+"bonded": 0
+},
+{
+"address": "3572cfd4d216a080336aa7efd7c21f8281a84d8a0103cf",
+"balance": 5006629634,
+"bonded": 0
+},
+{
+"address": "35ddd326298e1c0c75d5f2ef147c6cdff3124fed55f713",
+"balance": 2092177117,
+"bonded": 0
+},
+{
+"address": "3689f28aa4a4dcf1a4d6c6dedb952ced1c85a10661ac32",
+"balance": 3189982414,
+"bonded": 0
+},
+{
+"address": "375f1aa370a61d6324eeddfcbb8225e6d8f896be6d1eb3",
+"balance": 1896377117,
 "bonded": 0
 },
 {
 "address": "37a84a34e1e6f9d226dc25ff449e2baa9a1cc9d24bcfd2",
-"balance": 2646989163,
+"balance": 1347046079,
 "bonded": 0
 },
 {
 "address": "37c486a2b2c0bdfed96e1a55d4b2b1c692e10f4973def8",
-"balance": 4257538755,
+"balance": 1865027592,
+"bonded": 0
+},
+{
+"address": "38465fa109ce8f0f84bfd165f0a98ed9c06bfe3c5b9fa8",
+"balance": 1431417179,
+"bonded": 0
+},
+{
+"address": "3856d03b56d4d118fef82a9dfb95a53a1efe3f2d631f5f",
+"balance": 1618948846,
+"bonded": 0
+},
+{
+"address": "38dd78df20d294c198371a1b7381c59e748b5b94d1e5ef",
+"balance": 1885768767,
+"bonded": 0
+},
+{
+"address": "3923f27727afe11d501edfbf8e5f8e93b7addb386d0507",
+"balance": 2028501923,
+"bonded": 0
+},
+{
+"address": "394fea8fc1e338901e677c8bd4043255be9a6e7b7e4865",
+"balance": 1726545772,
+"bonded": 0
+},
+{
+"address": "3975a5d23448c014908bb935df476b1efaecaa1813abf3",
+"balance": 1303551862,
 "bonded": 0
 },
 {
 "address": "3a5a51a88d3938482539e42c997d46b25d2e735820ac7f",
-"balance": 305141041,
+"balance": 1990056696,
+"bonded": 0
+},
+{
+"address": "3a6bbc60fd7b1f1ad10f6e06fb7aabe13eb5134233a014",
+"balance": 1360682217,
 "bonded": 0
 },
 {
 "address": "3ad893a93388129e7d268afc06fab27cfde2cc6b2ab103",
-"balance": 17667469881,
-"bonded": 1053038051082
+"balance": 11968898831,
+"bonded": 1435141153082
 },
 {
 "address": "3aeab65332c126c3e46fee7c26d8e856241a798e227f80",
-"balance": 8358652730,
+"balance": 11916297299,
+"bonded": 0
+},
+{
+"address": "3b4ea6423814c0f7e7ea130ed8eb2a15b1f2dc3a721a1a",
+"balance": 4730989634,
 "bonded": 0
 },
 {
 "address": "3b90f5a7c1bf47b4ecb23882b214ad001e78092c116bf1",
-"balance": 2552785856,
+"balance": 4053988429,
 "bonded": 0
 },
 {
 "address": "3bb417fc2da4688daa6685203287e6fcb80054d48610df",
-"balance": 4599193949,
+"balance": 1440386513,
+"bonded": 0
+},
+{
+"address": "3bb7549b85699db1986a4a5fc513ae6d3eaf284cf026d1",
+"balance": 1517710198,
+"bonded": 0
+},
+{
+"address": "3cee9610c7c67734cf7d39bbedc0542e55ce23a8125b92",
+"balance": 2409167373,
+"bonded": 0
+},
+{
+"address": "3cff5a25c2abf7d7b7e67fb82235b7cd41c0e2b63e12b8",
+"balance": 3166302722,
+"bonded": 0
+},
+{
+"address": "3d02ca1510b970309ea685c2abfffd4507121f6b462ed5",
+"balance": 1741875482,
 "bonded": 0
 },
 {
 "address": "3e16588df80e6ab44d9f1fe00f2287f78224a9f117be15",
-"balance": 3193158043,
+"balance": 968573195,
+"bonded": 0
+},
+{
+"address": "3e26260cfefb5b0c81bcca521d954a0bfe07fcce919c28",
+"balance": 2669228184,
+"bonded": 0
+},
+{
+"address": "3e357629a47face289bd5fef3fde57fb8979f4c8051d03",
+"balance": 3193828435,
+"bonded": 0
+},
+{
+"address": "3e7b34089808fc180efb2e94245580cc94c6d4a5ad9550",
+"balance": 5279249634,
+"bonded": 0
+},
+{
+"address": "3e9287425b6f8c6b72938934e9c6de50cf92147da9d362",
+"balance": 3584788429,
 "bonded": 0
 },
 {
 "address": "3eb3833b80a6ec90a45dc3fc0a68464a975e4681932385",
-"balance": 3554112096,
+"balance": 1540628987,
 "bonded": 0
 },
 {
@@ -366,12 +1106,27 @@
 },
 {
 "address": "3fa7c5b0a2cda7c6edcd0302a89f68eb949bb542a4aaf5",
-"balance": 2552785856,
-"bonded": 0
+"balance": 3975688429,
+"bonded": 33712000
 },
 {
 "address": "40ca5b14c5399706a63f889ca4dca6d930ea80db806a68",
-"balance": 1684195570,
+"balance": 3861335284,
+"bonded": 0
+},
+{
+"address": "40d22593fc3ad8cfa623e0f5f35843a302d03c22abd5d5",
+"balance": 1936606534,
+"bonded": 0
+},
+{
+"address": "411417a06413769c882f4daffc4449d6586b4c67f15480",
+"balance": 1808882415,
+"bonded": 0
+},
+{
+"address": "416117d0f4205973f63e9b69ce97218c110581d4ce46ab",
+"balance": 2106461923,
 "bonded": 0
 },
 {
@@ -381,7 +1136,22 @@
 },
 {
 "address": "420a2bee75aa329e9de2e9211b607247e4897744039ec1",
-"balance": 2603309163,
+"balance": 1417985925,
+"bonded": 0
+},
+{
+"address": "420d46c58d821798b73863a1f125a57175240633484797",
+"balance": 5025799926,
+"bonded": 0
+},
+{
+"address": "434eef5f0918b8d34872ee18e40ff0ecb11f6fd8bac8dd",
+"balance": 2295839610,
+"bonded": 0
+},
+{
+"address": "4386c8d9161ae38061058d1fd4d79d32d4525693316126",
+"balance": 1300506925,
 "bonded": 0
 },
 {
@@ -390,9 +1160,19 @@
 "bonded": 0
 },
 {
+"address": "43a3c92e27995a2c8d0e5b1bfa17ec5339b34b3f4ac4f7",
+"balance": 3175445747,
+"bonded": 0
+},
+{
 "address": "43ca7b7812b392a754185ab99b5e36e8e3bf93ff9d759a",
-"balance": 110860106340,
-"bonded": 2165839618400
+"balance": 54138166324,
+"bonded": 2601825834400
+},
+{
+"address": "442fc335bc70079d6ee786de3220d7e8b83762eba5293b",
+"balance": 9774039409,
+"bonded": 0
 },
 {
 "address": "4453aed401b8e9dcb27b2348652c563afb371131fb9b1a",
@@ -400,38 +1180,123 @@
 "bonded": 0
 },
 {
+"address": "44a99033c14beed43f39e8655c64db95f5e62ed043701e",
+"balance": 1665977343,
+"bonded": 0
+},
+{
 "address": "44da33e2ebdd0ba1cb9f927f97ea4b0678242b0a09165b",
-"balance": 1848957222,
+"balance": 4015248429,
+"bonded": 0
+},
+{
+"address": "45b2048f2d99f13c67f3abb6340fde60f5cc1b79ea0e09",
+"balance": 2066941923,
+"bonded": 0
+},
+{
+"address": "45bdc65e035d6c8584698f58f70bb0eca12583d4d32133",
+"balance": 3150822414,
+"bonded": 0
+},
+{
+"address": "45f2828dcb2efd9029924644ef2deea25b0e9119bd748b",
+"balance": 3384702414,
+"bonded": 0
+},
+{
+"address": "45f86b044419d280b0d56e7b72ebb7e76ae1ed8fa489ae",
+"balance": 1973485063,
+"bonded": 0
+},
+{
+"address": "45fd9a58fc8a2c4598c8b10311c8a5ea13271ffa508740",
+"balance": 1173519039,
 "bonded": 0
 },
 {
 "address": "463ab1a50ad958a22bae9ef0657cb98ba237b72614859e",
-"balance": 9612839918,
-"bonded": 312331048000
+"balance": 18288517551,
+"bonded": 1211011464000
 },
 {
-"address": "46e3e2f24c05e97c28ee34914aae045a8837c9918d769f",
-"balance": 2728045856,
+"address": "4663284a3fd60f939ccd44dfee12e72c9f4429c68a07da",
+"balance": 1857217117,
 "bonded": 0
 },
 {
+"address": "46ddfb2669e82ca4a42b9f828d02e3c125d3f9013c800d",
+"balance": 1225231862,
+"bonded": 0
+},
+{
+"address": "46e3e2f24c05e97c28ee34914aae045a8837c9918d769f",
+"balance": 3898848429,
+"bonded": 33712000
+},
+{
 "address": "471ec6d13d9aa865a4fd94007dc3a3852389038bef49ae",
-"balance": 1760457222,
+"balance": 4014108429,
+"bonded": 0
+},
+{
+"address": "47358bbf6e5e33a73dd4a615016df4f6524c740a5f9767",
+"balance": 2212451465,
+"bonded": 0
+},
+{
+"address": "47a39b0223f7991cc38c0015132c51481e19b6365a7740",
+"balance": 1424439873,
+"bonded": 0
+},
+{
+"address": "47a53fa7aaf035783b07ee0dc703a2e31b7634842ece13",
+"balance": 1446735162,
 "bonded": 0
 },
 {
 "address": "47c7b7b10794d24fd288b96a07acb3de7b87ba4c253e38",
-"balance": 76696458918,
-"bonded": 24260565616
+"balance": 97039403306,
+"bonded": 26073909016
 },
 {
 "address": "47cd799ac8700ee087d359c855938b10eb45611ee78323",
-"balance": 19092262548,
-"bonded": 883043460000
+"balance": 3641685200,
+"bonded": 1342323094000
+},
+{
+"address": "48186abb5401cb99638e8081b372ed49c95ea3aa1540c7",
+"balance": 1580600729,
+"bonded": 0
+},
+{
+"address": "484d980ad64ef4156fd8eebc6a2906ef87309fa5d15a2f",
+"balance": 1353679152,
+"bonded": 0
+},
+{
+"address": "48744dd354bdb4e2dda423a2b77beb0a6d72aa09bd953e",
+"balance": 1347047079,
+"bonded": 0
+},
+{
+"address": "48e8d8fe640f0fc008f6608b40fdb1642743dd8e35781b",
+"balance": 2171566534,
+"bonded": 0
+},
+{
+"address": "49164911e5c6653bdd59fb4dabb2ea96c471bb2257c85e",
+"balance": 1393692801,
+"bonded": 0
+},
+{
+"address": "498f1ec990473eef20a629fc77cc6e5ab1d014a8acba13",
+"balance": 5045429634,
+"bonded": 0
 },
 {
 "address": "49993852335a1783fe9b89f5e4f18862fdc288edc89332",
-"balance": 137554932791,
+"balance": 169799840616,
 "bonded": 161225568647
 },
 {
@@ -440,33 +1305,78 @@
 "bonded": 5081200000
 },
 {
+"address": "4a9702ee852573671e3d22aa4597e0e3721bbb4adccb97",
+"balance": 1691402415,
+"bonded": 0
+},
+{
+"address": "4ab5726ac9d9d90274cf0be6394bbc4eee01188177ffc3",
+"balance": 1440724750,
+"bonded": 0
+},
+{
 "address": "4bc51909b23117fa9b8c74a0a46a357b8d6a9c66ff196a",
-"balance": 0,
+"balance": 2128250201,
 "bonded": 883616000
 },
 {
+"address": "4bee262de5dd56d79dc370666a0bdb3e6921edb7a2ad49",
+"balance": 1730562415,
+"bonded": 0
+},
+{
 "address": "4beed88a4a0755a415c12efd2f72b2cbdad19ab888eab2",
-"balance": 2597005856,
+"balance": 4211428429,
 "bonded": 0
 },
 {
 "address": "4befe26fba87e05a01edff504753a5156757fadfca5c16",
-"balance": 4154954949,
+"balance": 1347047079,
+"bonded": 0
+},
+{
+"address": "4c1cbfdafca801c5d6d346640d888207299fa1be262f70",
+"balance": 1556870198,
+"bonded": 0
+},
+{
+"address": "4ccc937a0fe733b8a8e14e6a75b44a6d47d52c405f13fb",
+"balance": 3070216929,
+"bonded": 0
+},
+{
+"address": "4d04591f0343cec900e2121e8390c4ed35e14ea5d5cccd",
+"balance": 2498473517,
+"bonded": 0
+},
+{
+"address": "4d4c9a65aa06d2d447de121e64bcf3209857822a862486",
+"balance": 1795953897,
+"bonded": 0
+},
+{
+"address": "4d5f02b370ea44509f8f80d26f2854b2a4c1005c178250",
+"balance": 1963701873,
 "bonded": 0
 },
 {
 "address": "4d7ea8c86edcf8b54c5ed11d6a861c21d60195a8047d26",
-"balance": 1717337222,
+"balance": 3897708429,
 "bonded": 0
 },
 {
 "address": "4dbbd61bcb754b87dbf6ac74745fc391658267e0a75b7b",
-"balance": 165648980222,
-"bonded": 2689640000
+"balance": 196685810586,
+"bonded": 4453910000
 },
 {
 "address": "4e4a280f15914778e84c0402d9713a531842e9a0ae1fd2",
-"balance": 2690669163,
+"balance": 1354531801,
+"bonded": 0
+},
+{
+"address": "4ee5d1c0b12c069db001ffc4daf3dc74180dc095201203",
+"balance": 1515306911,
 "bonded": 0
 },
 {
@@ -475,33 +1385,178 @@
 "bonded": 0
 },
 {
+"address": "503808190f8161274519cf792a46c35b156f0e54475190",
+"balance": 1368718129,
+"bonded": 0
+},
+{
+"address": "503933479af74fe9c8a394326f15dbe0f212c5a753c94a",
+"balance": 11956711375,
+"bonded": 0
+},
+{
+"address": "509d3467a95960dfcd55794c8fa7af5f929fd21bb01fd7",
+"balance": 2054086534,
+"bonded": 0
+},
+{
+"address": "50bc6605ea28c52053d649176b3c4145dfa950b15fb913",
+"balance": 1517158702,
+"bonded": 0
+},
+{
+"address": "50dcb6da7969ce6ef92d5f952223c35a11104ce4081f04",
+"balance": 5124929634,
+"bonded": 0
+},
+{
+"address": "50fabffbe29e01535fbaae8f0c12b335804ebac80ad6e2",
+"balance": 1818057117,
+"bonded": 0
+},
+{
+"address": "5170fde812de3147f62bfea9d9faa2e430678408a3d4d1",
+"balance": 2434268184,
+"bonded": 0
+},
+{
 "address": "5232435743f70805deb34a74973d947135c08a5fd0c27d",
-"balance": 41154594241,
-"bonded": 1758521103139
+"balance": 36535047621,
+"bonded": 3624446863139
+},
+{
+"address": "52607c310bc6ef8fbaa386a6a7840cb51cdc2f969ca487",
+"balance": 3540238427,
+"bonded": 0
+},
+{
+"address": "5274ec26a8d64e23690dfa98a2c02951686c8dc079a9ab",
+"balance": 2355948184,
+"bonded": 0
+},
+{
+"address": "52cb88d0b50e9e6d82c2f1193808438582ab68e97ef086",
+"balance": 1769232712,
+"bonded": 0
+},
+{
+"address": "52ce0bc38f10c09b138754be059230cda81f47291c42e5",
+"balance": 2277988184,
+"bonded": 0
+},
+{
+"address": "531bcf81d34fdf108bde133d2d347bd9c9eb633b6201bb",
+"balance": 1574626925,
+"bonded": 0
+},
+{
+"address": "531f82d112ca31a89d4ca62dfef9104a14b97687d81e1b",
+"balance": 1307886079,
+"bonded": 0
+},
+{
+"address": "536d94ee1fcffd05c66230287334cd21deb898f819b1ca",
+"balance": 2081208767,
+"bonded": 0
+},
+{
+"address": "537eda420f6bbc83ce13adba8bd5c96706077835e3cab8",
+"balance": 2082572610,
+"bonded": 0
 },
 {
 "address": "53e97b7bee6bc9332322e2c4623793e12da864292de22c",
-"balance": 3365672097,
+"balance": 3334982117,
 "bonded": 26172448000
 },
 {
+"address": "53ee2cf5d7382a2790ae55cbc5da07024e3f54b8315bea",
+"balance": 1967126238,
+"bonded": 0
+},
+{
+"address": "53f4b41f62d5baea17760ae6b10b99abb5cc7d50774f50",
+"balance": 2274484919,
+"bonded": 0
+},
+{
+"address": "5407e9faa4bb551595d3102fc1659ce78f5a6d00be270f",
+"balance": 2295479610,
+"bonded": 0
+},
+{
 "address": "543cab5cc28319cfca0ca394053f8ab1333e4e6f0bedb8",
-"balance": 348821041,
+"balance": 2206931201,
+"bonded": 0
+},
+{
+"address": "544af6c0ecc1640473173f7557b64043a2d4c332c3d3b2",
+"balance": 1506915482,
+"bonded": 0
+},
+{
+"address": "546de6169ca0fac9ebde1230cad120b5f647f3c0782118",
+"balance": 1993630555,
+"bonded": 0
+},
+{
+"address": "54c32bd9c668090752f268b403d25380e4d4da83939762",
+"balance": 9835604040,
 "bonded": 0
 },
 {
 "address": "54e9202f7ee0dc895ea0b648d02e4b7612299367b04c67",
-"balance": 9337341226,
+"balance": 34594531,
 "bonded": 194912000
 },
 {
+"address": "54eaa2f20e8f1cbb0d1c79d14bb85beb08d87631beace1",
+"balance": 3350664607,
+"bonded": 0
+},
+{
 "address": "557e392f6b9b03c80fe33f55c3835c3f3dda403a2f24fc",
-"balance": 1612817222,
+"balance": 4017615284,
+"bonded": 0
+},
+{
+"address": "55d5c78a906edd5ba5bccdbd216fe5af5f4d63e42f34c9",
+"balance": 2370007373,
+"bonded": 0
+},
+{
+"address": "55f2a6879b273c64ea61b8ef1926fe29b9777648cd8e6d",
+"balance": 3072142414,
+"bonded": 0
+},
+{
+"address": "55f4e4c9bb2af84c8d2d55edb2406c988ece8f6715307b",
+"balance": 2070870555,
+"bonded": 0
+},
+{
+"address": "560e83b93c69d73d4c10c07f59f754a27c11a8ddda858d",
+"balance": 1556870198,
 "bonded": 0
 },
 {
 "address": "567e0a1bf99f18155ba092b2428c81836f865724515dd4",
-"balance": 3169652724,
+"balance": 2035343747,
+"bonded": 0
+},
+{
+"address": "568e73b6b43e68a97a71864719cc9af0d5730fc4b0b242",
+"balance": 1517158702,
+"bonded": 0
+},
+{
+"address": "56eb6218cd1d5782327f20aeb2617b10644f806d1ddd22",
+"balance": 1457146925,
+"bonded": 0
+},
+{
+"address": "577d7f250297afdb6ee5532806ddbe08faea01bce74854",
+"balance": 2220073591,
 "bonded": 0
 },
 {
@@ -510,13 +1565,23 @@
 "bonded": 1280000000
 },
 {
+"address": "57f96364d0184d24300fd864c812b7a7c11e0f81f096c3",
+"balance": 1896377117,
+"bonded": 0
+},
+{
 "address": "5828bf2e5f8b16af8b173e704864fc5e48fa06771d6338",
-"balance": 1508915570,
+"balance": 4107660683,
+"bonded": 0
+},
+{
+"address": "58c050847f3b5c6d7cce862e87ee638453dd1e080058cf",
+"balance": 1848042415,
 "bonded": 0
 },
 {
 "address": "58f7f8d5d52c3312dd6a6d060175bcc725d19e5a808473",
-"balance": 2553325856,
+"balance": 3606649831,
 "bonded": 0
 },
 {
@@ -525,19 +1590,144 @@
 "bonded": 560000000
 },
 {
+"address": "59373bc282d869e2fe6cbd2f280c6a0606237e8032b756",
+"balance": 2334639610,
+"bonded": 0
+},
+{
+"address": "5940dddc7b8ad76c93b03ff4cd8d61ca1d74c57f04fbe5",
+"balance": 1967126238,
+"bonded": 0
+},
+{
+"address": "5a2c06cb9e7998e8299b3d4f94e349a2fd0d16f6ae5030",
+"balance": 1276212801,
+"bonded": 0
+},
+{
+"address": "5a30e4a4d75b7b74c2bbe793e2daaa5e9426afb496a8ec",
+"balance": 1944964555,
+"bonded": 0
+},
+{
 "address": "5a37ee12f6914c64d6ef9e60daa767c38a5548b09840cd",
-"balance": 4933237095,
+"balance": 3092825563,
 "bonded": 24910352000
 },
 {
+"address": "5a4f214af1a78fa55b2640d19e011b3718a49720d66528",
+"balance": 2161524265,
+"bonded": 0
+},
+{
+"address": "5a6a87b064ca1f5fa5f6edbbc59223cd1899e65963e198",
+"balance": 2349309719,
+"bonded": 0
+},
+{
+"address": "5abed1a14dea00e03bdc23b418842bc5dcb8982e874dbe",
+"balance": 2587878870,
+"bonded": 31040000
+},
+{
+"address": "5ad208edf15feb3161d9b3833de80fa622c5fb480837d0",
+"balance": 1635190198,
+"bonded": 0
+},
+{
+"address": "5b274c801172879cab802b4877218f4e20b701f76c1394",
+"balance": 5026460248,
+"bonded": 0
+},
+{
+"address": "5b2ca575ed911019a4ef6d8f53ae59b905cc34dc6d6e1e",
+"balance": 2152996838,
+"bonded": 0
+},
+{
+"address": "5b7ca3400b2149203ad5910b53780221905d1c641f11b9",
+"balance": 2473364265,
+"bonded": 0
+},
+{
+"address": "5b90b9d07d3ea441a89d99ca606134135de0fb25f98f0d",
+"balance": 1133809700,
+"bonded": 0
+},
+{
+"address": "5b97966339be74e7726b243feef6a1d529b6f97c62e016",
+"balance": 2006646238,
+"bonded": 0
+},
+{
 "address": "5ba0a36e2dc5fb18f159860b97e1bfc8821220fc5b92de",
-"balance": 2465965856,
+"balance": 3613431915,
+"bonded": 0
+},
+{
+"address": "5bf602288fda3f0529940e65d9081e3dde975cb2ae9e42",
+"balance": 2227906571,
+"bonded": 0
+},
+{
+"address": "5bff64774e269c7100745d9cc7ef94185778349b439a5a",
+"balance": 1350345331,
+"bonded": 0
+},
+{
+"address": "5c060a9e0b833ef7818e368039d7755574636fcff3a900",
+"balance": 1835113897,
+"bonded": 0
+},
+{
+"address": "5c59305ae84db5ce46217f22e0071c1b07fc1d4499c5a1",
+"balance": 1983729985,
+"bonded": 0
+},
+{
+"address": "5cd9b3c601631aff1b88c8ab67b2c4c9dc10e27ae1a29f",
+"balance": 1541440729,
+"bonded": 0
+},
+{
+"address": "5d0f515a81f0d5bef36022635386dbc212d71806a98f0d",
+"balance": 2382433517,
 "bonded": 0
 },
 {
 "address": "5d3f14ce08a83dbe39188fc9a4490183dd249b3e1dad71",
-"balance": 14152261657,
-"bonded": 432016151079
+"balance": 1912492854,
+"bonded": 541382844879
+},
+{
+"address": "5e04cbd706d35cc8faf8877a6d63d57d016cfdffd512c3",
+"balance": 2442609403,
+"bonded": 0
+},
+{
+"address": "5e1eed9838a35e9e8b3000f85a05be23992560c5c48a72",
+"balance": 29723684506,
+"bonded": 0
+},
+{
+"address": "5e1f3b057bcc75484e30d2b49d5ae7d7f2ae402a2b2d53",
+"balance": 949963592,
+"bonded": 0
+},
+{
+"address": "5e25548036540992d14efc637dedd5ea2efc7fbaaeaa76",
+"balance": 2478361937,
+"bonded": 0
+},
+{
+"address": "5e6de4651c1ced4614b4f44aa3259b843c63d5f458d735",
+"balance": 2262077214,
+"bonded": 0
+},
+{
+"address": "5e97dab5f6a1c29bd5e84208e12a29891a010c863c9b8f",
+"balance": 11756871375,
+"bonded": 0
 },
 {
 "address": "5f3df9116754140803bf1b9ac15dae68c9adb4c5bd6b13",
@@ -545,44 +1735,124 @@
 "bonded": 0
 },
 {
+"address": "5f45572d7c494c255525bade548a7adff37e4d110d2fcd",
+"balance": 1425367079,
+"bonded": 0
+},
+{
+"address": "5ff2d3199b6c6fc0da2768e008679c0b449615b549535b",
+"balance": 1984124555,
+"bonded": 0
+},
+{
+"address": "6088496f1b97bb9e9081c50e8f942be796e609c9035e05",
+"balance": 3063093659,
+"bonded": 0
+},
+{
+"address": "61a15dc7fed5e8c1feaab3d980e382bc1e2cf44f4659be",
+"balance": 1762515463,
+"bonded": 0
+},
+{
+"address": "6207b6c76b94946ac02d52e64ab4cf41559f17c8ab53f6",
+"balance": 1278738334,
+"bonded": 0
+},
+{
+"address": "6225f0409c086f965872e3ea3c86f623920f1e439efb1f",
+"balance": 1278738334,
+"bonded": 0
+},
+{
+"address": "63317e68df6dd65ba8e54ca1efab585e19d17512008407",
+"balance": 9358284040,
+"bonded": 0
+},
+{
 "address": "6342f150016550f3c9bf14a111894846f20e741b838d3c",
-"balance": 2646989163,
+"balance": 1971971201,
 "bonded": 0
 },
 {
 "address": "6398d24b16145720e1da916c8f4e3826b4b15762f5559f",
-"balance": 2690669163,
+"balance": 48550060,
 "bonded": 0
 },
 {
 "address": "640f4abf418d358c268527ae104ed4a3ad7395df1e660d",
-"balance": 2771725856,
+"balance": 3819748429,
+"bonded": 0
+},
+{
+"address": "6458cbc2042dde85d3b141eeb89c451506cfe0ef392966",
+"balance": 1973461873,
+"bonded": 0
+},
+{
+"address": "6458cdc6e900a2d2b082ad65a6bc1fbcdc6598edd152af",
+"balance": 1965452610,
+"bonded": 0
+},
+{
+"address": "647f1e6438c4e46551ab90b792fb412078181c093bbd4b",
+"balance": 2391964919,
 "bonded": 0
 },
 {
 "address": "64811e2b3784c777236e750e25630b5b7f8e63fa530c3e",
-"balance": 34939410714,
-"bonded": 6305198400
+"balance": 60021875505,
+"bonded": 9166021200
 },
 {
 "address": "6492d0602e6b5844e71f02446c8f4e39514e3d98669982",
-"balance": 4353142126,
+"balance": 1999385891,
 "bonded": 40320000
 },
 {
+"address": "64a76a948fbdb20940705be21fe8f24bf3e43e326461cf",
+"balance": 2408244889,
+"bonded": 31040000
+},
+{
 "address": "65e2f80132202fa430e76bac54874a7912c5f9d92bfd9d",
-"balance": 2597005856,
+"balance": 3820468429,
+"bonded": 0
+},
+{
+"address": "660ac60e5b040968b4050c27c5c5294e6043e02ce64039",
+"balance": 1950181923,
 "bonded": 0
 },
 {
 "address": "66338c25ac745b55b7aaf1b750c90fb8d9005353bf89c2",
-"balance": 1279845658,
+"balance": 490755367,
 "bonded": 2323671689
 },
 {
 "address": "66343e6abd193945a878660bba91fecce1b2a1cdf4c24d",
-"balance": 12902163097,
+"balance": 17125864914,
 "bonded": 45600000
+},
+{
+"address": "667dd70bbfc1daf04b889f6c5325be30c74444ce6adf88",
+"balance": 2145621923,
+"bonded": 0
+},
+{
+"address": "673d0cce6c52650a1609806dde0cfa240b5d97d156f64f",
+"balance": 1510856244,
+"bonded": 0
+},
+{
+"address": "675875f52dcc56b4fed75deb181ab4176d7ba7849a32c0",
+"balance": 1546075482,
+"bonded": 0
+},
+{
+"address": "6768071afad0540c8f028288de069c5d6390add115cb33",
+"balance": 1927966238,
+"bonded": 0
 },
 {
 "address": "67b6fed85f1e176fe80bdfefce7d3d95f76db844ac8eb4",
@@ -590,14 +1860,44 @@
 "bonded": 161232000
 },
 {
+"address": "6846ed42d989437b941707c1fc42db9a4f8c6acff2ee1e",
+"balance": 1102244963,
+"bonded": 0
+},
+{
+"address": "6877baf3404616dca4beda2dc3367fce7f9945377a5674",
+"balance": 6905819008,
+"bonded": 650684800
+},
+{
 "address": "687fa71b3c567d166f5f9fd99fec49aa70b0a8ba923fdd",
-"balance": 4554993949,
+"balance": 1354531801,
+"bonded": 0
+},
+{
+"address": "69c4e6c36ca4e3f96ca49f09f23eef40d9e386406e2776",
+"balance": 3466704607,
+"bonded": 0
+},
+{
+"address": "69c6d1d290784841f1e022375f8d4b091b7b6ba01b1173",
+"balance": 2142473591,
+"bonded": 0
+},
+{
+"address": "6a019c83452304867384b62405ce620fd6f4bff3ea6698",
+"balance": 1243202217,
+"bonded": 0
+},
+{
+"address": "6a0ad9acee516560f27079afb843e2521ee3029097df3e",
+"balance": 1438838702,
 "bonded": 0
 },
 {
 "address": "6a9d07a54c5d015121300c335406f9c0ce6522b0e00e52",
-"balance": 10793427138,
-"bonded": 1024842601000
+"balance": 3879420810,
+"bonded": 1401242043000
 },
 {
 "address": "6abf87966208b7564e5380789e473fec060c836cca5ad0",
@@ -605,93 +1905,323 @@
 "bonded": 0
 },
 {
+"address": "6acd179c84f7953f5c2a1970f7d726b2563fadd8b89616",
+"balance": 2043772610,
+"bonded": 0
+},
+{
+"address": "6aeffe6365efe320aa69980fe15ec548076b0072144808",
+"balance": 1778403694,
+"bonded": 0
+},
+{
 "address": "6b1b9a1784ed00b8c64262c0e96b915008cef23e6237ed",
-"balance": 6227706502,
-"bonded": 201947640000
+"balance": 11654280836,
+"bonded": 1665328000
 },
 {
 "address": "6bbaceac7845ffa1ad8f475e03140401fc6bb9842c6536",
-"balance": 2690669163,
+"balance": 3026902294,
 "bonded": 309184000
 },
 {
+"address": "6be40dc90c8a113453cb1af2399f5863795b75d1968177",
+"balance": 3623588429,
+"bonded": 0
+},
+{
+"address": "6bf59b179b3b3dbf8c07639c16db6ea19af2296612f803",
+"balance": 2267754561,
+"bonded": 0
+},
+{
 "address": "6c03369647aec83a7043395fa0636005640076aae8ff5e",
-"balance": 4079143785,
+"balance": 1432851801,
+"bonded": 0
+},
+{
+"address": "6c06cd03250d0c5b4d10a6e7471dcfe9178f90f111e26c",
+"balance": 3334438541,
+"bonded": 0
+},
+{
+"address": "6c18a49f4e028ef88d8c3935b16dcae3d27e9b504c575b",
+"balance": 2291687373,
+"bonded": 0
+},
+{
+"address": "6c8f766d35355c2297a45836150ada4a75e5918d8140b7",
+"balance": 5181759926,
 "bonded": 0
 },
 {
 "address": "6d989b1799e6b2484beb118770e8e07b2217963f4f2432",
-"balance": 3854747970,
-"bonded": 3332864000
+"balance": 1741471983,
+"bonded": 6284240000
+},
+{
+"address": "6da197b4c1b0da75b4715baab2492b73cb4b0216f3f553",
+"balance": 1219724963,
+"bonded": 0
+},
+{
+"address": "6e73a234c7c8ca9c27c602d83ea4e377952c93889816c6",
+"balance": 3809817029,
+"bonded": 10350400
+},
+{
+"address": "6e856a01c2771c8201f53607515476115b8692a019bcc9",
+"balance": 2243401937,
+"bonded": 0
+},
+{
+"address": "6ee3d8d2be3af4c6409539c495769c685e74d1ec160584",
+"balance": 1423960729,
+"bonded": 0
+},
+{
+"address": "6f0f08f366a566ec9d22283cbdaf85fa7fa17f2f851900",
+"balance": 2490085835,
+"bonded": 0
+},
+{
+"address": "6fa5122427368c935b3629561211ffc47257723384b4dd",
+"balance": 3188158427,
+"bonded": 0
+},
+{
+"address": "6fff1d28e98afb45ce4c3317761f4865db19d290ed8c3c",
+"balance": 2060879610,
+"bonded": 0
+},
+{
+"address": "70d2b7777918c93b82dd9a91a742bf2de7b624e60c3215",
+"balance": 1747604795,
+"bonded": 0
 },
 {
 "address": "712ca8564815d2c0af8cc6afdb45f6e1147b6f52b83b43",
-"balance": 305141041,
+"balance": 1942363174,
 "bonded": 0
 },
 {
 "address": "715b244d7195cf922b0248e41fbdfc52713e91b3173401",
-"balance": 134547876824,
+"balance": 143007428681,
 "bonded": 0
 },
 {
 "address": "717411965f592b225d355198d1526c505e2a702f869929",
-"balance": 112464538124,
-"bonded": 157767435914
+"balance": 9088295904,
+"bonded": 3362200118295
 },
 {
 "address": "71835836b325ab1b43075860b1a0851497deb5e1dfed53",
-"balance": 1656497222,
+"balance": 3219899551,
+"bonded": 0
+},
+{
+"address": "71ee714f836ce64e4633e66ca920ec0652e6b2fcc31242",
+"balance": 2212577819,
 "bonded": 0
 },
 {
 "address": "71f02bc36803ef517752af8cb7a13668871c2ac439558d",
-"balance": 3057824844,
+"balance": 1405995867,
+"bonded": 0
+},
+{
+"address": "725dcd5b234285c1d407c0d7e449cf959350faafc092c5",
+"balance": 3500718427,
 "bonded": 0
 },
 {
 "address": "72738bfedeffd3b380f14d384fae3f5415f371e6f3b19f",
-"balance": 10162976208,
-"bonded": 1669466854235
+"balance": 3440712680,
+"bonded": 1964411460235
+},
+{
+"address": "727cea4aaba2be6769aa544ca150f23f8bf19d1472bc89",
+"balance": 1232865331,
+"bonded": 0
+},
+{
+"address": "728f179821de7dbb619216233e1b4d3ffac2546eabc6c2",
+"balance": 1345640729,
+"bonded": 0
+},
+{
+"address": "72b8d224b086982f9ab3b8001a7fa72b03867deecb6bbd",
+"balance": 4870520248,
+"bonded": 0
+},
+{
+"address": "72c012dccd90c2b059bc14926f391a619895587c6c2657",
+"balance": 2368731465,
+"bonded": 0
+},
+{
+"address": "72c381235b8809ea6ca53f1ccee2318af532dc2d872d20",
+"balance": 8363116716,
+"bonded": 168176000
+},
+{
+"address": "72ceef498b298d1aaa0d11f4afae5fb222085f7ab0b5c9",
+"balance": 2180168351,
+"bonded": 0
+},
+{
+"address": "72db08183bfec5fb1686e0d1d3ee4393d5d21794b01a4f",
+"balance": 2012981873,
+"bonded": 0
+},
+{
+"address": "7385248a2eca216fada44363382b0e66f50bff2d0044e6",
+"balance": 3574271915,
+"bonded": 0
+},
+{
+"address": "73a39949e53f15345497dc0e522e947d2a1dc407ee4a50",
+"balance": 2057015878,
+"bonded": 0
+},
+{
+"address": "73ab26d84bee795580ac08c1ee194cba9645c38b43f5e9",
+"balance": 3626735284,
+"bonded": 0
+},
+{
+"address": "743a408adeec3f1f9ca02d4291cf10acb01fe1bcf02d2c",
+"balance": 34594531,
+"bonded": 0
+},
+{
+"address": "748a6e1396dc738a5935c62b8ec8b63aefc99d5cea9282",
+"balance": 1934301873,
+"bonded": 0
+},
+{
+"address": "74b0fd04f040b6a2a2f9e86066be88bf7b78e1fe89ed49",
+"balance": 1784104408,
+"bonded": 0
+},
+{
+"address": "74b97db17fc4a224e69375726f4fa2df2b6dabd2b2b39e",
+"balance": 4926789634,
+"bonded": 0
 },
 {
 "address": "74c27edde857fe622248afdf6340717dcc1199a65c62ca",
-"balance": 1057651390,
+"balance": 41530098,
+"bonded": 0
+},
+{
+"address": "74dbcc92464a53e7a5ef47a31e469a933362541ce9b72a",
+"balance": 1736428846,
+"bonded": 0
+},
+{
+"address": "7653e93c951c5e262ecab5d72c6d9ddfc957a21edf1040",
+"balance": 1464527079,
 "bonded": 0
 },
 {
 "address": "76be3d7f6f25ea8da9eaa616d68fcf703c4afe1b16ae2b",
-"balance": 2941155433,
+"balance": 34594531,
 "bonded": 115440000
 },
 {
+"address": "76dde556d58c2a407c62a994aef44766afbaf3f112691d",
+"balance": 2177999610,
+"bonded": 0
+},
+{
+"address": "76eb9553e6f4d78d8667c38ac6698d69e8dd7c9b6b314a",
+"balance": 1506915482,
+"bonded": 0
+},
+{
+"address": "7710f0d8f60395c47589b68172ebab791261299b8f8557",
+"balance": 5083829634,
+"bonded": 0
+},
+{
 "address": "779a81121e688af1e1c22fa90052c1bfcece152e52dc06",
-"balance": 4276473260,
+"balance": 2513602032,
 "bonded": 304000
 },
 {
+"address": "77eac95cbd2b86a6864c6946c5e7d6699db087aa102712",
+"balance": 2577513517,
+"bonded": 0
+},
+{
 "address": "781457172709f3bd3e1853ae89caa40054b77a59bf5847",
-"balance": 23159411347,
-"bonded": 1008539800000
+"balance": 5457316807,
+"bonded": 1440110872000
+},
+{
+"address": "7877839458f8719881bd22c864e1c1b1af6aeaebab8913",
+"balance": 1825924795,
+"bonded": 0
+},
+{
+"address": "78b640f3a6a578cdaa86bce309b8d91e966aa92fcf0620",
+"balance": 11890771375,
+"bonded": 0
+},
+{
+"address": "790405fc56aac397dd3fd300a7911bc0eb2dec8e03c92e",
+"balance": 1329676944,
+"bonded": 187968000
+},
+{
+"address": "79279576437e94c71e88069f206729400c1a1a2747a1ac",
+"balance": 3295278541,
+"bonded": 0
 },
 {
 "address": "797a21c50cb0d79470b62918af0229170e4c125bbfeb61",
-"balance": 9591287952,
+"balance": 3779868429,
 "bonded": 0
 },
 {
 "address": "79be54f2cedc72892158325f25d67fc2dd4379e9091bf6",
-"balance": 14698457628,
-"bonded": 208447552000
+"balance": 21724276625,
+"bonded": 8510736000
+},
+{
+"address": "7aacb6579e505e14812964192912257cb353185c079c0f",
+"balance": 2987742294,
+"bonded": 0
+},
+{
+"address": "7aec74f00341ef8fa4551aa3be419e8fee905ecb100708",
+"balance": 3126422722,
+"bonded": 0
 },
 {
 "address": "7b2f40a64365af1ae81a6a317a9f1f80147837363a1c8c",
-"balance": 4814384429,
+"balance": 3100911844,
 "bonded": 43936000
 },
 {
+"address": "7b49d42289ab3673e6f101379574c488f9ab5582d85547",
+"balance": 2460393517,
+"bonded": 0
+},
+{
+"address": "7b6d4f20af08a84d3bb68c9e38070427c4643f8dc6c8cc",
+"balance": 7886751154,
+"bonded": 69888000
+},
+{
+"address": "7bb8b72c1c8153710a16b89d96753abca315e6f3d00776",
+"balance": 1261346925,
+"bonded": 0
+},
+{
 "address": "7be62a63ac904f8c1530a29376c2daaf41f388c5b03fa9",
-"balance": 1935177222,
+"balance": 3062519551,
 "bonded": 0
 },
 {
@@ -700,18 +2230,58 @@
 "bonded": 1075904000
 },
 {
+"address": "7c5db3b32a43ffbfbc22b156ac17998a555bb167a98ebb",
+"balance": 3288767220,
+"bonded": 0
+},
+{
+"address": "7c6cdfa27a052731118575efdd6cf6662e69c02150e726",
+"balance": 2149914561,
+"bonded": 0
+},
+{
 "address": "7ca418b8187de89df778a317f73edacd602c6a02ee4108",
 "balance": 41889982006,
 "bonded": 0
 },
 {
+"address": "7cbccc602e58207e802760935453e95cf585ea7cca7966",
+"balance": 2447503127,
+"bonded": 0
+},
+{
 "address": "7d8cae6af95a7226e863c09ba05621b98d59cd63b847e3",
-"balance": 305141041,
+"balance": 1237171926,
+"bonded": 0
+},
+{
+"address": "7e3a661454f727123c186d08801182b083acb336f3a988",
+"balance": 3584544607,
+"bonded": 0
+},
+{
+"address": "7ed514b438c61a82044ab30fae6fbc299806e6377cc59d",
+"balance": 2223941923,
+"bonded": 0
+},
+{
+"address": "7ee151d310cebfe24187b5998fe51737c873c70d938b2a",
+"balance": 2304833517,
+"bonded": 0
+},
+{
+"address": "802f75e009b82d940752f881a7915555cf075417c7fa7a",
+"balance": 11730491375,
+"bonded": 0
+},
+{
+"address": "805108e9ff68a61cf641ea08e4e5eb652bbb008a59bdc7",
+"balance": 2333445835,
 "bonded": 0
 },
 {
 "address": "80b1cd679e6c98148819da95d313a21878d712e2e1d267",
-"balance": 3356733177,
+"balance": 1746565201,
 "bonded": 0
 },
 {
@@ -720,18 +2290,53 @@
 "bonded": 0
 },
 {
+"address": "8253cfa3845000bc130f38ec81a630e82e5047bfe2e318",
+"balance": 3819388429,
+"bonded": 0
+},
+{
+"address": "829665a3cdae779cc4caab9d0495bf92c673a92986581e",
+"balance": 5163289634,
+"bonded": 0
+},
+{
+"address": "832bc3985960dd58f141d1cd9c887e3609dbb3e3308f4f",
+"balance": 2101209985,
+"bonded": 0
+},
+{
 "address": "83393971db8b54736eb92d1b36652cd334b0d3c8344ec0",
-"balance": 38185392383,
-"bonded": 12216304000
+"balance": 39488972367,
+"bonded": 15967808000
+},
+{
+"address": "834be5f3e8349c4bdcd3422a98356675d32a5be781b493",
+"balance": 12041271375,
+"bonded": 0
 },
 {
 "address": "844495ff8ef5d0a5caca80b5c3dc4e28adcad5774a79d1",
-"balance": 719660914,
+"balance": 97099023,
 "bonded": 40000
 },
 {
+"address": "846ed1608f295fbff983af92d8e986a31ead4ece800101",
+"balance": 1470577179,
+"bonded": 0
+},
+{
+"address": "84abca87c76197dd51e4fe84c82be6ef459bf35532f832",
+"balance": 3585928429,
+"bonded": 0
+},
+{
 "address": "8515b3d9e78868487bc39343640940274e1b5d29b05b56",
-"balance": 2553325856,
+"balance": 4053628429,
+"bonded": 0
+},
+{
+"address": "853754c9e36a4212b20b7eaa8180d3554992939c735eca",
+"balance": 1386207079,
 "bonded": 0
 },
 {
@@ -740,28 +2345,83 @@
 "bonded": 75808000
 },
 {
+"address": "8560e3113f992e381651072cded6649e788c7241ae640a",
+"balance": 9617239409,
+"bonded": 0
+},
+{
+"address": "85648c2354f22668f9dc37ab1286742910bafac21b9bd9",
+"balance": 3624308429,
+"bonded": 0
+},
+{
+"address": "85747c85b03069466cc29aa63b26c167fe7fdda04ed01b",
+"balance": 2369183127,
+"bonded": 0
+},
+{
+"address": "858086debe81ddef97bfa1fd6fb9c87f8e0d1bdf090b47",
+"balance": 1836990555,
+"bonded": 0
+},
+{
+"address": "85d8618dea432a3e4756781e5d398d5fabe00a12bca463",
+"balance": 1172969700,
+"bonded": 0
+},
+{
 "address": "8693ef7b9bcf0ddf3a6a48d2f8ae3385e87fbecaaa3a31",
-"balance": 64982563131,
-"bonded": 10713024000
+"balance": 92006718714,
+"bonded": 14058944000
 },
 {
 "address": "873cc12ac35ba9b3804160df473ef15b7ffdd7dd2fe248",
-"balance": 2531768262,
-"bonded": 9613712000
+"balance": 1287153301,
+"bonded": 36613712000
+},
+{
+"address": "8767f6b0b45b6e72147965c9553cad033211baf174eee3",
+"balance": 3400815963,
+"bonded": 0
+},
+{
+"address": "88149f2456a87441adcdc1bbcf992febd5308f1083f193",
+"balance": 1381871862,
+"bonded": 0
+},
+{
+"address": "88cb03b65080aa9074f4d0d8539a295b57a5966b67cab0",
+"balance": 2473788184,
+"bonded": 0
 },
 {
 "address": "88d16a6af75e959490cb2cde2513f7b34c3ac0847ddbab",
-"balance": 3484727993,
+"balance": 3766980015,
+"bonded": 0
+},
+{
+"address": "88fd7b2d38e444a14ba61a136cbbd25e3eea385db22068",
+"balance": 3372842618,
 "bonded": 0
 },
 {
 "address": "894c26e5f5b7d49ab5c2f61e44a6d9b14b3a969901df39",
-"balance": 2646989163,
+"balance": 1347045079,
 "bonded": 0
 },
 {
 "address": "8976731d4b9e9cb8379d2a13a61685bb31777f071f4957",
 "balance": 4778896111,
+"bonded": 0
+},
+{
+"address": "897e7a707b9c560ad94b912cad1a4ed7f671044b7262d5",
+"balance": 1391857343,
+"bonded": 0
+},
+{
+"address": "89d7e13a5fc39cc45d26021c7ca1b51acbbf76f58af461",
+"balance": 1784104408,
 "bonded": 0
 },
 {
@@ -771,17 +2431,47 @@
 },
 {
 "address": "8a3c4483b9bd382a805e900a9742048ffa867aecf5b4e4",
-"balance": 14625693151,
-"bonded": 71466018625
+"balance": 9314794182,
+"bonded": 119152338625
+},
+{
+"address": "8a3e3ba4a2cf4a70257739a6522fd4fbc9847f1564f4b9",
+"balance": 3428068435,
+"bonded": 0
 },
 {
 "address": "8a420ae4a3aa65e4aef0334289b17ffdaac32bd19da968",
-"balance": 4658622289,
+"balance": 3230433313,
 "bonded": 350736000
 },
 {
+"address": "8a4c7de564d10931aff4e46ac776ae0b1819417e810e1a",
+"balance": 3585148429,
+"bonded": 0
+},
+{
 "address": "8a7875a5cfb757a7347c4a03a2e0c6593f8801db7fb088",
-"balance": 4275900619,
+"balance": 2895951339,
+"bonded": 0
+},
+{
+"address": "8ae54096fc2d4f95378d703e23b060103c90818c283472",
+"balance": 3518295963,
+"bonded": 0
+},
+{
+"address": "8b3a92df4ac7f4430c98395b05d2992b1e527c8e67fc41",
+"balance": 2255845835,
+"bonded": 0
+},
+{
+"address": "8b49cebc2b14d3df2ae4510d5d8d6f97caf0f2d507fb9a",
+"balance": 2309069719,
+"bonded": 0
+},
+{
+"address": "8b7dcbce3ecca9d3dcdde31f4e1d70a1f3578751c64bf0",
+"balance": 3522287220,
 "bonded": 0
 },
 {
@@ -791,23 +2481,78 @@
 },
 {
 "address": "8bface75b492f9ded5a1961727a3a757f68ba6dcd1e63c",
-"balance": 1508910570,
-"bonded": 210576000
+"balance": 4093148429,
+"bonded": 0
+},
+{
+"address": "8c7946b8a3ca3bbeedc3efc117b57d61237fe79af8076b",
+"balance": 2262797214,
+"bonded": 0
+},
+{
+"address": "8cdba2ae7057bf232ba6065e00a353df12b01756df4749",
+"balance": 2121732610,
+"bonded": 0
+},
+{
+"address": "8cf6fb7a63acb691250eeb535ce16243e01b2e46e3fec6",
+"balance": 2268187610,
+"bonded": 0
+},
+{
+"address": "8de06c26028d62b58defd49b2e830d0da06f7b77b2fe40",
+"balance": 1134519173,
+"bonded": 0
 },
 {
 "address": "8e5b862e6768a6ff180a827760db46f1c5e74e15e845cb",
-"balance": 34723241554,
-"bonded": 1349821770000
+"balance": 3366201025,
+"bonded": 1649758164000
+},
+{
+"address": "8e5ed510417403cf8aa20f002f0da85c0e2adbcf30c9b6",
+"balance": 3741788429,
+"bonded": 0
+},
+{
+"address": "8e928b4331c96e431696f3522d11db0cac23b2720c3a55",
+"balance": 994009025,
+"bonded": 0
+},
+{
+"address": "8ebb2be9b921e18448c1ee807432587e9941283f0e590e",
+"balance": 1454744313,
+"bonded": 0
+},
+{
+"address": "8eccb8eb09d17617a3f0cd6d7ae0533de92c1f60642ba7",
+"balance": 1726545772,
+"bonded": 0
 },
 {
 "address": "8f1644b64ebf4845ef4ba1fc02931cbe851fbf28419117",
-"balance": 2509645856,
+"balance": 4358200056,
+"bonded": 0
+},
+{
+"address": "8f408ef4a43b6ebc71b3d9d789ea798d8b59cc24501bf5",
+"balance": 1919154463,
 "bonded": 0
 },
 {
 "address": "8f801125fb77732cf314c9590dadd6685076e1bb877910",
-"balance": 29408776530,
-"bonded": 1036982830000
+"balance": 5310117955,
+"bonded": 1667584794000
+},
+{
+"address": "8f8dae1d3e712f8c016334d10fd5fd51641b4b8d8a1e27",
+"balance": 3136285747,
+"bonded": 0
+},
+{
+"address": "8fb3a889e422021e6a65a087fc5d207f9fc0e168aceeaa",
+"balance": 3584788429,
+"bonded": 33712000
 },
 {
 "address": "8fef371785213d1c66d01b237ce4d568a1528702e4dcd9",
@@ -815,109 +2560,284 @@
 "bonded": 0
 },
 {
+"address": "902badf15a825b911f5d96dcbb2131bf3feb48799f1d34",
+"balance": 3389104607,
+"bonded": 0
+},
+{
 "address": "90fe2f391b34f9dbd6dc4c85b8d6a38601a22e5883bb2d",
-"balance": 2603309163,
+"balance": 1276210801,
 "bonded": 0
 },
 {
 "address": "911f7f5af09fce8c9f0f09539f45f65e66ad5ef474270e",
-"balance": 2579879003,
+"balance": 1291342655,
 "bonded": 0
 },
 {
 "address": "9156a3ce9b4295dd5c71b878af03de1cc0681f4a6442e1",
-"balance": 3320798043,
+"balance": 1211349067,
+"bonded": 0
+},
+{
+"address": "916959ce0bdaf32b8c636be5bce7f35270e72fcbe3c0fe",
+"balance": 1558204750,
+"bonded": 0
+},
+{
+"address": "91db9b458fc54531870870e81e0987c03dad5f049acefa",
+"balance": 2446783127,
+"bonded": 0
+},
+{
+"address": "9201b64e2b030bb0d8a978ad2a23790f361012fca39bdc",
+"balance": 2145677214,
 "bonded": 0
 },
 {
 "address": "92422bc4aa4299e0874b22691c3612ceebcc5d24d265b1",
-"balance": 1831217222,
+"balance": 3978095284,
 "bonded": 0
 },
 {
 "address": "9248479c397d6352891d0c9efea7a381f2162f55f8bcab",
-"balance": 3352109620,
+"balance": 3511804728,
+"bonded": 0
+},
+{
+"address": "926b4497d2ad4d4ec35f80c478d785a3caed06268983a7",
+"balance": 2022084795,
+"bonded": 0
+},
+{
+"address": "92eb758b31295053c609f6628a09c04b38204641572553",
+"balance": 3858188429,
 "bonded": 0
 },
 {
 "address": "92ebef2e68406b08adea417f1d21aeb56c507d0eb7ec0a",
-"balance": 305141041,
+"balance": 1307886079,
+"bonded": 0
+},
+{
+"address": "930efef847fd34945aad9f5b4c7187425a6d7efbcddc64",
+"balance": 1874273897,
 "bonded": 0
 },
 {
 "address": "9337aade5314bfbaa7b35c57d1c0b47524ed90d2fca19b",
-"balance": 20569460081,
+"balance": 2138393967,
 "bonded": 0
 },
 {
 "address": "93a3501212356cbf51d066a0b1b913c7e1c1fb9c442b21",
-"balance": 2734349163,
+"balance": 1432851801,
+"bonded": 0
+},
+{
+"address": "93d381ecd8d448bd0b8979ff7c6f286e9c0e9e770fe0fb",
+"balance": 7196060943,
+"bonded": 0
+},
+{
+"address": "940f6abab65544e201b53efd3439af6a33e1cfc8bb15bf",
+"balance": 1663555482,
+"bonded": 0
+},
+{
+"address": "9450d788f6844ddddd7fa524ffcfa6ccc46b1b68091fed",
+"balance": 3937228429,
 "bonded": 0
 },
 {
 "address": "9475c9dc8b946785a2c227c03bac44dc0362bb249512ca",
-"balance": 4765208230,
+"balance": 3056684707,
 "bonded": 264432000
 },
 {
 "address": "94f36094ea3578a83e02d8ceecee93b2212afa09aa258f",
-"balance": 6958714717,
-"bonded": 587952000
+"balance": 36844771519,
+"bonded": 1862000000
 },
 {
 "address": "94f5d113439c0a32724d4b6cfd16de9d92f7ad3b81f56e",
-"balance": 30821879887,
-"bonded": 1038334370000
+"balance": 3200186956,
+"bonded": 1444137172000
+},
+{
+"address": "951421a19cdb5a637489bcc74b8e5e6cf25a14b83a8ec2",
+"balance": 1477998702,
+"bonded": 0
+},
+{
+"address": "95144b35dd6c72836eec5e8f7d3273cba84f200e8f06fc",
+"balance": 2304473517,
+"bonded": 0
+},
+{
+"address": "959d8028025eb65d4032f8c54ca2dccdbdcab3efd39ba7",
+"balance": 1417986925,
+"bonded": 0
+},
+{
+"address": "95b63cdc9788b7cdc58e4904235c96cf5a6e9eae1d7d07",
+"balance": 1126746485,
+"bonded": 0
+},
+{
+"address": "9631573b485d9850f69166bbf253ed9d0e7be886eb2f80",
+"balance": 4948860248,
+"bonded": 0
+},
+{
+"address": "9662455f37052df249351848990a944d460e82da061d14",
+"balance": 2304473517,
+"bonded": 0
 },
 {
 "address": "96854f433f41b73fe8175100b12a8468bca6218b3b56c3",
-"balance": 364997819,
+"balance": 223565475,
 "bonded": 368000
 },
 {
 "address": "96dcbed06da1c5add127ad4b42f41866ab20b782ec7b19",
-"balance": 2597005856,
+"balance": 3819748429,
+"bonded": 0
+},
+{
+"address": "97c27f65fbde38e6939692c70e3b23a5827aa30b12de32",
+"balance": 4948880248,
+"bonded": 0
+},
+{
+"address": "97e4ed5f2d3ba55ad34420e0b9e9c6bf61b373d3448b2f",
+"balance": 3595535963,
+"bonded": 0
+},
+{
+"address": "97fe56ad79e24f239158028a8f605e71ca5d2a69add442",
+"balance": 1747964795,
+"bonded": 0
+},
+{
+"address": "9829f7ebe849bfad051c28cf73dd168f995d81450453b9",
+"balance": 1826284795,
+"bonded": 0
+},
+{
+"address": "9839abf62945dfff5bdd229a406f80a507ab56e0c05858",
+"balance": 4848829634,
+"bonded": 0
+},
+{
+"address": "9847b371ff46ae6b8873839b517b91539158fb467f4e62",
+"balance": 1935177117,
+"bonded": 0
+},
+{
+"address": "9894031a9c9b74cf6731f7e4075e5aec6e8d91d6d0f61a",
+"balance": 1848042415,
 "bonded": 0
 },
 {
 "address": "98d10fe967b2ab8b13274a1de2b3810af01e40627b088e",
-"balance": 3059525894,
+"balance": 4096382369,
 "bonded": 0
 },
 {
 "address": "98f7f112fb8e958bb3c2ac19ec64f97d7a0fb6eb835742",
-"balance": 1877197222,
+"balance": 3338951915,
+"bonded": 0
+},
+{
+"address": "994a88830cbf6829abfbbb41a16b288ed7f83e0f552cea",
+"balance": 3373562618,
+"bonded": 0
+},
+{
+"address": "995a2adb28628e5b50ca29e5ba9f292bd81ca40d4b326b",
+"balance": 1275359152,
+"bonded": 0
+},
+{
+"address": "9ae282a9c610a968c6e4888820ff038b6f0402a2e7539d",
+"balance": 3539878427,
 "bonded": 0
 },
 {
 "address": "9beee4cdd9880d06a27efe7363692076989e49e5b39158",
-"balance": 7001969675,
+"balance": 13327647628,
 "bonded": 909264000
 },
 {
+"address": "9c0a7e8ec661fb84e84e0bf4f70341e150ffec189de2d8",
+"balance": 2064513591,
+"bonded": 0
+},
+{
+"address": "9c0ce7efff741145429a9ade0739d5ff056be9083fd72a",
+"balance": 1446735162,
+"bonded": 0
+},
+{
+"address": "9c0d00dae8be7ff0291002df39c877746b416c14028100",
+"balance": 2122723265,
+"bonded": 0
+},
+{
 "address": "9c0f230f80c9e2815e4befb3c21be9fded2798950a06c8",
-"balance": 10227324845,
-"bonded": 182685443567
+"balance": 20362133598,
+"bonded": 227471603567
+},
+{
+"address": "9c8848ec00a08523cf9ecdda1754630d8377dce7362979",
+"balance": 1596909072,
+"bonded": 0
+},
+{
+"address": "9cb2dbc8367ba4249b1b221407875d4fcaf32b3210ea55",
+"balance": 1462460828,
+"bonded": 0
 },
 {
 "address": "9cfc1d399d358d2ad2028830cf3e5ff44fcb784c43625b",
-"balance": 2685505856,
+"balance": 4287014313,
+"bonded": 0
+},
+{
+"address": "9d2866a1cce7069920286cda68bd3bdf9b83adc06c4a09",
+"balance": 1376424313,
+"bonded": 0
+},
+{
+"address": "9e00094004768ca75e27e3d5e00f2ebf1eef7471ca83ad",
+"balance": 3311144607,
+"bonded": 0
+},
+{
+"address": "9e5b3e4d751c55729264d5593e9291ce24e0a87788e980",
+"balance": 1844025772,
 "bonded": 0
 },
 {
 "address": "9e61f3c43c2def728fc322eae4921abfdde33d477425ec",
-"balance": 2683285856,
+"balance": 3545988429,
 "bonded": 0
 },
 {
 "address": "9eb17bca72de56da70a28ef75a6bbf66e1f8933b6b4562",
-"balance": 4129063126,
+"balance": 1728045095,
 "bonded": 0
 },
 {
 "address": "9ec9ef75bde2b8db8c78b34951de39439e1d8d103c9097",
-"balance": 18949975094,
-"bonded": 961403766355
+"balance": 3563339731,
+"bonded": 1341068370355
+},
+{
+"address": "9ef55014af1bdf01a645508d659f4fd6e525e60424ade5",
+"balance": 2525927373,
+"bonded": 0
 },
 {
 "address": "9efe9f3ad47363b32a78848f6a6c3906a56b4531765fc7",
@@ -925,139 +2845,469 @@
 "bonded": 2638752000
 },
 {
+"address": "9f029d3a2a85ea2b1c44d1ce77d6244dbccca8a9a72c59",
+"balance": 9612899409,
+"bonded": 0
+},
+{
+"address": "9f26a883788d8ddf10d5b6fea395d03134360edc518456",
+"balance": 2228594561,
+"bonded": 0
+},
+{
 "address": "9f95ab2282cb11642348f08ffa6785c3ca5760373dfc4a",
-"balance": 305141041,
+"balance": 1112747994,
+"bonded": 0
+},
+{
+"address": "9fcd56824532e8ac94966be60f362e4727fab47a1ef6dc",
+"balance": 34594531,
+"bonded": 0
+},
+{
+"address": "a06cb6947de70a145fde95dc22ab4f677a0e25926eb732",
+"balance": 1204042217,
 "bonded": 0
 },
 {
 "address": "a0acbda804f30fe624119fc852b868d18a57dc21bfdba6",
-"balance": 9315738389,
+"balance": 1315371801,
+"bonded": 0
+},
+{
+"address": "a120c1804b0f4ccde6112082f2db6946f4eb5a669bfdb3",
+"balance": 3388548435,
+"bonded": 0
+},
+{
+"address": "a1799613b85ffe827a1bd0d5a3bbf954c53b09042a3f6e",
+"balance": 1345640729,
 "bonded": 0
 },
 {
 "address": "a191969b0edffa74896e327630e17153a556138264ef82",
-"balance": 9344127295,
+"balance": 1413142655,
 "bonded": 81312000
 },
 {
+"address": "a276bcd25e33d6c66532adedbc2e1501043cded43bff32",
+"balance": 2268114561,
+"bonded": 0
+},
+{
+"address": "a289928a79adb5afcaef42d84c220d42a82daa811bee85",
+"balance": 2321721937,
+"bonded": 0
+},
+{
+"address": "a2d71f48baebb69c7a5cc8f29c931a7e74527b7c7ebb6f",
+"balance": 2043842415,
+"bonded": 0
+},
+{
+"address": "a3611075145f468b419e9db0ee4c798e6d3c9fc5ca4f81",
+"balance": 2251251465,
+"bonded": 0
+},
+{
+"address": "a390e8aa21810c5df1d6defd42e58b307fc54c95c8adba",
+"balance": 1339666925,
+"bonded": 0
+},
+{
 "address": "a39c1caa4f7c1b16beae3971f3eaaf4a72ae4d44c715af",
-"balance": 41458474662,
-"bonded": 5458560000
+"balance": 48067347042,
+"bonded": 5900400000
+},
+{
+"address": "a3ea374fe851661e4a7ce9e44bb0f692e53c66c6e7ae53",
+"balance": 1787124795,
+"bonded": 0
+},
+{
+"address": "a3eb2c620e150ba20be290b2a81660d700953ed7e98785",
+"balance": 1705784408,
+"bonded": 0
 },
 {
 "address": "a4597ed8d7b53278cf3de0a1965d4258ab4924c4a86b67",
-"balance": 719120914,
-"bonded": 80640000
+"balance": 2258061219,
+"bonded": 204800000
+},
+{
+"address": "a4e81dd192513c85a861e805e659dda9813b7e72e0f004",
+"balance": 2130125063,
+"bonded": 0
+},
+{
+"address": "a55be32e6b3a3a33d0861a5356e1101e10916242a07d3b",
+"balance": 1282362217,
+"bonded": 0
+},
+{
+"address": "a608b5ef6fd3202879896d8f5f7a5ca926a7959ec21a70",
+"balance": 1550016244,
+"bonded": 0
 },
 {
 "address": "a62209622fdff55407eb3d3cc0ec901f51709f3e1c6026",
-"balance": 2778029163,
+"balance": 1401226513,
 "bonded": 0
 },
 {
 "address": "a626cdb076540ea3a200a7de391aa31b6957c6e57371bc",
-"balance": 3828293488,
-"bonded": 124112480000
+"balance": 4354571784,
+"bonded": 170834800000
 },
 {
 "address": "a63bc61af1f9974db6db99fba1aefba544f70430a1e08e",
-"balance": 2640685856,
+"balance": 3431655284,
 "bonded": 0
 },
 {
 "address": "a74dd647968469bafc7dcf0d2455009a3b61d491fcdbd1",
-"balance": 2509645856,
+"balance": 3645089831,
+"bonded": 0
+},
+{
+"address": "a7600096e6e618ae11dfd4fba7cc82f3322e08dc1ebe52",
+"balance": 1628336244,
+"bonded": 0
+},
+{
+"address": "a78c16e1390dbaca9dc0eb579de24e69e00674603936e7",
+"balance": 1616100785,
 "bonded": 0
 },
 {
 "address": "a79903c93991ac5e81d7b9adf645b5c79164746a3170a5",
-"balance": 2978056015,
+"balance": 1396947039,
+"bonded": 0
+},
+{
+"address": "a7e929e50ef75bae84325223abce64751e1f4c1d242b7b",
+"balance": 1666624408,
 "bonded": 0
 },
 {
 "address": "a8001433d6c93dfb120fad59e028f22627485bb09970ca",
-"balance": 2771185856,
+"balance": 3819388429,
+"bonded": 0
+},
+{
+"address": "a85a9cd2784d1eb2ce2b3f574084c5417519034d4704ab",
+"balance": 2171206534,
+"bonded": 0
+},
+{
+"address": "a8b083652ffb568839e9fafc0551f72a75a30cf97a3817",
+"balance": 1510856244,
+"bonded": 0
+},
+{
+"address": "a928a6b534cb25d794c74ce0087c187db850fde82159ee",
+"balance": 2102953591,
 "bonded": 0
 },
 {
 "address": "a9616c35608f38073c9c0e361180e1306c251a40c56b2e",
-"balance": 2597005856,
+"balance": 3858548429,
 "bonded": 0
 },
 {
 "address": "a99264c53de05637fdd176b9196d8dcdbc2d46420be196",
-"balance": 5530645421,
+"balance": 3819448429,
+"bonded": 0
+},
+{
+"address": "a994f2760681538486c51fec4192b2273f8bc25952522f",
+"balance": 1399842217,
+"bonded": 0
+},
+{
+"address": "a9c8ca55b1ce154ce964a0f4e654d70d02e721fb4775c2",
+"balance": 2062049985,
+"bonded": 0
+},
+{
+"address": "a9e87bf4a300275f2b168068c9dc728f31dfad435c6575",
+"balance": 1603375162,
 "bonded": 0
 },
 {
 "address": "aa9b314984c6712810a561f91f4f2ae8fb816bad07e79c",
-"balance": 30856313424,
-"bonded": 958816000
+"balance": 52915801256,
+"bonded": 2820560000
+},
+{
+"address": "aaa20de3ea7ce5cd39121f13056afc3651a2dd98223f44",
+"balance": 4927529634,
+"bonded": 0
+},
+{
+"address": "aaa479881fe2f8cc9dbd7d840abcc1903f80c504844edb",
+"balance": 1391857343,
+"bonded": 0
 },
 {
 "address": "aad432bfb6f795260e5e560f47395219240b7debc581d5",
-"balance": 1656497222,
+"balance": 3706195284,
 "bonded": 0
 },
 {
 "address": "ab21ea286b0b51036c9f6042d622f6225a3242d4c27b62",
-"balance": 588751575,
+"balance": 2354319176,
 "bonded": 0
 },
 {
 "address": "ab5773f2f3554c15fcafb6fece978d5d450d381a293c5f",
-"balance": 305141041,
+"balance": 1242903445,
+"bonded": 0
+},
+{
+"address": "abd09cafbecca70c77dfcbff5be49adbc18f6b7de64777",
+"balance": 5024980248,
+"bonded": 0
+},
+{
+"address": "abe7e681815b9bc35193a74fcb8ae00d77113f0961e023",
+"balance": 1279176287,
 "bonded": 0
 },
 {
 "address": "abfc36e1638bbadb54d04488d4754567adb19b96b66069",
-"balance": 1935177222,
+"balance": 3976388429,
+"bonded": 0
+},
+{
+"address": "abfe1764760a5f6c6a7bf04d123096acb760221f8c5a7d",
+"balance": 2110390555,
+"bonded": 0
+},
+{
+"address": "ac226e87dd37a482f8dd4595e56ba9dfab36b253113af9",
+"balance": 1887072712,
 "bonded": 0
 },
 {
 "address": "ac851965c8f2955ede4a52a3b81656173fcdfd94894e8d",
-"balance": 1935177222,
+"balance": 3548415284,
+"bonded": 0
+},
+{
+"address": "acc72883ed452f0053f6060710b245c8eb2882d3bb6af8",
+"balance": 1983369985,
+"bonded": 0
+},
+{
+"address": "acd7024035f498626eebe7db5fd57ea29352ff94b657a0",
+"balance": 1866644555,
 "bonded": 0
 },
 {
 "address": "ad11b0b6f0ec457e597cbc147692a78202e896e6cf9437",
-"balance": 348821041,
+"balance": 1198011926,
 "bonded": 0
 },
 {
 "address": "ad57aaf1448c40a0e34c51c56df5e88e59b2f3aace08b1",
-"balance": 14995895208,
-"bonded": 2474136000
+"balance": 39594197033,
+"bonded": 4346904000
+},
+{
+"address": "ad7a5d86f0a9e34e5338216c25325e71b795ecadfe9d5b",
+"balance": 1440724750,
+"bonded": 0
+},
+{
+"address": "ad819afd16cfd9de782a12f48dfff632624f6e5bfb20b9",
+"balance": 2407623127,
+"bonded": 0
+},
+{
+"address": "adb92f878f5351f727d53f69826973d57d1d0b202e7e76",
+"balance": 1278738334,
+"bonded": 0
 },
 {
 "address": "adbf76f5f032c85a5a62cb8d54e3c0c1ebb7a9336fa967",
-"balance": 3248456263,
+"balance": 1586087286,
+"bonded": 0
+},
+{
+"address": "ae349811756a09b95744353ae91fc9d93b52d00ff46b6e",
+"balance": 12060011375,
+"bonded": 0
+},
+{
+"address": "aedee7da33d25008e511d7cae0b0f9040468c6acc598e9",
+"balance": 5162549634,
+"bonded": 0
+},
+{
+"address": "aef54b851e9dd0b5cc6c635c90bdffbc00a87f058cb737",
+"balance": 1381871862,
+"bonded": 0
+},
+{
+"address": "b05028b6e8859318844319d779c03b7b4ed9637a34571e",
+"balance": 9733319409,
+"bonded": 0
+},
+{
+"address": "b05463d8f62b5c35757d1d4547e09d4468264db0f3536a",
+"balance": 1440724750,
+"bonded": 0
+},
+{
+"address": "b06cd2159ac9512336864a7653c89bc564e6dd5931f631",
+"balance": 9710964040,
+"bonded": 0
+},
+{
+"address": "b06f0b17b532981d83078ee512be0ff42bbdf665b81f32",
+"balance": 34594531,
 "bonded": 0
 },
 {
 "address": "b072e2988c2aec727e2b708316f04ea435d3c183caef7c",
-"balance": 3190072353,
+"balance": 1359763377,
+"bonded": 0
+},
+{
+"address": "b0f0859368ec014cb813d92a8c2c06784f0f2fb7c22524",
+"balance": 1432536244,
+"bonded": 0
+},
+{
+"address": "b132e202869d10afec1aab4330fdce488fcdaa97fb8737",
+"balance": 2291327373,
 "bonded": 0
 },
 {
 "address": "b180f57a21d18fbd33c901b341cbbe3d4285c2802a841a",
-"balance": 3279378043,
+"balance": 1272089067,
+"bonded": 0
+},
+{
+"address": "b19602db6b217a38b8d8c85ed48f27fb8a3a58e8338d36",
+"balance": 1368769700,
+"bonded": 0
+},
+{
+"address": "b19bbea35ebde061a7efcbedc8b343ba6a8bd23f7c5940",
+"balance": 3819748429,
+"bonded": 0
+},
+{
+"address": "b1f2b1e0e8d970004802f2a3bb57c35abdeb2ac8a1a1e1",
+"balance": 2369183127,
 "bonded": 0
 },
 {
 "address": "b2175979bdd7bc942a4917176f0aae397a178490859aad",
-"balance": 348821041,
+"balance": 1325120070,
+"bonded": 0
+},
+{
+"address": "b2245b3a98556c997576ebf4e596035ffbfcf2b6aa3586",
+"balance": 2261661923,
+"bonded": 0
+},
+{
+"address": "b254c225c28aee549f7b8d399f4018a0809e0536e5eab8",
+"balance": 1399678702,
+"bonded": 0
+},
+{
+"address": "b2d0cdb7dc559d7258564ff50b370e99bba6281704619a",
+"balance": 4887649634,
+"bonded": 0
+},
+{
+"address": "b31c3d967fb89b6cd639ef340de74b4fc78b573a92314e",
+"balance": 1264391862,
+"bonded": 0
+},
+{
+"address": "b46805ae1468f1574d92e534b5e43ec03d566a6b681a22",
+"balance": 1944964555,
+"bonded": 0
+},
+{
+"address": "b47fd43c1d227b52da37dcc2f7ec92d7d211e8eb18e7ca",
+"balance": 1554466911,
+"bonded": 0
+},
+{
+"address": "b4af8d0869a3d8b53acd7e4d173d79872cb8c78b0efc7d",
+"balance": 1384800729,
 "bonded": 0
 },
 {
 "address": "b4d538c3ad14495cc83ff9d5fe8e8763e07bdba83ad1ab",
-"balance": 10754498179,
-"bonded": 1057068746148
+"balance": 6374917880,
+"bonded": 1342593140148
+},
+{
+"address": "b4fcb3f0cf65bd0170976c00cd1aba5f3ac96a0ff1ec94",
+"balance": 3321502722,
+"bonded": 0
+},
+{
+"address": "b5029274cfcbc3161e5a2ccc946ceb551b2d387b589671",
+"balance": 3741428429,
+"bonded": 0
+},
+{
+"address": "b504bc80ae0746cdbc2b65147c7baa5e6fc69089a0b5da",
+"balance": 1801674463,
+"bonded": 0
+},
+{
+"address": "b5b625d31232971c22be8edb5160a378b68e0a304cba49",
+"balance": 2330847373,
+"bonded": 0
+},
+{
+"address": "b5cfbf5a52fb5ffdd884804510513401728f3191eeb344",
+"balance": 1808882415,
+"bonded": 0
 },
 {
 "address": "b5dfcbc0a31e8e3720b89c9ca47d73893f56729a7f675f",
-"balance": 5582407831,
+"balance": 13268343794,
 "bonded": 67841312112
+},
+{
+"address": "b606ab81c1ddab9a8ad151f54aae102774eca060df2139",
+"balance": 4946739926,
+"bonded": 0
+},
+{
+"address": "b6284466e84d3d81e0130fabb1146cf46e8177bc865851",
+"balance": 3489998541,
+"bonded": 0
+},
+{
+"address": "b6e54c233e101ca5e692cfa0a5e3f3080b803bec0d9c4f",
+"balance": 2368823127,
+"bonded": 0
+},
+{
+"address": "b6eee8f056007b098807a07d6a782f149b28d0c6b47ec7",
+"balance": 2941205747,
+"bonded": 0
+},
+{
+"address": "b7355d76d9df5de78116dea7405c4556fad97d4a50915f",
+"balance": 2446423127,
+"bonded": 0
+},
+{
+"address": "b742a1c4c44ae04ce9a8d5484992441f14052310621222",
+"balance": 3326506597,
+"bonded": 0
 },
 {
 "address": "b799feb02b81b4be328b6bfc550aedd6cad923daf60c05",
@@ -1065,93 +3315,248 @@
 "bonded": 0
 },
 {
+"address": "b815981b3a9c0506171a7c202806c7cf5e3909b7fe6d0c",
+"balance": 1225231862,
+"bonded": 0
+},
+{
+"address": "b82d119d29ea3247fa74b331bfaf2b153268c55c113b70",
+"balance": 2151067610,
+"bonded": 0
+},
+{
 "address": "b88a3153ec36b5f2d7a62511bdbee4c56be045cb5f3d8d",
-"balance": 3687861313,
+"balance": 3112953337,
 "bonded": 0
 },
 {
 "address": "b8a63cd74d2bae0bc6f6d09fb14e1108bb69f109a4948f",
-"balance": 134971836823,
+"balance": 143781868680,
 "bonded": 0
 },
 {
 "address": "b918f06b4c89e73994d37ce05833fd967420af34d70013",
-"balance": 11953587769,
-"bonded": 958414430000
+"balance": 3813723213,
+"bonded": 1340145542000
+},
+{
+"address": "b92d88413f92f43614d9dae5e63f2a2e86d29ee5ae5328",
+"balance": 1225231862,
+"bonded": 0
+},
+{
+"address": "b9c509afe0153d928b03c0ff4d5e8480c30a1762295d8a",
+"balance": 1455516343,
+"bonded": 0
 },
 {
 "address": "b9f23315788d1a8b5011b8fc88c60d487f27dcd9514fdf",
-"balance": 5912342539,
-"bonded": 959544541082
+"balance": 32562540382,
+"bonded": 1312155957082
 },
 {
 "address": "ba04cbbb7c1ffc17ed67b62e3100f25789f3738998af6b",
-"balance": 65197670141,
-"bonded": 1337156481440
+"balance": 44684808125,
+"bonded": 1599654105440
+},
+{
+"address": "baa19b4cd8c27690025f2ee8ba95878a43df84dc15e64e",
+"balance": 1896017117,
+"bonded": 0
+},
+{
+"address": "baa44b5192cbf3c12932d2b80fed51da1c00e76bc106c5",
+"balance": 3858548429,
+"bonded": 0
 },
 {
 "address": "baecab0e0daf9a98e2e260e354e870d6cef984db4f9e8e",
-"balance": 2603309163,
+"balance": 2371389606,
+"bonded": 0
+},
+{
+"address": "bbaa057c702ab1112aea572e2675a0ab2fd27f99c8c610",
+"balance": 2486663127,
 "bonded": 0
 },
 {
 "address": "bc054bda4f4058781f7cb2199ea5d3b715c609637bd48c",
-"balance": 1760457222,
+"balance": 4840635256,
+"bonded": 0
+},
+{
+"address": "bc1dd7295d73583bbfad0197ef9e2342afad9e7e2cb480",
+"balance": 3744575284,
 "bonded": 0
 },
 {
 "address": "bc2c683f703d0b112a6a3fa5495b5dce99df922de33f55",
-"balance": 135773682272,
+"balance": 137917102501,
 "bonded": 17258048000
 },
 {
+"address": "bc4472abd68a71c18dd0e4bbfd16f3646a5f0060b20f69",
+"balance": 12326391375,
+"bonded": 0
+},
+{
+"address": "bca6ed80f778d192cd20136ffcf230fc2879e74141fdcb",
+"balance": 2033587610,
+"bonded": 0
+},
+{
+"address": "bcb5c1c4bc2ee8694781ce0160de1925f3119f89959fdc",
+"balance": 1268727079,
+"bonded": 0
+},
+{
+"address": "bcd9800366a0723e27ffc994400c6fb1e3895cbf5086b8",
+"balance": 2134980878,
+"bonded": 0
+},
+{
+"address": "bce3e5998023e08e43eb1faf9ce34f69bf208b51d46dfb",
+"balance": 1866141873,
+"bonded": 0
+},
+{
 "address": "bcf380927f81b38ee7af2987bebdc436ec854da507d524",
-"balance": 9176755177,
+"balance": 320370735,
+"bonded": 0
+},
+{
+"address": "be4a479a7955ee19365cb0c87194cf4f8c1e2c385889e4",
+"balance": 2382793517,
 "bonded": 0
 },
 {
 "address": "beac47fa6b1fb3721bef05fed18a21579b2ffbeed0298d",
-"balance": 305141041,
+"balance": 1283342522,
 "bonded": 0
 },
 {
 "address": "befc7ad51d843f3eda8de90564535c9d5f05c6c9a3a396",
-"balance": 2646989163,
+"balance": 1244587513,
 "bonded": 0
 },
 {
 "address": "bf483bf8eb451d4a8e5eedef6fab6b65f29a38f3aa45f0",
-"balance": 2553325856,
+"balance": 3623948429,
+"bonded": 67424000
+},
+{
+"address": "bf4c4e1885d2d9d59f5903d6dd5bad6684c5de02d5db0a",
+"balance": 1102244963,
+"bonded": 0
+},
+{
+"address": "bf85f295c59a8cbd798f864f86dd58dad064342206b9b6",
+"balance": 2301855417,
+"bonded": 0
+},
+{
+"address": "bfb82f3af417d0e1232ccbe7e256856a61822f7ea125ec",
+"balance": 3523787220,
 "bonded": 0
 },
 {
 "address": "c041167affec9c9649cbf3fe72f921a7fb001ba9831ba0",
-"balance": 17903398078,
-"bonded": 400212351457
+"balance": 2533977371,
+"bonded": 508415759457
 },
 {
 "address": "c07231e919e13fa88344cae2f22cf27cb8cc6dbfef1713",
-"balance": 72471579296,
-"bonded": 711862931000
+"balance": 6531591354,
+"bonded": 933316843500
+},
+{
+"address": "c08510477cc907dffe3af407d264d4ba90f8ec33baa89a",
+"balance": 3243182722,
+"bonded": 0
 },
 {
 "address": "c0d8a815348a0572d5f2c48c22299c30fd715260aab8d3",
-"balance": 2941155433,
+"balance": 27658965,
 "bonded": 117280000
 },
 {
+"address": "c174414fd13c3e873cd518810bd9ef8d3b002cd55b4211",
+"balance": 2101488351,
+"bonded": 0
+},
+{
+"address": "c1904412cac722ffda7be086b5ac98391de72593064e09",
+"balance": 1619100828,
+"bonded": 0
+},
+{
+"address": "c1dc70a9c25187bd0466f5596e8d393dcea4f7eb96bba3",
+"balance": 2012645063,
+"bonded": 0
+},
+{
+"address": "c23cc3084ba9b77d4499cf586c1edcd58f85fa0f37fed0",
+"balance": 500699185,
+"bonded": 0
+},
+{
+"address": "c2415d0e9b1b9696b41d7310091a3ef038745a52899419",
+"balance": 1306480729,
+"bonded": 0
+},
+{
+"address": "c29cd2ef000781d4aded4cabd00712f4e291a439887351",
+"balance": 1666624408,
+"bonded": 0
+},
+{
+"address": "c2a003fd0c3409e885050971525f31e11c0dfc4dff1cdd",
+"balance": 2306554561,
+"bonded": 0
+},
+{
+"address": "c30a2286e8c4eba5fa6de5746f1684a246221c8847a64f",
+"balance": 2984559551,
+"bonded": 0
+},
+{
+"address": "c40a67f76dd02956d675afd379c663ab2f5d078d007788",
+"balance": 2279364265,
+"bonded": 0
+},
+{
+"address": "c44a02cb5ea3ca901850905f01eb79386a7f229d3911cf",
+"balance": 1378825925,
+"bonded": 0
+},
+{
 "address": "c55a2542b45149c7d22bb57f94e928cf68dd7422ad6342",
-"balance": 675980914,
+"balance": 259365413,
+"bonded": 0
+},
+{
+"address": "c57196789329fd9a7403a0fccf035b1e66932af35ef43d",
+"balance": 3624668429,
 "bonded": 0
 },
 {
 "address": "c585ce8c920a324295ca8e0505e58b0aa9ff16eb04f6e5",
-"balance": 18574394424,
-"bonded": 16905800000
+"balance": 19413704454,
+"bonded": 16968456000
+},
+{
+"address": "c5b2bbefc33b1286df8e546478b5e6ce90b2e482b1e4d4",
+"balance": 1955267610,
+"bonded": 0
+},
+{
+"address": "c5c8c5768689d00d5a3ae1199b7674230acfed69c31294",
+"balance": 2290771465,
+"bonded": 0
 },
 {
 "address": "c5d9527e10d44145a87c0834ca1fa26c93398984ea599e",
-"balance": 3991783785,
+"balance": 1401226513,
 "bonded": 0
 },
 {
@@ -1161,87 +3566,257 @@
 },
 {
 "address": "c6811361dead48c0feda2dc058a4f92b74f0bc217d7d33",
-"balance": 13529012986,
-"bonded": 1736468000
+"balance": 1836645982,
+"bonded": 2671928000
+},
+{
+"address": "c7a77972da4fe12515e96a16e0768fd760779db3d3f7cb",
+"balance": 3461198427,
+"bonded": 0
 },
 {
 "address": "c7a8b53392a366ccbc882e54c750735eb017ef41a6da63",
-"balance": 2685505856,
+"balance": 3741788429,
+"bonded": 0
+},
+{
+"address": "c7ae53b157372a151bed8ef5629f92b3cb867135651be5",
+"balance": 3388908435,
+"bonded": 0
+},
+{
+"address": "c7c301bd0a4d93b66e127798c4525bf1c1fc00fb77c0fa",
+"balance": 1789426911,
+"bonded": 0
+},
+{
+"address": "c7cfda5b7bbd11f871081b5aff23b48e0f03860d552d08",
+"balance": 12051251375,
+"bonded": 0
+},
+{
+"address": "c7fe2f097994d01c2b78e0e949542c0f98dc8582fb7573",
+"balance": 2189867610,
+"bonded": 0
+},
+{
+"address": "c87abb05a14e71c127a053e9e1cf3d4c6d6e1a30707328",
+"balance": 3392495284,
+"bonded": 0
+},
+{
+"address": "c88e1e27f4923f9da13963eb7753b05e54db646bd05ee3",
+"balance": 1225231862,
 "bonded": 0
 },
 {
 "address": "c8a8cfb09abd742384ba2e6855491052119ad1431ac405",
-"balance": 112028472,
+"balance": 1252222656,
 "bonded": 0
 },
 {
 "address": "c8ad9fe8e9e4cf0125d1a780eb0990ca291eb83230bc40",
-"balance": 9804772132,
+"balance": 17362445709,
 "bonded": 0
 },
 {
+"address": "c8b4d8bbf8fb13cc425b0e92882c7a5ad44646f218e304",
+"balance": 1285961070,
+"bonded": 0
+},
+{
+"address": "c8d6f138ece66d81fec7d7cafb5a4bc96b14b095e97e0f",
+"balance": 2585911448,
+"bonded": 124736000
+},
+{
 "address": "c8f644858b7e0ee123d9ec9eeffe12d42b70df8a0eb616",
-"balance": 133461741378,
-"bonded": 15429008000
+"balance": 135626694902,
+"bonded": 15522128000
 },
 {
 "address": "c903da8f8ceef7947f904bc2c04eb900f11cd0ac9aa305",
-"balance": 2913093177,
+"balance": 9144999032,
+"bonded": 0
+},
+{
+"address": "c93d1927859ab770246a5ddfea3ee05eb75919fbe83d06",
+"balance": 11850491375,
 "bonded": 0
 },
 {
 "address": "c9afb82c25d87514b6493cff1110bfe31d562ea83b7011",
-"balance": 2597005856,
+"balance": 3896988429,
+"bonded": 0
+},
+{
+"address": "ca21e3001a1b348aa3dbfe4c886b0cd90825c2f710e22e",
+"balance": 2013363694,
+"bonded": 0
+},
+{
+"address": "cb286a3e3300f5e96f903beca707335923225c270c1ffc",
+"balance": 1985833591,
 "bonded": 0
 },
 {
 "address": "cb2fb5d06b3ac537fec1b44b8c7c396cc8c4a9356fd06d",
-"balance": 4572879284,
+"balance": 3820291710,
 "bonded": 444256000
 },
 {
 "address": "cb4213d5a1607965eb98991d849e56d5c6d8c9d6d90436",
-"balance": 21171362529,
-"bonded": 1187639110000
+"balance": 4278792219,
+"bonded": 1446553604000
 },
 {
 "address": "cbf9d85b27beddd1adc6eaad6a258411a2e9c02585de31",
-"balance": 3171551684,
+"balance": 16785939217,
+"bonded": 0
+},
+{
+"address": "cc08c6a4d34bd2bfd3b6aef58536b14aeaab7cbb9ce83d",
+"balance": 2317148184,
 "bonded": 0
 },
 {
 "address": "cc133e228043c984030df8f3b67b2610b2b591c1d5af93",
-"balance": 9214567295,
+"balance": 1330469928,
 "bonded": 40320000
 },
 {
+"address": "cc2ef470c971bbfe1c216d8c25e654bdf29e5e0d078db9",
+"balance": 3193828435,
+"bonded": 0
+},
+{
+"address": "ccb98dd92bbd2d42b8ab2bebf35cae20b173f610c08987",
+"balance": 1984368351,
+"bonded": 0
+},
+{
+"address": "ccc42d72505f057b6e1567a9555c7c614b778c7394febb",
+"balance": 3625088429,
+"bonded": 0
+},
+{
+"address": "ccc4f85f8dbe7fbd42656e837c0b534522bc62dcb37224",
+"balance": 2999999000,
+"bonded": 0
+},
+{
 "address": "cd07f8e6f30a1c2b922ef719fcda255009469669e408ec",
-"balance": 3246835610,
+"balance": 1034799637,
 "bonded": 0
 },
 {
 "address": "cd5880f5bb2efb0b99ebfbf3c2b2bf8b6d0fa0dc84f5d0",
-"balance": 3704601970,
-"bonded": 2360496000
+"balance": 1330778994,
+"bonded": 5287824000
+},
+{
+"address": "cdad159dfcc1f7b5a00a51c303097182c5a3bb9d83e84f",
+"balance": 2172211465,
+"bonded": 0
+},
+{
+"address": "cdda12270a2f5a8d332037cc161170f253e7076eb2571a",
+"balance": 1517710198,
+"bonded": 0
 },
 {
 "address": "ce148561d2ec0e1210e4a8b32484f675391624a6edaa48",
-"balance": 2465965856,
+"balance": 3819028429,
+"bonded": 33712000
+},
+{
+"address": "cee9aa7985828f50098941e53c1843506249edb975af0c",
+"balance": 3444346597,
+"bonded": 0
+},
+{
+"address": "ceffd7c7aed79798941e22cc1a0cb62c2f2590311faf95",
+"balance": 1506915482,
+"bonded": 0
+},
+{
+"address": "cf47b668365e4aab50aa57e179cf86779c43fea3246a0f",
+"balance": 1282362217,
+"bonded": 0
+},
+{
+"address": "cffc2d8193c5aa0476499db19598603d93c75e9957658b",
+"balance": 3858968429,
+"bonded": 0
+},
+{
+"address": "d05844893b51151c146bee32ffc8d93ac4c0ddc0d8198c",
+"balance": 2231469719,
+"bonded": 0
+},
+{
+"address": "d0985baf3b34a0f9af5c1c9f2d3a9636ea858bcd6e9883",
+"balance": 1958316463,
 "bonded": 0
 },
 {
 "address": "d13ecaf1a403e749010f0c5511d22edd93279306d3492c",
-"balance": 3904856023,
+"balance": 3185226891,
 "bonded": 53940000
 },
 {
+"address": "d1805bc3b862b6427b2b5a1cd09e258ddcb9d37cc29b0f",
+"balance": 1550016244,
+"bonded": 0
+},
+{
 "address": "d18edd6fac5bd794a228fa0e89d5c4540f6283a2154c55",
-"balance": 2603309163,
+"balance": 1232399629,
+"bonded": 0
+},
+{
+"address": "d1b28c718d47f9eacd62081cc183e130db606c1d0274c1",
+"balance": 1517158702,
 "bonded": 0
 },
 {
 "address": "d1dac650da52064201147eb8b5c8e3a681f4041fc33179",
 "balance": 135085993,
+"bonded": 0
+},
+{
+"address": "d1e63cad533de1a02dc43994196c55065f3ea420d2a172",
+"balance": 2268114561,
+"bonded": 0
+},
+{
+"address": "d3066faa540c8bdfbdd754819c2114b2723040cea848ec",
+"balance": 1667496244,
+"bonded": 0
+},
+{
+"address": "d31945c7a2abbfcdc4d64bd4cec07da6668c5cd11fd22d",
+"balance": 1765705772,
+"bonded": 0
+},
+{
+"address": "d321648006db7e600507137681dff95c33681d21be34ec",
+"balance": 1747964795,
+"bonded": 0
+},
+{
+"address": "d332c115fece3641a7934b1e4c813a40d678dbf846188d",
+"balance": 2251740878,
+"bonded": 0
+},
+{
+"address": "d43d14e8faeffb401b9f7c825f0b09021c1188ea0323a4",
+"balance": 9831044040,
+"bonded": 0
+},
+{
+"address": "d4eb8ee66c60c1ccd46d71859e5f1da5adc71e3d90f566",
+"balance": 1618948846,
 "bonded": 0
 },
 {
@@ -1251,7 +3826,12 @@
 },
 {
 "address": "d515cc8458a474f204f234cb80c41ae5afdf626eb3c692",
-"balance": 2815985856,
+"balance": 3392135284,
+"bonded": 0
+},
+{
+"address": "d5652fcc1887f1454e6db86478bb19ec88c7532aaef45c",
+"balance": 1694420785,
 "bonded": 0
 },
 {
@@ -1260,83 +3840,243 @@
 "bonded": 842144000
 },
 {
+"address": "d77d785e6757c902e2fdf5502556da59c0cc761c03825d",
+"balance": 3701908429,
+"bonded": 0
+},
+{
+"address": "d7c5c0fe1c1dcc0fdf78ffdc1f08b3abcd2af0a136fa62",
+"balance": 2228594561,
+"bonded": 0
+},
+{
+"address": "d80e1334ca8828d2c180bb9e0b58aa99a9b107e1e11d0a",
+"balance": 1952361518,
+"bonded": 0
+},
+{
+"address": "d81e8acb664f8f471ac82355f151dda320cba35cdff181",
+"balance": 3248546597,
+"bonded": 0
+},
+{
 "address": "d827754b8a99cbab257627e0c70be7599e1def79c9ab4b",
-"balance": 133663040404,
-"bonded": 16460992000
+"balance": 135773238928,
+"bonded": 16648384000
+},
+{
+"address": "d8676567b1a8d19dae911628a38c1a3a0086bd11378127",
+"balance": 2036276463,
+"bonded": 0
 },
 {
 "address": "d8734ccb2be69c5d29cd86b9e46bf191719d5654240b00",
-"balance": 3914616185,
+"balance": 1871027590,
 "bonded": 0
 },
 {
 "address": "d874ed6396a30281a4150c377afdca59eb225bd9eb4e58",
-"balance": 12529745734,
-"bonded": 44697532121
+"balance": 1060829731,
+"bonded": 46212200121
+},
+{
+"address": "d8de400f6c2b4180a9dfb387f3ae1f0351f43ba65450e1",
+"balance": 3780948429,
+"bonded": 0
+},
+{
+"address": "d90096499ba333a0e5f15f2e7bf6b6d104f29d626a6a25",
+"balance": 1200856287,
+"bonded": 0
+},
+{
+"address": "d95b2d29a1ac2df86650a83497490715bf01e8cd33cdd4",
+"balance": 1675684750,
+"bonded": 0
 },
 {
 "address": "d9a20b2d6a45813dd130db45badd07087fa327ecef3dee",
-"balance": 18646050118,
-"bonded": 19498056000
+"balance": 2309538142,
+"bonded": 70012152000
 },
 {
 "address": "d9a73931d07aee7bbba6069972c4b15e50e6469832b983",
-"balance": 6833154527,
-"bonded": 268369842946
+"balance": 20410431200,
+"bonded": 0
+},
+{
+"address": "d9e4221154f21de25d6726a2402296c3cd583aabd0c537",
+"balance": 12069391375,
+"bonded": 0
+},
+{
+"address": "d9eb46566bc96e598244447338eff179d267e6a81e0a2c",
+"balance": 1285961070,
+"bonded": 0
+},
+{
+"address": "da6e55211e3c5ac9e51ccb3f453e7bc35ecd4710976a56",
+"balance": 2042408767,
+"bonded": 0
+},
+{
+"address": "db31eb6113f2bd20f2c8a6a0a8314e9c77774206f8ca72",
+"balance": 2882611854,
+"bonded": 0
+},
+{
+"address": "dc251505184a881353e6e79ebd4cfc814d9ed414cc0046",
+"balance": 2392079870,
+"bonded": 31040000
+},
+{
+"address": "dc4afb8d76963a69c4923817d9c9fbf1b45dd3679d5dc7",
+"balance": 3075988435,
+"bonded": 0
+},
+{
+"address": "dd4860493fa43a4c1cb3ade579492982efd19f4cf7df13",
+"balance": 1846608767,
+"bonded": 0
 },
 {
 "address": "dd4ed75743541601a045b44dbc469cbc0a498227da37a2",
-"balance": 9221176982,
-"bonded": 2730330800000
+"balance": 3933740831,
+"bonded": 3212631584000
+},
+{
+"address": "dd91c73e9dc32a0ab766477a92920d5e7ddef93154dff9",
+"balance": 1154545331,
+"bonded": 0
 },
 {
 "address": "ddce57771441a5d8a166fa318ea222f28486365b13c55c",
-"balance": 2422285856,
+"balance": 3587215284,
 "bonded": 0
 },
 {
 "address": "de9094262fc1fd8d086cd298e5799ee75e0e87d38da5ae",
-"balance": 755409828,
+"balance": 3052964674,
+"bonded": 0
+},
+{
+"address": "defb62acb3685294f8543759b3870fbada24cbc6f77ec6",
+"balance": 2012645063,
+"bonded": 0
+},
+{
+"address": "df52348d4822366da3e9ecb5dce88b7a8dbeb1ab4db83e",
+"balance": 1486198129,
+"bonded": 0
+},
+{
+"address": "dfc5b34159cd4031b891d33fc8593e43b2dda9ad7ed411",
+"balance": 1384140828,
 "bonded": 0
 },
 {
 "address": "dividend",
-"balance": 146667533209,
+"balance": 150962070400,
 "bonded": 0
 },
 {
 "address": "e045d7e24082b73156a992a52e68b40689539f511bbcda",
-"balance": 2760343618,
+"balance": 1483314642,
 "bonded": 0
 },
 {
 "address": "e075d51ac38b0485bd109409b86c706ff3fc9941c4e205",
-"balance": 2646989163,
+"balance": 166994704,
+"bonded": 0
+},
+{
+"address": "e08a34195d31319ec7ae63419324496b92ae8506773dd7",
+"balance": 1931327819,
 "bonded": 0
 },
 {
 "address": "e10533fd9f6ede8a468ce72fd02ef9b9466973e7fbccc1",
-"balance": 1890957222,
+"balance": 3819028429,
+"bonded": 0
+},
+{
+"address": "e16e956c8c52601b6b2e5b04930beb48a0889642757b8b",
+"balance": 1620239873,
+"bonded": 0
+},
+{
+"address": "e1c5ee99ebc25ac72ec9476548abda4339fa5a73c813ca",
+"balance": 16512611936,
 "bonded": 0
 },
 {
 "address": "e1fff585623f8fd6bb819121f13360bfd811df08a130be",
-"balance": 30213181329,
-"bonded": 38074697412
+"balance": 35549168414,
+"bonded": 38519465412
+},
+{
+"address": "e243fc4215f54952c10210ab0bc20e33d8fa1f3b12515d",
+"balance": 9558664040,
+"bonded": 0
+},
+{
+"address": "e2b6e8c8a6f587a6604d859aa14b7cd581b82fb95768b9",
+"balance": 1416356343,
+"bonded": 0
+},
+{
+"address": "e2f09b77c366ee8b61915e5f887cec76b8a896cb9211cd",
+"balance": 2330487373,
+"bonded": 0
+},
+{
+"address": "e326cc128973acd2b6620cd7b3f48adcd4a9b01711dacb",
+"balance": 8334623726,
+"bonded": 69024000
+},
+{
+"address": "e32a13aa34259fdfc0db33c526719afee98b9e5195986a",
+"balance": 4015188429,
+"bonded": 0
+},
+{
+"address": "e3825342e90d1925037f49d509d94cc026758644c487cf",
+"balance": 1354532801,
+"bonded": 0
 },
 {
 "address": "e5061826aaf1eb75ec9569fb83fa9c0276b4d658443343",
-"balance": 10528683192,
-"bonded": 85508959128
+"balance": 12048251319,
+"bonded": 118021599128
+},
+{
+"address": "e515af58b385950490771c82da842e0a02665db99b7731",
+"balance": 1464527079,
+"bonded": 0
+},
+{
+"address": "e54a7c7a79307a0f9b535cc27473f0591c32b713c85911",
+"balance": 1400230198,
+"bonded": 0
+},
+{
+"address": "e5910099e5eb9df978dc2c10beca94acb14c838af75310",
+"balance": 3939295284,
+"bonded": 0
 },
 {
 "address": "e59b2c1caff84fac7de4f95069f6f53f1bdcd47f039745",
-"balance": 3370006441,
+"balance": 1225877463,
 "bonded": 39680000
 },
 {
+"address": "e5a848a2b6f2c8362b8efa3ae3964043051f0670eaec05",
+"balance": 1438838702,
+"bonded": 0
+},
+{
 "address": "e64d64bba272595df697dc5671b3644b58c97b744303ec",
-"balance": 3491610823,
+"balance": 2117345656,
 "bonded": 0
 },
 {
@@ -1345,8 +4085,18 @@
 "bonded": 52576000
 },
 {
+"address": "e73e48fbd19a0e5744f26998add140714f09852d51b5a2",
+"balance": 5144320248,
+"bonded": 0
+},
+{
 "address": "e7aa04f334ee93006b890a5bce0a01368328a4d4648174",
-"balance": 1101331390,
+"balance": 41530098,
+"bonded": 0
+},
+{
+"address": "e7aeb95d13e315c483313740788427e7c5fc4fa3632406",
+"balance": 2061689985,
 "bonded": 0
 },
 {
@@ -1355,39 +4105,159 @@
 "bonded": 0
 },
 {
+"address": "e7f2b3f2fdabf4e73ab234c965d282d0d0e77f1bacf1fd",
+"balance": 3428264607,
+"bonded": 0
+},
+{
+"address": "e824f3c4ca483a6b265787bc725af62eef1d85f5748c06",
+"balance": 11878011375,
+"bonded": 0
+},
+{
+"address": "e85bdb026eed0b0f10bcb941fb1422b7081fe78ffe54dd",
+"balance": 3361655963,
+"bonded": 0
+},
+{
 "address": "e87aaaab4fb40977d7c833d1b7bcfc19faef441181d632",
 "balance": 21387813816,
 "bonded": 0
 },
 {
+"address": "e8f9e0b0979331a1dae9950c34bf67d0357d6d48e6ab07",
+"balance": 9652779409,
+"bonded": 0
+},
+{
+"address": "e9293c169b86490d44068036b59af8fc9799d65778cc8d",
+"balance": 1535466925,
+"bonded": 0
+},
+{
 "address": "e957bfd38d27e7e0b5644ade7a5940c0a38bcc8c46c168",
-"balance": 1760457222,
+"balance": 3586855284,
+"bonded": 0
+},
+{
+"address": "e95bee81d42489c0bbc9ad5380adbd6fc5df825f0d775e",
+"balance": 1344980828,
+"bonded": 0
+},
+{
+"address": "e96b3432f9125760ff98ef409b69487a377f966fd384fb",
+"balance": 1730562415,
+"bonded": 0
+},
+{
+"address": "eac2a818cb2d656b0c0fe9190ee47f6693a58a69c697ad",
+"balance": 1587657343,
 "bonded": 0
 },
 {
 "address": "eaed58a191eb79bf3363373a8d55ba27f58a5747140a6f",
-"balance": 4180855914,
-"bonded": 483296000
+"balance": 2749349934,
+"bonded": 3296000
+},
+{
+"address": "eb14105a3f0ceea2a167ec728927fefc31bc70884129a8",
+"balance": 1421031862,
+"bonded": 0
+},
+{
+"address": "eb1a65adc9d199892f81d8e59a00cd00693199f8cbb07e",
+"balance": 3048462722,
+"bonded": 0
+},
+{
+"address": "eb5ac0301f3d6dcc6c3b596dd58f380b0ba84e71d5e7bc",
+"balance": 2263101923,
+"bonded": 0
 },
 {
 "address": "eb64a110a31895047fda479b960ff8027b80fffeb6a91d",
-"balance": 36947976920,
-"bonded": 400980340000
+"balance": 29750030149,
+"bonded": 500307128000
+},
+{
+"address": "eb8a663bb4d3c134f2d51f226969409e45096c27d320f1",
+"balance": 1517710198,
+"bonded": 0
 },
 {
 "address": "ebd27698662f14ee2389e509781d5ff57487f4289a4d67",
-"balance": 6608382623269,
-"bonded": 2338245893800
+"balance": 3321090912974,
+"bonded": 3142491776059
+},
+{
+"address": "ec275c4d6e1a381024797f8362ec6772ac100a7d282996",
+"balance": 1697268846,
+"bonded": 0
+},
+{
+"address": "ec63e58b919d22435cf8ebb721d710a6cd4a5ce7460ba4",
+"balance": 1479884750,
+"bonded": 0
+},
+{
+"address": "edb2741ccf1a2cdcf53cd106f9c4a9afbccbafeed2cb3a",
+"balance": 2409527373,
+"bonded": 0
+},
+{
+"address": "edde342631c09d9826ce64cbf50bfa1716e2b9a45dc423",
+"balance": 2145621923,
+"bonded": 0
+},
+{
+"address": "ee2a5d6988b431a3c3b694d26dd8600164ed93b5f6c0fd",
+"balance": 1914590555,
+"bonded": 0
+},
+{
+"address": "eef6e78770090649edc8b0ecb693f9ad615561fa858979",
+"balance": 1470577179,
+"bonded": 0
+},
+{
+"address": "ef2774a5c18ac07dc7222db5312ccee2de79e77516e04e",
+"balance": 2101128351,
+"bonded": 0
+},
+{
+"address": "ef6176f0cdf3fd0b1bfd6cc7b3dd4893ff0606c43b099e",
+"balance": 1219724963,
+"bonded": 0
+},
+{
+"address": "efc083adef1d6def5faa6b9512581c6b6813890ca48a76",
+"balance": 3249607220,
+"bonded": 0
+},
+{
+"address": "efcc025bfd780277ddfc1ccda5f5cb3082e5804eba6c8b",
+"balance": 2100849985,
+"bonded": 0
 },
 {
 "address": "f0095c214e233e8b05e9f98e4ee0e55118ca1dfcd4ec5d",
-"balance": 5032209397,
+"balance": 4375843874,
 "bonded": 24779584000
 },
 {
 "address": "f05cad9e1def0a6fe9f06d2bd026bdb999b76f4f8173ae",
-"balance": 141937133974,
-"bonded": 54549942043
+"balance": 173532359566,
+"bonded": 55795830043
+},
+{
+"address": "f0bfd867b13af67440c0aa3e56e9d46d282aa6a2c1d752",
+"balance": 4909020248,
+"bonded": 0
+},
+{
+"address": "f12adca647be693e57be20e639ded0babb4c381a5a0610",
+"balance": 2036636463,
+"bonded": 0
 },
 {
 "address": "f1465ae3ed3762d5f3a87a30655c47ce200850e8981689",
@@ -1395,18 +4265,78 @@
 "bonded": 0
 },
 {
+"address": "f171d5f70346823af4c104d33b5455dee629e8378826f9",
+"balance": 2399985870,
+"bonded": 62656000
+},
+{
+"address": "f22ac080f285a32f7243499ec4876b2a733e8d86a6f04e",
+"balance": 1808522415,
+"bonded": 0
+},
+{
+"address": "f236b69462194c90e9741ec0fa108c4747378c9b03c238",
+"balance": 1457146925,
+"bonded": 0
+},
+{
 "address": "f2a731ba67754b3476adb4ec11d6a8bae3213cbb34ef19",
-"balance": 1934097222,
+"balance": 4013808429,
+"bonded": 0
+},
+{
+"address": "f2a9530fc86cca4bc725229f4df6eef1d60ce991a74149",
+"balance": 1667496244,
+"bonded": 0
+},
+{
+"address": "f2b79f23327ff7f35ede0abcb486d784da28ffe906ce0f",
+"balance": 2277988184,
+"bonded": 0
+},
+{
+"address": "f2dcbaa1f94a60153a9b5b35a5d7e0c3aec670ba143d5a",
+"balance": 9778119409,
+"bonded": 0
+},
+{
+"address": "f315f5577cd91f2cac6999b2f4b3f4b077da0900909ee1",
+"balance": 1619100828,
+"bonded": 0
+},
+{
+"address": "f33f4bbb3e999b6c9f99941137812d84371ee3293f93a0",
+"balance": 3334402618,
+"bonded": 0
+},
+{
+"address": "f35e872b35ce4e9fbad03c494cdff86eca69806fe1c26f",
+"balance": 1391857343,
 "bonded": 0
 },
 {
 "address": "f37344b1cf19ea52d5d6beb3fcfde05daf165e0caf16fe",
-"balance": 1717337222,
+"balance": 3859688429,
+"bonded": 0
+},
+{
+"address": "f3978b779f6d721cf4bf408e1b59e21976fe853c903744",
+"balance": 3151182414,
 "bonded": 0
 },
 {
 "address": "f413ffd437d28dd811a5d66f85488305e954791dfc400a",
-"balance": 1891497222,
+"balance": 3744935284,
+"bonded": 0
+},
+{
+"address": "f4fc0efa57c559c787e4241779f7c983977f1bfbc1a5b4",
+"balance": 1509337343,
+"bonded": 0
+},
+{
+"address": "f50c8512ecaaed4a872484fbbee2f5df3ba665e57f6322",
+"balance": 1895501873,
 "bonded": 0
 },
 {
@@ -1416,22 +4346,67 @@
 },
 {
 "address": "f58d6c7781a089afd83c935f4c7659aef7ebeb6a3b54d2",
-"balance": 12973798259,
-"bonded": 910244341600
+"balance": 3774188420,
+"bonded": 1169267813600
 },
 {
 "address": "f5eaa1714f5d72b69b84c3054f6ea10fbc006ab66c55b3",
-"balance": 127655516654,
-"bonded": 14046656000
+"balance": 129812855178,
+"bonded": 14109312000
+},
+{
+"address": "f68bdbab6413186f26a4bd1b3820032a3cef28022e838f",
+"balance": 2023528351,
+"bonded": 0
+},
+{
+"address": "f6e0159b166b058c0e755e76024ca8a48ebc275fb64806",
+"balance": 2681430337,
+"bonded": 0
 },
 {
 "address": "f6fa2ef5fa8f987dc7c8671e8a4ed38989fc7340aa3d15",
-"balance": 4369555009,
+"balance": 4064051487,
 "bonded": 26970000
 },
 {
+"address": "f726e131aee1d14cabb2b45d98b1126319599cc4016ec9",
+"balance": 3936508429,
+"bonded": 0
+},
+{
 "address": "f7489ab307da05b603152cbd46704cbad7d018a3ec670d",
-"balance": 2509105856,
+"balance": 3510335284,
+"bonded": 0
+},
+{
+"address": "f75a48a6472763a514f9c7ea398994a3fb5e3f367a90b6",
+"balance": 2144760248,
+"bonded": 0
+},
+{
+"address": "f8200656b4e9079a5f0cde055eb6fbda569a108502909d",
+"balance": 1279176287,
+"bonded": 0
+},
+{
+"address": "f84480181013a7007607d1860aac16fc97f25f3a633cbd",
+"balance": 3587935284,
+"bonded": 33712000
+},
+{
+"address": "f92ed1bb946d403c799021c49a2e6c71cdf026d89ac9f9",
+"balance": 2013005063,
+"bonded": 0
+},
+{
+"address": "f9660fb6504d4871640a706f753be9dd622c28ee9528fe",
+"balance": 1997476463,
+"bonded": 0
+},
+{
+"address": "f9aef32eff0f4c877fa8f5400c95618ccc0854f208f48f",
+"balance": 2082572610,
 "bonded": 0
 },
 {
@@ -1440,19 +4415,104 @@
 "bonded": 2609216000
 },
 {
+"address": "f9b86f91e82ad6ac79772442b43d4f1b1a3630beb9804a",
+"balance": 3579818427,
+"bonded": 0
+},
+{
 "address": "f9d41f23ec4bd4d2656daa6697c52a6a15126acaea7647",
-"balance": 9132475250,
-"bonded": 214417790323
+"balance": 1402639042,
+"bonded": 282031793323
+},
+{
+"address": "fb485f8316a34596630470882cf2e87a755a25e113a626",
+"balance": 1697268846,
+"bonded": 0
+},
+{
+"address": "fb5e269a9c8454afa6f55334ee4d4560b69f3404d0ade3",
+"balance": 1261346925,
+"bonded": 0
+},
+{
+"address": "fbc560dd06d8bb13fa703ed82d499b36445370175512c2",
+"balance": 1810486238,
+"bonded": 0
+},
+{
+"address": "fbfdda75844e5c1049e9099f44cc29cfdd6cc8ebfd25c4",
+"balance": 3422038427,
+"bonded": 0
 },
 {
 "address": "fc258e024e1f3cc746ef6e03a172030828f4ca034b2752",
-"balance": 144211696823,
+"balance": 152672308680,
+"bonded": 0
+},
+{
+"address": "fc4410987d00529801aac3cb847a367b5b82d8f5764bed",
+"balance": 3412758541,
+"bonded": 0
+},
+{
+"address": "fc75d2cbbce8c735abf3d955620ed3fb9a9dcaade0e489",
+"balance": 1486612551,
+"bonded": 0
+},
+{
+"address": "fc9dc64880352336f1ef6c9ee690aa138b8c399c1996ad",
+"balance": 2399321937,
+"bonded": 0
+},
+{
+"address": "fd0fa075b2f0eca91c3ce022aab4c3b47969a7ec9cff2d",
+"balance": 3412002618,
+"bonded": 0
+},
+{
+"address": "fd271ce9fc26d2970df97d9171ea5ea859c401ad664e3f",
+"balance": 2419437214,
+"bonded": 0
+},
+{
+"address": "fd9f3c734718f486e0ff1ac0def001c341f6efa63d75d8",
+"balance": 1924928767,
+"bonded": 0
+},
+{
+"address": "fddd7c782443b207cdabe2bac6040e243d59ccd37d1aca",
+"balance": 1303551862,
+"bonded": 0
+},
+{
+"address": "fe50c2f45a7a4d693ce9cd43424d610cc41e2eb0fa7e16",
+"balance": 11878371375,
+"bonded": 0
+},
+{
+"address": "fed8e6bc5893f46d50560783a1c52ade56f726f82c5904",
+"balance": 5084189634,
+"bonded": 0
+},
+{
+"address": "feda5a78b56199199c3addeb95f60f974397cf6f7db56c",
+"balance": 9815139409,
 "bonded": 0
 },
 {
 "address": "fef6492a8dffa3818839e5c680a37fbd44041c2bc8a48e",
-"balance": 120787988377,
+"balance": 143077795817,
 "bonded": 2801294657
+},
+{
+"address": "ff32699d8045fb2c4ff5147b600c2151d222a62c2c3eff",
+"balance": 9687764040,
+"bonded": 0
+},
+{
+"address": "htlc",
+"balance": 1000000000,
+"bonded": 0
 },
 {
 "address": "shield",
@@ -1461,7 +4521,7 @@
 },
 {
 "address": "treasury",
-"balance": 4920570812895,
+"balance": 6368999462869,
 "bonded": 0
 }
 ]

@@ -27,26 +27,19 @@ def check(name, cond, detail=""):
 
 
 def t1_gate_expression():
+    """The gen-23 gate was retired at the gen-24 reroll: no gate name survives, the rules are unconditional."""
     import protocol as P
     src = open(os.path.join(ROOT, "protocol.py")).read()
-    check("gate keyed on CHAIN_GENERATION == 23", re.search(r"SYBIL_RULES_HEIGHT = _GEN23_SYBIL_ACTIVATION if CHAIN_GENERATION == 23 else 0", src) is not None)
-    check("activation is an epoch boundary", P._GEN23_SYBIL_ACTIVATION % P.EPOCH_LENGTH == 0)
-    if P.CHAIN_GENERATION == 23:
-        check("gen 23: rules activate at 86 400 / epoch 1440", P.SYBIL_RULES_HEIGHT == 86_400 and P.SYBIL_RULES_EPOCH == 1440)
-    else:
-        check("gen 24+: the rules are THE rule from block 0", P.SYBIL_RULES_HEIGHT == 0 and P.SYBIL_RULES_EPOCH == 0)
-    check("SCHEDULED-CLEANUP marker present", "SCHEDULED-CLEANUP" in src[src.index("SYBIL RULES"):src.index("SYBIL RULES") + 1500])
+    for name in ("SYBIL_RULES_HEIGHT", "SYBIL_RULES_EPOCH", "_GEN23_SYBIL_ACTIVATION"):
+        check(f"{name} is gone", re.search(r"^\s*%s\b" % name, src, re.M) is None)
+    check("gen 24+", P.CHAIN_GENERATION >= 24)
+    check("probation is unconditional", P.on_probation(1, 0) and not P.on_probation(2, 0))
 
 
 def t2_probation_weights():
     import protocol as P
     from ops.mining_ops import open_shares
-    E0, E1 = P.SYBIL_RULES_EPOCH - 1, P.SYBIL_RULES_EPOCH
-    if E0 >= 0:
-        check("before activation: dividend curve byte-identical (fresh identity = 1)",
-              [P.dividend_weight(f, E0) for f in (0, 1, 2, 5, 30)] == [1, 1, 1, 1, 25])
-        check("before activation: open weight unchanged (2..10)",
-              [open_shares(f, E0) for f in (0, 1, 2, 30)] == [2, 2, 2, 10])
+    E0, E1 = -1, 0
     check("from activation: probation identities weigh 0 (absent) for the dividend",
           [P.dividend_weight(f, E1) for f in (None, 0, 1)] == [0, 0, 0])
     check("from activation: the first timely renewal ends probation (fidelity 2 -> weight 1, curve continues)",
@@ -54,7 +47,7 @@ def t2_probation_weights():
     check("from activation: open weight 1 on probation, never 0, 2+bonus after",
           [open_shares(f, E1) for f in (None, 0, 1, 2, 30)] == [1, 1, 1, 2, 10])
     check("legacy display call (no epoch) keeps the un-gated curve", open_shares(0) == 2)
-    check("on_probation predicate", P.on_probation(1, E1) and not P.on_probation(2, E1) and (E0 < 0 or not P.on_probation(1, E0)))
+    check("on_probation predicate", P.on_probation(1, E1) and not P.on_probation(2, E1))
 
 
 def t3_weights_at_epoch_omits_probation():
@@ -64,7 +57,7 @@ def t3_weights_at_epoch_omits_probation():
     kv_ops.close_all(); kv_ops.init_env()
     import protocol as P
     from ops.dividend_ops import weights_at_epoch
-    E = max(P.SYBIL_RULES_EPOCH, 400) + 10
+    E = 400 + 10
     a, b = "a" * 46, "b" * 46
     kv_ops.recert_put(a, E - 1)                                 # fresh: one recert -> fidelity 1 -> probation
     kv_ops.recert_put(b, E - 1 - P.FIDELITY_MIN_GAP_EPOCHS)     # renewed timely -> fidelity 2
@@ -81,7 +74,7 @@ def t4_difficulty_baseline():
     counts = {}
     R._memo_count = lambda e: counts.get(e, 0)
     try:
-        A = max(P.SYBIL_RULES_EPOCH, P.POSW_DIFF_TRAIL_LONG) + 5
+        A = P.POSW_DIFF_TRAIL_LONG + 5
         # steady state: 3 registrations every epoch for 14 days -> 2-day rate == 14-day rate -> multiplier 1
         for e in range(A - P.POSW_DIFF_TRAIL_LONG - 1, A):
             counts[e] = 3
@@ -98,8 +91,6 @@ def t4_difficulty_baseline():
         check("new rule: the 14-day rate caps the baseline, burst pays the multiplier", m_new > m_old, (m_old, m_new))
         long_rate = (3 * (P.POSW_DIFF_TRAIL_LONG - 720) + 10 * 720) * P.POSW_DIFF_WINDOW // P.POSW_DIFF_TRAIL_LONG
         check("new multiplier == recent // min(2-day, 14-day) baseline", m_new == min(P.POSW_DIFF_MAX_MULT, recent // max(P.POSW_DIFF_FLOOR, long_rate)), m_new)
-        if P.SYBIL_RULES_EPOCH > 0:
-            check("before activation the old rule applies byte-identically", R.difficulty_multiplier(P.SYBIL_RULES_EPOCH - 1) == 1 or True)
     finally:
         R._memo_count = orig
 

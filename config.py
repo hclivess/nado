@@ -44,6 +44,10 @@ def get_protocol():
     the state_root; all-default account rows are canonicalized out of the root. These change how the
     state_root/snapshot_hash are computed, so old nodes MUST be shed (they would advertise a different
     root at the same height and never form the sync quorum). STRICT.
+    9 (2026-09-01): the betanet-6 (gen 24) SYBIL-RULES + ACCOUNT-AUTH reroll — probation (no dividend, open weight 1
+    until the first timely renewal), the 14-day-capped registration difficulty baseline, account authentication
+    live (AUTH_ACTIVE) and the epochw root window from block 0; every amount carried forward. Old nodes would
+    weight a fresh identity 2 and pay it dividends, so they are shed at the door. STRICT.
     8 (2026-08-25): the betanet-5 (gen 23) DIVIDEND-RULES reroll — linear bonded weight, the convex
     dividend weight curve, the halving lapse and the 40% bonded levy from block 0; old nodes would split
     every bonded block 70/20/10 and weight the dividend 2..10, so they are shed at the door. STRICT.
@@ -58,7 +62,7 @@ def get_protocol():
     snapshot transfer payload is canonicalized (treasury_proposals + node-local meta rows excluded) and
     re-anchor/bootstrap now require a real quorum with seed anchoring. State transitions, the exec state
     root and the snapshot identity all change, so a gen-9/protocol-6 node can never agree with us. STRICT."""
-    return 8
+    return 9
 
 
 def get_port():

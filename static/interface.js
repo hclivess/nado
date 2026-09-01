@@ -38,7 +38,7 @@ import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=
 // literal had not been touched since betanet-2).
 const LS_CHAIN_ID = "nado_chain_id";
 const CHAIN_ID_SAVED = (() => { try { return localStorage.getItem(LS_CHAIN_ID) || ""; } catch (e) { return ""; } })();
-let CHAIN_ID = CHAIN_ID_SAVED || "betanet-5";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
+let CHAIN_ID = CHAIN_ID_SAVED || "betanet-6";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
 let netAdopted = false;                          // true once a relay's /status has confirmed CHAIN_ID THIS session
 const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)

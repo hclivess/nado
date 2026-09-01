@@ -45,7 +45,7 @@ deployed as the PROTOCOL 4 flag day (old-rules nodes are shed at the handshake),
 in consensus code.
 """
 from protocol import (POSW_ENTRY_MULT, POSW_LEASE_EPOCHS, POSW_T, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
-                      POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH, POSW_DIFF_TRAIL_LONG, SYBIL_RULES_EPOCH)
+                      POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH, POSW_DIFF_TRAIL_LONG)
 
 
 def chain_register_count(epoch: int) -> int:
@@ -101,13 +101,12 @@ def difficulty_multiplier(anchor_epoch: int) -> int:
     recent = _window_count(last - POSW_DIFF_WINDOW + 1, last)
     trail = _window_count(last - POSW_DIFF_TRAIL + 1, last)
     baseline = max(POSW_DIFF_FLOOR, trail * POSW_DIFF_WINDOW // POSW_DIFF_TRAIL)
-    if anchor_epoch >= SYBIL_RULES_EPOCH:
-        # SLOW-ADAPTING BASELINE (protocol "SYBIL RULES", rule 3). The 2-day trail alone let a sustained burst
-        # become its own baseline: measured 2026-09-01, 189 registrations per window on day 3 of a burst and a
-        # multiplier of 1x. Cap the baseline by the 14-day rate as well, so a burst pays the multiplier for a
-        # fortnight while the honest steady state (2-day rate == 14-day rate) is untouched.
-        trail_long = _window_count(last - POSW_DIFF_TRAIL_LONG + 1, last)
-        baseline = max(POSW_DIFF_FLOOR, min(baseline, trail_long * POSW_DIFF_WINDOW // POSW_DIFF_TRAIL_LONG))
+    # SLOW-ADAPTING BASELINE (protocol "SYBIL RULES", rule 3; unconditional since gen 24). The 2-day trail alone
+    # let a sustained burst become its own baseline: measured 2026-09-01, 189 registrations per window on day 3
+    # of a burst and a multiplier of 1x. Cap the baseline by the 14-day rate as well, so a burst pays the
+    # multiplier for a fortnight while the honest steady state (2-day rate == 14-day rate) is untouched.
+    trail_long = _window_count(last - POSW_DIFF_TRAIL_LONG + 1, last)
+    baseline = max(POSW_DIFF_FLOOR, min(baseline, trail_long * POSW_DIFF_WINDOW // POSW_DIFF_TRAIL_LONG))
     return min(POSW_DIFF_MAX_MULT, max(1, recent // baseline))
 
 
