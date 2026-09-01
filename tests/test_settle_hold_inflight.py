@@ -214,8 +214,12 @@ check("the pending record carries what a rebuild needs",
 # standing condition logged every poll. Measured live: 25 identical epoch-boundary lines in one cycle.
 check("_skip dedupes on a stable condition class", "def _skip(reason, cls=None):" in src
       and "_key = cls or reason" in src)
-for _cls in ("epoch-boundary", "stale-stash", "no-advance", "span-cap"):
+# (the "epoch-boundary" class is gone: maybe_settle now ALIGNS the span to the boundary instead of skipping
+# across it — 74% of all skips were that crossing; a skip class that no longer exists is not a regression)
+for _cls in ("stale-stash", "no-advance", "span-cap"):
     check(f"...and the value-carrying skip '{_cls}' names one", f'cls="{_cls}"' in src)
+check("the epoch-boundary crossing is aligned, not skipped", 'cls="epoch-boundary"' not in src
+      and "epoch-boundary" in src)
 
 # ---- A HOLD THAT CANNOT SUCCEED MUST NOT COST LIVENESS -----------------------------------------------
 # MEASURED 2026-08-04: "GIVING UP after 44 attempt(s) over 1217s". 44 misses at our measured 19.3% block
