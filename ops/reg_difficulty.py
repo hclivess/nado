@@ -68,9 +68,13 @@ _count_memo = {}
 
 
 def chain_entry_count(epoch: int) -> int:
-    """ENTRY registrations recorded in `epoch` — recerts by an address that held NO valid lease at the time
-    (no earlier recert within POSW_LEASE_EPOCHS), i.e. exactly the identities is_entry_registration prices
-    with POSW_ENTRY_MULT. Pure function of the same consensus recert index as chain_register_count.
+    """ENTRY registrations recorded in `epoch` — recerts by an address whose lease had LAPSED AT LANDING
+    (no earlier recert within POSW_LEASE_EPOCHS of `epoch`; the same continuity rule apply_register uses).
+    NOT byte-identical to what is_entry_registration prices: that one measures the gap from the PoSW anchor
+    epoch (2-3 epochs before landing), so an address whose previous recert sits 358-360 epochs before the
+    anchor is priced as a renewal and counted here as an entry. Both read the same consensus index, so
+    every node agrees; it is a boundary miscount of the flood counter, not a split. Pure function of the
+    same consensus recert index as chain_register_count.
     WHY (relay review, 2026-09-01): the flood multiplier counted EVERY register tx, renewals included — an
     established farm could pre-train the 14-day baseline with redundant renewals, and clustered honest
     renewals raised everyone's difficulty. Renewals are not the thing the dial exists to price."""
@@ -138,7 +142,7 @@ def is_entry_registration(sender: str, anchor_epoch: int) -> bool:
       * `anchor_epoch` is derived from the tx's own max_block (minus POSW_ANCHOR_OFFSET), so it is a
         FINALIZED past epoch, not a moving target;
       * the recert history is the snapshot-carried, state_root-validated recert index, read only as far
-        back as POSW_LEASE_EPOCHS (240) — far inside any GC horizon, so a snapshot-booted node and a
+        back as POSW_LEASE_EPOCHS (360) — far inside any GC horizon, so a snapshot-booted node and a
         from-genesis node agree (the failure mode that split betanet-6; see the v2/v3 notes above);
       * it depends ONLY on the sender's own recerts, which only the sender can extend and only once per
         epoch — so nothing another actor does can change the answer between prove-time and land-time.

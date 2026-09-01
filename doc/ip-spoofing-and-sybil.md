@@ -398,7 +398,7 @@ everyone's cost; the lease is **36 h** (`POSW_LEASE_EPOCHS` 360) so the qualifyi
 19.2–36 h instead of 19.2–24 h — once a day, any time of day, for intermittent phones; the per-IP budget
 defaults to **8 per hour** (configs still holding the old 64/7200 literal are read as the new default),
 counts entries only and never applies to peer push-gossip. Note the honest cost of an adoption wave: any
-2-hour window with more than 20 entries above the 14-day rate raises the multiplier (cap 16×) for everyone
+2-hour window with more than the baseline (at least 20) of entries above the 14-day rate raises the multiplier (cap 16×) for everyone
 joining during it. Rules 1–3 are consensus and activate at an
 epoch boundary a few hours after the update wave; the gate self-disarms at gen 24 (SCHEDULED_CLEANUPS.md). Not
 adopted: global entry caps (punish organic onboarding), device identifiers (unreadable in a browser, spoofable),

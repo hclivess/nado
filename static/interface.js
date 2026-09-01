@@ -43,7 +43,7 @@ let netAdopted = false;                          // true once a relay's /status 
 const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
-// registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (≈1 day at ~8 min/epoch).
+// registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (36 h at 6 min/epoch).
 const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 150;
 let POSW_LEASE_EPOCHS = 360;   // MUST match protocol.py; refreshNetIdentity() adopts the relay's live value
 // Headroom (in blocks) between the current tip and the register/recert max_block, so the tx still lands
@@ -2171,9 +2171,9 @@ async function broadcastLeaseRenewal(regEpoch) {
 /* ----------------------------------------------------------------------------------------------
  * MANUAL "RENEW PRESENCE" — the lease panel on the wallet card.
  *
- * WHY. The automatic renewal fires at 80% of the lease, which is also the earliest point a recert earns
- * fidelity (FIDELITY_MIN_GAP_EPOCHS = 192 of 240). Every automatic renewal therefore lands ~4.8 h EARLIER in
- * the day than the previous expiry, so over a week the expiry walks right around the clock — and when it
+ * WHY. The automatic renewal fires at 80% of the lease (288 of the 360 epochs; a recert earns fidelity from
+ * FIDELITY_MIN_GAP_EPOCHS = 192 on). Every automatic renewal therefore lands ~7.2 h EARLIER in
+ * the day than the previous expiry, so over a few days the expiry walks right around the clock — and when it
  * reaches the middle of the night with the wallet closed, the lease lapses and the fidelity streak resets
  * (reported 2026-08-25). Renewing by hand inside the earning window lets the user pin the expiry to a time
  * of day they will actually be awake for.

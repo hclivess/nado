@@ -178,8 +178,7 @@ def build_program(transitions, W, num_periodic, num_chal, ext_chal=False):
             # gets extension alphas, so `bool(ext_pairs)` is not a substitute and consumers that used it
             # crashed on the first base-valued AIR in an extension bundle.
             "ext_chal": bool(ext_chal),
-            "ext_degree": (_D if ext_chal else 1),
-            "ext_chal": bool(ext_chal)}
+            "ext_degree": (_D if ext_chal else 1)}
 
 
 import ctypes as _ct
