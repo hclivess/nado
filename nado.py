@@ -119,6 +119,27 @@ def _ip(request):
     return client_ip_from(request.remote or "unknown", request.headers.get("X-Forwarded-For", ""), _TRUSTED_PROXIES)
 
 
+def _is_local_request(resolved_ip, headers) -> bool:
+    """Is this request GENUINELY from the box? True only when the resolved client IP is loopback AND no
+    forwarding header is present. Pure, for tests.
+
+    WHY (relay patch 0002, 2026-09-01): /terminate, /log, /force_sync, /health and the submit rate-limit
+    exemption authorize on client_ip == 127.0.0.1. Behind a reverse proxy the socket peer IS 127.0.0.1, so on
+    a node whose operator followed the relay recipe without `trusted_proxies`, every proxied request resolved
+    to loopback and a stranger could shut the node down with a bare GET /terminate. A proxy always adds
+    X-Forwarded-For / X-Real-IP; a real local caller (curl localhost:9173) never does — so their presence is
+    the tell. With trusted_proxies configured the resolved IP is already the remote one and this changes
+    nothing; without it, the shortcut now fails closed. The server key still works from anywhere."""
+    if resolved_ip not in ("127.0.0.1", "::1"):
+        return False
+    h = headers or {}
+    return not (h.get("X-Forwarded-For") or h.get("X-Real-IP") or h.get("Forwarded"))
+
+
+def _is_local(request) -> bool:
+    return _is_local_request(_ip(request), request.headers)
+
+
 def _resp(output, status=200, headers=None):
     """Mirror Tornado's self.write() typing for our outputs: bytes -> msgpack/octet body; dict/list ->
     JSON; anything else -> text. CORS-open like the old handlers so a cross-origin page can read it."""
@@ -583,7 +604,7 @@ async def submit_transaction(request):
     # (/terminate, /force_sync). It is not a DoS vector — it is on the box — and throttling it broke a real
     # deploy: a 25-contract redeploy submits in bursts and five of them came back 429, silently leaving
     # contracts undeployed. Exempt it from BOTH buckets.
-    _local = ip == "127.0.0.1"
+    _local = _is_local(request)
     if (request.content_length or 0) > 2 * 1024 * 1024:
         if not _local and _rate_limited(request, 6):
             return _RL()
@@ -640,7 +661,7 @@ async def health(request):
     """GET /health?key=&compress=: CPython GC counters/stats for memory-leak triage. Requires the node's
     server key unless called from 127.0.0.1 (heap introspection is not for the public)."""
     server_key = _q(request, "key", "none")
-    if server_key != memserver.server_key and _ip(request) != "127.0.0.1":
+    if server_key != memserver.server_key and not _is_local(request):
         return _resp("Unauthorized", status=403)
     compress = _q(request, "compress", "none")
     data = {"gc_counts": list(gc.get_count()),
@@ -653,7 +674,7 @@ async def log(request):
     """GET /log?key=: the last 500 node log lines as <br>-joined HTML. Server-key or localhost only
     (logs leak peer IPs and operational detail)."""
     server_key = _q(request, "key", "none")
-    if server_key != memserver.server_key and _ip(request) != "127.0.0.1":
+    if server_key != memserver.server_key and not _is_local(request):
         return _resp("Unauthorized", status=403)
 
     def _read():
@@ -674,7 +695,7 @@ async def force_sync(request):
             forced_ip = _q(request, "ip")
             server_key = _q(request, "key", "none")
             client_ip = _ip(request)
-            if server_key == memserver.server_key or client_ip == "127.0.0.1":
+            if server_key == memserver.server_key or _is_local(request):
                 # validate the TARGET too (not just the caller): reject a non-routable/internal forced_ip so
                 # an authenticated force-sync can't be pointed at loopback/RFC1918/metadata (SSRF hardening).
                 if not (forced_ip and check_ip(forced_ip)):
@@ -702,7 +723,7 @@ async def terminate(request):
     response still flushes). Localhost or server-key only."""
     server_key = _q(request, "key", "none")
     client_ip = _ip(request)
-    if client_ip == "127.0.0.1" or server_key == memserver.server_key:
+    if _is_local(request) or server_key == memserver.server_key:
         memserver.terminate = True
         asyncio.get_event_loop().call_later(0.2, functools.partial(os._exit, 0))
         return _resp("Termination signal sent, node is shutting down...")

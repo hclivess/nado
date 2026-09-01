@@ -3588,15 +3588,29 @@ _NS404 = lambda: web.json_response({"error": "namespace not served by this node"
 
 
 # ---- DA serving: publish / fetch erasure-coded objects by commitment -----------------------------
+def _bad_commitment(c) -> bool:
+    """The commitment shape check at the EDGE of every /da READ handler (announce spells the same expression
+    inline — tests/test_da_announce.py pins that text). DaStore._dir raises ValueError('bad commitment') as the
+    path-traversal backstop, but a raise there surfaced as a 500 + a journal traceback per request — a wrong
+    status for a client error, and free log growth for a scanner once /da/ sits behind a public TLS relay
+    (doc/relays.md). Refuse here with 400; the backstop stays."""
+    return (not isinstance(c, str) or not c or len(c) > 128 or "/" in c or "\\" in c or c in (".", ".."))
+
+
 async def h_da_meta(request):
     """GET /da/meta?c=<commitment> — the manifest {commitment,k,n,stripes,length}, or 404 if unknown here."""
-    m = DA.meta(request.query.get("c", ""))
+    c = request.query.get("c", "")
+    if _bad_commitment(c):
+        return web.json_response({"error": "bad commitment"}, status=400)
+    m = DA.meta(c)
     return web.json_response(m) if m else web.json_response({"error": "unknown commitment"}, status=404)
 
 
 async def h_da_have(request):
     """GET /da/have?c=<commitment> — which shard indices this node currently holds."""
     c = request.query.get("c", "")
+    if _bad_commitment(c):
+        return web.json_response({"error": "bad commitment"}, status=400)
     return web.json_response({"commitment": c, "have": DA.have(c)})
 
 
@@ -3604,6 +3618,8 @@ async def h_da_shard(request):
     """GET /da/shard?c=<commitment>&i=<index> — one (shard, merkle-proof) the caller can verify against
     the commitment without trusting this node. 404 if not held."""
     c = request.query.get("c", "")
+    if _bad_commitment(c):
+        return web.json_response({"error": "bad commitment"}, status=400)
     try:
         i = int(request.query.get("i", ""))
     except (TypeError, ValueError):
@@ -3710,6 +3726,8 @@ async def h_da_get(request):
     # in here. Local hits still short-circuit inside da_fetch, so the publisher's own path is unchanged and
     # still answers from the blob cache in ~0.002 s.
     _c = request.query.get("c", "")
+    if _bad_commitment(_c):
+        return web.json_response({"error": "bad commitment"}, status=400)
     data = await asyncio.to_thread(DA.get, _c)         # local: cached blob, or a shard reconstruct — THREADED
                                                        # (see the DoS note above; do not inline this again)
     if data is None:
