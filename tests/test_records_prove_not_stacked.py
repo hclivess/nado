@@ -178,9 +178,17 @@ def t_a_bare_settle_is_held_while_records_proves():
     window. Without _records_proving in that condition, bare settles advance the tip during the prove."""
     fn = _fn("maybe_settle")
     ok = False
+    # the disjunction may sit directly in the `if` test, or (since it grew to five flags) in a `_hold = (...)`
+    # assignment that an `if proof is None and _hold:` consumes — either way BOTH flags must be in it
+    held_names = set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_hold" for t in n.targets):
+            held_names |= {s.id for s in ast.walk(n.value) if isinstance(s, ast.Name)}
     for n in ast.walk(fn):
         if isinstance(n, ast.If):
             names = {s.id for s in ast.walk(n.test) if isinstance(s, ast.Name)}
+            if "_hold" in names:
+                names |= held_names
             if "_records_proving" in names and "_settle_proving" in names:
                 ok = True
     assert ok, "the bare-settle hold must include _records_proving alongside _settle_proving"
