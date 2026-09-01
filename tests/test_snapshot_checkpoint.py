@@ -139,9 +139,12 @@ check("boot sweep drops fork-stale checkpoints, keeps canonical ones", t5)
 
 
 def t6():
-    """Prove adopt_new_identity retires EVERYTHING the abandoned chain wrote that a snapshot does not
-    carry — tx history rows, block bodies + locators, GC reverts, own checkpoints — while the carried
-    consensus state (accounts) survives, and the block store still works afterwards."""
+    """Prove adopt_new_identity retires everything the abandoned chain wrote that a snapshot does not
+    carry — tx history rows, GC reverts, own checkpoints — while the carried consensus state (accounts)
+    survives and the block store still works afterwards. BLOCK BODIES + LOCATORS ARE KEPT (e160ccad): a
+    body is keyed by its own hash, so one on the adopted chain is vouched for byte-for-byte, and wiping
+    them made every wedge recovery an archive truncation (2026-08-17). ops/canonical_restore reconciles
+    them against the adopted chain afterwards; fork bodies end up unreferenced, canonical ones stay."""
     from ops import segment_store
     # artifacts of the "abandoned" chain: a tx-history row, a GC revert, a block body + locator
     with kv_ops.write_txn() as txn:
@@ -155,17 +158,18 @@ def t6():
 
     snapshot_ops.adopt_new_identity(logger=logger)
 
-    # everything non-carried is GONE
-    assert kv_ops.block_loc_get("ab" * 32) is None, "block locator survived the identity change"
+    # everything non-carried is GONE — except bodies/locators, which the canonical reconcile owns
+    assert kv_ops.block_loc_get("ab" * 32) == (seg, off, ln), \
+        "block locator must SURVIVE the identity change (bodies are reconciled, not wiped — e160ccad)"
+    assert segment_store.read(seg, off, ln, "ab" * 32) == b"orphaned-fork-body", "retained body must still be readable"
     with kv_ops.write_txn() as txn:
         assert txn.get(b"deadbeef", db=kv_ops._dbs()["tx"]) is None, "tx history survived"
         assert txn.get(b"gcrev", db=kv_ops._dbs()["gc_revert"]) is None, "gc revert survived"
     assert snapshot_ops.list_checkpoint_heights() == [], "own checkpoints survived"
-    assert segment_store.active_segment() == 0
     import os as _os
     segdir = segment_store.segments_dir()
-    assert [n for n in _os.listdir(segdir) if n.startswith("seg-")] == ["seg-00000000.dat"], \
-        "old segment files survived the identity change"
+    assert [n for n in _os.listdir(segdir) if n.startswith("seg-")], \
+        "segment files must survive the identity change (the archive-truncation lesson)"
     # carried consensus state is untouched (import_snapshot owns replacing it)...
     assert get_account("alice")["balance"] == 1000, "carried state was harmed by the wipe"
     # ...and the store keeps working on the new identity
