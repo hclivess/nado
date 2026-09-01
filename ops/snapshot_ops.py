@@ -209,8 +209,9 @@ ROOT_EXCLUDED_META_PREFIXES = (b"execsum:", b"tvprevE:", b"tvprevW:")
 #       until that epoch (60 epochs ≈ 6 h on a fresh chain) to carry the code, then the rule simply is.
 #       The window (60 epochs) exceeds every consensus lookback that reads these rows: the settlement
 #       activity window (SETTLE_ACTIVITY_CURSORS = 24 epochs), FFG justification, the RANDAO reveal lag.
-#       epochw:/divinflow: themselves are NOT windowed — one row per epoch, and they are the dividend
-#       replay's ground truth, which a from-genesis exec reads in full.
+#       divinflow: is NOT windowed — one row per epoch, the dividend replay's ground truth, which a
+#       from-genesis exec reads in full. epochw:/epochwacc: were permanent on gen 23 and join the window on
+#       gen 24+ (protocol.EPOCHW_ROOT_WINDOWED, just below); the rows themselves stay readable either way.
 ROOT_RETENTION_EPOCHS = 60
 ROOT_WINDOWED_DBS = frozenset(("commits", "reveals", "attestations", "settlements", "recert_by_epoch"))
 # gen 24+: the per-epoch weight rows and their accumulator join the window (protocol.EPOCHW_ROOT_WINDOWED —
