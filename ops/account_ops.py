@@ -558,10 +558,10 @@ _open_reg_lock = threading.Lock()
 
 
 def _compute_bonded_registry():
-    accts = [(addr, doc) for addr, doc in kv_ops.iter_accounts() if doc.get("bonded", 0) >= B_MIN]
-    since = kv_ops.bond_since_many([a for a, _ in accts])
-    return {addr: {"bonded": doc["bonded"], "fidelity": None, "bond_since": since.get(addr)}
-            for addr, doc in accts}
+    bonded = kv_ops.bonded_map(B_MIN)          # {address: bonded}, address order (LMDB key sort)
+    since = kv_ops.bond_since_many(list(bonded))
+    return {addr: {"bonded": b, "fidelity": None, "bond_since": since.get(addr)}
+            for addr, b in bonded.items()}
 
 
 def get_bonded_registry():

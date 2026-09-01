@@ -21,7 +21,9 @@ segment files under blocks/ (ops/segment_store.py; the hash->locator `block_loc`
 NODE-LOCAL and snapshot-excluded, and records are self-describing so it stays rebuildable) —
 consensus hashing stays canonical_bytes, untouched by any of this.
 """
+import hashlib
 import os
+import re
 import struct
 import json
 import threading
@@ -476,6 +478,32 @@ def account_del_field(address: str, field: str):
     _write(_do)
 
 
+_BONDED_RE = re.compile(rb'"bonded":(-?\d+)')
+
+
+def bonded_map(min_bonded: int):
+    """{address: bonded} for every account whose `bonded` >= min_bonded — the bonded registry's input.
+    Same result as scanning iter_accounts() and reading doc["bonded"] (default 0), read ~10x cheaper: the
+    raw doc is a codec.pack (json.dumps, ":" separator) of kv_ops._normalize's fixed field order, so
+    `"bonded":<int>` is the third key of every doc and a byte regex finds it without decoding a 3.5 KB
+    ML-DSA-pubkey-bearing document per account per block. A doc without the field (never written by
+    _normalize, defensive) falls back to a full decode. Still O(accounts) per write generation — the day
+    the account set is 10k+, this needs a bonded INDEX, not a faster scan."""
+    def _do(txn):
+        out = {}
+        with txn.cursor(db=_dbs()["accounts"]) as cur:
+            for k, v in cur:
+                m = _BONDED_RE.search(v)
+                if m is not None:
+                    b = int(m.group(1))
+                else:
+                    b = int(_unpack(v).get("bonded", 0))
+                if b >= min_bonded:
+                    out[bytes(k).decode()] = b
+        return out
+    return _read(_do)
+
+
 def iter_accounts():
     """Yield (address:str, doc:dict) for every account, ordered by address (LMDB key sort ==
     bytewise == Python str sort for ASCII addresses). Used by snapshot read + reindex merge."""
@@ -573,16 +601,32 @@ def epoch_weights_commit(epoch: int, weights: dict = None, revert: bool = False)
     Canonical JSON (sort_keys, no spaces) so the stored bytes — and with them the root — are
     independent of dict insertion order. Revert DELETES the key (canonical-absent, the divinflow
     lesson: a phantom row forks the root against a forward-only node)."""
+    from protocol import EPOCHW_ROOT_WINDOWED
     k = f"epochw:{int(epoch)}".encode()
+    ka = f"epochwacc:{int(epoch)}".encode()
+    kprev = f"epochwacc:{int(epoch) - 1}".encode()
     if revert:
         def _do(txn):
             txn.delete(k, db=_dbs()["meta"])
+            if EPOCHW_ROOT_WINDOWED:
+                txn.delete(ka, db=_dbs()["meta"])          # revert = DELETE (canonical-absent), same as epochw
     else:
         blob = json.dumps({str(a): int(w) for a, w in (weights or {}).items()},
                           sort_keys=True, separators=(",", ":")).encode()
         def _do(txn):
             txn.put(k, blob, db=_dbs()["meta"])
+            if EPOCHW_ROOT_WINDOWED:
+                # ACCUMULATOR (protocol.EPOCHW_ROOT_WINDOWED): chain this epoch's weight blob onto the previous
+                # accumulator so the newest acc row — always inside the root window — commits every epochw row
+                # ever written. Pure function of committed rows (prev acc, or empty for the first epoch).
+                prev = txn.get(kprev, db=_dbs()["meta"]) or b""
+                txn.put(ka, hashlib.blake2b(bytes(prev) + blob, digest_size=32).digest(), db=_dbs()["meta"])
     _write(_do)
+
+
+def epoch_weights_acc(epoch: int):
+    """The 32-byte epochw accumulator committed for `epoch` (gen 24+), or None."""
+    return _read(lambda txn: txn.get(f"epochwacc:{int(epoch)}".encode(), db=_dbs()["meta"]))
 
 
 def epoch_weights_get(epoch: int):

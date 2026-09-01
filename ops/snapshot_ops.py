@@ -25,7 +25,7 @@ import os
 import shutil
 
 from ops import codec
-from protocol import INDEX_RETENTION_NUM, INDEX_RETENTION_HASH
+from protocol import INDEX_RETENTION_NUM, INDEX_RETENTION_HASH, EPOCHW_ROOT_WINDOWED
 
 from ops.data_ops import get_home
 from ops import kv_ops
@@ -213,7 +213,10 @@ ROOT_EXCLUDED_META_PREFIXES = (b"execsum:", b"tvprevE:", b"tvprevW:")
 #       replay's ground truth, which a from-genesis exec reads in full.
 ROOT_RETENTION_EPOCHS = 60
 ROOT_WINDOWED_DBS = frozenset(("commits", "reveals", "attestations", "settlements", "recert_by_epoch"))
-ROOT_WINDOWED_META_PREFIXES = (b"att:", b"divnull:", b"settle:")
+# gen 24+: the per-epoch weight rows and their accumulator join the window (protocol.EPOCHW_ROOT_WINDOWED —
+# an expression, so on gen 23 this tuple is byte-for-byte the old one and the root is unchanged).
+ROOT_WINDOWED_META_PREFIXES = ((b"att:", b"divnull:", b"settle:")
+                               + ((b"epochw:", b"epochwacc:") if EPOCHW_ROOT_WINDOWED else ()))
 _EPOCHW_PREFIX = b"epochw:"
 
 
@@ -232,7 +235,7 @@ def _row_epoch(name, key):
         if name == "settlements":
             return int.from_bytes(key[-8:], "big") // EPOCH_LENGTH if len(key) > 8 else None
         if name == "meta":
-            if key.startswith((b"att:", b"divnull:")):
+            if key.startswith((b"att:", b"divnull:", b"epochw:", b"epochwacc:")):
                 return int(key.rsplit(b":", 1)[1])
             if key.startswith(b"settle:"):
                 return int(key.rsplit(b":", 1)[1]) // EPOCH_LENGTH

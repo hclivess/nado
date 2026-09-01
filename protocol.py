@@ -1353,6 +1353,18 @@ GENESIS_BEACON = blake2b_hash([DOMAIN_GENESIS_BEACON, CHAIN_ID])
 # validator: a node with it set accepts txs the fleet refuses and forks itself off.
 import os as _os_auth                  # local alias, same discipline as the other in-file alias below
 AUTH_ACTIVE = CHAIN_GENERATION >= 24 or _os_auth.environ.get("NADO_AUTH_FORCE") == "1"
+
+# EPOCH-WEIGHT ROWS LEAVE THE PER-BLOCK ROOT WINDOW (gen 24+; a clean rule from block 0, no height gate).
+# `epochw:<E>` is one ~18 KB row per epoch, committed forever and — until gen 24 — hashed into EVERY block's
+# state root: 25 MB of value bytes at epoch 1.4k, +4 MB/day, i.e. the one root family whose per-block cost
+# still grew with chain age after the 2026-08-20 retention window. From gen 24 the root commits only the
+# last ROOT_RETENTION_EPOCHS of them PLUS a running accumulator row `epochwacc:<E>` =
+# blake2b(epochwacc:<E-1> || epochw:<E>) written at the same boundary (deleted on revert, like epochw
+# itself), so the newest accumulator inside the window still binds the ENTIRE weight history: a snapshot
+# cannot rewrite an old epoch's weights without changing a root-committed value. Readers
+# (weights_at_epoch / the dividend replay) are untouched — the rows stay in the DB. Expression, not gate:
+# on gen 23 it is False and the root is byte-identical to before; on gen 24+ it is simply the rule.
+EPOCHW_ROOT_WINDOWED = CHAIN_GENERATION >= 24
 AUTH_MAX_KEYS = 4                  # hot, recovery, two guardians; every key is a potential verify per tx
 AUTH_POLICY_MAX_DEPTH = 2          # THRESHOLD of THRESHOLDs of IDs — enough for guardians, nothing more
 AUTH_DELAY = BOND_UNLOCK_DELAY     # a partial-policy change waits this long (1 day): the network gets a day to notice

@@ -46,7 +46,11 @@ def t1_parsers_on_real_formats():
     assert so._row_epoch("meta", f"att:{ADDR}:12".encode()) == 12
     assert so._row_epoch("meta", f"divnull:{ADDR}:20".encode()) == 20
     assert so._row_epoch("meta", f"settle:default:{ADDR}:300".encode()) == 300 // EPOCH_LENGTH
-    assert so._row_epoch("meta", b"epochw:5") is None, "epochw is NOT windowed"
+    # epochw parses to its epoch, but it is WINDOWED only from gen 24 (protocol.EPOCHW_ROOT_WINDOWED): on
+    # gen 23 the prefix is absent from ROOT_WINDOWED_META_PREFIXES, so the root never consults the parser.
+    from protocol import EPOCHW_ROOT_WINDOWED
+    assert so._row_epoch("meta", b"epochw:5") == 5
+    assert (b"epochw:" in so.ROOT_WINDOWED_META_PREFIXES) == EPOCHW_ROOT_WINDOWED, "epochw window follows the gen-24 rule"
     assert so._row_epoch("accounts", ADDR.encode()) is None
     assert so._row_epoch("commits", b"garbage-no-separator") is None, "unparseable -> None -> kept"
 
