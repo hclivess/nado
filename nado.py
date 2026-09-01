@@ -675,9 +675,11 @@ async def health(request):
     if server_key != memserver.server_key and not _is_local(request):
         return _resp("Unauthorized", status=403)
     compress = _q(request, "compress", "none")
-    data = {"gc_counts": list(gc.get_count()),
-            "gc_objects_tracked": len(gc.get_objects()),
-            "gc_stats": gc.get_stats()}
+    def _work():
+        return {"gc_counts": list(gc.get_count()),
+                "gc_objects_tracked": len(gc.get_objects()),      # materialises a list of EVERY object
+                "gc_stats": gc.get_stats()}
+    data = await asyncio.to_thread(_work)
     return _resp(serialize(name="health", output=data, compress=compress))
 
 
@@ -711,12 +713,12 @@ async def force_sync(request):
                 # an authenticated force-sync can't be pointed at loopback/RFC1918/metadata (SSRF hardening).
                 if not (forced_ip and check_ip(forced_ip)):
                     return f"Invalid or non-routable target IP for force-sync: {forced_ip}", 400
-                if client_ip == "127.0.0.1" or check_ip(client_ip):
+                if _is_local(request) or check_ip(client_ip):
                     memserver.force_sync_ip = forced_ip
                     memserver.peers = [forced_ip]
                     return f"Synchronization is now forced only from {forced_ip} until majority consensus is reached", 200
-                return f"Failed to force to sync from {forced_ip}", 200
-            return f"Wrong server key {server_key}", 200
+                return f"Failed to force to sync from {forced_ip}", 400
+            return "Wrong or missing server key", 403
         except Exception as e:
             return f"Error: {e}", 403
     out, code = await asyncio.to_thread(_work)
@@ -724,7 +726,7 @@ async def force_sync(request):
 
 
 async def whats_my_ip(request):
-    """GET /whats_my_ip: the caller's IP as this node sees it (trusted-proxy aware). ?compress=msgpack."""
+    """GET /whats_my_ip: the caller's IP as this node sees it (trusted-proxy aware). Plain text."""
     client_ip = _ip(request)
     return _resp(client_ip)
 
@@ -733,12 +735,11 @@ async def terminate(request):
     """GET /terminate?key=: shut the node down (terminate flag, then hard os._exit 0.2s later so the
     response still flushes). Localhost or server-key only."""
     server_key = _q(request, "key", "none")
-    client_ip = _ip(request)
     if _is_local(request) or server_key == memserver.server_key:
         memserver.terminate = True
         asyncio.get_event_loop().call_later(0.2, functools.partial(os._exit, 0))
         return _resp("Termination signal sent, node is shutting down...")
-    return _resp("Wrong or missing key for a remote node")
+    return _resp("Wrong or missing key for a remote node", status=403)
 
 
 async def transaction(request):
@@ -769,7 +770,7 @@ async def account_transactions(request):
         """Blocking DUPSORT index scan + block reads (worker thread)."""
         try:
             address = _q(request, "address", memserver.address)
-            min_block = int(_q(request, "min_block", "0"))
+            min_block = _qint(request, "min_block", 0)     # malformed -> 0, not a 403 with the parser's text
             data = get_transactions_of_account(account=address, min_block=min_block)
             code = 200
             if not data:
@@ -796,9 +797,12 @@ async def block_lookup(request):
             if num is not None and num != "":
                 data = get_block_number(num)
                 if not data and _q(request, "hash_only", "") == "1":
-                    bh = get_block_hash_by_number(int(num))
+                    n = _qint(request, "number", None)
+                    if n is None:
+                        return "Bad number", 400
+                    bh = get_block_hash_by_number(n)
                     if bh:
-                        data = {"block_number": int(num), "block_hash": bh}
+                        data = {"block_number": n, "block_hash": bh}
                 name = "block_number"
             else:
                 data = get_block(_q(request, "hash"))
@@ -821,7 +825,11 @@ async def hash_attest(request):
     (chain_id, height, hash, as_of=our tip) under the node's ML-DSA key; the PROBER weighs it by the
     signer's bonded seats in the prober's OWN committed registry, so a Sybil peer-set adds zero weight
     while the seeds keep working as the unsigned liveness fallback. Signing is cached per (height, tip)
-    — a flood re-serves the cached signature instead of grinding ML-DSA."""
+    — a flood re-serves the cached signature instead of grinding ML-DSA. That cache only helps for a
+    REPEATED height: a client cycling heights forces one signature per request, so non-peers are
+    rate-limited (peers probe once per verdict and are exempt, the next_block_txids pattern)."""
+    if _ip(request) not in memserver.peers and _rate_limited(request, 60):
+        return _RL()
     def _work():
         try:
             h = int(_q(request, "height"))
@@ -839,8 +847,8 @@ async def hash_attest(request):
         resp = {"height": h, "block_hash": bh, "as_of": as_of, "address": memserver.address,
                 "public_key": memserver.keydict["public_key"],
                 "signature": _sig(memserver.private_key, hash_attest_message(h, bh, as_of))}
-        if len(_HASH_ATTEST_CACHE) > 512:
-            _HASH_ATTEST_CACHE.clear()
+        while len(_HASH_ATTEST_CACHE) >= 512:          # evict the OLDEST entry, not the whole cache
+            _HASH_ATTEST_CACHE.pop(next(iter(_HASH_ATTEST_CACHE)))
         _HASH_ATTEST_CACHE[h] = (as_of, resp)
         return resp, 200
     out, code = await asyncio.to_thread(_work)
@@ -1579,7 +1587,11 @@ async def get_open_weights(request):
             if w > 0:                                   # probation = absent (protocol.dividend_weight)
                 weights[addr] = w
         return {"epoch": epoch, "weights": weights}
-    return _resp(await asyncio.to_thread(_work))
+    out = await asyncio.to_thread(_work)
+    # error dicts were answered 200 (the comment above says "410-style" and meant it): 400 on a bad
+    # epoch, 410 when the recert history behind it is gone
+    _err = out.get("error") if isinstance(out, dict) else None
+    return _resp(out, status=(410 if _err and "too old" in _err else 400) if _err else 200)
 
 
 async def duty_committee(request):
@@ -1609,7 +1621,8 @@ async def duty_committee(request):
             out["in_committee"] = addr in seats
             out["seats_of"] = seats.get(addr, 0)
         return out
-    return _resp(await asyncio.to_thread(_work))
+    out = await asyncio.to_thread(_work)
+    return _resp(out, status=400 if isinstance(out, dict) and out.get("error") else 200)
 
 
 async def get_dividend_inflow(request):
@@ -2236,6 +2249,12 @@ async def make_app(port):
         cl = request.content_length
         if cl is not None and cl > limit:
             return _resp(f"body {cl} exceeds {limit} for {request.path}", status=413)
+        # CHUNKED uploads carry no Content-Length, so the check above passes them, and the handlers'
+        # own `len(body) > cap` guards run only AFTER `request.read()` has buffered the whole body —
+        # up to the APP-WIDE client_max_size (the 192 MiB settle-proof allowance) on EVERY path. Bind
+        # the per-path cap to the request itself so read() raises 413 at `limit` instead.
+        if cl is None and limit < _MAX_INLINE_TX:
+            request = request.clone(client_max_size=limit)
         resp = await handler(request)
         # CORS for the READ API: every GET here is public, unauthenticated chain data (the same bytes any
         # peer or wallet reads), so any origin may read it — nadochain.com's live "next block, as every
