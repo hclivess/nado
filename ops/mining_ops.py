@@ -284,7 +284,10 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
     if not bonded_registry:
         # BOOTSTRAP LIVENESS: zero stake exists -> no capital lane to protect -> let open produce this
         # bonded slot so the chain still advances (halts otherwise). Reverts the moment any stake bonds.
-        return _weighted_draw(open_registry, _open_weight, beacon, slot)
+        # _open_weight is a FACTORY (closure over the epoch, since the probation-aware open_shares); passing
+        # the factory itself made _weighted_draw compare a function with 0 and raise — the very halt this
+        # branch exists to prevent, on a no-premine chain's first bonded slot or an all-withheld RANDAO epoch.
+        return _weighted_draw(open_registry, _open_weight(slot // EPOCH_LENGTH), beacon, slot)
     return None                                                  # stake exists but draw failed -> skip (no leak)
 
 
