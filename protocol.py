@@ -1377,7 +1377,8 @@ AUTH_HISTORY_KEEP = 8              # configs kept per address for evidence-at-he
 # doc/updates-and-rerolls.md keeps as the pattern); the reroll made the gate's only job — replaying gen-22
 # history identically — moot, and it is deleted rather than left as a dead branch.
 #
-#   1. dividend_weight — the presence dividend's per-miner weight has its OWN curve, convex, 1..25, instead of
+#   1. dividend_weight — the presence dividend's per-miner weight has its OWN curve (convex 1..25 on gen 23;
+#      LINEAR 0..30 since gen 24 — see DIVIDEND_WEIGHT_MAX below) instead of
 #      reusing the producer-selection weight open_shares (2..10). Selection keeps its liveness floor (a
 #      newcomer must be WINNABLE); the dividend has no liveness role, so its floor is purely economic. The
 #      floor/max ratio is the only knob that turns a per-HEADCOUNT payout into a per-PRESENCE one: at 1:5 a
@@ -1388,7 +1389,14 @@ AUTH_HISTORY_KEEP = 8              # configs kept per address for evidence-at-he
 #      convex curve a full reset would turn one missed renewal into losing everything; halving is
 #      proportionate and gives a farm nothing (its masks never had a ramp to keep).
 #   3. BONDED_DIVIDEND_BPS = 4000 (above) — a bonded block sends 40% of itself to the dividend pool.
-DIVIDEND_WEIGHT_MAX = 25             # a FIDELITY_CAP-day streak's dividend weight; the floor is 1
+# LINEAR since betanet-6 (2026-09-01, gen 24): weight = fidelity, i.e. DAYS PRESENT, capped at FIDELITY_CAP, and 0 on
+# probation. The convex 1..25 curve back-loaded the pool onto month-long streaks (a 10-day miner held 3.7/25) and
+# made one lapse cost 72% of weight; both curves are LINEAR in identity count, so the shape never taxed a farm — it
+# only decided which honest miners got paid. Shipped UNGATED at chain age <19 h: the curves differ only for
+# fidelity >= 2, and no identity can reach 2 before FIDELITY_MIN_GAP_EPOCHS after its first lease, so every epochw
+# row committed until then is identical under both; the protocol handshake bump (9 -> 10) sheds a node that has
+# not updated by the time the first fidelity-2 row is committed.
+DIVIDEND_WEIGHT_MAX = FIDELITY_CAP   # a FIDELITY_CAP-day streak's dividend weight (== 30); probation is 0
 
 
 def fidelity_step(cur_fid: int, continuous: bool, gap: int) -> int:
@@ -1432,15 +1440,15 @@ def on_probation(fidelity, epoch: int) -> bool:
 
 
 def dividend_weight(fidelity, epoch: int) -> int:
-    """Per-miner presence-dividend weight AT `epoch`: a convex 1..DIVIDEND_WEIGHT_MAX curve, 1 + (f^2 * (MAX-1)) //
-    FIDELITY_CAP^2, integer-only (f saturates at FIDELITY_CAP; None/negative = 0). An
+    """Per-miner presence-dividend weight AT `epoch`: LINEAR in fidelity — min(f, FIDELITY_CAP), i.e. days of
+    continuous presence up to DIVIDEND_WEIGHT_MAX (30); None/negative = 0. An
     identity on probation (fidelity < PROBATION_FIDELITY) has weight 0 — and a 0 here means OMITTED from the
     epoch's weight set (dividend_ops.weights_at_epoch, nado.get_open_weights): the exec accrual floors listed
     weights to 1, so presence in the set is the grant."""
     f = 0 if fidelity is None or int(fidelity) < 0 else min(int(fidelity), FIDELITY_CAP)
     if on_probation(f, epoch):
         return 0
-    return 1 + (f * f * (DIVIDEND_WEIGHT_MAX - 1)) // (FIDELITY_CAP * FIDELITY_CAP)
+    return f
 
 
 def split_block_reward(reward: int):

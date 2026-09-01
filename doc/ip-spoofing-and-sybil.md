@@ -391,3 +391,6 @@ while a genuine newcomer loses one day of dividend and nothing else. Rules 1–3
 epoch boundary a few hours after the update wave; the gate self-disarms at gen 24 (SCHEDULED_CLEANUPS.md). Not
 adopted: global entry caps (punish organic onboarding), device identifiers (unreadable in a browser, spoofable),
 bonded vouching (a UX redesign — later).
+
+**Linear dividend weight (2026-09-01, betanet-6):** after probation the weight is simply `min(fidelity, 30)` — days
+present. See doc/presence-dividend.md.

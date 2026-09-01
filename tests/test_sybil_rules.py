@@ -42,8 +42,8 @@ def t2_probation_weights():
     E0, E1 = -1, 0
     check("from activation: probation identities weigh 0 (absent) for the dividend",
           [P.dividend_weight(f, E1) for f in (None, 0, 1)] == [0, 0, 0])
-    check("from activation: the first timely renewal ends probation (fidelity 2 -> weight 1, curve continues)",
-          P.dividend_weight(2, E1) == 1 and P.dividend_weight(10, E1) == 3 and P.dividend_weight(30, E1) == 25)
+    check("from activation: the first timely renewal ends probation (fidelity 2 -> weight 2, linear to 30)",
+          P.dividend_weight(2, E1) == 2 and P.dividend_weight(10, E1) == 10 and P.dividend_weight(30, E1) == 30)
     check("from activation: open weight 1 on probation, never 0, 2+bonus after",
           [open_shares(f, E1) for f in (None, 0, 1, 2, 30)] == [1, 1, 1, 2, 10])
     check("legacy display call (no epoch) keeps the un-gated curve", open_shares(0) == 2)
@@ -63,7 +63,7 @@ def t3_weights_at_epoch_omits_probation():
     kv_ops.recert_put(b, E - 1 - P.FIDELITY_MIN_GAP_EPOCHS)     # renewed timely -> fidelity 2
     kv_ops.recert_put(b, E - 1)
     w = weights_at_epoch(E)
-    check("probation identity ABSENT from the committed weight set (exec floors listed weights to 1)", a not in w and w.get(b) == 1, w)
+    check("probation identity ABSENT from the committed weight set (exec floors listed weights to 1)", a not in w and w.get(b) == 2, w)   # linear: fidelity 2 -> weight 2
     kv_ops.close_all()
 
 

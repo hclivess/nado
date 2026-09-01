@@ -9,6 +9,8 @@
 
 ## What is different from block 0
 
+- **Linear dividend weight**: `min(fidelity, 30)` — days present — replaces the convex 1..25 curve (protocol 9 → 10,
+  ungated at chain age < 19 h: no epoch row differs until the first identity reaches fidelity 2).
 - **Probation** (`PROBATION_FIDELITY` = 2): an identity earns no presence dividend and has open-lane weight 1
   until its first timely renewal (~19 h). It is *absent* from the epoch's weight set, not weighted 0.
 - **Burst-proof registration difficulty**: the flood baseline is capped by the 14-day trailing rate.

@@ -130,7 +130,7 @@ constant** rather than a fraction, so it's predictable regardless of `R`.
 | `TREASURY_BPS` | `1000` (unchanged) | treasury cut of every block |
 | `OPEN_TIP_BPS` | `2000` | open producer's cut of an open-lane block (the rest, minus treasury, is the dividend) |
 | `DIVIDEND` recipient | `"dividend"` | reserved L1 pool address the dividend accrues to (`O(1)` on L1) |
-| dividend weight | `protocol.dividend_weight(fidelity)` — convex `1..25` (`1 + f²·24/900`) | per-miner pro-rata weight (Sybil-costly); **not** flat-per-identity. Separate from selection since 2026-08-25: selection keeps a liveness floor, the dividend's floor is economic |
+| dividend weight | `protocol.dividend_weight(fidelity, epoch)` — linear `min(f, 30)`, 0 on probation (was convex `1..25` on betanet-5) | per-miner pro-rata weight (Sybil-costly); **not** flat-per-identity. Separate from selection since 2026-08-25: selection keeps a liveness floor, the dividend's floor is economic |
 | min withdraw | e.g. `≥ 100× MIN_TX_FEE` | client-side floor so a withdrawal is always worth its fee |
 
 ## 8. Trade-offs & open questions
@@ -168,3 +168,7 @@ paid out: from a per-block jackpot to a fidelity-weighted, off-L1, withdraw-when
 > **Probation (2026-09-01, gen-23-keyed at epoch 1440):** an identity earns no dividend until its first timely
 > renewal — it is *absent* from the epoch's weight set rather than weighted 0, because the accrual floors listed
 > weights to 1. See doc/ip-spoofing-and-sybil.md §"Probation and the burst-proof baseline".
+
+> **Linear since betanet-6 (2026-09-01):** `dividend_weight = min(fidelity, 30)`, 0 while on probation. The convex
+> curve back-loaded the pool onto month-long streaks and made one lapse cost 72 % of weight; both shapes are linear
+> in identity count, so the change costs nothing against farms and pays presence proportionally.
