@@ -131,15 +131,18 @@ def t6():
         change_bonded("dave", 1000, logger=logger)
         change_fidelity("dave", 3, logger=logger)
         # a recert (apply_register) IS the presence lease now — registered->1, records the recert, and sets
-        # fidelity. dave's FIRST recert (no prior) RESETS fidelity to GAIN (a lapse/first recert loses streak),
-        # so the change_fidelity(+3) above is wiped forward and exactly restored on revert (the point of the test).
+        # fidelity through protocol.fidelity_step. dave's FIRST recert (no prior) is the lapse branch: since the
+        # 2026-08-25 dividend rules that HALVES (max(GAIN, cur // 2)) rather than resetting to GAIN, so the
+        # change_fidelity(+3) above is overwritten forward and exactly restored on revert (the point of the test).
         apply_register("dave", epoch=0, logger=logger)
     after = get_account("dave")
     assert after["balance"] == base["balance"] - 1234
     assert after["produced"] == base["produced"] + 5
     assert after["bonded"] == base["bonded"] + 1000
     assert after["registered"] == 1
-    assert after["fidelity"] == FIDELITY_GAIN     # first recert resets fidelity to GAIN
+    from protocol import fidelity_step
+    assert after["fidelity"] == fidelity_step(base["fidelity"] + 3, False, 0) == max(FIDELITY_GAIN, 10 // 2), \
+        f"first recert must take the lapse branch of the ramp, got {after['fidelity']}"
     assert kv_ops.recert_addresses_after(-1) == {"dave"}
     # revert in the exact mirror order -> doc returns byte-identical
     with kv_ops.write_txn():
