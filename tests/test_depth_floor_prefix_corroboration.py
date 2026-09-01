@@ -38,7 +38,9 @@ def t1_pins():
     assert fn.index("_budget = [4]") < g, "one budget per pass, created before the heaviest gate"
     assert fn.count("_budget = [4]") == 1, "budget must never reset mid-pass"
     v = fn.index("_t is None or not majority_on_our_canonical")
-    assert "_extends_us(_peer, _budget)" in fn[v:v + 300], \
+    # the probe must come BEFORE the veto's `return False` — measured by the next return, not by a fixed
+    # char window (the foreign-generation exemption's comment block pushed the probe past 300 chars)
+    assert "_extends_us(_peer, _budget)" in fn[v:fn.index("return False", v)], \
         "an unanswerable heavier claim must consult the prefix probe before vetoing"
     assert fn.index("_budget = [4]") < v, "probe budget must exist before the veto loop"
     assert fn.rindex("_extends_us(_peer, _budget)") > fn.index("return True"), \

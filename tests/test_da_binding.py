@@ -47,7 +47,7 @@ def t_extract():
             # timestamp is PINNED to 0, never the block's: block_timestamp is not in the block-hash
             # preimage, so honest clock skew made the leaf differ node-to-node. cursor pins the block.
             and cs[0] == {"cid": "cid_dice", "method": "bet", "caller": A, "args": [3, 50], "value": 0,
-                          "cursor": 100, "timestamp": 0}
+                          "asset": 0, "cursor": 100, "timestamp": 0}     # asset: 0 = native NADO value
             and cs[1]["method"] == "settle" and cs[1]["caller"] == B
             and CC.block_calls(BLK1, "rollup2")[0]["cid"] == "cid_other")
 check("block_calls: only default-ns op=='call' blobs, ordered, with committed-only context", t_extract)

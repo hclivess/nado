@@ -38,6 +38,7 @@ class FakeMem:
         self.address = kd["address"]
         self.auto_collect_dividend = True
         self.latest_block = {"block_number": EPOCH_LENGTH}     # epoch 1
+        self.emergency_mode = False        # the sweep is skipped while the node is in emergency sync
         self.submitted = []
     def merge_transaction(self, tx, user_origin=False):
         """Record the submitted tx instead of mempooling it; always report success."""

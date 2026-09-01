@@ -52,8 +52,8 @@ applied = []
 
 async def _fake_get(session, path):
     """Every height exists, carries a body, and hashes predictably — the chain is not what is under test."""
-    if "get_block_number" in path:
-        h = int(path.split("number=")[1])
+    if "number=" in path:            # /get_block?number= (the /get_block_number alias was removed 2026-08-19)
+        h = int(path.split("number=")[1].split("&")[0])
         return {"block_number": h, "block_hash": f"h{h}", "block_transactions": []}
     return {}
 

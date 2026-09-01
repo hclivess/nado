@@ -109,16 +109,24 @@ def main():
         ok, log = run(archive=False, force_reanchor=True)
         check("...nor for a rolling one", not log.errors)
 
-        # ---- and when it truncates, it must SHOUT -----------------------------------------------------
+        # ---- and it does not truncate at all: the canonical chain is KEPT and refilled ----------------
+        # e160ccad replaced the "ARCHIVE TRUNCATED, re-seed" shout with ops/canonical_restore: the blocks
+        # below the fork point are common to both chains and stay; what is canonical and absent is fetched
+        # from the donor — ALL of it on an archive node. The shout is gone because there is nothing left
+        # to shout about; a re-anchor that can still truncate would be a regression, not a logging change.
         src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "loops", "core_loop.py")).read()
-        check("a truncating re-anchor logs ARCHIVE TRUNCATED", "ARCHIVE TRUNCATED BY WEDGE RECOVERY" in src)
-        check("...only on an archive node", re.search(
-            r'getattr\(self\.memserver, "archive", False\) and _new_earliest > max\(1, _prev_earliest\)', src)
-            is not None)
-        check("...reporting the range that was lost",
-              "_new_earliest - _prev_earliest" in src)
-        check("...and telling the operator to re-seed", "RE-SEED from another archive" in src)
+        restore_call = "self._restore_canonical_chain(_old_index, anchor, source)"
+        check("a re-anchor RESTORES the canonical chain instead of truncating it", restore_call in src)
+        check("...after the identity change, so retained bodies are vouched for by the new identity",
+              restore_call in src and src.index("snapshot_ops.adopt_new_identity(logger=self.logger)")
+              < src.index(restore_call))
+        body = src[src.index("def _restore_canonical_chain("):src.index("def _start_deep_fill(")] \
+            if "def _restore_canonical_chain(" in src and "def _start_deep_fill(" in src else ""
+        check("...fetching ALL of it on an archive node (deep remainder), the window on a rolling one",
+              re.search(r'archive = bool\(getattr\(self\.memserver, "archive", False\)\)', body) is not None
+              and "if archive:" in body and "_start_deep_fill(" in body)
+        check("...and the old truncation shout is gone", "ARCHIVE TRUNCATED BY WEDGE RECOVERY" not in src)
 
         # the guard must sit BEFORE any peer I/O — a refusal that still polls the network is a refusal
         # that can hang, and this runs on the boot path

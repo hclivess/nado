@@ -86,8 +86,12 @@ def t5_seed_recovers_a_poisoned_table():
     """Prove seed_default_peers re-asserts the bootstrap seed on a poisoned own-IP-only table."""
     # a node whose table contains ONLY its own IP (load_ips excludes it -> 0 dialable peers) must still get
     # the bootstrap seed re-asserted, or it loops "Loaded 0 reachable peers" forever (the bug the user hit).
-    seed = peer_ops.DEFAULT_SEED_PEERS[0]        # DERIVED, not pinned: a changed seed must not silently
-                                                 # turn this into an assertion about a retired IP
+    # DERIVED, not pinned: a changed seed must not silently turn this into an assertion about a retired
+    # IP. Under NADO_TESTNET seed_peers() deliberately returns only NADO_SEED_PEERS (a loopback testnet
+    # must never dial the mainnet anchors), so give it one to assert on in that environment.
+    if os.environ.get("NADO_TESTNET") and not os.environ.get("NADO_SEED_PEERS"):
+        os.environ["NADO_SEED_PEERS"] = "9.9.9.9"
+    seed = peer_ops.seed_peers()[0]
     peer_ops._save_peers({OWN_IP: {"peer_ip": OWN_IP, "peer_port": 9173}})
     peer_ops.seed_default_peers(logger, my_ip=OWN_IP)
     tbl = peer_ops._load_peers()

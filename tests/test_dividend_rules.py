@@ -1,5 +1,6 @@
 """The 2026-08-25 dividend rules (protocol.py), unconditional since the betanet-5 (gen 23) reroll: the
-convex 1..25 dividend weight curve, the halving lapse, and the 40% bonded levy. Also pins that NO
+dividend weight (LINEAR min(fidelity, 30), 0 on probation — replaced the convex 1..25 curve on 2026-09-01),
+the halving lapse, and the 40% bonded levy. Also pins that NO
 activation gate exists for them any more — they rode gen 22 behind a generation-keyed gate that the reroll
 retired; a bare height sneaking back in would outlive its chain."""
 import os, sys, re, tempfile, traceback
@@ -63,7 +64,7 @@ def t_live_apply_and_replay_share_the_step():
 if __name__ == "__main__":
     check("no activation gate survives the reroll", t_no_gate_survives)
     check("bonded levy 40%; splits sum exactly", t_bonded_levy)
-    check("dividend curve: convex 1..25, selection weight untouched", t_dividend_curve)
+    check("dividend weight: linear min(fidelity, 30), 0 on probation, selection weight untouched", t_dividend_curve)
     check("fidelity step: spacing kept, lapse halves", t_fidelity_step)
     check("live apply and fraud-proof replay share protocol.fidelity_step", t_live_apply_and_replay_share_the_step)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")

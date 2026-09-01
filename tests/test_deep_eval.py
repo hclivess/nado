@@ -31,10 +31,12 @@ def t_eval_verifies_and_correct():
     ok, why = DE.verify_eval(p, Z, num_queries=NQ, backend=b)
     assert ok, f"honest eval must verify: {why}"
     coeffs = F.interpolate([v % F.P for v in VALUES])
-    # v is a GF(p^2) pair now (the DEEP point moved to the extension for soundness — see
-    # fri.EXT_CHALLENGES / soundness.py). For a BASE-field Z the answer must be exactly the native one in
-    # component 0 with a zero imaginary part, which also pins ext2.poly_eval against F.poly_eval.
-    assert p["v"] == (F.poly_eval(coeffs, Z), 0), "proven v must equal the native P(z), lifted"
+    # v is an EXTENSION element now (the DEEP point moved to the extension for soundness — see
+    # fri.EXT_CHALLENGES / soundness.py); its degree is extf.DEGREE (2 when this was written, 3 today), so
+    # pin the LIFT, not the width. For a BASE-field Z the answer must be exactly the native one in
+    # component 0 with every other component zero, which also pins the ext poly_eval against F.poly_eval.
+    assert tuple(p["v"])[0] == F.poly_eval(coeffs, Z) and not any(tuple(p["v"])[1:]), \
+        "proven v must equal the native P(z), lifted"
 
 
 def t_tampered_v_rejected():

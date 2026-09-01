@@ -146,13 +146,22 @@ def t_a_prove_that_cannot_finish_is_DECLINED_before_it_starts():
     assert "len(net) > SETTLE_RECORDS_MAX_UPDATES" in body, \
         "the cap must be checked against the DERIVED update count, before proving"
     i = body.index("len(net) > SETTLE_RECORDS_MAX_UPDATES")
-    assert "return None" in body[i:i + 900], "over the cap must decline, not prove"
+    # the FIRST statement-level return after the check must be the decline (a fixed char window broke
+    # when the decline's log line grew to name the update tags — the decline itself never moved)
+    m = re.search(r"\n\s+return\b[^\n]*", body[i:])
+    assert m and m.group(0).strip() == "return None", "over the cap must decline, not prove"
     assert "SETTLE_RECORDS_MAX_UPDATES = " in SRC, "the constant must be defined and overridable"
-    # it must sit under the arithmetic limit (2400 s / ~200 s per update ~= 12), since the same budget also
-    # covers the KV prove, the publish and the submit
+    # The cap must ACTUALLY FIT, in bytes and in time. Bytes: execnode checks it at import
+    # (_RECORDS_CAP_FITS_INLINE) — a proof built and then refused for size is the worst outcome. Time: at
+    # the K=2 batch knee measured 2026-08-06 (28.9 s per update, the table above the constant) the whole
+    # records half must finish inside SETTLE_PROVE_TIMEOUT, since one wait_for bounds the entire prove.
+    # (The old "~200 s per update => cap <= 10" arithmetic predates batching; per-update cost fell 7x.)
     import re as _re
     cap = int(_re.search(r"SETTLE_RECORDS_MAX_UPDATES = int\(os\.environ\.get\([^,]+, \"(\d+)\"\)\)", SRC).group(1))
-    assert 1 <= cap <= 10, f"cap {cap} must leave headroom under the ~12-update arithmetic limit"
+    timeout = int(_re.search(r"^SETTLE_PROVE_TIMEOUT = (\d+)", SRC, _re.M).group(1))
+    assert "if not _RECORDS_CAP_FITS_INLINE" in SRC, "the byte fit must be checked at import, not in a comment"
+    assert 1 <= cap and cap * 29 <= timeout, \
+        f"cap {cap} x ~29 s/update must leave headroom under SETTLE_PROVE_TIMEOUT={timeout}s"
 
 
 def t_the_records_prove_NEVER_RUNS_ON_THE_EVENT_LOOP():

@@ -19,7 +19,7 @@ logger = logging.getLogger("final"); logger.addHandler(logging.NullHandler())
 from genesis import create_indexers
 create_indexers()
 
-from ops.account_ops import get_finalized_height, set_finalized_height
+from ops.account_ops import get_finalized_height, set_finalized_height, set_hard_finality
 from ops.block_ops import save_block
 from rollback import rollback_one_block, FinalityViolation
 from protocol import FINALITY_DEPTH
@@ -69,15 +69,18 @@ tip = {"block_number": 5, "block_hash": TIP_HASH, "parent_hash": PARENT_HASH,
 save_block(parent, logger)  # so rollback can load the would-be new tip
 
 def t3_refuse():
-    """Prove rollback_one_block raises FinalityViolation when the tip's parent is below the finalized floor."""
-    set_finalized_height(100)  # tip(5)'s parent is 4 < 100 -> finalized -> must refuse
+    """Prove rollback_one_block raises FinalityViolation when the tip's parent is below the HARD floor.
+    TWO-FLOOR FINALITY (0386c269): hard_finality (FFG quorum + backstop) is the un-crossable floor; the
+    depth floor (finalized_height) is legal to cross above it and simply follows the tip down. The refusal
+    this test pins is therefore the hard floor's — setting only the depth floor no longer refuses."""
+    set_hard_finality(100)     # tip(5)'s parent is 4 < 100 -> inside the immutable prefix -> must refuse
+    set_finalized_height(100)  # invariant hard <= finalized
     raised = False
     try:
         rollback_one_block(logger=logger, block=tip)
     except FinalityViolation:
         raised = True
     assert raised, "rolling back a block whose parent is below the floor must raise FinalityViolation"
-check("rollback below finalized floor raises FinalityViolation", t3_refuse)
 
 def t3_boundary():
     """Prove finality does NOT refuse rollback at the boundary (parent == finalized floor)."""
@@ -93,6 +96,7 @@ def t3_boundary():
         pass  # non-finality error from reverting unprepared state is acceptable for this check
     assert not refused, "finality must NOT refuse at the boundary (parent == finalized_height)"
 check("rollback at the boundary (parent == floor) is not refused by finality", t3_boundary)
+check("rollback below the HARD floor raises FinalityViolation", t3_refuse)   # after: the hard floor never lowers
 
 
 print(f"\n{'ALL FINALITY CHECKS PASSED' if not fails else str(fails) + ' FAILURE(S)'}")

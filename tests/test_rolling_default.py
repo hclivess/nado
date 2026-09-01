@@ -112,11 +112,15 @@ def main():
     def write(cfg):
         json.dump(cfg, open(cp, "w"))
 
+    # DISABLED BY OPERATOR DECISION (2026-08-17, config.migrate_config): on disk an installer-written value
+    # is indistinguishable from an operator's choice, and a wrong guess silently turns an archive node into
+    # a rolling one — the failure this repo already had once. The migration therefore only STAMPS the
+    # version; it must never rewrite `archive`. (The pre-2026-08-17 assertion here was the opposite.)
     write({"port": 9173, "archive": True, "auto_update": True})
     r = migrate_config(config_path=cp)
-    check("an installer-written archive=True is migrated to rolling",
-          r["migrated"] and r["changed"].get("archive") is False)
-    check("...and the file now says so", get_config(cp)["archive"] is False)
+    check("an installer-written archive=True is NOT rewritten (operator decision 2026-08-17)",
+          r["migrated"] and "archive" not in r["changed"])
+    check("...and the file still says archive=True", get_config(cp)["archive"] is True)
     check("...and is stamped, so it never runs twice",
           get_config(cp)["config_version"] == CONFIG_VERSION)
     check("re-running is a no-op", migrate_config(config_path=cp)["migrated"] is False)

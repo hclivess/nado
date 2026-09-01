@@ -42,7 +42,9 @@ def t1_batch_fetch_degrades_not_raises():
 
 def t2_mid_batch_persistence():
     i = _TL.index("applied += 1")
-    seg = _TL[i:i + 2200]   # widened: the exec hash-pool boundary-roots block sits between apply and save
+    # up to the per-poll checkpoint call, not a fixed char window (comments between apply and save grew
+    # past every width this was widened to)
+    seg = _TL[i:_TL.index("_ckpt_maybe_persist(prev_cursor_for_ckpt", i)]
     assert "applied % " in seg and "_st.save()" in seg, \
         "progress must persist periodically INSIDE the apply loop, not only at the epilogue"
 
