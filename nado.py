@@ -2191,7 +2191,18 @@ async def make_app(port):
         cl = request.content_length
         if cl is not None and cl > limit:
             return _resp(f"body {cl} exceeds {limit} for {request.path}", status=413)
-        return await handler(request)
+        resp = await handler(request)
+        # CORS for the READ API: every GET here is public, unauthenticated chain data (the same bytes any
+        # peer or wallet reads), so any origin may read it — nadochain.com's live "next block, as every
+        # node computes it" widget and any explorer/dashboard. No credentials are ever involved; the
+        # authenticated surfaces (/log, /update) key on a token/IP, not on cookies, so a wildcard changes
+        # nothing about what a foreign page can do. Mirrors the header _RL() already sends.
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            try:
+                resp.headers.setdefault("Access-Control-Allow-Origin", "*")
+            except Exception:
+                pass
+        return resp
 
     app = web.Application(client_max_size=_MAX_INLINE_TX, middlewares=[_body_cap_mw])
     app.add_routes([

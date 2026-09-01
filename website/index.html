@@ -135,6 +135,7 @@
     <div class="brand"><img src="/logo.svg" alt="" /> NADO</div>
     <nav>
       <a href="#what" data-i18n="nav.what">What</a>
+      <a href="/production">Production</a>
       <a href="#features" data-i18n="nav.features">Features</a>
       <a href="#build">Build</a>
       <a href="#treasury" data-i18n="nav.treasury">Treasury</a>
@@ -174,6 +175,20 @@
     <div class="warn" data-i18n-html="what.warn"><b>Betanet — pre-mainnet, but not a sandbox.</b> What you mine is real: balances persist across
       upgrades and carry forward to mainnet. Consensus is still hardening, so a genesis reroll
       remains possible — if it happens, balances are carried across and we say so openly.</div>
+  </section>
+
+  <section id="production">
+    <h2>Every node builds every block</h2>
+    <p class="sub">There is no block proposer in NADO. A block is a <b>pure function</b> of the chain and the mempool — same parent,
+      same transactions, same code — so every node computes the identical block itself. Nobody proposes, nobody waits for a
+      leader, and nobody can hold a slot hostage. The only thing that can differ between nodes is the mempool, and the
+      protocol keeps pools equal at the moment it matters.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">🧮</div><h3>Computed, not proposed</h3><p>Winner, transaction set, weight and hash are all derived from committed state and the pool. No signature the chain depends on, no timestamp in the hash — no clock and no key can make two honest nodes disagree.</p></div>
+      <div class="card"><div class="ico">🤝</div><h3>Pools that agree</h3><p>Push gossip, per-second pull reconcile, an inclusion delay, and — right before building — a direct “what would <i>you</i> include?” exchange with peers. The mesh converges on the union of its next-block sets inside the slot.</p></div>
+      <div class="card"><div class="ico">⚖️</div><h3>Ties favour the better pool</h3><p>If two blocks still appear at one height, the one built from the more complete transaction set wins, deterministically — and the other side adopts it instantly, because the block carries the transaction it lacked.</p></div>
+    </div>
+    <p style="margin:18px 0 0"><a class="btn ghost" href="/production">See the next block as the network computes it →</a></p>
   </section>
 
   <section id="features">
@@ -278,6 +293,7 @@
       <a href="https://github.com/hclivess/nado">GitHub</a> ·
       <a href="https://github.com/hclivess/nado/blob/main/doc/whitepaper.md">Whitepaper</a> ·
       <a href="/emission">Emission</a> ·
+      <a href="/production">Production</a> ·
       <a href="https://forum.nadochain.com">Forum</a> ·
       <a href="https://discord.gg/6aEBWTvcTV">Discord</a> ·
       <a href="https://twitter.com/nadochain">Twitter/X</a>

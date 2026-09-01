@@ -952,7 +952,7 @@ shape is unchanged (49 chars).
   the prior NADO network's final account balances (2,801 holders), exported from its ledger index — the
   dev-fund premine excluded, in keeping with the no-premine relaunch.
 - **Release notes** — [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
-- Project site: <https://nadochain.com>
+- Project site: <https://nadochain.com> — shared block production explained live at <https://nadochain.com/production> (design: [doc/leaderless-assembly.md](doc/leaderless-assembly.md))
 
 `protocol.py` and the `ops/` modules are the source of truth; where an older companion doc disagrees,
 the code wins.

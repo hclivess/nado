@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NADO Shared Block Production — no leader, no proposer, no waiting</title>
+<meta name="description" content="Every NADO node builds every block itself, from the same pool, with the same function — there is no proposer to wait for, delay, or censor. How leaderless block production works, why it does not fork, and a live view of the next block as every node computes it." />
+<meta name="robots" content="index, follow" />
+<meta name="theme-color" content="#0b0f14" />
+<meta name="color-scheme" content="dark" />
+<link rel="canonical" href="https://nadochain.com/production" />
+<link rel="icon" type="image/svg+xml" href="/logo.svg" />
+<link rel="icon" sizes="any" href="/favicon.ico" />
+<link rel="apple-touch-icon" href="/logo.png" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="NADO" />
+<meta property="og:url" content="https://nadochain.com/production" />
+<meta property="og:title" content="NADO — shared block production, no leader" />
+<meta property="og:description" content="Every node builds every block. A block is a pure function of the chain and the mempool, so nobody proposes, nobody waits, nobody can censor a slot." />
+<meta property="og:image" content="https://nadochain.com/og-image.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="NADO shared block production" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:site" content="@nadochain" />
+<meta name="twitter:image" content="https://nadochain.com/og-image.png" />
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111823; --line:#1c2530; --txt:#e6edf3; --muted:#8b9bab; --faint:#5c6b7a;
+    --accent:#00ad93; --accent2:#00c9a7; --deep:#004438;
+    --pos:#3ad29f; --neg:#ff6b6b; --amber:#f5b74e;
+    --sans:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+  code{font-family:var(--mono);font-size:.92em;color:var(--accent2);background:#0b121b;padding:1px 5px;border-radius:5px}
+  a{color:var(--accent2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+  .glow{position:fixed;inset:0;z-index:-1;overflow:hidden;background:
+    radial-gradient(60% 50% at 50% -10%,rgba(0,173,147,.12),transparent 70%),
+    radial-gradient(40% 40% at 90% 10%,rgba(0,201,167,.07),transparent 70%)}
+  .orb{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5;will-change:transform;mix-blend-mode:screen;pointer-events:none}
+  .orb.a{width:46vw;height:46vw;max-width:620px;max-height:620px;top:-12%;left:-8%;background:radial-gradient(circle,rgba(0,173,147,.55),transparent 68%);animation:drift1 26s ease-in-out infinite}
+  .orb.b{width:40vw;height:40vw;max-width:540px;max-height:540px;top:8%;right:-10%;background:radial-gradient(circle,rgba(0,201,167,.42),transparent 68%);animation:drift2 32s ease-in-out infinite}
+  @keyframes drift1{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(6vw,7vh) scale(1.12)}66%{transform:translate(-4vw,3vh) scale(.94)}}
+  @keyframes drift2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-7vw,6vh) scale(1.16)}}
+  @media(prefers-reduced-motion:reduce){.orb{animation:none!important}}
+  header{display:flex;align-items:center;justify-content:space-between;padding:20px 0;gap:16px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.5px;font-size:20px;color:var(--txt)}
+  .brand img{width:34px;height:34px}
+  .brand:hover{text-decoration:none}
+  nav a{color:var(--muted);margin-left:22px;font-size:15px;font-weight:600}
+  nav a:hover,nav a.here{color:var(--txt);text-decoration:none}
+  .hero{text-align:center;padding:40px 0 18px}
+  .hero h1{font-size:clamp(30px,5.4vw,52px);line-height:1.08;margin:0 0 14px;letter-spacing:-.5px}
+  .hero h1 .g{background:linear-gradient(120deg,var(--accent2),#7fe9d6);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p{color:var(--muted);max-width:760px;margin:0 auto;font-size:18px}
+  section{padding:44px 0;border-top:1px solid var(--line)}
+  h2{font-size:clamp(22px,3.4vw,30px);margin:0 0 6px}
+  h3{margin:0 0 8px;font-size:18px}
+  .sub{color:var(--muted);margin:0 0 26px;max-width:760px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px}
+  .card p{margin:0;color:var(--muted);font-size:15px}
+  .note{background:rgba(0,173,147,.06);border:1px solid rgba(0,173,147,.25);border-radius:14px;padding:16px 18px;color:var(--muted);font-size:14.5px}
+  .diagram{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;overflow-x:auto}
+  .diagram svg{width:100%;height:auto;display:block;min-width:640px}
+  .cap{color:var(--faint);font-size:13.5px;margin:10px 4px 0}
+  table{width:100%;border-collapse:collapse;font-size:14.5px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  th,td{padding:11px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.4px}
+  tr:last-child td{border-bottom:0}
+  td.y{color:var(--pos)} td.n{color:var(--neg)} td.m{color:var(--amber)}
+  .tblwrap{overflow-x:auto}
+  /* simulation */
+  .sim{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}
+  .sim .ctl{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .btn{display:inline-block;background:linear-gradient(120deg,var(--accent),var(--accent2));color:#00110e;font-weight:700;padding:10px 16px;border-radius:12px;border:0;cursor:pointer;font-size:14px}
+  .btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .nodes{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .node{background:#0b121b;border:1px solid var(--line);border-radius:12px;padding:12px;min-height:150px;transition:border-color .3s,box-shadow .3s}
+  .node.ok{border-color:rgba(0,201,167,.6);box-shadow:0 0 0 1px rgba(0,201,167,.25) inset}
+  .node.bad{border-color:rgba(245,183,78,.7)}
+  .node h4{margin:0 0 8px;font-size:13px;color:var(--muted);font-weight:600;display:flex;justify-content:space-between}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;min-height:52px}
+  .chip{font:11px/1 var(--mono);background:#13202b;border:1px solid #223140;color:var(--txt);padding:4px 6px;border-radius:6px}
+  .chip.new{border-color:var(--amber);color:var(--amber)}
+  .hash{font:12px/1.3 var(--mono);color:var(--accent2);margin-top:10px;word-break:break-all}
+  .hash.bad{color:var(--amber)}
+  .status{margin-top:12px;color:var(--muted);font-size:14px;min-height:22px}
+  /* live */
+  .live{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .stat{background:#0b121b;border:1px solid var(--line);border-radius:12px;padding:14px}
+  .stat .k{color:var(--muted);font-size:12.5px;text-transform:uppercase;letter-spacing:.4px}
+  .stat .v{font:600 22px/1.2 var(--mono);color:var(--txt);margin-top:4px;word-break:break-all}
+  .stat .v.small{font-size:13px;color:var(--accent2)}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--faint);margin-right:6px;vertical-align:middle}
+  .dot.on{background:var(--pos);box-shadow:0 0 10px rgba(58,210,159,.7)}
+  footer{border-top:1px solid var(--line);padding:26px 0 40px;color:var(--faint);font-size:13.5px}
+  footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="glow"><span class="orb a"></span><span class="orb b"></span></div>
+<div class="wrap">
+
+  <header>
+    <a class="brand" href="/"><img src="/logo.svg" alt="" /> NADO</a>
+    <nav>
+      <a href="/#what">What</a>
+      <a class="here" href="/production">Production</a>
+      <a href="/#features">Features</a>
+      <a href="/emission">Emission</a>
+      <a href="/apps">Apps</a>
+      <a href="/#start">Start</a>
+      <a href="https://github.com/hclivess/nado">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <h1>Every node builds <span class="g">every block</span>.<br>No leader. No proposer. No waiting.</h1>
+    <p>In NADO a block is a <b>pure function</b> of the chain and the mempool. Given the same parent and the same
+       transactions, every node computes the <b>identical</b> block — so nobody has to propose it, nobody has to
+       wait for it, and nobody can hold a slot hostage. This page shows how that works, why it does not fork,
+       and the next block as the network computes it right now.</p>
+  </div>
+
+  <section id="live">
+    <h2>The next block, as every node computes it</h2>
+    <p class="sub">Live from a public node. This is not a proposal from a leader — it is the deterministic result any node
+       on this tip arrives at from its pool. Refreshes every few seconds.</p>
+    <div class="live">
+      <div class="stat"><div class="k"><span class="dot" id="ldot"></span>Chain</div><div class="v small" id="lchain">connecting…</div></div>
+      <div class="stat"><div class="k">Tip height</div><div class="v" id="ltip">—</div></div>
+      <div class="stat"><div class="k">Next block</div><div class="v" id="lnext">—</div></div>
+      <div class="stat"><div class="k">Transactions in it</div><div class="v" id="lcount">—</div></div>
+    </div>
+    <div class="stat" style="margin-top:14px"><div class="k">Parent (tip hash)</div><div class="v small" id="lhash">—</div></div>
+    <div class="stat" style="margin-top:14px"><div class="k">Transaction ids in the next block</div><div class="v small" id="ltx">—</div></div>
+    <p class="cap">Source: <code>GET https://get.nadochain.com/next_block_txids</code> and <code>/status</code>. Any node answers the same question; ask a few and compare.</p>
+  </section>
+
+  <section id="how">
+    <h2>How a block is born</h2>
+    <p class="sub">Proposer chains work by <i>election</i>: one node builds, everyone else waits and votes. NADO works by
+       <i>computation</i>: everyone builds, and the maths guarantees the results agree.</p>
+    <div class="diagram" aria-label="Diagram: three nodes each apply the same block function to the same parent and mempool and obtain the identical block">
+      <svg viewBox="0 0 960 330" xmlns="http://www.w3.org/2000/svg" role="img">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#00c9a7"/>
+          </marker>
+        </defs>
+        <!-- inputs -->
+        <rect x="20" y="30" width="200" height="120" rx="14" fill="#0b121b" stroke="#1c2530"/>
+        <text x="120" y="56" text-anchor="middle" fill="#8b9bab" font-size="12" font-family="system-ui">INPUTS — identical on every node</text>
+        <text x="40" y="84" fill="#e6edf3" font-size="13" font-family="ui-monospace,Menlo,monospace">parent block</text>
+        <text x="40" y="106" fill="#e6edf3" font-size="13" font-family="ui-monospace,Menlo,monospace">epoch beacon (RANDAO)</text>
+        <text x="40" y="128" fill="#e6edf3" font-size="13" font-family="ui-monospace,Menlo,monospace">mempool (mature txs)</text>
+        <!-- function -->
+        <rect x="300" y="20" width="360" height="140" rx="14" fill="#0e1a1c" stroke="#00ad93"/>
+        <text x="480" y="46" text-anchor="middle" fill="#00c9a7" font-size="12" font-family="system-ui" font-weight="700">THE BLOCK FUNCTION — the same code, everywhere</text>
+        <text x="322" y="74" fill="#e6edf3" font-size="12.5" font-family="ui-monospace,Menlo,monospace">winner  = draw(beacon, height, registries)</text>
+        <text x="322" y="96" fill="#e6edf3" font-size="12.5" font-family="ui-monospace,Menlo,monospace">txs     = mature(pool, height), sorted by txid</text>
+        <text x="322" y="118" fill="#e6edf3" font-size="12.5" font-family="ui-monospace,Menlo,monospace">weight  = parent + bonded shares + 1</text>
+        <text x="322" y="140" fill="#e6edf3" font-size="12.5" font-family="ui-monospace,Menlo,monospace">hash    = H(height, parent, winner, txs, …)</text>
+        <line x1="222" y1="90" x2="298" y2="90" stroke="#00c9a7" stroke-width="2" marker-end="url(#arr)"/>
+        <!-- nodes -->
+        <g font-family="system-ui" font-size="12">
+          <rect x="740" y="20" width="200" height="40" rx="10" fill="#0b121b" stroke="#1c2530"/>
+          <text x="760" y="45" fill="#8b9bab">node A</text><text x="930" y="45" text-anchor="end" fill="#00c9a7" font-family="ui-monospace,Menlo,monospace">#83885 · 7f3a…c1</text>
+          <rect x="740" y="70" width="200" height="40" rx="10" fill="#0b121b" stroke="#1c2530"/>
+          <text x="760" y="95" fill="#8b9bab">node B (a phone)</text><text x="930" y="95" text-anchor="end" fill="#00c9a7" font-family="ui-monospace,Menlo,monospace">#83885 · 7f3a…c1</text>
+          <rect x="740" y="120" width="200" height="40" rx="10" fill="#0b121b" stroke="#1c2530"/>
+          <text x="760" y="145" fill="#8b9bab">node C</text><text x="930" y="145" text-anchor="end" fill="#00c9a7" font-family="ui-monospace,Menlo,monospace">#83885 · 7f3a…c1</text>
+        </g>
+        <line x1="662" y1="60" x2="738" y2="40" stroke="#00c9a7" stroke-width="2" marker-end="url(#arr)"/>
+        <line x1="662" y1="90" x2="738" y2="90" stroke="#00c9a7" stroke-width="2" marker-end="url(#arr)"/>
+        <line x1="662" y1="120" x2="738" y2="140" stroke="#00c9a7" stroke-width="2" marker-end="url(#arr)"/>
+        <!-- caption row -->
+        <g font-family="system-ui" font-size="12.5" fill="#8b9bab">
+          <text x="20" y="200">No node sends a block to another. Each one <tspan fill="#e6edf3">computes</tspan> it, applies it, and moves on — the winner is credited by address,</text>
+          <text x="20" y="220">so it can be asleep, and the block hash carries neither a timestamp nor a signature, so no local clock and no key can make it differ.</text>
+          <text x="20" y="256" fill="#f5b74e">The one thing that can differ is the mempool.</text>
+          <text x="20" y="276">That is the entire attack surface of this design, and everything below exists to keep the pools equal at the moment</text>
+          <text x="20" y="296">the function runs — and to resolve the rare case where they were not, in favour of the more complete pool.</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section id="sim">
+    <h2>Try it: six nodes, one function</h2>
+    <p class="sub">A tiny simulation of the real rule. Each node hashes the sorted ids of its mature transactions on top of the
+       same parent. Watch what happens when a transaction reaches one node late, and how the network resolves it without
+       anybody being in charge.</p>
+    <div class="sim">
+      <div class="ctl">
+        <button class="btn" id="bTick">Build the next block on all nodes</button>
+        <button class="btn ghost" id="bLate">Deliver a late transaction to one node</button>
+        <button class="btn ghost" id="bRecon">Pre-assembly reconcile</button>
+        <button class="btn ghost" id="bReset">Reset</button>
+      </div>
+      <div class="nodes" id="nodes"></div>
+      <div class="status" id="simStatus">Six nodes share the same pool. Build a block: every node computes the same hash.</div>
+    </div>
+    <p class="cap">The simulation hashes with SHA-256 for brevity; the chain uses blake2b over the full block preimage. The rules
+       shown — sorted mature tx set, reconcile before building, superset wins a same-height tie — are the chain's actual rules.</p>
+  </section>
+
+  <section id="agree">
+    <h2>Keeping the pools equal</h2>
+    <p class="sub">Four layers, cheapest first. None of them is a leader; all of them make the block function's input the same
+       everywhere by the time it runs.</p>
+    <div class="grid">
+      <div class="card"><h3>1 · Push gossip</h3><p>A transaction is pushed to every peer the instant a node accepts it — first sight only, so the flood stops the moment everyone has it. One hop per edge, no leader relaying.</p></div>
+      <div class="card"><h3>2 · Pull reconcile</h3><p>Every second, nodes whose pool hash differs exchange txid lists and fetch only the bodies they lack. Anything push missed — a node that was down, a dropped packet — converges here.</p></div>
+      <div class="card"><h3>3 · Inclusion delay</h3><p>A transaction names the earliest height it may land, a few blocks after submission. That gives propagation a head start over assembly, so a tx is nearly always everywhere before any node may include it.</p></div>
+      <div class="card"><h3>4 · Pre-assembly reconcile</h3><p>Right before it builds, a node asks its peers <i>“what would <b>you</b> put in the next block on this tip?”</i> and fetches the difference. The mesh converges on the union of its next-block sets inside the slot — no block is built on a stale view.</p></div>
+    </div>
+    <div class="note" style="margin-top:18px"><b>Why not just wait for a leader?</b> A proposer solves the same problem by fiat: its pool is the reference. That buys agreement at the price of a party that can delay or censor a slot, of latency while everyone waits for it, and of a signature every block depends on. NADO buys agreement with bandwidth instead — a few hundred bytes of txids per block — and keeps the property that <b>no node is special</b>.</div>
+  </section>
+
+  <section id="ties">
+    <h2>When two blocks still appear at one height</h2>
+    <p class="sub">If a transaction reaches node A but not node B in the last few hundred milliseconds before the slot, they build two
+       different blocks. Fork weight is content-independent, so that is an exact tie. NADO breaks it deterministically — and in
+       favour of the better pool.</p>
+    <div class="grid">
+      <div class="card"><h3>The more complete block wins</h3><p>Both sides fetch the other's first divergent block and compare transaction sets. A strict superset wins; otherwise the larger set; only equal sets fall back to the lowest hash. Everyone computes the same answer, once.</p></div>
+      <div class="card"><h3>Adoption is instant</h3><p>The winning block carries the transaction the loser lacked, so the losing node can validate and adopt it immediately — the tx lands, nothing is re-mined, and “propagate faster” is the winning strategy rather than a coin flip.</p></div>
+      <div class="card"><h3>Weight still rules</h3><p>The tie-break only decides exact ties. Fork choice is cumulative bonded weight, and finality is a stake-signed checkpoint plus a hard floor no rollback may cross — a split can never undo what is final.</p></div>
+    </div>
+  </section>
+
+  <section id="compare">
+    <h2>Side by side</h2>
+    <div class="tblwrap">
+    <table>
+      <thead><tr><th>Property</th><th>NADO (shared production)</th><th>Tendermint / Tenderbake</th><th>Nakamoto PoW</th></tr></thead>
+      <tbody>
+        <tr><td>Who builds the block</td><td class="y">Every node, identically</td><td class="m">One proposer per round</td><td class="m">Whoever finds the hash</td></tr>
+        <tr><td>Waiting on a specific party</td><td class="y">Never</td><td class="n">Yes — the proposer, then a ⅔ vote</td><td class="m">Yes — the miner's propagation</td></tr>
+        <tr><td>Can one party censor a slot</td><td class="y">No — there is no slot owner</td><td class="n">Yes, for its round</td><td class="n">Yes, for its block</td></tr>
+        <tr><td>Winner can be offline</td><td class="y">Yes — credited by address</td><td class="n">No</td><td class="n">No</td></tr>
+        <tr><td>Hardware advantage</td><td class="y">None (a draw, not a race)</td><td class="y">None</td><td class="n">All of it</td></tr>
+        <tr><td>Block carries a signature the chain depends on</td><td class="y">No</td><td class="n">Yes</td><td class="y">No</td></tr>
+        <tr><td>Same-height conflict</td><td class="y">Deterministic tie-break, more complete pool wins</td><td class="y">Prevented by the vote</td><td class="m">Longest chain, eventually</td></tr>
+        <tr><td>What must agree</td><td class="m">The mempool at the slot (bandwidth)</td><td class="m">⅔ of stake, every block (rounds)</td><td class="m">Nothing — work decides</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section id="more">
+    <h2>Read the details</h2>
+    <p class="sub">The full write-up — the block function, what is and is not hashed, every convergence layer with its parameters,
+       the tie-break proof of symmetry, the failure modes and how each resolves, and the incidents that shaped the rules.</p>
+    <div class="grid">
+      <div class="card"><h3>Leaderless block assembly</h3><p><a href="https://github.com/hclivess/nado/blob/main/doc/leaderless-assembly.md">doc/leaderless-assembly.md</a> — the design document.</p></div>
+      <div class="card"><h3>Mining &amp; the draw</h3><p><a href="https://github.com/hclivess/nado/blob/main/doc/mining.md">doc/mining.md</a> — two lanes, the beacon, fidelity, win-while-offline.</p></div>
+      <div class="card"><h3>Finality</h3><p><a href="https://github.com/hclivess/nado/blob/main/doc/finality.md">doc/finality.md</a> — stake-signed checkpoints and the un-crossable floor.</p></div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <div style="margin-bottom:12px">
+      <a href="/">Home</a> ·
+      <a href="https://get.nadochain.com">Interface</a> ·
+      <a href="https://github.com/hclivess/nado">GitHub</a> ·
+      <a href="https://github.com/hclivess/nado/blob/main/doc/whitepaper.md">Whitepaper</a> ·
+      <a href="https://discord.gg/6aEBWTvcTV">Discord</a> ·
+      <a href="https://twitter.com/nadochain">Twitter/X</a>
+    </div>
+    <span>NADO · a phone-mineable, fair-launch, post-quantum blockchain · shared block production: every node builds every block</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){ return document.getElementById(id); };
+
+  /* ---------- live: the next block as the network computes it ---------- */
+  var API = "https://get.nadochain.com";
+  function short(h){ return (h || "").slice(0, 10) + "…" + (h || "").slice(-6); }
+  function live(){
+    Promise.all([
+      fetch(API + "/status", {cache:"no-store"}).then(function(r){ return r.json(); }),
+      fetch(API + "/next_block_txids", {cache:"no-store"}).then(function(r){ return r.json(); })
+    ]).then(function(res){
+      var st = res[0], nb = res[1];
+      $("ldot").className = "dot on";
+      $("lchain").textContent = st.chain_id + " · finalized #" + st.finalized_height;
+      $("ltip").textContent = "#" + st.latest_block_height;
+      $("lnext").textContent = "#" + nb.height;
+      $("lcount").textContent = String(nb.txids.length);
+      $("lhash").textContent = nb.tip;
+      $("ltx").textContent = nb.txids.length ? nb.txids.map(short).join("  ") : "(an empty block — still a block, still the same on every node)";
+    }).catch(function(){
+      $("ldot").className = "dot";
+      $("lchain").textContent = "public node not reachable from this browser right now";
+    });
+  }
+  live(); setInterval(live, 6000);
+
+  /* ---------- simulation ---------- */
+  var N = 6, POOL = ["a91f","b02c","c7e4","d1b8","e55a"], LATE = "f9d3", PARENT = "7f3a…c1";
+  var nodes = [];
+  function sha(s){
+    var enc = new TextEncoder().encode(s);
+    if (!(window.crypto && crypto.subtle)) { var h=0; for (var i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))>>>0; } return Promise.resolve(("00000000"+h.toString(16)).slice(-8).repeat(4)); }
+    return crypto.subtle.digest("SHA-256", enc).then(function(b){ return Array.prototype.map.call(new Uint8Array(b), function(x){ return ("0"+x.toString(16)).slice(-2); }).join(""); });
+  }
+  function reset(){
+    nodes = []; for (var i=0;i<N;i++) nodes.push({pool: POOL.slice(), hash: null, late: false});
+    render(); $("simStatus").textContent = "Six nodes share the same pool. Build a block: every node computes the same hash.";
+    $("bRecon").disabled = false; $("bLate").disabled = false;
+  }
+  function render(hashes){
+    var box = $("nodes"); box.innerHTML = "";
+    var uniq = {}; nodes.forEach(function(n){ if (n.hash) uniq[n.hash] = (uniq[n.hash]||0)+1; });
+    var majority = null, best = 0; Object.keys(uniq).forEach(function(h){ if (uniq[h] > best){ best = uniq[h]; majority = h; } });
+    nodes.forEach(function(n, i){
+      var d = document.createElement("div");
+      d.className = "node" + (n.hash ? (Object.keys(uniq).length === 1 ? " ok" : (n.hash === majority ? " ok" : " bad")) : "");
+      var chips = n.pool.slice().sort().map(function(t){ return '<span class="chip' + (t === LATE ? ' new' : '') + '">' + t + '</span>'; }).join("");
+      d.innerHTML = '<h4><span>node ' + String.fromCharCode(65+i) + '</span><span>' + n.pool.length + ' tx</span></h4><div class="chips">' + chips + '</div>' +
+                    '<div class="hash' + (n.hash && Object.keys(uniq).length > 1 && n.hash !== majority ? ' bad' : '') + '">' + (n.hash ? "block " + n.hash.slice(0, 18) + "…" : "—") + '</div>';
+      box.appendChild(d);
+    });
+  }
+  function build(){
+    return Promise.all(nodes.map(function(n){ return sha(PARENT + "|" + n.pool.slice().sort().join(",")); })).then(function(hs){
+      hs.forEach(function(h, i){ nodes[i].hash = h; });
+      var uniq = {}; hs.forEach(function(h){ uniq[h] = 1; });
+      var k = Object.keys(uniq).length;
+      render();
+      if (k === 1) {
+        $("simStatus").innerHTML = "All six nodes computed <b>the same block</b> from the same pool — nothing was proposed, nothing was sent. That is a normal NADO block.";
+      } else {
+        var sup = nodes.filter(function(n){ return n.pool.indexOf(LATE) >= 0; }).length;
+        $("simStatus").innerHTML = "Two different blocks at one height: an exact weight tie. The tie-break compares the two transaction sets — the block with the <b>late transaction is a strict superset</b>, so it wins and the other " + (N - sup) + " node" + (N - sup === 1 ? "" : "s") + " adopt it at once (it carries the tx they lacked). No leader decided; the more complete pool did.";
+      }
+    });
+  }
+  function late(){
+    var t = nodes.filter(function(n){ return n.pool.indexOf(LATE) < 0; });
+    if (!t.length) return;
+    t[Math.floor(Math.random()*t.length)].pool.push(LATE);
+    nodes.forEach(function(n){ n.hash = null; });
+    render();
+    $("simStatus").innerHTML = "Transaction <b>" + LATE + "</b> reached one node but not the others yet — the only way two NADO nodes can disagree. Push and pull gossip would spread it within a second; the pre-assembly reconcile makes sure nobody builds before it has.";
+  }
+  function reconcile(){
+    var have = nodes.some(function(n){ return n.pool.indexOf(LATE) >= 0; });
+    if (!have) { $("simStatus").textContent = "Pools already agree — nothing to fetch. Deliver a late transaction first."; return; }
+    nodes.forEach(function(n){ if (n.pool.indexOf(LATE) < 0) n.pool.push(LATE); n.hash = null; });
+    render();
+    $("simStatus").innerHTML = "Before building, every node asked its peers what <i>they</i> would put in the next block and fetched the difference — the union. Now build: the hashes agree again.";
+  }
+  $("bTick").onclick = build; $("bLate").onclick = late; $("bRecon").onclick = reconcile; $("bReset").onclick = reset;
+  reset();
+})();
+</script>
+</body>
+</html>
