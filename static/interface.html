@@ -241,7 +241,7 @@
       <div class="stat" data-i18n-title="tip.present" title="PRESENT — you hold a valid presence lease (a recent PoSW recert), so you're currently ELIGIBLE to win open-lane blocks. The wallet renews the lease automatically before it lapses; if it stops, presence lapses and you stop earning until it resumes.">
         <div class="label" data-i18n="lbl.present">Present</div><div class="value sm" id="walPresent">—</div></div>
       <div class="stat" data-i18n-title="tip.fidelity" title="FIDELITY — a continuity score that rises each epoch you stay present (up to a cap) and increases your weight in the open lane, so steady miners win a bit more often. Going absent reduces its effect.">
-        <div class="label" data-i18n="lbl.fidelity">Fidelity</div><div class="value sm" id="walFidelity">—</div></div>
+        <div class="label" data-i18n="lbl.fidelity">Fidelity</div><div class="value sm" id="walFidelity">—</div><div class="small faint" id="walProbation"></div></div>
     </div>
 
 
@@ -316,6 +316,7 @@
          title="PRESENCE LEASE — your PoSW recert keeps you present for about a day and renews automatically while the wallet is open. Fidelity rises by 1 per renewal, but only when the renewal is at least ~19 h after the previous one; renewing sooner keeps you present without earning the point (and delays the next one). Renew by hand inside the earning window to move your expiry to a convenient time of day.">ⓘ</span></span>
       <span class="value sm" id="leaseLeft">—</span>
       <div class="small faint" id="leaseNote" style="margin-top:2px"></div>
+      <div class="small faint" id="leaseWarn" style="margin-top:6px"></div>
       <button class="accent" id="btnRenewLease" data-i18n="lease.renew" style="display:block;margin:6px auto 0" disabled>Renew presence now</button>
     </div>
 
@@ -1215,6 +1216,6 @@
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
 <script defer src="/static/i18n.js?v=536a85ce"></script>
-<script type="module" src="/static/interface.js?v=1baf5fd9"></script>
+<script type="module" src="/static/interface.js?v=f1873194"></script>
 </body>
 </html>

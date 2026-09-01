@@ -297,10 +297,13 @@ class MemServer:
         # IP-DIVERSITY registration cap (non-consensus): max distinct OPEN-lane addresses one source IP
         # may register through this node per hour (0 = off). See ops/ratelimit.allow_registration.
         try:
+            # 64 -> 8 (2026-09-01, Sybil rule 4): the budget now counts ENTRY registrations only (renewals are
+            # exempt in nado._ip_registration_rejection), and no household onboards 64 new identities an hour.
+            # Progressive across ranges as before (~2x per /24, ~4x per /16, ~8x per /8).
             self.max_registrations_per_ip = int(_os.environ.get("NADO_MAX_REG_PER_IP")
-                                                 or self.config.get("max_registrations_per_ip", 64))
+                                                 or self.config.get("max_registrations_per_ip", 8))
         except (TypeError, ValueError):
-            self.max_registrations_per_ip = 64
+            self.max_registrations_per_ip = 8
         try:
             self.max_registrations_window = float(_os.environ.get("NADO_MAX_REG_WINDOW")
                                                   or self.config.get("max_registrations_window", 7200))

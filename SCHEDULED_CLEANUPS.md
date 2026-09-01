@@ -13,6 +13,17 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 ---
 
 
+## 2026-09-01 — gen-23 SYBIL RULES gate: delete at the gen-24 reroll (`SCHEDULED-CLEANUP` in protocol.py)
+
+`SYBIL_RULES_HEIGHT = _GEN23_SYBIL_ACTIVATION if CHAIN_GENERATION == 23 else 0` activates probation (no dividend and
+open weight 1 until the first timely renewal — `protocol.on_probation`, `dividend_weight(f, epoch)`,
+`mining_ops.open_shares(f, epoch)`) and the 14-day-capped difficulty baseline (`reg_difficulty.difficulty_multiplier`)
+at block 86 400 / epoch 1440 of betanet-5. **Why it cannot go before the reroll:** every committed `epochw:<E>` row
+for E < 1440 was built with the un-gated curve and the dividend replay (`dividend_ops.weights_at_epoch`) must keep
+re-deriving them byte-identically; the difficulty of every register anchored before 1440 likewise. At gen 24 the
+expression is 0 from block 0: delete the gate, drop the `epoch >= SYBIL_RULES_EPOCH` branches, keep the rules
+unconditional, and let `tests/test_sybil_rules.py` t1 assert the names are gone (the test_dividend_rules pattern).
+
 ## STATE-ROOT ROW GROWTH — RESOLVED 2026-08-20 (root retention window, live on betanet-4)
 
 Resolved without a reroll and without a height gate: `ops/snapshot_ops._root_triples` commits only the

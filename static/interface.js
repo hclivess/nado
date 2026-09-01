@@ -3005,6 +3005,11 @@ async function refreshDashboard() {
     refreshDividend().catch(() => {});                 // presence dividend accrued off-L1 + auto-claim settled
     $("walReg").innerHTML = acc.registered === 1 ? `<span class="badge ok">${i18("badge.yes","yes")}</span>` : `<span class="badge no">${i18("badge.no","no")}</span>`;
     $("walFidelity").textContent = acc.fidelity ?? 0;
+    // PROBATION (protocol PROBATION_FIDELITY = 2): the first lease earns no dividend and a reduced draw weight
+    // until the first timely renewal — say so where the number is, so a day-one miner is not surprised.
+    if ($("walProbation")) $("walProbation").textContent = (Number(acc.fidelity ?? 0) < 2)
+      ? i18("wal.probation", "Probation: your first lease earns block wins only. Dividends and full weight start after your first timely renewal (≈19 h of presence).")
+      : "";
     refreshLeasePanel(acc, ms);                         // lease countdown + manual renew inside the earning window
     authSync(acc).then(renderAuth).catch(() => {});      // re-anchor the signing key if the account's config moved
     $("sendAvail").textContent = bal + " NADO";
@@ -8494,6 +8499,10 @@ async function initNetTag() {
     el.title = i18("net.tagTip", "The network this wallet signs for.");
   }
   renderRelayTag();
+  // Lease truth, in plain words, next to the countdown (Discord 2026-08-31: people saved seed phrases expecting
+  // hundreds of addresses to "mine forever"): the wallet renews ONLY while this tab is open.
+  if ($("leaseWarn")) $("leaseWarn").textContent = i18("lease.warn",
+    "Mining stops when this lease expires. The wallet renews it only while this tab stays open — a saved seed phrase does not renew anything by itself.");
   await refreshNetIdentity();
   if (!netAdopted) netIdentityRetryLoop();      // detached: boot must not wait on a relay that is down
   else refreshRelayPool(true).catch(() => {});

@@ -45,7 +45,7 @@ deployed as the PROTOCOL 4 flag day (old-rules nodes are shed at the handshake),
 in consensus code.
 """
 from protocol import (POSW_ENTRY_MULT, POSW_LEASE_EPOCHS, POSW_T, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
-                      POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH)
+                      POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH, POSW_DIFF_TRAIL_LONG, SYBIL_RULES_EPOCH)
 
 
 def chain_register_count(epoch: int) -> int:
@@ -60,11 +60,33 @@ def chain_register_count(epoch: int) -> int:
     return kv_ops.recert_count_in_window(epoch, epoch)
 
 
+# Per-epoch register counts of epochs strictly below the hard-finality epoch are IMMUTABLE (no rollback may
+# cross that floor), so they are memoised: the 14-day trail (POSW_DIFF_TRAIL_LONG = 3360 epochs) would
+# otherwise cost 3360 index range-counts per register validation, and a block carries many registers.
+# Keyed by env path so tests that switch HOME never read another home's counts; recent epochs recompute.
+_count_memo = {}
+
+
+def _memo_count(epoch: int) -> int:
+    from ops import kv_ops
+    from ops.account_ops import get_hard_finality
+    key = (kv_ops.env_path(), epoch)
+    v = _count_memo.get(key)
+    if v is not None:
+        return v
+    v = chain_register_count(epoch)
+    if epoch < int(get_hard_finality() or 0) // EPOCH_LENGTH - 1:
+        if len(_count_memo) > 100_000:
+            _count_memo.clear()
+        _count_memo[key] = v
+    return v
+
+
 def _window_count(lo_epoch: int, hi_epoch: int) -> int:
     """Sum of chain_register_count over epochs [lo_epoch, hi_epoch] inclusive (negatives skipped)."""
     if hi_epoch < lo_epoch:
         return 0
-    return sum(chain_register_count(e) for e in range(max(0, lo_epoch), hi_epoch + 1))
+    return sum(_memo_count(e) for e in range(max(0, lo_epoch), hi_epoch + 1))
 
 
 def difficulty_multiplier(anchor_epoch: int) -> int:
@@ -79,6 +101,13 @@ def difficulty_multiplier(anchor_epoch: int) -> int:
     recent = _window_count(last - POSW_DIFF_WINDOW + 1, last)
     trail = _window_count(last - POSW_DIFF_TRAIL + 1, last)
     baseline = max(POSW_DIFF_FLOOR, trail * POSW_DIFF_WINDOW // POSW_DIFF_TRAIL)
+    if anchor_epoch >= SYBIL_RULES_EPOCH:
+        # SLOW-ADAPTING BASELINE (protocol "SYBIL RULES", rule 3). The 2-day trail alone let a sustained burst
+        # become its own baseline: measured 2026-09-01, 189 registrations per window on day 3 of a burst and a
+        # multiplier of 1x. Cap the baseline by the 14-day rate as well, so a burst pays the multiplier for a
+        # fortnight while the honest steady state (2-day rate == 14-day rate) is untouched.
+        trail_long = _window_count(last - POSW_DIFF_TRAIL_LONG + 1, last)
+        baseline = max(POSW_DIFF_FLOOR, min(baseline, trail_long * POSW_DIFF_WINDOW // POSW_DIFF_TRAIL_LONG))
     return min(POSW_DIFF_MAX_MULT, max(1, recent // baseline))
 
 

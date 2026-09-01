@@ -616,7 +616,16 @@ def _ip_registration_rejection(ip, transaction):
         if not isinstance(transaction, dict) or transaction.get("recipient") != "register":
             return None
         from ops.ratelimit import allow_registration
-        cap = getattr(memserver, "max_registrations_per_ip", 64)
+        # ENTRIES ONLY (2026-09-01, Sybil rule 4): a RENEWAL never spends the budget — an established phone
+        # roaming across networks must never be refused its lease — so the budget prices exactly the thing it
+        # exists for: new identities. Same anchor derivation as the consensus entry check.
+        from ops.reg_difficulty import is_entry_registration
+        from ops.mining_ops import epoch_of
+        from protocol import POSW_ANCHOR_OFFSET
+        _anchor = epoch_of(max(0, int(transaction.get("max_block", 0)) - POSW_ANCHOR_OFFSET))
+        if not is_entry_registration(str(transaction.get("sender", "")), _anchor):
+            return None
+        cap = getattr(memserver, "max_registrations_per_ip", 8)
         window = getattr(memserver, "max_registrations_window", 7200.0)
         if not allow_registration(ip, str(transaction.get("sender", "")), cap, window):
             return {"result": False,
@@ -1532,7 +1541,11 @@ async def get_open_weights(request):
         epoch = epoch_of(memserver.latest_block["block_number"])
         reg = get_open_registry(epoch)
         from protocol import dividend_weight
-        weights = {addr: dividend_weight(info.get("fidelity", 0)) for addr, info in reg.items()}
+        weights = {}
+        for addr, info in reg.items():
+            w = dividend_weight(info.get("fidelity", 0), epoch)
+            if w > 0:                                   # probation = absent (protocol.dividend_weight)
+                weights[addr] = w
         return {"epoch": epoch, "weights": weights}
     return _resp(await asyncio.to_thread(_work))
 

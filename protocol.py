@@ -1405,10 +1405,43 @@ def fidelity_step(cur_fid: int, continuous: bool, gap: int) -> int:
     return max(FIDELITY_GAIN, cur_fid // 2)
 
 
-def dividend_weight(fidelity) -> int:
-    """Per-miner presence-dividend weight: a convex 1..DIVIDEND_WEIGHT_MAX curve, 1 + (f^2 * (MAX-1)) //
-    FIDELITY_CAP^2, integer-only (f saturates at FIDELITY_CAP; None/negative = 0)."""
+# --- SYBIL RULES (2026-09-01; doc/ip-spoofing-and-sybil.md §"Probation"). A gen-23-keyed activation, per the gate
+# hygiene rule above: the height is THE rule from block 0 of the next generation and the expression self-disarms
+# at the reroll (SCHEDULED-CLEANUP: delete the gate at gen 24, keep the rules unconditional).
+# WHY (measured 2026-09-01, 811 present open identities, ~540 registered in 48 h, 74% at fidelity <= 2): a fresh
+# identity got open weight 2 and dividend weight 1 from its FIRST lease, and 87% of open-lane value flows through
+# the dividend pool, which splits LINEARLY by identity count when the population is young — 500 disposable
+# identities (~4.5 CPU-hours of PoSW) took over half of all open-lane value. Three rules:
+#   1. PROBATION (rule 1+2): until an identity's first TIMELY renewal (fidelity < PROBATION_FIDELITY — the +1
+#      needs FIDELITY_MIN_GAP_EPOCHS ≈ 19 h of continuous presence) it earns NO dividend (it is absent from the
+#      epoch's weight set, not weighted 0: the exec accrual floors listed weights to 1) and its open-lane
+#      selection weight is 1, not OPEN_BASE_FLOOR. A phone can still win a block on day one; dividends start on
+#      day two. A mint-and-discard identity never leaves probation.
+#   3. SLOW-ADAPTING DIFFICULTY BASELINE (ops/reg_difficulty): the flood multiplier's baseline is the MIN of the
+#      2-day and 14-day trailing rates, so a sustained burst cannot become its own baseline within a fortnight.
+_GEN23_SYBIL_ACTIVATION = 86_400                     # epoch 1440 boundary; ~4 h after the 2026-09-01 15:00 push
+SYBIL_RULES_HEIGHT = _GEN23_SYBIL_ACTIVATION if CHAIN_GENERATION == 23 else 0
+SYBIL_RULES_EPOCH = SYBIL_RULES_HEIGHT // EPOCH_LENGTH
+PROBATION_FIDELITY = 2               # first lease = fidelity 1; the first timely renewal = 2 ends probation
+POSW_DIFF_TRAIL_LONG = 3360          # 14 days of epochs — the long trailing rate the difficulty baseline is capped by
+
+
+def on_probation(fidelity, epoch: int) -> bool:
+    """True if an identity with `fidelity` is on probation at `epoch` (rules 1+2 active and fidelity below
+    PROBATION_FIDELITY). Pure; the one predicate both the live paths and the dividend replay share."""
+    f = 0 if fidelity is None or int(fidelity) < 0 else int(fidelity)
+    return int(epoch) >= SYBIL_RULES_EPOCH and f < PROBATION_FIDELITY
+
+
+def dividend_weight(fidelity, epoch: int) -> int:
+    """Per-miner presence-dividend weight AT `epoch`: a convex 1..DIVIDEND_WEIGHT_MAX curve, 1 + (f^2 * (MAX-1)) //
+    FIDELITY_CAP^2, integer-only (f saturates at FIDELITY_CAP; None/negative = 0). From SYBIL_RULES_EPOCH an
+    identity on probation (fidelity < PROBATION_FIDELITY) has weight 0 — and a 0 here means OMITTED from the
+    epoch's weight set (dividend_ops.weights_at_epoch, nado.get_open_weights): the exec accrual floors listed
+    weights to 1, so presence in the set is the grant."""
     f = 0 if fidelity is None or int(fidelity) < 0 else min(int(fidelity), FIDELITY_CAP)
+    if on_probation(f, epoch):
+        return 0
     return 1 + (f * f * (DIVIDEND_WEIGHT_MAX - 1)) // (FIDELITY_CAP * FIDELITY_CAP)
 
 

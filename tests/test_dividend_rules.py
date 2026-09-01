@@ -34,10 +34,10 @@ def t_bonded_levy():
 
 
 def t_dividend_curve():
-    got = [P.dividend_weight(f) for f in (0, 1, 5, 10, 15, 20, 25, 30, 99, None, -3)]
+    got = [P.dividend_weight(f, 0) for f in (0, 1, 5, 10, 15, 20, 25, 30, 99, None, -3)]
     assert got == [1, 1, 1, 3, 7, 11, 17, 25, 25, 1, 1], got
-    assert all(P.dividend_weight(f) <= P.dividend_weight(f + 1) for f in range(0, 35)), "monotonic"
-    assert P.dividend_weight(P.FIDELITY_CAP) == P.DIVIDEND_WEIGHT_MAX == 25
+    assert all(P.dividend_weight(f, 0) <= P.dividend_weight(f + 1, 0) for f in range(0, 35)), "monotonic"
+    assert P.dividend_weight(P.FIDELITY_CAP, 0) == P.DIVIDEND_WEIGHT_MAX == 25
     from ops.mining_ops import open_shares
     assert open_shares(0) == 2 and open_shares(30) == 10, "selection weight keeps its liveness floor"
 

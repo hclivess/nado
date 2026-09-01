@@ -693,9 +693,9 @@ def mining_status(address, latest_block_number, block_time):
         """display-side bonded weight: selection shares with the bond-age ramp applied (mirrors the consensus draw)"""
         return bond_ramp_weight(selection_shares(info["bonded"], info.get("fidelity")),
                                 info.get("bond_since"), epoch)
-    total_open = sum(open_shares(i.get("fidelity")) for i in open_reg.values())
+    total_open = sum(open_shares(i.get("fidelity"), epoch) for i in open_reg.values())
     total_bonded = sum(_bwt(i) for i in bonded_reg.values())
-    my_open = open_shares(open_reg[address]["fidelity"]) if address in open_reg else 0
+    my_open = open_shares(open_reg[address]["fidelity"], epoch) if address in open_reg else 0
     my_bonded = _bwt(bonded_reg[address]) if address in bonded_reg else 0
     open_frac = K_OPEN / EPOCH_LENGTH
     bonded_frac = (EPOCH_LENGTH - K_OPEN) / EPOCH_LENGTH

@@ -51,4 +51,11 @@ def weights_at_epoch(epoch: int) -> dict:
     fidelity-weighted weights the dividend distributes by, as of that epoch (protocol.dividend_weight, the
     convex 1..25 dividend curve). Deterministic and reconstructible: this is what the exec node accrues
     against and what an L1 challenge re-derives."""
-    return {addr: dividend_weight(fidelity_at_epoch(addr, epoch)) for addr in present_at_epoch(epoch)}
+    # PROBATION (protocol.on_probation): a 0 weight means ABSENT from the set — the exec accrual floors listed
+    # weights to 1, so omission is how "no dividend yet" is expressed. Committed into the epochw row as such.
+    out = {}
+    for addr in present_at_epoch(epoch):
+        w = dividend_weight(fidelity_at_epoch(addr, epoch), epoch)
+        if w > 0:
+            out[addr] = w
+    return out

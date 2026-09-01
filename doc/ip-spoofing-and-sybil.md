@@ -360,3 +360,34 @@ each mask must pay its own fresh, un-fakeable slice of real sequential time.
    `target_block − POSW_ANCHOR_OFFSET`. Presence is the **renewable recert lease**: a fresh recert keeps an
    identity in `account_ops.get_open_registry` for `POSW_LEASE_EPOCHS` — the "slow, infrequent presence
    re-proof" is live, and there is no separate heartbeat.
+
+
+## Probation and the burst-proof baseline (2026-09-01, gen-23-keyed at block 86 400)
+
+Measured on betanet-5 with 811 present open identities (~540 registered within 48 h, 74 % at fidelity ≤ 2): a
+fresh identity received open weight 2 and dividend weight 1 from its *first* lease, and because 87 % of open-lane
+value flows through the presence-dividend pool — which splits linearly by identity count while the population is
+young — ~500 disposable identities (≈ 4.5 CPU-hours of PoSW) captured over half of it. Five rules
+(`protocol.py` "SYBIL RULES", `tests/test_sybil_rules.py`):
+
+1. **Dividend probation.** Until an identity's first *timely* renewal (fidelity ≥ `PROBATION_FIDELITY` = 2, which
+   needs `FIDELITY_MIN_GAP_EPOCHS` ≈ 19 h of continuous presence) it is **absent** from the epoch's dividend weight
+   set (`dividend_weight` → 0 → omitted; the exec accrual floors *listed* weights to 1, so omission is the grant).
+   Day one pays block wins only; dividends start on day two. A mint-and-discard identity never leaves probation.
+2. **Selection probation.** `open_shares` = 1 (never 0 — a newcomer stays winnable) during probation, the usual
+   2..10 curve after.
+3. **Burst-proof difficulty baseline.** The flood multiplier's baseline is `max(FLOOR, min(2-day rate, 14-day
+   rate))`: a sustained burst can no longer become its own baseline (it did: day 3 of the burst read 1×). The
+   honest steady state, where the two rates agree, is unchanged. Per-epoch counts below the hard-finality epoch
+   are memoised, so the 14-day trail costs nothing per validation.
+4. **Per-IP budget counts entries only, default 8/h** (was 64/h counting renewals). A roaming phone's renewal is
+   never refused; the budget prices exactly new identities. Progressive across ranges as before. Relay policy, not
+   consensus.
+5. **The wallet says it:** "Mining stops when this lease expires. The wallet renews it only while this tab stays
+   open — a saved seed phrase does not renew anything by itself", and a probation note next to the fidelity value.
+
+Combined: a 500-identity farm goes from ≈ 80 NADO/day for ≈ 4.5 CPU-hours to ≈ 10 NADO/day for ≈ 70 CPU-hours,
+while a genuine newcomer loses one day of dividend and nothing else. Rules 1–3 are consensus and activate at an
+epoch boundary a few hours after the update wave; the gate self-disarms at gen 24 (SCHEDULED_CLEANUPS.md). Not
+adopted: global entry caps (punish organic onboarding), device identifiers (unreadable in a browser, spoofable),
+bonded vouching (a UX redesign — later).

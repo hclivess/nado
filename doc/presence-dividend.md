@@ -163,3 +163,8 @@ Pre-mainnet alpha — a reward-split + reserved-recipient change is a clean cons
 
 Nothing here weakens the two-lane security model — it only changes how the open lane's *already-capped* 30% is
 paid out: from a per-block jackpot to a fidelity-weighted, off-L1, withdraw-when-worthwhile stream.
+
+
+> **Probation (2026-09-01, gen-23-keyed at epoch 1440):** an identity earns no dividend until its first timely
+> renewal — it is *absent* from the epoch's weight set rather than weighted 0, because the accrual floors listed
+> weights to 1. See doc/ip-spoofing-and-sybil.md §"Probation and the burst-proof baseline".
