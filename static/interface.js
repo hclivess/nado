@@ -31,7 +31,15 @@ import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
  * adds no trust: the relay already supplies balances, fees and block targets. */
-let CHAIN_ID = "betanet-2";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
+// The chain this browser LAST ADOPTED from a relay, if any. Read before the fallback literal so a returning
+// browser boots straight onto the chain it actually uses; a fresh browser has nothing here and the tag shows
+// "…" until the relay answers — never a literal that may be generations stale (a fresh install showed
+// "betanet-2" on a betanet-5 chain because the /status fetch lost a race with an overloaded relay, and the
+// literal had not been touched since betanet-2).
+const LS_CHAIN_ID = "nado_chain_id";
+const CHAIN_ID_SAVED = (() => { try { return localStorage.getItem(LS_CHAIN_ID) || ""; } catch (e) { return ""; } })();
+let CHAIN_ID = CHAIN_ID_SAVED || "betanet-5";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
+let netAdopted = false;                          // true once a relay's /status has confirmed CHAIN_ID THIS session
 const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
@@ -661,7 +669,149 @@ const state = {
   lastAutoBondEpoch: null,
 };
 
-function relayBase() { return (state.relay || location.origin).replace(/\/+$/, ""); }
+/* RELAY POOL — automatic relay switching.
+ * The wallet has ONE home relay: the origin it was served from, or the URL the user typed in Settings. Every
+ * miner on get.nadochain.com therefore hangs off one box, and when that box stalls (a restart, an update
+ * wave, a state walk hogging the GIL) 800 wallets go "relay offline" together with nowhere to go. The pool
+ * is the wallet's second option: /relays on the home relay lists the other nodes on this chain (each peer's
+ * live height, and — when its operator published one — the TLS origin a browser can actually reach; see
+ * doc/relays.md). After RELAY_FAIL_THRESHOLD consecutive hard failures of the current relay the wallet
+ * PROBES the candidates (best height first, home first when it is the one we left), refuses any that is on
+ * a different chain_id or trails the best-known tip by more than RELAY_HEIGHT_TOLERANCE blocks, and adopts
+ * the first that passes. The exec node follows automatically (execBase derives from relayBase). While away
+ * it re-probes home every RELAY_HOME_RETRY_MS and goes back the moment home answers — the user's choice of
+ * relay is never silently replaced for good, only bridged over. The list is persisted so a browser whose
+ * home relay is down AT BOOT still has somewhere to look. Nothing in the list is trusted: a candidate is
+ * only ever adopted after its own /status passed the chain + height checks, and the node's own
+ * "Wrong or missing chain id" rejection still backstops every signed tx. */
+const LS_RELAY_POOL = "nado_relay_pool";
+const RELAY_FAIL_THRESHOLD = 3;              // consecutive hard failures (not 429s) before looking elsewhere
+const RELAY_POOL_REFRESH_MS = 5 * 60 * 1000; // /relays is rate-limited 60/min per IP; 5 min is plenty
+const RELAY_HOME_RETRY_MS = 2 * 60 * 1000;   // while on an auto relay, how often home is re-probed
+const RELAY_BAD_MS = 5 * 60 * 1000;          // a candidate that failed a probe is skipped for this long
+const RELAY_PROBE_TIMEOUT = 6000;
+const RELAY_HEIGHT_TOLERANCE = 20;           // a candidate may trail the best-known tip by this many blocks
+const relayPool = {
+  list: (() => { try { const l = JSON.parse(localStorage.getItem(LS_RELAY_POOL) || "[]"); return Array.isArray(l) ? l.filter((c) => c && typeof c.url === "string") : []; } catch (e) { return []; } })(),
+  auto: null,          // the relay we switched to, or null = on the home relay
+  fails: 0,            // consecutive hard failures of the CURRENT relay
+  bad: new Map(),      // url -> time of last failed probe
+  lastRefresh: 0,
+  switchedAt: 0,       // when we last moved (also rate-limits the home re-probe)
+  switching: null,     // in-flight rotateRelay() promise (re-entrancy guard)
+};
+function homeRelay() { return (state.relay || location.origin).replace(/\/+$/, ""); }
+function relayBase() { return relayPool.auto || homeRelay(); }
+function relayHost(url) { try { return new URL(url).host; } catch (e) { return String(url || ""); } }
+// A candidate this PAGE can use: http(s) origin, and https when the page itself is https (a browser blocks
+// an http:// fetch from an https page — mixed content — so a bare ip:port peer only helps a wallet that was
+// loaded over plain http, e.g. from the miner's own node).
+function relayUsable(url) {
+  if (typeof url !== "string" || !/^https?:\/\/\S+$/i.test(url)) return false;
+  if (location.protocol === "https:" && !/^https:/i.test(url)) return false;
+  try { new URL(url); } catch (e) { return false; }
+  return true;
+}
+function renderRelayTag() {
+  const el = $("relayTag"); if (!el) return;
+  const auto = !!relayPool.auto;
+  el.textContent = i18("relay.via", "via {h}", { h: relayHost(relayBase()) }) + (auto ? " · " + i18("relay.autoMark", "auto") : "");
+  el.title = auto
+    ? i18("relay.autoTip", "Your usual relay ({h}) stopped answering, so the wallet switched to another node on the same chain. It goes back automatically once {h} is reachable again.", { h: relayHost(homeRelay()) })
+    : i18("relay.homeTip", "The node this wallet reads from and sends through.");
+}
+function relayNoteSuccess() { relayPool.fails = 0; }
+function relayNoteFailure() {
+  relayPool.fails++;
+  if (relayPool.fails >= RELAY_FAIL_THRESHOLD && !relayPool.switching) {
+    relayPool.switching = rotateRelay().catch(() => false).finally(() => { relayPool.switching = null; });
+  }
+}
+// Refresh the candidate list from the CURRENT relay's /relays (time-gated). Home is never listed — it is
+// implicitly first — and a candidate on another chain is dropped here, before it can ever be probed.
+async function refreshRelayPool(force = false) {
+  const now = Date.now();
+  if (!force && now - relayPool.lastRefresh < RELAY_POOL_REFRESH_MS) return;
+  relayPool.lastRefresh = now;
+  let r;
+  try { r = await rpcJSON("/relays", { retry: false }); } catch (e) { return; }
+  const d = r && r.data;
+  if (!d || !Array.isArray(d.relays)) return;
+  const list = [];
+  for (const e of d.relays) {
+    if (!e || typeof e !== "object") continue;
+    const url = relayUsable(e.url) ? e.url.replace(/\/+$/, "") : (relayUsable(e.api) ? e.api.replace(/\/+$/, "") : null);
+    if (!url || url === homeRelay() || list.some((c) => c.url === url)) continue;
+    if (typeof e.chain_id === "string" && CHAIN_ID && e.chain_id !== CHAIN_ID) continue;
+    list.push({ url, height: Number(e.height) || 0 });
+  }
+  relayPool.list = list;
+  try { localStorage.setItem(LS_RELAY_POOL, JSON.stringify(list)); } catch (e) {}
+}
+async function probeRelay(url) {
+  const res = await fetchWithTimeout(url + "/status", { method: "GET", cache: "no-store" }, RELAY_PROBE_TIMEOUT);
+  if (!res.ok) throw new RelayUnreachable("relay returned HTTP " + res.status);
+  let st; try { st = await res.json(); } catch (e) { throw new RelayUnreachable("relay returned no JSON"); }
+  if (!st || typeof st.chain_id !== "string" || !st.chain_id) throw new RelayUnreachable("relay status has no chain_id");
+  return st;
+}
+// Would we sign against this node? Same chain (never silently cross chains), and at — or within tolerance
+// of — the best tip we know about, so we never "fail over" onto a node that is itself stuck.
+function relayAcceptable(st) {
+  if (CHAIN_ID && netAdopted && st.chain_id !== CHAIN_ID) return false;
+  const h = Number(st.latest_block_height);
+  if (!Number.isFinite(h)) return false;
+  const best = Math.max(Number(state.latest) || 0, ...relayPool.list.map((c) => Number(c.height) || 0));
+  return h >= best - RELAY_HEIGHT_TOLERANCE;
+}
+function adoptRelay(url, st) {
+  const before = relayBase();
+  relayPool.auto = url; relayPool.fails = 0; relayPool.switchedAt = Date.now();
+  if (st && typeof st.chain_id === "string" && st.chain_id) {
+    CHAIN_ID = st.chain_id; netAdopted = true;
+    try { localStorage.setItem(LS_CHAIN_ID, CHAIN_ID); } catch (e) {}
+    const el = $("netTag"); if (el) el.textContent = CHAIN_ID;
+  }
+  if (st && Number.isInteger(st.finality_depth) && st.finality_depth > 0) FINALITY_DEPTH = st.finality_depth;
+  renderRelayTag();
+  const after = relayBase();
+  if (after === before) return;
+  log("info", url
+    ? i18("log.relaySwitched", "Relay {a} is not answering — switched to {b} (same chain, tip {h}). The wallet returns to {a} automatically once it is back.", { a: relayHost(before), b: relayHost(after), h: st.latest_block_height })
+    : i18("log.relayHome", "Relay {a} is reachable again — switched back.", { a: relayHost(after) }));
+  pollOnce().catch(() => {});
+}
+// The current relay is gone: try home first if we had left it, then the pool by height. Returns true if
+// a relay was adopted. Candidates that just failed a probe are skipped for RELAY_BAD_MS so a dead list
+// costs one probe each, not one per tick.
+async function rotateRelay() {
+  const now = Date.now();
+  const cur = relayBase();
+  relayPool.bad.set(cur, now);
+  const cands = [];
+  if (relayPool.auto) cands.push({ url: homeRelay(), home: true });
+  for (const c of [...relayPool.list].sort((a, b) => (Number(b.height) || 0) - (Number(a.height) || 0))) {
+    if (c.url === cur || c.url === homeRelay()) continue;
+    if ((relayPool.bad.get(c.url) || 0) > now - RELAY_BAD_MS) continue;
+    cands.push(c);
+  }
+  for (const c of cands) {
+    let st;
+    try { st = await probeRelay(c.url); } catch (e) { relayPool.bad.set(c.url, Date.now()); continue; }
+    if (!relayAcceptable(st)) { relayPool.bad.set(c.url, Date.now()); continue; }
+    adoptRelay(c.home ? null : c.url, st);
+    return true;
+  }
+  return false;
+}
+// Once per poll tick: keep the list fresh, and drift back home when we are away and home is back.
+async function relayMaintain() {
+  await refreshRelayPool();
+  if (relayPool.auto && Date.now() - relayPool.switchedAt > RELAY_HOME_RETRY_MS && !relayPool.switching) {
+    relayPool.switchedAt = Date.now();
+    try { const st = await probeRelay(homeRelay()); if (relayAcceptable(st)) adoptRelay(null, st); } catch (e) {}
+  }
+}
 // Execution node (presence dividend + contracts) — same host as the relay, exec port 9273 (overridable).
 function execBase() {
   if (state.execUrl) return state.execUrl.replace(/\/+$/, "");
@@ -992,14 +1142,21 @@ async function rpcJSON(path, { timeout = 12000, retry = true } = {}) {
       // A 5xx/429, or a 200 whose body isn't JSON, is a proxy/relay blip — retry rather than trust it.
       if (res.status >= 500 || res.status === 429 || !parsed) {
         lastTransient = new RelayUnreachable("relay returned HTTP " + res.status);
+        lastTransient.status = res.status;
         continue;
       }
+      relayNoteSuccess();
       return { ok: res.ok, status: res.status, data };
     } catch (e) {
       if (!isTransient(e)) throw e;      // a real bug in our code, not a reachability blip
       lastTransient = e;
     }
   }
+  // A rate limit means THIS wallet is asking too often — switching relays to dodge it would be exactly the
+  // wrong lesson, so it never counts toward failover. Everything else (timeouts, 5xx, HTML error pages) does.
+  // Likewise a 4xx with an HTML body (an older node without the endpoint we asked for) is a missing
+  // feature, not a dead relay. Only unreachable/timeout (no status) and 5xx count.
+  if (!(lastTransient && lastTransient.status != null && lastTransient.status < 500)) relayNoteFailure();
   throw lastTransient || new RelayUnreachable("relay unreachable");
 }
 
@@ -2261,6 +2418,8 @@ function nowSeconds() { return Math.floor(Date.now() / 1000); }
 
 
 async function pollOnce() {
+  if (!netAdopted) refreshNetIdentity().catch(() => {});   // boot fetch lost to a blip: keep trying until adopted
+  relayMaintain().catch(() => {});                          // pool refresh (time-gated) + drift back home
   try {
     const latest = await getLatestBlock();
     if (latest && typeof latest.block_number === "number") {
@@ -3755,6 +3914,7 @@ async function sendAllToAmount() {
 }
 
 async function doSend() {
+  if (!netAdopted) await refreshNetIdentity();   // never sign with an unconfirmed chain_id
   // lowercase: alias names are all-lowercase on-chain (and THIS string becomes the signed tx
   // recipient), while a valid address is lowercase hex anyway — so "Alice" sends to "alice".
   const recipient = $("sendTo").value.trim().toLowerCase();
@@ -7668,6 +7828,7 @@ async function proveTransfer2(wit) {   // 2-output proof (send + change) — ALW
 // SHIELDED TRANSFER — a private note→note payment INSIDE the pool (public_value=0, no on-chain amount). Sends
 // any amount and keeps the change (1-in/2-out); the recipient reconstructs their note from a claim code.
 async function doSendShielded() {
+  if (!netAdopted) await refreshNetIdentity();   // never sign with an unconfirmed chain_id
   if (!state.wallet) return; ensureShielded();
   let recipientOwner;
   try { recipientOwner = parseShieldAddr($("zsendTo").value); }
@@ -8106,7 +8267,10 @@ function wireEvents() {
     const v = $("relayUrl").value.trim();
     state.relay = v || null;
     if (v) localStorage.setItem(LS_RELAY, v); else localStorage.removeItem(LS_RELAY);
+    relayPool.auto = null; relayPool.fails = 0; renderRelayTag();   // the typed relay is home; forget any failover
     log("info", i18("log.relaySet", "Relay set to {u}", {u: relayBase()}));
+    netAdopted = false; refreshNetIdentity().catch(() => {});      // re-adopt the chain from the new relay
+    refreshRelayPool(true).catch(() => {});
     pollOnce().catch(() => {});
   };
 
@@ -8145,7 +8309,9 @@ function wireEvents() {
     state.relay = v || null;
     if (v) localStorage.setItem(LS_RELAY, v); else localStorage.removeItem(LS_RELAY);
     if ($("relayUrl")) $("relayUrl").value = v;              // keep the Settings-tab field in sync
+    relayPool.auto = null; relayPool.fails = 0; renderRelayTag();
     log("info", i18("log.relaySet", "Relay set to {u}", { u: relayBase() }));
+    netAdopted = false; refreshNetIdentity().catch(() => {});
     refreshUnlockLease();                                    // retry the "still mining" banner with the new relay
   });
   _btn("btnUnlockRemove", async () => {
@@ -8304,8 +8470,10 @@ function installBgSignListener() {
 async function refreshNetIdentity() {
   try {
     const st = (await rpcJSON("/status")).data;
-    if (st && st.chain_id && st.chain_id !== CHAIN_ID) {
+    if (st && typeof st.chain_id === "string" && st.chain_id) {
       CHAIN_ID = st.chain_id;                       // adopt the relay's chain — self-resolving upgrades
+      netAdopted = true;
+      try { localStorage.setItem(LS_CHAIN_ID, CHAIN_ID); } catch (e) {}   // next boot shows THIS, not a literal
       const el = $("netTag"); if (el) el.textContent = CHAIN_ID;
     }
     // ADOPT THE CONSENSUS CONSTANTS TOO. These are hardcoded above with a "MUST match protocol.py"
@@ -8320,10 +8488,33 @@ async function refreshNetIdentity() {
 async function initNetTag() {
   const el = $("netTag");
   if (el) {
-    el.textContent = CHAIN_ID;
+    // Show what this browser has actually seen (the last adopted chain), or nothing at all — never the
+    // compile-time literal, which is exactly the thing that goes stale across rerolls.
+    el.textContent = CHAIN_ID_SAVED ? CHAIN_ID : "…";
     el.title = i18("net.tagTip", "The network this wallet signs for.");
   }
+  renderRelayTag();
   await refreshNetIdentity();
+  if (!netAdopted) netIdentityRetryLoop();      // detached: boot must not wait on a relay that is down
+  else refreshRelayPool(true).catch(() => {});
+}
+
+// A fresh browser whose first /status lost a race with a busy relay used to keep the fallback for the whole
+// session (only a reload fixed it). Retry with backoff until a relay has actually answered; pollOnce keeps
+// nudging too, so this is belt and braces for the pre-mining boot window. One loop at a time.
+let _netRetryRunning = false;
+async function netIdentityRetryLoop() {
+  if (_netRetryRunning) return;
+  _netRetryRunning = true;
+  try {
+    let delay = 3000;
+    while (!netAdopted) {
+      await new Promise((r) => setTimeout(r, delay));
+      await refreshNetIdentity();
+      delay = Math.min(60000, delay * 2);
+    }
+    refreshRelayPool(true).catch(() => {});
+  } finally { _netRetryRunning = false; }
 }
 
 boot();
