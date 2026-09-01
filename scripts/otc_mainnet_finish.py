@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Finish a mainnet swap from its persisted record: read the secret back from Ethereum the way the
 watchtower does, claim the NADO on L1 as the taker, settle the order. Run: HOME=/srv/nado-home python3 scripts/otc_mainnet_finish.py <oid>"""
-import json, os, sys, time
+import json, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from otc_mainnet_eth_e2e import *   # noqa
+# explicit, not `import *`: a star import hides every unbound name from pyflakes and the
+# tests/test_no_undefined_names.py gate (which is how a typo here would reach a mainnet swap unnoticed)
+from otc_mainnet_eth_e2e import (ROOT, W, ETH_RPC, L1, OTC, O, order, ok, get, wait, l1_bal,
+                                 submit_l1, submit_blob, passed, failed)
 oid = int(sys.argv[1]); rec = json.load(open(os.path.join(ROOT, "private", f"otc_mainnet_swap_{oid}.json")))
 taker = json.load(open(os.path.join(ROOT, "private", "otc_e2e_taker.json")))
 found = None
