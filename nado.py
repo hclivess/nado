@@ -26,7 +26,7 @@ def _zstd_wire():
 
 import versioner
 import time
-from config import get_protocol, get_config, get_timestamp_seconds, hostport, migrate_config
+from config import get_protocol, get_config, get_timestamp_seconds, hostport, migrate_config, get_public_relay_url, get_port
 from ops import self_update
 from genesis import make_genesis, make_folders
 from loops.consensus_loop import ConsensusClient
@@ -215,6 +215,60 @@ def _genesis_hash_cached():
     return genesis_hash_cached()
 
 
+_PUBLIC_RELAY_URL = [None]
+
+
+def _public_relay_url():
+    """config.get_public_relay_url(), read once (it is a file read) — an operator changing it restarts anyway."""
+    if _PUBLIC_RELAY_URL[0] is None:
+        try:
+            _PUBLIC_RELAY_URL[0] = get_public_relay_url()
+        except Exception:
+            _PUBLIC_RELAY_URL[0] = ""
+    return _PUBLIC_RELAY_URL[0]
+
+
+async def relays(request):
+    """GET /relays: every RPC endpoint on THIS chain a wallet could use instead of us — ourselves plus each
+    peer in status_pool (already gated to our genesis by peer_loop's admission checks), with the peer's
+    live height so the wallet can prefer a node at the tip.
+
+    Two addresses per entry: `url` is the TLS origin the operator advertises (config public_relay_url,
+    gossiped as /status relay_url) — the only kind a wallet served over HTTPS can use, mixed content
+    being blocked; `api` is the bare http://ip:port every node exposes, usable from a wallet loaded over
+    plain HTTP (a miner pointing a browser at their own node). Null `url` means the operator has not
+    published one. Nothing here is trusted: the wallet re-probes a candidate's /status and refuses a
+    different chain_id or a tip that trails the best known one before it switches (static/interface.js,
+    relay pool). Rate-limited 60/min: the wallet refreshes its pool every 5 minutes."""
+    if _rate_limited(request, 60):
+        return _RL()
+
+    def _work():
+        port = get_port()
+        lb = memserver.latest_block if isinstance(memserver.latest_block, dict) else {}
+        out = [{
+            "self": True, "ip": memserver.ip, "url": _public_relay_url() or None,
+            "api": f"http://{hostport(memserver.ip, port)}", "address": memserver.address,
+            "chain_id": CHAIN_ID, "height": lb.get("block_number"), "finalized": memserver.finalized_height,
+            "version": memserver.version,
+            "node_type": "archive" if getattr(memserver, "archive", False) else "rolling",
+        }]
+        for ip, st in list(consensus.status_pool.items()):
+            if not isinstance(st, dict) or ip == memserver.ip:
+                continue
+            url = st.get("relay_url")
+            if not (isinstance(url, str) and url.lower().startswith(("http://", "https://"))):
+                url = None
+            out.append({
+                "self": False, "ip": ip, "url": url, "api": f"http://{hostport(ip, port)}",
+                "address": st.get("address"), "chain_id": st.get("chain_id"),
+                "height": st.get("latest_block_height"), "finalized": st.get("finalized_height"),
+                "version": st.get("version"), "node_type": st.get("node_type"),
+            })
+        return {"chain_id": CHAIN_ID, "relays": out}
+    return _resp(await asyncio.to_thread(_work))
+
+
 async def status(request):
     """GET /status: the node's status dict — address, chain ends (latest/earliest hash, weight),
     finalized_height + ffg_finalized, protocol/version, chain_id (the network partition key peers gate
@@ -328,6 +382,10 @@ async def status(request):
             # chain (e.g. a pre-relaunch betanet) never enter the status/consensus pools — a foreign
             # chain's advertised weight would otherwise stall production via the caught-up gate.
             "chain_id": CHAIN_ID,
+            # WALLET-GRADE ORIGIN (config.get_public_relay_url): where a BROWSER can reach this node's API over
+            # TLS, or null. Peers collect it through status_pool and serve it from /relays, which is how a web
+            # wallet learns where else it can go when its own relay stops answering. Opt-in per operator.
+            "relay_url": _public_relay_url() or None,
         }
         try:
             _ch = snapshot_ops.latest_final_checkpoint_height(memserver.finalized_height)
@@ -2165,6 +2223,7 @@ async def make_app(port):
         web.get("/mining_history", mining_history_handler),
         web.get("/get_unbond", get_unbond),
         web.get("/status", status),
+        web.get("/relays", relays),
         web.get("/peers", _dump_handler("peers", lambda: me_to(list(memserver.peers)))),
         web.get("/geo_peers", geo_peers),
         web.get("/peer_buffer", _dump_handler("peer_buffer", lambda: list(memserver.peer_buffer))),

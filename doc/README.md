@@ -15,6 +15,7 @@ It also records the multi-agent **security review** that motivated much of this 
 | Doc | Contents |
 |-----|----------|
 | [whitepaper.md](whitepaper.md) | **Authoritative overview** — two-lane mining, economics, PQ crypto, LMDB storage, the security model with an explicit implemented-vs-planned split, and the full constants table |
+| [relays.md](relays.md) | **Relays** — how the web wallet fails over between nodes (the relay pool: `/relays` discovery, chain + height checks, drift back home), why an HTTPS wallet can only use TLS relays, and how an operator publishes one (`public_relay_url`) |
 | [economics.md](economics.md) | No premine, the treasury (= genesis address), fee-weighted elastic reward, the 90/10 split, fees, supply accounting |
 | [mining.md](mining.md) | Bonded-registry mining (the open/mobile/botnet-safe redesign): bond/unbond, split-neutral selection, RANDAO beacon, fidelity, the browser miner — and exactly what is implemented vs. pending |
 | [ip-spoofing-and-sybil.md](ip-spoofing-and-sybil.md) | **Fair distribution** of the open lane: why IP is out of consensus and spoofable, how Sybil skews (but can't enlarge) the free lane, and ranked ideas to tie one share to one real participant — incl. bonded-node sponsorship and the hash-based Proof of Sequential Work (Appendix A) |

@@ -79,6 +79,33 @@ def get_port():
         return 9173
 
 
+def get_public_relay_url():
+    """The origin at which BROWSERS can reach this node's API — e.g. "https://get.nadochain.com" — or ""
+    when this node does not advertise one. Published in /status as `relay_url` and gossiped by /relays,
+    so a web wallet can FAIL OVER to this node when its own relay goes quiet (static/interface.js).
+
+    Why this has to be opt-in: every node speaks plain HTTP on the API port, but a wallet served over HTTPS
+    cannot fetch http:// (mixed content is blocked by the browser), so a bare ip:port is useless to it. An
+    operator who fronts the node with TLS (nginx + Let's Encrypt — the get.nadochain.com layout in
+    doc/relays.md: the L1 API at /, the exec node at /exec/ and /da/) states the public origin here.
+    NADO_PUBLIC_RELAY_URL env wins, else "public_relay_url" in private/config.json, else "". Scheme +
+    host[:port] only, no path; anything else is ignored rather than advertised broken."""
+    url = os.environ.get("NADO_PUBLIC_RELAY_URL") or ""
+    if not url:
+        try:
+            with open(_config_path()) as infile:
+                url = str(json.loads(infile.read()).get("public_relay_url") or "")
+        except Exception:
+            url = ""
+    url = url.strip().rstrip("/")
+    if not url.lower().startswith(("http://", "https://")):
+        return ""
+    host = url.split("://", 1)[1]
+    if not host or "/" in host or any(c.isspace() for c in host):
+        return ""
+    return url
+
+
 def hostport(ip, port):
     """`host:port` for a URL, bracketing IPv6 literals (which contain ':') so the port still parses.
     IPv4 addresses and hostnames pass through unchanged. Every peer-dial URL goes through this."""
