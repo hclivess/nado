@@ -67,6 +67,24 @@ def chain_register_count(epoch: int) -> int:
 _count_memo = {}
 
 
+def chain_entry_count(epoch: int) -> int:
+    """ENTRY registrations recorded in `epoch` — recerts by an address that held NO valid lease at the time
+    (no earlier recert within POSW_LEASE_EPOCHS), i.e. exactly the identities is_entry_registration prices
+    with POSW_ENTRY_MULT. Pure function of the same consensus recert index as chain_register_count.
+    WHY (relay review, 2026-09-01): the flood multiplier counted EVERY register tx, renewals included — an
+    established farm could pre-train the 14-day baseline with redundant renewals, and clustered honest
+    renewals raised everyone's difficulty. Renewals are not the thing the dial exists to price."""
+    from ops import kv_ops
+    if epoch < 0:
+        return 0
+    n = 0
+    for addr in kv_ops.recert_addresses_in_epoch(epoch):
+        prev = kv_ops.recert_epochs(addr, upto_epoch=epoch - 1)
+        if not prev or (epoch - prev[-1]) > POSW_LEASE_EPOCHS:
+            n += 1
+    return n
+
+
 def _memo_count(epoch: int) -> int:
     from ops import kv_ops
     from ops.account_ops import get_hard_finality
@@ -74,7 +92,7 @@ def _memo_count(epoch: int) -> int:
     v = _count_memo.get(key)
     if v is not None:
         return v
-    v = chain_register_count(epoch)
+    v = chain_entry_count(epoch)
     if epoch < int(get_hard_finality() or 0) // EPOCH_LENGTH - 1:
         if len(_count_memo) > 100_000:
             _count_memo.clear()
@@ -83,7 +101,8 @@ def _memo_count(epoch: int) -> int:
 
 
 def _window_count(lo_epoch: int, hi_epoch: int) -> int:
-    """Sum of chain_register_count over epochs [lo_epoch, hi_epoch] inclusive (negatives skipped)."""
+    """Sum of chain_entry_count over epochs [lo_epoch, hi_epoch] inclusive (negatives skipped); memoised
+    below the hard-finality epoch (immutable there)."""
     if hi_epoch < lo_epoch:
         return 0
     return sum(_memo_count(e) for e in range(max(0, lo_epoch), hi_epoch + 1))

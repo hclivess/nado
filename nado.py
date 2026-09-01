@@ -105,6 +105,7 @@ def serialize(output, name=None, compress=None):
 # pushed to a worker thread via asyncio.to_thread so the event loop stays responsive.
 # --------------------------------------------------------------------------------------------------
 from ops.net_ops import client_ip_from, unpack_tx
+from protocol import POSW_LEASE_EPOCHS, FIDELITY_MIN_GAP_EPOCHS
 
 try:
     _TRUSTED_PROXIES = frozenset(get_config().get("trusted_proxies") or [])
@@ -353,6 +354,10 @@ async def status(request):
             # pair cannot silently diverge again.
             "finality_depth": FINALITY_DEPTH,
             "epoch_length": EPOCH_LENGTH,
+            # the presence-lease constants the wallet mirrors for its countdown / renewal timing — adopted
+            # from here (like finality_depth) so a change never strands the browser on a stale literal
+            "posw_lease_epochs": POSW_LEASE_EPOCHS,
+            "fidelity_min_gap_epochs": FIDELITY_MIN_GAP_EPOCHS,
             # DEGRADATION VISIBILITY, same purpose as update_capable: without the native ML-DSA lib
             # every verify is ~84x slower (0.154 ms -> 12.98 ms measured) and serialised behind one
             # global lock, so the node silently stops keeping up. The fallback warns once to stderr at
@@ -636,6 +641,12 @@ def _ip_registration_rejection(ip, transaction):
     try:
         if not isinstance(transaction, dict) or transaction.get("recipient") != "register":
             return None
+        if ip in memserver.peers:
+            # PEER PUSH-GOSSIP IS EXEMPT (relay review, 2026-09-01): a relay forwarding many users' entries
+            # would look like one farm to its peers and exact-landing registrations would propagate unevenly
+            # — a mempool-convergence cost for no security gain, since a farm bypasses the cap with its own
+            # node anyway. The budget prices user ingress at THIS relay only.
+            return None
         from ops.ratelimit import allow_registration
         # ENTRIES ONLY (2026-09-01, Sybil rule 4): a RENEWAL never spends the budget — an established phone
         # roaming across networks must never be refused its lease — so the budget prices exactly the thing it
@@ -647,7 +658,7 @@ def _ip_registration_rejection(ip, transaction):
         if not is_entry_registration(str(transaction.get("sender", "")), _anchor):
             return None
         cap = getattr(memserver, "max_registrations_per_ip", 8)
-        window = getattr(memserver, "max_registrations_window", 7200.0)
+        window = getattr(memserver, "max_registrations_window", 3600.0)
         if not allow_registration(ip, str(transaction.get("sender", "")), cap, window):
             return {"result": False,
                     "message": "Too many registrations from this IP/range — one device can onboard only a "

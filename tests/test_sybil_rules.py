@@ -103,14 +103,36 @@ def t5_wiring():
     check("per-IP budget: entries only", "is_entry_registration(" in seg and "return None" in seg.split("is_entry_registration(")[1][:200])
     check("per-IP budget default 8", 'self.config.get("max_registrations_per_ip", 8)' in ms)
     check("live open weights omit probation", "if w > 0:" in nado[nado.index("async def get_open_weights"):nado.index("async def duty_committee")])
-    check("wallet: lease truth next to the countdown", "a saved seed phrase does not renew anything" in js)
+    check("wallet: lease truth next to the countdown", "a saved seed phrase does not renew itself" in js)
     check("wallet: probation explained where the fidelity number is", '"wal.probation"' in js)
     dops = open(os.path.join(ROOT, "ops", "dividend_ops.py")).read()
     check("dividend replay uses the epoch-aware weight", "dividend_weight(fidelity_at_epoch(addr, epoch), epoch)" in dops)
 
 
+def t6_entries_only_counting():
+    """The difficulty windows count ENTRIES (no lease in the previous POSW_LEASE_EPOCHS), never renewals."""
+    d = tempfile.mkdtemp(prefix="nado-entries-")
+    os.environ["HOME"] = d
+    from ops import kv_ops
+    kv_ops.close_all(); kv_ops.init_env()
+    import protocol as P
+    from ops import reg_difficulty as R
+    a, b, c = "a" * 46, "b" * 46, "c" * 46
+    E = 1000
+    kv_ops.recert_put(a, E - 100)                       # a: entered earlier ...
+    kv_ops.recert_put(a, E)                             # ... renews at E (gap 100 <= lease) -> NOT an entry
+    kv_ops.recert_put(b, E - P.POSW_LEASE_EPOCHS - 1)   # b: lapsed lease ...
+    kv_ops.recert_put(b, E)                             # ... re-enters at E -> entry
+    kv_ops.recert_put(c, E)                             # c: brand new -> entry
+    check("register count at E is 3 (all recerts)", kv_ops.recert_count_in_window(E, E) == 3)
+    check("entry count at E is 2 (renewal excluded, lapse re-entry + newcomer counted)", R.chain_entry_count(E) == 2)
+    check("addresses_in_epoch lists the three", sorted(kv_ops.recert_addresses_in_epoch(E)) == [a, b, c])
+    check("empty epoch -> 0", R.chain_entry_count(E + 1) == 0 and R.chain_entry_count(-5) == 0)
+    kv_ops.close_all()
+
+
 if __name__ == "__main__":
-    for name in ("t1_gate_expression", "t2_probation_weights", "t3_weights_at_epoch_omits_probation", "t4_difficulty_baseline", "t5_wiring"):
+    for name in ("t1_gate_expression", "t2_probation_weights", "t3_weights_at_epoch_omits_probation", "t4_difficulty_baseline", "t5_wiring", "t6_entries_only_counting"):
         try:
             globals()[name]()
         except Exception:

@@ -27,7 +27,7 @@ def check(name, fn):
 
 E = 500                                            # an anchor epoch
 COUNTS = {}                                        # stubbed per-epoch chain register counts
-rd.chain_register_count = lambda epoch: COUNTS.get(epoch, 0)
+rd.chain_entry_count = lambda epoch: COUNTS.get(epoch, 0)
 
 def t1_normal_load_is_1x():
     """Prove no recent registrations gives a 1x multiplier and the base POSW_T step count."""

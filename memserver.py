@@ -304,11 +304,21 @@ class MemServer:
                                                  or self.config.get("max_registrations_per_ip", 8))
         except (TypeError, ValueError):
             self.max_registrations_per_ip = 8
+        # MIGRATION (2026-09-01): every generated config carried the OLD defaults 64 / 7200 literally, so the
+        # new fallback of 8 never applied anywhere. A config still holding exactly that pair is the old
+        # default, not an operator's choice — read it as the new default. An explicit other value stays.
+        if (self.max_registrations_per_ip == 64
+                and str(self.config.get("max_registrations_window", 7200)) in ("7200", "7200.0")
+                and not _os.environ.get("NADO_MAX_REG_PER_IP")):
+            self.max_registrations_per_ip = 8
+            self._legacy_reg_defaults = True
         try:
             self.max_registrations_window = float(_os.environ.get("NADO_MAX_REG_WINDOW")
-                                                  or self.config.get("max_registrations_window", 7200))
+                                                  or self.config.get("max_registrations_window", 3600))
         except (TypeError, ValueError):
-            self.max_registrations_window = 7200.0
+            self.max_registrations_window = 3600.0
+        if getattr(self, "_legacy_reg_defaults", False) and not _os.environ.get("NADO_MAX_REG_WINDOW"):
+            self.max_registrations_window = 3600.0
 
     def ban_peer(self, peer):
         """Queue a misbehaving/unreachable peer for purge (deduplicated against both the purge list

@@ -44,6 +44,9 @@ def get_protocol():
     the state_root; all-default account rows are canonicalized out of the root. These change how the
     state_root/snapshot_hash are computed, so old nodes MUST be shed (they would advertise a different
     root at the same height and never form the sync quorum). STRICT.
+    11 (2026-09-01): the presence lease is 36 h (POSW_LEASE_EPOCHS 240 -> 360) and the registration
+    difficulty counts ENTRIES only (chain_entry_count) — both shipped while the chain was <19 h old so no
+    committed epoch differs; a node on 10 would price/keep leases differently, so it is shed. STRICT.
     10 (2026-09-01): LINEAR dividend weight (min(fidelity, 30), 0 on probation) replaces the convex 1..25 curve,
     ungated at chain age <19 h (identical epochw rows until the first identity reaches fidelity 2); a node
     still on 9 would commit a different weight row at that epoch, so it is shed at the door. STRICT.
@@ -65,7 +68,7 @@ def get_protocol():
     snapshot transfer payload is canonicalized (treasury_proposals + node-local meta rows excluded) and
     re-anchor/bootstrap now require a real quorum with seed anchoring. State transitions, the exec state
     root and the snapshot identity all change, so a gen-9/protocol-6 node can never agree with us. STRICT."""
-    return 10
+    return 11
 
 
 def get_port():
@@ -279,12 +282,14 @@ def create_config(ip: str, config_path: str = None):
         # as "equivalent same-EXACT-IP addresses" per hour: a same-/32 peer costs 1.0 of it, same-/24 0.5,
         # /16 0.25, /8 0.125, unrelated 0 — so the effective limit scales ~64/exact IP, ~128 per /24, ~256
         # per /16, ~512 per /8. Bounds a datacenter's whole range, not just one IP, while leaving distinct
-        # networks unpenalised. Generous so legit CGNAT/NAT isn't bricked; 0 disables. NADO_MAX_REG_PER_IP.
-        "max_registrations_per_ip": 64,
+        # networks unpenalised. Counts ENTRY registrations only (renewals never spend it) and never applies
+        # to peer push-gossip, so it prices exactly new identities from one network; 0 disables. Watch the
+        # 429 rate on CGNAT/campus/conference networks before lowering it further. NADO_MAX_REG_PER_IP.
+        "max_registrations_per_ip": 8,
         # The sliding window (seconds) the per-IP budget above is measured over. Longer = tighter (the budget
         # accumulates across more time), but keep it well under the ~1-day lease so renewals don't fill it.
         # Node-local admission control only (an IP can't be a consensus input). NADO_MAX_REG_WINDOW.
-        "max_registrations_window": 7200
+        "max_registrations_window": 3600
     }
 
     if not os.path.exists(config_path):

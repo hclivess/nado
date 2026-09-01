@@ -1046,6 +1046,18 @@ def recert_addresses_after(floor_epoch: int):
     return _read(_do)
 
 
+def recert_addresses_in_epoch(epoch: int) -> list:
+    """Addresses with a recert recorded in exactly `epoch` (the DUPSORT values under that key), ascending."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["recert_by_epoch"]) as cur:
+            if cur.set_key(be8(int(epoch))):
+                for v in cur.iternext_dup(keys=False, values=True):
+                    out.append(bytes(v).decode())
+        return out
+    return _read(_do)
+
+
 def recert_count_in_window(lo_epoch: int, hi_epoch: int) -> int:
     """Number of recerts/registrations recorded in epochs [lo_epoch, hi_epoch] inclusive, from the
     recert_by_epoch index. CONSENSUS-BOUND since reg-difficulty v3 (protocol 4): the index is snapshot-

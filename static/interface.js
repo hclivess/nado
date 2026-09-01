@@ -44,7 +44,8 @@ const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
 // registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (≈1 day at ~8 min/epoch).
-const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 150, POSW_LEASE_EPOCHS = 240;
+const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 150;
+let POSW_LEASE_EPOCHS = 360;   // MUST match protocol.py; refreshNetIdentity() adopts the relay's live value
 // Headroom (in blocks) between the current tip and the register/recert max_block, so the tx still lands
 // BEFORE its target while the sequential PoW is computing. It is capped by POSW_ANCHOR_OFFSET: the anchor is
 // block (target − POSW_ANCHOR_OFFSET), which the client must be able to FETCH now, so target ≤ tip + offset.
@@ -1353,7 +1354,7 @@ function nadoToRaw(amountStr) {
 const B_MIN_RAW = 100_000_000_000n;        // protocol.py B_MIN: 10 NADO per bonded selection share — MUST track the node
 const BASE_SUBSIDY_RAW = 1_000_000_000n;   // protocol.py: 0.1 NADO/block reward floor
 const FIDELITY_CAP = 30;                   // protocol.py FIDELITY_CAP: continuous recerts to fully ramp the open bonus
-const FIDELITY_MIN_GAP_EPOCHS = 192;       // protocol.py: a recert earns +1 only this far after the previous one
+let FIDELITY_MIN_GAP_EPOCHS = 192;       // protocol.py: a recert earns +1 only this far after the previous one
 // Reward split per lane (protocol.py, basis points) — shown on the Selection lanes card. MUST track protocol.py
 // (test_constant_mirrors pins them): a split change that is not mirrored here tells users the wrong story.
 const TREASURY_BPS = 1000;               // every block: treasury cut
@@ -3033,7 +3034,7 @@ async function refreshDashboard() {
     // PROBATION (protocol PROBATION_FIDELITY = 2): the first lease earns no dividend and a reduced draw weight
     // until the first timely renewal — say so where the number is, so a day-one miner is not surprised.
     if ($("walProbation")) $("walProbation").textContent = (Number(acc.fidelity ?? 0) < 2)
-      ? i18("wal.probation", "Probation: your first lease earns block wins only. Dividends and full weight start after your first timely renewal (≈19 h of presence).")
+      ? i18("wal.probation", "Probation: your first lease earns block wins only. Dividends and full weight start after your first timely renewal — any time between ≈19 h and 36 h after you registered.")
       : "";
     refreshLeasePanel(acc, ms);                         // lease countdown + manual renew inside the earning window
     authSync(acc).then(renderAuth).catch(() => {});      // re-anchor the signing key if the account's config moved
@@ -8511,6 +8512,8 @@ async function refreshNetIdentity() {
     // reveal window 33 blocks late so a browser-signed reveal was rejected). Taking them from the relay
     // makes the pair self-healing instead of relying on someone remembering to edit two files.
     if (st && Number.isInteger(st.finality_depth) && st.finality_depth > 0) FINALITY_DEPTH = st.finality_depth;
+    if (st && Number.isInteger(st.posw_lease_epochs) && st.posw_lease_epochs > 0) POSW_LEASE_EPOCHS = st.posw_lease_epochs;
+    if (st && Number.isInteger(st.fidelity_min_gap_epochs) && st.fidelity_min_gap_epochs > 0) FIDELITY_MIN_GAP_EPOCHS = st.fidelity_min_gap_epochs;
   } catch (e) {}
   return CHAIN_ID;
 }
@@ -8527,7 +8530,7 @@ async function initNetTag() {
   // Lease truth, in plain words, next to the countdown (Discord 2026-08-31: people saved seed phrases expecting
   // hundreds of addresses to "mine forever"): the wallet renews ONLY while this tab is open.
   if ($("leaseWarn")) $("leaseWarn").textContent = i18("lease.warn",
-    "Mining stops when this lease expires. The wallet renews it only while this tab stays open — a saved seed phrase does not renew anything by itself.");
+    "Mining stays eligible until the lease expires. Reopen and unlock this wallet before then — it renews only while it is open and unlocked (a phone may suspend a background tab); a saved seed phrase does not renew itself.");
   await refreshNetIdentity();
   if (!netAdopted) netIdentityRetryLoop();      // detached: boot must not wait on a relay that is down
   else refreshRelayPool(true).catch(() => {});

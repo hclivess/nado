@@ -386,8 +386,20 @@ young — ~500 disposable identities (≈ 4.5 CPU-hours of PoSW) captured over h
 5. **The wallet says it:** "Mining stops when this lease expires. The wallet renews it only while this tab stays
    open — a saved seed phrase does not renew anything by itself", and a probation note next to the fidelity value.
 
-Combined: a 500-identity farm goes from ≈ 80 NADO/day for ≈ 4.5 CPU-hours to ≈ 10 NADO/day for ≈ 70 CPU-hours,
-while a genuine newcomer loses one day of dividend and nothing else. Rules 1–3 are consensus and activate at an
+Combined: a 500-identity farm goes from ≈ 80 NADO/day for ≈ 4.5 CPU-hours to ≈ 10 NADO/day, and its **entry**
+batch costs up to ≈ 70 CPU-hours (500 × 32× entry × up to 16× flood); renewals carry no entry multiplier, so a
+*persistent* farm pays ≈ 2 CPU-hours per renewal cycle at 16× — probation removes the disposable model, PoSW
+remains the enduring per-identity cost. A genuine newcomer loses one day of dividend and nothing else.
+
+**Refinements (relay review, later on 2026-09-01):** the difficulty windows count **entries** only
+(`reg_difficulty.chain_entry_count`: a recert by an address with no lease in the previous
+`POSW_LEASE_EPOCHS`), so renewals — a farm's or a crowd's — can neither pre-train the baseline nor raise
+everyone's cost; the lease is **36 h** (`POSW_LEASE_EPOCHS` 360) so the qualifying renewal window is
+19.2–36 h instead of 19.2–24 h — once a day, any time of day, for intermittent phones; the per-IP budget
+defaults to **8 per hour** (configs still holding the old 64/7200 literal are read as the new default),
+counts entries only and never applies to peer push-gossip. Note the honest cost of an adoption wave: any
+2-hour window with more than 20 entries above the 14-day rate raises the multiplier (cap 16×) for everyone
+joining during it. Rules 1–3 are consensus and activate at an
 epoch boundary a few hours after the update wave; the gate self-disarms at gen 24 (SCHEDULED_CLEANUPS.md). Not
 adopted: global entry caps (punish organic onboarding), device identifiers (unreadable in a browser, spoofable),
 bonded vouching (a UX redesign — later).

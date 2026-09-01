@@ -352,7 +352,14 @@ POSW_TARGET_MARGIN = 90      # blocks a client may target ahead of the tip = its
 # out of the open registry. This turns "pay once, farm forever" into "pay continuously to keep each
 # identity alive" — a Sybil farm's cost scales with size × time. At ~8 min/epoch, ~180 epochs ≈ 1 day, so
 # an honest phone spends ~1 s of PoSW per day; a renewal is due once the lease is RENEW_FRACTION spent.
-POSW_LEASE_EPOCHS = 240      # a registration/recert keeps you eligible this many epochs (~1 day: 240×60×6s = 24h)
+POSW_LEASE_EPOCHS = 360      # a registration/recert keeps you eligible this many epochs (36 h: 360×60×6s). Was 240
+                             # (24 h) until 2026-09-01: with FIDELITY_MIN_GAP_EPOCHS = 192 the window in which a
+                             # renewal both counts (+1) and lands before expiry was only 19.2-24 h — 4.8 h wide —
+                             # which punished intermittent phone users (a lapse halves fidelity and restarts
+                             # probation) far harder than an automated farm. 36 h opens it to 19.2-36 h: once a
+                             # day, any time of day. A lapsed/disposable identity stays present 12 h longer, on
+                             # probation (weight 1, no dividend) — negligible. Changed while the chain was <19 h
+                             # old, so no committed epoch differs; protocol handshake 10 -> 11 sheds stragglers.
 
 # --- Registration-rate PoSW difficulty (doc/ip-spoofing-and-sybil.md): the required PoSW work SCALES with
 # recent registration volume, so a sudden identity FLOOD gets progressively more expensive. CONSENSUS-BOUND —
@@ -1291,7 +1298,7 @@ OPEN_FID_BONUS = 8                 # max diligence bonus: open weight ranges OPE
 # so a boundary block can never stall; revert records live in the NODE-LOCAL gc_revert sub-DB so a
 # rollback of the boundary block restores every deleted row/doc exactly.
 GC_IDLE_EPOCHS = 1000                    # lease lapsed this long (~4 days) -> empty account doc is GC-able
-RECERT_HISTORY_EPOCHS = 10_000           # recert rows retained (~6 weeks) — >> SATURATION_LOOKBACK_EPOCHS
+RECERT_HISTORY_EPOCHS = 15_000           # recert rows retained (~9 weeks at 6 min/epoch) — > SATURATION_LOOKBACK_EPOCHS (31 × 360 = 11 160 since the 36 h lease)
 GC_MAX_PER_EPOCH = 2000                  # per-boundary work bound (rows+accounts touched)
 
 # Continuity FIDELITY — now driven by the PoSW RECERT (the single presence signal; there is no separate
