@@ -69,9 +69,12 @@ def t_backend_defaults_to_recursion():
 def t_row_commit_tracks_the_backend():
     """row_commit REQUIRES the RECURSION backend (stark.py raises otherwise), so resolving it from the
     backend is what keeps the pair consistent for a caller that passes only one of them."""
-    assert 'row_commit = getattr(backend, "name", "") == "recursion"' in SRC, \
+    # the resolution now lives in ONE place, stark.row_commit_default(backend), shared by every prover
+    assert "if row_commit is None:" in SRC and "row_commit = _stark_default.row_commit_default(backend)" in SRC, \
         "row_commit must be resolved from the backend when the caller left it unset"
     src = open(os.path.join(ROOT, "execnode", "stark", "stark.py")).read()
+    assert "def row_commit_default(backend" in src and '"recursion"' in src[src.index("def row_commit_default"):][:600], \
+        "row_commit_default must key on the RECURSION backend"
     assert 'row_commit requires the RECURSION backend' in src, \
         "stark.prove must still reject row_commit on a non-recursion backend"
 
