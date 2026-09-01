@@ -3346,19 +3346,40 @@ async def tail_loop():
                         _h = min(max(state.block_hashes), max(0, finalized))
                         if _h in state.block_hashes and _h > 0:
                             _shared = _h
+                        elif finalized > 0:
+                            # L1's finalized height is BELOW our retained ring (a deep truncation, or a
+                            # node re-syncing from genesis). Its number->hash index still answers for
+                            # heights above finalized (?hash_only=1 needs no body), so compare our LOWEST
+                            # retained height: a match is the same chain, a mismatch is a foreign one.
+                            _shared = min(state.block_hashes)
+                    _mismatch = False
                     if _shared is not None:
-                        _blk = await _get_json(session, f"/get_block?number={_shared}")
+                        _blk = await _get_json(session, f"/get_block?number={_shared}&hash_only=1")
                         _bh = (_blk or {}).get("block") or _blk or {}
-                        _l1h = _bh.get("block_hash")
+                        _l1h = _bh.get("block_hash") if isinstance(_bh, dict) else None
                         if _l1h and int(_l1h, 16) == int(state.block_hashes[_shared]):
                             # Same chain. L1 is restarting or catching up; our state is fine.
                             stale_polls = 0
                             await asyncio.sleep(POLL)
                             continue
+                        _mismatch = bool(_l1h)
+                    if not _mismatch:
+                        # NO EVIDENCE: finalized == 0 (L1 still reloading, or serving a snapshot-booted
+                        # /status), or L1 does not (yet) have any height we retain. The old code counted
+                        # these polls toward the reset and, after ~30 s, WIPED the exec state AND the DA
+                        # store — of which this box is the fleet's only copy — on a bare height inversion,
+                        # the exact 2026-08-03 class the hash-compare was written to close. Only a block
+                        # that L1 serves with a DIFFERENT hash at a height we applied is evidence of a
+                        # purged chain; without one, wait (a reroll is caught at boot by the .gen marker).
+                        print(f"[execnode] cursor {state.cursor} > L1 finalized {finalized} but no shared "
+                              f"height is comparable yet — waiting, not resetting", flush=True)
+                        stale_polls = 0
+                        await asyncio.sleep(POLL)
+                        continue
                     stale_polls += 1
                     print(f"[execnode] cursor {state.cursor} > L1 finalized {finalized} "
                           f"({stale_polls}/{STALE_RESET_POLLS}) — possible stale state from a reroll"
-                          f"{'' if _shared is None else f'; block {_shared} hash MISMATCHES L1'}", flush=True)
+                          f"; block {_shared} hash MISMATCHES L1", flush=True)
                     if stale_polls >= STALE_RESET_POLLS:
                         _reset_states_to_genesis(reason=f"cursor {state.cursor} outran finalized {finalized}")
                     await asyncio.sleep(POLL)
@@ -3624,10 +3645,13 @@ async def h_da_shard(request):
         i = int(request.query.get("i", ""))
     except (TypeError, ValueError):
         return web.json_response({"error": "bad index"}, status=400)
-    r = DA.shard(c, i)
-    if not r:
+    def _work():
+        r = DA.shard(c, i)                                  # a ~30 MiB file read + hex: not on the loop
+        return {"index": i, "shard": r[0].hex(), "proof": r[1]} if r else None
+    out = await asyncio.to_thread(_work)
+    if not out:
         return web.json_response({"error": "no such shard"}, status=404)
-    return web.json_response({"index": i, "shard": r[0].hex(), "proof": r[1]})
+    return web.json_response(out)
 
 
 async def h_da_publish(request):
@@ -3947,8 +3971,10 @@ async def h_root(request):
 async def h_settlement(request):
     """Settlement status for namespace ?ns= (default): its current (cursor, state_root), whether this node
     posts `settle` attestations, the cadence, the last cursor it settled, and every
-    namespace this node runs. The interface combines this with L1's /get_settled?ns= to show tip vs settled."""
-    st = _state_for(request)
+    namespace this node runs. The interface combines this with L1's /get_settled?ns= to show tip vs settled.
+    FINALIZED state only (never the ?provisional clone): a clone carries no kv store, so its state_root()
+    is the full cold two-tree build — ~24 s on the event loop — and the clone is rebuilt every poll."""
+    st = states.get(request.query.get("ns", "default"))
     if st is None:
         return _NS404()
     return web.json_response({
@@ -4094,8 +4120,9 @@ async def h_outbox(request):
 async def h_outbox_proof(request):
     """Merkle proof (?ns=&seq=) that outbox message `seq` is committed in the namespace's state_root (also
     returned). A consumer verifies it against the sender rollup's SETTLED root (L1 /get_settled?ns=). 404 if
-    the seq is unknown."""
-    st = _state_for(request)
+    the seq is unknown. FINALIZED state only — a proof against the provisional clone would be a cold
+    root build on the loop and useless anyway (nothing settles a provisional root)."""
+    st = states.get(request.query.get("ns", "default"))
     if st is None:
         return _NS404()
     from execnode import exec_root as ER
@@ -4437,7 +4464,8 @@ async def h_field_shielded(request):
     # Phase-2 field-native pool status + (optionally) a commitment's position.
     fp = state.field_pool
     cm = request.query.get("cm")
-    pos = fp.position(int(cm)) if (cm and cm.lstrip("-").isdigit()) else None
+    # a field element is < 2^64 (20 digits); CPython's int() refuses > 4300 digits with a ValueError -> 500
+    pos = fp.position(int(cm)) if (cm and len(cm) <= 32 and cm.lstrip("-").isdigit()) else None
     return web.json_response({"root": str(fp.root()), "notes": len(fp.commitments),
                               "nullifiers": len(fp.nullifiers), "cursor": state.cursor, "pos": pos})
 
