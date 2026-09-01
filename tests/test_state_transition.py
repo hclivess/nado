@@ -65,8 +65,12 @@ def t_soundness():
     assert not SX.verify_transition(bad, pre_root, post_root, num_queries=NQ)[0], "broken chain must be rejected"
     # tampered proof (corrupt a committed cell) rejected
     bad2 = copy.deepcopy(tr)
-    q = bad2["proofs"][0]["openings"][0]["cols"][0]
-    q["cur"] = (int(q["cur"]) + 1) % F.P
+    op = bad2["proofs"][0]["openings"][0]
+    if "cols" in op:                                  # column-committed layout
+        q = op["cols"][0]
+        q["cur"] = (int(q["cur"]) + 1) % F.P
+    else:                                             # row-committed layout (stark.row_commit_default): one row vector
+        op["cur"][0] = (int(op["cur"][0]) + 1) % F.P
     assert not SX.verify_transition(bad2, pre_root, post_root, num_queries=NQ)[0], "tampered proof must be rejected"
 
 
