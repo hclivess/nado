@@ -396,8 +396,68 @@ class MemServer:
         if matched is False:                              # a match error -> treat as empty
             matched = []
         upcoming = blake2b_hash([parent["block_hash"], next_height, sort_transaction_pool(matched)])
-        self._upcoming_hash_cache = (*key, upcoming)
+        self._upcoming_hash_cache = (*key, upcoming, [t.get("txid") for t in matched])
         return upcoming
+
+    def get_next_block_txids(self):
+        """(tip_hash, next_height, [txid, ...]) — the exact tx set get_upcoming_block_hash hashes, served
+        by /next_block_txids for the PRE-ASSEMBLY RECONCILE (reconcile_next_block_set). Same cache."""
+        self.get_upcoming_block_hash()
+        c = self._upcoming_hash_cache
+        return c[1], self.latest_block["block_number"] + 1, list(c[4])
+
+    def reconcile_next_block_set(self, peers, timeout=1.5) -> dict:
+        """PRE-ASSEMBLY TX-SET RECONCILE (2026-09-01, leaderless assembly touch-up; doc/leaderless-assembly.md).
+
+        Blocks are a pure function of the mempool and EVERY node assembles every block, so a same-height
+        split needs exactly one thing: a tx that reached one assembler and not another before the slot.
+        The pull reconcile (merge_remote_transactions) converges pools in ~1 s passes, and the status-pool
+        agreement signal is polled every ~10 s — both slower than a 6 s block. This is the direct check,
+        run ONCE per tip right before we build: ask peers what THEY would put in the next block on THIS tip
+        (/next_block_txids, ~64 B per tx, 1.5 s budget), fetch only the bodies we lack from a peer that has
+        them (/transactions_by_id), merge them through the ordinary admission path, and only then assemble.
+        Symmetric: every peer does the same against us, so the whole mesh converges on the UNION of its
+        next-block sets within the slot instead of racing on the differences. Bounded and best-effort: a
+        peer that does not answer in time simply sits out this pass; nothing here is trusted (every
+        fetched tx is fully validated by merge_transaction) and nothing here can stall production beyond
+        the budget. Returns counters for the log/telemetry."""
+        from compounder import compound_get_next_block_txids, post_txs_by_id
+        peers = list(peers)[:16]
+        if not peers:
+            return {"peers": 0}
+        tip = self.latest_block["block_hash"]
+        ours = set(self.get_next_block_txids()[2])
+        answers = asyncio.run(compound_get_next_block_txids(peers, self.port, self.logger,
+                                                            asyncio.Semaphore(16), timeout))
+        same = {p: d for p, d in answers.items() if d.get("tip") == tip}
+        local = self._pool_txid_set()
+        want_by_peer, claimed = {}, set()
+        for p, d in same.items():
+            want = [i for i in d["txids"]
+                    if isinstance(i, str) and len(i) <= 64 and i not in local and i not in claimed
+                    and kv_ops.tx_get(i) is None]
+            if want:
+                want_by_peer[p] = want[:200]
+                claimed.update(want[:200])
+        fetched = 0
+        if want_by_peer:
+            async def _fetch():
+                sem = asyncio.Semaphore(8)
+                coros = [post_txs_by_id(p, self.port, ids, self.logger, [], sem) for p, ids in want_by_peer.items()]
+                try:
+                    res = await asyncio.wait_for(asyncio.gather(*coros, return_exceptions=True), timeout=3.0)
+                except asyncio.TimeoutError:
+                    return []
+                return [tx for r in res if isinstance(r, list) for tx in r]
+            for tx in asyncio.run(_fetch()):
+                if not isinstance(tx, dict) or self._is_proof_settle(tx):
+                    continue
+                r = self.merge_transaction(tx)
+                if isinstance(r, dict) and r.get("result") and r.get("message") == "Success":
+                    fetched += 1
+        agreed = sum(1 for d in same.values() if set(d["txids"]) == ours)
+        return {"peers": len(answers), "same_tip": len(same), "agreed": agreed,
+                "missing": sum(len(v) for v in want_by_peer.values()), "fetched": fetched}
 
     def get_uptime(self) -> int:
         """Whole seconds this node process has been up (NOT system uptime) — refreshed into
@@ -843,7 +903,14 @@ class MemServer:
                 except Exception as e:
                     msg = f"Remote transaction failed to validate: {e}"
                     self.logger.info(msg)
-                    self.purge_txs_of_sender(transaction["sender"])
+                    # NO sender-wide purge (2026-09-01). This used to drop EVERY pooled tx of the sender on
+                    # an aggregate-spend refusal — but an "Overspending balance" here is routinely
+                    # branch/timing skew (a dividend credit or funding that one node has applied and
+                    # another has not yet), not a double-spend attempt; purging made THIS node's pool
+                    # diverge from every peer that kept the sender's other txs, and deterministic
+                    # production turned that into the 08-31 splits. Double-spends cannot land anyway:
+                    # verify_block enforces whole-block spending, and _candidate_pool keeps our own
+                    # candidate within balance. Refuse just this tx; it cools briefly and is re-tried.
                     return {"message": msg,
                             "result": False}
 

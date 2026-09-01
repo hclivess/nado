@@ -24,6 +24,7 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 | GET | `/transaction_pool` · `/transaction_hash_pool` | — | current mempool views |
 | GET | `/transaction_ids` | `?compress=zstd` | txids only (~64B/tx) — the cheap half of mempool set reconciliation |
 | POST | `/transactions_by_id` | body = codec list of txids (≤1000) | only the named txs — divergent peers fetch just what they miss |
+| GET | `/next_block_txids` | — | `{tip, height, txids}`: exactly the tx set this node would assemble into the next block on its tip — the pre-assembly reconcile probe ([leaderless-assembly.md](leaderless-assembly.md)) |
 | GET | `/get_recommended_fee` | — | suggested fee (tip block's mean fee + 1, in-memory) |
 
 ### Blocks & chain

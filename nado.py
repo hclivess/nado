@@ -517,6 +517,23 @@ async def get_recommended_fee(request):
     return _resp({"fee": recommended_fee(memserver.latest_block) + 1})
 
 
+async def next_block_txids(request):
+    """GET /next_block_txids: {tip, height, txids} — the EXACT tx set this node would assemble into the next
+    block on its current tip (memserver.get_next_block_txids: the mature, target-height, blob-capped subset,
+    i.e. what upcoming_block_hash hashes). Read by peers' PRE-ASSEMBLY RECONCILE right before they build
+    (memserver.reconcile_next_block_set) so every assembler holds the union of the mesh's next-block sets
+    instead of racing on the differences. ~64 B per tx; served from the upcoming-hash cache. Rate-limited
+    120/min per IP; peers are exempt (they ask once per block)."""
+    ip = _ip(request)
+    if ip not in memserver.peers and _rate_limited(request, 120):
+        return _RL()
+
+    def _work():
+        tip, height, txids = memserver.get_next_block_txids()
+        return {"tip": tip, "height": height, "txids": txids}
+    return _resp(await asyncio.to_thread(_work))
+
+
 async def transactions_by_id(request):
     """POST /transactions_by_id?compress=: body = codec list of txids (bounded); returns the named
     transactions from OUR pool — the expensive half of mempool set reconciliation, proportional to
@@ -2212,6 +2229,7 @@ async def make_app(port):
                                                   lambda: [t.get("txid") for t in memserver.transaction_pool],
                                                   heavy=True)),
         web.post("/transactions_by_id", transactions_by_id),
+        web.get("/next_block_txids", next_block_txids),
         web.get("/transaction_hash_pool", _dump_handler("transactions_hash_pool", lambda: {
             "transactions_hash_pool": consensus.transaction_hash_pool,
             "majority_transactions_hash_pool": consensus.majority_transaction_pool_hash})),

@@ -262,7 +262,8 @@ def pairwise_ancestor(our_hash_at, tip, peer_probe, floor=0):
     return best
 
 
-def tie_winner(ours_first_divergent: str, theirs_first_divergent: str) -> str:
+def tie_winner(ours_first_divergent: str, theirs_first_divergent: str,
+               ours_txids=None, theirs_txids=None) -> str:
     """STABLE equal-weight fork choice: which branch is canonical when two branches carry EXACTLY equal
     cumulative weight (weight increments are content-independent, so every same-height split is a
     permanent exact tie).
@@ -278,6 +279,22 @@ def tie_winner(ours_first_divergent: str, theirs_first_divergent: str) -> str:
     if (not ours_first_divergent or not theirs_first_divergent
             or ours_first_divergent == theirs_first_divergent):
         return "ours"
+    # MOST-COMPLETE-POOL RULE (2026-09-01, leaderless assembly touch-up). Blocks are a pure function of
+    # the mempool, so a same-height split MEANS one assembler held a tx the other did not. The block whose
+    # tx set is the STRICT SUPERSET is the one built from the more complete pool — prefer it: every node
+    # can adopt it at once (the block carries the txs it lacked), the tx lands instead of waiting for a
+    # re-mine, and "propagate faster" becomes the winning strategy rather than a coin flip. Incomparable
+    # sets fall back to the larger set (more inclusion), equal-size sets to the permanent lowest-hash
+    # rule. Both sides compute the same answer from the same two blocks. Sets absent -> hash rule only.
+    if ours_txids is not None and theirs_txids is not None:
+        o, t = frozenset(ours_txids), frozenset(theirs_txids)
+        if o != t:
+            if t > o:
+                return "theirs"
+            if o > t:
+                return "ours"
+            if len(t) != len(o):
+                return "ours" if len(o) > len(t) else "theirs"
     return "ours" if ours_first_divergent < theirs_first_divergent else "theirs"
 
 

@@ -86,6 +86,33 @@ async def get_tx_ids_of(peer, port, logger, fail_storage, semaphore):
         return None
 
 
+async def get_next_block_txids_of(peer, port, logger, semaphore, timeout=1.5):
+    """GET /next_block_txids from one peer -> (peer, {tip, height, txids}) or None. The pre-assembly
+    reconcile's probe (memserver.reconcile_next_block_set): what THAT peer would put in the next block on
+    ITS tip. Short timeout — this runs inside the production slot — and a failure is silently None (the
+    peer simply does not take part in this pass; the pull reconcile remains the backstop)."""
+    url_construct = f"http://{hostport(peer, port)}/next_block_txids"
+    try:
+        async with semaphore:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+                async with session.get(url_construct) as response:
+                    if response.status != 200:
+                        return None
+                    body = await read_capped(response, MAX_PEER_BODY)
+                    d = json.loads(body)
+                    if not isinstance(d, dict) or not isinstance(d.get("txids"), list):
+                        return None
+                    return peer, d
+    except Exception:
+        return None
+
+
+async def compound_get_next_block_txids(ips, port, logger, semaphore, timeout=1.5):
+    """{peer: {tip, height, txids}} for every peer that answered /next_block_txids in time."""
+    results = await asyncio.gather(*[get_next_block_txids_of(ip, port, logger, semaphore, timeout) for ip in ips])
+    return {peer: d for peer, d in filter(None, results)}
+
+
 async def compound_get_tx_ids(ips, port, logger, fail_storage, semaphore):
     """{peer: [txid,...]} for every peer that answered /transaction_ids — the cheap half of mempool
     set reconciliation (ids are ~64B vs ~7KB per full ML-DSA tx)."""

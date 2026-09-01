@@ -15,6 +15,7 @@ It also records the multi-agent **security review** that motivated much of this 
 | Doc | Contents |
 |-----|----------|
 | [whitepaper.md](whitepaper.md) | **Authoritative overview** — two-lane mining, economics, PQ crypto, LMDB storage, the security model with an explicit implemented-vs-planned split, and the full constants table |
+| [leaderless-assembly.md](leaderless-assembly.md) | **Leaderless block assembly** — why every node builds every block (no proposer to censor or wait for), the one weakness (same-height splits from pool skew), and the touch-ups: pre-assembly tx-set reconcile, most-complete-pool tie-break, no sender-wide purge |
 | [relays.md](relays.md) | **Relays** — how the web wallet fails over between nodes (the relay pool: `/relays` discovery, chain + height checks, drift back home), why an HTTPS wallet can only use TLS relays, and how an operator publishes one (`public_relay_url`) |
 | [economics.md](economics.md) | No premine, the treasury (= genesis address), fee-weighted elastic reward, the 90/10 split, fees, supply accounting |
 | [mining.md](mining.md) | Bonded-registry mining (the open/mobile/botnet-safe redesign): bond/unbond, split-neutral selection, RANDAO beacon, fidelity, the browser miner — and exactly what is implemented vs. pending |

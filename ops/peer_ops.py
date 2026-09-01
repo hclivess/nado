@@ -268,6 +268,21 @@ def probe_block_hash(peer, height, port=9173, timeout=6):
         return None
 
 
+def fetch_block_by_hash(peer, block_hash, port=9173, timeout=6):
+    """One peer's block BODY by hash (GET /get_block?hash=), or None — the tie-break's second input: the
+    tx SET of the peer's first divergent block (fork_resolution.tie_winner). Plain blocking GET against the
+    public API, like probe_block_hash, and bounded: a body is at most MAX_PEER_BODY."""
+    import json as _json, urllib.request as _rq
+    try:
+        if not isinstance(block_hash, str) or len(block_hash) != 64:
+            return None
+        with _rq.urlopen(f"http://{hostport(peer, port)}/get_block?hash={block_hash}", timeout=timeout) as r:
+            d = _json.loads(r.read(MAX_PEER_BODY))
+        return d if isinstance(d, dict) and d.get("block_hash") == block_hash else None
+    except Exception:
+        return None
+
+
 def _peer_finalized_height(peer, port=9173, timeout=6):
     """A peer's own finalized height from its /status, or None. Used only to pick a comparison height a
     BEHIND peer can actually answer — never as a fork-choice input."""

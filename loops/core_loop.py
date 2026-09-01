@@ -651,6 +651,10 @@ class CoreClient(threading.Thread):
                         and not self.memserver.force_sync_ip
                         and self.memserver.pool_warmed
                         and not _on_minority):
+                    # PRE-ASSEMBLY TX-SET RECONCILE (leaderless assembly touch-up, doc/leaderless-assembly.md):
+                    # before building, hold the union of what our same-tip peers would build — see
+                    # memserver.reconcile_next_block_set. Once per tip, bounded, best-effort.
+                    self._reconcile_before_build(peers)
                     block_candidate = get_block_candidate(logger=self.logger,
                                                           transaction_pool=self._candidate_pool(),
                                                           latest_block=self.memserver.latest_block
@@ -1571,6 +1575,22 @@ class CoreClient(threading.Thread):
             self.logger.warning(f"pairwise adoption failed: {e}")
             return False
 
+    def _reconcile_before_build(self, peers):
+        """Run memserver.reconcile_next_block_set ONCE per tip, right before we assemble (the production
+        pacing slot fires once per block_time, so this is once per block). Logs only when it changed
+        something or found disagreement — a quiet mesh stays quiet."""
+        tip = self.memserver.latest_block.get("block_hash")
+        if getattr(self, "_reconciled_tip", None) == tip:
+            return
+        self._reconciled_tip = tip
+        try:
+            t0 = time.monotonic()
+            r = self.memserver.reconcile_next_block_set(peers)
+            if r.get("fetched") or (r.get("same_tip") and r.get("agreed", 0) < r.get("same_tip", 0)):
+                self.logger.info(f"Pre-build reconcile: {r} in {time.monotonic() - t0:.2f}s")
+        except Exception as e:
+            self.logger.info(f"Pre-build reconcile skipped: {e}")
+
     def _tie_break_ours(self, hh):
         """STABLE equal-weight fork choice, wired to the measured verdict: True = our branch is canonical,
         False = theirs is, None = no evidence either way (which never switches or suppresses anything).
@@ -1593,19 +1613,29 @@ class CoreClient(threading.Thread):
             now = time.monotonic()
             cached = getattr(self, "_tie_theirs_cache", None)
             if cached and cached[0] == anc and now - cached[2] < FORK_STATE_TTL_S:
-                theirs = cached[1]
+                theirs, theirs_blk = cached[1], cached[3]
             else:
-                from ops.peer_ops import probe_block_hash
-                theirs = None
+                from ops.peer_ops import probe_block_hash, fetch_block_by_hash
+                theirs, theirs_blk = None, None
                 for ip, st in self.consensus.status_pool.copy().items():
                     if isinstance(st, dict) and st.get("latest_block_hash") == hh:
                         theirs = probe_block_hash(ip, anc + 1, port=self.memserver.port)
                         if theirs:
+                            # the BODY too: the tie-break prefers the more complete tx set
+                            # (fork_resolution.tie_winner) — a missing body degrades to the hash rule
+                            theirs_blk = fetch_block_by_hash(ip, theirs, port=self.memserver.port)
                             break
-                self._tie_theirs_cache = (anc, theirs, now)
+                self._tie_theirs_cache = (anc, theirs, now, theirs_blk)
             if not theirs or theirs == ours:
                 return None
-            return fork_resolution.tie_winner(ours, theirs) == "ours"
+            ours_blk = get_block(ours)
+            o_ids = ([t.get("txid") for t in ours_blk.get("block_transactions", [])]
+                     if isinstance(ours_blk, dict) else None)
+            t_ids = ([t.get("txid") for t in theirs_blk.get("block_transactions", [])]
+                     if isinstance(theirs_blk, dict) else None)
+            if o_ids is None or t_ids is None:
+                o_ids = t_ids = None                     # one side unknown -> hash rule on both sides
+            return fork_resolution.tie_winner(ours, theirs, o_ids, t_ids) == "ours"
         except Exception as e:
             self.logger.warning(f"tie-break probe failed: {e}")
             return None
