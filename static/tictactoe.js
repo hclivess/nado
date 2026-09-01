@@ -4,10 +4,10 @@
 // lesson), resign/abort escapes, and a short ~30-min move clock. Built on the shared PvP board-game
 // scaffold (pvpgame.js) — this file is ONLY the tic-tac-toe board: its decode, its render, its move.
 import { NadoDapp, rawToNado, _m, $, disp, gate, hoist } from "./nadodapp.js?v=24253865";
-import { PvpGame } from "./pvpgame.js?v=cc59fe44";
-import { BoardDaily, gameModes } from "./board-daily-ui.js?v=bac4adb4";   // shared free Daily Challenge + mode picker
+import { PvpGame } from "./pvpgame.js?v=48dafcf9";
+import { BoardDaily, gameModes } from "./board-daily-ui.js?v=f34c2fa5";   // shared free Daily Challenge + mode picker
 import * as RULES from "./tictactoe-rules.js?v=69b2f3bc";
-import { Practice } from "./practice.js?v=a2d98706";   // free in-browser practice vs the computer
+import { Practice } from "./practice.js?v=a0aa5a42";   // free in-browser practice vs the computer
 
 const CID = "266e44abb869209132fc7925a1315c5d";
 const dapp = new NadoDapp({ cid: CID, app: "TicTacToe" });

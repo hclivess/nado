@@ -4,10 +4,10 @@
 // majority (equal counts refund both). Built on the shared PvP board-game scaffold (pvpgame.js) — this
 // file is ONLY the reversi board: its decode, its render, its move/pass encoding.
 import { NadoDapp, rawToNado, _m, $, disp, gate, hoist } from "./nadodapp.js?v=24253865";
-import { PvpGame } from "./pvpgame.js?v=cc59fe44";
-import { BoardDaily, gameModes } from "./board-daily-ui.js?v=bac4adb4";   // shared free Daily Challenge + mode picker
+import { PvpGame } from "./pvpgame.js?v=48dafcf9";
+import { BoardDaily, gameModes } from "./board-daily-ui.js?v=f34c2fa5";   // shared free Daily Challenge + mode picker
 import * as RULES from "./reversi-rules.js?v=63161fa9";
-import { Practice } from "./practice.js?v=a2d98706";   // free in-browser practice vs the computer
+import { Practice } from "./practice.js?v=a0aa5a42";   // free in-browser practice vs the computer
 
 const CID = "167d4fb3ae5c282bfdfcb846bba7b5a1";
 const PASS = 64;

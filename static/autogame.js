@@ -21,8 +21,8 @@ import * as E from "./autogame-engine.js?v=8a997c33";
 import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
 import * as ART from "./autogame-art.js?v=a6a3eead";
 import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=a6a3eead";
-import { createDaily } from "./autogame-dailyui.js?v=98485250";
-import * as D from "./autogame-daily.js?v=fadc95fc";
+import { createDaily } from "./autogame-dailyui.js?v=c12501de";
+import * as D from "./autogame-daily.js?v=751ac946";
 import { createAudio } from "./autogame-audio.js?v=afd7538c";
 
 const CID = "af66948ff14f81ace98d4fde619b8e74";          // execnode/games/autogame.py (zkVM) — set by the deploy script

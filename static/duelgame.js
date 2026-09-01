@@ -25,7 +25,7 @@
 import { rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, confirmingLabel, orderCards,
          resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify,
          blocksToTime, renderScore, scoreBump, scoreSort } from "./nadodapp.js?v=24253865";
-import { Practice, prand, randomSeed } from "./practice.js?v=a2d98706";
+import { Practice, prand, randomSeed } from "./practice.js?v=a0aa5a42";
 
 const T0 = (p, k, d, v) => (typeof window !== "undefined" && window.t) ? window.t(p + "." + k, d, v) : d;
 const TS = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;

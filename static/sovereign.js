@@ -7,7 +7,7 @@ import { NadoDapp, $, _m, base, notify, confirmingLabel, alertBar, disp, share, 
          orderCards, resolveAliases, renderTopScores, uiPrompt, uiConfirm } from "./nadodapp.js?v=24253865";
 import * as E from "./sovereign-engine.js?v=8972a5f7";
 import { ART } from "./sovereign-art.js?v=b1838f38";
-import { Practice, prand } from "./practice.js?v=a2d98706";
+import { Practice, prand } from "./practice.js?v=a0aa5a42";
 
 const CID = "sovereign";                              // fixed-name deploy (like the faucet); set at deploy
 const dapp = new NadoDapp({ cid: CID, app: "Sovereign" });

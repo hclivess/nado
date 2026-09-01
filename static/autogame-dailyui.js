@@ -9,7 +9,7 @@
 import { dailyFrame, renderTopScores, guardedAction, confirmingLabel, notify, esc, relocalize } from "./nadodapp.js?v=24253865";
 import { todayIdx, anchorOf, seedDaily, pendingDaily, entriesFrom, verifyEntries, provableSeed, unpackMoves } from "./provable.js?v=8d15167d";
 import * as E from "./autogame-engine.js?v=8a997c33";
-import * as D from "./autogame-daily.js?v=fadc95fc";
+import * as D from "./autogame-daily.js?v=751ac946";
 
 const LS = "nado_autogame_gauntlet";      // {day, tiers, actions} — a Gauntlet survives a reload
 

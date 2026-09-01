@@ -6,8 +6,8 @@
 // full-enumeration-proven — see tests/test_slots_contract.py). The machine's bank commits a 150x cover
 // for every open spin, so it can never welsh. Settle is permissionless; a pruned spin refunds via claim.
 import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=24253865";
-import { BankedGame } from "./bankedgame.js?v=0ae45040";
-import { Practice } from "./practice.js?v=a2d98706";      // free in-browser practice (play chips, no chain)
+import { BankedGame } from "./bankedgame.js?v=15f460d6";
+import { Practice } from "./practice.js?v=a0aa5a42";      // free in-browser practice (play chips, no chain)
 
 const CID = "42509ee496258eea278dd01d66a8eed8";
 const dapp = new NadoDapp({ cid: CID, app: "Slots" });
