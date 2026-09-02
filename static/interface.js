@@ -2729,13 +2729,16 @@ function renderCoinPile(totalRaw, stats) {
     // The log-normal rank rounds to "100%" for everything above ~35 NADO on a 900-wallet chain — which reads as
     // nonsense ("richer than 100% of wallets"). Cap the percentile caption at 99, and for a wallet that sits in
     // the top 100 replace it with its EXACT rank from the rich list ("#12 of 900 wallets"), fetched lazily.
+    // PERCENTILE is the caption (exact now that the relay ranks every wallet — see getWealthStats); the
+    // exact position is the tooltip. A caption cannot say "100%" for a wallet that is not the richest.
     const p = Math.min(99, Math.round(pctile * 100));
     cap.textContent = i18("pile.richerThan", "richer than {p}% of wallets", { p }) + " · " + tierName;
-    if (exactRank) {                                                 // the relay ranked every wallet: say the rank
-      cap.textContent = i18("pile.rank", "#{n} of {c} wallets", { n: exactRank, c: stats.count }) + " · " + tierName;
+    cap.title = "";
+    if (exactRank) {
+      cap.title = i18("pile.rank", "#{n} of {c} wallets", { n: exactRank, c: stats.count });
     } else if (pctile >= 0.95 && stats && stats.count > 1) {
       _exactRank(totalRaw, stats.count).then((n) => {
-        if (n) cap.textContent = i18("pile.rank", "#{n} of {c} wallets", { n, c: stats.count }) + " · " + tierName;
+        if (n) cap.title = i18("pile.rank", "#{n} of {c} wallets", { n, c: stats.count });
       }).catch(() => {});
     }
   }
