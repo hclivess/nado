@@ -27,7 +27,10 @@ from hashing import base64encode          # noqa: E402
 from signatures import generate_keydict   # noqa: E402
 from protocol import B_MIN                 # noqa: E402  (bond amount; NOT a literal — must be >= B_MIN)
 
-PORT = 9173
+# NOT 9173: a live node on this box binds 0.0.0.0:9173, so testnet children could not bind their 127.0.0.x and
+# every /status poll below answered from the LIVE node — "CONVERGED" on the first tick, proving nothing
+# (2026-09-02). Same env override + default as test_fork_resolution.py.
+PORT = int(os.environ.get("NADO_TESTNET_PORT", "19173"))
 
 
 def node_ip(i):

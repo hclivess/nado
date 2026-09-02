@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import random
 import re
@@ -45,19 +46,70 @@ def chain_purge_due():
     return stored is not None and stored != CHAIN_GENERATION
 
 
-def purge_chain_data(logger=None):
+PURGE_LOG = "purge_log.json"          # under private/ (survives every purge by design): one timestamp per purge
+PURGE_STORM_WINDOW_S = 86400
+PURGE_STORM_LIMIT = 2                  # a THIRD dead-fork purge inside the window is refused (purge_storm)
+
+
+def _purge_log_path():
+    return f"{get_home()}/private/{PURGE_LOG}"
+
+
+def purge_history() -> list:
+    """Timestamps (int seconds) of every recorded purge, oldest first; [] when none / unreadable."""
+    try:
+        with open(_purge_log_path()) as f:
+            return [int(x) for x in json.load(f)]
+    except Exception:
+        return []
+
+
+def record_purge(now: int):
+    """Append one purge to the node-local log (best effort, atomic rename)."""
+    try:
+        hist = purge_history() + [int(now)]
+        hist = hist[-64:]
+        os.makedirs(os.path.dirname(_purge_log_path()), exist_ok=True)
+        tmp = _purge_log_path() + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(hist, f)
+        os.replace(tmp, _purge_log_path())
+    except Exception:
+        pass
+
+
+def purge_storm(now: int, history=None, window=PURGE_STORM_WINDOW_S, limit=PURGE_STORM_LIMIT) -> bool:
+    """CIRCUIT BREAKER. True when `limit` or more purges already happened inside `window` seconds before
+    `now`. Every dead-fork verdict on 2026-09-01/02 was individually correct — and the node purged FOURTEEN
+    times in twelve hours because its own peer loop was broken, re-forking from block 7 after each resync.
+    Nothing in the process survives the os._exit() a purge ends with, so the only brake that can exist is
+    on disk. A third correct verdict in a day is evidence that the SYNC path is broken, not the chain."""
+    hist = purge_history() if history is None else list(history)
+    return sum(1 for t in hist if int(now) - int(t) < window) >= limit
+
+
+def purge_chain_data(logger=None, dead_fork=False):
     """Wipe every chain-derived artifact under the node home. EXPLICIT allowlist only — private/
-    (keys, config) and the repo checkout are never touched."""
+    (keys, config) and the repo checkout are never touched.
+
+    `dead_fork=True` (the in-process dead-fork escape) keeps what an L1 fork does NOT taint: the learned
+    peer table (peers/, peers.dat — a node whose peer loop is already sick must not also lose the only
+    peers it knows; the CLI purge.py never deleted them) and the exec DA store (exec_da/: content-addressed,
+    commitment-keyed, self-verifying shards; a shard for a losing branch is simply never asked for, while
+    this box may be the fleet's only holder). The CHAIN_GENERATION reroll path keeps the full wipe — there
+    everything really is foreign."""
     import glob
     import shutil
     home = get_home()
     say = (logger.warning if logger else print)
-    for d in ("blocks", "index", "peers", "snapshots", "exec_da"):
+    dirs = ("blocks", "index", "snapshots") if dead_fork else ("blocks", "index", "peers", "snapshots", "exec_da")
+    for d in dirs:
         p = f"{home}/{d}"
         if os.path.isdir(p):
             shutil.rmtree(p, ignore_errors=True)
             say(f"PURGE: removed {p}/")
-    for pat in ("peers.dat", "exec_state.json*", "version"):
+    pats = ("exec_state.json*", "version") if dead_fork else ("peers.dat", "exec_state.json*", "version")
+    for pat in pats:
         for p in glob.glob(f"{home}/{pat}"):
             try:
                 os.remove(p)
@@ -87,6 +139,9 @@ def purge_chain_data(logger=None):
                 say(f"PURGE: removed exec state {p}")
             except OSError:
                 pass
+    if dead_fork:
+        say("PURGE: kept peers/, peers.dat and the exec DA store (not chain-derived; see purge_chain_data)")
+        return
     for da in _exec_candidates("NADO_EXEC_DA", "exec_da"):
         if os.path.isdir(da):
             shutil.rmtree(da, ignore_errors=True)

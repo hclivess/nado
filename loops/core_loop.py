@@ -57,6 +57,9 @@ from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW
 
+# How long one direct seed-genesis probe answers for (_seeds_answering); the healthy path pays nothing.
+SEED_PROBE_MEMO_S = 30
+
 # CATCH-UP HOLD for the soft depth floor (see _depth_floor_corroborated): while the mesh's median advertised
 # height is more than this many blocks above ours, the floor waits instead of probing peers per block.
 SYNC_FLOOR_HOLD_GAP = 2 * FINALITY_DEPTH + EPOCH_LENGTH
@@ -398,6 +401,30 @@ class CoreClient(threading.Thread):
                              f"— this block rides the bonded quorum")
             return None, False, None
 
+    def _seeds_answering(self) -> bool:
+        """Does at least one operator seed (seed_peers(), never ourselves) serve its genesis block right
+        now? A DIRECT probe, deliberately independent of the peer loop and the status pool: on 2026-09-01
+        the peer loop crashed, memserver.peers stayed empty all night, and every production gate read
+        "solo node, mint normally" while the dead-fork escape (which probes the seeds directly) saw three
+        reachable seeds disagreeing — the node re-forked from a REACHABLE fleet fourteen times. Memoised
+        SEED_PROBE_MEMO_S so the healthy path pays nothing."""
+        now = time.monotonic()
+        memo = getattr(self, "_seeds_answering_memo", None)
+        if memo and now - memo[0] < SEED_PROBE_MEMO_S:
+            return memo[1]
+        answering = False
+        try:
+            from ops.peer_ops import seed_peers, probe_block_hash
+            _me = {getattr(self.memserver, "ip", None), get_config().get("ip")} - {None}
+            for _s in seed_peers():
+                if _s and _s not in _me and probe_block_hash(_s, 0, port=self.memserver.port, timeout=3):
+                    answering = True
+                    break
+        except Exception:
+            answering = False
+        self._seeds_answering_memo = (now, answering)
+        return answering
+
     def _genesis_cold_start_blocked(self, peers) -> bool:
         """Refuse to mint THE FIRST BLOCK of a chain while we are merely early rather than actually alone.
 
@@ -426,6 +453,15 @@ class CoreClient(threading.Thread):
             if not [p for p in seed_peers() if p not in _me]:
                 return False                      # no seeds configured: a standalone node, not an early one
             waited = get_timestamp_seconds() - self.memserver.start_time
+            if waited >= GENESIS_QUIET_S and not peers and getattr(self, "_seeds_answering", lambda: False)():
+                # the quiet period may expire for a node that is GENUINELY alone; a node with zero peers
+                # while a seed answers its genesis is not alone, it is broken — never mint block 1 there
+                if get_timestamp_seconds() - getattr(self, "_seed_block_log", 0) >= 300:
+                    self._seed_block_log = get_timestamp_seconds()
+                    self.logger.error(f"genesis quiet period expired after {int(waited)}s with NO peers, but an "
+                                      f"operator seed answers directly — not minting block 1 (our peer path is "
+                                      f"the fault, not the fleet)")
+                return True
             if waited >= GENESIS_QUIET_S:
                 self.logger.warning(
                     f"GENESIS QUIET PERIOD expired after {int(waited)}s with {len(peers)} peer(s) — producing "
@@ -650,11 +686,21 @@ class CoreClient(threading.Thread):
                     self.memserver.pool_warmed = True
                     if peers:
                         self.logger.warning("Pool warm-up window expired unreconciled — producing anyway")
+                # ISOLATION GUARD (2026-09-02): min_peers 0 means "may mint alone" — alone as in NO reachable
+                # fleet, not "my peer loop is empty". If we hold no peers but a seed serves its genesis, we
+                # are cut off by our own fault and must not extend a private chain (the 14-purge night).
+                _isolated = (not peers) and self._seeds_answering()
+                if _isolated and get_timestamp_seconds() - getattr(self, "_isolated_log", 0) >= 300:
+                    self._isolated_log = get_timestamp_seconds()
+                    self.logger.error("Not producing: zero peers linked while an operator seed answers directly — "
+                                      "this node is isolated by its own peer path, not alone on the network")
                 if (len(peers) >= self.memserver.min_peers
                         and not self._genesis_cold_start_blocked(peers)
                         and not self.memserver.force_sync_ip
                         and self.memserver.pool_warmed
-                        and not _on_minority):
+                        and not _on_minority
+                        and not _isolated
+                        and not getattr(self.memserver, "purge_breaker", False)):
                     # PRE-ASSEMBLY TX-SET RECONCILE (leaderless assembly touch-up, doc/leaderless-assembly.md):
                     # before building, hold the union of what our same-tip peers would build — see
                     # memserver.reconcile_next_block_set. Once per tip, bounded, best-effort.
@@ -2084,8 +2130,21 @@ class CoreClient(threading.Thread):
             self.logger.error("Finality refuses to roll back across it, so no local recovery can work. "
                               "Purging chain-derived data and resyncing. private/ (keys) is untouched.")
             self.logger.error("=" * 78)
-            from ops.data_ops import purge_chain_data, stamp_chain_generation
-            purge_chain_data(logger=self.logger)
+            from ops.data_ops import purge_chain_data, stamp_chain_generation, purge_storm, record_purge
+            _now_p = get_timestamp_seconds()
+            if purge_storm(_now_p):
+                # CIRCUIT BREAKER (2026-09-02): 14 correct verdicts in 12 h, each followed by a resync that
+                # re-forked from block 7 because THIS node's peer loop was broken. The verdict cannot tell
+                # "the chain is dead" from "I cannot sync"; the count can. Stop producing, keep serving,
+                # and say so — a human or the next update fixes the sync path, a 15th purge would not.
+                self.memserver.purge_breaker = True
+                self.logger.error("PURGE STORM: this node already purged twice in the last 24 h — REFUSING a "
+                                  "third dead-fork purge. Production is OFF until restart; the sync path, not "
+                                  "the chain, is the likely fault (see private/purge_log.json).")
+                self._last_dead_fork_check = _now_p
+                return False
+            record_purge(_now_p)
+            purge_chain_data(logger=self.logger, dead_fork=True)
             stamp_chain_generation()
             self.memserver.terminate = True       # ask every loop to drain
             # ...and then ACTUALLY GO. The flag alone is not enough: the aiohttp server keeps serving on the
