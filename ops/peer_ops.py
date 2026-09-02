@@ -588,7 +588,7 @@ def check_save_peers(peers, logger, fails, unreachable):
         good_peers = {p for p in good_peers if p not in _known}
     good_peers = set(sorted(good_peers)[:CHECK_SAVE_PEERS_MAX])
     if not good_peers:
-        return
+        return {"success": [], "fails": fails}      # SAME SHAPE as below: sniff_buffered_peers indexes it
 
     local_fails = []
     candidates = asyncio.run(compound_get_status_pool(
