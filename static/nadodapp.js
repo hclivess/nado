@@ -606,9 +606,13 @@ export function wireWallet(dapp) {
       box.appendChild(head); box.appendChild(r); box.appendChild(hint);
       return { box, sl };
     };
-    if (dep) dep.textContent = _t("buyIn", "Buy in"); if (wd) wd.textContent = _t("cashOut", "Cash out");
-    const bi = mkRow("buyinSlider", _t("buyIn", "Buy in"), dep);
-    const co = mkRow("cashoutSlider", _t("cashOut", "Cash out"), wd);
+    // WORDING follows the app: games buy in / cash out a PLAYABLE balance; an exchange deposits / withdraws a
+    // USABLE one. A page sets dapp.walletLabels = {buyIn, cashOut, ofPlayable(n)} before wireWallet.
+    const WL = Object.assign({ buyIn: _t("buyIn", "Buy in"), cashOut: _t("cashOut", "Cash out"),
+                               ofPlayable: (n) => _t("ofPlayable", "of {n} playable", { n }) }, dapp.walletLabels || {});
+    if (dep) dep.textContent = WL.buyIn; if (wd) wd.textContent = WL.cashOut;
+    const bi = mkRow("buyinSlider", WL.buyIn, dep);
+    const co = mkRow("cashoutSlider", WL.cashOut, wd);
     oldRow.insertAdjacentElement("afterend", co.box);
     oldRow.insertAdjacentElement("afterend", bi.box);
     oldRow.classList.add("hidden");   // the old amount+buttons row (buttons were moved into the slider rows)
@@ -635,7 +639,7 @@ export function renderWallet(dapp) {
   if ($("bal")) $("bal").textContent = rawToNado(dapp.exec) + " NADO";
   if ($("l1bal")) $("l1bal").textContent = rawToNado(dapp.l1) + " NADO";
   const bm = document.getElementById("buyinSliderM"); if (bm) bm.textContent = _t("ofWallet", "of {n} wallet", { n: rawToNado(dapp.l1) });
-  const cm = document.getElementById("cashoutSliderM"); if (cm) cm.textContent = _t("ofPlayable", "of {n} playable", { n: rawToNado(dapp.exec) });
+  const cm = document.getElementById("cashoutSliderM"); if (cm) cm.textContent = (dapp.walletLabels && dapp.walletLabels.ofPlayable ? dapp.walletLabels.ofPlayable : (n) => _t("ofPlayable", "of {n} playable", { n }))(rawToNado(dapp.exec));
   return signedIn;
 }
 // The faucet PRIZE TAPER — rank 1..5 shares of a game's daily faucet budget. MIRRORS _faucet_rewards.py

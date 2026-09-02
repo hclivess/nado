@@ -25,7 +25,7 @@ from protocol import MIN_TX_FEE, CHAIN_ID, TX_INCLUSION_DELAY                  #
 from execnode.games import otc as O                                            # noqa: E402
 
 L1, EX = "http://127.0.0.1:9173", "http://127.0.0.1:9273"
-OTC = "6bb0bd0d5dad478bb33d254e73cde85d"
+OTC = "1652698f36b2741fa622e1973fe1b157"
 AMT = 500_000_000                    # 0.05 NADO
 passed = failed = 0
 

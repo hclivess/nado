@@ -17,7 +17,7 @@ import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, 
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=24253865";
+         blocksToTime } from "./nadodapp.js?v=6b8ef380";
 
 const CID = "7e97163299583191d40d8676f43d5cfe";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -322,7 +322,12 @@ async function doSwap() {
 // ================= CROSS-CHAIN ORDER BOOK (otc contract — doc/dex-bridge.md §4) =========================
 // Same page, DIFFERENT contract: the book is its own tiny escrow contract beside the AMM (no shared state,
 // no shared upgrade surface), called through this dapp session via opts.cid. One venue, two contracts.
-const OTC_CID = "6bb0bd0d5dad478bb33d254e73cde85d";
+const OTC_CID = "1652698f36b2741fa622e1973fe1b157";
+let otcState = "loading";                    // loading | ok | missing | down — never a spinner forever
+const otcEmpty = (msg) => otcState === "ok" || otcSto ? `<p class="small dim">${msg}</p>`
+  : otcState === "missing" ? `<p class="small warn">Order-book contract ${OTC_CID.slice(0, 10)}… is not deployed on this chain — the page needs rewiring (execnode.games.redeploy).</p>`
+  : otcState === "down" ? `<p class="small dim">Order book unreachable right now — retrying.</p>`
+  : `<p class="small dim"><span class="spin"></span> Loading orders…</p>`;
 const OTC_ASK = 1, OTC_BID = 2, OTC_INTRA = 3;                       // kind: maker SELLS NADO / maker BUYS NADO
 const OTC_ST = { 1: "open", 2: "filled", 3: "settled", 4: "refunded", 5: "cancelled" };
 const LIMB_BITS = 52n, LIMBS = 5;                     // must match otc.preimage_limbs
@@ -561,8 +566,9 @@ async function btcFoundSecret(od) {
 async function otcRefresh() {
   try {
     const r = await (await fetch(base() + "/exec/contract?ns=" + dapp.ns + "&cid=" + OTC_CID + "&provisional=1", { cache: "no-store" })).json();
-    if (r && r.storage) otcSto = r.storage;
-  } catch (e) { /* keep the last good view */ }
+    if (r && r.storage) { otcSto = r.storage; otcState = "ok"; }
+    else if (r && r.error) otcState = "missing";       // the contract id this page carries is not on this chain
+  } catch (e) { if (otcState !== "ok") otcState = "down"; /* keep the last good view */ }
 }
 function otcOrders() {
   if (!otcSto) return [];
@@ -882,6 +888,7 @@ function renderXMarket() {
     ["Sell orders", String(b.asks.length)],
     ["Your orders", String(mine)],
   ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  const mcX = $("marketCard"); if (mcX) mcX.classList.remove("nomarket");   // a cross-chain market always has a book to show
   const cap = $("depthCap"); if (cap) cap.textContent = "Live order book — how much is offered at each price:";
   const mc = $("mktCap"); if (mc) mc.textContent = "Prices come from open orders on this book. Nothing is back-filled — a gap means nothing was offered.";
   // WHAT YOU NEED, said up front — the other chain's side is signed by that chain's wallet, and a page that
@@ -1313,7 +1320,7 @@ function renderOtc() {
   const all = otcOrders(), me = dapp.me;
   const open = all.filter((x) => x.st === 1 && x.kind !== OTC_INTRA && mktKeyOf(x) === xsel && otcLeft(x) > 0);
   book.innerHTML = open.length ? open.map((x) => otcRow(x, false)).join("")
-    : otcSto ? `<p class="small dim">No open orders. Post one — the book is permissionless.</p>` : `<p class="small dim"><span class="spin"></span> Loading orders…</p>`;
+    : otcEmpty("No open orders. Post one — the book is permissionless.");
   const my = all.filter((x) => me && x.kind !== OTC_INTRA && (x.maker === me || x.taker === me));
   mine.innerHTML = my.length ? my.map((x) => otcRow(x, true)).join("")
     : `<p class="small dim">Nothing yet — post or take an order.</p>`;
@@ -1680,7 +1687,7 @@ function renderLimits() {
     .filter((x) => x.st === 1 || (me && x.maker === me && x.st !== 1))
     .sort((a, b) => (a.st - b.st) || (b.o - a.o)).slice(0, 40);
   box.innerHTML = rows.length ? rows.map(limRow).join("")
-    : otcSto ? `<p class="small dim">No limit orders yet — post one below.</p>` : `<p class="small dim"><span class="spin"></span> Loading orders…</p>`;
+    : otcEmpty("No limit orders yet — post one below.");
   box.querySelectorAll("[data-otc]").forEach((el) => {
     el.onclick = (ev) => { ev.preventDefault();
       runAction(el.tagName === "BUTTON" ? el : null, () => otcAction(el.getAttribute("data-otc"), Number(el.getAttribute("data-o")), el)); };
@@ -1894,7 +1901,7 @@ function renderMarket() {
     if (sel) pick.value = String(sel);
   }
   gate({ marketCard: !!sel });
-  const mc0 = $("marketCard"); if (mc0) mc0.classList.toggle("nomarket", !sel || !lastSto);   // empty state instead of a blank chart
+  const mc0 = $("marketCard"); if (mc0) mc0.classList.toggle("nomarket", curMode !== "cross" && (!sel || !lastSto));   // empty state instead of a blank chart (AMM only)
   const seg = $("envSeg"); if (seg) seg.classList.add("hidden");   // the mainnet/testnet switch belongs to cross-chain markets only
   const rq0 = $("xReq"); if (rq0) rq0.classList.add("hidden");     // so does the wallet-requirement line
   if (!sel || !lastSto) return;
@@ -2054,6 +2061,7 @@ async function refresh() {
 }
 
 function wireUI() {
+  dapp.walletLabels = { buyIn: "Deposit", cashOut: "Withdraw", ofPlayable: (n) => `of ${n} usable` };   // an exchange, not a game
   wireWallet(dapp, render);
   stickyInputs(dapp, ["addN", "addT", "slip", "otcNado", "otcFAmt", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry"]);
   $("btnOpen").onclick = (e) => runAction(e.currentTarget, openPool);

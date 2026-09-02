@@ -15,7 +15,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(HERE, "static", "market", "prices.json")
 EX = os.environ.get("NADO_EXEC_URL", "http://127.0.0.1:9273").rstrip("/")
 CID = "7e97163299583191d40d8676f43d5cfe"          # the AMM
-OTC = "6bb0bd0d5dad478bb33d254e73cde85d"          # the cross-chain order book
+OTC = "1652698f36b2741fa622e1973fe1b157"          # the cross-chain order book
 EVERY = 30                      # seconds between samples
 KEEP = 2880                     # ~24h at 30s
 

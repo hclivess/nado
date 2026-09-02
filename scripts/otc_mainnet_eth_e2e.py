@@ -24,7 +24,7 @@ from execnode.games import otc as O                                       # noqa
 import otc_watchtower as W                                                # noqa: E402
 
 L1, EX = "http://127.0.0.1:9173", "http://127.0.0.1:9273"
-OTC = "6bb0bd0d5dad478bb33d254e73cde85d"
+OTC = "1652698f36b2741fa622e1973fe1b157"
 ETH_RPC = "https://ethereum-rpc.publicnode.com"
 HTLC = "0xcd8f71e75bb37f438c49a8011ae4037da5a8968f"
 NADO_AMT = 10 ** 9                       # 0.1 NADO

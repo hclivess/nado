@@ -157,6 +157,18 @@ def wire(targets):
         open(path, "w", encoding="utf-8").write(src[:m.start(1)] + cid + src[m.end(1):])
         changed.append(f"{os.path.basename(path)}: {m.group(1)[:10]}… -> {cid[:10]}…")
 
+    # SECOND CID IN ONE FRONTEND: dex.js also carries `const OTC_CID` (the cross-chain book + limit orders).
+    # It was never on this list, so the gen-24 redeploy left it on the pre-reroll id and the book showed
+    # "Loading orders…" forever (found 2026-09-02). Same rule as `const CID`: repoint, restamp, verify.
+    for path, var, game in ((os.path.join(STATIC, "dex.js"), "OTC_CID", "otc"),):
+        if game not in targets or not os.path.exists(path):
+            continue
+        src = open(path, encoding="utf-8").read()
+        m = re.search(r'^const %s = "([0-9a-z]+)";' % var, src, re.M)
+        if m and m.group(1) != targets[game]:
+            open(path, "w", encoding="utf-8").write(src[:m.start(1)] + targets[game] + src[m.end(1):])
+            changed.append(f"{os.path.basename(path)} {var}: {m.group(1)[:10]}… -> {targets[game][:10]}…")
+
     fr = os.path.join(ROOT, "_faucet_rewards.py")
     if os.path.exists(fr):
         lines = open(fr, encoding="utf-8").read().split("\n")
@@ -209,9 +221,11 @@ def verify(targets, ex):
         return False
     bad = []
     for path in sorted(glob.glob(os.path.join(STATIC, "*.js"))):
-        m = re.search(r'^const CID = "([0-9a-z]+)";', open(path, encoding="utf-8").read(), re.M)
-        if m and m.group(1) not in have:
-            bad.append(f"{os.path.basename(path)} -> {m.group(1)}")
+        _src = open(path, encoding="utf-8").read()
+        for var in ("CID", "OTC_CID"):
+            m = re.search(r'^const %s = "([0-9a-z]+)";' % var, _src, re.M)
+            if m and m.group(1) not in have:
+                bad.append(f"{os.path.basename(path)} {var} -> {m.group(1)}")
     fr = os.path.join(ROOT, "_faucet_rewards.py")
     if os.path.exists(fr):
         for cid in re.findall(r'\(\d+,\s*"([0-9a-z]+)"', open(fr, encoding="utf-8").read()):
