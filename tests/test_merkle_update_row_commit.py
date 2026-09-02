@@ -128,7 +128,7 @@ def t_there_is_ONE_authority_for_the_default():
     assert fn(B.RECURSION) is True, "RECURSION must row-commit — that is the 4.1x"
     assert fn(B.ALGHASH2) is False, "ALGHASH2 cannot row-commit (stark.py refuses it)"
     # settlement_sparse must reach the authority, not keep a private copy of the predicate.
-    assert getattr(SS, "stark", None) is S or True, "sanity: same stark module object"
+    assert getattr(SS, "stark", None) is S, "sanity: same stark module object"
     import inspect
     body = inspect.getsource(SS.prove_settlement_sparse) if hasattr(SS, "prove_settlement_sparse") else ""
     if body:

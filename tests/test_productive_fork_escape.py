@@ -46,8 +46,11 @@ def t_normal_mode_runs_the_self_check():
     src = inspect.getsource(CL.CoreClient.normal_mode)
     check("normal_mode calls _maybe_escape_dead_fork (a producing node checks itself)",
           "_maybe_escape_dead_fork" in src)
+    # the SPECIFIC guard, not any `except Exception` in the function (normal_mode's outer handler re-raises,
+    # so that alternative matched a property the code did not have — 2026-09-02 audit)
     check("the self-check cannot break block production (guarded)",
-          "dead-fork self-check skipped" in src or "except Exception" in src)
+          "dead-fork self-check skipped" in src
+          and src.index("try:") < src.index("self._maybe_escape_dead_fork()") < src.index("dead-fork self-check skipped"))
 
 
 def t_stall_gate_no_longer_blocks_a_miner():

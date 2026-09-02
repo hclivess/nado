@@ -227,7 +227,7 @@ def main():
             time.sleep(4)
         step("node0 back up on the new key", st0 is not None and "error" not in st0)
         ms = get(0, f"/mining_status?address={ACCT}")
-        step("node0 identifies as its OLD address after the swap", ms.get("address", ACCT) == ACCT or True)
+        step("node0 identifies as its OLD address after the swap", ms.get("address") == ACCT)
         step("fleet re-converged after the restart", wait_converged(n, patience=180))
         # the rotation must be irreversible before the liveness scan: a shallow reorg on a 3-node/2s net can
         # briefly un-apply it, and a NEW-signed block/duty is legitimately rejected while the config shows v1

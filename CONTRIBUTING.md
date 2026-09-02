@@ -44,7 +44,9 @@ or the peer protocol is a **hard fork** and will require a coordinated chain rer
 PRs must:
 
 - Explain the change in `doc/` and `RELEASE_NOTES.md`,
-- Keep `tests/` green, including the determinism tests,
+- Keep `tests/` green, including the determinism tests — run `scripts/run_tests.sh` (isolated HOME, the
+  right kernel flags, non-zero exit on any FAIL; `pytest` collects almost nothing here), and for anything
+  touching loops/ or ops/ also `scripts/testnet/run_testnet.py 4 240` with `NADO_TESTNET_FULL=1`,
 - Be discussed with maintainers before you invest significant effort.
 
 ## Security issues

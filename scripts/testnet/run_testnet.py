@@ -115,19 +115,45 @@ def main():
         while time.time() < deadline:
             time.sleep(10)
             sts = [status(i) for i in range(n)]
+            # IDENTITY + LIVENESS of every answer: a dead child (bind failure, crash) is invisible if anything
+            # else answers 127.0.0.x:PORT — today that was the LIVE node on 0.0.0.0:9173 (2026-09-02). An answer
+            # that is not from OUR key, or a child that has exited, counts as DOWN.
+            for i, s in enumerate(sts):
+                if "error" not in s and s.get("address") != keys[i]["address"]:
+                    sts[i] = {"error": f"answered by a foreign node ({str(s.get('address'))[:12]})"}
+                if procs[i].poll() is not None:
+                    sts[i] = {"error": f"child exited rc={procs[i].returncode}"}
             up = sum(1 for s in sts if "error" not in s)
             blocks = []
             for i, s in enumerate(sts):
                 # /status exposes the tip hash; height is logged, so infer progress via hash != genesis
                 blocks.append(s.get("latest_block_hash", "err")[:10] if "error" not in s else "DOWN")
             tips = {s.get("latest_block_hash") for s in sts if "error" not in s}
+            # ONE-BLOCK PREFIX TOLERANCE: with a 2 s block time a node polled one propagation-hop behind the
+            # rest holds the majority tip's PARENT — converged, not divergent. Ask the first node holding the
+            # majority tip for that block and fold its parent into the agreeing set.
+            if len(tips) == 2:
+                counts = {}
+                for s in sts:
+                    if "error" not in s:
+                        counts[s["latest_block_hash"]] = counts.get(s["latest_block_hash"], 0) + 1
+                maj = max(counts, key=counts.get)
+                try:
+                    i = next(k for k, s in enumerate(sts) if "error" not in s and s["latest_block_hash"] == maj)
+                    with urllib.request.urlopen(f"http://{node_ip(i)}:{PORT}/get_block?hash={maj}", timeout=4) as r:
+                        blk = json.loads(r.read().decode()); blk = blk.get("block") or blk
+                    if (tips - {maj}) == {blk.get("parent_hash")}:
+                        tips = {maj}
+                except Exception:
+                    pass
             finals = [s.get("finalized_height") for s in sts if "error" not in s]
             ffgs = [s.get("ffg_finalized") for s in sts if "error" not in s]
             print(f"[testnet] t={int(time.time()-(deadline-run_seconds))}s up={up}/{n} "
                   f"tips={blocks} distinct_tips={len(tips)} finalized={finals} ffg={ffgs}", flush=True)
-            # progress check: any node advanced past genesis AND all agree on one tip
-            genesis_hash = "21872f6c3dd92a402fc939587ae7a1580ba448ff75c5ccbe3091f0da248d6e46"
-            advanced = any(s.get("latest_block_hash") not in (None, genesis_hash)
+            # progress check: EVERY node advanced past genesis AND all agree on one tip. (A pinned genesis
+            # hash from the harness's first commit went stale at the next reroll, so any answering node
+            # counted as "advanced" and n nodes sitting on shared block 0 were "CONVERGED" on tick 1.)
+            advanced = all(isinstance(s.get("latest_block_height"), int) and s["latest_block_height"] >= 1
                            for s in sts if "error" not in s)
             if up == n and len(tips) == 1 and advanced:
                 converged = True

@@ -150,7 +150,7 @@ def transfer(kd, to, amount):
 
 def blockhash(h):
     """The value BHASH(h) hands the VM: the L1 block hash as an integer, reduced into the field."""
-    return int(j(L1 + f"/get_block_number?number={h}")["block_hash"], 16) % F.P
+    return int(j(L1 + f"/get_block?number={h}&hash_only=1")["block_hash"], 16) % F.P
 
 
 def expected_winner(g, sh):

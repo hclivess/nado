@@ -28,7 +28,7 @@ def post(tx):
 def tip(): return j(L1 + "/get_latest_block")["block_number"]
 def exbal(a):
     try: return int(j(EX + "/exec/bridge?ns=default").get("balances", {}).get(a, 0))
-    except Exception: return 0
+    except Exception as e: raise SystemExit(f"exec balance read failed ({e}) — refusing to move funds blind")
 def sto():
     try: return j(EX + f"/exec/contract?ns=default&cid={CID}").get("storage", {})
     except Exception: return {}

@@ -109,12 +109,13 @@ def t_fri_fold_air():
     ok, why = recursion.verify_fri_folds(fp, rows, num_queries=4)
     assert ok, f"real fold proof must verify: {why}"
     bad = list(rows); bad[0] = (bad[0][0] ^ 1,) + bad[0][1:]      # break one fold's consistency
+    ok2 = False
     try:
         bp = recursion.prove_fri_folds(bad, num_queries=4)
         ok2, _ = recursion.verify_fri_folds(bp, bad, num_queries=4)
-        assert not ok2, "an inconsistent fold must be rejected"
     except Exception:
-        pass                                                     # prover refusing the bad witness is also fine
+        ok2 = False                                              # prover refusing the bad witness is also fine
+    assert not ok2, "an inconsistent fold must be rejected"       # OUTSIDE the try: its own failure must count
 
 
 def t_fri_step_air():

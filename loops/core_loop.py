@@ -601,8 +601,12 @@ class CoreClient(threading.Thread):
                 # is exactly what happened next: local and .141 sat on two dead branches for hours on
                 # 2026-07-28 with a perfectly correct probe (stranded, 2 disagree, 0 agree) that nothing was
                 # allowed to act on. Needing a human IS the defect.
-                if self._maybe_escape_dead_fork():
-                    return
+                try:
+                    if self._maybe_escape_dead_fork():
+                        return
+                except Exception as _e:
+                    # the self-check must never cost the production pass (tests/test_productive_fork_escape)
+                    self.logger.warning(f"dead-fork self-check skipped: {_e}")
                 _our_w = self.memserver.latest_block.get("cumulative_weight", 0)
                 # .copy(): the peer loop admits/pops status_pool entries concurrently — iterating the
                 # live dict raises "dictionary changed size during iteration" and costs the whole
@@ -641,7 +645,14 @@ class CoreClient(threading.Thread):
                 # identical canonical block.
                 _maj_hash = self.consensus.majority_block_hash
                 _on_minority = False
-                if _maj_hash and _maj_hash != self.memserver.latest_block["block_hash"]:
+                # A majority tip that is OUR OWN ANCESTOR is not a competing branch — those peers are merely
+                # behind us (a fleet booting together: two nodes still on genesis while two produce). The
+                # verdict below reads that as REORG (ancestor < our tip) and suppressed the only producers,
+                # freezing a 4-node testnet at block 4 with the other two stuck at genesis (2026-09-02).
+                if (_maj_hash and _maj_hash != self.memserver.latest_block["block_hash"]
+                        and majority_on_our_canonical(_maj_hash, get_block, get_block_hash_by_number)):
+                    self._prod_minority_since = None
+                elif _maj_hash and _maj_hash != self.memserver.latest_block["block_hash"]:
                     _now_g = get_timestamp_seconds()
                     if getattr(self, "_prod_minority_since", None) is None:
                         self._prod_minority_since = _now_g

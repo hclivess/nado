@@ -48,6 +48,7 @@ for (N, DEG, blowup) in ((64,32,2),(128,64,2),(256,128,2),(128,32,4)):
         else:
             print(f"  ok N={N} blowup={blowup} t={trial} layers={nlv} final={n_final}", flush=True)
 print(f"RESULT: {checked} cases, {bad} mismatches", flush=True)
+sys.exit(1 if bad else 0)
 import ctypes, os, random, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # was a hardcoded dev path
 from execnode.stark import stark_native as SN, fri, field as F, extf, backend as B

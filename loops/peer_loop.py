@@ -28,6 +28,8 @@ PEERLESS_RELOAD_INTERVAL = 15
 # exempt (retried every cycle). Was 3600 — a single blip exiled a peer for an hour, which on a small mesh
 # could strand a node with no dialable peers; 5 min still throttles a genuinely dead peer cheaply.
 UNREACHABLE_COOLDOWN = 300
+BOOT_GRACE_S = 180         # for this long after start a failed dial is retried after BOOT_COOLDOWN, not the full bench
+BOOT_COOLDOWN = 15
 
 
 class PeerClient(threading.Thread):
@@ -44,6 +46,26 @@ class PeerClient(threading.Thread):
         self.duration = 0
         self.heavy_refresh_timer = 0
         self._last_peerless_reload = 0   # backoff timer for the "no peers, reload from drive" retry (anti-spam)
+
+    def _announce_self_to_new_peers(self):
+        """GET /announce_peer?ip=<us> on every linked peer we have not told about ourselves yet (one attempt
+        per peer per process; the receiver validates and rate-limits, see nado.announce_peer)."""
+        me = getattr(self.memserver, "ip", None)
+        if not me:
+            return
+        done = getattr(self, "_announced_to", None)
+        if done is None:
+            done = self._announced_to = set()
+        import urllib.request as _rq
+        for peer in list(self.memserver.peers)[:20]:
+            if peer in done or peer == me:
+                continue
+            done.add(peer)
+            try:
+                with _rq.urlopen(f"http://{peer}:{self.memserver.port}/announce_peer?ip={me}", timeout=3) as r:
+                    r.read(4096)
+            except Exception:
+                pass                                   # best effort; the next dial or gossip round retries
 
     def sniff_buffered_peers(self):
         """gets peers from buffer and adds them to routine"""
@@ -157,7 +179,11 @@ class PeerClient(threading.Thread):
                     # operator seeds are the anchor: never keep them benched — retry immediately. Ordinary
                     # peers cool down for UNREACHABLE_COOLDOWN (was 3600s: a single blip benched a peer for a
                     # WHOLE HOUR, brutal on a small mesh; 5 min still throttles a truly dead peer cheaply).
-                    if peer in _seeds or (get_timestamp_seconds() - ban_time) > UNREACHABLE_COOLDOWN:
+                    # BOOT GRACE: a fleet that (re)starts together dials peers that are not up yet; benching
+                    # them for the full cooldown left a node with ZERO peers for 5 minutes while its peers
+                    # linked each other (loopback testnet, 2026-09-02: two of four nodes never left genesis).
+                    _cool = UNREACHABLE_COOLDOWN if self.memserver.get_uptime() >= BOOT_GRACE_S else BOOT_COOLDOWN
+                    if peer in _seeds or (get_timestamp_seconds() - ban_time) > _cool:
                         self.memserver.unreachable.pop(peer)
                         self.logger.info(f"Restored {peer} to the dial set")
                 # SEEDS ARE ALWAYS DIALED: "restored" above only clears the bench — purge_peers had also
@@ -171,6 +197,12 @@ class PeerClient(threading.Thread):
                             and _s not in self.memserver.unreachable):
                         self.memserver.peers.append(_s)
                         self.logger.info(f"Re-dialing operator seed {_s}")
+
+                # SELF-ANNOUNCE, once per linked peer: linking was one-directional — we learn peers by dialling
+                # and by their /peers gossip, but a peer that never dials US never learns we exist (nothing in
+                # the node called /announce_peer; only the testnet harness did). Tell each newly linked peer
+                # about us so the mesh is symmetric within one pass.
+                self._announce_self_to_new_peers()
 
                 if get_timestamp_seconds() > self.heavy_refresh_timer + self.memserver.heavy_refresh_interval:
                     """heavy refresh triggered"""
