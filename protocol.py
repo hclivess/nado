@@ -603,7 +603,7 @@ POSW_ENTRY_COUNT_HEIGHT = 1636 if CHAIN_GENERATION == 24 else 0
 # (never less than DIV_CARRY_RELEASE_FLOOR, so a backlog drains even if inflow stops), so a backlog flows to
 # everyone leaving probation over the following hours instead of to whoever is first. Both accrual paths read
 # ONE function (records_bind.dividend_accrual_effects). On gen 25+ the meter applies from epoch 0.
-DIV_CARRY_METER_EPOCH = 300 if CHAIN_GENERATION == 24 else 0
+DIV_CARRY_METER_EPOCH = 600 if CHAIN_GENERATION == 24 else 0    # 600, not 300: three nodes could not fetch for hours (git transport)
 DIV_CARRY_RELEASE_FLOOR = 5 * 10 ** 9           # 0.5 NADO per epoch, raw
 
 

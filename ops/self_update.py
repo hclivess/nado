@@ -211,6 +211,14 @@ def _git(*args, timeout=15):
     one sentence that says so defeated it. (Same lesson as the dead-fork probe: instrument first.)"""
     try:
         p = subprocess.run(["git", *args], cwd=_REPO_DIR, capture_output=True, text=True, timeout=timeout)
+        # "fatal: expected flush after ref listing" is git's HTTP/2 (protocol v2) transport tripping over a
+        # truncated/odd reply from GitHub. Three fleet nodes sat on it for 7+ hours on 2026-09-02 — unable to
+        # fetch ANY update, including one to this updater. Forcing HTTP/1.1 + protocol v1 for one retry is
+        # the known workaround; a healthy transport never hits this branch.
+        if p.returncode != 0 and "expected flush after ref listing" in (p.stderr or "") \
+                and not any(str(a).startswith("http.version=") for a in args):
+            p = subprocess.run(["git", "-c", "http.version=HTTP/1.1", "-c", "protocol.version=1", *args],
+                               cwd=_REPO_DIR, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise GitError(f"git {args[0]}: timed out after {timeout}s")
     except Exception as e:
