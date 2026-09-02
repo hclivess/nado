@@ -1176,6 +1176,9 @@ async def get_richest(request):
 _wealth_cache = {"height": -1, "data": None}
 
 
+WEALTH_RANKS_MAX = 512        # /wealth_stats `ranks` entries (complete below, sampled above)
+
+
 async def get_wealth_stats(request):
     """GET /wealth_stats: log-normal fit of the wealth distribution — {count, richest, log_mean,
     log_std, block_number} over non-zero accounts (balance+bonded). The client converts its own
@@ -1210,7 +1213,7 @@ async def get_wealth_stats(request):
     def _wealth_scan(h, heapq, math, kv_ops, DENOMINATION):
         n, s, s2, richest = 0, 0.0, 0.0, 0
         buckets = [0] * 10
-        top, gsum = [], 0
+        top, gsum, alltot = [], 0, []
         for _addr, acc in kv_ops.iter_accounts():
             tot = int(acc.get("balance", 0)) + int(acc.get("bonded", 0))
             if tot > richest:
@@ -1219,6 +1222,7 @@ async def get_wealth_stats(request):
                 lt = math.log(tot)
                 n += 1; s += lt; s2 += lt * lt
                 gsum += tot
+                alltot.append(tot)
                 nado = tot / DENOMINATION
                 buckets[0 if nado < 0.01 else min(9, int(math.floor(math.log10(nado))) + 3)] += 1
                 heapq.heappush(top, tot)
@@ -1227,9 +1231,22 @@ async def get_wealth_stats(request):
         mean = (s / n) if n else 0.0
         std = math.sqrt(max(0.0, s2 / n - mean * mean)) if n else 0.0
         tops = sorted(top, reverse=True)
+        # EXACT RANKING (2026-09-02): the log-normal fit is a poor model of this chain — 676 of 906 wallets
+        # sit in one tiny bucket, so anything above ~20 NADO scored "richer than 99%" and every active
+        # wallet read the same caption. `ranks` is the DESCENDING list of non-zero totals (raw, as strings),
+        # complete when count <= WEALTH_RANKS_MAX, else sampled at WEALTH_RANKS_MAX evenly spaced ranks
+        # (first and last always present) — the wallet binary-searches its own total for an exact rank
+        # or a 1/WEALTH_RANKS_MAX-resolution percentile. ~14 bytes per entry; bounded.
+        alltot.sort(reverse=True)
+        if len(alltot) > WEALTH_RANKS_MAX:
+            step = (len(alltot) - 1) / (WEALTH_RANKS_MAX - 1)
+            ranks = [alltot[round(i * step)] for i in range(WEALTH_RANKS_MAX)]
+        else:
+            ranks = alltot
         data = {"count": n, "richest": richest, "log_mean": mean, "log_std": std, "block_number": h,
                 "buckets": buckets, "sum_total": str(gsum),
-                "top10": str(sum(tops[:10])), "top100": str(sum(tops))}
+                "top10": str(sum(tops[:10])), "top100": str(sum(tops)),
+                "ranks": [str(t) for t in ranks]}
         _wealth_cache.update(height=h, data=data)
         return data
     return _resp(await asyncio.to_thread(_work))

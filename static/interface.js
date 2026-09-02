@@ -2621,9 +2621,17 @@ async function getWealthStats() {
   try {
     const r = await fetch(relayBase() + "/wealth_stats", { cache: "no-store" });
     const d = await r.json();
+    // `ranks`: the relay's DESCENDING non-zero totals (complete on a small chain, evenly sampled on a large
+    // one) — the exact ranking the caption is built from; relays on an older build omit it and the
+    // log-normal model below stays as the fallback
+    let ranks = null;
+    if (Array.isArray(d.ranks) && d.ranks.length) {
+      try { ranks = d.ranks.map((t) => BigInt(t)); } catch (x) { ranks = null; }
+    }
     _wealthCache = { at: now, stats: {
       count: num(d.count) || 0, richest: BigInt(d.richest || 0),
       logMean: Number(d.log_mean) || 0, logStd: Number(d.log_std) || 0,
+      ranks,
     } };
   } catch (e) { /* keep last */ }
   return _wealthCache.stats;
@@ -2682,8 +2690,16 @@ function renderCoinPile(totalRaw, stats) {
   const rich = (stats && stats.richest > 0n) ? stats.richest : 0n;
   const isTop = totalRaw > 0n && rich > 0n && totalRaw >= rich;    // you're the richest (or tied / network unknown)
   // log-normal percentile: the fraction of wallets this total is richer than (Φ of its z-score on ln(total)).
-  let pctile;
-  if (stats && stats.count > 1 && stats.logStd > 1e-9) {
+  let pctile, exactRank = null;
+  if (stats && stats.count > 1 && stats.ranks && stats.ranks.length) {
+    // EXACT: how many of the relay's ranked totals sit strictly above ours (list is descending)
+    const l = stats.ranks;
+    let lo = 0, hi = l.length;                                     // first index with l[i] <= totalRaw
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (l[mid] > totalRaw) lo = mid + 1; else hi = mid; }
+    const above = lo, complete = l.length >= stats.count;
+    if (complete) exactRank = above + 1;
+    pctile = Math.max(0, Math.min(1, 1 - above / Math.max(1, complete ? stats.count : l.length)));
+  } else if (stats && stats.count > 1 && stats.logStd > 1e-9) {
     pctile = Math.max(0, Math.min(1, _normalCdf((Math.log(Number(totalRaw)) - stats.logMean) / stats.logStd)));
   } else {
     pctile = isTop ? 1 : 0.5;                                      // degenerate/unknown population -> neutral
@@ -2715,7 +2731,9 @@ function renderCoinPile(totalRaw, stats) {
     // the top 100 replace it with its EXACT rank from the rich list ("#12 of 900 wallets"), fetched lazily.
     const p = Math.min(99, Math.round(pctile * 100));
     cap.textContent = i18("pile.richerThan", "richer than {p}% of wallets", { p }) + " · " + tierName;
-    if (pctile >= 0.95 && stats && stats.count > 1) {
+    if (exactRank) {                                                 // the relay ranked every wallet: say the rank
+      cap.textContent = i18("pile.rank", "#{n} of {c} wallets", { n: exactRank, c: stats.count }) + " · " + tierName;
+    } else if (pctile >= 0.95 && stats && stats.count > 1) {
       _exactRank(totalRaw, stats.count).then((n) => {
         if (n) cap.textContent = i18("pile.rank", "#{n} of {c} wallets", { n, c: stats.count }) + " · " + tierName;
       }).catch(() => {});
