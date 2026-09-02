@@ -1238,6 +1238,10 @@ async def get_wealth_stats(request):
 # ------------------------------------------------ peer geolocation (interface stats world map) ----
 GEO_API = "http://ip-api.com/batch"   # free tier: http-only, 100 IPs/batch — fine: server-side + TTL-cached
 GEO_TTL = 6 * 3600                    # re-geolocate peers at most every 6 hours (IPs rarely move)
+GEO_MIN_REFRESH = 300                 # ...but a CONNECTED peer the cache has never located earns a refresh
+                                      # after 5 min: the cache file sits under index/ (wiped by every purge)
+                                      # and a node that geolocated with 0 peers (crash loop / just booted)
+                                      # otherwise served an EMPTY map for the whole 6 h TTL (2026-09-02)
 _geo_state = {"cache": None, "computing": False}
 
 
@@ -1339,12 +1343,14 @@ async def geo_peers(request):
                 _geo_state["cache"] = cache
             except Exception:
                 cache = None
-        if cache is None or int(_time.time()) - int(cache.get("ts", 0)) >= GEO_TTL:
-            _geo_compute()      # refresh in the background; serve stale meanwhile if we have it
-        if cache is None:
-            return {"status": "computing", "points": [], "countries": []}
-        geo = cache.get("geo", {}) or {}
         status_map = _geo_peer_status()
+        geo = (cache.get("geo", {}) or {}) if cache else {}
+        age = int(_time.time()) - int(cache.get("ts", 0)) if cache else GEO_TTL
+        unlocated = [ip for ip, st in status_map.items() if st == "connected" and ip not in geo]
+        if cache is None or age >= GEO_TTL or (unlocated and age >= GEO_MIN_REFRESH):
+            _geo_compute()      # refresh in the background; serve stale meanwhile if we have it
+        if cache is None or (not geo and _geo_state["computing"]):
+            return {"status": "computing", "points": [], "countries": []}
         points, by_country = [], {}
         counts = {"connected": 0, "known": 0, "unreachable": 0}
         for ip, g in geo.items():
