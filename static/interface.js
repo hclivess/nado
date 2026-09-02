@@ -5853,7 +5853,12 @@ async function renderNodes() {
   const rows = [];
   if (self) rows.push(["★ this relay", self, true]);
   for (const [ip, st] of Object.entries(pool)) if (st && typeof st === "object") rows.push([ip, st, false]);
-  if (!rows.length) { box.innerHTML = "<span class='faint small'>" + i18("stats.nodata", "no data yet") + "</span>"; if (sub) sub.textContent = ""; return; }
+  if (!rows.length) {
+    // a transient fetch failure (relay busy) must not wipe a table that was fine 15 s ago — keep the last
+    // rows and say they are stale; "no data yet" is only for a panel that never had any
+    if (box.querySelector("table")) { if (sub) sub.textContent = i18("stats.stale", "refresh failed — showing the last snapshot"); return; }
+    box.innerHTML = "<span class='faint small'>" + i18("stats.nodata", "no data yet") + "</span>"; if (sub) sub.textContent = ""; return;
+  }
   // sort: self first, then by weight desc
   rows.sort((a, b) => (b[2] - a[2]) || ((b[1].latest_block_weight || 0) - (a[1].latest_block_weight || 0)));
   const th = (t) => `<th style="text-align:left;padding:4px 5px;color:var(--dim,#7c8b9a);font-weight:600;font-size:10.5px;white-space:nowrap">${t}</th>`;
@@ -6223,7 +6228,9 @@ async function renderDailyStats() {
 
 async function renderStats() {
   if (!state.wallet) return;
-  const head = $("statsHeadline"); if (head) head.innerHTML = "";
+  // The headline is built OFF-DOM and swapped in once complete: clearing it up front left the network-stats
+  // row blank for the whole fetch (~1-2 s) on every 15 s live refresh — rows "disappearing and reappearing".
+  const head = $("statsHeadline"); const headFrag = head ? document.createDocumentFragment() : null;
   renderGeoMap().catch(() => {});   // independent of the block charts — paint it in parallel
   renderNodes().catch(() => {});    // the network-nodes table (status_pool)
   // one /rollback_stats fetch feeds BOTH panels (reorgs + consensus health)
@@ -6291,7 +6298,7 @@ async function renderStats() {
       { label: i18("stats.supShield", "Shielded"), value: shd, color: _CPUR },
     ], { fmt: fmtN });
   } catch {}
-  const addStat = (label, val, tipText) => { if (!head) return; const d = document.createElement("div"); d.className = "stat"; d.innerHTML = `<div class="label"></div><div class="value sm"></div>`; d.children[0].textContent = label; d.children[1].textContent = val; if (tipText) d.title = tipText; head.appendChild(d); };
+  const addStat = (label, val, tipText) => { if (!head) return; const d = document.createElement("div"); d.className = "stat"; d.innerHTML = `<div class="label"></div><div class="value sm"></div>`; d.children[0].textContent = label; d.children[1].textContent = val; if (tipText) d.title = tipText; headFrag.appendChild(d); };
   addStat(i18("stats.tip", "Height"), tip != null ? tip : "—");
   if (ms) { addStat(i18("stats.present", "Present miners"), ms.open_registry_size ?? "—"); addStat(i18("stats.bondedMiners", "Savings miners"), ms.bonded_registry_size ?? "—"); }
   try { const pool = await (await fetch(relayBase() + "/get_account?address=dividend", { cache: "no-store" })).json(); addStat(i18("stats.pool", "Dividend pool"), rawToNado(BigInt(pool.balance || 0)) + " NADO"); } catch {}
@@ -6306,6 +6313,7 @@ async function renderStats() {
     addStat(i18("stats.txVol", "Tx volatility"), pct(now.volatility),
             i18("stats.txVolTip", "share of peers whose mempool disagrees with the majority right now (100% − tx-pool agreement)"));
   } catch {}
+  if (head) head.replaceChildren(headFrag);   // one swap: the old values stay on screen until the new ones exist
 }
 
 /* ============================ SWAP TAB — HTLC cross-chain atomic swaps ============================ */
