@@ -596,6 +596,15 @@ CHAIN_GENERATION = 24
 # history. Landing blocks BELOW this height count every register tx; from it on, entries only. Generation-keyed:
 # on gen 25+ the rule is entries-only from block 0 and this constant is 0.
 POSW_ENTRY_COUNT_HEIGHT = 1636 if CHAIN_GENERATION == 24 else 0
+# SCHEDULED-CLEANUP (gen 24 only): METERED DIVIDEND CARRY. While every identity was on probation (epochs 0-193
+# of betanet-6) the accrual found an empty weight set and carried the WHOLE inflow forward; at epoch 194 the one
+# identity that had just left probation received the entire backlog — 113.29 NADO against 0.587 NADO per epoch
+# (reported by fazer, 2026-09-02). From this epoch the carry is released at most one epoch's inflow per epoch
+# (never less than DIV_CARRY_RELEASE_FLOOR, so a backlog drains even if inflow stops), so a backlog flows to
+# everyone leaving probation over the following hours instead of to whoever is first. Both accrual paths read
+# ONE function (records_bind.dividend_accrual_effects). On gen 25+ the meter applies from epoch 0.
+DIV_CARRY_METER_EPOCH = 300 if CHAIN_GENERATION == 24 else 0
+DIV_CARRY_RELEASE_FLOOR = 5 * 10 ** 9           # 0.5 NADO per epoch, raw
 
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---

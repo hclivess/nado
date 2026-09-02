@@ -13,6 +13,17 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 ---
 
 
+## 2026-09-02 — gen-24 DIV_CARRY_METER_EPOCH (300): delete at the gen-25 reroll
+
+`protocol.DIV_CARRY_METER_EPOCH = 300 if CHAIN_GENERATION == 24 else 0`, read by
+`execnode/stark/records_bind.dividend_accrual_effects` (the one accrual rule; `state.accrue_dividend_epoch`
+applies its effects). Epochs 0-193 of betanet-6 carried the whole dividend inflow while every identity was on
+probation; epoch 194 paid the backlog (113.29 NADO) to the single identity out of probation. From epoch 300 a
+backlog releases at most max(inflow, DIV_CARRY_RELEASE_FLOOR) per epoch. **Cannot go early**: the fleet's exec
+nodes must all switch at the same epoch or their records halves stop binding. Pinned by
+tests/test_div_carry_meter.py. At gen 25 the expression is 0 and the pre-gate branch is dead — delete the
+constant's gate, the `epoch is None` old-rule branch and this entry together.
+
 ## 2026-09-02 — gen-24 POSW_ENTRY_COUNT_HEIGHT (1636): delete at the gen-25 reroll
 
 `protocol.POSW_ENTRY_COUNT_HEIGHT = 1636 if CHAIN_GENERATION == 24 else 0`, read by

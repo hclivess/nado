@@ -658,34 +658,27 @@ class ExecState:
                     del cache[k]
             return ER.record_proof(kv_root, store, key), root_hex
 
-    def accrue_dividend_epoch(self, inflow, weights):
+    def accrue_dividend_epoch(self, inflow, weights, epoch=None):
         with self._mutate_lock:
             try:
-                return self._accrue_dividend_epoch_inner(inflow, weights)
+                return self._accrue_dividend_epoch_inner(inflow, weights, epoch)
             finally:
                 self._touch()
 
-    def _accrue_dividend_epoch_inner(self, inflow, weights):
-        """DETERMINISTIC per-epoch accrual. Distribute `inflow` — the TOTAL DIVIDEND_POOL inflow credited
-        during one epoch (from L1 `dividend_inflow_get(E)`, revert-safe) — plus the carried remainder among
-        `weights` = weights_at_epoch(E) (fidelity-weighted, from L1), pro-rata and integer-only. This is a
-        PURE FUNCTION of (inflow, weights): every node that accrues the same epoch reaches the identical
-        `dividend` map, so the committed state_root can't diverge (the old accrue_dividend read a LIVE pool
-        balance + LIVE current-epoch weights per poll batch — non-deterministic, which broke settlement of
-        the default layer). No present miners this epoch → the whole inflow carries forward (no raw lost).
-        Returns the amount distributed. The caller advances last_div_epoch and never re-accrues an epoch."""
-        pot = int(inflow) + self.div_carry
-        total_w = sum(max(1, int(w)) for w in weights.values()) if weights else 0
-        if pot <= 0 or total_w <= 0:
-            self.div_carry = max(0, pot)                         # carry forward until there's a present set
-            return 0
+    def _accrue_dividend_epoch_inner(self, inflow, weights, epoch=None):
+        """DETERMINISTIC per-epoch accrual of `inflow` (L1 dividend_inflow_get(E)) over `weights`
+        (weights_at_epoch(E)), plus the carried backlog under the carry rule for `epoch`. THE arithmetic
+        lives in ONE place — execnode/stark/records_bind.dividend_accrual_effects — which the settle
+        binding re-derives from L1 state; this method only applies its effects, so the live map and the
+        proven records half cannot drift (they used to be two hand-mirrored copies). Returns the amount
+        distributed. The caller advances last_div_epoch and never re-accrues an epoch."""
+        from execnode.stark import records_bind as _RB
+        effects, self.div_carry = _RB.dividend_accrual_effects(inflow, weights, self.div_carry, epoch)
         distributed = 0
-        for addr, w in sorted(weights.items()):                  # sorted -> deterministic across nodes
-            share = pot * max(1, int(w)) // total_w
-            if share:
-                self.dividend[addr] = self.dividend.get(addr, 0) + share
-                distributed += share
-        self.div_carry = pot - distributed                       # keep the sub-unit remainder for next time
+        for _tag, parts, share in effects:
+            addr = parts[0]
+            self.dividend[addr] = self.dividend.get(addr, 0) + share
+            distributed += share
         return distributed
 
     def state_root(self):

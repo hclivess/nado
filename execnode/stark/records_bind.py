@@ -153,27 +153,36 @@ _KNOWN_UNDERIVED = frozenset({
 })
 
 
-def dividend_accrual_effects(inflow, weights, div_carry):
-    """The records effects of ONE epoch's presence-dividend accrual, re-derived exactly as
-    state._accrue_dividend_epoch_inner computes them. Returns ([(tag, parts, delta), ...], new_carry).
+def dividend_accrual_effects(inflow, weights, div_carry, epoch=None):
+    """The records effects of ONE epoch's presence-dividend accrual — THE rule, called by the live accrual
+    (state.accrue_dividend_epoch) and by the settle binding alike, so the two cannot drift. Returns
+    ([(tag, parts, delta), ...], new_carry). Integer-only, `sorted(weights.items())`, `max(1, w)` flooring.
 
-    Mirrors the accrual line for line — integer-only, `sorted(weights.items())`, `max(1, w)` flooring, the
-    pot carrying the previous remainder, and no distribution at all when the pot or the weight total is
-    non-positive (the whole inflow carries forward). Any divergence here shows up as a binding MISMATCH
-    rather than a bad settlement, but it would refuse honest spans, so it must track that function.
+    CARRY. No present set (or no pot): nothing is distributed and the whole pot carries forward. From
+    protocol.DIV_CARRY_METER_EPOCH the carry is METERED: an epoch releases at most max(inflow, floor) of the
+    backlog on top of its own inflow, so a backlog built while everyone was on probation drains over hours to
+    everyone leaving probation, not to the first identity out (epoch 194 of betanet-6 paid 113 NADO to one
+    address). Before the gate (`epoch` below it, or None for a caller that predates the meter) the whole
+    backlog is in the pot, byte-for-byte the old rule.
     """
-    pot = int(inflow) + int(div_carry)
+    from protocol import DIV_CARRY_METER_EPOCH, DIV_CARRY_RELEASE_FLOOR
+    inflow, carry = int(inflow), int(div_carry)
+    metered = epoch is not None and int(epoch) >= int(DIV_CARRY_METER_EPOCH)
     total_w = sum(max(1, int(w)) for w in weights.values()) if weights else 0
+    if metered:
+        release = min(max(0, carry), max(inflow, int(DIV_CARRY_RELEASE_FLOOR)))
+        pot, held = inflow + release, carry - release
+    else:
+        pot, held = inflow + carry, 0
     if pot <= 0 or total_w <= 0:
-        return [], max(0, pot)
+        return [], max(0, pot) + held
     out, distributed = [], 0
     for addr, w in sorted(weights.items()):
         share = pot * max(1, int(w)) // total_w
         if share:
             out.append((ER.T_DIV_BAL, (addr,), share))
             distributed += share
-    return out, pot - distributed
-
+    return out, (pot - distributed) + held
 
 def epoch_accrual_due(height, epoch_length):
     """The dividend epoch that block `height` ACCRUES, or None if it accrues nothing.
@@ -394,8 +403,10 @@ def span_effects(txs, accruals=(), div_carry=0):
         # nothing. It is NOT asserted safe here: calls_commit.block_records_inert is the allowlist that
         # decides that question, and this module is only reached for spans it has already vetted.
     carry = int(div_carry)
-    for (inflow, weights) in accruals or ():
-        eff, carry = dividend_accrual_effects(inflow, weights, carry)
+    for acc in accruals or ():
+        inflow, weights = acc[0], acc[1]
+        epoch = acc[2] if len(acc) > 2 else None          # (inflow, weights, epoch) — epoch selects the carry rule
+        eff, carry = dividend_accrual_effects(inflow, weights, carry, epoch)
         effects.extend(eff)
     return effects
 

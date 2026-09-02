@@ -394,7 +394,7 @@ class CoreClient(threading.Thread):
             inflow = int(kv_ops.dividend_inflow_get(int(epoch)) or 0)
             from ops.dividend_ops import weights_at_epoch
             weights = weights_at_epoch(int(epoch)) or {}
-            eff, carry_out = dividend_accrual_effects(inflow, weights, carry_in)
+            eff, carry_out = dividend_accrual_effects(inflow, weights, carry_in, int(epoch))
             return list(base_effects or []) + list(eff), True, int(carry_out)
         except Exception as e:
             self.logger.info(f"dividend accrual not derivable at height {height} (epoch {epoch}): {e} "

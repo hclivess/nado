@@ -1235,7 +1235,7 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
                       f"recert history; never guessed", flush=True)
                 return None                       # pruned recert history -> quorum, never a guess
             _aeff, carry = RB.dividend_accrual_effects(int((inf or {}).get("inflow", 0)),
-                                                       (ow or {}).get("weights", {}) or {}, carry)
+                                                       (ow or {}).get("weights", {}) or {}, carry, _E)
             effects.extend(_aeff)
         # ...AND THE CONTRACT PAYOUTS. A PAY is an EXECUTION outcome: it never appears in the calldata, so
         # block_records_effects above — which reads calldata only — is structurally blind to it. L1 derives
@@ -2979,7 +2979,7 @@ async def _accrue_owed(session, st, epoch_incl):
                 print(f"[execnode] canonical accrual STALLED at epoch {E}: "
                       f"{(ow or {}).get('error') if isinstance(ow, dict) else ow} — cursor holds", flush=True)
                 return False
-            dist = st.accrue_dividend_epoch(inflow, (ow or {}).get("weights", {}))
+            dist = st.accrue_dividend_epoch(inflow, (ow or {}).get("weights", {}), epoch=E)
             st.last_div_epoch = E
             if dist:
                 print(f"[execnode] dividend epoch {E}: +{dist} raw (canonical)", flush=True)
