@@ -129,7 +129,7 @@ function renderPools() {
     const chg = st ? (st.pct >= 0 ? "+" : "") + st.pct.toFixed(2) + "%" : "—";
     const cls = st ? (Math.abs(st.pct) < 0.005 ? "" : st.pct > 0 ? "up" : "dn") : "";
     return `<div class="poolrow${on}" data-pool="${p.id}" style="cursor:pointer">
-      <div><b>${esc(sym)} / NADO</b><div class="small dim">${live ? fromUnits(p.rn) + " NADO liquidity" : "empty — needs liquidity"}</div></div>
+      <div class="pmain"><span class="tok" aria-hidden="true">${esc(tokIni(sym))}</span><div><b>${esc(sym)} / NADO</b><div class="small dim">${live ? fromUnits(p.rn) + " NADO liquidity" : "empty — needs liquidity"}</div></div></div>
       <div class="num">${live ? fmtShort(price) + " " + esc(sym) : "—"}</div>
       <div class="chgc ${cls}">${chg}</div>
     </div>`;
@@ -1802,6 +1802,20 @@ const fmtAgo = (ts) => { const s = Math.max(0, (Date.now() - ts) / 1000); return
 const vol24 = (key) => (sharedTrades[key] || []).filter((t) => t[0] * 1000 >= Date.now() - 86400000).reduce((a, t) => a + Number(t[1] || 0), 0);
 const trades24 = (key) => (sharedTrades[key] || []).filter((t) => t[0] * 1000 >= Date.now() - 86400000).length;
 let mtSort = (() => { try { return JSON.parse(localStorage.getItem("nado_dex_mtsort") || "null") || { k: "liq", d: -1 }; } catch (e) { return { k: "liq", d: -1 }; } })();
+const tokIni = (n) => String(n || "").split("/")[0].trim().replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "?";
+// the stats strip under the app bar: every market on both venues, summed
+function renderTicker() {
+  const el = $("dexTicker"); if (!el) return;
+  let rows = [];
+  try { rows = marketRows(); } catch (e) { return; }
+  const live = rows.filter((r) => r.price > 0).length;
+  const liq = rows.reduce((a, r) => a + (Number(r.liq) || 0), 0), vol = rows.reduce((a, r) => a + (Number(r.vol) || 0), 0);
+  const f = (x) => x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? (x / 1e3).toFixed(1) + "k" : x.toFixed(x >= 100 ? 0 : 2);
+  el.innerHTML = [["Markets", `${rows.length}<small>· ${live} live</small>`], ["Total liquidity", `${f(liq)}<small>NADO</small>`],
+                  ["24h volume", `${f(vol)}<small>NADO</small>`], ["Swap fee", "0.30%<small>to LPs</small>"]]
+    .map(([l, v]) => `<div><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  el.hidden = false;
+}
 const MT_COLS = [
   ["name", "Market"], ["price", "Price (NADO)"], ["chg", "24h"], ["vol", "24h volume"], ["liq", "Liquidity"], ["n", "Trades / orders"],
 ];
@@ -1843,7 +1857,7 @@ function renderMarkets() {
   body.innerHTML = rows.length ? rows.map((r) => {
     const chg = r.chg == null ? `<td class="dim">—</td>` : `<td class="${Math.abs(r.chg) < 0.005 ? "" : r.chg > 0 ? "up" : "dn"}">${(r.chg >= 0 ? "+" : "") + r.chg.toFixed(2)}%</td>`;
     return `<tr class="mrow" data-venue="${r.venue}" data-key="${esc(r.key)}" data-env="${r.env}" tabindex="0" role="link" aria-label="Open ${esc(r.name)}">
-      <td>${esc(r.name)}<span class="venue">${r.venue === "swap" ? "AMM" : r.env === "test" ? "cross · testnet" : "cross-chain"}</span>${r.blocked ? '<span class="venue">soon</span>' : ""}<div class="small dim" style="font-weight:400">${esc(r.sub || "")}</div></td>
+      <td><span class="tok" aria-hidden="true">${esc(tokIni(r.name))}</span><span><span class="mname">${esc(r.name)}</span><span class="venue">${r.venue === "swap" ? "AMM" : r.env === "test" ? "cross · testnet" : "cross-chain"}</span>${r.blocked ? '<span class="venue">soon</span>' : ""}<div class="small dim" style="font-weight:400">${esc(r.sub || "")}</div></span></td>
       <td${r.price ? "" : ' class="dim"'}>${r.price ? fmtShort(r.price) : "—"}</td>${chg}
       <td${r.vol ? "" : ' class="dim"'}>${r.vol ? group(fmtShort(r.vol)) : "—"}</td>
       <td${r.liq ? "" : ' class="dim"'}>${r.liq ? fmtShort(r.liq) + " NADO" : "—"}</td>
@@ -1880,6 +1894,7 @@ function renderMarket() {
     if (sel) pick.value = String(sel);
   }
   gate({ marketCard: !!sel });
+  const mc0 = $("marketCard"); if (mc0) mc0.classList.toggle("nomarket", !sel || !lastSto);   // empty state instead of a blank chart
   const seg = $("envSeg"); if (seg) seg.classList.add("hidden");   // the mainnet/testnet switch belongs to cross-chain markets only
   const rq0 = $("xReq"); if (rq0) rq0.classList.add("hidden");     // so does the wallet-requirement line
   if (!sel || !lastSto) return;
@@ -2033,6 +2048,7 @@ async function refresh() {
     samplePrices(lastSto);
     await otcRefresh();
     render();
+    renderTicker();
     swapAutopilot().catch(() => {});
   } finally { refreshing = false; }
 }
