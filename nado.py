@@ -1176,7 +1176,7 @@ async def get_richest(request):
 _wealth_cache = {"height": -1, "data": None}
 
 
-WEALTH_RANKS_MAX = 512        # /wealth_stats `ranks` entries (complete below, sampled above)
+WEALTH_RANKS_MAX = 4096       # /wealth_stats `ranks` entries: complete below (~57 KB at the cap), sampled above
 
 
 async def get_wealth_stats(request):
