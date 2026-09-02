@@ -357,6 +357,9 @@ class MemServer:
         self._transaction_pool = value
         self.pool_gen += 1
 
+    _inflight_txids = set()
+    _inflight_lock = threading.Lock()
+
     def _pool_txid_set(self):
         """set of pooled txids at the current pool_gen — rebuilt only after a mutation, so the
         per-second re-gossip storm (peers re-serve their whole pool) dedups in O(1) per tx instead
@@ -747,6 +750,25 @@ class MemServer:
         _txid = transaction.get("txid")
         if isinstance(_txid, str) and _txid in self._pool_txid_set():
             return {"message": "Already present", "result": True}
+        # IN-FLIGHT DEDUPE (2026-09-02): the pool-membership check above is blind to a tx whose FIRST
+        # validation is still running — nine peers pushing the same settle tx within a second put nine
+        # copies through full proof verification at once (see transaction_ops._SETTLE_VERIFY_GATE for what
+        # that cost). The second arrival of an in-flight txid is acknowledged, not re-validated.
+        if isinstance(_txid, str):
+            with self._inflight_lock:
+                if _txid in self._inflight_txids:
+                    return {"message": "Already being validated", "result": True}
+                self._inflight_txids.add(_txid)
+        try:
+            return self._merge_transaction_validated(transaction, user_origin, _txid)
+        finally:
+            if isinstance(_txid, str):
+                with self._inflight_lock:
+                    self._inflight_txids.discard(_txid)
+
+    def _merge_transaction_validated(self, transaction, user_origin, _txid):
+        """The validating half of merge_transaction (runs once per txid at a time — see the in-flight set)."""
+        from protocol import TX_LANDING_WINDOW
 
         # Anti-DoS: hard-cap the mempool so a flood (incl. fee-exempt register/heartbeat spam) cannot
         # grow it unbounded and OOM the node. Pairs with the per-IP HTTP rate limiter. The lane cap

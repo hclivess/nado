@@ -870,6 +870,25 @@ def _fetch_da_proof(commitment, timeout=8):
 # caching it changes no consensus decision — every context check around it still runs each time.
 _SETTLE_VERIFY_MEMO = {}
 _SETTLE_VERIFY_MEMO_MAX = 64
+# SINGLE FLIGHT + ONE AT A TIME (2026-09-02). The memo only helps the SECOND arrival of a proof; the same
+# settle tx pushed by nine peers inside one second reached nine to_thread workers before any of them had
+# finished, and the sparse verification is pure-Python alghash2 under the GIL — fourteen concurrent
+# verifications (25 s each alone) turned into a many-minute jam that starved every other API handler on
+# the public relay, timed out the exec node's L1 calls and the peers syncing from this box, and the fleet
+# forked five ways while nobody could fetch blocks here. One lock per verify key makes the followers wait
+# for the leader's memo entry; one process-wide gate makes distinct proofs verify sequentially, which under
+# the GIL is faster in total and leaves the worker pool free for everything else.
+import threading as _threading
+_SETTLE_VERIFY_LOCKS = {}
+_SETTLE_VERIFY_LOCKS_GUARD = _threading.Lock()
+_SETTLE_VERIFY_GATE = _threading.BoundedSemaphore(1)
+
+
+def _settle_verify_lock(key):
+    with _SETTLE_VERIFY_LOCKS_GUARD:
+        if len(_SETTLE_VERIFY_LOCKS) > 256:
+            _SETTLE_VERIFY_LOCKS.clear()
+        return _SETTLE_VERIFY_LOCKS.setdefault(key, _threading.Lock())
 
 
 def settle_verify_key(proof, pda, from_da):
@@ -1338,21 +1357,21 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 # See settle_verify_key for the binding argument.
                 _vk = settle_verify_key(proof, _pda, _from_da)
                 _hit = _SETTLE_VERIFY_MEMO.get(_vk)
-                if _hit is not None:
-                    ok, why, kv_pre, kv_post = _hit
-                else:
-                    # TIME THE KV HALF. Two records-bearing submits died at ~1200s while the measured
-                    # verify cost of their records half is only ~472s, so ~730s is somewhere else and
-                    # nobody knows where. Extrapolating found the wrong culprit twice tonight; these two
-                    # timers split the remaining budget between the two verifications, and whatever is
-                    # left over is parse/transport/merge.
-                    _t_kv = _time.time()
-                    ok, why, kv_pre, kv_post = SS.verify_settlement_sparse(
-                        proof, depth=_protocol.EXEC_TREE_DEPTH)
-                    print(f"[settle-verify] KV half {_time.time() - _t_kv:.1f}s ok={ok}", flush=True)
-                    if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
-                        _SETTLE_VERIFY_MEMO.clear()       # bounded: a proof is ~118 MiB, entries are tiny
-                    _SETTLE_VERIFY_MEMO[_vk] = (ok, why, kv_pre, kv_post)
+                if _hit is None:
+                    with _settle_verify_lock(_vk):            # single flight per proof (see the memo note)
+                        _hit = _SETTLE_VERIFY_MEMO.get(_vk)
+                        if _hit is None:
+                            # TIME THE KV HALF. Two records-bearing submits died at ~1200s while the
+                            # measured verify cost of their records half is only ~472s, so ~730s is
+                            # somewhere else; these timers split the budget between the two verifications.
+                            with _SETTLE_VERIFY_GATE:         # one sparse verification at a time, process-wide
+                                _t_kv = _time.time()
+                                _hit = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
+                                print(f"[settle-verify] KV half {_time.time() - _t_kv:.1f}s ok={_hit[0]}", flush=True)
+                            if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
+                                _SETTLE_VERIFY_MEMO.clear()   # bounded: a proof is ~118 MiB, entries are tiny
+                            _SETTLE_VERIFY_MEMO[_vk] = _hit
+                ok, why, kv_pre, kv_post = _hit
                 assert ok, f"Settle proof invalid: {why}"
             assert kv_pre == kv_pre_claim and kv_post == kv_post_claim, "Settle proof kv halves mismatch"
             # RECORDS HALF. Frozen by default: the SAME rec_hex composes both roots, so a proven span must
