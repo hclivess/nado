@@ -156,6 +156,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 
 .addr-box { display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
 .addr-box .a { font-family: var(--mono); font-size: 12.5px; word-break: break-all; flex: 1; }
+#newMnemonic { word-break: normal; overflow-wrap: anywhere; }   /* words, not hex: never split "connect" into "connec t" */
 .copy { font-size: 12px; padding: 6px 10px; flex: 0 0 auto; }
 
 .warnbox { background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.4); color: #f0d488; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; }
