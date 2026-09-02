@@ -36,11 +36,12 @@ check("an int height is admitted", status_fields_well_typed({"protocol": 11, "la
 check("an absent height is admitted (a mid-restart peer omits fields)", status_fields_well_typed({"protocol": 11}))
 
 core = open(os.path.join(ROOT, "loops", "core_loop.py")).read()
-i = core.index("_best_peer = _hs[len(_hs) // 2]")
-seg = core[core.rindex("\n", 0, i - 900):i]
+helper = core[core.index("def _mesh_height_median(self)"):core.index("def _depth_floor_corroborated(self)")]
 check("the depth gate takes the upper median of the pool's heights, not the max",
-      "sorted(int(v.get(\"latest_block_height\") or 0)" in seg
-      and "isinstance(v.get(\"latest_block_height\"), int)" in seg
+      "_best_peer = self._mesh_height_median()" in core
+      and "sorted(int(v.get(\"latest_block_height\") or 0)" in helper
+      and "isinstance(v.get(\"latest_block_height\"), int)" in helper
+      and "hs[len(hs) // 2]" in helper
       and "max((int(v.get(\"latest_block_height\")" not in core)
 
 # behavioural mirror of the gate's arithmetic: one liar among honest peers cannot move the median

@@ -57,6 +57,10 @@ from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW
 
+# CATCH-UP HOLD for the soft depth floor (see _depth_floor_corroborated): while the mesh's median advertised
+# height is more than this many blocks above ours, the floor waits instead of probing peers per block.
+SYNC_FLOOR_HOLD_GAP = 2 * FINALITY_DEPTH + EPOCH_LENGTH
+
 # ARCHIVE SELF-REPAIR cadence (seconds): how often an archive node whose history does not reach genesis
 # looks for a peer that reaches deeper and starts a background fill (_maybe_refill_archive). Only while a
 # gap exists; a whole archive costs nothing here.
@@ -1227,6 +1231,18 @@ class CoreClient(threading.Thread):
             self.logger.error(f"Snapshot bootstrap failed, falling back to full sync: {e}")
             return False
 
+    def _mesh_height_median(self) -> int:
+        """UPPER MEDIAN of the admitted statuses' advertised heights (0 with an empty pool). ONE reading for
+        every consumer that must not be steerable by a single peer's claim: the settle-proof depth gate and
+        the catch-up hold below. A lone peer is still its own median."""
+        try:
+            hs = sorted(int(v.get("latest_block_height") or 0)
+                        for v in self.consensus.status_pool.copy().values()
+                        if isinstance(v, dict) and isinstance(v.get("latest_block_height"), int))
+            return hs[len(hs) // 2] if hs else 0
+        except Exception:
+            return 0
+
     def _depth_floor_corroborated(self) -> bool:
         """Whether the depth-based finality floor may advance right now: the visible network's majority tip
         must lie ON OUR CANONICAL CHAIN (majority_on_our_canonical — our tip or a recent ancestor of it,
@@ -1237,6 +1253,16 @@ class CoreClient(threading.Thread):
         pool = self.consensus.block_hash_pool
         if not pool:
             return True
+        # CATCH-UP HOLD (2026-09-02). Far behind the mesh every cheap check below fails by construction —
+        # we hold nobody's advertised tip — so only the signed prefix probe can answer, and incorporate_block
+        # asks this per block: up to four BLOCKING 3 s probes per applied block, memo-keyed on OUR height so
+        # the memo never hits while the height moves. Measured on this node's 10k-block resync: ~4 s per
+        # block, 14 blocks/min against a chain producing 10/min (a 35 h catch-up). The depth floor is the
+        # SOFT floor of the two-floor model; holding it is the documented safe direction, the sync needs
+        # nothing from it, and it resumes normally once we are within SYNC_FLOOR_HOLD_GAP of the tip.
+        _our = int((self.memserver.latest_block or {}).get("block_number", 0) or 0)
+        if self._mesh_height_median() - _our > SYNC_FLOOR_HOLD_GAP:
+            return False
         # THE OBJECTIVE TIP, NOT THE PLURALITY. This used to consult `majority_block_hash`, which
         # consensus_loop.py itself documents as "the Sybil-swingable plurality … replaced [for] the BLOCK
         # chain [by] OBJECTIVE heaviest-cumulative_weight fork-choice … (Plurality is kept for the tx-pool /
@@ -3976,13 +4002,7 @@ class CoreClient(threading.Thread):
                     # SETTLE_PROOF_DEPTH_GATED then skipped the STARK check fleet-wide. The median needs
                     # a majority of the pool to lie; honest peers sit within a few blocks of each other,
                     # so a node catching up still sees the mesh tip. A lone peer is still its own median.
-                    try:
-                        _hs = sorted(int(v.get("latest_block_height") or 0)
-                                     for v in self.consensus.status_pool.copy().values()
-                                     if isinstance(v, dict) and isinstance(v.get("latest_block_height"), int))
-                        _best_peer = _hs[len(_hs) // 2] if _hs else 0
-                    except Exception:
-                        _best_peer = 0
+                    _best_peer = self._mesh_height_median()
                     _deep = bool(remote) and (
                         max(int(getattr(self, "_known_tip_height", 0)), _best_peer) - int(block["block_number"])
                         > FINALITY_DEPTH)
