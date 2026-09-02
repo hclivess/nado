@@ -44,7 +44,7 @@ STRICT, NO COMPATIBILITY (policy): every node computes the identical v3 requirem
 deployed as the PROTOCOL 4 flag day (old-rules nodes are shed at the handshake), never as a compat path
 in consensus code.
 """
-from protocol import (POSW_ENTRY_MULT, POSW_LEASE_EPOCHS, POSW_T, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
+from protocol import (POSW_ENTRY_COUNT_HEIGHT, POSW_ENTRY_MULT, POSW_LEASE_EPOCHS, POSW_T, POSW_DIFF_WINDOW, POSW_DIFF_TRAIL,
                       POSW_DIFF_FLOOR, POSW_DIFF_MAX_MULT, EPOCH_LENGTH, POSW_DIFF_TRAIL_LONG)
 
 
@@ -89,14 +89,14 @@ def chain_entry_count(epoch: int) -> int:
     return n
 
 
-def _memo_count(epoch: int) -> int:
+def _memo_count(epoch: int, entries_only: bool = True) -> int:
     from ops import kv_ops
     from ops.account_ops import get_hard_finality
-    key = (kv_ops.env_path(), epoch)
+    key = (kv_ops.env_path(), epoch, bool(entries_only))    # the two rules count different things: two memos
     v = _count_memo.get(key)
     if v is not None:
         return v
-    v = chain_entry_count(epoch)
+    v = chain_entry_count(epoch) if entries_only else chain_register_count(epoch)
     if epoch < int(get_hard_finality() or 0) // EPOCH_LENGTH - 1:
         if len(_count_memo) > 100_000:
             _count_memo.clear()
@@ -104,15 +104,23 @@ def _memo_count(epoch: int) -> int:
     return v
 
 
-def _window_count(lo_epoch: int, hi_epoch: int) -> int:
-    """Sum of chain_entry_count over epochs [lo_epoch, hi_epoch] inclusive (negatives skipped); memoised
-    below the hard-finality epoch (immutable there)."""
+def _window_count(lo_epoch: int, hi_epoch: int, entries_only: bool = True) -> int:
+    """Sum of chain_entry_count (entries_only, the rule since POSW_ENTRY_COUNT_HEIGHT) or chain_register_count
+    (the rule before it) over epochs [lo_epoch, hi_epoch] inclusive (negatives skipped); memoised below the
+    hard-finality epoch (immutable there)."""
     if hi_epoch < lo_epoch:
         return 0
-    return sum(_memo_count(e) for e in range(max(0, lo_epoch), hi_epoch + 1))
+    return sum(_memo_count(e, entries_only) for e in range(max(0, lo_epoch), hi_epoch + 1))
 
 
-def difficulty_multiplier(anchor_epoch: int) -> int:
+def entries_only_at(landing_height) -> bool:
+    """Which flood-counting rule a registration LANDING at `landing_height` is validated under: entries-only
+    from POSW_ENTRY_COUNT_HEIGHT, every register tx before it (see protocol.py at that constant — the rule
+    changed mid-chain on gen 24 and history was validated under both). None (display paths) = today's rule."""
+    return landing_height is None or int(landing_height) >= POSW_ENTRY_COUNT_HEIGHT
+
+
+def difficulty_multiplier(anchor_epoch: int, entries_only: bool = True) -> int:
     """Integer PoSW multiplier for a registration anchored in `anchor_epoch`. 1× under normal load; rises as
     the recent registration rate exceeds the trailing-average baseline, capped at POSW_DIFF_MAX_MULT.
     Windows END at anchor_epoch − 1: every counted epoch is COMPLETE before the anchor block exists, so the
@@ -121,14 +129,14 @@ def difficulty_multiplier(anchor_epoch: int) -> int:
     last = anchor_epoch - 1
     if last < 0:
         return 1
-    recent = _window_count(last - POSW_DIFF_WINDOW + 1, last)
-    trail = _window_count(last - POSW_DIFF_TRAIL + 1, last)
+    recent = _window_count(last - POSW_DIFF_WINDOW + 1, last, entries_only)
+    trail = _window_count(last - POSW_DIFF_TRAIL + 1, last, entries_only)
     baseline = max(POSW_DIFF_FLOOR, trail * POSW_DIFF_WINDOW // POSW_DIFF_TRAIL)
     # SLOW-ADAPTING BASELINE (protocol "SYBIL RULES", rule 3; unconditional since gen 24). The 2-day trail alone
     # let a sustained burst become its own baseline: measured 2026-09-01, 189 registrations per window on day 3
     # of a burst and a multiplier of 1x. Cap the baseline by the 14-day rate as well, so a burst pays the
     # multiplier for a fortnight while the honest steady state (2-day rate == 14-day rate) is untouched.
-    trail_long = _window_count(last - POSW_DIFF_TRAIL_LONG + 1, last)
+    trail_long = _window_count(last - POSW_DIFF_TRAIL_LONG + 1, last, entries_only)
     baseline = max(POSW_DIFF_FLOOR, min(baseline, trail_long * POSW_DIFF_WINDOW // POSW_DIFF_TRAIL_LONG))
     return min(POSW_DIFF_MAX_MULT, max(1, recent // baseline))
 
@@ -164,12 +172,15 @@ def entry_multiplier(sender, anchor_epoch: int) -> int:
     return POSW_ENTRY_MULT if is_entry_registration(sender, anchor_epoch) else 1
 
 
-def required_posw_t(anchor_epoch: int, sender=None) -> int:
+def required_posw_t(anchor_epoch: int, sender=None, landing_height=None) -> int:
     """The CONSENSUS number of sequential PoSW steps a registration anchored in `anchor_epoch` must prove =
     POSW_T × rate multiplier × entry multiplier. Recomputed by every node in validation and enforced against
     the proof. `sender` is optional only so callers that merely want to DISPLAY the rate multiplier (the
-    /posw_difficulty endpoint with no address) keep working; validation always passes it."""
-    return POSW_T * difficulty_multiplier(anchor_epoch) * entry_multiplier(sender, anchor_epoch)
+    /posw_difficulty endpoint with no address) keep working; validation always passes it. `landing_height`
+    (the block the tx lands in) selects the flood-counting rule (entries_only_at); validation MUST pass it —
+    a replay of gen-24 history is wrong without it."""
+    return (POSW_T * difficulty_multiplier(anchor_epoch, entries_only_at(landing_height))
+            * entry_multiplier(sender, anchor_epoch))
 
 
 # mint_multiplier() lived here: "the multiplier OUR OWN prover works at". It returned the RATE multiplier

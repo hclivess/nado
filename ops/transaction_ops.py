@@ -1106,7 +1106,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # SENDER IS REQUIRED: the requirement now includes the ENTRY multiplier, which is a function of
         # this sender's own recert history as of the anchor epoch (reg_difficulty.is_entry_registration).
         req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)),
-                                transaction["sender"])
+                                transaction["sender"], landing_height=block_height)
         assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
                            req_t, POSW_S, POSW_K), "Invalid registration PoSW (or below the required difficulty)"
         # ONE RECERT PER EPOCH (revert-symmetry / anti-fork): apply_register records the recert at

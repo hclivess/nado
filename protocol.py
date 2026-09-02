@@ -587,6 +587,16 @@ POSW_ENTRY_MULT = 32
 #   (execnode.games.redeploy — pinned nonce => identical cids, upgradable) and re-fund the faucet.
 CHAIN_GENERATION = 24
 
+# SCHEDULED-CLEANUP (gen 24 only): the ENTRIES-ONLY flood counting (84d122f3, 2026-09-01 17:12 UTC) shipped
+# UNGATED while betanet-6 was already 1600 blocks old. Every registration validated before the fleet's update
+# carries a proof for the OLD rule (all register txs counted, renewals included), so a from-genesis replay under
+# the new rule rejected block 871 (proof 160M = 5x32; new rule 128M = 4x32) and no fresh node could ever sync.
+# Measured by replaying blocks 0..3600 (tests/test_posw_rule_gate.py): the last old-rule registration landed at
+# block 1608 (17:13:17 UTC), the first new-rule one at 1636 (17:16:37); any height in (1608, 1636] reproduces
+# history. Landing blocks BELOW this height count every register tx; from it on, entries only. Generation-keyed:
+# on gen 25+ the rule is entries-only from block 0 and this constant is 0.
+POSW_ENTRY_COUNT_HEIGHT = 1636 if CHAIN_GENERATION == 24 else 0
+
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

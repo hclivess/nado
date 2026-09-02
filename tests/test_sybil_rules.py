@@ -72,7 +72,7 @@ def t4_difficulty_baseline():
     from ops import reg_difficulty as R
     orig = R._memo_count
     counts = {}
-    R._memo_count = lambda e: counts.get(e, 0)
+    R._memo_count = lambda e, *a: counts.get(e, 0)     # (epoch, entries_only)
     try:
         A = P.POSW_DIFF_TRAIL_LONG + 5
         # steady state: 3 registrations every epoch for 14 days -> 2-day rate == 14-day rate -> multiplier 1

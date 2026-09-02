@@ -75,7 +75,7 @@ def t6_mint_is_strict():
     is exactly what nado_cli did). The function is gone; required_posw_t() is the single answer to "what
     does this registration owe", and it takes the SENDER because the answer depends on them."""
     orig = rd.difficulty_multiplier
-    rd.difficulty_multiplier = lambda e: 3
+    rd.difficulty_multiplier = lambda e, *a: 3        # (anchor_epoch, entries_only)
     orig_entry = rd.is_entry_registration
     try:
         assert not hasattr(rd, "mint_multiplier"), \
