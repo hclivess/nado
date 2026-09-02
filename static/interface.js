@@ -3054,9 +3054,12 @@ async function refreshDashboard() {
     $("walFidelity").textContent = acc.fidelity ?? 0;
     // PROBATION (protocol PROBATION_FIDELITY = 2): the first lease earns no dividend and a reduced draw weight
     // until the first timely renewal — say so where the number is, so a day-one miner is not surprised.
-    if ($("walProbation")) $("walProbation").textContent = (Number(acc.fidelity ?? 0) < 2)
-      ? i18("wal.probation", "Probation: your first lease earns block wins only. Dividends and full weight start after your first timely renewal — any time between ≈19 h and 36 h after you registered.")
-      : "";
+    if ($("walProbation")) {
+      const el = $("walProbation"), onProbation = Number(acc.fidelity ?? 0) < 2;
+      // one short line where the number is; the full explanation is the tooltip (it used to take three lines)
+      el.textContent = onProbation ? i18("wal.probationShort", "probation · dividends start after your first renewal (≈19–36 h)") : "";
+      el.title = onProbation ? i18("wal.probation", "Probation: your first lease earns block wins only. Dividends and full weight start after your first timely renewal — any time between ≈19 h and 36 h after you registered.") : "";
+    }
     refreshLeasePanel(acc, ms);                         // lease countdown + manual renew inside the earning window
     authSync(acc).then(renderAuth).catch(() => {});      // re-anchor the signing key if the account's config moved
     $("sendAvail").textContent = bal + " NADO";
