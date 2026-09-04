@@ -579,7 +579,7 @@ async def transactions_by_id(request):
         if not isinstance(ids, list) or len(ids) > 1000:
             return "Error: too many ids", 400
         wanted = {i for i in ids if isinstance(i, str) and len(i) <= 64}
-        txs = [t for t in memserver.transaction_pool if t.get("txid") in wanted]
+        txs = [t for t in memserver.live_pool() if t.get("txid") in wanted]   # never a tx that cannot land
         return serialize(name="transactions", output=txs, compress=_q(request, "compress", "none")), 200
 
     out, code = await asyncio.to_thread(_work, body)
@@ -2310,7 +2310,7 @@ async def make_app(port):
         web.get("/get_block", block_lookup),
         web.get("/get_account", account),
         web.get("/get_account_mempool", account_mempool),
-        web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool,
+        web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.live_pool(),
                                                     rate=30, heavy=True)),
         web.get("/invariants", invariants_report),
         web.get("/rollback_stats", rollback_stats_report),
@@ -2324,7 +2324,7 @@ async def make_app(port):
         # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +
         # the bounded fetch-by-id — divergent peers no longer re-download each other's whole pools.
         web.get("/transaction_ids", _dump_handler("transaction_ids",
-                                                  lambda: [t.get("txid") for t in memserver.transaction_pool],
+                                                  lambda: [t.get("txid") for t in memserver.live_pool()],
                                                   heavy=True)),
         web.post("/transactions_by_id", transactions_by_id),
         web.get("/next_block_txids", next_block_txids),

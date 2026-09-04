@@ -552,6 +552,45 @@ class MemServer:
         from ops.data_ops import get_home
         return f"{get_home()}/mempool.json"
 
+    # ---- EXPIRY ---------------------------------------------------------------------------------------
+    # A tx whose landing window has closed (max_block at or below the tip, or beyond TX_LANDING_WINDOW)
+    # can never be mined. Until 2026-09-04 it was dropped only on the core loop's PRODUCE path — and a
+    # node that is behind sits inside emergency_mode's internal while-loop and never produces, so the
+    # relay held a 10 MiB dead settle tx for 1,500 blocks, served it to four peers ~1/s through
+    # /transactions_by_id (they cannot admit it, so reconcile never converged), re-dumped it to disk
+    # every 5 s, and spent 67 % of the GIL serialising it — too slow to ever catch up and prune. The pool
+    # OWNER prunes, on the peer loop's 1 s clock (every mode), and the peer-facing reads never see a
+    # dead tx even between prunes.
+    def _tx_can_land(self, tx) -> bool:
+        from protocol import TX_LANDING_WINDOW
+        try:
+            h = self.latest_block["block_number"]
+            return h < tx["max_block"] < h + TX_LANDING_WINDOW
+        except Exception:
+            return True                      # no tip yet / odd shape: never silently hide, admission decides
+
+    def live_pool(self):
+        """The pool minus anything that can no longer land — what peers are served and what is persisted."""
+        return [t for t in self.transaction_pool if self._tx_can_land(t)]
+
+    def prune_expired_pool(self) -> int:
+        """Drop txs whose landing window has closed. Snapshot-filter-reassign under the mempool lock (vs
+        concurrent merge_transaction appends); the pool is reassigned only when something actually went.
+        Returns the number dropped."""
+        try:
+            height = self.latest_block["block_number"]
+        except Exception:
+            return 0
+        with self.mempool_lock:
+            before = self.transaction_pool
+            kept = [t for t in before if self._tx_can_land(t)]
+            dropped = len(before) - len(kept)
+            if dropped:
+                self.transaction_pool = kept
+        if dropped:
+            self.logger.warning(f"Pruned {dropped} expired tx(s) from the pool at height {height}")
+        return dropped
+
     def save_pool(self, force=False):
         import time as _t
         now = _t.time()
@@ -560,7 +599,7 @@ class MemServer:
         self._pool_saved_at = now
         import json as _json
         try:
-            txs = list(self.transaction_pool)
+            txs = self.live_pool()                 # never persist a tx that can no longer land
             tmp = self.pool_path + ".tmp"
             with open(tmp, "w") as f:
                 _json.dump(txs, f)

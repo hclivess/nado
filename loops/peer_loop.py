@@ -318,6 +318,7 @@ class PeerClient(threading.Thread):
                 _our_pool_hash = self.memserver.transaction_pool_hash
                 _same_pool = {p for p, h in self.consensus.transaction_hash_pool.copy().items()
                               if h == _our_pool_hash}
+                self.memserver.prune_expired_pool()   # every pass, every mode — see memserver.prune_expired_pool
                 self.memserver.merge_remote_transactions(user_origin=False, skip_pool_peers=_same_pool)
                 # first completed reconcile pass against a live peer set -> the pool reflects the
                 # network's, so production is safe (core_loop pool warm-up gate). Peers whose hash

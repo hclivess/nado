@@ -4432,26 +4432,6 @@ class CoreClient(threading.Thread):
                     self.memserver.force_sync_ip = None
                     self._force_sync_since = None
 
-    def prune_expired_pool(self) -> int:
-        """Drop pooled txs whose landing window has closed (max_block at or below the tip, or beyond
-        TX_LANDING_WINDOW). Same filter as the produce path's remove_outdated_transactions, under the
-        mempool lock (snapshot-filter-reassign vs concurrent merge_transaction appends). Returns the number
-        dropped; the pool object is only reassigned when something actually went."""
-        ms = self.memserver
-        try:
-            height = ms.latest_block["block_number"]
-        except Exception:
-            return 0
-        with ms.mempool_lock:
-            before = ms.transaction_pool
-            kept = remove_outdated_transactions(list(before), height)
-            dropped = len(before) - len(kept)
-            if dropped:
-                ms.transaction_pool = kept
-        if dropped:
-            self.logger.info(f"Pruned {dropped} expired tx(s) from the pool at height {height}")
-        return dropped
-
     def run(self) -> None:
         """Thread entry: once per run_interval, re-evaluate our consensus position (check_mode) and
         dispatch to normal_mode (caught up: drain mempool + maybe mint) or emergency_mode (behind:
@@ -4468,15 +4448,6 @@ class CoreClient(threading.Thread):
                     self.normal_mode()
                 else:
                     self.emergency_mode()
-
-                # EVERY pass, EVERY mode. Until 2026-09-04 expired txs were dropped only on the produce
-                # path, so a node stuck in emergency sync kept them forever: a 10 MiB settle tx 1,500
-                # blocks past its max_block sat in the relay's pool, four peers re-pulled it through
-                # /transactions_by_id about once a second (they cannot admit it, so reconcile never
-                # converged), save_pool re-dumped 12.7 MiB every 5 s, and 67 % of the GIL went to
-                # serialising a tx that could never land — the node could not catch up, so it could never
-                # produce, so it could never prune. Pruning is O(pool) and cheap; it belongs here.
-                self.prune_expired_pool()
 
                 self.consensus.refresh_hashes()
                 self.duration = get_timestamp_seconds() - start
