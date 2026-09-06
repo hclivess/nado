@@ -1812,7 +1812,11 @@ async def htlcs(request):
 # changes whenever the file on disk changes, so the assets themselves can be cached as immutable (by the
 # browser AND the CDN edge) while an edit still propagates on the next page load — the interface pulls
 # ~1.5 MB of JS (i18n.js alone is ~1 MiB), which under the old blanket no-store re-downloaded every visit.
-_STATIC_REF_RE = re.compile(rb'((?:src|href)=")(/static/[A-Za-z0-9_./-]+)(")')
+# The optional (?:\?v=...) group SWALLOWS a hand-written stamp: every page carried a literal
+# `?v=<hash>` (added 2026-09-02) that this pattern did not match, so the mtime stamp was never applied and
+# browsers kept the JS of 2026-09-02 through four days of wallet/dApp changes (found 2026-09-06 when the
+# wallet kept requesting the six per-tick endpoints after /wallet_view shipped). Keep the group.
+_STATIC_REF_RE = re.compile(rb'((?:src|href)=")(/static/[A-Za-z0-9_./-]+)(?:\?v=[A-Za-z0-9_.-]*)?(")')
 # ES-module import specifiers inside a served .js:  from "./x.js"  ·  import("./x.js")  ·  import "./x.js"
 _JS_IMPORT_RE = re.compile(rb'(\bfrom\s*["\']|import\s*\(\s*["\']|import\s*["\'])(\.{1,2}/[A-Za-z0-9_./-]+\.js)(["\'])')
 
