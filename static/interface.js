@@ -573,6 +573,29 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   return buildRegisterTx(state.wallet, targetBlock, proof, nowSeconds(), device);
 }
 
+// What this device last proved (persisted so the mining page can say it before the first registration).
+const LS_DEVICE_STATUS = "nado_device_status";
+function setDeviceStatus(st) {
+  try { localStorage.setItem(LS_DEVICE_STATUS, JSON.stringify({ ...st, at: Date.now() })); } catch (e) {}
+  renderDeviceStatus();
+}
+function renderDeviceStatus() {
+  const el = $("mineDevice"); if (!el) return;
+  let st = null; try { st = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); } catch (e) {}
+  if (!st) {
+    el.textContent = i18("device.mineUnknown", "Real device: not verified yet — the wallet attests your phone when you start mining.");
+    el.className = "small mt faint"; return;
+  }
+  if (st.ok) {
+    el.textContent = i18("device.mineOk", "Real device: attested ✓ ({f}) — this phone's secure element vouched for this identity.", { f: st.fmt || "" });
+    el.className = "small mt ok"; return;
+  }
+  el.textContent = st.reason === "unsupported"
+    ? i18("device.mineUnsupported", "Real device: this browser cannot attest hardware. A computer, VM or emulator will not be able to mine once the device rule is active; use a phone.")
+    : i18("device.mineFailed", "Real device: attestation failed ({e}). Mining will require a genuine, un-rooted phone once the device rule is active.", { e: st.reason || "" });
+  el.className = "small mt warn";
+}
+
 // DEVICE ATTESTATION (doc/device-attestation.md). The phone's secure element attests a credential over the
 // SAME challenge the node recomputes: blake2b([chain_id, sender, anchor_hash, max_block]) — bound to this
 // identity and this lease, so it can never be replayed. One tap per lease. Returns null where the browser has
@@ -591,8 +614,11 @@ async function attestDevice(sender, anchorHash, maxBlock) {
       authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "discouraged", userVerification: "preferred" },
       attestation: "direct", timeout: 120000 } });
     const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+    setDeviceStatus({ ok: true, fmt: "attested", reason: "ok" });
+    log("ok", i18("device.attestedForReg", "Real device attested for this registration."));
     return { att: b64(cred.response.attestationObject), cdj: b64(cred.response.clientDataJSON), rp: location.hostname };
   } catch (e) {
+    setDeviceStatus({ ok: false, reason: (e && e.message) || String(e) });
     log("warn", i18("device.attestSkipped", "Device attestation unavailable: {e}", { e: (e && e.message) || String(e) }));
     return null;
   }
@@ -3674,6 +3700,7 @@ function signSplash(app) {
   } catch (e) {}
 }
 function showWalletUI() {
+  try { renderDeviceStatus(); } catch (e) {}          // mining page: what this device proved (device attestation)
   show("booting", false);
   wireAutosignToggle();
   show("onboard", false);
@@ -8252,18 +8279,23 @@ function wireEvents() {
     showWalletUI();
     log("info", i18("log.walletCreated", "New wallet created & stored: {a}", {a: state.wallet.address}));
     refreshDashboard().catch(() => {});
+    // SETUP STEP: prove the device right away (one tap), so the mining page can say what this phone is
+    // before the first registration instead of failing it later.
+    setTimeout(() => { if (window.verifyDevicePreview) window.verifyDevicePreview().catch(() => {}); }, 600);
   };
 
-  // DEVICE ATTESTATION preview (doc/device-attestation.md, phase 0): ask the platform authenticator for a
-  // hardware-attested credential over a fresh challenge and let the relay parse it. No consensus effect yet.
+  // DEVICE ATTESTATION preview (doc/device-attestation.md): ask the platform authenticator for a
+  // hardware-attested credential over a fresh challenge and let the relay parse it. Runs from Settings, from
+  // the wallet-setup step, and its result is shown on the mining page (renderDeviceStatus).
   const _devBtn = $("btnDeviceVerify");
-  if (_devBtn) _devBtn.onclick = async () => {
+  window.verifyDevicePreview = async () => {
     const st = $("deviceStatus");
     const say = (t, cls) => { if (st) { st.textContent = t; st.className = "small mt " + (cls || ""); } };
     if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.create) {
-      say(i18("device.unsupported", "This browser cannot attest a device (no WebAuthn platform authenticator)."), "err"); return;
+      say(i18("device.unsupported", "This browser cannot attest a device (no WebAuthn platform authenticator)."), "err");
+      setDeviceStatus({ ok: false, reason: "unsupported" }); return;
     }
-    _devBtn.disabled = true;
+    if (_devBtn) _devBtn.disabled = true;
     try {
       const chal = new Uint8Array(32); crypto.getRandomValues(chal);
       const uid = new Uint8Array(16); crypto.getRandomValues(uid);
@@ -8283,10 +8315,13 @@ function wireEvents() {
       say((good ? i18("device.ok", "Real device attested") : i18("device.weak", "Attestation present but not a pinned phone root"))
           + ` · fmt=${s.fmt} · chain=${s.x5c_count} · aaguid=${(ad.aaguid || "").slice(0, 8)} · root ${s.root_pinned ? "pinned" : "unknown"}`, good ? "ok" : "warn");
       log(good ? "ok" : "warn", `Device attestation: fmt=${s.fmt}, ${s.x5c_count} certs, root ${s.root_pinned ? "pinned vendor root" : "not pinned"}`);
+      setDeviceStatus({ ok: good, fmt: s.fmt, reason: good ? "ok" : (s.root_pinned ? "format" : "root") });
     } catch (e) {
       say(i18("device.failed", "Attestation failed: {e}", { e: (e && e.message) || String(e) }), "err");
-    } finally { _devBtn.disabled = false; }
+      setDeviceStatus({ ok: false, reason: (e && e.message) || String(e) });
+    } finally { if (_devBtn) _devBtn.disabled = false; }
   };
+  if (_devBtn) _devBtn.onclick = window.verifyDevicePreview;
 
   $("btnMine").onclick = () => {
     if (state.starting) return;            // a start/registration is in flight → ignore extra clicks

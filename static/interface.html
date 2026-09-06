@@ -145,6 +145,7 @@
     </div>
     <div class="row mt">
       <button id="btnConfirmSave" class="primary pulse-ready" disabled data-i18n="save.continue">Continue → store on this device</button>
+      <p class="small faint mt" data-i18n="save.deviceNote">Mining identities must prove they run on a real phone. Right after this step the wallet asks your device to attest itself (one tap); a computer, VM or emulator cannot, and will not be able to mine once the rule is active.</p>
     </div>
     <p class="small faint mt" data-i18n-html="save.note">“Continue” stores the key in this browser's <span class="mono">localStorage</span> so mining can auto-resume. By default it is plain text — turn on <b>Settings → Encrypt wallet with a password</b> to encrypt it at rest and enable auto-lock. Only keep a plain-text key on a device you trust.</p>
   </div>
@@ -283,6 +284,9 @@
   <div id="mining" class="card hidden" data-tab="wallet">
     <h2 data-i18n="mining.title">Mining</h2>
     <button id="btnMine" class="big primary" data-i18n="btn.startMining">Start mining</button>
+    <!-- REAL DEVICE (doc/device-attestation.md): what this device proved to the network, right where mining
+         starts. Updated by attestDevice() during registration and by the "Verify this device" preview. -->
+    <div id="mineDevice" class="small mt" role="status"></div>
 
     <!-- Staged setup/registration status. Reuses the .hint-banner ⓘ convention; updated live through
          the one-time auto-registration (solve PoW → submit → wait for confirmation → mining). -->

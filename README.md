@@ -517,6 +517,26 @@ at all. For a full node, use a Linux VM or WSL2 and run the one-liner inside it.
 
 ---
 
+## Real devices only — device attestation
+
+A registered mining identity must prove it runs on a **real phone**. When the wallet registers (and on
+every lease renewal, every 36 h), the phone's secure element creates a hardware-bound key and returns a
+WebAuthn *attestation*: a statement signed inside the secure element whose certificate chain ends at the
+platform vendor's attestation root. Nodes verify that chain — every signature, the validity window at the
+anchor block's time, the vendor extensions — with a native kernel (`native/attest`) against roots
+**pinned in protocol** (`protocol_roots/`, `protocol.DEVICE_ATTEST_ROOT_FINGERPRINTS`: Apple's WebAuthn
+root and Google's hardware-attestation roots). Roots are never fetched and change only by a protocol commit.
+
+What that buys: a server, a VM, a desktop browser, an emulator, a software authenticator or a rooted /
+bootloader-unlocked phone cannot produce the chain. Farming identities needs genuine, locked phones and
+a human tap per identity per lease — non-automatable by design. It does not need an account, a phone
+number, or any central service: the vendor root is a public constant and the check runs on every node.
+
+In the wallet it is not hidden: the setup step attests the device right after the key is stored, the
+**Mining** page shows *Real device: attested ✓* (or why not), and Settings has *Verify this device*.
+The rule activates at `DEVICE_ATTEST_HEIGHT` (currently 0 = capture only) with the next reroll; until
+then registrations without an attestation are still accepted. Design: `doc/device-attestation.md`.
+
 ## Mine from a phone
 
 Open the running node's light-miner in any browser:

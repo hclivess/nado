@@ -7,10 +7,11 @@
 
 use base64::Engine;
 use ciborium::value::Value;
-use p256::ecdsa::{signature::Verifier, Signature as P256Sig, VerifyingKey as P256Key};
+use p256::ecdsa::{Signature as P256Sig, VerifyingKey as P256Key};
 use rsa::pkcs1v15::{Signature as RsaSig, VerifyingKey as RsaKey};
 use rsa::pkcs8::DecodePublicKey;
 use rsa::signature::Verifier as _;
+use p384::pkcs8::DecodePublicKey as _;
 use sha2::{Digest, Sha256};
 use std::os::raw::c_char;
 use x509_parser::prelude::*;
@@ -71,21 +72,47 @@ fn parse_auth_data(ad: &[u8]) -> Result<AuthData, &'static str> {
     })
 }
 
-/// Verify `sig` over `msg` with the SubjectPublicKeyInfo of `signer` (ECDSA P-256/SHA-256 or RSA PKCS#1 v1.5/SHA-256).
-fn verify_with_cert(signer: &X509Certificate, msg: &[u8], sig: &[u8]) -> bool {
-    let spki = signer.public_key();
-    let spki_der = spki.raw;
+#[derive(Clone, Copy, PartialEq)]
+enum Hash { S256, S384, S512 }
+
+/// The hash named by a certificate's signatureAlgorithm OID (ecdsa-with-SHA2xx / sha2xxWithRSAEncryption).
+fn sig_hash_of(cert: &X509Certificate) -> Option<Hash> {
+    match cert.signature_algorithm.algorithm.to_id_string().as_str() {
+        "1.2.840.10045.4.3.2" | "1.2.840.113549.1.1.11" => Some(Hash::S256),
+        "1.2.840.10045.4.3.3" | "1.2.840.113549.1.1.12" => Some(Hash::S384),
+        "1.2.840.10045.4.3.4" | "1.2.840.113549.1.1.13" => Some(Hash::S512),
+        _ => None,
+    }
+}
+
+fn digest(h: Hash, msg: &[u8]) -> Vec<u8> {
+    match h {
+        Hash::S256 => Sha256::digest(msg).to_vec(),
+        Hash::S384 => sha2::Sha384::digest(msg).to_vec(),
+        Hash::S512 => sha2::Sha512::digest(msg).to_vec(),
+    }
+}
+
+/// Verify `sig` over `msg` with the SubjectPublicKeyInfo of `signer`: ECDSA on P-256 or P-384, or RSA PKCS#1 v1.5,
+/// each with the hash the SIGNED object names (`hash`). Real Google chains mix P-256/SHA-256 leaves with
+/// P-384/SHA-384 intermediates (measured on a live sample 2026-09-07).
+fn verify_with_cert(signer: &X509Certificate, msg: &[u8], sig: &[u8], hash: Hash) -> bool {
+    use ecdsa::signature::hazmat::PrehashVerifier;
+    let spki_der = signer.public_key().raw;
+    let d = digest(hash, msg);
     if let Ok(k) = P256Key::from_public_key_der(spki_der) {
-        if let Ok(s) = P256Sig::from_der(sig) {
-            return k.verify(msg, &s).is_ok();
-        }
-        return false;
+        return match P256Sig::from_der(sig) { Ok(s) => k.verify_prehash(&d, &s).is_ok(), Err(_) => false };
+    }
+    if let Ok(k) = p384::ecdsa::VerifyingKey::from_public_key_der(spki_der) {
+        return match p384::ecdsa::Signature::from_der(sig) { Ok(s) => k.verify_prehash(&d, &s).is_ok(), Err(_) => false };
     }
     if let Ok(k) = rsa::RsaPublicKey::from_public_key_der(spki_der) {
-        let vk = RsaKey::<Sha256>::new(k);
-        if let Ok(s) = RsaSig::try_from(sig) {
-            return vk.verify(msg, &s).is_ok();
-        }
+        let s = match RsaSig::try_from(sig) { Ok(s) => s, Err(_) => return false };
+        return match hash {
+            Hash::S256 => RsaKey::<Sha256>::new(k).verify(msg, &s).is_ok(),
+            Hash::S384 => RsaKey::<sha2::Sha384>::new(k).verify(msg, &s).is_ok(),
+            Hash::S512 => RsaKey::<sha2::Sha512>::new(k).verify(msg, &s).is_ok(),
+        };
     }
     false
 }
@@ -121,10 +148,14 @@ fn verify_chain(x5c: &[Vec<u8>], roots: &[Vec<u8>], now: i64, out: &mut Out) -> 
         }
         let tbs = c.tbs_certificate.as_ref();
         let sig = c.signature_value.as_ref();
+        let hash = match sig_hash_of(c) {
+            Some(h) => h,
+            None => return Err(format!("x5c[{i}] unsupported signature algorithm")),
+        };
         let signer_ok = if i + 1 < parsed.len() {
-            verify_with_cert(&parsed[i + 1], tbs, sig)
+            verify_with_cert(&parsed[i + 1], tbs, sig, hash)
         } else {
-            root_certs.iter().any(|r| verify_with_cert(r, tbs, sig))
+            root_certs.iter().any(|r| verify_with_cert(r, tbs, sig, hash))
         };
         if !signer_ok {
             return Err(format!("x5c[{i}] signature does not verify against its issuer"));
@@ -284,7 +315,7 @@ fn verify_inner(att: &[u8], cdj: &[u8], challenge: &[u8], roots: &[Vec<u8>], rp_
             };
             let mut msg = ad.clone();
             msg.extend_from_slice(&cdj_hash);
-            if !verify_with_cert(&leaf, &msg, &sig) {
+            if !verify_with_cert(&leaf, &msg, &sig, Hash::S256) {
                 return fail(out, "android-key: signature does not verify");
             }
             if !cose_p256_matches(&a.cred_pubkey_cose, &leaf) {

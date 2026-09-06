@@ -16,6 +16,8 @@ serde_json = "1"
 x509-parser = "0.16"
 der-parser = "9"
 p256 = { version = "0.13", features = ["ecdsa", "pem"] }
+p384 = { version = "0.13", features = ["ecdsa", "pem"] }
+ecdsa = { version = "0.16", features = ["verifying"] }
 rsa = { version = "0.9", features = ["sha2"] }
 sha2 = "0.10"
 base64 = "0.22"
