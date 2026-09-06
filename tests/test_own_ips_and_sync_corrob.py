@@ -48,7 +48,7 @@ def main():
     psrc = open(os.path.join(root, "ops", "peer_ops.py")).read()
     assert "ip == my_ip or ip in own_ips()" in psrc and "p not in own_ips() and check_ip(p)" in psrc
     csrc = open(os.path.join(root, "loops", "core_loop.py")).read()
-    assert csrc.count("_me = own_ips() | {self.memserver.ip, get_config().get(\"ip\")}") == 3
+    assert csrc.count("_me = own_ips() | {self.memserver.ip, get_config().get(\"ip\")}") == 4
     print("ALL OK")
 
 

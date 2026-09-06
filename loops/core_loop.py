@@ -151,9 +151,10 @@ def majority_on_our_canonical(majority_hash, get_block_fn, canonical_hash_at_fn,
             n = number_by_hash_fn(majority_hash)
         except Exception:
             n = None
-        if n is None:
-            return False
-        return canonical_hash_at_fn(n) == majority_hash
+        if n is not None:
+            return canonical_hash_at_fn(n) == majority_hash
+        # index miss: fall through to the body lookup (a block we hold but have not indexed, and the
+        # test harnesses that drive this with a fake block store) — the slow path only when it matters
     blk = get_block_fn(majority_hash)
     if not blk:
         return False
@@ -1549,7 +1550,10 @@ class CoreClient(threading.Thread):
             # DEFAULT_SEED_PEERS[0]), so seeds-first would otherwise guarantee our own IP in slot 0 — we
             # would answer our own fork-state question with our own hash and count it in the tally.
             # ops/peer_ops.py:285 already applies exactly this carve-out to the dial set; mirror it here.
-            _me = {get_config().get("ip")} - {None}
+            # own_ips(): self-identity is a SET (dual-stack host that is also a seed) — see peer_ops.own_ips.
+            # This site kept probing OURSELVES after the other three were fixed: our own /hash_attest answered
+            # in 3.7 s from the loaded relay, and majority_hash waits for the slowest probe of the round.
+            _me = own_ips() | {self.memserver.ip, get_config().get("ip")} - {None}
             peers = [p for p in dict.fromkeys(list(seed_peers()) + list(self.memserver.peers))
                      if p not in _me][:8]
             if not peers:

@@ -1246,6 +1246,7 @@ async def get_richest(request):
 
 
 _wealth_cache = {"height": -1, "data": None}
+_wealth_body = {"height": -1, "body": None}      # encoded JSON of _wealth_cache["data"], same height key
 
 
 WEALTH_RANKS_MAX = 4096       # /wealth_stats `ranks` entries: complete below (~57 KB at the cap), sampled above
@@ -1321,7 +1322,16 @@ async def get_wealth_stats(request):
                 "ranks": [str(t) for t in ranks]}
         _wealth_cache.update(height=h, data=data)
         return data
-    return _resp(await asyncio.to_thread(_work))
+    data = await asyncio.to_thread(_work)
+    # PRE-ENCODED BODY per height (2026-09-06): the ranks payload is ~57 KB and was JSON-encoded on the
+    # event loop for every one of ~4.5 req/s (7.6 % of event-loop CPU); encode once per height.
+    h = data.get("block_number") if isinstance(data, dict) else None
+    body = _wealth_body.get("body") if h is not None and _wealth_body.get("height") == h else None
+    if body is None:
+        body = json.dumps(data, separators=(",", ":")).encode("utf-8")
+        if h is not None:
+            _wealth_body.update(height=h, body=body)
+    return web.Response(body=body, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"})
 
 
 # ------------------------------------------------ peer geolocation (interface stats world map) ----

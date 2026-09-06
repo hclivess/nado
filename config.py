@@ -135,12 +135,28 @@ def test_self_port(ip, port):
         return not result
 
 
+_config_memo = {}     # path -> ((mtime_ns, size, inode), dict) — see get_config
+
+
 def get_config(config_path: str = None):
-    """Load the node config dict from private/config.json. Deliberately uncached and raising on a
-    missing file — callers either checked config_found() first or WANT the loud failure (a node
-    without a config must not limp along on invented defaults)."""
-    with open(config_path or _config_path()) as infile:
-        return json.loads(infile.read())
+    """Load the node config dict from private/config.json. Raises on a missing file — callers either
+    checked config_found() first or WANT the loud failure (a node without a config must not limp along
+    on invented defaults).
+
+    MEMOIZED PER FILE VERSION (2026-09-06): peer_ops.me_to() calls this on every /peers request, so the
+    relay re-read and re-parsed the JSON file on its event loop 4-5 times a second — 12 % of event-loop
+    CPU (py-spy). The memo is keyed on (mtime_ns, size, inode), so update_config's atomic rename (a new
+    inode) or any in-place edit is seen on the very next call; a stat is ~2 us against ~80 us for
+    open+read+parse. Returns a FRESH copy each call: callers mutate the dict (update_config's merge)."""
+    path = config_path or _config_path()
+    st = os.stat(path)
+    key = (st.st_mtime_ns, st.st_size, st.st_ino)
+    hit = _config_memo.get(path)
+    if hit is None or hit[0] != key:
+        with open(path) as infile:
+            hit = (key, json.loads(infile.read()))
+        _config_memo[path] = hit
+    return dict(hit[1])
 
 
 def update_config(new_config: dict, config_path: str = None):
