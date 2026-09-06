@@ -1366,8 +1366,20 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                             # somewhere else; these timers split the budget between the two verifications.
                             with _SETTLE_VERIFY_GATE:         # one sparse verification at a time, process-wide
                                 _t_kv = _time.time()
-                                _hit = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
-                                print(f"[settle-verify] KV half {_time.time() - _t_kv:.1f}s ok={_hit[0]}", flush=True)
+                                # OUT OF PROCESS (2026-09-07): the verdict is computed by a child interpreter so
+                                # the 70-780 s of hashing never holds THIS process's GIL (ops/proof_child.py);
+                                # NADO_PROOF_VERIFY_INPROC=1 keeps the old inline path. A child failure is not
+                                # a verdict: fall back inline, exactly as before.
+                                import os as _os
+                                _hit = None
+                                if not _os.environ.get("NADO_PROOF_VERIFY_INPROC"):
+                                    from ops.proof_child import verify_sparse_out_of_process
+                                    _hit = verify_sparse_out_of_process(proof, _protocol.EXEC_TREE_DEPTH)
+                                    _where = "child"
+                                if _hit is None:
+                                    _hit = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
+                                    _where = "inproc"
+                                print(f"[settle-verify] KV half {_time.time() - _t_kv:.1f}s ok={_hit[0]} ({_where})", flush=True)
                             if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
                                 _SETTLE_VERIFY_MEMO.clear()   # bounded: a proof is ~118 MiB, entries are tiny
                             _SETTLE_VERIFY_MEMO[_vk] = _hit
