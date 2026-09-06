@@ -25,6 +25,8 @@ def main():
     att, cdj, root_der = FX.build_apple("get.nadochain.com", chal)
     AN.pinned_roots_der = lambda: [root_der]
     AN._roots_blob = None
+    import hashlib
+    P.DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset(P.DEVICE_ATTEST_ROOT_FINGERPRINTS | {hashlib.sha256(root_der).hexdigest()})
     now = int(time.time()) + 120
     TO.get_block_number = lambda n: {"block_number": n, "block_hash": anchor_hash, "block_timestamp": now}
     b64 = lambda b: base64.b64encode(b).decode()
@@ -46,6 +48,36 @@ def main():
         TO.verify_register_device(tx, "22" * 32); raise AssertionError("accepted a foreign anchor")
     except AssertionError as e:
         assert "anchor" in str(e) or "challenge" in str(e), str(e)
+    # per-device-class constraints: tpm needs the Windows Hello hardware AAGUID, the Microsoft root and a physical
+    # manufacturer; packed needs the AAGUID's OWN root. Exercised with fake verdicts (the kernel is tested elsewhere).
+    calls = {}
+    def fake_verify(att_, cdj_, chal_, now_, rp_ids=None, roots=None):
+        return dict(calls)
+    real_verify = AN.verify
+    AN.verify = fake_verify
+    try:
+        P.DEVICE_ATTEST_FIDO_AAGUID_ROOTS["cc" * 16] = frozenset({"r" * 64})
+        base = {"ok": True, "aaguid": "08987058cadc4b81b6e130de50dcbe96", "root_sha256": next(iter(P.DEVICE_ATTEST_ROOT_FINGERPRINTS)), "tpm_manufacturer": "49465800"}
+        calls.update(base, fmt="tpm"); assert TO.verify_register_device(tx, anchor_hash)["ok"]
+        calls.update(base, fmt="tpm", tpm_manufacturer="4D534654")
+        try: TO.verify_register_device(tx, anchor_hash); raise AssertionError("virtual TPM accepted")
+        except AssertionError as e: assert "physical" in str(e), str(e)
+        calls.update(base, fmt="tpm", aaguid="9ddd1817af5a4672a2b93e3dd95000a9")
+        try: TO.verify_register_device(tx, anchor_hash); raise AssertionError("VBS authenticator accepted")
+        except AssertionError as e: assert "hardware authenticator" in str(e), str(e)
+        calls.update(base, fmt="packed", aaguid="cc" * 16, root_sha256="r" * 64); assert TO.verify_register_device(tx, anchor_hash)["ok"]
+        calls.update(base, fmt="packed", aaguid="cc" * 16, root_sha256="s" * 64)
+        try: TO.verify_register_device(tx, anchor_hash); raise AssertionError("foreign root accepted for this AAGUID")
+        except AssertionError as e: assert "own root" in str(e), str(e)
+        calls.update(base, fmt="packed", aaguid="dd" * 16, root_sha256="r" * 64)
+        try: TO.verify_register_device(tx, anchor_hash); raise AssertionError("unknown AAGUID accepted")
+        except AssertionError as e: assert "AAGUID" in str(e), str(e)
+        calls.update(base, fmt="none")
+        try: TO.verify_register_device(tx, anchor_hash); raise AssertionError("format none accepted")
+        except AssertionError as e: assert "format" in str(e), str(e)
+    finally:
+        AN.verify = real_verify
+        P.DEVICE_ATTEST_FIDO_AAGUID_ROOTS.pop("cc" * 16, None)
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
     seg = src[src.index('elif recipient == "register":'):src.index('elif recipient == "msgkey":')]
     assert "if DEVICE_ATTEST_HEIGHT and block_height >= DEVICE_ATTEST_HEIGHT:" in seg and "verify_register_device(transaction, anchor)" in seg

@@ -414,7 +414,28 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
     challenge = register_device_challenge(transaction["sender"], anchor_hash, int(transaction["max_block"]))
     verdict = attest_native.verify(att, cdj, challenge, now, rp_ids=list(DEVICE_ATTEST_RP_IDS) + [rp])
     assert verdict.get("ok"), f"device attestation rejected: {verdict.get('reason')}"
-    assert verdict.get("fmt") in DEVICE_ATTEST_FORMATS, f"device attestation format not accepted: {verdict.get('fmt')}"
+    fmt = verdict.get("fmt")
+    assert fmt in DEVICE_ATTEST_FORMATS, f"device attestation format not accepted: {fmt}"
+    # PER-DEVICE-CLASS CONSTRAINTS (doc/device-attestation.md — none of these may be spoofable):
+    #   apple / android-key: the vendor root reached is the whole proof (chain verified by the kernel).
+    #   tpm: only the Windows Hello HARDWARE authenticator AAGUID, the chain must end at Microsoft's TPM root, and
+    #        the AIK certificate's TPM manufacturer must be a physical maker (Microsoft's own id is a virtual TPM).
+    #   packed: the AAGUID must be a FIDO2 authenticator with full attestation in the pinned metadata snapshot AND
+    #        the chain must end at one of THAT authenticator's own roots.
+    from protocol import (DEVICE_ATTEST_TPM_AAGUIDS, DEVICE_ATTEST_TPM_MANUFACTURERS, DEVICE_ATTEST_FIDO_AAGUID_ROOTS,
+                          DEVICE_ATTEST_ROOT_FINGERPRINTS)
+    aaguid, root = str(verdict.get("aaguid") or ""), str(verdict.get("root_sha256") or "")
+    if fmt == "tpm":
+        assert aaguid in DEVICE_ATTEST_TPM_AAGUIDS, "tpm attestation: not the Windows Hello hardware authenticator"
+        assert root in DEVICE_ATTEST_ROOT_FINGERPRINTS, "tpm attestation: chain does not end at the pinned Microsoft TPM root"
+        assert str(verdict.get("tpm_manufacturer") or "").upper() in DEVICE_ATTEST_TPM_MANUFACTURERS, \
+            f"tpm attestation: TPM manufacturer {verdict.get('tpm_manufacturer')} is not a physical TPM maker"
+    elif fmt == "packed":
+        roots_for = DEVICE_ATTEST_FIDO_AAGUID_ROOTS.get(aaguid)
+        assert roots_for, "packed attestation: AAGUID is not a FIDO2 authenticator with full attestation"
+        assert root in roots_for, "packed attestation: chain does not end at this authenticator's own root"
+    else:
+        assert root in DEVICE_ATTEST_ROOT_FINGERPRINTS, "attestation chain does not end at a pinned vendor root"
     return verdict
 
 

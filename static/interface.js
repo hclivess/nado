@@ -611,7 +611,7 @@ async function attestDevice(sender, anchorHash, maxBlock) {
       challenge: chal, rp: { name: "NADO", id: location.hostname },
       user: { id: uid, name: sender, displayName: "NADO identity" },
       pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
-      authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "discouraged", userVerification: "preferred" },
+      authenticatorSelection: { residentKey: "discouraged", userVerification: "preferred" }   /* platform (phone/TPM) OR a security key */,
       attestation: "direct", timeout: 120000 } });
     const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
     setDeviceStatus({ ok: true, fmt: "attested", reason: "ok" });
@@ -8303,7 +8303,7 @@ function wireEvents() {
         challenge: chal, rp: { name: "NADO", id: location.hostname },
         user: { id: uid, name: (state.wallet && state.wallet.address) || "nado", displayName: "NADO identity" },
         pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
-        authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "discouraged", userVerification: "preferred" },
+        authenticatorSelection: { residentKey: "discouraged", userVerification: "preferred" }   /* platform (phone/TPM) OR a security key */,
         attestation: "direct", timeout: 60000 } });
       const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
       const body = { att: b64(cred.response.attestationObject), cdj: b64(cred.response.clientDataJSON), cid: b64(cred.rawId) };

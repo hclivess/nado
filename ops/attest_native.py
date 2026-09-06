@@ -56,6 +56,13 @@ def pinned_roots_der():
         der = base64.b64decode(b64)
         if hashlib.sha256(der).hexdigest() in P.DEVICE_ATTEST_ROOT_FINGERPRINTS:
             out.append(der)
+    # FIDO2 security-key roots (protocol_roots/fido_mds_roots.json), filtered by the pinned fingerprint set
+    import json as _json
+    with open(os.path.join(d, "fido_mds_roots.json")) as f:
+        for r in _json.load(f)["roots"]:
+            der = base64.b64decode(r["der_b64"])
+            if hashlib.sha256(der).hexdigest() in P.DEVICE_ATTEST_FIDO_ROOT_FINGERPRINTS:
+                out.append(der)
     return out
 
 

@@ -73,7 +73,7 @@ def main():
     r = AN.verify(android(1, 1, b"\x00" * 32), cdj, chal, now, roots=[root_der], rp_ids=[rp]); assert not r["ok"] and "attestationChallenge" in r["reason"], r
     r = AN.verify(android(1, 1, cdj_hash, tamper=True), cdj, chal, now, roots=[root_der], rp_ids=[rp]); assert not r["ok"] and "signature" in r["reason"], r
     # the production root set loads and is exactly the pinned five
-    assert len(AN.pinned_roots_der()) == 5
+    assert len(AN.pinned_roots_der()) == 6 + 240, "Apple, four Google, Microsoft TPM, plus the 240 FIDO metadata roots"
     print("ALL OK")
 
 

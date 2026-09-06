@@ -1521,8 +1521,44 @@ DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "1ef1a04b8ba58ab94589ac498c8982a783f24ea7307e0159a0c3a73b377d87cc",  # Google Hardware Attestation Root (2034)
     "ab6641178a36e179aa0c1cdddf9a16eb45fa20943e2b8cd7c7c05c26cf8b487a",  # Google Hardware Attestation Root (2036)
     "6d9db4ce6c5c0b293166d08986e05774a8776ceb525d9e4329520de12ba4bcc0",  # Google Key Attestation CA1 (2035)
+    "870c7a35ceab3d59979f2c6a524042d404cb71518004350925fb2ced79a999da",  # Microsoft TPM Root Certificate Authority 2014 (2039) — Windows Hello hardware (TPM) authenticators
 ))
-DEVICE_ATTEST_FORMATS = frozenset(("apple", "android-key"))   # rejected: none, packed(self), tpm, android-safetynet
+# FIDO2 SECURITY KEYS (Linux and any computer): roots of every FIDO2 authenticator with full attestation in the
+# FIDO Alliance metadata (protocol_roots/fido_mds_roots.json, a SNAPSHOT curated at commit time — never fetched
+# at validation; refreshed only by a gated protocol commit). A `packed` statement must chain to one of these AND
+# carry an AAGUID listed there.
+def _fido_mds_bundle():
+    import json as _json, os as _os
+    with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "protocol_roots", "fido_mds_roots.json")) as f:
+        return _json.load(f)
+_FIDO = _fido_mds_bundle()
+DEVICE_ATTEST_FIDO_ROOT_FINGERPRINTS = frozenset(r["sha256"] for r in _FIDO["roots"])
+# AAGUID -> the root fingerprints of THAT authenticator model: a packed statement must chain to one of them,
+# never merely to some root in the set (vendor A's key could otherwise claim vendor B's AAGUID).
+DEVICE_ATTEST_FIDO_AAGUID_ROOTS = {a: frozenset(v["roots"]) for a, v in _FIDO["aaguids"].items()}
+DEVICE_ATTEST_FIDO_AAGUIDS = frozenset(DEVICE_ATTEST_FIDO_AAGUID_ROOTS)
+del _FIDO
+# accepted statement formats: apple (iPhone/iPad), android-key (Android, TEE/StrongBox), tpm (Windows Hello on a
+# physical TPM), packed (FIDO2 security keys). Rejected: none, packed self-attestation, android-safetynet, fido-u2f.
+DEVICE_ATTEST_FORMATS = frozenset(("apple", "android-key", "tpm", "packed"))
+# tpm: only the Windows Hello HARDWARE authenticator AAGUID (the VBS and software variants are not a TPM), and only
+# physical TPM manufacturers — Microsoft's own id (4D534654 "MSFT") is the Hyper-V/Azure VIRTUAL TPM, rejected.
+DEVICE_ATTEST_TPM_AAGUIDS = frozenset(("08987058cadc4b81b6e130de50dcbe96",))
+DEVICE_ATTEST_TPM_MANUFACTURERS = frozenset((
+    "49465800",  # IFX  Infineon
+    "53544D20",  # STM  STMicroelectronics
+    "4E544300",  # NTC  Nuvoton
+    "494E5443",  # INTC Intel (PTT)
+    "414D4400",  # AMD  (fTPM)
+    "51434F4D",  # QCOM Qualcomm
+    "4E534D20",  # NSM  Nationz
+    "4E545A00",  # NTZ  Nationz
+    "534D5343",  # SMSC
+    "4C454E00",  # LEN  Lenovo
+    "41544D4C",  # ATML Atmel
+    "42524342",  # BRCM Broadcom
+    "47004F00",  # GOOG Google (Titan)
+))
 # Relying-party ids whose hash may appear in authenticator data: the public wallet hosts. A wallet served from a
 # node's own ip:port attests against that host, so nodes also accept their configured host at validation
 # (transaction_ops adds it); consensus checks only the SET below plus the tx's declared rp id.
