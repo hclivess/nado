@@ -1523,3 +1523,7 @@ DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "6d9db4ce6c5c0b293166d08986e05774a8776ceb525d9e4329520de12ba4bcc0",  # Google Key Attestation CA1 (2035)
 ))
 DEVICE_ATTEST_FORMATS = frozenset(("apple", "android-key"))   # rejected: none, packed(self), tpm, android-safetynet
+# Relying-party ids whose hash may appear in authenticator data: the public wallet hosts. A wallet served from a
+# node's own ip:port attests against that host, so nodes also accept their configured host at validation
+# (transaction_ops adds it); consensus checks only the SET below plus the tx's declared rp id.
+DEVICE_ATTEST_RP_IDS = ("get.nadochain.com", "nadochain.com")

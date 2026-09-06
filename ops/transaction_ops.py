@@ -381,7 +381,44 @@ def construct_withdraw_tx(keydict, amount, release_block, max_block):
     return tx
 
 
-def construct_register_tx(keydict, max_block, posw_proof):
+def register_device_challenge(sender: str, anchor_hash: str, max_block: int) -> bytes:
+    """The 32-byte challenge a device must attest over: bound to the chain, the identity, the anchor block
+    (fresh, unpredictable) and the landing block — an attestation can never be replayed for another identity
+    or another lease. The wallet computes the same bytes (blake2bHash of the same list)."""
+    from hashing import blake2b_hash
+    return bytes.fromhex(blake2b_hash([CHAIN_ID, sender, anchor_hash, int(max_block)]))
+
+
+def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
+    """Consensus check of transaction["device"] = {"att": b64, "cdj": b64, "rp": str}. Deterministic: the
+    certificate validity clock is the ANCHOR block's timestamp (never wall time), the roots are the pinned
+    set, the accepted rp ids are protocol.DEVICE_ATTEST_RP_IDS plus the tx's own declared rp (the rp id is a
+    phishing control, not the Sybil control — the secure-element chain is). Raises AssertionError on any
+    failure; returns the kernel's verdict dict on success."""
+    import base64 as _b64
+    from protocol import DEVICE_ATTEST_FORMATS, DEVICE_ATTEST_RP_IDS, POSW_ANCHOR_OFFSET
+    from ops import attest_native
+    dev = transaction.get("device")
+    assert isinstance(dev, dict), "Missing device attestation (a registered identity must be a real phone)"
+    try:
+        att = _b64.b64decode(str(dev.get("att", "")), validate=True)
+        cdj = _b64.b64decode(str(dev.get("cdj", "")), validate=True)
+    except Exception:
+        raise AssertionError("device attestation is not valid base64")
+    assert 0 < len(att) <= 64_000 and 0 < len(cdj) <= 4_000, "device attestation size out of bounds"
+    rp = str(dev.get("rp", "") or "")
+    assert 0 < len(rp) <= 253 and all(c.isalnum() or c in ".-" for c in rp), "device rp id malformed"
+    anchor_block = get_block_number(max(0, int(transaction["max_block"]) - POSW_ANCHOR_OFFSET))
+    assert anchor_block and anchor_block.get("block_hash") == anchor_hash, "attestation anchor block unavailable"
+    now = int(anchor_block.get("block_timestamp") or 0)
+    challenge = register_device_challenge(transaction["sender"], anchor_hash, int(transaction["max_block"]))
+    verdict = attest_native.verify(att, cdj, challenge, now, rp_ids=list(DEVICE_ATTEST_RP_IDS) + [rp])
+    assert verdict.get("ok"), f"device attestation rejected: {verdict.get('reason')}"
+    assert verdict.get("fmt") in DEVICE_ATTEST_FORMATS, f"device attestation format not accepted: {verdict.get('fmt')}"
+    return verdict
+
+
+def construct_register_tx(keydict, max_block, posw_proof, device=None):
     """Build a SIGNED open-lane registration/renewal tx. FEE-EXEMPT + zero-amount; carries the sequential
     PoSW proof (ops.posw.prove of posw.challenge_bytes(sender, anchor-block-hash)) that gates open-lane entry.
     posw rides in the signed body (create_txid commits it — only public_key is excluded), exactly like the
@@ -390,6 +427,8 @@ def construct_register_tx(keydict, max_block, posw_proof):
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0, "posw": posw_proof}
+    if device is not None:
+        tx["device"] = device            # {"att", "cdj", "rp"} — committed by the txid like posw
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -1136,6 +1175,13 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # fidelity drives open-lane producer selection, so that residual is a reorg-fork, not cosmetic.
         assert kv_ops.recert_latest(transaction["sender"]) < (block_height // EPOCH_LENGTH), \
             "sender already recerted this epoch (one register per epoch)"
+        # DEVICE ATTESTATION (doc/device-attestation.md): from DEVICE_ATTEST_HEIGHT every register tx —
+        # entry or renewal — must carry a hardware attestation over the anchor-bound challenge, verified by
+        # the native kernel against the PINNED vendor roots. A rooted/unlocked phone, a VM, a desktop or a
+        # software authenticator cannot produce one; a genuine phone needs a human tap per identity per lease.
+        from protocol import DEVICE_ATTEST_HEIGHT
+        if DEVICE_ATTEST_HEIGHT and block_height >= DEVICE_ATTEST_HEIGHT:
+            verify_register_device(transaction, anchor)
     elif recipient == "msgkey":
         # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
         # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is

@@ -1,0 +1,26 @@
+[package]
+name = "nado-attest"
+version = "0.1.0"
+edition = "2021"
+description = "NADO native device-attestation verifier (WebAuthn apple / android-key statements against pinned vendor roots) — Rust cdylib bound by ops/attest_native.py"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "nado_attest"
+crate-type = ["cdylib"]
+
+[dependencies]
+ciborium = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+x509-parser = "0.16"
+der-parser = "9"
+p256 = { version = "0.13", features = ["ecdsa", "pem"] }
+rsa = { version = "0.9", features = ["sha2"] }
+sha2 = "0.10"
+base64 = "0.22"
+oid-registry = "0.7"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

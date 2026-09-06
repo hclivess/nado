@@ -500,7 +500,7 @@ function finalizeTransaction(draft, privHex, fee) {
 // REGISTER is by definition an address's FIRST on-chain tx, so it MUST carry public_key — this is
 // what establishes the sender's pubkey on-chain (the node stores it on first use) and lets every
 // later tx omit it. Always include it here.
-function buildRegisterTx(wallet, targetBlock, posw, timestamp) {
+function buildRegisterTx(wallet, targetBlock, posw, timestamp, device) {
   const draft = {
     sender: wallet.address,
     recipient: "register",
@@ -513,6 +513,7 @@ function buildRegisterTx(wallet, targetBlock, posw, timestamp) {
     chain_id: CHAIN_ID,
     posw,                        // sequential Proof of Work (renewable presence lease); replaces pow_nonce
   };
+  if (device) draft.device = device;   // {att, cdj, rp}: hardware attestation over the anchor-bound challenge (doc/device-attestation.md)
   return finalizeTransaction(draft, wallet.privateKey, 0);
 }
 
@@ -568,7 +569,33 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   const T = (requiredT && requiredT >= POSW_T && requiredT % POSW_S === 0) ? requiredT : POSW_T;
   const proof = await poswProveAsync(challengeBytes(state.wallet.address, anchorHash),
     T, POSW_S, POSW_K, await miningHashDeps(), onProgress);
-  return buildRegisterTx(state.wallet, targetBlock, proof, nowSeconds());
+  const device = await attestDevice(state.wallet.address, anchorHash, targetBlock);
+  return buildRegisterTx(state.wallet, targetBlock, proof, nowSeconds(), device);
+}
+
+// DEVICE ATTESTATION (doc/device-attestation.md). The phone's secure element attests a credential over the
+// SAME challenge the node recomputes: blake2b([chain_id, sender, anchor_hash, max_block]) — bound to this
+// identity and this lease, so it can never be replayed. One tap per lease. Returns null where the browser has
+// no platform authenticator (a desktop, a VM, a script): the node rejects such a registration once the
+// DEVICE_ATTEST_HEIGHT gate is active, and that is the point — the wallet says so instead of pretending.
+async function attestDevice(sender, anchorHash, maxBlock) {
+  if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.create) return null;
+  try {
+    const chalHex = blake2bHash([CHAIN_ID, sender, anchorHash, maxBlock]);
+    const chal = new Uint8Array(chalHex.match(/../g).map((h) => parseInt(h, 16)));
+    const uid = new Uint8Array(16); crypto.getRandomValues(uid);
+    const cred = await navigator.credentials.create({ publicKey: {
+      challenge: chal, rp: { name: "NADO", id: location.hostname },
+      user: { id: uid, name: sender, displayName: "NADO identity" },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "discouraged", userVerification: "preferred" },
+      attestation: "direct", timeout: 120000 } });
+    const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+    return { att: b64(cred.response.attestationObject), cdj: b64(cred.response.clientDataJSON), rp: location.hostname };
+  } catch (e) {
+    log("warn", i18("device.attestSkipped", "Device attestation unavailable: {e}", { e: (e && e.message) || String(e) }));
+    return null;
+  }
 }
 
 // Current registration difficulty from the relay: {reqT, mult, recent, entryMult}. Falls back to base.

@@ -16,13 +16,15 @@ root. A cloud VM, a desktop browser, an emulator, or a software authenticator ca
 - PROVES: this registration was created on a genuine iOS or Android device (model class visible), by a
   key that lives in that device's hardware, over a challenge the chain chose (fresh, unpredictable).
 - PROVES on renewal: the same device key signed the new beacon-derived challenge — the phone was present.
-- DOES NOT prove one identity per device: a rooted phone can create many credentials. What it changes is
-  the unit of cost: identities need physical genuine phones that stay online, not browser tabs.
-  A 1,000-identity farm needs racks of phones (~$30-50 each) plus automation that survives vendor
-  integrity checks. That is the strongest decentralized barrier available without a central issuer.
-- Uniqueness per device is deliberately NOT exposed by the vendors (privacy). Per-device capacity is
-  bounded instead by the existing sequential work per lease and the tap-gated signature (WebAuthn
-  requires user activation for every signature, so silent bulk signing is not possible in a browser).
+- ROOTING IS NOT THE LOOPHOLE. Android key attestation reports the boot state from the secure element
+  (bootloader locked, verified boot); the kernel requires TEE/StrongBox security levels, and phase 2 also
+  requires `deviceLocked` + `verifiedBootState == Verified` from the RootOfTrust field, so rooted and
+  unlocked phones are rejected outright. A rooted phone is exactly what would automate the tap, and it
+  cannot attest.
+- DOES NOT prove one identity per device: vendors expose no per-device identifier (privacy). A genuine,
+  locked phone can create as many credentials as a HUMAN taps — one tap per identity per lease, since
+  WebAuthn requires user activation for every signature and a rooted device cannot attest. That is the
+  operator's criterion: the cost is non-automatable human work on genuine hardware, not CPU or capital.
 
 ## Roots are consensus constants
 
@@ -44,9 +46,10 @@ and change only through a gated protocol commit. Revocation lists are not consul
   "fmt": "apple" | "android-key",
   "att": <base64 CBOR attestationObject>,        # authData + attStmt (x5c chain, sig)
   "cdj": <base64 clientDataJSON>,                 # type, challenge, origin
-  "cid": <base64 credentialId>
+  "rp": <relying-party id the wallet was served from>
 }
 ```
+(`fmt` is read from the CBOR; the credential id is inside `att`.)
 
 The challenge inside `cdj` MUST equal `blake2b(chain_id || sender || anchor_block_hash || max_block)`,
 the same anchor the PoSW already binds, so an attestation cannot be replayed for another identity or
@@ -66,22 +69,20 @@ control — the secure-element chain is the Sybil control.
    `sha256(authData || sha256(cdj))`. Android: the key-description extension
    (1.3.6.1.4.1.11129.2.1.17) must carry the challenge, `attestationSecurityLevel` and
    `keymasterSecurityLevel` = TrustedEnvironment or StrongBox, and `origin` = GENERATED.
-5. AAGUID (Apple) / device model fields (Android) recorded on the account as `device_class`.
+5. AAGUID / security level returned in the verdict (informational — nothing is written to the account).
 
 Pure Rust (`p256`, `x509-parser`, `ciborium`), no network, deterministic, bound through ctypes like
 `nado_pq_native`. Every node verifies the same bytes against the same pinned roots.
 
 ## Consensus rule (gated: `DEVICE_ATTEST_HEIGHT`)
 
-From the gate height:
-- an ENTRY registration without a valid `device` is rejected;
-- a RENEWAL must carry a fresh attestation signed by the SAME credential (`cid` matches the account's
-  stored credential hash) over the new challenge;
-- `dividend_weight` is 0 for an identity whose account carries no `device_class` (existing identities get
-  one lease to attest; the epoch-weight derivation reads the flag from committed state, replayable);
-- the open-lane draw keeps free entry for production: an unattested identity may still win blocks at
-  the probation weight, so a newcomer without a supported phone can still mine — it simply earns no
-  dividend, which is where 87 % of the open-lane value lives.
+From the gate height (`transaction_ops.verify_register_device`, called from the register branch):
+- EVERY register tx — entry or renewal — must carry a valid `device` attestation over the anchor-bound
+  challenge, or it is invalid. Presence (a recert within the lease) therefore implies attestation, and
+  the dividend weight derivation needs no new state.
+- Identities registered before the gate keep their lease until it expires; their next renewal must attest.
+- Same-credential binding across renewals (`cid`) is phase 2: phase 1 accepts any genuine device per
+  renewal, so a user who changes phones is never locked out.
 
 ## Wallet
 
@@ -91,12 +92,27 @@ attestation: "direct"}})` at registration; `navigator.credentials.get` with the 
 renewal. One tap per lease (36 h). Desktop browsers with a platform authenticator (TPM, Touch ID on a
 Mac) are rejected by AAGUID/format unless the operator decides otherwise.
 
+## Sequential work (PoSW) after the gate
+
+Once every register tx binds the anchor block through the attestation challenge, the sequential-work
+proof's remaining role is a weak spam brake that a phone pays in ~1 s and a farm in CPU. It is retired
+at the reroll that activates the gate (the entry/renewal difficulty machinery with it); until then it
+stays, so nodes on either side of the gate validate the same transactions.
+
+## Account state
+
+Nothing is written to the account: from the gate every register tx is attested, so "present at epoch E"
+(a recert within the lease, from the recert history) already implies "attested", and the epoch weight
+derivation stays replayable from the recert index alone. The wallet shows the attestation from the tx.
+
 ## Phases
 
 0. (this commit) Design; wallet "Verify device" capture; relay `/device_attest_probe` that parses the
    statement and logs fmt / AAGUID / chain subjects, so real phone samples exist before anything is
    gated. No consensus change.
-1. `native/attest` kernel with pinned roots, `device` field validation behind `DEVICE_ATTEST_HEIGHT`,
-   `device_class` on the account, dividend weight rule, wallet flow, testnet, fleet update.
+1. (shipped, gate at 0) `native/attest` kernel with pinned roots (apple + android-key, ECDSA P-256 and
+   RSA links, Apple nonce, Android key description + security levels), `device` field validation behind
+   `DEVICE_ATTEST_HEIGHT` at the anchor block's timestamp, wallet attaches the attestation to every
+   registration where a platform authenticator exists, fleet updater builds the crate.
 2. Renewal re-attestation over the beacon challenge (reachability), device class in /mining_status
    and the network panel ("phones", not "miners").

@@ -41,7 +41,7 @@ _BRANCH = "main"                      # the single release channel this updater 
 _MIN_INTERVAL = 30                    # s between checks — spam does at most one fetch per this window
 _RESTART_DELAY = 5                    # s between "updated" and the service restart (lets the wave out)
 _SERVICES = ("nado", "nado-exec", "forum")   # every service that runs repo code (only installed ones restart)
-_CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/starkprove", "wasm/goldilocks")
+_CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/starkprove", "native/attest", "wasm/goldilocks")
 
 # Service-account installs (install.sh --user) run the node unprivileged, so it cannot call
 # `systemctl restart` itself. The installer writes a root-owned path unit (nado-restart.path) that
