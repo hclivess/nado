@@ -573,6 +573,20 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   return buildRegisterTx(state.wallet, targetBlock, proof, nowSeconds(), device);
 }
 
+// Ask the PLATFORM authenticator first (phone secure element, Windows Hello TPM, Touch ID) so a device that has one
+// gets its own prompt instead of a chooser; if the platform refuses (no Windows Hello set up, no secure element),
+// fall back to any authenticator, which is how a FIDO2 security key is offered on Linux (2026-09-07).
+async function createAttestedCredential(publicKey) {
+  try {
+    return await navigator.credentials.create({ publicKey: { ...publicKey,
+      authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "discouraged", userVerification: "preferred" } } });
+  } catch (e) {
+    if (e && e.name === "AbortError") throw e;
+    return await navigator.credentials.create({ publicKey: { ...publicKey,
+      authenticatorSelection: { residentKey: "discouraged", userVerification: "preferred" } } });
+  }
+}
+
 // What this device last proved (persisted so the mining page can say it before the first registration).
 const LS_DEVICE_STATUS = "nado_device_status";
 function setDeviceStatus(st) {
@@ -607,12 +621,11 @@ async function attestDevice(sender, anchorHash, maxBlock) {
     const chalHex = blake2bHash([CHAIN_ID, sender, anchorHash, maxBlock]);
     const chal = new Uint8Array(chalHex.match(/../g).map((h) => parseInt(h, 16)));
     const uid = new Uint8Array(16); crypto.getRandomValues(uid);
-    const cred = await navigator.credentials.create({ publicKey: {
+    const cred = await createAttestedCredential({
       challenge: chal, rp: { name: "NADO", id: location.hostname },
       user: { id: uid, name: sender, displayName: "NADO identity" },
       pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
-      authenticatorSelection: { residentKey: "discouraged", userVerification: "preferred" }   /* platform (phone/TPM) OR a security key */,
-      attestation: "direct", timeout: 120000 } });
+      attestation: "direct", timeout: 120000 });
     const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
     setDeviceStatus({ ok: true, fmt: "attested", reason: "ok" });
     log("ok", i18("device.attestedForReg", "Real device attested for this registration."));
@@ -8299,12 +8312,11 @@ function wireEvents() {
     try {
       const chal = new Uint8Array(32); crypto.getRandomValues(chal);
       const uid = new Uint8Array(16); crypto.getRandomValues(uid);
-      const cred = await navigator.credentials.create({ publicKey: {
+      const cred = await createAttestedCredential({
         challenge: chal, rp: { name: "NADO", id: location.hostname },
         user: { id: uid, name: (state.wallet && state.wallet.address) || "nado", displayName: "NADO identity" },
         pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
-        authenticatorSelection: { residentKey: "discouraged", userVerification: "preferred" }   /* platform (phone/TPM) OR a security key */,
-        attestation: "direct", timeout: 60000 } });
+        attestation: "direct", timeout: 60000 });
       const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
       const body = { att: b64(cred.response.attestationObject), cdj: b64(cred.response.clientDataJSON), cid: b64(cred.rawId) };
       const r = await fetch(relayBase() + "/device_attest_probe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
