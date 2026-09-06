@@ -7,7 +7,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("NADO_HOME", "/tmp/nado-rootwindow-test-home")
 from ops import snapshot_ops as so
-from protocol import EPOCH_LENGTH
+from protocol import EPOCH_LENGTH, EPOCHW_ROOT_WINDOWED
 
 W = so.ROOT_RETENTION_EPOCHS
 ADDR = "078d0ff642dfaac2d15b28dc83cff1082581616fe004e3"
