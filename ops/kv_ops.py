@@ -233,28 +233,31 @@ class _TrackTxn:
         if name is not None:
             self.touched.add((name, bytes(key)))
 
-    def put(self, key, value, *a, db=None, **k):
+    # Signatures mirror lmdb.Transaction EXACTLY (positional db included): `txn.cursor(handle)` and
+    # `txn.put(k, v, True, True, False, handle)` are legal lmdb calls, and a `*a, db=None` proxy turned the
+    # first into "TypeError: duplicate argument: db" (tests/test_tx_history_prune, 2026-09-06).
+    def put(self, key, value, dupdata=True, overwrite=True, append=False, db=None):
         self._touch(_handle_name(db), key)
-        return self._t.put(key, value, *a, db=db, **k)
+        return self._t.put(key, value, dupdata, overwrite, append, db)
 
-    def delete(self, key, *a, db=None, **k):
+    def delete(self, key, value=b"", db=None):
         self._touch(_handle_name(db), key)
-        return self._t.delete(key, *a, db=db, **k)
+        return self._t.delete(key, value, db)
 
-    def replace(self, key, value, *a, db=None, **k):
+    def replace(self, key, value, db=None):
         self._touch(_handle_name(db), key)
-        return self._t.replace(key, value, *a, db=db, **k)
+        return self._t.replace(key, value, db)
 
-    def pop(self, key, *a, db=None, **k):
+    def pop(self, key, db=None):
         self._touch(_handle_name(db), key)
-        return self._t.pop(key, *a, db=db, **k)
+        return self._t.pop(key, db)
 
-    def drop(self, db, *a, **k):
+    def drop(self, db, delete=True):
         self.dropped = True
-        return self._t.drop(db, *a, **k)
+        return self._t.drop(db, delete)
 
-    def cursor(self, *a, db=None, **k):
-        return _TrackCursor(self._t.cursor(*a, db=db, **k), _handle_name(db), self)
+    def cursor(self, db=None):
+        return _TrackCursor(self._t.cursor(db), _handle_name(db), self)
 
     def __getattr__(self, n):
         return getattr(self._t, n)
