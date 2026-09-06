@@ -672,20 +672,18 @@ def duty_committee_for_epoch(epoch: int) -> dict:
     return dict(entry[1])
 
 
-def mining_status(address, latest_block_number, block_time):
-    """Two-lane mining snapshot for the wallet's 'expected time to mine' + selection visualization.
-    Pure read of committed state. Weights are integer/deterministic; the time ESTIMATE uses floats
-    (display only, never consensus). For the slot after the tip: reports the lane split, each lane's
-    total weight + size, and `address`'s open/bonded weight, then derives expected blocks/seconds
-    between wins from this identity's share of each lane."""
-    from .mining_ops import open_shares, selection_shares
-    from protocol import K_OPEN
-    next_block = latest_block_number + 1
-    epoch = epoch_of(next_block)
-    beacon = epoch_beacon(epoch)
-    open_reg = get_open_registry(epoch)
-    bonded_reg = get_bonded_registry()
-    from .mining_ops import bond_ramp_weight
+# /mining_status lane totals, memoized per (env, committed-write generation, epoch): the wallet polls this
+# ~4/s through the relay and every call summed open_shares over the whole open registry (1,125 entries)
+# on top of get_open_registry's own per-block rebuild — 17 % of relay GIL time (py-spy, 2026-09-06). The
+# address-specific part is two dict lookups, so only the lane totals are cached. Single slot + lock, the
+# _open_reg_cache pattern (e2396baf).
+_ms_lanes_cache = [None]
+_ms_lanes_lock = _threading.Lock()
+
+
+def _mining_status_lanes(epoch):
+    from .mining_ops import open_shares, selection_shares, bond_ramp_weight
+
     # apply the producer-selection ramp to the DISPLAY weights too, so a freshly-bonded miner's "expected
     # time to mine" honestly reflects that its bonded weight ramps up over BOND_RAMP_EPOCHS (consensus draw
     # is the source of truth; this just keeps the estimate consistent with it).
@@ -693,8 +691,34 @@ def mining_status(address, latest_block_number, block_time):
         """display-side bonded weight: selection shares with the bond-age ramp applied (mirrors the consensus draw)"""
         return bond_ramp_weight(selection_shares(info["bonded"], info.get("fidelity")),
                                 info.get("bond_since"), epoch)
-    total_open = sum(open_shares(i.get("fidelity"), epoch) for i in open_reg.values())
-    total_bonded = sum(_bwt(i) for i in bonded_reg.values())
+
+    key = (kv_ops.env_path(), kv_ops.write_generation(), epoch)
+    entry = _ms_lanes_cache[0]
+    if entry is None or entry[0] != key:
+        with _ms_lanes_lock:
+            entry = _ms_lanes_cache[0]
+            if entry is None or entry[0] != key:
+                beacon = epoch_beacon(epoch)
+                open_reg = get_open_registry(epoch)
+                bonded_reg = get_bonded_registry()
+                total_open = sum(open_shares(i.get("fidelity"), epoch) for i in open_reg.values())
+                total_bonded = sum(_bwt(i) for i in bonded_reg.values())
+                entry = (key, beacon, open_reg, bonded_reg, total_open, total_bonded)
+                _ms_lanes_cache[0] = entry
+    _, beacon, open_reg, bonded_reg, total_open, total_bonded = entry
+    return beacon, open_reg, bonded_reg, total_open, total_bonded, _bwt, open_shares
+
+
+def mining_status(address, latest_block_number, block_time):
+    """Two-lane mining snapshot for the wallet's 'expected time to mine' + selection visualization.
+    Pure read of committed state. Weights are integer/deterministic; the time ESTIMATE uses floats
+    (display only, never consensus). For the slot after the tip: reports the lane split, each lane's
+    total weight + size, and `address`'s open/bonded weight, then derives expected blocks/seconds
+    between wins from this identity's share of each lane."""
+    from protocol import K_OPEN
+    next_block = latest_block_number + 1
+    epoch = epoch_of(next_block)
+    beacon, open_reg, bonded_reg, total_open, total_bonded, _bwt, open_shares = _mining_status_lanes(epoch)
     my_open = open_shares(open_reg[address]["fidelity"], epoch) if address in open_reg else 0
     my_bonded = _bwt(bonded_reg[address]) if address in bonded_reg else 0
     open_frac = K_OPEN / EPOCH_LENGTH

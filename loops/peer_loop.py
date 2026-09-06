@@ -77,7 +77,7 @@ class PeerClient(threading.Thread):
         for entry in result["success"]:
             if entry in self.memserver.peer_buffer:
                 self.memserver.peer_buffer.remove(entry)
-            if (entry not in self.memserver.peers
+            if (entry not in self.memserver.peers and entry != self.memserver.ip
                     and len(self.memserver.peers) < self.memserver.peer_limit
                     and subnet_diversity_ok(entry, self.memserver.peers)):  # eclipse cap (#18 step 8)
                 self.memserver.peers.append(entry)
@@ -95,8 +95,16 @@ class PeerClient(threading.Thread):
                          fails=self.memserver.purge_peers_list,
                          unreachable=self.memserver.unreachable)
 
+        # NEVER our own ip: peers' /peers lists carry it (we announce to them) and load_ips/seed paths
+        # filter it, but this merge did not — the relay dialed ITSELF for /status, /transaction_ids
+        # and /peers every pass (~9 req/s of self-load, 2026-09-06 tcpdump). Also evict a ghost that
+        # slipped in before this guard, so a running node heals without a restart.
+        _my_ip = self.memserver.ip
+        if _my_ip in self.memserver.peers:
+            self.memserver.peers.remove(_my_ip)
+            self.logger.warning(f"Dropped our own ip {_my_ip} from the peer list (ghost self-peer)")
         for peer in candidates:
-            if check_ip(peer):
+            if check_ip(peer) and peer != _my_ip:
                 if peer not in self.memserver.unreachable:
                     if (peer not in self.memserver.peers
                             and len(self.memserver.peers) < self.memserver.peer_limit
