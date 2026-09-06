@@ -7,10 +7,21 @@ import sys
 from pathlib import Path
 
 
+_HOME_MEMO = None   # (HOME env value, resolved path): Path.home() is 10 us and sat under EVERY KV read
+
+
 def get_home():
     """the node's home directory (~/nado) — every data path (state DBs, peers.dat, snapshots, keys)
-    is derived from this one root"""
-    return f"{Path.home()}/nado"
+    is derived from this one root. Memoized per HOME value: kv_ops.get_env re-derives the env path on
+    each read, and on the relay Path.home() alone was ~15 % of GIL time (2026-09-06 py-spy)."""
+    global _HOME_MEMO
+    key = os.environ.get("HOME")
+    memo = _HOME_MEMO
+    if memo is not None and memo[0] == key:
+        return memo[1]
+    home = f"{Path.home()}/nado"
+    _HOME_MEMO = (key, home)
+    return home
 
 
 # ---- CHAIN GENERATION (genesis-reroll support; see protocol.CHAIN_GENERATION) --------------------------------
