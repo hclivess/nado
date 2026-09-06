@@ -7,7 +7,7 @@ from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from config import test_self_port
 from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers
-from ops.peer_ops import get_public_ip, get_public_ips, pick_reachable_ip, update_local_ip, check_ip, subnet_diversity_ok
+from ops.peer_ops import get_public_ip, get_public_ips, pick_reachable_ip, update_local_ip, check_ip, subnet_diversity_ok, own_ips
 from ops.peer_ops import seed_default_peers, seed_peers, status_fields_well_typed
 from ops import self_update
 from protocol import CHAIN_ID, GENESIS_TIMESTAMP, BLOCK_TIME
@@ -77,7 +77,7 @@ class PeerClient(threading.Thread):
         for entry in result["success"]:
             if entry in self.memserver.peer_buffer:
                 self.memserver.peer_buffer.remove(entry)
-            if (entry not in self.memserver.peers and entry != self.memserver.ip
+            if (entry not in self.memserver.peers and entry != self.memserver.ip and check_ip(entry)
                     and len(self.memserver.peers) < self.memserver.peer_limit
                     and subnet_diversity_ok(entry, self.memserver.peers)):  # eclipse cap (#18 step 8)
                 self.memserver.peers.append(entry)
@@ -99,12 +99,12 @@ class PeerClient(threading.Thread):
         # filter it, but this merge did not — the relay dialed ITSELF for /status, /transaction_ids
         # and /peers every pass (~9 req/s of self-load, 2026-09-06 tcpdump). Also evict a ghost that
         # slipped in before this guard, so a running node heals without a restart.
-        _my_ip = self.memserver.ip
-        if _my_ip in self.memserver.peers:
+        _mine = own_ips() | {self.memserver.ip}
+        for _my_ip in [p for p in self.memserver.peers if p in _mine]:
             self.memserver.peers.remove(_my_ip)
             self.logger.warning(f"Dropped our own ip {_my_ip} from the peer list (ghost self-peer)")
         for peer in candidates:
-            if check_ip(peer) and peer != _my_ip:
+            if peer not in _mine and check_ip(peer):
                 if peer not in self.memserver.unreachable:
                     if (peer not in self.memserver.peers
                             and len(self.memserver.peers) < self.memserver.peer_limit

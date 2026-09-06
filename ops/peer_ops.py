@@ -694,6 +694,39 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
 # dozens of file reads + JSON parses per second for a value that effectively never changes.
 # update_local_ip() invalidates on the one code path that rewrites the IP.
 _own_ip_cache = {"v": None}
+_local_ips_cache = {"v": None}
+
+
+def _local_global_ips():
+    """Every globally-scoped address on this host's interfaces (v4 AND v6), read once from `ip -j addr`.
+    This box advertises its v6 (config ip) while peers also list its v4, and every self-filter compared
+    against the ONE configured ip — so the v4 came back as a ghost self-peer after every restart and the
+    relay dialed itself ~9 req/s (2026-09-06). Empty when `ip` is unavailable (the config ip still counts)."""
+    if _local_ips_cache["v"] is None:
+        found = set()
+        try:
+            import subprocess
+            out = subprocess.run(["ip", "-j", "addr"], capture_output=True, text=True, timeout=5).stdout
+            for iface in json.loads(out or "[]"):
+                for a in iface.get("addr_info", []):
+                    if a.get("scope") == "global" and a.get("local"):
+                        found.add(a["local"])
+        except Exception:
+            pass
+        _local_ips_cache["v"] = frozenset(found)
+    return _local_ips_cache["v"]
+
+
+def own_ips():
+    """The set of addresses that are THIS node: the configured ip, the last detected one, and every global
+    interface address. A peer table must never contain any of them."""
+    ips = {_own_ip_cache["v"]} | set(_local_global_ips())
+    try:
+        ips.add(_own_ip_cached())
+        ips.add(get_config().get("ip"))
+    except Exception:
+        pass                                  # no config yet (harness / first boot): interface addresses still count
+    return ips - {None, ""}
 
 def _own_ip_cached():
     """the node's configured public IP, read from the config once and cached (see above)."""
@@ -720,7 +753,7 @@ def check_ip(ip):
     # reject our own IP and any non-globally-routable address (loopback, RFC1918/ULA private, link-local,
     # reserved, multicast, unspecified): accepting these lets a peer seed us with internal targets
     # (eclipse groundwork / limited SSRF probing). is_private covers IPv6 ULA (fc00::/7) too.
-    if ip == _own_ip_cached():
+    if ip in own_ips():
         return False
     # NADO_TESTNET: allow loopback/private peers so a local multi-node testnet can mesh over
     # 127.0.0.x. NEVER set this on mainnet — it disables the SSRF/eclipse IP guard below.

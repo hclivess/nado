@@ -39,7 +39,7 @@ from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, AUTO_BOND_MIN_RAW, AUTO
     AUTO_MIN_FEE_MULTIPLE, \
     TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, FLEX_TX_MIN_MARGIN
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size, get_home
-from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
+from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status, own_ips
 from ops import snapshot_ops
 from ops.pool_ops import cull_buffer
 from ops.transaction_ops import remove_outdated_transactions
@@ -63,6 +63,13 @@ SEED_PROBE_MEMO_S = 30
 # CATCH-UP HOLD for the soft depth floor (see _depth_floor_corroborated): while the mesh's median advertised
 # height is more than this many blocks above ours, the floor waits instead of probing peers per block.
 SYNC_FLOOR_HOLD_GAP = 2 * FINALITY_DEPTH + EPOCH_LENGTH
+# While fast-forwarding (emergency mode) BELOW the hold gap, the corroboration verdict is reused for this
+# many seconds instead of re-probed per applied block: _extends_us memoizes per (peer, OUR height), and our
+# height moves every block during a catch-up, so every block paid up to four blocking 3 s probes — 61 %
+# of the core loop's wall time, ~4 s/block against a 6.8 s cadence, a 25-block gap that never closed
+# (2026-09-06 py-spy --idle on the relay). The depth floor is the soft floor; a 20 s old "yes" advances it
+# by at most a few blocks of the donor chain we are applying anyway, and a 20 s old "no" only holds it.
+SYNC_CORROB_TTL_S = 20
 
 # ARCHIVE SELF-REPAIR cadence (seconds): how often an archive node whose history does not reach genesis
 # looks for a peer that reaches deeper and starts a background fill (_maybe_refill_archive). Only while a
@@ -449,7 +456,7 @@ class CoreClient(threading.Thread):
             from ops.peer_ops import seed_peers
             if len(peers) >= GENESIS_QUIET_MIN_PEERS:
                 return False                      # the mesh is up — start together, which is the whole point
-            _me = {self.memserver.ip, get_config().get("ip")} - {None}
+            _me = own_ips() | {self.memserver.ip, get_config().get("ip")} - {None}
             if not [p for p in seed_peers() if p not in _me]:
                 return False                      # no seeds configured: a standalone node, not an early one
             waited = get_timestamp_seconds() - self.memserver.start_time
@@ -1301,6 +1308,19 @@ class CoreClient(threading.Thread):
             return 0
 
     def _depth_floor_corroborated(self) -> bool:
+        """_depth_floor_corroborated_probe, with its verdict reused for SYNC_CORROB_TTL_S while the node is
+        fast-forwarding in emergency mode (see the constant); every other mode probes as before."""
+        if not getattr(self.memserver, "emergency_mode", False):
+            return self._depth_floor_corroborated_probe()
+        now = time.monotonic()
+        memo = getattr(self, "_sync_corrob_memo", None)
+        if memo and now - memo[0] < SYNC_CORROB_TTL_S:
+            return memo[1]
+        verdict = self._depth_floor_corroborated_probe()
+        self._sync_corrob_memo = (now, verdict)
+        return verdict
+
+    def _depth_floor_corroborated_probe(self) -> bool:
         """Whether the depth-based finality floor may advance right now: the visible network's majority tip
         must lie ON OUR CANONICAL CHAIN (majority_on_our_canonical — our tip or a recent ancestor of it,
         so peers lagging a healthy producer by a block still corroborate). No peers reporting = solo /
@@ -1417,7 +1437,7 @@ class CoreClient(threading.Thread):
                     continue
                 if not self._extends_us(_peer, _budget):
                     return False
-        _me = {self.memserver.ip, get_config().get("ip")} - {None}
+        _me = own_ips() | {self.memserver.ip, get_config().get("ip")} - {None}
         for _peer, _hash in self.consensus.block_hash_pool.copy().items():
             if _peer in _me or not _hash:
                 continue
@@ -2006,7 +2026,7 @@ class CoreClient(threading.Thread):
             # "ANY peer agreeing means our prefix is not provably abandoned" vetoes the purge FOREVER. That is
             # precisely why .141 — a seed — could not self-heal even once every other blind spot was fixed
             # (2026-07-28): it was the one node whose peer list contained itself.
-            _me = {self.memserver.ip, get_config().get("ip")} - {None}
+            _me = own_ips() | {self.memserver.ip, get_config().get("ip")} - {None}
             peers = [p for p in dict.fromkeys(list(seed_peers()) + list(self.memserver.peers))
                      if p not in _me][:12]
             stranded, detail = stranded_below_finality(ours, height, peers, quorum=DEAD_FORK_QUORUM,

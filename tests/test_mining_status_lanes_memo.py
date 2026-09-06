@@ -40,7 +40,7 @@ def main():
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     src = open(os.path.join(root, "loops", "peer_loop.py")).read()
-    assert src.count("!= self.memserver.ip") >= 1 and "peer != _my_ip" in src and \
+    assert "check_ip(entry)" in src and "peer not in _mine and check_ip(peer)" in src and \
         "self.memserver.peers.remove(_my_ip)" in src, "peer loop must never admit our own ip"
     print("ALL OK")
 
