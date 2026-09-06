@@ -587,6 +587,34 @@ async function createAttestedCredential(publicKey) {
   }
 }
 
+// HINTS: what to do next, from the verdict. AAGUIDs are the FIDO metadata's: Windows Hello TPM 08987058…, Windows Hello
+// VBS 9ddd1817… (no TPM in use), Windows Hello software 6028b017…; fmt "none" is a passkey without hardware attestation.
+function deviceHint(st) {
+  const ag = String((st && st.aaguid) || "").replace(/-/g, "").toLowerCase();
+  const fmt = st && st.fmt;
+  const ua = navigator.userAgent || "";
+  const isWin = /Windows/i.test(ua), isIos = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1), isAndroid = /Android/i.test(ua), isLinux = /Linux/i.test(ua) && !isAndroid, isMac = /Macintosh/i.test(ua) && !isIos;
+  if (st && st.ok) return "";
+  if (ag.startsWith("9ddd1817")) return i18("device.hint.vbs", "Windows Hello is not using a TPM on this PC. Enable TPM 2.0 in the BIOS (AMD fTPM or Intel PTT), set the Windows Hello PIN again, then retry — or plug in a FIDO2 security key.");
+  if (ag.startsWith("6028b017")) return i18("device.hint.winSoftware", "Windows Hello is running as a software key here. Set up a PIN with a TPM 2.0 available (tpm.msc), or use a FIDO2 security key.");
+  if (st && st.reason === "unsupported") {
+    if (isLinux) return i18("device.hint.linux", "Linux has no built-in attesting authenticator: plug in a FIDO2 security key (YubiKey, SoloKey, Titan…) and retry.");
+    if (isWin) return i18("device.hint.winSetup", "Set up Windows Hello (Settings → Accounts → Sign-in options → PIN) on a PC with a TPM 2.0, then retry.");
+    return i18("device.hint.generic", "Use a phone, a Windows PC with a TPM, or a FIDO2 security key.");
+  }
+  if (fmt === "none") {
+    if (isWin) return i18("device.hint.winSetup", "Set up Windows Hello (Settings → Accounts → Sign-in options → PIN) on a PC with a TPM 2.0, then retry.");
+    if (isAndroid) return i18("device.hint.androidNone", "This credential came without hardware attestation. Use Chrome on an unrooted phone with a locked bootloader, choose the phone itself (not a synced passkey), and retry.");
+    if (isIos) return i18("device.hint.iosNone", "This credential came without hardware attestation. On iPhone choose the device itself when prompted; if only a synced passkey is offered, use a FIDO2 security key.");
+    if (isMac) return i18("device.hint.mac", "A Mac's Touch ID passkey carries no attestation chain: plug in a FIDO2 security key.");
+    return i18("device.hint.generic", "Use a phone, a Windows PC with a TPM, or a FIDO2 security key.");
+  }
+  if (fmt && !st.format_accepted) return i18("device.hint.format", "Attestation format {f} is not accepted: use a phone, a TPM PC or a FIDO2 security key.", { f: fmt });
+  if (st && st.root_pinned === false) return i18("device.hint.root", "The maker's root certificate is not in the pinned set. A security key must be a FIDO2 model with full attestation; phones and TPM PCs are accepted as-is.");
+  if (st && /NotAllowed|cancel|abort/i.test(st.reason || "")) return i18("device.hint.cancelled", "The prompt was cancelled. Retry and confirm on the device.");
+  return i18("device.hint.generic", "Use a phone, a Windows PC with a TPM, or a FIDO2 security key.");
+}
+
 // What this device last proved (persisted so the mining page can say it before the first registration).
 const LS_DEVICE_STATUS = "nado_device_status";
 function setDeviceStatus(st) {
@@ -631,8 +659,9 @@ async function attestDevice(sender, anchorHash, maxBlock) {
     log("ok", i18("device.attestedForReg", "Real device attested for this registration."));
     return { att: b64(cred.response.attestationObject), cdj: b64(cred.response.clientDataJSON), rp: location.hostname };
   } catch (e) {
-    setDeviceStatus({ ok: false, reason: (e && e.message) || String(e) });
-    log("warn", i18("device.attestSkipped", "Device attestation unavailable: {e}", { e: (e && e.message) || String(e) }));
+    const stF = { ok: false, reason: (e && e.message) || String(e) };
+    setDeviceStatus(stF);
+    log("warn", i18("device.attestSkipped", "Device attestation unavailable: {e}", { e: stF.reason }) + " " + deviceHint(stF));
     return null;
   }
 }
@@ -8305,8 +8334,9 @@ function wireEvents() {
     const st = $("deviceStatus");
     const say = (t, cls) => { if (st) { st.textContent = t; st.className = "small mt " + (cls || ""); } };
     if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.create) {
-      say(i18("device.unsupported", "This browser cannot attest a device (no WebAuthn platform authenticator)."), "err");
-      setDeviceStatus({ ok: false, reason: "unsupported" }); return;
+      const stU = { ok: false, reason: "unsupported" };
+      say(i18("device.unsupported", "This browser cannot attest a device (no WebAuthn platform authenticator).") + "\n" + deviceHint(stU), "err");
+      setDeviceStatus(stU); return;
     }
     if (_devBtn) _devBtn.disabled = true;
     try {
@@ -8324,10 +8354,12 @@ function wireEvents() {
       if (!d.ok) { say(i18("device.probeFailed", "The relay could not parse the attestation: {e}", { e: d.error || r.status }), "err"); return; }
       const s = d.summary || {}; const ad = s.auth_data || {};
       const good = s.format_accepted && s.root_pinned;
-      say((good ? i18("device.ok", "Real device attested") : i18("device.weak", "Attestation present but not a pinned phone root"))
-          + ` · fmt=${s.fmt} · chain=${s.x5c_count} · aaguid=${(ad.aaguid || "").slice(0, 8)} · root ${s.root_pinned ? "pinned" : "unknown"}`, good ? "ok" : "warn");
-      log(good ? "ok" : "warn", `Device attestation: fmt=${s.fmt}, ${s.x5c_count} certs, root ${s.root_pinned ? "pinned vendor root" : "not pinned"}`);
-      setDeviceStatus({ ok: good, fmt: s.fmt, reason: good ? "ok" : (s.root_pinned ? "format" : "root") });
+      const stObj = { ok: good, fmt: s.fmt, aaguid: ad.aaguid || "", format_accepted: !!s.format_accepted, root_pinned: !!s.root_pinned, reason: good ? "ok" : (s.root_pinned ? "format" : "root") };
+      const hint = deviceHint(stObj);
+      say((good ? i18("device.ok", "Real device attested") : i18("device.weak", "Attestation present but not a pinned vendor root"))
+          + ` · fmt=${s.fmt} · chain=${s.x5c_count} · aaguid=${(ad.aaguid || "").slice(0, 8)} · root ${s.root_pinned ? "pinned" : "unknown"}` + (hint ? "\n" + hint : ""), good ? "ok" : "warn");
+      log(good ? "ok" : "warn", `Device attestation: fmt=${s.fmt}, ${s.x5c_count} certs, root ${s.root_pinned ? "pinned vendor root" : "not pinned"}` + (hint ? " — " + hint : ""));
+      setDeviceStatus(stObj);
     } catch (e) {
       say(i18("device.failed", "Attestation failed: {e}", { e: (e && e.message) || String(e) }), "err");
       setDeviceStatus({ ok: false, reason: (e && e.message) || String(e) });
