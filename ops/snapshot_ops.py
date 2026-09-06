@@ -407,6 +407,242 @@ def _root_from_walk(home=None):
     return _merkle_from_leaves(leaves)
 
 
+# ---- INCREMENTAL ROOT (2026-09-06) -----------------------------------------------------------------------
+# _root_from_walk re-walks every windowed row from LMDB on every block: 11 % of the core thread on the relay
+# (~90k rows). kv_ops now publishes the (db, key) set each commit touched (ROOT WRITE TRACKING there); this
+# keeps, per root sub-DB, the sorted key list and each key's leaf digests, re-reads ONLY the touched keys
+# and folds the same leaves in the same canonical order — bit-identical to the walk by construction, and
+# CHECKED against it:
+#   NADO_ROOT_INC=verify (default)  incremental AND walk every block; the walk's root is the one used; any
+#                                    mismatch is logged and rebuilds the structure. Costs slightly MORE than
+#                                    before — this mode exists to prove equivalence on live data first.
+#   NADO_ROOT_INC=trust             incremental only, a full walk cross-check every ROOT_INC_VERIFY_EVERY
+#                                    roots (mismatch: log, rebuild, use the walk).
+#   NADO_ROOT_INC=off               the walk, as before.
+# Rebuilt from a full walk whenever: nothing is cached yet, a txn dropped a sub-DB, a commit landed without
+# publishing (write generation moved more than the listener saw), the env object changed, or the retention
+# floor moved (once per epoch boundary — the window edge drops rows nobody touched).
+ROOT_INC_VERIFY_EVERY = 25
+_inc_lock = threading.Lock()
+_inc_dirty = set()
+_inc_flags = {"dropped": False, "gen": None}
+_inc = None            # {"env": id, "gen", "floor", "keys": {name: [key,...] sorted}, "leaves": {name: {key: [digest,...]}}}
+_inc_stats = {"inc": 0, "walk": 0, "mismatch": 0, "inc_ms": 0.0, "walk_ms": 0.0, "rebuilds": 0, "trusted": 0}
+
+
+def _root_inc_mode():
+    return (os.environ.get("NADO_ROOT_INC") or "verify").strip().lower()
+
+
+def _on_commit_touched(touched, dropped, gen):
+    with _inc_lock:
+        _inc_dirty.update(touched)
+        if dropped:
+            _inc_flags["dropped"] = True
+        _inc_flags["gen"] = gen
+
+
+kv_ops.register_root_listener(_on_commit_touched)
+
+
+def _inc_floor(txn, dbs):
+    """(reference epoch, retention floor) exactly as _walk_root_rows derives them."""
+    ref = None
+    with txn.cursor(db=dbs["meta"]) as cur:
+        if cur.set_range(_EPOCHW_PREFIX):
+            for k in cur.iternext(keys=True, values=False):
+                k = bytes(k)
+                if not k.startswith(_EPOCHW_PREFIX):
+                    break
+                try:
+                    e = int(k[len(_EPOCHW_PREFIX):])
+                except ValueError:
+                    continue
+                if ref is None or e > ref:
+                    ref = e
+    return None if (ref is None or ref < ROOT_RETENTION_EPOCHS) else ref - ROOT_RETENTION_EPOCHS
+
+
+def _inc_digest(name, k, v):
+    """leaf digest through the SAME caches _root_from_walk uses (v: bytes)."""
+    if name in kv_ops.DUP_DBS:
+        t = (name, k, v)
+        d = _leaf_cache.get(t)
+        if d is None:
+            d = hashlib.blake2b(_leaf(t), digest_size=32).digest()
+            _leaf_cache[t] = d
+        return d
+    ck = (name, k)
+    hit = _plain_leaf_cache.get(ck)
+    if hit is not None and hit[0] == v:
+        return hit[1]
+    d = hashlib.blake2b(_leaf((name, k, v)), digest_size=32).digest()
+    _plain_leaf_cache[ck] = (v, d)
+    return d
+
+
+def _inc_row_kept(name, k, floor):
+    """the KEY-level filter of _walk_root_rows (exclusions + retention window); value filters are separate"""
+    if name == "meta":
+        if k in ROOT_EXCLUDED_META_KEYS or k.startswith(ROOT_EXCLUDED_META_PREFIXES):
+            return False
+        if floor is not None and k.startswith(ROOT_WINDOWED_META_PREFIXES):
+            e = _row_epoch(name, k)
+            if e is not None and e < floor:
+                return False
+    elif floor is not None and name in ROOT_WINDOWED_DBS:
+        e = _row_epoch(name, k)
+        if e is not None and e < floor:
+            return False
+    return True
+
+
+def _inc_leaves_for(txn, dbs, name, k, floor):
+    """current leaf digests of (name, key) in canonical order — [] when the row is absent or filtered"""
+    if not _inc_row_kept(name, k, floor):
+        return []
+    if name in kv_ops.DUP_DBS:
+        out = []
+        with txn.cursor(db=dbs[name]) as cur:
+            if cur.set_key(k):
+                for v in cur.iternext_dup(keys=False, values=True):
+                    out.append(_inc_digest(name, k, bytes(v)))
+        return out
+    v = txn.get(k, db=dbs[name])
+    if v is None:
+        return []
+    v = bytes(v)
+    if name == "accounts" and kv_ops.account_value_is_default(v):
+        return []
+    return [_inc_digest(name, k, v)]
+
+
+def _inc_rebuild(home):
+    """full walk -> fresh structure (one MVCC snapshot); returns the structure"""
+    import bisect  # noqa: F401  (documenting the sorted-list contract; insort is used in _root_from_inc)
+    keys, leaves = {}, {}
+    names = [n for n in kv_ops.SNAPSHOT_DBS if n not in ROOT_EXCLUDED_DBS]
+    for n in names:
+        keys[n] = []
+        leaves[n] = {}
+    gen_before = kv_ops.write_generation()
+    env = kv_ops.get_env(home)
+    dbs = kv_ops.db_handles(home)
+    with env.begin(write=False, buffers=True) as txn:
+        floor = _inc_floor(txn, dbs)
+    for name, k, v in _walk_root_rows(home):
+        d = _inc_digest(name, k, bytes(v))
+        kl = keys[name]
+        if not kl or kl[-1] != k:
+            kl.append(k)                      # the walk yields keys in LMDB (= bytes) order
+            leaves[name][k] = [d]
+        else:
+            leaves[name][k].append(d)         # further DUPSORT values of the same key
+    _inc_stats["rebuilds"] += 1
+    return {"env": id(env), "gen": gen_before, "floor": floor, "keys": keys, "leaves": leaves, "names": names}
+
+
+def _root_from_inc(home=None):
+    """merkle root from the incremental structure (caller holds _root_lock). Rebuilds when it cannot
+    prove the structure current — see the mode note above."""
+    global _inc
+    import bisect
+    with _inc_lock:
+        dirty = set(_inc_dirty)
+        _inc_dirty.clear()
+        dropped = _inc_flags["dropped"]
+        _inc_flags["dropped"] = False
+        seen_gen = _inc_flags["gen"]
+    env = kv_ops.get_env(home)
+    dbs = kv_ops.db_handles(home)
+    cur_gen = kv_ops.write_generation()
+    st = _inc
+    rebuild = (st is None or dropped or st["env"] != id(env)
+               or (seen_gen is not None and seen_gen != cur_gen))
+    if not rebuild:
+        with env.begin(write=False, buffers=True) as txn:
+            floor = _inc_floor(txn, dbs)
+            if floor != st["floor"]:
+                rebuild = True
+            else:
+                root_names = set(st["names"])
+                for name, k in dirty:
+                    if name not in root_names:
+                        continue
+                    ds = _inc_leaves_for(txn, dbs, name, k, floor)
+                    kl, lv = st["keys"][name], st["leaves"][name]
+                    present = k in lv
+                    if ds:
+                        if not present:
+                            bisect.insort(kl, k)
+                        lv[k] = ds
+                    elif present:
+                        del lv[k]
+                        i = bisect.bisect_left(kl, k)
+                        if i < len(kl) and kl[i] == k:
+                            del kl[i]
+    if rebuild:
+        with _inc_lock:
+            _inc_dirty.clear()
+        st = _inc = _inc_rebuild(home)
+    st["gen"] = cur_gen
+    flat = []
+    ext = flat.extend
+    for name in st["names"]:
+        lv = st["leaves"][name]
+        for k in st["keys"][name]:
+            ext(lv[k])
+    return _merkle_from_leaves(flat)
+
+
+def _root_current(home=None):
+    """the root for l1_state_root's cache miss, by NADO_ROOT_INC mode (caller holds _root_lock)"""
+    import time as _t
+    mode = _root_inc_mode()
+    if mode == "off" or (home is not None and home != get_home()):
+        return _root_from_walk(home)
+    t0 = _t.perf_counter()
+    try:
+        inc_root = _root_from_inc(home)
+    except Exception as e:                       # never let the fast path take the node down
+        _inc_stats["mismatch"] += 1
+        _log_inc("error", f"state root incremental path raised {e!r} — using the walk")
+        return _root_from_walk(home)
+    t1 = _t.perf_counter()
+    _inc_stats["inc"] += 1
+    _inc_stats["inc_ms"] += (t1 - t0) * 1000
+    verify = mode != "trust" or (_inc_stats["inc"] % ROOT_INC_VERIFY_EVERY == 0)
+    if not verify:
+        _inc_stats["trusted"] += 1
+        return inc_root
+    walk_root = _root_from_walk(home)
+    t2 = _t.perf_counter()
+    _inc_stats["walk"] += 1
+    _inc_stats["walk_ms"] += (t2 - t1) * 1000
+    if walk_root != inc_root:
+        _inc_stats["mismatch"] += 1
+        global _inc
+        _inc = None
+        _log_inc("error", f"STATE ROOT INCREMENTAL MISMATCH: inc={inc_root[:16]} walk={walk_root[:16]} "
+                          f"(mismatch #{_inc_stats['mismatch']}, gen {kv_ops.write_generation()}) — "
+                          f"structure dropped, walk root used")
+    if _inc_stats["inc"] % 100 == 0:
+        n, w = max(1, _inc_stats["inc"]), max(1, _inc_stats["walk"])
+        _log_inc("warning", f"state root incremental: {_inc_stats['inc']} roots, {_inc_stats['walk']} walk "
+                            f"cross-checks, {_inc_stats['mismatch']} mismatches, {_inc_stats['rebuilds']} "
+                            f"rebuilds; inc {_inc_stats['inc_ms']/n:.0f} ms vs walk {_inc_stats['walk_ms']/w:.0f} ms "
+                            f"per root (mode {mode})")
+    return walk_root
+
+
+def _log_inc(level, msg):
+    try:
+        import logging
+        getattr(logging.getLogger("main_logger"), level)(msg)
+    except Exception:
+        pass
+
+
 def l1_state_root(home=None):
     """The canonical L1 consensus state root: merkle over read_state() MINUS the block-storage DBs. This is
     the value committed into every block hash (construct_block/verify_block) and into a snapshot manifest, so
@@ -432,7 +668,7 @@ def l1_state_root(home=None):
         entry = _root_cache[0]                    # re-check: a herd resolves to ONE walk per generation
         if entry is not None and entry[0] == key:
             return entry[1]
-        root = _root_from_walk(home)
+        root = _root_current(home)
         _root_cache[0] = (key, root)
     return root
 

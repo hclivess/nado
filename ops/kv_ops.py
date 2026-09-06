@@ -143,6 +143,129 @@ def _bump_write_gen():
     global _write_gen
     with _write_gen_lock:
         _write_gen += 1
+        return _write_gen
+
+
+# ---- ROOT WRITE TRACKING (2026-09-06) --------------------------------------------------------------------
+# The L1 state root is a merkle over ~90k windowed rows and used to be re-WALKED from LMDB on every block
+# (11 % of the core thread's wall time on the relay). Both places a write txn is created (_WriteTxn.__enter__
+# and _write) now hand out a _TrackTxn proxy that records every (sub-DB name, key) it puts/deletes/pops/
+# replaces — including through cursors — and publishes that set to the listeners below when the txn COMMITS.
+# ops/snapshot_ops keeps an incremental leaf structure from it and re-reads only the touched keys.
+# INVARIANTS (the root is consensus; a stale leaf forks THIS node off the fleet):
+#   * every LMDB write goes through one of the two wrapped txn sites — never call get_env().begin(write=True)
+#     anywhere else (tests/test_root_incremental pins this);
+#   * a txn.drop() marks the txn `dropped` and the listener rebuilds from a full walk;
+#   * a commit that bumps write_generation without publishing (there is none today) is detected by the
+#     listener comparing generations and also forces a rebuild;
+#   * snapshot_ops verifies the incremental root against the full walk (NADO_ROOT_INC=verify, the default)
+#     and logs any mismatch; only NADO_ROOT_INC=trust skips the walk (with a periodic re-verification).
+_root_listeners = []
+_handle_names = {}      # env path -> {id(handle): sub-DB name}
+
+
+def register_root_listener(fn):
+    """fn(touched: set[(name, key_bytes)], dropped: bool, gen: int) — called right after each COMMIT."""
+    _root_listeners.append(fn)
+
+
+def _handle_name(db):
+    if db is None:
+        return None
+    path = env_path()
+    m = _handle_names.get(path)
+    if m is None or id(db) not in m:
+        m = _handle_names[path] = {id(h): n for n, h in _dbhandles.get(path, {}).items()}
+    return m.get(id(db))
+
+
+class _TrackCursor:
+    """lmdb Cursor proxy: mutations are recorded on the owning _TrackTxn; everything else passes through."""
+    __slots__ = ("_c", "_name", "_tx")
+
+    def __init__(self, c, name, tx):
+        self._c, self._name, self._tx = c, name, tx
+
+    def put(self, key, value, *a, **k):
+        self._tx._touch(self._name, key)
+        return self._c.put(key, value, *a, **k)
+
+    def putmulti(self, items, *a, **k):
+        items = list(items)
+        for key, _v in items:
+            self._tx._touch(self._name, key)
+        return self._c.putmulti(items, *a, **k)
+
+    def delete(self, *a, **k):
+        self._tx._touch(self._name, self._c.key())
+        return self._c.delete(*a, **k)
+
+    def pop(self, key, *a, **k):
+        self._tx._touch(self._name, key)
+        return self._c.pop(key, *a, **k)
+
+    def replace(self, key, value, *a, **k):
+        self._tx._touch(self._name, key)
+        return self._c.replace(key, value, *a, **k)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._c.close()
+        return False
+
+    def __iter__(self):
+        return iter(self._c)
+
+    def __getattr__(self, n):
+        return getattr(self._c, n)
+
+
+class _TrackTxn:
+    """lmdb write-Transaction proxy — see ROOT WRITE TRACKING above."""
+    __slots__ = ("_t", "touched", "dropped")
+
+    def __init__(self, txn):
+        self._t, self.touched, self.dropped = txn, set(), False
+
+    def _touch(self, name, key):
+        if name is not None:
+            self.touched.add((name, bytes(key)))
+
+    def put(self, key, value, *a, db=None, **k):
+        self._touch(_handle_name(db), key)
+        return self._t.put(key, value, *a, db=db, **k)
+
+    def delete(self, key, *a, db=None, **k):
+        self._touch(_handle_name(db), key)
+        return self._t.delete(key, *a, db=db, **k)
+
+    def replace(self, key, value, *a, db=None, **k):
+        self._touch(_handle_name(db), key)
+        return self._t.replace(key, value, *a, db=db, **k)
+
+    def pop(self, key, *a, db=None, **k):
+        self._touch(_handle_name(db), key)
+        return self._t.pop(key, *a, db=db, **k)
+
+    def drop(self, db, *a, **k):
+        self.dropped = True
+        return self._t.drop(db, *a, **k)
+
+    def cursor(self, *a, db=None, **k):
+        return _TrackCursor(self._t.cursor(*a, db=db, **k), _handle_name(db), self)
+
+    def __getattr__(self, n):
+        return getattr(self._t, n)
+
+
+def _publish_commit(txn, gen):
+    for fn in list(_root_listeners):
+        try:
+            fn(txn.touched, txn.dropped, gen)
+        except Exception:
+            pass
 
 
 def write_generation() -> int:
@@ -279,10 +402,10 @@ class _WriteTxn:
         depth = getattr(_local, "wdepth", 0)
         if depth == 0:
             try:
-                _local.wtxn = get_env().begin(write=True)
+                _local.wtxn = _TrackTxn(get_env().begin(write=True))
             except lmdb.MapFullError:
                 _grow_map()
-                _local.wtxn = get_env().begin(write=True)
+                _local.wtxn = _TrackTxn(get_env().begin(write=True))
         _local.wdepth = depth + 1
         return _local.wtxn
 
@@ -307,7 +430,7 @@ class _WriteTxn:
                         pass
                     _grow_map()
                     raise
-                _bump_write_gen()
+                _publish_commit(txn, _bump_write_gen())
             else:
                 txn.abort()
         return False  # never suppress
@@ -335,9 +458,10 @@ def _write(fn):
     active = getattr(_local, "wtxn", None)
     if active is not None:
         return fn(active)
-    with get_env().begin(write=True) as txn:
+    with get_env().begin(write=True) as raw:
+        txn = _TrackTxn(raw)
         result = fn(txn)
-    _bump_write_gen()
+    _publish_commit(txn, _bump_write_gen())
     return result
 
 
