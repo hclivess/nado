@@ -42,6 +42,8 @@ def main():
     src = open(os.path.join(root, "loops", "peer_loop.py")).read()
     assert "check_ip(entry)" in src and "peer not in _mine and check_ip(peer)" in src
     assert "self.memserver.peers.remove(_my_ip)" in src
+    assert "elif key in own_ips() or key == self.memserver.ip:" in src, "own status must never enter status_pool"
+    assert 'Dropped our own ip {_my_ip} from the consensus pools' in src
     assert "_s not in _mine_seed" in src, "seed re-dial must use the own-ip SET (this box IS a seed)"
     psrc = open(os.path.join(root, "ops", "peer_ops.py")).read()
     assert "ip == my_ip or ip in own_ips()" in psrc and "p not in own_ips() and check_ip(p)" in psrc

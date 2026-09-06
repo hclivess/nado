@@ -477,7 +477,7 @@ def seed_default_peers(logger, my_ip=None):
     whose table got poisoned (e.g. only our own migrated-in IP, which load_ips then excludes) — the old
     'skip if the table is non-empty' left such a node looping 'Loaded 0 reachable peers'."""
     for ip in seed_peers():
-        if not ip or ip == my_ip or ip in own_ips():
+        if not ip or ip == my_ip or ip in own_ips():   # own_ips: this host can be a seed under EITHER family
             continue
         try:
             save_peer(ip=ip, port=get_port(), address="")
@@ -580,6 +580,7 @@ def check_save_peers(peers, logger, fails, unreachable):
     # Bounded per pass: the flattened /peers gossip is untrusted, and one peer listing thousands of
     # blackholed addresses cost 5 s per 50 of them, every second, while statuses and the mempool went stale.
     my_ip = get_config()["ip"]
+    # p not in own_ips(): never persist any of our own addresses (a saved ghost survives every restart)
     good_peers = {p for p in peers if isinstance(p, str) and p != my_ip and p not in own_ips() and check_ip(p)} \
         - set(fails) - set(unreachable)
     if good_peers:
@@ -719,7 +720,12 @@ def _local_global_ips():
 
 def own_ips():
     """The set of addresses that are THIS node: the configured ip, the last detected one, and every global
-    interface address. A peer table must never contain any of them."""
+    interface address. A peer table must never contain any of them.
+
+    RULE: self-identity is a SET, never one address. Any check of the form `peer != my_ip` /
+    `peer == get_config()["ip"]` is a latent ghost-self-peer bug on a dual-stack or multi-homed host
+    (the configured ip is whichever family answered last; peers advertise the other one back to us).
+    Use `ip in own_ips()` — check_ip() already does — and grep for `my_ip` before adding a new comparison."""
     ips = {_own_ip_cache["v"]} | set(_local_global_ips())
     try:
         ips.add(_own_ip_cached())

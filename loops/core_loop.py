@@ -422,7 +422,8 @@ class CoreClient(threading.Thread):
         answering = False
         try:
             from ops.peer_ops import seed_peers, probe_block_hash
-            _me = {getattr(self.memserver, "ip", None), get_config().get("ip")} - {None}
+            # own_ips(): self-identity is a SET (dual-stack host that is also a seed) — see peer_ops.own_ips
+            _me = own_ips() | {getattr(self.memserver, "ip", None), get_config().get("ip")} - {None}
             for _s in seed_peers():
                 if _s and _s not in _me and probe_block_hash(_s, 0, port=self.memserver.port, timeout=3):
                     answering = True
@@ -456,6 +457,7 @@ class CoreClient(threading.Thread):
             from ops.peer_ops import seed_peers
             if len(peers) >= GENESIS_QUIET_MIN_PEERS:
                 return False                      # the mesh is up — start together, which is the whole point
+            # own_ips(): self-identity is a SET (dual-stack host that is also a seed) — see peer_ops.own_ips
             _me = own_ips() | {self.memserver.ip, get_config().get("ip")} - {None}
             if not [p for p in seed_peers() if p not in _me]:
                 return False                      # no seeds configured: a standalone node, not an early one
@@ -1437,6 +1439,7 @@ class CoreClient(threading.Thread):
                     continue
                 if not self._extends_us(_peer, _budget):
                     return False
+        # own_ips(): self-identity is a SET (dual-stack host that is also a seed) — see peer_ops.own_ips
         _me = own_ips() | {self.memserver.ip, get_config().get("ip")} - {None}
         for _peer, _hash in self.consensus.block_hash_pool.copy().items():
             if _peer in _me or not _hash:
@@ -2026,6 +2029,7 @@ class CoreClient(threading.Thread):
             # "ANY peer agreeing means our prefix is not provably abandoned" vetoes the purge FOREVER. That is
             # precisely why .141 — a seed — could not self-heal even once every other blind spot was fixed
             # (2026-07-28): it was the one node whose peer list contained itself.
+            # own_ips(): self-identity is a SET (dual-stack host that is also a seed) — see peer_ops.own_ips
             _me = own_ips() | {self.memserver.ip, get_config().get("ip")} - {None}
             peers = [p for p in dict.fromkeys(list(seed_peers()) + list(self.memserver.peers))
                      if p not in _me][:12]

@@ -74,6 +74,11 @@ class PeerClient(threading.Thread):
                                   fails=self.memserver.purge_peers_list,
                                   unreachable=self.memserver.unreachable)
 
+        # SELF-PEER INVARIANT (do not weaken): every path that appends to memserver.peers goes through
+        # check_ip(), which rejects EVERY address that is ours (peer_ops.own_ips: config ip + detected ip +
+        # all global interface addresses). A `!= self.memserver.ip` alone is NOT enough — this host is
+        # dual-stack and an operator seed, so its v4 came back as a ghost self-peer through this very
+        # merge after every restart while the v6 was the configured ip (2026-09-06, three landings).
         for entry in result["success"]:
             if entry in self.memserver.peer_buffer:
                 self.memserver.peer_buffer.remove(entry)
@@ -103,6 +108,15 @@ class PeerClient(threading.Thread):
         for _my_ip in [p for p in self.memserver.peers if p in _mine]:
             self.memserver.peers.remove(_my_ip)
             self.logger.warning(f"Dropped our own ip {_my_ip} from the peer list (ghost self-peer)")
+        # the consensus pools are append-only (an entry leaves only with a purge), so a status admitted
+        # for our own address in the boot window would otherwise make the fork verdict, _extends_us and
+        # the donor pick dial OURSELVES for the rest of the process lifetime (33 self /hash_attest per
+        # 12 s measured 2026-09-06 after the peer list itself was already clean)
+        for _my_ip in [p for p in list(self.consensus.status_pool) if p in _mine]:
+            for _pool in (self.consensus.status_pool, self.consensus.transaction_hash_pool,
+                          self.consensus.block_hash_pool):
+                _pool.pop(_my_ip, None)
+            self.logger.warning(f"Dropped our own ip {_my_ip} from the consensus pools")
         for peer in candidates:
             if peer not in _mine and check_ip(peer):
                 if peer not in self.memserver.unreachable:
@@ -199,6 +213,8 @@ class PeerClient(threading.Thread):
                 # announced (~its 5-min heavy-refresh). Measured live: a seed restarting for an update
                 # wave stayed out of our pools for 351s despite the cooldown exemption. Re-adding here
                 # closes the loop: the next status pass re-links the anchor within seconds of its boot.
+                # own_ips(), never a single ip: this box IS one of the seeds, and comparing the seed list
+                # against memserver.ip alone re-added our v4 every pass right after the eviction above
                 _mine_seed = own_ips() | {getattr(self.memserver, "ip", None)}
                 for _s in _seeds:
                     if (_s not in _mine_seed and _s not in self.memserver.peers
@@ -307,6 +323,12 @@ class PeerClient(threading.Thread):
                         self.logger.error(f"Genesis of {key} is not ours ({str(value.get('genesis_hash'))[:16]}…) "
                                           f"— foreign-generation chain; refusing status admission")
                         self.memserver.ban_peer(key)
+                    elif key in own_ips() or key == self.memserver.ip:
+                        # OUR OWN STATUS IS NOT A PEER'S OPINION. The pools below are append-only, so one
+                        # admission here would make every pool consumer (fork verdict, _extends_us, donor
+                        # pick, key-collision check) treat us as an independent witness and dial us for
+                        # the rest of the process lifetime. Keep this guard however the peer list is built.
+                        pass
                     else:
                         self.consensus.status_pool[key]=value
                         # NEAR-REAL-TIME UPDATE CASCADE: a peer advertising a commit we do not recognize

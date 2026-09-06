@@ -79,6 +79,9 @@ class MemServer:
         except Exception:
             pass   # a corrupt/absent pool file is fine — a fresh empty pool is always valid
         self.peer_buffer = []
+        # ONE of our addresses (the one we advertise), not our identity: this host is dual-stack and
+        # peers list the other family back to us. Any "is this peer us?" check must use
+        # ops.peer_ops.own_ips(), never `== memserver.ip` (ghost self-peer, 2026-09-06).
         self.ip = self.config["ip"]
         self.port = self.config["port"]
         self.terminate = False
