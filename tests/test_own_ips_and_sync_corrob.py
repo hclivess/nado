@@ -42,6 +42,9 @@ def main():
     src = open(os.path.join(root, "loops", "peer_loop.py")).read()
     assert "check_ip(entry)" in src and "peer not in _mine and check_ip(peer)" in src
     assert "self.memserver.peers.remove(_my_ip)" in src
+    assert "_s not in _mine_seed" in src, "seed re-dial must use the own-ip SET (this box IS a seed)"
+    psrc = open(os.path.join(root, "ops", "peer_ops.py")).read()
+    assert "ip == my_ip or ip in own_ips()" in psrc and "p not in own_ips() and check_ip(p)" in psrc
     csrc = open(os.path.join(root, "loops", "core_loop.py")).read()
     assert csrc.count("_me = own_ips() | {self.memserver.ip, get_config().get(\"ip\")}") == 3
     print("ALL OK")

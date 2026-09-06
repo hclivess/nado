@@ -477,7 +477,7 @@ def seed_default_peers(logger, my_ip=None):
     whose table got poisoned (e.g. only our own migrated-in IP, which load_ips then excludes) — the old
     'skip if the table is non-empty' left such a node looping 'Loaded 0 reachable peers'."""
     for ip in seed_peers():
-        if not ip or ip == (my_ip or get_config().get("ip")):
+        if not ip or ip == my_ip or ip in own_ips():
             continue
         try:
             save_peer(ip=ip, port=get_port(), address="")
@@ -580,7 +580,7 @@ def check_save_peers(peers, logger, fails, unreachable):
     # Bounded per pass: the flattened /peers gossip is untrusted, and one peer listing thousands of
     # blackholed addresses cost 5 s per 50 of them, every second, while statuses and the mempool went stale.
     my_ip = get_config()["ip"]
-    good_peers = {p for p in peers if isinstance(p, str) and p != my_ip and check_ip(p)} \
+    good_peers = {p for p in peers if isinstance(p, str) and p != my_ip and p not in own_ips() and check_ip(p)} \
         - set(fails) - set(unreachable)
     if good_peers:
         with _PEERS_LOCK:

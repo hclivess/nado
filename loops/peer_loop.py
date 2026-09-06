@@ -199,9 +199,9 @@ class PeerClient(threading.Thread):
                 # announced (~its 5-min heavy-refresh). Measured live: a seed restarting for an update
                 # wave stayed out of our pools for 351s despite the cooldown exemption. Re-adding here
                 # closes the loop: the next status pass re-links the anchor within seconds of its boot.
-                _my_ip = getattr(self.memserver, "ip", None)
+                _mine_seed = own_ips() | {getattr(self.memserver, "ip", None)}
                 for _s in _seeds:
-                    if (_s != _my_ip and _s not in self.memserver.peers
+                    if (_s not in _mine_seed and _s not in self.memserver.peers
                             and _s not in self.memserver.unreachable):
                         self.memserver.peers.append(_s)
                         self.logger.info(f"Re-dialing operator seed {_s}")
