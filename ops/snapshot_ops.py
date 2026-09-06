@@ -417,12 +417,16 @@ def _root_from_walk(home=None):
 #                                    mismatch is logged and rebuilds the structure. Costs slightly MORE than
 #                                    before — this mode exists to prove equivalence on live data first.
 #   NADO_ROOT_INC=trust             incremental only, a full walk cross-check every ROOT_INC_VERIFY_EVERY
-#                                    roots (mismatch: log, rebuild, use the walk).
+#                                    roots (NADO_ROOT_INC_VERIFY_EVERY, default 25; mismatch: log, rebuild,
+#                                    use the walk). PER-NODE: the mode is an env var, so a node that trusts a
+#                                    wrong incremental root diverges alone and resyncs — the fleet default
+#                                    stays verify. Measured on the relay 2026-09-06 (verify mode, 200/200
+#                                    matches): inc 143-165 ms vs walk 1075-1307 ms per block.
 #   NADO_ROOT_INC=off               the walk, as before.
 # Rebuilt from a full walk whenever: nothing is cached yet, a txn dropped a sub-DB, a commit landed without
 # publishing (write generation moved more than the listener saw), the env object changed, or the retention
 # floor moved (once per epoch boundary — the window edge drops rows nobody touched).
-ROOT_INC_VERIFY_EVERY = 25
+ROOT_INC_VERIFY_EVERY = int(os.environ.get("NADO_ROOT_INC_VERIFY_EVERY") or 25)   # trust mode: walk cross-check cadence
 _inc_lock = threading.Lock()
 _inc_dirty = set()
 _inc_flags = {"dropped": False, "gen": None}
