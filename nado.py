@@ -1128,6 +1128,34 @@ async def account_mempool(request):
     return _resp(out, status=code)
 
 
+async def device_attest_probe(request):
+    """POST /device_attest_probe {att, cdj, cid}: phase 0 of doc/device-attestation.md — parse a phone's
+    WebAuthn attestation statement, KEEP the sample for the phase-1 kernel's test vectors, and answer with a
+    summary (format, chain shape, AAGUID, whether the chain's root is one of the pinned vendor roots by
+    fingerprint). Not a verdict, not consensus: the chain and signatures are verified by the native kernel
+    in phase 1. Rate-limited 10/min per IP."""
+    if _rate_limited(request, 10):
+        return _RL()
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("body must be an object")
+        att, cdj = str(body.get("att") or ""), str(body.get("cdj") or "")
+        if not att or not cdj or len(att) > 200_000 or len(cdj) > 8_000:
+            raise ValueError("att/cdj missing or too large")
+        from ops import device_attest as _da
+        import protocol as _p
+        summary = await asyncio.to_thread(_da.parse_attestation, att, cdj)
+        summary["root_pinned"] = summary.get("root_sha256") in _p.DEVICE_ATTEST_ROOT_FINGERPRINTS
+        summary["format_accepted"] = summary.get("fmt") in _p.DEVICE_ATTEST_FORMATS
+        name = await asyncio.to_thread(_da.store_sample, summary, {"att": att, "cdj": cdj, "cid": str(body.get("cid") or "")}, _ip(request))
+        logger.warning(f"device attest probe: fmt={summary.get('fmt')} aaguid={(summary.get('auth_data') or {}).get('aaguid')} "
+                       f"x5c={summary.get('x5c_count')} root_pinned={summary['root_pinned']} sample={name}")
+        return _resp({"ok": True, "summary": summary})
+    except Exception as e:
+        return _resp({"ok": False, "error": str(e)[:200]}, status=400)
+
+
 async def wallet_view(request):
     """GET /wallet_view?address=&since=: everything the wallet polls per tick, in ONE round trip —
     {"latest": <get_latest_block>, "account": <get_account or null>, "mining_status": <mining_status>,
@@ -2466,6 +2494,7 @@ async def make_app(port):
         web.get("/get_account", account),
         web.get("/get_account_mempool", account_mempool),
         web.get("/wallet_view", wallet_view),
+        web.post("/device_attest_probe", device_attest_probe),
         web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.live_pool(),
                                                     rate=30, heavy=True)),
         web.get("/invariants", invariants_report),

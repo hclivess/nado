@@ -8227,6 +8227,40 @@ function wireEvents() {
     refreshDashboard().catch(() => {});
   };
 
+  // DEVICE ATTESTATION preview (doc/device-attestation.md, phase 0): ask the platform authenticator for a
+  // hardware-attested credential over a fresh challenge and let the relay parse it. No consensus effect yet.
+  const _devBtn = $("btnDeviceVerify");
+  if (_devBtn) _devBtn.onclick = async () => {
+    const st = $("deviceStatus");
+    const say = (t, cls) => { if (st) { st.textContent = t; st.className = "small mt " + (cls || ""); } };
+    if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.create) {
+      say(i18("device.unsupported", "This browser cannot attest a device (no WebAuthn platform authenticator)."), "err"); return;
+    }
+    _devBtn.disabled = true;
+    try {
+      const chal = new Uint8Array(32); crypto.getRandomValues(chal);
+      const uid = new Uint8Array(16); crypto.getRandomValues(uid);
+      const cred = await navigator.credentials.create({ publicKey: {
+        challenge: chal, rp: { name: "NADO", id: location.hostname },
+        user: { id: uid, name: (state.wallet && state.wallet.address) || "nado", displayName: "NADO identity" },
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "discouraged", userVerification: "preferred" },
+        attestation: "direct", timeout: 60000 } });
+      const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const body = { att: b64(cred.response.attestationObject), cdj: b64(cred.response.clientDataJSON), cid: b64(cred.rawId) };
+      const r = await fetch(relayBase() + "/device_attest_probe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const d = await r.json();
+      if (!d.ok) { say(i18("device.probeFailed", "The relay could not parse the attestation: {e}", { e: d.error || r.status }), "err"); return; }
+      const s = d.summary || {}; const ad = s.auth_data || {};
+      const good = s.format_accepted && s.root_pinned;
+      say((good ? i18("device.ok", "Real device attested") : i18("device.weak", "Attestation present but not a pinned phone root"))
+          + ` · fmt=${s.fmt} · chain=${s.x5c_count} · aaguid=${(ad.aaguid || "").slice(0, 8)} · root ${s.root_pinned ? "pinned" : "unknown"}`, good ? "ok" : "warn");
+      log(good ? "ok" : "warn", `Device attestation: fmt=${s.fmt}, ${s.x5c_count} certs, root ${s.root_pinned ? "pinned vendor root" : "not pinned"}`);
+    } catch (e) {
+      say(i18("device.failed", "Attestation failed: {e}", { e: (e && e.message) || String(e) }), "err");
+    } finally { _devBtn.disabled = false; }
+  };
+
   $("btnMine").onclick = () => {
     if (state.starting) return;            // a start/registration is in flight → ignore extra clicks
     if (state.mining) { stopMining(); return; }  // active mining → Stop (never re-triggers registration)

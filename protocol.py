@@ -1507,3 +1507,19 @@ def split_open_block_reward(reward: int):
     tip_cut = reward * OPEN_TIP_BPS // BPS_DENOM
     dividend_cut = reward - treasury_cut - tip_cut
     return tip_cut, dividend_cut, treasury_cut
+
+
+# --- DEVICE ATTESTATION (doc/device-attestation.md, 2026-09-07) ---------------------------------------------
+# A registered identity must be a REAL PHONE: the register tx carries a WebAuthn attestation whose certificate
+# chain ends at one of these PINNED vendor roots (protocol_roots/*.pem, DER bytes verified by the native attest
+# kernel). Roots are consensus constants: never fetched, never learned from a peer, changed only by a gated
+# protocol commit. Fingerprints are SHA-256 over the DER certificate.
+DEVICE_ATTEST_HEIGHT = 0                 # 0 = phase 0 (capture + probe only); a gated height activates the rule
+DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
+    "0915dd5c07a28db549d1f677bb5a75d4bfbe9561a773424327762e9e02f9bb29",  # Apple WebAuthn Root CA (2045)
+    "cedb1cb6dc896ae5ec797348bce9286753c2b38ee71ce0fbe34a9a1248800dfc",  # Google Hardware Attestation Root (2042)
+    "1ef1a04b8ba58ab94589ac498c8982a783f24ea7307e0159a0c3a73b377d87cc",  # Google Hardware Attestation Root (2034)
+    "ab6641178a36e179aa0c1cdddf9a16eb45fa20943e2b8cd7c7c05c26cf8b487a",  # Google Hardware Attestation Root (2036)
+    "6d9db4ce6c5c0b293166d08986e05774a8776ceb525d9e4329520de12ba4bcc0",  # Google Key Attestation CA1 (2035)
+))
+DEVICE_ATTEST_FORMATS = frozenset(("apple", "android-key"))   # rejected: none, packed(self), tpm, android-safetynet
