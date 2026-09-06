@@ -142,6 +142,35 @@ def _is_local(request) -> bool:
     return _is_local_request(_ip(request), request.headers)
 
 
+# ENCODED-BODY CACHES (2026-09-06). /get_latest_block (~8 req/s) and /get_account (~23 req/s: three calls per
+# wallet tick until every wallet has reloaded onto /wallet_view) JSON-encoded their answer on the EVENT LOOP
+# for every call; the answer only changes when a block commits. Keyed on kv_ops.write_generation() (plus the
+# address / readable flag for accounts) and served as pre-encoded bytes. Bounded; cleared on a generation
+# change so the dict never holds two generations of accounts.
+_ENC_CACHE = {"gen": None, "bodies": {}}
+_ENC_CACHE_MAX = 8192
+
+
+def _enc_cached(key, build):
+    """bytes body for `key` at the current write generation; `build()` -> JSON-able object on a miss"""
+    from ops import kv_ops as _kv
+    gen = _kv.write_generation()
+    c = _ENC_CACHE
+    if c["gen"] != gen:
+        c["gen"], c["bodies"] = gen, {}
+    body = c["bodies"].get(key)
+    if body is None:
+        body = json.dumps(build(), separators=(",", ":")).encode("utf-8")
+        if len(c["bodies"]) < _ENC_CACHE_MAX:
+            c["bodies"][key] = body
+    return body
+
+
+def _json_body_resp(body, status=200):
+    return web.Response(body=body, status=status, content_type="application/json",
+                        headers={"Access-Control-Allow-Origin": "*"})
+
+
 def _resp(output, status=200, headers=None):
     """Mirror Tornado's self.write() typing for our outputs: bytes -> msgpack/octet body; dict/list ->
     JSON; anything else -> text. CORS-open like the old handlers so a cross-origin page can read it."""
@@ -943,8 +972,16 @@ async def get_supply(request):
 
 
 async def latest_block(request):
-    """GET /get_latest_block?compress=: the in-memory latest block (no disk read)."""
-    return _resp(serialize(name="latest_block", output=memserver.latest_block, compress=_q(request, "compress", "none")))
+    """GET /get_latest_block?compress=: the in-memory latest block (no disk read). The plain-JSON form is
+    served from the per-generation encoded cache (_enc_cached)."""
+    comp = _q(request, "compress", "none")
+    if comp == "none":
+        lb = memserver.latest_block
+        try:
+            return _json_body_resp(_enc_cached(("latest_block", lb.get("block_hash")), lambda: lb))
+        except Exception:
+            pass                                   # fall through to the plain path on anything odd
+    return _resp(serialize(name="latest_block", output=lb if comp == "none" else memserver.latest_block, compress=comp))
 
 
 async def account(request):
@@ -970,6 +1007,23 @@ async def account(request):
             return serialize(name="address", output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
             return f"Error: {e}", 403
+    comp = _q(request, "compress", "none")
+    if comp == "none":
+        from ops import kv_ops as _kv
+        key = ("account", _q(request, "address", memserver.address), _q(request, "readable", "none"))
+        gen = _kv.write_generation()
+        c = _ENC_CACHE
+        if c["gen"] == gen and key in c["bodies"]:
+            return _json_body_resp(c["bodies"][key])
+        out, code = await asyncio.to_thread(_work)
+        if code == 200 and isinstance(out, (dict, list)) and _kv.write_generation() == gen:
+            body = json.dumps(out, separators=(",", ":")).encode("utf-8")
+            if c["gen"] != gen:
+                c["gen"], c["bodies"] = gen, {}
+            if len(c["bodies"]) < _ENC_CACHE_MAX:
+                c["bodies"][key] = body
+            return _json_body_resp(body)
+        return _resp(out, status=code)
     out, code = await asyncio.to_thread(_work)
     return _resp(out, status=code)
 
